@@ -72,7 +72,8 @@ All requests carry browser UA; JSON API calls carry `Referer: https://www.bilibi
 
 | Endpoint | Auth/WBI | Notes |
 |----------|----------|-------|
-| `x/space/wbi/arc/search` (fetch-meta) | WBI-signed (`wbi_img` keys), buvid cookie | risk codes below apply |
+| `x/space/wbi/arc/search` (fetch-meta) | WBI-signed (`wbi_img` keys), buvid cookie | preferred when WBI available |
+| `x/series/recArchivesByKeywords` (fetch-meta alt) | buvid cookie; no WBI | acceptable MVP fallback; proven under 412 backoff |
 | `x/web-interface/view` (bvid→cid) | none | plain GET ok |
 | `x/player/wbi/v2` (subtitle list) | WBI-signed; **AI subtitles realistically need SESSDATA** — Path A expects empty AI list here | this is the known login/WBI interaction hot spot; spike in plan 002 Task 0 |
 | subtitle JSON (`subtitle_url`) | none (signed URL) | short-lived; download immediately after probe |
