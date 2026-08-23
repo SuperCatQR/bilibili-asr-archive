@@ -18,6 +18,9 @@ API_BASE = "https://api.bilibili.com"
 
 REC_ARCHIVES_URL = API_BASE + "/x/series/recArchivesByKeywords"
 FINGER_SPI_URL = API_BASE + "/x/frontend/finger/spi"
+NAV_URL = API_BASE + "/x/web-interface/nav"
+PAGELIST_URL = API_BASE + "/x/player/pagelist"
+PLAYER_WBI_V2_URL = API_BASE + "/x/player/wbi/v2"
 
 UA = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -177,6 +180,7 @@ class BiliClient:
         max_attempts: int = 5,
         backoff_base: float = 2.0,
         backoff_cap: float = 60.0,
+        sessdata: str | None = None,
     ) -> None:
         self.transport = transport if transport is not None else build_default_transport()
         self._sleeper = sleeper if sleeper is not None else default_sleeper()
@@ -188,6 +192,8 @@ class BiliClient:
         self.backoff_base = backoff_base
         self.backoff_cap = backoff_cap
         self._buvid: dict[str, str] | None = None
+        # Optional Path-B login cookie; never logged or echoed (spec).
+        self._sessdata = sessdata
         self.last_failed_page: int = 1  # page active when budget exhausted
         # Pages fetched during the most recent fetch_pages call. Alive even
         # after RiskBudgetExhausted/GoneResponse so the CLI can persist the
@@ -262,6 +268,70 @@ class BiliClient:
             raise _GoneResponse(last_code)
         raise RiskBudgetExhausted(last_code)
 
+    def _request_with_cookies(
+        self, url: str, params: dict[str, Any],
+        extra_cookies: dict[str, str] | None = None,
+        accept_codes: frozenset[int] | set[int] | None = None,
+    ) -> dict[str, Any]:
+        """GET with risk backoff and explicit cookie merge (SESSDATA path).
+
+        Same budget/classification as _request; cookies = buvid + extras.
+        """
+        cookies = dict(self._ensure_buvid())
+        if extra_cookies:
+            cookies.update(extra_cookies)
+        refreshed = False
+        last_code: int | str = 0
+        for attempt in range(1, self.max_attempts + 1):
+            try:
+                status, body = self.transport.get_json(
+                    url, params=params, headers=BASE_HEADERS, cookies=cookies
+                )
+            except Exception as exc:
+                last_code = exc
+                if attempt >= self.max_attempts:
+                    break
+                self._sleep_backoff(attempt)
+                continue
+            risk = classify_risk(status, body)
+            if risk == RISK_OK or (
+                accept_codes
+                and status == 200
+                and body is not None
+                and body.get("code") in accept_codes
+            ):
+                return body
+            last_code = (
+                "200-non-json" if (status == 200 and body is None)
+                else status if status != 200
+                else body.get("code", status)
+            )
+            if risk in (RISK_RETRYABLE, RISK_RETRY_ONCE_WBI):
+                if attempt >= self.max_attempts:
+                    break
+                self._sleep_backoff(attempt)
+                if risk == RISK_RETRYABLE and not refreshed:
+                    cookies = dict(self._ensure_buvid(refresh=True))
+                    if extra_cookies:
+                        cookies.update(extra_cookies)
+                    refreshed = True
+                continue
+            raise _GoneResponse(last_code)
+        raise RiskBudgetExhausted(last_code)
+
+    def _wbi_keys(self) -> tuple[str, str]:
+        """(img_key, sub_key) from nav; populated even at code -101."""
+        body = self._request_with_cookies(
+            NAV_URL, {}, accept_codes={-101}
+        )
+        data = body.get("data") or {}
+        wbi = data.get("wbi_img") or {}
+        img_key = _path_basename_stem(wbi.get("img_url") or "")
+        sub_key = _path_basename_stem(wbi.get("sub_url") or "")
+        if not img_key or not sub_key:
+            raise RiskBudgetExhausted("nav", "nav response missing wbi_img keys")
+        return img_key, sub_key
+
     # -- public API --------------------------------------------------------
 
     def fetch_pages(
@@ -327,6 +397,53 @@ class BiliClient:
                 }
         return records
 
+    # -- subtitle probe (Task 2) -------------------------------------------
+
+    def probe_subs(self, bvid: str) -> list[dict[str, Any]]:
+        """Return the player/wbi/v2 subtitle list for bvid (first page).
+
+        Empty list is the normal no-login Path-A outcome (spike Task 1:
+        need_login_subtitle=true, subtitles==[]). Signed per spec even
+        though the server currently tolerates unsigned calls. SESSDATA
+        (if configured) is sent as a cookie only.
+        """
+        cookies = {"SESSDATA": self._sessdata} if self._sessdata else None
+        pagelist = self._request_with_cookies(
+            PAGELIST_URL, {"bvid": bvid, "jsonp": "jsonp"},
+            extra_cookies=cookies,
+        )
+        pages = pagelist.get("data") or []
+        if not pages:
+            # pagelist code 0 with empty data = deleted/empty video
+            raise _GoneResponse("pagelist-empty")
+        cid = pages[0].get("cid")
+        img_key, sub_key = self._wbi_keys()
+        params = sign_wbi({"cid": cid, "bvid": bvid}, img_key, sub_key)
+        body = self._request_with_cookies(
+            PLAYER_WBI_V2_URL, params, extra_cookies=cookies
+        )
+        data = body.get("data") or {}
+        subs = ((data.get("subtitle") or {}).get("subtitles")) or []
+        # normalize protocol-relative subtitle URLs for immediate download
+        for s in subs:
+            url = s.get("subtitle_url") or ""
+            if url.startswith("//"):
+                s["subtitle_url"] = "https:" + url
+        return subs
+
+    def download_subtitle(self, url: str) -> dict[str, Any]:
+        """Fetch one subtitle JSON document (short-lived signed URL).
+
+        Must be called in the same run as the probe that produced the
+        URL. Risk backoff applies; the body must be a JSON object.
+        """
+        body = self._request_with_cookies(url, {})
+        if not isinstance(body, dict) or "body" not in body:
+            raise RiskBudgetExhausted(
+                "subtitle-json", "subtitle payload is not a subtitle document"
+            )
+        return body
+
 
 class _GoneResponse(Exception):
     """Internal: terminal 404/gone signal at page level."""
@@ -338,3 +455,10 @@ class _GoneResponse(Exception):
 
 # public alias for callers (cli) catching page-level terminal responses
 GoneResponse = _GoneResponse
+
+
+def _path_basename_stem(url: str) -> str:
+    """'https://i0.hdslb.com/bfs/wbi/<key>.png' -> '<key>'."""
+    path = url.split("?", 1)[0].rstrip("/")
+    base = path.rsplit("/", 1)[-1]
+    return base.rsplit(".", 1)[0]
