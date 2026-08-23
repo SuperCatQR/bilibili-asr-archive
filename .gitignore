@@ -16,3 +16,8 @@ venv/
 .env
 *.m4a
 *.wav
+
+# scratch / pip leftovers
+.tmp/
+.tmp2/
+pydiagout.txt
