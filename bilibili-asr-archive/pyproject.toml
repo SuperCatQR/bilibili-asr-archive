@@ -21,6 +21,9 @@ dev = [
     "pytest>=8",
     "responses>=0.25",
 ]
+asr = [
+    "funasr>=1.2",
+]
 
 [tool.setuptools.packages.find]
 where = ["src"]
