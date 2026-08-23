@@ -1,26 +1,31 @@
 # Spec: Bilibili ASR Archive CLI (MVP)
 
-**Status:** draft (Phase 1)  
+**Status:** frozen (Phase 1 direction locked, autonomous mode; iteration `iter-2026-08-wmz-asr-mvp`)  
 **Primary consumers:** plans `001-cli-scaffold-meta`, `002-subtitle-audio`, `003-asr-archive`  
-**UP mid default:** `23191782`
+**UP mid default:** `23191782`  
+**Change policy:** requirement changes require a new spec revision + PM sign-off; plans must not add scope beyond this spec.
 
 ## Problem
 
 Need a durable, resumable local tool to turn a Bilibili UP's public videos into searchable text. Manual download+ASR does not scale; B站 AI subtitles cover part of the corpus for free.
 
+## MVP proof bar (DoD)
+
+Tool completeness on a **~20-video pilot** — not full-corpus coverage. Pilot must exercise both pipeline branches (subtitle-hit and audio→ASR) and leave a resumable manifest in terminal states. Full corpus is next-iteration ops.
+
 ## Goals
 
-1. Enumerate all visible archives for a mid into a local manifest (JSONL/SQLite).
-2. Prefer existing AI/CC subtitles before any ASR.
+1. Enumerate all visible archives for a mid into a local manifest (JSONL).
+2. Prefer existing AI/CC subtitles before any ASR (subtitle-first).
 3. Download audio-only streams when subtitles are missing.
-4. Transcribe with local SenseVoice-Small (CPU-capable).
+4. Transcribe with local SenseVoice-Small (CPU-capable, optional extra).
 5. Emit `srt` / `txt` / `md` with metadata frontmatter; resume-safe.
 
 ## Non-goals (MVP)
 
-Full-corpus finish, diarization, LLM polish, search UI, redistribution.
+Full-corpus finish, diarization, LLM polish, search UI, redistribution, GUI. External downloader (yutto/BBDown) is a documented fallback only — the pure-API path is the deliverable.
 
-## CLI surface (MVP)
+## CLI surface (MVP, frozen)
 
 ```text
 bili-asr fetch-meta --mid <mid> [--resume]
@@ -32,19 +37,86 @@ bili-asr pilot --n 20
 bili-asr status
 ```
 
-Entrypoint name may be `bili-asr` or `wmz-asr`; document in README.
+- Entrypoint: **`bili-asr`** (frozen; no longer "or `wmz-asr`").
+- `pilot` selects a mix: short videos preferred, ≥1 without subtitles (audio→ASR branch), ≥1 with subtitles (zero-ASR branch); `--n` may be lowered for smoke runs.
+- All commands print a summary of manifest state changes; all are idempotent/resumable.
+
+## Module boundaries (architecture contract)
+
+Layering is strictly one-directional; lower layers never import higher ones.
+
+```text
+cli.py            # argparse commands only; no HTTP/ASR logic
+  ├─ manifest.py  # ManifestStore: JSONL ledger, status SSOT. No network, no I/O beyond manifest dir.
+  ├─ bili_client.py  # ALL Bilibili HTTP: search, view, player/wbi/v2, playurl, subtitle JSON, audio GET.
+  │                 # Owns buvid bootstrap, WBI signing, SESSDATA injection, risk backoff.
+  ├─ subtitles.py # Pure transforms + orchestration over bili_client: probe/harvest, json→srt.
+  ├─ audio.py     # playurl parse + stream download + ffmpeg remux (calls bili_client for HTTP).
+  ├─ asr.py       # SenseVoice wrapper + segment→srt/txt. Import-guarded; no Bilibili knowledge.
+  └─ archive.py   # File writers: transcripts/{srt,txt,md,raw} + frontmatter. Pure formatting, no network.
+```
+
+- Cross-layer rule: `subtitles`/`audio`/`asr`/`archive` never import each other; only `cli` (and `pilot` orchestration in `cli`) composes them.
+- HTTP ownership: exactly one module (`bili_client`) opens sockets. Everything else receives data or paths. This is the primary test seam.
+- `asr.py` boundary: imports `funasr` lazily inside `transcribe()`; module import must succeed without the `[asr]` extra so `status`/`--help` never require torch.
+
+## `[asr]` dependency boundary
+
+- Base install (`pip install -e bilibili-asr-archive/`): pure-Python + requests/httpx; full CLI surface parses; `asr`/`pilot`(ASR branch) invoked without the extra exit non-zero with one actionable message: install hint `pip install -e "bilibili-asr-archive/[asr]"`.
+- Optional extra `[asr]` adds `funasr` (+ `torch` CPU). No alternate engine, no silent skip.
+- SenseVoice-Small model weights are downloaded by FunASR on first `transcribe()` to its own cache (`~/.cache/modelscope`); the CLI documents `BILI_ASR_MODEL` env (default `iic/SenseVoiceSmall`) and a documented offline story: pre-populate the cache or set a local model dir — no vendored weights in the repo.
+
+## HTTP / WBI / risk-control contract
+
+All requests carry browser UA; JSON API calls carry `Referer: https://www.bilibili.com/` and buvid3/4 cookie from `x/frontend/finger/spi` (one bootstrap per process, cached).
+
+| Endpoint | Auth/WBI | Notes |
+|----------|----------|-------|
+| `x/space/wbi/arc/search` (fetch-meta) | WBI-signed (`wbi_img` keys), buvid cookie | risk codes below apply |
+| `x/web-interface/view` (bvid→cid) | none | plain GET ok |
+| `x/player/wbi/v2` (subtitle list) | WBI-signed; **AI subtitles realistically need SESSDATA** — Path A expects empty AI list here | this is the known login/WBI interaction hot spot; spike in plan 002 Task 0 |
+| subtitle JSON (`subtitle_url`) | none (signed URL) | short-lived; download immediately after probe |
+| `x/player/playurl` (dash audio) | WBI-signed; quality capped without login | prefer `dash.audio` id 30216→30232; stream GET needs Referer+UA |
+
+**WBI signing:** `GetKey` (`wbi_img` from nav) → mixin-key reorder → MD5-signed query params. Key rotation is real; cache keys per process, re-derive on signature-rejected responses (code -403) once before failing.
+
+**Risk-control taxonomy (terminal vs retryable):**
+
+| Signal | Class | Action |
+|--------|-------|--------|
+| HTTP 412, code -412, -352 | retryable | exponential backoff (base 2s, cap 60s, max 5 attempts), jitter; refresh buvid once mid-sequence |
+| code -799 | retryable | backoff; counts toward same budget |
+| code -403 (WBI) | retryable-once | re-derive mixin key, retry once |
+| HTTP 5xx / network | retryable | same backoff budget |
+| 404 / video gone (code -404, -62002…) | terminal | manifest status `gone`, skip permanently |
+| Backoff budget exhausted | **terminal** | command exits non-zero with a summary of failed bvids + last error code; `fetch-meta` documents the risk-control ceiling reached (count of un-enumerated pages) in its summary. A ceiling is an acceptable, documented outcome for the pilot — not a silent failure. |
+
+## Error taxonomy (process exit + manifest)
+
+- Exit 0: command succeeded (individual `gone` videos are fine).
+- Exit 1: usage/config error (missing ffmpeg, bad args, `[asr]` extra missing).
+- Exit 2: terminal API failure — risk-control ceiling or exhausted retries; summary printed listing bvids + codes; manifest entries stay in their last state for resume.
+
+## Test seams (architecture contract)
+
+- `bili_client` is the only seam needing HTTP mocks: all tests inject a fake transport / `responses`/`respx` layer; no live network in unit tests (live smoke optional, opt-in flag).
+- `ManifestStore` operates on a temp-dir manifest root (`--archive-root` or fixture); no test touches the real `archive/`.
+- `subtitles`/`archive`/`asr` formatters are pure functions over dicts/segments — tested with synthetic fixtures, zero mocks.
+- Every risk code in the taxonomy above has one unit test asserting its retry/terminal classification.
+- WBI signing is a pure function `(params, img_key, sub_key) → signed query` with a golden-vector test against the bilibili-API-collect reference vectors.
+
+## Auth / risk (two documented paths)
+
+- **Path A — no login (default, must work end-to-end):** AI subtitle list returns empty without SESSDATA; this is expected — mark `needs_audio`, proceed via audio download + local ASR.
+- **Path B — with SESSDATA (optional):** env `BILI_SESSDATA` or `--sessdata`; unlocks AI subtitles and higher playurl quality. Secrets never committed, logged, or echoed.
+- Obtain `buvid3`/`buvid4` via `x/frontend/finger/spi`.
+- Backoff on HTTP 412 / code -412 / -352 / -799; document retry limits rather than silently failing.
 
 ## Manifest state machine
 
-`pending → meta_ok → sub_checked → {subtitle_done | needs_audio} → audio_ok → asr_done → archived`
+`pending → meta_ok → sub_checked → {subtitle_done | needs_audio → audio_ok} → asr_done → archived`
 
-Idempotent: re-runs skip completed states.
-
-## Auth / risk
-
-- Optional `SESSDATA` (env or `--sessdata`) for AI subtitles and higher playurl quality.
-- Obtain `buvid3`/`buvid4` via `x/frontend/finger/spi`.
-- Backoff on HTTP 412 / code -412 / -352 / -799.
+Idempotent: re-runs skip completed states. Status names are the SSOT shared by all three plans.
 
 ## Outputs
 
@@ -54,17 +126,19 @@ archive/
   meta/{bvid}.json
   subtitles/raw/{bvid}.json
   transcripts/{srt,txt,md,raw}/
-  audio/{bvid}.m4a   # optional retain
+  audio/{bvid}.m4a   # optional retain; cleanup flag is next-iteration scope
 ```
 
-## Verification
+## Verification (DoD)
 
-- Unit: state transitions, subtitle JSON→SRT conversion
-- Integration: fetch ≥1 page meta; probe 5 videos; end-to-end pilot ≤20 videos (may use short videos preferentially)
-- Acceptance: README commands succeed on a clean install with ffmpeg + Python 3.12
+- Unit: state transitions, subtitle JSON→SRT conversion, SRT/md formatting, import-guard for ASR extra
+- Integration: fetch ≥1 page meta (mocked HTTP acceptable; live smoke optional); probe 5 videos; end-to-end pilot ≤20 videos (short videos preferentially)
+- Acceptance: README commands succeed on a clean install with ffmpeg + Python 3.12; both auth paths (no-login and SESSDATA) documented with expected behavior
 
 ## References
 
 - `bilibili-asr-archive/PLAN.md`
 - `bilibili-asr-archive/references/bilibili-API-collect/docs/video/player.md`
 - `bilibili-asr-archive/references/bilibili-API-collect/docs/misc/risk-and-stream.md`
+- `bilibili-asr-archive/references/bilibili-API-collect/docs/misc/sign/wbi.md` (WBI signing reference)
+- ADR: `.mstar/iterations/iter-2026-08-wmz-asr-mvp/specs/adr-001-architecture.md`
