@@ -51,7 +51,18 @@ def build_parser() -> argparse.ArgumentParser:
         help="Stop after N pages (smoke runs)",
     )
 
-    subparsers.add_parser("status", help="Print manifest status summary")
+    status = subparsers.add_parser("status", help="Print manifest status summary")
+    status.add_argument("--archive-root", default=DEFAULT_ARCHIVE_ROOT)
+
+    asr_cmd = subparsers.add_parser("asr", help="Transcribe audio and write transcript archive")
+    asr_cmd.add_argument("--pending", action="store_true", help="Process audio_ok entries")
+    asr_cmd.add_argument("--bvid", default=None)
+    asr_cmd.add_argument("--archive-root", default=DEFAULT_ARCHIVE_ROOT)
+    asr_cmd.add_argument("--limit", type=int, default=None)
+
+    pilot = subparsers.add_parser("pilot", help="Select a resumable mixed-branch pilot")
+    pilot.add_argument("--n", type=int, default=20)
+    pilot.add_argument("--archive-root", default=DEFAULT_ARCHIVE_ROOT)
 
     probe = subparsers.add_parser(
         "probe-subs", help="Probe the subtitle list for one video (no download)"
@@ -345,6 +356,111 @@ def _cmd_download_audio(args: argparse.Namespace) -> int:
     return 1 if failed and not ok else 0
 
 
+def _cmd_status(args: argparse.Namespace) -> int:
+    from collections import Counter
+    from .manifest import ManifestStore
+
+    counts = Counter(entry.get("status", "pending") for entry in ManifestStore(root=args.archive_root).load().values())
+    if not counts:
+        print("manifest: empty")
+        return 0
+    for status in sorted(counts):
+        print(f"{status}: {counts[status]}")
+    return 0
+
+
+def _pilot_select(entries: dict[str, dict[str, object]], n: int) -> list[dict[str, object]]:
+    """Select a small mixed pilot while guaranteeing both branches when possible."""
+    if n < 1:
+        return []
+    subtitle = [e for e in entries.values() if e.get("status") == "subtitle_done"]
+    audio = [e for e in entries.values() if e.get("status") in {"needs_audio", "audio_ok"}]
+    key = lambda e: (e.get("duration_s") or 0, str(e.get("bvid")))
+    subtitle.sort(key=key)
+    audio.sort(key=key)
+    selected: list[dict[str, object]] = []
+    for candidate in (subtitle[:1] + audio[:1]):
+        if candidate and candidate not in selected:
+            selected.append(candidate)
+    remaining = sorted((e for e in entries.values() if e not in selected), key=key)
+    selected.extend(remaining[: max(0, n - len(selected))])
+    return selected[:n]
+
+
+def _subtitle_segments(root: str, entry: dict[str, object]) -> tuple[list[dict[str, object]], object] | None:
+    import json
+    bvid = str(entry["bvid"])
+    raw_path = os.path.join(root, "subtitles", "raw", f"{bvid}.json")
+    if not os.path.isfile(raw_path):
+        return None
+    with open(raw_path, encoding="utf-8") as fh:
+        doc = json.load(fh)
+    segments = [{"start": item.get("from", 0), "end": item.get("to", 0), "text": item.get("content", "")}
+                for item in doc.get("body", [])]
+    return segments, doc
+
+
+def _cmd_asr(args: argparse.Namespace) -> int:
+    from . import archive, asr
+    from .manifest import ManifestStore
+
+    store = ManifestStore(root=args.archive_root)
+    entries = store.load()
+    if args.bvid:
+        todo = [dict(entries.get(args.bvid) or {"bvid": args.bvid, "status": "audio_ok"})]
+    elif args.pending:
+        todo = [e for e in entries.values() if e.get("status") in {"subtitle_done", "audio_ok"}]
+    else:
+        print("asr: select targets with --pending or --bvid", file=sys.stderr)
+        return 1
+    if args.limit is not None:
+        todo = todo[:args.limit]
+    ok = failed = 0
+    for entry in todo:
+        bvid = str(entry["bvid"])
+        source = "subtitle"
+        raw = None
+        subtitle_data = _subtitle_segments(args.archive_root, entry) if entry.get("status") == "subtitle_done" else None
+        try:
+            if subtitle_data is not None:
+                segments, raw = subtitle_data
+            else:
+                source = "asr"
+                audio_path = os.path.join(args.archive_root, str(entry.get("audio_path") or os.path.join("audio", f"{bvid}.m4a")))
+                segments = asr.transcribe(audio_path)
+            paths = archive.write_archive(args.archive_root, entry, segments, source=source, raw=raw)
+            updated = dict(store.get(bvid) or entry)
+            updated.update(paths)
+            updated["status"] = "archived"
+            store.upsert(updated)
+            ok += 1
+            print(f"{bvid}: archived ({source})")
+        except asr.ASRDependencyError as exc:
+            print(f"{bvid}: {exc}", file=sys.stderr)
+            return 1
+        except Exception as exc:
+            failed += 1
+            print(f"{bvid}: archive failed ({exc})", file=sys.stderr)
+    print(f"asr: {ok} archived" + (f", {failed} failed" if failed else ""))
+    return 1 if failed and not ok else 0
+
+
+def _cmd_pilot(args: argparse.Namespace) -> int:
+    from .manifest import ManifestStore
+    entries = ManifestStore(root=args.archive_root).load()
+    selected = _pilot_select(entries, args.n)
+    subtitle_count = sum(e.get("status") == "subtitle_done" for e in selected)
+    audio_count = sum(e.get("status") in {"needs_audio", "audio_ok"} for e in selected)
+    print(f"pilot: selected {len(selected)}/{args.n} videos")
+    print(f"pilot branches: subtitle={subtitle_count}, audio-asr={audio_count}")
+    for entry in selected:
+        print(f"{entry.get('bvid')}: {entry.get('status')} ({entry.get('duration_s', 0)}s)")
+    if subtitle_count == 0 or audio_count == 0:
+        print("pilot: both subtitle and audio-asr branches are not available in the manifest", file=sys.stderr)
+        return 1
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -353,6 +469,12 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.command == "fetch-meta":
         return _cmd_fetch_meta(args)
+    if args.command == "status":
+        return _cmd_status(args)
+    if args.command == "asr":
+        return _cmd_asr(args)
+    if args.command == "pilot":
+        return _cmd_pilot(args)
     if args.command == "probe-subs":
         return _cmd_probe_subs(args)
     if args.command == "harvest-subs":
