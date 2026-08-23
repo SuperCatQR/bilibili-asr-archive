@@ -25,5 +25,7 @@ bilibili-asr-archive/.test-tmp/
 bilibili-asr-archive/.pytest-*/
 bilibili-asr-archive/.tb/
 bilibili-asr-archive/.pfx*/
+bilibili-asr-archive/.pydel*/
 bilibili-asr-archive/pip-*/
 bilibili-asr-archive/pytest-cache-files-*/
+bilibili-asr-archive/archive/manifest/
