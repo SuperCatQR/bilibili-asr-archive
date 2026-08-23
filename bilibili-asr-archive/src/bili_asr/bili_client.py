@@ -21,6 +21,7 @@ FINGER_SPI_URL = API_BASE + "/x/frontend/finger/spi"
 NAV_URL = API_BASE + "/x/web-interface/nav"
 PAGELIST_URL = API_BASE + "/x/player/pagelist"
 PLAYER_WBI_V2_URL = API_BASE + "/x/player/wbi/v2"
+PLAYURL_URL = API_BASE + "/x/player/playurl"
 
 UA = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -134,6 +135,12 @@ class Transport(Protocol):
         """Return (HTTP status, parsed JSON body or None)."""
         raise NotImplementedError
 
+    def get_stream(self, url: str, headers: Mapping[str, str] | None = None,
+                   cookies: Mapping[str, str] | None = None,
+                   timeout: float | None = None) -> bytes:
+        """Return the raw response bytes for one binary GET."""
+        raise NotImplementedError
+
 
 class RequestsTransport:
     def __init__(self) -> None:
@@ -156,6 +163,17 @@ class RequestsTransport:
         except ValueError:
             body = None
         return resp.status_code, body
+
+    def get_stream(self, url, headers=None, cookies=None, timeout=60.0):
+        resp = self._session.get(
+            url,
+            headers=dict(headers or {}),
+            cookies=dict(cookies or {}),
+            timeout=timeout,
+            stream=True,
+        )
+        resp.raise_for_status()
+        return resp.content
 
 
 def build_default_transport() -> Transport:
@@ -443,6 +461,46 @@ class BiliClient:
                 "subtitle-json", "subtitle payload is not a subtitle document"
             )
         return body
+
+
+    # -- audio playurl / stream (Task 3) -----------------------------------
+
+    def fetch_playurl_audio(self, bvid: str) -> list[dict[str, Any]]:
+        """Return the dash audio stream list for bvid's first page.
+
+        No WBI signing: the plain playurl endpoint accepts fnval=16 dash
+        requests at this auth tier (spike Task 1). Empty list means the
+        video exposes no dash audio (caller decides terminal handling).
+        """
+        pagelist = self._request_with_cookies(
+            PAGELIST_URL, {"bvid": bvid, "jsonp": "jsonp"}
+        )
+        pages = pagelist.get("data") or []
+        if not pages:
+            raise _GoneResponse("pagelist-empty")
+        cid = pages[0].get("cid")
+        body = self._request_with_cookies(
+            PLAYURL_URL,
+            {"bvid": bvid, "cid": cid, "fnval": 16, "qn": 0},
+        )
+        dash = (body.get("data") or {}).get("dash") or {}
+        return dash.get("audio") or []
+
+    def download_audio_stream(self, url: str) -> bytes:
+        """GET one audio stream segment with Referer+UA (spec hard req).
+
+        The CDN rejects requests without a bilibili Referer and a real
+        browser UA; BASE_HEADERS supplies both. Stream bytes are returned
+        whole — callers write them atomically. Retries reuse the transport
+        error path via a single attempt (binary payloads are large; risk
+        backoff for streams is caller-driven re-run, not in-loop).
+        """
+        try:
+            return self.transport.get_stream(
+                url, headers=BASE_HEADERS, cookies=self._ensure_buvid()
+            )
+        except Exception as exc:
+            raise RiskBudgetExhausted(exc, "audio stream transport error")
 
 
 class _GoneResponse(Exception):

@@ -85,6 +85,31 @@ def build_parser() -> argparse.ArgumentParser:
         help="Stop after N videos (smoke runs)",
     )
 
+    dl = subparsers.add_parser(
+        "download-audio",
+        help="Download audio for videos without subtitles (needs_audio)",
+    )
+    dl.add_argument(
+        "--missing-subs", action="store_true",
+        help="Process every manifest entry with status needs_audio",
+    )
+    dl.add_argument(
+        "--bvid", default=None,
+        help="Restrict to a single bvid (creates a fresh entry if unknown)",
+    )
+    dl.add_argument(
+        "--archive-root", default=DEFAULT_ARCHIVE_ROOT,
+        help="Archive root directory (default: ./archive)",
+    )
+    dl.add_argument(
+        "--sessdata", default=None,
+        help="SESSDATA cookie (or env BILI_SESSDATA); not stored",
+    )
+    dl.add_argument(
+        "--limit", type=int, default=None,
+        help="Stop after N videos (smoke runs)",
+    )
+
     return parser
 
 
@@ -253,6 +278,64 @@ def _cmd_harvest_subs(args: argparse.Namespace) -> int:
     return 1 if failed and not (done or needs_audio) else 0
 
 
+def _cmd_download_audio(args: argparse.Namespace) -> int:
+    from . import audio, bili_client
+    from .manifest import ManifestStore
+
+    if not args.missing_subs and not args.bvid:
+        print("download-audio: select targets with --missing-subs "
+              "and/or --bvid", file=sys.stderr)
+        return 1
+
+    store = ManifestStore(root=args.archive_root)
+    entries = store.load()
+    if args.bvid:
+        todo = [args.bvid]
+    else:
+        todo = [b for b, e in entries.items()
+                if e.get("status") == "needs_audio"]
+    if args.limit is not None:
+        todo = todo[: args.limit]
+    if not todo:
+        print("download-audio: no needs_audio entries in the manifest")
+        return 0
+
+    sessdata = _resolve_sessdata(args)
+    client = bili_client.BiliClient(sessdata=sessdata)
+    ok = failed = 0
+    for bvid in todo:
+        out_path = os.path.join(args.archive_root, "audio", f"{bvid}.m4a")
+        try:
+            final = audio.download_audio(client, bvid, out_path, store=store)
+        except audio.NoAudioStreamError as exc:
+            failed += 1
+            print(f"{bvid}: {exc}", file=sys.stderr)
+            continue
+        except bili_client.RiskBudgetExhausted as exc:
+            failed += 1
+            print(f"{bvid}: risk-control ceiling (last {exc.last_code}); "
+                  f"stopping — re-run to resume.", file=sys.stderr)
+            return 2
+        except bili_client.GoneResponse as exc:
+            failed += 1
+            e = dict(store.get(bvid) or {"bvid": bvid})
+            e["status"] = "gone"
+            store.upsert(e)
+            print(f"{bvid}: terminal API response (code {exc.code}); "
+                  f"marked gone.", file=sys.stderr)
+            continue
+        except Exception as exc:
+            failed += 1
+            print(f"{bvid}: unexpected error: {exc}", file=sys.stderr)
+            continue
+        ok += 1
+        print(f"{bvid}: audio downloaded -> audio_ok ({final})")
+
+    print(f"download-audio: {ok} audio_ok"
+          + (f", {failed} failed" if failed else ""))
+    return 1 if failed and not ok else 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -265,6 +348,8 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_probe_subs(args)
     if args.command == "harvest-subs":
         return _cmd_harvest_subs(args)
+    if args.command == "download-audio":
+        return _cmd_download_audio(args)
     parser.error(f"command {args.command!r} is not implemented yet")
 
 
