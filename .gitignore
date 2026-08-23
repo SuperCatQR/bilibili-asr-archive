@@ -1,0 +1,18 @@
+﻿# Morning Star harness (.mstar/)
+.mstar/**
+!.mstar/AGENTS.md
+!.mstar/knowledge/
+!.mstar/knowledge/**
+!.mstar/specs/
+!.mstar/specs/**
+# runtime / media
+bilibili-asr-archive/archive/audio/
+bilibili-asr-archive/archive/transcripts/
+bilibili-asr-archive/logs/
+__pycache__/
+*.pyc
+.venv/
+venv/
+.env
+*.m4a
+*.wav
