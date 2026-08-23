@@ -211,6 +211,37 @@ def test_buvid_refresh_once_mid_sequence(fast_sleep):
 # ---------------------------------------------------------------- page merge
 
 
+def test_inter_page_pacing_is_real_delay(fast_sleep):
+    # Regression: fetch_pages must pace pages with a real randomized delay
+    # (0.8-1.6s like the retired script), not sleep(0).
+    transport = FakeTransport(
+        [
+            (200, ok_page([arc("BV1A")], total=2)),
+            (200, ok_page([arc("BV1B")], total=2)),
+        ],
+    )
+    client = bc.BiliClient(transport=transport, sleeper=fast_sleep,
+                           jitter=lambda: 0.0)
+    pages = client.fetch_pages(23191782, max_pages=2)
+    assert len(pages) == 2
+    assert len(fast_sleep.waits) == 1  # one inter-page sleep
+    assert fast_sleep.waits[0] >= 0.8
+    assert fast_sleep.waits[0] <= 1.6
+
+
+def test_inter_page_pacing_jitter_adds(fast_sleep):
+    transport = FakeTransport(
+        [
+            (200, ok_page([arc("BV1A")], total=2)),
+            (200, ok_page([arc("BV1B")], total=2)),
+        ],
+    )
+    client = bc.BiliClient(transport=transport, sleeper=fast_sleep,
+                           jitter=lambda: 0.5)
+    client.fetch_pages(23191782, max_pages=2)
+    assert fast_sleep.waits[0] == pytest.approx(0.8 + 0.5 * 0.8)
+
+
 def test_merge_pages_dedupes_across_pages():
     pages = [
         [arc("BV1A"), arc("BV1B")],

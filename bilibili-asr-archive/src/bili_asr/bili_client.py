@@ -275,7 +275,10 @@ class BiliClient:
                 break
             if total is not None and total > 0 and len(seen) >= total:
                 break
-            self._sleeper(0)  # inter-page pacing seam (no-op for injected fakes)
+            # Inter-page pacing: real randomized delay (0.8-1.6s like the
+            # retired script) through the jitter seam, to avoid triggering
+            # 412 risk-control from back-to-back page requests.
+            self._sleeper(0.8 + max(0.0, self._jitter()) * 0.8)
         return pages
 
     def merge_pages(
