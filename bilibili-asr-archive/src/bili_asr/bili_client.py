@@ -137,8 +137,8 @@ class Transport(Protocol):
 
     def get_stream(self, url: str, headers: Mapping[str, str] | None = None,
                    cookies: Mapping[str, str] | None = None,
-                   timeout: float | None = None) -> bytes:
-        """Return the raw response bytes for one binary GET."""
+                   timeout: float | None = None):
+        """Yield response body chunks for one binary GET (never buffer whole file)."""
         raise NotImplementedError
 
 
@@ -173,7 +173,9 @@ class RequestsTransport:
             stream=True,
         )
         resp.raise_for_status()
-        return resp.content
+        for chunk in resp.iter_content(chunk_size=1024 * 256):
+            if chunk:
+                yield chunk
 
 
 def build_default_transport() -> Transport:
@@ -454,8 +456,9 @@ class BiliClient:
 
         Must be called in the same run as the probe that produced the
         URL. Risk backoff applies; the body must be a JSON object.
+        SESSDATA is NOT sent — CDN hosts only need the signed URL (QC F1).
         """
-        body = self._request_with_cookies(url, {})
+        body = self._request_with_cookies(url, {}, extra_cookies=None)
         if not isinstance(body, dict) or "body" not in body:
             raise RiskBudgetExhausted(
                 "subtitle-json", "subtitle payload is not a subtitle document"
@@ -486,21 +489,36 @@ class BiliClient:
         dash = (body.get("data") or {}).get("dash") or {}
         return dash.get("audio") or []
 
-    def download_audio_stream(self, url: str) -> bytes:
-        """GET one audio stream segment with Referer+UA (spec hard req).
+    def download_audio_stream(self, url: str, dest_path: str) -> None:
+        """Stream one audio segment to dest_path with Referer+UA (chunked).
 
         The CDN rejects requests without a bilibili Referer and a real
-        browser UA; BASE_HEADERS supplies both. Stream bytes are returned
-        whole — callers write them atomically. Retries reuse the transport
-        error path via a single attempt (binary payloads are large; risk
-        backoff for streams is caller-driven re-run, not in-loop).
+        browser UA; BASE_HEADERS supplies both. Writes iteratively so large
+        files are not buffered in RAM. Raises StreamDownloadError on CDN
+        transport failure (NOT RiskBudgetExhausted — per-video, not batch).
+        No SESSDATA cookie is sent to CDN hosts.
         """
         try:
-            return self.transport.get_stream(
-                url, headers=BASE_HEADERS, cookies=self._ensure_buvid()
-            )
+            with open(dest_path, "wb") as fh:
+                payload = self.transport.get_stream(
+                    url, headers=BASE_HEADERS, cookies=None
+                )
+                if isinstance(payload, (bytes, bytearray)):
+                    # Backward-compatible test/custom transport contract; the
+                    # production requests transport yields chunks.
+                    fh.write(payload)
+                else:
+                    for chunk in payload:
+                        fh.write(chunk)
+        except StreamDownloadError:
+            raise
         except Exception as exc:
-            raise RiskBudgetExhausted(exc, "audio stream transport error")
+            # Do not expose the short-lived signed CDN URL in diagnostics.
+            raise StreamDownloadError("CDN stream request failed") from exc
+
+
+class StreamDownloadError(Exception):
+    """Per-video CDN/stream failure — do not abort the whole batch."""
 
 
 class _GoneResponse(Exception):
@@ -513,6 +531,7 @@ class _GoneResponse(Exception):
 
 # public alias for callers (cli) catching page-level terminal responses
 GoneResponse = _GoneResponse
+# StreamDownloadError defined above download_audio_stream
 
 
 def _path_basename_stem(url: str) -> str:

@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import os
 import sys
+import time
 
 DEFAULT_MID = 23191782
 DEFAULT_ARCHIVE_ROOT = os.path.join("archive")
@@ -272,6 +273,8 @@ def _cmd_harvest_subs(args: argparse.Namespace) -> int:
         else:
             needs_audio += 1
             print(f"{bvid}: no subtitles -> needs_audio")
+        if bvid != todo[-1][0]:
+            time.sleep(3.0)
 
     print(f"harvest-subs: {done} subtitle_done, {needs_audio} needs_audio"
           + (f", {failed} failed" if failed else ""))
@@ -316,6 +319,10 @@ def _cmd_download_audio(args: argparse.Namespace) -> int:
             print(f"{bvid}: risk-control ceiling (last {exc.last_code}); "
                   f"stopping — re-run to resume.", file=sys.stderr)
             return 2
+        except bili_client.StreamDownloadError as exc:
+            failed += 1
+            print(f"{bvid}: audio stream failed ({exc}); continuing.", file=sys.stderr)
+            continue
         except bili_client.GoneResponse as exc:
             failed += 1
             e = dict(store.get(bvid) or {"bvid": bvid})
@@ -330,6 +337,8 @@ def _cmd_download_audio(args: argparse.Namespace) -> int:
             continue
         ok += 1
         print(f"{bvid}: audio downloaded -> audio_ok ({final})")
+        if bvid != todo[-1]:
+            time.sleep(3.0)
 
     print(f"download-audio: {ok} audio_ok"
           + (f", {failed} failed" if failed else ""))

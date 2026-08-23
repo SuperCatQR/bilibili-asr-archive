@@ -73,8 +73,6 @@ def harvest_subtitle(
     if chosen is None or not chosen.get("subtitle_url"):
         # Path A: empty AI/CC list without login is expected, not an error
         entry = dict(store.get(bvid) or {"bvid": bvid})
-        entry["status"] = "sub_checked"
-        store.upsert(entry)
         entry["status"] = "needs_audio"
         store.upsert(entry)
         return "needs_audio"
@@ -95,8 +93,6 @@ def harvest_subtitle(
         fh.write(json_to_srt(doc))
 
     entry = dict(store.get(bvid) or {"bvid": bvid})
-    entry["status"] = "sub_checked"
-    store.upsert(entry)
     # record language + file path only; no short-lived URL in the manifest
     entry["sub_lan"] = chosen.get("lan")
     entry["sub_lan_doc"] = chosen.get("lan_doc")

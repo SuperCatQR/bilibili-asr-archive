@@ -67,6 +67,18 @@ def _run_ffmpeg(src: str, dst: str) -> None:
     )
 
 
+def _existing_audio(out_path: str) -> str | None:
+    """Return an existing non-empty audio path (.m4a or .flac sibling), else None."""
+    candidates = [out_path, os.path.splitext(out_path)[0] + ".flac"]
+    for path in candidates:
+        try:
+            if os.path.isfile(path) and os.path.getsize(path) > 0:
+                return path
+        except OSError:
+            continue
+    return None
+
+
 def download_audio(
     client: BiliClient,
     bvid: str,
@@ -75,15 +87,19 @@ def download_audio(
 ) -> str:
     """Download the preferred audio stream for bvid to out_path.
 
-    Resumability: when out_path already exists the download is skipped and
-    the manifest is still advanced. Returns the final file path (which may
-    be a .flac sibling when 30232 was chosen and ffmpeg is unavailable).
-    Raises NoAudioStreamError / RiskBudgetExhausted / GoneResponse.
+    Resumability: when .m4a or .flac already exists (size>0), skip BEFORE any
+    playurl/pagelist network call. Returns the final file path (which may be
+    a .flac sibling when 30232 was chosen and ffmpeg is unavailable).
+    Raises NoAudioStreamError / StreamDownloadError / GoneResponse.
     """
-    root_of = lambda p: os.path.dirname(p) or "."
-    audio_dir = root_of(out_path)
-    os.makedirs(audio_dir, exist_ok=True)
     out_path = os.fspath(out_path)
+    audio_dir = os.path.dirname(out_path) or "."
+    os.makedirs(audio_dir, exist_ok=True)
+
+    existing = _existing_audio(out_path)
+    if existing is not None:
+        _mark_audio_ok(store, bvid, existing)
+        return existing
 
     streams = client.fetch_playurl_audio(bvid)
     chosen = pick_audio_stream(streams)
@@ -94,15 +110,9 @@ def download_audio(
     is_flac = chosen.get("id") == 30232 or ".flac" in url
 
     final_path = out_path
-    if os.path.exists(out_path):
-        _mark_audio_ok(store, bvid, out_path)
-        return out_path
-
     tmp_path = out_path + ".part"
     try:
-        data = client.download_audio_stream(url)
-        with open(tmp_path, "wb") as fh:
-            fh.write(data)
+        client.download_audio_stream(url, tmp_path)
         if is_flac:
             try:
                 _run_ffmpeg(tmp_path, out_path)
@@ -121,7 +131,6 @@ def download_audio(
 
     _mark_audio_ok(store, bvid, final_path)
     return final_path
-
 
 def _mark_audio_ok(
     store: ManifestStore | None, bvid: str, final_path: str
