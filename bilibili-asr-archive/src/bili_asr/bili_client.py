@@ -85,7 +85,12 @@ def classify_risk(status: int, body: dict[str, Any] | None) -> str:
     if status != 200:
         # 2xx other than 200 / unexpected 3xx-4xx: retry, bounded by budget
         return RISK_RETRYABLE
-    code = (body or {}).get("code", 0)
+    if body is None:
+        # HTTP 200 with an unparseable (non-JSON) body: the classic
+        # risk-control challenge-page signal (412-adjacent). Retryable
+        # within the budget, never RISK_OK (avoids None.get crashes).
+        return RISK_RETRYABLE
+    code = body.get("code", 0)
     if code == 0:
         return RISK_OK
     if code in _RETRYABLE_CODES:
@@ -184,6 +189,10 @@ class BiliClient:
         self.backoff_cap = backoff_cap
         self._buvid: dict[str, str] | None = None
         self.last_failed_page: int = 1  # page active when budget exhausted
+        # Pages fetched during the most recent fetch_pages call. Alive even
+        # after RiskBudgetExhausted/GoneResponse so the CLI can persist the
+        # partial merge (H2: honest --resume).
+        self.pages_fetched: list[list[dict[str, Any]]] = []
 
     # -- internals ---------------------------------------------------------
 
@@ -193,7 +202,10 @@ class BiliClient:
         self._sleeper(delay)
 
     def _refresh_buvid(self) -> dict[str, str]:
-        status, body = self.transport.get_json(FINGER_SPI_URL)
+        try:
+            status, body = self.transport.get_json(FINGER_SPI_URL)
+        except Exception as exc:  # transport-level error: terminal budget path
+            raise RiskBudgetExhausted(exc, "finger/spi bootstrap transport error")
         if status != 200 or not body or body.get("code") != 0:
             raise RiskBudgetExhausted(
                 status if status != 200 else (body or {}).get("code", "spi"),
@@ -214,13 +226,27 @@ class BiliClient:
         refreshed = False  # buvid refreshed once per request budget
         last_code: int | str = 0
         for attempt in range(1, self.max_attempts + 1):
-            status, body = self.transport.get_json(
-                url, params=params, headers=BASE_HEADERS, cookies=cookies
-            )
+            try:
+                status, body = self.transport.get_json(
+                    url, params=params, headers=BASE_HEADERS, cookies=cookies
+                )
+            except Exception as exc:
+                # H1: transport errors (requests.Timeout/ConnectionError/DNS,
+                # or any injected transport failure) are retryable within the
+                # same risk budget instead of crashing with a traceback.
+                last_code = exc
+                if attempt >= self.max_attempts:
+                    break
+                self._sleep_backoff(attempt)
+                continue
             risk = classify_risk(status, body)
             if risk == RISK_OK:
                 return body
-            last_code = status if status != 200 else (body or {}).get("code", status)
+            last_code = (
+                "200-non-json" if (status == 200 and body is None)
+                else status if status != 200
+                else body.get("code", status)
+            )
             if risk in (RISK_RETRYABLE, RISK_RETRY_ONCE_WBI):
                 if attempt >= self.max_attempts:
                     break
@@ -252,6 +278,7 @@ class BiliClient:
         total: int | None = None
         empty_streak = 0
         pn = 1
+        self.pages_fetched = pages
         while True:
             self.last_failed_page = pn
             body = self._request(

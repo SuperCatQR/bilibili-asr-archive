@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 
 import pytest
 
@@ -33,7 +34,10 @@ class FakeTransport:
         queue = self.spi if "finger/spi" in url else self.script
         if not queue:
             raise AssertionError("FakeTransport ran out of scripted responses")
-        status, body = queue.pop(0)
+        item = queue.pop(0)
+        if isinstance(item, Exception):
+            raise item
+        status, body = item
         return status, body
 
 
@@ -112,6 +116,9 @@ def test_mixin_key_derivation():
         (200, {"code": -62002}, bc.RISK_GONE),
         (200, {"code": 0}, bc.RISK_OK),
         (200, {"code": -101}, bc.RISK_GONE),  # unknown negatives not retryable
+        # H3: HTTP 200 with unparseable (None) body is the 412-adjacent
+        # risk-control challenge-page signal -> retryable, never RISK_OK
+        (200, None, bc.RISK_RETRYABLE),
     ],
 )
 def test_classify_risk(status, body, expected):
@@ -323,3 +330,179 @@ def test_cli_pages_limit(tmp_root, fast_sleep, monkeypatch):
     assert rc == 0
     entries = ManifestStore(root=tmp_root).load()
     assert set(entries) == {"BV1A"}
+
+
+# ------------------------------------------------- fix wave 1 (QC1/2/3) tests
+
+import urllib.error
+
+from bili_asr.cli import build_parser
+
+
+class _FakeRequestsError(Exception):
+    """Stand-in for requests.RequestException (tests don't import requests)."""
+
+
+# H3: 200 + non-JSON body (None) is retryable risk, not AttributeError
+
+
+def test_200_non_json_body_retryable_then_ok(fast_sleep):
+    transport = FakeTransport(
+        [(200, None), (200, ok_page([arc("BV1A")]))],
+        spi=[SPI_OK, SPI_NEW],
+    )
+    client = bc.BiliClient(transport=transport, sleeper=fast_sleep,
+                           jitter=lambda: 0.0)
+    pages = client.fetch_pages(23191782, max_pages=1)
+    assert len(pages[0]) == 1
+
+
+def test_200_non_json_body_exhausts_budget(fast_sleep):
+    transport = FakeTransport([(200, None)] * 5, spi=[SPI_OK, SPI_NEW])
+    client = bc.BiliClient(transport=transport, sleeper=fast_sleep,
+                           jitter=lambda: 0.0)
+    with pytest.raises(bc.RiskBudgetExhausted) as exc:
+        client.fetch_pages(23191782, max_pages=1)
+    assert exc.value.last_code == "200-non-json"
+
+
+def test_classify_risk_200_none_is_retryable():
+    assert bc.classify_risk(200, None) == bc.RISK_RETRYABLE
+
+
+# H1: transport exceptions are retried, then become RiskBudgetExhausted(2)
+
+
+def test_transport_exception_retried_then_success(fast_sleep):
+    transport = FakeTransport(
+        [_FakeRequestsError("conn reset"),
+         (200, ok_page([arc("BV1A")]))],
+    )
+    client = bc.BiliClient(transport=transport, sleeper=fast_sleep,
+                           jitter=lambda: 0.0)
+    pages = client.fetch_pages(23191782, max_pages=1)
+    assert len(pages[0]) == 1
+
+
+def test_transport_exception_exhausts_budget_exit_2(fast_sleep):
+    transport = FakeTransport([_FakeRequestsError("dns")] * 5,
+                              spi=[SPI_OK, SPI_NEW])
+    client = bc.BiliClient(transport=transport, sleeper=fast_sleep,
+                           jitter=lambda: 0.0)
+    with pytest.raises(bc.RiskBudgetExhausted) as exc:
+        client.fetch_pages(23191782, max_pages=1)
+    assert isinstance(exc.value.last_code, _FakeRequestsError)
+
+
+def test_spi_transport_error_wrapped_as_budget_exhausted(fast_sleep):
+    transport = FakeTransport([(200, ok_page([arc("BV1A")]))],
+                              spi=[_FakeRequestsError("timeout")])
+    client = bc.BiliClient(transport=transport, sleeper=fast_sleep,
+                           jitter=lambda: 0.0)
+    with pytest.raises(bc.RiskBudgetExhausted):
+        client.fetch_pages(23191782, max_pages=1)
+
+
+# H2: partial pages persisted on RiskBudgetExhausted / GoneResponse mid-run
+
+
+def test_cli_budget_exhausted_midrun_persists_partial(tmp_root, fast_sleep,
+                                                      monkeypatch, capsys):
+    transport = FakeTransport(
+        [
+            (200, ok_page([arc("BV1A"), arc("BV1B")], total=99)),
+            (412, None), (412, None), (412, None), (412, None), (412, None),
+        ],
+        spi=[SPI_OK, SPI_NEW],
+    )
+    monkeypatch.setattr(bc, "build_default_transport", lambda: transport)
+    monkeypatch.setattr(bc, "default_sleeper", lambda: fast_sleep)
+    rc = main(["fetch-meta", "--mid", "23191782", "--archive-root", tmp_root])
+    assert rc == 2
+    entries = ManifestStore(root=tmp_root).load()
+    assert set(entries) == {"BV1A", "BV1B"}  # partial run persisted
+    err = capsys.readouterr().err
+    assert "page 2" in err
+    assert "2" in err and "persisted" in err
+
+
+def test_cli_budget_exhausted_page1_persists_nothing(tmp_root, fast_sleep,
+                                                     monkeypatch):
+    transport = FakeTransport([(412, None)] * 5, spi=[SPI_OK, SPI_NEW])
+    monkeypatch.setattr(bc, "build_default_transport", lambda: transport)
+    monkeypatch.setattr(bc, "default_sleeper", lambda: fast_sleep)
+    rc = main(["fetch-meta", "--mid", "23191782", "--archive-root", tmp_root])
+    assert rc == 2
+    assert not os.path.exists(ManifestStore(root=tmp_root).path)
+
+
+# GoneResponse: persist partial, honest message
+
+
+def test_cli_gone_midrun_persists_partial(tmp_root, fast_sleep, monkeypatch,
+                                          capsys):
+    transport = FakeTransport(
+        [
+            (200, ok_page([arc("BV1A")], total=99)),
+            (200, ok_page([arc("BV1B")], total=99)),
+            (404, None),
+        ],
+    )
+    monkeypatch.setattr(bc, "build_default_transport", lambda: transport)
+    monkeypatch.setattr(bc, "default_sleeper", lambda: fast_sleep)
+    rc = main(["fetch-meta", "--mid", "23191782", "--archive-root", tmp_root])
+    assert rc == 2
+    entries = ManifestStore(root=tmp_root).load()
+    assert set(entries) == {"BV1A", "BV1B"}
+    err = capsys.readouterr().err
+    assert "2 page(s)" in err
+    assert "no pages enumerated" not in err
+
+
+def test_cli_gone_on_first_page_reports_no_pages(tmp_root, fast_sleep,
+                                                 monkeypatch, capsys):
+    transport = FakeTransport([(200, {"code": -62002})])
+    monkeypatch.setattr(bc, "build_default_transport", lambda: transport)
+    monkeypatch.setattr(bc, "default_sleeper", lambda: fast_sleep)
+    rc = main(["fetch-meta", "--mid", "23191782", "--archive-root", tmp_root])
+    assert rc == 2
+    err = capsys.readouterr().err
+    assert "no pages" in err
+
+
+# QC2-2: argparse usage errors exit 1, not 2
+
+
+def test_argparse_usage_error_exits_1():
+    parser = build_parser()
+    with pytest.raises(SystemExit) as exc:
+        parser.parse_args(["--mid", "abc"])
+    assert exc.value.code == 1
+
+
+def test_argparse_invalid_choice_exits_1():
+    parser = build_parser()
+    with pytest.raises(SystemExit) as exc:
+        parser.parse_args(["frobnicate"])
+    assert exc.value.code == 1
+
+
+def test_argparse_help_exits_0():
+    parser = build_parser()
+    with pytest.raises(SystemExit) as exc:
+        parser.parse_args(["--help"])
+    assert exc.value.code == 0
+
+
+# H1 CLI-level: RiskBudgetExhausted carries no traceback (exit 2, summary)
+
+
+def test_cli_unexpected_error_exit_1_no_traceback(tmp_root, monkeypatch,
+                                                  capsys):
+    def boom(self, *a, **k):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(bc.BiliClient, "fetch_pages", boom)
+    rc = main(["fetch-meta", "--mid", "1", "--archive-root", tmp_root])
+    assert rc == 1
+    assert "Traceback" not in capsys.readouterr().err

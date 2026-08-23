@@ -10,8 +10,21 @@ DEFAULT_MID = 23191782
 DEFAULT_ARCHIVE_ROOT = os.path.join("archive")
 
 
+class _UsageErrorArgumentParser(argparse.ArgumentParser):
+    """argparse exits 2 on usage errors by default.
+
+    Spec exit taxonomy reserves 2 for terminal API failure; usage/config
+    errors must exit 1 (QC2-2). --help / --version keep exit 0.
+    """
+
+    def exit(self, status: int = 0, message: str | None = None) -> None:
+        if status == 2:
+            status = 1
+        super().exit(status, message)
+
+
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
+    parser = _UsageErrorArgumentParser(
         prog="bili-asr",
         description="Bilibili ASR transcript archival CLI "
         "(AI/CC subtitles first, local SenseVoice fallback).",
@@ -42,6 +55,23 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _persist_partial(client, store, existing) -> int:
+    """Merge and save pages already fetched (H2: honest --resume).
+
+    Returns the number of records persisted from this partial run.
+    """
+    records = client.merge_pages(client.pages_fetched)
+    entries = dict(existing)
+    for bvid, meta in records.items():
+        prev = entries.get(bvid, {})
+        entry = dict(prev)
+        entry.update(meta)
+        entry.setdefault("status", "meta_ok")
+        entries[bvid] = entry
+    store.save(entries)
+    return len(records)
+
+
 def _cmd_fetch_meta(args: argparse.Namespace) -> int:
     # Imported here so --help / status never require requests at import time
     # in low-dependency environments (bili_client lazy-imports requests).
@@ -56,21 +86,38 @@ def _cmd_fetch_meta(args: argparse.Namespace) -> int:
         pages = client.fetch_pages(args.mid, max_pages=args.limit_pages)
     except bili_client.RiskBudgetExhausted as exc:
         unenumerated = client.last_failed_page
+        partial = _persist_partial(client, store, existing)
         print(
             f"risk-control ceiling: page {unenumerated} could not be "
             f"enumerated (retry budget exhausted, last code {exc.last_code}); "
-            f"{len(existing)} existing manifest entries kept for resume. "
+            f"{partial} record(s) from {len(client.pages_fetched)} fetched "
+            f"page(s) persisted, {len(existing)} pre-existing entries kept. "
             f"Re-run with --resume to continue.",
             file=sys.stderr,
         )
         return 2
     except bili_client.GoneResponse as exc:
-        print(
-            f"fetch-meta: terminal API response (code {exc.code}) at page "
-            f"{client.last_failed_page}; no pages enumerated.",
-            file=sys.stderr,
-        )
+        partial = _persist_partial(client, store, existing)
+        if client.pages_fetched:
+            print(
+                f"fetch-meta: terminal API response (code {exc.code}) at "
+                f"page {client.last_failed_page}; {len(client.pages_fetched)} "
+                f"page(s) already fetched were persisted ({partial} "
+                f"record(s)) — re-run with --resume to continue.",
+                file=sys.stderr,
+            )
+        else:
+            print(
+                f"fetch-meta: terminal API response (code {exc.code}) at "
+                f"page {client.last_failed_page}; no pages enumerated.",
+                file=sys.stderr,
+            )
         return 2
+    except Exception as exc:
+        # H1 belt-and-braces: any unexpected error exits 1 with a summary,
+        # never a traceback.
+        print(f"fetch-meta: unexpected error: {exc}", file=sys.stderr)
+        return 1
 
     records = client.merge_pages(pages)
     entries = dict(existing)
