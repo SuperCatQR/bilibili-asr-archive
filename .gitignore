@@ -1,4 +1,4 @@
-﻿# Morning Star harness (.mstar/)
+# Morning Star harness (.mstar/)
 .mstar/**
 !.mstar/AGENTS.md
 !.mstar/knowledge/
@@ -21,3 +21,9 @@ venv/
 .tmp/
 .tmp2/
 pydiagout.txt
+bilibili-asr-archive/.test-tmp/
+bilibili-asr-archive/.pytest-*/
+bilibili-asr-archive/.tb/
+bilibili-asr-archive/.pfx*/
+bilibili-asr-archive/pip-*/
+bilibili-asr-archive/pytest-cache-files-*/
