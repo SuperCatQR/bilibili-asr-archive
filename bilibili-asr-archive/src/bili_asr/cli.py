@@ -141,19 +141,80 @@ def _record_api_error(
     store.upsert(updated)
 
 
+def _todo_for_bvid(store, bvid: str, entries: dict):
+    matching = [
+        (key, e) for key, e in entries.items()
+        if e.get("bvid") == bvid and not _is_excluded(e)
+    ]
+    if len(matching) > 1:
+        return None
+    if len(matching) == 1:
+        return matching
+    compat = store.get_compatible(bvid)
+    if compat is not None and _is_excluded(compat):
+        return []
+    return [(bvid, {"bvid": bvid, "status": "pending"})]
+
+
+def _identity_from_entry(entry: dict, key: str):
+    from .page_identity import page_identity
+
+    work_id = entry.get("work_id")
+    cid = entry.get("cid")
+    bvid = str(entry.get("bvid") or key)
+    if work_id and cid is not None:
+        return page_identity(
+            bvid,
+            int(entry.get("page_index") or 0),
+            int(cid),
+            page_label=str(entry.get("page_label") or ""),
+        )
+    return bvid
+
+
+def _is_excluded(entry: dict | None) -> bool:
+    if not entry:
+        return False
+    return bool(
+        entry.get("unresolved") or entry.get("excluded_from_page_processing")
+    )
+
+
+def _merge_page_rows(client, records: dict, existing: dict) -> dict:
+    """Expand each enumerated bvid into one ledger row per PageIdentity."""
+    from .page_identity import apply_identity
+
+    entries = dict(existing)
+    for bvid, meta in records.items():
+        bare = entries.get(bvid)
+        if _is_excluded(bare):
+            continue
+        pages = client.list_pages(bvid)
+        for page in pages:
+            prev = entries.get(page.work_id) or {}
+            if _is_excluded(prev):
+                continue
+            entry = dict(prev)
+            entry.update(meta)
+            entry = apply_identity(entry, page)
+            entry.setdefault("status", "meta_ok")
+            entries[page.work_id] = entry
+        if (
+            bvid in entries
+            and not entries[bvid].get("work_id")
+            and not _is_excluded(entries[bvid])
+        ):
+            del entries[bvid]
+    return entries
+
+
 def _persist_partial(client, store, existing) -> int:
     """Merge and save pages already fetched (H2: honest --resume).
 
     Returns the number of records persisted from this partial run.
     """
     records = client.merge_pages(client.pages_fetched)
-    entries = dict(existing)
-    for bvid, meta in records.items():
-        prev = entries.get(bvid, {})
-        entry = dict(prev)
-        entry.update(meta)
-        entry.setdefault("status", "meta_ok")
-        entries[bvid] = entry
+    entries = _merge_page_rows(client, records, existing)
     store.save(entries)
     return len(records)
 
@@ -216,14 +277,10 @@ def _cmd_fetch_meta(args: argparse.Namespace) -> int:
         return 1
 
     records = client.merge_pages(pages)
-    entries = dict(existing)
-    for bvid, meta in records.items():
-        prev = entries.get(bvid, {})
-        entry = dict(prev)
-        entry.update(meta)
-        entry.setdefault("status", "meta_ok")
-        entries[bvid] = entry
+    entries = _merge_page_rows(client, records, existing)
     store.save(entries)
+    store.migrate_legacy_rows(client.list_pages, archive_root=args.archive_root)
+    entries = store.load()
 
     total_s = sum(e.get("duration_s", 0) for e in entries.values())
     print(f"manifest: {len(entries)} videos "
@@ -278,51 +335,67 @@ def _cmd_harvest_subs(args: argparse.Namespace) -> int:
 
     store = ManifestStore(root=args.archive_root)
     entries = store.load()
+    sessdata = _resolve_sessdata(args)
+    client = bili_client.BiliClient(sessdata=sessdata)
     if args.bvid:
-        todo = [(args.bvid, entries.get(args.bvid) or
-                 {"bvid": args.bvid, "status": "pending"})]
+        todo = _todo_for_bvid(store, args.bvid, entries)
+        if todo is None:
+            print(f"{args.bvid}: multi-part video needs an explicit page",
+                  file=sys.stderr)
+            return 1
     else:
-        todo = [(b, e) for b, e in entries.items() if e.get("status") == "meta_ok"]
+        todo = [
+            (key, e) for key, e in entries.items()
+            if e.get("status") == "meta_ok" and not _is_excluded(e)
+        ]
     if args.limit is not None:
         todo = todo[: args.limit]
 
-    sessdata = _resolve_sessdata(args)
-    client = bili_client.BiliClient(sessdata=sessdata)
     done = needs_audio = failed = 0
-    for bvid, _entry in todo:
+    for key, entry in todo:
+        target = _identity_from_entry(entry, key)
+        label = (
+            target.work_id if hasattr(target, "work_id") else str(key)
+        )
         try:
-            status = subtitles.harvest_subtitle(client, bvid, store,
-                                                args.archive_root)
+            status = subtitles.harvest_subtitle(
+                client, target, store, args.archive_root
+            )
+        except bili_client.AmbiguousPageError:
+            failed += 1
+            print(f"{label}: multi-part video needs an explicit page",
+                  file=sys.stderr)
+            continue
         except bili_client.RiskBudgetExhausted as exc:
             failed += 1
-            print(f"{bvid}: risk-control ceiling (last code {exc.last_code}); "
+            print(f"{label}: risk-control ceiling (last code {exc.last_code}); "
                   f"stopping — re-run to resume.", file=sys.stderr)
             return 2
         except bili_client.APIResponseError as exc:
             failed += 1
-            _record_api_error(store, bvid, exc.code)
-            print(f"{bvid}: API response error (code {exc.code}); "
+            _record_api_error(store, key, exc.code)
+            print(f"{label}: API response error (code {exc.code}); "
                   f"continuing.", file=sys.stderr)
             continue
         except bili_client.GoneResponse as exc:
             failed += 1
-            e = dict(store.get(bvid) or {"bvid": bvid})
+            e = dict(store.get(key) or {"bvid": str(entry.get("bvid") or key)})
             e["status"] = "gone"
             store.upsert(e)
-            print(f"{bvid}: terminal API response (code {exc.code}); "
+            print(f"{label}: terminal API response (code {exc.code}); "
                   f"marked gone.", file=sys.stderr)
             continue
         except Exception:
             failed += 1
-            print(f"{bvid}: unexpected error", file=sys.stderr)
+            print(f"{label}: unexpected error", file=sys.stderr)
             continue
         if status == "subtitle_done":
             done += 1
-            print(f"{bvid}: subtitle downloaded -> subtitle_done")
+            print(f"{label}: subtitle downloaded -> subtitle_done")
         else:
             needs_audio += 1
-            print(f"{bvid}: no subtitles -> needs_audio")
-        if bvid != todo[-1][0]:
+            print(f"{label}: no subtitles -> needs_audio")
+        if key != todo[-1][0]:
             time.sleep(3.0)
 
     print(f"harvest-subs: {done} subtitle_done, {needs_audio} needs_audio"
@@ -342,10 +415,19 @@ def _cmd_download_audio(args: argparse.Namespace) -> int:
     store = ManifestStore(root=args.archive_root)
     entries = store.load()
     if args.bvid:
-        todo = [args.bvid]
+        selected = _todo_for_bvid(store, args.bvid, entries)
+        if selected is None:
+            print(f"{args.bvid}: multi-part video needs an explicit page",
+                  file=sys.stderr)
+            return 1
+        todo = selected
+        if not todo:
+            todo = [(args.bvid, {"bvid": args.bvid, "status": "needs_audio"})]
     else:
-        todo = [b for b, e in entries.items()
-                if e.get("status") == "needs_audio"]
+        todo = [
+            (key, e) for key, e in entries.items()
+            if e.get("status") == "needs_audio" and not _is_excluded(e)
+        ]
     if args.limit is not None:
         todo = todo[: args.limit]
     if not todo:
@@ -354,47 +436,61 @@ def _cmd_download_audio(args: argparse.Namespace) -> int:
 
     sessdata = _resolve_sessdata(args)
     client = bili_client.BiliClient(sessdata=sessdata)
+    from .page_identity import artifact_stem
+    from .subtitles import resolve_page_identity
+
     ok = failed = 0
-    for bvid in todo:
-        out_path = os.path.join(args.archive_root, "audio", f"{bvid}.m4a")
+    for key, entry in todo:
+        target = _identity_from_entry(entry, key)
+        label = str(key)
         try:
-            final = audio.download_audio(client, bvid, out_path, store=store)
+            if isinstance(target, str):
+                target = resolve_page_identity(client, target)
+            label = target.work_id
+            stem = artifact_stem(target)
+            out_path = os.path.join(args.archive_root, "audio", f"{stem}.m4a")
+            final = audio.download_audio(client, target, out_path, store=store)
+        except bili_client.AmbiguousPageError:
+            failed += 1
+            print(f"{label}: multi-part video needs an explicit page",
+                  file=sys.stderr)
+            continue
         except audio.NoAudioStreamError:
             failed += 1
-            print(f"{bvid}: no audio stream available", file=sys.stderr)
+            print(f"{label}: no audio stream available", file=sys.stderr)
             continue
         except bili_client.RiskBudgetExhausted as exc:
             failed += 1
-            print(f"{bvid}: risk-control ceiling (last {exc.last_code}); "
+            print(f"{label}: risk-control ceiling (last {exc.last_code}); "
                   f"stopping — re-run to resume.", file=sys.stderr)
             return 2
         except bili_client.StreamDownloadError:
             failed += 1
-            print(f"{bvid}: audio stream failed; continuing.", file=sys.stderr)
+            print(f"{label}: audio stream failed; continuing.", file=sys.stderr)
             continue
         except bili_client.APIResponseError as exc:
             failed += 1
             _record_api_error(
-                store, bvid, exc.code, starting_status="needs_audio"
+                store, key, exc.code, starting_status="needs_audio"
             )
-            print(f"{bvid}: API response error (code {exc.code}); "
+            print(f"{label}: API response error (code {exc.code}); "
                   f"continuing.", file=sys.stderr)
             continue
         except bili_client.GoneResponse as exc:
             failed += 1
-            e = dict(store.get(bvid) or {"bvid": bvid})
+            e = dict(store.get(key) or {"bvid": str(entry.get("bvid") or key)})
             e["status"] = "gone"
             store.upsert(e)
-            print(f"{bvid}: terminal API response (code {exc.code}); "
+            print(f"{label}: terminal API response (code {exc.code}); "
                   f"marked gone.", file=sys.stderr)
             continue
         except Exception:
             failed += 1
-            print(f"{bvid}: unexpected error", file=sys.stderr)
+            print(f"{label}: unexpected error", file=sys.stderr)
             continue
         ok += 1
-        print(f"{bvid}: audio downloaded -> audio_ok ({final})")
-        if bvid != todo[-1]:
+        print(f"{label}: audio downloaded -> audio_ok ({final})")
+        if key != todo[-1][0]:
             time.sleep(3.0)
 
     print(f"download-audio: {ok} audio_ok"

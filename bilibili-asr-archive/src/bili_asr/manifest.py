@@ -167,6 +167,7 @@ class ManifestStore:
         self,
         pages_for: Callable[[str], list[PageIdentity]],
         archive_root: str | os.PathLike[str] | None = None,
+        only_bvid: str | None = None,
     ) -> LegacyMigrationReport:
         """Migrate unambiguous bare-bvid rows; freeze the rest additively."""
         if not self._loaded:
@@ -178,6 +179,7 @@ class ManifestStore:
         bare_keys = sorted(
             key for key, entry in self._entries.items()
             if _is_bare_legacy(entry)
+            and (only_bvid is None or entry.get("bvid") == only_bvid)
         )
         for key in bare_keys:
             entry = dict(next_entries[key])

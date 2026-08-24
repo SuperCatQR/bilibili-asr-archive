@@ -16,8 +16,9 @@ import json
 import os
 from typing import Any
 
-from .bili_client import BiliClient
+from .bili_client import AmbiguousPageError, BiliClient
 from .manifest import ManifestStore
+from .page_identity import PageIdentity, apply_identity, artifact_stem, page_identity
 
 RAW_SUB_DIR = os.path.join("subtitles", "raw")
 SRT_DIR = os.path.join("transcripts", "srt")
@@ -56,23 +57,68 @@ def json_to_srt(doc: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def resolve_page_identity(
+    client: BiliClient, target: PageIdentity | str
+) -> PageIdentity:
+    """Accept PageIdentity, or a bare bvid when pagelist length is 1."""
+    if isinstance(target, PageIdentity):
+        return target
+    pages = client.list_pages(target)
+    if len(pages) != 1:
+        raise AmbiguousPageError(target, len(pages))
+    return pages[0]
+
+
+def _ledger_entry(store: ManifestStore, identity: PageIdentity) -> dict[str, Any]:
+    existing = (
+        store.get(identity.work_id)
+        or store.get_compatible(identity.bvid)
+        or store.get(identity.bvid)
+        or {}
+    )
+    return apply_identity(existing, identity)
+
+
 def harvest_subtitle(
     client: BiliClient,
-    bvid: str,
+    target: PageIdentity | str,
     store: ManifestStore,
     archive_root: str | os.PathLike[str],
 ) -> str:
-    """Probe subtitles for bvid, download if present, update the manifest.
+    """Probe subtitles for one page, download if present, update the manifest.
 
     Returns the resulting manifest status: "subtitle_done" when a
     subtitle was downloaded and converted, "needs_audio" when the probe
     returned an empty list (Path A — expected without SESSDATA).
     """
-    entries = client.probe_subs(bvid)
+    if isinstance(target, str):
+        store.migrate_legacy_rows(
+            client.list_pages,
+            archive_root=archive_root,
+            only_bvid=target,
+        )
+        migrated = store.get_compatible(target)
+        if (
+            migrated
+            and migrated.get("work_id")
+            and migrated.get("cid") is not None
+            and not migrated.get("unresolved")
+        ):
+            identity = page_identity(
+                str(migrated["bvid"]),
+                int(migrated.get("page_index") or 0),
+                int(migrated["cid"]),
+                page_label=str(migrated.get("page_label") or ""),
+            )
+        else:
+            identity = resolve_page_identity(client, target)
+    else:
+        identity = target
+    entries = client.probe_subs(identity.bvid, cid=identity.cid)
     chosen = pick_subtitle(entries)
     if chosen is None or not chosen.get("subtitle_url"):
         # Path A: empty AI/CC list without login is expected, not an error
-        entry = dict(store.get(bvid) or {"bvid": bvid})
+        entry = _ledger_entry(store, identity)
         entry.pop("last_api_error_code", None)
         entry["status"] = "needs_audio"
         store.upsert(entry)
@@ -86,14 +132,15 @@ def harvest_subtitle(
     srt_dir = os.path.join(root, SRT_DIR)
     os.makedirs(raw_dir, exist_ok=True)
     os.makedirs(srt_dir, exist_ok=True)
-    raw_path = os.path.join(raw_dir, f"{bvid}.json")
-    srt_path = os.path.join(srt_dir, f"{bvid}.srt")
+    stem = artifact_stem(identity)
+    raw_path = os.path.join(raw_dir, f"{stem}.json")
+    srt_path = os.path.join(srt_dir, f"{stem}.srt")
     with open(raw_path, "w", encoding="utf-8", newline="\n") as fh:
         json.dump(doc, fh, ensure_ascii=False, indent=2)
     with open(srt_path, "w", encoding="utf-8", newline="\n") as fh:
         fh.write(json_to_srt(doc))
 
-    entry = dict(store.get(bvid) or {"bvid": bvid})
+    entry = _ledger_entry(store, identity)
     entry.pop("last_api_error_code", None)
     # record language + file path only; no short-lived URL in the manifest
     entry["sub_lan"] = chosen.get("lan")

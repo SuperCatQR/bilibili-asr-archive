@@ -65,3 +65,17 @@ def page_identity(
         cid=cid,
         page_label=page_label,
     )
+
+
+def apply_identity(entry: dict, identity: PageIdentity) -> dict:
+    """Copy canonical page fields onto a ledger row."""
+    updated = dict(entry)
+    updated["bvid"] = identity.bvid
+    updated["work_id"] = identity.work_id
+    updated["page_index"] = identity.page_index
+    updated["cid"] = identity.cid
+    if identity.page_label:
+        updated["page_label"] = identity.page_label
+    elif "page_label" not in updated:
+        updated["page_label"] = ""
+    return updated

@@ -206,7 +206,7 @@ def test_harvest_empty_marks_needs_audio(tmp_root):
     })
     status = subtitles.harvest_subtitle(client, "BV1test00", store, tmp_root)
     assert status == "needs_audio"
-    entry = store.get("BV1test00")
+    entry = store.get("BV1test00:p0")
     assert entry["status"] == "needs_audio"
     assert "last_api_error_code" not in entry
 
@@ -229,7 +229,7 @@ def test_harvest_downloads_shortlived_url_same_run(tmp_root):
     })
     status = subtitles.harvest_subtitle(client, "BV1test00", store, tmp_root)
     assert status == "subtitle_done"
-    entry = store.get("BV1test00")
+    entry = store.get("BV1test00:p0")
     assert entry["status"] == "subtitle_done"
     assert "last_api_error_code" not in entry
     # downloaded URL = the probe-provided URL, normalized to https
@@ -241,8 +241,8 @@ def test_harvest_downloads_shortlived_url_same_run(tmp_root):
                   if "player/wbi/v2" in c["url"]][0]
     assert dl[0] is client.transport.calls[player_idx + 1]
     # raw + srt artifacts written
-    raw_path = os.path.join(tmp_root, "subtitles", "raw", "BV1test00.json")
-    srt_path = os.path.join(tmp_root, "transcripts", "srt", "BV1test00.srt")
+    raw_path = os.path.join(tmp_root, "subtitles", "raw", "BV1test00.p0.json")
+    srt_path = os.path.join(tmp_root, "transcripts", "srt", "BV1test00.p0.srt")
     assert json.load(open(raw_path, encoding="utf-8")) == doc
     assert "你好" in open(srt_path, encoding="utf-8").read()
     # short-lived URL never persisted
@@ -357,7 +357,7 @@ def test_cli_harvest_subs_marks_needs_audio(tmp_root, monkeypatch, capsys):
     rc = main(["harvest-subs", "--archive-root", tmp_root])
     assert rc == 0
     store = ManifestStore(root=tmp_root)
-    assert store.get("BV1test00")["status"] == "needs_audio"
+    assert store.get("BV1test00:p0")["status"] == "needs_audio"
     out = capsys.readouterr().out
     assert "needs_audio" in out
 
@@ -375,9 +375,9 @@ def test_cli_harvest_subs_downloads_and_marks_done(tmp_root, monkeypatch):
     rc = main(["harvest-subs", "--archive-root", tmp_root])
     assert rc == 0
     store = ManifestStore(root=tmp_root)
-    assert store.get("BV1test00")["status"] == "subtitle_done"
+    assert store.get("BV1test00:p0")["status"] == "subtitle_done"
     assert os.path.exists(
-        os.path.join(tmp_root, "transcripts", "srt", "BV1test00.srt"))
+        os.path.join(tmp_root, "transcripts", "srt", "BV1test00.p0.srt"))
 
 
 def test_cli_harvest_sessdata_env_not_echoed(tmp_root, monkeypatch, capsys):
@@ -422,10 +422,10 @@ def test_cli_harvest_api_error_preserves_status_and_mixed_batch_fails(
     rc = main(["harvest-subs", "--archive-root", tmp_root])
     assert rc == 1
     entries = ManifestStore(root=tmp_root).load()
-    failed = entries["BV1test00"]
+    failed = entries.get("BV1test00") or entries["BV1test00:p0"]
     assert failed["status"] == "meta_ok"
     assert failed["last_api_error_code"] == -400
-    assert entries["BV1test01"]["status"] == "needs_audio"
+    assert entries["BV1test01:p0"]["status"] == "needs_audio"
     assert all(entry.get("status") != "gone" for entry in entries.values())
     captured = capsys.readouterr()
     output = captured.out + captured.err
@@ -484,4 +484,4 @@ def test_cli_harvest_bvid_filter(tmp_root, monkeypatch):
     assert rc == 0
     store = ManifestStore(root=tmp_root)
     assert store.get("BV1test00")["status"] == "meta_ok"  # untouched
-    assert store.get("BV1test01")["status"] == "needs_audio"
+    assert store.get("BV1test01:p0")["status"] == "needs_audio"

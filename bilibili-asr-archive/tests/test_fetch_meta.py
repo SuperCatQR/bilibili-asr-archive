@@ -31,6 +31,12 @@ class FakeTransport:
         self.calls.append(
             {"url": url, "params": dict(params or {}), "cookies": dict(cookies or {})}
         )
+        if "pagelist" in url:
+            cid = abs(hash((params or {}).get("bvid") or "x")) % 10_000 + 1
+            return 200, {
+                "code": 0,
+                "data": [{"cid": cid, "page": 1, "part": ""}],
+            }
         queue = self.spi if "finger/spi" in url else self.script
         if not queue:
             raise AssertionError("FakeTransport ran out of scripted responses")
@@ -307,11 +313,12 @@ def test_cli_fetch_meta_writes_manifest(tmp_root, fast_sleep, monkeypatch):
     rc = main(["fetch-meta", "--mid", "23191782", "--archive-root", tmp_root])
     assert rc == 0
     entries = ManifestStore(root=tmp_root).load()
-    assert set(entries) == {"BV1A", "BV1B"}
+    assert set(entries) == {"BV1A:p0", "BV1B:p0"}
     for e in entries.values():
         assert e["status"] == "meta_ok"
-    assert entries["BV1A"]["duration_s"] == 3600
-    assert entries["BV1A"]["pubdate"] == 1700000000
+        assert e["work_id"].endswith(":p0")
+    assert entries["BV1A:p0"]["duration_s"] == 3600
+    assert entries["BV1A:p0"]["pubdate"] == 1700000000
 
 
 def test_cli_resume_does_not_duplicate(tmp_root, fast_sleep, monkeypatch):
@@ -332,7 +339,7 @@ def test_cli_resume_does_not_duplicate(tmp_root, fast_sleep, monkeypatch):
                "--archive-root", tmp_root])
     assert rc == 0
     entries = store.load()
-    assert set(entries) == {"BV1A", "BV1B"}
+    assert set(entries) == {"BV1A:p0", "BV1B:p0"}
     lines = open(store.path, encoding="utf-8").read().strip().splitlines()
     bvids = [json.loads(l)["bvid"] for l in lines]
     assert sorted(bvids) == ["BV1A", "BV1B"]  # no dup lines
@@ -360,7 +367,7 @@ def test_cli_pages_limit(tmp_root, fast_sleep, monkeypatch):
                "--archive-root", tmp_root])
     assert rc == 0
     entries = ManifestStore(root=tmp_root).load()
-    assert set(entries) == {"BV1A"}
+    assert set(entries) == {"BV1A:p0"}
 
 
 # ------------------------------------------------- fix wave 1 (QC1/2/3) tests
@@ -451,7 +458,7 @@ def test_cli_budget_exhausted_midrun_persists_partial(tmp_root, fast_sleep,
     rc = main(["fetch-meta", "--mid", "23191782", "--archive-root", tmp_root])
     assert rc == 2
     entries = ManifestStore(root=tmp_root).load()
-    assert set(entries) == {"BV1A", "BV1B"}  # partial run persisted
+    assert set(entries) == {"BV1A:p0", "BV1B:p0"}  # partial run persisted
     err = capsys.readouterr().err
     assert "page 2" in err
     assert "2" in err and "persisted" in err
@@ -489,7 +496,7 @@ def test_cli_api_error_midrun_persists_partial(tmp_root, fast_sleep,
     assert rc == 2
     entries = store.load()
     assert entries["BVexisting"]["status"] == "subtitle_done"
-    assert entries["BV1A"]["status"] == "meta_ok"
+    assert entries["BV1A:p0"]["status"] == "meta_ok"
     assert all(entry.get("status") != "gone" for entry in entries.values())
     err = capsys.readouterr().err
     assert "API response error (code -400)" in err
@@ -510,7 +517,7 @@ def test_cli_gone_midrun_persists_partial(tmp_root, fast_sleep, monkeypatch,
     rc = main(["fetch-meta", "--mid", "23191782", "--archive-root", tmp_root])
     assert rc == 2
     entries = ManifestStore(root=tmp_root).load()
-    assert set(entries) == {"BV1A", "BV1B"}
+    assert set(entries) == {"BV1A:p0", "BV1B:p0"}
     err = capsys.readouterr().err
     assert "2 page(s)" in err
     assert "no pages enumerated" not in err

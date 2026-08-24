@@ -14,6 +14,8 @@ import time
 import urllib.parse
 from typing import Any, Callable, Mapping, Protocol
 
+from .page_identity import PageIdentity, page_identity
+
 API_BASE = "https://api.bilibili.com"
 
 REC_ARCHIVES_URL = API_BASE + "/x/series/recArchivesByKeywords"
@@ -110,6 +112,17 @@ class APIResponseError(Exception):
     def __init__(self, code: int | str) -> None:
         self.code = code
         super().__init__(f"API response error (code={code})")
+
+
+class AmbiguousPageError(Exception):
+    """cid omitted on a multi-part video; never silently use pages[0]."""
+
+    def __init__(self, bvid: str, page_count: int) -> None:
+        self.bvid = bvid
+        self.page_count = page_count
+        super().__init__(
+            f"{bvid}: cid required when pagelist has {page_count} parts"
+        )
 
 
 class RiskBudgetExhausted(Exception):
@@ -434,15 +447,10 @@ class BiliClient:
                 }
         return records
 
-    # -- subtitle probe (Task 2) -------------------------------------------
+    def list_pages(self, bvid: str) -> list[PageIdentity]:
+        """Return one PageIdentity per pagelist part (zero-based index).
 
-    def probe_subs(self, bvid: str) -> list[dict[str, Any]]:
-        """Return the player/wbi/v2 subtitle list for bvid (first page).
-
-        Empty list is the normal no-login Path-A outcome (spike Task 1:
-        need_login_subtitle=true, subtitles==[]). Signed per spec even
-        though the server currently tolerates unsigned calls. SESSDATA
-        (if configured) is sent as a cookie only.
+        Empty pagelist is gone. Missing cid on a returned part is STOP.
         """
         cookies = {"SESSDATA": self._sessdata} if self._sessdata else None
         pagelist = self._request_with_cookies(
@@ -451,9 +459,45 @@ class BiliClient:
         )
         pages = pagelist.get("data") or []
         if not pages:
-            # pagelist code 0 with empty data = deleted/empty video
             raise _GoneResponse("pagelist-empty")
-        cid = pages[0].get("cid")
+        identities: list[PageIdentity] = []
+        for index, part in enumerate(pages):
+            cid = part.get("cid")
+            if cid is None:
+                raise ValueError(f"{bvid}: pagelist part {index} is missing cid")
+            identities.append(
+                page_identity(
+                    bvid,
+                    index,
+                    int(cid),
+                    page_label=str(part.get("part") or ""),
+                )
+            )
+        return identities
+
+    def _resolve_cid(self, bvid: str, cid: int | None) -> int:
+        if cid is not None:
+            return cid
+        pages = self.list_pages(bvid)
+        if len(pages) != 1:
+            raise AmbiguousPageError(bvid, len(pages))
+        return pages[0].cid
+
+    # -- subtitle probe (Task 2) -------------------------------------------
+
+    def probe_subs(
+        self, bvid: str, cid: int | None = None
+    ) -> list[dict[str, Any]]:
+        """Return the player/wbi/v2 subtitle list for one page cid.
+
+        Empty list is the normal no-login Path-A outcome (spike Task 1:
+        need_login_subtitle=true, subtitles==[]). Signed per spec even
+        though the server currently tolerates unsigned calls. SESSDATA
+        (if configured) is sent as a cookie only.
+        `cid is None` is allowed only when pagelist length is 1.
+        """
+        cookies = {"SESSDATA": self._sessdata} if self._sessdata else None
+        cid = self._resolve_cid(bvid, cid)
         img_key, sub_key = self._wbi_keys()
         params = sign_wbi({"cid": cid, "bvid": bvid}, img_key, sub_key)
         body = self._request_with_cookies(
@@ -485,22 +529,18 @@ class BiliClient:
 
     # -- audio playurl / stream (Task 3) -----------------------------------
 
-    def fetch_playurl_audio(self, bvid: str) -> list[dict[str, Any]]:
-        """Return the dash audio stream list for bvid's first page.
+    def fetch_playurl_audio(
+        self, bvid: str, cid: int | None = None
+    ) -> list[dict[str, Any]]:
+        """Return the dash audio stream list for one page cid.
 
         The playurl query is WBI-signed; SESSDATA, when configured, is sent
         only through the cookie channel. Empty list means the video exposes
         no dash audio (caller decides terminal handling).
+        `cid is None` is allowed only when pagelist length is 1.
         """
         cookies = {"SESSDATA": self._sessdata} if self._sessdata else None
-        pagelist = self._request_with_cookies(
-            PAGELIST_URL, {"bvid": bvid, "jsonp": "jsonp"},
-            extra_cookies=cookies,
-        )
-        pages = pagelist.get("data") or []
-        if not pages:
-            raise _GoneResponse("pagelist-empty")
-        cid = pages[0].get("cid")
+        cid = self._resolve_cid(bvid, cid)
         query = {"bvid": bvid, "cid": cid, "fnval": 16, "qn": 0}
         img_key, sub_key = self._wbi_keys()
         params = sign_wbi(query, img_key, sub_key)

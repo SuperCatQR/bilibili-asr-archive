@@ -401,7 +401,7 @@ def test_download_audio_updates_manifest_audio_ok(tmp_root):
     audio.download_audio(client, BVID,
                          os.path.join(tmp_root, "audio", f"{BVID}.m4a"),
                          store=store)
-    entry = store.get(BVID)
+    entry = store.get(f"{BVID}:p0")
     assert entry["status"] == "audio_ok"
     assert entry["audio_path"] == os.path.join("audio", f"{BVID}.m4a")
     assert "last_api_error_code" not in entry
@@ -444,9 +444,9 @@ def test_cli_download_audio_missing_subs(tmp_root, monkeypatch, capsys):
     rc = main(["download-audio", "--missing-subs", "--archive-root", tmp_root])
     assert rc == 0
     store = ManifestStore(root=tmp_root)
-    assert store.get(BVID)["status"] == "audio_ok"
+    assert store.get(f"{BVID}:p0")["status"] == "audio_ok"
     assert store.get("BV1done")["status"] == "subtitle_done"
-    assert os.path.exists(os.path.join(tmp_root, "audio", f"{BVID}.m4a"))
+    assert os.path.exists(os.path.join(tmp_root, "audio", f"{BVID}.p0.m4a"))
     assert "audio_ok" in capsys.readouterr().out
     # only the needs_audio video was streamed
     assert len(transport.stream_calls) == 1
@@ -465,7 +465,7 @@ def test_cli_download_audio_bvid(tmp_root, monkeypatch):
                "--archive-root", tmp_root])
     assert rc == 0
     store = ManifestStore(root=tmp_root)
-    assert store.get("BV1fresh")["status"] == "audio_ok"
+    assert store.get("BV1fresh:p0")["status"] == "audio_ok"
 
 
 def test_cli_download_audio_requires_selection(tmp_root, monkeypatch, capsys):
@@ -524,10 +524,10 @@ def test_cli_download_audio_api_error_preserves_status_and_mixed_batch_fails(
     rc = main(["download-audio", "--missing-subs", "--archive-root", tmp_root])
     assert rc == 1
     entries = ManifestStore(root=tmp_root).load()
-    failed = entries["BV1error"]
+    failed = entries.get("BV1error") or entries["BV1error:p0"]
     assert failed["status"] == "needs_audio"
     assert failed["last_api_error_code"] == -101
-    assert entries["BV1success"]["status"] == "audio_ok"
+    assert entries["BV1success:p0"]["status"] == "audio_ok"
     assert all(entry.get("status") != "gone" for entry in entries.values())
     captured = capsys.readouterr()
     output = captured.out + captured.err
