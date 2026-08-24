@@ -92,6 +92,12 @@ def harvest_subtitle(
     returned an empty list (Path A — expected without SESSDATA).
     """
     if isinstance(target, str):
+        existing = store.get_compatible(target) or store.get(target)
+        if existing and (
+            existing.get("unresolved")
+            or existing.get("excluded_from_page_processing")
+        ):
+            raise ValueError(f"{target}: unresolved; not assigned to a page")
         store.migrate_legacy_rows(
             client.list_pages,
             archive_root=archive_root,

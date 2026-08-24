@@ -123,6 +123,16 @@ class ManifestStore:
             )
         if not self._loaded:
             self.load()
+        if not work_id:
+            existing = self._entries.get(str(bvid))
+            freeze = _is_unresolved(entry) or bool(
+                entry.get("excluded_from_page_processing")
+            )
+            legacy_update = (
+                existing is not None and not existing.get("work_id")
+            )
+            if not freeze and not legacy_update:
+                raise ValueError("new automatic row requires work_id")
         stored = dict(entry)
         self._entries[_entry_key(stored)] = stored
         self.save()
@@ -231,25 +241,33 @@ class ManifestStore:
         return report
 
 
+_ARTIFACT_REL_DIRS = (
+    "audio",
+    os.path.join("subtitles", "raw"),
+    os.path.join("transcripts", "srt"),
+    os.path.join("transcripts", "txt"),
+    os.path.join("transcripts", "md"),
+    os.path.join("transcripts", "raw"),
+)
+
+
 def _foreign_page_stems(archive_root: str, bvid: str) -> set[str]:
-    """Return artifact stems `{bvid}.pN` for N != 0 under archive_root."""
+    """Return artifact stems `{bvid}.pN` (including p0) in known dirs."""
     found: set[str] = set()
-    if not os.path.isdir(archive_root):
-        return found
     prefix = f"{bvid}.p"
-    for dirpath, _dirnames, filenames in os.walk(archive_root):
-        if os.path.abspath(dirpath) == os.path.abspath(
-            os.path.join(archive_root, "manifest")
-        ):
+    for rel in _ARTIFACT_REL_DIRS:
+        dirpath = os.path.join(archive_root, rel)
+        if not os.path.isdir(dirpath):
             continue
-        for name in filenames:
+        try:
+            names = os.listdir(dirpath)
+        except OSError:
+            continue
+        for name in names:
             stem, _ext = os.path.splitext(name)
-            match = _STEM_PAGE_RE.match(stem)
-            if not match:
-                continue
             if not stem.startswith(prefix):
                 continue
-            page_index = int(match.group(2))
-            if page_index != 0:
-                found.add(stem)
+            if not _STEM_PAGE_RE.match(stem):
+                continue
+            found.add(stem)
     return found

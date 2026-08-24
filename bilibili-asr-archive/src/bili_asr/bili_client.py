@@ -502,11 +502,21 @@ class BiliClient:
         """
         cookies = {"SESSDATA": self._sessdata} if self._sessdata else None
         cid = self._resolve_cid(bvid, cid)
+        query = {"cid": cid, "bvid": bvid}
         img_key, sub_key = self._wbi_keys()
-        params = sign_wbi({"cid": cid, "bvid": bvid}, img_key, sub_key)
-        body = self._request_with_cookies(
-            PLAYER_WBI_V2_URL, params, extra_cookies=cookies
-        )
+        params = sign_wbi(query, img_key, sub_key)
+        try:
+            body = self._request_with_cookies(
+                PLAYER_WBI_V2_URL, params, extra_cookies=cookies
+            )
+        except APIResponseError as exc:
+            if exc.code != -403:
+                raise
+            img_key, sub_key = self._wbi_keys(refresh=True)
+            params = sign_wbi(query, img_key, sub_key)
+            body = self._request_with_cookies(
+                PLAYER_WBI_V2_URL, params, extra_cookies=cookies
+            )
         data = body.get("data") or {}
         subs = ((data.get("subtitle") or {}).get("subtitles")) or []
         # normalize protocol-relative subtitle URLs for immediate download

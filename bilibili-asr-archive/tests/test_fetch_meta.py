@@ -323,10 +323,13 @@ def test_cli_fetch_meta_writes_manifest(tmp_root, fast_sleep, monkeypatch):
 
 def test_cli_resume_does_not_duplicate(tmp_root, fast_sleep, monkeypatch):
     store = ManifestStore(root=tmp_root)
-    store.upsert(
-        {"bvid": "BV1A", "status": "meta_ok", "title": "t BV1A",
-         "duration_s": 100, "pubdate": 1}
-    )
+    store.load()
+    store.save({
+        "BV1A": {
+            "bvid": "BV1A", "status": "meta_ok", "title": "t BV1A",
+            "duration_s": 100, "pubdate": 1,
+        }
+    })
     transport = FakeTransport(
         [
             (200, ok_page([arc("BV1A"), arc("BV1B")], total=2)),
@@ -480,7 +483,10 @@ def test_cli_budget_exhausted_page1_persists_nothing(tmp_root, fast_sleep,
 def test_cli_api_error_midrun_persists_partial(tmp_root, fast_sleep,
                                                monkeypatch, capsys):
     store = ManifestStore(root=tmp_root)
-    store.upsert({"bvid": "BVexisting", "status": "subtitle_done"})
+    store.load()
+    store.save({
+        "BVexisting": {"bvid": "BVexisting", "status": "subtitle_done"},
+    })
     transport = FakeTransport(
         [
             (200, ok_page([arc("BV1A")], total=99)),
@@ -521,6 +527,40 @@ def test_cli_gone_midrun_persists_partial(tmp_root, fast_sleep, monkeypatch,
     err = capsys.readouterr().err
     assert "2 page(s)" in err
     assert "no pages enumerated" not in err
+
+
+class SelectivePagelistTransport(FakeTransport):
+    def get_json(self, url, params=None, headers=None, cookies=None, timeout=None):
+        if "pagelist" in url:
+            self.calls.append(
+                {"url": url, "params": dict(params or {}), "cookies": dict(cookies or {})}
+            )
+            bvid = (params or {}).get("bvid")
+            if bvid == "BV1B":
+                return 200, {"code": -404}
+            return 200, {
+                "code": 0,
+                "data": [{"cid": 11, "page": 1, "part": ""}],
+            }
+        return super().get_json(url, params=params, headers=headers, cookies=cookies, timeout=timeout)
+
+
+def test_cli_fetch_meta_pagelist_failure_keeps_other_bvid(
+    tmp_root, fast_sleep, monkeypatch
+):
+    transport = SelectivePagelistTransport(
+        [(200, ok_page([arc("BV1A"), arc("BV1B")], total=2))],
+    )
+    monkeypatch.setattr(bc, "build_default_transport", lambda: transport)
+    monkeypatch.setattr(bc, "default_sleeper", lambda: fast_sleep)
+    rc = main(["fetch-meta", "--mid", "23191782", "--archive-root", tmp_root])
+    assert rc == 0
+    entries = ManifestStore(root=tmp_root).load()
+    assert "BV1A:p0" in entries
+    assert "BV1B" not in entries
+    assert "BV1B:p0" not in entries
+    pagelist = [c for c in transport.calls if "pagelist" in c["url"]]
+    assert [c["params"]["bvid"] for c in pagelist] == ["BV1A", "BV1B"]
 
 
 def test_cli_gone_on_first_page_reports_no_pages(tmp_root, fast_sleep,

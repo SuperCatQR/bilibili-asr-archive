@@ -292,6 +292,20 @@ def test_download_audio_atomic_no_partial_on_failure(tmp_root):
     assert not os.path.exists(out)
 
 
+def test_download_audio_skips_existing_page_identity_without_network(tmp_root):
+    from bili_asr.page_identity import page_identity
+
+    identity = page_identity(BVID, 0, 111)
+    client = make_client({})
+    out = os.path.join(tmp_root, "audio", f"{BVID}.p0.m4a")
+    os.makedirs(os.path.dirname(out), exist_ok=True)
+    with open(out, "wb") as fh:
+        fh.write(b"already-there")
+    audio.download_audio(client, identity, out)
+    assert client.transport.calls == []
+    assert client.transport.stream_calls == []
+
+
 def test_download_audio_skips_existing(tmp_root):
     client = make_client(
         {"pagelist": [pagelist_ok()], "/x/player/wbi/playurl": [playurl_ok()]},
@@ -389,11 +403,19 @@ def test_download_audio_flac_without_ffmpeg_keeps_flac(tmp_root, monkeypatch):
 
 # ------------------------------------------------------------------ manifest
 
+def seed_legacy(store, *entries):
+    store.load()
+    data = dict(store._entries)
+    for entry in entries:
+        data[entry.get("work_id") or entry["bvid"]] = entry
+    store.save(data)
+
+
 def test_download_audio_updates_manifest_audio_ok(tmp_root):
     store = ManifestStore(root=tmp_root)
-    store.upsert({"bvid": BVID, "status": "needs_audio", "title": "t",
-                  "duration_s": 1, "pubdate": 1,
-                  "last_api_error_code": -403})
+    seed_legacy(store, {"bvid": BVID, "status": "needs_audio", "title": "t",
+                        "duration_s": 1, "pubdate": 1,
+                        "last_api_error_code": -403})
     client = make_client(
         {"pagelist": [pagelist_ok()], "/x/player/wbi/playurl": [playurl_ok()]},
         stream_routes={f"{STREAM_HOST}/a30216.m4s": AUDIO_BYTES},
@@ -425,10 +447,13 @@ def _cli_routes(monkeypatch, transport):
 
 def manifest_needs_audio(tmp_root):
     store = ManifestStore(root=tmp_root)
-    store.upsert({"bvid": BVID, "status": "needs_audio", "title": "t",
-                  "duration_s": 1, "pubdate": 1})
-    store.upsert({"bvid": "BV1done", "status": "subtitle_done", "title": "d",
-                  "duration_s": 1, "pubdate": 1})
+    seed_legacy(
+        store,
+        {"bvid": BVID, "status": "needs_audio", "title": "t",
+         "duration_s": 1, "pubdate": 1},
+        {"bvid": "BV1done", "status": "subtitle_done", "title": "d",
+         "duration_s": 1, "pubdate": 1},
+    )
     return store
 
 
@@ -461,11 +486,11 @@ def test_cli_download_audio_bvid(tmp_root, monkeypatch):
         stream_routes={f"{STREAM_HOST}/a30216.m4s": AUDIO_BYTES},
     )
     _cli_routes(monkeypatch, transport)
-    rc = main(["download-audio", "--bvid", "BV1fresh",
+    rc = main(["download-audio", "--bvid", BVID,
                "--archive-root", tmp_root])
     assert rc == 0
     store = ManifestStore(root=tmp_root)
-    assert store.get("BV1fresh:p0")["status"] == "audio_ok"
+    assert store.get(f"{BVID}:p0")["status"] == "audio_ok"
 
 
 def test_cli_download_audio_requires_selection(tmp_root, monkeypatch, capsys):
@@ -474,7 +499,7 @@ def test_cli_download_audio_requires_selection(tmp_root, monkeypatch, capsys):
     assert rc == 1
 
 
-def test_cli_download_audio_unknown_bvid_api_error_creates_resumable_row(
+def test_cli_download_audio_unknown_bvid_stops_without_row(
     tmp_root, monkeypatch, capsys
 ):
     monkeypatch.setenv("BILI_SESSDATA", "SECRET-SESSDATA")
@@ -490,14 +515,11 @@ def test_cli_download_audio_unknown_bvid_api_error_creates_resumable_row(
     ])
 
     assert rc == 1
-    entry = ManifestStore(root=tmp_root).get("BV1unknown")
-    assert entry == {
-        "bvid": "BV1unknown",
-        "status": "needs_audio",
-        "last_api_error_code": -403,
-    }
+    assert ManifestStore(root=tmp_root).get("BV1unknown") is None
+    assert not os.path.exists(ManifestStore(root=tmp_root).path)
     captured = capsys.readouterr()
     output = captured.out + captured.err
+    assert "unresolved" in output
     assert "SECRET-SESSDATA" not in output
     assert "http" not in output.lower()
 
@@ -506,8 +528,11 @@ def test_cli_download_audio_api_error_preserves_status_and_mixed_batch_fails(
     tmp_root, monkeypatch, capsys
 ):
     store = ManifestStore(root=tmp_root)
-    store.upsert({"bvid": "BV1error", "status": "needs_audio", "title": "e"})
-    store.upsert({"bvid": "BV1success", "status": "needs_audio", "title": "s"})
+    seed_legacy(
+        store,
+        {"bvid": "BV1error", "status": "needs_audio", "title": "e"},
+        {"bvid": "BV1success", "status": "needs_audio", "title": "s"},
+    )
     transport = RouterTransport(
         {
             "finger/spi": [SPI_OK],
@@ -538,6 +563,11 @@ def test_cli_download_audio_transport_error_redacts_exception_message(
     tmp_root, monkeypatch, capsys
 ):
     sentinel = "SESSDATA=AUDIO-SECRET https://cdn.example/a.m4s?token=SIGNED"
+    seed_legacy(
+        ManifestStore(root=tmp_root),
+        {"bvid": "BV1transport", "status": "needs_audio", "title": "t",
+         "duration_s": 1, "pubdate": 1},
+    )
     transport = RouterTransport({
         "finger/spi": [SPI_OK],
         "pagelist": [RuntimeError(sentinel)] * 5,
@@ -555,7 +585,10 @@ def test_cli_download_audio_transport_error_redacts_exception_message(
     assert "RuntimeError" in output
     assert "AUDIO-SECRET" not in output
     assert "SIGNED" not in output
-    assert ManifestStore(root=tmp_root).get("BV1transport") is None
+    leftover = ManifestStore(root=tmp_root).get("BV1transport")
+    assert leftover is not None
+    assert leftover.get("status") == "needs_audio"
+    assert "work_id" not in leftover
 
 
 def test_cli_download_audio_budget_exhausted_exit_2(tmp_root, monkeypatch, capsys):

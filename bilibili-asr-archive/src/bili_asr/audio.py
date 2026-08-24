@@ -94,15 +94,22 @@ def download_audio(
     unavailable).
     Raises NoAudioStreamError / StreamDownloadError / GoneResponse.
     """
-    identity = resolve_page_identity(client, target)
     out_path = os.fspath(out_path)
+    if isinstance(target, PageIdentity):
+        existing = _existing_audio(out_path)
+        if existing is not None:
+            _mark_audio_ok(store, target, existing)
+            return existing
+        identity = target
+    else:
+        identity = resolve_page_identity(client, target)
+        existing = _existing_audio(out_path)
+        if existing is not None:
+            _mark_audio_ok(store, identity, existing)
+            return existing
+
     audio_dir = os.path.dirname(out_path) or "."
     os.makedirs(audio_dir, exist_ok=True)
-
-    existing = _existing_audio(out_path)
-    if existing is not None:
-        _mark_audio_ok(store, identity, existing)
-        return existing
 
     streams = client.fetch_playurl_audio(identity.bvid, cid=identity.cid)
     chosen = pick_audio_stream(streams)

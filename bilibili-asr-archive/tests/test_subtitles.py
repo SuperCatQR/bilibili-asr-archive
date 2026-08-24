@@ -184,12 +184,22 @@ def test_pick_subtitle_prefers_ai_zh():
 
 # ---------------------------------------------------------------- harvest
 
+def seed_legacy(store, *entries):
+    store.load()
+    data = dict(store._entries)
+    for entry in entries:
+        data[entry.get("work_id") or entry["bvid"]] = entry
+    store.save(data)
+
+
 def manifest_with(tmp_root, statuses=("meta_ok",)):
     store = ManifestStore(root=tmp_root)
+    rows = []
     for i, st in enumerate(statuses):
         bvid = f"BV1test{i:02d}"
-        store.upsert({"bvid": bvid, "status": st, "title": f"t {bvid}",
-                      "duration_s": 100, "pubdate": 1})
+        rows.append({"bvid": bvid, "status": st, "title": f"t {bvid}",
+                     "duration_s": 100, "pubdate": 1})
+    seed_legacy(store, *rows)
     return store
 
 
@@ -274,7 +284,7 @@ def test_cli_probe_subs_empty(tmp_root, monkeypatch, capsys):
     assert "needs_audio" in out
 
 
-def test_cli_probe_subs_unknown_bvid_api_error_creates_minimal_row(
+def test_cli_probe_subs_unknown_bvid_api_error_does_not_create_row(
     tmp_root, monkeypatch, capsys
 ):
     sentinel_cookie = "PROBE-SESSDATA-SECRET"
@@ -291,19 +301,12 @@ def test_cli_probe_subs_unknown_bvid_api_error_creates_minimal_row(
     ])
 
     assert rc == 1
-    entry = ManifestStore(root=tmp_root).get("BV1unknown")
-    assert entry == {
-        "bvid": "BV1unknown",
-        "status": "meta_ok",
-        "last_api_error_code": -99999,
-    }
+    assert ManifestStore(root=tmp_root).get("BV1unknown") is None
+    assert not os.path.exists(ManifestStore(root=tmp_root).path)
     captured = capsys.readouterr()
     output = captured.out + captured.err
     assert sentinel_cookie not in output
     assert "http" not in output.lower()
-    assert sentinel_cookie not in open(
-        ManifestStore(root=tmp_root).path, encoding="utf-8"
-    ).read()
 
 
 def test_cli_probe_subs_transport_error_redacts_exception_message(
@@ -449,12 +452,15 @@ def test_cli_harvest_budget_exhausted_exit_2(tmp_root, monkeypatch, capsys):
 
 def test_cli_harvest_skips_done_and_needs_audio(tmp_root, monkeypatch):
     store = ManifestStore(root=tmp_root)
-    store.upsert({"bvid": "BV1done", "status": "subtitle_done", "title": "d",
-                  "duration_s": 1, "pubdate": 1})
-    store.upsert({"bvid": "BV1audio", "status": "needs_audio", "title": "a",
-                  "duration_s": 1, "pubdate": 1})
-    store.upsert({"bvid": "BV1todo", "status": "meta_ok", "title": "t",
-                  "duration_s": 1, "pubdate": 1})
+    seed_legacy(
+        store,
+        {"bvid": "BV1done", "status": "subtitle_done", "title": "d",
+         "duration_s": 1, "pubdate": 1},
+        {"bvid": "BV1audio", "status": "needs_audio", "title": "a",
+         "duration_s": 1, "pubdate": 1},
+        {"bvid": "BV1todo", "status": "meta_ok", "title": "t",
+         "duration_s": 1, "pubdate": 1},
+    )
     transport = RouterTransport({
         "finger/spi": [SPI_OK],
         "nav": [nav_ok()],

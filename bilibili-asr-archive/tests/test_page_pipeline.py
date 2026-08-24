@@ -265,6 +265,38 @@ def test_cli_download_audio_bvid_unresolved_stops(tmp_root, monkeypatch, capsys)
     assert not os.path.exists(os.path.join(tmp_root, "audio", f"{BVID}.p0.m4a"))
 
 
+def test_cli_harvest_subs_bvid_unresolved_stops(tmp_root, monkeypatch, capsys):
+    store = ManifestStore(root=tmp_root)
+    store.upsert({
+        "bvid": BVID, "status": "meta_ok", "title": "legacy",
+        "duration_s": 1, "pubdate": 1, "unresolved": True,
+        "unresolved_reason": "ambiguous_bare_bvid",
+        "excluded_from_page_processing": True,
+    })
+    monkeypatch.setattr(bc, "build_default_transport", lambda: SubRouter({}))
+    monkeypatch.setattr(bc, "default_sleeper", lambda _s=None: None)
+    rc = main(["harvest-subs", "--bvid", BVID, "--archive-root", tmp_root])
+    assert rc == 1
+    err = capsys.readouterr().err
+    assert "unresolved" in err
+    loaded = ManifestStore(root=tmp_root).load()
+    assert loaded[BVID]["unresolved"] is True
+    assert "work_id" not in loaded[BVID]
+
+
+def test_harvest_subtitle_str_skips_unresolved(tmp_root):
+    store = ManifestStore(root=tmp_root)
+    store.upsert({
+        "bvid": BVID, "status": "meta_ok", "unresolved": True,
+        "excluded_from_page_processing": True,
+    })
+    client = make_sub_client({"pagelist": [pagelist_two()]})
+    with pytest.raises(ValueError, match="unresolved"):
+        subtitles.harvest_subtitle(client, BVID, store, tmp_root)
+    pagelist = [c for c in client.transport.calls if "pagelist" in c["url"]]
+    assert pagelist == []
+
+
 def test_asr_pending_p0_failure_does_not_suppress_p1(tmp_root, monkeypatch):
     from bili_asr import asr as asr_mod
     from bili_asr.archive import write_archive
