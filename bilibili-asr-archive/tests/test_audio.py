@@ -98,7 +98,7 @@ def make_client(routes, stream_routes=None):
     "ids,expected",
     [
         ([30216, 30280], 30216),          # prefer DTS 30216
-        ([30232, 30280], 30232),          # then Hi-Res flac 30232
+        ([30232, 30280], 30232),          # then 132K 30232
         ([30232, 30216], 30216),          # 30216 beats 30232
         ([30280, 30250], 30250),          # fallback: highest quality id order
         ([30216], 30216),
@@ -121,6 +121,39 @@ def test_pick_audio_stream_none():
 # ------------------------------------------------------------------ download
 
 AUDIO_BYTES = b"\x00\x00\x00\x18ftypM4A " + b"payload" * 100
+
+
+def test_fetch_playurl_audio_uses_signed_wbi_endpoint_and_cookie():
+    transport = RouterTransport({
+        "finger/spi": [SPI_OK],
+        "pagelist": [pagelist_ok(cid=111)],
+        "nav": [(
+            200,
+            {"code": -101, "data": {"wbi_img": {
+                "img_url": f"https://i0.hdslb.com/bfs/wbi/{IMG_KEY}.png",
+                "sub_url": f"https://i0.hdslb.com/bfs/wbi/{SUB_KEY}.png",
+            }}},
+        )],
+        "/x/player/wbi/playurl": [playurl_ok()],
+    })
+    client = bc.BiliClient(
+        transport=transport,
+        sleeper=FastSleeper(),
+        jitter=lambda: 0.0,
+        sessdata="SECRET-SESSDATA",
+    )
+
+    assert client.fetch_playurl_audio(BVID)
+    call = [c for c in transport.calls if "/x/player/wbi/playurl" in c["url"]][0]
+    assert call["url"] == bc.API_BASE + "/x/player/wbi/playurl"
+    assert call["params"]["bvid"] == BVID
+    assert call["params"]["cid"] == 111
+    assert call["params"]["fnval"] == 16
+    assert call["params"]["qn"] == 0
+    assert isinstance(call["params"]["wts"], int)
+    assert len(call["params"]["w_rid"]) == 32
+    assert call["cookies"]["SESSDATA"] == "SECRET-SESSDATA"
+    assert "SECRET-SESSDATA" not in json.dumps(call["params"])
 
 
 def test_download_audio_prefers_30216_and_sends_referer_ua(tmp_root):
@@ -196,24 +229,39 @@ def test_download_audio_skips_existing(tmp_root):
         assert fh.read() == b"already-there"
 
 
-def test_download_audio_remux_flac_to_m4a(tmp_root, monkeypatch):
-    flac = b"fLaC" + b"data" * 10
+def test_download_audio_30232_m4s_does_not_remux(tmp_root, monkeypatch):
     client = make_client(
         {"pagelist": [pagelist_ok()],
          "playurl": [playurl_ok(streams=[
              {"id": 30232, "baseUrl": f"https://{STREAM_HOST}/a30232.m4s",
               "base_url": f"https://{STREAM_HOST}/a30232.m4s"},
          ])]},
-        stream_routes={f"{STREAM_HOST}/a30232.m4s": flac},
+        stream_routes={f"{STREAM_HOST}/a30232.m4s": AUDIO_BYTES},
+    )
+    calls = []
+    monkeypatch.setattr(audio, "_run_ffmpeg", lambda src, dst: calls.append((src, dst)))
+    out = os.path.join(tmp_root, "audio", f"{BVID}.m4a")
+    audio.download_audio(client, BVID, out)
+    assert calls == []
+    assert os.path.exists(out)
+
+
+def test_download_audio_explicit_flac_url_remuxes(tmp_root, monkeypatch):
+    flac = b"fLaC" + b"data" * 10
+    client = make_client(
+        {"pagelist": [pagelist_ok()],
+         "playurl": [playurl_ok(streams=[
+             {"id": 30232, "baseUrl": f"https://{STREAM_HOST}/a30232.flac",
+              "base_url": f"https://{STREAM_HOST}/a30232.flac"},
+         ])]},
+        stream_routes={f"{STREAM_HOST}/a30232.flac": flac},
     )
     calls = []
     monkeypatch.setattr(audio, "_run_ffmpeg", lambda src, dst: calls.append((src, dst)))
     out = os.path.join(tmp_root, "audio", f"{BVID}.m4a")
     audio.download_audio(client, BVID, out)
     assert calls and calls[0][1] == out
-    assert not os.path.exists(calls[0][0])  # temp removed
-    assert not os.path.exists(os.path.join(tmp_root, "audio", f"{BVID}.flac"))
-    # remuxed output is named .m4a
+    assert not os.path.exists(calls[0][0])
     assert os.path.basename(out).endswith(".m4a")
 
 
@@ -222,10 +270,10 @@ def test_download_audio_flac_without_ffmpeg_keeps_flac(tmp_root, monkeypatch):
     client = make_client(
         {"pagelist": [pagelist_ok()],
          "playurl": [playurl_ok(streams=[
-             {"id": 30232, "baseUrl": f"https://{STREAM_HOST}/a30232.m4s",
-              "base_url": f"https://{STREAM_HOST}/a30232.m4s"},
+             {"id": 30232, "baseUrl": f"https://{STREAM_HOST}/a30232.flac",
+              "base_url": f"https://{STREAM_HOST}/a30232.flac"},
          ])]},
-        stream_routes={f"{STREAM_HOST}/a30232.m4s": flac},
+        stream_routes={f"{STREAM_HOST}/a30232.flac": flac},
     )
     def boom(src, dst):
         raise audio.FFmpegUnavailable("no ffmpeg")

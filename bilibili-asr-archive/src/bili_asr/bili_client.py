@@ -21,7 +21,7 @@ FINGER_SPI_URL = API_BASE + "/x/frontend/finger/spi"
 NAV_URL = API_BASE + "/x/web-interface/nav"
 PAGELIST_URL = API_BASE + "/x/player/pagelist"
 PLAYER_WBI_V2_URL = API_BASE + "/x/player/wbi/v2"
-PLAYURL_URL = API_BASE + "/x/player/playurl"
+PLAYURL_URL = API_BASE + "/x/player/wbi/playurl"
 
 UA = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -476,20 +476,27 @@ class BiliClient:
     def fetch_playurl_audio(self, bvid: str) -> list[dict[str, Any]]:
         """Return the dash audio stream list for bvid's first page.
 
-        No WBI signing: the plain playurl endpoint accepts fnval=16 dash
-        requests at this auth tier (spike Task 1). Empty list means the
-        video exposes no dash audio (caller decides terminal handling).
+        The playurl query is WBI-signed; SESSDATA, when configured, is sent
+        only through the cookie channel. Empty list means the video exposes
+        no dash audio (caller decides terminal handling).
         """
+        cookies = {"SESSDATA": self._sessdata} if self._sessdata else None
         pagelist = self._request_with_cookies(
-            PAGELIST_URL, {"bvid": bvid, "jsonp": "jsonp"}
+            PAGELIST_URL, {"bvid": bvid, "jsonp": "jsonp"},
+            extra_cookies=cookies,
         )
         pages = pagelist.get("data") or []
         if not pages:
             raise _GoneResponse("pagelist-empty")
         cid = pages[0].get("cid")
-        body = self._request_with_cookies(
-            PLAYURL_URL,
+        img_key, sub_key = self._wbi_keys()
+        params = sign_wbi(
             {"bvid": bvid, "cid": cid, "fnval": 16, "qn": 0},
+            img_key,
+            sub_key,
+        )
+        body = self._request_with_cookies(
+            PLAYURL_URL, params, extra_cookies=cookies,
         )
         dash = (body.get("data") or {}).get("dash") or {}
         return dash.get("audio") or []

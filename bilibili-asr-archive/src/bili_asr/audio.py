@@ -1,14 +1,14 @@
 """Audio download layer (Task 3): playurl → preferred dash.audio stream → file.
 
 Spec constraints (plan 002 / asr-archive-cli.md):
-- Prefer dash.audio id 30216 (DTS/H.265 mux tier) then 30232 (Hi-Res flac),
-  falling back to the highest remaining quality.
+- Prefer dash.audio id 30216 (64K) then 30232 (132K), falling back to
+  the highest remaining quality.
 - The stream GET must carry Referer + UA headers or the CDN refuses it.
 - Stream base URLs are short-lived signed URLs: used in the same run as the
   playurl probe, never persisted to the manifest.
 - Manifest transition: needs_audio -> audio_ok.
-- flac (30232) is remuxed to .m4a via ffmpeg when available; without
-  ffmpeg the raw .flac is kept (pure-API fallback, AGENTS.md boundary).
+- Explicit FLAC streams are remuxed to .m4a via ffmpeg when available;
+  without ffmpeg the raw .flac is kept (pure-API fallback, AGENTS.md boundary).
 """
 
 from __future__ import annotations
@@ -23,8 +23,8 @@ from .manifest import ManifestStore
 
 AUDIO_DIR = os.path.join("audio")
 
-# Spec preference order for dash.audio codec ids:
-# 30216 DTS > 30232 Hi-Res flac > 30250 Dolby > (first listed: AAC et al.)
+# Spec preference order for dash.audio quality ids:
+# 30216 (64K) > 30232 (132K) > 30250 (Dolby) > first listed.
 _AUDIO_ID_PREFERENCE = (30216, 30232, 30250)
 
 
@@ -39,8 +39,7 @@ class FFmpegUnavailable(Exception):
 def pick_audio_stream(
     streams: list[dict[str, Any]] | None,
 ) -> dict[str, Any] | None:
-    """Choose the best dash audio stream: 30216 first, then 30232, then
-    the first remaining (Bilibili lists are already quality-descending)."""
+    """Choose the best dash audio stream by the explicit quality order."""
     if not streams:
         return None
     for preferred in _AUDIO_ID_PREFERENCE:
@@ -89,7 +88,8 @@ def download_audio(
 
     Resumability: when .m4a or .flac already exists (size>0), skip BEFORE any
     playurl/pagelist network call. Returns the final file path (which may be
-    a .flac sibling when 30232 was chosen and ffmpeg is unavailable).
+    a .flac sibling when an explicit FLAC stream is selected and ffmpeg is
+    unavailable).
     Raises NoAudioStreamError / StreamDownloadError / GoneResponse.
     """
     out_path = os.fspath(out_path)
@@ -107,7 +107,8 @@ def download_audio(
         raise NoAudioStreamError(f"{bvid}: playurl has no dash audio streams")
 
     url = _stream_url(chosen)
-    is_flac = chosen.get("id") == 30232 or ".flac" in url
+    mime_type = str(chosen.get("mimeType") or chosen.get("mime_type") or "")
+    is_flac = url.lower().split("?", 1)[0].endswith(".flac") or "flac" in mime_type.lower()
 
     final_path = out_path
     tmp_path = out_path + ".part"
