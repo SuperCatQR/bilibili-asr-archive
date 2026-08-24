@@ -396,6 +396,7 @@ class BiliClient:
         mid: int,
         max_pages: int | None = None,
         start_page: int = 1,
+        on_page=None,
     ) -> list[list[dict[str, Any]]]:
         """Enumerate archive pages via recArchivesByKeywords.
 
@@ -403,6 +404,8 @@ class BiliClient:
         Raises RiskBudgetExhausted when the retry budget runs out mid-page.
         Stops on: empty page streak (2), or reaching api total, or max_pages.
         CLI owns cursor I/O; this method only iterates ``pn`` from start_page.
+        ``on_page`` (optional) is invoked after each successful HTTP page so
+        the CLI can merge JSONL. This module does not import the cursor store.
         """
         pages: list[list[dict[str, Any]]] = []
         seen: set[str] = set()
@@ -434,6 +437,8 @@ class BiliClient:
                 empty_streak = 0
                 pages.append(arcs)
                 seen.update(a.get("bvid") for a in arcs if a.get("bvid"))
+            if on_page is not None:
+                on_page()
             pn += 1
             if total is not None and total > 0 and len(seen) >= total:
                 self.enumeration_complete = True

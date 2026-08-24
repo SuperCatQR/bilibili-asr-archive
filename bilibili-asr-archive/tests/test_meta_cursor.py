@@ -224,6 +224,44 @@ def test_cli_limit_pages_is_limited_not_complete(
     assert _cursor(tmp_root).resume_start_page(23191782) is None
 
 
+def test_cli_no_resume_replaces_stale_cursor_after_first_page(
+    tmp_root, monkeypatch,
+):
+    """Leftover risk_interrupted next_page=2 must not survive a new run's
+    first successful page if the crawl dies before the terminal persist."""
+    _seed_risk(tmp_root, next_page=2, total=99)
+    transport = FakeTransport(
+        [(200, ok_page([arc("BV1A")], total=99))],
+    )
+    monkeypatch.setattr(bc, "build_default_transport", lambda: transport)
+
+    def abort_after_first(_seconds: float) -> None:
+        raise RuntimeError("abort before terminal persist")
+
+    monkeypatch.setattr(bc, "default_sleeper", lambda: abort_after_first)
+    rc = main(["fetch-meta", "--mid", "23191782", "--archive-root", tmp_root])
+    assert rc == 1
+    cursor = _cursor(tmp_root).load()
+    assert cursor is not None
+    assert cursor["state"] != "risk_interrupted"
+    assert _cursor(tmp_root).resume_start_page(23191782) is None
+
+    transport2 = FakeTransport(
+        [
+            (200, ok_page([arc("BV1A")], total=1)),
+        ],
+    )
+    monkeypatch.setattr(bc, "build_default_transport", lambda: transport2)
+    monkeypatch.setattr(bc, "default_sleeper", lambda: FastSleeper())
+    rc2 = main([
+        "fetch-meta", "--mid", "23191782", "--resume",
+        "--archive-root", tmp_root,
+    ])
+    assert rc2 == 0
+    page_calls = [c for c in transport2.calls if "recArchivesByKeywords" in c["url"]]
+    assert page_calls[0]["params"]["pn"] == 1
+
+
 def test_cli_full_run_marks_complete(tmp_root, fast_sleep, monkeypatch, capsys):
     transport = FakeTransport(
         [

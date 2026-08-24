@@ -306,10 +306,33 @@ def _cmd_fetch_meta(args: argparse.Namespace) -> int:
         if resumed is not None:
             start_page = resumed
     pages_for = _cached_page_lister(client)
+    replaced_stale_cursor = False
+
+    def _after_successful_page() -> None:
+        nonlocal replaced_stale_cursor, existing
+        if args.resume or not client.pages_fetched:
+            return
+        _persist_partial(client, store, existing, pages_for=pages_for)
+        existing = store.load()
+        if replaced_stale_cursor:
+            return
+        # Spec: without --resume, leftover risk_interrupted is replaced after
+        # the first successful archive-list page merge (never persist running).
+        _persist_cursor(
+            cursor_store,
+            mid=args.mid,
+            next_page=client.last_completed_page + 1,
+            total=client.last_observed_total,
+            state="complete" if client.enumeration_complete else "limited",
+        )
+        replaced_stale_cursor = True
 
     try:
         pages = client.fetch_pages(
-            args.mid, max_pages=args.limit_pages, start_page=start_page,
+            args.mid,
+            max_pages=args.limit_pages,
+            start_page=start_page,
+            on_page=_after_successful_page,
         )
     except bili_client.RiskBudgetExhausted as exc:
         unenumerated = client.last_failed_page
@@ -360,8 +383,11 @@ def _cmd_fetch_meta(args: argparse.Namespace) -> int:
         return 1
 
     records = client.merge_pages(pages)
-    entries = _merge_page_rows(client, records, existing, pages_for=pages_for)
-    store.save(entries)
+    if replaced_stale_cursor:
+        entries = store.load()
+    else:
+        entries = _merge_page_rows(client, records, existing, pages_for=pages_for)
+        store.save(entries)
     store.migrate_legacy_rows(pages_for, archive_root=args.archive_root)
     entries = store.load()
 
