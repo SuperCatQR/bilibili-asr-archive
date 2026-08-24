@@ -18,6 +18,7 @@ venv/
 *.wav
 
 # scratch / pip leftovers
+.worktrees/
 .tmp/
 .tmp2/
 pydiagout.txt

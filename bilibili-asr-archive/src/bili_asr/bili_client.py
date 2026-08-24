@@ -14,6 +14,8 @@ import time
 import urllib.parse
 from typing import Any, Callable, Mapping, Protocol
 
+from .page_identity import PageIdentity, page_identity
+
 API_BASE = "https://api.bilibili.com"
 
 REC_ARCHIVES_URL = API_BASE + "/x/series/recArchivesByKeywords"
@@ -110,6 +112,17 @@ class APIResponseError(Exception):
     def __init__(self, code: int | str) -> None:
         self.code = code
         super().__init__(f"API response error (code={code})")
+
+
+class AmbiguousPageError(Exception):
+    """cid omitted on a multi-part video; never silently use pages[0]."""
+
+    def __init__(self, bvid: str, page_count: int) -> None:
+        self.bvid = bvid
+        self.page_count = page_count
+        super().__init__(
+            f"{bvid}: cid required when pagelist has {page_count} parts"
+        )
 
 
 class RiskBudgetExhausted(Exception):
@@ -228,11 +241,15 @@ class BiliClient:
         self._buvid: dict[str, str] | None = None
         # Optional Path-B login cookie; never logged or echoed (spec).
         self._sessdata = sessdata
+        self._wbi_key_pair: tuple[str, str] | None = None
         self.last_failed_page: int = 1  # page active when budget exhausted
         # Pages fetched during the most recent fetch_pages call. Alive even
         # after RiskBudgetExhausted/GoneResponse so the CLI can persist the
         # partial merge (H2: honest --resume).
         self.pages_fetched: list[list[dict[str, Any]]] = []
+        self.last_observed_total: int | None = None
+        self.last_completed_page: int = 0
+        self.enumeration_complete: bool = False
 
     # -- internals ---------------------------------------------------------
 
@@ -356,8 +373,10 @@ class BiliClient:
             raise APIResponseError(last_code)
         raise RiskBudgetExhausted(last_code)
 
-    def _wbi_keys(self) -> tuple[str, str]:
+    def _wbi_keys(self, refresh: bool = False) -> tuple[str, str]:
         """(img_key, sub_key) from nav; populated even at code -101."""
+        if not refresh and self._wbi_key_pair is not None:
+            return self._wbi_key_pair
         body = self._request_with_cookies(
             NAV_URL, {}, accept_codes={-101}
         )
@@ -367,52 +386,87 @@ class BiliClient:
         sub_key = _path_basename_stem(wbi.get("sub_url") or "")
         if not img_key or not sub_key:
             raise RiskBudgetExhausted("nav", "nav response missing wbi_img keys")
-        return img_key, sub_key
+        self._wbi_key_pair = (img_key, sub_key)
+        return self._wbi_key_pair
 
     # -- public API --------------------------------------------------------
 
     def fetch_pages(
-        self, mid: int, max_pages: int | None = None
+        self,
+        mid: int,
+        max_pages: int | None = None,
+        start_page: int = 1,
+        on_page: Callable[[], None] | None = None,
+        known_bvids: set[str] | None = None,
     ) -> list[list[dict[str, Any]]]:
         """Enumerate archive pages via recArchivesByKeywords.
 
         Returns a list of per-page archive lists (new/dupe mix preserved).
         Raises RiskBudgetExhausted when the retry budget runs out mid-page.
-        Stops on: empty page streak (2), or reaching api total, or max_pages.
+        Stops on: empty page streak (2), last catalog page
+        (``ceil(total/ps)``), a non-empty page that adds no new bvids,
+        ``len(seen) >= total``, or ``max_pages`` fetches **this call**.
+        CLI owns cursor I/O; this method only iterates ``pn`` from start_page.
+        ``on_page`` (optional) is invoked after each successful HTTP page so
+        the CLI can merge JSONL. This module does not import the cursor store.
         """
+        page_size = 30
         pages: list[list[dict[str, Any]]] = []
-        seen: set[str] = set()
+        seen: set[str] = set(known_bvids or ())
         total: int | None = None
         empty_streak = 0
-        pn = 1
+        pages_this_call = 0
+        pn = start_page if start_page >= 1 else 1
         self.pages_fetched = pages
+        self.last_observed_total = None
+        self.last_completed_page = pn - 1
+        self.enumeration_complete = False
         while True:
             self.last_failed_page = pn
             body = self._request(
                 REC_ARCHIVES_URL,
-                {"mid": mid, "keywords": "", "ps": 30, "pn": pn},
+                {"mid": mid, "keywords": "", "ps": page_size, "pn": pn},
             )
+            self.last_completed_page = pn
             data = body.get("data") or {}
             page_info = data.get("page") or {}
             total = page_info.get("total", total)
+            self.last_observed_total = total
             arcs = data.get("archives") or []
+            new_bvids = {a.get("bvid") for a in arcs if a.get("bvid")}
+            added = new_bvids - seen
             if not arcs:
                 empty_streak += 1
                 if empty_streak >= 2:
+                    self.enumeration_complete = True
+                    if on_page is not None:
+                        on_page()
                     break
             else:
                 empty_streak = 0
                 pages.append(arcs)
-                seen.update(a.get("bvid") for a in arcs if a.get("bvid"))
-            pn += 1
-            if max_pages is not None and pn > max_pages:
+                seen.update(new_bvids)
+            if on_page is not None:
+                on_page()
+            pages_this_call += 1
+            if arcs and not added:
+                self.enumeration_complete = True
                 break
             if total is not None and total > 0 and len(seen) >= total:
+                self.enumeration_complete = True
+                break
+            if total is not None and total > 0:
+                last_pn = (int(total) + page_size - 1) // page_size
+                if pn >= last_pn:
+                    self.enumeration_complete = True
+                    break
+            if max_pages is not None and pages_this_call >= max_pages:
                 break
             # Inter-page pacing: real randomized delay (0.8-1.6s like the
             # retired script) through the jitter seam, to avoid triggering
             # 412 risk-control from back-to-back page requests.
             self._sleeper(0.8 + max(0.0, self._jitter()) * 0.8)
+            pn += 1
         return pages
 
     def merge_pages(
@@ -434,15 +488,10 @@ class BiliClient:
                 }
         return records
 
-    # -- subtitle probe (Task 2) -------------------------------------------
+    def list_pages(self, bvid: str) -> list[PageIdentity]:
+        """Return one PageIdentity per pagelist part (zero-based index).
 
-    def probe_subs(self, bvid: str) -> list[dict[str, Any]]:
-        """Return the player/wbi/v2 subtitle list for bvid (first page).
-
-        Empty list is the normal no-login Path-A outcome (spike Task 1:
-        need_login_subtitle=true, subtitles==[]). Signed per spec even
-        though the server currently tolerates unsigned calls. SESSDATA
-        (if configured) is sent as a cookie only.
+        Empty pagelist is gone. Missing cid on a returned part is STOP.
         """
         cookies = {"SESSDATA": self._sessdata} if self._sessdata else None
         pagelist = self._request_with_cookies(
@@ -451,14 +500,60 @@ class BiliClient:
         )
         pages = pagelist.get("data") or []
         if not pages:
-            # pagelist code 0 with empty data = deleted/empty video
             raise _GoneResponse("pagelist-empty")
-        cid = pages[0].get("cid")
+        identities: list[PageIdentity] = []
+        for index, part in enumerate(pages):
+            cid = part.get("cid")
+            if cid is None:
+                raise ValueError(f"{bvid}: pagelist part {index} is missing cid")
+            identities.append(
+                page_identity(
+                    bvid,
+                    index,
+                    int(cid),
+                    page_label=str(part.get("part") or ""),
+                )
+            )
+        return identities
+
+    def _resolve_cid(self, bvid: str, cid: int | None) -> int:
+        if cid is not None:
+            return cid
+        pages = self.list_pages(bvid)
+        if len(pages) != 1:
+            raise AmbiguousPageError(bvid, len(pages))
+        return pages[0].cid
+
+    # -- subtitle probe (Task 2) -------------------------------------------
+
+    def probe_subs(
+        self, bvid: str, cid: int | None = None
+    ) -> list[dict[str, Any]]:
+        """Return the player/wbi/v2 subtitle list for one page cid.
+
+        Empty list is the normal no-login Path-A outcome (spike Task 1:
+        need_login_subtitle=true, subtitles==[]). Signed per spec even
+        though the server currently tolerates unsigned calls. SESSDATA
+        (if configured) is sent as a cookie only.
+        `cid is None` is allowed only when pagelist length is 1.
+        """
+        cookies = {"SESSDATA": self._sessdata} if self._sessdata else None
+        cid = self._resolve_cid(bvid, cid)
+        query = {"cid": cid, "bvid": bvid}
         img_key, sub_key = self._wbi_keys()
-        params = sign_wbi({"cid": cid, "bvid": bvid}, img_key, sub_key)
-        body = self._request_with_cookies(
-            PLAYER_WBI_V2_URL, params, extra_cookies=cookies
-        )
+        params = sign_wbi(query, img_key, sub_key)
+        try:
+            body = self._request_with_cookies(
+                PLAYER_WBI_V2_URL, params, extra_cookies=cookies
+            )
+        except APIResponseError as exc:
+            if exc.code != -403:
+                raise
+            img_key, sub_key = self._wbi_keys(refresh=True)
+            params = sign_wbi(query, img_key, sub_key)
+            body = self._request_with_cookies(
+                PLAYER_WBI_V2_URL, params, extra_cookies=cookies
+            )
         data = body.get("data") or {}
         subs = ((data.get("subtitle") or {}).get("subtitles")) or []
         # normalize protocol-relative subtitle URLs for immediate download
@@ -485,22 +580,18 @@ class BiliClient:
 
     # -- audio playurl / stream (Task 3) -----------------------------------
 
-    def fetch_playurl_audio(self, bvid: str) -> list[dict[str, Any]]:
-        """Return the dash audio stream list for bvid's first page.
+    def fetch_playurl_audio(
+        self, bvid: str, cid: int | None = None
+    ) -> list[dict[str, Any]]:
+        """Return the dash audio stream list for one page cid.
 
         The playurl query is WBI-signed; SESSDATA, when configured, is sent
         only through the cookie channel. Empty list means the video exposes
         no dash audio (caller decides terminal handling).
+        `cid is None` is allowed only when pagelist length is 1.
         """
         cookies = {"SESSDATA": self._sessdata} if self._sessdata else None
-        pagelist = self._request_with_cookies(
-            PAGELIST_URL, {"bvid": bvid, "jsonp": "jsonp"},
-            extra_cookies=cookies,
-        )
-        pages = pagelist.get("data") or []
-        if not pages:
-            raise _GoneResponse("pagelist-empty")
-        cid = pages[0].get("cid")
+        cid = self._resolve_cid(bvid, cid)
         query = {"bvid": bvid, "cid": cid, "fnval": 16, "qn": 0}
         img_key, sub_key = self._wbi_keys()
         params = sign_wbi(query, img_key, sub_key)
@@ -511,7 +602,7 @@ class BiliClient:
         except APIResponseError as exc:
             if exc.code != -403:
                 raise
-            img_key, sub_key = self._wbi_keys()
+            img_key, sub_key = self._wbi_keys(refresh=True)
             params = sign_wbi(query, img_key, sub_key)
             body = self._request_with_cookies(
                 PLAYURL_URL, params, extra_cookies=cookies,

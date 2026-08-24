@@ -20,6 +20,8 @@ from typing import Any
 
 from .bili_client import BiliClient
 from .manifest import ManifestStore
+from .page_identity import PageIdentity, apply_identity
+from .subtitles import resolve_page_identity
 
 AUDIO_DIR = os.path.join("audio")
 
@@ -80,11 +82,11 @@ def _existing_audio(out_path: str) -> str | None:
 
 def download_audio(
     client: BiliClient,
-    bvid: str,
+    target: PageIdentity | str,
     out_path: str | os.PathLike[str],
     store: ManifestStore | None = None,
 ) -> str:
-    """Download the preferred audio stream for bvid to out_path.
+    """Download the preferred audio stream for one page to out_path.
 
     Resumability: when .m4a or .flac already exists (size>0), skip BEFORE any
     playurl/pagelist network call. Returns the final file path (which may be
@@ -93,18 +95,28 @@ def download_audio(
     Raises NoAudioStreamError / StreamDownloadError / GoneResponse.
     """
     out_path = os.fspath(out_path)
+    if isinstance(target, PageIdentity):
+        existing = _existing_audio(out_path)
+        if existing is not None:
+            _mark_audio_ok(store, target, existing)
+            return existing
+        identity = target
+    else:
+        identity = resolve_page_identity(client, target)
+        existing = _existing_audio(out_path)
+        if existing is not None:
+            _mark_audio_ok(store, identity, existing)
+            return existing
+
     audio_dir = os.path.dirname(out_path) or "."
     os.makedirs(audio_dir, exist_ok=True)
 
-    existing = _existing_audio(out_path)
-    if existing is not None:
-        _mark_audio_ok(store, bvid, existing)
-        return existing
-
-    streams = client.fetch_playurl_audio(bvid)
+    streams = client.fetch_playurl_audio(identity.bvid, cid=identity.cid)
     chosen = pick_audio_stream(streams)
     if chosen is None:
-        raise NoAudioStreamError(f"{bvid}: playurl has no dash audio streams")
+        raise NoAudioStreamError(
+            f"{identity.work_id}: playurl has no dash audio streams"
+        )
 
     url = _stream_url(chosen)
     mime_type = str(chosen.get("mimeType") or chosen.get("mime_type") or "")
@@ -130,15 +142,21 @@ def download_audio(
             except OSError:
                 pass
 
-    _mark_audio_ok(store, bvid, final_path)
+    _mark_audio_ok(store, identity, final_path)
     return final_path
 
 def _mark_audio_ok(
-    store: ManifestStore | None, bvid: str, final_path: str
+    store: ManifestStore | None, identity: PageIdentity, final_path: str
 ) -> None:
     if store is None:
         return
-    entry = dict(store.get(bvid) or {"bvid": bvid})
+    existing = (
+        store.get(identity.work_id)
+        or store.get_compatible(identity.bvid)
+        or store.get(identity.bvid)
+        or {}
+    )
+    entry = apply_identity(existing, identity)
     entry.pop("last_api_error_code", None)
     entry["status"] = "audio_ok"
     # relative to the manifest root when the file lives under it
