@@ -242,6 +242,40 @@ def _merge_page_rows(client, records: dict, existing: dict, pages_for=None) -> d
     return entries
 
 
+def _persist_cursor(
+    cursor_store,
+    *,
+    mid: int,
+    next_page: int,
+    total: int | None,
+    state: str,
+    last_api_error_code: int | str | None = None,
+) -> None:
+    from .meta_cursor import utc_now_iso
+
+    cursor_store.replace_atomic(
+        {
+            "mid": mid,
+            "next_page": next_page,
+            "total": total,
+            "state": state,
+            "last_api_error_code": last_api_error_code,
+            "updated_at": utc_now_iso(),
+        }
+    )
+
+
+def _interrupt_cursor(client, cursor_store, mid: int, last_api_error_code) -> None:
+    _persist_cursor(
+        cursor_store,
+        mid=mid,
+        next_page=client.last_failed_page,
+        total=client.last_observed_total,
+        state="risk_interrupted",
+        last_api_error_code=last_api_error_code,
+    )
+
+
 def _persist_partial(client, store, existing, pages_for=None) -> int:
     """Merge and save pages already fetched (H2: honest --resume).
 
@@ -260,17 +294,27 @@ def _cmd_fetch_meta(args: argparse.Namespace) -> int:
     # in low-dependency environments (bili_client lazy-imports requests).
     from . import bili_client
     from .manifest import ManifestStore
+    from .meta_cursor import MetaCursorStore
 
     client = bili_client.BiliClient()
     store = ManifestStore(root=args.archive_root)
+    cursor_store = MetaCursorStore(root=args.archive_root)
     existing = store.load() if args.resume else {}
+    start_page = 1
+    if args.resume:
+        resumed = cursor_store.resume_start_page(args.mid)
+        if resumed is not None:
+            start_page = resumed
     pages_for = _cached_page_lister(client)
 
     try:
-        pages = client.fetch_pages(args.mid, max_pages=args.limit_pages)
+        pages = client.fetch_pages(
+            args.mid, max_pages=args.limit_pages, start_page=start_page,
+        )
     except bili_client.RiskBudgetExhausted as exc:
         unenumerated = client.last_failed_page
         partial = _persist_partial(client, store, existing, pages_for=pages_for)
+        _interrupt_cursor(client, cursor_store, args.mid, exc.last_code)
         print(
             f"risk-control ceiling: page {unenumerated} could not be "
             f"enumerated (retry budget exhausted, last code {exc.last_code}); "
@@ -282,6 +326,7 @@ def _cmd_fetch_meta(args: argparse.Namespace) -> int:
         return 2
     except bili_client.APIResponseError as exc:
         partial = _persist_partial(client, store, existing, pages_for=pages_for)
+        _interrupt_cursor(client, cursor_store, args.mid, exc.code)
         print(
             f"fetch-meta: API response error (code {exc.code}) at page "
             f"{client.last_failed_page}; {partial} record(s) from "
@@ -292,6 +337,7 @@ def _cmd_fetch_meta(args: argparse.Namespace) -> int:
         return 2
     except bili_client.GoneResponse as exc:
         partial = _persist_partial(client, store, existing, pages_for=pages_for)
+        _interrupt_cursor(client, cursor_store, args.mid, exc.code)
         if client.pages_fetched:
             print(
                 f"fetch-meta: terminal API response (code {exc.code}) at "
@@ -319,10 +365,29 @@ def _cmd_fetch_meta(args: argparse.Namespace) -> int:
     store.migrate_legacy_rows(pages_for, archive_root=args.archive_root)
     entries = store.load()
 
+    next_page = client.last_completed_page + 1
+    if client.enumeration_complete:
+        cursor_state = "complete"
+    else:
+        cursor_state = "limited"
+    _persist_cursor(
+        cursor_store,
+        mid=args.mid,
+        next_page=next_page,
+        total=client.last_observed_total,
+        state=cursor_state,
+    )
+
     total_s = sum(e.get("duration_s", 0) for e in entries.values())
     print(f"manifest: {len(entries)} videos "
           f"({len(records)} fetched, {len(existing)} resumed)")
     print(f"total duration: {total_s / 3600:.1f} h")
+    if cursor_state == "complete":
+        print("enumeration: complete")
+    else:
+        print(
+            f"enumeration: limited (next unenumerated page {next_page})"
+        )
     return 0
 
 

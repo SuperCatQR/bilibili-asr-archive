@@ -247,6 +247,9 @@ class BiliClient:
         # after RiskBudgetExhausted/GoneResponse so the CLI can persist the
         # partial merge (H2: honest --resume).
         self.pages_fetched: list[list[dict[str, Any]]] = []
+        self.last_observed_total: int | None = None
+        self.last_completed_page: int = 0
+        self.enumeration_complete: bool = False
 
     # -- internals ---------------------------------------------------------
 
@@ -389,42 +392,53 @@ class BiliClient:
     # -- public API --------------------------------------------------------
 
     def fetch_pages(
-        self, mid: int, max_pages: int | None = None
+        self,
+        mid: int,
+        max_pages: int | None = None,
+        start_page: int = 1,
     ) -> list[list[dict[str, Any]]]:
         """Enumerate archive pages via recArchivesByKeywords.
 
         Returns a list of per-page archive lists (new/dupe mix preserved).
         Raises RiskBudgetExhausted when the retry budget runs out mid-page.
         Stops on: empty page streak (2), or reaching api total, or max_pages.
+        CLI owns cursor I/O; this method only iterates ``pn`` from start_page.
         """
         pages: list[list[dict[str, Any]]] = []
         seen: set[str] = set()
         total: int | None = None
         empty_streak = 0
-        pn = 1
+        pn = start_page if start_page >= 1 else 1
         self.pages_fetched = pages
+        self.last_observed_total = None
+        self.last_completed_page = pn - 1
+        self.enumeration_complete = False
         while True:
             self.last_failed_page = pn
             body = self._request(
                 REC_ARCHIVES_URL,
                 {"mid": mid, "keywords": "", "ps": 30, "pn": pn},
             )
+            self.last_completed_page = pn
             data = body.get("data") or {}
             page_info = data.get("page") or {}
             total = page_info.get("total", total)
+            self.last_observed_total = total
             arcs = data.get("archives") or []
             if not arcs:
                 empty_streak += 1
                 if empty_streak >= 2:
+                    self.enumeration_complete = True
                     break
             else:
                 empty_streak = 0
                 pages.append(arcs)
                 seen.update(a.get("bvid") for a in arcs if a.get("bvid"))
             pn += 1
-            if max_pages is not None and pn > max_pages:
-                break
             if total is not None and total > 0 and len(seen) >= total:
+                self.enumeration_complete = True
+                break
+            if max_pages is not None and pn > max_pages:
                 break
             # Inter-page pacing: real randomized delay (0.8-1.6s like the
             # retired script) through the jitter seam, to avoid triggering
