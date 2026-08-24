@@ -5,6 +5,8 @@
 **UP mid default:** `23191782`  
 **Change policy:** requirement changes require a new spec revision + PM sign-off; plans must not add scope beyond this spec.
 
+**Placement:** this file is warehouse-level MVP. Intended page-aware ledger (`work_id` = `bvid:p<zero-based-page-index>`), `artifact_stem`, unresolved legacy rows, and `meta-cursor.json` are **not** frozen here. They live in `.mstar/iterations/iter-2026-08-archive-foundations/` until iteration-close.
+
 ## Problem
 
 Need a durable, resumable local tool to turn a Bilibili UP's public videos into searchable text. Manual download+ASR does not scale; B站 AI subtitles cover part of the corpus for free.
