@@ -406,12 +406,19 @@ def _cmd_status(args: argparse.Namespace) -> int:
     from collections import Counter
     from .manifest import ManifestStore
 
-    counts = Counter(entry.get("status", "pending") for entry in ManifestStore(root=args.archive_root).load().values())
+    store = ManifestStore(root=args.archive_root)
+    entries = store.load()
+    counts = Counter(entry.get("status", "pending") for entry in entries.values())
     if not counts:
         print("manifest: empty")
         return 0
     for status in sorted(counts):
         print(f"{status}: {counts[status]}")
+    unresolved = store.unresolved_identifiers()
+    if unresolved:
+        print(f"unresolved: {len(unresolved)}")
+        for identifier in unresolved:
+            print(f"  {identifier}")
     return 0
 
 
