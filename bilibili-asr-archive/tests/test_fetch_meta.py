@@ -110,7 +110,7 @@ def test_mixin_key_derivation():
         (200, {"code": -352}, bc.RISK_RETRYABLE),
         (200, {"code": -799}, bc.RISK_RETRYABLE),
         (500, None, bc.RISK_RETRYABLE),
-        (200, {"code": -403}, bc.RISK_RETRY_ONCE_WBI),
+        (200, {"code": -403}, bc.RISK_API_ERROR),
         (200, {"code": -101}, bc.RISK_API_ERROR),
         (200, {"code": -400}, bc.RISK_API_ERROR),
         (200, {"code": -99999}, bc.RISK_API_ERROR),
@@ -189,15 +189,16 @@ def test_request_with_cookies_raises_api_response_error_for_non_gone_code():
     assert exc.value.code == -400
 
 
-def test_minus_403_retries_then_raises_api_response_error(fast_sleep):
-    transport = FakeTransport([(200, {"code": -403})] * 5)
+def test_minus_403_directly_raises_api_response_error(fast_sleep):
+    transport = FakeTransport([(200, {"code": -403})])
     client = bc.BiliClient(
         transport=transport, sleeper=fast_sleep, jitter=lambda: 0.0
     )
     with pytest.raises(bc.APIResponseError) as exc:
         client.fetch_pages(23191782, max_pages=1)
     assert exc.value.code == -403
-    assert len(fast_sleep.waits) == 4
+    assert len(transport.calls) == 2  # bootstrap plus one API request
+    assert fast_sleep.waits == []
 
 
 def test_budget_exhausted_raises_after_max_attempts(fast_sleep):
