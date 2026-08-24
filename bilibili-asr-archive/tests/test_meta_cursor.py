@@ -335,6 +335,37 @@ def test_fetch_pages_stops_when_nonempty_adds_no_new(fast_sleep):
     assert client.enumeration_complete is True
 
 
+def test_cli_full_recrawl_walks_catalog_despite_page1_overlap(
+    tmp_root, fast_sleep, monkeypatch,
+):
+    """F-005: without --resume, overlapping JSONL must not stop after page 1."""
+    ManifestStore(root=tmp_root).save(
+        {
+            "BV1A:p0": {
+                "work_id": "BV1A:p0", "bvid": "BV1A", "page_index": 0,
+                "cid": 1, "status": "meta_ok", "title": "stale",
+            },
+        }
+    )
+    transport = FakeTransport(
+        [
+            (200, ok_page([arc("BV1A", title="fresh")], total=60)),
+            (200, ok_page([arc("BV1B")], total=60)),
+        ],
+    )
+    monkeypatch.setattr(bc, "build_default_transport", lambda: transport)
+    monkeypatch.setattr(bc, "default_sleeper", lambda: fast_sleep)
+    rc = main(["fetch-meta", "--mid", "23191782", "--archive-root", tmp_root])
+    assert rc == 0
+    page_calls = [c for c in transport.calls if "recArchivesByKeywords" in c["url"]]
+    assert [c["params"]["pn"] for c in page_calls] == [1, 2]
+    entries = ManifestStore(root=tmp_root).load()
+    assert set(entries) >= {"BV1A:p0", "BV1B:p0"}
+    assert entries["BV1A:p0"]["title"] == "fresh"
+    cursor = _cursor(tmp_root).load()
+    assert cursor["state"] == "complete"
+
+
 def test_load_corrupt_cursor_notes_stderr(tmp_root, capsys):
     path = _cursor(tmp_root).path
     os.makedirs(tmp_root, exist_ok=True)

@@ -309,17 +309,21 @@ def _cmd_fetch_meta(args: argparse.Namespace) -> int:
         if resumed is not None:
             start_page = resumed
     pages_for = _cached_page_lister(client)
+    # Seed fetch_pages.seen only on --resume. A full recrawl must walk
+    # ceil(total/ps) even when every page-1 bvid already lives in JSONL;
+    # the no-new-bvid stop would otherwise fire after the first overlap.
     known_bvids: set[str] = set()
-    for key, row in existing.items():
-        bvid = row.get("bvid") if isinstance(row, dict) else None
-        if bvid:
-            known_bvids.add(str(bvid))
-            continue
-        try:
-            parsed, _ = parse_work_id(key)
-            known_bvids.add(parsed)
-        except ValueError:
-            pass
+    if args.resume:
+        for key, row in existing.items():
+            bvid = row.get("bvid") if isinstance(row, dict) else None
+            if bvid:
+                known_bvids.add(str(bvid))
+                continue
+            try:
+                parsed, _ = parse_work_id(key)
+                known_bvids.add(parsed)
+            except ValueError:
+                pass
     per_page_persists = 0
 
     def _after_successful_page() -> None:
