@@ -85,6 +85,13 @@ def playurl_ok(streams=None, code=30216):
 
 def make_client(routes, stream_routes=None):
     routes.setdefault("finger/spi", [SPI_OK])
+    routes.setdefault("nav", [(
+        200,
+        {"code": -101, "data": {"wbi_img": {
+            "img_url": f"https://i0.hdslb.com/bfs/wbi/{IMG_KEY}.png",
+            "sub_url": f"https://i0.hdslb.com/bfs/wbi/{SUB_KEY}.png",
+        }}},
+    )])
     return bc.BiliClient(
         transport=RouterTransport(routes, stream_routes),
         sleeper=FastSleeper(),
@@ -308,6 +315,13 @@ def test_download_audio_updates_manifest_audio_ok(tmp_root):
 # ----------------------------------------------------------------------- CLI
 
 def _cli_routes(monkeypatch, transport):
+    transport.routes.setdefault("nav", [(
+        200,
+        {"code": -101, "data": {"wbi_img": {
+            "img_url": f"https://i0.hdslb.com/bfs/wbi/{IMG_KEY}.png",
+            "sub_url": f"https://i0.hdslb.com/bfs/wbi/{SUB_KEY}.png",
+        }}},
+    )])
     monkeypatch.setattr(bc, "build_default_transport", lambda: transport)
     monkeypatch.setattr(bc, "default_sleeper", lambda: FastSleeper())
 
