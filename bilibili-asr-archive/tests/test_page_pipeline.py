@@ -117,7 +117,7 @@ def test_harvest_pages_independent_status(tmp_root):
         "status": "meta_ok", "title": "multi", "duration_s": 1, "pubdate": 1,
     })
     client = make_sub_client({
-        "nav": [nav_ok(), nav_ok()],
+        "nav": [nav_ok()],
         "player/wbi/v2": [
             player_ok([sub_entry()]),
             player_ok([]),
@@ -150,7 +150,7 @@ def test_download_pages_independent_status(tmp_root):
         })
     client = make_audio_client(
         {
-            "nav": [nav_response(), nav_response()],
+            "nav": [nav_response()],
             "/x/player/wbi/playurl": [playurl_ok(), playurl_ok()],
         },
         stream_routes={f"{STREAM_HOST}/a30216.m4s": AUDIO_BYTES},

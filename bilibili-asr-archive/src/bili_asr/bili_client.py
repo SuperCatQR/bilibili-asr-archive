@@ -241,6 +241,7 @@ class BiliClient:
         self._buvid: dict[str, str] | None = None
         # Optional Path-B login cookie; never logged or echoed (spec).
         self._sessdata = sessdata
+        self._wbi_key_pair: tuple[str, str] | None = None
         self.last_failed_page: int = 1  # page active when budget exhausted
         # Pages fetched during the most recent fetch_pages call. Alive even
         # after RiskBudgetExhausted/GoneResponse so the CLI can persist the
@@ -369,8 +370,10 @@ class BiliClient:
             raise APIResponseError(last_code)
         raise RiskBudgetExhausted(last_code)
 
-    def _wbi_keys(self) -> tuple[str, str]:
+    def _wbi_keys(self, refresh: bool = False) -> tuple[str, str]:
         """(img_key, sub_key) from nav; populated even at code -101."""
+        if not refresh and self._wbi_key_pair is not None:
+            return self._wbi_key_pair
         body = self._request_with_cookies(
             NAV_URL, {}, accept_codes={-101}
         )
@@ -380,7 +383,8 @@ class BiliClient:
         sub_key = _path_basename_stem(wbi.get("sub_url") or "")
         if not img_key or not sub_key:
             raise RiskBudgetExhausted("nav", "nav response missing wbi_img keys")
-        return img_key, sub_key
+        self._wbi_key_pair = (img_key, sub_key)
+        return self._wbi_key_pair
 
     # -- public API --------------------------------------------------------
 
@@ -551,7 +555,7 @@ class BiliClient:
         except APIResponseError as exc:
             if exc.code != -403:
                 raise
-            img_key, sub_key = self._wbi_keys()
+            img_key, sub_key = self._wbi_keys(refresh=True)
             params = sign_wbi(query, img_key, sub_key)
             body = self._request_with_cookies(
                 PLAYURL_URL, params, extra_cookies=cookies,
