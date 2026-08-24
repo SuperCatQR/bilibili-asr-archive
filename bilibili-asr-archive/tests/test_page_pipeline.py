@@ -9,16 +9,20 @@ import pytest
 from bili_asr import audio
 from bili_asr import bili_client as bc
 from bili_asr import subtitles
+from bili_asr.cli import main
 from bili_asr.manifest import ManifestStore
 from bili_asr.page_identity import artifact_stem, page_identity
 
 from test_audio import (
     AUDIO_BYTES,
+    SPI_OK,
     STREAM_HOST,
+    RouterTransport as AudioRouter,
     make_client as make_audio_client,
     nav_response,
     playurl_ok,
 )
+from test_subtitles import RouterTransport as SubRouter
 from test_subtitles import (
     SAMPLE_DOC,
     make_client as make_sub_client,
@@ -167,7 +171,9 @@ def test_download_pages_independent_status(tmp_root):
     assert play_cids == [111, 222]
 
 
-def test_harvest_skips_unresolved_row(tmp_root):
+def test_cli_harvest_skips_unresolved_and_processes_other_page(
+    tmp_root, monkeypatch
+):
     store = ManifestStore(root=tmp_root)
     store.upsert({
         "bvid": BVID, "status": "meta_ok", "title": "legacy",
@@ -175,10 +181,64 @@ def test_harvest_skips_unresolved_row(tmp_root):
         "unresolved_reason": "ambiguous_bare_bvid",
         "excluded_from_page_processing": True,
     })
-    from bili_asr.cli import _is_excluded
-    assert _is_excluded(store.get(BVID))
-    todo = [
-        (k, e) for k, e in store.load().items()
-        if e.get("status") == "meta_ok" and not _is_excluded(e)
-    ]
-    assert todo == []
+    ok = page_identity("BV1ok", 0, 333)
+    store.upsert({
+        "bvid": "BV1ok", "work_id": ok.work_id, "page_index": 0, "cid": 333,
+        "status": "meta_ok", "title": "ok", "duration_s": 1, "pubdate": 1,
+    })
+    transport = SubRouter({
+        "finger/spi": [SPI_OK],
+        "nav": [nav_ok()],
+        "player/wbi/v2": [player_ok([])],
+    })
+    monkeypatch.setattr(bc, "build_default_transport", lambda: transport)
+    monkeypatch.setattr(bc, "default_sleeper", lambda _s=None: None)
+    monkeypatch.setattr("bili_asr.cli.time.sleep", lambda _seconds: None)
+    rc = main(["harvest-subs", "--archive-root", tmp_root])
+    assert rc == 0
+    loaded = ManifestStore(root=tmp_root).load()
+    assert loaded[BVID]["unresolved"] is True
+    assert loaded[BVID]["status"] == "meta_ok"
+    assert "work_id" not in loaded[BVID]
+    assert loaded[ok.work_id]["status"] == "needs_audio"
+    player = [c for c in transport.calls if "player/wbi/v2" in c["url"]]
+    assert len(player) == 1
+    assert player[0]["params"]["cid"] == 333
+
+
+def test_cli_download_skips_unresolved_and_processes_other_page(
+    tmp_root, monkeypatch
+):
+    store = ManifestStore(root=tmp_root)
+    store.upsert({
+        "bvid": BVID, "status": "needs_audio", "title": "legacy",
+        "duration_s": 1, "pubdate": 1, "unresolved": True,
+        "unresolved_reason": "ambiguous_bare_bvid",
+        "excluded_from_page_processing": True,
+    })
+    ok = page_identity("BV1ok", 1, 444)
+    store.upsert({
+        "bvid": "BV1ok", "work_id": ok.work_id, "page_index": 1, "cid": 444,
+        "status": "needs_audio", "title": "ok", "duration_s": 1, "pubdate": 1,
+    })
+    transport = AudioRouter(
+        {
+            "finger/spi": [SPI_OK],
+            "nav": [nav_response()],
+            "/x/player/wbi/playurl": [playurl_ok()],
+        },
+        stream_routes={f"{STREAM_HOST}/a30216.m4s": AUDIO_BYTES},
+    )
+    monkeypatch.setattr(bc, "build_default_transport", lambda: transport)
+    monkeypatch.setattr(bc, "default_sleeper", lambda _s=None: None)
+    monkeypatch.setattr("bili_asr.cli.time.sleep", lambda _seconds: None)
+    rc = main(["download-audio", "--missing-subs", "--archive-root", tmp_root])
+    assert rc == 0
+    loaded = ManifestStore(root=tmp_root).load()
+    assert loaded[BVID]["status"] == "needs_audio"
+    assert loaded[BVID]["unresolved"] is True
+    assert loaded[ok.work_id]["status"] == "audio_ok"
+    play = [c for c in transport.calls if "playurl" in c["url"]]
+    assert len(play) == 1
+    assert play[0]["params"]["cid"] == 444
+    assert not os.path.exists(os.path.join(tmp_root, "audio", f"{BVID}.m4a"))
