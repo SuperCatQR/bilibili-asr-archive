@@ -75,6 +75,7 @@ RISK_OK = "ok"
 RISK_RETRYABLE = "retryable"
 RISK_RETRY_ONCE_WBI = "retry_once_wbi"
 RISK_GONE = "gone"
+RISK_API_ERROR = "api_error"
 
 _RETRYABLE_CODES = {-412, -352, -799}
 _GONE_CODES = {-404, -62002}
@@ -103,9 +104,15 @@ def classify_risk(status: int, body: dict[str, Any] | None) -> str:
         return RISK_RETRY_ONCE_WBI
     if code in _GONE_CODES:
         return RISK_GONE
-    # unknown negative codes: not retryable; for page-level enumeration a
-    # non-zero unknown code (e.g. -101) ends enumeration of this page
-    return RISK_GONE
+    return RISK_API_ERROR
+
+
+class APIResponseError(Exception):
+    """Non-retryable API response that must remain resumable."""
+
+    def __init__(self, code: int | str) -> None:
+        self.code = code
+        super().__init__(f"API response error (code={code})")
 
 
 class RiskBudgetExhausted(Exception):
@@ -275,6 +282,8 @@ class BiliClient:
             )
             if risk in (RISK_RETRYABLE, RISK_RETRY_ONCE_WBI):
                 if attempt >= self.max_attempts:
+                    if risk == RISK_RETRY_ONCE_WBI:
+                        raise APIResponseError(last_code)
                     break
                 self._sleep_backoff(attempt)
                 if risk == RISK_RETRYABLE and not refreshed:
@@ -284,8 +293,9 @@ class BiliClient:
                 # simplify: WBI retry-once needs mixin re-derive; this client
                 # targets the no-WBI fallback endpoint, so -403 just re-sends.
                 continue
-            # RISK_GONE or unclassified terminal: propagate as gone marker
-            raise _GoneResponse(last_code)
+            if risk == RISK_GONE:
+                raise _GoneResponse(last_code)
+            raise APIResponseError(last_code)
         raise RiskBudgetExhausted(last_code)
 
     def _request_with_cookies(
@@ -328,6 +338,8 @@ class BiliClient:
             )
             if risk in (RISK_RETRYABLE, RISK_RETRY_ONCE_WBI):
                 if attempt >= self.max_attempts:
+                    if risk == RISK_RETRY_ONCE_WBI:
+                        raise APIResponseError(last_code)
                     break
                 self._sleep_backoff(attempt)
                 if risk == RISK_RETRYABLE and not refreshed:
@@ -336,7 +348,9 @@ class BiliClient:
                         cookies.update(extra_cookies)
                     refreshed = True
                 continue
-            raise _GoneResponse(last_code)
+            if risk == RISK_GONE:
+                raise _GoneResponse(last_code)
+            raise APIResponseError(last_code)
         raise RiskBudgetExhausted(last_code)
 
     def _wbi_keys(self) -> tuple[str, str]:

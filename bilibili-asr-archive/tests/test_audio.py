@@ -315,6 +315,38 @@ def test_cli_download_audio_requires_selection(tmp_root, monkeypatch, capsys):
     assert rc == 1
 
 
+def test_cli_download_audio_api_error_preserves_status_and_mixed_batch_fails(
+    tmp_root, monkeypatch, capsys
+):
+    store = ManifestStore(root=tmp_root)
+    store.upsert({"bvid": "BV1error", "status": "needs_audio", "title": "e"})
+    store.upsert({"bvid": "BV1success", "status": "needs_audio", "title": "s"})
+    transport = RouterTransport(
+        {
+            "finger/spi": [SPI_OK],
+            "pagelist": [
+                (200, {"code": -101}),
+                pagelist_ok(),
+            ],
+            "playurl": [playurl_ok()],
+        },
+        stream_routes={f"{STREAM_HOST}/a30216.m4s": AUDIO_BYTES},
+    )
+    _cli_routes(monkeypatch, transport)
+    monkeypatch.setattr("bili_asr.cli.time.sleep", lambda _seconds: None)
+    rc = main(["download-audio", "--missing-subs", "--archive-root", tmp_root])
+    assert rc == 1
+    entries = ManifestStore(root=tmp_root).load()
+    failed = entries["BV1error"]
+    assert failed["status"] == "needs_audio"
+    assert failed["last_api_error_code"] == -101
+    assert entries["BV1success"]["status"] == "audio_ok"
+    assert all(entry.get("status") != "gone" for entry in entries.values())
+    captured = capsys.readouterr()
+    output = captured.out + captured.err
+    assert "http" not in output.lower()
+
+
 def test_cli_download_audio_budget_exhausted_exit_2(tmp_root, monkeypatch, capsys):
     manifest_needs_audio(tmp_root)
     transport = RouterTransport(

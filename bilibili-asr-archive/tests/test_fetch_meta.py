@@ -111,11 +111,13 @@ def test_mixin_key_derivation():
         (200, {"code": -799}, bc.RISK_RETRYABLE),
         (500, None, bc.RISK_RETRYABLE),
         (200, {"code": -403}, bc.RISK_RETRY_ONCE_WBI),
+        (200, {"code": -101}, bc.RISK_API_ERROR),
+        (200, {"code": -400}, bc.RISK_API_ERROR),
+        (200, {"code": -99999}, bc.RISK_API_ERROR),
         (404, None, bc.RISK_GONE),
         (200, {"code": -404}, bc.RISK_GONE),
         (200, {"code": -62002}, bc.RISK_GONE),
         (200, {"code": 0}, bc.RISK_OK),
-        (200, {"code": -101}, bc.RISK_GONE),  # unknown negatives not retryable
         # H3: HTTP 200 with unparseable (None) body is the 412-adjacent
         # risk-control challenge-page signal -> retryable, never RISK_OK
         (200, None, bc.RISK_RETRYABLE),
@@ -168,6 +170,34 @@ def test_412_retry_then_success(fast_sleep):
     assert len(pages[0]) == 2
     assert fast_sleep.waits[0] == pytest.approx(2.0)
     assert fast_sleep.waits[1] == pytest.approx(4.0)
+
+
+@pytest.mark.parametrize("code", [-101, -400, -99999])
+def test_request_raises_api_response_error_for_non_gone_code(code):
+    transport = FakeTransport([(200, {"code": code})])
+    client = bc.BiliClient(transport=transport, sleeper=FastSleeper())
+    with pytest.raises(bc.APIResponseError) as exc:
+        client.fetch_pages(23191782, max_pages=1)
+    assert exc.value.code == code
+
+
+def test_request_with_cookies_raises_api_response_error_for_non_gone_code():
+    transport = FakeTransport([(200, {"code": -400})])
+    client = bc.BiliClient(transport=transport, sleeper=FastSleeper())
+    with pytest.raises(bc.APIResponseError) as exc:
+        client._request_with_cookies(API + "/test", {})
+    assert exc.value.code == -400
+
+
+def test_minus_403_retries_then_raises_api_response_error(fast_sleep):
+    transport = FakeTransport([(200, {"code": -403})] * 5)
+    client = bc.BiliClient(
+        transport=transport, sleeper=fast_sleep, jitter=lambda: 0.0
+    )
+    with pytest.raises(bc.APIResponseError) as exc:
+        client.fetch_pages(23191782, max_pages=1)
+    assert exc.value.code == -403
+    assert len(fast_sleep.waits) == 4
 
 
 def test_budget_exhausted_raises_after_max_attempts(fast_sleep):
@@ -436,7 +466,33 @@ def test_cli_budget_exhausted_page1_persists_nothing(tmp_root, fast_sleep,
     assert not os.path.exists(ManifestStore(root=tmp_root).path)
 
 
-# GoneResponse: persist partial, honest message
+# APIResponseError/GoneResponse: persist partial, honest message
+
+
+def test_cli_api_error_midrun_persists_partial(tmp_root, fast_sleep,
+                                               monkeypatch, capsys):
+    store = ManifestStore(root=tmp_root)
+    store.upsert({"bvid": "BVexisting", "status": "subtitle_done"})
+    transport = FakeTransport(
+        [
+            (200, ok_page([arc("BV1A")], total=99)),
+            (200, {"code": -400}),
+        ],
+    )
+    monkeypatch.setattr(bc, "build_default_transport", lambda: transport)
+    monkeypatch.setattr(bc, "default_sleeper", lambda: fast_sleep)
+    rc = main([
+        "fetch-meta", "--mid", "23191782", "--resume",
+        "--archive-root", tmp_root,
+    ])
+    assert rc == 2
+    entries = store.load()
+    assert entries["BVexisting"]["status"] == "subtitle_done"
+    assert entries["BV1A"]["status"] == "meta_ok"
+    assert all(entry.get("status") != "gone" for entry in entries.values())
+    err = capsys.readouterr().err
+    assert "API response error (code -400)" in err
+    assert "Traceback" not in err
 
 
 def test_cli_gone_midrun_persists_partial(tmp_root, fast_sleep, monkeypatch,

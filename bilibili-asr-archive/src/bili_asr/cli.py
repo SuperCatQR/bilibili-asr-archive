@@ -125,6 +125,16 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _record_api_error(store, bvid: str, code: int | str) -> None:
+    """Attach a numeric API code to an existing row without changing status."""
+    entry = store.get(bvid)
+    if entry is None or not isinstance(code, int):
+        return
+    updated = dict(entry)
+    updated["last_api_error_code"] = code
+    store.upsert(updated)
+
+
 def _persist_partial(client, store, existing) -> int:
     """Merge and save pages already fetched (H2: honest --resume).
 
@@ -162,6 +172,16 @@ def _cmd_fetch_meta(args: argparse.Namespace) -> int:
             f"enumerated (retry budget exhausted, last code {exc.last_code}); "
             f"{partial} record(s) from {len(client.pages_fetched)} fetched "
             f"page(s) persisted, {len(existing)} pre-existing entries kept. "
+            f"Re-run with --resume to continue.",
+            file=sys.stderr,
+        )
+        return 2
+    except bili_client.APIResponseError as exc:
+        partial = _persist_partial(client, store, existing)
+        print(
+            f"fetch-meta: API response error (code {exc.code}) at page "
+            f"{client.last_failed_page}; {partial} record(s) from "
+            f"{len(client.pages_fetched)} fetched page(s) persisted. "
             f"Re-run with --resume to continue.",
             file=sys.stderr,
         )
@@ -223,6 +243,12 @@ def _cmd_probe_subs(args: argparse.Namespace) -> int:
         print(f"probe-subs: risk-control ceiling for {args.bvid} "
               f"(last code {exc.last_code}); retry later.", file=sys.stderr)
         return 2
+    except bili_client.APIResponseError as exc:
+        store = ManifestStore(root=args.archive_root)
+        _record_api_error(store, args.bvid, exc.code)
+        print(f"probe-subs: API response error (code {exc.code}) for "
+              f"{args.bvid}; retry later.", file=sys.stderr)
+        return 1
     except bili_client.GoneResponse as exc:
         print(f"probe-subs: terminal API response (code {exc.code}) "
               f"for {args.bvid}.", file=sys.stderr)
@@ -266,6 +292,12 @@ def _cmd_harvest_subs(args: argparse.Namespace) -> int:
             print(f"{bvid}: risk-control ceiling (last code {exc.last_code}); "
                   f"stopping — re-run to resume.", file=sys.stderr)
             return 2
+        except bili_client.APIResponseError as exc:
+            failed += 1
+            _record_api_error(store, bvid, exc.code)
+            print(f"{bvid}: API response error (code {exc.code}); "
+                  f"continuing.", file=sys.stderr)
+            continue
         except bili_client.GoneResponse as exc:
             failed += 1
             e = dict(store.get(bvid) or {"bvid": bvid})
@@ -289,7 +321,7 @@ def _cmd_harvest_subs(args: argparse.Namespace) -> int:
 
     print(f"harvest-subs: {done} subtitle_done, {needs_audio} needs_audio"
           + (f", {failed} failed" if failed else ""))
-    return 1 if failed and not (done or needs_audio) else 0
+    return 1 if failed else 0
 
 
 def _cmd_download_audio(args: argparse.Namespace) -> int:
@@ -334,6 +366,12 @@ def _cmd_download_audio(args: argparse.Namespace) -> int:
             failed += 1
             print(f"{bvid}: audio stream failed ({exc}); continuing.", file=sys.stderr)
             continue
+        except bili_client.APIResponseError as exc:
+            failed += 1
+            _record_api_error(store, bvid, exc.code)
+            print(f"{bvid}: API response error (code {exc.code}); "
+                  f"continuing.", file=sys.stderr)
+            continue
         except bili_client.GoneResponse as exc:
             failed += 1
             e = dict(store.get(bvid) or {"bvid": bvid})
@@ -353,7 +391,7 @@ def _cmd_download_audio(args: argparse.Namespace) -> int:
 
     print(f"download-audio: {ok} audio_ok"
           + (f", {failed} failed" if failed else ""))
-    return 1 if failed and not ok else 0
+    return 1 if failed else 0
 
 
 def _cmd_status(args: argparse.Namespace) -> int:

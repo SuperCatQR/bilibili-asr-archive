@@ -337,6 +337,35 @@ def test_cli_harvest_sessdata_env_not_echoed(tmp_root, monkeypatch, capsys):
     assert player_call["cookies"].get("SESSDATA") == "TOPSECRET123"
 
 
+def test_cli_harvest_api_error_preserves_status_and_mixed_batch_fails(
+    tmp_root, monkeypatch, capsys
+):
+    store = manifest_with(tmp_root, statuses=("meta_ok", "meta_ok"))
+    transport = RouterTransport({
+        "finger/spi": [SPI_OK],
+        "nav": [nav_ok()],
+        "pagelist": [
+            (200, {"code": -400}),
+            pagelist_ok(),
+        ],
+        "player/wbi/v2": [player_ok([])],
+    })
+    _cli_routes(monkeypatch, transport)
+    monkeypatch.setattr("bili_asr.cli.time.sleep", lambda _seconds: None)
+    rc = main(["harvest-subs", "--archive-root", tmp_root])
+    assert rc == 1
+    entries = ManifestStore(root=tmp_root).load()
+    failed = entries["BV1test00"]
+    assert failed["status"] == "meta_ok"
+    assert failed["last_api_error_code"] == -400
+    assert entries["BV1test01"]["status"] == "needs_audio"
+    assert all(entry.get("status") != "gone" for entry in entries.values())
+    captured = capsys.readouterr()
+    output = captured.out + captured.err
+    assert "SECRET" not in output
+    assert "http" not in output.lower()
+
+
 def test_cli_harvest_budget_exhausted_exit_2(tmp_root, monkeypatch, capsys):
     manifest_with(tmp_root)
     transport = RouterTransport({
