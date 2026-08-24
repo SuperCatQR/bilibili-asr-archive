@@ -88,8 +88,8 @@ def download_audio(
 
     Resumability: when .m4a or .flac already exists (size>0), skip BEFORE any
     playurl/pagelist network call. Returns the final file path (which may be
-    a .flac sibling when an explicit FLAC stream is selected and ffmpeg is
-    unavailable).
+    a .flac sibling when an explicit FLAC URL or MIME type is selected and
+    ffmpeg is unavailable).
     Raises NoAudioStreamError / StreamDownloadError / GoneResponse.
     """
     out_path = os.fspath(out_path)
