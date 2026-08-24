@@ -81,6 +81,10 @@ def write_archive(
         "source": source,
         "url": archive_url(entry),
     }
+    if entry.get("work_id") and not entry.get("unresolved"):
+        frontmatter["work_id"] = entry["work_id"]
+        frontmatter["page_index"] = entry.get("page_index")
+        frontmatter["cid"] = entry.get("cid")
     with open(md_path, "w", encoding="utf-8", newline="\n") as fh:
         fh.write("---\n")
         for key, value in frontmatter.items():
