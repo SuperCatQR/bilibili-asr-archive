@@ -260,8 +260,8 @@ def test_inter_page_pacing_is_real_delay(fast_sleep):
     # (0.8-1.6s like the retired script), not sleep(0).
     transport = FakeTransport(
         [
-            (200, ok_page([arc("BV1A")], total=2)),
-            (200, ok_page([arc("BV1B")], total=2)),
+            (200, ok_page([arc("BV1A")], total=60)),
+            (200, ok_page([arc("BV1B")], total=60)),
         ],
     )
     client = bc.BiliClient(transport=transport, sleeper=fast_sleep,
@@ -276,8 +276,8 @@ def test_inter_page_pacing_is_real_delay(fast_sleep):
 def test_inter_page_pacing_jitter_adds(fast_sleep):
     transport = FakeTransport(
         [
-            (200, ok_page([arc("BV1A")], total=2)),
-            (200, ok_page([arc("BV1B")], total=2)),
+            (200, ok_page([arc("BV1A")], total=60)),
+            (200, ok_page([arc("BV1B")], total=60)),
         ],
     )
     client = bc.BiliClient(transport=transport, sleeper=fast_sleep,

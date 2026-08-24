@@ -8,6 +8,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 import json
 import os
+import sys
 from typing import Any
 
 CURSOR_FILENAME = "meta-cursor.json"
@@ -92,13 +93,19 @@ class MetaCursorStore:
     def load(self) -> dict[str, Any] | None:
         if not os.path.exists(self.path):
             return None
-        with open(self.path, "r", encoding="utf-8") as fh:
-            raw = json.load(fh)
+        try:
+            with open(self.path, "r", encoding="utf-8") as fh:
+                raw = json.load(fh)
+        except (OSError, json.JSONDecodeError):
+            print("meta-cursor: ignoring corrupt sidecar", file=sys.stderr)
+            return None
         if not isinstance(raw, dict):
+            print("meta-cursor: ignoring corrupt sidecar", file=sys.stderr)
             return None
         try:
             return _validate(raw)
         except (ValueError, KeyError, TypeError):
+            print("meta-cursor: ignoring corrupt sidecar", file=sys.stderr)
             return None
 
     def replace_atomic(self, cursor: dict[str, Any]) -> dict[str, Any]:

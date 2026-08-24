@@ -48,10 +48,14 @@ successful archive-list page merge. The sidecar holds only `mid`, `next_page`,
 | 1 | Usage/config or unexpected error (no traceback). |
 | 2 | Risk budget or terminal API failure. Cursor `state` is `risk_interrupted`; `next_page` is the 1-based `pn` that was **not** merged. Re-run `fetch-meta --resume` with the same `--mid` to start at that page. |
 
-`--resume` loads the sidecar only when `state` is `risk_interrupted` and `mid`
-matches. JSONL upsert stays last-write-wins per `work_id`; a failed page is
-never marked complete. Without `--resume`, a new run starts at page 1 and
-replaces a leftover interrupted cursor after the first successful page.
+`--resume` auto-continues **only** an exit-2 `risk_interrupted` cursor whose
+`mid` matches. `complete` and `limited` are not auto-resumable. JSONL upsert
+stays last-write-wins per `work_id`; a failed page is never marked complete.
+Without `--resume`, a new run starts at page 1, merges the existing JSONL
+(does not shrink it to a page-1 prefix), and replaces a leftover cursor after
+the first successful page. Mid-run sidecar writes stay `risk_interrupted`
+with `next_page` = last merged `pn+1`; terminal `complete`/`limited` is
+written only when the run finishes without exit 2.
 
 Exit codes for other commands: 0 ok / 1 usage-config or per-video failure / 2
 terminal API failure.

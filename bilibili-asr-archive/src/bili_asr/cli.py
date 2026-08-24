@@ -295,37 +295,47 @@ def _cmd_fetch_meta(args: argparse.Namespace) -> int:
     from . import bili_client
     from .manifest import ManifestStore
     from .meta_cursor import MetaCursorStore
+    from .page_identity import parse_work_id
 
     client = bili_client.BiliClient()
     store = ManifestStore(root=args.archive_root)
     cursor_store = MetaCursorStore(root=args.archive_root)
-    existing = store.load() if args.resume else {}
+    # Always merge prior JSONL (last-write-wins). Without --resume the
+    # leftover cursor is replaced; the catalog is not truncated to page 1.
+    existing = store.load()
     start_page = 1
     if args.resume:
         resumed = cursor_store.resume_start_page(args.mid)
         if resumed is not None:
             start_page = resumed
     pages_for = _cached_page_lister(client)
-    replaced_stale_cursor = False
+    known_bvids: set[str] = set()
+    for key, row in existing.items():
+        bvid = row.get("bvid") if isinstance(row, dict) else None
+        if bvid:
+            known_bvids.add(str(bvid))
+            continue
+        try:
+            parsed, _ = parse_work_id(key)
+            known_bvids.add(parsed)
+        except ValueError:
+            pass
+    per_page_persists = 0
 
     def _after_successful_page() -> None:
-        nonlocal replaced_stale_cursor, existing
-        if args.resume or not client.pages_fetched:
-            return
+        nonlocal existing, per_page_persists
         _persist_partial(client, store, existing, pages_for=pages_for)
         existing = store.load()
-        if replaced_stale_cursor:
-            return
-        # Spec: without --resume, leftover risk_interrupted is replaced after
-        # the first successful archive-list page merge (never persist running).
+        per_page_persists += 1
+        # Mid-run: never persist running; keep risk_interrupted until the
+        # terminal complete/limited write after fetch_pages returns.
         _persist_cursor(
             cursor_store,
             mid=args.mid,
             next_page=client.last_completed_page + 1,
             total=client.last_observed_total,
-            state="complete" if client.enumeration_complete else "limited",
+            state="risk_interrupted",
         )
-        replaced_stale_cursor = True
 
     try:
         pages = client.fetch_pages(
@@ -333,6 +343,7 @@ def _cmd_fetch_meta(args: argparse.Namespace) -> int:
             max_pages=args.limit_pages,
             start_page=start_page,
             on_page=_after_successful_page,
+            known_bvids=known_bvids or None,
         )
     except bili_client.RiskBudgetExhausted as exc:
         unenumerated = client.last_failed_page
@@ -383,7 +394,7 @@ def _cmd_fetch_meta(args: argparse.Namespace) -> int:
         return 1
 
     records = client.merge_pages(pages)
-    if replaced_stale_cursor:
+    if per_page_persists:
         entries = store.load()
     else:
         entries = _merge_page_rows(client, records, existing, pages_for=pages_for)

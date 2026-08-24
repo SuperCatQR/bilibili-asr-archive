@@ -396,21 +396,26 @@ class BiliClient:
         mid: int,
         max_pages: int | None = None,
         start_page: int = 1,
-        on_page=None,
+        on_page: Callable[[], None] | None = None,
+        known_bvids: set[str] | None = None,
     ) -> list[list[dict[str, Any]]]:
         """Enumerate archive pages via recArchivesByKeywords.
 
         Returns a list of per-page archive lists (new/dupe mix preserved).
         Raises RiskBudgetExhausted when the retry budget runs out mid-page.
-        Stops on: empty page streak (2), or reaching api total, or max_pages.
+        Stops on: empty page streak (2), last catalog page
+        (``ceil(total/ps)``), a non-empty page that adds no new bvids,
+        ``len(seen) >= total``, or ``max_pages`` fetches **this call**.
         CLI owns cursor I/O; this method only iterates ``pn`` from start_page.
         ``on_page`` (optional) is invoked after each successful HTTP page so
         the CLI can merge JSONL. This module does not import the cursor store.
         """
+        page_size = 30
         pages: list[list[dict[str, Any]]] = []
-        seen: set[str] = set()
+        seen: set[str] = set(known_bvids or ())
         total: int | None = None
         empty_streak = 0
+        pages_this_call = 0
         pn = start_page if start_page >= 1 else 1
         self.pages_fetched = pages
         self.last_observed_total = None
@@ -420,7 +425,7 @@ class BiliClient:
             self.last_failed_page = pn
             body = self._request(
                 REC_ARCHIVES_URL,
-                {"mid": mid, "keywords": "", "ps": 30, "pn": pn},
+                {"mid": mid, "keywords": "", "ps": page_size, "pn": pn},
             )
             self.last_completed_page = pn
             data = body.get("data") or {}
@@ -428,27 +433,40 @@ class BiliClient:
             total = page_info.get("total", total)
             self.last_observed_total = total
             arcs = data.get("archives") or []
+            new_bvids = {a.get("bvid") for a in arcs if a.get("bvid")}
+            added = new_bvids - seen
             if not arcs:
                 empty_streak += 1
                 if empty_streak >= 2:
                     self.enumeration_complete = True
+                    if on_page is not None:
+                        on_page()
                     break
             else:
                 empty_streak = 0
                 pages.append(arcs)
-                seen.update(a.get("bvid") for a in arcs if a.get("bvid"))
+                seen.update(new_bvids)
             if on_page is not None:
                 on_page()
-            pn += 1
+            pages_this_call += 1
+            if arcs and not added:
+                self.enumeration_complete = True
+                break
             if total is not None and total > 0 and len(seen) >= total:
                 self.enumeration_complete = True
                 break
-            if max_pages is not None and pn > max_pages:
+            if total is not None and total > 0:
+                last_pn = (int(total) + page_size - 1) // page_size
+                if pn >= last_pn:
+                    self.enumeration_complete = True
+                    break
+            if max_pages is not None and pages_this_call >= max_pages:
                 break
             # Inter-page pacing: real randomized delay (0.8-1.6s like the
             # retired script) through the jitter seam, to avoid triggering
             # 412 risk-control from back-to-back page requests.
             self._sleeper(0.8 + max(0.0, self._jitter()) * 0.8)
+            pn += 1
         return pages
 
     def merge_pages(
