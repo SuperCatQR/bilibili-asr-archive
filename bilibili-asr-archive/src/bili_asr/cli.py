@@ -107,7 +107,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     dl.add_argument(
         "--bvid", default=None,
-        help="Restrict to a single bvid (creates a fresh entry if unknown)",
+        help="Restrict to a single bvid (creates a fresh entry if unknown; "
+             "STOP if the row is unresolved)",
     )
     dl.add_argument(
         "--archive-root", default=DEFAULT_ARCHIVE_ROOT,
@@ -422,7 +423,11 @@ def _cmd_download_audio(args: argparse.Namespace) -> int:
             return 1
         todo = selected
         if not todo:
-            todo = [(args.bvid, {"bvid": args.bvid, "status": "needs_audio"})]
+            print(
+                f"{args.bvid}: unresolved; not assigned to a page",
+                file=sys.stderr,
+            )
+            return 1
     else:
         todo = [
             (key, e) for key, e in entries.items()
@@ -538,8 +543,10 @@ def _pilot_select(entries: dict[str, dict[str, object]], n: int) -> list[dict[st
 
 def _subtitle_segments(root: str, entry: dict[str, object]) -> tuple[list[dict[str, object]], object] | None:
     import json
-    bvid = str(entry["bvid"])
-    raw_path = os.path.join(root, "subtitles", "raw", f"{bvid}.json")
+    from .archive import archive_stem
+
+    stem = archive_stem(entry)
+    raw_path = os.path.join(root, "subtitles", "raw", f"{stem}.json")
     if not os.path.isfile(raw_path):
         return None
     with open(raw_path, encoding="utf-8") as fh:
@@ -556,9 +563,27 @@ def _cmd_asr(args: argparse.Namespace) -> int:
     store = ManifestStore(root=args.archive_root)
     entries = store.load()
     if args.bvid:
-        todo = [dict(entries.get(args.bvid) or {"bvid": args.bvid, "status": "audio_ok"})]
+        todo = [
+            e for e in entries.values()
+            if e.get("bvid") == args.bvid and not _is_excluded(e)
+        ]
+        if not todo:
+            if any(
+                e.get("bvid") == args.bvid and _is_excluded(e)
+                for e in entries.values()
+            ):
+                print(
+                    f"{args.bvid}: unresolved; not assigned to a page",
+                    file=sys.stderr,
+                )
+                return 1
+            todo = [{"bvid": args.bvid, "status": "audio_ok"}]
     elif args.pending:
-        todo = [e for e in entries.values() if e.get("status") in {"subtitle_done", "audio_ok"}]
+        todo = [
+            e for e in entries.values()
+            if e.get("status") in {"subtitle_done", "audio_ok"}
+            and not _is_excluded(e)
+        ]
     else:
         print("asr: select targets with --pending or --bvid", file=sys.stderr)
         return 1
@@ -566,7 +591,8 @@ def _cmd_asr(args: argparse.Namespace) -> int:
         todo = todo[:args.limit]
     ok = failed = 0
     for entry in todo:
-        bvid = str(entry["bvid"])
+        key = str(entry.get("work_id") or entry["bvid"])
+        label = key
         source = "subtitle"
         raw = None
         subtitle_data = _subtitle_segments(args.archive_root, entry) if entry.get("status") == "subtitle_done" else None
@@ -575,21 +601,25 @@ def _cmd_asr(args: argparse.Namespace) -> int:
                 segments, raw = subtitle_data
             else:
                 source = "asr"
-                audio_path = os.path.join(args.archive_root, str(entry.get("audio_path") or os.path.join("audio", f"{bvid}.m4a")))
+                stem = archive.archive_stem(entry)
+                audio_path = os.path.join(
+                    args.archive_root,
+                    str(entry.get("audio_path") or os.path.join("audio", f"{stem}.m4a")),
+                )
                 segments = asr.transcribe(audio_path)
             paths = archive.write_archive(args.archive_root, entry, segments, source=source, raw=raw)
-            updated = dict(store.get(bvid) or entry)
+            updated = dict(store.get(key) or entry)
             updated.update(paths)
             updated["status"] = "archived"
             store.upsert(updated)
             ok += 1
-            print(f"{bvid}: archived ({source})")
+            print(f"{label}: archived ({source})")
         except asr.ASRDependencyError:
-            print(f"{bvid}: ASR dependency unavailable", file=sys.stderr)
+            print(f"{label}: ASR dependency unavailable", file=sys.stderr)
             return 1
         except Exception:
             failed += 1
-            print(f"{bvid}: archive failed", file=sys.stderr)
+            print(f"{label}: archive failed", file=sys.stderr)
     print(f"asr: {ok} archived" + (f", {failed} failed" if failed else ""))
     return 1 if failed and not ok else 0
 

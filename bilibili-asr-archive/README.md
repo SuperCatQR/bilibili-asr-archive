@@ -37,4 +37,18 @@ coverage without starting a full-corpus run.
 
 Exit codes: 0 ok / 1 usage-config or per-video failure / 2 terminal API failure.
 
+## Multipart pages and legacy rows
+
+Automatic enumeration writes one manifest row per page (`work_id` =
+`{bvid}:p{page_index}`). Filesystem names use `artifact_stem`
+(`{bvid}.p{page_index}`) so raw/SRT/audio/transcripts never collide across
+pages. Public URLs for `page_index` > 0 include `?p=` (1-based).
+
+Legacy single-page rows migrate only when ownership is unambiguous. Ambiguous
+bare-bvid rows stay `unresolved` / `excluded_from_page_processing`: they keep
+their original key and files, stay visible in `bili-asr status`, and are never
+auto-assigned a page. `download-audio --bvid` / `asr --bvid` STOP on those
+rows instead of fabricating a `needs_audio` page. Resume is per `work_id`: a
+completed or failed p0 does not skip p1.
+
 No media redistribution; personal archival only.

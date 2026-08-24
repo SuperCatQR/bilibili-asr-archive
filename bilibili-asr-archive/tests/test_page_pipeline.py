@@ -242,3 +242,63 @@ def test_cli_download_skips_unresolved_and_processes_other_page(
     assert len(play) == 1
     assert play[0]["params"]["cid"] == 444
     assert not os.path.exists(os.path.join(tmp_root, "audio", f"{BVID}.m4a"))
+
+
+def test_cli_download_audio_bvid_unresolved_stops(tmp_root, monkeypatch, capsys):
+    store = ManifestStore(root=tmp_root)
+    store.upsert({
+        "bvid": BVID, "status": "needs_audio", "title": "legacy",
+        "duration_s": 1, "pubdate": 1, "unresolved": True,
+        "unresolved_reason": "ambiguous_bare_bvid",
+        "excluded_from_page_processing": True,
+    })
+    monkeypatch.setattr(bc, "build_default_transport", lambda: AudioRouter({}))
+    monkeypatch.setattr(bc, "default_sleeper", lambda _s=None: None)
+    rc = main(["download-audio", "--bvid", BVID, "--archive-root", tmp_root])
+    assert rc == 1
+    err = capsys.readouterr().err
+    assert "unresolved" in err
+    loaded = ManifestStore(root=tmp_root).load()
+    assert loaded[BVID]["unresolved"] is True
+    assert "work_id" not in loaded[BVID]
+    assert not os.path.exists(os.path.join(tmp_root, "audio", f"{BVID}.m4a"))
+    assert not os.path.exists(os.path.join(tmp_root, "audio", f"{BVID}.p0.m4a"))
+
+
+def test_asr_pending_p0_failure_does_not_suppress_p1(tmp_root, monkeypatch):
+    from bili_asr import asr as asr_mod
+    from bili_asr.archive import write_archive
+
+    store = ManifestStore(root=tmp_root)
+    p0 = page_identity(BVID, 0, 111)
+    p1 = page_identity(BVID, 1, 222)
+    for page, status in ((p0, "audio_ok"), (p1, "audio_ok")):
+        store.upsert({
+            "bvid": BVID, "work_id": page.work_id, "page_index": page.page_index,
+            "cid": page.cid, "status": status, "title": "multi",
+            "duration_s": 1, "pubdate": 1, "pubdate_str": "2026-01-02",
+            "audio_path": f"audio/{artifact_stem(page)}.m4a",
+        })
+    os.makedirs(os.path.join(tmp_root, "audio"), exist_ok=True)
+    for page in (p0, p1):
+        open(os.path.join(tmp_root, "audio", f"{artifact_stem(page)}.m4a"), "wb").close()
+
+    def fake_transcribe(path):
+        if artifact_stem(p0) in path:
+            raise RuntimeError("p0 failed")
+        return [{"start": 0, "end": 1, "text": "p1"}]
+
+    monkeypatch.setattr(asr_mod, "transcribe", fake_transcribe)
+    rc = main(["asr", "--pending", "--archive-root", tmp_root])
+    assert rc == 0
+    loaded = ManifestStore(root=tmp_root).load()
+    assert loaded[p0.work_id]["status"] == "audio_ok"
+    assert loaded[p1.work_id]["status"] == "archived"
+    assert loaded[p1.work_id]["srt_path"] != loaded[p0.work_id].get("srt_path")
+    paths = write_archive(
+        tmp_root,
+        loaded[p1.work_id],
+        [{"start": 0, "end": 1, "text": "p1"}],
+        source="asr",
+    )
+    assert os.path.exists(os.path.join(tmp_root, paths["srt_path"]))
