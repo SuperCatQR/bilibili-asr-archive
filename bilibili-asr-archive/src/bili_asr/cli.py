@@ -60,9 +60,16 @@ def build_parser() -> argparse.ArgumentParser:
     asr_cmd.add_argument("--archive-root", default=DEFAULT_ARCHIVE_ROOT)
     asr_cmd.add_argument("--limit", type=int, default=None)
 
-    pilot = subparsers.add_parser("pilot", help="Select a resumable mixed-branch pilot")
+    pilot = subparsers.add_parser(
+        "pilot",
+        help="Execute a bounded mixed-branch pilot (subtitle-hit and audio→ASR)",
+    )
     pilot.add_argument("--n", type=int, default=20)
     pilot.add_argument("--archive-root", default=DEFAULT_ARCHIVE_ROOT)
+    pilot.add_argument(
+        "--sessdata", default=None,
+        help="SESSDATA cookie for Path B (or env BILI_SESSDATA); not stored",
+    )
 
     probe = subparsers.add_parser(
         "probe-subs", help="Probe the subtitle list for one video (no download)"
@@ -699,22 +706,65 @@ def _cmd_status(args: argparse.Namespace) -> int:
     return 0
 
 
+_PILOT_PROCESSABLE = frozenset(
+    {"meta_ok", "subtitle_done", "needs_audio", "audio_ok"}
+)
+_PILOT_SKIP_HARVEST = frozenset(
+    {"subtitle_done", "needs_audio", "audio_ok", "archived"}
+)
+
+
+def _pilot_row_key(entry: dict[str, object]) -> str:
+    return str(entry.get("work_id") or entry.get("bvid") or "")
+
+
+def _pilot_duration_key(entry: dict[str, object]):
+    return (entry.get("duration_s") or 0, str(entry.get("bvid") or ""), _pilot_row_key(entry))
+
+
+def _pilot_processable(entries: dict[str, dict[str, object]]) -> list[dict[str, object]]:
+    return [
+        e for e in entries.values()
+        if e.get("status") in _PILOT_PROCESSABLE and not _is_excluded(e)
+    ]
+
+
 def _pilot_select(entries: dict[str, dict[str, object]], n: int) -> list[dict[str, object]]:
     """Select a small mixed pilot while guaranteeing both branches when possible."""
     if n < 1:
         return []
-    subtitle = [e for e in entries.values() if e.get("status") == "subtitle_done"]
-    audio = [e for e in entries.values() if e.get("status") in {"needs_audio", "audio_ok"}]
-    key = lambda e: (e.get("duration_s") or 0, str(e.get("bvid")))
-    subtitle.sort(key=key)
-    audio.sort(key=key)
+    processable = _pilot_processable(entries)
+    subtitle = [e for e in processable if e.get("status") == "subtitle_done"]
+    audio = [e for e in processable if e.get("status") in {"needs_audio", "audio_ok"}]
+    subtitle.sort(key=_pilot_duration_key)
+    audio.sort(key=_pilot_duration_key)
     selected: list[dict[str, object]] = []
     for candidate in (subtitle[:1] + audio[:1]):
         if candidate and candidate not in selected:
             selected.append(candidate)
-    remaining = sorted((e for e in entries.values() if e not in selected), key=key)
+    remaining = sorted(
+        (e for e in processable if e not in selected),
+        key=_pilot_duration_key,
+    )
     selected.extend(remaining[: max(0, n - len(selected))])
     return selected[:n]
+
+
+def _expand_selected_pages(
+    entries: dict[str, dict[str, object]],
+    selected: list[dict[str, object]],
+) -> list[dict[str, object]]:
+    """Include every processable pagelist work_id for selected bvids."""
+    if not selected:
+        return selected
+    chosen = {_pilot_row_key(e) for e in selected}
+    bvids = {str(e.get("bvid") or "") for e in selected}
+    extras = [
+        e for e in _pilot_processable(entries)
+        if str(e.get("bvid") or "") in bvids and _pilot_row_key(e) not in chosen
+    ]
+    extras.sort(key=_pilot_duration_key)
+    return selected + extras
 
 
 def _subtitle_segments(root: str, entry: dict[str, object]) -> tuple[list[dict[str, object]], object] | None:
@@ -797,18 +847,171 @@ def _cmd_asr(args: argparse.Namespace) -> int:
     return 1 if failed and not ok else 0
 
 
+def _pilot_archive_subtitle(store, root: str, entry: dict[str, object]) -> dict[str, object]:
+    from . import archive
+
+    data = _subtitle_segments(root, entry)
+    if data is None:
+        raise ValueError(f"{_pilot_row_key(entry)}: subtitle raw JSON missing")
+    segments, raw = data
+    paths = archive.write_archive(root, entry, segments, source="subtitle", raw=raw)
+    updated = dict(entry)
+    updated.update(paths)
+    updated["status"] = "archived"
+    store.upsert(updated)
+    return updated
+
+
+def _pilot_archive_asr(store, client, root: str, entry: dict[str, object], target) -> dict[str, object]:
+    from . import archive, asr, audio
+    from .page_identity import PageIdentity, artifact_stem
+    from .subtitles import resolve_page_identity
+
+    if isinstance(target, str):
+        target = resolve_page_identity(client, target)
+    if not isinstance(target, PageIdentity):
+        raise TypeError("unsupported download target")
+    stem = artifact_stem(target)
+    out_path = os.path.join(root, "audio", f"{stem}.m4a")
+    audio_path = audio.download_audio(client, target, out_path, store=store)
+    segments = asr.transcribe(audio_path)
+    current = dict(store.get(target.work_id) or entry)
+    paths = archive.write_archive(root, current, segments, source="asr")
+    current.update(paths)
+    current["status"] = "archived"
+    try:
+        current["audio_path"] = os.path.relpath(audio_path, root)
+    except ValueError:
+        current["audio_path"] = audio_path
+    store.upsert(current)
+    return current
+
+
 def _cmd_pilot(args: argparse.Namespace) -> int:
+    from . import asr, audio, bili_client, subtitles
     from .manifest import ManifestStore
-    entries = ManifestStore(root=args.archive_root).load()
-    selected = _pilot_select(entries, args.n)
-    subtitle_count = sum(e.get("status") == "subtitle_done" for e in selected)
-    audio_count = sum(e.get("status") in {"needs_audio", "audio_ok"} for e in selected)
+
+    store = ManifestStore(root=args.archive_root)
+    entries = store.load()
+    selected = _expand_selected_pages(entries, _pilot_select(entries, args.n))
     print(f"pilot: selected {len(selected)}/{args.n} videos")
-    print(f"pilot branches: subtitle={subtitle_count}, audio-asr={audio_count}")
     for entry in selected:
-        print(f"{entry.get('bvid')}: {entry.get('status')} ({entry.get('duration_s', 0)}s)")
+        print(
+            f"{_pilot_row_key(entry)}: {entry.get('status')} "
+            f"({entry.get('duration_s', 0)}s)"
+        )
+    if not selected:
+        print("pilot: no processable rows in the manifest", file=sys.stderr)
+        return 1
+
+    sessdata = _resolve_sessdata(args)
+    client = bili_client.BiliClient(sessdata=sessdata)
+    subtitle_count = audio_count = failed = 0
+    terminals: list[str] = []
+
+    for index, entry in enumerate(selected):
+        key = _pilot_row_key(entry)
+        target = _identity_from_entry(entry, key)
+        label = key
+        status = entry.get("status")
+        try:
+            if status not in _PILOT_SKIP_HARVEST:
+                status = subtitles.harvest_subtitle(
+                    client, target, store, args.archive_root
+                )
+            current = dict(store.get(key) or store.get_compatible(key) or entry)
+            label = str(current.get("work_id") or key)
+            if status == "subtitle_done":
+                _pilot_archive_subtitle(store, args.archive_root, current)
+                subtitle_count += 1
+                terminals.append(f"{label}: archived (subtitle)")
+                print(f"{label}: archived (subtitle)")
+            elif status in {"needs_audio", "audio_ok"}:
+                _pilot_archive_asr(
+                    store, client, args.archive_root, current, target
+                )
+                audio_count += 1
+                terminals.append(f"{label}: archived (asr)")
+                print(f"{label}: archived (asr)")
+            else:
+                raise ValueError(f"unexpected status {status!r}")
+        except asr.ASRDependencyError as exc:
+            print(str(exc), file=sys.stderr)
+            print(
+                f"{label}: ASR dependency unavailable; row not archived",
+                file=sys.stderr,
+            )
+            return 1
+        except bili_client.AmbiguousPageError:
+            failed += 1
+            print(f"{label}: multi-part video needs an explicit page",
+                  file=sys.stderr)
+        except bili_client.RiskBudgetExhausted as exc:
+            failed += 1
+            print(
+                f"{label}: risk-control ceiling (last code {exc.last_code}); "
+                f"stopping — re-run to resume.",
+                file=sys.stderr,
+            )
+            return 2
+        except bili_client.APIResponseError as exc:
+            failed += 1
+            _record_api_error(store, key, exc.code)
+            print(
+                f"{label}: API response error (code {exc.code}); continuing.",
+                file=sys.stderr,
+            )
+        except bili_client.GoneResponse as exc:
+            failed += 1
+            gone = dict(store.get(key) or store.get_compatible(key) or {})
+            if gone.get("work_id"):
+                gone["status"] = "gone"
+                store.upsert(gone)
+            print(
+                f"{label}: terminal API response (code {exc.code}); marked gone.",
+                file=sys.stderr,
+            )
+        except audio.NoAudioStreamError:
+            failed += 1
+            print(f"{label}: no audio stream available", file=sys.stderr)
+        except bili_client.StreamDownloadError:
+            failed += 1
+            print(f"{label}: audio stream failed; continuing.", file=sys.stderr)
+        except ValueError as exc:
+            failed += 1
+            msg = str(exc)
+            if (
+                "missing cid" in msg
+                or "unresolved" in msg
+                or "subtitle raw JSON missing" in msg
+            ):
+                print(f"{label}: {msg}", file=sys.stderr)
+            else:
+                print(f"{label}: unexpected error", file=sys.stderr)
+        except Exception:
+            failed += 1
+            print(f"{label}: unexpected error", file=sys.stderr)
+        if index != len(selected) - 1:
+            time.sleep(3.0)
+
+    print(
+        f"pilot branches: subtitle={subtitle_count}, audio-asr={audio_count}"
+        + (f", failed={failed}" if failed else "")
+    )
+    for line in terminals:
+        print(f"pilot terminal: {line}")
     if subtitle_count == 0 or audio_count == 0:
-        print("pilot: both subtitle and audio-asr branches are not available in the manifest", file=sys.stderr)
+        missing = []
+        if subtitle_count == 0:
+            missing.append("subtitle")
+        if audio_count == 0:
+            missing.append("audio-asr")
+        print(
+            "pilot: missing branch coverage: " + ", ".join(missing),
+            file=sys.stderr,
+        )
+        return 1
+    if failed:
         return 1
     return 0
 

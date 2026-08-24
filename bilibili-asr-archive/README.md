@@ -30,10 +30,21 @@ the default is `iic/SenseVoiceSmall`. No model weights are vendored.
     bili-asr pilot --n 20 --archive-root archive
 
 Subtitle access that requires login can use `BILI_SESSDATA` or the
-`--sessdata` flag. Credentials are sent as API cookies only and are never put
-in the manifest or output files. The pilot requires at least one
-`subtitle_done` entry and one `needs_audio`/`audio_ok` entry; it reports branch
-coverage without starting a full-corpus run.
+`--sessdata` flag (cookie **value**, not a file path). Credentials are sent as
+API cookies only and are never echoed or written to the manifest or output
+files.
+
+`bili-asr pilot --n N` (default 20) selects a bounded mix from `meta_ok` (and
+still-processable `subtitle_done` / `needs_audio` / `audio_ok` for resume),
+preferring short `duration_s` and reserving both branches when those statuses
+already exist. Each selected row harvests subtitles first: a subtitle hit is
+archived with `source=subtitle` and no ASR; a miss downloads audio, runs local
+SenseVoice, and archives with `source=asr`. Multi-part bvids include every
+pagelist `work_id`. The summary prints branch counts and terminal states.
+Missing subtitle or audio-asr coverage exits 1 and names the missing branch.
+A completed rerun skips work already `archived`. Missing optional ASR exits
+non-zero with `pip install -e "bilibili-asr-archive/[asr]"` and does not mark
+the row archived.
 
 ### `fetch-meta --resume` and exit 2
 
