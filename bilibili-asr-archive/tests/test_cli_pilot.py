@@ -163,3 +163,87 @@ def test_cli_pilot_missing_subtitle_branch_exits_nonzero(tmp_root, monkeypatch, 
     assert "subtitle" in captured.err
     loaded = ManifestStore(root=tmp_root).load()
     assert loaded[only.work_id]["status"] == "archived"
+
+
+def _mixed_transport():
+    return RouterTransport(
+        {
+            "finger/spi": [SPI_OK],
+            "nav": [nav_ok(), nav_response()],
+            "player/wbi/v2": [player_ok([sub_entry()]), player_ok([])],
+            "aisubtitle.hdslb.com": [(200, dict(SAMPLE_DOC))],
+            "/x/player/wbi/playurl": [playurl_ok()],
+        },
+        stream_routes={f"{STREAM_HOST}/a30216.m4s": AUDIO_BYTES},
+    )
+
+
+def test_cli_pilot_completed_rerun_skips_archived(tmp_root, monkeypatch, capsys):
+    sub = page_identity("BVsub", 0, 111, "p0")
+    aud = page_identity("BVaud", 0, 222, "p0")
+    store = ManifestStore(root=tmp_root)
+    store.upsert(_row(sub, duration_s=5, title="has-sub"))
+    store.upsert(_row(aud, duration_s=8, title="needs-asr"))
+    transcribe_calls: list[str] = []
+
+    def fake_transcribe(audio_path, model_name=None):
+        transcribe_calls.append(audio_path)
+        return [{"start": 0.0, "end": 1.0, "text": "asr-text"}]
+
+    monkeypatch.setattr(asr_mod, "transcribe", fake_transcribe)
+    _patch_cli(monkeypatch, _mixed_transport())
+    assert main(["pilot", "--n", "2", "--archive-root", tmp_root]) == 0
+    capsys.readouterr()
+
+    manifest_path = os.path.join(tmp_root, "manifest", "manifest.jsonl")
+    with open(manifest_path, encoding="utf-8") as fh:
+        first_ledger = fh.read()
+    first_files = []
+    for dirpath, _dirs, files in os.walk(tmp_root):
+        for name in files:
+            first_files.append(os.path.join(dirpath, name))
+    first_files.sort()
+    first_calls = list(transcribe_calls)
+
+    rc = main(["pilot", "--n", "2", "--archive-root", tmp_root])
+    captured = capsys.readouterr()
+    assert rc == 0, captured.err
+    assert "already archived" in captured.out or "already archived" in captured.err
+    with open(manifest_path, encoding="utf-8") as fh:
+        assert fh.read() == first_ledger
+    rerun_files = []
+    for dirpath, _dirs, files in os.walk(tmp_root):
+        for name in files:
+            rerun_files.append(os.path.join(dirpath, name))
+    assert sorted(rerun_files) == first_files
+    assert transcribe_calls == first_calls
+    loaded = ManifestStore(root=tmp_root).load()
+    assert loaded[sub.work_id]["status"] == "archived"
+    assert loaded[aud.work_id]["status"] == "archived"
+
+
+def test_cli_pilot_missing_asr_dependency_does_not_archive(tmp_root, monkeypatch, capsys):
+    from bili_asr.asr import ASRDependencyError
+
+    sub = page_identity("BVsub", 0, 111, "p0")
+    aud = page_identity("BVaud", 0, 222, "p0")
+    store = ManifestStore(root=tmp_root)
+    store.upsert(_row(sub, duration_s=5, title="has-sub"))
+    store.upsert(_row(aud, duration_s=8, title="needs-asr"))
+    hint = 'pip install -e "bilibili-asr-archive/[asr]"'
+
+    def missing_asr(audio_path, model_name=None):
+        raise ASRDependencyError(
+            f"SenseVoice support is not installed; run: {hint}"
+        )
+
+    monkeypatch.setattr(asr_mod, "transcribe", missing_asr)
+    _patch_cli(monkeypatch, _mixed_transport())
+    rc = main(["pilot", "--n", "2", "--archive-root", tmp_root])
+    captured = capsys.readouterr()
+    assert rc == 1
+    assert hint in captured.err
+    loaded = ManifestStore(root=tmp_root).load()
+    assert loaded[sub.work_id]["status"] == "archived"
+    assert loaded[aud.work_id]["status"] != "archived"
+    assert not loaded[aud.work_id].get("srt_path")

@@ -901,6 +901,9 @@ def _cmd_pilot(args: argparse.Namespace) -> int:
             f"({entry.get('duration_s', 0)}s)"
         )
     if not selected:
+        if any(e.get("status") == "archived" for e in entries.values()):
+            print("pilot: skip — all selected work already archived")
+            return 0
         print("pilot: no processable rows in the manifest", file=sys.stderr)
         return 1
 
@@ -914,6 +917,8 @@ def _cmd_pilot(args: argparse.Namespace) -> int:
         target = _identity_from_entry(entry, key)
         label = key
         status = entry.get("status")
+        if status == "archived":
+            continue
         try:
             if status not in _PILOT_SKIP_HARVEST:
                 status = subtitles.harvest_subtitle(
@@ -940,6 +945,11 @@ def _cmd_pilot(args: argparse.Namespace) -> int:
             print(
                 f"{label}: ASR dependency unavailable; row not archived",
                 file=sys.stderr,
+            )
+            print(
+                f"pilot branches: subtitle={subtitle_count}, "
+                f"audio-asr={audio_count}"
+                + (f", failed={failed}" if failed else "")
             )
             return 1
         except bili_client.AmbiguousPageError:
