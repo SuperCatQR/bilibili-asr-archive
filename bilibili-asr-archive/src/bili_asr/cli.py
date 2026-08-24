@@ -125,11 +125,17 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _record_api_error(store, bvid: str, code: int | str) -> None:
-    """Attach a numeric API code to an existing row without changing status."""
-    entry = store.get(bvid)
-    if entry is None or not isinstance(code, int):
+def _record_api_error(
+    store, bvid: str, code: int | str, starting_status: str | None = None
+) -> None:
+    """Attach a numeric API code, creating a resumable direct-operation row."""
+    if not isinstance(code, int):
         return
+    entry = store.get(bvid)
+    if entry is None:
+        if starting_status is None:
+            return
+        entry = {"bvid": bvid, "status": starting_status}
     updated = dict(entry)
     updated["last_api_error_code"] = code
     store.upsert(updated)
@@ -245,7 +251,7 @@ def _cmd_probe_subs(args: argparse.Namespace) -> int:
         return 2
     except bili_client.APIResponseError as exc:
         store = ManifestStore(root=args.archive_root)
-        _record_api_error(store, args.bvid, exc.code)
+        _record_api_error(store, args.bvid, exc.code, starting_status="meta_ok")
         print(f"probe-subs: API response error (code {exc.code}) for "
               f"{args.bvid}; retry later.", file=sys.stderr)
         return 1
@@ -368,7 +374,9 @@ def _cmd_download_audio(args: argparse.Namespace) -> int:
             continue
         except bili_client.APIResponseError as exc:
             failed += 1
-            _record_api_error(store, bvid, exc.code)
+            _record_api_error(
+                store, bvid, exc.code, starting_status="needs_audio"
+            )
             print(f"{bvid}: API response error (code {exc.code}); "
                   f"continuing.", file=sys.stderr)
             continue

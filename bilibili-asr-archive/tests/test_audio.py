@@ -315,6 +315,34 @@ def test_cli_download_audio_requires_selection(tmp_root, monkeypatch, capsys):
     assert rc == 1
 
 
+def test_cli_download_audio_unknown_bvid_api_error_creates_resumable_row(
+    tmp_root, monkeypatch, capsys
+):
+    monkeypatch.setenv("BILI_SESSDATA", "SECRET-SESSDATA")
+    transport = RouterTransport({
+        "finger/spi": [SPI_OK],
+        "pagelist": [(200, {"code": -403})],
+    })
+    _cli_routes(monkeypatch, transport)
+
+    rc = main([
+        "download-audio", "--bvid", "BV1unknown",
+        "--archive-root", tmp_root,
+    ])
+
+    assert rc == 1
+    entry = ManifestStore(root=tmp_root).get("BV1unknown")
+    assert entry == {
+        "bvid": "BV1unknown",
+        "status": "needs_audio",
+        "last_api_error_code": -403,
+    }
+    captured = capsys.readouterr()
+    output = captured.out + captured.err
+    assert "SECRET-SESSDATA" not in output
+    assert "http" not in output.lower()
+
+
 def test_cli_download_audio_api_error_preserves_status_and_mixed_batch_fails(
     tmp_root, monkeypatch, capsys
 ):
