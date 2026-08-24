@@ -33,6 +33,17 @@ _SCHEMA_KEYS = (
     "updated_at",
 )
 
+# Sidecar may hold only redacted scalar codes — never cookies, URLs, traces.
+_FORBIDDEN_MARKERS = (
+    "SESSDATA",
+    "cookie",
+    "Cookie",
+    "http://",
+    "https://",
+    "Traceback",
+)
+_MAX_ERROR_CODE_LEN = 64
+
 
 def utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
@@ -59,9 +70,16 @@ def _validate(cursor: dict[str, Any]) -> dict[str, Any]:
     code = cursor["last_api_error_code"]
     if code is not None and not isinstance(code, (int, str)):
         raise ValueError("cursor last_api_error_code must be int, str, or null")
+    if isinstance(code, str) and len(code) > _MAX_ERROR_CODE_LEN:
+        raise ValueError("cursor last_api_error_code is not a redacted code")
     if not isinstance(cursor["updated_at"], str) or not cursor["updated_at"]:
         raise ValueError("cursor updated_at must be a non-empty ISO-8601 string")
-    return {key: cursor[key] for key in _SCHEMA_KEYS}
+    stored = {key: cursor[key] for key in _SCHEMA_KEYS}
+    dumped = json.dumps(stored, ensure_ascii=False).lower()
+    for marker in _FORBIDDEN_MARKERS:
+        if marker.lower() in dumped:
+            raise ValueError("cursor must not contain credentials, URLs, or traces")
+    return stored
 
 
 class MetaCursorStore:

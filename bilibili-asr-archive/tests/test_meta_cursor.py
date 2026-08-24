@@ -9,6 +9,7 @@ import pytest
 
 from bili_asr import bili_client as bc
 from bili_asr.cli import main
+from bili_asr.manifest import ManifestStore
 from bili_asr.meta_cursor import MetaCursorStore, utc_now_iso
 
 from test_fetch_meta import FakeTransport, FastSleeper, SPI_NEW, SPI_OK, arc, ok_page
@@ -279,3 +280,95 @@ def test_cli_full_run_marks_complete(tmp_root, fast_sleep, monkeypatch, capsys):
     text = open(_cursor(tmp_root).path, encoding="utf-8").read()
     assert "SESSDATA" not in text
     assert "cookie" not in text.lower()
+
+
+def test_cli_page2_stop_resume_is_idempotent(tmp_root, fast_sleep, monkeypatch):
+    """Risk stop on page 2 → next_page=2; --resume starts there with no dup rows."""
+    transport = FakeTransport(
+        [
+            (200, ok_page([arc("BV1A"), arc("BV1B")], total=3)),
+            (412, None), (412, None), (412, None), (412, None), (412, None),
+        ],
+        spi=[SPI_OK, SPI_NEW],
+    )
+    monkeypatch.setattr(bc, "build_default_transport", lambda: transport)
+    monkeypatch.setattr(bc, "default_sleeper", lambda: fast_sleep)
+    rc = main(["fetch-meta", "--mid", "23191782", "--archive-root", tmp_root])
+    assert rc == 2
+    cursor = _cursor(tmp_root).load()
+    assert cursor["state"] == "risk_interrupted"
+    assert cursor["next_page"] == 2
+    store = ManifestStore(root=tmp_root)
+    first = store.load()
+    assert set(first) == {"BV1A:p0", "BV1B:p0"}
+    assert cursor["state"] != "complete"
+
+    transport2 = FakeTransport(
+        [
+            (200, ok_page([arc("BV1C")], total=3)),
+            (200, ok_page([], total=3)),
+            (200, ok_page([], total=3)),
+        ],
+    )
+    monkeypatch.setattr(bc, "build_default_transport", lambda: transport2)
+    rc2 = main([
+        "fetch-meta", "--mid", "23191782", "--resume",
+        "--archive-root", tmp_root,
+    ])
+    assert rc2 == 0
+    page_calls = [c for c in transport2.calls if "recArchivesByKeywords" in c["url"]]
+    assert page_calls[0]["params"]["pn"] == 2
+    entries = store.load()
+    assert set(entries) == {"BV1A:p0", "BV1B:p0", "BV1C:p0"}
+    lines = open(store.path, encoding="utf-8").read().strip().splitlines()
+    work_ids = [json.loads(line)["work_id"] for line in lines]
+    assert len(work_ids) == len(set(work_ids))
+    assert _cursor(tmp_root).load()["state"] == "complete"
+
+
+def test_cursor_strips_extra_keys_and_rejects_secrets(tmp_root):
+    store = _cursor(tmp_root)
+    stored = store.replace_atomic(
+        {
+            "mid": 1,
+            "next_page": 2,
+            "total": 9,
+            "state": "risk_interrupted",
+            "last_api_error_code": 412,
+            "updated_at": utc_now_iso(),
+            "cookie": "SESSDATA=leak",
+            "signed_url": "https://example.com/playurl?sign=abc",
+            "exception": "Traceback (most recent call last): boom",
+        }
+    )
+    assert set(stored) == {
+        "mid", "next_page", "total", "state",
+        "last_api_error_code", "updated_at",
+    }
+    text = open(store.path, encoding="utf-8").read()
+    assert "SESSDATA" not in text
+    assert "cookie" not in text.lower()
+    assert "https://" not in text
+    assert "Traceback" not in text
+    assert "playurl" not in text
+    with pytest.raises(ValueError, match="redacted|credentials"):
+        store.replace_atomic(
+            {
+                "mid": 1,
+                "next_page": 2,
+                "total": 9,
+                "state": "risk_interrupted",
+                "last_api_error_code": "SESSDATA=abc",
+                "updated_at": utc_now_iso(),
+            }
+        )
+
+
+def test_readme_documents_resume_and_exit_2():
+    root = os.path.join(os.path.dirname(__file__), "..")
+    text = open(os.path.join(root, "README.md"), encoding="utf-8").read()
+    assert "--resume" in text
+    assert "exit 2" in text.lower() or "Exit 2" in text or "| 2 |" in text
+    assert "meta-cursor.json" in text
+    assert "risk_interrupted" in text
+    assert "SESSDATA" in text

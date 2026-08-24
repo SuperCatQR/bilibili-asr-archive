@@ -35,7 +35,26 @@ in the manifest or output files. The pilot requires at least one
 `subtitle_done` entry and one `needs_audio`/`audio_ok` entry; it reports branch
 coverage without starting a full-corpus run.
 
-Exit codes: 0 ok / 1 usage-config or per-video failure / 2 terminal API failure.
+### `fetch-meta --resume` and exit 2
+
+`bili-asr fetch-meta` writes `{archive-root}/meta-cursor.json` after each
+successful archive-list page merge. The sidecar holds only `mid`, `next_page`,
+`total`, `state`, `last_api_error_code`, and `updated_at` — never cookies,
+`SESSDATA`, signed URLs, or exception text.
+
+| Exit | Meaning |
+|------|---------|
+| 0 | Run finished without risk exhaustion. Cursor `state` is `complete` (full visible archive) or `limited` (intentional `--limit-pages` cap). `--resume` does **not** auto-continue these. |
+| 1 | Usage/config or unexpected error (no traceback). |
+| 2 | Risk budget or terminal API failure. Cursor `state` is `risk_interrupted`; `next_page` is the 1-based `pn` that was **not** merged. Re-run `fetch-meta --resume` with the same `--mid` to start at that page. |
+
+`--resume` loads the sidecar only when `state` is `risk_interrupted` and `mid`
+matches. JSONL upsert stays last-write-wins per `work_id`; a failed page is
+never marked complete. Without `--resume`, a new run starts at page 1 and
+replaces a leftover interrupted cursor after the first successful page.
+
+Exit codes for other commands: 0 ok / 1 usage-config or per-video failure / 2
+terminal API failure.
 
 ## Multipart pages and legacy rows
 
