@@ -195,6 +195,10 @@ def manifest_with(tmp_root, statuses=("meta_ok",)):
 
 def test_harvest_empty_marks_needs_audio(tmp_root):
     store = manifest_with(tmp_root)
+    store.upsert({
+        **store.get("BV1test00"),
+        "last_api_error_code": -400,
+    })
     client = make_client({
         "nav": [nav_ok()],
         "pagelist": [pagelist_ok()],
@@ -202,7 +206,9 @@ def test_harvest_empty_marks_needs_audio(tmp_root):
     })
     status = subtitles.harvest_subtitle(client, "BV1test00", store, tmp_root)
     assert status == "needs_audio"
-    assert store.get("BV1test00")["status"] == "needs_audio"
+    entry = store.get("BV1test00")
+    assert entry["status"] == "needs_audio"
+    assert "last_api_error_code" not in entry
 
 
 def test_harvest_downloads_shortlived_url_same_run(tmp_root):
@@ -210,6 +216,10 @@ def test_harvest_downloads_shortlived_url_same_run(tmp_root):
     exactly the URL the probe returned (short-lived signed URL), and the
     URL must not be persisted into the manifest."""
     store = manifest_with(tmp_root)
+    store.upsert({
+        **store.get("BV1test00"),
+        "last_api_error_code": -403,
+    })
     doc = dict(SAMPLE_DOC)
     client = make_client({
         "nav": [nav_ok()],
@@ -221,6 +231,7 @@ def test_harvest_downloads_shortlived_url_same_run(tmp_root):
     assert status == "subtitle_done"
     entry = store.get("BV1test00")
     assert entry["status"] == "subtitle_done"
+    assert "last_api_error_code" not in entry
     # downloaded URL = the probe-provided URL, normalized to https
     dl = [c for c in client.transport.calls if "aisubtitle" in c["url"]]
     assert len(dl) == 1
@@ -261,6 +272,62 @@ def test_cli_probe_subs_empty(tmp_root, monkeypatch, capsys):
     out = capsys.readouterr().out
     assert "no subtitles" in out
     assert "needs_audio" in out
+
+
+def test_cli_probe_subs_unknown_bvid_api_error_creates_minimal_row(
+    tmp_root, monkeypatch, capsys
+):
+    sentinel_cookie = "PROBE-SESSDATA-SECRET"
+    monkeypatch.setenv("BILI_SESSDATA", sentinel_cookie)
+    transport = RouterTransport({
+        "finger/spi": [SPI_OK],
+        "pagelist": [(200, {"code": -99999})],
+    })
+    _cli_routes(monkeypatch, transport)
+
+    rc = main([
+        "probe-subs", "--bvid", "BV1unknown",
+        "--archive-root", tmp_root,
+    ])
+
+    assert rc == 1
+    entry = ManifestStore(root=tmp_root).get("BV1unknown")
+    assert entry == {
+        "bvid": "BV1unknown",
+        "status": "meta_ok",
+        "last_api_error_code": -99999,
+    }
+    captured = capsys.readouterr()
+    output = captured.out + captured.err
+    assert sentinel_cookie not in output
+    assert "http" not in output.lower()
+    assert sentinel_cookie not in open(
+        ManifestStore(root=tmp_root).path, encoding="utf-8"
+    ).read()
+
+
+def test_cli_probe_subs_transport_error_redacts_exception_message(
+    tmp_root, monkeypatch, capsys
+):
+    sentinel = "SESSDATA=PROBE-SECRET https://cdn.example/sub.json?token=SIGNED"
+    transport = RouterTransport({
+        "finger/spi": [SPI_OK],
+        "pagelist": [RuntimeError(sentinel)] * 5,
+    })
+    _cli_routes(monkeypatch, transport)
+
+    rc = main([
+        "probe-subs", "--bvid", "BV1transport",
+        "--archive-root", tmp_root,
+    ])
+
+    assert rc == 2
+    captured = capsys.readouterr()
+    output = captured.out + captured.err
+    assert "RuntimeError" in output
+    assert "PROBE-SECRET" not in output
+    assert "SIGNED" not in output
+    assert not os.path.exists(ManifestStore(root=tmp_root).path)
 
 
 def test_cli_probe_subs_lists_entries(tmp_root, monkeypatch, capsys):

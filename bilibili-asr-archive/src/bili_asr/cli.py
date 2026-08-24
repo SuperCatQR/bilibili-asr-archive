@@ -209,10 +209,10 @@ def _cmd_fetch_meta(args: argparse.Namespace) -> int:
                 file=sys.stderr,
             )
         return 2
-    except Exception as exc:
-        # H1 belt-and-braces: any unexpected error exits 1 with a summary,
-        # never a traceback.
-        print(f"fetch-meta: unexpected error: {exc}", file=sys.stderr)
+    except Exception:
+        # H1 belt-and-braces: any unexpected error exits 1 with a fixed,
+        # redacted summary and never a traceback.
+        print("fetch-meta: unexpected error", file=sys.stderr)
         return 1
 
     records = client.merge_pages(pages)
@@ -259,8 +259,8 @@ def _cmd_probe_subs(args: argparse.Namespace) -> int:
         print(f"probe-subs: terminal API response (code {exc.code}) "
               f"for {args.bvid}.", file=sys.stderr)
         return 2
-    except Exception as exc:
-        print(f"probe-subs: unexpected error: {exc}", file=sys.stderr)
+    except Exception:
+        print("probe-subs: unexpected error", file=sys.stderr)
         return 1
 
     if not entries:
@@ -312,9 +312,9 @@ def _cmd_harvest_subs(args: argparse.Namespace) -> int:
             print(f"{bvid}: terminal API response (code {exc.code}); "
                   f"marked gone.", file=sys.stderr)
             continue
-        except Exception as exc:
+        except Exception:
             failed += 1
-            print(f"{bvid}: unexpected error: {exc}", file=sys.stderr)
+            print(f"{bvid}: unexpected error", file=sys.stderr)
             continue
         if status == "subtitle_done":
             done += 1
@@ -359,18 +359,18 @@ def _cmd_download_audio(args: argparse.Namespace) -> int:
         out_path = os.path.join(args.archive_root, "audio", f"{bvid}.m4a")
         try:
             final = audio.download_audio(client, bvid, out_path, store=store)
-        except audio.NoAudioStreamError as exc:
+        except audio.NoAudioStreamError:
             failed += 1
-            print(f"{bvid}: {exc}", file=sys.stderr)
+            print(f"{bvid}: no audio stream available", file=sys.stderr)
             continue
         except bili_client.RiskBudgetExhausted as exc:
             failed += 1
             print(f"{bvid}: risk-control ceiling (last {exc.last_code}); "
                   f"stopping — re-run to resume.", file=sys.stderr)
             return 2
-        except bili_client.StreamDownloadError as exc:
+        except bili_client.StreamDownloadError:
             failed += 1
-            print(f"{bvid}: audio stream failed ({exc}); continuing.", file=sys.stderr)
+            print(f"{bvid}: audio stream failed; continuing.", file=sys.stderr)
             continue
         except bili_client.APIResponseError as exc:
             failed += 1
@@ -388,9 +388,9 @@ def _cmd_download_audio(args: argparse.Namespace) -> int:
             print(f"{bvid}: terminal API response (code {exc.code}); "
                   f"marked gone.", file=sys.stderr)
             continue
-        except Exception as exc:
+        except Exception:
             failed += 1
-            print(f"{bvid}: unexpected error: {exc}", file=sys.stderr)
+            print(f"{bvid}: unexpected error", file=sys.stderr)
             continue
         ok += 1
         print(f"{bvid}: audio downloaded -> audio_ok ({final})")
@@ -481,12 +481,12 @@ def _cmd_asr(args: argparse.Namespace) -> int:
             store.upsert(updated)
             ok += 1
             print(f"{bvid}: archived ({source})")
-        except asr.ASRDependencyError as exc:
-            print(f"{bvid}: {exc}", file=sys.stderr)
+        except asr.ASRDependencyError:
+            print(f"{bvid}: ASR dependency unavailable", file=sys.stderr)
             return 1
-        except Exception as exc:
+        except Exception:
             failed += 1
-            print(f"{bvid}: archive failed ({exc})", file=sys.stderr)
+            print(f"{bvid}: archive failed", file=sys.stderr)
     print(f"asr: {ok} archived" + (f", {failed} failed" if failed else ""))
     return 1 if failed and not ok else 0
 

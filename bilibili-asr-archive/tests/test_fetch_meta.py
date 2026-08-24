@@ -422,7 +422,7 @@ def test_transport_exception_exhausts_budget_exit_2(fast_sleep):
                            jitter=lambda: 0.0)
     with pytest.raises(bc.RiskBudgetExhausted) as exc:
         client.fetch_pages(23191782, max_pages=1)
-    assert isinstance(exc.value.last_code, _FakeRequestsError)
+    assert exc.value.last_code == "_FakeRequestsError"
 
 
 def test_spi_transport_error_wrapped_as_budget_exhausted(fast_sleep):
@@ -556,10 +556,38 @@ def test_argparse_help_exits_0():
 
 def test_cli_unexpected_error_exit_1_no_traceback(tmp_root, monkeypatch,
                                                   capsys):
+    sentinel = "SESSDATA=FETCH-SECRET https://cdn.example/audio.m4s?token=SIGNED"
+
     def boom(self, *a, **k):
-        raise RuntimeError("boom")
+        raise RuntimeError(sentinel)
 
     monkeypatch.setattr(bc.BiliClient, "fetch_pages", boom)
     rc = main(["fetch-meta", "--mid", "1", "--archive-root", tmp_root])
     assert rc == 1
-    assert "Traceback" not in capsys.readouterr().err
+    err = capsys.readouterr().err
+    assert "fetch-meta: unexpected error" in err
+    assert "Traceback" not in err
+    assert "FETCH-SECRET" not in err
+    assert "SIGNED" not in err
+
+
+def test_cli_transport_error_redacts_exception_message(
+    tmp_root, fast_sleep, monkeypatch, capsys
+):
+    sentinel = "SESSDATA=TRANSPORT-SECRET https://cdn.example/a.m4s?token=SIGNED"
+    transport = FakeTransport(
+        [_FakeRequestsError(sentinel)] * 5,
+        spi=[SPI_OK, SPI_NEW],
+    )
+    monkeypatch.setattr(bc, "build_default_transport", lambda: transport)
+    monkeypatch.setattr(bc, "default_sleeper", lambda: fast_sleep)
+
+    rc = main(["fetch-meta", "--mid", "1", "--archive-root", tmp_root])
+
+    assert rc == 2
+    captured = capsys.readouterr()
+    output = captured.out + captured.err
+    assert "_FakeRequestsError" in output
+    assert "TRANSPORT-SECRET" not in output
+    assert "SIGNED" not in output
+    assert not os.path.exists(ManifestStore(root=tmp_root).path)

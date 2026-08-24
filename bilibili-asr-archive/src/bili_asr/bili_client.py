@@ -115,11 +115,21 @@ class APIResponseError(Exception):
 class RiskBudgetExhausted(Exception):
     """Terminal: retry budget spent on a retryable risk signal."""
 
-    def __init__(self, last_code: int | str, message: str = "") -> None:
-        self.last_code = last_code
+    def __init__(
+        self, last_code: int | str | BaseException, message: str = ""
+    ) -> None:
+        self.last_code = _safe_error_code(last_code)
         super().__init__(
-            message or f"risk-control retry budget exhausted (last={last_code})"
+            message or
+            f"risk-control retry budget exhausted (last={self.last_code})"
         )
+
+
+def _safe_error_code(value: int | str | BaseException) -> int | str:
+    """Reduce exception diagnostics to a non-sensitive scalar label."""
+    if isinstance(value, BaseException):
+        return type(value).__name__
+    return value
 
 
 # ------------------------------------------------------------------ transport
@@ -235,7 +245,9 @@ class BiliClient:
         try:
             status, body = self.transport.get_json(FINGER_SPI_URL)
         except Exception as exc:  # transport-level error: terminal budget path
-            raise RiskBudgetExhausted(exc, "finger/spi bootstrap transport error")
+            raise RiskBudgetExhausted(
+                exc, "finger/spi bootstrap transport error"
+            ) from None
         if status != 200 or not body or body.get("code") != 0:
             raise RiskBudgetExhausted(
                 status if status != 200 else (body or {}).get("code", "spi"),
@@ -264,7 +276,7 @@ class BiliClient:
                 # H1: transport errors (requests.Timeout/ConnectionError/DNS,
                 # or any injected transport failure) are retryable within the
                 # same risk budget instead of crashing with a traceback.
-                last_code = exc
+                last_code = _safe_error_code(exc)
                 if attempt >= self.max_attempts:
                     break
                 self._sleep_backoff(attempt)
@@ -311,7 +323,7 @@ class BiliClient:
                     url, params=params, headers=BASE_HEADERS, cookies=cookies
                 )
             except Exception as exc:
-                last_code = exc
+                last_code = _safe_error_code(exc)
                 if attempt >= self.max_attempts:
                     break
                 self._sleep_backoff(attempt)
@@ -489,15 +501,21 @@ class BiliClient:
         if not pages:
             raise _GoneResponse("pagelist-empty")
         cid = pages[0].get("cid")
+        query = {"bvid": bvid, "cid": cid, "fnval": 16, "qn": 0}
         img_key, sub_key = self._wbi_keys()
-        params = sign_wbi(
-            {"bvid": bvid, "cid": cid, "fnval": 16, "qn": 0},
-            img_key,
-            sub_key,
-        )
-        body = self._request_with_cookies(
-            PLAYURL_URL, params, extra_cookies=cookies,
-        )
+        params = sign_wbi(query, img_key, sub_key)
+        try:
+            body = self._request_with_cookies(
+                PLAYURL_URL, params, extra_cookies=cookies,
+            )
+        except APIResponseError as exc:
+            if exc.code != -403:
+                raise
+            img_key, sub_key = self._wbi_keys()
+            params = sign_wbi(query, img_key, sub_key)
+            body = self._request_with_cookies(
+                PLAYURL_URL, params, extra_cookies=cookies,
+            )
         dash = (body.get("data") or {}).get("dash") or {}
         return dash.get("audio") or []
 

@@ -83,15 +83,19 @@ def playurl_ok(streams=None, code=30216):
     return (200, {"code": 0, "data": {"dash": {"audio": audio_list}}})
 
 
-def make_client(routes, stream_routes=None):
-    routes.setdefault("finger/spi", [SPI_OK])
-    routes.setdefault("nav", [(
+def nav_response(img_key=IMG_KEY, sub_key=SUB_KEY):
+    return (
         200,
         {"code": -101, "data": {"wbi_img": {
-            "img_url": f"https://i0.hdslb.com/bfs/wbi/{IMG_KEY}.png",
-            "sub_url": f"https://i0.hdslb.com/bfs/wbi/{SUB_KEY}.png",
+            "img_url": f"https://i0.hdslb.com/bfs/wbi/{img_key}.png",
+            "sub_url": f"https://i0.hdslb.com/bfs/wbi/{sub_key}.png",
         }}},
-    )])
+    )
+
+
+def make_client(routes, stream_routes=None):
+    routes.setdefault("finger/spi", [SPI_OK])
+    routes.setdefault("nav", [nav_response()])
     return bc.BiliClient(
         transport=RouterTransport(routes, stream_routes),
         sleeper=FastSleeper(),
@@ -163,11 +167,76 @@ def test_fetch_playurl_audio_uses_signed_wbi_endpoint_and_cookie():
     assert "SECRET-SESSDATA" not in json.dumps(call["params"])
 
 
+def test_fetch_playurl_audio_retries_once_with_rotated_wbi_keys(monkeypatch):
+    fresh_img = "0123456789abcdef0123456789abcdef"
+    fresh_sub = "fedcba9876543210fedcba9876543210"
+    transport = RouterTransport({
+        "finger/spi": [SPI_OK],
+        "pagelist": [pagelist_ok(cid=111)],
+        "nav": [
+            nav_response(),
+            nav_response(fresh_img, fresh_sub),
+        ],
+        "/x/player/wbi/playurl": [
+            (200, {"code": -403}),
+            playurl_ok(),
+        ],
+    })
+    timestamps = iter([1700000000, 1700000001])
+    monkeypatch.setattr(bc.time, "time", lambda: next(timestamps))
+    client = bc.BiliClient(
+        transport=transport,
+        sleeper=FastSleeper(),
+        jitter=lambda: 0.0,
+    )
+
+    assert client.fetch_playurl_audio(BVID)
+
+    nav_calls = [
+        c for c in transport.calls if "/x/web-interface/nav" in c["url"]
+    ]
+    play_calls = [
+        c for c in transport.calls if "/x/player/wbi/playurl" in c["url"]
+    ]
+    assert len(nav_calls) == 2
+    assert len(play_calls) == 2
+    assert play_calls[0]["params"]["wts"] != play_calls[1]["params"]["wts"]
+    assert play_calls[0]["params"]["w_rid"] != play_calls[1]["params"]["w_rid"]
+
+
+def test_fetch_playurl_audio_second_minus_403_is_not_retried():
+    transport = RouterTransport({
+        "finger/spi": [SPI_OK],
+        "pagelist": [pagelist_ok(cid=111)],
+        "nav": [nav_response(), nav_response()],
+        "/x/player/wbi/playurl": [
+            (200, {"code": -403}),
+            (200, {"code": -403}),
+        ],
+    })
+    client = bc.BiliClient(
+        transport=transport,
+        sleeper=FastSleeper(),
+        jitter=lambda: 0.0,
+    )
+
+    with pytest.raises(bc.APIResponseError) as exc:
+        client.fetch_playurl_audio(BVID)
+
+    assert exc.value.code == -403
+    play_calls = [
+        c for c in transport.calls if "/x/player/wbi/playurl" in c["url"]
+    ]
+    assert len(play_calls) == 2
+
+
 def test_download_audio_prefers_30216_and_sends_referer_ua(tmp_root):
     client = make_client(
-        {"pagelist": [pagelist_ok()], "playurl": [playurl_ok()]},
+        {"pagelist": [pagelist_ok()],
+         "/x/player/wbi/playurl": [playurl_ok()]},
         stream_routes={f"{STREAM_HOST}/a30216.m4s": AUDIO_BYTES},
     )
+    client._sessdata = "SECRET-SESSDATA"
     out = os.path.join(tmp_root, "audio", f"{BVID}.m4a")
     path = audio.download_audio(client, BVID, out)
     assert path == out
@@ -178,18 +247,20 @@ def test_download_audio_prefers_30216_and_sends_referer_ua(tmp_root):
     assert play_call["params"]["cid"] == 111
     assert play_call["params"]["bvid"] == BVID
     assert play_call["params"]["fnval"] == 16
+    assert play_call["cookies"]["SESSDATA"] == "SECRET-SESSDATA"
     # stream GET must carry Referer + UA (spec hard requirement)
     assert len(client.transport.stream_calls) == 1
     sc = client.transport.stream_calls[0]
     assert sc["url"] == f"https://{STREAM_HOST}/a30216.m4s"
     assert sc["headers"].get("Referer") == "https://www.bilibili.com/"
     assert sc["headers"].get("User-Agent") == bc.UA
+    assert sc["cookies"] == {}
 
 
 def test_download_audio_falls_back_when_preferred_missing(tmp_root):
     client = make_client(
         {"pagelist": [pagelist_ok()],
-         "playurl": [playurl_ok(streams=[
+         "/x/player/wbi/playurl": [playurl_ok(streams=[
              {"id": 30280, "baseUrl": f"https://{STREAM_HOST}/a30280.m4s",
               "base_url": f"https://{STREAM_HOST}/a30280.m4s"},
          ])]},
@@ -203,7 +274,7 @@ def test_download_audio_falls_back_when_preferred_missing(tmp_root):
 def test_download_audio_no_dash_audio_raises(tmp_root):
     client = make_client(
         {"pagelist": [pagelist_ok()],
-         "playurl": [(200, {"code": 0, "data": {"dash": {"audio": []}}})]},
+         "/x/player/wbi/playurl": [(200, {"code": 0, "data": {"dash": {"audio": []}}})]},
     )
     with pytest.raises(audio.NoAudioStreamError):
         audio.download_audio(client, BVID,
@@ -212,7 +283,7 @@ def test_download_audio_no_dash_audio_raises(tmp_root):
 
 def test_download_audio_atomic_no_partial_on_failure(tmp_root):
     client = make_client(
-        {"pagelist": [pagelist_ok()], "playurl": [playurl_ok()]},
+        {"pagelist": [pagelist_ok()], "/x/player/wbi/playurl": [playurl_ok()]},
         stream_routes={},  # no route -> transport raises
     )
     out = os.path.join(tmp_root, "audio", f"{BVID}.m4a")
@@ -223,7 +294,7 @@ def test_download_audio_atomic_no_partial_on_failure(tmp_root):
 
 def test_download_audio_skips_existing(tmp_root):
     client = make_client(
-        {"pagelist": [pagelist_ok()], "playurl": [playurl_ok()]},
+        {"pagelist": [pagelist_ok()], "/x/player/wbi/playurl": [playurl_ok()]},
         stream_routes={f"{STREAM_HOST}/a30216.m4s": AUDIO_BYTES},
     )
     out = os.path.join(tmp_root, "audio", f"{BVID}.m4a")
@@ -239,14 +310,16 @@ def test_download_audio_skips_existing(tmp_root):
 def test_download_audio_30232_m4s_does_not_remux(tmp_root, monkeypatch):
     client = make_client(
         {"pagelist": [pagelist_ok()],
-         "playurl": [playurl_ok(streams=[
+         "/x/player/wbi/playurl": [playurl_ok(streams=[
              {"id": 30232, "baseUrl": f"https://{STREAM_HOST}/a30232.m4s",
               "base_url": f"https://{STREAM_HOST}/a30232.m4s"},
          ])]},
         stream_routes={f"{STREAM_HOST}/a30232.m4s": AUDIO_BYTES},
     )
     calls = []
-    monkeypatch.setattr(audio, "_run_ffmpeg", lambda src, dst: calls.append((src, dst)))
+    monkeypatch.setattr(
+        audio, "_run_ffmpeg", lambda src, dst: calls.append((src, dst))
+    )
     out = os.path.join(tmp_root, "audio", f"{BVID}.m4a")
     audio.download_audio(client, BVID, out)
     assert calls == []
@@ -257,14 +330,16 @@ def test_download_audio_explicit_flac_url_remuxes(tmp_root, monkeypatch):
     flac = b"fLaC" + b"data" * 10
     client = make_client(
         {"pagelist": [pagelist_ok()],
-         "playurl": [playurl_ok(streams=[
+         "/x/player/wbi/playurl": [playurl_ok(streams=[
              {"id": 30232, "baseUrl": f"https://{STREAM_HOST}/a30232.flac",
               "base_url": f"https://{STREAM_HOST}/a30232.flac"},
          ])]},
         stream_routes={f"{STREAM_HOST}/a30232.flac": flac},
     )
     calls = []
-    monkeypatch.setattr(audio, "_run_ffmpeg", lambda src, dst: calls.append((src, dst)))
+    monkeypatch.setattr(
+        audio, "_run_ffmpeg", lambda src, dst: calls.append((src, dst))
+    )
     out = os.path.join(tmp_root, "audio", f"{BVID}.m4a")
     audio.download_audio(client, BVID, out)
     assert calls and calls[0][1] == out
@@ -272,11 +347,31 @@ def test_download_audio_explicit_flac_url_remuxes(tmp_root, monkeypatch):
     assert os.path.basename(out).endswith(".m4a")
 
 
+def test_download_audio_mime_only_flac_remuxes(tmp_root, monkeypatch):
+    flac = b"fLaC" + b"data" * 10
+    client = make_client(
+        {"pagelist": [pagelist_ok()],
+         "/x/player/wbi/playurl": [playurl_ok(streams=[
+             {"id": 30232, "baseUrl": f"https://{STREAM_HOST}/a30232.m4s",
+              "base_url": f"https://{STREAM_HOST}/a30232.m4s",
+              "mimeType": "audio/flac"},
+         ])]},
+        stream_routes={f"{STREAM_HOST}/a30232.m4s": flac},
+    )
+    calls = []
+    monkeypatch.setattr(
+        audio, "_run_ffmpeg", lambda src, dst: calls.append((src, dst))
+    )
+    out = os.path.join(tmp_root, "audio", f"{BVID}.m4a")
+    audio.download_audio(client, BVID, out)
+    assert calls and calls[0][1] == out
+
+
 def test_download_audio_flac_without_ffmpeg_keeps_flac(tmp_root, monkeypatch):
     flac = b"fLaC" + b"data" * 10
     client = make_client(
         {"pagelist": [pagelist_ok()],
-         "playurl": [playurl_ok(streams=[
+         "/x/player/wbi/playurl": [playurl_ok(streams=[
              {"id": 30232, "baseUrl": f"https://{STREAM_HOST}/a30232.flac",
               "base_url": f"https://{STREAM_HOST}/a30232.flac"},
          ])]},
@@ -297,9 +392,10 @@ def test_download_audio_flac_without_ffmpeg_keeps_flac(tmp_root, monkeypatch):
 def test_download_audio_updates_manifest_audio_ok(tmp_root):
     store = ManifestStore(root=tmp_root)
     store.upsert({"bvid": BVID, "status": "needs_audio", "title": "t",
-                  "duration_s": 1, "pubdate": 1})
+                  "duration_s": 1, "pubdate": 1,
+                  "last_api_error_code": -403})
     client = make_client(
-        {"pagelist": [pagelist_ok()], "playurl": [playurl_ok()]},
+        {"pagelist": [pagelist_ok()], "/x/player/wbi/playurl": [playurl_ok()]},
         stream_routes={f"{STREAM_HOST}/a30216.m4s": AUDIO_BYTES},
     )
     audio.download_audio(client, BVID,
@@ -308,6 +404,7 @@ def test_download_audio_updates_manifest_audio_ok(tmp_root):
     entry = store.get(BVID)
     assert entry["status"] == "audio_ok"
     assert entry["audio_path"] == os.path.join("audio", f"{BVID}.m4a")
+    assert "last_api_error_code" not in entry
     assert "hdslb" not in json.dumps(entry)
     assert "bilivideo" not in json.dumps(entry)  # no stream URL persisted
 
@@ -340,7 +437,7 @@ def test_cli_download_audio_missing_subs(tmp_root, monkeypatch, capsys):
     transport = RouterTransport(
         {"finger/spi": [SPI_OK],
          "pagelist": [pagelist_ok()],
-         "playurl": [playurl_ok()]},
+         "/x/player/wbi/playurl": [playurl_ok()]},
         stream_routes={f"{STREAM_HOST}/a30216.m4s": AUDIO_BYTES},
     )
     _cli_routes(monkeypatch, transport)
@@ -360,7 +457,7 @@ def test_cli_download_audio_bvid(tmp_root, monkeypatch):
     transport = RouterTransport(
         {"finger/spi": [SPI_OK],
          "pagelist": [pagelist_ok()],
-         "playurl": [playurl_ok()]},
+         "/x/player/wbi/playurl": [playurl_ok()]},
         stream_routes={f"{STREAM_HOST}/a30216.m4s": AUDIO_BYTES},
     )
     _cli_routes(monkeypatch, transport)
@@ -418,7 +515,7 @@ def test_cli_download_audio_api_error_preserves_status_and_mixed_batch_fails(
                 (200, {"code": -101}),
                 pagelist_ok(),
             ],
-            "playurl": [playurl_ok()],
+            "/x/player/wbi/playurl": [playurl_ok()],
         },
         stream_routes={f"{STREAM_HOST}/a30216.m4s": AUDIO_BYTES},
     )
@@ -437,12 +534,36 @@ def test_cli_download_audio_api_error_preserves_status_and_mixed_batch_fails(
     assert "http" not in output.lower()
 
 
+def test_cli_download_audio_transport_error_redacts_exception_message(
+    tmp_root, monkeypatch, capsys
+):
+    sentinel = "SESSDATA=AUDIO-SECRET https://cdn.example/a.m4s?token=SIGNED"
+    transport = RouterTransport({
+        "finger/spi": [SPI_OK],
+        "pagelist": [RuntimeError(sentinel)] * 5,
+    })
+    _cli_routes(monkeypatch, transport)
+
+    rc = main([
+        "download-audio", "--bvid", "BV1transport",
+        "--archive-root", tmp_root,
+    ])
+
+    assert rc == 2
+    captured = capsys.readouterr()
+    output = captured.out + captured.err
+    assert "RuntimeError" in output
+    assert "AUDIO-SECRET" not in output
+    assert "SIGNED" not in output
+    assert ManifestStore(root=tmp_root).get("BV1transport") is None
+
+
 def test_cli_download_audio_budget_exhausted_exit_2(tmp_root, monkeypatch, capsys):
     manifest_needs_audio(tmp_root)
     transport = RouterTransport(
         {"finger/spi": [SPI_OK],
          "pagelist": [pagelist_ok()],
-         "playurl": [(412, None)] * 5},
+         "/x/player/wbi/playurl": [(412, None)] * 5},
     )
     _cli_routes(monkeypatch, transport)
     rc = main(["download-audio", "--missing-subs", "--archive-root", tmp_root])

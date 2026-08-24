@@ -139,6 +139,7 @@ def _mark_audio_ok(
     if store is None:
         return
     entry = dict(store.get(bvid) or {"bvid": bvid})
+    entry.pop("last_api_error_code", None)
     entry["status"] = "audio_ok"
     # relative to the manifest root when the file lives under it
     root = store.root
