@@ -115,6 +115,9 @@ seams as the single-purpose commands. It **complements** the frozen
   `skipped`), `error_code` (redacted scalar only), `artifact_paths`
   (relative), `started_at` / `finished_at`. Credentials, signed URLs, and
   raw exception text are never persisted; a crash leaves no partial line.
+  Note: `skipped` records carry their skip reason in `error_code` (e.g.
+  `offline`, `missing_audio`) — the field set is locked, so `error_code`
+  doubles as the skip-reason channel.
 - **Failure summary**: each run prints one line per failed row (with its
   redacted error code) to stderr and one `skipped (reason)` line per
   skipped row to stdout. Per-item CDN/ASR failures are recorded and the

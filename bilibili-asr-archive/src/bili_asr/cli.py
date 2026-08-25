@@ -266,19 +266,9 @@ def _todo_for_bvid(store, selector: str, entries: dict):
 
 
 def _identity_from_entry(entry: dict, key: str):
-    from .page_identity import page_identity
+    from .page_identity import identity_from_entry
 
-    work_id = entry.get("work_id")
-    cid = entry.get("cid")
-    bvid = str(entry.get("bvid") or key)
-    if work_id and cid is not None:
-        return page_identity(
-            bvid,
-            int(entry.get("page_index") or 0),
-            int(cid),
-            page_label=str(entry.get("page_label") or ""),
-        )
-    return bvid
+    return identity_from_entry(entry, key)
 
 
 def _is_excluded(entry: dict | None) -> bool:
@@ -1306,13 +1296,11 @@ def _run_scope_rows(store, entries: dict, scope: str):
             None,
         )
     if scope == "failed":
-        # failed scope: rows with a recorded failed stage attempt
-        from .coordinator import AttemptLedger
+        # failed scope: rows with a recorded failed stage attempt (qc1-S2:
+        # definition lives next to the ledger in RunCoordinator).
+        from .coordinator import RunCoordinator
 
-        failed = {
-            r["work_id"] for r in AttemptLedger(store.root).load()
-            if r["outcome"] == "failed"
-        }
+        failed = RunCoordinator(store.root, store).failed_work_ids()
         rows = [
             (key, e)
             for key, e in sorted(entries.items())
@@ -1353,6 +1341,11 @@ def _cmd_run(args: argparse.Namespace) -> int:
     started_at = utc_now_iso()
     store = ManifestStore(root=args.archive_root)
     entries = store.load()
+    if args.limit is not None and args.limit <= 0:
+        # qc1-S3: a non-positive limit would silently select zero rows
+        # and exit 0; surface it as a usage error before scope resolution.
+        print("run: --limit must be a positive integer", file=sys.stderr)
+        return 1
     rows, error = _run_scope_rows(store, entries, args.scope)
     if error:
         # Scope-resolution failures are usage/config errors (exit family 1
@@ -1361,10 +1354,7 @@ def _cmd_run(args: argparse.Namespace) -> int:
         print(f"run: {error}", file=sys.stderr)
         return 1
     if args.limit is not None:
-        if args.limit <= 0:
-            rows = []
-        else:
-            rows = rows[: args.limit]
+        rows = rows[: args.limit]
 
     client = None
     if not args.offline:

@@ -79,3 +79,21 @@ def apply_identity(entry: dict, identity: PageIdentity) -> dict:
     elif "page_label" not in updated:
         updated["page_label"] = ""
     return updated
+
+
+def identity_from_entry(
+    entry: dict, key: str
+) -> "PageIdentity | str":
+    """Identity for a ledger row: PageIdentity when the row is
+    page-resolved, otherwise the bare bvid fallback string."""
+    work_id = entry.get("work_id")
+    cid = entry.get("cid")
+    bvid = str(entry.get("bvid") or key)
+    if work_id and cid is not None:
+        return page_identity(
+            bvid,
+            int(entry.get("page_index") or 0),
+            int(cid),
+            page_label=str(entry.get("page_label") or ""),
+        )
+    return bvid

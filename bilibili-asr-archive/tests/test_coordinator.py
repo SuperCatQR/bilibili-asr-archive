@@ -543,3 +543,195 @@ def test_run_scope_resolution_error_exits_1_before_batch(
     assert "BVnope" in captured.err
     assert transport.calls == []  # nothing executed
     assert "selected" not in captured.out  # no batch output at all
+
+
+# ------------------------------------------------------------ QC fix round
+
+
+def test_run_download_failure_recorded_and_reselected_by_failed_scope(
+    tmp_root, monkeypatch, capsys
+):
+    # W1/F-001: a download-stage failure must leave a ("download",
+    # "failed") attempt record and the row must be re-selectable via
+    # `--scope failed`.
+    aud = page_identity("BVdlFail", 0, 222, "p0")
+    store = ManifestStore(root=tmp_root)
+    store.upsert(_row(aud, status="needs_audio", title="dl-fails"))
+    _stub_asr(monkeypatch)
+
+    def boom(client, identity, out_path, store=None):
+        raise bc.StreamDownloadError("cdn exploded")
+
+    monkeypatch.setattr("bili_asr.audio.download_audio", boom)
+    transport = _mixed_transport()
+    _patch_cli(monkeypatch, transport)
+
+    rc = main(["run", "--scope", "pending", "--archive-root", tmp_root])
+    captured = capsys.readouterr()
+    assert rc == 1
+    attempts = AttemptLedger(tmp_root).load()
+    assert [(r["stage"], r["outcome"]) for r in attempts] == [
+        ("download", "failed"),
+    ]
+    assert attempts[0]["error_code"] == "StreamDownloadError"
+    with open(os.path.join(tmp_root, "coordinator", "attempts.jsonl"),
+              encoding="utf-8") as fh:
+        assert "cdn exploded" not in fh.read()
+    assert f"{aud.work_id}: failed (StreamDownloadError)" in captured.err
+
+    # the failed row is re-selected by --scope failed
+    rc2 = main(["run", "--scope", "failed", "--archive-root", tmp_root])
+    captured2 = capsys.readouterr()
+    assert rc2 == 1
+    assert "selected 1 row(s)" in captured2.out
+    assert f"{aud.work_id}: needs_audio" in captured2.out
+
+
+def test_run_offline_archive_write_failure_recorded(
+    tmp_root, monkeypatch, capsys
+):
+    # W1/F-001: archive-stage write failure leaves an ("archive",
+    # "failed") record (subtitle path).
+    from bili_asr import archive as archive_mod
+
+    sub = page_identity("BVarchF", 0, 111, "p0")
+    store = ManifestStore(root=tmp_root)
+    store.upsert(_row(sub, status="subtitle_done", title="raw-exists"))
+    stem = artifact_stem(sub)
+    raw_dir = os.path.join(tmp_root, "subtitles", "raw")
+    os.makedirs(raw_dir)
+    with open(os.path.join(raw_dir, f"{stem}.json"), "w",
+              encoding="utf-8") as fh:
+        json.dump(SAMPLE_DOC, fh)
+
+    def boom(*args, **kwargs):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(archive_mod, "write_archive", boom)
+    transport = _mixed_transport()
+    _patch_cli(monkeypatch, transport)
+
+    rc = main(["run", "--scope", "pending", "--offline",
+               "--archive-root", tmp_root])
+    captured = capsys.readouterr()
+    assert rc == 1
+    attempts = AttemptLedger(tmp_root).load()
+    assert [(r["stage"], r["outcome"]) for r in attempts] == [
+        ("archive", "failed"),
+    ]
+    assert attempts[0]["error_code"] == "OSError"
+    assert f"{sub.work_id}: failed (OSError)" in captured.err
+
+
+def test_run_offline_asr_path_archive_write_failure_recorded(
+    tmp_root, monkeypatch, capsys
+):
+    # W1/F-001: archive-stage write failure on the asr path (audio on
+    # disk, transcribe ok, write_archive raises).
+    from bili_asr import archive as archive_mod
+
+    aud = page_identity("BVarchA", 0, 222, "p0")
+    store = ManifestStore(root=tmp_root)
+    store.upsert(_row(aud, status="audio_ok", title="audio-exists"))
+    audio_dir = os.path.join(tmp_root, "audio")
+    os.makedirs(audio_dir)
+    with open(os.path.join(audio_dir, f"{artifact_stem(aud)}.m4a"),
+              "wb") as fh:
+        fh.write(b"\x00" * 16)
+    _stub_asr(monkeypatch)
+
+    def boom(*args, **kwargs):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(archive_mod, "write_archive", boom)
+    transport = _mixed_transport()
+    _patch_cli(monkeypatch, transport)
+
+    rc = main(["run", "--scope", "pending", "--offline",
+               "--archive-root", tmp_root])
+    captured = capsys.readouterr()
+    assert rc == 1
+    attempts = AttemptLedger(tmp_root).load()
+    assert [(r["stage"], r["outcome"]) for r in attempts] == [
+        ("asr", "ok"), ("archive", "failed"),
+    ]
+    assert f"{aud.work_id}: failed (OSError)" in captured.err
+
+
+def test_run_explicit_scope_rerun_of_terminal_row_is_idempotent_zero(
+    tmp_root, monkeypatch, capsys
+):
+    # F-002: rerunning an already-archived row by explicit work_id exits
+    # 0 and leaves manifest/attempts byte-identical.
+    sub = page_identity("BVterm", 0, 111, "p0")
+    store = ManifestStore(root=tmp_root)
+    store.upsert(_row(sub, status="subtitle_done", title="raw"))
+    stem = artifact_stem(sub)
+    raw_dir = os.path.join(tmp_root, "subtitles", "raw")
+    os.makedirs(raw_dir)
+    with open(os.path.join(raw_dir, f"{stem}.json"), "w",
+              encoding="utf-8") as fh:
+        json.dump(SAMPLE_DOC, fh)
+    transport = _mixed_transport()
+    _patch_cli(monkeypatch, transport)
+
+    assert main(["run", "--scope", "pending", "--offline",
+                 "--archive-root", tmp_root]) == 0
+    capsys.readouterr()
+    manifest_path = os.path.join(tmp_root, "manifest", "manifest.jsonl")
+    attempts_path = os.path.join(tmp_root, "coordinator", "attempts.jsonl")
+    with open(manifest_path, encoding="utf-8") as fh:
+        first_manifest = fh.read()
+    with open(attempts_path, encoding="utf-8") as fh:
+        first_attempts = fh.read()
+
+    rc = main(["run", "--scope", sub.work_id, "--offline",
+               "--archive-root", tmp_root])
+    captured = capsys.readouterr()
+    assert rc == 0, captured.err
+    assert "selected 1 row(s)" in captured.out
+    assert f"{sub.work_id}: skipped (already_terminal)" in captured.out
+    assert "scope not fully processed" not in captured.out
+    with open(manifest_path, encoding="utf-8") as fh:
+        assert fh.read() == first_manifest
+    with open(attempts_path, encoding="utf-8") as fh:
+        assert fh.read() == first_attempts
+
+
+def test_run_non_positive_limit_is_usage_error(
+    tmp_root, monkeypatch, capsys
+):
+    # qc1-S3 / qc3-S3: --limit 0 must not silently select zero rows.
+    store = ManifestStore(root=tmp_root)
+    store.upsert(_row(page_identity("BVlim", 0, 111, "p0"), title="l"))
+    _stub_asr(monkeypatch)
+    transport = _mixed_transport()
+    _patch_cli(monkeypatch, transport)
+
+    rc = main(["run", "--scope", "pending", "--limit", "0",
+               "--archive-root", tmp_root])
+    captured = capsys.readouterr()
+    assert rc == 1
+    assert "--limit must be a positive integer" in captured.err
+    assert transport.calls == []
+    assert "selected" not in captured.out
+
+
+def test_safe_error_code_sanitizes_forbidden_markers(tmp_root):
+    # qc3-S2: a hostile .code string carrying forbidden markers must be
+    # sanitized so _record never throws and never masks the stage error.
+    from bili_asr.coordinator import _safe_error_code
+
+    class HostileCode(Exception):
+        code = "https://evil.example/SESSDATA=abc"
+
+    sanitized = _safe_error_code(HostileCode("boom"))
+    assert sanitized == "evil.example/=abc"
+    assert "http" not in sanitized and "SESSDATA" not in sanitized
+
+    store = ManifestStore(root=tmp_root)
+    store.upsert(_row(page_identity("BVsane", 0, 111, "p0")))
+    coord = RunCoordinator(tmp_root, store)
+    stored = coord._record("harvest", "BVsane:p0", "failed",
+                           error_code=sanitized)
+    assert stored["error_code"] == "evil.example/=abc"

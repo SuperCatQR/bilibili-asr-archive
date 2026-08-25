@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import time
 from dataclasses import dataclass, field
 from typing import Any, Callable
@@ -22,7 +23,7 @@ from . import asr as asr_module
 from . import audio as audio_module
 from . import subtitles as subtitles_module
 from .manifest import ManifestStore
-from .page_identity import PageIdentity, artifact_stem, page_identity
+from .page_identity import PageIdentity, artifact_stem, identity_from_entry
 
 STAGES = ("harvest", "download", "asr", "archive")
 OUTCOMES = ("ok", "failed", "skipped")
@@ -56,6 +57,18 @@ def _utc_now_iso() -> str:
     return utc_now_iso()
 
 
+# qc3-S2: a hostile/odd .code string may itself carry forbidden markers;
+# strip them (case-insensitive) so recording a failure never throws and
+# never masks the original stage exception.
+_MARKER_RE = re.compile(
+    "|".join(re.escape(m) for m in _FORBIDDEN_MARKERS), re.IGNORECASE
+)
+
+
+def _sanitize_code_str(value: str) -> str:
+    return _MARKER_RE.sub("", value)[:_MAX_ERROR_CODE_LEN]
+
+
 def _safe_error_code(exc: BaseException) -> int | str:
     """Extract a redacted scalar error code from an exception."""
     for attr in ("code", "last_code"):
@@ -64,10 +77,10 @@ def _safe_error_code(exc: BaseException) -> int | str:
             continue
         if isinstance(value, (int, str)):
             if isinstance(value, str):
-                return value[:_MAX_ERROR_CODE_LEN]
+                return _sanitize_code_str(value)
             return value
     name = type(exc).__name__
-    return name[:_MAX_ERROR_CODE_LEN]
+    return _sanitize_code_str(name)
 
 
 def _validate_attempt(record: dict[str, Any]) -> dict[str, Any]:
@@ -150,6 +163,11 @@ class AttemptLedger:
         return records
 
     def append(self, record: dict[str, Any]) -> dict[str, Any]:
+        # simplify: whole-file rewrite per append is O(n^2) over the run
+        # history. If the ledger grows past a few thousand records, switch
+        # to open-append + flush/fsync, or periodic compaction into
+        # per-work chunks (read path already tolerates truncation via
+        # _validate_attempt skipping).
         stored = _validate_attempt(record)
         os.makedirs(os.path.dirname(self.path), exist_ok=True)
         existing_bytes = b""
@@ -168,6 +186,18 @@ class AttemptLedger:
                 fh.flush()
                 os.fsync(fh.fileno())
             os.replace(tmp, self.path)
+            # qc2-F-003: fsync the parent dir so the rename itself is
+            # durable; best-effort — some filesystems reject dir fsync.
+            try:
+                dirfd = os.open(
+                    os.path.dirname(self.path), os.O_RDONLY
+                )
+                try:
+                    os.fsync(dirfd)
+                finally:
+                    os.close(dirfd)
+            except OSError:
+                pass
         except BaseException:
             if os.path.exists(tmp):
                 try:
@@ -207,11 +237,15 @@ class RunSummary:
 
     @property
     def fully_processed(self) -> bool:
-        """True when no row failed/skipped and no risk interruption.
+        """True when no row failed/unprocessed and no risk interruption.
 
-        An empty selection is vacuously fully processed.
+        An empty selection is vacuously fully processed. Terminal-scope
+        reruns (rows skipped as ``already_terminal``) count as processed:
+        nothing remains to do for those rows (F-002).
         """
-        return not self.risk_interrupted and all(r.ok for r in self.results)
+        return not self.risk_interrupted and all(
+            r.ok or r.skip_reason == "already_terminal" for r in self.results
+        )
 
 
 class RunCoordinator:
@@ -279,17 +313,7 @@ class RunCoordinator:
     # ------------------------------------------------------------ execution
 
     def _identity_for(self, entry: dict[str, Any], key: str) -> PageIdentity | str:
-        work_id = entry.get("work_id")
-        cid = entry.get("cid")
-        bvid = str(entry.get("bvid") or key)
-        if work_id and cid is not None:
-            return page_identity(
-                bvid,
-                int(entry.get("page_index") or 0),
-                int(cid),
-                page_label=str(entry.get("page_label") or ""),
-            )
-        return bvid
+        return identity_from_entry(entry, key)
 
     def _current_entry(self, key: str, entry: dict[str, Any]) -> dict[str, Any]:
         return dict(self.store.get(key) or self.store.get_compatible(key) or entry)
@@ -349,9 +373,16 @@ class RunCoordinator:
             result.final_status = str(entry.get("status") or "")
             return
         segments, raw = data
-        paths = archive_module.write_archive(
-            self.root, entry, segments, source="subtitle", raw=raw
-        )
+        try:
+            paths = archive_module.write_archive(
+                self.root, entry, segments, source="subtitle", raw=raw
+            )
+        except Exception as exc:  # redacted; batch continues
+            self._record(
+                "archive", work_id, "failed",
+                error_code=_safe_error_code(exc), started_at=started,
+            )
+            raise
         self._record(
             "archive", work_id, "ok",
             artifact_paths=sorted(paths.values()), started_at=started,
@@ -395,9 +426,16 @@ class RunCoordinator:
             raise
         self._record("asr", work_id, "ok", started_at=started)
         started = _utc_now_iso()
-        paths = archive_module.write_archive(
-            self.root, self._current_entry(key, entry), segments, source="asr"
-        )
+        try:
+            paths = archive_module.write_archive(
+                self.root, self._current_entry(key, entry), segments, source="asr"
+            )
+        except Exception as exc:  # redacted; batch continues
+            self._record(
+                "archive", work_id, "failed",
+                error_code=_safe_error_code(exc), started_at=started,
+            )
+            raise
         self._record(
             "archive", work_id, "ok",
             artifact_paths=sorted(paths.values()), started_at=started,
@@ -423,9 +461,16 @@ class RunCoordinator:
         identity = self._identity_for(entry, key)
         stem = artifact_stem(identity)
         out_path = os.path.join(self.root, "audio", f"{stem}.m4a")
-        final = audio_module.download_audio(
-            self.client, identity, out_path, store=self.store
-        )
+        try:
+            final = audio_module.download_audio(
+                self.client, identity, out_path, store=self.store
+            )
+        except Exception as exc:  # redacted; batch continues
+            self._record(
+                "download", work_id, "failed",
+                error_code=_safe_error_code(exc), started_at=started,
+            )
+            raise
         try:
             rel = os.path.relpath(final, self.root)
         except ValueError:
