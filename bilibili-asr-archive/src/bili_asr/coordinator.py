@@ -184,6 +184,7 @@ class RowResult:
     final_status: str
     ok: bool = False
     skipped: bool = False
+    skip_reason: str = ""
     failure_codes: list[int | str] = field(default_factory=list)
 
 
@@ -199,6 +200,18 @@ class RunSummary:
     @property
     def ok_count(self) -> int:
         return sum(1 for r in self.results if r.ok)
+
+    @property
+    def skipped_rows(self) -> list[RowResult]:
+        return [r for r in self.results if r.skipped]
+
+    @property
+    def fully_processed(self) -> bool:
+        """True when no row failed/skipped and no risk interruption.
+
+        An empty selection is vacuously fully processed.
+        """
+        return not self.risk_interrupted and all(r.ok for r in self.results)
 
 
 class RunCoordinator:
@@ -332,6 +345,7 @@ class RunCoordinator:
                 error_code="missing_subtitle_raw", started_at=started,
             )
             result.skipped = True
+            result.skip_reason = "missing_subtitle_raw"
             result.final_status = str(entry.get("status") or "")
             return
         segments, raw = data
@@ -368,6 +382,7 @@ class RunCoordinator:
                 error_code="missing_audio", started_at=started,
             )
             result.skipped = True
+            result.skip_reason = "missing_audio"
             result.final_status = str(entry.get("status") or "")
             return
         try:
@@ -401,15 +416,10 @@ class RunCoordinator:
         self, key: str, entry: dict[str, Any], result: RowResult
     ) -> str:
         """Download audio for a needs_audio row; returns new manifest status."""
+        # offline / client-less rows never reach this stage: process_row
+        # routes them to on-disk reprocessing or a skipped record first.
         work_id = str(entry.get("work_id") or key)
         started = _utc_now_iso()
-        if self.offline or self.client is None:
-            self._record(
-                "download", work_id, "skipped",
-                error_code="offline", started_at=started,
-            )
-            result.skipped = True
-            return str(entry.get("status") or "needs_audio")
         identity = self._identity_for(entry, key)
         stem = artifact_stem(identity)
         out_path = os.path.join(self.root, "audio", f"{stem}.m4a")
@@ -433,18 +443,40 @@ class RunCoordinator:
 
         if status in TERMINAL_STATUSES:
             result.skipped = True
+            result.skip_reason = "already_terminal"
             return result
 
         try:
+            if self.offline or self.client is None:
+                # Offline: never call harvest/download. Reprocess only what
+                # already exists on disk (subtitle raw / audio) per plan
+                # §Interfaces; missing input -> skipped with reason.
+                entry = self._current_entry(key, entry)
+                audio = self._existing_audio(entry)
+                subtitle_raw = self._subtitle_segments(entry)
+                if subtitle_raw is not None:
+                    self._stage_archive_from_subtitle(key, entry, result)
+                    return result
+                if audio is not None:
+                    self._stage_asr_archive(key, entry, result)
+                    return result
+                if status in _HARVEST_STATUSES:
+                    self._record("harvest", work_id, "skipped",
+                                 error_code="offline")
+                    result.skipped = True
+                    result.skip_reason = "offline"
+                    result.final_status = str(entry.get("status") or status)
+                    return result
+                # subtitle_done without raw / audio row without audio: let
+                # the natural stage record its missing-input skip reason.
+                if status == "subtitle_done":
+                    self._stage_archive_from_subtitle(key, entry, result)
+                else:
+                    self._stage_asr_archive(key, entry, result)
+                return result
+
             if status in _HARVEST_STATUSES:
                 started = _utc_now_iso()
-                if self.offline or self.client is None:
-                    self._record(
-                        "harvest", work_id, "skipped",
-                        error_code="offline", started_at=started,
-                    )
-                    result.skipped = True
-                    return result
                 identity = self._identity_for(entry, key)
                 try:
                     status = subtitles_module.harvest_subtitle(
@@ -483,7 +515,8 @@ class RunCoordinator:
                 raise ValueError(f"harvest returned unexpected status {status!r}")
         except Exception as exc:
             code = _safe_error_code(exc)
-            result.failure_codes.append(code)
+            if code not in result.failure_codes:
+                result.failure_codes.append(code)
             # stage-level attempt records are written by the stage wrappers;
             # this catch covers stage-entry errors (e.g. harvest) that did
             # not record yet.
@@ -505,11 +538,18 @@ class RunCoordinator:
             status = str(entry.get("status") or "pending")
             result = RowResult(work_id=work_id, final_status=status)
             live = status not in TERMINAL_STATUSES and not self.offline
+
+            def _fail(exc: BaseException, r: RowResult = result) -> None:
+                # append once per code: process_row's stage wrappers may
+                # have recorded the same scalar already (M1 dedupe)
+                code = _safe_error_code(exc)
+                if code not in r.failure_codes:
+                    r.failure_codes.append(code)
+
             try:
                 result = self.process_row(key, entry)
             except bili_client.RiskBudgetExhausted as exc:
-                code = _safe_error_code(exc)
-                result.failure_codes.append(code)
+                _fail(exc)
                 result.final_status = str(
                     (self._current_entry(key, entry) or {}).get("status") or status
                 )
@@ -517,23 +557,21 @@ class RunCoordinator:
                 summary.risk_interrupted = True
                 break
             except bili_client.GoneResponse as exc:
-                code = _safe_error_code(exc)
-                result.failure_codes.append(code)
+                _fail(exc)
                 gone = self._current_entry(key, entry)
                 if gone.get("work_id"):
                     gone["status"] = "gone"
                     self.store.upsert(gone)
                 result.final_status = "gone"
             except bili_client.APIResponseError as exc:
-                code = _safe_error_code(exc)
-                result.failure_codes.append(code)
+                _fail(exc)
                 current = self._current_entry(key, entry)
+                code = _safe_error_code(exc)
                 if current.get("work_id") and isinstance(code, int):
                     current["last_api_error_code"] = code
                     self.store.upsert(current)
             except Exception as exc:
-                code = _safe_error_code(exc)
-                result.failure_codes.append(code)
+                _fail(exc)
             summary.results.append(result)
             if live and index != len(rows) - 1:
                 self._sleep(3.0)

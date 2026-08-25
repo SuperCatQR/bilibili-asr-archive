@@ -264,8 +264,6 @@ def test_cli_run_per_item_failure_batch_continues(tmp_root, monkeypatch, capsys)
     store.upsert(_row(a, title="a"))
     store.upsert(_row(b, title="b"))
 
-    broken = {artifact_stem(a)}
-
     def flaky(audio_path, model_name=None):
         if artifact_stem(a) in audio_path:
             raise ASRModelError("model failed")
@@ -282,7 +280,6 @@ def test_cli_run_per_item_failure_batch_continues(tmp_root, monkeypatch, capsys)
     assert loaded[b.work_id]["status"] == "archived"
 
     attempts = AttemptLedger(tmp_root).load()
-    outcomes = {(r["work_id"], r["stage"]): r for r in attempts}
     failed_asr = [r for r in attempts
                   if r["stage"] == "asr" and r["outcome"] == "failed"]
     assert len(failed_asr) == 1
@@ -292,7 +289,9 @@ def test_cli_run_per_item_failure_batch_continues(tmp_root, monkeypatch, capsys)
     with open(os.path.join(tmp_root, "coordinator", "attempts.jsonl"),
               encoding="utf-8") as fh:
         assert "model failed" not in fh.read()
-    del broken, outcomes
+    # per-run failure summary names the failed row and its redacted code (M1:
+    # the code appears once, not duplicated)
+    assert f"{a.work_id}: failed (ASRModelError)" in captured.err
 
 
 def test_cli_run_specific_work_id_scope(tmp_root, monkeypatch, capsys):
@@ -356,8 +355,7 @@ def test_cli_run_gone_marks_terminal_and_continues(tmp_root, monkeypatch, capsys
 
 
 def test_cli_run_offline_flag_skips_http_stages(tmp_root, monkeypatch, capsys):
-    # offline semantics are Task 2; Task 1 only guarantees harvest/download
-    # are never called (no HTTP at all in this run).
+    # offline with nothing on disk: no HTTP at all, row skipped with reason
     sub = page_identity("BVsub", 0, 111, "p0")
     store = ManifestStore(root=tmp_root)
     store.upsert(_row(sub, title="has-sub"))
@@ -368,12 +366,14 @@ def test_cli_run_offline_flag_skips_http_stages(tmp_root, monkeypatch, capsys):
     rc = main(["run", "--scope", "pending", "--offline",
                "--archive-root", tmp_root])
     captured = capsys.readouterr()
-    assert rc == 0, captured.err
+    # missing on-disk input -> scope not fully processed -> exit 1
+    assert rc == 1
     assert transport.calls == []  # no HTTP issued
     attempts = AttemptLedger(tmp_root).load()
     assert [(r["stage"], r["outcome"], r["error_code"]) for r in attempts] == [
         ("harvest", "skipped", "offline"),
     ]
+    assert f"{sub.work_id}: skipped (offline)" in captured.out
 
 
 def test_cli_run_appends_run_ledger_record(tmp_root, monkeypatch, capsys):
@@ -392,3 +392,154 @@ def test_cli_run_appends_run_ledger_record(tmp_root, monkeypatch, capsys):
     assert len(run_records) == 1
     assert run_records[0]["exit_code"] == 0
     assert sub.work_id in (run_records[0].get("work_ids") or [])
+
+
+# ------------------------------------------------------------ offline (Task 2)
+
+
+def test_run_offline_reprocesses_subtitle_raw_on_disk(
+    tmp_root, monkeypatch, capsys
+):
+    sub = page_identity("BVoffSub", 0, 111, "p0")
+    store = ManifestStore(root=tmp_root)
+    store.upsert(_row(sub, status="subtitle_done", title="on-disk-raw"))
+    stem = artifact_stem(sub)
+    raw_dir = os.path.join(tmp_root, "subtitles", "raw")
+    os.makedirs(raw_dir)
+    with open(os.path.join(raw_dir, f"{stem}.json"), "w",
+              encoding="utf-8") as fh:
+        json.dump(SAMPLE_DOC, fh)
+    transport = _mixed_transport()
+    _patch_cli(monkeypatch, transport)
+
+    rc = main(["run", "--scope", "pending", "--offline",
+               "--archive-root", tmp_root])
+    captured = capsys.readouterr()
+    assert rc == 0, captured.err
+    assert transport.calls == []  # proven network-free
+    loaded = ManifestStore(root=tmp_root).load()
+    assert loaded[sub.work_id]["status"] == "archived"
+    attempts = AttemptLedger(tmp_root).load()
+    assert [(r["stage"], r["outcome"]) for r in attempts] == [
+        ("archive", "ok"),
+    ]
+
+
+def test_run_offline_reprocesses_audio_on_disk(tmp_root, monkeypatch, capsys):
+    aud = page_identity("BVoffAud", 0, 222, "p0")
+    store = ManifestStore(root=tmp_root)
+    store.upsert(_row(aud, status="audio_ok", title="on-disk-audio"))
+    audio_dir = os.path.join(tmp_root, "audio")
+    os.makedirs(audio_dir)
+    with open(os.path.join(audio_dir, f"{artifact_stem(aud)}.m4a"),
+              "wb") as fh:
+        fh.write(b"\x00" * 16)
+    transcribe_calls: list[str] = []
+    _stub_asr(monkeypatch, transcribe_calls)
+    transport = _mixed_transport()
+    _patch_cli(monkeypatch, transport)
+
+    rc = main(["run", "--scope", "pending", "--offline",
+               "--archive-root", tmp_root])
+    captured = capsys.readouterr()
+    assert rc == 0, captured.err
+    assert transport.calls == []  # proven network-free
+    assert len(transcribe_calls) == 1
+    loaded = ManifestStore(root=tmp_root).load()
+    assert loaded[aud.work_id]["status"] == "archived"
+    attempts = AttemptLedger(tmp_root).load()
+    assert [(r["stage"], r["outcome"]) for r in attempts] == [
+        ("asr", "ok"), ("archive", "ok"),
+    ]
+
+
+def test_run_offline_missing_input_skipped_with_reason_zero_http(
+    tmp_root, monkeypatch, capsys
+):
+    # subtitle_done row whose raw JSON vanished + audio_ok row whose audio
+    # vanished: both skipped with reason, no HTTP, nonzero exit (scope not
+    # fully processed).
+    sub = page_identity("BVmissSub", 0, 111, "p0")
+    aud = page_identity("BVmissAud", 0, 222, "p0")
+    store = ManifestStore(root=tmp_root)
+    store.upsert(_row(sub, status="subtitle_done", title="no-raw"))
+    store.upsert(_row(aud, status="audio_ok", title="no-audio"))
+    transcribe_calls: list[str] = []
+    _stub_asr(monkeypatch, transcribe_calls)
+    transport = _mixed_transport()
+    _patch_cli(monkeypatch, transport)
+
+    rc = main(["run", "--scope", "pending", "--offline",
+               "--archive-root", tmp_root])
+    captured = capsys.readouterr()
+    assert rc == 1
+    assert transport.calls == []
+    assert transcribe_calls == []
+    loaded = ManifestStore(root=tmp_root).load()
+    assert loaded[sub.work_id]["status"] == "subtitle_done"
+    assert loaded[aud.work_id]["status"] == "audio_ok"
+    attempts = AttemptLedger(tmp_root).load()
+    skipped = {(r["work_id"], r["error_code"]) for r in attempts}
+    assert (sub.work_id, "missing_subtitle_raw") in skipped
+    assert (aud.work_id, "missing_audio") in skipped
+    # operator surfaces the skip reasons
+    assert "skipped (missing_subtitle_raw)" in captured.out
+    assert "skipped (missing_audio)" in captured.out
+    assert "scope not fully processed" in captured.out
+
+
+def test_run_failure_summary_and_exit_when_scope_not_processed(
+    tmp_root, monkeypatch, capsys
+):
+    from bili_asr.asr import ASRModelError
+
+    a = page_identity("BVsumFail", 0, 111, "p0")
+    b = page_identity("BVmissOk", 0, 222, "p0")
+    store = ManifestStore(root=tmp_root)
+    store.upsert(_row(a, status="audio_ok", title="fails"))
+    store.upsert(_row(b, status="audio_ok", title="ok"))
+    audio_dir = os.path.join(tmp_root, "audio")
+    os.makedirs(audio_dir)
+    for ident in (a, b):
+        with open(os.path.join(audio_dir, f"{artifact_stem(ident)}.m4a"),
+                  "wb") as fh:
+            fh.write(b"\x00" * 16)
+
+    def flaky(audio_path, model_name=None):
+        if artifact_stem(a) in audio_path:
+            raise ASRModelError("boom")
+        return [{"start": 0.0, "end": 1.0, "text": "ok"}]
+
+    monkeypatch.setattr(asr_mod, "transcribe", flaky)
+    transport = _mixed_transport()
+    _patch_cli(monkeypatch, transport)
+
+    rc = main(["run", "--scope", "pending", "--archive-root", tmp_root])
+    captured = capsys.readouterr()
+    # live mode (no --offline): no HTTP routes hit because audio exists,
+    # batch continues past the per-item failure
+    assert rc == 1
+    loaded = ManifestStore(root=tmp_root).load()
+    assert loaded[a.work_id]["status"] != "archived"
+    assert loaded[b.work_id]["status"] == "archived"
+    # failure summary surface: failed row named once with redacted code
+    assert captured.err.count(f"{a.work_id}: failed (ASRModelError)") == 1
+    assert "1 completed" in captured.out and "1 failed" in captured.out
+    assert "scope not fully processed" in captured.out
+
+
+def test_run_scope_resolution_error_exits_1_before_batch(
+    tmp_root, monkeypatch, capsys
+):
+    store = ManifestStore(root=tmp_root)
+    store.upsert(_row(page_identity("BVreal", 0, 111, "p0"), title="r"))
+    _stub_asr(monkeypatch)
+    transport = _mixed_transport()
+    _patch_cli(monkeypatch, transport)
+
+    rc = main(["run", "--scope", "BVnope", "--archive-root", tmp_root])
+    captured = capsys.readouterr()
+    assert rc == 1
+    assert "BVnope" in captured.err
+    assert transport.calls == []  # nothing executed
+    assert "selected" not in captured.out  # no batch output at all

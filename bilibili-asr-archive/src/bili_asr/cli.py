@@ -1355,6 +1355,9 @@ def _cmd_run(args: argparse.Namespace) -> int:
     entries = store.load()
     rows, error = _run_scope_rows(store, entries, args.scope)
     if error:
+        # Scope-resolution failures are usage/config errors (exit family 1
+        # per the CLI convention: pilot/fetch-meta use 1 for these too),
+        # reported on stderr before any stage runs.
         print(f"run: {error}", file=sys.stderr)
         return 1
     if args.limit is not None:
@@ -1380,25 +1383,32 @@ def _cmd_run(args: argparse.Namespace) -> int:
     summary = coord.run_batch(rows)
 
     ok = sum(1 for r in summary.results if r.ok)
-    skipped = sum(1 for r in summary.results if r.skipped)
+    skipped = summary.skipped_rows
     failed = summary.failed
     for r in summary.results:
         if r.ok:
             print(f"{r.work_id}: {r.final_status}")
+    # Per-run failure summary (operator surface): one line per failed row,
+    # then per skipped row with its reason.
     for r in failed:
         codes = ", ".join(str(c) for c in r.failure_codes) or "unknown"
-        print(f"{r.work_id}: failed ({codes})", file=sys.stderr)
+        print(f"run: {r.work_id}: failed ({codes})", file=sys.stderr)
+    for r in skipped:
+        print(f"run: {r.work_id}: skipped ({r.skip_reason or 'unknown'})")
 
     exit_code = 0
     if summary.risk_interrupted:
         print("run: risk-control ceiling; stopping — re-run to resume.",
               file=sys.stderr)
         exit_code = 2
-    elif failed:
+    elif not summary.fully_processed:
+        # Nonzero when the requested scope was not fully processed: any
+        # per-item failure or missing-input skip leaves the row un-archived.
         exit_code = 1
 
-    print(f"run: {ok} completed, {skipped} skipped" +
-          (f", {len(failed)} failed" if failed else ""))
+    print(f"run: {ok} completed, {len(skipped)} skipped" +
+          (f", {len(failed)} failed" if failed else "") +
+          (", scope not fully processed" if exit_code == 1 else ""))
 
     ledger = RunLedger(root=args.archive_root)
     try:

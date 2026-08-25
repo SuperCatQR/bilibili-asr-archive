@@ -32,6 +32,9 @@ the default is `iic/SenseVoiceSmall`. No model weights are vendored.
     bili-asr search "黑格尔 辩证法" --archive-root archive
     bili-asr export --format json --out archive/manifest.json --archive-root archive
     bili-asr export --format csv --with-text --out archive/transcripts.csv --archive-root archive
+    bili-asr run --scope pending --archive-root archive
+    bili-asr run --scope pending --offline --archive-root archive
+    bili-asr run --scope failed --limit 5 --archive-root archive
 
 Subtitle access that requires login can use `BILI_SESSDATA` or the
 `--sessdata` flag (cookie **value**, not a file path). Credentials are sent as
@@ -90,6 +93,54 @@ cookies), signed streaming URLs, and raw exception stack traces.
 - **`bili-asr runs [--limit N] [--archive-root <root>]`** lists recent
   operational runs in chronological order with exit codes, cursor state,
   coverage snapshots, and completion timestamps.
+
+### Run coordinator (`bili-asr run`)
+
+`bili-asr run` coordinates manifest rows through four stages — `harvest`
+(probe + download subtitles), `download` (fetch audio), `asr` (local
+SenseVoice), `archive` (write `srt`/`txt`/`md`) — composing the same live
+seams as the single-purpose commands. It **complements** the frozen
+`bili-asr pilot` MVP-proof command; it does not replace it.
+
+    bili-asr run --scope pending|failed|<work_id>... [--offline] [--limit N] [--archive-root <root>]
+
+- **Scope**: `pending` selects all non-terminal processable rows; `failed`
+  re-selects rows with a recorded failed stage attempt; otherwise one or
+  more `work_id`/bvid selectors (comma- or space-separated). Reruns skip
+  already-terminal rows (`archived` / `gone`).
+- **Stage-attempt ledger**: every executed stage atomically appends a
+  record to `{archive-root}/coordinator/attempts.jsonl` (sidecar JSONL;
+  the manifest schema is untouched). Fields: `stage`, `work_id`,
+  `attempt` (per work/stage counter), `outcome` (`ok` / `failed` /
+  `skipped`), `error_code` (redacted scalar only), `artifact_paths`
+  (relative), `started_at` / `finished_at`. Credentials, signed URLs, and
+  raw exception text are never persisted; a crash leaves no partial line.
+- **Failure summary**: each run prints one line per failed row (with its
+  redacted error code) to stderr and one `skipped (reason)` line per
+  skipped row to stdout. Per-item CDN/ASR failures are recorded and the
+  batch continues.
+- **Exit codes**: 0 all selected rows processed; 1 scope-resolution error
+  (printed before any batch output; no run-ledger record is written),
+  per-item failure, or scope not fully processed (e.g. offline skip from
+  missing on-disk input); 2 risk-control ceiling (re-run to resume).
+
+#### Offline mode and the live-vs-deterministic boundary
+
+`--offline` splits live-risk operations from deterministic local
+processing. It **never issues HTTP**: the `harvest` and `download` stages
+(always network) are not invoked. Only what already exists on disk is
+reprocessed:
+
+- a row with subtitle raw JSON at
+  `{archive-root}/subtitles/raw/{stem}.json` is re-archived with
+  `source=subtitle` (no ASR);
+- a row with audio at `{archive_root}/audio/{stem}.m4a` (or a `.flac`
+  sibling, or the manifest's `audio_path`) runs local `transcribe` and
+  archives with `source=asr`;
+- any other row is `skipped` with a reason (`offline` for rows that still
+  need harvest, `missing_subtitle_raw` / `missing_audio` for rows whose
+  artifact vanished) and the run exits 1 because the scope was not fully
+  processed. Nothing is silently re-downloaded.
 
 ### SQLite FTS5 full-text search and metadata export
 
