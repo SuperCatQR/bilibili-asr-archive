@@ -1015,6 +1015,7 @@ def _cmd_asr(args: argparse.Namespace) -> int:
             updated.update(paths)
             updated["status"] = "archived"
             store.upsert(updated)
+            _reclaim_after_archive(args.archive_root, updated)
             ok += 1
             print(f"{label}: archived ({source})")
         except asr.ASRDependencyError:
@@ -1025,6 +1026,16 @@ def _cmd_asr(args: argparse.Namespace) -> int:
             print(f"{label}: archive failed", file=sys.stderr)
     print(f"asr: {ok} archived" + (f", {failed} failed" if failed else ""))
     return 1 if failed and not ok else 0
+
+
+def _reclaim_after_archive(root: str, entry: dict[str, object]) -> None:
+    """Best-effort audio reclaim once a row is archived (plan: audio-reclaim)."""
+    from .audio_reclaim import reclaim_audio
+
+    try:
+        reclaim_audio(root, entry)
+    except OSError:
+        pass  # per-item non-fatal: transcripts exist; row stays archived
 
 
 def _pilot_archive_subtitle(store, root: str, entry: dict[str, object]) -> dict[str, object]:
@@ -1039,6 +1050,7 @@ def _pilot_archive_subtitle(store, root: str, entry: dict[str, object]) -> dict[
     updated.update(paths)
     updated["status"] = "archived"
     store.upsert(updated)
+    _reclaim_after_archive(root, updated)
     return updated
 
 
@@ -1072,6 +1084,7 @@ def _pilot_archive_asr(store, client, root: str, entry: dict[str, object], targe
     except ValueError:
         current["audio_path"] = audio_path
     store.upsert(current)
+    _reclaim_after_archive(root, current)
     return current
 
 

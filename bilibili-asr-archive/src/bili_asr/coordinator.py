@@ -398,6 +398,16 @@ class RunCoordinator:
         updated.update(paths)
         updated["status"] = "archived"
         self.store.upsert(updated)
+        self._reclaim_audio(updated)
+
+    def _reclaim_audio(self, entry: dict[str, Any]) -> None:
+        """Best-effort audio reclaim once a row is archived."""
+        from .audio_reclaim import reclaim_audio
+
+        try:
+            reclaim_audio(self.root, entry)
+        except (OSError, ValueError):
+            pass  # per-item non-fatal: transcripts exist; row stays archived
 
     def _stage_asr_archive(
         self, key: str, entry: dict[str, Any], result: RowResult
