@@ -303,7 +303,15 @@ def _cmd_fetch_meta(args: argparse.Namespace) -> int:
     from .manifest import ManifestStore
     from .meta_cursor import MetaCursorStore
     from .page_identity import parse_work_id
+    from .run_ledger import (
+        RunLedger,
+        build_run_record,
+        compute_coverage_summary,
+        utc_now_iso,
+    )
 
+    started_at = utc_now_iso()
+    ledger = RunLedger(root=args.archive_root)
     client = bili_client.BiliClient()
     store = ManifestStore(root=args.archive_root)
     cursor_store = MetaCursorStore(root=args.archive_root)
@@ -333,6 +341,33 @@ def _cmd_fetch_meta(args: argparse.Namespace) -> int:
                 pass
     per_page_persists = 0
 
+    def _record_exit(
+        exit_code: int,
+        *,
+        pages_count: int | None = None,
+        records_count: int | None = None,
+        last_error_code: int | str | None = None,
+    ) -> None:
+        try:
+            cursor_snapshot = cursor_store.load()
+            coverage = compute_coverage_summary(store.load())
+            rec = build_run_record(
+                command="fetch-meta",
+                started_at=started_at,
+                finished_at=utc_now_iso(),
+                exit_code=exit_code,
+                mid=args.mid,
+                pages_fetched=pages_count,
+                records_fetched=records_count,
+                records_existing=len(existing),
+                last_api_error_code=last_error_code,
+                coverage_summary=coverage,
+                cursor_snapshot=cursor_snapshot,
+            )
+            ledger.append(rec)
+        except Exception:
+            pass
+
     def _after_successful_page() -> None:
         nonlocal existing, per_page_persists
         _persist_partial(client, store, existing, pages_for=pages_for)
@@ -360,6 +395,12 @@ def _cmd_fetch_meta(args: argparse.Namespace) -> int:
         unenumerated = client.last_failed_page
         partial = _persist_partial(client, store, existing, pages_for=pages_for)
         _interrupt_cursor(client, cursor_store, args.mid, exc.last_code)
+        _record_exit(
+            2,
+            pages_count=len(client.pages_fetched),
+            records_count=partial,
+            last_error_code=exc.last_code,
+        )
         print(
             f"risk-control ceiling: page {unenumerated} could not be "
             f"enumerated (retry budget exhausted, last code {exc.last_code}); "
@@ -372,6 +413,12 @@ def _cmd_fetch_meta(args: argparse.Namespace) -> int:
     except bili_client.APIResponseError as exc:
         partial = _persist_partial(client, store, existing, pages_for=pages_for)
         _interrupt_cursor(client, cursor_store, args.mid, exc.code)
+        _record_exit(
+            2,
+            pages_count=len(client.pages_fetched),
+            records_count=partial,
+            last_error_code=exc.code,
+        )
         print(
             f"fetch-meta: API response error (code {exc.code}) at page "
             f"{client.last_failed_page}; {partial} record(s) from "
@@ -383,6 +430,12 @@ def _cmd_fetch_meta(args: argparse.Namespace) -> int:
     except bili_client.GoneResponse as exc:
         partial = _persist_partial(client, store, existing, pages_for=pages_for)
         _interrupt_cursor(client, cursor_store, args.mid, exc.code)
+        _record_exit(
+            2,
+            pages_count=len(client.pages_fetched),
+            records_count=partial,
+            last_error_code=exc.code,
+        )
         if client.pages_fetched:
             print(
                 f"fetch-meta: terminal API response (code {exc.code}) at "
@@ -424,6 +477,12 @@ def _cmd_fetch_meta(args: argparse.Namespace) -> int:
         next_page=next_page,
         total=client.last_observed_total,
         state=cursor_state,
+    )
+    _record_exit(
+        0,
+        pages_count=len(pages),
+        records_count=len(records),
+        last_error_code=None,
     )
 
     total_s = sum(e.get("duration_s", 0) for e in entries.values())
@@ -921,10 +980,47 @@ def _pilot_print_summary(
 def _cmd_pilot(args: argparse.Namespace) -> int:
     from . import asr, audio, bili_client, subtitles
     from .manifest import ManifestStore
+    from .meta_cursor import MetaCursorStore
+    from .run_ledger import (
+        RunLedger,
+        build_run_record,
+        compute_coverage_summary,
+        utc_now_iso,
+    )
 
+    started_at = utc_now_iso()
+    ledger = RunLedger(root=args.archive_root)
+    cursor_store = MetaCursorStore(root=args.archive_root)
     store = ManifestStore(root=args.archive_root)
     entries = store.load()
+    last_api_error_code: int | str | None = None
+    selected_work_ids: list[str] | None = None
+
+    def _record_exit(code: int) -> int:
+        try:
+            cursor_snapshot = cursor_store.load()
+            coverage = compute_coverage_summary(store.load())
+            rec = build_run_record(
+                command="pilot",
+                started_at=started_at,
+                finished_at=utc_now_iso(),
+                exit_code=code,
+                mid=None,
+                work_ids=selected_work_ids,
+                pages_fetched=None,
+                records_fetched=None,
+                records_existing=len(entries),
+                last_api_error_code=last_api_error_code,
+                coverage_summary=coverage,
+                cursor_snapshot=cursor_snapshot,
+            )
+            ledger.append(rec)
+        except Exception:
+            pass
+        return code
+
     selected = _expand_selected_pages(entries, _pilot_select(entries, args.n))
+    selected_work_ids = [_pilot_row_key(e) for e in selected] if selected else None
     print(
         f"pilot: selected {len(selected)} rows "
         f"(--n {args.n}; includes pagelist siblings)"
@@ -938,12 +1034,12 @@ def _cmd_pilot(args: argparse.Namespace) -> int:
     if not selected:
         if leftover:
             print("pilot: no processable rows in the manifest", file=sys.stderr)
-            return 1
+            return _record_exit(1)
         if any(e.get("status") == "archived" for e in entries.values()):
             print("pilot: skip — all selected work already archived")
-            return 0
+            return _record_exit(0)
         print("pilot: no processable rows in the manifest", file=sys.stderr)
-        return 1
+        return _record_exit(1)
 
     sessdata = _resolve_sessdata(args)
     client = bili_client.BiliClient(sessdata=sessdata)
@@ -986,22 +1082,24 @@ def _cmd_pilot(args: argparse.Namespace) -> int:
                 file=sys.stderr,
             )
             _pilot_print_summary(subtitle_count, audio_count, failed, terminals)
-            return 1
+            return _record_exit(1)
         except bili_client.AmbiguousPageError:
             failed += 1
             print(f"{label}: multi-part video needs an explicit page",
                   file=sys.stderr)
         except bili_client.RiskBudgetExhausted as exc:
             failed += 1
+            last_api_error_code = exc.last_code
             print(
                 f"{label}: risk-control ceiling (last code {exc.last_code}); "
                 f"stopping — re-run to resume.",
                 file=sys.stderr,
             )
             _pilot_print_summary(subtitle_count, audio_count, failed, terminals)
-            return 2
+            return _record_exit(2)
         except bili_client.APIResponseError as exc:
             failed += 1
+            last_api_error_code = exc.code
             _record_api_error(store, key, exc.code)
             print(
                 f"{label}: API response error (code {exc.code}); continuing.",
@@ -1009,6 +1107,7 @@ def _cmd_pilot(args: argparse.Namespace) -> int:
             )
         except bili_client.GoneResponse as exc:
             failed += 1
+            last_api_error_code = exc.code
             gone = dict(store.get(key) or store.get_compatible(key) or {})
             if gone.get("work_id"):
                 gone["status"] = "gone"
@@ -1051,10 +1150,10 @@ def _cmd_pilot(args: argparse.Namespace) -> int:
             "pilot: missing branch coverage: " + ", ".join(missing),
             file=sys.stderr,
         )
-        return 1
+        return _record_exit(1)
     if failed:
-        return 1
-    return 0
+        return _record_exit(1)
+    return _record_exit(0)
 
 
 def main(argv: list[str] | None = None) -> int:
