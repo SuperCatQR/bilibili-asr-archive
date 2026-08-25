@@ -247,3 +247,107 @@ def test_cli_pilot_missing_asr_dependency_does_not_archive(tmp_root, monkeypatch
     assert loaded[sub.work_id]["status"] == "archived"
     assert loaded[aud.work_id]["status"] != "archived"
     assert not loaded[aud.work_id].get("srt_path")
+
+
+def test_cli_pilot_resume_after_partial_asr_counts_archived_subtitle(
+    tmp_root, monkeypatch, capsys
+):
+    from bili_asr.asr import ASRDependencyError
+
+    sub = page_identity("BVsub", 0, 111, "p0")
+    aud = page_identity("BVaud", 0, 222, "p0")
+    store = ManifestStore(root=tmp_root)
+    store.upsert(_row(sub, duration_s=5, title="has-sub"))
+    store.upsert(_row(aud, duration_s=8, title="needs-asr"))
+
+    def missing_asr(audio_path, model_name=None):
+        raise ASRDependencyError("SenseVoice support is not installed")
+
+    monkeypatch.setattr(asr_mod, "transcribe", missing_asr)
+    _patch_cli(monkeypatch, _mixed_transport())
+    assert main(["pilot", "--n", "2", "--archive-root", tmp_root]) == 1
+    capsys.readouterr()
+
+    monkeypatch.setattr(
+        asr_mod,
+        "transcribe",
+        lambda audio_path, model_name=None: [
+            {"start": 0.0, "end": 1.0, "text": "asr-text"}
+        ],
+    )
+    _patch_cli(monkeypatch, _mixed_transport())
+    rc = main(["pilot", "--n", "2", "--archive-root", tmp_root])
+    captured = capsys.readouterr()
+    assert rc == 0, captured.err
+    assert "missing branch coverage" not in captured.err
+    loaded = ManifestStore(root=tmp_root).load()
+    assert loaded[sub.work_id]["status"] == "archived"
+    assert loaded[aud.work_id]["status"] == "archived"
+
+
+def test_cli_pilot_empty_n_with_processable_rows_does_not_skip(tmp_root, capsys):
+    only = page_identity("BVonly", 0, 333, "p0")
+    ManifestStore(root=tmp_root).upsert(_row(only, duration_s=4))
+    rc = main(["pilot", "--n", "0", "--archive-root", tmp_root])
+    captured = capsys.readouterr()
+    assert rc == 1
+    assert "already archived" not in captured.out
+    assert "already archived" not in captured.err
+
+
+def test_cli_pilot_archived_plus_gone_does_not_skip(tmp_root, capsys):
+    done = page_identity("BVdone", 0, 111, "p0")
+    gone = page_identity("BVgone", 0, 222, "p0")
+    store = ManifestStore(root=tmp_root)
+    archived = _row(done, duration_s=5, title="done")
+    archived["status"] = "archived"
+    leftover = _row(gone, duration_s=3, title="gone")
+    leftover["status"] = "gone"
+    store.upsert(archived)
+    store.upsert(leftover)
+    rc = main(["pilot", "--n", "2", "--archive-root", tmp_root])
+    captured = capsys.readouterr()
+    assert rc == 1
+    assert "already archived" not in captured.out
+    assert "already archived" not in captured.err
+
+
+def test_cli_pilot_asr_model_error_names_exception(tmp_root, monkeypatch, capsys):
+    from bili_asr.asr import ASRModelError
+
+    sub = page_identity("BVsub", 0, 111, "p0")
+    aud = page_identity("BVaud", 0, 222, "p0")
+    store = ManifestStore(root=tmp_root)
+    store.upsert(_row(sub, duration_s=5, title="has-sub"))
+    store.upsert(_row(aud, duration_s=8, title="needs-asr"))
+
+    def boom(audio_path, model_name=None):
+        raise ASRModelError("model failed")
+
+    monkeypatch.setattr(asr_mod, "transcribe", boom)
+    _patch_cli(monkeypatch, _mixed_transport())
+    rc = main(["pilot", "--n", "2", "--archive-root", tmp_root])
+    captured = capsys.readouterr()
+    assert rc == 1
+    assert "ASRModelError" in captured.err
+    assert "unexpected error" not in captured.err
+    assert "pilot branches:" in captured.out
+
+
+def test_cli_pilot_risk_budget_prints_branch_summary(tmp_root, monkeypatch, capsys):
+    sub = page_identity("BVsub", 0, 111, "p0")
+    aud = page_identity("BVaud", 0, 222, "p0")
+    store = ManifestStore(root=tmp_root)
+    store.upsert(_row(sub, duration_s=5, title="has-sub"))
+    store.upsert(_row(aud, duration_s=8, title="needs-asr"))
+
+    def raise_risk(*_args, **_kwargs):
+        raise bc.RiskBudgetExhausted(-412)
+
+    monkeypatch.setattr("bili_asr.subtitles.harvest_subtitle", raise_risk)
+    _patch_cli(monkeypatch, _mixed_transport())
+    rc = main(["pilot", "--n", "2", "--archive-root", tmp_root])
+    captured = capsys.readouterr()
+    assert rc == 2
+    assert "risk-control ceiling" in captured.err
+    assert "pilot branches:" in captured.out

@@ -873,6 +873,14 @@ def _pilot_archive_asr(store, client, root: str, entry: dict[str, object], targe
         raise TypeError("unsupported download target")
     stem = artifact_stem(target)
     out_path = os.path.join(root, "audio", f"{stem}.m4a")
+    existing_rel = entry.get("audio_path") if entry.get("status") == "audio_ok" else None
+    if existing_rel:
+        existing_abs = (
+            existing_rel if os.path.isabs(str(existing_rel))
+            else os.path.join(root, str(existing_rel))
+        )
+        if os.path.isfile(existing_abs) and os.path.getsize(existing_abs) > 0:
+            out_path = existing_abs
     audio_path = audio.download_audio(client, target, out_path, store=store)
     segments = asr.transcribe(audio_path)
     current = dict(store.get(target.work_id) or entry)
@@ -887,6 +895,29 @@ def _pilot_archive_asr(store, client, root: str, entry: dict[str, object], targe
     return current
 
 
+def _archived_branch_counts(entries: dict[str, dict[str, object]]) -> tuple[int, int]:
+    subtitle_count = audio_count = 0
+    for entry in entries.values():
+        if entry.get("status") != "archived":
+            continue
+        if entry.get("audio_path"):
+            audio_count += 1
+        else:
+            subtitle_count += 1
+    return subtitle_count, audio_count
+
+
+def _pilot_print_summary(
+    subtitle_count: int, audio_count: int, failed: int, terminals: list[str]
+) -> None:
+    print(
+        f"pilot branches: subtitle={subtitle_count}, audio-asr={audio_count}"
+        + (f", failed={failed}" if failed else "")
+    )
+    for line in terminals:
+        print(f"pilot terminal: {line}")
+
+
 def _cmd_pilot(args: argparse.Namespace) -> int:
     from . import asr, audio, bili_client, subtitles
     from .manifest import ManifestStore
@@ -894,13 +925,20 @@ def _cmd_pilot(args: argparse.Namespace) -> int:
     store = ManifestStore(root=args.archive_root)
     entries = store.load()
     selected = _expand_selected_pages(entries, _pilot_select(entries, args.n))
-    print(f"pilot: selected {len(selected)}/{args.n} videos")
+    print(
+        f"pilot: selected {len(selected)} rows "
+        f"(--n {args.n}; includes pagelist siblings)"
+    )
     for entry in selected:
         print(
             f"{_pilot_row_key(entry)}: {entry.get('status')} "
             f"({entry.get('duration_s', 0)}s)"
         )
+    leftover = [e for e in entries.values() if e.get("status") != "archived"]
     if not selected:
+        if leftover:
+            print("pilot: no processable rows in the manifest", file=sys.stderr)
+            return 1
         if any(e.get("status") == "archived" for e in entries.values()):
             print("pilot: skip — all selected work already archived")
             return 0
@@ -909,7 +947,8 @@ def _cmd_pilot(args: argparse.Namespace) -> int:
 
     sessdata = _resolve_sessdata(args)
     client = bili_client.BiliClient(sessdata=sessdata)
-    subtitle_count = audio_count = failed = 0
+    subtitle_count, audio_count = _archived_branch_counts(entries)
+    failed = 0
     terminals: list[str] = []
 
     for index, entry in enumerate(selected):
@@ -946,11 +985,7 @@ def _cmd_pilot(args: argparse.Namespace) -> int:
                 f"{label}: ASR dependency unavailable; row not archived",
                 file=sys.stderr,
             )
-            print(
-                f"pilot branches: subtitle={subtitle_count}, "
-                f"audio-asr={audio_count}"
-                + (f", failed={failed}" if failed else "")
-            )
+            _pilot_print_summary(subtitle_count, audio_count, failed, terminals)
             return 1
         except bili_client.AmbiguousPageError:
             failed += 1
@@ -963,6 +998,7 @@ def _cmd_pilot(args: argparse.Namespace) -> int:
                 f"stopping — re-run to resume.",
                 file=sys.stderr,
             )
+            _pilot_print_summary(subtitle_count, audio_count, failed, terminals)
             return 2
         except bili_client.APIResponseError as exc:
             failed += 1
@@ -997,19 +1033,14 @@ def _cmd_pilot(args: argparse.Namespace) -> int:
             ):
                 print(f"{label}: {msg}", file=sys.stderr)
             else:
-                print(f"{label}: unexpected error", file=sys.stderr)
-        except Exception:
+                print(f"{label}: {type(exc).__name__}", file=sys.stderr)
+        except Exception as exc:
             failed += 1
-            print(f"{label}: unexpected error", file=sys.stderr)
+            print(f"{label}: {type(exc).__name__}", file=sys.stderr)
         if index != len(selected) - 1:
             time.sleep(3.0)
 
-    print(
-        f"pilot branches: subtitle={subtitle_count}, audio-asr={audio_count}"
-        + (f", failed={failed}" if failed else "")
-    )
-    for line in terminals:
-        print(f"pilot terminal: {line}")
+    _pilot_print_summary(subtitle_count, audio_count, failed, terminals)
     if subtitle_count == 0 or audio_count == 0:
         missing = []
         if subtitle_count == 0:
