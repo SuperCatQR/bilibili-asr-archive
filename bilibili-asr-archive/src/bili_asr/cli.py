@@ -143,6 +143,34 @@ def build_parser() -> argparse.ArgumentParser:
         help="Stop after N videos (smoke runs)",
     )
 
+    run_cmd = subparsers.add_parser(
+        "run",
+        help="Coordinate manifest rows through stages (complements pilot)",
+    )
+    run_cmd.add_argument(
+        "--scope",
+        required=True,
+        help="pending | failed | one or more work_id/bvid selectors "
+             "(comma- or space-separated)",
+    )
+    run_cmd.add_argument(
+        "--offline",
+        action="store_true",
+        help="Never call harvest/download (deterministic local stages only)",
+    )
+    run_cmd.add_argument(
+        "--limit", type=int, default=None,
+        help="Stop after N rows (bounded batches)",
+    )
+    run_cmd.add_argument(
+        "--archive-root", default=DEFAULT_ARCHIVE_ROOT,
+        help="Archive root directory (default: ./archive)",
+    )
+    run_cmd.add_argument(
+        "--sessdata", default=None,
+        help="SESSDATA cookie for live stages (or env BILI_SESSDATA); not stored",
+    )
+
     search_cmd = subparsers.add_parser(
         "search",
         help="Search indexed completed transcripts using SQLite FTS5",
@@ -1259,6 +1287,137 @@ def _cmd_pilot(args: argparse.Namespace) -> int:
     return _record_exit(0)
 
 
+def _run_scope_rows(store, entries: dict, scope: str):
+    """Resolve --scope to processable (key, entry) rows.
+
+    Returns (rows, error) where error is a message string when the scope
+    could not be resolved at all.
+    """
+    from .manifest import VALID_STATUSES
+
+    if scope == "pending":
+        return (
+            [
+                (key, e)
+                for key, e in sorted(entries.items())
+                if e.get("status") in VALID_STATUSES - {"archived", "gone"}
+                and not _is_excluded(e)
+            ],
+            None,
+        )
+    if scope == "failed":
+        # failed scope: rows with a recorded failed stage attempt
+        from .coordinator import AttemptLedger
+
+        failed = {
+            r["work_id"] for r in AttemptLedger(store.root).load()
+            if r["outcome"] == "failed"
+        }
+        rows = [
+            (key, e)
+            for key, e in sorted(entries.items())
+            if (str(e.get("work_id") or key) in failed
+                or str(e.get("bvid") or "") in failed)
+            and not _is_excluded(e)
+            and e.get("status") not in {"archived", "gone"}
+        ]
+        return rows, None
+
+    selectors = [s for part in scope.split(",") for s in part.split() if s]
+    rows: list[tuple[str, dict]] = []
+    for selector in selectors:
+        todo = _todo_for_bvid(store, selector, entries)
+        if todo is None:
+            return None, (
+                f"{selector}: multi-part video needs an explicit page"
+            )
+        if not todo:
+            return None, f"{selector}: unresolved; not assigned to a page"
+        rows.extend(todo)
+    if not selectors:
+        return None, "run: empty --scope"
+    return rows, None
+
+
+def _cmd_run(args: argparse.Namespace) -> int:
+    from . import bili_client
+    from .coordinator import RunCoordinator
+    from .manifest import ManifestStore
+    from .run_ledger import (
+        RunLedger,
+        build_run_record,
+        compute_coverage_summary,
+        utc_now_iso,
+    )
+
+    started_at = utc_now_iso()
+    store = ManifestStore(root=args.archive_root)
+    entries = store.load()
+    rows, error = _run_scope_rows(store, entries, args.scope)
+    if error:
+        print(f"run: {error}", file=sys.stderr)
+        return 1
+    if args.limit is not None:
+        if args.limit <= 0:
+            rows = []
+        else:
+            rows = rows[: args.limit]
+
+    client = None
+    if not args.offline:
+        sessdata = _resolve_sessdata(args)
+        client = bili_client.BiliClient(sessdata=sessdata)
+    coord = RunCoordinator(
+        args.archive_root, store, client=client, offline=args.offline
+    )
+    print(
+        f"run: scope={args.scope} selected {len(rows)} row(s)"
+        + (" [offline]" if args.offline else "")
+    )
+    for key, entry in rows:
+        print(f"  {entry.get('work_id') or key}: {entry.get('status')}")
+
+    summary = coord.run_batch(rows)
+
+    ok = sum(1 for r in summary.results if r.ok)
+    skipped = sum(1 for r in summary.results if r.skipped)
+    failed = summary.failed
+    for r in summary.results:
+        if r.ok:
+            print(f"{r.work_id}: {r.final_status}")
+    for r in failed:
+        codes = ", ".join(str(c) for c in r.failure_codes) or "unknown"
+        print(f"{r.work_id}: failed ({codes})", file=sys.stderr)
+
+    exit_code = 0
+    if summary.risk_interrupted:
+        print("run: risk-control ceiling; stopping — re-run to resume.",
+              file=sys.stderr)
+        exit_code = 2
+    elif failed:
+        exit_code = 1
+
+    print(f"run: {ok} completed, {skipped} skipped" +
+          (f", {len(failed)} failed" if failed else ""))
+
+    ledger = RunLedger(root=args.archive_root)
+    try:
+        rec = build_run_record(
+            command="run",
+            started_at=started_at,
+            finished_at=utc_now_iso(),
+            exit_code=exit_code,
+            mid=None,
+            work_ids=[r.work_id for r in summary.results] or None,
+            records_existing=len(entries),
+            coverage_summary=compute_coverage_summary(store.load()),
+        )
+        ledger.append(rec)
+    except Exception:
+        pass
+    return exit_code
+
+
 def _cmd_search(args: argparse.Namespace) -> int:
     from .manifest import ManifestStore
     from .search_index import FTS5UnavailableError, SearchIndex
@@ -1365,6 +1524,8 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_search(args)
     if args.command == "export":
         return _cmd_export(args)
+    if args.command == "run":
+        return _cmd_run(args)
     parser.error(f"command {args.command!r} is not implemented yet")
 
 
