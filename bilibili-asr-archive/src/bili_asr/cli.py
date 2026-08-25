@@ -143,6 +143,24 @@ def build_parser() -> argparse.ArgumentParser:
         help="Stop after N videos (smoke runs)",
     )
 
+    search_cmd = subparsers.add_parser(
+        "search",
+        help="Search indexed completed transcripts using SQLite FTS5",
+    )
+    search_cmd.add_argument("query", help="Search query string")
+    search_cmd.add_argument(
+        "--limit", type=int, default=None,
+        help="Stop after N results (default: all)",
+    )
+    search_cmd.add_argument(
+        "--rebuild", action="store_true",
+        help="Force rebuilding the search index from the manifest",
+    )
+    search_cmd.add_argument(
+        "--archive-root", default=DEFAULT_ARCHIVE_ROOT,
+        help="Archive root directory (default: ./archive)",
+    )
+
     return parser
 
 
@@ -1210,6 +1228,42 @@ def _cmd_pilot(args: argparse.Namespace) -> int:
     return _record_exit(0)
 
 
+def _cmd_search(args: argparse.Namespace) -> int:
+    from .manifest import ManifestStore
+    from .search_index import FTS5UnavailableError, SearchIndex
+
+    store = ManifestStore(root=args.archive_root)
+    index = SearchIndex(root=args.archive_root)
+
+    try:
+        if args.rebuild:
+            index.build(store.load(), force=True)
+        elif index.is_stale(store.load()):
+            index.build(store.load())
+
+        results = index.search(args.query, limit=args.limit, auto_build=False)
+    except FTS5UnavailableError as exc:
+        print(f"search: {exc}", file=sys.stderr)
+        return 1
+    except Exception:
+        print("search: unexpected error", file=sys.stderr)
+        return 1
+
+    if not results:
+        print(
+            f"search: no matching transcripts found for {args.query!r}",
+            file=sys.stderr,
+        )
+        return 1
+
+    for res in results:
+        print(
+            f"{res.work_id}: {res.title} [{res.status}] "
+            f"(score: {res.score:.4f}, path: {res.path})"
+        )
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -1232,6 +1286,8 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_harvest_subs(args)
     if args.command == "download-audio":
         return _cmd_download_audio(args)
+    if args.command == "search":
+        return _cmd_search(args)
     parser.error(f"command {args.command!r} is not implemented yet")
 
 
