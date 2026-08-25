@@ -17,6 +17,10 @@ from .meta_cursor import VALID_STATES
 
 LEDGER_FILENAME = "run-ledger.jsonl"
 
+# Recognized core commands for documentation and reference.
+# _validate_record intentionally accepts any non-empty command string
+# for forward compatibility with future subcommands (e.g. coordinator run),
+# so the constant stays documentation, not a hard validator.
 VALID_COMMANDS = frozenset(
     {
         "fetch-meta",
@@ -367,8 +371,7 @@ class RunLedger:
                         continue
                     try:
                         raw = json.loads(line)
-                        if isinstance(raw, dict):
-                            records.append(_validate_record(raw))
+                        records.append(_validate_record(raw))
                     except (json.JSONDecodeError, ValueError):
                         print("run-ledger: ignoring corrupt line", file=sys.stderr)
                         continue

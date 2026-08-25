@@ -261,10 +261,12 @@ def test_corrupt_lines_ignored(tmp_root, capsys):
             run_id="run-valid-1",
         )
     )
-    # Manually append corrupt line and another valid line
+    # Manually append corrupt line, non-dict JSON lines, and another valid line
     with open(ledger.path, "a", encoding="utf-8") as fh:
         fh.write("{corrupt json\n")
         fh.write('{"run_id":"bad","command":"x"}\n')  # missing required fields
+        fh.write("[1, 2, 3]\n")  # valid JSON, non-dict
+        fh.write('"standalone string"\n')  # valid JSON, non-dict
 
     ledger.append(
         build_run_record(
@@ -279,6 +281,8 @@ def test_corrupt_lines_ignored(tmp_root, capsys):
     assert len(loaded) == 2
     assert loaded[0]["run_id"] == "run-valid-1"
     assert loaded[1]["run_id"] == "run-valid-2"
+    captured = capsys.readouterr()
+    assert captured.err.count("run-ledger: ignoring corrupt line") == 4
 
 
 def test_bili_client_does_not_import_run_ledger():
