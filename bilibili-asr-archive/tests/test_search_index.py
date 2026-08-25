@@ -458,6 +458,30 @@ def test_stale_detection_lifecycle(tmp_root):
     assert index.count() == 4
 
 
+def test_is_stale_mtime_short_circuits_before_load(tmp_root, monkeypatch):
+    """is_stale() returns True based on mtime without loading manifest entries."""
+    store = _create_sample_archive(tmp_root)
+    index = SearchIndex(root=tmp_root)
+    index.build(store.load())
+
+    # Simulate older db by setting db mtime back in the past
+    past_time = time.time() - 100
+    os.utime(index.db_path, (past_time, past_time))
+
+    load_called = False
+
+    def fake_load(self):
+        nonlocal load_called
+        load_called = True
+        raise RuntimeError("store.load() should not be called when mtime is stale")
+
+    monkeypatch.setattr(ManifestStore, "load", fake_load)
+
+    # Should return True without calling ManifestStore.load()
+    assert index.is_stale() is True
+    assert not load_called
+
+
 # ---------------------------------------------------------------- CLI Command Tests
 
 

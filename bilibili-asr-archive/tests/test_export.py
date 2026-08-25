@@ -352,3 +352,26 @@ def test_export_missing_or_invalid_format_exits_one(tmp_root):
     with pytest.raises(SystemExit) as exc2:
         main(["export", "--format", "xml", "--archive-root", tmp_root])
     assert exc2.value.code == 1
+
+
+def test_export_atomic_out_write_and_cleanup_on_failure(tmp_root, monkeypatch):
+    """export_manifest writes atomically and cleans up .tmp file if an error occurs."""
+    _create_sample_archive_for_export(tmp_root)
+    out_file = os.path.join(tmp_root, "exports", "failed.json")
+    tmp_file = out_file + ".tmp"
+
+    def fail_replace(src, dst):
+        raise OSError("Simulated disk error during replace")
+
+    monkeypatch.setattr(os, "replace", fail_replace)
+
+    with pytest.raises(OSError, match="Simulated disk error"):
+        export_manifest(
+            archive_root=tmp_root,
+            fmt="json",
+            out_path=out_file,
+        )
+
+    assert not os.path.exists(out_file)
+    assert not os.path.exists(tmp_file)
+

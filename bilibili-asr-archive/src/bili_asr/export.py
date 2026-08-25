@@ -206,9 +206,19 @@ def export_manifest(
         parent = os.path.dirname(out_str)
         if parent:
             os.makedirs(parent, exist_ok=True)
-        with open(out_str, "w", encoding="utf-8") as fh:
-            fh.write(content)
-            if not content.endswith("\n"):
-                fh.write("\n")
+        tmp_path = out_str + ".tmp"
+        try:
+            with open(tmp_path, "w", encoding="utf-8") as fh:
+                fh.write(content)
+                if not content.endswith("\n"):
+                    fh.write("\n")
+            os.replace(tmp_path, out_str)
+        except BaseException:
+            if os.path.exists(tmp_path):
+                try:
+                    os.remove(tmp_path)
+                except OSError:
+                    pass
+            raise
 
     return content

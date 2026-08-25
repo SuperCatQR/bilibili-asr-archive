@@ -171,10 +171,13 @@ class SearchIndex:
         if not os.path.isfile(self.db_path):
             return 0
         try:
-            with sqlite3.connect(self.db_path) as conn:
+            conn = sqlite3.connect(self.db_path)
+            try:
                 cur = conn.execute(f"SELECT COUNT(*) FROM {FTS5_TABLE_NAME}")
                 row = cur.fetchone()
                 return int(row[0]) if row else 0
+            finally:
+                conn.close()
         except (sqlite3.OperationalError, sqlite3.DatabaseError):
             return 0
 
@@ -186,15 +189,7 @@ class SearchIndex:
         if not os.path.isfile(self.db_path):
             return True
 
-        if manifest_entries is None:
-            store = ManifestStore(self.root)
-            entries = store.load()
-        elif isinstance(manifest_entries, ManifestStore):
-            entries = manifest_entries.load()
-        else:
-            entries = manifest_entries
-
-        # If manifest file exists, check mtime comparison
+        # If manifest file exists, check mtime comparison first
         if os.path.isfile(self.manifest_path):
             try:
                 manifest_mtime = os.path.getmtime(self.manifest_path)
@@ -203,6 +198,14 @@ class SearchIndex:
                     return True
             except OSError:
                 return True
+
+        if manifest_entries is None:
+            store = ManifestStore(self.root)
+            entries = store.load()
+        elif isinstance(manifest_entries, ManifestStore):
+            entries = manifest_entries.load()
+        else:
+            entries = manifest_entries
 
         # Check completed transcript count vs indexed count
         completed_count = sum(1 for e in entries.values() if self._is_indexable(e))

@@ -1267,10 +1267,9 @@ def _cmd_search(args: argparse.Namespace) -> int:
     index = SearchIndex(root=args.archive_root)
 
     try:
-        if args.rebuild:
-            index.build(store.load(), force=True)
-        elif index.is_stale(store.load()):
-            index.build(store.load())
+        manifest = store.load()
+        if args.rebuild or index.is_stale(manifest):
+            index.build(manifest, force=args.rebuild)
 
         results = index.search(args.query, limit=args.limit, auto_build=False)
     except FTS5UnavailableError as exc:
