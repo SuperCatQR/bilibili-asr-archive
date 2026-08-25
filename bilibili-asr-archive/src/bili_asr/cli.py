@@ -54,6 +54,18 @@ def build_parser() -> argparse.ArgumentParser:
     status = subparsers.add_parser("status", help="Print manifest status summary")
     status.add_argument("--archive-root", default=DEFAULT_ARCHIVE_ROOT)
 
+    runs = subparsers.add_parser(
+        "runs", help="List recent operational runs from the ledger"
+    )
+    runs.add_argument(
+        "--limit", type=int, default=None,
+        help="Stop after N recent runs (default: all)",
+    )
+    runs.add_argument(
+        "--archive-root", default=DEFAULT_ARCHIVE_ROOT,
+        help="Archive root directory (default: ./archive)",
+    )
+
     asr_cmd = subparsers.add_parser("asr", help="Transcribe audio and write transcript archive")
     asr_cmd.add_argument("--pending", action="store_true", help="Process audio_ok entries")
     asr_cmd.add_argument("--bvid", default=None)
@@ -748,20 +760,62 @@ def _cmd_download_audio(args: argparse.Namespace) -> int:
 def _cmd_status(args: argparse.Namespace) -> int:
     from collections import Counter
     from .manifest import ManifestStore
+    from .run_ledger import (
+        RunLedger,
+        format_coverage_summary,
+        format_cursor_summary,
+    )
 
     store = ManifestStore(root=args.archive_root)
     entries = store.load()
     counts = Counter(entry.get("status", "pending") for entry in entries.values())
     if not counts:
         print("manifest: empty")
-        return 0
-    for status in sorted(counts):
-        print(f"{status}: {counts[status]}")
+    else:
+        for status in sorted(counts):
+            print(f"{status}: {counts[status]}")
     unresolved = store.unresolved_identifiers()
     if unresolved:
         print(f"unresolved: {len(unresolved)}")
         for identifier in unresolved:
             print(f"  {identifier}")
+
+    ledger = RunLedger(root=args.archive_root)
+    records = ledger.load()
+    if not records:
+        print("runs: 0")
+    else:
+        print(f"runs: {len(records)}")
+        latest = records[-1]
+        run_id = latest.get("run_id", "unknown")
+        cmd = latest.get("command", "unknown")
+        code = latest.get("exit_code", "?")
+        finished = latest.get("finished_at") or latest.get("started_at") or ""
+        print(f"latest run: {run_id} ({cmd}, exit {code}, {finished})")
+        cursor_summary = format_cursor_summary(latest.get("cursor_snapshot"))
+        print(f"latest cursor: {cursor_summary}")
+        cov_summary = format_coverage_summary(latest.get("coverage_summary"))
+        print(f"latest coverage: {cov_summary}")
+    return 0
+
+
+def _cmd_runs(args: argparse.Namespace) -> int:
+    from .run_ledger import RunLedger, format_run_summary
+
+    ledger = RunLedger(root=args.archive_root)
+    records = ledger.load()
+    if not records:
+        print("runs: empty")
+        return 0
+
+    if args.limit is not None:
+        if args.limit <= 0:
+            print("runs: empty")
+            return 0
+        records = records[-args.limit:]
+
+    for record in records:
+        print(format_run_summary(record))
     return 0
 
 
@@ -1166,6 +1220,8 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_fetch_meta(args)
     if args.command == "status":
         return _cmd_status(args)
+    if args.command == "runs":
+        return _cmd_runs(args)
     if args.command == "asr":
         return _cmd_asr(args)
     if args.command == "pilot":

@@ -99,6 +99,69 @@ def compute_coverage_summary(entries_or_store: Any) -> dict[str, int]:
     return dict(sorted(counts.items()))
 
 
+def format_cursor_summary(cursor_snapshot: dict[str, Any] | None) -> str:
+    """Format cursor state for operator inspection without claiming full enumeration for limited."""
+    if not cursor_snapshot or not isinstance(cursor_snapshot, dict):
+        return "none"
+    state = cursor_snapshot.get("state")
+    next_page = cursor_snapshot.get("next_page")
+    total = cursor_snapshot.get("total")
+    err = cursor_snapshot.get("last_api_error_code")
+
+    if state == "complete":
+        if total is not None:
+            return f"complete (total {total})"
+        return "complete"
+    elif state == "limited":
+        details = [f"next_page {next_page}"]
+        if total is not None:
+            details.append(f"observed_total {total}")
+        return f"limited ({', '.join(details)})"
+    elif state == "risk_interrupted":
+        details = [f"next_page {next_page}"]
+        if err is not None:
+            details.append(f"code {err}")
+        return f"risk_interrupted ({', '.join(details)})"
+    return str(state)
+
+
+def format_coverage_summary(coverage_summary: dict[str, int] | None) -> str:
+    """Format per-status manifest coverage summary (sorted keys)."""
+    if not coverage_summary or not isinstance(coverage_summary, dict):
+        return "none"
+    valid_items = [
+        (k, v)
+        for k, v in sorted(coverage_summary.items())
+        if k in VALID_STATUSES and isinstance(v, int)
+    ]
+    if not valid_items:
+        return "none"
+    return ", ".join(f"{k}: {v}" for k, v in valid_items)
+
+
+def format_run_summary(record: dict[str, Any]) -> str:
+    """Format a single run record for operator display."""
+    run_id = record.get("run_id", "unknown")
+    command = record.get("command", "unknown")
+    exit_code = record.get("exit_code", "?")
+    finished_at = record.get("finished_at") or record.get("started_at") or ""
+    cursor_str = format_cursor_summary(record.get("cursor_snapshot"))
+    cov_str = format_coverage_summary(record.get("coverage_summary"))
+
+    parts = [
+        f"{run_id}",
+        f"command: {command}",
+        f"exit: {exit_code}",
+        f"cursor: {cursor_str}",
+        f"coverage: [{cov_str}]",
+    ]
+    if record.get("last_api_error_code") is not None and "code" not in cursor_str:
+        parts.append(f"error: {record['last_api_error_code']}")
+    if finished_at:
+        parts.append(f"({finished_at})")
+    return " | ".join(parts)
+
+
 def build_run_record(
     *,
     command: str,

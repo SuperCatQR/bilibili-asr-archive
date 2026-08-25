@@ -18,6 +18,9 @@ from bili_asr.run_ledger import (
     RunLedger,
     build_run_record,
     compute_coverage_summary,
+    format_coverage_summary,
+    format_cursor_summary,
+    format_run_summary,
     generate_run_id,
 )
 
@@ -454,3 +457,238 @@ def test_cli_pilot_exit_2_risk_appends_ledger(tmp_root, monkeypatch, capsys):
     assert rec["command"] == "pilot"
     assert rec["exit_code"] == 2
     assert rec["last_api_error_code"] == -412
+
+
+# ---------------------------------------------------------------- Formatters & CLI status / runs
+
+
+def test_format_cursor_summary():
+    assert format_cursor_summary(None) == "none"
+    assert format_cursor_summary({}) == "none"
+    assert format_cursor_summary({"state": "complete", "total": 100}) == "complete (total 100)"
+    assert format_cursor_summary({"state": "complete", "total": None}) == "complete"
+    assert (
+        format_cursor_summary({"state": "limited", "next_page": 3, "total": 50})
+        == "limited (next_page 3, observed_total 50)"
+    )
+    assert (
+        format_cursor_summary({"state": "limited", "next_page": 3, "total": None})
+        == "limited (next_page 3)"
+    )
+    assert (
+        format_cursor_summary({"state": "risk_interrupted", "next_page": 2, "last_api_error_code": -412})
+        == "risk_interrupted (next_page 2, code -412)"
+    )
+    assert (
+        format_cursor_summary({"state": "risk_interrupted", "next_page": 2, "last_api_error_code": None})
+        == "risk_interrupted (next_page 2)"
+    )
+
+
+def test_format_coverage_summary():
+    assert format_coverage_summary(None) == "none"
+    assert format_coverage_summary({}) == "none"
+    assert (
+        format_coverage_summary({"meta_ok": 10, "archived": 2, "unknown": 5})
+        == "archived: 2, meta_ok: 10"
+    )
+
+
+def test_format_run_summary():
+    rec = {
+        "run_id": "run-20260825-test1",
+        "command": "fetch-meta",
+        "exit_code": 0,
+        "finished_at": "2026-08-25T10:00:00Z",
+        "cursor_snapshot": {"state": "complete", "total": 40},
+        "coverage_summary": {"meta_ok": 40},
+    }
+    line = format_run_summary(rec)
+    assert "run-20260825-test1" in line
+    assert "command: fetch-meta" in line
+    assert "exit: 0" in line
+    assert "cursor: complete (total 40)" in line
+    assert "coverage: [meta_ok: 40]" in line
+    assert "(2026-08-25T10:00:00Z)" in line
+
+
+def test_cli_status_empty_archive(tmp_root, capsys):
+    rc = main(["status", "--archive-root", tmp_root])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "manifest: empty" in out
+    assert "runs: 0" in out
+
+
+def test_cli_status_with_manifest_and_runs(tmp_root, capsys):
+    store = ManifestStore(root=tmp_root)
+    store.upsert({"work_id": "BV1:p0", "bvid": "BV1", "status": "archived"})
+    store.upsert({"work_id": "BV2:p0", "bvid": "BV2", "status": "meta_ok"})
+
+    ledger = RunLedger(root=tmp_root)
+    ledger.append(
+        build_run_record(
+            command="fetch-meta",
+            started_at="2026-08-25T10:00:00Z",
+            finished_at="2026-08-25T10:01:00Z",
+            exit_code=0,
+            run_id="run-1",
+            coverage_summary={"meta_ok": 2},
+            cursor_snapshot={
+                "mid": 23191782,
+                "next_page": 2,
+                "total": 2,
+                "state": "complete",
+                "last_api_error_code": None,
+                "updated_at": utc_now_iso(),
+            },
+        )
+    )
+    ledger.append(
+        build_run_record(
+            command="pilot",
+            started_at="2026-08-25T10:02:00Z",
+            finished_at="2026-08-25T10:03:00Z",
+            exit_code=0,
+            run_id="run-2",
+            coverage_summary={"archived": 1, "meta_ok": 1},
+        )
+    )
+
+    rc = main(["status", "--archive-root", tmp_root])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "archived: 1" in out
+    assert "meta_ok: 1" in out
+    assert "runs: 2" in out
+    assert "latest run: run-2 (pilot, exit 0, 2026-08-25T10:03:00Z)" in out
+    assert "latest cursor: none" in out
+    assert "latest coverage: archived: 1, meta_ok: 1" in out
+
+
+def test_cli_status_limited_cursor_does_not_claim_full_enumeration(tmp_root, capsys):
+    ledger = RunLedger(root=tmp_root)
+    ledger.append(
+        build_run_record(
+            command="fetch-meta",
+            started_at="2026-08-25T10:00:00Z",
+            finished_at="2026-08-25T10:01:00Z",
+            exit_code=0,
+            run_id="run-limit",
+            coverage_summary={"meta_ok": 30},
+            cursor_snapshot={
+                "mid": 23191782,
+                "next_page": 2,
+                "total": 100,
+                "state": "limited",
+                "last_api_error_code": None,
+                "updated_at": utc_now_iso(),
+            },
+        )
+    )
+
+    rc = main(["status", "--archive-root", tmp_root])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "latest cursor: limited (next_page 2, observed_total 100)" in out
+    assert "complete" not in out.lower()
+
+
+def test_cli_runs_empty(tmp_root, capsys):
+    rc = main(["runs", "--archive-root", tmp_root])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "runs: empty" in out
+
+
+def test_cli_runs_listing_and_limit(tmp_root, capsys):
+    ledger = RunLedger(root=tmp_root)
+    for i in range(1, 4):
+        ledger.append(
+            build_run_record(
+                command="fetch-meta" if i == 1 else "pilot",
+                started_at=f"2026-08-25T10:0{i}:00Z",
+                finished_at=f"2026-08-25T10:0{i}:30Z",
+                exit_code=0,
+                run_id=f"run-{i}",
+                coverage_summary={"archived": i},
+            )
+        )
+
+    # All runs
+    rc = main(["runs", "--archive-root", tmp_root])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "run-1" in out
+    assert "run-2" in out
+    assert "run-3" in out
+
+    # Limit 2 -> shows run-2 and run-3
+    rc = main(["runs", "--limit", "2", "--archive-root", tmp_root])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "run-1" not in out
+    assert "run-2" in out
+    assert "run-3" in out
+
+    # Limit 0 -> runs: empty
+    rc = main(["runs", "--limit", "0", "--archive-root", tmp_root])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "runs: empty" in out
+
+
+def test_cli_runs_corrupt_lines_handled(tmp_root, capsys):
+    ledger = RunLedger(root=tmp_root)
+    ledger.append(
+        build_run_record(
+            command="fetch-meta",
+            started_at="2026-08-25T10:00:00Z",
+            finished_at="2026-08-25T10:01:00Z",
+            exit_code=0,
+            run_id="run-good-1",
+        )
+    )
+    with open(ledger.path, "a", encoding="utf-8") as fh:
+        fh.write("{bad json\n")
+    ledger.append(
+        build_run_record(
+            command="pilot",
+            started_at="2026-08-25T10:02:00Z",
+            finished_at="2026-08-25T10:03:00Z",
+            exit_code=0,
+            run_id="run-good-2",
+        )
+    )
+
+    rc = main(["runs", "--archive-root", tmp_root])
+    assert rc == 0
+    captured = capsys.readouterr()
+    assert "run-good-1" in captured.out
+    assert "run-good-2" in captured.out
+    assert "run-ledger: ignoring corrupt line" in captured.err
+
+
+def test_cli_status_and_runs_redaction_guarantees(tmp_root, capsys):
+    ledger = RunLedger(root=tmp_root)
+    ledger.append(
+        build_run_record(
+            command="pilot",
+            started_at="2026-08-25T10:00:00Z",
+            finished_at="2026-08-25T10:01:00Z",
+            exit_code=0,
+            run_id="run-safe-01",
+            coverage_summary={"archived": 2},
+        )
+    )
+
+    main(["status", "--archive-root", tmp_root])
+    status_out = capsys.readouterr().out
+
+    main(["runs", "--archive-root", tmp_root])
+    runs_out = capsys.readouterr().out
+
+    for out in [status_out, runs_out]:
+        for forbidden in ["SESSDATA", "cookie", "http://", "https://", "Traceback"]:
+            assert forbidden.lower() not in out.lower()
+

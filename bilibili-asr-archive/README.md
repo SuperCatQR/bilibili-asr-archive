@@ -27,6 +27,7 @@ the default is `iic/SenseVoiceSmall`. No model weights are vendored.
     bili-asr download-audio --missing-subs --archive-root archive
     bili-asr asr --pending --archive-root archive
     bili-asr status --archive-root archive
+    bili-asr runs --limit 10 --archive-root archive
     bili-asr pilot --n 20 --archive-root archive
 
 Subtitle access that requires login can use `BILI_SESSDATA` or the
@@ -45,6 +46,47 @@ Missing subtitle or audio-asr coverage exits 1 and names the missing branch.
 A completed rerun skips work already `archived`. Missing optional ASR exits
 non-zero with `pip install -e "bilibili-asr-archive/[asr]"` and does not mark
 the row archived.
+
+### Operational run ledger (`run-ledger.jsonl`), `status`, and `runs`
+
+Every `fetch-meta` execution (exit 0 or 2) and every `pilot` run atomically
+appends an inspectable run record to `{archive-root}/run-ledger.jsonl`.
+The ledger is a sidecar file that records execution history and coverage
+without altering manifest row schemas or the transport layer.
+
+#### Ledger record schema
+
+Each JSONL line represents one immutable record with the following schema:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `run_id` | `str` | Opaque identifier (`run-YYYYMMDDHHMMSS-<token>`). |
+| `command` | `str` | Command executed (`fetch-meta`, `pilot`, `run`). |
+| `started_at` | `str` | ISO-8601 UTC start timestamp. |
+| `finished_at` | `str` | ISO-8601 UTC completion timestamp. |
+| `exit_code` | `int` | Process exit code (`0`, `1`, or `2`). |
+| `mid` | `int \| null` | Target Bilibili mid (if applicable). |
+| `work_ids` | `list[str] \| null` | Processed work identifiers (if applicable). |
+| `pages_fetched` | `int \| null` | Number of pagination pages fetched. |
+| `records_fetched` | `int \| null` | Number of records fetched in the run. |
+| `records_existing` | `int \| null` | Number of pre-existing records before run. |
+| `last_api_error_code` | `int \| str \| null` | Scalar API response code on failure (never exception text). |
+| `coverage_summary` | `dict[str, int]` | Snapshot of manifest `status` counts (`archived`, `meta_ok`, etc.). |
+| `cursor_snapshot` | `dict \| null` | Snapshot of `meta-cursor.json` state at run completion. |
+
+Like `meta-cursor.json`, the ledger strictly forbids credentials (`SESSDATA`,
+cookies), signed streaming URLs, and raw exception stack traces.
+
+#### Operator inspection
+
+- **`bili-asr status [--archive-root <root>]`** displays current per-status
+  manifest row counts, unresolved legacy identifiers, total run count, and
+  latest run details (run ID, exit code, cursor snapshot, and coverage
+  summary). For `limited` enumeration runs, it reports cursor state honestly
+  without claiming complete enumeration.
+- **`bili-asr runs [--limit N] [--archive-root <root>]`** lists recent
+  operational runs in chronological order with exit codes, cursor state,
+  coverage snapshots, and completion timestamps.
 
 ### `fetch-meta --resume` and exit 2
 

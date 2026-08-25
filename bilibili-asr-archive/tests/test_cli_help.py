@@ -119,6 +119,7 @@ def test_module_entrypoint_help_mentions_subcommands() -> None:
     assert proc.returncode == 0, proc.stderr
     assert "fetch-meta" in proc.stdout
     assert "status" in proc.stdout
+    assert "runs" in proc.stdout
     assert "asr" in proc.stdout
     assert "pilot" in proc.stdout
 
@@ -127,6 +128,12 @@ def test_module_entrypoint_status_empty_archive(tmp_path: pytest.TempPathFactory
     proc = _run_module(["status", "--archive-root", str(tmp_path)])
     assert proc.returncode == 0, proc.stderr
     assert "manifest: empty" in proc.stdout
+
+
+def test_module_entrypoint_runs_empty_archive(tmp_path: pytest.TempPathFactory) -> None:
+    proc = _run_module(["runs", "--archive-root", str(tmp_path)])
+    assert proc.returncode == 0, proc.stderr
+    assert "runs: empty" in proc.stdout
 
 
 # --- Direct Python API Tests ---
@@ -142,6 +149,7 @@ def test_cli_main_help_direct(capsys: pytest.CaptureFixture[str]) -> None:
     assert "bili-asr" in out
     assert "fetch-meta" in out
     assert "status" in out
+    assert "runs" in out
 
 
 def test_cli_main_importable() -> None:
