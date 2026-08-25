@@ -29,6 +29,9 @@ the default is `iic/SenseVoiceSmall`. No model weights are vendored.
     bili-asr status --archive-root archive
     bili-asr runs --limit 10 --archive-root archive
     bili-asr pilot --n 20 --archive-root archive
+    bili-asr search "黑格尔 辩证法" --archive-root archive
+    bili-asr export --format json --out archive/manifest.json --archive-root archive
+    bili-asr export --format csv --with-text --out archive/transcripts.csv --archive-root archive
 
 Subtitle access that requires login can use `BILI_SESSDATA` or the
 `--sessdata` flag (cookie **value**, not a file path). Credentials are sent as
@@ -87,6 +90,35 @@ cookies), signed streaming URLs, and raw exception stack traces.
 - **`bili-asr runs [--limit N] [--archive-root <root>]`** lists recent
   operational runs in chronological order with exit codes, cursor state,
   coverage snapshots, and completion timestamps.
+
+### SQLite FTS5 full-text search and metadata export
+
+The JSONL manifest (`{archive-root}/manifest/manifest.jsonl`) remains the single source of truth (SSOT). Both `search` and `export` are read-only commands that never modify or rewrite the manifest ledger.
+
+#### Full-text search (`bili-asr search`)
+
+`bili-asr search <query>` queries a lightweight local SQLite FTS5 read index (`{archive-root}/search.db`) built on demand from completed transcript metadata (`archived` or `subtitle_done` with archive paths present). Incomplete entries (`meta_ok`, `needs_audio`, `audio_ok`) are not searchable as complete transcripts.
+
+    bili-asr search <query> [--limit N] [--rebuild] [--archive-root <root>]
+
+- **Ranking**: Matches are ranked by BM25 relevance score over `work_id`, `title`, `status`, and full transcript text.
+- **Stale detection**: Automatically verifies whether `search.db` is missing, older than `manifest.jsonl`, or has row count mismatch, rebuilding on demand.
+- **Idempotent rebuild**: `--rebuild` forces a clean atomic index rebuild.
+- **No hits**: Exits `1` with a clear message when no matching records are found.
+- **Environment**: Uses standard library `sqlite3` FTS5; fails with a clear message if SQLite in the environment lacks FTS5 extension support.
+
+#### Metadata and transcript export (`bili-asr export`)
+
+`bili-asr export` serializes manifest-derived records into structured JSON or CSV format without touching the manifest or calling external APIs.
+
+    bili-asr export --format json|csv [--out <path>] [--status <status>] [--with-text] [--archive-root <root>]
+
+- **Formats**: `--format json` (formatted JSON array) or `--format csv` (standard CSV with UTF-8 encoding).
+- **Transcript bodies**: By default, exported rows contain metadata only (no transcript bodies). Specify `--with-text` to include full transcript text bodies under `transcript_text`.
+- **Status filtering**: `--status <status>` filters records by manifest status (repeatable or comma-separated, e.g. `--status archived,subtitle_done`).
+- **Output destination**: Writes to standard output by default, or to `--out <path>` (creating parent directories if needed).
+- **Security and hygiene**: Credentials (`SESSDATA`, cookies), signed streaming URLs, and raw exception stack traces are strictly excluded.
+- **Vocabulary**: Consistently uses manifest `status` (never cursor `state`).
 
 ### `fetch-meta --resume` and exit 2
 

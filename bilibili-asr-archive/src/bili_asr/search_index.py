@@ -52,6 +52,112 @@ class SearchResult:
     archive_paths: dict[str, str] = field(default_factory=dict)
 
 
+def extract_transcript_text(
+    root: str | os.PathLike[str],
+    entry: dict[str, Any],
+) -> tuple[str, dict[str, str]]:
+    """Load transcript text and gather archive paths for an entry."""
+    root_str = os.fspath(root)
+    try:
+        stem = archive_stem(entry)
+    except Exception:
+        stem = str(entry.get("bvid") or "")
+
+    paths: dict[str, str] = {}
+    # Collect paths from entry metadata
+    for k in ("srt_path", "txt_path", "md_path", "raw_path"):
+        if entry.get(k):
+            paths[k] = str(entry[k])
+
+    # If not in entry metadata, probe standard disk locations
+    if "txt_path" not in paths:
+        rel = os.path.join("transcripts", "txt", f"{stem}.txt")
+        if os.path.isfile(os.path.join(root_str, rel)):
+            paths["txt_path"] = rel
+    if "srt_path" not in paths:
+        rel = os.path.join("transcripts", "srt", f"{stem}.srt")
+        if os.path.isfile(os.path.join(root_str, rel)):
+            paths["srt_path"] = rel
+    if "md_path" not in paths:
+        rel = os.path.join("transcripts", "md", f"{stem}.md")
+        if os.path.isfile(os.path.join(root_str, rel)):
+            paths["md_path"] = rel
+    if "raw_path" not in paths:
+        rel = os.path.join("transcripts", "raw", f"{stem}.json")
+        if os.path.isfile(os.path.join(root_str, rel)):
+            paths["raw_path"] = rel
+
+    # Load text content
+    text = ""
+    # 1. Try txt_path
+    txt_path = paths.get("txt_path")
+    if txt_path:
+        full_txt = (
+            txt_path if os.path.isabs(txt_path) else os.path.join(root_str, txt_path)
+        )
+        if os.path.isfile(full_txt):
+            try:
+                with open(full_txt, "r", encoding="utf-8") as fh:
+                    text = fh.read().strip()
+            except OSError:
+                pass
+
+    # 2. If no text, try srt_path
+    if not text and "srt_path" in paths:
+        srt_path = paths["srt_path"]
+        full_srt = (
+            srt_path if os.path.isabs(srt_path) else os.path.join(root_str, srt_path)
+        )
+        if os.path.isfile(full_srt):
+            try:
+                with open(full_srt, "r", encoding="utf-8") as fh:
+                    srt_lines = []
+                    for line in fh:
+                        line = line.strip()
+                        if not line or line.isdigit() or "-->" in line:
+                            continue
+                        srt_lines.append(line)
+                    text = " ".join(srt_lines)
+            except OSError:
+                pass
+
+    # 3. If no text, try raw_path or subtitles/raw
+    if not text:
+        raw_candidates = []
+        if "raw_path" in paths:
+            raw_candidates.append(
+                paths["raw_path"] if os.path.isabs(paths["raw_path"])
+                else os.path.join(root_str, paths["raw_path"])
+            )
+        raw_candidates.append(
+            os.path.join(root_str, "subtitles", "raw", f"{stem}.json")
+        )
+        for raw_cand in raw_candidates:
+            if os.path.isfile(raw_cand):
+                try:
+                    with open(raw_cand, "r", encoding="utf-8") as fh:
+                        doc = json.load(fh)
+                    if isinstance(doc, dict):
+                        if "body" in doc and isinstance(doc["body"], list):
+                            text = " ".join(
+                                str(item.get("content", ""))
+                                for item in doc["body"]
+                                if item.get("content")
+                            )
+                        elif "segments" in doc and isinstance(doc["segments"], list):
+                            text = " ".join(
+                                str(item.get("text", ""))
+                                for item in doc["segments"]
+                                if item.get("text")
+                            )
+                    if text:
+                        break
+                except (OSError, json.JSONDecodeError):
+                    pass
+
+    return text, paths
+
+
 class SearchIndex:
     """Manages {archive_root}/search.db FTS5 virtual table for transcript search."""
 
@@ -141,104 +247,7 @@ class SearchIndex:
 
     def _extract_transcript_text(self, entry: dict[str, Any]) -> tuple[str, dict[str, str]]:
         """Load transcript text and gather archive paths for an entry."""
-        try:
-            stem = archive_stem(entry)
-        except Exception:
-            stem = str(entry.get("bvid") or "")
-
-        paths: dict[str, str] = {}
-        # Collect paths from entry metadata
-        for k in ("srt_path", "txt_path", "md_path", "raw_path"):
-            if entry.get(k):
-                paths[k] = str(entry[k])
-
-        # If not in entry metadata, probe standard disk locations
-        if "txt_path" not in paths:
-            rel = os.path.join("transcripts", "txt", f"{stem}.txt")
-            if os.path.isfile(os.path.join(self.root, rel)):
-                paths["txt_path"] = rel
-        if "srt_path" not in paths:
-            rel = os.path.join("transcripts", "srt", f"{stem}.srt")
-            if os.path.isfile(os.path.join(self.root, rel)):
-                paths["srt_path"] = rel
-        if "md_path" not in paths:
-            rel = os.path.join("transcripts", "md", f"{stem}.md")
-            if os.path.isfile(os.path.join(self.root, rel)):
-                paths["md_path"] = rel
-        if "raw_path" not in paths:
-            rel = os.path.join("transcripts", "raw", f"{stem}.json")
-            if os.path.isfile(os.path.join(self.root, rel)):
-                paths["raw_path"] = rel
-
-        # Load text content
-        text = ""
-        # 1. Try txt_path
-        txt_path = paths.get("txt_path")
-        if txt_path:
-            full_txt = (
-                txt_path if os.path.isabs(txt_path) else os.path.join(self.root, txt_path)
-            )
-            if os.path.isfile(full_txt):
-                try:
-                    with open(full_txt, "r", encoding="utf-8") as fh:
-                        text = fh.read().strip()
-                except OSError:
-                    pass
-
-        # 2. If no text, try srt_path
-        if not text and "srt_path" in paths:
-            srt_path = paths["srt_path"]
-            full_srt = (
-                srt_path if os.path.isabs(srt_path) else os.path.join(self.root, srt_path)
-            )
-            if os.path.isfile(full_srt):
-                try:
-                    with open(full_srt, "r", encoding="utf-8") as fh:
-                        srt_lines = []
-                        for line in fh:
-                            line = line.strip()
-                            if not line or line.isdigit() or "-->" in line:
-                                continue
-                            srt_lines.append(line)
-                        text = " ".join(srt_lines)
-                except OSError:
-                    pass
-
-        # 3. If no text, try raw_path or subtitles/raw
-        if not text:
-            raw_candidates = []
-            if "raw_path" in paths:
-                raw_candidates.append(
-                    paths["raw_path"] if os.path.isabs(paths["raw_path"])
-                    else os.path.join(self.root, paths["raw_path"])
-                )
-            raw_candidates.append(
-                os.path.join(self.root, "subtitles", "raw", f"{stem}.json")
-            )
-            for raw_cand in raw_candidates:
-                if os.path.isfile(raw_cand):
-                    try:
-                        with open(raw_cand, "r", encoding="utf-8") as fh:
-                            doc = json.load(fh)
-                        if isinstance(doc, dict):
-                            if "body" in doc and isinstance(doc["body"], list):
-                                text = " ".join(
-                                    str(item.get("content", ""))
-                                    for item in doc["body"]
-                                    if item.get("content")
-                                )
-                            elif "segments" in doc and isinstance(doc["segments"], list):
-                                text = " ".join(
-                                    str(item.get("text", ""))
-                                    for item in doc["segments"]
-                                    if item.get("text")
-                                )
-                        if text:
-                            break
-                    except (OSError, json.JSONDecodeError):
-                        pass
-
-        return text, paths
+        return extract_transcript_text(self.root, entry)
 
     def build(
         self,

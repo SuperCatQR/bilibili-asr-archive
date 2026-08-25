@@ -161,6 +161,37 @@ def build_parser() -> argparse.ArgumentParser:
         help="Archive root directory (default: ./archive)",
     )
 
+    export_cmd = subparsers.add_parser(
+        "export",
+        help="Export manifest metadata to JSON or CSV format",
+    )
+    export_cmd.add_argument(
+        "--format",
+        choices=["json", "csv"],
+        required=True,
+        help="Export format (json or csv)",
+    )
+    export_cmd.add_argument(
+        "--out",
+        default=None,
+        help="Output file path (default: stdout)",
+    )
+    export_cmd.add_argument(
+        "--status",
+        action="append",
+        default=None,
+        help="Filter by manifest status (repeatable or comma-separated)",
+    )
+    export_cmd.add_argument(
+        "--with-text",
+        action="store_true",
+        help="Include transcript text body in output",
+    )
+    export_cmd.add_argument(
+        "--archive-root", default=DEFAULT_ARCHIVE_ROOT,
+        help="Archive root directory (default: ./archive)",
+    )
+
     return parser
 
 
@@ -1264,6 +1295,51 @@ def _cmd_search(args: argparse.Namespace) -> int:
     return 0
 
 
+def _parse_status_filter(status_args: list[str] | None) -> set[str] | None:
+    """Parse repeatable and/or comma-separated status filter arguments."""
+    if not status_args:
+        return None
+    statuses: set[str] = set()
+    for item in status_args:
+        for s in item.split(","):
+            s = s.strip()
+            if s:
+                statuses.add(s)
+    return statuses if statuses else None
+
+
+def _cmd_export(args: argparse.Namespace) -> int:
+    from .export import export_manifest
+    from .manifest import VALID_STATUSES
+
+    status_filter = _parse_status_filter(args.status)
+    if status_filter is not None:
+        invalid = status_filter - VALID_STATUSES
+        if invalid:
+            print(
+                f"export: invalid status filter: {sorted(invalid)}; "
+                f"valid statuses: {sorted(VALID_STATUSES)}",
+                file=sys.stderr,
+            )
+            return 1
+
+    try:
+        content = export_manifest(
+            archive_root=args.archive_root,
+            fmt=args.format,
+            out_path=args.out,
+            status_filter=status_filter,
+            with_text=args.with_text,
+        )
+        if not args.out or args.out == "-":
+            sys.stdout.write(content + ("\n" if not content.endswith("\n") else ""))
+            sys.stdout.flush()
+    except Exception:
+        print("export: unexpected error", file=sys.stderr)
+        return 1
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -1288,6 +1364,8 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_download_audio(args)
     if args.command == "search":
         return _cmd_search(args)
+    if args.command == "export":
+        return _cmd_export(args)
     parser.error(f"command {args.command!r} is not implemented yet")
 
 
