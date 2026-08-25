@@ -1,7 +1,7 @@
 ---
 module: bilibili-asr-archive CLI
 date: 2026-08-23
-last_updated: 2026-08-24
+last_updated: 2026-08-25
 problem_type: architecture_pattern
 category: architecture-patterns
 severity: medium
@@ -102,3 +102,6 @@ multi-part sources and resumable enumeration.
   `bilibili-asr-archive/src/bili_asr/meta_cursor.py`)
 - Verification: 96 unit tests on Python 3.12 (MVP); 147 passed (plan 001);
   168 passed (plan 002), no live HTTP.
+- Operational layer (ledger / FTS5 / coordinator) is documented in
+  [operational-sidecars.md](operational-sidecars.md); 277 passed at
+  `iter-2026-08-pilot-ops` close.

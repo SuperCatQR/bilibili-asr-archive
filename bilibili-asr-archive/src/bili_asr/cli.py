@@ -54,15 +54,34 @@ def build_parser() -> argparse.ArgumentParser:
     status = subparsers.add_parser("status", help="Print manifest status summary")
     status.add_argument("--archive-root", default=DEFAULT_ARCHIVE_ROOT)
 
+    runs = subparsers.add_parser(
+        "runs", help="List recent operational runs from the ledger"
+    )
+    runs.add_argument(
+        "--limit", type=int, default=None,
+        help="Stop after N recent runs (default: all)",
+    )
+    runs.add_argument(
+        "--archive-root", default=DEFAULT_ARCHIVE_ROOT,
+        help="Archive root directory (default: ./archive)",
+    )
+
     asr_cmd = subparsers.add_parser("asr", help="Transcribe audio and write transcript archive")
     asr_cmd.add_argument("--pending", action="store_true", help="Process audio_ok entries")
     asr_cmd.add_argument("--bvid", default=None)
     asr_cmd.add_argument("--archive-root", default=DEFAULT_ARCHIVE_ROOT)
     asr_cmd.add_argument("--limit", type=int, default=None)
 
-    pilot = subparsers.add_parser("pilot", help="Select a resumable mixed-branch pilot")
+    pilot = subparsers.add_parser(
+        "pilot",
+        help="Execute a bounded mixed-branch pilot (subtitle-hit and audio→ASR)",
+    )
     pilot.add_argument("--n", type=int, default=20)
     pilot.add_argument("--archive-root", default=DEFAULT_ARCHIVE_ROOT)
+    pilot.add_argument(
+        "--sessdata", default=None,
+        help="SESSDATA cookie for Path B (or env BILI_SESSDATA); not stored",
+    )
 
     probe = subparsers.add_parser(
         "probe-subs", help="Probe the subtitle list for one video (no download)"
@@ -124,6 +143,83 @@ def build_parser() -> argparse.ArgumentParser:
         help="Stop after N videos (smoke runs)",
     )
 
+    run_cmd = subparsers.add_parser(
+        "run",
+        help="Coordinate manifest rows through stages (complements pilot)",
+    )
+    run_cmd.add_argument(
+        "--scope",
+        required=True,
+        help="pending | failed | one or more work_id/bvid selectors "
+             "(comma- or space-separated)",
+    )
+    run_cmd.add_argument(
+        "--offline",
+        action="store_true",
+        help="Never call harvest/download (deterministic local stages only)",
+    )
+    run_cmd.add_argument(
+        "--limit", type=int, default=None,
+        help="Stop after N rows (bounded batches)",
+    )
+    run_cmd.add_argument(
+        "--archive-root", default=DEFAULT_ARCHIVE_ROOT,
+        help="Archive root directory (default: ./archive)",
+    )
+    run_cmd.add_argument(
+        "--sessdata", default=None,
+        help="SESSDATA cookie for live stages (or env BILI_SESSDATA); not stored",
+    )
+
+    search_cmd = subparsers.add_parser(
+        "search",
+        help="Search indexed completed transcripts using SQLite FTS5",
+    )
+    search_cmd.add_argument("query", help="Search query string")
+    search_cmd.add_argument(
+        "--limit", type=int, default=None,
+        help="Stop after N results (default: all)",
+    )
+    search_cmd.add_argument(
+        "--rebuild", action="store_true",
+        help="Force rebuilding the search index from the manifest",
+    )
+    search_cmd.add_argument(
+        "--archive-root", default=DEFAULT_ARCHIVE_ROOT,
+        help="Archive root directory (default: ./archive)",
+    )
+
+    export_cmd = subparsers.add_parser(
+        "export",
+        help="Export manifest metadata to JSON or CSV format",
+    )
+    export_cmd.add_argument(
+        "--format",
+        choices=["json", "csv"],
+        required=True,
+        help="Export format (json or csv)",
+    )
+    export_cmd.add_argument(
+        "--out",
+        default=None,
+        help="Output file path (default: stdout)",
+    )
+    export_cmd.add_argument(
+        "--status",
+        action="append",
+        default=None,
+        help="Filter by manifest status (repeatable or comma-separated)",
+    )
+    export_cmd.add_argument(
+        "--with-text",
+        action="store_true",
+        help="Include transcript text body in output",
+    )
+    export_cmd.add_argument(
+        "--archive-root", default=DEFAULT_ARCHIVE_ROOT,
+        help="Archive root directory (default: ./archive)",
+    )
+
     return parser
 
 
@@ -170,19 +266,9 @@ def _todo_for_bvid(store, selector: str, entries: dict):
 
 
 def _identity_from_entry(entry: dict, key: str):
-    from .page_identity import page_identity
+    from .page_identity import identity_from_entry
 
-    work_id = entry.get("work_id")
-    cid = entry.get("cid")
-    bvid = str(entry.get("bvid") or key)
-    if work_id and cid is not None:
-        return page_identity(
-            bvid,
-            int(entry.get("page_index") or 0),
-            int(cid),
-            page_label=str(entry.get("page_label") or ""),
-        )
-    return bvid
+    return identity_from_entry(entry, key)
 
 
 def _is_excluded(entry: dict | None) -> bool:
@@ -296,7 +382,15 @@ def _cmd_fetch_meta(args: argparse.Namespace) -> int:
     from .manifest import ManifestStore
     from .meta_cursor import MetaCursorStore
     from .page_identity import parse_work_id
+    from .run_ledger import (
+        RunLedger,
+        build_run_record,
+        compute_coverage_summary,
+        utc_now_iso,
+    )
 
+    started_at = utc_now_iso()
+    ledger = RunLedger(root=args.archive_root)
     client = bili_client.BiliClient()
     store = ManifestStore(root=args.archive_root)
     cursor_store = MetaCursorStore(root=args.archive_root)
@@ -326,6 +420,33 @@ def _cmd_fetch_meta(args: argparse.Namespace) -> int:
                 pass
     per_page_persists = 0
 
+    def _record_exit(
+        exit_code: int,
+        *,
+        pages_count: int | None = None,
+        records_count: int | None = None,
+        last_error_code: int | str | None = None,
+    ) -> None:
+        try:
+            cursor_snapshot = cursor_store.load()
+            coverage = compute_coverage_summary(store.load())
+            rec = build_run_record(
+                command="fetch-meta",
+                started_at=started_at,
+                finished_at=utc_now_iso(),
+                exit_code=exit_code,
+                mid=args.mid,
+                pages_fetched=pages_count,
+                records_fetched=records_count,
+                records_existing=len(existing),
+                last_api_error_code=last_error_code,
+                coverage_summary=coverage,
+                cursor_snapshot=cursor_snapshot,
+            )
+            ledger.append(rec)
+        except Exception:
+            pass
+
     def _after_successful_page() -> None:
         nonlocal existing, per_page_persists
         _persist_partial(client, store, existing, pages_for=pages_for)
@@ -353,6 +474,12 @@ def _cmd_fetch_meta(args: argparse.Namespace) -> int:
         unenumerated = client.last_failed_page
         partial = _persist_partial(client, store, existing, pages_for=pages_for)
         _interrupt_cursor(client, cursor_store, args.mid, exc.last_code)
+        _record_exit(
+            2,
+            pages_count=len(client.pages_fetched),
+            records_count=partial,
+            last_error_code=exc.last_code,
+        )
         print(
             f"risk-control ceiling: page {unenumerated} could not be "
             f"enumerated (retry budget exhausted, last code {exc.last_code}); "
@@ -365,6 +492,12 @@ def _cmd_fetch_meta(args: argparse.Namespace) -> int:
     except bili_client.APIResponseError as exc:
         partial = _persist_partial(client, store, existing, pages_for=pages_for)
         _interrupt_cursor(client, cursor_store, args.mid, exc.code)
+        _record_exit(
+            2,
+            pages_count=len(client.pages_fetched),
+            records_count=partial,
+            last_error_code=exc.code,
+        )
         print(
             f"fetch-meta: API response error (code {exc.code}) at page "
             f"{client.last_failed_page}; {partial} record(s) from "
@@ -376,6 +509,12 @@ def _cmd_fetch_meta(args: argparse.Namespace) -> int:
     except bili_client.GoneResponse as exc:
         partial = _persist_partial(client, store, existing, pages_for=pages_for)
         _interrupt_cursor(client, cursor_store, args.mid, exc.code)
+        _record_exit(
+            2,
+            pages_count=len(client.pages_fetched),
+            records_count=partial,
+            last_error_code=exc.code,
+        )
         if client.pages_fetched:
             print(
                 f"fetch-meta: terminal API response (code {exc.code}) at "
@@ -417,6 +556,12 @@ def _cmd_fetch_meta(args: argparse.Namespace) -> int:
         next_page=next_page,
         total=client.last_observed_total,
         state=cursor_state,
+    )
+    _record_exit(
+        0,
+        pages_count=len(pages),
+        records_count=len(records),
+        last_error_code=None,
     )
 
     total_s = sum(e.get("duration_s", 0) for e in entries.values())
@@ -682,39 +827,124 @@ def _cmd_download_audio(args: argparse.Namespace) -> int:
 def _cmd_status(args: argparse.Namespace) -> int:
     from collections import Counter
     from .manifest import ManifestStore
+    from .run_ledger import (
+        RunLedger,
+        format_coverage_summary,
+        format_cursor_summary,
+    )
 
     store = ManifestStore(root=args.archive_root)
     entries = store.load()
     counts = Counter(entry.get("status", "pending") for entry in entries.values())
     if not counts:
         print("manifest: empty")
-        return 0
-    for status in sorted(counts):
-        print(f"{status}: {counts[status]}")
+    else:
+        for status in sorted(counts):
+            print(f"{status}: {counts[status]}")
     unresolved = store.unresolved_identifiers()
     if unresolved:
         print(f"unresolved: {len(unresolved)}")
         for identifier in unresolved:
             print(f"  {identifier}")
+
+    ledger = RunLedger(root=args.archive_root)
+    records = ledger.load()
+    if not records:
+        print("runs: 0")
+    else:
+        print(f"runs: {len(records)}")
+        latest = records[-1]
+        run_id = latest.get("run_id", "unknown")
+        cmd = latest.get("command", "unknown")
+        code = latest.get("exit_code", "?")
+        finished = latest.get("finished_at") or latest.get("started_at") or ""
+        print(f"latest run: {run_id} ({cmd}, exit {code}, {finished})")
+        cursor_summary = format_cursor_summary(latest.get("cursor_snapshot"))
+        print(f"latest cursor: {cursor_summary}")
+        cov_summary = format_coverage_summary(latest.get("coverage_summary"))
+        print(f"latest coverage: {cov_summary}")
     return 0
+
+
+def _cmd_runs(args: argparse.Namespace) -> int:
+    from .run_ledger import RunLedger, format_run_summary
+
+    ledger = RunLedger(root=args.archive_root)
+    records = ledger.load()
+    if not records:
+        print("runs: empty")
+        return 0
+
+    if args.limit is not None:
+        if args.limit <= 0:
+            print("runs: empty")
+            return 0
+        records = records[-args.limit:]
+
+    for record in records:
+        print(format_run_summary(record))
+    return 0
+
+
+_PILOT_PROCESSABLE = frozenset(
+    {"meta_ok", "subtitle_done", "needs_audio", "audio_ok"}
+)
+_PILOT_SKIP_HARVEST = frozenset(
+    {"subtitle_done", "needs_audio", "audio_ok", "archived"}
+)
+
+
+def _pilot_row_key(entry: dict[str, object]) -> str:
+    return str(entry.get("work_id") or entry.get("bvid") or "")
+
+
+def _pilot_duration_key(entry: dict[str, object]):
+    return (entry.get("duration_s") or 0, str(entry.get("bvid") or ""), _pilot_row_key(entry))
+
+
+def _pilot_processable(entries: dict[str, dict[str, object]]) -> list[dict[str, object]]:
+    return [
+        e for e in entries.values()
+        if e.get("status") in _PILOT_PROCESSABLE and not _is_excluded(e)
+    ]
 
 
 def _pilot_select(entries: dict[str, dict[str, object]], n: int) -> list[dict[str, object]]:
     """Select a small mixed pilot while guaranteeing both branches when possible."""
     if n < 1:
         return []
-    subtitle = [e for e in entries.values() if e.get("status") == "subtitle_done"]
-    audio = [e for e in entries.values() if e.get("status") in {"needs_audio", "audio_ok"}]
-    key = lambda e: (e.get("duration_s") or 0, str(e.get("bvid")))
-    subtitle.sort(key=key)
-    audio.sort(key=key)
+    processable = _pilot_processable(entries)
+    subtitle = [e for e in processable if e.get("status") == "subtitle_done"]
+    audio = [e for e in processable if e.get("status") in {"needs_audio", "audio_ok"}]
+    subtitle.sort(key=_pilot_duration_key)
+    audio.sort(key=_pilot_duration_key)
     selected: list[dict[str, object]] = []
     for candidate in (subtitle[:1] + audio[:1]):
         if candidate and candidate not in selected:
             selected.append(candidate)
-    remaining = sorted((e for e in entries.values() if e not in selected), key=key)
+    remaining = sorted(
+        (e for e in processable if e not in selected),
+        key=_pilot_duration_key,
+    )
     selected.extend(remaining[: max(0, n - len(selected))])
     return selected[:n]
+
+
+def _expand_selected_pages(
+    entries: dict[str, dict[str, object]],
+    selected: list[dict[str, object]],
+) -> list[dict[str, object]]:
+    """Include every processable pagelist work_id for selected bvids."""
+    if not selected:
+        return selected
+    chosen = {_pilot_row_key(e) for e in selected}
+    bvids = {str(e.get("bvid") or "") for e in selected}
+    extras = [
+        e for e in _pilot_processable(entries)
+        if str(e.get("bvid") or "") in bvids and _pilot_row_key(e) not in chosen
+    ]
+    extras.sort(key=_pilot_duration_key)
+    return selected + extras
 
 
 def _subtitle_segments(root: str, entry: dict[str, object]) -> tuple[list[dict[str, object]], object] | None:
@@ -797,18 +1027,473 @@ def _cmd_asr(args: argparse.Namespace) -> int:
     return 1 if failed and not ok else 0
 
 
+def _pilot_archive_subtitle(store, root: str, entry: dict[str, object]) -> dict[str, object]:
+    from . import archive
+
+    data = _subtitle_segments(root, entry)
+    if data is None:
+        raise ValueError(f"{_pilot_row_key(entry)}: subtitle raw JSON missing")
+    segments, raw = data
+    paths = archive.write_archive(root, entry, segments, source="subtitle", raw=raw)
+    updated = dict(entry)
+    updated.update(paths)
+    updated["status"] = "archived"
+    store.upsert(updated)
+    return updated
+
+
+def _pilot_archive_asr(store, client, root: str, entry: dict[str, object], target) -> dict[str, object]:
+    from . import archive, asr, audio
+    from .page_identity import PageIdentity, artifact_stem
+    from .subtitles import resolve_page_identity
+
+    if isinstance(target, str):
+        target = resolve_page_identity(client, target)
+    if not isinstance(target, PageIdentity):
+        raise TypeError("unsupported download target")
+    stem = artifact_stem(target)
+    out_path = os.path.join(root, "audio", f"{stem}.m4a")
+    existing_rel = entry.get("audio_path") if entry.get("status") == "audio_ok" else None
+    if existing_rel:
+        existing_abs = (
+            existing_rel if os.path.isabs(str(existing_rel))
+            else os.path.join(root, str(existing_rel))
+        )
+        if os.path.isfile(existing_abs) and os.path.getsize(existing_abs) > 0:
+            out_path = existing_abs
+    audio_path = audio.download_audio(client, target, out_path, store=store)
+    segments = asr.transcribe(audio_path)
+    current = dict(store.get(target.work_id) or entry)
+    paths = archive.write_archive(root, current, segments, source="asr")
+    current.update(paths)
+    current["status"] = "archived"
+    try:
+        current["audio_path"] = os.path.relpath(audio_path, root)
+    except ValueError:
+        current["audio_path"] = audio_path
+    store.upsert(current)
+    return current
+
+
+def _archived_branch_counts(entries: dict[str, dict[str, object]]) -> tuple[int, int]:
+    subtitle_count = audio_count = 0
+    for entry in entries.values():
+        if entry.get("status") != "archived":
+            continue
+        if entry.get("audio_path"):
+            audio_count += 1
+        else:
+            subtitle_count += 1
+    return subtitle_count, audio_count
+
+
+def _pilot_print_summary(
+    subtitle_count: int, audio_count: int, failed: int, terminals: list[str]
+) -> None:
+    print(
+        f"pilot branches: subtitle={subtitle_count}, audio-asr={audio_count}"
+        + (f", failed={failed}" if failed else "")
+    )
+    for line in terminals:
+        print(f"pilot terminal: {line}")
+
+
 def _cmd_pilot(args: argparse.Namespace) -> int:
+    from . import asr, audio, bili_client, subtitles
     from .manifest import ManifestStore
-    entries = ManifestStore(root=args.archive_root).load()
-    selected = _pilot_select(entries, args.n)
-    subtitle_count = sum(e.get("status") == "subtitle_done" for e in selected)
-    audio_count = sum(e.get("status") in {"needs_audio", "audio_ok"} for e in selected)
-    print(f"pilot: selected {len(selected)}/{args.n} videos")
-    print(f"pilot branches: subtitle={subtitle_count}, audio-asr={audio_count}")
+    from .meta_cursor import MetaCursorStore
+    from .run_ledger import (
+        RunLedger,
+        build_run_record,
+        compute_coverage_summary,
+        utc_now_iso,
+    )
+
+    started_at = utc_now_iso()
+    ledger = RunLedger(root=args.archive_root)
+    cursor_store = MetaCursorStore(root=args.archive_root)
+    store = ManifestStore(root=args.archive_root)
+    entries = store.load()
+    last_api_error_code: int | str | None = None
+    selected_work_ids: list[str] | None = None
+
+    def _record_exit(code: int) -> int:
+        try:
+            cursor_snapshot = cursor_store.load()
+            coverage = compute_coverage_summary(store.load())
+            rec = build_run_record(
+                command="pilot",
+                started_at=started_at,
+                finished_at=utc_now_iso(),
+                exit_code=code,
+                mid=None,
+                work_ids=selected_work_ids,
+                pages_fetched=None,
+                records_fetched=None,
+                records_existing=len(entries),
+                last_api_error_code=last_api_error_code,
+                coverage_summary=coverage,
+                cursor_snapshot=cursor_snapshot,
+            )
+            ledger.append(rec)
+        except Exception:
+            pass
+        return code
+
+    selected = _expand_selected_pages(entries, _pilot_select(entries, args.n))
+    selected_work_ids = [_pilot_row_key(e) for e in selected] if selected else None
+    print(
+        f"pilot: selected {len(selected)} rows "
+        f"(--n {args.n}; includes pagelist siblings)"
+    )
     for entry in selected:
-        print(f"{entry.get('bvid')}: {entry.get('status')} ({entry.get('duration_s', 0)}s)")
+        print(
+            f"{_pilot_row_key(entry)}: {entry.get('status')} "
+            f"({entry.get('duration_s', 0)}s)"
+        )
+    leftover = [e for e in entries.values() if e.get("status") != "archived"]
+    if not selected:
+        if leftover:
+            print("pilot: no processable rows in the manifest", file=sys.stderr)
+            return _record_exit(1)
+        if any(e.get("status") == "archived" for e in entries.values()):
+            print("pilot: skip — all selected work already archived")
+            return _record_exit(0)
+        print("pilot: no processable rows in the manifest", file=sys.stderr)
+        return _record_exit(1)
+
+    sessdata = _resolve_sessdata(args)
+    client = bili_client.BiliClient(sessdata=sessdata)
+    subtitle_count, audio_count = _archived_branch_counts(entries)
+    failed = 0
+    terminals: list[str] = []
+
+    for index, entry in enumerate(selected):
+        key = _pilot_row_key(entry)
+        target = _identity_from_entry(entry, key)
+        label = key
+        status = entry.get("status")
+        if status == "archived":
+            continue
+        try:
+            if status not in _PILOT_SKIP_HARVEST:
+                status = subtitles.harvest_subtitle(
+                    client, target, store, args.archive_root
+                )
+            current = dict(store.get(key) or store.get_compatible(key) or entry)
+            label = str(current.get("work_id") or key)
+            if status == "subtitle_done":
+                _pilot_archive_subtitle(store, args.archive_root, current)
+                subtitle_count += 1
+                terminals.append(f"{label}: archived (subtitle)")
+                print(f"{label}: archived (subtitle)")
+            elif status in {"needs_audio", "audio_ok"}:
+                _pilot_archive_asr(
+                    store, client, args.archive_root, current, target
+                )
+                audio_count += 1
+                terminals.append(f"{label}: archived (asr)")
+                print(f"{label}: archived (asr)")
+            else:
+                raise ValueError(f"unexpected status {status!r}")
+        except asr.ASRDependencyError as exc:
+            print(str(exc), file=sys.stderr)
+            print(
+                f"{label}: ASR dependency unavailable; row not archived",
+                file=sys.stderr,
+            )
+            _pilot_print_summary(subtitle_count, audio_count, failed, terminals)
+            return _record_exit(1)
+        except bili_client.AmbiguousPageError:
+            failed += 1
+            print(f"{label}: multi-part video needs an explicit page",
+                  file=sys.stderr)
+        except bili_client.RiskBudgetExhausted as exc:
+            failed += 1
+            last_api_error_code = exc.last_code
+            print(
+                f"{label}: risk-control ceiling (last code {exc.last_code}); "
+                f"stopping — re-run to resume.",
+                file=sys.stderr,
+            )
+            _pilot_print_summary(subtitle_count, audio_count, failed, terminals)
+            return _record_exit(2)
+        except bili_client.APIResponseError as exc:
+            failed += 1
+            last_api_error_code = exc.code
+            _record_api_error(store, key, exc.code)
+            print(
+                f"{label}: API response error (code {exc.code}); continuing.",
+                file=sys.stderr,
+            )
+        except bili_client.GoneResponse as exc:
+            failed += 1
+            last_api_error_code = exc.code
+            gone = dict(store.get(key) or store.get_compatible(key) or {})
+            if gone.get("work_id"):
+                gone["status"] = "gone"
+                store.upsert(gone)
+            print(
+                f"{label}: terminal API response (code {exc.code}); marked gone.",
+                file=sys.stderr,
+            )
+        except audio.NoAudioStreamError:
+            failed += 1
+            print(f"{label}: no audio stream available", file=sys.stderr)
+        except bili_client.StreamDownloadError:
+            failed += 1
+            print(f"{label}: audio stream failed; continuing.", file=sys.stderr)
+        except ValueError as exc:
+            failed += 1
+            msg = str(exc)
+            if (
+                "missing cid" in msg
+                or "unresolved" in msg
+                or "subtitle raw JSON missing" in msg
+            ):
+                print(f"{label}: {msg}", file=sys.stderr)
+            else:
+                print(f"{label}: {type(exc).__name__}", file=sys.stderr)
+        except Exception as exc:
+            failed += 1
+            print(f"{label}: {type(exc).__name__}", file=sys.stderr)
+        if index != len(selected) - 1:
+            time.sleep(3.0)
+
+    _pilot_print_summary(subtitle_count, audio_count, failed, terminals)
     if subtitle_count == 0 or audio_count == 0:
-        print("pilot: both subtitle and audio-asr branches are not available in the manifest", file=sys.stderr)
+        missing = []
+        if subtitle_count == 0:
+            missing.append("subtitle")
+        if audio_count == 0:
+            missing.append("audio-asr")
+        print(
+            "pilot: missing branch coverage: " + ", ".join(missing),
+            file=sys.stderr,
+        )
+        return _record_exit(1)
+    if failed:
+        return _record_exit(1)
+    return _record_exit(0)
+
+
+def _run_scope_rows(store, entries: dict, scope: str):
+    """Resolve --scope to processable (key, entry) rows.
+
+    Returns (rows, error) where error is a message string when the scope
+    could not be resolved at all.
+    """
+    from .manifest import VALID_STATUSES
+
+    if scope == "pending":
+        return (
+            [
+                (key, e)
+                for key, e in sorted(entries.items())
+                if e.get("status") in VALID_STATUSES - {"archived", "gone"}
+                and not _is_excluded(e)
+            ],
+            None,
+        )
+    if scope == "failed":
+        # failed scope: rows with a recorded failed stage attempt (qc1-S2:
+        # definition lives next to the ledger in RunCoordinator).
+        from .coordinator import RunCoordinator
+
+        failed = RunCoordinator(store.root, store).failed_work_ids()
+        rows = [
+            (key, e)
+            for key, e in sorted(entries.items())
+            if (str(e.get("work_id") or key) in failed
+                or str(e.get("bvid") or "") in failed)
+            and not _is_excluded(e)
+            and e.get("status") not in {"archived", "gone"}
+        ]
+        return rows, None
+
+    selectors = [s for part in scope.split(",") for s in part.split() if s]
+    rows: list[tuple[str, dict]] = []
+    for selector in selectors:
+        todo = _todo_for_bvid(store, selector, entries)
+        if todo is None:
+            return None, (
+                f"{selector}: multi-part video needs an explicit page"
+            )
+        if not todo:
+            return None, f"{selector}: unresolved; not assigned to a page"
+        rows.extend(todo)
+    if not selectors:
+        return None, "run: empty --scope"
+    return rows, None
+
+
+def _cmd_run(args: argparse.Namespace) -> int:
+    from . import bili_client
+    from .coordinator import RunCoordinator
+    from .manifest import ManifestStore
+    from .run_ledger import (
+        RunLedger,
+        build_run_record,
+        compute_coverage_summary,
+        utc_now_iso,
+    )
+
+    started_at = utc_now_iso()
+    store = ManifestStore(root=args.archive_root)
+    entries = store.load()
+    if args.limit is not None and args.limit <= 0:
+        # qc1-S3: a non-positive limit would silently select zero rows
+        # and exit 0; surface it as a usage error before scope resolution.
+        print("run: --limit must be a positive integer", file=sys.stderr)
+        return 1
+    rows, error = _run_scope_rows(store, entries, args.scope)
+    if error:
+        # Scope-resolution failures are usage/config errors (exit family 1
+        # per the CLI convention: pilot/fetch-meta use 1 for these too),
+        # reported on stderr before any stage runs.
+        print(f"run: {error}", file=sys.stderr)
+        return 1
+    if args.limit is not None:
+        rows = rows[: args.limit]
+
+    client = None
+    if not args.offline:
+        sessdata = _resolve_sessdata(args)
+        client = bili_client.BiliClient(sessdata=sessdata)
+    coord = RunCoordinator(
+        args.archive_root, store, client=client, offline=args.offline
+    )
+    print(
+        f"run: scope={args.scope} selected {len(rows)} row(s)"
+        + (" [offline]" if args.offline else "")
+    )
+    for key, entry in rows:
+        print(f"  {entry.get('work_id') or key}: {entry.get('status')}")
+
+    summary = coord.run_batch(rows)
+
+    ok = sum(1 for r in summary.results if r.ok)
+    skipped = summary.skipped_rows
+    failed = summary.failed
+    for r in summary.results:
+        if r.ok:
+            print(f"{r.work_id}: {r.final_status}")
+    # Per-run failure summary (operator surface): one line per failed row,
+    # then per skipped row with its reason.
+    for r in failed:
+        codes = ", ".join(str(c) for c in r.failure_codes) or "unknown"
+        print(f"run: {r.work_id}: failed ({codes})", file=sys.stderr)
+    for r in skipped:
+        print(f"run: {r.work_id}: skipped ({r.skip_reason or 'unknown'})")
+
+    exit_code = 0
+    if summary.risk_interrupted:
+        print("run: risk-control ceiling; stopping — re-run to resume.",
+              file=sys.stderr)
+        exit_code = 2
+    elif not summary.fully_processed:
+        # Nonzero when the requested scope was not fully processed: any
+        # per-item failure or missing-input skip leaves the row un-archived.
+        exit_code = 1
+
+    print(f"run: {ok} completed, {len(skipped)} skipped" +
+          (f", {len(failed)} failed" if failed else "") +
+          (", scope not fully processed" if exit_code == 1 else ""))
+
+    ledger = RunLedger(root=args.archive_root)
+    try:
+        rec = build_run_record(
+            command="run",
+            started_at=started_at,
+            finished_at=utc_now_iso(),
+            exit_code=exit_code,
+            mid=None,
+            work_ids=[r.work_id for r in summary.results] or None,
+            records_existing=len(entries),
+            coverage_summary=compute_coverage_summary(store.load()),
+        )
+        ledger.append(rec)
+    except Exception:
+        pass
+    return exit_code
+
+
+def _cmd_search(args: argparse.Namespace) -> int:
+    from .manifest import ManifestStore
+    from .search_index import FTS5UnavailableError, SearchIndex
+
+    store = ManifestStore(root=args.archive_root)
+    index = SearchIndex(root=args.archive_root)
+
+    try:
+        manifest = store.load()
+        if args.rebuild or index.is_stale(manifest):
+            index.build(manifest, force=args.rebuild)
+
+        results = index.search(args.query, limit=args.limit, auto_build=False)
+    except FTS5UnavailableError as exc:
+        print(f"search: {exc}", file=sys.stderr)
+        return 1
+    except Exception:
+        print("search: unexpected error", file=sys.stderr)
+        return 1
+
+    if not results:
+        print(
+            f"search: no matching transcripts found for {args.query!r}",
+            file=sys.stderr,
+        )
+        return 1
+
+    for res in results:
+        print(
+            f"{res.work_id}: {res.title} [{res.status}] "
+            f"(score: {res.score:.4f}, path: {res.path})"
+        )
+    return 0
+
+
+def _parse_status_filter(status_args: list[str] | None) -> set[str] | None:
+    """Parse repeatable and/or comma-separated status filter arguments."""
+    if not status_args:
+        return None
+    statuses: set[str] = set()
+    for item in status_args:
+        for s in item.split(","):
+            s = s.strip()
+            if s:
+                statuses.add(s)
+    return statuses if statuses else None
+
+
+def _cmd_export(args: argparse.Namespace) -> int:
+    from .export import export_manifest
+    from .manifest import VALID_STATUSES
+
+    status_filter = _parse_status_filter(args.status)
+    if status_filter is not None:
+        invalid = status_filter - VALID_STATUSES
+        if invalid:
+            print(
+                f"export: invalid status filter: {sorted(invalid)}; "
+                f"valid statuses: {sorted(VALID_STATUSES)}",
+                file=sys.stderr,
+            )
+            return 1
+
+    try:
+        content = export_manifest(
+            archive_root=args.archive_root,
+            fmt=args.format,
+            out_path=args.out,
+            status_filter=status_filter,
+            with_text=args.with_text,
+        )
+        if not args.out or args.out == "-":
+            sys.stdout.write(content + ("\n" if not content.endswith("\n") else ""))
+            sys.stdout.flush()
+    except Exception:
+        print("export: unexpected error", file=sys.stderr)
         return 1
     return 0
 
@@ -823,6 +1508,8 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_fetch_meta(args)
     if args.command == "status":
         return _cmd_status(args)
+    if args.command == "runs":
+        return _cmd_runs(args)
     if args.command == "asr":
         return _cmd_asr(args)
     if args.command == "pilot":
@@ -833,6 +1520,12 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_harvest_subs(args)
     if args.command == "download-audio":
         return _cmd_download_audio(args)
+    if args.command == "search":
+        return _cmd_search(args)
+    if args.command == "export":
+        return _cmd_export(args)
+    if args.command == "run":
+        return _cmd_run(args)
     parser.error(f"command {args.command!r} is not implemented yet")
 
 
