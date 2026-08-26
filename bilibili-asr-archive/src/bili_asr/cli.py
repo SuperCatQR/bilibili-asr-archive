@@ -79,6 +79,14 @@ def build_parser() -> argparse.ArgumentParser:
     pilot.add_argument("--n", type=int, default=20)
     pilot.add_argument("--archive-root", default=DEFAULT_ARCHIVE_ROOT)
     pilot.add_argument(
+        "--max-audio-gb", type=float, default=10.0,
+        help="Skip audio downloads that would push audio/ past this many GiB (0 = unlimited)",
+    )
+    pilot.add_argument(
+        "--max-duration-min", type=int, default=45,
+        help="Exclude rows longer than this many minutes from selection (0 = unlimited)",
+    )
+    pilot.add_argument(
         "--sessdata", default=None,
         help="SESSDATA cookie for Path B (or env BILI_SESSDATA); not stored",
     )
@@ -161,6 +169,10 @@ def build_parser() -> argparse.ArgumentParser:
     run_cmd.add_argument(
         "--limit", type=int, default=None,
         help="Stop after N rows (bounded batches)",
+    )
+    run_cmd.add_argument(
+        "--max-audio-gb", type=float, default=10.0,
+        help="Skip audio downloads that would push audio/ past this many GiB (0 = unlimited)",
     )
     run_cmd.add_argument(
         "--archive-root", default=DEFAULT_ARCHIVE_ROOT,
@@ -909,11 +921,19 @@ def _pilot_processable(entries: dict[str, dict[str, object]]) -> list[dict[str, 
     ]
 
 
-def _pilot_select(entries: dict[str, dict[str, object]], n: int) -> list[dict[str, object]]:
+def _pilot_select(
+    entries: dict[str, dict[str, object]], n: int,
+    max_duration_min: int = 0,
+) -> list[dict[str, object]]:
     """Select a small mixed pilot while guaranteeing both branches when possible."""
     if n < 1:
         return []
-    processable = _pilot_processable(entries)
+    from .audio_budget import max_duration_exceeded
+
+    processable = [
+        e for e in _pilot_processable(entries)
+        if not max_duration_exceeded(e, max_duration_min)
+    ]
     subtitle = [e for e in processable if e.get("status") == "subtitle_done"]
     audio = [e for e in processable if e.get("status") in {"needs_audio", "audio_ok"}]
     subtitle.sort(key=_pilot_duration_key)
@@ -1153,7 +1173,10 @@ def _cmd_pilot(args: argparse.Namespace) -> int:
             pass
         return code
 
-    selected = _expand_selected_pages(entries, _pilot_select(entries, args.n))
+    selected = _expand_selected_pages(
+        entries,
+        _pilot_select(entries, args.n, args.max_duration_min),
+    )
     selected_work_ids = [_pilot_row_key(e) for e in selected] if selected else None
     print(
         f"pilot: selected {len(selected)} rows "
@@ -1201,6 +1224,18 @@ def _cmd_pilot(args: argparse.Namespace) -> int:
                 terminals.append(f"{label}: archived (subtitle)")
                 print(f"{label}: archived (subtitle)")
             elif status in {"needs_audio", "audio_ok"}:
+                from .audio_budget import SKIP_REASON, would_exceed_budget
+
+                max_bytes = int(args.max_audio_gb * 1024 ** 3)
+                current_row = dict(store.get(key) or current)
+                if would_exceed_budget(args.archive_root, current_row, max_bytes):
+                    failed += 1
+                    print(
+                        f"{label}: skipped ({SKIP_REASON}); "
+                        "audio-dir budget cap reached",
+                        file=sys.stderr,
+                    )
+                    continue
                 _pilot_archive_asr(
                     store, client, args.archive_root, current, target
                 )
@@ -1374,7 +1409,11 @@ def _cmd_run(args: argparse.Namespace) -> int:
         sessdata = _resolve_sessdata(args)
         client = bili_client.BiliClient(sessdata=sessdata)
     coord = RunCoordinator(
-        args.archive_root, store, client=client, offline=args.offline
+        args.archive_root,
+        store,
+        client=client,
+        offline=args.offline,
+        max_audio_bytes=int(args.max_audio_gb * 1024 ** 3),
     )
     print(
         f"run: scope={args.scope} selected {len(rows)} row(s)"

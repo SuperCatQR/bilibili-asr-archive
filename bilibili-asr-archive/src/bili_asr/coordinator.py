@@ -263,12 +263,14 @@ class RunCoordinator:
         *,
         client: Any = None,
         offline: bool = False,
+        max_audio_bytes: int = 0,
         sleep: Callable[[float], None] | None = None,
     ) -> None:
         self.root = os.fspath(archive_root)
         self.store = store
         self.client = client
         self.offline = offline
+        self.max_audio_bytes = max(0, max_audio_bytes)
         self._sleep = sleep or time.sleep
         self.ledger = AttemptLedger(self.root)
         self._attempt_counts: dict[tuple[str, str], int] = {}
@@ -468,6 +470,18 @@ class RunCoordinator:
         # routes them to on-disk reprocessing or a skipped record first.
         work_id = str(entry.get("work_id") or key)
         started = _utc_now_iso()
+        if self.max_audio_bytes:
+            from .audio_budget import SKIP_REASON, would_exceed_budget
+
+            if would_exceed_budget(self.root, entry, self.max_audio_bytes):
+                self._record(
+                    "download", work_id, "skipped", error_code=SKIP_REASON,
+                    started_at=started,
+                )
+                result.skipped = True
+                result.skip_reason = SKIP_REASON
+                result.final_status = str(entry.get("status") or "needs_audio")
+                return result.final_status
         identity = self._identity_for(entry, key)
         stem = artifact_stem(identity)
         out_path = os.path.join(self.root, "audio", f"{stem}.m4a")
