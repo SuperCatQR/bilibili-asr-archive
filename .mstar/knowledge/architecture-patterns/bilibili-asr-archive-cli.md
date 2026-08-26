@@ -1,7 +1,7 @@
 ---
 module: bilibili-asr-archive CLI
 date: 2026-08-23
-last_updated: 2026-08-25
+last_updated: 2026-08-26
 problem_type: architecture_pattern
 category: architecture-patterns
 severity: medium
@@ -14,6 +14,7 @@ tags:
   - transport-seam
   - page-identity
   - meta-cursor
+  - audio-budget
 ---
 
 # Bilibili archive CLI architecture
@@ -79,6 +80,28 @@ still expose help/status/subtitle workflows, while `transcribe()` returns an
 actionable install hint. Keep model weights outside the repository and support
 a local model path for offline runs.
 
+### Bounded transient-audio policy
+
+Treat downloaded audio as a transient stage artifact rather than archive
+content. Before downloading a `needs_audio` row, estimate its peak footprint as
+`duration_s * 8_000` bytes (a conservative 64 kbps ceiling) plus the current
+the archive audio-directory usage. `pilot` and live `run` skip the item with `audio_budget` if that
+would exceed `--max-audio-gb`; the default is 10 GiB and `0` disables the cap.
+The pilot's `--max-duration-min` default of 45 excludes long rows, including
+pagelist siblings, from bounded selection.
+
+When an archive write completes, call the filesystem-only reclaim helper to
+remove the row's `.m4a` or `.flac` under `{archive_root}/audio/`. An
+`audio_path` outside that directory is rejected. Reclaim must be best-effort:
+the transcript and `archived` state remain valid if a local deletion fails.
+Failed, `needs_audio`, and `audio_ok` rows retain audio for retry. For an
+`audio_ok` row with a non-empty local file, ASR reuses that file directly and
+must not apply the pre-download budget or make a second HTTP download.
+
+Report `pilot batch branches` separately from `pilot coverage branches`.
+Batch counts describe the invocation; coverage counts include earlier archived
+rows and only decide whether the cumulative two-branch contract is satisfied.
+
 ## Why This Matters
 
 These boundaries make the no-login subtitle-first path useful without a model,
@@ -105,3 +128,6 @@ multi-part sources and resumable enumeration.
 - Operational layer (ledger / FTS5 / coordinator) is documented in
   [operational-sidecars.md](operational-sidecars.md); 277 passed at
   `iter-2026-08-pilot-ops` close.
+- Bounded PC pilot: `iter-2026-08-live-pc-pilot`, source revision `4e00fb3`;
+  299 tests passed and staged Windows WSL N=5 / N=20 observed subtitle and
+  ASR branches, named budget skipping, and post-archive reclaim.

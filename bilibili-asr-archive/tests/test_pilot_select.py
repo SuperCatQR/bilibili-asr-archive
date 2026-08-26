@@ -22,7 +22,7 @@ def test_pilot_select_from_meta_ok_prefers_short_items():
     assert [e["bvid"] for e in selected] == ["short", "mid"]
 
 
-def test_expand_selected_pages_includes_sibling_work_ids():
+def test_expand_selected_pages_includes_eligible_sibling_work_ids():
     entries = {
         "BV1m:p0": {
             "bvid": "BV1m", "work_id": "BV1m:p0", "status": "meta_ok",
@@ -41,3 +41,19 @@ def test_expand_selected_pages_includes_sibling_work_ids():
     assert [e["work_id"] for e in selected] == ["BV1m:p0"]
     expanded = _expand_selected_pages(entries, selected)
     assert {e["work_id"] for e in expanded} == {"BV1m:p0", "BV1m:p1"}
+
+
+def test_expand_selected_pages_excludes_long_sibling_under_duration_cap():
+    entries = {
+        "BV1m:p0": {
+            "bvid": "BV1m", "work_id": "BV1m:p0", "status": "meta_ok",
+            "duration_s": 4, "page_index": 0,
+        },
+        "BV1m:p1": {
+            "bvid": "BV1m", "work_id": "BV1m:p1", "status": "meta_ok",
+            "duration_s": 46 * 60, "page_index": 1,
+        },
+    }
+    selected = _pilot_select(entries, 1, max_duration_min=45)
+    expanded = _expand_selected_pages(entries, selected, max_duration_min=45)
+    assert [e["work_id"] for e in expanded] == ["BV1m:p0"]

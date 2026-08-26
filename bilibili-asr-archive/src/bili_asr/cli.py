@@ -79,6 +79,14 @@ def build_parser() -> argparse.ArgumentParser:
     pilot.add_argument("--n", type=int, default=20)
     pilot.add_argument("--archive-root", default=DEFAULT_ARCHIVE_ROOT)
     pilot.add_argument(
+        "--max-audio-gb", type=float, default=10.0,
+        help="Skip audio downloads that would push audio/ past this many GiB (0 = unlimited)",
+    )
+    pilot.add_argument(
+        "--max-duration-min", type=int, default=45,
+        help="Exclude rows longer than this many minutes from selection (0 = unlimited)",
+    )
+    pilot.add_argument(
         "--sessdata", default=None,
         help="SESSDATA cookie for Path B (or env BILI_SESSDATA); not stored",
     )
@@ -161,6 +169,10 @@ def build_parser() -> argparse.ArgumentParser:
     run_cmd.add_argument(
         "--limit", type=int, default=None,
         help="Stop after N rows (bounded batches)",
+    )
+    run_cmd.add_argument(
+        "--max-audio-gb", type=float, default=10.0,
+        help="Skip audio downloads that would push audio/ past this many GiB (0 = unlimited)",
     )
     run_cmd.add_argument(
         "--archive-root", default=DEFAULT_ARCHIVE_ROOT,
@@ -909,11 +921,19 @@ def _pilot_processable(entries: dict[str, dict[str, object]]) -> list[dict[str, 
     ]
 
 
-def _pilot_select(entries: dict[str, dict[str, object]], n: int) -> list[dict[str, object]]:
+def _pilot_select(
+    entries: dict[str, dict[str, object]], n: int,
+    max_duration_min: int = 0,
+) -> list[dict[str, object]]:
     """Select a small mixed pilot while guaranteeing both branches when possible."""
     if n < 1:
         return []
-    processable = _pilot_processable(entries)
+    from .audio_budget import max_duration_exceeded
+
+    processable = [
+        e for e in _pilot_processable(entries)
+        if not max_duration_exceeded(e, max_duration_min)
+    ]
     subtitle = [e for e in processable if e.get("status") == "subtitle_done"]
     audio = [e for e in processable if e.get("status") in {"needs_audio", "audio_ok"}]
     subtitle.sort(key=_pilot_duration_key)
@@ -933,15 +953,20 @@ def _pilot_select(entries: dict[str, dict[str, object]], n: int) -> list[dict[st
 def _expand_selected_pages(
     entries: dict[str, dict[str, object]],
     selected: list[dict[str, object]],
+    max_duration_min: int = 0,
 ) -> list[dict[str, object]]:
-    """Include every processable pagelist work_id for selected bvids."""
+    """Include duration-eligible pagelist siblings for selected bvids."""
     if not selected:
         return selected
+    from .audio_budget import max_duration_exceeded
+
     chosen = {_pilot_row_key(e) for e in selected}
     bvids = {str(e.get("bvid") or "") for e in selected}
     extras = [
         e for e in _pilot_processable(entries)
-        if str(e.get("bvid") or "") in bvids and _pilot_row_key(e) not in chosen
+        if str(e.get("bvid") or "") in bvids
+        and _pilot_row_key(e) not in chosen
+        and not max_duration_exceeded(e, max_duration_min)
     ]
     extras.sort(key=_pilot_duration_key)
     return selected + extras
@@ -1015,6 +1040,7 @@ def _cmd_asr(args: argparse.Namespace) -> int:
             updated.update(paths)
             updated["status"] = "archived"
             store.upsert(updated)
+            _reclaim_after_archive(args.archive_root, updated)
             ok += 1
             print(f"{label}: archived ({source})")
         except asr.ASRDependencyError:
@@ -1025,6 +1051,16 @@ def _cmd_asr(args: argparse.Namespace) -> int:
             print(f"{label}: archive failed", file=sys.stderr)
     print(f"asr: {ok} archived" + (f", {failed} failed" if failed else ""))
     return 1 if failed and not ok else 0
+
+
+def _reclaim_after_archive(root: str, entry: dict[str, object]) -> None:
+    """Best-effort audio reclaim once a row is archived (plan: audio-reclaim)."""
+    from .audio_reclaim import reclaim_audio
+
+    try:
+        reclaim_audio(root, entry)
+    except (OSError, ValueError):
+        pass  # per-item non-fatal: transcripts exist; row stays archived
 
 
 def _pilot_archive_subtitle(store, root: str, entry: dict[str, object]) -> dict[str, object]:
@@ -1039,6 +1075,7 @@ def _pilot_archive_subtitle(store, root: str, entry: dict[str, object]) -> dict[
     updated.update(paths)
     updated["status"] = "archived"
     store.upsert(updated)
+    _reclaim_after_archive(root, updated)
     return updated
 
 
@@ -1054,14 +1091,18 @@ def _pilot_archive_asr(store, client, root: str, entry: dict[str, object], targe
     stem = artifact_stem(target)
     out_path = os.path.join(root, "audio", f"{stem}.m4a")
     existing_rel = entry.get("audio_path") if entry.get("status") == "audio_ok" else None
+    existing_audio_path: str | None = None
     if existing_rel:
         existing_abs = (
             existing_rel if os.path.isabs(str(existing_rel))
             else os.path.join(root, str(existing_rel))
         )
         if os.path.isfile(existing_abs) and os.path.getsize(existing_abs) > 0:
-            out_path = existing_abs
-    audio_path = audio.download_audio(client, target, out_path, store=store)
+            existing_audio_path = existing_abs
+    if existing_audio_path is not None:
+        audio_path = existing_audio_path
+    else:
+        audio_path = audio.download_audio(client, target, out_path, store=store)
     segments = asr.transcribe(audio_path)
     current = dict(store.get(target.work_id) or entry)
     paths = archive.write_archive(root, current, segments, source="asr")
@@ -1072,6 +1113,7 @@ def _pilot_archive_asr(store, client, root: str, entry: dict[str, object], targe
     except ValueError:
         current["audio_path"] = audio_path
     store.upsert(current)
+    _reclaim_after_archive(root, current)
     return current
 
 
@@ -1088,11 +1130,21 @@ def _archived_branch_counts(entries: dict[str, dict[str, object]]) -> tuple[int,
 
 
 def _pilot_print_summary(
-    subtitle_count: int, audio_count: int, failed: int, terminals: list[str]
+    batch_subtitle_count: int,
+    batch_audio_count: int,
+    coverage_subtitle_count: int,
+    coverage_audio_count: int,
+    failed: int,
+    terminals: list[str],
 ) -> None:
     print(
-        f"pilot branches: subtitle={subtitle_count}, audio-asr={audio_count}"
+        "pilot batch branches: "
+        f"subtitle={batch_subtitle_count}, audio-asr={batch_audio_count}"
         + (f", failed={failed}" if failed else "")
+    )
+    print(
+        "pilot coverage branches: "
+        f"subtitle={coverage_subtitle_count}, audio-asr={coverage_audio_count}"
     )
     for line in terminals:
         print(f"pilot terminal: {line}")
@@ -1140,7 +1192,11 @@ def _cmd_pilot(args: argparse.Namespace) -> int:
             pass
         return code
 
-    selected = _expand_selected_pages(entries, _pilot_select(entries, args.n))
+    selected = _expand_selected_pages(
+        entries,
+        _pilot_select(entries, args.n, args.max_duration_min),
+        args.max_duration_min,
+    )
     selected_work_ids = [_pilot_row_key(e) for e in selected] if selected else None
     print(
         f"pilot: selected {len(selected)} rows "
@@ -1164,7 +1220,8 @@ def _cmd_pilot(args: argparse.Namespace) -> int:
 
     sessdata = _resolve_sessdata(args)
     client = bili_client.BiliClient(sessdata=sessdata)
-    subtitle_count, audio_count = _archived_branch_counts(entries)
+    coverage_subtitle_count, coverage_audio_count = _archived_branch_counts(entries)
+    batch_subtitle_count = batch_audio_count = 0
     failed = 0
     terminals: list[str] = []
 
@@ -1184,14 +1241,33 @@ def _cmd_pilot(args: argparse.Namespace) -> int:
             label = str(current.get("work_id") or key)
             if status == "subtitle_done":
                 _pilot_archive_subtitle(store, args.archive_root, current)
-                subtitle_count += 1
+                batch_subtitle_count += 1
+                coverage_subtitle_count += 1
                 terminals.append(f"{label}: archived (subtitle)")
                 print(f"{label}: archived (subtitle)")
             elif status in {"needs_audio", "audio_ok"}:
+                from .audio_budget import SKIP_REASON, would_exceed_budget
+
+                max_bytes = int(args.max_audio_gb * 1024 ** 3)
+                current_row = dict(store.get(key) or current)
+                if (
+                    status == "needs_audio"
+                    and would_exceed_budget(
+                        args.archive_root, current_row, max_bytes
+                    )
+                ):
+                    failed += 1
+                    print(
+                        f"{label}: skipped ({SKIP_REASON}); "
+                        "audio-dir budget cap reached",
+                        file=sys.stderr,
+                    )
+                    continue
                 _pilot_archive_asr(
                     store, client, args.archive_root, current, target
                 )
-                audio_count += 1
+                batch_audio_count += 1
+                coverage_audio_count += 1
                 terminals.append(f"{label}: archived (asr)")
                 print(f"{label}: archived (asr)")
             else:
@@ -1202,7 +1278,14 @@ def _cmd_pilot(args: argparse.Namespace) -> int:
                 f"{label}: ASR dependency unavailable; row not archived",
                 file=sys.stderr,
             )
-            _pilot_print_summary(subtitle_count, audio_count, failed, terminals)
+            _pilot_print_summary(
+                batch_subtitle_count,
+                batch_audio_count,
+                coverage_subtitle_count,
+                coverage_audio_count,
+                failed,
+                terminals,
+            )
             return _record_exit(1)
         except bili_client.AmbiguousPageError:
             failed += 1
@@ -1216,7 +1299,14 @@ def _cmd_pilot(args: argparse.Namespace) -> int:
                 f"stopping — re-run to resume.",
                 file=sys.stderr,
             )
-            _pilot_print_summary(subtitle_count, audio_count, failed, terminals)
+            _pilot_print_summary(
+                batch_subtitle_count,
+                batch_audio_count,
+                coverage_subtitle_count,
+                coverage_audio_count,
+                failed,
+                terminals,
+            )
             return _record_exit(2)
         except bili_client.APIResponseError as exc:
             failed += 1
@@ -1260,12 +1350,19 @@ def _cmd_pilot(args: argparse.Namespace) -> int:
         if index != len(selected) - 1:
             time.sleep(3.0)
 
-    _pilot_print_summary(subtitle_count, audio_count, failed, terminals)
-    if subtitle_count == 0 or audio_count == 0:
+    _pilot_print_summary(
+        batch_subtitle_count,
+        batch_audio_count,
+        coverage_subtitle_count,
+        coverage_audio_count,
+        failed,
+        terminals,
+    )
+    if coverage_subtitle_count == 0 or coverage_audio_count == 0:
         missing = []
-        if subtitle_count == 0:
+        if coverage_subtitle_count == 0:
             missing.append("subtitle")
-        if audio_count == 0:
+        if coverage_audio_count == 0:
             missing.append("audio-asr")
         print(
             "pilot: missing branch coverage: " + ", ".join(missing),
@@ -1361,7 +1458,11 @@ def _cmd_run(args: argparse.Namespace) -> int:
         sessdata = _resolve_sessdata(args)
         client = bili_client.BiliClient(sessdata=sessdata)
     coord = RunCoordinator(
-        args.archive_root, store, client=client, offline=args.offline
+        args.archive_root,
+        store,
+        client=client,
+        offline=args.offline,
+        max_audio_bytes=int(args.max_audio_gb * 1024 ** 3),
     )
     print(
         f"run: scope={args.scope} selected {len(rows)} row(s)"

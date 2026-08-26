@@ -74,8 +74,8 @@ def test_cli_pilot_mixed_meta_ok_archives_both_branches(tmp_root, monkeypatch, c
     assert rc == 0, captured.err
     assert "SECRET-SESS" not in captured.out
     assert "SECRET-SESS" not in captured.err
-    assert "subtitle=1" in captured.out
-    assert "audio-asr=1" in captured.out
+    assert "pilot batch branches: subtitle=1, audio-asr=1" in captured.out
+    assert "pilot coverage branches: subtitle=1, audio-asr=1" in captured.out
 
     loaded = ManifestStore(root=tmp_root).load()
     assert loaded[sub.work_id]["status"] == "archived"
@@ -83,7 +83,8 @@ def test_cli_pilot_mixed_meta_ok_archives_both_branches(tmp_root, monkeypatch, c
     assert loaded[aud.work_id].get("audio_path")
     assert os.path.isfile(os.path.join(tmp_root, loaded[sub.work_id]["srt_path"]))
     assert os.path.isfile(os.path.join(tmp_root, loaded[aud.work_id]["srt_path"]))
-    assert os.path.isfile(os.path.join(tmp_root, loaded[aud.work_id]["audio_path"]))
+    # post-archive audio reclaim: m4a removed once the row is archived
+    assert not os.path.exists(os.path.join(tmp_root, loaded[aud.work_id]["audio_path"]))
     assert transcribe_calls == [
         os.path.join(tmp_root, "audio", f"{artifact_stem(aud)}.m4a")
     ]
@@ -136,6 +137,56 @@ def test_cli_pilot_multipart_processes_every_page(tmp_root, monkeypatch, capsys)
     assert player_cids == [111, 222]
 
 
+def test_cli_pilot_audio_ok_reuses_local_audio_when_budget_is_full(
+    tmp_root, monkeypatch, capsys
+):
+    from bili_asr import audio as audio_mod
+
+    aud = page_identity("BVlocal", 0, 222, "p0")
+    store = ManifestStore(root=tmp_root)
+    row = _row(aud, duration_s=600, title="local-audio")
+    row.update({"status": "audio_ok", "audio_path": "audio/BVlocal.p0.m4a"})
+    store.upsert(row)
+    audio_dir = os.path.join(tmp_root, "audio")
+    os.makedirs(audio_dir)
+    local_audio = os.path.join(audio_dir, "BVlocal.p0.m4a")
+    with open(local_audio, "wb") as fh:
+        fh.write(b"audio" * 1000)
+
+    monkeypatch.setattr(
+        asr_mod,
+        "transcribe",
+        lambda path, model_name=None: [
+            {"start": 0.0, "end": 1.0, "text": "asr-text"}
+        ],
+    )
+    monkeypatch.setattr(
+        audio_mod,
+        "download_audio",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("audio_ok must not download again")
+        ),
+    )
+    _patch_cli(monkeypatch, RouterTransport({}))
+
+    rc = main(
+        [
+            "pilot",
+            "--n",
+            "1",
+            "--max-audio-gb",
+            "0.000001",
+            "--archive-root",
+            tmp_root,
+        ]
+    )
+    captured = capsys.readouterr()
+    assert rc == 1  # audio branch succeeded; required subtitle branch is absent.
+    assert "audio_budget" not in captured.err
+    assert ManifestStore(root=tmp_root).get(aud.work_id)["status"] == "archived"
+    assert not os.path.exists(local_audio)
+
+
 def test_cli_pilot_missing_subtitle_branch_exits_nonzero(tmp_root, monkeypatch, capsys):
     only = page_identity("BVonly", 0, 333, "p0")
     ManifestStore(root=tmp_root).upsert(_row(only, duration_s=4))
@@ -176,6 +227,34 @@ def _mixed_transport():
         },
         stream_routes={f"{STREAM_HOST}/a30216.m4s": AUDIO_BYTES},
     )
+
+
+def test_cli_pilot_summary_separates_batch_and_prior_coverage(
+    tmp_root, monkeypatch, capsys
+):
+    prior = page_identity("BVprior", 0, 100, "p0")
+    sub = page_identity("BVsub", 0, 111, "p0")
+    aud = page_identity("BVaud", 0, 222, "p0")
+    store = ManifestStore(root=tmp_root)
+    prior_row = _row(prior, duration_s=1, title="prior-asr")
+    prior_row.update({"status": "archived", "audio_path": "audio/prior.m4a"})
+    store.upsert(prior_row)
+    store.upsert(_row(sub, duration_s=5, title="has-sub"))
+    store.upsert(_row(aud, duration_s=8, title="needs-asr"))
+
+    monkeypatch.setattr(
+        asr_mod,
+        "transcribe",
+        lambda audio_path, model_name=None: [
+            {"start": 0.0, "end": 1.0, "text": "asr-text"}
+        ],
+    )
+    _patch_cli(monkeypatch, _mixed_transport())
+
+    assert main(["pilot", "--n", "2", "--archive-root", tmp_root]) == 0
+    captured = capsys.readouterr()
+    assert "pilot batch branches: subtitle=1, audio-asr=1" in captured.out
+    assert "pilot coverage branches: subtitle=1, audio-asr=2" in captured.out
 
 
 def test_cli_pilot_completed_rerun_skips_archived(tmp_root, monkeypatch, capsys):
@@ -331,7 +410,8 @@ def test_cli_pilot_asr_model_error_names_exception(tmp_root, monkeypatch, capsys
     assert rc == 1
     assert "ASRModelError" in captured.err
     assert "unexpected error" not in captured.err
-    assert "pilot branches:" in captured.out
+    assert "pilot batch branches:" in captured.out
+    assert "pilot coverage branches:" in captured.out
 
 
 def test_cli_pilot_risk_budget_prints_branch_summary(tmp_root, monkeypatch, capsys):
@@ -350,4 +430,5 @@ def test_cli_pilot_risk_budget_prints_branch_summary(tmp_root, monkeypatch, caps
     captured = capsys.readouterr()
     assert rc == 2
     assert "risk-control ceiling" in captured.err
-    assert "pilot branches:" in captured.out
+    assert "pilot batch branches:" in captured.out
+    assert "pilot coverage branches:" in captured.out
