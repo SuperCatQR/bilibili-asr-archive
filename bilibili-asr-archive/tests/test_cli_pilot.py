@@ -83,7 +83,8 @@ def test_cli_pilot_mixed_meta_ok_archives_both_branches(tmp_root, monkeypatch, c
     assert loaded[aud.work_id].get("audio_path")
     assert os.path.isfile(os.path.join(tmp_root, loaded[sub.work_id]["srt_path"]))
     assert os.path.isfile(os.path.join(tmp_root, loaded[aud.work_id]["srt_path"]))
-    assert os.path.isfile(os.path.join(tmp_root, loaded[aud.work_id]["audio_path"]))
+    # post-archive audio reclaim: m4a removed once the row is archived
+    assert not os.path.exists(os.path.join(tmp_root, loaded[aud.work_id]["audio_path"]))
     assert transcribe_calls == [
         os.path.join(tmp_root, "audio", f"{artifact_stem(aud)}.m4a")
     ]

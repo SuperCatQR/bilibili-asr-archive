@@ -36,6 +36,25 @@ the default is `iic/SenseVoiceSmall`. No model weights are vendored.
     bili-asr run --scope pending --offline --archive-root archive
     bili-asr run --scope failed --limit 5 --archive-root archive
 
+### Audio reclaim and bounded-disk campaigns
+
+Once a row reaches `archived`, its local audio file under
+`{archive-root}/audio/` is deleted automatically (failed and in-progress
+rows keep their audio for retry; the manifest may still record the
+relative `audio_path` — consumers treat the file as absent).
+
+`pilot` and `run` honor a bounded-disk campaign cap:
+
+    bili-asr pilot --n 20 --max-audio-gb 10 --max-duration-min 45 --archive-root archive
+    bili-asr run --scope pending --max-audio-gb 10 --archive-root archive
+
+- `--max-audio-gb` (default 10, `0` = unlimited): before each audio
+  download, current `audio/` usage plus a conservative estimate
+  (`duration_s` × 64 kbps) is checked; a candidate that would breach the
+  cap is **skipped with reason `audio_budget`** and the batch continues.
+- `--max-duration-min` (pilot only, default 45, `0` = unlimited):
+  excludes long items (e.g. multi-hour livestreams) from selection.
+
 Subtitle access that requires login can use `BILI_SESSDATA` or the
 `--sessdata` flag (cookie **value**, not a file path). Credentials are sent as
 API cookies only and are never echoed or written to the manifest or output
