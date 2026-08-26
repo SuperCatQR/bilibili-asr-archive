@@ -328,7 +328,10 @@ def test_asr_mixed_success_and_per_item_failure_exits_1(
     _write_subtitle_raw(tmp_root, ok_id)
     _write_audio(tmp_root, fail_id)
 
+    transcribe_calls: list[str] = []
+
     def flaky(audio_path):
+        transcribe_calls.append(audio_path)
         raise asr_mod.ASRModelError("model failed")
 
     _stub_asr(monkeypatch, flaky)
@@ -336,11 +339,8 @@ def test_asr_mixed_success_and_per_item_failure_exits_1(
 
     rc = main(["asr", "--pending", "--archive-root", tmp_root])
     captured = capsys.readouterr()
-    # Locked: incomplete requested work is exit 1 even when another row archived.
-    assert rc == 1, (
-        f"pre-fix mismatch: asr mixed batch exited {rc}; "
-        "locked taxonomy requires exit 1"
-    )
+    # Incomplete requested work is exit 1 even when another row archived.
+    assert rc == 1
     assert "1 archived" in captured.out
     assert "1 failed" in captured.out
     loaded = ManifestStore(root=tmp_root).load()
@@ -348,6 +348,9 @@ def test_asr_mixed_success_and_per_item_failure_exits_1(
     assert os.path.isfile(os.path.join(tmp_root, loaded[ok_id.work_id]["srt_path"]))
     assert loaded[fail_id.work_id]["status"] == "audio_ok"
     assert _ledger_records(tmp_root) == []
+    assert not os.path.exists(os.path.join(tmp_root, "coordinator", "attempts.jsonl"))
+    assert len(transcribe_calls) == 1
+    assert artifact_stem(fail_id) in transcribe_calls[0]
     _assert_no_secrets(captured, tmp_root)
 
     rc = main(["asr", "--pending", "--archive-root", tmp_root])
@@ -356,9 +359,78 @@ def test_asr_mixed_success_and_per_item_failure_exits_1(
     loaded = ManifestStore(root=tmp_root).load()
     assert loaded[ok_id.work_id]["status"] == "archived"
     assert loaded[fail_id.work_id]["status"] == "audio_ok"
+    assert len(transcribe_calls) == 2
+    assert artifact_stem(fail_id) in transcribe_calls[-1]
+    assert _ledger_records(tmp_root) == []
+    assert not os.path.exists(os.path.join(tmp_root, "coordinator", "attempts.jsonl"))
+    _assert_no_secrets(captured, tmp_root)
+
+
+def test_asr_pending_ignores_already_terminal_rows(
+    tmp_root, monkeypatch, capsys,
+):
+    archived = page_identity("BVaArch", 0, 111, "p0")
+    gone = page_identity("BVaGone", 0, 222, "p0")
+    store = ManifestStore(root=tmp_root)
+    store.upsert(_row(archived, status="archived", srt_path="transcripts/srt/x.srt"))
+    store.upsert(_row(gone, status="gone"))
+    transcribe_calls: list[str] = []
+
+    def unexpected(audio_path):
+        transcribe_calls.append(audio_path)
+        raise AssertionError("asr --pending must ignore archived/gone")
+
+    _stub_asr(monkeypatch, unexpected)
+    _patch_cli(monkeypatch, RouterTransport({}))
+    manifest_path = os.path.join(tmp_root, "manifest", "manifest.jsonl")
+    with open(manifest_path, encoding="utf-8") as fh:
+        before = fh.read()
+
+    rc = main(["asr", "--pending", "--archive-root", tmp_root])
+    captured = capsys.readouterr()
+    assert rc == 0
+    assert transcribe_calls == []
+    with open(manifest_path, encoding="utf-8") as fh:
+        assert fh.read() == before
+    loaded = ManifestStore(root=tmp_root).load()
+    assert loaded[archived.work_id]["status"] == "archived"
+    assert loaded[gone.work_id]["status"] == "gone"
+    assert _ledger_records(tmp_root) == []
+    _assert_no_secrets(captured, tmp_root)
 
 
 # ------------------------------------------------------------ pilot
+
+def test_asr_optional_dependency_after_success_exits_1(
+    tmp_root, monkeypatch, capsys,
+):
+    ok_id = page_identity("BVaDepOk", 0, 111, "p0")
+    miss_id = page_identity("BVzDepMiss", 0, 222, "p0")
+    store = ManifestStore(root=tmp_root)
+    store.upsert(_row(ok_id, status="subtitle_done"))
+    store.upsert(_row(
+        miss_id, status="audio_ok",
+        audio_path=f"audio/{artifact_stem(miss_id)}.m4a",
+    ))
+    _write_subtitle_raw(tmp_root, ok_id)
+    _write_audio(tmp_root, miss_id)
+
+    def missing(audio_path):
+        raise asr_mod.ASRDependencyError("SenseVoice support is not installed")
+
+    _stub_asr(monkeypatch, missing)
+    _patch_cli(monkeypatch, RouterTransport({}))
+
+    rc = main(["asr", "--pending", "--archive-root", tmp_root])
+    captured = capsys.readouterr()
+    assert rc == 1
+    assert "ASR dependency unavailable" in captured.err
+    loaded = ManifestStore(root=tmp_root).load()
+    assert loaded[ok_id.work_id]["status"] == "archived"
+    assert loaded[miss_id.work_id]["status"] == "audio_ok"
+    assert _ledger_records(tmp_root) == []
+    _assert_no_secrets(captured, tmp_root)
+
 
 def test_pilot_mixed_success_and_api_failure_records_ledger(
     tmp_root, monkeypatch, capsys,

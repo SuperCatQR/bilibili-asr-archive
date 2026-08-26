@@ -1050,7 +1050,7 @@ def _cmd_asr(args: argparse.Namespace) -> int:
             failed += 1
             print(f"{label}: archive failed", file=sys.stderr)
     print(f"asr: {ok} archived" + (f", {failed} failed" if failed else ""))
-    return 1 if failed and not ok else 0
+    return 1 if failed else 0
 
 
 def _reclaim_after_archive(root: str, entry: dict[str, object]) -> None:
