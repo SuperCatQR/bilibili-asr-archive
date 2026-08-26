@@ -322,7 +322,7 @@ def test_asr_pending_p0_failure_does_not_suppress_p1(tmp_root, monkeypatch):
 
     monkeypatch.setattr(asr_mod, "transcribe", fake_transcribe)
     rc = main(["asr", "--pending", "--archive-root", tmp_root])
-    assert rc == 0
+    assert rc == 1
     loaded = ManifestStore(root=tmp_root).load()
     assert loaded[p0.work_id]["status"] == "audio_ok"
     assert loaded[p1.work_id]["status"] == "archived"
