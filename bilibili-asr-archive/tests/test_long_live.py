@@ -35,6 +35,7 @@ from test_scheduler import (
     _base_routes,
     _patch_cli,
     _row,
+    _scheduler,
     _stub_asr,
 )
 from test_subtitles import SAMPLE_DOC, player_ok
@@ -165,9 +166,45 @@ def test_schedule_pending_holds_long_live_without_flag(
     captured = capsys.readouterr()
     assert rc == 0
     assert "--allow-long-live" in captured.out
+    assert "batch=limited" in captured.out
+    assert "batch=complete" not in captured.out
     loaded = ManifestStore(root=tmp_root).load()
     assert loaded[short_id.work_id]["status"] == "archived"
     assert loaded[long_id.work_id]["status"] == "needs_audio"
+    assert "needs_audio: 1" in captured.out
+    sidecar = _scheduler(tmp_root)
+    assert sidecar["state"] == "limited"
+    assert transport.stream_calls == []
+    _assert_no_secrets(captured, tmp_root)
+
+
+def test_schedule_pending_only_long_live_is_limited_not_complete(
+    tmp_root, monkeypatch, capsys,
+):
+    identity = _long_identity()
+    ManifestStore(root=tmp_root).upsert(
+        _row(identity, status="needs_audio", duration_s=THREE_HOURS_S)
+    )
+    _stub_asr(monkeypatch)
+    transport = _download_transport(identity)
+    _patch_cli(monkeypatch, transport)
+
+    rc = main([
+        "schedule", "--scope", "pending", "--limit", "5",
+        "--archive-root", tmp_root,
+    ])
+    captured = capsys.readouterr()
+    assert rc == 0
+    assert "long-duration row(s) held" in captured.out
+    assert "batch=limited" in captured.out
+    assert "batch=complete" not in captured.out
+    assert ManifestStore(root=tmp_root).load()[identity.work_id]["status"] == (
+        "needs_audio"
+    )
+    assert "needs_audio: 1" in captured.out
+    sidecar = _scheduler(tmp_root)
+    assert sidecar["state"] == "limited"
+    assert sidecar["processed_work_ids"] == []
     assert transport.stream_calls == []
     _assert_no_secrets(captured, tmp_root)
 
@@ -193,6 +230,35 @@ def test_schedule_explicit_long_live_requires_opt_in(
     assert ManifestStore(root=tmp_root).load()[identity.work_id]["status"] == "needs_audio"
     assert transport.stream_calls == []
     assert not os.path.isfile(_audio_path(tmp_root, identity))
+
+
+def test_allow_long_live_tiny_positive_cap_is_nonzero_not_unlimited(
+    tmp_root, monkeypatch, capsys,
+):
+    identity = _long_identity()
+    ManifestStore(root=tmp_root).upsert(
+        _row(identity, status="needs_audio", duration_s=THREE_HOURS_S)
+    )
+    _stub_asr(monkeypatch)
+    transport = _download_transport(identity)
+    _patch_cli(monkeypatch, transport)
+
+    rc = main([
+        "schedule", "--scope", identity.work_id, "--limit", "1",
+        "--allow-long-live", "--max-audio-gb", "1e-12",
+        "--archive-root", tmp_root,
+    ])
+    captured = capsys.readouterr()
+    assert rc == 1
+    assert "cap_bytes=1" in captured.out
+    assert "would_exceed=true" in captured.out
+    assert "audio_budget" in captured.out
+    assert ManifestStore(root=tmp_root).load()[identity.work_id]["status"] == (
+        "needs_audio"
+    )
+    assert transport.stream_calls == []
+    assert not os.path.isfile(_audio_path(tmp_root, identity))
+    _assert_no_secrets(captured, tmp_root)
 
 
 def test_allow_long_live_refuses_disabled_audio_cap(
@@ -306,6 +372,86 @@ def test_allow_long_live_archives_and_reclaims_with_measured_peak(
     assert after == 4096
     assert after < peak
     assert transport.stream_calls  # fake download only
+    _assert_no_secrets(captured, tmp_root)
+
+
+def test_allow_long_live_failed_download_samples_partial_peak(
+    tmp_root, monkeypatch, capsys,
+):
+    identity = _long_identity()
+    ManifestStore(root=tmp_root).upsert(
+        _row(identity, status="needs_audio", duration_s=THREE_HOURS_S)
+    )
+    leftover = b"partial-audio" * 128
+
+    def boom(_client, _identity, out_path, store=None):
+        os.makedirs(os.path.dirname(out_path), exist_ok=True)
+        with open(out_path, "wb") as fh:
+            fh.write(leftover)
+        raise bc.StreamDownloadError("CDN stream request failed")
+
+    monkeypatch.setattr("bili_asr.audio.download_audio", boom)
+    _stub_asr(monkeypatch)
+    transport = _download_transport(identity)
+    _patch_cli(monkeypatch, transport)
+
+    rc = main([
+        "schedule", "--scope", identity.work_id, "--limit", "1",
+        "--allow-long-live", "--archive-root", tmp_root,
+    ])
+    captured = capsys.readouterr()
+    assert rc == 1
+    loaded = ManifestStore(root=tmp_root).load()
+    assert loaded[identity.work_id]["status"] == "needs_audio"
+    audio_path = _audio_path(tmp_root, identity)
+    assert os.path.isfile(audio_path)
+    assert os.path.getsize(audio_path) == len(leftover)
+    peak_line = [
+        line for line in captured.out.splitlines() if "peak audio/" in line
+    ][-1]
+    after_line = [
+        line for line in captured.out.splitlines() if "audio/ after" in line
+    ][-1]
+    peak = int(peak_line.rsplit("=", 1)[-1])
+    after = int(after_line.rsplit("=", 1)[-1])
+    assert peak >= len(leftover)
+    assert after == len(leftover)
+    assert peak >= after
+    _assert_no_secrets(captured, tmp_root)
+
+
+def test_schedule_pending_allow_long_live_processes_long_row(
+    tmp_root, monkeypatch, capsys,
+):
+    long_id = _long_identity()
+    short_id = _short_identity()
+    store = ManifestStore(root=tmp_root)
+    store.upsert(_row(short_id, status="subtitle_done", duration_s=5))
+    store.upsert(_row(long_id, status="needs_audio", duration_s=THREE_HOURS_S))
+    raw = os.path.join(tmp_root, "subtitles", "raw", f"{artifact_stem(short_id)}.json")
+    os.makedirs(os.path.dirname(raw), exist_ok=True)
+    with open(raw, "w", encoding="utf-8") as fh:
+        json.dump(SAMPLE_DOC, fh)
+    _stub_asr(monkeypatch)
+    transport = _download_transport(long_id)
+    _patch_cli(monkeypatch, transport)
+
+    rc = main([
+        "schedule", "--scope", "pending", "--limit", "5",
+        "--allow-long-live", "--max-audio-gb", "10",
+        "--archive-root", tmp_root,
+    ])
+    captured = capsys.readouterr()
+    assert rc == 0, captured.err
+    assert f"duration_s={THREE_HOURS_S}" in captured.out
+    assert "batch=complete" in captured.out
+    loaded = ManifestStore(root=tmp_root).load()
+    assert loaded[short_id.work_id]["status"] == "archived"
+    assert loaded[long_id.work_id]["status"] == "archived"
+    assert not os.path.isfile(_audio_path(tmp_root, long_id))
+    assert transport.stream_calls
+    sidecar = _scheduler(tmp_root)
+    assert sidecar["state"] == "complete"
     _assert_no_secrets(captured, tmp_root)
 
 

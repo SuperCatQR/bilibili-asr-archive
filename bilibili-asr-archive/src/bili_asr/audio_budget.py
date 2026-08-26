@@ -7,12 +7,26 @@ breach the operator's peak-disk cap. Never opens sockets.
 
 from __future__ import annotations
 
+import math
 import os
 from typing import Any, Mapping
 
 # 64 kbps DASH audio ceiling → 8 000 bytes/s.
 BYTES_PER_SECOND_CEILING = 8_000
 SKIP_REASON = "audio_budget"
+_BYTES_PER_GIB = 1024 ** 3
+
+
+def audio_cap_bytes(max_audio_gb: float) -> int:
+    """Convert ``--max-audio-gb`` to a byte cap.
+
+    Non-positive values map to 0 (unlimited, matching ``would_exceed_budget``).
+    Any positive GiB value maps to at least 1 byte so truncating ``int()``
+    cannot silently disable the cap.
+    """
+    if max_audio_gb <= 0:
+        return 0
+    return max(1, math.ceil(max_audio_gb * _BYTES_PER_GIB))
 
 
 def audio_dir_usage_bytes(archive_root: str | os.PathLike[str]) -> int:

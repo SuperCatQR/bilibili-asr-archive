@@ -1306,9 +1306,13 @@ def _cmd_pilot(args: argparse.Namespace) -> int:
                 terminals.append(f"{label}: archived (subtitle)")
                 print(f"{label}: archived (subtitle)")
             elif status in {"needs_audio", "audio_ok"}:
-                from .audio_budget import SKIP_REASON, would_exceed_budget
+                from .audio_budget import (
+                    SKIP_REASON,
+                    audio_cap_bytes,
+                    would_exceed_budget,
+                )
 
-                max_bytes = int(args.max_audio_gb * 1024 ** 3)
+                max_bytes = audio_cap_bytes(args.max_audio_gb)
                 current_row = dict(store.get(key) or current)
                 if (
                     status == "needs_audio"
@@ -1494,6 +1498,7 @@ def _cmd_run(args: argparse.Namespace) -> int:
         compute_coverage_summary,
         utc_now_iso,
     )
+    from .audio_budget import audio_cap_bytes
 
     started_at = utc_now_iso()
     store = ManifestStore(root=args.archive_root)
@@ -1522,7 +1527,7 @@ def _cmd_run(args: argparse.Namespace) -> int:
         store,
         client=client,
         offline=args.offline,
-        max_audio_bytes=int(args.max_audio_gb * 1024 ** 3),
+        max_audio_bytes=audio_cap_bytes(args.max_audio_gb),
     )
     print(
         f"run: scope={args.scope} selected {len(rows)} row(s)"
@@ -1592,7 +1597,7 @@ def _cmd_schedule(args: argparse.Namespace) -> int:
         format_cursor_summary,
         utc_now_iso,
     )
-    from .audio_budget import audio_dir_usage_bytes
+    from .audio_budget import audio_cap_bytes, audio_dir_usage_bytes
     from .long_live import (
         apply_long_live_policy,
         campaign_plan,
@@ -1643,12 +1648,12 @@ def _cmd_schedule(args: argparse.Namespace) -> int:
         return 1
 
     matching = len(rows)
-    truncated = matching > args.limit
+    truncated = matching > args.limit or held > 0
     rows = rows[: args.limit]
 
     sessdata = _resolve_sessdata(args)
     client = bili_client.BiliClient(sessdata=sessdata)
-    max_audio_bytes = int(args.max_audio_gb * 1024 ** 3)
+    max_audio_bytes = audio_cap_bytes(args.max_audio_gb)
     coord = RunCoordinator(
         args.archive_root,
         store,

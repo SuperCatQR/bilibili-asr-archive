@@ -51,9 +51,10 @@ _MAX_ERROR_CODE_LEN = 64
 def classify_batch_state(*, risk_interrupted: bool, truncated: bool) -> str:
     """Map one scheduler call onto the locked completion vocabulary.
 
-    A truncated (``--limit``) call is ``limited`` even when every selected
-    row succeeded. Risk always wins. ``complete`` means this call visited
-    every currently matching scope row — never that the visible corpus is
+    A truncated call (``--limit`` leftover or default long-duration hold)
+    is ``limited`` even when every selected row succeeded. Risk always
+    wins. ``complete`` means this call visited every currently matching
+    scope row after duration policy — never that the visible corpus is
     fully archived.
     """
     if risk_interrupted:

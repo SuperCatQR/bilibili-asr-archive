@@ -505,6 +505,11 @@ class RunCoordinator:
                 error_code=_safe_error_code(exc), started_at=started,
             )
             raise
+        finally:
+            # Sample leftover partials as well as a successful file so
+            # campaign peak is never below on-disk audio/ after a failed
+            # download that left bytes behind.
+            self._note_audio_peak()
         try:
             rel = os.path.relpath(final, self.root)
         except ValueError:
@@ -512,7 +517,6 @@ class RunCoordinator:
         self._record(
             "download", work_id, "ok", artifact_paths=[rel], started_at=started
         )
-        self._note_audio_peak()
         return "audio_ok"
 
     def process_row(self, key: str, entry: dict[str, Any]) -> RowResult:

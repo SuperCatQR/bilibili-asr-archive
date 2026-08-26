@@ -184,11 +184,14 @@ and `RunLedger`; it does not open sockets itself and does not replace
   selectors. Terminal `archived` / `gone` selectors skip with
   `already_terminal` and exit 0.
 - **Batch state** is persisted at `{archive-root}/scheduler.json` as
-  `complete` (this call visited every currently matching scope row),
-  `limited` (the explicit limit left matching rows unselected), or
-  `risk_interrupted`. `complete` is requested-scope completion, not
-  corpus completion; the summary always prints the meta-cursor
-  enumeration state so a `limited` crawl cannot masquerade as done.
+  `complete` (this call visited every currently matching scope row
+  after the default duration filter), `limited` (the explicit limit
+  **or** a default long-duration hold left matching rows unselected),
+  or `risk_interrupted`. `complete` is requested-scope completion, not
+  corpus completion; held multi-hour rows stay pending and keep the
+  batch `limited` until `--allow-long-live`. The summary always prints
+  the meta-cursor enumeration state so a `limited` crawl cannot
+  masquerade as done.
 - **`--resume`** consumes only a matching-scope `risk_interrupted`
   sidecar. Deliberate `limited` / `complete` states are not auto-resumed;
   the next `schedule --scope pending --limit N` simply selects leftover

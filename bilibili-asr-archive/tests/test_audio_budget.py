@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from bili_asr.audio_budget import (
     SKIP_REASON,
+    audio_cap_bytes,
     audio_dir_usage_bytes,
     estimate_audio_bytes,
     max_duration_exceeded,
@@ -45,6 +46,18 @@ def test_zero_max_is_unlimited(tmp_path):
     audio.mkdir()
     (audio / "big.m4a").write_bytes(b"x" * 1000)
     assert would_exceed_budget(tmp_path, {"duration_s": 99999}, 0) is False
+
+
+def test_audio_cap_bytes_positive_never_truncates_to_unlimited(tmp_path):
+    assert audio_cap_bytes(0) == 0
+    assert audio_cap_bytes(-1) == 0
+    tiny = 1e-12
+    assert int(tiny * 1024 ** 3) == 0
+    assert audio_cap_bytes(tiny) == 1
+    assert audio_cap_bytes(10) == 10 * 1024 ** 3
+    assert would_exceed_budget(
+        tmp_path, {"duration_s": 1}, audio_cap_bytes(tiny)
+    ) is True
 
 
 def test_max_duration_exceeded():
