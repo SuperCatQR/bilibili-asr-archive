@@ -183,6 +183,40 @@ def build_parser() -> argparse.ArgumentParser:
         help="SESSDATA cookie for live stages (or env BILI_SESSDATA); not stored",
     )
 
+    schedule_cmd = subparsers.add_parser(
+        "schedule",
+        help="Process a bounded sequential batch of the visible corpus",
+    )
+    schedule_cmd.add_argument(
+        "--scope",
+        required=True,
+        help="pending | failed | one or more work_id/bvid selectors "
+             "(comma- or space-separated)",
+    )
+    schedule_cmd.add_argument(
+        "--limit",
+        type=int,
+        required=True,
+        help="Process at most N matching rows (required explicit bound)",
+    )
+    schedule_cmd.add_argument(
+        "--resume",
+        action="store_true",
+        help="Resume only a matching risk-interrupted scheduler sidecar",
+    )
+    schedule_cmd.add_argument(
+        "--max-audio-gb", type=float, default=10.0,
+        help="Skip audio downloads that would push audio/ past this many GiB (0 = unlimited)",
+    )
+    schedule_cmd.add_argument(
+        "--archive-root", default=DEFAULT_ARCHIVE_ROOT,
+        help="Archive root directory (default: ./archive)",
+    )
+    schedule_cmd.add_argument(
+        "--sessdata", default=None,
+        help="SESSDATA cookie for live stages (or env BILI_SESSDATA); not stored",
+    )
+
     search_cmd = subparsers.add_parser(
         "search",
         help="Search indexed completed transcripts using SQLite FTS5",
@@ -1437,7 +1471,7 @@ def _run_scope_rows(store, entries: dict, scope: str):
             return None, f"{selector}: unresolved; not assigned to a page"
         rows.extend(todo)
     if not selectors:
-        return None, "run: empty --scope"
+        return None, "empty --scope"
     return rows, None
 
 
@@ -1529,6 +1563,156 @@ def _cmd_run(args: argparse.Namespace) -> int:
             work_ids=[r.work_id for r in summary.results] or None,
             records_existing=len(entries),
             coverage_summary=compute_coverage_summary(store.load()),
+        )
+        ledger.append(rec)
+    except Exception:
+        pass
+    return exit_code
+
+
+def _cmd_schedule(args: argparse.Namespace) -> int:
+    from . import bili_client
+    from .coordinator import RunCoordinator
+    from .manifest import ManifestStore
+    from .meta_cursor import MetaCursorStore
+    from .run_ledger import (
+        RunLedger,
+        build_run_record,
+        compute_coverage_summary,
+        format_coverage_summary,
+        format_cursor_summary,
+        utc_now_iso,
+    )
+    from .scheduler import (
+        SchedulerStore,
+        classify_batch_state,
+        settled_processed_ids,
+    )
+
+    started_at = utc_now_iso()
+    store = ManifestStore(root=args.archive_root)
+    entries = store.load()
+    cursor_store = MetaCursorStore(root=args.archive_root)
+    sched_store = SchedulerStore(root=args.archive_root)
+    if args.limit is None or args.limit <= 0:
+        print("schedule: --limit must be a positive integer", file=sys.stderr)
+        return 1
+    rows, error = _run_scope_rows(store, entries, args.scope)
+    if error:
+        print(f"schedule: {error}", file=sys.stderr)
+        return 1
+
+    skip_ids = sched_store.resume_processed_ids(args.scope) if args.resume else None
+    if skip_ids:
+        skip = set(skip_ids)
+        rows = [
+            (key, entry)
+            for key, entry in rows
+            if str(entry.get("work_id") or key) not in skip
+        ]
+
+    matching = len(rows)
+    truncated = matching > args.limit
+    rows = rows[: args.limit]
+
+    sessdata = _resolve_sessdata(args)
+    client = bili_client.BiliClient(sessdata=sessdata)
+    coord = RunCoordinator(
+        args.archive_root,
+        store,
+        client=client,
+        offline=False,
+        max_audio_bytes=int(args.max_audio_gb * 1024 ** 3),
+        sleep=time.sleep,
+    )
+    print(
+        f"schedule: scope={args.scope} limit={args.limit} "
+        f"selected {len(rows)} row(s) ({matching} matching)"
+    )
+    for key, entry in rows:
+        print(f"  {entry.get('work_id') or key}: {entry.get('status')}")
+
+    summary = coord.run_batch(rows)
+    batch_state = classify_batch_state(
+        risk_interrupted=summary.risk_interrupted,
+        truncated=truncated,
+    )
+
+    previous = list(skip_ids or [])
+    settled = previous + settled_processed_ids(
+        summary.results, risk_interrupted=summary.risk_interrupted
+    )
+    processed: list[str] = []
+    seen: set[str] = set()
+    for work_id in settled:
+        if work_id not in seen:
+            seen.add(work_id)
+            processed.append(work_id)
+
+    last_api_error_code: int | str | None = None
+    if summary.risk_interrupted and summary.results:
+        codes = summary.results[-1].failure_codes
+        if codes:
+            last_api_error_code = codes[-1]
+
+    try:
+        sched_store.replace_atomic(
+            {
+                "scope": args.scope,
+                "limit": args.limit,
+                "state": batch_state,
+                "processed_work_ids": processed,
+                "last_api_error_code": last_api_error_code,
+                "updated_at": utc_now_iso(),
+            }
+        )
+    except Exception:
+        pass
+
+    ok = sum(1 for r in summary.results if r.ok)
+    skipped = summary.skipped_rows
+    failed = summary.failed
+    for r in summary.results:
+        if r.ok:
+            print(f"{r.work_id}: {r.final_status}")
+    for r in failed:
+        codes = ", ".join(str(c) for c in r.failure_codes) or "unknown"
+        print(f"schedule: {r.work_id}: failed ({codes})", file=sys.stderr)
+    for r in skipped:
+        print(f"schedule: {r.work_id}: skipped ({r.skip_reason or 'unknown'})")
+
+    exit_code = 0
+    if summary.risk_interrupted:
+        print("schedule: risk-control ceiling; stopping — re-run with --resume.",
+              file=sys.stderr)
+        exit_code = 2
+    elif not summary.fully_processed:
+        exit_code = 1
+
+    coverage = compute_coverage_summary(store.load())
+    cursor_snapshot = cursor_store.load()
+    print(f"schedule: batch={batch_state}")
+    print(f"enumeration: {format_cursor_summary(cursor_snapshot)}")
+    print(f"coverage: [{format_coverage_summary(coverage)}]")
+    print(
+        f"schedule: {ok} completed, {len(skipped)} skipped"
+        + (f", {len(failed)} failed" if failed else "")
+        + (", scope not fully processed" if exit_code == 1 else "")
+    )
+
+    ledger = RunLedger(root=args.archive_root)
+    try:
+        rec = build_run_record(
+            command="schedule",
+            started_at=started_at,
+            finished_at=utc_now_iso(),
+            exit_code=exit_code,
+            mid=None,
+            work_ids=[r.work_id for r in summary.results] or None,
+            records_existing=len(entries),
+            last_api_error_code=last_api_error_code,
+            coverage_summary=coverage,
+            cursor_snapshot=cursor_snapshot,
         )
         ledger.append(rec)
     except Exception:
@@ -1644,6 +1828,8 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_export(args)
     if args.command == "run":
         return _cmd_run(args)
+    if args.command == "schedule":
+        return _cmd_schedule(args)
     parser.error(f"command {args.command!r} is not implemented yet")
 
 

@@ -1,0 +1,589 @@
+"""Bounded sequential scheduler (`bili-asr schedule`).
+
+Fake transport + stubbed ASR only. No live HTTP or model downloads.
+Locks explicit scope/limit, terminal-row handling, resume/risk sidecar
+semantics, and mixed-outcome exit codes.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+
+import pytest
+
+from bili_asr import asr as asr_mod
+from bili_asr import bili_client as bc
+from bili_asr.cli import main
+from bili_asr.coordinator import AttemptLedger
+from bili_asr.manifest import ManifestStore
+from bili_asr.meta_cursor import MetaCursorStore, utc_now_iso
+from bili_asr.page_identity import artifact_stem, page_identity
+from bili_asr.run_ledger import LEDGER_FILENAME, RunLedger
+from bili_asr.scheduler import (
+    SCHEDULER_FILENAME,
+    SchedulerStore,
+    classify_batch_state,
+)
+
+from test_audio import (
+    AUDIO_BYTES,
+    SPI_OK,
+    STREAM_HOST,
+    RouterTransport,
+    nav_response,
+    playurl_ok,
+)
+from test_subtitles import SAMPLE_DOC, nav_ok, player_ok, sub_entry
+
+SECRET = "SECRET-SESS"
+RISK = (412, {"code": -412, "message": "request too frequent"})
+
+_NO_SECRET_MARKERS = (
+    SECRET,
+    "SESSDATA",
+    "Traceback",
+    "upos-sz-",
+    "bilivideo.com",
+    "deadline=",
+    "model failed",
+    "SenseVoice support is not installed",
+)
+
+
+def _row(identity, *, status="meta_ok", duration_s=5, title="clip", **extra):
+    row = {
+        "bvid": identity.bvid,
+        "work_id": identity.work_id,
+        "page_index": identity.page_index,
+        "cid": identity.cid,
+        "page_label": identity.page_label,
+        "status": status,
+        "title": title,
+        "duration_s": duration_s,
+        "pubdate": 1,
+        "pubdate_str": "2026-01-02",
+    }
+    row.update(extra)
+    return row
+
+
+def _patch_cli(monkeypatch, transport):
+    monkeypatch.setattr(bc, "build_default_transport", lambda: transport)
+    monkeypatch.setattr(bc, "default_sleeper", lambda: (lambda _s: None))
+    monkeypatch.setattr("bili_asr.cli.time.sleep", lambda _s: None)
+    monkeypatch.setattr("bili_asr.coordinator.time.sleep", lambda _s: None)
+
+
+def _stub_asr(monkeypatch, impl=None):
+    def fake_transcribe(audio_path, model_name=None):
+        if impl is not None:
+            return impl(audio_path)
+        return [{"start": 0.0, "end": 1.0, "text": "asr-text"}]
+
+    monkeypatch.setattr(asr_mod, "transcribe", fake_transcribe)
+
+
+def _assert_no_secrets(captured, root):
+    blob = captured.out + captured.err
+    for marker in _NO_SECRET_MARKERS:
+        assert marker not in blob
+    for dirpath, _dirs, files in os.walk(root):
+        for name in files:
+            if not name.endswith((".jsonl", ".json", ".md", ".txt", ".srt")):
+                continue
+            text = open(os.path.join(dirpath, name), encoding="utf-8").read()
+            for marker in _NO_SECRET_MARKERS:
+                assert marker not in text
+
+
+def _write_subtitle_raw(root, identity):
+    path = os.path.join(root, "subtitles", "raw", f"{artifact_stem(identity)}.json")
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as fh:
+        json.dump(SAMPLE_DOC, fh)
+
+
+def _write_audio(root, identity):
+    path = os.path.join(root, "audio", f"{artifact_stem(identity)}.m4a")
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "wb") as fh:
+        fh.write(b"\x00" * 16)
+    return path
+
+
+def _ledger_records(root):
+    path = os.path.join(root, LEDGER_FILENAME)
+    if not os.path.isfile(path):
+        return []
+    return RunLedger(root=root).load()
+
+
+def _scheduler(root):
+    return SchedulerStore(root=root).load()
+
+
+def _base_routes():
+    return {
+        "finger/spi": [SPI_OK] * 16,
+        "nav": [nav_ok(), nav_response()],
+        "aisubtitle.hdslb.com": [(200, dict(SAMPLE_DOC))],
+    }
+
+
+class CidRouterTransport(RouterTransport):
+    def __init__(self, player_by_cid, playurl_by_cid=None, routes=None,
+                 stream_routes=None):
+        routes = dict(routes or {})
+        routes.pop("player/wbi/v2", None)
+        routes.pop("playurl", None)
+        super().__init__(routes, stream_routes)
+        self.player_by_cid = dict(player_by_cid)
+        self.playurl_by_cid = dict(playurl_by_cid or {})
+
+    def get_json(self, url, params=None, headers=None, cookies=None, timeout=None):
+        self.calls.append({
+            "url": url,
+            "params": dict(params or {}),
+            "headers": dict(headers or {}),
+            "cookies": dict(cookies or {}),
+        })
+        cid = dict(params or {}).get("cid")
+        if "player/wbi/v2" in url:
+            if cid not in self.player_by_cid:
+                raise AssertionError(f"no player route for cid={cid}")
+            return self.player_by_cid[cid]
+        if "/x/player/wbi/playurl" in url:
+            if cid not in self.playurl_by_cid:
+                raise AssertionError(f"no playurl route for cid={cid}")
+            return self.playurl_by_cid[cid]
+        self.calls.pop()
+        return super().get_json(url, params=params, headers=headers,
+                                cookies=cookies, timeout=timeout)
+
+
+def _seed_limited_cursor(root, mid=23191782):
+    MetaCursorStore(root=root).replace_atomic(
+        {
+            "mid": mid,
+            "next_page": 3,
+            "total": 90,
+            "state": "limited",
+            "last_api_error_code": None,
+            "updated_at": utc_now_iso(),
+        }
+    )
+
+
+# ------------------------------------------------------------ sidecar unit
+
+
+def test_scheduler_store_roundtrip_and_rejects_running(tmp_root):
+    store = SchedulerStore(root=tmp_root)
+    stored = store.replace_atomic(
+        {
+            "scope": "pending",
+            "limit": 2,
+            "state": "limited",
+            "processed_work_ids": ["BV1:p0"],
+            "last_api_error_code": None,
+            "updated_at": utc_now_iso(),
+        }
+    )
+    assert store.load() == stored
+    assert os.path.basename(store.path) == SCHEDULER_FILENAME
+    with pytest.raises(ValueError, match="running"):
+        store.replace_atomic(
+            {
+                "scope": "pending",
+                "limit": 2,
+                "state": "running",
+                "processed_work_ids": [],
+                "last_api_error_code": None,
+                "updated_at": utc_now_iso(),
+            }
+        )
+    assert store.load()["state"] == "limited"
+
+
+def test_scheduler_resume_only_matching_risk_scope(tmp_root):
+    store = SchedulerStore(root=tmp_root)
+    store.replace_atomic(
+        {
+            "scope": "pending",
+            "limit": 2,
+            "state": "risk_interrupted",
+            "processed_work_ids": ["BVa:p0"],
+            "last_api_error_code": -412,
+            "updated_at": utc_now_iso(),
+        }
+    )
+    assert store.resume_processed_ids("pending") == ["BVa:p0"]
+    assert store.resume_processed_ids("failed") is None
+    store.replace_atomic(
+        {
+            "scope": "pending",
+            "limit": 2,
+            "state": "limited",
+            "processed_work_ids": ["BVa:p0"],
+            "last_api_error_code": None,
+            "updated_at": utc_now_iso(),
+        }
+    )
+    assert store.resume_processed_ids("pending") is None
+
+
+def test_classify_batch_state_never_promotes_truncated_to_complete():
+    assert classify_batch_state(risk_interrupted=True, truncated=True) == (
+        "risk_interrupted"
+    )
+    assert classify_batch_state(risk_interrupted=False, truncated=True) == "limited"
+    assert classify_batch_state(risk_interrupted=False, truncated=False) == (
+        "complete"
+    )
+
+
+# ------------------------------------------------------------ CLI usage
+
+
+def test_schedule_requires_positive_limit(tmp_root, capsys):
+    with pytest.raises(SystemExit) as exc:
+        main(["schedule", "--scope", "pending", "--archive-root", tmp_root])
+    assert exc.value.code == 1
+
+    rc = main([
+        "schedule", "--scope", "pending", "--limit", "0",
+        "--archive-root", tmp_root,
+    ])
+    captured = capsys.readouterr()
+    assert rc == 1
+    assert "limit must be a positive integer" in captured.err
+
+
+def test_schedule_help_lists_scope_limit_resume(capsys):
+    with pytest.raises(SystemExit) as exc:
+        main(["schedule", "--help"])
+    assert exc.value.code == 0
+    out = capsys.readouterr().out
+    assert "--scope" in out
+    assert "--limit" in out
+    assert "--resume" in out
+    assert "--max-audio-gb" in out
+
+
+# ------------------------------------------------------------ bounded batch / no false complete
+
+
+def test_schedule_limit_marks_limited_and_does_not_claim_corpus_complete(
+    tmp_root, monkeypatch, capsys,
+):
+    a = page_identity("BVa", 0, 111, "p0")
+    b = page_identity("BVb", 0, 222, "p0")
+    c = page_identity("BVc", 0, 333, "p0")
+    store = ManifestStore(root=tmp_root)
+    for identity in (a, b, c):
+        store.upsert(_row(identity, status="subtitle_done"))
+        _write_subtitle_raw(tmp_root, identity)
+    _seed_limited_cursor(tmp_root)
+    _stub_asr(monkeypatch)
+    _patch_cli(monkeypatch, RouterTransport(_base_routes()))
+
+    rc = main([
+        "schedule", "--scope", "pending", "--limit", "2",
+        "--archive-root", tmp_root, "--sessdata", SECRET,
+    ])
+    captured = capsys.readouterr()
+    assert rc == 0
+    assert "scope=pending" in captured.out
+    assert "limit=2" in captured.out
+    assert "selected 2" in captured.out
+    assert "batch=limited" in captured.out
+    assert "batch=complete" not in captured.out
+    assert "enumeration: complete" not in captured.out
+    assert "enumeration: limited" in captured.out
+    loaded = ManifestStore(root=tmp_root).load()
+    assert loaded[a.work_id]["status"] == "archived"
+    assert loaded[b.work_id]["status"] == "archived"
+    assert loaded[c.work_id]["status"] == "subtitle_done"
+    sidecar = _scheduler(tmp_root)
+    assert sidecar["state"] == "limited"
+    assert sidecar["scope"] == "pending"
+    assert sidecar["limit"] == 2
+    recs = _ledger_records(tmp_root)
+    assert recs[-1]["command"] == "schedule"
+    assert recs[-1]["exit_code"] == 0
+    assert recs[-1]["cursor_snapshot"]["state"] == "limited"
+    _assert_no_secrets(captured, tmp_root)
+
+
+def test_schedule_second_batch_completes_requested_scope_not_corpus(
+    tmp_root, monkeypatch, capsys,
+):
+    a = page_identity("BVa", 0, 111, "p0")
+    b = page_identity("BVb", 0, 222, "p0")
+    store = ManifestStore(root=tmp_root)
+    for identity in (a, b):
+        store.upsert(_row(identity, status="subtitle_done"))
+        _write_subtitle_raw(tmp_root, identity)
+    _seed_limited_cursor(tmp_root)
+    _stub_asr(monkeypatch)
+    _patch_cli(monkeypatch, RouterTransport(_base_routes()))
+
+    assert main([
+        "schedule", "--scope", "pending", "--limit", "1",
+        "--archive-root", tmp_root,
+    ]) == 0
+    capsys.readouterr()
+    rc = main([
+        "schedule", "--scope", "pending", "--limit", "1",
+        "--archive-root", tmp_root,
+    ])
+    captured = capsys.readouterr()
+    assert rc == 0
+    assert "batch=complete" in captured.out
+    assert "enumeration: limited" in captured.out
+    assert "enumeration: complete" not in captured.out
+    loaded = ManifestStore(root=tmp_root).load()
+    assert loaded[a.work_id]["status"] == "archived"
+    assert loaded[b.work_id]["status"] == "archived"
+    sidecar = _scheduler(tmp_root)
+    assert sidecar["state"] == "complete"
+    recs = _ledger_records(tmp_root)
+    assert recs[-1]["command"] == "schedule"
+    assert recs[-1]["cursor_snapshot"]["state"] == "limited"
+
+
+# ------------------------------------------------------------ terminal / missing / mixed
+
+
+def test_schedule_terminal_selectors_are_idempotent_exit_0(
+    tmp_root, monkeypatch, capsys,
+):
+    archived = page_identity("BVsArch", 0, 111, "p0")
+    gone = page_identity("BVsGone", 0, 222, "p0")
+    store = ManifestStore(root=tmp_root)
+    store.upsert(_row(archived, status="archived", srt_path="transcripts/srt/x.srt"))
+    store.upsert(_row(gone, status="gone"))
+    _stub_asr(monkeypatch)
+    transport = RouterTransport(_base_routes())
+    _patch_cli(monkeypatch, transport)
+    manifest_path = os.path.join(tmp_root, "manifest", "manifest.jsonl")
+    with open(manifest_path, encoding="utf-8") as fh:
+        before = fh.read()
+
+    rc = main([
+        "schedule", "--scope", f"{archived.work_id},{gone.work_id}",
+        "--limit", "5", "--archive-root", tmp_root,
+    ])
+    captured = capsys.readouterr()
+    assert rc == 0
+    assert "already_terminal" in captured.out
+    assert "batch=complete" in captured.out
+    assert "scope not fully processed" not in captured.out
+    with open(manifest_path, encoding="utf-8") as fh:
+        assert fh.read() == before
+    assert transport.calls == []
+    sidecar = _scheduler(tmp_root)
+    assert sidecar["state"] == "complete"
+
+
+def test_schedule_missing_artifact_exits_1_and_keeps_success(
+    tmp_root, monkeypatch, capsys,
+):
+    ok_id = page_identity("BVsOk", 0, 111, "p0")
+    skip_id = page_identity("BVsSkip", 0, 222, "p0")
+    store = ManifestStore(root=tmp_root)
+    store.upsert(_row(ok_id, status="subtitle_done"))
+    store.upsert(_row(skip_id, status="subtitle_done"))
+    _write_subtitle_raw(tmp_root, ok_id)
+    _stub_asr(monkeypatch)
+    _patch_cli(monkeypatch, RouterTransport(_base_routes()))
+
+    rc = main([
+        "schedule", "--scope", "pending", "--limit", "5",
+        "--archive-root", tmp_root,
+    ])
+    captured = capsys.readouterr()
+    assert rc == 1
+    assert "missing_subtitle_raw" in captured.out
+    assert "scope not fully processed" in captured.out
+    loaded = ManifestStore(root=tmp_root).load()
+    assert loaded[ok_id.work_id]["status"] == "archived"
+    assert loaded[skip_id.work_id]["status"] == "subtitle_done"
+    sidecar = _scheduler(tmp_root)
+    assert sidecar["state"] == "complete"
+    recs = _ledger_records(tmp_root)
+    assert recs[-1]["exit_code"] == 1
+    _assert_no_secrets(captured, tmp_root)
+
+
+def test_schedule_mixed_failure_exits_1_failed_scope_retries(
+    tmp_root, monkeypatch, capsys,
+):
+    ok_id = page_identity("BVsOk", 0, 111, "p0")
+    fail_id = page_identity("BVsFail", 0, 222, "p0")
+    store = ManifestStore(root=tmp_root)
+    store.upsert(_row(ok_id, status="subtitle_done"))
+    store.upsert(_row(
+        fail_id, status="audio_ok",
+        audio_path=f"audio/{artifact_stem(fail_id)}.m4a",
+    ))
+    _write_subtitle_raw(tmp_root, ok_id)
+    _write_audio(tmp_root, fail_id)
+
+    def flaky(audio_path, model_name=None):
+        if artifact_stem(fail_id) in audio_path:
+            raise asr_mod.ASRModelError("model failed")
+        return [{"start": 0.0, "end": 1.0, "text": "ok"}]
+
+    monkeypatch.setattr(asr_mod, "transcribe", flaky)
+    _patch_cli(monkeypatch, RouterTransport(_base_routes()))
+
+    rc = main([
+        "schedule", "--scope", "pending", "--limit", "5",
+        "--archive-root", tmp_root,
+    ])
+    captured = capsys.readouterr()
+    assert rc == 1
+    loaded = ManifestStore(root=tmp_root).load()
+    assert loaded[ok_id.work_id]["status"] == "archived"
+    assert loaded[fail_id.work_id]["status"] == "audio_ok"
+    attempts = AttemptLedger(tmp_root).load()
+    assert any(
+        r["work_id"] == fail_id.work_id and r["outcome"] == "failed"
+        for r in attempts
+    )
+    _assert_no_secrets(captured, tmp_root)
+
+    rc = main([
+        "schedule", "--scope", "failed", "--limit", "5",
+        "--archive-root", tmp_root,
+    ])
+    captured = capsys.readouterr()
+    assert rc == 1
+    assert "selected 1" in captured.out
+    loaded = ManifestStore(root=tmp_root).load()
+    assert loaded[ok_id.work_id]["status"] == "archived"
+    assert loaded[fail_id.work_id]["status"] == "audio_ok"
+
+
+# ------------------------------------------------------------ risk / resume
+
+
+def test_schedule_risk_after_success_exits_2_and_resume_continues(
+    tmp_root, monkeypatch, capsys,
+):
+    ok_id = page_identity("BVaOk", 0, 111, "p0")
+    risk_id = page_identity("BVzRisk", 0, 222, "p0")
+    later = page_identity("BVzzLater", 0, 333, "p0")
+    store = ManifestStore(root=tmp_root)
+    store.upsert(_row(ok_id, status="subtitle_done"))
+    store.upsert(_row(risk_id, status="meta_ok"))
+    store.upsert(_row(later, status="subtitle_done"))
+    _write_subtitle_raw(tmp_root, ok_id)
+    _write_subtitle_raw(tmp_root, later)
+    _stub_asr(monkeypatch)
+    transport = CidRouterTransport(
+        {risk_id.cid: RISK},
+        routes=_base_routes(),
+    )
+    _patch_cli(monkeypatch, transport)
+
+    rc = main([
+        "schedule", "--scope", "pending", "--limit", "5",
+        "--archive-root", tmp_root, "--sessdata", SECRET,
+    ])
+    captured = capsys.readouterr()
+    assert rc == 2
+    assert "batch=risk_interrupted" in captured.out
+    assert "risk-control ceiling" in captured.err
+    loaded = ManifestStore(root=tmp_root).load()
+    assert loaded[ok_id.work_id]["status"] == "archived"
+    assert loaded[risk_id.work_id]["status"] == "meta_ok"
+    assert loaded[later.work_id]["status"] == "subtitle_done"
+    sidecar = _scheduler(tmp_root)
+    assert sidecar["state"] == "risk_interrupted"
+    assert ok_id.work_id in sidecar["processed_work_ids"]
+    assert risk_id.work_id not in sidecar["processed_work_ids"]
+    recs = _ledger_records(tmp_root)
+    assert recs[-1]["exit_code"] == 2
+    _assert_no_secrets(captured, tmp_root)
+
+    transport.player_by_cid[risk_id.cid] = player_ok([sub_entry()])
+    rc = main([
+        "schedule", "--scope", "pending", "--limit", "5", "--resume",
+        "--archive-root", tmp_root,
+    ])
+    captured = capsys.readouterr()
+    assert rc == 0
+    assert "batch=complete" in captured.out
+    loaded = ManifestStore(root=tmp_root).load()
+    assert loaded[ok_id.work_id]["status"] == "archived"
+    assert loaded[risk_id.work_id]["status"] == "archived"
+    assert loaded[later.work_id]["status"] == "archived"
+    sidecar = _scheduler(tmp_root)
+    assert sidecar["state"] == "complete"
+    harvest_cids = [
+        c["params"].get("cid")
+        for c in transport.calls if "player/wbi/v2" in c["url"]
+    ]
+    assert risk_id.cid in harvest_cids
+    assert ok_id.cid not in harvest_cids
+    _assert_no_secrets(captured, tmp_root)
+
+
+def test_schedule_resume_ignored_for_limited_sidecar(
+    tmp_root, monkeypatch, capsys,
+):
+    a = page_identity("BVa", 0, 111, "p0")
+    b = page_identity("BVb", 0, 222, "p0")
+    store = ManifestStore(root=tmp_root)
+    for identity in (a, b):
+        store.upsert(_row(identity, status="subtitle_done"))
+        _write_subtitle_raw(tmp_root, identity)
+    _stub_asr(monkeypatch)
+    _patch_cli(monkeypatch, RouterTransport(_base_routes()))
+
+    assert main([
+        "schedule", "--scope", "pending", "--limit", "1",
+        "--archive-root", tmp_root,
+    ]) == 0
+    capsys.readouterr()
+    sidecar = _scheduler(tmp_root)
+    assert sidecar["state"] == "limited"
+
+    rc = main([
+        "schedule", "--scope", "pending", "--limit", "1", "--resume",
+        "--archive-root", tmp_root,
+    ])
+    captured = capsys.readouterr()
+    assert rc == 0
+    loaded = ManifestStore(root=tmp_root).load()
+    assert loaded[a.work_id]["status"] == "archived"
+    assert loaded[b.work_id]["status"] == "archived"
+    assert _scheduler(tmp_root)["state"] == "complete"
+
+
+def test_schedule_explicit_work_id_respects_limit(
+    tmp_root, monkeypatch, capsys,
+):
+    one = page_identity("BVone", 0, 111, "p0")
+    two = page_identity("BVtwo", 0, 222, "p0")
+    store = ManifestStore(root=tmp_root)
+    store.upsert(_row(one, status="subtitle_done"))
+    store.upsert(_row(two, status="subtitle_done"))
+    _write_subtitle_raw(tmp_root, one)
+    _write_subtitle_raw(tmp_root, two)
+    _stub_asr(monkeypatch)
+    _patch_cli(monkeypatch, RouterTransport(_base_routes()))
+
+    rc = main([
+        "schedule", "--scope", f"{one.work_id},{two.work_id}",
+        "--limit", "1", "--archive-root", tmp_root,
+    ])
+    captured = capsys.readouterr()
+    assert rc == 0
+    assert "batch=limited" in captured.out
+    loaded = ManifestStore(root=tmp_root).load()
+    assert loaded[one.work_id]["status"] == "archived"
+    assert loaded[two.work_id]["status"] == "subtitle_done"
