@@ -209,6 +209,15 @@ def build_parser() -> argparse.ArgumentParser:
         help="Skip audio downloads that would push audio/ past this many GiB (0 = unlimited)",
     )
     schedule_cmd.add_argument(
+        "--allow-long-live",
+        action="store_true",
+        help=(
+            "Opt in to multi-hour rows under the configured --max-audio-gb "
+            "(cannot be 0). Default pending/failed selection keeps the "
+            "45-minute short-video policy"
+        ),
+    )
+    schedule_cmd.add_argument(
         "--archive-root", default=DEFAULT_ARCHIVE_ROOT,
         help="Archive root directory (default: ./archive)",
     )
@@ -1583,6 +1592,14 @@ def _cmd_schedule(args: argparse.Namespace) -> int:
         format_cursor_summary,
         utc_now_iso,
     )
+    from .audio_budget import audio_dir_usage_bytes
+    from .long_live import (
+        apply_long_live_policy,
+        campaign_plan,
+        format_campaign_plan,
+        is_long_live,
+        refuse_disabled_audio_cap,
+    )
     from .scheduler import (
         SchedulerStore,
         classify_batch_state,
@@ -1597,6 +1614,11 @@ def _cmd_schedule(args: argparse.Namespace) -> int:
     if args.limit is None or args.limit <= 0:
         print("schedule: --limit must be a positive integer", file=sys.stderr)
         return 1
+    if args.allow_long_live:
+        cap_error = refuse_disabled_audio_cap(args.max_audio_gb)
+        if cap_error:
+            print(f"schedule: {cap_error}", file=sys.stderr)
+            return 1
     rows, error = _run_scope_rows(store, entries, args.scope)
     if error:
         print(f"schedule: {error}", file=sys.stderr)
@@ -1611,18 +1633,28 @@ def _cmd_schedule(args: argparse.Namespace) -> int:
             if str(entry.get("work_id") or key) not in skip
         ]
 
+    rows, held, policy_error = apply_long_live_policy(
+        rows,
+        allow_long_live=args.allow_long_live,
+        explicit_scope=args.scope not in {"pending", "failed"},
+    )
+    if policy_error:
+        print(f"schedule: {policy_error}", file=sys.stderr)
+        return 1
+
     matching = len(rows)
     truncated = matching > args.limit
     rows = rows[: args.limit]
 
     sessdata = _resolve_sessdata(args)
     client = bili_client.BiliClient(sessdata=sessdata)
+    max_audio_bytes = int(args.max_audio_gb * 1024 ** 3)
     coord = RunCoordinator(
         args.archive_root,
         store,
         client=client,
         offline=False,
-        max_audio_bytes=int(args.max_audio_gb * 1024 ** 3),
+        max_audio_bytes=max_audio_bytes,
         sleep=time.sleep,
     )
     print(
@@ -1631,8 +1663,23 @@ def _cmd_schedule(args: argparse.Namespace) -> int:
     )
     for key, entry in rows:
         print(f"  {entry.get('work_id') or key}: {entry.get('status')}")
+    if held:
+        print(
+            f"schedule: {held} long-duration row(s) held; "
+            "re-run with --allow-long-live"
+        )
+    if args.allow_long_live:
+        for _key, entry in rows:
+            if is_long_live(entry):
+                print(format_campaign_plan(
+                    campaign_plan(args.archive_root, entry, max_audio_bytes)
+                ))
 
     summary = coord.run_batch(rows)
+    if args.allow_long_live:
+        after = audio_dir_usage_bytes(args.archive_root)
+        print(f"schedule: long-live peak audio/ bytes={coord.audio_peak_bytes}")
+        print(f"schedule: long-live audio/ after bytes={after}")
     batch_state = classify_batch_state(
         risk_interrupted=summary.risk_interrupted,
         truncated=truncated,

@@ -175,7 +175,7 @@ batches. It composes `RunCoordinator`, `ManifestStore`, `MetaCursorStore`,
 and `RunLedger`; it does not open sockets itself and does not replace
 `pilot` or `run`.
 
-    bili-asr schedule --scope pending|failed|<work_id>... --limit N [--resume] [--max-audio-gb G] [--archive-root <root>]
+    bili-asr schedule --scope pending|failed|<work_id>... --limit N [--resume] [--max-audio-gb G] [--allow-long-live] [--archive-root <root>]
 
 - **`--limit N` is required.** A bounded call never infers that the visible
   corpus is fully archived.
@@ -196,6 +196,16 @@ and `RunLedger`; it does not open sockets itself and does not replace
 - **Exit codes** follow the mixed-outcome contract: 0 requested rows
   processed or already terminal; 1 usage/config, per-item failure, or
   non-risk skip; 2 risk/API interruption (re-run with `--resume`).
+- **Long-live opt-in.** Default `pending` / `failed` selection keeps the
+  same 45-minute short-video policy as `pilot`. A multi-hour row is
+  processed only with `--allow-long-live` and a configured
+  `--max-audio-gb` (default 10; `0` is refused on this path). The summary
+  prints the conservative 64 kbps estimate, measured `audio/` peak, and
+  post-archive usage after reclaim. Operator steps for Windows WSL,
+  archive-root placement, cookie boundary, `du` measurement, and redacted
+  evidence are in `docs/wsl-long-live.md` and
+  `docs/wsl-long-live-evidence.md`. Do not raise `pilot --max-duration-min`
+  to sneak livestreams into the short-video campaign.
 
 ### SQLite FTS5 full-text search and metadata export
 

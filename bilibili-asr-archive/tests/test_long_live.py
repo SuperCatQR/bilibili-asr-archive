@@ -1,0 +1,364 @@
+"""Opt-in long-live campaign proof for `bili-asr schedule`.
+
+Fake transport + stubbed ASR only. No live HTTP, model, or media.
+Locks: explicit --allow-long-live, default short-video selection,
+configured audio cap, conservative pre-download estimate, measured
+audio/ peak, post-archive reclaim, and retryable failure state.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+from pathlib import Path
+
+import pytest
+
+from bili_asr import asr as asr_mod
+from bili_asr import bili_client as bc
+from bili_asr.audio_budget import estimate_audio_bytes, max_duration_exceeded
+from bili_asr.cli import _pilot_select, build_parser, main
+from bili_asr.coordinator import AttemptLedger
+from bili_asr.long_live import (
+    DEFAULT_SHORT_MAX_DURATION_MIN,
+    apply_long_live_policy,
+    campaign_plan,
+    is_long_live,
+)
+from bili_asr.manifest import ManifestStore
+from bili_asr.page_identity import artifact_stem, page_identity
+
+from test_audio import AUDIO_BYTES, SPI_OK, STREAM_HOST, playurl_ok
+from test_scheduler import (
+    CidRouterTransport,
+    _assert_no_secrets,
+    _base_routes,
+    _patch_cli,
+    _row,
+    _stub_asr,
+)
+from test_subtitles import SAMPLE_DOC, player_ok
+
+THREE_HOURS_S = 3 * 60 * 60
+ESTIMATED_THREE_HOURS = THREE_HOURS_S * 8_000  # 64 kbps ceiling
+DOCS_DIR = Path(__file__).resolve().parents[1] / "docs"
+
+
+def _long_identity():
+    return page_identity("BVlive", 0, 999, "p0")
+
+
+def _short_identity():
+    return page_identity("BVshort", 0, 111, "p0")
+
+
+def _audio_path(root, identity):
+    return os.path.join(root, "audio", f"{artifact_stem(identity)}.m4a")
+
+
+def _download_transport(identity):
+    routes = _base_routes()
+    return CidRouterTransport(
+        player_by_cid={identity.cid: player_ok([])},
+        playurl_by_cid={identity.cid: playurl_ok()},
+        routes=routes,
+        stream_routes={f"{STREAM_HOST}/a30216.m4s": AUDIO_BYTES},
+    )
+
+
+# ------------------------------------------------------------ helpers / policy
+
+
+def test_three_hour_row_is_long_live_and_pilot_default_excludes_it():
+    long_row = {"work_id": "BVlive:p0", "duration_s": THREE_HOURS_S, "status": "needs_audio"}
+    short_row = {"work_id": "BVshort:p0", "duration_s": 5, "status": "needs_audio"}
+    assert DEFAULT_SHORT_MAX_DURATION_MIN == 45
+    assert is_long_live(long_row) is True
+    assert is_long_live(short_row) is False
+    assert max_duration_exceeded(long_row, 45) is True
+    selected = _pilot_select(
+        {"BVlive:p0": long_row, "BVshort:p0": short_row},
+        5,
+        max_duration_min=DEFAULT_SHORT_MAX_DURATION_MIN,
+    )
+    keys = [str(e.get("work_id")) for e in selected]
+    assert "BVshort:p0" in keys
+    assert "BVlive:p0" not in keys
+
+
+def test_pilot_and_schedule_parser_defaults_keep_short_video_and_audio_cap():
+    parser = build_parser()
+    pilot = parser.parse_args(["pilot"])
+    assert pilot.max_duration_min == 45
+    assert pilot.max_audio_gb == 10.0
+    schedule = parser.parse_args(["schedule", "--scope", "pending", "--limit", "1"])
+    assert schedule.max_audio_gb == 10.0
+    assert schedule.allow_long_live is False
+
+
+def test_apply_long_live_policy_holds_pending_and_refuses_explicit():
+    long_id = _long_identity()
+    short_id = _short_identity()
+    rows = [
+        (short_id.work_id, _row(short_id, status="needs_audio", duration_s=5)),
+        (long_id.work_id, _row(long_id, status="needs_audio", duration_s=THREE_HOURS_S)),
+    ]
+    filtered, held, error = apply_long_live_policy(
+        rows, allow_long_live=False, explicit_scope=False,
+    )
+    assert error is None
+    assert held == 1
+    assert [key for key, _ in filtered] == [short_id.work_id]
+
+    _kept, _held, explicit_error = apply_long_live_policy(
+        rows[-1:], allow_long_live=False, explicit_scope=True,
+    )
+    assert explicit_error is not None
+    assert "--allow-long-live" in explicit_error
+
+    kept_all, held_all, error_all = apply_long_live_policy(
+        rows, allow_long_live=True, explicit_scope=False,
+    )
+    assert error_all is None
+    assert held_all == 0
+    assert [key for key, _ in kept_all] == [short_id.work_id, long_id.work_id]
+
+
+def test_campaign_plan_conservative_estimate_and_budget_gate(tmp_root):
+    identity = _long_identity()
+    entry = _row(identity, status="needs_audio", duration_s=THREE_HOURS_S)
+    cap = 10 * 1024 ** 3
+    plan = campaign_plan(tmp_root, entry, cap)
+    assert plan["duration_s"] == THREE_HOURS_S
+    assert plan["estimated_bytes"] == ESTIMATED_THREE_HOURS
+    assert plan["estimated_bytes"] == estimate_audio_bytes(THREE_HOURS_S)
+    assert plan["audio_usage_bytes"] == 0
+    assert plan["projected_peak_bytes"] == ESTIMATED_THREE_HOURS
+    assert plan["would_exceed"] is False
+    tiny = campaign_plan(tmp_root, entry, 1_000_000)
+    assert tiny["would_exceed"] is True
+
+
+# ------------------------------------------------------------ CLI: opt-in + defaults
+
+
+def test_schedule_pending_holds_long_live_without_flag(
+    tmp_root, monkeypatch, capsys,
+):
+    long_id = _long_identity()
+    short_id = _short_identity()
+    store = ManifestStore(root=tmp_root)
+    store.upsert(_row(short_id, status="subtitle_done", duration_s=5))
+    store.upsert(_row(long_id, status="needs_audio", duration_s=THREE_HOURS_S))
+    raw = os.path.join(tmp_root, "subtitles", "raw", f"{artifact_stem(short_id)}.json")
+    os.makedirs(os.path.dirname(raw), exist_ok=True)
+    with open(raw, "w", encoding="utf-8") as fh:
+        json.dump(SAMPLE_DOC, fh)
+    _stub_asr(monkeypatch)
+    transport = _download_transport(long_id)
+    _patch_cli(monkeypatch, transport)
+
+    rc = main([
+        "schedule", "--scope", "pending", "--limit", "5",
+        "--archive-root", tmp_root,
+    ])
+    captured = capsys.readouterr()
+    assert rc == 0
+    assert "--allow-long-live" in captured.out
+    loaded = ManifestStore(root=tmp_root).load()
+    assert loaded[short_id.work_id]["status"] == "archived"
+    assert loaded[long_id.work_id]["status"] == "needs_audio"
+    assert transport.stream_calls == []
+    _assert_no_secrets(captured, tmp_root)
+
+
+def test_schedule_explicit_long_live_requires_opt_in(
+    tmp_root, monkeypatch, capsys,
+):
+    identity = _long_identity()
+    ManifestStore(root=tmp_root).upsert(
+        _row(identity, status="needs_audio", duration_s=THREE_HOURS_S)
+    )
+    _stub_asr(monkeypatch)
+    transport = _download_transport(identity)
+    _patch_cli(monkeypatch, transport)
+
+    rc = main([
+        "schedule", "--scope", identity.work_id, "--limit", "1",
+        "--archive-root", tmp_root,
+    ])
+    captured = capsys.readouterr()
+    assert rc == 1
+    assert "--allow-long-live" in captured.err
+    assert ManifestStore(root=tmp_root).load()[identity.work_id]["status"] == "needs_audio"
+    assert transport.stream_calls == []
+    assert not os.path.isfile(_audio_path(tmp_root, identity))
+
+
+def test_allow_long_live_refuses_disabled_audio_cap(
+    tmp_root, monkeypatch, capsys,
+):
+    identity = _long_identity()
+    ManifestStore(root=tmp_root).upsert(
+        _row(identity, status="needs_audio", duration_s=THREE_HOURS_S)
+    )
+    _stub_asr(monkeypatch)
+    _patch_cli(monkeypatch, _download_transport(identity))
+
+    rc = main([
+        "schedule", "--scope", identity.work_id, "--limit", "1",
+        "--allow-long-live", "--max-audio-gb", "0",
+        "--archive-root", tmp_root,
+    ])
+    captured = capsys.readouterr()
+    assert rc == 1
+    assert "cannot disable the audio cap" in captured.err
+    assert ManifestStore(root=tmp_root).load()[identity.work_id]["status"] == "needs_audio"
+
+
+def test_schedule_help_lists_allow_long_live(capsys):
+    with pytest.raises(SystemExit) as exc:
+        main(["schedule", "--help"])
+    assert exc.value.code == 0
+    out = capsys.readouterr().out
+    assert "--allow-long-live" in out
+    assert "--max-audio-gb" in out
+
+
+# ------------------------------------------------------------ budget / archive / reclaim / retry
+
+
+def test_allow_long_live_skips_when_conservative_estimate_exceeds_cap(
+    tmp_root, monkeypatch, capsys,
+):
+    identity = _long_identity()
+    ManifestStore(root=tmp_root).upsert(
+        _row(identity, status="needs_audio", duration_s=THREE_HOURS_S)
+    )
+    _stub_asr(monkeypatch)
+    transport = _download_transport(identity)
+    _patch_cli(monkeypatch, transport)
+
+    rc = main([
+        "schedule", "--scope", identity.work_id, "--limit", "1",
+        "--allow-long-live", "--max-audio-gb", "0.01",
+        "--archive-root", tmp_root,
+    ])
+    captured = capsys.readouterr()
+    assert rc == 1
+    assert f"duration_s={THREE_HOURS_S}" in captured.out
+    assert f"estimated_bytes={ESTIMATED_THREE_HOURS}" in captured.out
+    assert "would_exceed=true" in captured.out
+    assert "audio_budget" in captured.out
+    loaded = ManifestStore(root=tmp_root).load()
+    assert loaded[identity.work_id]["status"] == "needs_audio"
+    assert transport.stream_calls == []
+    assert not os.path.isfile(_audio_path(tmp_root, identity))
+    skips = [
+        rec for rec in AttemptLedger(tmp_root).load()
+        if rec["stage"] == "download" and rec["outcome"] == "skipped"
+    ]
+    assert skips and skips[-1]["error_code"] == "audio_budget"
+    _assert_no_secrets(captured, tmp_root)
+
+
+def test_allow_long_live_archives_and_reclaims_with_measured_peak(
+    tmp_root, monkeypatch, capsys,
+):
+    identity = _long_identity()
+    ManifestStore(root=tmp_root).upsert(
+        _row(identity, status="needs_audio", duration_s=THREE_HOURS_S)
+    )
+    filler_dir = os.path.join(tmp_root, "audio")
+    os.makedirs(filler_dir, exist_ok=True)
+    filler = os.path.join(filler_dir, "other.m4a")
+    with open(filler, "wb") as fh:
+        fh.write(b"x" * 4096)
+    _stub_asr(monkeypatch)
+    transport = _download_transport(identity)
+    _patch_cli(monkeypatch, transport)
+
+    rc = main([
+        "schedule", "--scope", identity.work_id, "--limit", "1",
+        "--allow-long-live", "--max-audio-gb", "10",
+        "--archive-root", tmp_root, "--sessdata", "SECRET-SESS",
+    ])
+    captured = capsys.readouterr()
+    assert rc == 0, captured.err
+    assert f"duration_s={THREE_HOURS_S}" in captured.out
+    assert f"estimated_bytes={ESTIMATED_THREE_HOURS}" in captured.out
+    assert "would_exceed=false" in captured.out
+    assert "peak audio/" in captured.out
+    assert "audio/ after" in captured.out
+    loaded = ManifestStore(root=tmp_root).load()
+    assert loaded[identity.work_id]["status"] == "archived"
+    assert not os.path.isfile(_audio_path(tmp_root, identity))
+    assert os.path.isfile(filler)
+    peak_line = [
+        line for line in captured.out.splitlines() if "peak audio/" in line
+    ][-1]
+    after_line = [
+        line for line in captured.out.splitlines() if "audio/ after" in line
+    ][-1]
+    peak = int(peak_line.rsplit("=", 1)[-1])
+    after = int(after_line.rsplit("=", 1)[-1])
+    assert peak >= 4096 + len(AUDIO_BYTES)
+    assert after == 4096
+    assert after < peak
+    assert transport.stream_calls  # fake download only
+    _assert_no_secrets(captured, tmp_root)
+
+
+def test_allow_long_live_asr_failure_keeps_retryable_audio(
+    tmp_root, monkeypatch, capsys,
+):
+    identity = _long_identity()
+    ManifestStore(root=tmp_root).upsert(
+        _row(identity, status="needs_audio", duration_s=THREE_HOURS_S)
+    )
+
+    def boom(_path, model_name=None):
+        raise RuntimeError("asr")
+
+    monkeypatch.setattr(asr_mod, "transcribe", boom)
+    transport = _download_transport(identity)
+    _patch_cli(monkeypatch, transport)
+
+    rc = main([
+        "schedule", "--scope", identity.work_id, "--limit", "1",
+        "--allow-long-live", "--archive-root", tmp_root,
+    ])
+    captured = capsys.readouterr()
+    assert rc == 1
+    loaded = ManifestStore(root=tmp_root).load()
+    assert loaded[identity.work_id]["status"] == "audio_ok"
+    assert os.path.isfile(_audio_path(tmp_root, identity))
+    _assert_no_secrets(captured, tmp_root)
+
+
+# ------------------------------------------------------------ operator docs
+
+
+def test_operator_guide_and_evidence_template_cover_wsl_boundaries():
+    guide = (DOCS_DIR / "wsl-long-live.md").read_text(encoding="utf-8")
+    evidence = (DOCS_DIR / "wsl-long-live-evidence.md").read_text(encoding="utf-8")
+    readme = (Path(__file__).resolve().parents[1] / "README.md").read_text(
+        encoding="utf-8"
+    )
+    blob = "\n".join((guide, evidence))
+    assert "Windows" in guide and "WSL" in guide
+    assert "du -sb" in guide
+    assert "BILI_SESSDATA" in guide
+    assert "--allow-long-live" in guide
+    assert "--max-audio-gb" in guide
+    assert "archive-root" in guide or "--archive-root" in guide
+    assert "cookie" in guide.lower()
+    assert "redact" in evidence.lower() or "redacted" in evidence.lower()
+    assert "du -sb" in evidence
+    assert "allow-long-live" in readme
+    scanned = blob.replace("BILI_SESSDATA", "BILI_COOKIE")
+    assert "SESSDATA=" not in scanned
+    assert "SECRET" not in blob
+    assert "http://" not in blob
+    assert "bilivideo.com" not in blob
+    assert "Traceback" not in blob

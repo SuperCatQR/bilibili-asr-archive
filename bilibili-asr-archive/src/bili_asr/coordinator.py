@@ -272,6 +272,7 @@ class RunCoordinator:
         self.offline = offline
         self.max_audio_bytes = max(0, max_audio_bytes)
         self._sleep = sleep or time.sleep
+        self.audio_peak_bytes = 0
         self.ledger = AttemptLedger(self.root)
         self._attempt_counts: dict[tuple[str, str], int] = {}
         for rec in self.ledger.load():
@@ -402,10 +403,19 @@ class RunCoordinator:
         self.store.upsert(updated)
         self._reclaim_audio(updated)
 
+    def _note_audio_peak(self) -> None:
+        """Record observed `{archive_root}/audio/` usage for campaign proof."""
+        from .audio_budget import audio_dir_usage_bytes
+
+        usage = audio_dir_usage_bytes(self.root)
+        if usage > self.audio_peak_bytes:
+            self.audio_peak_bytes = usage
+
     def _reclaim_audio(self, entry: dict[str, Any]) -> None:
         """Best-effort audio reclaim once a row is archived."""
         from .audio_reclaim import reclaim_audio
 
+        self._note_audio_peak()
         try:
             reclaim_audio(self.root, entry)
         except (OSError, ValueError):
@@ -502,6 +512,7 @@ class RunCoordinator:
         self._record(
             "download", work_id, "ok", artifact_paths=[rel], started_at=started
         )
+        self._note_audio_peak()
         return "audio_ok"
 
     def process_row(self, key: str, entry: dict[str, Any]) -> RowResult:
@@ -602,6 +613,7 @@ class RunCoordinator:
         from . import bili_client
 
         summary = RunSummary()
+        self._note_audio_peak()
         for index, (key, entry) in enumerate(rows):
             work_id = str(entry.get("work_id") or key)
             status = str(entry.get("status") or "pending")
