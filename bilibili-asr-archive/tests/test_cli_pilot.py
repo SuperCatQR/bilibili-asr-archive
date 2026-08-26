@@ -74,8 +74,8 @@ def test_cli_pilot_mixed_meta_ok_archives_both_branches(tmp_root, monkeypatch, c
     assert rc == 0, captured.err
     assert "SECRET-SESS" not in captured.out
     assert "SECRET-SESS" not in captured.err
-    assert "subtitle=1" in captured.out
-    assert "audio-asr=1" in captured.out
+    assert "pilot batch branches: subtitle=1, audio-asr=1" in captured.out
+    assert "pilot coverage branches: subtitle=1, audio-asr=1" in captured.out
 
     loaded = ManifestStore(root=tmp_root).load()
     assert loaded[sub.work_id]["status"] == "archived"
@@ -177,6 +177,34 @@ def _mixed_transport():
         },
         stream_routes={f"{STREAM_HOST}/a30216.m4s": AUDIO_BYTES},
     )
+
+
+def test_cli_pilot_summary_separates_batch_and_prior_coverage(
+    tmp_root, monkeypatch, capsys
+):
+    prior = page_identity("BVprior", 0, 100, "p0")
+    sub = page_identity("BVsub", 0, 111, "p0")
+    aud = page_identity("BVaud", 0, 222, "p0")
+    store = ManifestStore(root=tmp_root)
+    prior_row = _row(prior, duration_s=1, title="prior-asr")
+    prior_row.update({"status": "archived", "audio_path": "audio/prior.m4a"})
+    store.upsert(prior_row)
+    store.upsert(_row(sub, duration_s=5, title="has-sub"))
+    store.upsert(_row(aud, duration_s=8, title="needs-asr"))
+
+    monkeypatch.setattr(
+        asr_mod,
+        "transcribe",
+        lambda audio_path, model_name=None: [
+            {"start": 0.0, "end": 1.0, "text": "asr-text"}
+        ],
+    )
+    _patch_cli(monkeypatch, _mixed_transport())
+
+    assert main(["pilot", "--n", "2", "--archive-root", tmp_root]) == 0
+    captured = capsys.readouterr()
+    assert "pilot batch branches: subtitle=1, audio-asr=1" in captured.out
+    assert "pilot coverage branches: subtitle=1, audio-asr=2" in captured.out
 
 
 def test_cli_pilot_completed_rerun_skips_archived(tmp_root, monkeypatch, capsys):
@@ -332,7 +360,8 @@ def test_cli_pilot_asr_model_error_names_exception(tmp_root, monkeypatch, capsys
     assert rc == 1
     assert "ASRModelError" in captured.err
     assert "unexpected error" not in captured.err
-    assert "pilot branches:" in captured.out
+    assert "pilot batch branches:" in captured.out
+    assert "pilot coverage branches:" in captured.out
 
 
 def test_cli_pilot_risk_budget_prints_branch_summary(tmp_root, monkeypatch, capsys):
@@ -351,4 +380,5 @@ def test_cli_pilot_risk_budget_prints_branch_summary(tmp_root, monkeypatch, caps
     captured = capsys.readouterr()
     assert rc == 2
     assert "risk-control ceiling" in captured.err
-    assert "pilot branches:" in captured.out
+    assert "pilot batch branches:" in captured.out
+    assert "pilot coverage branches:" in captured.out

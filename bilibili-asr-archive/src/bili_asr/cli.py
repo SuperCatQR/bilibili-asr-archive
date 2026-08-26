@@ -1126,11 +1126,21 @@ def _archived_branch_counts(entries: dict[str, dict[str, object]]) -> tuple[int,
 
 
 def _pilot_print_summary(
-    subtitle_count: int, audio_count: int, failed: int, terminals: list[str]
+    batch_subtitle_count: int,
+    batch_audio_count: int,
+    coverage_subtitle_count: int,
+    coverage_audio_count: int,
+    failed: int,
+    terminals: list[str],
 ) -> None:
     print(
-        f"pilot branches: subtitle={subtitle_count}, audio-asr={audio_count}"
+        "pilot batch branches: "
+        f"subtitle={batch_subtitle_count}, audio-asr={batch_audio_count}"
         + (f", failed={failed}" if failed else "")
+    )
+    print(
+        "pilot coverage branches: "
+        f"subtitle={coverage_subtitle_count}, audio-asr={coverage_audio_count}"
     )
     for line in terminals:
         print(f"pilot terminal: {line}")
@@ -1206,7 +1216,8 @@ def _cmd_pilot(args: argparse.Namespace) -> int:
 
     sessdata = _resolve_sessdata(args)
     client = bili_client.BiliClient(sessdata=sessdata)
-    subtitle_count, audio_count = _archived_branch_counts(entries)
+    coverage_subtitle_count, coverage_audio_count = _archived_branch_counts(entries)
+    batch_subtitle_count = batch_audio_count = 0
     failed = 0
     terminals: list[str] = []
 
@@ -1226,7 +1237,8 @@ def _cmd_pilot(args: argparse.Namespace) -> int:
             label = str(current.get("work_id") or key)
             if status == "subtitle_done":
                 _pilot_archive_subtitle(store, args.archive_root, current)
-                subtitle_count += 1
+                batch_subtitle_count += 1
+                coverage_subtitle_count += 1
                 terminals.append(f"{label}: archived (subtitle)")
                 print(f"{label}: archived (subtitle)")
             elif status in {"needs_audio", "audio_ok"}:
@@ -1245,7 +1257,8 @@ def _cmd_pilot(args: argparse.Namespace) -> int:
                 _pilot_archive_asr(
                     store, client, args.archive_root, current, target
                 )
-                audio_count += 1
+                batch_audio_count += 1
+                coverage_audio_count += 1
                 terminals.append(f"{label}: archived (asr)")
                 print(f"{label}: archived (asr)")
             else:
@@ -1256,7 +1269,14 @@ def _cmd_pilot(args: argparse.Namespace) -> int:
                 f"{label}: ASR dependency unavailable; row not archived",
                 file=sys.stderr,
             )
-            _pilot_print_summary(subtitle_count, audio_count, failed, terminals)
+            _pilot_print_summary(
+                batch_subtitle_count,
+                batch_audio_count,
+                coverage_subtitle_count,
+                coverage_audio_count,
+                failed,
+                terminals,
+            )
             return _record_exit(1)
         except bili_client.AmbiguousPageError:
             failed += 1
@@ -1270,7 +1290,14 @@ def _cmd_pilot(args: argparse.Namespace) -> int:
                 f"stopping — re-run to resume.",
                 file=sys.stderr,
             )
-            _pilot_print_summary(subtitle_count, audio_count, failed, terminals)
+            _pilot_print_summary(
+                batch_subtitle_count,
+                batch_audio_count,
+                coverage_subtitle_count,
+                coverage_audio_count,
+                failed,
+                terminals,
+            )
             return _record_exit(2)
         except bili_client.APIResponseError as exc:
             failed += 1
@@ -1314,12 +1341,19 @@ def _cmd_pilot(args: argparse.Namespace) -> int:
         if index != len(selected) - 1:
             time.sleep(3.0)
 
-    _pilot_print_summary(subtitle_count, audio_count, failed, terminals)
-    if subtitle_count == 0 or audio_count == 0:
+    _pilot_print_summary(
+        batch_subtitle_count,
+        batch_audio_count,
+        coverage_subtitle_count,
+        coverage_audio_count,
+        failed,
+        terminals,
+    )
+    if coverage_subtitle_count == 0 or coverage_audio_count == 0:
         missing = []
-        if subtitle_count == 0:
+        if coverage_subtitle_count == 0:
             missing.append("subtitle")
-        if audio_count == 0:
+        if coverage_audio_count == 0:
             missing.append("audio-asr")
         print(
             "pilot: missing branch coverage: " + ", ".join(missing),
