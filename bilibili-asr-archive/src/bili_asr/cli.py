@@ -1091,14 +1091,18 @@ def _pilot_archive_asr(store, client, root: str, entry: dict[str, object], targe
     stem = artifact_stem(target)
     out_path = os.path.join(root, "audio", f"{stem}.m4a")
     existing_rel = entry.get("audio_path") if entry.get("status") == "audio_ok" else None
+    existing_audio_path: str | None = None
     if existing_rel:
         existing_abs = (
             existing_rel if os.path.isabs(str(existing_rel))
             else os.path.join(root, str(existing_rel))
         )
         if os.path.isfile(existing_abs) and os.path.getsize(existing_abs) > 0:
-            out_path = existing_abs
-    audio_path = audio.download_audio(client, target, out_path, store=store)
+            existing_audio_path = existing_abs
+    if existing_audio_path is not None:
+        audio_path = existing_audio_path
+    else:
+        audio_path = audio.download_audio(client, target, out_path, store=store)
     segments = asr.transcribe(audio_path)
     current = dict(store.get(target.work_id) or entry)
     paths = archive.write_archive(root, current, segments, source="asr")
@@ -1246,7 +1250,12 @@ def _cmd_pilot(args: argparse.Namespace) -> int:
 
                 max_bytes = int(args.max_audio_gb * 1024 ** 3)
                 current_row = dict(store.get(key) or current)
-                if would_exceed_budget(args.archive_root, current_row, max_bytes):
+                if (
+                    status == "needs_audio"
+                    and would_exceed_budget(
+                        args.archive_root, current_row, max_bytes
+                    )
+                ):
                     failed += 1
                     print(
                         f"{label}: skipped ({SKIP_REASON}); "

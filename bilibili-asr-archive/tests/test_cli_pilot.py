@@ -137,6 +137,56 @@ def test_cli_pilot_multipart_processes_every_page(tmp_root, monkeypatch, capsys)
     assert player_cids == [111, 222]
 
 
+def test_cli_pilot_audio_ok_reuses_local_audio_when_budget_is_full(
+    tmp_root, monkeypatch, capsys
+):
+    from bili_asr import audio as audio_mod
+
+    aud = page_identity("BVlocal", 0, 222, "p0")
+    store = ManifestStore(root=tmp_root)
+    row = _row(aud, duration_s=600, title="local-audio")
+    row.update({"status": "audio_ok", "audio_path": "audio/BVlocal.p0.m4a"})
+    store.upsert(row)
+    audio_dir = os.path.join(tmp_root, "audio")
+    os.makedirs(audio_dir)
+    local_audio = os.path.join(audio_dir, "BVlocal.p0.m4a")
+    with open(local_audio, "wb") as fh:
+        fh.write(b"audio" * 1000)
+
+    monkeypatch.setattr(
+        asr_mod,
+        "transcribe",
+        lambda path, model_name=None: [
+            {"start": 0.0, "end": 1.0, "text": "asr-text"}
+        ],
+    )
+    monkeypatch.setattr(
+        audio_mod,
+        "download_audio",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("audio_ok must not download again")
+        ),
+    )
+    _patch_cli(monkeypatch, RouterTransport({}))
+
+    rc = main(
+        [
+            "pilot",
+            "--n",
+            "1",
+            "--max-audio-gb",
+            "0.000001",
+            "--archive-root",
+            tmp_root,
+        ]
+    )
+    captured = capsys.readouterr()
+    assert rc == 1  # audio branch succeeded; required subtitle branch is absent.
+    assert "audio_budget" not in captured.err
+    assert ManifestStore(root=tmp_root).get(aud.work_id)["status"] == "archived"
+    assert not os.path.exists(local_audio)
+
+
 def test_cli_pilot_missing_subtitle_branch_exits_nonzero(tmp_root, monkeypatch, capsys):
     only = page_identity("BVonly", 0, 333, "p0")
     ManifestStore(root=tmp_root).upsert(_row(only, duration_s=4))
