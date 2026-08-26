@@ -215,8 +215,30 @@ the first successful page. Mid-run sidecar writes stay `risk_interrupted`
 with `next_page` = last merged `pn+1`; terminal `complete`/`limited` is
 written only when the run finishes without exit 2.
 
-Exit codes for other commands: 0 ok / 1 usage-config or per-video failure / 2
-terminal API failure.
+### Mixed batch outcomes
+
+When `harvest-subs`, `download-audio`, `asr`, `pilot`, or `run` processes more
+than one work item, the process exit code is an aggregation of per-item
+outcomes — not a claim that the whole corpus is complete. `pilot` remains the
+frozen two-branch proof command; `run` remains complementary.
+
+| Exit | Meaning |
+|------|---------|
+| 0 | Requested work processed, or every selected row is already terminal (`archived` / `gone`). |
+| 1 | Usage/config error, missing optional ASR, per-item failure, or incomplete scope from a non-risk skip (`offline`, `audio_budget`, missing on-disk input). |
+| 2 | Risk/API terminal interruption. Successful rows and artifacts stay; retry the remaining work. |
+
+Risk interruption takes precedence over per-item failure: a batch that
+archived some rows and then hit the risk ceiling still exits 2.
+
+Successful rows stay in their last stable status. Retryable failures remain
+selectable by the same command or by `run --scope failed`. Explicit `run
+--scope` work_id selectors of already-terminal rows skip with
+`already_terminal` and exit 0; they are not duplicated.
+
+`harvest-subs`, `download-audio`, and `asr` do not append `run-ledger.jsonl`
+(that sidecar is `fetch-meta` / `pilot` / `run`). All operator surfaces
+carry redacted scalar codes/reasons only.
 
 ## Multipart pages and legacy rows
 
