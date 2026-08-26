@@ -14,6 +14,7 @@ from .audio_budget import (
     audio_dir_usage_bytes,
     estimate_audio_bytes,
     max_duration_exceeded,
+    parse_duration_s,
     would_exceed_budget,
 )
 
@@ -24,7 +25,10 @@ def is_long_live(
     entry: Mapping[str, Any],
     max_duration_min: int = DEFAULT_SHORT_MAX_DURATION_MIN,
 ) -> bool:
-    """True when the row exceeds the default short-video duration cap."""
+    """True when the row exceeds the default short-video duration cap.
+
+    Missing, zero, or unparseable duration fail-closes as long-live.
+    """
     return max_duration_exceeded(entry, max_duration_min)
 
 
@@ -63,22 +67,27 @@ def campaign_plan(
     archive_root: str,
     entry: Mapping[str, Any],
     max_audio_bytes: int,
+    *,
+    usage_bytes: int | None = None,
 ) -> dict[str, Any]:
     """Conservative pre-download estimate against current ``audio/`` usage."""
-    try:
-        duration_s = max(0, int(entry.get("duration_s") or 0))
-    except (TypeError, ValueError):
-        duration_s = 0
+    parsed = parse_duration_s(entry.get("duration_s"))
     estimated = estimate_audio_bytes(entry.get("duration_s"))
-    usage = audio_dir_usage_bytes(archive_root)
+    usage = audio_dir_usage_bytes(archive_root) if usage_bytes is None else usage_bytes
+    would_exceed = would_exceed_budget(
+        archive_root, entry, max_audio_bytes, usage_bytes=usage,
+    )
+    if parsed is None and max_audio_bytes > 0:
+        # Fail closed in the printed plan: unknown duration is not a 0-byte clip.
+        estimated = max_audio_bytes + 1
     return {
         "work_id": str(entry.get("work_id") or ""),
-        "duration_s": duration_s,
+        "duration_s": parsed if parsed is not None else "unknown",
         "estimated_bytes": estimated,
         "audio_usage_bytes": usage,
         "projected_peak_bytes": usage + estimated,
         "cap_bytes": max_audio_bytes,
-        "would_exceed": would_exceed_budget(archive_root, entry, max_audio_bytes),
+        "would_exceed": would_exceed,
     }
 
 

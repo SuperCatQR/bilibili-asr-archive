@@ -26,7 +26,9 @@ from bili_asr.long_live import (
     is_long_live,
 )
 from bili_asr.manifest import ManifestStore
+from bili_asr.meta_cursor import utc_now_iso
 from bili_asr.page_identity import artifact_stem, page_identity
+from bili_asr.scheduler import SchedulerStore
 
 from test_audio import AUDIO_BYTES, SPI_OK, STREAM_HOST, playurl_ok
 from test_scheduler import (
@@ -123,6 +125,41 @@ def test_apply_long_live_policy_holds_pending_and_refuses_explicit():
     assert error_all is None
     assert held_all == 0
     assert [key for key, _ in kept_all] == [short_id.work_id, long_id.work_id]
+
+
+def test_unknown_duration_is_long_live_under_default_short_policy():
+    assert is_long_live({"duration_s": 0}) is True
+    assert is_long_live({}) is True
+    assert is_long_live({"duration_s": "nope"}) is True
+    assert is_long_live({"duration_s": 5}) is False
+
+
+def test_campaign_plan_unknown_duration_fail_closes_against_cap(tmp_root):
+    identity = _long_identity()
+    entry = _row(identity, status="needs_audio", duration_s=0)
+    plan = campaign_plan(tmp_root, entry, 1_000_000)
+    assert plan["duration_s"] == "unknown"
+    assert plan["would_exceed"] is True
+    assert plan["estimated_bytes"] == 1_000_001
+
+
+def test_campaign_plan_walks_audio_dir_once(tmp_root, monkeypatch):
+    identity = _long_identity()
+    entry = _row(identity, status="needs_audio", duration_s=THREE_HOURS_S)
+    audio = os.path.join(tmp_root, "audio")
+    os.makedirs(audio, exist_ok=True)
+    with open(os.path.join(audio, "fill.m4a"), "wb") as fh:
+        fh.write(b"x" * 16)
+    walks = {"n": 0}
+    real_walk = os.walk
+
+    def counting_walk(*args, **kwargs):
+        walks["n"] += 1
+        return real_walk(*args, **kwargs)
+
+    monkeypatch.setattr("os.walk", counting_walk)
+    campaign_plan(tmp_root, entry, 10 * 1024 ** 3)
+    assert walks["n"] == 1
 
 
 def test_campaign_plan_conservative_estimate_and_budget_gate(tmp_root):
@@ -479,6 +516,111 @@ def test_allow_long_live_asr_failure_keeps_retryable_audio(
     loaded = ManifestStore(root=tmp_root).load()
     assert loaded[identity.work_id]["status"] == "audio_ok"
     assert os.path.isfile(_audio_path(tmp_root, identity))
+    _assert_no_secrets(captured, tmp_root)
+
+
+def test_schedule_unknown_duration_held_without_allow_long_live(
+    tmp_root, monkeypatch, capsys,
+):
+    identity = _short_identity()
+    ManifestStore(root=tmp_root).upsert(
+        _row(identity, status="needs_audio", duration_s=0)
+    )
+    transport = _download_transport(identity)
+    _patch_cli(monkeypatch, transport)
+    _stub_asr(monkeypatch)
+
+    rc = main([
+        "schedule", "--scope", "pending", "--limit", "5",
+        "--archive-root", tmp_root,
+    ])
+    captured = capsys.readouterr()
+    assert rc == 0
+    assert "long-duration row(s) held" in captured.out
+    assert "batch=limited" in captured.out
+    assert ManifestStore(root=tmp_root).load()[identity.work_id]["status"] == (
+        "needs_audio"
+    )
+    assert transport.stream_calls == []
+    _assert_no_secrets(captured, tmp_root)
+
+
+def test_schedule_resume_long_live_without_flag_keeps_risk_token(
+    tmp_root, monkeypatch, capsys,
+):
+    identity = _long_identity()
+    ManifestStore(root=tmp_root).upsert(
+        _row(identity, status="needs_audio", duration_s=THREE_HOURS_S)
+    )
+    SchedulerStore(root=tmp_root).replace_atomic(
+        {
+            "scope": "pending",
+            "limit": 1,
+            "state": "risk_interrupted",
+            "processed_work_ids": [],
+            "last_api_error_code": -412,
+            "allow_long_live": True,
+            "updated_at": utc_now_iso(),
+        }
+    )
+    transport = _download_transport(identity)
+    _patch_cli(monkeypatch, transport)
+    _stub_asr(monkeypatch)
+
+    rc = main([
+        "schedule", "--scope", "pending", "--limit", "1", "--resume",
+        "--archive-root", tmp_root,
+    ])
+    captured = capsys.readouterr()
+    assert rc == 1
+    assert "--resume refused" in captured.err
+    assert "long-live policy mismatch" in captured.err
+    sidecar = _scheduler(tmp_root)
+    assert sidecar["state"] == "risk_interrupted"
+    assert sidecar["allow_long_live"] is True
+    assert ManifestStore(root=tmp_root).load()[identity.work_id]["status"] == (
+        "needs_audio"
+    )
+    assert transport.stream_calls == []
+    _assert_no_secrets(captured, tmp_root)
+
+
+def test_schedule_resume_risk_stopped_long_row_without_flag_refuses(
+    tmp_root, monkeypatch, capsys,
+):
+    identity = _long_identity()
+    ManifestStore(root=tmp_root).upsert(
+        _row(identity, status="needs_audio", duration_s=THREE_HOURS_S)
+    )
+    SchedulerStore(root=tmp_root).replace_atomic(
+        {
+            "scope": "pending",
+            "limit": 1,
+            "state": "risk_interrupted",
+            "processed_work_ids": [],
+            "last_api_error_code": -412,
+            "allow_long_live": False,
+            "updated_at": utc_now_iso(),
+        }
+    )
+    transport = _download_transport(identity)
+    _patch_cli(monkeypatch, transport)
+    _stub_asr(monkeypatch)
+
+    rc = main([
+        "schedule", "--scope", "pending", "--limit", "1", "--resume",
+        "--archive-root", tmp_root,
+    ])
+    captured = capsys.readouterr()
+    assert rc == 1
+    assert "--resume refused" in captured.err
+    assert "risk-stopped long-duration" in captured.err
+    sidecar = _scheduler(tmp_root)
+    assert sidecar["state"] == "risk_interrupted"
+    assert ManifestStore(root=tmp_root).load()[identity.work_id]["status"] == (
+        "needs_audio"
+    )
+    assert transport.stream_calls == []
     _assert_no_secrets(captured, tmp_root)
 
 

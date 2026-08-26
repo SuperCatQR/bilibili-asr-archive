@@ -45,12 +45,27 @@ def audio_dir_usage_bytes(archive_root: str | os.PathLike[str]) -> int:
     return total
 
 
-def estimate_audio_bytes(duration_s: Any) -> int:
-    """Conservative on-disk audio size for one item (64 kbps ceiling)."""
+def parse_duration_s(duration_s: Any) -> int | None:
+    """Positive duration in seconds, or None if missing/zero/unparseable."""
     try:
-        seconds = max(0, int(duration_s or 0))
+        seconds = int(duration_s)
     except (TypeError, ValueError):
-        seconds = 0
+        return None
+    if seconds <= 0:
+        return None
+    return seconds
+
+
+def estimate_audio_bytes(duration_s: Any) -> int:
+    """Conservative on-disk audio size for one item (64 kbps ceiling).
+
+    Missing/zero/unparseable duration has no known seconds and returns 0
+    here. Callers that enforce a peak cap must use ``would_exceed_budget``,
+    which fail-closes on unknown duration.
+    """
+    seconds = parse_duration_s(duration_s)
+    if seconds is None:
+        return 0
     return seconds * BYTES_PER_SECOND_CEILING
 
 
@@ -58,25 +73,36 @@ def would_exceed_budget(
     archive_root: str | os.PathLike[str],
     entry: Mapping[str, Any],
     max_bytes: int,
+    *,
+    usage_bytes: int | None = None,
 ) -> bool:
-    """True if downloading this entry's audio would breach `max_bytes` peak."""
+    """True if downloading this entry's audio would breach `max_bytes` peak.
+
+    Unknown duration fail-closes against a finite cap so a livestream with
+    empty ``duration_s`` cannot look like a 0-byte short. Pass ``usage_bytes``
+    to reuse a snapshot instead of walking ``audio/`` again.
+    """
     if max_bytes <= 0:
         return False  # unlimited
-    return audio_dir_usage_bytes(archive_root) + estimate_audio_bytes(
-        entry.get("duration_s")
-    ) > max_bytes
+    if parse_duration_s(entry.get("duration_s")) is None:
+        return True
+    usage = audio_dir_usage_bytes(archive_root) if usage_bytes is None else usage_bytes
+    return usage + estimate_audio_bytes(entry.get("duration_s")) > max_bytes
 
 
 def max_duration_exceeded(entry: Mapping[str, Any], max_duration_min: Any) -> bool:
-    """True if the row is longer than the campaign duration cap (0 = off)."""
+    """True if the row is longer than the campaign duration cap (0 = off).
+
+    Missing/zero/unparseable duration fail-closes when the cap is on so it
+    cannot sneak through as a 0-second short.
+    """
     try:
         cap_seconds = max(0, int(max_duration_min or 0)) * 60
     except (TypeError, ValueError):
         return False
     if cap_seconds <= 0:
         return False
-    try:
-        duration = int(entry.get("duration_s") or 0)
-    except (TypeError, ValueError):
-        return False
+    duration = parse_duration_s(entry.get("duration_s"))
+    if duration is None:
+        return True
     return duration > cap_seconds

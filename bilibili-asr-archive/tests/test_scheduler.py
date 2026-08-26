@@ -15,7 +15,7 @@ import pytest
 from bili_asr import asr as asr_mod
 from bili_asr import bili_client as bc
 from bili_asr.cli import main
-from bili_asr.coordinator import AttemptLedger
+from bili_asr.coordinator import AttemptLedger, RowResult
 from bili_asr.manifest import ManifestStore
 from bili_asr.meta_cursor import MetaCursorStore, utc_now_iso
 from bili_asr.page_identity import artifact_stem, page_identity
@@ -24,6 +24,8 @@ from bili_asr.scheduler import (
     SCHEDULER_FILENAME,
     SchedulerStore,
     classify_batch_state,
+    settled_processed_ids,
+    terminal_resume_ids,
 )
 
 from test_audio import (
@@ -191,6 +193,7 @@ def test_scheduler_store_roundtrip_and_rejects_running(tmp_root):
         }
     )
     assert store.load() == stored
+    assert stored["allow_long_live"] is False
     assert os.path.basename(store.path) == SCHEDULER_FILENAME
     with pytest.raises(ValueError, match="running"):
         store.replace_atomic(
@@ -231,6 +234,60 @@ def test_scheduler_resume_only_matching_risk_scope(tmp_root):
         }
     )
     assert store.resume_processed_ids("pending") is None
+
+
+def test_scheduler_store_rejects_forbidden_markers(tmp_root):
+    store = SchedulerStore(root=tmp_root)
+    stored = store.replace_atomic(
+        {
+            "scope": "pending",
+            "limit": 2,
+            "state": "risk_interrupted",
+            "processed_work_ids": ["BVa:p0"],
+            "last_api_error_code": 412,
+            "allow_long_live": False,
+            "updated_at": utc_now_iso(),
+            "cookie": "SESSDATA=leak",
+            "signed_url": "https://example.com/playurl?sign=abc",
+            "exception": "Traceback (most recent call last): boom",
+        }
+    )
+    assert "cookie" not in stored
+    text = open(store.path, encoding="utf-8").read()
+    assert "SESSDATA" not in text
+    assert "cookie" not in text.lower()
+    assert "https://" not in text
+    assert "Traceback" not in text
+    with pytest.raises(ValueError, match="redacted|credentials"):
+        store.replace_atomic(
+            {
+                "scope": "pending",
+                "limit": 2,
+                "state": "risk_interrupted",
+                "processed_work_ids": ["BVa:p0"],
+                "last_api_error_code": "SESSDATA=abc",
+                "updated_at": utc_now_iso(),
+            }
+        )
+
+
+def test_settled_processed_ids_keep_only_ok_and_already_terminal():
+    results = [
+        RowResult("A", "archived", ok=True),
+        RowResult("B", "needs_audio", skipped=True, skip_reason="audio_budget"),
+        RowResult("C", "meta_ok", skipped=True, skip_reason="offline"),
+        RowResult("D", "subtitle_done", skipped=True, skip_reason="missing_subtitle_raw"),
+        RowResult("E", "archived", skipped=True, skip_reason="already_terminal"),
+        RowResult("F", "needs_audio", failure_codes=[-412]),
+    ]
+    assert settled_processed_ids(results, risk_interrupted=True) == ["A", "E"]
+    assert settled_processed_ids(results, risk_interrupted=False) == ["A", "E"]
+    entries = {
+        "A": {"status": "archived"},
+        "B": {"status": "needs_audio"},
+        "E": {"status": "gone"},
+    }
+    assert terminal_resume_ids(["A", "B", "E", "missing"], entries) == ["A", "E"]
 
 
 def test_classify_batch_state_never_promotes_truncated_to_complete():
@@ -558,6 +615,8 @@ def test_schedule_resume_ignored_for_limited_sidecar(
     ])
     captured = capsys.readouterr()
     assert rc == 0
+    assert "--resume ignored" in captured.err
+    assert "not risk_interrupted" in captured.err
     loaded = ManifestStore(root=tmp_root).load()
     assert loaded[a.work_id]["status"] == "archived"
     assert loaded[b.work_id]["status"] == "archived"
@@ -587,3 +646,127 @@ def test_schedule_explicit_work_id_respects_limit(
     loaded = ManifestStore(root=tmp_root).load()
     assert loaded[one.work_id]["status"] == "archived"
     assert loaded[two.work_id]["status"] == "subtitle_done"
+
+
+def test_schedule_persist_failure_does_not_advise_resume(
+    tmp_root, monkeypatch, capsys,
+):
+    ok_id = page_identity("BVaOk", 0, 111, "p0")
+    risk_id = page_identity("BVzRisk", 0, 222, "p0")
+    store = ManifestStore(root=tmp_root)
+    store.upsert(_row(ok_id, status="subtitle_done"))
+    store.upsert(_row(risk_id, status="meta_ok"))
+    _write_subtitle_raw(tmp_root, ok_id)
+    _stub_asr(monkeypatch)
+    transport = CidRouterTransport(
+        {risk_id.cid: RISK},
+        routes=_base_routes(),
+    )
+    _patch_cli(monkeypatch, transport)
+
+    def boom(self, cursor):
+        raise OSError("disk full: /secret/SESSDATA=leak")
+
+    monkeypatch.setattr(SchedulerStore, "replace_atomic", boom)
+    rc = main([
+        "schedule", "--scope", "pending", "--limit", "5",
+        "--archive-root", tmp_root, "--sessdata", SECRET,
+    ])
+    captured = capsys.readouterr()
+    assert rc == 2
+    assert "failed to persist scheduler.json (OSError)" in captured.err
+    assert "not persisted" in captured.out
+    assert "re-run with --resume" not in captured.err
+    assert "disk full" not in captured.err
+    assert "SESSDATA" not in captured.err
+    assert not os.path.isfile(os.path.join(tmp_root, SCHEDULER_FILENAME))
+    _assert_no_secrets(captured, tmp_root)
+
+
+def test_schedule_resume_scope_mismatch_does_not_clobber_risk_token(
+    tmp_root, monkeypatch, capsys,
+):
+    SchedulerStore(root=tmp_root).replace_atomic(
+        {
+            "scope": "pending",
+            "limit": 2,
+            "state": "risk_interrupted",
+            "processed_work_ids": ["BVa:p0"],
+            "last_api_error_code": -412,
+            "allow_long_live": False,
+            "updated_at": utc_now_iso(),
+        }
+    )
+    identity = page_identity("BVf", 0, 111, "p0")
+    ManifestStore(root=tmp_root).upsert(_row(identity, status="subtitle_done"))
+    _write_subtitle_raw(tmp_root, identity)
+    _stub_asr(monkeypatch)
+    _patch_cli(monkeypatch, RouterTransport(_base_routes()))
+
+    rc = main([
+        "schedule", "--scope", "failed", "--limit", "1", "--resume",
+        "--archive-root", tmp_root,
+    ])
+    captured = capsys.readouterr()
+    assert rc == 1
+    assert "--resume refused" in captured.err
+    assert "scope mismatch" in captured.err
+    sidecar = _scheduler(tmp_root)
+    assert sidecar["state"] == "risk_interrupted"
+    assert sidecar["processed_work_ids"] == ["BVa:p0"]
+    assert ManifestStore(root=tmp_root).load()[identity.work_id]["status"] == (
+        "subtitle_done"
+    )
+    _assert_no_secrets(captured, tmp_root)
+
+
+def test_schedule_resume_skips_only_terminal_not_budget_rows(
+    tmp_root, monkeypatch, capsys,
+):
+    ok_id = page_identity("BVaOk", 0, 111, "p0")
+    budget_id = page_identity("BVbSkip", 0, 222, "p0")
+    risk_id = page_identity("BVzRisk", 0, 333, "p0")
+    store = ManifestStore(root=tmp_root)
+    store.upsert(_row(ok_id, status="subtitle_done"))
+    store.upsert(_row(budget_id, status="needs_audio", duration_s=5))
+    store.upsert(_row(risk_id, status="meta_ok"))
+    _write_subtitle_raw(tmp_root, ok_id)
+    audio_dir = os.path.join(tmp_root, "audio")
+    os.makedirs(audio_dir, exist_ok=True)
+    with open(os.path.join(audio_dir, "fill.m4a"), "wb") as fh:
+        fh.write(b"x" * 1_200_000)
+    _stub_asr(monkeypatch)
+    transport = CidRouterTransport(
+        {risk_id.cid: RISK, budget_id.cid: player_ok([])},
+        playurl_by_cid={budget_id.cid: playurl_ok()},
+        routes=_base_routes(),
+    )
+    _patch_cli(monkeypatch, transport)
+
+    rc = main([
+        "schedule", "--scope", "pending", "--limit", "5",
+        "--max-audio-gb", "0.001", "--archive-root", tmp_root,
+        "--sessdata", SECRET,
+    ])
+    captured = capsys.readouterr()
+    assert rc == 2
+    sidecar = _scheduler(tmp_root)
+    assert sidecar["state"] == "risk_interrupted"
+    assert ok_id.work_id in sidecar["processed_work_ids"]
+    assert budget_id.work_id not in sidecar["processed_work_ids"]
+    assert risk_id.work_id not in sidecar["processed_work_ids"]
+    loaded = ManifestStore(root=tmp_root).load()
+    assert loaded[budget_id.work_id]["status"] == "needs_audio"
+    _assert_no_secrets(captured, tmp_root)
+
+    transport.player_by_cid[risk_id.cid] = player_ok([sub_entry()])
+    rc = main([
+        "schedule", "--scope", "pending", "--limit", "5", "--resume",
+        "--max-audio-gb", "0.001", "--archive-root", tmp_root,
+    ])
+    captured = capsys.readouterr()
+    assert "audio_budget" in captured.out
+    loaded = ManifestStore(root=tmp_root).load()
+    assert loaded[budget_id.work_id]["status"] == "needs_audio"
+    assert budget_id.work_id not in _scheduler(tmp_root)["processed_work_ids"]
+    _assert_no_secrets(captured, tmp_root)

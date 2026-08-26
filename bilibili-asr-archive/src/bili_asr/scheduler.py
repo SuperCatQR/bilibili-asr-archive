@@ -11,7 +11,8 @@ from __future__ import annotations
 import json
 import os
 import sys
-from typing import Any
+from dataclasses import dataclass
+from typing import Any, Mapping
 
 from .meta_cursor import utc_now_iso
 
@@ -27,6 +28,22 @@ VALID_STATES = frozenset(
 )
 
 RESUME_STATE = "risk_interrupted"
+_DURABLE_SKIP_REASONS = frozenset({"already_terminal"})
+_TERMINAL_STATUSES = frozenset({"archived", "gone"})
+
+
+@dataclass(frozen=True)
+class ResumeLookup:
+    """Outcome of ``--resume`` against one sidecar.
+
+    ``processed_ids`` is set only for a matching-scope risk token.
+    ``refuse`` means a still-valid risk token must not be overwritten.
+    """
+
+    processed_ids: list[str] | None
+    diagnostic: str | None
+    refuse: bool
+
 
 _SCHEMA_KEYS = (
     "scope",
@@ -34,6 +51,7 @@ _SCHEMA_KEYS = (
     "state",
     "processed_work_ids",
     "last_api_error_code",
+    "allow_long_live",
     "updated_at",
 )
 
@@ -65,14 +83,41 @@ def classify_batch_state(*, risk_interrupted: bool, truncated: bool) -> str:
 
 
 def settled_processed_ids(results: list[Any], *, risk_interrupted: bool) -> list[str]:
-    """Work ids that finished this call; the risk-stopped row stays retryable."""
-    ids = [str(getattr(row, "work_id")) for row in results]
-    if risk_interrupted and ids:
-        return ids[:-1]
+    """Durable ids from this call; retryable incomplete rows stay off the skip list.
+
+    Only ``ok`` and ``already_terminal`` rows are persisted. Budget / offline /
+    missing-artifact skips and failed rows remain retryable. The risk-stopped
+    tail is omitted even if it were misclassified.
+    """
+    rows = list(results)
+    if risk_interrupted and rows:
+        rows = rows[:-1]
+    ids: list[str] = []
+    for row in rows:
+        if getattr(row, "ok", False) or getattr(row, "skip_reason", "") in _DURABLE_SKIP_REASONS:
+            ids.append(str(getattr(row, "work_id")))
     return ids
 
 
+def terminal_resume_ids(
+    processed: list[str],
+    entries: Mapping[str, Mapping[str, Any]],
+) -> list[str]:
+    """Keep skip ids that are still terminal in the manifest."""
+    kept: list[str] = []
+    for work_id in processed:
+        entry = entries.get(work_id)
+        if not isinstance(entry, Mapping):
+            continue
+        if entry.get("status") in _TERMINAL_STATUSES:
+            kept.append(work_id)
+    return kept
+
+
 def _validate(cursor: dict[str, Any]) -> dict[str, Any]:
+    if "allow_long_live" not in cursor:
+        cursor = dict(cursor)
+        cursor["allow_long_live"] = False
     missing = [k for k in _SCHEMA_KEYS if k not in cursor]
     if missing:
         raise ValueError(f"scheduler missing fields: {missing}")
@@ -99,8 +144,12 @@ def _validate(cursor: dict[str, Any]) -> dict[str, Any]:
         raise ValueError("scheduler last_api_error_code is not a redacted code")
     if not isinstance(cursor["updated_at"], str) or not cursor["updated_at"]:
         raise ValueError("scheduler updated_at must be a non-empty ISO-8601 string")
+    allow_long_live = cursor["allow_long_live"]
+    if not isinstance(allow_long_live, bool):
+        raise ValueError("scheduler allow_long_live must be a bool")
     stored = {key: cursor[key] for key in _SCHEMA_KEYS}
     stored["processed_work_ids"] = list(processed)
+    stored["allow_long_live"] = allow_long_live
     dumped = json.dumps(stored, ensure_ascii=False).lower()
     for marker in _FORBIDDEN_MARKERS:
         if marker.lower() in dumped:
@@ -143,23 +192,46 @@ class SchedulerStore:
         os.replace(tmp, self.path)
         return stored
 
-    def resume_processed_ids(self, scope: str) -> list[str] | None:
-        """Return processed ids only for a matching-scope risk_interrupted sidecar."""
+    def inspect_resume(
+        self, scope: str, *, allow_long_live: bool
+    ) -> ResumeLookup:
+        """Diagnose ``--resume`` against the sidecar without mutating it."""
         cursor = self.load()
         if cursor is None:
-            return None
+            if os.path.exists(self.path):
+                return ResumeLookup(None, "sidecar corrupt", False)
+            return ResumeLookup(None, "sidecar missing", False)
         if cursor["state"] != RESUME_STATE:
-            return None
+            return ResumeLookup(
+                None, f"state is {cursor['state']}, not risk_interrupted", False
+            )
         if cursor["scope"] != scope:
+            return ResumeLookup(
+                None, f"scope mismatch ({cursor['scope']} vs {scope})", True
+            )
+        if cursor.get("allow_long_live") and not allow_long_live:
+            return ResumeLookup(
+                None,
+                "long-live policy mismatch; pass --allow-long-live",
+                True,
+            )
+        return ResumeLookup(list(cursor["processed_work_ids"]), None, False)
+
+    def resume_processed_ids(self, scope: str) -> list[str] | None:
+        """Return processed ids only for a matching-scope risk_interrupted sidecar."""
+        lookup = self.inspect_resume(scope, allow_long_live=True)
+        if lookup.refuse or lookup.processed_ids is None:
             return None
-        return list(cursor["processed_work_ids"])
+        return lookup.processed_ids
 
 
 __all__ = [
     "SCHEDULER_FILENAME",
     "SchedulerStore",
     "VALID_STATES",
+    "ResumeLookup",
     "classify_batch_state",
     "settled_processed_ids",
+    "terminal_resume_ids",
     "utc_now_iso",
 ]

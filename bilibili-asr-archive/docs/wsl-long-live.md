@@ -73,8 +73,9 @@ value, signed URL, or stack trace.
 
 **Fail / retry:** per-item failure keeps `audio_ok` / `needs_audio` plus the
 local audio file. Re-run the same `--scope` after fixing the cause. Risk exit
-2: wait, then `schedule --resume` with the same scope (still pass
-`--allow-long-live` if the row is multi-hour).
+2: wait, then `schedule --resume` with the same scope. If the interrupted
+row is multi-hour, pass `--allow-long-live` again; omitting it refuses
+resume and keeps `scheduler.json` as `risk_interrupted`.
 
 Copy redacted stdout/stderr, `du` lines, and `status`/`runs` into
 `docs/wsl-long-live-evidence.md`. QA records the live WSL run; do not check in

@@ -1609,6 +1609,7 @@ def _cmd_schedule(args: argparse.Namespace) -> int:
         SchedulerStore,
         classify_batch_state,
         settled_processed_ids,
+        terminal_resume_ids,
     )
 
     started_at = utc_now_iso()
@@ -1629,14 +1630,37 @@ def _cmd_schedule(args: argparse.Namespace) -> int:
         print(f"schedule: {error}", file=sys.stderr)
         return 1
 
-    skip_ids = sched_store.resume_processed_ids(args.scope) if args.resume else None
-    if skip_ids:
-        skip = set(skip_ids)
-        rows = [
-            (key, entry)
-            for key, entry in rows
-            if str(entry.get("work_id") or key) not in skip
-        ]
+    skip_ids: list[str] | None = None
+    if args.resume:
+        lookup = sched_store.inspect_resume(
+            args.scope, allow_long_live=args.allow_long_live
+        )
+        if lookup.diagnostic:
+            if lookup.refuse:
+                print(
+                    f"schedule: --resume refused ({lookup.diagnostic})",
+                    file=sys.stderr,
+                )
+                return 1
+            print(
+                f"schedule: --resume ignored ({lookup.diagnostic})",
+                file=sys.stderr,
+            )
+        if lookup.processed_ids is not None:
+            skip_ids = terminal_resume_ids(lookup.processed_ids, entries)
+            skip = set(skip_ids)
+            rows = [
+                (key, entry)
+                for key, entry in rows
+                if str(entry.get("work_id") or key) not in skip
+            ]
+            if rows and not args.allow_long_live and is_long_live(rows[0][1]):
+                print(
+                    "schedule: --resume refused (risk-stopped long-duration "
+                    "row requires --allow-long-live)",
+                    file=sys.stderr,
+                )
+                return 1
 
     rows, held, policy_error = apply_long_live_policy(
         rows,
@@ -1674,10 +1698,16 @@ def _cmd_schedule(args: argparse.Namespace) -> int:
             "re-run with --allow-long-live"
         )
     if args.allow_long_live:
+        usage_snapshot = audio_dir_usage_bytes(args.archive_root)
         for _key, entry in rows:
             if is_long_live(entry):
                 print(format_campaign_plan(
-                    campaign_plan(args.archive_root, entry, max_audio_bytes)
+                    campaign_plan(
+                        args.archive_root,
+                        entry,
+                        max_audio_bytes,
+                        usage_bytes=usage_snapshot,
+                    )
                 ))
 
     summary = coord.run_batch(rows)
@@ -1707,6 +1737,7 @@ def _cmd_schedule(args: argparse.Namespace) -> int:
         if codes:
             last_api_error_code = codes[-1]
 
+    persisted = False
     try:
         sched_store.replace_atomic(
             {
@@ -1715,11 +1746,16 @@ def _cmd_schedule(args: argparse.Namespace) -> int:
                 "state": batch_state,
                 "processed_work_ids": processed,
                 "last_api_error_code": last_api_error_code,
+                "allow_long_live": bool(args.allow_long_live),
                 "updated_at": utc_now_iso(),
             }
         )
-    except Exception:
-        pass
+        persisted = True
+    except Exception as exc:
+        print(
+            f"schedule: failed to persist scheduler.json ({type(exc).__name__})",
+            file=sys.stderr,
+        )
 
     ok = sum(1 for r in summary.results if r.ok)
     skipped = summary.skipped_rows
@@ -1735,15 +1771,28 @@ def _cmd_schedule(args: argparse.Namespace) -> int:
 
     exit_code = 0
     if summary.risk_interrupted:
-        print("schedule: risk-control ceiling; stopping — re-run with --resume.",
-              file=sys.stderr)
+        if persisted:
+            print(
+                "schedule: risk-control ceiling; stopping — re-run with --resume.",
+                file=sys.stderr,
+            )
+        else:
+            print(
+                "schedule: risk-control ceiling; scheduler.json was not persisted.",
+                file=sys.stderr,
+            )
         exit_code = 2
     elif not summary.fully_processed:
+        exit_code = 1
+    if not persisted and exit_code != 2:
         exit_code = 1
 
     coverage = compute_coverage_summary(store.load())
     cursor_snapshot = cursor_store.load()
-    print(f"schedule: batch={batch_state}")
+    if persisted:
+        print(f"schedule: batch={batch_state}")
+    else:
+        print(f"schedule: batch={batch_state} (not persisted)")
     print(f"enumeration: {format_cursor_summary(cursor_snapshot)}")
     print(f"coverage: [{format_coverage_summary(coverage)}]")
     print(

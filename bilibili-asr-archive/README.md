@@ -193,9 +193,14 @@ and `RunLedger`; it does not open sockets itself and does not replace
   the meta-cursor enumeration state so a `limited` crawl cannot
   masquerade as done.
 - **`--resume`** consumes only a matching-scope `risk_interrupted`
-  sidecar. Deliberate `limited` / `complete` states are not auto-resumed;
-  the next `schedule --scope pending --limit N` simply selects leftover
-  non-terminal rows.
+  sidecar whose long-live policy matches. The sidecar stores
+  `allow_long_live`; resume without that flag refuses and leaves a valid
+  risk token untouched. Deliberate `limited` / `complete` states, a
+  missing sidecar, or a corrupt sidecar are ignored with a stderr reason
+  and are not auto-resumed. `processed_work_ids` keeps only `ok` /
+  `already_terminal` rows so budget/offline/missing-artifact skips stay
+  retryable. Persist failure prints a redacted error and does not tell
+  the operator to `--resume`.
 - **Exit codes** follow the mixed-outcome contract: 0 requested rows
   processed or already terminal; 1 usage/config, per-item failure, or
   non-risk skip; 2 risk/API interruption (re-run with `--resume`).
