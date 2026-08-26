@@ -66,21 +66,34 @@ def _stub_asr(monkeypatch, impl=None):
     monkeypatch.setattr(asr_mod, "transcribe", fake_transcribe)
 
 
-def _assert_no_secrets(captured, root):
+# Redacted-scalar lock. Markers are fragments, not live credentials or
+# full signed URLs / exception dumps. Exception *type names* (e.g.
+# ASRModelError) are the documented scalar codes and are allowed.
+# Archive markdown may include the public video URL (bilibili.com/video/...).
+_NO_SECRET_MARKERS = (
+    SECRET,
+    "SESSDATA",
+    "Traceback",
+    "upos-sz-",
+    "bilivideo.com",
+    "deadline=",
+    "model failed",
+    "SenseVoice support is not installed",
+)
+
+
+def _assert_no_secrets(captured, root, extra_forbidden=()):
+    forbidden = _NO_SECRET_MARKERS + tuple(extra_forbidden)
     blob = captured.out + captured.err
-    assert SECRET not in blob
-    assert "SESSDATA" not in blob
-    assert "Traceback" not in blob
-    # Archive markdown may include the public video URL; operator output
-    # and sidecars must not echo credentials, cookies, or traces.
+    for marker in forbidden:
+        assert marker not in blob
     for dirpath, _dirs, files in os.walk(root):
         for name in files:
             if not name.endswith((".jsonl", ".json", ".md", ".txt", ".srt")):
                 continue
             text = open(os.path.join(dirpath, name), encoding="utf-8").read()
-            assert SECRET not in text
-            assert "SESSDATA" not in text
-            assert "Traceback" not in text
+            for marker in forbidden:
+                assert marker not in text
 
 
 def _write_subtitle_raw(root, identity):
@@ -176,8 +189,14 @@ def test_run_summary_locks_terminal_selectors_and_risk_precedence():
     assert terminal_only.fully_processed is True
     assert RunSummary().fully_processed is True
 
-    risk = RunSummary(results=[ok, failed], risk_interrupted=True)
-    assert risk.fully_processed is False
+    # Isolate risk: a successful-only batch is still incomplete when
+    # risk_interrupted is set. Mixing in `failed` would already force False.
+    risk_only = RunSummary(results=[ok], risk_interrupted=True)
+    assert risk_only.ok_count == 1
+    assert risk_only.failed == []
+    assert risk_only.fully_processed is False
+    risk_after_fail = RunSummary(results=[ok, failed], risk_interrupted=True)
+    assert risk_after_fail.fully_processed is False
 
 
 # ------------------------------------------------------------ harvest-subs
@@ -227,8 +246,10 @@ def test_harvest_subs_mixed_success_and_api_failure_is_retryable(
 def test_harvest_subs_success_then_risk_exit_2_keeps_success(
     tmp_root, monkeypatch, capsys,
 ):
-    ok_id = page_identity("BVhRiskOk", 0, 111, "p0")
-    risk_id = page_identity("BVhRisk", 0, 222, "p0")
+    # harvest-subs walks ManifestStore insertion order (JSONL). work_id
+    # names also keep success first if todo is later sorted by work_id.
+    ok_id = page_identity("BVhAOk", 0, 111, "p0")
+    risk_id = page_identity("BVhZRisk", 0, 222, "p0")
     store = ManifestStore(root=tmp_root)
     store.upsert(_row(ok_id))
     store.upsert(_row(risk_id))
@@ -242,9 +263,12 @@ def test_harvest_subs_success_then_risk_exit_2_keeps_success(
     captured = capsys.readouterr()
     assert rc == 2
     assert "risk-control ceiling" in captured.err
+    assert "harvest-subs:" in captured.out
+    assert "1 subtitle_done" in captured.out
     loaded = ManifestStore(root=tmp_root).load()
     assert loaded[ok_id.work_id]["status"] == "subtitle_done"
     assert loaded[risk_id.work_id]["status"] == "meta_ok"
+    _assert_no_secrets(captured, tmp_root)
 
 
 # ------------------------------------------------------------ download-audio
@@ -291,8 +315,10 @@ def test_download_audio_mixed_success_and_api_failure_is_retryable(
 def test_download_audio_success_then_risk_exit_2_keeps_success(
     tmp_root, monkeypatch, capsys,
 ):
-    ok_id = page_identity("BVdRiskOk", 0, 111, "p0")
-    risk_id = page_identity("BVdRisk", 0, 222, "p0")
+    # download-audio walks ManifestStore insertion order (JSONL). work_id
+    # names also keep success first if todo is later sorted by work_id.
+    ok_id = page_identity("BVdAOk", 0, 111, "p0")
+    risk_id = page_identity("BVdZRisk", 0, 222, "p0")
     store = ManifestStore(root=tmp_root)
     store.upsert(_row(ok_id, status="needs_audio"))
     store.upsert(_row(risk_id, status="needs_audio"))
@@ -307,9 +333,12 @@ def test_download_audio_success_then_risk_exit_2_keeps_success(
     rc = main(["download-audio", "--missing-subs", "--archive-root", tmp_root])
     captured = capsys.readouterr()
     assert rc == 2
+    assert "download-audio:" in captured.out
+    assert "1 audio_ok" in captured.out
     loaded = ManifestStore(root=tmp_root).load()
     assert loaded[ok_id.work_id]["status"] == "audio_ok"
     assert loaded[risk_id.work_id]["status"] == "needs_audio"
+    _assert_no_secrets(captured, tmp_root)
 
 
 # ------------------------------------------------------------ asr
@@ -399,23 +428,29 @@ def test_asr_pending_ignores_already_terminal_rows(
     _assert_no_secrets(captured, tmp_root)
 
 
-# ------------------------------------------------------------ pilot
-
 def test_asr_optional_dependency_after_success_exits_1(
     tmp_root, monkeypatch, capsys,
 ):
+    # Insertion order = work_id order: subtitle success, audio missing-ASR,
+    # later subtitle_done. Missing optional ASR must not starve later rows.
     ok_id = page_identity("BVaDepOk", 0, 111, "p0")
-    miss_id = page_identity("BVzDepMiss", 0, 222, "p0")
+    miss_id = page_identity("BVbDepMiss", 0, 222, "p0")
+    later_id = page_identity("BVzDepLater", 0, 333, "p0")
     store = ManifestStore(root=tmp_root)
     store.upsert(_row(ok_id, status="subtitle_done"))
     store.upsert(_row(
         miss_id, status="audio_ok",
         audio_path=f"audio/{artifact_stem(miss_id)}.m4a",
     ))
+    store.upsert(_row(later_id, status="subtitle_done"))
     _write_subtitle_raw(tmp_root, ok_id)
     _write_audio(tmp_root, miss_id)
+    _write_subtitle_raw(tmp_root, later_id)
+
+    transcribe_calls: list[str] = []
 
     def missing(audio_path):
+        transcribe_calls.append(audio_path)
         raise asr_mod.ASRDependencyError("SenseVoice support is not installed")
 
     _stub_asr(monkeypatch, missing)
@@ -425,12 +460,52 @@ def test_asr_optional_dependency_after_success_exits_1(
     captured = capsys.readouterr()
     assert rc == 1
     assert "ASR dependency unavailable" in captured.err
+    assert "2 archived" in captured.out
+    assert "1 failed" in captured.out
     loaded = ManifestStore(root=tmp_root).load()
     assert loaded[ok_id.work_id]["status"] == "archived"
     assert loaded[miss_id.work_id]["status"] == "audio_ok"
+    assert loaded[later_id.work_id]["status"] == "archived"
+    assert len(transcribe_calls) == 1
+    assert artifact_stem(miss_id) in transcribe_calls[0]
     assert _ledger_records(tmp_root) == []
     _assert_no_secrets(captured, tmp_root)
 
+
+def test_asr_subtitle_done_missing_raw_is_incomplete_skip(
+    tmp_root, monkeypatch, capsys,
+):
+    miss_id = page_identity("BVaRawMiss", 0, 111, "p0")
+    ok_id = page_identity("BVzRawOk", 0, 222, "p0")
+    store = ManifestStore(root=tmp_root)
+    store.upsert(_row(miss_id, status="subtitle_done"))
+    store.upsert(_row(ok_id, status="subtitle_done"))
+    _write_subtitle_raw(tmp_root, ok_id)
+
+    transcribe_calls: list[str] = []
+
+    def unexpected(audio_path):
+        transcribe_calls.append(audio_path)
+        raise AssertionError("subtitle_done without raw must not invoke ASR")
+
+    _stub_asr(monkeypatch, unexpected)
+    _patch_cli(monkeypatch, RouterTransport({}))
+
+    rc = main(["asr", "--pending", "--archive-root", tmp_root])
+    captured = capsys.readouterr()
+    assert rc == 1
+    assert "missing_subtitle_raw" in captured.err
+    assert "1 archived" in captured.out
+    assert "1 failed" in captured.out
+    assert transcribe_calls == []
+    loaded = ManifestStore(root=tmp_root).load()
+    assert loaded[miss_id.work_id]["status"] == "subtitle_done"
+    assert loaded[ok_id.work_id]["status"] == "archived"
+    assert _ledger_records(tmp_root) == []
+    _assert_no_secrets(captured, tmp_root)
+
+
+# ------------------------------------------------------------ pilot
 
 def test_pilot_mixed_success_and_api_failure_records_ledger(
     tmp_root, monkeypatch, capsys,
@@ -473,8 +548,10 @@ def test_pilot_mixed_success_and_api_failure_records_ledger(
 def test_pilot_success_then_risk_exit_2_keeps_success(
     tmp_root, monkeypatch, capsys,
 ):
-    ok_id = page_identity("BVpRiskOk", 0, 111, "p0")
-    risk_id = page_identity("BVpRisk", 0, 222, "p0")
+    # pilot walks the selected list in insertion/select order. work_id
+    # names also keep success first if selection is later sorted by work_id.
+    ok_id = page_identity("BVpAOk", 0, 111, "p0")
+    risk_id = page_identity("BVpZRisk", 0, 222, "p0")
     store = ManifestStore(root=tmp_root)
     store.upsert(_row(ok_id, duration_s=5))
     store.upsert(_row(risk_id, duration_s=8))
@@ -488,11 +565,13 @@ def test_pilot_success_then_risk_exit_2_keeps_success(
     rc = main(["pilot", "--n", "2", "--archive-root", tmp_root])
     captured = capsys.readouterr()
     assert rc == 2
+    assert "pilot batch branches:" in captured.out
     loaded = ManifestStore(root=tmp_root).load()
     assert loaded[ok_id.work_id]["status"] == "archived"
     assert loaded[risk_id.work_id]["status"] == "meta_ok"
     recs = _ledger_records(tmp_root)
     assert recs[-1]["exit_code"] == 2
+    _assert_no_secrets(captured, tmp_root)
 
 
 def test_pilot_mixed_success_and_audio_budget_skip_exits_1(
@@ -631,6 +710,48 @@ def test_run_risk_after_success_exit_2_precedes_per_item_failure(
     assert recs[-1]["coverage_summary"].get("archived") == 1
 
 
+def test_run_per_item_failure_then_risk_still_exits_2(
+    tmp_root, monkeypatch, capsys,
+):
+    # pending scope iterates sorted work_ids: per-item failure first, then
+    # risk. Risk still wins the process exit (2), not the per-item 1.
+    fail_id = page_identity("BVaFail", 0, 111, "p0")
+    ok_id = page_identity("BVbOk", 0, 222, "p0")
+    risk_id = page_identity("BVzRisk", 0, 333, "p0")
+    store = ManifestStore(root=tmp_root)
+    store.upsert(_row(
+        fail_id, status="audio_ok",
+        audio_path=f"audio/{artifact_stem(fail_id)}.m4a",
+    ))
+    store.upsert(_row(ok_id, status="subtitle_done"))
+    store.upsert(_row(risk_id, status="meta_ok"))
+    _write_audio(tmp_root, fail_id)
+    _write_subtitle_raw(tmp_root, ok_id)
+
+    def flaky(audio_path, model_name=None):
+        if artifact_stem(fail_id) in audio_path:
+            raise asr_mod.ASRModelError("model failed")
+        return [{"start": 0.0, "end": 1.0, "text": "ok"}]
+
+    monkeypatch.setattr(asr_mod, "transcribe", flaky)
+    transport = CidRouterTransport(
+        {risk_id.cid: RISK},
+        routes=_base_routes(),
+    )
+    _patch_cli(monkeypatch, transport)
+
+    rc = main(["run", "--scope", "pending", "--archive-root", tmp_root])
+    captured = capsys.readouterr()
+    assert rc == 2
+    loaded = ManifestStore(root=tmp_root).load()
+    assert loaded[fail_id.work_id]["status"] == "audio_ok"
+    assert loaded[ok_id.work_id]["status"] == "archived"
+    assert loaded[risk_id.work_id]["status"] == "meta_ok"
+    recs = _ledger_records(tmp_root)
+    assert recs[-1]["exit_code"] == 2
+    _assert_no_secrets(captured, tmp_root)
+
+
 def test_run_offline_skip_does_not_roll_back_success(
     tmp_root, monkeypatch, capsys,
 ):
@@ -661,8 +782,15 @@ def test_run_offline_skip_does_not_roll_back_success(
 def test_readme_documents_mixed_outcome_aggregation_rules():
     readme = os.path.join(os.path.dirname(__file__), "..", "README.md")
     text = open(readme, encoding="utf-8").read()
-    assert "Mixed batch outcomes" in text
+    assert "### Mixed batch outcomes" in text
     assert "Risk interruption takes precedence" in text
     assert "already terminal" in text
     assert "run --scope failed" in text
+    assert "| 0 |" in text
+    assert "Requested work processed" in text
+    assert "| 1 |" in text
+    assert "missing optional ASR" in text
+    assert "per-item failure" in text
     assert "| 2 |" in text
+    assert "Risk/API terminal interruption" in text
+    assert "`archived` / `gone`" in text

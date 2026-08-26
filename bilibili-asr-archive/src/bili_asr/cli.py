@@ -658,6 +658,7 @@ def _cmd_harvest_subs(args: argparse.Namespace) -> int:
         todo = todo[: args.limit]
 
     done = needs_audio = failed = 0
+    risk_interrupted = False
     for key, entry in todo:
         target = _identity_from_entry(entry, key)
         label = (
@@ -676,7 +677,8 @@ def _cmd_harvest_subs(args: argparse.Namespace) -> int:
             failed += 1
             print(f"{label}: risk-control ceiling (last code {exc.last_code}); "
                   f"stopping — re-run to resume.", file=sys.stderr)
-            return 2
+            risk_interrupted = True
+            break
         except bili_client.APIResponseError as exc:
             failed += 1
             _record_api_error(store, key, exc.code)
@@ -715,6 +717,8 @@ def _cmd_harvest_subs(args: argparse.Namespace) -> int:
 
     print(f"harvest-subs: {done} subtitle_done, {needs_audio} needs_audio"
           + (f", {failed} failed" if failed else ""))
+    if risk_interrupted:
+        return 2
     return 1 if failed else 0
 
 
@@ -759,6 +763,7 @@ def _cmd_download_audio(args: argparse.Namespace) -> int:
     from .subtitles import resolve_page_identity
 
     ok = failed = 0
+    risk_interrupted = False
     for key, entry in todo:
         target = _identity_from_entry(entry, key)
         label = str(key)
@@ -794,7 +799,8 @@ def _cmd_download_audio(args: argparse.Namespace) -> int:
             failed += 1
             print(f"{label}: risk-control ceiling (last {exc.last_code}); "
                   f"stopping — re-run to resume.", file=sys.stderr)
-            return 2
+            risk_interrupted = True
+            break
         except bili_client.StreamDownloadError:
             failed += 1
             print(f"{label}: audio stream failed; continuing.", file=sys.stderr)
@@ -833,6 +839,8 @@ def _cmd_download_audio(args: argparse.Namespace) -> int:
 
     print(f"download-audio: {ok} audio_ok"
           + (f", {failed} failed" if failed else ""))
+    if risk_interrupted:
+        return 2
     return 1 if failed else 0
 
 
@@ -1023,8 +1031,17 @@ def _cmd_asr(args: argparse.Namespace) -> int:
         label = key
         source = "subtitle"
         raw = None
-        subtitle_data = _subtitle_segments(args.archive_root, entry) if entry.get("status") == "subtitle_done" else None
+        status = entry.get("status")
+        subtitle_data = (
+            _subtitle_segments(args.archive_root, entry)
+            if status == "subtitle_done"
+            else None
+        )
         try:
+            if status == "subtitle_done" and subtitle_data is None:
+                failed += 1
+                print(f"{label}: skipped (missing_subtitle_raw)", file=sys.stderr)
+                continue
             if subtitle_data is not None:
                 segments, raw = subtitle_data
             else:
@@ -1044,8 +1061,8 @@ def _cmd_asr(args: argparse.Namespace) -> int:
             ok += 1
             print(f"{label}: archived ({source})")
         except asr.ASRDependencyError:
+            failed += 1
             print(f"{label}: ASR dependency unavailable", file=sys.stderr)
-            return 1
         except Exception:
             failed += 1
             print(f"{label}: archive failed", file=sys.stderr)
