@@ -953,15 +953,20 @@ def _pilot_select(
 def _expand_selected_pages(
     entries: dict[str, dict[str, object]],
     selected: list[dict[str, object]],
+    max_duration_min: int = 0,
 ) -> list[dict[str, object]]:
-    """Include every processable pagelist work_id for selected bvids."""
+    """Include duration-eligible pagelist siblings for selected bvids."""
     if not selected:
         return selected
+    from .audio_budget import max_duration_exceeded
+
     chosen = {_pilot_row_key(e) for e in selected}
     bvids = {str(e.get("bvid") or "") for e in selected}
     extras = [
         e for e in _pilot_processable(entries)
-        if str(e.get("bvid") or "") in bvids and _pilot_row_key(e) not in chosen
+        if str(e.get("bvid") or "") in bvids
+        and _pilot_row_key(e) not in chosen
+        and not max_duration_exceeded(e, max_duration_min)
     ]
     extras.sort(key=_pilot_duration_key)
     return selected + extras
@@ -1054,7 +1059,7 @@ def _reclaim_after_archive(root: str, entry: dict[str, object]) -> None:
 
     try:
         reclaim_audio(root, entry)
-    except OSError:
+    except (OSError, ValueError):
         pass  # per-item non-fatal: transcripts exist; row stays archived
 
 
@@ -1176,6 +1181,7 @@ def _cmd_pilot(args: argparse.Namespace) -> int:
     selected = _expand_selected_pages(
         entries,
         _pilot_select(entries, args.n, args.max_duration_min),
+        args.max_duration_min,
     )
     selected_work_ids = [_pilot_row_key(e) for e in selected] if selected else None
     print(
