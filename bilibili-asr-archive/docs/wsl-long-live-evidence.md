@@ -2,7 +2,7 @@
 
 Completed live Windows WSL acceptance on `DESKTOP-HHFROLO` / WSL2.
 
-Live checkout provenance for the successful fetch-meta and schedule runs: `3fe6b60b2aa52ef47c067fd5656ec48bf784f681`.
+Live checkout provenance for the successful fetch-meta and schedule runs: `56218f6479d58f6a51f0dd219b97feff2e68af64`.
 
 ## Environment
 
@@ -52,7 +52,7 @@ runs: 2
 latest run: schedule, exit 0
 latest cursor: limited (next_page 2, observed_total 1738)
 latest coverage: archived: 1, meta_ok: 35
-commit provenance: `3fe6b60b2aa52ef47c067fd5656ec48bf784f681`
+commit provenance: `56218f6479d58f6a51f0dd219b97feff2e68af64`
 ```
 
 ## No-secret scan
