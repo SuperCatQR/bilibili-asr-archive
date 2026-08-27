@@ -47,6 +47,10 @@ def build_parser() -> argparse.ArgumentParser:
         help="Archive root directory (default: ./archive)",
     )
     fetch_meta.add_argument(
+        "--sessdata", default=None,
+        help="SESSDATA cookie (or env BILI_SESSDATA); not stored",
+    )
+    fetch_meta.add_argument(
         "--limit-pages", type=int, default=None,
         help="Stop after N pages (smoke runs)",
     )
@@ -446,7 +450,8 @@ def _cmd_fetch_meta(args: argparse.Namespace) -> int:
 
     started_at = utc_now_iso()
     ledger = RunLedger(root=args.archive_root)
-    client = bili_client.BiliClient()
+    sessdata = _resolve_sessdata(args)
+    client = bili_client.BiliClient(sessdata=sessdata)
     store = ManifestStore(root=args.archive_root)
     cursor_store = MetaCursorStore(root=args.archive_root)
     # Always merge prior JSONL (last-write-wins). Without --resume the

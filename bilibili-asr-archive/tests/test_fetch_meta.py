@@ -364,6 +364,33 @@ def test_cli_fetch_meta_writes_manifest(tmp_root, fast_sleep, monkeypatch):
     assert entries["BV1A:p0"]["pubdate"] == 1700000000
 
 
+def test_cli_fetch_meta_uses_env_sessdata_without_echoing(
+    tmp_root, fast_sleep, monkeypatch, capsys
+):
+    secret = "FETCH-META-ENV-SESSDATA"
+    transport = FakeTransport(
+        [
+            (200, ok_page([arc("BV1A")], total=1)),
+            (200, ok_page([], total=1)),
+        ]
+    )
+    monkeypatch.setenv("BILI_SESSDATA", secret)
+    monkeypatch.setattr(bc, "build_default_transport", lambda: transport)
+    monkeypatch.setattr(bc, "default_sleeper", lambda: fast_sleep)
+
+    rc = main(["fetch-meta", "--mid", "23191782", "--archive-root", tmp_root])
+
+    assert rc == 0
+    assert transport.calls
+    assert all(call["cookies"].get("SESSDATA") == secret for call in transport.calls)
+    captured = capsys.readouterr()
+    assert secret not in captured.out + captured.err
+    manifest_text = open(
+        ManifestStore(root=tmp_root).path, encoding="utf-8"
+    ).read()
+    assert secret not in manifest_text
+
+
 def test_cli_resume_does_not_duplicate(tmp_root, fast_sleep, monkeypatch):
     store = ManifestStore(root=tmp_root)
     store.load()
