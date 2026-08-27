@@ -142,10 +142,10 @@ def preflight_fixture(fixture: Path) -> None:
             raise FixturePrerequisiteError("offline_dependency_closure_unavailable: build backend bootstrap failed")
         proc = subprocess.run(command, cwd=project, capture_output=True, text=True)
         console = scripts / ("bili-asr.exe" if os.name == "nt" else "bili-asr")
-    if proc.returncode:
-        raise FixturePrerequisiteError("offline_dependency_closure_unavailable: exact project install preflight failed")
-    if not console.is_file():
-        raise FixturePrerequisiteError("offline_dependency_closure_unavailable: installed console script is missing")
+        if proc.returncode:
+            raise FixturePrerequisiteError("offline_dependency_closure_unavailable: exact project install preflight failed")
+        if not console.is_file():
+            raise FixturePrerequisiteError("offline_dependency_closure_unavailable: installed console script is missing")
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
