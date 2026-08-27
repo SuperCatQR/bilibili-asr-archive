@@ -2000,6 +2000,8 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.command == "fetch-meta":
         return _cmd_fetch_meta(args)
+    if args.command == "status":
+        return _cmd_status(args)
     if args.command == "coverage":
         return _cmd_coverage(args)
     if args.command == "runs":
