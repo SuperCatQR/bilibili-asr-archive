@@ -186,6 +186,9 @@ def test_staged_test_tree_copies_checkout_inputs(tmp_path: Path):
     from scripts.verify_baseline import staged_test_tree
     staged = staged_test_tree(tmp_path)
     assert (tmp_path / "README.md").is_file()
+    if (Path(__file__).resolve().parents[1] / "docs").is_dir():
+        assert (tmp_path / "docs" / "wsl-long-live.md").is_file()
+        assert (tmp_path / "docs" / "wsl-long-live-evidence.md").is_file()
     assert (tmp_path / "scripts" / "verify_baseline.py").is_file()
     assert (staged / "test_cli_pilot.py").is_file()
     assert not (staged / "test_cli_help.py").exists()

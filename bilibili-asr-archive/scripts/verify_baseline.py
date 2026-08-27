@@ -231,6 +231,8 @@ def audit(venv_python: Path, snapshot: dict[str, Any], digest: str, result: dict
 
 def staged_test_tree(destination: Path) -> Path:
     shutil.copy2(ROOT / "README.md", destination / "README.md")
+    if (ROOT / "docs").is_dir():
+        shutil.copytree(ROOT / "docs", destination / "docs")
     # Keep the verifier module available to test_verify_baseline without importing
     # any checkout source; all product imports must still resolve from the wheel.
     staged_scripts = destination / "scripts"
