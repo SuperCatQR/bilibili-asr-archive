@@ -260,7 +260,11 @@ class BiliClient:
 
     def _refresh_buvid(self) -> dict[str, str]:
         try:
-            status, body = self.transport.get_json(FINGER_SPI_URL)
+            status, body = self.transport.get_json(
+                FINGER_SPI_URL,
+                headers=BASE_HEADERS,
+                cookies={"SESSDATA": self._sessdata} if self._sessdata else None,
+            )
         except Exception as exc:  # transport-level error: terminal budget path
             raise RiskBudgetExhausted(
                 exc, "finger/spi bootstrap transport error"

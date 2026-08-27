@@ -29,7 +29,12 @@ class FakeTransport:
 
     def get_json(self, url, params=None, headers=None, cookies=None, timeout=None):
         self.calls.append(
-            {"url": url, "params": dict(params or {}), "cookies": dict(cookies or {})}
+            {
+                "url": url,
+                "params": dict(params or {}),
+                "headers": dict(headers or {}),
+                "cookies": dict(cookies or {}),
+            }
         )
         if "pagelist" in url:
             cid = abs(hash((params or {}).get("bvid") or "x")) % 10_000 + 1
@@ -149,6 +154,25 @@ def test_buvid_bootstrap_via_finger_spi():
     assert page_call["cookies"]["buvid3"] == "BV3XXX"
     assert page_call["cookies"]["buvid4"] == "BV4YYY"
     assert page_call["url"] == API + "/x/series/recArchivesByKeywords"
+
+
+def test_buvid_bootstrap_uses_browser_headers_and_optional_sessdata():
+    transport = FakeTransport(
+        [(200, ok_page([arc("BV1A")]))],
+        spi=[(200, {"code": 0, "data": {"b_3": "BV3XXX", "b_4": "BV4YYY"}})],
+    )
+    client = bc.BiliClient(
+        transport=transport,
+        sessdata="test-sessdata-value",
+        sleeper=FastSleeper(),
+    )
+
+    client.fetch_pages(23191782, max_pages=1)
+
+    spi_call = transport.calls[0]
+    assert spi_call["headers"] == bc.BASE_HEADERS
+    assert set(spi_call["cookies"]) == {"SESSDATA"}
+    assert spi_call["cookies"]["SESSDATA"] == "test-sessdata-value"
 
 
 def test_buvid_cached_per_process():
