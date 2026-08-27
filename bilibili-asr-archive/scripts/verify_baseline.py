@@ -229,10 +229,35 @@ def audit(venv_python: Path, snapshot: dict[str, Any], digest: str, result: dict
         raise RuntimeError("security_audit_findings: remediation belongs in a separate plan")
 
 
+def copy_checkout_docs(source_root: Path, destination: Path) -> None:
+    source_docs = source_root / "docs"
+    if not source_docs.is_dir():
+        return
+
+    entries: list[tuple[Path, Path]] = []
+    for current, directories, files in os.walk(source_docs, followlinks=False):
+        current_path = Path(current)
+        for name in directories + files:
+            source = current_path / name
+            if source.is_symlink():
+                raise PrerequisiteError(f"docs_invalid: symlink is not allowed in docs: {source.relative_to(source_root)}")
+            if source.is_file():
+                entries.append((source, source.relative_to(source_docs)))
+            elif source.is_dir():
+                continue
+            else:
+                raise PrerequisiteError(f"docs_invalid: unsupported entry in docs: {source.relative_to(source_root)}")
+
+    docs_destination = destination / "docs"
+    for source, relative in entries:
+        target = docs_destination / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source, target)
+
+
 def staged_test_tree(destination: Path) -> Path:
     shutil.copy2(ROOT / "README.md", destination / "README.md")
-    if (ROOT / "docs").is_dir():
-        shutil.copytree(ROOT / "docs", destination / "docs")
+    copy_checkout_docs(ROOT, destination)
     # Keep the verifier module available to test_verify_baseline without importing
     # any checkout source; all product imports must still resolve from the wheel.
     staged_scripts = destination / "scripts"
