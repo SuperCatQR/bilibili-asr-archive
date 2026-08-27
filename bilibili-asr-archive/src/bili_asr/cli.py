@@ -290,6 +290,13 @@ def build_parser() -> argparse.ArgumentParser:
         help="Archive root directory (default: ./archive)",
     )
 
+    coverage_cmd = subparsers.add_parser(
+        "coverage", help="Print deterministic read-only coverage telemetry"
+    )
+    coverage_cmd.add_argument("--archive-root", default=DEFAULT_ARCHIVE_ROOT)
+    coverage_cmd.add_argument("--scope", default=None)
+    coverage_cmd.add_argument("--format", choices=["json", "csv"], default="json")
+
     export_cmd = subparsers.add_parser(
         "export",
         help="Export manifest metadata to JSON or CSV format",
@@ -934,7 +941,18 @@ def _cmd_download_audio(args: argparse.Namespace) -> int:
     return 1 if failed else 0
 
 
-def _cmd_status(args: argparse.Namespace) -> int:
+def _cmd_coverage(args: argparse.Namespace) -> int:
+    from .coverage_report import CoverageReport
+    try:
+        report = CoverageReport.build(args.archive_root, scope=args.scope)
+        sys.stdout.write(report.to_json() if args.format == "json" else report.to_csv())
+        if args.format == "json": sys.stdout.write("\n")
+        return 1 if report.data["diagnostics"] else 0
+    except (OSError, ValueError, TypeError):
+        print("coverage: diagnostic coverage_report_unavailable", file=sys.stderr)
+        return 1
+
+
     from collections import Counter
     from .manifest import ManifestStore
     from .run_ledger import (
@@ -1982,8 +2000,8 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.command == "fetch-meta":
         return _cmd_fetch_meta(args)
-    if args.command == "status":
-        return _cmd_status(args)
+    if args.command == "coverage":
+        return _cmd_coverage(args)
     if args.command == "runs":
         return _cmd_runs(args)
     if args.command == "asr":
