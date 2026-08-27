@@ -26,6 +26,7 @@ VALID_COMMANDS = frozenset(
         "fetch-meta",
         "pilot",
         "run",
+        "schedule",
     }
 )
 

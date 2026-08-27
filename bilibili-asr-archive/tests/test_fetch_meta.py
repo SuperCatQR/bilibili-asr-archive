@@ -29,7 +29,12 @@ class FakeTransport:
 
     def get_json(self, url, params=None, headers=None, cookies=None, timeout=None):
         self.calls.append(
-            {"url": url, "params": dict(params or {}), "cookies": dict(cookies or {})}
+            {
+                "url": url,
+                "params": dict(params or {}),
+                "headers": dict(headers or {}),
+                "cookies": dict(cookies or {}),
+            }
         )
         if "pagelist" in url:
             cid = abs(hash((params or {}).get("bvid") or "x")) % 10_000 + 1
@@ -149,6 +154,44 @@ def test_buvid_bootstrap_via_finger_spi():
     assert page_call["cookies"]["buvid3"] == "BV3XXX"
     assert page_call["cookies"]["buvid4"] == "BV4YYY"
     assert page_call["url"] == API + "/x/series/recArchivesByKeywords"
+
+
+def test_buvid_bootstrap_uses_browser_headers_and_optional_sessdata():
+    transport = FakeTransport(
+        [(200, ok_page([arc("BV1A")]))],
+        spi=[(200, {"code": 0, "data": {"b_3": "BV3XXX", "b_4": "BV4YYY"}})],
+    )
+    client = bc.BiliClient(
+        transport=transport,
+        sessdata="test-sessdata-value",
+        sleeper=FastSleeper(),
+    )
+
+    client.fetch_pages(23191782, max_pages=1)
+
+    spi_call = transport.calls[0]
+    assert spi_call["headers"] == bc.BASE_HEADERS
+    assert set(spi_call["cookies"]) == {"SESSDATA"}
+    assert spi_call["cookies"]["SESSDATA"] == "test-sessdata-value"
+
+
+def test_archive_enumeration_sends_optional_sessdata():
+    transport = FakeTransport(
+        [(200, ok_page([arc("BV1A")]))],
+        spi=[(200, {"code": 0, "data": {"b_3": "B3", "b_4": "B4"}})],
+    )
+    client = bc.BiliClient(
+        transport=transport,
+        sessdata="test-sessdata-value",
+        sleeper=FastSleeper(),
+    )
+
+    client.fetch_pages(23191782, max_pages=1)
+
+    page_call = next(c for c in transport.calls if "recArchives" in c["url"])
+    assert page_call["cookies"]["SESSDATA"] == "test-sessdata-value"
+    assert page_call["cookies"]["buvid3"] == "B3"
+    assert page_call["cookies"]["buvid4"] == "B4"
 
 
 def test_buvid_cached_per_process():
@@ -319,6 +362,33 @@ def test_cli_fetch_meta_writes_manifest(tmp_root, fast_sleep, monkeypatch):
         assert e["work_id"].endswith(":p0")
     assert entries["BV1A:p0"]["duration_s"] == 3600
     assert entries["BV1A:p0"]["pubdate"] == 1700000000
+
+
+def test_cli_fetch_meta_uses_env_sessdata_without_echoing(
+    tmp_root, fast_sleep, monkeypatch, capsys
+):
+    secret = "FETCH-META-ENV-SESSDATA"
+    transport = FakeTransport(
+        [
+            (200, ok_page([arc("BV1A")], total=1)),
+            (200, ok_page([], total=1)),
+        ]
+    )
+    monkeypatch.setenv("BILI_SESSDATA", secret)
+    monkeypatch.setattr(bc, "build_default_transport", lambda: transport)
+    monkeypatch.setattr(bc, "default_sleeper", lambda: fast_sleep)
+
+    rc = main(["fetch-meta", "--mid", "23191782", "--archive-root", tmp_root])
+
+    assert rc == 0
+    assert transport.calls
+    assert all(call["cookies"].get("SESSDATA") == secret for call in transport.calls)
+    captured = capsys.readouterr()
+    assert secret not in captured.out + captured.err
+    manifest_text = open(
+        ManifestStore(root=tmp_root).path, encoding="utf-8"
+    ).read()
+    assert secret not in manifest_text
 
 
 def test_cli_resume_does_not_duplicate(tmp_root, fast_sleep, monkeypatch):

@@ -20,6 +20,44 @@ use:
 Set `BILI_ASR_MODEL` to a pre-populated local model directory for offline use;
 the default is `iic/SenseVoiceSmall`. No model weights are vendored.
 
+## Deterministic verification baseline
+
+Run the supported baseline from `bilibili-asr-archive/` with Python 3.12. The
+repository supplies a reviewed empty snapshot fixture; before an operator run,
+prepare the reviewed, curated local wheel directory (`/path/to/reviewed-wheels`) containing exactly the complete dependency closure (one compatible wheel per distribution, including build, runtime, and `dev` requirements):
+
+    python3.12 scripts/prepare_offline_baseline_fixture.py --wheel-source /path/to/reviewed-wheels --output .offline-baseline
+    python3.12 scripts/verify_baseline.py --offline-packages .offline-baseline --advisory-snapshot tests/fixtures/advisories-empty.json
+
+The baseline creates a disposable isolated virtual environment, installs the
+local package with its declared `dev` extras using only the specified local
+package source (`PIP_NO_INDEX=1`), runs the installed `bili-asr --help` proof,
+then runs the complete product pytest suite from a staged test and documentation tree; installer self-tests (`test_cli_help.py`, `test_installed_cli.py`, and `test_verify_baseline.py`) are intentionally excluded because they provision the verifier and would recurse. During pytest it installs a process-level Python socket API deny guard: calls through `socket.create_connection`, `socket.socket.connect`, or `connect_ex` in that pytest interpreter raise before reaching the OS. This is not a host or kernel firewall, and it does not claim to block non-Python processes or every possible networking mechanism.
+It also strips `PYTHONPATH`, proxy variables, and `BILI_SESSDATA`; it never
+calls Bilibili, downloads a model, transfers media, or prints environment
+values. Its compact machine-readable result is
+written to `verification-results/baseline.json` and is deliberately gitignored.
+
+### Security-audit policy
+
+Security inspection is deliberately offline and fails closed. The baseline uses
+only a reviewed, versioned local advisory snapshot; it does not invoke
+`pip-audit` or query a live advisory database. Each advisory's PEP 440
+`specifier` is checked against the installed distribution version. Unsupported
+specifiers and missing required inputs return exit `2` with
+`status: prerequisite_failed` in the JSON result. Audit findings fail the
+baseline and must be evaluated in a separate remediation plan with evidence—this
+baseline does not upgrade dependencies merely to silence an audit.
+
+For a deterministic repository proof, the guarded developer command constructs
+the disposable local offline package set and runs the exact command above:
+
+    python3.12 scripts/prepare_offline_baseline_fixture.py --wheel-source /path/to/reviewed-wheels --output .offline-baseline --run
+
+Generated output is redacted and bounded: no credentials, signed URLs, raw
+exceptions, model artifacts, media, archive data, or environment dumps belong
+in committed files or CI artifacts.
+
 ## Workflow
 
     bili-asr fetch-meta --mid 23191782 --resume
@@ -35,6 +73,8 @@ the default is `iic/SenseVoiceSmall`. No model weights are vendored.
     bili-asr run --scope pending --archive-root archive
     bili-asr run --scope pending --offline --archive-root archive
     bili-asr run --scope failed --limit 5 --archive-root archive
+    bili-asr schedule --scope pending --limit 20 --archive-root archive
+    bili-asr schedule --scope pending --limit 20 --resume --archive-root archive
 
 ### Audio reclaim and bounded-disk campaigns
 
@@ -47,6 +87,7 @@ relative `audio_path` — consumers treat the file as absent).
 
     bili-asr pilot --n 20 --max-audio-gb 10 --max-duration-min 45 --archive-root archive
     bili-asr run --scope pending --max-audio-gb 10 --archive-root archive
+    bili-asr schedule --scope pending --limit 20 --max-audio-gb 10 --archive-root archive
 
 - `--max-audio-gb` (default 10, `0` = unlimited): before each audio
   download, current `audio/` usage plus a conservative estimate
@@ -74,8 +115,9 @@ the row archived.
 
 ### Operational run ledger (`run-ledger.jsonl`), `status`, and `runs`
 
-Every `fetch-meta` execution (exit 0 or 2) and every `pilot` run atomically
-appends an inspectable run record to `{archive-root}/run-ledger.jsonl`.
+Every `fetch-meta` execution (exit 0 or 2) and every `pilot` / `run` /
+`schedule` run atomically appends an inspectable run record to
+`{archive-root}/run-ledger.jsonl`.
 The ledger is a sidecar file that records execution history and coverage
 without altering manifest row schemas or the transport layer.
 
@@ -86,7 +128,7 @@ Each JSONL line represents one immutable record with the following schema:
 | Field | Type | Description |
 |-------|------|-------------|
 | `run_id` | `str` | Opaque identifier (`run-YYYYMMDDHHMMSS-<token>`). |
-| `command` | `str` | Command executed (`fetch-meta`, `pilot`, `run`). |
+| `command` | `str` | Command executed (`fetch-meta`, `pilot`, `run`, `schedule`). |
 | `started_at` | `str` | ISO-8601 UTC start timestamp. |
 | `finished_at` | `str` | ISO-8601 UTC completion timestamp. |
 | `exit_code` | `int` | Process exit code (`0`, `1`, or `2`). |
@@ -164,6 +206,53 @@ reprocessed:
   artifact vanished) and the run exits 1 because the scope was not fully
   processed. Nothing is silently re-downloaded.
 
+### Bounded corpus scheduler (`bili-asr schedule`)
+
+`bili-asr schedule` walks the existing manifest sequentially in explicit
+batches. It composes `RunCoordinator`, `ManifestStore`, `MetaCursorStore`,
+and `RunLedger`; it does not open sockets itself and does not replace
+`pilot` or `run`.
+
+    bili-asr schedule --scope pending|failed|<work_id>... --limit N [--resume] [--max-audio-gb G] [--allow-long-live] [--archive-root <root>]
+
+- **`--limit N` is required.** A bounded call never infers that the visible
+  corpus is fully archived.
+- **Scope** matches `run`: `pending` (non-terminal rows), `failed` (rows
+  with a recorded failed stage attempt), or explicit `work_id`/bvid
+  selectors. Terminal `archived` / `gone` selectors skip with
+  `already_terminal` and exit 0.
+- **Batch state** is persisted at `{archive-root}/scheduler.json` as
+  `complete` (this call visited every currently matching scope row
+  after the default duration filter), `limited` (the explicit limit
+  **or** a default long-duration hold left matching rows unselected),
+  or `risk_interrupted`. `complete` is requested-scope completion, not
+  corpus completion; held multi-hour rows stay pending and keep the
+  batch `limited` until `--allow-long-live`. The summary always prints
+  the meta-cursor enumeration state so a `limited` crawl cannot
+  masquerade as done.
+- **`--resume`** consumes only a matching-scope `risk_interrupted`
+  sidecar whose long-live policy matches. The sidecar stores
+  `allow_long_live`; resume without that flag refuses and leaves a valid
+  risk token untouched. Deliberate `limited` / `complete` states, a
+  missing sidecar, or a corrupt sidecar are ignored with a stderr reason
+  and are not auto-resumed. `processed_work_ids` keeps only `ok` /
+  `already_terminal` rows so budget/offline/missing-artifact skips stay
+  retryable. Persist failure prints a redacted error and does not tell
+  the operator to `--resume`.
+- **Exit codes** follow the mixed-outcome contract: 0 requested rows
+  processed or already terminal; 1 usage/config, per-item failure, or
+  non-risk skip; 2 risk/API interruption (re-run with `--resume`).
+- **Long-live opt-in.** Default `pending` / `failed` selection keeps the
+  same 45-minute short-video policy as `pilot`. A multi-hour row is
+  processed only with `--allow-long-live` and a configured
+  `--max-audio-gb` (default 10; `0` is refused on this path). The summary
+  prints the conservative 64 kbps estimate, measured `audio/` peak, and
+  post-archive usage after reclaim. Operator steps for Windows WSL,
+  archive-root placement, cookie boundary, `du` measurement, and redacted
+  evidence are in `docs/wsl-long-live.md` and
+  `docs/wsl-long-live-evidence.md`. Do not raise `pilot --max-duration-min`
+  to sneak livestreams into the short-video campaign.
+
 ### SQLite FTS5 full-text search and metadata export
 
 The JSONL manifest (`{archive-root}/manifest/manifest.jsonl`) remains the single source of truth (SSOT). Both `search` and `export` are read-only commands that never modify or rewrite the manifest ledger.
@@ -215,8 +304,31 @@ the first successful page. Mid-run sidecar writes stay `risk_interrupted`
 with `next_page` = last merged `pn+1`; terminal `complete`/`limited` is
 written only when the run finishes without exit 2.
 
-Exit codes for other commands: 0 ok / 1 usage-config or per-video failure / 2
-terminal API failure.
+### Mixed batch outcomes
+
+When `harvest-subs`, `download-audio`, `asr`, `pilot`, `run`, or `schedule`
+processes more than one work item, the process exit code is an aggregation of
+per-item outcomes — not a claim that the whole corpus is complete. `pilot`
+remains the frozen two-branch proof command; `run` remains complementary;
+`schedule` consumes this same taxonomy.
+
+| Exit | Meaning |
+|------|---------|
+| 0 | Requested work processed, or every selected row is already terminal (`archived` / `gone`). |
+| 1 | Usage/config error, missing optional ASR, per-item failure, or incomplete scope from a non-risk skip (`offline`, `audio_budget`, missing on-disk input). |
+| 2 | Risk/API terminal interruption. Successful rows and artifacts stay; retry the remaining work. |
+
+Risk interruption takes precedence over per-item failure: a batch that
+archived some rows and then hit the risk ceiling still exits 2.
+
+Successful rows stay in their last stable status. Retryable failures remain
+selectable by the same command or by `run --scope failed`. Explicit `run
+--scope` work_id selectors of already-terminal rows skip with
+`already_terminal` and exit 0; they are not duplicated.
+
+`harvest-subs`, `download-audio`, and `asr` do not append `run-ledger.jsonl`
+(that sidecar is `fetch-meta` / `pilot` / `run` / `schedule`). All operator
+surfaces carry redacted scalar codes/reasons only.
 
 ## Multipart pages and legacy rows
 

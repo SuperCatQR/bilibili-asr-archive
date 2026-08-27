@@ -1,7 +1,7 @@
 ---
 module: bili-asr operational layer
 date: 2026-08-25
-last_updated: 2026-08-25
+last_updated: 2026-08-28
 problem_type: architecture_pattern
 category: architecture-patterns
 severity: medium
@@ -30,13 +30,13 @@ live-risk HTTP into deterministic local work.
 
 ## Guidance
 
-Keep three sidecars / derived stores. Never rewrite `VALID_STATUSES` or
+Keep four sidecars / derived stores. Never rewrite `VALID_STATUSES` or
 `classify_risk`.
 
 1. **Run ledger** (`RunLedger`, command `runs` / `status` summary): append-only
    JSONL next to the archive. Record cursor snapshot, last API error *code*
    (never raw exception text), and per-status coverage. `command` is
-   `fetch-meta` | `pilot` | `run`. Atomic tmp + fsync + same-directory replace; also
+   `fetch-meta` | `pilot` | `run` | `schedule`. Atomic tmp + fsync + same-directory replace; also
    fsync the parent directory after replace.
 
 2. **FTS5 search/export**: SQLite read model over rows that already have
@@ -52,11 +52,29 @@ Keep three sidecars / derived stores. Never rewrite `VALID_STATUSES` or
    attempt**, including download/archive failures — otherwise `--scope failed`
    silently drops rows.
 
+4. **Scheduler sidecar** (scheduler.json): additive state for bounded
+   `bili-asr schedule` batches (complete / limited / risk_interrupted).
+   `--resume` consumes only a matching-scope `risk_interrupted` sidecar.
+   Default pending/failed selection keeps the 45-minute short-video policy;
+   `--allow-long-live` is the explicit multi-hour opt-in and cannot set
+   `--max-audio-gb 0`.
+
 `--offline` never calls harvest or download. It only runs `asr` / `archive`
 when `{stem}.m4a`/`.flac` or subtitle raw JSON already exist; missing input
 is `skipped` with a reason. Batch continues on per-item failure. Explicit
-rerun of an already-terminal `work_id` is idempotent (exit 0). `run`
-complements frozen `pilot`; it does not replace it.
+rerun of an already-terminal `work_id` is idempotent (exit 0). `run` and
+`schedule` complement frozen `pilot`; they do not replace it.
+
+## Boundary and outcome contract
+
+The scheduler is a bounded sequential orchestration layer, not a second state
+machine. Its additive scheduler.json records `complete`, `limited`, or
+`risk_interrupted` for the selected scope; only a matching risk interruption
+is resumable. A finite limit or a duration-policy hold must not be reported as
+full-corpus completion. The existing mixed-outcome precedence remains stable:
+risk interruption exits 2, any per-item failure or non-terminal skip exits 1,
+and only all successful/already-terminal work exits 0. Successful rows and
+retryable failures remain durable in the manifest and stage-attempt ledger.
 
 ## Why This Matters
 
@@ -68,8 +86,8 @@ honest.
 ## When to Apply
 
 Apply when extending this CLI (or similar archive CLIs) with operator surfaces
-that must not become a second state machine. Do not apply to live scheduling,
-concurrency, or replacing `pilot` as the MVP proof command.
+that must not become a second state machine. Do not apply to concurrent
+scheduling, daemons, or replacing `pilot` as the MVP proof command.
 
 ## Evidence
 
@@ -80,3 +98,4 @@ concurrency, or replacing `pilot` as the MVP proof command.
   `bilibili-asr-archive/src/bili_asr/search_index.py`,
   `bilibili-asr-archive/src/bili_asr/coordinator.py`
 - Verification: 277 passed on Python 3.12 (QA, no live HTTP)
+- Corpus-operations update: `.mstar/iterations/iter-2026-08-corpus-operations/specs/mixed-outcome-contract.md`; integration revision `ad5253d` preserves the frozen manifest/risk taxonomy and verifies 392 tests with honest exit precedence for risk, per-item failure, and already-terminal work.

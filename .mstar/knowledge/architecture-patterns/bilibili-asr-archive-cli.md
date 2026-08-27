@@ -1,7 +1,7 @@
 ---
 module: bilibili-asr-archive CLI
 date: 2026-08-23
-last_updated: 2026-08-26
+last_updated: 2026-08-28
 problem_type: architecture_pattern
 category: architecture-patterns
 severity: medium
@@ -26,7 +26,9 @@ short-lived API/CDN requests, plus local transcript generation that may require
 large model dependencies. The workflow must survive API risk control and be
 safe to resume after a partial run. Multi-part videos need collision-free
 per-part identity, and metadata enumeration must resume after risk stops
-without misreading a deliberately bounded run as complete.
+without misreading a deliberately bounded run as complete. Repeated full-visible-
+corpus batches also need an explicit sequential scheduler whose progress is
+separate from the manifest state machine.
 
 ## Guidance
 
@@ -75,6 +77,17 @@ failures as per-video failures so one flaky media request does not discard the
 whole batch. Check non-empty `.m4a`/`.flac` artifacts before API probes, and
 pace sequential video work between requests.
 
+### Sequential scheduler contract
+
+Use `schedule` as a bounded orchestration layer over the existing client,
+manifest, cursor, coordinator, budget, and reclaim seams. It owns neither HTTP
+nor a second item state machine. Every call has an explicit finite limit and a
+scope; **scheduler.json** records whether that batch is `complete`, `limited`,
+or `risk_interrupted`. Resume only a matching-scope risk interruption. Keep
+short-video selection as the default, and require `--allow-long-live` plus a
+positive audio cap for multi-hour work. A bounded batch must never claim full
+corpus completion merely because its local limit was reached.
+
 Make heavy ASR dependencies optional and import them lazily. The base CLI must
 still expose help/status/subtitle workflows, while `transcribe()` returns an
 actionable install hint. Keep model weights outside the repository and support
@@ -84,11 +97,15 @@ a local model path for offline runs.
 
 Treat downloaded audio as a transient stage artifact rather than archive
 content. Before downloading a `needs_audio` row, estimate its peak footprint as
-`duration_s * 8_000` bytes (a conservative 64 kbps ceiling) plus the current
-the archive audio-directory usage. `pilot` and live `run` skip the item with `audio_budget` if that
-would exceed `--max-audio-gb`; the default is 10 GiB and `0` disables the cap.
-The pilot's `--max-duration-min` default of 45 excludes long rows, including
-pagelist siblings, from bounded selection.
+`duration_s * 8_000` bytes (a conservative 64 kbps ceiling) plus current archive audio-directory usage. `pilot`, live `run`, and `schedule` skip the
+item with `audio_budget` if that would exceed `--max-audio-gb`; the default is
+10 GiB and `0` disables the cap except on `--allow-long-live`, which refuses a
+disabled cap. The pilot's `--max-duration-min` default of 45 excludes long rows,
+including pagelist siblings, from bounded selection. `schedule` pending/failed
+uses the same 45-minute short-video policy unless the operator passes
+`--allow-long-live`; an explicit multi-hour `work_id` without that flag is a
+usage error. The long-live summary prints the conservative estimate, measured
+audio-directory peak, and post-archive usage after reclaim.
 
 When an archive write completes, call the filesystem-only reclaim helper to
 remove the row's `.m4a` or `.flac` under `{archive_root}/audio/`. An
@@ -101,6 +118,24 @@ must not apply the pre-download budget or make a second HTTP download.
 Report `pilot batch branches` separately from `pilot coverage branches`.
 Batch counts describe the invocation; coverage counts include earlier archived
 rows and only decide whether the cumulative two-branch contract is satisfied.
+
+### Installed Python baseline
+
+Verify packaging through the installed `bili-asr` console script rather than
+only importing checkout source. The repeatable baseline uses a fresh Python
+3.12 environment, a complete locally reviewed wheel fixture, and `--no-index`
+plus `--find-links` for both declared build requirements and `.[dev]`. Bootstrap
+the declared build backend before a `--no-build-isolation` project install;
+check the generated console launcher while the temporary environment still
+exists. Record only command names and exit codes in the result, and keep local
+advisory audit data separate from live lookups.
+
+When staging tests for an installed distribution, copy only ordinary files
+from explicitly required repository input trees. Reject symlinks before copy
+to prevent checkout-local paths from escaping into the temporary test tree.
+Keep the staged test tree's `src` path injection removed so product imports
+resolve from the installed wheel. A missing interpreter prerequisite or
+incomplete wheel closure must be a named failure, never a false green.
 
 ## Why This Matters
 
@@ -131,3 +166,4 @@ multi-part sources and resumable enumeration.
 - Bounded PC pilot: `iter-2026-08-live-pc-pilot`, source revision `4e00fb3`;
   299 tests passed and staged Windows WSL N=5 / N=20 observed subtitle and
   ASR branches, named budget skipping, and post-archive reclaim.
+- Corpus-operations update: `.mstar/iterations/iter-2026-08-corpus-operations/specs/full-corpus-scheduler.md` and `.mstar/iterations/iter-2026-08-corpus-operations/specs/verification-baseline.md`; integration revision `ad5253d` passed 392 tests, and the managed Python 3.12.13 no-index baseline passed with five zero-exit commands and 14 hash-validated fixture artifacts.
