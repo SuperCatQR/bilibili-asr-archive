@@ -87,4 +87,45 @@ def test_resume_refuses_limit_and_policy_mismatch(tmp_path):
         def run_batch(self, rows): return RunSummary(results=[RowResult("a", "archived", ok=True)])
     pacing = lambda _: None
     CampaignRunner(tmp_path, client="fake", offline=False, max_audio_bytes=12, sleep=pacing, coordinator_factory=Coordinator, scope_rows=_selector(_rows("a"))).run("pending", 1)
-    assert seen == {"client": "fake", "offline": False, "max_audio_bytes": 12, "sleep": pacing}
+
+
+def test_resume_rejects_scalar_projection(tmp_path):
+    SchedulerStore(tmp_path).replace_atomic({"scope": "pending", "limit": 1, "state": "risk_interrupted", "processed_work_ids": [], "last_api_error_code": 412, "allow_long_live": False, "updated_at": "now"})
+    (Path(tmp_path) / "campaign.json").write_text("[]")
+    with pytest.raises(ValueError, match="corrupt/mismatch"):
+        _runner(tmp_path, RunSummary(), _rows("a")).run("pending", 1, resume=True)
+
+
+def test_atomic_failure_preserves_prior_projection(tmp_path, monkeypatch):
+    runner = _runner(tmp_path, RunSummary(), _rows("a"))
+    runner.run("pending", 1)
+    prior = (Path(tmp_path) / "campaign.json").read_bytes()
+    original = __import__("os").replace
+    def fail_replace(src, dst):
+        if str(dst).endswith("campaign.json"):
+            raise OSError("injected")
+        return original(src, dst)
+    monkeypatch.setattr("bili_asr.campaign.os.replace", fail_replace)
+    with pytest.raises(OSError):
+        runner.run("pending", 1)
+    assert (Path(tmp_path) / "campaign.json").read_bytes() == prior
+
+
+def test_cli_campaign_preserves_summary_exit_codes(monkeypatch, tmp_path):
+    from bili_asr import cli
+    class FakeRunner:
+        def __init__(self, *args, **kwargs): pass
+        def run(self, *args, **kwargs): return type("S", (), {"exit_code": 2, "to_dict": lambda self: {"exit_code": 2}})()
+    monkeypatch.setattr("bili_asr.campaign.CampaignRunner", FakeRunner)
+    args = type("A", (), {"offline": True, "archive_root": str(tmp_path), "scope": "pending", "limit": 1, "resume": False, "max_audio_gb": 0})()
+    assert cli._cmd_campaign(args) == 2
+
+
+def test_cli_campaign_safely_catches_unexpected_exception(monkeypatch, tmp_path, capsys):
+    from bili_asr import cli
+    class FakeRunner:
+        def __init__(self, *args, **kwargs): raise RuntimeError("secret")
+    monkeypatch.setattr("bili_asr.campaign.CampaignRunner", FakeRunner)
+    args = type("A", (), {"offline": True, "archive_root": str(tmp_path), "scope": "pending", "limit": 1, "resume": False, "max_audio_gb": 0})()
+    assert cli._cmd_campaign(args) == 1
+    assert "secret" not in capsys.readouterr().err

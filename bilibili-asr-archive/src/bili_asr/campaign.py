@@ -219,7 +219,6 @@ class CampaignRunner:
         }
         if set(value) != expected or value.get("schema_version") != _SCHEMA_VERSION:
             raise ValueError("campaign projection corrupt/mismatch")
-            raise ValueError("resume refused: campaign projection corrupt/mismatch")
         if value.get("policy_fingerprint") != self.policy_fingerprint:
             raise ValueError("resume refused: policy mismatch")
         if value.get("scope") != scope or value.get("batch_limit") != batch_limit or value.get("state") != "risk_interrupted":
