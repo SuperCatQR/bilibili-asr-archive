@@ -32,9 +32,7 @@ prepare the reviewed, curated local wheel directory (`/path/to/reviewed-wheels`)
 The baseline creates a disposable isolated virtual environment, installs the
 local package with its declared `dev` extras using only the specified local
 package source (`PIP_NO_INDEX=1`), runs the installed `bili-asr --help` proof,
-then runs the complete pytest suite from a staged test and documentation tree.
-During pytest it installs a process-level socket connection deny guard; a test
-that attempts a live HTTP/model request fails before any outbound connection.
+then runs the complete product pytest suite from a staged test and documentation tree; installer self-tests (`test_cli_help.py`, `test_installed_cli.py`, and `test_verify_baseline.py`) are intentionally excluded because they provision the verifier and would recurse. During pytest it installs a process-level Python socket API deny guard: calls through `socket.create_connection`, `socket.socket.connect`, or `connect_ex` in that pytest interpreter raise before reaching the OS. This is not a host or kernel firewall, and it does not claim to block non-Python processes or every possible networking mechanism.
 It also strips `PYTHONPATH`, proxy variables, and `BILI_SESSDATA`; it never
 calls Bilibili, downloads a model, transfers media, or prints environment
 values. Its compact machine-readable result is

@@ -213,7 +213,17 @@ def staged_test_tree(destination: Path) -> Path:
     shutil.copy2(Path(__file__), staged_scripts / "verify_baseline.py")
     (staged_scripts / "__init__.py").write_text("", encoding="utf-8")
     staged = destination / "tests"
-    shutil.copytree(ROOT / "tests", staged, ignore=shutil.ignore_patterns("__pycache__", "*.pyc", ".pytest_cache"))
+    shutil.copytree(
+        ROOT / "tests",
+        staged,
+        ignore=lambda directory, names: {
+            name
+            for name in names
+            if name in {"test_verify_baseline.py", "test_installed_cli.py", "test_cli_help.py"}
+            or name == "__pycache__"
+            or name.endswith(".pyc")
+        },
+    )
     (staged / "conftest.py").write_text(
         (staged / "conftest.py").read_text(encoding="utf-8").replace(
             'sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "src")))\n',
