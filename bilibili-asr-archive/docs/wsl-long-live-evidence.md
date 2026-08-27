@@ -2,9 +2,13 @@
 
 Completed live Windows WSL acceptance on `DESKTOP-HHFROLO` / WSL2.
 
-Live checkout provenance for the successful fetch-meta and schedule runs: `56218f6479d58f6a51f0dd219b97feff2e68af64`.
+Live operation provenance is recorded by the checkout branch and verified feature tip in the QA report; the live campaign itself ran before this evidence document was committed. The documented product changes were already present at live execution; later commits only record redacted evidence.
 
-## Environment
+## Provenance
+
+- Live checkout branch: `plan/20260826-full-corpus-scheduler`
+- Live product fixes present before campaign: `01835b6` (fetch-meta SESSDATA propagation), `b321d84` (archive SESSDATA propagation), `3b054f2` (buvid browser context)
+- Live campaign provenance: the WSL operator ran the product checkout at the branch containing `01835b6`, `b321d84`, and `3b054f2`; evidence-only commits were added afterward.
 
 - Host / WSL distro: `DESKTOP-HHFROLO` / WSL2 (`x86_64`)
 - Product checkout branch: `plan/20260826-full-corpus-scheduler`
@@ -52,7 +56,7 @@ runs: 2
 latest run: schedule, exit 0
 latest cursor: limited (next_page 2, observed_total 1738)
 latest coverage: archived: 1, meta_ok: 35
-commit provenance: `56218f6479d58f6a51f0dd219b97feff2e68af64`
+live product tip: fixes `01835b6`, `b321d84`, `3b054f2`; evidence was committed afterward
 ```
 
 ## No-secret scan
