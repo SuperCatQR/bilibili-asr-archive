@@ -16,7 +16,7 @@ from typing import Any, Callable, TypeAlias
 
 from .coordinator import RunCoordinator, RunSummary
 from .manifest import ManifestStore
-from .scheduler import SchedulerStore, classify_batch_state, settled_processed_ids, terminal_resume_ids
+from .scheduler import SchedulerStore, settled_processed_ids, terminal_resume_ids
 
 ScopeRows: TypeAlias = Callable[
     [ManifestStore, dict[str, dict[str, Any]], str],
@@ -116,6 +116,7 @@ class CampaignRunner:
     def _atomic_checkpoint(self, payload: dict[str, Any]) -> None:
         self.root.mkdir(parents=True, exist_ok=True)
         tmp = self.path.with_name(f".{self.path.name}.tmp")
+        previous = self.path.read_bytes() if self.path.exists() else None
         try:
             with tmp.open("w", encoding="utf-8", newline="\n") as handle:
                 json.dump(payload, handle, ensure_ascii=False, sort_keys=True)
@@ -123,14 +124,30 @@ class CampaignRunner:
                 handle.flush()
                 os.fsync(handle.fileno())
             os.replace(tmp, self.path)
+            directory_fd = os.open(self.root, os.O_RDONLY)
             try:
-                directory_fd = os.open(self.root, os.O_RDONLY)
-                try:
-                    os.fsync(directory_fd)
-                finally:
-                    os.close(directory_fd)
-            except OSError:
-                pass
+                os.fsync(directory_fd)
+            except BaseException:
+                # Restore the previous valid projection (or remove this new one)
+                # before surfacing the durability failure.
+                if previous is None:
+                    try:
+                        self.path.unlink()
+                    except OSError:
+                        pass
+                else:
+                    restore_tmp = self.path.with_name(f".{self.path.name}.restore")
+                    try:
+                        restore_tmp.write_bytes(previous)
+                        os.replace(restore_tmp, self.path)
+                    finally:
+                        try:
+                            restore_tmp.unlink()
+                        except OSError:
+                            pass
+                raise
+            finally:
+                os.close(directory_fd)
         except BaseException:
             try:
                 tmp.unlink()
@@ -144,6 +161,7 @@ class CampaignRunner:
         scope: str,
         selected: list[str],
         processed: list[str],
+        batch_limit: int,
         state: str,
         reason_codes: list[str],
     ) -> dict[str, object]:
@@ -151,6 +169,7 @@ class CampaignRunner:
             raise ValueError(f"unknown campaign state {state!r}")
         return {
             "scope": _safe_id(scope),
+            "batch_limit": batch_limit,
             "policy_fingerprint": self.policy_fingerprint,
             "selected_work_ids": [_safe_id(item) for item in selected],
             "processed_work_ids": [_safe_id(item) for item in processed],
@@ -175,13 +194,21 @@ class CampaignRunner:
         if record.get("allow_long_live") is not False:
             raise ValueError("resume refused: long-live policy mismatch")
         projection = self.path
-        if projection.exists():
-            try:
-                campaign = json.loads(projection.read_text(encoding="utf-8"))
-            except (OSError, json.JSONDecodeError):
-                raise ValueError("resume refused: campaign projection corrupt")
-            if not isinstance(campaign, dict) or campaign.get("policy_fingerprint") != self.policy_fingerprint:
-                raise ValueError("resume refused: campaign policy mismatch")
+        if not projection.exists():
+            raise ValueError("resume refused: campaign projection missing")
+        try:
+            campaign = json.loads(projection.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            raise ValueError("resume refused: campaign projection corrupt")
+        if campaign.get("policy_fingerprint") != self.policy_fingerprint:
+            raise ValueError("resume refused: policy mismatch")
+        if (
+            not isinstance(campaign, dict)
+            or campaign.get("scope") != scope
+            or campaign.get("batch_limit") != batch_limit
+            or campaign.get("state") != "risk_interrupted"
+        ):
+            raise ValueError("resume refused: campaign projection mismatch")
         return terminal_resume_ids(lookup.processed_ids, entries)
 
     def run(self, scope: str, batch_limit: int, *, resume: bool = False) -> CampaignSummary:
@@ -226,8 +253,7 @@ class CampaignRunner:
             and len(run_summary.results) == len(selected)
             and terminal_results
         )
-        state = "complete" if complete else classify_batch_state(
-            risk_interrupted=run_summary.risk_interrupted, truncated=matching > batch_limit or not selected_rows)
+        state = "complete" if complete else ("risk_interrupted" if run_summary.risk_interrupted else "limited")
         processed = _unique(processed_before + settled_processed_ids(
             run_summary.results, risk_interrupted=run_summary.risk_interrupted))
         skipped = [_safe_id(result.work_id) for result in run_summary.skipped_rows]
@@ -238,7 +264,7 @@ class CampaignRunner:
         )
         exit_code = 2 if run_summary.risk_interrupted else (0 if complete else 1)
         self._atomic_checkpoint(self._projection(scope=scope, selected=selected, processed=processed,
-                                                 state=state, reason_codes=reason_codes))
+                                                 batch_limit=batch_limit, state=state, reason_codes=reason_codes))
         return CampaignSummary(selected=selected, processed=processed, skipped=skipped, failed=failed,
                                checkpoint_state=state, reason_codes=reason_codes, exit_code=exit_code)
 

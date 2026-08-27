@@ -1533,6 +1533,7 @@ def _run_scope_rows(store, entries: dict, scope: str):
     if not selectors:
         return None, "empty --scope"
     return rows, None
+
 def _cmd_campaign(args: argparse.Namespace) -> int:
     try:
         from . import bili_client
@@ -1551,7 +1552,7 @@ def _cmd_campaign(args: argparse.Namespace) -> int:
             scope_rows=_run_scope_rows,
         )
         summary = runner.run(args.scope, args.limit, resume=args.resume)
-    except (ValueError, OSError, TypeError):
+    except Exception:
         print("campaign: invalid configuration or execution failure", file=sys.stderr)
         return 1
     print(json.dumps(summary.to_dict(), ensure_ascii=False, sort_keys=True))
