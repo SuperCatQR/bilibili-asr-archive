@@ -18,6 +18,7 @@ bili-asr = "bili_asr.cli:main"
 
 [project.optional-dependencies]
 dev = [
+    "packaging>=24",
     "pytest>=8",
     "responses>=0.25",
 ]
