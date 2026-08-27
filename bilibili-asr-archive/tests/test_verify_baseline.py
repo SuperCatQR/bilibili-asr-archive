@@ -15,6 +15,7 @@ from scripts.verify_baseline import (
     main,
     offline_install_commands,
     redact,
+    record_command,
     safe_env,
     validate_fixture,
 )
@@ -34,6 +35,50 @@ def write_fixture(path: Path, *, required_distributions: list[str] | None = None
     return path
 
 
+def test_record_command_classifies_build_backend_bootstrap_failure(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
+    import scripts.verify_baseline as verifier
+
+    class FailedProcess:
+        returncode = 17
+        stdout = "pip output with https://example.test/?token=secret"
+        stderr = "backend detail"
+
+    monkeypatch.setattr(verifier.subprocess, "run", lambda *args, **kwargs: FailedProcess())
+    result: dict[str, object] = {"commands": []}
+    with pytest.raises(PrerequisiteError, match=r"offline_dependency_closure_unavailable: declared build backend bootstrap failed \(exit 17\)") as exc_info:
+        record_command(result, "bootstrap_declared_build_requirements", ["python", "-m", "pip"], tmp_path)
+    message = str(exc_info.value)
+    assert "fixture must contain compatible declared build-system wheels" in message
+    assert "pip output" not in message
+    assert "secret" not in message
+    assert result["commands"] == [{"name": "bootstrap_declared_build_requirements", "returncode": 17}]
+
+
+def test_preflight_classifies_build_backend_bootstrap_failure(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
+    import scripts.prepare_offline_baseline_fixture as fixture_builder
+
+    class FailedProcess:
+        returncode = 23
+        stdout = "raw pip output"
+        stderr = "missing wheel"
+
+    def fake_run(command, **kwargs):
+        if "-m" in command and "venv" in command:
+            return type("Created", (), {"returncode": 0, "stdout": "", "stderr": ""})()
+        return FailedProcess()
+
+    monkeypatch.setattr(fixture_builder.subprocess, "run", fake_run)
+    monkeypatch.setattr(fixture_builder, "offline_install_commands", lambda python, fixture: (["bootstrap"], ["install"]))
+    project = tmp_path / "project"
+    project.mkdir()
+    (project / "pyproject.toml").write_text("[build-system]\nrequires=[]\n", encoding="utf-8")
+    fixture = tmp_path / "fixture"
+    fixture.mkdir()
+    with pytest.raises(fixture_builder.FixturePrerequisiteError, match=r"offline_dependency_closure_unavailable: declared build backend bootstrap failed \(exit 23\)") as exc_info:
+        fixture_builder.preflight_fixture(fixture)
+    message = str(exc_info.value)
+    assert "fixture must contain compatible declared build-system wheels" in message
+    assert "raw pip output" not in message
 def test_offline_install_bootstraps_declared_build_requirements_before_project(tmp_path: Path):
     bootstrap, project_install = offline_install_commands(Path("/tmp/venv/bin/python"), tmp_path / "fixture")
     assert bootstrap[-1] == "setuptools>=69"

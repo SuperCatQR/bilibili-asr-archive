@@ -139,7 +139,10 @@ def preflight_fixture(fixture: Path) -> None:
         bootstrap, command = offline_install_commands(python, fixture)
         bootstrap_proc = subprocess.run(bootstrap, cwd=project, capture_output=True, text=True)
         if bootstrap_proc.returncode:
-            raise FixturePrerequisiteError("offline_dependency_closure_unavailable: build backend bootstrap failed")
+            raise FixturePrerequisiteError(
+                "offline_dependency_closure_unavailable: declared build backend bootstrap failed "
+                f"(exit {bootstrap_proc.returncode}); fixture must contain compatible declared build-system wheels"
+            )
         proc = subprocess.run(command, cwd=project, capture_output=True, text=True)
         console = scripts / ("bili-asr.exe" if os.name == "nt" else "bili-asr")
         if proc.returncode:

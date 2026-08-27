@@ -70,6 +70,11 @@ def record_command(
     if proc.returncode:
         if name == "create_venv":
             raise PrerequisiteError("isolated_environment_unavailable: Python 3.12 venv/ensurepip support is required")
+        if name == "bootstrap_declared_build_requirements":
+            raise PrerequisiteError(
+                "offline_dependency_closure_unavailable: declared build backend bootstrap failed "
+                f"(exit {proc.returncode}); fixture must contain compatible declared build-system wheels"
+            )
         if name == "install_declared_dev_extras":
             raise PrerequisiteError(f"offline_dependency_closure_unavailable: install failed (exit {proc.returncode}): {output}")
         raise RuntimeError(f"{name}_failed: exit {proc.returncode}: {output}")
