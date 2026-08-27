@@ -22,35 +22,36 @@ the default is `iic/SenseVoiceSmall`. No model weights are vendored.
 
 ## Deterministic verification baseline
 
-Run the supported baseline from `bilibili-asr-archive/` with Python 3.12:
+Run the supported baseline from `bilibili-asr-archive/` with Python 3.12. The
+repository supplies a reviewed empty snapshot fixture; before an operator run,
+prepare the local offline wheel/sdist directory described below:
 
-    python3.12 scripts/verify_baseline.py
+    python3.12 scripts/prepare_offline_baseline_fixture.py --output .offline-baseline
+    python3.12 scripts/verify_baseline.py --offline-packages .offline-baseline --advisory-snapshot tests/fixtures/advisories-empty.json
 
 The baseline creates a disposable isolated virtual environment, installs the
-local package with its declared `dev` extras using only locally available
-packages (`PIP_NO_INDEX=1`), runs the installed `bili-asr --help` proof, then
-runs the complete pytest suite. It strips `PYTHONPATH`, proxy variables, and
-`BILI_SESSDATA`; it never calls Bilibili, downloads a model, transfers media,
-or prints environment values. Its compact machine-readable result is written to
-`verification-results/baseline.json` and is deliberately gitignored.
+local package with its declared `dev` extras using only the specified local
+package source (`PIP_NO_INDEX=1`), runs the installed `bili-asr --help` proof,
+then runs the complete pytest suite. It strips `PYTHONPATH`, proxy variables,
+and `BILI_SESSDATA`; it never calls Bilibili, downloads a model, transfers
+media, or prints environment values. Its compact machine-readable result is
+written to `verification-results/baseline.json` and is deliberately gitignored.
 
 ### Security-audit policy
 
-Security inspection is deliberately offline and fails closed. The fixed tool
-policy is `pip-audit==2.8.0`, used only with a reviewed, versioned local
-advisory snapshot:
+Security inspection is deliberately offline and fails closed. The baseline uses
+only a reviewed, versioned local advisory snapshot; it does not invoke
+`pip-audit` or query a live advisory database. Each advisory's PEP 440
+`specifier` is checked against the installed distribution version. Unsupported
+specifiers and missing required inputs return exit `2` with
+`status: prerequisite_failed` in the JSON result. Audit findings fail the
+baseline and must be evaluated in a separate remediation plan with evidence—this
+baseline does not upgrade dependencies merely to silence an audit.
 
-    python3.12 scripts/verify_baseline.py \
-      --pip-audit /path/to/pip-audit-2.8.0 \
-      --advisory-snapshot /path/to/advisories.json
+For a deterministic repository proof, the guarded developer command constructs
+the disposable local offline package set and runs the exact command above:
 
-The baseline does **not** query a live advisory database, because live results
-would make no-network verification non-reproducible. Without the named tool or
-snapshot it exits `2`, emits `status: prerequisite_failed`, and names the
-prerequisite in the JSON result; this is not a passing security result. Audit
-findings fail the baseline and must be evaluated in a separate remediation plan
-with evidence—this baseline does not upgrade dependencies merely to silence an
-audit.
+    python3.12 scripts/prepare_offline_baseline_fixture.py --output .offline-baseline --run
 
 Generated output is redacted and bounded: no credentials, signed URLs, raw
 exceptions, model artifacts, media, archive data, or environment dumps belong

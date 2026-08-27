@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import argparse
 import hashlib
-import importlib.metadata
 import json
 import os
 from pathlib import Path
@@ -13,6 +12,9 @@ import subprocess
 import sys
 import tempfile
 from typing import Any
+
+from packaging.specifiers import InvalidSpecifier, SpecifierSet
+from packaging.version import InvalidVersion, Version
 
 ROOT = Path(__file__).resolve().parents[1]
 RESULT_SCHEMA = "bili-asr-verification-baseline/v2"
@@ -68,27 +70,95 @@ def load_snapshot(path: Path) -> tuple[dict[str, Any], str]:
     return data, digest
 
 
+def venv_site_packages(venv_python: Path) -> list[str]:
+    proc = subprocess.run(
+        [str(venv_python), "-c", "import json, sysconfig; print(json.dumps([sysconfig.get_path('purelib'), sysconfig.get_path('platlib')]))"],
+        env=safe_env(),
+        capture_output=True,
+        text=True,
+    )
+    if proc.returncode:
+        raise PrerequisiteError("cannot determine isolated virtual environment site-packages")
+    try:
+        paths = json.loads(proc.stdout)
+    except json.JSONDecodeError as exc:
+        raise PrerequisiteError("isolated virtual environment returned invalid site-packages metadata") from exc
+    if not isinstance(paths, list) or not all(isinstance(path, str) for path in paths):
+        raise PrerequisiteError("isolated virtual environment returned invalid site-packages metadata")
+    return list(dict.fromkeys(paths))
+
+
+def installed_packages(venv_python: Path) -> dict[str, str]:
+    proc = subprocess.run(
+        [str(venv_python), "-m", "pip", "list", "--format=json"],
+        env=safe_env(),
+        capture_output=True,
+        text=True,
+    )
+    if proc.returncode:
+        raise PrerequisiteError("cannot inspect installed distributions in isolated virtual environment")
+    try:
+        distributions = json.loads(proc.stdout)
+    except json.JSONDecodeError as exc:
+        raise PrerequisiteError("isolated virtual environment returned invalid distribution metadata") from exc
+    if not isinstance(distributions, list):
+        raise PrerequisiteError("isolated virtual environment returned invalid distribution metadata")
+    packages: dict[str, str] = {}
+    for distribution in distributions:
+        if not isinstance(distribution, dict) or not isinstance(distribution.get("name"), str) or not isinstance(distribution.get("version"), str):
+            raise PrerequisiteError("isolated virtual environment returned invalid distribution metadata")
+        packages[distribution["name"].lower()] = distribution["version"]
+    return packages
+
+
+def advisory_applies(advisory: dict[str, str], installed_version: str) -> bool:
+    try:
+        return Version(installed_version) in SpecifierSet(advisory["specifier"])
+    except (InvalidSpecifier, InvalidVersion) as exc:
+        raise PrerequisiteError(f"unsupported advisory specifier for {advisory['id']}") from exc
+
+
 def audit(venv_python: Path, advisory_snapshot: Path | None, result: dict[str, Any]) -> None:
     result["audit"] = {"status": "unavailable", "policy": "local snapshot only; no pip-audit or network lookup"}
     if advisory_snapshot is None or not advisory_snapshot.is_file():
         raise PrerequisiteError("security audit unavailable: supply a reviewed local --advisory-snapshot")
     snapshot, digest = load_snapshot(advisory_snapshot)
-    packages = {dist.metadata["Name"].lower(): dist.version for dist in importlib.metadata.distributions(path=[str(venv_python.parent.parent / "lib" / "python3.12" / "site-packages")]) if dist.metadata.get("Name")}
-    findings = [a["id"] for a in snapshot["advisories"] if a["name"].lower() in packages]
-    result["audit"] = {"status": "findings" if findings else "passed", "snapshot": {"schema": snapshot["schema"], "sha256_16": digest}, "finding_ids": findings}
+    site_packages = venv_site_packages(venv_python)
+    packages = installed_packages(venv_python)
+    findings = [
+        advisory["id"]
+        for advisory in snapshot["advisories"]
+        if advisory["name"].lower() in packages and advisory_applies(advisory, packages[advisory["name"].lower()])
+    ]
+    result["audit"] = {
+        "status": "findings" if findings else "passed",
+        "snapshot": {"schema": snapshot["schema"], "sha256_16": digest},
+        "site_packages": site_packages,
+        "finding_ids": findings,
+    }
     if findings:
         raise RuntimeError("security audit reported findings; remediation belongs in a separate plan")
 
 
-def main() -> int:
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--result", type=Path, default=ROOT / "verification-results" / "baseline.json")
     parser.add_argument("--advisory-snapshot", type=Path)
     parser.add_argument("--offline-packages", type=Path, help="prepared wheel/sdist directory containing project dev dependencies")
-    args = parser.parse_args()
+    return parser.parse_args(argv)
+
+
+def main(argv: list[str] | None = None) -> int:
     result: dict[str, Any] = {"schema": RESULT_SCHEMA, "python": f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}", "project": "bili-asr", "network_policy": "offline-only", "commands": [], "status": "failed"}
-    args.result.parent.mkdir(parents=True, exist_ok=True)
+    result_path = ROOT / "verification-results" / "baseline.json"
     try:
+        try:
+            args = parse_args(argv)
+        except SystemExit as exc:
+            result["status"] = "prerequisite_failed"
+            result["error"] = "invalid arguments; use --help for supported options"
+            return 2
+        result_path = args.result
         if sys.version_info[:2] != SUPPORTED_PYTHON:
             raise PrerequisiteError(f"Python 3.12 is required; running {sys.version_info.major}.{sys.version_info.minor}")
         if args.offline_packages is None or not args.offline_packages.is_dir():
@@ -108,7 +178,8 @@ def main() -> int:
     except Exception as exc:
         result["status"] = "failed"; result["error"] = redact(str(exc)); return 1
     finally:
-        args.result.write_text(json.dumps(result, sort_keys=True, indent=2) + "\n", encoding="utf-8")
+        result_path.parent.mkdir(parents=True, exist_ok=True)
+        result_path.write_text(json.dumps(result, sort_keys=True, indent=2) + "\n", encoding="utf-8")
 
 
 if __name__ == "__main__":
