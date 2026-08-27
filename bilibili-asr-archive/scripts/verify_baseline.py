@@ -9,6 +9,7 @@ import os
 from pathlib import Path
 import re
 import shutil
+import socket
 import subprocess
 import sys
 import tempfile
@@ -205,6 +206,12 @@ def audit(venv_python: Path, snapshot: dict[str, Any], digest: str, result: dict
 
 def staged_test_tree(destination: Path) -> Path:
     shutil.copy2(ROOT / "README.md", destination / "README.md")
+    # Keep the verifier module available to test_verify_baseline without importing
+    # any checkout source; all product imports must still resolve from the wheel.
+    staged_scripts = destination / "scripts"
+    staged_scripts.mkdir()
+    shutil.copy2(Path(__file__), staged_scripts / "verify_baseline.py")
+    (staged_scripts / "__init__.py").write_text("", encoding="utf-8")
     staged = destination / "tests"
     shutil.copytree(ROOT / "tests", staged, ignore=shutil.ignore_patterns("__pycache__", "*.pyc", ".pytest_cache"))
     (staged / "conftest.py").write_text(
@@ -217,14 +224,20 @@ def staged_test_tree(destination: Path) -> Path:
     return staged
 
 
+def install_network_deny_guard() -> None:
+    """Deny connection attempts in this interpreter before they reach the OS."""
+    def _deny(*args, **kwargs):
+        raise RuntimeError("network access denied by verification baseline")
+
+    socket.create_connection = _deny
+    socket.socket.connect = _deny
+    socket.socket.connect_ex = _deny
+
+
 def network_deny_sitecustomize(destination: Path) -> None:
     (destination / "sitecustomize.py").write_text(
-        "import socket\n"
-        "def _deny(*args, **kwargs):\n"
-        "    raise RuntimeError('network access denied by verification baseline')\n"
-        "socket.create_connection = _deny\n"
-        "socket.socket.connect = _deny\n"
-        "socket.socket.connect_ex = _deny\n",
+        "from scripts.verify_baseline import install_network_deny_guard\n"
+        "install_network_deny_guard()\n",
         encoding="utf-8",
     )
 

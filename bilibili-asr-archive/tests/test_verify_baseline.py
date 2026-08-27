@@ -132,7 +132,26 @@ def test_staged_test_tree_copies_checkout_inputs(tmp_path: Path):
     from scripts.verify_baseline import staged_test_tree
     staged = staged_test_tree(tmp_path)
     assert (tmp_path / "README.md").is_file()
+    assert (tmp_path / "scripts" / "verify_baseline.py").is_file()
     assert (staged / "test_cli_pilot.py").is_file()
+
+
+def test_network_deny_guard_blocks_all_socket_connect_variants(monkeypatch: pytest.MonkeyPatch):
+    import socket
+    from scripts.verify_baseline import install_network_deny_guard
+
+    monkeypatch.setattr(socket, "create_connection", socket.create_connection)
+    monkeypatch.setattr(socket.socket, "connect", socket.socket.connect)
+    monkeypatch.setattr(socket.socket, "connect_ex", socket.socket.connect_ex)
+    install_network_deny_guard()
+    with pytest.raises(RuntimeError, match="network access denied"):
+        socket.create_connection(("127.0.0.1", 9), timeout=0.01)
+    with pytest.raises(RuntimeError, match="network access denied"):
+        socket.socket().connect(("127.0.0.1", 9))
+    with pytest.raises(RuntimeError, match="network access denied"):
+        socket.create_connection(("127.0.0.1", 9), timeout=0.01)
+    with pytest.raises(RuntimeError, match="network access denied"):
+        socket.socket().connect(("127.0.0.1", 9))
 def test_safe_env_removes_session_and_proxy_variables(monkeypatch: pytest.MonkeyPatch):
     for key in ("PYTHONPATH", "BILI_SESSDATA", "SESSDATA", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY"):
         monkeypatch.setenv(key, "secret")
