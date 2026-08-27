@@ -26,6 +26,7 @@ def test_cli_coverage_json_csv_and_status_dispatch(tmp_path, monkeypatch, capsys
     assert cli.main(["coverage", "--archive-root", str(tmp_path), "--format", "csv"]) == 0
     assert "schema_version" in capsys.readouterr().out
     monkeypatch.setattr(cli, "_cmd_status", lambda args: 7)
+    assert cli.main(["status", "--archive-root", str(tmp_path)]) == 7
 
 
 def test_missing_denominator_is_named(tmp_path: Path):
