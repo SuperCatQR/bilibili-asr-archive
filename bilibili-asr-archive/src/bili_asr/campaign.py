@@ -6,6 +6,7 @@ resume and stage ownership remain with ``scheduler.json`` and the manifest.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -26,6 +27,26 @@ _FORBIDDEN_MARKERS = ("SESSDATA", "cookie", "http://", "https://", "Traceback")
 _MARKER_RE = re.compile("|".join(re.escape(marker) for marker in _FORBIDDEN_MARKERS), re.IGNORECASE)
 _MAX_CODE_LENGTH = 64
 _VALID_STATES = frozenset({"complete", "limited", "risk_interrupted"})
+_SAFE_ID_RE = re.compile(r"^[A-Za-z0-9._:-]{1,128}$")
+_SAFE_CODE_RE = re.compile(r"^[a-z0-9_:-]{1,64}$")
+
+
+def _safe_id(value: object) -> str:
+    text = str(value)
+    if not _SAFE_ID_RE.fullmatch(text):
+        raise ValueError("unsafe campaign identifier")
+    return text
+
+
+def _safe_code(value: object) -> str:
+    text = str(value).lower()
+    if not _SAFE_CODE_RE.fullmatch(text):
+        return "runtime_error"
+    return text
+
+
+def _policy_hash(value: object) -> str:
+    return hashlib.sha256(str(value).encode("utf-8")).hexdigest()
 
 
 @dataclass(frozen=True)
@@ -59,7 +80,7 @@ def _unique(values: list[str]) -> list[str]:
 
 
 def _redacted_code(value: object) -> str:
-    return _MARKER_RE.sub("", str(value))[:_MAX_CODE_LENGTH]
+    return _safe_code(value)
 
 
 class CampaignRunner:
@@ -83,7 +104,7 @@ class CampaignRunner:
         self.max_audio_bytes = max_audio_bytes
         self.sleep = sleep
         self.scope_rows = scope_rows
-        self.policy_fingerprint = policy_fingerprint
+        self.policy_fingerprint = _policy_hash(policy_fingerprint)
         self.coordinator_factory = coordinator_factory
 
     @property
@@ -127,10 +148,10 @@ class CampaignRunner:
         if state not in _VALID_STATES:
             raise ValueError(f"unknown campaign state {state!r}")
         return {
-            "scope": scope,
+            "scope": _safe_id(scope),
             "policy_fingerprint": self.policy_fingerprint,
-            "selected_work_ids": list(selected),
-            "processed_work_ids": list(processed),
+            "selected_work_ids": [_safe_id(item) for item in selected],
+            "processed_work_ids": [_safe_id(item) for item in processed],
             "state": state,
             "reason_codes": list(reason_codes),
         }
@@ -154,9 +175,7 @@ class CampaignRunner:
         processed_before: list[str] = []
         if resume:
             lookup = SchedulerStore(self.root).inspect_resume(scope, allow_long_live=False)
-            if lookup.refuse:
-                raise ValueError(lookup.diagnostic or "resume refused")
-            if lookup.processed_ids is None:
+            if lookup.refuse or lookup.processed_ids is None:
                 raise ValueError(lookup.diagnostic or "resume refused")
             processed_before = terminal_resume_ids(lookup.processed_ids, entries)
             done = set(processed_before)
@@ -164,7 +183,7 @@ class CampaignRunner:
 
         matching = len(rows)
         selected_rows = rows[:batch_limit]
-        selected = [_work_id(key, entry) for key, entry in selected_rows]
+        selected = [_safe_id(_work_id(key, entry)) for key, entry in selected_rows]
         coordinator = self.coordinator_factory(
             self.root,
             store,
@@ -176,7 +195,7 @@ class CampaignRunner:
         run_summary: RunSummary = coordinator.run_batch(selected_rows)
         state = classify_batch_state(
             risk_interrupted=run_summary.risk_interrupted,
-            truncated=matching > batch_limit,
+            truncated=matching > batch_limit or not selected_rows,
         )
         processed = _unique(
             processed_before
@@ -184,8 +203,8 @@ class CampaignRunner:
                 run_summary.results, risk_interrupted=run_summary.risk_interrupted
             )
         )
-        skipped = [result.work_id for result in run_summary.skipped_rows]
-        failed = [result.work_id for result in run_summary.failed]
+        skipped = [_safe_id(result.work_id) for result in run_summary.skipped_rows]
+        failed = [_safe_id(result.work_id) for result in run_summary.failed]
         reason_codes = _unique(
             [_redacted_code(result.skip_reason) for result in run_summary.skipped_rows if result.skip_reason]
             + [
@@ -194,7 +213,7 @@ class CampaignRunner:
                 for code in result.failure_codes
             ]
         )
-        exit_code = 2 if run_summary.risk_interrupted else (0 if run_summary.fully_processed else 1)
+        exit_code = 2 if run_summary.risk_interrupted else (0 if state == "complete" and selected_rows and not skipped and not failed and len(processed) >= len(selected) else 1)
         self._atomic_checkpoint(
             self._projection(
                 scope=scope,

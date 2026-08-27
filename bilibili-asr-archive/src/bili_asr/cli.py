@@ -1538,25 +1538,25 @@ def _run_scope_rows(store, entries: dict, scope: str):
 
 
 def _cmd_campaign(args: argparse.Namespace) -> int:
-    from . import bili_client
-    from .audio_budget import audio_cap_bytes
-    from .campaign import CampaignRunner
-
-    client = None
-    if not args.offline:
-        client = bili_client.BiliClient(sessdata=_resolve_sessdata(args))
-    runner = CampaignRunner(
-        args.archive_root,
-        client=client,
-        offline=args.offline,
-        max_audio_bytes=audio_cap_bytes(args.max_audio_gb),
-        sleep=time.sleep,
-        scope_rows=_run_scope_rows,
-    )
     try:
+        from . import bili_client
+        from .audio_budget import audio_cap_bytes
+        from .campaign import CampaignRunner
+
+        client = None
+        if not args.offline:
+            client = bili_client.BiliClient(sessdata=_resolve_sessdata(args))
+        runner = CampaignRunner(
+            args.archive_root,
+            client=client,
+            offline=args.offline,
+            max_audio_bytes=audio_cap_bytes(args.max_audio_gb),
+            sleep=time.sleep,
+            scope_rows=_run_scope_rows,
+        )
         summary = runner.run(args.scope, args.limit, resume=args.resume)
-    except (ValueError, OSError) as exc:
-        print(f"campaign: {type(exc).__name__}", file=sys.stderr)
+    except (ValueError, OSError, TypeError):
+        print("campaign: invalid configuration or execution failure", file=sys.stderr)
         return 1
     print(json.dumps(summary.to_dict(), ensure_ascii=False, sort_keys=True))
     return summary.exit_code
