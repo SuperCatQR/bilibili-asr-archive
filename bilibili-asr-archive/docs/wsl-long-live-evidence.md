@@ -2,6 +2,8 @@
 
 Completed live Windows WSL acceptance on `DESKTOP-HHFROLO` / WSL2.
 
+Live checkout provenance for the successful fetch-meta and schedule runs: `3fe6b60b2aa52ef47c067fd5656ec48bf784f681`.
+
 ## Environment
 
 - Host / WSL distro: `DESKTOP-HHFROLO` / WSL2 (`x86_64`)
@@ -14,14 +16,23 @@ Completed live Windows WSL acceptance on `DESKTOP-HHFROLO` / WSL2.
 
 ## Disk
 
-- Before schedule: audio directory absent; measured as 0 bytes before run
-- After schedule (post-reclaim): audio directory absent; 0 bytes retained
+Commands executed:
+
+```text
+du -sb "/root/bili-asr-live-audio/audio" || true
+55845684	/root/bili-asr-live-audio/audio
+```
+
+- Before schedule: `du -sb "/root/bili-asr-live-audio/audio" || true` reported no directory; measured as 0 bytes before the audio preparation run
+- After the successful subtitle-only schedule run: `du -sb "/root/bili-asr-live-audio/audio" || true` reported no directory; 0 bytes retained
+- Audio-path preparation run: the real long-live row was downloaded to `/root/bili-asr-live-audio/audio/BV1RGN462EBs.p0.m4a`; the measured audio directory size was `55845684` bytes before the ASR/archive attempt
 
 ## Scheduler summary (redacted)
 
 - conservative `duration_s` / `estimated_bytes` / `would_exceed`: `7902` / `63216000` / `false`
-- measured `peak audio/` bytes: `0`
-- measured `audio/ after` bytes: `0`
+- measured `peak audio/` bytes: `55845684` (audio-path preparation run)
+- measured `audio/ after`: `0` (successful subtitle-only archive run)
+- audio-cap guard check: with existing audio usage `55845684` and `--max-audio-gb 0.01`, scheduler reported `would_exceed=true` and skipped with `audio_budget` (exit 1), preserving the audio row/file
 - `batch=` state: `complete`
 - `enumeration:` `limited (next_page 2, observed_total 1738)`
 - exit code: `0`
@@ -41,6 +52,7 @@ runs: 2
 latest run: schedule, exit 0
 latest cursor: limited (next_page 2, observed_total 1738)
 latest coverage: archived: 1, meta_ok: 35
+commit provenance: `3fe6b60b2aa52ef47c067fd5656ec48bf784f681`
 ```
 
 ## No-secret scan
