@@ -10,6 +10,9 @@ import pytest
 
 from installed_cli import (
     SENTINEL_COOKIE,
+    _redact_diagnostics,
+    _summarize,
+    _venv_scripts_dir,
     assert_redacted,
     provision_isolated_cli,
     run_installed,
@@ -42,7 +45,7 @@ def test_installed_console_script_status_uses_temp_archive_root(isolated_cli, tm
 
 
 def test_installed_script_is_not_path_or_checkout_source(isolated_cli) -> None:
-    assert Path(isolated_cli.executable).parent == Path(isolated_cli.venv_dir) / "bin"
+    assert Path(isolated_cli.executable).parent == Path(_venv_scripts_dir(isolated_cli.venv_dir))
     probe = run_installed(isolated_cli, ["--help"])
     assert probe.returncode == 0
     assert "PYTHONPATH" not in probe.stdout
@@ -62,6 +65,65 @@ def test_module_status_uses_temp_archive_root(tmp_path: Path) -> None:
     assert proc.returncode == 0, proc.stderr
     assert "manifest: empty" in proc.stdout
     assert_redacted(proc)
+
+
+def test_installed_console_script_status_with_manifest_records(isolated_cli, tmp_path: Path) -> None:
+    from bili_asr.manifest import ManifestStore
+
+    store = ManifestStore(root=str(tmp_path))
+    store.upsert({"work_id": "BV1test_inst:p1", "bvid": "BV1test_inst", "status": "archived"})
+    store.upsert({"work_id": "BV1test_meta:p1", "bvid": "BV1test_meta", "status": "meta_ok"})
+
+    proc = run_installed(isolated_cli, ["status", "--archive-root", str(tmp_path)])
+    assert proc.returncode == 0, proc.stderr
+    assert "archived: 1" in proc.stdout
+    assert "meta_ok: 1" in proc.stdout
+    assert_redacted(proc)
+
+
+def test_module_runs_empty_archive(tmp_path: Path) -> None:
+    proc = run_module(["runs", "--archive-root", str(tmp_path)])
+    assert proc.returncode == 0, proc.stderr
+    assert "runs: empty" in proc.stdout
+    assert_redacted(proc)
+
+
+def test_cli_main_help_direct(capsys: pytest.CaptureFixture[str]) -> None:
+    from bili_asr.cli import main
+
+    with pytest.raises(SystemExit) as exc:
+        main(["--help"])
+    assert exc.value.code == 0
+    out = capsys.readouterr().out
+    assert "bili-asr" in out
+    assert "fetch-meta" in out
+    assert "status" in out
+    assert "runs" in out
+
+
+def test_cli_main_importable() -> None:
+    from bili_asr.cli import main as _  # noqa: F401
+
+
+def test_install_failure_diagnostics_redact_signed_urls_and_credentials() -> None:
+    diagnostic = _redact_diagnostics(
+        "ERROR: https://user:secret@example.test/pkg?token=abc&signature=sig&deadline=123 "
+        "SESSDATA=leak " + SENTINEL_COOKIE
+    )
+    assert diagnostic == "ERROR: [redacted-url] [redacted] [redacted]"
+
+
+def test_install_failure_summary_redacts_output() -> None:
+    proc = subprocess.CompletedProcess(
+        ["pip"],
+        1,
+        "",
+        "error: https://signed.example.test/pkg?token=abc&signature=sig " + SENTINEL_COOKIE,
+    )
+    summary = _summarize(proc)
+    assert "https://" not in summary
+    assert "token=abc" not in summary
+    assert SENTINEL_COOKIE not in summary
 
 
 def test_sentinel_never_appears_in_cli_output(isolated_cli) -> None:

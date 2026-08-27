@@ -18,6 +18,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -27,7 +28,7 @@ import pytest
 
 PACKAGE_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 SRC_DIR = os.path.join(PACKAGE_ROOT, "src")
-CHECKOUT_VENV_SCRIPT = os.path.join(PACKAGE_ROOT, ".venv", "bin", "bili-asr")
+CHECKOUT_VENV_DIR = os.path.join(PACKAGE_ROOT, ".venv")
 
 SENTINEL_COOKIE = "cli-verify-sentinel-cookie-9f3a2c"
 
@@ -37,6 +38,8 @@ _FORBIDDEN_OUTPUT_FRAGMENTS = (
     "upos-sz-",
     "bilivideo.com",
     "deadline=",
+    "token=",
+    "signature=",
 )
 
 _BUILD_ARTIFACTS = (
@@ -93,18 +96,6 @@ def require_python_312(version_info: tuple[int, ...] | None = None) -> tuple[int
     return major, minor
 
 
-def _venv_python(venv_dir: str) -> str:
-    if os.name == "nt":
-        return os.path.join(venv_dir, "Scripts", "python.exe")
-    return os.path.join(venv_dir, "bin", "python")
-
-
-def _venv_script(venv_dir: str, name: str) -> str:
-    if os.name == "nt":
-        return os.path.join(venv_dir, "Scripts", f"{name}.exe")
-    return os.path.join(venv_dir, "bin", name)
-
-
 def _find_uv() -> str | None:
     found = shutil.which("uv")
     if found:
@@ -118,16 +109,42 @@ def _find_uv() -> str | None:
     return None
 
 
-def _redact_line(text: str) -> str:
-    line = text.replace(SENTINEL_COOKIE, "[redacted]").strip()
-    return line[:240]
+_CREDENTIAL_URL_RE = re.compile(r"(?i)(?:https?://)[^\s\"\']+")
+_CREDENTIAL_VALUE_RE = re.compile(
+    r"(?i)(?:sessdata|access[_-]?token|authorization|cookie|token|signature|sign|deadline)"
+    r"\s*(?:=|:)\s*[^\s,;]+"
+)
+
+
+def _redact_diagnostics(text: str) -> str:
+    """Return a bounded diagnostic with URLs and credential-like values removed."""
+    redacted = text.replace(SENTINEL_COOKIE, "[redacted]")
+    redacted = _CREDENTIAL_URL_RE.sub("[redacted-url]", redacted)
+    redacted = _CREDENTIAL_VALUE_RE.sub("[redacted]", redacted)
+    return redacted[:240]
 
 
 def _summarize(proc: subprocess.CompletedProcess[str]) -> str:
     blob = (proc.stderr or proc.stdout or "").strip().splitlines()
     if not blob:
         return f"exit {proc.returncode}"
-    return _redact_line(blob[-1])
+    return _redact_diagnostics(blob[-1])
+
+
+def _safe_exception_summary(exc: BaseException) -> str:
+    return _redact_diagnostics(f"{type(exc).__name__}: {exc}")
+
+
+def _venv_scripts_dir(venv_dir: str) -> str:
+    return os.path.join(venv_dir, "Scripts" if os.name == "nt" else "bin")
+
+
+def _venv_python(venv_dir: str) -> str:
+    return os.path.join(_venv_scripts_dir(venv_dir), "python.exe" if os.name == "nt" else "python")
+
+
+def _venv_script(venv_dir: str, name: str) -> str:
+    return os.path.join(_venv_scripts_dir(venv_dir), f"{name}.exe" if os.name == "nt" else name)
 
 
 def _run(
@@ -143,6 +160,22 @@ def _run(
         env=dict(env) if env is not None else None,
         cwd=cwd or PACKAGE_ROOT,
     )
+
+
+def _run_checked(
+    cmd: list[str],
+    *,
+    env: Mapping[str, str] | None = None,
+    cwd: str | None = None,
+) -> subprocess.CompletedProcess[str]:
+    try:
+        return _run(cmd, env=env, cwd=cwd)
+    except OSError as exc:
+        _fail_prereq(
+            f"could not run local prerequisite command {cmd[0]!r} "
+            f"({_safe_exception_summary(exc)})"
+        )
+    raise AssertionError("_fail_prereq does not return")
 
 
 def _offline_tool_env(extra: Mapping[str, str] | None = None) -> dict[str, str]:
@@ -216,11 +249,11 @@ def _stage_sources(staging_dir: str) -> str:
 
 def _provision_with_uv(uv: str, venv_dir: str, staged_pkg: str) -> None:
     env = _offline_tool_env()
-    created = _run([uv, "venv", "--python", "3.12", venv_dir], env=env)
+    created = _run_checked([uv, "venv", "--python", "3.12", venv_dir], env=env)
     if created.returncode != 0:
         _fail_prereq(f"uv venv failed ({_summarize(created)})")
     python = _venv_python(venv_dir)
-    installed = _run(
+    installed = _run_checked(
         [
             uv,
             "pip",
@@ -243,20 +276,41 @@ def _provision_with_uv(uv: str, venv_dir: str, staged_pkg: str) -> None:
 
 def _provision_with_stdlib_venv(venv_dir: str, staged_pkg: str) -> None:
     env = _offline_tool_env()
-    created = _run([sys.executable, "-m", "venv", venv_dir], env=env)
+    created = _run_checked([sys.executable, "-m", "venv", venv_dir], env=env)
     if created.returncode != 0:
         _fail_prereq(
             "python -m venv failed and uv was not found "
             f"({_summarize(created)})"
         )
     python = _venv_python(venv_dir)
-    pip_probe = _run([python, "-m", "pip", "--version"], env=env)
+    pip_probe = _run_checked([python, "-m", "pip", "--version"], env=env)
     if pip_probe.returncode != 0:
         _fail_prereq(
             "isolated venv has no pip (ensurepip unavailable); install uv "
             f"({_summarize(pip_probe)})"
         )
-    installed = _run(
+    backend_probe = _run_checked(
+        [python, "-c", "import setuptools; print(setuptools.__version__)"], env=env
+    )
+    if backend_probe.returncode != 0:
+        _fail_prereq(
+            "offline stdlib-venv install requires local build backend setuptools>=69; "
+            "use uv or a Python 3.12 environment whose venv includes setuptools>=69 "
+            f"({_summarize(backend_probe)})"
+        )
+    try:
+        backend_version = tuple(
+            int(part) for part in (backend_probe.stdout or "").strip().split(".")[:2]
+        )
+    except ValueError:
+        backend_version = ()
+    if not backend_version or backend_version < (69, 0):
+        _fail_prereq(
+            "offline stdlib-venv install requires local build backend setuptools>=69; "
+            f"found {((backend_probe.stdout or '').strip() or 'unknown')!r}. "
+            "Use uv or preinstall a compatible backend locally."
+        )
+    installed = _run_checked(
         [
             python,
             "-m",
@@ -288,12 +342,12 @@ def _assert_isolated_script(venv_dir: str, executable: str) -> None:
         _fail_prereq(
             "installed 'bili-asr' console script is not inside the isolated venv"
         )
-    if os.path.isfile(CHECKOUT_VENV_SCRIPT):
-        if real_exe == os.path.realpath(CHECKOUT_VENV_SCRIPT):
-            _fail_prereq(
-                "console script resolved to the developer checkout venv, "
-                "not the isolated install"
-            )
+    checkout_script = _venv_script(CHECKOUT_VENV_DIR, "bili-asr")
+    if os.path.isfile(checkout_script) and real_exe == os.path.realpath(checkout_script):
+        _fail_prereq(
+            "console script resolved to the developer checkout venv, "
+            "not the isolated install"
+        )
 
 
 def provision_isolated_cli(venv_dir: str) -> InstalledCLI:
@@ -323,7 +377,7 @@ def provision_isolated_cli(venv_dir: str) -> InstalledCLI:
         if not os.path.isfile(python):
             _fail_prereq(f"isolated venv python missing at {python}")
 
-        version_proc = _run(
+        version_proc = _run_checked(
             [
                 python,
                 "-c",
