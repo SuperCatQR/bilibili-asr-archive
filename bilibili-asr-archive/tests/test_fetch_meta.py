@@ -175,6 +175,25 @@ def test_buvid_bootstrap_uses_browser_headers_and_optional_sessdata():
     assert spi_call["cookies"]["SESSDATA"] == "test-sessdata-value"
 
 
+def test_archive_enumeration_sends_optional_sessdata():
+    transport = FakeTransport(
+        [(200, ok_page([arc("BV1A")]))],
+        spi=[(200, {"code": 0, "data": {"b_3": "B3", "b_4": "B4"}})],
+    )
+    client = bc.BiliClient(
+        transport=transport,
+        sessdata="test-sessdata-value",
+        sleeper=FastSleeper(),
+    )
+
+    client.fetch_pages(23191782, max_pages=1)
+
+    page_call = next(c for c in transport.calls if "recArchives" in c["url"])
+    assert page_call["cookies"]["SESSDATA"] == "test-sessdata-value"
+    assert page_call["cookies"]["buvid3"] == "B3"
+    assert page_call["cookies"]["buvid4"] == "B4"
+
+
 def test_buvid_cached_per_process():
     transport = FakeTransport(
         [(200, ok_page([arc("BV1A")])), (200, ok_page([arc("BV1B")]))],

@@ -258,12 +258,20 @@ class BiliClient:
         delay += max(0.0, self._jitter())
         self._sleeper(delay)
 
+    def _cookies_with_sessdata(
+        self, cookies: Mapping[str, str] | None
+    ) -> dict[str, str] | None:
+        merged = dict(cookies or {})
+        if self._sessdata:
+            merged["SESSDATA"] = self._sessdata
+        return merged or None
+
     def _refresh_buvid(self) -> dict[str, str]:
         try:
             status, body = self.transport.get_json(
                 FINGER_SPI_URL,
                 headers=BASE_HEADERS,
-                cookies={"SESSDATA": self._sessdata} if self._sessdata else None,
+                cookies=self._cookies_with_sessdata(None),
             )
         except Exception as exc:  # transport-level error: terminal budget path
             raise RiskBudgetExhausted(
@@ -291,7 +299,8 @@ class BiliClient:
         for attempt in range(1, self.max_attempts + 1):
             try:
                 status, body = self.transport.get_json(
-                    url, params=params, headers=BASE_HEADERS, cookies=cookies
+                    url, params=params, headers=BASE_HEADERS,
+                    cookies=self._cookies_with_sessdata(cookies),
                 )
             except Exception as exc:
                 # H1: transport errors (requests.Timeout/ConnectionError/DNS,
@@ -341,7 +350,8 @@ class BiliClient:
         for attempt in range(1, self.max_attempts + 1):
             try:
                 status, body = self.transport.get_json(
-                    url, params=params, headers=BASE_HEADERS, cookies=cookies
+                    url, params=params, headers=BASE_HEADERS,
+                    cookies=self._cookies_with_sessdata(cookies),
                 )
             except Exception as exc:
                 last_code = _safe_error_code(exc)
