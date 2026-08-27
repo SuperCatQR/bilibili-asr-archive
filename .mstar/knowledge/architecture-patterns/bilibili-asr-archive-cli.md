@@ -154,8 +154,7 @@ multi-part sources and resumable enumeration.
 ## Evidence
 
 - Iteration: `iter-2026-08-wmz-asr-mvp`, `iter-2026-08-archive-foundations`
-- Source specs: `.mstar/specs/asr-archive-cli.md`,
-  `.mstar/iterations/iter-2026-08-archive-foundations/specs/meta-cursor.md`
+- Source specs: `.mstar/specs/asr-archive-cli.md` (page-aware identity and cursor contract); historical implementation evidence is anchored by commit `33b0a37`.
 - Implementation: `bilibili-asr-archive/src/bili_asr/` (incl.
   `bilibili-asr-archive/src/bili_asr/meta_cursor.py`)
 - Verification: 96 unit tests on Python 3.12 (MVP); 147 passed (plan 001);
@@ -166,4 +165,4 @@ multi-part sources and resumable enumeration.
 - Bounded PC pilot: `iter-2026-08-live-pc-pilot`, source revision `4e00fb3`;
   299 tests passed and staged Windows WSL N=5 / N=20 observed subtitle and
   ASR branches, named budget skipping, and post-archive reclaim.
-- Corpus-operations update: `.mstar/iterations/iter-2026-08-corpus-operations/specs/full-corpus-scheduler.md` and `.mstar/iterations/iter-2026-08-corpus-operations/specs/verification-baseline.md`; integration revision `ad5253d` passed 392 tests, and the managed Python 3.12.13 no-index baseline passed with five zero-exit commands and 14 hash-validated fixture artifacts.
+- Corpus-operations update: `.mstar/specs/asr-archive-cli.md` and commit `ad5253d` (scheduler and verification-baseline changes); integration revision `ad5253d` passed 392 tests, and the managed Python 3.12.13 no-index baseline passed with five zero-exit commands and 14 hash-validated fixture artifacts.

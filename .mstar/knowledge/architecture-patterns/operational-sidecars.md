@@ -98,4 +98,4 @@ scheduling, daemons, or replacing `pilot` as the MVP proof command.
   `bilibili-asr-archive/src/bili_asr/search_index.py`,
   `bilibili-asr-archive/src/bili_asr/coordinator.py`
 - Verification: 277 passed on Python 3.12 (QA, no live HTTP)
-- Corpus-operations update: `.mstar/iterations/iter-2026-08-corpus-operations/specs/mixed-outcome-contract.md`; integration revision `ad5253d` preserves the frozen manifest/risk taxonomy and verifies 392 tests with honest exit precedence for risk, per-item failure, and already-terminal work.
+- Corpus-operations update: `.mstar/specs/asr-archive-cli.md` and commit `ad5253d` (mixed-outcome and scheduler changes); integration revision `ad5253d` preserves the frozen manifest/risk taxonomy and verifies 392 tests with honest exit precedence for risk, per-item failure, and already-terminal work.

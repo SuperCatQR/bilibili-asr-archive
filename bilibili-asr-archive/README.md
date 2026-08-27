@@ -330,6 +330,14 @@ selectable by the same command or by `run --scope failed`. Explicit `run
 (that sidecar is `fetch-meta` / `pilot` / `run` / `schedule`). All operator
 surfaces carry redacted scalar codes/reasons only.
 
+### Corpus coverage iteration contracts
+
+The iteration package at `.mstar/iterations/iter-2026-08-corpus-coverage/` defines six business slices: bounded campaign execution, cumulative coverage reconciliation, subtitle/artifact quality signals, local transcript exploration, integrity/recovery, and a concurrency safety gate. These are product contracts and plans, not claims that the corresponding future behavior is already shipped.
+
+The target state is an auditable sequential workflow: the manifest remains SSOT; reports are read-only projections; bounded batches never imply full-corpus completion; reclaimed audio is valid after transcript archival; and semantic transcript correctness is out of scope. The concurrency slice is a no-go-by-default evidence gate and does not enable workers or a daemon. Any later implementation must satisfy the plan's fixture-only verification, redaction, explicit denominator, stable output, and frozen exit/status boundaries.
+
+The roadmap is explicit: first establish campaign and telemetry evidence, then quality, explorer, and integrity contracts, and finally evaluate concurrency. A later iteration may implement only a mode allowed by a passing safety gate and a separately approved plan.
+
 ## Multipart pages and legacy rows
 
 Automatic enumeration writes one manifest row per page (`work_id` =
