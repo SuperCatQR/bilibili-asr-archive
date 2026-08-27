@@ -18,6 +18,7 @@ from scripts.verify_baseline import (
     record_command,
     safe_env,
     validate_fixture,
+    copy_checkout_docs,
 )
 
 
@@ -182,10 +183,41 @@ def test_script_path_is_platform_correct(tmp_path: Path, monkeypatch: pytest.Mon
     assert verifier.script_path(tmp_path, "bili-asr").name == "bili-asr.exe"
 
 
+def test_copy_checkout_docs_copies_synthetic_checkout_docs(tmp_path: Path):
+    source = tmp_path / "checkout"
+    destination = tmp_path / "staged"
+    (source / "docs" / "nested").mkdir(parents=True)
+    (source / "docs" / "guide.md").write_text("guide", encoding="utf-8")
+    (source / "docs" / "nested" / "notes.txt").write_text("notes", encoding="utf-8")
+
+    copy_checkout_docs(source, destination)
+
+    assert (destination / "docs" / "guide.md").read_text(encoding="utf-8") == "guide"
+    assert (destination / "docs" / "nested" / "notes.txt").read_text(encoding="utf-8") == "notes"
+
+
+def test_copy_checkout_docs_rejects_out_of_root_symlink_without_copying(tmp_path: Path):
+    source = tmp_path / "checkout"
+    destination = tmp_path / "staged"
+    external = tmp_path / "external.txt"
+    (source / "docs").mkdir(parents=True)
+    external.write_text("secret external content", encoding="utf-8")
+    (source / "docs" / "external.txt").symlink_to(external)
+
+    with pytest.raises(PrerequisiteError, match=r"docs_invalid: symlink is not allowed in docs"):
+        copy_checkout_docs(source, destination)
+
+    assert not destination.exists()
+    assert external.read_text(encoding="utf-8") == "secret external content"
+
+
 def test_staged_test_tree_copies_checkout_inputs(tmp_path: Path):
     from scripts.verify_baseline import staged_test_tree
     staged = staged_test_tree(tmp_path)
     assert (tmp_path / "README.md").is_file()
+    if (Path(__file__).resolve().parents[1] / "docs").is_dir():
+        assert (tmp_path / "docs" / "wsl-long-live.md").is_file()
+        assert (tmp_path / "docs" / "wsl-long-live-evidence.md").is_file()
     assert (tmp_path / "scripts" / "verify_baseline.py").is_file()
     assert (staged / "test_cli_pilot.py").is_file()
     assert not (staged / "test_cli_help.py").exists()
