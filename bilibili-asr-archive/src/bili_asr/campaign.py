@@ -141,7 +141,10 @@ class CampaignRunner:
                 else:
                     restore_tmp = self.path.with_name(f".{self.path.name}.restore")
                     try:
-                        restore_tmp.write_bytes(previous)
+                        with restore_tmp.open("wb") as restore_handle:
+                            restore_handle.write(previous)
+                            restore_handle.flush()
+                            os.fsync(restore_handle.fileno())
                         os.replace(restore_tmp, self.path)
                         restore_fd = os.open(self.path, os.O_RDONLY)
                         try:
@@ -180,43 +183,68 @@ class CampaignRunner:
     ) -> dict[str, object]:
         if state not in _VALID_STATES:
             raise ValueError(f"unknown campaign state {state!r}")
+        if isinstance(batch_limit, bool) or not isinstance(batch_limit, int) or batch_limit < 1:
+            raise ValueError("invalid campaign batch limit")
+        selected_ids = [_safe_id(item) for item in selected]
+        processed_ids = [_safe_id(item) for item in processed]
+        if len(selected_ids) > batch_limit or len(set(selected_ids)) != len(selected_ids):
+            raise ValueError("invalid campaign selected identifiers")
+        if len(processed_ids) > batch_limit or len(set(processed_ids)) != len(processed_ids):
+            raise ValueError("invalid campaign processed identifiers")
+        if not set(processed_ids).issubset(selected_ids):
+            raise ValueError("invalid campaign processed identifiers")
+        codes = [_safe_code(code) for code in reason_codes]
+        if len(codes) > _MAX_REASON_CODES:
+            raise ValueError("too many campaign reason codes")
         return {
             "schema_version": _SCHEMA_VERSION,
             "scope": _safe_id(scope),
             "batch_limit": batch_limit,
             "policy_fingerprint": self.policy_fingerprint,
-            "selected_work_ids": [_safe_id(item) for item in selected],
-            "processed_work_ids": [_safe_id(item) for item in processed],
+            "selected_work_ids": selected_ids,
+            "processed_work_ids": processed_ids,
             "skipped_work_ids": [],
             "failed_work_ids": [],
             "state": state,
-            "reason_codes": [_safe_code(code) for code in _unique(reason_codes)[:_MAX_REASON_CODES]],
+            "reason_codes": _unique(codes),
         }
 
     def _validate_projection(self, value: object, scope: str, batch_limit: int, selected_scope: set[str]) -> dict[str, Any]:
         if not isinstance(value, dict):
+            raise ValueError("campaign projection corrupt/mismatch")
+        expected = {
+            "schema_version", "scope", "batch_limit", "policy_fingerprint",
+            "selected_work_ids", "processed_work_ids", "skipped_work_ids",
+            "failed_work_ids", "state", "reason_codes",
+        }
+        if set(value) != expected or value.get("schema_version") != _SCHEMA_VERSION:
+            raise ValueError("campaign projection corrupt/mismatch")
             raise ValueError("resume refused: campaign projection corrupt/mismatch")
         if value.get("policy_fingerprint") != self.policy_fingerprint:
             raise ValueError("resume refused: policy mismatch")
         if value.get("scope") != scope or value.get("batch_limit") != batch_limit or value.get("state") != "risk_interrupted":
             raise ValueError("resume refused: campaign projection mismatch")
-        for key in ("selected_work_ids", "processed_work_ids"):
-            raw = value.get(key)
-            if not isinstance(raw, list) or len(raw) > batch_limit or len(set(raw)) != len(raw):
-                raise ValueError("resume refused: campaign projection corrupt/mismatch")
-            try:
-                [_safe_id(item) for item in raw]
-            except ValueError as exc:
-                raise ValueError("resume refused: campaign projection corrupt/mismatch") from exc
-        if not set(value["selected_work_ids"]).issubset(selected_scope) or not set(value["processed_work_ids"]).issubset(set(value["selected_work_ids"])):
-            raise ValueError("resume refused: campaign projection corrupt/mismatch")
-        codes = value.get("reason_codes", [])
-        if not isinstance(codes, list) or len(codes) > _MAX_REASON_CODES:
-            raise ValueError("resume refused: campaign projection corrupt/mismatch")
+        if not isinstance(value["scope"], str):
+            raise ValueError("campaign projection corrupt/mismatch")
         try:
+            _safe_id(value["scope"])
+            for key in ("selected_work_ids", "processed_work_ids", "skipped_work_ids", "failed_work_ids"):
+                raw = value[key]
+                if not isinstance(raw, list) or len(raw) > batch_limit or len(set(raw)) != len(raw):
+                    raise ValueError("invalid ids")
+                [_safe_id(item) for item in raw]
+            codes = value["reason_codes"]
+            if not isinstance(codes, list) or len(codes) > _MAX_REASON_CODES or len(set(codes)) != len(codes):
+                raise ValueError("invalid codes")
             [_safe_code(code) for code in codes]
-        except ValueError as exc:
-            raise ValueError("resume refused: campaign projection corrupt/mismatch") from exc
+        except (TypeError, ValueError) as exc:
+            raise ValueError("campaign projection corrupt/mismatch") from exc
+        selected = set(value["selected_work_ids"])
+        processed = set(value["processed_work_ids"])
+        if not selected.issubset(selected_scope) or not processed.issubset(selected):
+            raise ValueError("campaign projection corrupt/mismatch")
+        if value["skipped_work_ids"] or value["failed_work_ids"]:
+            raise ValueError("campaign projection corrupt/mismatch")
         return value
     def _resume_ids(
         self, scope: str, batch_limit: int, entries: dict[str, dict[str, Any]],
@@ -271,6 +299,8 @@ class CampaignRunner:
             processed_before = self._resume_ids(scope, batch_limit, entries, {_work_id(k, e) for k, e in rows})
             done = set(processed_before)
             rows = [(key, entry) for key, entry in rows if _work_id(key, entry) not in done]
+        else:
+            processed_before = []
 
         matching = len(rows)
         selected_rows = rows[:batch_limit]

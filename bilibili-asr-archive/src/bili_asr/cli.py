@@ -1535,11 +1535,11 @@ def _run_scope_rows(store, entries: dict, scope: str):
     return rows, None
 
 def _cmd_campaign(args: argparse.Namespace) -> int:
-    try:
-        from . import bili_client
-        from .audio_budget import audio_cap_bytes
-        from .campaign import CampaignRunner
+    from . import bili_client
+    from .audio_budget import audio_cap_bytes
+    from .campaign import CampaignRunner
 
+    try:
         client = None
         if not args.offline:
             client = bili_client.BiliClient(sessdata=_resolve_sessdata(args))
@@ -1552,7 +1552,7 @@ def _cmd_campaign(args: argparse.Namespace) -> int:
             scope_rows=_run_scope_rows,
         )
         summary = runner.run(args.scope, args.limit, resume=args.resume)
-    except Exception:
+    except (ValueError, TypeError, OSError):
         print("campaign: invalid configuration or execution failure", file=sys.stderr)
         return 1
     print(json.dumps(summary.to_dict(), ensure_ascii=False, sort_keys=True))
