@@ -24,17 +24,20 @@ the default is `iic/SenseVoiceSmall`. No model weights are vendored.
 
 Run the supported baseline from `bilibili-asr-archive/` with Python 3.12. The
 repository supplies a reviewed empty snapshot fixture; before an operator run,
-prepare the local offline wheel/sdist directory described below:
+prepare the reviewed, curated local wheel directory (`/path/to/reviewed-wheels`) containing exactly the complete dependency closure (one compatible wheel per distribution, including build, runtime, and `dev` requirements):
 
-    python3.12 scripts/prepare_offline_baseline_fixture.py --output .offline-baseline
+    python3.12 scripts/prepare_offline_baseline_fixture.py --wheel-source /path/to/reviewed-wheels --output .offline-baseline
     python3.12 scripts/verify_baseline.py --offline-packages .offline-baseline --advisory-snapshot tests/fixtures/advisories-empty.json
 
 The baseline creates a disposable isolated virtual environment, installs the
 local package with its declared `dev` extras using only the specified local
 package source (`PIP_NO_INDEX=1`), runs the installed `bili-asr --help` proof,
-then runs the complete pytest suite. It strips `PYTHONPATH`, proxy variables,
-and `BILI_SESSDATA`; it never calls Bilibili, downloads a model, transfers
-media, or prints environment values. Its compact machine-readable result is
+then runs the complete pytest suite from a staged test and documentation tree.
+During pytest it installs a process-level socket connection deny guard; a test
+that attempts a live HTTP/model request fails before any outbound connection.
+It also strips `PYTHONPATH`, proxy variables, and `BILI_SESSDATA`; it never
+calls Bilibili, downloads a model, transfers media, or prints environment
+values. Its compact machine-readable result is
 written to `verification-results/baseline.json` and is deliberately gitignored.
 
 ### Security-audit policy
@@ -51,7 +54,7 @@ baseline does not upgrade dependencies merely to silence an audit.
 For a deterministic repository proof, the guarded developer command constructs
 the disposable local offline package set and runs the exact command above:
 
-    python3.12 scripts/prepare_offline_baseline_fixture.py --output .offline-baseline --run
+    python3.12 scripts/prepare_offline_baseline_fixture.py --wheel-source /path/to/reviewed-wheels --output .offline-baseline --run
 
 Generated output is redacted and bounded: no credentials, signed URLs, raw
 exceptions, model artifacts, media, archive data, or environment dumps belong

@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 from pathlib import Path
 import re
 import shutil
@@ -14,7 +15,7 @@ import tempfile
 from typing import Any
 
 from packaging.requirements import Requirement
-from packaging.utils import canonicalize_name
+from packaging.utils import canonicalize_name, parse_wheel_filename
 
 ROOT = Path(__file__).resolve().parents[1]
 FIXTURE_SCHEMA = "bili-asr-offline-fixture/v1"
@@ -27,10 +28,11 @@ class FixturePrerequisiteError(RuntimeError):
 
 
 def artifact_name(path: Path) -> str:
-    match = WHEEL_NAME_RE.match(path.name)
-    if match is None:
-        raise FixturePrerequisiteError(f"unsupported wheel filename: {path.name}")
-    return canonicalize_name(match.group("name"))
+    try:
+        name, _, _, _ = parse_wheel_filename(path.name)
+    except Exception as exc:
+        raise FixturePrerequisiteError(f"unsupported wheel filename: {path.name}") from exc
+    return canonicalize_name(name)
 
 
 def artifact_digest(path: Path) -> str:
@@ -99,26 +101,38 @@ def build_fixture(source: Path, output: Path) -> dict[str, Any]:
 
 
 def preflight_fixture(fixture: Path) -> None:
-    """Ask pip's offline resolver to prove the declared dependency closure."""
+    """Prove the exact isolated-project install contract consumed by the verifier."""
     with tempfile.TemporaryDirectory(prefix="bili-asr-fixture-preflight-") as temp:
-        target = Path(temp) / "target"
+        temporary = Path(temp)
+        project = temporary / "project"
+        shutil.copytree(
+            ROOT,
+            project,
+            ignore=shutil.ignore_patterns(".git", ".venv", ".test-tmp", ".pytest_cache", "__pycache__", "verification-results"),
+        )
+        venv = temporary / "venv"
+        create = subprocess.run([sys.executable, "-m", "venv", str(venv)], cwd=project, capture_output=True, text=True)
+        if create.returncode:
+            raise FixturePrerequisiteError("isolated_environment_unavailable: Python 3.12 venv/ensurepip support is required")
+        scripts = venv / ("Scripts" if os.name == "nt" else "bin")
+        python = scripts / ("python.exe" if os.name == "nt" else "python")
         command = [
-            sys.executable,
+            str(python),
             "-m",
             "pip",
             "install",
             "--no-index",
             "--find-links",
             str(fixture.resolve()),
-            "--only-binary=:all:",
-            "--target",
-            str(target),
-            *pyproject_requirements(ROOT),
+            "--no-build-isolation",
+            ".[dev]",
         ]
-        proc = subprocess.run(command, cwd=ROOT, capture_output=True, text=True)
+        proc = subprocess.run(command, cwd=project, capture_output=True, text=True)
+        console = scripts / ("bili-asr.exe" if os.name == "nt" else "bili-asr")
     if proc.returncode:
-        diagnostic = (proc.stdout + proc.stderr).strip().splitlines()[-1:] or ["pip resolver failed"]
-        raise FixturePrerequisiteError("offline_dependency_closure_unavailable: " + diagnostic[0])
+        raise FixturePrerequisiteError("offline_dependency_closure_unavailable: exact project install preflight failed")
+    if not console.is_file():
+        raise FixturePrerequisiteError("offline_dependency_closure_unavailable: installed console script is missing")
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:

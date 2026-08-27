@@ -15,7 +15,7 @@ import tempfile
 from typing import Any
 
 from packaging.specifiers import InvalidSpecifier, SpecifierSet
-from packaging.utils import canonicalize_name
+from packaging.utils import canonicalize_name, parse_wheel_filename
 from packaging.version import InvalidVersion, Version
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -60,8 +60,10 @@ def safe_env() -> dict[str, str]:
     return env
 
 
-def record_command(result: dict[str, Any], name: str, command: list[str], cwd: Path) -> None:
-    proc = subprocess.run(command, cwd=cwd, env=safe_env(), capture_output=True, text=True)
+def record_command(
+    result: dict[str, Any], name: str, command: list[str], cwd: Path, *, env: dict[str, str] | None = None
+) -> None:
+    proc = subprocess.run(command, cwd=cwd, env=safe_env() if env is None else env, capture_output=True, text=True)
     output = redact((proc.stdout or "") + (proc.stderr or ""))
     result["commands"].append({"name": name, "returncode": proc.returncode})
     if proc.returncode:
@@ -76,8 +78,8 @@ def scripts_dir(venv: Path) -> Path:
     return venv / ("Scripts" if os.name == "nt" else "bin")
 
 
-def snapshot_digest(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()[:16]
+def script_path(venv: Path, name: str) -> Path:
+    return scripts_dir(venv) / (f"{name}.exe" if os.name == "nt" else name)
 
 
 def load_snapshot(path: Path) -> tuple[dict[str, Any], str]:
@@ -110,6 +112,14 @@ def file_digest(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def wheel_distribution_name(filename: str) -> str:
+    try:
+        name, _, _, _ = parse_wheel_filename(filename)
+    except Exception as exc:
+        raise PrerequisiteError(f"offline_fixture_invalid: unsupported wheel filename {filename}") from exc
+    return canonicalize_name(name)
+
+
 def validate_fixture(path: Path) -> dict[str, Any]:
     manifest_path = path / "fixture-manifest.json"
     try:
@@ -122,18 +132,30 @@ def validate_fixture(path: Path) -> dict[str, Any]:
     if not artifacts:
         raise PrerequisiteError("offline_fixture_invalid: fixture has no declared artifacts")
     artifact_names: set[str] = set()
+    artifact_distributions: set[str] = set()
     for item in artifacts:
         if not isinstance(item, dict) or not isinstance(item.get("filename"), str) or not isinstance(item.get("sha256"), str):
             raise PrerequisiteError("offline_fixture_invalid: artifacts require filename and sha256")
-        candidate = path / item["filename"]
-        if item["filename"] in artifact_names or candidate.parent != path or not candidate.is_file() or file_digest(candidate) != item["sha256"]:
+        filename = item["filename"]
+        candidate = path / filename
+        if filename in artifact_names or candidate.parent != path or not candidate.is_file() or file_digest(candidate) != item["sha256"]:
             raise PrerequisiteError("offline_fixture_invalid: artifact content does not match fixture manifest")
-        artifact_names.add(item["filename"])
+        distribution = wheel_distribution_name(filename)
+        if distribution in artifact_distributions:
+            raise PrerequisiteError("offline_fixture_invalid: multiple artifacts provided for one distribution")
+        artifact_names.add(filename)
+        artifact_distributions.add(distribution)
+    actual_wheels = {candidate.name for candidate in path.glob("*.whl") if candidate.is_file()}
+    if actual_wheels != artifact_names:
+        raise PrerequisiteError("offline_fixture_invalid: wheel artifacts must exactly match fixture manifest")
     required = manifest.get("required_distributions")
     if not isinstance(required, list) or not required or not all(isinstance(name, str) and name.strip() for name in required):
         raise PrerequisiteError("offline_fixture_invalid: required_distributions is missing")
-    if len({canonicalize_name(name) for name in required}) != len(required):
+    required_distributions = {canonicalize_name(name) for name in required}
+    if len(required_distributions) != len(required):
         raise PrerequisiteError("offline_fixture_invalid: required_distributions contains duplicates")
+    if required_distributions != artifact_distributions:
+        raise PrerequisiteError("offline_fixture_invalid: required_distributions must exactly match wheel artifacts")
     return manifest
 
 
@@ -182,6 +204,7 @@ def audit(venv_python: Path, snapshot: dict[str, Any], digest: str, result: dict
 
 
 def staged_test_tree(destination: Path) -> Path:
+    shutil.copy2(ROOT / "README.md", destination / "README.md")
     staged = destination / "tests"
     shutil.copytree(ROOT / "tests", staged, ignore=shutil.ignore_patterns("__pycache__", "*.pyc", ".pytest_cache"))
     (staged / "conftest.py").write_text(
@@ -192,6 +215,24 @@ def staged_test_tree(destination: Path) -> Path:
         encoding="utf-8",
     )
     return staged
+
+
+def network_deny_sitecustomize(destination: Path) -> None:
+    (destination / "sitecustomize.py").write_text(
+        "import socket\n"
+        "def _deny(*args, **kwargs):\n"
+        "    raise RuntimeError('network access denied by verification baseline')\n"
+        "socket.create_connection = _deny\n"
+        "socket.socket.connect = _deny\n"
+        "socket.socket.connect_ex = _deny\n",
+        encoding="utf-8",
+    )
+
+
+def pytest_env(temporary: Path) -> dict[str, str]:
+    env = safe_env()
+    env["PYTHONPATH"] = str(temporary)
+    return env
 
 
 def result_path_from_args(args: argparse.Namespace) -> Path:
@@ -210,7 +251,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 
 def main(argv: list[str] | None = None) -> int:
-    result: dict[str, Any] = {"schema": RESULT_SCHEMA, "python": f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}", "project": "bili-asr", "network_policy": "offline-only", "commands": [], "status": "failed"}
+    result: dict[str, Any] = {"schema": RESULT_SCHEMA, "python": f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}", "project": "bili-asr", "network_policy": "process-level-deny", "commands": [], "status": "failed"}
     result_path = DEFAULT_RESULT
     try:
         try:
@@ -222,7 +263,6 @@ def main(argv: list[str] | None = None) -> int:
             raise PrerequisiteError(f"python_version_unsupported: Python 3.12 required; running {sys.version_info.major}.{sys.version_info.minor}")
         if not args.offline_packages.is_dir():
             raise PrerequisiteError("offline_fixture_invalid: --offline-packages must be a fixture directory")
-        # Complete all inexpensive, local prerequisites before creating a venv.
         fixture = validate_fixture(args.offline_packages)
         snapshot, digest = load_snapshot(args.advisory_snapshot)
         result["fixture"] = {"schema": fixture["schema"], "artifact_count": len(fixture["artifacts"]), "required_distributions": fixture["required_distributions"]}
@@ -232,9 +272,10 @@ def main(argv: list[str] | None = None) -> int:
             record_command(result, "create_venv", [sys.executable, "-m", "venv", str(venv)], ROOT)
             python = scripts_dir(venv) / ("python.exe" if os.name == "nt" else "python")
             record_command(result, "install_declared_dev_extras", [str(python), "-m", "pip", "install", "--no-index", "--find-links", str(args.offline_packages.resolve()), "--no-build-isolation", ".[dev]"], ROOT)
-            record_command(result, "installed_console_help", [str(scripts_dir(venv) / "bili-asr"), "--help"], temporary)
+            record_command(result, "installed_console_help", [str(script_path(venv, "bili-asr")), "--help"], temporary)
             staged_tests = staged_test_tree(temporary)
-            record_command(result, "full_installed_distribution_test_suite", [str(python), "-m", "pytest", "-q", str(staged_tests)], temporary)
+            network_deny_sitecustomize(temporary)
+            record_command(result, "full_installed_distribution_test_suite", [str(python), "-m", "pytest", "-q", str(staged_tests)], temporary, env=pytest_env(temporary))
             audit(python, snapshot, digest, result)
         result["status"] = "passed"
         return 0

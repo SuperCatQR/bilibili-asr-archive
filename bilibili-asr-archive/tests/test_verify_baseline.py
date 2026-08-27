@@ -109,6 +109,30 @@ def test_fixture_manifest_rejects_duplicate_required_distributions(tmp_path: Pat
         validate_fixture(fixture)
 
 
+def test_fixture_manifest_rejects_extra_wheel(tmp_path: Path):
+    fixture = write_fixture(tmp_path / "fixture")
+    (fixture / "extra-1.0-py3-none-any.whl").write_bytes(b"extra")
+    with pytest.raises(PrerequisiteError, match="exactly match"):
+        validate_fixture(fixture)
+
+
+def test_fixture_manifest_binds_required_distributions_to_wheels(tmp_path: Path):
+    fixture = write_fixture(tmp_path / "fixture", required_distributions=["other"])
+    with pytest.raises(PrerequisiteError, match="exactly match"):
+        validate_fixture(fixture)
+
+
+def test_script_path_is_platform_correct(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    import scripts.verify_baseline as verifier
+    monkeypatch.setattr(verifier.os, "name", "nt")
+    assert verifier.script_path(tmp_path, "bili-asr").name == "bili-asr.exe"
+
+
+def test_staged_test_tree_copies_checkout_inputs(tmp_path: Path):
+    from scripts.verify_baseline import staged_test_tree
+    staged = staged_test_tree(tmp_path)
+    assert (tmp_path / "README.md").is_file()
+    assert (staged / "test_cli_pilot.py").is_file()
 def test_safe_env_removes_session_and_proxy_variables(monkeypatch: pytest.MonkeyPatch):
     for key in ("PYTHONPATH", "BILI_SESSDATA", "SESSDATA", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY"):
         monkeypatch.setenv(key, "secret")
