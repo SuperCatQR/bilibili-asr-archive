@@ -64,8 +64,8 @@ def test_nonterminal_missing_result_is_not_success(tmp_path):
 
 def test_matching_resume_filters_terminal_processed_ids(tmp_path):
     SchedulerStore(tmp_path).replace_atomic({"scope": "pending", "limit": 1, "state": "risk_interrupted", "processed_work_ids": ["a"], "last_api_error_code": 412, "allow_long_live": False, "updated_at": "now"})
-    (Path(tmp_path) / "campaign.json").write_text(json.dumps({"scope": "pending", "batch_limit": 1, "state": "risk_interrupted", "policy_fingerprint": __import__("hashlib").sha256(b"default").hexdigest()}))
-    result = _runner(tmp_path, RunSummary(results=[RowResult("b", "archived", ok=True)]), _rows("b")).run("pending", 1, resume=True)
+    (Path(tmp_path) / "campaign.json").write_text(json.dumps({"schema_version": 1, "scope": "pending", "batch_limit": 1, "state": "risk_interrupted", "policy_fingerprint": __import__("hashlib").sha256(b"default").hexdigest(), "selected_work_ids": ["a"], "processed_work_ids": ["a"], "skipped_work_ids": [], "failed_work_ids": [], "reason_codes": []}))
+    result = _runner(tmp_path, RunSummary(results=[RowResult("b", "archived", ok=True)]), _rows("a")).run("pending", 1, resume=True)
     assert result.selected == ["b"]
     assert result.exit_code == 0
 
