@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import sys
 import time
@@ -226,6 +227,47 @@ def build_parser() -> argparse.ArgumentParser:
         help="Archive root directory (default: ./archive)",
     )
     schedule_cmd.add_argument(
+        "--sessdata", default=None,
+        help="SESSDATA cookie for live stages (or env BILI_SESSDATA); not stored",
+    )
+
+    campaign_cmd = subparsers.add_parser(
+        "campaign",
+        help="Run a bounded campaign batch with aggregate checkpoint evidence",
+    )
+    campaign_cmd.add_argument(
+        "--scope",
+        required=True,
+        help="pending | failed | one or more work_id/bvid selectors "
+        "(comma- or space-separated)",
+    )
+    campaign_cmd.add_argument(
+        "--limit",
+        type=int,
+        required=True,
+        help="Process at most N matching rows (required explicit bound)",
+    )
+    campaign_cmd.add_argument(
+        "--resume",
+        action="store_true",
+        help="Resume only a matching risk-interrupted scheduler sidecar",
+    )
+    campaign_cmd.add_argument(
+        "--offline",
+        action="store_true",
+        help="Never call harvest/download (deterministic local stages only)",
+    )
+    campaign_cmd.add_argument(
+        "--max-audio-gb",
+        type=float,
+        default=10.0,
+        help="Skip audio downloads that would push audio/ past this many GiB (0 = unlimited)",
+    )
+    campaign_cmd.add_argument(
+        "--archive-root", default=DEFAULT_ARCHIVE_ROOT,
+        help="Archive root directory (default: ./archive)",
+    )
+    campaign_cmd.add_argument(
         "--sessdata", default=None,
         help="SESSDATA cookie for live stages (or env BILI_SESSDATA); not stored",
     )
@@ -1493,6 +1535,32 @@ def _run_scope_rows(store, entries: dict, scope: str):
     return rows, None
 
 
+
+
+def _cmd_campaign(args: argparse.Namespace) -> int:
+    from . import bili_client
+    from .audio_budget import audio_cap_bytes
+    from .campaign import CampaignRunner
+
+    client = None
+    if not args.offline:
+        client = bili_client.BiliClient(sessdata=_resolve_sessdata(args))
+    runner = CampaignRunner(
+        args.archive_root,
+        client=client,
+        offline=args.offline,
+        max_audio_bytes=audio_cap_bytes(args.max_audio_gb),
+        sleep=time.sleep,
+        scope_rows=_run_scope_rows,
+    )
+    try:
+        summary = runner.run(args.scope, args.limit, resume=args.resume)
+    except (ValueError, OSError) as exc:
+        print(f"campaign: {type(exc).__name__}", file=sys.stderr)
+        return 1
+    print(json.dumps(summary.to_dict(), ensure_ascii=False, sort_keys=True))
+    return summary.exit_code
+
 def _cmd_run(args: argparse.Namespace) -> int:
     from . import bili_client
     from .coordinator import RunCoordinator
@@ -1936,6 +2004,8 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_export(args)
     if args.command == "run":
         return _cmd_run(args)
+    if args.command == "campaign":
+        return _cmd_campaign(args)
     if args.command == "schedule":
         return _cmd_schedule(args)
     parser.error(f"command {args.command!r} is not implemented yet")
