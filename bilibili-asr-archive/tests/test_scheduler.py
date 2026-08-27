@@ -221,8 +221,10 @@ def test_scheduler_resume_only_matching_risk_scope(tmp_root):
             "updated_at": utc_now_iso(),
         }
     )
-    assert store.resume_processed_ids("pending") == ["BVa:p0"]
-    assert store.resume_processed_ids("failed") is None
+    assert store.resume_processed_ids("pending", allow_long_live=False) == [
+        "BVa:p0"
+    ]
+    assert store.resume_processed_ids("failed", allow_long_live=False) is None
     store.replace_atomic(
         {
             "scope": "pending",
@@ -233,7 +235,40 @@ def test_scheduler_resume_only_matching_risk_scope(tmp_root):
             "updated_at": utc_now_iso(),
         }
     )
-    assert store.resume_processed_ids("pending") is None
+    assert store.resume_processed_ids("pending", allow_long_live=False) is None
+
+
+def test_resume_processed_ids_sees_long_live_policy_mismatch(tmp_root):
+    store = SchedulerStore(root=tmp_root)
+    store.replace_atomic(
+        {
+            "scope": "pending",
+            "limit": 1,
+            "state": "risk_interrupted",
+            "processed_work_ids": ["BVa:p0"],
+            "last_api_error_code": -412,
+            "allow_long_live": True,
+            "updated_at": utc_now_iso(),
+        }
+    )
+    assert store.resume_processed_ids("pending", allow_long_live=False) is None
+    assert store.resume_processed_ids("pending", allow_long_live=True) == [
+        "BVa:p0"
+    ]
+
+
+def test_inspect_resume_corrupt_sidecar_logs_once(tmp_root, capsys):
+    store = SchedulerStore(root=tmp_root)
+    with open(store.path, "w", encoding="utf-8") as fh:
+        fh.write("{not json\n")
+    lookup = store.inspect_resume("pending", allow_long_live=False)
+    captured = capsys.readouterr()
+    assert lookup.processed_ids is None
+    assert lookup.refuse is False
+    assert lookup.diagnostic == "sidecar corrupt"
+    assert captured.err == ""
+    assert store.load() is None
+    assert "scheduler: ignoring corrupt sidecar" in capsys.readouterr().err
 
 
 def test_scheduler_store_rejects_forbidden_markers(tmp_root):

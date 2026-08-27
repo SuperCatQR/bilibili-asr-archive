@@ -1631,6 +1631,7 @@ def _cmd_schedule(args: argparse.Namespace) -> int:
         return 1
 
     skip_ids: list[str] | None = None
+    matching_resume = False
     if args.resume:
         lookup = sched_store.inspect_resume(
             args.scope, allow_long_live=args.allow_long_live
@@ -1647,6 +1648,7 @@ def _cmd_schedule(args: argparse.Namespace) -> int:
                 file=sys.stderr,
             )
         if lookup.processed_ids is not None:
+            matching_resume = True
             skip_ids = terminal_resume_ids(lookup.processed_ids, entries)
             skip = set(skip_ids)
             rows = [
@@ -1654,13 +1656,6 @@ def _cmd_schedule(args: argparse.Namespace) -> int:
                 for key, entry in rows
                 if str(entry.get("work_id") or key) not in skip
             ]
-            if rows and not args.allow_long_live and is_long_live(rows[0][1]):
-                print(
-                    "schedule: --resume refused (risk-stopped long-duration "
-                    "row requires --allow-long-live)",
-                    file=sys.stderr,
-                )
-                return 1
 
     rows, held, policy_error = apply_long_live_policy(
         rows,
@@ -1669,6 +1664,13 @@ def _cmd_schedule(args: argparse.Namespace) -> int:
     )
     if policy_error:
         print(f"schedule: {policy_error}", file=sys.stderr)
+        return 1
+    if matching_resume and not args.allow_long_live and not rows and held:
+        print(
+            "schedule: --resume refused (risk-stopped long-duration "
+            "row requires --allow-long-live)",
+            file=sys.stderr,
+        )
         return 1
 
     matching = len(rows)

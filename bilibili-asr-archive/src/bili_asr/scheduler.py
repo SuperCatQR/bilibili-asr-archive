@@ -164,22 +164,27 @@ class SchedulerStore:
         self.root = os.fspath(root)
         self.path = os.path.join(self.root, SCHEDULER_FILENAME)
 
-    def load(self) -> dict[str, Any] | None:
+    def load(self, *, warn: bool = True) -> dict[str, Any] | None:
         if not os.path.exists(self.path):
             return None
+
+        def _note_corrupt() -> None:
+            if warn:
+                print("scheduler: ignoring corrupt sidecar", file=sys.stderr)
+
         try:
             with open(self.path, "r", encoding="utf-8") as fh:
                 raw = json.load(fh)
         except (OSError, json.JSONDecodeError):
-            print("scheduler: ignoring corrupt sidecar", file=sys.stderr)
+            _note_corrupt()
             return None
         if not isinstance(raw, dict):
-            print("scheduler: ignoring corrupt sidecar", file=sys.stderr)
+            _note_corrupt()
             return None
         try:
             return _validate(raw)
         except (ValueError, KeyError, TypeError):
-            print("scheduler: ignoring corrupt sidecar", file=sys.stderr)
+            _note_corrupt()
             return None
 
     def replace_atomic(self, cursor: dict[str, Any]) -> dict[str, Any]:
@@ -196,7 +201,7 @@ class SchedulerStore:
         self, scope: str, *, allow_long_live: bool
     ) -> ResumeLookup:
         """Diagnose ``--resume`` against the sidecar without mutating it."""
-        cursor = self.load()
+        cursor = self.load(warn=False)
         if cursor is None:
             if os.path.exists(self.path):
                 return ResumeLookup(None, "sidecar corrupt", False)
@@ -217,9 +222,11 @@ class SchedulerStore:
             )
         return ResumeLookup(list(cursor["processed_work_ids"]), None, False)
 
-    def resume_processed_ids(self, scope: str) -> list[str] | None:
+    def resume_processed_ids(
+        self, scope: str, *, allow_long_live: bool
+    ) -> list[str] | None:
         """Return processed ids only for a matching-scope risk_interrupted sidecar."""
-        lookup = self.inspect_resume(scope, allow_long_live=True)
+        lookup = self.inspect_resume(scope, allow_long_live=allow_long_live)
         if lookup.refuse or lookup.processed_ids is None:
             return None
         return lookup.processed_ids

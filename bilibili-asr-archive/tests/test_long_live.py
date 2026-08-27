@@ -30,7 +30,7 @@ from bili_asr.meta_cursor import utc_now_iso
 from bili_asr.page_identity import artifact_stem, page_identity
 from bili_asr.scheduler import SchedulerStore
 
-from test_audio import AUDIO_BYTES, SPI_OK, STREAM_HOST, playurl_ok
+from test_audio import AUDIO_BYTES, SPI_OK, STREAM_HOST, RouterTransport, playurl_ok
 from test_scheduler import (
     CidRouterTransport,
     _assert_no_secrets,
@@ -39,6 +39,7 @@ from test_scheduler import (
     _row,
     _scheduler,
     _stub_asr,
+    _write_subtitle_raw,
 )
 from test_subtitles import SAMPLE_DOC, player_ok
 
@@ -585,12 +586,13 @@ def test_schedule_resume_long_live_without_flag_keeps_risk_token(
     _assert_no_secrets(captured, tmp_root)
 
 
+@pytest.mark.parametrize("duration_s", [THREE_HOURS_S, 0])
 def test_schedule_resume_risk_stopped_long_row_without_flag_refuses(
-    tmp_root, monkeypatch, capsys,
+    tmp_root, monkeypatch, capsys, duration_s,
 ):
     identity = _long_identity()
     ManifestStore(root=tmp_root).upsert(
-        _row(identity, status="needs_audio", duration_s=THREE_HOURS_S)
+        _row(identity, status="needs_audio", duration_s=duration_s)
     )
     SchedulerStore(root=tmp_root).replace_atomic(
         {
@@ -621,6 +623,51 @@ def test_schedule_resume_risk_stopped_long_row_without_flag_refuses(
         "needs_audio"
     )
     assert transport.stream_calls == []
+    _assert_no_secrets(captured, tmp_root)
+
+
+def test_schedule_resume_mixed_held_long_then_short_risk_continues(
+    tmp_root, monkeypatch, capsys,
+):
+    """A held long/unknown row that sorts first is not the risk-stopped row."""
+    long_id = page_identity("BVaLong", 0, 999, "p0")
+    short_id = page_identity("BVzShort", 0, 111, "p0")
+    assert long_id.work_id < short_id.work_id
+    store = ManifestStore(root=tmp_root)
+    store.upsert(_row(long_id, status="needs_audio", duration_s=THREE_HOURS_S))
+    store.upsert(_row(short_id, status="subtitle_done", duration_s=5))
+    _write_subtitle_raw(tmp_root, short_id)
+    SchedulerStore(root=tmp_root).replace_atomic(
+        {
+            "scope": "pending",
+            "limit": 5,
+            "state": "risk_interrupted",
+            "processed_work_ids": [],
+            "last_api_error_code": -412,
+            "allow_long_live": False,
+            "updated_at": utc_now_iso(),
+        }
+    )
+    _stub_asr(monkeypatch)
+    _patch_cli(monkeypatch, RouterTransport(_base_routes()))
+
+    rc = main([
+        "schedule", "--scope", "pending", "--limit", "5", "--resume",
+        "--archive-root", tmp_root,
+    ])
+    captured = capsys.readouterr()
+    assert rc == 0
+    assert "--resume refused" not in captured.err
+    assert "risk-stopped long-duration" not in captured.err
+    assert "long-duration row(s) held" in captured.out
+    assert "batch=limited" in captured.out
+    loaded = ManifestStore(root=tmp_root).load()
+    assert loaded[long_id.work_id]["status"] == "needs_audio"
+    assert loaded[short_id.work_id]["status"] == "archived"
+    sidecar = _scheduler(tmp_root)
+    assert sidecar["state"] == "limited"
+    assert sidecar["allow_long_live"] is False
+    assert short_id.work_id in sidecar["processed_work_ids"]
     _assert_no_secrets(captured, tmp_root)
 
 
