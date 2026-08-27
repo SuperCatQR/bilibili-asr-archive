@@ -15,6 +15,19 @@ def test_stable_json_csv_and_read_only(tmp_path: Path):
     assert p.read_bytes() == before[0] and p.stat().st_mtime_ns == before[1]
 
 
+
+
+def test_cli_coverage_json_csv_and_status_dispatch(tmp_path, monkeypatch, capsys):
+    from bili_asr import cli
+    (tmp_path / "manifest").mkdir()
+    (tmp_path / "manifest" / "manifest.jsonl").write_text(json.dumps({"work_id": "w1", "status": "gone"}) + "\n")
+    assert cli.main(["coverage", "--archive-root", str(tmp_path), "--format", "json"]) == 0
+    assert '"schema_version"' in capsys.readouterr().out
+    assert cli.main(["coverage", "--archive-root", str(tmp_path), "--format", "csv"]) == 0
+    assert "schema_version" in capsys.readouterr().out
+    monkeypatch.setattr(cli, "_cmd_status", lambda args: 7)
+
+
 def test_missing_denominator_is_named(tmp_path: Path):
     report = CoverageReport.build(tmp_path)
     assert report.data["diagnostics"][0]["code"] == "denominator_unavailable"
