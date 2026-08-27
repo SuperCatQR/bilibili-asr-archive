@@ -345,6 +345,12 @@ class CampaignRunner:
         exit_code = 2 if run_summary.risk_interrupted else (0 if complete else 1)
         self._atomic_checkpoint(self._projection(scope=scope, selected=selected, processed=processed,
                                                  batch_limit=batch_limit, state=state, reason_codes=reason_codes))
+        if run_summary.risk_interrupted:
+            SchedulerStore(self.root).replace_atomic({
+                "scope": scope, "limit": batch_limit, "state": "risk_interrupted",
+                "processed_work_ids": processed, "last_api_error_code": None,
+                "allow_long_live": False, "updated_at": "campaign",
+            })
         return CampaignSummary(selected=selected, processed=processed, skipped=skipped, failed=failed,
                                checkpoint_state=state, reason_codes=reason_codes, exit_code=exit_code)
 

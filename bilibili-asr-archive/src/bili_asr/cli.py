@@ -1553,8 +1553,7 @@ def _cmd_campaign(args: argparse.Namespace) -> int:
         )
         summary = runner.run(args.scope, args.limit, resume=args.resume)
     except Exception:
-        # The campaign operator boundary intentionally redacts all ordinary
-        # runtime diagnostics; runner-produced summaries retain 0/1/2 above.
+        # Never expose runtime payloads, credentials, URLs, or traces.
         print("campaign: invalid configuration or execution failure", file=sys.stderr)
         return 1
     print(json.dumps(summary.to_dict(), ensure_ascii=False, sort_keys=True))
