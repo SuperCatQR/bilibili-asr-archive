@@ -30,3 +30,4 @@ bilibili-asr-archive/.pydel*/
 bilibili-asr-archive/pip-*/
 bilibili-asr-archive/pytest-cache-files-*/
 bilibili-asr-archive/archive/manifest/
+bilibili-asr-archive/verification-results/baseline.json

@@ -20,6 +20,42 @@ use:
 Set `BILI_ASR_MODEL` to a pre-populated local model directory for offline use;
 the default is `iic/SenseVoiceSmall`. No model weights are vendored.
 
+## Deterministic verification baseline
+
+Run the supported baseline from `bilibili-asr-archive/` with Python 3.12:
+
+    python3.12 scripts/verify_baseline.py
+
+The baseline creates a disposable isolated virtual environment, installs the
+local package with its declared `dev` extras using only locally available
+packages (`PIP_NO_INDEX=1`), runs the installed `bili-asr --help` proof, then
+runs the complete pytest suite. It strips `PYTHONPATH`, proxy variables, and
+`BILI_SESSDATA`; it never calls Bilibili, downloads a model, transfers media,
+or prints environment values. Its compact machine-readable result is written to
+`verification-results/baseline.json` and is deliberately gitignored.
+
+### Security-audit policy
+
+Security inspection is deliberately offline and fails closed. The fixed tool
+policy is `pip-audit==2.8.0`, used only with a reviewed, versioned local
+advisory snapshot:
+
+    python3.12 scripts/verify_baseline.py \
+      --pip-audit /path/to/pip-audit-2.8.0 \
+      --advisory-snapshot /path/to/advisories.json
+
+The baseline does **not** query a live advisory database, because live results
+would make no-network verification non-reproducible. Without the named tool or
+snapshot it exits `2`, emits `status: prerequisite_failed`, and names the
+prerequisite in the JSON result; this is not a passing security result. Audit
+findings fail the baseline and must be evaluated in a separate remediation plan
+with evidence—this baseline does not upgrade dependencies merely to silence an
+audit.
+
+Generated output is redacted and bounded: no credentials, signed URLs, raw
+exceptions, model artifacts, media, archive data, or environment dumps belong
+in committed files or CI artifacts.
+
 ## Workflow
 
     bili-asr fetch-meta --mid 23191782 --resume
