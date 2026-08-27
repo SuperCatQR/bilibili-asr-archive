@@ -35,6 +35,8 @@ the default is `iic/SenseVoiceSmall`. No model weights are vendored.
     bili-asr run --scope pending --archive-root archive
     bili-asr run --scope pending --offline --archive-root archive
     bili-asr run --scope failed --limit 5 --archive-root archive
+    bili-asr schedule --scope pending --limit 20 --archive-root archive
+    bili-asr schedule --scope pending --limit 20 --resume --archive-root archive
 
 ### Audio reclaim and bounded-disk campaigns
 
@@ -47,6 +49,7 @@ relative `audio_path` — consumers treat the file as absent).
 
     bili-asr pilot --n 20 --max-audio-gb 10 --max-duration-min 45 --archive-root archive
     bili-asr run --scope pending --max-audio-gb 10 --archive-root archive
+    bili-asr schedule --scope pending --limit 20 --max-audio-gb 10 --archive-root archive
 
 - `--max-audio-gb` (default 10, `0` = unlimited): before each audio
   download, current `audio/` usage plus a conservative estimate
@@ -74,8 +77,9 @@ the row archived.
 
 ### Operational run ledger (`run-ledger.jsonl`), `status`, and `runs`
 
-Every `fetch-meta` execution (exit 0 or 2) and every `pilot` run atomically
-appends an inspectable run record to `{archive-root}/run-ledger.jsonl`.
+Every `fetch-meta` execution (exit 0 or 2) and every `pilot` / `run` /
+`schedule` run atomically appends an inspectable run record to
+`{archive-root}/run-ledger.jsonl`.
 The ledger is a sidecar file that records execution history and coverage
 without altering manifest row schemas or the transport layer.
 
@@ -86,7 +90,7 @@ Each JSONL line represents one immutable record with the following schema:
 | Field | Type | Description |
 |-------|------|-------------|
 | `run_id` | `str` | Opaque identifier (`run-YYYYMMDDHHMMSS-<token>`). |
-| `command` | `str` | Command executed (`fetch-meta`, `pilot`, `run`). |
+| `command` | `str` | Command executed (`fetch-meta`, `pilot`, `run`, `schedule`). |
 | `started_at` | `str` | ISO-8601 UTC start timestamp. |
 | `finished_at` | `str` | ISO-8601 UTC completion timestamp. |
 | `exit_code` | `int` | Process exit code (`0`, `1`, or `2`). |
@@ -164,6 +168,53 @@ reprocessed:
   artifact vanished) and the run exits 1 because the scope was not fully
   processed. Nothing is silently re-downloaded.
 
+### Bounded corpus scheduler (`bili-asr schedule`)
+
+`bili-asr schedule` walks the existing manifest sequentially in explicit
+batches. It composes `RunCoordinator`, `ManifestStore`, `MetaCursorStore`,
+and `RunLedger`; it does not open sockets itself and does not replace
+`pilot` or `run`.
+
+    bili-asr schedule --scope pending|failed|<work_id>... --limit N [--resume] [--max-audio-gb G] [--allow-long-live] [--archive-root <root>]
+
+- **`--limit N` is required.** A bounded call never infers that the visible
+  corpus is fully archived.
+- **Scope** matches `run`: `pending` (non-terminal rows), `failed` (rows
+  with a recorded failed stage attempt), or explicit `work_id`/bvid
+  selectors. Terminal `archived` / `gone` selectors skip with
+  `already_terminal` and exit 0.
+- **Batch state** is persisted at `{archive-root}/scheduler.json` as
+  `complete` (this call visited every currently matching scope row
+  after the default duration filter), `limited` (the explicit limit
+  **or** a default long-duration hold left matching rows unselected),
+  or `risk_interrupted`. `complete` is requested-scope completion, not
+  corpus completion; held multi-hour rows stay pending and keep the
+  batch `limited` until `--allow-long-live`. The summary always prints
+  the meta-cursor enumeration state so a `limited` crawl cannot
+  masquerade as done.
+- **`--resume`** consumes only a matching-scope `risk_interrupted`
+  sidecar whose long-live policy matches. The sidecar stores
+  `allow_long_live`; resume without that flag refuses and leaves a valid
+  risk token untouched. Deliberate `limited` / `complete` states, a
+  missing sidecar, or a corrupt sidecar are ignored with a stderr reason
+  and are not auto-resumed. `processed_work_ids` keeps only `ok` /
+  `already_terminal` rows so budget/offline/missing-artifact skips stay
+  retryable. Persist failure prints a redacted error and does not tell
+  the operator to `--resume`.
+- **Exit codes** follow the mixed-outcome contract: 0 requested rows
+  processed or already terminal; 1 usage/config, per-item failure, or
+  non-risk skip; 2 risk/API interruption (re-run with `--resume`).
+- **Long-live opt-in.** Default `pending` / `failed` selection keeps the
+  same 45-minute short-video policy as `pilot`. A multi-hour row is
+  processed only with `--allow-long-live` and a configured
+  `--max-audio-gb` (default 10; `0` is refused on this path). The summary
+  prints the conservative 64 kbps estimate, measured `audio/` peak, and
+  post-archive usage after reclaim. Operator steps for Windows WSL,
+  archive-root placement, cookie boundary, `du` measurement, and redacted
+  evidence are in `docs/wsl-long-live.md` and
+  `docs/wsl-long-live-evidence.md`. Do not raise `pilot --max-duration-min`
+  to sneak livestreams into the short-video campaign.
+
 ### SQLite FTS5 full-text search and metadata export
 
 The JSONL manifest (`{archive-root}/manifest/manifest.jsonl`) remains the single source of truth (SSOT). Both `search` and `export` are read-only commands that never modify or rewrite the manifest ledger.
@@ -217,10 +268,11 @@ written only when the run finishes without exit 2.
 
 ### Mixed batch outcomes
 
-When `harvest-subs`, `download-audio`, `asr`, `pilot`, or `run` processes more
-than one work item, the process exit code is an aggregation of per-item
-outcomes — not a claim that the whole corpus is complete. `pilot` remains the
-frozen two-branch proof command; `run` remains complementary.
+When `harvest-subs`, `download-audio`, `asr`, `pilot`, `run`, or `schedule`
+processes more than one work item, the process exit code is an aggregation of
+per-item outcomes — not a claim that the whole corpus is complete. `pilot`
+remains the frozen two-branch proof command; `run` remains complementary;
+`schedule` consumes this same taxonomy.
 
 | Exit | Meaning |
 |------|---------|
@@ -237,8 +289,8 @@ selectable by the same command or by `run --scope failed`. Explicit `run
 `already_terminal` and exit 0; they are not duplicated.
 
 `harvest-subs`, `download-audio`, and `asr` do not append `run-ledger.jsonl`
-(that sidecar is `fetch-meta` / `pilot` / `run`). All operator surfaces
-carry redacted scalar codes/reasons only.
+(that sidecar is `fetch-meta` / `pilot` / `run` / `schedule`). All operator
+surfaces carry redacted scalar codes/reasons only.
 
 ## Multipart pages and legacy rows
 

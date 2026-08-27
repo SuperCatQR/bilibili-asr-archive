@@ -4,9 +4,11 @@ from __future__ import annotations
 
 from bili_asr.audio_budget import (
     SKIP_REASON,
+    audio_cap_bytes,
     audio_dir_usage_bytes,
     estimate_audio_bytes,
     max_duration_exceeded,
+    parse_duration_s,
     would_exceed_budget,
 )
 
@@ -47,11 +49,40 @@ def test_zero_max_is_unlimited(tmp_path):
     assert would_exceed_budget(tmp_path, {"duration_s": 99999}, 0) is False
 
 
+def test_audio_cap_bytes_positive_never_truncates_to_unlimited(tmp_path):
+    assert audio_cap_bytes(0) == 0
+    assert audio_cap_bytes(-1) == 0
+    tiny = 1e-12
+    assert int(tiny * 1024 ** 3) == 0
+    assert audio_cap_bytes(tiny) == 1
+    assert audio_cap_bytes(10) == 10 * 1024 ** 3
+    assert would_exceed_budget(
+        tmp_path, {"duration_s": 1}, audio_cap_bytes(tiny)
+    ) is True
+
+
 def test_max_duration_exceeded():
     assert max_duration_exceeded({"duration_s": 46 * 60}, 45) is True
     assert max_duration_exceeded({"duration_s": 44 * 60}, 45) is False
     assert max_duration_exceeded({"duration_s": 99999}, 0) is False  # off
-    assert max_duration_exceeded({}, 45) is False
+    assert max_duration_exceeded({"duration_s": 5}, 45) is False
+
+
+def test_unknown_zero_unparseable_duration_fail_closed(tmp_path):
+    assert parse_duration_s(None) is None
+    assert parse_duration_s(0) is None
+    assert parse_duration_s("garbage") is None
+    assert parse_duration_s(12) == 12
+    assert max_duration_exceeded({}, 45) is True
+    assert max_duration_exceeded({"duration_s": 0}, 45) is True
+    assert max_duration_exceeded({"duration_s": "nope"}, 45) is True
+    assert max_duration_exceeded({}, 0) is False  # cap off
+    assert would_exceed_budget(tmp_path, {}, 1) is True
+    assert would_exceed_budget(tmp_path, {"duration_s": 0}, 1) is True
+    assert would_exceed_budget(tmp_path, {"duration_s": "nope"}, 1) is True
+    assert would_exceed_budget(tmp_path, {}, 0) is False  # unlimited
+    assert estimate_audio_bytes(None) == 0
+    assert estimate_audio_bytes(0) == 0
 
 
 def test_skip_reason_is_stable_scalar():
