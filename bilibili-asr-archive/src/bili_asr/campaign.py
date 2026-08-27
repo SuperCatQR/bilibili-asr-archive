@@ -29,6 +29,7 @@ _MAX_CODE_LENGTH = 64
 _VALID_STATES = frozenset({"complete", "limited", "risk_interrupted"})
 _SAFE_ID_RE = re.compile(r"^[A-Za-z0-9._:-]{1,128}$")
 _SAFE_CODE_RE = re.compile(r"^[a-z0-9_:-]{1,64}$")
+_TERMINAL_FINAL_STATUSES = frozenset({"archived", "gone"})
 
 
 def _safe_id(value: object) -> str:
@@ -96,6 +97,7 @@ class CampaignRunner:
         sleep: Callable[[float], None] | None = None,
         scope_rows: ScopeRows | None = None,
         policy_fingerprint: str = "default",
+        # coordinator_factory is a test-only injection seam; production uses RunCoordinator.
         coordinator_factory: Callable[..., RunCoordinator] = RunCoordinator,
     ) -> None:
         self.root = Path(archive_root)
@@ -156,6 +158,32 @@ class CampaignRunner:
             "reason_codes": list(reason_codes),
         }
 
+    def _resume_ids(
+        self, scope: str, batch_limit: int, entries: dict[str, dict[str, Any]]
+    ) -> list[str]:
+        store = SchedulerStore(self.root)
+        lookup = store.inspect_resume(scope, allow_long_live=False)
+        if lookup.refuse or lookup.processed_ids is None:
+            raise ValueError(lookup.diagnostic or "resume refused")
+        record = store.load(warn=False)
+        if not record or record.get("state") != "risk_interrupted":
+            raise ValueError("resume refused: state is not risk_interrupted")
+        if record.get("scope") != scope:
+            raise ValueError("resume refused: scope mismatch")
+        if record.get("limit") != batch_limit:
+            raise ValueError("resume refused: limit mismatch")
+        if record.get("allow_long_live") is not False:
+            raise ValueError("resume refused: long-live policy mismatch")
+        projection = self.path
+        if projection.exists():
+            try:
+                campaign = json.loads(projection.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                raise ValueError("resume refused: campaign projection corrupt")
+            if not isinstance(campaign, dict) or campaign.get("policy_fingerprint") != self.policy_fingerprint:
+                raise ValueError("resume refused: campaign policy mismatch")
+        return terminal_resume_ids(lookup.processed_ids, entries)
+
     def run(self, scope: str, batch_limit: int, *, resume: bool = False) -> CampaignSummary:
         if not isinstance(scope, str) or not scope.strip():
             raise ValueError("scope must be a non-empty string")
@@ -174,10 +202,7 @@ class CampaignRunner:
 
         processed_before: list[str] = []
         if resume:
-            lookup = SchedulerStore(self.root).inspect_resume(scope, allow_long_live=False)
-            if lookup.refuse or lookup.processed_ids is None:
-                raise ValueError(lookup.diagnostic or "resume refused")
-            processed_before = terminal_resume_ids(lookup.processed_ids, entries)
+            processed_before = self._resume_ids(scope, batch_limit, entries)
             done = set(processed_before)
             rows = [(key, entry) for key, entry in rows if _work_id(key, entry) not in done]
 
@@ -185,53 +210,37 @@ class CampaignRunner:
         selected_rows = rows[:batch_limit]
         selected = [_safe_id(_work_id(key, entry)) for key, entry in selected_rows]
         coordinator = self.coordinator_factory(
-            self.root,
-            store,
-            client=self.client,
-            offline=self.offline,
-            max_audio_bytes=self.max_audio_bytes,
-            sleep=self.sleep,
+            self.root, store, client=self.client, offline=self.offline,
+            max_audio_bytes=self.max_audio_bytes, sleep=self.sleep,
         )
         run_summary: RunSummary = coordinator.run_batch(selected_rows)
-        state = classify_batch_state(
-            risk_interrupted=run_summary.risk_interrupted,
-            truncated=matching > batch_limit or not selected_rows,
+        result_by_id = {result.work_id: result for result in run_summary.results}
+        failed_or_skipped = bool(run_summary.failed or run_summary.skipped_rows)
+        terminal_results = all(result.final_status in _TERMINAL_FINAL_STATUSES for result in run_summary.results)
+        complete = (
+            bool(selected_rows)
+            and matching <= batch_limit
+            and not run_summary.risk_interrupted
+            and not failed_or_skipped
+            and set(result_by_id) == set(selected)
+            and len(run_summary.results) == len(selected)
+            and terminal_results
         )
-        processed = _unique(
-            processed_before
-            + settled_processed_ids(
-                run_summary.results, risk_interrupted=run_summary.risk_interrupted
-            )
-        )
+        state = "complete" if complete else classify_batch_state(
+            risk_interrupted=run_summary.risk_interrupted, truncated=matching > batch_limit or not selected_rows)
+        processed = _unique(processed_before + settled_processed_ids(
+            run_summary.results, risk_interrupted=run_summary.risk_interrupted))
         skipped = [_safe_id(result.work_id) for result in run_summary.skipped_rows]
         failed = [_safe_id(result.work_id) for result in run_summary.failed]
         reason_codes = _unique(
             [_redacted_code(result.skip_reason) for result in run_summary.skipped_rows if result.skip_reason]
-            + [
-                _redacted_code(code)
-                for result in run_summary.failed
-                for code in result.failure_codes
-            ]
+            + [_redacted_code(code) for result in run_summary.failed for code in result.failure_codes]
         )
-        exit_code = 2 if run_summary.risk_interrupted else (0 if state == "complete" and selected_rows and not skipped and not failed and len(processed) >= len(selected) else 1)
-        self._atomic_checkpoint(
-            self._projection(
-                scope=scope,
-                selected=selected,
-                processed=processed,
-                state=state,
-                reason_codes=reason_codes,
-            )
-        )
-        return CampaignSummary(
-            selected=selected,
-            processed=processed,
-            skipped=skipped,
-            failed=failed,
-            checkpoint_state=state,
-            reason_codes=reason_codes,
-            exit_code=exit_code,
-        )
+        exit_code = 2 if run_summary.risk_interrupted else (0 if complete else 1)
+        self._atomic_checkpoint(self._projection(scope=scope, selected=selected, processed=processed,
+                                                 state=state, reason_codes=reason_codes))
+        return CampaignSummary(selected=selected, processed=processed, skipped=skipped, failed=failed,
+                               checkpoint_state=state, reason_codes=reason_codes, exit_code=exit_code)
 
 
 __all__ = ["CampaignRunner", "CampaignSummary", "ScopeRows"]

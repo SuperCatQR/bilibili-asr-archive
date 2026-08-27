@@ -1533,10 +1533,6 @@ def _run_scope_rows(store, entries: dict, scope: str):
     if not selectors:
         return None, "empty --scope"
     return rows, None
-
-
-
-
 def _cmd_campaign(args: argparse.Namespace) -> int:
     try:
         from . import bili_client
