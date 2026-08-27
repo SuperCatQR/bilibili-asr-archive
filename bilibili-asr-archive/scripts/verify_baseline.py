@@ -160,6 +160,26 @@ def validate_fixture(path: Path) -> dict[str, Any]:
     return manifest
 
 
+def build_requirements(project_root: Path) -> list[str]:
+    try:
+        import tomllib
+
+        config = tomllib.loads((project_root / "pyproject.toml").read_text(encoding="utf-8"))
+    except (OSError, tomllib.TOMLDecodeError) as exc:
+        raise PrerequisiteError("project_metadata_invalid: pyproject.toml is unreadable") from exc
+    requirements = config.get("build-system", {}).get("requires", [])
+    if not isinstance(requirements, list) or not all(isinstance(item, str) and item.strip() for item in requirements):
+        raise PrerequisiteError("project_metadata_invalid: build-system requires must be a list")
+    return requirements
+
+
+def offline_install_commands(python: Path, fixture: Path) -> tuple[list[str], list[str]]:
+    options = ["--no-index", "--find-links", str(fixture.resolve())]
+    bootstrap = [str(python), "-m", "pip", "install", *options, *build_requirements(ROOT)]
+    project = [str(python), "-m", "pip", "install", *options, "--no-build-isolation", ".[dev]"]
+    return bootstrap, project
+
+
 def installed_packages(venv_python: Path) -> dict[str, str]:
     proc = subprocess.run([str(venv_python), "-m", "pip", "list", "--format=json"], env=safe_env(), capture_output=True, text=True)
     if proc.returncode:
@@ -294,7 +314,9 @@ def main(argv: list[str] | None = None) -> int:
             venv = temporary / "venv"
             record_command(result, "create_venv", [sys.executable, "-m", "venv", str(venv)], ROOT)
             python = scripts_dir(venv) / ("python.exe" if os.name == "nt" else "python")
-            record_command(result, "install_declared_dev_extras", [str(python), "-m", "pip", "install", "--no-index", "--find-links", str(args.offline_packages.resolve()), "--no-build-isolation", ".[dev]"], ROOT)
+            bootstrap, project_install = offline_install_commands(python, args.offline_packages)
+            record_command(result, "bootstrap_declared_build_requirements", bootstrap, ROOT)
+            record_command(result, "install_declared_dev_extras", project_install, ROOT)
             record_command(result, "installed_console_help", [str(script_path(venv, "bili-asr")), "--help"], temporary)
             staged_tests = staged_test_tree(temporary)
             network_deny_sitecustomize(temporary)

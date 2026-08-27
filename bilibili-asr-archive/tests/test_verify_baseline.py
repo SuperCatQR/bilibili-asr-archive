@@ -13,6 +13,7 @@ from scripts.verify_baseline import (
     audit,
     load_snapshot,
     main,
+    offline_install_commands,
     redact,
     safe_env,
     validate_fixture,
@@ -31,6 +32,14 @@ def write_fixture(path: Path, *, required_distributions: list[str] | None = None
     }
     (path / "fixture-manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
     return path
+
+
+def test_offline_install_bootstraps_declared_build_requirements_before_project(tmp_path: Path):
+    bootstrap, project_install = offline_install_commands(Path("/tmp/venv/bin/python"), tmp_path / "fixture")
+    assert bootstrap[-1] == "setuptools>=69"
+    assert "--no-build-isolation" not in bootstrap
+    assert project_install[-2:] == ["--no-build-isolation", ".[dev]"]
+    assert bootstrap[:4] == project_install[:4]
 
 
 def test_snapshot_schema_and_digest_are_validated(tmp_path: Path):

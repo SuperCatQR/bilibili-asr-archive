@@ -39,6 +39,26 @@ def artifact_digest(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def build_requirements(project_root: Path) -> list[str]:
+    try:
+        import tomllib
+
+        config = tomllib.loads((project_root / "pyproject.toml").read_text(encoding="utf-8"))
+    except (OSError, tomllib.TOMLDecodeError) as exc:
+        raise FixturePrerequisiteError("project_metadata_invalid: pyproject.toml is unreadable") from exc
+    requirements = config.get("build-system", {}).get("requires", [])
+    if not isinstance(requirements, list) or not all(isinstance(item, str) and item.strip() for item in requirements):
+        raise FixturePrerequisiteError("project_metadata_invalid: build-system requires must be a list")
+    return requirements
+
+
+def offline_install_commands(python: Path, fixture: Path) -> tuple[list[str], list[str]]:
+    options = ["--no-index", "--find-links", str(fixture.resolve())]
+    bootstrap = [str(python), "-m", "pip", "install", *options, *build_requirements(ROOT)]
+    project = [str(python), "-m", "pip", "install", *options, "--no-build-isolation", ".[dev]"]
+    return bootstrap, project
+
+
 def pyproject_requirements(project_root: Path) -> list[str]:
     try:
         import tomllib
@@ -116,17 +136,10 @@ def preflight_fixture(fixture: Path) -> None:
             raise FixturePrerequisiteError("isolated_environment_unavailable: Python 3.12 venv/ensurepip support is required")
         scripts = venv / ("Scripts" if os.name == "nt" else "bin")
         python = scripts / ("python.exe" if os.name == "nt" else "python")
-        command = [
-            str(python),
-            "-m",
-            "pip",
-            "install",
-            "--no-index",
-            "--find-links",
-            str(fixture.resolve()),
-            "--no-build-isolation",
-            ".[dev]",
-        ]
+        bootstrap, command = offline_install_commands(python, fixture)
+        bootstrap_proc = subprocess.run(bootstrap, cwd=project, capture_output=True, text=True)
+        if bootstrap_proc.returncode:
+            raise FixturePrerequisiteError("offline_dependency_closure_unavailable: build backend bootstrap failed")
         proc = subprocess.run(command, cwd=project, capture_output=True, text=True)
         console = scripts / ("bili-asr.exe" if os.name == "nt" else "bili-asr")
     if proc.returncode:
