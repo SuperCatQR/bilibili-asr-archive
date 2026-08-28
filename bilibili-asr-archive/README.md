@@ -69,7 +69,8 @@ in committed files or CI artifacts.
     bili-asr pilot --n 20 --archive-root archive
     bili-asr search "黑格尔 辩证法" --archive-root archive
     bili-asr export --format json --out archive/manifest.json --archive-root archive
-    bili-asr export --format csv --with-text --out archive/transcripts.csv --archive-root archive
+    bili-asr coverage --archive-root archive
+    bili-asr coverage --quality --archive-root archive
     bili-asr run --scope pending --archive-root archive
     bili-asr run --scope pending --offline --archive-root archive
     bili-asr run --scope failed --limit 5 --archive-root archive
@@ -151,12 +152,21 @@ cookies), signed streaming URLs, and raw exception stack traces.
   latest run details (run ID, exit code, cursor snapshot, and coverage
   summary). For `limited` enumeration runs, it reports cursor state honestly
   without claiming complete enumeration.
-- **`bili-asr coverage`** is a read-only reconciliation report over fixture/local archive evidence. Use a temporary local root and optional scope; it never performs network traffic or rewrites source sidecars:
+- **`bili-asr coverage [--quality]`** is a read-only reconciliation and artifact quality report over fixture/local archive evidence. Use a temporary local root and optional scope; it never performs network traffic, model invocation, audio transcoding, or writes to source sidecars:
 
       bili-asr coverage --archive-root /tmp/bili-asr-coverage-fixture --scope pending --format json
       bili-asr coverage --archive-root /tmp/bili-asr-coverage-fixture --format csv
+      bili-asr coverage --archive-root /tmp/bili-asr-coverage-fixture --quality --format json
+      bili-asr coverage --archive-root /tmp/bili-asr-coverage-fixture --quality --format csv
 
   `--format json|csv` is deterministic (stable keys/columns and work-id ordering). The denominator is the selected manifest snapshot in work-item units; if the manifest or scope is unavailable, the report says `unavailable` and does not infer a count. `cumulative` describes all selected manifest rows, while `batch` describes only the latest scheduler/ledger batch; they are not interchangeable. `limited` and `risk_interrupted` evidence remains non-complete. Named diagnostics (for example `denominator_unavailable`, `scheduler_ledger_mismatch`, `sidecar_malformed`, or `terminal_missing_artifact`) make contradictions explicit and produce exit `1`; exit `0` means no diagnostics, while usage/configuration errors also exit `1`. Reports redact credentials, signed URLs, media, models, and raw exceptions. Use only reviewed local fixtures or a disposable temporary archive root; coverage is an inspection projection and does not mutate any source sidecar.
+
+  **Subtitle and transcript artifact quality signals (`--quality`)**:
+  - Subtitle-first quality provides **deterministic artifact validation only**; it explicitly makes **no claim of semantic correctness**, grammar correctness, or language fluency.
+  - Reason codes are bounded and frozen: `empty` (empty artifact body/lines), `malformed` (unparseable SRT/JSON structure or non-finite timestamp), `non_monotonic` (out-of-order cue timestamps), `overlap` (overlapping cue intervals), `out_of_range` (negative time or cues exceeding known duration), `identity_mismatch` (work_id/bvid mismatch between manifest and artifact stem/frontmatter), and `artifact_missing` (referenced or inferred transcript files missing on disk or outside archive root).
+  - **Reclaimed audio acceptance**: When valid transcript artifacts (`.srt`, `.txt`, `.md`, or `.json`) exist on disk for an `archived` entry, absent audio files under `audio/` are recognized as expected post-archive reclaimed disk state and are **not reported as defects**.
+  - **Read-only boundary**: Quality inspection never mutates manifest row status, risk tokens, sidecars, or transcript files. It executes zero live network requests and requires no ASR model.
+  - **Exit semantics**: Exits `0` when all scoped artifacts pass validation without defects or diagnostics; exits `1` when any artifact defect reason or telemetry diagnostic is present, or on configuration/usage error.
 
 
 `bili-asr run` coordinates manifest rows through four stages — `harvest`
