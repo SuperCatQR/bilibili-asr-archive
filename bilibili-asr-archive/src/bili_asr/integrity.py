@@ -17,7 +17,11 @@ TRUNCATED_ATTEMPTS_LINE = "truncated_attempts_line"
 RETRYABLE_INCOMPLETE = "retryable_incomplete"
 STRUCTURAL_INPUT_ERROR = "structural_input_error"
 MANIFEST_ROW_LIMIT_EXCEEDED = "manifest_row_limit_exceeded"
+MISSING_ATTEMPTS = "missing_attempts_sidecar"
+ATTEMPTS_ROW_LIMIT_EXCEEDED = "attempts_row_limit_exceeded"
+ATTEMPTS_BYTE_LIMIT_EXCEEDED = "attempts_byte_limit_exceeded"
 _MAX_ROWS = 10000
+_MAX_ATTEMPTS_BYTES = 8 * 1024 * 1024
 
 @dataclass(frozen=True)
 class IntegrityDefect:
@@ -47,7 +51,11 @@ class IntegrityVerifier:
         attempts_present = (root / "coordinator" / "attempts.jsonl").is_file()
         report.authoritative = manifest_present and attempts_present and manifest_valid and attempts_valid
         if not manifest_present: report.diagnostics.append(STRUCTURAL_INPUT_ERROR)
-        if not attempts_present and not manifest_present: report.diagnostics.append(STRUCTURAL_INPUT_ERROR)
+        if not attempts_present:
+            if manifest_present and manifest_valid:
+                report.diagnostics.append(MISSING_ATTEMPTS)
+            elif not manifest_present:
+                report.diagnostics.append(STRUCTURAL_INPUT_ERROR)
         # Legacy archives may predate the coordinator sidecar.  Keep their
         # manifest rows checkable while withholding the authoritative claim.
         selected = self._select(entries, scope, attempts if attempts_valid else []) if manifest_valid and (attempts_valid or not attempts_present) else []
@@ -67,7 +75,13 @@ class IntegrityVerifier:
                 if not self._safe_path(path, root): defects.add(IDENTITY_PATH_MISMATCH)
             present = [p for p in canonical_required if self._safe_path(p, root) and p.is_file()]
             if status in {"archived", "asr_done", "subtitle_done"} and len(present) < len(canonical_required): defects.add(MISSING_TRANSCRIPT)
-            raw = root / "subtitles" / "raw" / f"{self._canonical_stem(row)}.json"
+            raw_directory = "subtitles/raw" if status == "subtitle_done" else "transcripts/raw"
+            raw = root / raw_directory / f"{self._canonical_stem(row)}.json"
+            declared_raw = row.get("raw_path")
+            if isinstance(declared_raw, str):
+                declared_raw_path = Path(declared_raw) if Path(declared_raw).is_absolute() else root / declared_raw
+                if declared_raw_path != raw or not self._safe_path(declared_raw_path, root):
+                    defects.add(IDENTITY_PATH_MISMATCH)
             if status == "subtitle_done" and not self._safe_path(raw, root): defects.add(IDENTITY_PATH_MISMATCH)
             elif status == "subtitle_done" and not raw.is_file(): defects.add(MISSING_RAW_SUBTITLE)
             artifact_paths = list(canonical_required)
@@ -105,11 +119,17 @@ class IntegrityVerifier:
 
     @staticmethod
     def _read_attempts(root: Path, report: IntegrityReport) -> tuple[list[dict[str, Any]], bool, bool]:
-        path=root/"coordinator"/"attempts.jsonl"
+        path = root / "coordinator" / "attempts.jsonl"
         if not path.is_file(): return [], True, False
         records=[]; truncated=False; valid=True
         try:
+            if path.stat().st_size > _MAX_ATTEMPTS_BYTES:
+                report.diagnostics.append(ATTEMPTS_BYTE_LIMIT_EXCEEDED)
+                return [], False, False
             lines = path.read_text(encoding="utf-8").splitlines()
+            if sum(bool(line.strip()) for line in lines) > _MAX_ROWS:
+                report.diagnostics.append(ATTEMPTS_ROW_LIMIT_EXCEEDED)
+                return [], False, False
         except (OSError, UnicodeError):
             report.diagnostics.append(STRUCTURAL_INPUT_ERROR)
             return [], False, False
@@ -119,16 +139,11 @@ class IntegrityVerifier:
             try:
                 value=json.loads(line)
             except json.JSONDecodeError:
-                if index == last_non_empty:
-                    truncated=True
-                else:
-                    valid=False; report.diagnostics.append(STRUCTURAL_INPUT_ERROR)
+                if index == last_non_empty: truncated=True
+                else: valid=False; report.diagnostics.append(STRUCTURAL_INPUT_ERROR)
                 continue
-            try:
-                record=_validate_attempt(value)
-            except (TypeError,ValueError):
-                valid=False; report.diagnostics.append(STRUCTURAL_INPUT_ERROR)
-                continue
+            try: record=_validate_attempt(value)
+            except (TypeError,ValueError): valid=False; report.diagnostics.append(STRUCTURAL_INPUT_ERROR); continue
             records.append(record)
         return records,valid,truncated
 
