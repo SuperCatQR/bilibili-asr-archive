@@ -67,7 +67,8 @@ def test_malformed_raw_is_reported(tmp_path: Path) -> None:
         (path / f"BV1x.p0.{directory}").write_text("bad", encoding="utf-8")
     raw = tmp_path / "subtitles" / "raw"; raw.mkdir(parents=True)
     (raw / "BV1x.p0.json").write_text("{broken", encoding="utf-8")
-    assert MISSING_RAW_SUBTITLE not in {d.code for d in IntegrityVerifier().verify(tmp_path).defects}
+    result = IntegrityVerifier().verify(tmp_path)
+    assert MALFORMED_ARTIFACT in {d.code for d in result.defects}
 
 
 def test_malformed_middle_attempt_is_structural(tmp_path: Path) -> None:
@@ -75,3 +76,50 @@ def test_malformed_middle_attempt_is_structural(tmp_path: Path) -> None:
     path = tmp_path / "coordinator" / "attempts.jsonl"; path.parent.mkdir()
     path.write_text(json.dumps(_attempt("x")) + "\n{bad}\n" + json.dumps(_attempt("x", "success")) + "\n", encoding="utf-8")
     assert STRUCTURAL_INPUT_ERROR in IntegrityVerifier().verify(tmp_path).diagnostics
+
+
+def test_retryable_status_matrix_and_scope_selectors(tmp_path: Path) -> None:
+    statuses = ["pending", "meta_ok", "sub_checked", "needs_audio", "audio_ok"]
+    rows = [{"work_id": f"BV{i}:p0", "bvid": f"BV{i}", "status": status} for i, status in enumerate(statuses)]
+    rows += [{"work_id": "failed:p0", "bvid": "failed", "status": "archived"}, {"work_id": "live:p0", "bvid": "live", "status": "meta_ok"}]
+    _manifest(tmp_path, rows)
+    attempts = tmp_path / "coordinator" / "attempts.jsonl"
+    attempts.parent.mkdir()
+    attempts.write_text(json.dumps(_attempt("failed:p0")) + "\n" + json.dumps(_attempt("live:p0", "running")) + "\n", encoding="utf-8")
+    report = IntegrityVerifier().verify(tmp_path)
+    retryable = {d.work_id for d in report.defects if d.code == RETRYABLE_INCOMPLETE}
+    assert retryable == {f"BV{i}:p0" for i in range(5)} | {"live:p0"}
+    assert {d.work_id for d in IntegrityVerifier().verify(tmp_path, scope="failed").defects} == {"failed:p0"}
+    assert IntegrityVerifier().verify(tmp_path, scope="BV1").checked == 1
+    assert IntegrityVerifier().verify(tmp_path, scope="BV1:p0").checked == 1
+
+
+def test_missing_each_transcript_artifact_is_missing_transcript(tmp_path: Path) -> None:
+    _manifest(tmp_path, [{"work_id": "BV1:p0", "bvid": "BV1", "status": "archived"}])
+    for directory, suffix, content in (("srt", "srt", "1\n00:00:00,000 --> 00:00:01,000\nok"), ("txt", "txt", "ok"), ("md", "md", "ok")):
+        path = tmp_path / "transcripts" / directory; path.mkdir(parents=True)
+        (path / f"BV1.p0.{suffix}").write_text(content, encoding="utf-8")
+        report = IntegrityVerifier().verify(tmp_path)
+        assert any(d.code == MISSING_TRANSCRIPT for d in report.defects)
+        (path / f"BV1.p0.{suffix}").unlink()
+
+
+def test_path_safety_redaction_and_read_only(tmp_path: Path) -> None:
+    _manifest(tmp_path, [{"work_id": "BV1:p0", "bvid": "BV1", "status": "archived", "srt_path": "../secret.srt"}])
+    outside = tmp_path.parent / "secret.srt"; outside.write_text("secret", encoding="utf-8")
+    before = outside.stat().st_mtime_ns
+    report = IntegrityVerifier().verify(tmp_path)
+    payload = json.dumps(report.to_dict())
+    assert any(d.code == "identity_path_mismatch" for d in report.defects)
+    assert str(tmp_path) not in payload and "secret" not in payload and "http" not in payload and "Traceback" not in payload
+    assert outside.stat().st_mtime_ns == before
+
+
+def test_malformed_manifest_and_bad_middle_attempt_are_diagnostics(tmp_path: Path) -> None:
+    manifest = tmp_path / "manifest" / "manifest.jsonl"; manifest.parent.mkdir()
+    manifest.write_text('{"work_id":"ok:p0","status":"pending"}\nnot-json\n', encoding="utf-8")
+    attempts = tmp_path / "coordinator" / "attempts.jsonl"; attempts.parent.mkdir()
+    attempts.write_text(json.dumps(_attempt("ok:p0")) + "\n{bad}\n" + json.dumps(_attempt("ok:p0")) + "\n", encoding="utf-8")
+    report = IntegrityVerifier().verify(tmp_path)
+    assert STRUCTURAL_INPUT_ERROR in report.diagnostics
+    assert TRUNCATED_ATTEMPTS_LINE not in report.diagnostics
