@@ -47,14 +47,12 @@ class IntegrityVerifier:
                 if not self._safe_path(path, root): defects.add(IDENTITY_PATH_MISMATCH)
             present = [p for p in required if self._safe_path(p, root) and p.is_file()]
             if status in {"archived", "asr_done", "subtitle_done"} and len(present) < len(required): defects.add(MISSING_TRANSCRIPT)
-            raw = root / "subtitles" / "raw" / f"{archive_stem(row)}.json"
+            raw = root / "subtitles" / "raw" / f"{self._canonical_stem(row)}.json"
             if status == "subtitle_done" and not self._safe_path(raw, root): defects.add(IDENTITY_PATH_MISMATCH)
             elif status == "subtitle_done" and not raw.is_file(): defects.add(MISSING_RAW_SUBTITLE)
-            quality_paths = [root / "subtitles" / "raw" / f"{archive_stem(row)}.json"] + required
+            quality_paths = [root / "subtitles" / "raw" / f"{self._canonical_stem(row)}.json"] + required
             quality = analyzer.analyze(row, root)
-            if "malformed" in quality.reasons and any(
-                path.suffix.lower() == ".json" and path.is_file() for path in quality_paths
-            ):
+            if "malformed" in quality.reasons:
                 defects.add(MALFORMED_ARTIFACT)
             if "identity_mismatch" in quality.reasons: defects.add(IDENTITY_PATH_MISMATCH)
             if status in {"pending", "meta_ok", "sub_checked", "needs_audio", "audio_ok"}: defects.add(RETRYABLE_INCOMPLETE)
