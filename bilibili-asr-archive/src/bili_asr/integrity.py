@@ -67,7 +67,7 @@ class IntegrityVerifier:
                     defects.add(IDENTITY_PATH_MISMATCH)
                 elif path.is_file():
                     present += 1
-            if status in {"archived", "asr_done", "subtitle_done"} and present == 0 and not all(path.is_file() for path in expected):
+            if status in {"archived", "asr_done", "subtitle_done"} and present == 0:
                 defects.add(MISSING_TRANSCRIPT)
             quality = analyzer.analyze(row, root)
             if "malformed" in quality.reasons and any(
