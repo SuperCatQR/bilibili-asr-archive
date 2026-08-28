@@ -7,7 +7,7 @@ from bili_asr.archive import write_archive
 from bili_asr.integrity import (
     IntegrityReport, IntegrityVerifier, MALFORMED_ARTIFACT, MISSING_RAW_SUBTITLE,
     MISSING_TRANSCRIPT, RETRYABLE_INCOMPLETE, STRUCTURAL_INPUT_ERROR,
-    TRUNCATED_ATTEMPTS_LINE,
+    TRUNCATED_ATTEMPTS_LINE, MISSING_ATTEMPTS, ATTEMPTS_BYTE_LIMIT_EXCEEDED,
 )
 
 
@@ -160,8 +160,31 @@ def test_manifest_overflow_is_non_authoritative(tmp_path: Path) -> None:
     assert report.diagnostics == ["manifest_row_limit_exceeded"]
 
 
-def test_malformed_manifest_field_type_is_structural(tmp_path: Path) -> None:
-    _manifest(tmp_path, [{"work_id": "x", "bvid": "x", "cid": {}}])
+
+
+def test_missing_attempts_is_diagnostic_but_rows_are_checked(tmp_path: Path) -> None:
+    _manifest(tmp_path, [{"work_id": "x", "status": "pending"}])
     report = IntegrityVerifier().verify(tmp_path)
     assert report.authoritative is False
-    assert STRUCTURAL_INPUT_ERROR in report.diagnostics
+    assert report.checked == 1
+    assert MISSING_ATTEMPTS in report.diagnostics
+
+
+def test_attempts_byte_limit_fails_closed(tmp_path: Path) -> None:
+    _manifest(tmp_path, [{"work_id": "x", "status": "pending"}])
+    attempts = tmp_path / "coordinator" / "attempts.jsonl"
+    attempts.parent.mkdir()
+    attempts.write_text("x" * (8 * 1024 * 1024 + 1), encoding="utf-8")
+    report = IntegrityVerifier().verify(tmp_path)
+    assert report.authoritative is False
+    assert ATTEMPTS_BYTE_LIMIT_EXCEEDED in report.diagnostics
+
+
+def test_declared_raw_path_mismatch_does_not_mask_canonical_raw(tmp_path: Path) -> None:
+    _manifest(tmp_path, [{"work_id": "BV1:p0", "bvid": "BV1", "status": "subtitle_done",
+                          "raw_path": "../escape.json"}])
+    raw = tmp_path / "subtitles" / "raw"
+    raw.mkdir(parents=True)
+    (raw / "BV1.p0.json").write_text(json.dumps({"segments": []}), encoding="utf-8")
+    report = IntegrityVerifier().verify(tmp_path)
+    assert any(d.code == "identity_path_mismatch" for d in report.defects)
