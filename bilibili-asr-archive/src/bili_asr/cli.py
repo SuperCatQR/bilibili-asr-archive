@@ -296,6 +296,11 @@ def build_parser() -> argparse.ArgumentParser:
     coverage_cmd.add_argument("--archive-root", default=DEFAULT_ARCHIVE_ROOT)
     coverage_cmd.add_argument("--scope", default=None)
     coverage_cmd.add_argument("--format", choices=["json", "csv"], default="json")
+    coverage_cmd.add_argument(
+        "--quality",
+        action="store_true",
+        help="Include deterministic artifact quality validation signals",
+    )
 
     export_cmd = subparsers.add_parser(
         "export",
@@ -971,9 +976,155 @@ def _cmd_status(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_coverage_quality(args: argparse.Namespace) -> int:
+    import csv
+    import io
+    from pathlib import Path
+    from .quality import QualityAnalyzer, REASON_CODES
+    from .coverage_report import (
+        _read_manifest,
+        _read_jsonl,
+        _select_scope,
+        _diagnostic_rows,
+    )
+
+    root = Path(args.archive_root).resolve()
+    diagnostics: set[tuple[str, str]] = set()
+    manifest, manifest_state = _read_manifest(root, diagnostics)
+    attempts, _ = _read_jsonl(
+        root / "coordinator" / "attempts.jsonl", "attempts", diagnostics
+    )
+    selected, scope_state = _select_scope(manifest, attempts, args.scope)
+    if scope_state == "unavailable":
+        diagnostics.add(("unknown_scope", "scope"))
+
+    denominator_available = (
+        manifest_state == "available" and scope_state == "available"
+    )
+    rows: list[dict[str, object]] = []
+    reason_counts: dict[str, int] = {code: 0 for code in REASON_CODES}
+    total_cues = 0
+    valid_work_items = 0
+    has_defects = False
+
+    analyzer = QualityAnalyzer()
+    for work_id, entry in sorted(selected.items()):
+        result = analyzer.analyze(entry, root)
+        row_dict: dict[str, object] = {
+            "work_id": work_id,
+            "source": result.source,
+            "language": result.language,
+            "status": result.status,
+            "cue_count": result.cue_count,
+            "artifact_count": result.artifact_count,
+            "reasons": list(result.reasons),
+            "diagnostics": list(result.diagnostics),
+        }
+        rows.append(row_dict)
+        for r in result.reasons:
+            reason_counts[r] = reason_counts.get(r, 0) + 1
+        total_cues += result.cue_count
+        if not result.reasons and not result.diagnostics:
+            valid_work_items += 1
+        else:
+            has_defects = True
+
+    diagnostic_rows = _diagnostic_rows(diagnostics)
+    summary = {
+        "total_work_items": len(rows) if denominator_available else 0,
+        "valid_work_items": valid_work_items if denominator_available else 0,
+        "total_cues": total_cues if denominator_available else 0,
+        **reason_counts,
+    }
+
+    quality_data = {
+        "schema_version": "coverage-quality-v1",
+        "scope": args.scope,
+        "denominator": {
+            "unit": "work_items",
+            "count": len(rows) if denominator_available else None,
+            "state": "available" if denominator_available else "unavailable",
+            "source": "manifest_snapshot",
+        },
+        "summary": summary,
+        "rows": rows,
+        "diagnostics": diagnostic_rows,
+    }
+
+    if args.format == "json":
+        sys.stdout.write(
+            json.dumps(
+                quality_data,
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            )
+        )
+        sys.stdout.write("\n")
+    else:
+        columns = (
+            "schema_version",
+            "scope",
+            "denominator_unit",
+            "denominator_count",
+            "denominator_state",
+            "denominator_source",
+            "work_id",
+            "source",
+            "language",
+            "status",
+            "cue_count",
+            "artifact_count",
+            "reasons",
+            "diagnostics",
+        )
+        output = io.StringIO(newline="")
+        writer = csv.DictWriter(output, fieldnames=columns, lineterminator="\n")
+        writer.writeheader()
+        csv_rows = rows or [
+            {
+                "work_id": "",
+                "source": "",
+                "language": "",
+                "status": "",
+                "cue_count": "",
+                "artifact_count": "",
+                "reasons": [],
+                "diagnostics": [],
+            }
+        ]
+        denom = quality_data["denominator"]
+        for r in csv_rows:
+            writer.writerow(
+                {
+                    "schema_version": quality_data["schema_version"],
+                    "scope": quality_data["scope"] or "",
+                    "denominator_unit": denom["unit"],
+                    "denominator_count": (
+                        denom["count"] if denom["count"] is not None else ""
+                    ),
+                    "denominator_state": denom["state"],
+                    "denominator_source": denom["source"],
+                    "work_id": r.get("work_id", ""),
+                    "source": r.get("source") or "",
+                    "language": r.get("language") or "",
+                    "status": r.get("status") or "",
+                    "cue_count": r.get("cue_count", ""),
+                    "artifact_count": r.get("artifact_count", ""),
+                    "reasons": ";".join(r.get("reasons", [])),
+                    "diagnostics": ";".join(r.get("diagnostics", [])),
+                }
+            )
+        sys.stdout.write(output.getvalue())
+
+    return 1 if (diagnostic_rows or has_defects) else 0
+
+
 def _cmd_coverage(args: argparse.Namespace) -> int:
     from .coverage_report import CoverageReport
     try:
+        if getattr(args, "quality", False):
+            return _cmd_coverage_quality(args)
         report = CoverageReport.build(args.archive_root, scope=args.scope)
         sys.stdout.write(report.to_json() if args.format == "json" else report.to_csv())
         if args.format == "json":
