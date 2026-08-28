@@ -286,6 +286,30 @@ def build_parser() -> argparse.ArgumentParser:
         help="Force rebuilding the search index from the manifest",
     )
     search_cmd.add_argument(
+        "--status", action="append", default=None,
+        help="Filter by manifest status (repeatable or comma-separated)",
+    )
+    search_cmd.add_argument(
+        "--source", action="append", default=None,
+        help="Filter by source (e.g. subtitle, asr)",
+    )
+    search_cmd.add_argument(
+        "--language", action="append", default=None,
+        help="Filter by language (e.g. ai-zh, zh-CN)",
+    )
+    search_cmd.add_argument(
+        "--scope", default=None,
+        help="pending | failed | one or more work_id/bvid selectors",
+    )
+    search_cmd.add_argument(
+        "--work-id", action="append", default=None,
+        help="Filter by exact work_id or bvid (repeatable or comma-separated)",
+    )
+    search_cmd.add_argument(
+        "--format", choices=["text", "json"], default="text",
+        help="Output format (text or json)",
+    )
+    search_cmd.add_argument(
         "--archive-root", default=DEFAULT_ARCHIVE_ROOT,
         help="Archive root directory (default: ./archive)",
     )
@@ -2054,18 +2078,41 @@ def _cmd_schedule(args: argparse.Namespace) -> int:
 
 
 def _cmd_search(args: argparse.Namespace) -> int:
-    from .manifest import ManifestStore
-    from .search_index import FTS5UnavailableError, SearchIndex
+    from .manifest import VALID_STATUSES
+    from .search_index import FTS5UnavailableError, SearchQuery, search
 
-    store = ManifestStore(root=args.archive_root)
-    index = SearchIndex(root=args.archive_root)
+    if args.limit is not None and args.limit <= 0:
+        print("search: --limit must be a positive integer", file=sys.stderr)
+        return 1
+
+    status_filter = _parse_status_filter(args.status)
+    if status_filter is not None:
+        invalid = status_filter - VALID_STATUSES
+        if invalid:
+            print(
+                f"search: invalid status filter: {sorted(invalid)}; "
+                f"valid statuses: {sorted(VALID_STATUSES)}",
+                file=sys.stderr,
+            )
+            return 1
+
+    source_filter = _parse_status_filter(args.source)
+    lang_filter = _parse_status_filter(args.language)
+    work_id_filter = _parse_status_filter(args.work_id)
+
+    sq = SearchQuery(
+        query=args.query,
+        status=status_filter,
+        source=source_filter,
+        language=lang_filter,
+        scope=args.scope,
+        work_id=work_id_filter,
+        limit=args.limit,
+        rebuild=args.rebuild,
+    )
 
     try:
-        manifest = store.load()
-        if args.rebuild or index.is_stale(manifest):
-            index.build(manifest, force=args.rebuild)
-
-        results = index.search(args.query, limit=args.limit, auto_build=False)
+        results = search(archive_root=args.archive_root, query=sq)
     except FTS5UnavailableError as exc:
         print(f"search: {exc}", file=sys.stderr)
         return 1
@@ -2080,10 +2127,15 @@ def _cmd_search(args: argparse.Namespace) -> int:
         )
         return 1
 
+    if getattr(args, "format", "text") == "json":
+        print(json.dumps(results, indent=2, ensure_ascii=False))
+        return 0
+
     for res in results:
+        score = float(res.get("score") or 0.0)
         print(
-            f"{res.work_id}: {res.title} [{res.status}] "
-            f"(score: {res.score:.4f}, path: {res.path})"
+            f"{res['work_id']}: {res['title']} [{res['status']}] "
+            f"(score: {score:.4f}, path: {res['path']})"
         )
     return 0
 

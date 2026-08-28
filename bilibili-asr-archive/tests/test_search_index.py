@@ -15,8 +15,10 @@ from bili_asr.search_index import (
     COMPLETED_STATUSES,
     FTS5UnavailableError,
     SearchIndex,
+    SearchQuery,
     SearchResult,
     check_fts5_available,
+    search,
 )
 
 
@@ -38,6 +40,8 @@ def _create_sample_archive(tmp_root: str):
         "title": "Hegel Philosophy Dialectics",
         "status": "archived",
         "duration_s": 360,
+        "source": "asr",
+        "pubdate": 1600000000,
         "txt_path": os.path.join("transcripts", "txt", "BV1hegel.p0.txt"),
         "srt_path": os.path.join("transcripts", "srt", "BV1hegel.p0.srt"),
     }
@@ -55,6 +59,9 @@ def _create_sample_archive(tmp_root: str):
         "title": "Kant Critique of Pure Reason",
         "status": "subtitle_done",
         "duration_s": 420,
+        "source": "subtitle",
+        "sub_lan": "ai-zh",
+        "pubdate": 1600000100,
         "srt_path": os.path.join("transcripts", "srt", "BV1kant.p0.srt"),
     }
     with open(os.path.join(tmp_root, e2["srt_path"]), "w", encoding="utf-8") as fh:
@@ -103,6 +110,8 @@ def _create_sample_archive(tmp_root: str):
         "title": "Hegel Science of Logic",
         "status": "archived",
         "duration_s": 480,
+        "source": "asr",
+        "pubdate": 1600000200,
         "txt_path": os.path.join("transcripts", "txt", "BV1hegel.p1.txt"),
     }
     with open(os.path.join(tmp_root, e6["txt_path"]), "w", encoding="utf-8") as fh:
@@ -584,3 +593,334 @@ def test_fts5_unavailable_error_handling(tmp_root, monkeypatch, capsys):
     assert code == 1
     err = capsys.readouterr().err
     assert "FTS5" in err or "SQLite" in err
+
+
+# ---------------------------------------------------------------- SearchQuery & Public search() Tests
+
+
+def test_public_search_function_interface(tmp_root):
+    """Test public search(archive_root, query) surface with SearchQuery and str."""
+    _create_sample_archive(tmp_root)
+
+    # 1. Calling search with SearchQuery object
+    sq = SearchQuery(query="Hegel", limit=10)
+    results = search(tmp_root, sq)
+    assert isinstance(results, list)
+    assert len(results) == 2
+    for r in results:
+        assert isinstance(r, dict)
+        assert "work_id" in r
+        assert "bvid" in r
+        assert "title" in r
+        assert "status" in r
+        assert "score" in r
+        assert "path" in r
+        assert "duration_s" in r
+        assert "transcript_snippet" in r
+        assert "archive_paths" in r
+        assert isinstance(r["score"], float)
+        assert isinstance(r["archive_paths"], dict)
+
+    # 2. Calling search with string
+    results_str = search(tmp_root, "Kant")
+    assert len(results_str) == 1
+    assert results_str[0]["work_id"] == "BV1kant:p0"
+    assert results_str[0]["status"] == "subtitle_done"
+
+
+def test_search_query_status_filters(tmp_root):
+    """Filter search results by manifest status."""
+    _create_sample_archive(tmp_root)
+
+    # Filter for archived only
+    res_archived = search(tmp_root, SearchQuery(status="archived"))
+    assert len(res_archived) == 2
+    assert all(r["status"] == "archived" for r in res_archived)
+
+    # Filter for subtitle_done only
+    res_sub = search(tmp_root, SearchQuery(status=["subtitle_done"]))
+    assert len(res_sub) == 1
+    assert res_sub[0]["work_id"] == "BV1kant:p0"
+
+    # Multi-status filter (comma-separated or collection)
+    res_both = search(tmp_root, SearchQuery(status="archived,subtitle_done"))
+    assert len(res_both) == 3
+
+    # Incomplete status that is not indexed yields 0 hits
+    res_meta = search(tmp_root, SearchQuery(status="meta_ok"))
+    assert res_meta == []
+
+
+def test_search_query_source_and_language_filters(tmp_root):
+    """Filter search results by source (asr/subtitle) and language."""
+    _create_sample_archive(tmp_root)
+
+    # Source filter
+    res_asr = search(tmp_root, SearchQuery(source="asr"))
+    assert len(res_asr) == 2
+    assert all(r["source"] == "asr" for r in res_asr)
+
+    res_sub = search(tmp_root, SearchQuery(source="subtitle"))
+    assert len(res_sub) == 1
+    assert res_sub[0]["work_id"] == "BV1kant:p0"
+
+    # Language filter
+    res_lang = search(tmp_root, SearchQuery(language="ai-zh"))
+    assert len(res_lang) == 1
+    assert res_lang[0]["work_id"] == "BV1kant:p0"
+
+    res_no_lang = search(tmp_root, SearchQuery(language="en-US"))
+    assert res_no_lang == []
+
+
+def test_search_query_work_id_and_bvid_filters(tmp_root):
+    """Filter search results by explicit work_id or bvid."""
+    _create_sample_archive(tmp_root)
+
+    # Exact work_id
+    res_work = search(tmp_root, SearchQuery(work_id="BV1hegel:p0"))
+    assert len(res_work) == 1
+    assert res_work[0]["work_id"] == "BV1hegel:p0"
+
+    # Exact bvid matching multiple pages
+    res_bvid = search(tmp_root, SearchQuery(work_id="BV1hegel"))
+    assert len(res_bvid) == 2
+    ids = {r["work_id"] for r in res_bvid}
+    assert ids == {"BV1hegel:p0", "BV1hegel:p1"}
+
+    # List of work_ids
+    res_list = search(tmp_root, SearchQuery(work_id=["BV1kant:p0", "BV1hegel:p1"]))
+    assert len(res_list) == 2
+
+
+def test_search_query_scope_filter(tmp_root):
+    """Filter search results using the standard scope taxonomy."""
+    _create_sample_archive(tmp_root)
+
+    # Scope with specific work_ids
+    res_scoped = search(tmp_root, SearchQuery(scope="BV1kant:p0"))
+    assert len(res_scoped) == 1
+    assert res_scoped[0]["work_id"] == "BV1kant:p0"
+
+    # Scope pending selects non-terminal rows (subtitle_done matches, archived excluded)
+    res_pending = search(tmp_root, SearchQuery(scope="pending"))
+    assert len(res_pending) == 1
+    assert res_pending[0]["work_id"] == "BV1kant:p0"
+
+    # Query matching archived row with scope pending returns empty
+    res_pending_hegel = search(tmp_root, SearchQuery(query="Hegel", scope="pending"))
+    assert res_pending_hegel == []
+
+    # Scope failed without attempts ledger yields empty results
+    res_failed_empty = search(tmp_root, SearchQuery(scope="failed"))
+    assert res_failed_empty == []
+
+    # Scope failed with recorded attempts ledger
+    attempts_dir = os.path.join(tmp_root, "coordinator")
+    os.makedirs(attempts_dir, exist_ok=True)
+    with open(os.path.join(attempts_dir, "attempts.jsonl"), "w", encoding="utf-8") as fh:
+        fh.write(json.dumps({"work_id": "BV1hegel:p0", "stage": "asr", "attempt": 1, "outcome": "failed"}) + "\n")
+
+    res_failed = search(tmp_root, SearchQuery(scope="failed"))
+    assert len(res_failed) == 1
+    assert res_failed[0]["work_id"] == "BV1hegel:p0"
+
+
+def test_search_query_title_and_duration_filters(tmp_root):
+    """Filter search results by title substring and duration range."""
+    _create_sample_archive(tmp_root)
+
+    # Title filter
+    res_title = search(tmp_root, SearchQuery(title="Pure Reason"))
+    assert len(res_title) == 1
+    assert res_title[0]["work_id"] == "BV1kant:p0"
+
+    # Duration range filter
+    res_duration = search(tmp_root, SearchQuery(min_duration_s=400, max_duration_s=500))
+    assert len(res_duration) == 2  # BV1kant:p0 (420) and BV1hegel:p1 (480)
+    work_ids = {r["work_id"] for r in res_duration}
+    assert work_ids == {"BV1kant:p0", "BV1hegel:p1"}
+
+
+def test_search_deterministic_tie_break_ordering(tmp_root):
+    """When ranking scores tie, results must be deterministically ordered by (work_id, path)."""
+    store = ManifestStore(root=tmp_root)
+    txt_dir = os.path.join(tmp_root, "transcripts", "txt")
+    os.makedirs(txt_dir, exist_ok=True)
+
+    # Create 3 items with identical text and identical score
+    for i in (3, 1, 2):
+        work_id = f"BV1tie{i}:p0"
+        rel_txt = f"transcripts/txt/BV1tie{i}.p0.txt"
+        with open(os.path.join(tmp_root, rel_txt), "w", encoding="utf-8") as fh:
+            fh.write("Identical transcript text content for deterministic ordering verification.")
+        store.upsert({
+            "bvid": f"BV1tie{i}",
+            "work_id": work_id,
+            "page_index": 0,
+            "title": f"Tie Video {i}",
+            "status": "archived",
+            "txt_path": rel_txt,
+        })
+
+    index = SearchIndex(root=tmp_root)
+    index.build(store.load())
+
+    results = search(tmp_root, SearchQuery(query="deterministic"))
+    assert len(results) == 3
+    # Verify deterministic work_id tie break order: BV1tie1:p0, BV1tie2:p0, BV1tie3:p0
+    result_ids = [r["work_id"] for r in results]
+    assert result_ids == ["BV1tie1:p0", "BV1tie2:p0", "BV1tie3:p0"]
+
+
+def test_search_pagination_offset_and_limit(tmp_root):
+    """Pagination via limit and offset provides stable sequential slices."""
+    _create_sample_archive(tmp_root)
+
+    # 3 total indexed items in sample archive: BV1hegel:p0, BV1hegel:p1, BV1kant:p0
+    page1 = search(tmp_root, SearchQuery(status="archived,subtitle_done", limit=2, offset=0))
+    assert len(page1) == 2
+
+    page2 = search(tmp_root, SearchQuery(status="archived,subtitle_done", limit=2, offset=2))
+    assert len(page2) == 1
+
+    page3 = search(tmp_root, SearchQuery(status="archived,subtitle_done", limit=2, offset=10))
+    assert page3 == []
+
+    # Combined pages cover all 3 distinct items
+    combined_ids = [r["work_id"] for r in page1] + [r["work_id"] for r in page2]
+    assert len(set(combined_ids)) == 3
+
+
+def test_search_bounded_invalid_limits(tmp_root):
+    """Invalid or non-positive limits/offsets safely yield no results without error."""
+    _create_sample_archive(tmp_root)
+
+    assert search(tmp_root, SearchQuery(query="Hegel", limit=0)) == []
+    assert search(tmp_root, SearchQuery(query="Hegel", limit=-5)) == []
+    assert search(tmp_root, SearchQuery(query="Hegel", offset=-1)) == []
+
+
+def test_search_manifest_immutability_with_search_query(tmp_root):
+    """Search operations with SearchQuery must NEVER rewrite or modify the manifest JSONL."""
+    store = _create_sample_archive(tmp_root)
+    manifest_path = os.path.join(tmp_root, "manifest", "manifest.jsonl")
+    with open(manifest_path, "r", encoding="utf-8") as fh:
+        original_manifest = fh.read()
+    mtime_before = os.path.getmtime(manifest_path)
+
+    search(tmp_root, SearchQuery(query="Hegel", status="archived"))
+    search(tmp_root, SearchQuery(source="subtitle", language="ai-zh"))
+    search(tmp_root, SearchQuery(rebuild=True))
+
+    with open(manifest_path, "r", encoding="utf-8") as fh:
+        after_manifest = fh.read()
+    mtime_after = os.path.getmtime(manifest_path)
+
+    assert original_manifest == after_manifest
+    assert mtime_before == mtime_after
+
+
+def test_search_sanitization_and_path_containment(tmp_root):
+    """Search output must contain safe relative paths and redacted sensitive tokens."""
+    store = ManifestStore(root=tmp_root)
+    txt_dir = os.path.join(tmp_root, "transcripts", "txt")
+    os.makedirs(txt_dir, exist_ok=True)
+
+    rel_txt = "transcripts/txt/BV1safe.p0.txt"
+    with open(os.path.join(tmp_root, rel_txt), "w", encoding="utf-8") as fh:
+        fh.write(
+            "Discussion on ethics https://secret-stream.bilivideo.com/auth?token=leak_token_abc "
+            "SESSDATA=secret_cookie_val and philosophy."
+        )
+
+    store.upsert({
+        "bvid": "BV1safe",
+        "work_id": "BV1safe:p0",
+        "page_index": 0,
+        "title": "Safe Redaction Video",
+        "status": "archived",
+        "txt_path": rel_txt,
+    })
+
+    results = search(tmp_root, SearchQuery(query="ethics"))
+    assert len(results) == 1
+    res = results[0]
+
+    # Path must be relative
+    assert not os.path.isabs(res["path"])
+    assert ".." not in res["path"]
+
+    # Snippet must be redacted
+    snippet = res["transcript_snippet"]
+    assert "secret-stream" not in snippet
+    assert "leak_token_abc" not in snippet
+    assert "secret_cookie_val" not in snippet
+    assert "[redacted]" in snippet
+
+
+def test_cli_search_with_status_source_language_filters(tmp_root, capsys):
+    """bili-asr search CLI options --status, --source, --language, --work-id work properly."""
+    _create_sample_archive(tmp_root)
+
+    # 1. Filter by status
+    code1 = main(["search", "Hegel", "--status", "archived", "--archive-root", tmp_root])
+    assert code1 == 0
+    out1 = capsys.readouterr().out
+    assert "BV1hegel:p0" in out1
+
+    # 2. Filter by status mismatch
+    code2 = main(["search", "Hegel", "--status", "subtitle_done", "--archive-root", tmp_root])
+    assert code2 == 1
+    err2 = capsys.readouterr().err
+    assert "no matching transcripts found" in err2
+
+    # 3. Filter by source
+    code3 = main(["search", "Kant", "--source", "subtitle", "--archive-root", tmp_root])
+    assert code3 == 0
+    out3 = capsys.readouterr().out
+    assert "BV1kant:p0" in out3
+
+    # 4. Filter by language
+    code4 = main(["search", "Kant", "--language", "ai-zh", "--archive-root", tmp_root])
+    assert code4 == 0
+    out4 = capsys.readouterr().out
+    assert "BV1kant:p0" in out4
+
+    # 5. Filter by work-id
+    code5 = main(["search", "Hegel", "--work-id", "BV1hegel:p1", "--archive-root", tmp_root])
+    assert code5 == 0
+    out5 = capsys.readouterr().out
+    assert "BV1hegel:p1" in out5
+    assert "BV1hegel:p0" not in out5
+
+
+def test_cli_search_json_format_output(tmp_root, capsys):
+    """bili-asr search --format json outputs valid formatted JSON array."""
+    _create_sample_archive(tmp_root)
+
+    code = main(["search", "Kant", "--format", "json", "--archive-root", tmp_root])
+    assert code == 0
+    out = capsys.readouterr().out
+    data = json.loads(out)
+    assert isinstance(data, list)
+    assert len(data) == 1
+    assert data[0]["work_id"] == "BV1kant:p0"
+    assert data[0]["status"] == "subtitle_done"
+
+
+def test_cli_search_invalid_limit_and_status_diagnostics(tmp_root, capsys):
+    """CLI search handles invalid limit and invalid status filters with exit 1."""
+    _create_sample_archive(tmp_root)
+
+    # Invalid non-positive limit
+    code_lim = main(["search", "Hegel", "--limit", "0", "--archive-root", tmp_root])
+    assert code_lim == 1
+    err_lim = capsys.readouterr().err
+    assert "--limit must be a positive integer" in err_lim
+
+    # Invalid status filter
+    code_stat = main(["search", "Hegel", "--status", "invalid_status", "--archive-root", tmp_root])
+    assert code_stat == 1
+    err_stat = capsys.readouterr().err
+    assert "invalid status filter" in err_stat

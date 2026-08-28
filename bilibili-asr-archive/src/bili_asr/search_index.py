@@ -5,8 +5,10 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 import json
 import os
+from pathlib import Path
+import re
 import sqlite3
-from typing import Any
+from typing import Any, Sequence
 
 from .archive import archive_stem
 from .manifest import ManifestStore
@@ -16,6 +18,26 @@ INDEX_META_TABLE = "_index_meta"
 
 # Only completed transcript statuses are indexable when transcript/archive paths exist
 COMPLETED_STATUSES = frozenset({"archived", "subtitle_done"})
+
+# Bounded search limits
+DEFAULT_SEARCH_LIMIT = 100
+MAX_SNIPPET_LENGTH = 150
+
+_SENSITIVE_PATTERNS = (
+    re.compile(r"(?i)(?:https?://)[^\s\"\']+"),
+    re.compile(
+        r"(?i)(?:sessdata|access[_-]?token|authorization|cookie|token|signature|sign|deadline)"
+        r"\s*(?:=|:)\s*[^\s,;]+"
+    ),
+)
+
+
+def _redact_text(text: str) -> str:
+    """Strip URLs and credential-like values from text/snippets."""
+    redacted = text
+    for pattern in _SENSITIVE_PATTERNS:
+        redacted = pattern.sub("[redacted]", redacted)
+    return redacted
 
 
 class FTS5UnavailableError(RuntimeError):
@@ -38,6 +60,25 @@ def check_fts5_available(conn: sqlite3.Connection | None = None) -> bool:
             conn.close()
 
 
+@dataclass(frozen=True)
+class SearchQuery:
+    """Structured search query with manifest filters and pagination bounds."""
+
+    query: str = ""
+    status: str | Sequence[str] | set[str] | None = None
+    source: str | Sequence[str] | set[str] | None = None
+    language: str | Sequence[str] | set[str] | None = None
+    scope: str | None = None
+    work_id: str | Sequence[str] | set[str] | None = None
+    title: str | None = None
+    min_duration_s: float | int | None = None
+    max_duration_s: float | int | None = None
+    limit: int | None = None
+    offset: int = 0
+    auto_build: bool = True
+    rebuild: bool = False
+
+
 @dataclass
 class SearchResult:
     """A single matched transcript search hit."""
@@ -50,6 +91,48 @@ class SearchResult:
     duration_s: float | int = 0
     transcript_snippet: str = ""
     archive_paths: dict[str, str] = field(default_factory=dict)
+    source: str = ""
+    language: str = ""
+    pubdate: int | None = None
+    bvid: str = ""
+    page_index: int | None = None
+
+    def to_dict(self) -> dict[str, object]:
+        """Return a sanitized dictionary representation of the search hit."""
+        bvid_val = self.bvid
+        if not bvid_val and ":" in self.work_id:
+            bvid_val = self.work_id.split(":")[0]
+        elif not bvid_val:
+            bvid_val = self.work_id
+
+        return {
+            "work_id": self.work_id,
+            "bvid": bvid_val,
+            "page_index": self.page_index,
+            "title": self.title,
+            "status": self.status,
+            "score": self.score,
+            "path": self.path,
+            "duration_s": self.duration_s,
+            "source": self.source,
+            "language": self.language,
+            "pubdate": self.pubdate,
+            "transcript_snippet": self.transcript_snippet,
+            "archive_paths": dict(self.archive_paths),
+        }
+
+
+def _safe_contained_relpath(root: str, path_str: str) -> str | None:
+    """Return a relative path within root, or None if path escapes root."""
+    try:
+        full = path_str if os.path.isabs(path_str) else os.path.join(root, path_str)
+        real_full = os.path.realpath(full)
+        real_root = os.path.realpath(root)
+        if os.path.commonpath([real_full, real_root]) == real_root:
+            return os.path.relpath(real_full, real_root)
+    except Exception:
+        pass
+    return None
 
 
 def extract_transcript_text(
@@ -64,10 +147,13 @@ def extract_transcript_text(
         stem = str(entry.get("bvid") or "")
 
     paths: dict[str, str] = {}
-    # Collect paths from entry metadata
+    # Collect paths from entry metadata with containment validation
     for k in ("srt_path", "txt_path", "md_path", "raw_path"):
-        if entry.get(k):
-            paths[k] = str(entry[k])
+        raw_val = entry.get(k)
+        if raw_val:
+            rel = _safe_contained_relpath(root_str, str(raw_val))
+            if rel:
+                paths[k] = rel
 
     # If not in entry metadata, probe standard disk locations
     if "txt_path" not in paths:
@@ -92,9 +178,7 @@ def extract_transcript_text(
     # 1. Try txt_path
     txt_path = paths.get("txt_path")
     if txt_path:
-        full_txt = (
-            txt_path if os.path.isabs(txt_path) else os.path.join(root_str, txt_path)
-        )
+        full_txt = os.path.join(root_str, txt_path)
         if os.path.isfile(full_txt):
             try:
                 with open(full_txt, "r", encoding="utf-8") as fh:
@@ -105,9 +189,7 @@ def extract_transcript_text(
     # 2. If no text, try srt_path
     if not text and "srt_path" in paths:
         srt_path = paths["srt_path"]
-        full_srt = (
-            srt_path if os.path.isabs(srt_path) else os.path.join(root_str, srt_path)
-        )
+        full_srt = os.path.join(root_str, srt_path)
         if os.path.isfile(full_srt):
             try:
                 with open(full_srt, "r", encoding="utf-8") as fh:
@@ -125,10 +207,7 @@ def extract_transcript_text(
     if not text:
         raw_candidates = []
         if "raw_path" in paths:
-            raw_candidates.append(
-                paths["raw_path"] if os.path.isabs(paths["raw_path"])
-                else os.path.join(root_str, paths["raw_path"])
-            )
+            raw_candidates.append(os.path.join(root_str, paths["raw_path"]))
         raw_candidates.append(
             os.path.join(root_str, "subtitles", "raw", f"{stem}.json")
         )
@@ -155,13 +234,122 @@ def extract_transcript_text(
                 except (OSError, json.JSONDecodeError):
                     pass
 
-    return text, paths
+    # 4. If no text, try md_path
+    if not text and "md_path" in paths:
+        md_path = paths["md_path"]
+        full_md = os.path.join(root_str, md_path)
+        if os.path.isfile(full_md):
+            try:
+                with open(full_md, "r", encoding="utf-8") as fh:
+                    md_content = fh.read().strip()
+                if md_content.startswith("---"):
+                    parts = md_content.split("---", 2)
+                    if len(parts) >= 3:
+                        md_content = parts[2].strip()
+                text = md_content
+            except OSError:
+                pass
+
+    return _redact_text(text), paths
+
+
+def _create_snippet(text: str, query: str = "") -> str:
+    """Produce a bounded snippet around the matching keyword or start of text."""
+    if not text:
+        return ""
+    clean_text = " ".join(text.split())
+    clean_q = (query or "").strip()
+    if not clean_q:
+        snippet = clean_text[:MAX_SNIPPET_LENGTH]
+        return _redact_text(snippet)
+
+    # Try finding terms from query in text
+    terms = [t for t in re.split(r"\s+", clean_q) if len(t) > 1 and not t.startswith(("-", "+", "*"))]
+    match_pos = -1
+    for term in (terms or [clean_q]):
+        idx = clean_text.lower().find(term.lower())
+        if idx >= 0:
+            match_pos = idx
+            break
+
+    if match_pos < 0:
+        snippet = clean_text[:MAX_SNIPPET_LENGTH]
+    else:
+        start = max(0, match_pos - 30)
+        end = min(len(clean_text), match_pos + 90)
+        prefix = "..." if start > 0 else ""
+        suffix = "..." if end < len(clean_text) else ""
+        snippet = prefix + clean_text[start:end] + suffix
+
+    return _redact_text(snippet[:MAX_SNIPPET_LENGTH])
+
+
+def _parse_filter_set(val: Any) -> set[str] | None:
+    """Parse a filter argument into a set of non-empty string values."""
+    if val is None:
+        return None
+    if isinstance(val, str):
+        tokens = [s.strip() for s in val.split(",") if s.strip()]
+        return set(tokens) if tokens else None
+    if isinstance(val, (set, frozenset, list, tuple)):
+        items: set[str] = set()
+        for item in val:
+            if isinstance(item, str):
+                for s in item.split(","):
+                    s = s.strip()
+                    if s:
+                        items.add(s)
+        return items if items else None
+    return None
+
+
+def _parse_scope_clause(
+    scope: str,
+    root: str,
+) -> tuple[str, list[Any]]:
+    """Translate scope selector to SQL clause and parameters."""
+    scope_str = scope.strip()
+    if not scope_str:
+        return "", []
+    if scope_str == "pending":
+        # Pending means non-terminal rows (none of which are indexed)
+        return "status NOT IN ('archived', 'gone')", []
+    if scope_str == "failed":
+        # Load failed work_ids from attempts ledger
+        attempts_path = os.path.join(root, "coordinator", "attempts.jsonl")
+        failed_ids: set[str] = set()
+        if os.path.isfile(attempts_path):
+            try:
+                with open(attempts_path, "r", encoding="utf-8") as fh:
+                    for line in fh:
+                        line = line.strip()
+                        if not line:
+                            continue
+                        rec = json.loads(line)
+                        if rec.get("outcome") == "failed" and rec.get("work_id"):
+                            failed_ids.add(str(rec["work_id"]))
+            except Exception:
+                pass
+        if not failed_ids:
+            return "1 = 0", []
+        placeholders = ", ".join("?" for _ in failed_ids)
+        return f"work_id IN ({placeholders})", sorted(failed_ids)
+
+    tokens = [t.strip() for t in re.split(r"[,\s]+", scope_str) if t.strip()]
+    if not tokens:
+        return "", []
+    w_placeholders = ", ".join("?" for _ in tokens)
+    b_placeholders = ", ".join("?" for _ in tokens)
+    return (
+        f"(work_id IN ({w_placeholders}) OR bvid IN ({b_placeholders}))",
+        sorted(tokens) + sorted(tokens),
+    )
 
 
 class SearchIndex:
     """Manages {archive_root}/search.db FTS5 virtual table for transcript search."""
 
-    def __init__(self, root: str | os.PathLike[str]) -> None:
+    def __init__(self, root: str | os.PathLike[str] | Path) -> None:
         self.root = os.fspath(root)
         self.db_path = os.path.join(self.root, "search.db")
         self.manifest_path = os.path.join(self.root, "manifest", "manifest.jsonl")
@@ -185,11 +373,35 @@ class SearchIndex:
         self,
         manifest_entries: dict[str, dict[str, Any]] | ManifestStore | None = None,
     ) -> bool:
-        """Check if search.db is missing, older than manifest.jsonl, or has row count mismatch."""
+        """Check if search.db is missing, older than manifest.jsonl, schema mismatch, or row mismatch."""
         if not os.path.isfile(self.db_path):
             return True
 
-        # If manifest file exists, check mtime comparison first
+        # Check schema compatibility first
+        try:
+            conn = sqlite3.connect(self.db_path)
+            try:
+                cur = conn.execute(f"PRAGMA table_info({FTS5_TABLE_NAME})")
+                cols = {row[1] for row in cur.fetchall()}
+                expected = {
+                    "work_id",
+                    "title",
+                    "status",
+                    "transcript_text",
+                    "archive_paths",
+                    "duration_s",
+                    "source",
+                    "language",
+                    "pubdate",
+                }
+                if not expected.issubset(cols):
+                    return True
+            finally:
+                conn.close()
+        except (sqlite3.OperationalError, sqlite3.DatabaseError):
+            return True
+
+        # If manifest file exists, check mtime comparison
         if os.path.isfile(self.manifest_path):
             try:
                 manifest_mtime = os.path.getmtime(self.manifest_path)
@@ -285,7 +497,8 @@ class SearchIndex:
             try:
                 conn.execute(
                     f"CREATE VIRTUAL TABLE {FTS5_TABLE_NAME} USING fts5("
-                    "work_id, title, status, transcript_text, archive_paths, duration_s"
+                    "work_id, title, status, transcript_text, archive_paths, duration_s, "
+                    "source, language, pubdate, bvid, page_index"
                     ");"
                 )
             except sqlite3.OperationalError as exc:
@@ -313,13 +526,26 @@ class SearchIndex:
                 title = str(entry.get("title") or "")
                 status = str(entry.get("status") or "")
                 duration_s = entry.get("duration_s") or 0
+                source = str(entry.get("source") or "")
+                language = str(entry.get("sub_lan") or entry.get("lan") or entry.get("language") or "")
+                pubdate = entry.get("pubdate")
+                pubdate_val = (
+                    int(pubdate)
+                    if isinstance(pubdate, (int, float)) or (isinstance(pubdate, str) and str(pubdate).isdigit())
+                    else None
+                )
+                bvid = str(entry.get("bvid") or "")
+                page_idx = entry.get("page_index")
+                page_idx_val = int(page_idx) if page_idx is not None and str(page_idx).isdigit() else None
+
                 transcript_text, paths_dict = self._extract_transcript_text(entry)
                 archive_paths_json = json.dumps(paths_dict, ensure_ascii=False)
 
                 conn.execute(
                     f"INSERT INTO {FTS5_TABLE_NAME}("
-                    "work_id, title, status, transcript_text, archive_paths, duration_s"
-                    ") VALUES (?, ?, ?, ?, ?, ?);",
+                    "work_id, title, status, transcript_text, archive_paths, duration_s, "
+                    "source, language, pubdate, bvid, page_index"
+                    ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);",
                     (
                         work_id,
                         title,
@@ -327,6 +553,11 @@ class SearchIndex:
                         transcript_text,
                         archive_paths_json,
                         duration_s,
+                        source,
+                        language,
+                        pubdate_val,
+                        bvid,
+                        page_idx_val,
                     ),
                 )
                 count += 1
@@ -353,43 +584,130 @@ class SearchIndex:
         os.replace(tmp_db, self.db_path)
         return count
 
-    def search(
-        self,
-        query: str,
-        limit: int | None = None,
-        auto_build: bool = True,
-    ) -> list[SearchResult]:
-        """Query the FTS5 index for matching transcripts with ranking."""
-        query = query.strip()
-        if not query:
+    def search_query(self, query: SearchQuery) -> list[SearchResult]:
+        """Execute a structured SearchQuery against the search index."""
+        if query.limit is not None and query.limit <= 0:
+            return []
+        if query.offset < 0:
             return []
 
-        if limit is not None and limit <= 0:
+        clean_q = (query.query or "").strip()
+        has_filter = any(
+            x is not None
+            for x in (
+                query.status,
+                query.source,
+                query.language,
+                query.scope,
+                query.work_id,
+                query.title,
+                query.min_duration_s,
+                query.max_duration_s,
+            )
+        )
+        if not clean_q and not has_filter:
             return []
 
-        if not os.path.isfile(self.db_path):
-            if auto_build:
+        if query.rebuild:
+            self.build(force=True)
+        elif not os.path.isfile(self.db_path):
+            if query.auto_build:
                 self.build()
             else:
                 return []
-        elif auto_build and self.is_stale():
+        elif query.auto_build and self.is_stale():
             self.build()
 
         if not os.path.isfile(self.db_path):
             return []
 
+        return self._execute_query(query)
+
+    def _execute_query(self, query: SearchQuery) -> list[SearchResult]:
         conn = sqlite3.connect(self.db_path)
         try:
+            where_clauses: list[str] = []
+            params: list[Any] = []
+
+            clean_q = (query.query or "").strip()
+            has_match = bool(clean_q)
+            if has_match:
+                where_clauses.append(f"{FTS5_TABLE_NAME} MATCH ?")
+                params.append(clean_q)
+
+            # Status filter
+            status_set = _parse_filter_set(query.status)
+            if status_set is not None:
+                placeholders = ", ".join("?" for _ in status_set)
+                where_clauses.append(f"status IN ({placeholders})")
+                params.extend(sorted(status_set))
+
+            # Source filter
+            source_set = _parse_filter_set(query.source)
+            if source_set is not None:
+                placeholders = ", ".join("?" for _ in source_set)
+                where_clauses.append(f"source IN ({placeholders})")
+                params.extend(sorted(source_set))
+
+            # Language filter
+            lang_set = _parse_filter_set(query.language)
+            if lang_set is not None:
+                placeholders = ", ".join("?" for _ in lang_set)
+                where_clauses.append(f"language IN ({placeholders})")
+                params.extend(sorted(lang_set))
+
+            # Work_id filter (matches work_id OR bvid)
+            work_id_set = _parse_filter_set(query.work_id)
+            if work_id_set is not None:
+                w_placeholders = ", ".join("?" for _ in work_id_set)
+                b_placeholders = ", ".join("?" for _ in work_id_set)
+                where_clauses.append(f"(work_id IN ({w_placeholders}) OR bvid IN ({b_placeholders}))")
+                params.extend(sorted(work_id_set))
+                params.extend(sorted(work_id_set))
+
+            # Scope filter
+            if query.scope:
+                clause, scope_params = _parse_scope_clause(query.scope, self.root)
+                if clause:
+                    where_clauses.append(clause)
+                    params.extend(scope_params)
+
+            # Title filter
+            if query.title:
+                where_clauses.append("title LIKE ?")
+                params.append(f"%{query.title.strip()}%")
+
+            # Duration filters
+            if query.min_duration_s is not None:
+                where_clauses.append("duration_s >= ?")
+                params.append(query.min_duration_s)
+            if query.max_duration_s is not None:
+                where_clauses.append("duration_s <= ?")
+                params.append(query.max_duration_s)
+
             sql = (
-                f"SELECT work_id, title, status, archive_paths, duration_s, transcript_text, rank "
+                f"SELECT work_id, title, status, archive_paths, duration_s, "
+                f"transcript_text, source, language, pubdate, bvid, page_index, rank "
                 f"FROM {FTS5_TABLE_NAME} "
-                f"WHERE {FTS5_TABLE_NAME} MATCH ? "
-                f"ORDER BY rank"
             )
-            params: list[Any] = [query]
-            if limit is not None:
+            if where_clauses:
+                sql += " WHERE " + " AND ".join(where_clauses)
+
+            if has_match:
+                sql += " ORDER BY rank ASC, work_id ASC"
+            else:
+                sql += " ORDER BY work_id ASC"
+
+            # Pagination
+            if query.limit is not None:
                 sql += " LIMIT ?"
-                params.append(limit)
+                params.append(query.limit)
+                if query.offset > 0:
+                    sql += " OFFSET ?"
+                    params.append(query.offset)
+            elif query.offset > 0:
+                sql += " LIMIT -1 OFFSET ?"
+                params.append(query.offset)
 
             try:
                 cur = conn.execute(sql, params)
@@ -399,13 +717,16 @@ class SearchIndex:
                     raise FTS5UnavailableError(
                         "SQLite FTS5 extension is not available in this Python environment"
                     ) from exc
-                # Syntax error fallback: wrap in quotes for plain phrase search
-                escaped_query = '"' + query.replace('"', '""') + '"'
-                params[0] = escaped_query
-                try:
-                    cur = conn.execute(sql, params)
-                    rows = cur.fetchall()
-                except sqlite3.OperationalError:
+                # Syntax error fallback: wrap in double quotes for plain phrase search
+                if has_match:
+                    escaped_query = '"' + clean_q.replace('"', '""') + '"'
+                    params[0] = escaped_query
+                    try:
+                        cur = conn.execute(sql, params)
+                        rows = cur.fetchall()
+                    except sqlite3.OperationalError:
+                        return []
+                else:
                     return []
 
             results: list[SearchResult] = []
@@ -417,6 +738,11 @@ class SearchIndex:
                     archive_paths_raw,
                     duration_s,
                     transcript_text,
+                    source,
+                    language,
+                    pubdate,
+                    bvid,
+                    page_index,
                     rank_score,
                 ) = row
                 paths_dict: dict[str, str] = {}
@@ -435,18 +761,75 @@ class SearchIndex:
                     except (json.JSONDecodeError, TypeError):
                         primary_path = str(archive_paths_raw)
 
+                score_val = float(rank_score) if rank_score is not None else 0.0
+                snippet = _create_snippet(transcript_text or "", clean_q)
+
                 results.append(
                     SearchResult(
-                        work_id=work_id,
-                        title=title,
-                        status=status,
-                        score=float(rank_score),
+                        work_id=str(work_id),
+                        title=str(title),
+                        status=str(status),
+                        score=score_val,
                         path=primary_path,
                         duration_s=duration_s or 0,
-                        transcript_snippet=transcript_text[:100] if transcript_text else "",
+                        transcript_snippet=snippet,
                         archive_paths=paths_dict,
+                        source=str(source or ""),
+                        language=str(language or ""),
+                        pubdate=pubdate if isinstance(pubdate, int) else None,
+                        bvid=str(bvid or ""),
+                        page_index=page_index if isinstance(page_index, int) else None,
                     )
                 )
             return results
         finally:
             conn.close()
+
+    def search(
+        self,
+        query: str | SearchQuery,
+        limit: int | None = None,
+        auto_build: bool = True,
+    ) -> list[SearchResult]:
+        """Query the FTS5 index for matching transcripts with ranking."""
+        if isinstance(query, SearchQuery):
+            q = query
+            if limit is not None:
+                q = SearchQuery(
+                    query=q.query,
+                    status=q.status,
+                    source=q.source,
+                    language=q.language,
+                    scope=q.scope,
+                    work_id=q.work_id,
+                    title=q.title,
+                    min_duration_s=q.min_duration_s,
+                    max_duration_s=q.max_duration_s,
+                    limit=limit,
+                    offset=q.offset,
+                    auto_build=auto_build,
+                    rebuild=q.rebuild,
+                )
+            return self.search_query(q)
+
+        sq = SearchQuery(
+            query=query,
+            limit=limit,
+            auto_build=auto_build,
+        )
+        return self.search_query(sq)
+
+
+def search(
+    archive_root: str | os.PathLike[str] | Path,
+    query: SearchQuery | str,
+) -> list[dict[str, object]]:
+    """Search completed transcripts in the archive using SearchQuery filters.
+
+    Returns list of sanitized dictionaries with bounded snippets and relative paths.
+    """
+    if isinstance(query, str):
+        query = SearchQuery(query=query)
+    index = SearchIndex(archive_root)
+    results = index.search_query(query)
+    return [r.to_dict() for r in results]
