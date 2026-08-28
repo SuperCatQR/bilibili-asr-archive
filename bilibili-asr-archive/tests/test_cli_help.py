@@ -131,6 +131,49 @@ def test_coverage_parser_options_and_status_preserved(capsys: pytest.CaptureFixt
     assert "--quality" in help_text
 
 
+def test_search_parser_options_and_help(capsys: pytest.CaptureFixture[str]) -> None:
+    from bili_asr.cli import build_parser
+
+    parser = build_parser()
+    search_args = parser.parse_args([
+        "search", "Hegel",
+        "--archive-root", "/tmp/fixture",
+        "--status", "archived",
+        "--source", "asr",
+        "--language", "ai-zh",
+        "--scope", "pending",
+        "--work-id", "BV1test:p0",
+        "--limit", "10",
+        "--format", "json",
+        "--rebuild",
+    ])
+    assert search_args.command == "search"
+    assert search_args.query == "Hegel"
+    assert search_args.archive_root == "/tmp/fixture"
+    assert search_args.status == ["archived"]
+    assert search_args.source == ["asr"]
+    assert search_args.language == ["ai-zh"]
+    assert search_args.scope == "pending"
+    assert search_args.work_id == ["BV1test:p0"]
+    assert search_args.limit == 10
+    assert search_args.format == "json"
+    assert search_args.rebuild is True
+
+    with pytest.raises(SystemExit) as exc:
+        parser.parse_args(["search", "--help"])
+    assert exc.value.code == 0
+    help_text = capsys.readouterr().out
+    assert "--archive-root" in help_text
+    assert "--status" in help_text
+    assert "--source" in help_text
+    assert "--language" in help_text
+    assert "--scope" in help_text
+    assert "--work-id" in help_text
+    assert "--limit" in help_text
+    assert "--format" in help_text
+    assert "--rebuild" in help_text
+
+
 def test_module_coverage_formats_and_diagnostic_exit(tmp_path: Path) -> None:
     from bili_asr.manifest import ManifestStore
 
