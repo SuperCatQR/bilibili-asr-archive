@@ -172,6 +172,16 @@ def test_attempts_row_limit_fails_closed(tmp_path: Path) -> None:
     assert report.authoritative is False
     assert "attempts_row_limit_exceeded" in report.diagnostics
 
+def test_attempts_row_limit_fails_closed(tmp_path: Path) -> None:
+    _manifest(tmp_path, [{"work_id": "x", "status": "pending"}])
+    attempts = tmp_path / "coordinator" / "attempts.jsonl"
+    attempts.parent.mkdir()
+    attempts.write_text("{}\n" * 10001, encoding="utf-8")
+    report = IntegrityVerifier().verify(tmp_path)
+    assert report.authoritative is False
+    assert ATTEMPTS_ROW_LIMIT_EXCEEDED in report.diagnostics
+
+
 def test_malformed_manifest_field_type_is_structural(tmp_path: Path) -> None:
     _manifest(tmp_path, [{"work_id": "x", "bvid": "x", "cid": {}}])
     report = IntegrityVerifier().verify(tmp_path)
