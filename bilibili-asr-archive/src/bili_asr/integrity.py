@@ -1,16 +1,14 @@
 """Deterministic, read-only archive integrity verification."""
 from __future__ import annotations
-
 from dataclasses import dataclass, field
 import json
 from pathlib import Path
 from typing import Any
-
 from .archive import archive_stem
 from .page_identity import artifact_stem, page_identity, parse_work_id
 from .quality import QualityAnalyzer
+from .coordinator import _validate_attempt
 
-# Stable public defect vocabulary.
 MISSING_RAW_SUBTITLE = "missing_raw_subtitle"
 MISSING_TRANSCRIPT = "missing_transcript"
 MALFORMED_ARTIFACT = "malformed_artifact"
@@ -18,162 +16,113 @@ IDENTITY_PATH_MISMATCH = "identity_path_mismatch"
 TRUNCATED_ATTEMPTS_LINE = "truncated_attempts_line"
 RETRYABLE_INCOMPLETE = "retryable_incomplete"
 STRUCTURAL_INPUT_ERROR = "structural_input_error"
-
 _MAX_ROWS = 10000
 
 @dataclass(frozen=True)
 class IntegrityDefect:
     work_id: str
     code: str
-
-    def to_dict(self) -> dict[str, object]:
-        return {"work_id": self.work_id, "code": self.code}
+    def to_dict(self) -> dict[str, object]: return {"work_id": self.work_id, "code": self.code}
 
 @dataclass
 class IntegrityReport:
     checked: int = 0
     defects: list[IntegrityDefect] = field(default_factory=list)
     diagnostics: list[str] = field(default_factory=list)
-
     def to_dict(self) -> dict[str, object]:
-        return {
-            "checked": self.checked,
-            "defect_count": len(self.defects),
-            "defects": [d.to_dict() for d in self.defects],
-            "diagnostics": list(self.diagnostics),
-        }
+        return {"checked": self.checked, "defect_count": len(self.defects), "defects": [d.to_dict() for d in self.defects], "diagnostics": list(self.diagnostics)}
 
 class IntegrityVerifier:
-    """Inspect manifest, attempts, and archive artifacts without writing."""
-
     def verify(self, archive_root: Path, *, scope: str | None = None) -> IntegrityReport:
-        root = Path(archive_root).resolve()
-        report = IntegrityReport()
+        root = Path(archive_root).resolve(); report = IntegrityReport()
         entries = self._read_manifest(root, report)
-        selected = self._select(entries, scope)
+        attempts, valid, truncated = self._read_attempts(root, report)
+        selected = self._select(entries, scope, attempts if valid else [])
         report.checked = len(selected)
-        attempts = self._read_attempts(root, report)
         analyzer = QualityAnalyzer()
         for key, row in selected:
-            work_id = str(row.get("work_id") or key)
-            defects: set[str] = set()
-            status = str(row.get("status") or "")
-            raw_path = root / "subtitles" / "raw" / f"{archive_stem(row)}.json"
-            if status == "subtitle_done" and not raw_path.is_file():
-                defects.add(MISSING_RAW_SUBTITLE)
-            expected = self._required_paths(row, root)
-            present = 0
-            for path in expected:
-                if not self._safe_path(path, root):
-                    defects.add(IDENTITY_PATH_MISMATCH)
-                elif path.is_file():
-                    present += 1
-            if status in {"archived", "asr_done", "subtitle_done"} and present == 0:
-                defects.add(MISSING_TRANSCRIPT)
+            work_id = str(row.get("work_id") or key); status = str(row.get("status") or ""); defects: set[str] = set()
+            required = self._required_paths(row, root)
+            for path in required:
+                if not self._safe_path(path, root): defects.add(IDENTITY_PATH_MISMATCH)
+            present = [p for p in required if self._safe_path(p, root) and p.is_file()]
+            if status in {"archived", "asr_done", "subtitle_done"} and len(present) < len(required): defects.add(MISSING_TRANSCRIPT)
+            raw = root / "subtitles" / "raw" / f"{archive_stem(row)}.json"
+            if status == "subtitle_done" and not self._safe_path(raw, root): defects.add(IDENTITY_PATH_MISMATCH)
+            elif status == "subtitle_done" and not raw.is_file(): defects.add(MISSING_RAW_SUBTITLE)
+            quality_paths = [root / "subtitles" / "raw" / f"{archive_stem(row)}.json"] + required
             quality = analyzer.analyze(row, root)
             if "malformed" in quality.reasons and any(
-                path.suffix.lower() not in {".txt", ".md"} for path in expected
-            ) and any(path.suffix.lower() == ".json" for path in expected):
+                path.suffix.lower() == ".json" and path.is_file() for path in quality_paths
+            ):
                 defects.add(MALFORMED_ARTIFACT)
-            if "identity_mismatch" in quality.reasons:
-                defects.add(IDENTITY_PATH_MISMATCH)
-            if status in {"pending", "meta_ok", "sub_checked", "needs_audio", "audio_ok"}:
-                defects.add(RETRYABLE_INCOMPLETE)
-            for code in sorted(defects):
-                report.defects.append(IntegrityDefect(work_id, code))
-        if attempts[1]:
-            report.diagnostics.append(TRUNCATED_ATTEMPTS_LINE)
-        report.defects.sort(key=lambda d: (d.work_id, d.code))
-        return report
+            if "identity_mismatch" in quality.reasons: defects.add(IDENTITY_PATH_MISMATCH)
+            if status in {"pending", "meta_ok", "sub_checked", "needs_audio", "audio_ok"}: defects.add(RETRYABLE_INCOMPLETE)
+            report.defects.extend(IntegrityDefect(work_id, code) for code in sorted(defects))
+        if truncated: report.diagnostics.append(TRUNCATED_ATTEMPTS_LINE)
+        report.defects.sort(key=lambda d: (d.work_id, d.code)); return report
 
     @staticmethod
     def _read_manifest(root: Path, report: IntegrityReport) -> dict[str, dict[str, Any]]:
-        path = root / "manifest" / "manifest.jsonl"
-        if not path.is_file():
-            return {}
-        entries: dict[str, dict[str, Any]] = {}
+        path=root/"manifest"/"manifest.jsonl"; entries={}
+        if not path.is_file(): return entries
         try:
-            with path.open(encoding="utf-8") as fh:
-                for number, line in enumerate(fh):
-                    if number >= _MAX_ROWS:
-                        break
-                    if not line.strip():
-                        continue
-                    value = json.loads(line)
-                    if not isinstance(value, dict):
-                        raise ValueError("manifest record is not an object")
-                    key = str(value.get("work_id") or value.get("bvid") or "")
-                    if not key:
-                        raise ValueError("manifest record has no identity")
-                    entries[key] = value
-        except (OSError, UnicodeError, json.JSONDecodeError, ValueError):
-            report.diagnostics.append(STRUCTURAL_INPUT_ERROR)
+            for number,line in enumerate(path.read_text(encoding="utf-8").splitlines()):
+                if number>=_MAX_ROWS or not line.strip(): continue
+                value=json.loads(line)
+                if not isinstance(value,dict): raise ValueError
+                key=str(value.get("work_id") or value.get("bvid") or "")
+                if not key: raise ValueError
+                entries[key]=value
+        except (OSError,UnicodeError,json.JSONDecodeError,ValueError): report.diagnostics.append(STRUCTURAL_INPUT_ERROR)
         return entries
 
     @staticmethod
-    def _read_attempts(root: Path, report: IntegrityReport) -> tuple[list[dict[str, Any]], bool]:
-        path = root / "coordinator" / "attempts.jsonl"
-        if not path.is_file():
-            return [], False
-        records: list[dict[str, Any]] = []
-        truncated = False
-        try:
-            lines = path.read_text(encoding="utf-8").splitlines()
-            for index, line in enumerate(lines):
-                if not line.strip():
-                    continue
-                try:
-                    value = json.loads(line)
-                    if not isinstance(value, dict):
-                        raise ValueError
-                    records.append(value)
-                except (json.JSONDecodeError, ValueError):
-                    if index == len(lines) - 1:
-                        truncated = True
-                    else:
-                        report.diagnostics.append(STRUCTURAL_INPUT_ERROR)
-                        return records, False
-        except (OSError, UnicodeError):
-            report.diagnostics.append(STRUCTURAL_INPUT_ERROR)
-        return records, truncated
-
-    @staticmethod
-    def _select(entries: dict[str, dict[str, Any]], scope: str | None) -> list[tuple[str, dict[str, Any]]]:
-        if not scope:
-            return sorted(entries.items())
-        tokens = {part for part in scope.replace(",", " ").split() if part}
-        if "pending" in tokens:
-            return sorted((k, v) for k, v in entries.items() if v.get("status") == "pending")
-        if "failed" in tokens:
-            return sorted((k, v) for k, v in entries.items() if v.get("status") not in {"archived", "gone"})
-        return sorted((k, v) for k, v in entries.items() if k in tokens or str(v.get("bvid")) in tokens)
-
-    @staticmethod
-    def _required_paths(row: dict[str, Any], root: Path) -> list[Path]:
-        values = [row.get(name) for name in ("srt_path", "txt_path", "md_path") if row.get(name)]
-        if not values:
-            stem = IntegrityVerifier._canonical_stem(row)
-            values = [f"transcripts/srt/{stem}.srt", f"transcripts/txt/{stem}.txt", f"transcripts/md/{stem}.md"]
-        return [Path(value) if Path(value).is_absolute() else root / value for value in values]
-
-    @staticmethod
-    def _canonical_stem(row: dict[str, Any]) -> str:
-        bvid = str(row.get("bvid") or "")
-        work_id = str(row.get("work_id") or "")
-        if work_id and not row.get("unresolved"):
+    def _read_attempts(root: Path, report: IntegrityReport) -> tuple[list[dict[str, Any]], bool, bool]:
+        path=root/"coordinator"/"attempts.jsonl"
+        if not path.is_file(): return [], True, False
+        records=[]; truncated=False; valid=True
+        try: lines=path.read_text(encoding="utf-8").splitlines()
+        except (OSError,UnicodeError): report.diagnostics.append(STRUCTURAL_INPUT_ERROR); return [],False,False
+        for index,line in enumerate(lines):
+            if not line.strip(): continue
             try:
-                work_bvid, page_index = parse_work_id(work_id)
-                if bvid and bvid != work_bvid:
-                    return work_id
-                return artifact_stem(page_identity(work_bvid, page_index, int(row.get("cid") or 0)))
-            except (TypeError, ValueError):
-                return work_id
+                value=json.loads(line); record=_validate_attempt(value); records.append(record)
+            except (json.JSONDecodeError,TypeError,ValueError):
+                if index == len(lines)-1: truncated=True
+                else:
+                    valid=False; report.diagnostics.append(STRUCTURAL_INPUT_ERROR); continue
+        return records,valid,truncated
+
+    @staticmethod
+    def _select(entries, scope, attempts):
+        if not scope: return sorted(entries.items())
+        tokens={p for p in scope.replace(","," ").split() if p}
+        if "pending" in tokens: return sorted((k,v) for k,v in entries.items() if v.get("status")=="pending")
+        if "failed" in tokens:
+            failed={r["work_id"] for r in attempts if r.get("outcome")=="failed"}
+            return sorted((k,v) for k,v in entries.items() if k in failed)
+        return sorted((k,v) for k,v in entries.items() if k in tokens or str(v.get("bvid")) in tokens)
+
+    @staticmethod
+    def _required_paths(row, root):
+        names=("srt_path","txt_path","md_path"); values=[row.get(n) for n in names]
+        stem=IntegrityVerifier._canonical_stem(row)
+        defaults=[f"transcripts/srt/{stem}.srt",f"transcripts/txt/{stem}.txt",f"transcripts/md/{stem}.md"]
+        return [Path(v) if isinstance(v,str) and Path(v).is_absolute() else root/(v if isinstance(v,str) else defaults[i]) for i,v in enumerate(values)]
+
+    @staticmethod
+    def _canonical_stem(row):
+        bvid=str(row.get("bvid") or ""); work=str(row.get("work_id") or "")
+        if work and not row.get("unresolved"):
+            try:
+                wb,pi=parse_work_id(work)
+                if bvid and bvid!=wb:return work
+                return artifact_stem(page_identity(wb,pi,int(row.get("cid") or 0)))
+            except (TypeError,ValueError): return work
         return archive_stem(row)
 
     @staticmethod
-    def _safe_path(path: Path, root: Path) -> bool:
-        try:
-            path.resolve().relative_to(root)
-            return True
-        except ValueError:
-            return False
+    def _safe_path(path,root):
+        try: path.resolve().relative_to(root); return True
+        except ValueError:return False
