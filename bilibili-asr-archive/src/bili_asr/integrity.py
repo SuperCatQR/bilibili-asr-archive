@@ -107,7 +107,7 @@ class IntegrityVerifier:
                 if not line.strip(): continue
                 value=json.loads(line)
                 if not isinstance(value,dict): raise ValueError
-                for field_name in ("work_id", "bvid", "status", "srt_path", "txt_path", "md_path"):
+                for field_name in ("work_id", "bvid", "status", "srt_path", "txt_path", "md_path", "raw_path"):
                     if field_name in value and value[field_name] is not None and not isinstance(value[field_name], str): raise ValueError
                 if "cid" in value and value["cid"] is not None and (isinstance(value["cid"], bool) or not isinstance(value["cid"], int)): raise ValueError
                 key=value.get("work_id") or value.get("bvid") or ""
