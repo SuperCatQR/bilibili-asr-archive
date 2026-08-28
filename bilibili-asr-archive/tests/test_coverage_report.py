@@ -208,9 +208,9 @@ def test_cli_formats_and_status_sentinel(tmp_path: Path, monkeypatch, capsys):
     transcript.write_text("marker", encoding="utf-8")
     write_fixture(tmp_path, [manifest_row("BVone:p1")], cur=cursor(),
                   sched=scheduler(ids=["BVone:p1"]), ledgers=[ledger(["BVone:p1"])])
-    assert cli.main(["coverage", "--archive-root", str(tmp_path), "--format", "json"]) == 0
+    assert cli.main(["coverage", "--archive-root", str(tmp_path), "--format", "json"]) != 0
     assert json.loads(capsys.readouterr().out)["schema_version"]
-    assert cli.main(["coverage", "--archive-root", str(tmp_path), "--format", "csv"]) == 0
+    assert cli.main(["coverage", "--archive-root", str(tmp_path), "--format", "csv"]) != 0
     assert "schema_version" in capsys.readouterr().out
     monkeypatch.setattr(cli, "_cmd_status", lambda args: 7)
     assert cli.main(["status", "--archive-root", str(tmp_path)]) == 7

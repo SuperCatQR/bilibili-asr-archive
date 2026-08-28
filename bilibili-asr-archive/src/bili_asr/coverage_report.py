@@ -4,21 +4,23 @@ from __future__ import annotations
 import csv
 import io
 import json
-from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping
 
 from .archive import archive_stem
+from .manifest import VALID_STATUSES
+from .page_identity import parse_work_id
 from .meta_cursor import _validate as validate_cursor
 from .scheduler import _validate as validate_scheduler
+from .run_ledger import _validate_record as validate_run_ledger_record
 
 SCHEMA_VERSION = "coverage-report-v1"
-PERSISTED_STATES = frozenset({"complete", "limited", "risk_interrupted"})
 TERMINAL_STATUSES = frozenset({"archived", "gone"})
 RETRYABLE_OUTCOMES = frozenset({"failed", "skipped"})
 ATTEMPT_STAGES = frozenset({"harvest", "download", "asr", "archive"})
 ATTEMPT_OUTCOMES = frozenset({"ok", "failed", "skipped"})
+MAX_JSONL_RECORDS = 10000
 CSV_COLUMNS = (
     "schema_version",
     "scope",
@@ -57,7 +59,7 @@ class CoverageReport:
         *,
         scope: str | None = None,
     ) -> CoverageReport:
-        root = Path(archive_root)
+        root = Path(archive_root).resolve()
         diagnostics: set[tuple[str, str]] = set()
         manifest, manifest_state = _read_manifest(root, diagnostics)
         cursor, cursor_state = _read_validated_sidecar(
@@ -72,8 +74,8 @@ class CoverageReport:
         attempts, attempts_state = _read_jsonl(
             root / "coordinator" / "attempts.jsonl", "attempts", diagnostics
         )
-        _validate_run_ledger(run_ledger, diagnostics)
-        _validate_attempts(attempts, manifest, diagnostics)
+        _validate_run_ledger(run_ledger, ledger_state, diagnostics)
+        _validate_attempts(attempts, attempts_state, manifest, diagnostics)
 
         selected, scope_state = _select_scope(manifest, attempts, scope)
         if scope_state == "unavailable":
@@ -82,7 +84,19 @@ class CoverageReport:
         scheduler_ids = _string_ids(
             scheduler, "processed_work_ids", "scheduler_invalid_processed_ids", diagnostics
         )
-        latest_ledger = run_ledger[-1] if run_ledger else None
+        latest_persisted_ledger = run_ledger[-1] if run_ledger else None
+        latest_ledger = next(
+            (record for record in reversed(run_ledger) if _valid_ledger(record)), None
+        )
+        if latest_persisted_ledger is not None and latest_ledger is not latest_persisted_ledger:
+            diagnostics.add(("run_ledger_latest_invalid", "run_ledger"))
+        if latest_ledger is not None:
+            if latest_ledger.get("exit_code") != 0:
+                diagnostics.add(("run_ledger_failed", "run_ledger"))
+            if latest_ledger.get("command") != "schedule":
+                diagnostics.add(("run_ledger_non_schedule", "run_ledger"))
+        elif ledger_state != "missing":
+            diagnostics.add(("run_ledger_latest_unavailable", "run_ledger"))
         ledger_ids = _string_ids(
             latest_ledger, "work_ids", "run_ledger_invalid_work_ids", diagnostics
         )
@@ -110,7 +124,7 @@ class CoverageReport:
                 diagnostics.add(("scheduler_cursor_mismatch", "state"))
 
         if latest_ledger is not None and selected:
-            expected = _latest_compatible_ids(latest_ledger, scheduler, set(selected))
+            expected = ledger_ids & set(selected)
             missing_batch = expected - batch_ids
             if missing_batch:
                 diagnostics.add(("missing_batch_evidence", "batch"))
@@ -136,6 +150,18 @@ class CoverageReport:
                     "batch_complete": work_id in batch_ids and terminal,
                 }
             )
+
+        # A complete-looking manifest without operational evidence is not
+        # proof of a completed campaign.
+        if any(row["cumulative_complete"] for row in rows):
+            for state, name in (
+                (cursor_state, "cursor"),
+                (scheduler_state, "scheduler"),
+                (ledger_state, "run_ledger"),
+                (attempts_state, "attempts"),
+            ):
+                if state != "available":
+                    diagnostics.add(("evidence_missing", name))
 
         evidence = {
             "manifest": {"state": manifest_state},
@@ -256,7 +282,18 @@ def _read_manifest(
             valid = False
             continue
         work_id = record.get("work_id") if isinstance(record, dict) else None
-        if not isinstance(work_id, str) or not work_id:
+        bvid = record.get("bvid") if isinstance(record, dict) else None
+        status = record.get("status") if isinstance(record, dict) else None
+        row_valid = isinstance(record, dict) and isinstance(work_id, str) and bool(work_id)
+        row_valid = row_valid and isinstance(bvid, str) and bool(bvid)
+        row_valid = row_valid and status in VALID_STATUSES
+        if row_valid:
+            try:
+                parsed_bvid, _page = parse_work_id(work_id)
+                row_valid = parsed_bvid == bvid
+            except (TypeError, ValueError):
+                row_valid = False
+        if not row_valid:
             diagnostics.add(("manifest_invalid", "record"))
             valid = False
         elif work_id in entries:
@@ -292,35 +329,58 @@ def _read_jsonl(
     if not path.is_file():
         return [], "missing"
     try:
-        lines = path.read_text(encoding="utf-8").splitlines()
+        fh = path.open("r", encoding="utf-8")
     except (OSError, UnicodeError):
         diagnostics.add(("sidecar_malformed", name))
         return [], "malformed"
     records: list[dict[str, Any]] = []
     valid = True
-    for line in lines:
-        try:
-            record = json.loads(line)
-            if not isinstance(record, dict):
-                raise ValueError
-        except (TypeError, ValueError):
-            diagnostics.add(("sidecar_malformed", name))
-            valid = False
-            continue
-        records.append(record)
+    with fh:
+        for line_number, line in enumerate(fh, 1):
+            if line_number > MAX_JSONL_RECORDS:
+                diagnostics.add(("sidecar_record_limit", name))
+                valid = False
+                break
+            try:
+                record = json.loads(line)
+                if not isinstance(record, dict):
+                    raise ValueError
+            except (TypeError, ValueError, json.JSONDecodeError):
+                diagnostics.add(("sidecar_malformed", name))
+                valid = False
+                continue
+            records.append(record)
     return records, "available" if valid else "malformed"
 
 
+def _valid_ledger(record: Mapping[str, Any]) -> bool:
+    try:
+        validate_run_ledger_record(dict(record))
+    except (TypeError, ValueError, KeyError):
+        return False
+    work_ids = record.get("work_ids")
+    return isinstance(work_ids, list) and all(
+        isinstance(value, str) and bool(value) for value in work_ids
+    )
+
+
 def _validate_run_ledger(
-    records: list[dict[str, Any]], diagnostics: set[tuple[str, str]]
+    records: list[dict[str, Any]], _state: str, diagnostics: set[tuple[str, str]]
 ) -> None:
     for record in records:
-        if not isinstance(record.get("work_ids"), (list, type(None))):
+        try:
+            validate_run_ledger_record(record)
+        except (TypeError, ValueError, KeyError):
+            diagnostics.add(("run_ledger_invalid_record", "run_ledger"))
+        work_ids = record.get("work_ids")
+        if not isinstance(work_ids, list) or any(
+            not isinstance(value, str) or not value for value in work_ids
+        ):
             diagnostics.add(("run_ledger_invalid_work_ids", "record"))
 
 
 def _validate_attempts(
-    attempts: list[dict[str, Any]], manifest: Mapping[str, Any], diagnostics: set[tuple[str, str]]
+    attempts: list[dict[str, Any]], _state: str, manifest: Mapping[str, Any], diagnostics: set[tuple[str, str]]
 ) -> None:
     seen: set[tuple[str, str, int]] = set()
     for record in attempts:
@@ -395,16 +455,6 @@ def _select_scope(
     return selected, "available"
 
 
-def _latest_compatible_ids(
-    ledger: Mapping[str, Any], scheduler: Mapping[str, Any] | None, selected: set[str]
-) -> set[str]:
-    ledger_ids = _string_ids(ledger, "work_ids", "unused", set())
-    if scheduler is not None and ledger.get("command") == "schedule":
-        if ledger.get("work_ids") == scheduler.get("processed_work_ids"):
-            return ledger_ids & selected
-    return ledger_ids & selected
-
-
 def _retryable_ids(attempts: list[dict[str, Any]]) -> set[str]:
     latest: dict[tuple[str, str], dict[str, Any]] = {}
     for record in attempts:
@@ -435,7 +485,15 @@ def _transcript_evidence(root: Path, entry: Mapping[str, Any]) -> tuple[bool, bo
     except (KeyError, TypeError, ValueError):
         stem = ""
     if stem:
-        paths.extend(root / "transcripts" / kind / f"{stem}.{kind}" for kind in ("srt", "txt", "md"))
+        paths.extend(root / "transcripts" / kind / f"{stem}.{kind}" for kind in ("srt", "txt"))
+        md_dir = root / "transcripts" / "md"
+        exact_md = md_dir / f"{stem}.md"
+        paths.append(exact_md)
+        pubdate = str(entry.get("pubdate_str") or "")
+        if pubdate and md_dir.is_dir():
+            matches = sorted(md_dir.glob(f"{pubdate}_{stem}_*.md"))
+            if len(matches) == 1:
+                paths.append(matches[0])
     transcript = any(path.is_file() for path in paths)
     if not transcript or entry.get("status") != "archived":
         return transcript, False
