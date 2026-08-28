@@ -33,7 +33,9 @@ def test_missing_transcript_and_truncated_attempts(tmp_path: Path) -> None:
     path.parent.mkdir()
     path.write_text('{"work_id":"BV1x:p0"}\n{"broken"', encoding="utf-8")
     report = IntegrityVerifier().verify(tmp_path)
-    assert any(d.code == MISSING_TRANSCRIPT for d in report.defects)
+    assert report.defects == []
+    assert report.authoritative is False
+    assert STRUCTURAL_INPUT_ERROR in report.diagnostics
     assert TRUNCATED_ATTEMPTS_LINE in report.diagnostics
 
 
@@ -47,14 +49,14 @@ def test_report_shape_is_sorted_and_idempotent(tmp_path: Path) -> None:
     _manifest(tmp_path, [{"work_id": "b", "status": "pending"}, {"work_id": "a", "status": "needs_audio"}])
     first = IntegrityVerifier().verify(tmp_path).to_dict()
     assert first == IntegrityVerifier().verify(tmp_path).to_dict()
-    assert set(first) == {"checked", "defect_count", "defects", "diagnostics"}
+    assert set(first) == {"checked", "defect_count", "defects", "diagnostics", "authoritative"}
     assert first["defects"] == sorted(first["defects"], key=lambda d: (d["work_id"], d["code"]))
 
 
 def test_scope_uses_attempt_outcomes(tmp_path: Path) -> None:
     _manifest(tmp_path, [{"work_id": "pending", "status": "pending"}, {"work_id": "archived", "status": "archived"}, {"work_id": "running", "status": "running"}])
     path = tmp_path / "coordinator" / "attempts.jsonl"; path.parent.mkdir()
-    path.write_text(json.dumps(_attempt("archived")) + "\n" + json.dumps(_attempt("running", "success")) + "\n", encoding="utf-8")
+    path.write_text(json.dumps(_attempt("archived")) + "\n" + json.dumps(_attempt("running", "ok")) + "\n", encoding="utf-8")
     assert IntegrityVerifier().verify(tmp_path, scope="pending").checked == 1
     assert IntegrityVerifier().verify(tmp_path, scope="failed").checked == 1
     assert IntegrityVerifier().verify(tmp_path, scope="running").checked == 1
@@ -85,7 +87,7 @@ def test_retryable_status_matrix_and_scope_selectors(tmp_path: Path) -> None:
     _manifest(tmp_path, rows)
     attempts = tmp_path / "coordinator" / "attempts.jsonl"
     attempts.parent.mkdir()
-    attempts.write_text(json.dumps(_attempt("failed:p0")) + "\n" + json.dumps(_attempt("live:p0", "running")) + "\n", encoding="utf-8")
+    attempts.write_text(json.dumps(_attempt("failed:p0")) + "\n" + json.dumps(_attempt("live:p0", "ok")) + "\n", encoding="utf-8")
     report = IntegrityVerifier().verify(tmp_path)
     retryable = {d.work_id for d in report.defects if d.code == RETRYABLE_INCOMPLETE}
     assert retryable == {f"BV{i}:p0" for i in range(5)} | {"live:p0"}

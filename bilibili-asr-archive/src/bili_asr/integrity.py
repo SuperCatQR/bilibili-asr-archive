@@ -29,20 +29,26 @@ class IntegrityReport:
     checked: int = 0
     defects: list[IntegrityDefect] = field(default_factory=list)
     diagnostics: list[str] = field(default_factory=list)
+    authoritative: bool = True
     def to_dict(self) -> dict[str, object]:
-        return {"checked": self.checked, "defect_count": len(self.defects), "defects": [d.to_dict() for d in self.defects], "diagnostics": list(self.diagnostics)}
+        return {"checked": self.checked, "defect_count": len(self.defects), "defects": [d.to_dict() for d in self.defects], "diagnostics": list(self.diagnostics), "authoritative": self.authoritative}
 
 class IntegrityVerifier:
     def verify(self, archive_root: Path, *, scope: str | None = None) -> IntegrityReport:
         root = Path(archive_root).resolve(); report = IntegrityReport()
-        entries = self._read_manifest(root, report)
-        attempts, valid, truncated = self._read_attempts(root, report)
-        selected = self._select(entries, scope, attempts if valid else [])
+        entries, manifest_valid = self._read_manifest(root, report)
+        attempts, attempts_valid, truncated = self._read_attempts(root, report)
+        report.authoritative = manifest_valid and attempts_valid
+        selected = self._select(entries, scope, attempts if attempts_valid else []) if report.authoritative else []
         report.checked = len(selected)
         analyzer = QualityAnalyzer()
         for key, row in selected:
             work_id = str(row.get("work_id") or key); status = str(row.get("status") or ""); defects: set[str] = set()
             required = self._required_paths(row, root)
+            canonical_required = self._canonical_required_paths(row, root)
+            for declared, canonical in zip(required, canonical_required):
+                if declared != canonical:
+                    defects.add(IDENTITY_PATH_MISMATCH)
             for path in required:
                 if not self._safe_path(path, root): defects.add(IDENTITY_PATH_MISMATCH)
             present = [p for p in required if self._safe_path(p, root) and p.is_file()]
@@ -61,9 +67,9 @@ class IntegrityVerifier:
         report.defects.sort(key=lambda d: (d.work_id, d.code)); return report
 
     @staticmethod
-    def _read_manifest(root: Path, report: IntegrityReport) -> dict[str, dict[str, Any]]:
-        path=root/"manifest"/"manifest.jsonl"; entries={}
-        if not path.is_file(): return entries
+    def _read_manifest(root: Path, report: IntegrityReport) -> tuple[dict[str, dict[str, Any]], bool]:
+        path=root/"manifest"/"manifest.jsonl"; entries={}; valid=True
+        if not path.is_file(): return entries, True
         try:
             for number,line in enumerate(path.read_text(encoding="utf-8").splitlines()):
                 if number>=_MAX_ROWS or not line.strip(): continue
@@ -72,8 +78,9 @@ class IntegrityVerifier:
                 key=str(value.get("work_id") or value.get("bvid") or "")
                 if not key: raise ValueError
                 entries[key]=value
-        except (OSError,UnicodeError,json.JSONDecodeError,ValueError): report.diagnostics.append(STRUCTURAL_INPUT_ERROR)
-        return entries
+        except (OSError,UnicodeError,json.JSONDecodeError,ValueError):
+            valid=False; report.diagnostics.append(STRUCTURAL_INPUT_ERROR)
+        return entries, valid
 
     @staticmethod
     def _read_attempts(root: Path, report: IntegrityReport) -> tuple[list[dict[str, Any]], bool, bool]:
@@ -85,11 +92,19 @@ class IntegrityVerifier:
         for index,line in enumerate(lines):
             if not line.strip(): continue
             try:
-                value=json.loads(line); record=_validate_attempt(value); records.append(record)
-            except (json.JSONDecodeError,TypeError,ValueError):
-                if index == len(lines)-1: truncated=True
+                value=json.loads(line)
+            except json.JSONDecodeError:
+                if index == len(lines)-1:
+                    truncated=True
                 else:
-                    valid=False; report.diagnostics.append(STRUCTURAL_INPUT_ERROR); continue
+                    valid=False; report.diagnostics.append(STRUCTURAL_INPUT_ERROR)
+                continue
+            try:
+                record=_validate_attempt(value)
+            except (TypeError,ValueError):
+                valid=False; report.diagnostics.append(STRUCTURAL_INPUT_ERROR)
+                continue
+            records.append(record)
         return records,valid,truncated
 
     @staticmethod
@@ -109,6 +124,10 @@ class IntegrityVerifier:
         defaults=[f"transcripts/srt/{stem}.srt",f"transcripts/txt/{stem}.txt",f"transcripts/md/{stem}.md"]
         return [Path(v) if isinstance(v,str) and Path(v).is_absolute() else root/(v if isinstance(v,str) else defaults[i]) for i,v in enumerate(values)]
 
+    @classmethod
+    def _canonical_required_paths(cls, row, root):
+        stem = cls._canonical_stem(row)
+        return [root / f"transcripts/{kind}/{stem}.{kind}" for kind in ("srt", "txt", "md")]
     @staticmethod
     def _canonical_stem(row):
         bvid=str(row.get("bvid") or ""); work=str(row.get("work_id") or "")
@@ -119,6 +138,7 @@ class IntegrityVerifier:
                 return artifact_stem(page_identity(wb,pi,int(row.get("cid") or 0)))
             except (TypeError,ValueError): return work
         return archive_stem(row)
+
 
     @staticmethod
     def _safe_path(path,root):

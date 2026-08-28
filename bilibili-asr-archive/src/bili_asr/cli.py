@@ -2206,7 +2206,7 @@ def _cmd_verify(args: argparse.Namespace) -> int:
             print(f"{defect['work_id']}: {defect['code']}")
         for diagnostic in payload["diagnostics"]:
             print(f"diagnostic: {diagnostic}")
-    return 0 if not payload["defects"] else 1
+    return 0 if not payload["defects"] and not payload["diagnostics"] else 1
 
 
 def main(argv: list[str] | None = None) -> int:
