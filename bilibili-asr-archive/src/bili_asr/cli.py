@@ -290,6 +290,13 @@ def build_parser() -> argparse.ArgumentParser:
         help="Archive root directory (default: ./archive)",
     )
 
+    coverage_cmd = subparsers.add_parser(
+        "coverage", help="Print deterministic read-only coverage telemetry"
+    )
+    coverage_cmd.add_argument("--archive-root", default=DEFAULT_ARCHIVE_ROOT)
+    coverage_cmd.add_argument("--scope", default=None)
+    coverage_cmd.add_argument("--format", choices=["json", "csv"], default="json")
+
     export_cmd = subparsers.add_parser(
         "export",
         help="Export manifest metadata to JSON or CSV format",
@@ -937,11 +944,7 @@ def _cmd_download_audio(args: argparse.Namespace) -> int:
 def _cmd_status(args: argparse.Namespace) -> int:
     from collections import Counter
     from .manifest import ManifestStore
-    from .run_ledger import (
-        RunLedger,
-        format_coverage_summary,
-        format_cursor_summary,
-    )
+    from .run_ledger import RunLedger, format_coverage_summary, format_cursor_summary
 
     store = ManifestStore(root=args.archive_root)
     entries = store.load()
@@ -956,24 +959,29 @@ def _cmd_status(args: argparse.Namespace) -> int:
         print(f"unresolved: {len(unresolved)}")
         for identifier in unresolved:
             print(f"  {identifier}")
-
-    ledger = RunLedger(root=args.archive_root)
-    records = ledger.load()
+    records = RunLedger(root=args.archive_root).load()
     if not records:
         print("runs: 0")
     else:
         print(f"runs: {len(records)}")
         latest = records[-1]
-        run_id = latest.get("run_id", "unknown")
-        cmd = latest.get("command", "unknown")
-        code = latest.get("exit_code", "?")
-        finished = latest.get("finished_at") or latest.get("started_at") or ""
-        print(f"latest run: {run_id} ({cmd}, exit {code}, {finished})")
-        cursor_summary = format_cursor_summary(latest.get("cursor_snapshot"))
-        print(f"latest cursor: {cursor_summary}")
-        cov_summary = format_coverage_summary(latest.get("coverage_summary"))
-        print(f"latest coverage: {cov_summary}")
+        print(f"latest run: {latest.get('run_id', 'unknown')} ({latest.get('command', 'unknown')}, exit {latest.get('exit_code', '?')}, {latest.get('finished_at') or latest.get('started_at') or ''})")
+        print(f"latest cursor: {format_cursor_summary(latest.get('cursor_snapshot'))}")
+        print(f"latest coverage: {format_coverage_summary(latest.get('coverage_summary'))}")
     return 0
+
+
+def _cmd_coverage(args: argparse.Namespace) -> int:
+    from .coverage_report import CoverageReport
+    try:
+        report = CoverageReport.build(args.archive_root, scope=args.scope)
+        sys.stdout.write(report.to_json() if args.format == "json" else report.to_csv())
+        if args.format == "json":
+            sys.stdout.write("\n")
+        return 1 if report.data["diagnostics"] else 0
+    except Exception:
+        print("coverage: diagnostic coverage_report_unavailable", file=sys.stderr)
+        return 1
 
 
 def _cmd_runs(args: argparse.Namespace) -> int:
@@ -1984,6 +1992,8 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_fetch_meta(args)
     if args.command == "status":
         return _cmd_status(args)
+    if args.command == "coverage":
+        return _cmd_coverage(args)
     if args.command == "runs":
         return _cmd_runs(args)
     if args.command == "asr":

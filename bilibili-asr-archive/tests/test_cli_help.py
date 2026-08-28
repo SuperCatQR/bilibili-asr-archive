@@ -30,7 +30,7 @@ def test_installed_console_script_help(isolated_cli) -> None:
     proc = run_installed(isolated_cli, ["--help"])
     assert proc.returncode == 0, proc.stderr
     assert "bili-asr" in proc.stdout
-    for command in ("fetch-meta", "status", "runs", "asr", "pilot"):
+    for command in ("fetch-meta", "status", "runs", "asr", "pilot", "coverage"):
         assert command in proc.stdout
     assert_redacted(proc)
 
@@ -97,12 +97,57 @@ def test_cli_main_help_direct(capsys: pytest.CaptureFixture[str]) -> None:
     out = capsys.readouterr().out
     assert "bili-asr" in out
     assert "fetch-meta" in out
+    assert "coverage" in out
     assert "status" in out
-    assert "runs" in out
-
 
 def test_cli_main_importable() -> None:
     from bili_asr.cli import main as _  # noqa: F401
+
+
+def test_coverage_parser_options_and_status_preserved(capsys: pytest.CaptureFixture[str]) -> None:
+    from bili_asr.cli import build_parser
+
+    parser = build_parser()
+    coverage = parser.parse_args([
+        "coverage", "--archive-root", "/tmp/fixture", "--scope", "pending", "--format", "csv"
+    ])
+    assert coverage.command == "coverage"
+    assert coverage.archive_root == "/tmp/fixture"
+    assert coverage.scope == "pending"
+    assert coverage.format == "csv"
+    status = parser.parse_args(["status", "--archive-root", "/tmp/fixture"])
+    assert status.command == "status"
+    assert status.archive_root == "/tmp/fixture"
+
+    with pytest.raises(SystemExit) as exc:
+        parser.parse_args(["coverage", "--help"])
+    assert exc.value.code == 0
+    help_text = capsys.readouterr().out
+    assert "--archive-root" in help_text
+    assert "--scope" in help_text
+    assert "{json,csv}" in help_text
+
+
+def test_module_coverage_formats_and_diagnostic_exit(tmp_path: Path) -> None:
+    from bili_asr.manifest import ManifestStore
+
+    store = ManifestStore(root=str(tmp_path))
+    store.upsert({"work_id": "BV1safe:p1", "bvid": "BV1safe", "status": "archived"})
+    transcript = tmp_path / "transcripts" / "txt" / "BV1safe.p1.txt"
+    transcript.parent.mkdir(parents=True)
+    transcript.write_text("local fixture", encoding="utf-8")
+    for fmt in ("json", "csv"):
+        proc = run_module(["coverage", "--archive-root", str(tmp_path), "--format", fmt])
+        assert proc.returncode in (0, 1), proc.stderr
+        assert "schema_version" in proc.stdout
+        assert_redacted(proc)
+
+    manifest_path = tmp_path / "manifest" / "manifest.jsonl"
+    manifest_path.write_text(manifest_path.read_text() + manifest_path.read_text(), encoding="utf-8")
+    diagnostic = run_module(["coverage", "--archive-root", str(tmp_path), "--format", "json"])
+    assert diagnostic.returncode == 1
+    assert "manifest_duplicate_work_id" in diagnostic.stdout
+    assert_redacted(diagnostic)
 
 
 def test_install_failure_diagnostics_redact_signed_urls_and_credentials() -> None:
