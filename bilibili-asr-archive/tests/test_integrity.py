@@ -163,6 +163,22 @@ def test_manifest_overflow_is_non_authoritative(tmp_path: Path) -> None:
 
 
 
+def test_attempts_row_limit_fails_closed(tmp_path: Path) -> None:
+    _manifest(tmp_path, [{"work_id": "x", "status": "pending"}])
+    attempts = tmp_path / "coordinator" / "attempts.jsonl"
+    attempts.parent.mkdir()
+    attempts.write_text("{}\n" * 10001, encoding="utf-8")
+    report = IntegrityVerifier().verify(tmp_path)
+    assert report.authoritative is False
+    assert "attempts_row_limit_exceeded" in report.diagnostics
+
+def test_malformed_manifest_field_type_is_structural(tmp_path: Path) -> None:
+    _manifest(tmp_path, [{"work_id": "x", "bvid": "x", "cid": {}}])
+    report = IntegrityVerifier().verify(tmp_path)
+    assert report.authoritative is False
+    assert STRUCTURAL_INPUT_ERROR in report.diagnostics
+
+
 def test_missing_attempts_is_diagnostic_but_rows_are_checked(tmp_path: Path) -> None:
     _manifest(tmp_path, [{"work_id": "x", "status": "pending"}])
     report = IntegrityVerifier().verify(tmp_path)

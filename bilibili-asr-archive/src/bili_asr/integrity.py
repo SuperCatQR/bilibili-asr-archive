@@ -75,12 +75,12 @@ class IntegrityVerifier:
                 if not self._safe_path(path, root): defects.add(IDENTITY_PATH_MISMATCH)
             present = [p for p in canonical_required if self._safe_path(p, root) and p.is_file()]
             if status in {"archived", "asr_done", "subtitle_done"} and len(present) < len(canonical_required): defects.add(MISSING_TRANSCRIPT)
-            raw_directory = "subtitles/raw" if status == "subtitle_done" else "transcripts/raw"
-            raw = root / raw_directory / f"{self._canonical_stem(row)}.json"
+            raw = root / "subtitles" / "raw" / f"{self._canonical_stem(row)}.json"
             declared_raw = row.get("raw_path")
             if isinstance(declared_raw, str):
                 declared_raw_path = Path(declared_raw) if Path(declared_raw).is_absolute() else root / declared_raw
-                if declared_raw_path != raw or not self._safe_path(declared_raw_path, root):
+                legacy_raw_path = root / "transcripts" / "raw" / raw.name
+                if declared_raw_path not in {raw, legacy_raw_path} or not self._safe_path(declared_raw_path, root):
                     defects.add(IDENTITY_PATH_MISMATCH)
             if status == "subtitle_done" and not self._safe_path(raw, root): defects.add(IDENTITY_PATH_MISMATCH)
             elif status == "subtitle_done" and not raw.is_file(): defects.add(MISSING_RAW_SUBTITLE)
