@@ -2209,6 +2209,7 @@ def _cmd_verify(args: argparse.Namespace) -> int:
     return 0 if not payload["defects"] else 1
 
 
+def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     if args.command is None:

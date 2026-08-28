@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from .archive import archive_stem
-from .manifest import ManifestStore
+from .page_identity import artifact_stem, page_identity, parse_work_id
 from .quality import QualityAnalyzer
 
 # Stable public defect vocabulary.
@@ -58,7 +58,8 @@ class IntegrityVerifier:
             work_id = str(row.get("work_id") or key)
             defects: set[str] = set()
             status = str(row.get("status") or "")
-            if status in {"subtitle_done", "sub_checked"}:
+            raw_path = root / "subtitles" / "raw" / f"{archive_stem(row)}.json"
+            if status == "subtitle_done" and not raw_path.is_file():
                 defects.add(MISSING_RAW_SUBTITLE)
             expected = self._required_paths(row, root)
             present = 0
@@ -151,9 +152,23 @@ class IntegrityVerifier:
     def _required_paths(row: dict[str, Any], root: Path) -> list[Path]:
         values = [row.get(name) for name in ("srt_path", "txt_path", "md_path") if row.get(name)]
         if not values:
-            stem = archive_stem(row)
+            stem = IntegrityVerifier._canonical_stem(row)
             values = [f"transcripts/srt/{stem}.srt", f"transcripts/txt/{stem}.txt", f"transcripts/md/{stem}.md"]
         return [Path(value) if Path(value).is_absolute() else root / value for value in values]
+
+    @staticmethod
+    def _canonical_stem(row: dict[str, Any]) -> str:
+        bvid = str(row.get("bvid") or "")
+        work_id = str(row.get("work_id") or "")
+        if work_id and not row.get("unresolved"):
+            try:
+                work_bvid, page_index = parse_work_id(work_id)
+                if bvid and bvid != work_bvid:
+                    return work_id
+                return artifact_stem(page_identity(work_bvid, page_index, int(row.get("cid") or 0)))
+            except (TypeError, ValueError):
+                return work_id
+        return archive_stem(row)
 
     @staticmethod
     def _safe_path(path: Path, root: Path) -> bool:
