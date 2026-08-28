@@ -287,12 +287,14 @@ The JSONL manifest (`{archive-root}/manifest/manifest.jsonl`) remains the single
 
     bili-asr export --format json|csv [--out <path>] [--status <status>] [--with-text] [--archive-root <root>]
 
+- **Deterministic read projection**: JSON and CSV output is 100% byte-stable across repeated invocations, sorting stably by `(bvid, page_index, work_id)` with standard column ordering (`STANDARD_CSV_COLUMNS`).
 - **Formats**: `--format json` (formatted JSON array) or `--format csv` (standard CSV with UTF-8 encoding).
 - **Transcript bodies**: By default, exported rows contain metadata only (no transcript bodies). Specify `--with-text` to include full transcript text bodies under `transcript_text`.
-- **Status filtering**: `--status <status>` filters records by manifest status (repeatable or comma-separated, e.g. `--status archived,subtitle_done`).
-- **Output destination**: Writes to standard output by default, or to `--out <path>` (creating parent directories if needed).
-- **Security and hygiene**: Credentials (`SESSDATA`, cookies), signed streaming URLs, and raw exception stack traces are strictly excluded.
+- **Status filtering & coverage explanation**: `--status <status>` filters records by manifest status (repeatable or comma-separated, e.g. `--status archived,subtitle_done`). Incomplete records (`meta_ok`, `needs_audio`, `audio_ok`, `pending`, `gone`) retain their honest manifest status and have empty `transcript_text` rather than claiming false completion or being silently omitted.
+- **Output destination**: Writes to standard output by default, or to `--out <path>` (creating parent directories if needed and writing atomically).
+- **Security & path safety**: Credentials (`SESSDATA`, cookies, auth tokens), signed streaming URLs, raw exceptions/tracebacks, and sensitive URL query parameters are strictly excluded and redacted. Filepath fields are validated against `archive_root` to prevent directory traversal or outside-root path exposure.
 - **Vocabulary**: Consistently uses manifest `status` (never cursor `state`).
+- **Decoupled from search index**: Export operates directly over the JSONL manifest SSOT and does not require, query, or mutate `search.db`.
 
 ### `fetch-meta --resume` and exit 2
 

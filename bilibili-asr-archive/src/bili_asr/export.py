@@ -6,7 +6,9 @@ import csv
 import io
 import json
 import os
-from typing import Any
+from pathlib import Path
+import re
+from typing import Any, Sequence
 
 from .manifest import ManifestStore
 from .search_index import extract_transcript_text
@@ -29,6 +31,8 @@ STANDARD_CSV_COLUMNS: tuple[str, ...] = (
     "audio_path",
 )
 
+COMPLETED_STATUSES: frozenset[str] = frozenset({"archived", "subtitle_done"})
+
 SENSITIVE_EXPORT_KEYS: frozenset[str] = frozenset(
     {
         "sessdata",
@@ -39,56 +43,223 @@ SENSITIVE_EXPORT_KEYS: frozenset[str] = frozenset(
         "signed_url",
         "stream_url",
         "audio_url",
+        "video_url",
+        "cover_url",
+        "api_url",
+        "raw_url",
+        "play_url",
+        "custom_url",
         "traceback",
         "exception",
         "error_trace",
+        "stack_trace",
+        "token",
+        "access_token",
+        "secret",
+        "password",
+        "authorization",
+        "auth",
     }
 )
+
+_SENSITIVE_KEY_SUFFIXES: tuple[str, ...] = (
+    "_url",
+    "_cookie",
+    "_token",
+    "_secret",
+    "_trace",
+    "_exception",
+)
+
+_SENSITIVE_PATTERNS = (
+    re.compile(
+        r"(?i)(?:sessdata|access[_-]?token|authorization|cookie|token|signature|sign|deadline)"
+        r"\s*(?:=|:)\s*[^\s,;]+"
+    ),
+    re.compile(r"(?i)https?://[^\s\"\']+(?:sign|deadline|token|auth)[^\s\"\']*"),
+    re.compile(r"(?i)Traceback \(most recent call last\):.*", re.DOTALL),
+)
+
+
+def _is_sensitive_key(key: str) -> bool:
+    """Return True if the key name indicates sensitive or raw URL data."""
+    k = key.lower().strip()
+    if k in SENSITIVE_EXPORT_KEYS:
+        return True
+    if k.endswith(_SENSITIVE_KEY_SUFFIXES):
+        return True
+    if k.startswith(("cookie", "token", "sessdata", "secret", "auth")):
+        return True
+    if k.endswith("url"):
+        return True
+    if "sessdata" in k or "traceback" in k:
+        return True
+    return False
+
+
+def _redact_sensitive_text(text: str) -> str:
+    """Strip signed URLs, credentials, and tracebacks from string values."""
+    redacted = text
+    for pattern in _SENSITIVE_PATTERNS:
+        redacted = pattern.sub("[redacted]", redacted)
+    return redacted
+
+
+def _safe_contained_relpath(
+    root: str | os.PathLike[str] | None,
+    path_val: Any,
+) -> str | None:
+    """Return a normalized archive-root-relative path, or None if path escapes root."""
+    if not path_val:
+        return None
+    path_str = str(path_val).strip()
+    if not path_str:
+        return None
+
+    # Reject explicit parent directory traversal components
+    parts = Path(path_str).parts
+    if ".." in parts:
+        return None
+
+    if root is not None:
+        root_str = os.fspath(root)
+        try:
+            full = path_str if os.path.isabs(path_str) else os.path.join(root_str, path_str)
+            real_full = os.path.realpath(full)
+            real_root = os.path.realpath(root_str)
+            if os.path.commonpath([real_full, real_root]) == real_root:
+                return os.path.relpath(real_full, real_root)
+            return None
+        except Exception:
+            return None
+    else:
+        # Without root, reject absolute paths
+        if os.path.isabs(path_str):
+            return None
+        return path_str
+
+
+def _sanitize_value(
+    val: Any,
+    archive_root: str | os.PathLike[str] | None = None,
+) -> Any:
+    """Recursively sanitize nested dictionaries, lists, and string values."""
+    if isinstance(val, dict):
+        sanitized_dict: dict[str, Any] = {}
+        for k, v in sorted(val.items(), key=lambda item: str(item[0])):
+            if _is_sensitive_key(str(k)):
+                continue
+            sanitized_dict[str(k)] = _sanitize_value(v, archive_root=archive_root)
+        return sanitized_dict
+    elif isinstance(val, list):
+        return [_sanitize_value(item, archive_root=archive_root) for item in val]
+    elif isinstance(val, str):
+        if val.startswith(("http://", "https://")):
+            return "[redacted]"
+        return _redact_sensitive_text(val)
+    return val
 
 
 def sanitize_export_entry(
     entry: dict[str, Any],
     with_text: bool = False,
     archive_root: str | os.PathLike[str] | None = None,
+    max_text_length: int | None = None,
 ) -> dict[str, Any]:
     """Return a sanitized copy of a manifest entry without credentials/signed URLs.
 
     If with_text is True and archive_root is provided, transcript text is loaded
     and attached under 'transcript_text'. If with_text is False, transcript text
     is excluded.
+    Path fields are validated against archive_root to prevent path traversal leaks.
     """
-    sanitized: dict[str, Any] = {}
+    raw_sanitized: dict[str, Any] = {}
     for key, value in entry.items():
-        if key.lower() in SENSITIVE_EXPORT_KEYS:
+        key_str = str(key)
+        if _is_sensitive_key(key_str):
             continue
         # Exclude transcript_text by default unless explicitly requested
-        if key in ("transcript_text", "text") and not with_text:
+        if key_str in ("transcript_text", "text") and not with_text:
             continue
-        sanitized[key] = value
+
+        # Path sanitization for known path keys or keys ending in _path
+        if key_str in STANDARD_CSV_COLUMNS and key_str.endswith("_path"):
+            safe_rel = _safe_contained_relpath(archive_root, value)
+            if safe_rel is not None:
+                raw_sanitized[key_str] = safe_rel
+            elif value:
+                # Path existed but escaped root -> strip to empty
+                raw_sanitized[key_str] = ""
+            continue
+        elif key_str.endswith("_path"):
+            safe_rel = _safe_contained_relpath(archive_root, value)
+            if safe_rel is not None:
+                raw_sanitized[key_str] = safe_rel
+            continue
+
+        raw_sanitized[key_str] = _sanitize_value(value, archive_root=archive_root)
 
     if with_text:
-        if "transcript_text" not in sanitized:
+        if "transcript_text" not in raw_sanitized:
             if archive_root is not None:
                 text, _paths = extract_transcript_text(archive_root, entry)
-                sanitized["transcript_text"] = text
+                text = _redact_sensitive_text(text)
+                if max_text_length is not None and max_text_length >= 0:
+                    text = text[:max_text_length]
+                raw_sanitized["transcript_text"] = text
             else:
-                sanitized["transcript_text"] = ""
+                raw_sanitized["transcript_text"] = ""
+        else:
+            text = str(raw_sanitized["transcript_text"])
+            text = _redact_sensitive_text(text)
+            if max_text_length is not None and max_text_length >= 0:
+                text = text[:max_text_length]
+            raw_sanitized["transcript_text"] = text
 
-    return sanitized
+    # Deterministically order the keys: standard columns first, transcript_text, then extra sorted keys
+    ordered: dict[str, Any] = {}
+    for col in STANDARD_CSV_COLUMNS:
+        if col in raw_sanitized:
+            ordered[col] = raw_sanitized[col]
+    if with_text and "transcript_text" in raw_sanitized:
+        ordered["transcript_text"] = raw_sanitized["transcript_text"]
+    for k in sorted(raw_sanitized.keys()):
+        if k not in ordered:
+            ordered[k] = raw_sanitized[k]
+
+    return ordered
+
+
+def _entry_key_from_dict(entry: dict[str, Any]) -> str:
+    work_id = entry.get("work_id")
+    if work_id:
+        return str(work_id)
+    bvid = entry.get("bvid")
+    if bvid:
+        return str(bvid)
+    return str(id(entry))
 
 
 def export_rows(
-    store_or_entries: ManifestStore | dict[str, dict[str, Any]],
+    store_or_entries: ManifestStore | dict[str, dict[str, Any]] | list[dict[str, Any]],
     status_filter: set[str] | list[str] | None = None,
     with_text: bool = False,
     archive_root: str | os.PathLike[str] | None = None,
+    limit: int | None = None,
+    max_text_length: int | None = None,
 ) -> list[dict[str, Any]]:
     """Derive sanitized export rows from the manifest, optionally filtered by status."""
     if isinstance(store_or_entries, ManifestStore):
         entries = store_or_entries.load()
         root = archive_root if archive_root is not None else store_or_entries.root
-    else:
+    elif isinstance(store_or_entries, dict):
         entries = store_or_entries
+        root = archive_root
+    elif isinstance(store_or_entries, list):
+        entries = {_entry_key_from_dict(item): item for item in store_or_entries}
+        root = archive_root
+    else:
+        entries = {}
         root = archive_root
 
     filter_set = set(status_filter) if status_filter is not None else None
@@ -113,9 +284,15 @@ def export_rows(
         if filter_set is not None and entry_status not in filter_set:
             continue
         sanitized = sanitize_export_entry(
-            entry, with_text=with_text, archive_root=root
+            entry,
+            with_text=with_text,
+            archive_root=root,
+            max_text_length=max_text_length,
         )
         rows.append(sanitized)
+
+    if limit is not None and limit >= 0:
+        rows = rows[:limit]
 
     return rows
 
@@ -164,12 +341,54 @@ def format_csv_export(
             if val is None:
                 formatted_row[k] = ""
             elif isinstance(val, (dict, list)):
-                formatted_row[k] = json.dumps(val, ensure_ascii=False)
+                formatted_row[k] = json.dumps(val, ensure_ascii=False, sort_keys=True)
             else:
                 formatted_row[k] = str(val)
         writer.writerow(formatted_row)
 
     return buffer.getvalue()
+
+
+def export_coverage_summary(
+    rows: Sequence[dict[str, Any]],
+    total_manifest_count: int | None = None,
+) -> dict[str, Any]:
+    """Return deterministic coverage summary over exported rows.
+
+    Explains completed vs excluded/incomplete records without claiming false completion.
+    """
+    total_rows = len(rows)
+    completed_rows = sum(
+        1 for r in rows if str(r.get("status") or "") in COMPLETED_STATUSES
+    )
+    incomplete_rows = total_rows - completed_rows
+
+    status_counts: dict[str, int] = {}
+    with_text_count = 0
+    reclaimed_audio_count = 0
+
+    for r in rows:
+        st = str(r.get("status") or "unknown")
+        status_counts[st] = status_counts.get(st, 0) + 1
+        if bool(r.get("transcript_text")):
+            with_text_count += 1
+        if st == "archived" and bool(r.get("audio_path")):
+            reclaimed_audio_count += 1
+
+    sorted_status_counts = {k: status_counts[k] for k in sorted(status_counts.keys())}
+    manifest_count = total_manifest_count if total_manifest_count is not None else total_rows
+    excluded_count = max(0, manifest_count - total_rows)
+
+    return {
+        "total_rows": total_rows,
+        "completed_rows": completed_rows,
+        "incomplete_rows": incomplete_rows,
+        "status_counts": sorted_status_counts,
+        "with_text_rows": with_text_count,
+        "reclaimed_audio_rows": reclaimed_audio_count,
+        "total_manifest_count": manifest_count,
+        "excluded_count": excluded_count,
+    }
 
 
 def export_manifest(
@@ -178,6 +397,8 @@ def export_manifest(
     out_path: str | os.PathLike[str] | None = None,
     status_filter: set[str] | list[str] | None = None,
     with_text: bool = False,
+    limit: int | None = None,
+    max_text_length: int | None = None,
 ) -> str:
     """Export manifest-derived rows to JSON or CSV format.
 
@@ -194,6 +415,8 @@ def export_manifest(
         status_filter=status_filter,
         with_text=with_text,
         archive_root=archive_root,
+        limit=limit,
+        max_text_length=max_text_length,
     )
 
     if fmt_lower == "json":
