@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from bili_asr.archive import write_archive
 from bili_asr.integrity import (
     IntegrityReport, IntegrityVerifier, MALFORMED_ARTIFACT, MISSING_RAW_SUBTITLE,
     MISSING_TRANSCRIPT, RETRYABLE_INCOMPLETE, STRUCTURAL_INPUT_ERROR,
@@ -14,6 +15,24 @@ def _manifest(root: Path, rows: list[dict[str, object]]) -> None:
     path = root / "manifest" / "manifest.jsonl"
     path.parent.mkdir(parents=True)
     path.write_text("".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8")
+
+
+def test_production_archive_layout_verifies_cleanly(tmp_path: Path) -> None:
+    row = {"work_id": "BV1x:p0", "bvid": "BV1x", "cid": 7, "page_index": 0,
+           "pubdate_str": "20260828", "title": "A safe/title", "status": "archived"}
+    paths = write_archive(tmp_path, row, [{"start": 0, "end": 1, "text": "ok"}], source="cc")
+    row.update(paths)
+    _manifest(tmp_path, [row])
+    assert IntegrityVerifier().verify(tmp_path).defects == []
+
+
+def test_malformed_identity_containers_fail_closed(tmp_path: Path) -> None:
+    for malformed in ({}, []):
+        root = tmp_path / ("dict" if isinstance(malformed, dict) else "list")
+        _manifest(root, [{"work_id": "x", "bvid": "x", "cid": malformed, "status": "pending"}])
+        report = IntegrityVerifier().verify(root)
+        assert report.authoritative is False
+        assert STRUCTURAL_INPUT_ERROR in report.diagnostics
 
 
 def test_archived_transcripts_are_valid_without_audio(tmp_path: Path) -> None:
@@ -31,11 +50,9 @@ def test_missing_transcript_and_truncated_attempts(tmp_path: Path) -> None:
     _manifest(tmp_path, [{"work_id": "BV1x:p0", "bvid": "BV1x", "status": "archived"}])
     path = tmp_path / "coordinator" / "attempts.jsonl"
     path.parent.mkdir()
-    path.write_text('{"work_id":"BV1x:p0"}\n{"broken"', encoding="utf-8")
+    path.write_text(json.dumps(_attempt("BV1x:p0")) + "\n{broken'", encoding="utf-8")
     report = IntegrityVerifier().verify(tmp_path)
-    assert report.defects == []
-    assert report.authoritative is False
-    assert STRUCTURAL_INPUT_ERROR in report.diagnostics
+    assert any(d.code == MISSING_TRANSCRIPT for d in report.defects)
     assert TRUNCATED_ATTEMPTS_LINE in report.diagnostics
 
 

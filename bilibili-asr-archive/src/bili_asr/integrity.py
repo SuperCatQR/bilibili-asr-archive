@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 import json
 from pathlib import Path
 from typing import Any
-from .archive import archive_stem
+from .archive import archive_stem, _safe_name
 from .page_identity import artifact_stem, page_identity, parse_work_id
 from .quality import QualityAnalyzer
 from .coordinator import _validate_attempt
@@ -45,6 +45,10 @@ class IntegrityVerifier:
         analyzer = QualityAnalyzer()
         for key, row in selected:
             work_id = str(row.get("work_id") or key); status = str(row.get("status") or ""); defects: set[str] = set()
+            cid = row.get("cid")
+            if cid is not None and (isinstance(cid, bool) or not isinstance(cid, int)):
+                report.diagnostics.append(STRUCTURAL_INPUT_ERROR)
+                continue
             required = self._required_paths(row, root)
             canonical_required = self._canonical_required_paths(row, root)
             for declared, canonical in zip(required, canonical_required):
@@ -57,7 +61,6 @@ class IntegrityVerifier:
             raw = root / "subtitles" / "raw" / f"{self._canonical_stem(row)}.json"
             if status == "subtitle_done" and not self._safe_path(raw, root): defects.add(IDENTITY_PATH_MISMATCH)
             elif status == "subtitle_done" and not raw.is_file(): defects.add(MISSING_RAW_SUBTITLE)
-            quality_paths = [root / "subtitles" / "raw" / f"{self._canonical_stem(row)}.json"] + required
             quality = analyzer.analyze(row, root)
             if "malformed" in quality.reasons:
                 defects.add(MALFORMED_ARTIFACT)
@@ -140,7 +143,12 @@ class IntegrityVerifier:
     @classmethod
     def _canonical_required_paths(cls, row, root):
         stem = cls._canonical_stem(row)
-        return [root / f"transcripts/{kind}/{stem}.{kind}" for kind in ("srt", "txt", "md")]
+        if not row.get("title") and not row.get("pubdate_str"):
+            md_path = root / f"transcripts/md/{stem}.md"
+        else:
+            md_name = f"{row.get('pubdate_str', 'unknown')}_{stem}_{_safe_name(str(row.get('title') or row.get('bvid')))}.md"
+            md_path = root / "transcripts" / "md" / md_name
+        return [root / f"transcripts/{kind}/{stem}.{kind}" for kind in ("srt", "txt")] + [md_path]
     @staticmethod
     def _canonical_stem(row):
         bvid=str(row.get("bvid") or ""); work=str(row.get("work_id") or "")
