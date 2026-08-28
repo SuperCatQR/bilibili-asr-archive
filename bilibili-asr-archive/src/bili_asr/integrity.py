@@ -2,11 +2,11 @@
 from __future__ import annotations
 from dataclasses import dataclass, field
 import json
+import re
 from pathlib import Path
 from typing import Any
 from .archive import archive_stem, _safe_name
 from .page_identity import artifact_stem, page_identity, parse_work_id
-from .quality import QualityAnalyzer
 from .coordinator import _validate_attempt
 
 MISSING_RAW_SUBTITLE = "missing_raw_subtitle"
@@ -39,10 +39,13 @@ class IntegrityVerifier:
         root = Path(archive_root).resolve(); report = IntegrityReport()
         entries, manifest_valid = self._read_manifest(root, report)
         attempts, attempts_valid, truncated = self._read_attempts(root, report)
-        report.authoritative = manifest_valid and attempts_valid
+        manifest_present = (root / "manifest" / "manifest.jsonl").is_file()
+        attempts_present = (root / "coordinator" / "attempts.jsonl").is_file()
+        report.authoritative = manifest_present and attempts_present and manifest_valid and attempts_valid
+        if not manifest_present: report.diagnostics.append(STRUCTURAL_INPUT_ERROR)
+        if not attempts_present: report.diagnostics.append(STRUCTURAL_INPUT_ERROR)
         selected = self._select(entries, scope, attempts if attempts_valid else []) if report.authoritative else []
         report.checked = len(selected)
-        analyzer = QualityAnalyzer()
         for key, row in selected:
             work_id = str(row.get("work_id") or key); status = str(row.get("status") or ""); defects: set[str] = set()
             cid = row.get("cid")
@@ -56,15 +59,15 @@ class IntegrityVerifier:
                     defects.add(IDENTITY_PATH_MISMATCH)
             for path in required:
                 if not self._safe_path(path, root): defects.add(IDENTITY_PATH_MISMATCH)
-            present = [p for p in required if self._safe_path(p, root) and p.is_file()]
-            if status in {"archived", "asr_done", "subtitle_done"} and len(present) < len(required): defects.add(MISSING_TRANSCRIPT)
+            present = [p for p in canonical_required if self._safe_path(p, root) and p.is_file()]
+            if status in {"archived", "asr_done", "subtitle_done"} and len(present) < len(canonical_required): defects.add(MISSING_TRANSCRIPT)
             raw = root / "subtitles" / "raw" / f"{self._canonical_stem(row)}.json"
             if status == "subtitle_done" and not self._safe_path(raw, root): defects.add(IDENTITY_PATH_MISMATCH)
             elif status == "subtitle_done" and not raw.is_file(): defects.add(MISSING_RAW_SUBTITLE)
-            quality = analyzer.analyze(row, root)
-            if "malformed" in quality.reasons:
+            artifact_paths = list(canonical_required)
+            if status == "subtitle_done": artifact_paths.append(raw)
+            if any(not self._valid_artifact(path, row) for path in artifact_paths if path.is_file()):
                 defects.add(MALFORMED_ARTIFACT)
-            if "identity_mismatch" in quality.reasons: defects.add(IDENTITY_PATH_MISMATCH)
             if status in {"pending", "meta_ok", "sub_checked", "needs_audio", "audio_ok"}: defects.add(RETRYABLE_INCOMPLETE)
             report.defects.extend(IntegrityDefect(work_id, code) for code in sorted(defects))
         if truncated: report.diagnostics.append(TRUNCATED_ATTEMPTS_LINE)
@@ -160,6 +163,47 @@ class IntegrityVerifier:
             except (TypeError,ValueError): return work
         return archive_stem(row)
 
+
+    @staticmethod
+    def _valid_artifact(path: Path, row: dict[str, Any]) -> bool:
+        try:
+            if path.stat().st_size > 8 * 1024 * 1024:
+                return False
+            text = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeError):
+            return False
+        if not text.strip():
+            return False
+        if path.suffix == ".srt":
+            for block in re.split(r"\n\s*\n", text.replace("\r\n", "\n")):
+                lines = [line.strip() for line in block.splitlines() if line.strip()]
+                if not lines:
+                    continue
+                timing = next((line for line in lines if "-->" in line), None)
+                if timing is None:
+                    return False
+                parts = [part.strip() for part in timing.split("-->", 1)]
+                if len(parts) != 2 or not all(IntegrityVerifier._valid_srt_time(part) for part in parts):
+                    return False
+        elif path.suffix == ".json":
+            try:
+                document = json.loads(text)
+            except (TypeError, ValueError):
+                return False
+            if isinstance(document, dict):
+                items = document.get("body", document.get("segments"))
+            else:
+                items = document
+            if not isinstance(items, list):
+                return False
+            if any(not isinstance(item, dict) for item in items[:10000]):
+                return False
+        return True
+
+    @staticmethod
+    def _valid_srt_time(value: str) -> bool:
+        match = re.match(r"^\d{1,3}:[0-5]\d:[0-5]\d[,.]\d{1,3}$", value)
+        return bool(match)
 
     @staticmethod
     def _safe_path(path,root):
