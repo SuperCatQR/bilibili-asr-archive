@@ -37,14 +37,20 @@ class IntegrityReport:
 class IntegrityVerifier:
     def verify(self, archive_root: Path, *, scope: str | None = None) -> IntegrityReport:
         root = Path(archive_root).resolve(); report = IntegrityReport()
+        if not root.is_dir():
+            report.authoritative = False
+            report.diagnostics.append(STRUCTURAL_INPUT_ERROR)
+            return report
         entries, manifest_valid = self._read_manifest(root, report)
         attempts, attempts_valid, truncated = self._read_attempts(root, report)
         manifest_present = (root / "manifest" / "manifest.jsonl").is_file()
         attempts_present = (root / "coordinator" / "attempts.jsonl").is_file()
         report.authoritative = manifest_present and attempts_present and manifest_valid and attempts_valid
         if not manifest_present: report.diagnostics.append(STRUCTURAL_INPUT_ERROR)
-        if not attempts_present: report.diagnostics.append(STRUCTURAL_INPUT_ERROR)
-        selected = self._select(entries, scope, attempts if attempts_valid else []) if report.authoritative else []
+        if not attempts_present and not manifest_present: report.diagnostics.append(STRUCTURAL_INPUT_ERROR)
+        # Legacy archives may predate the coordinator sidecar.  Keep their
+        # manifest rows checkable while withholding the authoritative claim.
+        selected = self._select(entries, scope, attempts if attempts_valid else []) if manifest_valid and (attempts_valid or not attempts_present) else []
         report.checked = len(selected)
         for key, row in selected:
             work_id = str(row.get("work_id") or key); status = str(row.get("status") or ""); defects: set[str] = set()
