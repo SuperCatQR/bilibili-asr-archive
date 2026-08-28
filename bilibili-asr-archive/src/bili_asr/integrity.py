@@ -16,6 +16,7 @@ IDENTITY_PATH_MISMATCH = "identity_path_mismatch"
 TRUNCATED_ATTEMPTS_LINE = "truncated_attempts_line"
 RETRYABLE_INCOMPLETE = "retryable_incomplete"
 STRUCTURAL_INPUT_ERROR = "structural_input_error"
+MANIFEST_ROW_LIMIT_EXCEEDED = "manifest_row_limit_exceeded"
 _MAX_ROWS = 10000
 
 @dataclass(frozen=True)
@@ -71,11 +72,19 @@ class IntegrityVerifier:
         path=root/"manifest"/"manifest.jsonl"; entries={}; valid=True
         if not path.is_file(): return entries, True
         try:
-            for number,line in enumerate(path.read_text(encoding="utf-8").splitlines()):
-                if number>=_MAX_ROWS or not line.strip(): continue
+            lines = path.read_text(encoding="utf-8").splitlines()
+            non_empty_rows = sum(bool(line.strip()) for line in lines)
+            if non_empty_rows > _MAX_ROWS:
+                valid = False
+                report.diagnostics.append(MANIFEST_ROW_LIMIT_EXCEEDED)
+            for number, line in enumerate(lines[:_MAX_ROWS]):
+                if not line.strip(): continue
                 value=json.loads(line)
                 if not isinstance(value,dict): raise ValueError
-                key=str(value.get("work_id") or value.get("bvid") or "")
+                for field_name in ("work_id", "bvid", "status", "srt_path", "txt_path", "md_path"):
+                    if field_name in value and value[field_name] is not None and not isinstance(value[field_name], str): raise ValueError
+                if "cid" in value and value["cid"] is not None and (isinstance(value["cid"], bool) or not isinstance(value["cid"], int)): raise ValueError
+                key=value.get("work_id") or value.get("bvid") or ""
                 if not key: raise ValueError
                 entries[key]=value
         except (OSError,UnicodeError,json.JSONDecodeError,ValueError):
@@ -87,14 +96,18 @@ class IntegrityVerifier:
         path=root/"coordinator"/"attempts.jsonl"
         if not path.is_file(): return [], True, False
         records=[]; truncated=False; valid=True
-        try: lines=path.read_text(encoding="utf-8").splitlines()
-        except (OSError,UnicodeError): report.diagnostics.append(STRUCTURAL_INPUT_ERROR); return [],False,False
-        for index,line in enumerate(lines):
+        try:
+            lines = path.read_text(encoding="utf-8").splitlines()
+        except (OSError, UnicodeError):
+            report.diagnostics.append(STRUCTURAL_INPUT_ERROR)
+            return [], False, False
+        last_non_empty = max((i for i, line in enumerate(lines) if line.strip()), default=-1)
+        for index, line in enumerate(lines):
             if not line.strip(): continue
             try:
                 value=json.loads(line)
             except json.JSONDecodeError:
-                if index == len(lines)-1:
+                if index == last_non_empty:
                     truncated=True
                 else:
                     valid=False; report.diagnostics.append(STRUCTURAL_INPUT_ERROR)

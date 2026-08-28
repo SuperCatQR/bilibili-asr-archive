@@ -124,4 +124,27 @@ def test_malformed_manifest_and_bad_middle_attempt_are_diagnostics(tmp_path: Pat
     attempts.write_text(json.dumps(_attempt("ok:p0")) + "\n{bad}\n" + json.dumps(_attempt("ok:p0")) + "\n", encoding="utf-8")
     report = IntegrityVerifier().verify(tmp_path)
     assert STRUCTURAL_INPUT_ERROR in report.diagnostics
-    assert TRUNCATED_ATTEMPTS_LINE not in report.diagnostics
+
+
+def test_trailing_blank_after_truncated_attempt_is_tolerated(tmp_path: Path) -> None:
+    _manifest(tmp_path, [{"work_id": "x", "status": "pending"}])
+    path = tmp_path / "coordinator" / "attempts.jsonl"; path.parent.mkdir()
+    path.write_text(json.dumps(_attempt("x")) + "\n{broken\n\n", encoding="utf-8")
+    report = IntegrityVerifier().verify(tmp_path)
+    assert report.authoritative is True
+    assert TRUNCATED_ATTEMPTS_LINE in report.diagnostics
+    assert STRUCTURAL_INPUT_ERROR not in report.diagnostics
+
+
+def test_manifest_overflow_is_non_authoritative(tmp_path: Path) -> None:
+    _manifest(tmp_path, [{"work_id": str(i), "status": "pending"} for i in range(10001)])
+    report = IntegrityVerifier().verify(tmp_path)
+    assert report.authoritative is False
+    assert report.diagnostics == ["manifest_row_limit_exceeded"]
+
+
+def test_malformed_manifest_field_type_is_structural(tmp_path: Path) -> None:
+    _manifest(tmp_path, [{"work_id": "x", "bvid": "x", "cid": {}}])
+    report = IntegrityVerifier().verify(tmp_path)
+    assert report.authoritative is False
+    assert STRUCTURAL_INPUT_ERROR in report.diagnostics
