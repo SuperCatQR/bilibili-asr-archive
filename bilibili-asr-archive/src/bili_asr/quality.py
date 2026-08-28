@@ -3,10 +3,14 @@
 from __future__ import annotations
 
 import json
+import math
 import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Mapping
+
+from .archive import archive_stem
+from .page_identity import artifact_stem, page_identity, parse_work_id
 
 REASON_CODES = (
     "empty",
@@ -84,8 +88,6 @@ class QualityAnalyzer:
                 reasons.add("empty")
             _check_cues(cues, row, reasons)
             _check_identity(path, text, row, reasons)
-        if valid_artifacts and cue_count == 0:
-            reasons.add("empty")
         return QualityResult(
             source=_text_value(row, "source", "subtitle_source"),
             language=_text_value(row, "language", "sub_lan", "subtitle_language"),
@@ -105,9 +107,41 @@ def _text_value(row: Mapping[str, object], *keys: str) -> str | None:
     return None
 
 
+def _canonical_stem(row: Mapping[str, object]) -> str | None:
+    bvid = _text_value(row, "bvid")
+    if row.get("unresolved"):
+        return bvid
+    work_id = _text_value(row, "work_id")
+    if work_id:
+        try:
+            bvid_part, page_index = parse_work_id(work_id)
+            ident = page_identity(
+                bvid_part,
+                page_index,
+                cid=int(row.get("cid") or 0),
+                page_label=str(row.get("page_label") or ""),
+            )
+            return artifact_stem(ident)
+        except ValueError:
+            return work_id
+    if bvid and row.get("cid") is not None:
+        try:
+            return archive_stem(dict(row))
+        except (KeyError, TypeError, ValueError):
+            pass
+    return bvid
+
+
 def _artifact_paths(row: Mapping[str, object], root: Path) -> list[Path]:
     values: list[object] = []
-    for key in ("subtitle_path", "srt_path", "txt_path", "raw_path", "artifact_path"):
+    for key in (
+        "subtitle_path",
+        "srt_path",
+        "txt_path",
+        "md_path",
+        "raw_path",
+        "artifact_path",
+    ):
         if row.get(key) is not None:
             values.append(row[key])
     paths = row.get("artifact_paths")
@@ -115,11 +149,26 @@ def _artifact_paths(row: Mapping[str, object], root: Path) -> list[Path]:
         values.extend(paths)
     inferred = not values
     if inferred:
-        stem = _text_value(row, "work_id", "bvid")
+        stem = _canonical_stem(row)
         if stem:
-            values.extend((Path("transcripts/srt") / f"{stem}.srt",
-                           Path("transcripts/txt") / f"{stem}.txt",
-                           Path("transcripts/raw") / f"{stem}.json"))
+            values.extend(
+                (
+                    Path("transcripts/srt") / f"{stem}.srt",
+                    Path("transcripts/txt") / f"{stem}.txt",
+                    Path("transcripts/raw") / f"{stem}.json",
+                    Path("subtitles/raw") / f"{stem}.json",
+                )
+            )
+            md_dir = root / "transcripts" / "md"
+            if md_dir.is_dir():
+                exact_md = md_dir / f"{stem}.md"
+                if exact_md.is_file():
+                    values.append(exact_md)
+                pubdate = str(row.get("pubdate_str") or "")
+                pattern = f"{pubdate}_{stem}_*.md" if pubdate else f"*_{stem}_*.md"
+                for md_file in sorted(md_dir.glob(pattern)):
+                    if md_file.is_file():
+                        values.append(md_file)
     result: list[Path] = []
     for value in values:
         if isinstance(value, (str, Path)) and value:
@@ -171,8 +220,16 @@ def _read_cues(path: Path, text: str) -> tuple[list[tuple[float, float]], bool, 
             document = json.loads(text)
         except (ValueError, TypeError):
             return [], True, False
-        items = document.get("body") if isinstance(document, dict) else document
-        if not isinstance(items, list):
+        if isinstance(document, dict):
+            if "body" in document and isinstance(document["body"], list):
+                items = document["body"]
+            elif "segments" in document and isinstance(document["segments"], list):
+                items = document["segments"]
+            else:
+                return [], True, False
+        elif isinstance(document, list):
+            items = document
+        else:
             return [], True, False
         cues = []
         malformed = False
@@ -180,9 +237,17 @@ def _read_cues(path: Path, text: str) -> tuple[list[tuple[float, float]], bool, 
             if not isinstance(item, dict):
                 malformed = True
                 continue
+            start_raw = item.get("from") if "from" in item else item.get("start")
+            end_raw = item.get("to") if "to" in item else item.get("end")
+            if start_raw is None or end_raw is None:
+                malformed = True
+                continue
             try:
-                start, end = float(item["from"]), float(item["to"])
-            except (KeyError, TypeError, ValueError):
+                start, end = float(start_raw), float(end_raw)
+            except (TypeError, ValueError):
+                malformed = True
+                continue
+            if not (math.isfinite(start) and math.isfinite(end)):
                 malformed = True
                 continue
             cues.append((start, end))
@@ -195,16 +260,33 @@ def _parse_time(value: str) -> float | None:
     match = _SRT_TIME.match(value)
     if not match:
         return None
-    return (int(match["h"]) * 3600 + int(match["m"]) * 60 + int(match["s"]) +
-            int(match["ms"].ljust(3, "0")) / 1000)
+    return (
+        int(match["h"]) * 3600
+        + int(match["m"]) * 60
+        + int(match["s"])
+        + int(match["ms"].ljust(3, "0")) / 1000
+    )
 
 
-def _check_cues(cues: list[tuple[float, float]], row: Mapping[str, object], reasons: set[str]) -> None:
+def _check_cues(
+    cues: list[tuple[float, float]], row: Mapping[str, object], reasons: set[str]
+) -> None:
     duration = row.get("duration_s")
-    maximum = float(duration) if isinstance(duration, (int, float)) and duration >= 0 else None
+    maximum: float | None = None
+    if isinstance(duration, (int, float)):
+        try:
+            d = float(duration)
+            if d >= 0 and math.isfinite(d):
+                maximum = d
+        except (TypeError, ValueError):
+            pass
     previous_start = -1.0
     previous_end = -1.0
     for start, end in cues:
+        if not (math.isfinite(start) and math.isfinite(end)):
+            reasons.add("malformed")
+            reasons.add("out_of_range")
+            continue
         if start < 0 or end < 0 or end <= start:
             reasons.add("out_of_range")
         if start < previous_start:
@@ -216,15 +298,31 @@ def _check_cues(cues: list[tuple[float, float]], row: Mapping[str, object], reas
         previous_start, previous_end = start, end
 
 
-def _check_identity(path: Path, text: str, row: Mapping[str, object], reasons: set[str]) -> None:
-    expected = _text_value(row, "work_id", "bvid")
-    if not expected:
-        return
-    marker = None
+def _check_identity(
+    path: Path, text: str, row: Mapping[str, object], reasons: set[str]
+) -> None:
+    stem = _canonical_stem(row)
+    expected_work_id = _text_value(row, "work_id")
+    expected_bvid = _text_value(row, "bvid")
+
+    if stem and path.name:
+        if path.suffix.lower() in {".srt", ".json", ".txt", ".md"}:
+            if stem not in path.name:
+                reasons.add("identity_mismatch")
+
     if path.suffix.lower() == ".md":
-        match = re.search(r"^work_id:\s*[\"']?([^\"'\n]+)", text, re.MULTILINE)
-        marker = match.group(1).strip() if match else None
-    if marker and marker != expected and marker != str(row.get("bvid") or ""):
-        reasons.add("identity_mismatch")
-    if path.name and expected not in path.name and path.suffix.lower() in {".srt", ".json", ".txt"}:
-        reasons.add("identity_mismatch")
+        work_id_match = re.search(
+            r"^work_id:\s*[\"']?([^\"'\n\r]+)[\"']?", text, re.MULTILINE
+        )
+        if work_id_match:
+            md_work_id = work_id_match.group(1).strip()
+            if expected_work_id and md_work_id != expected_work_id:
+                reasons.add("identity_mismatch")
+
+        bvid_match = re.search(
+            r"^bvid:\s*[\"']?([^\"'\n\r]+)[\"']?", text, re.MULTILINE
+        )
+        if bvid_match:
+            md_bvid = bvid_match.group(1).strip()
+            if expected_bvid and md_bvid != expected_bvid:
+                reasons.add("identity_mismatch")
