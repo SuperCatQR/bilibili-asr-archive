@@ -7,6 +7,7 @@ import json
 import os
 import sys
 import time
+from pathlib import Path
 
 DEFAULT_MID = 23191782
 DEFAULT_ARCHIVE_ROOT = os.path.join("archive")
@@ -325,6 +326,13 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Include deterministic artifact quality validation signals",
     )
+
+    integrity_cmd = subparsers.add_parser(
+        "verify", help="Verify archive integrity without modifying files"
+    )
+    integrity_cmd.add_argument("--archive-root", default=DEFAULT_ARCHIVE_ROOT)
+    integrity_cmd.add_argument("--scope", default=None)
+    integrity_cmd.add_argument("--format", choices=["json", "text"], default="json")
 
     export_cmd = subparsers.add_parser(
         "export",
@@ -2185,7 +2193,22 @@ def _cmd_export(args: argparse.Namespace) -> int:
     return 0
 
 
-def main(argv: list[str] | None = None) -> int:
+def _cmd_verify(args: argparse.Namespace) -> int:
+    from .integrity import IntegrityVerifier
+    report = IntegrityVerifier().verify(Path(args.archive_root), scope=args.scope)
+    payload = report.to_dict()
+    if args.format == "json":
+        print(json.dumps(payload, ensure_ascii=False, sort_keys=True))
+    else:
+        print(f"checked: {payload['checked']}")
+        print(f"defects: {payload['defect_count']}")
+        for defect in payload["defects"]:
+            print(f"{defect['work_id']}: {defect['code']}")
+        for diagnostic in payload["diagnostics"]:
+            print(f"diagnostic: {diagnostic}")
+    return 0 if not payload["defects"] else 1
+
+
     parser = build_parser()
     args = parser.parse_args(argv)
     if args.command is None:
@@ -2197,6 +2220,8 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_status(args)
     if args.command == "coverage":
         return _cmd_coverage(args)
+    if args.command == "verify":
+        return _cmd_verify(args)
     if args.command == "runs":
         return _cmd_runs(args)
     if args.command == "asr":
