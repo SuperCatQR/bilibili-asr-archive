@@ -100,9 +100,32 @@ def test_cli_main_help_direct(capsys: pytest.CaptureFixture[str]) -> None:
     assert "status" in out
     assert "runs" in out
 
-
 def test_cli_main_importable() -> None:
     from bili_asr.cli import main as _  # noqa: F401
+
+
+def test_coverage_parser_options_and_status_preserved(capsys: pytest.CaptureFixture[str]) -> None:
+    from bili_asr.cli import build_parser
+
+    parser = build_parser()
+    coverage = parser.parse_args([
+        "coverage", "--archive-root", "/tmp/fixture", "--scope", "pending", "--format", "csv"
+    ])
+    assert coverage.command == "coverage"
+    assert coverage.archive_root == "/tmp/fixture"
+    assert coverage.scope == "pending"
+    assert coverage.format == "csv"
+    status = parser.parse_args(["status", "--archive-root", "/tmp/fixture"])
+    assert status.command == "status"
+    assert status.archive_root == "/tmp/fixture"
+
+    with pytest.raises(SystemExit) as exc:
+        parser.parse_args(["coverage", "--help"])
+    assert exc.value.code == 0
+    help_text = capsys.readouterr().out
+    assert "--archive-root" in help_text
+    assert "--scope" in help_text
+    assert "{json,csv}" in help_text
 
 
 def test_install_failure_diagnostics_redact_signed_urls_and_credentials() -> None:

@@ -151,11 +151,13 @@ cookies), signed streaming URLs, and raw exception stack traces.
   latest run details (run ID, exit code, cursor snapshot, and coverage
   summary). For `limited` enumeration runs, it reports cursor state honestly
   without claiming complete enumeration.
-- **`bili-asr runs [--limit N] [--archive-root <root>]`** lists recent
-  operational runs in chronological order with exit codes, cursor state,
-  coverage snapshots, and completion timestamps.
+- **`bili-asr coverage`** is a read-only reconciliation report over fixture/local archive evidence. Use a temporary local root and optional scope; it never performs network traffic or rewrites source sidecars:
 
-### Run coordinator (`bili-asr run`)
+      bili-asr coverage --archive-root /tmp/bili-asr-coverage-fixture --scope pending --format json
+      bili-asr coverage --archive-root /tmp/bili-asr-coverage-fixture --format csv
+
+  `--format json|csv` is deterministic (stable keys/columns and work-id ordering). The denominator is the selected manifest snapshot in work-item units; if the manifest or scope is unavailable, the report says `unavailable` and does not infer a count. `cumulative` describes all selected manifest rows, while `batch` describes only the latest scheduler/ledger batch; they are not interchangeable. `limited` and `risk_interrupted` evidence remains non-complete. Named diagnostics (for example `denominator_unavailable`, `scheduler_ledger_mismatch`, `sidecar_malformed`, or `terminal_missing_artifact`) make contradictions explicit and produce exit `1`; exit `0` means no diagnostics, while usage/configuration errors also exit `1`. Reports redact credentials, signed URLs, media, models, and raw exceptions. Use only reviewed local fixtures or a disposable temporary archive root; coverage is an inspection projection and does not mutate any source sidecar.
+
 
 `bili-asr run` coordinates manifest rows through four stages — `harvest`
 (probe + download subtitles), `download` (fetch audio), `asr` (local
