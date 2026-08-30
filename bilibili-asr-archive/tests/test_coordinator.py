@@ -122,6 +122,16 @@ def test_recover_audits_named_defect_without_manifest_or_transcript_mutation(tmp
     ident = page_identity("BVrecover", 0, 111, "p0")
     store = ManifestStore(root=tmp_root)
     store.upsert(_row(ident, status="archived"))
+    AttemptLedger(tmp_root).append({
+        "stage": "archive",
+        "work_id": ident.work_id,
+        "attempt": 1,
+        "outcome": "ok",
+        "error_code": None,
+        "artifact_paths": [],
+        "started_at": "2026-08-28T00:00:00Z",
+        "finished_at": "2026-08-28T00:00:01Z",
+    })
     for directory, suffix, content in (("srt", "srt", "1\n00:00:00,000 --> 00:00:01,000\nok"), ("txt", "txt", "ok"),):
         path = os.path.join(tmp_root, "transcripts", directory)
         os.makedirs(path, exist_ok=True)

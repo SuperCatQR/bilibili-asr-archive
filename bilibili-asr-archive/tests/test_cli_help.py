@@ -36,6 +36,14 @@ def test_installed_console_script_help(isolated_cli) -> None:
     assert_redacted(proc)
 
 
+def test_installed_console_script_status_uses_temp_archive_root(isolated_cli, tmp_path: Path) -> None:
+    archive_root = tmp_path / "archive"
+    proc = run_installed(isolated_cli, ["status", "--archive-root", str(archive_root)])
+    assert proc.returncode == 0, proc.stderr
+    assert "manifest: empty" in proc.stdout
+    assert str(archive_root) not in proc.stdout
+    assert_redacted(proc)
+
 
 def test_recover_requires_explicit_target(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     from bili_asr.cli import main
