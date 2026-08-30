@@ -4,6 +4,8 @@ from dataclasses import dataclass, field
 import json
 import os
 import re
+import stat
+import tempfile
 import threading
 from pathlib import Path
 from typing import Any
@@ -229,13 +231,27 @@ class IntegrityVerifier:
                 for name in ("recovery-audit.jsonl", "recovery-audit.lock",
                              "recovery-audit.jsonl.tmp", "recovery-audit.jsonl.rollback"):
                     _reject_symlink(coordinator / name)
-                lock_fd = os.open("recovery-audit.lock", os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600, dir_fd=coordinator_fd)
+                lock_fd = os.open(_AUDIT_LOCK_REL_PATH.rsplit("/", 1)[-1], os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600, dir_fd=coordinator_fd)
                 with os.fdopen(lock_fd, "a+b") as lock_handle:
                     fcntl.flock(lock_handle.fileno(), fcntl.LOCK_EX)
-                    audit_existed = os.path.exists(audit_path)
+                    try:
+                        audit_stat = os.stat("recovery-audit.jsonl", dir_fd=coordinator_fd, follow_symlinks=False)
+                        audit_existed = not stat.S_ISDIR(audit_stat.st_mode)
+                    except FileNotFoundError:
+                        audit_existed = False
                     existing = os.open("recovery-audit.jsonl", os.O_RDONLY | os.O_NOFOLLOW, dir_fd=coordinator_fd) if audit_existed else None
                     try:
-                        existing_bytes = os.read(existing, _AUDIT_MAX_BYTES + 1) if existing is not None else b""
+                        chunks = []
+                        total = 0
+                        while existing is not None:
+                            chunk = os.read(existing, _AUDIT_MAX_BYTES + 1 - total)
+                            if not chunk:
+                                break
+                            chunks.append(chunk)
+                            total += len(chunk)
+                            if total > _AUDIT_MAX_BYTES:
+                                break
+                        existing_bytes = b"".join(chunks)
                     finally:
                         if existing is not None: os.close(existing)
                     separator = b"\n" if existing_bytes and not existing_bytes.endswith(b"\n") else b""
@@ -247,7 +263,7 @@ class IntegrityVerifier:
                         return {"ok": False, "code": RECOVERY_MALFORMED_SIDECAR, "selected": []}
                     for line in existing_lines:
                         if not _valid_recovery_audit_record(json.loads(line.decode("utf-8"))): raise ValueError
-                    temp_fd, temp_name = __import__("tempfile").mkstemp(prefix=".recovery-audit.", suffix=".tmp", dir=coordinator)
+                    temp_fd, temp_name = tempfile.mkstemp(prefix=".recovery-audit.", suffix=".tmp", dir=coordinator)
                     temporary_path = coordinator / temp_name; temporary_owned = True
                     with os.fdopen(temp_fd, "wb") as handle:
                         handle.write(replacement); handle.flush(); os.fsync(handle.fileno())
@@ -257,7 +273,7 @@ class IntegrityVerifier:
                         _fsync_directory(coordinator)
                     except OSError:
                         if audit_existed:
-                            rollback_fd, rollback_name = __import__("tempfile").mkstemp(prefix=".recovery-audit.", suffix=".rollback", dir=coordinator)
+                            rollback_fd, rollback_name = tempfile.mkstemp(prefix=".recovery-audit.", suffix=".rollback", dir=coordinator)
                             rollback_path = coordinator / rollback_name; rollback_owned = True
                             with os.fdopen(rollback_fd, "wb") as handle:
                                 handle.write(existing_bytes); handle.flush(); os.fsync(handle.fileno())
