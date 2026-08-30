@@ -48,6 +48,7 @@ def test_symlinked_attempts_are_not_read(tmp_path: Path) -> None:
     assert MISSING_ATTEMPTS in report.diagnostics
 
 
+def test_symlinked_artifact_is_not_read(tmp_path: Path) -> None:
     row = {"work_id": "BV1x:p0", "bvid": "BV1x", "status": "archived"}
     _manifest(tmp_path, [row])
     transcript_dir = tmp_path / "transcripts"
