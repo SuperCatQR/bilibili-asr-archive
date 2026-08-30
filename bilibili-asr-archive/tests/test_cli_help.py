@@ -31,7 +31,7 @@ def test_installed_console_script_help(isolated_cli) -> None:
     proc = run_installed(isolated_cli, ["--help"])
     assert proc.returncode == 0, proc.stderr
     assert "bili-asr" in proc.stdout
-    for command in ("fetch-meta", "status", "runs", "asr", "pilot", "coverage"):
+    for command in ("fetch-meta", "status", "runs", "asr", "pilot", "coverage", "verify", "recover"):
         assert command in proc.stdout
     assert_redacted(proc)
 
@@ -43,6 +43,25 @@ def test_installed_console_script_status_uses_temp_archive_root(isolated_cli, tm
     assert "manifest: empty" in proc.stdout
     assert str(archive_root) not in proc.stdout
     assert_redacted(proc)
+
+
+def test_recover_requires_explicit_target(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    from bili_asr.cli import main
+    assert main(["recover", "--archive-root", str(tmp_path)]) == 1
+    assert json.loads(capsys.readouterr().out)["code"] == "recovery_requires_explicit_target"
+
+
+def test_recover_help_describes_limit_contract(capsys: pytest.CaptureFixture[str]) -> None:
+    from bili_asr.cli import build_parser
+
+    parser = build_parser()
+    with pytest.raises(SystemExit) as exc:
+        parser.parse_args(["recover", "--help"])
+    assert exc.value.code == 0
+    help_text = capsys.readouterr().out
+    assert "--limit" in help_text
+    assert "positive" in help_text
+    assert "100" in help_text
 
 
 def test_installed_script_is_not_path_or_checkout_source(isolated_cli) -> None:

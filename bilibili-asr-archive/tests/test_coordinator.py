@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import os
+from pathlib import Path
 
 from bili_asr import asr as asr_mod
 from bili_asr import bili_client as bc
@@ -115,7 +116,196 @@ class CidRouterTransport(RouterTransport):
                                 cookies=cookies, timeout=timeout)
 
 
-# ------------------------------------------------------------ ledger atomicity
+
+
+def test_recover_defect_code_expansion_fails_before_audit_write(tmp_root):
+    from bili_asr.integrity import IntegrityVerifier, RETRYABLE_INCOMPLETE, RECOVERY_TARGET_LIMIT_EXCEEDED
+    store = ManifestStore(root=tmp_root)
+    for index in range(101):
+        ident = page_identity(f"BV{index}", 0, index + 1, "p0")
+        store.upsert(_row(ident, status="pending"))
+    AttemptLedger(tmp_root).append({"stage": "harvest", "work_id": "BV0:p0", "attempt": 1,
+        "outcome": "ok", "error_code": None, "artifact_paths": [],
+        "started_at": "2026-08-28T00:00:00Z", "finished_at": "2026-08-28T00:00:01Z"})
+    result = IntegrityVerifier.recover(tmp_root, defect_codes=[RETRYABLE_INCOMPLETE])
+    assert result == {"ok": False, "code": RECOVERY_TARGET_LIMIT_EXCEEDED, "selected": []}
+    assert not (Path(tmp_root) / "coordinator" / "recovery-audit.jsonl").exists()
+
+
+def test_recover_rejects_invalid_limit_without_writing(tmp_root):
+    from bili_asr.integrity import IntegrityVerifier, RECOVERY_TARGET_LIMIT_EXCEEDED
+    ident = page_identity("BVlimit", 0, 1, "p0")
+    ManifestStore(root=tmp_root).upsert(_row(ident, status="pending"))
+    AttemptLedger(tmp_root).append({"stage": "harvest", "work_id": ident.work_id, "attempt": 1,
+        "outcome": "ok", "error_code": None, "artifact_paths": [],
+        "started_at": "2026-08-28T00:00:00Z", "finished_at": "2026-08-28T00:00:01Z"})
+    result = IntegrityVerifier.recover(tmp_root, work_ids=[ident.work_id], limit=0)
+    assert result["ok"] is False and result["code"] == RECOVERY_TARGET_LIMIT_EXCEEDED
+    assert not (Path(tmp_root) / "coordinator" / "recovery-audit.jsonl").exists()
+
+
+def test_recover_fails_closed_on_malformed_or_oversize_audit(tmp_root):
+    from bili_asr.integrity import IntegrityVerifier, RECOVERY_MALFORMED_SIDECAR, _AUDIT_REL_PATH, _AUDIT_MAX_BYTES
+    ident = page_identity("BVsidecar", 0, 1, "p0")
+    ManifestStore(root=tmp_root).upsert(_row(ident, status="pending"))
+    AttemptLedger(tmp_root).append({"stage": "harvest", "work_id": ident.work_id, "attempt": 1,
+        "outcome": "ok", "error_code": None, "artifact_paths": [],
+        "started_at": "2026-08-28T00:00:00Z", "finished_at": "2026-08-28T00:00:01Z"})
+    audit_path = Path(tmp_root) / _AUDIT_REL_PATH
+    audit_path.parent.mkdir(parents=True, exist_ok=True)
+    audit_path.write_text("{bad}\n", encoding="utf-8")
+    before = audit_path.read_bytes()
+    result = IntegrityVerifier.recover(tmp_root, work_ids=[ident.work_id])
+    assert result["ok"] is False and result["code"] == RECOVERY_MALFORMED_SIDECAR
+    assert audit_path.read_bytes() == before
+    audit_path.write_bytes(b"x" * (_AUDIT_MAX_BYTES + 1))
+    result = IntegrityVerifier.recover(tmp_root, work_ids=[ident.work_id])
+    assert result["ok"] is False and result["code"] == RECOVERY_MALFORMED_SIDECAR
+
+
+def test_recover_rejects_unterminated_audit_at_exact_byte_boundary(tmp_root, monkeypatch):
+    from bili_asr.integrity import IntegrityVerifier, RECOVERY_MALFORMED_SIDECAR, _AUDIT_REL_PATH
+
+    ident = page_identity("BVboundary", 0, 1, "p0")
+    ManifestStore(root=tmp_root).upsert(_row(ident, status="pending"))
+    AttemptLedger(tmp_root).append({"stage": "harvest", "work_id": ident.work_id, "attempt": 1,
+        "outcome": "ok", "error_code": None, "artifact_paths": [],
+        "started_at": "2026-08-28T00:00:00Z", "finished_at": "2026-08-28T00:00:01Z"})
+    audit_path = Path(tmp_root) / _AUDIT_REL_PATH
+    audit_path.parent.mkdir(parents=True, exist_ok=True)
+    existing_record = {"action": "audit", "work_ids": ["prior"],
+                       "defect_codes": ["retryable_incomplete"]}
+    existing = json.dumps(existing_record, sort_keys=True).encode("utf-8")
+    new_record = {"action": "audit", "work_ids": [ident.work_id],
+                  "defect_codes": ["retryable_incomplete"]}
+    line_bytes = (json.dumps(new_record, ensure_ascii=False, sort_keys=True) + "\n").encode("utf-8")
+    audit_path.write_bytes(existing)
+    monkeypatch.setattr("bili_asr.integrity._AUDIT_MAX_BYTES", len(existing) + len(line_bytes))
+    before = audit_path.read_bytes()
+
+    result = IntegrityVerifier.recover(tmp_root, work_ids=[ident.work_id])
+
+    assert result["ok"] is False and result["code"] == RECOVERY_MALFORMED_SIDECAR
+    assert audit_path.read_bytes() == before
+    assert not audit_path.with_name(audit_path.name + ".tmp").exists()
+    assert not audit_path.with_name(audit_path.name + ".rollback").exists()
+
+
+def test_recover_rolls_back_when_directory_fsync_fails(tmp_root, monkeypatch):
+    from bili_asr.integrity import IntegrityVerifier, RECOVERY_MALFORMED_SIDECAR, _AUDIT_REL_PATH
+
+    ident = page_identity("BVfsync", 0, 1, "p0")
+    ManifestStore(root=tmp_root).upsert(_row(ident, status="pending"))
+    AttemptLedger(tmp_root).append({"stage": "harvest", "work_id": ident.work_id, "attempt": 1,
+        "outcome": "ok", "error_code": None, "artifact_paths": [],
+        "started_at": "2026-08-28T00:00:00Z", "finished_at": "2026-08-28T00:00:01Z"})
+    audit_path = Path(tmp_root) / _AUDIT_REL_PATH
+    audit_path.parent.mkdir(parents=True, exist_ok=True)
+    before = b'{"action":"requeue","defect_codes":["retryable_incomplete"],"work_ids":["prior"]}\n'
+    audit_path.write_bytes(before)
+    monkeypatch.setattr("bili_asr.integrity._fsync_directory", lambda _directory: (_ for _ in ()).throw(OSError("injected")))
+
+    result = IntegrityVerifier.recover(tmp_root, work_ids=[ident.work_id])
+
+    assert result["ok"] is False and result["code"] == RECOVERY_MALFORMED_SIDECAR
+    assert audit_path.read_bytes() == before
+    assert not audit_path.with_name(audit_path.name + ".tmp").exists()
+    assert not audit_path.with_name(audit_path.name + ".rollback").exists()
+
+
+def test_recover_rejects_oversized_existing_audit_record(tmp_root):
+    from bili_asr.integrity import IntegrityVerifier, RECOVERY_MALFORMED_SIDECAR, _AUDIT_REL_PATH
+    ident = page_identity("BVlogical", 0, 1, "p0")
+    ManifestStore(root=tmp_root).upsert(_row(ident, status="pending"))
+    AttemptLedger(tmp_root).append({"stage": "harvest", "work_id": ident.work_id, "attempt": 1,
+        "outcome": "ok", "error_code": None, "artifact_paths": [],
+        "started_at": "2026-08-28T00:00:00Z", "finished_at": "2026-08-28T00:00:01Z"})
+    audit_path = Path(tmp_root) / _AUDIT_REL_PATH
+    audit_path.parent.mkdir(parents=True, exist_ok=True)
+    oversized = {"action": "audit", "work_ids": [f"work-{index}" for index in range(101)],
+                 "defect_codes": ["retryable_incomplete"]}
+    audit_path.write_text(json.dumps(oversized) + "\n", encoding="utf-8")
+    before = audit_path.read_bytes()
+    result = IntegrityVerifier.recover(tmp_root, work_ids=[ident.work_id])
+    assert result["ok"] is False and result["code"] == RECOVERY_MALFORMED_SIDECAR
+    assert audit_path.read_bytes() == before
+
+
+def test_recover_audits_named_defect_without_manifest_or_transcript_mutation(tmp_root, capsys):
+    from bili_asr.integrity import IntegrityVerifier, MISSING_TRANSCRIPT, _AUDIT_LOCK_REL_PATH
+    ident = page_identity("BVrecover", 0, 111, "p0")
+    store = ManifestStore(root=tmp_root)
+    row = _row(ident, status="archived")
+    stem = artifact_stem(ident)
+    row.update({"srt_path": f"transcripts/srt/{stem}.srt", "txt_path": f"transcripts/txt/{stem}.txt",
+                "md_path": f"transcripts/md/2026-01-02_{stem}_clip.md"})
+    store.upsert(row)
+    AttemptLedger(tmp_root).append({
+        "stage": "archive",
+        "work_id": ident.work_id,
+        "attempt": 1,
+        "outcome": "ok",
+        "error_code": None,
+        "artifact_paths": [],
+        "started_at": "2026-08-28T00:00:00Z",
+        "finished_at": "2026-08-28T00:00:01Z",
+    })
+    for directory, filename, content in (("srt", f"{stem}.srt", "1\n00:00:00,000 --> 00:00:01,000\nok"),
+                                          ("txt", f"{stem}.txt", "ok"),):
+        path = os.path.join(tmp_root, "transcripts", directory)
+        os.makedirs(path, exist_ok=True)
+        with open(os.path.join(path, filename), "w", encoding="utf-8") as handle:
+            handle.write(content)
+    result = IntegrityVerifier().verify(tmp_root)
+    assert any(defect.work_id == ident.work_id and defect.code == MISSING_TRANSCRIPT
+               for defect in result.defects)
+    manifest_path = os.path.join(tmp_root, "manifest", "manifest.jsonl")
+    before = open(manifest_path, encoding="utf-8").read()
+    result = IntegrityVerifier.recover(tmp_root, work_ids=[ident.work_id])
+    assert result["ok"] is True
+    assert result["selected"] == [ident.work_id]
+    assert open(manifest_path, encoding="utf-8").read() == before
+    audit = open(os.path.join(tmp_root, "coordinator", "recovery-audit.jsonl"), encoding="utf-8").read()
+    audit_record = json.loads(audit)
+    assert set(audit_record) == {"action", "defect_codes", "work_ids"}
+    assert audit_record["action"] == "audit"
+    assert audit_record["defect_codes"] == [MISSING_TRANSCRIPT]
+    assert audit_record["work_ids"] == [ident.work_id]
+    assert (Path(tmp_root) / _AUDIT_LOCK_REL_PATH).is_file()
+    assert "https://" not in audit and "SESSDATA" not in audit
+
+def test_recover_rejects_invalid_existing_audit_fields_without_replacement(tmp_root):
+    from bili_asr.integrity import (
+        IntegrityVerifier,
+        RECOVERY_MALFORMED_SIDECAR,
+        _AUDIT_REL_PATH,
+        _AUDIT_MAX_FIELD_CHARS,
+    )
+
+    ident = page_identity("BVinvalid", 0, 1, "p0")
+    ManifestStore(root=tmp_root).upsert(_row(ident, status="pending"))
+    AttemptLedger(tmp_root).append({"stage": "harvest", "work_id": ident.work_id, "attempt": 1,
+        "outcome": "ok", "error_code": None, "artifact_paths": [],
+        "started_at": "2026-08-28T00:00:00Z", "finished_at": "2026-08-28T00:00:01Z"})
+    audit_path = Path(tmp_root) / _AUDIT_REL_PATH
+    audit_path.parent.mkdir(parents=True, exist_ok=True)
+
+    invalid_records = [
+        {"action": "audit", "work_ids": [ident.work_id],
+         "defect_codes": ["retryable_incomplete"], "extra": "rejected"},
+        {"action": "audit", "work_ids": ["Cookie: secret"],
+         "defect_codes": ["retryable_incomplete"]},
+        {"action": "audit", "work_ids": ["x" * (_AUDIT_MAX_FIELD_CHARS + 1)],
+         "defect_codes": ["retryable_incomplete"]},
+    ]
+    for record in invalid_records:
+        audit_path.write_text(json.dumps(record) + "\n", encoding="utf-8")
+        before = audit_path.read_bytes()
+        result = IntegrityVerifier.recover(tmp_root, work_ids=[ident.work_id])
+        assert result["ok"] is False and result["code"] == RECOVERY_MALFORMED_SIDECAR
+        assert audit_path.read_bytes() == before
+        assert not audit_path.with_name(audit_path.name + ".tmp").exists()
+
 
 def test_attempt_ledger_append_is_atomic_no_partial_lines(tmp_root):
     ledger = AttemptLedger(tmp_root)
