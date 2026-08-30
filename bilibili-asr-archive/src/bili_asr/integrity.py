@@ -146,7 +146,7 @@ class IntegrityVerifier:
         audit_path = root / _AUDIT_REL_PATH
         line_bytes = (json.dumps(audit, ensure_ascii=False, sort_keys=True) + "\n").encode("utf-8")
         with _AUDIT_WRITE_LOCK:
-            lock_path = audit_path.with_name(audit_path.name + ".lock")
+            lock_path = root / _AUDIT_LOCK_REL_PATH
             temporary_path: Path | None = None
             try:
                 audit_path.parent.mkdir(parents=True, exist_ok=True)

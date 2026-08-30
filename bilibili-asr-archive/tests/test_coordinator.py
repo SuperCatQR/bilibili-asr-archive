@@ -163,7 +163,7 @@ def test_recover_fails_closed_on_malformed_or_oversize_audit(tmp_root):
     assert result["ok"] is False and result["code"] == RECOVERY_MALFORMED_SIDECAR
 
 def test_recover_audits_named_defect_without_manifest_or_transcript_mutation(tmp_root, capsys):
-    from bili_asr.integrity import IntegrityVerifier, MISSING_TRANSCRIPT
+    from bili_asr.integrity import IntegrityVerifier, MISSING_TRANSCRIPT, _AUDIT_LOCK_REL_PATH
     ident = page_identity("BVrecover", 0, 111, "p0")
     store = ManifestStore(root=tmp_root)
     row = _row(ident, status="archived")
@@ -202,6 +202,7 @@ def test_recover_audits_named_defect_without_manifest_or_transcript_mutation(tmp
     assert audit_record["action"] == "requeue"
     assert audit_record["defect_codes"] == [MISSING_TRANSCRIPT]
     assert audit_record["work_ids"] == [ident.work_id]
+    assert (Path(tmp_root) / _AUDIT_LOCK_REL_PATH).is_file()
     assert "https://" not in audit and "SESSDATA" not in audit
 
 def test_attempt_ledger_append_is_atomic_no_partial_lines(tmp_root):
