@@ -76,6 +76,67 @@ in committed files or CI artifacts.
     bili-asr run --scope failed --limit 5 --archive-root archive
     bili-asr schedule --scope pending --limit 20 --archive-root archive
     bili-asr schedule --scope pending --limit 20 --resume --archive-root archive
+    bili-asr evaluate-concurrency --evidence evidence.json --thresholds thresholds.json
+
+### Concurrency safety evidence gate
+
+`bili-asr evaluate-concurrency --evidence <json> --thresholds <json>` is a
+read-only, pure evidence evaluation surface. Its public Python API is
+`ConcurrencyGate.evaluate(evidence: Mapping[str, object], thresholds: Mapping[str, object]) -> GateResult`;
+`GateResult.to_dict()` returns the report mapping. A `go` decision is evidence
+only for a future, separately approved plan. Production remains
+`sequential-no-daemon`: this command does not start or enable a worker, daemon,
+service, automatic startup, concurrent manifest writer, or alternate scheduler.
+It changes no manifest schema, status taxonomy, risk taxonomy, or default.
+
+Both inputs must be JSON objects no larger than 1 MiB. The evidence object has
+exactly these required fields:
+
+- `schema_version`: `concurrency-gate-evidence-v1`.
+- bounded, non-empty ASCII `campaign_snapshot_id`.
+- positive integer `campaign_item_count`, `campaign_denominator`, and
+  `reconciliation_denominator`; item count must not exceed the campaign
+  denominator, and reconciliation denominator must equal it.
+- nonnegative integer `age_seconds`, finite nonnegative
+  `throughput_items_per_hour`, `[0,1]` finite `api_risk_rate`, nonnegative
+  integer `peak_disk_bytes`, and `[0,1]` finite `reclaim_rate`.
+- boolean `crash_restart_passed`, nonnegative integer
+  `duplicate_work_count`, positive integer `max_owner_count`, boolean
+  `checkpoint_reconciled`, and boolean `risk_taxonomy_unchanged`.
+- `write_isolation`, an object containing exactly five keys, each strictly
+  `true`: `manifest`, `sidecars`, `attempts`, `index`, and `artifacts`.
+
+The threshold object has exactly these required fields:
+`min_campaign_item_count` (positive integer), `max_evidence_age_seconds`
+(nonnegative integer), `min_throughput_items_per_hour` (finite positive
+number), `max_api_risk_rate` (`[0,1]` finite number),
+`max_peak_disk_bytes` (nonnegative integer), `min_reclaim_rate` (`[0,1]`
+finite number), `max_duplicate_work_count` (nonnegative integer), and
+`max_owner_count` (positive integer). Operators supply measured, reviewed
+thresholds; this project does not guess values from CPU, memory, or disk.
+
+Safe fixture shapes (illustrative values only, not recommended production
+thresholds) contain no credentials or real URLs:
+
+```json
+{"schema_version":"concurrency-gate-evidence-v1","campaign_snapshot_id":"fixture-campaign-001","campaign_item_count":10,"campaign_denominator":10,"reconciliation_denominator":10,"age_seconds":30,"throughput_items_per_hour":5.0,"api_risk_rate":0.01,"peak_disk_bytes":1000,"reclaim_rate":0.9,"crash_restart_passed":true,"duplicate_work_count":0,"max_owner_count":1,"checkpoint_reconciled":true,"risk_taxonomy_unchanged":true,"write_isolation":{"manifest":true,"sidecars":true,"attempts":true,"index":true,"artifacts":true}}
+```
+
+```json
+{"min_campaign_item_count":10,"max_evidence_age_seconds":3600,"min_throughput_items_per_hour":4.0,"max_api_risk_rate":0.02,"max_peak_disk_bytes":2000,"min_reclaim_rate":0.8,"max_duplicate_work_count":0,"max_owner_count":1}
+```
+
+The report schema is `concurrency-gate-report-v1` with deterministic keys:
+`decision` (`go` or `no-go`), `ok`, `operating_mode`
+(`sequential-no-daemon`), sorted unique `reason_codes`, and `schema_version`.
+Schema, field, contradiction, threshold-breach, isolation, sensitive-data, and
+input-complexity failures are represented by stable reason codes. Exit `0`
+means `go`; exit `1` means `no-go` or input/evaluation failure. CLI failures
+are compact JSON on stderr with `operating_mode: sequential-no-daemon` and one
+of: `input_file_missing`, `input_file_unreadable`,
+`input_file_not_regular`, `input_file_oversized`, `input_invalid_utf8`,
+`input_malformed_json`, `input_non_object_json`, or `evaluation_failure`.
+Paths, exception text, and input values are never emitted.
 
 ### Audio reclaim and bounded-disk campaigns
 

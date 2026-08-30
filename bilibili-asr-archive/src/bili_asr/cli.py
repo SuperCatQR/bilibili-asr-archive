@@ -347,6 +347,17 @@ def build_parser() -> argparse.ArgumentParser:
         help="Limit must be positive; values above the maximum are capped at 100",
     )
 
+    evaluate_concurrency = subparsers.add_parser(
+        "evaluate-concurrency",
+        help="Evaluate evidence only; runtime remains sequential with no daemon",
+    )
+    evaluate_concurrency.add_argument(
+        "--evidence", required=True, help="Path to the JSON evidence mapping"
+    )
+    evaluate_concurrency.add_argument(
+        "--thresholds", required=True, help="Path to the explicit JSON threshold mapping"
+    )
+
     export_cmd = subparsers.add_parser(
         "export",
         help="Export manifest metadata to JSON or CSV format",
@@ -2232,6 +2243,83 @@ def _cmd_recover(args: argparse.Namespace) -> int:
     return 0 if payload.get("ok") else 1
 
 
+_MAX_CONCURRENCY_INPUT_BYTES = 1_048_576
+
+
+class _ConcurrencyInputError(Exception):
+    def __init__(self, error_code: str) -> None:
+        super().__init__(error_code)
+        self.error_code = error_code
+
+
+def _read_concurrency_json_object(path: str) -> dict[str, object]:
+    from collections.abc import Mapping
+
+    file_path = Path(path)
+    try:
+        if not file_path.exists():
+            raise _ConcurrencyInputError("input_file_missing")
+        if not file_path.is_file():
+            raise _ConcurrencyInputError("input_file_not_regular")
+        with file_path.open("rb") as input_file:
+            payload = input_file.read(_MAX_CONCURRENCY_INPUT_BYTES + 1)
+    except _ConcurrencyInputError:
+        raise
+    except OSError:
+        raise _ConcurrencyInputError("input_file_unreadable") from None
+
+    if len(payload) > _MAX_CONCURRENCY_INPUT_BYTES:
+        raise _ConcurrencyInputError("input_file_oversized")
+    try:
+        decoded = payload.decode("utf-8")
+    except UnicodeDecodeError:
+        raise _ConcurrencyInputError("input_invalid_utf8") from None
+    try:
+        value = json.loads(decoded)
+    except json.JSONDecodeError:
+        raise _ConcurrencyInputError("input_malformed_json") from None
+    if not isinstance(value, Mapping):
+        raise _ConcurrencyInputError("input_non_object_json")
+    return dict(value)
+
+
+def _write_concurrency_error(error_code: str) -> None:
+    payload = {
+        "error_code": error_code,
+        "operating_mode": "sequential-no-daemon",
+    }
+    print(
+        json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")),
+        file=sys.stderr,
+    )
+
+
+def _cmd_evaluate_concurrency(args: argparse.Namespace) -> int:
+    from .concurrency_gate import ConcurrencyGate
+
+    try:
+        evidence = _read_concurrency_json_object(args.evidence)
+        thresholds = _read_concurrency_json_object(args.thresholds)
+    except _ConcurrencyInputError as exc:
+        _write_concurrency_error(exc.error_code)
+        return 1
+
+    try:
+        result = ConcurrencyGate.evaluate(evidence, thresholds)
+    except Exception:
+        _write_concurrency_error("evaluation_failure")
+        return 1
+
+    print(
+        json.dumps(
+            result.to_dict(),
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+    )
+    return 0 if result.ok else 1
+
 
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
@@ -2263,6 +2351,8 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_download_audio(args)
     if args.command == "search":
         return _cmd_search(args)
+    if args.command == "evaluate-concurrency":
+        return _cmd_evaluate_concurrency(args)
     if args.command == "export":
         return _cmd_export(args)
     if args.command == "run":
