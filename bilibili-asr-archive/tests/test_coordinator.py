@@ -173,10 +173,10 @@ def test_recover_rejects_unterminated_audit_at_exact_byte_boundary(tmp_root, mon
         "started_at": "2026-08-28T00:00:00Z", "finished_at": "2026-08-28T00:00:01Z"})
     audit_path = Path(tmp_root) / _AUDIT_REL_PATH
     audit_path.parent.mkdir(parents=True, exist_ok=True)
-    existing_record = {"action": "requeue", "work_ids": ["prior"],
+    existing_record = {"action": "audit", "work_ids": ["prior"],
                        "defect_codes": ["retryable_incomplete"]}
     existing = json.dumps(existing_record, sort_keys=True).encode("utf-8")
-    new_record = {"action": "requeue", "work_ids": [ident.work_id],
+    new_record = {"action": "audit", "work_ids": [ident.work_id],
                   "defect_codes": ["retryable_incomplete"]}
     line_bytes = (json.dumps(new_record, ensure_ascii=False, sort_keys=True) + "\n").encode("utf-8")
     audit_path.write_bytes(existing)
@@ -222,7 +222,7 @@ def test_recover_rejects_oversized_existing_audit_record(tmp_root):
         "started_at": "2026-08-28T00:00:00Z", "finished_at": "2026-08-28T00:00:01Z"})
     audit_path = Path(tmp_root) / _AUDIT_REL_PATH
     audit_path.parent.mkdir(parents=True, exist_ok=True)
-    oversized = {"action": "requeue", "work_ids": [f"work-{index}" for index in range(101)],
+    oversized = {"action": "audit", "work_ids": [f"work-{index}" for index in range(101)],
                  "defect_codes": ["retryable_incomplete"]}
     audit_path.write_text(json.dumps(oversized) + "\n", encoding="utf-8")
     before = audit_path.read_bytes()
@@ -268,7 +268,7 @@ def test_recover_audits_named_defect_without_manifest_or_transcript_mutation(tmp
     audit = open(os.path.join(tmp_root, "coordinator", "recovery-audit.jsonl"), encoding="utf-8").read()
     audit_record = json.loads(audit)
     assert set(audit_record) == {"action", "defect_codes", "work_ids"}
-    assert audit_record["action"] == "requeue"
+    assert audit_record["action"] == "audit"
     assert audit_record["defect_codes"] == [MISSING_TRANSCRIPT]
     assert audit_record["work_ids"] == [ident.work_id]
     assert (Path(tmp_root) / _AUDIT_LOCK_REL_PATH).is_file()
@@ -291,11 +291,11 @@ def test_recover_rejects_invalid_existing_audit_fields_without_replacement(tmp_r
     audit_path.parent.mkdir(parents=True, exist_ok=True)
 
     invalid_records = [
-        {"action": "requeue", "work_ids": [ident.work_id],
+        {"action": "audit", "work_ids": [ident.work_id],
          "defect_codes": ["retryable_incomplete"], "extra": "rejected"},
-        {"action": "requeue", "work_ids": ["Cookie: secret"],
+        {"action": "audit", "work_ids": ["Cookie: secret"],
          "defect_codes": ["retryable_incomplete"]},
-        {"action": "requeue", "work_ids": ["x" * (_AUDIT_MAX_FIELD_CHARS + 1)],
+        {"action": "audit", "work_ids": ["x" * (_AUDIT_MAX_FIELD_CHARS + 1)],
          "defect_codes": ["retryable_incomplete"]},
     ]
     for record in invalid_records:

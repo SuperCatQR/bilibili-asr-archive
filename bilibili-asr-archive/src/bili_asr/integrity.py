@@ -51,17 +51,35 @@ _MAX_ATTEMPTS_BYTES = 8 * 1024 * 1024
 
 
 def _fsync_directory(directory: Path) -> None:
-    directory_fd = os.open(directory, os.O_RDONLY)
+    directory_fd = os.open(directory, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
     try:
         os.fsync(directory_fd)
     finally:
         os.close(directory_fd)
 
 
+def _open_coordinator(root: Path) -> tuple[int, Path]:
+    coordinator = root / "coordinator"
+    try:
+        coordinator_fd = os.open(coordinator, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    except FileNotFoundError:
+        os.mkdir(coordinator, 0o755)
+        coordinator_fd = os.open(coordinator, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    return coordinator_fd, coordinator
+
+
+def _reject_symlink(path: Path) -> None:
+    try:
+        if path.is_symlink():
+            raise OSError(f"symlinked recovery path: {path.name}")
+    except OSError:
+        raise
+
+
 def _valid_recovery_audit_record(record: object) -> bool:
     if not isinstance(record, dict) or set(record) != _AUDIT_RECORD_KEYS:
         return False
-    if record.get("action") != "requeue":
+    if record.get("action") != "audit":
         return False
     work_ids = record.get("work_ids")
     defect_codes = record.get("defect_codes")
@@ -192,7 +210,7 @@ class IntegrityVerifier:
             return {"ok": False, "code": RECOVERY_TARGET_LIMIT_EXCEEDED, "selected": []}
         if not selected_ids or any(work_id not in defects_by_id for work_id in selected_ids):
             return {"ok": False, "code": RECOVERY_TARGET_NOT_FOUND, "selected": []}
-        audit = {"action": "requeue", "work_ids": selected_ids,
+        audit = {"action": "audit", "work_ids": selected_ids,
                  "defect_codes": sorted({code for work_id in selected_ids for code in defects_by_id[work_id]})}
         if (len(audit["work_ids"]) > _RECOVERY_MAX_TARGETS
                 or len(audit["defect_codes"]) > _RECOVERY_MAX_TARGETS
@@ -201,60 +219,63 @@ class IntegrityVerifier:
         audit_path = root / _AUDIT_REL_PATH
         line_bytes = (json.dumps(audit, ensure_ascii=False, sort_keys=True) + "\n").encode("utf-8")
         with _AUDIT_WRITE_LOCK:
-            lock_path = root / _AUDIT_LOCK_REL_PATH
             temporary_path: Path | None = None
+            temporary_owned = False
+            rollback_path: Path | None = None
+            rollback_owned = False
+            coordinator_fd = -1
             try:
-                audit_path.parent.mkdir(parents=True, exist_ok=True)
-                with lock_path.open("a+b") as lock_handle:
+                coordinator_fd, coordinator = _open_coordinator(root)
+                for name in ("recovery-audit.jsonl", "recovery-audit.lock",
+                             "recovery-audit.jsonl.tmp", "recovery-audit.jsonl.rollback"):
+                    _reject_symlink(coordinator / name)
+                lock_fd = os.open("recovery-audit.lock", os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600, dir_fd=coordinator_fd)
+                with os.fdopen(lock_fd, "a+b") as lock_handle:
                     fcntl.flock(lock_handle.fileno(), fcntl.LOCK_EX)
-                    existing = audit_path.read_bytes() if audit_path.exists() else b""
-                    separator = b"\n" if existing and not existing.endswith(b"\n") else b""
-                    replacement = existing + separator + line_bytes
+                    audit_existed = os.path.exists(audit_path)
+                    existing = os.open("recovery-audit.jsonl", os.O_RDONLY | os.O_NOFOLLOW, dir_fd=coordinator_fd) if audit_existed else None
+                    try:
+                        existing_bytes = os.read(existing, _AUDIT_MAX_BYTES + 1) if existing is not None else b""
+                    finally:
+                        if existing is not None: os.close(existing)
+                    separator = b"\n" if existing_bytes and not existing_bytes.endswith(b"\n") else b""
+                    replacement = existing_bytes + separator + line_bytes
                     if len(replacement) > _AUDIT_MAX_BYTES:
                         return {"ok": False, "code": RECOVERY_MALFORMED_SIDECAR, "selected": []}
-                    existing_lines = [line for line in existing.splitlines() if line.strip()]
+                    existing_lines = [line for line in existing_bytes.splitlines() if line.strip()]
                     if len(existing_lines) >= _AUDIT_MAX_ROWS:
                         return {"ok": False, "code": RECOVERY_MALFORMED_SIDECAR, "selected": []}
                     for line in existing_lines:
-                        prior = json.loads(line.decode("utf-8"))
-                        if not _valid_recovery_audit_record(prior):
-                            raise ValueError
-                    temporary_path = audit_path.with_name(audit_path.name + ".tmp")
-                    with temporary_path.open("wb") as handle:
-                        handle.write(replacement)
-                        handle.flush()
-                        os.fsync(handle.fileno())
-                    os.replace(temporary_path, audit_path)
-                    temporary_path = None
+                        if not _valid_recovery_audit_record(json.loads(line.decode("utf-8"))): raise ValueError
+                    temp_fd, temp_name = __import__("tempfile").mkstemp(prefix=".recovery-audit.", suffix=".tmp", dir=coordinator)
+                    temporary_path = coordinator / temp_name; temporary_owned = True
+                    with os.fdopen(temp_fd, "wb") as handle:
+                        handle.write(replacement); handle.flush(); os.fsync(handle.fileno())
+                    os.replace(temp_name, "recovery-audit.jsonl", src_dir_fd=coordinator_fd, dst_dir_fd=coordinator_fd)
+                    temporary_owned = False; temporary_path = None
                     try:
-                        _fsync_directory(audit_path.parent)
+                        _fsync_directory(coordinator)
                     except OSError:
-                        rollback_path = audit_path.with_name(audit_path.name + ".rollback")
-                        try:
-                            rollback_path.write_bytes(existing)
-                            with rollback_path.open("rb") as rollback_handle:
-                                rollback_handle.flush()
-                                os.fsync(rollback_handle.fileno())
-                            os.replace(rollback_path, audit_path)
-                            rollback_path = None
-                            _fsync_directory(audit_path.parent)
-                        except OSError:
-                            pass
-                        finally:
-                            if rollback_path is not None:
-                                try:
-                                    rollback_path.unlink()
-                                except OSError:
-                                    pass
+                        if audit_existed:
+                            rollback_fd, rollback_name = __import__("tempfile").mkstemp(prefix=".recovery-audit.", suffix=".rollback", dir=coordinator)
+                            rollback_path = coordinator / rollback_name; rollback_owned = True
+                            with os.fdopen(rollback_fd, "wb") as handle:
+                                handle.write(existing_bytes); handle.flush(); os.fsync(handle.fileno())
+                            os.replace(rollback_name, "recovery-audit.jsonl", src_dir_fd=coordinator_fd, dst_dir_fd=coordinator_fd)
+                            rollback_owned = False; rollback_path = None
+                        else:
+                            os.unlink("recovery-audit.jsonl", dir_fd=coordinator_fd)
+                        try: _fsync_directory(coordinator)
+                        except OSError: pass
                         return {"ok": False, "code": RECOVERY_MALFORMED_SIDECAR, "selected": []}
             except (OSError, UnicodeError, json.JSONDecodeError, ValueError):
-                for path in (temporary_path, audit_path.with_name(audit_path.name + ".rollback")):
-                    if path is not None and path.exists():
-                        try:
-                            path.unlink()
-                        except OSError:
-                            pass
+                for path, owned in ((temporary_path, temporary_owned), (rollback_path, rollback_owned)):
+                    if path is not None and owned:
+                        try: path.unlink()
+                        except OSError: pass
                 return {"ok": False, "code": RECOVERY_MALFORMED_SIDECAR, "selected": []}
+            finally:
+                if coordinator_fd >= 0: os.close(coordinator_fd)
         return {"ok": True, "selected": selected_ids, "audit_path": _AUDIT_REL_PATH}
 
     @staticmethod

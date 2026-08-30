@@ -160,7 +160,8 @@ cookies), signed streaming URLs, and raw exception stack traces.
       bili-asr coverage --archive-root /tmp/bili-asr-coverage-fixture --quality --format csv
 
   `bili-asr verify` is the deterministic, read-only integrity check. Recovery is
-  never implicit: `bili-asr recover --archive-root <root> --work-id <work-id>`
+  an explicit bounded audit request (it does not requeue or execute work):
+  `bili-asr recover --archive-root <root> --work-id <work-id>`
   requires an explicit bounded target and writes only redacted audit evidence.
   `--work-id` names exact rows; `--defect-code` selects every currently
   reported row in that defect class. `--limit N` is required to be positive

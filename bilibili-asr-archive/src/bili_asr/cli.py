@@ -335,7 +335,7 @@ def build_parser() -> argparse.ArgumentParser:
     integrity_cmd.add_argument("--format", choices=["json", "text"], default="json")
 
     recover_cmd = subparsers.add_parser(
-        "recover", help="Explicitly audit and requeue named integrity defects"
+        "recover", help="Explicitly audit named integrity defects (no requeue execution)"
     )
     recover_cmd.add_argument("--archive-root", default=DEFAULT_ARCHIVE_ROOT)
     recover_cmd.add_argument("--work-id", action="append", default=None,
