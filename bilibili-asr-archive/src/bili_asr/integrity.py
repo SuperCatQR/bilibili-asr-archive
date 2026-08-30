@@ -300,12 +300,18 @@ class IntegrityVerifier:
                                     os.unlink("recovery-audit.jsonl", dir_fd=coordinator_fd)
                             except OSError:
                                 pass
-                        try: _fsync_directory(coordinator)
-                        except OSError: pass
-                        for path, owned in ((temporary_path, temporary_owned), (rollback_path, rollback_owned), (fallback_path, fallback_owned)):
-                            if path is not None and owned:
-                                try: path.unlink()
-                                except OSError: pass
+                        try:
+                            try: _fsync_directory(coordinator)
+                            except OSError: pass
+                        finally:
+                            for path, owned in ((rollback_path, rollback_owned), (fallback_path, fallback_owned)):
+                                if path is not None and owned:
+                                    try: path.unlink()
+                                    except OSError: pass
+                            for path, owned in ((temporary_path, temporary_owned),):
+                                if path is not None and owned:
+                                    try: path.unlink()
+                                    except OSError: pass
                         return {"ok": False, "code": RECOVERY_MALFORMED_SIDECAR, "selected": []}
             except (OSError, UnicodeError, json.JSONDecodeError, ValueError):
                 for path, owned in ((temporary_path, temporary_owned), (rollback_path, rollback_owned), (fallback_path, fallback_owned)):
