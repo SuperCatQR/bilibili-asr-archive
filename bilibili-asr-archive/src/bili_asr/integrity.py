@@ -34,9 +34,40 @@ _AUDIT_REL_PATH = "coordinator/recovery-audit.jsonl"
 _AUDIT_LOCK_REL_PATH = "coordinator/recovery-audit.lock"
 _AUDIT_MAX_ROWS = 1000
 _AUDIT_MAX_BYTES = 1024 * 1024
+_AUDIT_MAX_FIELD_CHARS = 256
+_AUDIT_RECORD_KEYS = frozenset({"action", "work_ids", "defect_codes"})
+_RECOVERY_DEFECT_CODES = frozenset({
+    MISSING_RAW_SUBTITLE,
+    MISSING_TRANSCRIPT,
+    MALFORMED_ARTIFACT,
+    IDENTITY_PATH_MISMATCH,
+    RETRYABLE_INCOMPLETE,
+})
+_AUDIT_FORBIDDEN_MARKERS = ("SESSDATA", "cookie", "Cookie", "http://", "https://", "Traceback")
 _AUDIT_WRITE_LOCK = threading.Lock()
 _MAX_ROWS = 10000
 _MAX_ATTEMPTS_BYTES = 8 * 1024 * 1024
+
+
+def _valid_recovery_audit_record(record: object) -> bool:
+    if not isinstance(record, dict) or set(record) != _AUDIT_RECORD_KEYS:
+        return False
+    if record.get("action") != "requeue":
+        return False
+    work_ids = record.get("work_ids")
+    defect_codes = record.get("defect_codes")
+    if (not isinstance(work_ids, list) or not isinstance(defect_codes, list)
+            or not work_ids or not defect_codes
+            or len(work_ids) > _RECOVERY_MAX_TARGETS
+            or len(defect_codes) > _RECOVERY_MAX_TARGETS):
+        return False
+    for value in work_ids + defect_codes:
+        if (not isinstance(value, str) or not value
+                or len(value) > _AUDIT_MAX_FIELD_CHARS
+                or any(marker in value for marker in _AUDIT_FORBIDDEN_MARKERS)):
+            return False
+    return all(code in _RECOVERY_DEFECT_CODES for code in defect_codes)
+
 
 @dataclass(frozen=True)
 class IntegrityDefect:
@@ -143,7 +174,9 @@ class IntegrityVerifier:
             return {"ok": False, "code": RECOVERY_TARGET_NOT_FOUND, "selected": []}
         audit = {"action": "requeue", "work_ids": selected_ids,
                  "defect_codes": sorted({code for work_id in selected_ids for code in defects_by_id[work_id]})}
-        if len(audit["work_ids"]) > _RECOVERY_MAX_TARGETS or len(audit["defect_codes"]) > _RECOVERY_MAX_TARGETS:
+        if (len(audit["work_ids"]) > _RECOVERY_MAX_TARGETS
+                or len(audit["defect_codes"]) > _RECOVERY_MAX_TARGETS
+                or not _valid_recovery_audit_record(audit)):
             return {"ok": False, "code": RECOVERY_TARGET_LIMIT_EXCEEDED, "selected": []}
         audit_path = root / _AUDIT_REL_PATH
         line_bytes = (json.dumps(audit, ensure_ascii=False, sort_keys=True) + "\n").encode("utf-8")
@@ -162,12 +195,7 @@ class IntegrityVerifier:
                         return {"ok": False, "code": RECOVERY_MALFORMED_SIDECAR, "selected": []}
                     for line in existing_lines:
                         prior = json.loads(line.decode("utf-8"))
-                        if (not isinstance(prior, dict) or prior.get("action") != "requeue"
-                                or not isinstance(prior.get("work_ids"), list)
-                                or not isinstance(prior.get("defect_codes"), list)
-                                or len(prior["work_ids"]) > _RECOVERY_MAX_TARGETS
-                                or len(prior["defect_codes"]) > _RECOVERY_MAX_TARGETS
-                                or any(not isinstance(value, str) for value in prior["work_ids"] + prior["defect_codes"])):
+                        if not _valid_recovery_audit_record(prior):
                             raise ValueError
                     temporary_path = audit_path.with_name(audit_path.name + ".tmp")
                     with temporary_path.open("wb") as handle:

@@ -224,6 +224,39 @@ def test_recover_audits_named_defect_without_manifest_or_transcript_mutation(tmp
     assert (Path(tmp_root) / _AUDIT_LOCK_REL_PATH).is_file()
     assert "https://" not in audit and "SESSDATA" not in audit
 
+def test_recover_rejects_invalid_existing_audit_fields_without_replacement(tmp_root):
+    from bili_asr.integrity import (
+        IntegrityVerifier,
+        RECOVERY_MALFORMED_SIDECAR,
+        _AUDIT_REL_PATH,
+        _AUDIT_MAX_FIELD_CHARS,
+    )
+
+    ident = page_identity("BVinvalid", 0, 1, "p0")
+    ManifestStore(root=tmp_root).upsert(_row(ident, status="pending"))
+    AttemptLedger(tmp_root).append({"stage": "harvest", "work_id": ident.work_id, "attempt": 1,
+        "outcome": "ok", "error_code": None, "artifact_paths": [],
+        "started_at": "2026-08-28T00:00:00Z", "finished_at": "2026-08-28T00:00:01Z"})
+    audit_path = Path(tmp_root) / _AUDIT_REL_PATH
+    audit_path.parent.mkdir(parents=True, exist_ok=True)
+
+    invalid_records = [
+        {"action": "requeue", "work_ids": [ident.work_id],
+         "defect_codes": ["retryable_incomplete"], "extra": "rejected"},
+        {"action": "requeue", "work_ids": ["Cookie: secret"],
+         "defect_codes": ["retryable_incomplete"]},
+        {"action": "requeue", "work_ids": ["x" * (_AUDIT_MAX_FIELD_CHARS + 1)],
+         "defect_codes": ["retryable_incomplete"]},
+    ]
+    for record in invalid_records:
+        audit_path.write_text(json.dumps(record) + "\n", encoding="utf-8")
+        before = audit_path.read_bytes()
+        result = IntegrityVerifier.recover(tmp_root, work_ids=[ident.work_id])
+        assert result["ok"] is False and result["code"] == RECOVERY_MALFORMED_SIDECAR
+        assert audit_path.read_bytes() == before
+        assert not audit_path.with_name(audit_path.name + ".tmp").exists()
+
+
 def test_attempt_ledger_append_is_atomic_no_partial_lines(tmp_root):
     ledger = AttemptLedger(tmp_root)
     rec = {

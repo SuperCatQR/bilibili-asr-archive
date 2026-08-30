@@ -51,6 +51,19 @@ def test_recover_requires_explicit_target(tmp_path: Path, capsys: pytest.Capture
     assert json.loads(capsys.readouterr().out)["code"] == "recovery_requires_explicit_target"
 
 
+def test_recover_help_describes_limit_contract(capsys: pytest.CaptureFixture[str]) -> None:
+    from bili_asr.cli import build_parser
+
+    parser = build_parser()
+    with pytest.raises(SystemExit) as exc:
+        parser.parse_args(["recover", "--help"])
+    assert exc.value.code == 0
+    help_text = capsys.readouterr().out
+    assert "--limit" in help_text
+    assert "positive" in help_text
+    assert "100" in help_text
+
+
 def test_installed_script_is_not_path_or_checkout_source(isolated_cli) -> None:
     assert Path(isolated_cli.executable).parent == Path(_venv_scripts_dir(isolated_cli.venv_dir))
     probe = run_installed(isolated_cli, ["--help"])

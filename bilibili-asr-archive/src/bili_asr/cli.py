@@ -342,7 +342,10 @@ def build_parser() -> argparse.ArgumentParser:
                              help="Exact work_id selector (repeatable; required for bounded recovery)")
     recover_cmd.add_argument("--defect-code", action="append", default=None,
                              help="Defect class selector (repeatable; bounded to reported defects)")
-    recover_cmd.add_argument("--limit", type=int, default=100)
+    recover_cmd.add_argument(
+        "--limit", type=int, default=100,
+        help="Limit must be positive; values above the maximum are capped at 100",
+    )
 
     export_cmd = subparsers.add_parser(
         "export",
