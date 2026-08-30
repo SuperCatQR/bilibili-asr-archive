@@ -347,6 +347,17 @@ def build_parser() -> argparse.ArgumentParser:
         help="Limit must be positive; values above the maximum are capped at 100",
     )
 
+    evaluate_concurrency = subparsers.add_parser(
+        "evaluate-concurrency",
+        help="Evaluate evidence only; runtime remains sequential with no daemon",
+    )
+    evaluate_concurrency.add_argument(
+        "--evidence", required=True, help="Path to the JSON evidence mapping"
+    )
+    evaluate_concurrency.add_argument(
+        "--thresholds", required=True, help="Path to the explicit JSON threshold mapping"
+    )
+
     export_cmd = subparsers.add_parser(
         "export",
         help="Export manifest metadata to JSON or CSV format",
@@ -2233,6 +2244,36 @@ def _cmd_recover(args: argparse.Namespace) -> int:
 
 
 
+def _cmd_evaluate_concurrency(args: argparse.Namespace) -> int:
+    from collections.abc import Mapping
+    from .concurrency_gate import ConcurrencyGate
+
+    try:
+        with open(args.evidence, encoding="utf-8") as evidence_file:
+            evidence = json.load(evidence_file)
+        with open(args.thresholds, encoding="utf-8") as thresholds_file:
+            thresholds = json.load(thresholds_file)
+        if not isinstance(evidence, Mapping) or not isinstance(thresholds, Mapping):
+            raise ValueError("inputs must be JSON objects")
+    except (OSError, ValueError, json.JSONDecodeError):
+        print(
+            "evaluate-concurrency: invalid input; sequential/no-daemon remains active",
+            file=sys.stderr,
+        )
+        return 1
+
+    result = ConcurrencyGate.evaluate(evidence, thresholds)
+    print(
+        json.dumps(
+            result.to_dict(),
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+    )
+    return 0 if result.ok else 1
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -2263,6 +2304,8 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_download_audio(args)
     if args.command == "search":
         return _cmd_search(args)
+    if args.command == "evaluate-concurrency":
+        return _cmd_evaluate_concurrency(args)
     if args.command == "export":
         return _cmd_export(args)
     if args.command == "run":
