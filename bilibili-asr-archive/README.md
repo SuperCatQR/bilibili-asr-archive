@@ -162,6 +162,15 @@ cookies), signed streaming URLs, and raw exception stack traces.
   `bili-asr verify` is the deterministic, read-only integrity check. Recovery is
   never implicit: `bili-asr recover --archive-root <root> --work-id <work-id>`
   requires an explicit bounded target and writes only redacted audit evidence.
+  `--work-id` names exact rows; `--defect-code` selects every currently
+  reported row in that defect class. `--limit N` is required to be positive
+  and defaults to 100; expansion happens before enforcement, and no command
+  may select more than 100 targets (excess selection fails without a write).
+  Recovery only appends a bounded, atomically replaced audit sidecar; it never
+  mutates the manifest, attempts, transcripts, or audio. Existing malformed,
+  oversized, or full audit evidence fails closed. Exit code 0 means the audit
+  was written; exit code 1 means missing/invalid targets, non-authoritative
+  source evidence, or any audit-sidecar failure.
  The denominator is the selected manifest snapshot in work-item units; if the manifest or scope is unavailable, the report says `unavailable` and does not infer a count. `cumulative` describes all selected manifest rows, while `batch` describes only the latest scheduler/ledger batch; they are not interchangeable. `limited` and `risk_interrupted` evidence remains non-complete. Named diagnostics (for example `denominator_unavailable`, `scheduler_ledger_mismatch`, `sidecar_malformed`, or `terminal_missing_artifact`) make contradictions explicit and produce exit `1`; exit `0` means no diagnostics, while usage/configuration errors also exit `1`. Reports redact credentials, signed URLs, media, models, and raw exceptions. Use only reviewed local fixtures or a disposable temporary archive root; coverage is an inspection projection and does not mutate any source sidecar.
 
   **Subtitle and transcript artifact quality signals (`--quality`)**:

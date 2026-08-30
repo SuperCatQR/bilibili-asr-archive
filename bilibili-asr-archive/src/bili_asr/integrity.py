@@ -2,7 +2,9 @@
 from __future__ import annotations
 from dataclasses import dataclass, field
 import json
+import os
 import re
+import threading
 from pathlib import Path
 from typing import Any
 from .archive import archive_stem, _safe_name
@@ -27,6 +29,9 @@ RECOVERY_NOT_AUTHORITATIVE = "recovery_not_authoritative"
 RECOVERY_MALFORMED_SIDECAR = "recovery_malformed_sidecar"
 _RECOVERY_MAX_TARGETS = 100
 _AUDIT_REL_PATH = "coordinator/recovery-audit.jsonl"
+_AUDIT_MAX_ROWS = 1000
+_AUDIT_MAX_BYTES = 1024 * 1024
+_AUDIT_WRITE_LOCK = threading.Lock()
 _MAX_ROWS = 10000
 _MAX_ATTEMPTS_BYTES = 8 * 1024 * 1024
 
@@ -102,13 +107,23 @@ class IntegrityVerifier:
 
     @staticmethod
     def recover(archive_root: Path, *, work_ids: list[str] | None = None,
-                defect_codes: list[str] | None = None, limit: int = 0) -> dict[str, object]:
-        """Write a bounded redacted requeue audit record without changing source state."""
+                defect_codes: list[str] | None = None, limit: int = 100) -> dict[str, object]:
+        """Append one bounded, redacted recovery audit record.
+
+        ``limit`` must be an integer from 1 through 100.  Defect-code
+        selection is expanded first, then checked against that effective cap.
+        The existing audit sidecar is validated and retained atomically; any
+        malformed, oversized, or over-row evidence fails closed without a
+        write.
+        """
         root = Path(archive_root).resolve()
         if not work_ids and not defect_codes:
             return {"ok": False, "code": RECOVERY_REQUIRES_EXPLICIT_TARGET, "selected": []}
+        if not isinstance(limit, int) or isinstance(limit, bool) or limit <= 0:
+            return {"ok": False, "code": RECOVERY_TARGET_LIMIT_EXCEEDED, "selected": []}
+        effective_limit = min(limit, _RECOVERY_MAX_TARGETS)
         selected_ids = sorted({str(value) for value in (work_ids or []) if str(value)})
-        if len(selected_ids) > _RECOVERY_MAX_TARGETS or (limit and len(selected_ids) > limit):
+        if len(selected_ids) > effective_limit:
             return {"ok": False, "code": RECOVERY_TARGET_LIMIT_EXCEEDED, "selected": []}
         report = IntegrityVerifier().verify(root)
         if not report.authoritative:
@@ -119,17 +134,55 @@ class IntegrityVerifier:
             defects_by_id.setdefault(defect.work_id, set()).add(defect.code)
         if defect_filter:
             selected_ids = sorted(work_id for work_id, codes in defects_by_id.items() if codes & defect_filter)
+        if len(selected_ids) > effective_limit:
+            return {"ok": False, "code": RECOVERY_TARGET_LIMIT_EXCEEDED, "selected": []}
         if not selected_ids or any(work_id not in defects_by_id for work_id in selected_ids):
             return {"ok": False, "code": RECOVERY_TARGET_NOT_FOUND, "selected": []}
         audit = {"action": "requeue", "work_ids": selected_ids,
                  "defect_codes": sorted({code for work_id in selected_ids for code in defects_by_id[work_id]})}
         audit_path = root / _AUDIT_REL_PATH
-        try:
-            audit_path.parent.mkdir(parents=True, exist_ok=True)
-            with audit_path.open("a", encoding="utf-8") as handle:
-                handle.write(json.dumps(audit, sort_keys=True) + "\n")
-        except (OSError, UnicodeError):
-            return {"ok": False, "code": RECOVERY_MALFORMED_SIDECAR, "selected": []}
+        line_bytes = (json.dumps(audit, ensure_ascii=False, sort_keys=True) + "\n").encode("utf-8")
+        with _AUDIT_WRITE_LOCK:
+            try:
+                existing = audit_path.read_bytes() if audit_path.exists() else b""
+                if len(existing) > _AUDIT_MAX_BYTES or len(existing) + len(line_bytes) > _AUDIT_MAX_BYTES:
+                    return {"ok": False, "code": RECOVERY_MALFORMED_SIDECAR, "selected": []}
+                existing_lines = [line for line in existing.splitlines() if line.strip()]
+                if len(existing_lines) >= _AUDIT_MAX_ROWS or len(existing_lines) + 1 > _AUDIT_MAX_ROWS:
+                    return {"ok": False, "code": RECOVERY_MALFORMED_SIDECAR, "selected": []}
+                for line in existing_lines:
+                    prior = json.loads(line.decode("utf-8"))
+                    if (not isinstance(prior, dict) or prior.get("action") != "requeue"
+                            or not isinstance(prior.get("work_ids"), list)
+                            or not isinstance(prior.get("defect_codes"), list)
+                            or any(not isinstance(value, str) for value in prior["work_ids"] + prior["defect_codes"])):
+                        raise ValueError
+                audit_path.parent.mkdir(parents=True, exist_ok=True)
+                temporary_path = audit_path.with_name(audit_path.name + ".tmp")
+                with temporary_path.open("wb") as handle:
+                    handle.write(existing)
+                    if existing and not existing.endswith(b"\n"):
+                        handle.write(b"\n")
+                    handle.write(line_bytes)
+                    handle.flush()
+                    os.fsync(handle.fileno())
+                os.replace(temporary_path, audit_path)
+                try:
+                    directory_fd = os.open(audit_path.parent, os.O_RDONLY)
+                    try:
+                        os.fsync(directory_fd)
+                    finally:
+                        os.close(directory_fd)
+                except OSError:
+                    pass
+            except (OSError, UnicodeError, json.JSONDecodeError, ValueError):
+                temporary_path = audit_path.with_name(audit_path.name + ".tmp")
+                if temporary_path.exists():
+                    try:
+                        temporary_path.unlink()
+                    except OSError:
+                        pass
+                return {"ok": False, "code": RECOVERY_MALFORMED_SIDECAR, "selected": []}
         return {"ok": True, "selected": selected_ids, "audit_path": _AUDIT_REL_PATH}
 
     @staticmethod
