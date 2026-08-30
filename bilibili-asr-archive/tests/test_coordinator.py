@@ -115,7 +115,27 @@ class CidRouterTransport(RouterTransport):
                                 cookies=cookies, timeout=timeout)
 
 
-# ------------------------------------------------------------ ledger atomicity
+
+
+def test_recover_audits_named_defect_without_manifest_or_transcript_mutation(tmp_root, capsys):
+    from bili_asr.integrity import IntegrityVerifier
+    ident = page_identity("BVrecover", 0, 111, "p0")
+    store = ManifestStore(root=tmp_root)
+    store.upsert(_row(ident, status="archived"))
+    for directory, suffix, content in (("srt", "srt", "1\n00:00:00,000 --> 00:00:01,000\nok"), ("txt", "txt", "ok"),):
+        path = os.path.join(tmp_root, "transcripts", directory)
+        os.makedirs(path, exist_ok=True)
+        with open(os.path.join(path, f"{artifact_stem(ident)}.{suffix}"), "w", encoding="utf-8") as handle:
+            handle.write(content)
+    manifest_path = os.path.join(tmp_root, "manifest", "manifest.jsonl")
+    before = open(manifest_path, encoding="utf-8").read()
+    result = IntegrityVerifier.recover(tmp_root, work_ids=[ident.work_id])
+    assert result["ok"] is True
+    assert result["selected"] == [ident.work_id]
+    assert open(manifest_path, encoding="utf-8").read() == before
+    audit = open(os.path.join(tmp_root, "coordinator", "recovery-audit.jsonl"), encoding="utf-8").read()
+    assert ident.work_id in audit
+    assert "https://" not in audit and "SESSDATA" not in audit
 
 def test_attempt_ledger_append_is_atomic_no_partial_lines(tmp_root):
     ledger = AttemptLedger(tmp_root)

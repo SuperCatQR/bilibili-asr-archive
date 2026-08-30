@@ -20,6 +20,13 @@ MANIFEST_ROW_LIMIT_EXCEEDED = "manifest_row_limit_exceeded"
 MISSING_ATTEMPTS = "missing_attempts_sidecar"
 ATTEMPTS_ROW_LIMIT_EXCEEDED = "attempts_row_limit_exceeded"
 ATTEMPTS_BYTE_LIMIT_EXCEEDED = "attempts_byte_limit_exceeded"
+RECOVERY_REQUIRES_EXPLICIT_TARGET = "recovery_requires_explicit_target"
+RECOVERY_TARGET_NOT_FOUND = "recovery_target_not_found"
+RECOVERY_TARGET_LIMIT_EXCEEDED = "recovery_target_limit_exceeded"
+RECOVERY_NOT_AUTHORITATIVE = "recovery_not_authoritative"
+RECOVERY_MALFORMED_SIDECAR = "recovery_malformed_sidecar"
+_RECOVERY_MAX_TARGETS = 100
+_AUDIT_REL_PATH = "coordinator/recovery-audit.jsonl"
 _MAX_ROWS = 10000
 _MAX_ATTEMPTS_BYTES = 8 * 1024 * 1024
 
@@ -92,6 +99,38 @@ class IntegrityVerifier:
             report.defects.extend(IntegrityDefect(work_id, code) for code in sorted(defects))
         if truncated: report.diagnostics.append(TRUNCATED_ATTEMPTS_LINE)
         report.defects.sort(key=lambda d: (d.work_id, d.code)); return report
+
+    @staticmethod
+    def recover(archive_root: Path, *, work_ids: list[str] | None = None,
+                defect_codes: list[str] | None = None, limit: int = 0) -> dict[str, object]:
+        """Write a bounded redacted requeue audit record without changing source state."""
+        root = Path(archive_root).resolve()
+        if not work_ids and not defect_codes:
+            return {"ok": False, "code": RECOVERY_REQUIRES_EXPLICIT_TARGET, "selected": []}
+        selected_ids = sorted({str(value) for value in (work_ids or []) if str(value)})
+        if len(selected_ids) > _RECOVERY_MAX_TARGETS or (limit and len(selected_ids) > limit):
+            return {"ok": False, "code": RECOVERY_TARGET_LIMIT_EXCEEDED, "selected": []}
+        report = IntegrityVerifier().verify(root)
+        if not report.authoritative:
+            return {"ok": False, "code": RECOVERY_NOT_AUTHORITATIVE, "selected": []}
+        defect_filter = set(defect_codes or [])
+        defects_by_id: dict[str, set[str]] = {}
+        for defect in report.defects:
+            defects_by_id.setdefault(defect.work_id, set()).add(defect.code)
+        if defect_filter:
+            selected_ids = sorted(work_id for work_id, codes in defects_by_id.items() if codes & defect_filter)
+        if not selected_ids or any(work_id not in defects_by_id for work_id in selected_ids):
+            return {"ok": False, "code": RECOVERY_TARGET_NOT_FOUND, "selected": []}
+        audit = {"action": "requeue", "work_ids": selected_ids,
+                 "defect_codes": sorted({code for work_id in selected_ids for code in defects_by_id[work_id]})}
+        audit_path = root / _AUDIT_REL_PATH
+        try:
+            audit_path.parent.mkdir(parents=True, exist_ok=True)
+            with audit_path.open("a", encoding="utf-8") as handle:
+                handle.write(json.dumps(audit, sort_keys=True) + "\n")
+        except (OSError, UnicodeError):
+            return {"ok": False, "code": RECOVERY_MALFORMED_SIDECAR, "selected": []}
+        return {"ok": True, "selected": selected_ids, "audit_path": _AUDIT_REL_PATH}
 
     @staticmethod
     def _read_manifest(root: Path, report: IntegrityReport) -> tuple[dict[str, dict[str, Any]], bool]:

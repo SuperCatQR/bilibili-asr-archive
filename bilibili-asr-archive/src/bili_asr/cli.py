@@ -334,6 +334,16 @@ def build_parser() -> argparse.ArgumentParser:
     integrity_cmd.add_argument("--scope", default=None)
     integrity_cmd.add_argument("--format", choices=["json", "text"], default="json")
 
+    recover_cmd = subparsers.add_parser(
+        "recover", help="Explicitly audit and requeue named integrity defects"
+    )
+    recover_cmd.add_argument("--archive-root", default=DEFAULT_ARCHIVE_ROOT)
+    recover_cmd.add_argument("--work-id", action="append", default=None,
+                             help="Exact work_id selector (repeatable; required for bounded recovery)")
+    recover_cmd.add_argument("--defect-code", action="append", default=None,
+                             help="Defect class selector (repeatable; bounded to reported defects)")
+    recover_cmd.add_argument("--limit", type=int, default=100)
+
     export_cmd = subparsers.add_parser(
         "export",
         help="Export manifest metadata to JSON or CSV format",
@@ -2209,43 +2219,41 @@ def _cmd_verify(args: argparse.Namespace) -> int:
     return 0 if not payload["defects"] and not payload["diagnostics"] else 1
 
 
+def _cmd_recover(args: argparse.Namespace) -> int:
+    from .integrity import IntegrityVerifier
+    payload = IntegrityVerifier.recover(
+        Path(args.archive_root), work_ids=args.work_id,
+        defect_codes=args.defect_code, limit=args.limit,
+    )
+    print(json.dumps(payload, ensure_ascii=False, sort_keys=True))
+    return 0 if payload.get("ok") else 1
+
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     if args.command is None:
         parser.print_help()
         return 0
-    if args.command == "fetch-meta":
-        return _cmd_fetch_meta(args)
-    if args.command == "status":
-        return _cmd_status(args)
-    if args.command == "coverage":
-        return _cmd_coverage(args)
-    if args.command == "verify":
-        return _cmd_verify(args)
-    if args.command == "runs":
-        return _cmd_runs(args)
-    if args.command == "asr":
-        return _cmd_asr(args)
-    if args.command == "pilot":
-        return _cmd_pilot(args)
-    if args.command == "probe-subs":
-        return _cmd_probe_subs(args)
-    if args.command == "harvest-subs":
-        return _cmd_harvest_subs(args)
-    if args.command == "download-audio":
-        return _cmd_download_audio(args)
-    if args.command == "search":
-        return _cmd_search(args)
-    if args.command == "export":
-        return _cmd_export(args)
-    if args.command == "run":
-        return _cmd_run(args)
-    if args.command == "campaign":
-        return _cmd_campaign(args)
-    if args.command == "schedule":
-        return _cmd_schedule(args)
+    if args.command == "fetch-meta": return _cmd_fetch_meta(args)
+    if args.command == "status": return _cmd_status(args)
+    if args.command == "coverage": return _cmd_coverage(args)
+    if args.command == "verify": return _cmd_verify(args)
+    if args.command == "recover": return _cmd_recover(args)
+    if args.command == "runs": return _cmd_runs(args)
+    if args.command == "asr": return _cmd_asr(args)
+    if args.command == "pilot": return _cmd_pilot(args)
+    if args.command == "probe-subs": return _cmd_probe_subs(args)
+    if args.command == "harvest-subs": return _cmd_harvest_subs(args)
+    if args.command == "download-audio": return _cmd_download_audio(args)
+    if args.command == "search": return _cmd_search(args)
+    if args.command == "export": return _cmd_export(args)
+    if args.command == "run": return _cmd_run(args)
+    if args.command == "campaign": return _cmd_campaign(args)
+    if args.command == "schedule": return _cmd_schedule(args)
     parser.error(f"command {args.command!r} is not implemented yet")
+
 
 
 if __name__ == "__main__":
