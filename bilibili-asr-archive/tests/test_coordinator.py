@@ -163,6 +163,56 @@ def test_recover_fails_closed_on_malformed_or_oversize_audit(tmp_root):
     assert result["ok"] is False and result["code"] == RECOVERY_MALFORMED_SIDECAR
 
 
+def test_recover_rejects_unterminated_audit_at_exact_byte_boundary(tmp_root, monkeypatch):
+    from bili_asr.integrity import IntegrityVerifier, RECOVERY_MALFORMED_SIDECAR, _AUDIT_REL_PATH
+
+    ident = page_identity("BVboundary", 0, 1, "p0")
+    ManifestStore(root=tmp_root).upsert(_row(ident, status="pending"))
+    AttemptLedger(tmp_root).append({"stage": "harvest", "work_id": ident.work_id, "attempt": 1,
+        "outcome": "ok", "error_code": None, "artifact_paths": [],
+        "started_at": "2026-08-28T00:00:00Z", "finished_at": "2026-08-28T00:00:01Z"})
+    audit_path = Path(tmp_root) / _AUDIT_REL_PATH
+    audit_path.parent.mkdir(parents=True, exist_ok=True)
+    existing_record = {"action": "requeue", "work_ids": ["prior"],
+                       "defect_codes": ["retryable_incomplete"]}
+    existing = json.dumps(existing_record, sort_keys=True).encode("utf-8")
+    new_record = {"action": "requeue", "work_ids": [ident.work_id],
+                  "defect_codes": ["retryable_incomplete"]}
+    line_bytes = (json.dumps(new_record, ensure_ascii=False, sort_keys=True) + "\n").encode("utf-8")
+    audit_path.write_bytes(existing)
+    monkeypatch.setattr("bili_asr.integrity._AUDIT_MAX_BYTES", len(existing) + len(line_bytes))
+    before = audit_path.read_bytes()
+
+    result = IntegrityVerifier.recover(tmp_root, work_ids=[ident.work_id])
+
+    assert result["ok"] is False and result["code"] == RECOVERY_MALFORMED_SIDECAR
+    assert audit_path.read_bytes() == before
+    assert not audit_path.with_name(audit_path.name + ".tmp").exists()
+    assert not audit_path.with_name(audit_path.name + ".rollback").exists()
+
+
+def test_recover_rolls_back_when_directory_fsync_fails(tmp_root, monkeypatch):
+    from bili_asr.integrity import IntegrityVerifier, RECOVERY_MALFORMED_SIDECAR, _AUDIT_REL_PATH
+
+    ident = page_identity("BVfsync", 0, 1, "p0")
+    ManifestStore(root=tmp_root).upsert(_row(ident, status="pending"))
+    AttemptLedger(tmp_root).append({"stage": "harvest", "work_id": ident.work_id, "attempt": 1,
+        "outcome": "ok", "error_code": None, "artifact_paths": [],
+        "started_at": "2026-08-28T00:00:00Z", "finished_at": "2026-08-28T00:00:01Z"})
+    audit_path = Path(tmp_root) / _AUDIT_REL_PATH
+    audit_path.parent.mkdir(parents=True, exist_ok=True)
+    before = b'{"action":"requeue","defect_codes":["retryable_incomplete"],"work_ids":["prior"]}\n'
+    audit_path.write_bytes(before)
+    monkeypatch.setattr("bili_asr.integrity._fsync_directory", lambda _directory: (_ for _ in ()).throw(OSError("injected")))
+
+    result = IntegrityVerifier.recover(tmp_root, work_ids=[ident.work_id])
+
+    assert result["ok"] is False and result["code"] == RECOVERY_MALFORMED_SIDECAR
+    assert audit_path.read_bytes() == before
+    assert not audit_path.with_name(audit_path.name + ".tmp").exists()
+    assert not audit_path.with_name(audit_path.name + ".rollback").exists()
+
+
 def test_recover_rejects_oversized_existing_audit_record(tmp_root):
     from bili_asr.integrity import IntegrityVerifier, RECOVERY_MALFORMED_SIDECAR, _AUDIT_REL_PATH
     ident = page_identity("BVlogical", 0, 1, "p0")

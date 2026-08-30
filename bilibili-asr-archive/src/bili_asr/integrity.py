@@ -50,6 +50,14 @@ _MAX_ROWS = 10000
 _MAX_ATTEMPTS_BYTES = 8 * 1024 * 1024
 
 
+def _fsync_directory(directory: Path) -> None:
+    directory_fd = os.open(directory, os.O_RDONLY)
+    try:
+        os.fsync(directory_fd)
+    finally:
+        os.close(directory_fd)
+
+
 def _valid_recovery_audit_record(record: object) -> bool:
     if not isinstance(record, dict) or set(record) != _AUDIT_RECORD_KEYS:
         return False
@@ -200,7 +208,9 @@ class IntegrityVerifier:
                 with lock_path.open("a+b") as lock_handle:
                     fcntl.flock(lock_handle.fileno(), fcntl.LOCK_EX)
                     existing = audit_path.read_bytes() if audit_path.exists() else b""
-                    if len(existing) > _AUDIT_MAX_BYTES or len(existing) + len(line_bytes) > _AUDIT_MAX_BYTES:
+                    separator = b"\n" if existing and not existing.endswith(b"\n") else b""
+                    replacement = existing + separator + line_bytes
+                    if len(replacement) > _AUDIT_MAX_BYTES:
                         return {"ok": False, "code": RECOVERY_MALFORMED_SIDECAR, "selected": []}
                     existing_lines = [line for line in existing.splitlines() if line.strip()]
                     if len(existing_lines) >= _AUDIT_MAX_ROWS:
@@ -211,32 +221,32 @@ class IntegrityVerifier:
                             raise ValueError
                     temporary_path = audit_path.with_name(audit_path.name + ".tmp")
                     with temporary_path.open("wb") as handle:
-                        handle.write(existing)
-                        if existing and not existing.endswith(b"\n"):
-                            handle.write(b"\n")
-                        handle.write(line_bytes)
+                        handle.write(replacement)
                         handle.flush()
                         os.fsync(handle.fileno())
                     os.replace(temporary_path, audit_path)
                     temporary_path = None
                     try:
-                        directory_fd = os.open(audit_path.parent, os.O_RDONLY)
-                        try:
-                            os.fsync(directory_fd)
-                        finally:
-                            os.close(directory_fd)
+                        _fsync_directory(audit_path.parent)
                     except OSError:
                         rollback_path = audit_path.with_name(audit_path.name + ".rollback")
                         try:
                             rollback_path.write_bytes(existing)
                             with rollback_path.open("rb") as rollback_handle:
+                                rollback_handle.flush()
                                 os.fsync(rollback_handle.fileno())
                             os.replace(rollback_path, audit_path)
                             rollback_path = None
+                            _fsync_directory(audit_path.parent)
+                        except OSError:
+                            pass
                         finally:
-                            if rollback_path is not None and rollback_path.exists():
-                                rollback_path.unlink()
-                        raise
+                            if rollback_path is not None:
+                                try:
+                                    rollback_path.unlink()
+                                except OSError:
+                                    pass
+                        return {"ok": False, "code": RECOVERY_MALFORMED_SIDECAR, "selected": []}
             except (OSError, UnicodeError, json.JSONDecodeError, ValueError):
                 for path in (temporary_path, audit_path.with_name(audit_path.name + ".rollback")):
                     if path is not None and path.exists():

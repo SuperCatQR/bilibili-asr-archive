@@ -2239,22 +2239,38 @@ def main(argv: list[str] | None = None) -> int:
     if args.command is None:
         parser.print_help()
         return 0
-    if args.command == "fetch-meta": return _cmd_fetch_meta(args)
-    if args.command == "status": return _cmd_status(args)
-    if args.command == "coverage": return _cmd_coverage(args)
-    if args.command == "verify": return _cmd_verify(args)
-    if args.command == "recover": return _cmd_recover(args)
-    if args.command == "runs": return _cmd_runs(args)
-    if args.command == "asr": return _cmd_asr(args)
-    if args.command == "pilot": return _cmd_pilot(args)
-    if args.command == "probe-subs": return _cmd_probe_subs(args)
-    if args.command == "harvest-subs": return _cmd_harvest_subs(args)
-    if args.command == "download-audio": return _cmd_download_audio(args)
-    if args.command == "search": return _cmd_search(args)
-    if args.command == "export": return _cmd_export(args)
-    if args.command == "run": return _cmd_run(args)
-    if args.command == "campaign": return _cmd_campaign(args)
-    if args.command == "schedule": return _cmd_schedule(args)
+    if args.command == "fetch-meta":
+        return _cmd_fetch_meta(args)
+    if args.command == "status":
+        return _cmd_status(args)
+    if args.command == "coverage":
+        return _cmd_coverage(args)
+    if args.command == "verify":
+        return _cmd_verify(args)
+    if args.command == "recover":
+        return _cmd_recover(args)
+    if args.command == "runs":
+        return _cmd_runs(args)
+    if args.command == "asr":
+        return _cmd_asr(args)
+    if args.command == "pilot":
+        return _cmd_pilot(args)
+    if args.command == "probe-subs":
+        return _cmd_probe_subs(args)
+    if args.command == "harvest-subs":
+        return _cmd_harvest_subs(args)
+    if args.command == "download-audio":
+        return _cmd_download_audio(args)
+    if args.command == "search":
+        return _cmd_search(args)
+    if args.command == "export":
+        return _cmd_export(args)
+    if args.command == "run":
+        return _cmd_run(args)
+    if args.command == "campaign":
+        return _cmd_campaign(args)
+    if args.command == "schedule":
+        return _cmd_schedule(args)
     parser.error(f"command {args.command!r} is not implemented yet")
 
 
