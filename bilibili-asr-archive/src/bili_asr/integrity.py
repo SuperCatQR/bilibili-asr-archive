@@ -29,6 +29,7 @@ RECOVERY_TARGET_NOT_FOUND = "recovery_target_not_found"
 RECOVERY_TARGET_LIMIT_EXCEEDED = "recovery_target_limit_exceeded"
 RECOVERY_NOT_AUTHORITATIVE = "recovery_not_authoritative"
 RECOVERY_MALFORMED_SIDECAR = "recovery_malformed_sidecar"
+RECOVERY_INVALID_SELECTOR = "recovery_invalid_selector"
 _RECOVERY_MAX_TARGETS = 100
 _AUDIT_REL_PATH = "coordinator/recovery-audit.jsonl"
 _AUDIT_LOCK_REL_PATH = "coordinator/recovery-audit.lock"
@@ -43,7 +44,7 @@ _RECOVERY_DEFECT_CODES = frozenset({
     IDENTITY_PATH_MISMATCH,
     RETRYABLE_INCOMPLETE,
 })
-_AUDIT_FORBIDDEN_MARKERS = ("SESSDATA", "cookie", "Cookie", "http://", "https://", "Traceback")
+_AUDIT_FORBIDDEN_MARKERS = ("sessdata", "cookie", "http://", "https://", "traceback")
 _AUDIT_WRITE_LOCK = threading.Lock()
 _MAX_ROWS = 10000
 _MAX_ATTEMPTS_BYTES = 8 * 1024 * 1024
@@ -64,7 +65,7 @@ def _valid_recovery_audit_record(record: object) -> bool:
     for value in work_ids + defect_codes:
         if (not isinstance(value, str) or not value
                 or len(value) > _AUDIT_MAX_FIELD_CHARS
-                or any(marker in value for marker in _AUDIT_FORBIDDEN_MARKERS)):
+                or any(marker in value.casefold() for marker in _AUDIT_FORBIDDEN_MARKERS)):
             return False
     return all(code in _RECOVERY_DEFECT_CODES for code in defect_codes)
 
@@ -153,10 +154,21 @@ class IntegrityVerifier:
         root = Path(archive_root).resolve()
         if not work_ids and not defect_codes:
             return {"ok": False, "code": RECOVERY_REQUIRES_EXPLICIT_TARGET, "selected": []}
+        if work_ids and defect_codes:
+            return {"ok": False, "code": RECOVERY_INVALID_SELECTOR, "selected": []}
         if not isinstance(limit, int) or isinstance(limit, bool) or limit <= 0:
             return {"ok": False, "code": RECOVERY_TARGET_LIMIT_EXCEEDED, "selected": []}
         effective_limit = min(limit, _RECOVERY_MAX_TARGETS)
-        selected_ids = sorted({str(value) for value in (work_ids or []) if str(value)})
+        if work_ids is not None and (not isinstance(work_ids, list) or
+                not work_ids or any(not isinstance(value, str) or not value or
+                                    len(value) > _AUDIT_MAX_FIELD_CHARS for value in work_ids)):
+            return {"ok": False, "code": RECOVERY_INVALID_SELECTOR, "selected": []}
+        if defect_codes is not None and (not isinstance(defect_codes, list) or
+                not defect_codes or any(not isinstance(value, str) or not value or
+                                        len(value) > _AUDIT_MAX_FIELD_CHARS or
+                                        value not in _RECOVERY_DEFECT_CODES for value in defect_codes)):
+            return {"ok": False, "code": RECOVERY_INVALID_SELECTOR, "selected": []}
+        selected_ids = sorted(set(work_ids or []))
         if len(selected_ids) > effective_limit:
             return {"ok": False, "code": RECOVERY_TARGET_LIMIT_EXCEEDED, "selected": []}
         report = IntegrityVerifier().verify(root)
@@ -214,13 +226,24 @@ class IntegrityVerifier:
                         finally:
                             os.close(directory_fd)
                     except OSError:
-                        pass
+                        rollback_path = audit_path.with_name(audit_path.name + ".rollback")
+                        try:
+                            rollback_path.write_bytes(existing)
+                            with rollback_path.open("rb") as rollback_handle:
+                                os.fsync(rollback_handle.fileno())
+                            os.replace(rollback_path, audit_path)
+                            rollback_path = None
+                        finally:
+                            if rollback_path is not None and rollback_path.exists():
+                                rollback_path.unlink()
+                        raise
             except (OSError, UnicodeError, json.JSONDecodeError, ValueError):
-                if temporary_path is not None and temporary_path.exists():
-                    try:
-                        temporary_path.unlink()
-                    except OSError:
-                        pass
+                for path in (temporary_path, audit_path.with_name(audit_path.name + ".rollback")):
+                    if path is not None and path.exists():
+                        try:
+                            path.unlink()
+                        except OSError:
+                            pass
                 return {"ok": False, "code": RECOVERY_MALFORMED_SIDECAR, "selected": []}
         return {"ok": True, "selected": selected_ids, "audit_path": _AUDIT_REL_PATH}
 
