@@ -166,7 +166,8 @@ cookies), signed streaming URLs, and raw exception stack traces.
   reported row in that defect class. `--limit N` is required to be positive
   and defaults to 100; expansion happens before enforcement, and no command
   may select more than 100 targets (excess selection fails without a write).
-  Recovery only appends a bounded, atomically replaced audit sidecar; it never
+  Recovery only appends a bounded, atomically replaced audit sidecar while
+  holding a cross-process `fcntl.flock` lock file; it never
   mutates the manifest, attempts, transcripts, or audio. Existing malformed,
   oversized, or full audit evidence fails closed. Exit code 0 means the audit
   was written; exit code 1 means missing/invalid targets, non-authoritative

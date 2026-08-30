@@ -7,6 +7,8 @@ import re
 import threading
 from pathlib import Path
 from typing import Any
+
+import fcntl
 from .archive import archive_stem, _safe_name
 from .page_identity import artifact_stem, page_identity, parse_work_id
 from .coordinator import _validate_attempt
@@ -29,6 +31,7 @@ RECOVERY_NOT_AUTHORITATIVE = "recovery_not_authoritative"
 RECOVERY_MALFORMED_SIDECAR = "recovery_malformed_sidecar"
 _RECOVERY_MAX_TARGETS = 100
 _AUDIT_REL_PATH = "coordinator/recovery-audit.jsonl"
+_AUDIT_LOCK_REL_PATH = "coordinator/recovery-audit.lock"
 _AUDIT_MAX_ROWS = 1000
 _AUDIT_MAX_BYTES = 1024 * 1024
 _AUDIT_WRITE_LOCK = threading.Lock()
@@ -143,41 +146,46 @@ class IntegrityVerifier:
         audit_path = root / _AUDIT_REL_PATH
         line_bytes = (json.dumps(audit, ensure_ascii=False, sort_keys=True) + "\n").encode("utf-8")
         with _AUDIT_WRITE_LOCK:
+            lock_path = audit_path.with_name(audit_path.name + ".lock")
+            temporary_path: Path | None = None
             try:
-                existing = audit_path.read_bytes() if audit_path.exists() else b""
-                if len(existing) > _AUDIT_MAX_BYTES or len(existing) + len(line_bytes) > _AUDIT_MAX_BYTES:
-                    return {"ok": False, "code": RECOVERY_MALFORMED_SIDECAR, "selected": []}
-                existing_lines = [line for line in existing.splitlines() if line.strip()]
-                if len(existing_lines) >= _AUDIT_MAX_ROWS or len(existing_lines) + 1 > _AUDIT_MAX_ROWS:
-                    return {"ok": False, "code": RECOVERY_MALFORMED_SIDECAR, "selected": []}
-                for line in existing_lines:
-                    prior = json.loads(line.decode("utf-8"))
-                    if (not isinstance(prior, dict) or prior.get("action") != "requeue"
-                            or not isinstance(prior.get("work_ids"), list)
-                            or not isinstance(prior.get("defect_codes"), list)
-                            or any(not isinstance(value, str) for value in prior["work_ids"] + prior["defect_codes"])):
-                        raise ValueError
                 audit_path.parent.mkdir(parents=True, exist_ok=True)
-                temporary_path = audit_path.with_name(audit_path.name + ".tmp")
-                with temporary_path.open("wb") as handle:
-                    handle.write(existing)
-                    if existing and not existing.endswith(b"\n"):
-                        handle.write(b"\n")
-                    handle.write(line_bytes)
-                    handle.flush()
-                    os.fsync(handle.fileno())
-                os.replace(temporary_path, audit_path)
-                try:
-                    directory_fd = os.open(audit_path.parent, os.O_RDONLY)
+                with lock_path.open("a+b") as lock_handle:
+                    fcntl.flock(lock_handle.fileno(), fcntl.LOCK_EX)
+                    existing = audit_path.read_bytes() if audit_path.exists() else b""
+                    if len(existing) > _AUDIT_MAX_BYTES or len(existing) + len(line_bytes) > _AUDIT_MAX_BYTES:
+                        return {"ok": False, "code": RECOVERY_MALFORMED_SIDECAR, "selected": []}
+                    existing_lines = [line for line in existing.splitlines() if line.strip()]
+                    if len(existing_lines) >= _AUDIT_MAX_ROWS:
+                        return {"ok": False, "code": RECOVERY_MALFORMED_SIDECAR, "selected": []}
+                    for line in existing_lines:
+                        prior = json.loads(line.decode("utf-8"))
+                        if (not isinstance(prior, dict) or prior.get("action") != "requeue"
+                                or not isinstance(prior.get("work_ids"), list)
+                                or not isinstance(prior.get("defect_codes"), list)
+                                or any(not isinstance(value, str) for value in prior["work_ids"] + prior["defect_codes"])):
+                            raise ValueError
+                    temporary_path = audit_path.with_name(audit_path.name + ".tmp")
+                    with temporary_path.open("wb") as handle:
+                        handle.write(existing)
+                        if existing and not existing.endswith(b"\n"):
+                            handle.write(b"\n")
+                        handle.write(line_bytes)
+                        handle.flush()
+                        os.fsync(handle.fileno())
+                    os.replace(temporary_path, audit_path)
+                    temporary_path = None
                     try:
-                        os.fsync(directory_fd)
-                    finally:
-                        os.close(directory_fd)
-                except OSError:
-                    pass
+                        directory_fd = os.open(audit_path.parent, os.O_RDONLY)
+                        try:
+                            os.fsync(directory_fd)
+                        finally:
+                            os.close(directory_fd)
+                    except OSError:
+                        pass
+                    fcntl.flock(lock_handle.fileno(), fcntl.LOCK_UN)
             except (OSError, UnicodeError, json.JSONDecodeError, ValueError):
-                temporary_path = audit_path.with_name(audit_path.name + ".tmp")
-                if temporary_path.exists():
+                if temporary_path is not None and temporary_path.exists():
                     try:
                         temporary_path.unlink()
                     except OSError:
