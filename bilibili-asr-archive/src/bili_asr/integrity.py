@@ -183,7 +183,6 @@ class IntegrityVerifier:
                             os.close(directory_fd)
                     except OSError:
                         pass
-                    fcntl.flock(lock_handle.fileno(), fcntl.LOCK_UN)
             except (OSError, UnicodeError, json.JSONDecodeError, ValueError):
                 if temporary_path is not None and temporary_path.exists():
                     try:
