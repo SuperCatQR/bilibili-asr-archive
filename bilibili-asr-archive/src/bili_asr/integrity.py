@@ -236,7 +236,9 @@ class IntegrityVerifier:
                     fcntl.flock(lock_handle.fileno(), fcntl.LOCK_EX)
                     try:
                         audit_stat = os.stat("recovery-audit.jsonl", dir_fd=coordinator_fd, follow_symlinks=False)
-                        audit_existed = not stat.S_ISDIR(audit_stat.st_mode)
+                        if not stat.S_ISREG(audit_stat.st_mode):
+                            raise OSError("recovery audit sidecar is not a regular file")
+                        audit_existed = True
                     except FileNotFoundError:
                         audit_existed = False
                     existing = os.open("recovery-audit.jsonl", os.O_RDONLY | os.O_NOFOLLOW, dir_fd=coordinator_fd) if audit_existed else None
