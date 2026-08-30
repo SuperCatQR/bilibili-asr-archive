@@ -176,12 +176,19 @@ class IntegrityReport:
 
 class IntegrityVerifier:
     def verify(self, archive_root: Path, *, scope: str | None = None) -> IntegrityReport:
-        root = Path(archive_root).resolve(); report = IntegrityReport()
+        root = Path(archive_root).resolve()
         if not root.is_dir():
-            report.authoritative = False
+            report = IntegrityReport(authoritative=False)
             report.diagnostics.append(STRUCTURAL_INPUT_ERROR)
             return report
         reader = _RootConfinedReader(root)
+        try:
+            return self._verify_with_reader(root, scope, reader)
+        finally:
+            reader.close()
+
+    def _verify_with_reader(self, root: Path, scope: str | None, reader: _RootConfinedReader) -> IntegrityReport:
+        report = IntegrityReport()
         entries, manifest_valid = self._read_manifest(root, report, reader)
         attempts, attempts_valid, truncated = self._read_attempts(root, report, reader)
         manifest_present = reader.is_regular(Path("manifest/manifest.jsonl"))
@@ -228,7 +235,7 @@ class IntegrityVerifier:
             if status in {"pending", "meta_ok", "sub_checked", "needs_audio", "audio_ok"}: defects.add(RETRYABLE_INCOMPLETE)
             report.defects.extend(IntegrityDefect(work_id, code) for code in sorted(defects))
         if truncated: report.diagnostics.append(TRUNCATED_ATTEMPTS_LINE)
-        report.defects.sort(key=lambda d: (d.work_id, d.code)); reader.close(); return report
+        report.defects.sort(key=lambda d: (d.work_id, d.code)); return report
 
     @staticmethod
     def recover(archive_root: Path, *, work_ids: list[str] | None = None,
