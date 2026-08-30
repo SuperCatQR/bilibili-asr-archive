@@ -143,6 +143,8 @@ class IntegrityVerifier:
             return {"ok": False, "code": RECOVERY_TARGET_NOT_FOUND, "selected": []}
         audit = {"action": "requeue", "work_ids": selected_ids,
                  "defect_codes": sorted({code for work_id in selected_ids for code in defects_by_id[work_id]})}
+        if len(audit["work_ids"]) > _RECOVERY_MAX_TARGETS or len(audit["defect_codes"]) > _RECOVERY_MAX_TARGETS:
+            return {"ok": False, "code": RECOVERY_TARGET_LIMIT_EXCEEDED, "selected": []}
         audit_path = root / _AUDIT_REL_PATH
         line_bytes = (json.dumps(audit, ensure_ascii=False, sort_keys=True) + "\n").encode("utf-8")
         with _AUDIT_WRITE_LOCK:
