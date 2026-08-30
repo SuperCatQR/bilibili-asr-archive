@@ -165,6 +165,8 @@ class IntegrityVerifier:
                         if (not isinstance(prior, dict) or prior.get("action") != "requeue"
                                 or not isinstance(prior.get("work_ids"), list)
                                 or not isinstance(prior.get("defect_codes"), list)
+                                or len(prior["work_ids"]) > _RECOVERY_MAX_TARGETS
+                                or len(prior["defect_codes"]) > _RECOVERY_MAX_TARGETS
                                 or any(not isinstance(value, str) for value in prior["work_ids"] + prior["defect_codes"])):
                             raise ValueError
                     temporary_path = audit_path.with_name(audit_path.name + ".tmp")

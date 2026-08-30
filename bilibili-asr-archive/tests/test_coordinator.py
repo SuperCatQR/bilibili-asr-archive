@@ -162,6 +162,25 @@ def test_recover_fails_closed_on_malformed_or_oversize_audit(tmp_root):
     result = IntegrityVerifier.recover(tmp_root, work_ids=[ident.work_id])
     assert result["ok"] is False and result["code"] == RECOVERY_MALFORMED_SIDECAR
 
+
+def test_recover_rejects_oversized_existing_audit_record(tmp_root):
+    from bili_asr.integrity import IntegrityVerifier, RECOVERY_MALFORMED_SIDECAR, _AUDIT_REL_PATH
+    ident = page_identity("BVlogical", 0, 1, "p0")
+    ManifestStore(root=tmp_root).upsert(_row(ident, status="pending"))
+    AttemptLedger(tmp_root).append({"stage": "harvest", "work_id": ident.work_id, "attempt": 1,
+        "outcome": "ok", "error_code": None, "artifact_paths": [],
+        "started_at": "2026-08-28T00:00:00Z", "finished_at": "2026-08-28T00:00:01Z"})
+    audit_path = Path(tmp_root) / _AUDIT_REL_PATH
+    audit_path.parent.mkdir(parents=True, exist_ok=True)
+    oversized = {"action": "requeue", "work_ids": [f"work-{index}" for index in range(101)],
+                 "defect_codes": ["retryable_incomplete"]}
+    audit_path.write_text(json.dumps(oversized) + "\n", encoding="utf-8")
+    before = audit_path.read_bytes()
+    result = IntegrityVerifier.recover(tmp_root, work_ids=[ident.work_id])
+    assert result["ok"] is False and result["code"] == RECOVERY_MALFORMED_SIDECAR
+    assert audit_path.read_bytes() == before
+
+
 def test_recover_audits_named_defect_without_manifest_or_transcript_mutation(tmp_root, capsys):
     from bili_asr.integrity import IntegrityVerifier, MISSING_TRANSCRIPT, _AUDIT_LOCK_REL_PATH
     ident = page_identity("BVrecover", 0, 111, "p0")
