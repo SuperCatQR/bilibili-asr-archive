@@ -274,15 +274,28 @@ class IntegrityVerifier:
                     try:
                         _fsync_directory(coordinator)
                     except OSError:
-                        if audit_existed:
-                            rollback_fd, rollback_name = tempfile.mkstemp(prefix=".recovery-audit.", suffix=".rollback", dir=coordinator)
-                            rollback_path = coordinator / rollback_name; rollback_owned = True
-                            with os.fdopen(rollback_fd, "wb") as handle:
-                                handle.write(existing_bytes); handle.flush(); os.fsync(handle.fileno())
-                            os.replace(rollback_name, "recovery-audit.jsonl", src_dir_fd=coordinator_fd, dst_dir_fd=coordinator_fd)
-                            rollback_owned = False; rollback_path = None
-                        else:
-                            os.unlink("recovery-audit.jsonl", dir_fd=coordinator_fd)
+                        try:
+                            if audit_existed:
+                                rollback_fd, rollback_name = tempfile.mkstemp(prefix=".recovery-audit.", suffix=".rollback", dir=coordinator)
+                                rollback_path = coordinator / rollback_name; rollback_owned = True
+                                with os.fdopen(rollback_fd, "wb") as handle:
+                                    handle.write(existing_bytes); handle.flush(); os.fsync(handle.fileno())
+                                os.replace(rollback_name, "recovery-audit.jsonl", src_dir_fd=coordinator_fd, dst_dir_fd=coordinator_fd)
+                                rollback_owned = False; rollback_path = None
+                            else:
+                                os.unlink("recovery-audit.jsonl", dir_fd=coordinator_fd)
+                        except OSError:
+                            # Best effort fallback; preserve the primary fsync failure.
+                            try:
+                                if audit_existed:
+                                    fallback_fd, fallback_name = tempfile.mkstemp(prefix=".recovery-audit.", suffix=".rollback", dir=coordinator)
+                                    with os.fdopen(fallback_fd, "wb") as handle:
+                                        handle.write(existing_bytes); handle.flush(); os.fsync(handle.fileno())
+                                    os.replace(fallback_name, "recovery-audit.jsonl", src_dir_fd=coordinator_fd, dst_dir_fd=coordinator_fd)
+                                else:
+                                    os.unlink("recovery-audit.jsonl", dir_fd=coordinator_fd)
+                            except OSError:
+                                pass
                         try: _fsync_directory(coordinator)
                         except OSError: pass
                         return {"ok": False, "code": RECOVERY_MALFORMED_SIDECAR, "selected": []}
