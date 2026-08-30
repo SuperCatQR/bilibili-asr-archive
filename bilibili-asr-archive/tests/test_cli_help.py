@@ -120,6 +120,35 @@ def test_cli_main_help_direct(capsys: pytest.CaptureFixture[str]) -> None:
     assert "coverage" in out
     assert "status" in out
 
+def test_evaluate_concurrency_help_is_evidence_only(capsys: pytest.CaptureFixture[str]) -> None:
+    from bili_asr.cli import build_parser
+
+    parser = build_parser()
+    top_level_help = parser.format_help().lower()
+    with pytest.raises(SystemExit) as exc:
+        parser.parse_args(["evaluate-concurrency", "--help"])
+    assert exc.value.code == 0
+
+    command_help = capsys.readouterr().out.lower()
+    assert "evaluate-concurrency" in command_help
+    assert "--evidence" in command_help
+    assert "--thresholds" in command_help
+    assert "evidence only" in top_level_help
+    assert "sequential" in top_level_help
+    assert "no daemon" in top_level_help
+    combined_help = top_level_help + command_help
+    for enablement_phrase in (
+        "start worker",
+        "enable worker",
+        "start daemon",
+        "enable daemon",
+        "install service",
+        "enable service",
+        "concurrent manifest writer",
+    ):
+        assert enablement_phrase not in combined_help
+
+
 def test_cli_main_importable() -> None:
     from bili_asr.cli import main as _  # noqa: F401
 
