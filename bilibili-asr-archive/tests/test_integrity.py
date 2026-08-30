@@ -27,6 +27,40 @@ def test_production_archive_layout_verifies_cleanly(tmp_path: Path) -> None:
     assert IntegrityVerifier().verify(tmp_path).defects == []
 
 
+def test_symlinked_manifest_is_not_read(tmp_path: Path) -> None:
+    outside = tmp_path / "outside.jsonl"
+    outside.write_text(json.dumps({"work_id": "outside", "status": "pending"}) + "\n", encoding="utf-8")
+    (tmp_path / "manifest").mkdir()
+    (tmp_path / "manifest" / "manifest.jsonl").symlink_to(outside)
+    report = IntegrityVerifier().verify(tmp_path)
+    assert report.authoritative is False
+    assert STRUCTURAL_INPUT_ERROR in report.diagnostics
+
+
+def test_symlinked_attempts_are_not_read(tmp_path: Path) -> None:
+    _manifest(tmp_path, [{"work_id": "BV1x:p0", "bvid": "BV1x", "status": "pending"}])
+    outside = tmp_path / "outside.jsonl"
+    outside.write_text(json.dumps(_attempt("BV1x:p0")) + "\n", encoding="utf-8")
+    (tmp_path / "coordinator").mkdir()
+    (tmp_path / "coordinator" / "attempts.jsonl").symlink_to(outside)
+    report = IntegrityVerifier().verify(tmp_path)
+    assert report.authoritative is False
+    assert MISSING_ATTEMPTS in report.diagnostics
+
+
+def test_symlinked_artifact_is_not_read(tmp_path: Path) -> None:
+    row = {"work_id": "BV1x:p0", "bvid": "BV1x", "status": "archived"}
+    _manifest(tmp_path, [row])
+    transcript_dir = tmp_path / "transcripts"
+    for kind in ("srt", "txt", "md"):
+        (transcript_dir / kind).mkdir(parents=True)
+    outside = tmp_path / "outside.txt"
+    outside.write_text("valid evidence\n", encoding="utf-8")
+    (transcript_dir / "srt" / "BV1x.p0.srt").symlink_to(outside)
+    (transcript_dir / "txt" / "BV1x.p0.txt").write_text("valid evidence\n", encoding="utf-8")
+    (transcript_dir / "md" / "BV1x.p0.md").write_text("valid evidence\n", encoding="utf-8")
+    report = IntegrityVerifier().verify(tmp_path)
+    assert any(defect.code == MISSING_TRANSCRIPT for defect in report.defects)
 def test_malformed_identity_containers_fail_closed(tmp_path: Path) -> None:
     for malformed in ({}, []):
         root = tmp_path / ("dict" if isinstance(malformed, dict) else "list")

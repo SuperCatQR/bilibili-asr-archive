@@ -98,6 +98,67 @@ def _valid_recovery_audit_record(record: object) -> bool:
     return all(code in _RECOVERY_DEFECT_CODES for code in defect_codes)
 
 
+class _RootConfinedReader:
+    """Open archive files without following attacker-controlled path links."""
+
+    def __init__(self, root: Path) -> None:
+        self._root = root
+        self._root_fd = os.open(root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+
+    def _relative_path(self, path: Path) -> Path:
+        return path.relative_to(self._root) if path.is_absolute() else path
+
+    def close(self) -> None:
+        if self._root_fd >= 0:
+            os.close(self._root_fd)
+            self._root_fd = -1
+
+    def _open(self, path: Path, flags: int) -> int:
+        path = self._relative_path(path)
+        parts = path.parts
+        if not parts or any(part in ("", ".", "..") for part in parts):
+            raise OSError("unsafe relative path")
+        directory_fd = os.dup(self._root_fd)
+        try:
+            for component in parts[:-1]:
+                next_fd = os.open(component, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=directory_fd)
+                os.close(directory_fd)
+                directory_fd = next_fd
+            return os.open(parts[-1], flags | os.O_NOFOLLOW, dir_fd=directory_fd)
+        finally:
+            os.close(directory_fd)
+
+    def read(self, path: Path, max_bytes: int) -> bytes:
+        file_fd = -1
+        try:
+            file_fd = self._open(path, os.O_RDONLY | os.O_NONBLOCK)
+            file_stat = os.fstat(file_fd)
+            if not stat.S_ISREG(file_stat.st_mode) or file_stat.st_size > max_bytes:
+                raise OSError("unsafe or oversized file")
+            chunks: list[bytes] = []
+            total = 0
+            while total <= max_bytes:
+                chunk = os.read(file_fd, min(65536, max_bytes + 1 - total))
+                if not chunk:
+                    return b"".join(chunks)
+                chunks.append(chunk)
+                total += len(chunk)
+            raise OSError("oversized file")
+        finally:
+            if file_fd >= 0:
+                os.close(file_fd)
+
+    def is_regular(self, path: Path) -> bool:
+        try:
+            file_fd = self._open(path, os.O_RDONLY | os.O_NONBLOCK)
+        except OSError:
+            return False
+        try:
+            return stat.S_ISREG(os.fstat(file_fd).st_mode)
+        finally:
+            os.close(file_fd)
+
+
 @dataclass(frozen=True)
 class IntegrityDefect:
     work_id: str
@@ -120,10 +181,11 @@ class IntegrityVerifier:
             report.authoritative = False
             report.diagnostics.append(STRUCTURAL_INPUT_ERROR)
             return report
-        entries, manifest_valid = self._read_manifest(root, report)
-        attempts, attempts_valid, truncated = self._read_attempts(root, report)
-        manifest_present = (root / "manifest" / "manifest.jsonl").is_file()
-        attempts_present = (root / "coordinator" / "attempts.jsonl").is_file()
+        reader = _RootConfinedReader(root)
+        entries, manifest_valid = self._read_manifest(root, report, reader)
+        attempts, attempts_valid, truncated = self._read_attempts(root, report, reader)
+        manifest_present = reader.is_regular(Path("manifest/manifest.jsonl"))
+        attempts_present = reader.is_regular(Path("coordinator/attempts.jsonl"))
         report.authoritative = manifest_present and attempts_present and manifest_valid and attempts_valid
         if not manifest_present: report.diagnostics.append(STRUCTURAL_INPUT_ERROR)
         if not attempts_present:
@@ -148,7 +210,7 @@ class IntegrityVerifier:
                     defects.add(IDENTITY_PATH_MISMATCH)
             for path in required:
                 if not self._safe_path(path, root): defects.add(IDENTITY_PATH_MISMATCH)
-            present = [p for p in canonical_required if self._safe_path(p, root) and p.is_file()]
+            present = [p for p in canonical_required if reader.is_regular(p)]
             if status in {"archived", "asr_done", "subtitle_done"} and len(present) < len(canonical_required): defects.add(MISSING_TRANSCRIPT)
             raw = root / "subtitles" / "raw" / f"{self._canonical_stem(row)}.json"
             declared_raw = row.get("raw_path")
@@ -158,15 +220,15 @@ class IntegrityVerifier:
                 if declared_raw_path not in {raw, legacy_raw_path} or not self._safe_path(declared_raw_path, root):
                     defects.add(IDENTITY_PATH_MISMATCH)
             if status == "subtitle_done" and not self._safe_path(raw, root): defects.add(IDENTITY_PATH_MISMATCH)
-            elif status == "subtitle_done" and not raw.is_file(): defects.add(MISSING_RAW_SUBTITLE)
+            elif status == "subtitle_done" and not reader.is_regular(raw): defects.add(MISSING_RAW_SUBTITLE)
             artifact_paths = list(canonical_required)
             if status == "subtitle_done": artifact_paths.append(raw)
-            if any(not self._valid_artifact(path, row) for path in artifact_paths if path.is_file()):
+            if any(not self._valid_artifact(path, row, reader) for path in artifact_paths if reader.is_regular(path)):
                 defects.add(MALFORMED_ARTIFACT)
             if status in {"pending", "meta_ok", "sub_checked", "needs_audio", "audio_ok"}: defects.add(RETRYABLE_INCOMPLETE)
             report.defects.extend(IntegrityDefect(work_id, code) for code in sorted(defects))
         if truncated: report.diagnostics.append(TRUNCATED_ATTEMPTS_LINE)
-        report.defects.sort(key=lambda d: (d.work_id, d.code)); return report
+        report.defects.sort(key=lambda d: (d.work_id, d.code)); reader.close(); return report
 
     @staticmethod
     def recover(archive_root: Path, *, work_ids: list[str] | None = None,
@@ -324,11 +386,11 @@ class IntegrityVerifier:
         return {"ok": True, "selected": selected_ids, "audit_path": _AUDIT_REL_PATH}
 
     @staticmethod
-    def _read_manifest(root: Path, report: IntegrityReport) -> tuple[dict[str, dict[str, Any]], bool]:
+    def _read_manifest(root: Path, report: IntegrityReport, reader: _RootConfinedReader) -> tuple[dict[str, dict[str, Any]], bool]:
         path=root/"manifest"/"manifest.jsonl"; entries={}; valid=True
-        if not path.is_file(): return entries, True
+        if not reader.is_regular(path): return entries, True
         try:
-            lines = path.read_text(encoding="utf-8").splitlines()
+            lines = reader.read(path, _MAX_ATTEMPTS_BYTES).decode("utf-8").splitlines()
             non_empty_rows = sum(bool(line.strip()) for line in lines)
             if non_empty_rows > _MAX_ROWS:
                 valid = False
@@ -348,20 +410,20 @@ class IntegrityVerifier:
         return entries, valid
 
     @staticmethod
-    def _read_attempts(root: Path, report: IntegrityReport) -> tuple[list[dict[str, Any]], bool, bool]:
+    def _read_attempts(root: Path, report: IntegrityReport, reader: _RootConfinedReader) -> tuple[list[dict[str, Any]], bool, bool]:
         path = root / "coordinator" / "attempts.jsonl"
-        if not path.is_file(): return [], True, False
+        if not reader.is_regular(path): return [], True, False
         records=[]; truncated=False; valid=True
         try:
-            if path.stat().st_size > _MAX_ATTEMPTS_BYTES:
-                report.diagnostics.append(ATTEMPTS_BYTE_LIMIT_EXCEEDED)
-                return [], False, False
-            lines = path.read_text(encoding="utf-8").splitlines()
+            lines = reader.read(path, _MAX_ATTEMPTS_BYTES).decode("utf-8").splitlines()
             if sum(bool(line.strip()) for line in lines) > _MAX_ROWS:
                 report.diagnostics.append(ATTEMPTS_ROW_LIMIT_EXCEEDED)
                 return [], False, False
-        except (OSError, UnicodeError):
-            report.diagnostics.append(STRUCTURAL_INPUT_ERROR)
+        except OSError as error:
+            if "oversized" in str(error):
+                report.diagnostics.append(ATTEMPTS_BYTE_LIMIT_EXCEEDED)
+            else:
+                report.diagnostics.append(STRUCTURAL_INPUT_ERROR)
             return [], False, False
         last_non_empty = max((i for i, line in enumerate(lines) if line.strip()), default=-1)
         for index, line in enumerate(lines):
@@ -416,11 +478,9 @@ class IntegrityVerifier:
 
 
     @staticmethod
-    def _valid_artifact(path: Path, row: dict[str, Any]) -> bool:
+    def _valid_artifact(path: Path, row: dict[str, Any], reader: _RootConfinedReader) -> bool:
         try:
-            if path.stat().st_size > 8 * 1024 * 1024:
-                return False
-            text = path.read_text(encoding="utf-8")
+            text = reader.read(path, 8 * 1024 * 1024).decode("utf-8")
         except (OSError, UnicodeError):
             return False
         if not text.strip():
