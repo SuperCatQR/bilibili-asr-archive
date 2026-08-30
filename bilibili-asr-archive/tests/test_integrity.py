@@ -14,7 +14,7 @@ from bili_asr.integrity import (
 
 def _manifest(root: Path, rows: list[dict[str, object]]) -> None:
     path = root / "manifest" / "manifest.jsonl"
-    path.parent.mkdir(parents=True)
+    path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8")
 
 
@@ -48,7 +48,6 @@ def test_symlinked_attempts_are_not_read(tmp_path: Path) -> None:
     assert MISSING_ATTEMPTS in report.diagnostics
 
 
-def test_symlinked_artifact_is_not_read(tmp_path: Path) -> None:
     row = {"work_id": "BV1x:p0", "bvid": "BV1x", "status": "archived"}
     _manifest(tmp_path, [row])
     transcript_dir = tmp_path / "transcripts"
@@ -60,7 +59,9 @@ def test_symlinked_artifact_is_not_read(tmp_path: Path) -> None:
     (transcript_dir / "txt" / "BV1x.p0.txt").write_text("valid evidence\n", encoding="utf-8")
     (transcript_dir / "md" / "BV1x.p0.md").write_text("valid evidence\n", encoding="utf-8")
     report = IntegrityVerifier().verify(tmp_path)
-    assert any(defect.code == MISSING_TRANSCRIPT for defect in report.defects)
+    assert MISSING_TRANSCRIPT in {defect.code for defect in report.defects}
+
+
 def test_malformed_identity_containers_fail_closed(tmp_path: Path) -> None:
     for malformed in ({}, []):
         root = tmp_path / ("dict" if isinstance(malformed, dict) else "list")
@@ -240,3 +241,13 @@ def test_declared_raw_path_mismatch_does_not_mask_canonical_raw(tmp_path: Path) 
     (raw / "BV1.p0.json").write_text(json.dumps({"segments": []}), encoding="utf-8")
     report = IntegrityVerifier().verify(tmp_path)
     assert any(d.code == "identity_path_mismatch" for d in report.defects)
+
+
+def test_invalid_utf8_attempts_fail_closed(tmp_path: Path) -> None:
+    _manifest(tmp_path, [{"work_id": "BV1x:p0", "bvid": "BV1x", "status": "pending"}])
+    path = tmp_path / "coordinator" / "attempts.jsonl"
+    path.parent.mkdir()
+    path.write_bytes(bytes([0xFF, 0xFE]))
+    report = IntegrityVerifier().verify(tmp_path)
+    assert report.authoritative is False
+    assert STRUCTURAL_INPUT_ERROR in report.diagnostics

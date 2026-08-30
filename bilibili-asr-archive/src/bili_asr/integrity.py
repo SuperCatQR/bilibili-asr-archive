@@ -426,7 +426,7 @@ class IntegrityVerifier:
             if sum(bool(line.strip()) for line in lines) > _MAX_ROWS:
                 report.diagnostics.append(ATTEMPTS_ROW_LIMIT_EXCEEDED)
                 return [], False, False
-        except OSError as error:
+        except (OSError, UnicodeError) as error:
             if "oversized" in str(error):
                 report.diagnostics.append(ATTEMPTS_BYTE_LIMIT_EXCEEDED)
             else:
