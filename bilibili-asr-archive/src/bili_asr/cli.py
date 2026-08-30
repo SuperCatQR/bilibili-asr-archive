@@ -2249,28 +2249,27 @@ def _cmd_evaluate_concurrency(args: argparse.Namespace) -> int:
     from .concurrency_gate import ConcurrencyGate
 
     try:
-        with open(args.evidence, encoding="utf-8") as evidence_file:
-            evidence = json.load(evidence_file)
-        with open(args.thresholds, encoding="utf-8") as thresholds_file:
-            thresholds = json.load(thresholds_file)
+        max_bytes = 1_048_576
+        def read_json(path: str) -> object:
+            file_path = Path(path)
+            with file_path.open("rb") as input_file:
+                payload = input_file.read(max_bytes + 1)
+            if len(payload) > max_bytes:
+                raise ValueError("oversized")
+            return json.loads(payload.decode("utf-8"))
+        evidence = read_json(args.evidence)
+        thresholds = read_json(args.thresholds)
         if not isinstance(evidence, Mapping) or not isinstance(thresholds, Mapping):
-            raise ValueError("inputs must be JSON objects")
-    except (OSError, ValueError, json.JSONDecodeError):
-        print(
-            "evaluate-concurrency: invalid input; sequential/no-daemon remains active",
-            file=sys.stderr,
-        )
+            raise ValueError("non-object")
+        result = ConcurrencyGate.evaluate(evidence, thresholds)
+    except (OSError, UnicodeError, ValueError, json.JSONDecodeError):
+        print("evaluate-concurrency: invalid input; sequential/no-daemon remains active", file=sys.stderr)
+        return 1
+    except Exception:
+        print("evaluate-concurrency: evaluation failure; sequential/no-daemon remains active", file=sys.stderr)
         return 1
 
-    result = ConcurrencyGate.evaluate(evidence, thresholds)
-    print(
-        json.dumps(
-            result.to_dict(),
-            ensure_ascii=False,
-            sort_keys=True,
-            separators=(",", ":"),
-        )
-    )
+    print(json.dumps(result.to_dict(), ensure_ascii=False, sort_keys=True, separators=(",", ":")))
     return 0 if result.ok else 1
 
 

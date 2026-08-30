@@ -17,6 +17,8 @@ def thresholds() -> dict[str, object]:
         "max_api_risk_rate": 0.02,
         "max_peak_disk_bytes": 10_000,
         "min_reclaim_rate": 0.8,
+        "max_duplicate_work_count": 0,
+        "max_owner_count": 1,
     }
 
 
@@ -24,6 +26,8 @@ def thresholds() -> dict[str, object]:
 def evidence() -> dict[str, object]:
     return {
         "schema_version": "concurrency-gate-evidence-v1",
+        "campaign_snapshot_id": "snapshot-20260828",
+        "campaign_item_count": 100,
         "age_seconds": 30,
         "campaign_denominator": 100,
         "reconciliation_denominator": 100,
@@ -106,6 +110,7 @@ def test_missing_malformed_and_sensitive_thresholds_are_no_go(evidence, threshol
         "sensitive_threshold_marker",
         "threshold_malformed_max_peak_disk_bytes",
         "threshold_missing_max_api_risk_rate",
+        "threshold_unknown_fields",
     ]
 
 
