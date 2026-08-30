@@ -235,13 +235,13 @@ class IntegrityVerifier:
                 with os.fdopen(lock_fd, "a+b") as lock_handle:
                     fcntl.flock(lock_handle.fileno(), fcntl.LOCK_EX)
                     try:
-                        audit_stat = os.stat("recovery-audit.jsonl", dir_fd=coordinator_fd, follow_symlinks=False)
-                        if not stat.S_ISREG(audit_stat.st_mode):
-                            raise OSError("recovery audit sidecar is not a regular file")
+                        existing = os.open("recovery-audit.jsonl", os.O_RDONLY | os.O_NONBLOCK | os.O_NOFOLLOW, dir_fd=coordinator_fd)
                         audit_existed = True
+                        if not stat.S_ISREG(os.fstat(existing).st_mode):
+                            raise OSError("recovery audit sidecar is not a regular file")
                     except FileNotFoundError:
+                        existing = None
                         audit_existed = False
-                    existing = os.open("recovery-audit.jsonl", os.O_RDONLY | os.O_NOFOLLOW, dir_fd=coordinator_fd) if audit_existed else None
                     try:
                         chunks = []
                         total = 0
