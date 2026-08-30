@@ -2243,33 +2243,81 @@ def _cmd_recover(args: argparse.Namespace) -> int:
     return 0 if payload.get("ok") else 1
 
 
+_MAX_CONCURRENCY_INPUT_BYTES = 1_048_576
+
+
+class _ConcurrencyInputError(Exception):
+    def __init__(self, error_code: str) -> None:
+        super().__init__(error_code)
+        self.error_code = error_code
+
+
+def _read_concurrency_json_object(path: str) -> dict[str, object]:
+    from collections.abc import Mapping
+
+    file_path = Path(path)
+    try:
+        if not file_path.exists():
+            raise _ConcurrencyInputError("input_file_missing")
+        if not file_path.is_file():
+            raise _ConcurrencyInputError("input_file_not_regular")
+        with file_path.open("rb") as input_file:
+            payload = input_file.read(_MAX_CONCURRENCY_INPUT_BYTES + 1)
+    except _ConcurrencyInputError:
+        raise
+    except OSError:
+        raise _ConcurrencyInputError("input_file_unreadable") from None
+
+    if len(payload) > _MAX_CONCURRENCY_INPUT_BYTES:
+        raise _ConcurrencyInputError("input_file_oversized")
+    try:
+        decoded = payload.decode("utf-8")
+    except UnicodeDecodeError:
+        raise _ConcurrencyInputError("input_invalid_utf8") from None
+    try:
+        value = json.loads(decoded)
+    except json.JSONDecodeError:
+        raise _ConcurrencyInputError("input_malformed_json") from None
+    if not isinstance(value, Mapping):
+        raise _ConcurrencyInputError("input_non_object_json")
+    return dict(value)
+
+
+def _write_concurrency_error(error_code: str) -> None:
+    payload = {
+        "error_code": error_code,
+        "operating_mode": "sequential-no-daemon",
+    }
+    print(
+        json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")),
+        file=sys.stderr,
+    )
+
 
 def _cmd_evaluate_concurrency(args: argparse.Namespace) -> int:
-    from collections.abc import Mapping
     from .concurrency_gate import ConcurrencyGate
 
     try:
-        max_bytes = 1_048_576
-        def read_json(path: str) -> object:
-            file_path = Path(path)
-            with file_path.open("rb") as input_file:
-                payload = input_file.read(max_bytes + 1)
-            if len(payload) > max_bytes:
-                raise ValueError("oversized")
-            return json.loads(payload.decode("utf-8"))
-        evidence = read_json(args.evidence)
-        thresholds = read_json(args.thresholds)
-        if not isinstance(evidence, Mapping) or not isinstance(thresholds, Mapping):
-            raise ValueError("non-object")
-        result = ConcurrencyGate.evaluate(evidence, thresholds)
-    except (OSError, UnicodeError, ValueError, json.JSONDecodeError):
-        print("evaluate-concurrency: invalid input; sequential/no-daemon remains active", file=sys.stderr)
-        return 1
-    except Exception:
-        print("evaluate-concurrency: evaluation failure; sequential/no-daemon remains active", file=sys.stderr)
+        evidence = _read_concurrency_json_object(args.evidence)
+        thresholds = _read_concurrency_json_object(args.thresholds)
+    except _ConcurrencyInputError as exc:
+        _write_concurrency_error(exc.error_code)
         return 1
 
-    print(json.dumps(result.to_dict(), ensure_ascii=False, sort_keys=True, separators=(",", ":")))
+    try:
+        result = ConcurrencyGate.evaluate(evidence, thresholds)
+    except Exception:
+        _write_concurrency_error("evaluation_failure")
+        return 1
+
+    print(
+        json.dumps(
+            result.to_dict(),
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+    )
     return 0 if result.ok else 1
 
 
