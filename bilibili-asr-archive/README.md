@@ -76,6 +76,9 @@ in committed files or CI artifacts.
     bili-asr run --scope failed --limit 5 --archive-root archive
     bili-asr schedule --scope pending --limit 20 --archive-root archive
     bili-asr schedule --scope pending --limit 20 --resume --archive-root archive
+    bili-asr campaign --scope pending --limit 20 --archive-root archive
+    bili-asr verify --archive-root archive
+    bili-asr recover --archive-root archive --work-id <work-id>
     bili-asr evaluate-concurrency --evidence evidence.json --thresholds thresholds.json
 
 ### Concurrency safety evidence gate
@@ -341,6 +344,30 @@ and `RunLedger`; it does not open sockets itself and does not replace
   `docs/wsl-long-live-evidence.md`. Do not raise `pilot --max-duration-min`
   to sneak livestreams into the short-video campaign.
 
+### Controlled corpus campaign (`bili-asr campaign`)
+
+`campaign` runs one explicitly bounded sequential coordinator batch and writes
+`{archive-root}/campaign.json` as an aggregate audit projection. It does not own
+per-row transitions: the manifest, stage-attempt ledger, and `scheduler.json`
+remain authoritative for item state and risk-interruption resume.
+
+    bili-asr campaign --scope pending|failed|<work_id>... --limit N [--resume] [--offline] [--max-audio-gb G] [--archive-root <root>]
+
+- `--limit N` is mandatory and positive. The projection records only bounded,
+  validated work IDs, a policy fingerprint, stable reason codes, and
+  `complete`, `limited`, or `risk_interrupted`.
+- `--resume` is accepted only when both the campaign projection and scheduler
+  checkpoint describe the same scope, limit, policy, processed IDs, and risk
+  interruption. Missing, malformed, mismatched, or deliberately completed or
+  limited evidence fails closed rather than guessing work ownership.
+- The checkpoint uses a same-directory atomic replace plus file and directory
+  durability steps. Credentials, URLs, raw exceptions, request payloads,
+  models, and media are forbidden from the projection and summary.
+- Exit `0` means the selected bounded scope completed; exit `1` means a
+  configuration error, limited/non-terminal outcome, skip, or per-item failure;
+  exit `2` means risk interruption. A completed bounded campaign is not a claim
+  that the visible corpus is fully archived.
+
 ### SQLite FTS5 full-text search and metadata export
 
 The JSONL manifest (`{archive-root}/manifest/manifest.jsonl`) remains the single source of truth (SSOT). Both `search` and `export` are read-only commands that never modify or rewrite the manifest ledger.
@@ -420,13 +447,13 @@ selectable by the same command or by `run --scope failed`. Explicit `run
 (that sidecar is `fetch-meta` / `pilot` / `run` / `schedule`). All operator
 surfaces carry redacted scalar codes/reasons only.
 
-### Corpus coverage iteration contracts
+### Corpus coverage evidence spine
 
-The iteration package at `.mstar/iterations/iter-2026-08-corpus-coverage/` defines six business slices: bounded campaign execution, cumulative coverage reconciliation, subtitle/artifact quality signals, local transcript exploration, integrity/recovery, and a concurrency safety gate. These are product contracts and plans, not claims that the corresponding future behavior is already shipped.
+The shipped sequential workflow now includes all six corpus-coverage slices: bounded `campaign` execution, cumulative `coverage` reconciliation, optional deterministic artifact quality signals, filtered local transcript search/export, read-only `verify` plus audit-only `recover`, and the `evaluate-concurrency` safety gate. The manifest remains SSOT; the campaign checkpoint, reports, index, and recovery audit are additive evidence or derived projections.
 
-The target state is an auditable sequential workflow: the manifest remains SSOT; reports are read-only projections; bounded batches never imply full-corpus completion; reclaimed audio is valid after transcript archival; and semantic transcript correctness is out of scope. The concurrency slice is a no-go-by-default evidence gate and does not enable workers or a daemon. Any later implementation must satisfy the plan's fixture-only verification, redaction, explicit denominator, stable output, and frozen exit/status boundaries.
+A bounded campaign never implies full-corpus completion. Coverage reports keep explicit denominators and distinguish cumulative rows from the latest batch. Reclaimed audio is valid after transcript archival, and quality checks make no semantic-correctness claim. `recover` records bounded redacted candidates only—it does not requeue work, change statuses, or execute repair. The concurrency gate remains a pure `go`/`no-go` evaluator whose operating mode is always `sequential-no-daemon`; even a `go` report requires a later separately approved implementation plan.
 
-The roadmap is explicit: first establish campaign and telemetry evidence, then quality, explorer, and integrity contracts, and finally evaluate concurrency. A later iteration may implement only a mode allowed by a passing safety gate and a separately approved plan.
+Future production expansion should consume measured campaign/reconciliation evidence and retain exact ownership, write-isolation, crash/restart, API-risk, disk, reclaim, and throughput thresholds. No worker, daemon, service, autostart, scheduler-default change, concurrent manifest writer, or schema/status/risk-taxonomy change is implied by these surfaces.
 
 ## Multipart pages and legacy rows
 

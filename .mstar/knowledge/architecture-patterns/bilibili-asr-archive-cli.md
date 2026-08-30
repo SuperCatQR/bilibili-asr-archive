@@ -1,7 +1,7 @@
 ---
 module: bilibili-asr-archive CLI
 date: 2026-08-23
-last_updated: 2026-08-28
+last_updated: 2026-08-30
 problem_type: architecture_pattern
 category: architecture-patterns
 severity: medium
@@ -28,7 +28,9 @@ safe to resume after a partial run. Multi-part videos need collision-free
 per-part identity, and metadata enumeration must resume after risk stops
 without misreading a deliberately bounded run as complete. Repeated full-visible-
 corpus batches also need an explicit sequential scheduler whose progress is
-separate from the manifest state machine.
+separate from the manifest state machine. Production coverage, artifact quality,
+integrity, and future concurrency decisions therefore use bounded derived
+evidence rather than inferred completion or a second write owner.
 
 ## Guidance
 
@@ -88,6 +90,32 @@ short-video selection as the default, and require `--allow-long-live` plus a
 positive audio cap for multi-hour work. A bounded batch must never claim full
 corpus completion merely because its local limit was reached.
 
+### Evidence-gated corpus operations
+
+Build the production evidence spine as additive, bounded surfaces:
+
+- `campaign` wraps a finite sequential coordinator batch and atomically records
+  aggregate scope/policy/selection evidence in `{archive-root}/campaign.json`; per-row ownership
+  remains with the manifest, scheduler, and attempt ledger.
+- `coverage [--quality]` reads local evidence without writes, uses an explicit
+  manifest-snapshot denominator, separates cumulative from latest-batch counts,
+  and reports contradictions or structural artifact defects with stable codes.
+- `search`/`export` remain bounded manifest-derived read models. `verify` confines
+  reads to authoritative archive paths and accepts reclaimed audio when required
+  transcript outputs exist.
+- `recover` is intentionally audit-only: exact work-ID or authoritative defect
+  selection, maximum 100 targets, redacted append-only audit evidence under a
+  process lock, and no requeue/status/artifact mutation.
+- `evaluate-concurrency` accepts only exact bounded evidence/threshold schemas and
+  produces deterministic sorted reasons. Its report always says
+  `sequential-no-daemon`; `go` is input to a future approved plan, never a switch.
+
+This ordering is deliberate: bounded execution produces evidence; reconciliation
+establishes the denominator; local quality/integrity checks validate artifacts;
+only then may an explicit concurrency gate evaluate reviewed ownership, recovery,
+API-risk, disk, reclaim, throughput, freshness, and write-isolation thresholds.
+No threshold is inferred from available hardware.
+
 Make heavy ASR dependencies optional and import them lazily. The base CLI must
 still expose help/status/subtitle workflows, while `transcribe()` returns an
 actionable install hint. Keep model weights outside the repository and support
@@ -143,13 +171,17 @@ These boundaries make the no-login subtitle-first path useful without a model,
 keep credentials and signed URLs out of manifests and cursors, and turn
 interrupted long runs into resumable work rather than a restart from zero.
 Per-part identity prevents multi-part videos from overwriting each other's
-subtitle/audio/transcript artifacts.
+subtitle/audio/transcript artifacts. The evidence spine prevents bounded batch
+success, a stale derived index, intentionally reclaimed audio, or a passing gate
+from becoming false manifest state or implicit permission for concurrent writes.
 
 ## When to Apply
 
 Apply this pattern to archive or ingestion CLIs that combine rate-limited HTTP,
 large binary downloads, optional local ML, and durable per-item progress with
-multi-part sources and resumable enumeration.
+multi-part sources and resumable enumeration. Use the evidence-gate extension
+when operators need honest cumulative coverage, confined local recovery review,
+or a measured decision before any concurrency/service implementation.
 
 ## Evidence
 
@@ -166,3 +198,4 @@ multi-part sources and resumable enumeration.
   299 tests passed and staged Windows WSL N=5 / N=20 observed subtitle and
   ASR branches, named budget skipping, and post-archive reclaim.
 - Corpus-operations update: `.mstar/specs/asr-archive-cli.md` and commit `ad5253d` (scheduler and verification-baseline changes); integration revision `ad5253d` passed 392 tests, and the managed Python 3.12.13 no-index baseline passed with five zero-exit commands and 14 hash-validated fixture artifacts.
+- Corpus-coverage update: the six implemented contracts under `.mstar/iterations/iter-2026-08-corpus-coverage/specs/` are reflected in the current product README and this pattern. Integration revision `69b9530` passes 612 Python 3.12 tests and ships the sequential campaign/coverage/quality/explorer/integrity/recovery/concurrency evidence chain without enabling a worker, daemon, service, autostart, or concurrent manifest writer.
