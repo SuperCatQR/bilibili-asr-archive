@@ -230,6 +230,21 @@ def test_fetch_playurl_audio_second_minus_403_is_not_retried():
     assert len(play_calls) == 2
 
 
+def test_download_audio_rejects_outside_destination_before_downloader(tmp_root):
+    from pathlib import Path
+    import pytest
+
+    client = make_client({})
+    archive_root = Path(tmp_root)
+    outside = archive_root.parent / "audio-outside.m4a"
+    outside.write_bytes(b"keep")
+    with pytest.raises(OSError):
+        audio.download_audio(client, BVID, outside)
+    assert outside.read_bytes() == b"keep"
+    assert client.transport.calls == []
+    assert client.transport.stream_calls == []
+
+
 def test_download_audio_prefers_30216_and_sends_referer_ua(tmp_root):
     client = make_client(
         {"pagelist": [pagelist_ok()],
@@ -242,13 +257,11 @@ def test_download_audio_prefers_30216_and_sends_referer_ua(tmp_root):
     assert path == out
     with open(out, "rb") as fh:
         assert fh.read() == AUDIO_BYTES
-    # playurl requested with cid + bvid (fnval=16 dash)
     play_call = [c for c in client.transport.calls if "playurl" in c["url"]][0]
     assert play_call["params"]["cid"] == 111
     assert play_call["params"]["bvid"] == BVID
     assert play_call["params"]["fnval"] == 16
     assert play_call["cookies"]["SESSDATA"] == "SECRET-SESSDATA"
-    # stream GET must carry Referer + UA (spec hard requirement)
     assert len(client.transport.stream_calls) == 1
     sc = client.transport.stream_calls[0]
     assert sc["url"] == f"https://{STREAM_HOST}/a30216.m4s"

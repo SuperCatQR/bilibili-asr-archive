@@ -152,46 +152,55 @@ def _open_declared(root: Path, relative: str) -> tuple[int, str] | None:
         raise
 
 
+def _owned_bundle_parts(paths: Mapping[str, str]) -> bool:
+    expected_dirs = {"srt_path": "srt", "txt_path": "txt", "md_path": "md", "raw_path": "raw"}
+    parsed: dict[str, str] = {}
+    for key, directory in expected_dirs.items():
+        parts = _component_names(paths[key])
+        if parts is None or len(parts) != 3 or parts[:2] != ("transcripts", directory):
+            return False
+        parsed[key] = parts[2]
+    if not parsed["srt_path"].endswith(".srt"):
+        return False
+    stem = parsed["srt_path"][:-4]
+    if parsed["txt_path"] != stem + ".txt" or parsed["raw_path"] != stem + ".json":
+        return False
+    return parsed["md_path"].endswith(".md") and stem in parsed["md_path"][:-3]
+
 def archive_bundle_complete(archive_root: str | os.PathLike[str], paths: Mapping[str, str]) -> bool:
     try:
         root = _lexical_archive_root(archive_root)
-        if set(paths) != set(_REQUIRED_ARTIFACT_KEYS):
+        if set(paths) != set(_REQUIRED_ARTIFACT_KEYS) or any(not isinstance(paths[key], str) for key in _REQUIRED_ARTIFACT_KEYS):
+            return False
+        if not _owned_bundle_parts(paths):
             return False
         with _bundle_lock(root):
-            opened: dict[str, tuple[int, str]] = {}
+            opened = {}
+            marker_item = None
             try:
                 for key in _REQUIRED_ARTIFACT_KEYS:
-                    if not isinstance(paths[key], str):
-                        return False
                     item = _open_declared(root, paths[key])
                     if item is None:
                         return False
                     opened[key] = item
-                marker_rel = paths["srt_path"] + BUNDLE_MARKER_SUFFIX
-                marker_item = _open_declared(root, marker_rel)
+                marker_item = _open_declared(root, paths["srt_path"] + BUNDLE_MARKER_SUFFIX)
                 if marker_item is None:
                     return False
-                marker_data = _read_regular_at(*marker_item, limit=_MARKER_MAX_BYTES)
-                document = json.loads(marker_data.decode("ascii"))
-                if not isinstance(document, dict) or document.get("schema") != "archive-bundle-v1":
-                    return False
-                artifacts = document.get("artifacts")
+                document = json.loads(_read_regular_at(*marker_item, limit=_MARKER_MAX_BYTES).decode("ascii"))
+                artifacts = document.get("artifacts") if isinstance(document, dict) and document.get("schema") == "archive-bundle-v1" else None
                 if not isinstance(artifacts, dict) or set(artifacts) != set(_REQUIRED_ARTIFACT_KEYS):
                     return False
                 for key in _REQUIRED_ARTIFACT_KEYS:
                     item = artifacts[key]
-                    if not isinstance(item, dict) or set(item) != {"path", "sha256"}:
+                    if not isinstance(item, dict) or set(item) != {"path", "sha256"} or item["path"] != paths[key] or not isinstance(item["sha256"], str) or len(item["sha256"]) != 64:
                         return False
-                    if item["path"] != paths[key] or not isinstance(item["sha256"], str) or len(item["sha256"]) != 64:
-                        return False
-                    digest = hashlib.sha256(_read_regular_at(*opened[key])).hexdigest()
-                    if digest != item["sha256"]:
+                    if hashlib.sha256(_read_regular_at(*opened[key])).hexdigest() != item["sha256"]:
                         return False
                 return True
             finally:
                 for fd, _name in opened.values():
                     os.close(fd)
-                if "marker_item" in locals():
+                if marker_item is not None:
                     os.close(marker_item[0])
     except (OSError, UnicodeError, ValueError, TypeError, KeyError, json.JSONDecodeError):
         return False

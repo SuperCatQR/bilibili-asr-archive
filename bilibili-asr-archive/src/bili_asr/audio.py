@@ -85,6 +85,54 @@ def _existing_audio(out_path: str) -> str | None:
     return None
 
 
+def _archive_root_for_download(
+    out_path: str | os.PathLike[str], store: ManifestStore | None,
+) -> tuple[Path, Path]:
+    requested = os.fspath(out_path)
+    if store is not None:
+        root = Path(os.path.abspath(os.fspath(store.root)))
+        relative = os.path.relpath(requested, root)
+    else:
+        candidate = Path(requested)
+        if not candidate.is_absolute():
+            candidate = Path(os.path.abspath(candidate))
+        parts = candidate.parts
+        try:
+            audio_index = parts.index("audio")
+        except ValueError:
+            raise OSError("invalid audio path")
+        if audio_index == 0:
+            raise OSError("invalid archive root")
+        if audio_index + 1 >= len(parts):
+            raise OSError("invalid audio path")
+        root = Path(os.path.join(*parts[:audio_index]))
+        relative = os.path.join("audio", *parts[audio_index + 1 :])
+    root_fd = os.open(
+        os.fspath(root),
+        os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | os.O_NOFOLLOW,
+    )
+    try:
+        try:
+            audio_fd = os.open(
+                "audio",
+                os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | os.O_NOFOLLOW,
+                dir_fd=root_fd,
+            )
+        except FileNotFoundError:
+            os.mkdir("audio", mode=0o755, dir_fd=root_fd)
+            audio_fd = os.open(
+                "audio",
+                os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | os.O_NOFOLLOW,
+                dir_fd=root_fd,
+            )
+        os.close(audio_fd)
+    finally:
+        os.close(root_fd)
+    confined = confined_audio_path(root, relative, require_exists=False)
+    if confined is None:
+        raise OSError("invalid audio path")
+    return root, confined
+
 def download_audio(
     client: BiliClient,
     target: PageIdentity | str,
@@ -100,6 +148,8 @@ def download_audio(
     Raises NoAudioStreamError / StreamDownloadError / GoneResponse.
     """
     out_path = os.fspath(out_path)
+    archive_root, confined_out = _archive_root_for_download(out_path, store)
+    out_path = os.fspath(confined_out)
     if isinstance(target, PageIdentity):
         existing = _existing_audio(out_path)
         if existing is not None:
@@ -113,8 +163,9 @@ def download_audio(
             _mark_audio_ok(store, identity, existing)
             return existing
 
-    audio_dir = os.path.dirname(out_path) or "."
-    os.makedirs(audio_dir, exist_ok=True)
+    audio_dir = os.path.dirname(out_path)
+    if audio_dir != os.fspath(archive_root / "audio"):
+        raise OSError("invalid audio path")
 
     streams = client.fetch_playurl_audio(identity.bvid, cid=identity.cid)
     chosen = pick_audio_stream(streams)

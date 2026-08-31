@@ -82,7 +82,37 @@ def test_write_archive_unresolved_keeps_bare_bvid_stem(tmp_root):
     assert "page_index:" not in md
 
 
-def test_archive_bundle_requires_marker_and_all_outputs(tmp_root):
+
+def test_archive_bundle_rejects_unrelated_in_root_artifacts(tmp_root):
+    from pathlib import Path
+    import hashlib
+
+    root = Path(tmp_root)
+    unrelated = root / "unrelated"
+    unrelated.mkdir()
+    files = {
+        "srt_path": unrelated / "wrong.srt",
+        "txt_path": unrelated / "wrong.txt",
+        "md_path": unrelated / "wrong.md",
+        "raw_path": unrelated / "wrong.json",
+    }
+    contents = {
+        key: f"{key}\n".encode() for key in files
+    }
+    for key, path in files.items():
+        path.write_bytes(contents[key])
+    marker = files["srt_path"].with_name(files["srt_path"].name + ".bundle-ready")
+    marker.write_text(json.dumps({
+        "schema": "archive-bundle-v1",
+        "artifacts": {
+            key: {"path": str(path.relative_to(root)),
+                  "sha256": hashlib.sha256(contents[key]).hexdigest()}
+            for key, path in files.items()
+        },
+    }), encoding="ascii")
+    paths = {key: str(path.relative_to(root)) for key, path in files.items()}
+    assert not archive_bundle_complete(root, paths)
+
     from pathlib import Path
     tmp_path = Path(tmp_root)
     entry = {"bvid": "BVmarker", "work_id": "BVmarker:p0", "page_index": 0, "cid": 1}

@@ -85,7 +85,18 @@ def confined_audio_path(
                     os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0),
                     dir_fd=root_fd,
                 )
-                os.close(audio_fd)
+                try:
+                    try:
+                        info = os.stat(
+                            parts[1], dir_fd=audio_fd, follow_symlinks=False
+                        )
+                    except FileNotFoundError:
+                        pass
+                    else:
+                        if stat.S_ISLNK(info.st_mode) or not stat.S_ISREG(info.st_mode):
+                            return None
+                finally:
+                    os.close(audio_fd)
             finally:
                 os.close(root_fd)
         return root.joinpath(*parts)
