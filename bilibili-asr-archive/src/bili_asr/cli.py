@@ -944,6 +944,19 @@ def _cmd_download_audio(args: argparse.Namespace) -> int:
                 raise TypeError("unsupported download target")
             label = target.work_id
             final = audio.download_audio(client, target, out_path, store=store)
+            from .path_policy import confined_audio_path
+            try:
+                returned_relative = os.path.relpath(
+                    os.fspath(final), os.fspath(args.archive_root)
+                )
+            except (OSError, ValueError, TypeError):
+                returned_relative = ""
+            confined = confined_audio_path(
+                args.archive_root, returned_relative, require_exists=True
+            )
+            if confined is None:
+                raise ValueError("invalid audio path")
+            final = os.path.relpath(confined, os.fspath(args.archive_root))
         except bili_client.AmbiguousPageError:
             failed += 1
             print(f"{label}: multi-part video needs an explicit page",

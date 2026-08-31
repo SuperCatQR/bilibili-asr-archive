@@ -78,6 +78,18 @@ def _subtitle_transport():
     )
 
 
+def test_download_audio_rejects_escaped_downloader_result(tmp_root, monkeypatch, capsys):
+    from bili_asr import audio
+    identity = page_identity("BVescape", 0, 333, "p0")
+    ManifestStore(root=tmp_root).upsert(_row(identity, status="needs_audio"))
+    outside = os.path.join(tmp_root, "..", "escaped.m4a")
+    monkeypatch.setattr(audio, "download_audio", lambda *args, **kwargs: outside)
+    _patch_cli(monkeypatch)
+    rc = main(["download-audio", "--missing-subs", "--archive-root", tmp_root])
+    captured = capsys.readouterr()
+    assert rc == 1
+    assert "0 audio_ok" in captured.out
+    assert ManifestStore(root=tmp_root).get(identity.work_id)["status"] == "needs_audio"
 def test_cli_audio_branch_meta_ok_needs_audio_audio_ok_archived(
     tmp_root, monkeypatch, capsys
 ):

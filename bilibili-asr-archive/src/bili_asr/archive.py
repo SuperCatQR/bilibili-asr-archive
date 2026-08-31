@@ -5,10 +5,9 @@ from __future__ import annotations
 import hashlib
 import json
 import os
-import shutil
 import stat
-import tempfile
 import threading
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -50,37 +49,68 @@ def bundle_marker_path(path: str | os.PathLike[str]) -> Path:
     return Path(os.fspath(path) + BUNDLE_MARKER_SUFFIX)
 
 
-def _confined_regular(root: Path, path: Path) -> bool:
+def _component_names(relative: str | os.PathLike[str]) -> tuple[str, ...] | None:
     try:
-        path.relative_to(root)
-        info = path.lstat()
-        return stat.S_ISREG(info.st_mode) and not stat.S_ISLNK(info.st_mode)
-    except (OSError, ValueError):
-        return False
+        path = Path(os.fspath(relative))
+    except (TypeError, ValueError):
+        return None
+    if path.is_absolute() or any(part in ("", ".", "..") for part in path.parts):
+        return None
+    return path.parts
 
 
-def _validate_publication_paths(root: Path, finals: Mapping[str, Path]) -> None:
-    root = root.resolve()
-    if not root.is_dir() or root.is_symlink():
-        raise OSError("archive publication path is unsafe")
-    for final in finals.values():
-        relative = final.relative_to(root)
-        current = root
-        for component in relative.parts[:-1]:
-            current /= component
-            info = current.lstat()
-            if stat.S_ISLNK(info.st_mode) or not stat.S_ISDIR(info.st_mode):
-                raise OSError("archive publication path is unsafe")
+def _open_dir(parent_fd: int, name: str, *, create: bool = False) -> int:
+    flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | os.O_NOFOLLOW
+    if create:
         try:
-            info = final.lstat()
-        except FileNotFoundError:
-            continue
-        if stat.S_ISLNK(info.st_mode) or not stat.S_ISREG(info.st_mode):
-            raise OSError("archive publication path is unsafe")
+            os.mkdir(name, mode=0o755, dir_fd=parent_fd)
+        except FileExistsError:
+            pass
+    return os.open(name, flags, dir_fd=parent_fd)
 
 
-def _marker_payload(root: Path, finals: Mapping[str, Path], contents: Mapping[str, bytes]) -> bytes:
-    artifacts = {key: {"path": finals[key].relative_to(root).as_posix(), "sha256": hashlib.sha256(contents[key]).hexdigest()} for key in _REQUIRED_ARTIFACT_KEYS}
+def _open_transcript_dirs(root: Path) -> dict[str, int]:
+    root_fd = os.open(root, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | os.O_NOFOLLOW)
+    try:
+        transcripts_fd = _open_dir(root_fd, "transcripts", create=True)
+    finally:
+        os.close(root_fd)
+    dirs: dict[str, int] = {}
+    try:
+        for name in ("srt", "txt", "md", "raw"):
+            dirs[name] = _open_dir(transcripts_fd, name, create=True)
+    except Exception:
+        for fd in dirs.values():
+            os.close(fd)
+        os.close(transcripts_fd)
+        raise
+    dirs["_transcripts"] = transcripts_fd
+    return dirs
+
+
+def _fsync_fd(fd: int) -> None:
+    os.fsync(fd)
+
+
+def _write_at(directory_fd: int, name: str, content: bytes) -> None:
+    fd = os.open(name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o644, dir_fd=directory_fd)
+    try:
+        os.write(fd, content)
+        _fsync_fd(fd)
+    finally:
+        os.close(fd)
+
+
+def _replace_at(stage_fd: int, stage_name: str, target_fd: int, target_name: str) -> None:
+    os.replace(stage_name, target_name, src_dir_fd=stage_fd, dst_dir_fd=target_fd)
+    _fsync_fd(target_fd)
+
+
+def _marker_payload(finals: Mapping[str, Path], root: Path, contents: Mapping[str, bytes]) -> bytes:
+    artifacts = {
+        key: {"path": finals[key].relative_to(root).as_posix(), "sha256": hashlib.sha256(contents[key]).hexdigest()}
+        for key in _REQUIRED_ARTIFACT_KEYS
+    }
     return (json.dumps({"schema": "archive-bundle-v1", "artifacts": artifacts}, sort_keys=True, separators=(",", ":")) + "\n").encode("ascii")
 
 
@@ -94,86 +124,142 @@ def _read_fd(fd: int, limit: int) -> bytes:
     raise OSError("oversized archive file")
 
 
+def _read_regular_at(directory_fd: int, name: str, limit: int | None = None) -> bytes:
+    fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=directory_fd)
+    try:
+        info = os.fstat(fd)
+        if not stat.S_ISREG(info.st_mode):
+            raise OSError("archive artifact is not regular")
+        return _read_fd(fd, limit if limit is not None else max(info.st_size, 1) + 1)
+    finally:
+        os.close(fd)
+
+
+def _open_declared(root: Path, relative: str) -> tuple[int, str] | None:
+    parts = _component_names(relative)
+    if not parts or len(parts) < 2:
+        return None
+    root_fd = os.open(root, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | os.O_NOFOLLOW)
+    current = root_fd
+    try:
+        for part in parts[:-1]:
+            nxt = _open_dir(current, part)
+            if current != root_fd:
+                os.close(current)
+            current = nxt
+        return current, parts[-1]
+    except Exception:
+        os.close(current)
+        raise
+
+
 def archive_bundle_complete(archive_root: str | os.PathLike[str], paths: Mapping[str, str]) -> bool:
     try:
-        root = Path(archive_root).resolve()
-        if not root.is_dir() or root.is_symlink() or set(paths) != set(_REQUIRED_ARTIFACT_KEYS):
+        root = Path(os.fspath(archive_root)).resolve()
+        if set(paths) != set(_REQUIRED_ARTIFACT_KEYS):
             return False
         with _bundle_lock(root):
-            for key in _REQUIRED_ARTIFACT_KEYS:
-                rel = Path(paths[key])
-                if rel.is_absolute() or any(part in ("", ".", "..") for part in rel.parts) or not _confined_regular(root, root / rel):
+            opened: dict[str, tuple[int, str]] = {}
+            try:
+                for key in _REQUIRED_ARTIFACT_KEYS:
+                    if not isinstance(paths[key], str):
+                        return False
+                    item = _open_declared(root, paths[key])
+                    if item is None:
+                        return False
+                    opened[key] = item
+                marker_rel = paths["srt_path"] + BUNDLE_MARKER_SUFFIX
+                marker_item = _open_declared(root, marker_rel)
+                if marker_item is None:
                     return False
-            marker = bundle_marker_path(root / paths["srt_path"])
-            if not _confined_regular(root, marker) or len(marker.read_bytes()) > _MARKER_MAX_BYTES:
-                return False
-            document = json.loads(marker.read_text(encoding="ascii"))
-            if not isinstance(document, dict) or document.get("schema") != "archive-bundle-v1":
-                return False
-            artifacts = document.get("artifacts")
-            if not isinstance(artifacts, dict) or set(artifacts) != set(_REQUIRED_ARTIFACT_KEYS):
-                return False
-            for key in _REQUIRED_ARTIFACT_KEYS:
-                item = artifacts[key]
-                if not isinstance(item, dict) or set(item) != {"path", "sha256"} or item["path"] != paths[key] or not isinstance(item["sha256"], str) or len(item["sha256"]) != 64:
+                marker_data = _read_regular_at(*marker_item, limit=_MARKER_MAX_BYTES)
+                document = json.loads(marker_data.decode("ascii"))
+                if not isinstance(document, dict) or document.get("schema") != "archive-bundle-v1":
                     return False
-                if hashlib.sha256((root / paths[key]).read_bytes()).hexdigest() != item["sha256"]:
+                artifacts = document.get("artifacts")
+                if not isinstance(artifacts, dict) or set(artifacts) != set(_REQUIRED_ARTIFACT_KEYS):
                     return False
-            return True
+                for key in _REQUIRED_ARTIFACT_KEYS:
+                    item = artifacts[key]
+                    if not isinstance(item, dict) or set(item) != {"path", "sha256"}:
+                        return False
+                    if item["path"] != paths[key] or not isinstance(item["sha256"], str) or len(item["sha256"]) != 64:
+                        return False
+                    digest = hashlib.sha256(_read_regular_at(*opened[key])).hexdigest()
+                    if digest != item["sha256"]:
+                        return False
+                return True
+            finally:
+                for fd, _name in opened.values():
+                    os.close(fd)
+                if "marker_item" in locals():
+                    os.close(marker_item[0])
     except (OSError, UnicodeError, ValueError, TypeError, KeyError, json.JSONDecodeError):
         return False
 
 
-def _fsync_directory(path: Path) -> None:
-    fd = os.open(path, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | os.O_NOFOLLOW)
-    try: os.fsync(fd)
-    finally: os.close(fd)
-
-
-def _write_staged(path: Path, content: bytes) -> None:
-    with open(path, "wb") as handle:
-        handle.write(content); handle.flush(); os.fsync(handle.fileno())
-
-
-def _publish_bundle(finals: Mapping[str, Path], contents: Mapping[str, bytes]) -> None:
-    root = next(iter(finals.values())).parents[2]
+def _publish_bundle(root: Path, finals: Mapping[str, Path], contents: Mapping[str, bytes]) -> None:
     with _bundle_lock(root):
-        _validate_publication_paths(root, finals)
-        parent = next(iter(finals.values())).parent
-        stage = Path(tempfile.mkdtemp(prefix=".archive-bundle-", dir=parent))
+        dirs = _open_transcript_dirs(root)
+        stage_fd = None
+        stage_name = ".archive-bundle-stage"
         try:
-            staged = {key: stage / finals[key].name for key in _REQUIRED_ARTIFACT_KEYS}
-            for key in _REQUIRED_ARTIFACT_KEYS: _write_staged(staged[key], contents[key])
-            _fsync_directory(stage)
-            marker = stage / (finals["srt_path"].name + BUNDLE_MARKER_SUFFIX)
-            _write_staged(marker, _marker_payload(root, finals, contents)); _fsync_directory(stage)
-            marker_target = bundle_marker_path(finals["srt_path"])
-            _validate_publication_paths(root, finals)
-            if marker_target.exists():
-                if not _confined_regular(root, marker_target): raise OSError("archive publication path is unsafe")
-                marker_target.unlink()
-            _fsync_directory(parent)
+            transcripts_fd = dirs["_transcripts"]
+            try:
+                os.mkdir(stage_name, 0o700, dir_fd=transcripts_fd)
+            except FileExistsError:
+                raise OSError("archive staging directory already exists")
+            stage_fd = _open_dir(transcripts_fd, stage_name)
+            target_dirs = {key: dirs[{"srt_path": "srt", "txt_path": "txt", "md_path": "md", "raw_path": "raw"}[key]] for key in _REQUIRED_ARTIFACT_KEYS}
+            names = {key: finals[key].name for key in _REQUIRED_ARTIFACT_KEYS}
+            marker_name = names["srt_path"] + BUNDLE_MARKER_SUFFIX
             for key in _REQUIRED_ARTIFACT_KEYS:
-                _validate_publication_paths(root, finals); os.replace(staged[key], finals[key]); _fsync_directory(parent)
-            _validate_publication_paths(root, finals); os.replace(marker, marker_target); _fsync_directory(parent)
-        finally: shutil.rmtree(stage, ignore_errors=True)
+                _write_at(stage_fd, names[key], contents[key])
+            _write_at(stage_fd, marker_name, _marker_payload(finals, root, contents))
+            _fsync_fd(stage_fd)
+            for key in _REQUIRED_ARTIFACT_KEYS:
+                try:
+                    os.unlink(marker_name, dir_fd=target_dirs["srt_path"])
+                except FileNotFoundError:
+                    pass
+            _fsync_fd(target_dirs["srt_path"])
+            for key in _REQUIRED_ARTIFACT_KEYS:
+                _replace_at(stage_fd, names[key], target_dirs[key], names[key])
+            _replace_at(stage_fd, marker_name, target_dirs["srt_path"], marker_name)
+            _fsync_fd(transcripts_fd)
+        finally:
+            try:
+                if stage_fd is not None:
+                    os.close(stage_fd)
+            finally:
+                try:
+                    os.rmdir(stage_name, dir_fd=transcripts_fd)
+                except FileNotFoundError:
+                    pass
+            os.close(transcripts_fd)
+            for name, fd in dirs.items():
+                if name != "_transcripts":
+                    os.close(fd)
 
 
 def write_archive(archive_root: str | os.PathLike[str], entry: dict[str, Any], segments: list[dict[str, Any]], *, source: str, raw: Any | None = None) -> dict[str, str]:
     root = Path(os.fspath(archive_root)).resolve()
-    if not root.exists() or root.is_symlink() or not root.is_dir(): raise OSError("archive publication path is unsafe")
-    stem = archive_stem(entry); dirs = {name: root / "transcripts" / name for name in ("srt", "txt", "md", "raw")}
-    with _bundle_lock(root):
-        for directory in dirs.values():
-            directory.mkdir(parents=True, exist_ok=True)
-            if directory.is_symlink() or not directory.is_dir(): raise OSError("archive publication path is unsafe")
-    bvid = str(entry["bvid"]); srt_path = dirs["srt"] / f"{stem}.srt"; txt_path = dirs["txt"] / f"{stem}.txt"
-    md_path = dirs["md"] / f"{entry.get('pubdate_str', 'unknown')}_{stem}_{_safe_name(str(entry.get('title') or bvid))}.md"; raw_path = dirs["raw"] / f"{stem}.json"
+    if not root.is_dir() or root.is_symlink():
+        raise OSError("archive publication path is unsafe")
+    stem = archive_stem(entry)
+    dirs = {name: root / "transcripts" / name for name in ("srt", "txt", "md", "raw")}
+    bvid = str(entry["bvid"])
+    srt_path = dirs["srt"] / f"{stem}.srt"
+    txt_path = dirs["txt"] / f"{stem}.txt"
+    md_path = dirs["md"] / f"{entry.get('pubdate_str', 'unknown')}_{stem}_{_safe_name(str(entry.get('title') or bvid))}.md"
+    raw_path = dirs["raw"] / f"{stem}.json"
     frontmatter = {"bvid": bvid, "title": entry.get("title", ""), "date": entry.get("pubdate_str", ""), "duration_s": entry.get("duration_s", 0), "source": source, "url": archive_url(entry)}
-    if entry.get("work_id") and not entry.get("unresolved"): frontmatter.update({"work_id": entry["work_id"], "page_index": entry.get("page_index"), "cid": entry.get("cid")})
+    if entry.get("work_id") and not entry.get("unresolved"):
+        frontmatter.update({"work_id": entry["work_id"], "page_index": entry.get("page_index"), "cid": entry.get("cid")})
     md = ("---\n" + "".join(f"{k}: {json.dumps(v, ensure_ascii=False)}\n" for k, v in frontmatter.items()) + "---\n\n" + segments_to_txt(segments) + "\n").encode("utf-8")
-    if raw is None: raw = {"segments": segments, "source": source}
+    if raw is None:
+        raw = {"segments": segments, "source": source}
     finals = {"srt_path": srt_path, "txt_path": txt_path, "md_path": md_path, "raw_path": raw_path}
     contents = {"srt_path": segments_to_srt(segments).encode(), "txt_path": (segments_to_txt(segments) + "\n").encode(), "md_path": md, "raw_path": (json.dumps(raw, ensure_ascii=False, indent=2) + "\n").encode()}
-    _publish_bundle(finals, contents)
+    _publish_bundle(root, finals, contents)
     return {key: os.path.relpath(path, root) for key, path in finals.items()}
