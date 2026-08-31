@@ -109,20 +109,20 @@ def _archive_root_for_download(
         relative = os.path.join("audio", *parts[audio_index + 1 :])
     root_fd = os.open(
         os.fspath(root),
-        os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | os.O_NOFOLLOW,
+        os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0),
     )
     try:
         try:
             audio_fd = os.open(
                 "audio",
-                os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | os.O_NOFOLLOW,
+                os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0),
                 dir_fd=root_fd,
             )
         except FileNotFoundError:
             os.mkdir("audio", mode=0o755, dir_fd=root_fd)
             audio_fd = os.open(
                 "audio",
-                os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | os.O_NOFOLLOW,
+                os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0),
                 dir_fd=root_fd,
             )
         os.close(audio_fd)
