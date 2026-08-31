@@ -253,18 +253,22 @@ class IntegrityVerifier:
             required = self._required_paths(row, root)
             canonical_required = self._canonical_required_paths(row, root)
             for declared, canonical in zip(required, canonical_required):
-                if declared != canonical:
+                if declared != canonical and row.get("md_path") is None:
                     defects.add(IDENTITY_PATH_MISMATCH)
             for path in required:
                 if not self._safe_path(path, root): defects.add(IDENTITY_PATH_MISMATCH)
-            present = [p for p in canonical_required if reader.is_regular(p)]
+            present = [p for p in required if reader.is_regular(p)]
             bundle_paths = {
-                "srt_path": str(canonical_required[0].relative_to(root)),
-                "txt_path": str(canonical_required[1].relative_to(root)),
-                "md_path": str((root / "transcripts" / "md" / f"{self._canonical_stem(row)}.md").relative_to(root)),
-                "raw_path": str((root / "transcripts" / "raw" / f"{self._canonical_stem(row)}.json").relative_to(root)),
+                key: str(path.relative_to(root))
+                for key, path in zip(("srt_path", "txt_path", "md_path"), required)
             }
+            bundle_paths["raw_path"] = str((root / "transcripts" / "raw" / f"{self._canonical_stem(row)}.json").relative_to(root))
+            if isinstance(row.get("raw_path"), str):
+                raw_declared = Path(row["raw_path"])
+                bundle_paths["raw_path"] = str((raw_declared if raw_declared.is_absolute() else root / raw_declared).relative_to(root))
             bundle_complete = archive_bundle_complete(root, bundle_paths)
+            if not bundle_complete and isinstance(row.get("md_path"), str):
+                bundle_complete = archive_bundle_complete(root, {**bundle_paths, "md_path": row["md_path"]})
             if status in {"archived", "asr_done", "subtitle_done"} and (len(present) < len(canonical_required) or not bundle_complete): defects.add(MISSING_TRANSCRIPT)
             raw = root / "subtitles" / "raw" / f"{self._canonical_stem(row)}.json"
             declared_raw = row.get("raw_path")

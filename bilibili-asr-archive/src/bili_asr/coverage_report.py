@@ -460,12 +460,15 @@ def _transcript_evidence(root: Path, entry: Mapping[str, Any]) -> tuple[bool, bo
             matches = sorted(md_dir.glob(f"{pubdate}_{stem}_*.md"))
             if len(matches) == 1:
                 paths.append(matches[0])
-    bundle_paths = {
-        "srt_path": str((root / "transcripts" / "srt" / f"{stem}.srt").relative_to(root)),
-        "txt_path": str((root / "transcripts" / "txt" / f"{stem}.txt").relative_to(root)),
-        "md_path": str((root / "transcripts" / "md" / f"{stem}.md").relative_to(root)),
-        "raw_path": str((root / "transcripts" / "raw" / f"{stem}.json").relative_to(root)),
-    }
+    bundle_paths = {}
+    for key in ("srt_path", "txt_path", "md_path", "raw_path"):
+        value = entry.get(key)
+        if not isinstance(value, str):
+            return False, False
+        candidate = _contained_path(root, value)
+        if candidate is None:
+            return False, False
+        bundle_paths[key] = value
     transcript = archive_bundle_complete(root, bundle_paths)
     if not transcript or entry.get("status") != "archived":
         return transcript, False

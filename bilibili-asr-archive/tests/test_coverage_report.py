@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+from bili_asr.archive import write_archive
 from bili_asr.coverage_report import CoverageReport
 
 NOW = "2026-08-28T12:00:00Z"
@@ -167,9 +168,8 @@ def test_terminal_archived_without_transcript_is_not_complete(tmp_path: Path):
 
 def test_reclaimed_audio_uses_page_aware_artifact_path(tmp_path: Path):
     row = manifest_row("BVone:p1")
-    transcript = tmp_path / "transcripts" / "txt" / "BVone.p1.txt"
-    transcript.parent.mkdir(parents=True)
-    transcript.write_text("marker", encoding="utf-8")
+    paths = write_archive(tmp_path, row, [{"start": 0, "end": 1, "text": "marker"}], source="asr")
+    row.update(paths)
     write_fixture(tmp_path, [row])
     report = CoverageReport.build(tmp_path)
     assert report.data["rows"][0]["artifact_present"] is True

@@ -85,15 +85,11 @@ def test_malformed_identity_containers_fail_closed(tmp_path: Path) -> None:
 
 
 def test_archived_transcripts_are_valid_without_audio(tmp_path: Path) -> None:
-    _manifest(tmp_path, [{"work_id": "BV1x:p0", "bvid": "BV1x", "status": "archived"}])
-    for directory in ("srt", "txt", "md"):
-        path = tmp_path / "transcripts" / directory
-        path.mkdir(parents=True)
-        content = "1\n00:00:00,000 --> 00:00:01,000\nok" if directory == "srt" else "ok"
-        (path / f"BV1x.p0.{directory}").write_text(content, encoding="utf-8")
-    write_archive(tmp_path, {"work_id": "BV1x:p0", "bvid": "BV1x", "status": "archived", "title": "", "pubdate_str": ""}, [{"start": 0, "end": 1, "text": "ok"}], source="asr")
-    row = {"work_id": "BV1x:p0", "bvid": "BV1x", "status": "archived", "title": "", "pubdate_str": ""}
-    _manifest(tmp_path, [row])
+    row = {"work_id": "BV1x:p0", "bvid": "BV1x", "cid": 7, "page_index": 0,
+           "status": "archived", "title": "", "pubdate_str": ""}
+    paths = write_archive(tmp_path, row, [{"start": 0, "end": 1, "text": "ok"}], source="asr")
+    manifest_row = {**row, **paths}
+    _manifest(tmp_path, [manifest_row])
     report = IntegrityVerifier().verify(tmp_path)
     assert report.defects == []
 
