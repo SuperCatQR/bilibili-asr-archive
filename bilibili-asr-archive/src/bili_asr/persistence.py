@@ -8,6 +8,7 @@ import json
 import os
 from pathlib import Path
 import tempfile
+import threading
 from typing import Any, Iterator, Mapping
 
 
@@ -31,7 +32,25 @@ def _sync_directory(directory: str) -> None:
 @contextmanager
 def file_lock(path: str | os.PathLike[str], *, blocking: bool = True) -> Iterator[None]:
     """Hold an exclusive cross-process lock in a stable adjacent lock file."""
-    lock_path = os.fspath(path) + ".lock"
+    requested = os.fspath(path)
+    lock_path = requested if requested.endswith(".lock") else requested + ".lock"
+    # flock is process-associated on some platforms; keep nested same-thread
+    # ownership explicit so public wrappers can safely share one root lock.
+    state = getattr(_LOCK_STATE, "held", None)
+    if state is None:
+        state = {}
+        _LOCK_STATE.held = state
+    existing = state.get(lock_path)
+    if existing is not None:
+        state[lock_path] = existing + 1
+        try:
+            yield
+        finally:
+            if state[lock_path] == 1:
+                del state[lock_path]
+            else:
+                state[lock_path] -= 1
+        return
     try:
         os.makedirs(os.path.dirname(lock_path) or ".", exist_ok=True)
         fh = open(lock_path, "a+b")
@@ -43,45 +62,30 @@ def file_lock(path: str | os.PathLike[str], *, blocking: bool = True) -> Iterato
     try:
         if os.name == "nt":
             import msvcrt
-            fh.seek(0)
-            fh.write(b"0")
-            fh.flush()
-            mode = msvcrt.LK_LOCK if blocking else msvcrt.LK_NBLCK
-            while True:
-                try:
-                    msvcrt.locking(fh.fileno(), mode, 1)
-                    acquired = True
-                    break
-                except OSError as exc:
-                    if not blocking or exc.errno not in (errno.EACCES, errno.EDEADLK):
-                        raise
-                    import time
-                    time.sleep(0.01)
+            fh.seek(0); fh.write(b"0"); fh.flush()
+            msvcrt.locking(fh.fileno(), msvcrt.LK_LOCK if blocking else msvcrt.LK_NBLCK, 1)
         else:
             import fcntl
-            flags = fcntl.LOCK_EX
-            if not blocking:
-                flags |= fcntl.LOCK_NB
+            flags = fcntl.LOCK_EX | (0 if blocking else fcntl.LOCK_NB)
             fcntl.flock(fh.fileno(), flags)
             acquired = True
+        state[lock_path] = 1
         yield
     except (ValueError, TypeError):
         raise
     except OSError as exc:
         raise _stable_error("lock") from exc
     finally:
+        state.pop(lock_path, None)
         if acquired:
             try:
-                if os.name == "nt":
-                    import msvcrt
-                    fh.seek(0)
-                    msvcrt.locking(fh.fileno(), msvcrt.LK_UNLCK, 1)
-                else:
-                    import fcntl
-                    fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
+                import fcntl
+                fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
             except OSError:
                 pass
         fh.close()
+
+_LOCK_STATE = threading.local()
 
 
 def _json_line(record: dict[str, Any]) -> bytes:

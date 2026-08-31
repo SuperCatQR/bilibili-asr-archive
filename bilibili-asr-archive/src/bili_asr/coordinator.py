@@ -69,7 +69,7 @@ def archive_writer(root: str | os.PathLike[str], *, blocking: bool = False) -> I
         with file_lock(lock_target, blocking=blocking):
             yield
     except OSError as exc:
-        if not blocking:
+        if not blocking and isinstance(exc.__cause__, BlockingIOError):
             raise ArchiveBusyError() from exc
         raise
 
@@ -161,9 +161,8 @@ def _validate_attempt(record: dict[str, Any]) -> dict[str, Any]:
 class AttemptLedger:
     """Append-only JSONL sidecar at ``{archive_root}/coordinator/attempts.jsonl``.
 
-    Appends are atomic (tmp file + fsync + os.replace) so a crash never
-    leaves a partial line: readers see either the previous content or the
-    previous content plus one complete record.
+    Each append writes one newline-terminated record and fsyncs the file and
+    parent directory; history is never rewritten.
     """
 
     def __init__(self, root: str | os.PathLike[str]) -> None:
@@ -192,7 +191,7 @@ class AttemptLedger:
         with file_lock(lock_path):
             key = (stored["work_id"], stored["stage"])
             latest = 0
-            for prior in self._iter_valid():
+            for prior in self._iter_valid(strict=True):
                 if (prior["work_id"], prior["stage"]) == key:
                     latest = max(latest, prior["attempt"])
             if record.get("_preserve_attempt"):
@@ -203,19 +202,22 @@ class AttemptLedger:
             append_jsonl_record(self.path, stored, lock_path=lock_path)
         return stored
 
-    def _iter_valid(self):
+    def _iter_valid(self, *, strict: bool = False):
         if not os.path.exists(self.path):
             return
         try:
             with open(self.path, "r", encoding="utf-8") as fh:
-                for line in fh:
+                for line_number, line in enumerate(fh, 1):
                     if not line.strip():
                         continue
                     try:
                         yield _validate_attempt(json.loads(line))
-                    except (json.JSONDecodeError, ValueError):
-                        continue
-        except OSError:
+                    except (json.JSONDecodeError, ValueError) as exc:
+                        if strict:
+                            raise ValueError(f"malformed attempt history at line {line_number}") from exc
+        except OSError as exc:
+            if strict:
+                raise ValueError("attempt history unavailable") from exc
             return
 
 
@@ -287,7 +289,7 @@ class RunCoordinator:
         self.audio_peak_bytes = 0
         self.ledger = AttemptLedger(self.root)
         self._attempt_counts: dict[tuple[str, str], int] = {}
-        for rec in self.ledger.load():
+        for rec in self.ledger._iter_valid(strict=True):
             key = (rec["work_id"], rec["stage"])
             self._attempt_counts[key] = max(
                 self._attempt_counts.get(key, 0), rec["attempt"]
@@ -627,8 +629,10 @@ class RunCoordinator:
         return result
 
     def run_batch(
-        self, rows: list[tuple[str, dict[str, Any]]]
+        self, rows: list[tuple[str, dict[str, Any]]], *, already_owned: bool = False
     ) -> RunSummary:
+        if already_owned:
+            return self._run_batch_locked(rows)
         with archive_writer(self.root):
             return self._run_batch_locked(rows)
 

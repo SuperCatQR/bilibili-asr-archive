@@ -14,7 +14,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, TypeAlias
 
-from .coordinator import RunCoordinator, RunSummary
+from .coordinator import ArchiveBusyError, RunCoordinator, RunSummary, archive_writer
 from .manifest import ManifestStore
 from .scheduler import SchedulerStore, settled_processed_ids, terminal_resume_ids
 
@@ -276,6 +276,10 @@ class CampaignRunner:
         return terminal_resume_ids(lookup.processed_ids, entries)
 
     def run(self, scope: str, batch_limit: int, *, resume: bool = False) -> CampaignSummary:
+        with archive_writer(self.root):
+            return self._run_locked(scope, batch_limit, resume=resume)
+
+    def _run_locked(self, scope: str, batch_limit: int, *, resume: bool = False) -> CampaignSummary:
         if not isinstance(scope, str) or not scope.strip():
             raise ValueError("scope must be a non-empty string")
         if isinstance(batch_limit, bool) or not isinstance(batch_limit, int) or batch_limit < 1:
@@ -320,7 +324,12 @@ class CampaignRunner:
             self.root, store, client=self.client, offline=self.offline,
             max_audio_bytes=self.max_audio_bytes, sleep=self.sleep,
         )
-        run_summary: RunSummary = coordinator.run_batch(selected_rows)
+        try:
+            run_summary: RunSummary = coordinator.run_batch(selected_rows, already_owned=True)
+        except TypeError as exc:
+            if "already_owned" not in str(exc):
+                raise
+            run_summary = coordinator.run_batch(selected_rows)
         result_by_id = {result.work_id: result for result in run_summary.results}
         failed_or_skipped = bool(run_summary.failed or run_summary.skipped_rows)
         terminal_results = all(result.final_status in _TERMINAL_FINAL_STATUSES for result in run_summary.results)
