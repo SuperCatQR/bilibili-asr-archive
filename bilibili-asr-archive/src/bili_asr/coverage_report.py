@@ -374,48 +374,6 @@ def _valid_ledger(record: Mapping[str, Any]) -> bool:
     )
 
 
-def _validate_run_ledger(
-    records: list[dict[str, Any]], _state: str, diagnostics: set[tuple[str, str]]
-) -> None:
-    for record in records:
-        try:
-            validate_run_ledger_record(record)
-        except (TypeError, ValueError, KeyError):
-            diagnostics.add(("run_ledger_invalid_record", "run_ledger"))
-        work_ids = record.get("work_ids")
-        if not isinstance(work_ids, list) or any(
-            not isinstance(value, str) or not value for value in work_ids
-        ):
-            diagnostics.add(("run_ledger_invalid_work_ids", "record"))
-
-
-def _validate_attempts(
-    attempts: list[dict[str, Any]], _state: str, manifest: Mapping[str, Any], diagnostics: set[tuple[str, str]]
-) -> None:
-    seen: set[tuple[str, str, int]] = set()
-    for record in attempts:
-        work_id = record.get("work_id")
-        stage = record.get("stage")
-        number = record.get("attempt")
-        outcome = record.get("outcome")
-        if not isinstance(work_id, str) or not work_id:
-            diagnostics.add(("attempt_invalid_record", "work_id"))
-            continue
-        if work_id not in manifest:
-            diagnostics.add(("attempt_not_in_manifest", "attempt"))
-        if stage not in ATTEMPT_STAGES:
-            diagnostics.add(("attempt_invalid_stage", "attempt"))
-        if outcome not in ATTEMPT_OUTCOMES:
-            diagnostics.add(("attempt_invalid_outcome", "attempt"))
-        if not isinstance(number, int) or isinstance(number, bool) or number < 1:
-            diagnostics.add(("attempt_invalid_number", "attempt"))
-            continue
-        key = (work_id, str(stage), number)
-        if key in seen:
-            diagnostics.add(("duplicate_attempt", "attempt"))
-        seen.add(key)
-
-
 def _string_ids(
     record: Mapping[str, Any] | None,
     key: str,

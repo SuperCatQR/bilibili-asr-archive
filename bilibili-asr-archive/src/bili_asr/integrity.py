@@ -24,6 +24,8 @@ TRUNCATED_ATTEMPTS_LINE = "truncated_attempts_line"
 RETRYABLE_INCOMPLETE = "retryable_incomplete"
 STRUCTURAL_INPUT_ERROR = "structural_input_error"
 MANIFEST_ROW_LIMIT_EXCEEDED = "manifest_row_limit_exceeded"
+MANIFEST_INVALID_STATUS = "manifest_invalid_status"
+MANIFEST_INVALID_BVID = "manifest_invalid_bvid"
 MISSING_ATTEMPTS = "missing_attempts_sidecar"
 ATTEMPTS_ROW_LIMIT_EXCEEDED = "attempts_row_limit_exceeded"
 ATTEMPTS_BYTE_LIMIT_EXCEEDED = "attempts_byte_limit_exceeded"
@@ -176,8 +178,15 @@ class IntegrityReport:
         return {"checked": self.checked, "defect_count": len(self.defects), "defects": [d.to_dict() for d in self.defects], "diagnostics": list(self.diagnostics), "authoritative": self.authoritative}
 
 class IntegrityVerifier:
+    """Read-only archive integrity verifier."""
+
     def verify(self, archive_root: Path, *, scope: str | None = None,
                policy: ReaderPolicy | None = None) -> IntegrityReport:
+        """Verify archive evidence without modifying source artifacts.
+
+        Direct inspection defaults to bounded input. A trusted local caller must
+        explicitly pass ``ReaderPolicy(mode="trusted_archive")``.
+        """
         root = Path(archive_root).resolve()
         if not root.is_dir():
             report = IntegrityReport(authoritative=False)
@@ -206,6 +215,8 @@ class IntegrityVerifier:
                 report.diagnostics.append({"attempts_row_limit_exceeded": ATTEMPTS_ROW_LIMIT_EXCEEDED, "attempts_byte_limit_exceeded": ATTEMPTS_BYTE_LIMIT_EXCEEDED}[diagnostic])
             elif diagnostic == "truncated_attempts_line":
                 report.diagnostics.append(TRUNCATED_ATTEMPTS_LINE)
+            elif diagnostic in {"manifest_invalid_status", "manifest_invalid_bvid"}:
+                report.diagnostics.append(diagnostic)
             elif diagnostic == "structural_input_error" and MANIFEST_ROW_LIMIT_EXCEEDED in report.diagnostics:
                 continue
             elif diagnostic == "manifest_malformed" and MANIFEST_ROW_LIMIT_EXCEEDED in report.diagnostics:
@@ -222,7 +233,7 @@ class IntegrityVerifier:
         report.authoritative = manifest_present and attempts_present and manifest_valid and attempts_valid and not any(
             diagnostic in {"structural_input_error", "attempts_row_limit_exceeded", "attempts_byte_limit_exceeded"}
             for diagnostic in attempt_diagnostics
-        ) and not ("manifest_invalid" in manifest_diagnostics)
+        ) and not ({"manifest_invalid", "manifest_invalid_status", "manifest_invalid_bvid"} & manifest_diagnostics)
         if not manifest_present and MANIFEST_ROW_LIMIT_EXCEEDED not in report.diagnostics: report.diagnostics.append(STRUCTURAL_INPUT_ERROR)
         if not attempts_present:
             if manifest_present and manifest_valid:

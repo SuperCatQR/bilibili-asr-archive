@@ -4,7 +4,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import json
 from pathlib import Path
-from typing import Any, Iterator, Mapping
+from typing import Any, Iterator, Literal, Mapping
 
 from .coordinator import _validate_attempt
 from .manifest import VALID_STATUSES
@@ -15,7 +15,7 @@ from .page_identity import parse_work_id
 class ReaderPolicy:
     """Reader limits for explicitly bounded input or trusted local archives."""
 
-    mode: str = "bounded_input"
+    mode: Literal["bounded_input", "trusted_archive"] = "bounded_input"
     max_records: int | None = 10_000
     max_bytes: int | None = 8 * 1024 * 1024
     max_line_bytes: int = 16 * 1024 * 1024
@@ -65,23 +65,25 @@ def iter_jsonl_records(
             return
         with source.open("rb") as handle:
             pending: tuple[int, bytes] | None = None
-            seen = 0
+            record_count = 0
+            physical_line = 0
             while True:
                 raw = handle.readline(policy.max_line_bytes + 1)
                 if not raw:
                     if pending is not None:
                         yield _decode_jsonl_record(*pending, final=True, policy=policy)
                     break
-                line = seen + 1
+                physical_line += 1
+                line = physical_line
                 if len(raw) > policy.max_line_bytes and not raw.endswith(b"\n"):
                     yield JsonlRecord(line, None, "line_limit")
                     return
-                seen = line
-                if policy.max_records is not None and line > policy.max_records:
-                    yield JsonlRecord(line, None, f"{name}_record_limit")
-                    return
                 if not raw.strip():
                     continue
+                record_count += 1
+                if policy.max_records is not None and record_count > policy.max_records:
+                    yield JsonlRecord(line, None, f"{name}_record_limit")
+                    return
                 if pending is not None:
                     yield _decode_jsonl_record(*pending, final=False, policy=policy)
                 pending = (line, raw)
@@ -140,7 +142,7 @@ def _manifest_semantic_diagnostics(record: Mapping[str, Any]) -> set[str]:
 def project_manifest_records(
     path: str | Path, *, policy: ReaderPolicy | None = None,
 ) -> tuple[dict[str, dict[str, Any]], str, set[str]]:
-    """Project latest valid manifest row, retaining duplicate diagnostics."""
+    """Project latest valid manifest rows and retain semantic diagnostics."""
     entries: dict[str, dict[str, Any]] = {}
     diagnostics: set[str] = set()
     state = "available"
@@ -183,11 +185,9 @@ def project_attempt_records(
     latest: dict[tuple[str, str], dict[str, Any]] = {}
     diagnostics: set[str] = set()
     state = "available"
-    saw_truncated_final = False
     for item in iter_jsonl_records(path, policy=policy, name="attempts"):
         if item.diagnostic:
             if item.diagnostic == "truncated_final":
-                saw_truncated_final = True
                 diagnostics.add("truncated_attempts_line")
                 continue
             state = "malformed"

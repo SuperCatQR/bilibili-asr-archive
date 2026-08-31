@@ -252,3 +252,10 @@ def test_invalid_utf8_attempts_fail_closed(tmp_path: Path) -> None:
     report = IntegrityVerifier().verify(tmp_path)
     assert report.authoritative is False
     assert STRUCTURAL_INPUT_ERROR in report.diagnostics
+
+
+def test_invalid_manifest_semantics_are_named_and_non_authoritative(tmp_path: Path) -> None:
+    _manifest(tmp_path, [{"work_id": "BV1x:p0", "bvid": "BVother", "status": "not-a-status"}])
+    report = IntegrityVerifier().verify(tmp_path)
+    assert report.authoritative is False
+    assert {"manifest_invalid_status", "manifest_invalid_bvid"} <= set(report.diagnostics)

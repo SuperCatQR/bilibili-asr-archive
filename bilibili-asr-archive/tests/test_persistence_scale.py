@@ -20,7 +20,7 @@ from bili_asr.integrity import IntegrityVerifier, STRUCTURAL_INPUT_ERROR
 from bili_asr.manifest import ManifestStore
 from bili_asr.coordinator import AttemptLedger, ArchiveBusyError, archive_writer
 from bili_asr.persistence import replace_file_atomically
-from bili_asr.sidecar_projection import ReaderPolicy
+from bili_asr.sidecar_projection import ReaderPolicy, iter_jsonl_records, project_attempt_records
 
 
 
@@ -167,6 +167,25 @@ def test_trusted_scale_fixture_exposes_current_record_limits(tmp_path: Path) -> 
     trusted_coverage = CoverageReport.build(tmp_path, policy=ReaderPolicy(mode="trusted_archive"))
     assert trusted_integrity.authoritative is True
     assert trusted_coverage.data["denominator"]["count"] == 10001
+    projected_attempts, attempts_state, attempts_diagnostics = project_attempt_records(
+        attempts, policy=ReaderPolicy(mode="trusted_archive")
+    )
+    assert attempts_state == "available"
+    assert attempts_diagnostics == set()
+    assert len(projected_attempts) == 40001
+    assert projected_attempts[-1]["work_id"] == "BV40000:p0"
+    assert len(trusted_coverage.data["rows"]) == 10001
+    assert {row["work_id"] for row in trusted_coverage.data["rows"]} == {
+        f"BV{i}:p0" for i in range(10001)
+    }
+
+
+def test_bounded_record_limit_ignores_blank_lines_and_preserves_physical_line_numbers(tmp_path: Path) -> None:
+    path = tmp_path / "records.jsonl"
+    path.write_text('{"value": 1}\n\n{"value": 2}\n', encoding="utf-8")
+    records = list(iter_jsonl_records(path, policy=ReaderPolicy(max_records=2), name="records"))
+    assert [(record.line, record.value) for record in records] == [(1, {"value": 1}), (3, {"value": 2})]
+
 
 
 @pytest.mark.parametrize("operation", ["write", "fsync", "replace", "directory_fsync"])
