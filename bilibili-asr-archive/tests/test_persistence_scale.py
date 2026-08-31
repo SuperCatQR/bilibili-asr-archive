@@ -6,8 +6,11 @@ later tasks are expected to fix.  All inputs are synthetic and local-only.
 from __future__ import annotations
 
 import json
+import os
+import stat
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -17,8 +20,6 @@ from bili_asr.integrity import IntegrityVerifier, STRUCTURAL_INPUT_ERROR
 from bili_asr.manifest import ManifestStore
 from bili_asr.coordinator import AttemptLedger
 
-
-ROOT = Path(__file__).resolve().parents[1]
 
 
 def _row(work_id: str, status: str = "pending") -> dict[str, object]:
@@ -47,33 +48,67 @@ def _attempt(work_id: str, number: int = 1, *, stage: str = "archive") -> dict[s
     }
 
 
+def _run_children(tmp_path: Path, script: str, *child_args: tuple[str, ...]) -> None:
+    ready_dir = tmp_path / "ready"
+    ready_dir.mkdir()
+    release = tmp_path / "release"
+    processes = [
+        subprocess.Popen(
+            [
+                sys.executable,
+                "-c",
+                script,
+                str(tmp_path),
+                str(ready_dir / f"{i}.ready"),
+                str(release),
+                *args_for_child,
+            ]
+        )
+        for i, args_for_child in enumerate(child_args)
+    ]
+    deadline = time.monotonic() + 5
+    while time.monotonic() < deadline and len(list(ready_dir.glob("*.ready"))) < len(processes):
+        time.sleep(0.01)
+    assert len(list(ready_dir.glob("*.ready"))) == len(processes)
+    release.touch()
+    for process in processes:
+        try:
+            assert process.wait(timeout=5) == 0
+        finally:
+            if process.poll() is None:
+                process.kill()
+                process.wait()
+
+
 def test_two_process_manifest_disjoint_writes_are_not_lost(tmp_path: Path) -> None:
     script = """
 import sys
+from pathlib import Path
 from bili_asr.manifest import ManifestStore
-root = sys.argv[1]
+root, ready, release, work_id = sys.argv[1:]
+Path(ready).touch()
+while not Path(release).exists():
+    pass
 store = ManifestStore(root)
-store.upsert({"work_id": sys.argv[2], "bvid": sys.argv[2].split(":")[0], "status": "pending"})
+store.upsert({"work_id": work_id, "bvid": work_id.split(":")[0], "status": "pending"})
 """
-    first = subprocess.Popen([sys.executable, "-c", script, str(tmp_path), "BVA:p0"])
-    second = subprocess.Popen([sys.executable, "-c", script, str(tmp_path), "BVB:p0"])
-    assert first.wait() == 0
-    assert second.wait() == 0
+    _run_children(tmp_path, script, ("BVA:p0",), ("BVB:p0",))
     assert set(ManifestStore(tmp_path).load()) == {"BVA:p0", "BVB:p0"}
 
 
 def test_two_process_manifest_same_key_has_one_valid_revision(tmp_path: Path) -> None:
     script = """
 import sys
+from pathlib import Path
 from bili_asr.manifest import ManifestStore
-root = sys.argv[1]
+root, ready, release, title = sys.argv[1:]
+Path(ready).touch()
+while not Path(release).exists():
+    pass
 store = ManifestStore(root)
-store.upsert({"work_id": "same:p0", "bvid": "same", "title": sys.argv[2], "status": "pending"})
+store.upsert({"work_id": "same:p0", "bvid": "same", "title": title, "status": "pending"})
 """
-    first = subprocess.Popen([sys.executable, "-c", script, str(tmp_path), "first"])
-    second = subprocess.Popen([sys.executable, "-c", script, str(tmp_path), "second"])
-    assert first.wait() == 0
-    assert second.wait() == 0
+    _run_children(tmp_path, script, ("first",), ("second",))
     loaded = ManifestStore(tmp_path).load()
     assert list(loaded) == ["same:p0"]
     assert loaded["same:p0"]["title"] in {"first", "second"}
@@ -82,32 +117,34 @@ store.upsert({"work_id": "same:p0", "bvid": "same", "title": sys.argv[2], "statu
 def test_two_process_ledger_disjoint_appends_are_not_lost(tmp_path: Path) -> None:
     script = """
 import sys
+from pathlib import Path
 from bili_asr.coordinator import AttemptLedger
-ledger = AttemptLedger(sys.argv[1])
-ledger.append({"stage": "archive", "work_id": sys.argv[2], "attempt": 1,
+root, ready, release, work_id = sys.argv[1:]
+Path(ready).touch()
+while not Path(release).exists():
+    pass
+AttemptLedger(root).append({"stage": "archive", "work_id": work_id, "attempt": 1,
  "outcome": "ok", "error_code": None, "artifact_paths": [],
  "started_at": "2026-08-31T00:00:00Z", "finished_at": "2026-08-31T00:00:01Z"})
 """
-    first = subprocess.Popen([sys.executable, "-c", script, str(tmp_path), "BVA:p0"])
-    second = subprocess.Popen([sys.executable, "-c", script, str(tmp_path), "BVB:p0"])
-    assert first.wait() == 0
-    assert second.wait() == 0
+    _run_children(tmp_path, script, ("BVA:p0",), ("BVB:p0",))
     assert {record["work_id"] for record in AttemptLedger(tmp_path).load()} == {"BVA:p0", "BVB:p0"}
 
 
 def test_two_process_same_attempt_key_numbers_do_not_conflict(tmp_path: Path) -> None:
     script = """
 import sys
+from pathlib import Path
 from bili_asr.coordinator import AttemptLedger
-ledger = AttemptLedger(sys.argv[1])
-ledger.append({"stage": "archive", "work_id": "same:p0", "attempt": 1,
+root, ready, release = sys.argv[1:]
+Path(ready).touch()
+while not Path(release).exists():
+    pass
+AttemptLedger(root).append({"stage": "archive", "work_id": "same:p0", "attempt": 1,
  "outcome": "ok", "error_code": None, "artifact_paths": [],
  "started_at": "2026-08-31T00:00:00Z", "finished_at": "2026-08-31T00:00:01Z"})
 """
-    first = subprocess.Popen([sys.executable, "-c", script, str(tmp_path)])
-    second = subprocess.Popen([sys.executable, "-c", script, str(tmp_path)])
-    assert first.wait() == 0
-    assert second.wait() == 0
+    _run_children(tmp_path, script, (), ())
     numbers = [record["attempt"] for record in AttemptLedger(tmp_path).load()]
     assert sorted(numbers) == [1, 2]
 
@@ -132,7 +169,10 @@ def test_manifest_failure_injection_preserves_unrelated_file(tmp_path: Path, mon
     store.upsert(_row("prior:p0"))
     marker = tmp_path / "unrelated.txt"
     marker.write_text("keep", encoding="utf-8")
-    manifest_before = store.path and Path(store.path).read_bytes()
+    manifest_path = Path(store.path)
+    manifest_before = manifest_path.read_bytes()
+    manifest_mtime_before = manifest_path.stat().st_mtime_ns
+    directory_fsync_injected = False
 
     if operation == "write":
         original = open
@@ -146,11 +186,23 @@ def test_manifest_failure_injection_preserves_unrelated_file(tmp_path: Path, mon
     elif operation == "replace":
         monkeypatch.setattr("bili_asr.manifest.os.replace", lambda *_args: (_ for _ in ()).throw(OSError("injected replace")))
     else:
-        pytest.skip("manifest has no parent-directory fsync hook in baseline")
+        original_fsync = os.fsync
+
+        def fail_directory_fsync(fd: int) -> None:
+            nonlocal directory_fsync_injected
+            if stat.S_ISDIR(os.fstat(fd).st_mode):
+                directory_fsync_injected = True
+                raise OSError("injected directory fsync")
+            original_fsync(fd)
+
+        monkeypatch.setattr("bili_asr.manifest.os.fsync", fail_directory_fsync)
 
     with pytest.raises(OSError):
         store.upsert(_row("new:p0"))
-    assert Path(store.path).read_bytes() == manifest_before
+    if operation == "directory_fsync":
+        assert directory_fsync_injected
+    assert manifest_path.read_bytes() == manifest_before
+    assert manifest_path.stat().st_mtime_ns == manifest_mtime_before
     assert marker.read_text(encoding="utf-8") == "keep"
 
 
