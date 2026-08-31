@@ -20,6 +20,7 @@ from bili_asr.integrity import IntegrityVerifier, STRUCTURAL_INPUT_ERROR
 from bili_asr.manifest import ManifestStore
 from bili_asr.coordinator import AttemptLedger, ArchiveBusyError, archive_writer
 from bili_asr.persistence import replace_file_atomically
+from bili_asr.sidecar_projection import ReaderPolicy
 
 
 
@@ -162,6 +163,10 @@ def test_trusted_scale_fixture_exposes_current_record_limits(tmp_path: Path) -> 
     assert integrity.authoritative is False
     assert "manifest_row_limit_exceeded" in integrity.diagnostics
     assert any(item["code"] == "sidecar_record_limit" for item in coverage.data["diagnostics"])
+    trusted_integrity = IntegrityVerifier().verify(tmp_path, policy=ReaderPolicy(mode="trusted_archive"))
+    trusted_coverage = CoverageReport.build(tmp_path, policy=ReaderPolicy(mode="trusted_archive"))
+    assert trusted_integrity.authoritative is True
+    assert trusted_coverage.data["denominator"]["count"] == 10001
 
 
 @pytest.mark.parametrize("operation", ["write", "fsync", "replace", "directory_fsync"])

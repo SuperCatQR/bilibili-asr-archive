@@ -66,7 +66,14 @@ class CoverageReport:
         manifest, manifest_state, manifest_diagnostics = project_manifest_records(
             root / "manifest" / "manifest.jsonl", policy=policy
         )
-        diagnostics.update((code, "manifest") for code in manifest_diagnostics)
+        diagnostics.update(
+            (
+                "sidecar_record_limit" if code.endswith("row_limit_exceeded") else
+                "sidecar_byte_limit" if code.endswith("byte_limit_exceeded") else code,
+                "manifest",
+            )
+            for code in manifest_diagnostics
+        )
         if "manifest_duplicate_work_id" in manifest_diagnostics:
             manifest_state = "malformed"
         cursor, cursor_state = _read_validated_sidecar(
@@ -79,7 +86,14 @@ class CoverageReport:
         attempts, attempts_state, attempt_diagnostics = project_attempt_records(
             root / "coordinator" / "attempts.jsonl", policy=policy
         )
-        diagnostics.update((code, "attempt") for code in attempt_diagnostics)
+        diagnostics.update(
+            (
+                "sidecar_record_limit" if code.endswith("row_limit_exceeded") else
+                "sidecar_byte_limit" if code.endswith("byte_limit_exceeded") else code,
+                "attempt",
+            )
+            for code in attempt_diagnostics
+        )
         if "attempt_not_in_manifest" in {"attempt_not_in_manifest" if r.get("work_id") not in manifest else "" for r in attempts}:
             diagnostics.add(("attempt_not_in_manifest", "attempt"))
 
@@ -339,6 +353,8 @@ def _read_jsonl(
         if item.diagnostic:
             if item.diagnostic == f"{name}_record_limit":
                 diagnostics.add(("sidecar_record_limit", name))
+            elif item.diagnostic == f"{name}_byte_limit":
+                diagnostics.add(("sidecar_byte_limit", name))
             else:
                 diagnostics.add(("sidecar_malformed", name))
             valid = False

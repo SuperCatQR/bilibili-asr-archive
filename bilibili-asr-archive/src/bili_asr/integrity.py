@@ -202,28 +202,36 @@ class IntegrityVerifier:
         for diagnostic in sorted(manifest_diagnostics | attempt_diagnostics):
             if diagnostic == "manifest_row_limit_exceeded":
                 report.diagnostics.append(MANIFEST_ROW_LIMIT_EXCEEDED)
-            elif diagnostic == "attempts_row_limit_exceeded":
-                report.diagnostics.append(ATTEMPTS_ROW_LIMIT_EXCEEDED)
-            elif diagnostic == "attempts_byte_limit_exceeded":
-                report.diagnostics.append(ATTEMPTS_BYTE_LIMIT_EXCEEDED)
+            elif diagnostic in {"attempts_row_limit_exceeded", "attempts_byte_limit_exceeded"}:
+                report.diagnostics.append({"attempts_row_limit_exceeded": ATTEMPTS_ROW_LIMIT_EXCEEDED, "attempts_byte_limit_exceeded": ATTEMPTS_BYTE_LIMIT_EXCEEDED}[diagnostic])
             elif diagnostic == "truncated_attempts_line":
                 report.diagnostics.append(TRUNCATED_ATTEMPTS_LINE)
-            elif diagnostic == "manifest_duplicate_work_id":
-                report.diagnostics.append(STRUCTURAL_INPUT_ERROR)
+            elif diagnostic == "structural_input_error" and MANIFEST_ROW_LIMIT_EXCEEDED in report.diagnostics:
+                continue
+            elif diagnostic == "manifest_malformed" and MANIFEST_ROW_LIMIT_EXCEEDED in report.diagnostics:
+                continue
+            elif diagnostic == "manifest_malformed":
+                continue
+            elif diagnostic == "attempt_invalid_record":
+                continue
             else:
                 report.diagnostics.append(STRUCTURAL_INPUT_ERROR)
         manifest_present = reader.is_regular(Path("manifest/manifest.jsonl"))
-        attempts_present = reader.is_regular(Path("coordinator/attempts.jsonl"))
-        report.authoritative = manifest_present and attempts_present and manifest_valid and attempts_valid
-        if not manifest_present: report.diagnostics.append(STRUCTURAL_INPUT_ERROR)
+        attempts_path = root / "coordinator" / "attempts.jsonl"
+        attempts_present = attempts_path.is_file() and not attempts_path.is_symlink()
+        report.authoritative = manifest_present and attempts_present and manifest_valid and attempts_valid and not any(
+            diagnostic in {"structural_input_error", "attempts_row_limit_exceeded", "attempts_byte_limit_exceeded"}
+            for diagnostic in attempt_diagnostics
+        ) and not ("manifest_invalid" in manifest_diagnostics)
+        if not manifest_present and MANIFEST_ROW_LIMIT_EXCEEDED not in report.diagnostics: report.diagnostics.append(STRUCTURAL_INPUT_ERROR)
         if not attempts_present:
             if manifest_present and manifest_valid:
-                report.diagnostics.append(MISSING_ATTEMPTS)
+                if MANIFEST_ROW_LIMIT_EXCEEDED not in report.diagnostics:
+                    report.diagnostics.append(MISSING_ATTEMPTS)
             elif not manifest_present:
-                report.diagnostics.append(STRUCTURAL_INPUT_ERROR)
-        # Legacy archives may predate the coordinator sidecar.  Keep their
-        # manifest rows checkable while withholding the authoritative claim.
-        selected = self._select(entries, scope, attempts if attempts_valid else []) if manifest_valid and (attempts_valid or not attempts_present) else sorted(entries.items()) if manifest_valid and not attempts_present else []
+                if MANIFEST_ROW_LIMIT_EXCEEDED not in report.diagnostics:
+                    report.diagnostics.append(STRUCTURAL_INPUT_ERROR)
+        selected = self._select(entries, scope, attempts) if manifest_valid and attempts_valid else sorted(entries.items()) if manifest_valid else []
         report.checked = len(selected)
         for key, row in selected:
             work_id = str(row.get("work_id") or key); status = str(row.get("status") or ""); defects: set[str] = set()
@@ -412,60 +420,6 @@ class IntegrityVerifier:
             finally:
                 if coordinator_fd >= 0: os.close(coordinator_fd)
         return {"ok": True, "selected": selected_ids, "audit_path": _AUDIT_REL_PATH}
-
-    @staticmethod
-    def _read_manifest(root: Path, report: IntegrityReport, reader: _RootConfinedReader) -> tuple[dict[str, dict[str, Any]], bool]:
-        path=root/"manifest"/"manifest.jsonl"; entries={}; valid=True
-        if not reader.is_regular(path): return entries, True
-        try:
-            lines = reader.read(path, _MAX_ATTEMPTS_BYTES).decode("utf-8").splitlines()
-            non_empty_rows = sum(bool(line.strip()) for line in lines)
-            if non_empty_rows > _MAX_ROWS:
-                valid = False
-                report.diagnostics.append(MANIFEST_ROW_LIMIT_EXCEEDED)
-            for number, line in enumerate(lines[:_MAX_ROWS]):
-                if not line.strip(): continue
-                value=json.loads(line)
-                if not isinstance(value,dict): raise ValueError
-                for field_name in ("work_id", "bvid", "status", "srt_path", "txt_path", "md_path", "raw_path"):
-                    if field_name in value and value[field_name] is not None and not isinstance(value[field_name], str): raise ValueError
-                if "cid" in value and value["cid"] is not None and (isinstance(value["cid"], bool) or not isinstance(value["cid"], int)): raise ValueError
-                key=value.get("work_id") or value.get("bvid") or ""
-                if not key: raise ValueError
-                entries[key]=value
-        except (OSError,UnicodeError,json.JSONDecodeError,ValueError):
-            valid=False; report.diagnostics.append(STRUCTURAL_INPUT_ERROR)
-        return entries, valid
-
-    @staticmethod
-    def _read_attempts(root: Path, report: IntegrityReport, reader: _RootConfinedReader) -> tuple[list[dict[str, Any]], bool, bool]:
-        path = root / "coordinator" / "attempts.jsonl"
-        if not reader.is_regular(path): return [], True, False
-        records=[]; truncated=False; valid=True
-        try:
-            lines = reader.read(path, _MAX_ATTEMPTS_BYTES).decode("utf-8").splitlines()
-            if sum(bool(line.strip()) for line in lines) > _MAX_ROWS:
-                report.diagnostics.append(ATTEMPTS_ROW_LIMIT_EXCEEDED)
-                return [], False, False
-        except (OSError, UnicodeError) as error:
-            if isinstance(error, OSError) and "oversized" in str(error):
-                report.diagnostics.append(ATTEMPTS_BYTE_LIMIT_EXCEEDED)
-            else:
-                report.diagnostics.append(STRUCTURAL_INPUT_ERROR)
-            return [], False, False
-        last_non_empty = max((i for i, line in enumerate(lines) if line.strip()), default=-1)
-        for index, line in enumerate(lines):
-            if not line.strip(): continue
-            try:
-                value=json.loads(line)
-            except json.JSONDecodeError:
-                if index == last_non_empty: truncated=True
-                else: valid=False; report.diagnostics.append(STRUCTURAL_INPUT_ERROR)
-                continue
-            try: record=_validate_attempt(value)
-            except (TypeError,ValueError): valid=False; report.diagnostics.append(STRUCTURAL_INPUT_ERROR); continue
-            records.append(record)
-        return records,valid,truncated
 
     @staticmethod
     def _select(entries, scope, attempts):
