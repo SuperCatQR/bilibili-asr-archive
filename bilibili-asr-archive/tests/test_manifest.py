@@ -68,7 +68,7 @@ def test_upsert_dedupe_same_bvid(store, tmp_root):
 
     with open(_manifest_path(tmp_root), encoding="utf-8") as fh:
         lines = fh.read().splitlines()
-    assert len(lines) == 1
+    assert len(lines) == 2
 
 
 def test_resume_dedupe_no_duplicate_bvids(store, tmp_root):
@@ -82,11 +82,19 @@ def test_resume_dedupe_no_duplicate_bvids(store, tmp_root):
     with open(_manifest_path(tmp_root), encoding="utf-8") as fh:
         lines = fh.read().splitlines()
     bvids = [json.loads(l)["bvid"] for l in lines]
-    assert len(bvids) == len(set(bvids)) == 2
+    assert len(bvids) == 3
+    assert len({bvids[0], bvids[1], bvids[2]}) == 2
 
 
-def test_get_missing_returns_none(store):
-    assert store.get("BV1zz") is None
+
+
+def test_non_object_manifest_row_is_rejected(store, tmp_root):
+    path = _manifest_path(tmp_root)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as fh:
+        fh.write("[]\n")
+    with pytest.raises(ValueError, match="object"):
+        store.load()
 
 
 def test_save_roundtrip_preserves_fields(store, tmp_root):

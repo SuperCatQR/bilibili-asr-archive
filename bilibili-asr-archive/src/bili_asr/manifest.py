@@ -13,7 +13,7 @@ import re
 from typing import Any, Callable, Optional
 
 from .page_identity import PageIdentity, format_work_id, parse_work_id
-from .persistence import file_lock, replace_file_atomically
+from .persistence import append_jsonl_record, file_lock, replace_file_atomically
 
 # Manifest state machine (spec SSOT):
 # pending -> meta_ok -> sub_checked -> {subtitle_done | needs_audio -> audio_ok}
@@ -87,6 +87,8 @@ class ManifestStore:
                     if not line:
                         continue
                     entry = json.loads(line)
+                    if not isinstance(entry, dict):
+                        raise ValueError("manifest JSONL row must be an object")
                     entries[_entry_key(entry)] = entry
         return entries
 
@@ -103,21 +105,29 @@ class ManifestStore:
         )
 
     def save(self, entries: dict[str, dict[str, Any]] | None = None) -> None:
-        """Durably rewrite the JSONL file, one deterministic line per key."""
-        if entries is not None:
-            self._entries = dict(entries)
-        if not self._entries:
-            return
+        """Durably publish a deterministic latest-row snapshot without stale loss."""
+        requested = dict(entries) if entries is not None else None
         os.makedirs(os.path.dirname(self.path), exist_ok=True)
         with file_lock(self.path):
-            replace_file_atomically(self.path, self._snapshot_bytes(self._entries), temp_suffix=".tmp")
+            current = self._read_latest()
+            if requested is not None:
+                current.update(requested)
+            if not current:
+                self._entries = {}
+                self._loaded = True
+                return
+            replace_file_atomically(self.path, self._snapshot_bytes(current))
+            self._entries = current
+            self._loaded = True
 
     def compact(self) -> None:
         """Replace journal history with the deterministic latest-row snapshot."""
         with file_lock(self.path):
-            self._entries = self._read_latest()
-            if self._entries:
-                replace_file_atomically(self.path, self._snapshot_bytes(self._entries))
+            current = self._read_latest()
+            if current:
+                replace_file_atomically(self.path, self._snapshot_bytes(current))
+            self._entries = current
+            self._loaded = True
 
     def upsert(self, entry: dict[str, Any]) -> dict[str, Any]:
         """Insert or replace one record and persist under a fresh-state lock."""
@@ -151,9 +161,10 @@ class ManifestStore:
                 if not freeze and not legacy_update:
                     raise ValueError("new automatic row requires work_id")
             stored = dict(entry)
-            self._entries[_entry_key(stored)] = stored
-            replace_file_atomically(self.path, self._snapshot_bytes(self._entries))
-            return self._entries[_entry_key(stored)]
+            key = _entry_key(stored)
+            append_jsonl_record(self.path, stored)
+            self._entries[key] = stored
+            return stored
 
     def get(self, work_id: str) -> Optional[dict[str, Any]]:
         """Return the record for an exact work_id (or legacy bare-bvid key)."""
@@ -201,60 +212,52 @@ class ManifestStore:
             self.load()
         root = os.fspath(archive_root if archive_root is not None else self.root)
         report = LegacyMigrationReport()
-        next_entries: dict[str, dict[str, Any]] = dict(self._entries)
+        with file_lock(self.path):
+            current = self._read_latest()
+            self._entries = current
+            self._loaded = True
+            next_entries: dict[str, dict[str, Any]] = dict(current)
 
-        bare_keys = sorted(
-            key for key, entry in self._entries.items()
-            if _is_bare_legacy(entry)
-            and (only_bvid is None or entry.get("bvid") == only_bvid)
-        )
-        for key in bare_keys:
-            entry = dict(next_entries[key])
-            bvid = str(entry["bvid"])
-            pages = list(pages_for(bvid))
-            colliding_stems = _foreign_page_stems(root, bvid)
-            dest_work_id = format_work_id(bvid, 0)
-            dest_occupied = (
-                dest_work_id in next_entries and dest_work_id != key
+            bare_keys = sorted(
+                key for key, entry in current.items()
+                if _is_bare_legacy(entry)
+                and (only_bvid is None or entry.get("bvid") == only_bvid)
             )
-            missing_cid = bool(pages) and any(p.cid is None for p in pages)
-            unambiguous = (
-                len(pages) == 1
-                and not colliding_stems
-                and not dest_occupied
-                and not missing_cid
-                and pages[0].page_index == 0
-                and pages[0].bvid == bvid
-            )
-            if dest_occupied:
-                raise ManifestMigrationCollision(
-                    f"migration would overwrite existing work_id {dest_work_id}"
+            for key in bare_keys:
+                entry = dict(next_entries[key])
+                bvid = str(entry["bvid"])
+                pages = list(pages_for(bvid))
+                colliding_stems = _foreign_page_stems(root, bvid)
+                dest_work_id = format_work_id(bvid, 0)
+                dest_occupied = dest_work_id in next_entries and dest_work_id != key
+                missing_cid = bool(pages) and any(p.cid is None for p in pages)
+                unambiguous = (
+                    len(pages) == 1 and not colliding_stems and not dest_occupied
+                    and not missing_cid and pages[0].page_index == 0
+                    and pages[0].bvid == bvid
                 )
-            if unambiguous:
-                page = pages[0]
-                if colliding_stems:
+                if dest_occupied:
                     raise ManifestMigrationCollision(
-                        f"migration would collide with artifacts {sorted(colliding_stems)}"
+                        f"migration would overwrite existing work_id {dest_work_id}"
                     )
-                migrated = dict(entry)
-                migrated["work_id"] = page.work_id
-                migrated["page_index"] = page.page_index
-                migrated["cid"] = page.cid
-                migrated["page_label"] = page.page_label
-                del next_entries[key]
-                next_entries[page.work_id] = migrated
-                report.migrated.append(page.work_id)
-                continue
-            marked = dict(entry)
-            marked.setdefault("unresolved", True)
-            marked.setdefault(
-                "unresolved_reason", UNRESOLVED_REASON_AMBIGUOUS_BARE_BVID
-            )
-            marked.setdefault("excluded_from_page_processing", True)
-            next_entries[key] = marked
-            report.unresolved.append(bvid)
-
-        self.save(next_entries)
+                if unambiguous:
+                    page = pages[0]
+                    migrated = dict(entry)
+                    migrated.update({"work_id": page.work_id, "page_index": page.page_index,
+                                     "cid": page.cid, "page_label": page.page_label})
+                    del next_entries[key]
+                    next_entries[page.work_id] = migrated
+                    report.migrated.append(page.work_id)
+                else:
+                    marked = dict(entry)
+                    marked.setdefault("unresolved", True)
+                    marked.setdefault("unresolved_reason", UNRESOLVED_REASON_AMBIGUOUS_BARE_BVID)
+                    marked.setdefault("excluded_from_page_processing", True)
+                    next_entries[key] = marked
+                    report.unresolved.append(bvid)
+            if next_entries != current:
+                replace_file_atomically(self.path, self._snapshot_bytes(next_entries))
+                self._entries = next_entries
         return report
 
 

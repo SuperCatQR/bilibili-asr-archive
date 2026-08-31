@@ -19,6 +19,7 @@ from bili_asr.coverage_report import CoverageReport
 from bili_asr.integrity import IntegrityVerifier, STRUCTURAL_INPUT_ERROR
 from bili_asr.manifest import ManifestStore
 from bili_asr.coordinator import AttemptLedger
+from bili_asr.persistence import replace_file_atomically
 
 
 
@@ -177,28 +178,34 @@ def test_manifest_failure_injection_preserves_unrelated_file(tmp_path: Path, mon
     if operation == "write":
         original = open
         def fail_open(path, *args, **kwargs):
-            if str(path).endswith("manifest.jsonl.tmp"):
+            if str(path).endswith("manifest.jsonl") and "ab" in args:
                 raise OSError("injected write")
             return original(path, *args, **kwargs)
         monkeypatch.setattr("builtins.open", fail_open)
     elif operation == "fsync":
-        monkeypatch.setattr("bili_asr.manifest.os.fsync", lambda _fd: (_ for _ in ()).throw(OSError("injected fsync")))
+        original_fsync = os.fsync
+        def fail_file_fsync(fd):
+            if not stat.S_ISDIR(os.fstat(fd).st_mode):
+                raise OSError("injected fsync")
+            original_fsync(fd)
+        monkeypatch.setattr("bili_asr.manifest.os.fsync", fail_file_fsync)
     elif operation == "replace":
         monkeypatch.setattr("bili_asr.manifest.os.replace", lambda *_args: (_ for _ in ()).throw(OSError("injected replace")))
     else:
         original_fsync = os.fsync
-
         def fail_directory_fsync(fd: int) -> None:
             nonlocal directory_fsync_injected
             if stat.S_ISDIR(os.fstat(fd).st_mode):
                 directory_fsync_injected = True
                 raise OSError("injected directory fsync")
             original_fsync(fd)
-
         monkeypatch.setattr("bili_asr.manifest.os.fsync", fail_directory_fsync)
 
     with pytest.raises(OSError):
-        store.upsert(_row("new:p0"))
+        if operation == "write":
+            store.upsert(_row("new:p0"))
+        else:
+            replace_file_atomically(manifest_path, b"new\n")
     if operation == "directory_fsync":
         assert directory_fsync_injected
     assert manifest_path.read_bytes() == manifest_before
