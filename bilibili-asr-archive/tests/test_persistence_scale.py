@@ -21,7 +21,7 @@ from bili_asr.manifest import ManifestStore
 from bili_asr.coordinator import AttemptLedger, ArchiveBusyError, archive_writer
 from bili_asr.persistence import replace_file_atomically
 from bili_asr.sidecar_projection import ReaderPolicy, iter_jsonl_records, project_attempt_records
-from bili_asr.path_policy import confined_audio_path
+from bili_asr.path_policy import confined_audio_file, confined_audio_path
 
 
 
@@ -342,6 +342,22 @@ def test_confined_audio_path_rejects_invalid_and_accepts_valid(tmp_path):
     outside.write_bytes(b"outside")
     link = audio / "link.m4a"
     link.symlink_to(outside)
+    assert link.is_symlink()
+    assert confined_audio_path(tmp_path, "audio/link.m4a", require_exists=True) is None
+
+
+def test_confined_audio_file_keeps_open_descriptor_across_path_swap(tmp_path):
+    audio = tmp_path / "audio"
+    audio.mkdir()
+    original = audio / "swap.m4a"
+    outside = tmp_path / "outside.m4a"
+    original.write_bytes(b"original")
+    outside.write_bytes(b"outside")
+    with confined_audio_file(tmp_path, "audio/swap.m4a") as opened:
+        original.unlink()
+        original.symlink_to(outside)
+        assert Path(opened).read_bytes() == b"original"
+    assert outside.read_bytes() == b"outside"
 
 
 @pytest.mark.parametrize("marker_value", [[], None, "marker"])

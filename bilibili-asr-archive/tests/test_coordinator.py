@@ -455,7 +455,8 @@ def test_cli_run_per_item_failure_batch_continues(tmp_root, monkeypatch, capsys)
     store.upsert(_row(b, title="b"))
 
     def flaky(audio_path, model_name=None):
-        if artifact_stem(a) in audio_path:
+        probe = os.readlink(audio_path) if audio_path.startswith("/proc/self/fd/") else audio_path
+        if artifact_stem(a) in probe:
             raise ASRModelError("model failed")
         return [{"start": 0.0, "end": 1.0, "text": "ok-text"}]
 
@@ -696,7 +697,8 @@ def test_run_failure_summary_and_exit_when_scope_not_processed(
             fh.write(b"\x00" * 16)
 
     def flaky(audio_path, model_name=None):
-        if artifact_stem(a) in audio_path:
+        probe = os.readlink(audio_path) if audio_path.startswith("/proc/self/fd/") else audio_path
+        if artifact_stem(a) in probe:
             raise ASRModelError("boom")
         return [{"start": 0.0, "end": 1.0, "text": "ok"}]
 

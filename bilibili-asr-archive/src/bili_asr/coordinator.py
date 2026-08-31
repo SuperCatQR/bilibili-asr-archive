@@ -482,7 +482,9 @@ class RunCoordinator:
             result.final_status = str(entry.get("status") or "")
             return
         try:
-            segments = asr_module.transcribe(audio_path)
+            from .path_policy import confined_audio_file
+            with confined_audio_file(self.root, os.path.relpath(audio_path, self.root)) as safe_audio:
+                segments = asr_module.transcribe(safe_audio)
         except Exception as exc:  # redacted; batch continues
             self._record(
                 "asr", work_id, "failed",

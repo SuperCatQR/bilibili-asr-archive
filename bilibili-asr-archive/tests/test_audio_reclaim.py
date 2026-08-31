@@ -109,7 +109,19 @@ def test_symlink_escape_rejected(tmp_path):
     assert victim.exists()
 
 
-# --- wiring: coordinator archive stage reclaims ---
+def test_reclaim_swap_does_not_delete_outside_victim(tmp_path):
+    audio = tmp_path / "audio"
+    audio.mkdir()
+    target = audio / "swap.m4a"
+    outside = tmp_path / "victim.m4a"
+    target.write_bytes(b"owned")
+    outside.write_bytes(b"victim")
+    entry = _entry(audio_path="audio/swap.m4a")
+    target.unlink()
+    target.symlink_to(outside)
+    with pytest.raises(ValueError):
+        reclaim_audio(tmp_path, entry)
+    assert outside.read_bytes() == b"victim"
 
 
 def test_coordinator_archive_stage_reclaims_audio(tmp_path, monkeypatch):

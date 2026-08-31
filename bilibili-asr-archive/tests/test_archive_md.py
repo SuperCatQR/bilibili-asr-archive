@@ -96,6 +96,38 @@ def test_archive_bundle_requires_marker_and_all_outputs(tmp_root):
     assert not archive_bundle_complete(tmp_path, paths)
 
 
+def test_write_archive_rejects_marker_symlink_and_nonregular_without_touching_target(tmp_root):
+    from pathlib import Path
+    import os
+    import pytest
+    tmp_path = Path(tmp_root)
+    row = {"bvid": "BVmarker-type", "work_id": "BVmarker-type:p0", "page_index": 0, "cid": 1}
+    paths = write_archive(tmp_path, row, [{"start": 0, "end": 1, "text": "old"}], source="asr")
+    marker = bundle_marker_path(tmp_path / paths["srt_path"])
+    outside = tmp_path / "outside-marker"
+    outside.write_text("keep", encoding="utf-8")
+    marker.unlink()
+    marker.symlink_to(outside)
+    with pytest.raises(OSError, match="marker is not a regular file"):
+        write_archive(tmp_path, row, [{"start": 0, "end": 1, "text": "new"}], source="asr")
+    assert outside.read_text(encoding="utf-8") == "keep"
+    assert marker.is_symlink()
+    marker.unlink()
+    marker.mkdir()
+    with pytest.raises(OSError, match="marker is not a regular file"):
+        write_archive(tmp_path, row, [{"start": 0, "end": 1, "text": "new"}], source="asr")
+    assert marker.is_dir()
+
+
+def test_pre_marker_archived_evidence_is_incomplete(tmp_root):
+    from pathlib import Path
+    tmp_path = Path(tmp_root)
+    row = {"bvid": "BVlegacy-marker", "work_id": "BVlegacy-marker:p0", "page_index": 0, "cid": 1}
+    paths = write_archive(tmp_path, row, [{"start": 0, "end": 1, "text": "old"}], source="asr")
+    bundle_marker_path(tmp_path / paths["srt_path"]).unlink()
+    assert not archive_bundle_complete(tmp_path, paths)
+
+
 def test_archive_failure_cleans_only_owned_staging(tmp_root, monkeypatch):
     from pathlib import Path
     tmp_path = Path(tmp_root)

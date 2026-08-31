@@ -7,7 +7,6 @@ import json
 import os
 import stat
 import threading
-from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -155,7 +154,7 @@ def _open_declared(root: Path, relative: str) -> tuple[int, str] | None:
 
 def archive_bundle_complete(archive_root: str | os.PathLike[str], paths: Mapping[str, str]) -> bool:
     try:
-        root = Path(os.fspath(archive_root)).resolve()
+        root = _lexical_archive_root(archive_root)
         if set(paths) != set(_REQUIRED_ARTIFACT_KEYS):
             return False
         with _bundle_lock(root):
@@ -198,6 +197,17 @@ def archive_bundle_complete(archive_root: str | os.PathLike[str], paths: Mapping
         return False
 
 
+def _invalidate_marker(directory_fd: int, marker_name: str) -> None:
+    try:
+        info = os.stat(marker_name, dir_fd=directory_fd, follow_symlinks=False)
+    except FileNotFoundError:
+        return
+    if not stat.S_ISREG(info.st_mode) or stat.S_ISLNK(info.st_mode):
+        raise OSError("archive bundle marker is not a regular file")
+    os.unlink(marker_name, dir_fd=directory_fd)
+    _fsync_fd(directory_fd)
+
+
 def _publish_bundle(root: Path, finals: Mapping[str, Path], contents: Mapping[str, bytes]) -> None:
     with _bundle_lock(root):
         dirs = _open_transcript_dirs(root)
@@ -217,12 +227,7 @@ def _publish_bundle(root: Path, finals: Mapping[str, Path], contents: Mapping[st
                 _write_at(stage_fd, names[key], contents[key])
             _write_at(stage_fd, marker_name, _marker_payload(finals, root, contents))
             _fsync_fd(stage_fd)
-            for key in _REQUIRED_ARTIFACT_KEYS:
-                try:
-                    os.unlink(marker_name, dir_fd=target_dirs["srt_path"])
-                except FileNotFoundError:
-                    pass
-            _fsync_fd(target_dirs["srt_path"])
+            _invalidate_marker(target_dirs["srt_path"], marker_name)
             for key in _REQUIRED_ARTIFACT_KEYS:
                 _replace_at(stage_fd, names[key], target_dirs[key], names[key])
             _replace_at(stage_fd, marker_name, target_dirs["srt_path"], marker_name)
@@ -230,6 +235,11 @@ def _publish_bundle(root: Path, finals: Mapping[str, Path], contents: Mapping[st
         finally:
             try:
                 if stage_fd is not None:
+                    for name in (*names.values(), marker_name):
+                        try:
+                            os.unlink(name, dir_fd=stage_fd)
+                        except FileNotFoundError:
+                            pass
                     os.close(stage_fd)
             finally:
                 try:
@@ -242,10 +252,25 @@ def _publish_bundle(root: Path, finals: Mapping[str, Path], contents: Mapping[st
                     os.close(fd)
 
 
+def _lexical_archive_root(archive_root: str | os.PathLike[str]) -> Path:
+    root = Path(os.path.abspath(os.fspath(archive_root)))
+    fd = os.open(
+        root,
+        os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0),
+    )
+    try:
+        if not stat.S_ISDIR(os.fstat(fd).st_mode):
+            raise OSError("archive publication path is unsafe")
+    finally:
+        os.close(fd)
+    return root
+
+
 def write_archive(archive_root: str | os.PathLike[str], entry: dict[str, Any], segments: list[dict[str, Any]], *, source: str, raw: Any | None = None) -> dict[str, str]:
-    root = Path(os.fspath(archive_root)).resolve()
-    if not root.is_dir() or root.is_symlink():
-        raise OSError("archive publication path is unsafe")
+    try:
+        root = _lexical_archive_root(archive_root)
+    except OSError as exc:
+        raise OSError("archive publication path is unsafe") from exc
     stem = archive_stem(entry)
     dirs = {name: root / "transcripts" / name for name in ("srt", "txt", "md", "raw")}
     bvid = str(entry["bvid"])
