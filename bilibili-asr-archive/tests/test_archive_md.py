@@ -103,7 +103,7 @@ def test_archive_failure_cleans_only_owned_staging(tmp_root, monkeypatch):
     unrelated.write_text("keep", encoding="utf-8")
     original_replace = __import__("os").replace
     calls = []
-    def fail_after_first(src, dst):
+    def fail_after_first(src, dst, **kwargs):
         calls.append((src, dst))
         if len(calls) == 2:
             raise OSError("injected replace")

@@ -440,47 +440,27 @@ def _retryable_ids(attempts: list[dict[str, Any]]) -> set[str]:
 
 
 def _transcript_evidence(root: Path, entry: Mapping[str, Any]) -> tuple[bool, bool]:
-    paths: list[Path] = []
-    for key in ("srt_path", "txt_path", "md_path"):
-        value = entry.get(key)
-        if isinstance(value, str):
-            candidate = _contained_path(root, value)
-            if candidate is not None:
-                paths.append(candidate)
-    try:
-        stem = archive_stem(dict(entry))
-    except (KeyError, TypeError, ValueError):
-        stem = ""
-    if stem:
-        paths.extend(root / "transcripts" / kind / f"{stem}.{kind}" for kind in ("srt", "txt"))
-        md_dir = root / "transcripts" / "md"
-        exact_md = md_dir / f"{stem}.md"
-        paths.append(exact_md)
-        pubdate = str(entry.get("pubdate_str") or "")
-        if pubdate and md_dir.is_dir():
-            matches = sorted(md_dir.glob(f"{pubdate}_{stem}_*.md"))
-            if len(matches) == 1:
-                paths.append(matches[0])
     bundle_paths = {}
     for key in ("srt_path", "txt_path", "md_path", "raw_path"):
         value = entry.get(key)
-        if not isinstance(value, str):
-            return False, False
-        candidate = _contained_path(root, value)
-        if candidate is None:
+        if not isinstance(value, str) or _contained_path(root, value) is None:
             return False, False
         bundle_paths[key] = value
     transcript = archive_bundle_complete(root, bundle_paths)
     if not transcript or entry.get("status") != "archived":
         return transcript, False
     audio_value = entry.get("audio_path")
-    audio_missing = False
     if isinstance(audio_value, str):
-        audio = confined_audio_path(root, audio_value, require_exists=True)
-        audio_missing = audio is None
-    elif stem:
-        audio_missing = all(confined_audio_path(root, f"audio/{stem}{suffix}", require_exists=True) is None
-                            for suffix in (".m4a", ".flac"))
+        audio_missing = confined_audio_path(root, audio_value, require_exists=True) is None
+    else:
+        try:
+            stem = archive_stem(dict(entry))
+        except (KeyError, TypeError, ValueError):
+            stem = ""
+        audio_missing = bool(stem) and all(
+            confined_audio_path(root, f"audio/{stem}{suffix}", require_exists=True) is None
+            for suffix in (".m4a", ".flac")
+        )
     return transcript, audio_missing
 
 

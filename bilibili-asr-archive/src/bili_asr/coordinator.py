@@ -564,8 +564,12 @@ class RunCoordinator:
             self._note_audio_peak()
         try:
             rel = os.path.relpath(final, self.root)
-        except ValueError:
-            rel = final
+            confined = confined_audio_path(self.root, rel, require_exists=True)
+            if confined is None:
+                raise OSError("audio path outside archive")
+            rel = os.path.relpath(confined, self.root)
+        except (OSError, ValueError, TypeError):
+            raise OSError("audio path outside archive")
         self._record(
             "download", work_id, "ok", artifact_paths=[rel], started_at=started
         )
