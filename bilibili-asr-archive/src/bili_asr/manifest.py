@@ -13,6 +13,7 @@ import re
 from typing import Any, Callable, Optional
 
 from .page_identity import PageIdentity, format_work_id, parse_work_id
+from .persistence import file_lock, replace_file_atomically
 
 # Manifest state machine (spec SSOT):
 # pending -> meta_ok -> sub_checked -> {subtitle_done | needs_audio -> audio_ok}
@@ -77,9 +78,8 @@ class ManifestStore:
         self._entries: dict[str, dict[str, Any]] = {}
         self._loaded = False
 
-    def load(self) -> dict[str, dict[str, Any]]:
-        """Read the JSONL file (if any) into memory; last write wins per key."""
-        self._entries = {}
+    def _read_latest(self) -> dict[str, dict[str, Any]]:
+        entries: dict[str, dict[str, Any]] = {}
         if os.path.exists(self.path):
             with open(self.path, "r", encoding="utf-8") as fh:
                 for line in fh:
@@ -87,25 +87,40 @@ class ManifestStore:
                     if not line:
                         continue
                     entry = json.loads(line)
-                    self._entries[_entry_key(entry)] = entry
+                    entries[_entry_key(entry)] = entry
+        return entries
+
+    def load(self) -> dict[str, dict[str, Any]]:
+        """Read the JSONL file (if any) into memory; last write wins per key."""
+        self._entries = self._read_latest()
         self._loaded = True
         return self._entries
 
+    def _snapshot_bytes(self, entries: dict[str, dict[str, Any]]) -> bytes:
+        return b"".join(
+            (json.dumps(entries[key], ensure_ascii=False, separators=(",", ":")) + "\n").encode("utf-8")
+            for key in sorted(entries)
+        )
+
     def save(self, entries: dict[str, dict[str, Any]] | None = None) -> None:
-        """Atomically rewrite the JSONL file, one line per key."""
+        """Durably rewrite the JSONL file, one deterministic line per key."""
         if entries is not None:
             self._entries = dict(entries)
         if not self._entries:
             return
         os.makedirs(os.path.dirname(self.path), exist_ok=True)
-        tmp = self.path + ".tmp"
-        with open(tmp, "w", encoding="utf-8", newline="\n") as fh:
-            for entry in self._entries.values():
-                fh.write(json.dumps(entry, ensure_ascii=False) + "\n")
-        os.replace(tmp, self.path)
+        with file_lock(self.path):
+            replace_file_atomically(self.path, self._snapshot_bytes(self._entries), temp_suffix=".tmp")
+
+    def compact(self) -> None:
+        """Replace journal history with the deterministic latest-row snapshot."""
+        with file_lock(self.path):
+            self._entries = self._read_latest()
+            if self._entries:
+                replace_file_atomically(self.path, self._snapshot_bytes(self._entries))
 
     def upsert(self, entry: dict[str, Any]) -> dict[str, Any]:
-        """Insert or replace one record and persist (deduped by key)."""
+        """Insert or replace one record and persist under a fresh-state lock."""
         bvid = entry.get("bvid")
         if not bvid:
             raise ValueError("manifest entry requires a non-empty 'bvid'")
@@ -121,22 +136,24 @@ class ManifestStore:
             raise ValueError(
                 f"unknown status {status!r}; valid: {sorted(VALID_STATUSES)}"
             )
-        if not self._loaded:
-            self.load()
-        if not work_id:
-            existing = self._entries.get(str(bvid))
-            freeze = _is_unresolved(entry) or bool(
-                entry.get("excluded_from_page_processing")
-            )
-            legacy_update = (
-                existing is not None and not existing.get("work_id")
-            )
-            if not freeze and not legacy_update:
-                raise ValueError("new automatic row requires work_id")
-        stored = dict(entry)
-        self._entries[_entry_key(stored)] = stored
-        self.save()
-        return self._entries[_entry_key(stored)]
+        os.makedirs(os.path.dirname(self.path), exist_ok=True)
+        with file_lock(self.path):
+            self._entries = self._read_latest()
+            self._loaded = True
+            if not work_id:
+                existing = self._entries.get(str(bvid))
+                freeze = _is_unresolved(entry) or bool(
+                    entry.get("excluded_from_page_processing")
+                )
+                legacy_update = (
+                    existing is not None and not existing.get("work_id")
+                )
+                if not freeze and not legacy_update:
+                    raise ValueError("new automatic row requires work_id")
+            stored = dict(entry)
+            self._entries[_entry_key(stored)] = stored
+            replace_file_atomically(self.path, self._snapshot_bytes(self._entries))
+            return self._entries[_entry_key(stored)]
 
     def get(self, work_id: str) -> Optional[dict[str, Any]]:
         """Return the record for an exact work_id (or legacy bare-bvid key)."""
