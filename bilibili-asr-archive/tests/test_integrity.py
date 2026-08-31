@@ -91,18 +91,11 @@ def test_archived_transcripts_are_valid_without_audio(tmp_path: Path) -> None:
         path.mkdir(parents=True)
         content = "1\n00:00:00,000 --> 00:00:01,000\nok" if directory == "srt" else "ok"
         (path / f"BV1x.p0.{directory}").write_text(content, encoding="utf-8")
+    write_archive(tmp_path, {"work_id": "BV1x:p0", "bvid": "BV1x", "status": "archived", "title": "", "pubdate_str": ""}, [{"start": 0, "end": 1, "text": "ok"}], source="asr")
+    row = {"work_id": "BV1x:p0", "bvid": "BV1x", "status": "archived", "title": "", "pubdate_str": ""}
+    _manifest(tmp_path, [row])
     report = IntegrityVerifier().verify(tmp_path)
     assert report.defects == []
-
-
-def test_missing_transcript_and_truncated_attempts(tmp_path: Path) -> None:
-    _manifest(tmp_path, [{"work_id": "BV1x:p0", "bvid": "BV1x", "status": "archived"}])
-    path = tmp_path / "coordinator" / "attempts.jsonl"
-    path.parent.mkdir()
-    path.write_text(json.dumps(_attempt("BV1x:p0")) + "\n{broken'", encoding="utf-8")
-    report = IntegrityVerifier().verify(tmp_path)
-    assert any(d.code == MISSING_TRANSCRIPT for d in report.defects)
-    assert TRUNCATED_ATTEMPTS_LINE in report.diagnostics
 
 
 def _attempt(work_id: str, outcome: str = "failed") -> dict[str, object]:

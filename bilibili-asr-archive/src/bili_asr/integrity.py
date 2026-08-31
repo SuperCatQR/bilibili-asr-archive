@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any
 
 import fcntl
-from .archive import archive_stem, _safe_name
+from .archive import archive_stem, _safe_name, archive_bundle_complete
 from .page_identity import artifact_stem, page_identity, parse_work_id
 from .coordinator import _validate_attempt
 from .sidecar_projection import ReaderPolicy, project_attempt_records, project_manifest_records
@@ -258,7 +258,14 @@ class IntegrityVerifier:
             for path in required:
                 if not self._safe_path(path, root): defects.add(IDENTITY_PATH_MISMATCH)
             present = [p for p in canonical_required if reader.is_regular(p)]
-            if status in {"archived", "asr_done", "subtitle_done"} and len(present) < len(canonical_required): defects.add(MISSING_TRANSCRIPT)
+            bundle_paths = {
+                "srt_path": str(canonical_required[0].relative_to(root)),
+                "txt_path": str(canonical_required[1].relative_to(root)),
+                "md_path": str((root / "transcripts" / "md" / f"{self._canonical_stem(row)}.md").relative_to(root)),
+                "raw_path": str((root / "transcripts" / "raw" / f"{self._canonical_stem(row)}.json").relative_to(root)),
+            }
+            bundle_complete = archive_bundle_complete(root, bundle_paths)
+            if status in {"archived", "asr_done", "subtitle_done"} and (len(present) < len(canonical_required) or not bundle_complete): defects.add(MISSING_TRANSCRIPT)
             raw = root / "subtitles" / "raw" / f"{self._canonical_stem(row)}.json"
             declared_raw = row.get("raw_path")
             if isinstance(declared_raw, str):

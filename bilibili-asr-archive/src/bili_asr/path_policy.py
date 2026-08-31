@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import stat
 from pathlib import Path
 
 AUDIO_EXTENSIONS = frozenset({".m4a", ".flac"})
@@ -14,31 +15,35 @@ def confined_audio_path(
     *,
     require_exists: bool,
 ) -> Path | None:
-    """Resolve a declared audio path only within ``archive_root/audio``.
-
-    Invalid, missing, symlinked, directory, and unsupported paths all produce
-    the same ``None`` outcome so callers cannot leak path or exception detail.
-    """
+    """Return a confined audio path, using no-follow checks for existing files."""
     if not isinstance(declared_path, (str, os.PathLike)):
         return None
     try:
-        declared = Path(os.fspath(declared_path))
-        if declared.is_absolute() or not declared.parts or ".." in declared.parts:
-            return None
         root = Path(archive_root).resolve()
-        audio_root = (root / "audio").resolve()
+        audio = root / "audio"
+        if audio.is_symlink() or not audio.is_dir():
+            return None
+        declared = Path(os.fspath(declared_path))
+        if declared.is_absolute() or not declared.parts or any(p in ("", ".", "..") for p in declared.parts):
+            return None
         candidate = root / declared
         if candidate.suffix.lower() not in AUDIO_EXTENSIONS:
             return None
-        if candidate.is_symlink():
-            return None
         resolved = candidate.resolve(strict=False)
-        resolved.relative_to(audio_root)
-        if require_exists:
-            if not candidate.exists() or candidate.is_symlink() or not candidate.is_file():
+        resolved.relative_to(audio.resolve())
+        if candidate.exists() or candidate.is_symlink():
+            info = candidate.lstat()
+            if stat.S_ISLNK(info.st_mode) or not stat.S_ISREG(info.st_mode):
                 return None
-            if not resolved.is_file():
-                return None
-        return resolved
+            if require_exists:
+                fd = os.open(candidate, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+                try:
+                    if not stat.S_ISREG(os.fstat(fd).st_mode):
+                        return None
+                finally:
+                    os.close(fd)
+        elif require_exists:
+            return None
+        return candidate if not candidate.is_symlink() else None
     except (OSError, RuntimeError, ValueError):
         return None

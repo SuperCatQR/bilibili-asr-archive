@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping
 
-from .archive import archive_stem
+from .archive import archive_stem, archive_bundle_complete
 from .manifest import VALID_STATUSES
 from .meta_cursor import _validate as validate_cursor
 from .scheduler import _validate as validate_scheduler
@@ -460,7 +460,13 @@ def _transcript_evidence(root: Path, entry: Mapping[str, Any]) -> tuple[bool, bo
             matches = sorted(md_dir.glob(f"{pubdate}_{stem}_*.md"))
             if len(matches) == 1:
                 paths.append(matches[0])
-    transcript = any(path.is_file() for path in paths)
+    bundle_paths = {
+        "srt_path": str((root / "transcripts" / "srt" / f"{stem}.srt").relative_to(root)),
+        "txt_path": str((root / "transcripts" / "txt" / f"{stem}.txt").relative_to(root)),
+        "md_path": str((root / "transcripts" / "md" / f"{stem}.md").relative_to(root)),
+        "raw_path": str((root / "transcripts" / "raw" / f"{stem}.json").relative_to(root)),
+    }
+    transcript = archive_bundle_complete(root, bundle_paths)
     if not transcript or entry.get("status") != "archived":
         return transcript, False
     audio_value = entry.get("audio_path")

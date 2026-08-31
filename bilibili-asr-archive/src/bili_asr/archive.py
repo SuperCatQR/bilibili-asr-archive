@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import shutil
+import stat
 import tempfile
 from pathlib import Path
 from typing import Any, Mapping
@@ -58,15 +60,66 @@ def bundle_marker_path(path: str | os.PathLike[str]) -> Path:
     return Path(os.fspath(path) + BUNDLE_MARKER_SUFFIX)
 
 
+_REQUIRED_ARTIFACT_KEYS = ("srt_path", "txt_path", "md_path", "raw_path")
+_MARKER_MAX_BYTES = 8192
+
+
+def _confined_regular(root: Path, path: Path) -> bool:
+    try:
+        path.relative_to(root)
+        info = path.lstat()
+        return stat.S_ISREG(info.st_mode) and not stat.S_ISLNK(info.st_mode)
+    except (OSError, ValueError):
+        return False
+
+
+def _marker_payload(root: Path, finals: Mapping[str, Path], contents: Mapping[str, bytes]) -> bytes:
+    artifacts = {}
+    for key in _REQUIRED_ARTIFACT_KEYS:
+        relative = finals[key].relative_to(root).as_posix()
+        artifacts[key] = {"path": relative, "sha256": hashlib.sha256(contents[key]).hexdigest()}
+    return (json.dumps({"schema": "archive-bundle-v1", "artifacts": artifacts}, sort_keys=True, separators=(",", ":")) + "\n").encode("ascii")
+
+
 def archive_bundle_complete(
     archive_root: str | os.PathLike[str], paths: Mapping[str, str]
 ) -> bool:
-    """Whether all returned transcript artifacts and their marker are present."""
-    root = Path(archive_root)
-    if any(key not in paths for key in _REQUIRED_ARTIFACT_KEYS):
+    """Validate one complete, generation-bound transcript bundle."""
+    try:
+        root = Path(archive_root).resolve()
+        if any(key not in paths or not isinstance(paths[key], str) for key in _REQUIRED_ARTIFACT_KEYS):
+            return False
+        finals: dict[str, Path] = {}
+        for key in _REQUIRED_ARTIFACT_KEYS:
+            candidate = (root / paths[key]).resolve(strict=False)
+            if not _confined_regular(root, candidate):
+                return False
+            finals[key] = candidate
+        marker = bundle_marker_path(finals["srt_path"])
+        if not _confined_regular(root, marker):
+            return False
+        payload = marker.read_bytes()
+        if len(payload) > _MARKER_MAX_BYTES:
+            return False
+        document = json.loads(payload.decode("ascii"))
+        artifacts = document.get("artifacts") if isinstance(document, dict) else None
+        if document.get("schema") != "archive-bundle-v1" or not isinstance(artifacts, dict):
+            return False
+        if set(artifacts) != set(_REQUIRED_ARTIFACT_KEYS):
+            return False
+        for key in _REQUIRED_ARTIFACT_KEYS:
+            item = artifacts[key]
+            if not isinstance(item, dict) or set(item) != {"path", "sha256"}:
+                return False
+            if item["path"] != finals[key].relative_to(root).as_posix():
+                return False
+            if not isinstance(item["sha256"], str) or len(item["sha256"]) != 64:
+                return False
+            if hashlib.sha256(finals[key].read_bytes()).hexdigest() != item["sha256"]:
+                return False
+        return True
+    except (OSError, UnicodeError, ValueError, TypeError, KeyError, json.JSONDecodeError):
         return False
-    artifacts = [root / paths[key] for key in _REQUIRED_ARTIFACT_KEYS]
-    return all(path.is_file() and not path.is_symlink() for path in artifacts) and bundle_marker_path(artifacts[0]).is_file()
 
 
 def _fsync_directory(path: Path) -> None:
@@ -94,11 +147,20 @@ def _publish_bundle(finals: Mapping[str, Path], contents: Mapping[str, bytes]) -
             staged[key] = stage / target.name
             _write_staged(staged[key], contents[key])
         _fsync_directory(stage)
+        marker = stage / (finals["srt_path"].name + BUNDLE_MARKER_SUFFIX)
+        _write_staged(marker, _marker_payload(finals["srt_path"].parents[2], finals, contents))
+        _fsync_directory(stage)
+        marker_target = bundle_marker_path(finals["srt_path"])
+        try:
+            if marker_target.is_symlink() or marker_target.exists():
+                marker_target.unlink()
+        except OSError:
+            pass
+        _fsync_directory(parent)
         for key in _REQUIRED_ARTIFACT_KEYS:
             os.replace(staged[key], finals[key])
-        marker = stage / (finals["srt_path"].name + BUNDLE_MARKER_SUFFIX)
-        _write_staged(marker, b"bundle-ready\n")
-        os.replace(marker, bundle_marker_path(finals["srt_path"]))
+            _fsync_directory(parent)
+        os.replace(marker, marker_target)
         _fsync_directory(parent)
     finally:
         shutil.rmtree(stage, ignore_errors=True)

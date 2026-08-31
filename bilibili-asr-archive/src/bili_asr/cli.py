@@ -1352,12 +1352,17 @@ def _cmd_asr(args: argparse.Namespace) -> int:
             else:
                 source = "asr"
                 stem = archive.archive_stem(entry)
-                audio_path = os.path.join(
-                    args.archive_root,
-                    str(entry.get("audio_path") or os.path.join("audio", f"{stem}.m4a")),
-                )
+                from .path_policy import confined_audio_path
+                declared = entry.get("audio_path") or os.path.join("audio", f"{stem}.m4a")
+                relative = os.fspath(declared)
+                audio_path_obj = confined_audio_path(args.archive_root, relative, require_exists=True)
+                if audio_path_obj is None:
+                    raise ValueError("invalid audio path")
+                audio_path = str(audio_path_obj)
                 segments = asr.transcribe(audio_path)
             paths = archive.write_archive(args.archive_root, entry, segments, source=source, raw=raw)
+            if not archive.archive_bundle_complete(args.archive_root, paths):
+                raise ValueError("archive bundle incomplete")
             updated = dict(store.get(key) or entry)
             updated.update(paths)
             updated["status"] = "archived"
@@ -1393,6 +1398,8 @@ def _pilot_archive_subtitle(store, root: str, entry: dict[str, object]) -> dict[
         raise ValueError(f"{_pilot_row_key(entry)}: subtitle raw JSON missing")
     segments, raw = data
     paths = archive.write_archive(root, entry, segments, source="subtitle", raw=raw)
+    if not archive.archive_bundle_complete(root, paths):
+        raise ValueError("archive bundle incomplete")
     updated = dict(entry)
     updated.update(paths)
     updated["status"] = "archived"
@@ -1414,13 +1421,11 @@ def _pilot_archive_asr(store, client, root: str, entry: dict[str, object], targe
     out_path = os.path.join(root, "audio", f"{stem}.m4a")
     existing_rel = entry.get("audio_path") if entry.get("status") == "audio_ok" else None
     existing_audio_path: str | None = None
+    from .path_policy import confined_audio_path
     if existing_rel:
-        existing_abs = (
-            existing_rel if os.path.isabs(str(existing_rel))
-            else os.path.join(root, str(existing_rel))
-        )
-        if os.path.isfile(existing_abs) and os.path.getsize(existing_abs) > 0:
-            existing_audio_path = existing_abs
+        existing_audio_path_obj = confined_audio_path(root, os.fspath(existing_rel), require_exists=True)
+        if existing_audio_path_obj is not None and existing_audio_path_obj.stat().st_size > 0:
+            existing_audio_path = str(existing_audio_path_obj)
     if existing_audio_path is not None:
         audio_path = existing_audio_path
     else:
@@ -1428,6 +1433,8 @@ def _pilot_archive_asr(store, client, root: str, entry: dict[str, object], targe
     segments = asr.transcribe(audio_path)
     current = dict(store.get(target.work_id) or entry)
     paths = archive.write_archive(root, current, segments, source="asr")
+    if not archive.archive_bundle_complete(root, paths):
+        raise ValueError("archive bundle incomplete")
     current.update(paths)
     current["status"] = "archived"
     try:
