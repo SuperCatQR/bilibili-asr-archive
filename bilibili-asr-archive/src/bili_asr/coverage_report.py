@@ -10,7 +10,6 @@ from typing import Any, Mapping
 
 from .archive import archive_stem
 from .manifest import VALID_STATUSES
-from .page_identity import parse_work_id
 from .meta_cursor import _validate as validate_cursor
 from .scheduler import _validate as validate_scheduler
 from .run_ledger import _validate_record as validate_run_ledger_record
@@ -21,7 +20,6 @@ TERMINAL_STATUSES = frozenset({"archived", "gone"})
 RETRYABLE_OUTCOMES = frozenset({"failed", "skipped"})
 ATTEMPT_STAGES = frozenset({"harvest", "download", "asr", "archive"})
 ATTEMPT_OUTCOMES = frozenset({"ok", "failed", "skipped"})
-MAX_JSONL_RECORDS = 10000
 CSV_COLUMNS = (
     "schema_version",
     "scope",

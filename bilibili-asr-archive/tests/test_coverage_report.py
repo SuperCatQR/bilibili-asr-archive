@@ -65,6 +65,18 @@ def codes(report):
     return {item["code"] for item in report.data["diagnostics"]}
 
 
+def test_bvid_only_legacy_manifest_row_remains_checkable(tmp_path: Path):
+    row = manifest_row("BVlegacy:p1")
+    row.pop("work_id")
+    write_fixture(tmp_path, [row])
+
+    report = CoverageReport.build(tmp_path)
+
+    assert report.data["denominator"]["count"] == 1
+    assert report.data["rows"][0]["work_id"] == "BVlegacy"
+    assert "manifest_invalid_bvid" not in codes(report)
+
+
 def test_complete_evidence_has_stable_cumulative_and_batch_totals(tmp_path: Path):
     rows = [manifest_row("BVone:p1"), manifest_row("BVtwo:p1")]
     for row in rows:

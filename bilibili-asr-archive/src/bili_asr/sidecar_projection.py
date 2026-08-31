@@ -115,15 +115,25 @@ def _decode_jsonl_record(
 
 
 def _valid_manifest(record: Mapping[str, Any]) -> bool:
-    work_id, status = record.get("work_id"), record.get("status")
-    return isinstance(work_id, str) and bool(work_id) and status is not None and bool(str(status))
+    work_id, bvid, status = record.get("work_id"), record.get("bvid"), record.get("status")
+    identity = work_id if isinstance(work_id, str) and work_id else bvid
+    return isinstance(identity, str) and bool(identity) and status is not None and bool(str(status))
+
+
+def _manifest_key(record: Mapping[str, Any]) -> str:
+    work_id = record.get("work_id")
+    if isinstance(work_id, str) and work_id:
+        return work_id
+    bvid = record.get("bvid")
+    assert isinstance(bvid, str) and bvid
+    return bvid
 
 
 def _manifest_semantic_diagnostics(record: Mapping[str, Any]) -> set[str]:
     diagnostics: set[str] = set()
     if "status" in record and record.get("status") not in VALID_STATUSES:
         diagnostics.add("manifest_invalid_status")
-    if "bvid" in record:
+    if "bvid" in record and "work_id" in record:
         bvid = record.get("bvid")
         work_id = record.get("work_id")
         if not isinstance(bvid, str) or not bvid:
@@ -167,7 +177,7 @@ def project_manifest_records(
             diagnostics.add("manifest_invalid")
             continue
         diagnostics.update(_manifest_semantic_diagnostics(item.value))
-        key = item.value["work_id"]
+        key = _manifest_key(item.value)
         if key in entries:
             diagnostics.add("manifest_duplicate_work_id")
         entries[key] = item.value

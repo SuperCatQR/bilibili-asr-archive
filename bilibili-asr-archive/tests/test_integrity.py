@@ -18,6 +18,18 @@ def _manifest(root: Path, rows: list[dict[str, object]]) -> None:
     path.write_text("".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8")
 
 
+def test_bvid_only_legacy_manifest_row_remains_checkable(tmp_path: Path) -> None:
+    row = {"bvid": "BVlegacy", "status": "pending"}
+    _manifest(tmp_path, [row])
+
+    report = IntegrityVerifier().verify(tmp_path)
+
+    assert report.authoritative is False
+    assert report.checked == 1
+    assert any(defect.work_id == "BVlegacy" for defect in report.defects)
+    assert "manifest_invalid_bvid" not in report.diagnostics
+
+
 def test_production_archive_layout_verifies_cleanly(tmp_path: Path) -> None:
     row = {"work_id": "BV1x:p0", "bvid": "BV1x", "cid": 7, "page_index": 0,
            "pubdate_str": "20260828", "title": "A safe/title", "status": "archived"}
