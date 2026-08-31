@@ -16,14 +16,16 @@ import json
 import os
 import re
 import time
+from contextlib import contextmanager
 from dataclasses import dataclass, field
-from typing import Any, Callable
+from typing import Any, Callable, Iterator
 
 from . import asr as asr_module
 from . import audio as audio_module
 from . import subtitles as subtitles_module
 from .manifest import ManifestStore
 from .page_identity import PageIdentity, artifact_stem, identity_from_entry
+from .persistence import append_jsonl_record, file_lock
 
 STAGES = ("harvest", "download", "asr", "archive")
 OUTCOMES = ("ok", "failed", "skipped")
@@ -49,6 +51,27 @@ _FORBIDDEN_MARKERS = (
 _MAX_ERROR_CODE_LEN = 64
 
 ATTEMPTS_REL_PATH = os.path.join("coordinator", "attempts.jsonl")
+ARCHIVE_WRITER_LOCK = os.path.join("coordinator", "archive-writer.lock")
+
+
+class ArchiveBusyError(RuntimeError):
+    """Raised when another sequential archive operation owns the root."""
+
+    def __init__(self) -> None:
+        super().__init__("archive_busy")
+
+
+@contextmanager
+def archive_writer(root: str | os.PathLike[str], *, blocking: bool = False) -> Iterator[None]:
+    """Own the archive root for one sequential coordinator operation."""
+    lock_target = os.path.join(os.fspath(root), ARCHIVE_WRITER_LOCK)
+    try:
+        with file_lock(lock_target, blocking=blocking):
+            yield
+    except OSError as exc:
+        if not blocking:
+            raise ArchiveBusyError() from exc
+        raise
 
 
 def _utc_now_iso() -> str:
@@ -163,49 +186,38 @@ class AttemptLedger:
         return records
 
     def append(self, record: dict[str, Any]) -> dict[str, Any]:
-        # simplify: whole-file rewrite per append is O(n^2) over the run
-        # history. If the ledger grows past a few thousand records, switch
-        # to open-append + flush/fsync, or periodic compaction into
-        # per-work chunks (read path already tolerates truncation via
-        # _validate_attempt skipping).
         stored = _validate_attempt(record)
         os.makedirs(os.path.dirname(self.path), exist_ok=True)
-        existing_bytes = b""
-        if os.path.exists(self.path):
-            with open(self.path, "rb") as fh:
-                existing_bytes = fh.read()
-        line_bytes = (json.dumps(stored, ensure_ascii=False) + "\n").encode("utf-8")
-        tmp = self.path + ".tmp"
-        try:
-            with open(tmp, "wb") as fh:
-                if existing_bytes:
-                    fh.write(existing_bytes)
-                    if not existing_bytes.endswith(b"\n"):
-                        fh.write(b"\n")
-                fh.write(line_bytes)
-                fh.flush()
-                os.fsync(fh.fileno())
-            os.replace(tmp, self.path)
-            # qc2-F-003: fsync the parent dir so the rename itself is
-            # durable; best-effort — some filesystems reject dir fsync.
-            try:
-                dirfd = os.open(
-                    os.path.dirname(self.path), os.O_RDONLY
-                )
-                try:
-                    os.fsync(dirfd)
-                finally:
-                    os.close(dirfd)
-            except OSError:
-                pass
-        except BaseException:
-            if os.path.exists(tmp):
-                try:
-                    os.remove(tmp)
-                except OSError:
-                    pass
-            raise
+        lock_path = self.path + ".lock"
+        with file_lock(lock_path):
+            key = (stored["work_id"], stored["stage"])
+            latest = 0
+            for prior in self._iter_valid():
+                if (prior["work_id"], prior["stage"]) == key:
+                    latest = max(latest, prior["attempt"])
+            if record.get("_preserve_attempt"):
+                next_attempt = stored["attempt"]
+            else:
+                next_attempt = max(stored["attempt"], latest + 1)
+            stored["attempt"] = next_attempt
+            append_jsonl_record(self.path, stored, lock_path=lock_path)
         return stored
+
+    def _iter_valid(self):
+        if not os.path.exists(self.path):
+            return
+        try:
+            with open(self.path, "r", encoding="utf-8") as fh:
+                for line in fh:
+                    if not line.strip():
+                        continue
+                    try:
+                        yield _validate_attempt(json.loads(line))
+                    except (json.JSONDecodeError, ValueError):
+                        continue
+        except OSError:
+            return
+
 
 
 @dataclass
@@ -294,12 +306,11 @@ class RunCoordinator:
         started_at: str | None = None,
     ) -> dict[str, Any]:
         key = (work_id, stage)
-        self._attempt_counts[key] = self._attempt_counts.get(key, 0) + 1
-        return self.ledger.append(
+        stored = self.ledger.append(
             {
                 "stage": stage,
                 "work_id": work_id,
-                "attempt": self._attempt_counts[key],
+                "attempt": self._attempt_counts.get(key, 0) + 1,
                 "outcome": outcome,
                 "error_code": error_code,
                 "artifact_paths": list(artifact_paths or []),
@@ -307,11 +318,16 @@ class RunCoordinator:
                 "finished_at": _utc_now_iso(),
             }
         )
+        self._attempt_counts[key] = stored["attempt"]
+        return stored
 
     def failed_work_ids(self) -> set[str]:
         """Work ids with at least one recorded failed attempt."""
-        prior = self.ledger.load()
-        return {r["work_id"] for r in prior if r["outcome"] == "failed"}
+        return {
+            record["work_id"]
+            for record in self.ledger._iter_valid()
+            if record["outcome"] == "failed"
+        }
 
     # ------------------------------------------------------------ execution
 
@@ -613,11 +629,16 @@ class RunCoordinator:
     def run_batch(
         self, rows: list[tuple[str, dict[str, Any]]]
     ) -> RunSummary:
-        """Process rows sequentially; per-item failures do not stop the batch."""
+        with archive_writer(self.root):
+            return self._run_batch_locked(rows)
+
+    def _run_batch_locked(
+        self, rows: list[tuple[str, dict[str, Any]]]
+    ) -> RunSummary:
+        """Process rows sequentially while the archive root is owned."""
         from . import bili_client
 
         summary = RunSummary()
-        self._note_audio_peak()
         for index, (key, entry) in enumerate(rows):
             work_id = str(entry.get("work_id") or key)
             status = str(entry.get("status") or "pending")

@@ -14,6 +14,7 @@ from typing import Any
 
 from .manifest import VALID_STATUSES
 from .meta_cursor import VALID_STATES
+from .persistence import append_jsonl_record, file_lock
 
 LEDGER_FILENAME = "run-ledger.jsonl"
 
@@ -342,21 +343,8 @@ class RunLedger:
         """Atomically append a validated run record line to run-ledger.jsonl."""
         stored = _validate_record(record)
         os.makedirs(self.root, exist_ok=True)
-        existing_bytes = b""
-        if os.path.exists(self.path):
-            with open(self.path, "rb") as fh:
-                existing_bytes = fh.read()
-        line_bytes = (json.dumps(stored, ensure_ascii=False) + "\n").encode("utf-8")
-        tmp = self.path + ".tmp"
-        with open(tmp, "wb") as fh:
-            if existing_bytes:
-                fh.write(existing_bytes)
-                if not existing_bytes.endswith(b"\n"):
-                    fh.write(b"\n")
-            fh.write(line_bytes)
-            fh.flush()
-            os.fsync(fh.fileno())
-        os.replace(tmp, self.path)
+        with file_lock(self.path + ".lock"):
+            append_jsonl_record(self.path, stored, lock_path=self.path + ".lock")
         return stored
 
     def load(self) -> list[dict[str, Any]]:
