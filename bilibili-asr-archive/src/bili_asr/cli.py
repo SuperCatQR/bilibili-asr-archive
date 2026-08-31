@@ -1807,7 +1807,7 @@ def _cmd_run(args: argparse.Namespace) -> int:
         print(f"  {entry.get('work_id') or key}: {entry.get('status')}")
     try:
         with archive_writer(args.archive_root):
-            summary = coord.run_batch(rows, already_owned=True)
+            summary = coord.run_batch(rows)
             ok = sum(1 for r in summary.results if r.ok)
             skipped = summary.skipped_rows
             failed = summary.failed
@@ -1838,96 +1838,6 @@ def _cmd_run(args: argparse.Namespace) -> int:
         print("run: archive_busy", file=sys.stderr)
         return 1
 
-
-    from .audio_budget import audio_cap_bytes, audio_dir_usage_bytes
-    from .long_live import (apply_long_live_policy, campaign_plan, format_campaign_plan,
-        is_long_live, refuse_disabled_audio_cap)
-    from .scheduler import SchedulerStore, classify_batch_state, settled_processed_ids, terminal_resume_ids
-
-    started_at = utc_now_iso()
-    store = ManifestStore(root=args.archive_root)
-    entries = store.load()
-    cursor_store = MetaCursorStore(root=args.archive_root)
-    sched_store = SchedulerStore(root=args.archive_root)
-    if args.limit is None or args.limit <= 0:
-        print("schedule: --limit must be a positive integer", file=sys.stderr)
-        return 1
-    if args.allow_long_live:
-        cap_error = refuse_disabled_audio_cap(args.max_audio_gb)
-        if cap_error:
-            print(f"schedule: {cap_error}", file=sys.stderr)
-            return 1
-    rows, error = _run_scope_rows(store, entries, args.scope)
-    if error:
-        print(f"schedule: {error}", file=sys.stderr)
-        return 1
-    skip_ids = None
-    matching_resume = False
-    if args.resume:
-        lookup = sched_store.inspect_resume(args.scope, allow_long_live=args.allow_long_live)
-        if lookup.diagnostic:
-            if lookup.refuse:
-                print(f"schedule: --resume refused ({lookup.diagnostic})", file=sys.stderr)
-                return 1
-            print(f"schedule: --resume ignored ({lookup.diagnostic})", file=sys.stderr)
-        if lookup.processed_ids is not None:
-            matching_resume = True
-            skip_ids = terminal_resume_ids(lookup.processed_ids, entries)
-            rows = [(key, entry) for key, entry in rows if str(entry.get("work_id") or key) not in set(skip_ids)]
-    rows, held, policy_error = apply_long_live_policy(rows, allow_long_live=args.allow_long_live,
-        explicit_scope=args.scope not in {"pending", "failed"})
-    if policy_error:
-        print(f"schedule: {policy_error}", file=sys.stderr)
-        return 1
-    if matching_resume and not args.allow_long_live and not rows and held:
-        print("schedule: --resume refused (risk-stopped long-duration row requires --allow-long-live)", file=sys.stderr)
-        return 1
-    matching = len(rows)
-    truncated = matching > args.limit or held > 0
-    rows = rows[:args.limit]
-    client = bili_client.BiliClient(sessdata=_resolve_sessdata(args))
-    coord = RunCoordinator(args.archive_root, store, client=client, offline=False,
-        max_audio_bytes=audio_cap_bytes(args.max_audio_gb), sleep=time.sleep)
-    print(f"schedule: scope={args.scope} limit={args.limit} selected {len(rows)} row(s) ({matching} matching)")
-    for key, entry in rows:
-        print(f"  {entry.get('work_id') or key}: {entry.get('status')}")
-    try:
-        with archive_writer(args.archive_root):
-            summary = coord.run_batch(rows, already_owned=True)
-            batch_state = classify_batch_state(risk_interrupted=summary.risk_interrupted, truncated=truncated)
-            settled = list(skip_ids or []) + settled_processed_ids(summary.results, risk_interrupted=summary.risk_interrupted)
-            processed = list(dict.fromkeys(settled))
-            last_code = summary.results[-1].failure_codes[-1] if summary.risk_interrupted and summary.results and summary.results[-1].failure_codes else None
-            persisted = True
-            try:
-                sched_store.replace_atomic({"scope": args.scope, "limit": args.limit, "state": batch_state,
-                    "processed_work_ids": processed, "last_api_error_code": last_code,
-                    "allow_long_live": bool(args.allow_long_live), "updated_at": utc_now_iso()})
-            except Exception as exc:
-                persisted = False
-                print(f"schedule: failed to persist scheduler.json ({type(exc).__name__})", file=sys.stderr)
-            ok = sum(1 for r in summary.results if r.ok)
-            skipped, failed = summary.skipped_rows, summary.failed
-            exit_code = 2 if summary.risk_interrupted else (0 if summary.fully_processed else 1)
-            if not persisted and exit_code != 2:
-                exit_code = 1
-            coverage = compute_coverage_summary(store.load())
-            cursor_snapshot = cursor_store.load()
-            print(f"schedule: batch={batch_state}" + ("" if persisted else " (not persisted)"))
-            print(f"enumeration: {format_cursor_summary(cursor_snapshot)}")
-            print(f"coverage: [{format_coverage_summary(coverage)}]")
-            print(f"schedule: {ok} completed, {len(skipped)} skipped" + (f", {len(failed)} failed" if failed else "") + (", scope not fully processed" if exit_code == 1 else ""))
-            try:
-                RunLedger(root=args.archive_root).append(build_run_record(command="schedule", started_at=started_at,
-                    finished_at=utc_now_iso(), exit_code=exit_code, mid=None,
-                    work_ids=[r.work_id for r in summary.results] or None, records_existing=len(entries),
-                    last_api_error_code=last_code, coverage_summary=coverage, cursor_snapshot=cursor_snapshot))
-            except Exception:
-                pass
-            return exit_code
-    except ArchiveBusyError:
-        print("schedule: archive_busy", file=sys.stderr)
-        return 1
 
 def _cmd_schedule(args: argparse.Namespace) -> int:
     from . import bili_client
@@ -2058,7 +1968,7 @@ def _cmd_schedule(args: argparse.Namespace) -> int:
 
     try:
         with archive_writer(args.archive_root):
-            summary = coord.run_batch(rows, already_owned=True)
+            summary = coord.run_batch(rows)
             batch_state = classify_batch_state(risk_interrupted=summary.risk_interrupted, truncated=truncated)
             processed = settled_processed_ids(summary.results, risk_interrupted=summary.risk_interrupted)
             sched_store.replace_atomic({"scope": args.scope, "limit": args.limit, "state": batch_state, "processed_work_ids": processed, "last_api_error_code": None, "allow_long_live": bool(args.allow_long_live), "updated_at": utc_now_iso()})

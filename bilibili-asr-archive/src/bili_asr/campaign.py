@@ -324,12 +324,7 @@ class CampaignRunner:
             self.root, store, client=self.client, offline=self.offline,
             max_audio_bytes=self.max_audio_bytes, sleep=self.sleep,
         )
-        try:
-            run_summary: RunSummary = coordinator.run_batch(selected_rows, already_owned=True)
-        except TypeError as exc:
-            if "already_owned" not in str(exc):
-                raise
-            run_summary = coordinator.run_batch(selected_rows)
+        run_summary: RunSummary = coordinator.run_batch(selected_rows)
         result_by_id = {result.work_id: result for result in run_summary.results}
         failed_or_skipped = bool(run_summary.failed or run_summary.skipped_rows)
         terminal_results = all(result.final_status in _TERMINAL_FINAL_STATUSES for result in run_summary.results)

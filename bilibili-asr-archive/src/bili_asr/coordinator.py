@@ -15,6 +15,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import threading
 import time
 from contextlib import contextmanager
 from dataclasses import dataclass, field
@@ -61,13 +62,24 @@ class ArchiveBusyError(RuntimeError):
         super().__init__("archive_busy")
 
 
+_ARCHIVE_WRITER_STATE = threading.local()
+
+
 @contextmanager
 def archive_writer(root: str | os.PathLike[str], *, blocking: bool = False) -> Iterator[None]:
-    """Own the archive root for one sequential coordinator operation."""
+    """Own the archive root, reentrant only within the owning thread."""
     lock_target = os.path.join(os.fspath(root), ARCHIVE_WRITER_LOCK)
+    owned = getattr(_ARCHIVE_WRITER_STATE, "owned", None)
+    if owned == lock_target:
+        yield
+        return
     try:
         with file_lock(lock_target, blocking=blocking):
-            yield
+            _ARCHIVE_WRITER_STATE.owned = lock_target
+            try:
+                yield
+            finally:
+                _ARCHIVE_WRITER_STATE.owned = None
     except OSError as exc:
         if not blocking and isinstance(exc.__cause__, BlockingIOError):
             raise ArchiveBusyError() from exc
@@ -628,11 +640,7 @@ class RunCoordinator:
             raise
         return result
 
-    def run_batch(
-        self, rows: list[tuple[str, dict[str, Any]]], *, already_owned: bool = False
-    ) -> RunSummary:
-        if already_owned:
-            return self._run_batch_locked(rows)
+    def run_batch(self, rows: list[tuple[str, dict[str, Any]]]) -> RunSummary:
         with archive_writer(self.root):
             return self._run_batch_locked(rows)
 

@@ -18,7 +18,7 @@ import pytest
 from bili_asr.coverage_report import CoverageReport
 from bili_asr.integrity import IntegrityVerifier, STRUCTURAL_INPUT_ERROR
 from bili_asr.manifest import ManifestStore
-from bili_asr.coordinator import AttemptLedger
+from bili_asr.coordinator import AttemptLedger, ArchiveBusyError, archive_writer
 from bili_asr.persistence import replace_file_atomically
 
 
@@ -213,6 +213,21 @@ def test_manifest_failure_injection_preserves_unrelated_file(tmp_path: Path, mon
     assert marker.read_text(encoding="utf-8") == "keep"
 
 
+def test_malformed_attempt_history_fails_closed_for_authoritative_append(tmp_path: Path) -> None:
+    path = tmp_path / "coordinator" / "attempts.jsonl"
+    path.parent.mkdir()
+    path.write_text(json.dumps(_attempt("x:p0")) + "\n{bad}\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="malformed attempt history"):
+        AttemptLedger(tmp_path).append(_attempt("x:p0", 2))
+
+
+def test_public_attempt_load_keeps_valid_records_with_malformed_history(tmp_path: Path) -> None:
+    path = tmp_path / "coordinator" / "attempts.jsonl"
+    path.parent.mkdir()
+    path.write_text(json.dumps(_attempt("x:p0")) + "\n{bad}\n", encoding="utf-8")
+    assert AttemptLedger(tmp_path).load() == [_attempt("x:p0")]
+
+
 def test_malformed_middle_and_truncated_final_lines_are_structural(tmp_path: Path) -> None:
     path = tmp_path / "coordinator" / "attempts.jsonl"
     path.parent.mkdir()
@@ -230,6 +245,44 @@ def test_invalid_utf8_and_redaction_never_serialize_sensitive_context(tmp_path: 
     assert STRUCTURAL_INPUT_ERROR in report.diagnostics
     for marker in ("SESSDATA", "https://", "Traceback", str(tmp_path)):
         assert marker not in payload
+
+
+def test_archive_writer_reenters_same_thread_without_second_lock(tmp_path: Path, monkeypatch) -> None:
+    calls = []
+    import bili_asr.coordinator as coordinator
+    real_lock = coordinator.file_lock
+
+    def tracked_lock(path, **kwargs):
+        calls.append(path)
+        return real_lock(path, **kwargs)
+
+    monkeypatch.setattr(coordinator, "file_lock", tracked_lock)
+    with archive_writer(tmp_path):
+        with archive_writer(tmp_path):
+            pass
+    assert len(calls) == 1
+
+
+def test_archive_writer_rejects_cross_thread_overlap(tmp_path: Path) -> None:
+    import threading
+    entered = threading.Event()
+    release = threading.Event()
+    def owner():
+        with archive_writer(tmp_path):
+            entered.set()
+            release.wait(timeout=2)
+
+    thread = threading.Thread(target=owner)
+    thread.start()
+    assert entered.wait(timeout=2)
+    try:
+        with pytest.raises(ArchiveBusyError):
+            with archive_writer(tmp_path):
+                pass
+    finally:
+        release.set()
+        thread.join(timeout=2)
+    assert not thread.is_alive()
 
 
 def test_symlinked_manifest_and_duplicate_journal_are_not_authoritative(tmp_path: Path) -> None:

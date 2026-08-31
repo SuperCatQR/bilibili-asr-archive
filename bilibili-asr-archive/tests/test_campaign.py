@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from bili_asr.campaign import CampaignRunner
-from bili_asr.coordinator import RowResult, RunSummary
+from bili_asr.coordinator import RowResult, RunSummary, archive_writer
 from bili_asr.scheduler import SchedulerStore
 
 
@@ -165,8 +165,9 @@ def test_atomic_directory_fsync_failure_restores_bytes_and_cleans_temp(tmp_path,
             raise OSError("directory fsync injected")
         return real_fsync(fd)
     monkeypatch.setattr("bili_asr.campaign.os.fsync", fail_directory_fsync)
-    with pytest.raises(OSError, match="directory fsync injected"):
-        runner.run("pending", 1)
+    with archive_writer(tmp_path):
+        with pytest.raises(OSError, match="directory fsync injected"):
+            runner.run("pending", 1)
     assert (Path(tmp_path) / "campaign.json").read_bytes() == prior
     assert not list(Path(tmp_path).glob(".campaign.json.*"))
 
