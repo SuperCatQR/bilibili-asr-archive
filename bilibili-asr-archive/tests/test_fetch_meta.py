@@ -31,6 +31,12 @@ class FakeTransport:
         self.calls.append(
             {"url": url, "params": dict(params or {}), "cookies": dict(cookies or {})}
         )
+        if "pagelist" in url:
+            cid = abs(hash((params or {}).get("bvid") or "x")) % 10_000 + 1
+            return 200, {
+                "code": 0,
+                "data": [{"cid": cid, "page": 1, "part": ""}],
+            }
         queue = self.spi if "finger/spi" in url else self.script
         if not queue:
             raise AssertionError("FakeTransport ran out of scripted responses")
@@ -254,8 +260,8 @@ def test_inter_page_pacing_is_real_delay(fast_sleep):
     # (0.8-1.6s like the retired script), not sleep(0).
     transport = FakeTransport(
         [
-            (200, ok_page([arc("BV1A")], total=2)),
-            (200, ok_page([arc("BV1B")], total=2)),
+            (200, ok_page([arc("BV1A")], total=60)),
+            (200, ok_page([arc("BV1B")], total=60)),
         ],
     )
     client = bc.BiliClient(transport=transport, sleeper=fast_sleep,
@@ -270,8 +276,8 @@ def test_inter_page_pacing_is_real_delay(fast_sleep):
 def test_inter_page_pacing_jitter_adds(fast_sleep):
     transport = FakeTransport(
         [
-            (200, ok_page([arc("BV1A")], total=2)),
-            (200, ok_page([arc("BV1B")], total=2)),
+            (200, ok_page([arc("BV1A")], total=60)),
+            (200, ok_page([arc("BV1B")], total=60)),
         ],
     )
     client = bc.BiliClient(transport=transport, sleeper=fast_sleep,
@@ -307,19 +313,23 @@ def test_cli_fetch_meta_writes_manifest(tmp_root, fast_sleep, monkeypatch):
     rc = main(["fetch-meta", "--mid", "23191782", "--archive-root", tmp_root])
     assert rc == 0
     entries = ManifestStore(root=tmp_root).load()
-    assert set(entries) == {"BV1A", "BV1B"}
+    assert set(entries) == {"BV1A:p0", "BV1B:p0"}
     for e in entries.values():
         assert e["status"] == "meta_ok"
-    assert entries["BV1A"]["duration_s"] == 3600
-    assert entries["BV1A"]["pubdate"] == 1700000000
+        assert e["work_id"].endswith(":p0")
+    assert entries["BV1A:p0"]["duration_s"] == 3600
+    assert entries["BV1A:p0"]["pubdate"] == 1700000000
 
 
 def test_cli_resume_does_not_duplicate(tmp_root, fast_sleep, monkeypatch):
     store = ManifestStore(root=tmp_root)
-    store.upsert(
-        {"bvid": "BV1A", "status": "meta_ok", "title": "t BV1A",
-         "duration_s": 100, "pubdate": 1}
-    )
+    store.load()
+    store.save({
+        "BV1A": {
+            "bvid": "BV1A", "status": "meta_ok", "title": "t BV1A",
+            "duration_s": 100, "pubdate": 1,
+        }
+    })
     transport = FakeTransport(
         [
             (200, ok_page([arc("BV1A"), arc("BV1B")], total=2)),
@@ -332,7 +342,7 @@ def test_cli_resume_does_not_duplicate(tmp_root, fast_sleep, monkeypatch):
                "--archive-root", tmp_root])
     assert rc == 0
     entries = store.load()
-    assert set(entries) == {"BV1A", "BV1B"}
+    assert set(entries) == {"BV1A:p0", "BV1B:p0"}
     lines = open(store.path, encoding="utf-8").read().strip().splitlines()
     bvids = [json.loads(l)["bvid"] for l in lines]
     assert sorted(bvids) == ["BV1A", "BV1B"]  # no dup lines
@@ -360,7 +370,7 @@ def test_cli_pages_limit(tmp_root, fast_sleep, monkeypatch):
                "--archive-root", tmp_root])
     assert rc == 0
     entries = ManifestStore(root=tmp_root).load()
-    assert set(entries) == {"BV1A"}
+    assert set(entries) == {"BV1A:p0"}
 
 
 # ------------------------------------------------- fix wave 1 (QC1/2/3) tests
@@ -451,7 +461,7 @@ def test_cli_budget_exhausted_midrun_persists_partial(tmp_root, fast_sleep,
     rc = main(["fetch-meta", "--mid", "23191782", "--archive-root", tmp_root])
     assert rc == 2
     entries = ManifestStore(root=tmp_root).load()
-    assert set(entries) == {"BV1A", "BV1B"}  # partial run persisted
+    assert set(entries) == {"BV1A:p0", "BV1B:p0"}  # partial run persisted
     err = capsys.readouterr().err
     assert "page 2" in err
     assert "2" in err and "persisted" in err
@@ -473,7 +483,10 @@ def test_cli_budget_exhausted_page1_persists_nothing(tmp_root, fast_sleep,
 def test_cli_api_error_midrun_persists_partial(tmp_root, fast_sleep,
                                                monkeypatch, capsys):
     store = ManifestStore(root=tmp_root)
-    store.upsert({"bvid": "BVexisting", "status": "subtitle_done"})
+    store.load()
+    store.save({
+        "BVexisting": {"bvid": "BVexisting", "status": "subtitle_done"},
+    })
     transport = FakeTransport(
         [
             (200, ok_page([arc("BV1A")], total=99)),
@@ -489,7 +502,7 @@ def test_cli_api_error_midrun_persists_partial(tmp_root, fast_sleep,
     assert rc == 2
     entries = store.load()
     assert entries["BVexisting"]["status"] == "subtitle_done"
-    assert entries["BV1A"]["status"] == "meta_ok"
+    assert entries["BV1A:p0"]["status"] == "meta_ok"
     assert all(entry.get("status") != "gone" for entry in entries.values())
     err = capsys.readouterr().err
     assert "API response error (code -400)" in err
@@ -510,10 +523,44 @@ def test_cli_gone_midrun_persists_partial(tmp_root, fast_sleep, monkeypatch,
     rc = main(["fetch-meta", "--mid", "23191782", "--archive-root", tmp_root])
     assert rc == 2
     entries = ManifestStore(root=tmp_root).load()
-    assert set(entries) == {"BV1A", "BV1B"}
+    assert set(entries) == {"BV1A:p0", "BV1B:p0"}
     err = capsys.readouterr().err
     assert "2 page(s)" in err
     assert "no pages enumerated" not in err
+
+
+class SelectivePagelistTransport(FakeTransport):
+    def get_json(self, url, params=None, headers=None, cookies=None, timeout=None):
+        if "pagelist" in url:
+            self.calls.append(
+                {"url": url, "params": dict(params or {}), "cookies": dict(cookies or {})}
+            )
+            bvid = (params or {}).get("bvid")
+            if bvid == "BV1B":
+                return 200, {"code": -404}
+            return 200, {
+                "code": 0,
+                "data": [{"cid": 11, "page": 1, "part": ""}],
+            }
+        return super().get_json(url, params=params, headers=headers, cookies=cookies, timeout=timeout)
+
+
+def test_cli_fetch_meta_pagelist_failure_keeps_other_bvid(
+    tmp_root, fast_sleep, monkeypatch
+):
+    transport = SelectivePagelistTransport(
+        [(200, ok_page([arc("BV1A"), arc("BV1B")], total=2))],
+    )
+    monkeypatch.setattr(bc, "build_default_transport", lambda: transport)
+    monkeypatch.setattr(bc, "default_sleeper", lambda: fast_sleep)
+    rc = main(["fetch-meta", "--mid", "23191782", "--archive-root", tmp_root])
+    assert rc == 0
+    entries = ManifestStore(root=tmp_root).load()
+    assert "BV1A:p0" in entries
+    assert "BV1B" not in entries
+    assert "BV1B:p0" not in entries
+    pagelist = [c for c in transport.calls if "pagelist" in c["url"]]
+    assert [c["params"]["bvid"] for c in pagelist] == ["BV1A", "BV1B"]
 
 
 def test_cli_gone_on_first_page_reports_no_pages(tmp_root, fast_sleep,
