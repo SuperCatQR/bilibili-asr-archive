@@ -16,12 +16,14 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
+from pathlib import Path
 from typing import Any
 
 from .bili_client import BiliClient
 from .manifest import ManifestStore
 from .page_identity import PageIdentity, apply_identity
 from .subtitles import resolve_page_identity
+from .path_policy import confined_audio_path
 
 AUDIO_DIR = os.path.join("audio")
 
@@ -69,12 +71,15 @@ def _run_ffmpeg(src: str, dst: str) -> None:
 
 
 def _existing_audio(out_path: str) -> str | None:
-    """Return an existing non-empty audio path (.m4a or .flac sibling), else None."""
+    """Return an existing confined, non-empty audio path."""
+    root = Path(out_path).resolve().parents[1]
     candidates = [out_path, os.path.splitext(out_path)[0] + ".flac"]
     for path in candidates:
         try:
-            if os.path.isfile(path) and os.path.getsize(path) > 0:
-                return path
+            relative = os.path.relpath(path, root)
+            confined = confined_audio_path(root, relative, require_exists=True)
+            if confined is not None and confined.stat().st_size > 0:
+                return str(confined)
         except OSError:
             continue
     return None
@@ -159,10 +164,13 @@ def _mark_audio_ok(
     entry = apply_identity(existing, identity)
     entry.pop("last_api_error_code", None)
     entry["status"] = "audio_ok"
-    # relative to the manifest root when the file lives under it
-    root = store.root
+    root = Path(store.root).resolve()
     try:
-        entry["audio_path"] = os.path.relpath(final_path, root)
-    except ValueError:  # different drives (Windows)
-        entry["audio_path"] = final_path
+        final_rel = os.path.relpath(final_path, root)
+    except ValueError:
+        return
+    confined = confined_audio_path(root, final_rel, require_exists=True)
+    if confined is None:
+        return
+    entry["audio_path"] = final_rel
     store.upsert(entry)

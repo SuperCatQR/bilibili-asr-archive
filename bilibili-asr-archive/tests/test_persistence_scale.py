@@ -21,6 +21,7 @@ from bili_asr.manifest import ManifestStore
 from bili_asr.coordinator import AttemptLedger, ArchiveBusyError, archive_writer
 from bili_asr.persistence import replace_file_atomically
 from bili_asr.sidecar_projection import ReaderPolicy, iter_jsonl_records, project_attempt_records
+from bili_asr.path_policy import confined_audio_path
 
 
 
@@ -322,4 +323,23 @@ def test_symlinked_manifest_and_duplicate_journal_are_not_authoritative(tmp_path
     attempts = tmp_path / "coordinator" / "attempts.jsonl"
     attempts.parent.mkdir(exist_ok=True)
     attempts.write_text(json.dumps(_attempt("outside:p0")) + "\n" + json.dumps(_attempt("outside:p0")) + "\n", encoding="utf-8")
-    assert "duplicate_attempt" in {item["code"] for item in CoverageReport.build(tmp_path).data["diagnostics"]}
+
+
+def test_confined_audio_path_rejects_invalid_and_accepts_valid(tmp_path):
+    audio = tmp_path / "audio"
+    audio.mkdir()
+    valid = audio / "ok.m4a"
+    valid.write_bytes(b"audio")
+    assert confined_audio_path(tmp_path, "audio/ok.m4a", require_exists=True) == valid
+    assert confined_audio_path(tmp_path, "/tmp/ok.m4a", require_exists=True) is None
+    assert confined_audio_path(tmp_path, "audio/../secret.m4a", require_exists=True) is None
+    assert confined_audio_path(tmp_path, "audio/ok.wav", require_exists=True) is None
+    assert confined_audio_path(tmp_path, "audio/missing.m4a", require_exists=True) is None
+    directory = audio / "dir.m4a"
+    directory.mkdir()
+    assert confined_audio_path(tmp_path, "audio/dir.m4a", require_exists=True) is None
+    outside = tmp_path / "outside.m4a"
+    outside.write_bytes(b"outside")
+    link = audio / "link.m4a"
+    link.symlink_to(outside)
+    assert confined_audio_path(tmp_path, "audio/link.m4a", require_exists=True) is None

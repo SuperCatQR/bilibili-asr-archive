@@ -6,7 +6,10 @@ Filesystem-only module. Never opens sockets, never logs credentials.
 from __future__ import annotations
 
 import os
+from pathlib import Path
 from typing import Any, Mapping
+
+from .path_policy import confined_audio_path
 
 _AUDIO_EXTENSIONS = (".m4a", ".flac")
 
@@ -45,16 +48,25 @@ def reclaim_audio(archive_root: str | os.PathLike[str], entry: Mapping[str, Any]
     ValueError instead of unlinking (path-traversal guard). OSError while
     unlinking propagates to the caller (per-item, non-fatal at call sites).
     """
-    root = os.fspath(archive_root)
-    audio_dir = os.path.realpath(_audio_dir(root))
+    root = Path(archive_root).resolve()
     removed = False
-    for candidate in _candidate_paths(root, entry):
-        real = os.path.realpath(candidate)
-        if os.path.commonpath([audio_dir, real]) != audio_dir:
-            raise ValueError(
-                "refusing to reclaim audio outside the archive audio directory"
-            )
-        if os.path.isfile(real):
-            os.unlink(real)
-            removed = True
+    seen: set[Path] = set()
+    explicit_value = str(entry.get("audio_path") or "")
+    for candidate in _candidate_paths(str(root), entry):
+        candidate_path = Path(candidate)
+        is_explicit = bool(explicit_value) and (
+            candidate_path == Path(explicit_value)
+            or candidate_path == root / explicit_value
+        )
+        relative = explicit_value if is_explicit else os.path.relpath(candidate, root)
+        confined = confined_audio_path(root, relative, require_exists=True)
+        if confined is None:
+            if is_explicit:
+                raise ValueError("invalid audio path")
+            continue
+        if confined in seen:
+            continue
+        seen.add(confined)
+        os.unlink(confined)
+        removed = True
     return removed

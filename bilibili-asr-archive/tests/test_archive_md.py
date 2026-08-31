@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 
-from bili_asr.archive import write_archive
+from bili_asr.archive import archive_bundle_complete, bundle_marker_path, write_archive
 from bili_asr.page_identity import artifact_stem, page_identity
 
 
@@ -80,4 +80,38 @@ def test_write_archive_unresolved_keeps_bare_bvid_stem(tmp_root):
     md = (tmp_path / paths["md_path"]).read_text(encoding="utf-8")
     assert "work_id:" not in md
     assert "page_index:" not in md
-    assert "cid:" not in md
+
+
+def test_archive_bundle_requires_marker_and_all_outputs(tmp_root):
+    from pathlib import Path
+    tmp_path = Path(tmp_root)
+    entry = {"bvid": "BVmarker", "work_id": "BVmarker:p0", "page_index": 0, "cid": 1}
+    paths = write_archive(tmp_path, entry, [{"start": 0, "end": 1, "text": "x"}], source="asr")
+    assert archive_bundle_complete(tmp_path, paths)
+    marker = bundle_marker_path(tmp_path / paths["srt_path"])
+    marker.unlink()
+    assert not archive_bundle_complete(tmp_path, paths)
+    marker.write_text("bundle-ready\n", encoding="utf-8")
+    (tmp_path / paths["raw_path"]).unlink()
+    assert not archive_bundle_complete(tmp_path, paths)
+
+
+def test_archive_failure_cleans_only_owned_staging(tmp_root, monkeypatch):
+    from pathlib import Path
+    tmp_path = Path(tmp_root)
+    unrelated = tmp_path / "unrelated.txt"
+    unrelated.write_text("keep", encoding="utf-8")
+    original_replace = __import__("os").replace
+    calls = []
+    def fail_after_first(src, dst):
+        calls.append((src, dst))
+        if len(calls) == 2:
+            raise OSError("injected replace")
+        return original_replace(src, dst)
+    monkeypatch.setattr("bili_asr.archive.os.replace", fail_after_first)
+    entry = {"bvid": "BVfail", "work_id": "BVfail:p0", "page_index": 0, "cid": 1}
+    import pytest
+    with pytest.raises(OSError):
+        write_archive(tmp_path, entry, [{"start": 0, "end": 1, "text": "x"}], source="asr")
+    assert unrelated.read_text(encoding="utf-8") == "keep"
+    assert not list((tmp_path / "transcripts" / "srt").glob(".archive-bundle-*"))

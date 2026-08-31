@@ -17,6 +17,7 @@ import os
 import re
 import threading
 import time
+from pathlib import Path
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from typing import Any, Callable, Iterator
@@ -27,6 +28,7 @@ from . import subtitles as subtitles_module
 from .manifest import ManifestStore
 from .page_identity import PageIdentity, artifact_stem, identity_from_entry
 from .persistence import append_jsonl_record, file_lock
+from .path_policy import confined_audio_path
 
 STAGES = ("harvest", "download", "asr", "archive")
 OUTCOMES = ("ok", "failed", "skipped")
@@ -382,8 +384,10 @@ class RunCoordinator:
         candidates.append(base + ".flac")
         for path in candidates:
             try:
-                if os.path.isfile(path) and os.path.getsize(path) > 0:
-                    return path
+                declared = os.path.relpath(path, self.root)
+                confined = confined_audio_path(self.root, declared, require_exists=True)
+                if confined is not None and confined.stat().st_size > 0:
+                    return str(confined)
             except OSError:
                 continue
         return None
@@ -416,10 +420,19 @@ class RunCoordinator:
                 error_code=_safe_error_code(exc), started_at=started,
             )
             raise
-        self._record(
-            "archive", work_id, "ok",
-            artifact_paths=sorted(paths.values()), started_at=started,
-        )
+        try:
+            if not archive_module.archive_bundle_complete(self.root, paths):
+                raise OSError("archive bundle incomplete")
+            self._record(
+                "archive", work_id, "ok",
+                artifact_paths=sorted(paths.values()), started_at=started,
+            )
+        except Exception as exc:
+            self._record(
+                "archive", work_id, "failed",
+                error_code=_safe_error_code(exc), started_at=started,
+            )
+            raise
         self._mark_archived(key, entry, paths)
         result.ok = True
         result.final_status = "archived"
@@ -488,14 +501,23 @@ class RunCoordinator:
                 error_code=_safe_error_code(exc), started_at=started,
             )
             raise
-        self._record(
-            "archive", work_id, "ok",
-            artifact_paths=sorted(paths.values()), started_at=started,
-        )
+        try:
+            if not archive_module.archive_bundle_complete(self.root, paths):
+                raise OSError("archive bundle incomplete")
+            self._record(
+                "archive", work_id, "ok",
+                artifact_paths=sorted(paths.values()), started_at=started,
+            )
+        except Exception as exc:
+            self._record(
+                "archive", work_id, "failed",
+                error_code=_safe_error_code(exc), started_at=started,
+            )
+            raise
         try:
             audio_rel = os.path.relpath(audio_path, self.root)
         except ValueError:
-            audio_rel = audio_path
+            raise OSError("audio path outside archive")
         current = self._current_entry(key, entry)
         current["audio_path"] = audio_rel
         self._mark_archived(key, current, paths)
