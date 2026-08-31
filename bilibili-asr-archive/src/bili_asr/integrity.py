@@ -14,6 +14,7 @@ import fcntl
 from .archive import archive_stem, _safe_name
 from .page_identity import artifact_stem, page_identity, parse_work_id
 from .coordinator import _validate_attempt
+from .sidecar_projection import ReaderPolicy, project_attempt_records, project_manifest_records
 
 MISSING_RAW_SUBTITLE = "missing_raw_subtitle"
 MISSING_TRANSCRIPT = "missing_transcript"
@@ -175,7 +176,8 @@ class IntegrityReport:
         return {"checked": self.checked, "defect_count": len(self.defects), "defects": [d.to_dict() for d in self.defects], "diagnostics": list(self.diagnostics), "authoritative": self.authoritative}
 
 class IntegrityVerifier:
-    def verify(self, archive_root: Path, *, scope: str | None = None) -> IntegrityReport:
+    def verify(self, archive_root: Path, *, scope: str | None = None,
+               policy: ReaderPolicy | None = None) -> IntegrityReport:
         root = Path(archive_root).resolve()
         if not root.is_dir():
             report = IntegrityReport(authoritative=False)
@@ -183,14 +185,33 @@ class IntegrityVerifier:
             return report
         reader = _RootConfinedReader(root)
         try:
-            return self._verify_with_reader(root, scope, reader)
+            return self._verify_with_reader(root, scope, reader, policy or ReaderPolicy())
         finally:
             reader.close()
 
-    def _verify_with_reader(self, root: Path, scope: str | None, reader: _RootConfinedReader) -> IntegrityReport:
+    def _verify_with_reader(self, root: Path, scope: str | None, reader: _RootConfinedReader, policy: ReaderPolicy) -> IntegrityReport:
         report = IntegrityReport()
-        entries, manifest_valid = self._read_manifest(root, report, reader)
-        attempts, attempts_valid, truncated = self._read_attempts(root, report, reader)
+        entries, manifest_state, manifest_diagnostics = project_manifest_records(
+            root / "manifest" / "manifest.jsonl", policy=policy
+        )
+        attempts, attempts_state, attempt_diagnostics = project_attempt_records(
+            root / "coordinator" / "attempts.jsonl", policy=policy
+        )
+        manifest_valid = manifest_state == "available"
+        attempts_valid = attempts_state in {"available", "missing"}
+        for diagnostic in sorted(manifest_diagnostics | attempt_diagnostics):
+            if diagnostic == "manifest_row_limit_exceeded":
+                report.diagnostics.append(MANIFEST_ROW_LIMIT_EXCEEDED)
+            elif diagnostic == "attempts_row_limit_exceeded":
+                report.diagnostics.append(ATTEMPTS_ROW_LIMIT_EXCEEDED)
+            elif diagnostic == "attempts_byte_limit_exceeded":
+                report.diagnostics.append(ATTEMPTS_BYTE_LIMIT_EXCEEDED)
+            elif diagnostic == "truncated_attempts_line":
+                report.diagnostics.append(TRUNCATED_ATTEMPTS_LINE)
+            elif diagnostic == "manifest_duplicate_work_id":
+                report.diagnostics.append(STRUCTURAL_INPUT_ERROR)
+            else:
+                report.diagnostics.append(STRUCTURAL_INPUT_ERROR)
         manifest_present = reader.is_regular(Path("manifest/manifest.jsonl"))
         attempts_present = reader.is_regular(Path("coordinator/attempts.jsonl"))
         report.authoritative = manifest_present and attempts_present and manifest_valid and attempts_valid
@@ -202,7 +223,7 @@ class IntegrityVerifier:
                 report.diagnostics.append(STRUCTURAL_INPUT_ERROR)
         # Legacy archives may predate the coordinator sidecar.  Keep their
         # manifest rows checkable while withholding the authoritative claim.
-        selected = self._select(entries, scope, attempts if attempts_valid else []) if manifest_valid and (attempts_valid or not attempts_present) else []
+        selected = self._select(entries, scope, attempts if attempts_valid else []) if manifest_valid and (attempts_valid or not attempts_present) else sorted(entries.items()) if manifest_valid and not attempts_present else []
         report.checked = len(selected)
         for key, row in selected:
             work_id = str(row.get("work_id") or key); status = str(row.get("status") or ""); defects: set[str] = set()
@@ -234,8 +255,8 @@ class IntegrityVerifier:
                 defects.add(MALFORMED_ARTIFACT)
             if status in {"pending", "meta_ok", "sub_checked", "needs_audio", "audio_ok"}: defects.add(RETRYABLE_INCOMPLETE)
             report.defects.extend(IntegrityDefect(work_id, code) for code in sorted(defects))
-        if truncated: report.diagnostics.append(TRUNCATED_ATTEMPTS_LINE)
-        report.defects.sort(key=lambda d: (d.work_id, d.code)); return report
+        report.defects.sort(key=lambda d: (d.work_id, d.code))
+        return report
 
     @staticmethod
     def recover(archive_root: Path, *, work_ids: list[str] | None = None,

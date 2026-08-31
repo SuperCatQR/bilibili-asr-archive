@@ -14,6 +14,7 @@ from .page_identity import parse_work_id
 from .meta_cursor import _validate as validate_cursor
 from .scheduler import _validate as validate_scheduler
 from .run_ledger import _validate_record as validate_run_ledger_record
+from .sidecar_projection import ReaderPolicy, iter_jsonl_records, project_attempt_records, project_manifest_records
 
 SCHEMA_VERSION = "coverage-report-v1"
 TERMINAL_STATUSES = frozenset({"archived", "gone"})
@@ -58,24 +59,29 @@ class CoverageReport:
         archive_root: str | Path,
         *,
         scope: str | None = None,
+        policy: ReaderPolicy | None = None,
     ) -> CoverageReport:
         root = Path(archive_root).resolve()
         diagnostics: set[tuple[str, str]] = set()
-        manifest, manifest_state = _read_manifest(root, diagnostics)
+        manifest, manifest_state, manifest_diagnostics = project_manifest_records(
+            root / "manifest" / "manifest.jsonl", policy=policy
+        )
+        diagnostics.update((code, "manifest") for code in manifest_diagnostics)
+        if "manifest_duplicate_work_id" in manifest_diagnostics:
+            manifest_state = "malformed"
         cursor, cursor_state = _read_validated_sidecar(
             root / "meta-cursor.json", "meta_cursor", validate_cursor, diagnostics
         )
         scheduler, scheduler_state = _read_validated_sidecar(
             root / "scheduler.json", "scheduler", validate_scheduler, diagnostics
         )
-        run_ledger, ledger_state = _read_jsonl(
-            root / "run-ledger.jsonl", "run_ledger", diagnostics
+        run_ledger, ledger_state = _read_jsonl(root / "run-ledger.jsonl", "run_ledger", diagnostics, policy)
+        attempts, attempts_state, attempt_diagnostics = project_attempt_records(
+            root / "coordinator" / "attempts.jsonl", policy=policy
         )
-        attempts, attempts_state = _read_jsonl(
-            root / "coordinator" / "attempts.jsonl", "attempts", diagnostics
-        )
-        _validate_run_ledger(run_ledger, ledger_state, diagnostics)
-        _validate_attempts(attempts, attempts_state, manifest, diagnostics)
+        diagnostics.update((code, "attempt") for code in attempt_diagnostics)
+        if "attempt_not_in_manifest" in {"attempt_not_in_manifest" if r.get("work_id") not in manifest else "" for r in attempts}:
+            diagnostics.add(("attempt_not_in_manifest", "attempt"))
 
         selected, scope_state = _select_scope(manifest, attempts, scope)
         if scope_state == "unavailable":
@@ -324,32 +330,20 @@ def _read_validated_sidecar(
 
 
 def _read_jsonl(
-    path: Path, name: str, diagnostics: set[tuple[str, str]]
+    path: Path, name: str, diagnostics: set[tuple[str, str]],
+    policy: ReaderPolicy | None = None,
 ) -> tuple[list[dict[str, Any]], str]:
-    if not path.is_file():
-        return [], "missing"
-    try:
-        fh = path.open("r", encoding="utf-8")
-    except (OSError, UnicodeError):
-        diagnostics.add(("sidecar_malformed", name))
-        return [], "malformed"
     records: list[dict[str, Any]] = []
     valid = True
-    with fh:
-        for line_number, line in enumerate(fh, 1):
-            if line_number > MAX_JSONL_RECORDS:
+    for item in iter_jsonl_records(path, policy=policy, name=name):
+        if item.diagnostic:
+            if item.diagnostic == f"{name}_record_limit":
                 diagnostics.add(("sidecar_record_limit", name))
-                valid = False
-                break
-            try:
-                record = json.loads(line)
-                if not isinstance(record, dict):
-                    raise ValueError
-            except (TypeError, ValueError, json.JSONDecodeError):
+            else:
                 diagnostics.add(("sidecar_malformed", name))
-                valid = False
-                continue
-            records.append(record)
+            valid = False
+        elif item.value is not None:
+            records.append(item.value)
     return records, "available" if valid else "malformed"
 
 
