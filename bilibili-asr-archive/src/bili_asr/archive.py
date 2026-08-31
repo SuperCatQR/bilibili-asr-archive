@@ -73,6 +73,30 @@ def _confined_regular(root: Path, path: Path) -> bool:
         return False
 
 
+def _validate_publication_paths(root: Path, finals: Mapping[str, Path]) -> None:
+    """Reject attacker-controlled directory or destination entries."""
+    root = root.resolve()
+    if not root.is_dir() or root.is_symlink():
+        raise OSError("archive publication path is unsafe")
+    for final in finals.values():
+        try:
+            relative = final.relative_to(root)
+        except ValueError as exc:
+            raise OSError("archive publication path is unsafe") from exc
+        current = root
+        for component in relative.parts[:-1]:
+            current = current / component
+            info = current.lstat()
+            if stat.S_ISLNK(info.st_mode) or not stat.S_ISDIR(info.st_mode):
+                raise OSError("archive publication path is unsafe")
+        try:
+            info = final.lstat()
+        except FileNotFoundError:
+            continue
+        if stat.S_ISLNK(info.st_mode) or not stat.S_ISREG(info.st_mode):
+            raise OSError("archive publication path is unsafe")
+
+
 def _marker_payload(root: Path, finals: Mapping[str, Path], contents: Mapping[str, bytes]) -> bytes:
     artifacts = {}
     for key in _REQUIRED_ARTIFACT_KEYS:
@@ -102,7 +126,9 @@ def archive_bundle_complete(
         if len(payload) > _MARKER_MAX_BYTES:
             return False
         document = json.loads(payload.decode("ascii"))
-        artifacts = document.get("artifacts") if isinstance(document, dict) else None
+        if not isinstance(document, dict):
+            return False
+        artifacts = document.get("artifacts")
         if document.get("schema") != "archive-bundle-v1" or not isinstance(artifacts, dict):
             return False
         if set(artifacts) != set(_REQUIRED_ARTIFACT_KEYS):
@@ -138,6 +164,8 @@ def _write_staged(path: Path, content: bytes) -> None:
 
 
 def _publish_bundle(finals: Mapping[str, Path], contents: Mapping[str, bytes]) -> None:
+    root = next(iter(finals.values())).parents[2]
+    _validate_publication_paths(root, finals)
     parent = next(iter(finals.values())).parent
     stage = Path(tempfile.mkdtemp(prefix=".archive-bundle-", dir=parent))
     try:
@@ -151,15 +179,21 @@ def _publish_bundle(finals: Mapping[str, Path], contents: Mapping[str, bytes]) -
         _write_staged(marker, _marker_payload(finals["srt_path"].parents[2], finals, contents))
         _fsync_directory(stage)
         marker_target = bundle_marker_path(finals["srt_path"])
+        _validate_publication_paths(root, finals)
         try:
-            if marker_target.is_symlink() or marker_target.exists():
-                marker_target.unlink()
-        except OSError:
+            marker_info = marker_target.lstat()
+        except FileNotFoundError:
             pass
+        else:
+            if stat.S_ISLNK(marker_info.st_mode) or not stat.S_ISREG(marker_info.st_mode):
+                raise OSError("archive publication path is unsafe")
+            marker_target.unlink()
         _fsync_directory(parent)
         for key in _REQUIRED_ARTIFACT_KEYS:
+            _validate_publication_paths(root, finals)
             os.replace(staged[key], finals[key])
             _fsync_directory(parent)
+        _validate_publication_paths(root, finals)
         os.replace(marker, marker_target)
         _fsync_directory(parent)
     finally:
@@ -174,7 +208,9 @@ def write_archive(
     source: str,
     raw: Any | None = None,
 ) -> dict[str, str]:
-    root = os.fspath(archive_root)
+    root = Path(os.fspath(archive_root)).resolve()
+    if not root.exists() or root.is_symlink() or not root.is_dir():
+        raise OSError("archive publication path is unsafe")
     bvid = str(entry["bvid"])
     stem = archive_stem(entry)
     dirs = {name: Path(root) / "transcripts" / name for name in ("srt", "txt", "md", "raw")}

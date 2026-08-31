@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from .archive import archive_stem, archive_bundle_complete
+from .path_policy import confined_audio_path
 from .manifest import VALID_STATUSES
 from .meta_cursor import _validate as validate_cursor
 from .scheduler import _validate as validate_scheduler
@@ -475,10 +476,11 @@ def _transcript_evidence(root: Path, entry: Mapping[str, Any]) -> tuple[bool, bo
     audio_value = entry.get("audio_path")
     audio_missing = False
     if isinstance(audio_value, str):
-        audio = _contained_path(root, audio_value)
-        audio_missing = audio is None or not audio.is_file()
+        audio = confined_audio_path(root, audio_value, require_exists=True)
+        audio_missing = audio is None
     elif stem:
-        audio_missing = not any((root / "audio" / f"{stem}{suffix}").is_file() for suffix in (".m4a", ".flac"))
+        audio_missing = all(confined_audio_path(root, f"audio/{stem}{suffix}", require_exists=True) is None
+                            for suffix in (".m4a", ".flac"))
     return transcript, audio_missing
 
 

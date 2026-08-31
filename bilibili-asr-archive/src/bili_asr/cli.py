@@ -1429,7 +1429,15 @@ def _pilot_archive_asr(store, client, root: str, entry: dict[str, object], targe
     if existing_audio_path is not None:
         audio_path = existing_audio_path
     else:
-        audio_path = audio.download_audio(client, target, out_path, store=store)
+        downloaded = Path(os.fspath(audio.download_audio(client, target, out_path, store=store)))
+        try:
+            downloaded_relative = downloaded.resolve().relative_to(Path(root).resolve()).as_posix()
+        except (OSError, ValueError):
+            raise ValueError("invalid audio path")
+        audio_path_obj = confined_audio_path(root, downloaded_relative, require_exists=True)
+        if audio_path_obj is None or audio_path_obj.stat().st_size <= 0:
+            raise ValueError("invalid audio path")
+        audio_path = str(audio_path_obj)
     segments = asr.transcribe(audio_path)
     current = dict(store.get(target.work_id) or entry)
     paths = archive.write_archive(root, current, segments, source="asr")

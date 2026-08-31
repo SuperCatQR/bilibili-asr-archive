@@ -1,9 +1,24 @@
 """Executable mixed-branch pilot: fake HTTP + stubbed ASR, no live network."""
 
-from __future__ import annotations
+
+
+def test_pilot_rejects_downloader_path_escape(tmp_path, monkeypatch):
+    from bili_asr import cli
+    from bili_asr import audio as audio_mod
+    class Store:
+        def get(self, _key): return None
+        def upsert(self, _row): pass
+    outside = tmp_path.parent / "escaped.m4a"
+    outside.write_bytes(b"audio")
+    monkeypatch.setattr(audio_mod, "download_audio", lambda *args, **kwargs: str(outside))
+    from bili_asr.page_identity import page_identity
+    target = page_identity("BVescape", 0, 1, "p0")
+    with pytest.raises(ValueError):
+        cli._pilot_archive_asr(Store(), object(), str(tmp_path), {"bvid": "BVescape", "status": "needs_audio"}, target)
 
 import json
 import os
+import pytest
 
 from bili_asr import asr as asr_mod
 from bili_asr import bili_client as bc

@@ -253,29 +253,28 @@ class IntegrityVerifier:
             required = self._required_paths(row, root)
             canonical_required = self._canonical_required_paths(row, root)
             for declared, canonical in zip(required, canonical_required):
-                if declared != canonical and row.get("md_path") is None:
+                if row.get("md_path") is not None and declared != canonical and row.get("title"):
                     defects.add(IDENTITY_PATH_MISMATCH)
             for path in required:
                 if not self._safe_path(path, root): defects.add(IDENTITY_PATH_MISMATCH)
             present = [p for p in required if reader.is_regular(p)]
-            bundle_paths = {
-                key: str(path.relative_to(root))
-                for key, path in zip(("srt_path", "txt_path", "md_path"), required)
-            }
-            bundle_paths["raw_path"] = str((root / "transcripts" / "raw" / f"{self._canonical_stem(row)}.json").relative_to(root))
-            if isinstance(row.get("raw_path"), str):
-                raw_declared = Path(row["raw_path"])
-                bundle_paths["raw_path"] = str((raw_declared if raw_declared.is_absolute() else root / raw_declared).relative_to(root))
-            bundle_complete = archive_bundle_complete(root, bundle_paths)
-            if not bundle_complete and isinstance(row.get("md_path"), str):
-                bundle_complete = archive_bundle_complete(root, {**bundle_paths, "md_path": row["md_path"]})
+            bundle_paths: dict[str, str] = {}
+            for key in ("srt_path", "txt_path", "md_path", "raw_path"):
+                value = row.get(key)
+                if not isinstance(value, str):
+                    bundle_paths = {}
+                    break
+                candidate = Path(value) if Path(value).is_absolute() else root / value
+                if not self._safe_path(candidate, root):
+                    defects.add(IDENTITY_PATH_MISMATCH)
+                bundle_paths[key] = value
+            bundle_complete = bool(bundle_paths) and archive_bundle_complete(root, bundle_paths)
             if status in {"archived", "asr_done", "subtitle_done"} and (len(present) < len(canonical_required) or not bundle_complete): defects.add(MISSING_TRANSCRIPT)
             raw = root / "subtitles" / "raw" / f"{self._canonical_stem(row)}.json"
             declared_raw = row.get("raw_path")
-            if isinstance(declared_raw, str):
+            if status == "subtitle_done" and isinstance(declared_raw, str):
                 declared_raw_path = Path(declared_raw) if Path(declared_raw).is_absolute() else root / declared_raw
-                legacy_raw_path = root / "transcripts" / "raw" / raw.name
-                if declared_raw_path not in {raw, legacy_raw_path} or not self._safe_path(declared_raw_path, root):
+                if not self._safe_path(declared_raw_path, root):
                     defects.add(IDENTITY_PATH_MISMATCH)
             if status == "subtitle_done" and not self._safe_path(raw, root): defects.add(IDENTITY_PATH_MISMATCH)
             elif status == "subtitle_done" and not reader.is_regular(raw): defects.add(MISSING_RAW_SUBTITLE)

@@ -39,6 +39,20 @@ def test_production_archive_layout_verifies_cleanly(tmp_path: Path) -> None:
     assert IntegrityVerifier().verify(tmp_path).defects == []
 
 
+
+
+def test_declared_complete_bundle_paths_are_used_exactly(tmp_path: Path) -> None:
+    row = {"work_id": "BV1x:p0", "bvid": "BV1x", "cid": 7, "page_index": 0,
+           "pubdate_str": "20260828", "title": "A", "status": "archived"}
+    paths = write_archive(tmp_path, row, [{"start": 0, "end": 1, "text": "ok"}], source="cc")
+    row.update(paths)
+    _manifest(tmp_path, [row])
+    row["md_path"] = "transcripts/md/not-the-marker.md"
+    _manifest(tmp_path, [row])
+    report = IntegrityVerifier().verify(tmp_path)
+    assert any(d.code == "identity_path_mismatch" for d in report.defects)
+
+
 def test_symlinked_manifest_is_not_read(tmp_path: Path) -> None:
     outside = tmp_path / "outside.jsonl"
     outside.write_text(json.dumps({"work_id": "outside", "status": "pending"}) + "\n", encoding="utf-8")

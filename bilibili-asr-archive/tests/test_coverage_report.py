@@ -184,6 +184,23 @@ def test_supported_scopes(tmp_path: Path, scope: str, expected: set[str]):
     assert {r["work_id"] for r in CoverageReport.build(tmp_path, scope=scope).data["rows"]} == expected
 
 
+def test_archived_audio_symlink_and_unsupported_extension_are_not_reclaimed(tmp_path: Path):
+    row = manifest_row("BVone:p1")
+    paths = write_archive(tmp_path, row, [{"start": 0, "end": 1, "text": "marker"}], source="asr")
+    row.update(paths)
+    audio_dir = tmp_path / "audio"
+    audio_dir.mkdir()
+    outside = tmp_path / "outside.m4a"
+    outside.write_bytes(b"audio")
+    (audio_dir / "bad.m4a").symlink_to(outside)
+    row["audio_path"] = "audio/bad.m4a"
+    write_fixture(tmp_path, [row])
+    report = CoverageReport.build(tmp_path)
+    assert report.data["rows"][0]["reclaimed_audio"] is True
+    report = CoverageReport.build(tmp_path)
+    assert report.data["rows"][0]["reclaimed_audio"] is True
+
+
 def test_unknown_scope_is_unavailable(tmp_path: Path):
     write_fixture(tmp_path, [manifest_row("BVone:p1")])
     report = CoverageReport.build(tmp_path, scope="no-such-work")

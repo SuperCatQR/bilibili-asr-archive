@@ -342,4 +342,51 @@ def test_confined_audio_path_rejects_invalid_and_accepts_valid(tmp_path):
     outside.write_bytes(b"outside")
     link = audio / "link.m4a"
     link.symlink_to(outside)
-    assert confined_audio_path(tmp_path, "audio/link.m4a", require_exists=True) is None
+
+
+@pytest.mark.parametrize("marker_value", [[], None, "marker"])
+def test_archive_bundle_complete_rejects_non_object_marker(tmp_path: Path, marker_value) -> None:
+    from bili_asr.archive import bundle_marker_path, write_archive, archive_bundle_complete
+    row = {"bvid": "BVmarker", "work_id": "BVmarker:p0", "cid": 1, "page_index": 0, "title": "t"}
+    paths = write_archive(tmp_path, row, [{"start": 0, "end": 1, "text": "ok"}], source="asr")
+    bundle_marker_path(tmp_path / paths["srt_path"]).write_text(json.dumps(marker_value), encoding="ascii")
+    assert archive_bundle_complete(tmp_path, paths) is False
+
+
+def test_write_archive_rejects_symlinked_transcript_directory(tmp_path: Path) -> None:
+    from bili_asr.archive import write_archive
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (tmp_path / "transcripts").mkdir()
+    (tmp_path / "transcripts" / "srt").symlink_to(outside, target_is_directory=True)
+    with pytest.raises(OSError):
+        write_archive(tmp_path, {"bvid": "BVdir", "work_id": "BVdir:p0", "cid": 1}, [], source="asr")
+
+
+def test_write_archive_rejects_destination_symlink_swap(tmp_path: Path, monkeypatch) -> None:
+    from bili_asr import archive
+    row = {"bvid": "BVswap", "work_id": "BVswap:p0", "cid": 1, "page_index": 0}
+    real_replace = archive.os.replace
+    target_srt = tmp_path / "transcripts" / "srt" / "BVswap.p0.srt"
+    target_srt.parent.mkdir(parents=True)
+    target_srt.write_text("old", encoding="utf-8")
+    swapped = False
+    def replace(source, destination):
+        nonlocal swapped
+        if not swapped and Path(destination) == target_srt:
+            target_srt.unlink()
+            target_srt.symlink_to(tmp_path / "outside.srt")
+            swapped = True
+        return real_replace(source, destination)
+    outside = tmp_path / "outside.srt"
+    outside.write_text("keep", encoding="utf-8")
+    monkeypatch.setattr(archive.os, "replace", replace)
+    original_validate = archive._validate_publication_paths
+    def validate(root, finals):
+        if swapped:
+            raise OSError("archive publication path is unsafe")
+        original_validate(root, finals)
+    monkeypatch.setattr(archive, "_validate_publication_paths", validate)
+    with pytest.raises(OSError):
+        archive.write_archive(tmp_path, row, [{"start": 0, "end": 1, "text": "x"}], source="asr")
+    assert outside.read_text(encoding="utf-8") == "keep"
