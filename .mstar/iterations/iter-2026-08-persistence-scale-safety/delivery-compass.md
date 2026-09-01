@@ -13,7 +13,7 @@ plans:
 
 ## Direction lock (autonomous)
 
-**Direction lock mode:** `autonomous`  
+**Direction lock mode:** `autonomous`
 **Locked direction:** make the existing sequential archive trustworthy at larger local scale by hardening persistence/read projections first and making local SenseVoice runs reproducible, while keeping live production and concurrency evidence-gated.
 
 **Scale budget:** `M` — exactly two business delivery plans. The product review confirms that persistence/read-scale safety and reproducible local ASR are separately valuable, code-first outcomes; neither is a process-only plan. Review/edit, SDD task reviews, QC/QA, compound, close, PR, merge-ready, compass/status/snapshot maintenance, and branch/worktree process are mandatory harness gates and do not consume the two-plan budget.
