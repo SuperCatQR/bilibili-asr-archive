@@ -66,12 +66,7 @@ def test_manifest_symlink_is_not_read_or_replaced_by_any_write_path(store, tmp_r
     assert outside.read_text(encoding="utf-8") == original
 
 
-def test_manifest_append_uses_shared_serialization_errors(store):
-    with pytest.raises(ValueError, match="not serializable"):
-        store.upsert(_auto("BVbad", unsupported={"value"}))
-
-
-
+def test_upsert_then_reload(store, tmp_root):
     store.upsert(_auto("BV1aa"))
     store.upsert(_auto("BV1bb", cid=2, status="pending"))
 
@@ -79,6 +74,23 @@ def test_manifest_append_uses_shared_serialization_errors(store):
     assert set(loaded) == {"BV1aa:p0", "BV1bb:p0"}
     assert loaded["BV1aa:p0"]["status"] == "meta_ok"
     assert loaded["BV1bb:p0"]["status"] == "pending"
+
+
+def test_upsert_rejects_nonserializable_extra_fields(store):
+    with pytest.raises(ValueError, match="not serializable"):
+        store.upsert(_auto("BVbad", unsupported={"value"}))
+
+
+def test_manifest_parent_symlink_does_not_create_external_lock(store, tmp_root):
+    root = __import__("pathlib").Path(tmp_root)
+    outside = root / "outside"
+    outside.mkdir()
+    (root / "manifest").symlink_to(outside, target_is_directory=True)
+
+    with pytest.raises(OSError):
+        store.upsert(_auto("BVescape"))
+
+    assert not (outside / "manifest.jsonl.lock").exists()
 
 
 def test_upsert_dedupe_same_bvid(store, tmp_root):

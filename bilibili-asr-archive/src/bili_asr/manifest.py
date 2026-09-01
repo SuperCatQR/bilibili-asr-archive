@@ -6,6 +6,7 @@ Status names are the SSOT shared by all plans (spec asr-archive-cli.md
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 import json
 import os
@@ -137,8 +138,37 @@ class ManifestStore:
             raise
         return fd
 
+    @contextmanager
+    def _manifest_lock(self, *, create: bool = False):
+        directory_fd = self._open_manifest_dir(create=create)
+        try:
+            lock_path = f"/proc/self/fd/{directory_fd}/manifest.jsonl"
+            with file_lock(lock_path):
+                yield
+        finally:
+            os.close(directory_fd)
     def _read_latest(self) -> dict[str, dict[str, Any]]:
         entries: dict[str, dict[str, Any]] = {}
+        try:
+            directory_fd = self._open_manifest_dir()
+        except FileNotFoundError:
+            return entries
+        try:
+            try:
+                fd = self._open_regular_at(directory_fd, "manifest.jsonl", os.O_RDONLY)
+            except FileNotFoundError:
+                return entries
+            with os.fdopen(fd, "r", encoding="utf-8") as fh:
+                for line in fh:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    entry = validate_manifest_record(json.loads(line))
+                    entries[_entry_key(entry)] = entry
+        finally:
+            os.close(directory_fd)
+        return entries
+
         try:
             directory_fd = self._open_manifest_dir()
         except FileNotFoundError:
@@ -226,8 +256,7 @@ class ManifestStore:
     def save(self, entries: dict[str, dict[str, Any]] | None = None) -> None:
         """Durably publish a deterministic latest-row snapshot without stale loss."""
         requested = dict(entries) if entries is not None else None
-        os.makedirs(os.path.dirname(self.path), exist_ok=True)
-        with file_lock(self.path):
+        with self._manifest_lock(create=True):
             current = self._read_latest()
             if requested is not None:
                 current.update(requested)
@@ -241,7 +270,7 @@ class ManifestStore:
 
     def compact(self) -> None:
         """Replace journal history with the deterministic latest-row snapshot."""
-        with file_lock(self.path):
+        with self._manifest_lock(create=True):
             current = self._read_latest()
             if current:
                 self._replace_snapshot(current)
@@ -266,8 +295,7 @@ class ManifestStore:
             raise ValueError(
                 f"unknown status {status!r}; valid: {sorted(VALID_STATUSES)}"
             )
-        os.makedirs(os.path.dirname(self.path), exist_ok=True)
-        with file_lock(self.path):
+        with self._manifest_lock(create=True):
             self._entries = self._read_latest()
             self._loaded = True
             if not work_id:
@@ -334,7 +362,7 @@ class ManifestStore:
             self.load()
         root = os.fspath(archive_root if archive_root is not None else self.root)
         report = LegacyMigrationReport()
-        with file_lock(self.path):
+        with self._manifest_lock(create=True):
             current = self._read_latest()
             self._entries = current
             self._loaded = True
