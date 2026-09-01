@@ -368,6 +368,25 @@ def test_archive_writer_does_not_relabel_chained_body_io_errors(tmp_path: Path) 
     assert not isinstance(captured.value, ArchiveBusyError)
 
 
+def test_archive_writer_preserves_context_manager_exit_behavior(tmp_path: Path, monkeypatch) -> None:
+    from contextlib import contextmanager
+    import bili_asr.coordinator as coordinator
+
+    seen = []
+
+    @contextmanager
+    def suppressing_lock(*_args, **_kwargs):
+        try:
+            yield
+        except RuntimeError as exc:
+            seen.append(exc)
+
+    monkeypatch.setattr(coordinator, "file_lock", suppressing_lock)
+    with archive_writer(tmp_path):
+        raise RuntimeError("body failure")
+    assert [str(exc) for exc in seen] == ["body failure"]
+
+
 def test_windows_file_lock_uses_matching_release_api(tmp_path: Path, monkeypatch) -> None:
     import types
     import bili_asr.persistence as persistence

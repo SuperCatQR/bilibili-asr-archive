@@ -47,7 +47,31 @@ def test_load_empty_missing_file(store):
     assert store.load() == {}
 
 
-def test_upsert_then_reload(store, tmp_root):
+def test_manifest_symlink_is_not_read_or_replaced_by_any_write_path(store, tmp_root):
+    path = __import__("pathlib").Path(_manifest_path(tmp_root))
+    path.parent.mkdir()
+    outside = path.parent.parent / "outside.jsonl"
+    original = json.dumps(_auto("BVoutside")) + "\n"
+    outside.write_text(original, encoding="utf-8")
+    path.symlink_to(outside)
+
+    with pytest.raises(OSError):
+        store.save({_auto("BVsave")["work_id"]: _auto("BVsave")})
+    with pytest.raises(OSError):
+        store.compact()
+    with pytest.raises(OSError):
+        store.migrate_legacy_rows(lambda _bvid: [])
+
+    assert path.is_symlink()
+    assert outside.read_text(encoding="utf-8") == original
+
+
+def test_manifest_append_uses_shared_serialization_errors(store):
+    with pytest.raises(ValueError, match="not serializable"):
+        store.upsert(_auto("BVbad", unsupported={"value"}))
+
+
+
     store.upsert(_auto("BV1aa"))
     store.upsert(_auto("BV1bb", cid=2, status="pending"))
 

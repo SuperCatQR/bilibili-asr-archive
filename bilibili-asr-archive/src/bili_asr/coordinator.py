@@ -75,8 +75,8 @@ def archive_writer(root: str | os.PathLike[str], *, blocking: bool = False) -> I
     if owned == lock_target:
         yield
         return
+    lock = file_lock(lock_target, blocking=blocking)
     try:
-        lock = file_lock(lock_target, blocking=blocking)
         lock.__enter__()
     except OSError as exc:
         if not blocking and isinstance(exc.__cause__, BlockingIOError):
@@ -85,7 +85,11 @@ def archive_writer(root: str | os.PathLike[str], *, blocking: bool = False) -> I
     _ARCHIVE_WRITER_STATE.owned = lock_target
     try:
         yield
-    finally:
+    except BaseException as exc:
+        _ARCHIVE_WRITER_STATE.owned = None
+        if not lock.__exit__(type(exc), exc, exc.__traceback__):
+            raise
+    else:
         _ARCHIVE_WRITER_STATE.owned = None
         lock.__exit__(None, None, None)
 

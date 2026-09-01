@@ -14,7 +14,7 @@ import stat
 from typing import Any, Callable, Mapping, Optional
 
 from .page_identity import PageIdentity, format_work_id, parse_work_id
-from .persistence import file_lock, replace_file_atomically
+from .persistence import _json_line, file_lock
 
 # Manifest state machine (spec SSOT):
 # pending -> meta_ok -> sub_checked -> {subtitle_done | needs_audio -> audio_ok}
@@ -104,14 +104,31 @@ class ManifestStore:
         self._entries: dict[str, dict[str, Any]] = {}
         self._loaded = False
 
-    def _open_manifest(self, flags: int, *, create: bool = False) -> int:
+    def _open_manifest_dir(self, *, create: bool = False) -> int:
+        nofollow = getattr(os, "O_NOFOLLOW", None)
+        directory = getattr(os, "O_DIRECTORY", None)
+        if nofollow is None or directory is None:
+            raise OSError("safe manifest opening is unavailable")
+        root_fd = os.open(self.root, os.O_RDONLY | directory | nofollow)
+        try:
+            if create:
+                try:
+                    os.mkdir("manifest", 0o755, dir_fd=root_fd)
+                except FileExistsError:
+                    pass
+            manifest_fd = os.open(
+                "manifest", os.O_RDONLY | directory | nofollow, dir_fd=root_fd,
+            )
+        finally:
+            os.close(root_fd)
+        return manifest_fd
+
+    @staticmethod
+    def _open_regular_at(directory_fd: int, name: str, flags: int) -> int:
         nofollow = getattr(os, "O_NOFOLLOW", None)
         if nofollow is None:
             raise OSError("safe manifest opening is unavailable")
-        directory = os.path.dirname(self.path) or "."
-        if create:
-            os.makedirs(directory, exist_ok=True)
-        fd = os.open(self.path, flags | nofollow, 0o644)
+        fd = os.open(name, flags | nofollow, 0o644, dir_fd=directory_fd)
         try:
             if not stat.S_ISREG(os.fstat(fd).st_mode):
                 raise OSError("manifest is not regular")
@@ -123,16 +140,23 @@ class ManifestStore:
     def _read_latest(self) -> dict[str, dict[str, Any]]:
         entries: dict[str, dict[str, Any]] = {}
         try:
-            fd = self._open_manifest(os.O_RDONLY)
+            directory_fd = self._open_manifest_dir()
         except FileNotFoundError:
             return entries
-        with os.fdopen(fd, "r", encoding="utf-8") as fh:
-            for line in fh:
-                line = line.strip()
-                if not line:
-                    continue
-                entry = validate_manifest_record(json.loads(line))
-                entries[_entry_key(entry)] = entry
+        try:
+            try:
+                fd = self._open_regular_at(directory_fd, "manifest.jsonl", os.O_RDONLY)
+            except FileNotFoundError:
+                return entries
+            with os.fdopen(fd, "r", encoding="utf-8") as fh:
+                for line in fh:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    entry = validate_manifest_record(json.loads(line))
+                    entries[_entry_key(entry)] = entry
+        finally:
+            os.close(directory_fd)
         return entries
 
     def load(self) -> dict[str, dict[str, Any]]:
@@ -141,26 +165,55 @@ class ManifestStore:
         self._loaded = True
         return self._entries
 
-    def _assert_manifest_replace_target_safe(self) -> None:
-        try:
-            fd = self._open_manifest(os.O_RDONLY)
-        except FileNotFoundError:
-            return
-        os.close(fd)
-
     def _append_record(self, record: Mapping[str, Any]) -> None:
-        directory = os.path.dirname(self.path) or "."
-        os.makedirs(directory, exist_ok=True)
-        fd = self._open_manifest(os.O_WRONLY | os.O_APPEND | os.O_CREAT, create=True)
+        directory_fd = self._open_manifest_dir(create=True)
         try:
-            line = (json.dumps(dict(record), ensure_ascii=False, separators=(",", ":"), allow_nan=False) + "\n").encode("utf-8")
-            os.write(fd, line)
-            os.fsync(fd)
-        finally:
-            os.close(fd)
-        directory_fd = os.open(directory, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
-        try:
+            fd = self._open_regular_at(
+                directory_fd, "manifest.jsonl", os.O_WRONLY | os.O_APPEND | os.O_CREAT,
+            )
+            try:
+                os.write(fd, _json_line(dict(record)))
+                os.fsync(fd)
+            finally:
+                os.close(fd)
             os.fsync(directory_fd)
+        finally:
+            os.close(directory_fd)
+
+    def _replace_snapshot(self, entries: dict[str, dict[str, Any]]) -> None:
+        directory_fd = self._open_manifest_dir(create=True)
+        temporary = ""
+        try:
+            try:
+                fd = self._open_regular_at(directory_fd, "manifest.jsonl", os.O_RDONLY)
+            except FileNotFoundError:
+                pass
+            else:
+                os.close(fd)
+            temporary = f".manifest.jsonl.{os.getpid()}.{id(entries)}.tmp"
+            fd = os.open(
+                temporary,
+                os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+                0o600,
+                dir_fd=directory_fd,
+            )
+            try:
+                with os.fdopen(fd, "wb") as fh:
+                    fh.write(self._snapshot_bytes(entries))
+                    fh.flush()
+                    os.fsync(fh.fileno())
+                os.replace(
+                    temporary, "manifest.jsonl",
+                    src_dir_fd=directory_fd, dst_dir_fd=directory_fd,
+                )
+                temporary = ""
+                os.fsync(directory_fd)
+            finally:
+                if temporary:
+                    try:
+                        os.unlink(temporary, dir_fd=directory_fd)
+                    except FileNotFoundError:
+                        pass
         finally:
             os.close(directory_fd)
 
@@ -182,8 +235,7 @@ class ManifestStore:
                 self._entries = {}
                 self._loaded = True
                 return
-            self._assert_manifest_replace_target_safe()
-            replace_file_atomically(self.path, self._snapshot_bytes(current))
+            self._replace_snapshot(current)
             self._entries = current
             self._loaded = True
 
@@ -192,8 +244,7 @@ class ManifestStore:
         with file_lock(self.path):
             current = self._read_latest()
             if current:
-                self._assert_manifest_replace_target_safe()
-                replace_file_atomically(self.path, self._snapshot_bytes(current))
+                self._replace_snapshot(current)
             self._entries = current
             self._loaded = True
 
@@ -341,8 +392,7 @@ class ManifestStore:
                     next_entries[key] = marked
                     report.unresolved.append(bvid)
             if next_entries != current:
-                self._assert_manifest_replace_target_safe()
-                replace_file_atomically(self.path, self._snapshot_bytes(next_entries))
+                self._replace_snapshot(next_entries)
                 self._entries = next_entries
         return report
 
