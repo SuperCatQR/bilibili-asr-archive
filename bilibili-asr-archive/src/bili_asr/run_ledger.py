@@ -369,6 +369,24 @@ class RunLedger:
         return records
 
     def latest(self) -> dict[str, Any] | None:
-        """Return the latest run record, or None if empty."""
-        records = self.load()
-        return records[-1] if records else None
+        """Stream the ledger and return its latest valid record.
+
+        Unlike the compatibility ``load()`` API, this projection keeps only
+        one record in memory and is suitable for unbounded run history.
+        """
+        if not os.path.exists(self.path):
+            return None
+        latest: dict[str, Any] | None = None
+        try:
+            with open(self.path, "r", encoding="utf-8") as fh:
+                for line in fh:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        latest = _validate_record(json.loads(line))
+                    except (json.JSONDecodeError, ValueError):
+                        print("run-ledger: ignoring corrupt line", file=sys.stderr)
+        except OSError:
+            return None
+        return latest

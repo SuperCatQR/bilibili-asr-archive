@@ -14,7 +14,9 @@ Spec constraints (plan 002 / asr-archive-cli.md):
 from __future__ import annotations
 
 import os
+import secrets
 import shutil
+import stat
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -23,7 +25,12 @@ from .bili_client import BiliClient
 from .manifest import ManifestStore
 from .page_identity import PageIdentity, apply_identity
 from .subtitles import resolve_page_identity
-from .path_policy import confined_audio_path
+from .path_policy import (
+    confined_audio_file,
+    confined_audio_path,
+    descriptor_path,
+    open_audio_directory,
+)
 
 AUDIO_DIR = os.path.join("audio")
 
@@ -64,22 +71,54 @@ def _run_ffmpeg(src: str, dst: str) -> None:
     ffmpeg = shutil.which("ffmpeg")
     if not ffmpeg:
         raise FFmpegUnavailable("ffmpeg not found on PATH")
+    pass_fds = tuple(
+        int(path.rsplit("/", 1)[-1])
+        for path in (src, dst)
+        if path.startswith(("/proc/self/fd/", "/dev/fd/"))
+    )
     subprocess.run(
         [ffmpeg, "-y", "-loglevel", "error", "-i", src, "-c", "copy", dst],
         check=True,
+        pass_fds=pass_fds,
     )
 
 
-def _existing_audio(out_path: str) -> str | None:
+def _create_audio_stage(audio_fd: int, suffix: str) -> tuple[str, int]:
+    """Create one unpredictable, process-owned stage entry."""
+    for _ in range(8):
+        name = f".audio-stage-{secrets.token_hex(16)}{suffix}"
+        try:
+            fd = os.open(
+                name,
+                os.O_RDWR | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+                0o600,
+                dir_fd=audio_fd,
+            )
+        except FileExistsError:
+            continue
+        return name, fd
+    raise OSError("unable to allocate audio stage")
+
+
+def _stage_is_regular(stage_fd: int) -> None:
+    if not stat.S_ISREG(os.fstat(stage_fd).st_mode):
+        raise OSError("audio stage is not regular")
+
+
+def _existing_audio(out_path: str, archive_root: Path) -> str | None:
     """Return an existing confined, non-empty audio path."""
-    root = Path(out_path).resolve().parents[1]
     candidates = [out_path, os.path.splitext(out_path)[0] + ".flac"]
     for path in candidates:
         try:
-            relative = os.path.relpath(path, root)
-            confined = confined_audio_path(root, relative, require_exists=True)
-            if confined is not None and confined.stat().st_size > 0:
-                return str(confined)
+            relative = os.path.relpath(path, archive_root)
+            confined = confined_audio_path(
+                archive_root, relative, require_exists=True
+            )
+            if confined is None:
+                continue
+            with confined_audio_file(archive_root, relative) as safe_audio:
+                if os.stat(safe_audio).st_size > 0:
+                    return os.fspath(confined)
         except OSError:
             continue
     return None
@@ -107,27 +146,8 @@ def _archive_root_for_download(
             raise OSError("invalid audio path")
         root = Path(os.path.join(*parts[:audio_index]))
         relative = os.path.join("audio", *parts[audio_index + 1 :])
-    root_fd = os.open(
-        os.fspath(root),
-        os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0),
-    )
-    try:
-        try:
-            audio_fd = os.open(
-                "audio",
-                os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0),
-                dir_fd=root_fd,
-            )
-        except FileNotFoundError:
-            os.mkdir("audio", mode=0o755, dir_fd=root_fd)
-            audio_fd = os.open(
-                "audio",
-                os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0),
-                dir_fd=root_fd,
-            )
-        os.close(audio_fd)
-    finally:
-        os.close(root_fd)
+    audio_fd = open_audio_directory(root, create=True)
+    os.close(audio_fd)
     confined = confined_audio_path(root, relative, require_exists=False)
     if confined is None:
         raise OSError("invalid audio path")
@@ -151,14 +171,14 @@ def download_audio(
     archive_root, confined_out = _archive_root_for_download(out_path, store)
     out_path = os.fspath(confined_out)
     if isinstance(target, PageIdentity):
-        existing = _existing_audio(out_path)
+        existing = _existing_audio(out_path, archive_root)
         if existing is not None:
             _mark_audio_ok(store, target, existing)
             return existing
         identity = target
     else:
         identity = resolve_page_identity(client, target)
-        existing = _existing_audio(out_path)
+        existing = _existing_audio(out_path, archive_root)
         if existing is not None:
             _mark_audio_ok(store, identity, existing)
             return existing
@@ -178,25 +198,58 @@ def download_audio(
     mime_type = str(chosen.get("mimeType") or chosen.get("mime_type") or "")
     is_flac = url.lower().split("?", 1)[0].endswith(".flac") or "flac" in mime_type.lower()
 
-    final_path = out_path
-    tmp_path = out_path + ".part"
+    final_name = confined_out.name
+    final_path = os.fspath(archive_root / "audio" / final_name)
+    audio_fd = open_audio_directory(archive_root)
+    stage_name = ""
+    stage_fd: int | None = None
+    converted_name = ""
+    converted_fd: int | None = None
     try:
-        client.download_audio_stream(url, tmp_path)
+        stage_name, stage_fd = _create_audio_stage(audio_fd, ".download")
+        client.download_audio_stream(url, descriptor_path(stage_fd))
+        _stage_is_regular(stage_fd)
+        os.fsync(stage_fd)
+
         if is_flac:
             try:
-                _run_ffmpeg(tmp_path, out_path)
-                os.remove(tmp_path)
+                converted_name, converted_fd = _create_audio_stage(audio_fd, ".m4a")
+                os.lseek(stage_fd, 0, os.SEEK_SET)
+                _run_ffmpeg(descriptor_path(stage_fd), descriptor_path(converted_fd))
+                _stage_is_regular(converted_fd)
+                os.fsync(converted_fd)
+                os.replace(
+                    converted_name, final_name,
+                    src_dir_fd=audio_fd, dst_dir_fd=audio_fd,
+                )
+                converted_name = ""
             except FFmpegUnavailable:
-                final_path = os.path.splitext(out_path)[0] + ".flac"
-                os.replace(tmp_path, final_path)
+                flac_name = os.path.splitext(final_name)[0] + ".flac"
+                os.replace(
+                    stage_name, flac_name,
+                    src_dir_fd=audio_fd, dst_dir_fd=audio_fd,
+                )
+                stage_name = ""
+                final_path = os.fspath(archive_root / "audio" / flac_name)
         else:
-            os.replace(tmp_path, out_path)
+            os.replace(
+                stage_name, final_name,
+                src_dir_fd=audio_fd, dst_dir_fd=audio_fd,
+            )
+            stage_name = ""
+        os.fsync(audio_fd)
     finally:
-        if os.path.exists(tmp_path):
-            try:
-                os.remove(tmp_path)
-            except OSError:
-                pass
+        for owned_name in (converted_name, stage_name):
+            if owned_name:
+                try:
+                    os.unlink(owned_name, dir_fd=audio_fd)
+                except FileNotFoundError:
+                    pass
+        if converted_fd is not None:
+            os.close(converted_fd)
+        if stage_fd is not None:
+            os.close(stage_fd)
+        os.close(audio_fd)
 
     _mark_audio_ok(store, identity, final_path)
     return final_path

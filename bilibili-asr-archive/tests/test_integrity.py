@@ -128,7 +128,10 @@ def test_scope_uses_attempt_outcomes(tmp_path: Path) -> None:
     path.write_text(json.dumps(_attempt("archived")) + "\n" + json.dumps(_attempt("running", "ok")) + "\n", encoding="utf-8")
     assert IntegrityVerifier().verify(tmp_path, scope="pending").checked == 1
     assert IntegrityVerifier().verify(tmp_path, scope="failed").checked == 1
-    assert IntegrityVerifier().verify(tmp_path, scope="running").checked == 1
+    invalid = IntegrityVerifier().verify(tmp_path, scope="running")
+    assert invalid.checked == 0
+    assert invalid.authoritative is False
+    assert "manifest_invalid_status" in invalid.diagnostics
 
 
 def test_malformed_raw_is_reported(tmp_path: Path) -> None:

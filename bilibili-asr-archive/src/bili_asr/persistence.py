@@ -62,8 +62,14 @@ def file_lock(path: str | os.PathLike[str], *, blocking: bool = True) -> Iterato
     try:
         if os.name == "nt":
             import msvcrt
-            fh.seek(0); fh.write(b"0"); fh.flush()
-            msvcrt.locking(fh.fileno(), msvcrt.LK_LOCK if blocking else msvcrt.LK_NBLCK, 1)
+            fh.seek(0)
+            fh.write(b"0")
+            fh.flush()
+            fh.seek(0)
+            msvcrt.locking(
+                fh.fileno(), msvcrt.LK_LOCK if blocking else msvcrt.LK_NBLCK, 1
+            )
+            acquired = True
         else:
             import fcntl
             flags = fcntl.LOCK_EX | (0 if blocking else fcntl.LOCK_NB)
@@ -79,8 +85,13 @@ def file_lock(path: str | os.PathLike[str], *, blocking: bool = True) -> Iterato
         state.pop(lock_path, None)
         if acquired:
             try:
-                import fcntl
-                fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
+                if os.name == "nt":
+                    import msvcrt
+                    fh.seek(0)
+                    msvcrt.locking(fh.fileno(), msvcrt.LK_UNLCK, 1)
+                else:
+                    import fcntl
+                    fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
             except OSError:
                 pass
         fh.close()
@@ -98,10 +109,14 @@ def _json_line(record: dict[str, Any]) -> bytes:
 
 
 def append_jsonl_record(path: str | os.PathLike[str], record: Mapping[str, Any], *, lock_path: str | os.PathLike[str] | None = None) -> None:
-    """Append one durable JSON object without reading existing content."""
+    """Append one durable JSON object; caller owns any external lock.
+
+    ``lock_path`` is retained for source compatibility and is intentionally
+    ignored. Callers that need cross-process serialization must hold
+    :func:`file_lock` around this primitive.
+    """
+    del lock_path
     target = os.fspath(path)
-    if lock_path is None:
-        lock_path = target
     line = _json_line(dict(record))
     try:
         os.makedirs(os.path.dirname(target) or ".", exist_ok=True)

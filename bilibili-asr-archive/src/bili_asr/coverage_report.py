@@ -14,7 +14,7 @@ from .manifest import VALID_STATUSES
 from .meta_cursor import _validate as validate_cursor
 from .scheduler import _validate as validate_scheduler
 from .run_ledger import _validate_record as validate_run_ledger_record
-from .sidecar_projection import ReaderPolicy, iter_jsonl_records, project_attempt_records, project_manifest_records
+from .sidecar_projection import ReaderPolicy, iter_jsonl_records, project_attempt_records, project_manifest_records, project_latest_run_record
 
 SCHEMA_VERSION = "coverage-report-v1"
 TERMINAL_STATUSES = frozenset({"archived", "gone"})
@@ -81,14 +81,26 @@ class CoverageReport:
         scheduler, scheduler_state = _read_validated_sidecar(
             root / "scheduler.json", "scheduler", validate_scheduler, diagnostics
         )
-        run_ledger, ledger_state = _read_jsonl(root / "run-ledger.jsonl", "run_ledger", diagnostics, policy)
+        latest_ledger, ledger_state, ledger_diagnostics = project_latest_run_record(
+            root / "run-ledger.jsonl", policy=policy
+        )
+        diagnostics.update(
+            (
+                "sidecar_record_limit" if code == "run_ledger_record_limit" else
+                "sidecar_byte_limit" if code == "run_ledger_byte_limit" else
+                "sidecar_malformed",
+                "run_ledger",
+            )
+            for code in ledger_diagnostics
+        )
         attempts, attempts_state, attempt_diagnostics = project_attempt_records(
             root / "coordinator" / "attempts.jsonl", policy=policy
         )
         diagnostics.update(
             (
                 "sidecar_record_limit" if code.endswith("row_limit_exceeded") else
-                "sidecar_byte_limit" if code.endswith("byte_limit_exceeded") else code,
+                "sidecar_byte_limit" if code.endswith("byte_limit_exceeded") else
+                "sidecar_malformed" if code == "truncated_attempts_line" else code,
                 "attempt",
             )
             for code in attempt_diagnostics
@@ -103,22 +115,16 @@ class CoverageReport:
         scheduler_ids = _string_ids(
             scheduler, "processed_work_ids", "scheduler_invalid_processed_ids", diagnostics
         )
-        latest_persisted_ledger = run_ledger[-1] if run_ledger else None
-        latest_ledger = next(
-            (record for record in reversed(run_ledger) if _valid_ledger(record)), None
+        ledger_ids = _string_ids(
+            latest_ledger, "work_ids", "run_ledger_invalid_work_ids", diagnostics
         )
-        if latest_persisted_ledger is not None and latest_ledger is not latest_persisted_ledger:
-            diagnostics.add(("run_ledger_latest_invalid", "run_ledger"))
         if latest_ledger is not None:
             if latest_ledger.get("exit_code") != 0:
                 diagnostics.add(("run_ledger_failed", "run_ledger"))
             if latest_ledger.get("command") != "schedule":
                 diagnostics.add(("run_ledger_non_schedule", "run_ledger"))
-        elif ledger_state != "missing":
+        if latest_ledger is None and ledger_state != "missing":
             diagnostics.add(("run_ledger_latest_unavailable", "run_ledger"))
-        ledger_ids = _string_ids(
-            latest_ledger, "work_ids", "run_ledger_invalid_work_ids", diagnostics
-        )
         if scheduler_ids and ledger_ids and scheduler_ids != ledger_ids:
             diagnostics.add(("scheduler_ledger_mismatch", "batch"))
         for work_id in sorted((scheduler_ids | ledger_ids) - set(manifest)):

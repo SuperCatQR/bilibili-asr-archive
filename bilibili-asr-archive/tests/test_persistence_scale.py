@@ -19,8 +19,13 @@ from bili_asr.coverage_report import CoverageReport
 from bili_asr.integrity import IntegrityVerifier, STRUCTURAL_INPUT_ERROR
 from bili_asr.manifest import ManifestStore
 from bili_asr.coordinator import AttemptLedger, ArchiveBusyError, archive_writer
-from bili_asr.persistence import replace_file_atomically
-from bili_asr.sidecar_projection import ReaderPolicy, iter_jsonl_records, project_attempt_records
+from bili_asr.persistence import file_lock, replace_file_atomically
+from bili_asr.sidecar_projection import (
+    ReaderPolicy,
+    iter_jsonl_records,
+    project_attempt_records,
+    project_manifest_records,
+)
 from bili_asr.path_policy import confined_audio_file, confined_audio_path
 
 
@@ -152,7 +157,9 @@ AttemptLedger(root).append({"stage": "archive", "work_id": "same:p0", "attempt":
     assert sorted(numbers) == [1, 2]
 
 
-def test_trusted_scale_fixture_exposes_current_record_limits(tmp_path: Path) -> None:
+def test_trusted_scale_fixture_exposes_current_record_limits(
+    tmp_path: Path, capsys
+) -> None:
     manifest = tmp_path / "manifest" / "manifest.jsonl"
     manifest.parent.mkdir()
     manifest.write_text("".join(json.dumps(_row(f"BV{i}:p0")) + "\n" for i in range(10001)), encoding="utf-8")
@@ -178,6 +185,76 @@ def test_trusted_scale_fixture_exposes_current_record_limits(tmp_path: Path) -> 
     assert len(trusted_coverage.data["rows"]) == 10001
     assert {row["work_id"] for row in trusted_coverage.data["rows"]} == {
         f"BV{i}:p0" for i in range(10001)
+    }
+
+    from bili_asr.cli import main
+
+    assert main(["coverage", "--archive-root", str(tmp_path)]) == 1
+    bounded_cli = json.loads(capsys.readouterr().out)
+    assert bounded_cli["denominator"]["count"] is None
+
+    assert main([
+        "coverage", "--archive-root", str(tmp_path), "--trusted-local",
+    ]) == 1
+    trusted_cli = json.loads(capsys.readouterr().out)
+    assert trusted_cli["denominator"]["count"] == 10001
+
+    assert main([
+        "verify", "--archive-root", str(tmp_path), "--trusted-local",
+    ]) == 1
+    trusted_verify = json.loads(capsys.readouterr().out)
+    assert trusted_verify["authoritative"] is True
+    assert trusted_verify["checked"] == 10001
+
+    assert main([
+        "coverage", "--quality", "--archive-root", str(tmp_path),
+        "--trusted-local",
+    ]) == 1
+    trusted_quality = json.loads(capsys.readouterr().out)
+    assert trusted_quality["denominator"]["count"] == 10001
+
+
+@pytest.mark.parametrize(
+    "invalid",
+    [
+        {"work_id": "BVsame:p0", "bvid": "BVsame", "status": "bogus"},
+        {"work_id": "BVsame:p0", "bvid": "BVother", "status": "pending"},
+    ],
+)
+def test_invalid_manifest_revision_never_replaces_prior_valid_evidence(
+    tmp_path: Path, invalid: dict[str, object]
+) -> None:
+    manifest = tmp_path / "manifest" / "manifest.jsonl"
+    manifest.parent.mkdir()
+    prior = _row("BVsame:p0")
+    later = _row("BVlater:p0")
+    manifest.write_text(
+        "".join(json.dumps(row) + "\n" for row in (prior, invalid, later)),
+        encoding="utf-8",
+    )
+    attempts = tmp_path / "coordinator" / "attempts.jsonl"
+    attempts.parent.mkdir()
+    attempts.write_text("", encoding="utf-8")
+
+    with pytest.raises(ValueError):
+        ManifestStore(tmp_path).load()
+
+    projected, state, diagnostics = project_manifest_records(manifest)
+    assert state == "malformed"
+    assert projected["BVsame:p0"] == prior
+    assert projected["BVlater:p0"] == later
+    assert projected["BVsame:p0"]["status"] == "pending"
+    assert "manifest_invalid" in diagnostics
+
+    coverage = CoverageReport.build(tmp_path)
+    integrity = IntegrityVerifier().verify(tmp_path)
+    assert coverage.data["denominator"]["state"] == "unavailable"
+    assert integrity.authoritative is False
+    assert integrity.checked == 2
+    assert {"BVsame:p0", "BVlater:p0"} == {
+        defect.work_id
+        for defect in integrity.defects
+        if defect.code == "retryable_incomplete"
     }
 
 
@@ -270,6 +347,26 @@ def test_invalid_utf8_and_redaction_never_serialize_sensitive_context(tmp_path: 
     assert STRUCTURAL_INPUT_ERROR in report.diagnostics
     for marker in ("SESSDATA", "https://", "Traceback", str(tmp_path)):
         assert marker not in payload
+
+
+def test_windows_file_lock_uses_matching_release_api(tmp_path: Path, monkeypatch) -> None:
+    import types
+    import bili_asr.persistence as persistence
+
+    calls: list[tuple[int, int]] = []
+    fake_msvcrt = types.SimpleNamespace(
+        LK_LOCK=1,
+        LK_NBLCK=2,
+        LK_UNLCK=3,
+        locking=lambda _fd, mode, length: calls.append((mode, length)),
+    )
+    monkeypatch.setitem(sys.modules, "msvcrt", fake_msvcrt)
+    monkeypatch.setattr(persistence.os, "name", "nt")
+
+    with file_lock(os.fspath(tmp_path / "windows-lock")):
+        pass
+
+    assert calls == [(fake_msvcrt.LK_LOCK, 1), (fake_msvcrt.LK_UNLCK, 1)]
 
 
 def test_archive_writer_reenters_same_thread_without_second_lock(tmp_path: Path, monkeypatch) -> None:

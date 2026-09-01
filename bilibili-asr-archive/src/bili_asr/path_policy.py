@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import errno
 import os
+import secrets
 import stat
 from contextlib import contextmanager
 from pathlib import Path
@@ -27,32 +29,50 @@ def _audio_parts(declared_path: str | os.PathLike[str]) -> tuple[str, ...] | Non
     return declared.parts
 
 
-def _open_audio_file(archive_root: str | os.PathLike[str], parts: tuple[str, ...]) -> int:
+def open_audio_directory(
+    archive_root: str | os.PathLike[str], *, create: bool = False
+) -> int:
+    """Open the archive audio directory without following either component."""
+    if os.name != "posix" or not hasattr(os, "O_DIRECTORY") or not hasattr(os, "O_NOFOLLOW"):
+        raise OSError("descriptor-safe audio operations are unsupported")
     root_fd = os.open(
-        os.fspath(archive_root),
-        os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0),
+        os.fspath(archive_root), os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
     )
-    audio_fd = None
     try:
-        audio_fd = os.open(
-            parts[0],
-            os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0),
-            dir_fd=root_fd,
-        )
+        try:
+            return os.open(
+                "audio", os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+                dir_fd=root_fd,
+            )
+        except FileNotFoundError:
+            if not create:
+                raise
+            os.mkdir("audio", mode=0o755, dir_fd=root_fd)
+            os.fsync(root_fd)
+            return os.open(
+                "audio", os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+                dir_fd=root_fd,
+            )
+    finally:
+        os.close(root_fd)
+
+
+def _open_audio_file(archive_root: str | os.PathLike[str], parts: tuple[str, ...]) -> int:
+    audio_fd = open_audio_directory(archive_root)
+    try:
         fd = os.open(
-            parts[1],
-            os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0),
-            dir_fd=audio_fd,
+            parts[1], os.O_RDONLY | os.O_NOFOLLOW, dir_fd=audio_fd
         )
-        info = os.fstat(fd)
-        if not stat.S_ISREG(info.st_mode):
+        try:
+            info = os.fstat(fd)
+            if not stat.S_ISREG(info.st_mode):
+                raise OSError("audio file is not regular")
+        except Exception:
             os.close(fd)
-            raise OSError("audio file is not regular")
+            raise
         return fd
     finally:
-        if audio_fd is not None:
-            os.close(audio_fd)
-        os.close(root_fd)
+        os.close(audio_fd)
 
 
 def confined_audio_path(
@@ -75,33 +95,28 @@ def confined_audio_path(
             fd = _open_audio_file(root, parts)
             os.close(fd)
         else:
-            root_fd = os.open(
-                os.fspath(root),
-                os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0),
-            )
+            audio_fd = open_audio_directory(root)
             try:
-                audio_fd = os.open(
-                    parts[0],
-                    os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0),
-                    dir_fd=root_fd,
-                )
                 try:
-                    try:
-                        info = os.stat(
-                            parts[1], dir_fd=audio_fd, follow_symlinks=False
-                        )
-                    except FileNotFoundError:
-                        pass
-                    else:
-                        if stat.S_ISLNK(info.st_mode) or not stat.S_ISREG(info.st_mode):
-                            return None
-                finally:
-                    os.close(audio_fd)
+                    info = os.stat(parts[1], dir_fd=audio_fd, follow_symlinks=False)
+                except FileNotFoundError:
+                    pass
+                else:
+                    if stat.S_ISLNK(info.st_mode) or not stat.S_ISREG(info.st_mode):
+                        return None
             finally:
-                os.close(root_fd)
+                os.close(audio_fd)
         return root.joinpath(*parts)
     except (OSError, RuntimeError, ValueError):
         return None
+
+
+def descriptor_path(fd: int) -> str:
+    """Return a same-process descriptor path or fail closed."""
+    for prefix in ("/proc/self/fd", "/dev/fd"):
+        if os.path.isdir(prefix):
+            return f"{prefix}/{fd}"
+    raise OSError("descriptor-backed paths are unsupported")
 
 
 @contextmanager
@@ -119,11 +134,7 @@ def confined_audio_file(
         raise OSError("invalid audio path")
     fd = _open_audio_file(archive_root, parts)
     try:
-        proc_fd = f"/proc/self/fd/{fd}"
-        if os.name == "posix" and os.path.exists(proc_fd):
-            yield proc_fd
-        else:
-            yield os.fspath(Path(os.path.abspath(os.fspath(archive_root))).joinpath(*parts))
+        yield descriptor_path(fd)
     finally:
         os.close(fd)
 
@@ -132,39 +143,59 @@ def unlink_confined_audio(
     archive_root: str | os.PathLike[str],
     declared_path: str | os.PathLike[str],
 ) -> bool:
-    """Unlink one validated audio entry through its anchored parent fd."""
+    """Move, validate, and unlink one entry through its anchored parent fd."""
     parts = _audio_parts(declared_path)
     if parts is None:
         raise ValueError("invalid audio path")
-    root_fd = os.open(
-        os.fspath(archive_root),
-        os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0),
-    )
-    audio_fd = None
+    audio_fd = open_audio_directory(archive_root)
+    quarantine_name = f".audio-reclaim-{secrets.token_hex(16)}"
+    moved = False
     try:
-        audio_fd = os.open(
-            parts[0],
-            os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0),
-            dir_fd=root_fd,
-        )
         try:
-            fd = os.open(parts[1], os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0), dir_fd=audio_fd)
+            os.replace(
+                parts[1], quarantine_name,
+                src_dir_fd=audio_fd, dst_dir_fd=audio_fd,
+            )
+            moved = True
         except FileNotFoundError:
             return False
+
+        try:
+            fd = os.open(
+                quarantine_name, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=audio_fd
+            )
         except OSError as exc:
-            if getattr(exc, "errno", None) == getattr(os, "ELOOP", 40):
+            if exc.errno == errno.ELOOP:
                 raise ValueError("invalid audio path") from exc
             raise
         try:
             info = os.fstat(fd)
-            if not stat.S_ISREG(info.st_mode):
-                raise OSError("audio file is not regular")
+            current = os.stat(
+                quarantine_name, dir_fd=audio_fd, follow_symlinks=False
+            )
+            if not stat.S_ISREG(info.st_mode) or (
+                info.st_dev, info.st_ino
+            ) != (current.st_dev, current.st_ino):
+                raise ValueError("invalid audio path")
+            os.unlink(quarantine_name, dir_fd=audio_fd)
+            moved = False
+            os.fsync(audio_fd)
+            return True
         finally:
             os.close(fd)
-        os.unlink(parts[1], dir_fd=audio_fd)
-        os.fsync(audio_fd)
-        return True
+    except (OSError, ValueError):
+        if moved:
+            try:
+                os.stat(parts[1], dir_fd=audio_fd, follow_symlinks=False)
+            except FileNotFoundError:
+                os.replace(
+                    quarantine_name, parts[1],
+                    src_dir_fd=audio_fd, dst_dir_fd=audio_fd,
+                )
+                moved = False
+                os.fsync(audio_fd)
+            except OSError:
+                pass
+        raise
     finally:
-        if audio_fd is not None:
-            os.close(audio_fd)
-        os.close(root_fd)
+        os.close(audio_fd)

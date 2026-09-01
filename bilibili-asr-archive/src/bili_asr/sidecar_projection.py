@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any, Iterator, Literal, Mapping
 
 from .coordinator import _validate_attempt
-from .manifest import VALID_STATUSES
+from .manifest import VALID_STATUSES, validate_manifest_record
 from .page_identity import parse_work_id
 
 
@@ -115,9 +115,11 @@ def _decode_jsonl_record(
 
 
 def _valid_manifest(record: Mapping[str, Any]) -> bool:
-    work_id, bvid, status = record.get("work_id"), record.get("bvid"), record.get("status")
-    identity = work_id if isinstance(work_id, str) and work_id else bvid
-    return isinstance(identity, str) and bool(identity) and status is not None and bool(str(status))
+    try:
+        validate_manifest_record(record)
+    except (TypeError, ValueError, KeyError):
+        return False
+    return True
 
 
 def _manifest_key(record: Mapping[str, Any]) -> str:
@@ -166,17 +168,18 @@ def project_manifest_records(
                 "missing": "manifest_malformed",
                 "malformed_middle": "manifest_malformed",
                 "truncated_final": "manifest_malformed",
-                "invalid_utf8": "manifest_malformed",
+                "invalid_utf8": "structural_input_error",
                 "line_limit": "manifest_malformed",
                 "malformed": "manifest_malformed",
             }.get(item.diagnostic, "manifest_malformed"))
             continue
         assert item.value is not None
-        if not _valid_manifest(item.value):
+        semantic = _manifest_semantic_diagnostics(item.value)
+        diagnostics.update(semantic)
+        if semantic or not _valid_manifest(item.value):
             state = "malformed"
             diagnostics.add("manifest_invalid")
             continue
-        diagnostics.update(_manifest_semantic_diagnostics(item.value))
         key = _manifest_key(item.value)
         if key in entries:
             diagnostics.add("manifest_duplicate_work_id")
@@ -188,6 +191,32 @@ def project_manifest_records(
     return entries, state, diagnostics
 
 
+def project_latest_run_record(
+    path: str | Path, *, policy: ReaderPolicy | None = None,
+) -> tuple[dict[str, Any] | None, str, set[str]]:
+    """Stream a run ledger, retaining only the latest valid record."""
+    latest = None
+    diagnostics: set[str] = set()
+    state = "available"
+    for item in iter_jsonl_records(path, policy=policy, name="run_ledger"):
+        if item.diagnostic:
+            if item.diagnostic == "missing":
+                state = "missing"
+                continue
+            state = "malformed"
+            diagnostics.add(item.diagnostic)
+            continue
+        try:
+            from .run_ledger import _validate_record
+            latest = _validate_record(item.value or {})
+        except (TypeError, ValueError, KeyError):
+            state = "malformed"
+            diagnostics.add("run_ledger_invalid_record")
+    if not Path(path).exists():
+        state = "missing"
+    return latest, state, diagnostics
+
+
 def project_attempt_records(
     path: str | Path, *, policy: ReaderPolicy | None = None,
 ) -> tuple[list[dict[str, Any]], str, set[str]]:
@@ -197,6 +226,9 @@ def project_attempt_records(
     state = "available"
     for item in iter_jsonl_records(path, policy=policy, name="attempts"):
         if item.diagnostic:
+            if item.diagnostic == "missing":
+                state = "missing"
+                continue
             if item.diagnostic == "truncated_final":
                 diagnostics.add("truncated_attempts_line")
                 continue

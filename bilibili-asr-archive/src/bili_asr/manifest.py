@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 import json
 import os
 import re
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Mapping, Optional
 
 from .page_identity import PageIdentity, format_work_id, parse_work_id
 from .persistence import append_jsonl_record, file_lock, replace_file_atomically
@@ -60,6 +60,31 @@ def _entry_key(entry: dict[str, Any]) -> str:
     return str(bvid)
 
 
+def validate_manifest_record(entry: Mapping[str, Any], *, allow_bare_bvid: bool = True) -> dict[str, Any]:
+    """Validate one persisted row for authoritative replay.
+
+    Bare ``bvid`` rows are accepted only for legacy reads; automatic writes
+    still require a page-qualified ``work_id`` in :meth:`ManifestStore.upsert`.
+    """
+    if not isinstance(entry, dict):
+        raise ValueError("manifest JSONL row must be an object")
+    bvid = entry.get("bvid")
+    work_id = entry.get("work_id")
+    if work_id is not None:
+        if not isinstance(work_id, str) or not work_id:
+            raise ValueError("manifest work_id must be a non-empty string")
+        if bvid is not None:
+            if not isinstance(bvid, str) or not bvid:
+                raise ValueError("manifest bvid must be a non-empty string")
+            parsed_bvid, _ = parse_work_id(work_id)
+            if parsed_bvid != bvid:
+                raise ValueError("manifest work_id does not match bvid")
+    elif not (allow_bare_bvid and isinstance(bvid, str) and bvid):
+        raise ValueError("manifest entry requires work_id or bvid")
+    if entry.get("status") not in VALID_STATUSES:
+        raise ValueError(f"unknown status {entry.get('status')!r}")
+    return dict(entry)
+
 def _is_unresolved(entry: dict[str, Any]) -> bool:
     return bool(entry.get("unresolved"))
 
@@ -86,9 +111,7 @@ class ManifestStore:
                     line = line.strip()
                     if not line:
                         continue
-                    entry = json.loads(line)
-                    if not isinstance(entry, dict):
-                        raise ValueError("manifest JSONL row must be an object")
+                    entry = validate_manifest_record(json.loads(line))
                     entries[_entry_key(entry)] = entry
         return entries
 
@@ -131,6 +154,7 @@ class ManifestStore:
 
     def upsert(self, entry: dict[str, Any]) -> dict[str, Any]:
         """Insert or replace one record and persist under a fresh-state lock."""
+        validate_manifest_record(entry)
         bvid = entry.get("bvid")
         if not bvid:
             raise ValueError("manifest entry requires a non-empty 'bvid'")

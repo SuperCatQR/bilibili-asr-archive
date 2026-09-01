@@ -322,6 +322,10 @@ def build_parser() -> argparse.ArgumentParser:
     coverage_cmd.add_argument("--scope", default=None)
     coverage_cmd.add_argument("--format", choices=["json", "csv"], default="json")
     coverage_cmd.add_argument(
+        "--trusted-local", action="store_true",
+        help="Trust an operator-owned local archive root for unbounded inspection",
+    )
+    coverage_cmd.add_argument(
         "--quality",
         action="store_true",
         help="Include deterministic artifact quality validation signals",
@@ -332,6 +336,10 @@ def build_parser() -> argparse.ArgumentParser:
     )
     integrity_cmd.add_argument("--archive-root", default=DEFAULT_ARCHIVE_ROOT)
     integrity_cmd.add_argument("--scope", default=None)
+    integrity_cmd.add_argument(
+        "--trusted-local", action="store_true",
+        help="Trust an operator-owned local archive root for unbounded inspection",
+    )
     integrity_cmd.add_argument("--format", choices=["json", "text"], default="json")
 
     recover_cmd = subparsers.add_parser(
@@ -1050,18 +1058,42 @@ def _cmd_coverage_quality(args: argparse.Namespace) -> int:
     import io
     from pathlib import Path
     from .quality import QualityAnalyzer, REASON_CODES
-    from .coverage_report import (
-        _read_manifest,
-        _read_jsonl,
-        _select_scope,
-        _diagnostic_rows,
+    from .coverage_report import _select_scope, _diagnostic_rows
+    from .sidecar_projection import (
+        ReaderPolicy,
+        project_attempt_records,
+        project_manifest_records,
     )
 
     root = Path(args.archive_root).resolve()
     diagnostics: set[tuple[str, str]] = set()
-    manifest, manifest_state = _read_manifest(root, diagnostics)
-    attempts, _ = _read_jsonl(
-        root / "coordinator" / "attempts.jsonl", "attempts", diagnostics
+    policy = (
+        ReaderPolicy(mode="trusted_archive")
+        if getattr(args, "trusted_local", False)
+        else None
+    )
+    manifest, manifest_state, manifest_diagnostics = project_manifest_records(
+        root / "manifest" / "manifest.jsonl", policy=policy
+    )
+    diagnostics.update(
+        (
+            "sidecar_record_limit" if code.endswith("row_limit_exceeded") else
+            "sidecar_byte_limit" if code.endswith("byte_limit_exceeded") else code,
+            "manifest",
+        )
+        for code in manifest_diagnostics
+    )
+    attempts, _attempts_state, attempt_diagnostics = project_attempt_records(
+        root / "coordinator" / "attempts.jsonl", policy=policy
+    )
+    diagnostics.update(
+        (
+            "sidecar_record_limit" if code.endswith("row_limit_exceeded") else
+            "sidecar_byte_limit" if code.endswith("byte_limit_exceeded") else
+            "sidecar_malformed" if code == "truncated_attempts_line" else code,
+            "attempt",
+        )
+        for code in attempt_diagnostics
     )
     selected, scope_state = _select_scope(manifest, attempts, args.scope)
     if scope_state == "unavailable":
@@ -1194,7 +1226,9 @@ def _cmd_coverage(args: argparse.Namespace) -> int:
     try:
         if getattr(args, "quality", False):
             return _cmd_coverage_quality(args)
-        report = CoverageReport.build(args.archive_root, scope=args.scope)
+        from .sidecar_projection import ReaderPolicy
+        policy = ReaderPolicy(mode="trusted_archive") if getattr(args, "trusted_local", False) else None
+        report = CoverageReport.build(args.archive_root, scope=args.scope, policy=policy)
         sys.stdout.write(report.to_json() if args.format == "json" else report.to_csv())
         if args.format == "json":
             sys.stdout.write("\n")
@@ -2116,7 +2150,9 @@ def _cmd_export(args: argparse.Namespace) -> int:
 
 def _cmd_verify(args: argparse.Namespace) -> int:
     from .integrity import IntegrityVerifier
-    report = IntegrityVerifier().verify(Path(args.archive_root), scope=args.scope)
+    from .sidecar_projection import ReaderPolicy
+    policy = ReaderPolicy(mode="trusted_archive") if getattr(args, "trusted_local", False) else None
+    report = IntegrityVerifier().verify(Path(args.archive_root), scope=args.scope, policy=policy)
     payload = report.to_dict()
     if args.format == "json":
         print(json.dumps(payload, ensure_ascii=False, sort_keys=True))

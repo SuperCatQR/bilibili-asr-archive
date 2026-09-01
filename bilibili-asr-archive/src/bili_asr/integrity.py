@@ -242,7 +242,12 @@ class IntegrityVerifier:
             elif not manifest_present:
                 if MANIFEST_ROW_LIMIT_EXCEEDED not in report.diagnostics:
                     report.diagnostics.append(STRUCTURAL_INPUT_ERROR)
-        selected = self._select(entries, scope, attempts) if manifest_valid and attempts_valid else sorted(entries.items()) if manifest_valid else []
+        if attempts_valid:
+            selected = self._select(entries, scope, attempts)
+        elif scope is None:
+            selected = sorted(entries.items())
+        else:
+            selected = []
         report.checked = len(selected)
         for key, row in selected:
             work_id = str(row.get("work_id") or key); status = str(row.get("status") or ""); defects: set[str] = set()
