@@ -720,11 +720,15 @@ def _cmd_fetch_meta(args: argparse.Namespace) -> int:
     else:
         entries = _merge_page_rows(client, records, existing, pages_for=pages_for)
         store.save(entries)
-    store.migrate_legacy_rows(
-        pages_for,
-        archive_root=args.archive_root,
-        coalesce_existing_page=True,
-    )
+    try:
+        store.migrate_legacy_rows(
+            pages_for,
+            archive_root=args.archive_root,
+            coalesce_existing_page=True,
+        )
+    except Exception:
+        print("fetch-meta: legacy migration failed", file=sys.stderr)
+        return 1
     entries = store.load()
     next_page = client.last_completed_page + 1
     if client.enumeration_complete:
@@ -1842,17 +1846,6 @@ def _cmd_campaign(args: argparse.Namespace) -> int:
     return summary.exit_code
 
 def _cmd_run(args: argparse.Namespace) -> int:
-    from .coordinator import ArchiveBusyError, archive_writer
-
-    try:
-        with archive_writer(args.archive_root):
-            return _cmd_run_locked(args)
-    except ArchiveBusyError:
-        print("run: archive_busy", file=sys.stderr)
-        return 1
-
-
-def _cmd_run_locked(args: argparse.Namespace) -> int:
     from . import bili_client
     from .coordinator import ArchiveBusyError, RunCoordinator, archive_writer
     from .manifest import ManifestStore
@@ -1914,17 +1907,6 @@ def _cmd_run_locked(args: argparse.Namespace) -> int:
 
 
 def _cmd_schedule(args: argparse.Namespace) -> int:
-    from .coordinator import ArchiveBusyError, archive_writer
-
-    try:
-        with archive_writer(args.archive_root):
-            return _cmd_schedule_locked(args)
-    except ArchiveBusyError:
-        print("schedule: archive_busy", file=sys.stderr)
-        return 1
-
-
-def _cmd_schedule_locked(args: argparse.Namespace) -> int:
     from . import bili_client
     from .coordinator import ArchiveBusyError, RunCoordinator, archive_writer
     from .manifest import ManifestStore
@@ -2393,12 +2375,21 @@ def _cmd_evaluate_concurrency(args: argparse.Namespace) -> int:
     return 0 if result.ok else 1
 
 
-def main(argv: list[str] | None = None) -> int:
-    parser = build_parser()
-    args = parser.parse_args(argv)
-    if args.command is None:
-        parser.print_help()
-        return 0
+_ARCHIVE_WRITER_COMMANDS = frozenset({
+    "fetch-meta",
+    "recover",
+    "asr",
+    "pilot",
+    "probe-subs",
+    "harvest-subs",
+    "download-audio",
+    "run",
+    "campaign",
+    "schedule",
+})
+
+
+def _dispatch_command(args: argparse.Namespace) -> int:
     if args.command == "fetch-meta":
         return _cmd_fetch_meta(args)
     if args.command == "status":
@@ -2433,7 +2424,25 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_campaign(args)
     if args.command == "schedule":
         return _cmd_schedule(args)
-    parser.error(f"command {args.command!r} is not implemented yet")
+    raise ValueError(f"command {args.command!r} is not implemented")
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    if args.command is None:
+        parser.print_help()
+        return 0
+    if args.command in _ARCHIVE_WRITER_COMMANDS:
+        from .coordinator import ArchiveBusyError, archive_writer
+
+        try:
+            with archive_writer(args.archive_root):
+                return _dispatch_command(args)
+        except ArchiveBusyError:
+            print(f"{args.command}: archive_busy", file=sys.stderr)
+            return 1
+    return _dispatch_command(args)
 
 
 

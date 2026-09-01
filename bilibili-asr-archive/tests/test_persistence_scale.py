@@ -371,10 +371,57 @@ def test_windows_file_lock_uses_matching_release_api(tmp_path: Path, monkeypatch
     monkeypatch.setitem(sys.modules, "msvcrt", fake_msvcrt)
     monkeypatch.setattr(persistence.os, "name", "nt")
 
-    with file_lock(os.fspath(tmp_path / "windows-lock")):
-        pass
+    lock_target = os.fspath(tmp_path / "windows-lock")
+    for _ in range(2):
+        with file_lock(lock_target):
+            pass
 
-    assert calls == [(fake_msvcrt.LK_LOCK, 1), (fake_msvcrt.LK_UNLCK, 1)]
+    assert calls == [
+        (fake_msvcrt.LK_LOCK, 1),
+        (fake_msvcrt.LK_UNLCK, 1),
+        (fake_msvcrt.LK_LOCK, 1),
+        (fake_msvcrt.LK_UNLCK, 1),
+    ]
+    assert os.path.getsize(lock_target + ".lock") == 1
+
+
+def test_cli_dispatch_locks_every_archive_mutation(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    from contextlib import contextmanager
+    from bili_asr import cli, coordinator
+
+    assert cli._ARCHIVE_WRITER_COMMANDS == {
+        "fetch-meta",
+        "recover",
+        "asr",
+        "pilot",
+        "probe-subs",
+        "harvest-subs",
+        "download-audio",
+        "run",
+        "campaign",
+        "schedule",
+    }
+
+    @contextmanager
+    def busy_writer(_root):
+        raise ArchiveBusyError()
+        yield
+
+    monkeypatch.setattr(coordinator, "archive_writer", busy_writer)
+    assert cli.main(["status", "--archive-root", os.fspath(tmp_path)]) == 0
+    capsys.readouterr()
+    assert cli.main([
+        "fetch-meta",
+        "--mid",
+        "23191782",
+        "--archive-root",
+        os.fspath(tmp_path),
+    ]) == 1
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err == "fetch-meta: archive_busy\n"
 
 
 def test_archive_writer_reenters_same_thread_without_second_lock(tmp_path: Path, monkeypatch) -> None:

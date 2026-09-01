@@ -63,9 +63,10 @@ def file_lock(path: str | os.PathLike[str], *, blocking: bool = True) -> Iterato
         try:
             if os.name == "nt":
                 import msvcrt
-                fh.seek(0)
-                fh.write(b"0")
-                fh.flush()
+                fh.seek(0, os.SEEK_END)
+                if fh.tell() == 0:
+                    fh.write(b"0")
+                    fh.flush()
                 fh.seek(0)
                 msvcrt.locking(
                     fh.fileno(), msvcrt.LK_LOCK if blocking else msvcrt.LK_NBLCK, 1
