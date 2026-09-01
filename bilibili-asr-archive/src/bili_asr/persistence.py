@@ -60,27 +60,28 @@ def file_lock(path: str | os.PathLike[str], *, blocking: bool = True) -> Iterato
         raise _stable_error("lock") from exc
     acquired = False
     try:
-        if os.name == "nt":
-            import msvcrt
-            fh.seek(0)
-            fh.write(b"0")
-            fh.flush()
-            fh.seek(0)
-            msvcrt.locking(
-                fh.fileno(), msvcrt.LK_LOCK if blocking else msvcrt.LK_NBLCK, 1
-            )
-            acquired = True
-        else:
-            import fcntl
-            flags = fcntl.LOCK_EX | (0 if blocking else fcntl.LOCK_NB)
-            fcntl.flock(fh.fileno(), flags)
-            acquired = True
+        try:
+            if os.name == "nt":
+                import msvcrt
+                fh.seek(0)
+                fh.write(b"0")
+                fh.flush()
+                fh.seek(0)
+                msvcrt.locking(
+                    fh.fileno(), msvcrt.LK_LOCK if blocking else msvcrt.LK_NBLCK, 1
+                )
+                acquired = True
+            else:
+                import fcntl
+                flags = fcntl.LOCK_EX | (0 if blocking else fcntl.LOCK_NB)
+                fcntl.flock(fh.fileno(), flags)
+                acquired = True
+        except (ValueError, TypeError):
+            raise
+        except OSError as exc:
+            raise _stable_error("lock") from exc
         state[lock_path] = 1
         yield
-    except (ValueError, TypeError):
-        raise
-    except OSError as exc:
-        raise _stable_error("lock") from exc
     finally:
         state.pop(lock_path, None)
         if acquired:

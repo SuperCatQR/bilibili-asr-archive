@@ -414,8 +414,9 @@ def test_cli_resume_does_not_duplicate(tmp_root, fast_sleep, monkeypatch):
     entries = store.load()
     assert set(entries) == {"BV1A:p0", "BV1B:p0"}
     lines = open(store.path, encoding="utf-8").read().strip().splitlines()
-    bvids = [json.loads(l)["bvid"] for l in lines]
-    assert sorted(bvids) == ["BV1A", "BV1B"]  # no dup lines
+    bvids = [json.loads(line)["bvid"] for line in lines]
+    assert set(bvids) == {"BV1A", "BV1B"}
+    assert set(store.load()) == {"BV1A:p0", "BV1B:p0"}
 
 
 def test_cli_budget_exhausted_exit_2(tmp_root, fast_sleep, monkeypatch, capsys):

@@ -34,6 +34,13 @@ API_FAIL = (200, {"code": -400})
 RISK = (412, {"code": -412, "message": "request too frequent"})
 
 
+def _audio_target(path: str) -> str:
+    try:
+        return os.readlink(path)
+    except OSError:
+        return path
+
+
 def _row(identity, *, status="meta_ok", duration_s=5, title="clip", **extra):
     row = {
         "bvid": identity.bvid,
@@ -60,7 +67,7 @@ def _patch_cli(monkeypatch, transport):
 def _stub_asr(monkeypatch, impl=None):
     def fake_transcribe(audio_path, model_name=None):
         if impl is not None:
-            return impl(audio_path)
+            return impl(_audio_target(audio_path))
         return [{"start": 0.0, "end": 1.0, "text": "asr-text"}]
 
     monkeypatch.setattr(asr_mod, "transcribe", fake_transcribe)
@@ -360,7 +367,7 @@ def test_asr_mixed_success_and_per_item_failure_exits_1(
     transcribe_calls: list[str] = []
 
     def flaky(audio_path):
-        transcribe_calls.append(audio_path)
+        transcribe_calls.append(_audio_target(audio_path))
         raise asr_mod.ASRModelError("model failed")
 
     _stub_asr(monkeypatch, flaky)
@@ -406,7 +413,7 @@ def test_asr_pending_ignores_already_terminal_rows(
     transcribe_calls: list[str] = []
 
     def unexpected(audio_path):
-        transcribe_calls.append(audio_path)
+        transcribe_calls.append(_audio_target(audio_path))
         raise AssertionError("asr --pending must ignore archived/gone")
 
     _stub_asr(monkeypatch, unexpected)
@@ -450,7 +457,7 @@ def test_asr_optional_dependency_after_success_exits_1(
     transcribe_calls: list[str] = []
 
     def missing(audio_path):
-        transcribe_calls.append(audio_path)
+        transcribe_calls.append(_audio_target(audio_path))
         raise asr_mod.ASRDependencyError("SenseVoice support is not installed")
 
     _stub_asr(monkeypatch, missing)
@@ -485,7 +492,7 @@ def test_asr_subtitle_done_missing_raw_is_incomplete_skip(
     transcribe_calls: list[str] = []
 
     def unexpected(audio_path):
-        transcribe_calls.append(audio_path)
+        transcribe_calls.append(_audio_target(audio_path))
         raise AssertionError("subtitle_done without raw must not invoke ASR")
 
     _stub_asr(monkeypatch, unexpected)
@@ -619,7 +626,7 @@ def test_run_mixed_failure_keeps_success_and_failed_scope_retries(
     _write_audio(tmp_root, fail_id)
 
     def flaky(audio_path, model_name=None):
-        if artifact_stem(fail_id) in audio_path:
+        if artifact_stem(fail_id) in _audio_target(audio_path):
             raise asr_mod.ASRModelError("model failed")
         return [{"start": 0.0, "end": 1.0, "text": "ok"}]
 
@@ -729,7 +736,7 @@ def test_run_per_item_failure_then_risk_still_exits_2(
     _write_subtitle_raw(tmp_root, ok_id)
 
     def flaky(audio_path, model_name=None):
-        if artifact_stem(fail_id) in audio_path:
+        if artifact_stem(fail_id) in _audio_target(audio_path):
             raise asr_mod.ASRModelError("model failed")
         return [{"start": 0.0, "end": 1.0, "text": "ok"}]
 

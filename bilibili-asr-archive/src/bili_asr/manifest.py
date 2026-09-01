@@ -230,6 +230,8 @@ class ManifestStore:
         pages_for: Callable[[str], list[PageIdentity]],
         archive_root: str | os.PathLike[str] | None = None,
         only_bvid: str | None = None,
+        *,
+        coalesce_existing_page: bool = False,
     ) -> LegacyMigrationReport:
         """Migrate unambiguous bare-bvid rows; freeze the rest additively."""
         if not self._loaded:
@@ -255,16 +257,30 @@ class ManifestStore:
                 dest_work_id = format_work_id(bvid, 0)
                 dest_occupied = dest_work_id in next_entries and dest_work_id != key
                 missing_cid = bool(pages) and any(p.cid is None for p in pages)
-                unambiguous = (
-                    len(pages) == 1 and not colliding_stems and not dest_occupied
+                page_is_unambiguous = (
+                    len(pages) == 1 and not colliding_stems
                     and not missing_cid and pages[0].page_index == 0
                     and pages[0].bvid == bvid
                 )
                 if dest_occupied:
-                    raise ManifestMigrationCollision(
-                        f"migration would overwrite existing work_id {dest_work_id}"
+                    destination = next_entries[dest_work_id]
+                    destination_matches_page = (
+                        page_is_unambiguous
+                        and destination.get("bvid") == pages[0].bvid
+                        and destination.get("page_index") == pages[0].page_index
+                        and destination.get("cid") == pages[0].cid
                     )
-                if unambiguous:
+                    if not coalesce_existing_page or not destination_matches_page:
+                        raise ManifestMigrationCollision(
+                            f"migration would overwrite existing work_id {dest_work_id}"
+                        )
+                    migrated = dict(entry)
+                    migrated.update(next_entries[dest_work_id])
+                    del next_entries[key]
+                    next_entries[dest_work_id] = migrated
+                    report.migrated.append(dest_work_id)
+                    continue
+                if page_is_unambiguous:
                     page = pages[0]
                     migrated = dict(entry)
                     migrated.update({"work_id": page.work_id, "page_index": page.page_index,

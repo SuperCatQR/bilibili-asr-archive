@@ -720,9 +720,12 @@ def _cmd_fetch_meta(args: argparse.Namespace) -> int:
     else:
         entries = _merge_page_rows(client, records, existing, pages_for=pages_for)
         store.save(entries)
-    store.migrate_legacy_rows(pages_for, archive_root=args.archive_root)
+    store.migrate_legacy_rows(
+        pages_for,
+        archive_root=args.archive_root,
+        coalesce_existing_page=True,
+    )
     entries = store.load()
-
     next_page = client.last_completed_page + 1
     if client.enumeration_complete:
         cursor_state = "complete"
@@ -1839,6 +1842,17 @@ def _cmd_campaign(args: argparse.Namespace) -> int:
     return summary.exit_code
 
 def _cmd_run(args: argparse.Namespace) -> int:
+    from .coordinator import ArchiveBusyError, archive_writer
+
+    try:
+        with archive_writer(args.archive_root):
+            return _cmd_run_locked(args)
+    except ArchiveBusyError:
+        print("run: archive_busy", file=sys.stderr)
+        return 1
+
+
+def _cmd_run_locked(args: argparse.Namespace) -> int:
     from . import bili_client
     from .coordinator import ArchiveBusyError, RunCoordinator, archive_writer
     from .manifest import ManifestStore
@@ -1900,9 +1914,21 @@ def _cmd_run(args: argparse.Namespace) -> int:
 
 
 def _cmd_schedule(args: argparse.Namespace) -> int:
+    from .coordinator import ArchiveBusyError, archive_writer
+
+    try:
+        with archive_writer(args.archive_root):
+            return _cmd_schedule_locked(args)
+    except ArchiveBusyError:
+        print("schedule: archive_busy", file=sys.stderr)
+        return 1
+
+
+def _cmd_schedule_locked(args: argparse.Namespace) -> int:
     from . import bili_client
     from .coordinator import ArchiveBusyError, RunCoordinator, archive_writer
     from .manifest import ManifestStore
+    from .meta_cursor import MetaCursorStore
     from .run_ledger import (
         RunLedger,
         build_run_record,
@@ -2029,11 +2055,124 @@ def _cmd_schedule(args: argparse.Namespace) -> int:
     try:
         with archive_writer(args.archive_root):
             summary = coord.run_batch(rows)
-            batch_state = classify_batch_state(risk_interrupted=summary.risk_interrupted, truncated=truncated)
-            processed = settled_processed_ids(summary.results, risk_interrupted=summary.risk_interrupted)
-            sched_store.replace_atomic({"scope": args.scope, "limit": args.limit, "state": batch_state, "processed_work_ids": processed, "last_api_error_code": None, "allow_long_live": bool(args.allow_long_live), "updated_at": utc_now_iso()})
-            exit_code = 2 if summary.risk_interrupted else (0 if summary.fully_processed else 1)
-            RunLedger(args.archive_root).append(build_run_record(command="schedule", started_at=started_at, finished_at=utc_now_iso(), exit_code=exit_code, work_ids=[r.work_id for r in summary.results] or None, records_existing=len(entries), coverage_summary=compute_coverage_summary(store.load()), cursor_snapshot=cursor_store.load()))
+            if args.allow_long_live:
+                after = audio_dir_usage_bytes(args.archive_root)
+                print(f"schedule: long-live peak audio/ bytes={coord.audio_peak_bytes}")
+                print(f"schedule: long-live audio/ after bytes={after}")
+            batch_state = classify_batch_state(
+                risk_interrupted=summary.risk_interrupted,
+                truncated=truncated,
+            )
+
+            previous = list(skip_ids or [])
+            settled = previous + settled_processed_ids(
+                summary.results, risk_interrupted=summary.risk_interrupted
+            )
+            processed: list[str] = []
+            seen: set[str] = set()
+            for work_id in settled:
+                if work_id not in seen:
+                    seen.add(work_id)
+                    processed.append(work_id)
+
+            last_api_error_code: int | str | None = None
+            if summary.risk_interrupted and summary.results:
+                codes = summary.results[-1].failure_codes
+                if codes:
+                    last_api_error_code = codes[-1]
+
+            persisted = False
+            try:
+                sched_store.replace_atomic(
+                    {
+                        "scope": args.scope,
+                        "limit": args.limit,
+                        "state": batch_state,
+                        "processed_work_ids": processed,
+                        "last_api_error_code": last_api_error_code,
+                        "allow_long_live": bool(args.allow_long_live),
+                        "updated_at": utc_now_iso(),
+                    }
+                )
+                persisted = True
+            except Exception as exc:
+                print(
+                    "schedule: failed to persist scheduler.json "
+                    f"({type(exc).__name__})",
+                    file=sys.stderr,
+                )
+
+            ok = sum(1 for result in summary.results if result.ok)
+            skipped = summary.skipped_rows
+            failed = summary.failed
+            for result in summary.results:
+                if result.ok:
+                    print(f"{result.work_id}: {result.final_status}")
+            for result in failed:
+                codes = ", ".join(
+                    str(code) for code in result.failure_codes
+                ) or "unknown"
+                print(
+                    f"schedule: {result.work_id}: failed ({codes})",
+                    file=sys.stderr,
+                )
+            for result in skipped:
+                print(
+                    f"schedule: {result.work_id}: skipped "
+                    f"({result.skip_reason or 'unknown'})"
+                )
+
+            exit_code = 0
+            if summary.risk_interrupted:
+                if persisted:
+                    print(
+                        "schedule: risk-control ceiling; stopping — "
+                        "re-run with --resume.",
+                        file=sys.stderr,
+                    )
+                else:
+                    print(
+                        "schedule: risk-control ceiling; scheduler.json "
+                        "was not persisted.",
+                        file=sys.stderr,
+                    )
+                exit_code = 2
+            elif not summary.fully_processed:
+                exit_code = 1
+            if not persisted and exit_code != 2:
+                exit_code = 1
+
+            coverage = compute_coverage_summary(store.load())
+            cursor_snapshot = cursor_store.load()
+            if persisted:
+                print(f"schedule: batch={batch_state}")
+            else:
+                print(f"schedule: batch={batch_state} (not persisted)")
+            print(f"enumeration: {format_cursor_summary(cursor_snapshot)}")
+            print(f"coverage: [{format_coverage_summary(coverage)}]")
+            print(
+                f"schedule: {ok} completed, {len(skipped)} skipped"
+                + (f", {len(failed)} failed" if failed else "")
+                + (", scope not fully processed" if exit_code == 1 else "")
+            )
+
+            ledger = RunLedger(root=args.archive_root)
+            try:
+                record = build_run_record(
+                    command="schedule",
+                    started_at=started_at,
+                    finished_at=utc_now_iso(),
+                    exit_code=exit_code,
+                    mid=None,
+                    work_ids=[result.work_id for result in summary.results] or None,
+                    records_existing=len(entries),
+                    last_api_error_code=last_api_error_code,
+                    coverage_summary=coverage,
+                    cursor_snapshot=cursor_snapshot,
+                )
+                ledger.append(record)
+            except Exception:
+                pass
             return exit_code
     except ArchiveBusyError:
         print("schedule: archive_busy", file=sys.stderr)

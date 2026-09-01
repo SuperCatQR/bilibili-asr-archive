@@ -227,6 +227,30 @@ def test_migrate_collision_existing_work_id_row(store, tmp_root):
         store.migrate_legacy_rows(lambda bvid: [_page(bvid, 0, cid=1)])
 
 
+def test_migrate_coalesces_matching_page_created_by_successful_fetch(store, tmp_root):
+    seed_legacy(store, _entry("BV1aa", legacy_only="keep"))
+    store.upsert(
+        _entry(
+            "BV1aa",
+            work_id="BV1aa:p0",
+            page_index=0,
+            cid=1,
+            title="fresh title",
+        )
+    )
+
+    report = store.migrate_legacy_rows(
+        lambda bvid: [_page(bvid, 0, cid=1)],
+        coalesce_existing_page=True,
+    )
+
+    assert report.migrated == ["BV1aa:p0"]
+    loaded = store.load()
+    assert set(loaded) == {"BV1aa:p0"}
+    assert loaded["BV1aa:p0"]["title"] == "fresh title"
+    assert loaded["BV1aa:p0"]["legacy_only"] == "keep"
+
+
 def test_migrate_collision_on_existing_p0_artifact(store, tmp_root):
     seed_legacy(store, _entry("BV1aa"))
     srt_dir = os.path.join(tmp_root, "transcripts", "srt")

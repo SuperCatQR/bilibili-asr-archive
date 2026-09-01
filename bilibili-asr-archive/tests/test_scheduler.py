@@ -53,6 +53,13 @@ _NO_SECRET_MARKERS = (
 )
 
 
+def _audio_target(path: str) -> str:
+    try:
+        return os.readlink(path)
+    except OSError:
+        return path
+
+
 def _row(identity, *, status="meta_ok", duration_s=5, title="clip", **extra):
     row = {
         "bvid": identity.bvid,
@@ -80,7 +87,7 @@ def _patch_cli(monkeypatch, transport):
 def _stub_asr(monkeypatch, impl=None):
     def fake_transcribe(audio_path, model_name=None):
         if impl is not None:
-            return impl(audio_path)
+            return impl(_audio_target(audio_path))
         return [{"start": 0.0, "end": 1.0, "text": "asr-text"}]
 
     monkeypatch.setattr(asr_mod, "transcribe", fake_transcribe)
@@ -524,7 +531,7 @@ def test_schedule_mixed_failure_exits_1_failed_scope_retries(
     _write_audio(tmp_root, fail_id)
 
     def flaky(audio_path, model_name=None):
-        if artifact_stem(fail_id) in audio_path:
+        if artifact_stem(fail_id) in _audio_target(audio_path):
             raise asr_mod.ASRModelError("model failed")
         return [{"start": 0.0, "end": 1.0, "text": "ok"}]
 

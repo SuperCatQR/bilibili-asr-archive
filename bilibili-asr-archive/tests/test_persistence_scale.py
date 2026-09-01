@@ -19,7 +19,7 @@ from bili_asr.coverage_report import CoverageReport
 from bili_asr.integrity import IntegrityVerifier, STRUCTURAL_INPUT_ERROR
 from bili_asr.manifest import ManifestStore
 from bili_asr.coordinator import AttemptLedger, ArchiveBusyError, archive_writer
-from bili_asr.persistence import file_lock, replace_file_atomically
+from bili_asr.persistence import PersistenceError, file_lock, replace_file_atomically
 from bili_asr.sidecar_projection import (
     ReaderPolicy,
     iter_jsonl_records,
@@ -347,6 +347,14 @@ def test_invalid_utf8_and_redaction_never_serialize_sensitive_context(tmp_path: 
     assert STRUCTURAL_INPUT_ERROR in report.diagnostics
     for marker in ("SESSDATA", "https://", "Traceback", str(tmp_path)):
         assert marker not in payload
+
+
+def test_file_lock_does_not_relabel_body_io_errors(tmp_path: Path) -> None:
+    with pytest.raises(OSError, match="body failure") as captured:
+        with file_lock(tmp_path / "body-error"):
+            raise OSError("body failure")
+
+    assert not isinstance(captured.value, PersistenceError)
 
 
 def test_windows_file_lock_uses_matching_release_api(tmp_path: Path, monkeypatch) -> None:

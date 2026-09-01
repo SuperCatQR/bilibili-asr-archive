@@ -37,6 +37,13 @@ from test_audio import (
 from test_subtitles import SAMPLE_DOC, nav_ok, player_ok, sub_entry
 
 
+def _audio_target(path: str) -> str:
+    try:
+        return os.readlink(path)
+    except OSError:
+        return path
+
+
 def _row(identity, *, duration_s, title="clip"):
     return {
         "bvid": identity.bvid,
@@ -68,7 +75,7 @@ def test_cli_pilot_mixed_meta_ok_archives_both_branches(tmp_root, monkeypatch, c
     transcribe_calls: list[str] = []
 
     def fake_transcribe(audio_path, model_name=None):
-        transcribe_calls.append(audio_path)
+        transcribe_calls.append(_audio_target(audio_path))
         return [{"start": 0.0, "end": 1.0, "text": "asr-text"}]
 
     monkeypatch.setattr(asr_mod, "transcribe", fake_transcribe)
@@ -281,7 +288,7 @@ def test_cli_pilot_completed_rerun_skips_archived(tmp_root, monkeypatch, capsys)
     transcribe_calls: list[str] = []
 
     def fake_transcribe(audio_path, model_name=None):
-        transcribe_calls.append(audio_path)
+        transcribe_calls.append(_audio_target(audio_path))
         return [{"start": 0.0, "end": 1.0, "text": "asr-text"}]
 
     monkeypatch.setattr(asr_mod, "transcribe", fake_transcribe)
