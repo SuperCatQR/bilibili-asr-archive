@@ -149,6 +149,16 @@ of: `input_file_missing`, `input_file_unreadable`,
 `input_malformed_json`, `input_non_object_json`, or `evaluation_failure`.
 Paths, exception text, and input values are never emitted.
 
+### Archive writer isolation
+
+Every archive-mutating command (`fetch-meta`, `recover`, `asr`, `pilot`,
+`probe-subs`, `harvest-subs`, `download-audio`, `run`, `campaign`, and
+`schedule`) holds one archive-root writer lock from initial state load through
+its final state/sidecar write. A second mutation exits `1` with
+`<command>: archive_busy`; it does not wait or partially mutate the archive.
+Read-only commands such as `status`, `coverage`, `verify`, `runs`, `search`,
+`export`, and `evaluate-concurrency` do not claim this writer lock.
+
 ### Audio reclaim and bounded-disk campaigns
 
 Once a row reaches `archived`, its local audio file under
