@@ -2,8 +2,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import errno
 import json
+import os
 from pathlib import Path
+import stat
 from typing import Any, Iterator, Literal, Mapping
 
 from .coordinator import _validate_attempt
@@ -47,6 +50,28 @@ class JsonlRecord:
     diagnostic: str | None
 
 
+def _open_regular_jsonl(path: str | Path) -> int:
+    flags = os.O_RDONLY
+    nofollow = getattr(os, "O_NOFOLLOW", None)
+    if nofollow is None:
+        raise OSError("safe sidecar opening is unavailable")
+    try:
+        fd = os.open(os.fspath(path), flags | nofollow)
+    except FileNotFoundError:
+        raise
+    except OSError as exc:
+        if exc.errno in {errno.ELOOP, errno.EMLINK}:
+            raise OSError("sidecar is a symlink") from exc
+        raise
+    try:
+        if not stat.S_ISREG(os.fstat(fd).st_mode):
+            raise OSError("sidecar is not regular")
+    except Exception:
+        os.close(fd)
+        raise
+    return fd
+
+
 def iter_jsonl_records(
     path: str | Path,
     *,
@@ -57,13 +82,19 @@ def iter_jsonl_records(
     policy = policy or ReaderPolicy()
     source = Path(path)
     try:
-        if source.is_symlink() or not source.is_file():
-            yield JsonlRecord(0, None, "symlink" if source.is_symlink() else "missing")
-            return
-        if policy.max_bytes is not None and source.stat().st_size > policy.max_bytes:
-            yield JsonlRecord(0, None, f"{name}_byte_limit")
-            return
-        with source.open("rb") as handle:
+        fd = _open_regular_jsonl(source)
+    except FileNotFoundError:
+        yield JsonlRecord(0, None, "missing")
+        return
+    except OSError:
+        yield JsonlRecord(0, None, "symlink" if source.is_symlink() else "malformed")
+        return
+    try:
+        with os.fdopen(fd, "rb") as handle:
+            info = os.fstat(handle.fileno())
+            if policy.max_bytes is not None and info.st_size > policy.max_bytes:
+                yield JsonlRecord(0, None, f"{name}_byte_limit")
+                return
             pending: tuple[int, bytes] | None = None
             record_count = 0
             physical_line = 0

@@ -10,10 +10,11 @@ from dataclasses import dataclass, field
 import json
 import os
 import re
+import stat
 from typing import Any, Callable, Mapping, Optional
 
 from .page_identity import PageIdentity, format_work_id, parse_work_id
-from .persistence import append_jsonl_record, file_lock, replace_file_atomically
+from .persistence import file_lock, replace_file_atomically
 
 # Manifest state machine (spec SSOT):
 # pending -> meta_ok -> sub_checked -> {subtitle_done | needs_audio -> audio_ok}
@@ -103,16 +104,35 @@ class ManifestStore:
         self._entries: dict[str, dict[str, Any]] = {}
         self._loaded = False
 
+    def _open_manifest(self, flags: int, *, create: bool = False) -> int:
+        nofollow = getattr(os, "O_NOFOLLOW", None)
+        if nofollow is None:
+            raise OSError("safe manifest opening is unavailable")
+        directory = os.path.dirname(self.path) or "."
+        if create:
+            os.makedirs(directory, exist_ok=True)
+        fd = os.open(self.path, flags | nofollow, 0o644)
+        try:
+            if not stat.S_ISREG(os.fstat(fd).st_mode):
+                raise OSError("manifest is not regular")
+        except Exception:
+            os.close(fd)
+            raise
+        return fd
+
     def _read_latest(self) -> dict[str, dict[str, Any]]:
         entries: dict[str, dict[str, Any]] = {}
-        if os.path.exists(self.path):
-            with open(self.path, "r", encoding="utf-8") as fh:
-                for line in fh:
-                    line = line.strip()
-                    if not line:
-                        continue
-                    entry = validate_manifest_record(json.loads(line))
-                    entries[_entry_key(entry)] = entry
+        try:
+            fd = self._open_manifest(os.O_RDONLY)
+        except FileNotFoundError:
+            return entries
+        with os.fdopen(fd, "r", encoding="utf-8") as fh:
+            for line in fh:
+                line = line.strip()
+                if not line:
+                    continue
+                entry = validate_manifest_record(json.loads(line))
+                entries[_entry_key(entry)] = entry
         return entries
 
     def load(self) -> dict[str, dict[str, Any]]:
@@ -120,6 +140,29 @@ class ManifestStore:
         self._entries = self._read_latest()
         self._loaded = True
         return self._entries
+
+    def _assert_manifest_replace_target_safe(self) -> None:
+        try:
+            fd = self._open_manifest(os.O_RDONLY)
+        except FileNotFoundError:
+            return
+        os.close(fd)
+
+    def _append_record(self, record: Mapping[str, Any]) -> None:
+        directory = os.path.dirname(self.path) or "."
+        os.makedirs(directory, exist_ok=True)
+        fd = self._open_manifest(os.O_WRONLY | os.O_APPEND | os.O_CREAT, create=True)
+        try:
+            line = (json.dumps(dict(record), ensure_ascii=False, separators=(",", ":"), allow_nan=False) + "\n").encode("utf-8")
+            os.write(fd, line)
+            os.fsync(fd)
+        finally:
+            os.close(fd)
+        directory_fd = os.open(directory, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+        try:
+            os.fsync(directory_fd)
+        finally:
+            os.close(directory_fd)
 
     def _snapshot_bytes(self, entries: dict[str, dict[str, Any]]) -> bytes:
         return b"".join(
@@ -139,6 +182,7 @@ class ManifestStore:
                 self._entries = {}
                 self._loaded = True
                 return
+            self._assert_manifest_replace_target_safe()
             replace_file_atomically(self.path, self._snapshot_bytes(current))
             self._entries = current
             self._loaded = True
@@ -148,6 +192,7 @@ class ManifestStore:
         with file_lock(self.path):
             current = self._read_latest()
             if current:
+                self._assert_manifest_replace_target_safe()
                 replace_file_atomically(self.path, self._snapshot_bytes(current))
             self._entries = current
             self._loaded = True
@@ -186,7 +231,7 @@ class ManifestStore:
                     raise ValueError("new automatic row requires work_id")
             stored = dict(entry)
             key = _entry_key(stored)
-            append_jsonl_record(self.path, stored)
+            self._append_record(stored)
             self._entries[key] = stored
             return stored
 
@@ -296,6 +341,7 @@ class ManifestStore:
                     next_entries[key] = marked
                     report.unresolved.append(bvid)
             if next_entries != current:
+                self._assert_manifest_replace_target_safe()
                 replace_file_atomically(self.path, self._snapshot_bytes(next_entries))
                 self._entries = next_entries
         return report

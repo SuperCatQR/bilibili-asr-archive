@@ -76,16 +76,18 @@ def archive_writer(root: str | os.PathLike[str], *, blocking: bool = False) -> I
         yield
         return
     try:
-        with file_lock(lock_target, blocking=blocking):
-            _ARCHIVE_WRITER_STATE.owned = lock_target
-            try:
-                yield
-            finally:
-                _ARCHIVE_WRITER_STATE.owned = None
+        lock = file_lock(lock_target, blocking=blocking)
+        lock.__enter__()
     except OSError as exc:
         if not blocking and isinstance(exc.__cause__, BlockingIOError):
             raise ArchiveBusyError() from exc
         raise
+    _ARCHIVE_WRITER_STATE.owned = lock_target
+    try:
+        yield
+    finally:
+        _ARCHIVE_WRITER_STATE.owned = None
+        lock.__exit__(None, None, None)
 
 
 def _utc_now_iso() -> str:

@@ -357,6 +357,17 @@ def test_file_lock_does_not_relabel_body_io_errors(tmp_path: Path) -> None:
     assert not isinstance(captured.value, PersistenceError)
 
 
+def test_archive_writer_does_not_relabel_chained_body_io_errors(tmp_path: Path) -> None:
+    with pytest.raises(OSError, match="body failure") as captured:
+        with archive_writer(tmp_path):
+            try:
+                raise BlockingIOError("acquisition-like cause")
+            except BlockingIOError as cause:
+                raise OSError("body failure") from cause
+
+    assert not isinstance(captured.value, ArchiveBusyError)
+
+
 def test_windows_file_lock_uses_matching_release_api(tmp_path: Path, monkeypatch) -> None:
     import types
     import bili_asr.persistence as persistence
@@ -467,7 +478,15 @@ def test_symlinked_manifest_and_duplicate_journal_are_not_authoritative(tmp_path
     outside.write_text(json.dumps(_row("outside:p0")) + "\n", encoding="utf-8")
     manifest_dir = tmp_path / "manifest"
     manifest_dir.mkdir()
-    (manifest_dir / "manifest.jsonl").symlink_to(outside)
+    manifest_path = manifest_dir / "manifest.jsonl"
+    manifest_path.symlink_to(outside)
+
+    with pytest.raises(OSError):
+        ManifestStore(tmp_path).load()
+    with pytest.raises(OSError):
+        ManifestStore(tmp_path).upsert(_row("inside:p0"))
+    assert outside.read_text(encoding="utf-8") == json.dumps(_row("outside:p0")) + "\n"
+
     report = IntegrityVerifier().verify(tmp_path)
     assert report.authoritative is False
     assert STRUCTURAL_INPUT_ERROR in report.diagnostics

@@ -143,8 +143,7 @@ def _open_declared(root: Path, relative: str) -> tuple[int, str] | None:
     try:
         for part in parts[:-1]:
             nxt = _open_dir(current, part)
-            if current != root_fd:
-                os.close(current)
+            os.close(current)
             current = nxt
         return current, parts[-1]
     except Exception:

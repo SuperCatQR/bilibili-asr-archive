@@ -158,6 +158,20 @@ def test_pre_marker_archived_evidence_is_incomplete(tmp_root):
     assert not archive_bundle_complete(tmp_path, paths)
 
 
+def test_archive_bundle_complete_does_not_leak_descriptors(tmp_path):
+    import os
+
+    if not os.path.isdir("/proc/self/fd"):
+        return
+    row = {"bvid": "BVfd", "work_id": "BVfd:p0", "page_index": 0, "cid": 1}
+    paths = write_archive(tmp_path, row, [{"start": 0, "end": 1, "text": "x"}], source="asr")
+    before = len(os.listdir("/proc/self/fd"))
+    for _ in range(100):
+        assert archive_bundle_complete(tmp_path, paths)
+    after = len(os.listdir("/proc/self/fd"))
+    assert after <= before + 1
+
+
 def test_archive_failure_cleans_only_owned_staging(tmp_root, monkeypatch):
     from pathlib import Path
     tmp_path = Path(tmp_root)
