@@ -44,7 +44,7 @@ def test_fake_model_result_normalization_timestamps_and_rich_tag_cleanup(fake_fu
         {"start": 0.125, "end": 1.5, "text": "deterministic"},
         {"start": 1.5, "end": 2.75, "text": "output"},
     ]
-    assert fake_funasr.construction_records == [{"model": "local-test-model", "trust_remote_code": False, "device": "cpu", "vad_model": "fsmn-vad", "punc_model": "ct-punc", "offline": True, "local_source": "configured-local"}]
+    assert fake_funasr.construction_records == [{"model": "local-test-model", "trust_remote_code": False, "device": "cpu", "offline": True, "local_source": "configured-local"}]
     assert fake_funasr.generation_records == [{"input": "fixture-audio.wav", "cache": {}, "language": "auto", "use_itn": True, "batch_size_s": 60, "merge_vad": True, "merge_length_s": 15}]
 
 
@@ -66,7 +66,7 @@ def test_fake_generation_snapshots_include_both_input_paths(fake_funasr, monkeyp
     assert first == second
     assert fake_funasr.construction_count == 2
     assert [record["input"] for record in fake_funasr.generation_records] == ["one.wav", "two.wav"]
-    assert fake_funasr.construction_records == [{"model": "/fixture/local-model", "trust_remote_code": False, "device": "cpu", "vad_model": "fsmn-vad", "punc_model": "ct-punc", "offline": True, "local_source": "configured-local"}] * 2
+    assert fake_funasr.construction_records == [{"model": "/fixture/local-model", "trust_remote_code": False, "device": "cpu", "offline": True, "local_source": "configured-local"}] * 2
 
 
 def test_error_serialization_redacts_forbidden_markers_and_preserves_class(monkeypatch):
@@ -143,7 +143,7 @@ def test_factory_gets_exact_kwargs_and_typeerror_is_not_retried():
     with pytest.raises(asr.ASRModelError) as caught:
         runner.transcribe("fixture.wav")
     assert len(calls) == 1
-    assert set(calls[0]) == {"model", "device", "trust_remote_code", "vad_model", "punc_model", "offline", "local_source", "model_revision"}
+    assert set(calls[0]) == {"model", "device", "trust_remote_code", "offline", "local_source", "model_revision"}
     assert "hostile" not in str(caught.value)
 
 

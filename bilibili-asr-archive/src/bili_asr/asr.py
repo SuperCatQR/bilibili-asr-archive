@@ -102,8 +102,6 @@ class ASRRunner:
             "model": self.config.model_name,
             "device": self.config.device,
             "trust_remote_code": False,
-            "vad_model": "fsmn-vad",
-            "punc_model": "ct-punc",
             "offline": self.config.offline,
             "local_source": self.config.local_source,
         }
