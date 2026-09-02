@@ -13,6 +13,16 @@ from dataclasses import asdict, dataclass
 from typing import Any, Callable
 
 DEFAULT_MODEL = "iic/SenseVoiceSmall"
+
+
+def _load_default_model(**kwargs: Any) -> Any:
+    try:
+        from funasr import AutoModel  # type: ignore
+    except ImportError as exc:
+        raise ASRDependencyError(
+            f"SenseVoice support is not installed; run: {_INSTALL_HINT}"
+        ) from exc
+    return AutoModel(**kwargs)
 _INSTALL_HINT = 'pip install -e "bilibili-asr-archive/[asr]"'
 _RICH_TAG = re.compile(r"<\|[^|>]+\|>")
 _FORBIDDEN_LOCAL_SOURCE = re.compile(
@@ -87,15 +97,7 @@ class ASRRunner:
     def _get_model(self) -> Any:
         if self._model is not None:
             return self._model
-        factory = self._model_factory
-        if factory is None:
-            try:
-                from funasr import AutoModel  # type: ignore
-            except ImportError as exc:
-                raise ASRDependencyError(
-                    f"SenseVoice support is not installed; run: {_INSTALL_HINT}"
-                ) from exc
-            factory = AutoModel
+        factory = self._model_factory or _load_default_model
         kwargs: dict[str, Any] = {
             "model": self.config.model_name,
             "device": self.config.device,

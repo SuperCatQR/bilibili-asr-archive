@@ -492,8 +492,7 @@ class RunCoordinator:
         try:
             from .path_policy import confined_audio_file
             with confined_audio_file(self.root, os.path.relpath(audio_path, self.root)) as safe_audio:
-                if self.asr_runner is None:
-                    segments = self.asr_runner.transcribe(safe_audio)
+                segments = self.asr_runner.transcribe(safe_audio)
         except Exception as exc:  # redacted; batch continues
             self._record(
                 "asr", work_id, "failed",
