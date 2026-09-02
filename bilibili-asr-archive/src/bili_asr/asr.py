@@ -46,8 +46,10 @@ class ASRConfig:
     def __post_init__(self) -> None:
         if not isinstance(self.model_name, str) or not self.model_name.strip():
             raise ValueError("model_name must be a non-empty string")
-        if self.model_revision is not None and not isinstance(self.model_revision, str):
-            raise ValueError("model_revision must be a string or null")
+        if self.model_revision is not None and (
+            not isinstance(self.model_revision, str) or not self.model_revision.strip()
+        ):
+            raise ValueError("model_revision must be a non-empty string or null")
         if not isinstance(self.device, str) or not self.device.strip():
             raise ValueError("device must be a non-empty string")
         if not isinstance(self.offline, bool):
@@ -76,6 +78,8 @@ class ASRRunner:
             config = ASRConfig(model_name=config)
         elif model_name is not None:
             raise TypeError("model_name is only accepted without a config")
+        if not isinstance(config, ASRConfig):
+            raise TypeError("config must be an ASRConfig")
         self.config = config
         self._model_factory = model_factory
         self._model: Any | None = None
