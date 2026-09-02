@@ -282,11 +282,6 @@ class RunSummary:
         )
 
 
-class _CompatibilityModel:
-    def generate(self, **kwargs: Any) -> Any:
-        return asr_module.transcribe(kwargs["input"])
-
-
 class RunCoordinator:
     """Per-stage coordinator over one manifest batch.
 
@@ -498,8 +493,6 @@ class RunCoordinator:
             from .path_policy import confined_audio_file
             with confined_audio_file(self.root, os.path.relpath(audio_path, self.root)) as safe_audio:
                 if self.asr_runner is None:
-                    segments = asr_module.transcribe(safe_audio)
-                else:
                     segments = self.asr_runner.transcribe(safe_audio)
         except Exception as exc:  # redacted; batch continues
             self._record(
@@ -701,8 +694,7 @@ class RunCoordinator:
         with archive_writer(self.root):
             if injected_runner is None and self._batch_needs_asr(rows):
                 self.asr_runner = asr_module.ASRRunner(
-                    asr_module.ASRConfig(model_name=asr_module.DEFAULT_MODEL),
-                    model_factory=lambda **_kwargs: _CompatibilityModel(),
+                    asr_module.ASRConfig(model_name=asr_module.DEFAULT_MODEL)
                 )
             else:
                 self.asr_runner = injected_runner
