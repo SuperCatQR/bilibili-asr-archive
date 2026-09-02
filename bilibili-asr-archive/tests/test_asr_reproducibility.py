@@ -6,6 +6,7 @@ import builtins
 import json
 import sys
 import types
+from typing import Any
 
 import pytest
 
@@ -143,7 +144,9 @@ def test_factory_gets_exact_kwargs_and_typeerror_is_not_retried():
     with pytest.raises(asr.ASRModelError) as caught:
         runner.transcribe("fixture.wav")
     assert len(calls) == 1
-    assert set(calls[0]) == {"model", "device", "trust_remote_code", "offline", "local_source", "model_revision"}
+    assert set(calls[0]) == {
+        "model", "device", "trust_remote_code", "offline", "local_source", "model_revision"
+    }
     assert "hostile" not in str(caught.value)
 
 
@@ -163,3 +166,66 @@ def test_target_runner_reuse_oracle_is_target_facing(fake_funasr):
     assert [record["input"] for record in fake_funasr.generation_records] == [
         "first.wav", "second.wav"
     ]
+
+
+def test_provenance_has_stable_redacted_configuration_keys():
+    config = asr.ASRConfig(
+        model_name="local-model",
+        model_revision="revision-1",
+        device="cpu",
+        offline=True,
+        local_source="configured-local",
+    )
+    provenance = asr.ASRRunner(config).provenance()
+    assert list(provenance) == [
+        "model_name", "model_revision", "device", "offline", "local_source"
+    ]
+    assert provenance == {
+        "model_name": "local-model",
+        "model_revision": "revision-1",
+        "device": "cpu",
+        "offline": "True",
+        "local_source": "configured-local",
+    }
+    assert all(isinstance(value, str) for value in provenance.values())
+
+
+def test_provenance_is_deterministic_and_revision_sensitive():
+    def make_provenance(revision: str | None) -> dict[str, str]:
+        return asr.ASRRunner(
+            asr.ASRConfig("fixture-model", model_revision=revision)
+        ).provenance()
+
+    assert make_provenance("rev-a") == make_provenance("rev-a")
+    assert make_provenance("rev-a") != make_provenance("rev-b")
+    assert make_provenance(None) != make_provenance("rev-a")
+
+
+def test_provenance_redacts_forbidden_values_without_serializing_payloads():
+    config = asr.ASRConfig("fixture-model", model_revision="rev-a")
+    runner = asr.ASRRunner(config)
+    safe = runner.provenance()
+    forbidden_markers = (
+        "SESSDATA", "cookie", "token", "http://", "https://", "Traceback",
+        "/tmp/", "model-bytes", "media-bytes", "transcript-payload",
+    )
+    serialized = json.dumps(safe)
+    assert all(marker.lower() not in serialized.lower() for marker in forbidden_markers)
+
+
+def test_fixture_benchmark_reports_only_construction_and_shape(fake_funasr):
+    runner = asr.ASRRunner(asr.ASRConfig("fixture-model"), model_factory=fake_funasr)
+    outputs = runner.transcribe_many(["first.wav", "second.wav"])
+    report: dict[str, Any] = {
+        "model_construction_count": fake_funasr.construction_count,
+        "normalized_segment_count": sum(len(output) for output in outputs),
+        "output_shape": sorted(outputs[0][0]),
+    }
+    assert report == {
+        "model_construction_count": 1,
+        "normalized_segment_count": 4,
+        "output_shape": ["end", "start", "text"],
+    }
+    assert set(report) == {
+        "model_construction_count", "normalized_segment_count", "output_shape"
+    }

@@ -24,7 +24,19 @@ are not supported for hardened publication or reclaim; run the CLI inside WSL
 and keep the archive on a WSL-native path, not `/mnt/c`.
 
 Set `BILI_ASR_MODEL` to a pre-populated local model directory for offline use;
-the default is `iic/SenseVoiceSmall`. No model weights are vendored.
+the default is `iic/SenseVoiceSmall`. No model weights are vendored. The optional
+ASR dependency is verified by fixture-only tests; installation and model
+availability remain operator responsibilities.
+
+ASR model construction is lazy and reused only within one sequential run scope.
+`ASRRunner.provenance()` exposes deterministic configuration identifiers and an
+optional declared revision, while rejecting or redacting URLs, absolute paths,
+and credential-like values. It contains no model, media, transcript, or raw
+exception payloads. Provenance is a configuration/report surface, not a ledger
+field and not a semantic-accuracy claim. Fixture evidence reports only fake
+model construction count, normalized segment count, and output shape; it does
+not establish hardware timing, model-weight pinning, network-free runtime, or
+full-corpus coverage.
 
 ## Deterministic verification baseline
 

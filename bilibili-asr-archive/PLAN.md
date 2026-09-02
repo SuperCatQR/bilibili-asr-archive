@@ -122,6 +122,12 @@ manifest/manifest.jsonl（账本，work_id 为主键）
 
 当前 persistence hardening 约束：coverage/quality/verify 默认最多读取每个 sidecar 的 10,000 条非空记录和 8 MiB；只有 operator-owned archive 才显式使用 `--trusted-local`，且 16 MiB 单行/单对象、语义校验和 no-follow 校验仍生效。一个完整归档 generation 固定为 `srt/txt/md/raw` 四件套及最后发布的 `.bundle-ready` 摘要；bundle 完成后 manifest 写失败时保留可读 bundle、状态不晋升，并由下一次顺序执行重试。旧 `archived` 行若缺少 `raw_path` 或 marker，必须重新归档。bare-bvid 仅兼容读取/已有行更新，自动新写入必须使用 page-qualified `work_id`。所有 archive-mutating CLI 命令从初始读取到最终持久化持有同一个 archive-root writer lock；重叠写命令以 `<command>: archive_busy` 退出且不做部分写入，read-only 命令不争用该锁。这些 hardened descriptor 路径支持 Linux/WSL，不声称 native Windows 支持。
 
+## 5b. Local ASR reproducibility contract
+
+ASR is an optional local capability: install it with `python3.12 -m pip install -e "[asr]"` only when the operator has a reviewed local environment. Configure a pre-populated local model with `BILI_ASR_MODEL`; tests use fake factories and do not install FunASR, download models/media, or use network credentials. `ASRRunner` lazily constructs and reuses one model only for the current sequential run scope, then releases it.
+
+`ASRRunner.provenance()` is deterministic configuration/report evidence: stable keys describe model name, declared revision, device, offline intent, and opaque local-source intent. URL, absolute-path, and credential-like values are rejected or redacted; cookies, tokens, raw exceptions, model/media/transcript payloads, and ledger fields are excluded. Fixture checks report only fake construction count and normalized output shape. This evidence is not semantic-quality validation, model-weight pinning, a general network-free-runtime guarantee, hardware timing, or full-corpus completion.
+
 ## 6. 下一迭代触发条件
 
 下一迭代应是**授权环境中的测量型顺序语料生产**，owner 为 operator + project manager，满足以下条件后开始：
