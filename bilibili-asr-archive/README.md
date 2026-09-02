@@ -8,14 +8,20 @@ resumable JSONL manifest.
 
 ## Install (editable)
 
-Base metadata/subtitle/audio workflows:
+Base metadata/subtitle/audio workflows (Linux or Windows WSL, Python 3.12+):
 
-    py -3.12 -m pip install -e ".[dev]"
+    python3.12 -m pip install -e ".[dev]"
 
 Local SenseVoice support is optional because it downloads model weights on first
 use:
 
-    py -3.12 -m pip install -e ".[asr]"
+    python3.12 -m pip install -e ".[asr]"
+
+The hardened archive/audio path requires POSIX descriptor operations
+(`dir_fd`, `O_NOFOLLOW`, and `/proc/self/fd` or `/dev/fd`). Linux and a
+WSL-native filesystem are supported. Native Windows `cmd.exe`/PowerShell paths
+are not supported for hardened publication or reclaim; run the CLI inside WSL
+and keep the archive on a WSL-native path, not `/mnt/c`.
 
 Set `BILI_ASR_MODEL` to a pre-populated local model directory for offline use;
 the default is `iic/SenseVoiceSmall`. No model weights are vendored.
@@ -70,6 +76,7 @@ in committed files or CI artifacts.
     bili-asr search "黑格尔 辩证法" --archive-root archive
     bili-asr export --format json --out archive/manifest.json --archive-root archive
     bili-asr coverage --archive-root archive
+    bili-asr coverage --trusted-local --archive-root archive
     bili-asr coverage --quality --archive-root archive
     bili-asr run --scope pending --archive-root archive
     bili-asr run --scope pending --offline --archive-root archive
@@ -78,6 +85,7 @@ in committed files or CI artifacts.
     bili-asr schedule --scope pending --limit 20 --resume --archive-root archive
     bili-asr campaign --scope pending --limit 20 --archive-root archive
     bili-asr verify --archive-root archive
+    bili-asr verify --trusted-local --archive-root archive
     bili-asr recover --archive-root archive --work-id <work-id>
     bili-asr evaluate-concurrency --evidence evidence.json --thresholds thresholds.json
 
@@ -141,12 +149,40 @@ of: `input_file_missing`, `input_file_unreadable`,
 `input_malformed_json`, `input_non_object_json`, or `evaluation_failure`.
 Paths, exception text, and input values are never emitted.
 
+### Archive writer isolation
+
+Every archive-mutating command (`fetch-meta`, `recover`, `asr`, `pilot`,
+`probe-subs`, `harvest-subs`, `download-audio`, `run`, `campaign`, and
+`schedule`) holds one archive-root writer lock from initial state load through
+its final state/sidecar write. A second mutation exits `1` with
+`<command>: archive_busy`; it does not wait or partially mutate the archive.
+Read-only commands such as `status`, `coverage`, `verify`, `runs`, `search`,
+`export`, and `evaluate-concurrency` do not claim this writer lock.
+
 ### Audio reclaim and bounded-disk campaigns
 
 Once a row reaches `archived`, its local audio file under
 `{archive-root}/audio/` is deleted automatically (failed and in-progress
 rows keep their audio for retry; the manifest may still record the
-relative `audio_path` — consumers treat the file as absent).
+relative `audio_path` — consumers treat the file as absent). Download
+publication and reclaim are anchored to an opened `audio/` directory and use
+private random stage/quarantine entries; they never follow a swapped final-name
+symlink to an outside victim.
+
+#### Transcript bundle publication
+
+An archive generation is exactly four files: `transcripts/srt/<stem>.srt`,
+`transcripts/txt/<stem>.txt`, one `transcripts/md/*.md`, and
+`transcripts/raw/<stem>.json`. `<srt>.bundle-ready` is published last and names
+those exact four relative paths with their SHA-256 digests. Readers accept only
+a complete marker-matched generation; a partial or mixed generation remains
+retryable and cannot justify `status=archived`.
+
+Publication precedes the manifest transition. If all four files and the marker
+are complete but the manifest append fails, the row stays at its prior status,
+the complete bundle stays readable, and the next sequential run republishes or
+commits it. Older `archived` rows without `raw_path` or a matching marker are
+pre-marker evidence and must be re-archived before they count as complete.
 
 `pilot` and `run` honor a bounded-disk campaign cap:
 
@@ -220,8 +256,18 @@ cookies), signed streaming URLs, and raw exception stack traces.
 
       bili-asr coverage --archive-root /tmp/bili-asr-coverage-fixture --scope pending --format json
       bili-asr coverage --archive-root /tmp/bili-asr-coverage-fixture --format csv
+      bili-asr coverage --archive-root /owned/archive --trusted-local --format json
       bili-asr coverage --archive-root /tmp/bili-asr-coverage-fixture --quality --format json
+      bili-asr coverage --archive-root /owned/archive --quality --trusted-local --format json
       bili-asr coverage --archive-root /tmp/bili-asr-coverage-fixture --quality --format csv
+
+  Default `coverage`, `coverage --quality`, and `verify` inspection is
+  `bounded_input`: at most 10,000 nonblank JSONL records and 8 MiB total per
+  sidecar, with 16 MiB line/object ceilings. Limit breaches are named and make
+  the result non-authoritative. `--trusted-local` is an explicit assertion that
+  the archive root is operator-owned; it removes only total record/byte ceilings
+  and keeps per-record validation, semantic validation, and no-follow path
+  checks. It does not make malformed or symlinked input authoritative.
 
   `bili-asr verify` is the deterministic, read-only integrity check. Recovery is
   an explicit bounded audit request (it does not requeue or execute work):
@@ -465,8 +511,10 @@ pages. Public URLs for `page_index` > 0 include `?p=` (1-based).
 Legacy single-page rows migrate only when ownership is unambiguous. Ambiguous
 bare-bvid rows stay `unresolved` / `excluded_from_page_processing`: they keep
 their original key and files, stay visible in `bili-asr status`, and are never
-auto-assigned a page. `download-audio --bvid` / `asr --bvid` STOP on those
-rows instead of fabricating a `needs_audio` page. Resume is per `work_id`: a
-completed or failed p0 does not skip p1.
+auto-assigned a page. Bare-bvid rows remain a compatibility read/update
+boundary only; new automatic rows require page-qualified `work_id` plus matching
+`bvid`. `download-audio --bvid` / `asr --bvid` STOP on unresolved rows instead
+of fabricating a `needs_audio` page. Resume is per `work_id`: a completed or
+failed p0 does not skip p1.
 
 No media redistribution; personal archival only.

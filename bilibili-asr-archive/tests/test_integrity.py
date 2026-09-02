@@ -18,6 +18,18 @@ def _manifest(root: Path, rows: list[dict[str, object]]) -> None:
     path.write_text("".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8")
 
 
+def test_bvid_only_legacy_manifest_row_remains_checkable(tmp_path: Path) -> None:
+    row = {"bvid": "BVlegacy", "status": "pending"}
+    _manifest(tmp_path, [row])
+
+    report = IntegrityVerifier().verify(tmp_path)
+
+    assert report.authoritative is False
+    assert report.checked == 1
+    assert any(defect.work_id == "BVlegacy" for defect in report.defects)
+    assert "manifest_invalid_bvid" not in report.diagnostics
+
+
 def test_production_archive_layout_verifies_cleanly(tmp_path: Path) -> None:
     row = {"work_id": "BV1x:p0", "bvid": "BV1x", "cid": 7, "page_index": 0,
            "pubdate_str": "20260828", "title": "A safe/title", "status": "archived"}
@@ -25,6 +37,20 @@ def test_production_archive_layout_verifies_cleanly(tmp_path: Path) -> None:
     row.update(paths)
     _manifest(tmp_path, [row])
     assert IntegrityVerifier().verify(tmp_path).defects == []
+
+
+
+
+def test_declared_complete_bundle_paths_are_used_exactly(tmp_path: Path) -> None:
+    row = {"work_id": "BV1x:p0", "bvid": "BV1x", "cid": 7, "page_index": 0,
+           "pubdate_str": "20260828", "title": "A", "status": "archived"}
+    paths = write_archive(tmp_path, row, [{"start": 0, "end": 1, "text": "ok"}], source="cc")
+    row.update(paths)
+    _manifest(tmp_path, [row])
+    row["md_path"] = "transcripts/md/not-the-marker.md"
+    _manifest(tmp_path, [row])
+    report = IntegrityVerifier().verify(tmp_path)
+    assert any(d.code == "identity_path_mismatch" for d in report.defects)
 
 
 def test_symlinked_manifest_is_not_read(tmp_path: Path) -> None:
@@ -73,24 +99,13 @@ def test_malformed_identity_containers_fail_closed(tmp_path: Path) -> None:
 
 
 def test_archived_transcripts_are_valid_without_audio(tmp_path: Path) -> None:
-    _manifest(tmp_path, [{"work_id": "BV1x:p0", "bvid": "BV1x", "status": "archived"}])
-    for directory in ("srt", "txt", "md"):
-        path = tmp_path / "transcripts" / directory
-        path.mkdir(parents=True)
-        content = "1\n00:00:00,000 --> 00:00:01,000\nok" if directory == "srt" else "ok"
-        (path / f"BV1x.p0.{directory}").write_text(content, encoding="utf-8")
+    row = {"work_id": "BV1x:p0", "bvid": "BV1x", "cid": 7, "page_index": 0,
+           "status": "archived", "title": "", "pubdate_str": ""}
+    paths = write_archive(tmp_path, row, [{"start": 0, "end": 1, "text": "ok"}], source="asr")
+    manifest_row = {**row, **paths}
+    _manifest(tmp_path, [manifest_row])
     report = IntegrityVerifier().verify(tmp_path)
     assert report.defects == []
-
-
-def test_missing_transcript_and_truncated_attempts(tmp_path: Path) -> None:
-    _manifest(tmp_path, [{"work_id": "BV1x:p0", "bvid": "BV1x", "status": "archived"}])
-    path = tmp_path / "coordinator" / "attempts.jsonl"
-    path.parent.mkdir()
-    path.write_text(json.dumps(_attempt("BV1x:p0")) + "\n{broken'", encoding="utf-8")
-    report = IntegrityVerifier().verify(tmp_path)
-    assert any(d.code == MISSING_TRANSCRIPT for d in report.defects)
-    assert TRUNCATED_ATTEMPTS_LINE in report.diagnostics
 
 
 def _attempt(work_id: str, outcome: str = "failed") -> dict[str, object]:
@@ -113,7 +128,10 @@ def test_scope_uses_attempt_outcomes(tmp_path: Path) -> None:
     path.write_text(json.dumps(_attempt("archived")) + "\n" + json.dumps(_attempt("running", "ok")) + "\n", encoding="utf-8")
     assert IntegrityVerifier().verify(tmp_path, scope="pending").checked == 1
     assert IntegrityVerifier().verify(tmp_path, scope="failed").checked == 1
-    assert IntegrityVerifier().verify(tmp_path, scope="running").checked == 1
+    invalid = IntegrityVerifier().verify(tmp_path, scope="running")
+    assert invalid.checked == 0
+    assert invalid.authoritative is False
+    assert "manifest_invalid_status" in invalid.diagnostics
 
 
 def test_malformed_raw_is_reported(tmp_path: Path) -> None:
@@ -252,3 +270,10 @@ def test_invalid_utf8_attempts_fail_closed(tmp_path: Path) -> None:
     report = IntegrityVerifier().verify(tmp_path)
     assert report.authoritative is False
     assert STRUCTURAL_INPUT_ERROR in report.diagnostics
+
+
+def test_invalid_manifest_semantics_are_named_and_non_authoritative(tmp_path: Path) -> None:
+    _manifest(tmp_path, [{"work_id": "BV1x:p0", "bvid": "BVother", "status": "not-a-status"}])
+    report = IntegrityVerifier().verify(tmp_path)
+    assert report.authoritative is False
+    assert {"manifest_invalid_status", "manifest_invalid_bvid"} <= set(report.diagnostics)

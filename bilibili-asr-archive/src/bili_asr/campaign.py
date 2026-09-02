@@ -14,7 +14,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, TypeAlias
 
-from .coordinator import RunCoordinator, RunSummary
+from .coordinator import ArchiveBusyError, RunCoordinator, RunSummary, archive_writer
 from .manifest import ManifestStore
 from .scheduler import SchedulerStore, settled_processed_ids, terminal_resume_ids
 
@@ -276,6 +276,10 @@ class CampaignRunner:
         return terminal_resume_ids(lookup.processed_ids, entries)
 
     def run(self, scope: str, batch_limit: int, *, resume: bool = False) -> CampaignSummary:
+        with archive_writer(self.root):
+            return self._run_locked(scope, batch_limit, resume=resume)
+
+    def _run_locked(self, scope: str, batch_limit: int, *, resume: bool = False) -> CampaignSummary:
         if not isinstance(scope, str) or not scope.strip():
             raise ValueError("scope must be a non-empty string")
         if isinstance(batch_limit, bool) or not isinstance(batch_limit, int) or batch_limit < 1:

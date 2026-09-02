@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+from bili_asr.archive import write_archive
 from bili_asr.coverage_report import CoverageReport
 
 NOW = "2026-08-28T12:00:00Z"
@@ -63,6 +64,18 @@ def write_fixture(root: Path, rows: list[dict], *, cur=None, sched=None, ledgers
 
 def codes(report):
     return {item["code"] for item in report.data["diagnostics"]}
+
+
+def test_bvid_only_legacy_manifest_row_remains_checkable(tmp_path: Path):
+    row = manifest_row("BVlegacy:p1")
+    row.pop("work_id")
+    write_fixture(tmp_path, [row])
+
+    report = CoverageReport.build(tmp_path)
+
+    assert report.data["denominator"]["count"] == 1
+    assert report.data["rows"][0]["work_id"] == "BVlegacy"
+    assert "manifest_invalid_bvid" not in codes(report)
 
 
 def test_complete_evidence_has_stable_cumulative_and_batch_totals(tmp_path: Path):
@@ -155,9 +168,8 @@ def test_terminal_archived_without_transcript_is_not_complete(tmp_path: Path):
 
 def test_reclaimed_audio_uses_page_aware_artifact_path(tmp_path: Path):
     row = manifest_row("BVone:p1")
-    transcript = tmp_path / "transcripts" / "txt" / "BVone.p1.txt"
-    transcript.parent.mkdir(parents=True)
-    transcript.write_text("marker", encoding="utf-8")
+    paths = write_archive(tmp_path, row, [{"start": 0, "end": 1, "text": "marker"}], source="asr")
+    row.update(paths)
     write_fixture(tmp_path, [row])
     report = CoverageReport.build(tmp_path)
     assert report.data["rows"][0]["artifact_present"] is True
@@ -170,6 +182,23 @@ def test_supported_scopes(tmp_path: Path, scope: str, expected: set[str]):
     rows = [manifest_row("BVone:p1", "meta_ok"), manifest_row("BVtwo:p1")]
     write_fixture(tmp_path, rows, attempts=[attempt("BVone:p1", "failed")])
     assert {r["work_id"] for r in CoverageReport.build(tmp_path, scope=scope).data["rows"]} == expected
+
+
+def test_archived_audio_symlink_and_unsupported_extension_are_not_reclaimed(tmp_path: Path):
+    row = manifest_row("BVone:p1")
+    paths = write_archive(tmp_path, row, [{"start": 0, "end": 1, "text": "marker"}], source="asr")
+    row.update(paths)
+    audio_dir = tmp_path / "audio"
+    audio_dir.mkdir()
+    outside = tmp_path / "outside.m4a"
+    outside.write_bytes(b"audio")
+    (audio_dir / "bad.m4a").symlink_to(outside)
+    row["audio_path"] = "audio/bad.m4a"
+    write_fixture(tmp_path, [row])
+    report = CoverageReport.build(tmp_path)
+    assert report.data["rows"][0]["reclaimed_audio"] is True
+    report = CoverageReport.build(tmp_path)
+    assert report.data["rows"][0]["reclaimed_audio"] is True
 
 
 def test_unknown_scope_is_unavailable(tmp_path: Path):

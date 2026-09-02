@@ -1,7 +1,7 @@
 # 未明子（UID 23191782）视频 ASR 转录归档计划
 
 > 目标：UP主全部投稿（当前可见 1737 条）→ 文字稿 + 字幕，本地归档，支持检索。
-> 状态：元数据历史进度 474/1737（412 风控中断，可 `--resume` 续跑）；顺序工具链、受控 campaign、覆盖率/质量/完整性证据、检索导出与并发安全门均已交付，尚未声称完成全量语料生产。目录 `C:\WorkSpace\wmz\bilibili-asr-archive\`。
+> 状态：元数据历史进度 474/1737（412 风控中断，可 `--resume` 续跑）；顺序工具链、受控 campaign、覆盖率/质量/完整性证据、检索导出与并发安全门均已交付，尚未声称完成全量语料生产。支持环境为 Linux 或 Windows WSL 的原生 Linux 文件系统；hardened archive/audio 路径不支持 native Windows。
 
 ## 0. 已勘察事实
 
@@ -70,22 +70,23 @@
 ## 3. 流水线设计
 
 ```
-manifest.jsonl (账本, bvid为主键)
+manifest/manifest.jsonl（账本，work_id 为主键）
   │
   ├─① 字幕探测: player/wbi/v2 → subtitle list
-  │    有 → 抓JSON字幕 → 统一为 {bvid}.srt/.txt/.md     [零ASR成本]
+  │    有 → 抓 JSON 字幕 → 归档 bundle                    [零 ASR 成本]
   │    无 → ②
   │
-  ├─② 音频下载: yutto --audio-only（登录态, 限速, 分批）
-  │    → audio/{bvid}.m4a（64kbps 音轨 ≈ 60-80GB）
+  ├─② 音频下载: 受限 API 流（登录态、限速、分批）
+  │    → audio/{bvid}.p{page}.m4a（归档后回收）
   │
-  ├─③ ASR: ffmpeg 16k单声道切片 → SenseVoice-Small
-  │    → transcripts/raw/{bvid}.json（带时间戳）
+  ├─③ ASR: ffmpeg 16k 单声道 → SenseVoice-Small
   │
-  ├─④ 后处理: srt / txt / md（{date}_{bvid}_{title}.md, 头部含元数据）
+  ├─④ 原子归档: srt / txt / md / raw + .bundle-ready
+  │    marker 固定四个相对路径及 SHA-256；marker 最后发布
   │
-  └─⑤ 归档账本: 状态机 pending→sub_checked→done / asr_done
-       检索: SQLite FTS5 / Meilisearch（可选）
+  └─⑤ 账本状态: pending→meta_ok→sub_checked→subtitle_done
+       或 needs_audio→audio_ok→asr_done→archived；gone 为终态
+       检索: SQLite FTS5
 ```
 
 ## 4. 成本与工期（按 1737 条 / ~2200h 计）
@@ -118,6 +119,8 @@ manifest.jsonl (账本, bvid为主键)
 ## 5a. 当前 roadmap 位置
 
 `iter-2026-08-corpus-coverage` 已 **delivered**：它交付的是可审计的顺序生产与证据骨架，而不是全量语料完成声明。当前生产模式保持 `sequential-no-daemon`。完整性 `recover` 仅记录最多 100 个当前权威缺陷候选的脱敏审计，不重排任务或改写状态；并发门即使返回 `go` 也只为后续独立批准计划提供证据。
+
+当前 persistence hardening 约束：coverage/quality/verify 默认最多读取每个 sidecar 的 10,000 条非空记录和 8 MiB；只有 operator-owned archive 才显式使用 `--trusted-local`，且 16 MiB 单行/单对象、语义校验和 no-follow 校验仍生效。一个完整归档 generation 固定为 `srt/txt/md/raw` 四件套及最后发布的 `.bundle-ready` 摘要；bundle 完成后 manifest 写失败时保留可读 bundle、状态不晋升，并由下一次顺序执行重试。旧 `archived` 行若缺少 `raw_path` 或 marker，必须重新归档。bare-bvid 仅兼容读取/已有行更新，自动新写入必须使用 page-qualified `work_id`。所有 archive-mutating CLI 命令从初始读取到最终持久化持有同一个 archive-root writer lock；重叠写命令以 `<command>: archive_busy` 退出且不做部分写入，read-only 命令不争用该锁。这些 hardened descriptor 路径支持 Linux/WSL，不声称 native Windows 支持。
 
 ## 6. 下一迭代触发条件
 

@@ -129,6 +129,26 @@ def test_ledger_multiple_appends_chronological(tmp_root):
     assert not os.path.exists(ledger.path + ".tmp")
 
 
+def test_latest_streams_large_history_without_calling_load(tmp_root, monkeypatch):
+    ledger = RunLedger(root=tmp_root)
+    base = build_run_record(
+        command="pilot",
+        started_at="2026-08-25T10:00:00Z",
+        finished_at="2026-08-25T10:01:00Z",
+        exit_code=0,
+        run_id="run-0",
+        work_ids=["BV1xx:p0"],
+    )
+    with open(ledger.path, "w", encoding="utf-8") as handle:
+        for index in range(10001):
+            handle.write(json.dumps({**base, "run_id": f"run-{index}"}) + "\n")
+
+    monkeypatch.setattr(
+        ledger, "load", lambda: (_ for _ in ()).throw(AssertionError("load called"))
+    )
+    assert ledger.latest()["run_id"] == "run-10000"
+
+
 def test_ledger_validation_required_fields(tmp_root):
     ledger = RunLedger(root=tmp_root)
     with pytest.raises(ValueError, match="required field"):

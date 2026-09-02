@@ -11,9 +11,10 @@ from pathlib import Path
 from typing import Any
 
 import fcntl
-from .archive import archive_stem, _safe_name
+from .archive import archive_stem, _safe_name, archive_bundle_complete
 from .page_identity import artifact_stem, page_identity, parse_work_id
 from .coordinator import _validate_attempt
+from .sidecar_projection import ReaderPolicy, project_attempt_records, project_manifest_records
 
 MISSING_RAW_SUBTITLE = "missing_raw_subtitle"
 MISSING_TRANSCRIPT = "missing_transcript"
@@ -23,6 +24,8 @@ TRUNCATED_ATTEMPTS_LINE = "truncated_attempts_line"
 RETRYABLE_INCOMPLETE = "retryable_incomplete"
 STRUCTURAL_INPUT_ERROR = "structural_input_error"
 MANIFEST_ROW_LIMIT_EXCEEDED = "manifest_row_limit_exceeded"
+MANIFEST_INVALID_STATUS = "manifest_invalid_status"
+MANIFEST_INVALID_BVID = "manifest_invalid_bvid"
 MISSING_ATTEMPTS = "missing_attempts_sidecar"
 ATTEMPTS_ROW_LIMIT_EXCEEDED = "attempts_row_limit_exceeded"
 ATTEMPTS_BYTE_LIMIT_EXCEEDED = "attempts_byte_limit_exceeded"
@@ -175,7 +178,15 @@ class IntegrityReport:
         return {"checked": self.checked, "defect_count": len(self.defects), "defects": [d.to_dict() for d in self.defects], "diagnostics": list(self.diagnostics), "authoritative": self.authoritative}
 
 class IntegrityVerifier:
-    def verify(self, archive_root: Path, *, scope: str | None = None) -> IntegrityReport:
+    """Read-only archive integrity verifier."""
+
+    def verify(self, archive_root: Path, *, scope: str | None = None,
+               policy: ReaderPolicy | None = None) -> IntegrityReport:
+        """Verify archive evidence without modifying source artifacts.
+
+        Direct inspection defaults to bounded input. A trusted local caller must
+        explicitly pass ``ReaderPolicy(mode="trusted_archive")``.
+        """
         root = Path(archive_root).resolve()
         if not root.is_dir():
             report = IntegrityReport(authoritative=False)
@@ -183,26 +194,60 @@ class IntegrityVerifier:
             return report
         reader = _RootConfinedReader(root)
         try:
-            return self._verify_with_reader(root, scope, reader)
+            return self._verify_with_reader(root, scope, reader, policy or ReaderPolicy())
         finally:
             reader.close()
 
-    def _verify_with_reader(self, root: Path, scope: str | None, reader: _RootConfinedReader) -> IntegrityReport:
+    def _verify_with_reader(self, root: Path, scope: str | None, reader: _RootConfinedReader, policy: ReaderPolicy) -> IntegrityReport:
         report = IntegrityReport()
-        entries, manifest_valid = self._read_manifest(root, report, reader)
-        attempts, attempts_valid, truncated = self._read_attempts(root, report, reader)
+        entries, manifest_state, manifest_diagnostics = project_manifest_records(
+            root / "manifest" / "manifest.jsonl", policy=policy
+        )
+        attempts, attempts_state, attempt_diagnostics = project_attempt_records(
+            root / "coordinator" / "attempts.jsonl", policy=policy
+        )
+        manifest_valid = manifest_state == "available"
+        attempts_valid = attempts_state in {"available", "missing"}
+        for diagnostic in sorted(manifest_diagnostics | attempt_diagnostics):
+            if diagnostic == "manifest_row_limit_exceeded":
+                report.diagnostics.append(MANIFEST_ROW_LIMIT_EXCEEDED)
+            elif diagnostic in {"attempts_row_limit_exceeded", "attempts_byte_limit_exceeded"}:
+                report.diagnostics.append({"attempts_row_limit_exceeded": ATTEMPTS_ROW_LIMIT_EXCEEDED, "attempts_byte_limit_exceeded": ATTEMPTS_BYTE_LIMIT_EXCEEDED}[diagnostic])
+            elif diagnostic == "truncated_attempts_line":
+                report.diagnostics.append(TRUNCATED_ATTEMPTS_LINE)
+            elif diagnostic in {"manifest_invalid_status", "manifest_invalid_bvid"}:
+                report.diagnostics.append(diagnostic)
+            elif diagnostic == "structural_input_error" and MANIFEST_ROW_LIMIT_EXCEEDED in report.diagnostics:
+                continue
+            elif diagnostic == "manifest_malformed" and MANIFEST_ROW_LIMIT_EXCEEDED in report.diagnostics:
+                continue
+            elif diagnostic == "manifest_malformed":
+                continue
+            elif diagnostic == "attempt_invalid_record":
+                continue
+            else:
+                report.diagnostics.append(STRUCTURAL_INPUT_ERROR)
         manifest_present = reader.is_regular(Path("manifest/manifest.jsonl"))
-        attempts_present = reader.is_regular(Path("coordinator/attempts.jsonl"))
-        report.authoritative = manifest_present and attempts_present and manifest_valid and attempts_valid
-        if not manifest_present: report.diagnostics.append(STRUCTURAL_INPUT_ERROR)
+        attempts_path = root / "coordinator" / "attempts.jsonl"
+        attempts_present = attempts_path.is_file() and not attempts_path.is_symlink()
+        report.authoritative = manifest_present and attempts_present and manifest_valid and attempts_valid and not any(
+            diagnostic in {"structural_input_error", "attempts_row_limit_exceeded", "attempts_byte_limit_exceeded"}
+            for diagnostic in attempt_diagnostics
+        ) and not ({"manifest_invalid", "manifest_invalid_status", "manifest_invalid_bvid"} & manifest_diagnostics)
+        if not manifest_present and MANIFEST_ROW_LIMIT_EXCEEDED not in report.diagnostics: report.diagnostics.append(STRUCTURAL_INPUT_ERROR)
         if not attempts_present:
             if manifest_present and manifest_valid:
-                report.diagnostics.append(MISSING_ATTEMPTS)
+                if MANIFEST_ROW_LIMIT_EXCEEDED not in report.diagnostics:
+                    report.diagnostics.append(MISSING_ATTEMPTS)
             elif not manifest_present:
-                report.diagnostics.append(STRUCTURAL_INPUT_ERROR)
-        # Legacy archives may predate the coordinator sidecar.  Keep their
-        # manifest rows checkable while withholding the authoritative claim.
-        selected = self._select(entries, scope, attempts if attempts_valid else []) if manifest_valid and (attempts_valid or not attempts_present) else []
+                if MANIFEST_ROW_LIMIT_EXCEEDED not in report.diagnostics:
+                    report.diagnostics.append(STRUCTURAL_INPUT_ERROR)
+        if attempts_valid:
+            selected = self._select(entries, scope, attempts)
+        elif scope is None:
+            selected = sorted(entries.items())
+        else:
+            selected = []
         report.checked = len(selected)
         for key, row in selected:
             work_id = str(row.get("work_id") or key); status = str(row.get("status") or ""); defects: set[str] = set()
@@ -213,18 +258,28 @@ class IntegrityVerifier:
             required = self._required_paths(row, root)
             canonical_required = self._canonical_required_paths(row, root)
             for declared, canonical in zip(required, canonical_required):
-                if declared != canonical:
+                if row.get("md_path") is not None and declared != canonical and row.get("title"):
                     defects.add(IDENTITY_PATH_MISMATCH)
             for path in required:
                 if not self._safe_path(path, root): defects.add(IDENTITY_PATH_MISMATCH)
-            present = [p for p in canonical_required if reader.is_regular(p)]
-            if status in {"archived", "asr_done", "subtitle_done"} and len(present) < len(canonical_required): defects.add(MISSING_TRANSCRIPT)
+            present = [p for p in required if reader.is_regular(p)]
+            bundle_paths: dict[str, str] = {}
+            for key in ("srt_path", "txt_path", "md_path", "raw_path"):
+                value = row.get(key)
+                if not isinstance(value, str):
+                    bundle_paths = {}
+                    break
+                candidate = Path(value) if Path(value).is_absolute() else root / value
+                if not self._safe_path(candidate, root):
+                    defects.add(IDENTITY_PATH_MISMATCH)
+                bundle_paths[key] = value
+            bundle_complete = bool(bundle_paths) and archive_bundle_complete(root, bundle_paths)
+            if status in {"archived", "asr_done", "subtitle_done"} and (len(present) < len(canonical_required) or not bundle_complete): defects.add(MISSING_TRANSCRIPT)
             raw = root / "subtitles" / "raw" / f"{self._canonical_stem(row)}.json"
             declared_raw = row.get("raw_path")
-            if isinstance(declared_raw, str):
+            if status == "subtitle_done" and isinstance(declared_raw, str):
                 declared_raw_path = Path(declared_raw) if Path(declared_raw).is_absolute() else root / declared_raw
-                legacy_raw_path = root / "transcripts" / "raw" / raw.name
-                if declared_raw_path not in {raw, legacy_raw_path} or not self._safe_path(declared_raw_path, root):
+                if not self._safe_path(declared_raw_path, root):
                     defects.add(IDENTITY_PATH_MISMATCH)
             if status == "subtitle_done" and not self._safe_path(raw, root): defects.add(IDENTITY_PATH_MISMATCH)
             elif status == "subtitle_done" and not reader.is_regular(raw): defects.add(MISSING_RAW_SUBTITLE)
@@ -234,8 +289,8 @@ class IntegrityVerifier:
                 defects.add(MALFORMED_ARTIFACT)
             if status in {"pending", "meta_ok", "sub_checked", "needs_audio", "audio_ok"}: defects.add(RETRYABLE_INCOMPLETE)
             report.defects.extend(IntegrityDefect(work_id, code) for code in sorted(defects))
-        if truncated: report.diagnostics.append(TRUNCATED_ATTEMPTS_LINE)
-        report.defects.sort(key=lambda d: (d.work_id, d.code)); return report
+        report.defects.sort(key=lambda d: (d.work_id, d.code))
+        return report
 
     @staticmethod
     def recover(archive_root: Path, *, work_ids: list[str] | None = None,
@@ -391,60 +446,6 @@ class IntegrityVerifier:
             finally:
                 if coordinator_fd >= 0: os.close(coordinator_fd)
         return {"ok": True, "selected": selected_ids, "audit_path": _AUDIT_REL_PATH}
-
-    @staticmethod
-    def _read_manifest(root: Path, report: IntegrityReport, reader: _RootConfinedReader) -> tuple[dict[str, dict[str, Any]], bool]:
-        path=root/"manifest"/"manifest.jsonl"; entries={}; valid=True
-        if not reader.is_regular(path): return entries, True
-        try:
-            lines = reader.read(path, _MAX_ATTEMPTS_BYTES).decode("utf-8").splitlines()
-            non_empty_rows = sum(bool(line.strip()) for line in lines)
-            if non_empty_rows > _MAX_ROWS:
-                valid = False
-                report.diagnostics.append(MANIFEST_ROW_LIMIT_EXCEEDED)
-            for number, line in enumerate(lines[:_MAX_ROWS]):
-                if not line.strip(): continue
-                value=json.loads(line)
-                if not isinstance(value,dict): raise ValueError
-                for field_name in ("work_id", "bvid", "status", "srt_path", "txt_path", "md_path", "raw_path"):
-                    if field_name in value and value[field_name] is not None and not isinstance(value[field_name], str): raise ValueError
-                if "cid" in value and value["cid"] is not None and (isinstance(value["cid"], bool) or not isinstance(value["cid"], int)): raise ValueError
-                key=value.get("work_id") or value.get("bvid") or ""
-                if not key: raise ValueError
-                entries[key]=value
-        except (OSError,UnicodeError,json.JSONDecodeError,ValueError):
-            valid=False; report.diagnostics.append(STRUCTURAL_INPUT_ERROR)
-        return entries, valid
-
-    @staticmethod
-    def _read_attempts(root: Path, report: IntegrityReport, reader: _RootConfinedReader) -> tuple[list[dict[str, Any]], bool, bool]:
-        path = root / "coordinator" / "attempts.jsonl"
-        if not reader.is_regular(path): return [], True, False
-        records=[]; truncated=False; valid=True
-        try:
-            lines = reader.read(path, _MAX_ATTEMPTS_BYTES).decode("utf-8").splitlines()
-            if sum(bool(line.strip()) for line in lines) > _MAX_ROWS:
-                report.diagnostics.append(ATTEMPTS_ROW_LIMIT_EXCEEDED)
-                return [], False, False
-        except (OSError, UnicodeError) as error:
-            if isinstance(error, OSError) and "oversized" in str(error):
-                report.diagnostics.append(ATTEMPTS_BYTE_LIMIT_EXCEEDED)
-            else:
-                report.diagnostics.append(STRUCTURAL_INPUT_ERROR)
-            return [], False, False
-        last_non_empty = max((i for i, line in enumerate(lines) if line.strip()), default=-1)
-        for index, line in enumerate(lines):
-            if not line.strip(): continue
-            try:
-                value=json.loads(line)
-            except json.JSONDecodeError:
-                if index == last_non_empty: truncated=True
-                else: valid=False; report.diagnostics.append(STRUCTURAL_INPUT_ERROR)
-                continue
-            try: record=_validate_attempt(value)
-            except (TypeError,ValueError): valid=False; report.diagnostics.append(STRUCTURAL_INPUT_ERROR); continue
-            records.append(record)
-        return records,valid,truncated
 
     @staticmethod
     def _select(entries, scope, attempts):

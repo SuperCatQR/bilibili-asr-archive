@@ -455,7 +455,8 @@ def test_cli_run_per_item_failure_batch_continues(tmp_root, monkeypatch, capsys)
     store.upsert(_row(b, title="b"))
 
     def flaky(audio_path, model_name=None):
-        if artifact_stem(a) in audio_path:
+        probe = os.readlink(audio_path) if audio_path.startswith("/proc/self/fd/") else audio_path
+        if artifact_stem(a) in probe:
             raise ASRModelError("model failed")
         return [{"start": 0.0, "end": 1.0, "text": "ok-text"}]
 
@@ -696,7 +697,8 @@ def test_run_failure_summary_and_exit_when_scope_not_processed(
             fh.write(b"\x00" * 16)
 
     def flaky(audio_path, model_name=None):
-        if artifact_stem(a) in audio_path:
+        probe = os.readlink(audio_path) if audio_path.startswith("/proc/self/fd/") else audio_path
+        if artifact_stem(a) in probe:
             raise ASRModelError("boom")
         return [{"start": 0.0, "end": 1.0, "text": "ok"}]
 
@@ -811,6 +813,65 @@ def test_run_offline_archive_write_failure_recorded(
     ]
     assert attempts[0]["error_code"] == "OSError"
     assert f"{sub.work_id}: failed (OSError)" in captured.err
+
+
+def test_complete_bundle_retries_after_manifest_transition_failure(
+    tmp_root, monkeypatch, capsys
+):
+    from pathlib import Path
+    from bili_asr import archive as archive_mod
+
+    sub = page_identity("BVretry", 0, 111, "p0")
+    store = ManifestStore(root=tmp_root)
+    store.upsert(_row(sub, status="subtitle_done", title="retryable"))
+    stem = artifact_stem(sub)
+    raw_dir = Path(tmp_root) / "subtitles" / "raw"
+    raw_dir.mkdir(parents=True)
+    (raw_dir / f"{stem}.json").write_text(
+        json.dumps(SAMPLE_DOC), encoding="utf-8"
+    )
+    _patch_cli(monkeypatch, _mixed_transport())
+
+    original_upsert = ManifestStore.upsert
+    failed_once = False
+
+    def fail_first_archived(self, entry):
+        nonlocal failed_once
+        if entry.get("status") == "archived" and not failed_once:
+            failed_once = True
+            raise OSError("injected manifest transition detail")
+        return original_upsert(self, entry)
+
+    monkeypatch.setattr(ManifestStore, "upsert", fail_first_archived)
+    assert main([
+        "run", "--scope", "pending", "--offline",
+        "--archive-root", tmp_root,
+    ]) == 1
+    first_output = capsys.readouterr()
+    assert "injected manifest transition detail" not in first_output.err
+    assert "Traceback" not in first_output.err
+    assert ManifestStore(tmp_root).load()[sub.work_id]["status"] == "subtitle_done"
+
+    marker = next((Path(tmp_root) / "transcripts" / "srt").glob("*.bundle-ready"))
+    marker_doc = json.loads(marker.read_text(encoding="ascii"))
+    published_paths = {
+        key: value["path"]
+        for key, value in marker_doc["artifacts"].items()
+    }
+    assert archive_mod.archive_bundle_complete(tmp_root, published_paths)
+
+    assert main([
+        "run", "--scope", "pending", "--offline",
+        "--archive-root", tmp_root,
+    ]) == 0
+    capsys.readouterr()
+    archived = ManifestStore(tmp_root).load()[sub.work_id]
+    assert archived["status"] == "archived"
+    archived_paths = {
+        key: archived[key]
+        for key in ("srt_path", "txt_path", "md_path", "raw_path")
+    }
+    assert archive_mod.archive_bundle_complete(tmp_root, archived_paths)
 
 
 def test_run_offline_asr_path_archive_write_failure_recorded(

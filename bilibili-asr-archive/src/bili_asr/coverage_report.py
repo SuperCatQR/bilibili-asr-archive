@@ -8,19 +8,19 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping
 
-from .archive import archive_stem
+from .archive import archive_stem, archive_bundle_complete
+from .path_policy import confined_audio_path
 from .manifest import VALID_STATUSES
-from .page_identity import parse_work_id
 from .meta_cursor import _validate as validate_cursor
 from .scheduler import _validate as validate_scheduler
 from .run_ledger import _validate_record as validate_run_ledger_record
+from .sidecar_projection import ReaderPolicy, iter_jsonl_records, project_attempt_records, project_manifest_records, project_latest_run_record
 
 SCHEMA_VERSION = "coverage-report-v1"
 TERMINAL_STATUSES = frozenset({"archived", "gone"})
 RETRYABLE_OUTCOMES = frozenset({"failed", "skipped"})
 ATTEMPT_STAGES = frozenset({"harvest", "download", "asr", "archive"})
 ATTEMPT_OUTCOMES = frozenset({"ok", "failed", "skipped"})
-MAX_JSONL_RECORDS = 10000
 CSV_COLUMNS = (
     "schema_version",
     "scope",
@@ -58,24 +58,55 @@ class CoverageReport:
         archive_root: str | Path,
         *,
         scope: str | None = None,
+        policy: ReaderPolicy | None = None,
     ) -> CoverageReport:
         root = Path(archive_root).resolve()
         diagnostics: set[tuple[str, str]] = set()
-        manifest, manifest_state = _read_manifest(root, diagnostics)
+        manifest, manifest_state, manifest_diagnostics = project_manifest_records(
+            root / "manifest" / "manifest.jsonl", policy=policy
+        )
+        diagnostics.update(
+            (
+                "sidecar_record_limit" if code.endswith("row_limit_exceeded") else
+                "sidecar_byte_limit" if code.endswith("byte_limit_exceeded") else code,
+                "manifest",
+            )
+            for code in manifest_diagnostics
+        )
+        if "manifest_duplicate_work_id" in manifest_diagnostics:
+            manifest_state = "malformed"
         cursor, cursor_state = _read_validated_sidecar(
             root / "meta-cursor.json", "meta_cursor", validate_cursor, diagnostics
         )
         scheduler, scheduler_state = _read_validated_sidecar(
             root / "scheduler.json", "scheduler", validate_scheduler, diagnostics
         )
-        run_ledger, ledger_state = _read_jsonl(
-            root / "run-ledger.jsonl", "run_ledger", diagnostics
+        latest_ledger, ledger_state, ledger_diagnostics = project_latest_run_record(
+            root / "run-ledger.jsonl", policy=policy
         )
-        attempts, attempts_state = _read_jsonl(
-            root / "coordinator" / "attempts.jsonl", "attempts", diagnostics
+        diagnostics.update(
+            (
+                "sidecar_record_limit" if code == "run_ledger_record_limit" else
+                "sidecar_byte_limit" if code == "run_ledger_byte_limit" else
+                "sidecar_malformed",
+                "run_ledger",
+            )
+            for code in ledger_diagnostics
         )
-        _validate_run_ledger(run_ledger, ledger_state, diagnostics)
-        _validate_attempts(attempts, attempts_state, manifest, diagnostics)
+        attempts, attempts_state, attempt_diagnostics = project_attempt_records(
+            root / "coordinator" / "attempts.jsonl", policy=policy
+        )
+        diagnostics.update(
+            (
+                "sidecar_record_limit" if code.endswith("row_limit_exceeded") else
+                "sidecar_byte_limit" if code.endswith("byte_limit_exceeded") else
+                "sidecar_malformed" if code == "truncated_attempts_line" else code,
+                "attempt",
+            )
+            for code in attempt_diagnostics
+        )
+        if "attempt_not_in_manifest" in {"attempt_not_in_manifest" if r.get("work_id") not in manifest else "" for r in attempts}:
+            diagnostics.add(("attempt_not_in_manifest", "attempt"))
 
         selected, scope_state = _select_scope(manifest, attempts, scope)
         if scope_state == "unavailable":
@@ -84,22 +115,16 @@ class CoverageReport:
         scheduler_ids = _string_ids(
             scheduler, "processed_work_ids", "scheduler_invalid_processed_ids", diagnostics
         )
-        latest_persisted_ledger = run_ledger[-1] if run_ledger else None
-        latest_ledger = next(
-            (record for record in reversed(run_ledger) if _valid_ledger(record)), None
+        ledger_ids = _string_ids(
+            latest_ledger, "work_ids", "run_ledger_invalid_work_ids", diagnostics
         )
-        if latest_persisted_ledger is not None and latest_ledger is not latest_persisted_ledger:
-            diagnostics.add(("run_ledger_latest_invalid", "run_ledger"))
         if latest_ledger is not None:
             if latest_ledger.get("exit_code") != 0:
                 diagnostics.add(("run_ledger_failed", "run_ledger"))
             if latest_ledger.get("command") != "schedule":
                 diagnostics.add(("run_ledger_non_schedule", "run_ledger"))
-        elif ledger_state != "missing":
+        if latest_ledger is None and ledger_state != "missing":
             diagnostics.add(("run_ledger_latest_unavailable", "run_ledger"))
-        ledger_ids = _string_ids(
-            latest_ledger, "work_ids", "run_ledger_invalid_work_ids", diagnostics
-        )
         if scheduler_ids and ledger_ids and scheduler_ids != ledger_ids:
             diagnostics.add(("scheduler_ledger_mismatch", "batch"))
         for work_id in sorted((scheduler_ids | ledger_ids) - set(manifest)):
@@ -324,32 +349,22 @@ def _read_validated_sidecar(
 
 
 def _read_jsonl(
-    path: Path, name: str, diagnostics: set[tuple[str, str]]
+    path: Path, name: str, diagnostics: set[tuple[str, str]],
+    policy: ReaderPolicy | None = None,
 ) -> tuple[list[dict[str, Any]], str]:
-    if not path.is_file():
-        return [], "missing"
-    try:
-        fh = path.open("r", encoding="utf-8")
-    except (OSError, UnicodeError):
-        diagnostics.add(("sidecar_malformed", name))
-        return [], "malformed"
     records: list[dict[str, Any]] = []
     valid = True
-    with fh:
-        for line_number, line in enumerate(fh, 1):
-            if line_number > MAX_JSONL_RECORDS:
+    for item in iter_jsonl_records(path, policy=policy, name=name):
+        if item.diagnostic:
+            if item.diagnostic == f"{name}_record_limit":
                 diagnostics.add(("sidecar_record_limit", name))
-                valid = False
-                break
-            try:
-                record = json.loads(line)
-                if not isinstance(record, dict):
-                    raise ValueError
-            except (TypeError, ValueError, json.JSONDecodeError):
+            elif item.diagnostic == f"{name}_byte_limit":
+                diagnostics.add(("sidecar_byte_limit", name))
+            else:
                 diagnostics.add(("sidecar_malformed", name))
-                valid = False
-                continue
-            records.append(record)
+            valid = False
+        elif item.value is not None:
+            records.append(item.value)
     return records, "available" if valid else "malformed"
 
 
@@ -362,48 +377,6 @@ def _valid_ledger(record: Mapping[str, Any]) -> bool:
     return isinstance(work_ids, list) and all(
         isinstance(value, str) and bool(value) for value in work_ids
     )
-
-
-def _validate_run_ledger(
-    records: list[dict[str, Any]], _state: str, diagnostics: set[tuple[str, str]]
-) -> None:
-    for record in records:
-        try:
-            validate_run_ledger_record(record)
-        except (TypeError, ValueError, KeyError):
-            diagnostics.add(("run_ledger_invalid_record", "run_ledger"))
-        work_ids = record.get("work_ids")
-        if not isinstance(work_ids, list) or any(
-            not isinstance(value, str) or not value for value in work_ids
-        ):
-            diagnostics.add(("run_ledger_invalid_work_ids", "record"))
-
-
-def _validate_attempts(
-    attempts: list[dict[str, Any]], _state: str, manifest: Mapping[str, Any], diagnostics: set[tuple[str, str]]
-) -> None:
-    seen: set[tuple[str, str, int]] = set()
-    for record in attempts:
-        work_id = record.get("work_id")
-        stage = record.get("stage")
-        number = record.get("attempt")
-        outcome = record.get("outcome")
-        if not isinstance(work_id, str) or not work_id:
-            diagnostics.add(("attempt_invalid_record", "work_id"))
-            continue
-        if work_id not in manifest:
-            diagnostics.add(("attempt_not_in_manifest", "attempt"))
-        if stage not in ATTEMPT_STAGES:
-            diagnostics.add(("attempt_invalid_stage", "attempt"))
-        if outcome not in ATTEMPT_OUTCOMES:
-            diagnostics.add(("attempt_invalid_outcome", "attempt"))
-        if not isinstance(number, int) or isinstance(number, bool) or number < 1:
-            diagnostics.add(("attempt_invalid_number", "attempt"))
-            continue
-        key = (work_id, str(stage), number)
-        if key in seen:
-            diagnostics.add(("duplicate_attempt", "attempt"))
-        seen.add(key)
 
 
 def _string_ids(
@@ -473,37 +446,27 @@ def _retryable_ids(attempts: list[dict[str, Any]]) -> set[str]:
 
 
 def _transcript_evidence(root: Path, entry: Mapping[str, Any]) -> tuple[bool, bool]:
-    paths: list[Path] = []
-    for key in ("srt_path", "txt_path", "md_path"):
+    bundle_paths = {}
+    for key in ("srt_path", "txt_path", "md_path", "raw_path"):
         value = entry.get(key)
-        if isinstance(value, str):
-            candidate = _contained_path(root, value)
-            if candidate is not None:
-                paths.append(candidate)
-    try:
-        stem = archive_stem(dict(entry))
-    except (KeyError, TypeError, ValueError):
-        stem = ""
-    if stem:
-        paths.extend(root / "transcripts" / kind / f"{stem}.{kind}" for kind in ("srt", "txt"))
-        md_dir = root / "transcripts" / "md"
-        exact_md = md_dir / f"{stem}.md"
-        paths.append(exact_md)
-        pubdate = str(entry.get("pubdate_str") or "")
-        if pubdate and md_dir.is_dir():
-            matches = sorted(md_dir.glob(f"{pubdate}_{stem}_*.md"))
-            if len(matches) == 1:
-                paths.append(matches[0])
-    transcript = any(path.is_file() for path in paths)
+        if not isinstance(value, str) or _contained_path(root, value) is None:
+            return False, False
+        bundle_paths[key] = value
+    transcript = archive_bundle_complete(root, bundle_paths)
     if not transcript or entry.get("status") != "archived":
         return transcript, False
     audio_value = entry.get("audio_path")
-    audio_missing = False
     if isinstance(audio_value, str):
-        audio = _contained_path(root, audio_value)
-        audio_missing = audio is None or not audio.is_file()
-    elif stem:
-        audio_missing = not any((root / "audio" / f"{stem}{suffix}").is_file() for suffix in (".m4a", ".flac"))
+        audio_missing = confined_audio_path(root, audio_value, require_exists=True) is None
+    else:
+        try:
+            stem = archive_stem(dict(entry))
+        except (KeyError, TypeError, ValueError):
+            stem = ""
+        audio_missing = bool(stem) and all(
+            confined_audio_path(root, f"audio/{stem}{suffix}", require_exists=True) is None
+            for suffix in (".m4a", ".flac")
+        )
     return transcript, audio_missing
 
 

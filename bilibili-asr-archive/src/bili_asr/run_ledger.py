@@ -14,6 +14,7 @@ from typing import Any
 
 from .manifest import VALID_STATUSES
 from .meta_cursor import VALID_STATES
+from .persistence import append_jsonl_record, file_lock
 
 LEDGER_FILENAME = "run-ledger.jsonl"
 
@@ -342,21 +343,8 @@ class RunLedger:
         """Atomically append a validated run record line to run-ledger.jsonl."""
         stored = _validate_record(record)
         os.makedirs(self.root, exist_ok=True)
-        existing_bytes = b""
-        if os.path.exists(self.path):
-            with open(self.path, "rb") as fh:
-                existing_bytes = fh.read()
-        line_bytes = (json.dumps(stored, ensure_ascii=False) + "\n").encode("utf-8")
-        tmp = self.path + ".tmp"
-        with open(tmp, "wb") as fh:
-            if existing_bytes:
-                fh.write(existing_bytes)
-                if not existing_bytes.endswith(b"\n"):
-                    fh.write(b"\n")
-            fh.write(line_bytes)
-            fh.flush()
-            os.fsync(fh.fileno())
-        os.replace(tmp, self.path)
+        with file_lock(self.path + ".lock"):
+            append_jsonl_record(self.path, stored, lock_path=self.path + ".lock")
         return stored
 
     def load(self) -> list[dict[str, Any]]:
@@ -381,6 +369,24 @@ class RunLedger:
         return records
 
     def latest(self) -> dict[str, Any] | None:
-        """Return the latest run record, or None if empty."""
-        records = self.load()
-        return records[-1] if records else None
+        """Stream the ledger and return its latest valid record.
+
+        Unlike the compatibility ``load()`` API, this projection keeps only
+        one record in memory and is suitable for unbounded run history.
+        """
+        if not os.path.exists(self.path):
+            return None
+        latest: dict[str, Any] | None = None
+        try:
+            with open(self.path, "r", encoding="utf-8") as fh:
+                for line in fh:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        latest = _validate_record(json.loads(line))
+                    except (json.JSONDecodeError, ValueError):
+                        print("run-ledger: ignoring corrupt line", file=sys.stderr)
+        except OSError:
+            return None
+        return latest
