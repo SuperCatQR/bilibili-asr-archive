@@ -126,6 +126,27 @@ def test_download_helpers_are_not_called_and_submodule_imports_are_blocked(monke
     assert calls == []
 
 
+def test_config_rejects_hostile_values_and_provenance_is_redacted():
+    for field, value in (("model_name", ""), ("model_revision", ""), ("device", ""), ("local_source", "prefix token=secret"), ("local_source", "C:\\\\private")):
+        values = {"model_name": "safe", "model_revision": None, "device": "cpu", "offline": True, "local_source": "configured-local"}
+        values[field] = value
+        with pytest.raises((ValueError, TypeError)):
+            asr.ASRConfig(**values)
+
+
+def test_factory_gets_exact_kwargs_and_typeerror_is_not_retried():
+    calls = []
+    def factory(**kwargs):
+        calls.append(kwargs)
+        raise TypeError("hostile secret")
+    runner = asr.ASRRunner(asr.ASRConfig("model", model_revision="rev"), model_factory=factory)
+    with pytest.raises(asr.ASRModelError) as caught:
+        runner.transcribe("fixture.wav")
+    assert len(calls) == 1
+    assert set(calls[0]) == {"model", "device", "trust_remote_code", "vad_model", "punc_model", "offline", "local_source", "model_revision"}
+    assert "hostile" not in str(caught.value)
+
+
 def test_current_transcribe_constructs_once_per_call_characterization(fake_funasr):
     asr.transcribe("first.wav")
     asr.transcribe("second.wav")
