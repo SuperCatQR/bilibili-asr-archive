@@ -11,6 +11,7 @@ import os
 from pathlib import Path
 
 from bili_asr import asr as asr_mod
+from bili_asr import coordinator
 from bili_asr import bili_client as bc
 from bili_asr.cli import main
 from bili_asr.coordinator import AttemptLedger, RunCoordinator
@@ -358,6 +359,37 @@ def test_attempt_counter_increments_across_instantiations(tmp_root):
     coord2._record("harvest", sub.work_id, "ok")
     records = AttemptLedger(tmp_root).load()
     assert [r["attempt"] for r in records] == [1, 2]
+
+
+# ------------------------------------------------------------ ASR runner binding
+
+def test_run_batch_default_runner_is_lazy_reused_and_batch_scoped(tmp_root, monkeypatch):
+    identities = [page_identity(f"BVbind{index}", 0, index + 1, "p0") for index in range(2)]
+    store = ManifestStore(root=tmp_root)
+    for ident in identities:
+        store.upsert(_row(ident, status="audio_ok"))
+        audio_dir = Path(tmp_root) / "audio"
+        audio_dir.mkdir(exist_ok=True)
+        (audio_dir / f"{artifact_stem(ident)}.m4a").write_bytes(b"fixture")
+    constructions = []
+    class FakeRunner:
+        def __init__(self, *args, **kwargs): constructions.append(self)
+        def transcribe(self, _path): return [{"start": 0, "end": 1, "text": "ok"}]
+    monkeypatch.setattr(coordinator.asr_module, "ASRRunner", FakeRunner)
+    runner = RunCoordinator(tmp_root, store, offline=True)
+    runner.run_batch([(i.work_id, store.get(i.work_id)) for i in identities])
+    assert len(constructions) == 1
+    assert runner.asr_runner is None
+    runner.run_batch([(identities[0].work_id, store.get(identities[0].work_id))])
+    assert len(constructions) == 1
+
+
+def test_run_batch_subtitle_first_does_not_construct_runner(tmp_root, monkeypatch):
+    ident = page_identity("BVsubtitle", 0, 1, "p0")
+    store = ManifestStore(root=tmp_root)
+    store.upsert(_row(ident, status="subtitle_done"))
+    monkeypatch.setattr(coordinator.asr_module, "ASRRunner", lambda: (_ for _ in ()).throw(AssertionError("constructed")))
+    RunCoordinator(tmp_root, store, offline=True).run_batch([(ident.work_id, store.get(ident.work_id))])
 
 
 # ------------------------------------------------------------ run: live path
