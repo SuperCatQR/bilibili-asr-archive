@@ -372,16 +372,20 @@ def test_run_batch_default_runner_is_lazy_reused_and_batch_scoped(tmp_root, monk
         audio_dir.mkdir(exist_ok=True)
         (audio_dir / f"{artifact_stem(ident)}.m4a").write_bytes(b"fixture")
     constructions = []
-    class FakeRunner:
-        def __init__(self, *args, **kwargs): constructions.append(self)
-        def transcribe(self, _path): return [{"start": 0, "end": 1, "text": "ok"}]
-    monkeypatch.setattr(coordinator.asr_module, "ASRRunner", FakeRunner)
+    model_constructions = []
+    class FakeModel:
+        def generate(self, **_kwargs):
+            return [{"text": "ok", "timestamp": [[0, 1000]]}]
+    def fake_factory(**kwargs):
+        model_constructions.append(dict(kwargs))
+        return FakeModel()
+    monkeypatch.setattr(coordinator.asr_module, "_load_default_model", fake_factory)
     runner = RunCoordinator(tmp_root, store, offline=True)
     runner.run_batch([(i.work_id, store.get(i.work_id)) for i in identities])
-    assert len(constructions) == 1
+    assert len(model_constructions) == 1
     assert runner.asr_runner is None
     runner.run_batch([(identities[0].work_id, store.get(identities[0].work_id))])
-    assert len(constructions) == 1
+    assert len(model_constructions) == 1
 
 
 def test_run_batch_subtitle_first_does_not_construct_runner(tmp_root, monkeypatch):
