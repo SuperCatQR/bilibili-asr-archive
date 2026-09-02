@@ -278,12 +278,12 @@ def test_manifest_failure_injection_preserves_unrelated_file(tmp_path: Path, mon
     directory_fsync_injected = False
 
     if operation == "write":
-        original = open
-        def fail_open(path, *args, **kwargs):
-            if str(path).endswith("manifest.jsonl") and "ab" in args:
+        original_write = os.write
+        def fail_manifest_write(fd, data):
+            if os.path.basename(os.readlink(f"/proc/self/fd/{fd}")) == "manifest.jsonl":
                 raise OSError("injected write")
-            return original(path, *args, **kwargs)
-        monkeypatch.setattr("builtins.open", fail_open)
+            return original_write(fd, data)
+        monkeypatch.setattr("bili_asr.manifest.os.write", fail_manifest_write)
     elif operation == "fsync":
         original_fsync = os.fsync
         def fail_file_fsync(fd):

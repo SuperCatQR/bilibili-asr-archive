@@ -169,26 +169,6 @@ class ManifestStore:
             os.close(directory_fd)
         return entries
 
-        try:
-            directory_fd = self._open_manifest_dir()
-        except FileNotFoundError:
-            return entries
-        try:
-            try:
-                fd = self._open_regular_at(directory_fd, "manifest.jsonl", os.O_RDONLY)
-            except FileNotFoundError:
-                return entries
-            with os.fdopen(fd, "r", encoding="utf-8") as fh:
-                for line in fh:
-                    line = line.strip()
-                    if not line:
-                        continue
-                    entry = validate_manifest_record(json.loads(line))
-                    entries[_entry_key(entry)] = entry
-        finally:
-            os.close(directory_fd)
-        return entries
-
     def load(self) -> dict[str, dict[str, Any]]:
         """Read the JSONL file (if any) into memory; last write wins per key."""
         self._entries = self._read_latest()
