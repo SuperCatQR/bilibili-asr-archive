@@ -44,7 +44,7 @@ def test_fake_model_result_normalization_timestamps_and_rich_tag_cleanup(fake_fu
         {"start": 0.125, "end": 1.5, "text": "deterministic"},
         {"start": 1.5, "end": 2.75, "text": "output"},
     ]
-    assert fake_funasr.construction_records == [{"model": "local-test-model", "trust_remote_code": True, "device": "cpu", "vad_model": "fsmn-vad", "punc_model": "ct-punc"}]
+    assert fake_funasr.construction_records == [{"model": "local-test-model", "trust_remote_code": False, "device": "cpu", "vad_model": "fsmn-vad", "punc_model": "ct-punc", "offline": True, "local_source": "configured-local"}]
     assert fake_funasr.generation_records == [{"input": "fixture-audio.wav", "cache": {}, "language": "auto", "use_itn": True, "batch_size_s": 60, "merge_vad": True, "merge_length_s": 15}]
 
 
@@ -66,7 +66,7 @@ def test_fake_generation_snapshots_include_both_input_paths(fake_funasr, monkeyp
     assert first == second
     assert fake_funasr.construction_count == 2
     assert [record["input"] for record in fake_funasr.generation_records] == ["one.wav", "two.wav"]
-    assert fake_funasr.construction_records == [{"model": "/fixture/local-model", "trust_remote_code": True, "device": "cpu", "vad_model": "fsmn-vad", "punc_model": "ct-punc"}] * 2
+    assert fake_funasr.construction_records == [{"model": "/fixture/local-model", "trust_remote_code": False, "device": "cpu", "vad_model": "fsmn-vad", "punc_model": "ct-punc", "offline": True, "local_source": "configured-local"}] * 2
 
 
 def test_error_serialization_redacts_forbidden_markers_and_preserves_class(monkeypatch):
@@ -138,7 +138,7 @@ def test_target_runner_reuse_oracle_is_target_facing(fake_funasr):
     runner_type = getattr(asr, "ASRRunner", None)
     if runner_type is None:
         pytest.xfail("Task 2 has not introduced bili_asr.asr.ASRRunner yet")
-    runner = runner_type(model_name="local-test-model")
+    runner = runner_type(asr.ASRConfig(model_name="local-test-model"), model_factory=fake_funasr)
     assert runner.transcribe_many(["first.wav", "second.wav"])
     assert fake_funasr.construction_count == 1
     assert [record["input"] for record in fake_funasr.generation_records] == [

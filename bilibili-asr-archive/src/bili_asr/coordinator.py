@@ -299,6 +299,7 @@ class RunCoordinator:
         offline: bool = False,
         max_audio_bytes: int = 0,
         sleep: Callable[[float], None] | None = None,
+        asr_runner: Any | None = None,
     ) -> None:
         self.root = os.fspath(archive_root)
         self.store = store
@@ -306,6 +307,7 @@ class RunCoordinator:
         self.offline = offline
         self.max_audio_bytes = max(0, max_audio_bytes)
         self._sleep = sleep or time.sleep
+        self.asr_runner = asr_runner
         self.audio_peak_bytes = 0
         self.ledger = AttemptLedger(self.root)
         self._attempt_counts: dict[tuple[str, str], int] = {}
@@ -490,7 +492,10 @@ class RunCoordinator:
         try:
             from .path_policy import confined_audio_file
             with confined_audio_file(self.root, os.path.relpath(audio_path, self.root)) as safe_audio:
-                segments = asr_module.transcribe(safe_audio)
+                if self.asr_runner is None:
+                    segments = asr_module.transcribe(safe_audio)
+                else:
+                    segments = self.asr_runner.transcribe(safe_audio)
         except Exception as exc:  # redacted; batch continues
             self._record(
                 "asr", work_id, "failed",
@@ -676,6 +681,15 @@ class RunCoordinator:
 
     def run_batch(self, rows: list[tuple[str, dict[str, Any]]]) -> RunSummary:
         with archive_writer(self.root):
+            if self.asr_runner is None and any(
+                str(entry.get("status") or "pending") in {"needs_audio", "audio_ok"}
+                and self._existing_audio(entry) is not None
+                for _, entry in rows
+            ):
+                # Preserve the injectable compatibility seam unless callers
+                # explicitly supply a runner; production callers may opt into
+                # run-scoped construction without changing the public CLI.
+                self.asr_runner = None
             return self._run_batch_locked(rows)
 
     def _run_batch_locked(
