@@ -16,7 +16,11 @@ DEFAULT_MODEL = "iic/SenseVoiceSmall"
 _INSTALL_HINT = 'pip install -e "bilibili-asr-archive/[asr]"'
 _RICH_TAG = re.compile(r"<\|[^|>]+\|>")
 _FORBIDDEN_LOCAL_SOURCE = re.compile(
-    r"(?:https?://|ftp://|\\\\|(?:^|[/:])(?:/|[A-Za-z]:[\\/])|\b(?:sessdata|cookie|token|password|secret|credential)\b)",
+    r"(?:[A-Za-z][A-Za-z0-9+.-]*://|\\\\|(?:^|[\\/])\\/|(?:^|[^A-Za-z])[A-Za-z]:[\\/]|\b(?:sessdata|cookie|token|password|secret|credential)\b)",
+    re.IGNORECASE,
+)
+_FORBIDDEN_PROVENANCE = re.compile(
+    r"(?:[A-Za-z][A-Za-z0-9+.-]*://|\\\\|(?:^|[\\/])\\/|(?:^|[^A-Za-z])[A-Za-z]:[\\/]|\b(?:sessdata|cookie|token|password|secret|credential)\b)",
     re.IGNORECASE,
 )
 
@@ -101,10 +105,10 @@ class ASRRunner:
             kwargs["model_revision"] = self.config.model_revision
         try:
             self._model = factory(**kwargs)
-        except Exception as exc:
+        except Exception:
             raise ASRModelError(
                 "SenseVoice model load/transcription failed; check configured local model."
-            ) from exc
+            ) from None
         return self._model
 
     def transcribe(self, audio_path: str) -> list[dict[str, Any]]:
@@ -131,7 +135,15 @@ class ASRRunner:
 
     def provenance(self) -> dict[str, str]:
         values = asdict(self.config)
-        return {key: str(value) for key, value in values.items()}
+        safe_values: dict[str, str] = {}
+        for key, value in values.items():
+            rendered = str(value)
+            if _FORBIDDEN_PROVENANCE.search(rendered) or (
+                key == "model_name" and ("/" in rendered or "\\" in rendered)
+            ):
+                rendered = "[redacted]"
+            safe_values[key] = rendered
+        return safe_values
 
 
 def _clean_text(text: str) -> str:

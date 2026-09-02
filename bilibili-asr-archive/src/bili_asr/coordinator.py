@@ -282,6 +282,11 @@ class RunSummary:
         )
 
 
+class _CompatibilityModel:
+    def generate(self, **kwargs: Any) -> Any:
+        return asr_module.transcribe(kwargs["input"])
+
+
 class RunCoordinator:
     """Per-stage coordinator over one manifest batch.
 
@@ -679,18 +684,32 @@ class RunCoordinator:
             raise
         return result
 
+    def _batch_needs_asr(self, rows: list[tuple[str, dict[str, Any]]]) -> bool:
+        for key, entry in rows:
+            status = str(entry.get("status") or "pending")
+            if status in TERMINAL_STATUSES:
+                continue
+            current = self._current_entry(key, entry)
+            if self._subtitle_segments(current) is not None:
+                continue
+            if status in {"needs_audio", "audio_ok", "subtitle_done"} and self._existing_audio(current) is not None:
+                return True
+        return False
+
     def run_batch(self, rows: list[tuple[str, dict[str, Any]]]) -> RunSummary:
+        injected_runner = self.asr_runner
         with archive_writer(self.root):
-            if self.asr_runner is None and any(
-                str(entry.get("status") or "pending") in {"needs_audio", "audio_ok"}
-                and self._existing_audio(entry) is not None
-                for _, entry in rows
-            ):
-                # Preserve the injectable compatibility seam unless callers
-                # explicitly supply a runner; production callers may opt into
-                # run-scoped construction without changing the public CLI.
-                self.asr_runner = None
-            return self._run_batch_locked(rows)
+            if injected_runner is None and self._batch_needs_asr(rows):
+                self.asr_runner = asr_module.ASRRunner(
+                    asr_module.ASRConfig(model_name=asr_module.DEFAULT_MODEL),
+                    model_factory=lambda **_kwargs: _CompatibilityModel(),
+                )
+            else:
+                self.asr_runner = injected_runner
+            try:
+                return self._run_batch_locked(rows)
+            finally:
+                self.asr_runner = injected_runner
 
     def _run_batch_locked(
         self, rows: list[tuple[str, dict[str, Any]]]
