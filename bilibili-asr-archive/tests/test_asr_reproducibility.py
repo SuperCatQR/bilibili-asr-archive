@@ -153,13 +153,11 @@ def test_current_transcribe_constructs_once_per_call_characterization(fake_funas
     assert fake_funasr.construction_count == 2
 
 
-@pytest.mark.xfail(strict=False, reason="ASRRunner is introduced by Task 2")
 def test_target_runner_reuse_oracle_is_target_facing(fake_funasr):
     """Target contract: one runner owns one model across all input paths."""
-    runner_type = getattr(asr, "ASRRunner", None)
-    if runner_type is None:
-        pytest.xfail("Task 2 has not introduced bili_asr.asr.ASRRunner yet")
-    runner = runner_type(asr.ASRConfig(model_name="local-test-model"), model_factory=fake_funasr)
+    runner = asr.ASRRunner(
+        asr.ASRConfig(model_name="local-test-model"), model_factory=fake_funasr
+    )
     assert runner.transcribe_many(["first.wav", "second.wav"])
     assert fake_funasr.construction_count == 1
     assert [record["input"] for record in fake_funasr.generation_records] == [
