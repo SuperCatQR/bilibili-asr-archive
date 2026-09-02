@@ -491,6 +491,10 @@ class RunCoordinator:
             return
         try:
             from .path_policy import confined_audio_file
+            if self.asr_runner is None:
+                self.asr_runner = asr_module.ASRRunner(
+                    asr_module.ASRConfig(model_name=asr_module.DEFAULT_MODEL)
+                )
             with confined_audio_file(self.root, os.path.relpath(audio_path, self.root)) as safe_audio:
                 segments = self.asr_runner.transcribe(safe_audio)
         except Exception as exc:  # redacted; batch continues
@@ -691,10 +695,8 @@ class RunCoordinator:
     def run_batch(self, rows: list[tuple[str, dict[str, Any]]]) -> RunSummary:
         injected_runner = self.asr_runner
         with archive_writer(self.root):
-            if injected_runner is None and self._batch_needs_asr(rows):
-                self.asr_runner = asr_module.ASRRunner(
-                    asr_module.ASRConfig(model_name=asr_module.DEFAULT_MODEL)
-                )
+            if injected_runner is None:
+                self.asr_runner = None
             else:
                 self.asr_runner = injected_runner
             try:

@@ -111,6 +111,8 @@ class ASRRunner:
             kwargs["model_revision"] = self.config.model_revision
         try:
             self._model = factory(**kwargs)
+        except ASRDependencyError:
+            raise
         except Exception:
             raise ASRModelError(
                 "SenseVoice model load/transcription failed; check configured local model."

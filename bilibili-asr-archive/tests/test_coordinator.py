@@ -51,12 +51,13 @@ def _patch_cli(monkeypatch, transport):
 
 
 def _stub_asr(monkeypatch, calls=None):
-    def fake_transcribe(audio_path, model_name=None):
-        if calls is not None:
-            calls.append(audio_path)
-        return [{"start": 0.0, "end": 1.0, "text": "asr-text"}]
+    class FakeModel:
+        def generate(self, **kwargs):
+            if calls is not None:
+                calls.append(kwargs["input"])
+            return [{"text": "asr-text", "timestamp": [[0, 1000]]}]
 
-    monkeypatch.setattr(asr_mod, "transcribe", fake_transcribe)
+    monkeypatch.setattr(asr_mod, "_load_default_model", lambda **_kwargs: FakeModel())
 
 
 def _mixed_transport():
@@ -392,8 +393,31 @@ def test_run_batch_subtitle_first_does_not_construct_runner(tmp_root, monkeypatc
     ident = page_identity("BVsubtitle", 0, 1, "p0")
     store = ManifestStore(root=tmp_root)
     store.upsert(_row(ident, status="subtitle_done"))
-    monkeypatch.setattr(coordinator.asr_module, "ASRRunner", lambda: (_ for _ in ()).throw(AssertionError("constructed")))
+    monkeypatch.setattr(coordinator.asr_module, "ASRRunner", lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("constructed")))
     RunCoordinator(tmp_root, store, offline=True).run_batch([(ident.work_id, store.get(ident.work_id))])
+
+
+def test_run_batch_needs_audio_lazily_constructs_one_runner(tmp_root, monkeypatch):
+    ident = page_identity("BVlazy", 0, 1, "p0")
+    store = ManifestStore(root=tmp_root)
+    store.upsert(_row(ident, status="audio_ok"))
+    audio_dir = Path(tmp_root) / "audio"
+    audio_dir.mkdir(exist_ok=True)
+    (audio_dir / f"{artifact_stem(ident)}.m4a").write_bytes(b"fixture")
+    constructions = []
+
+    class FakeRunner:
+        def __init__(self, *args, **kwargs):
+            constructions.append((args, kwargs))
+
+        def transcribe(self, _audio_path):
+            return [{"start": 0.0, "end": 1.0, "text": "ok"}]
+
+    monkeypatch.setattr(coordinator.asr_module, "ASRRunner", FakeRunner)
+    runner = RunCoordinator(tmp_root, store, offline=True)
+    runner.run_batch([(ident.work_id, store.get(ident.work_id))])
+    assert len(constructions) == 1
+    assert runner.asr_runner is None
 
 
 # ------------------------------------------------------------ run: live path
@@ -490,13 +514,15 @@ def test_cli_run_per_item_failure_batch_continues(tmp_root, monkeypatch, capsys)
     store.upsert(_row(a, title="a"))
     store.upsert(_row(b, title="b"))
 
-    def flaky(audio_path, model_name=None):
-        probe = os.readlink(audio_path) if audio_path.startswith("/proc/self/fd/") else audio_path
-        if artifact_stem(a) in probe:
-            raise ASRModelError("model failed")
-        return [{"start": 0.0, "end": 1.0, "text": "ok-text"}]
+    class FlakyModel:
+        def generate(self, **kwargs):
+            audio_path = kwargs["input"]
+            probe = os.readlink(audio_path) if audio_path.startswith("/proc/self/fd/") else audio_path
+            if artifact_stem(a) in probe:
+                raise ASRModelError("model failed")
+            return [{"text": "ok-text", "timestamp": [[0, 1000]]}]
 
-    monkeypatch.setattr(asr_mod, "transcribe", flaky)
+    monkeypatch.setattr(asr_mod, "_load_default_model", lambda **_kwargs: FlakyModel())
     _patch_cli(monkeypatch, _cid_transport(set()))  # no subtitles anywhere
 
     rc = main(["run", "--scope", "pending", "--archive-root", tmp_root])
@@ -732,13 +758,15 @@ def test_run_failure_summary_and_exit_when_scope_not_processed(
                   "wb") as fh:
             fh.write(b"\x00" * 16)
 
-    def flaky(audio_path, model_name=None):
-        probe = os.readlink(audio_path) if audio_path.startswith("/proc/self/fd/") else audio_path
-        if artifact_stem(a) in probe:
-            raise ASRModelError("boom")
-        return [{"start": 0.0, "end": 1.0, "text": "ok"}]
+    class FlakyModel:
+        def generate(self, **kwargs):
+            audio_path = kwargs["input"]
+            probe = os.readlink(audio_path) if audio_path.startswith("/proc/self/fd/") else audio_path
+            if artifact_stem(a) in probe:
+                raise ASRModelError("boom")
+            return [{"text": "ok", "timestamp": [[0, 1000]]}]
 
-    monkeypatch.setattr(asr_mod, "transcribe", flaky)
+    monkeypatch.setattr(asr_mod, "_load_default_model", lambda **_kwargs: FlakyModel())
     transport = _mixed_transport()
     _patch_cli(monkeypatch, transport)
 
