@@ -1,5 +1,7 @@
 # Persistence scale and archive safety specification
 
+> Promoted to: `.mstar/knowledge/architecture-patterns/operational-sidecars.md` (2026-09-03; updated existing high-overlap guidance)
+
 ## Problem
 
 The sequential archive currently rewrites complete JSONL sidecars on many updates, uses stale in-memory manifest snapshots, caps coverage/integrity readers at 10,000 records, publishes transcript files independently, and accepts `audio_path` values without one shared confinement policy. A restart or overlapping command can therefore lose state, produce non-authoritative evidence, expose incomplete artifacts, or read/delete outside the archive audio root.

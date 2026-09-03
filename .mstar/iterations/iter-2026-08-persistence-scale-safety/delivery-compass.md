@@ -1,7 +1,8 @@
 ---
 iteration_id: iter-2026-08-persistence-scale-safety
 start_date: 2026-08-31
-status: locked
+status: completed
+end_date: 2026-09-03
 iteration_base_branch: iteration/iter-2026-08-corpus-coverage
 target_branch: main
 plans:
@@ -33,8 +34,8 @@ plans:
 
 ## Plans
 
-| `20260831-persistence-scale-safety` | Persistence scale and archive safety | Todo | first serial business plan; coordinator/persistence seam must be stable before ASR plan | plan + [`specs/persistence-scale-safety.md`](specs/persistence-scale-safety.md) |
-| `20260831-asr-reproducibility` | Reproducible local ASR execution | Todo | second serial business plan; starts only after persistence plan integration seam is stable | plan + [`specs/asr-reproducibility.md`](specs/asr-reproducibility.md) |
+| `20260831-persistence-scale-safety` | Persistence scale and archive safety | Done | QC tri-review + mandatory QA PASS; merged as `693c96e` | plan + [`specs/persistence-scale-safety.md`](specs/persistence-scale-safety.md) |
+| `20260831-asr-reproducibility` | Reproducible local ASR execution | Done | QC tri-review + mandatory QA PASS; merged as `c871da6` | plan + [`specs/asr-reproducibility.md`](specs/asr-reproducibility.md) |
 
 ## Specify / clarify decisions
 
@@ -52,9 +53,9 @@ plans:
 |---|---|---|
 | Autonomous direction lock + initial package | 2026-08-31 | completed |
 | Review & Edit chain + Prepare lock | 2026-08-31 | completed |
-| Persistence plan implementation/QC/QA | 2026-09-02 | pending |
-| ASR plan implementation/QC/QA | 2026-09-03 | pending |
-| Iteration close + compound | 2026-09-04 | pending |
+| Persistence plan implementation/QC/QA | 2026-09-02 | completed |
+| ASR plan implementation/QC/QA | 2026-09-03 | completed |
+| Iteration close + compound | 2026-09-04 | completed |
 | PR merge-ready | 2026-09-05 | pending |
 
 ## Acceptance Criteria
@@ -77,7 +78,7 @@ plans:
 
 ## Roadmap Position
 
-- **Current iteration (`iter-2026-08-persistence-scale-safety`):** deliver persistence/read-scale safety and reproducible local ASR execution on top of the latest coverage integration line; current status is `active` until Phase 3 writes `completed`.
+- **Current iteration (`iter-2026-08-persistence-scale-safety`):** delivered persistence/read-scale safety and reproducible local ASR execution on top of the latest coverage integration line; current status is `completed` after serial integration and Phase 3 close on `2026-09-03`.
 - **Next iteration:** measured sequential corpus production, owner `project-manager` + operator; trigger is this iteration's Phase 5 exit, a valid local login, explicit WSL/archive/storage/rate boundaries, and a fresh denominator; exit is repeated reconciled evidence without full-corpus overclaim.
 - **Later iteration:** conditional concurrency implementation, owner `architect` + `ops-engineer`; trigger is every threshold in the existing concurrency gate plus a separate approved plan; exit preserves single-writer fallback and all current evidence contracts.
 - **Final target:** complete M0/M1/M3 visible-corpus enumeration, subtitle coverage measurement, archived/missing inventory, and searchable M4 transcripts with bounded resumable evidence and no unauthorized redistribution.
@@ -122,21 +123,22 @@ plans:
 
 | plan_id | QC decision | QA gate | Residuals | Durable summary |
 |---|---|---|---|---|
-| `20260831-persistence-scale-safety` | pending | mandatory | none registered | `.mstar/plans/20260831-persistence-scale-safety.md#review-gate-summary` |
-| `20260831-asr-reproducibility` | pending | mandatory | none registered | `.mstar/plans/20260831-asr-reproducibility.md#review-gate-summary` |
+| `20260831-persistence-scale-safety` | Approve | mandatory PASS | none registered | `.mstar/plans/20260831-persistence-scale-safety.md#review-gate-summary` |
+| `20260831-asr-reproducibility` | Approve | mandatory PASS | none registered | `.mstar/plans/20260831-asr-reproducibility.md#review-gate-summary` |
 
 ## Compound Round Summary
 
 > Filled at iteration-close after package inventory, overlap checks, structured promotion, and knowledge index validation.
 
-- 结晶文档数：pending
-- 新增 `CONCEPTS.md` 条目：pending
-- 触发 compound-refresh：pending
+- 结晶文档数：2（新增 `knowledge/architecture-patterns/run-scoped-asr-provenance.md`；更新高重叠的 `knowledge/architecture-patterns/operational-sidecars.md`）
+- 新增 `CONCEPTS.md` 条目：1（`run-scoped ASR`）
+- 触发 compound-refresh：否；本轮未发现与现有知识相互矛盾或需要单独刷新的文档
+- Package disposition：两份 iteration spec 保留为 locked historical contracts；README、promotion log、knowledge index 和 source traces 已同步；raw QC/QA bundles、plans、progress 保留在其过程路径
 
 ## Iteration Retrospective (minimal)
 
 > Filled at iteration-close.
 
-- 做得好的：pending
-- 可改进的：pending
-- 下迭代建议：pending
+- 做得好的：冻结了状态/风险/身份与 `sequential-no-daemon` 边界；两项业务计划均完成 SDD、L2 review、QC tri-review、mandatory QA 和串行 integration merge；知识提升保留了可复用的 append/projection、confined-audio、run-scoped ASR 与 redacted provenance 约定。
+- 可改进的：初轮 QC 的 review range 曾混入已集成 persistence 历史，且一席曾误读 control checkout；后续应在首次 QC 派发前固定并机器核对 feature cwd、branch、HEAD、range 与 package hash，并避免在 control 上保留未提交的产品中间实现。
+- 下迭代建议：Phase 5 退出后再开展经操作员批准、具备新 denominator 与 WSL/archive/storage/rate 边界的 measured sequential corpus production；任何并发实现仍需独立批准的计划和完整 evidence gate。

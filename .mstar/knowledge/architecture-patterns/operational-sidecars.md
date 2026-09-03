@@ -1,7 +1,7 @@
 ---
 module: bili-asr operational layer
 date: 2026-08-25
-last_updated: 2026-08-30
+last_updated: 2026-09-03
 problem_type: architecture_pattern
 category: architecture-patterns
 severity: medium
@@ -102,6 +102,10 @@ is `skipped` with a reason. Batch continues on per-item failure. Explicit
 rerun of an already-terminal `work_id` is idempotent (exit 0). `run` and
 `schedule` complement frozen `pilot`; they do not replace it.
 
+10. Keep durable sidecars append-oriented and projection-based at scale. Protect each mutation with the archive-root single-writer boundary, append revisions or attempts durably, and derive the latest validated row/run without materializing unbounded history. Preserve legacy compact snapshots for reads, but never let a malformed later revision replace the last valid state. Use trusted-local streaming only for an explicitly operator-owned archive; bounded hostile-input inspection remains capped and fail-closed.
+
+11. Publish transcript bundles as one owned generation rather than exposing independently replaced files. Stage and fsync the complete `srt`/`txt`/`md`/raw set, replace owned outputs deterministically, then write a marker containing exact paths and digests last. Readers accept only a complete marker-matched generation. Apply the same confined-path policy to audio lookup, persistence, and reclaim; reject absolute, traversing, symlink-escaping, directory, and non-regular paths before descriptor-backed consumers use them.
+
 ## Boundary and outcome contract
 
 The scheduler is a bounded sequential orchestration layer, not a second state
@@ -149,4 +153,5 @@ or replacement of `pilot` as the MVP proof command.
 - Verification: 277 passed on Python 3.12 (QA, no live HTTP)
 - Corpus-operations update: `.mstar/specs/asr-archive-cli.md` and commit `ad5253d` (mixed-outcome and scheduler changes); integration revision `ad5253d` preserves the frozen manifest/risk taxonomy and verifies 392 tests with honest exit precedence for risk, per-item failure, and already-terminal work.
 - Corpus-coverage update: `.mstar/iterations/iter-2026-08-corpus-coverage/specs/` promoted into this guidance. Integration revision `69b9530` ships campaign checkpoints, reconciled coverage/quality, filtered explorer surfaces, confined integrity verification, audit-only recovery, and the non-enabling concurrency gate; the merged Python 3.12 suite passes 612 tests without live traffic.
+- Persistence-scale update: `.mstar/iterations/iter-2026-08-persistence-scale-safety/specs/persistence-scale-safety.md` refreshed this guidance with durable append/projection, single-writer, atomic bundle, and confined-audio contracts; integration revision `c871da6` preserves the sequential/no-daemon boundary and the mandatory fixture-only QA evidence.
 - Current implementation anchors: `bilibili-asr-archive/src/bili_asr/campaign.py`, `bilibili-asr-archive/src/bili_asr/coverage_report.py`, `bilibili-asr-archive/src/bili_asr/quality.py`, `bilibili-asr-archive/src/bili_asr/search_index.py`, `bilibili-asr-archive/src/bili_asr/integrity.py`, and `bilibili-asr-archive/src/bili_asr/concurrency_gate.py`; operator contracts are in `bilibili-asr-archive/README.md`.

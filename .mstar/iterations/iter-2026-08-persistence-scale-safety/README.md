@@ -6,7 +6,7 @@ Iteration package for the autonomous `M` iteration that hardens sequential archi
 
 | Document | Kind | Description | Status |
 |---|---|---|---|
-| [delivery-compass.md](delivery-compass.md) | compass | Autonomous direction lock, two-plan budget, gates, and branch policy | locked |
+| [delivery-compass.md](delivery-compass.md) | compass | Autonomous direction lock, two-plan budget, gates, and branch policy | completed |
 | [specs/persistence-scale-safety.md](specs/persistence-scale-safety.md) | spec | Durable JSONL persistence, streaming projection, publication, and path contract | locked |
 | [specs/asr-reproducibility.md](specs/asr-reproducibility.md) | spec | Local ASR model lifecycle, provenance, and fixture reproducibility contract | locked |
 
@@ -16,11 +16,14 @@ Exactly two business plans are in the `M` budget; review/edit, SDD task review, 
 
 | Plan | Role | Status |
 |---|---|---|
-| [20260831-persistence-scale-safety](../../plans/20260831-persistence-scale-safety.md) | First serial business plan: persistence/read-scale and archive safety | Todo |
-| [20260831-asr-reproducibility](../../plans/20260831-asr-reproducibility.md) | Second serial business plan: local ASR lifecycle and provenance | Todo |
+| [20260831-persistence-scale-safety](../../plans/20260831-persistence-scale-safety.md) | First serial business plan: persistence/read-scale and archive safety | Done |
+| [20260831-asr-reproducibility](../../plans/20260831-asr-reproducibility.md) | Second serial business plan: local ASR lifecycle and provenance | Done |
 
-The second plan starts only after the first plan's coordinator/persistence seam is integrated and its focused checks pass. Plan files are process artifacts under `.mstar/plans/`; iteration-only specs remain under this package, and no knowledge document is added before iteration-close compound.## Promotion log
+The second plan started after the first plan's coordinator/persistence seam was integrated and its focused checks passed. Both plans completed QC/QA and serial integration. Plan files are process artifacts under `.mstar/plans/`; iteration-only specs remain under this package.
+
+## Promotion log
 
 | Source | Promoted to | Date | Notes |
 |---|---|---|---|
-| | | | |
+| `specs/persistence-scale-safety.md` | `knowledge/architecture-patterns/operational-sidecars.md` | 2026-09-03 | Updated existing high-overlap guidance; retained iteration spec as historical contract. |
+| `specs/asr-reproducibility.md` | `knowledge/architecture-patterns/run-scoped-asr-provenance.md` | 2026-09-03 | Structured promotion of the run-scoped lifecycle and redacted provenance pattern. |

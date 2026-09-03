@@ -1,5 +1,7 @@
 # Reproducible local ASR execution specification
 
+> Promoted to: `.mstar/knowledge/architecture-patterns/run-scoped-asr-provenance.md` (2026-09-03)
+
 ## Problem
 
 `bili_asr.asr.transcribe()` lazily imports FunASR but constructs `AutoModel` for every audio item, uses `trust_remote_code=True`, selects an environment/default model without a revision contract, and emits no stable provenance. This makes repeated local runs slow, difficult to compare, and difficult to diagnose without risking secrets or media in evidence.
