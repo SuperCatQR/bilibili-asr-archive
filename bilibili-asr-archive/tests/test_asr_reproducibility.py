@@ -161,11 +161,23 @@ def test_target_runner_reuse_oracle_is_target_facing(fake_funasr):
     runner = asr.ASRRunner(
         asr.ASRConfig(model_name="local-test-model"), model_factory=fake_funasr
     )
-    assert runner.transcribe_many(["first.wav", "second.wav"])
+    outputs = [runner.transcribe(path) for path in ("first.wav", "second.wav")]
+    assert outputs
     assert fake_funasr.construction_count == 1
     assert [record["input"] for record in fake_funasr.generation_records] == [
         "first.wav", "second.wav"
     ]
+
+
+def test_runner_release_dereferences_owned_model(fake_funasr):
+    runner = asr.ASRRunner(
+        asr.ASRConfig(model_name="local-test-model"), model_factory=fake_funasr
+    )
+    runner.transcribe("fixture.wav")
+
+    runner.release()
+
+    assert runner._model is None
 
 
 def test_provenance_has_stable_redacted_configuration_keys():
@@ -201,6 +213,56 @@ def test_provenance_is_deterministic_and_revision_sensitive():
     assert make_provenance(None) != make_provenance("rev-a")
 
 
+def test_provenance_preserves_safe_slash_qualified_model_identifier():
+    provenance = asr.ASRRunner(asr.ASRConfig("iic/SenseVoiceSmall")).provenance()
+
+    assert provenance["model_name"] == "iic/SenseVoiceSmall"
+
+
+@pytest.mark.parametrize(
+    "model_name",
+    (
+        "/opt/models/SenseVoiceSmall",
+        "C:\\models\\SenseVoiceSmall",
+        "https://models.example/SenseVoiceSmall",
+        "token=private-model",
+    ),
+)
+def test_provenance_redacts_path_url_and_credential_like_model_values(model_name):
+    provenance = asr.ASRRunner(asr.ASRConfig(model_name)).provenance()
+
+    assert provenance["model_name"] == "[redacted]"
+    assert model_name not in json.dumps(provenance)
+
+
+def test_environment_model_path_is_runtime_only_and_not_exposed_in_provenance(
+    fake_funasr, monkeypatch
+):
+    local_model_path = "/fixture/private-model"
+    observed_provenance = []
+    original_provenance = asr.ASRRunner.provenance
+
+    def capture_provenance(runner):
+        provenance = original_provenance(runner)
+        observed_provenance.append(provenance)
+        return provenance
+
+    original_transcribe = asr.ASRRunner.transcribe
+
+    def inspect_then_transcribe(runner, audio_path):
+        capture_provenance(runner)
+        return original_transcribe(runner, audio_path)
+
+    monkeypatch.setattr(asr.ASRRunner, "transcribe", inspect_then_transcribe)
+    monkeypatch.setenv("BILI_ASR_MODEL", local_model_path)
+
+    asr.transcribe("fixture.wav")
+
+    assert fake_funasr.construction_records[0]["model"] == local_model_path
+    assert observed_provenance[0]["model_name"] == "[redacted]"
+    assert local_model_path not in json.dumps(observed_provenance)
+
+
 def test_provenance_redacts_forbidden_values_without_serializing_payloads():
     config = asr.ASRConfig("fixture-model", model_revision="rev-a")
     runner = asr.ASRRunner(config)
@@ -215,7 +277,7 @@ def test_provenance_redacts_forbidden_values_without_serializing_payloads():
 
 def test_fixture_benchmark_reports_only_construction_and_shape(fake_funasr):
     runner = asr.ASRRunner(asr.ASRConfig("fixture-model"), model_factory=fake_funasr)
-    outputs = runner.transcribe_many(["first.wav", "second.wav"])
+    outputs = [runner.transcribe(path) for path in ("first.wav", "second.wav")]
     report: dict[str, Any] = {
         "model_construction_count": fake_funasr.construction_count,
         "normalized_segment_count": sum(len(output) for output in outputs),

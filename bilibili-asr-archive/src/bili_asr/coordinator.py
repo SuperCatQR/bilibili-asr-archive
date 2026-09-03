@@ -695,13 +695,12 @@ class RunCoordinator:
     def run_batch(self, rows: list[tuple[str, dict[str, Any]]]) -> RunSummary:
         injected_runner = self.asr_runner
         with archive_writer(self.root):
-            if injected_runner is None:
-                self.asr_runner = None
-            else:
-                self.asr_runner = injected_runner
+            self.asr_runner = injected_runner
             try:
                 return self._run_batch_locked(rows)
             finally:
+                if injected_runner is None and self.asr_runner is not None:
+                    self.asr_runner.release()
                 self.asr_runner = injected_runner
 
     def _run_batch_locked(

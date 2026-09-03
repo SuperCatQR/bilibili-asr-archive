@@ -33,6 +33,7 @@ _FORBIDDEN_PROVENANCE = re.compile(
     r"(?:[A-Za-z][A-Za-z0-9+.-]*://|\\\\|(?:^|[\\/])\\/|(?:^|[^A-Za-z])[A-Za-z]:[\\/]|\b(?:sessdata|cookie|token|password|secret|credential)\b)",
     re.IGNORECASE,
 )
+_MODEL_IDENTIFIER = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*(?:/[A-Za-z0-9][A-Za-z0-9._-]*)*")
 
 
 class ASRDependencyError(RuntimeError):
@@ -71,7 +72,7 @@ class ASRConfig:
 
 
 class ASRRunner:
-    """Lazy, run-scoped model owner."""
+    """Lazy model owner for sequential use within one run scope."""
 
     def __init__(
         self,
@@ -136,16 +137,20 @@ class ASRRunner:
             ) from exc
         return normalize_result(result)
 
-    def transcribe_many(self, audio_paths: list[str]) -> list[list[dict[str, Any]]]:
-        return [self.transcribe(audio_path) for audio_path in audio_paths]
+    def release(self) -> None:
+        """Dereference the model owned by this runner."""
+        self._model = None
 
     def provenance(self) -> dict[str, str]:
         values = asdict(self.config)
         safe_values: dict[str, str] = {}
         for key, value in values.items():
             rendered = str(value)
+            is_safe_model_identifier = (
+                key == "model_name" and _MODEL_IDENTIFIER.fullmatch(rendered) is not None
+            )
             if _FORBIDDEN_PROVENANCE.search(rendered) or (
-                key == "model_name" and ("/" in rendered or "\\" in rendered)
+                key == "model_name" and not is_safe_model_identifier
             ):
                 rendered = "[redacted]"
             safe_values[key] = rendered

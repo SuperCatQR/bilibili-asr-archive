@@ -372,21 +372,75 @@ def test_run_batch_default_runner_is_lazy_reused_and_batch_scoped(tmp_root, monk
         audio_dir = Path(tmp_root) / "audio"
         audio_dir.mkdir(exist_ok=True)
         (audio_dir / f"{artifact_stem(ident)}.m4a").write_bytes(b"fixture")
-    constructions = []
     model_constructions = []
+    constructed_models = []
     class FakeModel:
         def generate(self, **_kwargs):
             return [{"text": "ok", "timestamp": [[0, 1000]]}]
     def fake_factory(**kwargs):
         model_constructions.append(dict(kwargs))
-        return FakeModel()
+        model = FakeModel()
+        constructed_models.append(model)
+        return model
     monkeypatch.setattr(coordinator.asr_module, "_load_default_model", fake_factory)
     runner = RunCoordinator(tmp_root, store, offline=True)
     runner.run_batch([(i.work_id, store.get(i.work_id)) for i in identities])
     assert len(model_constructions) == 1
     assert runner.asr_runner is None
+    assert len(constructed_models) == 1
     runner.run_batch([(identities[0].work_id, store.get(identities[0].work_id))])
     assert len(model_constructions) == 1
+
+
+def test_run_batch_releases_coordinator_owned_runner_after_exception(tmp_root, monkeypatch):
+    runner = RunCoordinator(tmp_root, ManifestStore(root=tmp_root), offline=True)
+
+    class OwnedRunner:
+        def __init__(self, *args, **kwargs):
+            self.release_calls = 0
+
+        def release(self):
+            self.release_calls += 1
+
+    owned_runner = OwnedRunner()
+    monkeypatch.setattr(coordinator.asr_module, "ASRRunner", lambda *args, **kwargs: owned_runner)
+
+    def fail_after_creating_runner(_rows):
+        runner.asr_runner = coordinator.asr_module.ASRRunner()
+        raise RuntimeError("batch failed")
+
+    monkeypatch.setattr(runner, "_run_batch_locked", fail_after_creating_runner)
+
+    import pytest
+
+    with pytest.raises(RuntimeError, match="batch failed"):
+        runner.run_batch([])
+
+    assert owned_runner.release_calls == 1
+    assert runner.asr_runner is None
+
+
+def test_run_batch_keeps_injected_runner_caller_owned(tmp_root, monkeypatch):
+    class InjectedRunner:
+        def __init__(self):
+            self.release_calls = 0
+
+        def release(self):
+            self.release_calls += 1
+
+    injected_runner = InjectedRunner()
+    runner = RunCoordinator(
+        tmp_root,
+        ManifestStore(root=tmp_root),
+        offline=True,
+        asr_runner=injected_runner,
+    )
+    monkeypatch.setattr(runner, "_run_batch_locked", lambda _rows: coordinator.RunSummary())
+
+    runner.run_batch([])
+
+    assert injected_runner.release_calls == 0
+    assert runner.asr_runner is injected_runner
 
 
 def test_run_batch_subtitle_first_does_not_construct_runner(tmp_root, monkeypatch):
@@ -405,6 +459,7 @@ def test_run_batch_needs_audio_lazily_constructs_one_runner(tmp_root, monkeypatc
     audio_dir.mkdir(exist_ok=True)
     (audio_dir / f"{artifact_stem(ident)}.m4a").write_bytes(b"fixture")
     constructions = []
+    releases = []
 
     class FakeRunner:
         def __init__(self, *args, **kwargs):
@@ -413,10 +468,14 @@ def test_run_batch_needs_audio_lazily_constructs_one_runner(tmp_root, monkeypatc
         def transcribe(self, _audio_path):
             return [{"start": 0.0, "end": 1.0, "text": "ok"}]
 
+        def release(self):
+            releases.append("released")
+
     monkeypatch.setattr(coordinator.asr_module, "ASRRunner", FakeRunner)
     runner = RunCoordinator(tmp_root, store, offline=True)
     runner.run_batch([(ident.work_id, store.get(ident.work_id))])
     assert len(constructions) == 1
+    assert releases == ["released"]
     assert runner.asr_runner is None
 
 
