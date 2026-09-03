@@ -56,7 +56,7 @@ plans:
 | Persistence plan implementation/QC/QA | 2026-09-02 | completed |
 | ASR plan implementation/QC/QA | 2026-09-03 | completed |
 | Iteration close + compound | 2026-09-04 | completed |
-| PR merge-ready | 2026-09-05 | pending |
+| PR merge-ready | 2026-09-05 | completed (`#8`; mergeable/clean; 0 check-runs; 0 reviews/comments) |
 
 ## Acceptance Criteria
 
@@ -78,7 +78,7 @@ plans:
 
 ## Roadmap Position
 
-- **Current iteration (`iter-2026-08-persistence-scale-safety`):** delivered persistence/read-scale safety and reproducible local ASR execution on top of the latest coverage integration line; current status is `completed` after serial integration and Phase 3 close on `2026-09-03`.
+- **Current iteration (`iter-2026-08-persistence-scale-safety`):** delivered persistence/read-scale safety and reproducible local ASR execution on top of the latest coverage integration line; Phase 3 close and Phase 5 merge-ready exit completed on `2026-09-03`. PR #8 (`https://github.com/SuperCatQR/bilibili-asr-archive/pull/8`) is open and mergeable; final merge remains a user action.
 - **Next iteration:** measured sequential corpus production, owner `project-manager` + operator; trigger is this iteration's Phase 5 exit, a valid local login, explicit WSL/archive/storage/rate boundaries, and a fresh denominator; exit is repeated reconciled evidence without full-corpus overclaim.
 - **Later iteration:** conditional concurrency implementation, owner `architect` + `ops-engineer`; trigger is every threshold in the existing concurrency gate plus a separate approved plan; exit preserves single-writer fallback and all current evidence contracts.
 - **Final target:** complete M0/M1/M3 visible-corpus enumeration, subtitle coverage measurement, archived/missing inventory, and searchable M4 transcripts with bounded resumable evidence and no unauthorized redistribution.
