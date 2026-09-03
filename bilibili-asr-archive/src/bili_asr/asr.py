@@ -1,18 +1,39 @@
 """Local SenseVoice ASR boundary.
 
-The base CLI does not import FunASR. ``transcribe`` imports it lazily so
-subtitle-only workflows stay lightweight and usable offline.
+FunASR is imported only when a runner first transcribes.  The runner is
+explicitly configured, lazy, and scoped to one sequential batch; no model
+cache or download orchestration lives here.
 """
 
 from __future__ import annotations
 
 import os
 import re
-from typing import Any
+from dataclasses import asdict, dataclass
+from typing import Any, Callable
 
 DEFAULT_MODEL = "iic/SenseVoiceSmall"
+
+
+def _load_default_model(**kwargs: Any) -> Any:
+    try:
+        from funasr import AutoModel  # type: ignore
+    except ImportError as exc:
+        raise ASRDependencyError(
+            f"SenseVoice support is not installed; run: {_INSTALL_HINT}"
+        ) from exc
+    return AutoModel(**kwargs)
 _INSTALL_HINT = 'pip install -e "bilibili-asr-archive/[asr]"'
 _RICH_TAG = re.compile(r"<\|[^|>]+\|>")
+_FORBIDDEN_LOCAL_SOURCE = re.compile(
+    r"(?:[A-Za-z][A-Za-z0-9+.-]*://|\\\\|(?:^|[\\/])\\/|(?:^|[^A-Za-z])[A-Za-z]:[\\/]|\b(?:sessdata|cookie|token|password|secret|credential)\b)",
+    re.IGNORECASE,
+)
+_FORBIDDEN_PROVENANCE = re.compile(
+    r"(?:[A-Za-z][A-Za-z0-9+.-]*://|\\\\|(?:^|[\\/])\\/|(?:^|[^A-Za-z])[A-Za-z]:[\\/]|\b(?:sessdata|cookie|token|password|secret|credential)\b)",
+    re.IGNORECASE,
+)
+_MODEL_IDENTIFIER = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*(?:/[A-Za-z0-9][A-Za-z0-9._-]*)*")
 
 
 class ASRDependencyError(RuntimeError):
@@ -21,6 +42,119 @@ class ASRDependencyError(RuntimeError):
 
 class ASRModelError(RuntimeError):
     """SenseVoice could not load or transcribe the supplied audio."""
+
+
+@dataclass(frozen=True)
+class ASRConfig:
+    """Deterministic, redaction-safe configuration for one ASR run."""
+
+    model_name: str
+    model_revision: str | None = None
+    device: str = "cpu"
+    offline: bool = True
+    local_source: str = "configured-local"
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.model_name, str) or not self.model_name.strip():
+            raise ValueError("model_name must be a non-empty string")
+        if self.model_revision is not None and (
+            not isinstance(self.model_revision, str) or not self.model_revision.strip()
+        ):
+            raise ValueError("model_revision must be a non-empty string or null")
+        if not isinstance(self.device, str) or not self.device.strip():
+            raise ValueError("device must be a non-empty string")
+        if not isinstance(self.offline, bool):
+            raise ValueError("offline must be a bool")
+        if not isinstance(self.local_source, str) or not self.local_source.strip():
+            raise ValueError("local_source must be a non-empty identifier")
+        if _FORBIDDEN_LOCAL_SOURCE.search(self.local_source):
+            raise ValueError("local_source must be an opaque local identifier")
+
+
+class ASRRunner:
+    """Lazy model owner for sequential use within one run scope."""
+
+    def __init__(
+        self,
+        config: ASRConfig | str | None = None,
+        *,
+        model_factory: Callable[..., Any] | None = None,
+        model_name: str | None = None,
+    ) -> None:
+        if config is None:
+            config = ASRConfig(model_name=model_name or DEFAULT_MODEL)
+        elif isinstance(config, str):
+            if model_name is not None:
+                raise TypeError("model_name cannot accompany a model name")
+            config = ASRConfig(model_name=config)
+        elif model_name is not None:
+            raise TypeError("model_name is only accepted without a config")
+        if not isinstance(config, ASRConfig):
+            raise TypeError("config must be an ASRConfig")
+        self.config = config
+        self._model_factory = model_factory
+        self._model: Any | None = None
+
+    def _get_model(self) -> Any:
+        if self._model is not None:
+            return self._model
+        factory = self._model_factory or _load_default_model
+        kwargs: dict[str, Any] = {
+            "model": self.config.model_name,
+            "device": self.config.device,
+            "trust_remote_code": False,
+            "offline": self.config.offline,
+            "local_source": self.config.local_source,
+        }
+        if self.config.model_revision is not None:
+            kwargs["model_revision"] = self.config.model_revision
+        try:
+            self._model = factory(**kwargs)
+        except ASRDependencyError:
+            raise
+        except Exception:
+            raise ASRModelError(
+                "SenseVoice model load/transcription failed; check configured local model."
+            ) from None
+        return self._model
+
+    def transcribe(self, audio_path: str) -> list[dict[str, Any]]:
+        try:
+            result = self._get_model().generate(
+                input=audio_path,
+                cache={},
+                language="auto",
+                use_itn=True,
+                batch_size_s=60,
+                merge_vad=True,
+                merge_length_s=15,
+            )
+        except (ASRDependencyError, ASRModelError):
+            raise
+        except Exception as exc:
+            raise ASRModelError(
+                "SenseVoice model load/transcription failed; check configured local model."
+            ) from exc
+        return normalize_result(result)
+
+    def release(self) -> None:
+        """Dereference the model owned by this runner."""
+        self._model = None
+
+    def provenance(self) -> dict[str, str]:
+        values = asdict(self.config)
+        safe_values: dict[str, str] = {}
+        for key, value in values.items():
+            rendered = str(value)
+            is_safe_model_identifier = (
+                key == "model_name" and _MODEL_IDENTIFIER.fullmatch(rendered) is not None
+            )
+            if _FORBIDDEN_PROVENANCE.search(rendered) or (
+                key == "model_name" and not is_safe_model_identifier
+            ):
+                rendered = "[redacted]"
+            safe_values[key] = rendered
+        return safe_values
 
 
 def _clean_text(text: str) -> str:
@@ -44,11 +178,7 @@ def normalize_result(result: Any) -> list[dict[str, Any]]:
             for sentence in sentences:
                 text = _clean_text(str(sentence.get("text") or ""))
                 if text:
-                    segments.append({
-                        "start": _seconds(sentence.get("start")),
-                        "end": _seconds(sentence.get("end")),
-                        "text": text,
-                    })
+                    segments.append({"start": _seconds(sentence.get("start")), "end": _seconds(sentence.get("end")), "text": text})
             continue
         text = _clean_text(str(item.get("text") or ""))
         if not text:
@@ -71,52 +201,15 @@ def _fmt_srt_time(seconds: float) -> str:
 def segments_to_srt(segments: list[dict[str, Any]]) -> str:
     blocks = []
     for index, segment in enumerate(segments, start=1):
-        blocks.append(
-            f"{index}\n{_fmt_srt_time(segment['start'])} --> "
-            f"{_fmt_srt_time(segment['end'])}\n{segment['text']}\n"
-        )
+        blocks.append(f"{index}\n{_fmt_srt_time(segment['start'])} --> {_fmt_srt_time(segment['end'])}\n{segment['text']}\n")
     return "\n".join(blocks)
 
 
 def segments_to_txt(segments: list[dict[str, Any]]) -> str:
-    return "\n".join(str(segment.get("text", "")).strip()
-                     for segment in segments if str(segment.get("text", "")).strip())
+    return "\n".join(str(segment.get("text", "")).strip() for segment in segments if str(segment.get("text", "")).strip())
 
 
 def transcribe(audio_path: str, model_name: str | None = None) -> list[dict[str, Any]]:
-    """Transcribe one audio file with SenseVoice-Small on CPU.
-
-    Model weights are resolved by FunASR/ModelScope. Set ``BILI_ASR_MODEL`` to
-    a local model directory for an offline run.
-    """
-    try:
-        from funasr import AutoModel  # type: ignore
-    except ImportError as exc:
-        raise ASRDependencyError(
-            f"SenseVoice support is not installed; run: {_INSTALL_HINT}"
-        ) from exc
-
+    """Compatibility wrapper: one short-lived runner using env/default selection."""
     selected_model = model_name or os.environ.get("BILI_ASR_MODEL") or DEFAULT_MODEL
-    try:
-        model = AutoModel(
-            model=selected_model,
-            trust_remote_code=True,
-            device="cpu",
-            vad_model="fsmn-vad",
-            punc_model="ct-punc",
-        )
-        result = model.generate(
-            input=audio_path,
-            cache={},
-            language="auto",
-            use_itn=True,
-            batch_size_s=60,
-            merge_vad=True,
-            merge_length_s=15,
-        )
-    except Exception as exc:
-        raise ASRModelError(
-            "SenseVoice model load/transcription failed. For offline use, "
-            "set BILI_ASR_MODEL to a populated local model directory."
-        ) from exc
-    return normalize_result(result)
+    return ASRRunner(ASRConfig(model_name=selected_model)).transcribe(audio_path)

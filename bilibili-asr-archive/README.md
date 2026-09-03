@@ -24,7 +24,27 @@ are not supported for hardened publication or reclaim; run the CLI inside WSL
 and keep the archive on a WSL-native path, not `/mnt/c`.
 
 Set `BILI_ASR_MODEL` to a pre-populated local model directory for offline use;
-the default is `iic/SenseVoiceSmall`. No model weights are vendored.
+the default is `iic/SenseVoiceSmall`. No model weights are vendored. The optional
+ASR dependency is verified by fixture-only tests; installation and model
+availability remain operator responsibilities.
+
+ASR model construction is lazy and reused only within one sequential `run_batch`
+scope. `ASRRunner` is not thread-safe and must not be shared by concurrent callers;
+the coordinator releases runners it creates when the batch exits, while an injected
+runner remains owned by its caller. `BILI_ASR_MODEL` may be a pre-populated local
+path at runtime, but paths are never provenance identifiers. Safe slash-qualified
+model identifiers such as `iic/SenseVoiceSmall` are preserved; absolute paths,
+URLs, and credential-like model values are redacted. `ASRRunner.provenance()`
+exposes deterministic configuration identifiers and an optional declared revision.
+It contains no model, media, transcript, or raw exception payloads. Provenance is a
+configuration/report surface, not a ledger field and not a semantic-accuracy claim.
+Fixture evidence reports only fake model construction count, normalized segment
+count, and output shape; run it directly with:
+
+    python3.12 -m pytest -q tests/test_asr_reproducibility.py::test_fixture_benchmark_reports_only_construction_and_shape
+
+This fixture does not establish hardware timing, model-weight pinning, network-free
+runtime, or full-corpus coverage.
 
 ## Deterministic verification baseline
 
