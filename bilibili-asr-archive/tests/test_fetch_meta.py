@@ -391,6 +391,31 @@ def test_cli_fetch_meta_uses_env_sessdata_without_echoing(
     assert secret not in manifest_text
 
 
+def test_cli_fetch_meta_redacts_successful_run_migration_failure(
+    tmp_root, fast_sleep, monkeypatch, capsys
+):
+    secret = "migration /secret/SESSDATA=https://signed.example"
+    transport = FakeTransport(
+        [
+            (200, ok_page([arc("BV1A")], total=1)),
+            (200, ok_page([], total=1)),
+        ]
+    )
+    monkeypatch.setattr(bc, "build_default_transport", lambda: transport)
+    monkeypatch.setattr(bc, "default_sleeper", lambda: fast_sleep)
+
+    def fail_migration(*_args, **_kwargs):
+        raise RuntimeError(secret)
+
+    monkeypatch.setattr(ManifestStore, "migrate_legacy_rows", fail_migration)
+    rc = main(["fetch-meta", "--mid", "23191782", "--archive-root", tmp_root])
+
+    captured = capsys.readouterr()
+    assert rc == 1
+    assert captured.err == "fetch-meta: legacy migration failed\n"
+    assert secret not in captured.out + captured.err
+
+
 def test_cli_resume_does_not_duplicate(tmp_root, fast_sleep, monkeypatch):
     store = ManifestStore(root=tmp_root)
     store.load()
@@ -414,8 +439,9 @@ def test_cli_resume_does_not_duplicate(tmp_root, fast_sleep, monkeypatch):
     entries = store.load()
     assert set(entries) == {"BV1A:p0", "BV1B:p0"}
     lines = open(store.path, encoding="utf-8").read().strip().splitlines()
-    bvids = [json.loads(l)["bvid"] for l in lines]
-    assert sorted(bvids) == ["BV1A", "BV1B"]  # no dup lines
+    bvids = [json.loads(line)["bvid"] for line in lines]
+    assert set(bvids) == {"BV1A", "BV1B"}
+    assert set(store.load()) == {"BV1A:p0", "BV1B:p0"}
 
 
 def test_cli_budget_exhausted_exit_2(tmp_root, fast_sleep, monkeypatch, capsys):

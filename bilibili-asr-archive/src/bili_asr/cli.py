@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import sys
 import time
+from pathlib import Path
 
 DEFAULT_MID = 23191782
 DEFAULT_ARCHIVE_ROOT = os.path.join("archive")
@@ -230,6 +232,47 @@ def build_parser() -> argparse.ArgumentParser:
         help="SESSDATA cookie for live stages (or env BILI_SESSDATA); not stored",
     )
 
+    campaign_cmd = subparsers.add_parser(
+        "campaign",
+        help="Run a bounded campaign batch with aggregate checkpoint evidence",
+    )
+    campaign_cmd.add_argument(
+        "--scope",
+        required=True,
+        help="pending | failed | one or more work_id/bvid selectors "
+        "(comma- or space-separated)",
+    )
+    campaign_cmd.add_argument(
+        "--limit",
+        type=int,
+        required=True,
+        help="Process at most N matching rows (required explicit bound)",
+    )
+    campaign_cmd.add_argument(
+        "--resume",
+        action="store_true",
+        help="Resume only a matching risk-interrupted scheduler sidecar",
+    )
+    campaign_cmd.add_argument(
+        "--offline",
+        action="store_true",
+        help="Never call harvest/download (deterministic local stages only)",
+    )
+    campaign_cmd.add_argument(
+        "--max-audio-gb",
+        type=float,
+        default=10.0,
+        help="Skip audio downloads that would push audio/ past this many GiB (0 = unlimited)",
+    )
+    campaign_cmd.add_argument(
+        "--archive-root", default=DEFAULT_ARCHIVE_ROOT,
+        help="Archive root directory (default: ./archive)",
+    )
+    campaign_cmd.add_argument(
+        "--sessdata", default=None,
+        help="SESSDATA cookie for live stages (or env BILI_SESSDATA); not stored",
+    )
+
     search_cmd = subparsers.add_parser(
         "search",
         help="Search indexed completed transcripts using SQLite FTS5",
@@ -244,8 +287,83 @@ def build_parser() -> argparse.ArgumentParser:
         help="Force rebuilding the search index from the manifest",
     )
     search_cmd.add_argument(
+        "--status", action="append", default=None,
+        help="Filter by manifest status (repeatable or comma-separated)",
+    )
+    search_cmd.add_argument(
+        "--source", action="append", default=None,
+        help="Filter by source (e.g. subtitle, asr)",
+    )
+    search_cmd.add_argument(
+        "--language", action="append", default=None,
+        help="Filter by language (e.g. ai-zh, zh-CN)",
+    )
+    search_cmd.add_argument(
+        "--scope", default=None,
+        help="pending | failed | one or more work_id/bvid selectors",
+    )
+    search_cmd.add_argument(
+        "--work-id", action="append", default=None,
+        help="Filter by exact work_id or bvid (repeatable or comma-separated)",
+    )
+    search_cmd.add_argument(
+        "--format", choices=["text", "json"], default="text",
+        help="Output format (text or json)",
+    )
+    search_cmd.add_argument(
         "--archive-root", default=DEFAULT_ARCHIVE_ROOT,
         help="Archive root directory (default: ./archive)",
+    )
+
+    coverage_cmd = subparsers.add_parser(
+        "coverage", help="Print deterministic read-only coverage telemetry"
+    )
+    coverage_cmd.add_argument("--archive-root", default=DEFAULT_ARCHIVE_ROOT)
+    coverage_cmd.add_argument("--scope", default=None)
+    coverage_cmd.add_argument("--format", choices=["json", "csv"], default="json")
+    coverage_cmd.add_argument(
+        "--trusted-local", action="store_true",
+        help="Trust an operator-owned local archive root for unbounded inspection",
+    )
+    coverage_cmd.add_argument(
+        "--quality",
+        action="store_true",
+        help="Include deterministic artifact quality validation signals",
+    )
+
+    integrity_cmd = subparsers.add_parser(
+        "verify", help="Verify archive integrity without modifying files"
+    )
+    integrity_cmd.add_argument("--archive-root", default=DEFAULT_ARCHIVE_ROOT)
+    integrity_cmd.add_argument("--scope", default=None)
+    integrity_cmd.add_argument(
+        "--trusted-local", action="store_true",
+        help="Trust an operator-owned local archive root for unbounded inspection",
+    )
+    integrity_cmd.add_argument("--format", choices=["json", "text"], default="json")
+
+    recover_cmd = subparsers.add_parser(
+        "recover", help="Explicitly audit named integrity defects (no requeue execution)"
+    )
+    recover_cmd.add_argument("--archive-root", default=DEFAULT_ARCHIVE_ROOT)
+    recover_cmd.add_argument("--work-id", action="append", default=None,
+                             help="Exact work_id selector (repeatable; required for bounded recovery)")
+    recover_cmd.add_argument("--defect-code", action="append", default=None,
+                             help="Defect class selector (repeatable; bounded to reported defects)")
+    recover_cmd.add_argument(
+        "--limit", type=int, default=100,
+        help="Limit must be positive; values above the maximum are capped at 100",
+    )
+
+    evaluate_concurrency = subparsers.add_parser(
+        "evaluate-concurrency",
+        help="Evaluate evidence only; runtime remains sequential with no daemon",
+    )
+    evaluate_concurrency.add_argument(
+        "--evidence", required=True, help="Path to the JSON evidence mapping"
+    )
+    evaluate_concurrency.add_argument(
+        "--thresholds", required=True, help="Path to the explicit JSON threshold mapping"
     )
 
     export_cmd = subparsers.add_parser(
@@ -602,9 +720,16 @@ def _cmd_fetch_meta(args: argparse.Namespace) -> int:
     else:
         entries = _merge_page_rows(client, records, existing, pages_for=pages_for)
         store.save(entries)
-    store.migrate_legacy_rows(pages_for, archive_root=args.archive_root)
+    try:
+        store.migrate_legacy_rows(
+            pages_for,
+            archive_root=args.archive_root,
+            coalesce_existing_page=True,
+        )
+    except Exception:
+        print("fetch-meta: legacy migration failed", file=sys.stderr)
+        return 1
     entries = store.load()
-
     next_page = client.last_completed_page + 1
     if client.enumeration_complete:
         cursor_state = "complete"
@@ -834,6 +959,19 @@ def _cmd_download_audio(args: argparse.Namespace) -> int:
                 raise TypeError("unsupported download target")
             label = target.work_id
             final = audio.download_audio(client, target, out_path, store=store)
+            from .path_policy import confined_audio_path
+            try:
+                returned_relative = os.path.relpath(
+                    os.fspath(final), os.fspath(args.archive_root)
+                )
+            except (OSError, ValueError, TypeError):
+                returned_relative = ""
+            confined = confined_audio_path(
+                args.archive_root, returned_relative, require_exists=True
+            )
+            if confined is None:
+                raise ValueError("invalid audio path")
+            final = os.path.relpath(confined, os.fspath(args.archive_root))
         except bili_client.AmbiguousPageError:
             failed += 1
             print(f"{label}: multi-part video needs an explicit page",
@@ -895,11 +1033,7 @@ def _cmd_download_audio(args: argparse.Namespace) -> int:
 def _cmd_status(args: argparse.Namespace) -> int:
     from collections import Counter
     from .manifest import ManifestStore
-    from .run_ledger import (
-        RunLedger,
-        format_coverage_summary,
-        format_cursor_summary,
-    )
+    from .run_ledger import RunLedger, format_coverage_summary, format_cursor_summary
 
     store = ManifestStore(root=args.archive_root)
     entries = store.load()
@@ -914,24 +1048,201 @@ def _cmd_status(args: argparse.Namespace) -> int:
         print(f"unresolved: {len(unresolved)}")
         for identifier in unresolved:
             print(f"  {identifier}")
-
-    ledger = RunLedger(root=args.archive_root)
-    records = ledger.load()
+    records = RunLedger(root=args.archive_root).load()
     if not records:
         print("runs: 0")
     else:
         print(f"runs: {len(records)}")
         latest = records[-1]
-        run_id = latest.get("run_id", "unknown")
-        cmd = latest.get("command", "unknown")
-        code = latest.get("exit_code", "?")
-        finished = latest.get("finished_at") or latest.get("started_at") or ""
-        print(f"latest run: {run_id} ({cmd}, exit {code}, {finished})")
-        cursor_summary = format_cursor_summary(latest.get("cursor_snapshot"))
-        print(f"latest cursor: {cursor_summary}")
-        cov_summary = format_coverage_summary(latest.get("coverage_summary"))
-        print(f"latest coverage: {cov_summary}")
+        print(f"latest run: {latest.get('run_id', 'unknown')} ({latest.get('command', 'unknown')}, exit {latest.get('exit_code', '?')}, {latest.get('finished_at') or latest.get('started_at') or ''})")
+        print(f"latest cursor: {format_cursor_summary(latest.get('cursor_snapshot'))}")
+        print(f"latest coverage: {format_coverage_summary(latest.get('coverage_summary'))}")
     return 0
+
+
+def _cmd_coverage_quality(args: argparse.Namespace) -> int:
+    import csv
+    import io
+    from pathlib import Path
+    from .quality import QualityAnalyzer, REASON_CODES
+    from .coverage_report import _select_scope, _diagnostic_rows
+    from .sidecar_projection import (
+        ReaderPolicy,
+        project_attempt_records,
+        project_manifest_records,
+    )
+
+    root = Path(args.archive_root).resolve()
+    diagnostics: set[tuple[str, str]] = set()
+    policy = (
+        ReaderPolicy(mode="trusted_archive")
+        if getattr(args, "trusted_local", False)
+        else None
+    )
+    manifest, manifest_state, manifest_diagnostics = project_manifest_records(
+        root / "manifest" / "manifest.jsonl", policy=policy
+    )
+    diagnostics.update(
+        (
+            "sidecar_record_limit" if code.endswith("row_limit_exceeded") else
+            "sidecar_byte_limit" if code.endswith("byte_limit_exceeded") else code,
+            "manifest",
+        )
+        for code in manifest_diagnostics
+    )
+    attempts, _attempts_state, attempt_diagnostics = project_attempt_records(
+        root / "coordinator" / "attempts.jsonl", policy=policy
+    )
+    diagnostics.update(
+        (
+            "sidecar_record_limit" if code.endswith("row_limit_exceeded") else
+            "sidecar_byte_limit" if code.endswith("byte_limit_exceeded") else
+            "sidecar_malformed" if code == "truncated_attempts_line" else code,
+            "attempt",
+        )
+        for code in attempt_diagnostics
+    )
+    selected, scope_state = _select_scope(manifest, attempts, args.scope)
+    if scope_state == "unavailable":
+        diagnostics.add(("unknown_scope", "scope"))
+
+    denominator_available = (
+        manifest_state == "available" and scope_state == "available"
+    )
+    rows: list[dict[str, object]] = []
+    reason_counts: dict[str, int] = {code: 0 for code in REASON_CODES}
+    total_cues = 0
+    valid_work_items = 0
+    has_defects = False
+
+    analyzer = QualityAnalyzer()
+    for work_id, entry in sorted(selected.items()):
+        result = analyzer.analyze(entry, root)
+        row_dict: dict[str, object] = {
+            "work_id": work_id,
+            "source": result.source,
+            "language": result.language,
+            "status": result.status,
+            "cue_count": result.cue_count,
+            "artifact_count": result.artifact_count,
+            "reasons": list(result.reasons),
+            "diagnostics": list(result.diagnostics),
+        }
+        rows.append(row_dict)
+        for r in result.reasons:
+            reason_counts[r] = reason_counts.get(r, 0) + 1
+        total_cues += result.cue_count
+        if not result.reasons and not result.diagnostics:
+            valid_work_items += 1
+        else:
+            has_defects = True
+
+    diagnostic_rows = _diagnostic_rows(diagnostics)
+    summary = {
+        "total_work_items": len(rows) if denominator_available else 0,
+        "valid_work_items": valid_work_items if denominator_available else 0,
+        "total_cues": total_cues if denominator_available else 0,
+        **reason_counts,
+    }
+
+    quality_data = {
+        "schema_version": "coverage-quality-v1",
+        "scope": args.scope,
+        "denominator": {
+            "unit": "work_items",
+            "count": len(rows) if denominator_available else None,
+            "state": "available" if denominator_available else "unavailable",
+            "source": "manifest_snapshot",
+        },
+        "summary": summary,
+        "rows": rows,
+        "diagnostics": diagnostic_rows,
+    }
+
+    if args.format == "json":
+        sys.stdout.write(
+            json.dumps(
+                quality_data,
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            )
+        )
+        sys.stdout.write("\n")
+    else:
+        columns = (
+            "schema_version",
+            "scope",
+            "denominator_unit",
+            "denominator_count",
+            "denominator_state",
+            "denominator_source",
+            "work_id",
+            "source",
+            "language",
+            "status",
+            "cue_count",
+            "artifact_count",
+            "reasons",
+            "diagnostics",
+        )
+        output = io.StringIO(newline="")
+        writer = csv.DictWriter(output, fieldnames=columns, lineterminator="\n")
+        writer.writeheader()
+        csv_rows = rows or [
+            {
+                "work_id": "",
+                "source": "",
+                "language": "",
+                "status": "",
+                "cue_count": "",
+                "artifact_count": "",
+                "reasons": [],
+                "diagnostics": [],
+            }
+        ]
+        denom = quality_data["denominator"]
+        for r in csv_rows:
+            writer.writerow(
+                {
+                    "schema_version": quality_data["schema_version"],
+                    "scope": quality_data["scope"] or "",
+                    "denominator_unit": denom["unit"],
+                    "denominator_count": (
+                        denom["count"] if denom["count"] is not None else ""
+                    ),
+                    "denominator_state": denom["state"],
+                    "denominator_source": denom["source"],
+                    "work_id": r.get("work_id", ""),
+                    "source": r.get("source") or "",
+                    "language": r.get("language") or "",
+                    "status": r.get("status") or "",
+                    "cue_count": r.get("cue_count", ""),
+                    "artifact_count": r.get("artifact_count", ""),
+                    "reasons": ";".join(r.get("reasons", [])),
+                    "diagnostics": ";".join(r.get("diagnostics", [])),
+                }
+            )
+        sys.stdout.write(output.getvalue())
+
+    return 1 if (diagnostic_rows or has_defects) else 0
+
+
+def _cmd_coverage(args: argparse.Namespace) -> int:
+    from .coverage_report import CoverageReport
+    try:
+        if getattr(args, "quality", False):
+            return _cmd_coverage_quality(args)
+        from .sidecar_projection import ReaderPolicy
+        policy = ReaderPolicy(mode="trusted_archive") if getattr(args, "trusted_local", False) else None
+        report = CoverageReport.build(args.archive_root, scope=args.scope, policy=policy)
+        sys.stdout.write(report.to_json() if args.format == "json" else report.to_csv())
+        if args.format == "json":
+            sys.stdout.write("\n")
+        return 1 if report.data["diagnostics"] else 0
+    except Exception:
+        print("coverage: diagnostic coverage_report_unavailable", file=sys.stderr)
+        return 1
 
 
 def _cmd_runs(args: argparse.Namespace) -> int:
@@ -1095,12 +1406,13 @@ def _cmd_asr(args: argparse.Namespace) -> int:
             else:
                 source = "asr"
                 stem = archive.archive_stem(entry)
-                audio_path = os.path.join(
-                    args.archive_root,
-                    str(entry.get("audio_path") or os.path.join("audio", f"{stem}.m4a")),
-                )
-                segments = asr.transcribe(audio_path)
+                from .path_policy import confined_audio_file
+                declared = entry.get("audio_path") or os.path.join("audio", f"{stem}.m4a")
+                with confined_audio_file(args.archive_root, os.fspath(declared)) as safe_audio:
+                    segments = asr.transcribe(safe_audio)
             paths = archive.write_archive(args.archive_root, entry, segments, source=source, raw=raw)
+            if not archive.archive_bundle_complete(args.archive_root, paths):
+                raise ValueError("archive bundle incomplete")
             updated = dict(store.get(key) or entry)
             updated.update(paths)
             updated["status"] = "archived"
@@ -1136,6 +1448,8 @@ def _pilot_archive_subtitle(store, root: str, entry: dict[str, object]) -> dict[
         raise ValueError(f"{_pilot_row_key(entry)}: subtitle raw JSON missing")
     segments, raw = data
     paths = archive.write_archive(root, entry, segments, source="subtitle", raw=raw)
+    if not archive.archive_bundle_complete(root, paths):
+        raise ValueError("archive bundle incomplete")
     updated = dict(entry)
     updated.update(paths)
     updated["status"] = "archived"
@@ -1157,20 +1471,30 @@ def _pilot_archive_asr(store, client, root: str, entry: dict[str, object], targe
     out_path = os.path.join(root, "audio", f"{stem}.m4a")
     existing_rel = entry.get("audio_path") if entry.get("status") == "audio_ok" else None
     existing_audio_path: str | None = None
+    from .path_policy import confined_audio_file, confined_audio_path
     if existing_rel:
-        existing_abs = (
-            existing_rel if os.path.isabs(str(existing_rel))
-            else os.path.join(root, str(existing_rel))
-        )
-        if os.path.isfile(existing_abs) and os.path.getsize(existing_abs) > 0:
-            existing_audio_path = existing_abs
+        existing_audio_path_obj = confined_audio_path(root, os.fspath(existing_rel), require_exists=True)
+        if existing_audio_path_obj is not None and existing_audio_path_obj.stat().st_size > 0:
+            existing_audio_path = str(existing_audio_path_obj)
     if existing_audio_path is not None:
         audio_path = existing_audio_path
     else:
-        audio_path = audio.download_audio(client, target, out_path, store=store)
-    segments = asr.transcribe(audio_path)
+        downloaded = Path(os.fspath(audio.download_audio(client, target, out_path, store=store)))
+        try:
+            downloaded_relative = downloaded.resolve().relative_to(Path(root).resolve()).as_posix()
+        except (OSError, ValueError):
+            raise ValueError("invalid audio path")
+        audio_path_obj = confined_audio_path(root, downloaded_relative, require_exists=True)
+        if audio_path_obj is None or audio_path_obj.stat().st_size <= 0:
+            raise ValueError("invalid audio path")
+        audio_path = str(audio_path_obj)
+    declared_audio = os.path.relpath(audio_path, root)
+    with confined_audio_file(root, declared_audio) as safe_audio:
+        segments = asr.transcribe(safe_audio)
     current = dict(store.get(target.work_id) or entry)
     paths = archive.write_archive(root, current, segments, source="asr")
+    if not archive.archive_bundle_complete(root, paths):
+        raise ValueError("archive bundle incomplete")
     current.update(paths)
     current["status"] = "archived"
     try:
@@ -1492,106 +1816,99 @@ def _run_scope_rows(store, entries: dict, scope: str):
         return None, "empty --scope"
     return rows, None
 
+def _cmd_campaign(args: argparse.Namespace) -> int:
+    from . import bili_client
+    from .audio_budget import audio_cap_bytes
+    from .campaign import CampaignRunner
+    from .coordinator import ArchiveBusyError
+
+    try:
+        client = None
+        if not args.offline:
+            client = bili_client.BiliClient(sessdata=_resolve_sessdata(args))
+        runner = CampaignRunner(
+            args.archive_root,
+            client=client,
+            offline=args.offline,
+            max_audio_bytes=audio_cap_bytes(args.max_audio_gb),
+            sleep=time.sleep,
+            scope_rows=_run_scope_rows,
+        )
+        summary = runner.run(args.scope, args.limit, resume=args.resume)
+    except ArchiveBusyError:
+        print("campaign: archive_busy", file=sys.stderr)
+        return 1
+    except Exception:
+        # Never expose runtime payloads, credentials, URLs, or traces.
+        print("campaign: invalid configuration or execution failure", file=sys.stderr)
+        return 1
+    print(json.dumps(summary.to_dict(), ensure_ascii=False, sort_keys=True))
+    return summary.exit_code
 
 def _cmd_run(args: argparse.Namespace) -> int:
     from . import bili_client
-    from .coordinator import RunCoordinator
+    from .coordinator import ArchiveBusyError, RunCoordinator, archive_writer
     from .manifest import ManifestStore
-    from .run_ledger import (
-        RunLedger,
-        build_run_record,
-        compute_coverage_summary,
-        utc_now_iso,
-    )
+    from .run_ledger import RunLedger, build_run_record, compute_coverage_summary, utc_now_iso
     from .audio_budget import audio_cap_bytes
 
     started_at = utc_now_iso()
     store = ManifestStore(root=args.archive_root)
     entries = store.load()
     if args.limit is not None and args.limit <= 0:
-        # qc1-S3: a non-positive limit would silently select zero rows
-        # and exit 0; surface it as a usage error before scope resolution.
         print("run: --limit must be a positive integer", file=sys.stderr)
         return 1
     rows, error = _run_scope_rows(store, entries, args.scope)
     if error:
-        # Scope-resolution failures are usage/config errors (exit family 1
-        # per the CLI convention: pilot/fetch-meta use 1 for these too),
-        # reported on stderr before any stage runs.
         print(f"run: {error}", file=sys.stderr)
         return 1
     if args.limit is not None:
         rows = rows[: args.limit]
-
     client = None
     if not args.offline:
-        sessdata = _resolve_sessdata(args)
-        client = bili_client.BiliClient(sessdata=sessdata)
-    coord = RunCoordinator(
-        args.archive_root,
-        store,
-        client=client,
-        offline=args.offline,
-        max_audio_bytes=audio_cap_bytes(args.max_audio_gb),
-    )
-    print(
-        f"run: scope={args.scope} selected {len(rows)} row(s)"
-        + (" [offline]" if args.offline else "")
-    )
+        client = bili_client.BiliClient(sessdata=_resolve_sessdata(args))
+    coord = RunCoordinator(args.archive_root, store, client=client, offline=args.offline,
+                           max_audio_bytes=audio_cap_bytes(args.max_audio_gb))
+    print(f"run: scope={args.scope} selected {len(rows)} row(s)" + (" [offline]" if args.offline else ""))
     for key, entry in rows:
         print(f"  {entry.get('work_id') or key}: {entry.get('status')}")
-
-    summary = coord.run_batch(rows)
-
-    ok = sum(1 for r in summary.results if r.ok)
-    skipped = summary.skipped_rows
-    failed = summary.failed
-    for r in summary.results:
-        if r.ok:
-            print(f"{r.work_id}: {r.final_status}")
-    # Per-run failure summary (operator surface): one line per failed row,
-    # then per skipped row with its reason.
-    for r in failed:
-        codes = ", ".join(str(c) for c in r.failure_codes) or "unknown"
-        print(f"run: {r.work_id}: failed ({codes})", file=sys.stderr)
-    for r in skipped:
-        print(f"run: {r.work_id}: skipped ({r.skip_reason or 'unknown'})")
-
-    exit_code = 0
-    if summary.risk_interrupted:
-        print("run: risk-control ceiling; stopping — re-run to resume.",
-              file=sys.stderr)
-        exit_code = 2
-    elif not summary.fully_processed:
-        # Nonzero when the requested scope was not fully processed: any
-        # per-item failure or missing-input skip leaves the row un-archived.
-        exit_code = 1
-
-    print(f"run: {ok} completed, {len(skipped)} skipped" +
-          (f", {len(failed)} failed" if failed else "") +
-          (", scope not fully processed" if exit_code == 1 else ""))
-
-    ledger = RunLedger(root=args.archive_root)
     try:
-        rec = build_run_record(
-            command="run",
-            started_at=started_at,
-            finished_at=utc_now_iso(),
-            exit_code=exit_code,
-            mid=None,
-            work_ids=[r.work_id for r in summary.results] or None,
-            records_existing=len(entries),
-            coverage_summary=compute_coverage_summary(store.load()),
-        )
-        ledger.append(rec)
-    except Exception:
-        pass
-    return exit_code
+        with archive_writer(args.archive_root):
+            summary = coord.run_batch(rows)
+            ok = sum(1 for r in summary.results if r.ok)
+            skipped = summary.skipped_rows
+            failed = summary.failed
+            for r in summary.results:
+                if r.ok:
+                    print(f"{r.work_id}: {r.final_status}")
+            for r in failed:
+                codes = ", ".join(str(c) for c in r.failure_codes) or "unknown"
+                print(f"run: {r.work_id}: failed ({codes})", file=sys.stderr)
+            for r in skipped:
+                print(f"run: {r.work_id}: skipped ({r.skip_reason or 'unknown'})")
+            exit_code = 2 if summary.risk_interrupted else (0 if summary.fully_processed else 1)
+            if summary.risk_interrupted:
+                print("run: risk-control ceiling; stopping — re-run to resume.", file=sys.stderr)
+            print(f"run: {ok} completed, {len(skipped)} skipped" +
+                  (f", {len(failed)} failed" if failed else "") +
+                  (", scope not fully processed" if exit_code == 1 else ""))
+            try:
+                ledger = RunLedger(root=args.archive_root)
+                ledger.append(build_run_record(command="run", started_at=started_at,
+                    finished_at=utc_now_iso(), exit_code=exit_code, mid=None,
+                    work_ids=[r.work_id for r in summary.results] or None,
+                    records_existing=len(entries), coverage_summary=compute_coverage_summary(store.load())))
+            except Exception:
+                pass
+            return exit_code
+    except ArchiveBusyError:
+        print("run: archive_busy", file=sys.stderr)
+        return 1
 
 
 def _cmd_schedule(args: argparse.Namespace) -> int:
     from . import bili_client
-    from .coordinator import RunCoordinator
+    from .coordinator import ArchiveBusyError, RunCoordinator, archive_writer
     from .manifest import ManifestStore
     from .meta_cursor import MetaCursorStore
     from .run_ledger import (
@@ -1717,130 +2034,169 @@ def _cmd_schedule(args: argparse.Namespace) -> int:
                     )
                 ))
 
-    summary = coord.run_batch(rows)
-    if args.allow_long_live:
-        after = audio_dir_usage_bytes(args.archive_root)
-        print(f"schedule: long-live peak audio/ bytes={coord.audio_peak_bytes}")
-        print(f"schedule: long-live audio/ after bytes={after}")
-    batch_state = classify_batch_state(
-        risk_interrupted=summary.risk_interrupted,
-        truncated=truncated,
-    )
-
-    previous = list(skip_ids or [])
-    settled = previous + settled_processed_ids(
-        summary.results, risk_interrupted=summary.risk_interrupted
-    )
-    processed: list[str] = []
-    seen: set[str] = set()
-    for work_id in settled:
-        if work_id not in seen:
-            seen.add(work_id)
-            processed.append(work_id)
-
-    last_api_error_code: int | str | None = None
-    if summary.risk_interrupted and summary.results:
-        codes = summary.results[-1].failure_codes
-        if codes:
-            last_api_error_code = codes[-1]
-
-    persisted = False
     try:
-        sched_store.replace_atomic(
-            {
-                "scope": args.scope,
-                "limit": args.limit,
-                "state": batch_state,
-                "processed_work_ids": processed,
-                "last_api_error_code": last_api_error_code,
-                "allow_long_live": bool(args.allow_long_live),
-                "updated_at": utc_now_iso(),
-            }
-        )
-        persisted = True
-    except Exception as exc:
-        print(
-            f"schedule: failed to persist scheduler.json ({type(exc).__name__})",
-            file=sys.stderr,
-        )
-
-    ok = sum(1 for r in summary.results if r.ok)
-    skipped = summary.skipped_rows
-    failed = summary.failed
-    for r in summary.results:
-        if r.ok:
-            print(f"{r.work_id}: {r.final_status}")
-    for r in failed:
-        codes = ", ".join(str(c) for c in r.failure_codes) or "unknown"
-        print(f"schedule: {r.work_id}: failed ({codes})", file=sys.stderr)
-    for r in skipped:
-        print(f"schedule: {r.work_id}: skipped ({r.skip_reason or 'unknown'})")
-
-    exit_code = 0
-    if summary.risk_interrupted:
-        if persisted:
-            print(
-                "schedule: risk-control ceiling; stopping — re-run with --resume.",
-                file=sys.stderr,
+        with archive_writer(args.archive_root):
+            summary = coord.run_batch(rows)
+            if args.allow_long_live:
+                after = audio_dir_usage_bytes(args.archive_root)
+                print(f"schedule: long-live peak audio/ bytes={coord.audio_peak_bytes}")
+                print(f"schedule: long-live audio/ after bytes={after}")
+            batch_state = classify_batch_state(
+                risk_interrupted=summary.risk_interrupted,
+                truncated=truncated,
             )
-        else:
-            print(
-                "schedule: risk-control ceiling; scheduler.json was not persisted.",
-                file=sys.stderr,
+
+            previous = list(skip_ids or [])
+            settled = previous + settled_processed_ids(
+                summary.results, risk_interrupted=summary.risk_interrupted
             )
-        exit_code = 2
-    elif not summary.fully_processed:
-        exit_code = 1
-    if not persisted and exit_code != 2:
-        exit_code = 1
+            processed: list[str] = []
+            seen: set[str] = set()
+            for work_id in settled:
+                if work_id not in seen:
+                    seen.add(work_id)
+                    processed.append(work_id)
 
-    coverage = compute_coverage_summary(store.load())
-    cursor_snapshot = cursor_store.load()
-    if persisted:
-        print(f"schedule: batch={batch_state}")
-    else:
-        print(f"schedule: batch={batch_state} (not persisted)")
-    print(f"enumeration: {format_cursor_summary(cursor_snapshot)}")
-    print(f"coverage: [{format_coverage_summary(coverage)}]")
-    print(
-        f"schedule: {ok} completed, {len(skipped)} skipped"
-        + (f", {len(failed)} failed" if failed else "")
-        + (", scope not fully processed" if exit_code == 1 else "")
-    )
+            last_api_error_code: int | str | None = None
+            if summary.risk_interrupted and summary.results:
+                codes = summary.results[-1].failure_codes
+                if codes:
+                    last_api_error_code = codes[-1]
 
-    ledger = RunLedger(root=args.archive_root)
-    try:
-        rec = build_run_record(
-            command="schedule",
-            started_at=started_at,
-            finished_at=utc_now_iso(),
-            exit_code=exit_code,
-            mid=None,
-            work_ids=[r.work_id for r in summary.results] or None,
-            records_existing=len(entries),
-            last_api_error_code=last_api_error_code,
-            coverage_summary=coverage,
-            cursor_snapshot=cursor_snapshot,
-        )
-        ledger.append(rec)
-    except Exception:
-        pass
-    return exit_code
+            persisted = False
+            try:
+                sched_store.replace_atomic(
+                    {
+                        "scope": args.scope,
+                        "limit": args.limit,
+                        "state": batch_state,
+                        "processed_work_ids": processed,
+                        "last_api_error_code": last_api_error_code,
+                        "allow_long_live": bool(args.allow_long_live),
+                        "updated_at": utc_now_iso(),
+                    }
+                )
+                persisted = True
+            except Exception as exc:
+                print(
+                    "schedule: failed to persist scheduler.json "
+                    f"({type(exc).__name__})",
+                    file=sys.stderr,
+                )
+
+            ok = sum(1 for result in summary.results if result.ok)
+            skipped = summary.skipped_rows
+            failed = summary.failed
+            for result in summary.results:
+                if result.ok:
+                    print(f"{result.work_id}: {result.final_status}")
+            for result in failed:
+                codes = ", ".join(
+                    str(code) for code in result.failure_codes
+                ) or "unknown"
+                print(
+                    f"schedule: {result.work_id}: failed ({codes})",
+                    file=sys.stderr,
+                )
+            for result in skipped:
+                print(
+                    f"schedule: {result.work_id}: skipped "
+                    f"({result.skip_reason or 'unknown'})"
+                )
+
+            exit_code = 0
+            if summary.risk_interrupted:
+                if persisted:
+                    print(
+                        "schedule: risk-control ceiling; stopping — "
+                        "re-run with --resume.",
+                        file=sys.stderr,
+                    )
+                else:
+                    print(
+                        "schedule: risk-control ceiling; scheduler.json "
+                        "was not persisted.",
+                        file=sys.stderr,
+                    )
+                exit_code = 2
+            elif not summary.fully_processed:
+                exit_code = 1
+            if not persisted and exit_code != 2:
+                exit_code = 1
+
+            coverage = compute_coverage_summary(store.load())
+            cursor_snapshot = cursor_store.load()
+            if persisted:
+                print(f"schedule: batch={batch_state}")
+            else:
+                print(f"schedule: batch={batch_state} (not persisted)")
+            print(f"enumeration: {format_cursor_summary(cursor_snapshot)}")
+            print(f"coverage: [{format_coverage_summary(coverage)}]")
+            print(
+                f"schedule: {ok} completed, {len(skipped)} skipped"
+                + (f", {len(failed)} failed" if failed else "")
+                + (", scope not fully processed" if exit_code == 1 else "")
+            )
+
+            ledger = RunLedger(root=args.archive_root)
+            try:
+                record = build_run_record(
+                    command="schedule",
+                    started_at=started_at,
+                    finished_at=utc_now_iso(),
+                    exit_code=exit_code,
+                    mid=None,
+                    work_ids=[result.work_id for result in summary.results] or None,
+                    records_existing=len(entries),
+                    last_api_error_code=last_api_error_code,
+                    coverage_summary=coverage,
+                    cursor_snapshot=cursor_snapshot,
+                )
+                ledger.append(record)
+            except Exception:
+                pass
+            return exit_code
+    except ArchiveBusyError:
+        print("schedule: archive_busy", file=sys.stderr)
+        return 1
 
 
 def _cmd_search(args: argparse.Namespace) -> int:
-    from .manifest import ManifestStore
-    from .search_index import FTS5UnavailableError, SearchIndex
+    from .manifest import VALID_STATUSES
+    from .search_index import FTS5UnavailableError, SearchQuery, search
 
-    store = ManifestStore(root=args.archive_root)
-    index = SearchIndex(root=args.archive_root)
+    if args.limit is not None and args.limit <= 0:
+        print("search: --limit must be a positive integer", file=sys.stderr)
+        return 1
+
+    status_filter = _parse_status_filter(args.status)
+    if status_filter is not None:
+        invalid = status_filter - VALID_STATUSES
+        if invalid:
+            print(
+                f"search: invalid status filter: {sorted(invalid)}; "
+                f"valid statuses: {sorted(VALID_STATUSES)}",
+                file=sys.stderr,
+            )
+            return 1
+
+    source_filter = _parse_status_filter(args.source)
+    lang_filter = _parse_status_filter(args.language)
+    work_id_filter = _parse_status_filter(args.work_id)
+
+    sq = SearchQuery(
+        query=args.query,
+        status=status_filter,
+        source=source_filter,
+        language=lang_filter,
+        scope=args.scope,
+        work_id=work_id_filter,
+        limit=args.limit,
+        rebuild=args.rebuild,
+    )
 
     try:
-        manifest = store.load()
-        if args.rebuild or index.is_stale(manifest):
-            index.build(manifest, force=args.rebuild)
-
-        results = index.search(args.query, limit=args.limit, auto_build=False)
+        results = search(archive_root=args.archive_root, query=sq)
     except FTS5UnavailableError as exc:
         print(f"search: {exc}", file=sys.stderr)
         return 1
@@ -1855,10 +2211,15 @@ def _cmd_search(args: argparse.Namespace) -> int:
         )
         return 1
 
+    if getattr(args, "format", "text") == "json":
+        print(json.dumps(results, indent=2, ensure_ascii=False))
+        return 0
+
     for res in results:
+        score = float(res.get("score") or 0.0)
         print(
-            f"{res.work_id}: {res.title} [{res.status}] "
-            f"(score: {res.score:.4f}, path: {res.path})"
+            f"{res['work_id']}: {res['title']} [{res['status']}] "
+            f"(score: {score:.4f}, path: {res['path']})"
         )
     return 0
 
@@ -1908,16 +2269,137 @@ def _cmd_export(args: argparse.Namespace) -> int:
     return 0
 
 
-def main(argv: list[str] | None = None) -> int:
-    parser = build_parser()
-    args = parser.parse_args(argv)
-    if args.command is None:
-        parser.print_help()
-        return 0
+def _cmd_verify(args: argparse.Namespace) -> int:
+    from .integrity import IntegrityVerifier
+    from .sidecar_projection import ReaderPolicy
+    policy = ReaderPolicy(mode="trusted_archive") if getattr(args, "trusted_local", False) else None
+    report = IntegrityVerifier().verify(Path(args.archive_root), scope=args.scope, policy=policy)
+    payload = report.to_dict()
+    if args.format == "json":
+        print(json.dumps(payload, ensure_ascii=False, sort_keys=True))
+    else:
+        print(f"checked: {payload['checked']}")
+        print(f"defects: {payload['defect_count']}")
+        for defect in payload["defects"]:
+            print(f"{defect['work_id']}: {defect['code']}")
+        for diagnostic in payload["diagnostics"]:
+            print(f"diagnostic: {diagnostic}")
+    return 0 if not payload["defects"] and not payload["diagnostics"] else 1
+
+
+def _cmd_recover(args: argparse.Namespace) -> int:
+    from .integrity import IntegrityVerifier
+    payload = IntegrityVerifier.recover(
+        Path(args.archive_root), work_ids=args.work_id,
+        defect_codes=args.defect_code, limit=args.limit,
+    )
+    print(json.dumps(payload, ensure_ascii=False, sort_keys=True))
+    return 0 if payload.get("ok") else 1
+
+
+_MAX_CONCURRENCY_INPUT_BYTES = 1_048_576
+
+
+class _ConcurrencyInputError(Exception):
+    def __init__(self, error_code: str) -> None:
+        super().__init__(error_code)
+        self.error_code = error_code
+
+
+def _read_concurrency_json_object(path: str) -> dict[str, object]:
+    from collections.abc import Mapping
+
+    file_path = Path(path)
+    try:
+        if not file_path.exists():
+            raise _ConcurrencyInputError("input_file_missing")
+        if not file_path.is_file():
+            raise _ConcurrencyInputError("input_file_not_regular")
+        with file_path.open("rb") as input_file:
+            payload = input_file.read(_MAX_CONCURRENCY_INPUT_BYTES + 1)
+    except _ConcurrencyInputError:
+        raise
+    except OSError:
+        raise _ConcurrencyInputError("input_file_unreadable") from None
+
+    if len(payload) > _MAX_CONCURRENCY_INPUT_BYTES:
+        raise _ConcurrencyInputError("input_file_oversized")
+    try:
+        decoded = payload.decode("utf-8")
+    except UnicodeDecodeError:
+        raise _ConcurrencyInputError("input_invalid_utf8") from None
+    try:
+        value = json.loads(decoded)
+    except json.JSONDecodeError:
+        raise _ConcurrencyInputError("input_malformed_json") from None
+    if not isinstance(value, Mapping):
+        raise _ConcurrencyInputError("input_non_object_json")
+    return dict(value)
+
+
+def _write_concurrency_error(error_code: str) -> None:
+    payload = {
+        "error_code": error_code,
+        "operating_mode": "sequential-no-daemon",
+    }
+    print(
+        json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")),
+        file=sys.stderr,
+    )
+
+
+def _cmd_evaluate_concurrency(args: argparse.Namespace) -> int:
+    from .concurrency_gate import ConcurrencyGate
+
+    try:
+        evidence = _read_concurrency_json_object(args.evidence)
+        thresholds = _read_concurrency_json_object(args.thresholds)
+    except _ConcurrencyInputError as exc:
+        _write_concurrency_error(exc.error_code)
+        return 1
+
+    try:
+        result = ConcurrencyGate.evaluate(evidence, thresholds)
+    except Exception:
+        _write_concurrency_error("evaluation_failure")
+        return 1
+
+    print(
+        json.dumps(
+            result.to_dict(),
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+    )
+    return 0 if result.ok else 1
+
+
+_ARCHIVE_WRITER_COMMANDS = frozenset({
+    "fetch-meta",
+    "recover",
+    "asr",
+    "pilot",
+    "probe-subs",
+    "harvest-subs",
+    "download-audio",
+    "run",
+    "campaign",
+    "schedule",
+})
+
+
+def _dispatch_command(args: argparse.Namespace) -> int:
     if args.command == "fetch-meta":
         return _cmd_fetch_meta(args)
     if args.command == "status":
         return _cmd_status(args)
+    if args.command == "coverage":
+        return _cmd_coverage(args)
+    if args.command == "verify":
+        return _cmd_verify(args)
+    if args.command == "recover":
+        return _cmd_recover(args)
     if args.command == "runs":
         return _cmd_runs(args)
     if args.command == "asr":
@@ -1932,13 +2414,36 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_download_audio(args)
     if args.command == "search":
         return _cmd_search(args)
+    if args.command == "evaluate-concurrency":
+        return _cmd_evaluate_concurrency(args)
     if args.command == "export":
         return _cmd_export(args)
     if args.command == "run":
         return _cmd_run(args)
+    if args.command == "campaign":
+        return _cmd_campaign(args)
     if args.command == "schedule":
         return _cmd_schedule(args)
-    parser.error(f"command {args.command!r} is not implemented yet")
+    raise ValueError(f"command {args.command!r} is not implemented")
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    if args.command is None:
+        parser.print_help()
+        return 0
+    if args.command in _ARCHIVE_WRITER_COMMANDS:
+        from .coordinator import ArchiveBusyError, archive_writer
+
+        try:
+            with archive_writer(args.archive_root):
+                return _dispatch_command(args)
+        except ArchiveBusyError:
+            print(f"{args.command}: archive_busy", file=sys.stderr)
+            return 1
+    return _dispatch_command(args)
+
 
 
 if __name__ == "__main__":

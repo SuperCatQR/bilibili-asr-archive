@@ -10,7 +10,9 @@ import pytest
 
 from bili_asr.cli import main
 from bili_asr.export import (
+    COMPLETED_STATUSES,
     STANDARD_CSV_COLUMNS,
+    export_coverage_summary,
     export_manifest,
     export_rows,
     format_csv_export,
@@ -374,4 +376,229 @@ def test_export_atomic_out_write_and_cleanup_on_failure(tmp_root, monkeypatch):
 
     assert not os.path.exists(out_file)
     assert not os.path.exists(tmp_file)
+
+
+def test_export_repeated_json_csv_byte_stability(tmp_root):
+    """Repeated export calls produce 100% byte-identical JSON and CSV output."""
+    _create_sample_archive_for_export(tmp_root)
+
+    # 1. JSON default
+    json_runs = [export_manifest(tmp_root, "json") for _ in range(5)]
+    assert all(r == json_runs[0] for r in json_runs)
+
+    # 2. CSV default
+    csv_runs = [export_manifest(tmp_root, "csv") for _ in range(5)]
+    assert all(r == csv_runs[0] for r in csv_runs)
+
+    # 3. JSON with text
+    json_text_runs = [export_manifest(tmp_root, "json", with_text=True) for _ in range(5)]
+    assert all(r == json_text_runs[0] for r in json_text_runs)
+
+    # 4. CSV with text
+    csv_text_runs = [export_manifest(tmp_root, "csv", with_text=True) for _ in range(5)]
+    assert all(r == csv_text_runs[0] for r in csv_text_runs)
+
+
+def test_export_bounded_limit_and_text_length(tmp_root):
+    """export supports bounding total returned rows and transcript text length."""
+    _create_sample_archive_for_export(tmp_root)
+
+    # 1. Row limit
+    rows_limit_2 = export_rows(ManifestStore(tmp_root), limit=2)
+    assert len(rows_limit_2) == 2
+
+    json_limit_1 = json.loads(export_manifest(tmp_root, "json", limit=1))
+    assert len(json_limit_1) == 1
+
+    # 2. Max text length
+    json_text_bounded = json.loads(
+        export_manifest(tmp_root, "json", with_text=True, max_text_length=10)
+    )
+    for row in json_text_bounded:
+        if row.get("transcript_text"):
+            assert len(row["transcript_text"]) <= 10
+
+
+def test_export_path_safety_and_traversal_redaction(tmp_root):
+    """Export neutralizes path traversal attempts and outside-root filepaths."""
+    store = ManifestStore(root=tmp_root)
+    dangerous_entry = {
+        "bvid": "BV1traverse",
+        "work_id": "BV1traverse:p0",
+        "page_index": 0,
+        "title": "Path Traversal Test",
+        "status": "archived",
+        "srt_path": "../../../../etc/passwd",
+        "audio_path": "/etc/shadow",
+        "txt_path": "transcripts/txt/../../secret.txt",
+        "raw_path": "transcripts/raw/BV1traverse.p0.json",
+    }
+    store.upsert(dangerous_entry)
+
+    rows = export_rows(store, archive_root=tmp_root)
+    assert len(rows) == 1
+    row = rows[0]
+
+    # Escaping paths must be empty string
+    assert row["srt_path"] == ""
+    assert row["audio_path"] == ""
+    assert row["txt_path"] == ""
+    # Safe relative path is preserved
+    assert row["raw_path"] == "transcripts/raw/BV1traverse.p0.json"
+    assert "passwd" not in row["srt_path"]
+    assert "shadow" not in row["audio_path"]
+
+
+def test_export_nested_and_custom_url_redaction(tmp_root, capsys):
+    """Export redacts nested URLs, custom _url keys, auth credentials, and stack traces."""
+    store = ManifestStore(root=tmp_root)
+    entry = {
+        "bvid": "BV1nested",
+        "work_id": "BV1nested:p0",
+        "page_index": 0,
+        "title": "Nested Redaction Test",
+        "status": "archived",
+        "cover_url": "https://i0.hdslb.com/bfs/archive/pic.jpg",
+        "video_url": "https://api.bilibili.com/video/stream",
+        "custom_url": "https://example.com/custom",
+        "play_url": "https://play.bilibili.com",
+        "access_token": "secret_oauth_token",
+        "nested_meta": {
+            "token": "tok_inner_123",
+            "traceback": "Traceback (most recent call last): line 1",
+            "safe_counter": 42,
+            "api_url": "https://api.example.com",
+        },
+        "list_meta": [
+            {"cookie": "raw_cookie_val", "name": "valid_name"},
+            "https://signed.bilivideo.com/a?deadline=123&sign=xyz",
+        ],
+    }
+    store.upsert(entry)
+
+    code = main(["export", "--format", "json", "--archive-root", tmp_root])
+    assert code == 0
+    out = capsys.readouterr().out
+    data = json.loads(out)
+    assert len(data) == 1
+    row = data[0]
+
+    # Check top-level exclusion
+    assert "cover_url" not in row
+    assert "video_url" not in row
+    assert "custom_url" not in row
+    assert "play_url" not in row
+    assert "access_token" not in row
+
+    # Check nested dictionary
+    assert "nested_meta" in row
+    nested = row["nested_meta"]
+    assert "token" not in nested
+    assert "traceback" not in nested
+    assert "api_url" not in nested
+    assert nested.get("safe_counter") == 42
+
+    # Check list sanitization
+    assert "list_meta" in row
+    list_items = row["list_meta"]
+    assert "cookie" not in list_items[0]
+    assert list_items[0].get("name") == "valid_name"
+    assert list_items[1] == "[redacted]"
+
+    # Ensure none of the sensitive values exist in raw output string
+    assert "secret_oauth_token" not in out
+    assert "tok_inner_123" not in out
+    assert "raw_cookie_val" not in out
+    assert "sign=xyz" not in out
+
+
+def test_export_coverage_summary_explains_incomplete_and_excluded(tmp_root):
+    """export_coverage_summary accurately categorizes completed vs incomplete/excluded rows."""
+    store = ManifestStore(root=tmp_root)
+    entries = [
+        {"bvid": "BV1a", "work_id": "BV1a:p0", "status": "archived", "audio_path": "audio/BV1a.m4a"},
+        {"bvid": "BV1b", "work_id": "BV1b:p0", "status": "subtitle_done"},
+        {"bvid": "BV1c", "work_id": "BV1c:p0", "status": "meta_ok"},
+        {"bvid": "BV1d", "work_id": "BV1d:p0", "status": "needs_audio"},
+        {"bvid": "BV1e", "work_id": "BV1e:p0", "status": "gone"},
+    ]
+    for e in entries:
+        store.upsert(e)
+
+    # 1. Full summary without filter
+    all_rows = export_rows(store, archive_root=tmp_root)
+    summary_all = export_coverage_summary(all_rows, total_manifest_count=5)
+
+    assert summary_all["total_rows"] == 5
+    assert summary_all["completed_rows"] == 2
+    assert summary_all["incomplete_rows"] == 3
+    assert summary_all["excluded_count"] == 0
+    assert summary_all["status_counts"] == {
+        "archived": 1,
+        "gone": 1,
+        "meta_ok": 1,
+        "needs_audio": 1,
+        "subtitle_done": 1,
+    }
+    assert summary_all["reclaimed_audio_rows"] == 1
+
+    # 2. Filtered summary (status=archived) explains excluded rows
+    archived_rows = export_rows(store, status_filter=["archived"], archive_root=tmp_root)
+    summary_filtered = export_coverage_summary(archived_rows, total_manifest_count=5)
+
+    assert summary_filtered["total_rows"] == 1
+    assert summary_filtered["completed_rows"] == 1
+    assert summary_filtered["incomplete_rows"] == 0
+    assert summary_filtered["excluded_count"] == 4
+    assert summary_filtered["status_counts"] == {"archived": 1}
+
+
+def test_export_independent_of_search_index(tmp_root, capsys):
+    """Export is fully decoupled from search.db and does not require or mutate search index."""
+    _create_sample_archive_for_export(tmp_root)
+    search_db = os.path.join(tmp_root, "search.db")
+    assert not os.path.exists(search_db)
+
+    # Export runs cleanly without search.db existing
+    code = main(["export", "--format", "json", "--archive-root", tmp_root])
+    assert code == 0
+    out = capsys.readouterr().out
+    data = json.loads(out)
+    assert len(data) == 4
+
+    # search.db is NOT created as a side-effect of export
+    assert not os.path.exists(search_db)
+
+
+def test_export_sidecars_and_manifest_remain_immutable(tmp_root):
+    """Export operations never mutate manifest JSONL or existing sidecar files."""
+    store = _create_sample_archive_for_export(tmp_root)
+    cursor_file = os.path.join(tmp_root, "meta-cursor.json")
+    ledger_file = os.path.join(tmp_root, "run-ledger.jsonl")
+
+    with open(cursor_file, "w", encoding="utf-8") as fh:
+        fh.write('{"state": "complete", "total": 4}\n')
+    with open(ledger_file, "w", encoding="utf-8") as fh:
+        fh.write('{"command": "fetch-meta", "exit_code": 0}\n')
+
+    manifest_path = os.path.join(tmp_root, "manifest", "manifest.jsonl")
+    with open(manifest_path, "r", encoding="utf-8") as fh:
+        orig_manifest = fh.read()
+    with open(cursor_file, "r", encoding="utf-8") as fh:
+        orig_cursor = fh.read()
+    with open(ledger_file, "r", encoding="utf-8") as fh:
+        orig_ledger = fh.read()
+
+    # Perform multiple export commands
+    export_manifest(tmp_root, "json", with_text=True)
+    export_manifest(tmp_root, "csv", with_text=False)
+    export_manifest(tmp_root, "json", status_filter=["archived"])
+    main(["export", "--format", "csv", "--with-text", "--archive-root", tmp_root])
+
+    with open(manifest_path, "r", encoding="utf-8") as fh:
+        assert fh.read() == orig_manifest
+    with open(cursor_file, "r", encoding="utf-8") as fh:
+        assert fh.read() == orig_cursor
+    with open(ledger_file, "r", encoding="utf-8") as fh:
+        assert fh.read() == orig_ledger
 

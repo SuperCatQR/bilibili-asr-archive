@@ -15,15 +15,20 @@ from __future__ import annotations
 import json
 import os
 import re
+import threading
 import time
+from pathlib import Path
+from contextlib import contextmanager
 from dataclasses import dataclass, field
-from typing import Any, Callable
+from typing import Any, Callable, Iterator
 
 from . import asr as asr_module
 from . import audio as audio_module
 from . import subtitles as subtitles_module
 from .manifest import ManifestStore
 from .page_identity import PageIdentity, artifact_stem, identity_from_entry
+from .persistence import append_jsonl_record, file_lock
+from .path_policy import confined_audio_path
 
 STAGES = ("harvest", "download", "asr", "archive")
 OUTCOMES = ("ok", "failed", "skipped")
@@ -49,6 +54,44 @@ _FORBIDDEN_MARKERS = (
 _MAX_ERROR_CODE_LEN = 64
 
 ATTEMPTS_REL_PATH = os.path.join("coordinator", "attempts.jsonl")
+ARCHIVE_WRITER_LOCK = os.path.join("coordinator", "archive-writer.lock")
+
+
+class ArchiveBusyError(RuntimeError):
+    """Raised when another sequential archive operation owns the root."""
+
+    def __init__(self) -> None:
+        super().__init__("archive_busy")
+
+
+_ARCHIVE_WRITER_STATE = threading.local()
+
+
+@contextmanager
+def archive_writer(root: str | os.PathLike[str], *, blocking: bool = False) -> Iterator[None]:
+    """Own the archive root, reentrant only within the owning thread."""
+    lock_target = os.path.join(os.fspath(root), ARCHIVE_WRITER_LOCK)
+    owned = getattr(_ARCHIVE_WRITER_STATE, "owned", None)
+    if owned == lock_target:
+        yield
+        return
+    lock = file_lock(lock_target, blocking=blocking)
+    try:
+        lock.__enter__()
+    except OSError as exc:
+        if not blocking and isinstance(exc.__cause__, BlockingIOError):
+            raise ArchiveBusyError() from exc
+        raise
+    _ARCHIVE_WRITER_STATE.owned = lock_target
+    try:
+        yield
+    except BaseException as exc:
+        _ARCHIVE_WRITER_STATE.owned = None
+        if not lock.__exit__(type(exc), exc, exc.__traceback__):
+            raise
+    else:
+        _ARCHIVE_WRITER_STATE.owned = None
+        lock.__exit__(None, None, None)
 
 
 def _utc_now_iso() -> str:
@@ -138,9 +181,8 @@ def _validate_attempt(record: dict[str, Any]) -> dict[str, Any]:
 class AttemptLedger:
     """Append-only JSONL sidecar at ``{archive_root}/coordinator/attempts.jsonl``.
 
-    Appends are atomic (tmp file + fsync + os.replace) so a crash never
-    leaves a partial line: readers see either the previous content or the
-    previous content plus one complete record.
+    Each append writes one newline-terminated record and fsyncs the file and
+    parent directory; history is never rewritten.
     """
 
     def __init__(self, root: str | os.PathLike[str]) -> None:
@@ -163,49 +205,41 @@ class AttemptLedger:
         return records
 
     def append(self, record: dict[str, Any]) -> dict[str, Any]:
-        # simplify: whole-file rewrite per append is O(n^2) over the run
-        # history. If the ledger grows past a few thousand records, switch
-        # to open-append + flush/fsync, or periodic compaction into
-        # per-work chunks (read path already tolerates truncation via
-        # _validate_attempt skipping).
         stored = _validate_attempt(record)
         os.makedirs(os.path.dirname(self.path), exist_ok=True)
-        existing_bytes = b""
-        if os.path.exists(self.path):
-            with open(self.path, "rb") as fh:
-                existing_bytes = fh.read()
-        line_bytes = (json.dumps(stored, ensure_ascii=False) + "\n").encode("utf-8")
-        tmp = self.path + ".tmp"
-        try:
-            with open(tmp, "wb") as fh:
-                if existing_bytes:
-                    fh.write(existing_bytes)
-                    if not existing_bytes.endswith(b"\n"):
-                        fh.write(b"\n")
-                fh.write(line_bytes)
-                fh.flush()
-                os.fsync(fh.fileno())
-            os.replace(tmp, self.path)
-            # qc2-F-003: fsync the parent dir so the rename itself is
-            # durable; best-effort — some filesystems reject dir fsync.
-            try:
-                dirfd = os.open(
-                    os.path.dirname(self.path), os.O_RDONLY
-                )
-                try:
-                    os.fsync(dirfd)
-                finally:
-                    os.close(dirfd)
-            except OSError:
-                pass
-        except BaseException:
-            if os.path.exists(tmp):
-                try:
-                    os.remove(tmp)
-                except OSError:
-                    pass
-            raise
+        lock_path = self.path + ".lock"
+        with file_lock(lock_path):
+            key = (stored["work_id"], stored["stage"])
+            latest = 0
+            for prior in self._iter_valid(strict=True):
+                if (prior["work_id"], prior["stage"]) == key:
+                    latest = max(latest, prior["attempt"])
+            if record.get("_preserve_attempt"):
+                next_attempt = stored["attempt"]
+            else:
+                next_attempt = max(stored["attempt"], latest + 1)
+            stored["attempt"] = next_attempt
+            append_jsonl_record(self.path, stored, lock_path=lock_path)
         return stored
+
+    def _iter_valid(self, *, strict: bool = False):
+        if not os.path.exists(self.path):
+            return
+        try:
+            with open(self.path, "r", encoding="utf-8") as fh:
+                for line_number, line in enumerate(fh, 1):
+                    if not line.strip():
+                        continue
+                    try:
+                        yield _validate_attempt(json.loads(line))
+                    except (json.JSONDecodeError, ValueError) as exc:
+                        if strict:
+                            raise ValueError(f"malformed attempt history at line {line_number}") from exc
+        except OSError as exc:
+            if strict:
+                raise ValueError("attempt history unavailable") from exc
+            return
+
 
 
 @dataclass
@@ -265,6 +299,7 @@ class RunCoordinator:
         offline: bool = False,
         max_audio_bytes: int = 0,
         sleep: Callable[[float], None] | None = None,
+        asr_runner: Any | None = None,
     ) -> None:
         self.root = os.fspath(archive_root)
         self.store = store
@@ -272,10 +307,11 @@ class RunCoordinator:
         self.offline = offline
         self.max_audio_bytes = max(0, max_audio_bytes)
         self._sleep = sleep or time.sleep
+        self.asr_runner = asr_runner
         self.audio_peak_bytes = 0
         self.ledger = AttemptLedger(self.root)
         self._attempt_counts: dict[tuple[str, str], int] = {}
-        for rec in self.ledger.load():
+        for rec in self.ledger._iter_valid(strict=True):
             key = (rec["work_id"], rec["stage"])
             self._attempt_counts[key] = max(
                 self._attempt_counts.get(key, 0), rec["attempt"]
@@ -294,12 +330,11 @@ class RunCoordinator:
         started_at: str | None = None,
     ) -> dict[str, Any]:
         key = (work_id, stage)
-        self._attempt_counts[key] = self._attempt_counts.get(key, 0) + 1
-        return self.ledger.append(
+        stored = self.ledger.append(
             {
                 "stage": stage,
                 "work_id": work_id,
-                "attempt": self._attempt_counts[key],
+                "attempt": self._attempt_counts.get(key, 0) + 1,
                 "outcome": outcome,
                 "error_code": error_code,
                 "artifact_paths": list(artifact_paths or []),
@@ -307,11 +342,16 @@ class RunCoordinator:
                 "finished_at": _utc_now_iso(),
             }
         )
+        self._attempt_counts[key] = stored["attempt"]
+        return stored
 
     def failed_work_ids(self) -> set[str]:
         """Work ids with at least one recorded failed attempt."""
-        prior = self.ledger.load()
-        return {r["work_id"] for r in prior if r["outcome"] == "failed"}
+        return {
+            record["work_id"]
+            for record in self.ledger._iter_valid()
+            if record["outcome"] == "failed"
+        }
 
     # ------------------------------------------------------------ execution
 
@@ -352,8 +392,10 @@ class RunCoordinator:
         candidates.append(base + ".flac")
         for path in candidates:
             try:
-                if os.path.isfile(path) and os.path.getsize(path) > 0:
-                    return path
+                declared = os.path.relpath(path, self.root)
+                confined = confined_audio_path(self.root, declared, require_exists=True)
+                if confined is not None and confined.stat().st_size > 0:
+                    return str(confined)
             except OSError:
                 continue
         return None
@@ -386,10 +428,19 @@ class RunCoordinator:
                 error_code=_safe_error_code(exc), started_at=started,
             )
             raise
-        self._record(
-            "archive", work_id, "ok",
-            artifact_paths=sorted(paths.values()), started_at=started,
-        )
+        try:
+            if not archive_module.archive_bundle_complete(self.root, paths):
+                raise OSError("archive bundle incomplete")
+            self._record(
+                "archive", work_id, "ok",
+                artifact_paths=sorted(paths.values()), started_at=started,
+            )
+        except Exception as exc:
+            self._record(
+                "archive", work_id, "failed",
+                error_code=_safe_error_code(exc), started_at=started,
+            )
+            raise
         self._mark_archived(key, entry, paths)
         result.ok = True
         result.final_status = "archived"
@@ -439,7 +490,13 @@ class RunCoordinator:
             result.final_status = str(entry.get("status") or "")
             return
         try:
-            segments = asr_module.transcribe(audio_path)
+            from .path_policy import confined_audio_file
+            if self.asr_runner is None:
+                self.asr_runner = asr_module.ASRRunner(
+                    asr_module.ASRConfig(model_name=asr_module.DEFAULT_MODEL)
+                )
+            with confined_audio_file(self.root, os.path.relpath(audio_path, self.root)) as safe_audio:
+                segments = self.asr_runner.transcribe(safe_audio)
         except Exception as exc:  # redacted; batch continues
             self._record(
                 "asr", work_id, "failed",
@@ -458,14 +515,23 @@ class RunCoordinator:
                 error_code=_safe_error_code(exc), started_at=started,
             )
             raise
-        self._record(
-            "archive", work_id, "ok",
-            artifact_paths=sorted(paths.values()), started_at=started,
-        )
+        try:
+            if not archive_module.archive_bundle_complete(self.root, paths):
+                raise OSError("archive bundle incomplete")
+            self._record(
+                "archive", work_id, "ok",
+                artifact_paths=sorted(paths.values()), started_at=started,
+            )
+        except Exception as exc:
+            self._record(
+                "archive", work_id, "failed",
+                error_code=_safe_error_code(exc), started_at=started,
+            )
+            raise
         try:
             audio_rel = os.path.relpath(audio_path, self.root)
         except ValueError:
-            audio_rel = audio_path
+            raise OSError("audio path outside archive")
         current = self._current_entry(key, entry)
         current["audio_path"] = audio_rel
         self._mark_archived(key, current, paths)
@@ -512,8 +578,12 @@ class RunCoordinator:
             self._note_audio_peak()
         try:
             rel = os.path.relpath(final, self.root)
-        except ValueError:
-            rel = final
+            confined = confined_audio_path(self.root, rel, require_exists=True)
+            if confined is None:
+                raise OSError("audio path outside archive")
+            rel = os.path.relpath(confined, self.root)
+        except (OSError, ValueError, TypeError):
+            raise OSError("audio path outside archive")
         self._record(
             "download", work_id, "ok", artifact_paths=[rel], started_at=started
         )
@@ -610,14 +680,36 @@ class RunCoordinator:
             raise
         return result
 
-    def run_batch(
+    def _batch_needs_asr(self, rows: list[tuple[str, dict[str, Any]]]) -> bool:
+        for key, entry in rows:
+            status = str(entry.get("status") or "pending")
+            if status in TERMINAL_STATUSES:
+                continue
+            current = self._current_entry(key, entry)
+            if self._subtitle_segments(current) is not None:
+                continue
+            if status in {"needs_audio", "audio_ok", "subtitle_done"} and self._existing_audio(current) is not None:
+                return True
+        return False
+
+    def run_batch(self, rows: list[tuple[str, dict[str, Any]]]) -> RunSummary:
+        injected_runner = self.asr_runner
+        with archive_writer(self.root):
+            self.asr_runner = injected_runner
+            try:
+                return self._run_batch_locked(rows)
+            finally:
+                if injected_runner is None and self.asr_runner is not None:
+                    self.asr_runner.release()
+                self.asr_runner = injected_runner
+
+    def _run_batch_locked(
         self, rows: list[tuple[str, dict[str, Any]]]
     ) -> RunSummary:
-        """Process rows sequentially; per-item failures do not stop the batch."""
+        """Process rows sequentially while the archive root is owned."""
         from . import bili_client
 
         summary = RunSummary()
-        self._note_audio_peak()
         for index, (key, entry) in enumerate(rows):
             work_id = str(entry.get("work_id") or key)
             status = str(entry.get("status") or "pending")

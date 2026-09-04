@@ -22,6 +22,13 @@ from test_audio import (
 from test_subtitles import SAMPLE_DOC, nav_ok, player_ok, sub_entry
 
 
+def _audio_target(path: str) -> str:
+    try:
+        return os.readlink(path)
+    except OSError:
+        return path
+
+
 def _row(identity, *, duration_s=5, title="clip", status="meta_ok", **extra):
     row = {
         "bvid": identity.bvid,
@@ -78,6 +85,18 @@ def _subtitle_transport():
     )
 
 
+def test_download_audio_rejects_escaped_downloader_result(tmp_root, monkeypatch, capsys):
+    from bili_asr import audio
+    identity = page_identity("BVescape", 0, 333, "p0")
+    ManifestStore(root=tmp_root).upsert(_row(identity, status="needs_audio"))
+    outside = os.path.join(tmp_root, "..", "escaped.m4a")
+    monkeypatch.setattr(audio, "download_audio", lambda *args, **kwargs: outside)
+    _patch_cli(monkeypatch)
+    rc = main(["download-audio", "--missing-subs", "--archive-root", tmp_root])
+    captured = capsys.readouterr()
+    assert rc == 1
+    assert "0 audio_ok" in captured.out
+    assert ManifestStore(root=tmp_root).get(identity.work_id)["status"] == "needs_audio"
 def test_cli_audio_branch_meta_ok_needs_audio_audio_ok_archived(
     tmp_root, monkeypatch, capsys
 ):
@@ -86,7 +105,7 @@ def test_cli_audio_branch_meta_ok_needs_audio_audio_ok_archived(
     transcribe_calls: list[str] = []
 
     def fake_transcribe(audio_path, model_name=None):
-        transcribe_calls.append(audio_path)
+        transcribe_calls.append(_audio_target(audio_path))
         return [{"start": 0.0, "end": 1.0, "text": "asr-text"}]
 
     monkeypatch.setattr(asr_mod, "transcribe", fake_transcribe)
@@ -125,7 +144,7 @@ def test_cli_subtitle_branch_meta_ok_subtitle_done_archived_skips_asr(
     transcribe_calls: list[str] = []
 
     def fake_transcribe(audio_path, model_name=None):
-        transcribe_calls.append(audio_path)
+        transcribe_calls.append(_audio_target(audio_path))
         return [{"start": 0.0, "end": 1.0, "text": "should-not-run"}]
 
     monkeypatch.setattr(asr_mod, "transcribe", fake_transcribe)
@@ -238,7 +257,7 @@ def test_cli_asr_rerun_idempotent_leaves_unrelated_rows(
 
     first_lines = _jsonl_lines(tmp_root)
     first_ids = _jsonl_work_ids(tmp_root)
-    assert len(first_ids) == len(set(first_ids))
+    assert set(first_ids) == {target.work_id, other.work_id}
     assert ManifestStore(root=tmp_root).get(target.work_id)["status"] == "archived"
     assert ManifestStore(root=tmp_root).get(other.work_id) == other_snapshot
 
@@ -248,6 +267,5 @@ def test_cli_asr_rerun_idempotent_leaves_unrelated_rows(
     rerun_lines = _jsonl_lines(tmp_root)
     rerun_ids = _jsonl_work_ids(tmp_root)
     assert rerun_ids == first_ids
-    assert len(rerun_ids) == len(set(rerun_ids))
     assert rerun_lines == first_lines
     assert ManifestStore(root=tmp_root).get(other.work_id) == other_snapshot

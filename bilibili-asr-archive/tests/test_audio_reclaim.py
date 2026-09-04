@@ -109,7 +109,47 @@ def test_symlink_escape_rejected(tmp_path):
     assert victim.exists()
 
 
-# --- wiring: coordinator archive stage reclaims ---
+def test_reclaim_swap_does_not_delete_outside_victim(tmp_path):
+    audio = tmp_path / "audio"
+    audio.mkdir()
+    target = audio / "swap.m4a"
+    outside = tmp_path / "victim.m4a"
+    target.write_bytes(b"owned")
+    outside.write_bytes(b"victim")
+    entry = _entry(audio_path="audio/swap.m4a")
+    target.unlink()
+    target.symlink_to(outside)
+    with pytest.raises(ValueError):
+        reclaim_audio(tmp_path, entry)
+    assert outside.read_bytes() == b"victim"
+
+
+def test_reclaim_moves_entry_before_post_validation_name_swap(tmp_path, monkeypatch):
+    from bili_asr import path_policy
+
+    audio = tmp_path / "audio"
+    audio.mkdir()
+    target = audio / "swap.m4a"
+    victim = tmp_path / "victim.m4a"
+    target.write_bytes(b"owned")
+    victim.write_bytes(b"victim")
+    entry = _entry(audio_path="audio/swap.m4a")
+    original_replace = path_policy.os.replace
+    moved = False
+
+    def replace_then_swap(src, dst, **kwargs):
+        nonlocal moved
+        result = original_replace(src, dst, **kwargs)
+        if not moved and src == "swap.m4a":
+            moved = True
+            target.symlink_to(victim)
+        return result
+
+    monkeypatch.setattr(path_policy.os, "replace", replace_then_swap)
+    assert reclaim_audio(tmp_path, entry) is True
+    assert victim.read_bytes() == b"victim"
+    assert target.is_symlink()
+    assert not list(audio.glob(".audio-reclaim-*"))
 
 
 def test_coordinator_archive_stage_reclaims_audio(tmp_path, monkeypatch):

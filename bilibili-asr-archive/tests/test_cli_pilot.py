@@ -1,9 +1,24 @@
 """Executable mixed-branch pilot: fake HTTP + stubbed ASR, no live network."""
 
-from __future__ import annotations
+
+
+def test_pilot_rejects_downloader_path_escape(tmp_path, monkeypatch):
+    from bili_asr import cli
+    from bili_asr import audio as audio_mod
+    class Store:
+        def get(self, _key): return None
+        def upsert(self, _row): pass
+    outside = tmp_path.parent / "escaped.m4a"
+    outside.write_bytes(b"audio")
+    monkeypatch.setattr(audio_mod, "download_audio", lambda *args, **kwargs: str(outside))
+    from bili_asr.page_identity import page_identity
+    target = page_identity("BVescape", 0, 1, "p0")
+    with pytest.raises(ValueError):
+        cli._pilot_archive_asr(Store(), object(), str(tmp_path), {"bvid": "BVescape", "status": "needs_audio"}, target)
 
 import json
 import os
+import pytest
 
 from bili_asr import asr as asr_mod
 from bili_asr import bili_client as bc
@@ -20,6 +35,13 @@ from test_audio import (
     playurl_ok,
 )
 from test_subtitles import SAMPLE_DOC, nav_ok, player_ok, sub_entry
+
+
+def _audio_target(path: str) -> str:
+    try:
+        return os.readlink(path)
+    except OSError:
+        return path
 
 
 def _row(identity, *, duration_s, title="clip"):
@@ -53,7 +75,7 @@ def test_cli_pilot_mixed_meta_ok_archives_both_branches(tmp_root, monkeypatch, c
     transcribe_calls: list[str] = []
 
     def fake_transcribe(audio_path, model_name=None):
-        transcribe_calls.append(audio_path)
+        transcribe_calls.append(_audio_target(audio_path))
         return [{"start": 0.0, "end": 1.0, "text": "asr-text"}]
 
     monkeypatch.setattr(asr_mod, "transcribe", fake_transcribe)
@@ -266,7 +288,7 @@ def test_cli_pilot_completed_rerun_skips_archived(tmp_root, monkeypatch, capsys)
     transcribe_calls: list[str] = []
 
     def fake_transcribe(audio_path, model_name=None):
-        transcribe_calls.append(audio_path)
+        transcribe_calls.append(_audio_target(audio_path))
         return [{"start": 0.0, "end": 1.0, "text": "asr-text"}]
 
     monkeypatch.setattr(asr_mod, "transcribe", fake_transcribe)

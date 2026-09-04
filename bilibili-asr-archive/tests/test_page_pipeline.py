@@ -316,7 +316,11 @@ def test_asr_pending_p0_failure_does_not_suppress_p1(tmp_root, monkeypatch):
         open(os.path.join(tmp_root, "audio", f"{artifact_stem(page)}.m4a"), "wb").close()
 
     def fake_transcribe(path):
-        if artifact_stem(p0) in path:
+        try:
+            target = os.readlink(path)
+        except OSError:
+            target = path
+        if artifact_stem(p0) in target:
             raise RuntimeError("p0 failed")
         return [{"start": 0, "end": 1, "text": "p1"}]
 

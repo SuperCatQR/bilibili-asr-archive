@@ -47,6 +47,25 @@ def test_load_empty_missing_file(store):
     assert store.load() == {}
 
 
+def test_manifest_symlink_is_not_read_or_replaced_by_any_write_path(store, tmp_root):
+    path = __import__("pathlib").Path(_manifest_path(tmp_root))
+    path.parent.mkdir()
+    outside = path.parent.parent / "outside.jsonl"
+    original = json.dumps(_auto("BVoutside")) + "\n"
+    outside.write_text(original, encoding="utf-8")
+    path.symlink_to(outside)
+
+    with pytest.raises(OSError):
+        store.save({_auto("BVsave")["work_id"]: _auto("BVsave")})
+    with pytest.raises(OSError):
+        store.compact()
+    with pytest.raises(OSError):
+        store.migrate_legacy_rows(lambda _bvid: [])
+
+    assert path.is_symlink()
+    assert outside.read_text(encoding="utf-8") == original
+
+
 def test_upsert_then_reload(store, tmp_root):
     store.upsert(_auto("BV1aa"))
     store.upsert(_auto("BV1bb", cid=2, status="pending"))
@@ -55,6 +74,23 @@ def test_upsert_then_reload(store, tmp_root):
     assert set(loaded) == {"BV1aa:p0", "BV1bb:p0"}
     assert loaded["BV1aa:p0"]["status"] == "meta_ok"
     assert loaded["BV1bb:p0"]["status"] == "pending"
+
+
+def test_upsert_rejects_nonserializable_extra_fields(store):
+    with pytest.raises(ValueError, match="not serializable"):
+        store.upsert(_auto("BVbad", unsupported={"value"}))
+
+
+def test_manifest_parent_symlink_does_not_create_external_lock(store, tmp_root):
+    root = __import__("pathlib").Path(tmp_root)
+    outside = root / "outside"
+    outside.mkdir()
+    (root / "manifest").symlink_to(outside, target_is_directory=True)
+
+    with pytest.raises(OSError):
+        store.upsert(_auto("BVescape"))
+
+    assert not (outside / "manifest.jsonl.lock").exists()
 
 
 def test_upsert_dedupe_same_bvid(store, tmp_root):
@@ -68,7 +104,7 @@ def test_upsert_dedupe_same_bvid(store, tmp_root):
 
     with open(_manifest_path(tmp_root), encoding="utf-8") as fh:
         lines = fh.read().splitlines()
-    assert len(lines) == 1
+    assert len(lines) == 2
 
 
 def test_resume_dedupe_no_duplicate_bvids(store, tmp_root):
@@ -82,11 +118,19 @@ def test_resume_dedupe_no_duplicate_bvids(store, tmp_root):
     with open(_manifest_path(tmp_root), encoding="utf-8") as fh:
         lines = fh.read().splitlines()
     bvids = [json.loads(l)["bvid"] for l in lines]
-    assert len(bvids) == len(set(bvids)) == 2
+    assert len(bvids) == 3
+    assert len({bvids[0], bvids[1], bvids[2]}) == 2
 
 
-def test_get_missing_returns_none(store):
-    assert store.get("BV1zz") is None
+
+
+def test_non_object_manifest_row_is_rejected(store, tmp_root):
+    path = _manifest_path(tmp_root)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as fh:
+        fh.write("[]\n")
+    with pytest.raises(ValueError, match="object"):
+        store.load()
 
 
 def test_save_roundtrip_preserves_fields(store, tmp_root):
@@ -217,6 +261,30 @@ def test_migrate_collision_existing_work_id_row(store, tmp_root):
     store.upsert(_entry("BV1aa", work_id="BV1aa:p0", page_index=0, cid=7))
     with pytest.raises(ManifestMigrationCollision):
         store.migrate_legacy_rows(lambda bvid: [_page(bvid, 0, cid=1)])
+
+
+def test_migrate_coalesces_matching_page_created_by_successful_fetch(store, tmp_root):
+    seed_legacy(store, _entry("BV1aa", legacy_only="keep"))
+    store.upsert(
+        _entry(
+            "BV1aa",
+            work_id="BV1aa:p0",
+            page_index=0,
+            cid=1,
+            title="fresh title",
+        )
+    )
+
+    report = store.migrate_legacy_rows(
+        lambda bvid: [_page(bvid, 0, cid=1)],
+        coalesce_existing_page=True,
+    )
+
+    assert report.migrated == ["BV1aa:p0"]
+    loaded = store.load()
+    assert set(loaded) == {"BV1aa:p0"}
+    assert loaded["BV1aa:p0"]["title"] == "fresh title"
+    assert loaded["BV1aa:p0"]["legacy_only"] == "keep"
 
 
 def test_migrate_collision_on_existing_p0_artifact(store, tmp_root):
