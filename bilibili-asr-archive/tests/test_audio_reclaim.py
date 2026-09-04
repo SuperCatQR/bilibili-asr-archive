@@ -179,8 +179,13 @@ def test_coordinator_archive_stage_reclaims_audio(tmp_path, monkeypatch):
     })
     import bili_asr.asr as asr_mod
 
-    monkeypatch.setattr(asr_mod, "transcribe",
-                        lambda p: [{"start": 0.0, "end": 1.0, "text": "hi"}])
+    class FakeModel:
+        def generate(self, **_kwargs):
+            return [{"text": "hi", "timestamp": [[0, 1000]]}]
+
+    monkeypatch.setattr(
+        asr_mod, "_load_default_model", lambda **_kwargs: FakeModel()
+    )
     from bili_asr.coordinator import RunCoordinator
 
     coord = RunCoordinator(str(root), store, offline=True)

@@ -84,13 +84,14 @@ def _patch_cli(monkeypatch, transport):
     monkeypatch.setattr("bili_asr.coordinator.time.sleep", lambda _s: None)
 
 
-def _stub_asr(monkeypatch, impl=None):
-    def fake_transcribe(audio_path, model_name=None):
-        if impl is not None:
-            return impl(_audio_target(audio_path))
-        return [{"start": 0.0, "end": 1.0, "text": "asr-text"}]
+def _stub_asr(monkeypatch):
+    class FakeModel:
+        def generate(self, **_kwargs):
+            return [{"text": "asr-text", "timestamp": [[0, 1000]]}]
 
-    monkeypatch.setattr(asr_mod, "transcribe", fake_transcribe)
+    monkeypatch.setattr(
+        asr_mod, "_load_default_model", lambda **_kwargs: FakeModel()
+    )
 
 
 def _assert_no_secrets(captured, root):
