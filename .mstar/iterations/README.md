@@ -8,3 +8,5 @@
 | `iter-2026-08-live-pc-pilot` | [`iter-2026-08-live-pc-pilot/`](iter-2026-08-live-pc-pilot/) | Windows WSL bounded live M2; audio reclaim; 10 GiB peak | completed |
 | `iter-2026-08-pilot-ops` | [`iter-2026-08-pilot-ops/`](iter-2026-08-pilot-ops/) | Executable pilot workflow and operational sidecars | completed |
 | `iter-2026-08-archive-foundations` | [`iter-2026-08-archive-foundations/`](iter-2026-08-archive-foundations/) | Page-complete archive identity and resumable metadata cursor | completed |
+| `iter-2026-09-funasr-nano-7800xt` | [`iter-2026-09-funasr-nano-7800xt/`](iter-2026-09-funasr-nano-7800xt/) | Migrate ASR to FunASR-Nano on AMD 7800XT GPU | active |
+| `iter-2026-09-funasr-nano-7800xt` | [`iter-2026-09-funasr-nano-7800xt/`](iter-2026-09-funasr-nano-7800xt/) | Migrate ASR to FunASR-Nano on AMD 7800XT GPU | active |
