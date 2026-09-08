@@ -3,6 +3,11 @@
 FunASR is imported only when a runner first transcribes.  The runner is
 explicitly configured, lazy, and scoped to one sequential batch; no model
 cache or download orchestration lives here.
+
+API Compatibility: ASRConfig retains `offline` and `local_source` fields for
+backward compatibility with the legacy SenseVoice configuration surface, but
+these parameters are not passed to the FunASR AutoModel API. They remain part
+of the configuration schema and provenance surface only.
 """
 
 from __future__ import annotations
