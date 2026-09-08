@@ -36,6 +36,12 @@ def fake_funasr(monkeypatch):
     FakeAutoModel.construction_count = 0
     FakeAutoModel.construction_records = []
     FakeAutoModel.generation_records = []
+    
+    # Mock torch to report CUDA is available
+    fake_torch = types.SimpleNamespace(
+        cuda=types.SimpleNamespace(is_available=lambda: True)
+    )
+    monkeypatch.setitem(sys.modules, "torch", fake_torch)
     monkeypatch.setitem(sys.modules, "funasr", types.SimpleNamespace(AutoModel=FakeAutoModel))
     return FakeAutoModel
 
@@ -45,7 +51,7 @@ def test_fake_model_result_normalization_timestamps_and_rich_tag_cleanup(fake_fu
         {"start": 0.125, "end": 1.5, "text": "deterministic"},
         {"start": 1.5, "end": 2.75, "text": "output"},
     ]
-    assert fake_funasr.construction_records == [{"model": "local-test-model", "trust_remote_code": False, "device": "cpu", "offline": True, "local_source": "configured-local"}]
+    assert fake_funasr.construction_records == [{"model": "local-test-model", "device": "cuda", "trust_remote_code": False}]
     assert fake_funasr.generation_records == [{"input": "fixture-audio.wav", "cache": {}, "language": "auto", "use_itn": True, "batch_size_s": 60, "merge_vad": True, "merge_length_s": 15}]
 
 
@@ -67,7 +73,7 @@ def test_fake_generation_snapshots_include_both_input_paths(fake_funasr, monkeyp
     assert first == second
     assert fake_funasr.construction_count == 2
     assert [record["input"] for record in fake_funasr.generation_records] == ["one.wav", "two.wav"]
-    assert fake_funasr.construction_records == [{"model": "/fixture/local-model", "trust_remote_code": False, "device": "cpu", "offline": True, "local_source": "configured-local"}] * 2
+    assert fake_funasr.construction_records == [{"model": "/fixture/local-model", "device": "cuda", "trust_remote_code": False}] * 2
 
 
 def test_error_serialization_redacts_forbidden_markers_and_preserves_class(monkeypatch):
@@ -80,6 +86,10 @@ def test_error_serialization_redacts_forbidden_markers_and_preserves_class(monke
         def __init__(self, **_kwargs):
             raise RuntimeError(hostile_message)
 
+    fake_torch = types.SimpleNamespace(
+        cuda=types.SimpleNamespace(is_available=lambda: True)
+    )
+    monkeypatch.setitem(sys.modules, "torch", fake_torch)
     monkeypatch.setitem(
         sys.modules, "funasr", types.SimpleNamespace(AutoModel=ExplodingModel)
     )
@@ -135,17 +145,23 @@ def test_config_rejects_hostile_values_and_provenance_is_redacted():
             asr.ASRConfig(**values)
 
 
-def test_factory_gets_exact_kwargs_and_typeerror_is_not_retried():
+def test_factory_gets_exact_kwargs_and_typeerror_is_not_retried(monkeypatch):
     calls = []
     def factory(**kwargs):
         calls.append(kwargs)
         raise TypeError("hostile secret")
+    
+    fake_torch = types.SimpleNamespace(
+        cuda=types.SimpleNamespace(is_available=lambda: True)
+    )
+    monkeypatch.setitem(sys.modules, "torch", fake_torch)
+    
     runner = asr.ASRRunner(asr.ASRConfig("model", model_revision="rev"), model_factory=factory)
     with pytest.raises(asr.ASRModelError) as caught:
         runner.transcribe("fixture.wav")
     assert len(calls) == 1
     assert set(calls[0]) == {
-        "model", "device", "trust_remote_code", "offline", "local_source", "model_revision"
+        "model", "device", "trust_remote_code", "model_revision"
     }
     assert "hostile" not in str(caught.value)
 
@@ -291,3 +307,57 @@ def test_fixture_benchmark_reports_only_construction_and_shape(fake_funasr):
     assert set(report) == {
         "model_construction_count", "normalized_segment_count", "output_shape"
     }
+
+
+def test_cuda_unavailable_raises_dependency_error_with_rocm_hint(monkeypatch):
+    """CUDA unavailable should raise ASRDependencyError with ROCm installation hint."""
+    class FakeTorch:
+        @staticmethod
+        def cuda_is_available():
+            return False
+        
+        class cuda:
+            @staticmethod
+            def is_available():
+                return False
+    
+    monkeypatch.setitem(sys.modules, "torch", FakeTorch)
+    monkeypatch.setitem(sys.modules, "funasr", types.SimpleNamespace(AutoModel=lambda **kw: None))
+    
+    runner = asr.ASRRunner(asr.ASRConfig("test-model", device="cuda"))
+    with pytest.raises(asr.ASRDependencyError) as caught:
+        runner.transcribe("fixture.wav")
+    
+    error_message = str(caught.value)
+    assert "CUDA/ROCm is not available" in error_message
+    assert "ROCm" in error_message or "7800XT" in error_message
+
+
+def test_torch_import_error_raises_dependency_error(monkeypatch):
+    """Missing torch should raise ASRDependencyError when device is cuda."""
+    def fail_torch_import(name, *args, **kwargs):
+        if name == "torch":
+            raise ImportError("No module named 'torch'")
+        return builtins.__import__(name, *args, **kwargs)
+    
+    monkeypatch.setattr(builtins, "__import__", fail_torch_import)
+    monkeypatch.setitem(sys.modules, "funasr", types.SimpleNamespace(AutoModel=lambda **kw: None))
+    
+    runner = asr.ASRRunner(asr.ASRConfig("test-model", device="cuda"))
+    with pytest.raises(asr.ASRDependencyError) as caught:
+        runner.transcribe("fixture.wav")
+    
+    error_message = str(caught.value)
+    assert "PyTorch is required" in error_message or "torch" in error_message.lower()
+
+
+def test_cpu_override_skips_gpu_check(fake_funasr):
+    """CPU device should work without CUDA availability check."""
+    runner = asr.ASRRunner(asr.ASRConfig("test-model", device="cpu"), model_factory=fake_funasr)
+    result = runner.transcribe("fixture.wav")
+    
+    assert result == [
+        {"start": 0.125, "end": 1.5, "text": "deterministic"},
+        {"start": 1.5, "end": 2.75, "text": "output"},
+    ]
+    assert fake_funasr.construction_records[0]["device"] == "cpu"
