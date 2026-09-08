@@ -1,4 +1,4 @@
-"""Local SenseVoice ASR boundary.
+"""Local FunASR ASR boundary.
 
 FunASR is imported only when a runner first transcribes.  The runner is
 explicitly configured, lazy, and scoped to one sequential batch; no model
@@ -12,7 +12,7 @@ import re
 from dataclasses import asdict, dataclass
 from typing import Any, Callable
 
-DEFAULT_MODEL = "iic/SenseVoiceSmall"
+DEFAULT_MODEL = "FunAudioLLM/Fun-ASR-Nano-2512"
 
 
 def _load_default_model(**kwargs: Any) -> Any:
@@ -20,7 +20,7 @@ def _load_default_model(**kwargs: Any) -> Any:
         from funasr import AutoModel  # type: ignore
     except ImportError as exc:
         raise ASRDependencyError(
-            f"SenseVoice support is not installed; run: {_INSTALL_HINT}"
+            f"FunASR support is not installed; run: {_INSTALL_HINT}"
         ) from exc
     return AutoModel(**kwargs)
 _INSTALL_HINT = 'pip install -e "bilibili-asr-archive/[asr]"'
@@ -41,7 +41,7 @@ class ASRDependencyError(RuntimeError):
 
 
 class ASRModelError(RuntimeError):
-    """SenseVoice could not load or transcribe the supplied audio."""
+    """FunASR model could not load or transcribe the supplied audio."""
 
 
 @dataclass(frozen=True)
@@ -50,7 +50,7 @@ class ASRConfig:
 
     model_name: str
     model_revision: str | None = None
-    device: str = "cpu"
+    device: str = "cuda"
     offline: bool = True
     local_source: str = "configured-local"
 
@@ -98,23 +98,41 @@ class ASRRunner:
     def _get_model(self) -> Any:
         if self._model is not None:
             return self._model
+        
+        # Check CUDA availability if device is cuda (works for both NVIDIA CUDA and AMD ROCm)
+        if self.config.device.startswith("cuda"):
+            try:
+                import torch
+                if not torch.cuda.is_available():
+                    raise ASRDependencyError(
+                        "CUDA/ROCm is not available. For AMD 7800XT, install PyTorch with ROCm support: "
+                        "pip install torch --index-url https://download.pytorch.org/whl/rocm6.0 "
+                        "(see https://pytorch.org/get-started/locally/ for other GPU vendors)"
+                    )
+            except ImportError:
+                raise ASRDependencyError(
+                    "PyTorch is required for GPU inference but not installed. "
+                    "Install with: pip install torch"
+                ) from None
+        
         factory = self._model_factory or _load_default_model
+        # FunASR AutoModel only accepts: model, device, trust_remote_code, model_revision, hub
         kwargs: dict[str, Any] = {
             "model": self.config.model_name,
             "device": self.config.device,
             "trust_remote_code": False,
-            "offline": self.config.offline,
-            "local_source": self.config.local_source,
         }
         if self.config.model_revision is not None:
             kwargs["model_revision"] = self.config.model_revision
+        # Note: offline/local_source removed - not supported by FunASR API
+        
         try:
             self._model = factory(**kwargs)
         except ASRDependencyError:
             raise
         except Exception:
             raise ASRModelError(
-                "SenseVoice model load/transcription failed; check configured local model."
+                "FunASR model load/transcription failed; check configured local model."
             ) from None
         return self._model
 
@@ -133,7 +151,7 @@ class ASRRunner:
             raise
         except Exception as exc:
             raise ASRModelError(
-                "SenseVoice model load/transcription failed; check configured local model."
+                "FunASR model load/transcription failed; check configured local model."
             ) from exc
         return normalize_result(result)
 
