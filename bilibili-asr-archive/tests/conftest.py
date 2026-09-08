@@ -1,6 +1,8 @@
 import itertools
 import os
 import shutil
+import sys
+import types
 
 import pytest
 
@@ -28,3 +30,15 @@ def tmp_root():
         yield path
     finally:
         shutil.rmtree(path, ignore_errors=True)
+
+
+@pytest.fixture(autouse=True)
+def mock_torch(monkeypatch):
+    """Mock torch module to report CUDA is available for all tests.
+    
+    This prevents PyTorch import errors in ASR tests that use mocked models.
+    """
+    fake_torch = types.SimpleNamespace(
+        cuda=types.SimpleNamespace(is_available=lambda: True)
+    )
+    monkeypatch.setitem(sys.modules, "torch", fake_torch)

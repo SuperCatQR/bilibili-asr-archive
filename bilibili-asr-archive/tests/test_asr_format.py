@@ -45,4 +45,5 @@ def test_transcribe_missing_dependency_has_install_hint(monkeypatch):
 
     monkeypatch.setattr(builtins, "__import__", blocked)
     with pytest.raises(asr.ASRDependencyError, match="bilibili-asr-archive/\\[asr\\]"):
-        asr.transcribe("missing.wav")
+        runner = asr.ASRRunner(asr.ASRConfig(model_name="test-model", device="cpu"))
+        runner.transcribe("missing.wav")
