@@ -85,7 +85,7 @@ _NO_SECRET_MARKERS = (
     "bilivideo.com",
     "deadline=",
     "model failed",
-    "SenseVoice support is not installed",
+    "FunASR support is not installed",
 )
 
 
@@ -458,7 +458,7 @@ def test_asr_optional_dependency_after_success_exits_1(
 
     def missing(audio_path):
         transcribe_calls.append(_audio_target(audio_path))
-        raise asr_mod.ASRDependencyError("SenseVoice support is not installed")
+        raise asr_mod.ASRDependencyError("FunASR support is not installed")
 
     _stub_asr(monkeypatch, missing)
     _patch_cli(monkeypatch, RouterTransport({}))

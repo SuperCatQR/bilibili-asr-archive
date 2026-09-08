@@ -335,7 +335,7 @@ def test_cli_pilot_missing_asr_dependency_does_not_archive(tmp_root, monkeypatch
 
     def missing_asr(audio_path, model_name=None):
         raise ASRDependencyError(
-            f"SenseVoice support is not installed; run: {hint}"
+            f"FunASR support is not installed; run: {hint}"
         )
 
     monkeypatch.setattr(asr_mod, "transcribe", missing_asr)
@@ -362,7 +362,7 @@ def test_cli_pilot_resume_after_partial_asr_counts_archived_subtitle(
     store.upsert(_row(aud, duration_s=8, title="needs-asr"))
 
     def missing_asr(audio_path, model_name=None):
-        raise ASRDependencyError("SenseVoice support is not installed")
+        raise ASRDependencyError("FunASR support is not installed")
 
     monkeypatch.setattr(asr_mod, "transcribe", missing_asr)
     _patch_cli(monkeypatch, _mixed_transport())

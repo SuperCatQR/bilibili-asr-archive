@@ -49,7 +49,7 @@ _NO_SECRET_MARKERS = (
     "bilivideo.com",
     "deadline=",
     "model failed",
-    "SenseVoice support is not installed",
+    "FunASR support is not installed",
 )
 
 

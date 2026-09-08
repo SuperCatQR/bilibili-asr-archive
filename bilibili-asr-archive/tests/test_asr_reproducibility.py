@@ -230,17 +230,17 @@ def test_provenance_is_deterministic_and_revision_sensitive():
 
 
 def test_provenance_preserves_safe_slash_qualified_model_identifier():
-    provenance = asr.ASRRunner(asr.ASRConfig("iic/SenseVoiceSmall")).provenance()
+    provenance = asr.ASRRunner(asr.ASRConfig("FunAudioLLM/Fun-ASR-Nano-2512")).provenance()
 
-    assert provenance["model_name"] == "iic/SenseVoiceSmall"
+    assert provenance["model_name"] == "FunAudioLLM/Fun-ASR-Nano-2512"
 
 
 @pytest.mark.parametrize(
     "model_name",
     (
-        "/opt/models/SenseVoiceSmall",
-        "C:\\models\\SenseVoiceSmall",
-        "https://models.example/SenseVoiceSmall",
+        "/opt/models/Fun-ASR-Nano-2512",
+        "C:\\models\\Fun-ASR-Nano-2512",
+        "https://models.example/Fun-ASR-Nano-2512",
         "token=private-model",
     ),
 )
