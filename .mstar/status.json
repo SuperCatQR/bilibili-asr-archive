@@ -1,0 +1,18 @@
+{
+  "version": 2,
+  "updated_at": "2026-09-09",
+  "workflows": [
+    {
+      "id": "iter-2026-09-bilibili-api-sqlite",
+      "type": "iteration",
+      "dir": "workflows/iter-2026-09-bilibili-api-sqlite",
+      "lifecycle": "active",
+      "created_at": "2026-09-09",
+      "branch": {
+        "base": "main",
+        "integration": "iteration/iter-2026-09-bilibili-api-sqlite",
+        "target": "main"
+      }
+    }
+  ]
+}

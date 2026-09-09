@@ -1,0 +1,83 @@
+{
+  "schema_version": 1,
+  "id": "iter-2026-09-bilibili-api-sqlite",
+  "type": "iteration",
+  "status": "running",
+  "started_at": "2026-09-09",
+  "updated_at": "2026-09-09",
+  "phase": "phase-1-prepare",
+  "plans": [
+    {
+      "id": "20260909-structured-metadata-schema",
+      "title": "3NF metadata schema and SQLite repository",
+      "file": ".mstar/plans/20260909-structured-metadata-schema.md",
+      "status": "Todo",
+      "owner": "project-manager",
+      "agents": ["fullstack-dev"],
+      "progress": 0,
+      "tags": ["backend", "database", "3nf"],
+      "created_at": "2026-09-09",
+      "updated_at": "2026-09-09",
+      "done_at": null,
+      "notes": [],
+      "metadata": {
+        "primary_spec": ".mstar/iterations/iter-2026-09-bilibili-api-sqlite/specs/structured-metadata-storage.md",
+        "spec_integration_branch": "iteration/iter-2026-09-bilibili-api-sqlite",
+        "merge_target": "iteration/iter-2026-09-bilibili-api-sqlite"
+      }
+    },
+    {
+      "id": "20260909-bilibili-api-ingestion",
+      "title": "bilibili-api gateway and normalized ingestion",
+      "file": ".mstar/plans/20260909-bilibili-api-ingestion.md",
+      "status": "Todo",
+      "owner": "project-manager",
+      "agents": ["fullstack-dev"],
+      "progress": 0,
+      "tags": ["backend", "external-api", "ingestion"],
+      "created_at": "2026-09-09",
+      "updated_at": "2026-09-09",
+      "done_at": null,
+      "notes": [],
+      "metadata": {
+        "primary_spec": ".mstar/iterations/iter-2026-09-bilibili-api-sqlite/specs/bilibili-api-gateway.md",
+        "spec_integration_branch": "iteration/iter-2026-09-bilibili-api-sqlite",
+        "merge_target": "iteration/iter-2026-09-bilibili-api-sqlite",
+        "blocked_by": ["20260909-structured-metadata-schema"]
+      }
+    },
+    {
+      "id": "20260909-metadata-cli-smoke",
+      "title": "SQLite-backed metadata CLI and bounded verification",
+      "file": ".mstar/plans/20260909-metadata-cli-smoke.md",
+      "status": "Todo",
+      "owner": "project-manager",
+      "agents": ["fullstack-dev"],
+      "progress": 0,
+      "tags": ["backend", "cli", "verification"],
+      "created_at": "2026-09-09",
+      "updated_at": "2026-09-09",
+      "done_at": null,
+      "notes": [],
+      "metadata": {
+        "primary_spec": ".mstar/iterations/iter-2026-09-bilibili-api-sqlite/specs/metadata-cli-contract.md",
+        "spec_integration_branch": "iteration/iter-2026-09-bilibili-api-sqlite",
+        "merge_target": "iteration/iter-2026-09-bilibili-api-sqlite",
+        "blocked_by": ["20260909-bilibili-api-ingestion"]
+      }
+    }
+  ],
+  "execution_policy": {
+    "plan_parallelism": "serial",
+    "worktree_mode": "per-plan",
+    "push_policy": "after-review-gates"
+  },
+  "branch": {
+    "base": "main",
+    "integration": "iteration/iter-2026-09-bilibili-api-sqlite",
+    "target": "main"
+  },
+  "control_worktree_path": "/root/workspace/bilibili-asr-archive",
+  "legacy_metadata": {},
+  "compass_ref": "iterations/iter-2026-09-bilibili-api-sqlite/delivery-compass.md"
+}
