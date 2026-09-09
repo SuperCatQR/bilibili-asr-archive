@@ -31,3 +31,8 @@ bilibili-asr-archive/pip-*/
 bilibili-asr-archive/pytest-cache-files-*/
 bilibili-asr-archive/archive/manifest/
 bilibili-asr-archive/verification-results/baseline.json
+
+# Test reports and temporary files
+e2e-test*.md
+**/verify_acceptance.sh
+
