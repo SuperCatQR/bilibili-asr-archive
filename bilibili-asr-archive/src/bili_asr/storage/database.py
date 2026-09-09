@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from importlib import resources
 import math
 import os
 from pathlib import Path
@@ -12,7 +13,7 @@ from typing import TypeAlias
 DatabaseConnection: TypeAlias = sqlite3.Connection
 _ARCHIVE_DATABASE_NAME = "archive.db"
 _DATABASE_SUFFIXES = frozenset({".db", ".sqlite", ".sqlite3"})
-_SCHEMA_PATH = Path(__file__).with_name("schema.sql")
+_SCHEMA_RESOURCE = resources.files(__package__).joinpath("schema.sql")
 
 
 def duration_to_ms(seconds: int | float) -> int:
@@ -58,7 +59,7 @@ def initialize_schema(connection: sqlite3.Connection) -> sqlite3.Connection:
     connection.execute("PRAGMA foreign_keys = ON")
     if connection.execute("PRAGMA foreign_keys").fetchone()[0] != 1:
         raise sqlite3.DatabaseError("SQLite foreign-key enforcement could not be enabled")
-    connection.executescript(_SCHEMA_PATH.read_text(encoding="utf-8"))
+    connection.executescript(_SCHEMA_RESOURCE.read_text(encoding="utf-8"))
     connection.commit()
     return connection
 

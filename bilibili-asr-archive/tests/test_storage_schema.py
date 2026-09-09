@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+from importlib import resources
 import os
+from pathlib import Path
 import sqlite3
+import tomllib
 
 import pytest
 
@@ -25,6 +28,21 @@ BASE_TABLES = {
     "transcript_segments",
 }
 VIEWS = {"v_video_parts", "v_ingestion_run_stats", "v_pending_metadata"}
+
+
+def test_schema_sql_is_declared_and_read_as_package_resource():
+    project_root = Path(__file__).resolve().parents[1]
+    pyproject = tomllib.loads(
+        (project_root / "pyproject.toml").read_text(encoding="utf-8")
+    )
+    package_data = pyproject["tool"]["setuptools"]["package-data"]
+    assert "schema.sql" in package_data["bili_asr.storage"]
+
+    schema_resource = resources.files("bili_asr.storage").joinpath("schema.sql")
+    assert schema_resource.is_file()
+    assert "CREATE TABLE IF NOT EXISTS videos" in schema_resource.read_text(
+        encoding="utf-8"
+    )
 
 
 def _table_names(connection: sqlite3.Connection) -> set[str]:
