@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "bili-asr"
 version = "0.1.0"
-description = "Bilibili ASR transcript archival CLI (AI/CC subtitles first, local SenseVoice fallback)"
+description = "Bilibili ASR transcript archival CLI (AI/CC subtitles first, local FunASR-Nano GPU fallback)"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [

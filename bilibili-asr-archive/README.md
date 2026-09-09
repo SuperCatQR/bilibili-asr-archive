@@ -3,7 +3,7 @@
 Personal archival CLI for Bilibili UP 未明子 (UID 23191782) ASR transcripts.
 
 Enumerates videos, harvests AI/CC subtitles first, downloads audio only when
-needed, runs local SenseVoice ASR, and archives `srt` / `txt` / `md` with a
+needed, runs local FunASR-Nano ASR, and archives `srt` / `txt` / `md` with a
 resumable JSONL manifest.
 
 ## Install (editable)
@@ -12,10 +12,23 @@ Base metadata/subtitle/audio workflows (Linux or Windows WSL, Python 3.12+):
 
     python3.12 -m pip install -e ".[dev]"
 
-Local SenseVoice support is optional because it downloads model weights on first
+Local FunASR support is optional because it downloads model weights on first
 use:
 
     python3.12 -m pip install -e ".[asr]"
+
+### GPU Requirements (AMD 7800XT with ROCm)
+
+The ASR fallback uses GPU acceleration and requires:
+- AMD 7800XT GPU with ROCm 5.7+ drivers
+- PyTorch with ROCm support: `pip install torch --index-url https://download.pytorch.org/whl/rocm6.0`
+- FunASR: `pip install -e "bilibili-asr-archive/[asr]"`
+
+**Note**: AMD ROCm uses a CUDA-compatible layer (HIP), so PyTorch still uses `device="cuda"`.
+
+For CPU-only mode, override device: `BILI_ASR_DEVICE=cpu` (slower, not recommended for large archives).
+
+For other GPU vendors (NVIDIA, Intel), see the [PyTorch installation guide](https://pytorch.org/get-started/locally/).
 
 The hardened archive/audio path requires POSIX descriptor operations
 (`dir_fd`, `O_NOFOLLOW`, and `/proc/self/fd` or `/dev/fd`). Linux and a
@@ -24,7 +37,7 @@ are not supported for hardened publication or reclaim; run the CLI inside WSL
 and keep the archive on a WSL-native path, not `/mnt/c`.
 
 Set `BILI_ASR_MODEL` to a pre-populated local model directory for offline use;
-the default is `iic/SenseVoiceSmall`. No model weights are vendored. The optional
+the default is `FunAudioLLM/Fun-ASR-Nano-2512`. No model weights are vendored. The optional
 ASR dependency is verified by fixture-only tests; installation and model
 availability remain operator responsibilities.
 
@@ -33,7 +46,7 @@ scope. `ASRRunner` is not thread-safe and must not be shared by concurrent calle
 the coordinator releases runners it creates when the batch exits, while an injected
 runner remains owned by its caller. `BILI_ASR_MODEL` may be a pre-populated local
 path at runtime, but paths are never provenance identifiers. Safe slash-qualified
-model identifiers such as `iic/SenseVoiceSmall` are preserved; absolute paths,
+model identifiers such as `FunAudioLLM/Fun-ASR-Nano-2512` are preserved; absolute paths,
 URLs, and credential-like model values are redacted. `ASRRunner.provenance()`
 exposes deterministic configuration identifiers and an optional declared revision.
 It contains no model, media, transcript, or raw exception payloads. Provenance is a
@@ -227,7 +240,7 @@ still-processable `subtitle_done` / `needs_audio` / `audio_ok` for resume),
 preferring short `duration_s` and reserving both branches when those statuses
 already exist. Each selected row harvests subtitles first: a subtitle hit is
 archived with `source=subtitle` and no ASR; a miss downloads audio, runs local
-SenseVoice, and archives with `source=asr`. Multi-part bvids include every
+FunASR-Nano, and archives with `source=asr`. Multi-part bvids include every
 pagelist `work_id`. The summary prints branch counts and terminal states.
 Missing subtitle or audio-asr coverage exits 1 and names the missing branch.
 A completed rerun skips work already `archived`. Missing optional ASR exits
@@ -316,7 +329,7 @@ The denominator is the selected manifest snapshot in work-item units; if the man
 
 `bili-asr run` coordinates manifest rows through four stages — `harvest`
 (probe + download subtitles), `download` (fetch audio), `asr` (local
-SenseVoice), `archive` (write `srt`/`txt`/`md`) — composing the same live
+FunASR-Nano), `archive` (write `srt`/`txt`/`md`) — composing the same live
 seams as the single-purpose commands. It **complements** the frozen
 `bili-asr pilot` MVP-proof command; it does not replace it.
 

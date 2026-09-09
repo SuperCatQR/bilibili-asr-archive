@@ -57,15 +57,15 @@
 | 油猴「B站字幕提取器」 | 脚本 | 合集批量、10 种格式 |
 | video-captions / bilisub / bilibili-subtitle-fetch | Python CLI | 无字幕时自动回退本地 ASR（Whisper），思路同本计划 |
 
-### 2.3 ASR 引擎（CPU 环境）
+### 2.3 ASR 引擎
 
-| 模型 | 中文CER | CPU 速度 | 备注 |
+| 模型 | 中文CER | GPU 速度 (7800XT) | 备注 |
 |---|---|---|---|
-| **SenseVoice-Small（首选）** | 7.81% | **17x 实时** | 非自回归，自带标点/ITN；GGUF + llama.cpp 8线程 ~20x |
-| Paraformer-Large | 10.18% | 15x | 热词增强可选，成熟稳定 |
-| faster-whisper large-v3 | ~8% | ~2-5x | 慢 5-10 倍，CPU 上不划算 |
+| **FunASR-Nano-2512（首选）** | ~8% | **50x+ 实时** | 轻量高效，ROCm 6.0+ |
+| SenseVoice-Small | 7.81% | 17x (CPU) | 已弃用，见本次迁移 |
+| Paraformer-Large | 10.18% | 40x+ (GPU) | 备选，更大模型 |
 
-**结论：SenseVoice-Small（FunASR / GGUF）**。2200h / 17x / 16核并行 → 数天量级，纯 CPU 可行，无需云 GPU。
+**结论：FunASR-Nano-2512（GPU）**。2200h / 50x / AMD 7800XT → 约 44 小时，GPU 加速显著优于 CPU。
 
 ## 3. 流水线设计
 
@@ -79,7 +79,7 @@ manifest/manifest.jsonl（账本，work_id 为主键）
   ├─② 音频下载: 受限 API 流（登录态、限速、分批）
   │    → audio/{bvid}.p{page}.m4a（归档后回收）
   │
-  ├─③ ASR: ffmpeg 16k 单声道 → SenseVoice-Small
+  ├─③ ASR: ffmpeg 16k 单声道 → FunASR-Nano
   │
   ├─④ 原子归档: srt / txt / md / raw + .bundle-ready
   │    marker 固定四个相对路径及 SHA-256；marker 最后发布
@@ -96,7 +96,7 @@ manifest/manifest.jsonl（账本，work_id 为主键）
 | 存储 | 字幕覆盖部分音频可不存；无字幕音频 60~80GB；文本 <1GB |
 | 字幕下载 | 3~7 天（限速后台跑） |
 | 音频下载（无字幕部分） | 与字幕探测同步，2~4 周 |
-| ASR（CPU 17x, 16核分片并行） | 数天（按字幕覆盖率打折） |
+| ASR（GPU 50x, 7800XT 单卡） | 约 2 天（按字幕覆盖率打折） |
 | 总花费 | ~¥0（可选云GPU加速约 ¥100-300） |
 
 ## 4b. 风险与合规
@@ -126,7 +126,7 @@ manifest/manifest.jsonl（账本，work_id 为主键）
 
 ASR is an optional local capability: install it with `python3.12 -m pip install -e "[asr]"` only when the operator has a reviewed local environment. Configure a pre-populated local model with `BILI_ASR_MODEL`; tests use fake factories and do not install FunASR, download models/media, or use network credentials. `ASRRunner` lazily constructs and reuses one model only for the current sequential `run_batch` scope. It is not thread-safe and must not be shared by concurrent callers. The coordinator releases a runner it creates when the batch exits, including failure exits; an injected runner remains caller-owned.
 
-`ASRRunner.provenance()` is deterministic configuration/report evidence: stable keys describe model name, declared revision, device, offline intent, and opaque local-source intent. A local `BILI_ASR_MODEL` path is a runtime-only model selector, not a provenance identifier. Safe slash-qualified identifiers such as `iic/SenseVoiceSmall` are preserved; URL, absolute-path, and credential-like model values are redacted, while invalid `local_source` values remain rejected. Cookies, tokens, raw exceptions, model/media/transcript payloads, and ledger fields are excluded. Fixture checks report only fake construction count and normalized output shape; the selector is `tests/test_asr_reproducibility.py::test_fixture_benchmark_reports_only_construction_and_shape`. This evidence is not semantic-quality validation, model-weight pinning, a general network-free-runtime guarantee, hardware timing, or full-corpus completion.
+`ASRRunner.provenance()` is deterministic configuration/report evidence: stable keys describe model name, declared revision, device, offline intent, and opaque local-source intent. A local `BILI_ASR_MODEL` path is a runtime-only model selector, not a provenance identifier. Safe slash-qualified identifiers such as `FunAudioLLM/Fun-ASR-Nano-2512` are preserved; URL, absolute-path, and credential-like model values are redacted, while invalid `local_source` values remain rejected. Cookies, tokens, raw exceptions, model/media/transcript payloads, and ledger fields are excluded. Fixture checks report only fake construction count and normalized output shape; the selector is `tests/test_asr_reproducibility.py::test_fixture_benchmark_reports_only_construction_and_shape`. This evidence is not semantic-quality validation, model-weight pinning, a general network-free-runtime guarantee, hardware timing, or full-corpus completion.
 
 ## 6. 下一迭代触发条件
 
