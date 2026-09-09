@@ -326,12 +326,11 @@ This iteration explicitly excludes:
 
 ## Review Chain Log
 
-- product-manager: complete — product scope, acceptance, roadmap, command boundary,
-  and cross-links reviewed and edited on disk
-- architect: pending
-- writing-specialist: pending
-- PM lock: pending
-- Phase 1 status: `active` until all three role edits return and PM marks this compass `locked`.
+- product-manager: complete (2026-09-09)
+- architect: complete (2026-09-09)
+- writing-specialist: complete (2026-09-09)
+- PM lock: complete (2026-09-09)
+- Phase 1 status: locked — ready for integration branch and Phase 2 execution
 
 ## Direction Lock Evidence
 
