@@ -55,21 +55,30 @@
       "id": "20260909-bilibili-api-ingestion",
       "title": "bilibili-api gateway and normalized ingestion",
       "file": ".mstar/plans/20260909-bilibili-api-ingestion.md",
-      "status": "Todo",
+      "status": "Done",
       "owner": "project-manager",
       "agents": [
         "fullstack-dev"
       ],
-      "progress": 0,
+      "progress": 100,
       "tags": [
         "backend",
         "external-api",
         "ingestion"
       ],
       "created_at": "2026-09-09",
-      "updated_at": "2026-09-09",
-      "done_at": null,
-      "notes": [],
+      "updated_at": "2026-09-10",
+      "done_at": "2026-09-10",
+      "notes": [
+        "Phase 2 lease claimed (dependency plan-1 Done; feature worktree .worktrees/20260909-bilibili-api-ingestion on feature/20260909-bilibili-api-ingestion at e62280a). Task 1 dispatch next.",
+        "Task 1 review Approved (review/task-1-review.md, 0C/0I/3M; commit dfb66ba; 97 focused / 823 full). PM adjudicated D1-D3 (all accepted; D3 ownership invariant -> Task 2). Task 2 dispatched.",
+        "Task 2 review Approved (review/task-2-review.md, 0C/0I/5M; commit 0c2c379; 17 focused / 840 full). storage/database.py verified unmodified. Task 3 dispatched (last task).",
+        "Task 3 review Approved (review/task-3-review.md, 0C/0I/3M; commits 6359e7d + 783986a; 122 focused +1 skipped / 848 full implementer-reported). All 3 tasks complete; branch review package e62280a..783986a; plan QC tri (N=3) next, then mandatory QA gate.",
+        "Implementation complete (3 tasks, 4 commits dfb66ba/0c2c379/6359e7d/783986a); plan entered InReview. QC tri (N=3) dispatched on branch package e62280a..783986a; execution_lease retained.",
+        "QC tri (N=3) complete: qc-specialist Unconfirmed (routed runtime evidence) / qc-specialist-2 Request Changes (1W: bvid boundary asymmetry -> raw ValueError escape) / qc-specialist-3 Approve; consolidated gate Request Changes (0C/1W deduped) — review/qc-consolidated.md. Fix wave dispatched (W1 + S-fix-1..8); dangling-running windows accepted with Batch-3 carries C1-C6. Targeted re-review (qc-specialist + qc-specialist-2) after fix, then mandatory QA gate closes U1-U4.",
+        "QC targeted re-review (N=2) on fix wave 3dcc51b: qc-specialist-2 Approve (W-001 resolved, re-derived evidence) / qc-specialist no open defects (Unconfirmed solely on routed evidence, stated no-objection once QA closes U1-U4). Consolidated: QC converged — plan-level Approve after the mandatory QA gate closes U1-U4 (suite re-run, uv lock --check, live-smoke execution, wheel inspection incl. detail bvid). QA gate dispatched.",
+        "Integration merge complete: 5ccc9c80ba315b94e659c23d452a96abce4f47d9 (e62280a..3dcc51b, 10 files +5948) into iteration/iter-2026-09-bilibili-api-sqlite. Plan Done by PM after QC convergence + mandatory QA gate Approve (qa-gate.md; U3 live smoke executed — bounded response_error under anonymous access, happy path deferred to Batch 3 SESSDATA CLI). Leases released; zero open residuals."
+      ],
       "metadata": {
         "primary_spec": ".mstar/iterations/iter-2026-09-bilibili-api-sqlite/specs/bilibili-api-gateway.md",
         "spec_integration_branch": "iteration/iter-2026-09-bilibili-api-sqlite",
@@ -77,7 +86,13 @@
         "blocked_by": [
           "20260909-structured-metadata-schema"
         ]
-      }
+      },
+      "task_commits": [
+        "dfb66ba14ef8d8440d8c645b6118ee7f2aaf903a",
+        "0c2c37926e51dcd6b668b01ab8971a7ee5401f53",
+        "6359e7df9990cc43fb0e671c9e509c9f2cb774bf",
+        "783986aeb4fe65d6d98cf4552dd4bc0a667c67f4"
+      ]
     },
     {
       "id": "20260909-metadata-cli-smoke",

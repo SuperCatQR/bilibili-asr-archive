@@ -79,23 +79,23 @@ Python 3.12, `bilibili-api-python==17.4.2`, `uv.lock`, standard-library
 - Produces: `UserVideoPage`, `VideoSummary`, `VideoPart`, `BilibiliGateway`,
   and bounded gateway exception classes.
 
-- [ ] Pin `bilibili-api-python==17.4.2` and generate/update `uv.lock` without
+- [x] Pin `bilibili-api-python==17.4.2` and generate/update `uv.lock` without
   changing unrelated runtime dependencies.
-- [ ] Implement credential construction without exposing SESSDATA to DTOs,
+- [x] Implement credential construction without exposing SESSDATA to DTOs,
   logs, exception messages, or persistent records.
-- [ ] Implement `get_package_version()` returning the pinned package version string
+- [x] Implement `get_package_version()` returning the pinned package version string
   for run metadata.
-- [ ] Implement `get_user_video_page` using the documented `User.get_videos`
+- [x] Implement `get_user_video_page` using the documented `User.get_videos`
   page parameters and normalize required scalar fields. Return `observed_total`
   from the API response when present. Validate that all returned video `mid`
   values match the requested `mid`; reject with `GatewayShapeError` on mismatch.
-- [ ] Implement `get_video_parts` using `Video.get_pages`; convert one-based
+- [x] Implement `get_video_parts` using `Video.get_pages`; convert one-based
   `page` to zero-based `page_index` using `page - 1`, and convert `duration`
   seconds to `duration_ms` using `floor(seconds * 1000)`. Use `get_info` only
   when the video summary lacks `aid`; do not call it speculatively.
-- [ ] Validate non-empty BVID/title, non-negative page index, positive CID and
+- [x] Validate non-empty BVID/title, non-negative page index, positive CID and
   duration before returning DTOs.
-- [ ] Test DTO normalization, duration/page-index conversion, owner-MID validation,
+- [x] Test DTO normalization, duration/page-index conversion, owner-MID validation,
   malformed responses, bounded error mapping, and import-boundary inspection with
   a fake package seam.
 
@@ -114,21 +114,21 @@ Run: `cd bilibili-asr-archive && .venv/bin/python -m pytest tests/test_bilibili_
 - Produces: run result with outcome, next cursor, and derived counts; all
   persisted data is normalized repository data.
 
-- [ ] Start an `ingestion_run` with requested bounds and package version.
-- [ ] For each page, fetch summaries, fetch parts, and persist user/video/part
+- [x] Start an `ingestion_run` with requested bounds and package version.
+- [x] For each page, fetch summaries, fetch parts, and persist user/video/part
   records plus discovery relationships in one transaction using the explicit
   ordering from Plan 1: (1) upsert user, (2) upsert video, (3) upsert parts,
   (4) insert discoveries, (5) update cursor on success only, (6) record page
   outcome, (7) commit atomically.
-- [ ] Make repeated pages idempotent for entity and discovery keys while keeping
+- [x] Make repeated pages idempotent for entity and discovery keys while keeping
   separate run/page evidence for each collection run. Entity upserts use
   `INSERT ... ON CONFLICT DO UPDATE` on primary/unique keys.
-- [ ] Persist `complete`, `limited`, `risk_interrupted`, or `failed` outcomes;
+- [x] Persist `complete`, `limited`, `risk_interrupted`, or `failed` outcomes;
   never claim completion when an explicit page limit stops collection.
-- [ ] Preserve the previous cursor on gateway failure: rollback the entire page
+- [x] Preserve the previous cursor on gateway failure: rollback the entire page
   transaction and store only the scalar error code in a separate page/run
   outcome transaction.
-- [ ] Test one single-part video, one multipart video, duplicate page results,
+- [x] Test one single-part video, one multipart video, duplicate page results,
   empty page completion, explicit page limit, transaction rollback on failure,
   and cursor preservation/resume behavior.
 
@@ -146,14 +146,14 @@ Run: `cd bilibili-asr-archive && .venv/bin/python -m pytest tests/test_metadata_
 - Produces: offline contract evidence and a documented live-smoke entry point
   for Plan 3.
 
-- [ ] Assert the adapter calls only the documented user/video metadata methods
+- [x] Assert the adapter calls only the documented user/video metadata methods
   and never playback/subtitle methods.
-- [ ] Assert no persisted row or test output contains SESSDATA, signed URL text,
+- [x] Assert no persisted row or test output contains SESSDATA, signed URL text,
   raw JSON, or raw exception text.
-- [ ] Add a live smoke test that is opt-in, uses UID 23191782, requests one page,
+- [x] Add a live smoke test that is opt-in, uses UID 23191782, requests one page,
   writes to a temporary database, and skips cleanly when live execution is not
   requested.
-- [ ] Record the live smoke command and bounded expectations for the CLI plan.
+- [x] Record the live smoke command and bounded expectations for the CLI plan.
 
 Run: `cd bilibili-asr-archive && .venv/bin/python -m pytest tests/test_bilibili_api_gateway.py tests/test_metadata_ingest.py -v`
 
@@ -187,23 +187,23 @@ uncommitted exploratory prototypes are not imported by the new package.
 
 ## Acceptance / Done Criteria
 
-- [ ] `bilibili-api-python==17.4.2` is pinned and `uv.lock` is reproducible.
-- [ ] Only `sources/bilibili_api_gateway.py` imports `bilibili_api`; all other
+- [x] `bilibili-api-python==17.4.2` is pinned and `uv.lock` is reproducible.
+- [x] Only `sources/bilibili_api_gateway.py` imports `bilibili_api`; all other
   modules consume application-owned DTOs and protocols.
-- [ ] DTOs validate required metadata fields (non-empty BVID/title, positive
+- [x] DTOs validate required metadata fields (non-empty BVID/title, positive
   CID/duration) and reject malformed responses before returning.
-- [ ] Ingestion service writes normalized entities (user/video/part) and discovery
+- [x] Ingestion service writes normalized entities (user/video/part) and discovery
   relationships with idempotency: repeated pages update display labels without
   creating duplicate rows.
-- [ ] Cursor advances only after a successful page transaction commits; failed
+- [x] Cursor advances only after a successful page transaction commits; failed
   pages leave the prior cursor intact.
-- [ ] Bounded failure records contain scalar error codes only; no credentials,
+- [x] Bounded failure records contain scalar error codes only; no credentials,
   signed URLs, raw JSON, or stack traces are persisted.
-- [ ] Offline gateway and ingestor tests pass on Python 3.12 without network access.
-- [ ] Opt-in live smoke is bounded to one public metadata page for UID 23191782,
+- [x] Offline gateway and ingestor tests pass on Python 3.12 without network access.
+- [x] Opt-in live smoke is bounded to one public metadata page for UID 23191782,
   writes to a temporary SQLite database, and calls no subtitle/playback/audio/ASR
   endpoints.
-- [ ] `git diff --check` is clean.
+- [x] `git diff --check` is clean.
 
 ## Prepare → Execute Handoff
 
@@ -214,18 +214,18 @@ package, mandatory QC tri-review, and QA gate before marking this plan Done.
 
 ## Review Gate Summary
 
-- Decision: pending
-- Review range / Diff basis: pending
+- Decision: QC converged — Approve conditional on the mandatory QA gate closing the routed runtime evidence U1–U4 (initial tri: Unconfirmed/Request Changes/Approve → fix wave `3dcc51b` → targeted re-review N=2: seat 2 Approve with W resolved, seat 1 no open defects with stated no-objection)
+- Review range / Diff basis: `e62280a..3dcc51b` (merge-base e62280a with spec integration branch; final reviewed head `3dcc51b`)
 - Review bundle: `.mstar/sdd/20260909-bilibili-api-ingestion/review/`
-- QC inputs: `qc1.md`, `qc2.md`, `qc3.md`
-- Blocking result: pending
-- Residual findings: pending
+- QC inputs: `qc1.md`, `qc2.md`, `qc3.md` (Revalidation in place), consolidated: `qc-consolidated.md`
+- Blocking result: none unresolved in QC scope (W1 bvid boundary asymmetry fixed + seat-verified; routed runtime evidence U1–U4 → QA gate)
+- Residual findings: none open (zero-residual; dangling-running windows accepted as bounded design limits; Batch-3 carries C1–C6 recorded in Durable Roadmap)
 
 ## QA Gate Summary
 
 - QA gate: mandatory
 - QA mode: acceptance
-- Evidence: pending
+- Evidence: qa-engineer L4 gate **Approve (recommend merge)** at HEAD `3dcc51b`, range `e62280a..3dcc51b` — full report `.mstar/sdd/20260909-bilibili-api-ingestion/review/qa-gate.md`. U1 fresh re-runs match the post-fix baseline exactly (focused pair 131 passed + 1 skipped in 0.95s, skip = the opt-in live smoke; full suite 857 passed + 1 skipped in 41.64s; CPython 3.12.13; `git diff --check` clean). U2 fresh `uv lock --check` no-op (exit 0, resolved 98 packages; pin from PyPI per `uv.lock`). U3 live smoke executed opt-in (no credential, one page, UID 23191782, temporary SQLite): attempt + single mandated retry both ended in the designed bounded failure `response_error` — upstream reachable but rejects the anonymous metadata chain; bounded failure path verified live (atomic terminal run, one page-evidence row, scalar-only persistence, temp-root-only writes); happy-path collection not demonstrable from this environment, recorded as a Plan-3 operational note (SESSDATA support is Plan-3 CLI scope, C6). U4 wheel inspection confirms all fake-seam assumptions (inner-`data` return shape via `Api._check_response`, `get_pages`→`x/player/pagelist` with local `bvid2aid` and no internal `get_info`, `get_info`→`x/web-interface/view` with the S-fix-4 top-level-`bvid` anchor bounded as `shape_error` either way, exception/`Credential` signatures). Zero open residuals (zero-residual confirmed); plan-level Approve unblocked — PM owns the integration merge and the `Done` transition (plan not marked Done here).
 
 ## Sign-off
 
