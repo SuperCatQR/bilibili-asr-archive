@@ -11,7 +11,10 @@ subtitle, audio, or download methods, which makes silent use of other package
 APIs impossible.  The import boundary and the method surface itself are
 additionally inspected statically with AST over the package sources.  The
 only networked test is the opt-in live smoke, which skips unless
-``BILI_LIVE_SMOKE=1`` is set.
+``BILI_LIVE_SMOKE=1`` is set.  The packaging-contract test is the one
+exception to the "installed distribution never needed" rule: it reads the
+pinned distribution's metadata and fails loudly when that distribution is
+absent, because the contract it checks cannot be proven without it.
 """
 
 from __future__ import annotations
@@ -19,10 +22,14 @@ from __future__ import annotations
 import ast
 import asyncio
 import importlib
+import importlib.metadata
 import os
 import pathlib
+import tomllib
 
 import pytest
+from packaging.requirements import Requirement
+from packaging.utils import canonicalize_name
 
 from bili_asr.services.metadata_ingest import MetadataIngestor
 from bili_asr.sources.models import (
@@ -59,7 +66,19 @@ from fixtures.fake_bilibili_gateway import (
     persisted_row_text,
 )
 
+PINNED_PACKAGE_DISTRIBUTION_NAME = "bilibili-api-python"
 PINNED_PACKAGE_VERSION = "17.4.2"
+
+#: PEP 503 canonical name of the runtime HTTP backend this project declares.
+#: The pinned package drives whichever client is installed while declaring
+#: none itself, so this declaration is what lets a fresh install reach the
+#: network at all.
+HTTP_BACKEND_CANONICAL_NAME = "curl-cffi"
+
+#: The HTTP clients the pinned package can drive, named in its own error
+#: message (``pip3 install (curl_cffi|httpx|aiohttp)``).  None of them may
+#: arrive through the application's dependency closure on its own.
+PACKAGE_HTTP_CLIENT_CANONICAL_NAMES = frozenset({"curl-cffi", "httpx", "aiohttp"})
 
 #: The exact bilibili_api import surface the adapter is allowed to use.
 ALLOWED_PACKAGE_IMPORTS = {
@@ -656,6 +675,61 @@ def test_package_version_reports_installed_distribution(bilibili_api_seam, monke
     gateway = _load_gateway()
 
     assert gateway.get_package_version() == "9.9.9"
+
+
+# ------------------------------------------------------- runtime HTTP backend
+
+
+def test_http_backend_declared_and_absent_from_pinned_package_requirements():
+    """The declared HTTP backend cannot arrive transitively from the pin.
+
+    ``bilibili-api-python==17.4.2`` publishes no HTTP client in
+    ``Requires-Dist`` and no extra carrying one, yet every request raises
+    ``ArgsException("尚未安装第三方请求库或未注册自定义第三方请求库")`` until
+    ``curl_cffi``, ``httpx``, or ``aiohttp`` is installed.  The pin is
+    spec-locked, so no version bump can supply the transport: the
+    application must declare the backend itself, and a fresh install without
+    that declaration can never reach the network.  This test fails if the
+    declaration is dropped, and the installed distribution's own metadata is
+    what proves the dependency is load-bearing rather than transitive.
+
+    Offline and deterministic: it reads this checkout's ``pyproject.toml``
+    and the installed distributions' metadata only.
+    """
+
+    project_root = pathlib.Path(__file__).resolve().parents[1]
+    pyproject = tomllib.loads(
+        (project_root / "pyproject.toml").read_text(encoding="utf-8")
+    )
+    declared_names = {
+        canonicalize_name(Requirement(raw).name)
+        for raw in pyproject["project"]["dependencies"]
+    }
+    assert HTTP_BACKEND_CANONICAL_NAME in declared_names, (
+        "the runtime HTTP backend must stay declared in"
+        f" [project].dependencies ({HTTP_BACKEND_CANONICAL_NAME} missing)"
+    )
+
+    try:
+        pinned_distribution = importlib.metadata.distribution(
+            PINNED_PACKAGE_DISTRIBUTION_NAME
+        )
+    except importlib.metadata.PackageNotFoundError as error:
+        pytest.fail(
+            "the packaging contract needs the pinned distribution installed to"
+            f" read its Requires-Dist ({error}); run uv sync first"
+        )
+
+    upstream_names = {
+        canonicalize_name(Requirement(raw).name)
+        for raw in pinned_distribution.requires or ()
+    }
+    transitive_clients = upstream_names & PACKAGE_HTTP_CLIENT_CANONICAL_NAMES
+    assert not transitive_clients, (
+        f"the pinned package now declares an HTTP client ({sorted(transitive_clients)});"
+        " re-check whether the explicit backend declaration and the rationale"
+        " above still hold"
+    )
 
 
 # ------------------------------------------------------- DTO self-validation

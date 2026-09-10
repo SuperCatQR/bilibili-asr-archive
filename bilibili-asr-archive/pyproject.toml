@@ -11,6 +11,7 @@ requires-python = ">=3.12"
 dependencies = [
     "requests>=2.32",
     "bilibili-api-python==17.4.2",
+    "curl_cffi>=0.16",
 ]
 license = { text = "Proprietary" }
 
