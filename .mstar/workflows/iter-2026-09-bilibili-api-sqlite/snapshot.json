@@ -98,21 +98,30 @@
       "id": "20260909-metadata-cli-smoke",
       "title": "SQLite-backed metadata CLI and bounded verification",
       "file": ".mstar/plans/20260909-metadata-cli-smoke.md",
-      "status": "Todo",
+      "status": "Done",
       "owner": "project-manager",
       "agents": [
         "fullstack-dev"
       ],
-      "progress": 0,
+      "progress": 100,
       "tags": [
         "backend",
         "cli",
         "verification"
       ],
       "created_at": "2026-09-09",
-      "updated_at": "2026-09-09",
-      "done_at": null,
-      "notes": [],
+      "updated_at": "2026-09-10",
+      "done_at": "2026-09-10",
+      "notes": [
+        "Phase 2 lease claimed (dependency plan-2 Done; feature worktree .worktrees/20260909-metadata-cli-smoke on feature/20260909-metadata-cli-smoke at 18b6353). Task 1 dispatch next. Batch-3 carries C1-C6 from plan-2 apply.",
+        "Task 1 review Approved (review/task-1-review.md, 0C/0I/5M; commit 849c046; 31 focused / 854 full +1 skip; 34 legacy tests retired). PM adjudicated implementer decisions (both accepted). Task 2 dispatched.",
+        "Task 2 review Approved (review/task-2-review.md, 0C/0I/2M; commit cf490ff; 3 E2E / 857 full +1 skip). Task 3 dispatched (last task).",
+        "Task 3 review Approved (review/task-3-review.md, 0C/0I/3M; commit c86daa7; 1+1 skip focused / 858+2 skip full implementer-reported). All 3 tasks complete; branch review package 18b6353..c86daa7; plan QC tri (N=3) next, then mandatory QA gate (executes the live smoke).",
+        "Implementation complete (3 tasks, 3 commits 849c046/cf490ff/c86daa7); plan entered InReview. QC tri (N=3) dispatched on branch package 18b6353..c86daa7; execution_lease retained.",
+        "QC tri (N=3) complete: all three seats Request Changes (0C; consolidated 2W deduped: exit-2 contract drift + implicit default page bound — operator-docs accuracy); consolidated gate Request Changes — review/qc-consolidated.md. Docs fix wave dispatched (W1+W2 + S-fix-1..7); PM edited the spec's stale exit-2 clause directly (text-only, QC-adjudicated). Targeted re-review N=3 next, then mandatory QA gate closes U1-U3 (incl. live smoke).",
+        "QC targeted re-review (N=3) on docs fix wave 1a99751 + PM spec edit: seats 2/3 Approve (W resolved, five-way doc consistency) / seat 1 no open defects (Unconfirmed = 3 QA routings, 'no further fix wave needed'). Consolidated: QC converged — plan-level Approve after the mandatory QA gate closes U1-U4 (suite re-run 861+2 expected, opted-in live smoke incl. credential happy path, isolated-install evidence, side-effect observation). QA gate dispatched.",
+        "Integration merge complete: 1307f924f2b2353a6551c3217063efd7a5bab23a (18b6353..1a99751, 13 files +2509/-1195) into iteration/iter-2026-09-bilibili-api-sqlite. Plan Done by PM after QC convergence + mandatory QA gate Approve (qa-gate.md: 861+2 / 38+1 fresh; isolated-install verified; anonymous live bounded-failure path executed live; credential happy path = explicit blocker, BILI_SESSDATA unset). Leases released; zero open residuals. ALL PLANS DONE."
+      ],
       "metadata": {
         "primary_spec": ".mstar/iterations/iter-2026-09-bilibili-api-sqlite/specs/metadata-cli-contract.md",
         "spec_integration_branch": "iteration/iter-2026-09-bilibili-api-sqlite",
@@ -120,7 +129,12 @@
         "blocked_by": [
           "20260909-bilibili-api-ingestion"
         ]
-      }
+      },
+      "task_commits": [
+        "849c046011709968f8518c274d3517bd155463a1",
+        "cf490ffa0182a388ff9161ec7f84ea04905ab5c8",
+        "c86daa76501f05394ba81d2c35260ff0449dcdab"
+      ]
     }
   ],
   "execution_policy": {

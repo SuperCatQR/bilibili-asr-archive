@@ -71,15 +71,15 @@ network execution.
 - Consumes: CLI arguments, environment configuration, and service constructors.
 - Produces: SQLite-backed command handlers with documented exit behavior.
 
-- [ ] Add configuration loading for archive root, optional SESSDATA, and bounded
+- [x] Add configuration loading for archive root, optional SESSDATA, and bounded
   metadata page parameters; redact credentials from any display path.
-- [ ] Wire `fetch-meta` to the new ingestor and expose `--mid`, `--start-page`,
+- [x] Wire `fetch-meta` to the new ingestor and expose `--mid`, `--start-page`,
   `--limit-pages`, `--archive-root`, and optional `--sessdata`.
-- [ ] Wire `status` to `v_pending_metadata` and `runs` to normalized run/page
+- [x] Wire `status` to `v_pending_metadata` and `runs` to normalized run/page
   queries; fail clearly when the fresh database is missing for read commands.
-- [ ] Remove metadata command reads/writes of old JSONL and cursor sidecars from
+- [x] Remove metadata command reads/writes of old JSONL and cursor sidecars from
   the new path without changing unrelated future processing modules.
-- [ ] Test parser behavior, fresh database creation, status/run output, exit codes,
+- [x] Test parser behavior, fresh database creation, status/run output, exit codes,
   and no-old-file assertions.
 
 Run: `cd bilibili-asr-archive && .venv/bin/python -m pytest tests/test_metadata_cli.py -v`
@@ -95,13 +95,13 @@ Run: `cd bilibili-asr-archive && .venv/bin/python -m pytest tests/test_metadata_
 - Consumes: CLI, ingestor, repository, and fake gateway.
 - Produces: deterministic end-to-end evidence for the iteration acceptance gate.
 
-- [ ] Script a single-part video and a multipart video returned by the fake gateway.
-- [ ] Verify normalized user/video/part/discovery/run/page/cursor rows and the
+- [x] Script a single-part video and a multipart video returned by the fake gateway.
+- [x] Verify normalized user/video/part/discovery/run/page/cursor rows and the
   computed `work_id` view values.
-- [ ] Re-run the same page and assert no duplicate entity or discovery rows.
-- [ ] Script a failed page, assert cursor preservation and bounded error storage,
+- [x] Re-run the same page and assert no duplicate entity or discovery rows.
+- [x] Script a failed page, assert cursor preservation and bounded error storage,
   then resume successfully from the prior cursor.
-- [ ] Assert no old JSONL/cursor/ledger files are created in the temporary root.
+- [x] Assert no old JSONL/cursor/ledger files are created in the temporary root.
 
 Run: `cd bilibili-asr-archive && .venv/bin/python -m pytest tests/test_metadata_e2e.py -v`
 
@@ -116,13 +116,13 @@ Run: `cd bilibili-asr-archive && .venv/bin/python -m pytest tests/test_metadata_
 - Consumes: the real gateway and CLI from Tasks 1–2.
 - Produces: opt-in one-page live evidence and user-facing setup instructions.
 
-- [ ] Make live execution opt-in through `BILI_LIVE_SMOKE=1`; default test runs
+- [x] Make live execution opt-in through `BILI_LIVE_SMOKE=1`; default test runs
   skip it without failure.
-- [ ] Limit live fetch to one public page for UID 23191782 and a temporary DB;
+- [x] Limit live fetch to one public page for UID 23191782 and a temporary DB;
   assert at least the expected normalized table relationships when successful.
-- [ ] Document the fresh database layout, no-migration behavior, credential
+- [x] Document the fresh database layout, no-migration behavior, credential
   boundary, and exact bounded smoke command.
-- [ ] Do not document or expose returned raw JSON, signed URLs, or credentials.
+- [x] Do not document or expose returned raw JSON, signed URLs, or credentials.
 
 Run: `cd bilibili-asr-archive && BILI_LIVE_SMOKE=1 .venv/bin/python -m pytest tests/test_live_metadata_smoke.py -v`
 
@@ -153,23 +153,23 @@ is the only metadata writer and that old uncommitted prototypes are not imported
 
 ## Acceptance / Done Criteria
 
-- [ ] Metadata CLI creates and reads only the fresh SQLite database at
+- [x] Metadata CLI creates and reads only the fresh SQLite database at
   `{archive_root}/archive.db`.
-- [ ] Offline fake-gateway E2E passes for: single-part video, multipart video,
+- [x] Offline fake-gateway E2E passes for: single-part video, multipart video,
   duplicate page (idempotency), failed page with cursor preservation, and
   successful resume from prior cursor.
-- [ ] Opt-in live smoke is bounded to one public metadata page (UID 23191782,
+- [x] Opt-in live smoke is bounded to one public metadata page (UID 23191782,
   `--limit-pages 1`, temporary archive root) and calls no subtitle/playback/
   audio/ASR code.
-- [ ] No legacy files (`manifest.jsonl`, `meta-cursor.json`, `run-ledger.jsonl`)
+- [x] No legacy files (`manifest.jsonl`, `meta-cursor.json`, `run-ledger.jsonl`)
   are created or read by the new commands.
-- [ ] Credentials, signed URLs, raw JSON responses, and raw exception text are
+- [x] Credentials, signed URLs, raw JSON responses, and raw exception text are
   absent from CLI output, logs, and persisted database rows.
-- [ ] README and `docs/metadata-storage.md` describe the actual fresh-start
+- [x] README and `docs/metadata-storage.md` describe the actual fresh-start
   workflow with accurate commands and exit code meanings.
-- [ ] Existing test suite remains green or any intentional contract changes are
+- [x] Existing test suite remains green or any intentional contract changes are
   updated in this plan before implementation.
-- [ ] `git diff --check` is clean.
+- [x] `git diff --check` is clean.
 
 ## Prepare → Execute Handoff
 
@@ -180,18 +180,18 @@ gate before marking this plan Done.
 
 ## Review Gate Summary
 
-- Decision: pending
-- Review range / Diff basis: pending
+- Decision: QC converged — Approve conditional on the mandatory QA gate closing the routed runtime evidence U1–U4 (initial tri 3×Request Changes → docs fix wave `1a99751` + PM spec edit → targeted re-review N=3: seats 2/3 Approve, seat 1 no open defects with stated resolution path)
+- Review range / Diff basis: `18b6353..1a99751` (merge-base 18b6353 with spec integration branch; final reviewed head `1a99751`)
 - Review bundle: `.mstar/sdd/20260909-metadata-cli-smoke/review/`
-- QC inputs: `qc1.md`, `qc2.md`, `qc3.md`
-- Blocking result: pending
-- Residual findings: pending
+- QC inputs: `qc1.md`, `qc2.md`, `qc3.md` (Revalidation in place), consolidated: `qc-consolidated.md`
+- Blocking result: none unresolved in QC scope (W1 exit-2 contract drift + W2 default page bound resolved and seat-verified; routed runtime evidence U1–U4 → QA gate)
+- Residual findings: none open (zero-residual; accepted-with-rationale polish notes + next-iteration carries in Durable Roadmap)
 
 ## QA Gate Summary
 
 - QA gate: mandatory
 - QA mode: acceptance
-- Evidence: pending
+- Evidence: **QA gate Approve (recommend merge)** — qa-engineer L4, 2026-09-10, at `1a99751` (checkout alignment verified; worktree clean). U1 fresh re-runs: full suite `861 passed, 2 skipped`, focused trio `38 passed, 1 skipped` — exact post-fix baselines. U2 opted-in live smoke: anonymous bounded-failure path executed and evidenced (designed `response_error` → exit 2 → reasoned skip after bounded-failure + leak assertions ran); happy path = explicit live-network blocker (`BILI_SESSDATA` unset on this machine; presence-checked only, nothing fabricated). U3 isolated-install verified: `uv build --wheel` → offline scratch-venv install → `bili_asr.cli` imports from site-packages → `bili-asr --help` exit 0 → `schema.sql` package-data present → scratch cleaned. U4: no third-party writes outside the temporary root observed (package write surfaces all in non-metadata modules; temp root torn down). All 9 acceptance items mapped (8 reuse + routed gaps closed fresh); zero open residuals. Full report: `.mstar/sdd/20260909-metadata-cli-smoke/review/qa-gate.md`
 
 ## Sign-off
 

@@ -27,9 +27,17 @@ user, normalizes the results, and writes to SQLite. Never reads or writes legacy
 JSONL, cursor, or ledger files.
 
 **Exit codes**:
-- **0**: Successful collection (reached end or explicit `--limit-pages`)
+- **0**: Successful collection (reached end, explicit `--limit-pages`, or the
+  implicit default bound of 10 pages when the flag is omitted)
 - **1**: Usage error (bad arguments, missing database when `--resume` requires cursor)
-- **2**: Gateway failure after bounded retry (cursor remains unchanged)
+- **2**: Bounded terminal failure (cursor semantics noted per variant):
+  - *Gateway failure*: the Plan-2 gateway is fail-fast per page (one attempt,
+    no retry budget); a failed page records a bounded scalar code, the cursor
+    remains unchanged, and resume is always safe.
+  - *Unexpected internal error*: an exception outside the gateway taxonomy exits
+    2 with the fixed message `fetch-meta: unexpected error` — no scalar code is
+    printed; the cursor may hold the last committed page of the run and the run
+    row may remain non-terminal `running` (operators consult `bili-asr runs`).
 
 A failed page never advances the cursor, so resume is always safe.
 
