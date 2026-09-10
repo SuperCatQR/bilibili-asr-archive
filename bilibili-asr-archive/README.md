@@ -99,7 +99,7 @@ in committed files or CI artifacts.
 
 ## Workflow
 
-    bili-asr fetch-meta --mid 23191782 --resume
+    bili-asr fetch-meta --mid 23191782 --archive-root archive
     bili-asr harvest-subs --archive-root archive
     bili-asr download-audio --missing-subs --archive-root archive
     bili-asr asr --pending --archive-root archive
@@ -247,13 +247,15 @@ A completed rerun skips work already `archived`. Missing optional ASR exits
 non-zero with `pip install -e "bilibili-asr-archive/[asr]"` and does not mark
 the row archived.
 
-### Operational run ledger (`run-ledger.jsonl`), `status`, and `runs`
+### Operational run ledger (`run-ledger.jsonl`)
 
-Every `fetch-meta` execution (exit 0 or 2) and every `pilot` / `run` /
-`schedule` run atomically appends an inspectable run record to
-`{archive-root}/run-ledger.jsonl`.
-The ledger is a sidecar file that records execution history and coverage
-without altering manifest row schemas or the transport layer.
+Every `pilot` / `run` / `schedule` run atomically appends an inspectable run
+record to `{archive-root}/run-ledger.jsonl`. The metadata CLI's `fetch-meta`
+records its runs in the fresh SQLite database
+(`{archive-root}/archive.db`, see
+[the fresh-start metadata workflow](#fresh-start-metadata-collection-fetchmeta--status--runs))
+instead. The ledger is a sidecar file that records execution history and
+coverage without altering manifest row schemas or the transport layer.
 
 #### Ledger record schema
 
@@ -262,7 +264,7 @@ Each JSONL line represents one immutable record with the following schema:
 | Field | Type | Description |
 |-------|------|-------------|
 | `run_id` | `str` | Opaque identifier (`run-YYYYMMDDHHMMSS-<token>`). |
-| `command` | `str` | Command executed (`fetch-meta`, `pilot`, `run`, `schedule`). |
+| `command` | `str` | Command executed (`pilot`, `run`, `schedule`). |
 | `started_at` | `str` | ISO-8601 UTC start timestamp. |
 | `finished_at` | `str` | ISO-8601 UTC completion timestamp. |
 | `exit_code` | `int` | Process exit code (`0`, `1`, or `2`). |
@@ -280,11 +282,13 @@ cookies), signed streaming URLs, and raw exception stack traces.
 
 #### Operator inspection
 
-- **`bili-asr status [--archive-root <root>]`** displays current per-status
-  manifest row counts, unresolved legacy identifiers, total run count, and
-  latest run details (run ID, exit code, cursor snapshot, and coverage
-  summary). For `limited` enumeration runs, it reports cursor state honestly
-  without claiming complete enumeration.
+- **`bili-asr status [--archive-root <root>]`** reads the fresh SQLite
+  metadata database (`archive.db`): counts of collected users, videos, and
+  parts, the `processing_status` breakdown, pending work ids from
+  `v_pending_metadata`, and each user's stored enumeration cursor. It exits
+  `1` when the database does not exist (`fetch-meta` creates it) and never
+  reads the legacy manifest sidecar. For `limited` collection runs, it
+  reports the cursor state honestly without claiming complete enumeration.
 - **`bili-asr coverage [--quality]`** is a read-only reconciliation and artifact quality report over fixture/local archive evidence. Use a temporary local root and optional scope; it never performs network traffic, model invocation, audio transcoding, or writes to source sidecars:
 
       bili-asr coverage --archive-root /tmp/bili-asr-coverage-fixture --scope pending --format json
@@ -478,27 +482,55 @@ The JSONL manifest (`{archive-root}/manifest/manifest.jsonl`) remains the single
 - **Vocabulary**: Consistently uses manifest `status` (never cursor `state`).
 - **Decoupled from search index**: Export operates directly over the JSONL manifest SSOT and does not require, query, or mutate `search.db`.
 
-### `fetch-meta --resume` and exit 2
+### Fresh-start metadata collection (`fetch-meta` / `status` / `runs`)
 
-`bili-asr fetch-meta` writes `{archive-root}/meta-cursor.json` after each
-successful archive-list page merge. The sidecar holds only `mid`, `next_page`,
-`total`, `state`, `last_api_error_code`, and `updated_at` — never cookies,
-`SESSDATA`, signed URLs, or exception text.
+`bili-asr fetch-meta` collects video metadata through the pinned
+`bilibili-api-python==17.4.2` gateway and writes it to a fresh normalized
+SQLite database at `{archive-root}/archive.db`; the layout is described in
+[docs/metadata-storage.md](docs/metadata-storage.md). The metadata commands
+never read or write the legacy `manifest/manifest.jsonl`,
+`meta-cursor.json`, or `run-ledger.jsonl` sidecars, and no command migrates
+old archive data: a new database starts empty. Deleting `archive.db` is the
+only restart path.
+
+    bili-asr fetch-meta --mid 23191782 --archive-root archive
+    bili-asr fetch-meta --mid 23191782 --limit-pages 1 --archive-root archive
+    bili-asr status --archive-root archive
+    bili-asr runs --limit 10 --archive-root archive
+
+- **Resume semantics**: without `--resume` or `--start-page`, a run continues
+  from the stored cursor when one exists and starts at page 1 otherwise.
+  `--resume` requires a stored cursor and exits `1` when there is none;
+  `--start-page` overrides the cursor. A failed page never advances the
+  cursor, so resume is always safe.
+- **Credential boundary**: optional SESSDATA comes from `--sessdata` or the
+  `BILI_SESSDATA` environment variable (cookie **value**, not a file path).
+  It is sent as an API cookie only and is never echoed, logged, persisted,
+  or written to the database; CLI output shows presence only
+  (`sessdata: present|absent`).
 
 | Exit | Meaning |
 |------|---------|
-| 0 | Run finished without risk exhaustion. Cursor `state` is `complete` (full visible archive) or `limited` (intentional `--limit-pages` cap). `--resume` does **not** auto-continue these. |
-| 1 | Usage/config or unexpected error (no traceback). |
-| 2 | Risk budget or terminal API failure. Cursor `state` is `risk_interrupted`; `next_page` is the 1-based `pn` that was **not** merged. Re-run `fetch-meta --resume` with the same `--mid` to start at that page. |
+| 0 | `fetch-meta`: successful collection (empty page reached or explicit `--limit-pages` bound). `status` / `runs`: database read and displayed. |
+| 1 | Usage/configuration error: bad page arguments, `--resume` without a stored cursor, or a missing/unreadable database for the read commands. |
+| 2 | `fetch-meta` only: terminal gateway failure with a bounded scalar code (e.g. `response_error`, `rate_limited`); the cursor remains unchanged — re-run `fetch-meta` to resume. |
 
-`--resume` auto-continues **only** an exit-2 `risk_interrupted` cursor whose
-`mid` matches. `complete` and `limited` are not auto-resumable. JSONL upsert
-stays last-write-wins per `work_id`; a failed page is never marked complete.
-Without `--resume`, a new run starts at page 1, merges the existing JSONL
-(does not shrink it to a page-1 prefix), and replaces a leftover cursor after
-the first successful page. Mid-run sidecar writes stay `risk_interrupted`
-with `next_page` = last merged `pn+1`; terminal `complete`/`limited` is
-written only when the run finishes without exit 2.
+#### Opt-in bounded live smoke
+
+`tests/test_live_metadata_smoke.py` drives the real CLI against the real
+upstream: exactly one public metadata page for UID 23191782
+(`--start-page 1 --limit-pages 1`) into a temporary archive root, calling no
+subtitle/playback/audio/ASR code. Default pytest runs skip it:
+
+    cd bilibili-asr-archive && BILI_LIVE_SMOKE=1 .venv/bin/python -m pytest tests/test_live_metadata_smoke.py -v
+
+Anonymous (no-credential) access is currently rejected by upstream anti-bot
+control: the smoke then verifies the bounded-failure evidence (terminal run
+row, one scalar page row, no entity growth, no cursor row) and reports the
+case as the expected no-credential behavior rather than a defect.
+Happy-path collection requires a credential from the operator's own
+environment (`--sessdata` or `BILI_SESSDATA`); a bounded failure despite a
+credential is a loud failure.
 
 ### Mixed batch outcomes
 
@@ -523,7 +555,8 @@ selectable by the same command or by `run --scope failed`. Explicit `run
 `already_terminal` and exit 0; they are not duplicated.
 
 `harvest-subs`, `download-audio`, and `asr` do not append `run-ledger.jsonl`
-(that sidecar is `fetch-meta` / `pilot` / `run` / `schedule`). All operator
+(that sidecar is `pilot` / `run` / `schedule`; `fetch-meta` records its runs
+in `archive.db`). All operator
 surfaces carry redacted scalar codes/reasons only.
 
 ### Corpus coverage evidence spine
