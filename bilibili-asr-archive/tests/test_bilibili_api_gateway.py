@@ -31,6 +31,7 @@ import pytest
 from packaging.requirements import Requirement
 from packaging.utils import canonicalize_name
 
+from bili_asr.config import PROXY_ENV_VAR, PROXY_ENV_VARS, resolve_proxy
 from bili_asr.services.metadata_ingest import MetadataIngestor
 from bili_asr.sources.models import (
     GatewayNotFound,
@@ -82,7 +83,7 @@ PACKAGE_HTTP_CLIENT_CANONICAL_NAMES = frozenset({"curl-cffi", "httpx", "aiohttp"
 
 #: The exact bilibili_api import surface the adapter is allowed to use.
 ALLOWED_PACKAGE_IMPORTS = {
-    "bilibili_api": {"Credential"},
+    "bilibili_api": {"Credential", "request_settings"},
     "bilibili_api.user": {"User"},
     "bilibili_api.video": {"Video"},
     "bilibili_api.exceptions": {
@@ -93,6 +94,10 @@ ALLOWED_PACKAGE_IMPORTS = {
         "WbiRetryTimesExceedException",
     },
 }
+
+#: Realistic-looking proxy URL: configuration rather than a credential, but it
+#: must still stay off DTOs, mapped errors, debug renders, and persisted rows.
+PROXY_BOUNDARY_VALUE = "http://PROXY-URL-THAT-MUST-NOT-LEAK:7890"
 
 #: The complete documented exception surface the fake seam must mirror.
 ALLOWED_EXCEPTION_NAMES = (
@@ -126,11 +131,11 @@ def _public_names(obj: object) -> list[str]:
     return sorted(name for name in vars(obj) if not name.startswith("_"))
 
 
-def _load_gateway(sessdata: str | None = None):
+def _load_gateway(sessdata: str | None = None, proxy: str | None = None):
     """Import the adapter against the installed seam and build it."""
 
     module = importlib.import_module("bili_asr.sources.bilibili_api_gateway")
-    return module.BilibiliApiGateway(sessdata=sessdata)
+    return module.BilibiliApiGateway(sessdata=sessdata, proxy=proxy)
 
 
 # --------------------------------------------------- deterministic factories
@@ -732,6 +737,214 @@ def test_http_backend_declared_and_absent_from_pinned_package_requirements():
     )
 
 
+# --------------------------------------------- proxy resolution and application
+
+
+@pytest.fixture
+def empty_proxy_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Remove every proxy variable the adapter consults, ambient ones included."""
+
+    for name in PROXY_ENV_VARS:
+        monkeypatch.delenv(name, raising=False)
+
+
+@pytest.mark.parametrize("env_var", PROXY_ENV_VARS)
+def test_resolve_proxy_reads_every_locked_environment_level(env_var):
+    """Each variable of the locked chain resolves on its own."""
+
+    assert resolve_proxy(None, {env_var: PROXY_BOUNDARY_VALUE}) == PROXY_BOUNDARY_VALUE
+
+
+def test_resolve_proxy_follows_the_locked_precedence_ladder():
+    """The first set variable wins, proven level by level down the chain."""
+
+    environment = {
+        name: f"http://{index}.example.com:7890"
+        for index, name in enumerate(PROXY_ENV_VARS)
+    }
+
+    for higher_levels_cleared, expected_name in enumerate(PROXY_ENV_VARS):
+        remaining = {
+            name: value
+            for name, value in environment.items()
+            if PROXY_ENV_VARS.index(name) >= higher_levels_cleared
+        }
+        assert resolve_proxy(None, remaining) == environment[expected_name]
+
+
+def test_resolve_proxy_argument_outranks_the_whole_environment_chain():
+    """An explicit argument wins over every environment level."""
+
+    environment = {name: PROXY_BOUNDARY_VALUE for name in PROXY_ENV_VARS}
+
+    assert resolve_proxy("http://argument.example.com:7890", environment) == (
+        "http://argument.example.com:7890"
+    )
+
+
+@pytest.mark.parametrize("blank", ["", "   ", "\t\n"])
+def test_resolve_proxy_blank_values_are_unset_and_never_block_lower_levels(blank):
+    """A blank or whitespace-only value resolves nothing and shadows nothing."""
+
+    environment = {PROXY_ENV_VAR: blank, "HTTPS_PROXY": PROXY_BOUNDARY_VALUE}
+
+    assert resolve_proxy(blank, {PROXY_ENV_VAR: blank}) is None
+    assert resolve_proxy(blank, environment) == PROXY_BOUNDARY_VALUE
+
+
+def test_resolve_proxy_strips_surrounding_whitespace():
+    """A configured value is used without the whitespace around it."""
+
+    assert resolve_proxy(f"  {PROXY_BOUNDARY_VALUE}  ", {}) == PROXY_BOUNDARY_VALUE
+    assert (
+        resolve_proxy(None, {"ALL_PROXY": f"\t{PROXY_BOUNDARY_VALUE}\n"})
+        == PROXY_BOUNDARY_VALUE
+    )
+
+
+def test_resolve_proxy_without_any_setting_resolves_to_none():
+    """Nothing configured means no proxy; only the locked chain is consulted."""
+
+    assert resolve_proxy(None, {}) is None
+    # ``HTTP_PROXY`` is deliberately not part of the locked chain: the two
+    # upstream endpoints this adapter calls are HTTPS.
+    assert resolve_proxy(None, {"HTTP_PROXY": PROXY_BOUNDARY_VALUE}) is None
+
+
+def test_gateway_applies_the_resolved_proxy_once_before_the_first_call(
+    bilibili_api_seam, empty_proxy_environment
+):
+    """The proxy reaches the package settings exactly once, at construction."""
+
+    bilibili_api_seam.videos_response = make_videos_response(make_vlist_item(), count=1)
+    gateway = _load_gateway(proxy=PROXY_BOUNDARY_VALUE)
+
+    assert gateway.resolved_proxy == PROXY_BOUNDARY_VALUE
+    assert bilibili_api_seam.applied_proxies == [PROXY_BOUNDARY_VALUE]
+    assert bilibili_api_seam.calls == []
+
+    asyncio.run(gateway.get_user_video_page(MID, page_number=1))
+
+    assert bilibili_api_seam.calls == ["user.get_videos(pn=1, ps=100)"]
+    # Apply-once: no request re-applies or re-reads the setting.
+    assert bilibili_api_seam.applied_proxies == [PROXY_BOUNDARY_VALUE]
+
+
+def test_gateway_resolves_the_proxy_from_the_environment_without_an_argument(
+    bilibili_api_seam, empty_proxy_environment, monkeypatch
+):
+    """Without an argument the documented operator knob is applied."""
+
+    monkeypatch.setenv(PROXY_ENV_VAR, PROXY_BOUNDARY_VALUE)
+    gateway = _load_gateway()
+
+    assert gateway.resolved_proxy == PROXY_BOUNDARY_VALUE
+    assert bilibili_api_seam.applied_proxies == [PROXY_BOUNDARY_VALUE]
+
+
+def test_gateway_argument_outranks_the_environment(
+    bilibili_api_seam, empty_proxy_environment, monkeypatch
+):
+    """An explicit argument wins over the whole environment chain."""
+
+    monkeypatch.setenv(PROXY_ENV_VAR, "http://environment.example.com:7890")
+    monkeypatch.setenv("HTTPS_PROXY", "http://fallback.example.com:7890")
+    gateway = _load_gateway(proxy=PROXY_BOUNDARY_VALUE)
+
+    assert gateway.resolved_proxy == PROXY_BOUNDARY_VALUE
+    assert bilibili_api_seam.applied_proxies == [PROXY_BOUNDARY_VALUE]
+
+
+def test_gateway_skips_a_blank_environment_value(
+    bilibili_api_seam, empty_proxy_environment, monkeypatch
+):
+    """A blank BILI_HTTP_PROXY falls through to the standard host variable."""
+
+    monkeypatch.setenv(PROXY_ENV_VAR, "   ")
+    monkeypatch.setenv("HTTPS_PROXY", PROXY_BOUNDARY_VALUE)
+    gateway = _load_gateway()
+
+    assert gateway.resolved_proxy == PROXY_BOUNDARY_VALUE
+    assert bilibili_api_seam.applied_proxies == [PROXY_BOUNDARY_VALUE]
+
+
+def test_gateway_leaves_the_package_setting_untouched_without_a_proxy(
+    bilibili_api_seam, empty_proxy_environment
+):
+    """Nothing resolved means no call into the package's request settings."""
+
+    bilibili_api_seam.videos_response = make_videos_response(make_vlist_item(), count=1)
+    gateway = _load_gateway()
+
+    assert gateway.resolved_proxy is None
+    assert bilibili_api_seam.applied_proxies == []
+
+    asyncio.run(gateway.get_user_video_page(MID, page_number=1))
+
+    assert bilibili_api_seam.calls == ["user.get_videos(pn=1, ps=100)"]
+    assert bilibili_api_seam.applied_proxies == []
+
+
+def test_gateway_proxy_stays_out_of_dtos_and_mapped_errors(
+    bilibili_api_seam, empty_proxy_environment
+):
+    """The resolved proxy never surfaces on a DTO or a mapped error."""
+
+    bilibili_api_seam.videos_response = make_videos_response(make_vlist_item(), count=1)
+    gateway = _load_gateway(
+        sessdata=SESSDATA_BOUNDARY_VALUE, proxy=PROXY_BOUNDARY_VALUE
+    )
+
+    page = asyncio.run(gateway.get_user_video_page(MID, page_number=1))
+    for surface in (repr(page), str(page)):
+        assert PROXY_BOUNDARY_VALUE not in surface
+        assert SESSDATA_BOUNDARY_VALUE not in surface
+    # A debug render of the adapter must not dump its configuration either.
+    assert PROXY_BOUNDARY_VALUE not in repr(gateway)
+    assert SESSDATA_BOUNDARY_VALUE not in repr(gateway)
+
+    bilibili_api_seam.videos_error = FakeNetworkException(503, UPSTREAM_ERROR_TEXT)
+    with pytest.raises(GatewayTransportError) as caught:
+        asyncio.run(gateway.get_user_video_page(MID, page_number=2))
+
+    assert PROXY_BOUNDARY_VALUE not in str(caught.value)
+    assert PROXY_BOUNDARY_VALUE not in repr(caught.value)
+
+
+def test_gateway_proxy_stays_out_of_persisted_rows(
+    bilibili_api_seam, empty_proxy_environment, tmp_root
+):
+    """A full collection run persists no proxy value and no credential."""
+
+    bilibili_api_seam.videos_response = make_videos_response(
+        make_vlist_item(aid=None, sessdata_note=SESSDATA_BOUNDARY_VALUE), count=1
+    )
+    bilibili_api_seam.info_response = make_detail_response()
+    bilibili_api_seam.parts_response = [make_part_item()]
+    gateway = _load_gateway(
+        sessdata=SESSDATA_BOUNDARY_VALUE, proxy=PROXY_BOUNDARY_VALUE
+    )
+    connection = open_database(os.path.join(tmp_root, "proxy-hygiene.sqlite"))
+    try:
+        repository = MetadataRepository(connection)
+        result = MetadataIngestor(gateway, repository).collect_user_pages(
+            MID, start_page=1, page_limit=1
+        )
+
+        assert result.outcome == "limited"
+        assert repository.list_pending_parts()
+        persisted = persisted_row_text(connection)
+    finally:
+        connection.close()
+
+    assert_leaks_no_markers(persisted, context="persisted rows")
+    assert PROXY_BOUNDARY_VALUE not in persisted
+    assert SESSDATA_BOUNDARY_VALUE not in persisted
+    for surface in (repr(result), str(result)):
+        assert PROXY_BOUNDARY_VALUE not in surface
+        assert SESSDATA_BOUNDARY_VALUE not in surface
+
+
 # ------------------------------------------------------- DTO self-validation
 
 
@@ -912,7 +1125,17 @@ def test_fake_seam_exposes_only_documented_metadata_surface():
     assert _public_names(modules["bilibili_api.exceptions"]) == sorted(
         ALLOWED_EXCEPTION_NAMES
     )
-    assert _public_names(package) == ["Credential", "exceptions", "user", "video"]
+    assert _public_names(modules["bilibili_api.request_settings"]) == [
+        "get_proxy",
+        "set_proxy",
+    ]
+    assert _public_names(package) == [
+        "Credential",
+        "exceptions",
+        "request_settings",
+        "user",
+        "video",
+    ]
     assert _public_names(package.Credential) == []
 
     user = package.user.User(uid=MID)

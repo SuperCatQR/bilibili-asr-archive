@@ -12,11 +12,12 @@ from __future__ import annotations
 
 import importlib.metadata
 import math
+import os
 import re
 from collections.abc import Awaitable, Callable, Mapping
 from typing import Any
 
-from bilibili_api import Credential
+from bilibili_api import Credential, request_settings
 from bilibili_api.exceptions import (
     ApiException,
     NetworkException,
@@ -27,6 +28,7 @@ from bilibili_api.exceptions import (
 from bilibili_api.user import User
 from bilibili_api.video import Video
 
+from bili_asr.config import resolve_proxy
 from bili_asr.sources.models import (
     GatewayNotFound,
     GatewayRateLimited,
@@ -242,15 +244,32 @@ def _complete_summary_from_detail(
 class BilibiliApiGateway:
     """Concrete :class:`BilibiliGateway` adapter over the pinned package."""
 
-    def __init__(self, sessdata: str | None = None) -> None:
-        """Build the package credential; a blank value means public access.
+    def __init__(self, sessdata: str | None = None, proxy: str | None = None) -> None:
+        """Build the package credential and apply one resolved proxy.
 
         The optional SESSDATA value is passed to the package ``Credential``
         object only.  It is never written to DTOs, logs, exception messages,
         or persistent records.
+
+        ``proxy`` is an explicit programmatic override; when it is blank or
+        omitted the locked chain in :mod:`bili_asr.config` decides
+        (``BILI_HTTP_PROXY`` first, then the conventional host variables).
+        A resolved proxy is applied here, once, through the package's
+        request settings: that is the value the pinned ``CurlCFFIClient``
+        reads when it builds its session, and its own default
+        (``proxies={"all": ""}``) would otherwise defeat ``trust_env`` and
+        ignore environment proxies.  ``Credential(proxy=...)`` is
+        deliberately not used — it swaps that same global setting around
+        every call instead of configuring it.  When nothing resolves, the
+        library default is left untouched.  The resolved value is
+        configuration, not a credential, and still never appears in DTOs,
+        logs, exception messages, or persistent records.
         """
 
         self._credential = Credential(sessdata=sessdata) if sessdata else Credential()
+        self.resolved_proxy = resolve_proxy(proxy, os.environ)
+        if self.resolved_proxy is not None:
+            request_settings.set_proxy(self.resolved_proxy)
 
     async def get_user_video_page(
         self, mid: int, page_number: int, page_size: int = 100

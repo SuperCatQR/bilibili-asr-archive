@@ -10,11 +10,13 @@ Every package-seam test scripts these fakes instead of touching the pinned
 - ``FakeUpstreamScript`` / ``build_fake_package`` / ``bilibili_api_seam``
   install the fake ``bilibili_api`` package on ``sys.modules`` for the real
   adapter tests.  The fake mirrors only the documented import surface the
-  adapter may use (``Credential``, ``user.User.get_videos``,
-  ``video.Video.get_info``/``get_pages``, and the exceptions taxonomy) and
-  exposes no playback, subtitle, audio, or download method, so a silent
-  switch to another package API fails loudly instead of silently
-  succeeding.
+  adapter may use (``Credential``, ``request_settings.set_proxy`` /
+  ``get_proxy``, ``user.User.get_videos``, ``video.Video.get_info`` /
+  ``get_pages``, and the exceptions taxonomy) and exposes no playback,
+  subtitle, audio, or download method, so a silent switch to another package
+  API fails loudly instead of silently succeeding.  ``applied_proxies``
+  records every proxy the adapter hands to the package settings, so its
+  apply-once behavior is asserted without a network call.
 - ``script_parts_by_bvid`` scripts one parts payload per requested ``bvid``
   for seam tests that collect a page holding several distinct videos.
 - ``DOCUMENTED_METADATA_CALLS`` with ``assert_only_documented_metadata_calls``
@@ -137,6 +139,7 @@ class FakeUpstreamScript:
     info_response: object = None
     info_error: BaseException | None = None
     calls: list[str] = dataclasses.field(default_factory=list)
+    applied_proxies: list[str] = dataclasses.field(default_factory=list)
 
 
 class FakeGateway:
@@ -201,6 +204,21 @@ def build_fake_package(script: FakeUpstreamScript) -> dict[str, types.ModuleType
             self.sessdata = sessdata
 
     package.Credential = Credential
+
+    request_settings_mod = types.ModuleType("bilibili_api.request_settings")
+
+    def set_proxy(proxy: str = "") -> None:
+        """Mirror of ``request_settings.set_proxy``; records the applied value."""
+
+        script.applied_proxies.append(proxy)
+
+    def get_proxy() -> str:
+        """Mirror of ``request_settings.get_proxy`` (``""`` before any set)."""
+
+        return script.applied_proxies[-1] if script.applied_proxies else ""
+
+    request_settings_mod.set_proxy = set_proxy
+    request_settings_mod.get_proxy = get_proxy
 
     exceptions_mod = types.ModuleType("bilibili_api.exceptions")
     exceptions_mod.ApiException = FakeApiException
@@ -271,12 +289,14 @@ def build_fake_package(script: FakeUpstreamScript) -> dict[str, types.ModuleType
     package.user = user_mod
     package.video = video_mod
     package.exceptions = exceptions_mod
+    package.request_settings = request_settings_mod
 
     return {
         "bilibili_api": package,
         "bilibili_api.user": user_mod,
         "bilibili_api.video": video_mod,
         "bilibili_api.exceptions": exceptions_mod,
+        "bilibili_api.request_settings": request_settings_mod,
     }
 
 

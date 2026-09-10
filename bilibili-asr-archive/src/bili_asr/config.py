@@ -5,15 +5,18 @@ so the command layer only composes validated values, and so every display
 or debug path that could show the credential instead shows a redacted
 presence label.  The SESSDATA value is resolved from ``--sessdata`` or the
 ``BILI_SESSDATA`` environment variable, is never echoed, logged,
-persisted, or rendered by any helper here.  ``status`` and ``runs`` take
-no credential and no page arguments; they share only the database-name
-constant below.
+persisted, or rendered by any helper here.  The proxy the gateway applies
+to the pinned package is resolved here as well (:func:`resolve_proxy`),
+from the constructor argument or ``BILI_HTTP_PROXY`` and the conventional
+host variables.  ``status`` and ``runs`` take no credential and no page
+arguments; they share only the database-name constant below.
 """
 
 from __future__ import annotations
 
 import argparse
 import os
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 
 #: Bilibili user collected by default (未明子).
@@ -30,6 +33,23 @@ DEFAULT_PAGE_LIMIT = 10
 
 #: Environment variable carrying the optional SESSDATA credential.
 SESSDATA_ENV_VAR = "BILI_SESSDATA"
+
+#: Documented operator knob for the HTTP proxy the gateway applies to the
+#: pinned package.  The pinned client otherwise forces ``proxies={"all": ""}``
+#: and ignores the environment, so a proxied host needs this set.
+PROXY_ENV_VAR = "BILI_HTTP_PROXY"
+
+#: Proxy variables in locked precedence order: the documented knob first, then
+#: the conventional host variables (the upper-case spelling of each pair
+#: first).  A host that already exports ``HTTPS_PROXY`` therefore needs no
+#: application change.
+PROXY_ENV_VARS = (
+    PROXY_ENV_VAR,
+    "HTTPS_PROXY",
+    "https_proxy",
+    "ALL_PROXY",
+    "all_proxy",
+)
 
 #: File name of the fresh SQLite database below the archive root.  Must
 #: stay identical to the storage layer's archive database name because the
@@ -131,10 +151,36 @@ def redact_sessdata(sessdata: str | None) -> str:
     return SESSDATA_PRESENT_LABEL if sessdata else SESSDATA_ABSENT_LABEL
 
 
+def resolve_proxy(
+    argument_value: str | None, environ: Mapping[str, str]
+) -> str | None:
+    """Return the proxy from the argument, else the environment, else None.
+
+    The resolution order is locked: the explicit argument first, then
+    :data:`PROXY_ENV_VARS` in the order declared there.  A blank or
+    whitespace-only value counts as unset and never blocks the next level, so
+    an empty environment entry cannot silently disable a proxy a
+    lower-precedence variable provides; surrounding whitespace is stripped
+    from the value that is returned.  When nothing resolves the caller must
+    leave the library's own proxy behaviour untouched.
+    """
+
+    candidates = (argument_value, *(environ.get(name) for name in PROXY_ENV_VARS))
+    for candidate in candidates:
+        if candidate is None:
+            continue
+        value = candidate.strip()
+        if value:
+            return value
+    return None
+
+
 __all__ = [
     "ARCHIVE_DATABASE_NAME",
     "DEFAULT_MID",
     "DEFAULT_PAGE_LIMIT",
+    "PROXY_ENV_VAR",
+    "PROXY_ENV_VARS",
     "SESSDATA_ABSENT_LABEL",
     "SESSDATA_ENV_VAR",
     "SESSDATA_PRESENT_LABEL",
@@ -142,5 +188,6 @@ __all__ = [
     "MetadataConfigError",
     "load_metadata_config",
     "redact_sessdata",
+    "resolve_proxy",
     "resolve_sessdata",
 ]
