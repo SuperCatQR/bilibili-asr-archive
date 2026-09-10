@@ -1,6 +1,6 @@
 {
   "version": 2,
-  "updated_at": "2026-09-09",
+  "updated_at": "2026-09-11",
   "workflows": [
     {
       "id": "iter-2026-09-bilibili-api-sqlite",
@@ -11,6 +11,18 @@
       "branch": {
         "base": "main",
         "integration": "iteration/iter-2026-09-bilibili-api-sqlite",
+        "target": "main"
+      }
+    },
+    {
+      "id": "20260911-live-metadata-path-fix",
+      "type": "plan",
+      "dir": "workflows/20260911-live-metadata-path-fix",
+      "lifecycle": "active",
+      "created_at": "2026-09-11",
+      "branch": {
+        "base": "main",
+        "integration": "fix/20260911-live-metadata-path-fix",
         "target": "main"
       }
     }

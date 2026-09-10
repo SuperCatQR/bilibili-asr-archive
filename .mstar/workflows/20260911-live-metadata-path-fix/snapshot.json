@@ -1,0 +1,62 @@
+{
+  "schema_version": 1,
+  "id": "20260911-live-metadata-path-fix",
+  "type": "plan",
+  "status": "active",
+  "started_at": "2026-09-11",
+  "updated_at": "2026-09-11",
+  "phase": "phase-2-execute",
+  "plans": [
+    {
+      "id": "20260911-live-metadata-path-fix",
+      "title": "Live Metadata Path Fix — transport, proxy, and risk-control-safe page call",
+      "file": ".mstar/plans/20260911-live-metadata-path-fix.md",
+      "status": "InProgress",
+      "owner": "project-manager",
+      "agents": [
+        "fullstack-dev"
+      ],
+      "progress": 0,
+      "task_commits": [],
+      "tags": [
+        "backend",
+        "external-api",
+        "defect-fix",
+        "live-verification"
+      ],
+      "created_at": "2026-09-11",
+      "updated_at": "2026-09-11",
+      "done_at": null,
+      "notes": [
+        "Plan opened 2026-09-11 from the live-verification diagnosis of the delivered metadata stack.",
+        "Three reproduced defects: D1 no HTTP backend declared (bilibili-api-python 17.4.2 requires curl_cffi/httpx/aiohttp); D2 the pinned package disables env proxies by default (proxies={\"all\": \"\"}), so this proxied host times out; D3 the library's page call uses dm=True plus w_webid=None (dynamic page no longer emits __RENDER_DATA__) -> HTTP 412 risk control.",
+        "Verified working shape (order-swapped): Api(wbi=True, dm=False) with w_webid=\"\" -> code=0, vlist=5, page.count=1691."
+      ],
+      "metadata": {
+        "primary_spec": ".mstar/iterations/iter-2026-09-bilibili-api-sqlite/specs/bilibili-api-gateway.md",
+        "working_branch": "fix/20260911-live-metadata-path-fix",
+        "branch_policy": "feature branch from main; PR to main after review gates",
+        "gates": {
+          "qc": "pending",
+          "qa": "pending"
+        },
+        "priority": "P0",
+        "origin": "post-delivery live verification 2026-09-11"
+      }
+    }
+  ],
+  "execution_policy": {
+    "plan_parallelism": "serial",
+    "worktree_mode": "single-feature-branch",
+    "push_policy": "after-review-gates"
+  },
+  "integration_merge_lease": {},
+  "branch": {
+    "base": "main",
+    "integration": "fix/20260911-live-metadata-path-fix",
+    "target": "main"
+  },
+  "control_worktree_path": "/root/workspace/bilibili-asr-archive",
+  "legacy_metadata": {},
+  "compass_ref": ""
+}
