@@ -15,6 +15,8 @@ Every package-seam test scripts these fakes instead of touching the pinned
   exposes no playback, subtitle, audio, or download method, so a silent
   switch to another package API fails loudly instead of silently
   succeeding.
+- ``script_parts_by_bvid`` scripts one parts payload per requested ``bvid``
+  for seam tests that collect a page holding several distinct videos.
 - ``DOCUMENTED_METADATA_CALLS`` with ``assert_only_documented_metadata_calls``
   pins the upstream call names the gateway may issue.
 - ``NO_LEAK_MARKERS`` with ``assert_leaks_no_markers`` holds the
@@ -122,7 +124,10 @@ class FakeUpstreamScript:
 
     A scripted response may be a plain value or a callable receiving the
     documented page parameters (``pn``, ``ps``) so per-page behavior can be
-    scripted for multi-page runs.
+    scripted for multi-page runs.  The scripted ``parts_response`` may
+    likewise be a plain value or a callable receiving the requested
+    ``bvid``, so each video's parts can be scripted independently (see
+    :func:`script_parts_by_bvid`).
     """
 
     videos_response: object = None
@@ -256,7 +261,10 @@ def build_fake_package(script: FakeUpstreamScript) -> dict[str, types.ModuleType
             script.calls.append("video.get_pages")
             if script.parts_error is not None:
                 raise script.parts_error
-            return script.parts_response
+            response = script.parts_response
+            if callable(response):
+                response = response(bvid=self.bvid)
+            return response
 
     video_mod.Video = Video
 
@@ -306,6 +314,25 @@ def make_part_item(**overrides: object) -> dict:
     }
     item.update(overrides)
     return item
+
+
+def script_parts_by_bvid(
+    script: FakeUpstreamScript, parts_by_bvid: dict[str, object]
+) -> None:
+    """Script one parts payload per requested ``bvid`` on the package seam.
+
+    ``video.Video.get_pages`` answers with the scripted entry for its own
+    ``bvid``; an unexpected bvid fails loudly like every other unscripted
+    fetch.  A plain ``parts_response`` value keeps the previous behavior of
+    answering every video with the same list.
+    """
+
+    def parts_response(bvid: str) -> object:
+        if bvid not in parts_by_bvid:
+            raise AssertionError(f"unexpected video-parts fetch: {bvid!r}")
+        return parts_by_bvid[bvid]
+
+    script.parts_response = parts_response
 
 
 def make_detail_response(**overrides: object) -> dict:
@@ -412,4 +439,5 @@ __all__ = [
     "make_videos_response",
     "make_vlist_item",
     "persisted_row_text",
+    "script_parts_by_bvid",
 ]
