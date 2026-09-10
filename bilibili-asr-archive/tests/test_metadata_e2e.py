@@ -285,6 +285,7 @@ def test_fetch_meta_normalizes_single_part_and_multipart_videos_end_to_end(
     assert "pending: 3" in status_out
     assert f"{SINGLE_PART_BVID}:p0" in status_out
     assert "cursor: mid=23191782 next_page=2 state=complete" in status_out
+    assert_leaks_no_markers(status_out + status_err, context="status output")
 
     assert main(["runs", "--archive-root", tmp_root]) == 0
     runs_out, runs_err = capsys.readouterr()
@@ -424,14 +425,19 @@ def test_fetch_meta_rerun_of_same_page_stores_no_duplicate_rows(
         cursor_row = _cursor_row(connection)
         assert tuple(cursor_row)[:5] == (MID, 2, 0, "complete", None)
 
-        assert_leaks_no_markers(
-            persisted_row_text(connection), context="re-run persisted rows"
-        )
+        # Positive control: a normalized video row really persisted, so the
+        # re-run's no-leak scan is not vacuous.
+        persisted = persisted_row_text(connection)
+        assert SINGLE_PART_BVID in persisted
+        assert_leaks_no_markers(persisted, context="re-run persisted rows")
     finally:
         connection.close()
 
     out, err = capsys.readouterr()
     assert err == ""
+    # Positive control: the credential really flowed through this run's
+    # flag path, so the re-run's output no-leak scan is not vacuous.
+    assert "sessdata: present" in out
     assert_leaks_no_markers(out + err, context="fetch-meta re-run output")
     # Page 1 was fetched exactly twice: once per run.
     assert script.calls.count("user.get_videos(pn=1, ps=100)") == 2

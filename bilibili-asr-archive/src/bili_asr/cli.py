@@ -74,11 +74,15 @@ def build_parser() -> argparse.ArgumentParser:
         help=f"Stop after collecting N pages (default: {DEFAULT_PAGE_LIMIT})",
     )
 
-    status = subparsers.add_parser("status", help="Print manifest status summary")
+    status = subparsers.add_parser(
+        "status",
+        help="Print collected metadata status from the SQLite archive database",
+    )
     status.add_argument("--archive-root", default=DEFAULT_ARCHIVE_ROOT)
 
     runs = subparsers.add_parser(
-        "runs", help="List recent operational runs from the ledger"
+        "runs",
+        help="List recent metadata collection runs from the SQLite archive database",
     )
     runs.add_argument(
         "--limit", type=int, default=None,
@@ -488,7 +492,8 @@ def _open_read_repository(
 
     Read commands never create the database: a missing file is the
     documented configuration error (exit 1), and an unreadable file is
-    reported bounded without raw SQLite text.
+    reported bounded without raw SQLite text.  The caller owns the open
+    connection and closes it when the command finishes.
     """
     from bili_asr.storage import MetadataRepository, open_database
 
@@ -515,8 +520,14 @@ def _cmd_fetch_meta(args: argparse.Namespace) -> int:
     """Collect video metadata into the fresh SQLite archive database.
 
     Exit taxonomy (metadata-cli-contract spec): 0 successful collection
-    (reached end or explicit --limit-pages); 1 usage/configuration error;
-    2 terminal gateway failure with the cursor unchanged.  This handler
+    (reached the end, the explicit --limit-pages bound, or the implicit
+    DEFAULT_PAGE_LIMIT bound); 1 usage/configuration error; 2 terminal
+    failure in one of two variants — a bounded gateway failure (the
+    fail-fast gateway: one attempt per page, a bounded scalar code, cursor
+    unchanged, resume safe) or an unexpected internal error (the fixed
+    "fetch-meta: unexpected error" message with no scalar code; the cursor
+    may hold the last committed page of the run and the run row may remain
+    `running`, so consult status/runs before re-running).  This handler
     never reads or writes the legacy manifest/cursor/ledger sidecars.
     """
     from bili_asr.services import MetadataIngestor
@@ -598,15 +609,25 @@ def _cmd_fetch_meta(args: argparse.Namespace) -> int:
     return 0
 
 
-def _run_error_codes(repository: "MetadataRepository") -> dict[str, str]:
-    """Collect one bounded error code per run from recorded page evidence."""
+def _run_error_codes(
+    repository: "MetadataRepository", run_ids: list[str]
+) -> dict[str, str]:
+    """Collect one bounded error code per rendered run from page evidence.
+
+    Only the runs the listing renders are queried and each query takes at
+    most one row (LIMIT 1), so the scan never grows with page history.
+    """
     codes: dict[str, str] = {}
-    rows = repository.connection.execute(
-        "SELECT run_id, error_code FROM ingestion_pages"
-        " WHERE error_code IS NOT NULL ORDER BY run_id, page_number"
-    ).fetchall()
-    for row in rows:
-        codes.setdefault(str(row["run_id"]), str(row["error_code"]))
+    for run_id in run_ids:
+        # Composition-root exception (adjudicated): this raw SQL read stays at the CLI seam.
+        row = repository.connection.execute(
+            "SELECT error_code FROM ingestion_pages"
+            " WHERE run_id = ? AND error_code IS NOT NULL"
+            " ORDER BY page_number LIMIT 1",
+            (run_id,),
+        ).fetchone()
+        if row is not None:
+            codes[run_id] = str(row["error_code"])
     return codes
 
 
@@ -628,7 +649,7 @@ def _format_run_line(stats: sqlite3.Row, error_code: str | None) -> str:
 
 
 def _resolve_sessdata(args: argparse.Namespace) -> str | None:
-    """SESSDATA from --sessdata or env BILI_SESSDATA; never echoed."""
+    """SESSDATA from --sessdata or env BILI_SESSDATA; blank forces anonymous."""
     return resolve_sessdata(args.sessdata, os.environ.get(SESSDATA_ENV_VAR))
 
 
@@ -900,42 +921,47 @@ def _cmd_status(args: argparse.Namespace) -> int:
     repository = _open_read_repository("status", args.archive_root)
     if repository is None:
         return 1
-    connection = repository.connection
-    counts = connection.execute(
-        "SELECT (SELECT COUNT(*) FROM bilibili_users) AS users,"
-        " (SELECT COUNT(*) FROM videos) AS videos,"
-        " (SELECT COUNT(*) FROM video_parts) AS parts"
-    ).fetchone()
-    print(f"users: {counts['users']}")
-    print(f"videos: {counts['videos']}")
-    print(f"parts: {counts['parts']}")
-    processing = connection.execute(
-        "SELECT processing_status, COUNT(*) AS count FROM video_parts"
-        " GROUP BY processing_status ORDER BY processing_status"
-    ).fetchall()
-    if processing:
-        summary = ", ".join(
-            f"{row['processing_status']}={row['count']}" for row in processing
-        )
-        print(f"processing: {summary}")
-    pending = repository.list_pending_parts()
-    print(f"pending: {len(pending)}")
-    for row in pending[:_MAX_DISPLAYED_PENDING_PARTS]:
-        print(f"  {row['work_id']}")
-    hidden = len(pending) - _MAX_DISPLAYED_PENDING_PARTS
-    if hidden > 0:
-        print(f"  + {hidden} more pending part(s)")
-    # The cursor row is reported exactly as stored: a failed or
-    # risk-interrupted run leaves it untouched, so this line never implies
-    # the cursor advanced past a failed page (C3).
-    for user_row in connection.execute("SELECT mid FROM bilibili_users ORDER BY mid"):
-        cursor = repository.read_cursor(int(user_row["mid"]))
-        if cursor is not None:
-            print(
-                f"cursor: mid={cursor.mid} next_page={cursor.next_page} "
-                f"state={cursor.state}"
+    try:
+        connection = repository.connection
+        counts = connection.execute(
+            "SELECT (SELECT COUNT(*) FROM bilibili_users) AS users,"
+            " (SELECT COUNT(*) FROM videos) AS videos,"
+            " (SELECT COUNT(*) FROM video_parts) AS parts"
+        ).fetchone()
+        print(f"users: {counts['users']}")
+        print(f"videos: {counts['videos']}")
+        print(f"parts: {counts['parts']}")
+        processing = connection.execute(
+            "SELECT processing_status, COUNT(*) AS count FROM video_parts"
+            " GROUP BY processing_status ORDER BY processing_status"
+        ).fetchall()
+        if processing:
+            summary = ", ".join(
+                f"{row['processing_status']}={row['count']}" for row in processing
             )
-    return 0
+            print(f"processing: {summary}")
+        pending = repository.list_pending_parts()
+        print(f"pending: {len(pending)}")
+        for row in pending[:_MAX_DISPLAYED_PENDING_PARTS]:
+            print(f"  {row['work_id']}")
+        hidden = len(pending) - _MAX_DISPLAYED_PENDING_PARTS
+        if hidden > 0:
+            print(f"  + {hidden} more pending part(s)")
+        # The cursor row is reported exactly as stored: a failed or
+        # risk-interrupted run leaves it untouched, so this line never implies
+        # the cursor advanced past a failed page (C3).
+        for user_row in connection.execute(
+            "SELECT mid FROM bilibili_users ORDER BY mid"
+        ):
+            cursor = repository.read_cursor(int(user_row["mid"]))
+            if cursor is not None:
+                print(
+                    f"cursor: mid={cursor.mid} next_page={cursor.next_page} "
+                    f"state={cursor.state}"
+                )
+        return 0
+    finally:
+        repository.connection.close()
 
 
 def _cmd_coverage_quality(args: argparse.Namespace) -> int:
@@ -1128,27 +1154,36 @@ def _cmd_runs(args: argparse.Namespace) -> int:
 
     Non-terminal ``running`` rows are rendered too: abnormal termination
     can leave a stale run behind and hiding it would hide real state (C2).
+    Ordering is deterministic: ``started_at`` descending, with same-second
+    runs tie-broken by ``run_id`` descending.
     """
     repository = _open_read_repository("runs", args.archive_root)
     if repository is None:
         return 1
-    if args.limit is not None and args.limit < 1:
-        print("runs: --limit must be a positive integer", file=sys.stderr)
-        return 1
-    stats_rows = repository.run_stats()
-    if not stats_rows:
-        print("runs: empty")
+    try:
+        if args.limit is not None and args.limit < 1:
+            print("runs: --limit must be a positive integer", file=sys.stderr)
+            return 1
+        stats_rows = repository.run_stats()
+        if not stats_rows:
+            print("runs: empty")
+            return 0
+        # Newest first; two runs sharing the second-resolution started_at
+        # order deterministically on the opaque run_id (run_id descending).
+        ordered = sorted(
+            stats_rows,
+            key=lambda row: (row["started_at"], row["run_id"]),
+            reverse=True,
+        )
+        selected = ordered if args.limit is None else ordered[: args.limit]
+        error_codes = _run_error_codes(
+            repository, [str(row["run_id"]) for row in selected]
+        )
+        for row in selected:
+            print(_format_run_line(row, error_codes.get(str(row["run_id"]))))
         return 0
-    error_codes = _run_error_codes(repository)
-    ordered = sorted(
-        stats_rows,
-        key=lambda row: (row["started_at"], row["run_id"]),
-        reverse=True,
-    )
-    selected = ordered if args.limit is None else ordered[: args.limit]
-    for row in selected:
-        print(_format_run_line(row, error_codes.get(str(row["run_id"]))))
-    return 0
+    finally:
+        repository.connection.close()
 
 
 _PILOT_PROCESSABLE = frozenset(

@@ -11,6 +11,9 @@ command migrates old data into the new database.
 
 - `fetch-meta` creates `{archive_root}/archive.db` when it does not exist and
   initializes the checked-in schema (`src/bili_asr/storage/schema.sql`).
+  Opening the database — for a write or a read command — always runs that
+  schema script, which is an idempotent no-op on a current-version database;
+  no schema upgrade happens in this iteration.
 - `status` and `runs` are read-only. When the database is missing they fail
   with a clear configuration error and exit `1`; they never create it.
 - There is no migration, import, reset, or rewrite path. Deleting
@@ -18,6 +21,10 @@ command migrates old data into the new database.
   archive data is never discovered, read, or modified by any command.
 - A failed page never advances the cursor: resume is always safe, and no
   partially written page payload survives a failure.
+- `--limit-pages` is optional and defaults to `DEFAULT_PAGE_LIMIT = 10`: a
+  run without the flag stops after 10 pages, ends the run `limited` (exit
+  0, never claimed complete), and re-running the command resumes from the
+  stored cursor.
 
 ## Database layout
 
@@ -71,7 +78,9 @@ The optional SESSDATA credential comes from `--sessdata` or the
 `BILI_SESSDATA` environment variable (flag wins). It is passed to the
 gateway's cookie object only: never echoed, logged, persisted, or rendered —
 CLI output shows presence only (`sessdata: present|absent`). Omitting it
-means anonymous access.
+means anonymous access, and so does passing `--sessdata ""` explicitly
+(which never falls through to `BILI_SESSDATA`); a blank environment value
+likewise means anonymous.
 
 ## `observed_total` semantics
 
@@ -83,7 +92,8 @@ means anonymous access.
 - Run completion keys off the empty item list: the first page that returns
   no videos ends the run `complete` (bounded, spec-defined). An explicit
   `--limit-pages` bound ends the run `limited` instead — never claimed as
-  complete.
+  complete — and the same applies to the implicit default bound
+  (`DEFAULT_PAGE_LIMIT = 10`) applied when the flag is omitted.
 
 ## Exact bounded live smoke command
 
@@ -112,9 +122,21 @@ cd bilibili-asr-archive && BILI_LIVE_SMOKE=1 .venv/bin/python -m pytest tests/te
 
 | Exit | Meaning |
 |------|---------|
-| 0 | Successful collection: completed on an empty page, or stopped at the explicit `--limit-pages` bound. |
-| 1 | Usage/configuration error: non-positive page arguments, `--resume` with no stored cursor, or an unreadable archive root. |
-| 2 | Terminal gateway failure with a bounded scalar code (for example `response_error`, `rate_limited`); the cursor remains unchanged. |
+| 0 | Successful collection: completed on an empty page, stopped at the explicit `--limit-pages` bound, or stopped at the implicit default bound (`DEFAULT_PAGE_LIMIT = 10` when the flag is omitted); the run row records `complete` or `limited` accordingly. |
+| 1 | Usage/configuration error: non-positive page arguments, `--resume` with no stored cursor, or an unreadable archive root. Unexpected internal errors exit 2 (see below), not 1. |
+| 2 | Terminal failure — two variants, distinguishable by the failure line (see below). |
+
+Exit 2 variants:
+
+- **Gateway failure** (bounded scalar code, e.g. `response_error`,
+  `rate_limited`): the gateway is fail-fast per page — one attempt per
+  page, no retry. The failed page records its bounded scalar code, the
+  cursor remains unchanged, and re-running `fetch-meta` resumes safely.
+- **Unexpected internal error** (the fixed line `fetch-meta: unexpected
+  error`, no scalar code, no traceback): the cursor may already hold the
+  last committed page of the run and the run row may remain `running` —
+  check `status` / `runs` before re-running. Re-running is safe: it
+  resumes from the stored cursor.
 
 ### `status` / `runs`
 
@@ -123,5 +145,7 @@ cd bilibili-asr-archive && BILI_LIVE_SMOKE=1 .venv/bin/python -m pytest tests/te
 | 0 | Database read and displayed. An empty database prints `runs: empty`. |
 | 1 | Configuration error: the database does not exist (or a non-positive `runs --limit`). |
 
-`runs` lists runs newest-first and includes non-terminal `running` rows: a
-crash can leave a stale run behind, and hiding it would hide real state.
+`runs` lists runs newest-first — ordered by `started_at` descending, with
+same-second runs tie-broken deterministically by `run_id` descending — and
+includes non-terminal `running` rows: a crash can leave a stale run behind,
+and hiding it would hide real state.

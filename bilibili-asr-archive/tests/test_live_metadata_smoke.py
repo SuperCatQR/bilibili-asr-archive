@@ -280,7 +280,9 @@ def test_live_smoke_fetch_meta_one_page_lands_normalized_rows(
         error_code = _assert_bounded_failure_rows(connection, LIVE_SMOKE_MID)
         assert error_code in err
         assert "metadata gateway failure" in err
-        if os.environ.get(SESSDATA_ENV_VAR) is None:
+        # Same resolution rule as ``resolve_sessdata``: a missing or blank
+        # BILI_SESSDATA means no credential was in play.
+        if not os.environ.get(SESSDATA_ENV_VAR):
             pytest.skip(
                 "live smoke ended in the documented bounded anonymous"
                 f" rejection (error_code={error_code!r}, exit 2): upstream"
@@ -304,13 +306,16 @@ def test_live_smoke_row_assertions_rehearse_offline_over_the_fake_seam(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    """Rehearse both live-smoke outcome branches offline through the CLI.
+    """Rehearse the live-smoke outcome branches offline through the CLI.
 
     The live smoke's database assertions are plain SQL over the fresh
     schema; this rehearsal runs them against the same real CLI path over
     the fake ``bilibili_api`` seam, so a broken assertion or query is
     caught by every default (offline) run instead of first failing at the
-    QA gate's live execution.  No live behavior is claimed here.
+    QA gate's live execution.  The scripted branches cover the limited
+    happy path, the ``complete`` happy-path sub-branch (an empty first
+    page — practically unreachable live for this UID), and the bounded
+    upstream failure.  No live behavior is claimed here.
     """
 
     monkeypatch.delenv(SESSDATA_ENV_VAR, raising=False)
@@ -357,7 +362,27 @@ def test_live_smoke_row_assertions_rehearse_offline_over_the_fake_seam(
     for relative in LEGACY_SIDECAR_PATHS:
         assert not os.path.exists(os.path.join(tmp_root, relative))
 
-    # Branch two: a bounded upstream failure on a fresh root stays scalar.
+    # Branch two: the complete happy-path sub-branch over the seam — an
+    # empty first page completes the run without any collected video, a
+    # shape a live run for this UID practically never sees.
+    complete_root = os.path.join(tmp_root, "complete")
+    script.videos_response = lambda pn, ps: make_videos_response(count=0)
+    script.parts_response = None
+    assert main(_bounded_live_argv(complete_root)) == 0
+    out, err = capsys.readouterr()
+    assert err == ""
+    assert "outcome=complete" in out
+    assert "cursor: next_page=1 state=complete" in out
+    connection = open_database(complete_root)
+    try:
+        _assert_collected_page_rows(connection, LIVE_SMOKE_MID)
+        assert_leaks_no_markers(out + err, context="rehearsal complete output")
+    finally:
+        connection.close()
+    for relative in LEGACY_SIDECAR_PATHS:
+        assert not os.path.exists(os.path.join(complete_root, relative))
+
+    # Branch three: a bounded upstream failure on a fresh root stays scalar.
     failure_root = os.path.join(tmp_root, "failure")
     script.videos_response = None
     script.parts_response = None

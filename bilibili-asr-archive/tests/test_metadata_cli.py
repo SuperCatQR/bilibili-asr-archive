@@ -12,8 +12,10 @@ contract:
   ``run-ledger.jsonl``.
 - ``status``/``runs`` fail clearly with exit 1 when that database is
   missing, and read only the fresh database.
-- Exit taxonomy: 0 success, 1 usage/configuration error, 2 terminal gateway
-  failure with the cursor unchanged.
+- Exit taxonomy: 0 success, 1 usage/configuration error, 2 terminal
+  failure — a bounded gateway failure (cursor unchanged) or an unexpected
+  internal error (the fixed ``fetch-meta: unexpected error`` message with
+  no scalar code).
 """
 
 from __future__ import annotations
@@ -30,9 +32,10 @@ from bili_asr.config import (
     DEFAULT_PAGE_LIMIT,
     load_metadata_config,
     redact_sessdata,
+    resolve_sessdata,
 )
 from bili_asr.storage import MetadataRepository, open_database
-from bili_asr.storage.models import IngestionRunRecord
+from bili_asr.storage.models import IngestionRunRecord, UserRecord
 from fixtures.fake_bilibili_gateway import (
     MID,
     SESSDATA_BOUNDARY_VALUE,
@@ -230,6 +233,26 @@ def test_sessdata_resolves_flag_over_environment(
     assert load_metadata_config(parser.parse_args(["fetch-meta"])).sessdata is None
 
 
+def test_blank_sessdata_flag_forces_anonymous(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """--sessdata "" is explicit-anonymous and never adopts BILI_SESSDATA."""
+
+    parser = build_parser()
+    monkeypatch.setenv("BILI_SESSDATA", "env-cookie")
+    blank_flag_config = load_metadata_config(
+        parser.parse_args(["fetch-meta", "--sessdata", ""])
+    )
+    assert blank_flag_config.sessdata is None
+    # The resolution rule itself: an explicitly blank flag forces anonymous
+    # access even when the environment carries a credential, while a blank
+    # environment also resolves to no credential.
+    assert resolve_sessdata("", "env-cookie") is None
+    assert resolve_sessdata(None, "env-cookie") == "env-cookie"
+    assert resolve_sessdata(None, "") is None
+    assert resolve_sessdata("flag-cookie", "env-cookie") == "flag-cookie"
+
+
 def test_sessdata_display_path_is_redacted() -> None:
     """Display/debug helpers show presence only, never the credential value."""
 
@@ -251,11 +274,18 @@ def test_metadata_config_repr_hides_sessdata(
     assert SESSDATA_BOUNDARY_VALUE not in repr(config)
 
 
-def test_default_page_bound_is_bounded_not_unbounded() -> None:
-    """Full-collection runs are bounded by the documented default (C1)."""
+def test_default_page_bound_applies_when_limit_pages_omitted() -> None:
+    """Omitting --limit-pages applies the documented default bound (C1)."""
 
+    config = load_metadata_config(build_parser().parse_args(["fetch-meta"]))
+    assert config.page_limit == DEFAULT_PAGE_LIMIT
     assert isinstance(DEFAULT_PAGE_LIMIT, int)
     assert DEFAULT_PAGE_LIMIT >= 1
+
+
+def test_default_mid_is_the_archive_owner() -> None:
+    """The documented default --mid is the archive owner's UID."""
+
     assert DEFAULT_MID == 23191782
 
 
@@ -702,6 +732,47 @@ def test_runs_lists_newest_first_and_renders_running_rows(
     assert run_ids[0] == stub_run_id
     assert "outcome=running" in out
     assert {first_run_id, second_run_id} <= set(run_ids)
+
+
+def test_runs_orders_same_second_runs_by_run_id_desc(
+    tmp_root: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Two runs sharing a started_at second render in run_id-descending order."""
+
+    same_second = 1_000
+    connection = open_database(tmp_root)
+    try:
+        repository = MetadataRepository(connection)
+        # The runs' mid foreign key needs its owner row first.
+        repository.upsert_user(
+            UserRecord(
+                mid=MID,
+                display_name=str(MID),
+                created_at=same_second,
+                updated_at=same_second,
+            )
+        )
+        for run_id in ("stub-same-second-aaa", "stub-same-second-bbb"):
+            repository.start_run(
+                IngestionRunRecord(
+                    run_id=run_id,
+                    mid=MID,
+                    source_package="bilibili-api-python",
+                    source_version="17.4.2",
+                    requested_start_page=1,
+                    requested_page_limit=DEFAULT_PAGE_LIMIT,
+                    started_at=same_second,
+                    outcome="running",
+                )
+            )
+    finally:
+        connection.close()
+
+    assert main(["runs", "--archive-root", tmp_root]) == 0
+    out, err = capsys.readouterr()
+    assert err == ""
+    run_ids = [line.split()[1] for line in _run_lines(out)]
+    assert run_ids == ["stub-same-second-bbb", "stub-same-second-aaa"]
 
 
 def test_runs_limit_shows_only_recent_rows(

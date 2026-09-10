@@ -253,7 +253,7 @@ Every `pilot` / `run` / `schedule` run atomically appends an inspectable run
 record to `{archive-root}/run-ledger.jsonl`. The metadata CLI's `fetch-meta`
 records its runs in the fresh SQLite database
 (`{archive-root}/archive.db`, see
-[the fresh-start metadata workflow](#fresh-start-metadata-collection-fetchmeta--status--runs))
+[the fresh-start metadata workflow](#fresh-start-metadata-collection-fetch-meta--status--runs))
 instead. The ledger is a sidecar file that records execution history and
 coverage without altering manifest row schemas or the transport layer.
 
@@ -498,6 +498,13 @@ only restart path.
     bili-asr status --archive-root archive
     bili-asr runs --limit 10 --archive-root archive
 
+- **Default page bound**: `--limit-pages` is optional and defaults to
+  `DEFAULT_PAGE_LIMIT = 10`. The canonical command above therefore stops
+  after 10 pages (the ingestor's page size is 100), ends the run `limited`,
+  and still exits 0 — a limited run is never claimed as complete. A full
+  archive walk is a series of resumable runs: re-run the same command to
+  continue from the stored cursor, or pass an explicit `--limit-pages` for
+  a longer slice.
 - **Resume semantics**: without `--resume` or `--start-page`, a run continues
   from the stored cursor when one exists and starts at page 1 otherwise.
   `--resume` requires a stored cursor and exits `1` when there is none;
@@ -507,13 +514,27 @@ only restart path.
   `BILI_SESSDATA` environment variable (cookie **value**, not a file path).
   It is sent as an API cookie only and is never echoed, logged, persisted,
   or written to the database; CLI output shows presence only
-  (`sessdata: present|absent`).
+  (`sessdata: present|absent`). Passing `--sessdata ""` explicitly forces
+  anonymous access even when `BILI_SESSDATA` is set; a blank environment
+  value likewise means anonymous.
 
 | Exit | Meaning |
 |------|---------|
-| 0 | `fetch-meta`: successful collection (empty page reached or explicit `--limit-pages` bound). `status` / `runs`: database read and displayed. |
-| 1 | Usage/configuration error: bad page arguments, `--resume` without a stored cursor, or a missing/unreadable database for the read commands. |
-| 2 | `fetch-meta` only: terminal gateway failure with a bounded scalar code (e.g. `response_error`, `rate_limited`); the cursor remains unchanged — re-run `fetch-meta` to resume. |
+| 0 | `fetch-meta`: successful collection — the empty page was reached, or the run stopped at a page bound (the explicit `--limit-pages` or the implicit default of 10 pages); the run row records `complete` or `limited` accordingly. `status` / `runs`: database read and displayed. |
+| 1 | Usage/configuration error: bad page arguments, `--resume` without a stored cursor, or a missing/unreadable database for the read commands. Unexpected internal errors exit 2 (see below), not 1. |
+| 2 | `fetch-meta` only: terminal failure — two variants, distinguishable by the failure line (see below). |
+
+Exit 2 variants:
+
+- **Gateway failure** (bounded scalar code, e.g. `response_error`,
+  `rate_limited`): the gateway is fail-fast per page — one attempt per
+  page, no retry. The failed page records its bounded scalar code, the
+  cursor remains unchanged, and re-running `fetch-meta` resumes safely.
+- **Unexpected internal error** (the fixed line `fetch-meta: unexpected
+  error`, no scalar code, no traceback): the cursor may already hold the
+  last committed page of the run and the run row may remain `running` —
+  check `status` / `runs` before re-running. Re-running is safe: it
+  resumes from the stored cursor.
 
 #### Opt-in bounded live smoke
 
