@@ -14,7 +14,6 @@ the same module's fake ``bilibili_api`` package seam, still fully offline.
 from __future__ import annotations
 
 import importlib
-import sqlite3
 
 import pytest
 
@@ -26,7 +25,6 @@ from bili_asr.services.metadata_ingest import (
 )
 from bili_asr.sources.models import (
     GatewayRateLimited,
-    GatewayShapeError,
     GatewayTransportError,
     UserVideoPage,
     VideoPart,
@@ -61,11 +59,9 @@ def _page(
     page_number: int,
     *summaries: VideoSummary,
     observed_total: int | None = None,
-    owner_mid: int | None = None,
 ) -> UserVideoPage:
-    """Build one validated page DTO; owner_mid overrides the requested mid."""
+    """Build one validated page DTO owned by the requested user."""
 
-    mid = MID if owner_mid is None else owner_mid
     return UserVideoPage(
         mid=MID, page_number=page_number, videos=summaries, observed_total=observed_total
     )
@@ -248,6 +244,44 @@ def test_duplicate_summaries_in_one_page_collapse_into_single_rows(tmp_root):
         connection.close()
 
 
+def test_within_page_duplicate_discovery_keeps_the_last_source_position(tmp_root):
+    """A bvid duplicated within one page keeps the last occurrence's position.
+
+    The discovery row's primary key is ``(run_id, page_number, bvid)``, so a
+    repeated summary upserts the same row and overwrites ``source_position``
+    with the later occurrence.  This pins the kept flavor: last wins.
+    """
+
+    gateway = FakeGateway()
+    gateway.script_page(
+        1,
+        _page(
+            1,
+            _summary("BV1DUPPOS", aid=441, title="重复条目"),
+            _summary("BV1INTERVAL", aid=442, title="间隔条目"),
+            _summary("BV1DUPPOS", aid=441, title="重复条目"),
+            observed_total=2,
+        ),
+    )
+    gateway.script_parts("BV1DUPPOS", (_part("BV1DUPPOS", 0, cid=4441),))
+    gateway.script_parts("BV1INTERVAL", (_part("BV1INTERVAL", 0, cid=4442),))
+    gateway.script_page(2, _page(2, observed_total=2))
+    connection = open_database(tmp_root)
+    repository = MetadataRepository(connection)
+    try:
+        result = _ingestor(gateway, repository).collect_user_pages(MID)
+
+        assert result.video_count == 2
+        positions = dict(
+            connection.execute(
+                "SELECT bvid, source_position FROM ingestion_discoveries"
+            ).fetchall()
+        )
+        assert positions == {"BV1DUPPOS": 2, "BV1INTERVAL": 1}
+    finally:
+        connection.close()
+
+
 def test_page_limit_ends_run_as_limited_and_resume_completes(tmp_root):
     gateway = FakeGateway()
     gateway.script_page(
@@ -339,7 +373,7 @@ def test_gateway_failure_rolls_back_page_and_preserves_cursor_for_resume(tmp_roo
     repository = MetadataRepository(connection)
     try:
         ingestor = _ingestor(gateway, repository)
-        first = ingestor.collect_user_pages(MID, page_limit=1)
+        ingestor.collect_user_pages(MID, page_limit=1)
         cursor_before_failure = repository.read_cursor(MID)
         assert cursor_before_failure is not None
 
@@ -404,7 +438,7 @@ def test_rate_limited_page_keeps_cursor_and_ends_run_risk_interrupted(tmp_root):
     repository = MetadataRepository(connection)
     try:
         ingestor = _ingestor(gateway, repository)
-        first = ingestor.collect_user_pages(MID, page_limit=1)
+        ingestor.collect_user_pages(MID, page_limit=1)
         cursor_before = repository.read_cursor(MID)
         assert cursor_before is not None
 
@@ -428,6 +462,55 @@ def test_rate_limited_page_keeps_cursor_and_ends_run_risk_interrupted(tmp_root):
             (interrupted.run_id,),
         ).fetchone()
         assert tuple(page_row) == (2, "risk_interrupted", "rate_limited")
+    finally:
+        connection.close()
+
+
+def test_parts_stage_failure_persists_nothing_and_leaves_the_cursor_untouched(tmp_root):
+    """A parts-stage fetch failure is bounded with zero persisted payload.
+
+    The page and every summary fetch fine; only ``get_video_parts`` fails.
+    No page transaction has opened at that point, so nothing persists
+    except the bounded page/run failure evidence.
+    """
+
+    gateway = FakeGateway()
+    gateway.script_page(
+        1, _page(1, _summary("BV1PARTFAIL", aid=921), observed_total=2)
+    )
+    gateway.script_parts(
+        "BV1PARTFAIL", GatewayTransportError(detail="get_video_parts")
+    )
+    connection = open_database(tmp_root)
+    repository = MetadataRepository(connection)
+    try:
+        result = _ingestor(gateway, repository).collect_user_pages(MID)
+
+        assert result.outcome == "failed"
+        assert result.error_code == "transport_error"
+        assert result.page_count == 1
+        assert result.video_count == 0
+        assert result.part_count == 0
+        assert repository.read_cursor(MID) is None
+        assert connection.execute("SELECT COUNT(*) FROM videos").fetchone()[0] == 0
+        assert connection.execute("SELECT COUNT(*) FROM video_parts").fetchone()[0] == 0
+        assert (
+            connection.execute("SELECT COUNT(*) FROM ingestion_discoveries").fetchone()[0]
+            == 0
+        )
+        page_row = connection.execute(
+            "SELECT page_number, outcome, error_code FROM ingestion_pages"
+            " WHERE run_id = ?",
+            (result.run_id,),
+        ).fetchone()
+        assert tuple(page_row) == (1, "failed", "transport_error")
+        run_row = connection.execute(
+            "SELECT outcome, finished_at FROM ingestion_runs WHERE run_id = ?",
+            (result.run_id,),
+        ).fetchone()
+        assert run_row["outcome"] == "failed"
+        assert run_row["finished_at"] is not None
+        assert gateway.parts_calls == ["BV1PARTFAIL"]
     finally:
         connection.close()
 
@@ -497,6 +580,41 @@ def test_missing_aid_is_completed_through_the_gateway_without_speculation(tmp_ro
         connection.close()
 
 
+def test_duplicate_aid_less_summaries_trigger_one_completion_call(tmp_root):
+    """A duplicated aid-less entry is one video: one detail fetch.
+
+    Same dedup principle as the parts fetches: the second entry reuses the
+    completed summary instead of repeating the upstream detail call.
+    """
+
+    gateway = FakeGateway()
+    gateway.script_completion("BV1DUPLICATE", _summary("BV1DUPLICATE", aid=555))
+    gateway.script_page(
+        1,
+        _page(
+            1,
+            _summary("BV1DUPLICATE", aid=None, title="无编号重复条目"),
+            _summary("BV1DUPLICATE", aid=None, title="无编号重复条目"),
+            observed_total=1,
+        ),
+    )
+    gateway.script_page(2, _page(2, observed_total=1))
+    gateway.script_parts("BV1DUPLICATE", (_part("BV1DUPLICATE", 0, cid=5556),))
+    connection = open_database(tmp_root)
+    repository = MetadataRepository(connection)
+    try:
+        result = _ingestor(gateway, repository).collect_user_pages(MID)
+
+        assert gateway.completion_calls == ["BV1DUPLICATE"]
+        assert gateway.parts_calls == ["BV1DUPLICATE"]
+        stored = dict(connection.execute("SELECT bvid, aid FROM videos").fetchall())
+        assert stored == {"BV1DUPLICATE": 555}
+        assert result.outcome == "complete"
+        assert result.video_count == 1
+    finally:
+        connection.close()
+
+
 @pytest.mark.parametrize(
     ("kwargs", "expected"),
     [
@@ -511,10 +629,14 @@ def test_missing_aid_is_completed_through_the_gateway_without_speculation(tmp_ro
     ],
 )
 def test_collect_arguments_are_validated(kwargs, expected):
-    with pytest.raises(expected):
-        MetadataIngestor(FakeGateway(), MetadataRepository(open_database(":memory:"))).collect_user_pages(
-            **kwargs
-        )
+    connection = open_database(":memory:")
+    try:
+        with pytest.raises(expected):
+            MetadataIngestor(
+                FakeGateway(), MetadataRepository(connection)
+            ).collect_user_pages(**kwargs)
+    finally:
+        connection.close()
 
 
 # ----------------------------------------- real adapter over the package seam
@@ -537,7 +659,7 @@ def test_bilibili_api_gateway_run_persists_normalized_rows(tmp_root, bilibili_ap
     script.parts_response = [
         make_part_item(cid=2222, page=1, part="  第一部分  ", duration=12)
     ]
-    script.info_response = make_detail_response()
+    script.info_response = make_detail_response(bvid="BV1SEAMRUNAA")
     connection = open_database(tmp_root)
     repository = MetadataRepository(connection)
     try:
@@ -609,7 +731,7 @@ def test_bilibili_api_gateway_run_persists_no_upstream_payload_markers(
         make_part_item(cid=2222, player_note=SESSDATA_BOUNDARY_VALUE)
     ]
     script.info_response = make_detail_response(
-        raw_body=RAW_JSON_BODY_MARKER, frame_url=SIGNED_URL_MARKER
+        bvid="BV1SEAMLEAKS", raw_body=RAW_JSON_BODY_MARKER, frame_url=SIGNED_URL_MARKER
     )
     connection = open_database(tmp_root)
     repository = MetadataRepository(connection)
@@ -729,6 +851,70 @@ def test_bilibili_api_gateway_foreign_owner_page_requests_no_parts(
         # Exactly one page fetch: no parts, no detail, nothing else.
         assert script.calls == ["user.get_videos(pn=1, ps=100)"]
         assert_only_documented_metadata_calls(script.calls)
+    finally:
+        connection.close()
+
+
+@pytest.mark.parametrize("aid", [1001, None], ids=["aid-carrying", "aid-less"])
+def test_malformed_upstream_bvid_page_fails_bounded_and_preserves_the_prior_cursor(
+    tmp_root, bilibili_api_seam, aid
+):
+    """A malformed-but-nonempty upstream bvid stays inside the taxonomy.
+
+    The page boundary rejects the item as a bounded shape error on both aid
+    paths, records the page/run failure evidence, never reaches the parts
+    or detail fetches, and leaves the prior cursor byte-for-byte untouched.
+    """
+
+    script = bilibili_api_seam
+    script.videos_response = make_videos_response(
+        make_vlist_item(bvid="BV1KEPTPAGEX", aid=1001), count=2
+    )
+    script.parts_response = [make_part_item(cid=2222)]
+    connection = open_database(tmp_root)
+    repository = MetadataRepository(connection)
+    try:
+        ingestor = MetadataIngestor(_seam_gateway(), repository)
+        first = ingestor.collect_user_pages(MID, start_page=1, page_limit=1)
+        assert first.outcome == "limited"
+        cursor_before = repository.read_cursor(MID)
+        assert cursor_before is not None
+        calls_after_first = list(script.calls)
+
+        script.videos_response = make_videos_response(
+            make_vlist_item(bvid="BV1MALFORMD", aid=aid), count=2
+        )
+        failed = ingestor.collect_user_pages(MID)
+
+        assert failed.outcome == "failed"
+        assert failed.error_code == "shape_error"
+        assert failed.page_count == 1
+        assert failed.video_count == 0
+        assert failed.part_count == 0
+        # The prior cursor is preserved exactly across the failed page.
+        assert repository.read_cursor(MID) == cursor_before
+        assert connection.execute("SELECT COUNT(*) FROM videos").fetchone()[0] == 1
+        assert connection.execute("SELECT COUNT(*) FROM video_parts").fetchone()[0] == 1
+        assert (
+            connection.execute("SELECT COUNT(*) FROM ingestion_discoveries").fetchone()[0]
+            == 1
+        )
+        failed_run = connection.execute(
+            "SELECT outcome, finished_at FROM ingestion_runs WHERE run_id = ?",
+            (failed.run_id,),
+        ).fetchone()
+        assert failed_run["outcome"] == "failed"
+        assert failed_run["finished_at"] is not None
+        failed_page_rows = connection.execute(
+            "SELECT page_number, outcome, error_code FROM ingestion_pages"
+            " WHERE run_id = ?",
+            (failed.run_id,),
+        ).fetchall()
+        assert [tuple(row) for row in failed_page_rows] == [
+            (2, "failed", "shape_error")
+        ]
+        # The malformed bvid never reached the parts or detail fetches.
+        assert script.calls == calls_after_first + ["user.get_videos(pn=2, ps=100)"]
     finally:
         connection.close()
 

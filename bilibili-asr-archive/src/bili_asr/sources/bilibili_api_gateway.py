@@ -28,7 +28,6 @@ from bilibili_api.user import User
 from bilibili_api.video import Video
 
 from bili_asr.sources.models import (
-    GatewayError,
     GatewayNotFound,
     GatewayRateLimited,
     GatewayResponseError,
@@ -121,8 +120,8 @@ def _normalize_video_summary_item(item: object, requested_mid: int) -> VideoSumm
     if not isinstance(item, Mapping):
         raise GatewayShapeError(detail="video item is not a mapping")
     bvid = item.get("bvid")
-    if not isinstance(bvid, str) or not bvid.strip():
-        raise GatewayShapeError(detail="video item has no bvid")
+    if not isinstance(bvid, str) or _BVID_PATTERN.fullmatch(bvid) is None:
+        raise GatewayShapeError(detail="video item has no valid bvid")
     title = item.get("title")
     if not isinstance(title, str) or not title.strip():
         raise GatewayShapeError(detail="video item has no title")
@@ -209,8 +208,8 @@ def _complete_summary_from_detail(
     """Fill the summary's missing aid from its detail response.
 
     Only ``aid`` is taken from the detail; every other field stays exactly as
-    the list response delivered it.  A detail owned by another user is a
-    bounded shape error.
+    the list response delivered it.  A detail owned by another user, or one
+    naming another video, is a bounded shape error.
     """
 
     if not isinstance(detail, Mapping):
@@ -228,6 +227,9 @@ def _complete_summary_from_detail(
         raise GatewayShapeError(
             detail="detail owner mid does not match the summary"
         )
+    detail_bvid = detail.get("bvid")
+    if not isinstance(detail_bvid, str) or detail_bvid != summary.bvid:
+        raise GatewayShapeError(detail="detail bvid does not match the summary")
     return VideoSummary(
         bvid=summary.bvid,
         aid=detail_aid,
@@ -332,8 +334,6 @@ class BilibiliApiGateway:
             raise GatewayResponseError(detail=operation) from exc
         except ApiException as exc:
             raise GatewayResponseError(detail=operation) from exc
-        except GatewayError:
-            raise
         except Exception as exc:
             raise GatewayTransportError(detail=operation) from exc
 

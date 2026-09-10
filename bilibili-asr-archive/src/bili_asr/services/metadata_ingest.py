@@ -26,7 +26,6 @@ from bili_asr.sources.models import (
     GatewayError,
     GatewayRateLimited,
     GatewayShapeError,
-    UserVideoPage,
     VideoPart,
     VideoSummary,
 )
@@ -225,10 +224,17 @@ class MetadataIngestor:
                 page = await self._gateway.get_user_video_page(
                     mid, page_number, PAGE_SIZE
                 )
-                summaries = [
-                    await self._completed_summary(summary, mid)
-                    for summary in page.videos
-                ]
+                completed_by_video: dict[str, VideoSummary] = {}
+                summaries: list[VideoSummary] = []
+                for summary in page.videos:
+                    # One detail fetch per distinct video: a duplicated page
+                    # entry is the same video, so the identical fetch would
+                    # only repeat upstream work.
+                    if summary.bvid not in completed_by_video:
+                        completed_by_video[summary.bvid] = (
+                            await self._completed_summary(summary, mid)
+                        )
+                    summaries.append(completed_by_video[summary.bvid])
                 parts_by_video: dict[str, tuple[VideoPart, ...]] = {}
                 for summary in summaries:
                     # One parts fetch per distinct video: a duplicated page
@@ -387,7 +393,11 @@ class MetadataIngestor:
         The repository's ``record_page`` applies the Plan-1 order — user,
         videos, parts, discoveries, cursor, page outcome — inside one
         transaction and commits it.  Duplicate summary entries collapse into
-        their existing entity rows through the upsert keys.
+        their existing entity rows through the upsert keys, and a bvid
+        duplicated within one page keeps the last occurrence's
+        ``source_position``: the discovery primary key
+        ``(run_id, page_number, bvid)`` makes the later entry overwrite the
+        earlier one.
         """
 
         video_records = [

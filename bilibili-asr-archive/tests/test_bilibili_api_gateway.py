@@ -44,7 +44,6 @@ from fixtures.fake_bilibili_gateway import (
     SESSDATA_BOUNDARY_VALUE,
     SIGNED_URL_MARKER,
     UPSTREAM_ERROR_TEXT,
-    FakeApiException,
     FakeNetworkException,
     FakeResponseCodeException,
     FakeResponseException,
@@ -329,6 +328,37 @@ def test_get_user_video_page_rejects_malformed_observed_total(bilibili_api_seam)
         asyncio.run(gateway.get_user_video_page(MID, page_number=1))
 
 
+@pytest.mark.parametrize(
+    ("malformed_bvid", "aid"),
+    [
+        ("BV1SHORT", 111),
+        ("BV1SHORT", None),
+        ("av170001", 111),
+    ],
+)
+def test_get_user_video_page_rejects_malformed_upstream_bvid(
+    bilibili_api_seam, malformed_bvid, aid
+):
+    """A non-empty but malformed upstream bvid is a bounded shape error.
+
+    The same shape defect stays bounded on both aid paths: the page
+    boundary rejects the item before any parts or detail call could
+    consume the malformed id downstream.
+    """
+
+    bilibili_api_seam.videos_response = make_videos_response(
+        make_vlist_item(bvid=malformed_bvid, aid=aid), count=1
+    )
+    gateway = _load_gateway()
+
+    with pytest.raises(GatewayShapeError) as caught:
+        asyncio.run(gateway.get_user_video_page(MID, page_number=1))
+
+    assert caught.value.code == "shape_error"
+    assert "bvid" in str(caught.value)
+    assert bilibili_api_seam.calls == ["user.get_videos(pn=1, ps=100)"]
+
+
 # -------------------------------------------------------------- video parts
 
 
@@ -564,6 +594,24 @@ def test_completed_summary_rejects_foreign_detail_owner(bilibili_api_seam):
     assert caught.value.code == "shape_error"
 
 
+def test_completed_summary_rejects_detail_for_another_video(bilibili_api_seam):
+    """A detail naming a different video cannot fill this summary's aid.
+
+    The filled aid must provably belong to the video the summary names, so
+    a detail body for another video is a bounded shape error.
+    """
+
+    bilibili_api_seam.info_response = make_detail_response(bvid="BV1OTHERVID")
+    gateway = _load_gateway()
+
+    with pytest.raises(GatewayShapeError) as caught:
+        asyncio.run(gateway.get_completed_video_summary(_summary(aid=None)))
+
+    assert caught.value.code == "shape_error"
+    assert "bvid" in str(caught.value)
+    assert bilibili_api_seam.calls == ["video.get_info"]
+
+
 def test_completed_summary_rejects_detail_without_aid(bilibili_api_seam):
     """A detail response that still lacks aid cannot complete the summary."""
 
@@ -596,14 +644,18 @@ def test_package_version_falls_back_to_pinned_literal(bilibili_api_seam):
 
 
 def test_package_version_reports_installed_distribution(bilibili_api_seam, monkeypatch):
-    """When the distribution is installed its version wins over the literal."""
+    """When the distribution is installed its version wins over the literal.
+
+    The mocked installed version differs from the pinned literal, so a pass
+    proves the installed-distribution path, not the fallback constant.
+    """
 
     monkeypatch.setattr(
-        importlib.metadata, "version", lambda _name: "17.4.2", raising=True
+        importlib.metadata, "version", lambda _name: "9.9.9", raising=True
     )
     gateway = _load_gateway()
 
-    assert gateway.get_package_version() == "17.4.2"
+    assert gateway.get_package_version() == "9.9.9"
 
 
 # ------------------------------------------------------- DTO self-validation
