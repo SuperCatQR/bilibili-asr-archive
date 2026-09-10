@@ -1,14 +1,20 @@
 """Offline ingestor contract tests: resumable normalized metadata collection.
 
-Every test runs :class:`MetadataIngestor` against a fake
-``BilibiliGateway`` protocol double (plain dataclasses, no ``bilibili_api``
-import, no network) and a real Plan-1 repository over a temporary SQLite
-database, so each test observes the normalized rows a collection run leaves
-behind.  Unexpected gateway fetches fail loudly instead of returning
-script-free data.
+Every test runs :class:`MetadataIngestor` against the shared fake
+``BilibiliGateway`` protocol double from ``tests/fixtures/fake_bilibili_gateway.py``
+(scripted pages, parts, and completions; no ``bilibili_api`` import, no
+network) and a real Plan-1 repository over a temporary SQLite database, so
+each test observes the normalized rows a collection run leaves behind.
+Unexpected gateway fetches fail loudly instead of returning script-free
+data.  The package-seam tests at the end drive the real product adapter
+(:class:`~bili_asr.sources.bilibili_api_gateway.BilibiliApiGateway`) over
+the same module's fake ``bilibili_api`` package seam, still fully offline.
 """
 
 from __future__ import annotations
+
+import importlib
+import sqlite3
 
 import pytest
 
@@ -27,58 +33,28 @@ from bili_asr.sources.models import (
     VideoSummary,
 )
 from bili_asr.storage.database import MetadataRepository, open_database
+from fixtures.fake_bilibili_gateway import (
+    NO_LEAK_MARKERS,
+    RAW_JSON_BODY_MARKER,
+    RAW_UPSTREAM_EXCEPTION_MARKER,
+    SESSDATA_BOUNDARY_VALUE,
+    SIGNED_URL_MARKER,
+    UPSTREAM_ERROR_TEXT,
+    FakeResponseCodeException,
+    FakeGateway,
+    assert_leaks_no_markers,
+    assert_only_documented_metadata_calls,
+    bilibili_api_seam,
+    make_detail_response,
+    make_part_item,
+    make_videos_response,
+    make_vlist_item,
+    persisted_row_text,
+)
 
 MID = 23191782
 PACKAGE_VERSION = "17.4.2"
 PUBDATE = 1_725_859_200
-
-
-class FakeGateway:
-    """Scripted protocol double; unexpected fetches fail the test loudly."""
-
-    def __init__(self) -> None:
-        self.package_version = PACKAGE_VERSION
-        self.page_calls: list[tuple[int, int, int]] = []
-        self.parts_calls: list[str] = []
-        self.completion_calls: list[str] = []
-        self._pages: dict[int, object] = {}
-        self._parts: dict[str, object] = {}
-        self._completions: dict[str, object] = {}
-
-    def script_page(self, page_number: int, page: object) -> None:
-        self._pages[page_number] = page
-
-    def script_parts(self, bvid: str, parts: object) -> None:
-        self._parts[bvid] = parts
-
-    def script_completion(self, bvid: str, completed: object) -> None:
-        self._completions[bvid] = completed
-
-    async def get_user_video_page(
-        self, mid: int, page_number: int, page_size: int = 100
-    ) -> UserVideoPage:
-        self.page_calls.append((mid, page_number, page_size))
-        return self._scripted(self._pages, page_number, "user-video-page")
-
-    async def get_video_parts(self, bvid: str) -> tuple[VideoPart, ...]:
-        self.parts_calls.append(bvid)
-        return self._scripted(self._parts, bvid, "video-parts")
-
-    async def get_completed_video_summary(self, summary: VideoSummary) -> VideoSummary:
-        self.completion_calls.append(summary.bvid)
-        return self._scripted(self._completions, summary.bvid, "completed-summary")
-
-    def get_package_version(self) -> str:
-        return self.package_version
-
-    @staticmethod
-    def _scripted(script: dict, key: object, what: str) -> object:
-        if key not in script:
-            raise AssertionError(f"unexpected {what} fetch: {key!r}")
-        value = script[key]
-        if isinstance(value, BaseException):
-            raise value
-        return value
 
 
 def _page(
@@ -539,3 +515,228 @@ def test_collect_arguments_are_validated(kwargs, expected):
         MetadataIngestor(FakeGateway(), MetadataRepository(open_database(":memory:"))).collect_user_pages(
             **kwargs
         )
+
+
+# ----------------------------------------- real adapter over the package seam
+
+
+def _seam_gateway(sessdata: str | None = None):
+    """Build the real product adapter against the installed offline seam."""
+
+    module = importlib.import_module("bili_asr.sources.bilibili_api_gateway")
+    return module.BilibiliApiGateway(sessdata=sessdata)
+
+
+def test_bilibili_api_gateway_run_persists_normalized_rows(tmp_root, bilibili_api_seam):
+    """One real-adapter page run lands the exact normalized repository rows."""
+
+    script = bilibili_api_seam
+    script.videos_response = make_videos_response(
+        make_vlist_item(bvid="BV1SEAMRUNAA", aid=None, title="  无编号视频  "), count=1
+    )
+    script.parts_response = [
+        make_part_item(cid=2222, page=1, part="  第一部分  ", duration=12)
+    ]
+    script.info_response = make_detail_response()
+    connection = open_database(tmp_root)
+    repository = MetadataRepository(connection)
+    try:
+        result = MetadataIngestor(_seam_gateway(), repository).collect_user_pages(
+            MID, start_page=1, page_limit=1
+        )
+
+        assert result.outcome == "limited"
+        assert result.error_code is None
+        assert (result.page_count, result.video_count, result.part_count) == (1, 1, 1)
+        assert result.next_cursor is not None
+        assert (result.next_cursor.next_page, result.next_cursor.state) == (2, "limited")
+        assert result.next_cursor.observed_total == 1
+        assert result.next_cursor.last_error_code is None
+
+        video_row = connection.execute(
+            "SELECT bvid, aid, mid, title FROM videos"
+        ).fetchone()
+        assert tuple(video_row) == ("BV1SEAMRUNAA", 111, MID, "无编号视频")
+        part_row = connection.execute(
+            "SELECT bvid, page_index, cid, title, duration_ms, processing_status"
+            " FROM video_parts"
+        ).fetchone()
+        assert tuple(part_row) == ("BV1SEAMRUNAA", 0, 2222, "第一部分", 12_000, "discovered")
+        assert [row["work_id"] for row in repository.list_pending_parts()] == [
+            "BV1SEAMRUNAA:p0"
+        ]
+        page_rows = connection.execute(
+            "SELECT page_number, outcome, error_code FROM ingestion_pages"
+            " WHERE run_id = ?",
+            (result.run_id,),
+        ).fetchall()
+        assert [tuple(row) for row in page_rows] == [(1, "ok", None)]
+        user_row = connection.execute(
+            "SELECT mid, display_name FROM bilibili_users"
+        ).fetchone()
+        assert tuple(user_row) == (MID, str(MID))
+
+        # The pinned adapter drove exactly the three documented upstream
+        # calls: one page fetch, the aid completion, one parts fetch.
+        assert script.calls == [
+            "user.get_videos(pn=1, ps=100)",
+            "video.get_info",
+            "video.get_pages",
+        ]
+        assert_only_documented_metadata_calls(script.calls)
+    finally:
+        connection.close()
+
+
+def test_bilibili_api_gateway_run_persists_no_upstream_payload_markers(
+    tmp_root, bilibili_api_seam, caplog
+):
+    """Realistic raw payloads normalize away before anything persists."""
+
+    script = bilibili_api_seam
+    script.videos_response = make_videos_response(
+        make_vlist_item(
+            bvid="BV1SEAMLEAKS",
+            aid=None,
+            sessdata_note=SESSDATA_BOUNDARY_VALUE,
+            frame_url=SIGNED_URL_MARKER,
+            raw_note=RAW_JSON_BODY_MARKER,
+            upstream_note=RAW_UPSTREAM_EXCEPTION_MARKER,
+        ),
+        count=1,
+    )
+    script.parts_response = [
+        make_part_item(cid=2222, player_note=SESSDATA_BOUNDARY_VALUE)
+    ]
+    script.info_response = make_detail_response(
+        raw_body=RAW_JSON_BODY_MARKER, frame_url=SIGNED_URL_MARKER
+    )
+    connection = open_database(tmp_root)
+    repository = MetadataRepository(connection)
+    try:
+        result = MetadataIngestor(_seam_gateway(), repository).collect_user_pages(
+            MID, start_page=1, page_limit=1
+        )
+
+        assert result.outcome == "limited"
+        # The scan is not vacuous: a normalized video row really persisted.
+        assert connection.execute("SELECT COUNT(*) FROM videos").fetchone()[0] == 1
+        assert "BV1SEAMLEAKS" in persisted_row_text(connection)
+
+        persisted = persisted_row_text(connection)
+        assert_leaks_no_markers(persisted, context="persisted rows")
+        assert_leaks_no_markers(repr(result) + str(result), context="run result")
+        assert_leaks_no_markers(caplog.text, context="captured logs")
+    finally:
+        connection.close()
+
+
+def test_bilibili_api_gateway_upstream_failure_persists_scalar_code_only(
+    tmp_root, bilibili_api_seam, caplog
+):
+    """Raw upstream failure text stays process-local; only the code persists."""
+
+    script = bilibili_api_seam
+
+    def scripted_page(pn: int, ps: int) -> object:
+        if pn == 1:
+            return make_videos_response(
+                make_vlist_item(bvid="BV1SEAMFAILA", aid=1001), count=2
+            )
+        return make_videos_response(count=2)
+
+    script.videos_response = scripted_page
+    script.parts_response = [make_part_item(cid=2222)]
+    connection = open_database(tmp_root)
+    repository = MetadataRepository(connection)
+    try:
+        ingestor = MetadataIngestor(_seam_gateway(), repository)
+        first = ingestor.collect_user_pages(MID, start_page=1, page_limit=1)
+        assert first.outcome == "limited"
+        cursor_before_failure = repository.read_cursor(MID)
+        assert cursor_before_failure is not None
+
+        script.videos_error = FakeResponseCodeException(-412, UPSTREAM_ERROR_TEXT)
+        interrupted = ingestor.collect_user_pages(MID)  # resumes page 2
+
+        assert interrupted.outcome == "risk_interrupted"
+        assert interrupted.error_code == "rate_limited"
+        assert interrupted.page_count == 1
+        assert interrupted.video_count == 0
+        assert interrupted.part_count == 0
+        # The prior cursor is preserved exactly across the failed page.
+        assert repository.read_cursor(MID) == cursor_before_failure
+        second_page_rows = connection.execute(
+            "SELECT page_number, outcome, error_code FROM ingestion_pages"
+            " WHERE run_id = ?",
+            (interrupted.run_id,),
+        ).fetchall()
+        assert [tuple(row) for row in second_page_rows] == [
+            (2, "risk_interrupted", "rate_limited")
+        ]
+
+        assert_leaks_no_markers(
+            persisted_row_text(connection), context="persisted rows"
+        )
+        assert_leaks_no_markers(
+            repr(interrupted) + str(interrupted), context="run result"
+        )
+        assert_leaks_no_markers(caplog.text, context="captured logs")
+    finally:
+        connection.close()
+
+
+def test_bilibili_api_gateway_foreign_owner_page_requests_no_parts(
+    tmp_root, bilibili_api_seam
+):
+    """D3 at the seam: a foreign-owner summary blocks parts and completion.
+
+    Echoes the Task-2 protocol-double pin with the real adapter: one owned
+    item plus one foreign item fail the whole page at the adapter's
+    normalization boundary, so no parts or detail call is ever issued even
+    for the owned summary on the same page.
+    """
+
+    script = bilibili_api_seam
+    script.videos_response = make_videos_response(
+        make_vlist_item(),
+        make_vlist_item(mid=MID + 1, aid=1002),
+        count=2,
+    )
+    connection = open_database(tmp_root)
+    repository = MetadataRepository(connection)
+    try:
+        result = MetadataIngestor(_seam_gateway(), repository).collect_user_pages(MID)
+
+        assert result.outcome == "failed"
+        assert result.error_code == "shape_error"
+        assert repository.read_cursor(MID) is None
+        assert connection.execute("SELECT COUNT(*) FROM videos").fetchone()[0] == 0
+        assert connection.execute("SELECT COUNT(*) FROM video_parts").fetchone()[0] == 0
+        assert (
+            connection.execute(
+                "SELECT COUNT(*) FROM ingestion_discoveries"
+            ).fetchone()[0]
+            == 0
+        )
+        page_rows = connection.execute(
+            "SELECT page_number, outcome, error_code FROM ingestion_pages"
+            " WHERE run_id = ?",
+            (result.run_id,),
+        ).fetchall()
+        assert [tuple(row) for row in page_rows] == [(1, "failed", "shape_error")]
+
+        # Exactly one page fetch: no parts, no detail, nothing else.
+        assert script.calls == ["user.get_videos(pn=1, ps=100)"]
+        assert_only_documented_metadata_calls(script.calls)
+    finally:
+        connection.close()
+
+
+def test_no_leak_marker_scan_catches_contamination():
+    """The persistence hygiene scanner is not vacuous."""
+
+    for marker in NO_LEAK_MARKERS:
+        with pytest.raises(AssertionError) as caught:
+            assert_leaks_no_markers("persisted: " + marker, context="demo row")
+        assert marker in str(caught.value)

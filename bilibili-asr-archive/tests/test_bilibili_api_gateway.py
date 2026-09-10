@@ -2,26 +2,29 @@
 
 Every functional test runs against a fake ``bilibili_api`` package installed
 on ``sys.modules`` before the gateway module is (re-)imported, so neither the
-real package nor network access is ever required.  The fake mirrors only the
+real package nor network access is ever required.  The fake package seam, the
+shared scripted protocol double, and the secret/raw-payload sentinels live in
+``tests/fixtures/fake_bilibili_gateway.py``.  The fake mirrors only the
 documented import surface the gateway may use (``Credential``, ``user.User``,
 ``video.Video``, and the exceptions taxonomy) and exposes no playback,
 subtitle, audio, or download methods, which makes silent use of other package
-APIs impossible.  The import boundary itself is additionally inspected
-statically with AST over the package sources.
+APIs impossible.  The import boundary and the method surface itself are
+additionally inspected statically with AST over the package sources.  The
+only networked test is the opt-in live smoke, which skips unless
+``BILI_LIVE_SMOKE=1`` is set.
 """
 
 from __future__ import annotations
 
 import ast
 import asyncio
-import dataclasses
 import importlib
+import os
 import pathlib
-import sys
-import types
 
 import pytest
 
+from bili_asr.services.metadata_ingest import MetadataIngestor
 from bili_asr.sources.models import (
     GatewayNotFound,
     GatewayRateLimited,
@@ -32,12 +35,32 @@ from bili_asr.sources.models import (
     VideoPart,
     VideoSummary,
 )
+from bili_asr.storage.database import MetadataRepository, open_database
+from fixtures.fake_bilibili_gateway import (
+    BVID,
+    MID,
+    PUBDATE,
+    RAW_JSON_BODY_MARKER,
+    SESSDATA_BOUNDARY_VALUE,
+    SIGNED_URL_MARKER,
+    UPSTREAM_ERROR_TEXT,
+    FakeApiException,
+    FakeNetworkException,
+    FakeResponseCodeException,
+    FakeResponseException,
+    FakeUpstreamScript,
+    FakeWbiRetryTimesExceedException,
+    assert_leaks_no_markers,
+    bilibili_api_seam,
+    build_fake_package,
+    make_detail_response,
+    make_part_item,
+    make_videos_response,
+    make_vlist_item,
+    persisted_row_text,
+)
 
-MID = 23191782
-BVID = "BV1AbCdEfGhJ"
-PUBDATE = 1725859200
 PINNED_PACKAGE_VERSION = "17.4.2"
-SESSDATA_BOUNDARY_VALUE = "SESSDATA-VALUE-THAT-MUST-NOT-LEAK"
 
 #: The exact bilibili_api import surface the adapter is allowed to use.
 ALLOWED_PACKAGE_IMPORTS = {
@@ -53,162 +76,36 @@ ALLOWED_PACKAGE_IMPORTS = {
     },
 }
 
-UPSTREAM_TEXT = "RISK-CHALLENGE-PAYLOAD http://api.bilibili.com/x/secret"
+#: The complete documented exception surface the fake seam must mirror.
+ALLOWED_EXCEPTION_NAMES = (
+    "ApiException",
+    "NetworkException",
+    "ResponseCodeException",
+    "ResponseException",
+    "WbiRetryTimesExceedException",
+)
+
+#: Attribute names that would mark playback/subtitle/audio/ASR/export usage.
+#: Tokens are matched as plain substrings, so only unambiguous names belong
+#: here (``stream`` would false-positive on ``_await_upstream``).
+FORBIDDEN_SEAM_METHOD_TOKENS = (
+    "subtitle",
+    "playback",
+    "playurl",
+    "play_url",
+    "download",
+    "danmaku",
+    "player",
+    "audio",
+    "asr",
+    "export",
+)
 
 
-# ----------------------------------------------------------- fake package seam
+def _public_names(obj: object) -> list[str]:
+    """List the public (non-dunder) names on a module or class."""
 
-
-class FakeApiException(Exception):
-    """Mirror of ``bilibili_api.exceptions.ApiException``."""
-
-    def __init__(self, msg: str = "出现了错误，但是未说明具体原因。") -> None:
-        super().__init__(msg)
-        self.msg = msg
-
-
-class FakeNetworkException(FakeApiException):
-    """Mirror of ``NetworkException(status, msg)`` carrying the HTTP status."""
-
-    def __init__(self, status: int, msg: str) -> None:
-        super().__init__(msg)
-        self.status = status
-
-
-class FakeResponseCodeException(FakeApiException):
-    """Mirror of ``ResponseCodeException(code, msg, raw)`` carrying the code."""
-
-    def __init__(self, code: int, msg: str, raw: object = None) -> None:
-        super().__init__(msg)
-        self.code = code
-
-
-class FakeResponseException(FakeApiException):
-    """Mirror of ``ResponseException(msg)``."""
-
-    def __init__(self, msg: str) -> None:
-        super().__init__(msg)
-
-
-class FakeWbiRetryTimesExceedException(FakeApiException):
-    """Mirror of ``WbiRetryTimesExceedException()`` (WBI retry budget gone)."""
-
-    def __init__(self) -> None:
-        super().__init__("WBI 重试达到最大次数")
-
-
-@dataclasses.dataclass
-class FakeUpstreamScript:
-    """Scripted upstream behavior; records every call the gateway makes."""
-
-    videos_response: object = None
-    videos_error: BaseException | None = None
-    parts_response: object = None
-    parts_error: BaseException | None = None
-    info_response: object = None
-    info_error: BaseException | None = None
-    calls: list[str] = dataclasses.field(default_factory=list)
-
-
-def _build_fake_package(script: FakeUpstreamScript) -> dict[str, types.ModuleType]:
-    """Build the fake ``bilibili_api`` package with the documented surface."""
-
-    package = types.ModuleType("bilibili_api")
-
-    class Credential:
-        def __init__(self, sessdata: str | None = None) -> None:
-            self.sessdata = sessdata
-
-    package.Credential = Credential
-
-    exceptions_mod = types.ModuleType("bilibili_api.exceptions")
-    exceptions_mod.ApiException = FakeApiException
-    exceptions_mod.NetworkException = FakeNetworkException
-    exceptions_mod.ResponseCodeException = FakeResponseCodeException
-    exceptions_mod.ResponseException = FakeResponseException
-    exceptions_mod.WbiRetryTimesExceedException = FakeWbiRetryTimesExceedException
-
-    user_mod = types.ModuleType("bilibili_api.user")
-
-    class User:
-        """Mirror of ``user.User(uid, credential)`` with only get_videos."""
-
-        def __init__(self, uid: int, credential: object = None) -> None:
-            self.uid = uid
-            self.credential = credential
-
-        async def get_videos(
-            self,
-            tid: int = 0,
-            pn: int = 1,
-            ps: int = 30,
-            keyword: str = "",
-            order: object = None,
-        ) -> dict:
-            script.calls.append(f"user.get_videos(pn={pn}, ps={ps})")
-            if script.videos_error is not None:
-                raise script.videos_error
-            return script.videos_response
-
-    user_mod.User = User
-
-    video_mod = types.ModuleType("bilibili_api.video")
-
-    class Video:
-        """Mirror of ``video.Video(bvid, credential)`` with metadata calls only."""
-
-        def __init__(
-            self,
-            bvid: str | None = None,
-            aid: int | None = None,
-            credential: object = None,
-        ) -> None:
-            self.bvid = bvid
-            self.aid = aid
-            self.credential = credential
-
-        async def get_info(self) -> dict:
-            script.calls.append("video.get_info")
-            if script.info_error is not None:
-                raise script.info_error
-            return script.info_response
-
-        async def get_pages(self) -> list:
-            script.calls.append("video.get_pages")
-            if script.parts_error is not None:
-                raise script.parts_error
-            return script.parts_response
-
-    video_mod.Video = Video
-
-    package.user = user_mod
-    package.video = video_mod
-    package.exceptions = exceptions_mod
-
-    return {
-        "bilibili_api": package,
-        "bilibili_api.user": user_mod,
-        "bilibili_api.video": video_mod,
-        "bilibili_api.exceptions": exceptions_mod,
-    }
-
-
-@pytest.fixture
-def bilibili_api_seam(monkeypatch) -> FakeUpstreamScript:
-    """Install the fake package and yield its script.
-
-    Only the adapter module is dropped from the module cache, before and
-    after each test: it re-imports against the current seam, while every
-    other ``bili_asr`` module stays cached so class identity is preserved
-    between the test imports and the adapter imports.
-    """
-
-    script = FakeUpstreamScript()
-    for name, module in _build_fake_package(script).items():
-        monkeypatch.setitem(sys.modules, name, module)
-    monkeypatch.delitem(sys.modules, "bili_asr.sources.bilibili_api_gateway", raising=False)
-    yield script
-    sys.modules.pop("bili_asr.sources.bilibili_api_gateway", None)
+    return sorted(name for name in vars(obj) if not name.startswith("_"))
 
 
 def _load_gateway(sessdata: str | None = None):
@@ -219,56 +116,6 @@ def _load_gateway(sessdata: str | None = None):
 
 
 # --------------------------------------------------- deterministic factories
-
-
-def _vlist_item(**overrides: object) -> dict:
-    """Build one documented arc/search vlist item with literal values."""
-
-    item = {
-        "aid": 111,
-        "bvid": BVID,
-        "title": "未明子讲座",
-        "created": PUBDATE,
-        "mid": MID,
-    }
-    item.update(overrides)
-    return item
-
-
-def _videos_response(*items: dict, count: int | None = 2) -> dict:
-    """Build the inner arc/search data: ``list.vlist`` plus ``page.count``."""
-
-    response: dict = {"list": {"vlist": list(items)}}
-    if count is not None:
-        response["page"] = {"pn": 1, "ps": 100, "count": count}
-    return response
-
-
-def _part_item(**overrides: object) -> dict:
-    """Build one documented pagelist element with literal values."""
-
-    item = {
-        "cid": 2222,
-        "page": 1,
-        "part": "第一部分",
-        "duration": 12,
-    }
-    item.update(overrides)
-    return item
-
-
-def _detail_response(**overrides: object) -> dict:
-    """Build the view-API detail body used to fill a missing aid."""
-
-    detail = {
-        "aid": 111,
-        "bvid": BVID,
-        "title": "未明子讲座",
-        "pubdate": PUBDATE,
-        "owner": {"mid": MID, "name": "未明子"},
-    }
-    detail.update(overrides)
-    return detail
 
 
 def _summary(**overrides: object) -> VideoSummary:
@@ -291,8 +138,8 @@ def _summary(**overrides: object) -> VideoSummary:
 def test_get_user_video_page_normalizes_documented_fields(bilibili_api_seam):
     """One bounded call maps vlist scalars into validated DTO fields."""
 
-    bilibili_api_seam.videos_response = _videos_response(
-        _vlist_item(title="  未明子讲座  "), count=7
+    bilibili_api_seam.videos_response = make_videos_response(
+        make_vlist_item(title="  未明子讲座  "), count=7
     )
     gateway = _load_gateway(sessdata=SESSDATA_BOUNDARY_VALUE)
 
@@ -319,7 +166,7 @@ def test_get_user_video_page_normalizes_documented_fields(bilibili_api_seam):
 def test_get_user_video_page_forwards_requested_page_and_size(bilibili_api_seam):
     """The adapter passes the documented page parameters only."""
 
-    bilibili_api_seam.videos_response = _videos_response(_vlist_item(), count=1)
+    bilibili_api_seam.videos_response = make_videos_response(make_vlist_item(), count=1)
     gateway = _load_gateway()
 
     asyncio.run(gateway.get_user_video_page(MID, page_number=4, page_size=50))
@@ -330,7 +177,7 @@ def test_get_user_video_page_forwards_requested_page_and_size(bilibili_api_seam)
 def test_get_user_video_page_tolerates_plain_list_container(bilibili_api_seam):
     """A plain ``list`` array instead of ``list.vlist`` normalizes too."""
 
-    bilibili_api_seam.videos_response = {"list": [_vlist_item()], "page": {"count": 3}}
+    bilibili_api_seam.videos_response = {"list": [make_vlist_item()], "page": {"count": 3}}
     gateway = _load_gateway()
 
     page = asyncio.run(gateway.get_user_video_page(MID, page_number=2))
@@ -342,7 +189,7 @@ def test_get_user_video_page_tolerates_plain_list_container(bilibili_api_seam):
 def test_get_user_video_page_observed_total_absent_is_none(bilibili_api_seam):
     """A response without a total field yields ``observed_total=None``."""
 
-    bilibili_api_seam.videos_response = _videos_response(_vlist_item(), count=None)
+    bilibili_api_seam.videos_response = make_videos_response(make_vlist_item(), count=None)
     gateway = _load_gateway()
 
     page = asyncio.run(gateway.get_user_video_page(MID, page_number=1))
@@ -353,7 +200,7 @@ def test_get_user_video_page_observed_total_absent_is_none(bilibili_api_seam):
 def test_get_user_video_page_accepts_pubdate_fallback_field(bilibili_api_seam):
     """An item carrying ``pubdate`` instead of ``created`` still normalizes."""
 
-    bilibili_api_seam.videos_response = _videos_response(
+    bilibili_api_seam.videos_response = make_videos_response(
         {"bvid": BVID, "aid": 111, "title": "未明子讲座", "pubdate": PUBDATE, "mid": MID},
         count=1,
     )
@@ -367,7 +214,7 @@ def test_get_user_video_page_accepts_pubdate_fallback_field(bilibili_api_seam):
 def test_get_user_video_page_returns_empty_page(bilibili_api_seam):
     """An empty vlist is a valid empty page."""
 
-    bilibili_api_seam.videos_response = _videos_response()
+    bilibili_api_seam.videos_response = make_videos_response()
     gateway = _load_gateway()
 
     page = asyncio.run(gateway.get_user_video_page(MID, page_number=5))
@@ -418,7 +265,7 @@ def test_get_user_video_page_rejects_unknown_list_shape(bilibili_api_seam):
 def test_get_user_video_page_rejects_foreign_owner_mid(bilibili_api_seam):
     """Items owned by another user are rejected as a bounded shape error."""
 
-    bilibili_api_seam.videos_response = _videos_response(_vlist_item(mid=MID + 1))
+    bilibili_api_seam.videos_response = make_videos_response(make_vlist_item(mid=MID + 1))
     gateway = _load_gateway()
 
     with pytest.raises(GatewayShapeError) as caught:
@@ -431,7 +278,7 @@ def test_get_user_video_page_rejects_foreign_owner_mid(bilibili_api_seam):
 def test_get_user_video_page_rejects_missing_owner_mid(bilibili_api_seam):
     """An item without an owner mid cannot prove ownership."""
 
-    bilibili_api_seam.videos_response = _videos_response(
+    bilibili_api_seam.videos_response = make_videos_response(
         {"bvid": BVID, "aid": 111, "title": "未明子讲座", "created": PUBDATE}
     )
     gateway = _load_gateway()
@@ -456,13 +303,13 @@ def test_get_user_video_page_rejects_missing_owner_mid(bilibili_api_seam):
         {"bvid": BVID, "title": "未明子讲座", "created": PUBDATE, "aid": "111", "mid": MID},
         {"bvid": BVID, "title": "未明子讲座", "created": PUBDATE, "mid": True},
         {"bvid": BVID, "title": "未明子讲座", "created": PUBDATE, "mid": "23191782"},
-        [_vlist_item()],
+        [make_vlist_item()],
     ],
 )
 def test_get_user_video_page_rejects_malformed_items(bilibili_api_seam, broken_item):
     """Every required scalar is validated before a DTO is returned."""
 
-    bilibili_api_seam.videos_response = _videos_response(broken_item)
+    bilibili_api_seam.videos_response = make_videos_response(broken_item)
     gateway = _load_gateway()
 
     with pytest.raises(GatewayShapeError):
@@ -473,7 +320,7 @@ def test_get_user_video_page_rejects_malformed_observed_total(bilibili_api_seam)
     """A present but non-integer total is a shape error, not a silent None."""
 
     bilibili_api_seam.videos_response = {
-        "list": {"vlist": [_vlist_item()]},
+        "list": {"vlist": [make_vlist_item()]},
         "page": {"count": "many"},
     }
     gateway = _load_gateway()
@@ -489,8 +336,8 @@ def test_get_video_parts_converts_page_index_and_duration(bilibili_api_seam):
     """One-based ``page`` and seconds become zero-based index and ms."""
 
     bilibili_api_seam.parts_response = [
-        _part_item(cid=2222, page=1, part="  第一部分  ", duration=12),
-        _part_item(cid=3333, page=3, part="第三部分", duration=10.5),
+        make_part_item(cid=2222, page=1, part="  第一部分  ", duration=12),
+        make_part_item(cid=3333, page=3, part="第三部分", duration=10.5),
     ]
     gateway = _load_gateway()
 
@@ -526,7 +373,7 @@ def test_get_video_parts_rejects_invalid_bvid_argument(bilibili_api_seam):
 def test_get_video_parts_tolerates_unknown_keys(bilibili_api_seam):
     """Unknown extra keys on a part item are ignored, not rejected."""
 
-    bilibili_api_seam.parts_response = [_part_item(dimension={"width": 1})]
+    bilibili_api_seam.parts_response = [make_part_item(dimension={"width": 1})]
     gateway = _load_gateway()
 
     parts = asyncio.run(gateway.get_video_parts(BVID))
@@ -552,7 +399,7 @@ def test_get_video_parts_tolerates_unknown_keys(bilibili_api_seam):
         {"cid": 2222, "page": 1, "part": "第一部分", "duration": -3},
         {"cid": 2222, "page": 1, "part": "第一部分", "duration": "12"},
         {"cid": 2222, "page": 1, "part": "第一部分", "duration": True},
-        [_part_item()],
+        [make_part_item()],
         "第一部分",
     ],
 )
@@ -582,20 +429,20 @@ def test_get_video_parts_rejects_non_list_response(bilibili_api_seam):
 @pytest.mark.parametrize(
     ("upstream_error", "expected"),
     [
-        (FakeNetworkException(412, UPSTREAM_TEXT), GatewayRateLimited),
-        (FakeNetworkException(429, UPSTREAM_TEXT), GatewayRateLimited),
-        (FakeNetworkException(404, UPSTREAM_TEXT), GatewayNotFound),
-        (FakeNetworkException(503, UPSTREAM_TEXT), GatewayTransportError),
-        (FakeResponseCodeException(-412, UPSTREAM_TEXT), GatewayRateLimited),
-        (FakeResponseCodeException(-352, UPSTREAM_TEXT), GatewayRateLimited),
-        (FakeResponseCodeException(-799, UPSTREAM_TEXT), GatewayRateLimited),
-        (FakeResponseCodeException(-404, UPSTREAM_TEXT), GatewayNotFound),
-        (FakeResponseCodeException(-62002, UPSTREAM_TEXT), GatewayNotFound),
-        (FakeResponseCodeException(-101, UPSTREAM_TEXT), GatewayResponseError),
-        (FakeResponseCodeException(-1, UPSTREAM_TEXT), GatewayResponseError),
-        (FakeResponseException(UPSTREAM_TEXT), GatewayResponseError),
+        (FakeNetworkException(412, UPSTREAM_ERROR_TEXT), GatewayRateLimited),
+        (FakeNetworkException(429, UPSTREAM_ERROR_TEXT), GatewayRateLimited),
+        (FakeNetworkException(404, UPSTREAM_ERROR_TEXT), GatewayNotFound),
+        (FakeNetworkException(503, UPSTREAM_ERROR_TEXT), GatewayTransportError),
+        (FakeResponseCodeException(-412, UPSTREAM_ERROR_TEXT), GatewayRateLimited),
+        (FakeResponseCodeException(-352, UPSTREAM_ERROR_TEXT), GatewayRateLimited),
+        (FakeResponseCodeException(-799, UPSTREAM_ERROR_TEXT), GatewayRateLimited),
+        (FakeResponseCodeException(-404, UPSTREAM_ERROR_TEXT), GatewayNotFound),
+        (FakeResponseCodeException(-62002, UPSTREAM_ERROR_TEXT), GatewayNotFound),
+        (FakeResponseCodeException(-101, UPSTREAM_ERROR_TEXT), GatewayResponseError),
+        (FakeResponseCodeException(-1, UPSTREAM_ERROR_TEXT), GatewayResponseError),
+        (FakeResponseException(UPSTREAM_ERROR_TEXT), GatewayResponseError),
         (FakeWbiRetryTimesExceedException(), GatewayRateLimited),
-        (RuntimeError(UPSTREAM_TEXT), GatewayTransportError),
+        (RuntimeError(UPSTREAM_ERROR_TEXT), GatewayTransportError),
     ],
 )
 def test_user_page_failures_map_onto_bounded_taxonomy(
@@ -611,15 +458,15 @@ def test_user_page_failures_map_onto_bounded_taxonomy(
 
     assert caught.value.code == expected.default_code
     # Raw exception text and URLs stay process-local: never in the mapped error.
-    assert UPSTREAM_TEXT not in str(caught.value)
+    assert UPSTREAM_ERROR_TEXT not in str(caught.value)
 
 
 @pytest.mark.parametrize(
     ("upstream_error", "expected"),
     [
-        (FakeNetworkException(412, UPSTREAM_TEXT), GatewayRateLimited),
-        (FakeResponseCodeException(-404, UPSTREAM_TEXT), GatewayNotFound),
-        (RuntimeError(UPSTREAM_TEXT), GatewayTransportError),
+        (FakeNetworkException(412, UPSTREAM_ERROR_TEXT), GatewayRateLimited),
+        (FakeResponseCodeException(-404, UPSTREAM_ERROR_TEXT), GatewayNotFound),
+        (RuntimeError(UPSTREAM_ERROR_TEXT), GatewayTransportError),
     ],
 )
 def test_part_failures_map_onto_bounded_taxonomy(
@@ -634,15 +481,15 @@ def test_part_failures_map_onto_bounded_taxonomy(
         asyncio.run(gateway.get_video_parts(BVID))
 
     assert caught.value.code == expected.default_code
-    assert UPSTREAM_TEXT not in str(caught.value)
+    assert UPSTREAM_ERROR_TEXT not in str(caught.value)
 
 
 @pytest.mark.parametrize(
     ("upstream_error", "expected"),
     [
-        (FakeNetworkException(412, UPSTREAM_TEXT), GatewayRateLimited),
-        (FakeResponseCodeException(-404, UPSTREAM_TEXT), GatewayNotFound),
-        (RuntimeError(UPSTREAM_TEXT), GatewayTransportError),
+        (FakeNetworkException(412, UPSTREAM_ERROR_TEXT), GatewayRateLimited),
+        (FakeResponseCodeException(-404, UPSTREAM_ERROR_TEXT), GatewayNotFound),
+        (RuntimeError(UPSTREAM_ERROR_TEXT), GatewayTransportError),
     ],
 )
 def test_completed_summary_failures_map_onto_bounded_taxonomy(
@@ -657,7 +504,7 @@ def test_completed_summary_failures_map_onto_bounded_taxonomy(
         asyncio.run(gateway.get_completed_video_summary(_summary(aid=None)))
 
     assert caught.value.code == expected.default_code
-    assert UPSTREAM_TEXT not in str(caught.value)
+    assert UPSTREAM_ERROR_TEXT not in str(caught.value)
 
 
 def test_shape_failure_does_not_expose_credential(bilibili_api_seam):
@@ -690,7 +537,7 @@ def test_completed_summary_short_circuits_when_aid_present(bilibili_api_seam):
 def test_completed_summary_fills_only_missing_aid(bilibili_api_seam):
     """A missing aid is filled from get_info; other fields are preserved."""
 
-    bilibili_api_seam.info_response = _detail_response()
+    bilibili_api_seam.info_response = make_detail_response()
     gateway = _load_gateway()
     summary = _summary(aid=None)
 
@@ -708,7 +555,7 @@ def test_completed_summary_fills_only_missing_aid(bilibili_api_seam):
 def test_completed_summary_rejects_foreign_detail_owner(bilibili_api_seam):
     """A detail response owned by another user is a bounded shape error."""
 
-    bilibili_api_seam.info_response = _detail_response(owner={"mid": MID + 1, "name": "别人"})
+    bilibili_api_seam.info_response = make_detail_response(owner={"mid": MID + 1, "name": "别人"})
     gateway = _load_gateway()
 
     with pytest.raises(GatewayShapeError) as caught:
@@ -899,3 +746,167 @@ def test_gateway_imports_stay_on_metadata_surface():
                     imports.setdefault(alias.name, set()).add(alias.name)
 
     assert imports == ALLOWED_PACKAGE_IMPORTS
+
+
+def test_gateway_source_never_names_forbidden_seam_methods():
+    """The adapter source never references playback/subtitle/audio names."""
+
+    gateway_path = (
+        pathlib.Path(__file__).resolve().parent.parent
+        / "src"
+        / "bili_asr"
+        / "sources"
+        / "bilibili_api_gateway.py"
+    )
+    tree = ast.parse(gateway_path.read_text(encoding="utf-8"))
+    attribute_names = {
+        node.attr for node in ast.walk(tree) if isinstance(node, ast.Attribute)
+    }
+
+    forbidden_hits = sorted(
+        name
+        for name in attribute_names
+        for token in FORBIDDEN_SEAM_METHOD_TOKENS
+        if token in name.lower()
+    )
+
+    assert forbidden_hits == []
+    # Positive control: the scan sees the documented metadata attribute calls.
+    assert {"get_videos", "get_pages", "get_info"} <= attribute_names
+
+
+def test_fake_seam_exposes_only_documented_metadata_surface():
+    """The offline seam exposes exactly the documented metadata methods."""
+
+    modules = build_fake_package(FakeUpstreamScript())
+    package = modules["bilibili_api"]
+
+    assert _public_names(modules["bilibili_api.user"]) == ["User"]
+    assert _public_names(modules["bilibili_api.video"]) == ["Video"]
+    assert _public_names(modules["bilibili_api.exceptions"]) == sorted(
+        ALLOWED_EXCEPTION_NAMES
+    )
+    assert _public_names(package) == ["Credential", "exceptions", "user", "video"]
+    assert _public_names(package.Credential) == []
+
+    user = package.user.User(uid=MID)
+    video = package.video.Video(bvid=BVID)
+    for surface_name in (
+        "get_subtitles",
+        "get_subtitle",
+        "get_play_url",
+        "get_player_info",
+        "get_download_url",
+        "get_danmaku",
+        "download",
+        "get_audio",
+    ):
+        with pytest.raises(AttributeError):
+            getattr(user, surface_name)
+        with pytest.raises(AttributeError):
+            getattr(video, surface_name)
+
+
+def test_gateway_dto_drops_unknown_upstream_payload_fields(bilibili_api_seam):
+    """Unknown payload keys never surface on any gateway DTO string form."""
+
+    bilibili_api_seam.videos_response = make_videos_response(
+        make_vlist_item(
+            aid=None,
+            sessdata_note=SESSDATA_BOUNDARY_VALUE,
+            frame_url=SIGNED_URL_MARKER,
+            raw_note=RAW_JSON_BODY_MARKER,
+        ),
+        count=1,
+    )
+    bilibili_api_seam.parts_response = [make_part_item(player_note=SIGNED_URL_MARKER)]
+    bilibili_api_seam.info_response = make_detail_response(raw_body=RAW_JSON_BODY_MARKER)
+    gateway = _load_gateway(sessdata=SESSDATA_BOUNDARY_VALUE)
+
+    page = asyncio.run(gateway.get_user_video_page(MID, page_number=1))
+    completed = asyncio.run(gateway.get_completed_video_summary(page.videos[0]))
+    parts = asyncio.run(gateway.get_video_parts(BVID))
+
+    assert completed.aid == 111  # the get_info completion path ran
+    for surface in (page, completed, parts):
+        assert_leaks_no_markers(repr(surface), context="gateway DTO repr")
+        assert_leaks_no_markers(str(surface), context="gateway DTO str")
+    assert bilibili_api_seam.calls == [
+        "user.get_videos(pn=1, ps=100)",
+        "video.get_info",
+        "video.get_pages",
+    ]
+
+
+# ------------------------------------------------------------- live smoke
+
+
+LIVE_SMOKE_ENV = "BILI_LIVE_SMOKE"
+
+#: Tokens that must never appear in the live smoke's persisted rows: cookie
+#: names and playback-CDN signature markers indicate credential or playback
+#: leakage rather than ordinary metadata.
+LIVE_HYGIENE_TOKENS = ("sessdata", "pssign", "bilivideo.com")
+
+
+def _live_smoke_requested() -> bool:
+    """True only when the operator explicitly opts in via the environment."""
+
+    return os.environ.get(LIVE_SMOKE_ENV, "") == "1"
+
+
+def test_live_smoke_single_public_page_for_archive_owner(tmp_root):
+    """Opt-in live probe: ONE public metadata page for UID 23191782.
+
+    Skipped unless the operator sets ``BILI_LIVE_SMOKE=1``.  The probe
+    requests exactly one bounded page (``ps=100``) for the archive owner
+    through the real adapter, ingests it into a fresh temporary SQLite
+    database, calls no subtitle/playback/audio/ASR/export endpoint,
+    requires no credential, and keeps every raw upstream payload
+    process-local.
+    """
+
+    if not _live_smoke_requested():
+        pytest.skip(f"live smoke is opt-in: set {LIVE_SMOKE_ENV}=1 to request it")
+
+    try:
+        gateway = _load_gateway()
+    except ImportError as error:  # pragma: no cover - environment guard
+        pytest.skip(f"bilibili-api-python is not importable here: {error}")
+
+    assert gateway.get_package_version() == PINNED_PACKAGE_VERSION
+    connection = open_database(os.path.join(tmp_root, "live-smoke.sqlite"))
+    try:
+        repository = MetadataRepository(connection)
+        result = MetadataIngestor(gateway, repository).collect_user_pages(
+            MID, start_page=1, page_limit=1
+        )
+
+        # Bounded: exactly one requested page and one page-evidence row.
+        assert result.page_count == 1
+        if result.outcome in ("failed", "risk_interrupted"):
+            pytest.fail(
+                "live one-page smoke ended in a bounded upstream failure"
+                f" (code={result.error_code!r}); rerun when upstream recovers"
+            )
+        assert result.outcome in ("complete", "limited")
+
+        persisted = persisted_row_text(connection)
+        scan_text = (persisted + repr(result)).lower()
+        for token in LIVE_HYGIENE_TOKENS:
+            assert token not in scan_text, f"live smoke persisted {token!r}"
+
+        video_rows = connection.execute(
+            "SELECT bvid, mid, title FROM videos ORDER BY bvid"
+        ).fetchall()
+        assert {row["mid"] for row in video_rows} <= {MID}
+        for row in video_rows:
+            assert row["bvid"].startswith("BV") and len(row["bvid"]) == 12
+            assert row["title"].strip()
+        for cid, duration_ms in (
+            tuple(row)
+            for row in connection.execute("SELECT cid, duration_ms FROM video_parts")
+        ):
+            assert cid >= 1 and duration_ms >= 1
+    finally:
+        connection.close()
