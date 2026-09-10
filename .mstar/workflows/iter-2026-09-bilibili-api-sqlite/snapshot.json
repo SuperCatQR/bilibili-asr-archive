@@ -2,24 +2,49 @@
   "schema_version": 1,
   "id": "iter-2026-09-bilibili-api-sqlite",
   "type": "iteration",
-  "status": "running",
+  "status": "paused",
   "started_at": "2026-09-09",
-  "updated_at": "2026-09-09",
-  "phase": "phase-1-prepare",
+  "updated_at": "2026-09-10",
+  "phase": "phase-2-execute",
   "plans": [
     {
       "id": "20260909-structured-metadata-schema",
       "title": "3NF metadata schema and SQLite repository",
       "file": ".mstar/plans/20260909-structured-metadata-schema.md",
-      "status": "Todo",
+      "status": "Done",
       "owner": "project-manager",
-      "agents": ["fullstack-dev"],
-      "progress": 0,
-      "tags": ["backend", "database", "3nf"],
+      "agents": [
+        "fullstack-dev"
+      ],
+      "progress": 100,
+      "task_commits": [
+        "14590a3b555e27c14912627d5e4a1e78a3393176",
+        "5f22fc6e81371f79cd4f0660cc79eb7f8cae9bfa",
+        "bf602b8620e8dc4cc630ababf17bfb10e0ade1b0",
+        "ff81140411e9e04756055657569c39a0a0c5c2d4",
+        "2063a1a0b56b95c3dd290d1826096a187c855222"
+      ],
+      "tags": [
+        "backend",
+        "database",
+        "3nf"
+      ],
       "created_at": "2026-09-09",
-      "updated_at": "2026-09-09",
-      "done_at": null,
-      "notes": [],
+      "updated_at": "2026-09-10",
+      "done_at": "2026-09-10",
+      "notes": [
+        "Phase 2 lease claimed by dsh:iter-2026-09-bilibili-api-sqlite; feature worktree is isolated.",
+        "Paused by user 2026-09-10: Task 1 complete (commit 5f22fc6, review Approved); Task 2 implemented and committed (bf602b8, report implementer-task-2-report.md, 16 focused + 709 full tests pass).",
+        "Resume: generate Task 2 review package (base 5f22fc6..head bf602b8), dispatch fresh code-reviewer, then Task 3.",
+        "Worktree: /root/workspace/bilibili-asr-archive/.worktrees/20260909-structured-metadata-schema on branch feature/20260909-structured-metadata-schema.",
+        "Resumed: Task 2 review Approved (review/task-2-review.md, Critical 0 / Important 0 / Minor 7; minors deferred to plan QC; commit bf602b8). Task 3 dispatched.",
+        "Task 3 review Approved (review/task-3-review.md, Critical 0 / Important 0 / Minor 4; commit ff81140). All 3 tasks complete; branch review package c98f140..ff81140; plan QC tri (N=3) next, then mandatory QA gate.",
+        "Implementation complete; plan entered InReview. QC tri (N=3) dispatched on branch package c98f140..ff81140 (seats qc-specialist / qc-specialist-2 / qc-specialist-3); execution_lease retained.",
+        "QC tri (N=3) complete: qc-specialist Request Changes (2W) / qc-specialist-2 Approve (0W) / qc-specialist-3 Request Changes (6W); consolidated gate Request Changes (0C/6W deduped) — review/qc-consolidated.md. Fix wave 1 dispatched (W1-W6 + 5 fix-now suggestions); targeted re-review by qc-specialist + qc-specialist-3 after fix. No open residuals.",
+        "QC targeted re-review round 1 (N=2): qc-specialist Approve (2W resolved, 1 new S F-016) / qc-specialist-3 Approve (6W resolved, 4 S open: F-012/F-014 owed + F-018/F-019 new). Consolidated updated: round-2 micro-fix dispatched (S-fix-6..9: ordering guard, exception discipline, aid-policy docstring, rollback user assertion, commit-matrix sub-case); typed read-model unification carried to Batch 3. No Critical/Warning open.",
+        "QC gate converged: fix round 2 (2063a1a, S-fix-6..9) re-reviewed by qc-specialist + qc-specialist-3 -> both Approve (0C/0W/0 open S; 28-site exception sweep; regression clean). Consolidated final gate: Approve (qc-consolidated.md ## Final gate decision). U1-U3 evidence items routed to mandatory QA gate (qa-engineer, acceptance-only + targeted re-runs).",
+        "Integration merge complete: bf8892b94318e820540f561cc2a82da9c38078de (merge of feature/20260909-structured-metadata-schema c98f140..2063a1a into iteration/iter-2026-09-bilibili-api-sqlite; 9 files +2576). Plan Done by PM after QC gate Approve + mandatory QA gate Approve (qa-gate.md); execution_lease released; zero open residuals."
+      ],
       "metadata": {
         "primary_spec": ".mstar/iterations/iter-2026-09-bilibili-api-sqlite/specs/structured-metadata-storage.md",
         "spec_integration_branch": "iteration/iter-2026-09-bilibili-api-sqlite",
@@ -32,9 +57,15 @@
       "file": ".mstar/plans/20260909-bilibili-api-ingestion.md",
       "status": "Todo",
       "owner": "project-manager",
-      "agents": ["fullstack-dev"],
+      "agents": [
+        "fullstack-dev"
+      ],
       "progress": 0,
-      "tags": ["backend", "external-api", "ingestion"],
+      "tags": [
+        "backend",
+        "external-api",
+        "ingestion"
+      ],
       "created_at": "2026-09-09",
       "updated_at": "2026-09-09",
       "done_at": null,
@@ -43,7 +74,9 @@
         "primary_spec": ".mstar/iterations/iter-2026-09-bilibili-api-sqlite/specs/bilibili-api-gateway.md",
         "spec_integration_branch": "iteration/iter-2026-09-bilibili-api-sqlite",
         "merge_target": "iteration/iter-2026-09-bilibili-api-sqlite",
-        "blocked_by": ["20260909-structured-metadata-schema"]
+        "blocked_by": [
+          "20260909-structured-metadata-schema"
+        ]
       }
     },
     {
@@ -52,9 +85,15 @@
       "file": ".mstar/plans/20260909-metadata-cli-smoke.md",
       "status": "Todo",
       "owner": "project-manager",
-      "agents": ["fullstack-dev"],
+      "agents": [
+        "fullstack-dev"
+      ],
       "progress": 0,
-      "tags": ["backend", "cli", "verification"],
+      "tags": [
+        "backend",
+        "cli",
+        "verification"
+      ],
       "created_at": "2026-09-09",
       "updated_at": "2026-09-09",
       "done_at": null,
@@ -63,7 +102,9 @@
         "primary_spec": ".mstar/iterations/iter-2026-09-bilibili-api-sqlite/specs/metadata-cli-contract.md",
         "spec_integration_branch": "iteration/iter-2026-09-bilibili-api-sqlite",
         "merge_target": "iteration/iter-2026-09-bilibili-api-sqlite",
-        "blocked_by": ["20260909-bilibili-api-ingestion"]
+        "blocked_by": [
+          "20260909-bilibili-api-ingestion"
+        ]
       }
     }
   ],

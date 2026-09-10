@@ -8,7 +8,7 @@
 
 - Priority: P0
 - Task category: backend / data persistence
-- Status: Todo
+- Status: Done
 - Depends on: none
 - Primary spec: `.mstar/iterations/iter-2026-09-bilibili-api-sqlite/specs/structured-metadata-storage.md`
 - Owner: fullstack-dev
@@ -78,17 +78,17 @@ business transitions.
 - Produces: `open_database(path)`, foreign-key-enabled connection, schema tables,
   constraints, and views.
 
-- [ ] Define tables `bilibili_users`, `videos`, `video_parts`,
+- [x] Define tables `bilibili_users`, `videos`, `video_parts`,
   `ingestion_runs`, `ingestion_cursors`, `ingestion_pages`,
   `ingestion_discoveries`, plus the reserved audio/transcript tables from the
   primary spec with explicit FK constraints using `ON DELETE RESTRICT`.
-- [ ] Define primary keys, candidate-key unique constraints, foreign keys,
+- [x] Define primary keys, candidate-key unique constraints, foreign keys,
   status checks, non-negative checks, and the three required views.
-- [ ] Implement duration conversion as `floor(seconds * 1000)` and page-index
+- [x] Implement duration conversion as `floor(seconds * 1000)` and page-index
   normalization as `page - 1` per the spec's normalization rules.
-- [ ] Configure SQLite with foreign keys enabled and a transaction-safe default;
+- [x] Configure SQLite with foreign keys enabled and a transaction-safe default;
   do not add an ORM or a second database library.
-- [ ] Test a fresh database, foreign-key rejection, duplicate-key rejection,
+- [x] Test a fresh database, foreign-key rejection, duplicate-key rejection,
   derived work ID view, the absence of duplicate aggregate columns, and the
   explicit transaction ordering that prevents FK violations.
 
@@ -108,19 +108,19 @@ Run: `cd bilibili-asr-archive && .venv/bin/python -m pytest tests/test_storage_s
   `start_run`, `finish_run`, `record_page`, `record_discovery`,
   `read_cursor`, `write_cursor`, `list_pending_parts`, and `run_stats`.
 
-- [ ] Add dataclasses with explicit fields and validation for the schema types;
+- [x] Add dataclasses with explicit fields and validation for the schema types;
   keep `work_id` as a computed property rather than a persisted field.
-- [ ] Implement one-page transaction support using the explicit ordering from the
+- [x] Implement one-page transaction support using the explicit ordering from the
   primary spec: (1) upsert user, (2) upsert video, (3) upsert parts, (4) insert
   discoveries, (5) update cursor, (6) record page outcome, (7) commit. This order
   guarantees FK parents exist before FK children are inserted.
-- [ ] Make repeated ingestion of the same page idempotent for entities and
+- [x] Make repeated ingestion of the same page idempotent for entities and
   discovery relationships while allowing a new run to retain its own page
   record.
-- [ ] Keep failure handling bounded: a failed page records a scalar error code,
+- [x] Keep failure handling bounded: a failed page records a scalar error code,
   rolls back the entire transaction, leaves the previous cursor unchanged, and
   marks the run/page outcome in a separate transaction.
-- [ ] Test single-part and multipart videos, repeated pages, cursor resume,
+- [x] Test single-part and multipart videos, repeated pages, cursor resume,
   failed-page rollback, missing foreign keys, FK delete restriction, and
   pending-part queries.
 
@@ -137,20 +137,20 @@ Run: `cd bilibili-asr-archive && .venv/bin/python -m pytest tests/test_metadata_
 - Consumes: repository and schema from Tasks 1–2.
 - Produces: deterministic contract evidence for the gateway and CLI plans.
 
-- [ ] Add a schema inspection test that checks required tables, views, foreign
+- [x] Add a schema inspection test that checks required tables, views, foreign
   keys with `ON DELETE RESTRICT`, unique constraints, status checks, and the
   absence of `work_id` as a base-table column. Verify the three views compute
   derived values correctly.
-- [ ] Add a repository E2E test that inserts one user, one single-part video,
+- [x] Add a repository E2E test that inserts one user, one single-part video,
   one multipart video, two runs, page records, and cursor transitions using the
   explicit transaction ordering (user → video → parts → discoveries → cursor →
   page outcome).
-- [ ] Add FK constraint tests: attempt to insert a video without its user,
+- [x] Add FK constraint tests: attempt to insert a video without its user,
   attempt to insert a part without its video, and verify `ON DELETE RESTRICT`
   prevents orphaning.
-- [ ] Add a no-secret persistence test that attempts forbidden fields and proves
+- [x] Add a no-secret persistence test that attempts forbidden fields and proves
   the repository accepts only bounded scalar error codes.
-- [ ] Keep all tests offline and independent of `bilibili_api`.
+- [x] Keep all tests offline and independent of `bilibili_api`.
 
 Run: `cd bilibili-asr-archive && .venv/bin/python -m pytest tests/test_storage_schema.py tests/test_metadata_repository.py -v`
 
@@ -177,6 +177,15 @@ Run: `cd bilibili-asr-archive && .venv/bin/python -m pytest tests/test_storage_s
 - Final Done definition: the database can be rebuilt from a future fresh ingest,
   supports normalized future media/transcript references, and has no second
   metadata source of truth.
+- QC carry-over contract rules inherited by Batch 2 (gateway) and Batch 3 (CLI):
+  (1) record-level bounded-error validation is the secret-prevention SSOT — the
+  schema enforces only the 64-char length bound, so the gateway must keep
+  record-level charset/forbidden-class validation and never persist raw payloads,
+  cookies, signed URLs, or tracebacks; (2) a schema version stamp decision
+  (`IF NOT EXISTS` currently accepts a divergent legacy DB) belongs to the Batch 2
+  contract acceptance; no legacy DB can exist today (fresh rebuild only);
+  (3) FK-child indexes (`videos.mid`, `ingestion_runs.mid`) are deliberately
+  deferred until ingest volume justifies them.
 
 ## Drift Check
 
@@ -187,26 +196,26 @@ files and that the package root remains `bilibili-asr-archive/`.
 
 ## Acceptance / Done Criteria
 
-- [ ] `schema.sql` creates all declared tables, views, primary keys, foreign keys,
+- [x] `schema.sql` creates all declared tables, views, primary keys, foreign keys,
   unique constraints, and check constraints in a fresh database.
-- [ ] Schema satisfies 3NF: no duplicate derived values in base tables. Specifically,
+- [x] Schema satisfies 3NF: no duplicate derived values in base tables. Specifically,
   `work_id`, part counts, and run aggregates are computed in views or application
   code, not stored as columns.
-- [ ] Foreign key constraints reject orphaned records (e.g., video without user,
+- [x] Foreign key constraints reject orphaned records (e.g., video without user,
   part without video).
-- [ ] Unique constraints prevent duplicate entities (e.g., duplicate `(bvid, page_index)`
+- [x] Unique constraints prevent duplicate entities (e.g., duplicate `(bvid, page_index)`
   for video parts).
-- [ ] Repository performs idempotent upserts: re-inserting the same user/video/part
+- [x] Repository performs idempotent upserts: re-inserting the same user/video/part
   updates display labels without creating duplicate rows or failing on constraint
   violations.
-- [ ] Cursor advancement and page outcome recording are atomic per successful page
+- [x] Cursor advancement and page outcome recording are atomic per successful page
   transaction. A failed transaction leaves the prior cursor unchanged.
-- [ ] Failed pages persist only bounded scalar error codes; no credentials, signed
+- [x] Failed pages persist only bounded scalar error codes; no credentials, signed
   URLs, raw JSON, or stack traces are stored.
-- [ ] Offline schema and repository tests pass on Python 3.12 without network access.
-- [ ] No legacy JSONL file (`manifest.jsonl`, `meta-cursor.json`, `run-ledger.jsonl`)
+- [x] Offline schema and repository tests pass on Python 3.12 without network access.
+- [x] No legacy JSONL file (`manifest.jsonl`, `meta-cursor.json`, `run-ledger.jsonl`)
   is read or written by the new repository.
-- [ ] `git diff --check` is clean for the plan's implementation changes.
+- [x] `git diff --check` is clean for the plan's implementation changes.
 
 ## Prepare → Execute Handoff
 
@@ -217,18 +226,25 @@ QC tri-review, and QA gate before marking this plan Done.
 
 ## Review Gate Summary
 
-- Decision: pending
-- Review range / Diff basis: pending
+- Decision: Approve (QC tri N=3 converged after fix waves: initial 2×Request Changes + 1×Approve → fix wave 1 `6d76ea4` → targeted re-review N=2 Approve → round-2 micro-fix `2063a1a` → targeted re-review round 2 N=2 Approve; 0 Critical / 0 Warning / 0 open Suggestion)
+- Review range / Diff basis: `c98f140..2063a1a` (merge-base c98f140 with spec integration branch; final reviewed head `2063a1a`)
 - Review bundle: `.mstar/sdd/20260909-structured-metadata-schema/review/`
-- QC inputs: `qc1.md`, `qc2.md`, `qc3.md`
-- Blocking result: pending
-- Residual findings: pending
+- QC inputs: `qc1.md`, `qc2.md`, `qc3.md` (Revalidation rounds 1–2 in place), consolidated: `qc-consolidated.md`
+- Blocking result: none (W1–W6 resolved and seat-verified; no open residual)
+- Residual findings: none open (zero-residual; carried contract items in Durable Roadmap; ⚪ U1–U3 evidence items routed to the mandatory QA gate)
 
 ## QA Gate Summary
 
 - QA gate: mandatory
 - QA mode: acceptance
-- Evidence: pending
+- Evidence: **Approve (recommend merge)** — L4 acceptance gate executed by `qa-engineer`; report: `.mstar/sdd/20260909-structured-metadata-schema/review/qa-gate.md`.
+  - Checkout aligned: Review cwd `.worktrees/20260909-structured-metadata-schema`, branch `feature/20260909-structured-metadata-schema`, HEAD `2063a1a`, cumulative range `c98f140..2063a1a`, clean tree (QA-verified).
+  - U1 closed (fresh re-run): focused `pytest tests/test_storage_schema.py tests/test_metadata_repository.py -v` → **33 passed in 0.78s**; full `pytest` → **726 passed in 40.84s** (Python 3.12.3 / pytest 9.1.1, offline) — pass counts are now QA-executed, not implementer-reported.
+  - U2 closed (fresh build): `uv build --wheel` → `bili_asr-0.1.0-py3-none-any.whl` ships `bili_asr/storage/schema.sql` (12 CREATE TABLE + 3 CREATE VIEW, first line `PRAGMA foreign_keys = ON;`); `uv build --sdist` ships the same file; scratch artifacts removed, tree clean, nothing committed — the previously documented build-tooling gap is resolved with a real build.
+  - U3 closed (verified): all QA runs used the control-checkout interpreter `bilibili-asr-archive/.venv/bin/python`; feature worktree has no `.venv`; no `PYTEST_*`/import-mode override → pytest default prepend import mode (`from fixtures.metadata_records import …` resolved).
+  - DoD mapping: all 10 `Acceptance / Done Criteria` covered with evidence paths + commands (9 items QA-freshly-executed; legacy-JSONL absence = fresh grep + L2 reuse) — see report table.
+  - Residuals: zero open (register empty repo-wide; engine status `residuals: none open`); `zero-residual` satisfied.
+  - Plan NOT marked Done: integration merge precedes Done; PM owns the merge.
 
 ## Sign-off
 

@@ -146,7 +146,7 @@ A failed page never advances the cursor, ensuring safe resume.
 
 | plan_id | Name | Status | Notes |
 |---------|------|--------|-------|
-| 20260909-structured-metadata-schema | 3NF metadata schema and SQLite repository | Todo | Foundational; blocks the gateway and CLI plans |
+| 20260909-structured-metadata-schema | 3NF metadata schema and SQLite repository | Done | Foundational; blocks the gateway and CLI plans. 3 tasks + 2 QC fix waves (14590a3, 5f22fc6, bf602b8, ff81140, 6d76ea4, 2063a1a); QC tri N=3 converged Approve; QA gate Approve (33 focused / 726 full; wheel+sdist ship schema.sql); merged bf8892b |
 | 20260909-bilibili-api-ingestion | bilibili-api gateway and normalized ingestion | Todo | Sequential; blocked by schema/repository |
 | 20260909-metadata-cli-smoke | SQLite-backed metadata CLI and verification | Todo | Sequential; blocked by gateway/ingestion |
 
