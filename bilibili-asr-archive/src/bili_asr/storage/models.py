@@ -109,9 +109,9 @@ class VideoRecord:
 class VideoPartRecord:
     """Normalized metadata for one video part.
 
-    ``video_part_id`` is optional for new rows because SQLite allocates the
-    local surrogate key.  ``work_id`` is intentionally computed and is never
-    persisted as a column.
+    ``video_part_id`` is allocated by the repository: records passed to
+    ``MetadataRepository.upsert_part`` must carry ``None``. ``work_id`` is
+    intentionally computed and is never persisted as a column.
     """
 
     bvid: str
@@ -252,7 +252,9 @@ __all__ = [
 ]
 
 
-# Internal validation helpers are intentionally not part of the public model API.
+# Public validation surface: the canonical enumeration sets and the error-code
+# validator are exported so gateway and CLI callers validate against the same
+# contract the record dataclasses enforce.
 validate_error_code = _error_code
 ALLOWED_PAGE_OUTCOMES = _ALLOWED_PAGE_OUTCOMES
 ALLOWED_RUN_OUTCOMES = _ALLOWED_RUN_OUTCOMES

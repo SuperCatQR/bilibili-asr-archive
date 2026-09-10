@@ -16,6 +16,7 @@ from bili_asr.storage.models import (
     IngestionRunRecord,
     PageOutcome,
     ProcessingStatus,
+    RunOutcome,
     UserRecord,
     VideoPartRecord,
     VideoRecord,
@@ -43,6 +44,8 @@ def make_run_record(
     requested_start_page: int = 1,
     requested_page_limit: int | None = 3,
     started_at: int = 101,
+    outcome: RunOutcome = "running",
+    finished_at: int | None = None,
 ) -> IngestionRunRecord:
     """Build one metadata collection run opened against the archive owner."""
     return IngestionRunRecord(
@@ -53,6 +56,8 @@ def make_run_record(
         requested_start_page=requested_start_page,
         requested_page_limit=requested_page_limit,
         started_at=started_at,
+        outcome=outcome,
+        finished_at=finished_at,
     )
 
 
@@ -81,8 +86,9 @@ def make_part_record(
     page_index: int = 0,
     cid: int = 2001,
     title: str = "第一集",
-    status: ProcessingStatus = "discovered",
+    processing_status: ProcessingStatus = "discovered",
     updated_at: int = 103,
+    video_part_id: int | None = None,
 ) -> VideoPartRecord:
     """Build one normalized part of a video."""
     return VideoPartRecord(
@@ -91,9 +97,10 @@ def make_part_record(
         cid=cid,
         title=title,
         duration_ms=1_234,
-        processing_status=status,
+        processing_status=processing_status,
         created_at=103,
         updated_at=updated_at,
+        video_part_id=video_part_id,
     )
 
 

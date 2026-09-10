@@ -11,6 +11,7 @@ import sqlite3
 from typing import Iterable, Iterator, TypeAlias
 
 from .models import (
+    ALLOWED_RUN_OUTCOMES,
     CursorRecord,
     DiscoveryRecord,
     IngestionPageRecord,
@@ -24,6 +25,7 @@ from .models import (
 DatabaseConnection: TypeAlias = sqlite3.Connection
 _ARCHIVE_DATABASE_NAME = "archive.db"
 _DATABASE_SUFFIXES = frozenset({".db", ".sqlite", ".sqlite3"})
+_TERMINAL_RUN_OUTCOMES = ALLOWED_RUN_OUTCOMES - frozenset({"running"})
 _SCHEMA_RESOURCE = resources.files(__package__).joinpath("schema.sql")
 
 
@@ -50,9 +52,14 @@ def normalize_page_index(page_number: int) -> int:
 
 
 def _resolve_database_path(path: str | os.PathLike[str]) -> str | os.PathLike[str]:
-    """Accept either an archive root or an explicit SQLite database path."""
+    """Accept either an archive root or an explicit SQLite database path.
+
+    ``:memory:`` opens an unnamed in-memory database. URI strings are not
+    interpreted: a ``file:``-prefixed value is handled as an ordinary file
+    name like any other explicit path.
+    """
     value = os.fspath(path)
-    if value in {":memory:"} or (isinstance(value, str) and value.startswith("file:")):
+    if value == ":memory:":
         return value
 
     candidate = Path(value)
@@ -66,7 +73,10 @@ def _resolve_database_path(path: str | os.PathLike[str]) -> str | os.PathLike[st
 
 
 def initialize_schema(connection: sqlite3.Connection) -> sqlite3.Connection:
-    """Initialize ``connection`` from the checked-in schema, idempotently."""
+    """Initialize ``connection`` from the checked-in schema, idempotently.
+
+    Enables foreign-key enforcement and commits the schema script.
+    """
     connection.execute("PRAGMA foreign_keys = ON")
     if connection.execute("PRAGMA foreign_keys").fetchone()[0] != 1:
         raise sqlite3.DatabaseError("SQLite foreign-key enforcement could not be enabled")
@@ -81,8 +91,10 @@ def open_database(path: str | os.PathLike[str]) -> DatabaseConnection:
     Existing directories are interpreted as archive roots. Paths ending in a
     normal SQLite suffix (``.db``, ``.sqlite``, or ``.sqlite3``) are treated as
     explicit database files, which is useful for tests and callers with a
-    custom filename. Connections use an explicit deferred transaction mode;
-    callers can use ``with connection:`` for atomic write groups.
+    custom filename; ``:memory:`` opens an in-memory database. URI strings are
+    not interpreted, so callers pass plain paths. Connections use an explicit
+    deferred transaction mode; callers can use ``with connection:`` for
+    atomic write groups.
     """
     database_path = _resolve_database_path(path)
     connection = sqlite3.connect(database_path, isolation_level="DEFERRED")
@@ -98,17 +110,36 @@ def open_database(path: str | os.PathLike[str]) -> DatabaseConnection:
 class MetadataRepository:
     """Repository for normalized metadata and ingestion state.
 
-    The low-level methods execute SQL without committing so a caller can group
-    them in one transaction. ``record_page`` is the page-level convenience
-    operation: when supplied with page payloads it owns the transaction and
-    applies the locked parent-before-child ordering. The connection's context
-    manager is also available through :meth:`transaction` for callers that
-    need to compose the lower-level methods themselves.
+    Commit boundaries per public method:
+
+    - ``start_run`` commits its own insert so a failed page can roll back
+      without deleting the run parent.
+    - ``finish_run`` commits its own terminal transition.
+    - ``record_page`` owns one transaction for its arguments and commits it,
+      or rolls it back and re-raises on a write failure; a no-payload
+      ``'failed'`` page commits its own evidence transaction.
+    - ``upsert_user``, ``upsert_video``, ``upsert_part``, ``record_discovery``
+      and ``write_cursor`` execute SQL without committing, so a caller can
+      group them in one transaction through :meth:`transaction`.
+    - ``read_cursor``, ``list_pending_parts`` and ``run_stats`` never write
+      or commit.
+
+    Do not compose ``start_run``, ``finish_run`` or ``record_page`` inside a
+    :meth:`transaction` group: each commits independently and would commit
+    the enclosing group's earlier writes.
+
+    The connection must come with ``row_factory = sqlite3.Row`` and
+    ``PRAGMA foreign_keys`` enabled — exactly the state :func:`open_database`
+    establishes; the constructor rejects anything else.
     """
 
     def __init__(self, connection: sqlite3.Connection):
         if not isinstance(connection, sqlite3.Connection):
             raise TypeError("connection must be a sqlite3.Connection")
+        if connection.row_factory is not sqlite3.Row:
+            raise TypeError("connection must use the sqlite3.Row row_factory")
+        if connection.execute("PRAGMA foreign_keys").fetchone()[0] != 1:
+            raise ValueError("connection must have PRAGMA foreign_keys enabled")
         self.connection = connection
 
     @contextmanager
@@ -163,58 +194,40 @@ class MetadataRepository:
         )
 
     def upsert_part(self, part: VideoPartRecord) -> int:
-        """Insert or update a normalized part and return its local ID."""
+        """Insert or update a normalized part and return its local ID.
+
+        ``video_part_id`` is allocated by the repository, so the record must
+        carry ``video_part_id=None``; a non-``None`` id raises ``ValueError``.
+        Conflicts on ``(bvid, page_index)`` update only the current display
+        fields and non-key facts.
+        """
         if not isinstance(part, VideoPartRecord):
             raise TypeError("part must be a VideoPartRecord")
-        if part.video_part_id is None:
-            self.connection.execute(
-                """
-                INSERT INTO video_parts(
-                    bvid, page_index, cid, title, duration_ms, processing_status,
-                    created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(bvid, page_index) DO UPDATE SET
-                    title = excluded.title,
-                    duration_ms = excluded.duration_ms,
-                    processing_status = excluded.processing_status,
-                    updated_at = excluded.updated_at
-                """,
-                (
-                    part.bvid,
-                    part.page_index,
-                    part.cid,
-                    part.title,
-                    part.duration_ms,
-                    part.processing_status,
-                    part.created_at,
-                    part.updated_at,
-                ),
-            )
-        else:
-            self.connection.execute(
-                """
-                INSERT INTO video_parts(
-                    video_part_id, bvid, page_index, cid, title, duration_ms,
-                    processing_status, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(bvid, page_index) DO UPDATE SET
-                    title = excluded.title,
-                    duration_ms = excluded.duration_ms,
-                    processing_status = excluded.processing_status,
-                    updated_at = excluded.updated_at
-                """,
-                (
-                    part.video_part_id,
-                    part.bvid,
-                    part.page_index,
-                    part.cid,
-                    part.title,
-                    part.duration_ms,
-                    part.processing_status,
-                    part.created_at,
-                    part.updated_at,
-                ),
-            )
+        if part.video_part_id is not None:
+            raise ValueError("upsert_part allocates video_part_id; it must be None")
+        self.connection.execute(
+            """
+            INSERT INTO video_parts(
+                bvid, page_index, cid, title, duration_ms, processing_status,
+                created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(bvid, page_index) DO UPDATE SET
+                title = excluded.title,
+                duration_ms = excluded.duration_ms,
+                processing_status = excluded.processing_status,
+                updated_at = excluded.updated_at
+            """,
+            (
+                part.bvid,
+                part.page_index,
+                part.cid,
+                part.title,
+                part.duration_ms,
+                part.processing_status,
+                part.created_at,
+                part.updated_at,
+            ),
+        )
 
         row = self.connection.execute(
             """
@@ -229,7 +242,11 @@ class MetadataRepository:
         return int(row[0])
 
     def start_run(self, run: IngestionRunRecord) -> None:
-        """Insert a run record, preserving an existing run on retry."""
+        """Insert one new run record.
+
+        ``run_id`` is the primary key and is never reused: a duplicate raises
+        ``sqlite3.IntegrityError``.
+        """
         if not isinstance(run, IngestionRunRecord):
             raise TypeError("run must be an IngestionRunRecord")
         self.connection.execute(
@@ -238,7 +255,6 @@ class MetadataRepository:
                 run_id, mid, source_package, source_version, requested_start_page,
                 requested_page_limit, started_at, finished_at, outcome
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(run_id) DO NOTHING
             """,
             (
                 run.run_id,
@@ -256,59 +272,40 @@ class MetadataRepository:
         # independently so a failed page can roll back without deleting it.
         self.connection.commit()
 
-    def finish_run(
-        self,
-        run: IngestionRunRecord | str,
-        outcome: str | None = None,
-        finished_at: int | None = None,
-    ) -> None:
-        """Set a run's terminal/current outcome.
+    def finish_run(self, run: IngestionRunRecord) -> None:
+        """Finish a run with its terminal outcome and finish timestamp.
 
-        The preferred form is ``finish_run(IngestionRunRecord(...))``. A scalar
-        compatibility form, ``finish_run(run_id, outcome, finished_at)``, is
-        provided for the ingestion service's terminal transition.
+        The canonical form is ``finish_run(IngestionRunRecord(...))`` with a
+        terminal ``outcome`` and an integer ``finished_at``. The ordering
+        baseline is the run's stored ``started_at``, not the record's own
+        ``started_at`` field. Re-finishing is rejected: a run whose stored
+        outcome is already terminal raises ``sqlite3.IntegrityError``.
         """
-        if isinstance(run, IngestionRunRecord):
-            run_id = run.run_id
-            resolved_outcome = run.outcome
-            resolved_finished_at = run.finished_at
-            if resolved_finished_at is None:
-                raise ValueError("finished_at is required when finishing a run")
-            started_at = run.started_at
-        elif isinstance(run, str):
-            run_id = run
-            if not run_id.strip():
-                raise ValueError("run_id must not be empty")
-            if outcome is None or finished_at is None:
-                raise ValueError("outcome and finished_at are required")
-            resolved_outcome = outcome
-            resolved_finished_at = finished_at
-            started_row = self.connection.execute(
-                "SELECT started_at FROM ingestion_runs WHERE run_id = ?", (run_id,)
-            ).fetchone()
-            if started_row is None:
-                raise sqlite3.IntegrityError(f"unknown run_id: {run_id}")
-            started_at = int(started_row[0])
-        else:
-            raise TypeError("run must be an IngestionRunRecord or run ID")
-
-        if resolved_outcome not in {
-            "complete",
-            "limited",
-            "risk_interrupted",
-            "failed",
-        }:
+        if not isinstance(run, IngestionRunRecord):
+            raise TypeError("run must be an IngestionRunRecord")
+        run_row = self.connection.execute(
+            "SELECT started_at, outcome FROM ingestion_runs WHERE run_id = ?",
+            (run.run_id,),
+        ).fetchone()
+        if run_row is None:
+            raise sqlite3.IntegrityError(f"unknown run_id: {run.run_id}")
+        if run_row["outcome"] != "running":
+            raise sqlite3.IntegrityError(
+                f"run {run.run_id} already finished with outcome {run_row['outcome']}"
+            )
+        if run.outcome not in _TERMINAL_RUN_OUTCOMES:
             raise ValueError("finish_run requires a terminal run outcome")
-        if not isinstance(resolved_finished_at, int) or isinstance(resolved_finished_at, bool):
-            raise TypeError("finished_at must be an integer")
-        if resolved_finished_at < started_at:
+        if run.finished_at is None:
+            raise ValueError("finished_at is required when finishing a run")
+        started_at = int(run_row["started_at"])
+        if run.finished_at < started_at:
             raise ValueError("finished_at must not precede started_at")
         self.connection.execute(
             "UPDATE ingestion_runs SET finished_at = ?, outcome = ? WHERE run_id = ?",
-            (resolved_finished_at, resolved_outcome, run_id),
+            (run.finished_at, run.outcome, run.run_id),
         )
         if self.connection.execute("SELECT changes()").fetchone()[0] != 1:
-            raise sqlite3.IntegrityError(f"unknown run_id: {run_id}")
+            raise sqlite3.IntegrityError(f"unknown run_id: {run.run_id}")
         self.connection.commit()
 
     def _record_page(self, page: IngestionPageRecord) -> None:
@@ -337,28 +334,33 @@ class MetadataRepository:
         self,
         page: IngestionPageRecord,
         user: UserRecord | None = None,
-        video: VideoRecord | Iterable[VideoRecord] | None = None,
+        videos: Iterable[VideoRecord] = (),
         parts: Iterable[VideoPartRecord] = (),
         discoveries: Iterable[DiscoveryRecord] = (),
         cursor: CursorRecord | None = None,
-        *,
-        videos: Iterable[VideoRecord] = (),
     ) -> None:
-        """Record a page, optionally atomically persisting its complete payload.
+        """Record one page outcome, optionally with its complete payload.
 
-        With payload arguments this method performs the locked order: user,
-        videos, parts, discoveries, cursor, page outcome, commit. If any write
-        fails, the page transaction is rolled back. When the supplied page has
-        ``outcome='failed'``, its bounded page/run failure outcome is then
-        written in a separate transaction without persisting exception text.
+        With payload arguments the method owns one transaction and applies the
+        locked parent-before-child order: user, videos, parts, discoveries,
+        cursor, page outcome, commit. If any write fails, the whole
+        transaction is rolled back and the exception is re-raised; the prior
+        cursor and entities are unchanged. Recording the resulting failure is
+        the caller's step: build a fresh ``IngestionPageRecord`` with
+        ``outcome='failed'`` and a bounded ``error_code`` and call this method
+        again with no payload arguments.
+
+        A ``'failed'`` page therefore never carries payloads — supplying
+        payload arguments with ``outcome='failed'`` raises ``ValueError``
+        before any write. A no-payload ``'failed'`` page is recorded in its
+        own committed transaction together with the parent run's failure
+        transition. When that run is already terminal, the page evidence is
+        still persisted while the run's outcome and ``finished_at`` stay
+        unchanged.
         """
         if not isinstance(page, IngestionPageRecord):
             raise TypeError("page must be an IngestionPageRecord")
         video_records = tuple(videos)
-        if isinstance(video, VideoRecord):
-            video_records = (video, *video_records)
-        elif video is not None:
-            video_records = (*tuple(video), *video_records)
         part_records = tuple(parts)
         discovery_records = tuple(discoveries)
         has_payload = (
@@ -368,6 +370,9 @@ class MetadataRepository:
             or bool(discovery_records)
             or cursor is not None
         )
+        if page.outcome == "failed" and has_payload:
+            raise ValueError("a failed page is recorded without payload arguments")
+
         if not has_payload:
             if page.outcome == "failed":
                 self._record_failed_page(page)
@@ -376,38 +381,34 @@ class MetadataRepository:
                     self._record_page(page)
             return
 
-        try:
-            with self.transaction():
-                if user is not None:
-                    self.upsert_user(user)
-                for video_record in video_records:
-                    self.upsert_video(video_record)
-                for part in part_records:
-                    self.upsert_part(part)
-                for discovery in discovery_records:
-                    self.record_discovery(discovery)
-                if cursor is not None:
-                    self.write_cursor(cursor)
-                self._record_page(page)
-        except BaseException:
-            if page.outcome == "failed":
-                try:
-                    self._record_failed_page(page)
-                except sqlite3.Error:
-                    # Preserve the original page error; a missing run cannot be
-                    # repaired by inventing a relationship or error detail.
-                    self.connection.rollback()
-            raise
+        with self.transaction():
+            if user is not None:
+                self.upsert_user(user)
+            for video_record in video_records:
+                self.upsert_video(video_record)
+            for part in part_records:
+                self.upsert_part(part)
+            for discovery in discovery_records:
+                self.record_discovery(discovery)
+            if cursor is not None:
+                self.write_cursor(cursor)
+            self._record_page(page)
 
     def _record_failed_page(self, page: IngestionPageRecord) -> None:
-        """Persist only bounded failure state after a rolled-back page."""
+        """Persist only bounded failure state after a rolled-back page.
+
+        The page evidence is always upserted; the parent run's failure
+        transition applies only while the run is still ``'running'``, so a
+        late or stale failed page can never regress a terminal outcome or
+        move ``finished_at`` backwards.
+        """
         with self.transaction():
             self._record_page(page)
             self.connection.execute(
                 """
                 UPDATE ingestion_runs
                 SET outcome = 'failed', finished_at = ?
-                WHERE run_id = ?
+                WHERE run_id = ? AND outcome = 'running'
                 """,
                 (page.finished_at, page.run_id),
             )

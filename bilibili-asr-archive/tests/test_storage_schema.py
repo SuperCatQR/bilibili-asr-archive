@@ -5,12 +5,24 @@ from __future__ import annotations
 from importlib import resources
 import os
 from pathlib import Path
+import re
 import sqlite3
 import tomllib
+from typing import get_args
 
 import pytest
 
 from bili_asr.storage import duration_to_ms, normalize_page_index, open_database
+from bili_asr.storage.models import (
+    ALLOWED_CURSOR_STATES,
+    ALLOWED_PAGE_OUTCOMES,
+    ALLOWED_PROCESSING_STATUS,
+    ALLOWED_RUN_OUTCOMES,
+    CursorState,
+    PageOutcome,
+    ProcessingStatus,
+    RunOutcome,
+)
 
 
 BASE_TABLES = {
@@ -160,6 +172,12 @@ EXPECTED_CHECK_ENUMERATIONS = {
     "transcripts": ("source_kind IN ('subtitle-ai', 'subtitle-cc', 'asr-local')",),
 }
 EXPECTED_VIEW_WORK_ID_EXPRESSION = "vp.bvid || ':p' || vp.page_index AS work_id"
+EXPECTED_ENUM_COLUMNS = {
+    ("video_parts", "processing_status"): ALLOWED_PROCESSING_STATUS,
+    ("ingestion_runs", "outcome"): ALLOWED_RUN_OUTCOMES,
+    ("ingestion_cursors", "state"): ALLOWED_CURSOR_STATES,
+    ("ingestion_pages", "outcome"): ALLOWED_PAGE_OUTCOMES,
+}
 
 
 def test_schema_sql_is_declared_and_read_as_package_resource():
@@ -226,6 +244,46 @@ def test_fresh_database_initializes_archive_root_and_is_idempotent(tmp_root):
         assert reopened.execute("PRAGMA foreign_keys").fetchone()[0] == 1
     finally:
         reopened.close()
+
+
+def test_open_database_memory_database_is_initialized():
+    connection = open_database(":memory:")
+    try:
+        assert connection.execute("PRAGMA foreign_keys").fetchone()[0] == 1
+        assert BASE_TABLES | VIEWS <= _table_names(connection)
+        _insert_user_video_part(connection)
+        connection.commit()
+        assert (
+            connection.execute("SELECT COUNT(*) FROM video_parts").fetchone()[0] == 1
+        )
+    finally:
+        connection.close()
+
+
+def test_schema_check_enumerations_match_model_validation_sets():
+    """The DDL CHECK literals and the model validation sets are one contract."""
+    connection = open_database(":memory:")
+    try:
+        for (table, column), allowed in EXPECTED_ENUM_COLUMNS.items():
+            ddl_row = connection.execute(
+                "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?",
+                (table,),
+            ).fetchone()
+            match = re.search(rf"\b{column}\s+IN\s*\(([^)]*)\)", ddl_row[0])
+            assert match is not None
+            literals = re.findall(r"'([^']*)'", match.group(1))
+            assert sorted(literals) == sorted(allowed)
+
+        literal_sets = (
+            (ProcessingStatus, ALLOWED_PROCESSING_STATUS),
+            (RunOutcome, ALLOWED_RUN_OUTCOMES),
+            (PageOutcome, ALLOWED_PAGE_OUTCOMES),
+            (CursorState, ALLOWED_CURSOR_STATES),
+        )
+        for literal, allowed in literal_sets:
+            assert sorted(get_args(literal)) == sorted(allowed)
+    finally:
+        connection.close()
 
 
 def test_page_and_duration_normalization_uses_contract_formulas():
