@@ -116,13 +116,23 @@ class MetadataRepository:
       without deleting the run parent.
     - ``finish_run`` commits its own terminal transition.
     - ``record_page`` owns one transaction for its arguments and commits it,
-      or rolls it back and re-raises on a write failure; a no-payload
-      ``'failed'`` page commits its own evidence transaction.
+      or rolls it back and re-raises on a write failure; with no payload
+      arguments it still commits its own single-write transaction — either
+      the ``'failed'`` evidence transaction (page row plus the run's failure
+      transition) or the ok/empty/``risk_interrupted`` page-outcome write.
     - ``upsert_user``, ``upsert_video``, ``upsert_part``, ``record_discovery``
       and ``write_cursor`` execute SQL without committing, so a caller can
       group them in one transaction through :meth:`transaction`.
     - ``read_cursor``, ``list_pending_parts`` and ``run_stats`` never write
       or commit.
+
+    Read paths return two shapes: ``read_cursor`` converts its single row
+    into a typed ``CursorRecord`` (``None`` when absent), while
+    ``list_pending_parts`` and ``run_stats`` return raw ``sqlite3.Row``
+    view data — a list for the no-argument form, a single row or ``None``
+    for the keyed form. Read-path arguments follow the module-wide
+    validation discipline: type errors raise ``TypeError`` and value
+    errors raise ``ValueError``.
 
     Do not compose ``start_run``, ``finish_run`` or ``record_page`` inside a
     :meth:`transaction` group: each commits independently and would commit
@@ -169,7 +179,12 @@ class MetadataRepository:
         )
 
     def upsert_video(self, video: VideoRecord) -> None:
-        """Insert or update a video's current canonical display fields."""
+        """Insert or update a video's current canonical display fields.
+
+        The stored ``aid`` is a stable identifier: the first non-``None``
+        ``aid`` wins — a stored ``NULL`` is backfilled from the incoming
+        record, and a known ``aid`` is never overwritten.
+        """
         if not isinstance(video, VideoRecord):
             raise TypeError("video must be a VideoRecord")
         self.connection.execute(
@@ -356,7 +371,15 @@ class MetadataRepository:
         own committed transaction together with the parent run's failure
         transition. When that run is already terminal, the page evidence is
         still persisted while the run's outcome and ``finished_at`` stay
-        unchanged.
+        unchanged. A no-payload page with a non-failed outcome (``ok``,
+        ``empty``, ``risk_interrupted``) likewise commits its own
+        single-write transaction for the page-outcome row.
+
+        The failure transition applies only while the run is still
+        ``running`` and uses the run's stored ``started_at`` as its ordering
+        baseline — the same DB baseline as :meth:`finish_run`: a failed page
+        whose ``finished_at`` precedes the run's stored ``started_at`` is
+        rejected with ``ValueError`` and nothing is persisted.
         """
         if not isinstance(page, IngestionPageRecord):
             raise TypeError("page must be an IngestionPageRecord")
@@ -397,12 +420,25 @@ class MetadataRepository:
     def _record_failed_page(self, page: IngestionPageRecord) -> None:
         """Persist only bounded failure state after a rolled-back page.
 
-        The page evidence is always upserted; the parent run's failure
-        transition applies only while the run is still ``'running'``, so a
-        late or stale failed page can never regress a terminal outcome or
-        move ``finished_at`` backwards.
+        The page evidence is upserted in the same committed transaction as
+        the parent run's failure transition, which applies only while the
+        run is still ``'running'`` — a late or stale failed page can never
+        regress a terminal outcome or move ``finished_at`` backwards. The
+        transition validates against the run's stored ``started_at`` (the
+        same DB baseline as :meth:`finish_run`): a page clock below the
+        run's start raises ``ValueError`` and nothing is persisted.
         """
         with self.transaction():
+            run_row = self.connection.execute(
+                "SELECT started_at, outcome FROM ingestion_runs WHERE run_id = ?",
+                (page.run_id,),
+            ).fetchone()
+            if (
+                run_row is not None
+                and run_row["outcome"] == "running"
+                and page.finished_at < int(run_row["started_at"])
+            ):
+                raise ValueError("finished_at must not precede started_at")
             self._record_page(page)
             self.connection.execute(
                 """
@@ -436,8 +472,14 @@ class MetadataRepository:
         )
 
     def read_cursor(self, mid: int) -> CursorRecord | None:
-        """Read the current one-based cursor for a user."""
-        if isinstance(mid, bool) or not isinstance(mid, int) or mid < 1:
+        """Read the current one-based cursor for a user.
+
+        Returns a typed ``CursorRecord`` or ``None`` when the user has no
+        cursor row.
+        """
+        if isinstance(mid, bool) or not isinstance(mid, int):
+            raise TypeError("mid must be an integer")
+        if mid < 1:
             raise ValueError("mid must be a positive integer")
         row = self.connection.execute(
             """
@@ -489,10 +531,15 @@ class MetadataRepository:
         )
 
     def list_pending_parts(self, limit: int | None = None) -> list[sqlite3.Row]:
-        """Return discovered parts in deterministic work order."""
+        """Return discovered parts in deterministic work order.
+
+        Rows come straight from the ``v_pending_metadata`` view.
+        """
         if limit is not None:
-            if isinstance(limit, bool) or not isinstance(limit, int) or limit < 1:
-                raise ValueError("limit must be a positive integer or None")
+            if isinstance(limit, bool) or not isinstance(limit, int):
+                raise TypeError("limit must be an integer or None")
+            if limit < 1:
+                raise ValueError("limit must be a positive integer")
             query = (
                 "SELECT * FROM v_pending_metadata "
                 "ORDER BY bvid, page_index LIMIT ?"
@@ -505,15 +552,21 @@ class MetadataRepository:
         )
 
     def run_stats(self, run_id: str | None = None) -> sqlite3.Row | list[sqlite3.Row] | None:
-        """Read normalized run/page/video counts from the repository view."""
+        """Read normalized run/page/video counts from the repository view.
+
+        Returns one ``v_ingestion_run_stats`` row for a ``run_id``, or a
+        list of every run's rows when ``run_id`` is ``None``.
+        """
         if run_id is None:
             return list(
                 self.connection.execute(
                     "SELECT * FROM v_ingestion_run_stats ORDER BY run_id"
                 ).fetchall()
             )
-        if not isinstance(run_id, str) or not run_id.strip():
-            raise ValueError("run_id must be a non-empty string or None")
+        if not isinstance(run_id, str):
+            raise TypeError("run_id must be a string or None")
+        if not run_id.strip():
+            raise ValueError("run_id must be a non-empty string")
         return self.connection.execute(
             "SELECT * FROM v_ingestion_run_stats WHERE run_id = ?", (run_id,)
         ).fetchone()

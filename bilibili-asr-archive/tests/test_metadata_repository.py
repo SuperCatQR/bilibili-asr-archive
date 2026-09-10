@@ -159,6 +159,12 @@ def test_ok_page_write_failure_rolls_back_and_caller_records_failure(tmp_root):
             )
 
         assert repository.read_cursor(MID) == make_cursor_record()
+        # The transaction head rolled back: the user label from page 1
+        # survives, and the failing call's user write is absent.
+        assert (
+            connection.execute("SELECT display_name FROM bilibili_users").fetchone()[0]
+            == "未明子"
+        )
         assert connection.execute("SELECT COUNT(*) FROM videos").fetchone()[0] == 1
         assert connection.execute("SELECT COUNT(*) FROM video_parts").fetchone()[0] == 1
         assert connection.execute("SELECT COUNT(*) FROM ingestion_pages").fetchone()[0] == 1
@@ -257,6 +263,37 @@ def test_late_failed_page_after_terminal_run_keeps_run_outcome_unchanged(tmp_roo
                 "SELECT outcome, finished_at FROM ingestion_runs WHERE run_id = 'run-1'"
             ).fetchone()
         ) == ("complete", 300)
+    finally:
+        connection.close()
+
+
+def test_failed_page_clock_before_running_run_start_is_rejected_and_nothing_persisted(tmp_root):
+    connection = open_database(tmp_root)
+    repository = MetadataRepository(connection)
+    try:
+        _start_run(repository)
+
+        # The run's stored started_at (101) is the failure transition's
+        # ordering baseline, exactly as it is for finish_run: a valid page
+        # record whose clock lies below it is rejected and nothing persists.
+        stale_failure = make_page_record(
+            page_number=1,
+            outcome="failed",
+            error_code="stale_page_result",
+            started_at=50,
+            finished_at=51,
+        )
+        with pytest.raises(ValueError):
+            repository.record_page(stale_failure)
+
+        assert connection.execute(
+            "SELECT COUNT(*) FROM ingestion_pages WHERE run_id = 'run-1'"
+        ).fetchone()[0] == 0
+        assert tuple(
+            connection.execute(
+                "SELECT outcome, finished_at FROM ingestion_runs WHERE run_id = 'run-1'"
+            ).fetchone()
+        ) == ("running", None)
     finally:
         connection.close()
 
@@ -552,6 +589,32 @@ def test_finish_run_and_all_run_stats_are_derived_from_normalized_rows(tmp_root)
         assert stats[0]["outcome"] == "complete"
         assert stats[0]["page_count"] == 1
         assert stats[0]["video_count"] == 1
+    finally:
+        connection.close()
+
+
+def test_read_path_validation_splits_type_errors_from_value_errors(tmp_root):
+    connection = open_database(tmp_root)
+    repository = MetadataRepository(connection)
+    try:
+        with pytest.raises(TypeError):
+            repository.read_cursor(True)
+        with pytest.raises(TypeError):
+            repository.read_cursor("23191782")
+        with pytest.raises(ValueError):
+            repository.read_cursor(0)
+
+        with pytest.raises(TypeError):
+            repository.run_stats(23191782)
+        with pytest.raises(ValueError):
+            repository.run_stats("   ")
+
+        with pytest.raises(TypeError):
+            repository.list_pending_parts(limit="1")
+        with pytest.raises(TypeError):
+            repository.list_pending_parts(limit=True)
+        with pytest.raises(ValueError):
+            repository.list_pending_parts(limit=0)
     finally:
         connection.close()
 
