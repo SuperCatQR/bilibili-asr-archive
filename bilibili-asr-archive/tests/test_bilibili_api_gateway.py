@@ -871,8 +871,12 @@ def test_live_smoke_single_public_page_for_archive_owner(tmp_root):
 
     try:
         gateway = _load_gateway()
-    except ImportError as error:  # pragma: no cover - environment guard
-        pytest.skip(f"bilibili-api-python is not importable here: {error}")
+    except ImportError as error:
+        pytest.fail(
+            "live smoke was requested but the pinned package is not importable"
+            f" in this environment ({error}); install bilibili-api-python=="
+            f"{PINNED_PACKAGE_VERSION} (uv sync) first"
+        )
 
     assert gateway.get_package_version() == PINNED_PACKAGE_VERSION
     connection = open_database(os.path.join(tmp_root, "live-smoke.sqlite"))
