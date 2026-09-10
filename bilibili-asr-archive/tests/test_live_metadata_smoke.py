@@ -14,17 +14,19 @@ Default pytest runs skip the smoke; it executes only when the operator sets
 
 - the happy path (exit 0) lands the expected normalized rows — user, videos
   joined to their user through ``mid``, parts joined to their video through
-  ``bvid``, a terminal run row, exactly one page-evidence row, and the
-  advanced fresh cursor — while every persisted surface stays free of
-  credential, signed-URL, and playback markers;
+  ``bvid``, one discovery row per collected video, a terminal run row,
+  exactly one page-evidence row, and the fresh cursor advanced past the
+  committed page — while every persisted surface stays free of credential,
+  signed-URL, and playback markers;
 - the bounded upstream failure (exit 2) is a valid, documented CLI outcome:
   the failure evidence stays scalar (terminal run row, one bounded page row,
   no entity or discovery growth, no cursor row), and the smoke verifies it.
-  Anonymous (no-credential) access is currently rejected by upstream
-  anti-bot control, so an anonymous run reports that case as the expected
-  no-credential behavior (a clearly-reasoned skip, after its assertions
-  ran); the same bounded failure with an operator credential in the
-  environment is a loud failure.
+  Without a credential the run is anonymous, and an upstream rejection of
+  anonymous metadata access is one bounded failure among others
+  (``rate_limited``, or ``response_error`` for other upstream failures): the
+  smoke reports that case as the documented no-credential behavior (a
+  clearly-reasoned skip, after its assertions ran), while the same bounded
+  failure with an operator credential in the environment is a loud failure.
 """
 
 from __future__ import annotations
@@ -127,30 +129,47 @@ def _assert_no_credential_or_playback_leaks(
         )
 
 
-def _assert_collected_page_rows(connection, mid: int) -> None:
-    """Assert the normalized evidence a successful one-page run leaves."""
+def _assert_collected_page_rows(connection, mid: int) -> str:
+    """Assert the normalized evidence a successful one-page run leaves.
+
+    The successful run is terminal (``limited`` on the explicit page bound
+    with a non-empty page, ``complete`` on an empty one) and leaves exactly
+    one page-evidence row, the user row, one video row per collected video
+    with one run/page discovery row each, at least one part row per collected
+    video, and a cursor that advanced past the committed page.
+
+    Returns a one-line, count-only evidence summary (no credential, no
+    collected metadata values) for the live run to print.
+    """
 
     run_row = connection.execute(
         "SELECT outcome, requested_start_page, requested_page_limit, finished_at"
         " FROM ingestion_runs"
     ).fetchone()
     assert run_row is not None, "the run row must exist"
-    assert run_row["outcome"] in ("complete", "limited")
+    assert run_row["outcome"] in ("complete", "limited"), (
+        "a successful run must be terminal (not 'running')"
+    )
     assert run_row["requested_start_page"] == 1
     assert run_row["requested_page_limit"] == 1
     assert run_row["finished_at"] is not None
 
     # Exactly one bounded page-evidence row for the one requested page.
+    assert connection.execute(
+        "SELECT COUNT(*) FROM ingestion_pages"
+    ).fetchone()[0] == 1, "the one-page run leaves exactly one page row"
     page_row = connection.execute(
         "SELECT page_number, outcome, error_code FROM ingestion_pages"
     ).fetchone()
-    assert page_row is not None and page_row["page_number"] == 1
+    assert page_row["page_number"] == 1
+    assert page_row["error_code"] is None, "a committed page carries no error code"
 
     assert connection.execute(
         "SELECT COUNT(*) FROM bilibili_users WHERE mid = ?", (mid,)
     ).fetchone()[0] == 1
     # Every video joins its owner user through mid; every part joins its
-    # video through bvid (the normalized foreign-key relationships).
+    # video through bvid; every discovery row joins the video it discovered
+    # (the normalized foreign-key relationships).
     assert connection.execute(
         "SELECT COUNT(*) FROM videos AS v"
         " LEFT JOIN bilibili_users AS u ON v.mid = u.mid"
@@ -161,8 +180,17 @@ def _assert_collected_page_rows(connection, mid: int) -> None:
         " LEFT JOIN videos AS v ON p.bvid = v.bvid"
         " WHERE v.bvid IS NULL"
     ).fetchone()[0] == 0
+    assert connection.execute(
+        "SELECT COUNT(*) FROM ingestion_discoveries AS d"
+        " LEFT JOIN videos AS v ON d.bvid = v.bvid"
+        " WHERE v.bvid IS NULL"
+    ).fetchone()[0] == 0
     video_count = connection.execute(
         "SELECT COUNT(*) FROM videos WHERE mid = ?", (mid,)
+    ).fetchone()[0]
+    part_count = connection.execute("SELECT COUNT(*) FROM video_parts").fetchone()[0]
+    discovery_count = connection.execute(
+        "SELECT COUNT(*) FROM ingestion_discoveries"
     ).fetchone()[0]
 
     cursor_row = connection.execute(
@@ -174,14 +202,29 @@ def _assert_collected_page_rows(connection, mid: int) -> None:
     observed_total = cursor_row["observed_total"]
     if run_row["outcome"] == "limited":
         assert video_count >= 1
+        # Every collected video exposes at least one part upstream, and each
+        # collected video is recorded once as discovered on this page.
+        assert part_count >= 1
+        assert discovery_count == video_count
         assert tuple(page_row)[:2] == (1, "ok")
-        assert tuple(cursor_row)[:2] == (2, "limited")
+        assert cursor_row["state"] == "limited"
+        # The cursor advanced past the committed page.
+        assert cursor_row["next_page"] == page_row["page_number"] + 1
     else:  # complete: the first page came back empty and completed the run
         assert video_count == 0
+        assert part_count == 0
+        assert discovery_count == 0
         assert tuple(page_row)[:2] == (1, "empty")
         assert tuple(cursor_row)[:2] == (1, "complete")
     if observed_total is not None:
         assert observed_total >= video_count
+    return (
+        f"outcome={run_row['outcome']} videos={video_count}"
+        f" parts={part_count} discoveries={discovery_count} page_rows=1"
+        f" cursor_next_page={cursor_row['next_page']}"
+        f" cursor_state={cursor_row['state']}"
+        f" observed_total={observed_total}"
+    )
 
 
 def _assert_bounded_failure_rows(connection, mid: int) -> str:
@@ -241,9 +284,10 @@ def test_live_smoke_fetch_meta_one_page_lands_normalized_rows(
     Skipped unless the operator sets ``BILI_LIVE_SMOKE=1``.  The probe runs
     the real ``fetch-meta`` command for UID 23191782 with ``--start-page 1
     --limit-pages 1`` into a temporary archive root, asserts the normalized
-    table relationships on the happy path, and asserts the scalar-only
-    failure evidence when upstream rejects the page.  It never invokes
-    subtitle, playback, audio, or ASR code.
+    table relationships on the happy path (user, videos, parts, discovery,
+    run, page and cursor), and asserts the scalar-only failure evidence when
+    upstream rejects the page.  It never invokes subtitle, playback, audio,
+    or ASR code.
     """
 
     if not _live_smoke_requested():
@@ -268,7 +312,10 @@ def test_live_smoke_fetch_meta_one_page_lands_normalized_rows(
             assert err == ""
             assert "sessdata:" in out
             assert "outcome=" in out
-            _assert_collected_page_rows(connection, LIVE_SMOKE_MID)
+            evidence = _assert_collected_page_rows(connection, LIVE_SMOKE_MID)
+            # Count-only evidence for the operator's record of the live run:
+            # no credential, no proxy, and no collected metadata values.
+            print(f"live smoke evidence: {evidence}")
             return
 
         assert exit_code == 2
@@ -278,6 +325,8 @@ def test_live_smoke_fetch_meta_one_page_lands_normalized_rows(
                 " a bounded run record); rerun to capture the failure shape"
             )
         error_code = _assert_bounded_failure_rows(connection, LIVE_SMOKE_MID)
+        # The bounded scalar code only: no output text, no upstream payload.
+        print(f"live smoke evidence: exit=2 error_code={error_code}")
         assert error_code in err
         assert "metadata gateway failure" in err
         # Same resolution rule as ``resolve_sessdata``: a missing or blank
@@ -285,10 +334,11 @@ def test_live_smoke_fetch_meta_one_page_lands_normalized_rows(
         if not os.environ.get(SESSDATA_ENV_VAR):
             pytest.skip(
                 "live smoke ended in the documented bounded anonymous"
-                f" rejection (error_code={error_code!r}, exit 2): upstream"
-                " anti-bot control currently rejects no-credential metadata"
-                " access; this is the expected no-credential behavior, not a"
-                " defect. Provide a credential via --sessdata or"
+                f" rejection (error_code={error_code!r}, exit 2): without a"
+                " credential the run is anonymous, and upstream rejects some"
+                " anonymous metadata access; the smoke accepts this bounded"
+                " no-credential outcome rather than treating it as a defect."
+                " Provide a credential via --sessdata or"
                 f" {SESSDATA_ENV_VAR} for the happy-path run."
             )
         pytest.fail(
@@ -350,7 +400,12 @@ def test_live_smoke_row_assertions_rehearse_offline_over_the_fake_seam(
     assert "cursor: next_page=2 state=limited" in out
     connection = open_database(tmp_root)
     try:
-        _assert_collected_page_rows(connection, LIVE_SMOKE_MID)
+        evidence = _assert_collected_page_rows(connection, LIVE_SMOKE_MID)
+        # The evidence line the live run prints is count-only and keeps its
+        # documented fields, so the offline rehearsal guards its shape.
+        assert "outcome=limited" in evidence
+        assert "videos=1" in evidence
+        assert "cursor_next_page=2" in evidence
         # Positive control: a normalized video row really persisted, so the
         # no-leak scans are not vacuous.
         persisted = persisted_row_text(connection)

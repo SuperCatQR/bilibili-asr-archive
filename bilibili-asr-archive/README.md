@@ -523,6 +523,20 @@ only restart path.
   (`sessdata: present|absent`). Passing `--sessdata ""` explicitly forces
   anonymous access even when `BILI_SESSDATA` is set; a blank environment
   value likewise means anonymous.
+- **Runtime HTTP backend**: the pinned
+  `bilibili-api-python==17.4.2` distribution declares no HTTP client of its
+  own, so `curl_cffi` is a declared runtime dependency of this package and a
+  normal install (`pip install -e ".[dev]"` or `uv sync`) provides it.
+  Without a backend, every request fails in-process before it leaves the
+  process and surfaces as the bounded `response_error`.
+- **HTTP proxy**: on a host that needs a proxy, set `BILI_HTTP_PROXY`
+  (for example `BILI_HTTP_PROXY=http://127.0.0.1:7890`). The pinned client
+  builds its session with an explicitly empty proxy, so the standard
+  `HTTPS_PROXY` / `ALL_PROXY` variables alone are ignored by the package; the
+  gateway resolves the knob itself in the order constructor argument →
+  `BILI_HTTP_PROXY` → `HTTPS_PROXY`/`https_proxy` → `ALL_PROXY`/`all_proxy`,
+  treats a blank value as unset, and forces no proxy when nothing resolves.
+  Details: [docs/metadata-storage.md](docs/metadata-storage.md).
 
 | Exit | Meaning |
 |------|---------|
@@ -547,17 +561,30 @@ Exit 2 variants:
 `tests/test_live_metadata_smoke.py` drives the real CLI against the real
 upstream: exactly one public metadata page for UID 23191782
 (`--start-page 1 --limit-pages 1`) into a temporary archive root, calling no
-subtitle/playback/audio/ASR code. Default pytest runs skip it:
+subtitle/playback/audio/ASR code. Default pytest runs skip it; the proxy is
+part of the command on a proxied host:
 
-    cd bilibili-asr-archive && BILI_LIVE_SMOKE=1 .venv/bin/python -m pytest tests/test_live_metadata_smoke.py -v
+    cd bilibili-asr-archive
+    set -a; source ../.env; set +a              # repo-root .env (gitignored)
+    export BILI_HTTP_PROXY=http://127.0.0.1:7890
+    BILI_LIVE_SMOKE=1 .venv/bin/python -m pytest tests/test_live_metadata_smoke.py -v
 
-Anonymous (no-credential) access is currently rejected by upstream anti-bot
-control: the smoke then verifies the bounded-failure evidence (terminal run
-row, one scalar page row, no entity growth, no cursor row) and reports the
-case as the expected no-credential behavior rather than a defect.
-Happy-path collection requires a credential from the operator's own
-environment (`--sessdata` or `BILI_SESSDATA`); a bounded failure despite a
-credential is a loud failure.
+With a credential in the environment (`--sessdata` or `BILI_SESSDATA`) the
+smoke requires the happy path: exit 0, `outcome=limited` on the page bound
+(or `complete` on an empty first page), and the real normalized rows — user,
+videos, their parts, one discovery row per video, a terminal run row, exactly
+one page row, and a cursor advanced past the committed page — with no legacy
+sidecar and no credential or playback marker in output or rows. It prints one
+count-only evidence line (`live smoke evidence: outcome=… videos=… parts=…
+discoveries=… page_rows=1 cursor_next_page=… cursor_state=…
+observed_total=…`); a bounded failure with a credential present is a loud
+failure. Without a credential the run is anonymous: if upstream rejects
+anonymous metadata access the smoke verifies the bounded-failure evidence
+(terminal run row, one scalar page row with a `rate_limited` /
+`response_error` code, no entity or discovery growth, no cursor row) and
+reports that bounded no-credential outcome as a reasoned skip rather than a
+defect. Expectations and the underlying transport/proxy requirements are
+documented in [docs/metadata-storage.md](docs/metadata-storage.md).
 
 ### Mixed batch outcomes
 
