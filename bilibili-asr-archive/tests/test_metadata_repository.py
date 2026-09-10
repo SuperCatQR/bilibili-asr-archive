@@ -3,143 +3,41 @@
 from __future__ import annotations
 
 from dataclasses import fields
+import re
 import sqlite3
 
 import pytest
 
 from bili_asr.storage.database import MetadataRepository, open_database
-from bili_asr.storage.models import (
-    CursorRecord,
-    DiscoveryRecord,
-    IngestionPageRecord,
-    IngestionRunRecord,
-    UserRecord,
-    VideoPartRecord,
-    VideoRecord,
+from bili_asr.storage.models import UserRecord, VideoPartRecord
+from fixtures.metadata_records import (
+    MID,
+    make_cursor_record,
+    make_discovery_record,
+    make_page_record,
+    make_run_record,
+    make_part_record,
+    make_user_record,
+    make_video_record,
 )
 
 
-MID = 23191782
-
-
-def _user(*, display_name: str = "未明子", updated_at: int = 100) -> UserRecord:
-    return UserRecord(mid=MID, display_name=display_name, created_at=100, updated_at=updated_at)
-
-
-def _run(run_id: str = "run-1") -> IngestionRunRecord:
-    return IngestionRunRecord(
-        run_id=run_id,
-        mid=MID,
-        source_package="bilibili-api-python",
-        source_version="17.4.2",
-        requested_start_page=1,
-        requested_page_limit=3,
-        started_at=101,
-    )
-
-
-def _video(
-    bvid: str = "BV1SINGLE",
-    *,
-    title: str = "单集视频",
-    aid: int | None = 1001,
-    updated_at: int = 102,
-) -> VideoRecord:
-    return VideoRecord(
-        bvid=bvid,
-        aid=aid,
-        mid=MID,
-        title=title,
-        pubdate=1_700_000_000,
-        created_at=102,
-        updated_at=updated_at,
-    )
-
-
-def _part(
-    bvid: str = "BV1SINGLE",
-    *,
-    page_index: int = 0,
-    cid: int = 2001,
-    title: str = "第一集",
-    status: str = "discovered",
-    updated_at: int = 103,
-) -> VideoPartRecord:
-    return VideoPartRecord(
-        bvid=bvid,
-        page_index=page_index,
-        cid=cid,
-        title=title,
-        duration_ms=1_234,
-        processing_status=status,
-        created_at=103,
-        updated_at=updated_at,
-    )
-
-
-def _page(
-    run_id: str = "run-1",
-    *,
-    page_number: int = 1,
-    outcome: str = "ok",
-    error_code: str | None = None,
-    started_at: int = 110,
-    finished_at: int = 111,
-) -> IngestionPageRecord:
-    return IngestionPageRecord(
-        run_id=run_id,
-        page_number=page_number,
-        outcome=outcome,
-        error_code=error_code,
-        started_at=started_at,
-        finished_at=finished_at,
-    )
-
-
-def _cursor(*, next_page: int = 2, updated_at: int = 112) -> CursorRecord:
-    return CursorRecord(
-        mid=MID,
-        next_page=next_page,
-        observed_total=2,
-        state="ready",
-        last_error_code=None,
-        updated_at=updated_at,
-    )
-
-
-def _discovery(
-    bvid: str,
-    *,
-    run_id: str = "run-1",
-    page_number: int = 1,
-    source_position: int = 0,
-    discovered_at: int = 104,
-) -> DiscoveryRecord:
-    return DiscoveryRecord(
-        run_id=run_id,
-        page_number=page_number,
-        bvid=bvid,
-        source_position=source_position,
-        discovered_at=discovered_at,
-    )
-
-
 def _start_run(repository: MetadataRepository, run_id: str = "run-1") -> None:
-    repository.upsert_user(_user())
-    repository.start_run(_run(run_id))
+    repository.upsert_user(make_user_record())
+    repository.start_run(make_run_record(run_id))
 
 
 def test_models_validate_scalars_and_compute_work_id_without_persisting_it():
-    part = _part()
+    part = make_part_record()
     assert part.work_id == "BV1SINGLE:p0"
     assert "work_id" not in {field.name for field in fields(VideoPartRecord)}
 
     with pytest.raises(ValueError):
-        _part(page_index=-1)
+        make_part_record(page_index=-1)
     with pytest.raises(ValueError):
-        _part(cid=0)
+        make_part_record(cid=0)
     with pytest.raises(ValueError):
-        _page(outcome="failed", error_code="raw traceback\n")
+        make_page_record(outcome="failed", error_code="raw traceback\n")
     with pytest.raises(ValueError):
         UserRecord(mid=MID, display_name="", created_at=1, updated_at=1)
 
@@ -149,29 +47,29 @@ def test_record_page_persists_single_and_multipart_entities_in_locked_order(tmp_
     repository = MetadataRepository(connection)
     try:
         _start_run(repository)
-        multipart = _video("BV1MULTI", title="多集视频", aid=1002)
-        page = _page()
+        multipart = make_video_record("BV1MULTI", title="多集视频", aid=1002)
+        page = make_page_record()
         repository.record_page(
             page,
-            user=_user(),
-            videos=[_video(), multipart],
+            user=make_user_record(),
+            videos=[make_video_record(), multipart],
             parts=[
-                _part(),
-                _part("BV1MULTI", page_index=0, cid=3001, title="上篇"),
-                _part("BV1MULTI", page_index=1, cid=3002, title="下篇"),
+                make_part_record(),
+                make_part_record("BV1MULTI", page_index=0, cid=3001, title="上篇"),
+                make_part_record("BV1MULTI", page_index=1, cid=3002, title="下篇"),
             ],
             discoveries=[
-                _discovery("BV1SINGLE"),
-                _discovery("BV1MULTI", source_position=1),
+                make_discovery_record("BV1SINGLE"),
+                make_discovery_record("BV1MULTI", source_position=1),
             ],
-            cursor=_cursor(),
+            cursor=make_cursor_record(),
         )
 
         assert connection.execute("SELECT COUNT(*) FROM videos").fetchone()[0] == 2
         assert connection.execute("SELECT COUNT(*) FROM video_parts").fetchone()[0] == 3
         assert connection.execute("SELECT COUNT(*) FROM ingestion_discoveries").fetchone()[0] == 2
         assert connection.execute("SELECT COUNT(*) FROM ingestion_pages").fetchone()[0] == 1
-        assert repository.read_cursor(MID) == _cursor()
+        assert repository.read_cursor(MID) == make_cursor_record()
 
         pending = repository.list_pending_parts()
         assert [row["work_id"] for row in pending] == [
@@ -193,21 +91,21 @@ def test_repeated_page_is_idempotent_but_a_new_run_keeps_page_evidence(tmp_root)
     try:
         _start_run(repository)
         repository.record_page(
-            _page(),
-            user=_user(),
-            video=_video(),
-            parts=[_part()],
-            discoveries=[_discovery("BV1SINGLE")],
-            cursor=_cursor(),
+            make_page_record(),
+            user=make_user_record(),
+            video=make_video_record(),
+            parts=[make_part_record()],
+            discoveries=[make_discovery_record("BV1SINGLE")],
+            cursor=make_cursor_record(),
         )
 
         repository.record_page(
-            _page(finished_at=120),
-            user=_user(display_name="未明子（更新）", updated_at=119),
-            video=_video(title="更新后的标题", updated_at=119),
-            parts=[_part(title="更新后的分集标题", updated_at=119)],
-            discoveries=[_discovery("BV1SINGLE", discovered_at=119)],
-            cursor=_cursor(updated_at=120),
+            make_page_record(finished_at=120),
+            user=make_user_record(display_name="未明子（更新）", updated_at=119),
+            video=make_video_record(title="更新后的标题", updated_at=119),
+            parts=[make_part_record(title="更新后的分集标题", updated_at=119)],
+            discoveries=[make_discovery_record("BV1SINGLE", discovered_at=119)],
+            cursor=make_cursor_record(updated_at=120),
         )
         assert connection.execute("SELECT COUNT(*) FROM videos").fetchone()[0] == 1
         assert connection.execute("SELECT COUNT(*) FROM video_parts").fetchone()[0] == 1
@@ -218,11 +116,11 @@ def test_repeated_page_is_idempotent_but_a_new_run_keeps_page_evidence(tmp_root)
 
         _start_run(repository, "run-2")
         repository.record_page(
-            _page("run-2"),
-            video=_video(title="同一视频的第二次发现"),
-            parts=[_part()],
-            discoveries=[_discovery("BV1SINGLE", run_id="run-2")],
-            cursor=_cursor(updated_at=130),
+            make_page_record("run-2"),
+            video=make_video_record(title="同一视频的第二次发现"),
+            parts=[make_part_record()],
+            discoveries=[make_discovery_record("BV1SINGLE", run_id="run-2")],
+            cursor=make_cursor_record(updated_at=130),
         )
         assert connection.execute("SELECT COUNT(*) FROM ingestion_pages").fetchone()[0] == 2
         assert connection.execute("SELECT COUNT(*) FROM ingestion_discoveries").fetchone()[0] == 2
@@ -239,13 +137,13 @@ def test_failed_page_rolls_back_payload_preserves_cursor_and_records_bounded_out
     try:
         _start_run(repository)
         repository.record_page(
-            _page(),
-            video=_video(),
-            parts=[_part()],
-            discoveries=[_discovery("BV1SINGLE")],
-            cursor=_cursor(),
+            make_page_record(),
+            video=make_video_record(),
+            parts=[make_part_record()],
+            discoveries=[make_discovery_record("BV1SINGLE")],
+            cursor=make_cursor_record(),
         )
-        failed_page = _page(
+        failed_page = make_page_record(
             page_number=2,
             outcome="failed",
             error_code="foreign_key",
@@ -255,13 +153,13 @@ def test_failed_page_rolls_back_payload_preserves_cursor_and_records_bounded_out
         with pytest.raises(sqlite3.IntegrityError):
             repository.record_page(
                 failed_page,
-                user=_user(display_name="must roll back", updated_at=200),
-                video=_video(title="must roll back", updated_at=200),
-                parts=[_part("BV-MISSING", title="orphan")],
-                cursor=_cursor(next_page=3, updated_at=201),
+                user=make_user_record(display_name="must roll back", updated_at=200),
+                video=make_video_record(title="must roll back", updated_at=200),
+                parts=[make_part_record("BV-MISSING", title="orphan")],
+                cursor=make_cursor_record(next_page=3, updated_at=201),
             )
 
-        assert repository.read_cursor(MID) == _cursor()
+        assert repository.read_cursor(MID) == make_cursor_record()
         assert connection.execute("SELECT COUNT(*) FROM video_parts").fetchone()[0] == 1
         assert connection.execute("SELECT display_name FROM bilibili_users").fetchone()[0] == "未明子"
         page_row = connection.execute(
@@ -286,17 +184,201 @@ def test_fk_rejection_and_delete_restriction_apply_to_repository_writes(tmp_root
     try:
         with pytest.raises(sqlite3.IntegrityError):
             with repository.transaction():
-                repository.upsert_video(_video("BV-ORPHAN"))
+                repository.upsert_video(make_video_record("BV-ORPHAN"))
+        with pytest.raises(sqlite3.IntegrityError):
+            with repository.transaction():
+                repository.upsert_part(make_part_record("BV-MISSING"))
+        with pytest.raises(sqlite3.IntegrityError):
+            with repository.transaction():
+                repository.write_cursor(make_cursor_record())
 
         with repository.transaction():
-            repository.upsert_user(_user())
-            repository.upsert_video(_video())
-            repository.upsert_part(_part())
+            repository.upsert_user(make_user_record())
+            repository.upsert_video(make_video_record())
+            repository.upsert_part(make_part_record())
 
         with pytest.raises(sqlite3.IntegrityError):
             connection.execute("DELETE FROM bilibili_users WHERE mid = ?", (MID,))
         with pytest.raises(sqlite3.IntegrityError):
             connection.execute("DELETE FROM videos WHERE bvid = 'BV1SINGLE'")
+    finally:
+        connection.close()
+
+
+def test_repository_end_to_end_records_two_runs_with_cursor_transitions(tmp_root):
+    """Full page flow: user, single-part video, multipart video, two runs."""
+    connection = open_database(tmp_root)
+    repository = MetadataRepository(connection)
+    try:
+        assert repository.read_cursor(MID) is None
+
+        _start_run(repository)
+
+        # Page 1 applies the locked order in one transaction:
+        # user -> video -> parts -> discoveries -> cursor -> page outcome.
+        repository.record_page(
+            make_page_record(),
+            user=make_user_record(),
+            video=make_video_record(),
+            parts=[make_part_record()],
+            discoveries=[make_discovery_record("BV1SINGLE")],
+            cursor=make_cursor_record(),
+        )
+        assert repository.read_cursor(MID) == make_cursor_record()
+
+        repository.start_run(
+            make_run_record("run-2", requested_start_page=2, started_at=200)
+        )
+        repository.record_page(
+            make_page_record(
+                "run-2", page_number=2, started_at=201, finished_at=202
+            ),
+            videos=[
+                make_video_record("BV1MULTI", title="多集视频", aid=1002, updated_at=203)
+            ],
+            parts=[
+                make_part_record(
+                    "BV1MULTI", page_index=0, cid=3001, title="上篇", updated_at=204
+                ),
+                make_part_record(
+                    "BV1MULTI", page_index=1, cid=3002, title="下篇", updated_at=204
+                ),
+            ],
+            discoveries=[
+                make_discovery_record(
+                    "BV1MULTI", run_id="run-2", page_number=2, discovered_at=205
+                )
+            ],
+            cursor=make_cursor_record(next_page=3, updated_at=206),
+        )
+
+        # Page 3 is empty: no payload rows, only the cursor state transition.
+        repository.record_page(
+            make_page_record(
+                "run-2",
+                page_number=3,
+                outcome="empty",
+                started_at=210,
+                finished_at=211,
+            ),
+            cursor=make_cursor_record(
+                next_page=3, state="complete", updated_at=211
+            ),
+        )
+
+        repository.finish_run("run-1", "complete", 300)
+        repository.finish_run("run-2", "complete", 301)
+
+        assert connection.execute("SELECT COUNT(*) FROM bilibili_users").fetchone()[0] == 1
+        assert connection.execute("SELECT COUNT(*) FROM videos").fetchone()[0] == 2
+        assert connection.execute("SELECT COUNT(*) FROM video_parts").fetchone()[0] == 3
+        page_rows = connection.execute(
+            "SELECT run_id, page_number, outcome, error_code FROM ingestion_pages "
+            "ORDER BY run_id, page_number"
+        ).fetchall()
+        assert [tuple(row) for row in page_rows] == [
+            ("run-1", 1, "ok", None),
+            ("run-2", 2, "ok", None),
+            ("run-2", 3, "empty", None),
+        ]
+        assert repository.read_cursor(MID) == make_cursor_record(
+            next_page=3, state="complete", updated_at=211
+        )
+
+        pending = repository.list_pending_parts()
+        assert [row["work_id"] for row in pending] == [
+            "BV1MULTI:p0",
+            "BV1MULTI:p1",
+            "BV1SINGLE:p0",
+        ]
+
+        stats = repository.run_stats()
+        assert [row["run_id"] for row in stats] == ["run-1", "run-2"]
+        assert (stats[0]["page_count"], stats[0]["video_count"]) == (1, 1)
+        assert (stats[1]["page_count"], stats[1]["video_count"]) == (2, 1)
+        assert all(row["outcome"] == "complete" for row in stats)
+
+        assert connection.execute("PRAGMA foreign_key_check").fetchall() == []
+    finally:
+        connection.close()
+
+
+def test_error_fields_persist_only_bounded_scalar_codes(tmp_root):
+    """The repository accepts bounded scalar codes and never secret material."""
+    connection = open_database(tmp_root)
+    repository = MetadataRepository(connection)
+    try:
+        repository.upsert_user(make_user_record())
+        repository.start_run(make_run_record())
+        repository.write_cursor(
+            make_cursor_record(state="limited", last_error_code="rate_limited")
+        )
+        repository.record_page(
+            make_page_record(
+                page_number=2,
+                outcome="failed",
+                error_code="http_412",
+                started_at=120,
+                finished_at=121,
+            )
+        )
+        assert repository.read_cursor(MID).last_error_code == "rate_limited"
+        stored_page = connection.execute(
+            "SELECT outcome, error_code FROM ingestion_pages "
+            "WHERE run_id = 'run-1' AND page_number = 2"
+        ).fetchone()
+        assert tuple(stored_page) == ("failed", "http_412")
+
+        forbidden_codes = [
+            "SESSDATA=abc123; bili_jct=def456",  # cookie material
+            "https://upos.example.com/signed-url?token",  # signed URL
+            '{"code": -403, "message": "raw"}',  # raw JSON document
+            "Traceback (most recent call last):",  # exception text
+            "e" * 65,  # exceeds the 64-character bound
+        ]
+        for code in forbidden_codes:
+            with pytest.raises(ValueError):
+                make_cursor_record(state="limited", last_error_code=code)
+            with pytest.raises(ValueError):
+                make_page_record(outcome="failed", error_code=code)
+
+        expected_codes = {
+            ("ingestion_cursors", "last_error_code"): "rate_limited",
+            ("ingestion_pages", "error_code"): "http_412",
+        }
+        for table, column in (
+            ("ingestion_cursors", "last_error_code"),
+            ("ingestion_pages", "error_code"),
+        ):
+            for marker in ("SESSDATA", "bili_jct", "https", "{", "Traceback", " "):
+                assert connection.execute(
+                    f"SELECT COUNT(*) FROM {table} WHERE {column} LIKE ?",
+                    (f"%{marker}%",),
+                ).fetchone()[0] == 0
+            values = connection.execute(
+                f"SELECT {column} FROM {table} WHERE {column} IS NOT NULL"
+            ).fetchall()
+            assert [row[0] for row in values] == [expected_codes[(table, column)]]
+            for (value,) in values:
+                assert len(value) <= 64
+                assert re.fullmatch(r"[A-Za-z0-9_.:-]+", value)
+    finally:
+        connection.close()
+
+
+def test_re_upsert_backfills_missing_aid_and_keeps_existing_aid(tmp_root):
+    connection = open_database(tmp_root)
+    repository = MetadataRepository(connection)
+    try:
+        repository.upsert_user(make_user_record())
+        repository.upsert_video(make_video_record(aid=None))
+        assert connection.execute("SELECT aid FROM videos").fetchone()[0] is None
+
+        repository.upsert_video(make_video_record())
+        assert connection.execute("SELECT aid FROM videos").fetchone()[0] == 1001
+
+        repository.upsert_video(make_video_record(aid=9999))
+        assert connection.execute("SELECT aid FROM videos").fetchone()[0] == 1001
     finally:
         connection.close()
 
@@ -307,18 +389,20 @@ def test_cursor_resume_and_pending_limit(tmp_root):
     try:
         _start_run(repository)
         repository.record_page(
-            _page(),
-            video=_video(),
-            parts=[_part(), _part(page_index=1, cid=2002, title="第二集")],
-            discoveries=[_discovery("BV1SINGLE")],
-            cursor=_cursor(next_page=2),
+            make_page_record(),
+            video=make_video_record(),
+            parts=[make_part_record(), make_part_record(page_index=1, cid=2002, title="第二集")],
+            discoveries=[make_discovery_record("BV1SINGLE")],
+            cursor=make_cursor_record(next_page=2),
         )
-        repository.write_cursor(_cursor(next_page=3, updated_at=130))
+        repository.write_cursor(make_cursor_record(next_page=3, updated_at=130))
         assert repository.read_cursor(MID).next_page == 3
         assert [row["page_index"] for row in repository.list_pending_parts(limit=1)] == [0]
 
         with repository.transaction():
-            repository.upsert_part(_part(page_index=1, cid=2002, title="第二集", status="metadata_collected"))
+            repository.upsert_part(
+                make_part_record(page_index=1, cid=2002, title="第二集", status="metadata_collected")
+            )
         assert [row["page_index"] for row in repository.list_pending_parts()] == [0]
     finally:
         connection.close()
@@ -330,10 +414,10 @@ def test_finish_run_and_all_run_stats_are_derived_from_normalized_rows(tmp_root)
     try:
         _start_run(repository)
         repository.record_page(
-            _page(),
-            video=_video(),
-            parts=[_part()],
-            discoveries=[_discovery("BV1SINGLE")],
+            make_page_record(),
+            video=make_video_record(),
+            parts=[make_part_record()],
+            discoveries=[make_discovery_record("BV1SINGLE")],
         )
         repository.finish_run("run-1", "complete", 300)
         stats = repository.run_stats()
@@ -350,7 +434,6 @@ def test_start_run_requires_a_foreign_key_parent(tmp_root):
     repository = MetadataRepository(connection)
     try:
         with pytest.raises(sqlite3.IntegrityError):
-            repository.start_run(_run())
+            repository.start_run(make_run_record())
     finally:
         connection.close()
-

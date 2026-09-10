@@ -28,6 +28,138 @@ BASE_TABLES = {
     "transcript_segments",
 }
 VIEWS = {"v_video_parts", "v_ingestion_run_stats", "v_pending_metadata"}
+EXPECTED_TABLE_COLUMNS = {
+    "bilibili_users": ["mid", "display_name", "created_at", "updated_at"],
+    "videos": [
+        "bvid",
+        "aid",
+        "mid",
+        "title",
+        "pubdate",
+        "created_at",
+        "updated_at",
+    ],
+    "video_parts": [
+        "video_part_id",
+        "bvid",
+        "page_index",
+        "cid",
+        "title",
+        "duration_ms",
+        "processing_status",
+        "created_at",
+        "updated_at",
+    ],
+    "ingestion_runs": [
+        "run_id",
+        "mid",
+        "source_package",
+        "source_version",
+        "requested_start_page",
+        "requested_page_limit",
+        "started_at",
+        "finished_at",
+        "outcome",
+    ],
+    "ingestion_cursors": [
+        "mid",
+        "next_page",
+        "observed_total",
+        "state",
+        "last_error_code",
+        "updated_at",
+    ],
+    "ingestion_pages": [
+        "run_id",
+        "page_number",
+        "outcome",
+        "error_code",
+        "started_at",
+        "finished_at",
+    ],
+    "ingestion_discoveries": [
+        "run_id",
+        "page_number",
+        "bvid",
+        "source_position",
+        "discovered_at",
+    ],
+    "audio_objects": [
+        "audio_id",
+        "sha256",
+        "byte_size",
+        "format",
+        "duration_ms",
+        "storage_key",
+        "created_at",
+    ],
+    "part_audio_objects": [
+        "video_part_id",
+        "audio_id",
+        "acquired_at",
+        "acquisition_source",
+    ],
+    "asr_models": ["model_id", "model_name", "revision", "created_at"],
+    "transcripts": [
+        "transcript_id",
+        "video_part_id",
+        "source_kind",
+        "model_id",
+        "version",
+        "created_at",
+    ],
+    "transcript_segments": ["transcript_id", "ordinal", "start_ms", "end_ms", "text"],
+}
+EXPECTED_FOREIGN_KEYS = {
+    "videos": (("mid", "bilibili_users", "mid"),),
+    "video_parts": (("bvid", "videos", "bvid"),),
+    "ingestion_runs": (("mid", "bilibili_users", "mid"),),
+    "ingestion_cursors": (("mid", "bilibili_users", "mid"),),
+    "ingestion_pages": (("run_id", "ingestion_runs", "run_id"),),
+    "ingestion_discoveries": (
+        ("run_id", "ingestion_runs", "run_id"),
+        ("bvid", "videos", "bvid"),
+    ),
+    "part_audio_objects": (
+        ("video_part_id", "video_parts", "video_part_id"),
+        ("audio_id", "audio_objects", "audio_id"),
+    ),
+    "transcripts": (
+        ("video_part_id", "video_parts", "video_part_id"),
+        ("model_id", "asr_models", "model_id"),
+    ),
+    "transcript_segments": (("transcript_id", "transcripts", "transcript_id"),),
+}
+EXPECTED_UNIQUE_CONSTRAINTS = {
+    "videos": (("aid",),),
+    "video_parts": (("bvid", "page_index"),),
+    "audio_objects": (("sha256",), ("storage_key",)),
+    "asr_models": (("model_name", "revision"),),
+    "transcripts": (("video_part_id", "source_kind", "version"),),
+}
+EXPECTED_PRIMARY_KEY_INDEXES = {
+    "videos": (("bvid",),),
+    "ingestion_runs": (("run_id",),),
+    "ingestion_pages": (("run_id", "page_number"),),
+    "ingestion_discoveries": (("run_id", "page_number", "bvid"),),
+    "part_audio_objects": (("video_part_id", "audio_id"),),
+    "transcript_segments": (("transcript_id", "ordinal"),),
+}
+EXPECTED_CHECK_ENUMERATIONS = {
+    "video_parts": (
+        "processing_status IN ('discovered', 'metadata_collected', 'gone')",
+    ),
+    "ingestion_runs": (
+        "source_package = 'bilibili-api-python'",
+        "outcome IN ('running', 'complete', 'limited', 'risk_interrupted', 'failed')",
+    ),
+    "ingestion_cursors": (
+        "state IN ('ready', 'complete', 'limited', 'risk_interrupted')",
+    ),
+    "ingestion_pages": ("outcome IN ('ok', 'empty', 'risk_interrupted', 'failed')",),
+    "transcripts": ("source_kind IN ('subtitle-ai', 'subtitle-cc', 'asr-local')",),
+}
+EXPECTED_VIEW_WORK_ID_EXPRESSION = "vp.bvid || ':p' || vp.page_index AS work_id"
 
 
 def test_schema_sql_is_declared_and_read_as_package_resource():
@@ -125,7 +257,26 @@ def test_foreign_keys_reject_orphans_and_use_restrict(tmp_root):
                 """
             )
 
+        with pytest.raises(sqlite3.IntegrityError):
+            connection.execute(
+                "INSERT INTO ingestion_pages VALUES ('ghost-run', 1, 'ok', NULL, 1, 1)"
+            )
+        with pytest.raises(sqlite3.IntegrityError):
+            connection.execute(
+                "INSERT INTO ingestion_discoveries "
+                "VALUES ('ghost-run', 1, 'BVORPHAN', 0, 1)"
+            )
+
         _insert_user_video_part(connection)
+        connection.execute(
+            "INSERT INTO ingestion_runs VALUES "
+            "('run-1', 23191782, 'bilibili-api-python', '1.0', 1, NULL, 1, NULL, 'running')"
+        )
+        with pytest.raises(sqlite3.IntegrityError):
+            connection.execute(
+                "INSERT INTO ingestion_discoveries "
+                "VALUES ('run-1', 1, 'BVUNKNOWN', 0, 1)"
+            )
         with pytest.raises(sqlite3.IntegrityError):
             connection.execute("DELETE FROM bilibili_users WHERE mid = 23191782")
         with pytest.raises(sqlite3.IntegrityError):
@@ -232,6 +383,9 @@ def test_schema_constraints_cover_status_and_non_negative_values(tmp_root):
             "INSERT INTO ingestion_pages VALUES ('run', 0, 'ok', NULL, 1, 1)",
             "INSERT INTO ingestion_pages VALUES ('run', 1, 'unknown', NULL, 1, 1)",
             "INSERT INTO audio_objects VALUES (1, 'hash', -1, 'm4a', 1, 'audio', 1)",
+            f"INSERT INTO ingestion_cursors VALUES "
+            f"(23191782, 2, NULL, 'ready', '{'y' * 65}', 1)",
+            f"INSERT INTO ingestion_pages VALUES ('run', 3, 'failed', '{'x' * 65}', 1, 1)",
         ]
         for statement in invalid_statements:
             with pytest.raises((sqlite3.IntegrityError, sqlite3.OperationalError)):
@@ -281,5 +435,142 @@ def test_transaction_order_parents_before_children(tmp_root):
             "WHERE run_id = 'run-1'"
         ).fetchone()
         assert tuple(stats) == (1, 1)
+    finally:
+        connection.close()
+
+
+def test_schema_inspection_matches_the_declared_contract(tmp_root):
+    connection = open_database(tmp_root)
+    try:
+        assert _table_names(connection) == BASE_TABLES | VIEWS
+
+        for table in BASE_TABLES:
+            columns = [
+                row["name"] for row in connection.execute(f"PRAGMA table_info({table})")
+            ]
+            assert columns == EXPECTED_TABLE_COLUMNS[table]
+            assert "work_id" not in columns
+
+            foreign_keys = {
+                (row["from"], row["table"], row["to"])
+                for row in connection.execute(f"PRAGMA foreign_key_list({table})")
+            }
+            assert foreign_keys == set(EXPECTED_FOREIGN_KEYS.get(table, ()))
+            for row in connection.execute(f"PRAGMA foreign_key_list({table})"):
+                assert row["on_delete"] == "RESTRICT"
+
+            unique_constraints = set()
+            primary_key_indexes = set()
+            for index in connection.execute(f"PRAGMA index_list({table})"):
+                indexed_columns = tuple(
+                    info["name"]
+                    for info in connection.execute(f"PRAGMA index_info({index['name']})")
+                )
+                if index["origin"] == "u":
+                    unique_constraints.add(indexed_columns)
+                elif index["origin"] == "pk":
+                    primary_key_indexes.add(indexed_columns)
+            assert unique_constraints == set(
+                EXPECTED_UNIQUE_CONSTRAINTS.get(table, ())
+            )
+            assert primary_key_indexes == set(
+                EXPECTED_PRIMARY_KEY_INDEXES.get(table, ())
+            )
+
+        for table, fragments in EXPECTED_CHECK_ENUMERATIONS.items():
+            ddl_row = connection.execute(
+                "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?",
+                (table,),
+            ).fetchone()
+            normalized_ddl = " ".join(ddl_row[0].split())
+            for fragment in fragments:
+                assert fragment in normalized_ddl
+
+        for view in VIEWS:
+            ddl_row = connection.execute(
+                "SELECT sql FROM sqlite_master WHERE type = 'view' AND name = ?",
+                (view,),
+            ).fetchone()
+            normalized_ddl = " ".join(ddl_row[0].split())
+            if view in {"v_video_parts", "v_pending_metadata"}:
+                assert EXPECTED_VIEW_WORK_ID_EXPRESSION in normalized_ddl
+    finally:
+        connection.close()
+
+
+def test_views_compute_derived_values_across_users_videos_and_runs(tmp_root):
+    connection = open_database(tmp_root)
+    try:
+        connection.executescript(
+            """
+            INSERT INTO bilibili_users VALUES (23191782, '未明子', 1, 1);
+            INSERT INTO bilibili_users VALUES (42, '第二位用户', 1, 1);
+            INSERT INTO videos VALUES
+                ('BV1SINGLE', 1001, 23191782, '单集视频', 1700000000, 1, 1);
+            INSERT INTO videos VALUES
+                ('BV1MULTI', 1002, 42, '多集视频', 1700000001, 1, 1);
+            INSERT INTO videos VALUES
+                ('BV1GONE', NULL, 42, '已下架视频', 1700000002, 1, 1);
+            INSERT INTO video_parts(
+                bvid, page_index, cid, title, duration_ms, processing_status,
+                created_at, updated_at
+            ) VALUES ('BV1SINGLE', 0, 2001, '第一集', 1000, 'discovered', 1, 1);
+            INSERT INTO video_parts(
+                bvid, page_index, cid, title, duration_ms, processing_status,
+                created_at, updated_at
+            ) VALUES ('BV1MULTI', 0, 3001, '上篇', 2000, 'discovered', 1, 1);
+            INSERT INTO video_parts(
+                bvid, page_index, cid, title, duration_ms, processing_status,
+                created_at, updated_at
+            ) VALUES ('BV1MULTI', 1, 3002, '下篇', 3000, 'metadata_collected', 1, 1);
+            INSERT INTO video_parts(
+                bvid, page_index, cid, title, duration_ms, processing_status,
+                created_at, updated_at
+            ) VALUES ('BV1GONE', 0, 4001, '残片', 4000, 'gone', 1, 1);
+            INSERT INTO ingestion_runs VALUES
+                ('run-1', 23191782, 'bilibili-api-python', '1.0', 1, NULL, 1, NULL, 'running');
+            INSERT INTO ingestion_runs VALUES
+                ('run-2', 42, 'bilibili-api-python', '1.0', 1, NULL, 1, NULL, 'running');
+            INSERT INTO ingestion_pages VALUES ('run-1', 1, 'ok', NULL, 1, 2);
+            INSERT INTO ingestion_pages VALUES ('run-1', 2, 'empty', NULL, 3, 4);
+            INSERT INTO ingestion_discoveries VALUES ('run-1', 1, 'BV1SINGLE', 0, 5);
+            INSERT INTO ingestion_discoveries VALUES ('run-1', 2, 'BV1SINGLE', 0, 6);
+            INSERT INTO ingestion_discoveries VALUES ('run-1', 2, 'BV1MULTI', 1, 6);
+            """
+        )
+
+        part_rows = connection.execute(
+            "SELECT work_id, user_name, video_title, page_index, cid, part_title, "
+            "processing_status FROM v_video_parts ORDER BY work_id"
+        ).fetchall()
+        assert [row["work_id"] for row in part_rows] == [
+            "BV1GONE:p0",
+            "BV1MULTI:p0",
+            "BV1MULTI:p1",
+            "BV1SINGLE:p0",
+        ]
+        single = part_rows[3]
+        assert single["user_name"] == "未明子"
+        assert single["video_title"] == "单集视频"
+        multi = part_rows[2]
+        assert multi["user_name"] == "第二位用户"
+        assert multi["part_title"] == "下篇"
+        assert multi["processing_status"] == "metadata_collected"
+
+        stats = {
+            row["run_id"]: (row["page_count"], row["video_count"])
+            for row in connection.execute("SELECT * FROM v_ingestion_run_stats")
+        }
+        # run-1 has three discovery rows but only two distinct videos; run-2
+        # has neither pages nor discoveries and still reports zero counts.
+        assert stats == {"run-1": (2, 2), "run-2": (0, 0)}
+
+        pending = [
+            row["work_id"]
+            for row in connection.execute(
+                "SELECT work_id FROM v_pending_metadata ORDER BY work_id"
+            )
+        ]
+        assert pending == ["BV1MULTI:p0", "BV1SINGLE:p0"]
     finally:
         connection.close()
