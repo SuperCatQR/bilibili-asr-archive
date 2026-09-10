@@ -1,15 +1,18 @@
-"""MetaCursorStore + fetch-meta resume/limited/complete (no live HTTP)."""
+"""MetaCursorStore sidecar contract (no live HTTP).
+
+The fetch-meta CLI resume/limited/complete behavior moved to the SQLite
+metadata path (tests/test_metadata_cli.py and tests/test_metadata_e2e.py);
+this module keeps covering the MetaCursorStore sidecar that scheduler and
+coordinator flows still use.
+"""
 
 from __future__ import annotations
 
-import json
 import os
 
 import pytest
 
 from bili_asr import bili_client as bc
-from bili_asr.cli import main
-from bili_asr.manifest import ManifestStore
 from bili_asr.meta_cursor import MetaCursorStore, utc_now_iso
 
 from test_fetch_meta import FakeTransport, FastSleeper, SPI_NEW, SPI_OK, arc, ok_page
@@ -142,170 +145,8 @@ def test_bili_client_does_not_import_meta_cursor():
     assert "meta_cursor" not in src
 
 
-def test_cli_risk_writes_cursor_exit_2(tmp_root, fast_sleep, monkeypatch, capsys):
-    transport = FakeTransport(
-        [
-            (200, ok_page([arc("BV1A"), arc("BV1B")], total=99)),
-            (412, None), (412, None), (412, None), (412, None), (412, None),
-        ],
-        spi=[SPI_OK, SPI_NEW],
-    )
-    monkeypatch.setattr(bc, "build_default_transport", lambda: transport)
-    monkeypatch.setattr(bc, "default_sleeper", lambda: fast_sleep)
-    rc = main(["fetch-meta", "--mid", "23191782", "--archive-root", tmp_root])
-    assert rc == 2
-    cursor = _cursor(tmp_root).load()
-    assert cursor["state"] == "risk_interrupted"
-    assert cursor["next_page"] == 2
-    assert cursor["mid"] == 23191782
-    assert cursor["last_api_error_code"] is not None
-    err = capsys.readouterr().err
-    assert "page 2" in err
-
-
-def test_cli_resume_consumes_risk_cursor(tmp_root, fast_sleep, monkeypatch):
-    _seed_risk(tmp_root, next_page=2, total=2)
-    transport = FakeTransport(
-        [
-            (200, ok_page([arc("BV1B")], total=2)),
-            (200, ok_page([], total=2)),
-            (200, ok_page([], total=2)),
-        ],
-    )
-    monkeypatch.setattr(bc, "build_default_transport", lambda: transport)
-    monkeypatch.setattr(bc, "default_sleeper", lambda: fast_sleep)
-    rc = main([
-        "fetch-meta", "--mid", "23191782", "--resume",
-        "--archive-root", tmp_root,
-    ])
-    assert rc == 0
-    page_calls = [c for c in transport.calls if "recArchivesByKeywords" in c["url"]]
-    assert page_calls[0]["params"]["pn"] == 2
-    cursor = _cursor(tmp_root).load()
-    assert cursor["state"] == "complete"
-
-
-def test_cli_without_resume_starts_at_page_one(tmp_root, fast_sleep, monkeypatch):
-    _seed_risk(tmp_root, next_page=5, total=99)
-    transport = FakeTransport(
-        [
-            (200, ok_page([arc("BV1A")], total=1)),
-        ],
-    )
-    monkeypatch.setattr(bc, "build_default_transport", lambda: transport)
-    monkeypatch.setattr(bc, "default_sleeper", lambda: fast_sleep)
-    rc = main(["fetch-meta", "--mid", "23191782", "--archive-root", tmp_root])
-    assert rc == 0
-    page_calls = [c for c in transport.calls if "recArchivesByKeywords" in c["url"]]
-    assert page_calls[0]["params"]["pn"] == 1
-    cursor = _cursor(tmp_root).load()
-    assert cursor["state"] == "complete"
-    assert cursor["next_page"] == 2
-
-
-def test_cli_limit_pages_is_limited_not_complete(
-    tmp_root, fast_sleep, monkeypatch, capsys
-):
-    transport = FakeTransport(
-        [(200, ok_page([arc("BV1A")], total=99))],
-    )
-    monkeypatch.setattr(bc, "build_default_transport", lambda: transport)
-    monkeypatch.setattr(bc, "default_sleeper", lambda: fast_sleep)
-    rc = main([
-        "fetch-meta", "--mid", "23191782", "--limit-pages", "1",
-        "--archive-root", tmp_root,
-    ])
-    assert rc == 0
-    out = capsys.readouterr().out
-    assert "complete" not in out
-    assert "limited" in out
-    cursor = _cursor(tmp_root).load()
-    assert cursor["state"] == "limited"
-    assert cursor["next_page"] == 2
-    assert _cursor(tmp_root).resume_start_page(23191782) is None
-
-
-def test_cli_resume_persists_after_each_page(tmp_root, fast_sleep, monkeypatch):
-    """R1: --resume still merges JSONL and advances next_page per page."""
-    ManifestStore(root=tmp_root).save(
-        {
-            "BV1A:p0": {
-                "work_id": "BV1A:p0", "bvid": "BV1A", "page_index": 0,
-                "cid": 1, "status": "meta_ok",
-            },
-        }
-    )
-    _seed_risk(tmp_root, next_page=2, total=90)
-    transport = FakeTransport(
-        [
-            (200, ok_page([arc("BV1B")], total=90)),
-            (412, None), (412, None), (412, None), (412, None), (412, None),
-        ],
-        spi=[SPI_OK, SPI_NEW],
-    )
-    monkeypatch.setattr(bc, "build_default_transport", lambda: transport)
-    monkeypatch.setattr(bc, "default_sleeper", lambda: fast_sleep)
-    rc = main([
-        "fetch-meta", "--mid", "23191782", "--resume",
-        "--archive-root", tmp_root,
-    ])
-    assert rc == 2
-    entries = ManifestStore(root=tmp_root).load()
-    assert "BV1A:p0" in entries
-    assert "BV1B:p0" in entries
-    cursor = _cursor(tmp_root).load()
-    assert cursor["state"] == "risk_interrupted"
-    assert cursor["next_page"] == 3
-
-
-def test_cli_no_resume_merges_prior_jsonl_not_prefix(
-    tmp_root, fast_sleep, monkeypatch,
-):
-    """R2: without --resume, page-1 must not clobber a complete JSONL."""
-    ManifestStore(root=tmp_root).save(
-        {
-            "BVOLD:p0": {
-                "work_id": "BVOLD:p0", "bvid": "BVOLD", "page_index": 0,
-                "cid": 9, "status": "meta_ok",
-            },
-        }
-    )
-    _seed_risk(tmp_root, next_page=5, total=99)
-    transport = FakeTransport(
-        [(200, ok_page([arc("BV1A")], total=1))],
-    )
-    monkeypatch.setattr(bc, "build_default_transport", lambda: transport)
-    monkeypatch.setattr(bc, "default_sleeper", lambda: fast_sleep)
-    rc = main(["fetch-meta", "--mid", "23191782", "--archive-root", tmp_root])
-    assert rc == 0
-    entries = ManifestStore(root=tmp_root).load()
-    assert set(entries) >= {"BVOLD:p0", "BV1A:p0"}
-    cursor = _cursor(tmp_root).load()
-    assert cursor["state"] == "complete"
-    assert _cursor(tmp_root).resume_start_page(23191782) is None
-
-
-def test_cli_limit_pages_counts_this_call(tmp_root, fast_sleep, monkeypatch):
-    """R3: --resume from next_page=5 plus --limit-pages 2 fetches two pages."""
-    _seed_risk(tmp_root, next_page=5, total=300)
-    transport = FakeTransport(
-        [
-            (200, ok_page([arc("BV1E")], total=300)),
-            (200, ok_page([arc("BV1F")], total=300)),
-        ],
-    )
-    monkeypatch.setattr(bc, "build_default_transport", lambda: transport)
-    monkeypatch.setattr(bc, "default_sleeper", lambda: fast_sleep)
-    rc = main([
-        "fetch-meta", "--mid", "23191782", "--resume", "--limit-pages", "2",
-        "--archive-root", tmp_root,
-    ])
-    assert rc == 0
-    page_calls = [c for c in transport.calls if "recArchivesByKeywords" in c["url"]]
-    assert [c["params"]["pn"] for c in page_calls] == [5, 6]
-    cursor = _cursor(tmp_root).load()
-    assert cursor["state"] == "limited"
-    assert cursor["next_page"] == 7
+# (fetch-meta CLI resume/limited/complete behavior moved to the SQLite
+# metadata path: tests/test_metadata_cli.py and tests/test_metadata_e2e.py)
 
 
 def test_fetch_pages_stops_at_last_catalog_page(fast_sleep):
@@ -335,37 +176,6 @@ def test_fetch_pages_stops_when_nonempty_adds_no_new(fast_sleep):
     assert client.enumeration_complete is True
 
 
-def test_cli_full_recrawl_walks_catalog_despite_page1_overlap(
-    tmp_root, fast_sleep, monkeypatch,
-):
-    """F-005: without --resume, overlapping JSONL must not stop after page 1."""
-    ManifestStore(root=tmp_root).save(
-        {
-            "BV1A:p0": {
-                "work_id": "BV1A:p0", "bvid": "BV1A", "page_index": 0,
-                "cid": 1, "status": "meta_ok", "title": "stale",
-            },
-        }
-    )
-    transport = FakeTransport(
-        [
-            (200, ok_page([arc("BV1A", title="fresh")], total=60)),
-            (200, ok_page([arc("BV1B")], total=60)),
-        ],
-    )
-    monkeypatch.setattr(bc, "build_default_transport", lambda: transport)
-    monkeypatch.setattr(bc, "default_sleeper", lambda: fast_sleep)
-    rc = main(["fetch-meta", "--mid", "23191782", "--archive-root", tmp_root])
-    assert rc == 0
-    page_calls = [c for c in transport.calls if "recArchivesByKeywords" in c["url"]]
-    assert [c["params"]["pn"] for c in page_calls] == [1, 2]
-    entries = ManifestStore(root=tmp_root).load()
-    assert set(entries) >= {"BV1A:p0", "BV1B:p0"}
-    assert entries["BV1A:p0"]["title"] == "fresh"
-    cursor = _cursor(tmp_root).load()
-    assert cursor["state"] == "complete"
-
-
 def test_load_corrupt_cursor_notes_stderr(tmp_root, capsys):
     path = _cursor(tmp_root).path
     os.makedirs(tmp_root, exist_ok=True)
@@ -373,69 +183,6 @@ def test_load_corrupt_cursor_notes_stderr(tmp_root, capsys):
         fh.write("{not json")
     assert _cursor(tmp_root).load() is None
     assert "corrupt sidecar" in capsys.readouterr().err
-
-
-def test_cli_full_run_marks_complete(tmp_root, fast_sleep, monkeypatch, capsys):
-    transport = FakeTransport(
-        [
-            (200, ok_page([arc("BV1A"), arc("BV1B")], total=2)),
-        ],
-    )
-    monkeypatch.setattr(bc, "build_default_transport", lambda: transport)
-    monkeypatch.setattr(bc, "default_sleeper", lambda: fast_sleep)
-    rc = main(["fetch-meta", "--mid", "23191782", "--archive-root", tmp_root])
-    assert rc == 0
-    out = capsys.readouterr().out
-    assert "enumeration: complete" in out
-    cursor = _cursor(tmp_root).load()
-    assert cursor["state"] == "complete"
-    text = open(_cursor(tmp_root).path, encoding="utf-8").read()
-    assert "SESSDATA" not in text
-    assert "cookie" not in text.lower()
-
-
-def test_cli_page2_stop_resume_is_idempotent(tmp_root, fast_sleep, monkeypatch):
-    """Risk stop on page 2 → next_page=2; --resume starts there with no dup rows."""
-    transport = FakeTransport(
-        [
-            (200, ok_page([arc("BV1A"), arc("BV1B")], total=33)),
-            (412, None), (412, None), (412, None), (412, None), (412, None),
-        ],
-        spi=[SPI_OK, SPI_NEW],
-    )
-    monkeypatch.setattr(bc, "build_default_transport", lambda: transport)
-    monkeypatch.setattr(bc, "default_sleeper", lambda: fast_sleep)
-    rc = main(["fetch-meta", "--mid", "23191782", "--archive-root", tmp_root])
-    assert rc == 2
-    cursor = _cursor(tmp_root).load()
-    assert cursor["state"] == "risk_interrupted"
-    assert cursor["next_page"] == 2
-    store = ManifestStore(root=tmp_root)
-    first = store.load()
-    assert set(first) == {"BV1A:p0", "BV1B:p0"}
-    assert cursor["state"] != "complete"
-
-    transport2 = FakeTransport(
-        [
-            (200, ok_page([arc("BV1C")], total=33)),
-            (200, ok_page([], total=33)),
-            (200, ok_page([], total=33)),
-        ],
-    )
-    monkeypatch.setattr(bc, "build_default_transport", lambda: transport2)
-    rc2 = main([
-        "fetch-meta", "--mid", "23191782", "--resume",
-        "--archive-root", tmp_root,
-    ])
-    assert rc2 == 0
-    page_calls = [c for c in transport2.calls if "recArchivesByKeywords" in c["url"]]
-    assert page_calls[0]["params"]["pn"] == 2
-    entries = store.load()
-    assert set(entries) == {"BV1A:p0", "BV1B:p0", "BV1C:p0"}
-    lines = open(store.path, encoding="utf-8").read().strip().splitlines()
-    work_ids = [json.loads(line)["work_id"] for line in lines]
-    assert len(work_ids) == len(set(work_ids))
-    assert _cursor(tmp_root).load()["state"] == "complete"
 
 
 def test_cursor_strips_extra_keys_and_rejects_secrets(tmp_root):
