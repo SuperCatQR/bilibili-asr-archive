@@ -194,13 +194,19 @@ Read-only commands such as `status`, `coverage`, `verify`, `runs`, `search`,
 
 ### Audio reclaim and bounded-disk campaigns
 
-Once a row reaches `archived`, its local audio file under
-`{archive-root}/audio/` is deleted automatically (failed and in-progress
-rows keep their audio for retry; the manifest may still record the
-relative `audio_path` — consumers treat the file as absent). Download
-publication and reclaim are anchored to an opened `audio/` directory and use
-private random stage/quarantine entries; they never follow a swapped final-name
-symlink to an outside victim.
+By default, once a row reaches `archived`, its local audio file under
+`{archive-root}/audio/` is deleted automatically to save disk space (failed 
+and in-progress rows keep their audio for retry; the manifest may still record 
+the relative `audio_path` — consumers treat the file as absent).
+
+**Audio retention policy**: Set `BILI_KEEP_AUDIO=1` to preserve audio files 
+after archival. This enables future reprocessing with improved ASR models 
+without re-downloading from Bilibili. The manifest continues to track 
+`audio_path` for retained files.
+
+Download publication and reclaim are anchored to an opened `audio/` directory 
+and use private random stage/quarantine entries; they never follow a swapped 
+final-name symlink to an outside victim.
 
 #### Transcript bundle publication
 

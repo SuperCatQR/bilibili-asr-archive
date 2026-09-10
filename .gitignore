@@ -32,6 +32,9 @@ bilibili-asr-archive/pytest-cache-files-*/
 bilibili-asr-archive/archive/manifest/
 bilibili-asr-archive/verification-results/baseline.json
 
+# pre-iteration prototype scratch data (regenerable; code preserved under docs/archive/pre-iteration-2026-09/)
+bilibili-asr-archive/refactor/
+
 # Test reports and temporary files
 e2e-test*.md
 **/verify_acceptance.sh

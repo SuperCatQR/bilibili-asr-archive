@@ -38,7 +38,14 @@ def _candidate_paths(archive_root: str, entry: Mapping[str, Any]) -> list[str]:
 
 
 def reclaim_audio(archive_root: str | os.PathLike[str], entry: Mapping[str, Any]) -> bool:
-    """Unlink confined audio entries after a row reached `archived`."""
+    """Unlink confined audio entries after a row reached `archived`.
+    
+    Skipped when BILI_KEEP_AUDIO=1 to retain audio for future reprocessing.
+    """
+    # Check environment variable to preserve audio files
+    if os.environ.get("BILI_KEEP_AUDIO") == "1":
+        return False
+    
     root = os.path.abspath(os.fspath(archive_root))
     removed = False
     seen: set[str] = set()
