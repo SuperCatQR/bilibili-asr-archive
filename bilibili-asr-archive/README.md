@@ -506,7 +506,7 @@ only restart path.
 
 - **Default page bound**: `--limit-pages` is optional and defaults to
   `DEFAULT_PAGE_LIMIT = 10`. The canonical command above therefore stops
-  after 10 pages (the ingestor's page size is 100), ends the run `limited`,
+  after 10 pages (the ingestor's page size is 30), ends the run `limited`,
   and still exits 0 — a limited run is never claimed as complete. A full
   archive walk is a series of resumable runs: re-run the same command to
   continue from the stored cursor, or pass an explicit `--limit-pages` for

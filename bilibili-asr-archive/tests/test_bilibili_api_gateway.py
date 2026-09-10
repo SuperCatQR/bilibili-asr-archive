@@ -25,6 +25,7 @@ import ast
 import asyncio
 import importlib
 import importlib.metadata
+import inspect
 import os
 import pathlib
 import tomllib
@@ -36,6 +37,7 @@ from packaging.utils import canonicalize_name
 from bili_asr.config import PROXY_ENV_VAR, PROXY_ENV_VARS, resolve_proxy
 from bili_asr.services.metadata_ingest import MetadataIngestor
 from bili_asr.sources.models import (
+    BilibiliGateway,
     GatewayNotFound,
     GatewayRateLimited,
     GatewayResponseError,
@@ -194,7 +196,7 @@ def test_get_user_video_page_normalizes_documented_fields(bilibili_api_seam):
     assert summary.title == "未明子讲座"
     assert summary.pubdate == PUBDATE
     assert summary.mid == MID
-    assert bilibili_api_seam.calls == ["space.arc.search(pn=1, ps=100)"]
+    assert bilibili_api_seam.calls == ["space.arc.search(pn=1, ps=30)"]
     # The credential value must never surface on any DTO or page.
     assert SESSDATA_BOUNDARY_VALUE not in repr(page)
     assert SESSDATA_BOUNDARY_VALUE not in str(page)
@@ -209,6 +211,51 @@ def test_get_user_video_page_forwards_requested_page_and_size(bilibili_api_seam)
     asyncio.run(gateway.get_user_video_page(MID, page_number=4, page_size=50))
 
     assert bilibili_api_seam.calls == ["space.arc.search(pn=4, ps=50)"]
+
+
+def test_get_user_video_page_defaults_to_upstream_accepted_size(bilibili_api_seam):
+    """An omitted page size issues the upstream-accepted ``ps=30``.
+
+    The endpoint answers the former ``ps=100`` default with its bounded
+    ``-400``/HTTP 412 rejection, so the protocol declaration and the adapter
+    both default to 30 — reverting either to 100 fails this test.
+    """
+
+    bilibili_api_seam.videos_response = make_videos_response(make_vlist_item(), count=1)
+    gateway = _load_gateway()
+
+    asyncio.run(gateway.get_user_video_page(MID, page_number=1))
+
+    assert bilibili_api_seam.calls == ["space.arc.search(pn=1, ps=30)"]
+    declared = inspect.signature(BilibiliGateway.get_user_video_page)
+    assert declared.parameters["page_size"].default == 30
+
+
+def test_get_user_video_page_explicit_size_override_keeps_normalization(
+    bilibili_api_seam,
+):
+    """An explicit page size still flows through and normalizes the page."""
+
+    bilibili_api_seam.videos_response = make_videos_response(
+        make_vlist_item(title="  未明子讲座  "), count=7
+    )
+    gateway = _load_gateway()
+
+    page = asyncio.run(gateway.get_user_video_page(MID, page_number=2, page_size=50))
+
+    assert bilibili_api_seam.calls == ["space.arc.search(pn=2, ps=50)"]
+    assert isinstance(page, UserVideoPage)
+    assert (page.mid, page.page_number, page.observed_total) == (MID, 2, 7)
+    assert isinstance(page.videos, tuple)
+    (summary,) = page.videos
+    assert isinstance(summary, VideoSummary)
+    assert (summary.bvid, summary.aid, summary.title, summary.pubdate, summary.mid) == (
+        BVID,
+        111,
+        "未明子讲座",
+        PUBDATE,
+        MID,
+    )
 
 
 def test_get_user_video_page_tolerates_plain_list_container(bilibili_api_seam):
@@ -394,7 +441,7 @@ def test_get_user_video_page_rejects_malformed_upstream_bvid(
 
     assert caught.value.code == "shape_error"
     assert "bvid" in str(caught.value)
-    assert bilibili_api_seam.calls == ["space.arc.search(pn=1, ps=100)"]
+    assert bilibili_api_seam.calls == ["space.arc.search(pn=1, ps=30)"]
 
 
 # ------------------------------------- user page: risk-control-safe request
@@ -978,7 +1025,7 @@ def test_gateway_applies_the_resolved_proxy_once_before_the_first_call(
 
     asyncio.run(gateway.get_user_video_page(MID, page_number=1))
 
-    assert bilibili_api_seam.calls == ["space.arc.search(pn=1, ps=100)"]
+    assert bilibili_api_seam.calls == ["space.arc.search(pn=1, ps=30)"]
     # Apply-once: no request re-applies or re-reads the setting.
     assert bilibili_api_seam.applied_proxies == [PROXY_BOUNDARY_VALUE]
 
@@ -1034,7 +1081,7 @@ def test_gateway_leaves_the_package_setting_untouched_without_a_proxy(
 
     asyncio.run(gateway.get_user_video_page(MID, page_number=1))
 
-    assert bilibili_api_seam.calls == ["space.arc.search(pn=1, ps=100)"]
+    assert bilibili_api_seam.calls == ["space.arc.search(pn=1, ps=30)"]
     assert bilibili_api_seam.applied_proxies == []
 
 
@@ -1341,7 +1388,7 @@ def test_gateway_dto_drops_unknown_upstream_payload_fields(bilibili_api_seam):
         assert_leaks_no_markers(repr(surface), context="gateway DTO repr")
         assert_leaks_no_markers(str(surface), context="gateway DTO str")
     assert bilibili_api_seam.calls == [
-        "space.arc.search(pn=1, ps=100)",
+        "space.arc.search(pn=1, ps=30)",
         "video.get_info",
         "video.get_pages",
     ]
@@ -1368,7 +1415,7 @@ def test_live_smoke_single_public_page_for_archive_owner(tmp_root):
     """Opt-in live probe: ONE public metadata page for UID 23191782.
 
     Skipped unless the operator sets ``BILI_LIVE_SMOKE=1``.  The probe
-    requests exactly one bounded page (``ps=100``) for the archive owner
+    requests exactly one bounded page (``ps=30``) for the archive owner
     through the real adapter, ingests it into a fresh temporary SQLite
     database, calls no subtitle/playback/audio/ASR/export endpoint,
     requires no credential, and keeps every raw upstream payload

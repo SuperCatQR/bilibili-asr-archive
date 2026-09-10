@@ -701,7 +701,7 @@ def test_bilibili_api_gateway_run_persists_normalized_rows(tmp_root, bilibili_ap
         # The pinned adapter drove exactly the three documented upstream
         # calls: one page fetch, the aid completion, one parts fetch.
         assert script.calls == [
-            "space.arc.search(pn=1, ps=100)",
+            "space.arc.search(pn=1, ps=30)",
             "video.get_info",
             "video.get_pages",
         ]
@@ -849,7 +849,7 @@ def test_bilibili_api_gateway_foreign_owner_page_requests_no_parts(
         assert [tuple(row) for row in page_rows] == [(1, "failed", "shape_error")]
 
         # Exactly one page fetch: no parts, no detail, nothing else.
-        assert script.calls == ["space.arc.search(pn=1, ps=100)"]
+        assert script.calls == ["space.arc.search(pn=1, ps=30)"]
         assert_only_documented_metadata_calls(script.calls)
     finally:
         connection.close()
@@ -914,7 +914,7 @@ def test_malformed_upstream_bvid_page_fails_bounded_and_preserves_the_prior_curs
             (2, "failed", "shape_error")
         ]
         # The malformed bvid never reached the parts or detail fetches.
-        assert script.calls == calls_after_first + ["space.arc.search(pn=2, ps=100)"]
+        assert script.calls == calls_after_first + ["space.arc.search(pn=2, ps=30)"]
     finally:
         connection.close()
 

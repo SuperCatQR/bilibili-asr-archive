@@ -280,9 +280,14 @@ class BilibiliApiGateway:
         self._w_webid_by_mid: dict[int, str] = {}
 
     async def get_user_video_page(
-        self, mid: int, page_number: int, page_size: int = 100
+        self, mid: int, page_number: int, page_size: int = 30
     ) -> UserVideoPage:
-        """Fetch and normalize exactly one bounded user-video page."""
+        """Fetch and normalize exactly one bounded user-video page.
+
+        The default is the upstream-accepted page size declared by the
+        :class:`~bili_asr.sources.models.BilibiliGateway` protocol; an
+        explicit ``page_size`` still overrides it.
+        """
 
         _require_positive_argument(mid, "mid")
         _require_positive_argument(page_number, "page_number")

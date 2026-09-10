@@ -255,7 +255,7 @@ class FakeGateway:
         self._completions[bvid] = completed
 
     async def get_user_video_page(
-        self, mid: int, page_number: int, page_size: int = 100
+        self, mid: int, page_number: int, page_size: int = 30
     ) -> UserVideoPage:
         self.page_calls.append((mid, page_number, page_size))
         return self._scripted(self._pages, page_number, "user-video-page")

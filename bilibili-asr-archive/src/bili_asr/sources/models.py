@@ -95,8 +95,11 @@ class UserVideoPage:
 class BilibiliGateway(Protocol):
     """Application-owned gateway protocol for the pinned package adapter."""
 
+    # 30 is the page size the user-video endpoint accepts: the pinned package
+    # documents ``ps`` as ``const int: 30`` and upstream answers ``ps=100``
+    # with its bounded ``-400``/HTTP 412 rejection.
     async def get_user_video_page(
-        self, mid: int, page_number: int, page_size: int = 100
+        self, mid: int, page_number: int, page_size: int = 30
     ) -> UserVideoPage: ...
 
     async def get_video_parts(self, bvid: str) -> tuple[VideoPart, ...]: ...
