@@ -36,12 +36,12 @@ def test_installed_console_script_help(isolated_cli) -> None:
     assert_redacted(proc)
 
 
-def test_installed_console_script_status_uses_temp_archive_root(isolated_cli, tmp_path: Path) -> None:
+def test_installed_console_script_status_fails_without_database(isolated_cli, tmp_path: Path) -> None:
     archive_root = tmp_path / "archive"
     proc = run_installed(isolated_cli, ["status", "--archive-root", str(archive_root)])
-    assert proc.returncode == 0, proc.stderr
-    assert "manifest: empty" in proc.stdout
-    assert str(archive_root) not in proc.stdout
+    assert proc.returncode == 1, proc.stdout
+    assert "no archive database" in proc.stderr
+    assert proc.stdout == ""
     assert_redacted(proc)
 
 
@@ -80,14 +80,14 @@ def test_module_help_is_supplemental_coverage() -> None:
     assert_redacted(proc)
 
 
-def test_module_status_uses_temp_archive_root(tmp_path: Path) -> None:
+def test_module_status_fails_without_database(tmp_path: Path) -> None:
     proc = run_module(["status", "--archive-root", str(tmp_path)])
-    assert proc.returncode == 0, proc.stderr
-    assert "manifest: empty" in proc.stdout
+    assert proc.returncode == 1, proc.stdout
+    assert "no archive database" in proc.stderr
     assert_redacted(proc)
 
 
-def test_installed_console_script_status_with_manifest_records(isolated_cli, tmp_path: Path) -> None:
+def test_installed_console_script_status_ignores_legacy_manifest(isolated_cli, tmp_path: Path) -> None:
     from bili_asr.manifest import ManifestStore
 
     store = ManifestStore(root=str(tmp_path))
@@ -95,16 +95,18 @@ def test_installed_console_script_status_with_manifest_records(isolated_cli, tmp
     store.upsert({"work_id": "BV1test_meta:p1", "bvid": "BV1test_meta", "status": "meta_ok"})
 
     proc = run_installed(isolated_cli, ["status", "--archive-root", str(tmp_path)])
-    assert proc.returncode == 0, proc.stderr
-    assert "archived: 1" in proc.stdout
-    assert "meta_ok: 1" in proc.stdout
+    # status reads only the fresh SQLite database: with no archive.db the
+    # legacy manifest rows are neither read nor rewritten (exit 1).
+    assert proc.returncode == 1, proc.stdout
+    assert "BV1test_inst" not in proc.stdout
+    assert "no archive database" in proc.stderr
     assert_redacted(proc)
 
 
-def test_module_runs_empty_archive(tmp_path: Path) -> None:
+def test_module_runs_fails_without_database(tmp_path: Path) -> None:
     proc = run_module(["runs", "--archive-root", str(tmp_path)])
-    assert proc.returncode == 0, proc.stderr
-    assert "runs: empty" in proc.stdout
+    assert proc.returncode == 1, proc.stdout
+    assert "no archive database" in proc.stderr
     assert_redacted(proc)
 
 
