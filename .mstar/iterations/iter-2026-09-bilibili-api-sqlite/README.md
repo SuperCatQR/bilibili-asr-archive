@@ -113,3 +113,7 @@ Phase 1 draft; PM lock pending.
 
 The delivery compass and plan files are the canonical iteration preparation
 surface; runtime review bundles will live under the corresponding SDD directories.
+
+## Compound promotion (iteration close)
+
+At close, the durable contract content of `specs/structured-metadata-storage.md`, `specs/bilibili-api-gateway.md`, and `specs/metadata-cli-contract.md` was structurally rewritten into knowledge as [`.mstar/knowledge/architecture-patterns/normalized-metadata-stack.md`](../../knowledge/architecture-patterns/normalized-metadata-stack.md) (layering, canonical forms, bounded-failure protocol, exit taxonomy, supersedes-note). The specs remain here as the iteration's frozen record; the guide files are Phase-1 process history (kept as snapshot).

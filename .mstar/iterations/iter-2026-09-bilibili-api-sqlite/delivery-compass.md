@@ -2,7 +2,8 @@
 iteration_id: iter-2026-09-bilibili-api-sqlite
 title: "Replace metadata acquisition with bilibili-api and normalized SQLite storage"
 start_date: 2026-09-09
-status: locked
+status: completed
+end_date: 2026-09-10
 iteration_base_branch: main
 spec_integration_branch: iteration/iter-2026-09-bilibili-api-sqlite
 target_branch: main
@@ -233,17 +234,24 @@ This iteration explicitly excludes:
 
 ## Roadmap Position
 
-- **Current iteration (iter-2026-09-bilibili-api-sqlite)**: Establish structured
-  metadata ingestion with normalized SQLite storage. **Done when**: all three plans
-  pass acceptance, offline fake-gateway tests confirm schema/idempotency, and either
-  the opt-in live smoke succeeds (one public page, temporary DB) or an explicit
-  live-network blocker is documented.
+- **Current iteration (iter-2026-09-bilibili-api-sqlite)**: **delivered** (2026-09-10).
+  All three plans Done and merged into the integration branch (`bf8892b`, `5ccc9c8`,
+  `1307f92`); offline fake-gateway evidence in place; the opt-in live smoke was
+  executed live with the designed bounded failure under anonymous access, and the
+  credential happy path is recorded as an explicit live-network blocker
+  (`BILI_SESSDATA` unset on this machine) — the allowed close condition. Deferred
+  operational notes ride the Batch-3 carry list (C1–C6) and the plan Durable
+  Roadmaps.
 
 - **Next iteration (subtitle/transcript)**: Add subtitle acquisition (AI/CC) and
   normalized transcript-segment storage using the reserved foreign-key boundaries.
-  **Trigger**: Current iteration complete (all plans `Done`, acceptance evidence in
-  place). **Owner**: `project-manager`. **Done when**: Subtitles and transcript
-  segments are queryable through normalized tables without reintroducing sidecars.
+  **Trigger**: MET — current iteration complete (all plans `Done`, acceptance
+  evidence in place). **Owner**: `project-manager`. **Done when**: Subtitles and
+  transcript segments are queryable through normalized tables without
+  reintroducing sidecars. **Contract notes to decide explicitly in that plan**:
+  the `ingestion_runs` table is metadata-scoped — the subtitle/transcript
+  process-record schema decision must be explicit (plan-3 QC carry F-010), and the
+  cursor state `risk_interrupted` has no producer yet (C3).
 
 - **Subsequent iteration (audio/ASR)**: Add audio download (external objects) and
   local ASR execution (FunASR-Nano or SenseVoice). **Trigger**: Subtitle/transcript
@@ -293,21 +301,28 @@ This iteration explicitly excludes:
 
 | plan_id | QC decision | QA gate | Residuals | Durable summary |
 |---------|-------------|---------|-----------|-----------------|
-| 20260909-structured-metadata-schema | pending | mandatory | pending | `.mstar/plans/20260909-structured-metadata-schema.md#review-gate-summary` |
-| 20260909-bilibili-api-ingestion | pending | mandatory | pending | `.mstar/plans/20260909-bilibili-api-ingestion.md#review-gate-summary` |
-| 20260909-metadata-cli-smoke | pending | mandatory | pending | `.mstar/plans/20260909-metadata-cli-smoke.md#review-gate-summary` |
+| 20260909-structured-metadata-schema | Approve (tri N=3 converged after 2 fix waves) | Approve (33 focused / 726 full; wheel+sdist ship schema.sql) | none open | `.mstar/plans/20260909-structured-metadata-schema.md#review-gate-summary` |
+| 20260909-bilibili-api-ingestion | Approve (tri N=3 converged after fix wave; targeted re-review) | Approve (131 focused +1 skip / 857 full +1 skip; uv lock --check no-op; live smoke executed — bounded response_error under anonymous access) | none open | `.mstar/plans/20260909-bilibili-api-ingestion.md#review-gate-summary` |
+| 20260909-metadata-cli-smoke | Approve (tri N=3 converged after docs fix wave + PM spec edit) | Approve (861 full +2 skip / 38 focused +1 skip fresh; isolated-install verified; anonymous live bounded-failure executed; credential happy path = explicit blocker) | none open | `.mstar/plans/20260909-metadata-cli-smoke.md#review-gate-summary` |
 
 ## Compound Round Summary
 
 > Filled at iteration-close.
 
-- 结晶文档数：pending
-- 新增 CONCEPTS.md 条目：pending
-- 触发 compound-refresh：pending
+- 结晶文档数：1（`architecture-patterns/normalized-metadata-stack.md`——三份迭代 spec 的结构化重写，含 supersedes 注记；已登记 `{KNOWLEDGE_DIR}/README.md`）
+- 新增 CONCEPTS.md 条目：0 新增；1 处漂移修正（`meta-cursor.json` 行标注 metadata 路径已被 SQLite `ingestion_cursors` 取代，sidecar 保留于 archival flow）
+- Package 盘点：`guides/` ×4 = Phase-1 process 历史（keep snapshot）；`specs/` ×3 = 提升源（结构化重写进 knowledge，specs 保留为冻结记录）；`delivery-compass.md` 默认排除
+- 触发 compound-refresh：无强制项；flag——`operational-sidecars.md` 与 `bilibili-asr-archive-cli.md` 中 metadata 侧描述仍描述旧 JSONL 元数据路径（正确，但下次该领域触及时建议 refresh 对照新栈）
 
 ## Iteration Retrospective (minimal)
 
 > Filled at iteration-close.
+
+- **交付形态**：3 plans 串行 SDD，9 实现/测试提交 + 2 个 plan-QC 修波（3 个 merge commit），零迁移、零并行可写轨。
+- **门禁有效性**：每轮 plan QC（N=3）都在 plan 级别抓到了 L2 task review 未升级为阻塞的契约缺口（6W/1W+8 携带/2W 文档债），全部当轮清零；zero-residual 保持——无 open R#。
+- **文档契约债教训**：operator-facing 约束（默认页界、无码 exit-2 变体）在实现时已裁定，但未同步进 spec/README/docs——三席一致以 docs-accuracy Warnings 阻塞收口。后续 plan 的 Acceptance 应把「文档与行为一致」视为可验证项。
+- **运行时证据分层**：QC（diff/logic）不可证的运行时声明（pass counts、wheel 内容、live smoke）显式路由到 mandatory QA gate 闭环，避免了评审席与 QA 职责坍缩。
+- **live smoke 现状**：匿名访问被上游反爬拒绝（有界 `response_error`），credential happy path 待操作者凭证；Plan-2/3 的 CLI/文档已如实记录，不构成 blocker。
 
 - 做得好的：pending
 - 可改进的：pending

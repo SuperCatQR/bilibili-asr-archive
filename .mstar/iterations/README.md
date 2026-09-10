@@ -8,4 +8,4 @@
 | `iter-2026-08-live-pc-pilot` | [`iter-2026-08-live-pc-pilot/`](iter-2026-08-live-pc-pilot/) | Windows WSL bounded live M2; audio reclaim; 10 GiB peak | completed |
 | `iter-2026-08-archive-foundations` | [`iter-2026-08-archive-foundations/`](iter-2026-08-archive-foundations/) | Page-complete archive identity and resumable metadata cursor | completed |
 | `iter-2026-09-funasr-nano-7800xt` | [`iter-2026-09-funasr-nano-7800xt/`](iter-2026-09-funasr-nano-7800xt/) | Migrate ASR to FunASR-Nano on AMD 7800XT GPU | completed |
-| `iter-2026-09-bilibili-api-sqlite` | [`iter-2026-09-bilibili-api-sqlite/`](iter-2026-09-bilibili-api-sqlite/) | Replace metadata acquisition with bilibili-api and normalized SQLite storage | active |
+| `iter-2026-09-bilibili-api-sqlite` | [`iter-2026-09-bilibili-api-sqlite/`](iter-2026-09-bilibili-api-sqlite/) | Replace metadata acquisition with bilibili-api and normalized SQLite storage | completed |
