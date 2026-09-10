@@ -11,12 +11,22 @@ Every package-seam test scripts these fakes instead of touching the pinned
   install the fake ``bilibili_api`` package on ``sys.modules`` for the real
   adapter tests.  The fake mirrors only the documented import surface the
   adapter may use (``Credential``, ``request_settings.set_proxy`` /
-  ``get_proxy``, ``user.User.get_videos``, ``video.Video.get_info`` /
-  ``get_pages``, and the exceptions taxonomy) and exposes no playback,
-  subtitle, audio, or download method, so a silent switch to another package
-  API fails loudly instead of silently succeeding.  ``applied_proxies``
-  records every proxy the adapter hands to the package settings, so its
-  apply-once behavior is asserted without a network call.
+  ``get_proxy``, the ``user`` endpoint description and ``access_id`` route,
+  the WBI-signed ``utils.network.Api`` the user-video page call is issued
+  through, ``video.Video.get_info`` / ``get_pages``, and the exceptions
+  taxonomy) and exposes no playback, subtitle, audio, or download method, so
+  a silent switch to another package API fails loudly instead of silently
+  succeeding.  ``applied_proxies`` records every proxy the adapter hands to
+  the package settings, so its apply-once behavior is asserted without a
+  network call.
+- ``FakeApiRequest`` with ``script.api_requests`` records every page request
+  the adapter issues through the package's ``Api``: the transport flags it
+  took from the package endpoint description (device-fingerprint ``dm``
+  overridden) and the exact parameters it handed over, so the
+  risk-control-relevant call shape is assertable without a network call.
+  ``script.access_id_calls`` records the separate ``access_id`` token route
+  (kept out of ``calls``: it is a memoized, best-effort token fetch, not a
+  metadata call).
 - ``script_parts_by_bvid`` scripts one parts payload per requested ``bvid``
   for seam tests that collect a page holding several distinct videos.
 - ``DOCUMENTED_METADATA_CALLS`` with ``assert_only_documented_metadata_calls``
@@ -33,6 +43,7 @@ from __future__ import annotations
 import dataclasses
 import sys
 import types
+from enum import Enum
 
 import pytest
 
@@ -46,8 +57,35 @@ FAKE_PACKAGE_VERSION = "17.4.2"
 #: Adapter module the seam fixture reloads against the installed fake.
 GATEWAY_ADAPTER_MODULE = "bili_asr.sources.bilibili_api_gateway"
 
-#: The exact upstream call names the gateway adapter may issue.
-DOCUMENTED_METADATA_CALLS = ("user.get_videos", "video.get_info", "video.get_pages")
+#: The package's own endpoint description for the user-video page call
+#: (``bilibili_api.user.API["info"]["video"]``), mirroring the pinned
+#: distribution literally — including ``dm: True``.  The adapter must take
+#: ``url``/``method``/``verify``/``wbi`` from it and override ``dm``, so a
+#: package-side change to any of those fields stays visible here.
+FAKE_USER_VIDEO_PAGE_ENDPOINT = {
+    "url": "https://api.bilibili.com/x/space/wbi/arc/search",
+    "method": "GET",
+    "verify": False,
+    "wbi": True,
+    "dm": True,
+    "params": {
+        "mid": "int: uid",
+        "ps": "const int: 30",
+        "tid": "int: 分区 ID，0 表示全部",
+        "pn": "int: 页码",
+        "keyword": "str: 关键词，可为空",
+        "w_webid": "str: w_webid",
+    },
+    "comment": "搜索用户视频",
+}
+
+#: The exact upstream call names the gateway adapter may issue.  The page call
+#: is recorded as ``space.arc.search`` because the adapter issues that request
+#: itself through the package's ``Api``: the package's ``User.get_videos``
+#: delegate cannot pass upstream risk control (it injects device-fingerprint
+#: ``dm`` parameters and scrapes ``w_webid`` from a page that no longer
+#: server-renders it).
+DOCUMENTED_METADATA_CALLS = ("space.arc.search", "video.get_info", "video.get_pages")
 
 #: Realistic-looking SESSDATA value that must never leave the process.
 SESSDATA_BOUNDARY_VALUE = "SESSDATA-VALUE-THAT-MUST-NOT-LEAK"
@@ -120,16 +158,58 @@ class FakeWbiRetryTimesExceedException(FakeApiException):
         super().__init__("WBI 重试达到最大次数")
 
 
+def _device_fingerprint_params() -> dict:
+    """Mirror of the package's ``_enc_dm`` injection: the same parameter names.
+
+    A request built with ``dm`` enabled carries these parameters upstream, so
+    the fake adds them too: the "no device-fingerprint parameters are sent"
+    assertion then detects the real risk-control defect instead of merely
+    restating the recorded ``dm`` flag.
+    """
+
+    return {
+        "dm_img_list": "[]",
+        "dm_img_str": "AB",
+        "dm_cover_img_str": "AB",
+        "dm_img_inter": '{"ds":[],"wh":[0,0,0],"of":[0,0,0]}',
+    }
+
+
+@dataclasses.dataclass
+class FakeApiRequest:
+    """One recorded package-``Api`` request: the call shape that was issued.
+
+    ``params`` is the exact mapping the adapter handed to ``update_params``,
+    captured when the request was issued, with the package's
+    device-fingerprint injection mirrored when ``dm`` is on.
+    """
+
+    url: str
+    method: str
+    verify: bool
+    wbi: bool
+    dm: bool
+    params: dict
+
+
 @dataclasses.dataclass
 class FakeUpstreamScript:
     """Scripted upstream behavior; records every call the gateway makes.
 
-    A scripted response may be a plain value or a callable receiving the
+    A scripted page response may be a plain value or a callable receiving the
     documented page parameters (``pn``, ``ps``) so per-page behavior can be
     scripted for multi-page runs.  The scripted ``parts_response`` may
     likewise be a plain value or a callable receiving the requested
     ``bvid``, so each video's parts can be scripted independently (see
     :func:`script_parts_by_bvid`).
+
+    ``videos_response`` / ``videos_error`` script the user-video page request
+    the adapter issues through the package ``Api``; ``access_id`` /
+    ``access_id_error`` script the separate ``access_id`` token route
+    (``None`` by default, which is what the route currently yields in
+    production).  ``user_video_page_endpoint`` is the package-side endpoint
+    description the adapter must read its transport fields from; a test may
+    rewrite it before the adapter module is (re-)imported.
     """
 
     videos_response: object = None
@@ -138,7 +218,14 @@ class FakeUpstreamScript:
     parts_error: BaseException | None = None
     info_response: object = None
     info_error: BaseException | None = None
+    access_id: str | None = None
+    access_id_error: BaseException | None = None
+    user_video_page_endpoint: dict = dataclasses.field(
+        default_factory=lambda: dict(FAKE_USER_VIDEO_PAGE_ENDPOINT)
+    )
     calls: list[str] = dataclasses.field(default_factory=list)
+    access_id_calls: list[str] = dataclasses.field(default_factory=list)
+    api_requests: list[FakeApiRequest] = dataclasses.field(default_factory=list)
     applied_proxies: list[str] = dataclasses.field(default_factory=list)
 
 
@@ -229,30 +316,99 @@ def build_fake_package(script: FakeUpstreamScript) -> dict[str, types.ModuleType
 
     user_mod = types.ModuleType("bilibili_api.user")
 
+    class VideoOrder(Enum):
+        """Mirror of ``user.VideoOrder`` (only the default order is exposed)."""
+
+        PUBDATE = "pubdate"
+
     class User:
-        """Mirror of ``user.User(uid, credential)`` with only get_videos."""
+        """Mirror of ``user.User(uid, credential)`` with only the access_id route.
+
+        The user-video page data no longer flows through this class: the
+        adapter issues the endpoint description's request itself through the
+        package ``Api``.
+        """
 
         def __init__(self, uid: int, credential: object = None) -> None:
             self.uid = uid
             self.credential = credential
 
-        async def get_videos(
+        async def get_access_id(self) -> str | None:
+            script.access_id_calls.append(f"user.get_access_id(uid={self.uid})")
+            if script.access_id_error is not None:
+                raise script.access_id_error
+            return script.access_id
+
+    user_mod.API = {"info": {"video": script.user_video_page_endpoint}}
+    user_mod.User = User
+    user_mod.VideoOrder = VideoOrder
+
+    network_mod = types.ModuleType("bilibili_api.utils.network")
+
+    class Api:
+        """Mirror of ``utils.network.Api`` for the documented page request.
+
+        The package's ``Api`` is built from an endpoint description whose
+        ``url``/``method``/``verify``/``wbi`` the adapter must state and whose
+        ``dm`` it must override, so those fields are required here and are
+        recorded with the parameters of the issued request.  ``result``
+        answers with the scripted page payload or raises the scripted
+        failure.  Only the local request shaping under test is mirrored (the
+        ``dm`` parameter injection); signing, cookies, and retries are not,
+        because the adapter may not depend on them.
+        """
+
+        def __init__(
             self,
-            tid: int = 0,
-            pn: int = 1,
-            ps: int = 30,
-            keyword: str = "",
-            order: object = None,
-        ) -> dict:
-            script.calls.append(f"user.get_videos(pn={pn}, ps={ps})")
+            url: str,
+            method: str,
+            verify: bool,
+            wbi: bool,
+            dm: bool,
+            credential: object = None,
+        ) -> None:
+            self.url = url
+            self.method = method
+            self.verify = verify
+            self.wbi = wbi
+            self.dm = dm
+            self.credential = credential
+            self.params: dict = {}
+
+        def update_params(self, **kwargs: object) -> "Api":
+            """Mirror of ``Api.update_params`` (replaces the parameters)."""
+
+            self.params = dict(kwargs)
+            return self
+
+        @property
+        async def result(self) -> object:
+            """Mirror of ``Api.result``: record, then answer or fail."""
+
+            params = dict(self.params)
+            if self.dm:
+                params.update(_device_fingerprint_params())
+            page_number = params.get("pn")
+            page_size = params.get("ps")
+            script.api_requests.append(
+                FakeApiRequest(
+                    url=self.url,
+                    method=self.method,
+                    verify=self.verify,
+                    wbi=self.wbi,
+                    dm=self.dm,
+                    params=params,
+                )
+            )
+            script.calls.append(f"space.arc.search(pn={page_number}, ps={page_size})")
             if script.videos_error is not None:
                 raise script.videos_error
             response = script.videos_response
             if callable(response):
-                response = response(pn=pn, ps=ps)
+                response = response(pn=page_number, ps=page_size)
             return response
 
-    user_mod.User = User
+    network_mod.Api = Api
 
     video_mod = types.ModuleType("bilibili_api.video")
 
@@ -294,6 +450,7 @@ def build_fake_package(script: FakeUpstreamScript) -> dict[str, types.ModuleType
     return {
         "bilibili_api": package,
         "bilibili_api.user": user_mod,
+        "bilibili_api.utils.network": network_mod,
         "bilibili_api.video": video_mod,
         "bilibili_api.exceptions": exceptions_mod,
         "bilibili_api.request_settings": request_settings_mod,
@@ -434,7 +591,9 @@ __all__ = [
     "BVID",
     "DOCUMENTED_METADATA_CALLS",
     "FAKE_PACKAGE_VERSION",
+    "FAKE_USER_VIDEO_PAGE_ENDPOINT",
     "FakeApiException",
+    "FakeApiRequest",
     "FakeGateway",
     "FakeNetworkException",
     "FakeResponseCodeException",

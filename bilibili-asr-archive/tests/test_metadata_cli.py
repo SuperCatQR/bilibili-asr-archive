@@ -341,9 +341,9 @@ def test_fetch_meta_creates_fresh_database_and_completes(
     # page fetch, one parts fetch, one empty-page fetch (aid present, so no
     # detail call).
     assert bilibili_api_seam.calls == [
-        "user.get_videos(pn=1, ps=100)",
+        "space.arc.search(pn=1, ps=100)",
         "video.get_pages",
-        "user.get_videos(pn=2, ps=100)",
+        "space.arc.search(pn=2, ps=100)",
     ]
 
 
@@ -379,8 +379,8 @@ def test_fetch_meta_limit_pages_stops_limited_exit_zero(
     finally:
         connection.close()
     assert [
-        call for call in bilibili_api_seam.calls if call.startswith("user.get_videos")
-    ] == ["user.get_videos(pn=1, ps=100)"]
+        call for call in bilibili_api_seam.calls if call.startswith("space.arc.search")
+    ] == ["space.arc.search(pn=1, ps=100)"]
 
 
 def test_fetch_meta_start_page_overrides_cursor(
@@ -398,7 +398,7 @@ def test_fetch_meta_start_page_overrides_cursor(
     assert main(["fetch-meta", "--archive-root", tmp_root, "--start-page", "1"]) == 0
 
     # Page 1 was requested again even though the stored cursor pointed at 2.
-    assert bilibili_api_seam.calls.count("user.get_videos(pn=1, ps=100)") == 2
+    assert bilibili_api_seam.calls.count("space.arc.search(pn=1, ps=100)") == 2
     connection = open_database(tmp_root)
     try:
         start_pages = [
@@ -432,7 +432,7 @@ def test_fetch_meta_without_flags_resumes_from_stored_cursor(
 
     # Page 1 was not refetched: the run resumed at the cursor's page 2,
     # while run 1's own completion check already touched page 2.
-    assert bilibili_api_seam.calls.count("user.get_videos(pn=1, ps=100)") == 1
+    assert bilibili_api_seam.calls.count("space.arc.search(pn=1, ps=100)") == 1
     connection = open_database(tmp_root)
     try:
         start_pages = [

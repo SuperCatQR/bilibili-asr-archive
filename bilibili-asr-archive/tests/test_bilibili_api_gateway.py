@@ -5,10 +5,12 @@ on ``sys.modules`` before the gateway module is (re-)imported, so neither the
 real package nor network access is ever required.  The fake package seam, the
 shared scripted protocol double, and the secret/raw-payload sentinels live in
 ``tests/fixtures/fake_bilibili_gateway.py``.  The fake mirrors only the
-documented import surface the gateway may use (``Credential``, ``user.User``,
-``video.Video``, and the exceptions taxonomy) and exposes no playback,
-subtitle, audio, or download methods, which makes silent use of other package
-APIs impossible.  The import boundary and the method surface itself are
+documented import surface the gateway may use (``Credential``, the ``user``
+endpoint description and ``access_id`` route, the WBI-signed
+``utils.network.Api``, ``video.Video``, and the exceptions taxonomy) and
+exposes no playback, subtitle, audio, or download methods, which makes silent
+use of other package APIs impossible.  The import boundary and the method
+surface itself are
 additionally inspected statically with AST over the package sources.  The
 only networked test is the opt-in live smoke, which skips unless
 ``BILI_LIVE_SMOKE=1`` is set.  The packaging-contract test is the one
@@ -46,6 +48,7 @@ from bili_asr.sources.models import (
 from bili_asr.storage.database import MetadataRepository, open_database
 from fixtures.fake_bilibili_gateway import (
     BVID,
+    FAKE_USER_VIDEO_PAGE_ENDPOINT,
     MID,
     PUBDATE,
     RAW_JSON_BODY_MARKER,
@@ -81,10 +84,12 @@ HTTP_BACKEND_CANONICAL_NAME = "curl-cffi"
 #: arrive through the application's dependency closure on its own.
 PACKAGE_HTTP_CLIENT_CANONICAL_NAMES = frozenset({"curl-cffi", "httpx", "aiohttp"})
 
-#: The exact bilibili_api import surface the adapter is allowed to use.
+#: The exact bilibili_api import surface the adapter is allowed to use.  The
+#: user-video page call is issued through ``user``'s own endpoint description
+#: and the WBI-signed ``utils.network.Api``, not through a ``user`` delegate.
 ALLOWED_PACKAGE_IMPORTS = {
-    "bilibili_api": {"Credential", "request_settings"},
-    "bilibili_api.user": {"User"},
+    "bilibili_api": {"Credential", "request_settings", "user"},
+    "bilibili_api.utils.network": {"Api"},
     "bilibili_api.video": {"Video"},
     "bilibili_api.exceptions": {
         "ApiException",
@@ -98,6 +103,15 @@ ALLOWED_PACKAGE_IMPORTS = {
 #: Realistic-looking proxy URL: configuration rather than a credential, but it
 #: must still stay off DTOs, mapped errors, debug renders, and persisted rows.
 PROXY_BOUNDARY_VALUE = "http://PROXY-URL-THAT-MUST-NOT-LEAK:7890"
+
+#: Realistic-looking ``access_id`` token: a request parameter the package
+#: route may yield, which must stay off DTOs and mapped errors like every
+#: other upstream value.
+ACCESS_ID_BOUNDARY_VALUE = "ACCESS-ID-THAT-MUST-NOT-LEAK"
+
+#: Sentinel endpoint URL proving the transport fields are read from the
+#: package's own endpoint description instead of being hard-coded.
+CHANGED_ENDPOINT_URL = "https://changed-endpoint.example.invalid/x/space/wbi/arc/search"
 
 #: The complete documented exception surface the fake seam must mirror.
 ALLOWED_EXCEPTION_NAMES = (
@@ -180,7 +194,7 @@ def test_get_user_video_page_normalizes_documented_fields(bilibili_api_seam):
     assert summary.title == "未明子讲座"
     assert summary.pubdate == PUBDATE
     assert summary.mid == MID
-    assert bilibili_api_seam.calls == ["user.get_videos(pn=1, ps=100)"]
+    assert bilibili_api_seam.calls == ["space.arc.search(pn=1, ps=100)"]
     # The credential value must never surface on any DTO or page.
     assert SESSDATA_BOUNDARY_VALUE not in repr(page)
     assert SESSDATA_BOUNDARY_VALUE not in str(page)
@@ -194,7 +208,7 @@ def test_get_user_video_page_forwards_requested_page_and_size(bilibili_api_seam)
 
     asyncio.run(gateway.get_user_video_page(MID, page_number=4, page_size=50))
 
-    assert bilibili_api_seam.calls == ["user.get_videos(pn=4, ps=50)"]
+    assert bilibili_api_seam.calls == ["space.arc.search(pn=4, ps=50)"]
 
 
 def test_get_user_video_page_tolerates_plain_list_container(bilibili_api_seam):
@@ -380,7 +394,146 @@ def test_get_user_video_page_rejects_malformed_upstream_bvid(
 
     assert caught.value.code == "shape_error"
     assert "bvid" in str(caught.value)
-    assert bilibili_api_seam.calls == ["user.get_videos(pn=1, ps=100)"]
+    assert bilibili_api_seam.calls == ["space.arc.search(pn=1, ps=100)"]
+
+
+# ------------------------------------- user page: risk-control-safe request
+
+
+def test_user_video_page_request_carries_the_documented_parameter_set(
+    bilibili_api_seam,
+):
+    """The page request sends the package's parameters with ``dm`` disabled.
+
+    Device-fingerprint parameters cannot be satisfied here and make the
+    endpoint answer HTTP 412; the same endpoint answers ``code=0`` without
+    them, and the request must still carry ``w_webid`` (empty is the value
+    the unavailable token route degrades to).
+    """
+
+    bilibili_api_seam.videos_response = make_videos_response(make_vlist_item(), count=1)
+    gateway = _load_gateway()
+
+    asyncio.run(gateway.get_user_video_page(MID, page_number=2, page_size=50))
+
+    (request,) = bilibili_api_seam.api_requests
+    assert request.dm is False
+    assert [key for key in request.params if key.startswith("dm_")] == []
+    assert request.params == {
+        "mid": MID,
+        "ps": 50,
+        "tid": 0,
+        "pn": 2,
+        "keyword": "",
+        "order": "pubdate",
+        "order_avoided": True,
+        "platform": "web",
+        "w_webid": "",
+    }
+
+
+def test_user_video_page_request_prefers_the_package_access_id(bilibili_api_seam):
+    """A non-empty ``access_id`` from the package route is what gets sent."""
+
+    bilibili_api_seam.access_id = ACCESS_ID_BOUNDARY_VALUE
+    bilibili_api_seam.videos_response = make_videos_response(make_vlist_item(), count=1)
+    gateway = _load_gateway()
+
+    page = asyncio.run(gateway.get_user_video_page(MID, page_number=1))
+
+    assert bilibili_api_seam.access_id_calls == [f"user.get_access_id(uid={MID})"]
+    assert (
+        bilibili_api_seam.api_requests[0].params["w_webid"]
+        == ACCESS_ID_BOUNDARY_VALUE
+    )
+    # A request parameter still never surfaces on a DTO.
+    assert ACCESS_ID_BOUNDARY_VALUE not in repr(page)
+
+
+def test_user_video_page_request_falls_back_to_empty_w_webid_when_the_route_fails(
+    bilibili_api_seam,
+):
+    """A failing token scrape never fails the page call itself."""
+
+    bilibili_api_seam.access_id_error = FakeNetworkException(412, UPSTREAM_ERROR_TEXT)
+    bilibili_api_seam.videos_response = make_videos_response(make_vlist_item(), count=1)
+    gateway = _load_gateway()
+
+    page = asyncio.run(gateway.get_user_video_page(MID, page_number=1))
+
+    assert page.observed_total == 1
+    assert bilibili_api_seam.api_requests[0].params["w_webid"] == ""
+    assert UPSTREAM_ERROR_TEXT not in str(page)
+
+
+def test_user_video_page_resolves_the_access_id_once_per_user(bilibili_api_seam):
+    """Repeated pages of one user scrape the token route at most once."""
+
+    bilibili_api_seam.videos_response = make_videos_response(make_vlist_item(), count=1)
+    gateway = _load_gateway()
+
+    asyncio.run(gateway.get_user_video_page(MID, page_number=1))
+    asyncio.run(gateway.get_user_video_page(MID, page_number=2))
+
+    assert bilibili_api_seam.access_id_calls == [f"user.get_access_id(uid={MID})"]
+    assert len(bilibili_api_seam.api_requests) == 2
+
+
+def test_user_video_page_resolves_the_access_id_per_user(bilibili_api_seam):
+    """The memoized token is bound to the user it was scraped for."""
+
+    bilibili_api_seam.videos_response = make_videos_response(make_vlist_item(), count=1)
+    gateway = _load_gateway()
+
+    asyncio.run(gateway.get_user_video_page(MID, page_number=1))
+
+    bilibili_api_seam.videos_response = make_videos_response(
+        make_vlist_item(mid=MID + 1), count=1
+    )
+    asyncio.run(gateway.get_user_video_page(MID + 1, page_number=1))
+
+    assert bilibili_api_seam.access_id_calls == [
+        f"user.get_access_id(uid={MID})",
+        f"user.get_access_id(uid={MID + 1})",
+    ]
+
+
+def test_user_video_page_request_takes_its_transport_from_the_package_endpoint(
+    bilibili_api_seam,
+):
+    """``url``/``method``/``verify``/``wbi`` come from the package description."""
+
+    bilibili_api_seam.videos_response = make_videos_response(make_vlist_item(), count=1)
+    gateway = _load_gateway()
+
+    asyncio.run(gateway.get_user_video_page(MID, page_number=1))
+
+    (request,) = bilibili_api_seam.api_requests
+    assert request.url == FAKE_USER_VIDEO_PAGE_ENDPOINT["url"]
+    assert request.method == FAKE_USER_VIDEO_PAGE_ENDPOINT["method"]
+    assert request.wbi is FAKE_USER_VIDEO_PAGE_ENDPOINT["wbi"]
+    assert request.verify is FAKE_USER_VIDEO_PAGE_ENDPOINT["verify"]
+    # The package's own description carries ``dm: True``; the adapter turns
+    # that off itself.
+    assert FAKE_USER_VIDEO_PAGE_ENDPOINT["dm"] is True
+    assert request.dm is False
+
+
+def test_user_video_page_request_follows_a_changed_package_endpoint(
+    bilibili_api_seam,
+):
+    """No transport field is hard-coded: the package description decides."""
+
+    bilibili_api_seam.user_video_page_endpoint["url"] = CHANGED_ENDPOINT_URL
+    bilibili_api_seam.user_video_page_endpoint["wbi"] = False
+    bilibili_api_seam.videos_response = make_videos_response(make_vlist_item(), count=1)
+    gateway = _load_gateway()
+
+    asyncio.run(gateway.get_user_video_page(MID, page_number=1))
+
+    (request,) = bilibili_api_seam.api_requests
+    assert request.url == CHANGED_ENDPOINT_URL
+    assert request.wbi is False
 
 
 # -------------------------------------------------------------- video parts
@@ -825,7 +978,7 @@ def test_gateway_applies_the_resolved_proxy_once_before_the_first_call(
 
     asyncio.run(gateway.get_user_video_page(MID, page_number=1))
 
-    assert bilibili_api_seam.calls == ["user.get_videos(pn=1, ps=100)"]
+    assert bilibili_api_seam.calls == ["space.arc.search(pn=1, ps=100)"]
     # Apply-once: no request re-applies or re-reads the setting.
     assert bilibili_api_seam.applied_proxies == [PROXY_BOUNDARY_VALUE]
 
@@ -881,7 +1034,7 @@ def test_gateway_leaves_the_package_setting_untouched_without_a_proxy(
 
     asyncio.run(gateway.get_user_video_page(MID, page_number=1))
 
-    assert bilibili_api_seam.calls == ["user.get_videos(pn=1, ps=100)"]
+    assert bilibili_api_seam.calls == ["space.arc.search(pn=1, ps=100)"]
     assert bilibili_api_seam.applied_proxies == []
 
 
@@ -1111,7 +1264,9 @@ def test_gateway_source_never_names_forbidden_seam_methods():
 
     assert forbidden_hits == []
     # Positive control: the scan sees the documented metadata attribute calls.
-    assert {"get_videos", "get_pages", "get_info"} <= attribute_names
+    assert {"get_access_id", "update_params", "get_pages", "get_info"} <= (
+        attribute_names
+    )
 
 
 def test_fake_seam_exposes_only_documented_metadata_surface():
@@ -1120,8 +1275,9 @@ def test_fake_seam_exposes_only_documented_metadata_surface():
     modules = build_fake_package(FakeUpstreamScript())
     package = modules["bilibili_api"]
 
-    assert _public_names(modules["bilibili_api.user"]) == ["User"]
+    assert _public_names(modules["bilibili_api.user"]) == ["API", "User", "VideoOrder"]
     assert _public_names(modules["bilibili_api.video"]) == ["Video"]
+    assert _public_names(modules["bilibili_api.utils.network"]) == ["Api"]
     assert _public_names(modules["bilibili_api.exceptions"]) == sorted(
         ALLOWED_EXCEPTION_NAMES
     )
@@ -1154,6 +1310,10 @@ def test_fake_seam_exposes_only_documented_metadata_surface():
             getattr(user, surface_name)
         with pytest.raises(AttributeError):
             getattr(video, surface_name)
+    # The page delegate the risk-control-safe shape replaces is gone, so a
+    # regression to it fails loudly instead of passing through the seam.
+    with pytest.raises(AttributeError):
+        user.get_videos
 
 
 def test_gateway_dto_drops_unknown_upstream_payload_fields(bilibili_api_seam):
@@ -1181,7 +1341,7 @@ def test_gateway_dto_drops_unknown_upstream_payload_fields(bilibili_api_seam):
         assert_leaks_no_markers(repr(surface), context="gateway DTO repr")
         assert_leaks_no_markers(str(surface), context="gateway DTO str")
     assert bilibili_api_seam.calls == [
-        "user.get_videos(pn=1, ps=100)",
+        "space.arc.search(pn=1, ps=100)",
         "video.get_info",
         "video.get_pages",
     ]

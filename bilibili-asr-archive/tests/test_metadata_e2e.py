@@ -302,10 +302,10 @@ def test_fetch_meta_normalizes_single_part_and_multipart_videos_end_to_end(
     # page fetch, one parts fetch per distinct video, then the completing
     # empty-page fetch (aids present, so no detail calls).
     assert script.calls == [
-        "user.get_videos(pn=1, ps=100)",
+        "space.arc.search(pn=1, ps=100)",
         "video.get_pages",
         "video.get_pages",
-        "user.get_videos(pn=2, ps=100)",
+        "space.arc.search(pn=2, ps=100)",
     ]
     assert_only_documented_metadata_calls(script.calls)
 
@@ -440,7 +440,7 @@ def test_fetch_meta_rerun_of_same_page_stores_no_duplicate_rows(
     assert "sessdata: present" in out
     assert_leaks_no_markers(out + err, context="fetch-meta re-run output")
     # Page 1 was fetched exactly twice: once per run.
-    assert script.calls.count("user.get_videos(pn=1, ps=100)") == 2
+    assert script.calls.count("space.arc.search(pn=1, ps=100)") == 2
 
     for relative in LEGACY_SIDECAR_PATHS:
         assert not os.path.exists(os.path.join(tmp_root, relative))
@@ -572,11 +572,11 @@ def test_fetch_meta_failed_page_preserves_cursor_and_resume_succeeds(
     # The full call trace: bounded page fetches, one parts fetch per new
     # video, the failed resume page, then the successful resume.
     assert script.calls == [
-        "user.get_videos(pn=1, ps=100)",
+        "space.arc.search(pn=1, ps=100)",
         "video.get_pages",
-        "user.get_videos(pn=2, ps=100)",
-        "user.get_videos(pn=2, ps=100)",
+        "space.arc.search(pn=2, ps=100)",
+        "space.arc.search(pn=2, ps=100)",
         "video.get_pages",
-        "user.get_videos(pn=3, ps=100)",
+        "space.arc.search(pn=3, ps=100)",
     ]
     assert_only_documented_metadata_calls(script.calls)
