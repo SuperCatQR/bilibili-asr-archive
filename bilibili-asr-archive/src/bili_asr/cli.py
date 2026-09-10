@@ -5,11 +5,22 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import sqlite3
 import sys
 import time
 from pathlib import Path
 
-DEFAULT_MID = 23191782
+from .config import (
+    ARCHIVE_DATABASE_NAME,
+    DEFAULT_MID,
+    DEFAULT_PAGE_LIMIT,
+    SESSDATA_ENV_VAR,
+    MetadataConfigError,
+    load_metadata_config,
+    redact_sessdata,
+    resolve_sessdata,
+)
+
 DEFAULT_ARCHIVE_ROOT = os.path.join("archive")
 
 
@@ -37,12 +48,18 @@ def build_parser() -> argparse.ArgumentParser:
 
     fetch_meta = subparsers.add_parser(
         "fetch-meta",
-        help="Enumerate videos for a mid and write the manifest ledger",
+        help="Collect video metadata for a user into the SQLite archive database",
     )
     fetch_meta.add_argument("--mid", type=int, default=DEFAULT_MID,
                             help="Bilibili user mid")
-    fetch_meta.add_argument(
-        "--resume", action="store_true", help="Resume without duplicating bvids"
+    resume_or_start = fetch_meta.add_mutually_exclusive_group()
+    resume_or_start.add_argument(
+        "--resume", action="store_true",
+        help="Resume from the stored cursor; fails when none exists",
+    )
+    resume_or_start.add_argument(
+        "--start-page", type=int, default=None,
+        help="Explicit one-based start page (overrides the stored cursor)",
     )
     fetch_meta.add_argument(
         "--archive-root", default=DEFAULT_ARCHIVE_ROOT,
@@ -54,7 +71,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     fetch_meta.add_argument(
         "--limit-pages", type=int, default=None,
-        help="Stop after N pages (smoke runs)",
+        help=f"Stop after collecting N pages (default: {DEFAULT_PAGE_LIMIT})",
     )
 
     status = subparsers.add_parser("status", help="Print manifest status summary")
@@ -456,315 +473,163 @@ def _is_excluded(entry: dict | None) -> bool:
     )
 
 
-def _cached_page_lister(client):
-    """Reuse pagelist results and pace calls like series fetch."""
-    cache: dict = {}
-
-    def pages_for(bvid: str):
-        if bvid in cache:
-            return cache[bvid]
-        if cache:
-            jitter = getattr(client, "_jitter", lambda: 0.0)()
-            client._sleeper(0.8 + max(0.0, jitter) * 0.8)
-        cache[bvid] = client.list_pages(bvid)
-        return cache[bvid]
-
-    return pages_for
+_MAX_DISPLAYED_PENDING_PARTS = 20
 
 
-def _merge_page_rows(client, records: dict, existing: dict, pages_for=None) -> dict:
-    """Expand each enumerated bvid into one ledger row per PageIdentity."""
-    from .page_identity import apply_identity
-
-    if pages_for is None:
-        pages_for = _cached_page_lister(client)
-    entries = dict(existing)
-    for bvid, meta in records.items():
-        bare = entries.get(bvid)
-        if _is_excluded(bare):
-            continue
-        try:
-            pages = pages_for(bvid)
-        except Exception:
-            continue
-        for page in pages:
-            prev = entries.get(page.work_id) or {}
-            if _is_excluded(prev):
-                continue
-            entry = dict(prev)
-            entry.update(meta)
-            entry = apply_identity(entry, page)
-            entry.setdefault("status", "meta_ok")
-            entries[page.work_id] = entry
-        if (
-            bvid in entries
-            and not entries[bvid].get("work_id")
-            and not _is_excluded(entries[bvid])
-        ):
-            del entries[bvid]
-    return entries
+def _metadata_database_path(archive_root: str) -> str:
+    """Return the fresh SQLite database path below an archive root."""
+    return os.path.join(archive_root, ARCHIVE_DATABASE_NAME)
 
 
-def _persist_cursor(
-    cursor_store,
-    *,
-    mid: int,
-    next_page: int,
-    total: int | None,
-    state: str,
-    last_api_error_code: int | str | None = None,
-) -> None:
-    from .meta_cursor import utc_now_iso
+def _open_read_repository(
+    command: str, archive_root: str
+) -> "MetadataRepository | None":
+    """Open the fresh database for a read command; None after printing why not.
 
-    cursor_store.replace_atomic(
-        {
-            "mid": mid,
-            "next_page": next_page,
-            "total": total,
-            "state": state,
-            "last_api_error_code": last_api_error_code,
-            "updated_at": utc_now_iso(),
-        }
-    )
-
-
-def _interrupt_cursor(client, cursor_store, mid: int, last_api_error_code) -> None:
-    _persist_cursor(
-        cursor_store,
-        mid=mid,
-        next_page=client.last_failed_page,
-        total=client.last_observed_total,
-        state="risk_interrupted",
-        last_api_error_code=last_api_error_code,
-    )
-
-
-def _persist_partial(client, store, existing, pages_for=None) -> int:
-    """Merge and save pages already fetched (H2: honest --resume).
-
-    Returns the number of records persisted from this partial run.
+    Read commands never create the database: a missing file is the
+    documented configuration error (exit 1), and an unreadable file is
+    reported bounded without raw SQLite text.
     """
-    if pages_for is None:
-        pages_for = _cached_page_lister(client)
-    records = client.merge_pages(client.pages_fetched)
-    entries = _merge_page_rows(client, records, existing, pages_for=pages_for)
-    store.save(entries)
-    return len(records)
+    from bili_asr.storage import MetadataRepository, open_database
+
+    if not os.path.isfile(_metadata_database_path(archive_root)):
+        print(
+            f"{command}: no archive database at {archive_root}; "
+            "run fetch-meta to create it",
+            file=sys.stderr,
+        )
+        return None
+    try:
+        connection = open_database(archive_root)
+    except (OSError, sqlite3.Error) as exc:
+        print(
+            f"{command}: unreadable archive database at {archive_root} "
+            f"({type(exc).__name__})",
+            file=sys.stderr,
+        )
+        return None
+    return MetadataRepository(connection)
 
 
 def _cmd_fetch_meta(args: argparse.Namespace) -> int:
-    # Imported here so --help / status never require requests at import time
-    # in low-dependency environments (bili_client lazy-imports requests).
-    from . import bili_client
-    from .manifest import ManifestStore
-    from .meta_cursor import MetaCursorStore
-    from .page_identity import parse_work_id
-    from .run_ledger import (
-        RunLedger,
-        build_run_record,
-        compute_coverage_summary,
-        utc_now_iso,
-    )
+    """Collect video metadata into the fresh SQLite archive database.
 
-    started_at = utc_now_iso()
-    ledger = RunLedger(root=args.archive_root)
-    sessdata = _resolve_sessdata(args)
-    client = bili_client.BiliClient(sessdata=sessdata)
-    store = ManifestStore(root=args.archive_root)
-    cursor_store = MetaCursorStore(root=args.archive_root)
-    # Always merge prior JSONL (last-write-wins). Without --resume the
-    # leftover cursor is replaced; the catalog is not truncated to page 1.
-    existing = store.load()
-    start_page = 1
-    if args.resume:
-        resumed = cursor_store.resume_start_page(args.mid)
-        if resumed is not None:
-            start_page = resumed
-    pages_for = _cached_page_lister(client)
-    # Seed fetch_pages.seen only on --resume. A full recrawl must walk
-    # ceil(total/ps) even when every page-1 bvid already lives in JSONL;
-    # the no-new-bvid stop would otherwise fire after the first overlap.
-    known_bvids: set[str] = set()
-    if args.resume:
-        for key, row in existing.items():
-            bvid = row.get("bvid") if isinstance(row, dict) else None
-            if bvid:
-                known_bvids.add(str(bvid))
-                continue
-            try:
-                parsed, _ = parse_work_id(key)
-                known_bvids.add(parsed)
-            except ValueError:
-                pass
-    per_page_persists = 0
-
-    def _record_exit(
-        exit_code: int,
-        *,
-        pages_count: int | None = None,
-        records_count: int | None = None,
-        last_error_code: int | str | None = None,
-    ) -> None:
-        try:
-            cursor_snapshot = cursor_store.load()
-            coverage = compute_coverage_summary(store.load())
-            rec = build_run_record(
-                command="fetch-meta",
-                started_at=started_at,
-                finished_at=utc_now_iso(),
-                exit_code=exit_code,
-                mid=args.mid,
-                pages_fetched=pages_count,
-                records_fetched=records_count,
-                records_existing=len(existing),
-                last_api_error_code=last_error_code,
-                coverage_summary=coverage,
-                cursor_snapshot=cursor_snapshot,
-            )
-            ledger.append(rec)
-        except Exception:
-            pass
-
-    def _after_successful_page() -> None:
-        nonlocal existing, per_page_persists
-        _persist_partial(client, store, existing, pages_for=pages_for)
-        existing = store.load()
-        per_page_persists += 1
-        # Mid-run: never persist running; keep risk_interrupted until the
-        # terminal complete/limited write after fetch_pages returns.
-        _persist_cursor(
-            cursor_store,
-            mid=args.mid,
-            next_page=client.last_completed_page + 1,
-            total=client.last_observed_total,
-            state="risk_interrupted",
-        )
+    Exit taxonomy (metadata-cli-contract spec): 0 successful collection
+    (reached end or explicit --limit-pages); 1 usage/configuration error;
+    2 terminal gateway failure with the cursor unchanged.  This handler
+    never reads or writes the legacy manifest/cursor/ledger sidecars.
+    """
+    from bili_asr.services import MetadataIngestor
+    from bili_asr.sources.bilibili_api_gateway import BilibiliApiGateway
+    from bili_asr.storage import MetadataRepository, open_database
 
     try:
-        pages = client.fetch_pages(
-            args.mid,
-            max_pages=args.limit_pages,
-            start_page=start_page,
-            on_page=_after_successful_page,
-            known_bvids=known_bvids or None,
-        )
-    except bili_client.RiskBudgetExhausted as exc:
-        unenumerated = client.last_failed_page
-        partial = _persist_partial(client, store, existing, pages_for=pages_for)
-        _interrupt_cursor(client, cursor_store, args.mid, exc.last_code)
-        _record_exit(
-            2,
-            pages_count=len(client.pages_fetched),
-            records_count=partial,
-            last_error_code=exc.last_code,
-        )
+        config = load_metadata_config(args)
+    except MetadataConfigError as exc:
+        print(f"fetch-meta: {exc}", file=sys.stderr)
+        return 1
+
+    if config.resume and not os.path.isfile(
+        _metadata_database_path(config.archive_root)
+    ):
         print(
-            f"risk-control ceiling: page {unenumerated} could not be "
-            f"enumerated (retry budget exhausted, last code {exc.last_code}); "
-            f"{partial} record(s) from {len(client.pages_fetched)} fetched "
-            f"page(s) persisted, {len(existing)} pre-existing entries kept. "
-            f"Re-run with --resume to continue.",
+            f"fetch-meta: no archive database at {config.archive_root}; "
+            "--resume requires a stored cursor",
             file=sys.stderr,
         )
-        return 2
-    except bili_client.APIResponseError as exc:
-        partial = _persist_partial(client, store, existing, pages_for=pages_for)
-        _interrupt_cursor(client, cursor_store, args.mid, exc.code)
-        _record_exit(
-            2,
-            pages_count=len(client.pages_fetched),
-            records_count=partial,
-            last_error_code=exc.code,
-        )
+        return 1
+    try:
+        connection = open_database(config.archive_root)
+    except (OSError, sqlite3.Error) as exc:
         print(
-            f"fetch-meta: API response error (code {exc.code}) at page "
-            f"{client.last_failed_page}; {partial} record(s) from "
-            f"{len(client.pages_fetched)} fetched page(s) persisted. "
-            f"Re-run with --resume to continue.",
+            f"fetch-meta: invalid --archive-root {config.archive_root} "
+            f"({type(exc).__name__})",
             file=sys.stderr,
         )
-        return 2
-    except bili_client.GoneResponse as exc:
-        partial = _persist_partial(client, store, existing, pages_for=pages_for)
-        _interrupt_cursor(client, cursor_store, args.mid, exc.code)
-        _record_exit(
-            2,
-            pages_count=len(client.pages_fetched),
-            records_count=partial,
-            last_error_code=exc.code,
+        return 1
+
+    try:
+        repository = MetadataRepository(connection)
+        if config.resume and repository.read_cursor(config.mid) is None:
+            print(
+                f"fetch-meta: --resume requires a stored cursor; none recorded "
+                f"for mid={config.mid} (drop --resume to start from page 1)",
+                file=sys.stderr,
+            )
+            return 1
+        gateway = BilibiliApiGateway(sessdata=config.sessdata)
+        ingestor = MetadataIngestor(gateway, repository)
+        result = ingestor.collect_user_pages(
+            mid=config.mid,
+            start_page=config.start_page,
+            page_limit=config.page_limit,
         )
-        if client.pages_fetched:
-            print(
-                f"fetch-meta: terminal API response (code {exc.code}) at "
-                f"page {client.last_failed_page}; {len(client.pages_fetched)} "
-                f"page(s) already fetched were persisted ({partial} "
-                f"record(s)) — re-run with --resume to continue.",
-                file=sys.stderr,
-            )
-        else:
-            print(
-                f"fetch-meta: terminal API response (code {exc.code}) at "
-                f"page {client.last_failed_page}; no pages enumerated.",
-                file=sys.stderr,
-            )
-        return 2
     except Exception:
-        # H1 belt-and-braces: any unexpected error exits 1 with a fixed,
-        # redacted summary and never a traceback.
+        # C5: the ingestor resolves bounded gateway failures internally, so
+        # anything escaping is unexpected — exit the terminal code with a
+        # fixed redacted summary, never a traceback or payload text.
         print("fetch-meta: unexpected error", file=sys.stderr)
-        return 1
+        return 2
+    finally:
+        connection.close()
 
-    records = client.merge_pages(pages)
-    if per_page_persists:
-        entries = store.load()
-    else:
-        entries = _merge_page_rows(client, records, existing, pages_for=pages_for)
-        store.save(entries)
-    try:
-        store.migrate_legacy_rows(
-            pages_for,
-            archive_root=args.archive_root,
-            coalesce_existing_page=True,
+    print(f"sessdata: {redact_sessdata(config.sessdata)}")
+    print(
+        f"fetch-meta: collected {result.page_count} page(s) for "
+        f"mid={config.mid} (outcome={result.outcome})"
+    )
+    if result.outcome in {"risk_interrupted", "failed"}:
+        cursor_clause = (
+            f"cursor unchanged at page {result.next_cursor.next_page}"
+            if result.next_cursor is not None
+            else "no cursor recorded"
         )
-    except Exception:
-        print("fetch-meta: legacy migration failed", file=sys.stderr)
-        return 1
-    entries = store.load()
-    next_page = client.last_completed_page + 1
-    if client.enumeration_complete:
-        cursor_state = "complete"
-    else:
-        cursor_state = "limited"
-    _persist_cursor(
-        cursor_store,
-        mid=args.mid,
-        next_page=next_page,
-        total=client.last_observed_total,
-        state=cursor_state,
-    )
-    _record_exit(
-        0,
-        pages_count=len(pages),
-        records_count=len(records),
-        last_error_code=None,
-    )
-
-    total_s = sum(e.get("duration_s", 0) for e in entries.values())
-    print(f"manifest: {len(entries)} videos "
-          f"({len(records)} fetched, {len(existing)} resumed)")
-    print(f"total duration: {total_s / 3600:.1f} h")
-    if cursor_state == "complete":
-        print("enumeration: complete")
-    else:
         print(
-            f"enumeration: limited (next unenumerated page {next_page})"
+            f"fetch-meta: metadata gateway failure ({result.error_code}); "
+            f"{cursor_clause} — re-run fetch-meta to resume.",
+            file=sys.stderr,
+        )
+        return 2
+    if result.next_cursor is not None:
+        print(
+            f"cursor: next_page={result.next_cursor.next_page} "
+            f"state={result.next_cursor.state}"
         )
     return 0
 
 
+def _run_error_codes(repository: "MetadataRepository") -> dict[str, str]:
+    """Collect one bounded error code per run from recorded page evidence."""
+    codes: dict[str, str] = {}
+    rows = repository.connection.execute(
+        "SELECT run_id, error_code FROM ingestion_pages"
+        " WHERE error_code IS NOT NULL ORDER BY run_id, page_number"
+    ).fetchall()
+    for row in rows:
+        codes.setdefault(str(row["run_id"]), str(row["error_code"]))
+    return codes
+
+
+def _format_run_line(stats: sqlite3.Row, error_code: str | None) -> str:
+    """Render one run row: identity, times, outcome, counts, bounded error."""
+    finished = stats["finished_at"]
+    fields = [
+        f"run {stats['run_id']}",
+        f"mid={stats['mid']}",
+        f"started={stats['started_at']}",
+        f"finished={finished if finished is not None else '-'}",
+        f"outcome={stats['outcome']}",
+        f"pages={stats['page_count']}",
+        f"videos={stats['video_count']}",
+    ]
+    if error_code is not None:
+        fields.append(f"error={error_code}")
+    return " ".join(fields)
+
+
 def _resolve_sessdata(args: argparse.Namespace) -> str | None:
     """SESSDATA from --sessdata or env BILI_SESSDATA; never echoed."""
-    return args.sessdata or os.environ.get("BILI_SESSDATA") or None
+    return resolve_sessdata(args.sessdata, os.environ.get(SESSDATA_ENV_VAR))
 
 
 def _cmd_probe_subs(args: argparse.Namespace) -> int:
@@ -1031,32 +896,45 @@ def _cmd_download_audio(args: argparse.Namespace) -> int:
 
 
 def _cmd_status(args: argparse.Namespace) -> int:
-    from collections import Counter
-    from .manifest import ManifestStore
-    from .run_ledger import RunLedger, format_coverage_summary, format_cursor_summary
-
-    store = ManifestStore(root=args.archive_root)
-    entries = store.load()
-    counts = Counter(entry.get("status", "pending") for entry in entries.values())
-    if not counts:
-        print("manifest: empty")
-    else:
-        for status in sorted(counts):
-            print(f"{status}: {counts[status]}")
-    unresolved = store.unresolved_identifiers()
-    if unresolved:
-        print(f"unresolved: {len(unresolved)}")
-        for identifier in unresolved:
-            print(f"  {identifier}")
-    records = RunLedger(root=args.archive_root).load()
-    if not records:
-        print("runs: 0")
-    else:
-        print(f"runs: {len(records)}")
-        latest = records[-1]
-        print(f"latest run: {latest.get('run_id', 'unknown')} ({latest.get('command', 'unknown')}, exit {latest.get('exit_code', '?')}, {latest.get('finished_at') or latest.get('started_at') or ''})")
-        print(f"latest cursor: {format_cursor_summary(latest.get('cursor_snapshot'))}")
-        print(f"latest coverage: {format_coverage_summary(latest.get('coverage_summary'))}")
+    """Report metadata state from the fresh SQLite database only."""
+    repository = _open_read_repository("status", args.archive_root)
+    if repository is None:
+        return 1
+    connection = repository.connection
+    counts = connection.execute(
+        "SELECT (SELECT COUNT(*) FROM bilibili_users) AS users,"
+        " (SELECT COUNT(*) FROM videos) AS videos,"
+        " (SELECT COUNT(*) FROM video_parts) AS parts"
+    ).fetchone()
+    print(f"users: {counts['users']}")
+    print(f"videos: {counts['videos']}")
+    print(f"parts: {counts['parts']}")
+    processing = connection.execute(
+        "SELECT processing_status, COUNT(*) AS count FROM video_parts"
+        " GROUP BY processing_status ORDER BY processing_status"
+    ).fetchall()
+    if processing:
+        summary = ", ".join(
+            f"{row['processing_status']}={row['count']}" for row in processing
+        )
+        print(f"processing: {summary}")
+    pending = repository.list_pending_parts()
+    print(f"pending: {len(pending)}")
+    for row in pending[:_MAX_DISPLAYED_PENDING_PARTS]:
+        print(f"  {row['work_id']}")
+    hidden = len(pending) - _MAX_DISPLAYED_PENDING_PARTS
+    if hidden > 0:
+        print(f"  + {hidden} more pending part(s)")
+    # The cursor row is reported exactly as stored: a failed or
+    # risk-interrupted run leaves it untouched, so this line never implies
+    # the cursor advanced past a failed page (C3).
+    for user_row in connection.execute("SELECT mid FROM bilibili_users ORDER BY mid"):
+        cursor = repository.read_cursor(int(user_row["mid"]))
+        if cursor is not None:
+            print(
+                f"cursor: mid={cursor.mid} next_page={cursor.next_page} "
+                f"state={cursor.state}"
+            )
     return 0
 
 
@@ -1246,22 +1124,30 @@ def _cmd_coverage(args: argparse.Namespace) -> int:
 
 
 def _cmd_runs(args: argparse.Namespace) -> int:
-    from .run_ledger import RunLedger, format_run_summary
+    """List ingestion runs newest-first from the fresh SQLite database.
 
-    ledger = RunLedger(root=args.archive_root)
-    records = ledger.load()
-    if not records:
+    Non-terminal ``running`` rows are rendered too: abnormal termination
+    can leave a stale run behind and hiding it would hide real state (C2).
+    """
+    repository = _open_read_repository("runs", args.archive_root)
+    if repository is None:
+        return 1
+    if args.limit is not None and args.limit < 1:
+        print("runs: --limit must be a positive integer", file=sys.stderr)
+        return 1
+    stats_rows = repository.run_stats()
+    if not stats_rows:
         print("runs: empty")
         return 0
-
-    if args.limit is not None:
-        if args.limit <= 0:
-            print("runs: empty")
-            return 0
-        records = records[-args.limit:]
-
-    for record in records:
-        print(format_run_summary(record))
+    error_codes = _run_error_codes(repository)
+    ordered = sorted(
+        stats_rows,
+        key=lambda row: (row["started_at"], row["run_id"]),
+        reverse=True,
+    )
+    selected = ordered if args.limit is None else ordered[: args.limit]
+    for row in selected:
+        print(_format_run_line(row, error_codes.get(str(row["run_id"]))))
     return 0
 
 

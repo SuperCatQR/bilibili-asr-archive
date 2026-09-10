@@ -440,6 +440,12 @@ def test_cli_dispatch_locks_every_archive_mutation(
         yield
 
     monkeypatch.setattr(coordinator, "archive_writer", busy_writer)
+    # status is a read command: it never takes the writer lock, so it
+    # succeeds against an existing fresh database while the writer lock
+    # stays busy.
+    from bili_asr.storage import open_database
+
+    open_database(os.fspath(tmp_path)).close()
     assert cli.main(["status", "--archive-root", os.fspath(tmp_path)]) == 0
     capsys.readouterr()
     assert cli.main([

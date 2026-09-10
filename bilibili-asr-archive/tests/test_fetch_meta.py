@@ -1,15 +1,16 @@
-"""Unit tests for fetch-meta: mocked transport only, no live network."""
+"""Unit tests for bili_client transport: mocked transport only, no live network.
+
+The fetch-meta CLI contract lives in tests/test_metadata_cli.py (SQLite
+metadata path).  This module keeps covering the bili_client transport
+layer that the future subtitle/audio/ASR modules still drive.
+"""
 
 from __future__ import annotations
-
-import json
-import os
 
 import pytest
 
 from bili_asr import bili_client as bc
-from bili_asr.cli import main
-from bili_asr.manifest import ManifestStore
+from bili_asr.cli import build_parser
 
 API = "https://api.bilibili.com"
 
@@ -340,133 +341,10 @@ def test_merge_pages_dedupes_across_pages():
     assert records["BV1A"]["title"] == "t BV1A"
 
 
-# ---------------------------------------------------------------- CLI
-
-
-def test_cli_fetch_meta_writes_manifest(tmp_root, fast_sleep, monkeypatch):
-    transport = FakeTransport(
-        [
-            (200, ok_page([arc("BV1A", duration=3600), arc("BV1B", duration=1800)],
-                          total=2)),
-            (200, ok_page([], total=2)),  # next page empty -> stop
-        ],
-    )
-    monkeypatch.setattr(bc, "build_default_transport", lambda: transport)
-    monkeypatch.setattr(bc, "default_sleeper", lambda: fast_sleep)
-    rc = main(["fetch-meta", "--mid", "23191782", "--archive-root", tmp_root])
-    assert rc == 0
-    entries = ManifestStore(root=tmp_root).load()
-    assert set(entries) == {"BV1A:p0", "BV1B:p0"}
-    for e in entries.values():
-        assert e["status"] == "meta_ok"
-        assert e["work_id"].endswith(":p0")
-    assert entries["BV1A:p0"]["duration_s"] == 3600
-    assert entries["BV1A:p0"]["pubdate"] == 1700000000
-
-
-def test_cli_fetch_meta_uses_env_sessdata_without_echoing(
-    tmp_root, fast_sleep, monkeypatch, capsys
-):
-    secret = "FETCH-META-ENV-SESSDATA"
-    transport = FakeTransport(
-        [
-            (200, ok_page([arc("BV1A")], total=1)),
-            (200, ok_page([], total=1)),
-        ]
-    )
-    monkeypatch.setenv("BILI_SESSDATA", secret)
-    monkeypatch.setattr(bc, "build_default_transport", lambda: transport)
-    monkeypatch.setattr(bc, "default_sleeper", lambda: fast_sleep)
-
-    rc = main(["fetch-meta", "--mid", "23191782", "--archive-root", tmp_root])
-
-    assert rc == 0
-    assert transport.calls
-    assert all(call["cookies"].get("SESSDATA") == secret for call in transport.calls)
-    captured = capsys.readouterr()
-    assert secret not in captured.out + captured.err
-    manifest_text = open(
-        ManifestStore(root=tmp_root).path, encoding="utf-8"
-    ).read()
-    assert secret not in manifest_text
-
-
-def test_cli_fetch_meta_redacts_successful_run_migration_failure(
-    tmp_root, fast_sleep, monkeypatch, capsys
-):
-    secret = "migration /secret/SESSDATA=https://signed.example"
-    transport = FakeTransport(
-        [
-            (200, ok_page([arc("BV1A")], total=1)),
-            (200, ok_page([], total=1)),
-        ]
-    )
-    monkeypatch.setattr(bc, "build_default_transport", lambda: transport)
-    monkeypatch.setattr(bc, "default_sleeper", lambda: fast_sleep)
-
-    def fail_migration(*_args, **_kwargs):
-        raise RuntimeError(secret)
-
-    monkeypatch.setattr(ManifestStore, "migrate_legacy_rows", fail_migration)
-    rc = main(["fetch-meta", "--mid", "23191782", "--archive-root", tmp_root])
-
-    captured = capsys.readouterr()
-    assert rc == 1
-    assert captured.err == "fetch-meta: legacy migration failed\n"
-    assert secret not in captured.out + captured.err
-
-
-def test_cli_resume_does_not_duplicate(tmp_root, fast_sleep, monkeypatch):
-    store = ManifestStore(root=tmp_root)
-    store.load()
-    store.save({
-        "BV1A": {
-            "bvid": "BV1A", "status": "meta_ok", "title": "t BV1A",
-            "duration_s": 100, "pubdate": 1,
-        }
-    })
-    transport = FakeTransport(
-        [
-            (200, ok_page([arc("BV1A"), arc("BV1B")], total=2)),
-            (200, ok_page([], total=2)),
-        ],
-    )
-    monkeypatch.setattr(bc, "build_default_transport", lambda: transport)
-    monkeypatch.setattr(bc, "default_sleeper", lambda: fast_sleep)
-    rc = main(["fetch-meta", "--mid", "23191782", "--resume",
-               "--archive-root", tmp_root])
-    assert rc == 0
-    entries = store.load()
-    assert set(entries) == {"BV1A:p0", "BV1B:p0"}
-    lines = open(store.path, encoding="utf-8").read().strip().splitlines()
-    bvids = [json.loads(line)["bvid"] for line in lines]
-    assert set(bvids) == {"BV1A", "BV1B"}
-    assert set(store.load()) == {"BV1A:p0", "BV1B:p0"}
-
-
-def test_cli_budget_exhausted_exit_2(tmp_root, fast_sleep, monkeypatch, capsys):
-    transport = FakeTransport([(412, None)] * 5, spi=[SPI_OK, SPI_NEW])
-    monkeypatch.setattr(bc, "build_default_transport", lambda: transport)
-    monkeypatch.setattr(bc, "default_sleeper", lambda: fast_sleep)
-    rc = main(["fetch-meta", "--mid", "23191782", "--archive-root", tmp_root])
-    assert rc == 2
-    captured = capsys.readouterr()
-    out = captured.out + captured.err
-    assert "risk-control ceiling" in out
-    assert "page 1" in out  # un-enumerated page count documented
-
-
-def test_cli_pages_limit(tmp_root, fast_sleep, monkeypatch):
-    transport = FakeTransport(
-        [(200, ok_page([arc("BV1A")], total=99))],
-    )
-    monkeypatch.setattr(bc, "build_default_transport", lambda: transport)
-    monkeypatch.setattr(bc, "default_sleeper", lambda: fast_sleep)
-    rc = main(["fetch-meta", "--mid", "23191782", "--limit-pages", "1",
-               "--archive-root", tmp_root])
-    assert rc == 0
-    entries = ManifestStore(root=tmp_root).load()
-    assert set(entries) == {"BV1A:p0"}
+# ------------------------------------------------- fix wave 1 (QC1/2/3) tests
+# (the fetch-meta CLI contract moved to tests/test_metadata_cli.py — SQLite
+# metadata path; these tests keep covering the bili_client transport layer
+# that the future subtitle/audio/ASR modules still drive)
 
 
 # ------------------------------------------------- fix wave 1 (QC1/2/3) tests
@@ -540,136 +418,6 @@ def test_spi_transport_error_wrapped_as_budget_exhausted(fast_sleep):
         client.fetch_pages(23191782, max_pages=1)
 
 
-# H2: partial pages persisted on RiskBudgetExhausted / GoneResponse mid-run
-
-
-def test_cli_budget_exhausted_midrun_persists_partial(tmp_root, fast_sleep,
-                                                      monkeypatch, capsys):
-    transport = FakeTransport(
-        [
-            (200, ok_page([arc("BV1A"), arc("BV1B")], total=99)),
-            (412, None), (412, None), (412, None), (412, None), (412, None),
-        ],
-        spi=[SPI_OK, SPI_NEW],
-    )
-    monkeypatch.setattr(bc, "build_default_transport", lambda: transport)
-    monkeypatch.setattr(bc, "default_sleeper", lambda: fast_sleep)
-    rc = main(["fetch-meta", "--mid", "23191782", "--archive-root", tmp_root])
-    assert rc == 2
-    entries = ManifestStore(root=tmp_root).load()
-    assert set(entries) == {"BV1A:p0", "BV1B:p0"}  # partial run persisted
-    err = capsys.readouterr().err
-    assert "page 2" in err
-    assert "2" in err and "persisted" in err
-
-
-def test_cli_budget_exhausted_page1_persists_nothing(tmp_root, fast_sleep,
-                                                     monkeypatch):
-    transport = FakeTransport([(412, None)] * 5, spi=[SPI_OK, SPI_NEW])
-    monkeypatch.setattr(bc, "build_default_transport", lambda: transport)
-    monkeypatch.setattr(bc, "default_sleeper", lambda: fast_sleep)
-    rc = main(["fetch-meta", "--mid", "23191782", "--archive-root", tmp_root])
-    assert rc == 2
-    assert not os.path.exists(ManifestStore(root=tmp_root).path)
-
-
-# APIResponseError/GoneResponse: persist partial, honest message
-
-
-def test_cli_api_error_midrun_persists_partial(tmp_root, fast_sleep,
-                                               monkeypatch, capsys):
-    store = ManifestStore(root=tmp_root)
-    store.load()
-    store.save({
-        "BVexisting": {"bvid": "BVexisting", "status": "subtitle_done"},
-    })
-    transport = FakeTransport(
-        [
-            (200, ok_page([arc("BV1A")], total=99)),
-            (200, {"code": -400}),
-        ],
-    )
-    monkeypatch.setattr(bc, "build_default_transport", lambda: transport)
-    monkeypatch.setattr(bc, "default_sleeper", lambda: fast_sleep)
-    rc = main([
-        "fetch-meta", "--mid", "23191782", "--resume",
-        "--archive-root", tmp_root,
-    ])
-    assert rc == 2
-    entries = store.load()
-    assert entries["BVexisting"]["status"] == "subtitle_done"
-    assert entries["BV1A:p0"]["status"] == "meta_ok"
-    assert all(entry.get("status") != "gone" for entry in entries.values())
-    err = capsys.readouterr().err
-    assert "API response error (code -400)" in err
-    assert "Traceback" not in err
-
-
-def test_cli_gone_midrun_persists_partial(tmp_root, fast_sleep, monkeypatch,
-                                          capsys):
-    transport = FakeTransport(
-        [
-            (200, ok_page([arc("BV1A")], total=99)),
-            (200, ok_page([arc("BV1B")], total=99)),
-            (404, None),
-        ],
-    )
-    monkeypatch.setattr(bc, "build_default_transport", lambda: transport)
-    monkeypatch.setattr(bc, "default_sleeper", lambda: fast_sleep)
-    rc = main(["fetch-meta", "--mid", "23191782", "--archive-root", tmp_root])
-    assert rc == 2
-    entries = ManifestStore(root=tmp_root).load()
-    assert set(entries) == {"BV1A:p0", "BV1B:p0"}
-    err = capsys.readouterr().err
-    assert "2 page(s)" in err
-    assert "no pages enumerated" not in err
-
-
-class SelectivePagelistTransport(FakeTransport):
-    def get_json(self, url, params=None, headers=None, cookies=None, timeout=None):
-        if "pagelist" in url:
-            self.calls.append(
-                {"url": url, "params": dict(params or {}), "cookies": dict(cookies or {})}
-            )
-            bvid = (params or {}).get("bvid")
-            if bvid == "BV1B":
-                return 200, {"code": -404}
-            return 200, {
-                "code": 0,
-                "data": [{"cid": 11, "page": 1, "part": ""}],
-            }
-        return super().get_json(url, params=params, headers=headers, cookies=cookies, timeout=timeout)
-
-
-def test_cli_fetch_meta_pagelist_failure_keeps_other_bvid(
-    tmp_root, fast_sleep, monkeypatch
-):
-    transport = SelectivePagelistTransport(
-        [(200, ok_page([arc("BV1A"), arc("BV1B")], total=2))],
-    )
-    monkeypatch.setattr(bc, "build_default_transport", lambda: transport)
-    monkeypatch.setattr(bc, "default_sleeper", lambda: fast_sleep)
-    rc = main(["fetch-meta", "--mid", "23191782", "--archive-root", tmp_root])
-    assert rc == 0
-    entries = ManifestStore(root=tmp_root).load()
-    assert "BV1A:p0" in entries
-    assert "BV1B" not in entries
-    assert "BV1B:p0" not in entries
-    pagelist = [c for c in transport.calls if "pagelist" in c["url"]]
-    assert [c["params"]["bvid"] for c in pagelist] == ["BV1A", "BV1B"]
-
-
-def test_cli_gone_on_first_page_reports_no_pages(tmp_root, fast_sleep,
-                                                 monkeypatch, capsys):
-    transport = FakeTransport([(200, {"code": -62002})])
-    monkeypatch.setattr(bc, "build_default_transport", lambda: transport)
-    monkeypatch.setattr(bc, "default_sleeper", lambda: fast_sleep)
-    rc = main(["fetch-meta", "--mid", "23191782", "--archive-root", tmp_root])
-    assert rc == 2
-    err = capsys.readouterr().err
-    assert "no pages" in err
-
-
 # QC2-2: argparse usage errors exit 1, not 2
 
 
@@ -692,45 +440,3 @@ def test_argparse_help_exits_0():
     with pytest.raises(SystemExit) as exc:
         parser.parse_args(["--help"])
     assert exc.value.code == 0
-
-
-# H1 CLI-level: RiskBudgetExhausted carries no traceback (exit 2, summary)
-
-
-def test_cli_unexpected_error_exit_1_no_traceback(tmp_root, monkeypatch,
-                                                  capsys):
-    sentinel = "SESSDATA=FETCH-SECRET https://cdn.example/audio.m4s?token=SIGNED"
-
-    def boom(self, *a, **k):
-        raise RuntimeError(sentinel)
-
-    monkeypatch.setattr(bc.BiliClient, "fetch_pages", boom)
-    rc = main(["fetch-meta", "--mid", "1", "--archive-root", tmp_root])
-    assert rc == 1
-    err = capsys.readouterr().err
-    assert "fetch-meta: unexpected error" in err
-    assert "Traceback" not in err
-    assert "FETCH-SECRET" not in err
-    assert "SIGNED" not in err
-
-
-def test_cli_transport_error_redacts_exception_message(
-    tmp_root, fast_sleep, monkeypatch, capsys
-):
-    sentinel = "SESSDATA=TRANSPORT-SECRET https://cdn.example/a.m4s?token=SIGNED"
-    transport = FakeTransport(
-        [_FakeRequestsError(sentinel)] * 5,
-        spi=[SPI_OK, SPI_NEW],
-    )
-    monkeypatch.setattr(bc, "build_default_transport", lambda: transport)
-    monkeypatch.setattr(bc, "default_sleeper", lambda: fast_sleep)
-
-    rc = main(["fetch-meta", "--mid", "1", "--archive-root", tmp_root])
-
-    assert rc == 2
-    captured = capsys.readouterr()
-    output = captured.out + captured.err
-    assert "_FakeRequestsError" in output
-    assert "TRANSPORT-SECRET" not in output
-    assert "SIGNED" not in output
-    assert not os.path.exists(ManifestStore(root=tmp_root).path)
