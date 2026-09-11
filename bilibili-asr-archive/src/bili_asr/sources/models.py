@@ -92,6 +92,57 @@ class UserVideoPage:
             _integer(self.observed_total, "observed_total", minimum=0)
 
 
+@dataclass(frozen=True, slots=True)
+class SubtitleTrack:
+    """One subtitle inventory entry of one part, as upstream listed it.
+
+    ``language`` is the upstream ``lan`` code and ``label`` its human-readable
+    ``lan_doc``; both are printable as-is.  ``is_ai`` separates
+    machine-generated captions from uploader/human ones.  ``track_id`` is the
+    track's upstream identity when it carries one — never a URL: a signed
+    ``subtitle_url`` is process-local for the duration of one call and cannot
+    reach this DTO.
+    """
+
+    language: str
+    label: str
+    is_ai: bool
+    track_id: str | None
+
+    def __post_init__(self) -> None:
+        _text(self.language, "language")
+        # The service derives the language family from the primary subtag, so a
+        # vocabulary it could not rank (``-zh``) is rejected here.
+        if not self.language.split("-", 1)[0].strip():
+            raise ValueError("language must carry a non-empty primary subtag")
+        _text(self.label, "label")
+        if not isinstance(self.is_ai, bool):
+            raise TypeError("is_ai must be a boolean")
+        if self.track_id is not None:
+            _text(self.track_id, "track_id")
+
+
+@dataclass(frozen=True, slots=True)
+class SubtitleSegment:
+    """One normalized caption row in milliseconds.
+
+    ``end_ms > start_ms >= 0`` with ``text`` non-empty after stripping is the
+    invariant this DTO enforces on what a call returns.  It is not a filter:
+    the adapter drops a row carrying nothing usable before constructing it.
+    """
+
+    start_ms: int
+    end_ms: int
+    text: str
+
+    def __post_init__(self) -> None:
+        _integer(self.start_ms, "start_ms", minimum=0)
+        _integer(self.end_ms, "end_ms", minimum=1)
+        if self.end_ms <= self.start_ms:
+            raise ValueError("end_ms must be greater than start_ms")
+        _text(self.text, "text")
+
+
 class BilibiliGateway(Protocol):
     """Application-owned gateway protocol for the pinned package adapter."""
 
@@ -107,6 +158,20 @@ class BilibiliGateway(Protocol):
     async def get_completed_video_summary(
         self, summary: VideoSummary
     ) -> VideoSummary: ...
+
+    # A subtitle inventory is an observation, not a promise: an empty tuple
+    # means nothing usable was visible with the credentials in effect, and it
+    # is a legitimate result rather than a ``not_found`` failure.
+    async def get_subtitle_tracks(
+        self, bvid: str, cid: int
+    ) -> tuple[SubtitleTrack, ...]: ...
+
+    # The body fetch is the opposite signal, because an empty success would
+    # claim a subtitle it does not have: nothing usable raises
+    # ``GatewayNotFound`` and the return is never an empty tuple.
+    async def fetch_subtitle_segments(
+        self, track: SubtitleTrack, bvid: str, cid: int
+    ) -> tuple[SubtitleSegment, ...]: ...
 
     def get_package_version(self) -> str: ...
 
@@ -170,6 +235,8 @@ __all__ = [
     "GatewayResponseError",
     "GatewayShapeError",
     "GatewayTransportError",
+    "SubtitleSegment",
+    "SubtitleTrack",
     "UserVideoPage",
     "VideoPart",
     "VideoSummary",

@@ -563,6 +563,25 @@ Exit 2 variants:
 
 #### Opt-in bounded live smoke
 
+Three tests share the one switch (`BILI_LIVE_SMOKE=1`); every default pytest
+run skips all three and makes no network call:
+
+- `tests/test_live_metadata_smoke.py` — the real CLI against the real upstream:
+  exactly one public metadata page for UID 23191782, into a temporary archive
+  root, calling no subtitle/playback/audio/ASR code (detailed below);
+- `tests/test_live_subtitle_smoke.py` — the real subtitle adapter against the
+  real upstream: one part's track inventory and, when a track is visible, that
+  track's caption document. It resolves the part from the operator's archive
+  database when one is readable and falls back to a fixed public sample
+  otherwise (`part_source=archive-db|fixed-sample`), and it prints bounded
+  facts only — counts, language codes, `ai|cc`, segment count, milliseconds,
+  and credential presence — never a URL, body, label, or credential. Run it
+  from the package directory with the pinned distribution installed:
+  `BILI_LIVE_SMOKE=1 .venv/bin/python -m pytest tests/test_live_subtitle_smoke.py -s -v`;
+- `tests/test_bilibili_api_gateway.py::test_live_smoke_single_public_page_for_archive_owner`
+  — the adapter-level ancestor of the CLI smoke: one real metadata page for UID
+  23191782 ingested into a temporary database through the real gateway.
+
 `tests/test_live_metadata_smoke.py` drives the real CLI against the real
 upstream: exactly one public metadata page for UID 23191782
 (`--start-page 1 --limit-pages 1`) into a temporary archive root, calling no
