@@ -1,7 +1,7 @@
 ---
 module: bili-asr metadata acquisition stack
 date: 2026-09-10
-last_updated: 2026-09-10
+last_updated: 2026-09-11
 problem_type: architecture_pattern
 category: architecture-patterns
 severity: medium
@@ -138,6 +138,24 @@ introduced and none is planned.
   operator surfaces must keep the bound.
 - Cursor state `risk_interrupted` has no producer yet (rate-limit interruption
   leaves the cursor untouched); CLI resume logic must not depend on it.
-- Anonymous (no-credential) collection is currently rejected by upstream
-  anti-bot controls with a bounded `response_error`; happy-path collection
+- Anonymous (no-credential) access is subject to upstream risk control at this
+  egress: the corrected call shape returns `code=0` with a credential, while
+  anonymous or over-large requests can be answered with HTTP 412 or JSON `-400`
+  (bounded `rate_limited` / `response_error`). Happy-path collection therefore
   requires an operator credential.
+- The transport itself needs two things the pinned package does not provide on
+  its own (fix plan `20260911-live-metadata-path-fix`): a declared HTTP backend
+  (`curl_cffi`, no transitive requirement and no extras in 17.4.2) and an
+  explicit proxy on proxied hosts — the package's client builds
+  `AsyncSession(proxies={"all": ""})`, which defeats `trust_env`, so
+  `HTTPS_PROXY`/`ALL_PROXY` alone are ignored until the gateway applies
+  `BILI_HTTP_PROXY` (or a resolved fallback) via `request_settings.set_proxy`.
+- The one-page user-video call must be issued as the WBI-signed
+  `GET x/space/wbi/arc/search` with `dm` disabled and `w_webid` always present
+  (a non-empty `access_id` when the package can supply one, otherwise the empty
+  string — the package's `User.get_videos` passes `None` and is rejected), and
+  the page size is bounded to 30: `ps=30`/`ps=50` return `code=0`, `ps=100` is
+  rejected (`-400`/412).
+- An earlier recorded note ("anonymous access is rejected by anti-bot controls")
+  was invalidated on 2026-09-11: those failures were the missing HTTP backend
+  raising `ArgsException` in-process, not an upstream response.

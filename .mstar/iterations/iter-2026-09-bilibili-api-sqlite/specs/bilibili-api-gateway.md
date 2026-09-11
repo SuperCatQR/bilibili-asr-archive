@@ -45,9 +45,11 @@ class VideoPart:
 
 class BilibiliGateway(Protocol):
     async def get_user_video_page(self, mid: int, page_number: int,
-                                  page_size: int = 100) -> UserVideoPage: ...
+                                  page_size: int = 30) -> UserVideoPage: ...
     async def get_video_parts(self, bvid: str) -> tuple[VideoPart, ...]: ...
     
+    async def get_completed_video_summary(self, summary: VideoSummary) -> VideoSummary: ...
+
     def get_package_version(self) -> str: ...
 ```
 
@@ -57,7 +59,27 @@ returns the pinned `bilibili-api-python` version for run metadata.
 
 ## Required upstream calls
 
-1. `user.User(uid=mid).get_videos(pn=page_number, ps=100)` for one bounded page.
+> **Transport amendment (2026-09-11, plan `20260911-live-metadata-path-fix`).** The
+> one-page user-video call is issued through the pinned package's WBI-signed `Api`
+> (`GET x/space/wbi/arc/search`, `wbi=True`, `dm=False`) with the same parameter set the
+> library uses, and `w_webid` always present — a non-empty `access_id` when the package
+> can supply one, otherwise the empty string. The `User.get_videos(...)` delegate is no
+> longer used: its API config carries `dm: True` and its `w_webid` arrives as `None` when
+> the dynamic-page scrape yields nothing, and that combination is rejected by upstream
+> risk control with HTTP 412 in this environment (order-swapped reproduction in the
+> plan's §Problem D3). DTOs, normalization rules, ownership checks, and the bounded error
+> taxonomy below are unchanged.
+>
+> **Page-size bound (2026-09-11, same plan).** The one bounded page uses
+> `ps=30` — the pinned library's own documented `const int: 30` and its `get_videos`
+> default (the pre-existing `bili_client.py` also fetches with 30, and the legacy client is
+> unaffected). Live probes with the corrected call shape: `ps=30` and `ps=50` return
+> `code=0`, while `ps=100` is rejected (HTTP 412, and JSON `-400` on three production
+> runs). Cursor semantics stay page-based, so the bound only changes how many videos a
+> page carries.
+
+
+1. One bounded page of the user's videos, `ps=30` (see the page-size bound note below), issued through the WBI-signed `Api` shape described in the transport amendment.
    This returns video summaries including `bvid`, `aid`, `title`, `pubdate`, and owner `mid`.
 2. `video.Video(bvid=bvid).get_info()` only when the summary from `get_videos` lacks
    `aid` (nullable field). Do not call `get_info` speculatively; use it only to fill

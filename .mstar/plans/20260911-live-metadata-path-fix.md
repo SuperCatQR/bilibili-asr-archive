@@ -27,7 +27,7 @@ explicitly present (possibly empty) `w_webid`.
 
 - Priority: P0 (post-delivery defect; the shipped live path cannot complete)
 - Task category: backend / external integration fix
-- Status: InProgress
+- Status: InReview
 - Depends on: `iter-2026-09-bilibili-api-sqlite` (delivered, merged `b62ab88`)
 - Primary context: `.mstar/iterations/iter-2026-09-bilibili-api-sqlite/specs/bilibili-api-gateway.md`
 - Owner: fullstack-dev
@@ -72,6 +72,16 @@ independent, individually reproduced reasons. None of them is a credential probl
    requests the upstream began throttling this egress (`-799` on the legacy endpoint, then
    412/-412 on the WBI endpoint), so the final end-to-end run needs a cooldown.
 
+4. **D4 — the shipped page size is outside what upstream accepts (found during Task 4's
+   live run, 2026-09-11).** The adapter/protocol default is `page_size=100` (and the pinned
+   spec's "Required upstream calls #1" writes `ps=100`), while the pinned library's own API
+   config documents `ps` as `const int: 30` and its `get_videos` default is `ps=30`.
+   Focused live probes after the Task-3 fix (same credential, proxy, and call shape, spaced
+   12 s apart): `ps=30` → `code=0` (30 items), `ps=50` → `code=0` (50 items),
+   `ps=100` → HTTP 412 (and Task 4's production run hit JSON `-400` three times at
+   `ps=100`). Conclusion: large page sizes are rejected by this endpoint, so the shipped
+   default cannot collect a page.
+
 ## Global Constraints
 
 - Retain the pin `bilibili-api-python==17.4.2`; do not bump or replace the library in this
@@ -108,8 +118,17 @@ independent, individually reproduced reasons. None of them is a credential probl
   WBI-signed `Api` (`wbi=True`, `dm=False`) with the parameter set the library uses
   (`mid`, `ps`, `tid`, `pn`, `keyword`, `order`, `order_avoided`, `platform`, `w_webid`),
   then feeds the response through the existing normalization/validation path. The pinned
-  iteration spec's "Required upstream calls #1" wording is superseded for the transport
-  shape only; the spec is annotated, not rewritten.
+  iteration spec is both annotated (transport amendment + page-size bound) and corrected in
+  place where it named the old shape (`Required upstream calls #1` now names the WBI-signed
+  call with `ps=30`, and the protocol block's default reads `page_size: int = 30`); the DTO,
+  normalization, ownership, and error-taxonomy sections are untouched.
+- **Page size:** the adapter, the protocol declaration, and the shipped service-path constant
+  `services/metadata_ingest.py` `PAGE_SIZE` all become **30** — matching the pinned library's own
+  documented `const int: 30` and its `get_videos` default. Upstream rejects `ps=100` (`-400`/412)
+  while `ps=30` and `ps=50` return `code=0`. The ingestor passes that constant explicitly, so
+  changing only the protocol/adapter defaults would have left the shipped path on the rejected
+  100 — hence the Task-5 deviation (one literal), PM-accepted and recorded 2026-09-11. Cursor
+  semantics are page-based and therefore unchanged.
 - **Docs:** `.env.example` gains `BILI_HTTP_PROXY`; `docs/metadata-storage.md` and the
   README record the transport dependency, the proxy knob, and the corrected live-smoke
   expectations (anonymous and credentialed outcomes).
@@ -136,13 +155,13 @@ independent, individually reproduced reasons. None of them is a credential probl
 - Produces: a declared runtime HTTP backend (`curl_cffi`) so a fresh install can issue
   requests, plus an offline contract test that fails if the declaration disappears.
 
-- [ ] Add the HTTP backend to the runtime `dependencies` (locked: `curl_cffi`) without
+- [x] Add the HTTP backend to the runtime `dependencies` (locked: `curl_cffi`) without
   touching unrelated dependencies; regenerate `uv.lock` and confirm `uv lock --check`
   reports a no-op.
-- [ ] Add an offline test asserting the dependency is declared (parity between
+- [x] Add an offline test asserting the dependency is declared (parity between
   `pyproject.toml` and the installed distribution, mirroring the existing package-data
   parity pattern) — no network in the test.
-- [ ] Record the pinned-package rationale in the test docstring: why the backend must be
+- [x] Record the pinned-package rationale in the test docstring: why the backend must be
   declared even though the library does not require it transitively.
 
 Run: `cd bilibili-asr-archive && .venv/bin/python -m pytest tests/test_bilibili_api_gateway.py -v`
@@ -152,6 +171,9 @@ Run: `cd bilibili-asr-archive && .venv/bin/python -m pytest tests/test_bilibili_
 **Files:**
 - Modify: `bilibili-asr-archive/src/bili_asr/sources/bilibili_api_gateway.py`
 - Modify: `bilibili-asr-archive/src/bili_asr/config.py`
+- Modify: `bilibili-asr-archive/tests/fixtures/fake_bilibili_gateway.py` (shared seam; PM-accepted
+  deviation disclosed in the SDD ledger — the fixture had to mirror the adapter's new surface
+  because four test modules consume it)
 - Test: `bilibili-asr-archive/tests/test_bilibili_api_gateway.py`
 
 **Interfaces:**
@@ -161,13 +183,13 @@ Run: `cd bilibili-asr-archive && .venv/bin/python -m pytest tests/test_bilibili_
   `all_proxy`), a `resolved_proxy` attribute, and the proxy applied to the package before
   the first request.
 
-- [ ] Implement proxy resolution as a pure helper (empty/blank values are "unset";
+- [x] Implement proxy resolution as a pure helper (empty/blank values are "unset";
   precedence exactly as locked) and apply a resolved proxy to the package's request
   settings at construction; when nothing resolves, leave the library default untouched.
-- [ ] Keep the credential boundary intact: no proxy value, and never a credential, appears
+- [x] Keep the credential boundary intact: no proxy value, and never a credential, appears
   in DTOs, exception messages, logs, or persisted rows; the CLI display path stays
   presence-only.
-- [ ] Test: precedence order, blank-value handling, no-proxy default (library setting
+- [x] Test: precedence order, blank-value handling, no-proxy default (library setting
   untouched), apply-once behaviour, and the no-leak assertions over output and rows.
 
 Run: `cd bilibili-asr-archive && .venv/bin/python -m pytest tests/test_bilibili_api_gateway.py tests/test_metadata_cli.py -v`
@@ -188,20 +210,20 @@ Run: `cd bilibili-asr-archive && .venv/bin/python -m pytest tests/test_bilibili_
   upstream risk control (`dm` disabled, `w_webid` present) with bounded error mapping
   preserved.
 
-- [ ] Replace the `User.get_videos(...)` delegate with the WBI-signed `Api` call shape
+- [x] Replace the `User.get_videos(...)` delegate with the WBI-signed `Api` call shape
   (`dm=False`; `w_webid` = the package's non-empty `access_id` when available, else `""`),
   forwarding the same parameter set and feeding the response into the existing
   normalization/validation path unchanged.
-- [ ] Keep the bounded taxonomy mapping identical (412/429 and `-412`/`-352`/`-799` →
+- [x] Keep the bounded taxonomy mapping identical (412/429 and `-412`/`-352`/`-799` →
   `rate_limited`; `-404`/`-62002` → `not_found`; shape problems → `shape_error`; other
   upstream failures → `response_error`/`transport_error`), including the WBI-retry case.
-- [ ] Extend the fake seam to assert the call shape: `dm` is disabled, `w_webid` is always
+- [x] Extend the fake seam to assert the call shape: `dm` is disabled, `w_webid` is always
   present (empty allowed), and a non-empty `access_id` is preferred when the seam provides
   one; assert no `dm`-family parameters are sent.
-- [ ] Keep DTO field ownership/validation and `observed_total` semantics unchanged; the
+- [x] Keep DTO field ownership/validation and `observed_total` semantics unchanged; the
   existing Task-1/Task-2/Task-3 test suites must pass unmodified except for explicitly
   disclosed fixtures.
-- [ ] PM annotates the pinned spec's "Required upstream calls #1" with the superseded
+- [x] PM annotates the pinned spec's "Required upstream calls #1" with the superseded
   transport clause and the reason (discovered 2026-09-11).
 
 Run: `cd bilibili-asr-archive && .venv/bin/python -m pytest tests/test_bilibili_api_gateway.py tests/test_metadata_ingest.py -v`
@@ -220,21 +242,46 @@ Run: `cd bilibili-asr-archive && .venv/bin/python -m pytest tests/test_bilibili_
 - Produces: live evidence of a real one-page collection and operator instructions that
   match reality.
 
-- [ ] Update the opt-in live smoke to assert the happy path (one page, UID 23191782,
+- [x] Update the opt-in live smoke to assert the happy path (one page, UID 23191782,
   temporary archive root, real rows: user + videos + parts + discovery + run + page and a
   cursor advanced past the committed page) while keeping the anonymous bounded-failure
   branch and the skip-by-default gate.
-- [ ] Run the bounded live smoke once with the operator credential and proxy present;
+- [x] Run the bounded live smoke once with the operator credential and proxy present;
   record the observed outcome, row counts, and any bounded blocker in the report. If
   upstream is still throttling, wait for the cooldown and retry once before recording a
   blocker.
-- [ ] Document in `docs/metadata-storage.md` + README: the required HTTP backend, the
+- [x] Document in `docs/metadata-storage.md` + README: the required HTTP backend, the
   `BILI_HTTP_PROXY` knob (with the standard `HTTPS_PROXY` fallback), the corrected
   live-smoke expectations, and the fact that the library needs an explicit proxy in
   proxied environments.
-- [ ] Add `BILI_HTTP_PROXY` (commented, with an example) to `.env.example`.
+- [x] Add `BILI_HTTP_PROXY` (commented, with an example) to `.env.example`.
 
 Run: `cd bilibili-asr-archive && BILI_LIVE_SMOKE=1 .venv/bin/python -m pytest tests/test_live_metadata_smoke.py -v`
+
+### Task 5: Bound the default page size to an upstream-accepted value
+
+**Files:**
+- Modify: `bilibili-asr-archive/src/bili_asr/sources/models.py` (protocol default)
+- Modify: `bilibili-asr-archive/src/bili_asr/sources/bilibili_api_gateway.py` (adapter default)
+- Modify: `bilibili-asr-archive/src/bili_asr/services/metadata_ingest.py` (shipped `PAGE_SIZE` constant)
+- Modify: `bilibili-asr-archive/tests/fixtures/fake_bilibili_gateway.py`
+- Test: `bilibili-asr-archive/tests/test_bilibili_api_gateway.py`
+- Modify: any test that pins the old default (disclose each)
+
+**Interfaces:**
+- Consumes: the Task-3 call shape and the ingestor's page-based cursor contract.
+- Produces: a default page size upstream accepts, with the live path able to collect a page.
+
+- [x] Change the protocol/adapter default page size from 100 to **30** (locked), keeping the
+  parameter name and the ability to pass an explicit `page_size`; do not add a CLI flag.
+- [x] Update the seam + tests that pin the old default (disclose every changed assertion);
+  add a test asserting the default is 30 and that an explicit override still flows through.
+- [x] PM annotates the pinned spec's "Required upstream calls #1" with the page-size bound
+  and the evidence (implementers must not edit the spec).
+- [x] Live re-run of the bounded smoke (one page, UID 23191782, temporary root, credential
+  + proxy) — record the outcome, row counts, and cursor in the report.
+
+Run: `cd bilibili-asr-archive && /root/workspace/bilibili-asr-archive/bilibili-asr-archive/.venv/bin/python -m pytest tests/test_bilibili_api_gateway.py tests/test_metadata_ingest.py -v`
 
 ## STOP Conditions
 
@@ -256,8 +303,13 @@ Run: `cd bilibili-asr-archive && BILI_LIVE_SMOKE=1 .venv/bin/python -m pytest te
 - Deferred: real `w_webid` derivation once the upstream dynamic page restores SSR data, and
   a first-class `dm` setting if the library adds one; both are upstream-dependent and need
   no local code until then.
-- Deferred: the iteration's QA note wording ("anonymous anti-bot rejection") is corrected
-  by this plan's problem statement; no further remediation is required.
+- The iteration's recorded QA note ("anonymous anti-bot rejection") is corrected by this
+  plan's §Problem, **and** the tracked knowledge doc that repeated it
+  (`.mstar/knowledge/architecture-patterns/normalized-metadata-stack.md`) was rewritten in the
+  same round (QC-1 F-001) — no residual remains for either statement.
+- Deferred: real `w_webid` derivation when upstream restores SSR data; a first-class `dm`
+  setting if the library adds one; and a documented page-size upper bound at the adapter
+  boundary (documented rather than enforced, to avoid rejecting caller overrides silently).
 
 ## Acceptance / Done Criteria
 
@@ -268,11 +320,15 @@ Run: `cd bilibili-asr-archive && BILI_LIVE_SMOKE=1 .venv/bin/python -m pytest te
   output, logs, or rows.
 - [ ] The user-video page call is issued with `dm` disabled and `w_webid` present
   (non-empty preferred when available), with the bounded error taxonomy unchanged.
+- [ ] The adapter/protocol default page size is 30 (upstream-accepted; `ps=100` is rejected
+  with `-400`/412) and an explicit `page_size` override still flows through.
 - [ ] The opt-in live smoke completes one page for UID 23191782 into a temporary archive
   root with real normalized rows and an advanced cursor — or records an explicit, cooled-down
   upstream blocker with evidence.
-- [ ] Offline suites remain green (baseline: 865 passed, 2 skipped), including the AST
-  import-boundary test and the no-leak scans.
+- [ ] Offline suites remain green — baseline at plan open was 865 passed / 2 skipped; after
+  Task 1 it is 866, after Task 2 885, after Task 3 892, and after Task 5 **894 passed / 2 skipped**
+  (each delta is the new tests added by that task) — including the AST import-boundary test
+  and the no-leak scans.
 - [ ] `docs/metadata-storage.md`, README, and `.env.example` describe the backend, the
   proxy knob, and the live-smoke expectations accurately.
 - [ ] `git diff --check` is clean.
@@ -286,8 +342,8 @@ re-run), then merge to `main` via PR.
 
 ## Review Gate Summary
 
-- Decision: pending
-- Review range / Diff basis: pending
+- Decision: QC tri (N=3) in flight on the branch package
+- Review range / Diff basis: `25a11fe..5667844` (main at branch cut → final reviewed head)
 - Review bundle: `.mstar/sdd/20260911-live-metadata-path-fix/review/`
 - QC inputs: `qc1.md`, `qc2.md`, `qc3.md`
 - Blocking result: pending
