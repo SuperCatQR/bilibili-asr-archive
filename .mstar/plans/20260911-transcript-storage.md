@@ -9,7 +9,7 @@
 - Priority: P0 (iteration-critical, serial 2/3: the CLI plan can store nothing until these
   tables and repository methods exist; this plan resolves carry F-010)
 - Task category: backend / data persistence
-- Status: Todo
+- Status: Done
 - Depends on: `20260911-subtitle-gateway` (segment DTOs)
 - Primary spec: `.mstar/iterations/iter-2026-09-subtitle-transcript-sqlite/specs/transcript-storage.md`
 - Owner: fullstack-dev
@@ -135,24 +135,24 @@ initialization path (now two resources) and its `resources.files` loader.
   `ix_acquisition_attempts_part_time`, `v_pending_subtitles`, the conditional bootstrap, and
   `require_subtitle_schema` / `SchemaContractError`.
 
-- [ ] Move the `transcripts` / `transcript_segments` block out of `schema.sql` into
+- [x] Move the `transcripts` / `transcript_segments` block out of `schema.sql` into
       `schema-transcripts.sql` and add the locked DDL (language, content hash, widened unique
       key, partial content index, the run/attempt pair with their CHECK matrices, the attempt
       index, the pending view) exactly as specified.
-- [ ] Make `initialize_schema` execute the transcript script only when `transcripts` is absent
+- [x] Make `initialize_schema` execute the transcript script only when `transcripts` is absent
       or already current, so a pre-iteration database is left untouched instead of
       half-applied; keep `PRAGMA foreign_keys = ON` enforcement unchanged.
-- [ ] Add `require_subtitle_schema(connection)` as a structural capability check
+- [x] Add `require_subtitle_schema(connection)` as a structural capability check
       (`pragma_table_info('transcripts')` plus the new tables and view) raising
       `SchemaContractError`, and export it.
-- [ ] Add the storage vocabulary (`AcquisitionKind`, `AcquisitionOutcome`, `AttemptOutcome`,
+- [x] Add the storage vocabulary (`AcquisitionKind`, `AcquisitionOutcome`, `AttemptOutcome`,
       `SourceKind` literals + `ALLOWED_*` frozensets) and the `TranscriptSegmentRecord`,
       `TranscriptWriteResult`, `AcquisitionRunRecord` dataclasses with validation.
-- [ ] Extend the schema inspection tests: exact column manifests for `transcripts`,
+- [x] Extend the schema inspection tests: exact column manifests for `transcripts`,
       `acquisition_runs`, `acquisition_attempts`; FK pairs; unique/PK/index set including the
       partial index's `WHERE` clause; CHECK enumerations; the pending view's columns; and a
       "no derived duplicates" check over the new tables.
-- [ ] Bootstrap matrix tests: fresh database (full contract), current database (idempotent
+- [x] Bootstrap matrix tests: fresh database (full contract), current database (idempotent
       re-open), pre-iteration database (metadata tables usable, transcript objects absent,
       `require_subtitle_schema` raising). No migration path is introduced.
 
@@ -171,26 +171,26 @@ Run: `cd bilibili-asr-archive && .venv/bin/python -m pytest tests/test_storage_s
 - Produces: `TranscriptRepository` with `start_acquisition_run`, `finish_acquisition_run`,
   `record_acquired_transcript`, `record_subtitle_attempt`.
 
-- [ ] Bound the converted timeline (carried from plan `20260911-subtitle-gateway` QC S11 / QC3-008):
+- [x] Bound the converted timeline (carried from plan `20260911-subtitle-gateway` QC S11 / QC3-008):
       reject a segment whose millisecond product exceeds a documented ceiling (e.g. `> 10**12`, ≈31 years)
       with the bounded validation error, so an upstream JSON integer cannot reach SQLite as an unbounded
       `OverflowError`. Record the chosen ceiling in the spec's normalization section and pin it with a test.
-- [ ] Implement `start_acquisition_run` / `finish_acquisition_run` with the shipped run
+- [x] Implement `start_acquisition_run` / `finish_acquisition_run` with the shipped run
       discipline (own commit; terminal outcomes cannot be regressed; when no explicit outcome
       is given, derive `complete | partial | failed` from the attempt rows).
-- [ ] Implement `record_acquired_transcript` as **one** transaction: validate the part and the
+- [x] Implement `record_acquired_transcript` as **one** transaction: validate the part and the
       arguments, compute the content hash from the canonical segment JSON, write nothing when a
       version of `(video_part_id, source_kind, language)` already carries that hash (attempt
       outcome `unchanged`, referencing the existing version), otherwise append
       `version = MAX(version) + 1` with its segments (attempt outcome `stored`), write the
       attempt row, and commit — or roll back wholly. Reject an empty segment tuple, a
       non-positive `video_part_id`, and a `start_ms`/`end_ms` violation.
-- [ ] Implement `record_subtitle_attempt` for the `no-subtitle` / `failed` outcomes only, with
+- [x] Implement `record_subtitle_attempt` for the `no-subtitle` / `failed` outcomes only, with
       the CHECK matrix enforced in code as well (bounded `error_code` required for `failed`,
       `NULL` or `not_found` for `no-subtitle`, no transcript reference for either).
-- [ ] Document the class's commit-boundary matrix in its docstring in the same style as
+- [x] Document the class's commit-boundary matrix in its docstring in the same style as
       `MetadataRepository`, including the "do not compose inside `transaction()`" rule.
-- [ ] Tests: first write; idempotent repeat (`unchanged`, no new row, no duplicate segments);
+- [x] Tests: first write; idempotent repeat (`unchanged`, no new row, no duplicate segments);
       changed content → version 2 with version 1 and its segments unchanged; revert-to-older
       content → `unchanged` referencing version 1; FK rejections (unknown part, unknown run,
       unknown transcript); RESTRICTed deletes; CHECK violations; transactional rollback when the
@@ -212,24 +212,33 @@ Run: `cd bilibili-asr-archive && .venv/bin/python -m pytest tests/test_transcrip
   `count_pending_subtitle_parts`, `list_selected_parts`, and the deterministic E2E evidence the
   CLI plan builds on.
 
-- [ ] Implement the read paths (latest version by default, explicit version on request;
+- [x] Implement the read paths (latest version by default, explicit version on request;
       `None` when absent) and `list_selected_parts(bvid, page_index=None)` over
       `v_video_parts`, returning zero rows for an unknown selector so the CLI can exit `1`
       without inventing an empty selection.
-- [ ] Implement `list_pending_subtitle_parts(limit=None)` over `v_pending_subtitles` with the
+- [x] Implement `list_pending_subtitle_parts(limit=None)` over `v_pending_subtitles` with the
       locked order (`attempted ASC, last_attempt_at ASC, bvid ASC, page_index ASC`) and
       `count_pending_subtitle_parts()`, with the shipped argument-validation discipline.
-- [ ] E2E evidence: one part with two languages and two versions; a stored part excluded from
+- [x] E2E evidence: one part with two languages and two versions; a stored part excluded from
       the pending set; a part with metadata only present with `attempted = 0`; a part recorded
       `no-subtitle` still present with its last outcome, timestamp, and credential presence; the
       never-attempted part enumerated before the previously attempted one; a successful
       re-attempt after `no-subtitle` storing a transcript normally under a new run.
-- [ ] Assert the enumeration contract the CLI depends on and that `work_id` stays view-only;
+- [x] Assert the enumeration contract the CLI depends on and that `work_id` stays view-only;
       assert no legacy sidecar file is created or read by any storage path.
-- [ ] Re-inspect the final schema for the locked invariants (column manifests, indexes, checks)
+- [x] Re-inspect the final schema for the locked invariants (column manifests, indexes, checks)
       and pin the process-record shape chosen in the spec.
 
 Run: `cd bilibili-asr-archive && .venv/bin/python -m pytest tests/test_storage_schema.py tests/test_transcript_repository.py -v`
+
+**PM-authorized follow-ups (2026-09-11, from the Task-2 L2 review).** Both are small and recorded, not
+silent relaxations:
+
+- [x] **M3 (coverage gap, the important one):** pin spec §5's "order preserved verbatim, overlaps included"
+  with a body whose intervals are non-monotonic and overlapping (today every test body is ascending and
+  non-overlapping), so a future "sort or de-overlap on write" regression fails a named test.
+- [x] **M2 (consistency):** validate `run_id` through the same path as the other identifiers (the class
+  currently uses `_text` in two places and a hand-rolled check in another) and keep the messages byte-identical.
 
 ## STOP Conditions
 
@@ -260,6 +269,37 @@ Run: `cd bilibili-asr-archive && .venv/bin/python -m pytest tests/test_storage_s
 - Deferred: audio objects (`audio_objects` / `part_audio_objects`) remain reservations, and
   rebuilding SRT/TXT/MD projections from stored transcripts is owned by the next iteration.
 
+- **Closed by fix wave 2 (plan QC seat 3, QC3-001, Warning)**: the last ordering key `page_index ASC` was not
+  falsifiable — the committed fixture inserted every part of a `bvid` in ascending page order, so rowid order
+  coincided with page order and the `drop page_index ASC` mutation passed, while this plan's DoD claims the
+  order is pinned by tests. The fix is test-only (insert a part whose `page_index` is higher than a sibling
+  inserted after it, then extend the expected list), and the DoD claim now holds in both directions.
+- Recorded (QC3-004, performance characteristic, no measurement taken): `v_pending_subtitles`'s
+  `ROW_NUMBER()` CTE has no predicate pushdown and `acquisition_attempts` is append-only with no pruning, so
+  every pending query and `count_pending_subtitle_parts()` is O(subtitle attempts). Fine at personal scale;
+  recorded so the audio/ASR iteration inherits the growth characteristic rather than rediscovering it.
+
+- Recorded (cross-iteration, QC1-001): `v_pending_subtitles` treats **any** `transcripts` row as "this part
+  has a caption". When the audio/ASR iteration starts writing `asr-local` transcripts, those parts will drop
+  out of the subtitle backlog — which is the locked behaviour, but the audio/ASR plan must decide explicitly
+  whether it wants its own pending view (or a `source_kind`-scoped predicate) rather than inheriting this one.
+- Recorded (nit, QC1-002): the structural guard `_SUBTITLE_SCHEMA_OBJECTS` omits `transcript_segments`
+  (spec §3.3 lists the objects verbatim). It is unreachable through `open_database`, which heals the table, so
+  this is hardening rather than a defect — harden it with the other recorded nit when a plan next owns the
+  bootstrap.
+
+- Recorded (QC2-S1, related to QC1-001): the write paths verify that the run exists but not its `kind`;
+  an attempt recorded under an `audio`/`asr` run is invisible to `v_pending_subtitles` (which filters
+  `kind='subtitle'`), so that part would never rotate out of the subtitle backlog. Today's only caller passes
+  `kind='subtitle'`. The audio/ASR iteration must either add a precondition or scope its own pending view.
+- Recorded (nit, QC2-S2): immutability has three mechanisms and only two are falsifiable — "no UPDATE/DELETE
+  code path" is inspection-only (the source is clean today). One static source scan would make it a test.
+  Harden alongside QC1-002 when a plan next owns the bootstrap/repository contract.
+- Handoff to the next iteration's projection owner (QC2 finding, spec-locked behaviour, no action here): after
+  a revert-to-older-content acquisition, `read_transcript(version=None)` returns `MAX(version)` while the
+  newest attempt references the older matched version — both facts are stored, so a future projection/export
+  step must choose deliberately which one it means.
+
 ## Drift Check
 
 Before implementing, re-read the shipped `schema.sql` reservations and the metadata
@@ -270,21 +310,21 @@ the single schema resource.
 
 ## Acceptance / Done Criteria
 
-- [ ] Schema carries the locked transcript columns/tables/indexes/view with inspection tests
+- [x] Schema carries the locked transcript columns/tables/indexes/view with inspection tests
       pinning them, and the bootstrap handles fresh / current / pre-iteration databases.
-- [ ] Transcript writes are transactional, versioned, immutable, and content-idempotent.
-- [ ] A stored transcript answers, per part: source kind (AI/CC), language, version, creation
+- [x] Transcript writes are transactional, versioned, immutable, and content-idempotent.
+- [x] A stored transcript answers, per part: source kind (AI/CC), language, version, creation
       time, and millisecond segments; the latest version is what a default read returns, and an
       explicit version stays readable after a newer one is written.
-- [ ] "No subtitle was visible" is recorded as timestamped per-part attempt evidence, is not a
+- [x] "No subtitle was visible" is recorded as timestamped per-part attempt evidence, is not a
       transcript row, and does not prevent a later successful acquisition of the same part.
-- [ ] Process records for subtitle acquisition are explicit and do not touch
+- [x] Process records for subtitle acquisition are explicit and do not touch
       `ingestion_runs` semantics.
-- [ ] The pending view's order and last-attempt columns are pinned by tests, so successive
+- [x] The pending view's order and last-attempt columns are pinned by tests, so successive
       bounded runs advance instead of re-attempting the same head.
-- [ ] Offline suites green with no metadata-path regressions.
-- [ ] No sidecar file is created or read by any new path.
-- [ ] `git diff --check` clean.
+- [x] Offline suites green with no metadata-path regressions.
+- [x] No sidecar file is created or read by any new path.
+- [x] `git diff --check` clean.
 
 ## Prepare → Execute Handoff
 
@@ -292,25 +332,52 @@ Execute Task 1 → Task 2 → Task 3 (serial). Then SDD review package, QC tri, 
 
 ## Review Gate Summary
 
-- Decision: pending
-- Review range / Diff basis: pending
-- Review bundle: `.mstar/sdd/20260911-transcript-storage/review/`
-- QC inputs: `qc1.md`, `qc2.md`, `qc3.md`
-- Blocking result: pending
-- Residual findings: pending
+- Decision: **Approve** (plan QC tri N=3 → seat 1 Approve, seat 2 Approve, seat 3 Request Changes on one
+  Warning; fix wave 2 closed it and the N=1 targeted re-review returned Approve)
+- Review range / Diff basis: `6ee7c6a..4dcbf5d` (5 commits: `d4cae24` schema contract, `f3cd735` write path,
+  `1019000` reads/enumeration, `5f93e05` ordering test strength, `4dcbf5d` QC fix wave 2)
+- Review bundle: `.mstar/sdd/20260911-transcript-storage/review/` (`qc-consolidated.md` carries the gate)
+- QC inputs: `qc1.md`, `qc2.md`, `qc3.md` (+ `## Revalidation`)
+- Blocking result: none at the final gate — 0 Critical / 0 Warning / 0 open Suggestion
+- Residual findings: **none registered by this plan**; the only open entry is `R1` from
+  `20260911-subtitle-gateway` (`low`, `decision: defer`, executable target = the next plan whose file list
+  includes `sources/bilibili_api_gateway.py`; this range touches no `sources/` file, so it stays correct)
+- QA gate: **Approve** (`review/qa-gate.md`): fresh `1202 passed, 3 skipped` at HEAD; the legacy-database
+  bootstrap guarantee reproduced 18/18 on the shipped `open_database` path; the ordering pin independently
+  falsified (four mutations of the key list each fail the named test, with `attempted ASC` provably
+  order-equivalent — QAF-1 informational); immutability/idempotency probed 13/13
+- Merged into the iteration branch as `f490fd1` (2026-09-11)
 
 ## QA Gate Summary
 
 - QA gate: mandatory
 - QA mode: acceptance
-- Evidence: pending
+- Evidence: **Approve (recommend merge)** — qa-engineer, 2026-09-11, at `HEAD 4dcbf5d`
+  (`feature/20260911-transcript-storage`, worktree clean before/after; branch-diff + fix-2-diff replayed
+  from the package onto `6ee7c6a` reproduce the HEAD tree, and both fenced diffs are byte-identical to the
+  live ranges). Full offline suite re-run at HEAD: **1202 passed, 3 skipped** (the 3 skips are exactly the
+  opt-in `BILI_LIVE_SMOKE` gates, none added by this plan); focused metadata/schema/repository set 275 passed;
+  `git diff --check` clean. Legacy guarantee reproduced on the **shipped** `open_database` path from a
+  pre-iteration database built with the old bootstrap (18/18): metadata readable/writable, no half-applied
+  transcript objects, `require_subtitle_schema` **and** `TranscriptRepository.__init__` raise the bounded
+  `SchemaContractError` where a raw query would raise `sqlite3.OperationalError`. QC3-001 confirmed closed:
+  rowid order ≠ page order inside the affected `bvid` and dropping `page_index ASC` now fails the named test.
+  Immutability/idempotency re-probed live (13/13: repeated identical acquisition writes nothing new and the
+  stored bytes are unchanged; no UPDATE/DELETE against the transcript tables anywhere). Residual register
+  holds only R1 (`low`, `defer`, untouched — this range changes no file under `sources/`), so the plan may
+  proceed to Done with R1 open. CLI-plan readiness confirmed (F3, R1 carriage, QC3-002/003/005,
+  `docs/metadata-storage.md` in its file list). Report:
+  `.mstar/sdd/20260911-transcript-storage/review/qa-gate.md`; one non-blocking observation (QAF-1: the
+  redundant, order-equivalent `attempted ASC` key is unfalsifiable — no behavioural consequence) and PM
+  bookkeeping (QAF-2: `Review Gate Summary` still reads "pending"). Plan not marked Done — the merge
+  precedes Done and the PM owns it.
 
 ## Sign-off
 
 - Product intent: reviewed (product-manager, 2026-09-11)
 - Architecture: reviewed (architect, 2026-09-11)
 - Writing/corpus hygiene: reviewed (writing-specialist, 2026-09-11)
-- PM lock: pending
+- PM lock: locked (project-manager, 2026-09-11)
 - Implementation owner: fullstack-dev
 - QA owner: qa-engineer
 - Review cleanup: zero-residual

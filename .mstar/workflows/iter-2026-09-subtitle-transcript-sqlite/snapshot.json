@@ -61,13 +61,18 @@
       "id": "20260911-transcript-storage",
       "title": "Normalized transcript storage on the reserved tables",
       "file": ".mstar/plans/20260911-transcript-storage.md",
-      "status": "Todo",
+      "status": "Done",
       "owner": "project-manager",
       "agents": [
         "fullstack-dev"
       ],
-      "progress": 0,
-      "task_commits": [],
+      "progress": 100,
+      "task_commits": [
+        "d4cae241dc50ac4756e7624a8bc616d7480b4275",
+        "f3cd735151d7720103012ccb424d42a91c85198e",
+        "1019000071f5670e4d01a47d22f728cb785fc91c",
+        "5f93e054659e463e43946cf5900d44ee4cc65d03"
+      ],
       "tags": [
         "backend",
         "database",
@@ -75,8 +80,12 @@
       ],
       "created_at": "2026-09-11",
       "updated_at": "2026-09-11",
-      "done_at": null,
-      "notes": [],
+      "done_at": "2026-09-11",
+      "notes": [
+        "Phase 2 lease claimed; feature worktree .worktrees/20260911-transcript-storage on feature/20260911-transcript-storage.",
+        "Tasks 1-3 implemented + reviewed Approved (Task 3 resumed after two harness-interrupted runs; its audit fixed D1-D5 in the inherited WIP) and the Minor-1 fix wave revalidated Approve. Plan -> InReview; branch review package + plan QC tri (N=3) next.",
+        "Plan Done: merged into the iteration branch as f490fd1. Plan QC tri -> Request Changes on one Warning (page_index pin not falsifiable) closed by fix wave 2 + N=1 revalidation Approve; mandatory QA gate Approve (1202 passed / 3 skipped; legacy bootstrap 18/18 on the shipped path). No residual registered by this plan; R1 stays open for a later plan."
+      ],
       "metadata": {
         "primary_spec": ".mstar/iterations/iter-2026-09-subtitle-transcript-sqlite/specs/transcript-storage.md",
         "spec_integration_branch": "iteration/iter-2026-09-subtitle-transcript-sqlite",
@@ -87,7 +96,15 @@
         "priority": "P0",
         "blocked_by": [
           "20260911-subtitle-gateway"
-        ]
+        ],
+        "gates": {
+          "qc": "passed",
+          "qa": "passed"
+        },
+        "delivery": {
+          "merge_commit": "f490fd1",
+          "review_range": "6ee7c6a..4dcbf5d"
+        }
       }
     },
     {

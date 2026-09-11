@@ -275,6 +275,32 @@ Run: `cd bilibili-asr-archive && BILI_LIVE_SMOKE=1 .venv/bin/python -m pytest te
   `transcripts/srt/*.srt`, and it no longer produces the manifest status `needs_audio`, so
   `download-audio --missing-subs` gains no new entries from the SQLite path.
 
+- Carried from plan `20260911-transcript-storage` (plan QC seat 1, QC1-003) — the service must not guess:
+  - **Argument validation**: validate `source_kind` against `storage.models.ALLOWED_CAPTION_SOURCE_KINDS`
+    (and `kind` against the acquisition-kind enum) instead of passing literals through.
+  - **Guard scope**: `SchemaContractError` is raised by `require_subtitle_schema` when `transcripts`
+    lacks `language`/`content_sha256`; its message omits the `<command>:` prefix and `{archive_root}` path, so
+    **the CLI composes the printed line** (do not print `str(exc)` alone).
+  - **Two row shapes**: `list_pending_subtitle_parts` returns a 12-column work item incl. `bvid`/`cid`, while
+    `list_selected_parts` returns the 11 `v_video_parts` columns **without** `bvid` — the service normalizes
+    both into one work-item shape before calling the gateway.
+- Carried from plan `20260911-subtitle-gateway` (residual R1 + Task-1 finding F3): the `FakeGateway` protocol
+  double needs the two subtitle methods, and R1 (whole-`user`-module import) is retargeted to *the next plan
+  whose file list includes `src/bili_asr/sources/bilibili_api_gateway.py`* — this plan does not, so R1 stays
+  open past it.
+
+- Carried from plan `20260911-transcript-storage` (plan QC seat 3 readiness items):
+  - **QC3-002** — `TranscriptRepository` validates its connection in `__init__` but does **not** call
+    `require_subtitle_schema`; a caller that skips the guard gets a raw `OperationalError`
+    (`no such table: acquisition_runs` / `no such column: language`). This plan's service must guard first
+    (and fix wave 2 additionally makes `__init__` fail fast with the bounded error).
+  - **QC3-003** — `docs/metadata-storage.md:51-56` ("no … transcripts are written yet") becomes false as soon
+    as this plan's storage work lands; this plan's file list owns that doc, so its Task 3 docs bullet must
+    update the sentence, not just add new ones.
+  - **QC3-005** — `SchemaContractError`'s message cannot carry the archive root (it only has a connection),
+    while the promised operator line has `<command>: …` plus the root: the Task 1 test list must assert the
+    printed line carries **both**, so `print(f"{command}: {exc}")` cannot pass a substring check.
+
 ## Drift Check
 
 Before implementing, inspect the current `harvest-subs`/`probe-subs` handlers, `subtitles.py`

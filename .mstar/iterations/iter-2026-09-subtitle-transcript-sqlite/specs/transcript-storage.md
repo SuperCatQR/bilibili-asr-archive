@@ -412,7 +412,10 @@ stored; no derived duplicates in base tables; bounded scalar codes only
 same connection can read.
 
 DTOs added to `storage/models.py` (independent of third-party or `sources` types, so the
-storage layer never imports the gateway layer):
+storage layer never imports the gateway layer). Dated PM note (2026-09-11, Task-3 review
+disclosure (a)): this list originally omitted **`TranscriptRecord`**, the return type the
+section-4 signatures already name — it ships as a storage DTO and belongs to this list; the
+note corrects the omission rather than re-reading the signatures.
 
 ```python
 @dataclass(frozen=True, slots=True)
@@ -454,6 +457,14 @@ storage layer imports nothing from `bili_asr.sources`.
   always means "there is caption text". No ordering constraint is imposed on `start_ms`:
   upstream order is preserved verbatim, overlaps included.
 - `text` is stored trimmed; empty text is rejected.
+- **Timeline ceiling (dated PM note 2026-09-11, carried from plan `20260911-subtitle-gateway` QC S11 /
+  QC3-008 and implemented in this plan's Task 2):** a segment whose millisecond value exceeds
+  `MAX_TIMELINE_MS = 10**12` (≈31.7 years) is rejected with the bounded validation error at the SQL
+  boundary, so an upstream JSON integer can never reach SQLite as an unbounded `OverflowError`. The
+  DTO deliberately still accepts an unbounded integer (so moving the bound stays a visible change).
+- **Trimming site (dated PM note 2026-09-11, Task-1 review M1):** stored text is trimmed **at the
+  repository boundary** — stored text is hashed text, so content identity is whitespace-insensitive;
+  control characters inside the string stay verbatim.
 - `source_kind` derives from `SubtitleTrack.is_ai` (`subtitle-ai` vs `subtitle-cc`), and
   `language` is the track's upstream `lan`; `model_id` stays `NULL` for caption rows.
 - `created_at` is the caller-supplied clock (the service's one `int(time.time())` per run),
