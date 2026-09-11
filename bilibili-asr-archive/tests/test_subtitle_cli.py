@@ -19,7 +19,6 @@ and no display path or stored row carries the credential.
 from __future__ import annotations
 
 from contextlib import contextmanager
-import importlib
 import os
 import sqlite3
 
@@ -48,7 +47,9 @@ from bili_asr.storage.models import (
 from fixtures.fake_bilibili_gateway import (
     SESSDATA_BOUNDARY_VALUE,
     UPSTREAM_ERROR_TEXT,
+    FakeGateway,
     assert_leaks_no_markers,
+    fake_gateway_seam,
     persisted_row_text,
 )
 from fixtures.metadata_records import (
@@ -103,84 +104,39 @@ def _anonymous_environment(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.delenv("BILI_SESSDATA", raising=False)
 
 
-class _ScriptedSubtitleGateway:
-    """The gateway protocol's two subtitle calls, scripted per part, offline.
+@pytest.fixture
+def install_gateway(fake_gateway_seam: FakeGateway):
+    """Install one scripted gateway as the CLI's concrete adapter.
 
-    A part is addressed by its ``cid``: ``tracks_by_cid`` scripts one inventory,
-    ``segments_by_cid`` one body, and the two failure maps raise instead of
-    answering.  A call the test did not script fails loudly rather than silently
-    answering an empty inventory, and every call is recorded — ``listing_cids``
-    and ``body_cids`` in issue order — so the enumeration order and "the body was
+    A part is addressed by its ``cid``: ``tracks`` scripts one inventory,
+    ``segments`` one body, and the two failure maps raise instead of answering,
+    all of them through the shared ``FakeGateway`` protocol double.  A call the
+    test did not script fails loudly rather than silently answering an empty
+    inventory, and every call is recorded on the double — ``listing_cids`` and
+    ``body_cids`` in issue order — so the enumeration order and "the body was
     never fetched" are assertable.
+
+    The shared ``fake_gateway_seam`` fixture installs the double at the adapter
+    seam and records the credential the composition root handed it, which the
+    credential test pins.
     """
 
-    def __init__(
-        self,
+    def install(
         *,
         tracks: dict[int, tuple[SubtitleTrack, ...]] | None = None,
         segments: dict[int, tuple[SubtitleSegment, ...]] | None = None,
         listing_failures: dict[int, Exception] | None = None,
         body_failures: dict[int, Exception] | None = None,
-    ) -> None:
-        self.tracks_by_cid = dict(tracks or {})
-        self.segments_by_cid = dict(segments or {})
-        self.listing_failures_by_cid = dict(listing_failures or {})
-        self.body_failures_by_cid = dict(body_failures or {})
-        self.sessdata: str | None = None
-        self.listing_cids: list[int] = []
-        self.body_cids: list[int] = []
-
-    async def get_subtitle_tracks(
-        self, bvid: str, cid: int
-    ) -> tuple[SubtitleTrack, ...]:
-        self.listing_cids.append(cid)
-        failure = self.listing_failures_by_cid.get(cid)
-        if failure is not None:
-            raise failure
-        if cid not in self.tracks_by_cid:
-            raise AssertionError(f"the test did not script a listing for cid {cid}")
-        return self.tracks_by_cid[cid]
-
-    async def fetch_subtitle_segments(
-        self, track: SubtitleTrack, bvid: str, cid: int
-    ) -> tuple[SubtitleSegment, ...]:
-        self.body_cids.append(cid)
-        failure = self.body_failures_by_cid.get(cid)
-        if failure is not None:
-            raise failure
-        if cid not in self.segments_by_cid:
-            raise AssertionError(f"the test did not script a body for cid {cid}")
-        return self.segments_by_cid[cid]
-
-
-@pytest.fixture
-def install_gateway(monkeypatch: pytest.MonkeyPatch):
-    """Install one scripted gateway as the CLI's concrete adapter.
-
-    The composition root imports ``BilibiliApiGateway`` inside each handler, so
-    replacing the class in its own module keeps the whole command path under test
-    with no network and no package seam.  The double records the credential the
-    composition root handed it, which the credential test pins.
-
-    The module is reached through ``importlib`` deliberately: the adapter is
-    dropped from ``sys.modules`` by the package-seam fixtures of the other test
-    modules, and a plain ``import ... as`` would then bind the parent package's
-    stale attribute instead of the module the handler imports from.
-    """
-
-    def install(**script) -> _ScriptedSubtitleGateway:
-        gateway_module = importlib.import_module(
-            "bili_asr.sources.bilibili_api_gateway"
-        )
-        gateway = _ScriptedSubtitleGateway(**script)
-
-        def factory(sessdata: str | None = None, proxy: str | None = None):
-            del proxy
-            gateway.sessdata = sessdata
-            return gateway
-
-        monkeypatch.setattr(gateway_module, "BilibiliApiGateway", factory)
-        return gateway
+    ) -> FakeGateway:
+        for cid, inventory in (tracks or {}).items():
+            fake_gateway_seam.script_subtitle_tracks(cid, inventory)
+        for cid, body in (segments or {}).items():
+            fake_gateway_seam.script_subtitle_segments(cid, body)
+        for cid, failure in (listing_failures or {}).items():
+            fake_gateway_seam.script_subtitle_tracks(cid, failure)
+        for cid, failure in (body_failures or {}).items():
+            fake_gateway_seam.script_subtitle_segments(cid, failure)
+        return fake_gateway_seam
 
     return install
 
@@ -854,7 +810,7 @@ def test_unchanged_content_adds_no_version_and_changed_content_appends_one(
         f"harvest {BVID_A}:p0 unchanged subtitle-cc zh-CN v1"
     )
 
-    gateway.segments_by_cid[101] = CHANGED_BODY
+    gateway.script_subtitle_segments(101, CHANGED_BODY)
     assert (
         main(["harvest-subs", "--bvid", f"{BVID_A}:p0", "--archive-root", tmp_root])
         == 0
@@ -888,8 +844,8 @@ def test_a_part_without_a_caption_can_store_one_in_a_later_run(
     assert "remaining_without_transcript=1" in captured.out
 
     # the caption appears upstream and the part is still part of the work set
-    gateway.tracks_by_cid[101] = (CC_ZH,)
-    gateway.segments_by_cid[101] = BODY
+    gateway.script_subtitle_tracks(101, (CC_ZH,))
+    gateway.script_subtitle_segments(101, BODY)
     assert main(["harvest-subs", "--limit-parts", "1", "--archive-root", tmp_root]) == 0
 
     captured = capsys.readouterr()
