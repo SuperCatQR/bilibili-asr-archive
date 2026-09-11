@@ -82,6 +82,86 @@ means anonymous access, and so does passing `--sessdata ""` explicitly
 (which never falls through to `BILI_SESSDATA`); a blank environment value
 likewise means anonymous.
 
+## Runtime HTTP backend
+
+`fetch-meta` reaches upstream through the pinned
+`bilibili-api-python==17.4.2` adapter, and that distribution declares no HTTP
+client of its own. With none installed, every request fails inside the process
+with `ArgsException("尚未安装第三方请求库或未注册自定义第三方请求库")` — the
+request never leaves the process — and the gateway maps it to the bounded
+`response_error`. `curl_cffi` is therefore a declared runtime dependency of
+this package, and a normal install provides it:
+
+```
+python3.12 -m pip install -e ".[dev]"     # or: uv sync
+```
+
+No separately installed backend is needed on top of that; a bare
+`pip install bilibili-api-python==17.4.2` alone is not enough.
+
+### Upstream page-call shape
+
+The adapter issues the user-video page call itself through the package's
+WBI-signed `Api` request, with the device-fingerprint (`dm`) parameters
+disabled and `w_webid` sent as a present string (empty when the package
+cannot derive an access id). The endpoint answers HTTP 412 to the `dm` shape
+and to a missing `w_webid`; every other parameter, the WBI signature, and the
+whole response normalization and validation path stay as the pinned package
+and the gateway spec define them. The bounded error taxonomy is unchanged:
+412/429 and the risk-control codes map to `rate_limited`, `-404`/`-62002` to
+`not_found`, shape problems to `shape_error`, and other upstream failures to
+`response_error`/`transport_error`.
+
+### Page size
+
+The adapter and the `BilibiliGateway` protocol default `page_size` to **30**,
+and the shipped service path passes that same value explicitly
+(`PAGE_SIZE = 30` in `src/bili_asr/services/metadata_ingest.py`); it is also the
+pinned package's own documented `ps` value. Larger page sizes are **not**
+guaranteed: with the same credential, proxy, and call shape, `ps=30` and
+`ps=50` were answered with `code=0` while `ps=100` was rejected (HTTP 412 on
+direct probes, JSON code `-400` on production runs). The adapter forwards an
+explicit `page_size` override upstream unchanged — it neither clamps nor
+rejects it — so an over-large override surfaces as the upstream bounded code
+(`rate_limited`/`response_error`) rather than as a caller error. There is no
+CLI flag for the page size.
+
+## HTTP proxy
+
+The pinned client builds its session with an explicitly empty proxy
+(`proxies={"all": ""}`), which defeats the transport's environment lookup:
+`HTTPS_PROXY` / `ALL_PROXY` alone are ignored by the package, so on a host
+whose direct route to Bilibili is blocked every call ends in a connect
+timeout. The gateway therefore resolves one proxy itself and applies it to the
+package's request settings before the first call.
+
+Precedence (first non-blank value wins; blank counts as unset):
+
+1. the `BilibiliApiGateway(proxy=...)` constructor argument,
+2. `BILI_HTTP_PROXY` — the documented operator knob,
+3. `HTTPS_PROXY`, then `https_proxy`,
+4. `ALL_PROXY`, then `all_proxy`.
+
+When nothing resolves, the library default is left untouched and no proxy is
+forced. A proxy URL is configuration, not a credential, and is never written
+to DTOs, logs, exception messages, or persisted rows.
+
+Two consequences of that design matter when troubleshooting:
+
+- The resolved value is applied to the package's **process-global** request
+  settings, so it is the effective proxy for every gateway in the process, not
+  only for the instance that resolved it.
+- A blank value counts as *unset*, so `BILI_HTTP_PROXY=""` cannot override a
+  host-level `HTTPS_PROXY`/`ALL_PROXY`. There is no in-app "no proxy" switch:
+  forcing a direct connection means unsetting every variable of the chain
+  (`BILI_HTTP_PROXY`, `HTTPS_PROXY`, `https_proxy`, `ALL_PROXY`, `all_proxy`)
+  for the process before the command runs.
+
+```
+export BILI_HTTP_PROXY=http://127.0.0.1:7890
+bili-asr fetch-meta --mid 23191782 --limit-pages 1 --archive-root archive
+```
+
 ## `observed_total` semantics
 
 - `ingestion_cursors.observed_total` records the upstream video total
@@ -97,24 +177,85 @@ likewise means anonymous.
 
 ## Exact bounded live smoke command
 
+The smoke is opt-in and bounded: one public metadata page for UID 23191782
+into a temporary archive root. On a proxied host — and on this host, whose
+direct route to Bilibili is blocked — the proxy is part of the command:
+
 ```
-cd bilibili-asr-archive && BILI_LIVE_SMOKE=1 .venv/bin/python -m pytest tests/test_live_metadata_smoke.py -v
+CONTROL=/root/workspace/bilibili-asr-archive   # the control checkout
+cd "$CONTROL/bilibili-asr-archive"
+set -a; source "$CONTROL/.env"; set +a          # gitignored; absent in a worktree
+export BILI_HTTP_PROXY=http://127.0.0.1:7890
+BILI_LIVE_SMOKE=1 "$CONTROL/bilibili-asr-archive/.venv/bin/python" \
+  -m pytest tests/test_live_metadata_smoke.py -s -v
 ```
 
+The control checkout owns both the `.env` credential file and the `.venv`
+interpreter; a linked feature worktree has neither, so a worktree run must
+address them by absolute control-checkout path (as above) or provision its
+own environment. `-s` (or `-rP`) is part of the command: pytest captures the
+stdout of a *passing* test, so a plain `-v` run hides the evidence line on the
+happy path and would force a second page request against a risk-controlled
+endpoint — use `-s`/`-rP` on the first live attempt.
+
+`BILI_SESSDATA` and `BILI_HTTP_PROXY` may come from the sourced `.env` instead
+of an explicit `export` (the gateway reads the same environment).
+
 - Opt-in only (`BILI_LIVE_SMOKE=1`); default pytest runs skip it without
-  failure. An opted-in run without the pinned `bilibili-api-python==17.4.2`
-  distribution fails loudly with install guidance instead of skipping.
-- Bound: exactly one public metadata page for UID 23191782
-  (`--start-page 1 --limit-pages 1`) into a temporary archive root; no
-  subtitle/playback/audio/ASR code is invoked and nothing outside the
-  temporary root is written.
-- Anonymous (no-credential) access is currently rejected by upstream
-  anti-bot control: the smoke then verifies the bounded-failure evidence
-  (terminal run row, one scalar page row, no entity growth, no cursor row)
-  and reports the case as the expected no-credential behavior — not a
-  defect. Happy-path collection requires a credential from the operator's
-  own environment (`--sessdata` or `BILI_SESSDATA`); a bounded failure
-  despite a credential is a loud failure.
+  failure. An opted-in run in an environment without the pinned
+  `bilibili-api-python==17.4.2` distribution fails loudly with install
+  guidance instead of skipping.
+- Bound: exactly one page for UID 23191782 (`--start-page 1 --limit-pages 1`)
+  into a temporary archive root; no subtitle, playback, audio, or ASR code is
+  invoked, and nothing outside the temporary root is written.
+- **With a credential** (`BILI_SESSDATA` only — the smoke builds its own
+  `fetch-meta` argv and passes no `--sessdata`, so that flag is a CLI surface
+  the smoke never uses) the happy path is required: exit 0,
+  `outcome=limited` on the page bound (or `complete` when
+  the first page comes back empty), and real normalized rows — the user row,
+  one video row per collected video joined to that user, the part rows of
+  those videos, one discovery row per collected video, a terminal run row,
+  exactly one page-evidence row, and a cursor advanced past the committed
+  page. The run also asserts that no legacy sidecar
+  (`manifest/manifest.jsonl`, `meta-cursor.json`, `run-ledger.jsonl`) appears
+  and that neither the CLI output nor any persisted row carries the
+  credential value or playback markers. It prints one count-only evidence
+  line:
+  `live smoke evidence: outcome=… videos=… parts=… discoveries=… page_rows=1 cursor_next_page=… cursor_state=… observed_total=…`.
+  A bounded upstream failure while a credential is present is a loud failure.
+- **Without a credential** the run is anonymous: if upstream rejects
+  anonymous metadata access it ends in the bounded-failure branch, whose
+  evidence the smoke then verifies (terminal run row, one page row carrying a
+  scalar code — `rate_limited`, or `response_error` for other upstream
+  failures — no video/part/discovery growth, no cursor row). That bounded
+  no-credential outcome is reported as a reasoned skip, after its assertions
+  ran, not as a defect; any other bounded code — a `transport_error` from a
+  dead proxy, for instance — fails the smoke loudly, credential or not.
+- **Observed on 2026-09-11** (this host, proxy configured): the live run was
+  refused by upstream risk control. The CLI's one production page (the
+  then-shipped page size of 100) ended twice — before and after a cooldown —
+  in the bounded `response_error` branch, whose underlying upstream answer is
+  the JSON code `-400`; a direct call with the same credential, proxy, and
+  call shape but a page size of 5 returned `code=0` with real rows (5 videos,
+  `observed_total=1691`), and later probes of both page sizes were answered
+  with HTTP 412 (`rate_limited`). So the transport and the call shape do
+  reach and satisfy upstream, while this egress is intermittently under
+  risk control; a loud live-smoke failure means the bounded page was refused
+  upstream, not that the database or the CLI is broken.
+- **Settled on the same day (focused probes after the call-shape fix):** the
+  endpoint does reject the old page size. With the same credential, proxy,
+  and call shape, `ps=30` returned `code=0` with 30 items and `ps=50`
+  returned `code=0` with 50 items, while `ps=100` was rejected — HTTP 412 on
+  the probes and the JSON code `-400` on production runs. The shipped page
+  size is therefore the value upstream accepts: `PAGE_SIZE = 30` in
+  `src/bili_asr/services/metadata_ingest.py`, which is also the pinned
+  package's own documented `ps` value.
+- **Achieved on 2026-09-11 (same day, after the page-size fix):** the shipped
+  path completed a real end-to-end live run — CLI exit 0, one collected page,
+  `outcome=limited videos=30 parts=33 discoveries=30`, `observed_total=1691`,
+  and the cursor advanced to `next_page=2` with state `limited`. Count-only:
+  no credential, no proxy, and no collected metadata value is recorded here.
+  The intermittency noted above still applies to a fresh run.
 
 ## Exit codes
 

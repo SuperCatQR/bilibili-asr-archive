@@ -12,11 +12,12 @@ from __future__ import annotations
 
 import importlib.metadata
 import math
+import os
 import re
 from collections.abc import Awaitable, Callable, Mapping
 from typing import Any
 
-from bilibili_api import Credential
+from bilibili_api import Credential, request_settings, user
 from bilibili_api.exceptions import (
     ApiException,
     NetworkException,
@@ -24,9 +25,10 @@ from bilibili_api.exceptions import (
     ResponseException,
     WbiRetryTimesExceedException,
 )
-from bilibili_api.user import User
+from bilibili_api.utils.network import Api
 from bilibili_api.video import Video
 
+from bili_asr.config import resolve_proxy
 from bili_asr.sources.models import (
     GatewayNotFound,
     GatewayRateLimited,
@@ -50,6 +52,13 @@ _NOT_FOUND_HTTP_STATUSES = frozenset({404})
 
 # Same shape check the package itself applies in Video.set_bvid.
 _BVID_PATTERN = re.compile(r"^BV[a-zA-Z0-9]{10}$")
+
+# The package's own endpoint description for the user-video page call
+# (``bilibili_api.user.API["info"]["video"]``).  ``url``/``method``/
+# ``verify``/``wbi`` are read from it so this adapter cannot drift from the
+# pinned package; ``dm`` is deliberately overridden per call (see
+# ``BilibiliApiGateway._fetch_user_video_page``).
+_USER_VIDEO_PAGE_ENDPOINT = user.API["info"]["video"]
 
 
 def _require_positive_argument(value: object, field: str) -> None:
@@ -242,29 +251,50 @@ def _complete_summary_from_detail(
 class BilibiliApiGateway:
     """Concrete :class:`BilibiliGateway` adapter over the pinned package."""
 
-    def __init__(self, sessdata: str | None = None) -> None:
-        """Build the package credential; a blank value means public access.
+    def __init__(self, sessdata: str | None = None, proxy: str | None = None) -> None:
+        """Build the package credential and apply one resolved proxy.
 
         The optional SESSDATA value is passed to the package ``Credential``
         object only.  It is never written to DTOs, logs, exception messages,
         or persistent records.
+
+        ``proxy`` is an explicit programmatic override; when it is blank or
+        omitted the locked chain in :mod:`bili_asr.config` decides
+        (``BILI_HTTP_PROXY`` first, then the conventional host variables).
+        A resolved proxy is applied here, once, through the package's
+        request settings: that is the value the pinned ``CurlCFFIClient``
+        reads when it builds its session, and its own default
+        (``proxies={"all": ""}``) would otherwise defeat ``trust_env`` and
+        ignore environment proxies.  ``Credential(proxy=...)`` is
+        deliberately not used — it swaps that same global setting around
+        every call instead of configuring it.  When nothing resolves, the
+        library default is left untouched.  The resolved value is
+        configuration, not a credential, and still never appears in DTOs,
+        logs, exception messages, or persistent records.
         """
 
         self._credential = Credential(sessdata=sessdata) if sessdata else Credential()
+        self.resolved_proxy = resolve_proxy(proxy, os.environ)
+        if self.resolved_proxy is not None:
+            request_settings.set_proxy(self.resolved_proxy)
+        self._w_webid_by_mid: dict[int, str] = {}
 
     async def get_user_video_page(
-        self, mid: int, page_number: int, page_size: int = 100
+        self, mid: int, page_number: int, page_size: int = 30
     ) -> UserVideoPage:
-        """Fetch and normalize exactly one bounded user-video page."""
+        """Fetch and normalize exactly one bounded user-video page.
+
+        The default is the upstream-accepted page size declared by the
+        :class:`~bili_asr.sources.models.BilibiliGateway` protocol; an
+        explicit ``page_size`` still overrides it.
+        """
 
         _require_positive_argument(mid, "mid")
         _require_positive_argument(page_number, "page_number")
         _require_positive_argument(page_size, "page_size")
         response = await self._await_upstream(
             "get_user_video_page",
-            lambda: User(
-                uid=mid, credential=self._credential
-            ).get_videos(pn=page_number, ps=page_size),
+            lambda: self._fetch_user_video_page(mid, page_number, page_size),
         )
         return _normalize_user_video_page(response, requested_mid=mid, page_number=page_number)
 
@@ -303,6 +333,70 @@ class BilibiliApiGateway:
             return importlib.metadata.version(PACKAGE_DISTRIBUTION_NAME)
         except importlib.metadata.PackageNotFoundError:
             return PINNED_PACKAGE_VERSION
+
+    async def _fetch_user_video_page(
+        self, mid: int, page_number: int, page_size: int
+    ) -> Any:
+        """Issue one WBI-signed page request in the shape upstream accepts.
+
+        The request is built from the package's own endpoint description and
+        signed by the package's ``Api``.  Two fields are this adapter's:
+        ``dm`` is disabled, because the device-fingerprint parameters it would
+        add cannot be satisfied here and the endpoint answers HTTP 412 with
+        them; and ``w_webid`` is always sent as a present string, because the
+        endpoint answers HTTP 412 when the parameter is missing.  Every other
+        parameter name and value stays exactly the set the package's own page
+        call sends.
+        """
+
+        w_webid = await self._resolve_w_webid(mid)
+        return await (
+            Api(
+                url=_USER_VIDEO_PAGE_ENDPOINT["url"],
+                method=_USER_VIDEO_PAGE_ENDPOINT["method"],
+                verify=_USER_VIDEO_PAGE_ENDPOINT["verify"],
+                wbi=_USER_VIDEO_PAGE_ENDPOINT["wbi"],
+                dm=False,
+                credential=self._credential,
+            )
+            .update_params(
+                mid=mid,
+                ps=page_size,
+                tid=0,
+                pn=page_number,
+                keyword="",
+                order=user.VideoOrder.PUBDATE.value,
+                order_avoided=True,
+                platform="web",
+                w_webid=w_webid,
+            )
+            .result
+        )
+
+    async def _resolve_w_webid(self, mid: int) -> str:
+        """Resolve the page request's ``w_webid`` parameter for one user.
+
+        The package's ``User.get_access_id`` scrapes the user's dynamic page,
+        which no longer server-renders ``access_id``: the route costs one
+        extra page fetch and currently yields nothing.  The token is a request
+        parameter rather than a credential, and the endpoint requires it to be
+        present, so an unavailable token degrades to the empty string instead
+        of failing the page call.  Each user's outcome is remembered for this
+        adapter's lifetime, so at most one scrape attempt happens per user no
+        matter how many pages are collected.
+        """
+
+        if mid not in self._w_webid_by_mid:
+            try:
+                access_id: object = await user.User(
+                    uid=mid, credential=self._credential
+                ).get_access_id()
+            except Exception:
+                # Best effort only: this optional token route must never fail
+                # the metadata call it decorates.
+                access_id = None
+            self._w_webid_by_mid[mid] = access_id if isinstance(access_id, str) else ""
+        return self._w_webid_by_mid[mid]
 
     async def _await_upstream(
         self, operation: str, call: Callable[[], Awaitable[Any]]

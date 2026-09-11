@@ -5,13 +5,18 @@ on ``sys.modules`` before the gateway module is (re-)imported, so neither the
 real package nor network access is ever required.  The fake package seam, the
 shared scripted protocol double, and the secret/raw-payload sentinels live in
 ``tests/fixtures/fake_bilibili_gateway.py``.  The fake mirrors only the
-documented import surface the gateway may use (``Credential``, ``user.User``,
-``video.Video``, and the exceptions taxonomy) and exposes no playback,
-subtitle, audio, or download methods, which makes silent use of other package
-APIs impossible.  The import boundary and the method surface itself are
+documented import surface the gateway may use (``Credential``, the ``user``
+endpoint description and ``access_id`` route, the WBI-signed
+``utils.network.Api``, ``video.Video``, and the exceptions taxonomy) and
+exposes no playback, subtitle, audio, or download methods, which makes silent
+use of other package APIs impossible.  The import boundary and the method
+surface itself are
 additionally inspected statically with AST over the package sources.  The
 only networked test is the opt-in live smoke, which skips unless
-``BILI_LIVE_SMOKE=1`` is set.
+``BILI_LIVE_SMOKE=1`` is set.  The packaging-contract test is the one
+exception to the "installed distribution never needed" rule: it reads the
+pinned distribution's metadata and fails loudly when that distribution is
+absent, because the contract it checks cannot be proven without it.
 """
 
 from __future__ import annotations
@@ -19,13 +24,20 @@ from __future__ import annotations
 import ast
 import asyncio
 import importlib
+import importlib.metadata
+import inspect
 import os
 import pathlib
+import tomllib
 
 import pytest
+from packaging.requirements import Requirement
+from packaging.utils import canonicalize_name
 
+from bili_asr.config import PROXY_ENV_VAR, PROXY_ENV_VARS, resolve_proxy
 from bili_asr.services.metadata_ingest import MetadataIngestor
 from bili_asr.sources.models import (
+    BilibiliGateway,
     GatewayNotFound,
     GatewayRateLimited,
     GatewayResponseError,
@@ -38,7 +50,9 @@ from bili_asr.sources.models import (
 from bili_asr.storage.database import MetadataRepository, open_database
 from fixtures.fake_bilibili_gateway import (
     BVID,
+    FAKE_USER_VIDEO_PAGE_ENDPOINT,
     MID,
+    MIRRORED_ENDPOINT_FIELDS,
     PUBDATE,
     RAW_JSON_BODY_MARKER,
     SESSDATA_BOUNDARY_VALUE,
@@ -59,12 +73,26 @@ from fixtures.fake_bilibili_gateway import (
     persisted_row_text,
 )
 
+PINNED_PACKAGE_DISTRIBUTION_NAME = "bilibili-api-python"
 PINNED_PACKAGE_VERSION = "17.4.2"
 
-#: The exact bilibili_api import surface the adapter is allowed to use.
+#: PEP 503 canonical name of the runtime HTTP backend this project declares.
+#: The pinned package drives whichever client is installed while declaring
+#: none itself, so this declaration is what lets a fresh install reach the
+#: network at all.
+HTTP_BACKEND_CANONICAL_NAME = "curl-cffi"
+
+#: The HTTP clients the pinned package can drive, named in its own error
+#: message (``pip3 install (curl_cffi|httpx|aiohttp)``).  None of them may
+#: arrive through the application's dependency closure on its own.
+PACKAGE_HTTP_CLIENT_CANONICAL_NAMES = frozenset({"curl-cffi", "httpx", "aiohttp"})
+
+#: The exact bilibili_api import surface the adapter is allowed to use.  The
+#: user-video page call is issued through ``user``'s own endpoint description
+#: and the WBI-signed ``utils.network.Api``, not through a ``user`` delegate.
 ALLOWED_PACKAGE_IMPORTS = {
-    "bilibili_api": {"Credential"},
-    "bilibili_api.user": {"User"},
+    "bilibili_api": {"Credential", "request_settings", "user"},
+    "bilibili_api.utils.network": {"Api"},
     "bilibili_api.video": {"Video"},
     "bilibili_api.exceptions": {
         "ApiException",
@@ -74,6 +102,87 @@ ALLOWED_PACKAGE_IMPORTS = {
         "WbiRetryTimesExceedException",
     },
 }
+
+#: Realistic-looking proxy URL: configuration rather than a credential, but it
+#: must still stay off DTOs, mapped errors, debug renders, and persisted rows.
+PROXY_BOUNDARY_VALUE = "http://PROXY-URL-THAT-MUST-NOT-LEAK:7890"
+
+#: Realistic-looking ``access_id`` token: a request parameter the package
+#: route may yield, which must stay off DTOs and mapped errors like every
+#: other upstream value.
+ACCESS_ID_BOUNDARY_VALUE = "ACCESS-ID-THAT-MUST-NOT-LEAK"
+
+#: Sentinel endpoint URL proving the transport fields are read from the
+#: package's own endpoint description instead of being hard-coded.
+CHANGED_ENDPOINT_URL = "https://changed-endpoint.example.invalid/x/space/wbi/arc/search"
+
+
+def _probe_installed_pinned_endpoint() -> dict | str:
+    """Read the pin's endpoint description, or the reason it could not be read.
+
+    Runs once, at module import time — before any seam fixture can install the
+    fake ``bilibili_api`` package on ``sys.modules``: a lazy import inside a
+    seam test would return the fake, and the mirror would then be compared
+    against itself.  The description is pure package data, so this needs no
+    network.  A string return is a human-readable reason (distribution absent,
+    key renamed, unexpected shape) that the parity tests turn into a loud
+    failure with install guidance.
+    """
+
+    try:
+        module = importlib.import_module("bilibili_api.user")
+        endpoint = module.API["info"]["video"]
+    except (ImportError, KeyError, AttributeError, TypeError) as error:
+        return f"{type(error).__name__}: {error}"
+    if not isinstance(endpoint, dict):
+        return f"the description is not a mapping ({type(endpoint).__name__})"
+    return dict(endpoint)
+
+
+#: The installed pin's own user-video endpoint description, captured before the
+#: seam can shadow the package; see :func:`_probe_installed_pinned_endpoint`.
+_INSTALLED_PINNED_ENDPOINT = _probe_installed_pinned_endpoint()
+
+
+def _probe_installed_request_settings_parameters() -> dict | str:
+    """Read the pin's request-settings parameter shapes, or why not.
+
+    Captured at import time for the same reason as the endpoint description: a
+    lazy import inside a seam test would read the fake.  Only the parameter
+    name/kind/default triples are kept — the shape a mirrored double must not
+    loosen (``RequestSettings.set_proxy(self, proxy: str)`` has no default).
+    """
+
+    try:
+        settings = importlib.import_module("bilibili_api").request_settings
+        return {
+            name: [
+                (parameter.name, str(parameter.kind), parameter.default)
+                for parameter in inspect.signature(
+                    getattr(settings, name)
+                ).parameters.values()
+            ]
+            for name in ("set_proxy", "get_proxy")
+        }
+    except (ImportError, AttributeError, TypeError, ValueError) as error:
+        return f"{type(error).__name__}: {error}"
+
+
+#: The installed pin's request-settings parameter shapes, captured the same way.
+_INSTALLED_REQUEST_SETTINGS_PARAMETERS = _probe_installed_request_settings_parameters()
+
+
+def _require_installed(probe: dict | str, what: str) -> dict:
+    """Return a successful import-time probe, or fail loudly with guidance."""
+
+    if isinstance(probe, str):
+        pytest.fail(
+            f"this parity contract needs the pinned distribution's {what}"
+            f" ({PINNED_PACKAGE_DISTRIBUTION_NAME}=={PINNED_PACKAGE_VERSION});"
+            f" it could not be read ({probe}). Run uv sync first."
+        )
+    return probe
+
 
 #: The complete documented exception surface the fake seam must mirror.
 ALLOWED_EXCEPTION_NAMES = (
@@ -107,11 +216,11 @@ def _public_names(obj: object) -> list[str]:
     return sorted(name for name in vars(obj) if not name.startswith("_"))
 
 
-def _load_gateway(sessdata: str | None = None):
+def _load_gateway(sessdata: str | None = None, proxy: str | None = None):
     """Import the adapter against the installed seam and build it."""
 
     module = importlib.import_module("bili_asr.sources.bilibili_api_gateway")
-    return module.BilibiliApiGateway(sessdata=sessdata)
+    return module.BilibiliApiGateway(sessdata=sessdata, proxy=proxy)
 
 
 # --------------------------------------------------- deterministic factories
@@ -156,7 +265,7 @@ def test_get_user_video_page_normalizes_documented_fields(bilibili_api_seam):
     assert summary.title == "未明子讲座"
     assert summary.pubdate == PUBDATE
     assert summary.mid == MID
-    assert bilibili_api_seam.calls == ["user.get_videos(pn=1, ps=100)"]
+    assert bilibili_api_seam.calls == ["space.arc.search(pn=1, ps=30)"]
     # The credential value must never surface on any DTO or page.
     assert SESSDATA_BOUNDARY_VALUE not in repr(page)
     assert SESSDATA_BOUNDARY_VALUE not in str(page)
@@ -170,7 +279,52 @@ def test_get_user_video_page_forwards_requested_page_and_size(bilibili_api_seam)
 
     asyncio.run(gateway.get_user_video_page(MID, page_number=4, page_size=50))
 
-    assert bilibili_api_seam.calls == ["user.get_videos(pn=4, ps=50)"]
+    assert bilibili_api_seam.calls == ["space.arc.search(pn=4, ps=50)"]
+
+
+def test_get_user_video_page_defaults_to_upstream_accepted_size(bilibili_api_seam):
+    """An omitted page size issues the upstream-accepted ``ps=30``.
+
+    The endpoint answers the former ``ps=100`` default with its bounded
+    ``-400``/HTTP 412 rejection, so the protocol declaration and the adapter
+    both default to 30 — reverting either to 100 fails this test.
+    """
+
+    bilibili_api_seam.videos_response = make_videos_response(make_vlist_item(), count=1)
+    gateway = _load_gateway()
+
+    asyncio.run(gateway.get_user_video_page(MID, page_number=1))
+
+    assert bilibili_api_seam.calls == ["space.arc.search(pn=1, ps=30)"]
+    declared = inspect.signature(BilibiliGateway.get_user_video_page)
+    assert declared.parameters["page_size"].default == 30
+
+
+def test_get_user_video_page_explicit_size_override_keeps_normalization(
+    bilibili_api_seam,
+):
+    """An explicit page size still flows through and normalizes the page."""
+
+    bilibili_api_seam.videos_response = make_videos_response(
+        make_vlist_item(title="  未明子讲座  "), count=7
+    )
+    gateway = _load_gateway()
+
+    page = asyncio.run(gateway.get_user_video_page(MID, page_number=2, page_size=50))
+
+    assert bilibili_api_seam.calls == ["space.arc.search(pn=2, ps=50)"]
+    assert isinstance(page, UserVideoPage)
+    assert (page.mid, page.page_number, page.observed_total) == (MID, 2, 7)
+    assert isinstance(page.videos, tuple)
+    (summary,) = page.videos
+    assert isinstance(summary, VideoSummary)
+    assert (summary.bvid, summary.aid, summary.title, summary.pubdate, summary.mid) == (
+        BVID,
+        111,
+        "未明子讲座",
+        PUBDATE,
+        MID,
+    )
 
 
 def test_get_user_video_page_tolerates_plain_list_container(bilibili_api_seam):
@@ -356,7 +510,241 @@ def test_get_user_video_page_rejects_malformed_upstream_bvid(
 
     assert caught.value.code == "shape_error"
     assert "bvid" in str(caught.value)
-    assert bilibili_api_seam.calls == ["user.get_videos(pn=1, ps=100)"]
+    assert bilibili_api_seam.calls == ["space.arc.search(pn=1, ps=30)"]
+
+
+# ------------------------------------- user page: risk-control-safe request
+
+
+def test_user_video_page_request_carries_the_documented_parameter_set(
+    bilibili_api_seam,
+):
+    """The page request sends the package's parameters with ``dm`` disabled.
+
+    Device-fingerprint parameters cannot be satisfied here and make the
+    endpoint answer HTTP 412; the same endpoint answers ``code=0`` without
+    them, and the request must still carry ``w_webid`` (empty is the value
+    the unavailable token route degrades to).
+    """
+
+    bilibili_api_seam.videos_response = make_videos_response(make_vlist_item(), count=1)
+    gateway = _load_gateway()
+
+    asyncio.run(gateway.get_user_video_page(MID, page_number=2, page_size=50))
+
+    (request,) = bilibili_api_seam.api_requests
+    assert request.dm is False
+    assert [key for key in request.params if key.startswith("dm_")] == []
+    assert request.params == {
+        "mid": MID,
+        "ps": 50,
+        "tid": 0,
+        "pn": 2,
+        "keyword": "",
+        "order": "pubdate",
+        "order_avoided": True,
+        "platform": "web",
+        "w_webid": "",
+    }
+
+
+def test_user_video_page_request_prefers_the_package_access_id(bilibili_api_seam):
+    """A non-empty ``access_id`` from the package route is what gets sent."""
+
+    bilibili_api_seam.access_id = ACCESS_ID_BOUNDARY_VALUE
+    bilibili_api_seam.videos_response = make_videos_response(make_vlist_item(), count=1)
+    gateway = _load_gateway()
+
+    page = asyncio.run(gateway.get_user_video_page(MID, page_number=1))
+
+    assert bilibili_api_seam.access_id_calls == [f"user.get_access_id(uid={MID})"]
+    assert (
+        bilibili_api_seam.api_requests[0].params["w_webid"]
+        == ACCESS_ID_BOUNDARY_VALUE
+    )
+    # A request parameter still never surfaces on a DTO.
+    assert ACCESS_ID_BOUNDARY_VALUE not in repr(page)
+
+
+def test_user_video_page_request_falls_back_to_empty_w_webid_when_the_route_fails(
+    bilibili_api_seam,
+):
+    """A failing token scrape never fails the page call itself."""
+
+    bilibili_api_seam.access_id_error = FakeNetworkException(412, UPSTREAM_ERROR_TEXT)
+    bilibili_api_seam.videos_response = make_videos_response(make_vlist_item(), count=1)
+    gateway = _load_gateway()
+
+    page = asyncio.run(gateway.get_user_video_page(MID, page_number=1))
+
+    assert page.observed_total == 1
+    assert bilibili_api_seam.api_requests[0].params["w_webid"] == ""
+    assert UPSTREAM_ERROR_TEXT not in str(page)
+
+
+def test_user_video_page_resolves_the_access_id_once_per_user(bilibili_api_seam):
+    """Repeated pages of one user scrape the token route at most once."""
+
+    bilibili_api_seam.videos_response = make_videos_response(make_vlist_item(), count=1)
+    gateway = _load_gateway()
+
+    asyncio.run(gateway.get_user_video_page(MID, page_number=1))
+    asyncio.run(gateway.get_user_video_page(MID, page_number=2))
+
+    assert bilibili_api_seam.access_id_calls == [f"user.get_access_id(uid={MID})"]
+    assert len(bilibili_api_seam.api_requests) == 2
+
+
+def test_user_video_page_resolves_the_access_id_per_user(bilibili_api_seam):
+    """The memoized token is bound to the user it was scraped for."""
+
+    bilibili_api_seam.videos_response = make_videos_response(make_vlist_item(), count=1)
+    gateway = _load_gateway()
+
+    asyncio.run(gateway.get_user_video_page(MID, page_number=1))
+
+    bilibili_api_seam.videos_response = make_videos_response(
+        make_vlist_item(mid=MID + 1), count=1
+    )
+    asyncio.run(gateway.get_user_video_page(MID + 1, page_number=1))
+
+    assert bilibili_api_seam.access_id_calls == [
+        f"user.get_access_id(uid={MID})",
+        f"user.get_access_id(uid={MID + 1})",
+    ]
+
+
+def test_user_video_page_request_takes_its_transport_from_the_package_endpoint(
+    bilibili_api_seam,
+):
+    """``url``/``method``/``verify``/``wbi`` come from the package description."""
+
+    bilibili_api_seam.videos_response = make_videos_response(make_vlist_item(), count=1)
+    gateway = _load_gateway()
+
+    asyncio.run(gateway.get_user_video_page(MID, page_number=1))
+
+    (request,) = bilibili_api_seam.api_requests
+    assert request.url == FAKE_USER_VIDEO_PAGE_ENDPOINT["url"]
+    assert request.method == FAKE_USER_VIDEO_PAGE_ENDPOINT["method"]
+    assert request.wbi is FAKE_USER_VIDEO_PAGE_ENDPOINT["wbi"]
+    assert request.verify is FAKE_USER_VIDEO_PAGE_ENDPOINT["verify"]
+    # The package's own description carries ``dm: True``; the adapter turns
+    # that off itself.
+    assert FAKE_USER_VIDEO_PAGE_ENDPOINT["dm"] is True
+    assert request.dm is False
+
+
+def test_user_video_page_request_follows_a_changed_package_endpoint(
+    bilibili_api_seam,
+):
+    """No transport field is hard-coded: the package description decides."""
+
+    bilibili_api_seam.user_video_page_endpoint["url"] = CHANGED_ENDPOINT_URL
+    bilibili_api_seam.user_video_page_endpoint["wbi"] = False
+    bilibili_api_seam.videos_response = make_videos_response(make_vlist_item(), count=1)
+    gateway = _load_gateway()
+
+    asyncio.run(gateway.get_user_video_page(MID, page_number=1))
+
+    (request,) = bilibili_api_seam.api_requests
+    assert request.url == CHANGED_ENDPOINT_URL
+    assert request.wbi is False
+
+
+def test_fake_endpoint_mirror_matches_the_installed_pinned_description():
+    """The seam's mirrored endpoint description is the installed pin's.
+
+    ``FAKE_USER_VIDEO_PAGE_ENDPOINT`` is the sole offline oracle for the
+    risk-control-relevant call shape, so its claim to mirror
+    ``bilibili_api.user.API["info"]["video"]`` literally is checked against
+    the distribution it mirrors, not only against itself (the same
+    packaging-parity pattern the HTTP-backend test uses).  A pin bump that
+    renames a key or flips ``verify``/``wbi``/``dm`` fails here instead of
+    staying green offline and surfacing only live.
+
+    Offline and deterministic: reading the installed distribution is the only
+    I/O.  When its description cannot be read the test fails loudly with
+    install guidance, because the contract it checks cannot be proven without
+    it.
+    """
+
+    pinned_endpoint = _require_installed(
+        _INSTALLED_PINNED_ENDPOINT, "endpoint description"
+    )
+
+    for field in MIRRORED_ENDPOINT_FIELDS:
+        assert FAKE_USER_VIDEO_PAGE_ENDPOINT[field] == pinned_endpoint[field], (
+            f"the fake endpoint mirror drifted from the installed pin on {field!r}"
+        )
+    # ``dm`` is mirrored literally too: the pin's ``True`` is the very field
+    # the adapter overrides, so the mirror must keep carrying it.
+    assert FAKE_USER_VIDEO_PAGE_ENDPOINT["dm"] is True
+    assert pinned_endpoint["dm"] is True
+    # The parameter names the adapter forwards are the pin's own set.
+    assert set(FAKE_USER_VIDEO_PAGE_ENDPOINT["params"]) == set(pinned_endpoint["params"])
+
+
+def test_adapter_overrides_only_dm_of_the_installed_pinned_endpoint(
+    bilibili_api_seam,
+):
+    """``dm`` is the only field the adapter changes on the pin's own shape.
+
+    The mirror-parity test above proves the seam's description equals the
+    installed pin's; this test scripts the seam with the pin's *own* values
+    and runs the real adapter, so the issued request reproduces every transport
+    field of the pinned distribution except ``dm``, which the
+    risk-control-safe shape turns off.  Together they pin the shipped call
+    shape to the distribution the adapter actually drives.
+    """
+
+    pinned_endpoint = _require_installed(
+        _INSTALLED_PINNED_ENDPOINT, "endpoint description"
+    )
+    bilibili_api_seam.user_video_page_endpoint.update(pinned_endpoint)
+    bilibili_api_seam.videos_response = make_videos_response(make_vlist_item(), count=1)
+    gateway = _load_gateway()
+
+    asyncio.run(gateway.get_user_video_page(MID, page_number=1))
+
+    (request,) = bilibili_api_seam.api_requests
+    for field in MIRRORED_ENDPOINT_FIELDS:
+        assert getattr(request, field) == pinned_endpoint[field]
+    assert pinned_endpoint["dm"] is True
+    assert request.dm is False
+
+
+def test_fake_request_settings_double_is_no_more_permissive_than_the_pin():
+    """The seam keeps the pin's strict ``set_proxy``/``get_proxy`` shapes.
+
+    ``bilibili_api.request_settings`` is the pinned package's process-global
+    ``RequestSettings`` instance, whose ``set_proxy(self, proxy: str)`` has no
+    default: a no-argument call raises ``TypeError`` against the real package.
+    The seam mirrors it as a module-level function, so a default added there
+    would let a no-argument call pass offline and fail live; the pin's own
+    parameter shapes are compared instead.
+
+    Offline and deterministic: the pinned distribution is read for its
+    signatures only, and the fake is built directly (no seam fixture).
+    """
+
+    pinned_parameters = _require_installed(
+        _INSTALLED_REQUEST_SETTINGS_PARAMETERS, "request-settings parameter shapes"
+    )
+    fake_settings = build_fake_package(FakeUpstreamScript())[
+        "bilibili_api.request_settings"
+    ]
+
+    for name in ("set_proxy", "get_proxy"):
+        mirrored_parameters = [
+            (parameter.name, str(parameter.kind), parameter.default)
+            for parameter in inspect.signature(
+                getattr(fake_settings, name)
+            ).parameters.values()
+        ]
+        assert mirrored_parameters == pinned_parameters[name], (
+            f"the seam's {name} signature is more permissive than the pin's"
+        )
 
 
 # -------------------------------------------------------------- video parts
@@ -658,6 +1046,279 @@ def test_package_version_reports_installed_distribution(bilibili_api_seam, monke
     assert gateway.get_package_version() == "9.9.9"
 
 
+# ------------------------------------------------------- runtime HTTP backend
+
+
+def test_http_backend_declared_and_absent_from_pinned_package_requirements():
+    """The declared HTTP backend cannot arrive transitively from the pin.
+
+    ``bilibili-api-python==17.4.2`` publishes no HTTP client in
+    ``Requires-Dist`` and no extra carrying one, yet every request raises
+    ``ArgsException("尚未安装第三方请求库或未注册自定义第三方请求库")`` until
+    ``curl_cffi``, ``httpx``, or ``aiohttp`` is installed.  The pin is
+    spec-locked, so no version bump can supply the transport: the
+    application must declare the backend itself, and a fresh install without
+    that declaration can never reach the network.  This test fails if the
+    declaration is dropped, and the installed distribution's own metadata is
+    what proves the dependency is load-bearing rather than transitive.
+
+    The installed distribution is asserted to *be* the pin before its
+    requirements are read, so a drifted environment fails loudly here instead
+    of silently drawing the conclusion from another release.
+
+    Offline and deterministic: it reads this checkout's ``pyproject.toml``
+    and the installed distributions' metadata only.
+    """
+
+    project_root = pathlib.Path(__file__).resolve().parents[1]
+    pyproject = tomllib.loads(
+        (project_root / "pyproject.toml").read_text(encoding="utf-8")
+    )
+    declared_names = {
+        canonicalize_name(Requirement(raw).name)
+        for raw in pyproject["project"]["dependencies"]
+    }
+    assert HTTP_BACKEND_CANONICAL_NAME in declared_names, (
+        "the runtime HTTP backend must stay declared in"
+        f" [project].dependencies ({HTTP_BACKEND_CANONICAL_NAME} missing)"
+    )
+
+    try:
+        pinned_distribution = importlib.metadata.distribution(
+            PINNED_PACKAGE_DISTRIBUTION_NAME
+        )
+    except importlib.metadata.PackageNotFoundError as error:
+        pytest.fail(
+            "the packaging contract needs the pinned distribution installed to"
+            f" read its Requires-Dist ({error}); run uv sync first"
+        )
+
+    assert pinned_distribution.version == PINNED_PACKAGE_VERSION, (
+        "the installed distribution is not the pin this contract is about"
+        f" ({pinned_distribution.version!r} != {PINNED_PACKAGE_VERSION!r});"
+        " install the pinned release (uv sync) before re-reading Requires-Dist"
+    )
+
+    upstream_names = {
+        canonicalize_name(Requirement(raw).name)
+        for raw in pinned_distribution.requires or ()
+    }
+    transitive_clients = upstream_names & PACKAGE_HTTP_CLIENT_CANONICAL_NAMES
+    assert not transitive_clients, (
+        f"the pinned package now declares an HTTP client ({sorted(transitive_clients)});"
+        " re-check whether the explicit backend declaration and the rationale"
+        " above still hold"
+    )
+
+
+# --------------------------------------------- proxy resolution and application
+
+
+@pytest.fixture
+def empty_proxy_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Remove every proxy variable the adapter consults, ambient ones included."""
+
+    for name in PROXY_ENV_VARS:
+        monkeypatch.delenv(name, raising=False)
+
+
+@pytest.mark.parametrize("env_var", PROXY_ENV_VARS)
+def test_resolve_proxy_reads_every_locked_environment_level(env_var):
+    """Each variable of the locked chain resolves on its own."""
+
+    assert resolve_proxy(None, {env_var: PROXY_BOUNDARY_VALUE}) == PROXY_BOUNDARY_VALUE
+
+
+def test_resolve_proxy_follows_the_locked_precedence_ladder():
+    """The first set variable wins, proven level by level down the chain."""
+
+    environment = {
+        name: f"http://{index}.example.com:7890"
+        for index, name in enumerate(PROXY_ENV_VARS)
+    }
+
+    for higher_levels_cleared, expected_name in enumerate(PROXY_ENV_VARS):
+        remaining = {
+            name: value
+            for name, value in environment.items()
+            if PROXY_ENV_VARS.index(name) >= higher_levels_cleared
+        }
+        assert resolve_proxy(None, remaining) == environment[expected_name]
+
+
+def test_resolve_proxy_argument_outranks_the_whole_environment_chain():
+    """An explicit argument wins over every environment level."""
+
+    environment = {name: PROXY_BOUNDARY_VALUE for name in PROXY_ENV_VARS}
+
+    assert resolve_proxy("http://argument.example.com:7890", environment) == (
+        "http://argument.example.com:7890"
+    )
+
+
+@pytest.mark.parametrize("blank", ["", "   ", "\t\n"])
+def test_resolve_proxy_blank_values_are_unset_and_never_block_lower_levels(blank):
+    """A blank or whitespace-only value resolves nothing and shadows nothing."""
+
+    environment = {PROXY_ENV_VAR: blank, "HTTPS_PROXY": PROXY_BOUNDARY_VALUE}
+
+    assert resolve_proxy(blank, {PROXY_ENV_VAR: blank}) is None
+    assert resolve_proxy(blank, environment) == PROXY_BOUNDARY_VALUE
+
+
+def test_resolve_proxy_strips_surrounding_whitespace():
+    """A configured value is used without the whitespace around it."""
+
+    assert resolve_proxy(f"  {PROXY_BOUNDARY_VALUE}  ", {}) == PROXY_BOUNDARY_VALUE
+    assert (
+        resolve_proxy(None, {"ALL_PROXY": f"\t{PROXY_BOUNDARY_VALUE}\n"})
+        == PROXY_BOUNDARY_VALUE
+    )
+
+
+def test_resolve_proxy_without_any_setting_resolves_to_none():
+    """Nothing configured means no proxy; only the locked chain is consulted."""
+
+    assert resolve_proxy(None, {}) is None
+    # ``HTTP_PROXY`` is deliberately not part of the locked chain: the two
+    # upstream endpoints this adapter calls are HTTPS.
+    assert resolve_proxy(None, {"HTTP_PROXY": PROXY_BOUNDARY_VALUE}) is None
+
+
+def test_gateway_applies_the_resolved_proxy_once_before_the_first_call(
+    bilibili_api_seam, empty_proxy_environment
+):
+    """The proxy reaches the package settings exactly once, at construction."""
+
+    bilibili_api_seam.videos_response = make_videos_response(make_vlist_item(), count=1)
+    gateway = _load_gateway(proxy=PROXY_BOUNDARY_VALUE)
+
+    assert gateway.resolved_proxy == PROXY_BOUNDARY_VALUE
+    assert bilibili_api_seam.applied_proxies == [PROXY_BOUNDARY_VALUE]
+    assert bilibili_api_seam.calls == []
+
+    asyncio.run(gateway.get_user_video_page(MID, page_number=1))
+
+    assert bilibili_api_seam.calls == ["space.arc.search(pn=1, ps=30)"]
+    # Apply-once: no request re-applies or re-reads the setting.
+    assert bilibili_api_seam.applied_proxies == [PROXY_BOUNDARY_VALUE]
+
+
+def test_gateway_resolves_the_proxy_from_the_environment_without_an_argument(
+    bilibili_api_seam, empty_proxy_environment, monkeypatch
+):
+    """Without an argument the documented operator knob is applied."""
+
+    monkeypatch.setenv(PROXY_ENV_VAR, PROXY_BOUNDARY_VALUE)
+    gateway = _load_gateway()
+
+    assert gateway.resolved_proxy == PROXY_BOUNDARY_VALUE
+    assert bilibili_api_seam.applied_proxies == [PROXY_BOUNDARY_VALUE]
+
+
+def test_gateway_argument_outranks_the_environment(
+    bilibili_api_seam, empty_proxy_environment, monkeypatch
+):
+    """An explicit argument wins over the whole environment chain."""
+
+    monkeypatch.setenv(PROXY_ENV_VAR, "http://environment.example.com:7890")
+    monkeypatch.setenv("HTTPS_PROXY", "http://fallback.example.com:7890")
+    gateway = _load_gateway(proxy=PROXY_BOUNDARY_VALUE)
+
+    assert gateway.resolved_proxy == PROXY_BOUNDARY_VALUE
+    assert bilibili_api_seam.applied_proxies == [PROXY_BOUNDARY_VALUE]
+
+
+def test_gateway_skips_a_blank_environment_value(
+    bilibili_api_seam, empty_proxy_environment, monkeypatch
+):
+    """A blank BILI_HTTP_PROXY falls through to the standard host variable."""
+
+    monkeypatch.setenv(PROXY_ENV_VAR, "   ")
+    monkeypatch.setenv("HTTPS_PROXY", PROXY_BOUNDARY_VALUE)
+    gateway = _load_gateway()
+
+    assert gateway.resolved_proxy == PROXY_BOUNDARY_VALUE
+    assert bilibili_api_seam.applied_proxies == [PROXY_BOUNDARY_VALUE]
+
+
+def test_gateway_leaves_the_package_setting_untouched_without_a_proxy(
+    bilibili_api_seam, empty_proxy_environment
+):
+    """Nothing resolved means no call into the package's request settings."""
+
+    bilibili_api_seam.videos_response = make_videos_response(make_vlist_item(), count=1)
+    gateway = _load_gateway()
+
+    assert gateway.resolved_proxy is None
+    assert bilibili_api_seam.applied_proxies == []
+
+    asyncio.run(gateway.get_user_video_page(MID, page_number=1))
+
+    assert bilibili_api_seam.calls == ["space.arc.search(pn=1, ps=30)"]
+    assert bilibili_api_seam.applied_proxies == []
+
+
+def test_gateway_proxy_stays_out_of_dtos_and_mapped_errors(
+    bilibili_api_seam, empty_proxy_environment
+):
+    """The resolved proxy never surfaces on a DTO or a mapped error."""
+
+    bilibili_api_seam.videos_response = make_videos_response(make_vlist_item(), count=1)
+    gateway = _load_gateway(
+        sessdata=SESSDATA_BOUNDARY_VALUE, proxy=PROXY_BOUNDARY_VALUE
+    )
+
+    page = asyncio.run(gateway.get_user_video_page(MID, page_number=1))
+    for surface in (repr(page), str(page)):
+        assert PROXY_BOUNDARY_VALUE not in surface
+        assert SESSDATA_BOUNDARY_VALUE not in surface
+    # A debug render of the adapter must not dump its configuration either.
+    assert PROXY_BOUNDARY_VALUE not in repr(gateway)
+    assert SESSDATA_BOUNDARY_VALUE not in repr(gateway)
+
+    bilibili_api_seam.videos_error = FakeNetworkException(503, UPSTREAM_ERROR_TEXT)
+    with pytest.raises(GatewayTransportError) as caught:
+        asyncio.run(gateway.get_user_video_page(MID, page_number=2))
+
+    assert PROXY_BOUNDARY_VALUE not in str(caught.value)
+    assert PROXY_BOUNDARY_VALUE not in repr(caught.value)
+
+
+def test_gateway_proxy_stays_out_of_persisted_rows(
+    bilibili_api_seam, empty_proxy_environment, tmp_root
+):
+    """A full collection run persists no proxy value and no credential."""
+
+    bilibili_api_seam.videos_response = make_videos_response(
+        make_vlist_item(aid=None, sessdata_note=SESSDATA_BOUNDARY_VALUE), count=1
+    )
+    bilibili_api_seam.info_response = make_detail_response()
+    bilibili_api_seam.parts_response = [make_part_item()]
+    gateway = _load_gateway(
+        sessdata=SESSDATA_BOUNDARY_VALUE, proxy=PROXY_BOUNDARY_VALUE
+    )
+    connection = open_database(os.path.join(tmp_root, "proxy-hygiene.sqlite"))
+    try:
+        repository = MetadataRepository(connection)
+        result = MetadataIngestor(gateway, repository).collect_user_pages(
+            MID, start_page=1, page_limit=1
+        )
+
+        assert result.outcome == "limited"
+        assert repository.list_pending_parts()
+        persisted = persisted_row_text(connection)
+    finally:
+        connection.close()
+
+    assert_leaks_no_markers(persisted, context="persisted rows")
+    assert PROXY_BOUNDARY_VALUE not in persisted
+    assert SESSDATA_BOUNDARY_VALUE not in persisted
+    for surface in (repr(result), str(result)):
+        assert PROXY_BOUNDARY_VALUE not in surface
+        assert SESSDATA_BOUNDARY_VALUE not in surface
+
+
 # ------------------------------------------------------- DTO self-validation
 
 
@@ -777,7 +1438,15 @@ def test_only_the_gateway_module_imports_bilibili_api():
 
 
 def test_gateway_imports_stay_on_metadata_surface():
-    """The adapter imports only Credential, User, Video, and exceptions."""
+    """The adapter imports exactly the enforced allow-list, nothing broader.
+
+    ``ALLOWED_PACKAGE_IMPORTS`` is compared exactly: ``Credential`` and the
+    ``request_settings``/``user`` modules from the package root, the
+    WBI-signed ``utils.network.Api``, ``video.Video``, and the five exception
+    names.  ``User`` is deliberately not among them — the page call goes
+    through the ``user`` module's endpoint description and the package ``Api``,
+    never a ``user.User`` delegate.
+    """
 
     gateway_path = (
         pathlib.Path(__file__).resolve().parent.parent
@@ -824,7 +1493,9 @@ def test_gateway_source_never_names_forbidden_seam_methods():
 
     assert forbidden_hits == []
     # Positive control: the scan sees the documented metadata attribute calls.
-    assert {"get_videos", "get_pages", "get_info"} <= attribute_names
+    assert {"get_access_id", "update_params", "get_pages", "get_info"} <= (
+        attribute_names
+    )
 
 
 def test_fake_seam_exposes_only_documented_metadata_surface():
@@ -833,12 +1504,23 @@ def test_fake_seam_exposes_only_documented_metadata_surface():
     modules = build_fake_package(FakeUpstreamScript())
     package = modules["bilibili_api"]
 
-    assert _public_names(modules["bilibili_api.user"]) == ["User"]
+    assert _public_names(modules["bilibili_api.user"]) == ["API", "User", "VideoOrder"]
     assert _public_names(modules["bilibili_api.video"]) == ["Video"]
+    assert _public_names(modules["bilibili_api.utils.network"]) == ["Api"]
     assert _public_names(modules["bilibili_api.exceptions"]) == sorted(
         ALLOWED_EXCEPTION_NAMES
     )
-    assert _public_names(package) == ["Credential", "exceptions", "user", "video"]
+    assert _public_names(modules["bilibili_api.request_settings"]) == [
+        "get_proxy",
+        "set_proxy",
+    ]
+    assert _public_names(package) == [
+        "Credential",
+        "exceptions",
+        "request_settings",
+        "user",
+        "video",
+    ]
     assert _public_names(package.Credential) == []
 
     user = package.user.User(uid=MID)
@@ -857,6 +1539,10 @@ def test_fake_seam_exposes_only_documented_metadata_surface():
             getattr(user, surface_name)
         with pytest.raises(AttributeError):
             getattr(video, surface_name)
+    # The page delegate the risk-control-safe shape replaces is gone, so a
+    # regression to it fails loudly instead of passing through the seam.
+    with pytest.raises(AttributeError):
+        user.get_videos
 
 
 def test_gateway_dto_drops_unknown_upstream_payload_fields(bilibili_api_seam):
@@ -884,7 +1570,7 @@ def test_gateway_dto_drops_unknown_upstream_payload_fields(bilibili_api_seam):
         assert_leaks_no_markers(repr(surface), context="gateway DTO repr")
         assert_leaks_no_markers(str(surface), context="gateway DTO str")
     assert bilibili_api_seam.calls == [
-        "user.get_videos(pn=1, ps=100)",
+        "space.arc.search(pn=1, ps=30)",
         "video.get_info",
         "video.get_pages",
     ]
@@ -911,7 +1597,7 @@ def test_live_smoke_single_public_page_for_archive_owner(tmp_root):
     """Opt-in live probe: ONE public metadata page for UID 23191782.
 
     Skipped unless the operator sets ``BILI_LIVE_SMOKE=1``.  The probe
-    requests exactly one bounded page (``ps=100``) for the archive owner
+    requests exactly one bounded page (``ps=30``) for the archive owner
     through the real adapter, ingests it into a fresh temporary SQLite
     database, calls no subtitle/playback/audio/ASR/export endpoint,
     requires no credential, and keeps every raw upstream payload

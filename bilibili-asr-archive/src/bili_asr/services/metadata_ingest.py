@@ -43,7 +43,11 @@ from bili_asr.storage.models import (
 )
 
 SOURCE_PACKAGE = "bilibili-api-python"
-PAGE_SIZE = 100
+#: Shipped page size of the user-video page call.  Upstream answers ``ps=100``
+#: with its bounded ``-400``/HTTP 412 rejection while 30 — the pinned
+#: package's own documented value — returns ``code=0``, so the shipped default
+#: stays inside the bound upstream accepts.
+PAGE_SIZE = 30
 
 
 def _now() -> int:
