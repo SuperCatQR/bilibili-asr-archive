@@ -5,7 +5,7 @@
   "status": "active",
   "started_at": "2026-09-11",
   "updated_at": "2026-09-11",
-  "phase": "phase-2-execute",
+  "phase": "phase-3-close",
   "plans": [
     {
       "id": "20260911-subtitle-gateway",
@@ -111,12 +111,12 @@
       "id": "20260911-subtitle-cli-cutover",
       "title": "Subtitle CLI cutover and bounded verification",
       "file": ".mstar/plans/20260911-subtitle-cli-cutover.md",
-      "status": "Todo",
+      "status": "Done",
       "owner": "project-manager",
       "agents": [
         "fullstack-dev"
       ],
-      "progress": 0,
+      "progress": 100,
       "task_commits": [],
       "tags": [
         "backend",
@@ -125,8 +125,11 @@
       ],
       "created_at": "2026-09-11",
       "updated_at": "2026-09-11",
-      "done_at": null,
-      "notes": [],
+      "done_at": "2026-09-11",
+      "notes": [
+        "Phase 2 lease claimed (final plan of the iteration); worktree .worktrees/20260911-subtitle-cli-cutover on feature/20260911-subtitle-cli-cutover.",
+        "Plan Done: merged as d1a0b7e. Plan QC tri -> Request Changes on one Warning (blank --bvid taxonomy) closed by a merged fix wave + N=3 re-review Approve; QA gate -> Needs fixes (F-QA-001: a damaged DB escaped as a raw traceback) closed by a narrow fix and re-verified Approve with DoD 11/11. No residual registered; R1 stays open for a later plan."
+      ],
       "metadata": {
         "primary_spec": ".mstar/iterations/iter-2026-09-subtitle-transcript-sqlite/specs/subtitle-cli-contract.md",
         "spec_integration_branch": "iteration/iter-2026-09-subtitle-transcript-sqlite",
@@ -138,7 +141,16 @@
         "blocked_by": [
           "20260911-subtitle-gateway",
           "20260911-transcript-storage"
-        ]
+        ],
+        "gates": {
+          "qc": "passed",
+          "qa": "passed"
+        },
+        "delivery": {
+          "merge_commit": "d1a0b7e",
+          "review_range": "c5a9b82..d742fc2",
+          "live_result": "part_source=fixed-sample sessdata=present track=ai-zh:ai stored=1 source_kind=subtitle-ai language=ai-zh version=1 segments=2913 pending_after=0"
+        }
       }
     }
   ],

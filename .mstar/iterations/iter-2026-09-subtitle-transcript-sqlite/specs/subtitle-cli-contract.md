@@ -304,6 +304,10 @@ def language_family(language: str, is_ai: bool) -> str:
 - The new path writes no file projection of the transcript (`subtitles/raw/*.json`,
   `transcripts/srt/*.srt`); `archive.db` is the only destination, and neither command creates
   a file under the archive root except `harvest-subs`'s database writes.
+  > Dated PM note (2026-09-11, plan QC seat 2 QC2-003): read this together with the shipped writer lock —
+  > `harvest-subs` is an archive-writer command and additionally takes `coordinator/archive-writer.lock`
+  > (coordination state, pinned as exact behaviour by the E2E); `probe-subs` takes none. The database remains
+  > the only content file either command writes.
 - Only the typed gateway imports `bilibili_api`; the CLI composes config → database →
   repository → gateway → service.
 - `SESSDATA` is redacted to presence-only in every display path.

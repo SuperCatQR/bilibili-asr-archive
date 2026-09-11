@@ -222,6 +222,16 @@ Run: `cd bilibili-asr-archive && .venv/bin/python -m pytest tests/test_subtitle_
 
 Run: `cd bilibili-asr-archive && .venv/bin/python -m pytest tests/test_subtitle_e2e.py -v`
 
+**PM-authorized follow-up (2026-09-11, from the Task-1 L2 review M3):** the env-sourced credential path for
+these commands lost its direct assertion when the legacy tests were replaced (only the shared helper in
+`test_metadata_cli.py` covers it). Add the assertion here — an E2E case where `BILI_SESSDATA` is present in the
+environment (and one where it is absent) must exercise the composition of `credential_present` into the run row
+and the printed `sessdata: <present|absent>` line.
+
+**PM-authorized follow-up (2026-09-11, from the Task-2 L2 review):** `ProbeResult.credential_present` is
+asserted nowhere — add the assertion to the probe's coverage here (the probe prints the line, so the value must
+be pinned too), and while live, record the probe's `sessdata=present|absent` alongside `part_source`.
+
 ### Task 3: Bounded live smoke and operator documentation
 
 **Files:**
@@ -246,6 +256,17 @@ Run: `cd bilibili-asr-archive && .venv/bin/python -m pytest tests/test_subtitle_
       procedure (delete `archive.db`, re-run `fetch-meta`), the two schema resources, the fact
       that the legacy ASR/pilot path still reads the manifest, and that `harvest-subs` no longer
       writes the manifest status `needs_audio`.
+- [ ] **PM-authorized documentation follow-ups (2026-09-11, from the Task-1 L2 review):**
+  - **M1** — document the deliberate asymmetry: a part whose *listing* answers `not_found` is printed by
+    `probe-subs` as `probe <work_id> failed <error_code>` (and can make an all-failed probe exit 2), while
+    `harvest-subs` records the same part as `no-subtitle` and exits 0 with the counts. State both readings so
+    an operator is not surprised.
+  - **⚠️2** — the spec's "writes no file except its database" must be read against the shipped writer lock
+    that `harvest-subs` takes as an archive-writer command; document the lock (what it is, where it lives, and
+    that `probe-subs` deliberately takes none).
+  - **⚠️6** — state that after the cutover the ASR/pilot chain is driven from the manifest state, so
+    `download-audio --missing-subs` gains nothing from the SQLite subtitle path (the two paths do not feed
+    each other yet).
 
 Run: `cd bilibili-asr-archive && BILI_LIVE_SMOKE=1 .venv/bin/python -m pytest tests/test_live_metadata_smoke.py -s -v`
 
@@ -265,7 +286,10 @@ Run: `cd bilibili-asr-archive && BILI_LIVE_SMOKE=1 .venv/bin/python -m pytest te
 - Consumed by iteration acceptance (bounded live evidence) and by the next iteration
   (audio/ASR), which reuses the same run-record shape, repository conventions, and CLI output
   discipline.
-- Deferred: retiring `bili_client`'s subtitle methods and migrating the ASR/pilot path.
+- Deferred: retiring `bili_client`'s subtitle methods and migrating the ASR/pilot path —
+  owner `project-manager`; trigger: the audio/ASR iteration (it already owns the audio/playurl path);
+  done when no shipped command reaches `bili_client`'s subtitle methods and the manifest path no longer
+  carries subtitle state (QC3-06, closed 2026-09-11).
 - Deferred with a named owner (`project-manager`, trigger "this iteration delivered"):
   rebuilding SRT/TXT/MD projections from SQLite transcripts, enumerating the audio work queue
   from SQLite (including the parts recorded `no-subtitle`, which are its work queue), and
@@ -301,6 +325,37 @@ Run: `cd bilibili-asr-archive && BILI_LIVE_SMOKE=1 .venv/bin/python -m pytest te
     while the promised operator line has `<command>: …` plus the root: the Task 1 test list must assert the
     printed line carries **both**, so `print(f"{command}: {exc}")` cannot pass a substring check.
 
+- Recorded (nits from the Task-1 L2 review, no rework proposed):
+  - **M2** — (owner `project-manager`; trigger: the next plan that owns the run lifecycle)
+    `finish_acquisition_run` sits outside the interrupted-run guard, the one narrow path that can
+    leave a run row `running` on an abrupt terminate; it mirrors the shipped metadata run discipline, so the
+    next owner of the run lifecycle decides whether to close it.
+  - **M4** — `test_subtitle_cli.py` imports a private helper from `test_storage_schema`; harmless today, worth
+    promoting to a shared test fixture if a third consumer appears.
+
+- Recorded (follow-up decision, Task-2 review disclosure 1): the offline E2E exercises the **protocol double**
+  (F3's wording) and the package-level seam stays covered by `test_bilibili_api_gateway.py`'s subtitle routes
+  plus this plan's live smoke. A package-seam subtitle E2E would be a larger, separate task — decide it in a
+  future plan rather than reopening Task 2.
+- Recorded (nits, Task-2 review): the report's note that the metadata clock fixture shares the subtitle
+  path's clock limitation is **wrong** (the metadata ingestor calls the module-global `_now()` directly, so its
+  fixture is effective; only the subtitle path binds `_now` as a default argument). `_archive_files` is blind to
+  empty directories (matches the spec's "no file" wording). M3's probe-absent branch lives in the probe test.
+
+- Recorded (**QC2-005**; owner `project-manager`; trigger: the next plan that owns the transcript schema —
+  expected the audio/ASR iteration, which will add its own run rows): the acquisition run row does not persist the
+  `--language` preference, so a preference-scoped `no-subtitle` outcome is indistinguishable from a generic
+  one after the fact. Persisting it would be a schema column decision (a storage owner's), not a CLI change.
+
+- Recorded (nits, seat-1 fix-wave revalidation; owner `project-manager`; trigger: the next plan that
+  touches `cli.py`'s archive-opening paths):
+  - the two `<command>: unreadable archive database at …` branches the fix wave introduced have neither a
+    test nor a doc sentence (the exit code stays 1); the QA gate exercises them at runtime, and a future
+    plan adds the pinned cases.
+  - the `unknown --bvid` guard echoes the operator's raw selector, so a control-character value injects a
+    second stderr line (the spec pins `<value>` and the sibling guard has always echoed it; stderr is not
+    the locked machine surface) — accepted as-is, sanitise only if stderr ever becomes machine-read.
+
 ## Drift Check
 
 Before implementing, inspect the current `harvest-subs`/`probe-subs` handlers, `subtitles.py`
@@ -310,26 +365,26 @@ other command depends on the handlers being changed, and that no other module im
 
 ## Acceptance / Done Criteria
 
-- [ ] `harvest-subs` requires a bound (or an explicit single `bvid:pN`) and stores normalized
+- [x] `harvest-subs` requires a bound (or an explicit single `bvid:pN`) and stores normalized
       transcripts — or bounded evidence for parts without subtitles — with idempotent re-runs and
       immutable versions.
-- [ ] `probe-subs` prints track metadata only, prints zero-track parts explicitly, writes
+- [x] `probe-subs` prints track metadata only, prints zero-track parts explicitly, writes
       nothing, and never creates the database.
-- [ ] The run summary always prints all four outcome counts including zeros, the run id,
+- [x] The run summary always prints all four outcome counts including zeros, the run id,
       credential presence, and how many parts still lack a transcript; no output claims corpus or
       caption coverage.
-- [ ] The selection rule is documented, deterministic, and overridable with `--language`; the
+- [x] The selection rule is documented, deterministic, and overridable with `--language`; the
       stored source kind, language, and version are reported per part.
-- [ ] Repeated bounded runs make progress, and an explicitly targeted stored part can be
+- [x] Repeated bounded runs make progress, and an explicitly targeted stored part can be
       re-acquired (`unchanged`, or a new version when the caption changed).
-- [ ] A database that predates the transcript schema makes both commands exit `1` with the
+- [x] A database that predates the transcript schema makes both commands exit `1` with the
       fixed rebuild line while the metadata commands keep working.
-- [ ] No legacy sidecar is read or written by either command, and neither command writes
+- [x] No legacy sidecar is read or written by either command, and neither command writes
       `subtitles/raw/` or `transcripts/srt/`.
-- [ ] Exit taxonomy and bounded codes are pinned by tests; docs match behaviour.
-- [ ] Offline suites green (baseline for this plan: the storage plan's post-merge count).
-- [ ] Bounded live smoke recorded (real transcripts, or an explicit bounded blocker).
-- [ ] `git diff --check` clean.
+- [x] Exit taxonomy and bounded codes are pinned by tests; docs match behaviour.
+- [x] Offline suites green (baseline for this plan: the storage plan's post-merge count).
+- [x] Bounded live smoke recorded (real transcripts, or an explicit bounded blocker).
+- [x] `git diff --check` clean.
 
 ## Prepare → Execute Handoff
 
@@ -337,18 +392,92 @@ Execute Task 1 → Task 2 → Task 3 (serial). Then SDD review package, QC tri, 
 
 ## Review Gate Summary
 
-- Decision: pending
-- Review range / Diff basis: pending
-- Review bundle: `.mstar/sdd/20260911-subtitle-cli-cutover/review/`
-- QC inputs: `qc1.md`, `qc2.md`, `qc3.md`
-- Blocking result: pending
-- Residual findings: pending
+- Decision: **Approve** (plan QC tri N=3 → seat 1 Request Changes on one Warning, seats 2/3 Approve; a merged
+  fix wave closed the Warning plus eleven Suggestions, and the N=3 targeted re-review returned Approve from all
+  three seats with no open item — Q3-06 was closed by the PM after seat 3 flagged it as the last open item)
+- Review range / Diff basis: `c5a9b82..d742fc2` (6 commits: `8ec992b` service + CLI cutover, `c501d9a` offline
+  E2E + F3 + M3, `d5c0f9e` live smoke, `8373817` docs, `7e57eb6` QC fix wave, `0e0ea81` QA fix, `d742fc2`
+  docstring correction)
+- Review bundle: `.mstar/sdd/20260911-subtitle-cli-cutover/review/` (`qc-consolidated.md` carries the gate)
+- QC inputs: `qc1.md`, `qc2.md`, `qc3.md` (each with `## Revalidation`)
+- Blocking result: none at the final gate — 0 Critical / 0 Warning / 0 open Suggestion
+- Residual findings: **none registered by this plan**; `R1` (plan 1, `low`, `defer`) stays open and correctly
+  retargeted (this branch touches no `sources/bilibili_api_gateway.py` import surface)
+- QA gate: **Approve** after one round of **Needs fixes** (`review/qa-gate.md` + its `## Re-verification`):
+  round 1 reproduced `1311 passed, 4 skipped` and re-took the bounded live smoke successfully (a fresh
+  `run_id`, all other fields identical: `part_source=fixed-sample`, `sessdata=present`, `tracks=ai-zh:ai`,
+  `stored=1 source_kind=subtitle-ai language=ai-zh version=1 segments=2913 pending_after=0`), found **F-QA-001**
+  (a damaged-but-openable database escaped as a 23-line raw traceback); the narrow fix `0e0ea81` bounded it to
+  the byte-exact `unreadable archive database at <root> (DatabaseError)` line and the re-verification returned
+  **Approve with DoD 11/11** (the branch now pins the unreadable branch for both commands in both damage
+  variants and the zero-byte asymmetry). `F-QA-002` (a false docstring claim) was corrected by `d742fc2`
+  (docstring-only; AST-verified no executable change; suite counts unchanged)
+- Merged into the iteration branch as `d1a0b7e` (2026-09-11)
 
 ## QA Gate Summary
 
 - QA gate: mandatory
 - QA mode: acceptance
-- Evidence: pending
+- Evidence: **Approve (recommend merge)** — round-2 re-verification of the `F-QA-001` fix wave (qa-engineer,
+  2026-09-11; report `.mstar/sdd/20260911-subtitle-cli-cutover/review/qa-gate.md` → `## Re-verification`).
+  Round 1 returned **Needs fixes** on `F-QA-001`; `0e0ea81 fix(subs): bound the probe's damaged-database answer`
+  (`+151/−0`, 3 files, additions only) is **verified closed** at checkout `feature/20260911-subtitle-cli-cutover`
+  HEAD `0e0ea81` (= round-1 HEAD `7e57eb6` + the fix wave) / integration base `c5a9b82`, tree clean, HEAD
+  unmoved. `review/qa-fix-diff.md`'s fenced body is **byte-identical** to the live `7e57eb6..0e0ea81` diff
+  (9697 bytes, 195 lines, all 3 files; `git diff --check` clean) — its only flaw is the artifact's own truncated
+  `Scope:` header line, whose opening fence was lost (content complete; artifact hygiene only). Runtime
+  re-reproduction on a freshly built damaged-but-openable database (intact header, corrupted page 1, asserted
+  `SQLite format 3`): **both** commands now print the byte-exact
+  `<command>: unreadable archive database at <root> (DatabaseError)` line on stderr, stdout empty, exit 1 — one
+  line instead of round 1's 23-line traceback, no SQLite internals, file not repaired (probe root holds
+  `archive.db` only; harvest adds only the writer lock), and **identical to what shipped `status`/`runs` print
+  for the same file** (parity promise verified, not assumed). Neighbouring states unregressed and byte-exact
+  (not-a-database, truncated, missing, healthy, pre-iteration schema, zero-byte asymmetry; exits 0/1 unchanged;
+  69/69 behaviour checks over the real CLI, offline, network canary set). **Revert-proof run independently**
+  against a copy of the package whose `cli.py` is `7e57eb6`'s (diff-verified to differ only by the fix hunk):
+  the new `damaged-page-1` case **fails pre-fix** at `require_subtitle_schema` → `_transcripts_columns`
+  (`database.py:116`) with `sqlite3.DatabaseError: database disk image is malformed` (83 passed / 1 failed), and
+  passes post-fix (84 passed) — the wave's only behavioural delta in that module. Scope: the sole source change
+  is that bounded handler + its docstring paragraph; it catches only `(OSError, sqlite3.Error)` (a `TypeError`
+  from the guard still escapes — probed by injection), no `except Exception`, the exit taxonomy and every locked
+  output shape are untouched, and the two doc paragraphs match observed behaviour. Fresh offline suite at the
+  new HEAD: **1314 passed, 4 skipped**, exit 0 (round-1 1311 + the 3 new pinned cases; skips are still exactly
+  the 4 opt-in live gates). **One Suggestion, non-blocking — `F-QA-002`:** the new docstring sentence "anything
+  outside that class escapes as the unexpected internal error the command handlers report" is false at runtime
+  (the guard is called before the command handlers' `try`, and `main` catches nothing broad, so such an
+  exception prints a raw traceback and exits 1); unreachable without a Python-level bug, no behaviour change,
+  no DoD box falsified — one-line correction recorded in the report for the merge commit or a durable note.
+  **Bounded live smoke not re-taken** and not needed: the added handler runs only when the schema guard raises,
+  the healthy path is byte-for-byte the one round 1 exercised, and the fix has no credential/live dependency —
+  round 1's re-take at `7e57eb6` (one invocation, exit 0, 21 passed, `stored=1 segments=2913
+  sessdata=present`) **stands** for the unchanged live path; A1–A12 untouched. Round-1 detail, reused where
+  the fix cannot reach it: checkout `feature/20260911-subtitle-cli-cutover` HEAD `7e57eb6` / base `c5a9b82`,
+  tree clean; `review/branch-diff.md` + `review/qc-fix-diff.md` are
+  byte-identical to the live `c5a9b82..8373817` and `8373817..7e57eb6` diffs and their union is exactly the
+  live 16-file full-range diff. Fresh offline suite at HEAD from the worktree package dir: **1311 passed,
+  4 skipped** (exit 0; the 4 skips are exactly the opt-in live gates; plan-2 baseline 1202/3 + 109 tests) with
+  the AST import-boundary scans (4 passed) and the no-leak scans green. Bounded live smoke **re-taken**
+  (one invocation, exit 0, 21 passed): `part_source=fixed-sample work_id=BV1S8hA6MEvy:p0 sessdata=present
+  probe_exit=0 probed=1 with_tracks=1 track_count=1 tracks=ai-zh:ai harvest_exit=0
+  run_id=f483460e60ea45dea71a2b41a9e284de attempted=1 stored=1 unchanged=0 no_subtitle=0 failed=0
+  remaining_without_transcript=0 source_kind=subtitle-ai language=ai-zh version=1 segments=2913 transcripts=1
+  attempts=1 pending_after=0`; run log carries no credential/URL sentinel (three-invocation deviation kept as
+  recorded, not normalized). F-001 re-verified at runtime (`probe-subs`/`harvest-subs` × `--bvid ""` /
+  whitespace / `\x01` → the byte-exact `unknown --bvid` line + exit 1, no rows, nothing created); the
+  pre-iteration-database case exits 1 with the composed rebuild line for both commands while `status` still
+  exits 0; the missing-database guard leaves a probe-only root empty. DoD was **10/11 boxes** at round 1, with
+  box 8 partial **solely** because of `F-QA-001`; box 8 is now **fully evidenced** (the `unreadable archive
+  database` branch is pinned for both commands in both damage variants — the `damaged-page-1` pin is
+  revert-proofed — plus the zero-byte asymmetry, and the two new doc paragraphs match observed runtime
+  behaviour) → **DoD 11/11 boxes fully evidenced** at `0e0ea81`. Residual register correct: only plan 1's `R1`
+  (`low`, `defer`) is open, target unchanged, this plan holds none, and the plan may proceed to Done with `R1`
+  open. A1–A12 re-confirmed at `7e57eb6`, none falsified, and this wave touches no A1–A12 surface.
+  **`F-QA-001` closed** (round-1 Warning: the new `mode=ro` path let `require_subtitle_schema` fail outside its
+  bounded handler, so `probe-subs` printed a 23-line raw SQLite traceback instead of the bounded line its own
+  docstring promised — now one byte-exact line + exit 1 on both commands, with the pinned regression case the
+  branch lacked). Verdict: **Approve (recommend merge)**; no blocking item remains, `F-QA-002` is a
+  non-blocking comment-accuracy Suggestion with a recorded one-line correction. Plan not marked Done (the merge
+  precedes Done; PM owns the merge and the boxes).
 
 ## Sign-off
 
