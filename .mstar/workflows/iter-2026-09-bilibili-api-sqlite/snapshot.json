@@ -2,10 +2,10 @@
   "schema_version": 1,
   "id": "iter-2026-09-bilibili-api-sqlite",
   "type": "iteration",
-  "status": "paused",
+  "status": "completed",
   "started_at": "2026-09-09",
-  "updated_at": "2026-09-10",
-  "phase": "phase-2-execute",
+  "updated_at": "2026-09-11",
+  "phase": "phase-5-pr-merge-ready",
   "plans": [
     {
       "id": "20260909-structured-metadata-schema",
@@ -148,6 +148,11 @@
     "target": "main"
   },
   "control_worktree_path": "/root/workspace/bilibili-asr-archive",
-  "legacy_metadata": {},
-  "compass_ref": "iterations/iter-2026-09-bilibili-api-sqlite/delivery-compass.md"
+  "legacy_metadata": {
+    "delivery_notes": [
+      "Iteration delivered: PR #10 merged into main (b62ab88); PR #11/#12 housekeeping merged. Lifecycle unregistered from status.json."
+    ]
+  },
+  "compass_ref": "iterations/iter-2026-09-bilibili-api-sqlite/delivery-compass.md",
+  "ended_at": "2026-09-11"
 }
