@@ -1,0 +1,499 @@
+diff --git a/bilibili-asr-archive/src/bili_asr/cli.py b/bilibili-asr-archive/src/bili_asr/cli.py
+index d754477..fd52a0a 100644
+--- a/bilibili-asr-archive/src/bili_asr/cli.py
++++ b/bilibili-asr-archive/src/bili_asr/cli.py
+@@ -406,12 +406,19 @@ def _cmd_status(args: argparse.Namespace) -> int:
+     from collections import Counter
+     from .manifest import ManifestStore
+ 
+-    counts = Counter(entry.get("status", "pending") for entry in ManifestStore(root=args.archive_root).load().values())
++    store = ManifestStore(root=args.archive_root)
++    entries = store.load()
++    counts = Counter(entry.get("status", "pending") for entry in entries.values())
+     if not counts:
+         print("manifest: empty")
+         return 0
+     for status in sorted(counts):
+         print(f"{status}: {counts[status]}")
++    unresolved = store.unresolved_identifiers()
++    if unresolved:
++        print(f"unresolved: {len(unresolved)}")
++        for identifier in unresolved:
++            print(f"  {identifier}")
+     return 0
+ 
+ 
+diff --git a/bilibili-asr-archive/src/bili_asr/manifest.py b/bilibili-asr-archive/src/bili_asr/manifest.py
+index aa86718..19ec84a 100644
+--- a/bilibili-asr-archive/src/bili_asr/manifest.py
++++ b/bilibili-asr-archive/src/bili_asr/manifest.py
+@@ -1,4 +1,4 @@
+-"""JSONL manifest ledger keyed by bvid.
++"""JSONL manifest ledger keyed by work_id.
+ 
+ Status names are the SSOT shared by all plans (spec asr-archive-cli.md
+ "Manifest state machine"). No network; I/O limited to the manifest dir.
+@@ -6,9 +6,13 @@ Status names are the SSOT shared by all plans (spec asr-archive-cli.md
+ 
+ from __future__ import annotations
+ 
++from dataclasses import dataclass, field
+ import json
+ import os
+-from typing import Any, Optional
++import re
++from typing import Any, Callable, Optional
++
++from .page_identity import PageIdentity, format_work_id, parse_work_id
+ 
+ # Manifest state machine (spec SSOT):
+ # pending -> meta_ok -> sub_checked -> {subtitle_done | needs_audio -> audio_ok}
+@@ -30,9 +34,41 @@ VALID_STATUSES = frozenset(
+ 
+ DEFAULT_REL_PATH = os.path.join("manifest", "manifest.jsonl")
+ 
++UNRESOLVED_REASON_AMBIGUOUS_BARE_BVID = "ambiguous_bare_bvid"
++
++_STEM_PAGE_RE = re.compile(r"^(.+)\.p(\d+)$")
++
++
++class ManifestMigrationCollision(ValueError):
++    """Migration would overwrite an existing work_id row or page artifact."""
++
++
++@dataclass
++class LegacyMigrationReport:
++    migrated: list[str] = field(default_factory=list)
++    unresolved: list[str] = field(default_factory=list)
++
++
++def _entry_key(entry: dict[str, Any]) -> str:
++    work_id = entry.get("work_id")
++    if work_id:
++        return str(work_id)
++    bvid = entry.get("bvid")
++    if not bvid:
++        raise ValueError("manifest entry requires 'work_id' or 'bvid'")
++    return str(bvid)
++
++
++def _is_unresolved(entry: dict[str, Any]) -> bool:
++    return bool(entry.get("unresolved"))
++
++
++def _is_bare_legacy(entry: dict[str, Any]) -> bool:
++    return not entry.get("work_id") and bool(entry.get("bvid"))
++
+ 
+ class ManifestStore:
+-    """Append-safe JSONL store of per-video records keyed by bvid."""
++    """Append-safe JSONL store of per-page records keyed by work_id."""
+ 
+     def __init__(self, root: str | os.PathLike[str],
+                  rel_path: str = DEFAULT_REL_PATH) -> None:
+@@ -42,7 +78,7 @@ class ManifestStore:
+         self._loaded = False
+ 
+     def load(self) -> dict[str, dict[str, Any]]:
+-        """Read the JSONL file (if any) into memory; returns bvid -> entry."""
++        """Read the JSONL file (if any) into memory; last write wins per key."""
+         self._entries = {}
+         if os.path.exists(self.path):
+             with open(self.path, "r", encoding="utf-8") as fh:
+@@ -51,13 +87,12 @@ class ManifestStore:
+                     if not line:
+                         continue
+                     entry = json.loads(line)
+-                    # last write wins; resume re-reads may contain dupes
+-                    self._entries[entry["bvid"]] = entry
++                    self._entries[_entry_key(entry)] = entry
+         self._loaded = True
+         return self._entries
+ 
+     def save(self, entries: dict[str, dict[str, Any]] | None = None) -> None:
+-        """Atomically rewrite the JSONL file, one line per bvid."""
++        """Atomically rewrite the JSONL file, one line per key."""
+         if entries is not None:
+             self._entries = dict(entries)
+         if not self._entries:
+@@ -70,10 +105,17 @@ class ManifestStore:
+         os.replace(tmp, self.path)
+ 
+     def upsert(self, entry: dict[str, Any]) -> dict[str, Any]:
+-        """Insert or replace one bvid record and persist (deduped)."""
++        """Insert or replace one record and persist (deduped by key)."""
+         bvid = entry.get("bvid")
+         if not bvid:
+             raise ValueError("manifest entry requires a non-empty 'bvid'")
++        work_id = entry.get("work_id")
++        if work_id:
++            parsed_bvid, _page = parse_work_id(str(work_id))
++            if parsed_bvid != bvid:
++                raise ValueError(
++                    f"work_id {work_id!r} does not match bvid {bvid!r}"
++                )
+         status = entry.get("status")
+         if status not in VALID_STATUSES:
+             raise ValueError(
+@@ -81,12 +123,131 @@ class ManifestStore:
+             )
+         if not self._loaded:
+             self.load()
+-        self._entries[bvid] = dict(entry)
++        stored = dict(entry)
++        self._entries[_entry_key(stored)] = stored
+         self.save()
+-        return self._entries[bvid]
++        return self._entries[_entry_key(stored)]
+ 
+-    def get(self, bvid: str) -> Optional[dict[str, Any]]:
+-        """Return the record for bvid, or None."""
++    def get(self, work_id: str) -> Optional[dict[str, Any]]:
++        """Return the record for an exact work_id (or legacy bare-bvid key)."""
+         if not self._loaded:
+             self.load()
+-        return self._entries.get(bvid)
++        return self._entries.get(work_id)
++
++    def get_compatible(self, bvid: str) -> Optional[dict[str, Any]]:
++        """Lookup by bvid without guessing among multiple pages."""
++        if not self._loaded:
++            self.load()
++        matching = [
++            entry for entry in self._entries.values()
++            if entry.get("bvid") == bvid
++        ]
++        processable = [e for e in matching if not _is_unresolved(e)]
++        if len(processable) == 1:
++            return processable[0]
++        unresolved = [
++            e for e in matching
++            if _is_unresolved(e) and _is_bare_legacy(e)
++        ]
++        if unresolved:
++            return unresolved[0]
++        return None
++
++    def unresolved_identifiers(self) -> list[str]:
++        if not self._loaded:
++            self.load()
++        ids = [
++            str(e.get("bvid"))
++            for e in self._entries.values()
++            if _is_unresolved(e)
++        ]
++        return sorted(ids)
++
++    def migrate_legacy_rows(
++        self,
++        pages_for: Callable[[str], list[PageIdentity]],
++        archive_root: str | os.PathLike[str] | None = None,
++    ) -> LegacyMigrationReport:
++        """Migrate unambiguous bare-bvid rows; freeze the rest additively."""
++        if not self._loaded:
++            self.load()
++        root = os.fspath(archive_root if archive_root is not None else self.root)
++        report = LegacyMigrationReport()
++        next_entries: dict[str, dict[str, Any]] = dict(self._entries)
++
++        bare_keys = sorted(
++            key for key, entry in self._entries.items()
++            if _is_bare_legacy(entry)
++        )
++        for key in bare_keys:
++            entry = dict(next_entries[key])
++            bvid = str(entry["bvid"])
++            pages = list(pages_for(bvid))
++            colliding_stems = _foreign_page_stems(root, bvid)
++            dest_work_id = format_work_id(bvid, 0)
++            dest_occupied = (
++                dest_work_id in next_entries and dest_work_id != key
++            )
++            missing_cid = bool(pages) and any(p.cid is None for p in pages)
++            unambiguous = (
++                len(pages) == 1
++                and not colliding_stems
++                and not dest_occupied
++                and not missing_cid
++                and pages[0].page_index == 0
++                and pages[0].bvid == bvid
++            )
++            if dest_occupied:
++                raise ManifestMigrationCollision(
++                    f"migration would overwrite existing work_id {dest_work_id}"
++                )
++            if unambiguous:
++                page = pages[0]
++                if colliding_stems:
++                    raise ManifestMigrationCollision(
++                        f"migration would collide with artifacts {sorted(colliding_stems)}"
++                    )
++                migrated = dict(entry)
++                migrated["work_id"] = page.work_id
++                migrated["page_index"] = page.page_index
++                migrated["cid"] = page.cid
++                migrated["page_label"] = page.page_label
++                del next_entries[key]
++                next_entries[page.work_id] = migrated
++                report.migrated.append(page.work_id)
++                continue
++            marked = dict(entry)
++            marked.setdefault("unresolved", True)
++            marked.setdefault(
++                "unresolved_reason", UNRESOLVED_REASON_AMBIGUOUS_BARE_BVID
++            )
++            marked.setdefault("excluded_from_page_processing", True)
++            next_entries[key] = marked
++            report.unresolved.append(bvid)
++
++        self.save(next_entries)
++        return report
++
++
++def _foreign_page_stems(archive_root: str, bvid: str) -> set[str]:
++    """Return artifact stems `{bvid}.pN` for N != 0 under archive_root."""
++    found: set[str] = set()
++    if not os.path.isdir(archive_root):
++        return found
++    prefix = f"{bvid}.p"
++    for dirpath, _dirnames, filenames in os.walk(archive_root):
++        if os.path.abspath(dirpath) == os.path.abspath(
++            os.path.join(archive_root, "manifest")
++        ):
++            continue
++        for name in filenames:
++            stem, _ext = os.path.splitext(name)
++            match = _STEM_PAGE_RE.match(stem)
++            if not match:
++                continue
++            if not stem.startswith(prefix):
++                continue
++            page_index = int(match.group(2))
++            if page_index != 0:
++                found.add(stem)
++    return found
+diff --git a/bilibili-asr-archive/src/bili_asr/page_identity.py b/bilibili-asr-archive/src/bili_asr/page_identity.py
+new file mode 100644
+index 0000000..fd0c10d
+--- /dev/null
++++ b/bilibili-asr-archive/src/bili_asr/page_identity.py
+@@ -0,0 +1,67 @@
++"""Canonical per-page identity for the archive ledger and filesystem.
++
++`work_id` uses `:` as identity punctuation and must never appear in paths.
++Filesystem names use `artifact_stem` only.
++"""
++
++from __future__ import annotations
++
++from dataclasses import dataclass
++import re
++
++_WORK_ID_RE = re.compile(r"^(?P<bvid>[^:]+):p(?P<page_index>0|[1-9]\d*)$")
++
++
++@dataclass(frozen=True)
++class PageIdentity:
++    work_id: str
++    bvid: str
++    page_index: int
++    cid: int
++    page_label: str = ""
++
++
++def format_work_id(bvid: str, page_index: int) -> str:
++    if not bvid:
++        raise ValueError("bvid is required")
++    if page_index < 0:
++        raise ValueError(f"page_index must be >= 0, got {page_index}")
++    if ":" in bvid:
++        raise ValueError("bvid must not contain ':'")
++    return f"{bvid}:p{page_index}"
++
++
++def parse_work_id(work_id: str) -> tuple[str, int]:
++    match = _WORK_ID_RE.match(work_id)
++    if not match:
++        raise ValueError(f"invalid work_id {work_id!r}")
++    return match.group("bvid"), int(match.group("page_index"))
++
++
++def artifact_stem(identity: PageIdentity) -> str:
++    stem = f"{identity.bvid}.p{identity.page_index}"
++    if ":" in stem:
++        raise ValueError("artifact_stem must not contain ':'")
++    return stem
++
++
++def page_query_index(page_index: int) -> int:
++    """1-based `?p=` query value for public Bilibili URLs."""
++    if page_index < 0:
++        raise ValueError(f"page_index must be >= 0, got {page_index}")
++    return page_index + 1
++
++
++def page_identity(
++    bvid: str,
++    page_index: int,
++    cid: int,
++    page_label: str = "",
++) -> PageIdentity:
++    return PageIdentity(
++        work_id=format_work_id(bvid, page_index),
++        bvid=bvid,
++        page_index=page_index,
++        cid=cid,
++        page_label=page_label,
++    )
+diff --git a/bilibili-asr-archive/tests/test_manifest.py b/bilibili-asr-archive/tests/test_manifest.py
+index ed9efe9..a509c36 100644
+--- a/bilibili-asr-archive/tests/test_manifest.py
++++ b/bilibili-asr-archive/tests/test_manifest.py
+@@ -101,3 +101,99 @@ def test_upsert_rejects_unknown_status(store):
+ def test_save_no_entries_writes_nothing(store, tmp_root):
+     store.save({})
+     assert not os.path.exists(_manifest_path(tmp_root))
++
++
++def _page(bvid, page_index, cid, label=""):
++    from bili_asr.page_identity import page_identity
++    return page_identity(bvid, page_index, cid, label)
++
++
++def test_upsert_keys_by_work_id(store, tmp_root):
++    store.upsert(_entry("BV1aa", work_id="BV1aa:p0", page_index=0, cid=11))
++    loaded = ManifestStore(root=tmp_root).load()
++    assert set(loaded) == {"BV1aa:p0"}
++    assert loaded["BV1aa:p0"]["bvid"] == "BV1aa"
++
++
++def test_get_compatible_single_page_row(store):
++    store.upsert(_entry("BV1aa", work_id="BV1aa:p0", page_index=0, cid=1))
++    got = store.get_compatible("BV1aa")
++    assert got is not None
++    assert got["work_id"] == "BV1aa:p0"
++
++
++def test_get_compatible_does_not_guess_among_pages(store):
++    store.upsert(_entry("BV1aa", work_id="BV1aa:p0", page_index=0, cid=1, title="p0"))
++    store.upsert(_entry("BV1aa", work_id="BV1aa:p1", page_index=1, cid=2, title="p1"))
++    assert store.get_compatible("BV1aa") is None
++    assert store.get("BV1aa:p0")["title"] == "p0"
++    assert store.get("BV1aa:p1")["title"] == "p1"
++
++
++def test_migrate_single_page_bare_row(store, tmp_root):
++    store.upsert(_entry("BV1aa"))
++    report = store.migrate_legacy_rows(
++        lambda bvid: [_page(bvid, 0, cid=42, label="only")]
++    )
++    assert report.migrated == ["BV1aa:p0"]
++    assert report.unresolved == []
++    loaded = ManifestStore(root=tmp_root).load()
++    assert set(loaded) == {"BV1aa:p0"}
++    row = loaded["BV1aa:p0"]
++    assert row["bvid"] == "BV1aa"
++    assert row["page_index"] == 0
++    assert row["cid"] == 42
++    assert row["page_label"] == "only"
++    assert row["status"] == "meta_ok"
++
++
++def test_freeze_multipart_bare_row_byte_stable(store, tmp_root):
++    store.upsert(_entry("BV1mm", title="keep-me", duration_s=9))
++    before = open(_manifest_path(tmp_root), encoding="utf-8").read()
++    original_obj = json.loads(before.splitlines()[0])
++
++    report = store.migrate_legacy_rows(
++        lambda bvid: [
++            _page(bvid, 0, cid=1, label="a"),
++            _page(bvid, 1, cid=2, label="b"),
++        ]
++    )
++    assert report.migrated == []
++    assert report.unresolved == ["BV1mm"]
++
++    after_lines = open(_manifest_path(tmp_root), encoding="utf-8").read().splitlines()
++    assert len(after_lines) == 1
++    after_obj = json.loads(after_lines[0])
++    for key, value in original_obj.items():
++        assert after_obj[key] == value
++    assert after_obj["unresolved"] is True
++    assert after_obj["unresolved_reason"] == "ambiguous_bare_bvid"
++    assert after_obj["excluded_from_page_processing"] is True
++    assert "work_id" not in after_obj
++    assert "page_index" not in after_obj
++    assert "cid" not in after_obj
++    assert store.get_compatible("BV1mm")["unresolved"] is True
++
++
++def test_migrate_stops_on_pN_artifact_collision(store, tmp_root):
++    store.upsert(_entry("BV1aa"))
++    srt_dir = os.path.join(tmp_root, "transcripts", "srt")
++    os.makedirs(srt_dir)
++    open(os.path.join(srt_dir, "BV1aa.p1.srt"), "w").write("x")
++    report = store.migrate_legacy_rows(
++        lambda bvid: [_page(bvid, 0, cid=1)]
++    )
++    assert report.migrated == []
++    assert report.unresolved == ["BV1aa"]
++    loaded = ManifestStore(root=tmp_root).load()
++    assert "BV1aa" in loaded
++    assert loaded["BV1aa"]["unresolved"] is True
++
++
++def test_migrate_collision_existing_work_id_row(store, tmp_root):
++    from bili_asr.manifest import ManifestMigrationCollision
++
++    store.upsert(_entry("BV1aa"))
++    store.upsert(_entry("BV1aa", work_id="BV1aa:p0", page_index=0, cid=7))
++    with pytest.raises(ManifestMigrationCollision):
++        store.migrate_legacy_rows(lambda bvid: [_page(bvid, 0, cid=1)])
+diff --git a/bilibili-asr-archive/tests/test_page_identity.py b/bilibili-asr-archive/tests/test_page_identity.py
+new file mode 100644
+index 0000000..2eac27d
+--- /dev/null
++++ b/bilibili-asr-archive/tests/test_page_identity.py
+@@ -0,0 +1,42 @@
++import pytest
++
++from bili_asr.page_identity import (
++    PageIdentity,
++    artifact_stem,
++    format_work_id,
++    page_identity,
++    parse_work_id,
++)
++
++
++def test_format_and_parse_round_trip():
++    work_id = format_work_id("BV1aa", 0)
++    assert work_id == "BV1aa:p0"
++    assert parse_work_id(work_id) == ("BV1aa", 0)
++
++
++def test_artifact_stem_has_no_colon():
++    identity = page_identity("BV1aa", 2, cid=99, page_label="part")
++    stem = artifact_stem(identity)
++    assert stem == "BV1aa.p2"
++    assert ":" not in stem
++    assert ":" in identity.work_id
++
++
++def test_parse_work_id_rejects_garbage():
++    with pytest.raises(ValueError):
++        parse_work_id("BV1aa")
++    with pytest.raises(ValueError):
++        parse_work_id("BV1aa:p")
++
++
++def test_page_identity_is_frozen():
++    identity = PageIdentity(
++        work_id="BV1aa:p0",
++        bvid="BV1aa",
++        page_index=0,
++        cid=1,
++        page_label="",
++    )
++    with pytest.raises(Exception):
++        identity.cid = 2  # type: ignore[misc]

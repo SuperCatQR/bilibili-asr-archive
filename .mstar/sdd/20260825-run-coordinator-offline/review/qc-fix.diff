@@ -1,0 +1,491 @@
+diff --git a/bilibili-asr-archive/README.md b/bilibili-asr-archive/README.md
+index cef03f1..0e9e5fc 100644
+--- a/bilibili-asr-archive/README.md
++++ b/bilibili-asr-archive/README.md
+@@ -115,6 +115,9 @@ seams as the single-purpose commands. It **complements** the frozen
+   `skipped`), `error_code` (redacted scalar only), `artifact_paths`
+   (relative), `started_at` / `finished_at`. Credentials, signed URLs, and
+   raw exception text are never persisted; a crash leaves no partial line.
++  Note: `skipped` records carry their skip reason in `error_code` (e.g.
++  `offline`, `missing_audio`) — the field set is locked, so `error_code`
++  doubles as the skip-reason channel.
+ - **Failure summary**: each run prints one line per failed row (with its
+   redacted error code) to stderr and one `skipped (reason)` line per
+   skipped row to stdout. Per-item CDN/ASR failures are recorded and the
+diff --git a/bilibili-asr-archive/src/bili_asr/cli.py b/bilibili-asr-archive/src/bili_asr/cli.py
+index f36cbef..80a6026 100644
+--- a/bilibili-asr-archive/src/bili_asr/cli.py
++++ b/bilibili-asr-archive/src/bili_asr/cli.py
+@@ -266,19 +266,9 @@ def _todo_for_bvid(store, selector: str, entries: dict):
+ 
+ 
+ def _identity_from_entry(entry: dict, key: str):
+-    from .page_identity import page_identity
+-
+-    work_id = entry.get("work_id")
+-    cid = entry.get("cid")
+-    bvid = str(entry.get("bvid") or key)
+-    if work_id and cid is not None:
+-        return page_identity(
+-            bvid,
+-            int(entry.get("page_index") or 0),
+-            int(cid),
+-            page_label=str(entry.get("page_label") or ""),
+-        )
+-    return bvid
++    from .page_identity import identity_from_entry
++
++    return identity_from_entry(entry, key)
+ 
+ 
+ def _is_excluded(entry: dict | None) -> bool:
+@@ -1306,13 +1296,11 @@ def _run_scope_rows(store, entries: dict, scope: str):
+             None,
+         )
+     if scope == "failed":
+-        # failed scope: rows with a recorded failed stage attempt
+-        from .coordinator import AttemptLedger
++        # failed scope: rows with a recorded failed stage attempt (qc1-S2:
++        # definition lives next to the ledger in RunCoordinator).
++        from .coordinator import RunCoordinator
+ 
+-        failed = {
+-            r["work_id"] for r in AttemptLedger(store.root).load()
+-            if r["outcome"] == "failed"
+-        }
++        failed = RunCoordinator(store.root, store).failed_work_ids()
+         rows = [
+             (key, e)
+             for key, e in sorted(entries.items())
+@@ -1353,6 +1341,11 @@ def _cmd_run(args: argparse.Namespace) -> int:
+     started_at = utc_now_iso()
+     store = ManifestStore(root=args.archive_root)
+     entries = store.load()
++    if args.limit is not None and args.limit <= 0:
++        # qc1-S3: a non-positive limit would silently select zero rows
++        # and exit 0; surface it as a usage error before scope resolution.
++        print("run: --limit must be a positive integer", file=sys.stderr)
++        return 1
+     rows, error = _run_scope_rows(store, entries, args.scope)
+     if error:
+         # Scope-resolution failures are usage/config errors (exit family 1
+@@ -1361,10 +1354,7 @@ def _cmd_run(args: argparse.Namespace) -> int:
+         print(f"run: {error}", file=sys.stderr)
+         return 1
+     if args.limit is not None:
+-        if args.limit <= 0:
+-            rows = []
+-        else:
+-            rows = rows[: args.limit]
++        rows = rows[: args.limit]
+ 
+     client = None
+     if not args.offline:
+diff --git a/bilibili-asr-archive/src/bili_asr/coordinator.py b/bilibili-asr-archive/src/bili_asr/coordinator.py
+index ac40a34..1896c5a 100644
+--- a/bilibili-asr-archive/src/bili_asr/coordinator.py
++++ b/bilibili-asr-archive/src/bili_asr/coordinator.py
+@@ -14,6 +14,7 @@ from __future__ import annotations
+ 
+ import json
+ import os
++import re
+ import time
+ from dataclasses import dataclass, field
+ from typing import Any, Callable
+@@ -22,7 +23,7 @@ from . import asr as asr_module
+ from . import audio as audio_module
+ from . import subtitles as subtitles_module
+ from .manifest import ManifestStore
+-from .page_identity import PageIdentity, artifact_stem, page_identity
++from .page_identity import PageIdentity, artifact_stem, identity_from_entry
+ 
+ STAGES = ("harvest", "download", "asr", "archive")
+ OUTCOMES = ("ok", "failed", "skipped")
+@@ -56,6 +57,18 @@ def _utc_now_iso() -> str:
+     return utc_now_iso()
+ 
+ 
++# qc3-S2: a hostile/odd .code string may itself carry forbidden markers;
++# strip them (case-insensitive) so recording a failure never throws and
++# never masks the original stage exception.
++_MARKER_RE = re.compile(
++    "|".join(re.escape(m) for m in _FORBIDDEN_MARKERS), re.IGNORECASE
++)
++
++
++def _sanitize_code_str(value: str) -> str:
++    return _MARKER_RE.sub("", value)[:_MAX_ERROR_CODE_LEN]
++
++
+ def _safe_error_code(exc: BaseException) -> int | str:
+     """Extract a redacted scalar error code from an exception."""
+     for attr in ("code", "last_code"):
+@@ -64,10 +77,10 @@ def _safe_error_code(exc: BaseException) -> int | str:
+             continue
+         if isinstance(value, (int, str)):
+             if isinstance(value, str):
+-                return value[:_MAX_ERROR_CODE_LEN]
++                return _sanitize_code_str(value)
+             return value
+     name = type(exc).__name__
+-    return name[:_MAX_ERROR_CODE_LEN]
++    return _sanitize_code_str(name)
+ 
+ 
+ def _validate_attempt(record: dict[str, Any]) -> dict[str, Any]:
+@@ -150,6 +163,11 @@ class AttemptLedger:
+         return records
+ 
+     def append(self, record: dict[str, Any]) -> dict[str, Any]:
++        # simplify: whole-file rewrite per append is O(n^2) over the run
++        # history. If the ledger grows past a few thousand records, switch
++        # to open-append + flush/fsync, or periodic compaction into
++        # per-work chunks (read path already tolerates truncation via
++        # _validate_attempt skipping).
+         stored = _validate_attempt(record)
+         os.makedirs(os.path.dirname(self.path), exist_ok=True)
+         existing_bytes = b""
+@@ -168,6 +186,18 @@ class AttemptLedger:
+                 fh.flush()
+                 os.fsync(fh.fileno())
+             os.replace(tmp, self.path)
++            # qc2-F-003: fsync the parent dir so the rename itself is
++            # durable; best-effort — some filesystems reject dir fsync.
++            try:
++                dirfd = os.open(
++                    os.path.dirname(self.path), os.O_RDONLY
++                )
++                try:
++                    os.fsync(dirfd)
++                finally:
++                    os.close(dirfd)
++            except OSError:
++                pass
+         except BaseException:
+             if os.path.exists(tmp):
+                 try:
+@@ -207,11 +237,15 @@ class RunSummary:
+ 
+     @property
+     def fully_processed(self) -> bool:
+-        """True when no row failed/skipped and no risk interruption.
++        """True when no row failed/unprocessed and no risk interruption.
+ 
+-        An empty selection is vacuously fully processed.
++        An empty selection is vacuously fully processed. Terminal-scope
++        reruns (rows skipped as ``already_terminal``) count as processed:
++        nothing remains to do for those rows (F-002).
+         """
+-        return not self.risk_interrupted and all(r.ok for r in self.results)
++        return not self.risk_interrupted and all(
++            r.ok or r.skip_reason == "already_terminal" for r in self.results
++        )
+ 
+ 
+ class RunCoordinator:
+@@ -279,17 +313,7 @@ class RunCoordinator:
+     # ------------------------------------------------------------ execution
+ 
+     def _identity_for(self, entry: dict[str, Any], key: str) -> PageIdentity | str:
+-        work_id = entry.get("work_id")
+-        cid = entry.get("cid")
+-        bvid = str(entry.get("bvid") or key)
+-        if work_id and cid is not None:
+-            return page_identity(
+-                bvid,
+-                int(entry.get("page_index") or 0),
+-                int(cid),
+-                page_label=str(entry.get("page_label") or ""),
+-            )
+-        return bvid
++        return identity_from_entry(entry, key)
+ 
+     def _current_entry(self, key: str, entry: dict[str, Any]) -> dict[str, Any]:
+         return dict(self.store.get(key) or self.store.get_compatible(key) or entry)
+@@ -349,9 +373,16 @@ class RunCoordinator:
+             result.final_status = str(entry.get("status") or "")
+             return
+         segments, raw = data
+-        paths = archive_module.write_archive(
+-            self.root, entry, segments, source="subtitle", raw=raw
+-        )
++        try:
++            paths = archive_module.write_archive(
++                self.root, entry, segments, source="subtitle", raw=raw
++            )
++        except Exception as exc:  # redacted; batch continues
++            self._record(
++                "archive", work_id, "failed",
++                error_code=_safe_error_code(exc), started_at=started,
++            )
++            raise
+         self._record(
+             "archive", work_id, "ok",
+             artifact_paths=sorted(paths.values()), started_at=started,
+@@ -395,9 +426,16 @@ class RunCoordinator:
+             raise
+         self._record("asr", work_id, "ok", started_at=started)
+         started = _utc_now_iso()
+-        paths = archive_module.write_archive(
+-            self.root, self._current_entry(key, entry), segments, source="asr"
+-        )
++        try:
++            paths = archive_module.write_archive(
++                self.root, self._current_entry(key, entry), segments, source="asr"
++            )
++        except Exception as exc:  # redacted; batch continues
++            self._record(
++                "archive", work_id, "failed",
++                error_code=_safe_error_code(exc), started_at=started,
++            )
++            raise
+         self._record(
+             "archive", work_id, "ok",
+             artifact_paths=sorted(paths.values()), started_at=started,
+@@ -423,9 +461,16 @@ class RunCoordinator:
+         identity = self._identity_for(entry, key)
+         stem = artifact_stem(identity)
+         out_path = os.path.join(self.root, "audio", f"{stem}.m4a")
+-        final = audio_module.download_audio(
+-            self.client, identity, out_path, store=self.store
+-        )
++        try:
++            final = audio_module.download_audio(
++                self.client, identity, out_path, store=self.store
++            )
++        except Exception as exc:  # redacted; batch continues
++            self._record(
++                "download", work_id, "failed",
++                error_code=_safe_error_code(exc), started_at=started,
++            )
++            raise
+         try:
+             rel = os.path.relpath(final, self.root)
+         except ValueError:
+diff --git a/bilibili-asr-archive/src/bili_asr/page_identity.py b/bilibili-asr-archive/src/bili_asr/page_identity.py
+index aee36fe..c8b3037 100644
+--- a/bilibili-asr-archive/src/bili_asr/page_identity.py
++++ b/bilibili-asr-archive/src/bili_asr/page_identity.py
+@@ -79,3 +79,21 @@ def apply_identity(entry: dict, identity: PageIdentity) -> dict:
+     elif "page_label" not in updated:
+         updated["page_label"] = ""
+     return updated
++
++
++def identity_from_entry(
++    entry: dict, key: str
++) -> "PageIdentity | str":
++    """Identity for a ledger row: PageIdentity when the row is
++    page-resolved, otherwise the bare bvid fallback string."""
++    work_id = entry.get("work_id")
++    cid = entry.get("cid")
++    bvid = str(entry.get("bvid") or key)
++    if work_id and cid is not None:
++        return page_identity(
++            bvid,
++            int(entry.get("page_index") or 0),
++            int(cid),
++            page_label=str(entry.get("page_label") or ""),
++        )
++    return bvid
+diff --git a/bilibili-asr-archive/tests/test_coordinator.py b/bilibili-asr-archive/tests/test_coordinator.py
+index 21b1875..7acd670 100644
+--- a/bilibili-asr-archive/tests/test_coordinator.py
++++ b/bilibili-asr-archive/tests/test_coordinator.py
+@@ -543,3 +543,195 @@ def test_run_scope_resolution_error_exits_1_before_batch(
+     assert "BVnope" in captured.err
+     assert transport.calls == []  # nothing executed
+     assert "selected" not in captured.out  # no batch output at all
++
++
++# ------------------------------------------------------------ QC fix round
++
++
++def test_run_download_failure_recorded_and_reselected_by_failed_scope(
++    tmp_root, monkeypatch, capsys
++):
++    # W1/F-001: a download-stage failure must leave a ("download",
++    # "failed") attempt record and the row must be re-selectable via
++    # `--scope failed`.
++    aud = page_identity("BVdlFail", 0, 222, "p0")
++    store = ManifestStore(root=tmp_root)
++    store.upsert(_row(aud, status="needs_audio", title="dl-fails"))
++    _stub_asr(monkeypatch)
++
++    def boom(client, identity, out_path, store=None):
++        raise bc.StreamDownloadError("cdn exploded")
++
++    monkeypatch.setattr("bili_asr.audio.download_audio", boom)
++    transport = _mixed_transport()
++    _patch_cli(monkeypatch, transport)
++
++    rc = main(["run", "--scope", "pending", "--archive-root", tmp_root])
++    captured = capsys.readouterr()
++    assert rc == 1
++    attempts = AttemptLedger(tmp_root).load()
++    assert [(r["stage"], r["outcome"]) for r in attempts] == [
++        ("download", "failed"),
++    ]
++    assert attempts[0]["error_code"] == "StreamDownloadError"
++    with open(os.path.join(tmp_root, "coordinator", "attempts.jsonl"),
++              encoding="utf-8") as fh:
++        assert "cdn exploded" not in fh.read()
++    assert f"{aud.work_id}: failed (StreamDownloadError)" in captured.err
++
++    # the failed row is re-selected by --scope failed
++    rc2 = main(["run", "--scope", "failed", "--archive-root", tmp_root])
++    captured2 = capsys.readouterr()
++    assert rc2 == 1
++    assert "selected 1 row(s)" in captured2.out
++    assert f"{aud.work_id}: needs_audio" in captured2.out
++
++
++def test_run_offline_archive_write_failure_recorded(
++    tmp_root, monkeypatch, capsys
++):
++    # W1/F-001: archive-stage write failure leaves an ("archive",
++    # "failed") record (subtitle path).
++    from bili_asr import archive as archive_mod
++
++    sub = page_identity("BVarchF", 0, 111, "p0")
++    store = ManifestStore(root=tmp_root)
++    store.upsert(_row(sub, status="subtitle_done", title="raw-exists"))
++    stem = artifact_stem(sub)
++    raw_dir = os.path.join(tmp_root, "subtitles", "raw")
++    os.makedirs(raw_dir)
++    with open(os.path.join(raw_dir, f"{stem}.json"), "w",
++              encoding="utf-8") as fh:
++        json.dump(SAMPLE_DOC, fh)
++
++    def boom(*args, **kwargs):
++        raise OSError("disk full")
++
++    monkeypatch.setattr(archive_mod, "write_archive", boom)
++    transport = _mixed_transport()
++    _patch_cli(monkeypatch, transport)
++
++    rc = main(["run", "--scope", "pending", "--offline",
++               "--archive-root", tmp_root])
++    captured = capsys.readouterr()
++    assert rc == 1
++    attempts = AttemptLedger(tmp_root).load()
++    assert [(r["stage"], r["outcome"]) for r in attempts] == [
++        ("archive", "failed"),
++    ]
++    assert attempts[0]["error_code"] == "OSError"
++    assert f"{sub.work_id}: failed (OSError)" in captured.err
++
++
++def test_run_offline_asr_path_archive_write_failure_recorded(
++    tmp_root, monkeypatch, capsys
++):
++    # W1/F-001: archive-stage write failure on the asr path (audio on
++    # disk, transcribe ok, write_archive raises).
++    from bili_asr import archive as archive_mod
++
++    aud = page_identity("BVarchA", 0, 222, "p0")
++    store = ManifestStore(root=tmp_root)
++    store.upsert(_row(aud, status="audio_ok", title="audio-exists"))
++    audio_dir = os.path.join(tmp_root, "audio")
++    os.makedirs(audio_dir)
++    with open(os.path.join(audio_dir, f"{artifact_stem(aud)}.m4a"),
++              "wb") as fh:
++        fh.write(b"\x00" * 16)
++    _stub_asr(monkeypatch)
++
++    def boom(*args, **kwargs):
++        raise OSError("disk full")
++
++    monkeypatch.setattr(archive_mod, "write_archive", boom)
++    transport = _mixed_transport()
++    _patch_cli(monkeypatch, transport)
++
++    rc = main(["run", "--scope", "pending", "--offline",
++               "--archive-root", tmp_root])
++    captured = capsys.readouterr()
++    assert rc == 1
++    attempts = AttemptLedger(tmp_root).load()
++    assert [(r["stage"], r["outcome"]) for r in attempts] == [
++        ("asr", "ok"), ("archive", "failed"),
++    ]
++    assert f"{aud.work_id}: failed (OSError)" in captured.err
++
++
++def test_run_explicit_scope_rerun_of_terminal_row_is_idempotent_zero(
++    tmp_root, monkeypatch, capsys
++):
++    # F-002: rerunning an already-archived row by explicit work_id exits
++    # 0 and leaves manifest/attempts byte-identical.
++    sub = page_identity("BVterm", 0, 111, "p0")
++    store = ManifestStore(root=tmp_root)
++    store.upsert(_row(sub, status="subtitle_done", title="raw"))
++    stem = artifact_stem(sub)
++    raw_dir = os.path.join(tmp_root, "subtitles", "raw")
++    os.makedirs(raw_dir)
++    with open(os.path.join(raw_dir, f"{stem}.json"), "w",
++              encoding="utf-8") as fh:
++        json.dump(SAMPLE_DOC, fh)
++    transport = _mixed_transport()
++    _patch_cli(monkeypatch, transport)
++
++    assert main(["run", "--scope", "pending", "--offline",
++                 "--archive-root", tmp_root]) == 0
++    capsys.readouterr()
++    manifest_path = os.path.join(tmp_root, "manifest", "manifest.jsonl")
++    attempts_path = os.path.join(tmp_root, "coordinator", "attempts.jsonl")
++    with open(manifest_path, encoding="utf-8") as fh:
++        first_manifest = fh.read()
++    with open(attempts_path, encoding="utf-8") as fh:
++        first_attempts = fh.read()
++
++    rc = main(["run", "--scope", sub.work_id, "--offline",
++               "--archive-root", tmp_root])
++    captured = capsys.readouterr()
++    assert rc == 0, captured.err
++    assert "selected 1 row(s)" in captured.out
++    assert f"{sub.work_id}: skipped (already_terminal)" in captured.out
++    assert "scope not fully processed" not in captured.out
++    with open(manifest_path, encoding="utf-8") as fh:
++        assert fh.read() == first_manifest
++    with open(attempts_path, encoding="utf-8") as fh:
++        assert fh.read() == first_attempts
++
++
++def test_run_non_positive_limit_is_usage_error(
++    tmp_root, monkeypatch, capsys
++):
++    # qc1-S3 / qc3-S3: --limit 0 must not silently select zero rows.
++    store = ManifestStore(root=tmp_root)
++    store.upsert(_row(page_identity("BVlim", 0, 111, "p0"), title="l"))
++    _stub_asr(monkeypatch)
++    transport = _mixed_transport()
++    _patch_cli(monkeypatch, transport)
++
++    rc = main(["run", "--scope", "pending", "--limit", "0",
++               "--archive-root", tmp_root])
++    captured = capsys.readouterr()
++    assert rc == 1
++    assert "--limit must be a positive integer" in captured.err
++    assert transport.calls == []
++    assert "selected" not in captured.out
++
++
++def test_safe_error_code_sanitizes_forbidden_markers(tmp_root):
++    # qc3-S2: a hostile .code string carrying forbidden markers must be
++    # sanitized so _record never throws and never masks the stage error.
++    from bili_asr.coordinator import _safe_error_code
++
++    class HostileCode(Exception):
++        code = "https://evil.example/SESSDATA=abc"
++
++    sanitized = _safe_error_code(HostileCode("boom"))
++    assert sanitized == "evil.example/=abc"
++    assert "http" not in sanitized and "SESSDATA" not in sanitized
++
++    store = ManifestStore(root=tmp_root)
++    store.upsert(_row(page_identity("BVsane", 0, 111, "p0")))
++    coord = RunCoordinator(tmp_root, store)
++    stored = coord._record("harvest", "BVsane:p0", "failed",
++                           error_code=sanitized)
++    assert stored["error_code"] == "evil.example/=abc"

@@ -1,0 +1,1006 @@
+diff --git a/bilibili-asr-archive/src/bili_asr/cli.py b/bilibili-asr-archive/src/bili_asr/cli.py
+index 05cdaef..6353bfd 100644
+--- a/bilibili-asr-archive/src/bili_asr/cli.py
++++ b/bilibili-asr-archive/src/bili_asr/cli.py
+@@ -303,7 +303,15 @@ def _cmd_fetch_meta(args: argparse.Namespace) -> int:
+     from .manifest import ManifestStore
+     from .meta_cursor import MetaCursorStore
+     from .page_identity import parse_work_id
++    from .run_ledger import (
++        RunLedger,
++        build_run_record,
++        compute_coverage_summary,
++        utc_now_iso,
++    )
+ 
++    started_at = utc_now_iso()
++    ledger = RunLedger(root=args.archive_root)
+     client = bili_client.BiliClient()
+     store = ManifestStore(root=args.archive_root)
+     cursor_store = MetaCursorStore(root=args.archive_root)
+@@ -333,6 +341,33 @@ def _cmd_fetch_meta(args: argparse.Namespace) -> int:
+                 pass
+     per_page_persists = 0
+ 
++    def _record_exit(
++        exit_code: int,
++        *,
++        pages_count: int | None = None,
++        records_count: int | None = None,
++        last_error_code: int | str | None = None,
++    ) -> None:
++        try:
++            cursor_snapshot = cursor_store.load()
++            coverage = compute_coverage_summary(store.load())
++            rec = build_run_record(
++                command="fetch-meta",
++                started_at=started_at,
++                finished_at=utc_now_iso(),
++                exit_code=exit_code,
++                mid=args.mid,
++                pages_fetched=pages_count,
++                records_fetched=records_count,
++                records_existing=len(existing),
++                last_api_error_code=last_error_code,
++                coverage_summary=coverage,
++                cursor_snapshot=cursor_snapshot,
++            )
++            ledger.append(rec)
++        except Exception:
++            pass
++
+     def _after_successful_page() -> None:
+         nonlocal existing, per_page_persists
+         _persist_partial(client, store, existing, pages_for=pages_for)
+@@ -360,6 +395,12 @@ def _cmd_fetch_meta(args: argparse.Namespace) -> int:
+         unenumerated = client.last_failed_page
+         partial = _persist_partial(client, store, existing, pages_for=pages_for)
+         _interrupt_cursor(client, cursor_store, args.mid, exc.last_code)
++        _record_exit(
++            2,
++            pages_count=len(client.pages_fetched),
++            records_count=partial,
++            last_error_code=exc.last_code,
++        )
+         print(
+             f"risk-control ceiling: page {unenumerated} could not be "
+             f"enumerated (retry budget exhausted, last code {exc.last_code}); "
+@@ -372,6 +413,12 @@ def _cmd_fetch_meta(args: argparse.Namespace) -> int:
+     except bili_client.APIResponseError as exc:
+         partial = _persist_partial(client, store, existing, pages_for=pages_for)
+         _interrupt_cursor(client, cursor_store, args.mid, exc.code)
++        _record_exit(
++            2,
++            pages_count=len(client.pages_fetched),
++            records_count=partial,
++            last_error_code=exc.code,
++        )
+         print(
+             f"fetch-meta: API response error (code {exc.code}) at page "
+             f"{client.last_failed_page}; {partial} record(s) from "
+@@ -383,6 +430,12 @@ def _cmd_fetch_meta(args: argparse.Namespace) -> int:
+     except bili_client.GoneResponse as exc:
+         partial = _persist_partial(client, store, existing, pages_for=pages_for)
+         _interrupt_cursor(client, cursor_store, args.mid, exc.code)
++        _record_exit(
++            2,
++            pages_count=len(client.pages_fetched),
++            records_count=partial,
++            last_error_code=exc.code,
++        )
+         if client.pages_fetched:
+             print(
+                 f"fetch-meta: terminal API response (code {exc.code}) at "
+@@ -425,6 +478,12 @@ def _cmd_fetch_meta(args: argparse.Namespace) -> int:
+         total=client.last_observed_total,
+         state=cursor_state,
+     )
++    _record_exit(
++        0,
++        pages_count=len(pages),
++        records_count=len(records),
++        last_error_code=None,
++    )
+ 
+     total_s = sum(e.get("duration_s", 0) for e in entries.values())
+     print(f"manifest: {len(entries)} videos "
+@@ -921,10 +980,47 @@ def _pilot_print_summary(
+ def _cmd_pilot(args: argparse.Namespace) -> int:
+     from . import asr, audio, bili_client, subtitles
+     from .manifest import ManifestStore
++    from .meta_cursor import MetaCursorStore
++    from .run_ledger import (
++        RunLedger,
++        build_run_record,
++        compute_coverage_summary,
++        utc_now_iso,
++    )
+ 
++    started_at = utc_now_iso()
++    ledger = RunLedger(root=args.archive_root)
++    cursor_store = MetaCursorStore(root=args.archive_root)
+     store = ManifestStore(root=args.archive_root)
+     entries = store.load()
++    last_api_error_code: int | str | None = None
++    selected_work_ids: list[str] | None = None
++
++    def _record_exit(code: int) -> int:
++        try:
++            cursor_snapshot = cursor_store.load()
++            coverage = compute_coverage_summary(store.load())
++            rec = build_run_record(
++                command="pilot",
++                started_at=started_at,
++                finished_at=utc_now_iso(),
++                exit_code=code,
++                mid=None,
++                work_ids=selected_work_ids,
++                pages_fetched=None,
++                records_fetched=None,
++                records_existing=len(entries),
++                last_api_error_code=last_api_error_code,
++                coverage_summary=coverage,
++                cursor_snapshot=cursor_snapshot,
++            )
++            ledger.append(rec)
++        except Exception:
++            pass
++        return code
++
+     selected = _expand_selected_pages(entries, _pilot_select(entries, args.n))
++    selected_work_ids = [_pilot_row_key(e) for e in selected] if selected else None
+     print(
+         f"pilot: selected {len(selected)} rows "
+         f"(--n {args.n}; includes pagelist siblings)"
+@@ -938,12 +1034,12 @@ def _cmd_pilot(args: argparse.Namespace) -> int:
+     if not selected:
+         if leftover:
+             print("pilot: no processable rows in the manifest", file=sys.stderr)
+-            return 1
++            return _record_exit(1)
+         if any(e.get("status") == "archived" for e in entries.values()):
+             print("pilot: skip — all selected work already archived")
+-            return 0
++            return _record_exit(0)
+         print("pilot: no processable rows in the manifest", file=sys.stderr)
+-        return 1
++        return _record_exit(1)
+ 
+     sessdata = _resolve_sessdata(args)
+     client = bili_client.BiliClient(sessdata=sessdata)
+@@ -986,22 +1082,24 @@ def _cmd_pilot(args: argparse.Namespace) -> int:
+                 file=sys.stderr,
+             )
+             _pilot_print_summary(subtitle_count, audio_count, failed, terminals)
+-            return 1
++            return _record_exit(1)
+         except bili_client.AmbiguousPageError:
+             failed += 1
+             print(f"{label}: multi-part video needs an explicit page",
+                   file=sys.stderr)
+         except bili_client.RiskBudgetExhausted as exc:
+             failed += 1
++            last_api_error_code = exc.last_code
+             print(
+                 f"{label}: risk-control ceiling (last code {exc.last_code}); "
+                 f"stopping — re-run to resume.",
+                 file=sys.stderr,
+             )
+             _pilot_print_summary(subtitle_count, audio_count, failed, terminals)
+-            return 2
++            return _record_exit(2)
+         except bili_client.APIResponseError as exc:
+             failed += 1
++            last_api_error_code = exc.code
+             _record_api_error(store, key, exc.code)
+             print(
+                 f"{label}: API response error (code {exc.code}); continuing.",
+@@ -1009,6 +1107,7 @@ def _cmd_pilot(args: argparse.Namespace) -> int:
+             )
+         except bili_client.GoneResponse as exc:
+             failed += 1
++            last_api_error_code = exc.code
+             gone = dict(store.get(key) or store.get_compatible(key) or {})
+             if gone.get("work_id"):
+                 gone["status"] = "gone"
+@@ -1051,10 +1150,10 @@ def _cmd_pilot(args: argparse.Namespace) -> int:
+             "pilot: missing branch coverage: " + ", ".join(missing),
+             file=sys.stderr,
+         )
+-        return 1
++        return _record_exit(1)
+     if failed:
+-        return 1
+-    return 0
++        return _record_exit(1)
++    return _record_exit(0)
+ 
+ 
+ def main(argv: list[str] | None = None) -> int:
+diff --git a/bilibili-asr-archive/src/bili_asr/run_ledger.py b/bilibili-asr-archive/src/bili_asr/run_ledger.py
+new file mode 100644
+index 0000000..0a1309a
+--- /dev/null
++++ b/bilibili-asr-archive/src/bili_asr/run_ledger.py
+@@ -0,0 +1,319 @@
++"""Operational run ledger (`run-ledger.jsonl`).
++
++Filesystem ownership only. BiliClient must never import this module.
++"""
++
++from __future__ import annotations
++
++from datetime import datetime, timezone
++import json
++import os
++import secrets
++import sys
++from typing import Any
++
++from .manifest import VALID_STATUSES
++from .meta_cursor import VALID_STATES
++
++LEDGER_FILENAME = "run-ledger.jsonl"
++
++VALID_COMMANDS = frozenset(
++    {
++        "fetch-meta",
++        "pilot",
++        "run",
++    }
++)
++
++_REQUIRED_KEYS = (
++    "run_id",
++    "command",
++    "started_at",
++    "finished_at",
++    "exit_code",
++)
++
++_SCHEMA_KEYS = (
++    "run_id",
++    "command",
++    "started_at",
++    "finished_at",
++    "exit_code",
++    "mid",
++    "work_ids",
++    "pages_fetched",
++    "records_fetched",
++    "records_existing",
++    "last_api_error_code",
++    "coverage_summary",
++    "cursor_snapshot",
++)
++
++_CURSOR_SCHEMA_KEYS = (
++    "mid",
++    "next_page",
++    "total",
++    "state",
++    "last_api_error_code",
++    "updated_at",
++)
++
++# Sidecar may hold only redacted scalar codes — never cookies, URLs, traces.
++_FORBIDDEN_MARKERS = (
++    "SESSDATA",
++    "cookie",
++    "Cookie",
++    "http://",
++    "https://",
++    "Traceback",
++)
++_MAX_ERROR_CODE_LEN = 64
++
++
++def utc_now_iso() -> str:
++    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
++
++
++def generate_run_id() -> str:
++    """Generate an opaque timestamp + random token run_id."""
++    ts = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
++    rand = secrets.token_hex(4)
++    return f"run-{ts}-{rand}"
++
++
++def compute_coverage_summary(entries_or_store: Any) -> dict[str, int]:
++    """Compute manifest status counts (only statuses in VALID_STATUSES)."""
++    if hasattr(entries_or_store, "load"):
++        entries = entries_or_store.load()
++    elif isinstance(entries_or_store, dict):
++        entries = entries_or_store
++    else:
++        entries = {}
++    counts: dict[str, int] = {}
++    for item in entries.values():
++        if not isinstance(item, dict):
++            continue
++        status = item.get("status", "pending")
++        if status in VALID_STATUSES:
++            counts[status] = counts.get(status, 0) + 1
++    return dict(sorted(counts.items()))
++
++
++def build_run_record(
++    *,
++    command: str,
++    started_at: str,
++    finished_at: str | None = None,
++    exit_code: int,
++    run_id: str | None = None,
++    mid: int | None = None,
++    work_ids: list[str] | None = None,
++    pages_fetched: int | None = None,
++    records_fetched: int | None = None,
++    records_existing: int | None = None,
++    last_api_error_code: int | str | None = None,
++    coverage_summary: dict[str, int] | None = None,
++    cursor_snapshot: dict[str, Any] | None = None,
++) -> dict[str, Any]:
++    """Construct a run record dictionary before validation."""
++    if run_id is None:
++        run_id = generate_run_id()
++    if finished_at is None:
++        finished_at = utc_now_iso()
++    return {
++        "run_id": run_id,
++        "command": command,
++        "started_at": started_at,
++        "finished_at": finished_at,
++        "exit_code": exit_code,
++        "mid": mid,
++        "work_ids": list(work_ids) if work_ids is not None else None,
++        "pages_fetched": pages_fetched,
++        "records_fetched": records_fetched,
++        "records_existing": records_existing,
++        "last_api_error_code": last_api_error_code,
++        "coverage_summary": dict(coverage_summary) if coverage_summary is not None else {},
++        "cursor_snapshot": dict(cursor_snapshot) if cursor_snapshot is not None else None,
++    }
++
++
++def _validate_cursor_snapshot(cursor: dict[str, Any]) -> dict[str, Any]:
++    missing = [k for k in _CURSOR_SCHEMA_KEYS if k not in cursor]
++    if missing:
++        raise ValueError(f"cursor_snapshot missing fields: {missing}")
++    state = cursor["state"]
++    if state not in VALID_STATES:
++        raise ValueError(f"unknown cursor state {state!r}")
++    if state == "running":
++        raise ValueError("cursor_snapshot state=running is in-memory only")
++    mid = cursor["mid"]
++    if not isinstance(mid, int) or isinstance(mid, bool):
++        raise ValueError("cursor mid must be int")
++    next_page = cursor["next_page"]
++    if not isinstance(next_page, int) or isinstance(next_page, bool) or next_page < 1:
++        raise ValueError("cursor next_page must be int >= 1")
++    total = cursor["total"]
++    if total is not None and (not isinstance(total, int) or isinstance(total, bool)):
++        raise ValueError("cursor total must be int or null")
++    code = cursor["last_api_error_code"]
++    if code is not None and not isinstance(code, (int, str)):
++        raise ValueError("cursor last_api_error_code must be int, str, or null")
++    if isinstance(code, bool):
++        raise ValueError("cursor last_api_error_code must not be bool")
++    if isinstance(code, str) and len(code) > _MAX_ERROR_CODE_LEN:
++        raise ValueError("cursor last_api_error_code is not a redacted code")
++    if not isinstance(cursor["updated_at"], str) or not cursor["updated_at"]:
++        raise ValueError("cursor updated_at must be a non-empty ISO-8601 string")
++    return {k: cursor[k] for k in _CURSOR_SCHEMA_KEYS}
++
++
++def _validate_record(record: dict[str, Any]) -> dict[str, Any]:
++    if not isinstance(record, dict):
++        raise ValueError("run record must be a dict")
++    for k in _REQUIRED_KEYS:
++        if k not in record:
++            raise ValueError(f"run record missing required field: {k!r}")
++
++    run_id = record["run_id"]
++    if not isinstance(run_id, str) or not run_id:
++        raise ValueError("run_id must be a non-empty str")
++
++    command = record["command"]
++    if not isinstance(command, str) or not command:
++        raise ValueError("command must be a non-empty str")
++
++    started_at = record["started_at"]
++    if not isinstance(started_at, str) or not started_at:
++        raise ValueError("started_at must be a non-empty ISO-8601 str")
++
++    finished_at = record["finished_at"]
++    if not isinstance(finished_at, str) or not finished_at:
++        raise ValueError("finished_at must be a non-empty ISO-8601 str")
++
++    exit_code = record["exit_code"]
++    if not isinstance(exit_code, int) or isinstance(exit_code, bool):
++        raise ValueError("exit_code must be an int")
++
++    mid = record.get("mid")
++    if mid is not None and (not isinstance(mid, int) or isinstance(mid, bool)):
++        raise ValueError("mid must be int or null")
++
++    work_ids = record.get("work_ids")
++    if work_ids is not None:
++        if not isinstance(work_ids, list) or not all(isinstance(w, str) for w in work_ids):
++            raise ValueError("work_ids must be a list of str or null")
++
++    pages_fetched = record.get("pages_fetched")
++    if pages_fetched is not None and (not isinstance(pages_fetched, int) or isinstance(pages_fetched, bool)):
++        raise ValueError("pages_fetched must be int or null")
++
++    records_fetched = record.get("records_fetched")
++    if records_fetched is not None and (not isinstance(records_fetched, int) or isinstance(records_fetched, bool)):
++        raise ValueError("records_fetched must be int or null")
++
++    records_existing = record.get("records_existing")
++    if records_existing is not None and (not isinstance(records_existing, int) or isinstance(records_existing, bool)):
++        raise ValueError("records_existing must be int or null")
++
++    last_api_error_code = record.get("last_api_error_code")
++    if last_api_error_code is not None:
++        if isinstance(last_api_error_code, bool) or not isinstance(last_api_error_code, (int, str)):
++            raise ValueError("last_api_error_code must be int, str, or null")
++        if isinstance(last_api_error_code, str) and len(last_api_error_code) > _MAX_ERROR_CODE_LEN:
++            raise ValueError("last_api_error_code is not a redacted code")
++
++    coverage_summary = record.get("coverage_summary")
++    if coverage_summary is not None:
++        if not isinstance(coverage_summary, dict):
++            raise ValueError("coverage_summary must be a dict")
++        for k, v in coverage_summary.items():
++            if k not in VALID_STATUSES:
++                raise ValueError(f"coverage_summary invalid status key {k!r}")
++            if not isinstance(v, int) or isinstance(v, bool) or v < 0:
++                raise ValueError(f"coverage_summary count for {k!r} must be int >= 0")
++        coverage_summary = dict(sorted(coverage_summary.items()))
++    else:
++        coverage_summary = {}
++
++    cursor_snapshot = record.get("cursor_snapshot")
++    if cursor_snapshot is not None:
++        cursor_snapshot = _validate_cursor_snapshot(cursor_snapshot)
++
++    stored = {
++        "run_id": run_id,
++        "command": command,
++        "started_at": started_at,
++        "finished_at": finished_at,
++        "exit_code": exit_code,
++        "mid": mid,
++        "work_ids": work_ids,
++        "pages_fetched": pages_fetched,
++        "records_fetched": records_fetched,
++        "records_existing": records_existing,
++        "last_api_error_code": last_api_error_code,
++        "coverage_summary": coverage_summary,
++        "cursor_snapshot": cursor_snapshot,
++    }
++
++    dumped = json.dumps(stored, ensure_ascii=False).lower()
++    for marker in _FORBIDDEN_MARKERS:
++        if marker.lower() in dumped:
++            raise ValueError(f"record contains forbidden marker: {marker!r}")
++
++    return stored
++
++
++class RunLedger:
++    """Append-only JSONL sidecar at `{archive_root}/run-ledger.jsonl`."""
++
++    def __init__(self, root: str | os.PathLike[str]) -> None:
++        self.root = os.fspath(root)
++        self.path = os.path.join(self.root, LEDGER_FILENAME)
++
++    def append(self, record: dict[str, Any]) -> dict[str, Any]:
++        """Atomically append a validated run record line to run-ledger.jsonl."""
++        stored = _validate_record(record)
++        os.makedirs(self.root, exist_ok=True)
++        existing_bytes = b""
++        if os.path.exists(self.path):
++            with open(self.path, "rb") as fh:
++                existing_bytes = fh.read()
++        line_bytes = (json.dumps(stored, ensure_ascii=False) + "\n").encode("utf-8")
++        tmp = self.path + ".tmp"
++        with open(tmp, "wb") as fh:
++            if existing_bytes:
++                fh.write(existing_bytes)
++                if not existing_bytes.endswith(b"\n"):
++                    fh.write(b"\n")
++            fh.write(line_bytes)
++            fh.flush()
++            os.fsync(fh.fileno())
++        os.replace(tmp, self.path)
++        return stored
++
++    def load(self) -> list[dict[str, Any]]:
++        """Read all valid run records in chronological order."""
++        if not os.path.exists(self.path):
++            return []
++        records: list[dict[str, Any]] = []
++        try:
++            with open(self.path, "r", encoding="utf-8") as fh:
++                for line in fh:
++                    line = line.strip()
++                    if not line:
++                        continue
++                    try:
++                        raw = json.loads(line)
++                        if isinstance(raw, dict):
++                            records.append(_validate_record(raw))
++                    except (json.JSONDecodeError, ValueError):
++                        print("run-ledger: ignoring corrupt line", file=sys.stderr)
++                        continue
++        except OSError:
++            return []
++        return records
++
++    def latest(self) -> dict[str, Any] | None:
++        """Return the latest run record, or None if empty."""
++        records = self.load()
++        return records[-1] if records else None
+diff --git a/bilibili-asr-archive/tests/test_run_ledger.py b/bilibili-asr-archive/tests/test_run_ledger.py
+new file mode 100644
+index 0000000..5a74025
+--- /dev/null
++++ b/bilibili-asr-archive/tests/test_run_ledger.py
+@@ -0,0 +1,456 @@
++"""Unit tests for RunLedger + fetch-meta / pilot run records (no live network)."""
++
++from __future__ import annotations
++
++import json
++import os
++
++import pytest
++
++from bili_asr import asr as asr_mod
++from bili_asr import bili_client as bc
++from bili_asr.cli import main
++from bili_asr.manifest import ManifestStore
++from bili_asr.meta_cursor import MetaCursorStore, utc_now_iso
++from bili_asr.page_identity import page_identity
++from bili_asr.run_ledger import (
++    LEDGER_FILENAME,
++    RunLedger,
++    build_run_record,
++    compute_coverage_summary,
++    generate_run_id,
++)
++
++from test_audio import (
++    AUDIO_BYTES,
++    SPI_OK,
++    STREAM_HOST,
++    RouterTransport,
++    nav_response,
++    playurl_ok,
++)
++from test_fetch_meta import FakeTransport, FastSleeper, SPI_NEW, arc, ok_page
++from test_subtitles import SAMPLE_DOC, nav_ok, player_ok, sub_entry
++
++
++@pytest.fixture
++def fast_sleep():
++    return FastSleeper()
++
++
++def _patch_client(monkeypatch, transport, sleeper=None):
++    monkeypatch.setattr(bc, "build_default_transport", lambda: transport)
++    if sleeper is not None:
++        monkeypatch.setattr(bc, "default_sleeper", lambda: sleeper)
++    else:
++        monkeypatch.setattr(bc, "default_sleeper", lambda: (lambda _seconds: None))
++    monkeypatch.setattr("bili_asr.cli.time.sleep", lambda _seconds: None)
++
++
++# ---------------------------------------------------------------- RunLedger core
++
++
++def test_ledger_initial_empty(tmp_root):
++    ledger = RunLedger(root=tmp_root)
++    assert ledger.load() == []
++    assert ledger.latest() is None
++    assert os.path.basename(ledger.path) == LEDGER_FILENAME
++    assert os.path.dirname(ledger.path) == tmp_root
++
++
++def test_ledger_schema_roundtrip(tmp_root):
++    ledger = RunLedger(root=tmp_root)
++    cursor_snap = {
++        "mid": 23191782,
++        "next_page": 2,
++        "total": 50,
++        "state": "complete",
++        "last_api_error_code": None,
++        "updated_at": utc_now_iso(),
++    }
++    rec = build_run_record(
++        command="fetch-meta",
++        started_at="2026-08-25T10:00:00Z",
++        finished_at="2026-08-25T10:01:00Z",
++        exit_code=0,
++        run_id="run-test-01",
++        mid=23191782,
++        work_ids=None,
++        pages_fetched=2,
++        records_fetched=40,
++        records_existing=0,
++        last_api_error_code=None,
++        coverage_summary={"meta_ok": 40},
++        cursor_snapshot=cursor_snap,
++    )
++    stored = ledger.append(rec)
++    assert stored["run_id"] == "run-test-01"
++    assert stored["command"] == "fetch-meta"
++    assert stored["exit_code"] == 0
++    assert stored["coverage_summary"] == {"meta_ok": 40}
++    assert stored["cursor_snapshot"] == cursor_snap
++
++    loaded = ledger.load()
++    assert len(loaded) == 1
++    assert loaded[0] == stored
++    assert ledger.latest() == stored
++
++
++def test_ledger_multiple_appends_chronological(tmp_root):
++    ledger = RunLedger(root=tmp_root)
++    r1 = ledger.append(
++        build_run_record(
++            command="fetch-meta",
++            started_at="2026-08-25T10:00:00Z",
++            finished_at="2026-08-25T10:01:00Z",
++            exit_code=0,
++            run_id="run-1",
++            mid=123,
++        )
++    )
++    r2 = ledger.append(
++        build_run_record(
++            command="pilot",
++            started_at="2026-08-25T10:02:00Z",
++            finished_at="2026-08-25T10:03:00Z",
++            exit_code=0,
++            run_id="run-2",
++            work_ids=["BV1xx:p0"],
++        )
++    )
++    loaded = ledger.load()
++    assert len(loaded) == 2
++    assert loaded[0]["run_id"] == "run-1"
++    assert loaded[1]["run_id"] == "run-2"
++    assert ledger.latest()["run_id"] == "run-2"
++    assert not os.path.exists(ledger.path + ".tmp")
++
++
++def test_ledger_validation_required_fields(tmp_root):
++    ledger = RunLedger(root=tmp_root)
++    with pytest.raises(ValueError, match="required field"):
++        ledger.append({"command": "pilot", "started_at": "2026-08-25T00:00:00Z"})
++
++
++def test_ledger_validation_types(tmp_root):
++    ledger = RunLedger(root=tmp_root)
++    base = {
++        "run_id": "r1",
++        "command": "pilot",
++        "started_at": "2026-08-25T00:00:00Z",
++        "finished_at": "2026-08-25T00:01:00Z",
++        "exit_code": 0,
++    }
++
++    # exit_code cannot be bool
++    with pytest.raises(ValueError, match="exit_code"):
++        ledger.append({**base, "exit_code": True})
++
++    # mid cannot be str
++    with pytest.raises(ValueError, match="mid"):
++        ledger.append({**base, "mid": "23191782"})
++
++    # work_ids must be list of str
++    with pytest.raises(ValueError, match="work_ids"):
++        ledger.append({**base, "work_ids": [123]})
++
++
++def test_ledger_validation_coverage_summary(tmp_root):
++    ledger = RunLedger(root=tmp_root)
++    base = {
++        "run_id": "r1",
++        "command": "pilot",
++        "started_at": "2026-08-25T00:00:00Z",
++        "finished_at": "2026-08-25T00:01:00Z",
++        "exit_code": 0,
++    }
++
++    # unknown status key
++    with pytest.raises(ValueError, match="invalid status key"):
++        ledger.append({**base, "coverage_summary": {"unknown_status": 5}})
++
++    # negative count
++    with pytest.raises(ValueError, match="int >= 0"):
++        ledger.append({**base, "coverage_summary": {"archived": -1}})
++
++    # bool count
++    with pytest.raises(ValueError, match="int >= 0"):
++        ledger.append({**base, "coverage_summary": {"archived": True}})
++
++
++def test_ledger_validation_cursor_snapshot(tmp_root):
++    ledger = RunLedger(root=tmp_root)
++    base = {
++        "run_id": "r1",
++        "command": "fetch-meta",
++        "started_at": "2026-08-25T00:00:00Z",
++        "finished_at": "2026-08-25T00:01:00Z",
++        "exit_code": 0,
++    }
++
++    # missing cursor field
++    with pytest.raises(ValueError, match="cursor_snapshot missing fields"):
++        ledger.append({**base, "cursor_snapshot": {"mid": 1}})
++
++    # running cursor snapshot is not allowed
++    with pytest.raises(ValueError, match="state=running"):
++        ledger.append(
++            {
++                **base,
++                "cursor_snapshot": {
++                    "mid": 1,
++                    "next_page": 1,
++                    "total": 10,
++                    "state": "running",
++                    "last_api_error_code": None,
++                    "updated_at": utc_now_iso(),
++                },
++            }
++        )
++
++
++def test_ledger_forbidden_markers_redaction(tmp_root):
++    ledger = RunLedger(root=tmp_root)
++    base = {
++        "run_id": "r1",
++        "command": "pilot",
++        "started_at": "2026-08-25T00:00:00Z",
++        "finished_at": "2026-08-25T00:01:00Z",
++        "exit_code": 0,
++    }
++
++    for forbidden in ["SESSDATA=xyz", "cookie=abc", "http://bad.url", "https://bad.url", "Traceback (most recent):"]:
++        with pytest.raises(ValueError, match="forbidden marker"):
++            ledger.append({**base, "last_api_error_code": forbidden})
++
++
++def test_ledger_error_code_max_len(tmp_root):
++    ledger = RunLedger(root=tmp_root)
++    base = {
++        "run_id": "r1",
++        "command": "pilot",
++        "started_at": "2026-08-25T00:00:00Z",
++        "finished_at": "2026-08-25T00:01:00Z",
++        "exit_code": 0,
++    }
++    with pytest.raises(ValueError, match="not a redacted code"):
++        ledger.append({**base, "last_api_error_code": "E" * 65})
++
++
++def test_compute_coverage_summary(tmp_root):
++    store = ManifestStore(root=tmp_root)
++    assert compute_coverage_summary(store) == {}
++    store.upsert({"bvid": "BV1", "work_id": "BV1:p0", "status": "meta_ok"})
++    store.upsert({"bvid": "BV2", "work_id": "BV2:p0", "status": "archived"})
++    store.upsert({"bvid": "BV3", "work_id": "BV3:p0", "status": "archived"})
++    summary = compute_coverage_summary(store)
++    assert summary == {"archived": 2, "meta_ok": 1}
++
++
++def test_corrupt_lines_ignored(tmp_root, capsys):
++    ledger = RunLedger(root=tmp_root)
++    ledger.append(
++        build_run_record(
++            command="fetch-meta",
++            started_at="2026-08-25T10:00:00Z",
++            finished_at="2026-08-25T10:01:00Z",
++            exit_code=0,
++            run_id="run-valid-1",
++        )
++    )
++    # Manually append corrupt line and another valid line
++    with open(ledger.path, "a", encoding="utf-8") as fh:
++        fh.write("{corrupt json\n")
++        fh.write('{"run_id":"bad","command":"x"}\n')  # missing required fields
++
++    ledger.append(
++        build_run_record(
++            command="pilot",
++            started_at="2026-08-25T10:02:00Z",
++            finished_at="2026-08-25T10:03:00Z",
++            exit_code=0,
++            run_id="run-valid-2",
++        )
++    )
++    loaded = ledger.load()
++    assert len(loaded) == 2
++    assert loaded[0]["run_id"] == "run-valid-1"
++    assert loaded[1]["run_id"] == "run-valid-2"
++
++
++def test_bili_client_does_not_import_run_ledger():
++    import bili_asr.bili_client as mod
++
++    assert "bili_asr.run_ledger" not in getattr(mod, "__dict__", {})
++    src = open(mod.__file__, encoding="utf-8").read()
++    assert "run_ledger" not in src
++
++
++# ---------------------------------------------------------------- CLI fetch-meta wiring
++
++
++def test_cli_fetch_meta_exit_0_appends_ledger(tmp_root, fast_sleep, monkeypatch, capsys):
++    transport = FakeTransport(
++        [
++            (200, ok_page([arc("BV1"), arc("BV2")], total=2)),
++        ],
++    )
++    _patch_client(monkeypatch, transport, sleeper=fast_sleep)
++
++    rc = main(["fetch-meta", "--mid", "23191782", "--archive-root", tmp_root])
++    assert rc == 0
++
++    ledger = RunLedger(root=tmp_root)
++    records = ledger.load()
++    assert len(records) == 1
++    rec = records[0]
++    assert rec["command"] == "fetch-meta"
++    assert rec["exit_code"] == 0
++    assert rec["mid"] == 23191782
++    assert rec["pages_fetched"] == 1
++    assert rec["records_fetched"] == 2
++    assert rec["coverage_summary"] == {"meta_ok": 2}
++    assert rec["cursor_snapshot"] is not None
++    assert rec["cursor_snapshot"]["state"] == "complete"
++    assert rec["cursor_snapshot"]["mid"] == 23191782
++    assert rec["last_api_error_code"] is None
++
++
++def test_cli_fetch_meta_exit_2_risk_appends_ledger(tmp_root, fast_sleep, monkeypatch, capsys):
++    transport = FakeTransport(
++        [
++            (200, ok_page([arc("BV1")], total=99)),
++            (412, None), (412, None), (412, None), (412, None), (412, None),
++        ],
++        spi=[SPI_OK, SPI_NEW],
++    )
++    _patch_client(monkeypatch, transport, sleeper=fast_sleep)
++
++    rc = main(["fetch-meta", "--mid", "23191782", "--archive-root", tmp_root])
++    assert rc == 2
++
++    ledger = RunLedger(root=tmp_root)
++    records = ledger.load()
++    assert len(records) == 1
++    rec = records[0]
++    assert rec["command"] == "fetch-meta"
++    assert rec["exit_code"] == 2
++    assert rec["last_api_error_code"] is not None
++    assert rec["cursor_snapshot"] is not None
++    assert rec["cursor_snapshot"]["state"] == "risk_interrupted"
++
++
++def test_cli_fetch_meta_exit_2_gone_appends_ledger(tmp_root, fast_sleep, monkeypatch, capsys):
++    transport = FakeTransport(
++        [
++            (200, {"code": -404, "message": "not found"}),
++        ],
++    )
++    _patch_client(monkeypatch, transport, sleeper=fast_sleep)
++
++    rc = main(["fetch-meta", "--mid", "23191782", "--archive-root", tmp_root])
++    assert rc == 2
++
++    ledger = RunLedger(root=tmp_root)
++    records = ledger.load()
++    assert len(records) == 1
++    rec = records[0]
++    assert rec["command"] == "fetch-meta"
++    assert rec["exit_code"] == 2
++    assert rec["last_api_error_code"] == -404
++
++
++# ---------------------------------------------------------------- CLI pilot wiring
++
++
++def _pilot_row(identity, *, duration_s, title="clip"):
++    return {
++        "bvid": identity.bvid,
++        "work_id": identity.work_id,
++        "page_index": identity.page_index,
++        "cid": identity.cid,
++        "page_label": identity.page_label,
++        "status": "meta_ok",
++        "title": title,
++        "duration_s": duration_s,
++        "pubdate": 1,
++        "pubdate_str": "2026-01-02",
++    }
++
++
++def _mixed_transport():
++    return RouterTransport(
++        {
++            "finger/spi": [SPI_OK],
++            "nav": [nav_ok(), nav_response()],
++            "player/wbi/v2": [player_ok([sub_entry()]), player_ok([])],
++            "aisubtitle.hdslb.com": [(200, dict(SAMPLE_DOC))],
++            "/x/player/wbi/playurl": [playurl_ok()],
++        },
++        stream_routes={f"{STREAM_HOST}/a30216.m4s": AUDIO_BYTES},
++    )
++
++
++def test_cli_pilot_exit_0_appends_ledger(tmp_root, monkeypatch, capsys):
++    sub = page_identity("BVsub", 0, 111, "p0")
++    aud = page_identity("BVaud", 0, 222, "p0")
++    store = ManifestStore(root=tmp_root)
++    store.upsert(_pilot_row(sub, duration_s=5, title="has-sub"))
++    store.upsert(_pilot_row(aud, duration_s=8, title="needs-asr"))
++
++    monkeypatch.setattr(asr_mod, "transcribe", lambda path, model_name=None: [{"start": 0.0, "end": 1.0, "text": "asr-text"}])
++    _patch_client(monkeypatch, _mixed_transport())
++
++    rc = main(["pilot", "--n", "2", "--archive-root", tmp_root, "--sessdata", "SECRET-SESSDATA-12345"])
++    assert rc == 0
++
++    ledger = RunLedger(root=tmp_root)
++    records = ledger.load()
++    assert len(records) == 1
++    rec = records[0]
++    assert rec["command"] == "pilot"
++    assert rec["exit_code"] == 0
++    assert rec["coverage_summary"] == {"archived": 2}
++    assert sorted(rec["work_ids"]) == sorted([sub.work_id, aud.work_id])
++
++    # Ensure no credentials leaked into the ledger file
++    with open(ledger.path, "r", encoding="utf-8") as fh:
++        raw_ledger = fh.read()
++    assert "SECRET-SESSDATA-12345" not in raw_ledger
++
++
++def test_cli_pilot_exit_1_empty_manifest_appends_ledger(tmp_root, capsys):
++    rc = main(["pilot", "--archive-root", tmp_root])
++    assert rc == 1
++
++    ledger = RunLedger(root=tmp_root)
++    records = ledger.load()
++    assert len(records) == 1
++    rec = records[0]
++    assert rec["command"] == "pilot"
++    assert rec["exit_code"] == 1
++    assert rec["work_ids"] is None
++    assert rec["coverage_summary"] == {}
++
++
++def test_cli_pilot_exit_2_risk_appends_ledger(tmp_root, monkeypatch, capsys):
++    sub = page_identity("BVrisk", 0, 333, "p0")
++    store = ManifestStore(root=tmp_root)
++    store.upsert(_pilot_row(sub, duration_s=5, title="hit-risk"))
++
++    def raise_risk(*_args, **_kwargs):
++        raise bc.RiskBudgetExhausted(-412)
++
++    monkeypatch.setattr("bili_asr.subtitles.harvest_subtitle", raise_risk)
++    _patch_client(monkeypatch, _mixed_transport())
++
++    rc = main(["pilot", "--n", "1", "--archive-root", tmp_root])
++    assert rc == 2
++
++    ledger = RunLedger(root=tmp_root)
++    records = ledger.load()
++    assert len(records) == 1
++    rec = records[0]
++    assert rec["command"] == "pilot"
++    assert rec["exit_code"] == 2
++    assert rec["last_api_error_code"] == -412

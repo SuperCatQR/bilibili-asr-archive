@@ -1,0 +1,419 @@
+diff --git a/bilibili-asr-archive/README.md b/bilibili-asr-archive/README.md
+index 0528a4d..2af5a2c 100644
+--- a/bilibili-asr-archive/README.md
++++ b/bilibili-asr-archive/README.md
+@@ -37,4 +37,18 @@ coverage without starting a full-corpus run.
+ 
+ Exit codes: 0 ok / 1 usage-config or per-video failure / 2 terminal API failure.
+ 
++## Multipart pages and legacy rows
++
++Automatic enumeration writes one manifest row per page (`work_id` =
++`{bvid}:p{page_index}`). Filesystem names use `artifact_stem`
++(`{bvid}.p{page_index}`) so raw/SRT/audio/transcripts never collide across
++pages. Public URLs for `page_index` > 0 include `?p=` (1-based).
++
++Legacy single-page rows migrate only when ownership is unambiguous. Ambiguous
++bare-bvid rows stay `unresolved` / `excluded_from_page_processing`: they keep
++their original key and files, stay visible in `bili-asr status`, and are never
++auto-assigned a page. `download-audio --bvid` / `asr --bvid` STOP on those
++rows instead of fabricating a `needs_audio` page. Resume is per `work_id`: a
++completed or failed p0 does not skip p1.
++
+ No media redistribution; personal archival only.
+diff --git a/bilibili-asr-archive/src/bili_asr/archive.py b/bilibili-asr-archive/src/bili_asr/archive.py
+index dd24d83..ef8050f 100644
+--- a/bilibili-asr-archive/src/bili_asr/archive.py
++++ b/bilibili-asr-archive/src/bili_asr/archive.py
+@@ -7,6 +7,7 @@ import os
+ from typing import Any
+ 
+ from .asr import segments_to_srt, segments_to_txt
++from .page_identity import artifact_stem, page_identity, page_query_index
+ 
+ 
+ def _safe_name(value: str) -> str:
+@@ -14,6 +15,37 @@ def _safe_name(value: str) -> str:
+     return " ".join(value.split()).strip()[:120] or "untitled"
+ 
+ 
++def archive_stem(entry: dict[str, Any]) -> str:
++    """Filesystem stem for transcript outputs.
++
++    Page-aware rows use `artifact_stem`. Unresolved legacy rows keep the
++    bare bvid so they are never assigned a `work_id` or `.pN` path.
++    """
++    bvid = str(entry["bvid"])
++    if entry.get("unresolved") or not entry.get("work_id"):
++        return bvid
++    if entry.get("cid") is None:
++        return bvid
++    identity = page_identity(
++        bvid,
++        int(entry.get("page_index") or 0),
++        int(entry["cid"]),
++        page_label=str(entry.get("page_label") or ""),
++    )
++    return artifact_stem(identity)
++
++
++def archive_url(entry: dict[str, Any]) -> str:
++    bvid = str(entry["bvid"])
++    url = f"https://www.bilibili.com/video/{bvid}"
++    if entry.get("unresolved") or not entry.get("work_id"):
++        return url
++    page_index = int(entry.get("page_index") or 0)
++    if page_index > 0:
++        url += f"?p={page_query_index(page_index)}"
++    return url
++
++
+ def write_archive(
+     archive_root: str | os.PathLike[str],
+     entry: dict[str, Any],
+@@ -24,16 +56,18 @@ def write_archive(
+ ) -> dict[str, str]:
+     root = os.fspath(archive_root)
+     bvid = str(entry["bvid"])
++    stem = archive_stem(entry)
+     dirs = {name: os.path.join(root, "transcripts", name)
+             for name in ("srt", "txt", "md", "raw")}
+     for directory in dirs.values():
+         os.makedirs(directory, exist_ok=True)
+ 
+-    srt_path = os.path.join(dirs["srt"], f"{bvid}.srt")
+-    txt_path = os.path.join(dirs["txt"], f"{bvid}.txt")
++    srt_path = os.path.join(dirs["srt"], f"{stem}.srt")
++    txt_path = os.path.join(dirs["txt"], f"{stem}.txt")
+     title = _safe_name(str(entry.get("title") or bvid))
+-    md_path = os.path.join(dirs["md"], f"{entry.get('pubdate_str', 'unknown')}_{bvid}_{title}.md")
+-    raw_path = os.path.join(dirs["raw"], f"{bvid}.json")
++    md_name = f"{entry.get('pubdate_str', 'unknown')}_{stem}_{title}.md"
++    md_path = os.path.join(dirs["md"], md_name)
++    raw_path = os.path.join(dirs["raw"], f"{stem}.json")
+ 
+     with open(srt_path, "w", encoding="utf-8", newline="\n") as fh:
+         fh.write(segments_to_srt(segments))
+@@ -45,7 +79,7 @@ def write_archive(
+         "date": entry.get("pubdate_str", ""),
+         "duration_s": entry.get("duration_s", 0),
+         "source": source,
+-        "url": f"https://www.bilibili.com/video/{bvid}",
++        "url": archive_url(entry),
+     }
+     with open(md_path, "w", encoding="utf-8", newline="\n") as fh:
+         fh.write("---\n")
+diff --git a/bilibili-asr-archive/src/bili_asr/bili_client.py b/bilibili-asr-archive/src/bili_asr/bili_client.py
+index 25de12c..4b22752 100644
+--- a/bilibili-asr-archive/src/bili_asr/bili_client.py
++++ b/bilibili-asr-archive/src/bili_asr/bili_client.py
+@@ -241,6 +241,7 @@ class BiliClient:
+         self._buvid: dict[str, str] | None = None
+         # Optional Path-B login cookie; never logged or echoed (spec).
+         self._sessdata = sessdata
++        self._wbi_key_pair: tuple[str, str] | None = None
+         self.last_failed_page: int = 1  # page active when budget exhausted
+         # Pages fetched during the most recent fetch_pages call. Alive even
+         # after RiskBudgetExhausted/GoneResponse so the CLI can persist the
+@@ -369,8 +370,10 @@ class BiliClient:
+             raise APIResponseError(last_code)
+         raise RiskBudgetExhausted(last_code)
+ 
+-    def _wbi_keys(self) -> tuple[str, str]:
++    def _wbi_keys(self, refresh: bool = False) -> tuple[str, str]:
+         """(img_key, sub_key) from nav; populated even at code -101."""
++        if not refresh and self._wbi_key_pair is not None:
++            return self._wbi_key_pair
+         body = self._request_with_cookies(
+             NAV_URL, {}, accept_codes={-101}
+         )
+@@ -380,7 +383,8 @@ class BiliClient:
+         sub_key = _path_basename_stem(wbi.get("sub_url") or "")
+         if not img_key or not sub_key:
+             raise RiskBudgetExhausted("nav", "nav response missing wbi_img keys")
+-        return img_key, sub_key
++        self._wbi_key_pair = (img_key, sub_key)
++        return self._wbi_key_pair
+ 
+     # -- public API --------------------------------------------------------
+ 
+@@ -551,7 +555,7 @@ class BiliClient:
+         except APIResponseError as exc:
+             if exc.code != -403:
+                 raise
+-            img_key, sub_key = self._wbi_keys()
++            img_key, sub_key = self._wbi_keys(refresh=True)
+             params = sign_wbi(query, img_key, sub_key)
+             body = self._request_with_cookies(
+                 PLAYURL_URL, params, extra_cookies=cookies,
+diff --git a/bilibili-asr-archive/src/bili_asr/cli.py b/bilibili-asr-archive/src/bili_asr/cli.py
+index ac88baa..a654af5 100644
+--- a/bilibili-asr-archive/src/bili_asr/cli.py
++++ b/bilibili-asr-archive/src/bili_asr/cli.py
+@@ -107,7 +107,8 @@ def build_parser() -> argparse.ArgumentParser:
+     )
+     dl.add_argument(
+         "--bvid", default=None,
+-        help="Restrict to a single bvid (creates a fresh entry if unknown)",
++        help="Restrict to a single bvid (creates a fresh entry if unknown; "
++             "STOP if the row is unresolved)",
+     )
+     dl.add_argument(
+         "--archive-root", default=DEFAULT_ARCHIVE_ROOT,
+@@ -422,7 +423,11 @@ def _cmd_download_audio(args: argparse.Namespace) -> int:
+             return 1
+         todo = selected
+         if not todo:
+-            todo = [(args.bvid, {"bvid": args.bvid, "status": "needs_audio"})]
++            print(
++                f"{args.bvid}: unresolved; not assigned to a page",
++                file=sys.stderr,
++            )
++            return 1
+     else:
+         todo = [
+             (key, e) for key, e in entries.items()
+@@ -538,8 +543,10 @@ def _pilot_select(entries: dict[str, dict[str, object]], n: int) -> list[dict[st
+ 
+ def _subtitle_segments(root: str, entry: dict[str, object]) -> tuple[list[dict[str, object]], object] | None:
+     import json
+-    bvid = str(entry["bvid"])
+-    raw_path = os.path.join(root, "subtitles", "raw", f"{bvid}.json")
++    from .archive import archive_stem
++
++    stem = archive_stem(entry)
++    raw_path = os.path.join(root, "subtitles", "raw", f"{stem}.json")
+     if not os.path.isfile(raw_path):
+         return None
+     with open(raw_path, encoding="utf-8") as fh:
+@@ -556,9 +563,27 @@ def _cmd_asr(args: argparse.Namespace) -> int:
+     store = ManifestStore(root=args.archive_root)
+     entries = store.load()
+     if args.bvid:
+-        todo = [dict(entries.get(args.bvid) or {"bvid": args.bvid, "status": "audio_ok"})]
++        todo = [
++            e for e in entries.values()
++            if e.get("bvid") == args.bvid and not _is_excluded(e)
++        ]
++        if not todo:
++            if any(
++                e.get("bvid") == args.bvid and _is_excluded(e)
++                for e in entries.values()
++            ):
++                print(
++                    f"{args.bvid}: unresolved; not assigned to a page",
++                    file=sys.stderr,
++                )
++                return 1
++            todo = [{"bvid": args.bvid, "status": "audio_ok"}]
+     elif args.pending:
+-        todo = [e for e in entries.values() if e.get("status") in {"subtitle_done", "audio_ok"}]
++        todo = [
++            e for e in entries.values()
++            if e.get("status") in {"subtitle_done", "audio_ok"}
++            and not _is_excluded(e)
++        ]
+     else:
+         print("asr: select targets with --pending or --bvid", file=sys.stderr)
+         return 1
+@@ -566,7 +591,8 @@ def _cmd_asr(args: argparse.Namespace) -> int:
+         todo = todo[:args.limit]
+     ok = failed = 0
+     for entry in todo:
+-        bvid = str(entry["bvid"])
++        key = str(entry.get("work_id") or entry["bvid"])
++        label = key
+         source = "subtitle"
+         raw = None
+         subtitle_data = _subtitle_segments(args.archive_root, entry) if entry.get("status") == "subtitle_done" else None
+@@ -575,21 +601,25 @@ def _cmd_asr(args: argparse.Namespace) -> int:
+                 segments, raw = subtitle_data
+             else:
+                 source = "asr"
+-                audio_path = os.path.join(args.archive_root, str(entry.get("audio_path") or os.path.join("audio", f"{bvid}.m4a")))
++                stem = archive.archive_stem(entry)
++                audio_path = os.path.join(
++                    args.archive_root,
++                    str(entry.get("audio_path") or os.path.join("audio", f"{stem}.m4a")),
++                )
+                 segments = asr.transcribe(audio_path)
+             paths = archive.write_archive(args.archive_root, entry, segments, source=source, raw=raw)
+-            updated = dict(store.get(bvid) or entry)
++            updated = dict(store.get(key) or entry)
+             updated.update(paths)
+             updated["status"] = "archived"
+             store.upsert(updated)
+             ok += 1
+-            print(f"{bvid}: archived ({source})")
++            print(f"{label}: archived ({source})")
+         except asr.ASRDependencyError:
+-            print(f"{bvid}: ASR dependency unavailable", file=sys.stderr)
++            print(f"{label}: ASR dependency unavailable", file=sys.stderr)
+             return 1
+         except Exception:
+             failed += 1
+-            print(f"{bvid}: archive failed", file=sys.stderr)
++            print(f"{label}: archive failed", file=sys.stderr)
+     print(f"asr: {ok} archived" + (f", {failed} failed" if failed else ""))
+     return 1 if failed and not ok else 0
+ 
+diff --git a/bilibili-asr-archive/tests/test_archive_md.py b/bilibili-asr-archive/tests/test_archive_md.py
+index 93a0e43..3505b6f 100644
+--- a/bilibili-asr-archive/tests/test_archive_md.py
++++ b/bilibili-asr-archive/tests/test_archive_md.py
+@@ -3,14 +3,68 @@ from __future__ import annotations
+ import json
+ 
+ from bili_asr.archive import write_archive
++from bili_asr.page_identity import artifact_stem, page_identity
+ 
+ 
+ def test_write_archive_layout_and_frontmatter(tmp_root):
+     tmp_path = __import__("pathlib").Path(tmp_root)
+-    entry = {"bvid": "BV1demo", "title": "标题", "pubdate_str": "2026-01-02", "duration_s": 12}
++    ident = page_identity("BV1demo", 0, 99)
++    entry = {
++        "bvid": ident.bvid,
++        "work_id": ident.work_id,
++        "page_index": 0,
++        "cid": 99,
++        "title": "标题",
++        "pubdate_str": "2026-01-02",
++        "duration_s": 12,
++    }
+     paths = write_archive(tmp_path, entry, [{"start": 0, "end": 1, "text": "你好"}], source="asr")
+     md = (tmp_path / paths["md_path"]).read_text(encoding="utf-8")
+     assert md.startswith("---\nbvid: \"BV1demo\"\n")
+     assert 'source: "asr"' in md
++    assert artifact_stem(ident) in paths["srt_path"]
+     assert (tmp_path / paths["srt_path"]).exists()
+     assert json.loads((tmp_path / paths["raw_path"]).read_text(encoding="utf-8"))["source"] == "asr"
++
++
++def test_write_archive_pages_do_not_collide_and_rerun_is_stable(tmp_root):
++    tmp_path = __import__("pathlib").Path(tmp_root)
++    p0 = page_identity("BV1multi", 0, 111)
++    p1 = page_identity("BV1multi", 1, 222)
++    segs = [{"start": 0, "end": 1, "text": "x"}]
++    e0 = {
++        "bvid": p0.bvid, "work_id": p0.work_id, "page_index": 0, "cid": 111,
++        "title": "multi", "pubdate_str": "2026-01-02",
++    }
++    e1 = {
++        "bvid": p1.bvid, "work_id": p1.work_id, "page_index": 1, "cid": 222,
++        "title": "multi", "pubdate_str": "2026-01-02",
++    }
++    first0 = write_archive(tmp_path, e0, segs, source="asr")
++    first1 = write_archive(tmp_path, e1, segs, source="asr")
++    assert first0["srt_path"] != first1["srt_path"]
++    assert first0["txt_path"] != first1["txt_path"]
++    assert first0["md_path"] != first1["md_path"]
++    assert first0["raw_path"] != first1["raw_path"]
++    md1 = (tmp_path / first1["md_path"]).read_text(encoding="utf-8")
++    assert "?p=2" in md1
++    md0 = (tmp_path / first0["md_path"]).read_text(encoding="utf-8")
++    assert "?p=" not in md0
++    second0 = write_archive(tmp_path, e0, segs, source="asr")
++    second1 = write_archive(tmp_path, e1, segs, source="asr")
++    assert second0 == first0
++    assert second1 == first1
++
++
++def test_write_archive_unresolved_keeps_bare_bvid_stem(tmp_root):
++    tmp_path = __import__("pathlib").Path(tmp_root)
++    entry = {
++        "bvid": "BV1legacy",
++        "title": "legacy",
++        "pubdate_str": "2026-01-02",
++        "unresolved": True,
++        "unresolved_reason": "ambiguous_bare_bvid",
++    }
++    paths = write_archive(tmp_path, entry, [{"start": 0, "end": 1, "text": "x"}], source="asr")
++    assert paths["srt_path"].endswith("BV1legacy.srt")
++    assert ".p" not in paths["srt_path"]
+diff --git a/bilibili-asr-archive/tests/test_page_pipeline.py b/bilibili-asr-archive/tests/test_page_pipeline.py
+index ccb836c..491da76 100644
+--- a/bilibili-asr-archive/tests/test_page_pipeline.py
++++ b/bilibili-asr-archive/tests/test_page_pipeline.py
+@@ -117,7 +117,7 @@ def test_harvest_pages_independent_status(tmp_root):
+         "status": "meta_ok", "title": "multi", "duration_s": 1, "pubdate": 1,
+     })
+     client = make_sub_client({
+-        "nav": [nav_ok(), nav_ok()],
++        "nav": [nav_ok()],
+         "player/wbi/v2": [
+             player_ok([sub_entry()]),
+             player_ok([]),
+@@ -150,7 +150,7 @@ def test_download_pages_independent_status(tmp_root):
+         })
+     client = make_audio_client(
+         {
+-            "nav": [nav_response(), nav_response()],
++            "nav": [nav_response()],
+             "/x/player/wbi/playurl": [playurl_ok(), playurl_ok()],
+         },
+         stream_routes={f"{STREAM_HOST}/a30216.m4s": AUDIO_BYTES},
+@@ -242,3 +242,63 @@ def test_cli_download_skips_unresolved_and_processes_other_page(
+     assert len(play) == 1
+     assert play[0]["params"]["cid"] == 444
+     assert not os.path.exists(os.path.join(tmp_root, "audio", f"{BVID}.m4a"))
++
++
++def test_cli_download_audio_bvid_unresolved_stops(tmp_root, monkeypatch, capsys):
++    store = ManifestStore(root=tmp_root)
++    store.upsert({
++        "bvid": BVID, "status": "needs_audio", "title": "legacy",
++        "duration_s": 1, "pubdate": 1, "unresolved": True,
++        "unresolved_reason": "ambiguous_bare_bvid",
++        "excluded_from_page_processing": True,
++    })
++    monkeypatch.setattr(bc, "build_default_transport", lambda: AudioRouter({}))
++    monkeypatch.setattr(bc, "default_sleeper", lambda _s=None: None)
++    rc = main(["download-audio", "--bvid", BVID, "--archive-root", tmp_root])
++    assert rc == 1
++    err = capsys.readouterr().err
++    assert "unresolved" in err
++    loaded = ManifestStore(root=tmp_root).load()
++    assert loaded[BVID]["unresolved"] is True
++    assert "work_id" not in loaded[BVID]
++    assert not os.path.exists(os.path.join(tmp_root, "audio", f"{BVID}.m4a"))
++    assert not os.path.exists(os.path.join(tmp_root, "audio", f"{BVID}.p0.m4a"))
++
++
++def test_asr_pending_p0_failure_does_not_suppress_p1(tmp_root, monkeypatch):
++    from bili_asr import asr as asr_mod
++    from bili_asr.archive import write_archive
++
++    store = ManifestStore(root=tmp_root)
++    p0 = page_identity(BVID, 0, 111)
++    p1 = page_identity(BVID, 1, 222)
++    for page, status in ((p0, "audio_ok"), (p1, "audio_ok")):
++        store.upsert({
++            "bvid": BVID, "work_id": page.work_id, "page_index": page.page_index,
++            "cid": page.cid, "status": status, "title": "multi",
++            "duration_s": 1, "pubdate": 1, "pubdate_str": "2026-01-02",
++            "audio_path": f"audio/{artifact_stem(page)}.m4a",
++        })
++    os.makedirs(os.path.join(tmp_root, "audio"), exist_ok=True)
++    for page in (p0, p1):
++        open(os.path.join(tmp_root, "audio", f"{artifact_stem(page)}.m4a"), "wb").close()
++
++    def fake_transcribe(path):
++        if artifact_stem(p0) in path:
++            raise RuntimeError("p0 failed")
++        return [{"start": 0, "end": 1, "text": "p1"}]
++
++    monkeypatch.setattr(asr_mod, "transcribe", fake_transcribe)
++    rc = main(["asr", "--pending", "--archive-root", tmp_root])
++    assert rc == 0
++    loaded = ManifestStore(root=tmp_root).load()
++    assert loaded[p0.work_id]["status"] == "audio_ok"
++    assert loaded[p1.work_id]["status"] == "archived"
++    assert loaded[p1.work_id]["srt_path"] != loaded[p0.work_id].get("srt_path")
++    paths = write_archive(
++        tmp_root,
++        loaded[p1.work_id],
++        [{"start": 0, "end": 1, "text": "p1"}],
++        source="asr",
++    )
++    assert os.path.exists(os.path.join(tmp_root, paths["srt_path"]))

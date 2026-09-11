@@ -1,5 +1,6 @@
 # Subtitle CLI Contract (iteration spec)
 
+> Promoted to: `.mstar/knowledge/architecture-patterns/bilibili-asr-archive-cli.md` (2026-09-11; refreshed the existing CLI pattern's subtitle path)
 > Iteration `iter-2026-09-subtitle-transcript-sqlite`, spec point 3.
 > Status: architecture locked (2026-09-11); product intent reviewed (product-manager,
 > 2026-09-11); writing/corpus hygiene reviewed (writing-specialist, 2026-09-11);

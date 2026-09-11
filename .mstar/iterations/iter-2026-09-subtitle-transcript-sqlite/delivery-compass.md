@@ -1,7 +1,8 @@
 ---
 iteration_id: iter-2026-09-subtitle-transcript-sqlite
 start_date: 2026-09-11
-status: locked
+status: completed
+end_date: 2026-09-11
 iteration_base_branch: main
 spec_integration_branch: iteration/iter-2026-09-subtitle-transcript-sqlite
 target_branch: main
@@ -155,7 +156,7 @@ This iteration acquires subtitles and stores them normalized. It explicitly does
 
 ## Roadmap Position
 
-- **Current iteration (`iter-2026-09-subtitle-transcript-sqlite`)** — mandate from the
+- **Current iteration (`iter-2026-09-subtitle-transcript-sqlite`)** — **delivered** (2026-09-11). Mandate from the
   previous iteration's roadmap: move subtitle acquisition and transcript storage out of the
   JSONL-manifest world into the normalized SQLite stack and honour the reserved FK boundary.
   **Done when**: subtitle tracks and transcript segments are queryable through normalized
@@ -224,9 +225,9 @@ This iteration acquires subtitles and stores them normalized. It explicitly does
 
 | plan_id | QC decision | QA gate | Residuals | Durable summary |
 |---------|-------------|---------|-----------|-----------------|
-| 20260911-subtitle-gateway | pending | mandatory | pending | `{PLAN_DIR}/20260911-subtitle-gateway.md#review-gate-summary` |
-| 20260911-transcript-storage | pending | mandatory | pending | `{PLAN_DIR}/20260911-transcript-storage.md#review-gate-summary` |
-| 20260911-subtitle-cli-cutover | pending | mandatory | pending | `{PLAN_DIR}/20260911-subtitle-cli-cutover.md#review-gate-summary` |
+| 20260911-subtitle-gateway | Approve (tri N=3, after an N=2 targeted re-review) | mandatory — passed | R1 (low, defer; retargeted) | `{PLAN_DIR}/20260911-subtitle-gateway.md#review-gate-summary` |
+| 20260911-transcript-storage | Approve (tri N=3 → Request Changes on one Warning, closed by fix wave 2 + N=1 re-review) | mandatory — passed | none | `{PLAN_DIR}/20260911-transcript-storage.md#review-gate-summary` |
+| 20260911-subtitle-cli-cutover | Approve (tri N=3 → Request Changes, closed by a merged fix wave + N=3 re-review) | mandatory — passed after one Needs-fixes round (F-QA-001) | none | `{PLAN_DIR}/20260911-subtitle-cli-cutover.md#review-gate-summary` |
 
 Notes:
 
@@ -237,9 +238,18 @@ Notes:
 
 > Filled at iteration-close.
 
-- 结晶文档数：pending
-- 新增 CONCEPTS.md 条目：pending
-- 触发 compound-refresh：pending
+- 结晶文档数：**2 new + 1 updated** — `normalized-transcript-storage.md` (from `specs/transcript-storage.md`),
+  `subtitle-acquisition-contract.md` (from `specs/subtitle-gateway.md`), and an in-place update of
+  `bilibili-archive-cli.md` (from `specs/subtitle-cli-contract.md`) — the CLI spec's high overlap with the
+  existing CLI doc made Q5 an update-not-create case.
+- 新增 CONCEPTS.md 条目：**5** (`acquisition attempt`, `no-subtitle`, subtitle track, transcript version,
+  content identity); the proposal's secondary `caption source kind` was folded into the transcript-version row.
+- 触发 compound-refresh：**是（已就地做最小修正）** — `normalized-metadata-stack.md` still implied the
+  subtitle path used the JSONL sidecars; its forward-looking bullet was corrected and a back-link to the two new
+  docs added. A full `/pm compound-refresh` pass over the remaining docs is still recommended.
+- Package triage: **Promote** the three specs as above; **Keep snapshot** the package `README.md` (iteration
+  history) and `delivery-compass.md` (excluded by default); **Skip** nothing — no guide/ existed.
+- Trace lines: `Promoted to:` added to all three spec headers.
 
 Prepare-stage promotion candidates (registered by writing-specialist, 2026-09-11; judged at
 iteration-close by `mstar-compound` — the Prepare chain mints no knowledge):
@@ -261,6 +271,16 @@ iteration-close by `mstar-compound` — the Prepare chain mints no knowledge):
 
 > Filled at iteration-close.
 
-- 做得好的：
-- 可改进的：
-- 下迭代建议：
+- 做得好的：three plans delivered with zero open findings at every final gate; the live path was proven end to
+  end (a real `ai-zh` caption, 2913 segments, through the shipped CLI and storage stack); the reserved FK
+  boundary was honoured with no sidecar reintroduced (A7); the QC seats re-derived claims from the installed
+  pin instead of trusting reports, which is what caught the two folklore facts and the unfalsifiable ordering key.
+- 可改进的：two implementer runs were killed by harness interruptions and left uncommitted WIP; the resumes'
+  audits found five real defects in that WIP (including a vacuous sidecar guard and a caption/label regression),
+  which worked but cost a cycle — a durable "resume = audit, never trust" note now lives in the plan roadmaps.
+  The live-probe budget was exceeded once (three invocations instead of one + one retry) and is recorded rather
+  than normalized. Several review findings were documentation-only, which suggests writing the operator contract
+  and the docs in the same task earlier.
+- 下迭代建议：start the audio/ASR iteration from the recorded inputs (the transcript contract, the
+  `kind`-keyed process records, the `no-subtitle` work queue, the projections rebuild) and give the run record's
+  `--language` decision (QC2-005) an owner; keep the "one bounded live probe per plan" budget explicit.

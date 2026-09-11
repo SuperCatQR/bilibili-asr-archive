@@ -1,0 +1,180 @@
+diff --git a/bilibili-asr-archive/README.md b/bilibili-asr-archive/README.md
+index 2af5a2c..89017ae 100644
+--- a/bilibili-asr-archive/README.md
++++ b/bilibili-asr-archive/README.md
+@@ -35,7 +35,26 @@ in the manifest or output files. The pilot requires at least one
+ `subtitle_done` entry and one `needs_audio`/`audio_ok` entry; it reports branch
+ coverage without starting a full-corpus run.
+ 
+-Exit codes: 0 ok / 1 usage-config or per-video failure / 2 terminal API failure.
++### `fetch-meta --resume` and exit 2
++
++`bili-asr fetch-meta` writes `{archive-root}/meta-cursor.json` after each
++successful archive-list page merge. The sidecar holds only `mid`, `next_page`,
++`total`, `state`, `last_api_error_code`, and `updated_at` — never cookies,
++`SESSDATA`, signed URLs, or exception text.
++
++| Exit | Meaning |
++|------|---------|
++| 0 | Run finished without risk exhaustion. Cursor `state` is `complete` (full visible archive) or `limited` (intentional `--limit-pages` cap). `--resume` does **not** auto-continue these. |
++| 1 | Usage/config or unexpected error (no traceback). |
++| 2 | Risk budget or terminal API failure. Cursor `state` is `risk_interrupted`; `next_page` is the 1-based `pn` that was **not** merged. Re-run `fetch-meta --resume` with the same `--mid` to start at that page. |
++
++`--resume` loads the sidecar only when `state` is `risk_interrupted` and `mid`
++matches. JSONL upsert stays last-write-wins per `work_id`; a failed page is
++never marked complete. Without `--resume`, a new run starts at page 1 and
++replaces a leftover interrupted cursor after the first successful page.
++
++Exit codes for other commands: 0 ok / 1 usage-config or per-video failure / 2
++terminal API failure.
+ 
+ ## Multipart pages and legacy rows
+ 
+diff --git a/bilibili-asr-archive/src/bili_asr/meta_cursor.py b/bilibili-asr-archive/src/bili_asr/meta_cursor.py
+index f2f8d07..2484653 100644
+--- a/bilibili-asr-archive/src/bili_asr/meta_cursor.py
++++ b/bilibili-asr-archive/src/bili_asr/meta_cursor.py
+@@ -33,6 +33,17 @@ _SCHEMA_KEYS = (
+     "updated_at",
+ )
+ 
++# Sidecar may hold only redacted scalar codes — never cookies, URLs, traces.
++_FORBIDDEN_MARKERS = (
++    "SESSDATA",
++    "cookie",
++    "Cookie",
++    "http://",
++    "https://",
++    "Traceback",
++)
++_MAX_ERROR_CODE_LEN = 64
++
+ 
+ def utc_now_iso() -> str:
+     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+@@ -59,9 +70,16 @@ def _validate(cursor: dict[str, Any]) -> dict[str, Any]:
+     code = cursor["last_api_error_code"]
+     if code is not None and not isinstance(code, (int, str)):
+         raise ValueError("cursor last_api_error_code must be int, str, or null")
++    if isinstance(code, str) and len(code) > _MAX_ERROR_CODE_LEN:
++        raise ValueError("cursor last_api_error_code is not a redacted code")
+     if not isinstance(cursor["updated_at"], str) or not cursor["updated_at"]:
+         raise ValueError("cursor updated_at must be a non-empty ISO-8601 string")
+-    return {key: cursor[key] for key in _SCHEMA_KEYS}
++    stored = {key: cursor[key] for key in _SCHEMA_KEYS}
++    dumped = json.dumps(stored, ensure_ascii=False).lower()
++    for marker in _FORBIDDEN_MARKERS:
++        if marker.lower() in dumped:
++            raise ValueError("cursor must not contain credentials, URLs, or traces")
++    return stored
+ 
+ 
+ class MetaCursorStore:
+diff --git a/bilibili-asr-archive/tests/test_meta_cursor.py b/bilibili-asr-archive/tests/test_meta_cursor.py
+index 4898424..32ee67e 100644
+--- a/bilibili-asr-archive/tests/test_meta_cursor.py
++++ b/bilibili-asr-archive/tests/test_meta_cursor.py
+@@ -9,6 +9,7 @@ import pytest
+ 
+ from bili_asr import bili_client as bc
+ from bili_asr.cli import main
++from bili_asr.manifest import ManifestStore
+ from bili_asr.meta_cursor import MetaCursorStore, utc_now_iso
+ 
+ from test_fetch_meta import FakeTransport, FastSleeper, SPI_NEW, SPI_OK, arc, ok_page
+@@ -279,3 +280,95 @@ def test_cli_full_run_marks_complete(tmp_root, fast_sleep, monkeypatch, capsys):
+     text = open(_cursor(tmp_root).path, encoding="utf-8").read()
+     assert "SESSDATA" not in text
+     assert "cookie" not in text.lower()
++
++
++def test_cli_page2_stop_resume_is_idempotent(tmp_root, fast_sleep, monkeypatch):
++    """Risk stop on page 2 → next_page=2; --resume starts there with no dup rows."""
++    transport = FakeTransport(
++        [
++            (200, ok_page([arc("BV1A"), arc("BV1B")], total=3)),
++            (412, None), (412, None), (412, None), (412, None), (412, None),
++        ],
++        spi=[SPI_OK, SPI_NEW],
++    )
++    monkeypatch.setattr(bc, "build_default_transport", lambda: transport)
++    monkeypatch.setattr(bc, "default_sleeper", lambda: fast_sleep)
++    rc = main(["fetch-meta", "--mid", "23191782", "--archive-root", tmp_root])
++    assert rc == 2
++    cursor = _cursor(tmp_root).load()
++    assert cursor["state"] == "risk_interrupted"
++    assert cursor["next_page"] == 2
++    store = ManifestStore(root=tmp_root)
++    first = store.load()
++    assert set(first) == {"BV1A:p0", "BV1B:p0"}
++    assert cursor["state"] != "complete"
++
++    transport2 = FakeTransport(
++        [
++            (200, ok_page([arc("BV1C")], total=3)),
++            (200, ok_page([], total=3)),
++            (200, ok_page([], total=3)),
++        ],
++    )
++    monkeypatch.setattr(bc, "build_default_transport", lambda: transport2)
++    rc2 = main([
++        "fetch-meta", "--mid", "23191782", "--resume",
++        "--archive-root", tmp_root,
++    ])
++    assert rc2 == 0
++    page_calls = [c for c in transport2.calls if "recArchivesByKeywords" in c["url"]]
++    assert page_calls[0]["params"]["pn"] == 2
++    entries = store.load()
++    assert set(entries) == {"BV1A:p0", "BV1B:p0", "BV1C:p0"}
++    lines = open(store.path, encoding="utf-8").read().strip().splitlines()
++    work_ids = [json.loads(line)["work_id"] for line in lines]
++    assert len(work_ids) == len(set(work_ids))
++    assert _cursor(tmp_root).load()["state"] == "complete"
++
++
++def test_cursor_strips_extra_keys_and_rejects_secrets(tmp_root):
++    store = _cursor(tmp_root)
++    stored = store.replace_atomic(
++        {
++            "mid": 1,
++            "next_page": 2,
++            "total": 9,
++            "state": "risk_interrupted",
++            "last_api_error_code": 412,
++            "updated_at": utc_now_iso(),
++            "cookie": "SESSDATA=leak",
++            "signed_url": "https://example.com/playurl?sign=abc",
++            "exception": "Traceback (most recent call last): boom",
++        }
++    )
++    assert set(stored) == {
++        "mid", "next_page", "total", "state",
++        "last_api_error_code", "updated_at",
++    }
++    text = open(store.path, encoding="utf-8").read()
++    assert "SESSDATA" not in text
++    assert "cookie" not in text.lower()
++    assert "https://" not in text
++    assert "Traceback" not in text
++    assert "playurl" not in text
++    with pytest.raises(ValueError, match="redacted|credentials"):
++        store.replace_atomic(
++            {
++                "mid": 1,
++                "next_page": 2,
++                "total": 9,
++                "state": "risk_interrupted",
++                "last_api_error_code": "SESSDATA=abc",
++                "updated_at": utc_now_iso(),
++            }
++        )
++
++
++def test_readme_documents_resume_and_exit_2():
++    root = os.path.join(os.path.dirname(__file__), "..")
++    text = open(os.path.join(root, "README.md"), encoding="utf-8").read()
++    assert "--resume" in text
++    assert "exit 2" in text.lower() or "Exit 2" in text or "| 2 |" in text
++    assert "meta-cursor.json" in text
++    assert "risk_interrupted" in text
++    assert "SESSDATA" in text

@@ -1,5 +1,6 @@
 # Subtitle Gateway Contract (iteration spec)
 
+> Promoted to: `.mstar/knowledge/architecture-patterns/subtitle-acquisition-contract.md` (2026-09-11)
 > Iteration `iter-2026-09-subtitle-transcript-sqlite`, spec point 1.
 > Status: architecture locked (2026-09-11); product intent reviewed (product-manager,
 > 2026-09-11); writing/corpus hygiene reviewed (writing-specialist, 2026-09-11);

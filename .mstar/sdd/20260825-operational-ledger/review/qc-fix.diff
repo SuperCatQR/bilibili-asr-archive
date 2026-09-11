@@ -1,0 +1,52 @@
+diff --git a/bilibili-asr-archive/src/bili_asr/run_ledger.py b/bilibili-asr-archive/src/bili_asr/run_ledger.py
+index dcb0cd4..d0240c0 100644
+--- a/bilibili-asr-archive/src/bili_asr/run_ledger.py
++++ b/bilibili-asr-archive/src/bili_asr/run_ledger.py
+@@ -17,6 +17,10 @@ from .meta_cursor import VALID_STATES
+ 
+ LEDGER_FILENAME = "run-ledger.jsonl"
+ 
++# Recognized core commands for documentation and reference.
++# _validate_record intentionally accepts any non-empty command string
++# for forward compatibility with future subcommands (e.g. coordinator run),
++# so the constant stays documentation, not a hard validator.
+ VALID_COMMANDS = frozenset(
+     {
+         "fetch-meta",
+@@ -367,8 +371,7 @@ class RunLedger:
+                         continue
+                     try:
+                         raw = json.loads(line)
+-                        if isinstance(raw, dict):
+-                            records.append(_validate_record(raw))
++                        records.append(_validate_record(raw))
+                     except (json.JSONDecodeError, ValueError):
+                         print("run-ledger: ignoring corrupt line", file=sys.stderr)
+                         continue
+diff --git a/bilibili-asr-archive/tests/test_run_ledger.py b/bilibili-asr-archive/tests/test_run_ledger.py
+index 227dfa6..144ca4f 100644
+--- a/bilibili-asr-archive/tests/test_run_ledger.py
++++ b/bilibili-asr-archive/tests/test_run_ledger.py
+@@ -261,10 +261,12 @@ def test_corrupt_lines_ignored(tmp_root, capsys):
+             run_id="run-valid-1",
+         )
+     )
+-    # Manually append corrupt line and another valid line
++    # Manually append corrupt line, non-dict JSON lines, and another valid line
+     with open(ledger.path, "a", encoding="utf-8") as fh:
+         fh.write("{corrupt json\n")
+         fh.write('{"run_id":"bad","command":"x"}\n')  # missing required fields
++        fh.write("[1, 2, 3]\n")  # valid JSON, non-dict
++        fh.write('"standalone string"\n')  # valid JSON, non-dict
+ 
+     ledger.append(
+         build_run_record(
+@@ -279,6 +281,8 @@ def test_corrupt_lines_ignored(tmp_root, capsys):
+     assert len(loaded) == 2
+     assert loaded[0]["run_id"] == "run-valid-1"
+     assert loaded[1]["run_id"] == "run-valid-2"
++    captured = capsys.readouterr()
++    assert captured.err.count("run-ledger: ignoring corrupt line") == 4
+ 
+ 
+ def test_bili_client_does_not_import_run_ledger():
