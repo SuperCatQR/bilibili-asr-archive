@@ -426,13 +426,15 @@ def test_cli_dispatch_locks_every_archive_mutation(
         "recover",
         "asr",
         "pilot",
-        "probe-subs",
         "harvest-subs",
         "download-audio",
         "run",
         "campaign",
         "schedule",
     }
+    # ``probe-subs`` reads the SQLite transcript path and writes nothing, so it
+    # is a reader like ``status``: no writer lock, no file, no new database.
+    assert "probe-subs" not in cli._ARCHIVE_WRITER_COMMANDS
 
     @contextmanager
     def busy_writer(_root):
