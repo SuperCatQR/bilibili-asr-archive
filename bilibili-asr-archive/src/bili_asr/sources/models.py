@@ -23,6 +23,36 @@ def _integer(value: object, field: str, *, minimum: int | None = None) -> int:
 
 
 def _text(value: object, field: str) -> str:
+    """Validate one printable, non-empty text field of a DTO.
+
+    The rule is the storage contract's own (``storage.models._text``): a
+    non-empty string after stripping that carries no control character.  A
+    control character is rejected rather than kept because these fields are
+    operator-facing — the CLI prints them verbatim, one line per record — so a
+    value carrying ``\\x00``, ``\\r``, or ``\\n`` would split a locked output
+    shape instead of being displayed.  Caption body text is the one documented
+    exception and goes through :func:`_caption_text` instead, mirroring the
+    storage contract's own split.
+    """
+    if not isinstance(value, str):
+        raise TypeError(f"{field} must be a string")
+    if not value.strip():
+        raise ValueError(f"{field} must not be empty")
+    if "\x00" in value or "\r" in value or "\n" in value:
+        raise ValueError(f"{field} contains invalid control characters")
+    return value
+
+
+def _caption_text(value: object, field: str) -> str:
+    """Validate one caption body row: a string non-empty after stripping.
+
+    The mirror of ``storage.models._caption_text``, which the storage contract
+    states explicitly: unlike :func:`_text`, control characters inside a
+    caption body are *kept*, because a stored caption is verbatim apart from
+    trimming.  A cue may legitimately span two lines, so rejecting ``\\n`` here
+    would turn a real caption into a document-level shape error — and the store
+    is the boundary that decides what it can hold, not this DTO.
+    """
     if not isinstance(value, str):
         raise TypeError(f"{field} must be a string")
     if not value.strip():
@@ -129,6 +159,9 @@ class SubtitleSegment:
     ``end_ms > start_ms >= 0`` with ``text`` non-empty after stripping is the
     invariant this DTO enforces on what a call returns.  It is not a filter:
     the adapter drops a row carrying nothing usable before constructing it.
+    ``text`` is validated as caption body text (:func:`_caption_text`), so a
+    cue that legitimately spans two lines stays one row — the store keeps
+    caption text verbatim, control characters included.
     """
 
     start_ms: int
@@ -140,7 +173,7 @@ class SubtitleSegment:
         _integer(self.end_ms, "end_ms", minimum=1)
         if self.end_ms <= self.start_ms:
             raise ValueError("end_ms must be greater than start_ms")
-        _text(self.text, "text")
+        _caption_text(self.text, "text")
 
 
 class BilibiliGateway(Protocol):

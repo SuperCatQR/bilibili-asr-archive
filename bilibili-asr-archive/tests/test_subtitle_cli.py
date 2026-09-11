@@ -21,6 +21,7 @@ from __future__ import annotations
 from contextlib import contextmanager
 import os
 import sqlite3
+from pathlib import Path
 
 import pytest
 
@@ -43,6 +44,7 @@ from bili_asr.storage import MetadataRepository, open_database
 from bili_asr.storage.models import (
     ALLOWED_ACQUISITION_KINDS,
     ALLOWED_CAPTION_SOURCE_KINDS,
+    MAX_TIMELINE_MS,
 )
 from fixtures.fake_bilibili_gateway import (
     SESSDATA_BOUNDARY_VALUE,
@@ -223,8 +225,16 @@ def _exit_code(argv: list[str]) -> int:
         ["probe-subs", "--limit-parts", "0"],
         ["probe-subs", "--limit-parts", "-2"],
         ["probe-subs", "--limit-parts", "not-a-number"],
+        # A selector the archive cannot store names no part in any database, so it
+        # is the documented configuration error (exit 1) exactly like an unknown
+        # bvid — never the unexpected-internal-error exit 2 (F-001).
+        ["probe-subs", "--bvid", ""],
+        ["probe-subs", "--bvid", "   "],
+        ["probe-subs", "--bvid", f"{BVID_A}\x00"],
         ["harvest-subs"],
         ["harvest-subs", "--bvid", BVID_A],
+        ["harvest-subs", "--bvid", "  ", "--limit-parts", "2"],
+        ["harvest-subs", "--bvid", f"{BVID_A}\np0", "--limit-parts", "2"],
         ["harvest-subs", "--limit-parts", "0"],
         ["harvest-subs", "--limit-parts", "2", "--language", "ai-zh,"],
         ["harvest-subs", "--limit-parts", "2", "--language", ""],
@@ -239,6 +249,90 @@ def test_subtitle_usage_errors_exit_one_never_two(
     captured = capsys.readouterr()
     assert captured.out == ""
     assert captured.err.strip()
+
+
+@pytest.mark.parametrize(
+    "value",
+    ["", " ", "   ", "\t", f"{BVID_A}\x00", f"{BVID_A}\n", f"  {BVID_A}\x00  "],
+)
+def test_an_unstorable_bvid_is_answered_as_unknown_bvid(
+    tmp_root: str, capsys, install_gateway, value: str
+) -> None:
+    """A blank/control-character selector is ``unknown --bvid <value>``, exit 1.
+
+    The archive stores ``bvid`` values through the storage contract's identifier
+    rule, which rejects a value that is empty once stripped and one carrying a
+    control character, so no database can hold the part such a selector names.
+    Both commands therefore answer it with the documented configuration error —
+    byte for byte, on stderr, with nothing on stdout — instead of reaching the
+    repository, whose own validation would surface as an unexpected internal
+    error with exit 2 (F-001).
+    """
+
+    _seed_parts(tmp_root, ((BVID_A, 0, 101),))
+    gateway = install_gateway(tracks={101: (CC_ZH,)}, segments={101: BODY})
+
+    for command, argv in (
+        ("probe-subs", ["probe-subs", "--bvid", value, "--archive-root", tmp_root]),
+        (
+            "harvest-subs",
+            [
+                "harvest-subs",
+                "--bvid",
+                value,
+                "--limit-parts",
+                "2",
+                "--archive-root",
+                tmp_root,
+            ],
+        ),
+    ):
+        assert _exit_code(argv) == 1
+        captured = capsys.readouterr()
+        assert captured.out == ""
+        assert captured.err == f"{command}: unknown --bvid {value}\n"
+        if command == "probe-subs":
+            assert _archive_files(tmp_root) == [ARCHIVE_DATABASE_NAME], (
+                "the read-only probe leaves no file at all"
+            )
+
+    # Configuration, decided before any call and before any run row.  The writer
+    # lock of the failing harvest is the one file this exits-1 path adds: it is
+    # taken by main() before the handler runs, which the docs state.
+    assert gateway.listing_cids == []
+    assert _scalar(tmp_root, "SELECT COUNT(*) FROM acquisition_runs") == 0
+    assert _scalar(tmp_root, "SELECT COUNT(*) FROM acquisition_attempts") == 0
+    assert _archive_files(tmp_root) == sorted(
+        [ARCHIVE_DATABASE_NAME, ARCHIVE_WRITER_LOCK_PATH]
+    )
+
+
+def test_an_unstorable_bvid_outranks_the_missing_database_guard(
+    tmp_root: str, capsys
+) -> None:
+    """The selector check is decided on the argument, before the database guard.
+
+    ``--bvid ""`` names no part in any database, so the operator is told that —
+    even on a root that holds no ``archive.db`` yet — instead of being sent to
+    ``fetch-meta`` for a selector ``fetch-meta`` could never satisfy either.
+    A padded-but-addressable value is deliberately *not* rejected: it reaches the
+    database and is answered as an unknown bvid there, because the storage rule
+    can hold it.
+    """
+
+    root = os.path.join(tmp_root, "absent")
+    assert main(["probe-subs", "--bvid", "", "--archive-root", root]) == 1
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err == "probe-subs: unknown --bvid \n"
+    assert not os.path.exists(root), "still nothing created on a read command"
+
+    _seed_parts(tmp_root, ((BVID_A, 0, 101),))
+    padded = f" {BVID_A} "
+    assert main(["probe-subs", "--bvid", padded, "--archive-root", tmp_root]) == 1
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err == f"probe-subs: unknown --bvid {padded}\n"
 
 
 def test_probe_subs_requires_exactly_one_selector(tmp_root: str, capsys) -> None:
@@ -407,6 +501,42 @@ def test_default_preference_ranks_known_families_then_falls_back_to_upstream_ord
     )
     assert select_subtitle_track((first_chinese, tr_chinese)) is first_chinese
     assert select_subtitle_track(()) is None
+
+
+def test_the_cc_before_ai_preference_decides_across_two_rest_families() -> None:
+    """The corner the prose used to mis-state: a CC/AI pair in distinct families.
+
+    ``_family_rank`` collapses every family outside ``zh``/``en`` onto one rank,
+    so the CC-before-AI term is family-blind there: a later French uploader
+    caption beats an earlier Japanese machine one, even though the machine track
+    comes first upstream.  The ranking key is the locked spec's, so this pins the
+    shipped reading; ``test_default_preference_ranks_known_families_then_falls_back_to_upstream_order``
+    covers the equal-kind direction and this covers the cross-family one
+    (Q3-01).  Neither track is ``zh``/``en`` and neither kind repeats, so the
+    family rank and the upstream index each disagree with the outcome on their
+    own — the CC/AI term is the only one that produces it.
+    """
+
+    japanese_ai = SubtitleTrack(
+        language="ai-ja", label="日本語（自動生成）", is_ai=True, track_id="1"
+    )
+    french_cc = SubtitleTrack(
+        language="fr", label="Français", is_ai=False, track_id=None
+    )
+
+    assert select_subtitle_track((japanese_ai, french_cc)) is french_cc, (
+        "across two rest-families the uploader caption wins, wherever it sits"
+    )
+    assert select_subtitle_track((french_cc, japanese_ai)) is french_cc, (
+        "the CC/AI term is family-blind, so upstream order does not move it"
+    )
+
+    other_french = SubtitleTrack(
+        language="fr-CA", label="Français (CA)", is_ai=False, track_id=None
+    )
+    assert (
+        select_subtitle_track((japanese_ai, french_cc, other_french)) is french_cc
+    ), "same family and same kind: upstream order settles that tie"
 
 
 def test_explicit_language_matches_exactly_and_first_preference_wins() -> None:
@@ -933,27 +1063,140 @@ def test_not_found_is_recorded_no_subtitle_with_its_code(
 def test_partial_failure_keeps_exit_zero_and_stays_visible_in_the_counts(
     tmp_root: str, capsys, install_gateway
 ) -> None:
-    """One stored and one failed part is a partial run, not a terminal failure."""
+    """The failing part comes *first*: the loop continues into a later success.
+
+    The order is the point.  With the failure last (the direction the E2E scripts
+    it) a regression that aborted the loop on the first non-stored outcome would
+    still read green here, so this case scripts the failure on the first part and
+    asserts that the part after it was really attempted, really stored, and really
+    counted — one part's failure does not end a bounded run (QC2-001).
+    """
 
     _seed_parts(tmp_root, ((BVID_A, 0, 101), (BVID_A, 1, 102)))
-    install_gateway(
+    gateway = install_gateway(
         tracks={101: (CC_ZH,), 102: (CC_ZH,)},
-        segments={101: BODY},
-        listing_failures={102: GatewayRateLimited()},
+        segments={102: BODY},
+        listing_failures={101: GatewayRateLimited()},
     )
 
     assert main(["harvest-subs", "--limit-parts", "2", "--archive-root", tmp_root]) == 0
 
     captured = capsys.readouterr()
-    assert "attempted=2 stored=1 unchanged=0 no-subtitle=0 failed=1" in captured.out
-    assert captured.out.splitlines()[2] == (
-        f"harvest {BVID_A}:p1 failed rate_limited"
-    )
+    assert_leaks_no_markers(captured.out + captured.err, context="partial-run output")
     with _archive_connection(tmp_root) as connection:
-        assert connection.execute(
-            "SELECT outcome FROM acquisition_runs"
-        ).fetchone()[0] == "partial"
+        run = connection.execute(
+            "SELECT run_id, outcome FROM acquisition_runs"
+        ).fetchone()
+        assert captured.out.splitlines() == [
+            "sessdata: absent",
+            f"harvest {BVID_A}:p0 failed rate_limited",
+            f"harvest {BVID_A}:p1 stored subtitle-cc zh-CN v1",
+            f"harvest-subs: run_id={run['run_id']} attempted=2 stored=1"
+            " unchanged=0 no-subtitle=0 failed=1 remaining_without_transcript=1",
+        ]
+        # Both parts were attempted, in selection order, and only the part after
+        # the failure fetched a body.
+        assert gateway.listing_cids == [101, 102]
+        assert gateway.body_cids == [102]
+        # The later part's own evidence: the stored transcript is p1's, and the
+        # two attempts are the failed one and the stored one, in part order.
+        stored = connection.execute(
+            "SELECT vp.cid, vp.page_index, t.source_kind, t.language, t.version"
+            " FROM transcripts AS t JOIN video_parts AS vp"
+            " ON vp.video_part_id = t.video_part_id"
+        ).fetchone()
+        assert (stored["cid"], stored["page_index"]) == (102, 1)
+        assert (
+            stored["source_kind"],
+            stored["language"],
+            stored["version"],
+        ) == ("subtitle-cc", "zh-CN", 1)
+        assert [
+            (row["outcome"], row["error_code"], row["transcript_id"] is not None)
+            for row in connection.execute(
+                "SELECT a.outcome, a.error_code, a.transcript_id"
+                " FROM acquisition_attempts AS a"
+                " JOIN video_parts AS vp ON vp.video_part_id = a.video_part_id"
+                " ORDER BY vp.page_index"
+            )
+        ] == [("failed", "rate_limited", False), ("stored", None, True)]
+        assert run["outcome"] == "partial"
     assert _scalar(tmp_root, "SELECT COUNT(*) FROM transcripts") == 1
+    assert _scalar(tmp_root, "SELECT COUNT(*) FROM transcript_segments") == 2
+
+
+def test_a_body_the_storage_boundary_refuses_is_one_parts_bounded_failure(
+    tmp_root: str, capsys, install_gateway
+) -> None:
+    """A pathological timeline cannot abort the whole bounded run (QC2-002).
+
+    The gateway script is the seam, so the scripted segment is exactly what a
+    finite-but-absurd upstream ``to`` produces: a millisecond position above the
+    storage contract's caption range (``MAX_TIMELINE_MS``).  The storage boundary
+    rejects it with its bounded ``ValueError``, and that rejection is answered as
+    *this part's* ``failed``/``shape_error`` attempt — so the part after it is
+    still attempted and stored, and the run stays exit 0 with the partial counts
+    instead of collapsing into ``<command>: unexpected error`` with exit 2.
+    """
+
+    _seed_parts(tmp_root, ((BVID_A, 0, 101), (BVID_A, 1, 102)))
+    gateway = install_gateway(
+        tracks={101: (CC_ZH,), 102: (CC_ZH,)},
+        segments={
+            101: (
+                SubtitleSegment(
+                    start_ms=0, end_ms=MAX_TIMELINE_MS + 1, text="越界的一句"
+                ),
+            ),
+            102: BODY,
+        },
+    )
+
+    assert main(["harvest-subs", "--limit-parts", "2", "--archive-root", tmp_root]) == 0
+
+    captured = capsys.readouterr()
+    assert captured.err == ""
+    assert_leaks_no_markers(captured.out, context="pathological-timeline output")
+    with _archive_connection(tmp_root) as connection:
+        run = connection.execute(
+            "SELECT run_id, outcome FROM acquisition_runs"
+        ).fetchone()
+        assert captured.out.splitlines() == [
+            "sessdata: absent",
+            f"harvest {BVID_A}:p0 failed shape_error",
+            f"harvest {BVID_A}:p1 stored subtitle-cc zh-CN v1",
+            f"harvest-subs: run_id={run['run_id']} attempted=2 stored=1"
+            " unchanged=0 no-subtitle=0 failed=1 remaining_without_transcript=1",
+        ]
+        assert gateway.listing_cids == [101, 102]
+        assert gateway.body_cids == [101, 102]
+        assert [
+            (row["outcome"], row["error_code"], row["transcript_id"] is not None)
+            for row in connection.execute(
+                "SELECT a.outcome, a.error_code, a.transcript_id"
+                " FROM acquisition_attempts AS a"
+                " JOIN video_parts AS vp ON vp.video_part_id = a.video_part_id"
+                " ORDER BY vp.page_index"
+            )
+        ] == [("failed", "shape_error", False), ("stored", None, True)]
+        assert run["outcome"] == "partial"
+        # The refused part stored nothing at all: no transcript, no segment, and
+        # the part stays pending for a later attempt.
+        assert [
+            (row["cid"], row["version"])
+            for row in connection.execute(
+                "SELECT vp.cid, t.version FROM transcripts AS t"
+                " JOIN video_parts AS vp ON vp.video_part_id = t.video_part_id"
+            )
+        ] == [(102, 1)]
+        stored_part = connection.execute(
+            "SELECT video_part_id FROM transcripts"
+        ).fetchone()[0]
+        assert connection.execute(
+            "SELECT COUNT(*) FROM transcript_segments WHERE transcript_id IN"
+            " (SELECT transcript_id FROM transcripts WHERE video_part_id = ?)",
+            (stored_part,),
+        ).fetchone()[0] == len(BODY)
 
 
 def test_unexpected_error_exits_two_finishes_the_run_and_leaks_nothing(
@@ -1018,6 +1261,71 @@ def test_credential_is_reported_as_presence_only(
     assert main(["probe-subs", "--bvid", BVID_A, "--archive-root", tmp_root]) == 0
     captured = capsys.readouterr()
     assert captured.out.splitlines()[0] == "sessdata: absent"
+
+
+def test_the_probe_opens_the_archive_read_only_and_cannot_write(
+    tmp_root: str, capsys, install_gateway, monkeypatch
+) -> None:
+    """The probe's ``mode=ro`` connection is write-proof, not just well-behaved.
+
+    ``probe-subs`` promises it writes nothing at all, and that promise used to
+    hold only because the probe happened to call no write: it opened the same
+    schema-initializing connection as ``status``/``runs``, and ``open_database``
+    executes both idempotent schema scripts and commits them.  The connection the
+    probe now opens is asserted here (the URI it asks SQLite for) and then used
+    directly, so the "cannot write" claim is functional rather than conventional
+    (QC2-003).
+    """
+
+    _seed_parts(tmp_root, ((BVID_A, 0, 101),))
+    install_gateway(tracks={101: (CC_ZH,)})
+
+    real_connect = sqlite3.connect
+    opened: list[tuple[tuple, dict]] = []
+
+    def recording_connect(*args, **kwargs):
+        opened.append((args, kwargs))
+        return real_connect(*args, **kwargs)
+
+    monkeypatch.setattr(sqlite3, "connect", recording_connect)
+    assert main(["probe-subs", "--limit-parts", "1", "--archive-root", tmp_root]) == 0
+    capsys.readouterr()
+
+    assert len(opened) == 1, "the probe opens exactly one connection"
+    arguments, keywords = opened[0]
+    uri = arguments[0]
+    assert keywords == {"uri": True}
+    assert uri == (
+        Path(os.path.join(tmp_root, ARCHIVE_DATABASE_NAME)).resolve().as_uri()
+        + "?mode=ro"
+    )
+
+    # The URI the probe used is really write-proof: neither DDL nor DML succeeds
+    # through it, so a later edit on the probe path cannot silently write.
+    read_only = real_connect(uri, uri=True)
+    try:
+        for statement in (
+            "CREATE TABLE probe_must_not_create(x INTEGER)",
+            "DELETE FROM transcripts",
+            "INSERT INTO acquisition_runs(run_id, kind, selector_kind,"
+            " selector_target, requested_limit, credential_present, started_at,"
+            " finished_at, outcome) VALUES ('x', 'subtitle', 'pending', NULL, 1,"
+            " 0, 0, NULL, 'running')",
+        ):
+            with pytest.raises(sqlite3.OperationalError):
+                read_only.execute(statement)
+    finally:
+        read_only.close()
+
+    # And every observable of the probe run is unchanged: one file, no rows.
+    assert _archive_files(tmp_root) == [ARCHIVE_DATABASE_NAME]
+    for table in (
+        "acquisition_runs",
+        "acquisition_attempts",
+        "transcripts",
+        "transcript_segments",
+    ):
+        assert _scalar(tmp_root, f"SELECT COUNT(*) FROM {table}") == 0
 
 
 def test_neither_command_writes_a_sidecar_or_a_transcript_projection(

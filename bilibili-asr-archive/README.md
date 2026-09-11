@@ -99,6 +99,16 @@ in committed files or CI artifacts.
 
 ## Workflow
 
+⚠️ **The `probe-subs` / `harvest-subs` pair writes to `archive.db`, not to the
+manifest, so it feeds nothing below it.** The ASR/pilot chain
+(`download-audio`, `asr`, `pilot`, `run`, `schedule`, `campaign`) is still driven
+from `manifest/manifest.jsonl`, and the new `harvest-subs` no longer marks rows
+`needs_audio`: `download-audio --missing-subs` gains no entries from the step
+above it, and `asr --pending` does not see the stored transcripts. Run the
+subtitle step for the SQLite archive itself; the legacy chain keeps its own
+harvest (see the boundary bullet under
+[Subtitle acquisition on SQLite](#subtitle-acquisition-on-sqlite-probe-subs--harvest-subs)).
+
     bili-asr fetch-meta --mid 23191782 --archive-root archive
     bili-asr probe-subs --limit-parts 5 --archive-root archive
     bili-asr harvest-subs --limit-parts 5 --archive-root archive
@@ -619,9 +629,13 @@ observed live run, is in
   remaining_without_transcript=<n>`, carrying all four counts including the
   zeros. Nothing here is a claim about corpus or caption coverage.
 - **Preference rule**: the default keeps the **uploader** caption
-  (`subtitle-cc`) over the machine one (`subtitle-ai`) inside the same language
-  **family**, with families ranked `zh`, then `en`, then the rest in upstream
-  order. The family is derived from the `language` + `is_ai` facts the gateway
+  (`subtitle-cc`) over the machine one (`subtitle-ai`), with families ranked
+  `zh`, then `en`, then the rest in upstream order. That CC-before-AI term is
+  family-blind on purpose: the remaining families share one rank, so between two
+  **different** non-default families the uploader caption wins even when the
+  machine track comes first upstream, and upstream order settles only a tie
+  between tracks of the same family and the same kind. The family is derived
+  from the `language` + `is_ai` facts the gateway
   already guarantees (strip an `ai-` prefix from a machine code, then take the
   primary subtag), so `zh-CN` / `zh-Hans` / `zh-Hant` / `ai-zh` all rank as
   `zh`: upstream uses different exact codes per caption kind, and a fixed code
@@ -637,11 +651,14 @@ observed live run, is in
   its run row, so a part it recorded `no-subtitle` stays interpretable — an
   invisible caption may exist and simply be login-gated.
 - **Schema guard and rebuild**: on a database that predates the transcript
-  schema both commands print `<command>: archive database predates the
-  transcript schema; rebuild it (delete <archive-root>/archive.db and re-run
-  fetch-meta)` and exit `1`, while `fetch-meta` / `status` / `runs` keep working
-  on it. There is no in-place migration: deleting `archive.db` and re-running
-  `fetch-meta` is the rebuild. The database is created from two checked-in
+  schema both commands print one line on stderr — `<command>: archive database
+  predates the transcript schema; rebuild it (delete <archive-root>/archive.db
+  and re-run fetch-meta)` — and exit `1`, while `fetch-meta` / `status` / `runs`
+  keep working on it. There is no in-place migration: deleting `archive.db` and
+  re-running `fetch-meta` is the rebuild, and a bare `fetch-meta` stops at the
+  implicit `--limit-pages` bound (`DEFAULT_PAGE_LIMIT = 10`), so a corpus
+  collected beyond page 10 needs `--limit-pages <n>` (or repeated `--resume`
+  runs). The database is created from two checked-in
   resources, `src/bili_asr/storage/schema.sql` and
   `src/bili_asr/storage/schema-transcripts.sql`.
 - **Legacy manifest boundary**: the ASR/pilot chain is untouched and still reads
@@ -656,7 +673,10 @@ observed live run, is in
   `{archive-root}/coordinator/archive-writer.lock` for the whole run, so a
   second mutating command exits `1` with `harvest-subs: archive_busy`. Apart
   from `archive.db`, that lock is the only file a bounded harvest leaves behind;
-  `probe-subs` deliberately takes none.
+  `probe-subs` deliberately takes none. The lock is taken **before** the
+  command's database check, so even a failed or mistyped harvest — a missing
+  `--archive-root`, say — creates `<root>/coordinator/` and leaves the lock file
+  there while exiting `1`; nothing reaches the database.
 
 #### Opt-in bounded live smokes
 
@@ -684,7 +704,11 @@ run skips all four and makes no network call:
   commands only ever address parts the database already stores. Zero visible
   tracks, a `not_found` listing, and a `rate_limited` refusal are recorded as
   bounded evidence and skipped rather than reading green; every other bounded
-  code fails loudly. Its one count-only evidence line names the seeded part,
+  code fails loudly. Once opted in it **requires a credential**: with no
+  resolvable `BILI_SESSDATA` it fails with source-the-`.env` guidance instead of
+  reporting an anonymous `sessdata=absent tracks=0` run as "nothing visible now"
+  — an ambiguous reading, since a login-gated caption looks the same. Its one
+  count-only evidence line names the seeded part,
   credential presence, both commands' counts, and the stored source
   kind/language/version. Run it from the package directory of the checkout
   under test (the package's `tests/conftest.py` puts that checkout's `src/`

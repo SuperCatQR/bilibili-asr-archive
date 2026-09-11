@@ -22,6 +22,9 @@ Outcome mapping (one outcome per attempted part):
   later run, and the attempt row carries ``not_found`` when upstream said so);
 - the body was fetched and stored → ``stored``, or ``unchanged`` when a stored
   version of the same identity already carries that content;
+- a fetched body the storage boundary refuses as unrepresentable (a timeline
+  position above its caption range) → ``failed`` with the bounded
+  ``shape_error`` code, one part's outcome rather than the run's;
 - any other bounded gateway failure → ``failed`` with that scalar error code.
 """
 
@@ -40,6 +43,7 @@ from bili_asr.sources.models import (
     BilibiliGateway,
     GatewayError,
     GatewayNotFound,
+    GatewayShapeError,
     SubtitleSegment,
     SubtitleTrack,
 )
@@ -493,29 +497,45 @@ class SubtitleIngestor:
         with the resulting ``stored``/``unchanged`` outcome, and commits — or
         rolls the whole call back.  The body is converted field for field, and
         the language is stored trimmed, so the reported language is the identity
-        the store holds.
+        the store holds.  A body the storage boundary refuses with its bounded
+        ``ValueError`` (a timeline position it cannot represent) is answered as
+        this part's ``failed``/``shape_error`` outcome rather than an escaping
+        error, so one anomalous part cannot end a bounded run.
         """
 
         finished_at = self._clock()
         source_kind = _caption_source_kind(track.is_ai)
         language = track.language.strip()
-        write = self._repository.record_acquired_transcript(
-            run_id=run_id,
-            video_part_id=item.video_part_id,
-            source_kind=source_kind,
-            language=language,
-            segments=tuple(
-                TranscriptSegmentRecord(
-                    start_ms=segment.start_ms,
-                    end_ms=segment.end_ms,
-                    text=segment.text,
-                )
-                for segment in segments
-            ),
-            started_at=started_at,
-            finished_at=finished_at,
-            created_at=finished_at,
-        )
+        try:
+            write = self._repository.record_acquired_transcript(
+                run_id=run_id,
+                video_part_id=item.video_part_id,
+                source_kind=source_kind,
+                language=language,
+                segments=tuple(
+                    TranscriptSegmentRecord(
+                        start_ms=segment.start_ms,
+                        end_ms=segment.end_ms,
+                        text=segment.text,
+                    )
+                    for segment in segments
+                ),
+                started_at=started_at,
+                finished_at=finished_at,
+                created_at=finished_at,
+            )
+        except ValueError:
+            # The storage boundary re-validates the timeline it is handed and
+            # rejects a body it cannot represent (a position above
+            # ``MAX_TIMELINE_MS``) with a bounded ``ValueError``.  That check runs
+            # in the boundary's canonical-segment step, ahead of its transaction,
+            # so nothing was written and nothing needs rolling back.  It is one
+            # part's data anomaly, not the run's: it is recorded as this part's
+            # bounded ``shape_error`` attempt so the remaining parts of the
+            # bounded run are still attempted, instead of aborting the whole run.
+            return self._record_failed_part(
+                run_id, item, GatewayShapeError(), started_at
+            )
         return SubtitlePartOutcome(
             work_id=item.work_id,
             outcome=write.outcome,

@@ -537,6 +537,29 @@ def test_get_user_video_page_rejects_foreign_owner_mid(bilibili_api_seam):
     assert "mid" in str(caught.value)
 
 
+def test_get_user_video_page_rejects_a_title_with_control_characters(
+    bilibili_api_seam,
+):
+    """A title the storage contract cannot hold is a bounded shape error here.
+
+    The DTO applies the same printable-text rule the storage contract applies, so
+    the metadata path stays bounded: an upstream title carrying a control
+    character is rejected as this page's ``shape_error`` instead of escaping as a
+    raw validation error from a later write.
+    """
+
+    bilibili_api_seam.videos_response = make_videos_response(
+        make_vlist_item(title="未明子讲座\n伪造第二行"), count=1
+    )
+    gateway = _load_gateway()
+
+    with pytest.raises(GatewayShapeError) as caught:
+        asyncio.run(gateway.get_user_video_page(MID, page_number=1))
+
+    assert caught.value.code == "shape_error"
+    assert bilibili_api_seam.calls == ["space.arc.search(pn=1, ps=30)"]
+
+
 def test_get_user_video_page_rejects_missing_owner_mid(bilibili_api_seam):
     """An item without an owner mid cannot prove ownership."""
 
@@ -1571,6 +1594,17 @@ def test_subtitle_dtos_carry_no_work_id_and_no_url_field():
         {"label": ""},
         {"label": "   "},
         {"label": None},
+        # The label is printed verbatim on the CLI's one-line-per-track shape, so
+        # a value carrying a control character is rejected here (F-003) exactly as
+        # the storage contract rejects one on every text field it holds.
+        {"label": "中文\n伪造第二行"},
+        {"label": "中文\r"},
+        {"label": "中文\x00"},
+        {"language": "zh-CN\n"},
+        {"language": "zh-CN\r"},
+        {"language": "zh-CN\x00"},
+        {"track_id": "track\n1"},
+        {"track_id": "track\x001"},
         {"is_ai": "ai"},
         {"is_ai": 1},
         {"is_ai": None},
@@ -2462,6 +2496,16 @@ def test_get_subtitle_tracks_returns_an_empty_tuple_for_an_empty_inventory(
         # The service derives the language family from the primary subtag, so a
         # vocabulary it could not rank is a shape error, not a silent keep.
         {"subtitle": {"subtitles": [{"lan": "-zh", "lan_doc": "中文"}]}},
+        # A label carrying a control character cannot reach the CLI, whose track
+        # line is locked to one line per track: it is a bounded shape error here
+        # (F-003) rather than a value that splits the printed shape.  The
+        # characters are interior on purpose — the adapter strips the outer
+        # whitespace of ``lan``/``lan_doc`` before constructing the DTO, so only
+        # an interior one survives to the DTO's own rule.
+        {"subtitle": {"subtitles": [{"lan": "zh-CN", "lan_doc": "中文\n伪造第二行"}]}},
+        {"subtitle": {"subtitles": [{"lan": "zh-CN", "lan_doc": "中文\r伪造"}]}},
+        {"subtitle": {"subtitles": [{"lan": "zh-CN", "lan_doc": "中文\x00"}]}},
+        {"subtitle": {"subtitles": [{"lan": "zh\n-CN", "lan_doc": "中文"}]}},
     ],
 )
 def test_get_subtitle_tracks_rejects_an_unreadable_inventory(
@@ -2679,6 +2723,42 @@ def test_fetch_subtitle_segments_normalizes_the_document_and_drops_degenerate_ro
         SubtitleSegment(start_ms=0, end_ms=1500, text="未明子"),
         SubtitleSegment(start_ms=2500, end_ms=2750, text="第二条"),
         SubtitleSegment(start_ms=2750, end_ms=3000, text="第三条"),
+    )
+    assert bilibili_api_seam.calls == [_listing_call(), "subtitle.body"]
+
+
+def test_caption_text_keeps_interior_control_characters_as_one_row(
+    bilibili_api_seam,
+):
+    """A multi-line cue is a normal caption row, not a document-level failure.
+
+    The storage contract splits its text rules on purpose: ``_caption_text``
+    keeps control characters inside a caption body (a stored caption is verbatim
+    apart from trimming), while every operator-facing field goes through
+    ``_text``, which rejects them.  The gateway mirrors that split, so a cue
+    spanning two lines survives as ONE row here.  Rejecting it in the DTO would
+    raise a raw ``ValueError`` out of ``fetch_subtitle_segments`` — it is not a
+    bounded ``GatewayError`` — and end a whole harvest run on ordinary upstream
+    data.
+    """
+
+    gateway = _load_subtitle_gateway(bilibili_api_seam, make_subtitle_track())
+    bilibili_api_seam.subtitle_bodies = {
+        SIGNED_SUBTITLE_URL_MARKER: make_subtitle_document(
+            _subtitle_row(0.0, 1.5, "  未明子讲座\n第一讲  "),
+            _subtitle_row(1.5, 3.0, "第二行\r第三行"),
+            _subtitle_row(3.0, 4.0, "末行"),
+        )
+    }
+
+    segments = asyncio.run(
+        gateway.fetch_subtitle_segments(_seam_track(), BVID, PART_CID)
+    )
+
+    assert segments == (
+        SubtitleSegment(start_ms=0, end_ms=1500, text="未明子讲座\n第一讲"),
+        SubtitleSegment(start_ms=1500, end_ms=3000, text="第二行\r第三行"),
+        SubtitleSegment(start_ms=3000, end_ms=4000, text="末行"),
     )
     assert bilibili_api_seam.calls == [_listing_call(), "subtitle.body"]
 

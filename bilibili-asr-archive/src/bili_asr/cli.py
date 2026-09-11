@@ -499,6 +499,23 @@ def _metadata_database_path(archive_root: str) -> str:
     return os.path.join(archive_root, ARCHIVE_DATABASE_NAME)
 
 
+def _archive_database_exists(command: str, archive_root: str) -> bool:
+    """Require an existing ``archive.db`` below the root; print the shipped line when absent.
+
+    Neither subtitle command creates the database and read commands never do, so
+    the file is checked before any connection is opened — the shipped read
+    command's missing-database answer (fixed line, exit 1, nothing created).
+    """
+    if os.path.isfile(_metadata_database_path(archive_root)):
+        return True
+    print(
+        f"{command}: no archive database at {archive_root}; "
+        "run fetch-meta to create it",
+        file=sys.stderr,
+    )
+    return False
+
+
 def _open_read_connection(command: str, archive_root: str):
     """Open the fresh database for a read command; None after printing why not.
 
@@ -509,12 +526,7 @@ def _open_read_connection(command: str, archive_root: str):
     """
     from bili_asr.storage import open_database
 
-    if not os.path.isfile(_metadata_database_path(archive_root)):
-        print(
-            f"{command}: no archive database at {archive_root}; "
-            "run fetch-meta to create it",
-            file=sys.stderr,
-        )
+    if not _archive_database_exists(command, archive_root):
         return None
     try:
         return open_database(archive_root)
@@ -525,6 +537,45 @@ def _open_read_connection(command: str, archive_root: str):
             file=sys.stderr,
         )
         return None
+
+
+def _open_read_only_connection(command: str, archive_root: str):
+    """Open an existing archive database strictly read-only; None after printing why not.
+
+    ``probe-subs`` promises that it writes nothing at all, so it deliberately
+    does not go through :func:`~bili_asr.storage.open_database`: that path
+    executes both idempotent schema scripts and commits them even when nothing
+    changes.  This connection is opened through a ``mode=ro`` URI instead, so the
+    promise is structural rather than conventional — a write attempted through it
+    fails inside SQLite instead of reaching the file.  The database existence
+    guard is the shipped one, and an unreadable file is reported bounded exactly
+    as the write-capable read path reports it.  The first read is taken here,
+    inside that bounded handler, because a file that is not a database at all
+    only fails on the first statement, not on connect.
+    """
+    if not _archive_database_exists(command, archive_root):
+        return None
+    connection = None
+    try:
+        resolved = Path(_metadata_database_path(archive_root)).resolve()
+        connection = sqlite3.connect(f"{resolved.as_uri()}?mode=ro", uri=True)
+        # The repository contract requires both of these of any connection it is
+        # handed, and neither touches the database file: ``sqlite3.Row`` is a
+        # client-side row factory and ``foreign_keys`` is a per-connection
+        # setting.
+        connection.row_factory = sqlite3.Row
+        connection.execute("PRAGMA foreign_keys = ON")
+        connection.execute("PRAGMA schema_version").fetchone()
+    except (OSError, sqlite3.Error) as exc:
+        if connection is not None:
+            connection.close()
+        print(
+            f"{command}: unreadable archive database at {archive_root} "
+            f"({type(exc).__name__})",
+            file=sys.stderr,
+        )
+        return None
+    return connection
 
 
 def _open_read_repository(
@@ -556,7 +607,9 @@ def _subtitle_schema_rebuild_line(command: str, archive_root: str) -> str:
     )
 
 
-def _open_subtitle_connection(command: str, archive_root: str):
+def _open_subtitle_connection(
+    command: str, archive_root: str, *, read_only: bool = False
+):
     """Open the archive database for one subtitle command; None after printing.
 
     Neither subtitle command creates ``archive.db`` (``open_database`` does), so
@@ -564,10 +617,19 @@ def _open_subtitle_connection(command: str, archive_root: str):
     and the transcript-schema capability is required immediately after opening:
     a database that predates the contract is answered with the fixed rebuild line
     and exit 1 instead of a raw SQLite error from the first transcript query.
+
+    ``read_only`` is set by ``probe-subs``, whose "writes nothing at all" promise
+    is then structural: its connection is the ``mode=ro`` one from
+    :func:`_open_read_only_connection`, never the schema-initializing
+    ``open_database`` the write commands and the other read commands share.
     """
     from bili_asr.storage import SchemaContractError, require_subtitle_schema
 
-    connection = _open_read_connection(command, archive_root)
+    connection = (
+        _open_read_only_connection(command, archive_root)
+        if read_only
+        else _open_read_connection(command, archive_root)
+    )
     if connection is None:
         return None
     try:
@@ -598,6 +660,23 @@ def _subtitle_selector(value: str | None) -> tuple[str | None, int | None]:
         return parse_work_id(value)
     except ValueError:
         return value, None
+
+
+def _selector_cannot_name_a_part(bvid: str) -> bool:
+    """Report whether a ``--bvid`` value can never name a stored part.
+
+    The archive stores ``bvid`` values through the storage contract's own
+    identifier rule, which rejects a value that is empty once stripped and one
+    that carries a control character (``\\x00``/``\\r``/``\\n``), so such a
+    selector resolves to zero rows in every database there is.  It is therefore
+    answered as the documented configuration error — the fixed
+    ``unknown --bvid <value>`` line, exit 1 — decided on the argument alone and
+    before the database is opened, instead of being handed to the repository,
+    whose identifier validation would reject it and surface as an unexpected
+    internal error.  A padded-but-addressable value is deliberately *not*
+    rejected here: only a value the storage rule cannot hold is.
+    """
+    return not bvid.strip() or any(mark in bvid for mark in "\x00\r\n")
 
 
 def _cmd_fetch_meta(args: argparse.Namespace) -> int:
@@ -768,8 +847,16 @@ def _cmd_probe_subs(args: argparse.Namespace) -> int:
         )
         return 1
     bvid, page_index = _subtitle_selector(args.bvid)
+    if bvid is not None and _selector_cannot_name_a_part(bvid):
+        # A blank or control-character selector names no part in any database, so
+        # it is the documented configuration error and is decided before the
+        # database is opened.
+        print(f"probe-subs: unknown --bvid {args.bvid}", file=sys.stderr)
+        return 1
     sessdata = _resolve_sessdata(args)
-    connection = _open_subtitle_connection("probe-subs", args.archive_root)
+    connection = _open_subtitle_connection(
+        "probe-subs", args.archive_root, read_only=True
+    )
     if connection is None:
         return 1
     try:
@@ -855,6 +942,12 @@ def _cmd_harvest_subs(args: argparse.Namespace) -> int:
         )
         return 1
     bvid, page_index = _subtitle_selector(args.bvid)
+    if bvid is not None and _selector_cannot_name_a_part(bvid):
+        # Same configuration error as an unknown bvid, and decided on the
+        # argument alone: a selector the archive cannot store can never resolve to
+        # a part, so no bound would make it selectable.
+        print(f"harvest-subs: unknown --bvid {args.bvid}", file=sys.stderr)
+        return 1
     if args.limit_parts is None and page_index is None:
         # No unbounded runs: only a single named part is bounded by construction.
         print(

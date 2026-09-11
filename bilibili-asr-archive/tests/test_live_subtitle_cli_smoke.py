@@ -105,6 +105,7 @@ from bili_asr.storage.models import (
 )
 from fixtures.fake_bilibili_gateway import (
     SESSDATA_BOUNDARY_VALUE,
+    SIGNED_SUBTITLE_URL_MARKER,
     FakeGateway,
     assert_leaks_no_markers,
     fake_gateway_seam,
@@ -230,6 +231,49 @@ def _credential_expectation() -> bool:
     """
 
     return resolve_sessdata(None, os.environ.get(SESSDATA_ENV_VAR)) is not None
+
+
+def _require_live_credential() -> None:
+    """Fail loudly when an opted-in smoke has no resolvable credential.
+
+    Reached only after the opt-in gate, so a default pytest run still skips
+    without a credential.  Once the operator has asked for a live run, a
+    forgotten credential must not read as a benign skip: the smoke derives its
+    own expectation from the same environment the command reads, so an
+    anonymous run answers ``sessdata=absent`` with no visible tracks and would
+    report "nothing visible now" — indistinguishable from a login-gated caption
+    and from a part that simply has none.  Failing here costs no upstream call.
+    """
+
+    if _credential_expectation():
+        return
+    pytest.fail(
+        "the live subtitle CLI smoke was requested but no credential resolves:"
+        f" {SESSDATA_ENV_VAR} is unset or blank.  Source the control checkout's"
+        " gitignored .env (set -a; source .env; set +a) or export"
+        f" {SESSDATA_ENV_VAR}, then re-run — an anonymous run cannot tell a"
+        " login-gated caption from a part that has none, so a forgotten"
+        " credential must not read as a benign skip"
+    )
+
+
+def _live_preconditions() -> None:
+    """Apply the smoke's three preconditions, in their documented order.
+
+    Opt in first, so a default pytest run skips without needing a credential or
+    the pinned distribution; then the pin, which fails loudly rather than
+    skipping; then the credential, which fails loudly for the same reason
+    (:func:`_require_live_credential`).  Extracted so the order itself is
+    rehearsable offline, instead of resting on a live run.
+    """
+
+    if not _live_smoke_requested():
+        pytest.skip(
+            f"live subtitle CLI smoke is opt-in: set {LIVE_SMOKE_ENV}=1 to"
+            " request it"
+        )
+    assert _pinned_package_version() == PINNED_PACKAGE_VERSION
+    _require_live_credential()
 
 
 def _probe_argv(tmp_root: str) -> list[str]:
@@ -383,15 +427,34 @@ def _read_probe_output(out: str, *, expect_credential_present: bool) -> ProbeOut
     assert work_id == SAMPLE_WORK_ID, (
         f"the probe addressed {work_id!r}, not the part the smoke authored"
     )
+    probed = int(summary["probed"])
+    with_tracks = int(summary["with_tracks"])
+    without_tracks = int(summary["without_tracks"])
+    failed = int(summary["failed"])
+    # The summary's counts are tied to the part line they summarize, so the
+    # evidence line's ``with_tracks`` is derived from the probe's own output
+    # rather than re-emitted on trust (QC2-009/Q3-03).
+    assert with_tracks == (1 if track_count else 0), (
+        "with_tracks counts the parts that listed a track"
+    )
+    assert without_tracks == (1 if track_count == 0 else 0), (
+        "without_tracks counts the parts that listed no track"
+    )
+    assert failed == (1 if error_code is not None else 0), (
+        "failed counts the parts whose listing failed"
+    )
+    assert probed == with_tracks + without_tracks + failed, (
+        "the three brackets partition the probed parts"
+    )
     return ProbeOutput(
         work_id=work_id,
         track_count=track_count,
         error_code=error_code,
         tracks=tracks,
-        probed=int(summary["probed"]),
-        with_tracks=int(summary["with_tracks"]),
-        without_tracks=int(summary["without_tracks"]),
-        failed=int(summary["failed"]),
+        probed=probed,
+        with_tracks=with_tracks,
+        without_tracks=without_tracks,
+        failed=failed,
     )
 
 
@@ -433,6 +496,29 @@ def _read_harvest_output(
         f"the harvest addressed {groups['work_id']!r}, not the part the smoke seeded"
     )
 
+    attempted = int(summary["attempted"])
+    stored = int(summary["stored"])
+    unchanged = int(summary["unchanged"])
+    no_subtitle = int(summary["no_subtitle"])
+    failed = int(summary["failed"])
+    # The four outcome counts are tied to the one part line above them: exactly
+    # one of them is 1 and they partition the single attempt, so the evidence
+    # line's ``stored`` is derived from the harvest's own output instead of
+    # being re-emitted on trust (QC2-009/Q3-03).
+    expected_counts = {
+        "stored": (1, 0, 0, 0),
+        "unchanged": (0, 1, 0, 0),
+        "no-subtitle": (0, 0, 1, 0),
+        "failed": (0, 0, 0, 1),
+    }[outcome]
+    assert (stored, unchanged, no_subtitle, failed) == expected_counts, (
+        f"the part line's outcome {outcome!r} disagrees with its counts"
+    )
+    assert stored + unchanged + no_subtitle + failed == attempted, (
+        "the four outcome counts partition the attempted parts"
+    )
+    assert summary["run_id"], "the summary line names the persisted run"
+
     return HarvestOutput(
         run_id=summary["run_id"],
         work_id=groups["work_id"],
@@ -443,11 +529,11 @@ def _read_harvest_output(
         version=(
             int(groups["version"]) if groups.get("version") is not None else None
         ),
-        attempted=int(summary["attempted"]),
-        stored=int(summary["stored"]),
-        unchanged=int(summary["unchanged"]),
-        no_subtitle=int(summary["no_subtitle"]),
-        failed=int(summary["failed"]),
+        attempted=attempted,
+        stored=stored,
+        unchanged=unchanged,
+        no_subtitle=no_subtitle,
+        failed=failed,
         remaining_without_transcript=int(summary["remaining"]),
     )
 
@@ -499,7 +585,10 @@ def _assert_one_pending_part(connection: sqlite3.Connection) -> None:
 
 
 def _assert_stored_rows(
-    connection: sqlite3.Connection, *, expect_credential_present: bool
+    connection: sqlite3.Connection,
+    *,
+    run_id: str,
+    expect_credential_present: bool,
 ) -> str:
     """Assert one bounded harvest stored one transcript version; render evidence.
 
@@ -508,8 +597,10 @@ def _assert_stored_rows(
     its language and version, its ordered segments, the one run row carrying the
     operator's selector and the credential presence, the one attempt row
     pointing at the stored transcript, and a part that left the pending
-    enumeration.  The returned line carries counts only: no segment text, no
-    upstream value, no credential.
+    enumeration.  ``run_id`` is the id the command printed on its summary line,
+    and it is asserted against the persisted row — the evidence line's
+    ``run_id`` is therefore tied to its source (QC2-009/Q3-03).  The returned
+    line carries counts only: no segment text, no upstream value, no credential.
     """
 
     transcripts = list(
@@ -554,6 +645,9 @@ def _assert_stored_rows(
     runs = list(connection.execute("SELECT * FROM acquisition_runs"))
     assert len(runs) == 1, "the bounded run opens exactly one run row"
     run = runs[0]
+    assert run["run_id"] == run_id, (
+        "the printed run id is the persisted run row's own id"
+    )
     assert (
         run["kind"],
         run["selector_kind"],
@@ -595,6 +689,7 @@ def _assert_stored_rows(
 def _assert_no_transcript_rows(
     connection: sqlite3.Connection,
     *,
+    run_id: str,
     outcome: str,
     expect_credential_present: bool,
 ) -> str:
@@ -605,7 +700,9 @@ def _assert_no_transcript_rows(
     row carries).  The transcript tables stay empty, the one part stays in the
     pending enumeration with its timestamped attempt evidence, and the run row is
     terminal with the outcome derived from its attempts — so the run never reads
-    as a success it did not have.
+    as a success it did not have.  ``run_id`` is the id the command printed on
+    its summary line, asserted against the persisted row, so the evidence line's
+    ``run_id`` is tied to its source (QC2-009/Q3-03).
     """
 
     assert outcome in ("no-subtitle", "failed")
@@ -635,6 +732,9 @@ def _assert_no_transcript_rows(
     runs = list(connection.execute("SELECT * FROM acquisition_runs"))
     assert len(runs) == 1
     run = runs[0]
+    assert run["run_id"] == run_id, (
+        "the printed run id is the persisted run row's own id"
+    )
     expected_run_outcome = "failed" if outcome == "failed" else "complete"
     assert (run["outcome"], run["credential_present"]) == (
         expected_run_outcome,
@@ -741,13 +841,9 @@ def test_live_smoke_one_part_through_probe_and_harvest(
     loud.
     """
 
-    if not _live_smoke_requested():
-        pytest.skip(
-            f"live subtitle CLI smoke is opt-in: set {LIVE_SMOKE_ENV}=1 to"
-            " request it"
-        )
-
-    assert _pinned_package_version() == PINNED_PACKAGE_VERSION
+    # Opt in, the pinned distribution, the credential — in that order, and the
+    # credential one is loud (see :func:`_live_preconditions`).
+    _live_preconditions()
 
     credential = os.environ.get(SESSDATA_ENV_VAR)
     expect_credential_present = _credential_expectation()
@@ -767,6 +863,12 @@ def test_live_smoke_one_part_through_probe_and_harvest(
     probe = _read_probe_output(
         probe_out, expect_credential_present=expect_credential_present
     )
+    # The probe's stdout is the one surface that renders an upstream free-text
+    # field (the track label, printed as metadata), so the sentinel scan covers
+    # stdout as well as stderr here — a signed URL or a raw body arriving
+    # through that field fails the smoke instead of passing unnoticed
+    # (QC2-004/Q3-02).
+    assert_leaks_no_markers(probe_out + probe_err, context="live probe output")
     if probe.error_code is not None:
         # Nothing answered the listing, so the harvest's calls would be spent on
         # a part no listing exists for.  The probe's own reading is recorded
@@ -803,8 +905,13 @@ def test_live_smoke_one_part_through_probe_and_harvest(
             assert harvest_exit == 0, harvest_err
             assert (harvest.failed, harvest.no_subtitle) == (0, 0)
             assert harvest.remaining_without_transcript == 0
+            assert (harvest.stored, harvest.unchanged) == (
+                (1, 0) if harvest.outcome == "stored" else (0, 1)
+            ), "the one-part run's stored/unchanged counts follow its outcome"
             evidence = _assert_stored_rows(
-                connection, expect_credential_present=expect_credential_present
+                connection,
+                run_id=harvest.run_id,
+                expect_credential_present=expect_credential_present,
             )
         else:
             if harvest.outcome == "no-subtitle":
@@ -823,6 +930,7 @@ def test_live_smoke_one_part_through_probe_and_harvest(
             assert harvest.remaining_without_transcript == 1
             evidence = _assert_no_transcript_rows(
                 connection,
+                run_id=harvest.run_id,
                 outcome=harvest.outcome,
                 expect_credential_present=expect_credential_present,
             )
@@ -941,6 +1049,48 @@ def test_the_live_smoke_switch_is_opt_in(monkeypatch: pytest.MonkeyPatch) -> Non
     assert _live_smoke_requested() is True
 
 
+def test_the_live_preconditions_gate_in_the_documented_order(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Default skips; opted in without a credential fails loudly; else it runs.
+
+    The three preconditions are the live smoke's own preamble, so driving them
+    offline is what keeps the live body from resting on a single recorded run.
+    The order matters twice over: the opt-in gate comes first, so a default
+    pytest run skips without a credential *or* the pinned distribution; and past
+    that gate a missing credential is a failure rather than a skip, because the
+    smoke derives its expectation from the same environment the command reads —
+    an anonymous run answers ``sessdata=absent`` with no visible tracks, which is
+    exactly what a login-gated caption looks like (QC2-009/Q3-03).
+    """
+
+    # Default: not opted in, so the skip is decided before anything else — no
+    # credential and no pinned distribution are needed.
+    monkeypatch.delenv(LIVE_SMOKE_ENV, raising=False)
+    monkeypatch.delenv(SESSDATA_ENV_VAR, raising=False)
+    with pytest.raises(pytest.skip.Exception) as skipped:
+        _live_preconditions()
+    assert f"{LIVE_SMOKE_ENV}=1" in str(skipped.value)
+
+    # Opted in, no credential: loud, and by a plain ``fail`` rather than a
+    # ``skip`` — a skip here is the hazard this guard exists to remove.
+    monkeypatch.setenv(LIVE_SMOKE_ENV, "1")
+    with pytest.raises(pytest.fail.Exception) as refused:
+        _live_preconditions()
+    assert SESSDATA_ENV_VAR in str(refused.value)
+    assert "benign skip" in str(refused.value)
+
+    # A blank value means anonymous by the shipped rule, so it is refused too.
+    monkeypatch.setenv(SESSDATA_ENV_VAR, "")
+    with pytest.raises(pytest.fail.Exception):
+        _live_preconditions()
+
+    # A resolvable credential is the only shape that gets through.
+    monkeypatch.setenv(SESSDATA_ENV_VAR, SESSDATA_BOUNDARY_VALUE)
+    assert _credential_expectation() is True
+    assert _live_preconditions() is None
+
+
 def test_the_seeded_root_survives_the_probe_with_no_new_file(
     tmp_root: str,
     anonymous_environment,
@@ -986,6 +1136,53 @@ def test_the_seeded_root_survives_the_probe_with_no_new_file(
         )
 
 
+def test_the_probe_surface_scan_catches_a_sentinel_arriving_as_a_track_label(
+    tmp_root: str,
+    anonymous_environment,
+    capsys: pytest.CaptureFixture[str],
+    fake_gateway_seam: FakeGateway,
+) -> None:
+    """The probe's stdout is scanned, and the scan can really fire there.
+
+    The track label is the one upstream free-text value this CLI prints (as
+    metadata, on the documented ``track <lan> <ai|cc> <label>`` line), so the
+    scan that guards every other surface has to be shown to work on this one
+    rather than assumed.  The leak scripted here is the shape that field would
+    produce — a signed document URL echoed as the label, which is what reading
+    the wrong upstream field looks like — and the scan catches it (QC2-004).
+    """
+
+    _seed_probe_part(tmp_root)
+    fake_gateway_seam.script_subtitle_tracks(
+        SAMPLE_CID,
+        (
+            SubtitleTrack(
+                language="ai-zh",
+                label=SIGNED_SUBTITLE_URL_MARKER,
+                is_ai=True,
+                track_id="1",
+            ),
+        ),
+    )
+
+    assert main(_probe_argv(tmp_root)) == 0
+    out, err = capsys.readouterr()
+    assert err == ""
+    probe = _read_probe_output(out, expect_credential_present=False)
+    assert probe.tracks == (("ai-zh", "ai"),)
+    assert SIGNED_SUBTITLE_URL_MARKER in out, (
+        "the label is printed as metadata, which is why it is scanned"
+    )
+    with pytest.raises(AssertionError):
+        assert_leaks_no_markers(out + err, context="probe rehearsal output")
+    # And the scan stays silent on the benign surface, so it is not a
+    # formality that fires on every run:
+    assert_leaks_no_markers(
+        out.replace(SIGNED_SUBTITLE_URL_MARKER, "自动生成"),
+        context="probe rehearsal output without the sentinel",
+    )
+
+
 def test_the_seam_rehearsal_stores_a_transcript_and_passes_every_row_assertion(
     tmp_root: str,
     anonymous_environment,
@@ -1025,7 +1222,11 @@ def test_the_seam_rehearsal_stores_a_transcript_and_passes_every_row_assertion(
     assert harvest.run_id, "the summary names the persisted run"
 
     with _archive_connection(tmp_root) as connection:
-        evidence = _assert_stored_rows(connection, expect_credential_present=False)
+        evidence = _assert_stored_rows(
+            connection,
+            run_id=harvest.run_id,
+            expect_credential_present=False,
+        )
         persisted = persisted_row_text(connection)
     assert evidence == (
         "source_kind=subtitle-ai language=ai-zh version=1 segments=2"
@@ -1076,6 +1277,7 @@ def test_a_captionless_part_is_recorded_and_never_reads_green(
     with _archive_connection(tmp_root) as connection:
         evidence = _assert_no_transcript_rows(
             connection,
+            run_id=harvest.run_id,
             outcome="no-subtitle",
             expect_credential_present=False,
         )
@@ -1112,7 +1314,10 @@ def test_a_failed_harvest_is_recorded_with_its_bounded_code(
 
     with _archive_connection(tmp_root) as connection:
         evidence = _assert_no_transcript_rows(
-            connection, outcome="failed", expect_credential_present=False
+            connection,
+            run_id=harvest.run_id,
+            outcome="failed",
+            expect_credential_present=False,
         )
     assert evidence == "outcome=failed transcripts=0 attempts=1 pending_after=1"
     assert_leaks_no_markers(out + err, context="rehearsal failed-harvest output")
@@ -1184,7 +1389,10 @@ def test_a_refused_listing_is_read_from_the_probe_and_never_harvested(
     )
     with _archive_connection(refused_root) as connection:
         _assert_no_transcript_rows(
-            connection, outcome="no-subtitle", expect_credential_present=False
+            connection,
+            run_id=harvested.run_id,
+            outcome="no-subtitle",
+            expect_credential_present=False,
         )
 
 

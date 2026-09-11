@@ -150,8 +150,13 @@ bounded run make progress. Each attempted part maps to exactly one outcome:
 | New content, or content differing from every stored version | `stored` | A new version was written; earlier versions stay readable. |
 | `rate_limited`, `transport_error`, `response_error`, `shape_error` | `failed` + the bounded code | Retry later for the first two; the last two need investigation. |
 
-No output carries a credential, a signed URL, a raw body, or upstream message
-text, and no count here is presented as coverage of the corpus.
+The error and evidence paths carry no credential, a signed URL, a raw body, or
+raw upstream message text: a bounded scalar code stands in for whatever upstream
+said. The one upstream **metadata** value any output prints is the track label
+(`lan_doc`) on the `track` lines above — printed as metadata, trimmed, and
+rejected by the gateway as a bounded `shape_error` if it carries a control
+character, so it cannot split the locked one-line-per-track shape. No count here
+is presented as coverage of the corpus.
 
 ### Exit codes
 
@@ -187,6 +192,13 @@ mutating command exits `1` with `harvest-subs: archive_busy` instead of
 partially mutating the archive. That lock file and the database itself are the
 only files a bounded harvest leaves under the archive root.
 
+The lock is taken by the command dispatcher **before** the handler reaches its
+database check, so a harvest pointed at a missing or mistyped `--archive-root`
+still creates `<root>/coordinator/` and leaves the lock file there while exiting
+`1` with the missing-database line. A failed or mistyped harvest is therefore
+not a no-op on the filesystem: nothing reaches the database, but the root and
+its `coordinator/` directory are created.
+
 `probe-subs` is deliberately **not** an archive-writer command: it takes no
 lock and creates no file under the archive root. Its read-only promise is
 structural rather than only documented — no database creation, no transcript
@@ -198,8 +210,13 @@ while another process writes, exactly like `status` and `runs`.
 `harvest-subs` stores exactly one track per part. The default (no `--language`)
 ranks the visible tracks by language **family** — `zh` first, then `en`, then
 every remaining family in upstream order — and prefers an uploader caption
-(`is_ai = false`, printed `cc`) over a machine one inside the same family; the
-first track after that ranking is fetched.
+(`is_ai = false`, printed `cc`) over a machine one; the first track after that
+ranking is fetched. The CC-before-AI term is deliberately **family-blind**: the
+remaining families share one rank, so between two *different* non-default
+families the uploader caption wins even when the machine track comes first
+upstream, and upstream order settles only a tie between tracks of the same
+family and the same kind. That ranking order is the locked key; `--language`
+overrides the whole rule.
 
 The family is derived from the two normalized facts the gateway DTO already
 guarantees — `language` and `is_ai` — by stripping the `ai-` prefix from a
@@ -237,17 +254,21 @@ keeps the machine one reachable.
 
 Both commands require the transcript contract in the database they open. On a
 database that predates it — one whose `transcripts` table lacks `language` /
-`content_sha256` — they print the fixed line and exit `1`:
+`content_sha256` — they print the fixed message below on **stderr** (their part
+and summary output is stdout, and this path prints nothing there) and exit `1`.
+It is one line; the wrap below is the page's, not the command's:
 
 ```text
-<command>: archive database predates the transcript schema; rebuild it
-(delete <archive-root>/archive.db and re-run fetch-meta)
+<command>: archive database predates the transcript schema; rebuild it (delete <archive-root>/archive.db and re-run fetch-meta)
 ```
 
 The metadata commands (`fetch-meta`, `status`, `runs`) keep working on that same
 database unchanged. There is no in-place migration: the rebuild procedure is to
 delete `archive.db`, re-run `fetch-meta` to recreate it from the checked-in
-schemas, and harvest again.
+schemas, and harvest again. A bare `fetch-meta` stops at the implicit
+`--limit-pages` bound (`DEFAULT_PAGE_LIMIT = 10`), so rebuilding a corpus
+collected beyond page 10 needs the bound spelled out (`--limit-pages <n>`) — or
+repeated runs with `--resume`, which continues from the stored cursor.
 
 ### Boundary with the legacy manifest path
 
@@ -495,13 +516,26 @@ exercised is the checkout the test file belongs to.
   is visible). The smoke adds no retry of its own; the shipped gateway is
   fail-fast per call, so a throttled endpoint is answered by waiting and
   re-running, never by bending the call shape.
+- Opt-in requires a resolvable credential: the smoke passes no `--sessdata` and
+  reads the same environment the command reads, so an opted-in run with no
+  `BILI_SESSDATA` (unset or blank) **fails loudly** with source-the-`.env`
+  guidance instead of reporting its anonymous `sessdata=absent tracks=0` reading
+  as a bounded observation. That reading is ambiguous — a login-gated caption
+  and a part with no caption look identical — so a forgotten credential must not
+  read as "nothing visible now". A default (not opted-in) pytest run still
+  skips, credential or not.
 - Asserted when a caption is visible: the printed presence, track, outcome and
   summary line shapes; the normalized transcript row (an allowed
   `source_kind`, its language, version 1, the content hash), its ordered
   segments, the one run row with the operator's selector and the credential
   presence, the one attempt row pointing at the transcript, a part that left
   `v_pending_subtitles`, and an archive root holding nothing but `archive.db`
-  and `coordinator/archive-writer.lock`.
+  and `coordinator/archive-writer.lock`. Every field of the printed evidence
+  line is tied to an assertion: the probe's `with_tracks` and the harvest's
+  `stored` are checked against the part line they summarize, and the printed
+  `run_id` against the persisted run row. Both commands' stdout and stderr are
+  scanned for the seam's secret/payload sentinels — including the probe's, whose
+  `track` lines are the one place an upstream label is printed.
 - Recorded without reading green: zero visible tracks, a `not_found` listing,
   and a `rate_limited` refusal each assert their bounded shapes, print the
   evidence, and skip — a run that stored no transcript is not a subtitle
@@ -511,12 +545,12 @@ exercised is the checkout the test file belongs to.
   exit 0, bounded facts only: `part_source=fixed-sample
   work_id=BV1S8hA6MEvy:p0 sessdata=present probe_exit=0 probed=1 with_tracks=1
   without_tracks=0 probe_failed=0 track_count=1 tracks=ai-zh:ai harvest_exit=0
-  attempted=1 stored=1 unchanged=0 no_subtitle=0 failed=0
-  remaining_without_transcript=0 source_kind=subtitle-ai language=ai-zh
-  version=1 segments=2913 transcripts=1 attempts=1 pending_after=0`. The part
-  exposed one machine caption, the harvest stored it as version 1, and the part
-  left the pending enumeration. Count-only: no credential, no proxy, no signed
-  URL, and no caption text is recorded here.
+  run_id=1de9b7cb7cd141bfa7114112212188db attempted=1 stored=1 unchanged=0
+  no_subtitle=0 failed=0 remaining_without_transcript=0 source_kind=subtitle-ai
+  language=ai-zh version=1 segments=2913 transcripts=1 attempts=1
+  pending_after=0`. The part exposed one machine caption, the harvest stored it
+  as version 1, and the part left the pending enumeration. Count-only: no
+  credential, no proxy, no signed URL, and no caption text is recorded here.
 
 ## Exit codes
 
