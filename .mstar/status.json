@@ -1,18 +1,5 @@
 {
   "version": 2,
   "updated_at": "2026-09-11",
-  "workflows": [
-    {
-      "id": "iter-2026-09-subtitle-transcript-sqlite",
-      "type": "iteration",
-      "dir": "workflows/iter-2026-09-subtitle-transcript-sqlite",
-      "lifecycle": "active",
-      "created_at": "2026-09-11",
-      "branch": {
-        "base": "main",
-        "integration": "iteration/iter-2026-09-subtitle-transcript-sqlite",
-        "target": "main"
-      }
-    }
-  ]
+  "workflows": []
 }

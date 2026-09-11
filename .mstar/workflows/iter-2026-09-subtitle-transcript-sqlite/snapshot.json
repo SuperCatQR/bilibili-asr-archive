@@ -2,10 +2,10 @@
   "schema_version": 1,
   "id": "iter-2026-09-subtitle-transcript-sqlite",
   "type": "iteration",
-  "status": "active",
+  "status": "completed",
   "started_at": "2026-09-11",
   "updated_at": "2026-09-11",
-  "phase": "phase-3-close",
+  "phase": "phase-5-pr-merge-ready",
   "plans": [
     {
       "id": "20260911-subtitle-gateway",
@@ -167,5 +167,17 @@
   },
   "control_worktree_path": "/root/workspace/bilibili-asr-archive",
   "legacy_metadata": {},
-  "compass_ref": "iterations/iter-2026-09-subtitle-transcript-sqlite/delivery-compass.md"
+  "compass_ref": "iterations/iter-2026-09-subtitle-transcript-sqlite/delivery-compass.md",
+  "ended_at": "2026-09-11",
+  "delivery": {
+    "pr": 14,
+    "merge_commit": "1b603ed",
+    "integration_branch": "iteration/iter-2026-09-subtitle-transcript-sqlite",
+    "target_branch": "main",
+    "plans": {
+      "20260911-subtitle-gateway": "5dc9c40",
+      "20260911-transcript-storage": "f490fd1",
+      "20260911-subtitle-cli-cutover": "d1a0b7e"
+    }
+  }
 }
