@@ -7,9 +7,12 @@ shared scripted protocol double, and the secret/raw-payload sentinels live in
 ``tests/fixtures/fake_bilibili_gateway.py``.  The fake mirrors only the
 documented import surface the gateway may use (``Credential``, the ``user``
 endpoint description and ``access_id`` route, the WBI-signed
-``utils.network.Api``, ``video.Video``, and the exceptions taxonomy) and
-exposes no playback, subtitle, audio, or download methods, which makes silent
-use of other package APIs impossible.  The import boundary and the method
+``utils.network.Api``, the ``user``/``video`` endpoint descriptions,
+``video.Video``, and the exceptions taxonomy) and exposes no subtitle,
+playback, audio, or download *package method*, which makes silent use of other
+package APIs impossible: the player call and the signed subtitle-document
+fetch are issued through the package's own ``Api`` like the page call.  The
+import boundary and the method
 surface itself are
 additionally inspected statically with AST over the package sources.  The
 only networked test is the opt-in live smoke, which skips unless
@@ -23,6 +26,7 @@ from __future__ import annotations
 
 import ast
 import asyncio
+import dataclasses
 import importlib
 import importlib.metadata
 import inspect
@@ -43,6 +47,8 @@ from bili_asr.sources.models import (
     GatewayResponseError,
     GatewayShapeError,
     GatewayTransportError,
+    SubtitleSegment,
+    SubtitleTrack,
     UserVideoPage,
     VideoPart,
     VideoSummary,
@@ -50,12 +56,15 @@ from bili_asr.sources.models import (
 from bili_asr.storage.database import MetadataRepository, open_database
 from fixtures.fake_bilibili_gateway import (
     BVID,
+    FAKE_PLAYER_ENDPOINT,
     FAKE_USER_VIDEO_PAGE_ENDPOINT,
     MID,
     MIRRORED_ENDPOINT_FIELDS,
+    PROTOCOL_RELATIVE_SUBTITLE_URL,
     PUBDATE,
     RAW_JSON_BODY_MARKER,
     SESSDATA_BOUNDARY_VALUE,
+    SIGNED_SUBTITLE_URL_MARKER,
     SIGNED_URL_MARKER,
     UPSTREAM_ERROR_TEXT,
     FakeNetworkException,
@@ -68,6 +77,10 @@ from fixtures.fake_bilibili_gateway import (
     build_fake_package,
     make_detail_response,
     make_part_item,
+    make_player_response,
+    make_subtitle_document,
+    make_subtitle_entry,
+    make_subtitle_track,
     make_videos_response,
     make_vlist_item,
     persisted_row_text,
@@ -116,6 +129,16 @@ ACCESS_ID_BOUNDARY_VALUE = "ACCESS-ID-THAT-MUST-NOT-LEAK"
 #: package's own endpoint description instead of being hard-coded.
 CHANGED_ENDPOINT_URL = "https://changed-endpoint.example.invalid/x/space/wbi/arc/search"
 
+#: The part cid the scripted subtitle calls are issued for: a part identity,
+#: never a subtitle identity.
+PART_CID = 2222
+
+#: Sentinel player-endpoint URL proving the player call's transport fields are
+#: read from the package's own player description instead of being hard-coded.
+CHANGED_PLAYER_ENDPOINT_URL = (
+    "https://changed-player.example.invalid/x/player/wbi/v2"
+)
+
 
 def _probe_installed_pinned_endpoint() -> dict | str:
     """Read the pin's endpoint description, or the reason it could not be read.
@@ -142,6 +165,55 @@ def _probe_installed_pinned_endpoint() -> dict | str:
 #: The installed pin's own user-video endpoint description, captured before the
 #: seam can shadow the package; see :func:`_probe_installed_pinned_endpoint`.
 _INSTALLED_PINNED_ENDPOINT = _probe_installed_pinned_endpoint()
+
+
+def _probe_installed_pinned_player_endpoint() -> dict | str:
+    """Read the pin's player endpoint description, or why it could not be read.
+
+    Captured at import time for the same reason as the user-video description:
+    a lazy import inside a seam test would return the fake.  The description is
+    pure package data, so this needs no network.
+    """
+
+    try:
+        module = importlib.import_module("bilibili_api.video")
+        endpoint = module.API["info"]["get_player_info"]
+    except (ImportError, KeyError, AttributeError, TypeError) as error:
+        return f"{type(error).__name__}: {error}"
+    if not isinstance(endpoint, dict):
+        return f"the description is not a mapping ({type(endpoint).__name__})"
+    return dict(endpoint)
+
+
+#: The installed pin's own player endpoint description, captured the same way.
+_INSTALLED_PINNED_PLAYER_ENDPOINT = _probe_installed_pinned_player_endpoint()
+
+
+def _probe_installed_api_call_shape() -> dict | str:
+    """Read the pin's ``Api`` constructor fields and ``request`` signature.
+
+    Captured at import time for the same reason as the endpoint descriptions.
+    The shape matters because the seam must not accept a call the pin would
+    reject: in the pin ``raw``/``byte`` are ``request`` arguments, not
+    constructor fields, so a double that took ``raw=True`` at construction
+    would pass offline and raise ``TypeError`` live.
+    """
+
+    try:
+        api = importlib.import_module("bilibili_api.utils.network").Api
+        return {
+            "fields": [field.name for field in dataclasses.fields(api)],
+            "request": [
+                (parameter.name, str(parameter.kind), parameter.default)
+                for parameter in inspect.signature(api.request).parameters.values()
+            ],
+        }
+    except (ImportError, AttributeError, TypeError, ValueError) as error:
+        return f"{type(error).__name__}: {error}"
+
+
+#: The installed pin's ``Api`` call shape, captured the same way.
+_INSTALLED_API_CALL_SHAPE = _probe_installed_api_call_shape()
 
 
 def _probe_installed_request_settings_parameters() -> dict | str:
@@ -1404,6 +1476,155 @@ def test_user_video_page_rejects_invalid_fields(broken_kwargs):
         UserVideoPage(**values)
 
 
+# -------------------------------------------------- subtitle DTO validation
+
+
+def _track(**overrides: object) -> SubtitleTrack:
+    """Build one validated subtitle-track DTO (an uploader/CC track)."""
+
+    values: dict[str, object] = {
+        "language": "zh-CN",
+        "label": "中文（中国）",
+        "is_ai": False,
+        "track_id": "track-1",
+    }
+    values.update(overrides)
+    return SubtitleTrack(**values)
+
+
+def _segment(**overrides: object) -> SubtitleSegment:
+    """Build one validated subtitle-segment DTO."""
+
+    values: dict[str, object] = {"start_ms": 0, "end_ms": 1500, "text": "未明子"}
+    values.update(overrides)
+    return SubtitleSegment(**values)
+
+
+def test_subtitle_dtos_carry_no_work_id_and_no_url_field():
+    """The locked field sets: no storage identity and no URL in either DTO.
+
+    A signed ``subtitle_url`` lives for the duration of one call and a part's
+    storage identity never belongs to the gateway, so both DTOs must stay
+    incapable of carrying either — the field sets are pinned exactly.
+    """
+
+    assert [field.name for field in dataclasses.fields(SubtitleTrack)] == [
+        "language",
+        "label",
+        "is_ai",
+        "track_id",
+    ]
+    assert [field.name for field in dataclasses.fields(SubtitleSegment)] == [
+        "start_ms",
+        "end_ms",
+        "text",
+    ]
+
+
+@pytest.mark.parametrize(
+    "broken_kwargs",
+    [
+        {"language": ""},
+        {"language": "   "},
+        {"language": 5},
+        # The service derives the language family from the primary subtag, so a
+        # vocabulary it cannot rank (`-zh`) is rejected, not silently kept.
+        {"language": "-zh"},
+        {"language": "  -zh"},
+        {"label": ""},
+        {"label": "   "},
+        {"label": None},
+        {"is_ai": "ai"},
+        {"is_ai": 1},
+        {"is_ai": None},
+        {"track_id": ""},
+        {"track_id": "   "},
+        {"track_id": 7},
+    ],
+)
+def test_subtitle_track_rejects_invalid_fields(broken_kwargs):
+    """The track DTO enforces printable scalars and the primary-subtag rule."""
+
+    with pytest.raises((TypeError, ValueError)):
+        _track(**broken_kwargs)
+
+
+def test_subtitle_track_accepts_a_missing_track_id():
+    """A track upstream did not identify is valid: ``track_id`` is nullable."""
+
+    assert _track(track_id=None).track_id is None
+
+
+def test_subtitle_track_accepts_a_region_or_script_subtag():
+    """A language with a region/script subtag keeps that subtag intact."""
+
+    assert _track(language="zh-Hans").language == "zh-Hans"
+
+
+@pytest.mark.parametrize(
+    "broken_kwargs",
+    [
+        {"start_ms": -1},
+        {"start_ms": True},
+        {"start_ms": "0"},
+        {"start_ms": None},
+        {"end_ms": 0},
+        {"end_ms": -5},
+        {"end_ms": True},
+        {"end_ms": "1500"},
+        {"start_ms": 1500, "end_ms": 1500},
+        {"start_ms": 1500, "end_ms": 500},
+        {"text": ""},
+        {"text": "   "},
+        {"text": 7},
+    ],
+)
+def test_subtitle_segment_rejects_invalid_fields(broken_kwargs):
+    """The segment DTO enforces ``end_ms > start_ms >= 0`` and non-empty text."""
+
+    with pytest.raises((TypeError, ValueError)):
+        _segment(**broken_kwargs)
+
+
+def test_subtitle_dtos_are_frozen():
+    """Both DTOs are immutable: a normalized result cannot be edited in place."""
+
+    for subtitle_dto, field_name in ((_track(), "label"), (_segment(), "text")):
+        with pytest.raises(dataclasses.FrozenInstanceError):
+            setattr(subtitle_dto, field_name, "changed")
+
+
+# ---------------------------------------------------- gateway protocol surface
+
+
+def test_gateway_protocol_surface_is_locked():
+    """The protocol declares the locked six methods, signatures included.
+
+    The four shipped signatures stay untouched — the shipped metadata service
+    and the storage plan consume them — and the two subtitle methods are
+    exactly the locked pair: ``get_subtitle_tracks(bvid, cid)`` answers a
+    possibly empty tuple (an empty inventory is an observation, never a
+    ``not_found`` failure), while ``fetch_subtitle_segments(track, bvid, cid)``
+    answers a non-empty tuple or raises ``GatewayNotFound``.
+    """
+
+    expected = {
+        "get_user_video_page": ("self", "mid", "page_number", "page_size"),
+        "get_video_parts": ("self", "bvid"),
+        "get_completed_video_summary": ("self", "summary"),
+        "get_package_version": ("self",),
+        "get_subtitle_tracks": ("self", "bvid", "cid"),
+        "fetch_subtitle_segments": ("self", "track", "bvid", "cid"),
+    }
+
+    declared = {
+        name: tuple(inspect.signature(getattr(BilibiliGateway, name)).parameters)
+        for name in expected
+    }
+
+    assert declared == expected
+
+
 # ------------------------------------------------------- import boundary (AST)
 
 
@@ -1505,7 +1726,7 @@ def test_fake_seam_exposes_only_documented_metadata_surface():
     package = modules["bilibili_api"]
 
     assert _public_names(modules["bilibili_api.user"]) == ["API", "User", "VideoOrder"]
-    assert _public_names(modules["bilibili_api.video"]) == ["Video"]
+    assert _public_names(modules["bilibili_api.video"]) == ["API", "Video"]
     assert _public_names(modules["bilibili_api.utils.network"]) == ["Api"]
     assert _public_names(modules["bilibili_api.exceptions"]) == sorted(
         ALLOWED_EXCEPTION_NAMES
@@ -1574,6 +1795,332 @@ def test_gateway_dto_drops_unknown_upstream_payload_fields(bilibili_api_seam):
         "video.get_info",
         "video.get_pages",
     ]
+
+
+# ---------------------------------------------------- subtitle seam scripting
+
+
+def _seam_transport(script: FakeUpstreamScript):
+    """Return the seam's ``Api`` mirror and ``Credential`` double for a script."""
+
+    modules = build_fake_package(script)
+    return modules["bilibili_api.utils.network"].Api, modules["bilibili_api"].Credential
+
+
+def test_fake_seam_mirrors_the_player_endpoint_description():
+    """The fake declares the player description where the pin declares it."""
+
+    script = FakeUpstreamScript()
+    modules = build_fake_package(script)
+
+    assert modules["bilibili_api.video"].API == {
+        "info": {"get_player_info": FAKE_PLAYER_ENDPOINT}
+    }
+    # The description is the script's own object, so a test can rewrite it
+    # before the adapter module is imported against the seam.
+    assert (
+        modules["bilibili_api.video"].API["info"]["get_player_info"]
+        is script.player_endpoint
+    )
+
+
+def test_fake_player_call_records_its_flags_and_parameter_set():
+    """A player call is answered with the scripted payload and fully recorded."""
+
+    script = FakeUpstreamScript()
+    Api, Credential = _seam_transport(script)
+    script.player_response = make_player_response(make_subtitle_track())
+
+    document = asyncio.run(
+        Api(
+            url=FAKE_PLAYER_ENDPOINT["url"],
+            method=FAKE_PLAYER_ENDPOINT["method"],
+            verify=False,
+            wbi=FAKE_PLAYER_ENDPOINT["wbi"],
+            dm=False,
+            credential=Credential(sessdata=SESSDATA_BOUNDARY_VALUE),
+        )
+        .update_params(
+            bvid=BVID, cid=PART_CID, isGaiaAvoided=False, web_location=1315873
+        )
+        .result
+    )
+
+    assert document == make_player_response(make_subtitle_track())
+    (request,) = script.api_requests
+    assert (request.url, request.method, request.wbi, request.verify, request.dm) == (
+        FAKE_PLAYER_ENDPOINT["url"],
+        "GET",
+        True,
+        False,
+        False,
+    )
+    assert request.params == {
+        "bvid": BVID,
+        "cid": PART_CID,
+        "isGaiaAvoided": False,
+        "web_location": 1315873,
+    }
+    # The API-host call carries the credential; the record keeps its presence
+    # only, never the value.
+    assert request.has_sessdata is True
+    assert SESSDATA_BOUNDARY_VALUE not in repr(request)
+    assert script.calls == [f"player.track_list(bvid={BVID}, cid={PART_CID})"]
+
+
+def test_fake_player_call_follows_a_changed_package_endpoint():
+    """No player transport field is hard-coded: the description decides."""
+
+    script = FakeUpstreamScript()
+    Api, Credential = _seam_transport(script)
+    script.player_endpoint["url"] = CHANGED_PLAYER_ENDPOINT_URL
+    script.player_response = make_player_response()
+
+    asyncio.run(
+        Api(
+            url=CHANGED_PLAYER_ENDPOINT_URL,
+            method="GET",
+            verify=False,
+            wbi=True,
+            dm=False,
+            credential=Credential(),
+        )
+        .update_params(bvid=BVID, cid=PART_CID)
+        .result
+    )
+
+    (request,) = script.api_requests
+    assert request.url == CHANGED_PLAYER_ENDPOINT_URL
+    assert script.calls == [f"player.track_list(bvid={BVID}, cid={PART_CID})"]
+
+
+def test_fake_player_call_adds_the_fingerprint_parameters_when_dm_is_on():
+    """With ``dm`` on, the seam injects the parameters the pin would add.
+
+    The risk-control assertion is only meaningful while this double can add
+    the ``dm_*`` parameters a ``dm=True`` call carries upstream.
+    """
+
+    script = FakeUpstreamScript()
+    Api, Credential = _seam_transport(script)
+    script.player_response = make_player_response()
+
+    asyncio.run(
+        Api(
+            url=FAKE_PLAYER_ENDPOINT["url"],
+            method="GET",
+            verify=False,
+            wbi=True,
+            dm=True,
+            credential=Credential(),
+        )
+        .update_params(bvid=BVID, cid=PART_CID)
+        .result
+    )
+
+    (request,) = script.api_requests
+    assert request.dm is True
+    assert sorted(key for key in request.params if key.startswith("dm_")) == [
+        "dm_cover_img_str",
+        "dm_img_inter",
+        "dm_img_list",
+        "dm_img_str",
+    ]
+
+
+def test_fake_subtitle_document_call_answers_a_scripted_body():
+    """A signed-document fetch is answered with the scripted document and recorded."""
+
+    script = FakeUpstreamScript()
+    Api, Credential = _seam_transport(script)
+    script.subtitle_bodies = {
+        SIGNED_SUBTITLE_URL_MARKER: make_subtitle_document(make_subtitle_entry())
+    }
+
+    document = asyncio.run(
+        Api(
+            url=SIGNED_SUBTITLE_URL_MARKER,
+            method="GET",
+            verify=False,
+            wbi=False,
+            dm=False,
+            credential=Credential(),
+        ).request(raw=True)
+    )
+
+    assert document == make_subtitle_document(make_subtitle_entry())
+    (request,) = script.api_requests
+    assert request.url == SIGNED_SUBTITLE_URL_MARKER
+    assert request.raw is True
+    assert request.params == {}
+    # The empty credential keeps SESSDATA off the CDN host; the seam records
+    # that fact without ever comparing credential values.
+    assert request.has_sessdata is False
+    assert script.calls == ["subtitle.body"]
+
+
+def test_fake_subtitle_document_call_scripts_a_transport_failure():
+    """A scripted document failure is raised as scripted, after being recorded."""
+
+    script = FakeUpstreamScript()
+    Api, Credential = _seam_transport(script)
+    script.subtitle_bodies = {
+        SIGNED_SUBTITLE_URL_MARKER: FakeNetworkException(404, UPSTREAM_ERROR_TEXT)
+    }
+
+    with pytest.raises(FakeNetworkException):
+        asyncio.run(
+            Api(
+                url=SIGNED_SUBTITLE_URL_MARKER,
+                method="GET",
+                verify=False,
+                wbi=False,
+                dm=False,
+                credential=Credential(),
+            ).request(raw=True)
+        )
+
+    assert script.calls == ["subtitle.body"]
+
+
+def test_fake_subtitle_document_call_rejects_an_unscripted_url():
+    """An unscripted document URL fails loudly instead of answering ``None``.
+
+    The protocol-relative form is a different URL from the absolute one the
+    seam scripts, so an adapter that forgot to normalize it fails here instead
+    of fetching an unscripted location.
+    """
+
+    assert PROTOCOL_RELATIVE_SUBTITLE_URL.startswith("//")
+    assert PROTOCOL_RELATIVE_SUBTITLE_URL.removeprefix("//") == (
+        SIGNED_SUBTITLE_URL_MARKER.removeprefix("https://")
+    )
+
+    script = FakeUpstreamScript()
+    Api, Credential = _seam_transport(script)
+    script.subtitle_bodies = {SIGNED_SUBTITLE_URL_MARKER: make_subtitle_document()}
+
+    with pytest.raises(AssertionError, match="unexpected subtitle-document fetch"):
+        asyncio.run(
+            Api(
+                url=PROTOCOL_RELATIVE_SUBTITLE_URL,
+                method="GET",
+                verify=False,
+                wbi=False,
+                dm=False,
+                credential=Credential(),
+            ).request(raw=True)
+        )
+
+
+def test_fake_api_mirrors_the_pins_raw_request_argument():
+    """The seam answers a document only when the call asks for the raw body.
+
+    In the pin ``raw`` is a request argument, not a constructor field, and it
+    decides whether the ``data``/``result`` envelope is unwrapped: the scripted
+    metadata payloads are the unwrapped form, while a subtitle document has no
+    envelope at all.
+    """
+
+    script = FakeUpstreamScript()
+    Api, Credential = _seam_transport(script)
+
+    page_call = Api(
+        url=FAKE_USER_VIDEO_PAGE_ENDPOINT["url"],
+        method="GET",
+        verify=False,
+        wbi=True,
+        dm=False,
+        credential=Credential(),
+    )
+    with pytest.raises(AssertionError, match="unwrapped payload"):
+        asyncio.run(page_call.request(raw=True))
+
+    document_call = Api(
+        url=SIGNED_SUBTITLE_URL_MARKER,
+        method="GET",
+        verify=False,
+        wbi=False,
+        dm=False,
+        credential=Credential(),
+    )
+    with pytest.raises(FakeResponseCodeException):
+        asyncio.run(document_call.request(raw=False))
+
+
+def test_fake_api_double_is_no_more_permissive_than_the_pin():
+    """The seam accepts no call shape the pinned ``Api`` would reject.
+
+    ``raw``/``byte`` are ``request`` arguments in the pin; a double that took
+    them at construction would let such a call pass offline and raise
+    ``TypeError`` live, which is exactly the drift this seam exists to prevent.
+
+    Offline and deterministic: the pinned distribution is read for its call
+    shape only, and the fake is built directly (no seam fixture).
+    """
+
+    pinned = _require_installed(_INSTALLED_API_CALL_SHAPE, "Api call shape")
+    Api, _credential = _seam_transport(FakeUpstreamScript())
+
+    mirrored_fields = set(inspect.signature(Api).parameters)
+    assert mirrored_fields <= set(pinned["fields"]), (
+        "the seam accepts a constructor argument the pin's Api does not"
+    )
+    assert "raw" not in mirrored_fields
+    assert "byte" not in mirrored_fields
+
+    mirrored_request = [
+        (parameter.name, str(parameter.kind), parameter.default)
+        for parameter in inspect.signature(Api.request).parameters.values()
+    ]
+    assert mirrored_request == pinned["request"]
+
+
+def test_fake_player_endpoint_mirror_matches_the_installed_pinned_description():
+    """The seam's player description is the installed pin's, field for field.
+
+    ``FAKE_PLAYER_ENDPOINT`` is the sole offline oracle for the player call
+    shape, so its claim to mirror
+    ``bilibili_api.video.API["info"]["get_player_info"]`` literally is checked
+    against the distribution it mirrors.  A pin bump that renames a key or
+    flips ``verify``/``wbi``/``dm`` fails here instead of staying green offline
+    and surfacing only live.
+    """
+
+    pinned_endpoint = _require_installed(
+        _INSTALLED_PINNED_PLAYER_ENDPOINT, "player endpoint description"
+    )
+
+    assert FAKE_PLAYER_ENDPOINT == pinned_endpoint
+    # The facts the adapter's two overrides turn on, stated where a pin bump
+    # would flip them: this endpoint is described as credential-verified and
+    # WBI-signed, and it declares its query fields under ``data`` — field
+    # documentation, not a parameter mapping the adapter may forward verbatim.
+    assert FAKE_PLAYER_ENDPOINT["verify"] is True
+    assert FAKE_PLAYER_ENDPOINT["wbi"] is True
+    assert FAKE_PLAYER_ENDPOINT["dm"] is True
+    assert sorted(FAKE_PLAYER_ENDPOINT["data"]) == [
+        "aid",
+        "cid",
+        "ep_id",
+        "isGaiaAvoided",
+        "web_location",
+    ]
+
+
+def test_the_subtitle_url_sentinel_is_scanned_like_every_other_secret():
+    """The shipped no-secret scanner flags the scripted subtitle URL.
+
+    The seam scripts every track with :data:`SIGNED_SUBTITLE_URL_MARKER`, so
+    the scanner that guards DTOs, messages, and persisted rows must treat it
+    exactly like the playback marker; this is the control that keeps the
+    downstream "no signed URL" assertions from passing vacuously.
+    """
+
+    with pytest.raises(AssertionError):
+        assert_leaks_no_markers(
+            SIGNED_SUBTITLE_URL_MARKER, context="sentinel positive control"
+        )
 
 
 # ------------------------------------------------------------- live smoke
