@@ -1,7 +1,7 @@
 ---
 module: bilibili-asr-archive CLI
 date: 2026-08-23
-last_updated: 2026-08-30
+last_updated: 2026-09-11
 problem_type: architecture_pattern
 category: architecture-patterns
 severity: medium
@@ -47,7 +47,12 @@ filesystem stem is `{bvid}.p{page_index}` (never put `:` in paths). State
 machine: `pending -> meta_ok -> {subtitle_done | needs_audio -> audio_ok} ->
 archived`, with `gone` as a per-video terminal state. Persist terminal state
 atomically; write partial metadata after a risk ceiling so `--resume` can
-continue.
+continue. That state machine is the legacy archival flow's, still owned by
+`manifest.jsonl`: the metadata commands enumerated above keep their SQLite
+replacements, and the ASR/pilot chain still runs on it — but the subtitle path was
+**cut over at `iter-2026-09-subtitle-transcript-sqlite`**, so the two subtitle
+commands neither read nor write manifest state and no longer produce the
+`needs_audio` status (see `### Subtitle acquisition commands (SQLite path)`).
 
 ### Resumable metadata enumeration (meta-cursor.json sidecar)
 
@@ -141,11 +146,115 @@ remove the row's `.m4a` or `.flac` under `{archive_root}/audio/`. An
 the transcript and `archived` state remain valid if a local deletion fails.
 Failed, `needs_audio`, and `audio_ok` rows retain audio for retry. For an
 `audio_ok` row with a non-empty local file, ASR reuses that file directly and
-must not apply the pre-download budget or make a second HTTP download.
+must not apply the pre-download budget or make a second HTTP download. The SQLite
+subtitle path produces no `needs_audio` rows, so this policy now applies only to
+rows the legacy manifest path or an explicit selection supplies.
 
 Report `pilot batch branches` separately from `pilot coverage branches`.
 Batch counts describe the invocation; coverage counts include earlier archived
 rows and only decide whether the cumulative two-branch contract is satisfied.
+
+### Subtitle acquisition commands (SQLite path)
+
+`probe-subs` (read-only track listing) and `harvest-subs` (bounded acquisition into
+normalized transcripts) are the caption commands. Both address parts already stored
+in `archive.db` and take the `cid` from `video_parts` — the path never fetches a
+pagelist and never calls upstream for a part that is not in the database. Neither
+command reads or writes `manifest.jsonl`, `meta-cursor.json`, or `run-ledger.jsonl`.
+
+- **Bounds and selectors.** `probe-subs` requires exactly one of `--bvid` /
+  `--limit-parts N`; `harvest-subs` requires the bound unless the selection is a
+  single `bvid:pN` part, which is bounded by construction. `--bvid BVID` selects
+  every part of that video already in the database — for a harvest that includes
+  parts that already have a transcript, the deliberate re-check path after upstream
+  adds or revises a caption — and `bvid:pN` selects exactly one part in the archive's
+  zero-based part vocabulary. A selector that resolves to no stored part is a
+  configuration error (exit `1`, fixed `unknown --bvid <value>`), never an empty
+  result; a selector that can never name a stored part at all — empty once stripped,
+  or carrying NUL/CR/LF — is answered the same way from the argument alone, before
+  the database is opened, instead of surfacing as an unexpected internal error from
+  the storage layer's identifier validation.
+- **Exit taxonomy.** `0` bounded success/read: a probe whose parts exposed no track,
+  a harvest whose every attempted part had nothing visible, and a selection that
+  resolved to no part (`attempted=0`) all exit `0`. `1` usage/config: a missing
+  `archive.db`, an unknown `--bvid`, a missing or non-positive bound, neither or both
+  probe selectors, an empty `--language` entry, the schema guard below, and the
+  unreadable-database line below. `2` every attempted part failed, or an unexpected
+  internal error (the fixed line `<command>: unexpected error`, no traceback).
+  Usage errors always exit `1`, never `2`, and partial per-part failure stays visible
+  in the printed counts without by itself deciding the exit code.
+- **Run reporting is part of the contract.** A harvest summary always prints all four
+  outcome counts including zeros, the run id, credential presence, and how many parts
+  still lack a transcript; a zero-track probe part is printed with its explicit
+  `(no subtitles visible)` marker rather than omitted, so "no tracks" cannot be read
+  as "not attempted". No count here is presented as coverage of the corpus.
+- **Schema guard.** Both commands call `require_subtitle_schema` after opening the
+  database; when the database predates the transcript contract they print one composed
+  line to stderr and exit `1`:
+
+  ```text
+  <command>: archive database predates the transcript schema; rebuild it
+  (delete {archive_root}/archive.db and re-run fetch-meta)
+  ```
+
+  It is one line at runtime; the wrap here is the page's. The CLI composes the command
+  prefix and the resolved database path because `SchemaContractError` carries only a
+  connection. On a zero-byte `archive.db` the asymmetry is real and intended:
+  `harvest-subs` opens through the schema-initializing `open_database` and runs, while
+  `probe-subs` writes nothing at all and therefore answers with the rebuild line.
+- **Damaged database.** A file that exists but cannot be read — not a SQLite database
+  at all, truncated, or a damaged image whose header still opens — is answered with
+  one bounded line on stderr and exit `1`:
+
+  ```text
+  <command>: unreadable archive database at {archive_root} (<ErrorType>)
+  ```
+
+  That is the same line `status` and `runs` print for such a file, and no command
+  repairs or rewrites it. Only `(OSError, sqlite3.Error)` is bounded here, and the
+  first read is taken inside that handler, because a damaged file fails on its first
+  statement rather than on connect.
+- **Credential.** `SESSDATA` is presence-only in every display path and is recorded
+  per run in `acquisition_runs.credential_present`, so a part recorded without a
+  visible caption stays interpretable afterwards — an invisible caption may exist and
+  simply be login-gated. An opted-in live run with no resolvable credential fails
+  loudly with guidance to source the operator environment, rather than reporting its
+  anonymous `sessdata=absent tracks=0` reading as a bounded observation: that reading
+  is ambiguous, because a login-gated caption and a part with no caption look
+  identical.
+- **Read-only probe.** `probe-subs` is deliberately not an archive-writer command,
+  and it does not open the database through `open_database` — that path executes both
+  idempotent schema scripts and commits them even when nothing changes. It opens the
+  existing file through a `mode=ro` URI instead, so "writes nothing at all" is
+  structural rather than conventional: a write attempted through that connection
+  fails inside SQLite. It never creates `archive.db` and takes no lock file.
+- **Writer-lock ordering.** `harvest-subs` is an archive-writer command, and the lock
+  at `{archive_root}/coordinator/archive-writer.lock` is taken in the entrypoint
+  **before** the database check, so a harvest that then fails still creates
+  `{archive_root}/coordinator/`. A second mutating command exits `1` with
+  `harvest-subs: archive_busy`.
+- **Projection and feeder boundary.** Neither command writes an on-disk projection of
+  the transcript — no `subtitles/raw/*.json`, no `transcripts/srt/*.srt`; the
+  normalized transcript lives in `archive.db`. `harvest-subs` no longer produces the
+  manifest status `needs_audio`, so the legacy audio feeder
+  (`download-audio --missing-subs`) gains no new entries from this path, and the
+  ASR/pilot chain is still driven from manifest state rather than from the database.
+  Rebuilding SRT/TXT/MD projections from stored transcripts and enumerating the audio
+  work queue from SQLite (including the parts recorded without a visible caption,
+  which are that queue) are deferred work owned by the audio/ASR iteration.
+- **Live smoke.** The opt-in bounded smoke runs from the package directory of the
+  checkout under test, with the credential and proxy present in the environment:
+
+  ```text
+  BILI_LIVE_SMOKE=1 <python> -m pytest tests/test_live_subtitle_cli_smoke.py -s -v
+  ```
+
+  It authors one public part into a temporary archive root, runs both commands at one
+  part, and prints one count-only evidence line (`part_source`, both exit codes, the
+  probe/harvest counts, the run id, and the stored source kind / language / version).
+  Zero visible tracks, a `not_found` listing, and a `rate_limited` refusal print their
+  bounded evidence and skip; a `transport_error` from a dead proxy, `response_error`,
+  or `shape_error` fails loudly.
 
 ### Installed Python baseline
 
@@ -199,3 +308,12 @@ or a measured decision before any concurrency/service implementation.
   ASR branches, named budget skipping, and post-archive reclaim.
 - Corpus-operations update: `.mstar/specs/asr-archive-cli.md` and commit `ad5253d` (scheduler and verification-baseline changes); integration revision `ad5253d` passed 392 tests, and the managed Python 3.12.13 no-index baseline passed with five zero-exit commands and 14 hash-validated fixture artifacts.
 - Corpus-coverage update: the six implemented contracts under `.mstar/iterations/iter-2026-08-corpus-coverage/specs/` are reflected in the current product README and this pattern. Integration revision `69b9530` passes 612 Python 3.12 tests and ships the sequential campaign/coverage/quality/explorer/integrity/recovery/concurrency evidence chain without enabling a worker, daemon, service, autostart, or concurrent manifest writer.
+- Subtitle cutover at `iter-2026-09-subtitle-transcript-sqlite` (integration revision `d1a0b7e`):
+  `probe-subs` and `harvest-subs` run on `archive.db` only, store normalized, content-idempotent
+  transcripts, and write no sidecar or projection file. Suite at the cutover: 1314 passed,
+  4 skipped (the skips are the opt-in live gates), with the bounded live smoke recorded (one
+  public part, `stored=1`, `segments=2913`). Contract detail:
+  [normalized-transcript-storage.md](normalized-transcript-storage.md) — the store, the process
+  records, and the bootstrap guard — and
+  [subtitle-acquisition-contract.md](subtitle-acquisition-contract.md) — the pin-verified
+  acquisition boundary and the track preference.

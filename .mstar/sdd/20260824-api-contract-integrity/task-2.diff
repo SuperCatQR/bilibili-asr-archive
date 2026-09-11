@@ -1,0 +1,252 @@
+diff --git a/bilibili-asr-archive/src/bili_asr/audio.py b/bilibili-asr-archive/src/bili_asr/audio.py
+index 0db70ec..b1e4d96 100644
+--- a/bilibili-asr-archive/src/bili_asr/audio.py
++++ b/bilibili-asr-archive/src/bili_asr/audio.py
+@@ -1,14 +1,14 @@
+ """Audio download layer (Task 3): playurl → preferred dash.audio stream → file.
+ 
+ Spec constraints (plan 002 / asr-archive-cli.md):
+-- Prefer dash.audio id 30216 (DTS/H.265 mux tier) then 30232 (Hi-Res flac),
+-  falling back to the highest remaining quality.
++- Prefer dash.audio id 30216 (64K) then 30232 (132K), falling back to
++  the highest remaining quality.
+ - The stream GET must carry Referer + UA headers or the CDN refuses it.
+ - Stream base URLs are short-lived signed URLs: used in the same run as the
+   playurl probe, never persisted to the manifest.
+ - Manifest transition: needs_audio -> audio_ok.
+-- flac (30232) is remuxed to .m4a via ffmpeg when available; without
+-  ffmpeg the raw .flac is kept (pure-API fallback, AGENTS.md boundary).
++- Explicit FLAC streams are remuxed to .m4a via ffmpeg when available;
++  without ffmpeg the raw .flac is kept (pure-API fallback, AGENTS.md boundary).
+ """
+ 
+ from __future__ import annotations
+@@ -23,8 +23,8 @@ from .manifest import ManifestStore
+ 
+ AUDIO_DIR = os.path.join("audio")
+ 
+-# Spec preference order for dash.audio codec ids:
+-# 30216 DTS > 30232 Hi-Res flac > 30250 Dolby > (first listed: AAC et al.)
++# Spec preference order for dash.audio quality ids:
++# 30216 (64K) > 30232 (132K) > 30250 (Dolby) > first listed.
+ _AUDIO_ID_PREFERENCE = (30216, 30232, 30250)
+ 
+ 
+@@ -39,8 +39,7 @@ class FFmpegUnavailable(Exception):
+ def pick_audio_stream(
+     streams: list[dict[str, Any]] | None,
+ ) -> dict[str, Any] | None:
+-    """Choose the best dash audio stream: 30216 first, then 30232, then
+-    the first remaining (Bilibili lists are already quality-descending)."""
++    """Choose the best dash audio stream by the explicit quality order."""
+     if not streams:
+         return None
+     for preferred in _AUDIO_ID_PREFERENCE:
+@@ -89,7 +88,8 @@ def download_audio(
+ 
+     Resumability: when .m4a or .flac already exists (size>0), skip BEFORE any
+     playurl/pagelist network call. Returns the final file path (which may be
+-    a .flac sibling when 30232 was chosen and ffmpeg is unavailable).
++    a .flac sibling when an explicit FLAC stream is selected and ffmpeg is
++    unavailable).
+     Raises NoAudioStreamError / StreamDownloadError / GoneResponse.
+     """
+     out_path = os.fspath(out_path)
+@@ -107,7 +107,8 @@ def download_audio(
+         raise NoAudioStreamError(f"{bvid}: playurl has no dash audio streams")
+ 
+     url = _stream_url(chosen)
+-    is_flac = chosen.get("id") == 30232 or ".flac" in url
++    mime_type = str(chosen.get("mimeType") or chosen.get("mime_type") or "")
++    is_flac = url.lower().split("?", 1)[0].endswith(".flac") or "flac" in mime_type.lower()
+ 
+     final_path = out_path
+     tmp_path = out_path + ".part"
+diff --git a/bilibili-asr-archive/src/bili_asr/bili_client.py b/bilibili-asr-archive/src/bili_asr/bili_client.py
+index 1af2c70..d6b124a 100644
+--- a/bilibili-asr-archive/src/bili_asr/bili_client.py
++++ b/bilibili-asr-archive/src/bili_asr/bili_client.py
+@@ -21,7 +21,7 @@ FINGER_SPI_URL = API_BASE + "/x/frontend/finger/spi"
+ NAV_URL = API_BASE + "/x/web-interface/nav"
+ PAGELIST_URL = API_BASE + "/x/player/pagelist"
+ PLAYER_WBI_V2_URL = API_BASE + "/x/player/wbi/v2"
+-PLAYURL_URL = API_BASE + "/x/player/playurl"
++PLAYURL_URL = API_BASE + "/x/player/wbi/playurl"
+ 
+ UA = (
+     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+@@ -476,20 +476,27 @@ class BiliClient:
+     def fetch_playurl_audio(self, bvid: str) -> list[dict[str, Any]]:
+         """Return the dash audio stream list for bvid's first page.
+ 
+-        No WBI signing: the plain playurl endpoint accepts fnval=16 dash
+-        requests at this auth tier (spike Task 1). Empty list means the
+-        video exposes no dash audio (caller decides terminal handling).
++        The playurl query is WBI-signed; SESSDATA, when configured, is sent
++        only through the cookie channel. Empty list means the video exposes
++        no dash audio (caller decides terminal handling).
+         """
++        cookies = {"SESSDATA": self._sessdata} if self._sessdata else None
+         pagelist = self._request_with_cookies(
+-            PAGELIST_URL, {"bvid": bvid, "jsonp": "jsonp"}
++            PAGELIST_URL, {"bvid": bvid, "jsonp": "jsonp"},
++            extra_cookies=cookies,
+         )
+         pages = pagelist.get("data") or []
+         if not pages:
+             raise _GoneResponse("pagelist-empty")
+         cid = pages[0].get("cid")
+-        body = self._request_with_cookies(
+-            PLAYURL_URL,
++        img_key, sub_key = self._wbi_keys()
++        params = sign_wbi(
+             {"bvid": bvid, "cid": cid, "fnval": 16, "qn": 0},
++            img_key,
++            sub_key,
++        )
++        body = self._request_with_cookies(
++            PLAYURL_URL, params, extra_cookies=cookies,
+         )
+         dash = (body.get("data") or {}).get("dash") or {}
+         return dash.get("audio") or []
+diff --git a/bilibili-asr-archive/tests/test_audio.py b/bilibili-asr-archive/tests/test_audio.py
+index 9c1028c..0f4868c 100644
+--- a/bilibili-asr-archive/tests/test_audio.py
++++ b/bilibili-asr-archive/tests/test_audio.py
+@@ -85,6 +85,13 @@ def playurl_ok(streams=None, code=30216):
+ 
+ def make_client(routes, stream_routes=None):
+     routes.setdefault("finger/spi", [SPI_OK])
++    routes.setdefault("nav", [(
++        200,
++        {"code": -101, "data": {"wbi_img": {
++            "img_url": f"https://i0.hdslb.com/bfs/wbi/{IMG_KEY}.png",
++            "sub_url": f"https://i0.hdslb.com/bfs/wbi/{SUB_KEY}.png",
++        }}},
++    )])
+     return bc.BiliClient(
+         transport=RouterTransport(routes, stream_routes),
+         sleeper=FastSleeper(),
+@@ -98,7 +105,7 @@ def make_client(routes, stream_routes=None):
+     "ids,expected",
+     [
+         ([30216, 30280], 30216),          # prefer DTS 30216
+-        ([30232, 30280], 30232),          # then Hi-Res flac 30232
++        ([30232, 30280], 30232),          # then 132K 30232
+         ([30232, 30216], 30216),          # 30216 beats 30232
+         ([30280, 30250], 30250),          # fallback: highest quality id order
+         ([30216], 30216),
+@@ -123,6 +130,39 @@ def test_pick_audio_stream_none():
+ AUDIO_BYTES = b"\x00\x00\x00\x18ftypM4A " + b"payload" * 100
+ 
+ 
++def test_fetch_playurl_audio_uses_signed_wbi_endpoint_and_cookie():
++    transport = RouterTransport({
++        "finger/spi": [SPI_OK],
++        "pagelist": [pagelist_ok(cid=111)],
++        "nav": [(
++            200,
++            {"code": -101, "data": {"wbi_img": {
++                "img_url": f"https://i0.hdslb.com/bfs/wbi/{IMG_KEY}.png",
++                "sub_url": f"https://i0.hdslb.com/bfs/wbi/{SUB_KEY}.png",
++            }}},
++        )],
++        "/x/player/wbi/playurl": [playurl_ok()],
++    })
++    client = bc.BiliClient(
++        transport=transport,
++        sleeper=FastSleeper(),
++        jitter=lambda: 0.0,
++        sessdata="SECRET-SESSDATA",
++    )
++
++    assert client.fetch_playurl_audio(BVID)
++    call = [c for c in transport.calls if "/x/player/wbi/playurl" in c["url"]][0]
++    assert call["url"] == bc.API_BASE + "/x/player/wbi/playurl"
++    assert call["params"]["bvid"] == BVID
++    assert call["params"]["cid"] == 111
++    assert call["params"]["fnval"] == 16
++    assert call["params"]["qn"] == 0
++    assert isinstance(call["params"]["wts"], int)
++    assert len(call["params"]["w_rid"]) == 32
++    assert call["cookies"]["SESSDATA"] == "SECRET-SESSDATA"
++    assert "SECRET-SESSDATA" not in json.dumps(call["params"])
++
++
+ def test_download_audio_prefers_30216_and_sends_referer_ua(tmp_root):
+     client = make_client(
+         {"pagelist": [pagelist_ok()], "playurl": [playurl_ok()]},
+@@ -196,24 +236,39 @@ def test_download_audio_skips_existing(tmp_root):
+         assert fh.read() == b"already-there"
+ 
+ 
+-def test_download_audio_remux_flac_to_m4a(tmp_root, monkeypatch):
+-    flac = b"fLaC" + b"data" * 10
++def test_download_audio_30232_m4s_does_not_remux(tmp_root, monkeypatch):
+     client = make_client(
+         {"pagelist": [pagelist_ok()],
+          "playurl": [playurl_ok(streams=[
+              {"id": 30232, "baseUrl": f"https://{STREAM_HOST}/a30232.m4s",
+               "base_url": f"https://{STREAM_HOST}/a30232.m4s"},
+          ])]},
+-        stream_routes={f"{STREAM_HOST}/a30232.m4s": flac},
++        stream_routes={f"{STREAM_HOST}/a30232.m4s": AUDIO_BYTES},
++    )
++    calls = []
++    monkeypatch.setattr(audio, "_run_ffmpeg", lambda src, dst: calls.append((src, dst)))
++    out = os.path.join(tmp_root, "audio", f"{BVID}.m4a")
++    audio.download_audio(client, BVID, out)
++    assert calls == []
++    assert os.path.exists(out)
++
++
++def test_download_audio_explicit_flac_url_remuxes(tmp_root, monkeypatch):
++    flac = b"fLaC" + b"data" * 10
++    client = make_client(
++        {"pagelist": [pagelist_ok()],
++         "playurl": [playurl_ok(streams=[
++             {"id": 30232, "baseUrl": f"https://{STREAM_HOST}/a30232.flac",
++              "base_url": f"https://{STREAM_HOST}/a30232.flac"},
++         ])]},
++        stream_routes={f"{STREAM_HOST}/a30232.flac": flac},
+     )
+     calls = []
+     monkeypatch.setattr(audio, "_run_ffmpeg", lambda src, dst: calls.append((src, dst)))
+     out = os.path.join(tmp_root, "audio", f"{BVID}.m4a")
+     audio.download_audio(client, BVID, out)
+     assert calls and calls[0][1] == out
+-    assert not os.path.exists(calls[0][0])  # temp removed
+-    assert not os.path.exists(os.path.join(tmp_root, "audio", f"{BVID}.flac"))
+-    # remuxed output is named .m4a
++    assert not os.path.exists(calls[0][0])
+     assert os.path.basename(out).endswith(".m4a")
+ 
+ 
+@@ -222,10 +277,10 @@ def test_download_audio_flac_without_ffmpeg_keeps_flac(tmp_root, monkeypatch):
+     client = make_client(
+         {"pagelist": [pagelist_ok()],
+          "playurl": [playurl_ok(streams=[
+-             {"id": 30232, "baseUrl": f"https://{STREAM_HOST}/a30232.m4s",
+-              "base_url": f"https://{STREAM_HOST}/a30232.m4s"},
++             {"id": 30232, "baseUrl": f"https://{STREAM_HOST}/a30232.flac",
++              "base_url": f"https://{STREAM_HOST}/a30232.flac"},
+          ])]},
+-        stream_routes={f"{STREAM_HOST}/a30232.m4s": flac},
++        stream_routes={f"{STREAM_HOST}/a30232.flac": flac},
+     )
+     def boom(src, dst):
+         raise audio.FFmpegUnavailable("no ffmpeg")
+@@ -260,6 +315,13 @@ def test_download_audio_updates_manifest_audio_ok(tmp_root):
+ # ----------------------------------------------------------------------- CLI
+ 
+ def _cli_routes(monkeypatch, transport):
++    transport.routes.setdefault("nav", [(
++        200,
++        {"code": -101, "data": {"wbi_img": {
++            "img_url": f"https://i0.hdslb.com/bfs/wbi/{IMG_KEY}.png",
++            "sub_url": f"https://i0.hdslb.com/bfs/wbi/{SUB_KEY}.png",
++        }}},
++    )])
+     monkeypatch.setattr(bc, "build_default_transport", lambda: transport)
+     monkeypatch.setattr(bc, "default_sleeper", lambda: FastSleeper())
+ 

@@ -119,25 +119,43 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     probe = subparsers.add_parser(
-        "probe-subs", help="Probe the subtitle list for one video (no download)"
+        "probe-subs",
+        help="List the subtitle tracks the selected archive parts expose (read-only)",
     )
-    probe.add_argument("--bvid", required=True, help="Bvid to probe")
+    probe.add_argument(
+        "--bvid", default=None,
+        help="Bvid, or bvid:pN for one part, already in the archive database",
+    )
+    probe.add_argument(
+        "--limit-parts", type=int, default=None,
+        help="Probe the first N parts of the pending enumeration",
+    )
     probe.add_argument(
         "--archive-root", default=DEFAULT_ARCHIVE_ROOT,
         help="Archive root directory (default: ./archive)",
     )
     probe.add_argument(
         "--sessdata", default=None,
-        help="SESSDATA cookie for Path B (or env BILI_SESSDATA); not stored",
+        help="SESSDATA cookie (or env BILI_SESSDATA); not stored",
     )
 
     harvest = subparsers.add_parser(
-        "harvest-subs", help="Probe + download subtitles for pending manifest videos"
+        "harvest-subs",
+        help="Acquire subtitles for the selected archive parts as transcripts",
     )
     harvest.add_argument(
         "--bvid", default=None,
-        help="Restrict to a bvid or work_id (bvid:pN); STOP if unresolved "
-             "or multi-part without an explicit page",
+        help="Bvid, or bvid:pN for one part, already in the archive database "
+             "(parts that already have a transcript included)",
+    )
+    harvest.add_argument(
+        "--limit-parts", type=int, default=None,
+        help="Bound the run to N parts (required unless a single bvid:pN is named)",
+    )
+    harvest.add_argument(
+        "--language", default=None,
+        help="Comma-separated upstream language codes, first match wins "
+             "(default: the zh family, then en, CC before AI)",
     )
     harvest.add_argument(
         "--archive-root", default=DEFAULT_ARCHIVE_ROOT,
@@ -145,11 +163,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     harvest.add_argument(
         "--sessdata", default=None,
-        help="SESSDATA cookie for Path B (or env BILI_SESSDATA); not stored",
-    )
-    harvest.add_argument(
-        "--limit", type=int, default=None,
-        help="Stop after N videos (smoke runs)",
+        help="SESSDATA cookie (or env BILI_SESSDATA); not stored",
     )
 
     dl = subparsers.add_parser(
@@ -485,27 +499,37 @@ def _metadata_database_path(archive_root: str) -> str:
     return os.path.join(archive_root, ARCHIVE_DATABASE_NAME)
 
 
-def _open_read_repository(
-    command: str, archive_root: str
-) -> "MetadataRepository | None":
+def _archive_database_exists(command: str, archive_root: str) -> bool:
+    """Require an existing ``archive.db`` below the root; print the shipped line when absent.
+
+    Neither subtitle command creates the database and read commands never do, so
+    the file is checked before any connection is opened — the shipped read
+    command's missing-database answer (fixed line, exit 1, nothing created).
+    """
+    if os.path.isfile(_metadata_database_path(archive_root)):
+        return True
+    print(
+        f"{command}: no archive database at {archive_root}; "
+        "run fetch-meta to create it",
+        file=sys.stderr,
+    )
+    return False
+
+
+def _open_read_connection(command: str, archive_root: str):
     """Open the fresh database for a read command; None after printing why not.
 
-    Read commands never create the database: a missing file is the
-    documented configuration error (exit 1), and an unreadable file is
-    reported bounded without raw SQLite text.  The caller owns the open
-    connection and closes it when the command finishes.
+    Read commands never create the database: a missing file is the documented
+    configuration error (exit 1), and an unreadable file is reported bounded
+    without raw SQLite text.  The caller owns the returned connection and closes
+    it when the command finishes.
     """
-    from bili_asr.storage import MetadataRepository, open_database
+    from bili_asr.storage import open_database
 
-    if not os.path.isfile(_metadata_database_path(archive_root)):
-        print(
-            f"{command}: no archive database at {archive_root}; "
-            "run fetch-meta to create it",
-            file=sys.stderr,
-        )
+    if not _archive_database_exists(command, archive_root):
         return None
     try:
-        connection = open_database(archive_root)
+        return open_database(archive_root)
     except (OSError, sqlite3.Error) as exc:
         print(
             f"{command}: unreadable archive database at {archive_root} "
@@ -513,7 +537,167 @@ def _open_read_repository(
             file=sys.stderr,
         )
         return None
+
+
+def _open_read_only_connection(command: str, archive_root: str):
+    """Open an existing archive database strictly read-only; None after printing why not.
+
+    ``probe-subs`` promises that it writes nothing at all, so it deliberately
+    does not go through :func:`~bili_asr.storage.open_database`: that path
+    executes both idempotent schema scripts and commits them even when nothing
+    changes.  This connection is opened through a ``mode=ro`` URI instead, so the
+    promise is structural rather than conventional — a write attempted through it
+    fails inside SQLite instead of reaching the file.  The database existence
+    guard is the shipped one, and an unreadable file is reported bounded exactly
+    as the write-capable read path reports it.  The first read is taken here,
+    inside that bounded handler, because a file that is not a database at all
+    only fails on the first statement, not on connect.
+    """
+    if not _archive_database_exists(command, archive_root):
+        return None
+    connection = None
+    try:
+        resolved = Path(_metadata_database_path(archive_root)).resolve()
+        connection = sqlite3.connect(f"{resolved.as_uri()}?mode=ro", uri=True)
+        # The repository contract requires both of these of any connection it is
+        # handed, and neither touches the database file: ``sqlite3.Row`` is a
+        # client-side row factory and ``foreign_keys`` is a per-connection
+        # setting.
+        connection.row_factory = sqlite3.Row
+        connection.execute("PRAGMA foreign_keys = ON")
+        connection.execute("PRAGMA schema_version").fetchone()
+    except (OSError, sqlite3.Error) as exc:
+        if connection is not None:
+            connection.close()
+        print(
+            f"{command}: unreadable archive database at {archive_root} "
+            f"({type(exc).__name__})",
+            file=sys.stderr,
+        )
+        return None
+    return connection
+
+
+def _open_read_repository(
+    command: str, archive_root: str
+) -> "MetadataRepository | None":
+    """Open the fresh database for a read command and wrap it in the repository.
+
+    ``None`` means :func:`_open_read_connection` already reported the reason.
+    """
+    from bili_asr.storage import MetadataRepository
+
+    connection = _open_read_connection(command, archive_root)
+    if connection is None:
+        return None
     return MetadataRepository(connection)
+
+
+def _subtitle_schema_rebuild_line(command: str, archive_root: str) -> str:
+    """Compose the fixed rebuild line for a pre-iteration archive database.
+
+    ``SchemaContractError`` carries the reason and the procedure only — it holds
+    a connection, never an archive root — so the command prefix and the actual
+    database path are composed here, and the printed line carries both.
+    """
+    return (
+        f"{command}: archive database predates the transcript schema; "
+        f"rebuild it (delete {_metadata_database_path(archive_root)} "
+        "and re-run fetch-meta)"
+    )
+
+
+def _open_subtitle_connection(
+    command: str, archive_root: str, *, read_only: bool = False
+):
+    """Open the archive database for one subtitle command; None after printing.
+
+    Neither subtitle command creates ``archive.db`` (``open_database`` does), so
+    the file is checked before opening through the shipped read-command guard,
+    and the transcript-schema capability is required immediately after opening:
+    a database that predates the contract is answered with the fixed rebuild line
+    and exit 1 instead of a raw SQLite error from the first transcript query.
+
+    ``read_only`` is set by ``probe-subs``, whose "writes nothing at all" promise
+    is then structural: its connection is the ``mode=ro`` one from
+    :func:`_open_read_only_connection`, never the schema-initializing
+    ``open_database`` the write commands and the other read commands share.
+
+    The capability guard reads the database, so a damaged-but-openable file
+    (intact header, corrupted page) fails here rather than when the connection
+    is opened.  That failure is storage-side — the guard only executes SQL — and
+    it is bounded with the same fixed ``unreadable archive database`` line, and
+    the same ``(OSError, sqlite3.Error)`` class, both open helpers use for their
+    own statements.  Anything outside that class is a programming error and is
+    not bounded here: this function runs before the command handlers' ``try``
+    blocks, so it reaches the interpreter as an uncaught traceback and exit 1,
+    never their ``unexpected error`` line.
+    """
+    from bili_asr.storage import SchemaContractError, require_subtitle_schema
+
+    connection = (
+        _open_read_only_connection(command, archive_root)
+        if read_only
+        else _open_read_connection(command, archive_root)
+    )
+    if connection is None:
+        return None
+    try:
+        require_subtitle_schema(connection)
+    except SchemaContractError:
+        connection.close()
+        print(
+            _subtitle_schema_rebuild_line(command, archive_root), file=sys.stderr
+        )
+        return None
+    except (OSError, sqlite3.Error) as exc:
+        # The guard executes SQL against the file, so a malformed image surfaces
+        # on its first read rather than on ``connect``: answer it exactly as
+        # both open helpers answer their own statements (F-QA-001).
+        connection.close()
+        print(
+            f"{command}: unreadable archive database at {archive_root} "
+            f"({type(exc).__name__})",
+            file=sys.stderr,
+        )
+        return None
+    return connection
+
+
+def _subtitle_selector(value: str | None) -> tuple[str | None, int | None]:
+    """Split an optional ``--bvid`` value into ``(bvid, page_index)``.
+
+    The archive's own part vocabulary is accepted: a bare ``bvid`` selects every
+    stored part of that video and ``bvid:pN`` (``page_identity.parse_work_id``)
+    selects exactly that part.  A value the parser cannot read is kept verbatim
+    as a bare bvid, so the database answers no row for it and the caller reports
+    the documented ``unknown --bvid`` configuration error rather than a crash.
+    """
+    from .page_identity import parse_work_id
+
+    if value is None:
+        return None, None
+    try:
+        return parse_work_id(value)
+    except ValueError:
+        return value, None
+
+
+def _selector_cannot_name_a_part(bvid: str) -> bool:
+    """Report whether a ``--bvid`` value can never name a stored part.
+
+    The archive stores ``bvid`` values through the storage contract's own
+    identifier rule, which rejects a value that is empty once stripped and one
+    that carries a control character (``\\x00``/``\\r``/``\\n``), so such a
+    selector resolves to zero rows in every database there is.  It is therefore
+    answered as the documented configuration error — the fixed
+    ``unknown --bvid <value>`` line, exit 1 — decided on the argument alone and
+    before the database is opened, instead of being handed to the repository,
+    whose identifier validation would reject it and surface as an unexpected
+    internal error.  A padded-but-addressable value is deliberately *not*
+    rejected here: only a value the storage rule cannot hold is.
+    """
+    return not bvid.strip() or any(mark in bvid for mark in "\x00\r\n")
 
 
 def _cmd_fetch_meta(args: argparse.Namespace) -> int:
@@ -654,131 +838,197 @@ def _resolve_sessdata(args: argparse.Namespace) -> str | None:
 
 
 def _cmd_probe_subs(args: argparse.Namespace) -> int:
-    from . import bili_client, subtitles
-    from .manifest import ManifestStore
+    """List the subtitle tracks the selected parts expose, writing nothing.
 
+    Read-only by construction: ``probe-subs`` is not an archive-writer command,
+    so it takes no writer lock, creates no file below the archive root, and never
+    creates a missing database.  Exit taxonomy: 0 the probe ran (zero-track parts
+    included); 1 usage/configuration (neither or both selectors, a non-positive
+    bound, a missing database, an unknown --bvid, the schema guard); 2 the probe
+    failed on every selected part, or an unexpected internal error.  A partial
+    per-part failure stays visible in the printed ``failed=`` count.
+    """
+    from bili_asr.services.subtitle_ingest import (
+        SubtitleIngestor,
+        SubtitleSelection,
+    )
+    from bili_asr.sources.bilibili_api_gateway import BilibiliApiGateway
+    from bili_asr.storage import TranscriptRepository
+
+    if (args.bvid is None) == (args.limit_parts is None):
+        print(
+            "probe-subs: exactly one of --bvid / --limit-parts is required",
+            file=sys.stderr,
+        )
+        return 1
+    if args.limit_parts is not None and args.limit_parts < 1:
+        print(
+            "probe-subs: --limit-parts must be a positive integer",
+            file=sys.stderr,
+        )
+        return 1
+    bvid, page_index = _subtitle_selector(args.bvid)
+    if bvid is not None and _selector_cannot_name_a_part(bvid):
+        # A blank or control-character selector names no part in any database, so
+        # it is the documented configuration error and is decided before the
+        # database is opened.
+        print(f"probe-subs: unknown --bvid {args.bvid}", file=sys.stderr)
+        return 1
     sessdata = _resolve_sessdata(args)
-    client = bili_client.BiliClient(sessdata=sessdata)
+    connection = _open_subtitle_connection(
+        "probe-subs", args.archive_root, read_only=True
+    )
+    if connection is None:
+        return 1
     try:
-        entries = client.probe_subs(args.bvid)
-    except bili_client.RiskBudgetExhausted as exc:
-        print(f"probe-subs: risk-control ceiling for {args.bvid} "
-              f"(last code {exc.last_code}); retry later.", file=sys.stderr)
-        return 2
-    except bili_client.APIResponseError as exc:
-        store = ManifestStore(root=args.archive_root)
-        _record_api_error(store, args.bvid, exc.code)
-        print(f"probe-subs: API response error (code {exc.code}) for "
-              f"{args.bvid}; retry later.", file=sys.stderr)
-        return 1
-    except bili_client.GoneResponse as exc:
-        print(f"probe-subs: terminal API response (code {exc.code}) "
-              f"for {args.bvid}.", file=sys.stderr)
-        return 2
+        repository = TranscriptRepository(connection)
+        if bvid is not None and not repository.list_selected_parts(bvid, page_index):
+            # A selector that resolves to no stored part is configuration, not an
+            # empty result, so the probe never reports a part-less run as a
+            # completed read.
+            print(f"probe-subs: unknown --bvid {args.bvid}", file=sys.stderr)
+            return 1
+        ingestor = SubtitleIngestor(
+            BilibiliApiGateway(sessdata=sessdata),
+            repository,
+            credential_present=sessdata is not None,
+        )
+        result = ingestor.probe(
+            SubtitleSelection(
+                bvid=bvid, page_index=page_index, limit=args.limit_parts
+            )
+        )
     except Exception:
+        # Expected gateway failures are resolved inside the service, so anything
+        # escaping is unexpected: the bounded terminal code, never a traceback.
         print("probe-subs: unexpected error", file=sys.stderr)
-        return 1
+        return 2
+    finally:
+        connection.close()
 
-    if not entries:
-        print(f"{args.bvid}: no subtitles visible at this auth tier -> "
-              f"needs_audio (run harvest-subs to record it)")
-        return 0
-    for e in entries:
-        print(f"{args.bvid}: {e.get('lan')} — {e.get('lan_doc')}")
+    print(f"sessdata: {redact_sessdata(sessdata)}")
+    for part in result.parts:
+        if part.error_code is not None:
+            print(f"probe {part.work_id} failed {part.error_code}")
+            continue
+        print(f"probe {part.work_id} tracks={len(part.tracks)}")
+        if not part.tracks:
+            print("  (no subtitles visible)")
+            continue
+        for track in part.tracks:
+            kind = "ai" if track.is_ai else "cc"
+            print(f"  track {track.language} {kind} {track.label}")
+    with_tracks = sum(1 for part in result.parts if part.tracks)
+    failed = sum(1 for part in result.parts if part.error_code is not None)
+    print(
+        f"probe-subs: probed={len(result.parts)} with_tracks={with_tracks} "
+        f"without_tracks={len(result.parts) - with_tracks - failed} "
+        f"failed={failed}"
+    )
+    if failed and failed == len(result.parts):
+        return 2
     return 0
 
 
 def _cmd_harvest_subs(args: argparse.Namespace) -> int:
-    from . import bili_client, subtitles
-    from .manifest import ManifestStore
+    """Acquire the selected parts into normalized transcripts with run evidence.
 
-    store = ManifestStore(root=args.archive_root)
-    entries = store.load()
-    sessdata = _resolve_sessdata(args)
-    client = bili_client.BiliClient(sessdata=sessdata)
-    if args.bvid:
-        todo = _todo_for_bvid(store, args.bvid, entries)
-        if todo is None:
-            print(f"{args.bvid}: multi-part video needs an explicit page",
-                  file=sys.stderr)
-            return 1
-        if not todo:
+    Exit taxonomy: 0 the bounded run completed — including a run whose every
+    attempted part had no visible caption, and a selection that resolved to no
+    part; 1 usage/configuration (a missing database, an unknown --bvid, a missing
+    bound, an empty --language entry, the schema guard); 2 the run failed on every
+    attempted part, or an unexpected internal error.  Partial per-part failure
+    stays visible in the printed counts rather than in the exit code.
+    """
+    from bili_asr.services.subtitle_ingest import (
+        SubtitleIngestor,
+        SubtitleSelection,
+    )
+    from bili_asr.sources.bilibili_api_gateway import BilibiliApiGateway
+    from bili_asr.storage import TranscriptRepository
+
+    languages: tuple[str, ...] = ()
+    if args.language is not None:
+        languages = tuple(entry.strip() for entry in args.language.split(","))
+        if any(not entry for entry in languages):
             print(
-                f"{args.bvid}: unresolved; not assigned to a page",
+                "harvest-subs: --language entries must not be empty",
                 file=sys.stderr,
             )
             return 1
-    else:
-        todo = [
-            (key, e) for key, e in entries.items()
-            if e.get("status") == "meta_ok" and not _is_excluded(e)
-        ]
-    if args.limit is not None:
-        todo = todo[: args.limit]
-
-    done = needs_audio = failed = 0
-    risk_interrupted = False
-    for key, entry in todo:
-        target = _identity_from_entry(entry, key)
-        label = (
-            target.work_id if hasattr(target, "work_id") else str(key)
+    if args.limit_parts is not None and args.limit_parts < 1:
+        print(
+            "harvest-subs: --limit-parts must be a positive integer",
+            file=sys.stderr,
         )
-        try:
-            status = subtitles.harvest_subtitle(
-                client, target, store, args.archive_root
+        return 1
+    bvid, page_index = _subtitle_selector(args.bvid)
+    if bvid is not None and _selector_cannot_name_a_part(bvid):
+        # Same configuration error as an unknown bvid, and decided on the
+        # argument alone: a selector the archive cannot store can never resolve to
+        # a part, so no bound would make it selectable.
+        print(f"harvest-subs: unknown --bvid {args.bvid}", file=sys.stderr)
+        return 1
+    if args.limit_parts is None and page_index is None:
+        # No unbounded runs: only a single named part is bounded by construction.
+        print(
+            "harvest-subs: --limit-parts is required unless a single bvid:pN "
+            "part is selected",
+            file=sys.stderr,
+        )
+        return 1
+    sessdata = _resolve_sessdata(args)
+    connection = _open_subtitle_connection("harvest-subs", args.archive_root)
+    if connection is None:
+        return 1
+    try:
+        repository = TranscriptRepository(connection)
+        if bvid is not None and not repository.list_selected_parts(bvid, page_index):
+            # Decided before the run is opened: an unknown selector is
+            # configuration and must not leave an empty run row behind.
+            print(f"harvest-subs: unknown --bvid {args.bvid}", file=sys.stderr)
+            return 1
+        ingestor = SubtitleIngestor(
+            BilibiliApiGateway(sessdata=sessdata),
+            repository,
+            credential_present=sessdata is not None,
+        )
+        result = ingestor.harvest(
+            SubtitleSelection(
+                bvid=bvid,
+                page_index=page_index,
+                limit=args.limit_parts,
+                languages=languages,
             )
-        except bili_client.AmbiguousPageError:
-            failed += 1
-            print(f"{label}: multi-part video needs an explicit page",
-                  file=sys.stderr)
-            continue
-        except bili_client.RiskBudgetExhausted as exc:
-            failed += 1
-            print(f"{label}: risk-control ceiling (last code {exc.last_code}); "
-                  f"stopping — re-run to resume.", file=sys.stderr)
-            risk_interrupted = True
-            break
-        except bili_client.APIResponseError as exc:
-            failed += 1
-            _record_api_error(store, key, exc.code)
-            print(f"{label}: API response error (code {exc.code}); "
-                  f"continuing.", file=sys.stderr)
-            continue
-        except bili_client.GoneResponse as exc:
-            failed += 1
-            e = dict(store.get(key) or store.get_compatible(key) or {})
-            if e.get("work_id"):
-                e["status"] = "gone"
-                store.upsert(e)
-            print(f"{label}: terminal API response (code {exc.code}); "
-                  f"marked gone.", file=sys.stderr)
-            continue
-        except ValueError as exc:
-            failed += 1
-            msg = str(exc)
-            if "missing cid" in msg or "unresolved" in msg:
-                print(f"{label}: {msg}", file=sys.stderr)
-            else:
-                print(f"{label}: unexpected error", file=sys.stderr)
-            continue
-        except Exception:
-            failed += 1
-            print(f"{label}: unexpected error", file=sys.stderr)
-            continue
-        if status == "subtitle_done":
-            done += 1
-            print(f"{label}: subtitle downloaded -> subtitle_done")
-        else:
-            needs_audio += 1
-            print(f"{label}: no subtitles -> needs_audio")
-        if key != todo[-1][0]:
-            time.sleep(3.0)
-
-    print(f"harvest-subs: {done} subtitle_done, {needs_audio} needs_audio"
-          + (f", {failed} failed" if failed else ""))
-    if risk_interrupted:
+        )
+    except Exception:
+        # The service finishes an interrupted run as failed before anything
+        # escapes, so this is the bounded terminal code with no traceback.
+        print("harvest-subs: unexpected error", file=sys.stderr)
         return 2
-    return 1 if failed else 0
+    finally:
+        connection.close()
+
+    print(f"sessdata: {redact_sessdata(sessdata)}")
+    for outcome in result.parts:
+        if outcome.outcome == "failed":
+            print(f"harvest {outcome.work_id} failed {outcome.error_code}")
+        elif outcome.outcome == "no-subtitle":
+            print(f"harvest {outcome.work_id} no-subtitle")
+        else:
+            print(
+                f"harvest {outcome.work_id} {outcome.outcome} "
+                f"{outcome.source_kind} {outcome.language} v{outcome.version}"
+            )
+    print(
+        f"harvest-subs: run_id={result.run_id} attempted={result.attempted} "
+        f"stored={result.stored} unchanged={result.unchanged} "
+        f"no-subtitle={result.no_subtitle} failed={result.failed} "
+        f"remaining_without_transcript={result.remaining_without_transcript}"
+    )
+    if result.attempted and result.failed == result.attempted:
+        return 2
+    return 0
 
 
 def _cmd_download_audio(args: argparse.Namespace) -> int:
@@ -2301,7 +2551,6 @@ _ARCHIVE_WRITER_COMMANDS = frozenset({
     "recover",
     "asr",
     "pilot",
-    "probe-subs",
     "harvest-subs",
     "download-audio",
     "run",

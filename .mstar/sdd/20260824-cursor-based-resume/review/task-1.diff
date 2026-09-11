@@ -1,0 +1,552 @@
+diff --git a/bilibili-asr-archive/src/bili_asr/bili_client.py b/bilibili-asr-archive/src/bili_asr/bili_client.py
+index aeb844b..c1d31cc 100644
+--- a/bilibili-asr-archive/src/bili_asr/bili_client.py
++++ b/bilibili-asr-archive/src/bili_asr/bili_client.py
+@@ -247,6 +247,9 @@ class BiliClient:
+         # after RiskBudgetExhausted/GoneResponse so the CLI can persist the
+         # partial merge (H2: honest --resume).
+         self.pages_fetched: list[list[dict[str, Any]]] = []
++        self.last_observed_total: int | None = None
++        self.last_completed_page: int = 0
++        self.enumeration_complete: bool = False
+ 
+     # -- internals ---------------------------------------------------------
+ 
+@@ -389,42 +392,53 @@ class BiliClient:
+     # -- public API --------------------------------------------------------
+ 
+     def fetch_pages(
+-        self, mid: int, max_pages: int | None = None
++        self,
++        mid: int,
++        max_pages: int | None = None,
++        start_page: int = 1,
+     ) -> list[list[dict[str, Any]]]:
+         """Enumerate archive pages via recArchivesByKeywords.
+ 
+         Returns a list of per-page archive lists (new/dupe mix preserved).
+         Raises RiskBudgetExhausted when the retry budget runs out mid-page.
+         Stops on: empty page streak (2), or reaching api total, or max_pages.
++        CLI owns cursor I/O; this method only iterates ``pn`` from start_page.
+         """
+         pages: list[list[dict[str, Any]]] = []
+         seen: set[str] = set()
+         total: int | None = None
+         empty_streak = 0
+-        pn = 1
++        pn = start_page if start_page >= 1 else 1
+         self.pages_fetched = pages
++        self.last_observed_total = None
++        self.last_completed_page = pn - 1
++        self.enumeration_complete = False
+         while True:
+             self.last_failed_page = pn
+             body = self._request(
+                 REC_ARCHIVES_URL,
+                 {"mid": mid, "keywords": "", "ps": 30, "pn": pn},
+             )
++            self.last_completed_page = pn
+             data = body.get("data") or {}
+             page_info = data.get("page") or {}
+             total = page_info.get("total", total)
++            self.last_observed_total = total
+             arcs = data.get("archives") or []
+             if not arcs:
+                 empty_streak += 1
+                 if empty_streak >= 2:
++                    self.enumeration_complete = True
+                     break
+             else:
+                 empty_streak = 0
+                 pages.append(arcs)
+                 seen.update(a.get("bvid") for a in arcs if a.get("bvid"))
+             pn += 1
+-            if max_pages is not None and pn > max_pages:
+-                break
+             if total is not None and total > 0 and len(seen) >= total:
++                self.enumeration_complete = True
++                break
++            if max_pages is not None and pn > max_pages:
+                 break
+             # Inter-page pacing: real randomized delay (0.8-1.6s like the
+             # retired script) through the jitter seam, to avoid triggering
+diff --git a/bilibili-asr-archive/src/bili_asr/cli.py b/bilibili-asr-archive/src/bili_asr/cli.py
+index 1cadf2d..c913ba5 100644
+--- a/bilibili-asr-archive/src/bili_asr/cli.py
++++ b/bilibili-asr-archive/src/bili_asr/cli.py
+@@ -242,6 +242,40 @@ def _merge_page_rows(client, records: dict, existing: dict, pages_for=None) -> d
+     return entries
+ 
+ 
++def _persist_cursor(
++    cursor_store,
++    *,
++    mid: int,
++    next_page: int,
++    total: int | None,
++    state: str,
++    last_api_error_code: int | str | None = None,
++) -> None:
++    from .meta_cursor import utc_now_iso
++
++    cursor_store.replace_atomic(
++        {
++            "mid": mid,
++            "next_page": next_page,
++            "total": total,
++            "state": state,
++            "last_api_error_code": last_api_error_code,
++            "updated_at": utc_now_iso(),
++        }
++    )
++
++
++def _interrupt_cursor(client, cursor_store, mid: int, last_api_error_code) -> None:
++    _persist_cursor(
++        cursor_store,
++        mid=mid,
++        next_page=client.last_failed_page,
++        total=client.last_observed_total,
++        state="risk_interrupted",
++        last_api_error_code=last_api_error_code,
++    )
++
++
+ def _persist_partial(client, store, existing, pages_for=None) -> int:
+     """Merge and save pages already fetched (H2: honest --resume).
+ 
+@@ -260,17 +294,27 @@ def _cmd_fetch_meta(args: argparse.Namespace) -> int:
+     # in low-dependency environments (bili_client lazy-imports requests).
+     from . import bili_client
+     from .manifest import ManifestStore
++    from .meta_cursor import MetaCursorStore
+ 
+     client = bili_client.BiliClient()
+     store = ManifestStore(root=args.archive_root)
++    cursor_store = MetaCursorStore(root=args.archive_root)
+     existing = store.load() if args.resume else {}
++    start_page = 1
++    if args.resume:
++        resumed = cursor_store.resume_start_page(args.mid)
++        if resumed is not None:
++            start_page = resumed
+     pages_for = _cached_page_lister(client)
+ 
+     try:
+-        pages = client.fetch_pages(args.mid, max_pages=args.limit_pages)
++        pages = client.fetch_pages(
++            args.mid, max_pages=args.limit_pages, start_page=start_page,
++        )
+     except bili_client.RiskBudgetExhausted as exc:
+         unenumerated = client.last_failed_page
+         partial = _persist_partial(client, store, existing, pages_for=pages_for)
++        _interrupt_cursor(client, cursor_store, args.mid, exc.last_code)
+         print(
+             f"risk-control ceiling: page {unenumerated} could not be "
+             f"enumerated (retry budget exhausted, last code {exc.last_code}); "
+@@ -282,6 +326,7 @@ def _cmd_fetch_meta(args: argparse.Namespace) -> int:
+         return 2
+     except bili_client.APIResponseError as exc:
+         partial = _persist_partial(client, store, existing, pages_for=pages_for)
++        _interrupt_cursor(client, cursor_store, args.mid, exc.code)
+         print(
+             f"fetch-meta: API response error (code {exc.code}) at page "
+             f"{client.last_failed_page}; {partial} record(s) from "
+@@ -292,6 +337,7 @@ def _cmd_fetch_meta(args: argparse.Namespace) -> int:
+         return 2
+     except bili_client.GoneResponse as exc:
+         partial = _persist_partial(client, store, existing, pages_for=pages_for)
++        _interrupt_cursor(client, cursor_store, args.mid, exc.code)
+         if client.pages_fetched:
+             print(
+                 f"fetch-meta: terminal API response (code {exc.code}) at "
+@@ -319,10 +365,29 @@ def _cmd_fetch_meta(args: argparse.Namespace) -> int:
+     store.migrate_legacy_rows(pages_for, archive_root=args.archive_root)
+     entries = store.load()
+ 
++    next_page = client.last_completed_page + 1
++    if client.enumeration_complete:
++        cursor_state = "complete"
++    else:
++        cursor_state = "limited"
++    _persist_cursor(
++        cursor_store,
++        mid=args.mid,
++        next_page=next_page,
++        total=client.last_observed_total,
++        state=cursor_state,
++    )
++
+     total_s = sum(e.get("duration_s", 0) for e in entries.values())
+     print(f"manifest: {len(entries)} videos "
+           f"({len(records)} fetched, {len(existing)} resumed)")
+     print(f"total duration: {total_s / 3600:.1f} h")
++    if cursor_state == "complete":
++        print("enumeration: complete")
++    else:
++        print(
++            f"enumeration: limited (next unenumerated page {next_page})"
++        )
+     return 0
+ 
+ 
+diff --git a/bilibili-asr-archive/src/bili_asr/meta_cursor.py b/bilibili-asr-archive/src/bili_asr/meta_cursor.py
+new file mode 100644
+index 0000000..f2f8d07
+--- /dev/null
++++ b/bilibili-asr-archive/src/bili_asr/meta_cursor.py
+@@ -0,0 +1,105 @@
++"""Archive-root metadata crawl cursor (`meta-cursor.json`).
++
++Filesystem ownership only. BiliClient must never import this module.
++"""
++
++from __future__ import annotations
++
++from datetime import datetime, timezone
++import json
++import os
++from typing import Any
++
++CURSOR_FILENAME = "meta-cursor.json"
++
++VALID_STATES = frozenset(
++    {
++        "running",
++        "risk_interrupted",
++        "limited",
++        "complete",
++    }
++)
++
++# --resume consumes only this persisted terminal.
++RESUME_STATE = "risk_interrupted"
++
++_SCHEMA_KEYS = (
++    "mid",
++    "next_page",
++    "total",
++    "state",
++    "last_api_error_code",
++    "updated_at",
++)
++
++
++def utc_now_iso() -> str:
++    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
++
++
++def _validate(cursor: dict[str, Any]) -> dict[str, Any]:
++    missing = [k for k in _SCHEMA_KEYS if k not in cursor]
++    if missing:
++        raise ValueError(f"cursor missing fields: {missing}")
++    state = cursor["state"]
++    if state not in VALID_STATES:
++        raise ValueError(f"unknown cursor state {state!r}")
++    if state == "running":
++        raise ValueError("state=running is in-memory only and must not be persisted")
++    mid = cursor["mid"]
++    if not isinstance(mid, int):
++        raise ValueError("cursor mid must be int")
++    next_page = cursor["next_page"]
++    if not isinstance(next_page, int) or next_page < 1:
++        raise ValueError("cursor next_page must be int >= 1")
++    total = cursor["total"]
++    if total is not None and not isinstance(total, int):
++        raise ValueError("cursor total must be int or null")
++    code = cursor["last_api_error_code"]
++    if code is not None and not isinstance(code, (int, str)):
++        raise ValueError("cursor last_api_error_code must be int, str, or null")
++    if not isinstance(cursor["updated_at"], str) or not cursor["updated_at"]:
++        raise ValueError("cursor updated_at must be a non-empty ISO-8601 string")
++    return {key: cursor[key] for key in _SCHEMA_KEYS}
++
++
++class MetaCursorStore:
++    """Atomic sidecar at `{archive_root}/meta-cursor.json`."""
++
++    def __init__(self, root: str | os.PathLike[str]) -> None:
++        self.root = os.fspath(root)
++        self.path = os.path.join(self.root, CURSOR_FILENAME)
++
++    def load(self) -> dict[str, Any] | None:
++        if not os.path.exists(self.path):
++            return None
++        with open(self.path, "r", encoding="utf-8") as fh:
++            raw = json.load(fh)
++        if not isinstance(raw, dict):
++            return None
++        try:
++            return _validate(raw)
++        except (ValueError, KeyError, TypeError):
++            return None
++
++    def replace_atomic(self, cursor: dict[str, Any]) -> dict[str, Any]:
++        stored = _validate(dict(cursor))
++        os.makedirs(self.root, exist_ok=True)
++        tmp = self.path + ".tmp"
++        with open(tmp, "w", encoding="utf-8", newline="\n") as fh:
++            json.dump(stored, fh, ensure_ascii=False)
++            fh.write("\n")
++        os.replace(tmp, self.path)
++        return stored
++
++    def resume_start_page(self, mid: int) -> int | None:
++        """Return next_page only for a matching-mid risk_interrupted cursor."""
++        cursor = self.load()
++        if cursor is None:
++            return None
++        if cursor["state"] != RESUME_STATE:
++            return None
++        if cursor["mid"] != mid:
++            return None
++        return int(cursor["next_page"])
+diff --git a/bilibili-asr-archive/tests/test_meta_cursor.py b/bilibili-asr-archive/tests/test_meta_cursor.py
+new file mode 100644
+index 0000000..ec14a13
+--- /dev/null
++++ b/bilibili-asr-archive/tests/test_meta_cursor.py
+@@ -0,0 +1,243 @@
++"""MetaCursorStore + fetch-meta resume/limited/complete (no live HTTP)."""
++
++from __future__ import annotations
++
++import json
++import os
++
++import pytest
++
++from bili_asr import bili_client as bc
++from bili_asr.cli import main
++from bili_asr.meta_cursor import MetaCursorStore, utc_now_iso
++
++from test_fetch_meta import FakeTransport, FastSleeper, SPI_NEW, SPI_OK, arc, ok_page
++
++
++@pytest.fixture
++def fast_sleep():
++    return FastSleeper()
++
++
++def _cursor(tmp_root):
++    return MetaCursorStore(root=tmp_root)
++
++
++def _seed_risk(tmp_root, mid=23191782, next_page=2, total=99, code=412):
++    return _cursor(tmp_root).replace_atomic(
++        {
++            "mid": mid,
++            "next_page": next_page,
++            "total": total,
++            "state": "risk_interrupted",
++            "last_api_error_code": code,
++            "updated_at": utc_now_iso(),
++        }
++    )
++
++
++def test_schema_roundtrip(tmp_root):
++    store = _cursor(tmp_root)
++    stored = store.replace_atomic(
++        {
++            "mid": 23191782,
++            "next_page": 3,
++            "total": 90,
++            "state": "limited",
++            "last_api_error_code": None,
++            "updated_at": utc_now_iso(),
++        }
++    )
++    loaded = store.load()
++    assert loaded == stored
++    assert loaded["mid"] == 23191782
++    assert loaded["next_page"] == 3
++    assert loaded["state"] == "limited"
++    assert os.path.basename(store.path) == "meta-cursor.json"
++    assert os.path.dirname(store.path) == tmp_root
++
++
++def test_running_is_not_persisted(tmp_root):
++    store = _cursor(tmp_root)
++    with pytest.raises(ValueError, match="running"):
++        store.replace_atomic(
++            {
++                "mid": 1,
++                "next_page": 1,
++                "total": None,
++                "state": "running",
++                "last_api_error_code": None,
++                "updated_at": utc_now_iso(),
++            }
++        )
++    assert store.load() is None
++
++
++def test_atomic_replace_no_partial(tmp_root):
++    store = _cursor(tmp_root)
++    store.replace_atomic(
++        {
++            "mid": 1,
++            "next_page": 1,
++            "total": None,
++            "state": "complete",
++            "last_api_error_code": None,
++            "updated_at": utc_now_iso(),
++        }
++    )
++    store.replace_atomic(
++        {
++            "mid": 1,
++            "next_page": 4,
++            "total": 10,
++            "state": "limited",
++            "last_api_error_code": None,
++            "updated_at": utc_now_iso(),
++        }
++    )
++    assert not os.path.exists(store.path + ".tmp")
++    assert store.load()["state"] == "limited"
++    assert store.load()["next_page"] == 4
++
++
++def test_resume_start_page_only_matching_risk(tmp_root):
++    store = _cursor(tmp_root)
++    _seed_risk(tmp_root, mid=23191782, next_page=2)
++    assert store.resume_start_page(23191782) == 2
++    assert store.resume_start_page(999) is None
++    store.replace_atomic(
++        {
++            "mid": 23191782,
++            "next_page": 2,
++            "total": 99,
++            "state": "limited",
++            "last_api_error_code": None,
++            "updated_at": utc_now_iso(),
++        }
++    )
++    assert store.resume_start_page(23191782) is None
++
++
++def test_fetch_pages_start_page(fast_sleep):
++    transport = FakeTransport(
++        [
++            (200, ok_page([arc("BV1B")], total=2)),
++        ],
++    )
++    client = bc.BiliClient(transport=transport, sleeper=fast_sleep, jitter=lambda: 0.0)
++    pages = client.fetch_pages(23191782, max_pages=2, start_page=2)
++    assert len(pages) == 1
++    assert pages[0][0]["bvid"] == "BV1B"
++    page_calls = [c for c in transport.calls if "recArchivesByKeywords" in c["url"]]
++    assert page_calls[0]["params"]["pn"] == 2
++    assert client.last_completed_page == 2
++
++
++def test_bili_client_does_not_import_meta_cursor():
++    import bili_asr.bili_client as mod
++
++    assert "bili_asr.meta_cursor" not in getattr(mod, "__dict__", {})
++    src = open(mod.__file__, encoding="utf-8").read()
++    assert "meta_cursor" not in src
++
++
++def test_cli_risk_writes_cursor_exit_2(tmp_root, fast_sleep, monkeypatch, capsys):
++    transport = FakeTransport(
++        [
++            (200, ok_page([arc("BV1A"), arc("BV1B")], total=99)),
++            (412, None), (412, None), (412, None), (412, None), (412, None),
++        ],
++        spi=[SPI_OK, SPI_NEW],
++    )
++    monkeypatch.setattr(bc, "build_default_transport", lambda: transport)
++    monkeypatch.setattr(bc, "default_sleeper", lambda: fast_sleep)
++    rc = main(["fetch-meta", "--mid", "23191782", "--archive-root", tmp_root])
++    assert rc == 2
++    cursor = _cursor(tmp_root).load()
++    assert cursor["state"] == "risk_interrupted"
++    assert cursor["next_page"] == 2
++    assert cursor["mid"] == 23191782
++    assert cursor["last_api_error_code"] is not None
++    err = capsys.readouterr().err
++    assert "page 2" in err
++
++
++def test_cli_resume_consumes_risk_cursor(tmp_root, fast_sleep, monkeypatch):
++    _seed_risk(tmp_root, next_page=2, total=2)
++    transport = FakeTransport(
++        [
++            (200, ok_page([arc("BV1B")], total=2)),
++            (200, ok_page([], total=2)),
++            (200, ok_page([], total=2)),
++        ],
++    )
++    monkeypatch.setattr(bc, "build_default_transport", lambda: transport)
++    monkeypatch.setattr(bc, "default_sleeper", lambda: fast_sleep)
++    rc = main([
++        "fetch-meta", "--mid", "23191782", "--resume",
++        "--archive-root", tmp_root,
++    ])
++    assert rc == 0
++    page_calls = [c for c in transport.calls if "recArchivesByKeywords" in c["url"]]
++    assert page_calls[0]["params"]["pn"] == 2
++    cursor = _cursor(tmp_root).load()
++    assert cursor["state"] == "complete"
++
++
++def test_cli_without_resume_starts_at_page_one(tmp_root, fast_sleep, monkeypatch):
++    _seed_risk(tmp_root, next_page=5, total=99)
++    transport = FakeTransport(
++        [
++            (200, ok_page([arc("BV1A")], total=1)),
++        ],
++    )
++    monkeypatch.setattr(bc, "build_default_transport", lambda: transport)
++    monkeypatch.setattr(bc, "default_sleeper", lambda: fast_sleep)
++    rc = main(["fetch-meta", "--mid", "23191782", "--archive-root", tmp_root])
++    assert rc == 0
++    page_calls = [c for c in transport.calls if "recArchivesByKeywords" in c["url"]]
++    assert page_calls[0]["params"]["pn"] == 1
++    cursor = _cursor(tmp_root).load()
++    assert cursor["state"] == "complete"
++    assert cursor["next_page"] == 2
++
++
++def test_cli_limit_pages_is_limited_not_complete(
++    tmp_root, fast_sleep, monkeypatch, capsys
++):
++    transport = FakeTransport(
++        [(200, ok_page([arc("BV1A")], total=99))],
++    )
++    monkeypatch.setattr(bc, "build_default_transport", lambda: transport)
++    monkeypatch.setattr(bc, "default_sleeper", lambda: fast_sleep)
++    rc = main([
++        "fetch-meta", "--mid", "23191782", "--limit-pages", "1",
++        "--archive-root", tmp_root,
++    ])
++    assert rc == 0
++    out = capsys.readouterr().out
++    assert "complete" not in out
++    assert "limited" in out
++    cursor = _cursor(tmp_root).load()
++    assert cursor["state"] == "limited"
++    assert cursor["next_page"] == 2
++    assert _cursor(tmp_root).resume_start_page(23191782) is None
++
++
++def test_cli_full_run_marks_complete(tmp_root, fast_sleep, monkeypatch, capsys):
++    transport = FakeTransport(
++        [
++            (200, ok_page([arc("BV1A"), arc("BV1B")], total=2)),
++        ],
++    )
++    monkeypatch.setattr(bc, "build_default_transport", lambda: transport)
++    monkeypatch.setattr(bc, "default_sleeper", lambda: fast_sleep)
++    rc = main(["fetch-meta", "--mid", "23191782", "--archive-root", tmp_root])
++    assert rc == 0
++    out = capsys.readouterr().out
++    assert "enumeration: complete" in out
++    cursor = _cursor(tmp_root).load()
++    assert cursor["state"] == "complete"
++    text = open(_cursor(tmp_root).path, encoding="utf-8").read()
++    assert "SESSDATA" not in text
++    assert "cookie" not in text.lower()

@@ -1,0 +1,1139 @@
+diff --git a/bilibili-asr-archive/src/bili_asr/cli.py b/bilibili-asr-archive/src/bili_asr/cli.py
+index 09612ec..e4b8538 100644
+--- a/bilibili-asr-archive/src/bili_asr/cli.py
++++ b/bilibili-asr-archive/src/bili_asr/cli.py
+@@ -143,6 +143,34 @@ def build_parser() -> argparse.ArgumentParser:
+         help="Stop after N videos (smoke runs)",
+     )
+ 
++    run_cmd = subparsers.add_parser(
++        "run",
++        help="Coordinate manifest rows through stages (complements pilot)",
++    )
++    run_cmd.add_argument(
++        "--scope",
++        required=True,
++        help="pending | failed | one or more work_id/bvid selectors "
++             "(comma- or space-separated)",
++    )
++    run_cmd.add_argument(
++        "--offline",
++        action="store_true",
++        help="Never call harvest/download (deterministic local stages only)",
++    )
++    run_cmd.add_argument(
++        "--limit", type=int, default=None,
++        help="Stop after N rows (bounded batches)",
++    )
++    run_cmd.add_argument(
++        "--archive-root", default=DEFAULT_ARCHIVE_ROOT,
++        help="Archive root directory (default: ./archive)",
++    )
++    run_cmd.add_argument(
++        "--sessdata", default=None,
++        help="SESSDATA cookie for live stages (or env BILI_SESSDATA); not stored",
++    )
++
+     search_cmd = subparsers.add_parser(
+         "search",
+         help="Search indexed completed transcripts using SQLite FTS5",
+@@ -1259,6 +1287,137 @@ def _cmd_pilot(args: argparse.Namespace) -> int:
+     return _record_exit(0)
+ 
+ 
++def _run_scope_rows(store, entries: dict, scope: str):
++    """Resolve --scope to processable (key, entry) rows.
++
++    Returns (rows, error) where error is a message string when the scope
++    could not be resolved at all.
++    """
++    from .manifest import VALID_STATUSES
++
++    if scope == "pending":
++        return (
++            [
++                (key, e)
++                for key, e in sorted(entries.items())
++                if e.get("status") in VALID_STATUSES - {"archived", "gone"}
++                and not _is_excluded(e)
++            ],
++            None,
++        )
++    if scope == "failed":
++        # failed scope: rows with a recorded failed stage attempt
++        from .coordinator import AttemptLedger
++
++        failed = {
++            r["work_id"] for r in AttemptLedger(store.root).load()
++            if r["outcome"] == "failed"
++        }
++        rows = [
++            (key, e)
++            for key, e in sorted(entries.items())
++            if (str(e.get("work_id") or key) in failed
++                or str(e.get("bvid") or "") in failed)
++            and not _is_excluded(e)
++            and e.get("status") not in {"archived", "gone"}
++        ]
++        return rows, None
++
++    selectors = [s for part in scope.split(",") for s in part.split() if s]
++    rows: list[tuple[str, dict]] = []
++    for selector in selectors:
++        todo = _todo_for_bvid(store, selector, entries)
++        if todo is None:
++            return None, (
++                f"{selector}: multi-part video needs an explicit page"
++            )
++        if not todo:
++            return None, f"{selector}: unresolved; not assigned to a page"
++        rows.extend(todo)
++    if not selectors:
++        return None, "run: empty --scope"
++    return rows, None
++
++
++def _cmd_run(args: argparse.Namespace) -> int:
++    from . import bili_client
++    from .coordinator import RunCoordinator
++    from .manifest import ManifestStore
++    from .run_ledger import (
++        RunLedger,
++        build_run_record,
++        compute_coverage_summary,
++        utc_now_iso,
++    )
++
++    started_at = utc_now_iso()
++    store = ManifestStore(root=args.archive_root)
++    entries = store.load()
++    rows, error = _run_scope_rows(store, entries, args.scope)
++    if error:
++        print(f"run: {error}", file=sys.stderr)
++        return 1
++    if args.limit is not None:
++        if args.limit <= 0:
++            rows = []
++        else:
++            rows = rows[: args.limit]
++
++    client = None
++    if not args.offline:
++        sessdata = _resolve_sessdata(args)
++        client = bili_client.BiliClient(sessdata=sessdata)
++    coord = RunCoordinator(
++        args.archive_root, store, client=client, offline=args.offline
++    )
++    print(
++        f"run: scope={args.scope} selected {len(rows)} row(s)"
++        + (" [offline]" if args.offline else "")
++    )
++    for key, entry in rows:
++        print(f"  {entry.get('work_id') or key}: {entry.get('status')}")
++
++    summary = coord.run_batch(rows)
++
++    ok = sum(1 for r in summary.results if r.ok)
++    skipped = sum(1 for r in summary.results if r.skipped)
++    failed = summary.failed
++    for r in summary.results:
++        if r.ok:
++            print(f"{r.work_id}: {r.final_status}")
++    for r in failed:
++        codes = ", ".join(str(c) for c in r.failure_codes) or "unknown"
++        print(f"{r.work_id}: failed ({codes})", file=sys.stderr)
++
++    exit_code = 0
++    if summary.risk_interrupted:
++        print("run: risk-control ceiling; stopping — re-run to resume.",
++              file=sys.stderr)
++        exit_code = 2
++    elif failed:
++        exit_code = 1
++
++    print(f"run: {ok} completed, {skipped} skipped" +
++          (f", {len(failed)} failed" if failed else ""))
++
++    ledger = RunLedger(root=args.archive_root)
++    try:
++        rec = build_run_record(
++            command="run",
++            started_at=started_at,
++            finished_at=utc_now_iso(),
++            exit_code=exit_code,
++            mid=None,
++            work_ids=[r.work_id for r in summary.results] or None,
++            records_existing=len(entries),
++            coverage_summary=compute_coverage_summary(store.load()),
++        )
++        ledger.append(rec)
++    except Exception:
++        pass
++    return exit_code
++
++
+ def _cmd_search(args: argparse.Namespace) -> int:
+     from .manifest import ManifestStore
+     from .search_index import FTS5UnavailableError, SearchIndex
+@@ -1365,6 +1524,8 @@ def main(argv: list[str] | None = None) -> int:
+         return _cmd_search(args)
+     if args.command == "export":
+         return _cmd_export(args)
++    if args.command == "run":
++        return _cmd_run(args)
+     parser.error(f"command {args.command!r} is not implemented yet")
+ 
+ 
+diff --git a/bilibili-asr-archive/src/bili_asr/coordinator.py b/bilibili-asr-archive/src/bili_asr/coordinator.py
+new file mode 100644
+index 0000000..68fd976
+--- /dev/null
++++ b/bilibili-asr-archive/src/bili_asr/coordinator.py
+@@ -0,0 +1,547 @@
++"""Run coordinator: per-stage attempt ledger + stage execution (DIR-03).
++
++Composes the existing live seams (``subtitles.harvest_subtitle``,
++``audio.download_audio``, ``asr.transcribe``, ``archive.write_archive``)
++without forking their signatures. Persistence is a sidecar append-only
++JSONL at ``{archive_root}/coordinator/attempts.jsonl``; the manifest
++schema, ``VALID_STATUSES`` and ``classify_risk`` are untouched.
++
++No credentials, signed URLs, or raw exception texts are persisted —
++only redacted scalar error codes.
++"""
++
++from __future__ import annotations
++
++import json
++import os
++import time
++from dataclasses import dataclass, field
++from typing import Any, Callable
++
++from . import asr as asr_module
++from . import audio as audio_module
++from . import subtitles as subtitles_module
++from .manifest import ManifestStore
++from .page_identity import PageIdentity, artifact_stem, page_identity
++
++STAGES = ("harvest", "download", "asr", "archive")
++OUTCOMES = ("ok", "failed", "skipped")
++
++# statuses that still require the live harvest seam
++_HARVEST_STATUSES = frozenset({"pending", "meta_ok", "sub_checked"})
++# statuses that never need harvest again
++_SKIP_HARVEST_STATUSES = frozenset(
++    {"subtitle_done", "needs_audio", "audio_ok", "archived"}
++)
++# terminal manifest rows: reruns always skip these
++TERMINAL_STATUSES = frozenset({"archived", "gone"})
++
++# Sidecar may hold only redacted scalar codes — never cookies, URLs, traces.
++_FORBIDDEN_MARKERS = (
++    "SESSDATA",
++    "cookie",
++    "Cookie",
++    "http://",
++    "https://",
++    "Traceback",
++)
++_MAX_ERROR_CODE_LEN = 64
++
++ATTEMPTS_REL_PATH = os.path.join("coordinator", "attempts.jsonl")
++
++
++def _utc_now_iso() -> str:
++    from .run_ledger import utc_now_iso
++
++    return utc_now_iso()
++
++
++def _safe_error_code(exc: BaseException) -> int | str:
++    """Extract a redacted scalar error code from an exception."""
++    for attr in ("code", "last_code"):
++        value = getattr(exc, attr, None)
++        if isinstance(value, bool):
++            continue
++        if isinstance(value, (int, str)):
++            if isinstance(value, str):
++                return value[:_MAX_ERROR_CODE_LEN]
++            return value
++    name = type(exc).__name__
++    return name[:_MAX_ERROR_CODE_LEN]
++
++
++def _validate_attempt(record: dict[str, Any]) -> dict[str, Any]:
++    if not isinstance(record, dict):
++        raise ValueError("attempt record must be a dict")
++    missing = [
++        k
++        for k in ("stage", "work_id", "attempt", "outcome",
++                  "error_code", "artifact_paths", "started_at", "finished_at")
++        if k not in record
++    ]
++    if missing:
++        raise ValueError(f"attempt record missing fields: {missing}")
++    if record["stage"] not in STAGES:
++        raise ValueError(f"unknown stage {record['stage']!r}")
++    if record["outcome"] not in OUTCOMES:
++        raise ValueError(f"unknown outcome {record['outcome']!r}")
++    if not isinstance(record["work_id"], str) or not record["work_id"]:
++        raise ValueError("work_id must be a non-empty str")
++    attempt = record["attempt"]
++    if not isinstance(attempt, int) or isinstance(attempt, bool) or attempt < 1:
++        raise ValueError("attempt must be an int >= 1")
++    error_code = record["error_code"]
++    if error_code is not None:
++        if isinstance(error_code, bool) or not isinstance(error_code, (int, str)):
++            raise ValueError("error_code must be int, str, or null")
++        if isinstance(error_code, str) and len(error_code) > _MAX_ERROR_CODE_LEN:
++            raise ValueError("error_code is not a redacted code")
++    paths = record["artifact_paths"]
++    if not isinstance(paths, list) or not all(isinstance(p, str) for p in paths):
++        raise ValueError("artifact_paths must be a list of str")
++    for p in paths:
++        if os.path.isabs(p):
++            raise ValueError(f"artifact path must be relative: {p!r}")
++    for key in ("started_at", "finished_at"):
++        if not isinstance(record[key], str) or not record[key]:
++            raise ValueError(f"{key} must be a non-empty ISO-8601 str")
++    stored = {
++        "stage": record["stage"],
++        "work_id": record["work_id"],
++        "attempt": attempt,
++        "outcome": record["outcome"],
++        "error_code": error_code,
++        "artifact_paths": list(paths),
++        "started_at": record["started_at"],
++        "finished_at": record["finished_at"],
++    }
++    dumped = json.dumps(stored, ensure_ascii=False).lower()
++    for marker in _FORBIDDEN_MARKERS:
++        if marker.lower() in dumped:
++            raise ValueError(f"record contains forbidden marker: {marker!r}")
++    return stored
++
++
++class AttemptLedger:
++    """Append-only JSONL sidecar at ``{archive_root}/coordinator/attempts.jsonl``.
++
++    Appends are atomic (tmp file + fsync + os.replace) so a crash never
++    leaves a partial line: readers see either the previous content or the
++    previous content plus one complete record.
++    """
++
++    def __init__(self, root: str | os.PathLike[str]) -> None:
++        self.root = os.fspath(root)
++        self.path = os.path.join(self.root, ATTEMPTS_REL_PATH)
++
++    def load(self) -> list[dict[str, Any]]:
++        if not os.path.exists(self.path):
++            return []
++        records: list[dict[str, Any]] = []
++        with open(self.path, "r", encoding="utf-8") as fh:
++            for line in fh:
++                line = line.strip()
++                if not line:
++                    continue
++                try:
++                    records.append(_validate_attempt(json.loads(line)))
++                except (json.JSONDecodeError, ValueError):
++                    continue
++        return records
++
++    def append(self, record: dict[str, Any]) -> dict[str, Any]:
++        stored = _validate_attempt(record)
++        os.makedirs(os.path.dirname(self.path), exist_ok=True)
++        existing_bytes = b""
++        if os.path.exists(self.path):
++            with open(self.path, "rb") as fh:
++                existing_bytes = fh.read()
++        line_bytes = (json.dumps(stored, ensure_ascii=False) + "\n").encode("utf-8")
++        tmp = self.path + ".tmp"
++        try:
++            with open(tmp, "wb") as fh:
++                if existing_bytes:
++                    fh.write(existing_bytes)
++                    if not existing_bytes.endswith(b"\n"):
++                        fh.write(b"\n")
++                fh.write(line_bytes)
++                fh.flush()
++                os.fsync(fh.fileno())
++            os.replace(tmp, self.path)
++        except BaseException:
++            if os.path.exists(tmp):
++                try:
++                    os.remove(tmp)
++                except OSError:
++                    pass
++            raise
++        return stored
++
++
++@dataclass
++class RowResult:
++    work_id: str
++    final_status: str
++    ok: bool = False
++    skipped: bool = False
++    failure_codes: list[int | str] = field(default_factory=list)
++
++
++@dataclass
++class RunSummary:
++    results: list[RowResult] = field(default_factory=list)
++    risk_interrupted: bool = False
++
++    @property
++    def failed(self) -> list[RowResult]:
++        return [r for r in self.results if not r.ok and not r.skipped]
++
++    @property
++    def ok_count(self) -> int:
++        return sum(1 for r in self.results if r.ok)
++
++
++class RunCoordinator:
++    """Per-stage coordinator over one manifest batch.
++
++    ``client`` is the single HTTP owner (BiliClient); pass ``None`` for
++    offline runs — harvest/download stages are then skipped with reason
++    ``offline`` and never touch the network.
++    """
++
++    def __init__(
++        self,
++        archive_root: str | os.PathLike[str],
++        store: ManifestStore,
++        *,
++        client: Any = None,
++        offline: bool = False,
++        sleep: Callable[[float], None] | None = None,
++    ) -> None:
++        self.root = os.fspath(archive_root)
++        self.store = store
++        self.client = client
++        self.offline = offline
++        self._sleep = sleep or time.sleep
++        self.ledger = AttemptLedger(self.root)
++        self._attempt_counts: dict[tuple[str, str], int] = {}
++        for rec in self.ledger.load():
++            key = (rec["work_id"], rec["stage"])
++            self._attempt_counts[key] = max(
++                self._attempt_counts.get(key, 0), rec["attempt"]
++            )
++
++    # ------------------------------------------------------------ recording
++
++    def _record(
++        self,
++        stage: str,
++        work_id: str,
++        outcome: str,
++        *,
++        error_code: int | str | None = None,
++        artifact_paths: list[str] | None = None,
++        started_at: str | None = None,
++    ) -> dict[str, Any]:
++        key = (work_id, stage)
++        self._attempt_counts[key] = self._attempt_counts.get(key, 0) + 1
++        return self.ledger.append(
++            {
++                "stage": stage,
++                "work_id": work_id,
++                "attempt": self._attempt_counts[key],
++                "outcome": outcome,
++                "error_code": error_code,
++                "artifact_paths": list(artifact_paths or []),
++                "started_at": started_at or _utc_now_iso(),
++                "finished_at": _utc_now_iso(),
++            }
++        )
++
++    def failed_work_ids(self) -> set[str]:
++        """Work ids with at least one recorded failed attempt."""
++        prior = self.ledger.load()
++        return {r["work_id"] for r in prior if r["outcome"] == "failed"}
++
++    # ------------------------------------------------------------ execution
++
++    def _identity_for(self, entry: dict[str, Any], key: str) -> PageIdentity | str:
++        work_id = entry.get("work_id")
++        cid = entry.get("cid")
++        bvid = str(entry.get("bvid") or key)
++        if work_id and cid is not None:
++            return page_identity(
++                bvid,
++                int(entry.get("page_index") or 0),
++                int(cid),
++                page_label=str(entry.get("page_label") or ""),
++            )
++        return bvid
++
++    def _current_entry(self, key: str, entry: dict[str, Any]) -> dict[str, Any]:
++        return dict(self.store.get(key) or self.store.get_compatible(key) or entry)
++
++    def _subtitle_segments(
++        self, entry: dict[str, Any]
++    ) -> tuple[list[dict[str, Any]], dict[str, Any]] | None:
++        stem = artifact_stem_for_entry(entry)
++        raw_path = os.path.join(self.root, "subtitles", "raw", f"{stem}.json")
++        if not os.path.isfile(raw_path):
++            return None
++        with open(raw_path, encoding="utf-8") as fh:
++            doc = json.load(fh)
++        segments = [
++            {
++                "start": item.get("from", 0),
++                "end": item.get("to", 0),
++                "text": item.get("content", ""),
++            }
++            for item in doc.get("body", [])
++        ]
++        return segments, doc
++
++    def _existing_audio(self, entry: dict[str, Any]) -> str | None:
++        stem = artifact_stem_for_entry(entry)
++        candidates: list[str] = []
++        rel = entry.get("audio_path")
++        if rel:
++            p = rel if os.path.isabs(str(rel)) else os.path.join(self.root, str(rel))
++            candidates.append(p)
++        base = os.path.join(self.root, "audio", stem)
++        candidates.append(base + ".m4a")
++        candidates.append(base + ".flac")
++        for path in candidates:
++            try:
++                if os.path.isfile(path) and os.path.getsize(path) > 0:
++                    return path
++            except OSError:
++                continue
++        return None
++
++    def _stage_archive_from_subtitle(
++        self, key: str, entry: dict[str, Any], result: RowResult
++    ) -> None:
++        from . import archive as archive_module
++
++        work_id = str(entry.get("work_id") or key)
++        started = _utc_now_iso()
++        data = self._subtitle_segments(entry)
++        if data is None:
++            self._record(
++                "archive", work_id, "skipped",
++                error_code="missing_subtitle_raw", started_at=started,
++            )
++            result.skipped = True
++            result.final_status = str(entry.get("status") or "")
++            return
++        segments, raw = data
++        paths = archive_module.write_archive(
++            self.root, entry, segments, source="subtitle", raw=raw
++        )
++        self._record(
++            "archive", work_id, "ok",
++            artifact_paths=sorted(paths.values()), started_at=started,
++        )
++        self._mark_archived(key, entry, paths)
++        result.ok = True
++        result.final_status = "archived"
++
++    def _mark_archived(
++        self, key: str, entry: dict[str, Any], paths: dict[str, str]
++    ) -> None:
++        updated = self._current_entry(key, entry)
++        updated.update(paths)
++        updated["status"] = "archived"
++        self.store.upsert(updated)
++
++    def _stage_asr_archive(
++        self, key: str, entry: dict[str, Any], result: RowResult
++    ) -> None:
++        from . import archive as archive_module
++
++        work_id = str(entry.get("work_id") or key)
++        started = _utc_now_iso()
++        audio_path = self._existing_audio(entry)
++        if audio_path is None:
++            self._record(
++                "asr", work_id, "skipped",
++                error_code="missing_audio", started_at=started,
++            )
++            result.skipped = True
++            result.final_status = str(entry.get("status") or "")
++            return
++        try:
++            segments = asr_module.transcribe(audio_path)
++        except Exception as exc:  # redacted; batch continues
++            self._record(
++                "asr", work_id, "failed",
++                error_code=_safe_error_code(exc), started_at=started,
++            )
++            raise
++        self._record("asr", work_id, "ok", started_at=started)
++        started = _utc_now_iso()
++        paths = archive_module.write_archive(
++            self.root, self._current_entry(key, entry), segments, source="asr"
++        )
++        self._record(
++            "archive", work_id, "ok",
++            artifact_paths=sorted(paths.values()), started_at=started,
++        )
++        try:
++            audio_rel = os.path.relpath(audio_path, self.root)
++        except ValueError:
++            audio_rel = audio_path
++        current = self._current_entry(key, entry)
++        current["audio_path"] = audio_rel
++        self._mark_archived(key, current, paths)
++        result.ok = True
++        result.final_status = "archived"
++
++    def _stage_download(
++        self, key: str, entry: dict[str, Any], result: RowResult
++    ) -> str:
++        """Download audio for a needs_audio row; returns new manifest status."""
++        work_id = str(entry.get("work_id") or key)
++        started = _utc_now_iso()
++        if self.offline or self.client is None:
++            self._record(
++                "download", work_id, "skipped",
++                error_code="offline", started_at=started,
++            )
++            result.skipped = True
++            return str(entry.get("status") or "needs_audio")
++        identity = self._identity_for(entry, key)
++        stem = artifact_stem(identity)
++        out_path = os.path.join(self.root, "audio", f"{stem}.m4a")
++        final = audio_module.download_audio(
++            self.client, identity, out_path, store=self.store
++        )
++        try:
++            rel = os.path.relpath(final, self.root)
++        except ValueError:
++            rel = final
++        self._record(
++            "download", work_id, "ok", artifact_paths=[rel], started_at=started
++        )
++        return "audio_ok"
++
++    def process_row(self, key: str, entry: dict[str, Any]) -> RowResult:
++        """Execute every applicable stage for one manifest row."""
++        work_id = str(entry.get("work_id") or key)
++        status = str(entry.get("status") or "pending")
++        result = RowResult(work_id=work_id, final_status=status)
++
++        if status in TERMINAL_STATUSES:
++            result.skipped = True
++            return result
++
++        try:
++            if status in _HARVEST_STATUSES:
++                started = _utc_now_iso()
++                if self.offline or self.client is None:
++                    self._record(
++                        "harvest", work_id, "skipped",
++                        error_code="offline", started_at=started,
++                    )
++                    result.skipped = True
++                    return result
++                identity = self._identity_for(entry, key)
++                try:
++                    status = subtitles_module.harvest_subtitle(
++                        self.client, identity, self.store, self.root
++                    )
++                except Exception as exc:
++                    self._record(
++                        "harvest", work_id, "failed",
++                        error_code=_safe_error_code(exc), started_at=started,
++                    )
++                    raise
++                srt_rel = None
++                current = self._current_entry(key, entry)
++                if current.get("srt_path"):
++                    srt_rel = str(current["srt_path"])
++                self._record(
++                    "harvest", work_id, "ok",
++                    artifact_paths=[srt_rel] if srt_rel else [], started_at=started,
++                )
++                entry = current
++            elif status not in _SKIP_HARVEST_STATUSES:
++                raise ValueError(f"unexpected status {status!r}")
++
++            if status == "subtitle_done":
++                entry = self._current_entry(key, entry)
++                self._stage_archive_from_subtitle(key, entry, result)
++            elif status in {"needs_audio", "audio_ok"}:
++                if status == "needs_audio":
++                    status = self._stage_download(key, entry, result)
++                    if result.skipped:
++                        return result
++                    entry = self._current_entry(key, entry)
++                self._stage_asr_archive(key, entry, result)
++            elif status in _HARVEST_STATUSES:
++                # harvest returned an unexpected transition
++                raise ValueError(f"harvest returned unexpected status {status!r}")
++        except Exception as exc:
++            code = _safe_error_code(exc)
++            result.failure_codes.append(code)
++            # stage-level attempt records are written by the stage wrappers;
++            # this catch covers stage-entry errors (e.g. harvest) that did
++            # not record yet.
++            result.final_status = str(
++                (self._current_entry(key, entry) or {}).get("status") or status
++            )
++            raise
++        return result
++
++    def run_batch(
++        self, rows: list[tuple[str, dict[str, Any]]]
++    ) -> RunSummary:
++        """Process rows sequentially; per-item failures do not stop the batch."""
++        from . import bili_client
++
++        summary = RunSummary()
++        for index, (key, entry) in enumerate(rows):
++            work_id = str(entry.get("work_id") or key)
++            status = str(entry.get("status") or "pending")
++            result = RowResult(work_id=work_id, final_status=status)
++            live = status not in TERMINAL_STATUSES and not self.offline
++            try:
++                result = self.process_row(key, entry)
++            except bili_client.RiskBudgetExhausted as exc:
++                code = _safe_error_code(exc)
++                result.failure_codes.append(code)
++                result.final_status = str(
++                    (self._current_entry(key, entry) or {}).get("status") or status
++                )
++                summary.results.append(result)
++                summary.risk_interrupted = True
++                break
++            except bili_client.GoneResponse as exc:
++                code = _safe_error_code(exc)
++                result.failure_codes.append(code)
++                gone = self._current_entry(key, entry)
++                if gone.get("work_id"):
++                    gone["status"] = "gone"
++                    self.store.upsert(gone)
++                result.final_status = "gone"
++            except bili_client.APIResponseError as exc:
++                code = _safe_error_code(exc)
++                result.failure_codes.append(code)
++                current = self._current_entry(key, entry)
++                if current.get("work_id") and isinstance(code, int):
++                    current["last_api_error_code"] = code
++                    self.store.upsert(current)
++            except Exception as exc:
++                code = _safe_error_code(exc)
++                result.failure_codes.append(code)
++            summary.results.append(result)
++            if live and index != len(rows) - 1:
++                self._sleep(3.0)
++        return summary
++
++
++def artifact_stem_for_entry(entry: dict[str, Any]) -> str:
++    """Reuse archive.archive_stem for page-aware stems."""
++    from .archive import archive_stem
++
++    return archive_stem(entry)
+diff --git a/bilibili-asr-archive/tests/test_coordinator.py b/bilibili-asr-archive/tests/test_coordinator.py
+new file mode 100644
+index 0000000..b0c6bb9
+--- /dev/null
++++ b/bilibili-asr-archive/tests/test_coordinator.py
+@@ -0,0 +1,394 @@
++"""RunCoordinator + `bili-asr run` (Task 1): fake transport + stubbed ASR.
++
++No live HTTP: RouterTransport scripts every response; transcribe is
++monkeypatched to a deterministic stub.
++"""
++
++from __future__ import annotations
++
++import json
++import os
++
++from bili_asr import asr as asr_mod
++from bili_asr import bili_client as bc
++from bili_asr.cli import main
++from bili_asr.coordinator import AttemptLedger, RunCoordinator
++from bili_asr.manifest import ManifestStore
++from bili_asr.page_identity import artifact_stem, page_identity
++
++from test_audio import (
++    AUDIO_BYTES,
++    SPI_OK,
++    STREAM_HOST,
++    RouterTransport,
++    nav_response,
++    playurl_ok,
++)
++from test_subtitles import SAMPLE_DOC, nav_ok, player_ok, sub_entry
++
++
++def _row(identity, *, status="meta_ok", duration_s=5, title="clip"):
++    return {
++        "bvid": identity.bvid,
++        "work_id": identity.work_id,
++        "page_index": identity.page_index,
++        "cid": identity.cid,
++        "page_label": identity.page_label,
++        "status": status,
++        "title": title,
++        "duration_s": duration_s,
++        "pubdate": 1,
++        "pubdate_str": "2026-01-02",
++    }
++
++
++def _patch_cli(monkeypatch, transport):
++    monkeypatch.setattr(bc, "build_default_transport", lambda: transport)
++    monkeypatch.setattr(bc, "default_sleeper", lambda: (lambda _s: None))
++    monkeypatch.setattr("bili_asr.cli.time.sleep", lambda _s: None)
++
++
++def _stub_asr(monkeypatch, calls=None):
++    def fake_transcribe(audio_path, model_name=None):
++        if calls is not None:
++            calls.append(audio_path)
++        return [{"start": 0.0, "end": 1.0, "text": "asr-text"}]
++
++    monkeypatch.setattr(asr_mod, "transcribe", fake_transcribe)
++
++
++def _mixed_transport():
++    return RouterTransport(
++        {
++            "finger/spi": [SPI_OK],
++            "nav": [nav_ok(), nav_response()],
++            "player/wbi/v2": [player_ok([sub_entry()]), player_ok([])],
++            "aisubtitle.hdslb.com": [(200, dict(SAMPLE_DOC))],
++            "/x/player/wbi/playurl": [playurl_ok()],
++        },
++        stream_routes={f"{STREAM_HOST}/a30216.m4s": AUDIO_BYTES},
++    )
++
++
++def _cid_transport(sub_cids):
++    return CidRouterTransport(
++        sub_cids,
++        routes={
++            "finger/spi": [SPI_OK],
++            "nav": [nav_ok(), nav_response()],
++            "aisubtitle.hdslb.com": [(200, dict(SAMPLE_DOC))],
++            "playurl": [playurl_ok()],
++        },
++        stream_routes={f"{STREAM_HOST}/a30216.m4s": AUDIO_BYTES},
++    )
++
++
++class CidRouterTransport(RouterTransport):
++    """Routes player/wbi/v2 by the cid param so scripting is per-page.
++
++    Rows run in sorted(work_id) order which need not match queue order
++    for arbitrary bvid names; routing by cid keeps the subtitle-hit /
++    no-subtitle assignment explicit per test.
++    """
++
++    def __init__(self, sub_cids, routes=None, stream_routes=None):
++        routes = dict(routes or {})
++        routes.pop("player/wbi/v2", None)
++        self._playurl_queue = routes.pop("playurl", None)
++        super().__init__(routes, stream_routes)
++        self.sub_cids = set(sub_cids)
++
++    def get_json(self, url, params=None, headers=None, cookies=None, timeout=None):
++        if "player/wbi/v2" in url:
++            cid = dict(params or {}).get("cid")
++            if cid in self.sub_cids:
++                return player_ok([sub_entry()])
++            return player_ok([])
++        if "/x/player/wbi/playurl" in url:
++            # RouterTransport routes by substring; player/wbi/v2 would also
++            # match this URL, so serve playurl from an explicit queue.
++            queue = self._playurl_queue or [playurl_ok()]
++            if not queue:
++                raise AssertionError("queue for playurl exhausted")
++            return queue.pop(0)
++        return super().get_json(url, params=params, headers=headers,
++                                cookies=cookies, timeout=timeout)
++
++
++# ------------------------------------------------------------ ledger atomicity
++
++def test_attempt_ledger_append_is_atomic_no_partial_lines(tmp_root):
++    ledger = AttemptLedger(tmp_root)
++    rec = {
++        "stage": "asr",
++        "work_id": "BV1x:p0",
++        "attempt": 1,
++        "outcome": "ok",
++        "error_code": None,
++        "artifact_paths": ["audio/a.m4a"],
++        "started_at": "2026-08-25T00:00:00Z",
++        "finished_at": "2026-08-25T00:00:01Z",
++    }
++    stored = ledger.append(rec)
++    assert stored["stage"] == "asr"
++    with open(ledger.path, "rb") as fh:
++        content = fh.read()
++    assert content.endswith(b"\n")
++    lines = [l for l in content.decode().split("\n") if l]
++    assert len(lines) == 1
++    json.loads(lines[0])  # complete, valid JSON line
++
++
++def test_attempt_ledger_rejects_non_redacted_payload(tmp_root):
++    ledger = AttemptLedger(tmp_root)
++    bad = {
++        "stage": "harvest",
++        "work_id": "BV1x:p0",
++        "attempt": 1,
++        "outcome": "ok",
++        "error_code": None,
++        "artifact_paths": ["https://signed.example.com/x"],
++        "started_at": "2026-08-25T00:00:00Z",
++        "finished_at": "2026-08-25T00:00:01Z",
++    }
++    import pytest
++
++    with pytest.raises(ValueError):
++        ledger.append(bad)
++    assert not os.path.exists(ledger.path)
++
++
++def test_attempt_counter_increments_across_instantiations(tmp_root):
++    store = ManifestStore(root=tmp_root)
++    sub = page_identity("BVcnt", 0, 111, "p0")
++    store.upsert(_row(sub))
++    coord = RunCoordinator(tmp_root, store)
++    coord._record("harvest", sub.work_id, "ok")
++    coord2 = RunCoordinator(tmp_root, store)
++    coord2._record("harvest", sub.work_id, "ok")
++    records = AttemptLedger(tmp_root).load()
++    assert [r["attempt"] for r in records] == [1, 2]
++
++
++# ------------------------------------------------------------ run: live path
++
++def test_cli_run_pending_executes_stages_and_records_attempts(
++    tmp_root, monkeypatch, capsys
++):
++    sub = page_identity("BVsub", 0, 111, "p0")
++    aud = page_identity("BVaud", 0, 222, "p0")
++    store = ManifestStore(root=tmp_root)
++    store.upsert(_row(sub, title="has-sub"))
++    store.upsert(_row(aud, title="needs-asr"))
++    _stub_asr(monkeypatch)
++    _patch_cli(monkeypatch, _cid_transport({sub.cid}))
++
++    rc = main(["run", "--scope", "pending", "--archive-root", tmp_root])
++    captured = capsys.readouterr()
++    assert rc == 0, captured.err
++
++    loaded = ManifestStore(root=tmp_root).load()
++    assert loaded[sub.work_id]["status"] == "archived"
++    assert loaded[aud.work_id]["status"] == "archived"
++
++    attempts = AttemptLedger(tmp_root).load()
++    stages_by_work = {}
++    for rec in attempts:
++        stages_by_work.setdefault(rec["work_id"], []).append(rec["stage"])
++    assert stages_by_work[sub.work_id] == ["harvest", "archive"]
++    assert stages_by_work[aud.work_id] == ["harvest", "download", "asr", "archive"]
++    assert all(rec["outcome"] == "ok" for rec in attempts)
++    # artifact paths are relative to archive root
++    for rec in attempts:
++        for p in rec["artifact_paths"]:
++            assert not os.path.isabs(p)
++
++
++def test_cli_run_rerun_skips_terminal_rows(tmp_root, monkeypatch, capsys):
++    sub = page_identity("BVsub", 0, 111, "p0")
++    store = ManifestStore(root=tmp_root)
++    store.upsert(_row(sub, title="has-sub"))
++    transcribe_calls: list[str] = []
++    _stub_asr(monkeypatch, transcribe_calls)
++    transport = _mixed_transport()
++    _patch_cli(monkeypatch, transport)
++
++    assert main(["run", "--scope", "pending", "--archive-root", tmp_root]) == 0
++    capsys.readouterr()
++    manifest_path = os.path.join(tmp_root, "manifest", "manifest.jsonl")
++    with open(manifest_path, encoding="utf-8") as fh:
++        first_manifest = fh.read()
++    attempts_path = os.path.join(tmp_root, "coordinator", "attempts.jsonl")
++    with open(attempts_path, encoding="utf-8") as fh:
++        first_attempts = fh.read()
++    first_probe_calls = [c for c in transport.calls if "player/wbi/v2" in c["url"]]
++
++    rc = main(["run", "--scope", "pending", "--archive-root", tmp_root])
++    captured = capsys.readouterr()
++    assert rc == 0, captured.err
++    assert "selected 0 row(s)" in captured.out
++    with open(manifest_path, encoding="utf-8") as fh:
++        assert fh.read() == first_manifest
++    with open(attempts_path, encoding="utf-8") as fh:
++        assert fh.read() == first_attempts
++    probes_now = [c for c in transport.calls if "player/wbi/v2" in c["url"]]
++    assert probes_now == first_probe_calls
++    assert transcribe_calls == []  # no new work
++
++
++def test_cli_run_limit_bounds_batch(tmp_root, monkeypatch, capsys):
++    a = page_identity("BVA", 0, 111, "p0")
++    b = page_identity("BVB", 0, 222, "p0")
++    store = ManifestStore(root=tmp_root)
++    store.upsert(_row(a, title="a"))
++    store.upsert(_row(b, title="b"))
++    _stub_asr(monkeypatch)
++    transport = _mixed_transport()
++    _patch_cli(monkeypatch, transport)
++
++    rc = main(["run", "--scope", "pending", "--limit", "1",
++               "--archive-root", tmp_root])
++    captured = capsys.readouterr()
++    assert rc == 0, captured.err
++    assert "selected 1 row(s)" in captured.out
++    probes = [c for c in transport.calls if "player/wbi/v2" in c["url"]]
++    assert len(probes) == 1
++
++
++def test_cli_run_per_item_failure_batch_continues(tmp_root, monkeypatch, capsys):
++    from bili_asr.asr import ASRModelError
++
++    a = page_identity("BVAud", 0, 111, "p0")
++    b = page_identity("BVBud", 0, 222, "p0")
++    store = ManifestStore(root=tmp_root)
++    store.upsert(_row(a, title="a"))
++    store.upsert(_row(b, title="b"))
++
++    broken = {artifact_stem(a)}
++
++    def flaky(audio_path, model_name=None):
++        if artifact_stem(a) in audio_path:
++            raise ASRModelError("model failed")
++        return [{"start": 0.0, "end": 1.0, "text": "ok-text"}]
++
++    monkeypatch.setattr(asr_mod, "transcribe", flaky)
++    _patch_cli(monkeypatch, _cid_transport(set()))  # no subtitles anywhere
++
++    rc = main(["run", "--scope", "pending", "--archive-root", tmp_root])
++    captured = capsys.readouterr()
++    assert rc == 1
++    loaded = ManifestStore(root=tmp_root).load()
++    assert loaded[a.work_id]["status"] != "archived"
++    assert loaded[b.work_id]["status"] == "archived"
++
++    attempts = AttemptLedger(tmp_root).load()
++    outcomes = {(r["work_id"], r["stage"]): r for r in attempts}
++    failed_asr = [r for r in attempts
++                  if r["stage"] == "asr" and r["outcome"] == "failed"]
++    assert len(failed_asr) == 1
++    assert failed_asr[0]["work_id"] == a.work_id
++    assert failed_asr[0]["error_code"] == "ASRModelError"
++    # no raw exception text persisted
++    with open(os.path.join(tmp_root, "coordinator", "attempts.jsonl"),
++              encoding="utf-8") as fh:
++        assert "model failed" not in fh.read()
++    del broken, outcomes
++
++
++def test_cli_run_specific_work_id_scope(tmp_root, monkeypatch, capsys):
++    sub = page_identity("BVone", 0, 111, "p0")
++    other = page_identity("BVtwo", 0, 222, "p0")
++    store = ManifestStore(root=tmp_root)
++    store.upsert(_row(sub, title="one"))
++    store.upsert(_row(other, title="two"))
++    _stub_asr(monkeypatch)
++    transport = _mixed_transport()
++    _patch_cli(monkeypatch, transport)
++
++    rc = main(["run", "--scope", sub.work_id, "--archive-root", tmp_root])
++    captured = capsys.readouterr()
++    assert rc == 0, captured.err
++    loaded = ManifestStore(root=tmp_root).load()
++    assert loaded[sub.work_id]["status"] == "archived"
++    assert loaded[other.work_id]["status"] == "meta_ok"
++
++
++def test_cli_run_gone_marks_terminal_and_continues(tmp_root, monkeypatch, capsys):
++    a = page_identity("BVGone", 0, 111, "p0")
++    b = page_identity("BVokX", 0, 222, "p0")
++    store = ManifestStore(root=tmp_root)
++    store.upsert(_row(a, title="a"))
++    store.upsert(_row(b, title="b"))
++    _stub_asr(monkeypatch)
++
++    class GoneForCid(CidRouterTransport):
++        """Returns a terminal gone API body for one cid (risk-classified)."""
++
++        def __init__(self, gone_cid, sub_cids, **kwargs):
++            super().__init__(sub_cids, **kwargs)
++            self.gone_cid = gone_cid
++
++        def get_json(self, url, params=None, **kwargs):
++            if "player/wbi/v2" in url:
++                cid = dict(params or {}).get("cid")
++                if cid == self.gone_cid:
++                    return (200, {"code": -404, "data": {}})
++            return super().get_json(url, params=params, **kwargs)
++
++    transport = GoneForCid(
++        a.cid, {b.cid},
++        routes={
++            "finger/spi": [SPI_OK],
++            "nav": [nav_ok(), nav_response()],
++            "aisubtitle.hdslb.com": [(200, dict(SAMPLE_DOC))],
++            "playurl": [playurl_ok()],
++        },
++        stream_routes={f"{STREAM_HOST}/a30216.m4s": AUDIO_BYTES},
++    )
++    _patch_cli(monkeypatch, transport)
++
++    rc = main(["run", "--scope", "pending", "--archive-root", tmp_root])
++    captured = capsys.readouterr()
++    assert rc == 1
++    loaded = ManifestStore(root=tmp_root).load()
++    assert loaded[a.work_id]["status"] == "gone"
++    assert loaded[b.work_id]["status"] == "archived"
++
++
++def test_cli_run_offline_flag_skips_http_stages(tmp_root, monkeypatch, capsys):
++    # offline semantics are Task 2; Task 1 only guarantees harvest/download
++    # are never called (no HTTP at all in this run).
++    sub = page_identity("BVsub", 0, 111, "p0")
++    store = ManifestStore(root=tmp_root)
++    store.upsert(_row(sub, title="has-sub"))
++    _stub_asr(monkeypatch)
++    transport = _mixed_transport()
++    _patch_cli(monkeypatch, transport)
++
++    rc = main(["run", "--scope", "pending", "--offline",
++               "--archive-root", tmp_root])
++    captured = capsys.readouterr()
++    assert rc == 0, captured.err
++    assert transport.calls == []  # no HTTP issued
++    attempts = AttemptLedger(tmp_root).load()
++    assert [(r["stage"], r["outcome"], r["error_code"]) for r in attempts] == [
++        ("harvest", "skipped", "offline"),
++    ]
++
++
++def test_cli_run_appends_run_ledger_record(tmp_root, monkeypatch, capsys):
++    from bili_asr.run_ledger import RunLedger
++
++    sub = page_identity("BVsub", 0, 111, "p0")
++    store = ManifestStore(root=tmp_root)
++    store.upsert(_row(sub, title="has-sub"))
++    _stub_asr(monkeypatch)
++    _patch_cli(monkeypatch, _mixed_transport())
++
++    rc = main(["run", "--scope", "pending", "--archive-root", tmp_root])
++    assert rc == 0
++    records = RunLedger(root=tmp_root).load()
++    run_records = [r for r in records if r.get("command") == "run"]
++    assert len(run_records) == 1
++    assert run_records[0]["exit_code"] == 0
++    assert sub.work_id in (run_records[0].get("work_ids") or [])

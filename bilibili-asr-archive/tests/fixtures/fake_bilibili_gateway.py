@@ -4,43 +4,54 @@ Every package-seam test scripts these fakes instead of touching the pinned
 ``bilibili-api-python`` distribution or the network:
 
 - ``FakeGateway`` is the plain ``BilibiliGateway`` protocol double used by
-  the ingestor tests: scripted pages, parts, and summary completions with
-  recorded fetch calls; unexpected fetches fail loudly instead of returning
-  script-free data.
+  the ingestor and CLI tests: scripted pages, parts, summary completions and
+  per-part subtitle listings/bodies with recorded fetch calls, plus the
+  credential the composition root handed the double; unexpected fetches fail
+  loudly instead of returning script-free data.
 - ``FakeUpstreamScript`` / ``build_fake_package`` / ``bilibili_api_seam``
   install the fake ``bilibili_api`` package on ``sys.modules`` for the real
   adapter tests.  The fake mirrors only the documented import surface the
   adapter may use (``Credential``, ``request_settings.set_proxy`` /
-  ``get_proxy``, the ``user`` endpoint description and ``access_id`` route,
-  the WBI-signed ``utils.network.Api`` the user-video page call is issued
-  through, ``video.Video.get_info`` / ``get_pages``, and the exceptions
-  taxonomy) and exposes no playback, subtitle, audio, or download method, so
-  a silent switch to another package API fails loudly instead of silently
-  succeeding.  ``applied_proxies`` records every proxy the adapter hands to
-  the package settings, so its apply-once behavior is asserted without a
-  network call.
-- ``FakeApiRequest`` with ``script.api_requests`` records every page request
-  the adapter issues through the package's ``Api``: the transport flags it
-  took from the package endpoint description (device-fingerprint ``dm``
-  overridden) and the exact parameters it handed over, so the
-  risk-control-relevant call shape is assertable without a network call.
-  ``script.access_id_calls`` records the separate ``access_id`` token route
-  (kept out of ``calls``: it is a memoized, best-effort token fetch, not a
-  metadata call).
+  ``get_proxy``, the ``user`` and ``video`` endpoint descriptions and the
+  ``access_id`` route, the WBI-signed ``utils.network.Api`` every documented
+  request is issued through, ``video.Video.get_info`` / ``get_pages``, and the
+  exceptions taxonomy) and exposes no subtitle, playback, audio, or download
+  *method* on those classes, so a silent switch to another package API fails
+  loudly instead of silently succeeding.  ``applied_proxies`` records every
+  proxy the adapter hands to the package settings, so its apply-once behavior
+  is asserted without a network call.
+- ``FakeApiRequest`` with ``script.api_requests`` records every request the
+  adapter issues through the package's ``Api``, in issue order: the transport
+  flags it took from the package endpoint description (device-fingerprint
+  ``dm`` overridden), the ``raw`` request argument, whether the credential it
+  carried held a SESSDATA value, and the exact parameters it handed over, so
+  the risk-control-relevant and credential-boundary call shapes are assertable
+  without a network call.  ``script.access_id_calls`` records the separate
+  ``access_id`` token route (kept out of ``calls``: it is a memoized,
+  best-effort token fetch, not a metadata call).
+- ``script.player_response`` / ``script.player_error`` script the player call
+  (``video.API["info"]["get_player_info"]``, whose unwrapped payload carries
+  the subtitle inventory) and ``script.subtitle_bodies`` scripts the signed
+  subtitle documents by URL: a plain document, a ``BaseException`` to raise,
+  or a callable receiving the fetched URL.  An unscripted document URL fails
+  loudly, so an adapter that fetches somewhere it did not mean to is caught.
 - ``script_parts_by_bvid`` scripts one parts payload per requested ``bvid``
   for seam tests that collect a page holding several distinct videos.
 - ``DOCUMENTED_METADATA_CALLS`` with ``assert_only_documented_metadata_calls``
   pins the upstream call names the gateway may issue.
 - ``NO_LEAK_MARKERS`` with ``assert_leaks_no_markers`` holds the
   realistic-looking secret and raw-payload sentinel texts (a SESSDATA
-  value, a signed playback URL, a raw JSON response body, and raw upstream
-  exception text) plus the scanner behind the no-secret assertions, and
-  ``persisted_row_text`` renders persisted rows for those assertions.
+  value, a signed playback URL, the signed subtitle-document URL in both the
+  absolute and the protocol-relative form upstream answers, a raw JSON
+  response body, and raw upstream exception text) plus the scanner behind the
+  no-secret assertions, and ``persisted_row_text`` renders persisted rows for
+  those assertions.
 """
 
 from __future__ import annotations
 
 import dataclasses
+import importlib
 import sys
 import types
 from enum import Enum
@@ -89,13 +100,48 @@ FAKE_USER_VIDEO_PAGE_ENDPOINT = {
 #: surfacing only live.
 MIRRORED_ENDPOINT_FIELDS = ("url", "method", "verify", "wbi")
 
+#: The package's own endpoint description for the player call
+#: (``bilibili_api.video.API["info"]["get_player_info"]``), mirroring the
+#: pinned distribution literally — including ``dm: True``.  The adapter must
+#: take ``url``/``method``/``wbi`` from it and override ``dm``/``verify``, so a
+#: package-side change to any of those fields stays visible here.  Unlike the
+#: user-video page description, this endpoint declares its query fields under
+#: ``data``; those are field documentation the adapter must not forward
+#: verbatim, and the player call's parameters are none of the values below.
+#: The mirror itself is not taken on trust: the offline parity test in
+#: ``tests/test_bilibili_api_gateway.py`` compares it against the installed
+#: pinned distribution it claims to mirror, field for field.
+FAKE_PLAYER_ENDPOINT = {
+    "url": "https://api.bilibili.com/x/player/wbi/v2",
+    "method": "GET",
+    "verify": True,
+    "wbi": True,
+    "dm": True,
+    "data": {
+        "aid": "int: av 号。与 bvid 任选其一",
+        "cid": "int: 分 P id",
+        "ep_id": "int: 番剧分集 id",
+        "isGaiaAvoided": "bool: false",
+        "web_location": "int: 1315873",
+    },
+    "comment": "获取视频上一次播放的记录，字幕和地区信息。需要 分集的 cid, 返回数据中含有json字幕的链接",
+}
+
 #: The exact upstream call names the gateway adapter may issue.  The page call
 #: is recorded as ``space.arc.search`` because the adapter issues that request
 #: itself through the package's ``Api``: the package's ``User.get_videos``
 #: delegate cannot pass upstream risk control (it injects device-fingerprint
 #: ``dm`` parameters and scrapes ``w_webid`` from a page that no longer
-#: server-renders it).
-DOCUMENTED_METADATA_CALLS = ("space.arc.search", "video.get_info", "video.get_pages")
+#: server-renders it).  The two subtitle-acquisition routes are the plan's own
+#: authorized surface: the player track listing and the signed subtitle
+#: document.  The set is exact — nothing else may appear.
+DOCUMENTED_METADATA_CALLS = (
+    "space.arc.search",
+    "video.get_info",
+    "video.get_pages",
+    "player.track_list",
+    "subtitle.body",
+)
 
 #: Realistic-looking SESSDATA value that must never leave the process.
 SESSDATA_BOUNDARY_VALUE = "SESSDATA-VALUE-THAT-MUST-NOT-LEAK"
@@ -105,16 +151,34 @@ SIGNED_URL_MARKER = (
     "https://upos.example.com/upyun/ssl/part.m4s?sign=SIGNED-URL-THAT-MUST-NOT-LEAK"
 )
 
+#: Realistic-looking signed subtitle-document URL that must never leave the
+#: process: it is what a leaked ``subtitle_url`` would look like, and it is
+#: what the seam scripts every track with — so the shipped no-leak scanner
+#: catches a leaked subtitle URL the same way it catches a playback URL.
+SIGNED_SUBTITLE_URL_MARKER = (
+    "https://aisubtitle.example.com/bfs/subtitle/part.json"
+    "?sign=SIGNED-SUBTITLE-URL-THAT-MUST-NOT-LEAK"
+)
+
+#: The same signed document URL in the protocol-relative form upstream also
+#: returns, which the adapter must normalize to ``https:`` before fetching.
+PROTOCOL_RELATIVE_SUBTITLE_URL = SIGNED_SUBTITLE_URL_MARKER.removeprefix("https:")
+
 #: Realistic-looking raw JSON response body that must never be persisted.
 RAW_JSON_BODY_MARKER = '{"code":-412,"message":"RAW-JSON-BODY-THAT-MUST-NOT-LEAK"}'
 
 #: Realistic-looking raw upstream exception text that must never be persisted.
 RAW_UPSTREAM_EXCEPTION_MARKER = "RAW-UPSTREAM-EXCEPTION-THAT-MUST-NOT-LEAK"
 
-#: All sentinels the no-secret assertions scan persisted surfaces for.
+#: All sentinels the no-secret assertions scan persisted surfaces for.  The
+#: subtitle-document URL is held in both forms upstream answers it in — the
+#: absolute one and the protocol-relative one — so a URL that skipped the
+#: adapter's ``https:`` normalization is still caught by the scanner.
 NO_LEAK_MARKERS = (
     SESSDATA_BOUNDARY_VALUE,
     SIGNED_URL_MARKER,
+    SIGNED_SUBTITLE_URL_MARKER,
+    PROTOCOL_RELATIVE_SUBTITLE_URL,
     RAW_JSON_BODY_MARKER,
     RAW_UPSTREAM_EXCEPTION_MARKER,
 )
@@ -191,7 +255,12 @@ class FakeApiRequest:
 
     ``params`` is the exact mapping the adapter handed to ``update_params``,
     captured when the request was issued, with the package's
-    device-fingerprint injection mirrored when ``dm`` is on.
+    device-fingerprint injection mirrored when ``dm`` is on.  ``raw`` is the
+    ``Api.request(raw=...)`` argument the call carried (in the pinned package
+    the request argument decides whether the ``data``/``result`` envelope is
+    unwrapped).  ``has_sessdata`` records whether the credential the call
+    carried held a SESSDATA value, which is how the empty-credential document
+    fetch is assertable without ever comparing credential values.
     """
 
     url: str
@@ -200,6 +269,8 @@ class FakeApiRequest:
     wbi: bool
     dm: bool
     params: dict
+    raw: bool = False
+    has_sessdata: bool = False
 
 
 @dataclasses.dataclass
@@ -214,12 +285,18 @@ class FakeUpstreamScript:
     :func:`script_parts_by_bvid`).
 
     ``videos_response`` / ``videos_error`` script the user-video page request
-    the adapter issues through the package ``Api``; ``access_id`` /
+    the adapter issues through the package ``Api``; ``player_response`` /
+    ``player_error`` script the player request the same way (a plain value or
+    a callable receiving the requested ``bvid``/``cid``), whose unwrapped
+    payload carries the subtitle inventory; ``subtitle_bodies`` scripts the
+    signed subtitle documents by URL (a plain document, a ``BaseException`` to
+    raise, or a callable receiving the fetched URL).  ``access_id`` /
     ``access_id_error`` script the separate ``access_id`` token route
     (``None`` by default, which is what the route currently yields in
-    production).  ``user_video_page_endpoint`` is the package-side endpoint
-    description the adapter must read its transport fields from; a test may
-    rewrite it before the adapter module is (re-)imported.
+    production).  ``user_video_page_endpoint`` / ``player_endpoint`` are the
+    package-side endpoint descriptions the adapter must read its transport
+    fields from; a test may rewrite either before the adapter module is
+    (re-)imported.
     """
 
     videos_response: object = None
@@ -228,10 +305,16 @@ class FakeUpstreamScript:
     parts_error: BaseException | None = None
     info_response: object = None
     info_error: BaseException | None = None
+    player_response: object = None
+    player_error: BaseException | None = None
+    subtitle_bodies: dict[str, object] = dataclasses.field(default_factory=dict)
     access_id: str | None = None
     access_id_error: BaseException | None = None
     user_video_page_endpoint: dict = dataclasses.field(
         default_factory=lambda: dict(FAKE_USER_VIDEO_PAGE_ENDPOINT)
+    )
+    player_endpoint: dict = dataclasses.field(
+        default_factory=lambda: dict(FAKE_PLAYER_ENDPOINT)
     )
     calls: list[str] = dataclasses.field(default_factory=list)
     access_id_calls: list[str] = dataclasses.field(default_factory=list)
@@ -240,20 +323,37 @@ class FakeUpstreamScript:
 
 
 class FakeGateway:
-    """Scripted ``BilibiliGateway`` protocol double for ingestor tests.
+    """Scripted ``BilibiliGateway`` protocol double for ingestor and CLI tests.
 
     Unexpected fetches fail loudly instead of returning script-free data;
     a scripted ``BaseException`` value is raised as-is.
+
+    The two subtitle calls are scripted per part, by ``cid``:
+    ``script_subtitle_tracks`` scripts what ``get_subtitle_tracks`` answers
+    (an inventory, or an empty tuple for a part nothing is visible for, or a
+    ``GatewayError`` to raise) and ``script_subtitle_segments`` scripts what
+    ``fetch_subtitle_segments`` answers (a body, or a ``GatewayError`` to
+    raise).  ``listing_cids`` and ``body_cids`` record the parts whose listing
+    and whose body were requested, in issue order, so the candidate order, the
+    selected part, and "the body was never fetched" are assertable.  The
+    ``sessdata`` attribute holds the credential the composition root handed the
+    double — ``None`` until a test installs it that way — so the credential
+    boundary is assertable without ever comparing a value in output.
     """
 
     def __init__(self, package_version: str = FAKE_PACKAGE_VERSION) -> None:
         self.package_version = package_version
+        self.sessdata: str | None = None
         self.page_calls: list[tuple[int, int, int]] = []
         self.parts_calls: list[str] = []
         self.completion_calls: list[str] = []
+        self.listing_cids: list[int] = []
+        self.body_cids: list[int] = []
         self._pages: dict[int, object] = {}
         self._parts: dict[str, object] = {}
         self._completions: dict[str, object] = {}
+        self._subtitle_tracks: dict[int, object] = {}
+        self._subtitle_segments: dict[int, object] = {}
 
     def script_page(self, page_number: int, page: object) -> None:
         self._pages[page_number] = page
@@ -263,6 +363,16 @@ class FakeGateway:
 
     def script_completion(self, bvid: str, completed: object) -> None:
         self._completions[bvid] = completed
+
+    def script_subtitle_tracks(self, cid: int, tracks: object) -> None:
+        """Script what the track listing answers for one part, by its ``cid``."""
+
+        self._subtitle_tracks[cid] = tracks
+
+    def script_subtitle_segments(self, cid: int, segments: object) -> None:
+        """Script what the body fetch answers for one part, by its ``cid``."""
+
+        self._subtitle_segments[cid] = segments
 
     async def get_user_video_page(
         self, mid: int, page_number: int, page_size: int = 30
@@ -277,6 +387,22 @@ class FakeGateway:
     async def get_completed_video_summary(self, summary: VideoSummary) -> VideoSummary:
         self.completion_calls.append(summary.bvid)
         return self._scripted(self._completions, summary.bvid, "completed-summary")
+
+    async def get_subtitle_tracks(
+        self, bvid: str, cid: int
+    ) -> tuple[SubtitleTrack, ...]:
+        self.listing_cids.append(cid)
+        return self._scripted(
+            self._subtitle_tracks, cid, "subtitle-track listing"
+        )
+
+    async def fetch_subtitle_segments(
+        self, track: SubtitleTrack, bvid: str, cid: int
+    ) -> tuple[SubtitleSegment, ...]:
+        self.body_cids.append(cid)
+        return self._scripted(
+            self._subtitle_segments, cid, "subtitle-segment body"
+        )
 
     def get_package_version(self) -> str:
         return self.package_version
@@ -362,16 +488,20 @@ def build_fake_package(script: FakeUpstreamScript) -> dict[str, types.ModuleType
     network_mod = types.ModuleType("bilibili_api.utils.network")
 
     class Api:
-        """Mirror of ``utils.network.Api`` for the documented page request.
+        """Mirror of ``utils.network.Api`` for the documented requests.
 
         The package's ``Api`` is built from an endpoint description whose
         ``url``/``method``/``verify``/``wbi`` the adapter must state and whose
         ``dm`` it must override, so those fields are required here and are
-        recorded with the parameters of the issued request.  ``result``
-        answers with the scripted page payload or raises the scripted
-        failure.  Only the local request shaping under test is mirrored (the
-        ``dm`` parameter injection); signing, cookies, and retries are not,
-        because the adapter may not depend on them.
+        recorded with the parameters of the issued request.  Three routes are
+        mirrored: the user-video page call and the player call, both answered
+        with the scripted unwrapped payload exactly as the pin's ``raw=False``
+        result delivers it, and the signed subtitle-document fetch, which the
+        pin answers only to ``request(raw=True)`` because a subtitle document
+        has no ``code``/``data`` envelope to unwrap.  Only the local request
+        shaping under test is mirrored (the ``dm`` parameter injection and the
+        ``raw`` request argument); signing, cookies, retries, and byte
+        transport are not, because the adapter may not depend on them.
         """
 
         def __init__(
@@ -399,13 +529,63 @@ def build_fake_package(script: FakeUpstreamScript) -> dict[str, types.ModuleType
 
         @property
         async def result(self) -> object:
-            """Mirror of ``Api.result``: record, then answer or fail."""
+            """Mirror of ``Api.result``: the pin's ``request()`` with no args."""
+
+            return await self.request()
+
+        async def request(self, raw: bool = False, byte: bool = False) -> object:
+            """Mirror of ``Api.request``: record the call, then answer or fail.
+
+            ``raw`` selects which document is answered with: unless it is set
+            the pin unwraps the ``data``/``result`` envelope, which a subtitle
+            document does not have, so an unset ``raw`` on the signed-document
+            route is rejected the way the pin rejects it.
+            """
+
+            if byte:
+                raise AssertionError("the seam mirrors no byte transport")
+            if self._is_player_call():
+                if raw:
+                    raise AssertionError(
+                        "the pin answers the whole envelope to"
+                        " request(raw=True); the seam scripts the unwrapped"
+                        " player payload only"
+                    )
+                return self._player_result()
+            if self._is_user_video_page_call():
+                if raw:
+                    raise AssertionError(
+                        "the pin answers the whole envelope to"
+                        " request(raw=True); the seam scripts the unwrapped"
+                        " payload only"
+                    )
+                return self._user_video_page_result()
+            if not raw:
+                raise FakeResponseCodeException(-1, "API 返回数据未含 code 字段")
+            return self._subtitle_document_result()
+
+        def _is_player_call(self) -> bool:
+            """True for the player call, at the scripted or the mirrored URL."""
+
+            return self.url in (
+                script.player_endpoint["url"],
+                FAKE_PLAYER_ENDPOINT["url"],
+            )
+
+        def _is_user_video_page_call(self) -> bool:
+            """True for the page call, at the scripted or the mirrored URL."""
+
+            return self.url in (
+                script.user_video_page_endpoint["url"],
+                FAKE_USER_VIDEO_PAGE_ENDPOINT["url"],
+            )
+
+        def _record(self, call: str, *, raw: bool = False) -> None:
+            """Record one issued request with its flags and parameter set."""
 
             params = dict(self.params)
             if self.dm:
                 params.update(_device_fingerprint_params())
-            page_number = params.get("pn")
-            page_size = params.get("ps")
             script.api_requests.append(
                 FakeApiRequest(
                     url=self.url,
@@ -414,15 +594,52 @@ def build_fake_package(script: FakeUpstreamScript) -> dict[str, types.ModuleType
                     wbi=self.wbi,
                     dm=self.dm,
                     params=params,
+                    raw=raw,
+                    has_sessdata=bool(getattr(self.credential, "sessdata", None)),
                 )
             )
-            script.calls.append(f"space.arc.search(pn={page_number}, ps={page_size})")
+            script.calls.append(call)
+
+        def _user_video_page_result(self) -> object:
+            """Answer the user-video page call with the scripted payload."""
+
+            page_number = self.params.get("pn")
+            page_size = self.params.get("ps")
+            self._record(f"space.arc.search(pn={page_number}, ps={page_size})")
             if script.videos_error is not None:
                 raise script.videos_error
             response = script.videos_response
             if callable(response):
                 response = response(pn=page_number, ps=page_size)
             return response
+
+        def _player_result(self) -> object:
+            """Answer the player call with the scripted subtitle inventory."""
+
+            bvid = self.params.get("bvid")
+            cid = self.params.get("cid")
+            self._record(f"player.track_list(bvid={bvid}, cid={cid})")
+            if script.player_error is not None:
+                raise script.player_error
+            response = script.player_response
+            if callable(response):
+                response = response(bvid=bvid, cid=cid)
+            return response
+
+        def _subtitle_document_result(self) -> object:
+            """Answer the signed subtitle-document fetch with its scripted body."""
+
+            self._record("subtitle.body", raw=True)
+            if self.url not in script.subtitle_bodies:
+                raise AssertionError(
+                    f"unexpected subtitle-document fetch: {self.url!r}"
+                )
+            outcome = script.subtitle_bodies[self.url]
+            if callable(outcome):
+                outcome = outcome(self.url)
+            if isinstance(outcome, BaseException):
+                raise outcome
+            return outcome
 
     network_mod.Api = Api
 
@@ -457,6 +674,7 @@ def build_fake_package(script: FakeUpstreamScript) -> dict[str, types.ModuleType
             return response
 
     video_mod.Video = Video
+    video_mod.API = {"info": {"get_player_info": script.player_endpoint}}
 
     package.user = user_mod
     package.video = video_mod
@@ -542,6 +760,45 @@ def make_detail_response(**overrides: object) -> dict:
     return detail
 
 
+def make_subtitle_track(**overrides: object) -> dict:
+    """Build one documented ``data.subtitle.subtitles[]`` entry.
+
+    The default is an uploader/human (CC) track: it carries neither of the
+    upstream AI markers, which is the conservative reading.  Its
+    ``subtitle_url`` is the signed-document sentinel, so a leaked track URL is
+    caught by the same scanner as every other secret.
+    """
+
+    track = {
+        "id": 1,
+        "lan": "zh-CN",
+        "lan_doc": "中文（中国）",
+        "subtitle_url": SIGNED_SUBTITLE_URL_MARKER,
+    }
+    track.update(overrides)
+    return track
+
+
+def make_player_response(*tracks: object, allow_submit: bool = False) -> dict:
+    """Build the player call's unwrapped payload carrying subtitle tracks."""
+
+    return {"subtitle": {"allow_submit": allow_submit, "subtitles": list(tracks)}}
+
+
+def make_subtitle_entry(**overrides: object) -> dict:
+    """Build one documented subtitle-document ``body`` row, in seconds."""
+
+    entry = {"from": 0.0, "to": 1.5, "content": "未明子"}
+    entry.update(overrides)
+    return entry
+
+
+def make_subtitle_document(*entries: object) -> dict:
+    """Build one documented subtitle JSON document around the given rows."""
+
+    return {"font_size": 0.4, "body": list(entries)}
+
+
 def persisted_row_text(connection: object) -> str:
     """Render every persisted row of every table and view as one text blob.
 
@@ -603,10 +860,41 @@ def bilibili_api_seam(monkeypatch) -> FakeUpstreamScript:
         sys.modules.pop(GATEWAY_ADAPTER_MODULE, None)
 
 
+@pytest.fixture
+def fake_gateway_seam(monkeypatch) -> FakeGateway:
+    """Install one ``FakeGateway`` as the product adapter and yield it.
+
+    Every command handler imports ``BilibiliApiGateway`` inside its own body,
+    so replacing that class in its module puts the whole command path — CLI
+    composition root included — on this protocol double, with no network and no
+    package seam.  The replacement records the credential the composition root
+    handed it on ``FakeGateway.sessdata``.
+
+    The module is reached through ``importlib`` deliberately: the package-seam
+    fixture above drops the adapter module from ``sys.modules``, and a plain
+    ``import ... as`` would then bind the parent package's stale attribute
+    instead of the module the handler imports from.
+    """
+
+    gateway = FakeGateway()
+    gateway_module = importlib.import_module(GATEWAY_ADAPTER_MODULE)
+
+    def factory(
+        sessdata: str | None = None, proxy: str | None = None
+    ) -> FakeGateway:
+        del proxy
+        gateway.sessdata = sessdata
+        return gateway
+
+    monkeypatch.setattr(gateway_module, "BilibiliApiGateway", factory)
+    return gateway
+
+
 __all__ = [
     "BVID",
     "DOCUMENTED_METADATA_CALLS",
     "FAKE_PACKAGE_VERSION",
+    "FAKE_PLAYER_ENDPOINT",
     "FAKE_USER_VIDEO_PAGE_ENDPOINT",
     "FakeApiException",
     "FakeApiRequest",
@@ -620,18 +908,25 @@ __all__ = [
     "MID",
     "MIRRORED_ENDPOINT_FIELDS",
     "NO_LEAK_MARKERS",
+    "PROTOCOL_RELATIVE_SUBTITLE_URL",
     "PUBDATE",
     "RAW_JSON_BODY_MARKER",
     "RAW_UPSTREAM_EXCEPTION_MARKER",
     "SESSDATA_BOUNDARY_VALUE",
+    "SIGNED_SUBTITLE_URL_MARKER",
     "SIGNED_URL_MARKER",
     "UPSTREAM_ERROR_TEXT",
     "assert_leaks_no_markers",
     "assert_only_documented_metadata_calls",
     "bilibili_api_seam",
     "build_fake_package",
+    "fake_gateway_seam",
     "make_detail_response",
     "make_part_item",
+    "make_player_response",
+    "make_subtitle_document",
+    "make_subtitle_entry",
+    "make_subtitle_track",
     "make_videos_response",
     "make_vlist_item",
     "persisted_row_text",

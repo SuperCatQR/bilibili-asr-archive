@@ -1,4 +1,11 @@
-"""Command-level frozen status transitions through harvest / download / asr."""
+"""Command-level frozen status transitions through download / asr.
+
+The legacy manifest states these commands start from (``needs_audio``,
+``subtitle_done``) are produced by the legacy subtitle producer
+(``subtitles.harvest_subtitle``) directly: ``harvest-subs`` moved to the SQLite
+transcript path and no longer writes the manifest, so these tests drive the
+ASR/audio path from the state a pre-cutover archive already holds.
+"""
 
 from __future__ import annotations
 
@@ -85,6 +92,26 @@ def _subtitle_transport():
     )
 
 
+def _legacy_subtitle_state(root, identity, transport) -> str:
+    """Produce the legacy manifest state the ASR/audio path still reads.
+
+    ``harvest-subs`` no longer writes the manifest — it stores normalized
+    transcripts in ``archive.db`` — so the legacy producer the pilot and
+    coordinator paths still call is driven directly here: the resulting row and
+    its raw/srt artifacts are exactly what a pre-cutover archive holds.
+    """
+    from bili_asr import subtitles
+
+    store = ManifestStore(root=root)
+    client = bc.BiliClient(
+        transport=transport,
+        sleeper=lambda _seconds: None,
+        jitter=lambda: 0.0,
+        sessdata=None,
+    )
+    return subtitles.harvest_subtitle(client, identity, store, root)
+
+
 def test_download_audio_rejects_escaped_downloader_result(tmp_root, monkeypatch, capsys):
     from bili_asr import audio
     identity = page_identity("BVescape", 0, 333, "p0")
@@ -97,7 +124,7 @@ def test_download_audio_rejects_escaped_downloader_result(tmp_root, monkeypatch,
     assert rc == 1
     assert "0 audio_ok" in captured.out
     assert ManifestStore(root=tmp_root).get(identity.work_id)["status"] == "needs_audio"
-def test_cli_audio_branch_meta_ok_needs_audio_audio_ok_archived(
+def test_cli_audio_branch_needs_audio_audio_ok_archived(
     tmp_root, monkeypatch, capsys
 ):
     identity = page_identity("BVaud", 0, 222, "p0")
@@ -112,11 +139,9 @@ def test_cli_audio_branch_meta_ok_needs_audio_audio_ok_archived(
     _patch_cli(monkeypatch)
     monkeypatch.setattr(bc, "build_default_transport", _audio_transport)
 
-    rc = main(["harvest-subs", "--archive-root", tmp_root])
+    assert _legacy_subtitle_state(tmp_root, identity, _audio_transport()) == "needs_audio"
     captured = capsys.readouterr()
-    assert rc == 0, captured.err
-    after_harvest = ManifestStore(root=tmp_root).get(identity.work_id)
-    assert after_harvest["status"] == "needs_audio"
+    assert ManifestStore(root=tmp_root).get(identity.work_id)["status"] == "needs_audio"
 
     rc = main(["download-audio", "--missing-subs", "--archive-root", tmp_root])
     captured = capsys.readouterr()
@@ -136,7 +161,7 @@ def test_cli_audio_branch_meta_ok_needs_audio_audio_ok_archived(
     assert transcribe_calls == [audio_abs]
 
 
-def test_cli_subtitle_branch_meta_ok_subtitle_done_archived_skips_asr(
+def test_cli_subtitle_branch_subtitle_done_archived_skips_asr(
     tmp_root, monkeypatch, capsys
 ):
     identity = page_identity("BVsub", 0, 111, "p0")
@@ -150,9 +175,11 @@ def test_cli_subtitle_branch_meta_ok_subtitle_done_archived_skips_asr(
     monkeypatch.setattr(asr_mod, "transcribe", fake_transcribe)
     _patch_cli(monkeypatch, _subtitle_transport())
 
-    rc = main(["harvest-subs", "--archive-root", tmp_root])
-    captured = capsys.readouterr()
-    assert rc == 0, captured.err
+    assert (
+        _legacy_subtitle_state(tmp_root, identity, _subtitle_transport())
+        == "subtitle_done"
+    )
+    capsys.readouterr()
     after_harvest = ManifestStore(root=tmp_root).get(identity.work_id)
     assert after_harvest["status"] == "subtitle_done"
     assert os.path.isfile(os.path.join(tmp_root, after_harvest["srt_path"]))
@@ -164,37 +191,6 @@ def test_cli_subtitle_branch_meta_ok_subtitle_done_archived_skips_asr(
     assert archived["status"] == "archived"
     assert os.path.isfile(os.path.join(tmp_root, archived["srt_path"]))
     assert transcribe_calls == []
-
-
-def test_cli_harvest_risk_exhaustion_preserves_last_stable_status(
-    tmp_root, monkeypatch, capsys
-):
-    first = page_identity("BVok", 0, 111, "p0")
-    second = page_identity("BVrisk", 0, 222, "p0")
-    store = ManifestStore(root=tmp_root)
-    store.upsert(_row(first, title="stable"))
-    store.upsert(_row(second, title="risk"))
-
-    risk = (412, {"code": -412, "message": "request too frequent"})
-    transport = RouterTransport(
-        {
-            "finger/spi": [SPI_OK] * 8,
-            "nav": [nav_ok()],
-            "player/wbi/v2": [player_ok([sub_entry()])] + [risk] * 8,
-            "aisubtitle.hdslb.com": [(200, dict(SAMPLE_DOC))],
-        }
-    )
-    monkeypatch.setattr(asr_mod, "transcribe", lambda *a, **k: [])
-    _patch_cli(monkeypatch, transport)
-
-    rc = main(["harvest-subs", "--archive-root", tmp_root])
-    captured = capsys.readouterr()
-    assert rc == 2
-    assert "risk-control ceiling" in captured.err
-    assert "re-run to resume" in captured.err
-    loaded = ManifestStore(root=tmp_root).load()
-    assert loaded[first.work_id]["status"] == "subtitle_done"
-    assert loaded[second.work_id]["status"] == "meta_ok"
 
 
 def test_cli_asr_missing_optional_asr_exits_1_non_archived(
@@ -215,7 +211,7 @@ def test_cli_asr_missing_optional_asr_exits_1_non_archived(
     _patch_cli(monkeypatch)
     monkeypatch.setattr(bc, "build_default_transport", _audio_transport)
 
-    assert main(["harvest-subs", "--archive-root", tmp_root]) == 0
+    assert _legacy_subtitle_state(tmp_root, identity, _audio_transport()) == "needs_audio"
     capsys.readouterr()
     assert main(["download-audio", "--missing-subs", "--archive-root", tmp_root]) == 0
     capsys.readouterr()
@@ -250,7 +246,10 @@ def test_cli_asr_rerun_idempotent_leaves_unrelated_rows(
     )
     _patch_cli(monkeypatch, _subtitle_transport())
 
-    assert main(["harvest-subs", "--archive-root", tmp_root]) == 0
+    assert (
+        _legacy_subtitle_state(tmp_root, target, _subtitle_transport())
+        == "subtitle_done"
+    )
     capsys.readouterr()
     assert main(["asr", "--pending", "--archive-root", tmp_root]) == 0
     capsys.readouterr()

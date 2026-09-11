@@ -88,9 +88,12 @@ second metadata SSOT.
 
 ## Why this matters
 
-- Future iterations (subtitle acquisition, media objects, ASR provenance,
-  transcript segments) must extend this stack through the reserved schema
-  boundaries and the repository contract — not by reintroducing sidecars.
+- Later iterations (media objects, ASR provenance) must keep extending this stack through the
+  reserved schema boundaries and the repository contract — not by reintroducing sidecars.
+  Subtitle acquisition and transcript segments did exactly that at
+  `iter-2026-09-subtitle-transcript-sqlite`: see `subtitle-acquisition-contract.md` and
+  `normalized-transcript-storage.md` (the caption path no longer uses the JSONL sidecars; the
+  ASR/pilot commands still do).
 - The single-import gateway boundary is what makes package upgrades
   (`bilibili-api-python==17.4.2`) reviewable: the fake-gateway seam mirrors the
   pinned wheel's surface, so offline tests falsify quickly and the opt-in live
@@ -122,6 +125,10 @@ second metadata SSOT.
   tables, and the bounded live-smoke command.
 
 ## Supersedes (metadata path only)
+
+Transcript storage and the caption acquisition boundary are documented in
+`normalized-transcript-storage.md` and `subtitle-acquisition-contract.md` (promoted at
+`iter-2026-09-subtitle-transcript-sqlite` close).
 
 The metadata-path roles of `manifest.jsonl` (item state), `meta-cursor.json`
 (resume cursor), and `run-ledger.jsonl` (run history) are replaced by
