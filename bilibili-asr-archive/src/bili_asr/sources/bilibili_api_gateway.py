@@ -67,6 +67,15 @@ _SUBTITLE_NOT_FOUND_API_CODES = _NOT_FOUND_API_CODES | {-101}
 # Same shape check the package itself applies in Video.set_bvid.
 _BVID_PATTERN = re.compile(r"^BV[a-zA-Z0-9]{10}$")
 
+# The one scheme a signed subtitle-document URL is put on the wire under, and
+# the plain-``http`` form upstream may answer with instead.  Upstream answers
+# the URL sometimes protocol-relative and sometimes absolute (spec section
+# 1.3); the document's own request carries no credential by design, but the
+# signed URL is itself the capability token for the document, so it is
+# normalized to ``https:`` rather than forwarded as delivered.
+_HTTPS_SCHEME = "https://"
+_PLAIN_HTTP_SCHEME = "http://"
+
 # The package's own endpoint description for the user-video page call
 # (``bilibili_api.user.API["info"]["video"]``).  ``url``/``method``/
 # ``verify``/``wbi`` are read from it so this adapter cannot drift from the
@@ -375,8 +384,15 @@ def _read_subtitle_document_url(entry: Mapping) -> str:
     """Read one entry's signed document URL, normalized to ``https:``.
 
     Upstream answers the URL sometimes absolutely and sometimes
-    protocol-relative; the normalized absolute form is what the package
-    transport is handed, and it stays process-local.
+    protocol-relative, and an absolute answer is not guaranteed to be TLS, so
+    the scheme is decided here rather than taken as delivered: a
+    protocol-relative value and a plain ``http:`` value are both rewritten to
+    ``https:`` — the signed URL *is* the document's capability token, so it
+    never rides a cleartext request — while a value that is neither of those
+    nor already ``https:`` cannot be read as this document's URL at all and is
+    a bounded shape error.  Every value that leaves this function is therefore
+    an absolute ``https:`` URL; it is handed to the package transport for the
+    duration of one call and stays process-local.
     """
 
     url = entry.get("subtitle_url")
@@ -384,8 +400,12 @@ def _read_subtitle_document_url(entry: Mapping) -> str:
         raise GatewayShapeError(detail="subtitle track has no document URL")
     normalized = url.strip()
     if normalized.startswith("//"):
-        normalized = f"https:{normalized}"
-    return normalized
+        return f"https:{normalized}"
+    if normalized.startswith(_PLAIN_HTTP_SCHEME):
+        return f"{_HTTPS_SCHEME}{normalized[len(_PLAIN_HTTP_SCHEME):]}"
+    if normalized.startswith(_HTTPS_SCHEME):
+        return normalized
+    raise GatewayShapeError(detail="subtitle track has an unreadable document URL")
 
 
 def _normalize_subtitle_document(document: object) -> tuple[SubtitleSegment, ...]:

@@ -1709,9 +1709,17 @@ def test_gateway_imports_stay_on_metadata_surface():
     ``Video``), and the five exception names.  The page call reads
     ``user.API["info"]["video"]`` and the subtitle call reads the player
     endpoint description from the same surface, so ``utils.network.Api`` stays
-    the one request path.  ``User`` is deliberately not among them: the page
-    call goes through the ``user`` module's endpoint description and the
-    package ``Api``, never a ``user.User`` delegate.
+    the one request path.  ``User`` is not an allow-listed name of its own,
+    because the ``user`` module is bound whole: the adapter reaches the class
+    through it (``user.User(uid=mid, credential=self._credential)``, whose
+    ``get_access_id()`` serves the optional ``w_webid`` token route — the
+    attribute the next test's positive control requires the scanned source to
+    carry).  That
+    module-wide binding — every other endpoint description reachable through
+    ``user.get_api`` included — is residual R1, deferred to the next plan that
+    touches this module.  The page call itself still goes through the ``user``
+    module's endpoint description and the package ``Api``, never through that
+    delegate.
     """
 
     gateway_path = (
@@ -2675,6 +2683,40 @@ def test_fetch_subtitle_segments_normalizes_the_document_and_drops_degenerate_ro
     assert bilibili_api_seam.calls == [_listing_call(), "subtitle.body"]
 
 
+def test_caption_seconds_are_floored_rather_than_rounded_to_milliseconds(
+    bilibili_api_seam,
+):
+    """The suite's one conversion row that discriminates ``floor`` from ``round``.
+
+    Spec section 3 locks ``floor(seconds * 1000)`` against the legacy
+    ``subtitles.json_to_srt`` conversion, which rounds.  Every other
+    conversion literal in this module — the drop matrix included — multiplies
+    out exactly (``0.0``/``1.0``/``1.5``/``2.0``/``2.5``/``2.75``/``3.0``), so
+    those rows pass under either conversion and a floor→round regression would
+    leave the whole suite green.  This row is the discriminating one:
+    ``3.14159 * 1000`` lands strictly between two integers, so ``floor``
+    yields ``3141`` where ``round`` would yield ``3142``, and its end second
+    discriminates the same way (``3241`` vs ``3242``).  Both endpoints are
+    asserted, so the row discriminates at the start and at the end.
+    """
+
+    gateway = _load_subtitle_gateway(bilibili_api_seam, make_subtitle_track())
+    bilibili_api_seam.subtitle_bodies = {
+        SIGNED_SUBTITLE_URL_MARKER: make_subtitle_document(
+            _subtitle_row(3.14159, 3.24159, "向下取整"),
+        )
+    }
+
+    segments = asyncio.run(
+        gateway.fetch_subtitle_segments(_seam_track(), BVID, PART_CID)
+    )
+
+    assert segments == (
+        SubtitleSegment(start_ms=3141, end_ms=3241, text="向下取整"),
+    )
+    assert bilibili_api_seam.calls == [_listing_call(), "subtitle.body"]
+
+
 def test_subtitle_document_request_carries_the_locked_transport_shape(
     bilibili_api_seam,
 ):
@@ -2729,6 +2771,71 @@ def test_fetch_subtitle_segments_normalizes_a_protocol_relative_document_url(
     assert [segment.text for segment in segments] == ["未明子"]
     assert bilibili_api_seam.api_requests[-1].url == SIGNED_SUBTITLE_URL_MARKER
     assert bilibili_api_seam.calls == [_listing_call(), "subtitle.body"]
+
+
+def test_fetch_subtitle_segments_upgrades_a_plain_http_document_url_to_https(
+    bilibili_api_seam,
+):
+    """An absolute ``http:`` signed URL is fetched in its ``https:`` form.
+
+    Upstream may answer the URL absolutely without TLS, and the signed URL is
+    itself the document's capability token, so the adapter normalizes the
+    scheme instead of forwarding the value as delivered: the request carries
+    an explicitly empty credential, which is no reason to put the token in
+    clear.  The seam scripts only the ``https:`` form, so an un-upgraded URL
+    would hit an unscripted location and fail loudly there.  (The ``http:``
+    twin still carries the protocol-relative marker as a substring, so the
+    no-leak scanner covers this form too.)
+    """
+
+    plain_http_url = f"http://{SIGNED_SUBTITLE_URL_MARKER.removeprefix('https://')}"
+    gateway = _load_subtitle_gateway(
+        bilibili_api_seam, make_subtitle_track(subtitle_url=plain_http_url)
+    )
+    bilibili_api_seam.subtitle_bodies = {
+        SIGNED_SUBTITLE_URL_MARKER: make_subtitle_document(make_subtitle_entry())
+    }
+
+    segments = asyncio.run(
+        gateway.fetch_subtitle_segments(_seam_track(), BVID, PART_CID)
+    )
+
+    assert [segment.text for segment in segments] == ["未明子"]
+    assert bilibili_api_seam.api_requests[-1].url == SIGNED_SUBTITLE_URL_MARKER
+    assert bilibili_api_seam.calls == [_listing_call(), "subtitle.body"]
+
+
+@pytest.mark.parametrize(
+    "unreadable_url",
+    [
+        "ftp://aisubtitle.hdslb.com/subtitle.json?sig=1",
+        "aisubtitle.hdslb.com/subtitle.json?sig=1",
+    ],
+)
+def test_fetch_subtitle_segments_rejects_a_document_url_it_cannot_normalize(
+    bilibili_api_seam, unreadable_url
+):
+    """A present ``subtitle_url`` outside the normalizable forms is a shape error.
+
+    Only a protocol-relative, ``http:``, or ``https:`` value can be read as
+    this document's URL, so every value the adapter puts on the wire is TLS;
+    anything else is refused at the boundary rather than handed to a transport
+    that might resolve another scheme.  The refusal happens before the request
+    is built, which the exact call list proves (no document fetch), and the
+    message carries the static bounded detail instead of the value.
+    """
+
+    gateway = _load_subtitle_gateway(
+        bilibili_api_seam, make_subtitle_track(subtitle_url=unreadable_url)
+    )
+
+    with pytest.raises(GatewayShapeError) as caught:
+        asyncio.run(gateway.fetch_subtitle_segments(_seam_track(), BVID, PART_CID))
+
+    assert caught.value.code == "shape_error"
+    assert caught.value.detail == "subtitle track has an unreadable document URL"
+    assert unreadable_url not in str(caught.value)
+    assert bilibili_api_seam.calls == [_listing_call()]
 
 
 def test_fetch_subtitle_segments_resolves_the_requested_track_by_identity(
@@ -2920,6 +3027,34 @@ def test_fetch_subtitle_segments_rejects_an_unreadable_document(
         asyncio.run(gateway.fetch_subtitle_segments(_seam_track(), BVID, PART_CID))
 
     assert caught.value.code == "shape_error"
+    assert bilibili_api_seam.calls == [_listing_call(), "subtitle.body"]
+
+
+def test_a_cancelled_document_fetch_propagates_instead_of_being_mapped(
+    bilibili_api_seam,
+):
+    """``CancelledError`` is not an unexpected upstream failure.
+
+    The mapper's broad ``except Exception`` is what turns every unmapped
+    upstream failure into the bounded ``transport_error``, and that is the
+    contract the sibling cases here pin.  Cancellation is not that kind of
+    failure: ``asyncio.CancelledError`` derives from ``BaseException``, so it
+    must reach the caller and stop the task instead of being rewritten into a
+    bounded code — a rewrite would additionally arm the adapter's single
+    re-list, i.e. a cancelled call would spend two more network requests.  The
+    seam raises the scripted ``BaseException`` as-is, and the exact call list
+    proves the document fetch was actually issued (so this cannot pass by
+    never reaching the mapper) and that no re-list followed it.
+    """
+
+    gateway = _load_subtitle_gateway(bilibili_api_seam, make_subtitle_track())
+    bilibili_api_seam.subtitle_bodies = {
+        SIGNED_SUBTITLE_URL_MARKER: asyncio.CancelledError()
+    }
+
+    with pytest.raises(asyncio.CancelledError):
+        asyncio.run(gateway.fetch_subtitle_segments(_seam_track(), BVID, PART_CID))
+
     assert bilibili_api_seam.calls == [_listing_call(), "subtitle.body"]
 
 

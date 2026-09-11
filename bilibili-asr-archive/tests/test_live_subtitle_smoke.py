@@ -25,11 +25,27 @@ Where the probed part comes from:
   (:data:`SAMPLE_BVID` / :data:`SAMPLE_CID`): one part of the archive owner's
   own public collection, discovered once through the delivered metadata
   gateway while this probe was authored.  The fallback deliberately costs no
-  metadata call at run time, so the only live surfaces the probe touches are
-  the player endpoint and the signed document it lists — the routes under test.
-  The evidence line records which source answered (``part_source=archive-db``
-  or ``part_source=fixed-sample``) together with the probed ``bvid``/``cid``,
-  so a sample that upstream has since removed is visible rather than silent.
+  metadata call at run time.  The evidence line records which source answered
+  (``part_source=archive-db`` or ``part_source=fixed-sample``) together with
+  the probed ``bvid``/``cid``, so a sample that upstream has since removed is
+  visible rather than silent.
+
+The probe's live surface is wider than the two calls it drives itself — one
+listing and one document fetch — because the pinned package and the delivered
+adapter each add to that bound:
+
+- the listing is WBI-signed, and the pin's own request loop re-signs and
+  retries it on a ``-403`` answer, up to the pin's ``wbi_retry_times`` budget
+  (3 attempts by default);
+- the document fetch is issued with ``wbi=False``, so the pin neither re-signs
+  nor retries it: one attempt per fetch call;
+- the first adapter call in a process bootstraps the pin's process-global
+  ``buvid`` fingerprint whenever the credential carries none — which the
+  document fetch's explicitly empty ``Credential()`` always does — costing up
+  to two further requests (the SPI fingerprint endpoint and its activation
+  POST), once per process;
+- the delivered adapter adds at most one re-list + fetch pair per
+  ``fetch_subtitle_segments`` call, and only on the expiry/transport class.
 
 Default pytest runs skip the probe; it executes only when the operator sets
 ``BILI_LIVE_SMOKE=1``.  An opted-in probe fails loudly when the pinned
