@@ -506,11 +506,13 @@ only restart path.
 
 - **Default page bound**: `--limit-pages` is optional and defaults to
   `DEFAULT_PAGE_LIMIT = 10`. The canonical command above therefore stops
-  after 10 pages (the ingestor's page size is 30), ends the run `limited`,
-  and still exits 0 — a limited run is never claimed as complete. A full
-  archive walk is a series of resumable runs: re-run the same command to
-  continue from the stored cursor, or pass an explicit `--limit-pages` for
-  a longer slice.
+  after 10 pages (the ingestor's page size is 30 — the upstream-accepted
+  default, `ps=30`; larger page sizes are not guaranteed, and an explicit
+  programmatic override is forwarded rather than clamped or rejected: there is
+  no CLI flag for it), ends the run `limited`, and still exits 0 — a limited
+  run is never claimed as complete. A full archive walk is a series of
+  resumable runs: re-run the same command to continue from the stored cursor,
+  or pass an explicit `--limit-pages` for a longer slice.
 - **Resume semantics**: without `--resume` or `--start-page`, a run continues
   from the stored cursor when one exists and starts at page 1 otherwise.
   `--resume` requires a stored cursor and exits `1` when there is none;
@@ -536,6 +538,9 @@ only restart path.
   gateway resolves the knob itself in the order constructor argument →
   `BILI_HTTP_PROXY` → `HTTPS_PROXY`/`https_proxy` → `ALL_PROXY`/`all_proxy`,
   treats a blank value as unset, and forces no proxy when nothing resolves.
+  The resolved value is applied to the package's process-global settings, and
+  a blank value cannot override a host-level variable — forcing direct access
+  means unsetting those variables for the process (there is no in-app switch).
   Details: [docs/metadata-storage.md](docs/metadata-storage.md).
 
 | Exit | Meaning |
@@ -595,8 +600,9 @@ anonymous metadata access the smoke verifies the bounded-failure evidence
 (terminal run row, one scalar page row with a `rate_limited` /
 `response_error` code, no entity or discovery growth, no cursor row) and
 reports that bounded no-credential outcome as a reasoned skip rather than a
-defect. Expectations and the underlying transport/proxy requirements are
-documented in [docs/metadata-storage.md](docs/metadata-storage.md).
+defect; any other bounded code fails the smoke loudly. Expectations and the
+underlying transport/proxy requirements are documented in
+[docs/metadata-storage.md](docs/metadata-storage.md).
 
 ### Mixed batch outcomes
 

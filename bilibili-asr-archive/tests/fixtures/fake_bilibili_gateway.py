@@ -61,7 +61,10 @@ GATEWAY_ADAPTER_MODULE = "bili_asr.sources.bilibili_api_gateway"
 #: (``bilibili_api.user.API["info"]["video"]``), mirroring the pinned
 #: distribution literally — including ``dm: True``.  The adapter must take
 #: ``url``/``method``/``verify``/``wbi`` from it and override ``dm``, so a
-#: package-side change to any of those fields stays visible here.
+#: package-side change to any of those fields stays visible here.  The mirror
+#: itself is not taken on trust: the offline parity test in
+#: ``tests/test_bilibili_api_gateway.py`` compares it against the installed
+#: pinned distribution it claims to mirror.
 FAKE_USER_VIDEO_PAGE_ENDPOINT = {
     "url": "https://api.bilibili.com/x/space/wbi/arc/search",
     "method": "GET",
@@ -78,6 +81,13 @@ FAKE_USER_VIDEO_PAGE_ENDPOINT = {
     },
     "comment": "搜索用户视频",
 }
+
+#: The endpoint-description fields the adapter reads from the package's own
+#: description (``dm`` is the one field it overrides).  The offline mirror
+#: parity test compares exactly these against the installed distribution, so
+#: a pin that renames, drops, or flips one of them fails there instead of
+#: surfacing only live.
+MIRRORED_ENDPOINT_FIELDS = ("url", "method", "verify", "wbi")
 
 #: The exact upstream call names the gateway adapter may issue.  The page call
 #: is recorded as ``space.arc.search`` because the adapter issues that request
@@ -294,8 +304,14 @@ def build_fake_package(script: FakeUpstreamScript) -> dict[str, types.ModuleType
 
     request_settings_mod = types.ModuleType("bilibili_api.request_settings")
 
-    def set_proxy(proxy: str = "") -> None:
-        """Mirror of ``request_settings.set_proxy``; records the applied value."""
+    def set_proxy(proxy: str) -> None:
+        """Mirror of ``request_settings.set_proxy``; records the applied value.
+
+        The pinned ``RequestSettings.set_proxy(self, proxy: str)`` has no
+        default, so neither does this double: a no-argument call must fail
+        offline exactly where it would fail live (``TypeError``) instead of
+        passing here and breaking against the real package.
+        """
 
         script.applied_proxies.append(proxy)
 
@@ -602,6 +618,7 @@ __all__ = [
     "FakeWbiRetryTimesExceedException",
     "GATEWAY_ADAPTER_MODULE",
     "MID",
+    "MIRRORED_ENDPOINT_FIELDS",
     "NO_LEAK_MARKERS",
     "PUBDATE",
     "RAW_JSON_BODY_MARKER",

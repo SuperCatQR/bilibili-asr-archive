@@ -24,9 +24,11 @@ Default pytest runs skip the smoke; it executes only when the operator sets
   Without a credential the run is anonymous, and an upstream rejection of
   anonymous metadata access is one bounded failure among others
   (``rate_limited``, or ``response_error`` for other upstream failures): the
-  smoke reports that case as the documented no-credential behavior (a
-  clearly-reasoned skip, after its assertions ran), while the same bounded
-  failure with an operator credential in the environment is a loud failure.
+  smoke reports exactly those documented codes as the documented no-credential
+  behavior (a clearly-reasoned skip, after its assertions ran), while any other
+  bounded code — ``transport_error`` from a dead proxy, for instance — fails
+  loudly, as does the same bounded failure with an operator credential in the
+  environment.
 """
 
 from __future__ import annotations
@@ -44,6 +46,7 @@ from fixtures.fake_bilibili_gateway import (
     SESSDATA_BOUNDARY_VALUE,
     SIGNED_URL_MARKER,
     UPSTREAM_ERROR_TEXT,
+    FakeNetworkException,
     FakeResponseCodeException,
     assert_leaks_no_markers,
     bilibili_api_seam,
@@ -54,6 +57,15 @@ from fixtures.fake_bilibili_gateway import (
 )
 
 PINNED_PACKAGE_VERSION = "17.4.2"
+
+#: The bounded scalar codes the operator docs enumerate for anonymous metadata
+#: access (``README.md`` / ``docs/metadata-storage.md``): ``rate_limited`` for
+#: an upstream risk-control rejection, ``response_error`` for other upstream
+#: failures.  Only these may take the anonymous arm's reasoned-skip path; any
+#: other code — ``transport_error`` from a dead proxy, ``shape_error`` from a
+#: normalization regression, ``not_found`` — means the run failed for a reason
+#: the documentation does not cover and must fail loudly instead.
+ANONYMOUS_BOUNDED_ERROR_CODES = frozenset({"rate_limited", "response_error"})
 
 #: The archive owner whose public metadata the bounded smoke may collect.
 LIVE_SMOKE_MID = 23191782
@@ -278,6 +290,26 @@ def _bounded_live_argv(tmp_root: str) -> list[str]:
     ]
 
 
+def _assert_anonymous_error_code_is_documented(error_code: str) -> None:
+    """Fail loudly unless a no-credential bounded code is a documented one.
+
+    The anonymous arm may report a reasoned skip only for the codes
+    :data:`ANONYMOUS_BOUNDED_ERROR_CODES` enumerates and the operator docs
+    repeat.  Every other bounded code is a defect of the environment or the
+    adapter — a dead proxy surfaces ``transport_error`` — so it must fail the
+    smoke instead of reading as "documented anonymous behavior".
+    """
+
+    if error_code not in ANONYMOUS_BOUNDED_ERROR_CODES:
+        pytest.fail(
+            "live smoke ended in an anonymous bounded failure the docs do not"
+            f" enumerate (error_code={error_code!r});"
+            f" {sorted(ANONYMOUS_BOUNDED_ERROR_CODES)} are the documented"
+            " anonymous outcomes, so this run failed for another reason (a dead"
+            " proxy, for instance, surfaces transport_error)"
+        )
+
+
 def test_live_smoke_fetch_meta_one_page_lands_normalized_rows(
     tmp_root: str,
     capsys: pytest.CaptureFixture[str],
@@ -335,6 +367,9 @@ def test_live_smoke_fetch_meta_one_page_lands_normalized_rows(
         # Same resolution rule as ``resolve_sessdata``: a missing or blank
         # BILI_SESSDATA means no credential was in play.
         if not os.environ.get(SESSDATA_ENV_VAR):
+            # Only the documented anonymous codes may take the skip path: any
+            # other bounded code fails loudly here.
+            _assert_anonymous_error_code_is_documented(error_code)
             pytest.skip(
                 "live smoke ended in the documented bounded anonymous"
                 f" rejection (error_code={error_code!r}, exit 2): without a"
@@ -368,8 +403,10 @@ def test_live_smoke_row_assertions_rehearse_offline_over_the_fake_seam(
     caught by every default (offline) run instead of first failing at the
     QA gate's live execution.  The scripted branches cover the limited
     happy path, the ``complete`` happy-path sub-branch (an empty first
-    page — practically unreachable live for this UID), and the bounded
-    upstream failure.  No live behavior is claimed here.
+    page — practically unreachable live for this UID), the bounded
+    upstream failure (an ``-400`` rejection, whose code the anonymous arm
+    accepts), and the bounded transport failure (whose code it must
+    reject).  No live behavior is claimed here.
     """
 
     monkeypatch.delenv(SESSDATA_ENV_VAR, raising=False)
@@ -451,9 +488,11 @@ def test_live_smoke_row_assertions_rehearse_offline_over_the_fake_seam(
     assert "metadata gateway failure" in err
     connection = open_database(failure_root)
     try:
-        assert _assert_bounded_failure_rows(connection, LIVE_SMOKE_MID) == (
-            "response_error"
-        )
+        error_code = _assert_bounded_failure_rows(connection, LIVE_SMOKE_MID)
+        assert error_code == "response_error"
+        # Positive control for the anonymous arm: the code this real CLI path
+        # produces for an upstream rejection is one the arm accepts.
+        _assert_anonymous_error_code_is_documented(error_code)
         assert_leaks_no_markers(out + err, context="rehearsal failure output")
         assert_leaks_no_markers(
             persisted_row_text(connection),
@@ -463,3 +502,49 @@ def test_live_smoke_row_assertions_rehearse_offline_over_the_fake_seam(
         connection.close()
     for relative in LEGACY_SIDECAR_PATHS:
         assert not os.path.exists(os.path.join(failure_root, relative))
+
+    # Branch four: a bounded *transport* failure — the shape a dead proxy
+    # produces (the D2 symptom) — reaches the CLI as ``transport_error``,
+    # which the anonymous arm must reject instead of reporting a reasoned
+    # skip.  This is the seam-level pin for the documented-code set check.
+    transport_root = os.path.join(tmp_root, "transport")
+    script.videos_error = FakeNetworkException(503, UPSTREAM_ERROR_TEXT)
+    assert main(_bounded_live_argv(transport_root)) == 2
+    out, err = capsys.readouterr()
+    assert "metadata gateway failure" in err
+    connection = open_database(transport_root)
+    try:
+        error_code = _assert_bounded_failure_rows(connection, LIVE_SMOKE_MID)
+        assert error_code == "transport_error"
+    finally:
+        connection.close()
+    assert_leaks_no_markers(out + err, context="rehearsal transport output")
+    with pytest.raises(pytest.fail.Exception):
+        _assert_anonymous_error_code_is_documented(error_code)
+    for relative in LEGACY_SIDECAR_PATHS:
+        assert not os.path.exists(os.path.join(transport_root, relative))
+
+
+@pytest.mark.parametrize("error_code", ["rate_limited", "response_error"])
+def test_anonymous_arm_accepts_the_documented_bounded_codes(error_code):
+    """The anonymous arm's skip path covers exactly the documented codes.
+
+    The parameters are the literal codes ``README.md`` / ``docs/metadata-storage.md``
+    enumerate, deliberately not derived from
+    :data:`ANONYMOUS_BOUNDED_ERROR_CODES`: a set that drops or renames one of
+    them would otherwise shrink this test instead of failing it.
+    """
+
+    assert error_code in ANONYMOUS_BOUNDED_ERROR_CODES
+    _assert_anonymous_error_code_is_documented(error_code)
+
+
+@pytest.mark.parametrize(
+    "error_code",
+    ["transport_error", "not_found", "shape_error", "unknown_failure"],
+)
+def test_anonymous_arm_fails_loudly_on_every_undocumented_code(error_code):
+    """Any other bounded code fails instead of reading as a reasoned skip."""
+
+    with pytest.raises(pytest.fail.Exception):
+        _assert_anonymous_error_code_is_documented(error_code)

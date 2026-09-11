@@ -52,6 +52,7 @@ from fixtures.fake_bilibili_gateway import (
     BVID,
     FAKE_USER_VIDEO_PAGE_ENDPOINT,
     MID,
+    MIRRORED_ENDPOINT_FIELDS,
     PUBDATE,
     RAW_JSON_BODY_MARKER,
     SESSDATA_BOUNDARY_VALUE,
@@ -114,6 +115,74 @@ ACCESS_ID_BOUNDARY_VALUE = "ACCESS-ID-THAT-MUST-NOT-LEAK"
 #: Sentinel endpoint URL proving the transport fields are read from the
 #: package's own endpoint description instead of being hard-coded.
 CHANGED_ENDPOINT_URL = "https://changed-endpoint.example.invalid/x/space/wbi/arc/search"
+
+
+def _probe_installed_pinned_endpoint() -> dict | str:
+    """Read the pin's endpoint description, or the reason it could not be read.
+
+    Runs once, at module import time — before any seam fixture can install the
+    fake ``bilibili_api`` package on ``sys.modules``: a lazy import inside a
+    seam test would return the fake, and the mirror would then be compared
+    against itself.  The description is pure package data, so this needs no
+    network.  A string return is a human-readable reason (distribution absent,
+    key renamed, unexpected shape) that the parity tests turn into a loud
+    failure with install guidance.
+    """
+
+    try:
+        module = importlib.import_module("bilibili_api.user")
+        endpoint = module.API["info"]["video"]
+    except (ImportError, KeyError, AttributeError, TypeError) as error:
+        return f"{type(error).__name__}: {error}"
+    if not isinstance(endpoint, dict):
+        return f"the description is not a mapping ({type(endpoint).__name__})"
+    return dict(endpoint)
+
+
+#: The installed pin's own user-video endpoint description, captured before the
+#: seam can shadow the package; see :func:`_probe_installed_pinned_endpoint`.
+_INSTALLED_PINNED_ENDPOINT = _probe_installed_pinned_endpoint()
+
+
+def _probe_installed_request_settings_parameters() -> dict | str:
+    """Read the pin's request-settings parameter shapes, or why not.
+
+    Captured at import time for the same reason as the endpoint description: a
+    lazy import inside a seam test would read the fake.  Only the parameter
+    name/kind/default triples are kept — the shape a mirrored double must not
+    loosen (``RequestSettings.set_proxy(self, proxy: str)`` has no default).
+    """
+
+    try:
+        settings = importlib.import_module("bilibili_api").request_settings
+        return {
+            name: [
+                (parameter.name, str(parameter.kind), parameter.default)
+                for parameter in inspect.signature(
+                    getattr(settings, name)
+                ).parameters.values()
+            ]
+            for name in ("set_proxy", "get_proxy")
+        }
+    except (ImportError, AttributeError, TypeError, ValueError) as error:
+        return f"{type(error).__name__}: {error}"
+
+
+#: The installed pin's request-settings parameter shapes, captured the same way.
+_INSTALLED_REQUEST_SETTINGS_PARAMETERS = _probe_installed_request_settings_parameters()
+
+
+def _require_installed(probe: dict | str, what: str) -> dict:
+    """Return a successful import-time probe, or fail loudly with guidance."""
+
+    if isinstance(probe, str):
+        pytest.fail(
+            f"this parity contract needs the pinned distribution's {what}"
+            f" ({PINNED_PACKAGE_DISTRIBUTION_NAME}=={PINNED_PACKAGE_VERSION});"
+            f" it could not be read ({probe}). Run uv sync first."
+        )
+    return probe
+
 
 #: The complete documented exception surface the fake seam must mirror.
 ALLOWED_EXCEPTION_NAMES = (
@@ -583,6 +652,101 @@ def test_user_video_page_request_follows_a_changed_package_endpoint(
     assert request.wbi is False
 
 
+def test_fake_endpoint_mirror_matches_the_installed_pinned_description():
+    """The seam's mirrored endpoint description is the installed pin's.
+
+    ``FAKE_USER_VIDEO_PAGE_ENDPOINT`` is the sole offline oracle for the
+    risk-control-relevant call shape, so its claim to mirror
+    ``bilibili_api.user.API["info"]["video"]`` literally is checked against
+    the distribution it mirrors, not only against itself (the same
+    packaging-parity pattern the HTTP-backend test uses).  A pin bump that
+    renames a key or flips ``verify``/``wbi``/``dm`` fails here instead of
+    staying green offline and surfacing only live.
+
+    Offline and deterministic: reading the installed distribution is the only
+    I/O.  When its description cannot be read the test fails loudly with
+    install guidance, because the contract it checks cannot be proven without
+    it.
+    """
+
+    pinned_endpoint = _require_installed(
+        _INSTALLED_PINNED_ENDPOINT, "endpoint description"
+    )
+
+    for field in MIRRORED_ENDPOINT_FIELDS:
+        assert FAKE_USER_VIDEO_PAGE_ENDPOINT[field] == pinned_endpoint[field], (
+            f"the fake endpoint mirror drifted from the installed pin on {field!r}"
+        )
+    # ``dm`` is mirrored literally too: the pin's ``True`` is the very field
+    # the adapter overrides, so the mirror must keep carrying it.
+    assert FAKE_USER_VIDEO_PAGE_ENDPOINT["dm"] is True
+    assert pinned_endpoint["dm"] is True
+    # The parameter names the adapter forwards are the pin's own set.
+    assert set(FAKE_USER_VIDEO_PAGE_ENDPOINT["params"]) == set(pinned_endpoint["params"])
+
+
+def test_adapter_overrides_only_dm_of_the_installed_pinned_endpoint(
+    bilibili_api_seam,
+):
+    """``dm`` is the only field the adapter changes on the pin's own shape.
+
+    The mirror-parity test above proves the seam's description equals the
+    installed pin's; this test scripts the seam with the pin's *own* values
+    and runs the real adapter, so the issued request reproduces every transport
+    field of the pinned distribution except ``dm``, which the
+    risk-control-safe shape turns off.  Together they pin the shipped call
+    shape to the distribution the adapter actually drives.
+    """
+
+    pinned_endpoint = _require_installed(
+        _INSTALLED_PINNED_ENDPOINT, "endpoint description"
+    )
+    bilibili_api_seam.user_video_page_endpoint.update(pinned_endpoint)
+    bilibili_api_seam.videos_response = make_videos_response(make_vlist_item(), count=1)
+    gateway = _load_gateway()
+
+    asyncio.run(gateway.get_user_video_page(MID, page_number=1))
+
+    (request,) = bilibili_api_seam.api_requests
+    for field in MIRRORED_ENDPOINT_FIELDS:
+        assert getattr(request, field) == pinned_endpoint[field]
+    assert pinned_endpoint["dm"] is True
+    assert request.dm is False
+
+
+def test_fake_request_settings_double_is_no_more_permissive_than_the_pin():
+    """The seam keeps the pin's strict ``set_proxy``/``get_proxy`` shapes.
+
+    ``bilibili_api.request_settings`` is the pinned package's process-global
+    ``RequestSettings`` instance, whose ``set_proxy(self, proxy: str)`` has no
+    default: a no-argument call raises ``TypeError`` against the real package.
+    The seam mirrors it as a module-level function, so a default added there
+    would let a no-argument call pass offline and fail live; the pin's own
+    parameter shapes are compared instead.
+
+    Offline and deterministic: the pinned distribution is read for its
+    signatures only, and the fake is built directly (no seam fixture).
+    """
+
+    pinned_parameters = _require_installed(
+        _INSTALLED_REQUEST_SETTINGS_PARAMETERS, "request-settings parameter shapes"
+    )
+    fake_settings = build_fake_package(FakeUpstreamScript())[
+        "bilibili_api.request_settings"
+    ]
+
+    for name in ("set_proxy", "get_proxy"):
+        mirrored_parameters = [
+            (parameter.name, str(parameter.kind), parameter.default)
+            for parameter in inspect.signature(
+                getattr(fake_settings, name)
+            ).parameters.values()
+        ]
+        assert mirrored_parameters == pinned_parameters[name], (
+            f"the seam's {name} signature is more permissive than the pin's"
+        )
+
+
 # -------------------------------------------------------------- video parts
 
 
@@ -898,6 +1062,10 @@ def test_http_backend_declared_and_absent_from_pinned_package_requirements():
     declaration is dropped, and the installed distribution's own metadata is
     what proves the dependency is load-bearing rather than transitive.
 
+    The installed distribution is asserted to *be* the pin before its
+    requirements are read, so a drifted environment fails loudly here instead
+    of silently drawing the conclusion from another release.
+
     Offline and deterministic: it reads this checkout's ``pyproject.toml``
     and the installed distributions' metadata only.
     """
@@ -924,6 +1092,12 @@ def test_http_backend_declared_and_absent_from_pinned_package_requirements():
             "the packaging contract needs the pinned distribution installed to"
             f" read its Requires-Dist ({error}); run uv sync first"
         )
+
+    assert pinned_distribution.version == PINNED_PACKAGE_VERSION, (
+        "the installed distribution is not the pin this contract is about"
+        f" ({pinned_distribution.version!r} != {PINNED_PACKAGE_VERSION!r});"
+        " install the pinned release (uv sync) before re-reading Requires-Dist"
+    )
 
     upstream_names = {
         canonicalize_name(Requirement(raw).name)
@@ -1264,7 +1438,15 @@ def test_only_the_gateway_module_imports_bilibili_api():
 
 
 def test_gateway_imports_stay_on_metadata_surface():
-    """The adapter imports only Credential, User, Video, and exceptions."""
+    """The adapter imports exactly the enforced allow-list, nothing broader.
+
+    ``ALLOWED_PACKAGE_IMPORTS`` is compared exactly: ``Credential`` and the
+    ``request_settings``/``user`` modules from the package root, the
+    WBI-signed ``utils.network.Api``, ``video.Video``, and the five exception
+    names.  ``User`` is deliberately not among them — the page call goes
+    through the ``user`` module's endpoint description and the package ``Api``,
+    never a ``user.User`` delegate.
+    """
 
     gateway_path = (
         pathlib.Path(__file__).resolve().parent.parent

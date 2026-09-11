@@ -112,6 +112,20 @@ and the gateway spec define them. The bounded error taxonomy is unchanged:
 `not_found`, shape problems to `shape_error`, and other upstream failures to
 `response_error`/`transport_error`.
 
+### Page size
+
+The adapter and the `BilibiliGateway` protocol default `page_size` to **30**,
+and the shipped service path passes that same value explicitly
+(`PAGE_SIZE = 30` in `src/bili_asr/services/metadata_ingest.py`); it is also the
+pinned package's own documented `ps` value. Larger page sizes are **not**
+guaranteed: with the same credential, proxy, and call shape, `ps=30` and
+`ps=50` were answered with `code=0` while `ps=100` was rejected (HTTP 412 on
+direct probes, JSON code `-400` on production runs). The adapter forwards an
+explicit `page_size` override upstream unchanged — it neither clamps nor
+rejects it — so an over-large override surfaces as the upstream bounded code
+(`rate_limited`/`response_error`) rather than as a caller error. There is no
+CLI flag for the page size.
+
 ## HTTP proxy
 
 The pinned client builds its session with an explicitly empty proxy
@@ -131,6 +145,17 @@ Precedence (first non-blank value wins; blank counts as unset):
 When nothing resolves, the library default is left untouched and no proxy is
 forced. A proxy URL is configuration, not a credential, and is never written
 to DTOs, logs, exception messages, or persisted rows.
+
+Two consequences of that design matter when troubleshooting:
+
+- The resolved value is applied to the package's **process-global** request
+  settings, so it is the effective proxy for every gateway in the process, not
+  only for the instance that resolved it.
+- A blank value counts as *unset*, so `BILI_HTTP_PROXY=""` cannot override a
+  host-level `HTTPS_PROXY`/`ALL_PROXY`. There is no in-app "no proxy" switch:
+  forcing a direct connection means unsetting every variable of the chain
+  (`BILI_HTTP_PROXY`, `HTTPS_PROXY`, `https_proxy`, `ALL_PROXY`, `all_proxy`)
+  for the process before the command runs.
 
 ```
 export BILI_HTTP_PROXY=http://127.0.0.1:7890
@@ -204,7 +229,8 @@ of an explicit `export` (the gateway reads the same environment).
   scalar code — `rate_limited`, or `response_error` for other upstream
   failures — no video/part/discovery growth, no cursor row). That bounded
   no-credential outcome is reported as a reasoned skip, after its assertions
-  ran, not as a defect.
+  ran, not as a defect; any other bounded code — a `transport_error` from a
+  dead proxy, for instance — fails the smoke loudly, credential or not.
 - **Observed on 2026-09-11** (this host, proxy configured): the live run was
   refused by upstream risk control. The CLI's one production page (the
   then-shipped page size of 100) ended twice — before and after a cooldown —
@@ -224,6 +250,12 @@ of an explicit `export` (the gateway reads the same environment).
   size is therefore the value upstream accepts: `PAGE_SIZE = 30` in
   `src/bili_asr/services/metadata_ingest.py`, which is also the pinned
   package's own documented `ps` value.
+- **Achieved on 2026-09-11 (same day, after the page-size fix):** the shipped
+  path completed a real end-to-end live run — CLI exit 0, one collected page,
+  `outcome=limited videos=30 parts=33 discoveries=30`, `observed_total=1691`,
+  and the cursor advanced to `next_page=2` with state `limited`. Count-only:
+  no credential, no proxy, and no collected metadata value is recorded here.
+  The intermittency noted above still applies to a fresh run.
 
 ## Exit codes
 
