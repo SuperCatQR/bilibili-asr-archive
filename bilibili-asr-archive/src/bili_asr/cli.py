@@ -628,8 +628,10 @@ def _open_subtitle_connection(
     is opened.  That failure is storage-side — the guard only executes SQL — and
     it is bounded with the same fixed ``unreadable archive database`` line, and
     the same ``(OSError, sqlite3.Error)`` class, both open helpers use for their
-    own statements; anything outside that class escapes as the unexpected
-    internal error the command handlers report.
+    own statements.  Anything outside that class is a programming error and is
+    not bounded here: this function runs before the command handlers' ``try``
+    blocks, so it reaches the interpreter as an uncaught traceback and exit 1,
+    never their ``unexpected error`` line.
     """
     from bili_asr.storage import SchemaContractError, require_subtitle_schema
 
