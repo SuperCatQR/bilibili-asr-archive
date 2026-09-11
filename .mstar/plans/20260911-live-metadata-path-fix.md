@@ -300,16 +300,15 @@ Run: `cd bilibili-asr-archive && /root/workspace/bilibili-asr-archive/bilibili-a
 - This plan closes the "live path actually works" gap left by
   `iter-2026-09-bilibili-api-sqlite`; the next iteration (subtitle/transcript) inherits the
   fixed transport.
-- Deferred: real `w_webid` derivation once the upstream dynamic page restores SSR data, and
-  a first-class `dm` setting if the library adds one; both are upstream-dependent and need
-  no local code until then.
+
 - The iteration's recorded QA note ("anonymous anti-bot rejection") is corrected by this
   plan's §Problem, **and** the tracked knowledge doc that repeated it
   (`.mstar/knowledge/architecture-patterns/normalized-metadata-stack.md`) was rewritten in the
   same round (QC-1 F-001) — no residual remains for either statement.
 - Deferred: real `w_webid` derivation when upstream restores SSR data; a first-class `dm`
-  setting if the library adds one; and a documented page-size upper bound at the adapter
-  boundary (documented rather than enforced, to avoid rejecting caller overrides silently).
+  setting if the library adds one; a page-size upper bound *enforced* at the adapter boundary
+  (currently documented only, to avoid rejecting caller overrides silently); and consolidation
+  of the seam's mirrored surface should the library's endpoint description change.
 
 ## Acceptance / Done Criteria
 
@@ -326,8 +325,8 @@ Run: `cd bilibili-asr-archive && /root/workspace/bilibili-asr-archive/bilibili-a
   root with real normalized rows and an advanced cursor — or records an explicit, cooled-down
   upstream blocker with evidence.
 - [ ] Offline suites remain green — baseline at plan open was 865 passed / 2 skipped; after
-  Task 1 it is 866, after Task 2 885, after Task 3 892, and after Task 5 **894 passed / 2 skipped**
-  (each delta is the new tests added by that task) — including the AST import-boundary test
+  Task 1 it is 866, after Task 2 885, after Task 3 892, after Task 5 **894 passed / 2 skipped**, and after the QC fix waves **903 passed / 2 skipped**
+  (each delta is the new tests added by that task or wave) — including the AST import-boundary test
   and the no-leak scans.
 - [ ] `docs/metadata-storage.md`, README, and `.env.example` describe the backend, the
   proxy knob, and the live-smoke expectations accurately.
@@ -342,8 +341,8 @@ re-run), then merge to `main` via PR.
 
 ## Review Gate Summary
 
-- Decision: QC tri (N=3) in flight on the branch package
-- Review range / Diff basis: `25a11fe..5667844` (main at branch cut → final reviewed head)
+- Decision: QC tri (N=3) converged — seat 1 Request Changes (1W, PM-fixed) → targeted re-review Approve; seats 2/3 Approve; both fix waves revalidated. Plan-level Approve pending the mandatory QA gate.
+- Review range / Diff basis: `25a11fe..a898fdf` (main at branch cut → final reviewed head; QC reviewed through `5667844`, fix wave 2 `a898fdf` revalidated by seats 1–2)
 - Review bundle: `.mstar/sdd/20260911-live-metadata-path-fix/review/`
 - QC inputs: `qc1.md`, `qc2.md`, `qc3.md`
 - Blocking result: pending

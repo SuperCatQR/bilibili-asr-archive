@@ -23,7 +23,8 @@
         "3a96dd16ebf0da0c9bc523db16a22a0351dd9c83",
         "f4af1aaa64f06a85df5d740e4bd2d973b76be1d4",
         "f44066c4d7b359a72effc5c911c144d92870b8d0",
-        "5667844747f6f146744589f0dce13411f884d5dd"
+        "5667844747f6f146744589f0dce13411f884d5dd",
+        "a898fdfc138022dcacf9c24077f07826be9bfbc8"
       ],
       "tags": [
         "backend",
@@ -42,7 +43,8 @@
         "Task 2 review Approved (review/task-2-review.md, 0C/0I/3M; commit 0a2e2f5; focused 158+1 skip / full 885+2 skip; fixture scope deviation accepted). Task 3 dispatched.",
         "Task 3 review Approved (review/task-3-review.md, 0C/0I/3M; commit 3a96dd1; focused 158+1 skip / full 892+2 skip; spec transport amendment applied by PM). Task 4 dispatched.",
         "Task 4 review pending; Task 4's live run exposed D4 (page_size=100 rejected upstream: -400 JSON ×3 and 412; ps=30/50 return code=0). PM amended the plan (D4 + locked page-size 30 + Task 5) instead of silently changing scope.",
-        "Tasks 4-5 implemented + reviewed (task-4 reviewed Needs-fixes then Approved after the batched docs/hygiene fix wave 5667844; task-5 Approved; both revalidated). Live happy path achieved (outcome=limited videos=30 parts=33 discoveries=30 cursor_next_page=2). Plan row -> InReview; QC tri (N=3) in flight on branch package 25a11fe..5667844; QA gate next (owns the live re-run with -s)."
+        "Tasks 4-5 implemented + reviewed (task-4 reviewed Needs-fixes then Approved after the batched docs/hygiene fix wave 5667844; task-5 Approved; both revalidated). Live happy path achieved (outcome=limited videos=30 parts=33 discoveries=30 cursor_next_page=2). Plan row -> InReview; QC tri (N=3) in flight on branch package 25a11fe..5667844; QA gate next (owns the live re-run with -s).",
+        "Plan QC tri converged: seat1 Request Changes (1W knowledge-doc contradiction, PM-fixed in c9f820c) -> targeted re-review Approve; seats 2/3 Approve. Fix wave 2 a898fdf (tests+docs, 903 passed/2 skipped) revalidated by seats 1-2. Awaiting the mandatory QA gate (fresh uv sync proof, full suite, live smoke re-run with -s from the worktree package dir)."
       ],
       "metadata": {
         "primary_spec": ".mstar/iterations/iter-2026-09-bilibili-api-sqlite/specs/bilibili-api-gateway.md",

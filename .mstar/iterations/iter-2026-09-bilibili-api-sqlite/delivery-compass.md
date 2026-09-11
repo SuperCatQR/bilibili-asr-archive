@@ -322,7 +322,7 @@ This iteration explicitly excludes:
 - **门禁有效性**：每轮 plan QC（N=3）都在 plan 级别抓到了 L2 task review 未升级为阻塞的契约缺口（6W/1W+8 携带/2W 文档债），全部当轮清零；zero-residual 保持——无 open R#。
 - **文档契约债教训**：operator-facing 约束（默认页界、无码 exit-2 变体）在实现时已裁定，但未同步进 spec/README/docs——三席一致以 docs-accuracy Warnings 阻塞收口。后续 plan 的 Acceptance 应把「文档与行为一致」视为可验证项。
 - **运行时证据分层**：QC（diff/logic）不可证的运行时声明（pass counts、wheel 内容、live smoke）显式路由到 mandatory QA gate 闭环，避免了评审席与 QA 职责坍缩。
-- **live smoke 现状**：匿名访问被上游反爬拒绝（有界 `response_error`），credential happy path 待操作者凭证；Plan-2/3 的 CLI/文档已如实记录，不构成 blocker。
+- **live smoke 现状**：匿名访问受上游风控限制（有界 `rate_limited`/`response_error`；2026-09-11 更正：早期「反爬拒绝」结论实为缺失 HTTP 后端导致的进程内 `ArgsException`，见 plan `20260911-live-metadata-path-fix`），credential happy path 待操作者凭证；Plan-2/3 的 CLI/文档已如实记录，不构成 blocker。
 
 - 做得好的：pending
 - 可改进的：pending
