@@ -1,19 +1,26 @@
-# Metadata storage (`archive.db`)
+# Metadata and subtitle storage (`archive.db`)
 
 Normalized SQLite storage for the video metadata collected by
-`bili-asr fetch-meta`. This document describes the database the metadata CLI
-creates and reads. The legacy JSONL manifest pipeline
+`bili-asr fetch-meta` and for the subtitles acquired by `bili-asr harvest-subs`.
+This document describes the database the metadata and subtitle CLI commands
+create, read, and write. The legacy JSONL manifest pipeline
 (`manifest/manifest.jsonl`, `meta-cursor.json`, `run-ledger.jsonl`) is a
-separate, untouched state: the metadata commands never read it, and no
-command migrates old data into the new database.
+separate, untouched state: none of these commands read it, and no command
+migrates old data into the new database.
 
 ## Fresh-start behavior (no migration)
 
 - `fetch-meta` creates `{archive_root}/archive.db` when it does not exist and
-  initializes the checked-in schema (`src/bili_asr/storage/schema.sql`).
-  Opening the database — for a write or a read command — always runs that
-  schema script, which is an idempotent no-op on a current-version database;
-  no schema upgrade happens in this iteration.
+  initializes the two checked-in schema resources: `src/bili_asr/storage/schema.sql`
+  (users, videos, parts, ingestion runs/pages/cursors/discoveries) and
+  `src/bili_asr/storage/schema-transcripts.sql` (acquisition runs and attempts,
+  transcripts, transcript segments, and their views). Opening the database — for
+  a write or a read command — always runs both scripts, which are idempotent
+  no-ops on a current-version database; no schema upgrade happens in this
+  iteration. A database created before the transcript contract keeps the shape
+  it has: the transcript script is skipped for it, so nothing half-applies, the
+  metadata path keeps working, and the subtitle commands report the schema guard
+  below instead.
 - `status` and `runs` are read-only. When the database is missing they fail
   with a clear configuration error and exit `1`; they never create it.
 - There is no migration, import, reset, or rewrite path. Deleting
@@ -48,12 +55,18 @@ One SQLite file at `{archive_root}/archive.db`. Foreign keys are enforced
 | `ingestion_cursors` | `mid` | The resumable one-based cursor: `next_page`, `state` (`ready`, `complete`, `limited`, `risk_interrupted`), `observed_total`. |
 | `ingestion_discoveries` | `(run_id, page_number, bvid)` | Run-scoped discovery evidence linking a run page to a discovered video. |
 
-### Reserved media boundary (empty in this plan)
+### Media and transcript tables
 
-`audio_objects`, `part_audio_objects`, `asr_models`, `transcripts`, and
-`transcript_segments` are created now so later media and transcript plans
-attach through these foreign keys instead of reintroducing sidecars. They
-stay empty in this plan; no media bytes or transcripts are written yet.
+`transcripts` and `transcript_segments` back the subtitle path: `harvest-subs`
+writes one row per acquired caption plus its ordered segments, and
+`probe-subs` reads them only through the views below. They are the only tables
+this iteration fills on the media side.
+
+`audio_objects`, `part_audio_objects`, and `asr_models` are still empty: no
+audio bytes and no ASR model rows are written by any command here. The legacy
+audio/ASR chain (`download-audio`, `asr`, `pilot`, `run`) still records its work
+in the JSONL manifest, not in these tables, so nothing on this path fills them
+yet.
 
 ### Views
 
@@ -62,15 +75,208 @@ stay empty in this plan; no media bytes or transcripts are written yet.
 | `v_video_parts` | Every part with its derived `work_id` and the joined user/video context. |
 | `v_ingestion_run_stats` | Per-run page and video counts (the `runs` command's source). |
 | `v_pending_metadata` | Parts with `processing_status = 'discovered'` (the `status` command's pending work). |
+| `v_pending_subtitles` | Every part that is not `gone` and has no stored transcript, ordered never-attempted first — the subtitle commands' work list, carrying the newest attempt's outcome, timestamp, and credential presence. |
+
+## Subtitle acquisition (`probe-subs` / `harvest-subs`)
+
+Both commands read the parts already stored in `archive.db`, acquire through the
+typed gateway, and write their result back there — `archive.db` is the only
+destination. The `cid` always comes from `video_parts`: the subtitle path never
+fetches a pagelist and never calls upstream for a part that is not in the
+database.
+
+```text
+bili-asr probe-subs  [--archive-root PATH] (--bvid BVID|BVID:pN | --limit-parts N) [--sessdata VALUE]
+bili-asr harvest-subs [--archive-root PATH] [--bvid BVID|BVID:pN] [--limit-parts N]
+                      [--language PREF[,PREF...]] [--sessdata VALUE]
+```
+
+- `--archive-root PATH` (default `archive`): the root holding `archive.db`.
+- `--bvid BVID` selects **every part of that video already in the database** —
+  for `harvest-subs` that includes parts that already have a transcript, which
+  is the explicit path for re-checking a video after upstream adds or revises a
+  caption. `--bvid BVID:pN` selects exactly one part, in the archive's own
+  zero-based part vocabulary. A selector that resolves to no stored part is a
+  configuration error — exit `1`, `unknown --bvid <value>` — never an empty
+  result.
+- `--limit-parts N` (positive integer) bounds the run. `probe-subs` requires
+  exactly one of `--bvid` / `--limit-parts`; `harvest-subs` requires the bound
+  whenever the selection is not a single `bvid:pN` part, which is bounded by
+  construction. No unbounded runs.
+- `--language PREF[,PREF...]` (`harvest-subs` only) overrides the preference
+  rule below; an empty entry is a usage error (exit `1`).
+
+### Output
+
+`probe-subs` prints presence, one line per selected part in selection order,
+then a count summary:
+
+```text
+sessdata: <present|absent>
+probe <work_id> tracks=<n>
+  track <lan> <ai|cc> <lan_doc>
+probe <work_id> tracks=0
+  (no subtitles visible)
+probe <work_id> failed <error_code>
+probe-subs: probed=<n> with_tracks=<n> without_tracks=<n> failed=<n>
+```
+
+A part with no visible track is never omitted: it carries the explicit
+`(no subtitles visible)` marker, so "no tracks" cannot be read as "not
+attempted". A part whose listing failed carries the bounded code on its own
+line, with no track lines and no success marker.
+
+`harvest-subs` prints presence, one line per attempted part in attempt order,
+then one summary line that always carries all four outcome counts including the
+zeros, the run id, the credential presence, and how many parts still have no
+transcript:
+
+```text
+sessdata: <present|absent>
+harvest <work_id> stored <source_kind> <language> v<version>
+harvest <work_id> unchanged <source_kind> <language> v<version>
+harvest <work_id> no-subtitle
+harvest <work_id> failed <error_code>
+harvest-subs: run_id=<run_id> attempted=<n> stored=<n> unchanged=<n> no-subtitle=<n> failed=<n> remaining_without_transcript=<n>
+```
+
+`remaining_without_transcript` is read after the run, so the operator can see a
+bounded run make progress. Each attempted part maps to exactly one outcome:
+
+| Upstream result | Outcome | Operator reading |
+|---|---|---|
+| The listing carried no track, or the fetch answered `not_found` | `no-subtitle` | Nothing was visible for this part at this attempt. Not a failure, and not a statement that the video has no captions: a machine caption may not exist yet, uploader captions may never have been provided, and login-gated tracks are invisible anonymously. The part stays in the pending enumeration. |
+| Content identical to what is stored for this part/source/language | `unchanged` | The archive already held this caption; nothing was rewritten. |
+| New content, or content differing from every stored version | `stored` | A new version was written; earlier versions stay readable. |
+| `rate_limited`, `transport_error`, `response_error`, `shape_error` | `failed` + the bounded code | Retry later for the first two; the last two need investigation. |
+
+No output carries a credential, a signed URL, a raw body, or upstream message
+text, and no count here is presented as coverage of the corpus.
+
+### Exit codes
+
+| Exit | Meaning |
+|------|---------|
+| 0 | The run completed. That includes a probe whose parts exposed no track at all, a harvest whose every attempted part had nothing visible, and a harvest whose selection resolved to no part (`attempted=0`). |
+| 1 | Usage/configuration: a missing `archive.db`, an unknown `--bvid`, a missing or non-positive bound, neither or both `probe-subs` selectors, an empty `--language` entry, or the transcript-schema guard below. |
+| 2 | The run failed on **every** attempted part, or an unexpected internal error (the fixed line `<command>: unexpected error`, no traceback). |
+
+Partial failure stays visible in the counts and does not by itself decide the
+exit code: a harvest that stored one part and failed another exits `0` with
+`failed=1` on its summary line. In both exit-2 variants the run row is finished
+`failed` when one was opened, and the per-part evidence already written stays
+readable.
+
+**A `not_found` listing is read differently by the two commands, on purpose.**
+The same upstream answer reaches the operator as two different readings:
+
+- `probe-subs` obtained no listing at all, so it prints
+  `probe <work_id> failed not_found` and counts the part under `failed=`. If
+  every selected part failed that way, the probe exits `2`.
+- `harvest-subs` records the part as `no-subtitle` — nothing was visible for it
+  — and exits `0` with `stored=0 unchanged=0 no-subtitle=1 failed=0`.
+
+Neither reading is "this video has no captions", and a part recorded
+`no-subtitle` stays eligible for a later attempt.
+
+### Archive writer lock
+
+`harvest-subs` is an archive-writer command: it takes the shipped writer lock at
+`{archive-root}/coordinator/archive-writer.lock` for the whole run, so a second
+mutating command exits `1` with `harvest-subs: archive_busy` instead of
+partially mutating the archive. That lock file and the database itself are the
+only files a bounded harvest leaves under the archive root.
+
+`probe-subs` is deliberately **not** an archive-writer command: it takes no
+lock and creates no file under the archive root. Its read-only promise is
+structural rather than only documented — no database creation, no transcript
+row, no acquisition run or attempt row, no lock file — and it stays a reader
+while another process writes, exactly like `status` and `runs`.
+
+### Track selection preference
+
+`harvest-subs` stores exactly one track per part. The default (no `--language`)
+ranks the visible tracks by language **family** — `zh` first, then `en`, then
+every remaining family in upstream order — and prefers an uploader caption
+(`is_ai = false`, printed `cc`) over a machine one inside the same family; the
+first track after that ranking is fetched.
+
+The family is derived from the two normalized facts the gateway DTO already
+guarantees — `language` and `is_ai` — by stripping the `ai-` prefix from a
+machine track's code and then taking the lowercase primary subtag: `zh-CN`,
+`zh-Hans`, `zh-Hant`, and `ai-zh` all land in `zh`, so the uploader caption wins
+whichever exact code upstream uses. The rule is defined on the family because
+upstream codes differ between caption kinds for the same spoken language
+(uploader Chinese is `zh-CN` / `zh-Hans` / `zh-Hant`, machine Chinese is
+`ai-zh`): a fixed list of exact codes would silently mis-rank any code upstream
+adds, and a machine↔uploader equivalence table would have to be maintained
+against upstream vocabulary and could flip without warning.
+
+`--language PREF[,PREF...]` overrides the rule: each entry is matched exactly
+against the code `probe-subs` prints, the first preference with a match wins,
+and among tracks matching the same preference the uploader caption comes before
+the machine one (then upstream order). `--language ai-zh` therefore retrieves
+the machine caption. A valid preference that matches no visible track yields
+`no-subtitle` for that part — nothing usable *for the requested language* was
+visible — never `failed`.
+
+The stored kind, language, and version are reported per part, so a run always
+shows which caption it kept:
+
+| Stored `source_kind` | Meaning |
+|---|---|
+| `subtitle-cc` | The uploader's caption. |
+| `subtitle-ai` | Upstream's machine-generated caption. |
+
+This replaces the legacy manifest harvest's AI-first preference
+(`subtitles._LAN_PREFERENCE`, `("ai-zh", "zh-CN", "zh-Hans", "en")`): the
+default now keeps the uploader caption when both are visible, and `--language`
+keeps the machine one reachable.
+
+### Schema guard and rebuild
+
+Both commands require the transcript contract in the database they open. On a
+database that predates it — one whose `transcripts` table lacks `language` /
+`content_sha256` — they print the fixed line and exit `1`:
+
+```text
+<command>: archive database predates the transcript schema; rebuild it
+(delete <archive-root>/archive.db and re-run fetch-meta)
+```
+
+The metadata commands (`fetch-meta`, `status`, `runs`) keep working on that same
+database unchanged. There is no in-place migration: the rebuild procedure is to
+delete `archive.db`, re-run `fetch-meta` to recreate it from the checked-in
+schemas, and harvest again.
+
+### Boundary with the legacy manifest path
+
+This iteration replaces the manifest semantics of the two command names; it does
+not migrate the rest of the archive. The ASR and pilot chain (`asr`, `pilot`,
+`run`, `schedule`, `campaign`, `download-audio`) is untouched and still reads
+`manifest/manifest.jsonl`:
+
+- the new `harvest-subs` no longer produces the manifest status `needs_audio`,
+  so the legacy audio feeder `download-audio --missing-subs` gains no new
+  entries from the SQLite subtitle path;
+- `bili-asr asr --pending` and the pilot chain are still driven from the
+  manifest state, not from `archive.db`, so a transcript stored here does not
+  feed them;
+- the two paths do not feed each other yet. Rebuilding the SRT/TXT/MD
+  projections from the stored transcripts, and enumerating the audio work queue
+  from SQLite — including the parts recorded `no-subtitle`, which are that
+  queue — belong to the next iteration.
 
 ## No-JSONL contract
 
-`fetch-meta`, `status`, and `runs` never read or write `manifest.jsonl`,
-`meta-cursor.json`, or `run-ledger.jsonl`. All persisted run/page evidence
-is scalar: `error_code` values are bounded strings of at most 64 characters
-from a restricted character set. Credentials, signed URLs, raw response
-bodies, and raw exception text never enter CLI output, logs, or any
-persisted row.
+`fetch-meta`, `status`, `runs`, `probe-subs`, and `harvest-subs` never read or
+write `manifest.jsonl`, `meta-cursor.json`, or `run-ledger.jsonl`. All persisted
+run/page evidence is scalar: `error_code` values are bounded strings of at most
+64 characters from a restricted character set. Credentials, signed URLs, raw
+response bodies, and raw exception text never enter CLI output, logs, or any
+persisted row. Neither subtitle command writes an on-disk projection of the
+transcript: no `subtitles/raw/*.json` and no `transcripts/srt/*.srt` — the
+normalized transcript lives in `archive.db`.
 
 ## Credential boundary
 
@@ -80,7 +286,10 @@ gateway's cookie object only: never echoed, logged, persisted, or rendered —
 CLI output shows presence only (`sessdata: present|absent`). Omitting it
 means anonymous access, and so does passing `--sessdata ""` explicitly
 (which never falls through to `BILI_SESSDATA`); a blank environment value
-likewise means anonymous.
+likewise means anonymous. `harvest-subs` additionally records the presence in
+its `acquisition_runs` row, so a part it recorded `no-subtitle` stays
+interpretable afterwards: an invisible caption may exist and simply be
+login-gated. `probe-subs` records nothing at all and only prints the presence.
 
 ## Runtime HTTP backend
 
@@ -257,6 +466,58 @@ of an explicit `export` (the gateway reads the same environment).
   no credential, no proxy, and no collected metadata value is recorded here.
   The intermittency noted above still applies to a fresh run.
 
+### Subtitle CLI smoke (`tests/test_live_subtitle_cli_smoke.py`)
+
+The same switch gates a live smoke of the subtitle commands: one public part
+through `probe-subs` and `harvest-subs` into a temporary archive root. Both
+commands address parts already in the database, so the smoke authors the one
+part it probes — the fixed public sample `BV1S8hA6MEvy:p0` — into its own
+temporary root first, and records `part_source=fixed-sample` with the identity
+in its single count-only evidence line:
+
+```
+CONTROL=/root/workspace/bilibili-asr-archive   # the control checkout
+CHECKOUT=$CONTROL/bilibili-asr-archive         # or a feature worktree's package dir
+cd "$CHECKOUT"
+set -a; source "$CONTROL/.env"; set +a          # gitignored; absent in a worktree
+export BILI_HTTP_PROXY=http://127.0.0.1:7890
+BILI_LIVE_SMOKE=1 "$CONTROL/bilibili-asr-archive/.venv/bin/python" \
+  -m pytest tests/test_live_subtitle_cli_smoke.py -s -v
+```
+
+It runs from the package directory of the checkout under test because the
+control `.venv` carries an editable install of the control checkout: the
+package's own `tests/conftest.py` puts `src/` first on `sys.path`, so the code
+exercised is the checkout the test file belongs to.
+
+- Bound: one part, `--limit-parts 1` on both commands — one track listing for
+  the probe, one listing plus one document fetch for the harvest (when a track
+  is visible). The smoke adds no retry of its own; the shipped gateway is
+  fail-fast per call, so a throttled endpoint is answered by waiting and
+  re-running, never by bending the call shape.
+- Asserted when a caption is visible: the printed presence, track, outcome and
+  summary line shapes; the normalized transcript row (an allowed
+  `source_kind`, its language, version 1, the content hash), its ordered
+  segments, the one run row with the operator's selector and the credential
+  presence, the one attempt row pointing at the transcript, a part that left
+  `v_pending_subtitles`, and an archive root holding nothing but `archive.db`
+  and `coordinator/archive-writer.lock`.
+- Recorded without reading green: zero visible tracks, a `not_found` listing,
+  and a `rate_limited` refusal each assert their bounded shapes, print the
+  evidence, and skip — a run that stored no transcript is not a subtitle
+  acquisition. Every other bounded code (`transport_error` from a dead proxy,
+  `response_error`, `shape_error`) fails loudly.
+- **Observed on 2026-09-11** (this host, credential and proxy configured), CLI
+  exit 0, bounded facts only: `part_source=fixed-sample
+  work_id=BV1S8hA6MEvy:p0 sessdata=present probe_exit=0 probed=1 with_tracks=1
+  without_tracks=0 probe_failed=0 track_count=1 tracks=ai-zh:ai harvest_exit=0
+  attempted=1 stored=1 unchanged=0 no_subtitle=0 failed=0
+  remaining_without_transcript=0 source_kind=subtitle-ai language=ai-zh
+  version=1 segments=2913 transcripts=1 attempts=1 pending_after=0`. The part
+  exposed one machine caption, the harvest stored it as version 1, and the part
+  left the pending enumeration. Count-only: no credential, no proxy, no signed
+  URL, and no caption text is recorded here.
+
 ## Exit codes
 
 ### `fetch-meta`
@@ -290,3 +551,10 @@ Exit 2 variants:
 same-second runs tie-broken deterministically by `run_id` descending — and
 includes non-terminal `running` rows: a crash can leave a stale run behind,
 and hiding it would hide real state.
+
+### `probe-subs` / `harvest-subs`
+
+Defined in the "Subtitle acquisition" section above: `0` the bounded run
+completed (a probe with zero visible tracks and a selection that resolved to no
+part included), `1` usage/configuration or the transcript-schema guard, `2` every
+attempted part failed or an unexpected internal error.

@@ -100,7 +100,8 @@ in committed files or CI artifacts.
 ## Workflow
 
     bili-asr fetch-meta --mid 23191782 --archive-root archive
-    bili-asr harvest-subs --archive-root archive
+    bili-asr probe-subs --limit-parts 5 --archive-root archive
+    bili-asr harvest-subs --limit-parts 5 --archive-root archive
     bili-asr download-audio --missing-subs --archive-root archive
     bili-asr asr --pending --archive-root archive
     bili-asr status --archive-root archive
@@ -185,12 +186,13 @@ Paths, exception text, and input values are never emitted.
 ### Archive writer isolation
 
 Every archive-mutating command (`fetch-meta`, `recover`, `asr`, `pilot`,
-`probe-subs`, `harvest-subs`, `download-audio`, `run`, `campaign`, and
+`harvest-subs`, `download-audio`, `run`, `campaign`, and
 `schedule`) holds one archive-root writer lock from initial state load through
 its final state/sidecar write. A second mutation exits `1` with
 `<command>: archive_busy`; it does not wait or partially mutate the archive.
 Read-only commands such as `status`, `coverage`, `verify`, `runs`, `search`,
-`export`, and `evaluate-concurrency` do not claim this writer lock.
+`export`, `probe-subs`, and `evaluate-concurrency` do not claim this writer
+lock: `probe-subs` writes nothing at all on the SQLite subtitle path.
 
 ### Audio reclaim and bounded-disk campaigns
 
@@ -256,11 +258,11 @@ the row archived.
 ### Operational run ledger (`run-ledger.jsonl`)
 
 Every `pilot` / `run` / `schedule` run atomically appends an inspectable run
-record to `{archive-root}/run-ledger.jsonl`. The metadata CLI's `fetch-meta`
-records its runs in the fresh SQLite database
+record to `{archive-root}/run-ledger.jsonl`. The metadata and subtitle CLI
+commands record their runs in the fresh SQLite database instead
 (`{archive-root}/archive.db`, see
-[the fresh-start metadata workflow](#fresh-start-metadata-collection-fetch-meta--status--runs))
-instead. The ledger is a sidecar file that records execution history and
+[the fresh-start SQLite archive](#fresh-start-sqlite-archive-fetch-meta--status--runs)).
+The ledger is a sidecar file that records execution history and
 coverage without altering manifest row schemas or the transport layer.
 
 #### Ledger record schema
@@ -342,6 +344,13 @@ The denominator is the selected manifest snapshot in work-item units; if the man
 FunASR-Nano), `archive` (write `srt`/`txt`/`md`) — composing the same live
 seams as the single-purpose commands. It **complements** the frozen
 `bili-asr pilot` MVP-proof command; it does not replace it.
+
+This chain is driven from the manifest state only: `run`, `pilot`, `asr`, and
+`schedule` never read `archive.db`, so transcripts stored by the SQLite
+`harvest-subs` do not feed them (and `harvest-subs` no longer marks rows
+`needs_audio`). See
+[Subtitle acquisition on SQLite](#subtitle-acquisition-on-sqlite-probe-subs--harvest-subs)
+for that boundary.
 
     bili-asr run --scope pending|failed|<work_id>... [--offline] [--limit N] [--archive-root <root>]
 
@@ -488,7 +497,7 @@ The JSONL manifest (`{archive-root}/manifest/manifest.jsonl`) remains the single
 - **Vocabulary**: Consistently uses manifest `status` (never cursor `state`).
 - **Decoupled from search index**: Export operates directly over the JSONL manifest SSOT and does not require, query, or mutate `search.db`.
 
-### Fresh-start metadata collection (`fetch-meta` / `status` / `runs`)
+### Fresh-start SQLite archive (`fetch-meta` / `status` / `runs`)
 
 `bili-asr fetch-meta` collects video metadata through the pinned
 `bilibili-api-python==17.4.2` gateway and writes it to a fresh normalized
@@ -503,6 +512,10 @@ only restart path.
     bili-asr fetch-meta --mid 23191782 --limit-pages 1 --archive-root archive
     bili-asr status --archive-root archive
     bili-asr runs --limit 10 --archive-root archive
+
+The subtitle commands work on that same fresh database and are described in
+[Subtitle acquisition on SQLite](#subtitle-acquisition-on-sqlite-probe-subs--harvest-subs)
+below; this subsection covers the metadata and read commands only.
 
 - **Default page bound**: `--limit-pages` is optional and defaults to
   `DEFAULT_PAGE_LIMIT = 10`. The canonical command above therefore stops
@@ -561,10 +574,94 @@ Exit 2 variants:
   check `status` / `runs` before re-running. Re-running is safe: it
   resumes from the stored cursor.
 
-#### Opt-in bounded live smoke
+#### Subtitle acquisition on SQLite (`probe-subs` / `harvest-subs`)
 
-Three tests share the one switch (`BILI_LIVE_SMOKE=1`); every default pytest
-run skips all three and makes no network call:
+`bili-asr harvest-subs` acquires captions for parts already stored in
+`archive.db` and keeps the normalized transcript **in that database**: no
+`subtitles/raw/*.json` and no `transcripts/srt/*.srt` is written, and no JSONL
+sidecar is read or written. `bili-asr probe-subs` lists the tracks the selected
+parts expose and writes nothing at all — no database creation, no run or attempt
+row, no lock file. The full contract, with the printed line shapes and the
+observed live run, is in
+[docs/metadata-storage.md](docs/metadata-storage.md).
+
+    bili-asr probe-subs --limit-parts 5 --archive-root archive
+    bili-asr probe-subs --bvid <bvid>:p0 --archive-root archive
+    bili-asr harvest-subs --limit-parts 5 --archive-root archive
+    bili-asr harvest-subs --bvid <bvid>:p0 --archive-root archive
+    bili-asr harvest-subs --limit-parts 5 --language ai-zh --archive-root archive
+
+- **Bounds**: no unbounded runs. `harvest-subs` requires `--limit-parts N`
+  whenever the selection is not a single `bvid:pN` part; `probe-subs` requires
+  exactly one of `--bvid` / `--limit-parts`. `--bvid BVID` selects every part of
+  that video already in the database — for `harvest-subs` that includes parts
+  that already have a transcript, which is how a video is re-checked after
+  upstream revises a caption. Neither command fetches a pagelist, and neither
+  calls upstream for a part that is not in the database.
+- **Exit codes**: `0` the bounded run completed — including a probe whose parts
+  exposed no track, and a selection that resolved to no part (`attempted=0`);
+  `1` usage/configuration (missing database, unknown `--bvid`, missing or
+  non-positive bound, neither/both `probe-subs` selectors, empty `--language`
+  entry, or the schema guard below); `2` every attempted part failed, or an
+  unexpected internal error (`<command>: unexpected error`, no traceback).
+  Partial failure stays visible in the printed counts, not in the exit code.
+- **Output shapes**: `probe-subs` prints `sessdata: present|absent`, then one
+  line per selected part — `probe <work_id> tracks=<n>` with one
+  `track <lan> <ai|cc> <label>` line each, `probe <work_id> tracks=0` with an
+  explicit `(no subtitles visible)` marker, or `probe <work_id> failed <code>` —
+  and closes with
+  `probe-subs: probed=<n> with_tracks=<n> without_tracks=<n> failed=<n>`.
+  `harvest-subs` prints one line per attempted part —
+  `harvest <work_id> stored|unchanged <source_kind> <language> v<version>`,
+  `harvest <work_id> no-subtitle`, or `harvest <work_id> failed <error_code>` —
+  and closes with `harvest-subs: run_id=<id> attempted=<n> stored=<n>
+  unchanged=<n> no-subtitle=<n> failed=<n>
+  remaining_without_transcript=<n>`, carrying all four counts including the
+  zeros. Nothing here is a claim about corpus or caption coverage.
+- **Preference rule**: the default keeps the **uploader** caption
+  (`subtitle-cc`) over the machine one (`subtitle-ai`) inside the same language
+  **family**, with families ranked `zh`, then `en`, then the rest in upstream
+  order. The family is derived from the `language` + `is_ai` facts the gateway
+  already guarantees (strip an `ai-` prefix from a machine code, then take the
+  primary subtag), so `zh-CN` / `zh-Hans` / `zh-Hant` / `ai-zh` all rank as
+  `zh`: upstream uses different exact codes per caption kind, and a fixed code
+  list would silently mis-rank codes upstream adds while a machine↔uploader
+  equivalence table would need maintaining. `--language PREF[,PREF...]` matches
+  a preference **exactly** against the code `probe-subs` prints, so
+  `--language ai-zh` keeps the machine caption reachable. This replaces the
+  legacy manifest harvest's AI-first order.
+- **Credential**: `--sessdata` or `BILI_SESSDATA` (flag wins), with the same
+  resolution and presence-only redaction as the metadata commands
+  (`sessdata: present|absent`); the value reaches the gateway's cookie only and
+  is never echoed, logged, or persisted. `harvest-subs` records the presence in
+  its run row, so a part it recorded `no-subtitle` stays interpretable — an
+  invisible caption may exist and simply be login-gated.
+- **Schema guard and rebuild**: on a database that predates the transcript
+  schema both commands print `<command>: archive database predates the
+  transcript schema; rebuild it (delete <archive-root>/archive.db and re-run
+  fetch-meta)` and exit `1`, while `fetch-meta` / `status` / `runs` keep working
+  on it. There is no in-place migration: deleting `archive.db` and re-running
+  `fetch-meta` is the rebuild. The database is created from two checked-in
+  resources, `src/bili_asr/storage/schema.sql` and
+  `src/bili_asr/storage/schema-transcripts.sql`.
+- **Legacy manifest boundary**: the ASR/pilot chain is untouched and still reads
+  `manifest/manifest.jsonl`, so `asr --pending`, `pilot`, `run`, `schedule`, and
+  `campaign` do not see transcripts stored here. In particular the new
+  `harvest-subs` no longer produces the manifest status `needs_audio`, so
+  `download-audio --missing-subs` gains no new entries from the SQLite subtitle
+  path — the two paths do not feed each other yet. Rebuilding the SRT/TXT/MD
+  projections from the stored transcripts is deferred work for a later
+  iteration.
+- **Writer lock**: `harvest-subs` is an archive-writer command and holds
+  `{archive-root}/coordinator/archive-writer.lock` for the whole run, so a
+  second mutating command exits `1` with `harvest-subs: archive_busy`. Apart
+  from `archive.db`, that lock is the only file a bounded harvest leaves behind;
+  `probe-subs` deliberately takes none.
+
+#### Opt-in bounded live smokes
+
+Four tests share the one switch (`BILI_LIVE_SMOKE=1`); every default pytest
+run skips all four and makes no network call:
 
 - `tests/test_live_metadata_smoke.py` — the real CLI against the real upstream:
   exactly one public metadata page for UID 23191782, into a temporary archive
@@ -578,6 +675,21 @@ run skips all three and makes no network call:
   and credential presence — never a URL, body, label, or credential. Run it
   from the package directory with the pinned distribution installed:
   `BILI_LIVE_SMOKE=1 .venv/bin/python -m pytest tests/test_live_subtitle_smoke.py -s -v`;
+- `tests/test_live_subtitle_cli_smoke.py` — the real **CLI + storage** chain
+  against the real upstream: one part through `probe-subs` and `harvest-subs`
+  in a temporary archive root, asserting the printed line shapes, the stored
+  transcript rows, and the archive root's file set. The part both commands
+  address is authored into that temporary root — the fixed public sample
+  `BV1S8hA6MEvy:p0`, recorded as `part_source=fixed-sample` — because the
+  commands only ever address parts the database already stores. Zero visible
+  tracks, a `not_found` listing, and a `rate_limited` refusal are recorded as
+  bounded evidence and skipped rather than reading green; every other bounded
+  code fails loudly. Its one count-only evidence line names the seeded part,
+  credential presence, both commands' counts, and the stored source
+  kind/language/version. Run it from the package directory of the checkout
+  under test (the package's `tests/conftest.py` puts that checkout's `src/`
+  first on `sys.path`, ahead of the control `.venv`'s editable install):
+  `BILI_LIVE_SMOKE=1 .venv/bin/python -m pytest tests/test_live_subtitle_cli_smoke.py -s -v`;
 - `tests/test_bilibili_api_gateway.py::test_live_smoke_single_public_page_for_archive_owner`
   — the adapter-level ancestor of the CLI smoke: one real metadata page for UID
   23191782 ingested into a temporary database through the real gateway.
@@ -625,11 +737,13 @@ underlying transport/proxy requirements are documented in
 
 ### Mixed batch outcomes
 
-When `harvest-subs`, `download-audio`, `asr`, `pilot`, `run`, or `schedule`
-processes more than one work item, the process exit code is an aggregation of
-per-item outcomes — not a claim that the whole corpus is complete. `pilot`
-remains the frozen two-branch proof command; `run` remains complementary;
-`schedule` consumes this same taxonomy.
+On the legacy manifest path, when `download-audio`, `asr`, `pilot`, `run`, or
+`schedule` processes more than one work item, the process exit code is an
+aggregation of per-item outcomes — not a claim that the whole corpus is
+complete. `pilot` remains the frozen two-branch proof command; `run` remains
+complementary; `schedule` consumes this same taxonomy. The SQLite
+`harvest-subs` follows its own bounded taxonomy instead (see
+[Subtitle acquisition on SQLite](#subtitle-acquisition-on-sqlite-probe-subs--harvest-subs)).
 
 | Exit | Meaning |
 |------|---------|
