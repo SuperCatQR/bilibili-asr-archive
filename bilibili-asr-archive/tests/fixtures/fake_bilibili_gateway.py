@@ -4,9 +4,10 @@ Every package-seam test scripts these fakes instead of touching the pinned
 ``bilibili-api-python`` distribution or the network:
 
 - ``FakeGateway`` is the plain ``BilibiliGateway`` protocol double used by
-  the ingestor tests: scripted pages, parts, and summary completions with
-  recorded fetch calls; unexpected fetches fail loudly instead of returning
-  script-free data.
+  the ingestor and CLI tests: scripted pages, parts, summary completions and
+  per-part subtitle listings/bodies with recorded fetch calls, plus the
+  credential the composition root handed the double; unexpected fetches fail
+  loudly instead of returning script-free data.
 - ``FakeUpstreamScript`` / ``build_fake_package`` / ``bilibili_api_seam``
   install the fake ``bilibili_api`` package on ``sys.modules`` for the real
   adapter tests.  The fake mirrors only the documented import surface the
@@ -50,6 +51,7 @@ Every package-seam test scripts these fakes instead of touching the pinned
 from __future__ import annotations
 
 import dataclasses
+import importlib
 import sys
 import types
 from enum import Enum
@@ -321,20 +323,37 @@ class FakeUpstreamScript:
 
 
 class FakeGateway:
-    """Scripted ``BilibiliGateway`` protocol double for ingestor tests.
+    """Scripted ``BilibiliGateway`` protocol double for ingestor and CLI tests.
 
     Unexpected fetches fail loudly instead of returning script-free data;
     a scripted ``BaseException`` value is raised as-is.
+
+    The two subtitle calls are scripted per part, by ``cid``:
+    ``script_subtitle_tracks`` scripts what ``get_subtitle_tracks`` answers
+    (an inventory, or an empty tuple for a part nothing is visible for, or a
+    ``GatewayError`` to raise) and ``script_subtitle_segments`` scripts what
+    ``fetch_subtitle_segments`` answers (a body, or a ``GatewayError`` to
+    raise).  ``listing_cids`` and ``body_cids`` record the parts whose listing
+    and whose body were requested, in issue order, so the candidate order, the
+    selected part, and "the body was never fetched" are assertable.  The
+    ``sessdata`` attribute holds the credential the composition root handed the
+    double — ``None`` until a test installs it that way — so the credential
+    boundary is assertable without ever comparing a value in output.
     """
 
     def __init__(self, package_version: str = FAKE_PACKAGE_VERSION) -> None:
         self.package_version = package_version
+        self.sessdata: str | None = None
         self.page_calls: list[tuple[int, int, int]] = []
         self.parts_calls: list[str] = []
         self.completion_calls: list[str] = []
+        self.listing_cids: list[int] = []
+        self.body_cids: list[int] = []
         self._pages: dict[int, object] = {}
         self._parts: dict[str, object] = {}
         self._completions: dict[str, object] = {}
+        self._subtitle_tracks: dict[int, object] = {}
+        self._subtitle_segments: dict[int, object] = {}
 
     def script_page(self, page_number: int, page: object) -> None:
         self._pages[page_number] = page
@@ -344,6 +363,16 @@ class FakeGateway:
 
     def script_completion(self, bvid: str, completed: object) -> None:
         self._completions[bvid] = completed
+
+    def script_subtitle_tracks(self, cid: int, tracks: object) -> None:
+        """Script what the track listing answers for one part, by its ``cid``."""
+
+        self._subtitle_tracks[cid] = tracks
+
+    def script_subtitle_segments(self, cid: int, segments: object) -> None:
+        """Script what the body fetch answers for one part, by its ``cid``."""
+
+        self._subtitle_segments[cid] = segments
 
     async def get_user_video_page(
         self, mid: int, page_number: int, page_size: int = 30
@@ -358,6 +387,22 @@ class FakeGateway:
     async def get_completed_video_summary(self, summary: VideoSummary) -> VideoSummary:
         self.completion_calls.append(summary.bvid)
         return self._scripted(self._completions, summary.bvid, "completed-summary")
+
+    async def get_subtitle_tracks(
+        self, bvid: str, cid: int
+    ) -> tuple[SubtitleTrack, ...]:
+        self.listing_cids.append(cid)
+        return self._scripted(
+            self._subtitle_tracks, cid, "subtitle-track listing"
+        )
+
+    async def fetch_subtitle_segments(
+        self, track: SubtitleTrack, bvid: str, cid: int
+    ) -> tuple[SubtitleSegment, ...]:
+        self.body_cids.append(cid)
+        return self._scripted(
+            self._subtitle_segments, cid, "subtitle-segment body"
+        )
 
     def get_package_version(self) -> str:
         return self.package_version
@@ -815,6 +860,36 @@ def bilibili_api_seam(monkeypatch) -> FakeUpstreamScript:
         sys.modules.pop(GATEWAY_ADAPTER_MODULE, None)
 
 
+@pytest.fixture
+def fake_gateway_seam(monkeypatch) -> FakeGateway:
+    """Install one ``FakeGateway`` as the product adapter and yield it.
+
+    Every command handler imports ``BilibiliApiGateway`` inside its own body,
+    so replacing that class in its module puts the whole command path — CLI
+    composition root included — on this protocol double, with no network and no
+    package seam.  The replacement records the credential the composition root
+    handed it on ``FakeGateway.sessdata``.
+
+    The module is reached through ``importlib`` deliberately: the package-seam
+    fixture above drops the adapter module from ``sys.modules``, and a plain
+    ``import ... as`` would then bind the parent package's stale attribute
+    instead of the module the handler imports from.
+    """
+
+    gateway = FakeGateway()
+    gateway_module = importlib.import_module(GATEWAY_ADAPTER_MODULE)
+
+    def factory(
+        sessdata: str | None = None, proxy: str | None = None
+    ) -> FakeGateway:
+        del proxy
+        gateway.sessdata = sessdata
+        return gateway
+
+    monkeypatch.setattr(gateway_module, "BilibiliApiGateway", factory)
+    return gateway
+
+
 __all__ = [
     "BVID",
     "DOCUMENTED_METADATA_CALLS",
@@ -845,6 +920,7 @@ __all__ = [
     "assert_only_documented_metadata_calls",
     "bilibili_api_seam",
     "build_fake_package",
+    "fake_gateway_seam",
     "make_detail_response",
     "make_part_item",
     "make_player_response",

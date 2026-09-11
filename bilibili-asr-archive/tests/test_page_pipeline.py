@@ -171,41 +171,6 @@ def test_download_pages_independent_status(tmp_root):
     assert play_cids == [111, 222]
 
 
-def test_cli_harvest_skips_unresolved_and_processes_other_page(
-    tmp_root, monkeypatch
-):
-    store = ManifestStore(root=tmp_root)
-    store.upsert({
-        "bvid": BVID, "status": "meta_ok", "title": "legacy",
-        "duration_s": 1, "pubdate": 1, "unresolved": True,
-        "unresolved_reason": "ambiguous_bare_bvid",
-        "excluded_from_page_processing": True,
-    })
-    ok = page_identity("BV1ok", 0, 333)
-    store.upsert({
-        "bvid": "BV1ok", "work_id": ok.work_id, "page_index": 0, "cid": 333,
-        "status": "meta_ok", "title": "ok", "duration_s": 1, "pubdate": 1,
-    })
-    transport = SubRouter({
-        "finger/spi": [SPI_OK],
-        "nav": [nav_ok()],
-        "player/wbi/v2": [player_ok([])],
-    })
-    monkeypatch.setattr(bc, "build_default_transport", lambda: transport)
-    monkeypatch.setattr(bc, "default_sleeper", lambda _s=None: None)
-    monkeypatch.setattr("bili_asr.cli.time.sleep", lambda _seconds: None)
-    rc = main(["harvest-subs", "--archive-root", tmp_root])
-    assert rc == 0
-    loaded = ManifestStore(root=tmp_root).load()
-    assert loaded[BVID]["unresolved"] is True
-    assert loaded[BVID]["status"] == "meta_ok"
-    assert "work_id" not in loaded[BVID]
-    assert loaded[ok.work_id]["status"] == "needs_audio"
-    player = [c for c in transport.calls if "player/wbi/v2" in c["url"]]
-    assert len(player) == 1
-    assert player[0]["params"]["cid"] == 333
-
-
 def test_cli_download_skips_unresolved_and_processes_other_page(
     tmp_root, monkeypatch
 ):
@@ -263,25 +228,6 @@ def test_cli_download_audio_bvid_unresolved_stops(tmp_root, monkeypatch, capsys)
     assert "work_id" not in loaded[BVID]
     assert not os.path.exists(os.path.join(tmp_root, "audio", f"{BVID}.m4a"))
     assert not os.path.exists(os.path.join(tmp_root, "audio", f"{BVID}.p0.m4a"))
-
-
-def test_cli_harvest_subs_bvid_unresolved_stops(tmp_root, monkeypatch, capsys):
-    store = ManifestStore(root=tmp_root)
-    store.upsert({
-        "bvid": BVID, "status": "meta_ok", "title": "legacy",
-        "duration_s": 1, "pubdate": 1, "unresolved": True,
-        "unresolved_reason": "ambiguous_bare_bvid",
-        "excluded_from_page_processing": True,
-    })
-    monkeypatch.setattr(bc, "build_default_transport", lambda: SubRouter({}))
-    monkeypatch.setattr(bc, "default_sleeper", lambda _s=None: None)
-    rc = main(["harvest-subs", "--bvid", BVID, "--archive-root", tmp_root])
-    assert rc == 1
-    err = capsys.readouterr().err
-    assert "unresolved" in err
-    loaded = ManifestStore(root=tmp_root).load()
-    assert loaded[BVID]["unresolved"] is True
-    assert "work_id" not in loaded[BVID]
 
 
 def test_harvest_subtitle_str_skips_unresolved(tmp_root):

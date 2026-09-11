@@ -175,13 +175,20 @@ def _normalize_video_summary_item(item: object, requested_mid: int) -> VideoSumm
         raise GatewayShapeError(
             detail="video item owner mid does not match the requested user"
         )
-    return VideoSummary(
-        bvid=bvid,
-        aid=_read_optional_aid(item),
-        title=title.strip(),
-        pubdate=_read_pubdate(item),
-        mid=owner_mid,
-    )
+    try:
+        return VideoSummary(
+            bvid=bvid,
+            aid=_read_optional_aid(item),
+            title=title.strip(),
+            pubdate=_read_pubdate(item),
+            mid=owner_mid,
+        )
+    except (TypeError, ValueError) as exc:
+        # The DTO rejects text the storage contract cannot hold either — a title
+        # carrying a control character, for instance — and that is a bounded
+        # shape error at this boundary, like every sibling normalizer's, rather
+        # than a raw validation error escaping the gateway.
+        raise GatewayShapeError(detail="video item is not normalizable") from exc
 
 
 def _normalize_user_video_page(
