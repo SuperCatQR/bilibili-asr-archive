@@ -2,16 +2,16 @@
   "schema_version": 1,
   "id": "20260911-live-metadata-path-fix",
   "type": "plan",
-  "status": "active",
+  "status": "completed",
   "started_at": "2026-09-11",
   "updated_at": "2026-09-11",
-  "phase": "phase-2-execute",
+  "phase": "phase-5-pr-merge-ready",
   "plans": [
     {
       "id": "20260911-live-metadata-path-fix",
       "title": "Live Metadata Path Fix — transport, proxy, and risk-control-safe page call",
       "file": ".mstar/plans/20260911-live-metadata-path-fix.md",
-      "status": "InReview",
+      "status": "Done",
       "owner": "project-manager",
       "agents": [
         "fullstack-dev"
@@ -34,7 +34,7 @@
       ],
       "created_at": "2026-09-11",
       "updated_at": "2026-09-11",
-      "done_at": null,
+      "done_at": "2026-09-11",
       "notes": [
         "Plan opened 2026-09-11 from the live-verification diagnosis of the delivered metadata stack.",
         "Three reproduced defects: D1 no HTTP backend declared (bilibili-api-python 17.4.2 requires curl_cffi/httpx/aiohttp); D2 the pinned package disables env proxies by default (proxies={\"all\": \"\"}), so this proxied host times out; D3 the library's page call uses dm=True plus w_webid=None (dynamic page no longer emits __RENDER_DATA__) -> HTTP 412 risk control.",
@@ -44,18 +44,25 @@
         "Task 3 review Approved (review/task-3-review.md, 0C/0I/3M; commit 3a96dd1; focused 158+1 skip / full 892+2 skip; spec transport amendment applied by PM). Task 4 dispatched.",
         "Task 4 review pending; Task 4's live run exposed D4 (page_size=100 rejected upstream: -400 JSON ×3 and 412; ps=30/50 return code=0). PM amended the plan (D4 + locked page-size 30 + Task 5) instead of silently changing scope.",
         "Tasks 4-5 implemented + reviewed (task-4 reviewed Needs-fixes then Approved after the batched docs/hygiene fix wave 5667844; task-5 Approved; both revalidated). Live happy path achieved (outcome=limited videos=30 parts=33 discoveries=30 cursor_next_page=2). Plan row -> InReview; QC tri (N=3) in flight on branch package 25a11fe..5667844; QA gate next (owns the live re-run with -s).",
-        "Plan QC tri converged: seat1 Request Changes (1W knowledge-doc contradiction, PM-fixed in c9f820c) -> targeted re-review Approve; seats 2/3 Approve. Fix wave 2 a898fdf (tests+docs, 903 passed/2 skipped) revalidated by seats 1-2. Awaiting the mandatory QA gate (fresh uv sync proof, full suite, live smoke re-run with -s from the worktree package dir)."
+        "Plan QC tri converged: seat1 Request Changes (1W knowledge-doc contradiction, PM-fixed in c9f820c) -> targeted re-review Approve; seats 2/3 Approve. Fix wave 2 a898fdf (tests+docs, 903 passed/2 skipped) revalidated by seats 1-2. Awaiting the mandatory QA gate (fresh uv sync proof, full suite, live smoke re-run with -s from the worktree package dir).",
+        "Plan Done: PR #13 merged to main (1f94920). QC tri converged (seats 2/3 Approve; seat-1 Warning fixed PM-side + revalidated); both fix waves revalidated; mandatory QA gate Approve (fresh-install proof; first-attempt live happy path exit 0). Zero open residuals."
       ],
       "metadata": {
         "primary_spec": ".mstar/iterations/iter-2026-09-bilibili-api-sqlite/specs/bilibili-api-gateway.md",
         "working_branch": "fix/20260911-live-metadata-path-fix",
         "branch_policy": "feature branch from main; PR to main after review gates",
         "gates": {
-          "qc": "pending",
-          "qa": "pending"
+          "qc": "passed",
+          "qa": "passed"
         },
         "priority": "P0",
-        "origin": "post-delivery live verification 2026-09-11"
+        "origin": "post-delivery live verification 2026-09-11",
+        "delivery": {
+          "pr": 13,
+          "merge_commit": "1f94920",
+          "review_range": "25a11fe..a898fdf",
+          "live_result": "outcome=limited videos=30 parts=33 discoveries=30 cursor_next_page=2 observed_total=1691"
+        }
       }
     }
   ],
@@ -72,5 +79,6 @@
   },
   "control_worktree_path": "/root/workspace/bilibili-asr-archive",
   "legacy_metadata": {},
-  "compass_ref": ""
+  "compass_ref": "",
+  "ended_at": "2026-09-11"
 }

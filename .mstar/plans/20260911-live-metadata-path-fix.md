@@ -27,7 +27,7 @@ explicitly present (possibly empty) `w_webid`.
 
 - Priority: P0 (post-delivery defect; the shipped live path cannot complete)
 - Task category: backend / external integration fix
-- Status: InReview
+- Status: Done
 - Depends on: `iter-2026-09-bilibili-api-sqlite` (delivered, merged `b62ab88`)
 - Primary context: `.mstar/iterations/iter-2026-09-bilibili-api-sqlite/specs/bilibili-api-gateway.md`
 - Owner: fullstack-dev
@@ -312,25 +312,25 @@ Run: `cd bilibili-asr-archive && /root/workspace/bilibili-asr-archive/bilibili-a
 
 ## Acceptance / Done Criteria
 
-- [ ] `curl_cffi` is declared in `pyproject.toml`, `uv.lock` is reproducible
+- [x] `curl_cffi` is declared in `pyproject.toml`, `uv.lock` is reproducible
   (`uv lock --check` no-op), and a fresh install can import an HTTP backend.
-- [ ] `BilibiliApiGateway` resolves and applies a proxy with the locked precedence; an
+- [x] `BilibiliApiGateway` resolves and applies a proxy with the locked precedence; an
   unset proxy leaves library behaviour untouched; no proxy/credential value leaks into
   output, logs, or rows.
-- [ ] The user-video page call is issued with `dm` disabled and `w_webid` present
+- [x] The user-video page call is issued with `dm` disabled and `w_webid` present
   (non-empty preferred when available), with the bounded error taxonomy unchanged.
-- [ ] The adapter/protocol default page size is 30 (upstream-accepted; `ps=100` is rejected
+- [x] The adapter/protocol default page size is 30 (upstream-accepted; `ps=100` is rejected
   with `-400`/412) and an explicit `page_size` override still flows through.
-- [ ] The opt-in live smoke completes one page for UID 23191782 into a temporary archive
+- [x] The opt-in live smoke completes one page for UID 23191782 into a temporary archive
   root with real normalized rows and an advanced cursor — or records an explicit, cooled-down
   upstream blocker with evidence.
-- [ ] Offline suites remain green — baseline at plan open was 865 passed / 2 skipped; after
+- [x] Offline suites remain green — baseline at plan open was 865 passed / 2 skipped; after
   Task 1 it is 866, after Task 2 885, after Task 3 892, after Task 5 **894 passed / 2 skipped**, and after the QC fix waves **903 passed / 2 skipped**
   (each delta is the new tests added by that task or wave) — including the AST import-boundary test
   and the no-leak scans.
-- [ ] `docs/metadata-storage.md`, README, and `.env.example` describe the backend, the
+- [x] `docs/metadata-storage.md`, README, and `.env.example` describe the backend, the
   proxy knob, and the live-smoke expectations accurately.
-- [ ] `git diff --check` is clean.
+- [x] `git diff --check` is clean.
 
 ## Prepare → Execute Handoff
 
@@ -341,7 +341,7 @@ re-run), then merge to `main` via PR.
 
 ## Review Gate Summary
 
-- Decision: QC tri (N=3) converged — seat 1 Request Changes (1W, PM-fixed) → targeted re-review Approve; seats 2/3 Approve; both fix waves revalidated. Plan-level Approve pending the mandatory QA gate.
+- Decision: QC tri (N=3) converged — seat 1 Request Changes (1W, PM-fixed) → targeted re-review Approve; seats 2/3 Approve; both fix waves revalidated. Plan-level Approve issued by the mandatory QA gate (`review/qa-gate.md`: fresh-install proof, 903 passed / 2 skipped, live happy path exit 0, lock hashes + aarch64 wheel verified, DoD 8/8). Merged to `main` via PR #13 (`1f94920`).
 - Review range / Diff basis: `25a11fe..a898fdf` (main at branch cut → final reviewed head; QC reviewed through `5667844`, fix wave 2 `a898fdf` revalidated by seats 1–2)
 - Review bundle: `.mstar/sdd/20260911-live-metadata-path-fix/review/`
 - QC inputs: `qc1.md`, `qc2.md`, `qc3.md`
