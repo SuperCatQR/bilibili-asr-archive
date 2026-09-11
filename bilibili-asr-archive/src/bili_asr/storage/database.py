@@ -743,11 +743,15 @@ class TranscriptRepository:
 
     The connection must come with ``row_factory = sqlite3.Row`` and
     ``PRAGMA foreign_keys`` enabled — exactly the state :func:`open_database`
-    establishes; the constructor rejects anything else.
+    establishes — and must carry the transcript-schema contract: the
+    constructor rejects anything else, so a caller that skipped
+    :func:`require_subtitle_schema` still meets the bounded rebuild error
+    instead of a raw ``sqlite3.OperationalError`` from its first query.
     """
 
     def __init__(self, connection: sqlite3.Connection):
         _validate_connection(connection)
+        require_subtitle_schema(connection)
         self.connection = connection
 
     def start_acquisition_run(self, run: AcquisitionRunRecord) -> None:
