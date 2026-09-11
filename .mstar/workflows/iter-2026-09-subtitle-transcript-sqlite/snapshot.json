@@ -1,0 +1,122 @@
+{
+  "schema_version": 1,
+  "id": "iter-2026-09-subtitle-transcript-sqlite",
+  "type": "iteration",
+  "status": "active",
+  "started_at": "2026-09-11",
+  "updated_at": "2026-09-11",
+  "phase": "phase-1-prepare",
+  "plans": [
+    {
+      "id": "20260911-subtitle-gateway",
+      "title": "Subtitle gateway and typed subtitle contract",
+      "file": ".mstar/plans/20260911-subtitle-gateway.md",
+      "status": "Todo",
+      "owner": "project-manager",
+      "agents": [
+        "fullstack-dev"
+      ],
+      "progress": 0,
+      "task_commits": [],
+      "tags": [
+        "backend",
+        "external-api",
+        "subtitle"
+      ],
+      "created_at": "2026-09-11",
+      "updated_at": "2026-09-11",
+      "done_at": null,
+      "notes": [],
+      "metadata": {
+        "primary_spec": ".mstar/iterations/iter-2026-09-subtitle-transcript-sqlite/specs/subtitle-gateway.md",
+        "spec_integration_branch": "iteration/iter-2026-09-subtitle-transcript-sqlite",
+        "merge_target": "iteration/iter-2026-09-subtitle-transcript-sqlite",
+        "iteration_refs": [
+          "iter-2026-09-subtitle-transcript-sqlite"
+        ],
+        "priority": "P0"
+      }
+    },
+    {
+      "id": "20260911-transcript-storage",
+      "title": "Normalized transcript storage on the reserved tables",
+      "file": ".mstar/plans/20260911-transcript-storage.md",
+      "status": "Todo",
+      "owner": "project-manager",
+      "agents": [
+        "fullstack-dev"
+      ],
+      "progress": 0,
+      "task_commits": [],
+      "tags": [
+        "backend",
+        "database",
+        "transcript"
+      ],
+      "created_at": "2026-09-11",
+      "updated_at": "2026-09-11",
+      "done_at": null,
+      "notes": [],
+      "metadata": {
+        "primary_spec": ".mstar/iterations/iter-2026-09-subtitle-transcript-sqlite/specs/transcript-storage.md",
+        "spec_integration_branch": "iteration/iter-2026-09-subtitle-transcript-sqlite",
+        "merge_target": "iteration/iter-2026-09-subtitle-transcript-sqlite",
+        "iteration_refs": [
+          "iter-2026-09-subtitle-transcript-sqlite"
+        ],
+        "priority": "P0",
+        "blocked_by": [
+          "20260911-subtitle-gateway"
+        ]
+      }
+    },
+    {
+      "id": "20260911-subtitle-cli-cutover",
+      "title": "Subtitle CLI cutover and bounded verification",
+      "file": ".mstar/plans/20260911-subtitle-cli-cutover.md",
+      "status": "Todo",
+      "owner": "project-manager",
+      "agents": [
+        "fullstack-dev"
+      ],
+      "progress": 0,
+      "task_commits": [],
+      "tags": [
+        "backend",
+        "cli",
+        "verification"
+      ],
+      "created_at": "2026-09-11",
+      "updated_at": "2026-09-11",
+      "done_at": null,
+      "notes": [],
+      "metadata": {
+        "primary_spec": ".mstar/iterations/iter-2026-09-subtitle-transcript-sqlite/specs/subtitle-cli-contract.md",
+        "spec_integration_branch": "iteration/iter-2026-09-subtitle-transcript-sqlite",
+        "merge_target": "iteration/iter-2026-09-subtitle-transcript-sqlite",
+        "iteration_refs": [
+          "iter-2026-09-subtitle-transcript-sqlite"
+        ],
+        "priority": "P0",
+        "blocked_by": [
+          "20260911-subtitle-gateway",
+          "20260911-transcript-storage"
+        ]
+      }
+    }
+  ],
+  "execution_policy": {
+    "plan_parallelism": "serial",
+    "worktree_mode": "per-plan",
+    "push_policy": "after-review-gates"
+  },
+  "integration_merge_lease": {},
+  "branch": {
+    "base": "main",
+    "integration": "iteration/iter-2026-09-subtitle-transcript-sqlite",
+    "target": "main"
+  },
+  "control_worktree_path": "/root/workspace/bilibili-asr-archive",
+  "legacy_metadata": {},
+  "compass_ref": "iterations/iter-2026-09-subtitle-transcript-sqlite/delivery-compass.md"
+}

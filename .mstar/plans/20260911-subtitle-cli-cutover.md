@@ -1,0 +1,360 @@
+# Subtitle CLI Cutover and Bounded Verification
+
+> Iteration: `iter-2026-09-subtitle-transcript-sqlite`.
+> Execution mode: `sdd`.
+> Findings cleanup: `zero-residual`.
+
+## Status
+
+- Priority: P0 (iteration-critical, serial 3/3 and the only plan whose result the operator
+  can see; every operator-visible acceptance criterion of the iteration lands here)
+- Task category: backend / CLI verification
+- Status: Todo
+- Depends on: `20260911-subtitle-gateway`, `20260911-transcript-storage`
+- Primary spec: `.mstar/iterations/iter-2026-09-subtitle-transcript-sqlite/specs/subtitle-cli-contract.md`
+- Owner: fullstack-dev
+- QA gate: mandatory
+
+## Goal
+
+Make the existing `bili-asr` executable the operator surface for subtitle acquisition on
+the SQLite archive: `probe-subs` (read-only track listing) and `harvest-subs` (bounded
+acquisition into normalized transcripts), with a service layer that owns selection
+preference and transactional boundaries — and with the new path reading/writing **no**
+JSONL sidecar.
+
+**What the operator gets from this plan.** This is the only plan with a surface the operator
+touches, so it owns the iteration's operator-visible promises: a probe that shows what a part
+exposes (and says so explicitly when nothing is visible), a bounded harvest that always
+reports what happened — every outcome count including zeros, the run id, whether a credential
+was in effect, and how many parts still have no transcript — and a selection rule that is
+documented, deterministic, and overridable. No output of either command is ever presented as
+coverage of the corpus or as a quality judgement on the captions.
+
+## Architecture
+
+`src/bili_asr/services/subtitle_ingest.py` defines `SubtitleIngestor`, which owns the
+candidate enumeration, the selection preference, the per-part transaction, the run-record
+lifecycle, and the outcome mapping; it depends on the `BilibiliGateway` protocol and
+`TranscriptRepository` only. `cli.py` gains the two commands as thin composition roots
+(`--archive-root` → the shipped read-path missing-database guard → `open_database` →
+`require_subtitle_schema` → `TranscriptRepository` → concrete gateway → service → print),
+reusing the shipped helpers `_resolve_sessdata`, `redact_sessdata`,
+`page_identity.parse_work_id`, and the read commands' shipped missing-database line and
+exit-`1` discipline (`<command>: no archive database at <root>; run fetch-meta to create it`).
+Neither command constructs `MetadataRepository` — the read guard is reproduced without it —
+and neither touches a metadata write path. No `config.py` change is needed: the subtitle
+commands take their inputs from `argparse` + `BILI_SESSDATA`.
+
+Two boundary decisions are part of this plan:
+
+- **`probe-subs` is a read command.** It is removed from `_ARCHIVE_WRITER_COMMANDS`, so it
+  takes no `coordinator/archive-writer.lock`, writes nothing, and never creates `archive.db` —
+  the "read-only" promise is then structurally true, not just documented. `harvest-subs` stays
+  a writer command.
+- **The subtitle commands require the transcript schema.** After opening the database they call
+  `require_subtitle_schema`; on a database that predates the transcript contract they print
+  `harvest-subs: archive database predates the transcript schema; rebuild it (delete
+  <root>/archive.db and re-run fetch-meta)` (same line with `probe-subs:` as the prefix) and
+  exit `1`. The metadata commands keep working on that database unchanged.
+
+Selection preference lives in the service and is locked in the CLI spec §3: language families
+(`ai-` prefix stripped for AI tracks, then the lowercase primary subtag) ranked by the default
+order `zh`, `en`, then the rest in upstream order, with CC before AI inside a family; and
+`--language` matched exactly against the code `probe-subs` prints. The legacy
+`subtitles._LAN_PREFERENCE` (AI first) is deliberately not reused.
+
+The legacy manifest path and its ASR/pilot commands are untouched; the spec records that
+boundary.
+
+## Tech Stack
+
+Python 3.12, argparse CLI, SQLite, asyncio bridge for the synchronous entrypoint, pytest,
+the fake-gateway seam, optional live network.
+
+## Global Constraints
+
+- No parallel executable: the existing `bili-asr` entrypoint gains the (already named)
+  `probe-subs` / `harvest-subs` commands; the legacy manifest semantics of those names are
+  replaced, and the replacement is documented.
+- The new path never reads or writes `manifest.jsonl`, `meta-cursor.json`, or
+  `run-ledger.jsonl`.
+- Command surface: `--bvid` accepts the archive's own part vocabulary (`bvid`, or `bvid:pN`
+  for one part) and `--limit-parts N` bounds every run. A single explicit `bvid:pN` target is
+  bounded by construction and needs no `--limit-parts`; in every other case the bound is
+  required — no unbounded runs. `probe-subs` requires exactly one of `--bvid` / `--limit-parts`.
+- Selection: without `--bvid`, the candidate set is the pending enumeration
+  (`v_pending_subtitles`, never-attempted parts first); with `--bvid`, the named part(s) are
+  selected explicitly, including parts that already have a transcript. That explicit path is how
+  the operator refreshes a caption upstream has since added or revised — the re-acquisition then
+  reports `unchanged` or appends a new version. The `cid` always comes from `video_parts`.
+- Enumeration must advance across repeated bounded runs: the locked order
+  (`attempted ASC, last_attempt_at ASC, bvid ASC, page_index ASC`) puts a never-attempted part
+  before a previously attempted one, so a bounded run cannot stall forever on the same
+  captionless parts.
+- Outcome mapping (product semantics): zero visible tracks or `not_found` → `no-subtitle`; an
+  upstream block or a transport/shape/response failure → `failed` with its bounded scalar code;
+  content matching a stored version → `unchanged`; otherwise `stored`. `no-subtitle` is never
+  counted as a failure, and never as a success with empty content.
+- Every run summary prints all four outcome counts including zeros, the run id, credential
+  presence (never the value), and the number of parts still without a transcript; the exact
+  `probe` / `harvest` / summary line shapes are fixed by the CLI spec §2 and asserted by tests.
+- Exit taxonomy reuses the delivered convention: `0` bounded success/read, `1` usage/config
+  (including a missing database — neither subtitle command creates `archive.db` — an unknown
+  `--bvid`, a missing bound, and the schema guard), `2` bounded terminal failure with a fixed
+  message. Partial per-part failure stays visible in the printed counts rather than in the exit
+  code, and the docs say so.
+- `SESSDATA` is presence-only in every display path; signed URLs, raw bodies, and
+  credentials never reach output, logs, or rows.
+- Selection preference is documented and deterministic (CC before AI for the same language
+  family; `--language` overrides the order by exact `lan` match) and lives in the service, not
+  the gateway. Rationale to state in the docs: AI tracks carry a different `lan` than the
+  uploader track for the same language (`ai-zh` vs `zh-CN`), so the default is defined on the
+  language family rather than on a fixed list of codes; the legacy harvest's AI-first order is
+  replaced, and `--language` keeps the other track reachable.
+- Docs (`README.md`, `docs/metadata-storage.md`) must match shipped behaviour: the two
+  commands, their bounds, the exit codes, the preference rule, the SQLite-only projection
+  boundary, the rebuild procedure for a pre-iteration database, and the fact that the legacy
+  ASR/pilot/audio path still reads the manifest and is no longer fed `needs_audio` by
+  `harvest-subs`.
+- All tests offline; the live smoke stays opt-in, bounded, temporary-root only.
+
+## Interfaces
+
+- Consumes: the gateway's subtitle methods, `TranscriptRepository`, `require_subtitle_schema`,
+  `AcquisitionRunRecord` and the storage vocabulary, and the shipped CLI helpers.
+- Produces: `SubtitleIngestor` with `probe` / `harvest` and the `SubtitleSelection`,
+  `SubtitleProbePart`, `ProbeResult`, `SubtitlePartOutcome`, `HarvestResult` dataclasses; the
+  `probe-subs` / `harvest-subs` handlers; offline E2E evidence; and one bounded live-smoke
+  result for the iteration acceptance gate.
+
+## Tasks
+
+### Task 1: Subtitle ingest service and CLI commands
+
+**Files:**
+- Create: `bilibili-asr-archive/src/bili_asr/services/subtitle_ingest.py`
+- Modify: `bilibili-asr-archive/src/bili_asr/cli.py`
+- Test: `bilibili-asr-archive/tests/test_subtitle_cli.py`
+
+**Interfaces:**
+- Consumes: `TranscriptRepository`, `BilibiliGateway`, `MetadataIngestor`'s synchronous
+  conventions, the shipped CLI helpers.
+- Produces: `SubtitleIngestor` (enumeration + bounded per-part acquisition + outcome mapping +
+  run lifecycle) and the two command handlers.
+
+- [ ] Implement the service: select candidates (`list_selected_parts` for `--bvid`;
+      `list_pending_subtitle_parts` otherwise), map `video_parts.cid` → gateway calls, select a
+      track with the family/CC-before-AI rule (or the exact `--language` order), fetch segments,
+      convert `SubtitleSegment` → `TranscriptSegmentRecord`, and write the transcript + attempt
+      evidence through `record_acquired_transcript` / `record_subtitle_attempt` — one
+      transaction per part; open and finish exactly one `acquisition_runs` row
+      (`kind='subtitle'`, selector, bound, credential presence, derived outcome); write nothing
+      at all on `probe`.
+- [ ] Map outcomes exactly: empty listing or `GatewayNotFound` → `no-subtitle` (with
+      `not_found` recorded when upstream signalled it); `GatewayRateLimited` /
+      `GatewayTransportError` / `GatewayResponseError` / `GatewayShapeError` → `failed` with
+      that code; a write with unchanged content → `unchanged`; else `stored`.
+- [ ] Wire `probe-subs`: read-only, exactly one of `--bvid` / `--limit-parts`, missing database
+      → the shipped read-command line and exit `1`, unknown `--bvid` (zero rows) → exit `1`,
+      `bvid:pN` via `parse_work_id`, zero-track parts printed with their explicit marker, a
+      part whose listing failed printed as `probe <work_id> failed <error_code>` (counted in
+      `failed=`), no run/attempt/transcript write, and exit `2` only when every selected part
+      failed or an internal error aborted the probe; remove `probe-subs` from
+      `_ARCHIVE_WRITER_COMMANDS`.
+- [ ] Wire `harvest-subs`: `--limit-parts` required unless a single `bvid:pN` is named;
+      `--bvid` selects explicitly (already-stored parts included); a missing database → the
+      shipped `<command>: no archive database at <root>; run fetch-meta to create it` line and
+      exit `1`; `--language` parsed with empty entries rejected as usage errors; both commands
+      call `require_subtitle_schema` after opening the database and print the fixed rebuild line
+      with exit `1` on `SchemaContractError`.
+- [ ] Print the locked output: `sessdata: <present|absent>`, one `probe`/`harvest` line per
+      selected or attempted part in order (including `probe <work_id> tracks=0` with its
+      explicit marker and `probe <work_id> failed <error_code>`), and the summary lines
+      (`probe-subs: probed=… with_tracks=… without_tracks=… failed=…`,
+      `harvest-subs: run_id=… attempted=… stored=… unchanged=… no-subtitle=… failed=… remaining_without_transcript=…`).
+- [ ] Remove the legacy manifest reads/writes from these two commands only; leave every
+      other command's behaviour untouched and disclose the semantic replacement in the report.
+- [ ] Tests: parser/usage (bound required, exactly one probe selector, missing DB → exit `1`,
+      unknown `--bvid` → exit `1`, empty `--language` entry → exit `1`, usage errors never exit
+      `2`), preference selection (CC-before-AI property table, family ranking, exact
+      `--language` match, unmatched valid preference → `no-subtitle`), explicit `--bvid`
+      selection including an already-stored part, enumeration progress across two runs, summary
+      content and line shapes, outcome mapping, exit codes, and no-old-file assertions.
+
+Run: `cd bilibili-asr-archive && .venv/bin/python -m pytest tests/test_subtitle_cli.py -v`
+
+### Task 2: Offline subtitle E2E over the fake seam
+
+**Files:**
+- Create: `bilibili-asr-archive/tests/test_subtitle_e2e.py`
+- Modify: `bilibili-asr-archive/tests/fixtures/fake_bilibili_gateway.py` (scripting only)
+- Modify: `bilibili-asr-archive/tests/test_subtitle_cli.py`
+
+**Interfaces:**
+- Consumes: the Task-1 CLI/service, the storage plan's repository, the fake seam.
+- Produces: deterministic E2E evidence for the iteration acceptance gate.
+
+- [ ] Script a part with a CC track and a part with only an AI track; assert normalized
+      `transcripts`/`transcript_segments` rows, language, `source_kind`, version 1, the content
+      hash, and the acquisition-run/attempt evidence.
+- [ ] Re-run the same bounded harvest and assert `unchanged`, no new version, and no duplicate
+      segments; then change the scripted body and assert version 2 with version 1 and its
+      segments still readable.
+- [ ] Script a part with no subtitles and a part whose body fetch fails; assert bounded evidence
+      rows (`no-subtitle`, and `failed` with the mapped code), that the run does not claim
+      success for them, and that the printed counts make the partial failure visible while the
+      exit code stays `0`.
+- [ ] Assert honesty and progress: a part left `no-subtitle` in one run can store a transcript
+      in a later run once the caption is available; with both a never-attempted and a previously
+      attempted part in the candidate set, the never-attempted part is attempted first.
+- [ ] Assert the printed run summary: all four outcome counts including zeros, the run id,
+      credential presence, and the remaining count of parts without a transcript; assert the
+      `attempted=0` empty-selection run exits `0`.
+- [ ] Assert the probe surface: the `probe`/`track`/`tracks=0` line shapes, the per-part
+      `failed <code>` line, the `probe-subs: probed=… with_tracks=… without_tracks=… failed=…`
+      summary, and that a probe leaves no database, no run row, and no file behind.
+- [ ] Assert no legacy sidecar file appears in the temporary archive root, that `probe-subs`
+      leaves no new file (including no writer lock) and does not create a missing database, and
+      run no-leak scans over output and all persisted rows (credential + signed-URL sentinels).
+
+Run: `cd bilibili-asr-archive && .venv/bin/python -m pytest tests/test_subtitle_e2e.py -v`
+
+### Task 3: Bounded live smoke and operator documentation
+
+**Files:**
+- Modify: `bilibili-asr-archive/tests/test_live_metadata_smoke.py` (or a sibling opt-in test)
+- Modify: `bilibili-asr-archive/docs/metadata-storage.md`
+- Modify: `bilibili-asr-archive/README.md`
+
+**Interfaces:**
+- Consumes: the delivered CLI + gateway + storage, the operator's credential/proxy env.
+- Produces: one bounded live subtitle-acquisition result and operator instructions that
+  match reality.
+
+- [ ] Add the opt-in live smoke: temporary archive root, bounded `--limit-parts`, credential
+      and proxy from the documented environment; skip by default; loud-fail when opted in
+      without the pinned distribution. Reuse the metadata smoke's bounded structure.
+- [ ] Run it once and record the outcome (parts attempted, tracks found, transcripts stored,
+      or the explicit bounded blocker, including the code when the endpoint refuses the locked
+      call shape). Never print URLs, bodies, or credentials.
+- [ ] Document in `docs/metadata-storage.md` + README: the subtitle path on SQLite, the two
+      commands with their bounds, exit codes and output shapes, the preference rule and why it
+      is defined on the language family, the credential handling, the schema guard and rebuild
+      procedure (delete `archive.db`, re-run `fetch-meta`), the two schema resources, the fact
+      that the legacy ASR/pilot path still reads the manifest, and that `harvest-subs` no longer
+      writes the manifest status `needs_audio`.
+
+Run: `cd bilibili-asr-archive && BILI_LIVE_SMOKE=1 .venv/bin/python -m pytest tests/test_live_metadata_smoke.py -s -v`
+
+## STOP Conditions
+
+- The cutover cannot avoid touching the manifest for ASR/pilot commands → stop; record the
+  boundary and reduce scope rather than silently creating a second state machine.
+- A bounded harvest cannot be expressed without unbounded retries or loops → stop and
+  update the spec.
+- Any output or row contains a signed URL, raw JSON body, cookie, or traceback → stop.
+- The new path requires a second executable or a second metadata source of truth → stop.
+- `probe-subs` cannot be made genuinely read-only (it needs a write to work) → stop and
+  escalate the contract gap instead of quietly keeping it in the writer set.
+
+## Durable Roadmap and Dependencies
+
+- Consumed by iteration acceptance (bounded live evidence) and by the next iteration
+  (audio/ASR), which reuses the same run-record shape, repository conventions, and CLI output
+  discipline.
+- Deferred: retiring `bili_client`'s subtitle methods and migrating the ASR/pilot path.
+- Deferred with a named owner (`project-manager`, trigger "this iteration delivered"):
+  rebuilding SRT/TXT/MD projections from SQLite transcripts, enumerating the audio work queue
+  from SQLite (including the parts recorded `no-subtitle`, which are its work queue), and
+  promoting the iteration's storage/transport contract out of the iteration package. No file is
+  written into `{SPECS_DIR}` during Prepare. Consequences the operator sees today and the docs
+  must state: the new `harvest-subs` writes no `subtitles/raw/*.json` and no
+  `transcripts/srt/*.srt`, and it no longer produces the manifest status `needs_audio`, so
+  `download-audio --missing-subs` gains no new entries from the SQLite path.
+
+## Drift Check
+
+Before implementing, inspect the current `harvest-subs`/`probe-subs` handlers, `subtitles.py`
+selection rules, `_ARCHIVE_WRITER_COMMANDS`, and the CLI's exit-code conventions; confirm no
+other command depends on the handlers being changed, and that no other module imports
+`subtitles.pick_subtitle` in a way that must stay aligned with the new default.
+
+## Acceptance / Done Criteria
+
+- [ ] `harvest-subs` requires a bound (or an explicit single `bvid:pN`) and stores normalized
+      transcripts — or bounded evidence for parts without subtitles — with idempotent re-runs and
+      immutable versions.
+- [ ] `probe-subs` prints track metadata only, prints zero-track parts explicitly, writes
+      nothing, and never creates the database.
+- [ ] The run summary always prints all four outcome counts including zeros, the run id,
+      credential presence, and how many parts still lack a transcript; no output claims corpus or
+      caption coverage.
+- [ ] The selection rule is documented, deterministic, and overridable with `--language`; the
+      stored source kind, language, and version are reported per part.
+- [ ] Repeated bounded runs make progress, and an explicitly targeted stored part can be
+      re-acquired (`unchanged`, or a new version when the caption changed).
+- [ ] A database that predates the transcript schema makes both commands exit `1` with the
+      fixed rebuild line while the metadata commands keep working.
+- [ ] No legacy sidecar is read or written by either command, and neither command writes
+      `subtitles/raw/` or `transcripts/srt/`.
+- [ ] Exit taxonomy and bounded codes are pinned by tests; docs match behaviour.
+- [ ] Offline suites green (baseline for this plan: the storage plan's post-merge count).
+- [ ] Bounded live smoke recorded (real transcripts, or an explicit bounded blocker).
+- [ ] `git diff --check` clean.
+
+## Prepare → Execute Handoff
+
+Execute Task 1 → Task 2 → Task 3 (serial). Then SDD review package, QC tri, QA gate, merge.
+
+## Review Gate Summary
+
+- Decision: pending
+- Review range / Diff basis: pending
+- Review bundle: `.mstar/sdd/20260911-subtitle-cli-cutover/review/`
+- QC inputs: `qc1.md`, `qc2.md`, `qc3.md`
+- Blocking result: pending
+- Residual findings: pending
+
+## QA Gate Summary
+
+- QA gate: mandatory
+- QA mode: acceptance
+- Evidence: pending
+
+## Sign-off
+
+- Product intent: reviewed (product-manager, 2026-09-11)
+- Architecture: reviewed (architect, 2026-09-11)
+- Writing/corpus hygiene: reviewed (writing-specialist, 2026-09-11)
+- PM lock: pending
+- Implementation owner: fullstack-dev
+- QA owner: qa-engineer
+- Review cleanup: zero-residual
+
+## Plan self-review
+
+1. Every CLI requirement maps to a task and an offline assertion, including the exact output
+   shapes and exit codes.
+2. The service owns selection/transaction boundaries; the CLI stays a composition root.
+3. The manifest boundary is explicit, not silent.
+4. The live smoke is bounded and has an honest blocker path, including a refused call shape.
+5. No audio/ASR or export scope leaks into this plan.
+6. What the operator sees — probe lines, outcome counts, credential presence, remaining
+   parts without a transcript, the stored source kind/language/version — matches what the
+   iteration promises, and no output reads as coverage or as caption quality.
+
+## Evidence Index
+
+- Primary spec: `.mstar/iterations/iter-2026-09-subtitle-transcript-sqlite/specs/subtitle-cli-contract.md`
+- Tests: `tests/test_subtitle_cli.py`, `tests/test_subtitle_e2e.py`, `tests/test_live_metadata_smoke.py`
+- SDD runtime: `.mstar/sdd/20260911-subtitle-cli-cutover/`
+
+## Status Transition
+
+Starts `Todo`; `InProgress` after the Phase 2 lease; `InReview` after implementation;
+`Done` only after QC + the mandatory QA gate and the integration merge.
+
+## End
+
+The CLI is a thin composition root; the gateway and transcript repository carry the contract.
