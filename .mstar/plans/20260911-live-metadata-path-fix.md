@@ -352,7 +352,17 @@ re-run), then merge to `main` via PR.
 
 - QA gate: mandatory
 - QA mode: acceptance (owns the bounded live smoke re-run)
-- Evidence: pending
+- Verdict: **Approve — recommend merge to `main`** (qa-engineer, 2026-09-11; HEAD `a898fdf`, range `25a11fe..a898fdf`)
+- Evidence: `.mstar/sdd/20260911-live-metadata-path-fix/review/qa-gate.md` — aligned checkout (cwd/branch/HEAD/clean tree exact);
+  `uv lock --check` no-op + scratch-env fresh install importing `curl_cffi 0.16.3` and `bilibili-api-python 17.4.2`
+  (full fresh project install also verified); offline suite **903 passed / 2 skipped** (the 2 skips are the two opt-in
+  live-smoke gates) with the AST import-boundary tests and no-leak scans green; **live smoke reproduced on the first
+  attempt** from the worktree package dir (credentialed happy path, exit 0, 2.12 s) —
+  `outcome=limited videos=30 parts=33 discoveries=30 page_rows=1 cursor_next_page=2 cursor_state=limited observed_total=1691`,
+  credential occurrences in the run log 0, no bounded blocker (anonymous arm not exercised live); `uv.lock` delta
+  35 insertions / 0 deletions, `curl-cffi 0.16.3` with sdist+21 wheel sha256 hashes incl. `manylinux2014_aarch64`
+  (host arch), no package removed or downgraded; `git diff --check` clean; all 8 acceptance criteria mapped; residual
+  register absent/empty (zero-residual). Scratch envs removed; control venv untouched.
 
 ## Sign-off
 
