@@ -622,6 +622,14 @@ def _open_subtitle_connection(
     is then structural: its connection is the ``mode=ro`` one from
     :func:`_open_read_only_connection`, never the schema-initializing
     ``open_database`` the write commands and the other read commands share.
+
+    The capability guard reads the database, so a damaged-but-openable file
+    (intact header, corrupted page) fails here rather than when the connection
+    is opened.  That failure is storage-side — the guard only executes SQL — and
+    it is bounded with the same fixed ``unreadable archive database`` line, and
+    the same ``(OSError, sqlite3.Error)`` class, both open helpers use for their
+    own statements; anything outside that class escapes as the unexpected
+    internal error the command handlers report.
     """
     from bili_asr.storage import SchemaContractError, require_subtitle_schema
 
@@ -638,6 +646,17 @@ def _open_subtitle_connection(
         connection.close()
         print(
             _subtitle_schema_rebuild_line(command, archive_root), file=sys.stderr
+        )
+        return None
+    except (OSError, sqlite3.Error) as exc:
+        # The guard executes SQL against the file, so a malformed image surfaces
+        # on its first read rather than on ``connect``: answer it exactly as
+        # both open helpers answer their own statements (F-QA-001).
+        connection.close()
+        print(
+            f"{command}: unreadable archive database at {archive_root} "
+            f"({type(exc).__name__})",
+            file=sys.stderr,
         )
         return None
     return connection

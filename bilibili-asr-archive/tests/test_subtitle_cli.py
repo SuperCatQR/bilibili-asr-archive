@@ -1380,3 +1380,120 @@ def test_both_commands_print_the_fixed_rebuild_line_for_a_legacy_database(
 
     assert main(["status", "--archive-root", tmp_root]) == 0
     assert capsys.readouterr().out.startswith("users: 1")
+
+
+# ------------------------------------------- damaged and empty databases
+
+def _damage_page_one(database_path: str) -> None:
+    """Corrupt page 1's body and leave the SQLite header intact.
+
+    The canonical "database disk image is malformed" state an unclean
+    shutdown, a full disk, or a partial copy leaves behind: the header still
+    answers a ``PRAGMA schema_version``, so the damage surfaces only on the
+    first statement that reads ``sqlite_master``.
+    """
+
+    with open(database_path, "r+b") as handle:
+        handle.seek(64)
+        handle.write(b"\x00" * 4096)
+
+
+def _overwrite_with_text(database_path: str) -> None:
+    """Leave a file carrying no SQLite magic at all in the database's place."""
+
+    with open(database_path, "wb") as handle:
+        handle.write(b"not a database\n")
+
+
+@pytest.mark.parametrize(
+    "damage",
+    [
+        pytest.param(_damage_page_one, id="damaged-page-1"),
+        pytest.param(_overwrite_with_text, id="not-a-database"),
+    ],
+)
+def test_an_unreadable_archive_database_is_one_bounded_line_on_both_commands(
+    tmp_root: str, capsys, damage
+) -> None:
+    """An existing but unreadable database: one bounded line, exit 1, no repair.
+
+    Every ``unreadable archive database`` handler is pinned here: the two open
+    helpers (``_open_read_connection`` for ``harvest-subs``,
+    ``_open_read_only_connection`` for ``probe-subs``) through the
+    not-a-database recipe, and the transcript-schema guard inside
+    ``_open_subtitle_connection`` through the damaged-but-openable one, whose
+    intact header passes the helper's ``PRAGMA schema_version``.  Before
+    F-QA-001 that guard sat outside the bounded handler, so the probe printed a
+    raw SQLite traceback instead of the line its own docstring promised.
+    Neither command repairs, rewrites, or replaces the damaged database, and a
+    harvest leaves only the documented writer lock beside it.
+    """
+
+    database_path = os.path.join(tmp_root, ARCHIVE_DATABASE_NAME)
+    _seed_parts(tmp_root, ((BVID_A, 0, 101),))
+    damage(database_path)
+    damaged_bytes = Path(database_path).read_bytes()
+
+    assert main(["probe-subs", "--bvid", BVID_A, "--archive-root", tmp_root]) == 1
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err == (
+        f"probe-subs: unreadable archive database at {tmp_root} (DatabaseError)\n"
+    )
+    # The probe is not an archive-writer command: no lock, no other file.
+    assert _archive_files(tmp_root) == [ARCHIVE_DATABASE_NAME]
+    assert Path(database_path).read_bytes() == damaged_bytes
+
+    assert main(["harvest-subs", "--limit-parts", "1", "--archive-root", tmp_root]) == 1
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err == (
+        f"harvest-subs: unreadable archive database at {tmp_root} (DatabaseError)\n"
+    )
+    # A harvest is an archive-writer command, so the documented writer lock is
+    # the only other file it leaves.
+    assert _archive_files(tmp_root) == sorted(
+        [ARCHIVE_DATABASE_NAME, ARCHIVE_WRITER_LOCK_PATH]
+    )
+    assert Path(database_path).read_bytes() == damaged_bytes
+
+
+def test_a_zero_byte_database_is_initialized_by_harvest_and_refused_by_probe(
+    tmp_root: str, capsys
+) -> None:
+    """The documented empty-file asymmetry: the harvest initializes, the probe refuses.
+
+    ``open_database`` initializes both schema scripts into an existing zero-byte
+    file, and that is the shipped semantics ``fetch-meta``, ``status``, ``runs``,
+    and ``harvest-subs`` share.  ``probe-subs`` promises to write nothing at all,
+    so it refuses the same file with the rebuild line rather than creating the
+    transcript contract in it.  Documented in ``docs/metadata-storage.md``
+    ("Schema guard and rebuild").
+    """
+
+    database_path = os.path.join(tmp_root, ARCHIVE_DATABASE_NAME)
+    with open(database_path, "wb"):
+        pass
+
+    assert main(["probe-subs", "--limit-parts", "1", "--archive-root", tmp_root]) == 1
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err == (
+        f"probe-subs: archive database predates the transcript schema; "
+        f"rebuild it (delete {database_path} and re-run fetch-meta)\n"
+    )
+    # The read-only promise holds structurally: the file is still empty.
+    assert os.path.getsize(database_path) == 0
+    assert _archive_files(tmp_root) == [ARCHIVE_DATABASE_NAME]
+
+    assert main(["harvest-subs", "--limit-parts", "1", "--archive-root", tmp_root]) == 0
+    captured = capsys.readouterr()
+    lines = captured.out.splitlines()
+    assert lines[0] == "sessdata: absent"
+    assert "attempted=0 stored=0 unchanged=0 no-subtitle=0 failed=0" in lines[1]
+    assert lines[1].endswith("remaining_without_transcript=0")
+    # Initialized for real: the transcript contract is in the file now.
+    assert _scalar(tmp_root, "SELECT COUNT(*) FROM transcripts") == 0
+    assert _archive_files(tmp_root) == sorted(
+        [ARCHIVE_DATABASE_NAME, ARCHIVE_WRITER_LOCK_PATH]
+    )

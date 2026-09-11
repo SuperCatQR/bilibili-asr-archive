@@ -166,6 +166,13 @@ is presented as coverage of the corpus.
 | 1 | Usage/configuration: a missing `archive.db`, an unknown `--bvid`, a missing or non-positive bound, neither or both `probe-subs` selectors, an empty `--language` entry, or the transcript-schema guard below. |
 | 2 | The run failed on **every** attempted part, or an unexpected internal error (the fixed line `<command>: unexpected error`, no traceback). |
 
+An `archive.db` that exists but cannot be read — a file that is not a SQLite
+database at all, a truncated one, or a damaged image whose header still opens —
+is answered by both commands on **stderr** with the single bounded line
+`<command>: unreadable archive database at <archive-root> (<ErrorType>)` and
+exit `1`, the same line `status` and `runs` print for that file, which no
+command repairs or rewrites.
+
 Partial failure stays visible in the counts and does not by itself decide the
 exit code: a harvest that stored one part and failed another exits `0` with
 `failed=1` on its summary line. In both exit-2 variants the run row is finished
@@ -261,6 +268,14 @@ It is one line; the wrap below is the page's, not the command's:
 ```text
 <command>: archive database predates the transcript schema; rebuild it (delete <archive-root>/archive.db and re-run fetch-meta)
 ```
+
+A zero-byte `archive.db` — a file that exists but was never initialized — is the
+one state the two commands read differently, and the difference is the point:
+`harvest-subs` opens through the schema-initializing `open_database`, so it
+creates both schemas in that file and runs normally (a selection resolving to no
+part reports `attempted=0`, exit `0`), while `probe-subs` writes nothing at all,
+so its read-only open finds no transcript contract and answers with the rebuild
+line above (exit `1`).
 
 The metadata commands (`fetch-meta`, `status`, `runs`) keep working on that same
 database unchanged. There is no in-place migration: the rebuild procedure is to
