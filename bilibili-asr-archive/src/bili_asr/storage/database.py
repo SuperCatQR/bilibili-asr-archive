@@ -27,6 +27,25 @@ _ARCHIVE_DATABASE_NAME = "archive.db"
 _DATABASE_SUFFIXES = frozenset({".db", ".sqlite", ".sqlite3"})
 _TERMINAL_RUN_OUTCOMES = ALLOWED_RUN_OUTCOMES - frozenset({"running"})
 _SCHEMA_RESOURCE = resources.files(__package__).joinpath("schema.sql")
+_TRANSCRIPT_SCHEMA_RESOURCE = resources.files(__package__).joinpath(
+    "schema-transcripts.sql"
+)
+# The columns and objects only the transcript contract has: the bootstrap
+# decision reads the columns, the capability guard reads both.
+_TRANSCRIPT_CONTRACT_COLUMNS = frozenset({"language", "content_sha256"})
+_SUBTITLE_SCHEMA_OBJECTS = (
+    "acquisition_attempts",
+    "acquisition_runs",
+    "v_pending_subtitles",
+)
+
+
+class SchemaContractError(RuntimeError):
+    """Raised when a database does not carry the transcript-schema contract.
+
+    The archive database is rebuildable by policy, so there is no migration
+    path: callers report the rebuild procedure instead of upgrading in place.
+    """
 
 
 def duration_to_ms(seconds: int | float) -> int:
@@ -72,17 +91,77 @@ def _resolve_database_path(path: str | os.PathLike[str]) -> str | os.PathLike[st
     return candidate
 
 
-def initialize_schema(connection: sqlite3.Connection) -> sqlite3.Connection:
-    """Initialize ``connection`` from the checked-in schema, idempotently.
+def _transcripts_columns(connection: sqlite3.Connection) -> frozenset[str]:
+    """Return the column names of ``transcripts``; empty when it is absent."""
+    return frozenset(
+        row[1] for row in connection.execute("PRAGMA table_info(transcripts)")
+    )
 
-    Enables foreign-key enforcement and commits the schema script.
+
+def _schema_object_names(connection: sqlite3.Connection) -> frozenset[str]:
+    """Return every table and view name the database declares."""
+    return frozenset(
+        row[0]
+        for row in connection.execute(
+            "SELECT name FROM sqlite_master WHERE type IN ('table', 'view')"
+        )
+    )
+
+
+def _accepts_transcript_script(connection: sqlite3.Connection) -> bool:
+    """Report whether the transcript schema script belongs in this database.
+
+    True for a fresh database (``transcripts`` absent) and for a database that
+    already carries the transcript columns; False for a database created
+    before this contract, which keeps the shape it has.
+    """
+    columns = _transcripts_columns(connection)
+    return not columns or _TRANSCRIPT_CONTRACT_COLUMNS <= columns
+
+
+def _has_subtitle_schema(connection: sqlite3.Connection) -> bool:
+    """Report whether the transcript-schema contract is present."""
+    if not _TRANSCRIPT_CONTRACT_COLUMNS <= _transcripts_columns(connection):
+        return False
+    return set(_SUBTITLE_SCHEMA_OBJECTS) <= _schema_object_names(connection)
+
+
+def initialize_schema(connection: sqlite3.Connection) -> sqlite3.Connection:
+    """Initialize ``connection`` from the checked-in schema scripts, idempotently.
+
+    Enables foreign-key enforcement, executes ``schema.sql``, and then applies
+    ``schema-transcripts.sql`` only when ``transcripts`` is absent or already
+    carries the transcript columns.  A database created before that contract
+    keeps the shape it has: the transcript script is skipped, so nothing
+    half-applies and the metadata path keeps working.  Commits the scripts.
     """
     connection.execute("PRAGMA foreign_keys = ON")
     if connection.execute("PRAGMA foreign_keys").fetchone()[0] != 1:
         raise sqlite3.DatabaseError("SQLite foreign-key enforcement could not be enabled")
     connection.executescript(_SCHEMA_RESOURCE.read_text(encoding="utf-8"))
+    if _accepts_transcript_script(connection):
+        connection.executescript(
+            _TRANSCRIPT_SCHEMA_RESOURCE.read_text(encoding="utf-8")
+        )
     connection.commit()
     return connection
+
+
+def require_subtitle_schema(connection: sqlite3.Connection) -> None:
+    """Require the transcript-schema contract on ``connection``.
+
+    The check is structural — the ``transcripts`` columns only this contract
+    has, plus the process-record tables and the pending view — because a stale
+    version stamp can lie and a missing column cannot.  A database that
+    predates the contract raises :class:`SchemaContractError`; the caller
+    reports the rebuild procedure and stops.
+    """
+    if _has_subtitle_schema(connection):
+        return
+    raise SchemaContractError(
+        "archive database predates the transcript schema; rebuild it "
+        "(delete archive.db and re-run fetch-meta)"
+    )
 
 
 def open_database(path: str | os.PathLike[str]) -> DatabaseConnection:
@@ -575,8 +654,10 @@ class MetadataRepository:
 __all__ = [
     "DatabaseConnection",
     "MetadataRepository",
+    "SchemaContractError",
     "duration_to_ms",
     "initialize_schema",
     "normalize_page_index",
     "open_database",
+    "require_subtitle_schema",
 ]
