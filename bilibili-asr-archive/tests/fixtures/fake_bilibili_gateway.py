@@ -40,9 +40,11 @@ Every package-seam test scripts these fakes instead of touching the pinned
   pins the upstream call names the gateway may issue.
 - ``NO_LEAK_MARKERS`` with ``assert_leaks_no_markers`` holds the
   realistic-looking secret and raw-payload sentinel texts (a SESSDATA
-  value, a signed playback URL, a raw JSON response body, and raw upstream
-  exception text) plus the scanner behind the no-secret assertions, and
-  ``persisted_row_text`` renders persisted rows for those assertions.
+  value, a signed playback URL, the signed subtitle-document URL in both the
+  absolute and the protocol-relative form upstream answers, a raw JSON
+  response body, and raw upstream exception text) plus the scanner behind the
+  no-secret assertions, and ``persisted_row_text`` renders persisted rows for
+  those assertions.
 """
 
 from __future__ import annotations
@@ -128,8 +130,16 @@ FAKE_PLAYER_ENDPOINT = {
 #: itself through the package's ``Api``: the package's ``User.get_videos``
 #: delegate cannot pass upstream risk control (it injects device-fingerprint
 #: ``dm`` parameters and scrapes ``w_webid`` from a page that no longer
-#: server-renders it).
-DOCUMENTED_METADATA_CALLS = ("space.arc.search", "video.get_info", "video.get_pages")
+#: server-renders it).  The two subtitle-acquisition routes are the plan's own
+#: authorized surface: the player track listing and the signed subtitle
+#: document.  The set is exact — nothing else may appear.
+DOCUMENTED_METADATA_CALLS = (
+    "space.arc.search",
+    "video.get_info",
+    "video.get_pages",
+    "player.track_list",
+    "subtitle.body",
+)
 
 #: Realistic-looking SESSDATA value that must never leave the process.
 SESSDATA_BOUNDARY_VALUE = "SESSDATA-VALUE-THAT-MUST-NOT-LEAK"
@@ -158,11 +168,15 @@ RAW_JSON_BODY_MARKER = '{"code":-412,"message":"RAW-JSON-BODY-THAT-MUST-NOT-LEAK
 #: Realistic-looking raw upstream exception text that must never be persisted.
 RAW_UPSTREAM_EXCEPTION_MARKER = "RAW-UPSTREAM-EXCEPTION-THAT-MUST-NOT-LEAK"
 
-#: All sentinels the no-secret assertions scan persisted surfaces for.
+#: All sentinels the no-secret assertions scan persisted surfaces for.  The
+#: subtitle-document URL is held in both forms upstream answers it in — the
+#: absolute one and the protocol-relative one — so a URL that skipped the
+#: adapter's ``https:`` normalization is still caught by the scanner.
 NO_LEAK_MARKERS = (
     SESSDATA_BOUNDARY_VALUE,
     SIGNED_URL_MARKER,
     SIGNED_SUBTITLE_URL_MARKER,
+    PROTOCOL_RELATIVE_SUBTITLE_URL,
     RAW_JSON_BODY_MARKER,
     RAW_UPSTREAM_EXCEPTION_MARKER,
 )

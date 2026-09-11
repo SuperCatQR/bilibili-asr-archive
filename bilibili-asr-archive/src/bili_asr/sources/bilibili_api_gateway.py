@@ -6,6 +6,12 @@ converts one upstream response into validated application DTOs and never
 retains, logs, or returns the response dictionary, credentials, or raw
 exception text.  Upstream failures map onto the bounded exception taxonomy in
 ``bili_asr.sources.models``; only the scalar ``code`` may leave the process.
+
+A signed subtitle URL exists for the duration of one call only: it is resolved
+here — normalized to ``https:`` when upstream answers it protocol-relative —
+handed to the package transport, and never stored on a DTO, a message, or a
+record.  The subtitle-body fetch carries an explicitly empty credential, so the
+API credential never reaches the CDN host.
 """
 
 from __future__ import annotations
@@ -17,7 +23,7 @@ import re
 from collections.abc import Awaitable, Callable, Mapping
 from typing import Any
 
-from bilibili_api import Credential, request_settings, user
+from bilibili_api import Credential, request_settings, user, video
 from bilibili_api.exceptions import (
     ApiException,
     NetworkException,
@@ -26,7 +32,6 @@ from bilibili_api.exceptions import (
     WbiRetryTimesExceedException,
 )
 from bilibili_api.utils.network import Api
-from bilibili_api.video import Video
 
 from bili_asr.config import resolve_proxy
 from bili_asr.sources.models import (
@@ -35,6 +40,8 @@ from bili_asr.sources.models import (
     GatewayResponseError,
     GatewayShapeError,
     GatewayTransportError,
+    SubtitleSegment,
+    SubtitleTrack,
     UserVideoPage,
     VideoPart,
     VideoSummary,
@@ -50,6 +57,12 @@ _NOT_FOUND_API_CODES = frozenset({-404, -62002})
 _RATE_LIMITED_HTTP_STATUSES = frozenset({412, 429})
 _NOT_FOUND_HTTP_STATUSES = frozenset({404})
 
+# The subtitle calls add the login signal to the shipped not-found set: ``-101``
+# means the credential in effect saw nothing for this part, which the caller
+# records as ``no-subtitle``.  The metadata path keeps the shipped set, where
+# ``-101`` stays a generic response error.
+_SUBTITLE_NOT_FOUND_API_CODES = _NOT_FOUND_API_CODES | {-101}
+
 # Same shape check the package itself applies in Video.set_bvid.
 _BVID_PATTERN = re.compile(r"^BV[a-zA-Z0-9]{10}$")
 
@@ -59,6 +72,13 @@ _BVID_PATTERN = re.compile(r"^BV[a-zA-Z0-9]{10}$")
 # pinned package; ``dm`` is deliberately overridden per call (see
 # ``BilibiliApiGateway._fetch_user_video_page``).
 _USER_VIDEO_PAGE_ENDPOINT = user.API["info"]["video"]
+
+# The package's own endpoint description for the player call
+# (``bilibili_api.video.API["info"]["get_player_info"]``), whose unwrapped
+# payload carries the part's subtitle inventory.  ``url``/``method``/``wbi``
+# are read from it for the same reason; ``dm`` and ``verify`` are deliberately
+# overridden per call (see ``BilibiliApiGateway._fetch_subtitle_inventory``).
+_PLAYER_INFO_ENDPOINT = video.API["info"]["get_player_info"]
 
 
 def _require_positive_argument(value: object, field: str) -> None:
@@ -211,6 +231,219 @@ def _normalize_video_parts(pages: object, bvid: str) -> tuple[VideoPart, ...]:
     return tuple(_normalize_video_part_item(item, bvid) for item in pages)
 
 
+def _extract_subtitle_entries(response: object) -> list:
+    """Extract the player payload's ``subtitle.subtitles`` inventory array.
+
+    A payload that carries no subtitle container, and a container that carries
+    no ``subtitles`` list at all, are an empty inventory — the honest reading of
+    a probe whose credential saw nothing, and a legitimate result rather than a
+    failure.  A present container of another shape cannot be read as an
+    inventory at all and is a bounded shape error.
+    """
+
+    if not isinstance(response, Mapping):
+        raise GatewayShapeError(detail="player response is not a mapping")
+    subtitle = response.get("subtitle")
+    if subtitle is None:
+        return []
+    if not isinstance(subtitle, Mapping):
+        raise GatewayShapeError(detail="player subtitle is not a mapping")
+    entries = subtitle.get("subtitles")
+    if entries is None:
+        return []
+    if not isinstance(entries, list):
+        raise GatewayShapeError(detail="player subtitles is not an array")
+    return entries
+
+
+def _normalize_subtitle_tracks(entries: object) -> tuple[SubtitleTrack, ...]:
+    """Convert the inventory array into validated track DTOs."""
+
+    if not isinstance(entries, list):
+        raise GatewayShapeError(detail="subtitle inventory is not an array")
+    return tuple(_normalize_subtitle_track(entry) for entry in entries)
+
+
+def _normalize_subtitle_track(entry: object) -> SubtitleTrack:
+    """Convert one inventory entry into a validated, trimmed track DTO.
+
+    ``lan``/``lan_doc`` are trimmed here so the caller can print them as-is,
+    and the entry's own AI marker decides ``is_ai``.  The signed
+    ``subtitle_url`` the entry also carries is deliberately not read: it never
+    crosses the gateway boundary.
+    """
+
+    if not isinstance(entry, Mapping):
+        raise GatewayShapeError(detail="subtitle track is not a mapping")
+    language = entry.get("lan")
+    if not isinstance(language, str) or not language.strip():
+        raise GatewayShapeError(detail="subtitle track has no language")
+    label = entry.get("lan_doc")
+    if not isinstance(label, str) or not label.strip():
+        raise GatewayShapeError(detail="subtitle track has no label")
+    try:
+        return SubtitleTrack(
+            language=language.strip(),
+            label=label.strip(),
+            is_ai=_read_track_is_ai(entry),
+            track_id=_read_optional_track_id(entry.get("id")),
+        )
+    except (TypeError, ValueError) as exc:
+        raise GatewayShapeError(detail="subtitle track is not normalizable") from exc
+
+
+def _read_optional_track_id(value: object) -> str | None:
+    """Read an entry's ``id`` as the track-identity string, when present.
+
+    Absent stays absent; a present value must be the upstream integer id, which
+    is rendered as the string the DTO carries.
+    """
+
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        raise GatewayShapeError(detail="subtitle track has no valid id")
+    return str(value)
+
+
+def _read_track_is_ai(entry: Mapping) -> bool:
+    """Derive ``is_ai`` from the entry's own upstream AI markers.
+
+    ``ai_status`` is ``0`` for a track that never touched machine processing and
+    positive once it did; ``type`` is ``1`` for a machine-generated caption.  A
+    track carrying neither marker is reported as CC — the conservative reading
+    the product semantics lock — and the ``lan`` prefix is deliberately not
+    consulted, because the marker is the locked signal.
+    """
+
+    ai_status = _read_ai_marker(entry, "ai_status")
+    caption_type = _read_ai_marker(entry, "type")
+    return (ai_status is not None and ai_status > 0) or caption_type == 1
+
+
+def _read_ai_marker(entry: Mapping, field: str) -> int | None:
+    """Read one optional non-negative integer AI marker from an entry."""
+
+    value = entry.get(field)
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        raise GatewayShapeError(
+            detail=f"subtitle track has an invalid {field} marker"
+        )
+    return value
+
+
+def _resolve_subtitle_document_url(track: SubtitleTrack, entries: list) -> str:
+    """Resolve one requested track's signed document URL from a fresh listing.
+
+    A track is matched on ``language`` + ``is_ai``.  Several matches are broken
+    by the requested ``track_id`` when the request carries one; otherwise the
+    listing is ambiguous and the call fails as a bounded shape error.  No match
+    at all means the track is not visible any more (``not_found``).  The
+    resolved URL is returned for the duration of one call only and never
+    reaches a DTO or an error message.
+    """
+
+    listed = [(_normalize_subtitle_track(entry), entry) for entry in entries]
+    candidates = [
+        (candidate, entry)
+        for candidate, entry in listed
+        if candidate.language == track.language and candidate.is_ai == track.is_ai
+    ]
+    if not candidates:
+        raise GatewayNotFound(detail="fetch_subtitle_segments")
+    if len(candidates) > 1 and track.track_id is not None:
+        identified = [
+            (candidate, entry)
+            for candidate, entry in candidates
+            if candidate.track_id == track.track_id
+        ]
+        if len(identified) == 1:
+            candidates = identified
+    if len(candidates) > 1:
+        raise GatewayShapeError(detail="subtitle track match is ambiguous")
+    return _read_subtitle_document_url(candidates[0][1])
+
+
+def _read_subtitle_document_url(entry: Mapping) -> str:
+    """Read one entry's signed document URL, normalized to ``https:``.
+
+    Upstream answers the URL sometimes absolutely and sometimes
+    protocol-relative; the normalized absolute form is what the package
+    transport is handed, and it stays process-local.
+    """
+
+    url = entry.get("subtitle_url")
+    if not isinstance(url, str) or not url.strip():
+        raise GatewayShapeError(detail="subtitle track has no document URL")
+    normalized = url.strip()
+    if normalized.startswith("//"):
+        normalized = f"https:{normalized}"
+    return normalized
+
+
+def _normalize_subtitle_document(document: object) -> tuple[SubtitleSegment, ...]:
+    """Convert one subtitle document into the caption rows that survive.
+
+    A document that cannot be read as a subtitle document at all raises a
+    bounded shape error; a row that reads as a segment but carries nothing
+    usable is dropped, so every other row of the document stays usable.
+    """
+
+    if not isinstance(document, Mapping):
+        raise GatewayShapeError(detail="subtitle document is not a mapping")
+    body = document.get("body")
+    if not isinstance(body, list):
+        raise GatewayShapeError(detail="subtitle document has no body array")
+    return tuple(
+        segment
+        for segment in (_normalize_subtitle_segment(entry) for entry in body)
+        if segment is not None
+    )
+
+
+def _normalize_subtitle_segment(entry: object) -> SubtitleSegment | None:
+    """Convert one caption row, or drop it when it carries nothing usable.
+
+    The conversion is the metadata path's ``floor(seconds * 1000)``, and the
+    drop rules are evaluated on the converted milliseconds: a row survives
+    exactly when ``end_ms > start_ms >= 0`` with text non-empty after
+    stripping.  ``None`` marks a dropped row — a per-row tolerance, never a
+    document-level failure.
+    """
+
+    if not isinstance(entry, Mapping):
+        raise GatewayShapeError(detail="subtitle entry is not a mapping")
+    start_ms = _read_caption_milliseconds(entry, "from")
+    end_ms = _read_caption_milliseconds(entry, "to")
+    content = entry.get("content")
+    if not isinstance(content, str):
+        raise GatewayShapeError(detail="subtitle entry has no content")
+    text = content.strip()
+    if start_ms < 0 or end_ms <= start_ms or not text:
+        return None
+    return SubtitleSegment(start_ms=start_ms, end_ms=end_ms, text=text)
+
+
+def _read_caption_milliseconds(entry: Mapping, field: str) -> int:
+    """Read one caption timestamp as milliseconds, using ``floor``.
+
+    A missing, non-numeric, boolean, or non-finite value cannot be read as a
+    segment at all, and neither can a finite value whose millisecond product
+    leaves the float range: both stay bounded shape errors instead of escaping
+    as ``ValueError``/``OverflowError`` out of ``math.floor``.
+    """
+
+    seconds = entry.get(field)
+    if isinstance(seconds, bool) or not isinstance(seconds, (int, float)):
+        raise GatewayShapeError(detail=f"subtitle entry has no numeric {field}")
+    milliseconds = seconds * 1000
+    if isinstance(milliseconds, float) and not math.isfinite(milliseconds):
+        raise GatewayShapeError(detail=f"subtitle entry has an unreadable {field}")
+    return math.floor(milliseconds)
+
+
 def _complete_summary_from_detail(
     summary: VideoSummary, detail: object
 ) -> VideoSummary:
@@ -305,7 +538,7 @@ class BilibiliApiGateway:
             raise ValueError("bvid must be a BV-prefixed 10-character id")
         pages = await self._await_upstream(
             "get_video_parts",
-            lambda: Video(bvid=bvid, credential=self._credential).get_pages(),
+            lambda: video.Video(bvid=bvid, credential=self._credential).get_pages(),
         )
         return _normalize_video_parts(pages, bvid)
 
@@ -322,9 +555,72 @@ class BilibiliApiGateway:
             return summary
         detail = await self._await_upstream(
             "get_completed_video_summary",
-            lambda: Video(bvid=summary.bvid, credential=self._credential).get_info(),
+            lambda: video.Video(
+                bvid=summary.bvid, credential=self._credential
+            ).get_info(),
         )
         return _complete_summary_from_detail(summary, detail)
+
+    async def get_subtitle_tracks(
+        self, bvid: str, cid: int
+    ) -> tuple[SubtitleTrack, ...]:
+        """List the subtitle inventory one part exposes right now.
+
+        One WBI-signed player call in the locked shape (section 1.2 of the
+        gateway spec) and one normalized track per inventory entry, in upstream
+        order.  An inventory the credential in effect could not see is an empty
+        tuple — never a ``not_found`` failure and never a placeholder track.
+        """
+
+        if not isinstance(bvid, str) or _BVID_PATTERN.fullmatch(bvid) is None:
+            raise ValueError("bvid must be a BV-prefixed 10-character id")
+        _require_positive_argument(cid, "cid")
+        entries = await self._list_subtitle_entries(
+            bvid, cid, operation="get_subtitle_tracks"
+        )
+        return _normalize_subtitle_tracks(entries)
+
+    async def fetch_subtitle_segments(
+        self, track: SubtitleTrack, bvid: str, cid: int
+    ) -> tuple[SubtitleSegment, ...]:
+        """Fetch and normalize one requested track's caption document.
+
+        The signed URL never crosses the boundary, so the requested track is
+        resolved through a fresh listing of the part.  A body fetch that fails
+        in the expiry/transport class gets exactly one more listing + fetch
+        pair; rate control and every other classified failure propagate as they
+        are.  Nothing usable — an empty document included — is
+        ``GatewayNotFound``, and the return is never an empty tuple.
+        """
+
+        if not isinstance(track, SubtitleTrack):
+            raise TypeError("track must be a SubtitleTrack")
+        if not isinstance(bvid, str) or _BVID_PATTERN.fullmatch(bvid) is None:
+            raise ValueError("bvid must be a BV-prefixed 10-character id")
+        _require_positive_argument(cid, "cid")
+
+        entries = await self._list_subtitle_entries(
+            bvid, cid, operation="fetch_subtitle_segments"
+        )
+        try:
+            document = await self._fetch_subtitle_document(
+                _resolve_subtitle_document_url(track, entries)
+            )
+            segments = _normalize_subtitle_document(document)
+        except GatewayTransportError:
+            # A signature that no longer works is the one failure class worth a
+            # second attempt: re-list once for a fresh URL and fetch once more.
+            # There is no third attempt and no loop.
+            entries = await self._list_subtitle_entries(
+                bvid, cid, operation="fetch_subtitle_segments"
+            )
+            document = await self._fetch_subtitle_document(
+                _resolve_subtitle_document_url(track, entries)
+            )
+            segments = _normalize_subtitle_document(document)
+        if not segments:
+            raise GatewayNotFound(detail="fetch_subtitle_segments")
+        return segments
 
     def get_package_version(self) -> str:
         """Return the pinned package version for run metadata."""
@@ -373,6 +669,82 @@ class BilibiliApiGateway:
             .result
         )
 
+    async def _fetch_subtitle_inventory(self, bvid: str, cid: int) -> Any:
+        """Issue one WBI-signed player request in the locked call shape.
+
+        ``url``/``method``/``wbi`` are read from the package's own endpoint
+        description, and the parameters are that description's declared set
+        with ``bvid`` substituted for the declared ``aid`` alternative, so one
+        request per part is paid and no aid-resolution call is added.  Two
+        fields are this adapter's: ``verify`` is turned off, because the pin's
+        ``verify=True`` performs no upstream check at all — it only raises
+        locally when no SESSDATA is configured, which would turn an honest
+        anonymous probe into an exception — and ``dm`` is turned off, because
+        the device-fingerprint parameters it would add cannot be supplied
+        truthfully and the sibling WBI endpoint in the same risk-control family
+        answered HTTP 412 with them.  Neither ``need_login_subtitle`` nor
+        ``w_webid`` is sent: the installed pin declares neither for this
+        endpoint, and the package's own player call sends neither.
+        """
+
+        return await (
+            Api(
+                url=_PLAYER_INFO_ENDPOINT["url"],
+                method=_PLAYER_INFO_ENDPOINT["method"],
+                verify=False,
+                wbi=_PLAYER_INFO_ENDPOINT["wbi"],
+                dm=False,
+                credential=self._credential,
+            )
+            .update_params(
+                bvid=bvid,
+                cid=cid,
+                isGaiaAvoided=False,
+                web_location=1315873,
+            )
+            .result
+        )
+
+    async def _list_subtitle_entries(
+        self, bvid: str, cid: int, *, operation: str
+    ) -> list:
+        """List one part's subtitle inventory entries through the taxonomy.
+
+        ``operation`` is the public method this listing serves, so a mapped
+        failure names the boundary the caller invoked.  The subtitle calls pass
+        the extended not-found set, where ``-101`` means "nothing visible under
+        this credential" rather than a generic response error.
+        """
+
+        response = await self._await_upstream(
+            operation,
+            lambda: self._fetch_subtitle_inventory(bvid, cid),
+            not_found_api_codes=_SUBTITLE_NOT_FOUND_API_CODES,
+        )
+        return _extract_subtitle_entries(response)
+
+    async def _fetch_subtitle_document(self, url: str) -> Any:
+        """Fetch one signed subtitle document through the package transport.
+
+        The call is built with an explicitly empty ``Credential()``, so the API
+        credential never reaches the CDN host, and it is issued as
+        ``request(raw=True)``: a subtitle document carries no ``code``/``data``
+        envelope for the pin's default unwrapping to strip.  The URL is a
+        parameter of this call only and is never stored anywhere.
+        """
+
+        return await self._await_upstream(
+            "fetch_subtitle_segments",
+            lambda: Api(
+                url=url,
+                method="GET",
+                wbi=False,
+                dm=False,
+                verify=False,
+                credential=Credential(),
+            ).request(raw=True),
+        )
+
     async def _resolve_w_webid(self, mid: int) -> str:
         """Resolve the page request's ``w_webid`` parameter for one user.
 
@@ -399,13 +771,20 @@ class BilibiliApiGateway:
         return self._w_webid_by_mid[mid]
 
     async def _await_upstream(
-        self, operation: str, call: Callable[[], Awaitable[Any]]
+        self,
+        operation: str,
+        call: Callable[[], Awaitable[Any]],
+        *,
+        not_found_api_codes: frozenset[int] = _NOT_FOUND_API_CODES,
     ) -> Any:
         """Await one upstream call and map its failures onto the taxonomy.
 
         The mapped exception message carries the bounded code and the
         operation name only; upstream text, URLs, and payload content stay
-        process-local.
+        process-local.  ``not_found_api_codes`` is the not-found set of the
+        boundary being served: the metadata path keeps the shipped one, where
+        ``-101`` is a response error, while the subtitle calls extend it so the
+        login signal reads as "not visible".
         """
 
         try:
@@ -419,7 +798,7 @@ class BilibiliApiGateway:
         except ResponseCodeException as exc:
             if exc.code in _RATE_LIMITED_API_CODES:
                 raise GatewayRateLimited(detail=operation) from exc
-            if exc.code in _NOT_FOUND_API_CODES:
+            if exc.code in not_found_api_codes:
                 raise GatewayNotFound(detail=operation) from exc
             raise GatewayResponseError(detail=operation) from exc
         except WbiRetryTimesExceedException as exc:
