@@ -135,8 +135,9 @@ def _assert_collected_page_rows(connection, mid: int) -> str:
     The successful run is terminal (``limited`` on the explicit page bound
     with a non-empty page, ``complete`` on an empty one) and leaves exactly
     one page-evidence row, the user row, one video row per collected video
-    with one run/page discovery row each, at least one part row per collected
-    video, and a cursor that advanced past the committed page.
+    with one run/page discovery row each, at least one part row in aggregate
+    over the collected page (not one per video: an individual video may have
+    no parts upstream), and a cursor that advanced past the committed page.
 
     Returns a one-line, count-only evidence summary (no credential, no
     collected metadata values) for the live run to print.
@@ -202,8 +203,10 @@ def _assert_collected_page_rows(connection, mid: int) -> str:
     observed_total = cursor_row["observed_total"]
     if run_row["outcome"] == "limited":
         assert video_count >= 1
-        # Every collected video exposes at least one part upstream, and each
-        # collected video is recorded once as discovered on this page.
+        # The page carries at least one part in aggregate (parts are fetched
+        # for every collected video; an individual video may legitimately have
+        # no parts upstream, so this is deliberately not a per-video claim),
+        # and each collected video is recorded once as discovered on this page.
         assert part_count >= 1
         assert discovery_count == video_count
         assert tuple(page_row)[:2] == (1, "ok")
@@ -338,8 +341,9 @@ def test_live_smoke_fetch_meta_one_page_lands_normalized_rows(
                 " credential the run is anonymous, and upstream rejects some"
                 " anonymous metadata access; the smoke accepts this bounded"
                 " no-credential outcome rather than treating it as a defect."
-                " Provide a credential via --sessdata or"
-                f" {SESSDATA_ENV_VAR} for the happy-path run."
+                f" Provide a credential via {SESSDATA_ENV_VAR} in the"
+                " environment for the happy-path run; this smoke builds its"
+                " own argv, so its --sessdata flag is never passed."
             )
         pytest.fail(
             "live smoke ended in a bounded upstream failure despite an"

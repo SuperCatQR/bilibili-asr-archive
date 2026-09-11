@@ -157,15 +157,24 @@ into a temporary archive root. On a proxied host — and on this host, whose
 direct route to Bilibili is blocked — the proxy is part of the command:
 
 ```
-cd bilibili-asr-archive
-set -a; source ../.env; set +a              # repo-root .env (gitignored)
+CONTROL=/root/workspace/bilibili-asr-archive   # the control checkout
+cd "$CONTROL/bilibili-asr-archive"
+set -a; source "$CONTROL/.env"; set +a          # gitignored; absent in a worktree
 export BILI_HTTP_PROXY=http://127.0.0.1:7890
-BILI_LIVE_SMOKE=1 .venv/bin/python -m pytest tests/test_live_metadata_smoke.py -v
+BILI_LIVE_SMOKE=1 "$CONTROL/bilibili-asr-archive/.venv/bin/python" \
+  -m pytest tests/test_live_metadata_smoke.py -s -v
 ```
 
-`BILI_SESSDATA` may come from the sourced `.env` instead of an explicit
-`export`, and `BILI_HTTP_PROXY` may live in `.env` as well (the gateway reads
-the same environment).
+The control checkout owns both the `.env` credential file and the `.venv`
+interpreter; a linked feature worktree has neither, so a worktree run must
+address them by absolute control-checkout path (as above) or provision its
+own environment. `-s` (or `-rP`) is part of the command: pytest captures the
+stdout of a *passing* test, so a plain `-v` run hides the evidence line on the
+happy path and would force a second page request against a risk-controlled
+endpoint — use `-s`/`-rP` on the first live attempt.
+
+`BILI_SESSDATA` and `BILI_HTTP_PROXY` may come from the sourced `.env` instead
+of an explicit `export` (the gateway reads the same environment).
 
 - Opt-in only (`BILI_LIVE_SMOKE=1`); default pytest runs skip it without
   failure. An opted-in run in an environment without the pinned
@@ -174,8 +183,10 @@ the same environment).
 - Bound: exactly one page for UID 23191782 (`--start-page 1 --limit-pages 1`)
   into a temporary archive root; no subtitle, playback, audio, or ASR code is
   invoked, and nothing outside the temporary root is written.
-- **With a credential** (`--sessdata` or `BILI_SESSDATA`) the happy path is
-  required: exit 0, `outcome=limited` on the page bound (or `complete` when
+- **With a credential** (`BILI_SESSDATA` only — the smoke builds its own
+  `fetch-meta` argv and passes no `--sessdata`, so that flag is a CLI surface
+  the smoke never uses) the happy path is required: exit 0,
+  `outcome=limited` on the page bound (or `complete` when
   the first page comes back empty), and real normalized rows — the user row,
   one video row per collected video joined to that user, the part rows of
   those videos, one discovery row per collected video, a terminal run row,
@@ -196,7 +207,7 @@ the same environment).
   ran, not as a defect.
 - **Observed on 2026-09-11** (this host, proxy configured): the live run was
   refused by upstream risk control. The CLI's one production page (the
-  ingestor's page size of 100) ended twice — before and after a cooldown —
+  then-shipped page size of 100) ended twice — before and after a cooldown —
   in the bounded `response_error` branch, whose underlying upstream answer is
   the JSON code `-400`; a direct call with the same credential, proxy, and
   call shape but a page size of 5 returned `code=0` with real rows (5 videos,
@@ -204,10 +215,15 @@ the same environment).
   with HTTP 412 (`rate_limited`). So the transport and the call shape do
   reach and satisfy upstream, while this egress is intermittently under
   risk control; a loud live-smoke failure means the bounded page was refused
-  upstream, not that the database or the CLI is broken. Whether the endpoint
-  also caps `ps` below 100 was not settled by these observations: the
-  `-400` answers all came from the page size of 100, but risk control was
-  rejecting other probes with 412 at the same time.
+  upstream, not that the database or the CLI is broken.
+- **Settled on the same day (focused probes after the call-shape fix):** the
+  endpoint does reject the old page size. With the same credential, proxy,
+  and call shape, `ps=30` returned `code=0` with 30 items and `ps=50`
+  returned `code=0` with 50 items, while `ps=100` was rejected — HTTP 412 on
+  the probes and the JSON code `-400` on production runs. The shipped page
+  size is therefore the value upstream accepts: `PAGE_SIZE = 30` in
+  `src/bili_asr/services/metadata_ingest.py`, which is also the pinned
+  package's own documented `ps` value.
 
 ## Exit codes
 

@@ -27,8 +27,8 @@ DEFAULT_MID = 23191782
 #: ``--limit-pages`` defaults to this instead of unbounded: a full
 #: collection without an explicit bound would otherwise only terminate on
 #: an upstream empty page, exposing every run to unbounded anti-bot risk.
-#: Ten pages at the ingestor's page size of 100 is a resumable, conservative
-#: slice; operators opt into longer batches explicitly.
+#: Ten pages at the ingestor's page size of 30 (300 videos) is a resumable,
+#: conservative slice; operators opt into longer batches explicitly.
 DEFAULT_PAGE_LIMIT = 10
 
 #: Environment variable carrying the optional SESSDATA credential.

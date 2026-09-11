@@ -476,7 +476,7 @@ def make_videos_response(*items: object, count: int | None = 2) -> dict:
 
     response: dict = {"list": {"vlist": list(items)}}
     if count is not None:
-        response["page"] = {"pn": 1, "ps": 100, "count": count}
+        response["page"] = {"pn": 1, "ps": 30, "count": count}
     return response
 
 

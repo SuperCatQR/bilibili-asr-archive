@@ -564,12 +564,24 @@ upstream: exactly one public metadata page for UID 23191782
 subtitle/playback/audio/ASR code. Default pytest runs skip it; the proxy is
 part of the command on a proxied host:
 
-    cd bilibili-asr-archive
-    set -a; source ../.env; set +a              # repo-root .env (gitignored)
+    CONTROL=/root/workspace/bilibili-asr-archive   # the control checkout
+    cd "$CONTROL/bilibili-asr-archive"
+    set -a; source "$CONTROL/.env"; set +a          # gitignored; absent in a worktree
     export BILI_HTTP_PROXY=http://127.0.0.1:7890
-    BILI_LIVE_SMOKE=1 .venv/bin/python -m pytest tests/test_live_metadata_smoke.py -v
+    BILI_LIVE_SMOKE=1 "$CONTROL/bilibili-asr-archive/.venv/bin/python" \
+      -m pytest tests/test_live_metadata_smoke.py -s -v
 
-With a credential in the environment (`--sessdata` or `BILI_SESSDATA`) the
+The control checkout owns the `.env` credential file and the `.venv`
+interpreter, and a linked feature worktree has neither — a worktree run must
+address them by absolute control-checkout path (as above) or provision its own
+environment. Keep `-s` (or `-rP`) in the command on the first live attempt:
+pytest captures the stdout of a *passing* test, so a plain `-v` run hides the
+count-only evidence line on the happy path and would force a second page
+request against a risk-controlled endpoint.
+
+The smoke's credential signal is the `BILI_SESSDATA` environment variable alone
+(sourced from `.env` above): it builds its own `fetch-meta` argv and passes no
+`--sessdata`, so that CLI flag is not a smoke input. With that credential the
 smoke requires the happy path: exit 0, `outcome=limited` on the page bound
 (or `complete` on an empty first page), and the real normalized rows — user,
 videos, their parts, one discovery row per video, a terminal run row, exactly
