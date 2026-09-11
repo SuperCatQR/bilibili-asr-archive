@@ -253,6 +253,11 @@ EXPECTED_CHECK_ENUMERATIONS = {
         "length(content_sha256) = 64 AND content_sha256 = lower(content_sha256)",
         "UNIQUE (video_part_id, source_kind, language, version)",
     ),
+    "transcript_segments": (
+        "ordinal >= 0",
+        "start_ms >= 0",
+        "end_ms > start_ms",
+    ),
     "acquisition_runs": (
         "kind IN ('subtitle', 'audio', 'asr')",
         "selector_kind IN ('pending', 'bvid')",
@@ -1355,6 +1360,70 @@ def test_pending_subtitles_view_carries_the_newest_attempt_evidence(tmp_root):
         assert retried["last_attempt_outcome"] == "failed"
         assert retried["last_attempt_error_code"] == "timeout"
         assert retried["last_attempt_credential_present"] == 0
+    finally:
+        connection.close()
+
+
+def test_pending_subtitles_view_is_scoped_to_subtitle_attempts(tmp_root):
+    """The backlog is subtitle evidence; the audio/ASR kinds reuse the pair."""
+    connection = open_database(tmp_root)
+    try:
+        part_id = _insert_user_video_part(connection)
+        # The next iteration probes the same part under ``kind='audio'``: that
+        # is process evidence, but not subtitle backlog evidence.
+        connection.execute(
+            """
+            INSERT INTO acquisition_runs(
+                run_id, kind, selector_kind, selector_target, requested_limit,
+                credential_present, started_at, finished_at, outcome
+            ) VALUES ('run-audio', 'audio', 'pending', NULL, NULL, 0, 100, 200, 'complete')
+            """
+        )
+        _insert_attempt(
+            connection,
+            run_id="run-audio",
+            video_part_id=part_id,
+            outcome="failed",
+            error_code="timeout",
+            transcript_id=None,
+            started_at=100,
+            finished_at=200,
+        )
+        assert tuple(
+            connection.execute(
+                "SELECT attempted, last_attempt_at, last_attempt_outcome "
+                "FROM v_pending_subtitles WHERE video_part_id = ?",
+                (part_id,),
+            ).fetchone()
+        ) == (0, None, None)
+
+        # A subtitle attempt on the same part is what makes it attempted; the
+        # audio attempt neither hides it nor is reported as its evidence.
+        _insert_subtitle_acquisition_run(
+            connection,
+            run_id="run-subs",
+            credential_present=1,
+            finished_at=400,
+            outcome="complete",
+        )
+        _insert_attempt(
+            connection,
+            run_id="run-subs",
+            video_part_id=part_id,
+            outcome="no-subtitle",
+            error_code=None,
+            transcript_id=None,
+            started_at=300,
+            finished_at=400,
+        )
+        assert tuple(
+            connection.execute(
+                "SELECT attempted, last_attempt_at, last_attempt_outcome, "
+                "last_attempt_credential_present FROM v_pending_subtitles "
+                "WHERE video_part_id = ?",
+                (part_id,),
+            ).fetchone()
+        ) == (1, 400, "no-subtitle", 1)
     finally:
         connection.close()
 

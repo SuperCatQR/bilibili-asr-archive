@@ -16,12 +16,14 @@ from .models import (
     ALLOWED_ATTEMPT_OUTCOMES,
     ALLOWED_CAPTION_SOURCE_KINDS,
     ALLOWED_RUN_OUTCOMES,
+    ALLOWED_SOURCE_KINDS,
     MAX_TIMELINE_MS,
     AcquisitionRunRecord,
     CursorRecord,
     DiscoveryRecord,
     IngestionPageRecord,
     IngestionRunRecord,
+    TranscriptRecord,
     TranscriptSegmentRecord,
     TranscriptWriteResult,
     UserRecord,
@@ -722,6 +724,11 @@ class TranscriptRepository:
       evidence that produced it.
     - ``record_subtitle_attempt`` owns one transaction for one ``'no-subtitle'``
       or ``'failed'`` attempt and commits it.
+    - ``read_transcript``, ``list_transcript_versions``,
+      ``list_pending_subtitle_parts``, ``count_pending_subtitle_parts`` and
+      ``list_selected_parts`` never write and never commit: they return the
+      stored rows as they are — a typed ``TranscriptRecord`` for one stored
+      version, ``sqlite3.Row`` view data otherwise.
 
     Versions are immutable: no method rewrites or deletes a transcript row, a
     segment row, or an attempt row, and no method recomputes the outcome of a
@@ -789,11 +796,12 @@ class TranscriptRepository:
         a caller-supplied clock.  Re-finishing is rejected: a run whose stored
         outcome is already terminal raises ``sqlite3.IntegrityError`` and keeps
         both its outcome and its ``finished_at``.
+
+        ``run_id`` is validated by the same helper every other identifier in
+        this class goes through, so a malformed one is answered with the same
+        bounded message its siblings produce.
         """
-        if not isinstance(run_id, str):
-            raise TypeError("run_id must be a string")
-        if not run_id.strip():
-            raise ValueError("run_id must be a non-empty string")
+        run_id = _text(run_id, "run_id")
         _integer(finished_at, "finished_at", minimum=0)
         if outcome is not None:
             _choice(outcome, "outcome", _TERMINAL_ACQUISITION_OUTCOMES)
@@ -999,6 +1007,174 @@ class TranscriptRepository:
                 """,
                 (run_id, video_part_id, outcome, error_code, started_at, finished_at),
             )
+
+    def read_transcript(
+        self,
+        video_part_id: int,
+        source_kind: str,
+        language: str,
+        version: int | None = None,
+    ) -> TranscriptRecord | None:
+        """Read one stored transcript version with its segment timeline.
+
+        ``version=None`` reads the latest version of the identity; an explicit
+        ``version`` reads that one, which stays readable after a newer version
+        is written.  ``None`` means the archive holds no such version.  The
+        language is trimmed exactly as the write path trims it, so the identity
+        a caller names here is the identity the store holds, and ``source_kind``
+        is validated against the whole vocabulary the column's CHECK accepts —
+        the ``asr-local`` reservation simply has no rows yet.  Read-only: no
+        write, no commit.
+        """
+        video_part_id = _integer(video_part_id, "video_part_id", minimum=1)
+        source_kind = _choice(source_kind, "source_kind", ALLOWED_SOURCE_KINDS)
+        language = _language_code(language)
+        if version is None:
+            query = (
+                "SELECT * FROM transcripts WHERE video_part_id = ? "
+                "AND source_kind = ? AND language = ? ORDER BY version DESC LIMIT 1"
+            )
+            parameters: tuple[object, ...] = (video_part_id, source_kind, language)
+        else:
+            query = (
+                "SELECT * FROM transcripts WHERE video_part_id = ? "
+                "AND source_kind = ? AND language = ? AND version = ?"
+            )
+            parameters = (
+                video_part_id,
+                source_kind,
+                language,
+                _integer(version, "version", minimum=1),
+            )
+        row = self.connection.execute(query, parameters).fetchone()
+        if row is None:
+            return None
+        transcript_id = int(row["transcript_id"])
+        return TranscriptRecord(
+            transcript_id=transcript_id,
+            video_part_id=int(row["video_part_id"]),
+            source_kind=str(row["source_kind"]),
+            language=str(row["language"]),
+            model_id=None if row["model_id"] is None else int(row["model_id"]),
+            version=int(row["version"]),
+            content_sha256=str(row["content_sha256"]),
+            created_at=int(row["created_at"]),
+            segments=self._stored_segments(transcript_id),
+        )
+
+    def list_transcript_versions(
+        self, video_part_id: int, source_kind: str, language: str
+    ) -> list[sqlite3.Row]:
+        """List one transcript identity's stored versions, oldest first.
+
+        Rows come straight from ``transcripts`` and carry every stored column;
+        an identity the archive does not hold yields an empty list.  Read-only.
+        """
+        video_part_id = _integer(video_part_id, "video_part_id", minimum=1)
+        source_kind = _choice(source_kind, "source_kind", ALLOWED_SOURCE_KINDS)
+        language = _language_code(language)
+        return list(
+            self.connection.execute(
+                """
+                SELECT * FROM transcripts
+                WHERE video_part_id = ? AND source_kind = ? AND language = ?
+                ORDER BY version
+                """,
+                (video_part_id, source_kind, language),
+            ).fetchall()
+        )
+
+    def list_pending_subtitle_parts(
+        self, limit: int | None = None
+    ) -> list[sqlite3.Row]:
+        """Return the captionless parts in the locked work order.
+
+        Rows come straight from the ``v_pending_subtitles`` view, which carries
+        the newest attempt's evidence for every part that holds no transcript.
+        The repository — not the view — imposes the order
+        ``attempted ASC, last_attempt_at ASC, bvid ASC, page_index ASC``, so
+        never-attempted parts come before previously attempted ones and the
+        oldest attempt comes first: successive bounded runs rotate through the
+        captionless backlog instead of re-attempting the same head.  The key
+        list stays verbatim even though ``attempted`` is implied by
+        ``last_attempt_at IS NULL`` (which SQLite sorts first): it is the locked
+        contract the CLI reads, not a query to be shortened.  Read-only.
+        """
+        if limit is not None:
+            if isinstance(limit, bool) or not isinstance(limit, int):
+                raise TypeError("limit must be an integer or None")
+            if limit < 1:
+                raise ValueError("limit must be a positive integer")
+            query = (
+                "SELECT * FROM v_pending_subtitles "
+                "ORDER BY attempted ASC, last_attempt_at ASC, bvid ASC, page_index ASC "
+                "LIMIT ?"
+            )
+            return list(self.connection.execute(query, (limit,)).fetchall())
+        return list(
+            self.connection.execute(
+                "SELECT * FROM v_pending_subtitles "
+                "ORDER BY attempted ASC, last_attempt_at ASC, bvid ASC, page_index ASC"
+            ).fetchall()
+        )
+
+    def count_pending_subtitle_parts(self) -> int:
+        """Count the parts the pending relation holds. Read-only."""
+        return int(
+            self.connection.execute(
+                "SELECT COUNT(*) FROM v_pending_subtitles"
+            ).fetchone()[0]
+        )
+
+    def list_selected_parts(
+        self, bvid: str, page_index: int | None = None
+    ) -> list[sqlite3.Row]:
+        """Return the stored parts of one explicit selection, or no rows.
+
+        Rows come straight from the ``v_video_parts`` view — the view carries the
+        ``work_id``, the user and video context, but not the ``bvid`` itself, so
+        the selector joins the part's own row to reach it — ordered by
+        ``page_index``.  An unknown ``bvid`` — or an unknown ``bvid:pN`` —
+        yields an empty list rather than an invented row, the honest answer the
+        caller reports as a usage error.  An explicit selection is not filtered
+        by ``processing_status``: explicit means explicit, and the evidence a
+        run writes then records what upstream really returned.  Read-only.
+        """
+        bvid = _text(bvid, "bvid")
+        if page_index is None:
+            query = (
+                "SELECT vvp.* FROM v_video_parts AS vvp "
+                "JOIN video_parts AS vp ON vp.video_part_id = vvp.video_part_id "
+                "WHERE vp.bvid = ? ORDER BY vvp.page_index"
+            )
+            parameters: tuple[object, ...] = (bvid,)
+        else:
+            query = (
+                "SELECT vvp.* FROM v_video_parts AS vvp "
+                "JOIN video_parts AS vp ON vp.video_part_id = vvp.video_part_id "
+                "WHERE vp.bvid = ? AND vvp.page_index = ?"
+            )
+            parameters = (bvid, _integer(page_index, "page_index", minimum=0))
+        return list(self.connection.execute(query, parameters).fetchall())
+
+    def _stored_segments(
+        self, transcript_id: int
+    ) -> tuple[TranscriptSegmentRecord, ...]:
+        """Return one version's segments in ordinal order, verbatim as stored."""
+        return tuple(
+            TranscriptSegmentRecord(
+                start_ms=int(row["start_ms"]),
+                end_ms=int(row["end_ms"]),
+                text=str(row["text"]),
+            )
+            for row in self.connection.execute(
+                """
+                SELECT start_ms, end_ms, text FROM transcript_segments
+                WHERE transcript_id = ? ORDER BY ordinal
+                """,
+                (transcript_id,),
+            ).fetchall()
+        )
 
     def _require_video_part(self, video_part_id: int) -> None:
         """Require that ``video_part_id`` names a part the archive already holds.

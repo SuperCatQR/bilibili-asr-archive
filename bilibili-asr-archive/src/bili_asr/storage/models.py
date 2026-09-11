@@ -346,6 +346,49 @@ class TranscriptWriteResult:
 
 
 @dataclass(frozen=True, slots=True)
+class TranscriptRecord:
+    """One stored transcript version together with its segment timeline.
+
+    What a default read of a transcript answers: the whole ``transcripts`` row
+    — identity, language, version, content hash, creation time — plus its
+    segments in ordinal order, which is the caller order the write path stored,
+    never re-sorted and never de-overlapped.  ``model_id`` is ``NULL`` for
+    caption rows, and ``segments`` is never empty, because a transcript is only
+    ever written with at least one segment.
+    """
+
+    transcript_id: int
+    video_part_id: int
+    source_kind: SourceKind
+    language: str
+    model_id: int | None
+    version: int
+    content_sha256: str
+    created_at: int
+    segments: tuple[TranscriptSegmentRecord, ...]
+
+    def __post_init__(self) -> None:
+        _integer(self.transcript_id, "transcript_id", minimum=1)
+        _integer(self.video_part_id, "video_part_id", minimum=1)
+        _choice(self.source_kind, "source_kind", _ALLOWED_SOURCE_KINDS)
+        _text(self.language, "language")
+        if self.model_id is not None:
+            _integer(self.model_id, "model_id", minimum=1)
+        _integer(self.version, "version", minimum=1)
+        _content_sha256(self.content_sha256)
+        _integer(self.created_at, "created_at", minimum=0)
+        if not isinstance(self.segments, tuple):
+            raise TypeError("segments must be a tuple")
+        if not self.segments:
+            raise ValueError("a stored transcript carries at least one segment")
+        for index, segment in enumerate(self.segments):
+            if not isinstance(segment, TranscriptSegmentRecord):
+                raise TypeError(
+                    f"segments[{index}] must be a TranscriptSegmentRecord"
+                )
+
+
+@dataclass(frozen=True, slots=True)
 class AcquisitionRunRecord:
     """One acquisition run of one kind.
 
@@ -405,6 +448,7 @@ __all__ = [
     "ProcessingStatus",
     "RunOutcome",
     "SourceKind",
+    "TranscriptRecord",
     "TranscriptSegmentRecord",
     "TranscriptWriteResult",
     "UserRecord",
