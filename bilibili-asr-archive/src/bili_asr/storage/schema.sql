@@ -117,29 +117,10 @@ CREATE TABLE IF NOT EXISTS asr_models (
     UNIQUE (model_name, revision)
 );
 
-CREATE TABLE IF NOT EXISTS transcripts (
-    transcript_id INTEGER PRIMARY KEY,
-    video_part_id INTEGER NOT NULL,
-    source_kind TEXT NOT NULL CHECK (
-        source_kind IN ('subtitle-ai', 'subtitle-cc', 'asr-local')
-    ),
-    model_id INTEGER,
-    version INTEGER NOT NULL CHECK (version > 0),
-    created_at INTEGER NOT NULL,
-    UNIQUE (video_part_id, source_kind, version),
-    FOREIGN KEY (video_part_id) REFERENCES video_parts(video_part_id) ON DELETE RESTRICT,
-    FOREIGN KEY (model_id) REFERENCES asr_models(model_id) ON DELETE RESTRICT
-);
-
-CREATE TABLE IF NOT EXISTS transcript_segments (
-    transcript_id INTEGER NOT NULL,
-    ordinal INTEGER NOT NULL CHECK (ordinal >= 0),
-    start_ms INTEGER NOT NULL CHECK (start_ms >= 0),
-    end_ms INTEGER NOT NULL CHECK (end_ms > start_ms),
-    text TEXT NOT NULL,
-    PRIMARY KEY (transcript_id, ordinal),
-    FOREIGN KEY (transcript_id) REFERENCES transcripts(transcript_id) ON DELETE RESTRICT
-);
+-- The transcript and acquisition process-record tables live in their own
+-- resource (``schema-transcripts.sql``): ``initialize_schema`` applies them
+-- only to a database that is fresh or already carries that contract, so a
+-- database created before it keeps the shape it has.
 
 CREATE VIEW IF NOT EXISTS v_video_parts AS
 SELECT
