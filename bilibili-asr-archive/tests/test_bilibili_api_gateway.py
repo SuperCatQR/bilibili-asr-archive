@@ -106,12 +106,16 @@ PACKAGE_HTTP_CLIENT_CANONICAL_NAMES = frozenset({"curl-cffi", "httpx", "aiohttp"
 #: The exact bilibili_api import surface the adapter is allowed to use.  The
 #: user-video page call is issued through ``user``'s own endpoint description
 #: and the WBI-signed ``utils.network.Api``, not through a ``user`` delegate;
-#: the subtitle call reads its transport fields from ``video``'s own player
-#: endpoint description the same way, so both endpoint-description modules come
-#: from the package root and the WBI-signed ``Api`` stays the one request path.
+#: the subtitle call reads its transport fields from the player endpoint
+#: description the same way.  The ``video`` module is deliberately bound to its
+#: two needed names instead of the whole module (only ``API``, locally aliased
+#: to ``VIDEO_API`` so it cannot be confused with the ``Api`` request class, and
+#: ``Video``), so ``Episode``, ``VideoOnlineMonitor``, ``get_api``,
+#: ``get_cid_info`` and ``get_client`` are not source-reachable here.
 ALLOWED_PACKAGE_IMPORTS = {
-    "bilibili_api": {"Credential", "request_settings", "user", "video"},
+    "bilibili_api": {"Credential", "request_settings", "user"},
     "bilibili_api.utils.network": {"Api"},
+    "bilibili_api.video": {"API", "Video"},
     "bilibili_api.exceptions": {
         "ApiException",
         "NetworkException",
@@ -277,29 +281,33 @@ ALLOWED_EXCEPTION_NAMES = (
     "WbiRetryTimesExceedException",
 )
 
-#: Attribute names that would mark playback/danmaku/audio/ASR/export usage —
-#: the surfaces outside this plan's boundary.  Tokens are matched as plain
-#: substrings, so only unambiguous names belong here (``stream`` would
-#: false-positive on ``_await_upstream``).  The subtitle-acquisition family
-#: (``subtitle``, ``player``, ``download``) was removed here on 2026-09-11 by
-#: the PM-authorized Task-2 update: this plan legitimately issues the player and
-#: subtitle-document calls, and
-#: ``test_gateway_source_never_names_forbidden_seam_methods`` now positively
-#: asserts that surface instead (see ``AUTHORIZED_SUBTITLE_ATTRIBUTES``).
+#: Attribute names that would mark playback/danmaku/audio/ASR/export/media
+#: usage — the surfaces outside this plan's boundary.  Tokens are matched as
+#: plain substrings, so only unambiguous names belong here (``stream`` would
+#: false-positive on ``_await_upstream``).  The PM-authorized Task-2 update
+#: removed only the subtitle/player half of the acquisition family on
+#: 2026-09-11: this plan legitimately issues the player and subtitle-document
+#: calls, and ``test_gateway_source_never_names_forbidden_seam_methods`` now
+#: positively asserts that surface instead (see
+#: ``AUTHORIZED_SUBTITLE_ATTRIBUTES``).  ``download`` came back the same day
+#: (Task-2 review tightening M2): this iteration acquires no media, and leaving
+#: it out would un-guard a future ``get_download_url``.
 FORBIDDEN_SEAM_METHOD_TOKENS = (
     "playback",
     "playurl",
     "play_url",
+    "download",
     "danmaku",
     "audio",
     "asr",
     "export",
 )
 
-#: The tokens the authorized update removed from the forbidden list.  They are
-#: kept here only so the positive control below can prove the removal is
-#: load-bearing: each asserted attribute name still carries one of them.
-AUTHORIZED_SEAM_METHOD_TOKENS = ("subtitle", "player", "download")
+#: The tokens the authorized update removed from the forbidden list and this
+#: plan still needs.  They are kept here only so the positive control below can
+#: prove the removal is load-bearing: each asserted attribute name still carries
+#: one of them.
+AUTHORIZED_SEAM_METHOD_TOKENS = ("subtitle", "player")
 
 #: The adapter's own subtitle-surface attributes the token scan must be able to
 #: see.  Asserting them present keeps the forbidden-token check non-vacuous: it
@@ -1695,14 +1703,15 @@ def test_gateway_imports_stay_on_metadata_surface():
     """The adapter imports exactly the enforced allow-list, nothing broader.
 
     ``ALLOWED_PACKAGE_IMPORTS`` is compared exactly: ``Credential`` and the
-    ``request_settings``/``user``/``video`` modules from the package root, the
-    WBI-signed ``utils.network.Api``, and the five exception names.  Both
-    endpoint-description modules come from the package root — the subtitle call
-    reads ``video.API["info"]["get_player_info"]`` the way the page call reads
-    ``user.API["info"]["video"]``, and ``utils.network.Api`` stays the one
-    request path.  ``User`` is deliberately not among them: the page call goes
-    through the ``user`` module's endpoint description and the package ``Api``,
-    never a ``user.User`` delegate.
+    ``request_settings``/``user`` modules from the package root, the WBI-signed
+    ``utils.network.Api``, the two ``video`` names the adapter uses (``API``,
+    bound locally as ``VIDEO_API`` so it cannot be confused with ``Api``, and
+    ``Video``), and the five exception names.  The page call reads
+    ``user.API["info"]["video"]`` and the subtitle call reads the player
+    endpoint description from the same surface, so ``utils.network.Api`` stays
+    the one request path.  ``User`` is deliberately not among them: the page
+    call goes through the ``user`` module's endpoint description and the
+    package ``Api``, never a ``user.User`` delegate.
     """
 
     gateway_path = (
@@ -1729,11 +1738,13 @@ def test_gateway_imports_stay_on_metadata_surface():
 def test_gateway_source_never_names_forbidden_seam_methods():
     """The adapter source stays off every surface outside this plan's boundary.
 
-    ``FORBIDDEN_SEAM_METHOD_TOKENS`` no longer carries the authorized
-    subtitle-acquisition family, so the second positive control below asserts
-    that family's own attributes are present *and* that they still carry a
-    removed token: re-forbidding the removal fails there instead of letting the
-    scan pass because the adapter has no subtitle code to see.
+    ``FORBIDDEN_SEAM_METHOD_TOKENS`` carries the media/playback family only:
+    the authorized subtitle-acquisition tokens are ``subtitle`` and ``player``
+    (``download`` is forbidden again, because this iteration acquires no
+    media).  The second positive control below asserts that family's own
+    attributes are present *and* that they still carry an allowed token:
+    re-forbidding the removal fails there instead of letting the scan pass
+    because the adapter has no subtitle code to see.
     """
 
     gateway_path = (
@@ -2818,6 +2829,40 @@ def test_fetch_subtitle_segments_reads_not_logged_in_as_no_visible_track(
         asyncio.run(gateway.fetch_subtitle_segments(_seam_track(), BVID, PART_CID))
 
     assert caught.value.code == "not_found"
+    assert UPSTREAM_ERROR_TEXT not in str(caught.value)
+    assert bilibili_api_seam.calls == [_listing_call()]
+
+
+@pytest.mark.parametrize(
+    "listing_failure",
+    [
+        FakeNetworkException(503, UPSTREAM_ERROR_TEXT),
+        # A transport-class exception the package does not wrap — the shape a
+        # dead route or a library-level failure produces.
+        RuntimeError(UPSTREAM_ERROR_TEXT),
+    ],
+)
+def test_fetch_subtitle_segments_maps_a_transport_failure_on_its_own_listing(
+    bilibili_api_seam, listing_failure
+):
+    """A transport failure on the fetch's *own* listing never arms the re-list.
+
+    The bounded re-list exists for a body fetch whose signed URL stopped
+    working; a listing that never answered is not an expiry, and re-listing
+    into it would spend a second call on the same dead route.  The fetch's
+    initial listing therefore stands outside the re-list, and this test pins
+    that: one call, the mapped transport code, and the requested track's
+    operation in the detail — never a second listing.
+    """
+
+    bilibili_api_seam.player_error = listing_failure
+    gateway = _load_gateway()
+
+    with pytest.raises(GatewayTransportError) as caught:
+        asyncio.run(gateway.fetch_subtitle_segments(_seam_track(), BVID, PART_CID))
+
+    assert caught.value.code == "transport_error"
+    assert caught.value.detail == "fetch_subtitle_segments"
     assert UPSTREAM_ERROR_TEXT not in str(caught.value)
     assert bilibili_api_seam.calls == [_listing_call()]
 

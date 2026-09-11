@@ -23,7 +23,7 @@ import re
 from collections.abc import Awaitable, Callable, Mapping
 from typing import Any
 
-from bilibili_api import Credential, request_settings, user, video
+from bilibili_api import Credential, request_settings, user
 from bilibili_api.exceptions import (
     ApiException,
     NetworkException,
@@ -32,6 +32,7 @@ from bilibili_api.exceptions import (
     WbiRetryTimesExceedException,
 )
 from bilibili_api.utils.network import Api
+from bilibili_api.video import API as VIDEO_API, Video
 
 from bili_asr.config import resolve_proxy
 from bili_asr.sources.models import (
@@ -78,7 +79,11 @@ _USER_VIDEO_PAGE_ENDPOINT = user.API["info"]["video"]
 # payload carries the part's subtitle inventory.  ``url``/``method``/``wbi``
 # are read from it for the same reason; ``dm`` and ``verify`` are deliberately
 # overridden per call (see ``BilibiliApiGateway._fetch_subtitle_inventory``).
-_PLAYER_INFO_ENDPOINT = video.API["info"]["get_player_info"]
+# Only the endpoint description and ``Video`` are imported from the pin's
+# ``video`` module: binding the whole module would make its other names
+# (``Episode``, ``VideoOnlineMonitor``, ``get_api``, ``get_cid_info``,
+# ``get_client``) source-reachable here without the import boundary noticing.
+_PLAYER_INFO_ENDPOINT = VIDEO_API["info"]["get_player_info"]
 
 
 def _require_positive_argument(value: object, field: str) -> None:
@@ -538,7 +543,7 @@ class BilibiliApiGateway:
             raise ValueError("bvid must be a BV-prefixed 10-character id")
         pages = await self._await_upstream(
             "get_video_parts",
-            lambda: video.Video(bvid=bvid, credential=self._credential).get_pages(),
+            lambda: Video(bvid=bvid, credential=self._credential).get_pages(),
         )
         return _normalize_video_parts(pages, bvid)
 
@@ -555,7 +560,7 @@ class BilibiliApiGateway:
             return summary
         detail = await self._await_upstream(
             "get_completed_video_summary",
-            lambda: video.Video(
+            lambda: Video(
                 bvid=summary.bvid, credential=self._credential
             ).get_info(),
         )
