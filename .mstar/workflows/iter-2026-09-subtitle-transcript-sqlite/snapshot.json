@@ -5,19 +5,24 @@
   "status": "active",
   "started_at": "2026-09-11",
   "updated_at": "2026-09-11",
-  "phase": "phase-1-prepare",
+  "phase": "phase-2-execute",
   "plans": [
     {
       "id": "20260911-subtitle-gateway",
       "title": "Subtitle gateway and typed subtitle contract",
       "file": ".mstar/plans/20260911-subtitle-gateway.md",
-      "status": "Todo",
+      "status": "Done",
       "owner": "project-manager",
       "agents": [
         "fullstack-dev"
       ],
-      "progress": 0,
-      "task_commits": [],
+      "progress": 100,
+      "task_commits": [
+        "73fdef0093bfdb0b9f51e9d44e7b4c2fd1e7583e",
+        "7f7156acd7ce7b6c421576d209024f3c20f87d9f",
+        "c3d362cbcbbc137b05b7943690c6076640f8cb1b",
+        "6002f99bc0aa4f1abfde6bb111a8e5ebef7d8adc"
+      ],
       "tags": [
         "backend",
         "external-api",
@@ -25,8 +30,14 @@
       ],
       "created_at": "2026-09-11",
       "updated_at": "2026-09-11",
-      "done_at": null,
-      "notes": [],
+      "done_at": "2026-09-11",
+      "notes": [
+        "Phase 2 lease claimed; feature worktree .worktrees/20260911-subtitle-gateway on feature/20260911-subtitle-gateway.",
+        "Task 1 review Approved (0C/0I/4M; commit 73fdef0; focused 179+1 skip / full 946+2 skip). PM applied the spec/plan raw=True correction and a recorded Task-2 authorization block; Task 2 dispatched.",
+        "Task 2 review Approved (0C/0I/6M; commit 7f7156a; focused 306+1 skip / full 1073+2 skip; 18/18 mutation non-vacuity). PM folded M1/M2/M4 into Task 3 and clarified the spec on M5; Task 3 dispatched.",
+        "All three tasks implemented + reviewed Approved (fix wave 1 revalidated). Plan -> InReview; branch review package + plan QC tri (N=3) next. Residual R1 (low, defer) registered for the CLI plan.",
+        "Plan Done: merged into the iteration branch as 5dc9c40. Plan QC tri -> Approve after an N=2 targeted re-review (0C/0W/0 open S); mandatory QA gate Approve (fresh 1096 passed / 3 skipped at HEAD; live subtitle probe reproduced identically). Residual R1 (low, defer) rides to the next plan touching the adapter; F3 rides to the CLI plan."
+      ],
       "metadata": {
         "primary_spec": ".mstar/iterations/iter-2026-09-subtitle-transcript-sqlite/specs/subtitle-gateway.md",
         "spec_integration_branch": "iteration/iter-2026-09-subtitle-transcript-sqlite",
@@ -34,7 +45,16 @@
         "iteration_refs": [
           "iter-2026-09-subtitle-transcript-sqlite"
         ],
-        "priority": "P0"
+        "priority": "P0",
+        "gates": {
+          "qc": "passed",
+          "qa": "passed"
+        },
+        "delivery": {
+          "merge_commit": "5dc9c40",
+          "review_range": "2bd333f..9322239",
+          "live_result": "part_source=fixed-sample sessdata=present track=ai-zh segments=2913 timeline=non-decreasing"
+        }
       }
     },
     {

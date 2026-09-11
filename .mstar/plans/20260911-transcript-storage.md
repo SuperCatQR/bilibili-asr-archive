@@ -171,6 +171,10 @@ Run: `cd bilibili-asr-archive && .venv/bin/python -m pytest tests/test_storage_s
 - Produces: `TranscriptRepository` with `start_acquisition_run`, `finish_acquisition_run`,
   `record_acquired_transcript`, `record_subtitle_attempt`.
 
+- [ ] Bound the converted timeline (carried from plan `20260911-subtitle-gateway` QC S11 / QC3-008):
+      reject a segment whose millisecond product exceeds a documented ceiling (e.g. `> 10**12`, ≈31 years)
+      with the bounded validation error, so an upstream JSON integer cannot reach SQLite as an unbounded
+      `OverflowError`. Record the chosen ceiling in the spec's normalization section and pin it with a test.
 - [ ] Implement `start_acquisition_run` / `finish_acquisition_run` with the shipped run
       discipline (own commit; terminal outcomes cannot be regressed; when no explicit outcome
       is given, derive `complete | partial | failed` from the attempt rows).

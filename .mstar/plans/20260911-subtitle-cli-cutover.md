@@ -188,7 +188,9 @@ Run: `cd bilibili-asr-archive && .venv/bin/python -m pytest tests/test_subtitle_
 
 **Files:**
 - Create: `bilibili-asr-archive/tests/test_subtitle_e2e.py`
-- Modify: `bilibili-asr-archive/tests/fixtures/fake_bilibili_gateway.py` (scripting only)
+- Modify: `bilibili-asr-archive/tests/fixtures/fake_bilibili_gateway.py` — scripting only, **plus**
+  the deferred Task-1 finding F3: add the two subtitle methods to the shared `FakeGateway`
+  protocol double (absent today) so this plan can script subtitle calls through it
 - Modify: `bilibili-asr-archive/tests/test_subtitle_cli.py`
 
 **Interfaces:**

@@ -96,16 +96,36 @@ The listing response's `data.subtitle.subtitles[]` entries carry `lan`, `lan_doc
 short-lived signed CDN document, sometimes protocol-relative (`//...`) and sometimes absolute.
 
 - A protocol-relative value is normalized to `https:` **inside the adapter**, for the duration
-  of one call only.
+  of one call only. Dated clarification (2026-09-11, plan QC N-1): the shipped boundary accepts
+  exactly three forms — `//host/…` and `http://host/…` are rewritten to `https://`, an `https://`
+  value passes through, and anything else (another scheme, a bare authority) is refused with a
+  bounded `shape_error` before any request, so no non-`https` capability URL is ever fetched.
 - The body is fetched through the package's own transport with an explicitly **empty**
-  `Credential()`: `Api(url=<signed url>, method="GET", wbi=False, dm=False, verify=False, raw=True)`.
+  `Credential()`: build `Api(url=<signed url>, method="GET", wbi=False, dm=False,
+  verify=False, credential=Credential())` and call it as
+  `await api.request(raw=True)`.
+  > Correction (2026-09-11, Task-1 implementer finding, PM-applied): `raw` is a parameter of
+  > `Api.request(raw=False, byte=False)`, **not** an `Api` constructor field (the constructor
+  > takes `url/method/verify/wbi/dm/credential/...`; `Api.result()` always calls `request()`
+  > bare). The realizable locked shape is therefore `.request(raw=True)`.
   `raw=True` is required and sufficient — with `raw=False` the package would strip a
   `data`/`result` envelope that a subtitle document does not have and return `None`. The empty
   credential keeps SESSDATA off the CDN host (the legacy path's QC-F1 decision) while the
   package's proxy, TLS and impersonation settings still apply.
-- `NetworkException` (HTTP status != 200) is the transport failure signal; a 200 response whose
+- `NetworkException` (HTTP status != 200) is the transport failure signal — **except HTTP 404**,
+which section 5 routes to `not_found` with no re-list (dated clarification 2026-09-11, plan QC
+seat 2 QC2-001: section 5's table governs this section's shorthand); a 200 response whose
   payload is not a JSON object, or is a JSON object whose `body` is absent, `null`, or not an
   array, is a payload failure (section 5).
+
+> Dated note (2026-09-11, plan QC seat 1 F-002): the *entry-field* names used below
+> (`lan`, `lan_doc`, `subtitle_url`, `id`, `ai_status`/`type`) are read out of the installed pin's
+> `data/api/video.json` **only where the pin declares them**: `grep -rn ai_status` over the installed
+> `bilibili_api` returns **0 hits** — the pin JSON-decodes the player payload and forwards the dict,
+> so the AI marker is an upstream-document field, not a pin-declared one. The strictness rules that
+> require those fields to be integers are therefore spec-owned (not pin-derived), and failing a whole
+> listing with `shape_error` when a malformed marker appears is a deliberate choice, corroborated by
+> the live probe (`ai-zh:ai`).
 
 ## 2. Typed interface (application-owned)
 
@@ -219,7 +239,9 @@ boundary:
    No candidate ⇒ `GatewayNotFound`.
 2. Fetch the resolved URL once; on success return the normalized segments.
 3. On a body-fetch failure **at most one** additional listing + fetch pair is attempted, and
-   only for the expiry/transport class (HTTP status != 200 on the signed URL, i.e. a signature
+   only for the expiry/transport class (HTTP status != 200 on the signed URL **except HTTP 404**,
+   which section 5 routes to `not_found` without a re-list — dated clarification 2026-09-11, plan QC N-2,
+   mirroring the governing sentence in section 1.3; i.e. a signature
    that no longer works). A rate-control answer (`rate_limited`) never triggers a re-list —
    re-listing into the same block only spends the risk budget.
 4. If the second attempt also fails, the mapped bounded code is raised. There is no third
@@ -280,7 +302,9 @@ every other code reaches it as `failed` with that code.
   the caller maps them to a `failed` outcome with that code. `not_found` is reserved for "no
   usable track was visible".
 - **Segments are ordered and honest.** Segment order follows upstream; text is passed through
-  verbatim (no correction, punctuation, or quality claim), and every segment satisfies
+  verbatim in content (no correction, punctuation, or quality claim; surrounding whitespace is
+  trimmed at the adapter boundary per section 3's non-empty-after-strip rule — clarified
+  2026-09-11 after the Task-2 review, M5), and every segment satisfies
   `end_ms > start_ms >= 0` with millisecond conversion identical to the metadata path.
 - **No secret crosses the boundary** — not to the caller, not into an exception message, not
   into a fixture, not into a row. `subtitle_url` exists only for the duration of one call.

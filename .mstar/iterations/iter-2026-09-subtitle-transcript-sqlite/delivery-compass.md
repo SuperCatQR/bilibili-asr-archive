@@ -78,7 +78,7 @@ bounded live smoke (parts within one page of one UP, temporary archive root).
 
 | plan_id | Name | Status | Notes |
 |---------|------|--------|-------|
-| 20260911-subtitle-gateway | Subtitle gateway and typed subtitle contract | Todo | P0, serial 1/3. Delivers the typed caption boundary and the fake-seam parity evidence; operator effect: probe output is expressed in application terms (language, label, AI vs CC) and every failure becomes a stable code, with no credential or signed URL persisted anywhere. |
+| 20260911-subtitle-gateway | Subtitle gateway and typed subtitle contract | Done | Merged `5dc9c40`; QC+QA Approve; R1 deferred | P0, serial 1/3. Delivers the typed caption boundary and the fake-seam parity evidence; operator effect: probe output is expressed in application terms (language, label, AI vs CC) and every failure becomes a stable code, with no credential or signed URL persisted anywhere. |
 | 20260911-transcript-storage | Normalized transcript storage on the reserved tables | Todo | P0, serial 2/3. Delivers the versioned, content-idempotent transcript store plus the explicit process-record decision; operator effect: captions become queryable per part, re-runs are safe, and no earlier version is ever overwritten. |
 | 20260911-subtitle-cli-cutover | Subtitle CLI cutover and bounded verification | Todo | P0, serial 3/3, and the only plan with an operator-visible surface. Delivers `probe-subs` (read-only) and `harvest-subs` (bounded, SQLite-only), the offline E2E, one bounded live smoke, and operator docs that match the shipped behaviour. |
 

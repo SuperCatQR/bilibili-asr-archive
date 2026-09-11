@@ -1,0 +1,20 @@
+{
+  "entries": {
+    "20260911-subtitle-gateway": [
+      {
+        "id": "R1",
+        "title": "Adapter binds the whole `user` module, so `user.get_api` reaches every endpoint description without a forbidden-token hit",
+        "severity": "low",
+        "source": "SDD task-3 review `task-3-review.md` item 6 @ 7f7156a..c3d362c",
+        "scope": "bilibili-asr-archive/src/bili_asr/sources/bilibili_api_gateway.py (import surface) with tests/test_bilibili_api_gateway.py (ALLOWED_PACKAGE_IMPORTS + forbidden tokens)",
+        "decision": "defer",
+        "owner": "@project-manager",
+        "target": "the next plan whose file list includes src/bili_asr/sources/bilibili_api_gateway.py (the CLI plan does not; expected: the audio/ASR iteration)",
+        "tracking": "Durable Roadmap entry in .mstar/plans/20260911-subtitle-gateway.md; QC3-003 retarget recorded 2026-09-11",
+        "source_plan": "20260911-subtitle-gateway",
+        "registered_at": "2026-09-11",
+        "lifecycle_id": "iter-2026-09-subtitle-transcript-sqlite"
+      }
+    ]
+  }
+}

@@ -9,7 +9,7 @@
 - Priority: P0 (iteration-critical, serial 1/3: Plans 2–3 consume these DTOs, and the
   secret/no-leak boundary is enforced here; no operator-visible value lands before Plan 3)
 - Task category: backend / external integration
-- Status: Todo
+- Status: Done
 - Depends on: none (extends the delivered `sources/` boundary)
 - Primary spec: `.mstar/iterations/iter-2026-09-subtitle-transcript-sqlite/specs/subtitle-gateway.md`
 - Owner: fullstack-dev
@@ -43,8 +43,9 @@ SESSDATA is configured, which would turn an honest anonymous probe into an excep
 with the description's declared parameter set using `bvid` instead of `aid` so no extra
 aid-resolution call is paid. It sends **no** `need_login_subtitle` and **no** `w_webid`: neither
 is declared for this endpoint in the installed pin. The subtitle body is fetched through the
-package transport with `raw=True` and an empty `Credential()` (SESSDATA never reaches the CDN
-host).
+package transport with `await api.request(raw=True)` on an `Api` built with an empty
+`Credential()` (SESSDATA never reaches the CDN host; `raw` is a `request` parameter, not an
+`Api` constructor field — corrected 2026-09-11).
 
 No-usable-track signalling is per method, as locked by the spec: `get_subtitle_tracks` returns
 an **empty tuple** (never `not_found` for an empty inventory), and `fetch_subtitle_segments`
@@ -132,17 +133,17 @@ the existing fake-`bilibili_api` seam.
 - Produces: frozen `SubtitleTrack` / `SubtitleSegment` with `__post_init__` validation and two
   protocol methods; seam scripting for the player endpoint and subtitle bodies.
 
-- [ ] Add `SubtitleTrack(language, label, is_ai, track_id)` with validation (language/label
+- [x] Add `SubtitleTrack(language, label, is_ai, track_id)` with validation (language/label
       non-empty after trim; primary subtag non-empty; `track_id` a non-empty string or `None`)
       and `SubtitleSegment(start_ms, end_ms, text)` with validation (`start_ms >= 0`,
       `end_ms > start_ms`, text non-empty after trim); keep `work_id` and URLs out of both.
-- [ ] Add the two protocol methods; keep the existing four methods' signatures untouched.
-- [ ] Extend the seam with `FAKE_PLAYER_ENDPOINT` (a literal mirror of
+- [x] Add the two protocol methods; keep the existing four methods' signatures untouched.
+- [x] Extend the seam with `FAKE_PLAYER_ENDPOINT` (a literal mirror of
       `video.API["info"]["get_player_info"]`, `dm: True` included), scripted `subtitles[]`
       payloads, scripted subtitle bodies (absolute and protocol-relative URLs), and a recorded
       call list that captures the flags and parameter set of every issued call; preserve every
       existing exact call-list assertion.
-- [ ] Test DTO validation and the seam's new scripting without importing the real package.
+- [x] Test DTO validation and the seam's new scripting without importing the real package.
 
 Run: `cd bilibili-asr-archive && .venv/bin/python -m pytest tests/test_bilibili_api_gateway.py -v`
 
@@ -157,23 +158,24 @@ Run: `cd bilibili-asr-archive && .venv/bin/python -m pytest tests/test_bilibili_
 - Produces: normalized `SubtitleTrack` tuples (possibly empty) and non-empty
   `SubtitleSegment` tuples with the bounded taxonomy and no URL leakage.
 
-- [ ] Implement `get_subtitle_tracks`: `Api` built from the description's
+- [x] Implement `get_subtitle_tracks`: `Api` built from the description's
       `url`/`method`/`wbi` with `dm=False`, `verify=False`, credential attached, params exactly
       `{bvid, cid, isGaiaAvoided: False, web_location: 1315873}`; normalize `lan`/`lan_doc`/AI
       marker into DTOs; return an empty tuple when upstream lists nothing.
-- [ ] Implement `fetch_subtitle_segments`: re-list, resolve the track by `language` + `is_ai`
+- [x] Implement `fetch_subtitle_segments`: re-list, resolve the track by `language` + `is_ai`
       (`track_id` breaks a tie, ambiguity is `shape_error`, absence is `not_found`), normalize
       protocol-relative URLs to `https:` internally, fetch with
-      `Api(url=..., method="GET", wbi=False, dm=False, verify=False, raw=True,
-      credential=Credential())`, and convert `from`/`to`/`content` with `floor(seconds*1000)`.
-- [ ] Implement the bounded re-list: at most one extra listing + fetch pair on an
+      `Api(url=..., method="GET", wbi=False, dm=False, verify=False,
+      credential=Credential())` called as `await api.request(raw=True)`, and convert
+      `from`/`to`/`content` with `floor(seconds*1000)`.
+- [x] Implement the bounded re-list: at most one extra listing + fetch pair on an
       expiry/transport-class body-fetch failure; never on `rate_limited`; no loop.
-- [ ] Extend the not-found mapping for the two subtitle methods with `{-101}` while leaving the
+- [x] Extend the not-found mapping for the two subtitle methods with `{-101}` while leaving the
       metadata path's mapping untouched.
-- [ ] Preserve the taxonomy mapping for every failure path (HTTP statuses, malformed payloads,
+- [x] Preserve the taxonomy mapping for every failure path (HTTP statuses, malformed payloads,
       rate control) and keep the endpoint parity tests green: the seam's description must equal
       the installed pin's field for field, and the adapter's only overrides must be `dm`/`verify`.
-- [ ] Tests: normalization (AI vs CC, labels, primary-subtag rejection), conversion, every
+- [x] Tests: normalization (AI vs CC, labels, primary-subtag rejection), conversion, every
       drop trigger of the spec's section 3 boundary (inverted/zero-length interval, negative
       start, empty-after-strip `content`) with the surviving rows asserted, every `shape_error`
       trigger (non-numeric/non-finite `from`/`to`, absent/`null`/non-string `content`, `body`
@@ -182,6 +184,29 @@ Run: `cd bilibili-asr-archive && .venv/bin/python -m pytest tests/test_bilibili_
       and metadata paths, the empty-tuple vs `not_found` distinction (an all-degenerate document
       is `not_found`, never `shape_error`), and no-leak scans (URL/cookie sentinels absent from
       DTOs, messages, rows).
+
+**PM-authorized test/contract updates (2026-09-11, from the Task-1 L2 review).** These are
+deliberate, recorded changes — not silent relaxations:
+
+- [x] `FORBIDDEN_SEAM_METHOD_TOKENS`: remove **only** the subtitle-acquisition family
+  (`subtitle`, `player`, `download`) — this plan legitimately issues the player/subtitle calls.
+  Keep `playback`, `playurl`, `play_url`, `danmaku`, `audio`, `asr`, `export` forbidden (the
+  iteration boundary), and strengthen the test so the authorized subtitle/player attributes are
+  **positively asserted** to be present, not merely un-banned.
+- [x] Extend the seam's documented-call allow-list (`DOCUMENTED_METADATA_CALLS`) with the new
+  routes (`player.track_list`, `subtitle.body`) so
+  `assert_only_documented_metadata_calls` accepts exactly the new surface; keep it an exact set.
+- [x] Add the protocol-relative subtitle-URL form to the no-leak sentinel set (`NO_LEAK_MARKERS`),
+  so an un-normalized URL leak cannot slip past the scanner.
+- [x] Strengthen `test_gateway_protocol_surface_is_locked` to an exact method-set assertion
+  (today a seventh protocol method would pass) and correct its over-claiming docstring.
+- [x] Re-export `SubtitleTrack` / `SubtitleSegment` from `sources/__init__.py` (the models
+  re-export surface), leaving the adapter deliberately un-re-exported as before.
+- [x] Pin the locked no-track signalling with executable assertions: empty inventory → empty
+  tuple from `get_subtitle_tracks`; all-degenerate document → `GatewayNotFound` (never
+  `shape_error`, never an empty success) from `fetch_subtitle_segments`.
+- [x] Trim `language`/`label` (and segment `text`) in the adapter to the printable form the spec
+  promises, matching the metadata path's field-trimming precedent.
 
 Run: `cd bilibili-asr-archive && .venv/bin/python -m pytest tests/test_bilibili_api_gateway.py -v`
 
@@ -197,13 +222,26 @@ Run: `cd bilibili-asr-archive && .venv/bin/python -m pytest tests/test_bilibili_
   that segments normalize as expected; and a recorded answer to "does the locked call shape
   reach this endpoint".
 
-- [ ] Add an opt-in `BILI_LIVE_SMOKE=1` probe for one `(bvid, cid)` read from the operator's
+- [x] Add an opt-in `BILI_LIVE_SMOKE=1` probe for one `(bvid, cid)` read from the operator's
       archive database (or a fixed public sample when the archive is empty); skip by default,
       loud-fail when opted in without the required environment.
-- [ ] Assert only bounded facts (track count, languages, `ai|cc`; segment count and monotonic
+- [x] Assert only bounded facts (track count, languages, `ai|cc`; segment count and monotonic
       milliseconds) — never print URLs, bodies, or credentials.
-- [ ] Record the probe command and the observed outcome in the plan/README for the CLI plan,
+- [x] Record the probe command and the observed outcome in the plan/README for the CLI plan,
       including the bounded code when the endpoint refuses the locked shape.
+
+**PM-authorized tightenings (2026-09-11, from the Task-2 L2 review).** Small, recorded follow-ups
+to the Task-2 implementation; each is a tightening or a coverage gap, not a redesign:
+
+- [x] **M1 — narrow the adapter's `video` import** to the exact names it needs (`from
+  bilibili_api.video import API, Video`, or the minimal equivalent), so binding the module no
+  longer makes `Episode`, `VideoOnlineMonitor`, `get_api`, `get_cid_info`, `get_client`
+  source-reachable and unflagged; keep `ALLOWED_PACKAGE_IMPORTS` an exact equality.
+- [x] **M2 — re-add `download` to `FORBIDDEN_SEAM_METHOD_TOKENS`** (keep `subtitle`/`player`
+  allowed): removing it un-guards a future `get_download_url`, and this iteration acquires no
+  media.
+- [x] **M4 — pin the fetch's own initial-listing transport failure** with a focused test
+  (implementation already correct).
 
 Run: `cd bilibili-asr-archive && BILI_LIVE_SMOKE=1 .venv/bin/python -m pytest tests/test_live_metadata_smoke.py -v`
 
@@ -230,6 +268,13 @@ Run: `cd bilibili-asr-archive && BILI_LIVE_SMOKE=1 .venv/bin/python -m pytest te
   the current credential could see for one part at one moment.
 - Deferred: retiring `bili_client`'s subtitle methods (only after the CLI cutover plan proves
   the new path); audio/playback APIs stay out of this iteration entirely.
+- Deferred to `20260911-subtitle-cli-cutover`: extending the shared `FakeGateway` protocol double
+  with the two subtitle methods (Task-1 finding F3) — the CLI plan is the first consumer that
+  scripts subtitle calls through the double, and it owns that seam extension.
+- Deferred and registered as residual **R1** (`_default` project register, `decision: defer`): the
+  adapter still binds the whole `user` module, so `user.get_api` can reach every endpoint
+  description without a forbidden-token hit — narrow it (and its `ALLOWED_PACKAGE_IMPORTS` entry)
+  in the next plan that touches `sources/bilibili_api_gateway.py`.
 - Deferred with a named owner (`project-manager`, trigger "this iteration delivered"):
   promoting the iteration's durable storage/transport contract out of
   `{ITERATION_DIR}/iter-2026-09-subtitle-transcript-sqlite/specs/` at iteration-close. No file
@@ -245,19 +290,19 @@ Before implementing, inspect `src/bili_asr/subtitles.py`, `src/bili_asr/bili_cli
 
 ## Acceptance / Done Criteria
 
-- [ ] Subtitle DTOs + two protocol methods exist with validation and are covered offline.
-- [ ] The adapter issues the WBI-signed player call in the locked shape (description mirror,
+- [x] Subtitle DTOs + two protocol methods exist with validation and are covered offline.
+- [x] The adapter issues the WBI-signed player call in the locked shape (description mirror,
       `dm=False`, `verify=False`, `bvid`-based parameter set) and normalizes tracks/segments per
       the spec, so a probe result distinguishes language, display label, and AI vs CC.
-- [ ] A part with no usable track yields an empty tuple from the listing and `not_found` from
+- [x] A part with no usable track yields an empty tuple from the listing and `not_found` from
       the body fetch — bounded, non-error outcomes the caller records as `no-subtitle`.
-- [ ] Every failure maps to a bounded scalar code; no signed URL or credential appears in
+- [x] Every failure maps to a bounded scalar code; no signed URL or credential appears in
       any DTO, message, log, fixture, or row.
-- [ ] Offline suite green (baseline recorded at plan open: 903 passed, 2 skipped) including
+- [x] Offline suite green (baseline recorded at plan open: 903 passed, 2 skipped) including
       the AST import-boundary test and no-leak scans.
-- [ ] Opt-in live probe recorded (real track list, or explicit bounded blocker), asserting
+- [x] Opt-in live probe recorded (real track list, or explicit bounded blocker), asserting
       only bounded facts: track count, languages, AI/CC, segment count, monotonic milliseconds.
-- [ ] `git diff --check` clean.
+- [x] `git diff --check` clean.
 
 ## Prepare → Execute Handoff
 
@@ -266,18 +311,26 @@ mandatory QC tri-review (N=3), mandatory QA gate, then merge into the iteration 
 
 ## Review Gate Summary
 
-- Decision: pending
-- Review range / Diff basis: pending
-- Review bundle: `.mstar/sdd/20260911-subtitle-gateway/review/`
-- QC inputs: `qc1.md`, `qc2.md`, `qc3.md`
-- Blocking result: pending
-- Residual findings: pending
+- Decision: **Approve** (plan QC tri N=3 → seat 1 Approve, seat 2 Approve, seat 3 Request Changes;
+  the three Warnings were closed by a PM round + one fix wave, and the N=2 targeted re-review returned
+  Approve from both re-reviewing seats)
+- Review range / Diff basis: `2bd333f..9322239` (4 commits: `73fdef0`, `7f7156a`, `c3d362c`, `6002f99`)
+  plus the QC fix wave `9322239`; base = the iteration integration branch at feature cut
+- Review bundle: `.mstar/sdd/20260911-subtitle-gateway/review/` (`qc-consolidated.md` carries the final gate)
+- QC inputs: `qc1.md` (+ `## Revalidation`), `qc2.md`, `qc3.md` (+ `## Revalidation`)
+- Blocking result: none — 0 Critical / 0 Warning / 0 open Suggestion at the final gate
+- Residual findings: `R1` (`low`, `decision: defer`, executable target = the next plan whose file list
+  includes `src/bili_asr/sources/bilibili_api_gateway.py`); all three seats judged the defer legitimate
+- QA gate: **Approve** (`review/qa-gate.md`): fresh `1096 passed, 3 skipped` at HEAD, the live subtitle
+  probe reproduced identically (`part_source=fixed-sample`, `sessdata=present`, `ai-zh`, 2913 segments,
+  monotonic), DoD mapped, bounded deviations recorded (archive-db branch, anonymous tier, live floor proof)
+- Merged into the iteration branch as `5dc9c40` (2026-09-11)
 
 ## QA Gate Summary
 
 - QA gate: mandatory
 - QA mode: acceptance
-- Evidence: pending
+- Evidence: **Approve — recommend merge** (qa-engineer, 2026-09-11; report `.mstar/sdd/20260911-subtitle-gateway/review/qa-gate.md`). Checkout `feature/20260911-subtitle-gateway` HEAD `9322239` / base `2bd333f`, tree clean. Offline suite at HEAD from the worktree package dir: `1096 passed, 3 skipped` (exit 0; the 3 skips are exactly the opt-in `BILI_LIVE_SMOKE` gates) with the AST import-boundary and no-leak scans green. Live probe reproduced: exit 0, `part_source=fixed-sample` (no operator archive on this host — independently re-established), `sessdata=present`, `track_count=1 tracks=ai-zh:ai`, `segments=2913 first_start_ms=460 last_end_ms=7896020 timeline=non-decreasing`, matching the plan's recorded run. `git diff --check 2bd333f..HEAD` clean. DoD 7/7 mapped. Bounded deviations recorded: archive-db part selection unreachable here (offline rehearsals green), anonymous credential tier not exercised live; no live `floor` proof attempted (Global Constraints) — the offline discriminating row `test_caption_seconds_are_floored_rather_than_rounded_to_milliseconds` is the proof. Residual R1 (`low`, `defer`, executable target) remains the only open entry and may stay open at Done. Hand-off: PM ticks the Acceptance boxes and fills `## Review Gate Summary` with the merge; F3 is absorbed by `20260911-subtitle-cli-cutover` Task 2.
 
 ## Sign-off
 
@@ -301,10 +354,35 @@ mandatory QC tri-review (N=3), mandatory QA gate, then merge into the iteration 
    coverage, and its operator-facing facts (language, label, AI vs CC) are the ones the CLI
    later prints.
 
+## Live probe evidence (Task 3, 2026-09-11)
+
+Command (from the worktree package dir; credential sourced, never echoed; proxy required on this host):
+
+```
+set -a; source /root/workspace/bilibili-asr-archive/.env; set +a
+BILI_HTTP_PROXY=http://127.0.0.1:7890 BILI_LIVE_SMOKE=1 \
+  /root/workspace/bilibili-asr-archive/bilibili-asr-archive/.venv/bin/python -m pytest tests/test_live_subtitle_smoke.py -s -v
+```
+
+Observed (bounded facts only — no URL, body, or credential): fixed public sample
+`bvid=BV1S8hA6MEvy cid=41314223900`; `track_count=1`, track `ai-zh:ai`; `segments=2913`,
+`first_start_ms=460`, `last_end_ms=7896020`, timeline non-decreasing; PASSED.
+
+**Governing reading (recorded 2026-09-11 after plan QC seat 3, QC3-002).** Task 3's brief
+authorizes a fixed public sample when the operator archive has no usable part, and this host has
+no `archive.db` anywhere, so the archive-db variant of the probe is **unreachable here**. The
+spec's §9 phrase "from the operator's own archive" is therefore satisfied through the authorized
+fallback reading: the probe prefers a real archive part when one exists, and otherwise probes the
+fixed sample. The `archive-db` branch is covered by offline rehearsals (control flow) and remains
+a **bounded deviation** for the QA gate to record — it must not be treated as a failed acceptance
+item, and it must not be "fixed" by fabricating an archive. The CLI plan
+(`20260911-subtitle-cli-cutover`) reuses this command shape for its own bounded smoke and will be
+the first plan to run the archive-backed variant live once an archive exists.
+
 ## Evidence Index
 
 - Primary spec: `.mstar/iterations/iter-2026-09-subtitle-transcript-sqlite/specs/subtitle-gateway.md`
-- Tests: `tests/test_bilibili_api_gateway.py`, `tests/test_live_metadata_smoke.py`
+- Tests: `tests/test_bilibili_api_gateway.py`, `tests/test_live_subtitle_smoke.py`
 - SDD runtime: `.mstar/sdd/20260911-subtitle-gateway/`
 
 ## Status Transition
