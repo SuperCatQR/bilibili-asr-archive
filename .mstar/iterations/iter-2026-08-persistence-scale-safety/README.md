@@ -16,10 +16,10 @@ Exactly two business plans are in the `M` budget; review/edit, SDD task review, 
 
 | Plan | Role | Status |
 |---|---|---|
-| [20260831-persistence-scale-safety](../../plans/20260831-persistence-scale-safety.md) | First serial business plan: persistence/read-scale and archive safety | Done |
-| [20260831-asr-reproducibility](../../plans/20260831-asr-reproducibility.md) | Second serial business plan: local ASR lifecycle and provenance | Done |
+| `20260831-persistence-scale-safety` | First serial business plan: persistence/read-scale and archive safety | Done |
+| `20260831-asr-reproducibility` | Second serial business plan: local ASR lifecycle and provenance | Done |
 
-The second plan started after the first plan's coordinator/persistence seam was integrated and its focused checks passed. Both plans completed QC/QA and serial integration. Plan files are process artifacts under `.mstar/plans/`; iteration-only specs remain under this package.
+The second plan started after the first plan's coordinator/persistence seam was integrated and its focused checks passed. Both plans completed QC/QA and serial integration. Plan files are process artifacts under `.mstar/plans/` and are not present in this checkout, so the two plan ids above are recorded as names rather than links; iteration-only specs remain under this package.
 
 ## Promotion log
 
