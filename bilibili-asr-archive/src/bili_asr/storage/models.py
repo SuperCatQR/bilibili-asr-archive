@@ -35,15 +35,30 @@ _ALLOWED_SELECTOR_KINDS = frozenset({"pending", "bvid"})
 # The two outcomes a transcript write can report; the other attempt outcomes
 # record an acquisition that produced no transcript at all.
 _ALLOWED_TRANSCRIPT_WRITE_OUTCOMES = frozenset({"stored", "unchanged"})
+# The largest millisecond position a stored caption timeline accepts: about 31
+# years, far beyond any caption and far below the 64-bit integer SQLite binds,
+# so an upstream value that cannot be a caption timestamp is rejected with a
+# bounded ``ValueError`` instead of an ``OverflowError``.  The storage
+# boundary enforces it (``TranscriptRepository.record_acquired_transcript``),
+# not the segment record below, which validates the shape of one row.
+MAX_TIMELINE_MS = 10**12
 _ERROR_CODE_PATTERN = re.compile(r"^[A-Za-z0-9_.:-]+$")
 _SHA256_HEX_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 
 
-def _integer(value: object, field: str, *, minimum: int | None = None) -> int:
+def _integer(
+    value: object,
+    field: str,
+    *,
+    minimum: int | None = None,
+    maximum: int | None = None,
+) -> int:
     if isinstance(value, bool) or not isinstance(value, int):
         raise TypeError(f"{field} must be an integer")
     if minimum is not None and value < minimum:
         raise ValueError(f"{field} must be at least {minimum}")
+    if maximum is not None and value > maximum:
+        raise ValueError(f"{field} must be at most {maximum}")
     return value
 
 
@@ -82,10 +97,13 @@ def _boolean(value: object, field: str) -> bool:
 
 
 def _caption_text(value: object, field: str = "text") -> str:
-    """Validate verbatim caption text: a string non-empty after stripping.
+    """Validate caption text: a string non-empty after stripping.
 
-    Unlike :func:`_text`, control characters are kept: a caption row is stored
-    as upstream returned it.
+    Unlike :func:`_text`, control characters inside the string are kept — the
+    stored caption is verbatim apart from trimming.  Trimming is the storage
+    boundary's job, not this validator's: ``TranscriptRepository`` stores and
+    hashes the stripped form, so a caption's content identity never depends on
+    the whitespace a caller happens to carry.
     """
     if not isinstance(value, str):
         raise TypeError(f"{field} must be a string")
@@ -286,6 +304,11 @@ class TranscriptSegmentRecord:
     maps one DTO onto the other field for field: ``end_ms > start_ms >= 0``
     and ``text`` non-empty after stripping.  ``ordinal`` is positional and is
     assigned by the repository, never carried here.
+
+    The record carries the text a caller supplies; the storage boundary stores
+    and hashes its trimmed form, and it rejects a millisecond value above
+    :data:`MAX_TIMELINE_MS` — the two normalization rules this record cannot
+    state on its own.
     """
 
     start_ms: int
@@ -377,6 +400,7 @@ __all__ = [
     "DiscoveryRecord",
     "IngestionPageRecord",
     "IngestionRunRecord",
+    "MAX_TIMELINE_MS",
     "PageOutcome",
     "ProcessingStatus",
     "RunOutcome",
@@ -401,11 +425,17 @@ ALLOWED_ACQUISITION_KINDS = _ALLOWED_ACQUISITION_KINDS
 ALLOWED_ACQUISITION_OUTCOMES = _ALLOWED_ACQUISITION_OUTCOMES
 ALLOWED_ATTEMPT_OUTCOMES = _ALLOWED_ATTEMPT_OUTCOMES
 ALLOWED_SOURCE_KINDS = _ALLOWED_SOURCE_KINDS
+# The two source kinds whose content identity the partial index
+# ``ux_transcripts_subtitle_content`` enforces.  ``asr-local`` keeps its own
+# (per model/run) identity rule and is owned by the audio/ASR iteration, so a
+# caption write never accepts it.
+ALLOWED_CAPTION_SOURCE_KINDS = _ALLOWED_SOURCE_KINDS - {"asr-local"}
 
 __all__ += [
     "ALLOWED_ACQUISITION_KINDS",
     "ALLOWED_ACQUISITION_OUTCOMES",
     "ALLOWED_ATTEMPT_OUTCOMES",
+    "ALLOWED_CAPTION_SOURCE_KINDS",
     "ALLOWED_CURSOR_STATES",
     "ALLOWED_PAGE_OUTCOMES",
     "ALLOWED_PROCESSING_STATUS",
