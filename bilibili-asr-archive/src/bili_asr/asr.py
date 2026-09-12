@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import os
 import re
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from typing import Any, Callable
 
 DEFAULT_MODEL = "FunAudioLLM/Fun-ASR-Nano-2512"
@@ -49,13 +49,42 @@ class ASRModelError(RuntimeError):
     """FunASR model could not load or transcribe the supplied audio."""
 
 
+#: Environment knobs for the local ASR boundary.  ``BILI_ASR_MODEL`` accepts a
+#: hub id (resolved to a pinned local snapshot) or a local checkpoint directory.
+ASR_MODEL_ENV_VAR = "BILI_ASR_MODEL"
+ASR_MODEL_REVISION_ENV_VAR = "BILI_ASR_MODEL_REVISION"
+ASR_DEVICE_ENV_VAR = "BILI_ASR_DEVICE"
+ASR_LANGUAGE_ENV_VAR = "BILI_ASR_LANGUAGE"
+
+#: Checkpoint revision used when a hub id is resolved and no revision is configured.
+DEFAULT_MODEL_REVISION = "master"
+
+_LOCAL_PATH_PREFIXES = ("./", "../", "/", "~/", ".\\", "..\\")
+_WINDOWS_DRIVE = re.compile(r"^[A-Za-z]:[\\/]")
+#: A hub reference is ``owner/name``; any other spelling is handed to FunASR
+#: unchanged so a caller's own naming keeps its previous behaviour.
+_HUB_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._-]*$")
+
+#: A cue closes on one of these tokens, on a pause at least this long, or when
+#: it reaches the character ceiling — whichever comes first.
+_SENTENCE_ENDINGS = "。！？!?"
+_CUE_MAX_CHARS = 60
+_CUE_MAX_GAP_SECONDS = 1.0
+
+
 @dataclass(frozen=True)
 class ASRConfig:
-    """Deterministic, redaction-safe configuration for one ASR run."""
+    """Deterministic, redaction-safe configuration for one ASR run.
+
+    ``language`` is the spoken language passed to the model as documented
+    (``中文``, ``英文``, ``日文``); ``None`` leaves the model's own generic
+    transcription prompt in place.  It is never a free-form instruction.
+    """
 
     model_name: str
     model_revision: str | None = None
     device: str = "cuda"
+    language: str | None = None
     offline: bool = True
     local_source: str = "configured-local"
 
@@ -68,12 +97,43 @@ class ASRConfig:
             raise ValueError("model_revision must be a non-empty string or null")
         if not isinstance(self.device, str) or not self.device.strip():
             raise ValueError("device must be a non-empty string")
+        if self.language is not None and (
+            not isinstance(self.language, str) or not self.language.strip()
+        ):
+            raise ValueError("language must be a non-empty string or null")
         if not isinstance(self.offline, bool):
             raise ValueError("offline must be a bool")
         if not isinstance(self.local_source, str) or not self.local_source.strip():
             raise ValueError("local_source must be a non-empty identifier")
         if _FORBIDDEN_LOCAL_SOURCE.search(self.local_source):
             raise ValueError("local_source must be an opaque local identifier")
+
+
+def _looks_like_local_path(value: str) -> bool:
+    """Report whether a configured model reference names a local checkpoint."""
+
+    if value.startswith(_LOCAL_PATH_PREFIXES) or _WINDOWS_DRIVE.match(value):
+        return True
+    return os.path.isdir(value)
+
+
+def default_config() -> ASRConfig:
+    """Build the runner configuration from the documented environment knobs.
+
+    ``BILI_ASR_MODEL`` carries a **local checkpoint directory**.  A bare hub
+    id cannot be loaded by the pinned package: the checkpoint is a
+    remote-code model whose id has no FunASR alias, and its documented load
+    route executes the checkpoint's own ``model.py``.  Materializing the
+    snapshot (pinned revision) and pointing this variable at it keeps the
+    boundary download-free and the pin real.
+    """
+
+    return ASRConfig(
+        model_name=os.environ.get(ASR_MODEL_ENV_VAR) or DEFAULT_MODEL,
+        model_revision=os.environ.get(ASR_MODEL_REVISION_ENV_VAR) or None,
+        device=os.environ.get(ASR_DEVICE_ENV_VAR) or "cuda",
+        language=os.environ.get(ASR_LANGUAGE_ENV_VAR) or None,
+    )
 
 
 class ASRRunner:
@@ -121,7 +181,11 @@ class ASRRunner:
                 ) from None
         
         factory = self._model_factory or _load_default_model
-        # FunASR AutoModel only accepts: model, device, trust_remote_code, model_revision, hub
+        # FunASR AutoModel accepts model, device, trust_remote_code,
+        # model_revision, hub.  The checkpoint arrives as a local directory:
+        # the pinned Nano checkpoint is a remote-code model without a FunASR
+        # alias, so its snapshot must be materialized before the runner sees
+        # it (see default_config).
         kwargs: dict[str, Any] = {
             "model": self.config.model_name,
             "device": self.config.device,
@@ -142,16 +206,20 @@ class ASRRunner:
         return self._model
 
     def transcribe(self, audio_path: str) -> list[dict[str, Any]]:
+        """Transcribe one audio file with the parameters the pinned model reads.
+
+        Fun-ASR-Nano reads ``itn`` (not ``use_itn``) and takes ``language`` as
+        prompt text, so the configured value is passed only when it is set.
+        ``batch_size_s`` / ``merge_vad`` / ``merge_length_s`` are read inside
+        FunASR's VAD pipeline, which this boundary does not build, so sending
+        them would name behaviour the call never performs.
+        """
+
+        request: dict[str, Any] = {"input": audio_path, "cache": {}, "itn": True}
+        if self.config.language is not None:
+            request["language"] = self.config.language
         try:
-            result = self._get_model().generate(
-                input=audio_path,
-                cache={},
-                language="auto",
-                use_itn=True,
-                batch_size_s=60,
-                merge_vad=True,
-                merge_length_s=15,
-            )
+            result = self._get_model().generate(**request)
         except (ASRDependencyError, ASRModelError):
             raise
         except Exception as exc:
@@ -189,8 +257,64 @@ def _seconds(value: Any) -> float:
     return float(value or 0) / 1000.0
 
 
+def _token_cues(tokens: Any) -> list[dict[str, Any]]:
+    """Group Fun-ASR-Nano token timestamps into cue-sized segments.
+
+    Nano returns ``timestamps`` as ``{"token", "start_time", "end_time"}``
+    entries whose times are **seconds** and whose punctuation arrives as its
+    own token, so cue text is the verbatim token text — punctuation included.
+    A cue closes on a sentence-ending token, on a pause of at least
+    :data:`_CUE_MAX_GAP_SECONDS`, or at :data:`_CUE_MAX_CHARS` characters.
+    """
+
+    if not isinstance(tokens, list):
+        return []
+    cues: list[dict[str, Any]] = []
+    parts: list[str] = []
+    start: float | None = None
+    last_end: float | None = None
+
+    def close() -> None:
+        nonlocal parts, start, last_end
+        if start is not None and parts:
+            text = _clean_text("".join(parts))
+            if text:
+                cues.append({"start": start, "end": last_end or start, "text": text})
+        parts = []
+        start = None
+        last_end = None
+
+    for token in tokens:
+        if not isinstance(token, dict):
+            continue
+        piece = str(token.get("token") or "")
+        begin = token.get("start_time")
+        end = token.get("end_time")
+        if not isinstance(begin, (int, float)) or not isinstance(end, (int, float)):
+            continue
+        if start is None:
+            start = float(begin)
+        elif float(begin) - float(last_end or begin) >= _CUE_MAX_GAP_SECONDS:
+            close()
+            start = float(begin)
+        parts.append(piece)
+        last_end = float(end)
+        if piece.strip() in _SENTENCE_ENDINGS or len("".join(parts)) >= _CUE_MAX_CHARS:
+            close()
+    close()
+    return cues
+
+
 def normalize_result(result: Any) -> list[dict[str, Any]]:
-    """Normalize common FunASR result shapes into timestamped segments."""
+    """Normalize common FunASR result shapes into timestamped segments.
+
+    Recognized shapes, in order: ``sentence_info``/``sentences`` (milliseconds),
+    Fun-ASR-Nano token ``timestamps`` (seconds, punctuation tokens included),
+    and the legacy ``timestamp`` integer pairs (milliseconds) carrying one
+    ``text``.  A result with none of them is stored as a single zero-length
+    segment rather than dropped, so a transcript is never silently lost.
+    """
+
     items = result if isinstance(result, list) else [result]
     segments: list[dict[str, Any]] = []
     for item in items:
@@ -203,6 +327,12 @@ def normalize_result(result: Any) -> list[dict[str, Any]]:
                 if text:
                     segments.append({"start": _seconds(sentence.get("start")), "end": _seconds(sentence.get("end")), "text": text})
             continue
+        tokens = item.get("timestamps")
+        if isinstance(tokens, list) and any(isinstance(token, dict) for token in tokens):
+            cues = _token_cues(tokens)
+            if cues:
+                segments.extend(cues)
+                continue
         text = _clean_text(str(item.get("text") or ""))
         if not text:
             continue
@@ -234,5 +364,7 @@ def segments_to_txt(segments: list[dict[str, Any]]) -> str:
 
 def transcribe(audio_path: str, model_name: str | None = None) -> list[dict[str, Any]]:
     """Compatibility wrapper: one short-lived runner using env/default selection."""
-    selected_model = model_name or os.environ.get("BILI_ASR_MODEL") or DEFAULT_MODEL
-    return ASRRunner(ASRConfig(model_name=selected_model)).transcribe(audio_path)
+    config = default_config()
+    if model_name is not None:
+        config = replace(config, model_name=model_name)
+    return ASRRunner(config).transcribe(audio_path)

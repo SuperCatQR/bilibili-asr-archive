@@ -52,7 +52,7 @@ def test_fake_model_result_normalization_timestamps_and_rich_tag_cleanup(fake_fu
         {"start": 1.5, "end": 2.75, "text": "output"},
     ]
     assert fake_funasr.construction_records == [{"model": "local-test-model", "device": "cuda", "trust_remote_code": False}]
-    assert fake_funasr.generation_records == [{"input": "fixture-audio.wav", "cache": {}, "language": "auto", "use_itn": True, "batch_size_s": 60, "merge_vad": True, "merge_length_s": 15}]
+    assert fake_funasr.generation_records == [{"input": "fixture-audio.wav", "cache": {}, "itn": True}]
 
 
 def test_empty_and_malformed_results_are_ignored():
@@ -201,17 +201,19 @@ def test_provenance_has_stable_redacted_configuration_keys():
         model_name="local-model",
         model_revision="revision-1",
         device="cpu",
+        language="中文",
         offline=True,
         local_source="configured-local",
     )
     provenance = asr.ASRRunner(config).provenance()
     assert list(provenance) == [
-        "model_name", "model_revision", "device", "offline", "local_source"
+        "model_name", "model_revision", "device", "language", "offline", "local_source"
     ]
     assert provenance == {
         "model_name": "local-model",
         "model_revision": "revision-1",
         "device": "cpu",
+        "language": "中文",
         "offline": "True",
         "local_source": "configured-local",
     }
@@ -361,3 +363,52 @@ def test_cpu_override_skips_gpu_check(fake_funasr):
         {"start": 1.5, "end": 2.75, "text": "output"},
     ]
     assert fake_funasr.construction_records[0]["device"] == "cpu"
+
+
+def test_default_config_reads_the_documented_environment_knobs(monkeypatch):
+    monkeypatch.setenv("BILI_ASR_MODEL", "/opt/checkpoints/nano")
+    monkeypatch.setenv("BILI_ASR_MODEL_REVISION", "rev-9")
+    monkeypatch.setenv("BILI_ASR_DEVICE", "cpu")
+    monkeypatch.setenv("BILI_ASR_LANGUAGE", "中文")
+
+    config = asr.default_config()
+
+    assert config.model_name == "/opt/checkpoints/nano"
+    assert config.model_revision == "rev-9"
+    assert config.device == "cpu"
+    assert config.language == "中文"
+
+
+def test_default_config_defaults_are_unchanged_without_the_knobs(monkeypatch):
+    for name in ("BILI_ASR_MODEL", "BILI_ASR_MODEL_REVISION", "BILI_ASR_DEVICE", "BILI_ASR_LANGUAGE"):
+        monkeypatch.delenv(name, raising=False)
+
+    config = asr.default_config()
+
+    assert config.model_name == asr.DEFAULT_MODEL
+    assert config.model_revision is None
+    assert config.device == "cuda"
+    assert config.language is None
+
+
+def test_configured_language_is_passed_and_absent_language_is_not(fake_funasr):
+    """`language` is prompt text for Nano, so only a configured value is sent."""
+
+    asr.ASRRunner(
+        asr.ASRConfig("test-model", device="cpu", language="中文"), model_factory=fake_funasr
+    ).transcribe("one.wav")
+    asr.ASRRunner(
+        asr.ASRConfig("test-model", device="cpu"), model_factory=fake_funasr
+    ).transcribe("two.wav")
+
+    assert fake_funasr.generation_records == [
+        {"input": "one.wav", "cache": {}, "itn": True, "language": "中文"},
+        {"input": "two.wav", "cache": {}, "itn": True},
+    ]
+
+
+def test_config_rejects_a_blank_language():
+    with pytest.raises(ValueError):
+        asr.ASRConfig("test-model", language="   ")
+    with pytest.raises(ValueError):
+        asr.ASRConfig("test-model", language=7)  # type: ignore[arg-type]
