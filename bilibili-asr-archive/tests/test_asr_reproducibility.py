@@ -361,10 +361,13 @@ def test_cuda_unavailable_raises_dependency_error_with_rocm_hint(monkeypatch):
     # `python3.12` invocation probes the *system* interpreter and reports a false
     # `torch-present FAIL` on a host built exactly as the recipe says, so the
     # token is banned from this surface entirely, not merely discouraged.
-    assert (
-        '"${VENV:?export VENV to the venv that runs bili-asr}/bin/python"'
-        " scripts/check_asr_env.py"
-    ) in error_message
+    # N-2: the hint is a human-readable exception message, not a paste-into-bash
+    # block, so it names the venv's interpreter in plain language and keeps only
+    # the runnable command.  The `${VENV:?…}` shell-expansion form stays in the
+    # code blocks of README.md / docs/wsl-rocm-gpu.md, where a shell expands it.
+    assert '"$VENV/bin/python" scripts/check_asr_env.py' in error_message
+    assert "${VENV:" not in error_message
+    assert "venv's interpreter" in error_message
     assert "python3.12" not in error_message
     assert "python3.12 scripts/check_asr_env.py" not in error_message
     assert ("download.pytorch.org" + "/whl/rocm") not in error_message

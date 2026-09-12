@@ -318,13 +318,12 @@ class ASRRunner:
                 if not torch.cuda.is_available():
                     raise ASRDependencyError(
                         "CUDA/ROCm is not available: no device is visible to PyTorch. "
-                        "Run the environment check from the product directory under the "
-                        "interpreter that holds torch: "
-                        '`"${VENV:?export VENV to the venv that runs bili-asr}/bin/python" '
-                        "scripts/check_asr_env.py`. It names the stage that fails and prints "
-                        "the fix. The verified AMD/WSL ROCm recipe is "
-                        "`docs/wsl-rocm-gpu.md`. To transcribe without a device, set "
-                        "`BILI_ASR_DEVICE=cpu`."
+                        "Run the environment check from the product directory with the "
+                        "venv's interpreter (the one that has torch installed — "
+                        '`"$VENV/bin/python" scripts/check_asr_env.py`); it names the stage '
+                        "that fails and prints the fix, and `docs/wsl-rocm-gpu.md` carries "
+                        "the verified AMD/WSL ROCm recipe. To transcribe without a device, "
+                        "set `BILI_ASR_DEVICE=cpu`."
                     )
             except ImportError:
                 raise ASRDependencyError(
