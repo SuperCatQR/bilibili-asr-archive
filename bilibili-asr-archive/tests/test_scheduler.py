@@ -38,6 +38,7 @@ from test_audio import (
 )
 from test_subtitles import SAMPLE_DOC, nav_ok, player_ok, sub_entry
 
+_AUDIO_BYTES = b"\x00\x00\x00\x18ftypM4A " + b"payload" * 100
 SECRET = "SECRET-SESS"
 RISK = (412, {"code": -412, "message": "request too frequent"})
 
@@ -54,10 +55,26 @@ _NO_SECRET_MARKERS = (
 
 
 def _audio_target(path: str) -> str:
+    """Name the audio the model read, from the fixture body that identifies it.
+
+    The runner hands the model a guarded descriptor, and the ASR boundary
+    copies it to a short-lived temp file, so the model's path names no durable
+    file.  ``_write_audio`` writes the row id into the body, which does.
+    """
+    candidates = [path]
     try:
-        return os.readlink(path)
+        candidates.append(os.readlink(path))
     except OSError:
-        return path
+        pass
+    for candidate in candidates:
+        try:
+            with open(candidate, "rb") as fh:
+                body = fh.read()
+        except OSError:
+            continue
+        if body.startswith(_AUDIO_BYTES):
+            return body[len(_AUDIO_BYTES):].decode("utf-8", "replace")
+    return path
 
 
 def _row(identity, *, status="meta_ok", duration_s=5, title="clip", **extra):
@@ -118,7 +135,9 @@ def _write_audio(root, identity):
     path = os.path.join(root, "audio", f"{artifact_stem(identity)}.m4a")
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "wb") as fh:
-        fh.write(b"\x00" * 16)
+        # The row id rides in the body so a test can name the audio a model
+        # read even after the boundary copied it to a temp file.
+        fh.write(_AUDIO_BYTES + artifact_stem(identity).encode("utf-8"))
     return path
 
 
@@ -536,7 +555,14 @@ def test_schedule_mixed_failure_exits_1_failed_scope_retries(
             raise asr_mod.ASRModelError("model failed")
         return [{"start": 0.0, "end": 1.0, "text": "ok"}]
 
-    monkeypatch.setattr(asr_mod, "transcribe", flaky)
+    # D2.5 seam: `schedule` runs the shared coordinator, which builds its
+    # model through this factory; the injected per-row failure must land there.
+    class FakeModel:
+        def generate(self, **kwargs):
+            return flaky(kwargs["input"])
+
+    monkeypatch.setenv("BILI_ASR_DEVICE", "cpu")
+    monkeypatch.setattr(asr_mod, "_load_default_model", lambda **_kw: FakeModel())
     _patch_cli(monkeypatch, RouterTransport(_base_routes()))
 
     rc = main([

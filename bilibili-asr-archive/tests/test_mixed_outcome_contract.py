@@ -602,7 +602,14 @@ def test_run_mixed_failure_keeps_success_and_failed_scope_retries(
             raise asr_mod.ASRModelError("model failed")
         return [{"start": 0.0, "end": 1.0, "text": "ok"}]
 
-    monkeypatch.setattr(asr_mod, "transcribe", flaky)
+    # D2.5 seam: `run` builds its model through the factory, so the injected
+    # per-row failure has to sit on the model call.
+    class FakeModel:
+        def generate(self, **kwargs):
+            return flaky(kwargs["input"])
+
+    monkeypatch.setenv("BILI_ASR_DEVICE", "cpu")
+    monkeypatch.setattr(asr_mod, "_load_default_model", lambda **_kw: FakeModel())
     _patch_cli(monkeypatch, RouterTransport(_base_routes()))
 
     rc = main(["run", "--scope", "pending", "--archive-root", tmp_root])
@@ -712,7 +719,13 @@ def test_run_per_item_failure_then_risk_still_exits_2(
             raise asr_mod.ASRModelError("model failed")
         return [{"start": 0.0, "end": 1.0, "text": "ok"}]
 
-    monkeypatch.setattr(asr_mod, "transcribe", flaky)
+    # D2.5 seam (see the sibling run test above).
+    class FakeModel:
+        def generate(self, **kwargs):
+            return flaky(kwargs["input"])
+
+    monkeypatch.setenv("BILI_ASR_DEVICE", "cpu")
+    monkeypatch.setattr(asr_mod, "_load_default_model", lambda **_kw: FakeModel())
     transport = CidRouterTransport(
         {risk_id.cid: RISK},
         routes=_base_routes(),
