@@ -248,3 +248,37 @@ def test_write_archive_without_provenance_adds_no_asr_keys(tmp_root):
     assert "asr_" not in md
     raw = json.loads((tmp_path / paths["raw_path"]).read_text(encoding="utf-8"))
     assert "provenance" not in raw
+
+
+def test_write_archive_summarizes_the_models_own_confidence(tmp_root):
+    """A transcript states how sure the model was, so quality needs no re-run."""
+
+    tmp_path = __import__("pathlib").Path(tmp_root)
+    ident = page_identity("BV1conf", 0, 9)
+    entry = {"bvid": ident.bvid, "work_id": ident.work_id, "page_index": 0, "cid": 9,
+             "title": "confidence", "pubdate_str": "2026-01-02", "duration_s": 9}
+    segments = [
+        {"start": 0.0, "end": 2.0, "text": "第一句。", "confidence": 0.9},
+        {"start": 2.0, "end": 4.0, "text": "第二句。", "confidence": 0.2},
+        {"start": 4.0, "end": 6.0, "text": "第三句。"},
+    ]
+
+    paths = write_archive(tmp_path, entry, segments, source="asr")
+
+    md = (tmp_path / paths["md_path"]).read_text(encoding="utf-8")
+    assert 'asr_mean_confidence: 0.55' in md
+    assert "asr_low_confidence_cues: 1" in md
+    raw = json.loads((tmp_path / paths["raw_path"]).read_text(encoding="utf-8"))
+    assert [segment.get("confidence") for segment in raw["segments"]] == [0.9, 0.2, None]
+
+
+def test_write_archive_without_confidence_claims_nothing(tmp_root):
+    tmp_path = __import__("pathlib").Path(tmp_root)
+    ident = page_identity("BV1noconf", 0, 10)
+    entry = {"bvid": ident.bvid, "work_id": ident.work_id, "page_index": 0, "cid": 10,
+             "title": "plain subtitle", "pubdate_str": "2026-01-02", "duration_s": 2}
+
+    paths = write_archive(tmp_path, entry, [{"start": 0, "end": 2, "text": "句子。"}], source="subtitle")
+
+    md = (tmp_path / paths["md_path"]).read_text(encoding="utf-8")
+    assert "confidence" not in md

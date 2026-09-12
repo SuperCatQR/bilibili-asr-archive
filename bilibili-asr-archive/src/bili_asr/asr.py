@@ -103,17 +103,9 @@ DEFAULT_VAD_MODEL = "fsmn-vad"
 #: Cap on one VAD segment, in milliseconds, as FunASR's own examples use.
 VAD_MAX_SINGLE_SEGMENT_MS = 30_000
 
-#: Checkpoint revision used when a hub id is resolved and no revision is configured.
-DEFAULT_MODEL_REVISION = "master"
-
-_LOCAL_PATH_PREFIXES = ("./", "../", "/", "~/", ".\\", "..\\")
-_WINDOWS_DRIVE = re.compile(r"^[A-Za-z]:[\\/]")
 #: A confined audio descriptor, as :func:`bili_asr.path_policy.confined_audio_file`
 #: hands it over: ``/proc/self/fd/12`` or ``/dev/fd/12``.
 _DESCRIPTOR_PATH = re.compile(r"^/(?:proc/(?:self|\d+)/fd|dev/fd)/\d+$")
-#: A hub reference is ``owner/name``; any other spelling is handed to FunASR
-#: unchanged so a caller's own naming keeps its previous behaviour.
-_HUB_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._-]*$")
 
 #: A cue closes on one of these tokens, on a pause at least this long, or when
 #: it reaches the character ceiling — whichever comes first.
@@ -178,14 +170,6 @@ class ASRConfig:
             raise ValueError("local_source must be a non-empty identifier")
         if _FORBIDDEN_LOCAL_SOURCE.search(self.local_source):
             raise ValueError("local_source must be an opaque local identifier")
-
-
-def _looks_like_local_path(value: str) -> bool:
-    """Report whether a configured model reference names a local checkpoint."""
-
-    if value.startswith(_LOCAL_PATH_PREFIXES) or _WINDOWS_DRIVE.match(value):
-        return True
-    return os.path.isdir(value)
 
 
 def _materialize_input(audio_path: str) -> tuple[str, str | None]:
@@ -387,31 +371,19 @@ def _clean_text(text: str) -> str:
     return _RICH_TAG.sub("", text or "").strip()
 
 
-def _seconds(value: Any) -> float:
-    """FunASR sentence/timestamp values are milliseconds."""
-    return float(value or 0) / 1000.0
+def _body(text: str) -> str:
+    """The part of a cue that carries meaning, without its closing marks."""
 
-
-def _has_body(text: str) -> bool:
-    """Report whether a cue carries anything other than punctuation."""
-
-    return bool(text.strip(_CUE_CLOSING_MARKS).strip())
-
-
-def _is_undersized(cue: dict[str, Any]) -> bool:
-    """Report whether a cue is too small to stand on its own in a subtitle."""
-
-    body = str(cue["text"]).lstrip(_CUE_CLOSING_MARKS)
-    return len(body) < _CUE_MIN_CHARS or (cue["end"] - cue["start"]) < _CUE_MIN_SECONDS
+    return text.strip(_CUE_CLOSING_MARKS).strip()
 
 
 def _join_text(left: str, right: str) -> str:
     """Join two cue texts, keeping a separator between Latin words.
 
     Nano emits an English phrase as several tokens and does not always carry
-    the leading space, so a merge that concatenated blindly produced
-    ``laborlaborgang``.  Chinese text is unaffected: the space is only added
-    between two ASCII alphanumerics.
+    the leading space, so absorbing a fragment into the cue before it must not
+    glue the words together.  Chinese text is unaffected: the space is only
+    added between two ASCII alphanumerics.
     """
 
     if (
@@ -426,83 +398,70 @@ def _join_text(left: str, right: str) -> str:
     return left + right
 
 
-def _absorb(target: dict[str, Any], cue: dict[str, Any]) -> None:
-    """Append one cue's text and span to another, keeping the earlier start."""
-
-    target["text"] = _join_text(str(target["text"]), str(cue["text"]))
-    target["end"] = max(float(target["end"]), float(cue["end"]))
-
-
-def _polish_cues(cues: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Turn raw token groups into cues that read well as subtitles.
-
-    A mark never opens a cue (it belongs to the sentence that just ended), a
-    cue that is punctuation-only is absorbed, and a cue below the size floor is
-    merged into a neighbour while the character ceiling holds.  Nothing is
-    dropped and no timing is invented.
-    """
-
-    polished: list[dict[str, Any]] = []
-    for cue in cues:
-        text = str(cue["text"])
-        if polished and text[:1] and text[0] in _CUE_CLOSING_MARKS:
-            head, text = text[0], text[1:]
-            if len(str(polished[-1]["text"])) + len(head) <= _CUE_MAX_CHARS:
-                polished[-1]["text"] = str(polished[-1]["text"]) + head
-            else:
-                text = head + text
-        merged = {"start": cue["start"], "end": cue["end"], "text": _clean_text(text)}
-        if not merged["text"]:
-            continue
-        if not polished:
-            polished.append(merged)
-            continue
-        previous = polished[-1]
-        fits = len(str(previous["text"])) + len(merged["text"]) <= _CUE_MAX_CHARS
-        if fits and (not _has_body(merged["text"]) or _is_undersized(merged)):
-            _absorb(previous, merged)
-            continue
-        polished.append(merged)
-    if len(polished) > 1 and not _has_body(str(polished[0]["text"])):
-        head = polished.pop(0)
-        _absorb_leading(polished[0], head)
-    return polished
-
-
-def _absorb_leading(target: dict[str, Any], cue: dict[str, Any]) -> None:
-    """Fold a punctuation-only opening cue into the cue that follows it."""
-
-    target["text"] = _join_text(str(cue["text"]), str(target["text"]))
-    target["start"] = min(float(target["start"]), float(cue["start"]))
-
-
 def _token_cues(tokens: Any) -> list[dict[str, Any]]:
-    """Group Fun-ASR-Nano token timestamps into cue-sized segments.
+    """Shape Fun-ASR-Nano token timestamps into subtitle cues, in one pass.
 
-    Nano returns ``timestamps`` as ``{"token", "start_time", "end_time"}``
-    entries whose times are **seconds** and whose punctuation arrives as its
-    own token, so cue text is the verbatim token text — punctuation included.
-    A cue closes on a sentence-ending token, on a pause of at least
-    :data:`_CUE_MAX_GAP_SECONDS`, or at :data:`_CUE_MAX_CHARS` characters; the
-    groups are then polished by :func:`_polish_cues`.
+    Nano returns ``timestamps`` as ``{"token", "start_time", "end_time",
+    "score"}`` entries whose times are **seconds** and whose punctuation
+    arrives as its own token, so cue text stays the verbatim token text.  A cue
+    closes on a sentence-ending token, at :data:`_CUE_MAX_CHARS` characters, or
+    on a pause of at least :data:`_CUE_MAX_GAP_SECONDS` — but a pause only
+    closes a cue that can already stand on its own, and a cue that is still
+    only punctuation or below :data:`_CUE_MIN_CHARS` / :data:`_CUE_MIN_SECONDS`
+    is absorbed by the cue before it.  Nothing shapes the text a second time
+    afterwards, and nothing is dropped.
+
+    ``confidence`` is the mean token score of the cue when the model reports
+    scores; it is measurement, not a rewrite.
     """
 
     if not isinstance(tokens, list):
         return []
     cues: list[dict[str, Any]] = []
     parts: list[str] = []
+    scores: list[float] = []
     start: float | None = None
     last_end: float | None = None
+    pending = ""          # text the cue before it could not take
+
+    def formed() -> bool:
+        return (
+            len(_body("".join(parts))) >= _CUE_MIN_CHARS
+            and (last_end or 0.0) - (start or 0.0) >= _CUE_MIN_SECONDS
+        )
+
+    def reset() -> None:
+        nonlocal parts, scores, start, last_end, pending
+        parts, scores, start, last_end, pending = [], [], None, None, ""
+
+    def hand_back(piece: str, end: float) -> None:
+        """Give a closing mark to the cue it actually closes."""
+
+        cues[-1]["text"] = _join_text(str(cues[-1]["text"]), piece)
+        cues[-1]["end"] = max(float(cues[-1]["end"]), end)
 
     def close() -> None:
-        nonlocal parts, start, last_end
-        if start is not None and parts:
-            text = _clean_text("".join(parts))
-            if text:
-                cues.append({"start": start, "end": last_end or start, "text": text})
-        parts = []
-        start = None
-        last_end = None
+        nonlocal pending
+        text = _clean_text(pending + "".join(parts))
+        if not text:
+            reset()
+            return
+        confidence = round(sum(scores) / len(scores), 3) if scores else None
+        span = last_end or start or 0.0
+        undersized = len(_body(text)) < _CUE_MIN_CHARS or (span - (start or 0.0)) < _CUE_MIN_SECONDS
+        if cues and (undersized or not _body(text)):
+            # a fragment joins the cue before it: the character ceiling is a
+            # readability target, and losing text to it would be worse
+            previous = cues[-1]
+            previous["text"] = _join_text(str(previous["text"]), text)
+            previous["end"] = max(float(previous["end"]), span)
+            reset()
+            return
+        cue = {"start": start, "end": span, "text": text}
+        if confidence is not None:
+            cue["confidence"] = confidence
+        cues.append(cue)
+        reset()
 
     for token in tokens:
         if not isinstance(token, dict):
@@ -512,40 +471,49 @@ def _token_cues(tokens: Any) -> list[dict[str, Any]]:
         end = token.get("end_time")
         if not isinstance(begin, (int, float)) or not isinstance(end, (int, float)):
             continue
+        begin, end = float(begin), float(end)
+        mark = piece.strip()
         if start is None:
-            start = float(begin)
-        elif float(begin) - float(last_end or begin) >= _CUE_MAX_GAP_SECONDS:
+            # a closing mark never opens a cue: it belongs to the cue it closes
+            if mark and mark[0] in _CUE_CLOSING_MARKS:
+                # a mark is one character: it goes back, ceiling or not
+                if cues:
+                    hand_back(piece, end)
+                else:
+                    pending += piece
+                continue
+            start = begin
+        elif begin - (last_end or begin) >= _CUE_MAX_GAP_SECONDS and formed():
             close()
-            start = float(begin)
+            if mark and mark[0] in _CUE_CLOSING_MARKS and cues:
+                hand_back(piece, end)
+                continue
+            start = begin
         parts.append(piece)
-        last_end = float(end)
-        if piece.strip() in _SENTENCE_ENDINGS or len("".join(parts)) >= _CUE_MAX_CHARS:
+        last_end = end
+        raw_score = token.get("score")
+        if isinstance(raw_score, (int, float)) and not isinstance(raw_score, bool):
+            scores.append(float(raw_score))
+        if mark in _SENTENCE_ENDINGS or len(pending + "".join(parts)) >= _CUE_MAX_CHARS:
             close()
     close()
-    return _polish_cues(cues)
+    return cues
 
 
 def normalize_result(result: Any) -> list[dict[str, Any]]:
-    """Normalize common FunASR result shapes into timestamped segments.
+    """Turn one FunASR result into timestamped segments.
 
-    Recognized shapes, in order: ``sentence_info``/``sentences`` (milliseconds),
-    Fun-ASR-Nano token ``timestamps`` (seconds, punctuation tokens included),
-    and the legacy ``timestamp`` integer pairs (milliseconds) carrying one
-    ``text``.  A result with none of them is stored as a single zero-length
-    segment rather than dropped, so a transcript is never silently lost.
+    The pinned model returns ``timestamps``: one entry per character, in
+    seconds, punctuation included, so cue text is the recognised text verbatim.
+    A result that carries text but no usable timings is kept as a single
+    zero-length segment rather than dropped, so a transcript is never silently
+    lost.
     """
 
     items = result if isinstance(result, list) else [result]
     segments: list[dict[str, Any]] = []
     for item in items:
         if not isinstance(item, dict):
-            continue
-        sentences = item.get("sentence_info") or item.get("sentences") or []
-        if sentences:
-            for sentence in sentences:
-                text = _clean_text(str(sentence.get("text") or ""))
-                if text:
-                    segments.append({"start": _seconds(sentence.get("start")), "end": _seconds(sentence.get("end")), "text": text})
             continue
         tokens = item.get("timestamps")
         if isinstance(tokens, list) and any(isinstance(token, dict) for token in tokens):
@@ -554,12 +522,8 @@ def normalize_result(result: Any) -> list[dict[str, Any]]:
                 segments.extend(cues)
                 continue
         text = _clean_text(str(item.get("text") or ""))
-        if not text:
-            continue
-        timestamps = item.get("timestamp") or []
-        start = _seconds(timestamps[0][0]) if timestamps else 0.0
-        end = _seconds(timestamps[-1][1]) if timestamps else start
-        segments.append({"start": start, "end": end, "text": text})
+        if text:
+            segments.append({"start": 0.0, "end": 0.0, "text": text})
     return segments
 
 

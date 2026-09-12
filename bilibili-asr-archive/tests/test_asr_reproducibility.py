@@ -26,9 +26,9 @@ class FakeAutoModel:
 
     def generate(self, **kwargs):
         type(self).generation_records.append(dict(kwargs))
-        return [{"sentence_info": [
-            {"start": 125, "end": 1500, "text": "<|zh|><|NEUTRAL|> deterministic"},
-            {"start": 1500, "end": 2750, "text": "<|zh|> output"},
+        return [{"text": "deterministic output", "timestamps": [
+            {"token": "deterministic", "start_time": 0.125, "end_time": 1.5, "score": 0.9},
+            {"token": " output", "start_time": 3.0, "end_time": 4.25, "score": 0.8},
         ]}]
 
 
@@ -49,8 +49,8 @@ def fake_funasr(monkeypatch):
 
 def test_fake_model_result_normalization_timestamps_and_rich_tag_cleanup(fake_funasr):
     assert asr.transcribe("fixture-audio.wav", model_name="local-test-model") == [
-        {"start": 0.125, "end": 1.5, "text": "deterministic"},
-        {"start": 1.5, "end": 2.75, "text": "output"},
+        {"start": 0.125, "end": 1.5, "text": "deterministic", "confidence": 0.9},
+        {"start": 3.0, "end": 4.25, "text": "output", "confidence": 0.8},
     ]
     assert fake_funasr.construction_records == [{
         "model": "local-test-model", "device": "cuda", "trust_remote_code": False,
@@ -64,13 +64,13 @@ def test_fake_model_result_normalization_timestamps_and_rich_tag_cleanup(fake_fu
 
 def test_empty_and_malformed_results_are_ignored():
     assert asr.normalize_result([]) == []
-    assert asr.normalize_result([None, "bad", {}, {"sentence_info": [{"text": ""}]}]) == []
+    assert asr.normalize_result([None, "bad", {}, {"text": ""}]) == []
     assert asr.normalize_result({"text": "plain", "timestamp": []}) == [
         {"start": 0.0, "end": 0.0, "text": "plain"}
     ]
-    assert asr.normalize_result({"sentences": [{"start": 10, "end": 20, "text": "<|en|>ok"}]}) == [
-        {"start": 0.01, "end": 0.02, "text": "ok"}
-    ]
+    # only the pinned shape is read; a foreign one is ignored rather than guessed
+    assert asr.normalize_result({"sentences": [{"start": 10, "end": 20, "text": "<|en|>ok"}]}) == []
+    assert asr.normalize_result({"text": "<|en|>ok"}) == [{"start": 0.0, "end": 0.0, "text": "ok"}]
 
 
 def test_fake_generation_snapshots_include_both_input_paths(fake_funasr, monkeypatch):
@@ -319,7 +319,7 @@ def test_fixture_benchmark_reports_only_construction_and_shape(fake_funasr):
     assert report == {
         "model_construction_count": 1,
         "normalized_segment_count": 4,
-        "output_shape": ["end", "start", "text"],
+        "output_shape": ["confidence", "end", "start", "text"],
     }
     assert set(report) == {
         "model_construction_count", "normalized_segment_count", "output_shape"
@@ -374,8 +374,8 @@ def test_cpu_override_skips_gpu_check(fake_funasr):
     result = runner.transcribe("fixture.wav")
     
     assert result == [
-        {"start": 0.125, "end": 1.5, "text": "deterministic"},
-        {"start": 1.5, "end": 2.75, "text": "output"},
+        {"start": 0.125, "end": 1.5, "text": "deterministic", "confidence": 0.9},
+        {"start": 3.0, "end": 4.25, "text": "output", "confidence": 0.8},
     ]
     assert fake_funasr.construction_records[0]["device"] == "cpu"
 

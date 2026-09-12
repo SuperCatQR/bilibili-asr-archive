@@ -6,6 +6,9 @@ import pytest
 
 from bili_asr import asr
 
+#: An absorbed tail fragment may push a cue past the 60-character target.
+_CUE_CEILING_TOLERANCE = 70
+
 
 def test_segments_to_srt_and_txt():
     segments = [
@@ -19,19 +22,22 @@ def test_segments_to_srt_and_txt():
     assert asr.segments_to_txt(segments) == "第一句\n第二句"
 
 
-def test_normalize_sentence_info_and_rich_tags():
-    result = [{"sentence_info": [
-        {"start": 1000, "end": 2500, "text": "<|zh|><|NEUTRAL|>内容"}
-    ]}]
-    assert asr.normalize_result(result) == [
-        {"start": 1.0, "end": 2.5, "text": "内容"}
+def test_an_unpinned_result_shape_is_ignored_not_half_read():
+    """Only the pinned model's shape is normalised; other shapes are not guessed."""
+
+    assert asr.normalize_result([{"sentence_info": [{"start": 1000, "end": 2500, "text": "内容"}]}]) == []
+    # ...while a plain text result still survives, with rich tags stripped
+    assert asr.normalize_result([{"text": "<|zh|><|NEUTRAL|>内容"}]) == [
+        {"start": 0.0, "end": 0.0, "text": "内容"}
     ]
 
 
-def test_normalize_single_text_uses_outer_timestamps():
+def test_text_without_token_timings_keeps_one_zero_length_segment():
+    """Leaving the timing unknown beats inventing one from a foreign field."""
+
     result = [{"text": "整段", "timestamp": [[500, 800], [900, 1600]]}]
     assert asr.normalize_result(result) == [
-        {"start": 0.5, "end": 1.6, "text": "整段"}
+        {"start": 0.0, "end": 0.0, "text": "整段"}
     ]
 
 
@@ -76,9 +82,10 @@ def test_normalize_nano_tokens_group_into_punctuated_cues():
     segments = asr.normalize_result(result)
     # The trailing "然后。" is below the cue floor, so it is absorbed into the
     # sentence before it instead of becoming a two-character subtitle.
-    assert segments == [
-        {"start": 0.18, "end": 5.18, "text": "就是我注册一个域名，叫做labor。然后。"},
+    assert [(s["start"], s["end"], s["text"]) for s in segments] == [
+        (0.18, 5.18, "就是我注册一个域名，叫做labor。然后。"),
     ]
+    assert 0.0 <= segments[0]["confidence"] <= 1.0
 
 
 def test_normalize_nano_tokens_stay_in_seconds_and_closed_on_pause():
@@ -102,9 +109,11 @@ def test_normalize_nano_tokens_close_on_cue_length_ceiling():
     segments = asr.normalize_result(
         [{"timestamps": _nano_tokens([("字", 0.1 * index, 0.1 * index + 0.05) for index in range(130)])}]
     )
-    assert len(segments) >= 3
-    assert all(len(segment["text"]) <= 60 for segment in segments)
     assert all(segment["end"] > segment["start"] for segment in segments)
+    # the ceiling is a readability target, not a hard cut: an absorbed tail
+    # fragment may push a cue slightly past it, and nothing may be dropped
+    assert sum(len(segment["text"]) for segment in segments) == 130
+    assert max(len(segment["text"]) for segment in segments) <= 70
 
 
 def test_normalize_nano_shape_without_usable_tokens_falls_back_to_text():
@@ -153,34 +162,33 @@ def test_cues_absorb_a_leading_mark_and_punctuation_only_groups():
     ]
 
 
-def test_cues_never_exceed_the_character_ceiling_when_merging():
-    tokens = _nano_tokens(
-        [
-            ("甲", 0.0, 0.1), ("乙", 0.1, 0.2), ("丙", 0.2, 0.3), ("丁", 0.3, 0.4),
-            ("戊", 0.4, 0.5), ("己", 0.5, 0.6), ("庚", 0.6, 0.7), ("辛", 0.7, 0.8),
-        ]
-        + [("字", 1.0 + 0.01 * index, 1.01 + 0.01 * index) for index in range(120)]
-    )
-    segments = asr.normalize_result([{"timestamps": tokens}])
+def test_a_dense_stream_keeps_every_character_and_stays_near_the_ceiling():
+    """The ceiling is a readability target; keeping the text is the hard rule."""
 
-    assert all(len(segment["text"]) <= 60 for segment in segments)
+    # ~5 characters per second, i.e. ordinary speech: the duration floor must
+    # not fire and merge the ceiling-sized cues back together
+    head = [("甲", 0.0, 0.2), ("乙", 0.2, 0.4), ("丙", 0.4, 0.6), ("丁", 0.6, 0.8),
+            ("戊", 0.8, 1.0), ("己", 1.0, 1.2), ("庚", 1.2, 1.4), ("辛", 1.4, 1.6)]
+    tail = [("字", 2.0 + 0.2 * index, 2.2 + 0.2 * index) for index in range(120)]
+    segments = asr.normalize_result([{"timestamps": _nano_tokens(head + tail)}])
+
+    assert sum(len(segment["text"]) for segment in segments) == len(head) + len(tail)
+    assert all(len(segment["text"]) <= _CUE_CEILING_TOLERANCE for segment in segments)
     assert all(segment["end"] >= segment["start"] for segment in segments)
 
 
-def test_merged_latin_fragments_keep_a_word_separator():
-    """Nano splits an English phrase across tokens; a merge must not glue them."""
+def test_absorbed_latin_fragment_keeps_a_word_separator():
+    """The model's own tokens carry the spaces; absorbing a cue must not lose them."""
 
     segments = asr.normalize_result(
         [
             {
                 "timestamps": _nano_tokens(
                     [
-                        ("labor", 0.0, 0.4),
-                        ("labor", 2.0, 2.4),
-                        ("gang", 4.0, 4.4),
-                        ("，", 6.0, 6.06),
-                        ("中文", 6.06, 7.0),
-                        ("继续", 8.0, 9.0),
+                        ("我", 0.0, 0.2), ("们", 0.2, 0.4), ("说", 0.4, 0.6),
+                        (" labor", 0.6, 1.0), (" gang", 1.0, 1.4),
+                        ("。", 1.4, 1.46),
+                        ("好", 3.0, 3.2), ("。", 3.2, 3.26),      # undersized: absorbed
                     ]
                 )
             }
@@ -188,6 +196,5 @@ def test_merged_latin_fragments_keep_a_word_separator():
     )
 
     text = "".join(segment["text"] for segment in segments)
-    assert "labor labor gang" in text
-    assert "laborlabor" not in text
-    assert "中文继续" in text
+    assert text == "我们说 labor gang。好。"
+    assert "labor gang" in text
