@@ -14,6 +14,54 @@ import pytest
 
 from bili_asr import asr
 from bili_asr import coordinator
+from bili_asr.coordinator import RunCoordinator
+from bili_asr.manifest import ManifestStore
+from bili_asr.page_identity import artifact_stem, page_identity
+
+
+def _audio_row(identity, *, status="audio_ok"):
+    """One manifest row the offline coordinator routes straight to ASR."""
+    return {
+        "bvid": identity.bvid,
+        "work_id": identity.work_id,
+        "page_index": identity.page_index,
+        "cid": identity.cid,
+        "page_label": identity.page_label,
+        "status": status,
+        "title": "batch-clip",
+        "duration_s": 5,
+        "pubdate": 1,
+        "pubdate_str": "2026-01-02",
+    }
+
+
+def _seed_audio_batch(root, count, *, prefix="BVbatch"):
+    """`count` audio_ok rows with their audio on disk; returns (store, rows)."""
+    store = ManifestStore(root=root)
+    identities = [
+        page_identity(f"{prefix}{index}", 0, 100 + index, "p0")
+        for index in range(count)
+    ]
+    audio_dir = pathlib.Path(root) / "audio"
+    audio_dir.mkdir(exist_ok=True)
+    for identity in identities:
+        store.upsert(_audio_row(identity))
+        (audio_dir / f"{artifact_stem(identity)}.m4a").write_bytes(b"fixture")
+    return store, [(i.work_id, store.get(i.work_id)) for i in identities]
+
+
+@pytest.fixture
+def counted_batch_seam(monkeypatch, fake_funasr):
+    """The D2.5 seam: the counted factory sits on `_load_default_model`.
+
+    Patching the module-level factory (not `ASRRunner`) keeps the real
+    `_get_model` path under test, so the counter a batch reports is the
+    counter the production construction site would have produced.
+    """
+
+    monkeypatch.setenv("BILI_ASR_DEVICE", "cpu")
+    monkeypatch.setattr(asr, "_load_default_model", fake_funasr)
+    return fake_funasr
 
 
 class FakeAutoModel:
@@ -621,3 +669,208 @@ def test_the_configured_cap_reaches_the_vad_component(fake_funasr):
     ).transcribe("fixture.wav")
 
     assert fake_funasr.construction_records[0]["vad_kwargs"] == {"max_single_segment_time": 10_000}
+
+
+# ------------------------------------------- Task 1: the construction counter
+
+
+def test_runner_counter_is_zero_until_the_model_is_built(fake_funasr):
+    """Asking for no transcript costs no construction; release never resets."""
+
+    runner = asr.ASRRunner(
+        asr.ASRConfig("local-test-model", device="cpu"), model_factory=fake_funasr
+    )
+    assert runner.model_constructions == 0
+
+    runner.transcribe("first.wav")
+    assert runner.model_constructions == 1
+    # Reuse is not a second construction.
+    runner.transcribe("second.wav")
+    assert runner.model_constructions == 1
+
+    runner.release()
+    assert runner.model_constructions == 1
+    runner.transcribe("third.wav")
+    assert runner.model_constructions == 2
+
+
+def test_a_failed_load_does_not_inflate_the_counter(monkeypatch):
+    """A factory that raised built nothing, so the count stays 0."""
+
+    def exploding_factory(**_kwargs):
+        raise RuntimeError("no checkpoint")
+
+    runner = asr.ASRRunner(
+        asr.ASRConfig("local-test-model", device="cpu"),
+        model_factory=exploding_factory,
+    )
+    with pytest.raises(asr.ASRModelError):
+        runner.transcribe("fixture.wav")
+
+    # Nothing was built, so nothing is claimed: no model, no count.
+    assert runner._model is None
+    assert runner.model_constructions == 0
+
+
+def test_three_item_batch_through_the_documented_path_constructs_once(
+    tmp_root, counted_batch_seam
+):
+    """D2.5: one run scope, one runner, one construction — over 3 ASR rows."""
+
+    store, rows = _seed_audio_batch(tmp_root, 3)
+    coordinator_ = RunCoordinator(tmp_root, store, offline=True)
+
+    summary = coordinator_.run_batch(rows)
+
+    assert summary.asr_items == 3
+    assert summary.model_constructions == 1
+    assert counted_batch_seam.construction_count == 1
+    # ...and all three rows really were transcribed by that one model.
+    assert len(counted_batch_seam.generation_records) == 3
+    assert [result.final_status for result in summary.results] == ["archived"] * 3
+    # The coordinator owns and releases what it created.
+    assert coordinator_.asr_runner is None
+
+
+def test_batch_prints_the_reuse_line_once_with_the_exact_format(
+    tmp_root, counted_batch_seam, capsys
+):
+    """A2: the run's own output states the construction count."""
+
+    store, rows = _seed_audio_batch(tmp_root, 3)
+    summary = RunCoordinator(tmp_root, store, offline=True).run_batch(rows)
+
+    captured = capsys.readouterr()
+    assert captured.out.splitlines() == [
+        "run: model constructions=1 for 3 asr item(s)",
+    ]
+    assert summary.model_constructions == 1
+    assert summary.asr_items == 3
+
+
+def test_the_printed_line_is_the_shared_helper_string():
+    """One source of the shipped string, so README can quote the exact literal."""
+
+    assert coordinator.model_constructions_line("run", 1, 3) == (
+        "run: model constructions=1 for 3 asr item(s)"
+    )
+    assert coordinator.model_constructions_line("asr", 3, 12) == (
+        "asr: model constructions=3 for 12 asr item(s)"
+    )
+
+
+def test_the_batch_line_names_the_invoking_command(tmp_root, counted_batch_seam, capsys):
+    """`run_batch` is shared, so the label is a constructor argument.
+
+    `schedule` / `campaign` wrap the same batch entry; they pass their own
+    name here instead of the line claiming to be `run`.
+    """
+
+    store, rows = _seed_audio_batch(tmp_root, 2, prefix="BVlabel")
+    RunCoordinator(tmp_root, store, offline=True, command="schedule").run_batch(rows)
+
+    assert capsys.readouterr().out.splitlines() == [
+        "schedule: model constructions=1 for 2 asr item(s)",
+    ]
+
+
+def test_injected_runner_reports_the_per_batch_delta(tmp_root, counted_batch_seam):
+    """D2.5: a caller-owned runner reused across batches reports this batch only."""
+
+    store, rows = _seed_audio_batch(tmp_root, 3, prefix="BVdelta")
+    runner = asr.ASRRunner(asr.default_config(), model_factory=counted_batch_seam)
+    coordinator_ = RunCoordinator(tmp_root, store, offline=True, asr_runner=runner)
+
+    first = coordinator_.run_batch(rows)
+    assert first.model_constructions == 1
+    assert first.asr_items == 3
+
+    # Second batch over fresh rows reuses the same caller-owned model: the
+    # runner's lifetime counter is 1, but the batch delta must be 0.
+    store2, rows2 = _seed_audio_batch(tmp_root, 2, prefix="BVdelta2")
+    second = coordinator_.run_batch(rows2)
+
+    assert runner.model_constructions == 1
+    assert second.model_constructions == 0
+    assert second.asr_items == 2
+    # The injected runner stays caller-owned.
+    assert coordinator_.asr_runner is runner
+
+
+def test_per_item_failure_continues_the_batch_with_one_construction(
+    tmp_root, monkeypatch, fake_funasr, capsys
+):
+    """A shared runner changes the construction count only, not the outcome."""
+
+    store, rows = _seed_audio_batch(tmp_root, 3, prefix="BVflaky")
+    monkeypatch.setenv("BILI_ASR_DEVICE", "cpu")
+
+    class FlakyModel:
+        def __init__(self):
+            self.calls = 0
+
+        def generate(self, **_kwargs):
+            self.calls += 1
+            if self.calls == 2:  # the middle row pays for the failure
+                raise asr.ASRModelError("boom")
+            return [{"text": "ok", "timestamp": [[0, 1000]]}]
+
+    def factory(**_kwargs):
+        fake_funasr.construction_count += 1
+        return FlakyModel()
+
+    monkeypatch.setattr(asr, "_load_default_model", factory)
+
+    summary = RunCoordinator(tmp_root, store, offline=True).run_batch(rows)
+
+    captured = capsys.readouterr()
+    assert [len(result.failure_codes) for result in summary.results] == [0, 1, 0]
+    assert [result.ok for result in summary.results] == [True, False, True]
+    # One construction still served the whole batch, and the denominator
+    # counts only the rows that produced a transcript.
+    assert fake_funasr.construction_count == 1
+    assert captured.out.splitlines() == [
+        "run: model constructions=1 for 2 asr item(s)",
+    ]
+
+
+def test_subtitle_only_batch_prints_no_reuse_line(tmp_root, counted_batch_seam, capsys):
+    """D2.6: a zero-ASR batch leaves stdout unchanged."""
+
+    store = ManifestStore(root=tmp_root)
+    identity = page_identity("BVsubonly", 0, 111, "p0")
+    store.upsert({**_audio_row(identity, status="subtitle_done")})
+    raw_dir = pathlib.Path(tmp_root) / "subtitles" / "raw"
+    raw_dir.mkdir(parents=True)
+    (raw_dir / f"{artifact_stem(identity)}.json").write_text(
+        json.dumps({"body": [{"from": 0.0, "to": 1.0, "content": "hi"}]}),
+        encoding="utf-8",
+    )
+
+    summary = RunCoordinator(tmp_root, store, offline=True).run_batch(
+        [(identity.work_id, store.get(identity.work_id))]
+    )
+
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert summary.asr_items == 0
+    assert summary.model_constructions == 0
+    assert counted_batch_seam.construction_count == 0
+
+
+def test_the_batch_line_goes_to_stdout_and_never_to_stderr(
+    tmp_root, counted_batch_seam, capsys
+):
+    """The line is informational output, not a diagnostic.
+
+    Exit status, `run`'s own summary, and the `campaign` JSON document all keep
+    their streams: a batch label belongs on stdout with the rest of the report.
+    """
+
+    store, rows = _seed_audio_batch(tmp_root, 3, prefix="BVstreams")
+    RunCoordinator(tmp_root, store, offline=True).run_batch(rows)
+
+    captured = capsys.readouterr()
+    assert "model constructions=" in captured.out
+    assert "model constructions=" not in captured.err
+

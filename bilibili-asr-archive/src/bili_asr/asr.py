@@ -284,7 +284,13 @@ def _resolve_vad_model(environment_value: str | None) -> str | None:
 
 
 class ASRRunner:
-    """Lazy model owner for sequential use within one run scope."""
+    """Lazy model owner for sequential use within one run scope.
+
+    ``model_constructions`` is a monotonic counter of the models this runner
+    actually built (one per lazy construction, zero when the run never needed
+    audio).  It is the observable form of the run-scoped reuse contract: a
+    batch that reuses one runner reports one construction for N items.
+    """
 
     def __init__(
         self,
@@ -306,6 +312,9 @@ class ASRRunner:
         self.config = config
         self._model_factory = model_factory
         self._model: Any | None = None
+        # Monotonic, never reset by release(): a runner that released and
+        # rebuilt paid two constructions, and the count must say so.
+        self.model_constructions = 0
 
     def _get_model(self) -> Any:
         if self._model is not None:
@@ -359,6 +368,9 @@ class ASRRunner:
             raise ASRModelError(
                 "FunASR model load/transcription failed; check configured local model."
             ) from None
+        # Counted only here, after the factory returned a model: a failed load
+        # paid no construction, so it must not inflate the reported count.
+        self.model_constructions += 1
         return self._model
 
     def transcribe(self, audio_path: str) -> list[dict[str, Any]]:

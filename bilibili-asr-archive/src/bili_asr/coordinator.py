@@ -242,6 +242,18 @@ class AttemptLedger:
 
 
 
+def model_constructions_line(command: str, constructions: int, asr_items: int) -> str:
+    """The one line a batch prints to state how much reuse it got.
+
+    Single source of the shipped string: the in-process ``asr`` / ``pilot``
+    loops print the same line through this helper, and README quotes it.
+    """
+    return (
+        f"{command}: model constructions={constructions} "
+        f"for {asr_items} asr item(s)"
+    )
+
+
 @dataclass
 class RowResult:
     work_id: str
@@ -256,6 +268,11 @@ class RowResult:
 class RunSummary:
     results: list[RowResult] = field(default_factory=list)
     risk_interrupted: bool = False
+    # Constructions this batch paid (delta over the batch's runner, so a
+    # caller-injected runner reused across batches still reports per-batch
+    # truth) and how many rows actually produced an ASR transcript.
+    model_constructions: int = 0
+    asr_items: int = 0
 
     @property
     def failed(self) -> list[RowResult]:
@@ -300,6 +317,7 @@ class RunCoordinator:
         max_audio_bytes: int = 0,
         sleep: Callable[[float], None] | None = None,
         asr_runner: Any | None = None,
+        command: str = "run",
     ) -> None:
         self.root = os.fspath(archive_root)
         self.store = store
@@ -308,6 +326,11 @@ class RunCoordinator:
         self.max_audio_bytes = max(0, max_audio_bytes)
         self._sleep = sleep or time.sleep
         self.asr_runner = asr_runner
+        # Prefix of the printed model-construction line.  ``run_batch`` is the
+        # shared batch entry, so the invoking command names itself here; the
+        # default keeps the documented coordinator path's own label.
+        self.command = command
+        self._batch_asr_items = 0
         self.audio_peak_bytes = 0
         self.ledger = AttemptLedger(self.root)
         self._attempt_counts: dict[tuple[str, str], int] = {}
@@ -502,6 +525,9 @@ class RunCoordinator:
             )
             raise
         self._record("asr", work_id, "ok", started_at=started)
+        # This row produced an ASR transcript: the denominator of the printed
+        # reuse line (D2.5).  Counted here, at the `asr: ok` attempt.
+        self._batch_asr_items += 1
         started = _utc_now_iso()
         try:
             paths = archive_module.write_archive(
@@ -695,12 +721,42 @@ class RunCoordinator:
         injected_runner = self.asr_runner
         with archive_writer(self.root):
             self.asr_runner = injected_runner
+            self._batch_asr_items = 0
+            constructions_before = (
+                getattr(injected_runner, "model_constructions", 0)
+                if injected_runner is not None
+                else 0
+            )
             try:
-                return self._run_batch_locked(rows)
+                summary = self._run_batch_locked(rows)
             finally:
                 if injected_runner is None and self.asr_runner is not None:
                     self.asr_runner.release()
+                batch_runner = self.asr_runner
                 self.asr_runner = injected_runner
+            # Observed delta, not a lifetime total: an injected runner reused
+            # across batches reports only what this batch added.
+            summary.model_constructions = max(
+                0,
+                getattr(batch_runner, "model_constructions", 0) - constructions_before,
+            )
+            summary.asr_items = self._batch_asr_items
+            self._print_model_constructions(summary)
+            return summary
+
+    def _print_model_constructions(self, summary: RunSummary) -> None:
+        """State the batch's reuse once, and only when it transcribed something.
+
+        A zero-ASR batch (subtitle-only output) prints nothing, so existing
+        output is unchanged.
+        """
+        if summary.asr_items <= 0:
+            return
+        print(
+            model_constructions_line(
+                self.command, summary.model_constructions, summary.asr_items
+            )
+        )
 
     def _run_batch_locked(
         self, rows: list[tuple[str, dict[str, Any]]]
