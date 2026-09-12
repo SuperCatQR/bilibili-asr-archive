@@ -11,6 +11,7 @@
 | `iter-2026-09-funasr-nano-7800xt` | [`iter-2026-09-funasr-nano-7800xt/`](iter-2026-09-funasr-nano-7800xt/) | Migrate ASR to FunASR-Nano on AMD 7800XT GPU | completed |
 | `iter-2026-09-bilibili-api-sqlite` | [`iter-2026-09-bilibili-api-sqlite/`](iter-2026-09-bilibili-api-sqlite/) | Replace metadata acquisition with bilibili-api and normalized SQLite storage | completed |
 | `iter-2026-09-subtitle-transcript-sqlite` | [`iter-2026-09-subtitle-transcript-sqlite/`](iter-2026-09-subtitle-transcript-sqlite/) | Subtitle acquisition and normalized transcript storage on SQLite | completed (2026-09-11) |
+| `iter-2026-09-asr-ops-hardening` | [`iter-2026-09-asr-ops-hardening/`](iter-2026-09-asr-ops-hardening/) | Truthful GPU enablement, reachable batch model reuse, one quality surface, declared provenance identity, VAD capture and low-confidence observability | `active` |
 
 Note: the bootstrap MVP iteration `iter-2026-08-wmz-asr-mvp` — the source of the frozen
 `.mstar/specs/asr-archive-cli.md` — predates this index and its package is no longer on disk;
