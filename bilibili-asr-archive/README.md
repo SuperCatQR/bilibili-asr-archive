@@ -19,16 +19,43 @@ use:
 
 ### GPU Requirements (AMD 7800XT with ROCm)
 
-The ASR fallback uses GPU acceleration and requires:
-- AMD 7800XT GPU with ROCm 5.7+ drivers
-- PyTorch with ROCm support: `pip install torch --index-url https://download.pytorch.org/whl/rocm6.0`
-- FunASR: `pip install -e "bilibili-asr-archive/[asr]"`
+Ask the host instead of trusting a command list. Run this from
+`bilibili-asr-archive/` — the product directory, not the repository root above
+it:
 
-**Note**: AMD ROCm uses a CUDA-compatible layer (HIP), so PyTorch still uses `device="cuda"`.
+    python3.12 scripts/check_asr_env.py
 
-For CPU-only mode, override device: `BILI_ASR_DEVICE=cpu` (slower, not recommended for large archives).
+It exits `0` iff all five stages of the verified AMD/WSL recipe hold together,
+and exits `1` printing the fix for each stage that does not:
 
-For other GPU vendors (NVIDIA, Intel), see the [PyTorch installation guide](https://pytorch.org/get-started/locally/).
+| # | Stage | Invariant it asserts |
+|---|-------|----------------------|
+| 1 | `dxg-detection` | `/dev/dxg` exists **and** `HSA_ENABLE_DXG_DETECTION=1` |
+| 2 | `rocm-loader-path` | a `/opt/rocm-*/lib` directory is reachable by the dynamic loader |
+| 3 | `torch-present` | torch is importable and is a ROCm build (`torch.version.hip`) |
+| 4 | `hsa-runtime` | the `libhsa-runtime64.so` in the venv's `torch/lib` is the WSL-compatible system runtime |
+| 5 | `device-probe` | a subprocess reports a visible device and its `gcnArchName` (`gfx1101`) |
+
+That check is the only entry point named for "is my GPU usable for ASR". The
+verified recipe it asserts — ROCm runtime, ROCDXG transport, the
+**repo.radeon.com** torch wheel, the userspace libraries, the loader path, the
+WSL-compatible HSA runtime, and `HSA_ENABLE_DXG_DETECTION=1` — plus the three
+failure modes measured on 2026-09-12 are in
+[docs/wsl-rocm-gpu.md](docs/wsl-rocm-gpu.md). This README deliberately does not
+repeat the install commands: the recipe is environment surgery that `docs/`
+owns.
+
+**Note**: AMD ROCm uses a CUDA-compatible layer (HIP), so PyTorch still uses
+`device="cuda"`. A transcript archived on such a host records that in its own
+frontmatter — verify it with
+`grep -n '^asr_device:' <archive>/transcripts/md/<work_id>.md`, which prints
+`asr_device: "cuda"`.
+
+For CPU-only mode, override device: `BILI_ASR_DEVICE=cpu` (slower, not
+recommended for large archives). CPU mode needs none of the five invariants.
+
+For other GPU vendors (NVIDIA, Intel), see the
+[PyTorch installation guide](https://pytorch.org/get-started/locally/).
 
 The hardened archive/audio path requires POSIX descriptor operations
 (`dir_fd`, `O_NOFOLLOW`, and `/proc/self/fd` or `/dev/fd`). Linux and a
@@ -58,6 +85,12 @@ count, and output shape; run it directly with:
 
 This fixture does not establish hardware timing, model-weight pinning, network-free
 runtime, or full-corpus coverage.
+
+A per-item `bili-asr asr --bvid <bvid>` loop is one process per video, and the
+run-scoped reuse above does not cross a process boundary: every invocation builds
+its own model before it transcribes anything. For more than a couple of items,
+prefer one bounded batch command (`run`, `pilot`, `schedule`), which holds a
+single runner across the items it processes.
 
 ## Deterministic verification baseline
 
@@ -132,6 +165,14 @@ harvest (see the boundary bullet under
     bili-asr verify --trusted-local --archive-root archive
     bili-asr recover --archive-root archive --work-id <work-id>
     bili-asr evaluate-concurrency --evidence evidence.json --thresholds thresholds.json
+
+Every `--bvid` command example in this README carries a real video id, so those
+are paste-ready as they stand. The `<bvid>` placeholder survives in exactly one
+place: the `bili-asr asr --bvid <bvid>` form quoted in the reuse note above,
+written the way `scripts/check_asr_env.py` prints it. Usage synopsis lines (such
+as `run --scope pending|failed|<work_id>...`) are argument grammar, not commands
+to paste. A shell reads a bare `<word>` as redirection, so substitute your own
+value before running any line that still carries one.
 
 ### Concurrency safety evidence gate
 
@@ -596,9 +637,9 @@ observed live run, is in
 [docs/metadata-storage.md](docs/metadata-storage.md).
 
     bili-asr probe-subs --limit-parts 5 --archive-root archive
-    bili-asr probe-subs --bvid <bvid>:p0 --archive-root archive
+    bili-asr probe-subs --bvid BV1S8hA6MEvy:p0 --archive-root archive
     bili-asr harvest-subs --limit-parts 5 --archive-root archive
-    bili-asr harvest-subs --bvid <bvid>:p0 --archive-root archive
+    bili-asr harvest-subs --bvid BV1S8hA6MEvy:p0 --archive-root archive
     bili-asr harvest-subs --limit-parts 5 --language ai-zh --archive-root archive
 
 - **Bounds**: no unbounded runs. `harvest-subs` requires `--limit-parts N`

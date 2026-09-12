@@ -41,7 +41,8 @@ Run the check from `bilibili-asr-archive/` — the product directory, not the re
 it — with no arguments:
 
 ```bash
-cd bilibili-asr-archive
+export PRODUCT=~/src/bilibili-asr-archive/bilibili-asr-archive   # your checkout's product directory, not the repo root above it
+cd "$PRODUCT"
 python3.12 scripts/check_asr_env.py; echo "exit=$?"   # the check's own invocation, as its fix text prints it
 ```
 
@@ -116,15 +117,20 @@ with no GPU and no ROCm, one `cause:`/`fix:` block per failing stage.)
 
 ## The recipe
 
-The steps are ordered as the stages that depend on them. Two conventions for the commands
-below: `VENV` is the path to the virtual environment that runs `bili-asr` — the measured
-session's was `gpu-venv` under root's home, yours is wherever you created it (steps 6–7 write
-into it, so create and activate it first); export it once, `export VENV=~/.venvs/bili-asr`, and
-the commands quote the interpreter as `"$VENV/bin/python"`. `<bvid>`, in the last section, must be
-replaced with a real video id before that line is run — the check prints that line with the same
-placeholder. A `<venv>`-style token is deliberately not used in command position: the shell
-reads a bare `<word>` there as input redirection and fails with `No such file or directory`
-instead of naming the placeholder.
+The steps are ordered as the stages that depend on them. Three conventions for the commands
+below: `PRODUCT` is the path to the checkout's product directory, `bilibili-asr-archive/` —
+yours is wherever you cloned the repository, so export it once as
+`export PRODUCT=~/src/bilibili-asr-archive/bilibili-asr-archive` (an illustrative path, not the
+measured session's), and the blocks that address the checkout quote it as `"$PRODUCT"`, so each
+one runs from wherever the previous one left the shell (steps 3, 6 and 7 move it). `VENV` is the
+path to the virtual environment that runs `bili-asr` — the measured session's was `gpu-venv`
+under root's home, yours is wherever you created it (steps 6–7 write into it, so create and
+activate it first); export it once, `export VENV=~/.venvs/bili-asr`, and the commands quote the
+interpreter as `"$VENV/bin/python"`. `<bvid>` appears only where it is quoted from the check's
+own printed line — every block meant to be pasted carries a real video id instead, and a bare
+`<word>` is redirection wherever it sits, not only in command position. A `<venv>`-style token is
+deliberately never used in command position: the shell reads it as input redirection and fails
+with `No such file or directory` instead of naming the placeholder.
 
 ### 1. Add the ROCm 7.2.1 apt repository
 
@@ -276,8 +282,15 @@ measured target it printed `cuda: True`, `arch: gfx1101`, `vram: 15.8 GB`, and c
 matmul on the device. Finally, the check should now agree:
 
 ```bash
-cd bilibili-asr-archive && python3.12 scripts/check_asr_env.py; echo "exit=$?"   # the check again, from the product directory
+cd "$PRODUCT" && python3.12 scripts/check_asr_env.py; echo "exit=$?"   # the check again, from the product directory
 ```
+
+`"$PRODUCT"` is absolute on purpose. Steps 3, 6 and 7 have already moved this shell
+(`cd /tmp`, `cd ~/amd-whl`, `cd "$TORCH_LIB"`), so a relative `cd bilibili-asr-archive`
+here fails with `No such file or directory`, skips the check, and still prints `exit=1`
+— the same code a genuine check failure exits with, which is exactly the misreading
+this block exists to prevent. The check reads no archive state, so only the path to
+the checkout matters, never the directory you run it from.
 
 ## The three measured failure modes
 
@@ -289,9 +302,9 @@ scratch.
 
 ROCm 5.7 has no `gfx1101` support at all. The RX 7800 XT is therefore not a device the runtime
 can target, and no amount of device configuration downstream changes that: the arch is missing
-from the support list itself. This is the defect that the README's "ROCm 5.7+ drivers" line
-published — it is still there at this commit (`README.md:23`), and this plan's Task 3 edit
-replaces it with a pointer to this document. The fix is the 7.2.1 runtime of steps 1–2.
+from the support list itself. This is the defect the README's former "ROCm 5.7+ drivers" line
+published: that line is gone, and the README's GPU section now points here instead. The fix is
+the 7.2.1 runtime of steps 1–2.
 
 ### 2. The PyTorch.org ROCm wheel — imports cleanly, then reports no device
 
@@ -299,9 +312,9 @@ The ROCm wheel published on PyTorch's own index installs and imports, sets
 `torch.version.hip`, and then `torch.cuda.is_available()` is `False`. There is no exception and
 no traceback, so it reads like "this machine has no GPU" rather than "this wheel cannot work
 here". This is the measured dead end on WSL: it is *not* a path to try before this document, and
-no repository surface may recommend it — `README.md:24` and `src/bili_asr/asr.py:321` both still
-do at this commit, and this plan's Task 3 edit removes both. What fixes it is step 6 (the
-repo.radeon.com pins), on top of steps 1–5.
+no repository surface recommends it — neither `README.md` nor the `asr.py` device hint carries
+that index URL any more, and `tests/test_asr_reproducibility.py` fails if it reappears in the
+hint. What fixes it is step 6 (the repo.radeon.com pins), on top of steps 1–5.
 
 ### 3. Forcing DXG detection on that wheel — a hard abort
 
@@ -325,12 +338,14 @@ The device string stays `cuda` even on AMD, because ROCm is reached through the 
 HIP layer. When the device cannot be enabled, run without it:
 
 ```bash
-BILI_ASR_DEVICE=cpu bili-asr asr --bvid <bvid>
+BILI_ASR_DEVICE=cpu bili-asr asr --bvid BV1eiPczHEqg
 ```
 
 CPU mode needs none of the invariants above — no `/dev/dxg`, no ROCm, no ROCm build of torch —
-and is the same line the check prints with its `device-probe` fix. Replace `<bvid>` with a video
-id, as in the other `docs/` runbooks (`--bvid BV1eiPczHEqg` is one of the videos in the measured
-run). It is slower; for a large archive, fix the device instead.
+and is the same command the check prints with its `device-probe` fix, except that the check
+prints the placeholder form `--bvid <bvid>`: substitute your own video id there, because a shell
+reads a bare `<word>` as redirection and fails before `bili-asr` ever starts. The id above is one
+of the videos in the measured run; any real id works. It is slower; for a large archive, fix the
+device instead.
 
 For the multi-hour livestream campaign on the same WSL host, see `docs/wsl-long-live.md`.
