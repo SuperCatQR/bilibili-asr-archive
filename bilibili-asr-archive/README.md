@@ -52,9 +52,15 @@ owns.
 **Note**: AMD ROCm uses a CUDA-compatible layer (HIP), so PyTorch still uses
 `device="cuda"`. A transcript archived on such a host records that in its own
 frontmatter — verify it with
-`grep -n '^asr_device:' <archive>/transcripts/md/*.md`, which prints
-`asr_device: "cuda"`. A glob is required: the markdown bundle is named
-`{pubdate}_{bvid}.p{page}_<title>.md`, so there is no `<work_id>.md` to open.
+
+    ARCHIVE=/path/to/your/archive    # the archive root you passed to --archive-root
+    grep -n '^asr_device:' "$ARCHIVE"/transcripts/md/*.md
+
+which prints `asr_device: "cuda"`. A glob is required: the markdown bundle is
+named `{pubdate}_{bvid}.p{page}_<title>.md`, so there is no `<work_id>.md` to
+open. Only `"$ARCHIVE"` is quoted — that keeps an archive root containing spaces
+in one word — while `*.md` is left unquoted so the shell expands it into the
+bundle filenames `grep` searches.
 
 For CPU-only mode, override device: `BILI_ASR_DEVICE=cpu` (slower, not
 recommended for large archives). CPU mode needs none of the five invariants.

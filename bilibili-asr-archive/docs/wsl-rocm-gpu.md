@@ -261,13 +261,20 @@ The wheel ships its own `libhsa-runtime64.so`, and that bundled copy is the one 
 WSL. It must be the system runtime instead:
 
 ```bash
-TORCH_LIB=$("$VENV/bin/python" -c 'import pathlib, torch; print(pathlib.Path(torch.__file__).parent / "lib")')
-cd "$TORCH_LIB"
+TORCH_LIB=$("${VENV:?export VENV to the venv that runs bili-asr}/bin/python" -c 'import pathlib, torch; print(pathlib.Path(torch.__file__).parent / "lib")')
+cd "${TORCH_LIB:?export TORCH_LIB from the venv torch directory}"
 ls libhsa-runtime64.so*                                   # the wheel-bundled copy
 rm -f libhsa-runtime64.so*
 cp -v /opt/rocm-7.2.1/lib/libhsa-runtime64.so.1.18.70201 libhsa-runtime64.so
 ls -l libhsa-runtime64.so*
 ```
+
+Both guards are load-bearing, and the `cd` one is the destructive one: a bare
+`cd "$TORCH_LIB"` returns non-zero and **stays in the caller's directory**, so the `rm -f` below it
+would delete any `libhsa-runtime64.so*` in the operator's current directory — not in `torch/lib`.
+The `:?` guards stop the shell before either mutating line runs. If the substitution is empty
+because torch is not importable in `$VENV` (`$VENV/bin/python` exits non-zero, so the assignment
+yields `""`), the `cd` aborts with its message instead of falling through.
 
 The `TORCH_LIB=` line is the check's own discovery idiom; the measured session read the same
 path from `pip show torch`. On a different ROCm version the copy source is the same file with

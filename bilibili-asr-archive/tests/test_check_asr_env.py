@@ -633,11 +633,29 @@ def test_no_printed_command_names_a_bare_python_or_pip():
 
 
 def test_the_hsa_repair_cannot_copy_into_the_root_directory():
-    """I-3: an empty command substitution must stop the chain, never widen the destination."""
-    copies = [command for command in _HSA_COPY_COMMANDS if "cp " in command]
-    assert copies, "the repair no longer copies anything"
-    for command in copies:
+    """I-3/N-2: an empty command substitution must stop the chain, never widen the destination.
+
+    Every line of the repair is pinned here, not just the copying one. The selector used to be
+    `if "cp " in command`, which filtered the `rm` line out before the assertion ran, so deleting
+    that line's guard left the whole suite green (N-2). Both mutating lines are negative-controlled
+    now: an empty word in command position expands to nothing, so `rm -f "$TORCH_LIB"/…` or
+    `cp -f "$ROCM_LIB"/… "$TORCH_LIB"/` would target `/` instead of `torch/lib`.
+    """
+    assert len(_HSA_COPY_COMMANDS) == 5, _HSA_COPY_COMMANDS
+    rocm_lib, torch_lib, remove, copy, listing = _HSA_COPY_COMMANDS
+
+    # The two discovery lines: the ROCm lib dir glob, and torch/lib discovered from `$VENV`.
+    assert rocm_lib.startswith("ROCM_LIB=$(ls -d /opt/rocm-*/lib"), rocm_lib
+    assert torch_lib.startswith("TORCH_LIB=$(") and "${VENV:" in torch_lib, torch_lib
+
+    # The two mutating lines: each guards its own destination before touching it.
+    for command in (remove, copy):
         assert command.lstrip().startswith('[ -n "$TORCH_LIB" ] &&'), command
+    assert f'rm -f "$TORCH_LIB"/{HSA_SONAME}*' in remove, remove
+    assert f'cp -f "$ROCM_LIB"/{HSA_SONAME}* "$TORCH_LIB"/' in copy, copy
+
+    # The trailing listing is read-only and comes last.
+    assert listing.startswith(f'ls -l "$TORCH_LIB"/{HSA_SONAME}*'), listing
 
 
 def test_the_published_doc_matches_the_script_on_the_shared_package_list(tmp_path: Path):
