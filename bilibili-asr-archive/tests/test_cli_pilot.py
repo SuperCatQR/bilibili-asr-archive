@@ -37,13 +37,6 @@ from test_audio import (
 from test_subtitles import SAMPLE_DOC, nav_ok, player_ok, sub_entry
 
 
-def _audio_target(path: str) -> str:
-    try:
-        return os.readlink(path)
-    except OSError:
-        return path
-
-
 def _model_input_bytes(path: str) -> bytes:
     """The audio the model was handed, read while the path still resolves."""
     try:
@@ -67,19 +60,31 @@ class _FakeModel:
         return [{"start": 0.0, "end": 1.0, "text": "asr-text"}]
 
 
-def _stub_runner_model(monkeypatch, calls=None):
+def _stub_runner_model(monkeypatch, calls=None, released=None):
     """D2.5 seam: patch the module-level factory, not ``asr.transcribe``.
 
     ``calls`` records each generation as ``(input path, bytes read)``: the
     pipeline hands the model a ``/proc/self/fd/N`` descriptor, so the body is
     what names the confined audio file the row was transcribed from.  Returns
     the list of construction kwargs.
+
+    ``released`` records each ``ASRRunner.release()`` call, so a test can
+    assert the invocation-scoped runner is handed back on every exit path.
     """
     constructions: list[dict] = []
 
     def factory(**kwargs):
         constructions.append(dict(kwargs))
         return _FakeModel(calls)
+
+    if released is not None:
+        real_release = asr_mod.ASRRunner.release
+
+        def recording_release(self):
+            released.append(self)
+            real_release(self)
+
+        monkeypatch.setattr(asr_mod.ASRRunner, "release", recording_release)
 
     monkeypatch.setenv("BILI_ASR_DEVICE", "cpu")
     monkeypatch.setattr(asr_mod, "_load_default_model", factory)
@@ -493,8 +498,9 @@ def test_cli_pilot_invocation_constructs_the_model_once_for_three_audio_rows(
 ):
     """D2.3: the pilot's own loop holds one runner for its whole selection.
 
-    Two of the rows are ``audio_ok`` with audio already on disk, so they need
-    no network at all; the third proves the selection is wider than one row.
+    All three rows are ``audio_ok`` with audio already on disk, so they need
+    no network at all; three rows (rather than one) prove the selection is
+    wider than a single item.
     """
 
     identities = [
@@ -513,7 +519,8 @@ def test_cli_pilot_invocation_constructs_the_model_once_for_three_audio_rows(
         with open(os.path.join(audio_dir, f"{artifact_stem(identity)}.m4a"), "wb") as fh:
             fh.write(AUDIO_BYTES)
 
-    constructions = _stub_runner_model(monkeypatch)
+    released: list[object] = []
+    constructions = _stub_runner_model(monkeypatch, released=released)
     _patch_cli(monkeypatch, RouterTransport({}))
 
     rc = main(["pilot", "--n", "3", "--archive-root", tmp_root])
@@ -524,5 +531,58 @@ def test_cli_pilot_invocation_constructs_the_model_once_for_three_audio_rows(
     loaded = ManifestStore(root=tmp_root).load()
     assert [loaded[i.work_id]["status"] for i in identities] == ["archived"] * 3
     assert len(constructions) == 1
+    # The pilot's finally hands the invocation-scoped runner back exactly once.
+    assert len(released) == 1
     assert "pilot: model constructions=1 for 3 asr item(s)" in captured.err
     assert "model constructions=" not in captured.out
+
+
+def test_cli_pilot_releases_the_runner_when_the_loop_is_interrupted(
+    tmp_root, monkeypatch, capsys
+):
+    """The pilot's `finally` releases even when the row raises past `except`.
+
+    Every row-level ``except`` clause in ``_cmd_pilot`` catches ``Exception``,
+    so a ``KeyboardInterrupt`` mid-selection is the path where only the
+    `finally` can release the model — and that is exactly the interruption an
+    operator sends to a long pilot batch.
+    """
+
+    identity = page_identity("BVpilotint", 0, 777, "p0")
+    store = ManifestStore(root=tmp_root)
+    row = _row(identity, duration_s=5, title="pilot-interrupt")
+    row.update({
+        "status": "audio_ok",
+        "audio_path": f"audio/{artifact_stem(identity)}.m4a",
+    })
+    store.upsert(row)
+    audio_dir = os.path.join(tmp_root, "audio")
+    os.makedirs(audio_dir)
+    with open(os.path.join(audio_dir, f"{artifact_stem(identity)}.m4a"), "wb") as fh:
+        fh.write(AUDIO_BYTES)
+
+    released: list[object] = []
+
+    class InterruptingModel:
+        def generate(self, **_kwargs):
+            raise KeyboardInterrupt()
+
+    def factory(**_kwargs):
+        return InterruptingModel()
+
+    real_release = asr_mod.ASRRunner.release
+
+    def recording_release(self):
+        released.append(self)
+        real_release(self)
+
+    monkeypatch.setenv("BILI_ASR_DEVICE", "cpu")
+    monkeypatch.setattr(asr_mod.ASRRunner, "release", recording_release)
+    monkeypatch.setattr(asr_mod, "_load_default_model", factory)
+    _patch_cli(monkeypatch, RouterTransport({}))
+
+    with pytest.raises(KeyboardInterrupt):
+        main(["pilot", "--n", "1", "--archive-root", tmp_root])
+
+    assert len(released) == 1
+    assert ManifestStore(root=tmp_root).get(identity.work_id)["status"] == "audio_ok"

@@ -12,6 +12,8 @@ from __future__ import annotations
 import json
 import os
 
+import pytest
+
 from bili_asr import asr as asr_mod
 from bili_asr import bili_client as bc
 from bili_asr.cli import main
@@ -57,18 +59,30 @@ class _FakeModel:
         return [{"start": 0.0, "end": 1.0, "text": "asr-text"}]
 
 
-def _stub_runner_model(monkeypatch, calls=None):
+def _stub_runner_model(monkeypatch, calls=None, released=None):
     """D2.5 seam: patch the module-level factory, not ``asr.transcribe``.
 
     The real ``_get_model`` path stays under test, so the counter a command
     reports is the one the production construction site produces.  Returns the
     list of construction kwargs, one entry per model built.
+
+    ``released`` records each ``ASRRunner.release()`` call, so a test can
+    assert the invocation-scoped runner is handed back on every exit path.
     """
     constructions: list[dict] = []
 
     def factory(**kwargs):
         constructions.append(dict(kwargs))
         return _FakeModel(calls)
+
+    if released is not None:
+        real_release = asr_mod.ASRRunner.release
+
+        def recording_release(self):
+            released.append(self)
+            real_release(self)
+
+        monkeypatch.setattr(asr_mod.ASRRunner, "release", recording_release)
 
     monkeypatch.setenv("BILI_ASR_DEVICE", "cpu")
     monkeypatch.setattr(asr_mod, "_load_default_model", factory)
@@ -331,7 +345,8 @@ def test_cli_asr_invocation_constructs_the_model_once_for_three_items(
         page_identity(f"BVreuse{index}", 0, 300 + index, "p0") for index in range(3)
     ]
     _seed_audio_ok(tmp_root, identities)
-    constructions = _stub_runner_model(monkeypatch)
+    released: list[object] = []
+    constructions = _stub_runner_model(monkeypatch, released=released)
     _patch_cli(monkeypatch)
 
     rc = main(["asr", "--pending", "--limit", "3", "--archive-root", tmp_root])
@@ -343,9 +358,52 @@ def test_cli_asr_invocation_constructs_the_model_once_for_three_items(
     # One construction served all three rows...
     assert len(constructions) == 1
     assert constructions[0]["device"] == "cpu"
+    # ...the invocation-scoped runner is handed back exactly once...
+    assert len(released) == 1
     # ...and the invocation's own output states it, on stderr only.
     assert "asr: model constructions=1 for 3 asr item(s)" in captured.err
     assert "model constructions=" not in captured.out
+
+
+def test_cli_asr_releases_the_runner_when_transcription_is_interrupted(
+    tmp_root, monkeypatch, capsys
+):
+    """The `finally` must release on a path no `except` clause catches.
+
+    ``_cmd_asr`` catches ``Exception`` per row, so the release only has a
+    chance to run for a ``BaseException`` that escapes the loop — a Ctrl-C
+    mid-transcription is the realistic one.  Without the `finally` the runner
+    (and the model it holds) would leak for the rest of the process.
+    """
+
+    identity = page_identity("BVinterrupt", 0, 555, "p0")
+    _seed_audio_ok(tmp_root, [identity])
+    released: list[object] = []
+
+    class InterruptingModel:
+        def generate(self, **_kwargs):
+            raise KeyboardInterrupt()
+
+    def factory(**_kwargs):
+        return InterruptingModel()
+
+    real_release = asr_mod.ASRRunner.release
+
+    def recording_release(self):
+        released.append(self)
+        real_release(self)
+
+    monkeypatch.setenv("BILI_ASR_DEVICE", "cpu")
+    monkeypatch.setattr(asr_mod.ASRRunner, "release", recording_release)
+    monkeypatch.setattr(asr_mod, "_load_default_model", factory)
+    _patch_cli(monkeypatch)
+
+    with pytest.raises(KeyboardInterrupt):
+        main(["asr", "--pending", "--archive-root", tmp_root])
+
+    assert len(released) == 1
+    # The row must not be archived: the interrupt aborted the transcription.
+    assert ManifestStore(root=tmp_root).get(identity.work_id)["status"] == "audio_ok"
 
 
 def test_cli_asr_subtitle_only_selection_constructs_no_model(
@@ -372,3 +430,129 @@ def test_cli_asr_subtitle_only_selection_constructs_no_model(
     assert constructions == []
     assert "model constructions=" not in captured.out
     assert "model constructions=" not in captured.err
+
+
+def _patch_bundle_incomplete_for(monkeypatch, failing):
+    """Fail the archive step for ``failing`` only, on both command paths.
+
+    The rows are seeded as ordinary ``audio_ok`` rows (``_seed_audio_ok``), so
+    they all reach the real transcription boundary.  This patch then makes one
+    of them fail *after* it produced its transcript: the real ``write_archive``
+    runs, the real ``ValueError("archive bundle incomplete")`` is raised, and
+    the row keeps its ``audio_ok`` status.  Both the in-process loop and the
+    coordinator are driven from a root seeded this way, so the injected
+    failure is identical on both paths.
+    """
+    from bili_asr import archive as archive_mod
+
+    stem = artifact_stem(failing)
+    real = archive_mod.archive_bundle_complete
+
+    def patched(archive_root, paths):
+        if any(stem in str(path) for path in paths.values()):
+            return False
+        return real(archive_root, paths)
+
+    monkeypatch.setattr(archive_mod, "archive_bundle_complete", patched)
+
+
+def _reuse_line(captured, command):
+    """The one ``model constructions=`` line, or a failure explaining its absence."""
+    lines = [
+        line for line in captured.err.splitlines() if "model constructions=" in line
+    ]
+    assert len(lines) == 1, (
+        f"{command} printed {len(lines)} reuse line(s), expected exactly one: "
+        f"{captured.err!r}"
+    )
+    assert lines[0].startswith(f"{command}: "), lines[0]
+    return lines[0]
+
+
+def test_cli_asr_and_run_state_the_same_asr_items_after_a_downstream_failure(
+    tmp_root, monkeypatch, capsys
+):
+    """D2.5: the in-process loop and the coordinator share one denominator.
+
+    Minor 1 of the Task 2 review: `asr` counted the row after the whole
+    archive step while `run` counts it at `asr: ok` (a row that produced a
+    transcript), so a row that failed *after* transcription appeared in one
+    line and not the other.  The same three-row input is driven through both
+    paths here; their lines must agree word for word but for the label.
+    """
+
+    identities = [
+        page_identity(f"BVagree{index}", 0, 700 + index, "p0") for index in range(3)
+    ]
+    failing = identities[1]
+    asr_root = os.path.join(tmp_root, "asr-path")
+    run_root = os.path.join(tmp_root, "run-path")
+    os.makedirs(asr_root)
+    os.makedirs(run_root)
+    _seed_audio_ok(asr_root, identities)
+    _seed_audio_ok(run_root, identities)
+    constructions = _stub_runner_model(monkeypatch)
+    _patch_bundle_incomplete_for(monkeypatch, failing)
+    _patch_cli(monkeypatch, RouterTransport({}))
+
+    rc = main(["asr", "--pending", "--limit", "3", "--archive-root", asr_root])
+    asr_captured = capsys.readouterr()
+    assert rc == 1, asr_captured.err
+    asr_loaded = ManifestStore(root=asr_root).load()
+    assert asr_loaded[failing.work_id]["status"] == "audio_ok"
+    assert [asr_loaded[i.work_id]["status"] for i in identities].count("archived") == 2
+
+    rc = main(["run", "--scope", "pending", "--limit", "3", "--archive-root", run_root])
+    run_captured = capsys.readouterr()
+    assert rc == 1, run_captured.err
+    run_loaded = ManifestStore(root=run_root).load()
+    assert run_loaded[failing.work_id]["status"] == "audio_ok"
+    assert [run_loaded[i.work_id]["status"] for i in identities].count("archived") == 2
+
+    # One construction paid per invocation...
+    assert len(constructions) == 2
+    # ...and the same denominator, because the same three rows transcribed.
+    asr_line = _reuse_line(asr_captured, "asr")
+    run_line = _reuse_line(run_captured, "run")
+    assert asr_line == "asr: model constructions=1 for 3 asr item(s)"
+    assert run_line == "run: model constructions=1 for 3 asr item(s)"
+    assert asr_line.split(": ", 1)[1] == run_line.split(": ", 1)[1]
+
+
+def test_cli_asr_downstream_failure_of_the_only_asr_row_still_prints_the_line(
+    tmp_root, monkeypatch, capsys
+):
+    """D2.6's `asr_items > 0` guard must not swallow a paid construction.
+
+    The review's sharpest form of Minor 1: when the *only* transcribing row
+    failed after transcription, the old post-archive increment left the count
+    at zero and the line vanished — an invocation that built a model reported
+    nothing, while `run` reported it for the same work.
+    """
+
+    identity = page_identity("BVonlyfail", 0, 900, "p0")
+    asr_root = os.path.join(tmp_root, "asr-path")
+    run_root = os.path.join(tmp_root, "run-path")
+    os.makedirs(asr_root)
+    os.makedirs(run_root)
+    _seed_audio_ok(asr_root, [identity])
+    _seed_audio_ok(run_root, [identity])
+    _stub_runner_model(monkeypatch)
+    _patch_bundle_incomplete_for(monkeypatch, identity)
+    _patch_cli(monkeypatch, RouterTransport({}))
+
+    rc = main(["asr", "--pending", "--archive-root", asr_root])
+    asr_captured = capsys.readouterr()
+    assert rc == 1, asr_captured.err
+    assert ManifestStore(root=asr_root).get(identity.work_id)["status"] == "audio_ok"
+
+    rc = main(["run", "--scope", "pending", "--archive-root", run_root])
+    run_captured = capsys.readouterr()
+    assert rc == 1, run_captured.err
+
+    assert _reuse_line(asr_captured, "asr") == (
+        "asr: model constructions=1 for 1 asr item(s)"
+    )
+    assert _reuse_line(run_captured, "run") == (
+        "run: model constructions=1 for 1 asr item(s)"
+    )

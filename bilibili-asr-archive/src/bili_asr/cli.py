@@ -1525,6 +1525,24 @@ def _subtitle_segments(root: str, entry: dict[str, object]) -> tuple[list[dict[s
     return segments, doc
 
 
+class _AsrItemCount:
+    """The printed reuse line's ASR-item denominator (D2.5).
+
+    A one-field box, not an ``int``, because the in-process loops count the
+    row at two different call depths: ``_cmd_asr`` counts inline, while
+    ``pilot`` counts inside ``_pilot_archive_asr``, which has to report the
+    increment to its caller.  Every path increments at the same event — the
+    row's ASR stage produced a transcript — which is what ``RunCoordinator``
+    counts at its own ``asr: ok`` attempt, so ``asr``/``pilot`` and ``run``
+    state the same denominator for the same input.
+    """
+
+    __slots__ = ("value",)
+
+    def __init__(self) -> None:
+        self.value = 0
+
+
 def _print_in_process_constructions(
     command: str, runner: object, asr_items: int
 ) -> None:
@@ -1584,7 +1602,12 @@ def _cmd_asr(args: argparse.Namespace) -> int:
     # selection shares one lazily-built runner, and the selection states what
     # it paid.  ``asr.transcribe``'s one-shot contract is untouched (D2.4).
     runner = None
-    asr_items = 0
+    # ``asr_count`` is the printed line's denominator and counts the same event
+    # the coordinator counts (D2.5): a row whose ASR stage produced a
+    # transcript.  It increments at the transcribe boundary below, never after
+    # the archive tail, so a row that fails downstream still counts and the
+    # two paths cannot disagree on the same input.
+    asr_count = _AsrItemCount()
     try:
         for entry in todo:
             key = str(entry.get("work_id") or entry["bvid"])
@@ -1614,6 +1637,7 @@ def _cmd_asr(args: argparse.Namespace) -> int:
                         runner = asr.ASRRunner(asr.default_config())
                     with confined_audio_file(args.archive_root, os.fspath(declared)) as safe_audio:
                         segments = runner.transcribe(safe_audio)
+                    asr_count.value += 1
                     provenance = runner.provenance()
                 paths = archive.write_archive(
                     args.archive_root, entry, segments, source=source, raw=raw,
@@ -1627,8 +1651,6 @@ def _cmd_asr(args: argparse.Namespace) -> int:
                 store.upsert(updated)
                 _reclaim_after_archive(args.archive_root, updated)
                 ok += 1
-                if source == "asr":
-                    asr_items += 1
                 print(f"{label}: archived ({source})")
             except asr.ASRDependencyError:
                 failed += 1
@@ -1637,7 +1659,7 @@ def _cmd_asr(args: argparse.Namespace) -> int:
                 failed += 1
                 print(f"{label}: archive failed", file=sys.stderr)
     finally:
-        _print_in_process_constructions("asr", runner, asr_items)
+        _print_in_process_constructions("asr", runner, asr_count.value)
         if runner is not None:
             runner.release()
     print(f"asr: {ok} archived" + (f", {failed} failed" if failed else ""))
@@ -1673,7 +1695,8 @@ def _pilot_archive_subtitle(store, root: str, entry: dict[str, object]) -> dict[
 
 
 def _pilot_archive_asr(
-    store, client, root: str, entry: dict[str, object], target, runner=None
+    store, client, root: str, entry: dict[str, object], target, runner=None,
+    asr_count=None,
 ) -> dict[str, object]:
     """Archive one pilot row over ASR.
 
@@ -1681,6 +1704,11 @@ def _pilot_archive_asr(
     one for its whole selection (D2.3), so this function transcribes through
     the caller's runner and never builds a second model.  Omitting it keeps the
     single-row entry point working with its own short-lived runner.
+
+    ``asr_count`` is the caller's ``_AsrItemCount``.  When given, the row is
+    counted as soon as it produced a transcript — the same event ``run``
+    counts at its ``asr: ok`` attempt (D2.5) — so a row that fails later in
+    this function's archive tail keeps its place in the line's denominator.
     """
     from . import archive, asr, audio
     from .page_identity import PageIdentity, artifact_stem
@@ -1718,6 +1746,8 @@ def _pilot_archive_asr(
     try:
         with confined_audio_file(root, declared_audio) as safe_audio:
             segments = runner.transcribe(safe_audio)
+        if asr_count is not None:
+            asr_count.value += 1
         current = dict(store.get(target.work_id) or entry)
         paths = archive.write_archive(
             root, current, segments, source="asr", asr_provenance=runner.provenance()
@@ -1849,7 +1879,9 @@ def _cmd_pilot(args: argparse.Namespace) -> int:
     # runner, and the `finally` below states what it paid and releases it on
     # every exit path — including the early returns inside the loop.
     runner = None
-    asr_items = 0
+    # Same denominator rule as ``_cmd_asr`` (D2.5): the row is counted when
+    # its ASR stage produced a transcript, inside ``_pilot_archive_asr``.
+    asr_count = _AsrItemCount()
 
     try:
         for index, entry in enumerate(selected):
@@ -1897,9 +1929,9 @@ def _cmd_pilot(args: argparse.Namespace) -> int:
                     if runner is None:
                         runner = asr.ASRRunner(asr.default_config())
                     _pilot_archive_asr(
-                        store, client, args.archive_root, current, target, runner
+                        store, client, args.archive_root, current, target, runner,
+                        asr_count,
                     )
-                    asr_items += 1
                     batch_audio_count += 1
                     coverage_audio_count += 1
                     terminals.append(f"{label}: archived (asr)")
@@ -1984,7 +2016,7 @@ def _cmd_pilot(args: argparse.Namespace) -> int:
             if index != len(selected) - 1:
                 time.sleep(3.0)
     finally:
-        _print_in_process_constructions("pilot", runner, asr_items)
+        _print_in_process_constructions("pilot", runner, asr_count.value)
         if runner is not None:
             runner.release()
 

@@ -38,7 +38,6 @@ from test_audio import (
 )
 from test_subtitles import SAMPLE_DOC, nav_ok, player_ok, sub_entry
 
-_AUDIO_BYTES = b"\x00\x00\x00\x18ftypM4A " + b"payload" * 100
 SECRET = "SECRET-SESS"
 RISK = (412, {"code": -412, "message": "request too frequent"})
 
@@ -72,8 +71,8 @@ def _audio_target(path: str) -> str:
                 body = fh.read()
         except OSError:
             continue
-        if body.startswith(_AUDIO_BYTES):
-            return body[len(_AUDIO_BYTES):].decode("utf-8", "replace")
+        if body.startswith(AUDIO_BYTES):
+            return body[len(AUDIO_BYTES):].decode("utf-8", "replace")
     return path
 
 
@@ -137,7 +136,7 @@ def _write_audio(root, identity):
     with open(path, "wb") as fh:
         # The row id rides in the body so a test can name the audio a model
         # read even after the boundary copied it to a temp file.
-        fh.write(_AUDIO_BYTES + artifact_stem(identity).encode("utf-8"))
+        fh.write(AUDIO_BYTES + artifact_stem(identity).encode("utf-8"))
     return path
 
 
