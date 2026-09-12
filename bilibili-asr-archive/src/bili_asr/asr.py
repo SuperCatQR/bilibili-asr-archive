@@ -58,6 +58,39 @@ ASR_MODEL_REVISION_ENV_VAR = "BILI_ASR_MODEL_REVISION"
 ASR_DEVICE_ENV_VAR = "BILI_ASR_DEVICE"
 ASR_LANGUAGE_ENV_VAR = "BILI_ASR_LANGUAGE"
 ASR_VAD_MODEL_ENV_VAR = "BILI_ASR_VAD_MODEL"
+ASR_HOTWORDS_ENV_VAR = "BILI_ASR_HOTWORDS"
+
+#: Corpus vocabulary the decoder is biased towards.  Every entry has been
+#: observed mis-recognised as a homophone on this archive's own audio
+#: (``马鞍牌`` for 马恩牌, ``公式`` for 攻势, ``智力豆包`` for 智利豆包,
+#: ``跟着苗红`` for 根正苗红) or is a recurring name of the corpus.  The list
+#: stays short on purpose: the terms travel as one prompt line and a long list
+#: dilutes the bias.
+DEFAULT_HOTWORDS: tuple[str, ...] = (
+    "未明子",
+    "主义主义",
+    "拟态论",
+    "国际劳工仲裁",
+    "国际劳联",
+    "马恩牌",
+    "攻势",
+    "智利",
+    "根正苗红",
+    "亚美利坚",
+    "黑格尔",
+    "海德格尔",
+    "拉康",
+    "齐泽克",
+    "德勒兹",
+    "康德",
+    "观念论",
+    "本体论",
+    "现象学",
+    "辩证法",
+    "定在",
+    "自为",
+    "理念性",
+)
 
 #: VAD component that segments long recordings before the ASR model sees them.
 #: Measured 2026-09-11: without it a 448 s recording collapses to a single
@@ -85,8 +118,16 @@ _HUB_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._-]*$")
 #: A cue closes on one of these tokens, on a pause at least this long, or when
 #: it reaches the character ceiling — whichever comes first.
 _SENTENCE_ENDINGS = "。！？!?"
+#: Marks that never open a cue: when one lands at a cue boundary it belongs to
+#: the sentence that just ended, so the cue post-pass moves it back.
+_CUE_CLOSING_MARKS = "。！？!?，、；：,;:"
 _CUE_MAX_CHARS = 60
 _CUE_MAX_GAP_SECONDS = 1.0
+#: A cue below either bound is merged into its neighbour while the character
+#: ceiling holds, so a pause in the middle of a thought no longer produces a
+#: one-word subtitle.
+_CUE_MIN_CHARS = 6
+_CUE_MIN_SECONDS = 1.0
 
 
 @dataclass(frozen=True)
@@ -96,6 +137,9 @@ class ASRConfig:
     ``language`` is the spoken language passed to the model as documented
     (``中文``, ``英文``, ``日文``); ``None`` leaves the model's own generic
     transcription prompt in place.  It is never a free-form instruction.
+
+    ``hotwords`` biases decoding towards this corpus's vocabulary.  An empty
+    tuple sends no bias at all; the terms are recorded in provenance.
     """
 
     model_name: str
@@ -103,6 +147,7 @@ class ASRConfig:
     device: str = "cuda"
     language: str | None = None
     vad_model: str | None = DEFAULT_VAD_MODEL
+    hotwords: tuple[str, ...] = ()
     offline: bool = True
     local_source: str = "configured-local"
 
@@ -123,6 +168,10 @@ class ASRConfig:
             not isinstance(self.vad_model, str) or not self.vad_model.strip()
         ):
             raise ValueError("vad_model must be a non-empty string or null")
+        if not isinstance(self.hotwords, tuple) or any(
+            not isinstance(term, str) or not term.strip() for term in self.hotwords
+        ):
+            raise ValueError("hotwords must be a tuple of non-empty strings")
         if not isinstance(self.offline, bool):
             raise ValueError("offline must be a bool")
         if not isinstance(self.local_source, str) or not self.local_source.strip():
@@ -181,7 +230,21 @@ def default_config() -> ASRConfig:
         device=os.environ.get(ASR_DEVICE_ENV_VAR) or "cuda",
         language=os.environ.get(ASR_LANGUAGE_ENV_VAR) or None,
         vad_model=_resolve_vad_model(os.environ.get(ASR_VAD_MODEL_ENV_VAR)),
+        hotwords=DEFAULT_HOTWORDS + _extra_hotwords(os.environ.get(ASR_HOTWORDS_ENV_VAR)),
     )
+
+
+def _extra_hotwords(environment_value: str | None) -> tuple[str, ...]:
+    """Return the operator's extra hotwords, in order, without duplicates."""
+
+    if not environment_value:
+        return ()
+    terms: list[str] = []
+    for raw in environment_value.replace("，", ",").split(","):
+        term = raw.strip()
+        if term and term not in terms and term not in DEFAULT_HOTWORDS:
+            terms.append(term)
+    return tuple(terms)
 
 
 def _resolve_vad_model(environment_value: str | None) -> str | None:
@@ -267,16 +330,17 @@ class ASRRunner:
     def transcribe(self, audio_path: str) -> list[dict[str, Any]]:
         """Transcribe one audio file with the parameters the pinned model reads.
 
-        Fun-ASR-Nano reads ``itn`` (not ``use_itn``) and takes ``language`` as
-        prompt text, so the configured value is passed only when it is set.
-        ``batch_size_s`` / ``merge_vad`` / ``merge_length_s`` are read inside
-        FunASR's VAD pipeline, which this boundary does not build, so sending
-        them would name behaviour the call never performs.
+        Fun-ASR-Nano reads ``itn`` (not ``use_itn``) and takes ``language`` and
+        ``hotwords`` as prompt text, so only configured values are passed.
+        ``batch_size_s`` / ``merge_vad`` / ``merge_length_s`` belong to a VAD
+        pipeline this boundary configures at construction, not per call.
         """
 
         request: dict[str, Any] = {"input": audio_path, "cache": {}, "itn": True}
         if self.config.language is not None:
             request["language"] = self.config.language
+        if self.config.hotwords:
+            request["hotwords"] = list(self.config.hotwords)
         source, temporary = _materialize_input(audio_path)
         request["input"] = source
         try:
@@ -303,7 +367,11 @@ class ASRRunner:
         values = asdict(self.config)
         safe_values: dict[str, str] = {}
         for key, value in values.items():
-            rendered = str(value)
+            rendered = (
+                ",".join(value)
+                if key == "hotwords" and isinstance(value, tuple)
+                else str(value)
+            )
             is_safe_model_identifier = (
                 key == "model_name" and _MODEL_IDENTIFIER.fullmatch(rendered) is not None
             )
@@ -324,6 +392,69 @@ def _seconds(value: Any) -> float:
     return float(value or 0) / 1000.0
 
 
+def _has_body(text: str) -> bool:
+    """Report whether a cue carries anything other than punctuation."""
+
+    return bool(text.strip(_CUE_CLOSING_MARKS).strip())
+
+
+def _is_undersized(cue: dict[str, Any]) -> bool:
+    """Report whether a cue is too small to stand on its own in a subtitle."""
+
+    body = str(cue["text"]).lstrip(_CUE_CLOSING_MARKS)
+    return len(body) < _CUE_MIN_CHARS or (cue["end"] - cue["start"]) < _CUE_MIN_SECONDS
+
+
+def _absorb(target: dict[str, Any], cue: dict[str, Any]) -> None:
+    """Append one cue's text and span to another, keeping the earlier start."""
+
+    target["text"] = str(target["text"]) + str(cue["text"])
+    target["end"] = max(float(target["end"]), float(cue["end"]))
+
+
+def _polish_cues(cues: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Turn raw token groups into cues that read well as subtitles.
+
+    A mark never opens a cue (it belongs to the sentence that just ended), a
+    cue that is punctuation-only is absorbed, and a cue below the size floor is
+    merged into a neighbour while the character ceiling holds.  Nothing is
+    dropped and no timing is invented.
+    """
+
+    polished: list[dict[str, Any]] = []
+    for cue in cues:
+        text = str(cue["text"])
+        if polished and text[:1] and text[0] in _CUE_CLOSING_MARKS:
+            head, text = text[0], text[1:]
+            if len(str(polished[-1]["text"])) + len(head) <= _CUE_MAX_CHARS:
+                polished[-1]["text"] = str(polished[-1]["text"]) + head
+            else:
+                text = head + text
+        merged = {"start": cue["start"], "end": cue["end"], "text": _clean_text(text)}
+        if not merged["text"]:
+            continue
+        if not polished:
+            polished.append(merged)
+            continue
+        previous = polished[-1]
+        fits = len(str(previous["text"])) + len(merged["text"]) <= _CUE_MAX_CHARS
+        if fits and (not _has_body(merged["text"]) or _is_undersized(merged)):
+            _absorb(previous, merged)
+            continue
+        polished.append(merged)
+    if len(polished) > 1 and not _has_body(str(polished[0]["text"])):
+        head = polished.pop(0)
+        _absorb_leading(polished[0], head)
+    return polished
+
+
+def _absorb_leading(target: dict[str, Any], cue: dict[str, Any]) -> None:
+    """Fold a punctuation-only opening cue into the cue that follows it."""
+
+    target["text"] = str(cue["text"]) + str(target["text"])
+    target["start"] = min(float(target["start"]), float(cue["start"]))
+
+
 def _token_cues(tokens: Any) -> list[dict[str, Any]]:
     """Group Fun-ASR-Nano token timestamps into cue-sized segments.
 
@@ -331,7 +462,8 @@ def _token_cues(tokens: Any) -> list[dict[str, Any]]:
     entries whose times are **seconds** and whose punctuation arrives as its
     own token, so cue text is the verbatim token text — punctuation included.
     A cue closes on a sentence-ending token, on a pause of at least
-    :data:`_CUE_MAX_GAP_SECONDS`, or at :data:`_CUE_MAX_CHARS` characters.
+    :data:`_CUE_MAX_GAP_SECONDS`, or at :data:`_CUE_MAX_CHARS` characters; the
+    groups are then polished by :func:`_polish_cues`.
     """
 
     if not isinstance(tokens, list):
@@ -369,7 +501,7 @@ def _token_cues(tokens: Any) -> list[dict[str, Any]]:
         if piece.strip() in _SENTENCE_ENDINGS or len("".join(parts)) >= _CUE_MAX_CHARS:
             close()
     close()
-    return cues
+    return _polish_cues(cues)
 
 
 def normalize_result(result: Any) -> list[dict[str, Any]]:
@@ -435,3 +567,13 @@ def transcribe(audio_path: str, model_name: str | None = None) -> list[dict[str,
     if model_name is not None:
         config = replace(config, model_name=model_name)
     return ASRRunner(config).transcribe(audio_path)
+
+
+def provenance() -> dict[str, str]:
+    """Return the redaction-safe configuration of the process-default runner.
+
+    Reads no model and transcribes nothing, so a caller that produced segments
+    through :func:`transcribe` can still record what produced them.
+    """
+
+    return ASRRunner(default_config()).provenance()

@@ -274,7 +274,15 @@ def _lexical_archive_root(archive_root: str | os.PathLike[str]) -> Path:
     return root
 
 
-def write_archive(archive_root: str | os.PathLike[str], entry: dict[str, Any], segments: list[dict[str, Any]], *, source: str, raw: Any | None = None) -> dict[str, str]:
+def write_archive(archive_root: str | os.PathLike[str], entry: dict[str, Any], segments: list[dict[str, Any]], *, source: str, raw: Any | None = None, asr_provenance: Mapping[str, str] | None = None) -> dict[str, str]:
+    """Publish one transcript bundle below the archive root.
+
+    ``asr_provenance`` carries the ASR runner's redaction-safe configuration
+    (model, revision, device, language, VAD, hotwords).  It is recorded in the
+    raw sidecar and as ``asr_*`` frontmatter keys, so any transcript can be
+    traced back to the model that produced it.  The subtitle path passes
+    nothing and is unchanged.
+    """
     try:
         root = _lexical_archive_root(archive_root)
     except OSError as exc:
@@ -287,11 +295,15 @@ def write_archive(archive_root: str | os.PathLike[str], entry: dict[str, Any], s
     md_path = dirs["md"] / f"{entry.get('pubdate_str', 'unknown')}_{stem}_{_safe_name(str(entry.get('title') or bvid))}.md"
     raw_path = dirs["raw"] / f"{stem}.json"
     frontmatter = {"bvid": bvid, "title": entry.get("title", ""), "date": entry.get("pubdate_str", ""), "duration_s": entry.get("duration_s", 0), "source": source, "url": archive_url(entry)}
+    if asr_provenance:
+        frontmatter.update({f"asr_{key}": value for key, value in asr_provenance.items()})
     if entry.get("work_id") and not entry.get("unresolved"):
         frontmatter.update({"work_id": entry["work_id"], "page_index": entry.get("page_index"), "cid": entry.get("cid")})
     md = ("---\n" + "".join(f"{k}: {json.dumps(v, ensure_ascii=False)}\n" for k, v in frontmatter.items()) + "---\n\n" + segments_to_txt(segments) + "\n").encode("utf-8")
     if raw is None:
         raw = {"segments": segments, "source": source}
+        if asr_provenance:
+            raw["provenance"] = dict(asr_provenance)
     finals = {"srt_path": srt_path, "txt_path": txt_path, "md_path": md_path, "raw_path": raw_path}
     contents = {"srt_path": segments_to_srt(segments).encode(), "txt_path": (segments_to_txt(segments) + "\n").encode(), "md_path": md, "raw_path": (json.dumps(raw, ensure_ascii=False, indent=2) + "\n").encode()}
     _publish_bundle(root, finals, contents)
