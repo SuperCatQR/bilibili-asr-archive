@@ -405,10 +405,31 @@ def _is_undersized(cue: dict[str, Any]) -> bool:
     return len(body) < _CUE_MIN_CHARS or (cue["end"] - cue["start"]) < _CUE_MIN_SECONDS
 
 
+def _join_text(left: str, right: str) -> str:
+    """Join two cue texts, keeping a separator between Latin words.
+
+    Nano emits an English phrase as several tokens and does not always carry
+    the leading space, so a merge that concatenated blindly produced
+    ``laborlaborgang``.  Chinese text is unaffected: the space is only added
+    between two ASCII alphanumerics.
+    """
+
+    if (
+        left
+        and right
+        and left[-1].isascii()
+        and left[-1].isalnum()
+        and right[0].isascii()
+        and right[0].isalnum()
+    ):
+        return f"{left} {right}"
+    return left + right
+
+
 def _absorb(target: dict[str, Any], cue: dict[str, Any]) -> None:
     """Append one cue's text and span to another, keeping the earlier start."""
 
-    target["text"] = str(target["text"]) + str(cue["text"])
+    target["text"] = _join_text(str(target["text"]), str(cue["text"]))
     target["end"] = max(float(target["end"]), float(cue["end"]))
 
 
@@ -451,7 +472,7 @@ def _polish_cues(cues: list[dict[str, Any]]) -> list[dict[str, Any]]:
 def _absorb_leading(target: dict[str, Any], cue: dict[str, Any]) -> None:
     """Fold a punctuation-only opening cue into the cue that follows it."""
 
-    target["text"] = str(cue["text"]) + str(target["text"])
+    target["text"] = _join_text(str(cue["text"]), str(target["text"]))
     target["start"] = min(float(target["start"]), float(cue["start"]))
 
 

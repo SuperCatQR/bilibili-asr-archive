@@ -165,3 +165,29 @@ def test_cues_never_exceed_the_character_ceiling_when_merging():
 
     assert all(len(segment["text"]) <= 60 for segment in segments)
     assert all(segment["end"] >= segment["start"] for segment in segments)
+
+
+def test_merged_latin_fragments_keep_a_word_separator():
+    """Nano splits an English phrase across tokens; a merge must not glue them."""
+
+    segments = asr.normalize_result(
+        [
+            {
+                "timestamps": _nano_tokens(
+                    [
+                        ("labor", 0.0, 0.4),
+                        ("labor", 2.0, 2.4),
+                        ("gang", 4.0, 4.4),
+                        ("，", 6.0, 6.06),
+                        ("中文", 6.06, 7.0),
+                        ("继续", 8.0, 9.0),
+                    ]
+                )
+            }
+        ]
+    )
+
+    text = "".join(segment["text"] for segment in segments)
+    assert "labor labor gang" in text
+    assert "laborlabor" not in text
+    assert "中文继续" in text
