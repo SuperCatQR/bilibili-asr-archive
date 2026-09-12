@@ -97,11 +97,29 @@ count, and output shape; run it directly with:
 This fixture does not establish hardware timing, model-weight pinning, network-free
 runtime, or full-corpus coverage.
 
-A per-item `bili-asr asr --bvid <bvid>` loop is one process per video, and the
-run-scoped reuse above does not cross a process boundary: every invocation builds
-its own model before it transcribes anything. For more than a couple of items,
-prefer one bounded batch command (`run`, `schedule`, `campaign`), which holds a
-single runner across the items it processes.
+A per-item `bili-asr asr --bvid <bvid>` loop forfeits that reuse: it is one
+process per video, and the run-scoped reuse above does not cross a process
+boundary, so every invocation builds its own model before it transcribes
+anything. For more than a couple of items, prefer one bounded batch command,
+`bili-asr run --scope pending [--offline]`, which holds a single runner across
+the items it processes; `schedule` and `campaign` are bounded wrappers that call
+that same coordinator batch (`--limit N` is required on both). This is a
+property of one process, not of one command: a single
+`bili-asr asr --pending --limit N` invocation also holds one runner across its
+whole selection, so it is the per-item loop above, not the `asr` command, that
+forfeits the reuse.
+
+A batch that transcribed at least one item states what it paid, once, on
+**stderr**: `<command>: model constructions=<n> for <m> asr item(s)`, where
+`<n>` is the model constructions that batch itself paid and `<m>` the items it
+transcribed — for a three-item `run` that line is
+`run: model constructions=1 for 3 asr item(s)`. `<command>` names the
+invocation (`run`, `schedule`, `campaign`, `asr`, or `pilot`), because
+`schedule` and `campaign` share the coordinator's batch entry. The line is a
+diagnostic and never stdout: `campaign`'s stdout is a single JSON document that
+downstream callers parse and `run`'s stdout is its row report, so piping stdout
+to a file leaves this line on the terminal instead of in the file. A batch that
+transcribed nothing (subtitle-only work) prints no line at all.
 
 ## Deterministic verification baseline
 
