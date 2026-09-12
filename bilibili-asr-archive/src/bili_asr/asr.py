@@ -100,8 +100,21 @@ DEFAULT_HOTWORDS: tuple[str, ...] = (
 #: pinned package exactly like the checkpoint itself.
 DEFAULT_VAD_MODEL = "fsmn-vad"
 
-#: Cap on one VAD segment, in milliseconds, as FunASR's own examples use.
-VAD_MAX_SINGLE_SEGMENT_MS = 30_000
+#: Cap on one VAD segment, in seconds.  Kept at FunASR's own example value:
+#: measured 2026-09-12 on the archive's 448 s recording, lowering it to 15 s
+#: changed nothing that matters (94 -> 95 cues, longest cue 14.5 -> 14.6 s,
+#: transcripts 99 % identical), because the model's own punctuation splits
+#: inside a VAD segment long before this cap binds.  The cap is therefore a
+#: tunable safety bound, not a quality lever — and a smaller one only adds
+#: chunk boundaries that can cut mid-word.
+#:
+#: What the VAD *does* control is how much audio reaches the model at all.  The
+#: content-moving knobs stay at their library defaults: passing the
+#: checkpoint's declared ``max_end_silence_time=800`` collapsed segmentation
+#: from 92 to 58 segments and dropped 11 s of captured speech, and
+#: ``speech_noise_thres=0.9`` dropped 31 s.
+DEFAULT_VAD_MAX_SEGMENT_S = 30.0
+VAD_MAX_SEGMENT_ENV_VAR = "BILI_ASR_VAD_MAX_SEGMENT_S"
 
 #: Checkpoint revision used when a hub id is resolved and no revision is configured.
 DEFAULT_MODEL_REVISION = "master"
@@ -147,6 +160,7 @@ class ASRConfig:
     device: str = "cuda"
     language: str | None = None
     vad_model: str | None = DEFAULT_VAD_MODEL
+    vad_max_segment_s: float = DEFAULT_VAD_MAX_SEGMENT_S
     hotwords: tuple[str, ...] = ()
     offline: bool = True
     local_source: str = "configured-local"
@@ -168,6 +182,10 @@ class ASRConfig:
             not isinstance(self.vad_model, str) or not self.vad_model.strip()
         ):
             raise ValueError("vad_model must be a non-empty string or null")
+        if isinstance(self.vad_max_segment_s, bool) or not isinstance(
+            self.vad_max_segment_s, (int, float)
+        ) or self.vad_max_segment_s <= 0:
+            raise ValueError("vad_max_segment_s must be a positive number")
         if not isinstance(self.hotwords, tuple) or any(
             not isinstance(term, str) or not term.strip() for term in self.hotwords
         ):
@@ -230,8 +248,34 @@ def default_config() -> ASRConfig:
         device=os.environ.get(ASR_DEVICE_ENV_VAR) or "cuda",
         language=os.environ.get(ASR_LANGUAGE_ENV_VAR) or None,
         vad_model=_resolve_vad_model(os.environ.get(ASR_VAD_MODEL_ENV_VAR)),
+        vad_max_segment_s=_resolve_vad_max_segment(
+            os.environ.get(VAD_MAX_SEGMENT_ENV_VAR)
+        ),
         hotwords=DEFAULT_HOTWORDS + _extra_hotwords(os.environ.get(ASR_HOTWORDS_ENV_VAR)),
     )
+
+
+def _resolve_vad_max_segment(environment_value: str | None) -> float:
+    """Return the configured VAD segment cap in seconds.
+
+    Unset keeps the measured default; a blank value is treated as unset (it
+    cannot silently disable the cap), and a non-numeric value is rejected
+    loudly rather than ignored.
+    """
+
+    if environment_value is None or not environment_value.strip():
+        return DEFAULT_VAD_MAX_SEGMENT_S
+    try:
+        value = float(environment_value.strip().rstrip("sS"))
+    except ValueError:
+        raise ValueError(
+            f"{VAD_MAX_SEGMENT_ENV_VAR} must be a positive number of seconds"
+        ) from None
+    if value <= 0:
+        raise ValueError(
+            f"{VAD_MAX_SEGMENT_ENV_VAR} must be a positive number of seconds"
+        )
+    return value
 
 
 def _extra_hotwords(environment_value: str | None) -> tuple[str, ...]:
@@ -312,7 +356,9 @@ class ASRRunner:
         }
         if self.config.vad_model is not None:
             kwargs["vad_model"] = self.config.vad_model
-            kwargs["vad_kwargs"] = {"max_single_segment_time": VAD_MAX_SINGLE_SEGMENT_MS}
+            kwargs["vad_kwargs"] = {
+                "max_single_segment_time": int(self.config.vad_max_segment_s * 1000)
+            }
         if self.config.model_revision is not None:
             kwargs["model_revision"] = self.config.model_revision
         # Note: offline/local_source removed - not supported by FunASR API
