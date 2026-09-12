@@ -17,7 +17,10 @@ venv/
 *.m4a
 *.wav
 
-# scratch / pip leftovers
+# editor / scratch leftovers
+*.swp
+*.swo
+
 .worktrees/
 .tmp/
 .tmp2/

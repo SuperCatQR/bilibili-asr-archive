@@ -274,6 +274,27 @@ def _lexical_archive_root(archive_root: str | os.PathLike[str]) -> Path:
     return root
 
 
+#: A cue at or below this mean token score is worth a second look.
+LOW_CONFIDENCE = 0.4
+
+
+def _confidence_summary(segments: list[dict[str, Any]]) -> dict[str, Any]:
+    """Summarize the model's own token confidence for one transcript.
+
+    The values are the model's, not a judgement: they make quality measurable
+    from the artefact alone, without a human reference transcript.
+    """
+
+    scores = [float(s["confidence"]) for s in segments
+              if isinstance(s, dict) and isinstance(s.get("confidence"), (int, float))]
+    if not scores:
+        return {}
+    return {
+        "asr_mean_confidence": round(sum(scores) / len(scores), 3),
+        "asr_low_confidence_cues": sum(1 for score in scores if score <= LOW_CONFIDENCE),
+    }
+
+
 def write_archive(archive_root: str | os.PathLike[str], entry: dict[str, Any], segments: list[dict[str, Any]], *, source: str, raw: Any | None = None, asr_provenance: Mapping[str, str] | None = None) -> dict[str, str]:
     """Publish one transcript bundle below the archive root.
 
@@ -295,6 +316,7 @@ def write_archive(archive_root: str | os.PathLike[str], entry: dict[str, Any], s
     md_path = dirs["md"] / f"{entry.get('pubdate_str', 'unknown')}_{stem}_{_safe_name(str(entry.get('title') or bvid))}.md"
     raw_path = dirs["raw"] / f"{stem}.json"
     frontmatter = {"bvid": bvid, "title": entry.get("title", ""), "date": entry.get("pubdate_str", ""), "duration_s": entry.get("duration_s", 0), "source": source, "url": archive_url(entry)}
+    frontmatter.update(_confidence_summary(segments))
     if asr_provenance:
         frontmatter.update({f"asr_{key}": value for key, value in asr_provenance.items()})
     if entry.get("work_id") and not entry.get("unresolved"):
