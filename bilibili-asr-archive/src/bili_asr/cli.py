@@ -1551,16 +1551,25 @@ def _print_in_process_constructions(
     ``RunCoordinator.run_batch`` prints this for the coordinator path; ``asr``
     and ``pilot`` never enter it, so they print through the same shared string
     for their own command label.  ``runner`` is ``None`` when the selection
-    needed no model; a selection with no ASR row prints nothing, exactly like a
-    zero-ASR batch.  Stderr keeps every command's stdout contract intact.
+    needed no model.
+
+    The guard is "nothing was paid", not "no ASR items" — the same rule the
+    coordinator applies: a loop that built the model and then failed every
+    transcription still states ``… for 0 asr item(s)``, while a subtitle-only
+    selection (no construction, no transcript) prints nothing at all.  Stderr
+    keeps every command's stdout contract intact; when fd 2 is closed
+    ``sys.stderr`` is ``None`` and ``print(..., file=None)`` would fall back to
+    stdout, so a missing stream prints nothing rather than breaking it.
     """
     from .coordinator import model_constructions_line
 
-    if asr_items <= 0:
-        return
     constructions = (
         int(getattr(runner, "model_constructions", 0)) if runner is not None else 0
     )
+    if asr_items <= 0 and constructions <= 0:
+        return
+    if sys.stderr is None:
+        return
     print(
         model_constructions_line(command, constructions, asr_items),
         file=sys.stderr,
@@ -1696,7 +1705,7 @@ def _pilot_archive_subtitle(store, root: str, entry: dict[str, object]) -> dict[
 
 def _pilot_archive_asr(
     store, client, root: str, entry: dict[str, object], target, runner=None,
-    asr_count=None,
+    asr_count: "_AsrItemCount | None" = None,
 ) -> dict[str, object]:
     """Archive one pilot row over ASR.
 
@@ -1709,10 +1718,22 @@ def _pilot_archive_asr(
     counted as soon as it produced a transcript — the same event ``run``
     counts at its ``asr: ok`` attempt (D2.5) — so a row that fails later in
     this function's archive tail keeps its place in the line's denominator.
+
+    It is **not optional for a loop caller**: the counter is how this
+    function's increment reaches the batch's printed line, and the only caller
+    able to pass the loop's box is the loop itself.  ``None`` is for the
+    single-row entry point, whose caller prints no line; a multi-row loop that
+    leaves it at ``None`` silently under-counts, so passing it is asserted
+    below rather than left to convention.
     """
     from . import archive, asr, audio
     from .page_identity import PageIdentity, artifact_stem
     from .subtitles import resolve_page_identity
+
+    if runner is not None and asr_count is None:
+        # A caller-supplied runner means "I am the loop" (D2.3): without the
+        # box this row's transcript never reaches the line's denominator.
+        raise TypeError("_pilot_archive_asr needs asr_count with a caller runner")
 
     if isinstance(target, str):
         target = resolve_page_identity(client, target)

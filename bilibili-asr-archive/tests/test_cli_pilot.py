@@ -35,6 +35,7 @@ from test_audio import (
     playurl_ok,
 )
 from test_subtitles import SAMPLE_DOC, nav_ok, player_ok, sub_entry
+from conftest import reuse_line
 
 
 def _model_input_bytes(path: str) -> bytes:
@@ -613,19 +614,6 @@ def _patch_bundle_incomplete_for(monkeypatch, failing):
     monkeypatch.setattr(archive_mod, "archive_bundle_complete", patched)
 
 
-def _reuse_line(captured, command):
-    """The one ``model constructions=`` line, or a failure explaining its absence."""
-    lines = [
-        line for line in captured.err.splitlines() if "model constructions=" in line
-    ]
-    assert len(lines) == 1, (
-        f"{command} printed {len(lines)} reuse line(s), expected exactly one: "
-        f"{captured.err!r}"
-    )
-    assert lines[0].startswith(f"{command}: "), lines[0]
-    return lines[0]
-
-
 def test_cli_pilot_counts_the_row_that_fails_after_transcription(
     tmp_root, monkeypatch, capsys
 ):
@@ -675,7 +663,7 @@ def test_cli_pilot_counts_the_row_that_fails_after_transcription(
     # One construction paid for three rows...
     assert len(constructions) == 1
     # ...and the line's denominator counts all three, the failed one included.
-    assert _reuse_line(captured, "pilot") == (
+    assert reuse_line(captured, "pilot") == (
         "pilot: model constructions=1 for 3 asr item(s)"
     )
     assert "model constructions=" not in captured.out

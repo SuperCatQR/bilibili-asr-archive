@@ -29,6 +29,7 @@ from test_audio import (
     playurl_ok,
 )
 from test_subtitles import SAMPLE_DOC, nav_ok, player_ok, sub_entry
+from conftest import reuse_line
 
 
 def _model_input_bytes(path: str) -> bytes:
@@ -432,6 +433,98 @@ def test_cli_asr_subtitle_only_selection_constructs_no_model(
     assert "model constructions=" not in captured.err
 
 
+def test_cli_asr_prints_the_line_when_every_transcription_fails(
+    tmp_root, monkeypatch, capsys
+):
+    """The guard is "nothing was paid", not "no ASR items" (D2.6 as amended).
+
+    Three rows reach the model, the model is built once (the ~34 s/item cost
+    this plan exists to expose), and then every ``generate`` raises.  The old
+    ``asr_items <= 0`` guard swallowed the line exactly here, hiding the
+    first-decode failure the operator needs stated while the process had
+    already paid for it.
+    """
+
+    identities = [
+        page_identity(f"BVallfail{index}", 0, 850 + index, "p0") for index in range(3)
+    ]
+    _seed_audio_ok(tmp_root, identities)
+    constructions = _stub_runner_model(monkeypatch)
+    monkeypatch.setattr(_FakeModel, "generate", lambda self, **kwargs: _raise_asr_error())
+    _patch_cli(monkeypatch, RouterTransport({}))
+
+    rc = main(["asr", "--pending", "--limit", "3", "--archive-root", tmp_root])
+    captured = capsys.readouterr()
+
+    assert rc == 1, captured.err
+    # Paid exactly once, transcribed nothing, and said so.
+    assert len(constructions) == 1
+    assert reuse_line(captured, "asr") == "asr: model constructions=1 for 0 asr item(s)"
+    assert "model constructions=" not in captured.out
+    assert [
+        ManifestStore(root=tmp_root).get(i.work_id)["status"] for i in identities
+    ] == ["audio_ok"] * 3
+
+
+def _raise_asr_error():
+    raise asr_mod.ASRModelError("first decode failed")
+
+
+def test_cli_asr_counts_only_the_row_whose_transcribe_returned(
+    tmp_root, monkeypatch, capsys
+):
+    """The denominator's exact event: a *successful* ``runner.transcribe``.
+
+    D2.5 counts rows whose ASR stage produced a transcript, and the `run` path
+    counts at its ``asr: ok`` attempt — i.e. after ``transcribe`` returns.
+    Row 1 of 3 raises there, so a counter moved one line earlier (before the
+    call) counts it anyway and the two paths disagree on identical input;
+    this test pins that boundary by comparing both paths word for word.
+    """
+
+    identities = [
+        page_identity(f"BVraisefirst{index}", 0, 860 + index, "p0")
+        for index in range(3)
+    ]
+    raising = identities[0]
+    asr_root = os.path.join(tmp_root, "asr-path")
+    run_root = os.path.join(tmp_root, "run-path")
+    os.makedirs(asr_root)
+    os.makedirs(run_root)
+    _seed_audio_ok(asr_root, identities)
+    _seed_audio_ok(run_root, identities)
+    constructions = _stub_runner_model(monkeypatch)
+    real_transcribe = asr_mod.ASRRunner.transcribe
+    raising_stem = artifact_stem(raising)
+
+    def fail_for_row_one(self, audio_path):
+        # `asr` hands the runner a /proc/self/fd descriptor while `run` hands it
+        # the real audio path; realpath resolves both to the same file.
+        if raising_stem in os.path.realpath(os.fspath(audio_path)):
+            raise asr_mod.ASRModelError("row 1 decode failed")
+        return real_transcribe(self, audio_path)
+
+    monkeypatch.setattr(asr_mod.ASRRunner, "transcribe", fail_for_row_one)
+    _patch_cli(monkeypatch, RouterTransport({}))
+
+    rc = main(["asr", "--pending", "--limit", "3", "--archive-root", asr_root])
+    asr_captured = capsys.readouterr()
+    assert rc == 1, asr_captured.err
+
+    rc = main(["run", "--scope", "pending", "--limit", "3", "--archive-root", run_root])
+    run_captured = capsys.readouterr()
+    assert rc == 1, run_captured.err
+
+    # One construction paid per invocation (the model is built before row 1 is
+    # handed to it), two of the three rows produced a transcript.
+    assert len(constructions) == 2
+    asr_line = reuse_line(asr_captured, "asr")
+    run_line = reuse_line(run_captured, "run")
+    assert asr_line == "asr: model constructions=1 for 2 asr item(s)"
+    assert run_line == "run: model constructions=1 for 2 asr item(s)"
+    assert asr_line.split(": ", 1)[1] == run_line.split(": ", 1)[1]
+
+
 def _patch_bundle_incomplete_for(monkeypatch, failing):
     """Fail the archive step for ``failing`` only, on both command paths.
 
@@ -454,19 +547,6 @@ def _patch_bundle_incomplete_for(monkeypatch, failing):
         return real(archive_root, paths)
 
     monkeypatch.setattr(archive_mod, "archive_bundle_complete", patched)
-
-
-def _reuse_line(captured, command):
-    """The one ``model constructions=`` line, or a failure explaining its absence."""
-    lines = [
-        line for line in captured.err.splitlines() if "model constructions=" in line
-    ]
-    assert len(lines) == 1, (
-        f"{command} printed {len(lines)} reuse line(s), expected exactly one: "
-        f"{captured.err!r}"
-    )
-    assert lines[0].startswith(f"{command}: "), lines[0]
-    return lines[0]
 
 
 def test_cli_asr_and_run_state_the_same_asr_items_after_a_downstream_failure(
@@ -512,8 +592,8 @@ def test_cli_asr_and_run_state_the_same_asr_items_after_a_downstream_failure(
     # One construction paid per invocation...
     assert len(constructions) == 2
     # ...and the same denominator, because the same three rows transcribed.
-    asr_line = _reuse_line(asr_captured, "asr")
-    run_line = _reuse_line(run_captured, "run")
+    asr_line = reuse_line(asr_captured, "asr")
+    run_line = reuse_line(run_captured, "run")
     assert asr_line == "asr: model constructions=1 for 3 asr item(s)"
     assert run_line == "run: model constructions=1 for 3 asr item(s)"
     assert asr_line.split(": ", 1)[1] == run_line.split(": ", 1)[1]
@@ -550,9 +630,9 @@ def test_cli_asr_downstream_failure_of_the_only_asr_row_still_prints_the_line(
     run_captured = capsys.readouterr()
     assert rc == 1, run_captured.err
 
-    assert _reuse_line(asr_captured, "asr") == (
+    assert reuse_line(asr_captured, "asr") == (
         "asr: model constructions=1 for 1 asr item(s)"
     )
-    assert _reuse_line(run_captured, "run") == (
+    assert reuse_line(run_captured, "run") == (
         "run: model constructions=1 for 1 asr item(s)"
     )

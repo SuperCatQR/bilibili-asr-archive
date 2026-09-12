@@ -109,7 +109,7 @@ property of one process, not of one command: a single
 whole selection, so it is the per-item loop above, not the `asr` command, that
 forfeits the reuse.
 
-A batch that transcribed at least one item states what it paid, once, on
+A batch that paid for a model or transcribed an item states it once, on
 **stderr**: `<command>: model constructions=<n> for <m> asr item(s)`, where
 `<n>` is the model constructions that batch itself paid and `<m>` the items it
 transcribed — for a three-item `run` that line is
@@ -118,8 +118,15 @@ invocation (`run`, `schedule`, `campaign`, `asr`, or `pilot`), because
 `schedule` and `campaign` share the coordinator's batch entry. The line is a
 diagnostic and never stdout: `campaign`'s stdout is a single JSON document that
 downstream callers parse and `run`'s stdout is its row report, so piping stdout
-to a file leaves this line on the terminal instead of in the file. A batch that
-transcribed nothing (subtitle-only work) prints no line at all.
+to a file leaves this line on the terminal instead of in the file.
+
+The rule is "nothing was paid", not "no items were transcribed": when a batch
+built the model and then failed every transcription — the GPU, ROCm or
+checkpoint failure the line exists to expose — it still prints, with a zero
+denominator, as in `run: model constructions=1 for 0 asr item(s)`. Only a batch
+that neither constructed a model nor transcribed anything (subtitle-only work)
+prints no line at all. If stderr is closed, the line is dropped rather than
+redirected, so `campaign`'s stdout stays one parseable JSON document.
 
 ## Deterministic verification baseline
 

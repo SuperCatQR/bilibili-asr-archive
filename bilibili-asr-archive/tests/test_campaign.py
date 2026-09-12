@@ -285,3 +285,36 @@ def test_cli_campaign_stdout_is_json_and_the_reuse_line_is_stderr(
     loaded = ManifestStore(root=str(tmp_path)).load()
     assert [loaded[i.work_id]["status"] for i in identities] == ["archived"] * 3
 
+
+
+def test_cli_campaign_stdout_stays_one_json_document_with_fd_2_closed(
+    tmp_path, monkeypatch, capsys
+):
+    """F-02: a closed stderr must not push the reuse line into campaign's JSON.
+
+    With fd 2 closed CPython sets ``sys.stderr`` to ``None``, and
+    ``print(..., file=None)`` writes to **stdout** — the exact stream this
+    contract reserves for one JSON document.  The batch must therefore drop
+    the diagnostic rather than relocate it.
+    """
+
+    import sys
+
+    from bili_asr import cli
+
+    identities = _seed_campaign_audio_rows(str(tmp_path), 3)
+    _stub_campaign_model(monkeypatch)
+    monkeypatch.setattr(sys, "stderr", None)
+    args = type("A", (), {
+        "offline": True, "archive_root": str(tmp_path), "scope": "pending",
+        "limit": 3, "resume": False, "max_audio_gb": 0,
+    })()
+
+    assert cli._cmd_campaign(args) == 0
+
+    captured = capsys.readouterr()
+    assert len(captured.out.splitlines()) == 1, captured.out
+    summary = json.loads(captured.out)
+    assert summary["checkpoint_state"] == "complete"
+    assert sorted(summary["processed"]) == sorted(i.work_id for i in identities)
+    assert "model constructions=" not in captured.out

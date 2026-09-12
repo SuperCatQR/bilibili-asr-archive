@@ -42,3 +42,21 @@ def mock_torch(monkeypatch):
         cuda=types.SimpleNamespace(is_available=lambda: True)
     )
     monkeypatch.setitem(sys.modules, "torch", fake_torch)
+
+
+def reuse_line(captured, command):
+    """The one ``model constructions=`` line, or a failure explaining its absence.
+
+    Shared by the CLI tests that drive the in-process loops (``asr``,
+    ``pilot``): the printed line's shape is one contract (D2.6), so the
+    assertion that reads it back is one helper rather than a copy per file.
+    """
+    lines = [
+        line for line in captured.err.splitlines() if "model constructions=" in line
+    ]
+    assert len(lines) == 1, (
+        f"{command} printed {len(lines)} reuse line(s), expected exactly one: "
+        f"{captured.err!r}"
+    )
+    assert lines[0].startswith(f"{command}: "), lines[0]
+    return lines[0]

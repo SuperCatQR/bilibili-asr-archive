@@ -876,3 +876,182 @@ def test_the_batch_line_goes_to_stderr_and_never_to_stdout(
     assert "model constructions=" not in captured.out
     assert captured.out == ""
 
+
+
+def test_batch_that_paid_a_construction_and_failed_every_row_still_states_it(
+    tmp_root, monkeypatch, counted_batch_seam, capsys
+):
+    """D2.6 as amended at plan-QC: the guard is "nothing was paid".
+
+    All three QC seats independently reproduced this: the model is built (the
+    ~34 s/item cost the line exists to expose), every transcription then
+    raises, and the old ``asr_items <= 0`` guard printed nothing — hiding
+    precisely the first-decode failure (GPU / ROCm / checkpoint) an operator
+    needs stated while the batch has already paid for it.
+    """
+
+    store, rows = _seed_audio_batch(tmp_root, 3, prefix="BVpaidfail")
+
+    def exploding_generate(**_kwargs):
+        raise asr.ASRModelError("first decode failed")
+
+    monkeypatch.setattr(FakeAutoModel, "generate", exploding_generate)
+
+    summary = RunCoordinator(tmp_root, store, offline=True).run_batch(rows)
+
+    captured = capsys.readouterr()
+    assert counted_batch_seam.construction_count == 1
+    assert summary.model_constructions == 1
+    assert summary.asr_items == 0
+    assert captured.err.splitlines() == [
+        "run: model constructions=1 for 0 asr item(s)",
+    ]
+    assert "model constructions=" not in captured.out
+
+
+def test_subtitle_only_batch_prints_nothing_with_the_widened_guard(
+    tmp_root, counted_batch_seam, capsys
+):
+    """The other half of the amendment: neither counter moved ⇒ silence.
+
+    A subtitle-only batch pays no construction *and* transcribes nothing, so
+    widening the guard must not start printing ``for 0 asr item(s)`` here.
+    """
+
+    store = ManifestStore(root=tmp_root)
+    identity = page_identity("BVsubsilent", 0, 120, "p0")
+    store.upsert({**_audio_row(identity, status="subtitle_done")})
+    raw_dir = pathlib.Path(tmp_root) / "subtitles" / "raw"
+    raw_dir.mkdir(parents=True, exist_ok=True)
+    (raw_dir / f"{artifact_stem(identity)}.json").write_text(
+        json.dumps({"body": [{"from": 0.0, "to": 1.0, "content": "hi"}]}),
+        encoding="utf-8",
+    )
+
+    summary = RunCoordinator(tmp_root, store, offline=True).run_batch(
+        [(identity.work_id, store.get(identity.work_id))]
+    )
+
+    captured = capsys.readouterr()
+    assert captured.err == ""
+    assert captured.out == ""
+    assert summary.asr_items == 0
+    assert summary.model_constructions == 0
+    assert counted_batch_seam.construction_count == 0
+
+
+def test_interrupted_batch_still_states_what_it_paid(
+    tmp_root, monkeypatch, counted_batch_seam, capsys
+):
+    """Ctrl-C mid-batch: the count and the release both survive the unwind.
+
+    The print used to sit *after* the ``try/finally``, so a KeyboardInterrupt
+    (or any other exception) carried the line away while ``asr``/``pilot`` kept
+    theirs; the on-call reading of a Ctrl-C'd run lost the count on the very
+    action the plan names.  Assignments and print now live inside the
+    ``finally``, and the original exception must still propagate.
+    """
+
+    store, rows = _seed_audio_batch(tmp_root, 3, prefix="BVinterrupt")
+    coordinator_ = RunCoordinator(tmp_root, store, offline=True)
+
+    original = coordinator_._run_batch_locked
+
+    def interrupt_after_two(rows_arg):
+        original(rows_arg[:2])
+        raise KeyboardInterrupt("operator pressed Ctrl-C")
+
+    monkeypatch.setattr(coordinator_, "_run_batch_locked", interrupt_after_two)
+
+    with pytest.raises(KeyboardInterrupt):
+        coordinator_.run_batch(rows)
+
+    captured = capsys.readouterr()
+    assert counted_batch_seam.construction_count == 1
+    # The batch paid one construction and transcribed two rows before the
+    # interrupt; both facts still reach stderr.
+    assert captured.err.splitlines() == [
+        "run: model constructions=1 for 2 asr item(s)",
+    ]
+    # The coordinator-owned runner is still handed back on the interrupt path.
+    assert coordinator_.asr_runner is None
+
+
+def test_the_reuse_line_is_dropped_when_stderr_is_closed(
+    tmp_root, monkeypatch, counted_batch_seam, capsys
+):
+    """fd 2 closed: CPython sets ``sys.stderr = None`` and ``file=None`` is stdout.
+
+    A closed stderr must never push the diagnostic into ``campaign``'s single
+    JSON document, so both print sites refuse to print when the stream is gone.
+    """
+
+    store, rows = _seed_audio_batch(tmp_root, 3, prefix="BVnostderr")
+    monkeypatch.setattr(sys, "stderr", None)
+
+    summary = RunCoordinator(tmp_root, store, offline=True).run_batch(rows)
+
+    captured = capsys.readouterr()
+    assert "model constructions=" not in captured.out
+    assert captured.out == ""
+    assert summary.model_constructions == 1
+    assert summary.asr_items == 3
+
+
+def test_run_batch_refuses_to_nest_and_keeps_the_outer_denominator(
+    tmp_root, counted_batch_seam, capsys
+):
+    """W2b: a nested ``run_batch`` would clobber the outer count silently.
+
+    ``_batch_asr_items`` is per-coordinator, reset on entry and printed on
+    exit, so an inner call would zero the outer denominator and print a second
+    line for unfinished work.  No caller nests today; the tripwire makes that
+    an error instead of a wrong number.
+    """
+
+    store, rows = _seed_audio_batch(tmp_root, 3, prefix="BVnest")
+    coordinator_ = RunCoordinator(tmp_root, store, offline=True)
+    seen: dict[str, object] = {}
+
+    original = coordinator_._run_batch_locked
+
+    def nest(rows_arg):
+        try:
+            coordinator_.run_batch(rows_arg[:1])
+        except RuntimeError as exc:
+            seen["error"] = str(exc)
+        return original(rows_arg)
+
+    coordinator_._run_batch_locked = nest
+    summary = coordinator_.run_batch(rows)
+
+    captured = capsys.readouterr()
+    assert "re-entrant" in str(seen.get("error"))
+    # The outer batch is intact: one line, its own denominator.
+    assert summary.asr_items == 3
+    assert captured.err.splitlines() == [
+        "run: model constructions=1 for 3 asr item(s)",
+    ]
+    # And the tripwire does not leak: a later batch still runs.
+    store2, rows2 = _seed_audio_batch(tmp_root, 1, prefix="BVnest2")
+    later = coordinator_.run_batch(rows2)
+    assert later.asr_items == 1
+
+
+# ------------------------------------------------------------ docs lock
+
+def test_readme_publishes_the_paid_or_transcribed_rule():
+    """W3: the documented rule is the shipped rule, guarded like the others."""
+
+    readme = os.path.join(os.path.dirname(__file__), "..", "README.md")
+    text = open(readme, encoding="utf-8").read()
+    # The shipped literal and the two labels README quotes.
+    assert "model constructions=" in text
+    assert "for <m> asr item(s)" in text
+    assert "run: model constructions=1 for 3 asr item(s)" in text
+    # The per-item loop README warns about (A2's greppable statement).
+    assert "forfeits that reuse" in text
+    assert "bili-asr asr --bvid <bvid>" in text
+    # The amended guard: paid-but-empty states its cost, subtitle-only is silent.
+    assert "failed every transcription" in text
+    assert "subtitle-only" in text
