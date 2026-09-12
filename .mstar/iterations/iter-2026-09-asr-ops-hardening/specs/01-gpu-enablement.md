@@ -107,3 +107,64 @@ The five stages are asserted from this checkout only as *code*; the target host 
 therefore run `check_asr_env.py` on the WSL2 + RX 7800 XT host and record its exit code plus the `device ok` line, and
 run it once more with `HSA_ENABLE_DXG_DETECTION` unset to prove the failure text and exit `1`. If either run
 contradicts D1.3/D1.5, the plan records an amendment request against this draft rather than widening the check.
+
+## Amendment requests (recorded at QC, applied at iteration-close)
+
+Two amendment requests were raised during plan QC (`review/qc1.md` W-6, ledger rows M2/M3). They are recorded
+here — the tracked spec is their durable home, because the ledger that first held them
+(`progress.md`) is gitignored. **The D1.3 decisions are not changed by this section**; it records what the
+implemented check asserts, so that iteration-close can amend D1.3's wording or the check deliberately. Neither
+request widens the check's behaviour beyond what plan QC reviewed and what the tests pin.
+
+### A-01 — D1.3's `dxg-detection` wording states only one half of a conjunction
+
+D1.3 (`:30-31`) words this stage as `os.environ["HSA_ENABLE_DXG_DETECTION"] == "1"`. The implemented stage — which
+seat 2 independently judged **correct** — asserts a conjunction: the `/dev/dxg` path exists **and** the variable is
+`1`. Both halves are required, the failure text names whichever half is missing, and
+`docs/wsl-rocm-gpu.md` `:54-70` states the conjunction explicitly. No behaviour change is requested: the request is
+that D1.3's wording name the device node as well, since "one invariant with two halves" is what the plan ships and
+what the test `test_dxg_stage_requires_both_the_device_node_and_the_detection_env` pins. (The node half is asserted
+as path *presence*, `Path.exists()`, not as an opened or type-checked device node; the printed line now says
+`dxg_device=path-exists (not opened)` so it does not overstate what was checked — QC seat 2's W-3, addressed in the
+fix wave without needing an amendment.)
+
+### A-02 — D1.3's `hsa-runtime` identity test names `/proc/self/maps`, but identity is decided from the filesystem
+
+D1.3 (`:33-35`) words this stage as "a `libhsa-runtime64.so*` exists in `Path(torch.__file__).parent / "lib"` …
+and `/proc/self/maps` shows *that* copy loaded after the device probe". The implemented stage decides identity from
+the **filesystem** instead: the entry in `torch/lib` must resolve out of `torch/lib` **into a discovered system lib
+directory**, or its bytes must match a `libhsa-runtime64.so*` found in one. `/proc/self/maps` evidence exists only
+*inside* the device-probe child (`:95-105`) and is reported in that stage's failure text; the HSA stage never reads
+it, and cannot — it runs in the parent, before any torch is imported there.
+
+The filesystem test is the one plan QC reviewed as sound for its purpose (seats 2 and 3, independently: the
+measured recipe's step-7 replacement is a real byte copy of `/opt/rocm-7.2.1/lib/libhsa-runtime64.so.1.18.70201`,
+which passes on the digest match regardless of the filename-suffix difference), and `docs/wsl-rocm-gpu.md` `:74-77`
+already discloses it. The request is that D1.3's wording match the implementation, and that the iteration-close
+decision record which of the two the contract wants: the filesystem identity test as implemented, or a
+maps-based check, which would move the assertion into the child and change the stage's observable contract.
+
+Amended at QC as well, in the same stage: the symlink branch no longer passes on *any* target outside `torch/lib`
+(seat 2's W-1) — the target must land in a discovered system lib dir or match a system copy's bytes — and the
+loader-path stage no longer accepts an **empty** `rocm-*/lib` directory (seat 2's W-2), because shape plus
+`is_dir()` is not discoverability. Both narrow the stage toward D1.3's stated intent ("the system runtime, not the
+wheel-bundled copy") rather than away from it.
+
+### A-03 — D1.5 states two exit codes; the script has three, and both published copies now say so
+
+D1.5 (`:43-47`) states `0` iff all five stages pass and `1` otherwise, and rejects only a third *host-verdict*
+code ("unsupported host"). The implementation has always had a third code for a different axis: an unrecognised
+argument prints `USAGE` and returns `2`, while `-h`/`--help` prints it and returns `0`
+(`scripts/check_asr_env.py`, pinned by `test_usage_and_unknown_arguments_do_not_run_the_checks`). Plan QC found
+three divergent publications of this contract (seat 1's W-3): the spec said `0/1`, `docs/wsl-rocm-gpu.md` said
+`0/1/2`, and `README.md` said `0/1`.
+
+The fix wave aligned both published surfaces on the accurate contract — `0` / `1` / `2` — in `README.md` and
+`docs/wsl-rocm-gpu.md`. The spec is left unedited, per the amendment-request rule, because it is the contract
+being amended rather than a surface to correct:
+
+- **Request:** D1.5's wording gain the usage-error clause (`2` for an unrecognised argument, `-h`/`--help` → `0`),
+  so the contract names all three codes the script returns.
+- **Not requested:** any change to the host verdict itself. `0` iff all five stages pass and `1` otherwise is
+  implemented and unchanged, and D1.5's rejection of a third *host* code stands. `2` is the usage axis, not a
+  third verdict, and nothing consumes it as one.
