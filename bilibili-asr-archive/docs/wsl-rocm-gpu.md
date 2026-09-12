@@ -2,10 +2,10 @@
 
 The one AMD path that was **measured** to produce a usable device for ASR on Windows WSL2.
 Every command below is taken from the session that ran on the target described in the next
-section — the measured session ran as root, so the `sudo` prefixes here are the only addition.
-Nothing here is inferred from vendor documentation, and nothing here is a recommendation for
-other platforms (NVIDIA and Intel are out of scope — see the
-[PyTorch installation guide](https://pytorch.org/get-started/locally/)).
+section — the session ran as root, so the additions here are the `sudo` prefixes, `~/` in place
+of its root home directory, and the substitutions noted inline. Nothing here is inferred from
+vendor documentation, and nothing here is a recommendation for other platforms (NVIDIA and Intel
+are out of scope — see the [PyTorch installation guide](https://pytorch.org/get-started/locally/)).
 
 `scripts/check_asr_env.py` asserts the five invariants of this recipe on your host and prints
 the fix for whichever one is missing. That check is the answer to "is my GPU usable for ASR";
@@ -23,7 +23,7 @@ machine.
 | OS | Ubuntu 24.04 on WSL2 |
 | GPU | AMD Radeon RX 7800 XT — `gfx1101`, 15.8 GB visible |
 | Transport | ROCDXG (`rocdxg-roct` 1.2.2) |
-| Result | `torch.cuda.is_available()` is `True`, `hip=7.2.0`, matmul runs on the device |
+| Result | `torch.cuda.is_available()` is `True`, `hip=7.2.0` (expected from the wheel tag), matmul runs on the device |
 
 The verified combination, in one line: ROCm 7.2.1 runtime + `rocdxg-roct` 1.2.2 (ROCDXG) + the
 **repo.radeon.com** `torch 2.9.1+rocm7.2.0.lw` wheel installed together with its matching
@@ -37,15 +37,18 @@ cheaper combinations measured the same day did not (see
 
 ## The five invariants, and the stage that asserts each
 
-Run the check from the repository root, with no arguments:
+Run the check from `bilibili-asr-archive/` — the product directory, not the repository root above
+it — with no arguments:
 
 ```bash
 cd bilibili-asr-archive
-python3.12 scripts/check_asr_env.py; echo "exit=$?"
+python3.12 scripts/check_asr_env.py; echo "exit=$?"   # the check's own invocation, as its fix text prints it
 ```
 
-Exit status is `0` iff all five stages pass, `1` otherwise. On failure each failing stage adds
-its own `cause:` line and the commands that clear it, then this document is named once.
+Exit status is `0` iff all five stages pass, `1` otherwise, and `2` for a usage error (an
+unrecognised argument prints the usage text; `-h`/`--help` exits `0`). On failure each failing
+stage adds its own `cause:` line and the commands that clear it, then this document is named
+once.
 
 | # | Stage name | Invariant the stage asserts |
 |---|---|---|
@@ -78,7 +81,8 @@ than it looks:
 
 A passing run prints exactly this shape — the four `check: <stage> ok` lines, then the one
 stage that carries a detail line, then the verdict. The device values are the measured
-target's:
+target's; `hip=7.2.0` is the one value that is expected from the wheel tag rather than read off
+a retained transcript (step 6):
 
 ```text
 check: dxg-detection ok
@@ -113,9 +117,14 @@ with no GPU and no ROCm, one `cause:`/`fix:` block per failing stage.)
 ## The recipe
 
 The steps are ordered as the stages that depend on them. Two conventions for the commands
-below: `<venv>` is the virtual environment that runs `bili-asr` (steps 6–7 write into it, so
-create and activate it first), and the measured session ran as root, so its transcript carries
-no `sudo` — the prefixes added here are only privilege, never a different command.
+below: `VENV` is the path to the virtual environment that runs `bili-asr` — the measured
+session's was `gpu-venv` under root's home, yours is wherever you created it (steps 6–7 write
+into it, so create and activate it first); export it once, `export VENV=~/.venvs/bili-asr`, and
+the commands quote the interpreter as `"$VENV/bin/python"`. `<bvid>`, in the last section, must be
+replaced with a real video id before that line is run — the check prints that line with the same
+placeholder. A `<venv>`-style token is deliberately not used in command position: the shell
+reads a bare `<word>` there as input redirection and fails with `No such file or directory`
+instead of naming the placeholder.
 
 ### 1. Add the ROCm 7.2.1 apt repository
 
@@ -197,25 +206,27 @@ ls -l ~/amd-whl
 Then install both files in **one** command, into the venv that runs `bili-asr`:
 
 ```bash
-<venv>/bin/python -m pip install \
+"$VENV/bin/python" -m pip install \
   ~/amd-whl/torch-2.9.1+rocm7.2.0.lw.git7e1940d4-cp312-cp312-linux_x86_64.whl \
   ~/amd-whl/triton-3.5.1+rocm7.2.0.gita272dfa8-cp312-cp312-linux_x86_64.whl
-<venv>/bin/python -c "import torch; print(torch.__version__, torch.version.hip)"
+"$VENV/bin/python" -c "import torch; print(torch.__version__, torch.version.hip)"
 ```
 
-Expect `2.9.1+rocm7.2.0.lw` and a non-empty `hip` (the measured target reported `hip=7.2.0`).
-Two notes:
+Expect `2.9.1+rocm7.2.0.lw` and a non-empty `hip`; `hip=7.2.0` is the expected value from the
+wheel's `+rocm7.2.0` tag, not a retained transcript of `torch.version.hip`. Two notes:
 
 - The measured session passed a third wheel in the same command,
   `torchaudio-2.9.0+rocm7.2.0.gite3c6ee2b-cp312-cp312-linux_x86_64.whl` from the same index;
   add it to the same command if your stack imports `torchaudio`. The `torch` + `triton` pair
   above is the part that was measured to matter.
-- `scripts/check_asr_env.py` prints the unpinned form of this step —
-  `pip install --index-url https://repo.radeon.com/rocm/manylinux/rocm-rel-7.2/ torch triton` —
-  which resolves the same wheel family from the same index and installs whatever version that
-  index currently serves. It is the right form when the pinned filenames above have rotated off
-  the index; the pins are the measured pair. Note that `--index-url` replaces PyPI for that one
-  command, whereas installing the downloaded files leaves ordinary dependency resolution on PyPI.
+- `scripts/check_asr_env.py` prints the unpinned form of this step instead, verbatim:
+  `pip install --index-url https://repo.radeon.com/rocm/manylinux/rocm-rel-7.2/ torch triton   # repo.radeon.com ROCm wheels; measured pair: torch 2.9.1+rocm7.2.0.lw + matching triton`.
+  The two forms are different text for the same index, not different indexes: the check's line
+  installs whatever version `repo.radeon.com` currently serves, while the pins above install the
+  two files measured on 2026-09-12. Use the pins while the index still serves those filenames,
+  and the check's line once they have rotated off. Note that `--index-url` replaces PyPI for that
+  one command, whereas installing the downloaded files leaves ordinary dependency resolution on
+  PyPI.
 
 ### 7. Replace the HSA runtime inside the venv's `torch/lib`
 
@@ -223,7 +234,7 @@ The wheel ships its own `libhsa-runtime64.so`, and that bundled copy is the one 
 WSL. It must be the system runtime instead:
 
 ```bash
-TORCH_LIB=$(<venv>/bin/python -c 'import pathlib, torch; print(pathlib.Path(torch.__file__).parent / "lib")')
+TORCH_LIB=$("$VENV/bin/python" -c 'import pathlib, torch; print(pathlib.Path(torch.__file__).parent / "lib")')
 cd "$TORCH_LIB"
 ls libhsa-runtime64.so*                                   # the wheel-bundled copy
 rm -f libhsa-runtime64.so*
@@ -231,21 +242,22 @@ cp -v /opt/rocm-7.2.1/lib/libhsa-runtime64.so.1.18.70201 libhsa-runtime64.so
 ls -l libhsa-runtime64.so*
 ```
 
-On a different ROCm version the copy source is the same file with that version's suffix
-(`/opt/rocm-<version>/lib/libhsa-runtime64.so.1.*`). The check prints an equivalent form that
-copies every `libhsa-runtime64.so*` from the discovered ROCm lib directory.
+The `TORCH_LIB=` line is the check's own discovery idiom; the measured session read the same
+path from `pip show torch`. On a different ROCm version the copy source is the same file with
+that version's suffix (`/opt/rocm-<version>/lib/libhsa-runtime64.so.1.*`). The check prints an
+equivalent form that copies every `libhsa-runtime64.so*` from the discovered ROCm lib directory.
 
 ### 8. Hold `HSA_ENABLE_DXG_DETECTION=1`, and prove the device
 
 ```bash
 export HSA_ENABLE_DXG_DETECTION=1
-echo 'export HSA_ENABLE_DXG_DETECTION=1' >> ~/.bashrc
+echo 'export HSA_ENABLE_DXG_DETECTION=1' >> ~/.bashrc   # the check's dxg-detection fix says to persist this line
 ```
 
 Then run the measured proof — import, device properties, and a matmul on the device:
 
 ```bash
-HSA_ENABLE_DXG_DETECTION=1 <venv>/bin/python - <<'PY'
+HSA_ENABLE_DXG_DETECTION=1 "$VENV/bin/python" - <<'PY'
 import torch, time
 print("torch:", torch.__version__, "| hip:", torch.version.hip, "| cuda:", torch.cuda.is_available())
 if torch.cuda.is_available():
@@ -259,11 +271,12 @@ if torch.cuda.is_available():
 PY
 ```
 
-On the measured target this printed `cuda: True`, `arch: gfx1101`, `vram: 15.8 GB`, and
-completed the matmul on the device. Finally, the check should now agree:
+The block reproduces the session's two probe scripts with their labels in English; on the
+measured target it printed `cuda: True`, `arch: gfx1101`, `vram: 15.8 GB`, and completed the
+matmul on the device. Finally, the check should now agree:
 
 ```bash
-cd bilibili-asr-archive && python3.12 scripts/check_asr_env.py; echo "exit=$?"
+cd bilibili-asr-archive && python3.12 scripts/check_asr_env.py; echo "exit=$?"   # the check again, from the product directory
 ```
 
 ## The three measured failure modes
@@ -276,17 +289,19 @@ scratch.
 
 ROCm 5.7 has no `gfx1101` support at all. The RX 7800 XT is therefore not a device the runtime
 can target, and no amount of device configuration downstream changes that: the arch is missing
-from the support list itself. This is the defect that the removed README line
-("ROCm 5.7+ drivers") published. The fix is the 7.2.1 runtime of steps 1–2.
+from the support list itself. This is the defect that the README's "ROCm 5.7+ drivers" line
+published — it is still there at this commit (`README.md:23`), and this plan's Task 3 edit
+replaces it with a pointer to this document. The fix is the 7.2.1 runtime of steps 1–2.
 
 ### 2. The PyTorch.org ROCm wheel — imports cleanly, then reports no device
 
 The ROCm wheel published on PyTorch's own index installs and imports, sets
 `torch.version.hip`, and then `torch.cuda.is_available()` is `False`. There is no exception and
 no traceback, so it reads like "this machine has no GPU" rather than "this wheel cannot work
-here" — which is how it stayed published. This is the measured dead end on WSL: it is *not* a
-path to try before this document, and the repository no longer recommends it anywhere. What
-fixes it is step 6 (the repo.radeon.com pins), on top of steps 1–5.
+here". This is the measured dead end on WSL: it is *not* a path to try before this document, and
+no repository surface may recommend it — `README.md:24` and `src/bili_asr/asr.py:321` both still
+do at this commit, and this plan's Task 3 edit removes both. What fixes it is step 6 (the
+repo.radeon.com pins), on top of steps 1–5.
 
 ### 3. Forcing DXG detection on that wheel — a hard abort
 
