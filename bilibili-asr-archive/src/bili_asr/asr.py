@@ -55,6 +55,18 @@ ASR_MODEL_ENV_VAR = "BILI_ASR_MODEL"
 ASR_MODEL_REVISION_ENV_VAR = "BILI_ASR_MODEL_REVISION"
 ASR_DEVICE_ENV_VAR = "BILI_ASR_DEVICE"
 ASR_LANGUAGE_ENV_VAR = "BILI_ASR_LANGUAGE"
+ASR_VAD_MODEL_ENV_VAR = "BILI_ASR_VAD_MODEL"
+
+#: VAD component that segments long recordings before the ASR model sees them.
+#: Measured 2026-09-11: without it a 448 s recording collapses to a single
+#: ``。`` (the language model's decode overruns), while the same checkpoint
+#: behind the VAD pipeline returns the full punctuated transcript with token
+#: timestamps.  ``fsmn-vad`` is FunASR's own alias, resolved and cached by the
+#: pinned package exactly like the checkpoint itself.
+DEFAULT_VAD_MODEL = "fsmn-vad"
+
+#: Cap on one VAD segment, in milliseconds, as FunASR's own examples use.
+VAD_MAX_SINGLE_SEGMENT_MS = 30_000
 
 #: Checkpoint revision used when a hub id is resolved and no revision is configured.
 DEFAULT_MODEL_REVISION = "master"
@@ -85,6 +97,7 @@ class ASRConfig:
     model_revision: str | None = None
     device: str = "cuda"
     language: str | None = None
+    vad_model: str | None = DEFAULT_VAD_MODEL
     offline: bool = True
     local_source: str = "configured-local"
 
@@ -101,6 +114,10 @@ class ASRConfig:
             not isinstance(self.language, str) or not self.language.strip()
         ):
             raise ValueError("language must be a non-empty string or null")
+        if self.vad_model is not None and (
+            not isinstance(self.vad_model, str) or not self.vad_model.strip()
+        ):
+            raise ValueError("vad_model must be a non-empty string or null")
         if not isinstance(self.offline, bool):
             raise ValueError("offline must be a bool")
         if not isinstance(self.local_source, str) or not self.local_source.strip():
@@ -133,7 +150,16 @@ def default_config() -> ASRConfig:
         model_revision=os.environ.get(ASR_MODEL_REVISION_ENV_VAR) or None,
         device=os.environ.get(ASR_DEVICE_ENV_VAR) or "cuda",
         language=os.environ.get(ASR_LANGUAGE_ENV_VAR) or None,
+        vad_model=_resolve_vad_model(os.environ.get(ASR_VAD_MODEL_ENV_VAR)),
     )
+
+
+def _resolve_vad_model(environment_value: str | None) -> str | None:
+    """Return the configured VAD component: unset keeps the default, blank disables."""
+
+    if environment_value is None:
+        return DEFAULT_VAD_MODEL
+    return environment_value.strip() or None
 
 
 class ASRRunner:
@@ -191,6 +217,9 @@ class ASRRunner:
             "device": self.config.device,
             "trust_remote_code": False,
         }
+        if self.config.vad_model is not None:
+            kwargs["vad_model"] = self.config.vad_model
+            kwargs["vad_kwargs"] = {"max_single_segment_time": VAD_MAX_SINGLE_SEGMENT_MS}
         if self.config.model_revision is not None:
             kwargs["model_revision"] = self.config.model_revision
         # Note: offline/local_source removed - not supported by FunASR API

@@ -51,7 +51,10 @@ def test_fake_model_result_normalization_timestamps_and_rich_tag_cleanup(fake_fu
         {"start": 0.125, "end": 1.5, "text": "deterministic"},
         {"start": 1.5, "end": 2.75, "text": "output"},
     ]
-    assert fake_funasr.construction_records == [{"model": "local-test-model", "device": "cuda", "trust_remote_code": False}]
+    assert fake_funasr.construction_records == [{
+        "model": "local-test-model", "device": "cuda", "trust_remote_code": False,
+        "vad_model": "fsmn-vad", "vad_kwargs": {"max_single_segment_time": 30_000},
+    }]
     assert fake_funasr.generation_records == [{"input": "fixture-audio.wav", "cache": {}, "itn": True}]
 
 
@@ -73,7 +76,10 @@ def test_fake_generation_snapshots_include_both_input_paths(fake_funasr, monkeyp
     assert first == second
     assert fake_funasr.construction_count == 2
     assert [record["input"] for record in fake_funasr.generation_records] == ["one.wav", "two.wav"]
-    assert fake_funasr.construction_records == [{"model": "/fixture/local-model", "device": "cuda", "trust_remote_code": False}] * 2
+    assert fake_funasr.construction_records == [{
+        "model": "/fixture/local-model", "device": "cuda", "trust_remote_code": False,
+        "vad_model": "fsmn-vad", "vad_kwargs": {"max_single_segment_time": 30_000},
+    }] * 2
 
 
 def test_error_serialization_redacts_forbidden_markers_and_preserves_class(monkeypatch):
@@ -161,7 +167,8 @@ def test_factory_gets_exact_kwargs_and_typeerror_is_not_retried(monkeypatch):
         runner.transcribe("fixture.wav")
     assert len(calls) == 1
     assert set(calls[0]) == {
-        "model", "device", "trust_remote_code", "model_revision"
+        "model", "device", "trust_remote_code", "model_revision",
+        "vad_model", "vad_kwargs",
     }
     assert "hostile" not in str(caught.value)
 
@@ -207,13 +214,15 @@ def test_provenance_has_stable_redacted_configuration_keys():
     )
     provenance = asr.ASRRunner(config).provenance()
     assert list(provenance) == [
-        "model_name", "model_revision", "device", "language", "offline", "local_source"
+        "model_name", "model_revision", "device", "language", "vad_model", "offline",
+        "local_source",
     ]
     assert provenance == {
         "model_name": "local-model",
         "model_revision": "revision-1",
         "device": "cpu",
         "language": "中文",
+        "vad_model": "fsmn-vad",
         "offline": "True",
         "local_source": "configured-local",
     }
@@ -370,6 +379,7 @@ def test_default_config_reads_the_documented_environment_knobs(monkeypatch):
     monkeypatch.setenv("BILI_ASR_MODEL_REVISION", "rev-9")
     monkeypatch.setenv("BILI_ASR_DEVICE", "cpu")
     monkeypatch.setenv("BILI_ASR_LANGUAGE", "中文")
+    monkeypatch.setenv("BILI_ASR_VAD_MODEL", "fsmn-vad")
 
     config = asr.default_config()
 
@@ -377,6 +387,27 @@ def test_default_config_reads_the_documented_environment_knobs(monkeypatch):
     assert config.model_revision == "rev-9"
     assert config.device == "cpu"
     assert config.language == "中文"
+    assert config.vad_model == "fsmn-vad"
+
+
+def test_vad_is_the_default_and_a_blank_knob_disables_it(monkeypatch):
+    """Long recordings need the VAD; an explicit blank turns that pipeline off."""
+
+    monkeypatch.delenv("BILI_ASR_VAD_MODEL", raising=False)
+    assert asr.default_config().vad_model == "fsmn-vad"
+
+    monkeypatch.setenv("BILI_ASR_VAD_MODEL", "   ")
+    assert asr.default_config().vad_model is None
+
+
+def test_no_vad_configured_omits_the_component_from_the_construction(fake_funasr):
+    asr.ASRRunner(
+        asr.ASRConfig("test-model", device="cpu", vad_model=None), model_factory=fake_funasr
+    ).transcribe("fixture.wav")
+
+    assert fake_funasr.construction_records == [
+        {"model": "test-model", "device": "cpu", "trust_remote_code": False}
+    ]
 
 
 def test_default_config_defaults_are_unchanged_without_the_knobs(monkeypatch):
