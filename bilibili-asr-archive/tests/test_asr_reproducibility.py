@@ -5,6 +5,7 @@ from __future__ import annotations
 import builtins
 import json
 import os
+import pathlib
 import sys
 import types
 from typing import Any
@@ -328,7 +329,7 @@ def test_fixture_benchmark_reports_only_construction_and_shape(fake_funasr):
 
 
 def test_cuda_unavailable_raises_dependency_error_with_rocm_hint(monkeypatch):
-    """CUDA unavailable should raise ASRDependencyError with ROCm installation hint."""
+    """The device hint points at the check and the recipe, never at a wheel index."""
     class FakeTorch:
         @staticmethod
         def cuda_is_available():
@@ -348,7 +349,43 @@ def test_cuda_unavailable_raises_dependency_error_with_rocm_hint(monkeypatch):
     
     error_message = str(caught.value)
     assert "CUDA/ROCm is not available" in error_message
-    assert "ROCm" in error_message or "7800XT" in error_message
+    # D1.6: exactly these stable pointer tokens, and no vendor index URL.  The
+    # broken PyTorch.org ROCm wheel must not come back through this message; the
+    # literal is assembled so this file does not itself carry the dead-end URL.
+    assert "ROCm" in error_message
+    assert "scripts/check_asr_env.py" in error_message
+    assert "docs/wsl-rocm-gpu.md" in error_message
+    assert "BILI_ASR_DEVICE=cpu" in error_message
+    # N-1: the hint must publish the check the way the check's own fix text and
+    # docs/wsl-rocm-gpu.md do — the venv interpreter that holds torch.  A bare
+    # `python3.12` invocation probes the *system* interpreter and reports a false
+    # `torch-present FAIL` on a host built exactly as the recipe says, so the
+    # token is banned from this surface entirely, not merely discouraged.
+    # N-2: the hint is a human-readable exception message, not a paste-into-bash
+    # block, so it names the venv's interpreter in plain language and keeps only
+    # the runnable command.  The `${VENV:?…}` shell-expansion form stays in the
+    # code blocks of README.md / docs/wsl-rocm-gpu.md, where a shell expands it.
+    assert '"$VENV/bin/python" scripts/check_asr_env.py' in error_message
+    assert "${VENV:" not in error_message
+    assert "venv's interpreter" in error_message
+    assert "python3.12" not in error_message
+    assert "python3.12 scripts/check_asr_env.py" not in error_message
+    assert ("download.pytorch.org" + "/whl/rocm") not in error_message
+    assert "http://" not in error_message and "https://" not in error_message
+    # No machine-specific layout either: the hint must not name one host's paths.
+    assert "/opt/rocm" not in error_message
+    assert "/root/" not in error_message and "/home/" not in error_message
+
+
+def test_device_hint_doc_path_resolves_in_the_checkout():
+    """Drift guard: the doc the hint names must exist in this checkout.
+
+    Only the documented path is asserted. `scripts/` is not part of the installed
+    distribution and the verification baseline stages `docs/` without it, so a
+    check on the script's own path would be a property of one tree layout.
+    """
+    package_root = pathlib.Path(__file__).resolve().parents[1]
+    assert (package_root / "docs" / "wsl-rocm-gpu.md").is_file()
 
 
 def test_torch_import_error_raises_dependency_error(monkeypatch):
