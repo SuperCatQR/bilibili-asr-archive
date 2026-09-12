@@ -581,6 +581,10 @@ def test_cli_run_per_item_failure_batch_continues(tmp_root, monkeypatch, capsys)
                 raise ASRModelError("model failed")
             return [{"text": "ok-text", "timestamp": [[0, 1000]]}]
 
+    # These rows are told apart through the CLI's confined descriptor path, so the
+    # boundary's descriptor materialization is switched off here; it has its own
+    # unit test in tests/test_asr_reproducibility.py.
+    monkeypatch.setattr(asr_mod, "_materialize_input", lambda path: (path, None))
     monkeypatch.setattr(asr_mod, "_load_default_model", lambda **_kwargs: FlakyModel())
     _patch_cli(monkeypatch, _cid_transport(set()))  # no subtitles anywhere
 
@@ -825,6 +829,10 @@ def test_run_failure_summary_and_exit_when_scope_not_processed(
                 raise ASRModelError("boom")
             return [{"text": "ok", "timestamp": [[0, 1000]]}]
 
+    # These rows are told apart through the CLI's confined descriptor path, so the
+    # boundary's descriptor materialization is switched off here; it has its own
+    # unit test in tests/test_asr_reproducibility.py.
+    monkeypatch.setattr(asr_mod, "_materialize_input", lambda path: (path, None))
     monkeypatch.setattr(asr_mod, "_load_default_model", lambda **_kwargs: FlakyModel())
     transport = _mixed_transport()
     _patch_cli(monkeypatch, transport)

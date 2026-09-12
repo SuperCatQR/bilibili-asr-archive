@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import builtins
 import json
+import os
 import sys
 import types
 from typing import Any
@@ -408,6 +409,47 @@ def test_no_vad_configured_omits_the_component_from_the_construction(fake_funasr
     assert fake_funasr.construction_records == [
         {"model": "test-model", "device": "cpu", "trust_remote_code": False}
     ]
+
+
+@pytest.mark.skipif(not os.path.exists("/proc/self/fd"), reason="descriptor paths are POSIX")
+def test_confined_descriptor_input_is_materialized_for_component_subprocesses(tmp_path):
+    """The VAD component shells out to ffmpeg, which cannot open a cloexec fd."""
+
+    payload = b"fake audio payload"
+    real = tmp_path / "clip.m4a"
+    real.write_bytes(payload)
+    seen: list[bytes] = []
+
+    class ReadingModel:
+        def __init__(self, **_kwargs):
+            pass
+
+        def generate(self, **kwargs):
+            with open(kwargs["input"], "rb") as handle:
+                seen.append(handle.read())
+            return [{"text": "ok", "timestamp": []}]
+
+    descriptor = None
+    fd = os.open(real, os.O_RDONLY)
+    try:
+        descriptor = f"/proc/self/fd/{fd}"
+        segments = asr.ASRRunner(
+            asr.ASRConfig("test-model", device="cpu"), model_factory=ReadingModel
+        ).transcribe(descriptor)
+    finally:
+        os.close(fd)
+
+    assert segments == [{"start": 0.0, "end": 0.0, "text": "ok"}]
+    assert seen == [payload]
+    assert descriptor is not None
+
+
+def test_a_plain_path_is_never_copied(fake_funasr):
+    asr.ASRRunner(
+        asr.ASRConfig("test-model", device="cpu"), model_factory=fake_funasr
+    ).transcribe("fixture.wav")
+
+    assert fake_funasr.generation_records[0]["input"] == "fixture.wav"
 
 
 def test_default_config_defaults_are_unchanged_without_the_knobs(monkeypatch):

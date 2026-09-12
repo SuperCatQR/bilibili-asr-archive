@@ -14,6 +14,8 @@ from __future__ import annotations
 
 import os
 import re
+import shutil
+import tempfile
 from dataclasses import asdict, dataclass, replace
 from typing import Any, Callable
 
@@ -73,6 +75,9 @@ DEFAULT_MODEL_REVISION = "master"
 
 _LOCAL_PATH_PREFIXES = ("./", "../", "/", "~/", ".\\", "..\\")
 _WINDOWS_DRIVE = re.compile(r"^[A-Za-z]:[\\/]")
+#: A confined audio descriptor, as :func:`bili_asr.path_policy.confined_audio_file`
+#: hands it over: ``/proc/self/fd/12`` or ``/dev/fd/12``.
+_DESCRIPTOR_PATH = re.compile(r"^/(?:proc/(?:self|\d+)/fd|dev/fd)/\d+$")
 #: A hub reference is ``owner/name``; any other spelling is handed to FunASR
 #: unchanged so a caller's own naming keeps its previous behaviour.
 _HUB_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._-]*$")
@@ -132,6 +137,31 @@ def _looks_like_local_path(value: str) -> bool:
     if value.startswith(_LOCAL_PATH_PREFIXES) or _WINDOWS_DRIVE.match(value):
         return True
     return os.path.isdir(value)
+
+
+def _materialize_input(audio_path: str) -> tuple[str, str | None]:
+    """Return an input path the model's own components can reopen.
+
+    The CLI hands this boundary a confined descriptor path so the audio never
+    leaves the archive root.  FunASR's VAD component shells out to ``ffmpeg``,
+    and a descriptor is closed on exec, so the child cannot open it: the input
+    is copied to a temporary file instead, which the caller removes.  A plain
+    path is returned untouched.
+    """
+
+    if not isinstance(audio_path, str) or not _DESCRIPTOR_PATH.match(audio_path):
+        return audio_path, None
+    handle, temporary = tempfile.mkstemp(prefix="bili-asr-asr-", suffix=".audio")
+    try:
+        with os.fdopen(handle, "wb") as target, open(audio_path, "rb") as source:
+            shutil.copyfileobj(source, target)
+    except OSError:
+        try:
+            os.unlink(temporary)
+        except OSError:
+            pass
+        raise
+    return temporary, temporary
 
 
 def default_config() -> ASRConfig:
@@ -247,6 +277,8 @@ class ASRRunner:
         request: dict[str, Any] = {"input": audio_path, "cache": {}, "itn": True}
         if self.config.language is not None:
             request["language"] = self.config.language
+        source, temporary = _materialize_input(audio_path)
+        request["input"] = source
         try:
             result = self._get_model().generate(**request)
         except (ASRDependencyError, ASRModelError):
@@ -255,6 +287,12 @@ class ASRRunner:
             raise ASRModelError(
                 "FunASR model load/transcription failed; check configured local model."
             ) from exc
+        finally:
+            if temporary is not None:
+                try:
+                    os.unlink(temporary)
+                except OSError:
+                    pass
         return normalize_result(result)
 
     def release(self) -> None:
