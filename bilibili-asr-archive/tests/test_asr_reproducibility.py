@@ -56,7 +56,10 @@ def test_fake_model_result_normalization_timestamps_and_rich_tag_cleanup(fake_fu
         "model": "local-test-model", "device": "cuda", "trust_remote_code": False,
         "vad_model": "fsmn-vad", "vad_kwargs": {"max_single_segment_time": 30_000},
     }]
-    assert fake_funasr.generation_records == [{"input": "fixture-audio.wav", "cache": {}, "itn": True}]
+    assert fake_funasr.generation_records == [{
+        "input": "fixture-audio.wav", "cache": {}, "itn": True,
+        "hotwords": list(asr.DEFAULT_HOTWORDS),
+    }]
 
 
 def test_empty_and_malformed_results_are_ignored():
@@ -210,13 +213,14 @@ def test_provenance_has_stable_redacted_configuration_keys():
         model_revision="revision-1",
         device="cpu",
         language="中文",
+        hotwords=("a", "b"),
         offline=True,
         local_source="configured-local",
     )
     provenance = asr.ASRRunner(config).provenance()
     assert list(provenance) == [
-        "model_name", "model_revision", "device", "language", "vad_model", "offline",
-        "local_source",
+        "model_name", "model_revision", "device", "language", "vad_model", "hotwords",
+        "offline", "local_source",
     ]
     assert provenance == {
         "model_name": "local-model",
@@ -224,6 +228,7 @@ def test_provenance_has_stable_redacted_configuration_keys():
         "device": "cpu",
         "language": "中文",
         "vad_model": "fsmn-vad",
+        "hotwords": "a,b",
         "offline": "True",
         "local_source": "configured-local",
     }
@@ -485,3 +490,61 @@ def test_config_rejects_a_blank_language():
         asr.ASRConfig("test-model", language="   ")
     with pytest.raises(ValueError):
         asr.ASRConfig("test-model", language=7)  # type: ignore[arg-type]
+
+
+def test_hotwords_travel_to_the_model_and_are_recorded(monkeypatch, fake_funasr):
+    """Configured terms bias decoding and are visible in provenance."""
+
+    monkeypatch.setenv("BILI_ASR_HOTWORDS", "马恩牌, 未明子,劳动仲裁,劳动仲裁")
+    config = asr.default_config()
+
+    assert config.hotwords[: len(asr.DEFAULT_HOTWORDS)] == asr.DEFAULT_HOTWORDS
+    assert config.hotwords[len(asr.DEFAULT_HOTWORDS):] == ("劳动仲裁",)
+
+    asr.ASRRunner(config, model_factory=fake_funasr).transcribe("fixture.wav")
+
+    assert fake_funasr.generation_records[0]["hotwords"] == list(config.hotwords)
+    assert "马恩牌" in asr.ASRRunner(config).provenance()["hotwords"]
+
+
+def test_no_hotwords_configured_omits_the_bias(fake_funasr):
+    asr.ASRRunner(
+        asr.ASRConfig("test-model", device="cpu", hotwords=()), model_factory=fake_funasr
+    ).transcribe("fixture.wav")
+
+    assert "hotwords" not in fake_funasr.generation_records[0]
+
+
+def test_config_rejects_a_malformed_hotword_entry():
+    with pytest.raises(ValueError):
+        asr.ASRConfig("test-model", hotwords=("ok", "  "))
+    with pytest.raises(ValueError):
+        asr.ASRConfig("test-model", hotwords=["ok"])  # type: ignore[arg-type]
+
+
+def test_module_provenance_helper_reads_no_model(monkeypatch):
+    """The CLI records provenance without loading a checkpoint."""
+
+    def explode(**_kwargs):
+        raise AssertionError("provenance must not build a model")
+
+    monkeypatch.setattr(asr, "_load_default_model", explode)
+    monkeypatch.setenv("BILI_ASR_MODEL", "FunAudioLLM/Fun-ASR-Nano-2512")
+
+    recorded = asr.provenance()
+
+    assert recorded["model_name"] == "FunAudioLLM/Fun-ASR-Nano-2512"
+    assert recorded["device"] == "cuda"
+
+
+def test_provenance_renders_absent_values_as_empty_not_none(monkeypatch):
+    """A missing revision or language must not read as the string "None"."""
+
+    monkeypatch.delenv("BILI_ASR_LANGUAGE", raising=False)
+    monkeypatch.delenv("BILI_ASR_MODEL_REVISION", raising=False)
+
+    recorded = asr.ASRRunner(asr.ASRConfig("local-model", device="cpu")).provenance()
+
+    assert recorded["model_revision"] == ""
+    assert recorded["language"] == ""
+    assert "None" not in recorded.values()

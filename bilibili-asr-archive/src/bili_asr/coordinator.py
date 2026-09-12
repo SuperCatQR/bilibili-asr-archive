@@ -505,7 +505,8 @@ class RunCoordinator:
         started = _utc_now_iso()
         try:
             paths = archive_module.write_archive(
-                self.root, self._current_entry(key, entry), segments, source="asr"
+                self.root, self._current_entry(key, entry), segments, source="asr",
+                asr_provenance=self.asr_runner.provenance() if self.asr_runner else None,
             )
         except Exception as exc:  # redacted; batch continues
             self._record(

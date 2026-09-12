@@ -191,3 +191,60 @@ def test_archive_failure_cleans_only_owned_staging(tmp_root, monkeypatch):
         write_archive(tmp_path, entry, [{"start": 0, "end": 1, "text": "x"}], source="asr")
     assert unrelated.read_text(encoding="utf-8") == "keep"
     assert not list((tmp_path / "transcripts" / "srt").glob(".archive-bundle-*"))
+
+
+def test_write_archive_records_asr_provenance_in_both_sinks(tmp_root):
+    """A transcript must say which model produced it, in the sidecar and the MD."""
+
+    tmp_path = __import__("pathlib").Path(tmp_root)
+    ident = page_identity("BV1prov", 0, 7)
+    entry = {
+        "bvid": ident.bvid,
+        "work_id": ident.work_id,
+        "page_index": 0,
+        "cid": 7,
+        "title": "provenance",
+        "pubdate_str": "2026-01-02",
+        "duration_s": 12,
+    }
+    provenance = {
+        "model_name": "[redacted]",
+        "model_revision": "master",
+        "device": "cpu",
+        "language": "中文",
+        "vad_model": "fsmn-vad",
+        "hotwords": "未明子,马恩牌",
+        "offline": "True",
+        "local_source": "configured-local",
+    }
+
+    paths = write_archive(
+        tmp_path,
+        entry,
+        [{"start": 0, "end": 1, "text": "你好。"}],
+        source="asr",
+        asr_provenance=provenance,
+    )
+
+    md = (tmp_path / paths["md_path"]).read_text(encoding="utf-8")
+    assert 'asr_vad_model: "fsmn-vad"' in md
+    assert 'asr_hotwords: "未明子,马恩牌"' in md
+    raw = json.loads((tmp_path / paths["raw_path"]).read_text(encoding="utf-8"))
+    assert raw["provenance"] == provenance
+    assert raw["source"] == "asr"
+
+
+def test_write_archive_without_provenance_adds_no_asr_keys(tmp_root):
+    """The subtitle path records nothing about an ASR model."""
+
+    tmp_path = __import__("pathlib").Path(tmp_root)
+    ident = page_identity("BV1noprov", 0, 8)
+    entry = {"bvid": ident.bvid, "work_id": ident.work_id, "page_index": 0, "cid": 8,
+             "title": "no provenance", "pubdate_str": "2026-01-02", "duration_s": 5}
+
+    paths = write_archive(tmp_path, entry, [{"start": 0, "end": 1, "text": "hi"}], source="subtitle")
+
+    md = (tmp_path / paths["md_path"]).read_text(encoding="utf-8")
+    assert "asr_" not in md
+    raw = json.loads((tmp_path / paths["raw_path"]).read_text(encoding="utf-8"))
+    assert "provenance" not in raw

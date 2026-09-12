@@ -1561,6 +1561,7 @@ def _cmd_asr(args: argparse.Namespace) -> int:
         label = key
         source = "subtitle"
         raw = None
+        provenance = None
         status = entry.get("status")
         subtitle_data = (
             _subtitle_segments(args.archive_root, entry)
@@ -1581,7 +1582,11 @@ def _cmd_asr(args: argparse.Namespace) -> int:
                 declared = entry.get("audio_path") or os.path.join("audio", f"{stem}.m4a")
                 with confined_audio_file(args.archive_root, os.fspath(declared)) as safe_audio:
                     segments = asr.transcribe(safe_audio)
-            paths = archive.write_archive(args.archive_root, entry, segments, source=source, raw=raw)
+                provenance = asr.provenance()
+            paths = archive.write_archive(
+                args.archive_root, entry, segments, source=source, raw=raw,
+                asr_provenance=provenance,
+            )
             if not archive.archive_bundle_complete(args.archive_root, paths):
                 raise ValueError("archive bundle incomplete")
             updated = dict(store.get(key) or entry)
@@ -1663,7 +1668,7 @@ def _pilot_archive_asr(store, client, root: str, entry: dict[str, object], targe
     with confined_audio_file(root, declared_audio) as safe_audio:
         segments = asr.transcribe(safe_audio)
     current = dict(store.get(target.work_id) or entry)
-    paths = archive.write_archive(root, current, segments, source="asr")
+    paths = archive.write_archive(root, current, segments, source="asr", asr_provenance=asr.provenance())
     if not archive.archive_bundle_complete(root, paths):
         raise ValueError("archive bundle incomplete")
     current.update(paths)

@@ -74,9 +74,10 @@ def test_normalize_nano_tokens_group_into_punctuated_cues():
         }
     ]
     segments = asr.normalize_result(result)
+    # The trailing "然后。" is below the cue floor, so it is absorbed into the
+    # sentence before it instead of becoming a two-character subtitle.
     assert segments == [
-        {"start": 0.18, "end": 2.16, "text": "就是我注册一个域名，叫做labor。"},
-        {"start": 5.00, "end": 5.18, "text": "然后。"},
+        {"start": 0.18, "end": 5.18, "text": "就是我注册一个域名，叫做labor。然后。"},
     ]
 
 
@@ -92,8 +93,9 @@ def test_normalize_nano_tokens_stay_in_seconds_and_closed_on_pause():
             }
         ]
     )
-    assert [segment["text"] for segment in segments] == ["前半", "后半"]
-    assert [segment["start"] for segment in segments] == [10.0, 12.0]
+    assert [segment["text"] for segment in segments] == ["前半后半"]
+    assert [segment["start"] for segment in segments] == [10.0]
+    assert [segment["end"] for segment in segments] == [13.0]
 
 
 def test_normalize_nano_tokens_close_on_cue_length_ceiling():
@@ -126,3 +128,66 @@ def test_transcribe_missing_dependency_has_install_hint(monkeypatch):
     with pytest.raises(asr.ASRDependencyError, match="bilibili-asr-archive/\\[asr\\]"):
         runner = asr.ASRRunner(asr.ASRConfig(model_name="test-model", device="cpu"))
         runner.transcribe("missing.wav")
+
+
+def test_cues_absorb_a_leading_mark_and_punctuation_only_groups():
+    """A mark never opens a cue; a punctuation-only group never stands alone."""
+
+    tokens = _nano_tokens(
+        [
+            ("第", 0.0, 0.2), ("一", 0.2, 0.4), ("句", 0.4, 0.6), ("话", 0.6, 0.8),
+            ("。", 0.8, 0.86),
+            ("，", 3.0, 3.06), ("第", 3.06, 3.2), ("二", 3.2, 3.4), ("句", 3.4, 3.6),
+            ("话", 3.6, 3.8), ("就", 3.8, 4.0), ("到", 4.0, 4.2), ("这", 4.2, 4.4),
+            ("里", 4.4, 4.6), ("了", 4.6, 4.8), ("。", 4.8, 4.86),
+            ("。", 4.9, 4.96),
+        ]
+    )
+    segments = asr.normalize_result([{"timestamps": tokens}])
+
+    assert all(not segment["text"][:1] in "，。！？、；：" for segment in segments)
+    assert all(segment["text"].strip("，。！？、；：") for segment in segments)
+    assert [segment["text"] for segment in segments] == [
+        "第一句话。，",
+        "第二句话就到这里了。。",
+    ]
+
+
+def test_cues_never_exceed_the_character_ceiling_when_merging():
+    tokens = _nano_tokens(
+        [
+            ("甲", 0.0, 0.1), ("乙", 0.1, 0.2), ("丙", 0.2, 0.3), ("丁", 0.3, 0.4),
+            ("戊", 0.4, 0.5), ("己", 0.5, 0.6), ("庚", 0.6, 0.7), ("辛", 0.7, 0.8),
+        ]
+        + [("字", 1.0 + 0.01 * index, 1.01 + 0.01 * index) for index in range(120)]
+    )
+    segments = asr.normalize_result([{"timestamps": tokens}])
+
+    assert all(len(segment["text"]) <= 60 for segment in segments)
+    assert all(segment["end"] >= segment["start"] for segment in segments)
+
+
+def test_merged_latin_fragments_keep_a_word_separator():
+    """Nano splits an English phrase across tokens; a merge must not glue them."""
+
+    segments = asr.normalize_result(
+        [
+            {
+                "timestamps": _nano_tokens(
+                    [
+                        ("labor", 0.0, 0.4),
+                        ("labor", 2.0, 2.4),
+                        ("gang", 4.0, 4.4),
+                        ("，", 6.0, 6.06),
+                        ("中文", 6.06, 7.0),
+                        ("继续", 8.0, 9.0),
+                    ]
+                )
+            }
+        ]
+    )
+
+    text = "".join(segment["text"] for segment in segments)
+    assert "labor labor gang" in text
+    assert "laborlabor" not in text
+    assert "中文继续" in text
