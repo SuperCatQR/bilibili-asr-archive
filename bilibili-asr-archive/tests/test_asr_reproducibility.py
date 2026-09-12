@@ -356,6 +356,17 @@ def test_cuda_unavailable_raises_dependency_error_with_rocm_hint(monkeypatch):
     assert "scripts/check_asr_env.py" in error_message
     assert "docs/wsl-rocm-gpu.md" in error_message
     assert "BILI_ASR_DEVICE=cpu" in error_message
+    # N-1: the hint must publish the check the way the check's own fix text and
+    # docs/wsl-rocm-gpu.md do — the venv interpreter that holds torch.  A bare
+    # `python3.12` invocation probes the *system* interpreter and reports a false
+    # `torch-present FAIL` on a host built exactly as the recipe says, so the
+    # token is banned from this surface entirely, not merely discouraged.
+    assert (
+        '"${VENV:?export VENV to the venv that runs bili-asr}/bin/python"'
+        " scripts/check_asr_env.py"
+    ) in error_message
+    assert "python3.12" not in error_message
+    assert "python3.12 scripts/check_asr_env.py" not in error_message
     assert ("download.pytorch.org" + "/whl/rocm") not in error_message
     assert "http://" not in error_message and "https://" not in error_message
     # No machine-specific layout either: the hint must not name one host's paths.
