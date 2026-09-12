@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import builtins
 import json
+import os
 import sys
 import types
 from typing import Any
@@ -51,8 +52,11 @@ def test_fake_model_result_normalization_timestamps_and_rich_tag_cleanup(fake_fu
         {"start": 0.125, "end": 1.5, "text": "deterministic"},
         {"start": 1.5, "end": 2.75, "text": "output"},
     ]
-    assert fake_funasr.construction_records == [{"model": "local-test-model", "device": "cuda", "trust_remote_code": False}]
-    assert fake_funasr.generation_records == [{"input": "fixture-audio.wav", "cache": {}, "language": "auto", "use_itn": True, "batch_size_s": 60, "merge_vad": True, "merge_length_s": 15}]
+    assert fake_funasr.construction_records == [{
+        "model": "local-test-model", "device": "cuda", "trust_remote_code": False,
+        "vad_model": "fsmn-vad", "vad_kwargs": {"max_single_segment_time": 30_000},
+    }]
+    assert fake_funasr.generation_records == [{"input": "fixture-audio.wav", "cache": {}, "itn": True}]
 
 
 def test_empty_and_malformed_results_are_ignored():
@@ -73,7 +77,10 @@ def test_fake_generation_snapshots_include_both_input_paths(fake_funasr, monkeyp
     assert first == second
     assert fake_funasr.construction_count == 2
     assert [record["input"] for record in fake_funasr.generation_records] == ["one.wav", "two.wav"]
-    assert fake_funasr.construction_records == [{"model": "/fixture/local-model", "device": "cuda", "trust_remote_code": False}] * 2
+    assert fake_funasr.construction_records == [{
+        "model": "/fixture/local-model", "device": "cuda", "trust_remote_code": False,
+        "vad_model": "fsmn-vad", "vad_kwargs": {"max_single_segment_time": 30_000},
+    }] * 2
 
 
 def test_error_serialization_redacts_forbidden_markers_and_preserves_class(monkeypatch):
@@ -161,7 +168,8 @@ def test_factory_gets_exact_kwargs_and_typeerror_is_not_retried(monkeypatch):
         runner.transcribe("fixture.wav")
     assert len(calls) == 1
     assert set(calls[0]) == {
-        "model", "device", "trust_remote_code", "model_revision"
+        "model", "device", "trust_remote_code", "model_revision",
+        "vad_model", "vad_kwargs",
     }
     assert "hostile" not in str(caught.value)
 
@@ -201,17 +209,21 @@ def test_provenance_has_stable_redacted_configuration_keys():
         model_name="local-model",
         model_revision="revision-1",
         device="cpu",
+        language="中文",
         offline=True,
         local_source="configured-local",
     )
     provenance = asr.ASRRunner(config).provenance()
     assert list(provenance) == [
-        "model_name", "model_revision", "device", "offline", "local_source"
+        "model_name", "model_revision", "device", "language", "vad_model", "offline",
+        "local_source",
     ]
     assert provenance == {
         "model_name": "local-model",
         "model_revision": "revision-1",
         "device": "cpu",
+        "language": "中文",
+        "vad_model": "fsmn-vad",
         "offline": "True",
         "local_source": "configured-local",
     }
@@ -361,3 +373,115 @@ def test_cpu_override_skips_gpu_check(fake_funasr):
         {"start": 1.5, "end": 2.75, "text": "output"},
     ]
     assert fake_funasr.construction_records[0]["device"] == "cpu"
+
+
+def test_default_config_reads_the_documented_environment_knobs(monkeypatch):
+    monkeypatch.setenv("BILI_ASR_MODEL", "/opt/checkpoints/nano")
+    monkeypatch.setenv("BILI_ASR_MODEL_REVISION", "rev-9")
+    monkeypatch.setenv("BILI_ASR_DEVICE", "cpu")
+    monkeypatch.setenv("BILI_ASR_LANGUAGE", "中文")
+    monkeypatch.setenv("BILI_ASR_VAD_MODEL", "fsmn-vad")
+
+    config = asr.default_config()
+
+    assert config.model_name == "/opt/checkpoints/nano"
+    assert config.model_revision == "rev-9"
+    assert config.device == "cpu"
+    assert config.language == "中文"
+    assert config.vad_model == "fsmn-vad"
+
+
+def test_vad_is_the_default_and_a_blank_knob_disables_it(monkeypatch):
+    """Long recordings need the VAD; an explicit blank turns that pipeline off."""
+
+    monkeypatch.delenv("BILI_ASR_VAD_MODEL", raising=False)
+    assert asr.default_config().vad_model == "fsmn-vad"
+
+    monkeypatch.setenv("BILI_ASR_VAD_MODEL", "   ")
+    assert asr.default_config().vad_model is None
+
+
+def test_no_vad_configured_omits_the_component_from_the_construction(fake_funasr):
+    asr.ASRRunner(
+        asr.ASRConfig("test-model", device="cpu", vad_model=None), model_factory=fake_funasr
+    ).transcribe("fixture.wav")
+
+    assert fake_funasr.construction_records == [
+        {"model": "test-model", "device": "cpu", "trust_remote_code": False}
+    ]
+
+
+@pytest.mark.skipif(not os.path.exists("/proc/self/fd"), reason="descriptor paths are POSIX")
+def test_confined_descriptor_input_is_materialized_for_component_subprocesses(tmp_path):
+    """The VAD component shells out to ffmpeg, which cannot open a cloexec fd."""
+
+    payload = b"fake audio payload"
+    real = tmp_path / "clip.m4a"
+    real.write_bytes(payload)
+    seen: list[bytes] = []
+
+    class ReadingModel:
+        def __init__(self, **_kwargs):
+            pass
+
+        def generate(self, **kwargs):
+            with open(kwargs["input"], "rb") as handle:
+                seen.append(handle.read())
+            return [{"text": "ok", "timestamp": []}]
+
+    descriptor = None
+    fd = os.open(real, os.O_RDONLY)
+    try:
+        descriptor = f"/proc/self/fd/{fd}"
+        segments = asr.ASRRunner(
+            asr.ASRConfig("test-model", device="cpu"), model_factory=ReadingModel
+        ).transcribe(descriptor)
+    finally:
+        os.close(fd)
+
+    assert segments == [{"start": 0.0, "end": 0.0, "text": "ok"}]
+    assert seen == [payload]
+    assert descriptor is not None
+
+
+def test_a_plain_path_is_never_copied(fake_funasr):
+    asr.ASRRunner(
+        asr.ASRConfig("test-model", device="cpu"), model_factory=fake_funasr
+    ).transcribe("fixture.wav")
+
+    assert fake_funasr.generation_records[0]["input"] == "fixture.wav"
+
+
+def test_default_config_defaults_are_unchanged_without_the_knobs(monkeypatch):
+    for name in ("BILI_ASR_MODEL", "BILI_ASR_MODEL_REVISION", "BILI_ASR_DEVICE", "BILI_ASR_LANGUAGE"):
+        monkeypatch.delenv(name, raising=False)
+
+    config = asr.default_config()
+
+    assert config.model_name == asr.DEFAULT_MODEL
+    assert config.model_revision is None
+    assert config.device == "cuda"
+    assert config.language is None
+
+
+def test_configured_language_is_passed_and_absent_language_is_not(fake_funasr):
+    """`language` is prompt text for Nano, so only a configured value is sent."""
+
+    asr.ASRRunner(
+        asr.ASRConfig("test-model", device="cpu", language="中文"), model_factory=fake_funasr
+    ).transcribe("one.wav")
+    asr.ASRRunner(
+        asr.ASRConfig("test-model", device="cpu"), model_factory=fake_funasr
+    ).transcribe("two.wav")
+
+    assert fake_funasr.generation_records == [
+        {"input": "one.wav", "cache": {}, "itn": True, "language": "中文"},
+        {"input": "two.wav", "cache": {}, "itn": True},
+    ]
+
+
+def test_config_rejects_a_blank_language():
+    with pytest.raises(ValueError):
+        asr.ASRConfig("test-model", language="   ")
+    with pytest.raises(ValueError):
+        asr.ASRConfig("test-model", language=7)  # type: ignore[arg-type]

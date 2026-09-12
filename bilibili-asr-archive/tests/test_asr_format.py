@@ -35,6 +35,85 @@ def test_normalize_single_text_uses_outer_timestamps():
     ]
 
 
+def _nano_tokens(pairs: list[tuple[str, float, float]]) -> list[dict[str, object]]:
+    """Fun-ASR-Nano's recorded token shape: seconds, punctuation as its own token."""
+
+    return [
+        {"token": token, "start_time": start, "end_time": end, "score": 0.9}
+        for token, start, end in pairs
+    ]
+
+
+def test_normalize_nano_tokens_group_into_punctuated_cues():
+    """Recorded Fun-ASR-Nano output: cue text keeps the punctuation tokens."""
+
+    result = [
+        {
+            "text": "就是我注册一个域名，叫做 labor。然后大家都知道了。",
+            "timestamps": _nano_tokens(
+                [
+                    ("就", 0.18, 0.24),
+                    ("是", 0.30, 0.36),
+                    ("我", 1.02, 1.08),
+                    ("注", 1.20, 1.26),
+                    ("册", 1.26, 1.32),
+                    ("一", 1.32, 1.38),
+                    ("个", 1.38, 1.44),
+                    ("域", 1.44, 1.50),
+                    ("名", 1.50, 1.56),
+                    ("，", 1.56, 1.62),
+                    ("叫", 1.62, 1.68),
+                    ("做", 1.68, 1.74),
+                    ("labor", 1.74, 2.10),
+                    ("。", 2.10, 2.16),
+                    ("然", 5.00, 5.06),
+                    ("后", 5.06, 5.12),
+                    ("。", 5.12, 5.18),
+                ]
+            ),
+        }
+    ]
+    segments = asr.normalize_result(result)
+    assert segments == [
+        {"start": 0.18, "end": 2.16, "text": "就是我注册一个域名，叫做labor。"},
+        {"start": 5.00, "end": 5.18, "text": "然后。"},
+    ]
+
+
+def test_normalize_nano_tokens_stay_in_seconds_and_closed_on_pause():
+    """A pause alone closes a cue, and seconds are never divided by 1000."""
+
+    segments = asr.normalize_result(
+        [
+            {
+                "timestamps": _nano_tokens(
+                    [("前", 10.0, 10.5), ("半", 10.5, 11.0), ("后", 12.0, 12.5), ("半", 12.5, 13.0)]
+                )
+            }
+        ]
+    )
+    assert [segment["text"] for segment in segments] == ["前半", "后半"]
+    assert [segment["start"] for segment in segments] == [10.0, 12.0]
+
+
+def test_normalize_nano_tokens_close_on_cue_length_ceiling():
+    segments = asr.normalize_result(
+        [{"timestamps": _nano_tokens([("字", 0.1 * index, 0.1 * index + 0.05) for index in range(130)])}]
+    )
+    assert len(segments) >= 3
+    assert all(len(segment["text"]) <= 60 for segment in segments)
+    assert all(segment["end"] > segment["start"] for segment in segments)
+
+
+def test_normalize_nano_shape_without_usable_tokens_falls_back_to_text():
+    """Malformed token entries never claim a timing they cannot support."""
+
+    result = [{"text": "整段", "timestamps": [{"token": "x"}, "bad", 7]}]
+    assert asr.normalize_result(result) == [
+        {"start": 0.0, "end": 0.0, "text": "整段"}
+    ]
+
+
 def test_transcribe_missing_dependency_has_install_hint(monkeypatch):
     real_import = builtins.__import__
 
