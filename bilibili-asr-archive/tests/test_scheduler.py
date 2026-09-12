@@ -813,3 +813,53 @@ def test_schedule_resume_skips_only_terminal_not_budget_rows(
     assert loaded[budget_id.work_id]["status"] == "needs_audio"
     assert budget_id.work_id not in _scheduler(tmp_root)["processed_work_ids"]
     _assert_no_secrets(captured, tmp_root)
+
+
+# ------------------------------------------------------------ reuse line label
+
+
+def test_schedule_reuse_line_names_schedule_not_run(tmp_root, monkeypatch, capsys):
+    """D2.6: `schedule` wraps the shared `run_batch`, so it must relabel it.
+
+    Three audio_ok rows with audio already on disk; the coordinator path builds
+    one model for the batch and the line says which command paid it.
+    """
+
+    identities = [
+        page_identity(f"BVsch{index}", 0, 600 + index, "p0") for index in range(3)
+    ]
+    store = ManifestStore(root=tmp_root)
+    for identity in identities:
+        store.upsert(_row(
+            identity, status="audio_ok",
+            audio_path=f"audio/{artifact_stem(identity)}.m4a",
+        ))
+        _write_audio(tmp_root, identity)
+    _patch_cli(monkeypatch, RouterTransport(_base_routes()))
+
+    constructed: list[dict] = []
+
+    class FakeModel:
+        def generate(self, **_kwargs):
+            return [{"text": "schedule-asr", "timestamp": [[0, 1000]]}]
+
+    def factory(**kwargs):
+        constructed.append(dict(kwargs))
+        return FakeModel()
+
+    monkeypatch.setenv("BILI_ASR_DEVICE", "cpu")
+    monkeypatch.setattr(asr_mod, "_load_default_model", factory)
+
+    rc = main([
+        "schedule", "--scope", "pending", "--limit", "3",
+        "--archive-root", tmp_root,
+    ])
+    captured = capsys.readouterr()
+
+    assert rc == 0, captured.err
+    assert len(constructed) == 1
+    assert "schedule: model constructions=1 for 3 asr item(s)" in captured.err
+    assert "run: model constructions=" not in captured.err
+    assert "model constructions=" not in captured.out
+    loaded = ManifestStore(root=tmp_root).load()
+    assert [loaded[i.work_id]["status"] for i in identities] == ["archived"] * 3

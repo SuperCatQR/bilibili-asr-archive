@@ -1,13 +1,19 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 import pytest
 
+from bili_asr import asr as asr_mod
 from bili_asr.campaign import CampaignRunner
 from bili_asr.coordinator import RowResult, RunSummary, archive_writer
+from bili_asr.manifest import ManifestStore
+from bili_asr.page_identity import artifact_stem, page_identity
 from bili_asr.scheduler import SchedulerStore
+
+_AUDIO_BYTES = b"\x00\x00\x00\x18ftypM4A " + b"payload" * 100
 
 
 def _rows(*ids: str):
@@ -201,3 +207,81 @@ def test_cli_campaign_invalid_resume_is_generic(monkeypatch, tmp_path, capsys):
     args = type("A", (), {"offline": True, "archive_root": str(tmp_path), "scope": "pending", "limit": 1, "resume": True, "max_audio_gb": 0})()
     assert cli._cmd_campaign(args) == 1
     assert capsys.readouterr().err == "campaign: invalid configuration or execution failure\n"
+
+
+# ---------------------------------------------- real coordinator, real stdout contract
+
+
+def _seed_campaign_audio_rows(root, count):
+    """`count` audio_ok rows with audio on disk (no network, no fake runner)."""
+    store = ManifestStore(root=root)
+    audio_dir = os.path.join(root, "audio")
+    os.makedirs(audio_dir, exist_ok=True)
+    identities = [
+        page_identity(f"BVcamp{index}", 0, 500 + index, "p0") for index in range(count)
+    ]
+    for identity in identities:
+        store.upsert({
+            "bvid": identity.bvid, "work_id": identity.work_id, "page_index": 0,
+            "cid": identity.cid, "page_label": "p0", "status": "audio_ok",
+            "title": "campaign-clip", "duration_s": 5, "pubdate": 1,
+            "pubdate_str": "2026-01-02",
+            "audio_path": f"audio/{artifact_stem(identity)}.m4a",
+        })
+        with open(os.path.join(audio_dir, f"{artifact_stem(identity)}.m4a"), "wb") as fh:
+            fh.write(_AUDIO_BYTES)
+    return identities
+
+
+def _stub_campaign_model(monkeypatch):
+    """D2.5 seam for the real coordinator: count constructions at the factory."""
+    constructions: list[dict] = []
+
+    class FakeModel:
+        def generate(self, **_kwargs):
+            return [{"text": "campaign-asr", "timestamp": [[0, 1000]]}]
+
+    def factory(**kwargs):
+        constructions.append(dict(kwargs))
+        return FakeModel()
+
+    monkeypatch.setenv("BILI_ASR_DEVICE", "cpu")
+    monkeypatch.setattr(asr_mod, "_load_default_model", factory)
+    return constructions
+
+
+def test_cli_campaign_stdout_is_json_and_the_reuse_line_is_stderr(
+    tmp_path, monkeypatch, capsys
+):
+    """D2.6 regression: the constructions line must not break campaign's JSON.
+
+    Task 1 measured this against the real coordinator — the existing campaign
+    CLI tests inject a fake coordinator, so they never exercised the real
+    stdout.  This test drives `_cmd_campaign` through `CampaignRunner` and the
+    real `RunCoordinator` over three on-disk audio rows.
+    """
+
+    from bili_asr import cli
+
+    identities = _seed_campaign_audio_rows(str(tmp_path), 3)
+    constructions = _stub_campaign_model(monkeypatch)
+    args = type("A", (), {
+        "offline": True, "archive_root": str(tmp_path), "scope": "pending",
+        "limit": 3, "resume": False, "max_audio_gb": 0,
+    })()
+
+    assert cli._cmd_campaign(args) == 0
+    captured = capsys.readouterr()
+
+    # stdout is exactly one JSON document — nothing else, on one line.
+    assert len(captured.out.splitlines()) == 1
+    summary = json.loads(captured.out)
+    assert summary["checkpoint_state"] == "complete"
+    assert sorted(summary["processed"]) == sorted(i.work_id for i in identities)
+    # The reuse line names `campaign`, not `run`, and lives on stderr.
+    assert "campaign: model constructions=1 for 3 asr item(s)" in captured.err
+    assert "model constructions=" not in captured.out
+    assert len(constructions) == 1
+    loaded = ManifestStore(root=str(tmp_path)).load()
+    assert [loaded[i.work_id]["status"] for i in identities] == ["archived"] * 3
+

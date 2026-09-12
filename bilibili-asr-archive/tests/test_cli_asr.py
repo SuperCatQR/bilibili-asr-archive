@@ -29,11 +29,63 @@ from test_audio import (
 from test_subtitles import SAMPLE_DOC, nav_ok, player_ok, sub_entry
 
 
-def _audio_target(path: str) -> str:
+def _model_input_bytes(path: str) -> bytes:
+    """The audio the model was handed, read while the path still resolves.
+
+    The runner passes a ``/proc/self/fd/N`` descriptor and the ASR boundary
+    copies it to a temp file the model actually opens, so reading it here is
+    the only way to see the bytes the model received.
+    """
     try:
-        return os.readlink(path)
+        with open(os.fspath(path), "rb") as fh:
+            return fh.read()
     except OSError:
-        return path
+        return b""
+
+
+class _FakeModel:
+    """Stands in for the FunASR AutoModel the runner builds lazily."""
+
+    def __init__(self, calls=None):
+        self._calls = calls
+
+    def generate(self, **kwargs):
+        if self._calls is not None:
+            self._calls.append(
+                (kwargs["input"], _model_input_bytes(kwargs["input"]))
+            )
+        return [{"start": 0.0, "end": 1.0, "text": "asr-text"}]
+
+
+def _stub_runner_model(monkeypatch, calls=None):
+    """D2.5 seam: patch the module-level factory, not ``asr.transcribe``.
+
+    The real ``_get_model`` path stays under test, so the counter a command
+    reports is the one the production construction site produces.  Returns the
+    list of construction kwargs, one entry per model built.
+    """
+    constructions: list[dict] = []
+
+    def factory(**kwargs):
+        constructions.append(dict(kwargs))
+        return _FakeModel(calls)
+
+    monkeypatch.setenv("BILI_ASR_DEVICE", "cpu")
+    monkeypatch.setattr(asr_mod, "_load_default_model", factory)
+    return constructions
+
+
+def _seed_audio_ok(root, identities):
+    """Rows the ``asr`` command routes straight to transcription."""
+    store = ManifestStore(root=root)
+    audio_dir = os.path.join(root, "audio")
+    os.makedirs(audio_dir, exist_ok=True)
+    for identity in identities:
+        row = _row(identity, status="audio_ok")
+        row["audio_path"] = f"audio/{artifact_stem(identity)}.m4a"
+        store.upsert(row)
+        with open(os.path.join(audio_dir, f"{artifact_stem(identity)}.m4a"), "wb") as fh:
+            fh.write(AUDIO_BYTES)
 
 
 def _row(identity, *, duration_s=5, title="clip", status="meta_ok", **extra):
@@ -131,11 +183,7 @@ def test_cli_audio_branch_needs_audio_audio_ok_archived(
     ManifestStore(root=tmp_root).upsert(_row(identity, title="needs-asr"))
     transcribe_calls: list[str] = []
 
-    def fake_transcribe(audio_path, model_name=None):
-        transcribe_calls.append(_audio_target(audio_path))
-        return [{"start": 0.0, "end": 1.0, "text": "asr-text"}]
-
-    monkeypatch.setattr(asr_mod, "transcribe", fake_transcribe)
+    _stub_runner_model(monkeypatch, transcribe_calls)
     _patch_cli(monkeypatch)
     monkeypatch.setattr(bc, "build_default_transport", _audio_transport)
 
@@ -158,7 +206,8 @@ def test_cli_audio_branch_needs_audio_audio_ok_archived(
     archived = ManifestStore(root=tmp_root).get(identity.work_id)
     assert archived["status"] == "archived"
     assert os.path.isfile(os.path.join(tmp_root, archived["srt_path"]))
-    assert transcribe_calls == [audio_abs]
+    # The model read this row's confined audio, not a stale or foreign file.
+    assert [body for _path, body in transcribe_calls] == [AUDIO_BYTES]
 
 
 def test_cli_subtitle_branch_subtitle_done_archived_skips_asr(
@@ -168,11 +217,9 @@ def test_cli_subtitle_branch_subtitle_done_archived_skips_asr(
     ManifestStore(root=tmp_root).upsert(_row(identity, title="has-sub"))
     transcribe_calls: list[str] = []
 
-    def fake_transcribe(audio_path, model_name=None):
-        transcribe_calls.append(_audio_target(audio_path))
-        return [{"start": 0.0, "end": 1.0, "text": "should-not-run"}]
-
-    monkeypatch.setattr(asr_mod, "transcribe", fake_transcribe)
+    # The seam records the model's generation inputs: this row must never
+    # reach a model (the subtitle branch wins before ASR).
+    _stub_runner_model(monkeypatch, transcribe_calls)
     _patch_cli(monkeypatch, _subtitle_transport())
 
     assert (
@@ -202,12 +249,13 @@ def test_cli_asr_missing_optional_asr_exits_1_non_archived(
     ManifestStore(root=tmp_root).upsert(_row(identity, title="needs-asr"))
     hint = 'pip install -e "bilibili-asr-archive/[asr]"'
 
-    def missing_asr(audio_path, model_name=None):
+    def missing_asr(**_kwargs):
         raise ASRDependencyError(
             f"FunASR support is not installed; run: {hint}"
         )
 
-    monkeypatch.setattr(asr_mod, "transcribe", missing_asr)
+    monkeypatch.setenv("BILI_ASR_DEVICE", "cpu")
+    monkeypatch.setattr(asr_mod, "_load_default_model", missing_asr)
     _patch_cli(monkeypatch)
     monkeypatch.setattr(bc, "build_default_transport", _audio_transport)
 
@@ -241,9 +289,10 @@ def test_cli_asr_rerun_idempotent_leaves_unrelated_rows(
 
     monkeypatch.setattr(
         asr_mod,
-        "transcribe",
-        lambda *a, **k: (_ for _ in ()).throw(AssertionError("ASR must not run")),
+        "_load_default_model",
+        lambda **_kwargs: (_ for _ in ()).throw(AssertionError("ASR must not run")),
     )
+    monkeypatch.setenv("BILI_ASR_DEVICE", "cpu")
     _patch_cli(monkeypatch, _subtitle_transport())
 
     assert (
@@ -268,3 +317,58 @@ def test_cli_asr_rerun_idempotent_leaves_unrelated_rows(
     assert rerun_ids == first_ids
     assert rerun_lines == first_lines
     assert ManifestStore(root=tmp_root).get(other.work_id) == other_snapshot
+
+
+# ------------------------------------------------------------ one runner per invocation
+
+
+def test_cli_asr_invocation_constructs_the_model_once_for_three_items(
+    tmp_root, monkeypatch, capsys
+):
+    """D2.2/D2.5: one `asr --pending --limit 3` process pays one construction."""
+
+    identities = [
+        page_identity(f"BVreuse{index}", 0, 300 + index, "p0") for index in range(3)
+    ]
+    _seed_audio_ok(tmp_root, identities)
+    constructions = _stub_runner_model(monkeypatch)
+    _patch_cli(monkeypatch)
+
+    rc = main(["asr", "--pending", "--limit", "3", "--archive-root", tmp_root])
+    captured = capsys.readouterr()
+
+    assert rc == 0, captured.err
+    loaded = ManifestStore(root=tmp_root).load()
+    assert [loaded[i.work_id]["status"] for i in identities] == ["archived"] * 3
+    # One construction served all three rows...
+    assert len(constructions) == 1
+    assert constructions[0]["device"] == "cpu"
+    # ...and the invocation's own output states it, on stderr only.
+    assert "asr: model constructions=1 for 3 asr item(s)" in captured.err
+    assert "model constructions=" not in captured.out
+
+
+def test_cli_asr_subtitle_only_selection_constructs_no_model(
+    tmp_root, monkeypatch, capsys
+):
+    """A selection with no ASR row prints no line (D2.6) and builds nothing."""
+
+    sub = page_identity("BVsubonly", 0, 111, "p0")
+    ManifestStore(root=tmp_root).upsert(_row(sub, title="has-sub"))
+    constructions = _stub_runner_model(monkeypatch)
+    _patch_cli(monkeypatch, _subtitle_transport())
+
+    assert (
+        _legacy_subtitle_state(tmp_root, sub, _subtitle_transport())
+        == "subtitle_done"
+    )
+    capsys.readouterr()
+
+    rc = main(["asr", "--pending", "--archive-root", tmp_root])
+    captured = capsys.readouterr()
+
+    assert rc == 0, captured.err
+    assert ManifestStore(root=tmp_root).get(sub.work_id)["status"] == "archived"
+    assert constructions == []
+    assert "model constructions=" not in captured.out
+    assert "model constructions=" not in captured.err

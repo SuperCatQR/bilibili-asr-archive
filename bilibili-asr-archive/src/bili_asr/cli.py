@@ -1525,6 +1525,30 @@ def _subtitle_segments(root: str, entry: dict[str, object]) -> tuple[list[dict[s
     return segments, doc
 
 
+def _print_in_process_constructions(
+    command: str, runner: object, asr_items: int
+) -> None:
+    """State one in-process ASR loop's constructions, once, on stderr (D2.6).
+
+    ``RunCoordinator.run_batch`` prints this for the coordinator path; ``asr``
+    and ``pilot`` never enter it, so they print through the same shared string
+    for their own command label.  ``runner`` is ``None`` when the selection
+    needed no model; a selection with no ASR row prints nothing, exactly like a
+    zero-ASR batch.  Stderr keeps every command's stdout contract intact.
+    """
+    from .coordinator import model_constructions_line
+
+    if asr_items <= 0:
+        return
+    constructions = (
+        int(getattr(runner, "model_constructions", 0)) if runner is not None else 0
+    )
+    print(
+        model_constructions_line(command, constructions, asr_items),
+        file=sys.stderr,
+    )
+
+
 def _cmd_asr(args: argparse.Namespace) -> int:
     from . import archive, asr
     from .manifest import ManifestStore
@@ -1556,52 +1580,66 @@ def _cmd_asr(args: argparse.Namespace) -> int:
     if args.limit is not None:
         todo = todo[:args.limit]
     ok = failed = 0
-    for entry in todo:
-        key = str(entry.get("work_id") or entry["bvid"])
-        label = key
-        source = "subtitle"
-        raw = None
-        provenance = None
-        status = entry.get("status")
-        subtitle_data = (
-            _subtitle_segments(args.archive_root, entry)
-            if status == "subtitle_done"
-            else None
-        )
-        try:
-            if status == "subtitle_done" and subtitle_data is None:
-                failed += 1
-                print(f"{label}: skipped (missing_subtitle_raw)", file=sys.stderr)
-                continue
-            if subtitle_data is not None:
-                segments, raw = subtitle_data
-            else:
-                source = "asr"
-                stem = archive.archive_stem(entry)
-                from .path_policy import confined_audio_file
-                declared = entry.get("audio_path") or os.path.join("audio", f"{stem}.m4a")
-                with confined_audio_file(args.archive_root, os.fspath(declared)) as safe_audio:
-                    segments = asr.transcribe(safe_audio)
-                provenance = asr.provenance()
-            paths = archive.write_archive(
-                args.archive_root, entry, segments, source=source, raw=raw,
-                asr_provenance=provenance,
+    # One invocation is one run scope (D2.2): every audio item of this
+    # selection shares one lazily-built runner, and the selection states what
+    # it paid.  ``asr.transcribe``'s one-shot contract is untouched (D2.4).
+    runner = None
+    asr_items = 0
+    try:
+        for entry in todo:
+            key = str(entry.get("work_id") or entry["bvid"])
+            label = key
+            source = "subtitle"
+            raw = None
+            provenance = None
+            status = entry.get("status")
+            subtitle_data = (
+                _subtitle_segments(args.archive_root, entry)
+                if status == "subtitle_done"
+                else None
             )
-            if not archive.archive_bundle_complete(args.archive_root, paths):
-                raise ValueError("archive bundle incomplete")
-            updated = dict(store.get(key) or entry)
-            updated.update(paths)
-            updated["status"] = "archived"
-            store.upsert(updated)
-            _reclaim_after_archive(args.archive_root, updated)
-            ok += 1
-            print(f"{label}: archived ({source})")
-        except asr.ASRDependencyError:
-            failed += 1
-            print(f"{label}: ASR dependency unavailable", file=sys.stderr)
-        except Exception:
-            failed += 1
-            print(f"{label}: archive failed", file=sys.stderr)
+            try:
+                if status == "subtitle_done" and subtitle_data is None:
+                    failed += 1
+                    print(f"{label}: skipped (missing_subtitle_raw)", file=sys.stderr)
+                    continue
+                if subtitle_data is not None:
+                    segments, raw = subtitle_data
+                else:
+                    source = "asr"
+                    stem = archive.archive_stem(entry)
+                    from .path_policy import confined_audio_file
+                    declared = entry.get("audio_path") or os.path.join("audio", f"{stem}.m4a")
+                    if runner is None:
+                        runner = asr.ASRRunner(asr.default_config())
+                    with confined_audio_file(args.archive_root, os.fspath(declared)) as safe_audio:
+                        segments = runner.transcribe(safe_audio)
+                    provenance = runner.provenance()
+                paths = archive.write_archive(
+                    args.archive_root, entry, segments, source=source, raw=raw,
+                    asr_provenance=provenance,
+                )
+                if not archive.archive_bundle_complete(args.archive_root, paths):
+                    raise ValueError("archive bundle incomplete")
+                updated = dict(store.get(key) or entry)
+                updated.update(paths)
+                updated["status"] = "archived"
+                store.upsert(updated)
+                _reclaim_after_archive(args.archive_root, updated)
+                ok += 1
+                if source == "asr":
+                    asr_items += 1
+                print(f"{label}: archived ({source})")
+            except asr.ASRDependencyError:
+                failed += 1
+                print(f"{label}: ASR dependency unavailable", file=sys.stderr)
+            except Exception:
+                failed += 1
+                print(f"{label}: archive failed", file=sys.stderr)
+    finally:
+        _print_in_process_constructions("asr", runner, asr_items)
+        if runner is not None:
+            runner.release()
     print(f"asr: {ok} archived" + (f", {failed} failed" if failed else ""))
     return 1 if failed else 0
 
@@ -1634,7 +1672,16 @@ def _pilot_archive_subtitle(store, root: str, entry: dict[str, object]) -> dict[
     return updated
 
 
-def _pilot_archive_asr(store, client, root: str, entry: dict[str, object], target) -> dict[str, object]:
+def _pilot_archive_asr(
+    store, client, root: str, entry: dict[str, object], target, runner=None
+) -> dict[str, object]:
+    """Archive one pilot row over ASR.
+
+    ``runner`` is the invocation-scoped ``ASRRunner``: the pilot's loop holds
+    one for its whole selection (D2.3), so this function transcribes through
+    the caller's runner and never builds a second model.  Omitting it keeps the
+    single-row entry point working with its own short-lived runner.
+    """
     from . import archive, asr, audio
     from .page_identity import PageIdentity, artifact_stem
     from .subtitles import resolve_page_identity
@@ -1665,10 +1712,19 @@ def _pilot_archive_asr(store, client, root: str, entry: dict[str, object], targe
             raise ValueError("invalid audio path")
         audio_path = str(audio_path_obj)
     declared_audio = os.path.relpath(audio_path, root)
-    with confined_audio_file(root, declared_audio) as safe_audio:
-        segments = asr.transcribe(safe_audio)
-    current = dict(store.get(target.work_id) or entry)
-    paths = archive.write_archive(root, current, segments, source="asr", asr_provenance=asr.provenance())
+    owns_runner = runner is None
+    if owns_runner:
+        runner = asr.ASRRunner(asr.default_config())
+    try:
+        with confined_audio_file(root, declared_audio) as safe_audio:
+            segments = runner.transcribe(safe_audio)
+        current = dict(store.get(target.work_id) or entry)
+        paths = archive.write_archive(
+            root, current, segments, source="asr", asr_provenance=runner.provenance()
+        )
+    finally:
+        if owns_runner:
+            runner.release()
     if not archive.archive_bundle_complete(root, paths):
         raise ValueError("archive bundle incomplete")
     current.update(paths)
@@ -1789,135 +1845,148 @@ def _cmd_pilot(args: argparse.Namespace) -> int:
     batch_subtitle_count = batch_audio_count = 0
     failed = 0
     terminals: list[str] = []
+    # One pilot invocation is one run scope (D2.3): the selection shares one
+    # runner, and the `finally` below states what it paid and releases it on
+    # every exit path — including the early returns inside the loop.
+    runner = None
+    asr_items = 0
 
-    for index, entry in enumerate(selected):
-        key = _pilot_row_key(entry)
-        target = _identity_from_entry(entry, key)
-        label = key
-        status = entry.get("status")
-        if status == "archived":
-            continue
-        try:
-            if status not in _PILOT_SKIP_HARVEST:
-                status = subtitles.harvest_subtitle(
-                    client, target, store, args.archive_root
-                )
-            current = dict(store.get(key) or store.get_compatible(key) or entry)
-            label = str(current.get("work_id") or key)
-            if status == "subtitle_done":
-                _pilot_archive_subtitle(store, args.archive_root, current)
-                batch_subtitle_count += 1
-                coverage_subtitle_count += 1
-                terminals.append(f"{label}: archived (subtitle)")
-                print(f"{label}: archived (subtitle)")
-            elif status in {"needs_audio", "audio_ok"}:
-                from .audio_budget import (
-                    SKIP_REASON,
-                    audio_cap_bytes,
-                    would_exceed_budget,
-                )
+    try:
+        for index, entry in enumerate(selected):
+            key = _pilot_row_key(entry)
+            target = _identity_from_entry(entry, key)
+            label = key
+            status = entry.get("status")
+            if status == "archived":
+                continue
+            try:
+                if status not in _PILOT_SKIP_HARVEST:
+                    status = subtitles.harvest_subtitle(
+                        client, target, store, args.archive_root
+                    )
+                current = dict(store.get(key) or store.get_compatible(key) or entry)
+                label = str(current.get("work_id") or key)
+                if status == "subtitle_done":
+                    _pilot_archive_subtitle(store, args.archive_root, current)
+                    batch_subtitle_count += 1
+                    coverage_subtitle_count += 1
+                    terminals.append(f"{label}: archived (subtitle)")
+                    print(f"{label}: archived (subtitle)")
+                elif status in {"needs_audio", "audio_ok"}:
+                    from .audio_budget import (
+                        SKIP_REASON,
+                        audio_cap_bytes,
+                        would_exceed_budget,
+                    )
 
-                max_bytes = audio_cap_bytes(args.max_audio_gb)
-                current_row = dict(store.get(key) or current)
+                    max_bytes = audio_cap_bytes(args.max_audio_gb)
+                    current_row = dict(store.get(key) or current)
+                    if (
+                        status == "needs_audio"
+                        and would_exceed_budget(
+                            args.archive_root, current_row, max_bytes
+                        )
+                    ):
+                        failed += 1
+                        print(
+                            f"{label}: skipped ({SKIP_REASON}); "
+                            "audio-dir budget cap reached",
+                            file=sys.stderr,
+                        )
+                        continue
+                    if runner is None:
+                        runner = asr.ASRRunner(asr.default_config())
+                    _pilot_archive_asr(
+                        store, client, args.archive_root, current, target, runner
+                    )
+                    asr_items += 1
+                    batch_audio_count += 1
+                    coverage_audio_count += 1
+                    terminals.append(f"{label}: archived (asr)")
+                    print(f"{label}: archived (asr)")
+                else:
+                    raise ValueError(f"unexpected status {status!r}")
+            except asr.ASRDependencyError as exc:
+                print(str(exc), file=sys.stderr)
+                print(
+                    f"{label}: ASR dependency unavailable; row not archived",
+                    file=sys.stderr,
+                )
+                _pilot_print_summary(
+                    batch_subtitle_count,
+                    batch_audio_count,
+                    coverage_subtitle_count,
+                    coverage_audio_count,
+                    failed,
+                    terminals,
+                )
+                return _record_exit(1)
+            except bili_client.AmbiguousPageError:
+                failed += 1
+                print(f"{label}: multi-part video needs an explicit page",
+                      file=sys.stderr)
+            except bili_client.RiskBudgetExhausted as exc:
+                failed += 1
+                last_api_error_code = exc.last_code
+                print(
+                    f"{label}: risk-control ceiling (last code {exc.last_code}); "
+                    f"stopping — re-run to resume.",
+                    file=sys.stderr,
+                )
+                _pilot_print_summary(
+                    batch_subtitle_count,
+                    batch_audio_count,
+                    coverage_subtitle_count,
+                    coverage_audio_count,
+                    failed,
+                    terminals,
+                )
+                return _record_exit(2)
+            except bili_client.APIResponseError as exc:
+                failed += 1
+                last_api_error_code = exc.code
+                _record_api_error(store, key, exc.code)
+                print(
+                    f"{label}: API response error (code {exc.code}); continuing.",
+                    file=sys.stderr,
+                )
+            except bili_client.GoneResponse as exc:
+                failed += 1
+                last_api_error_code = exc.code
+                gone = dict(store.get(key) or store.get_compatible(key) or {})
+                if gone.get("work_id"):
+                    gone["status"] = "gone"
+                    store.upsert(gone)
+                print(
+                    f"{label}: terminal API response (code {exc.code}); marked gone.",
+                    file=sys.stderr,
+                )
+            except audio.NoAudioStreamError:
+                failed += 1
+                print(f"{label}: no audio stream available", file=sys.stderr)
+            except bili_client.StreamDownloadError:
+                failed += 1
+                print(f"{label}: audio stream failed; continuing.", file=sys.stderr)
+            except ValueError as exc:
+                failed += 1
+                msg = str(exc)
                 if (
-                    status == "needs_audio"
-                    and would_exceed_budget(
-                        args.archive_root, current_row, max_bytes
-                    )
+                    "missing cid" in msg
+                    or "unresolved" in msg
+                    or "subtitle raw JSON missing" in msg
                 ):
-                    failed += 1
-                    print(
-                        f"{label}: skipped ({SKIP_REASON}); "
-                        "audio-dir budget cap reached",
-                        file=sys.stderr,
-                    )
-                    continue
-                _pilot_archive_asr(
-                    store, client, args.archive_root, current, target
-                )
-                batch_audio_count += 1
-                coverage_audio_count += 1
-                terminals.append(f"{label}: archived (asr)")
-                print(f"{label}: archived (asr)")
-            else:
-                raise ValueError(f"unexpected status {status!r}")
-        except asr.ASRDependencyError as exc:
-            print(str(exc), file=sys.stderr)
-            print(
-                f"{label}: ASR dependency unavailable; row not archived",
-                file=sys.stderr,
-            )
-            _pilot_print_summary(
-                batch_subtitle_count,
-                batch_audio_count,
-                coverage_subtitle_count,
-                coverage_audio_count,
-                failed,
-                terminals,
-            )
-            return _record_exit(1)
-        except bili_client.AmbiguousPageError:
-            failed += 1
-            print(f"{label}: multi-part video needs an explicit page",
-                  file=sys.stderr)
-        except bili_client.RiskBudgetExhausted as exc:
-            failed += 1
-            last_api_error_code = exc.last_code
-            print(
-                f"{label}: risk-control ceiling (last code {exc.last_code}); "
-                f"stopping — re-run to resume.",
-                file=sys.stderr,
-            )
-            _pilot_print_summary(
-                batch_subtitle_count,
-                batch_audio_count,
-                coverage_subtitle_count,
-                coverage_audio_count,
-                failed,
-                terminals,
-            )
-            return _record_exit(2)
-        except bili_client.APIResponseError as exc:
-            failed += 1
-            last_api_error_code = exc.code
-            _record_api_error(store, key, exc.code)
-            print(
-                f"{label}: API response error (code {exc.code}); continuing.",
-                file=sys.stderr,
-            )
-        except bili_client.GoneResponse as exc:
-            failed += 1
-            last_api_error_code = exc.code
-            gone = dict(store.get(key) or store.get_compatible(key) or {})
-            if gone.get("work_id"):
-                gone["status"] = "gone"
-                store.upsert(gone)
-            print(
-                f"{label}: terminal API response (code {exc.code}); marked gone.",
-                file=sys.stderr,
-            )
-        except audio.NoAudioStreamError:
-            failed += 1
-            print(f"{label}: no audio stream available", file=sys.stderr)
-        except bili_client.StreamDownloadError:
-            failed += 1
-            print(f"{label}: audio stream failed; continuing.", file=sys.stderr)
-        except ValueError as exc:
-            failed += 1
-            msg = str(exc)
-            if (
-                "missing cid" in msg
-                or "unresolved" in msg
-                or "subtitle raw JSON missing" in msg
-            ):
-                print(f"{label}: {msg}", file=sys.stderr)
-            else:
+                    print(f"{label}: {msg}", file=sys.stderr)
+                else:
+                    print(f"{label}: {type(exc).__name__}", file=sys.stderr)
+            except Exception as exc:
+                failed += 1
                 print(f"{label}: {type(exc).__name__}", file=sys.stderr)
-        except Exception as exc:
-            failed += 1
-            print(f"{label}: {type(exc).__name__}", file=sys.stderr)
-        if index != len(selected) - 1:
-            time.sleep(3.0)
+            if index != len(selected) - 1:
+                time.sleep(3.0)
+    finally:
+        _print_in_process_constructions("pilot", runner, asr_items)
+        if runner is not None:
+            runner.release()
 
     _pilot_print_summary(
         batch_subtitle_count,
@@ -2185,6 +2254,8 @@ def _cmd_schedule(args: argparse.Namespace) -> int:
         offline=False,
         max_audio_bytes=max_audio_bytes,
         sleep=time.sleep,
+        # `run_batch` is shared; the reuse line must name this command, not `run`.
+        command="schedule",
     )
     print(
         f"schedule: scope={args.scope} limit={args.limit} "
