@@ -586,3 +586,96 @@ def test_cli_pilot_releases_the_runner_when_the_loop_is_interrupted(
 
     assert len(released) == 1
     assert ManifestStore(root=tmp_root).get(identity.work_id)["status"] == "audio_ok"
+
+
+# ------------------------------------------------- the pilot's asr_items denominator
+
+
+def _patch_bundle_incomplete_for(monkeypatch, failing):
+    """Fail the archive step for ``failing`` only, on the pilot's path.
+
+    The rows are seeded as ordinary ``audio_ok`` rows with their audio already
+    on disk, so they all reach the real transcription boundary.  This patch
+    then makes one of them fail *after* it produced its transcript: the real
+    ``write_archive`` runs, the real ``ValueError("archive bundle
+    incomplete")`` is raised, and the row keeps its ``audio_ok`` status.
+    """
+    from bili_asr import archive as archive_mod
+
+    stem = artifact_stem(failing)
+    real = archive_mod.archive_bundle_complete
+
+    def patched(archive_root, paths):
+        if any(stem in str(path) for path in paths.values()):
+            return False
+        return real(archive_root, paths)
+
+    monkeypatch.setattr(archive_mod, "archive_bundle_complete", patched)
+
+
+def _reuse_line(captured, command):
+    """The one ``model constructions=`` line, or a failure explaining its absence."""
+    lines = [
+        line for line in captured.err.splitlines() if "model constructions=" in line
+    ]
+    assert len(lines) == 1, (
+        f"{command} printed {len(lines)} reuse line(s), expected exactly one: "
+        f"{captured.err!r}"
+    )
+    assert lines[0].startswith(f"{command}: "), lines[0]
+    return lines[0]
+
+
+def test_cli_pilot_counts_the_row_that_fails_after_transcription(
+    tmp_root, monkeypatch, capsys
+):
+    """D2.5 for the pilot: the denominator counts the ASR stage, not the archive.
+
+    The pilot's increment used to sit in ``_cmd_pilot`` *after*
+    ``_pilot_archive_asr`` returned, so a row that transcribed and then failed
+    downstream dropped out of the line's denominator while ``run`` counted it
+    at ``asr: ok``.  Row 2 of 3 fails exactly there, so the placement is only
+    observable on this path: the wider selection must still read ``for 3``.
+    """
+
+    identities = [
+        page_identity(f"BVpilotfail{index}", 0, 500 + index, "p0") for index in range(3)
+    ]
+    failing = identities[1]
+    store = ManifestStore(root=tmp_root)
+    audio_dir = os.path.join(tmp_root, "audio")
+    os.makedirs(audio_dir)
+    for identity in identities:
+        row = _row(identity, duration_s=5, title="pilot-asr-count")
+        row.update({
+            "status": "audio_ok",
+            "audio_path": f"audio/{artifact_stem(identity)}.m4a",
+        })
+        store.upsert(row)
+        with open(os.path.join(audio_dir, f"{artifact_stem(identity)}.m4a"), "wb") as fh:
+            fh.write(AUDIO_BYTES)
+
+    constructions = _stub_runner_model(monkeypatch)
+    _patch_bundle_incomplete_for(monkeypatch, failing)
+    _patch_cli(monkeypatch, RouterTransport({}))
+
+    rc = main(["pilot", "--n", "3", "--archive-root", tmp_root])
+    captured = capsys.readouterr()
+
+    # Exit 1 is the frozen pilot contract here: no subtitle branch was covered.
+    assert rc == 1, captured.err
+    loaded = ManifestStore(root=tmp_root).load()
+    # The failing row transcribed, then failed at the archive tail, so it is
+    # neither archived nor lost: it keeps its pre-archive status.
+    assert [loaded[i.work_id]["status"] for i in identities] == [
+        "archived",
+        "audio_ok",
+        "archived",
+    ]
+    # One construction paid for three rows...
+    assert len(constructions) == 1
+    # ...and the line's denominator counts all three, the failed one included.
+    assert _reuse_line(captured, "pilot") == (
+        "pilot: model constructions=1 for 3 asr item(s)"
+    )
+    assert "model constructions=" not in captured.out
