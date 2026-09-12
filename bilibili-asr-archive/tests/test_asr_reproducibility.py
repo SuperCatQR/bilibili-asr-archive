@@ -219,8 +219,8 @@ def test_provenance_has_stable_redacted_configuration_keys():
     )
     provenance = asr.ASRRunner(config).provenance()
     assert list(provenance) == [
-        "model_name", "model_revision", "device", "language", "vad_model", "hotwords",
-        "offline", "local_source",
+        "model_name", "model_revision", "device", "language", "vad_model",
+        "vad_max_segment_s", "hotwords", "offline", "local_source",
     ]
     assert provenance == {
         "model_name": "local-model",
@@ -228,6 +228,7 @@ def test_provenance_has_stable_redacted_configuration_keys():
         "device": "cpu",
         "language": "中文",
         "vad_model": "fsmn-vad",
+        "vad_max_segment_s": "30.0",
         "hotwords": "a,b",
         "offline": "True",
         "local_source": "configured-local",
@@ -548,3 +549,38 @@ def test_provenance_renders_absent_values_as_empty_not_none(monkeypatch):
     assert recorded["model_revision"] == ""
     assert recorded["language"] == ""
     assert "None" not in recorded.values()
+
+
+def test_vad_cap_is_configurable_and_validated(monkeypatch):
+    """The measured-optimal cap is a knob, not a constant frozen in the code."""
+
+    monkeypatch.delenv("BILI_ASR_VAD_MAX_SEGMENT_S", raising=False)
+    assert asr.default_config().vad_max_segment_s == asr.DEFAULT_VAD_MAX_SEGMENT_S
+
+    monkeypatch.setenv("BILI_ASR_VAD_MAX_SEGMENT_S", "30")
+    assert asr.default_config().vad_max_segment_s == 30.0
+    monkeypatch.setenv("BILI_ASR_VAD_MAX_SEGMENT_S", " 7.5s ")
+    assert asr.default_config().vad_max_segment_s == 7.5
+    monkeypatch.setenv("BILI_ASR_VAD_MAX_SEGMENT_S", "   ")
+    assert asr.default_config().vad_max_segment_s == asr.DEFAULT_VAD_MAX_SEGMENT_S
+
+    monkeypatch.setenv("BILI_ASR_VAD_MAX_SEGMENT_S", "soon")
+    with pytest.raises(ValueError):
+        asr.default_config()
+    monkeypatch.setenv("BILI_ASR_VAD_MAX_SEGMENT_S", "-1")
+    with pytest.raises(ValueError):
+        asr.default_config()
+
+    with pytest.raises(ValueError):
+        asr.ASRConfig("m", vad_max_segment_s=0)
+    with pytest.raises(ValueError):
+        asr.ASRConfig("m", vad_max_segment_s=True)  # type: ignore[arg-type]
+
+
+def test_the_configured_cap_reaches_the_vad_component(fake_funasr):
+    asr.ASRRunner(
+        asr.ASRConfig("test-model", device="cpu", vad_max_segment_s=10),
+        model_factory=fake_funasr,
+    ).transcribe("fixture.wav")
+
+    assert fake_funasr.construction_records[0]["vad_kwargs"] == {"max_single_segment_time": 10_000}
