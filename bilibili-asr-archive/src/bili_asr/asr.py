@@ -370,7 +370,7 @@ class ASRRunner:
             rendered = (
                 ",".join(value)
                 if key == "hotwords" and isinstance(value, tuple)
-                else str(value)
+                else "" if value is None else str(value)
             )
             is_safe_model_identifier = (
                 key == "model_name" and _MODEL_IDENTIFIER.fullmatch(rendered) is not None

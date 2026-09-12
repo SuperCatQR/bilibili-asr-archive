@@ -535,3 +535,16 @@ def test_module_provenance_helper_reads_no_model(monkeypatch):
 
     assert recorded["model_name"] == "FunAudioLLM/Fun-ASR-Nano-2512"
     assert recorded["device"] == "cuda"
+
+
+def test_provenance_renders_absent_values_as_empty_not_none(monkeypatch):
+    """A missing revision or language must not read as the string "None"."""
+
+    monkeypatch.delenv("BILI_ASR_LANGUAGE", raising=False)
+    monkeypatch.delenv("BILI_ASR_MODEL_REVISION", raising=False)
+
+    recorded = asr.ASRRunner(asr.ASRConfig("local-model", device="cpu")).provenance()
+
+    assert recorded["model_revision"] == ""
+    assert recorded["language"] == ""
+    assert "None" not in recorded.values()
