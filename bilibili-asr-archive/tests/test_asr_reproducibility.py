@@ -741,7 +741,7 @@ def test_batch_prints_the_reuse_line_once_with_the_exact_format(
     summary = RunCoordinator(tmp_root, store, offline=True).run_batch(rows)
 
     captured = capsys.readouterr()
-    assert captured.out.splitlines() == [
+    assert captured.err.splitlines() == [
         "run: model constructions=1 for 3 asr item(s)",
     ]
     assert summary.model_constructions == 1
@@ -769,7 +769,7 @@ def test_the_batch_line_names_the_invoking_command(tmp_root, counted_batch_seam,
     store, rows = _seed_audio_batch(tmp_root, 2, prefix="BVlabel")
     RunCoordinator(tmp_root, store, offline=True, command="schedule").run_batch(rows)
 
-    assert capsys.readouterr().out.splitlines() == [
+    assert capsys.readouterr().err.splitlines() == [
         "schedule: model constructions=1 for 2 asr item(s)",
     ]
 
@@ -829,13 +829,13 @@ def test_per_item_failure_continues_the_batch_with_one_construction(
     # One construction still served the whole batch, and the denominator
     # counts only the rows that produced a transcript.
     assert fake_funasr.construction_count == 1
-    assert captured.out.splitlines() == [
+    assert captured.err.splitlines() == [
         "run: model constructions=1 for 2 asr item(s)",
     ]
 
 
 def test_subtitle_only_batch_prints_no_reuse_line(tmp_root, counted_batch_seam, capsys):
-    """D2.6: a zero-ASR batch leaves stdout unchanged."""
+    """D2.6: a zero-ASR batch prints the line on neither stream."""
 
     store = ManifestStore(root=tmp_root)
     identity = page_identity("BVsubonly", 0, 111, "p0")
@@ -852,25 +852,27 @@ def test_subtitle_only_batch_prints_no_reuse_line(tmp_root, counted_batch_seam, 
     )
 
     captured = capsys.readouterr()
+    assert captured.err == ""
     assert captured.out == ""
     assert summary.asr_items == 0
     assert summary.model_constructions == 0
     assert counted_batch_seam.construction_count == 0
 
 
-def test_the_batch_line_goes_to_stdout_and_never_to_stderr(
+def test_the_batch_line_goes_to_stderr_and_never_to_stdout(
     tmp_root, counted_batch_seam, capsys
 ):
-    """The line is informational output, not a diagnostic.
+    """D2.6 as amended: the line is a diagnostic, so stdout keeps its contract.
 
-    Exit status, `run`'s own summary, and the `campaign` JSON document all keep
-    their streams: a batch label belongs on stdout with the rest of the report.
+    `campaign`'s stdout is one JSON document; `run`'s stdout is its row
+    report. The batch label goes to stderr so neither is disturbed.
     """
 
     store, rows = _seed_audio_batch(tmp_root, 3, prefix="BVstreams")
     RunCoordinator(tmp_root, store, offline=True).run_batch(rows)
 
     captured = capsys.readouterr()
-    assert "model constructions=" in captured.out
-    assert "model constructions=" not in captured.err
+    assert "model constructions=" in captured.err
+    assert "model constructions=" not in captured.out
+    assert captured.out == ""
 

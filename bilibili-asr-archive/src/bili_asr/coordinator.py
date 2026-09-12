@@ -15,6 +15,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import sys
 import threading
 import time
 from pathlib import Path
@@ -245,8 +246,9 @@ class AttemptLedger:
 def model_constructions_line(command: str, constructions: int, asr_items: int) -> str:
     """The one line a batch prints to state how much reuse it got.
 
-    Single source of the shipped string: the in-process ``asr`` / ``pilot``
-    loops print the same line through this helper, and README quotes it.
+    Single source of the shipped string: README quotes this literal, and the
+    in-process ``asr`` / ``pilot`` loops are to print through this helper
+    (Task 2 wiring; today ``run_batch`` is the only call site).
     """
     return (
         f"{command}: model constructions={constructions} "
@@ -745,17 +747,19 @@ class RunCoordinator:
             return summary
 
     def _print_model_constructions(self, summary: RunSummary) -> None:
-        """State the batch's reuse once, and only when it transcribed something.
+        """State the batch's reuse once, on stderr, only for a transcribing batch.
 
-        A zero-ASR batch (subtitle-only output) prints nothing, so existing
-        output is unchanged.
+        Stderr, not stdout (D2.6 as amended): ``campaign``'s stdout is one
+        JSON document, and a line printed there breaks every downstream
+        parser. A zero-ASR batch (subtitle-only output) prints nothing.
         """
         if summary.asr_items <= 0:
             return
         print(
             model_constructions_line(
                 self.command, summary.model_constructions, summary.asr_items
-            )
+            ),
+            file=sys.stderr,
         )
 
     def _run_batch_locked(
