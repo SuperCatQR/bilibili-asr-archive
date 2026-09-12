@@ -89,7 +89,7 @@ runtime, or full-corpus coverage.
 A per-item `bili-asr asr --bvid <bvid>` loop is one process per video, and the
 run-scoped reuse above does not cross a process boundary: every invocation builds
 its own model before it transcribes anything. For more than a couple of items,
-prefer one bounded batch command (`run`, `pilot`, `schedule`), which holds a
+prefer one bounded batch command (`run`, `schedule`, `campaign`), which holds a
 single runner across the items it processes.
 
 ## Deterministic verification baseline
