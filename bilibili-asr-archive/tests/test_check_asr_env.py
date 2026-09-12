@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import io
 import json
+import os
 import re
 import subprocess
 import sys
@@ -33,6 +34,8 @@ from scripts.check_asr_env import (
     DeviceInfo,
     ProbeResult,
     Probes,
+    REMEDIATIONS,
+    _HSA_COPY_COMMANDS,
     classify_device_outcome,
     classify_hsa_runtime,
     classify_torch_outcome,
@@ -50,6 +53,9 @@ from scripts.check_asr_env import (
 )
 
 SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "check_asr_env.py"
+PRODUCT_ROOT = Path(__file__).resolve().parents[1]
+README = PRODUCT_ROOT / "README.md"
+DOC_FILE = PRODUCT_ROOT / DOC_PATH
 ABORT_LINE = "what(): Found 0 rocprofiler agents and 2 HSA agents, cannot continue"
 ABORT_STDERR = (
     "terminate called after throwing an instance of 'std::runtime_error'\n"
@@ -113,6 +119,23 @@ def _child_payload(**fields: object) -> str:
 def test_stage_names_and_order_are_the_published_interface():
     assert STAGES == (STAGE_DXG, STAGE_ROCM_LOADER, STAGE_TORCH, STAGE_HSA, STAGE_DEVICE)
     assert STAGES == ("dxg-detection", "rocm-loader-path", "torch-present", "hsa-runtime", "device-probe")
+
+
+@pytest.mark.parametrize("published", [README, DOC_FILE], ids=["README", "doc"])
+def test_the_published_copies_name_the_five_stages_in_the_script_s_order(published: Path):
+    """The stage names are the interface both published copies cite; drift must fail here.
+
+    Neither copy is generated, so the only guard against a rename in `STAGES` leaving a
+    document describing a check that no longer exists is this assertion.
+    """
+    text = published.read_text(encoding="utf-8")
+    positions = []
+    for stage in STAGES:
+        index = text.find(f"`{stage}`")
+        assert index >= 0, f"{published.name} never names the stage `{stage}`"
+        positions.append(index)
+    assert positions == sorted(positions), f"{published.name} names the stages out of order"
+    assert len(set(positions)) == len(STAGES)
 
 
 def test_every_stage_is_injectable_and_reports_its_own_probe_result():
@@ -179,10 +202,22 @@ def test_dxg_stage_requires_both_the_device_node_and_the_detection_env(tmp_path:
 def test_dxg_stage_observed_names_the_invariant_that_failed(tmp_path: Path):
     device = tmp_path / "dxg"
     device.touch()
-    assert make_dxg_probe(device=device, environ={})().observed == f"dxg_device=present {DXG_ENV}=unset"
+    assert make_dxg_probe(device=device, environ={})().observed == (
+        f"dxg_device=path-exists (not opened) {DXG_ENV}=unset"
+    )
     assert make_dxg_probe(device=tmp_path / "missing", environ={DXG_ENV: "0"})().observed == (
         f"dxg_device=missing {DXG_ENV}=0"
     )
+
+
+def test_dxg_stage_observed_says_what_was_actually_checked(tmp_path: Path):
+    """W9: the stage asserts the path exists; it does not open or validate a device node."""
+    device = tmp_path / "dxg"
+    device.touch()
+    for environ in ({DXG_ENV: "1"}, {}):
+        observed = make_dxg_probe(device=device, environ=environ)().observed
+        assert "not opened" in observed
+        assert "device node" not in observed
 
 
 # --- stage 2: rocm-loader-path ----------------------------------------------
@@ -191,6 +226,9 @@ def test_dxg_stage_observed_names_the_invariant_that_failed(tmp_path: Path):
 def _rocm_lib(root: Path, version: str = "9.9.9") -> Path:
     directory = root / f"rocm-{version}" / "lib"
     directory.mkdir(parents=True)
+    # A real ROCm lib dir carries the HSA runtime the loader has to resolve; an empty
+    # directory is explicitly not accepted (it is the ROCm 5.7 shape this plan's doc rejects).
+    (directory / HSA_SONAME).write_bytes(f"system hsa runtime {version}".encode())
     return directory
 
 
@@ -236,6 +274,29 @@ def test_rocm_loader_path_rejects_absent_or_unrelated_entries(tmp_path: Path):
     assert "LD_LIBRARY_PATH" in result.observed and "rocm-*/lib" in result.observed
 
 
+def test_rocm_loader_path_rejects_an_empty_or_stale_lib_dir(tmp_path: Path):
+    """W8: shape plus `is_dir()` is not discoverability — the HSA runtime has to be there.
+
+    An empty `rocm-5.7/lib` is exactly the tree this plan's own document proves cannot
+    work, so accepting it would let the stage pass on a host whose loader resolves nothing.
+    """
+    root = tmp_path / "opt"
+    empty = root / "rocm-5.7" / "lib"
+    empty.mkdir(parents=True)
+    assert empty.is_dir() and not any(empty.iterdir())
+
+    result = make_rocm_loader_probe(
+        ld_library_path=f"{empty}", ld_conf_dir=tmp_path / "conf", rocm_root=root
+    )()
+    assert result.ok is False
+    assert "rocm-*/lib" in result.observed
+
+    (empty / HSA_SONAME).write_bytes(b"system hsa runtime")
+    assert make_rocm_loader_probe(
+        ld_library_path=f"{empty}", ld_conf_dir=tmp_path / "conf", rocm_root=root
+    )().ok is True
+
+
 def test_rocm_loader_path_discovery_never_pins_a_version(tmp_path: Path):
     root = tmp_path / "opt"
     directory = _rocm_lib(root, version="9.9.9")
@@ -248,6 +309,60 @@ def test_rocm_loader_path_discovery_never_pins_a_version(tmp_path: Path):
 
 
 # --- stage 3: torch-present --------------------------------------------------
+
+FAKE_CWD_TORCH = (
+    "version = type('v', (), {'hip': '7.2.0'})()\n"
+    "cuda = type('c', (), {'is_available': staticmethod(lambda: True), "
+    "'get_device_properties': staticmethod(lambda i: type('p', (), {'name': 'fake', 'gcnArchName': 'gfx1101', "
+    "'total_memory': 0})())})()\n"
+    "__version__ = '9.9.9+rocm7.2.0'\n"
+)
+
+
+def test_run_child_keeps_the_working_directory_off_the_child_sys_path(monkeypatch: pytest.MonkeyPatch):
+    """I-1: `-P`, or a cwd `torch.py` answers both probes instead of the real package."""
+    import scripts.check_asr_env as checker
+
+    captured: list[list[str]] = []
+
+    def _capture(argv: list[str], **kwargs: object) -> FakeProcess:
+        captured.append(list(argv))
+        return FakeProcess(returncode=0, stdout='{"probe": "torch"}\n')
+
+    monkeypatch.setattr(checker.subprocess, "run", _capture)
+    checker.run_child("print('{}')")
+
+    assert captured, "the child was never spawned"
+    assert captured[0][:3] == [sys.executable, "-P", "-c"], captured[0]
+
+
+def test_a_cwd_torch_py_does_not_change_the_verdict(tmp_path: Path):
+    """The same defect end to end: the verdict must come from the real installed torch.
+
+    Reproduces the measured falsification — a 4-line cwd `torch.py` that claims a working
+    ROCm GPU — and asserts the probe still reports what the real interpreter sees.
+    """
+    (tmp_path / "torch.py").write_text(FAKE_CWD_TORCH, encoding="utf-8")
+    probe = (
+        "import json, scripts.check_asr_env as c; "
+        "out = c.run_child(c.TORCH_PROBE_CODE); print(json.dumps([out.returncode, out.stdout, out.stderr]))"
+    )
+    environment = {**os.environ, "PYTHONPATH": str(PRODUCT_ROOT), "PYTHONDONTWRITEBYTECODE": "1"}
+    results = {}
+    for label, cwd in (("product", PRODUCT_ROOT), ("dirty", tmp_path)):
+        completed = subprocess.run(
+            [sys.executable, "-P", "-c", probe],
+            cwd=cwd,
+            env=environment,
+            capture_output=True,
+            text=True,
+            timeout=180,
+            check=False,
+        )
+        results[label] = json.loads(completed.stdout.strip().splitlines()[-1])
+
+    assert "9.9.9+rocm7.2.0" not in results["dirty"][1], f"the cwd torch.py answered the probe: {results['dirty']}"
+    assert results["dirty"] == results["product"], "the verdict changed with the working directory"
 
 
 def test_torch_stage_passes_on_a_rocm_build():
@@ -292,6 +407,25 @@ def test_hsa_stage_passes_when_torch_lib_links_out_to_the_system_runtime(tmp_pat
     result = classify_hsa_runtime(torch_lib, (system,))
     assert result.ok is True
     assert "outside torch/lib" in result.observed
+
+
+def test_hsa_stage_rejects_a_link_out_of_torch_lib_to_an_unrelated_target(tmp_path: Path):
+    """W7: "outside torch/lib" is not identity — the target must be the system runtime.
+
+    A link to any file outside `torch/lib` used to pass, including one that is not an HSA
+    runtime at all and does not live in a discovered ROCm directory.
+    """
+    system = _rocm_lib(tmp_path / "opt")
+    (system / HSA_SONAME).write_bytes(b"system hsa runtime")
+    torch_lib = _torch_lib(tmp_path)
+    unrelated = tmp_path / "elsewhere" / "libhsa-runtime64.so"
+    unrelated.parent.mkdir()
+    unrelated.write_bytes(b"TOTALLY UNRELATED RUNTIME")
+    (torch_lib / HSA_SONAME).symlink_to(unrelated)
+
+    result = classify_hsa_runtime(torch_lib, (system,))
+    assert result.ok is False
+    assert "torch-bundled copy" in result.observed
 
 
 def test_hsa_stage_passes_when_torch_lib_holds_a_copy_of_the_system_runtime(tmp_path: Path):
@@ -462,8 +596,117 @@ def test_hsa_remediation_mentions_the_copy_commands_when_the_bundled_copy_is_pre
     _, lines = _run([], _probes(hsa=make_hsa_probe(torch_lib=torch_lib, system_dirs=(system,))))
     report = "\n".join(lines)
     assert "wheel-bundled copy, which aborts on WSL" in report
+    assert 'rm -f "$TORCH_LIB"/libhsa-runtime64.so*' in report
     assert 'cp -f "$ROCM_LIB"/libhsa-runtime64.so* "$TORCH_LIB"/' in report
     assert f'ls -l "$TORCH_LIB"/{HSA_SONAME}*' in report
+    # I-5: the bundled copy is removed before the system one is copied, as the recipe's
+    # step 7 does; a bare `cp -f` can leave a differently-suffixed bundled `.so.1` in place.
+    assert report.index('rm -f "$TORCH_LIB"') < report.index('cp -f "$ROCM_LIB"')
+
+
+def test_no_printed_command_names_a_bare_python_or_pip():
+    """I-3: torch lives in the venv, and the bare names do not exist on the recipe's own OS.
+
+    `pip` is allowed only as a module of an explicit interpreter (`… -m pip`), and `python`
+    only as a path (`…/bin/python`) or a versioned name — never as the bare `python`/`pip`
+    that the recipe's stated OS does not provide.
+    """
+    failing = {_probe_field(stage): _probe(False, "observed detail") for stage in STAGES}
+    for label, probes in (
+        ("all stages", _probes(**failing)),
+        ("missing torch", _probes(hsa=lambda: classify_hsa_runtime(None, ()))),
+    ):
+        _, lines = _run([], probes)
+        commands = [line.strip() for line in lines if line.startswith("    ") and not line.startswith("    #")]
+        assert commands, label
+        printed = "\n".join(commands)
+        assert not re.search(r"pip(?![\w-])", printed.replace("-m pip", "MODULE_PIP")), (
+            f"bare pip in:\n{printed}"
+        )
+        for match in re.finditer(r"python[\d.]*", printed):
+            token = match.group(0)
+            if token != "python":
+                continue
+            assert match.start() > 0 and printed[match.start() - 1] == "/", f"bare python in: {commands}"
+        if "check_asr_env.py" in printed:
+            assert "${VENV:" in printed, f"unquoted venv interpreter in:\n{printed}"
+
+
+def test_the_hsa_repair_cannot_copy_into_the_root_directory():
+    """I-3: an empty command substitution must stop the chain, never widen the destination."""
+    copies = [command for command in _HSA_COPY_COMMANDS if "cp " in command]
+    assert copies, "the repair no longer copies anything"
+    for command in copies:
+        assert command.lstrip().startswith('[ -n "$TORCH_LIB" ] &&'), command
+
+
+def test_the_published_doc_matches_the_script_on_the_shared_package_list(tmp_path: Path):
+    """W2: the two surfaces repeat the same package list by hand — pin the shared prefix.
+
+    The doc's step 4 carries the verified `apt-get -y --no-install-recommends` form, and the
+    script's `rocm-loader-path` fix prints the same four packages. Nothing compares them, so
+    this asserts the script's line is the doc's line (same packages, same apt form), which is
+    what the removed "verbatim"/"equivalent" prose used to claim by hand.
+    """
+    doc = DOC_FILE.read_text(encoding="utf-8")
+    command = next(
+        command
+        for command in REMEDIATIONS[STAGE_ROCM_LOADER].commands
+        if "rocm-hip-libraries" in command
+    )
+    packages = command.split("#", 1)[0].strip()
+    assert packages.startswith("sudo apt-get install -y --no-install-recommends "), packages
+    assert packages in doc, f"the doc no longer carries the script's package list: {packages}"
+    assert "sudo apt install " not in doc, "the doc and the script disagree on the apt form"
+
+
+def test_every_documented_guard_is_runnable_bash(tmp_path: Path):
+    """W5/I-4: a `cd "${VAR:?…}"` guard must parse *and* must actually stop the shell.
+
+    Two failure modes are pinned here, both measured: an unset `VAR` with a bare `cd "$VAR"`
+    silently no-ops (so the check runs in the wrong directory), and an apostrophe inside the
+    `:?` word makes bash report `unexpected EOF while looking for matching '` instead of
+    running the line at all.
+    """
+    doc = DOC_FILE.read_text(encoding="utf-8")
+    guards = re.findall(r'\$\{[A-Z_]+:\?[^}]*\}', doc)
+    assert guards, "the doc no longer documents a shell guard"
+
+    for guard in guards:
+        variable = re.match(r"\$\{([A-Z_]+):", guard).group(1)
+        assert "'" not in guard, f"an apostrophe inside the guard word breaks bash parsing: {guard}"
+
+        script = f'cd /tmp\ncd "{guard}"\necho REACHED\n'
+        completed = subprocess.run(
+            ["bash", "-c", script],
+            capture_output=True,
+            text=True,
+            env={k: v for k, v in os.environ.items() if k != variable},
+            timeout=30,
+            check=False,
+        )
+        output = completed.stdout + completed.stderr
+        assert "unexpected EOF" not in output, f"{guard} does not parse:\n{output}"
+        assert "REACHED" not in completed.stdout, f"unset {variable} did not stop the shell:\n{output}"
+        assert variable in output, f"the guard does not name {variable}:\n{output}"
+
+
+def test_the_device_cause_distinguishes_a_clean_false_from_the_abort():
+    """W10: a return value is not a SIGABRT, and the child did not print the abort line."""
+    payload = {"probe": "device", "available": False, "hip": "5.7.0", "hsa_runtime": "/usr/lib/libhsa-runtime64.so.1"}
+    result = classify_device_outcome(ChildOutcome(returncode=0, stdout=_child_payload(**payload)), 5.0)
+    assert result.ok is False
+    assert result.remediation is not None
+    _, lines = _run([], _probes(device=lambda: result))
+    report = "\n".join(lines)
+    assert "returned False" in report
+    assert ABORT_LINE not in report, "a clean False must not be described as the abort"
+    assert "exit -6" not in report
+    assert CPU_FALLBACK in report
+
+    aborted, abort_lines = _run([], _probes(device=_probe(False, "exit -6: " + ABORT_LINE)))
+    assert aborted == 1
+    assert ABORT_LINE in "\n".join(abort_lines)
 
 
 def test_failure_output_carries_the_cause_the_commands_and_the_doc_once():

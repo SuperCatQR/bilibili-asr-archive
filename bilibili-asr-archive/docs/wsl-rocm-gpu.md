@@ -38,13 +38,22 @@ cheaper combinations measured the same day did not (see
 ## The five invariants, and the stage that asserts each
 
 Run the check from `bilibili-asr-archive/` — the product directory, not the repository root above
-it — with no arguments:
+it — with no arguments, and run it with the **interpreter that holds torch**: the venv this
+recipe installs into (step 6), not the system `python3.12`. The check asserts stage 3 against
+*the interpreter it runs under*, so a system interpreter probes a torch it does not have and
+reports `torch-present FAIL` on a host built exactly as this document says:
 
 ```bash
 export PRODUCT=~/src/bilibili-asr-archive/bilibili-asr-archive   # your checkout's product directory, not the repo root above it
-cd "$PRODUCT"
-python3.12 scripts/check_asr_env.py; echo "exit=$?"   # the check's own invocation, as its fix text prints it
+export VENV=~/.venvs/bili-asr                                    # the venv that runs bili-asr (step 6 writes into it)
+cd "${PRODUCT:?export PRODUCT to the product directory}"
+"${VENV:?export VENV to the venv that runs bili-asr}/bin/python" scripts/check_asr_env.py; echo "exit=$?"   # the check's own invocation, as its fix text prints it
 ```
+
+`"${PRODUCT:?…}"` is not decoration: `cd ""` succeeds and stays put, so an unset `PRODUCT`
+would silently run the check in the wrong directory — and a `scripts/check_asr_env.py` that is
+not there fails with `2`, the usage code, which reads like a clean answer. The guard stops the
+shell instead, naming the variable.
 
 Exit status is `0` iff all five stages pass, `1` otherwise, and `2` for a usage error (an
 unrecognised argument prints the usage text; `-h`/`--help` exits `0`). On failure each failing
@@ -53,9 +62,9 @@ once.
 
 | # | Stage name | Invariant the stage asserts |
 |---|---|---|
-| 1 | `dxg-detection` | `/dev/dxg` exists **and** `HSA_ENABLE_DXG_DETECTION=1` — one invariant with two halves, both required together |
-| 2 | `rocm-loader-path` | a `/opt/rocm-*/lib` directory is reachable by the dynamic loader, via `LD_LIBRARY_PATH` or an `/etc/ld.so.conf.d/*rocm*` entry |
-| 3 | `torch-present` | torch is importable **and** is a ROCm build (`torch.version.hip` is non-empty) |
+| 1 | `dxg-detection` | the `/dev/dxg` path exists **and** `HSA_ENABLE_DXG_DETECTION=1` — one invariant with two halves, both required together |
+| 2 | `rocm-loader-path` | a `/opt/rocm-*/lib` directory holding `libhsa-runtime64.so*` is reachable by the dynamic loader, via `LD_LIBRARY_PATH` or an `/etc/ld.so.conf.d/*rocm*` entry |
+| 3 | `torch-present` | torch is importable **in the interpreter running the check** and is a ROCm build (`torch.version.hip` is non-empty) |
 | 4 | `hsa-runtime` | the `libhsa-runtime64.so*` in the venv's `torch/lib` is the WSL-compatible system runtime, not the wheel-bundled copy |
 | 5 | `device-probe` | a **subprocess** reports `torch.cuda.is_available() == True` and a non-empty `gcnArchName` |
 
@@ -67,18 +76,27 @@ than it looks:
   transport; without `HSA_ENABLE_DXG_DETECTION=1` the HIP runtime never looks for it and never
   sees the WSL GPU. A missing half is named in the failure text
   (`dxg_device=missing …` or `… HSA_ENABLE_DXG_DETECTION=unset`). In a container, the node has
-  to be passed in (`--device /dev/dxg`).
+  to be passed in (`--device /dev/dxg`). The node half is asserted as **path presence**
+  (`Path.exists()`), not as an opened or type-checked device node: the check reports
+  `dxg_device=path-exists (not opened)` so the line does not claim an inspection that did not
+  happen.
 - **`rocm-loader-path` asserts discoverability, never a version.** The version is globbed
   (`/opt/rocm-*/lib`), so no single machine's `/opt/rocm-7.2.1/lib` becomes the contract.
   Either source — an `LD_LIBRARY_PATH` entry or an `/etc/ld.so.conf.d/*rocm*` line — is enough.
+  The directory also has to hold the runtime (`libhsa-runtime64.so*`): an empty or stale tree
+  such as `rocm-5.7/lib` is not discoverability, because nothing there resolves.
 - **`hsa-runtime` decides identity from the filesystem.** It passes when the entry in
-  `torch/lib` resolves outside `torch/lib`, or when its bytes match a system copy found in the
-  discovered ROCm directories (`/usr/lib*`, `/usr/local/lib`). It fails when `torch/lib` still
-  holds the wheel-bundled copy that aborts on WSL.
+  `torch/lib` resolves outside `torch/lib` **into a discovered system lib directory** (or its
+  bytes match a system copy found there — `/usr/lib*`, `/usr/local/lib`, and the ROCm dirs
+  above). It fails when `torch/lib` still holds the wheel-bundled copy that aborts on WSL. A
+  link to somewhere unrelated does not pass.
 - **`device-probe` runs in a child process on purpose.** The measured failure is a hard abort,
   not a clean `False`; an abort inside the check's own process would be a crash instead of a
   verdict. The parent classifies the child: exit `0` with a device and a `gcnArchName` passes,
   anything else (non-zero exit, timeout, no payload) fails with the child's last stderr line.
+  The stage's default `cause:` line covers the child failures (abort, timeout, no payload); a
+  clean `torch.cuda.is_available() == False` prints its own cause instead, because that is a
+  return value and not the abort signature.
 
 A passing run prints exactly this shape — the four `check: <stage> ok` lines, then the one
 stage that carries a detail line, then the verdict. The device values are the measured
@@ -106,14 +124,17 @@ check: dxg-detection FAIL dxg_device=missing HSA_ENABLE_DXG_DETECTION=unset
   fix:
     export HSA_ENABLE_DXG_DETECTION=1   # persist it in ~/.bashrc for later shells
     ls -l /dev/dxg   # absent: install the Windows AMD driver with WSL support, run "wsl --update", then "wsl --shutdown"; in a container pass --device /dev/dxg
-    HSA_ENABLE_DXG_DETECTION=1 python3.12 scripts/check_asr_env.py   # re-run with both invariants held
+    HSA_ENABLE_DXG_DETECTION=1 "${VENV:?…}/bin/python" scripts/check_asr_env.py   # re-run with both invariants held
 check: rocm-loader-path FAIL …   # then one cause:/fix: block per failing stage
   recipe: docs/wsl-rocm-gpu.md
 asr-env: not verified (5 failed)
 ```
 
 (`…` marks output elided here; the lines above the elision are the real transcript from a host
-with no GPU and no ROCm, one `cause:`/`fix:` block per failing stage.)
+with no GPU and no ROCm, one `cause:`/`fix:` block per failing stage. The `fix:` lines quote the
+interpreter as `"${VENV:?…}/bin/python"`, never a bare `python`/`pip`: the venv is where torch
+lives (step 6), and the `:?` guard stops the shell when `VENV` is unset instead of letting the
+command reach some other interpreter.)
 
 ## The recipe
 
@@ -225,14 +246,14 @@ wheel's `+rocm7.2.0` tag, not a retained transcript of `torch.version.hip`. Two 
   `torchaudio-2.9.0+rocm7.2.0.gite3c6ee2b-cp312-cp312-linux_x86_64.whl` from the same index;
   add it to the same command if your stack imports `torchaudio`. The `torch` + `triton` pair
   above is the part that was measured to matter.
-- `scripts/check_asr_env.py` prints the unpinned form of this step instead, verbatim:
-  `pip install --index-url https://repo.radeon.com/rocm/manylinux/rocm-rel-7.2/ torch triton   # repo.radeon.com ROCm wheels; measured pair: torch 2.9.1+rocm7.2.0.lw + matching triton`.
-  The two forms are different text for the same index, not different indexes: the check's line
-  installs whatever version `repo.radeon.com` currently serves, while the pins above install the
-  two files measured on 2026-09-12. Use the pins while the index still serves those filenames,
-  and the check's line once they have rotated off. Note that `--index-url` replaces PyPI for that
-  one command, whereas installing the downloaded files leaves ordinary dependency resolution on
-  PyPI.
+- `scripts/check_asr_env.py` prints the unpinned form of this step instead:
+  `"$VENV/bin/python" -m pip install --index-url https://repo.radeon.com/rocm/manylinux/rocm-rel-7.2/ torch triton`.
+  The two forms address the same index and differ in what they install, not where from: the
+  check's line installs whatever version `repo.radeon.com` currently serves into `$VENV`, while
+  the pins above install the two files measured on 2026-09-12. Use the pins while the index
+  still serves those filenames, and the check's line once they have rotated off. Note that
+  `--index-url` replaces PyPI for that one command, whereas installing the downloaded files
+  leaves ordinary dependency resolution on PyPI.
 
 ### 7. Replace the HSA runtime inside the venv's `torch/lib`
 
@@ -250,8 +271,11 @@ ls -l libhsa-runtime64.so*
 
 The `TORCH_LIB=` line is the check's own discovery idiom; the measured session read the same
 path from `pip show torch`. On a different ROCm version the copy source is the same file with
-that version's suffix (`/opt/rocm-<version>/lib/libhsa-runtime64.so.1.*`). The check prints an
-equivalent form that copies every `libhsa-runtime64.so*` from the discovered ROCm lib directory.
+that version's suffix (`/opt/rocm-<version>/lib/libhsa-runtime64.so.1.*`). The check prints the
+version-agnostic form of this step: it globs the discovered ROCm lib directory, and it removes
+the bundled copy before copying — the same order as the block above, because a bare `cp -f` can
+leave a differently-suffixed bundled `.so.1` next to the system copy and still satisfy the
+stage on the bytes of the file it replaced.
 
 ### 8. Hold `HSA_ENABLE_DXG_DETECTION=1`, and prove the device
 
@@ -282,15 +306,16 @@ measured target it printed `cuda: True`, `arch: gfx1101`, `vram: 15.8 GB`, and c
 matmul on the device. Finally, the check should now agree:
 
 ```bash
-cd "$PRODUCT" && python3.12 scripts/check_asr_env.py; echo "exit=$?"   # the check again, from the product directory
+cd "${PRODUCT:?export PRODUCT to the product directory}" && "${VENV:?export VENV to the venv that runs bili-asr}/bin/python" scripts/check_asr_env.py; echo "exit=$?"   # the check again, from the product directory
 ```
 
-`"$PRODUCT"` is absolute on purpose. Steps 3, 6 and 7 have already moved this shell
-(`cd /tmp`, `cd ~/amd-whl`, `cd "$TORCH_LIB"`), so a relative `cd bilibili-asr-archive`
-here fails with `No such file or directory`, skips the check, and still prints `exit=1`
-— the same code a genuine check failure exits with, which is exactly the misreading
-this block exists to prevent. The check reads no archive state, so only the path to
-the checkout matters, never the directory you run it from.
+`"${PRODUCT:?…}"` is absolute on purpose, and the guard is what keeps it honest. Steps 3, 6 and
+7 have already moved this shell (`cd /tmp`, `cd ~/amd-whl`, `cd "$TORCH_LIB"`), so a relative
+`cd bilibili-asr-archive` here fails with `No such file or directory`, skips the check, and still
+prints `exit=1` — the same code a genuine check failure exits with. An **unset** `PRODUCT` is the
+same misreading through a quieter door: `cd ""` succeeds, the script is not found, and the shell
+reports `exit=2`, which reads like a usage answer from a check that never ran. The check reads no
+archive state, so only the path to the checkout matters, never the directory you run it from.
 
 ## The three measured failure modes
 

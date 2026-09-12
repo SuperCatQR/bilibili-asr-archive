@@ -21,12 +21,16 @@ use:
 
 Ask the host instead of trusting a command list. Run this from
 `bilibili-asr-archive/` — the product directory, not the repository root above
-it:
+it — with the **same interpreter that holds torch**, which is the venv the
+recipe installs into (a `python3.12` probe of the system interpreter reports
+`torch-present FAIL` on a correctly built host):
 
-    python3.12 scripts/check_asr_env.py
+    export VENV=~/.venvs/bili-asr   # the venv that runs bili-asr
+    "$VENV/bin/python" scripts/check_asr_env.py
 
 It exits `0` iff all five stages of the verified AMD/WSL recipe hold together,
-and exits `1` printing the fix for each stage that does not:
+`1` when any stage fails (printing the fix for each), and `2` for a usage error
+(an unrecognised argument; `-h`/`--help` exits `0`):
 
 | # | Stage | Invariant it asserts |
 |---|-------|----------------------|
@@ -48,8 +52,9 @@ owns.
 **Note**: AMD ROCm uses a CUDA-compatible layer (HIP), so PyTorch still uses
 `device="cuda"`. A transcript archived on such a host records that in its own
 frontmatter — verify it with
-`grep -n '^asr_device:' <archive>/transcripts/md/<work_id>.md`, which prints
-`asr_device: "cuda"`.
+`grep -n '^asr_device:' <archive>/transcripts/md/*.md`, which prints
+`asr_device: "cuda"`. A glob is required: the markdown bundle is named
+`{pubdate}_{bvid}.p{page}_<title>.md`, so there is no `<work_id>.md` to open.
 
 For CPU-only mode, override device: `BILI_ASR_DEVICE=cpu` (slower, not
 recommended for large archives). CPU mode needs none of the five invariants.

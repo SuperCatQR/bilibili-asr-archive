@@ -24,6 +24,11 @@ cause and the commands that fix it, then the recipe document path once. The stag
 the remediation text are the interface `docs/wsl-rocm-gpu.md` and the README cite, so keep
 them stable.
 
+Every remediation command quotes the interpreter as `"${VENV:?…}/bin/python"` and never as a
+bare `python`/`pip`: torch lives in the venv the recipe creates (step 6), the bare names are
+absent on that document's own stated OS, and an unset `VENV` must stop the shell rather than
+silently reach a different interpreter.
+
 Every probe is injectable through `Probes`, and the checks can be driven without a GPU or a
 ROCm install:
 
@@ -133,24 +138,32 @@ class Remediation:
     commands: tuple[str, ...]
 
 
+_VENV_PYTHON = '"${VENV:?export VENV to the venv that runs bili-asr}/bin/python"'
 _TORCH_INSTALL_COMMAND = (
-    "pip install --index-url https://repo.radeon.com/rocm/manylinux/rocm-rel-7.2/ torch triton   "
-    "# repo.radeon.com ROCm wheels; measured pair: torch 2.9.1+rocm7.2.0.lw + matching triton"
+    f"{_VENV_PYTHON} -m pip install --index-url https://repo.radeon.com/rocm/manylinux/rocm-rel-7.2/ "
+    "torch triton   # repo.radeon.com ROCm wheels into $VENV; measured pair: torch 2.9.1+rocm7.2.0.lw "
+    "+ matching triton"
 )
 _TORCH_LIB_COMMAND = (
-    "TORCH_LIB=$(python -c 'import pathlib, torch; print(pathlib.Path(torch.__file__).parent / \"lib\")')"
+    f"TORCH_LIB=$({_VENV_PYTHON} -c 'import pathlib, torch; print(pathlib.Path(torch.__file__).parent / \"lib\")')"
 )
 TORCH_MISSING_REMEDIATION = Remediation(
     cause="torch is not importable in this interpreter, so this stage cannot be evaluated",
     commands=(
         _TORCH_INSTALL_COMMAND,
-        "python3.12 scripts/check_asr_env.py   # re-run once torch imports",
+        f"{_VENV_PYTHON} scripts/check_asr_env.py   # re-run once torch imports",
     ),
 )
+# Step 7 of docs/wsl-rocm-gpu.md removes the bundled copies before copying the system one:
+# a `cp -f` alone can leave a differently-suffixed bundled `libhsa-runtime64.so.1` in place
+# next to a `libhsa-runtime64.so.1.18.70201` system copy, which is not the measured state.
 _HSA_COPY_COMMANDS: tuple[str, ...] = (
     "ROCM_LIB=$(ls -d /opt/rocm-*/lib | sort -V | tail -1)",
     _TORCH_LIB_COMMAND,
-    f'cp -f "$ROCM_LIB"/{HSA_SONAME}* "$TORCH_LIB"/   # replace the torch copy with the system runtime',
+    f'[ -n "$TORCH_LIB" ] && [ -n "$ROCM_LIB" ] && rm -f "$TORCH_LIB"/{HSA_SONAME}*   '
+    "# drop the wheel-bundled copies first, as the recipe's step 7 does",
+    f'[ -n "$TORCH_LIB" ] && cp -f "$ROCM_LIB"/{HSA_SONAME}* "$TORCH_LIB"/   '
+    "# then install the system runtime",
     f'ls -l "$TORCH_LIB"/{HSA_SONAME}*',
 )
 
@@ -165,20 +178,24 @@ REMEDIATIONS: Mapping[str, Remediation] = {
             f"export {DXG_ENV}={DXG_ENABLED}   # persist it in ~/.bashrc for later shells",
             "ls -l /dev/dxg   # absent: install the Windows AMD driver with WSL support, run "
             '"wsl --update", then "wsl --shutdown"; in a container pass --device /dev/dxg',
-            f"{DXG_ENV}={DXG_ENABLED} python3.12 scripts/check_asr_env.py   # re-run with both invariants held",
+            f"{DXG_ENV}={DXG_ENABLED} {_VENV_PYTHON} scripts/check_asr_env.py   "
+            "# re-run with both invariants held",
         ),
     ),
     STAGE_ROCM_LOADER: Remediation(
         cause=(
-            "no ROCm userspace lib directory is on the dynamic loader search path, so "
-            f"{HSA_SONAME} cannot be resolved at run time"
+            "no ROCm userspace lib directory holding "
+            f"{HSA_SONAME}* is on the dynamic loader search path, so it cannot be resolved at run time"
         ),
         commands=(
-            "sudo apt install rocm-hip-libraries miopen-hip roctracer rocprofiler-register",
-            'ROCM_LIB=$(ls -d /opt/rocm-*/lib | sort -V | tail -1); echo "$ROCM_LIB" | sudo tee '
-            "/etc/ld.so.conf.d/rocm.conf; sudo ldconfig",
-            'ROCM_LIB=$(ls -d /opt/rocm-*/lib | sort -V | tail -1); export '
+            "sudo apt-get install -y --no-install-recommends rocm-hip-libraries miopen-hip "
+            "roctracer rocprofiler-register   # needs the ROCm apt repository: recipe steps 1-2",
+            'ROCM_LIB=$(ls -d /opt/rocm-*/lib | sort -V | tail -1); [ -n "$ROCM_LIB" ] && '
+            'echo "$ROCM_LIB" | sudo tee /etc/ld.so.conf.d/rocm.conf && sudo ldconfig   '
+            "# the echo is skipped, never written empty, when the glob matches nothing",
+            'ROCM_LIB=$(ls -d /opt/rocm-*/lib | sort -V | tail -1); [ -n "$ROCM_LIB" ] && export '
             'LD_LIBRARY_PATH="$ROCM_LIB:$LD_LIBRARY_PATH"',
+            "ldconfig -p | grep -c " + HSA_SONAME + "   # zero means the loader still cannot see it",
         ),
     ),
     STAGE_TORCH: Remediation(
@@ -188,7 +205,7 @@ REMEDIATIONS: Mapping[str, Remediation] = {
         ),
         commands=(
             _TORCH_INSTALL_COMMAND,
-            "python -c 'import torch; print(torch.__version__, torch.version.hip)'",
+            f"{_VENV_PYTHON} -c 'import torch; print(torch.__version__, torch.version.hip)'",
         ),
     ),
     STAGE_HSA: Remediation(
@@ -200,11 +217,14 @@ REMEDIATIONS: Mapping[str, Remediation] = {
     ),
     STAGE_DEVICE: Remediation(
         cause=(
-            "torch.cuda.is_available() reported no device; the measured WSL signature is a hard "
-            f'abort in torch\'s bundled librocprofiler-sdk: "{ABORT_SIGNATURE}"'
+            "the device probe child never reported a usable device: it exited non-zero, timed out, "
+            "printed no payload, or named a device without a gcnArchName. When the FAIL line above "
+            f'carries `exit -6: …{ABORT_SIGNATURE}…`, the measured cause is a hard abort inside '
+            "torch's bundled librocprofiler-sdk"
         ),
         commands=(
-            "python -c 'import torch; print(torch.cuda.is_available(), torch.version.hip)'",
+            "# which of the three measured modes this is: see the recipe's 'The three measured "
+            "failure modes' section; the device the probe saw is already on the FAIL line above",
             "# verified recipe: ROCm 7.2.1 runtime + rocdxg-roct 1.2.2 + the repo.radeon.com torch "
             "2.9.1+rocm7.2.0.lw wheel + rocm-hip-libraries/miopen-hip/roctracer/rocprofiler-register + "
             "/opt/rocm-<ver>/lib on the loader path + the WSL-compatible libhsa-runtime64.so in the "
@@ -213,6 +233,17 @@ REMEDIATIONS: Mapping[str, Remediation] = {
         ),
     ),
 }
+
+# A clean `False` is a return value, not a SIGABRT, so its cause text must not borrow the
+# abort signature: on those two measured hosts the operator is looking at a normal return.
+DEVICE_UNAVAILABLE_REMEDIATION = Remediation(
+    cause=(
+        "torch.cuda.is_available() returned False — a normal return value, not the abort "
+        "signature; the two measured causes are a runtime with no gfx1101 (ROCm 5.7) and a wheel "
+        "that cannot work under WSL (the PyTorch.org ROCm wheel). Recipe steps 1-6 are the fix"
+    ),
+    commands=REMEDIATIONS[STAGE_DEVICE].commands,
+)
 
 
 @dataclass(frozen=True)
@@ -274,10 +305,19 @@ def _text(value: object) -> str:
 
 
 def run_child(code: str, timeout: float = CHILD_TIMEOUT_SECONDS) -> ChildOutcome:
-    """Run one probe in a fresh interpreter, because the measured failure is a hard abort."""
+    """Run one probe in a fresh interpreter, because the measured failure is a hard abort.
+
+    `-P` keeps the working directory off the child's `sys.path`: with `-c` the cwd would
+    otherwise be `sys.path[0]`, so a stray `torch.py`/`torch/` in whatever directory the
+    operator happens to run from could answer both probes instead of the real package.
+    """
     try:
         completed = subprocess.run(
-            [sys.executable, "-c", code], capture_output=True, text=True, timeout=timeout, check=False
+            [sys.executable, "-P", "-c", code],
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            check=False,
         )
     except subprocess.TimeoutExpired as exc:
         return ChildOutcome(
@@ -345,7 +385,10 @@ def discover_rocm_lib_dirs(
     """The `<root>/rocm-*/lib` directories the dynamic loader can actually reach.
 
     Both sources are asserted for *discoverability*, and the version is globbed rather than
-    pinned, so no single machine's `/opt/rocm-<version>/lib` becomes the contract.
+    pinned, so no single machine's `/opt/rocm-<version>/lib` becomes the contract. Shape and
+    existence are not enough on their own: an empty (or stale) `rocm-5.7/lib` would otherwise
+    satisfy a stage whose whole purpose is that `libhsa-runtime64.so` resolves at run time,
+    so the directory must hold that shared object.
     """
     found: list[Path] = []
     for raw in (ld_library_path or "").split(os.pathsep):
@@ -353,7 +396,7 @@ def discover_rocm_lib_dirs(
         if not entry:
             continue
         candidate = Path(entry)
-        if _is_rocm_lib_dir(candidate, root) and candidate.is_dir():
+        if _is_rocm_lib_dir(candidate, root) and _holds_hsa_runtime(candidate):
             found.append(candidate)
     config_dir = Path(ld_conf_dir)
     if config_dir.is_dir():
@@ -362,9 +405,19 @@ def discover_rocm_lib_dirs(
                 continue
             for entry in _config_entries(config):
                 candidate = Path(entry)
-                if _is_rocm_lib_dir(candidate, root) and candidate.is_dir():
+                if _is_rocm_lib_dir(candidate, root) and _holds_hsa_runtime(candidate):
                     found.append(candidate)
     return tuple(dict.fromkeys(found))
+
+
+def _holds_hsa_runtime(directory: Path) -> bool:
+    """True when `directory` is a real ROCm lib dir: it carries the HSA runtime the loader needs."""
+    if not directory.is_dir():
+        return False
+    try:
+        return any(entry.exists() for entry in directory.glob(f"{HSA_SONAME}*"))
+    except OSError:
+        return False
 
 
 def _is_rocm_lib_dir(candidate: Path, root: Path) -> bool:
@@ -421,6 +474,17 @@ def _digest(path: Path) -> str | None:
         return None
 
 
+def _system_entries(system_dirs: Sequence[Path]) -> tuple[Path, ...]:
+    """Every `libhsa-runtime64.so*` a discovered system lib dir actually holds."""
+    entries: list[Path] = []
+    for directory in system_dirs:
+        try:
+            entries.extend(candidate for candidate in directory.glob(f"{HSA_SONAME}*") if candidate.exists())
+        except OSError:
+            continue
+    return tuple(entries)
+
+
 def classify_hsa_runtime(torch_lib: Path | None, system_dirs: Sequence[Path]) -> ProbeResult:
     """Decide whether torch/lib carries the system HSA runtime instead of the bundled copy."""
     if torch_lib is None:
@@ -440,14 +504,29 @@ def classify_hsa_runtime(torch_lib: Path | None, system_dirs: Sequence[Path]) ->
             ),
         )
 
+    searched = tuple(Path(directory) for directory in system_dirs)
+    system_digests = {
+        digest for digest in (_digest(candidate) for candidate in _system_entries(searched)) if digest is not None
+    }
+    searched_resolved = {
+        resolved for resolved in (_resolved(directory) for directory in searched) if resolved is not None
+    }
     lib_root = _resolved(torch_lib)
     for entry in entries:
         resolved = _resolved(entry)
-        if resolved is not None and (lib_root is None or lib_root not in resolved.parents):
-            return ProbeResult(True, f"hsa_runtime={resolved} (outside torch/lib)")
+        if resolved is None or (lib_root is not None and lib_root in resolved.parents):
+            continue
+        # A link out of torch/lib is not identity on its own: the target has to land in a
+        # discovered system lib dir, or be a byte copy of the runtime found there.
+        if resolved.parent in searched_resolved:
+            return ProbeResult(True, f"hsa_runtime={resolved} (outside torch/lib, links into {resolved.parent})")
+        digest = _digest(entry)
+        if digest is not None and digest in system_digests:
+            return ProbeResult(
+                True, f"hsa_runtime={resolved} (outside torch/lib, bytes match a system runtime)"
+            )
 
     digests = {digest for digest in (_digest(entry) for entry in entries) if digest is not None}
-    searched = tuple(Path(directory) for directory in system_dirs)
     for directory in searched:
         for system_entry in sorted(directory.glob(f"{HSA_SONAME}*")):
             if _digest(system_entry) in digests:
@@ -491,7 +570,11 @@ def classify_device_outcome(outcome: ChildOutcome, timeout: float) -> ProbeResul
     hip = str(payload.get("hip") or "unknown")
     if not payload.get("available"):
         loaded = payload.get("hsa_runtime") or "none"
-        return ProbeResult(False, f"torch.cuda.is_available() == False hip={hip} hsa_runtime={loaded}")
+        return ProbeResult(
+            False,
+            f"torch.cuda.is_available() == False hip={hip} hsa_runtime={loaded}",
+            remediation=DEVICE_UNAVAILABLE_REMEDIATION,
+        )
     name = str(payload.get("name") or "unknown")
     arch = str(payload.get("arch") or "")
     if not arch:
@@ -513,14 +596,17 @@ def make_dxg_probe(
 
     def probe() -> ProbeResult:
         environment = os.environ if environ is None else environ
+        # `Path.exists()` on purpose, and the observed text says exactly that: this stage
+        # asserts the DXG path is there. It does not open the node and does not check its
+        # type, so neither line may read as though a device had been validated.
         present = Path(device).exists()
         value = environment.get(DXG_ENV)
+        state = "path-exists (not opened)" if present else "missing"
         if present and value == DXG_ENABLED:
-            return ProbeResult(True, f"dxg_device=present {DXG_ENV}={value}")
+            return ProbeResult(True, f"dxg_device={state} {DXG_ENV}={value}")
         return ProbeResult(
             False,
-            f"dxg_device={'present' if present else 'missing'} "
-            f"{DXG_ENV}={value if value is not None else 'unset'}",
+            f"dxg_device={state} {DXG_ENV}={value if value is not None else 'unset'}",
         )
 
     return probe
