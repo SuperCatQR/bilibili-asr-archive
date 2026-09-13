@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 
 import pytest
 
@@ -468,6 +469,42 @@ def test_cli_asr_prints_the_line_when_every_transcription_fails(
 
 def _raise_asr_error():
     raise asr_mod.ASRModelError("first decode failed")
+
+
+def test_cli_asr_reuse_line_is_dropped_when_stderr_is_closed(
+    tmp_root, monkeypatch, capsys
+):
+    """F-02 (CLI half): a closed fd 2 must not relocate the line to stdout.
+
+    With fd 2 closed CPython sets ``sys.stderr`` to ``None``, and
+    ``print(..., file=None)`` writes to **stdout** — the stream ``_cmd_asr``
+    owns for its per-row ``archived`` lines and its summary.  A missing stream
+    means the diagnostic has nowhere to go, so the shared helper drops it
+    rather than falling back into stdout; the coordinator applies the same rule
+    to keep ``campaign``'s single JSON document intact.
+    """
+
+    identities = [
+        page_identity(f"BVnostderr{index}", 0, 950 + index, "p0") for index in range(3)
+    ]
+    _seed_audio_ok(tmp_root, identities)
+    constructions = _stub_runner_model(monkeypatch)
+    _patch_cli(monkeypatch, RouterTransport({}))
+    monkeypatch.setattr(sys, "stderr", None)
+
+    rc = main(["asr", "--pending", "--limit", "3", "--archive-root", tmp_root])
+    captured = capsys.readouterr()
+
+    # The line reaches neither stream: not stderr (closed), and above all not
+    # stdout, where a `file=None` fallback would have put it.
+    assert "model constructions=" not in captured.out
+    assert "model constructions=" not in captured.err
+    # ...while the invocation it describes still did the work.
+    assert len(constructions) == 1
+    assert rc == 0, captured.err
+    assert [
+        ManifestStore(root=tmp_root).get(i.work_id)["status"] for i in identities
+    ] == ["archived"] * 3
 
 
 def test_cli_asr_counts_only_the_row_whose_transcribe_returned(
