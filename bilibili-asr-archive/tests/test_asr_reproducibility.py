@@ -421,15 +421,19 @@ def test_the_declared_identity_never_reaches_the_loader(monkeypatch):
         def generate(self, **_kwargs):
             return [{"text": "ok", "timestamp": []}]
 
+    local_checkpoint = "/opt/models/Fun-ASR-Nano-2512"
+    monkeypatch.setenv("BILI_ASR_MODEL", local_checkpoint)
     monkeypatch.setenv("BILI_ASR_MODEL_ID", DECLARED_MODEL_ID)
+    monkeypatch.setenv("BILI_ASR_DEVICE", "cpu")
 
-    config = asr.ASRConfig(
-        "/opt/models/Fun-ASR-Nano-2512", device="cpu", model_id=DECLARED_MODEL_ID
-    )
-    asr.ASRRunner(config, model_factory=RecordingModel).transcribe("fixture.wav")
+    runner = asr.ASRRunner(asr.default_config(), model_factory=RecordingModel)
+    runner.transcribe("fixture.wav")
 
-    assert seen[0]["model"] == "/opt/models/Fun-ASR-Nano-2512"
+    # The loader still receives the local directory the operator configured...
+    assert seen[0]["model"] == local_checkpoint
+    # ...and the declaration is nowhere in its arguments.
     assert "model_id" not in seen[0]
+    assert local_checkpoint not in json.dumps(runner.provenance())
 
 
 def test_a_safe_configured_model_name_is_kept_without_a_declaration():
