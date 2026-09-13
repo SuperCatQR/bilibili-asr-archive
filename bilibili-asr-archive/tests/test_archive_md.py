@@ -265,9 +265,16 @@ def _recomputed_capture(raw_segments, duration_s, gap=1.0):
     Deliberately not the production helper: A5's claim is that a reader holding
     only the artefact can re-derive the numbers, so the merge is written out
     here the way that reader would.
+
+    ``end == start`` intervals are dropped before merging, which is the rule the
+    published keys follow: a zero-length cue describes no captured audio, and
+    leaving it in would both count a span for it and let it bridge two real
+    spans into one.  Its own duration is ``0.0`` either way, so the summed
+    seconds are unaffected by the skip.
     """
 
-    spans = sorted((float(s["start"]), float(s["end"])) for s in raw_segments)
+    spans = sorted((float(s["start"]), float(s["end"])) for s in raw_segments
+                   if float(s["end"]) > float(s["start"]))
     merged = []
     for start, end in spans:
         if merged and start - merged[-1][1] <= gap:
@@ -400,14 +407,107 @@ def test_capture_summary_edge_cases(tmp_root):
     unknown_raw = json.loads((tmp_path / unknown_paths["raw_path"]).read_text(encoding="utf-8"))
     assert unknown_raw["segments"] == [{"start": 0.0, "end": 2.0, "text": "甲。"}]
 
-    # The same rule for the shape this codebase actually publishes when a
-    # duration cannot be parsed (``long_live`` writes the string ``unknown``):
-    # the two absolute keys stand, and the ratio is still not invented.
+    # The same rule for a duration that cannot be parsed: the two absolute keys
+    # stand, and the ratio is still not invented.  The shape is synthetic — the
+    # campaign plan's ``"unknown"`` duration is printed, never persisted into a
+    # row — but a string duration is within the row contract, since
+    # ``parse_duration_s`` tolerates strings and ``is_long_live`` accepts one.
     unparsed, _ = front_for("BV1unkstr", [{"start": 0.0, "end": 2.0, "text": "甲。"}], "unknown")
     assert unparsed["duration_s"] == "unknown"
     assert unparsed["asr_vad_segments"] == 1
     assert unparsed["asr_vad_captured_s"] == 2.0
     assert "asr_vad_captured_ratio" not in unparsed
+
+
+def test_capture_ratio_is_omitted_when_the_duration_is_not_finite(tmp_root):
+    """D4.6 omits the ratio for a non-finite duration, not only a non-positive one.
+
+    ``duration <= 0`` is ``False`` for both infinities and ``nan``, so a guard
+    that checked only for non-positive values would publish a **claimed ratio**
+    where the spec claims nothing — ``2.0 / inf`` and ``max(0.0, nan)`` both
+    land on a fabricated ``0.0``.
+    """
+
+    tmp_path = __import__("pathlib").Path(tmp_root)
+
+    def front_for(bvid, duration_s):
+        entry = {"bvid": bvid, "work_id": f"{bvid}:p0", "page_index": 0, "cid": 16,
+                 "title": "non-finite", "pubdate_str": "2026-01-02", "duration_s": duration_s}
+        paths = write_archive(tmp_path, entry, [{"start": 0.0, "end": 2.0, "text": "甲。"}], source="asr")
+        return _frontmatter(tmp_path / paths["md_path"])
+
+    for label, bad in (("inf", float("inf")), ("-inf", float("-inf")), ("nan", float("nan"))):
+        front = front_for(f"BV1nf{label}", bad)
+        # The absolute keys are still facts about the transcript.
+        assert front["asr_vad_segments"] == 1, label
+        assert front["asr_vad_captured_s"] == 2.0, label
+        # The ratio is not one: its denominator is not a finite total.
+        assert "asr_vad_captured_ratio" not in front, label
+
+
+def test_capture_summary_survives_a_duration_beyond_float_range(tmp_root):
+    """A corrupt duration omits the ratio; it never aborts publication.
+
+    ``validate_manifest_record`` does not range-check ``duration_s``, and the
+    row is still publishable — base archives it with the integer rendered into
+    the frontmatter.  Converting it to ``float`` overflows, so the guard has to
+    be total: the ratio is omitted exactly as D4.6 prescribes for a duration it
+    cannot divide by, and the rest of the bundle is written as before.
+    """
+
+    tmp_path = __import__("pathlib").Path(tmp_root)
+    huge = 10 ** 400
+    entry = {"bvid": "BV1huge", "work_id": "BV1huge:p0", "page_index": 0, "cid": 17,
+             "title": "huge", "pubdate_str": "2026-01-02", "duration_s": huge}
+    segments = [{"start": 0.0, "end": 2.0, "text": "甲。"}]
+
+    paths = write_archive(tmp_path, entry, segments, source="asr")
+
+    front = _frontmatter(tmp_path / paths["md_path"])
+    assert front["duration_s"] == huge
+    assert front["asr_vad_segments"] == 1
+    assert front["asr_vad_captured_s"] == 2.0
+    assert "asr_vad_captured_ratio" not in front
+
+
+def test_capture_ignores_degenerate_zero_length_cues_like_the_recompute(tmp_root):
+    """A zero-length cue is skipped, and the published triple stays recomputable.
+
+    The shaper emits one whenever a result carries text but no usable timings:
+    ``normalize_result`` keeps it as a single zero-length segment on purpose
+    ("a transcript is never silently lost"), so this is a shape real ASR output
+    produces.  A reader deriving the keys from ``raw.json`` must reach the same
+    answer, and does: the skip cannot move the summed seconds, because ``0.0``
+    is all a zero-length span contributes.
+    """
+
+    tmp_path = __import__("pathlib").Path(tmp_root)
+
+    def published(bvid, segments, cid):
+        entry = {"bvid": bvid, "work_id": f"{bvid}:p0", "page_index": 0, "cid": cid,
+                 "title": "degenerate", "pubdate_str": "2026-01-02", "duration_s": 100}
+        paths = write_archive(tmp_path, entry, segments, source="asr")
+        front = _frontmatter(tmp_path / paths["md_path"])
+        raw = json.loads((tmp_path / paths["raw_path"]).read_text(encoding="utf-8"))
+        return front, raw
+
+    # A result with text but no timings: the shaper's own zero-length segment.
+    from bili_asr.asr import normalize_result
+
+    text_only = normalize_result({"text": "没有时间戳的一段话"})
+    assert [(s["start"], s["end"]) for s in text_only] == [(0.0, 0.0)]
+    front, raw = published("BV1degtext", text_only, 18)
+    # No captured audio is *located*, so zero spans is the fact recorded.
+    assert (front["asr_vad_segments"], front["asr_vad_captured_s"]) == (0, 0.0)
+    assert _recomputed_capture(raw["segments"], front["duration_s"]) == (0, 0.0, 0.0)
+
+    # ... and one sitting in a gap: merging it would bridge two real spans into
+    # one and inflate both the count and the seconds.
+    front, raw = published("BV1degbridge", [{"start": 0.0, "end": 1.0, "text": "甲。"},
+                                            {"start": 1.5, "end": 1.5, "text": "乙。"},
+                                            {"start": 2.5, "end": 3.0, "text": "丙。"}], 19)
+    assert (front["asr_vad_segments"], front["asr_vad_captured_s"]) == (2, 1.5)
+    assert _recomputed_capture(raw["segments"], front["duration_s"]) == (2, 1.5, 0.015)
 
 
 def test_capture_ratio_is_clamped_while_seconds_are_not(tmp_root):

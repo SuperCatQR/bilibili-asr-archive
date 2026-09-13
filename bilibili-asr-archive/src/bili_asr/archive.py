@@ -287,9 +287,11 @@ LOW_CONFIDENCE = 0.4
 #: ``asr._CUE_MAX_GAP_SECONDS`` — the shaper's own pause threshold, so a gap it
 #: would not have split on is not read back as a capture hole.
 #:
-#: Declared here rather than imported: ``archive.py`` publishes artefacts and
-#: ``asr.py`` runs the model, and the one-way dependency between them is
-#: deliberate (asr-archive-cli.md), so the coupling is asserted by
+#: Declared here rather than imported: the stated cross-layer rule is that
+#: ``subtitles``/``audio``/``asr``/``archive`` never import each other, only
+#: ``cli`` composing them (asr-archive-cli.md L61).  The two pure formatters
+#: ``archive.py`` already imports from ``asr`` are the existing exception, so a
+#: new coupling would widen it; the coupling is asserted by
 #: ``test_capture_gap_seconds_follows_the_cue_shaper_threshold`` instead.
 CAPTURE_GAP_SECONDS = 1.0
 
@@ -319,6 +321,16 @@ def _merged_cue_spans(segments: list[dict[str, Any]]) -> list[tuple[float, float
     rather than a punctuation census.  Non-finite and reversed intervals are
     skipped: they cannot describe captured audio, and the quality checker
     already names them ``malformed``/``out_of_range``.
+
+    **An interval of zero length (``end == start``) is skipped too.**  The rule
+    is published here because A5 lets a reader recompute the capture facts from
+    ``raw.json`` alone, and a zero-length cue is invisible audio either way it
+    is read: counted, it inflates ``asr_vad_segments`` by a span that describes
+    no captured stretch, and merged, it can bridge two real spans into one and
+    inflate ``asr_vad_captured_s``.  Because the seconds of a zero-length span
+    are ``0.0``, skipping it leaves the summed duration identical to counting
+    it, so a recomputation that skips zero-length intervals reproduces every
+    published value exactly.
     """
 
     spans: list[tuple[float, float]] = []
@@ -354,8 +366,13 @@ def _capture_summary(segments: list[dict[str, Any]], duration_s: Any) -> dict[st
     The seconds stay **unclamped**, so a duration/cue contradiction remains
     visible in the artefact rather than being smoothed away here.
 
+    The ratio divides the **published** ``asr_vad_captured_s`` — the 3-decimal
+    value from the key above it, not the exact float sum — so a reader holding
+    only the artefact reproduces it exactly.
+
     The ratio is omitted when ``duration_s`` is not positive and finite — a
-    proportion of an unknown total is not a fact.  The two absolute keys are
+    proportion of an unknown total is not a fact — or when it is a number too
+    large to divide by, which the same rule covers.  The two absolute keys are
     still emitted, and an empty transcript legitimately reports zero of both.
     """
 
@@ -368,7 +385,12 @@ def _capture_summary(segments: list[dict[str, Any]], duration_s: Any) -> dict[st
     duration = duration_s
     if isinstance(duration, bool) or not isinstance(duration, (int, float)):
         return summary
-    duration = float(duration)
+    try:
+        duration = float(duration)
+    except OverflowError:
+        # Arbitrary-precision ints beyond float range: an unusable denominator,
+        # so the ratio is omitted rather than allowed to abort publication.
+        return summary
     if not math.isfinite(duration) or duration <= 0:
         return summary
     summary["asr_vad_captured_ratio"] = round(min(1.0, max(0.0, captured_s / duration)), 3)
