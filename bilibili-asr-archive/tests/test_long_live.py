@@ -501,10 +501,13 @@ def test_allow_long_live_asr_failure_keeps_retryable_audio(
         _row(identity, status="needs_audio", duration_s=THREE_HOURS_S)
     )
 
-    def boom(_path, model_name=None):
+    def boom(**_kwargs):
         raise RuntimeError("asr")
 
-    monkeypatch.setattr(asr_mod, "transcribe", boom)
+    # D2.5 seam: `schedule` runs the shared coordinator, which builds its
+    # runner's model through this factory.
+    monkeypatch.setenv("BILI_ASR_DEVICE", "cpu")
+    monkeypatch.setattr(asr_mod, "_load_default_model", boom)
     transport = _download_transport(identity)
     _patch_cli(monkeypatch, transport)
 

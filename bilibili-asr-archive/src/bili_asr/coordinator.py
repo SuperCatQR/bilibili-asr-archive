@@ -15,6 +15,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import sys
 import threading
 import time
 from pathlib import Path
@@ -242,6 +243,21 @@ class AttemptLedger:
 
 
 
+def model_constructions_line(command: str, constructions: int, asr_items: int) -> str:
+    """The one line a batch prints to state how much reuse it got.
+
+    Single source of the shipped string: README quotes this literal, and the
+    in-process ``asr`` / ``pilot`` loops print through it as well
+    (``cli._print_in_process_constructions``), so all five labels — ``run``,
+    ``schedule`` and ``campaign`` via ``RunCoordinator.run_batch``, ``asr`` and
+    ``pilot`` via that CLI helper — come from this one format string.
+    """
+    return (
+        f"{command}: model constructions={constructions} "
+        f"for {asr_items} asr item(s)"
+    )
+
+
 @dataclass
 class RowResult:
     work_id: str
@@ -256,6 +272,11 @@ class RowResult:
 class RunSummary:
     results: list[RowResult] = field(default_factory=list)
     risk_interrupted: bool = False
+    # Constructions this batch paid (delta over the batch's runner, so a
+    # caller-injected runner reused across batches still reports per-batch
+    # truth) and how many rows actually produced an ASR transcript.
+    model_constructions: int = 0
+    asr_items: int = 0
 
     @property
     def failed(self) -> list[RowResult]:
@@ -300,6 +321,7 @@ class RunCoordinator:
         max_audio_bytes: int = 0,
         sleep: Callable[[float], None] | None = None,
         asr_runner: Any | None = None,
+        command: str = "run",
     ) -> None:
         self.root = os.fspath(archive_root)
         self.store = store
@@ -308,6 +330,14 @@ class RunCoordinator:
         self.max_audio_bytes = max(0, max_audio_bytes)
         self._sleep = sleep or time.sleep
         self.asr_runner = asr_runner
+        # Prefix of the printed model-construction line.  ``run_batch`` is the
+        # shared batch entry, so the invoking command names itself here; the
+        # default keeps the documented coordinator path's own label.
+        self.command = command
+        self._batch_asr_items = 0
+        # Re-entrancy tripwire for ``run_batch`` (see its docstring): the
+        # denominator above is per-coordinator, not per-batch.
+        self._batch_depth = 0
         self.audio_peak_bytes = 0
         self.ledger = AttemptLedger(self.root)
         self._attempt_counts: dict[tuple[str, str], int] = {}
@@ -502,6 +532,9 @@ class RunCoordinator:
             )
             raise
         self._record("asr", work_id, "ok", started_at=started)
+        # This row produced an ASR transcript: the denominator of the printed
+        # reuse line (D2.5).  Counted here, at the `asr: ok` attempt.
+        self._batch_asr_items += 1
         started = _utc_now_iso()
         try:
             paths = archive_module.write_archive(
@@ -692,15 +725,89 @@ class RunCoordinator:
         return False
 
     def run_batch(self, rows: list[tuple[str, dict[str, Any]]]) -> RunSummary:
+        """Process one batch while the archive root is owned.
+
+        Not re-entrant, and refused rather than tolerated: the printed line's
+        denominator lives on ``self`` (``_batch_asr_items``, written by
+        ``_transcribe_row``), so a nested call would zero the outer batch's
+        count, clobber it with the inner one, and print a second line for work
+        the outer call has not finished.  No caller nests today; the tripwire
+        keeps a future one from silently corrupting the count.
+        """
+        if self._batch_depth:
+            raise RuntimeError("run_batch is not re-entrant")
+        self._batch_depth += 1
+        try:
+            return self._run_batch_owned(rows)
+        finally:
+            self._batch_depth -= 1
+
+    def _run_batch_owned(
+        self, rows: list[tuple[str, dict[str, Any]]]
+    ) -> RunSummary:
         injected_runner = self.asr_runner
+        # Bound before the ``try`` so the ``finally`` can always read it: the
+        # batch entry point may raise before producing a summary (the
+        # interrupted-batch tests model exactly that), and the release path
+        # must still run.
+        summary = RunSummary()
         with archive_writer(self.root):
             self.asr_runner = injected_runner
+            self._batch_asr_items = 0
+            constructions_before = (
+                getattr(injected_runner, "model_constructions", 0)
+                if injected_runner is not None
+                else 0
+            )
             try:
-                return self._run_batch_locked(rows)
+                summary = self._run_batch_locked(rows)
             finally:
+                # The batch's evidence is stated and the runner handed back on
+                # *every* exit path, Ctrl-C included: the assignments and the
+                # print sit before the release so a ``BaseException`` cannot
+                # carry the count away, and the pending exception still
+                # propagates (this ``finally`` never swallows or returns).
                 if injected_runner is None and self.asr_runner is not None:
                     self.asr_runner.release()
+                batch_runner = self.asr_runner
                 self.asr_runner = injected_runner
+                # Observed delta, not a lifetime total: an injected runner
+                # reused across batches reports only what this batch added.
+                summary.model_constructions = max(
+                    0,
+                    getattr(batch_runner, "model_constructions", 0)
+                    - constructions_before,
+                )
+                summary.asr_items = self._batch_asr_items
+                self._print_model_constructions(summary)
+            return summary
+
+    def _print_model_constructions(self, summary: RunSummary) -> None:
+        """State the batch's reuse once, on stderr, when anything was paid.
+
+        Stderr, not stdout (D2.6 as amended): ``campaign``'s stdout is one
+        JSON document, and a line printed there breaks every downstream
+        parser.  The guard is "nothing was paid", not "no ASR items": a batch
+        that constructed the model and then failed every transcription prints
+        ``… for 0 asr item(s)``, because that line is the only evidence of the
+        first-decode failure it just paid for.  A subtitle-only batch (neither
+        a construction nor a transcript) prints nothing.
+
+        With fd 2 closed CPython sets ``sys.stderr`` to ``None`` and
+        ``print(..., file=None)`` falls back to **stdout**, which would put
+        this line inside ``campaign``'s JSON document; a closed stderr means
+        the diagnostic has nowhere to go, so nothing is printed.
+        """
+        if summary.asr_items <= 0 and summary.model_constructions <= 0:
+            return
+        if sys.stderr is None:
+            return
+        print(
+            model_constructions_line(
+                self.command, summary.model_constructions, summary.asr_items
+            ),
+            file=sys.stderr,
+        )
 
     def _run_batch_locked(
         self, rows: list[tuple[str, dict[str, Any]]]

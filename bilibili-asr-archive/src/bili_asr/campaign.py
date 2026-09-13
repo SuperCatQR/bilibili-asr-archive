@@ -323,6 +323,8 @@ class CampaignRunner:
         coordinator = self.coordinator_factory(
             self.root, store, client=self.client, offline=self.offline,
             max_audio_bytes=self.max_audio_bytes, sleep=self.sleep,
+            # `run_batch` is shared; the reuse line must name `campaign`, not `run`.
+            command="campaign",
         )
         run_summary: RunSummary = coordinator.run_batch(selected_rows)
         result_by_id = {result.work_id: result for result in run_summary.results}
