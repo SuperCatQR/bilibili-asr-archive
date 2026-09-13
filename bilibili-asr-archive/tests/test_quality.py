@@ -3,9 +3,20 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from bili_asr.archive import write_archive
+import pytest
+
+from bili_asr import asr
+from bili_asr.archive import LOW_CONFIDENCE, write_archive
 from bili_asr.page_identity import page_identity
-from bili_asr.quality import QualityAnalyzer
+from bili_asr.quality import (
+    CONTENT_REASON_CODES,
+    DEFECT_REASON_CODES,
+    FRAGMENT_MAX_CHARS,
+    FRAGMENT_MAX_SECONDS,
+    OVERLONG_CHARS,
+    REASON_CODES,
+    QualityAnalyzer,
+)
 
 
 def row(**values: object) -> dict[str, object]:
@@ -276,3 +287,227 @@ def test_reclaimed_audio_does_not_count_as_defect(tmp_path: Path) -> None:
     )
     assert result.reasons == ()
     assert result.status == "archived"
+
+
+# --- content reasons: the second class, advisory by construction ---------------
+
+
+def test_reason_vocabulary_splits_into_two_classes() -> None:
+    assert DEFECT_REASON_CODES == (
+        "empty",
+        "malformed",
+        "non_monotonic",
+        "overlap",
+        "out_of_range",
+        "identity_mismatch",
+        "artifact_missing",
+    )
+    assert CONTENT_REASON_CODES == (
+        "low_confidence",
+        "leading_mark",
+        "fragment_cue",
+        "overlong_cue",
+        "duplicate_cue",
+        "repeated_ngram",
+        "reference_disagreement",
+    )
+    # the ordered union keeps the seven defect codes at their original indices
+    assert REASON_CODES == DEFECT_REASON_CODES + CONTENT_REASON_CODES
+
+
+def test_content_thresholds_track_the_cue_shaper() -> None:
+    """A cue the shaper accepts is never reported as over-long or fragmentary."""
+
+    assert OVERLONG_CHARS == asr._CUE_MAX_CHARS
+    assert FRAGMENT_MAX_CHARS == asr._CUE_MIN_CHARS
+    assert FRAGMENT_MAX_SECONDS == asr._CUE_MIN_SECONDS
+    assert LOW_CONFIDENCE == 0.4
+
+
+def write_raw(root: Path, name: str, segments: list[dict]) -> str:
+    path = root / "transcripts" / "raw" / name
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({"segments": segments}), encoding="utf-8")
+    return "transcripts/raw/" + name
+
+
+def test_each_content_reason_fires_on_a_crafted_artefact(tmp_path: Path) -> None:
+    """One crafted artefact per content code — and each stays free of defects."""
+
+    overlong = (
+        "今天的讨论围绕国际劳工仲裁这个主题展开，涉及多个国家的法律资源分配，"
+        "以及普通劳动者在遇到纠纷时能够获得的支持方式与成本问题"
+    )
+    assert len(overlong) > OVERLONG_CHARS
+    cases: dict[str, tuple[str, str]] = {
+        "low_confidence": (
+            "raw",
+            json.dumps(
+                {
+                    "segments": [
+                        {"start": 0.0, "end": 2.0, "text": "正常的一句话", "confidence": 0.25}
+                    ]
+                }
+            ),
+        ),
+        "leading_mark": (
+            "srt",
+            "1\n00:00:00,000 --> 00:00:02,000\n，今天天气很好我们出去走走\n",
+        ),
+        "fragment_cue": ("srt", "1\n00:00:00,000 --> 00:00:00,500\n嗯\n"),
+        "overlong_cue": ("srt", f"1\n00:00:00,000 --> 00:00:08,000\n{overlong}\n"),
+        "duplicate_cue": (
+            "srt",
+            "1\n00:00:00,000 --> 00:00:02,000\n重复的一句话\n\n"
+            "2\n00:00:02,000 --> 00:00:04,000\n重复的一句话\n",
+        ),
+        "repeated_ngram": (
+            "srt",
+            "1\n00:00:00,000 --> 00:00:08,000\n" + "一二三四五六七八" * 4 + "\n",
+        ),
+    }
+    assert set(cases) <= set(CONTENT_REASON_CODES)
+    for reason, (kind, body) in cases.items():
+        case_root = tmp_path / reason
+        if kind == "raw":
+            relative = write_raw(case_root, "BV1demo.p0.json", json.loads(body)["segments"])
+        else:
+            relative = write_srt(case_root, "BV1demo.p0.srt", body)
+        result = QualityAnalyzer().analyze(
+            row(**{f"{kind}_path": relative}), case_root
+        )
+        assert reason in result.content_reasons, reason
+        # advisory: a content reason never makes the item defective
+        assert result.reasons == (), reason
+        assert not set(result.content_reasons) & set(DEFECT_REASON_CODES), reason
+
+
+def test_content_reasons_are_not_defects_and_do_not_leak_into_reasons(
+    tmp_path: Path,
+) -> None:
+    """A healthy transcript with content observations stays a valid work item."""
+
+    relative = write_srt(
+        tmp_path,
+        "BV1demo.p0.srt",
+        "1\n00:00:00,000 --> 00:00:02,000\n，今天天气很好我们出去走走\n",
+    )
+    result = QualityAnalyzer().analyze(row(srt_path=relative), tmp_path)
+    assert result.content_reasons == ("leading_mark",)
+    assert result.reasons == ()
+    assert "content_reasons" not in result.to_dict()
+
+
+def test_clean_cue_scores_no_content_reason(tmp_path: Path) -> None:
+    relative = write_srt(
+        tmp_path, "BV1demo.p0.srt", "1\n00:00:00,000 --> 00:00:02,000\n今天天气很好我们出去走走\n"
+    )
+    result = QualityAnalyzer().analyze(row(srt_path=relative), tmp_path)
+    assert result.content_reasons == ()
+    assert result.reasons == ()
+
+
+def test_srt_only_artefact_reports_no_low_confidence(tmp_path: Path) -> None:
+    """No recorded score means not computed — never fabricated."""
+
+    relative = write_srt(
+        tmp_path, "BV1demo.p0.srt", "1\n00:00:00,000 --> 00:00:02,000\n今天天气很好我们出去走走\n"
+    )
+    result = QualityAnalyzer().analyze(row(srt_path=relative), tmp_path)
+    assert "low_confidence" not in result.content_reasons
+
+
+@pytest.fixture(scope="module")
+def recorded_cues() -> list[dict]:
+    """The recorded Fun-ASR-Nano result for one archived part, shaped as cues."""
+
+    path = (
+        Path(__file__).parent
+        / "fixtures"
+        / "asr-cues"
+        / "BV1wLTP6NE9h.p0.tokens.json"
+    )
+    payload = json.loads(path.read_text(encoding="utf-8"))[0]
+    return asr._token_cues(payload["timestamps"])
+
+
+def _recorded_entry() -> dict[str, object]:
+    ident = page_identity("BV1wLTP6NE9h", 0, 12345)
+    return {
+        "bvid": ident.bvid,
+        "work_id": ident.work_id,
+        "page_index": 0,
+        "cid": 12345,
+        "title": "recorded probe",
+        "pubdate_str": "2026-01-02",
+        "duration_s": 448.0,
+        "source": "asr",
+        "status": "archived",
+    }
+
+
+def test_recorded_cue_fixture_yields_the_two_advisory_reasons(
+    tmp_path: Path, recorded_cues: list[dict]
+) -> None:
+    """A3: on the recorded 95-cue transcript the new vocabulary fires exactly
+    one under-confident cue and two over-long cues, and nothing else."""
+
+    assert len(recorded_cues) == 95
+    segments = [
+        {
+            "start": cue["start"],
+            "end": cue["end"],
+            "text": cue["text"],
+            "confidence": cue["confidence"],
+        }
+        for cue in recorded_cues
+    ]
+    entry = _recorded_entry()
+    write_archive(tmp_path, entry, segments, source="asr")
+
+    result = QualityAnalyzer().analyze(entry, tmp_path)
+    assert result.reasons == (), "no structural defect on a healthy transcript"
+    assert result.content_reasons == ("low_confidence", "overlong_cue")
+    # the 95-cue stream is counted once per cue-bearing artifact (srt + raw)
+    assert result.artifact_count == 4
+    assert result.cue_count == 2 * len(recorded_cues)
+    assert sum(1 for cue in recorded_cues if cue["confidence"] <= LOW_CONFIDENCE) == 1
+    assert sum(1 for cue in recorded_cues if len(cue["text"]) > OVERLONG_CHARS) == 2
+    # the shape layer is untouched: the cue fixture keeps the shaper's invariants
+    assert all(cue["text"][0] not in "，。！？、；：" for cue in recorded_cues)
+    assert not any(
+        len(cue["text"].strip("，。！？、；：")) < FRAGMENT_MAX_CHARS
+        and (cue["end"] - cue["start"]) < FRAGMENT_MAX_SECONDS
+        for cue in recorded_cues
+    )
+
+
+def test_recorded_cue_fixture_still_exits_zero(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], recorded_cues: list[dict]
+) -> None:
+    """A3: advisory content reasons must not flip a healthy archive to exit 1."""
+
+    from bili_asr import cli
+    from bili_asr.manifest import ManifestStore
+
+    entry = _recorded_entry()
+    segments = [
+        {
+            "start": cue["start"],
+            "end": cue["end"],
+            "text": cue["text"],
+            "confidence": cue["confidence"],
+        }
+        for cue in recorded_cues
+    ]
+    write_archive(tmp_path, entry, segments, source="asr")
+    ManifestStore(root=str(tmp_path)).upsert(dict(entry))
+
+    exit_code = cli.main(
+        ["coverage", "--archive-root", str(tmp_path), "--quality", "--format", "json"]
+    )
+    assert exit_code == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["summary"]["valid_work_items"] == 1
+    assert payload["summary"]["total_cues"] == 2 * len(recorded_cues)
+    assert payload["rows"][0]["reasons"] == []

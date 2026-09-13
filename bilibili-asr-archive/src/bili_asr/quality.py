@@ -2,17 +2,20 @@
 
 from __future__ import annotations
 
+import collections
 import json
 import math
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Mapping
+from typing import Mapping, NamedTuple
 
-from .archive import archive_stem
+from .archive import LOW_CONFIDENCE, archive_stem
 from .page_identity import artifact_stem, page_identity, parse_work_id
 
-REASON_CODES = (
+#: Reasons that describe a structural defect: an artifact is missing, unreadable,
+#: or internally inconsistent.  Only these make a work item invalid.
+DEFECT_REASON_CODES = (
     "empty",
     "malformed",
     "non_monotonic",
@@ -21,6 +24,33 @@ REASON_CODES = (
     "identity_mismatch",
     "artifact_missing",
 )
+#: Reasons that record what the recorded content measures.  They are advisory:
+#: they describe the transcript, never that the archive is broken, so they leave
+#: the validity count and the exit status alone.
+CONTENT_REASON_CODES = (
+    "low_confidence",
+    "leading_mark",
+    "fragment_cue",
+    "overlong_cue",
+    "duplicate_cue",
+    "repeated_ngram",
+    "reference_disagreement",
+)
+#: The ordered vocabulary.  The seven defect codes keep their original positions,
+#: so existing output keeps its spelling and its sort order.
+REASON_CODES = DEFECT_REASON_CODES + CONTENT_REASON_CODES
+#: A cue never opens on one of these marks, and a fragment is measured after
+#: stripping them — the same marks :mod:`bili_asr.asr` uses when shaping cues.
+LEADING = "，。！？、；："
+#: Content thresholds, matching the cue shaping bounds in :mod:`bili_asr.asr`
+#: (``_CUE_MAX_CHARS`` / ``_CUE_MIN_CHARS`` / ``_CUE_MIN_SECONDS``) so a cue the
+#: shaper accepts is never reported as over-long or fragmentary.
+OVERLONG_CHARS = 60
+FRAGMENT_MAX_CHARS = 6
+FRAGMENT_MAX_SECONDS = 1.0
+#: Repeated-ngram detection: every 8-character window that occurs this often.
+_NGRAM_CHARS = 8
+_NGRAM_MIN_REPEATS = 3
 _MAX_BYTES = 8 * 1024 * 1024
 _MAX_CUES = 10_000
 _SRT_TIME = re.compile(
@@ -28,9 +58,28 @@ _SRT_TIME = re.compile(
 )
 
 
+class Cue(NamedTuple):
+    """One cue, as the single parser reads it from any artifact shape.
+
+    ``confidence`` is the model's own per-cue score when the artifact records it
+    (the raw sidecar does, an SRT does not); ``None`` means not recorded, never
+    "low".
+    """
+
+    start: float
+    end: float
+    text: str
+    confidence: float | None
+
+
 @dataclass(frozen=True)
 class QualityResult:
-    """Stable projection of quality observations for one manifest row."""
+    """Stable projection of quality observations for one manifest row.
+
+    ``reasons`` holds defect codes only, so validity counts and exit status read
+    from it unchanged.  ``content_reasons`` holds the advisory content codes and
+    never affects either.
+    """
 
     source: str | None
     language: str | None
@@ -39,6 +88,7 @@ class QualityResult:
     artifact_count: int
     reasons: tuple[str, ...]
     diagnostics: tuple[str, ...]
+    content_reasons: tuple[str, ...] = ()
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -60,6 +110,7 @@ class QualityAnalyzer:
     ) -> QualityResult:
         reasons: set[str] = set()
         diagnostics: set[str] = set()
+        content_reasons: set[str] = set()
         artifacts = _artifact_paths(row, archive_root)
         cue_count = 0
         valid_artifacts = 0
@@ -87,6 +138,7 @@ class QualityAnalyzer:
             if empty:
                 reasons.add("empty")
             _check_cues(cues, row, reasons)
+            _check_content(cues, content_reasons)
             _check_identity(path, text, row, reasons)
         return QualityResult(
             source=_text_value(row, "source", "subtitle_source"),
@@ -96,6 +148,7 @@ class QualityAnalyzer:
             artifact_count=valid_artifacts,
             reasons=tuple(sorted(reasons, key=REASON_CODES.index)),
             diagnostics=tuple(sorted(diagnostics)[:8]),
+            content_reasons=tuple(sorted(content_reasons, key=REASON_CODES.index)),
         )
 
 
@@ -190,11 +243,11 @@ def _contained(path: Path, root: Path) -> bool:
     return True
 
 
-def _read_cues(path: Path, text: str) -> tuple[list[tuple[float, float]], bool, bool]:
+def _read_cues(path: Path, text: str) -> tuple[list[Cue], bool, bool]:
     if not text.strip():
         return [], False, True
     if path.suffix.lower() == ".srt":
-        cues: list[tuple[float, float]] = []
+        cues: list[Cue] = []
         malformed = False
         blocks = re.split(r"\n\s*\n", text.replace("\r\n", "\n"))
         for block in blocks:
@@ -213,7 +266,7 @@ def _read_cues(path: Path, text: str) -> tuple[list[tuple[float, float]], bool, 
             if start is None or end is None:
                 malformed = True
             else:
-                cues.append((start, end))
+                cues.append(Cue(start, end, _cue_text(lines, timing), None))
         return cues[:_MAX_CUES], malformed, not cues
     if path.suffix.lower() == ".json":
         try:
@@ -250,10 +303,36 @@ def _read_cues(path: Path, text: str) -> tuple[list[tuple[float, float]], bool, 
             if not (math.isfinite(start) and math.isfinite(end)):
                 malformed = True
                 continue
-            cues.append((start, end))
+            cues.append(Cue(start, end, _text_of(item), _confidence_of(item)))
         return cues, malformed, not cues
     lines = [line.strip() for line in text.splitlines() if line.strip()]
     return [], False, not lines
+
+
+def _cue_text(lines: list[str], timing: str) -> str:
+    """The cue's text: every line after the timing line, joined.
+
+    Taking the lines *after* the timing line — rather than dropping digit-only
+    lines — keeps a cue whose text is itself a number.
+    """
+
+    index = lines.index(timing)
+    return " ".join(lines[index + 1 :])
+
+
+def _text_of(item: Mapping[str, object]) -> str:
+    value = item.get("text")
+    if value is None:
+        value = item.get("content")
+    return "" if value is None else str(value)
+
+
+def _confidence_of(item: Mapping[str, object]) -> float | None:
+    value = item.get("confidence")
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    score = float(value)
+    return score if math.isfinite(score) else None
 
 
 def _parse_time(value: str) -> float | None:
@@ -269,7 +348,7 @@ def _parse_time(value: str) -> float | None:
 
 
 def _check_cues(
-    cues: list[tuple[float, float]], row: Mapping[str, object], reasons: set[str]
+    cues: list[Cue], row: Mapping[str, object], reasons: set[str]
 ) -> None:
     duration = row.get("duration_s")
     maximum: float | None = None
@@ -282,7 +361,8 @@ def _check_cues(
             pass
     previous_start = -1.0
     previous_end = -1.0
-    for start, end in cues:
+    for cue in cues:
+        start, end = cue.start, cue.end
         if not (math.isfinite(start) and math.isfinite(end)):
             reasons.add("malformed")
             reasons.add("out_of_range")
@@ -296,6 +376,36 @@ def _check_cues(
         if maximum is not None and end > maximum + 0.001:
             reasons.add("out_of_range")
         previous_start, previous_end = start, end
+
+
+def _check_content(cues: list[Cue], reasons: set[str]) -> None:
+    """Record what the transcript's content measures.  Advisory, never a defect."""
+
+    if any(
+        cue.confidence is not None and cue.confidence <= LOW_CONFIDENCE
+        for cue in cues
+    ):
+        reasons.add("low_confidence")
+    if any(cue.text and cue.text[:1] in LEADING for cue in cues):
+        reasons.add("leading_mark")
+    if any(
+        len(cue.text.strip(LEADING)) < FRAGMENT_MAX_CHARS
+        and (cue.end - cue.start) < FRAGMENT_MAX_SECONDS
+        for cue in cues
+    ):
+        reasons.add("fragment_cue")
+    if any(len(cue.text) > OVERLONG_CHARS for cue in cues):
+        reasons.add("overlong_cue")
+    texts = [cue.text for cue in cues]
+    if any(bool(text) and text == other for text, other in zip(texts, texts[1:])):
+        reasons.add("duplicate_cue")
+    joined = "".join(texts)
+    grams = collections.Counter(
+        joined[index : index + _NGRAM_CHARS]
+        for index in range(max(0, len(joined) - _NGRAM_CHARS))
+    )
+    if any(count >= _NGRAM_MIN_REPEATS for count in grams.values()):
+        reasons.add("repeated_ngram")
 
 
 def _check_identity(
