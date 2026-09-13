@@ -940,9 +940,11 @@ def test_a_failed_load_is_retried_per_row_and_counted_as_an_attempt(monkeypatch)
 
     A failed load leaves ``_model`` unset, so every later row retries the same
     factory call and pays no construction.  The attempt counter is what makes
-    the difference observable: without it ``model constructions=0`` for a
-    three-row batch that failed every load is indistinguishable from a batch
-    that built one model and reused it.
+    the difference observable *to a caller holding the runner*: without it
+    ``model_constructions == 0`` cannot be told apart between a runner that
+    never needed a model and one whose N loads were all rejected.  Nothing
+    prints this number — ``test_cli_prints_no_reuse_line_when_every_load_fails``
+    pins the operator-visible side.
     """
 
     attempts = []
@@ -1373,3 +1375,181 @@ def test_readme_publishes_the_declaration_surface_and_the_attempt_rule():
     assert "model_load_attempts" in text
     assert "successful constructions" in text
     assert "retries the same load" in text
+
+
+def test_a_batch_whose_every_load_fails_is_silent_and_pays_n_attempts(
+    tmp_root, monkeypatch, capsys
+):
+    """F1: the shipped behaviour the README's attempt paragraph must describe.
+
+    This is the review's scenario at the coordinator seam: three rows, a factory
+    that raises on every call.  Every row pays one attempt, no construction is
+    paid and nothing is transcribed, so the guard is silent on both streams.
+    Asserted here as *behaviour* (counts and streams), not as a substring: the
+    test the README's paragraph is checked against has to be able to fail when
+    the paragraph (or the guard) drifts.
+    """
+
+    attempts: list[dict] = []
+
+    def exploding_factory(**kwargs):
+        attempts.append(dict(kwargs))
+        raise RuntimeError("no checkpoint")
+
+    monkeypatch.setenv("BILI_ASR_DEVICE", "cpu")
+    monkeypatch.setattr(asr, "_load_default_model", exploding_factory)
+    store, rows = _seed_audio_batch(tmp_root, 3, prefix="BVallloadfail")
+
+    summary = RunCoordinator(tmp_root, store, offline=True).run_batch(rows)
+
+    captured = capsys.readouterr()
+    # N attempts were really paid...
+    assert len(attempts) == 3
+    assert summary.model_constructions == 0
+    assert summary.asr_items == 0
+    assert [result.ok for result in summary.results] == [False, False, False]
+    # ...and the cost is stated nowhere: no reuse line on either stream.
+    assert "model constructions=" not in captured.err
+    assert "model constructions=" not in captured.out
+    assert captured.err == ""
+    assert captured.out == ""
+    # The failures are reported per row instead — the only operator surface.
+    assert len(summary.failed) == 3
+
+
+def test_the_attempt_count_survives_on_the_runner_the_batch_no_longer_holds(
+    tmp_root, monkeypatch, capsys
+):
+    """F1/F2: the count is recorded on an in-process surface, and nowhere else.
+
+    The coordinator releases its runner at batch exit, so the N attempts a
+    failed batch paid are unreachable from `RunSummary` — this pins that
+    boundary deliberately: the README states the count is *recorded, not
+    printed*, and this test is where either half may not silently change.  A
+    caller that owns the runner (an injected one, or the in-process `asr` /
+    `pilot` loops) is the only surface that can read it.
+    """
+
+    attempts: list[dict] = []
+
+    def exploding_factory(**kwargs):
+        attempts.append(dict(kwargs))
+        raise RuntimeError("no checkpoint")
+
+    monkeypatch.setenv("BILI_ASR_DEVICE", "cpu")
+    runner = asr.ASRRunner(
+        asr.ASRConfig("local-test-model", device="cpu"),
+        model_factory=exploding_factory,
+    )
+    store, rows = _seed_audio_batch(tmp_root, 2, prefix="BVinjected")
+    coordinator_ = RunCoordinator(tmp_root, store, offline=True, asr_runner=runner)
+
+    summary = coordinator_.run_batch(rows)
+
+    capsys.readouterr()
+    # The batch paid one attempt per row while holding the caller's runner...
+    assert runner.model_load_attempts == 2
+    assert runner.model_constructions == 0
+    # ...and the caller-owned runner is handed back, so the count stays
+    # readable after the batch — the surface the README names.
+    assert coordinator_.asr_runner is runner
+    assert summary.model_constructions == 0
+    assert not hasattr(summary, "model_load_attempts")
+
+
+def test_readme_states_the_attempts_are_recorded_rather_than_printed():
+    """F1's contract in words: the README may not promise a printed attempt line.
+
+    The review's finding was a paragraph asserting a diagnostic the tool does
+    not emit ("reports ``model constructions=0``", "still states its cost — as N
+    attempts and 0 constructions").  The behavioural tests above pin what is
+    shipped; these assertions pin what is *written*, so the paragraph cannot
+    drift back into promising a line.  Together they agree by construction: the
+    README is only allowed to claim the silence the tests measure.
+    """
+
+    readme = os.path.join(os.path.dirname(__file__), "..", "README.md")
+    text = open(readme, encoding="utf-8").read()
+
+    # The truthful rule, stated: silence, and where the number actually lives.
+    assert "prints no reuse line" in text
+    assert "recorded, not printed" in text
+    assert "ASRRunner.model_load_attempts" in text
+    assert "no command prints the attempt count" in text
+    # ...and the two false promises are gone for good.
+    assert "still states its cost" not in text
+    assert "as N attempts and 0 constructions" not in text
+    assert "reports `model constructions=0`" not in text
+
+
+def test_readme_does_not_claim_relative_paths_are_rejected():
+    """F3: the claim is narrowed to the rule the code implements (D4.2).
+
+    A *relative* path-shaped declaration satisfies ``_MODEL_IDENTIFIER`` +
+    ``"/"`` + no forbidden marker, and is recorded verbatim (verified through
+    the real `ASRConfig`/`provenance()` path by the test below).  The README may
+    therefore only claim rejection for absolute paths, URLs and
+    credential-like values — the categories the scan actually catches.
+    """
+
+    readme = os.path.join(os.path.dirname(__file__), "..", "README.md")
+    text = open(readme, encoding="utf-8").read()
+
+    assert "absolute path" in text
+    assert "relative" in text and "path-shaped" in text
+    # The rule is named exactly: the same identifier scan, plus the slash rule.
+    assert "same identifier rule" in text
+    assert "slash-qualified" in text
+    # The old, broader claim: "anything path-, URL-, or credential-like".
+    assert "anything path-, URL-, or credential-like is rejected" not in text
+
+
+def test_a_relative_path_shaped_declaration_is_accepted_and_recorded():
+    """F3's code half: the documented rule and the implementation agree.
+
+    D4.2's rule is shape-based, so this value passes it.  The test exists so the
+    README's narrowed sentence is checked against behaviour: if the rule is ever
+    tightened to reject relative paths, this test fails and the README sentence
+    must be widened again in the same change.
+    """
+
+    relative_path = "srv/private/models/Fun-ASR-Nano-2512"
+    config = asr.ASRConfig("/srv/models/Fun-ASR-Nano-2512", model_id=relative_path)
+
+    assert asr.ASRRunner(config).provenance()["model_name"] == relative_path
+    # The absolute form of the same path is refused, which is exactly the
+    # distinction the README now draws.
+    with pytest.raises(ValueError):
+        asr.ASRConfig("/srv/models/Fun-ASR-Nano-2512", model_id=f"/{relative_path}")
+
+
+def test_the_substituted_declaration_is_redaction_scanned_like_any_value():
+    """F4 (mutation M6): the slot replacement still passes the scan.
+
+    ``ASRConfig.__post_init__`` validates the declaration, so an unsafe value
+    cannot arrive through normal construction — which is why dropping the
+    re-scan in ``provenance()`` survived 78/78 tests.  This test constructs a
+    subclass that bypasses validation and asserts the substituted value is
+    redacted anyway, so the defence-in-depth layer is load-bearing under test.
+    """
+
+    class Unvalidated(asr.ASRConfig):
+        def __post_init__(self) -> None:  # deliberately skips D4.2's validation
+            pass
+
+    for hostile in (
+        "/etc/passwd",
+        "C:\\models\\Fun-ASR-Nano-2512",
+        "https://models.example/Fun-ASR-Nano-2512",
+        "token=private-model",
+    ):
+        config = Unvalidated("local-test-model", model_id=hostile)
+        provenance = asr.ASRRunner(config).provenance()
+
+        assert provenance["model_name"] == "[redacted]", hostile
+        assert hostile not in json.dumps(provenance), hostile
+        # The nine-key contract holds on this route too.
+        assert list(provenance) == [
+            "model_name", "model_revision", "device", "language", "vad_model",
+            "vad_max_segment_s", "hotwords", "offline", "local_source",
+        ]

@@ -108,11 +108,17 @@ directory — and it is **never** what a transcript records when it is a path.
 `BILI_ASR_MODEL_ID` is the operator's *declaration* of the hub-level identity
 behind that checkpoint: it never reaches the loader, and it fills the
 `asr_model_name` frontmatter slot instead of a key of its own, so the provenance
-key set does not change. The declaration must be a hub-level `owner/name`
-identifier; anything path-, URL-, or credential-like is rejected loudly with a
-non-zero exit rather than silently recorded, so the archive cannot claim a
-producer the operator did not name. Declaring an id that contradicts an
-already-safe `BILI_ASR_MODEL` is also an error — one of the two would be a lie.
+key set does not change. The declaration is scanned by the same identifier rule
+the `model_name` slot already passes, and must additionally be slash-qualified:
+a bare name with no `/`, an
+absolute path (`/srv/models/...`, `C:\models\...`), a URL, or a
+credential-like value (`token=...`) is rejected loudly with a non-zero exit
+rather than silently recorded, so the archive cannot claim a producer the
+operator did not name. That rule is shape-based, not path-aware: a
+*relative* path-shaped value such as `srv/models/Fun-ASR-Nano-2512` satisfies
+it and would be recorded verbatim, so declare the hub identity, not a relative
+path. Declaring an id that contradicts an already-safe `BILI_ASR_MODEL` is also
+an error — one of the two would be a lie.
 
 With no declaration, `asr_model_name` keeps a configured id only when that id is
 itself redaction-safe, and is `[redacted]` otherwise: a local checkpoint
@@ -151,22 +157,28 @@ to a file leaves this line on the terminal instead of in the file.
 The rule is "nothing was paid", not "no items were transcribed": when a batch
 built the model and then failed every transcription — the GPU, ROCm or
 checkpoint failure the line exists to expose — it still prints, with a zero
-denominator, as in `run: model constructions=1 for 0 asr item(s)`. Only a batch
-that neither constructed a model nor transcribed anything (subtitle-only work)
-prints no line at all. If stderr is closed, the line is dropped rather than
-redirected, so `campaign`'s stdout stays one parseable JSON document.
+denominator, as in `run: model constructions=1 for 0 asr item(s)`. A batch that
+neither constructed a model nor transcribed anything prints no line at all:
+subtitle-only work, or a batch whose every load failed (see below). If stderr is
+closed, the line is dropped rather than redirected, so `campaign`'s stdout stays
+one parseable JSON document.
 
 The printed count counts **successful constructions**, and a load the factory
 rejected pays none of them. Such a load leaves no model behind, so the next row
 retries the same load: an N-row batch whose every load fails performs N attempts
-and reports `model constructions=0`, which is why `ASRRunner` keeps a second
-counter beside it. `runner.model_load_attempts` counts every factory invocation,
-successful or not, so `model_load_attempts - model_constructions` is exactly the
-number of failed loads a run paid for, and `model_load_attempts >=
-model_constructions` always holds (equal when every load succeeded). A batch
-that cannot load its checkpoint at all therefore still states its cost — as N
-attempts and 0 constructions — instead of reporting a bare zero that reads like
-"nothing happened".
+and **prints no reuse line** — it paid no construction and produced no
+transcript, so the guard above falls silent. Its failures are reported per row
+instead (`run: <work_id>: failed (ASRModelError)`, `asr: <label>: archive
+failed`), and no command prints the attempt count.
+
+That count is recorded, not printed: it lives on `ASRRunner.model_load_attempts`,
+beside the construction counter. It counts every factory invocation, successful
+or not, so `model_load_attempts - model_constructions` is exactly the number of
+failed loads a run paid for, and `model_load_attempts >= model_constructions`
+always holds (equal when every load succeeded). It is an in-process surface: a
+batch that cannot load its checkpoint at all leaves its N retries visible only
+to a caller that holds the runner, while the reuse line's only number stays
+constructions.
 
 ## Deterministic verification baseline
 

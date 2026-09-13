@@ -354,11 +354,16 @@ class ASRRunner:
     ``model_load_attempts`` is the attempt counter beside it (inherited
     residual R1 from ``20260912-batch-model-reuse``): a load the factory
     rejected is **retried once per row**, pays no construction, and is counted
-    here instead.  Without it a batch that failed every load printed
-    ``model constructions=0`` and could not be told apart from a batch that
-    built one model and reused it.  The invariant is
+    here instead.  Without it ``model_constructions == 0`` cannot be told
+    apart between a runner that never needed a model and a runner whose N
+    loads were all rejected.  The invariant is
     ``model_load_attempts >= model_constructions``, with equality when every
     load succeeded.
+
+    This counter is recorded, not printed: the batch reuse line carries
+    constructions only and is suppressed when no construction was paid and no
+    item was transcribed, so a batch whose every load failed prints no line at
+    all and states its N retries only through a caller that holds this runner.
     """
 
     def __init__(

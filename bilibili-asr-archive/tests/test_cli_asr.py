@@ -673,3 +673,70 @@ def test_cli_asr_downstream_failure_of_the_only_asr_row_still_prints_the_line(
     assert reuse_line(run_captured, "run") == (
         "run: model constructions=1 for 1 asr item(s)"
     )
+
+
+def _stub_failing_loads(monkeypatch):
+    """A factory that raises on every call, counting its invocations (F1).
+
+    The device gate precedes the factory, so a CPU device plus a raising
+    factory is the exact shape of the review's scenario: every row pays one
+    load attempt and no row ever gets a model.
+    """
+    attempts: list[dict] = []
+
+    def factory(**kwargs):
+        attempts.append(dict(kwargs))
+        raise RuntimeError("no checkpoint")
+
+    monkeypatch.setenv("BILI_ASR_DEVICE", "cpu")
+    monkeypatch.setattr(asr_mod, "_load_default_model", factory)
+    return attempts
+
+
+def test_cli_prints_no_reuse_line_when_every_load_fails(
+    tmp_root, monkeypatch, capsys
+):
+    """F1: the attempts are recorded, not printed — pinned on the real CLI.
+
+    The review found the README asserting that this batch "reports
+    ``model constructions=0``" and "still states its cost — as N attempts and 0
+    constructions".  Neither is shipped: no surface prints the attempt count, and
+    the reuse line's guard (``asr_items <= 0 and model_constructions <= 0``) is
+    silent exactly here, because a failed load increments neither counter's
+    printed side.  This test pins the *behaviour* the README now documents: N
+    attempts really are paid, and the line appears on neither stream.  It fails
+    if a future change starts printing a line this paragraph does not promise.
+    """
+
+    identities = [
+        page_identity(f"BVnoload{index}", 0, 960 + index, "p0") for index in range(3)
+    ]
+    asr_root = os.path.join(tmp_root, "asr-path")
+    run_root = os.path.join(tmp_root, "run-path")
+    os.makedirs(asr_root)
+    os.makedirs(run_root)
+    _seed_audio_ok(asr_root, identities)
+    _seed_audio_ok(run_root, identities)
+    attempts = _stub_failing_loads(monkeypatch)
+    _patch_cli(monkeypatch, RouterTransport({}))
+
+    rc = main(["asr", "--pending", "--limit", "3", "--archive-root", asr_root])
+    asr_captured = capsys.readouterr()
+    run_attempts = len(attempts)
+    rc_run = main(["run", "--scope", "pending", "--limit", "3", "--archive-root", run_root])
+    run_captured = capsys.readouterr()
+
+    # Every row paid its own load attempt: N attempts, zero constructions.
+    assert rc == 1, asr_captured.err
+    assert rc_run == 1, run_captured.err
+    assert run_attempts == 3
+    assert len(attempts) == 6
+    # ...and neither invocation printed the reuse line, on either stream.
+    for captured in (asr_captured, run_captured):
+        assert "model constructions=" not in captured.out
+        assert "model constructions=" not in captured.err
+    # The rows' failures are what the operator sees instead, per row.
+    assert "failed (ASRModelError)" in run_captured.err
+    assert "BVnoload0:p0: archive failed" in asr_captured.err
+    assert "run: 0 completed, 0 skipped, 3 failed" in run_captured.out
+    assert "asr: 0 archived, 3 failed" in asr_captured.out
