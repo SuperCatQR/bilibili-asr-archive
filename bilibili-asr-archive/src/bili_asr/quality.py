@@ -54,8 +54,9 @@ FRAGMENT_MAX_SECONDS = 1.0
 #: ``reference_disagreement`` signal — the systems contested the audio.
 REFERENCE_AGREEMENT_FLOOR = 0.95
 #: Marks stripped before two transcripts are compared, so punctuation and
-#: spacing differences never read as disagreement.  Ported verbatim from the
-#: retired ``scripts/asr_quality.py``.
+#: spacing differences never read as disagreement.  Kept identical to the set
+#: the retired standalone quality report used, so recorded agreement ratios
+#: stay comparable across the merge.
 _REFERENCE_PUNCT = "。，？！、；：,?!.;:…—·\"'“”‘’（）()《》"
 _REFERENCE_STRIP = re.compile(f"[{re.escape(_REFERENCE_PUNCT)}]")
 #: The published ``.md`` bundle opens with a YAML frontmatter block carrying the
@@ -334,12 +335,16 @@ def _transcript_rank(path: Path, cues: list[Cue]) -> int:
     Cue-bearing artifacts rank highest because their cue texts are the
     transcript itself; a plain transcript ranks next; the published ``.md``
     bundle ranks last, since its comparable text is its body rather than the
-    artifact it publishes.  Anything that yields no comparable text ranks zero,
-    so it can never displace a real transcript.
+    artifact it publishes.  An artifact whose text is carried by cues — an SRT
+    or a cue sidecar — that yielded none holds no transcript at all: its own
+    source is timing lines and JSON structure, so it ranks zero and can never
+    displace a real transcript.
     """
 
     if cues:
         return 3
+    if path.suffix.lower() in {".srt", ".json"}:
+        return 0
     if path.suffix.lower() == ".md":
         return 1
     return 2
@@ -351,7 +356,7 @@ def comparable_text(text: str, cues: list[Cue]) -> str:
     A cue-structured artifact contributes its cue texts through the same cue
     parser as everything else; a plain-text artifact (``.txt``/``.md``) has no
     cue structure, so its non-blank lines are its text — the reading the
-    retired ``scripts/asr_quality.py`` used for the same inputs.  A leading YAML
+    retired standalone quality report used for the same inputs.  A leading YAML
     frontmatter block is metadata rather than text and is dropped first, so a
     published ``.md`` bundle compares by its body rather than by its title and
     URL.

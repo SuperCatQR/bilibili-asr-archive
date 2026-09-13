@@ -846,3 +846,89 @@ def test_reference_agreement_floor_is_the_retired_scripts_figure() -> None:
     """The threshold is the retired script's ``~0.95``, declared in one place."""
 
     assert quality.REFERENCE_AGREEMENT_FLOOR == 0.95
+
+
+def write_bundle(root: Path, body: str, name: str = "2026-01-02_BV1demo.p0_demo.md") -> str:
+    """A published ``.md`` bundle carrying ``body`` as its transcript text."""
+
+    path = root / "transcripts" / "md" / name
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        '---\nbvid: "BV1demo"\ntitle: "demo"\n'
+        'url: "https://www.bilibili.com/video/BV1demo"\n---\n\n' + body + "\n",
+        encoding="utf-8",
+    )
+    return "transcripts/md/" + name
+
+
+def test_transcript_rank_beats_artifact_order_for_a_stale_bundle(
+    tmp_path: Path,
+) -> None:
+    """The row's real transcript wins even when the bundle is named first.
+
+    The bundle is listed before the cue sidecar — the order the row happens to
+    carry — and its body is stale, republished from different text.  The
+    sidecar is the row's actual transcript and matches the reference, so a
+    first-wins selection would compare the stale body and fabricate a
+    ``reference_disagreement``.  Comparing the sidecar instead is what the
+    artefact rank exists for, and no frontmatter strip can supply it.
+    """
+
+    stale = write_bundle(tmp_path, "完全不同的一段旧文本内容")
+    relative = write_raw(
+        tmp_path, "BV1demo.p0.json", [{"start": 0.0, "end": 4.0, "text": "你好世界"}]
+    )
+    reference = tmp_path / "second.txt"
+    reference.write_text("你好世界\n", encoding="utf-8")
+
+    result = QualityAnalyzer().analyze(
+        row(md_path=stale, raw_path=relative), tmp_path, reference
+    )
+    assert result.reasons == ()
+    assert result.reference is not None
+    assert result.reference.agreement == 1.0
+    # (4, 4) is the sidecar's cue text; the stale bundle body would be (12, 4).
+    assert result.reference.compared_chars == (4, 4)
+    assert result.content_reasons == ()
+
+
+def test_cue_less_sidecar_never_becomes_the_comparison_source(
+    tmp_path: Path,
+) -> None:
+    """A cue sidecar with no cue holds no transcript, so it never displaces one.
+
+    ``raw.json`` ranks by the text it yields, not by its suffix: an ASR run
+    that produced no segment leaves a sidecar whose own source is JSON
+    structure.  Comparing that structure against a reference would invent a
+    near-zero ratio, so the bundle beside it — the row's only real transcript,
+    and matching the reference exactly — stays the comparison source.  The row
+    keeps its own ``empty`` defect either way.
+    """
+
+    bundle = write_bundle(tmp_path, "你好世界")
+    relative = write_raw(tmp_path, "BV1demo.p0.json", [])
+    reference = tmp_path / "second.txt"
+    reference.write_text("你好世界\n", encoding="utf-8")
+
+    result = QualityAnalyzer().analyze(
+        row(md_path=bundle, raw_path=relative), tmp_path, reference
+    )
+    assert result.reasons == ("empty",)
+    assert result.reference is not None
+    assert result.reference.agreement == 1.0
+    # (4, 4) is the bundle's body; the cue-less sidecar's source text is (21, 4).
+    assert result.reference.compared_chars == (4, 4)
+    assert result.content_reasons == ()
+
+
+def test_cue_less_sidecar_alone_invents_no_ratio(tmp_path: Path) -> None:
+    """With no real transcript anywhere in the row, no comparison is reported."""
+
+    relative = write_raw(tmp_path, "BV1demo.p0.json", [])
+    reference = tmp_path / "second.txt"
+    reference.write_text("你好世界\n", encoding="utf-8")
+
+    result = QualityAnalyzer().analyze(row(raw_path=relative), tmp_path, reference)
+    assert result.reasons == ("empty",)
+    assert result.reference is None
+    assert result.content_reasons == ()
