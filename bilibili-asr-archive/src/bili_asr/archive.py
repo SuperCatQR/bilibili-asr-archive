@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import os
 import stat
 import threading
@@ -277,6 +278,21 @@ def _lexical_archive_root(archive_root: str | os.PathLike[str]) -> Path:
 #: A cue at or below this mean token score is worth a second look.
 LOW_CONFIDENCE = 0.4
 
+#: Two cue spans this close or closer are one captured stretch of audio.
+#:
+#: The model's result carries no VAD boundary list, so the transcript's own cue
+#: intervals are the only capture evidence an artefact has; a cue boundary is a
+#: punctuation or 60-character decision, not a capture boundary, so the spans
+#: are merged back across pauses the shaper itself tolerates.  The value is
+#: ``asr._CUE_MAX_GAP_SECONDS`` — the shaper's own pause threshold, so a gap it
+#: would not have split on is not read back as a capture hole.
+#:
+#: Declared here rather than imported: ``archive.py`` publishes artefacts and
+#: ``asr.py`` runs the model, and the one-way dependency between them is
+#: deliberate (asr-archive-cli.md), so the coupling is asserted by
+#: ``test_capture_gap_seconds_follows_the_cue_shaper_threshold`` instead.
+CAPTURE_GAP_SECONDS = 1.0
+
 
 def _confidence_summary(segments: list[dict[str, Any]]) -> dict[str, Any]:
     """Summarize the model's own token confidence for one transcript.
@@ -293,6 +309,70 @@ def _confidence_summary(segments: list[dict[str, Any]]) -> dict[str, Any]:
         "asr_mean_confidence": round(sum(scores) / len(scores), 3),
         "asr_low_confidence_cues": sum(1 for score in scores if score <= LOW_CONFIDENCE),
     }
+
+
+def _merged_cue_spans(segments: list[dict[str, Any]]) -> list[tuple[float, float]]:
+    """The transcript's cue intervals with adjacent ones fused into one span.
+
+    Touching, overlapping and sub-:data:`CAPTURE_GAP_SECONDS`-adjacent intervals
+    become a single span, which is what makes the result a *capture* estimate
+    rather than a punctuation census.  Non-finite and reversed intervals are
+    skipped: they cannot describe captured audio, and the quality checker
+    already names them ``malformed``/``out_of_range``.
+    """
+
+    spans: list[tuple[float, float]] = []
+    for segment in segments:
+        if not isinstance(segment, dict):
+            continue
+        start, end = segment.get("start"), segment.get("end")
+        if isinstance(start, bool) or isinstance(end, bool):
+            continue
+        if not isinstance(start, (int, float)) or not isinstance(end, (int, float)):
+            continue
+        start, end = float(start), float(end)
+        if not (math.isfinite(start) and math.isfinite(end)) or end <= start:
+            continue
+        spans.append((start, end))
+    spans.sort()
+    merged: list[tuple[float, float]] = []
+    for start, end in spans:
+        if merged and start - merged[-1][1] <= CAPTURE_GAP_SECONDS:
+            previous_start, previous_end = merged[-1]
+            merged[-1] = (previous_start, max(previous_end, end))
+        else:
+            merged.append((start, end))
+    return merged
+
+
+def _capture_summary(segments: list[dict[str, Any]], duration_s: Any) -> dict[str, Any]:
+    """Record how much audio the VAD captured, as the cues testify.
+
+    ``asr_vad_segments`` and ``asr_vad_captured_s`` describe the merged cue
+    spans; the ratio divides them by the row's own ``duration_s`` and is clamped
+    to ``[0, 1]`` because a ratio outside it is not a proportion of anything.
+    The seconds stay **unclamped**, so a duration/cue contradiction remains
+    visible in the artefact rather than being smoothed away here.
+
+    The ratio is omitted when ``duration_s`` is not positive and finite — a
+    proportion of an unknown total is not a fact.  The two absolute keys are
+    still emitted, and an empty transcript legitimately reports zero of both.
+    """
+
+    merged = _merged_cue_spans(segments)
+    captured_s = round(sum((end - start for start, end in merged), 0.0), 3)
+    summary: dict[str, Any] = {
+        "asr_vad_segments": len(merged),
+        "asr_vad_captured_s": captured_s,
+    }
+    duration = duration_s
+    if isinstance(duration, bool) or not isinstance(duration, (int, float)):
+        return summary
+    duration = float(duration)
+    if not math.isfinite(duration) or duration <= 0:
+        return summary
+    summary["asr_vad_captured_ratio"] = round(min(1.0, max(0.0, captured_s / duration)), 3)
+    return summary
 
 
 def write_archive(archive_root: str | os.PathLike[str], entry: dict[str, Any], segments: list[dict[str, Any]], *, source: str, raw: Any | None = None, asr_provenance: Mapping[str, str] | None = None) -> dict[str, str]:
@@ -316,6 +396,8 @@ def write_archive(archive_root: str | os.PathLike[str], entry: dict[str, Any], s
     md_path = dirs["md"] / f"{entry.get('pubdate_str', 'unknown')}_{stem}_{_safe_name(str(entry.get('title') or bvid))}.md"
     raw_path = dirs["raw"] / f"{stem}.json"
     frontmatter = {"bvid": bvid, "title": entry.get("title", ""), "date": entry.get("pubdate_str", ""), "duration_s": entry.get("duration_s", 0), "source": source, "url": archive_url(entry)}
+    if source == "asr":
+        frontmatter.update(_capture_summary(segments, frontmatter["duration_s"]))
     frontmatter.update(_confidence_summary(segments))
     if asr_provenance:
         frontmatter.update({f"asr_{key}": value for key, value in asr_provenance.items()})

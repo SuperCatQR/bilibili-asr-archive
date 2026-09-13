@@ -250,6 +250,209 @@ def test_write_archive_without_provenance_adds_no_asr_keys(tmp_root):
     assert "provenance" not in raw
 
 
+def _frontmatter(md_path):
+    """The published frontmatter as a mapping, read from the artefact itself."""
+
+    text = md_path.read_text(encoding="utf-8")
+    assert text.startswith("---\n")
+    block = text.split("\n---\n", 1)[0][len("---\n"):]
+    return {line.split(": ", 1)[0]: json.loads(line.split(": ", 1)[1]) for line in block.splitlines()}
+
+
+def _recomputed_capture(raw_segments, duration_s, gap=1.0):
+    """Recompute the capture facts from ``raw.json`` alone, independently.
+
+    Deliberately not the production helper: A5's claim is that a reader holding
+    only the artefact can re-derive the numbers, so the merge is written out
+    here the way that reader would.
+    """
+
+    spans = sorted((float(s["start"]), float(s["end"])) for s in raw_segments)
+    merged = []
+    for start, end in spans:
+        if merged and start - merged[-1][1] <= gap:
+            merged[-1] = (merged[-1][0], max(merged[-1][1], end))
+        else:
+            merged.append((start, end))
+    captured = round(sum(end - start for start, end in merged), 3)
+    ratio = None if duration_s <= 0 else round(min(1.0, captured / duration_s), 3)
+    return len(merged), captured, ratio
+
+
+def test_write_archive_records_the_vad_capture_facts(tmp_root):
+    """A speaker pause and a VAD miss must be distinguishable from the artefact."""
+
+    tmp_path = __import__("pathlib").Path(tmp_root)
+    ident = page_identity("BV1vad", 0, 11)
+    entry = {"bvid": ident.bvid, "work_id": ident.work_id, "page_index": 0, "cid": 11,
+             "title": "capture", "pubdate_str": "2026-01-02", "duration_s": 10}
+    segments = [
+        {"start": 0.0, "end": 2.0, "text": "第一句。"},
+        {"start": 2.0, "end": 4.0, "text": "第二句。"},
+        {"start": 8.0, "end": 9.0, "text": "第三句。"},
+    ]
+
+    paths = write_archive(tmp_path, entry, segments, source="asr")
+
+    front = _frontmatter(tmp_path / paths["md_path"])
+    raw = json.loads((tmp_path / paths["raw_path"]).read_text(encoding="utf-8"))
+    count, captured, ratio = _recomputed_capture(raw["segments"], front["duration_s"])
+    # The 4 s hole is a real capture gap; the touching cues are one span.
+    assert (count, captured, ratio) == (2, 5.0, 0.5)
+    assert front["asr_vad_segments"] == count
+    assert front["asr_vad_captured_s"] == captured
+    assert front["asr_vad_captured_ratio"] == ratio
+
+
+def test_write_archive_without_vad_capture_keys_on_the_subtitle_path(tmp_root):
+    """A subtitle row gained none of the three keys: only the ASR path has a VAD."""
+
+    tmp_path = __import__("pathlib").Path(tmp_root)
+    ident = page_identity("BV1subvad", 0, 12)
+    entry = {"bvid": ident.bvid, "work_id": ident.work_id, "page_index": 0, "cid": 12,
+             "title": "subtitle", "pubdate_str": "2026-01-02", "duration_s": 10}
+    # Same segments the ASR case would have merged, so only the gate differs.
+    segments = [{"start": 0.0, "end": 2.0, "text": "句子。"}, {"start": 8.0, "end": 9.0, "text": "另一句。"}]
+
+    paths = write_archive(tmp_path, entry, segments, source="subtitle")
+
+    front = _frontmatter(tmp_path / paths["md_path"])
+    for key in ("asr_vad_segments", "asr_vad_captured_s", "asr_vad_captured_ratio"):
+        assert key not in front
+
+
+def test_capture_gap_seconds_follows_the_cue_shaper_threshold():
+    """The local constant is the shaper's own pause threshold, and must not drift."""
+
+    from bili_asr import asr as asr_module
+    from bili_asr.archive import CAPTURE_GAP_SECONDS
+
+    assert CAPTURE_GAP_SECONDS == asr_module._CUE_MAX_GAP_SECONDS
+
+
+def test_capture_merges_only_gaps_within_the_threshold(tmp_root):
+    """A gap the shaper would have split on stays a hole; one it tolerates does not."""
+
+    tmp_path = __import__("pathlib").Path(tmp_root)
+    from bili_asr.archive import CAPTURE_GAP_SECONDS
+
+    def captured_for(gap):
+        entry = {"bvid": "BV1gap", "work_id": "BV1gap:p0", "page_index": 0, "cid": 13,
+                 "title": "gap", "pubdate_str": "2026-01-02", "duration_s": 100}
+        segments = [{"start": 0.0, "end": 1.0, "text": "甲。"},
+                    {"start": 1.0 + gap, "end": 2.0 + gap, "text": "乙。"}]
+        paths = write_archive(tmp_path, entry, segments, source="asr")
+        return _frontmatter(tmp_path / paths["md_path"])
+
+    at_threshold = captured_for(CAPTURE_GAP_SECONDS)
+    assert at_threshold["asr_vad_segments"] == 1
+    assert at_threshold["asr_vad_captured_s"] == round(1.0 + CAPTURE_GAP_SECONDS + 1.0, 3)
+    beyond = captured_for(CAPTURE_GAP_SECONDS + 0.001)
+    assert beyond["asr_vad_segments"] == 2
+    assert beyond["asr_vad_captured_s"] == 2.0
+
+    # Stated in absolute seconds as well, so a wrong constant fails here rather
+    # than only in the coupling test: a 1.0 s gap is one span, 1.001 s is two.
+    assert captured_for(1.0)["asr_vad_segments"] == 1
+    assert captured_for(1.0)["asr_vad_captured_s"] == 3.0
+    assert captured_for(1.001)["asr_vad_segments"] == 2
+    assert captured_for(1.001)["asr_vad_captured_s"] == 2.0
+
+
+def test_capture_summary_edge_cases(tmp_root):
+    """One cue, no cues, overlapping cues, and an unknown duration."""
+
+    tmp_path = __import__("pathlib").Path(tmp_root)
+
+    def front_for(bvid, segments, duration_s, source="asr"):
+        entry = {"bvid": bvid, "work_id": f"{bvid}:p0", "page_index": 0, "cid": 14,
+                 "title": "edge", "pubdate_str": "2026-01-02"}
+        if duration_s is not None:
+            entry["duration_s"] = duration_s
+        paths = write_archive(tmp_path, entry, segments, source=source)
+        return _frontmatter(tmp_path / paths["md_path"]), paths
+
+    # A single cue is one span, and its own length is the captured audio.
+    single, _ = front_for("BV1one", [{"start": 1.0, "end": 2.5, "text": "独。"}], 10)
+    assert single["asr_vad_segments"] == 1
+    assert single["asr_vad_captured_s"] == 1.5
+    assert single["asr_vad_captured_ratio"] == 0.15
+
+    # No cues at all: zero captured audio is a fact, not a hole in the record.
+    empty, _ = front_for("BV1none", [], 10)
+    assert empty["asr_vad_segments"] == 0
+    assert empty["asr_vad_captured_s"] == 0.0
+    assert empty["asr_vad_captured_ratio"] == 0.0
+
+    # Overlapping cues count once: the union is the captured stretch.
+    overlap, _ = front_for("BV1lap", [{"start": 0.0, "end": 3.0, "text": "甲。"},
+                                      {"start": 1.0, "end": 2.0, "text": "乙。"}], 10)
+    assert overlap["asr_vad_segments"] == 1
+    assert overlap["asr_vad_captured_s"] == 3.0
+    assert overlap["asr_vad_captured_ratio"] == 0.3
+
+    # Unknown duration: the ratio has no denominator, so it is not claimed.
+    # The row simply carries no ``duration_s``, as an unresolved row may not.
+    unknown, unknown_paths = front_for("BV1nodur", [{"start": 0.0, "end": 2.0, "text": "甲。"}], None)
+    assert unknown["asr_vad_segments"] == 1
+    assert unknown["asr_vad_captured_s"] == 2.0
+    assert "asr_vad_captured_ratio" not in unknown
+    unknown_raw = json.loads((tmp_path / unknown_paths["raw_path"]).read_text(encoding="utf-8"))
+    assert unknown_raw["segments"] == [{"start": 0.0, "end": 2.0, "text": "甲。"}]
+
+    # The same rule for the shape this codebase actually publishes when a
+    # duration cannot be parsed (``long_live`` writes the string ``unknown``):
+    # the two absolute keys stand, and the ratio is still not invented.
+    unparsed, _ = front_for("BV1unkstr", [{"start": 0.0, "end": 2.0, "text": "甲。"}], "unknown")
+    assert unparsed["duration_s"] == "unknown"
+    assert unparsed["asr_vad_segments"] == 1
+    assert unparsed["asr_vad_captured_s"] == 2.0
+    assert "asr_vad_captured_ratio" not in unparsed
+
+
+def test_capture_ratio_is_clamped_while_seconds_are_not(tmp_root):
+    """A duration/cue contradiction stays visible in the seconds, not in the ratio."""
+
+    tmp_path = __import__("pathlib").Path(tmp_root)
+    entry = {"bvid": "BV1clamp", "work_id": "BV1clamp:p0", "page_index": 0, "cid": 15,
+             "title": "clamp", "pubdate_str": "2026-01-02", "duration_s": 10}
+    segments = [{"start": 0.0, "end": 12.0, "text": "超过时长。"}]
+
+    paths = write_archive(tmp_path, entry, segments, source="asr")
+
+    front = _frontmatter(tmp_path / paths["md_path"])
+    raw = json.loads((tmp_path / paths["raw_path"]).read_text(encoding="utf-8"))
+    count, captured, ratio = _recomputed_capture(raw["segments"], front["duration_s"])
+    assert captured == 12.0, "the seconds stay unclamped so the contradiction is visible"
+    assert front["asr_vad_captured_s"] == 12.0
+    assert ratio == 1.0
+    assert front["asr_vad_captured_ratio"] == 1.0
+    assert 0.0 <= front["asr_vad_captured_ratio"] <= 1.0
+    assert front["asr_vad_segments"] == count
+
+
+def test_capture_ratio_is_a_bound_across_shapes(tmp_root):
+    """Whatever the cues look like, the published ratio is a proportion."""
+
+    tmp_path = __import__("pathlib").Path(tmp_root)
+    cases = [
+        ([], 4),
+        ([{"start": 0.0, "end": 4.0, "text": "甲。"}], 4),
+        ([{"start": 3.9, "end": 40.0, "text": "甲。"}], 4),
+        ([{"start": 0.5, "end": 0.5001, "text": "甲。"}], 4),
+        ([{"start": 0.0, "end": 1.0, "text": "甲。"}, {"start": 5.0, "end": 6.0, "text": "乙。"}], 100),
+    ]
+    for index, (segments, duration_s) in enumerate(cases):
+        bvid = f"BV1bound{index}"
+        entry = {"bvid": bvid, "work_id": f"{bvid}:p0", "page_index": 0, "cid": 16,
+                 "title": "bound", "pubdate_str": "2026-01-02", "duration_s": duration_s}
+        paths = write_archive(tmp_path, entry, segments, source="asr")
+        front = _frontmatter(tmp_path / paths["md_path"])
+        assert 0.0 <= front["asr_vad_captured_ratio"] <= 1.0, (index, front)
+        assert front["asr_vad_segments"] == len(segments)
+        assert front["asr_vad_captured_s"] >= 0.0, (index, front)
+
+
 def test_write_archive_summarizes_the_models_own_confidence(tmp_root):
     """A transcript states how sure the model was, so quality needs no re-run."""
 
