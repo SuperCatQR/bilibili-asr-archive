@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 
+import pytest
+
 from bili_asr.archive import archive_bundle_complete, bundle_marker_path, write_archive
 from bili_asr.page_identity import artifact_stem, page_identity
 
@@ -585,3 +587,284 @@ def test_write_archive_without_confidence_claims_nothing(tmp_root):
 
     md = (tmp_path / paths["md_path"]).read_text(encoding="utf-8")
     assert "confidence" not in md
+
+
+def _recomputed_low_confidence(raw_segments):
+    """Recompute the location list from ``raw.json`` alone, independently.
+
+    Deliberately not the production helper: A5's claim is that a reader holding
+    only the artefact can re-derive where the doubt is, so the filter and the
+    sort are written out here the way that reader would.  The threshold is read
+    from ``archive.LOW_CONFIDENCE`` so the identity of the cut is pinned once
+    rather than copied.
+    """
+
+    from bili_asr.archive import LOW_CONFIDENCE
+
+    starts = [
+        round(float(s["start"]), 3)
+        for s in raw_segments
+        if isinstance(s.get("confidence"), (int, float))
+        and float(s["confidence"]) <= LOW_CONFIDENCE
+    ]
+    return sorted(starts)
+
+
+def _confidence_entry(bvid, duration_s=900):
+    ident = page_identity(bvid, 0, 13)
+    return {"bvid": ident.bvid, "work_id": ident.work_id, "page_index": 0, "cid": 13,
+            "title": "low confidence", "pubdate_str": "2026-01-02", "duration_s": duration_s}
+
+
+def test_write_archive_records_where_the_low_confidence_cues_are(tmp_root):
+    """A5: the count names how many doubts; the list names where they are.
+
+    The cues arrive out of order and two of them share a start, so the published
+    list is genuinely sorted and duplicate-preserving rather than an echo of the
+    input: one entry per counted cue, ascending.  A start that needs rounding is
+    published rounded, which is what makes the reader's recompute exact.
+    """
+
+    tmp_path = __import__("pathlib").Path(tmp_root)
+    entry = _confidence_entry("BV1at")
+    segments = [
+        {"start": 812.4, "end": 815.0, "text": "稍后的一句。", "confidence": 0.31},
+        {"start": 240.0, "end": 242.0, "text": "清楚的一句。", "confidence": 0.8},
+        {"start": 580.6434, "end": 583.0, "text": "中段的一句。", "confidence": 0.4},
+        {"start": 100.5004, "end": 103.0, "text": "开头的一句。", "confidence": 0.05},
+        {"start": 100.5004, "end": 103.0, "text": "同一处的另一句。", "confidence": 0.29},
+        {"start": 100.5, "end": 103.0, "text": "又一句清楚的。", "confidence": 0.95},
+    ]
+
+    paths = write_archive(tmp_path, entry, segments, source="asr")
+
+    front = _frontmatter(tmp_path / paths["md_path"])
+    raw = json.loads((tmp_path / paths["raw_path"]).read_text(encoding="utf-8"))
+    # 0.05, 0.29, 0.31 and 0.40 (the threshold is inclusive); 0.8 and 0.95 are not.
+    assert front["asr_low_confidence_cues"] == 4
+    assert front["asr_low_confidence_at"] == [100.5, 100.5, 580.643, 812.4]
+    assert front["asr_mean_confidence"] == 0.467
+    # A reader with only the artefact re-derives the same list.
+    assert front["asr_low_confidence_at"] == _recomputed_low_confidence(raw["segments"])
+    assert len(front["asr_low_confidence_at"]) == front["asr_low_confidence_cues"]
+
+
+def test_low_confidence_locations_are_three_decimal_ascending_seconds(tmp_root):
+    """D4.8's format: ascending start seconds, 3 decimals, rendered as JSON."""
+
+    tmp_path = __import__("pathlib").Path(tmp_root)
+    entry = _confidence_entry("BV1fmt")
+    segments = [
+        {"start": 2.0004, "end": 4.0, "text": "甲。", "confidence": 0.1},
+        {"start": 1.23456, "end": 3.0, "text": "乙。", "confidence": 0.2},
+        {"start": 100.5, "end": 102.0, "text": "丙。", "confidence": 0.3},
+    ]
+
+    paths = write_archive(tmp_path, entry, segments, source="asr")
+
+    md = (tmp_path / paths["md_path"]).read_text(encoding="utf-8")
+    front = _frontmatter(tmp_path / paths["md_path"])
+    # The exact rendered shape, so the key is greppable as a JSON list.
+    assert "asr_low_confidence_at: [1.235, 2.0, 100.5]" in md
+    located = front["asr_low_confidence_at"]
+    assert located == sorted(located), "ascending"
+    assert all(value == round(value, 3) for value in located), "3 decimals"
+
+
+def test_low_confidence_locations_and_count_share_one_presence(tmp_root):
+    """One filtered list, two renderings: they cannot disagree, shape by shape.
+
+    Both keys are present exactly when the transcript carries scores — zero low
+    cues is a real answer (``0`` and ``[]``), no scores is no answer (neither
+    key) — and the count is the length of the same list the locations render,
+    so no shape can publish a count its list does not match.
+    """
+
+    tmp_path = __import__("pathlib").Path(tmp_root)
+    shapes = {
+        "no scores": [{"start": 0.0, "end": 1.0, "text": "甲。"}],
+        "zero low": [{"start": 0.0, "end": 1.0, "text": "甲。", "confidence": 0.9}],
+        "one": [{"start": 5.0, "end": 6.0, "text": "甲。", "confidence": 0.2}],
+        "several out of order": [
+            {"start": 90.0, "end": 91.0, "text": "甲。", "confidence": 0.1},
+            {"start": 3.0, "end": 4.0, "text": "乙。", "confidence": 0.9},
+            {"start": 40.0, "end": 41.0, "text": "丙。", "confidence": 0.4},
+        ],
+        "duplicates": [
+            {"start": 7.0, "end": 8.0, "text": "甲。", "confidence": 0.1},
+            {"start": 7.0, "end": 8.0, "text": "乙。", "confidence": 0.2},
+        ],
+    }
+    for index, (label, segments) in enumerate(shapes.items()):
+        paths = write_archive(
+            tmp_path, _confidence_entry(f"BV1shape{index}"), segments, source="asr"
+        )
+        front = _frontmatter(tmp_path / paths["md_path"])
+
+        if label == "no scores":
+            assert "asr_low_confidence_cues" not in front, label
+            assert "asr_low_confidence_at" not in front, label
+            continue
+        # The two keys are one answer: same presence, same size, every shape.
+        assert "asr_low_confidence_cues" in front, label
+        assert "asr_low_confidence_at" in front, label
+        assert len(front["asr_low_confidence_at"]) == front["asr_low_confidence_cues"], label
+    # Zero is a real answer, not a missing one.
+    zero = _frontmatter(tmp_path / (
+        write_archive(
+            tmp_path, _confidence_entry("BV1shape-zero"),
+            shapes["zero low"], source="asr",
+        )["md_path"]
+    ))
+    assert zero["asr_low_confidence_cues"] == 0
+    assert zero["asr_low_confidence_at"] == []
+
+
+@pytest.mark.parametrize(
+    ("start", "expected"),
+    [
+        pytest.param("ABSENT", KeyError, id="missing"),
+        pytest.param(None, TypeError, id="none"),
+        pytest.param("not a time", ValueError, id="garbage"),
+        pytest.param(float("nan"), ValueError, id="nan"),
+        pytest.param(10 ** 400, OverflowError, id="huge-int"),
+    ],
+)
+def test_locating_the_doubt_adds_no_new_way_to_fail_a_row(tmp_root, start, expected):
+    """A lone unreadable start must not newly abort a row that already aborted.
+
+    Each of these inputs already fails ``write_archive`` at base through
+    ``segments_to_srt``; the location key reads the same field with the same
+    ``float``/``round``, and with only one cue there is only one field to reach,
+    so it raises the *same* exception type one step earlier rather than
+    inventing a new failure mode.  The exact types are pinned so a future
+    defensive branch cannot silently turn an unlocatable cue into a published
+    ``null`` that no reader could recompute from ``raw.json``.
+
+    The type is pinned only because this transcript has a single cue; see
+    ``test_two_unreadable_starts_may_swap_the_exception_type_but_never_publish``
+    for the many-cue case, where the type is explicitly *not* the guarantee.
+    """
+
+    tmp_path = __import__("pathlib").Path(tmp_root)
+    segment = {"end": 1.0, "text": "甲。", "confidence": 0.1}
+    if start != "ABSENT":
+        segment["start"] = start
+
+    with pytest.raises(expected):
+        write_archive(
+            tmp_path, _confidence_entry("BV1hostile"), [segment], source="asr"
+        )
+
+
+def test_two_unreadable_starts_may_swap_the_exception_type_but_never_publish(tmp_root):
+    """The claim's real boundary: the *set* of failing rows, not the type.
+
+    ``_confidence_summary`` reads only the **low** cues in filtered order; the
+    formatter reads every cue in document order; and frontmatter is assembled
+    before the srt, so the location read now runs first.  With two unreadable
+    starts of different kinds the row therefore fails on whichever one *this*
+    read reaches first, and the type can differ from the formatter's alone —
+    measured: a non-low missing ``start`` behind a low ``"nope"`` raised
+    ``KeyError`` at base and raises ``ValueError`` here.
+
+    That is acceptable because the type is not what A5 promises: the row still
+    fails, publishes nothing, and ``coordinator._safe_error_code`` records a
+    stage code, not a contract.  Pinned so a later "let us catch it and emit
+    ``null``" edit cannot pass by quietly changing which rows fail.
+    """
+
+    tmp_path = __import__("pathlib").Path(tmp_root)
+    # Document order puts the non-low missing start first; low-filter order puts
+    # the low malformed start first, which is what swaps KeyError -> ValueError.
+    segments = [
+        {"end": 2.0, "text": "乙。", "confidence": 0.9},
+        {"start": "nope", "end": 1.0, "text": "甲。", "confidence": 0.1},
+    ]
+
+    with pytest.raises(ValueError):
+        write_archive(
+            tmp_path, _confidence_entry("BV1swap"), segments, source="asr"
+        )
+    assert not [
+        path for path in tmp_path.rglob("*") if path.is_file()
+    ], "a row that fails must publish nothing, whichever start it failed on"
+
+    # The other order: the same two bad starts, and it is still a failure that
+    # publishes nothing — the row's fate does not depend on which came first.
+    swapped = [
+        {"start": "nope", "end": 1.0, "text": "甲。", "confidence": 0.1},
+        {"end": 2.0, "text": "乙。", "confidence": 0.9},
+    ]
+    with pytest.raises(ValueError):
+        write_archive(
+            tmp_path, _confidence_entry("BV1swap2"), swapped, source="asr"
+        )
+    assert not [
+        path for path in tmp_path.rglob("*") if path.is_file()
+    ], "still publishes nothing"
+
+
+@pytest.mark.parametrize(
+    ("start", "expected"),
+    [
+        pytest.param(float("nan"), ValueError, id="nan"),
+        pytest.param(float("inf"), OverflowError, id="inf"),
+        pytest.param(-float("inf"), OverflowError, id="negative-inf"),
+        pytest.param(1e308, OverflowError, id="finite-but-unscalable"),
+    ],
+)
+def test_a_non_finite_start_is_rejected_by_rounding_to_milliseconds(tmp_root, start, expected):
+    """The other half of "no new way to fail": what ``round(..., 3)`` lets through.
+
+    ``float('nan')`` and both infinities pass the location read untouched, so
+    the docstring's claim rests on a *later* guard: ``_fmt_srt_time`` multiplies
+    by 1000 before rounding, and that is where they die.  The boundary is
+    sharp — ``1e305`` scales and publishes, ``1e308`` does not — so the test
+    pins both sides and the exception each raises, which is what makes "no path
+    can publish them" a checked statement rather than an assumption about
+    ``segments_to_srt`` surviving a future edit.
+    """
+
+    tmp_path = __import__("pathlib").Path(tmp_root)
+    segment = {"start": start, "end": 2.0, "text": "甲。", "confidence": 0.1}
+
+    with pytest.raises(expected):
+        write_archive(
+            tmp_path, _confidence_entry("BV1unscalable"), [segment], source="asr"
+        )
+    assert not [
+        path for path in tmp_path.rglob("*") if path.is_file()
+    ], "nothing may be published for an unrepresentable start"
+
+    # The near side of the boundary: large, still scalable, still publishes.
+    ok = _confidence_entry("BV1scalable")
+    segment = {"start": 1e305, "end": 2.0, "text": "甲。", "confidence": 0.1}
+    paths = write_archive(tmp_path, ok, [segment], source="asr")
+    assert _frontmatter(tmp_path / paths["md_path"])["asr_low_confidence_at"] == [1e305]
+
+
+def test_write_archive_locates_nothing_without_scores(tmp_root):
+    """The ASR-only gate: a subtitle row gains neither the count nor the list.
+
+    The gate is the scores, not the source label — the subtitle path builds its
+    segments with no ``confidence``, so the location key is absent for the same
+    reason the count key already was (D4.8), and neither appears without the
+    other.
+    """
+
+    tmp_path = __import__("pathlib").Path(tmp_root)
+    ident = page_identity("BV1subat", 0, 14)
+    entry = {"bvid": ident.bvid, "work_id": ident.work_id, "page_index": 0, "cid": 14,
+             "title": "subtitle", "pubdate_str": "2026-01-02", "duration_s": 10}
+    # The kind of segment the subtitle path actually publishes: no scores.
+    segments = [
+        {"start": 0.0, "end": 2.0, "text": "第一句。"},
+        {"start": 8.0, "end": 9.0, "text": "第二句。"},
+    ]
+
+    paths = write_archive(tmp_path, entry, segments, source="subtitle")
+
+    front = _frontmatter(tmp_path / paths["md_path"])
+    for key in ("asr_low_confidence_at", "asr_low_confidence_cues", "asr_mean_confidence"):
+        assert key not in front, key

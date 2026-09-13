@@ -301,15 +301,57 @@ def _confidence_summary(segments: list[dict[str, Any]]) -> dict[str, Any]:
 
     The values are the model's, not a judgement: they make quality measurable
     from the artefact alone, without a human reference transcript.
+
+    ``asr_low_confidence_cues`` and ``asr_low_confidence_at`` are two
+    renderings of **one** filtered list, so ``len(asr_low_confidence_at) ==
+    asr_low_confidence_cues`` holds by construction rather than by test: a cue
+    cannot be counted without also being located.  The locations are the low
+    cues' start seconds, ascending, rounded to 3 decimals like
+    ``asr_mean_confidence`` and with duplicates kept — one entry per counted
+    cue, so a reader can recompute the list from ``raw.json`` exactly.
+
+    Both keys are emitted together whenever the transcript carries any score,
+    including ``0`` and ``[]`` when nothing is at or below
+    :data:`LOW_CONFIDENCE`; when it carries no score neither is emitted, which
+    is this function's existing rule for the count.
+
+    Reading ``start`` adds no new way to fail a row — transcript by transcript:
+    nothing that published without this read fails with it, and nothing that
+    failed without it publishes with it.  The read is the lookup ``s["start"]``,
+    ``float`` of it, then ``round(..., 3)``, and rounding to 3 decimals cannot
+    fail once ``float`` has returned — ``NaN`` and ``inf`` included — so the
+    read fails exactly when that lookup or that ``float`` does.
+    ``segments_to_srt`` already applies both to the same field before anything
+    is published (``segment['start']``, then ``_fmt_srt_time``'s opening
+    ``float(seconds)``), so an absent, non-numeric, ``None`` or
+    out-of-float-range start still aborts the row and reaches no
+    ``_publish_bundle``.  ``NaN``/``inf`` pass the read and are stopped one step
+    *later*, by ``_fmt_srt_time``'s ``float(seconds) * 1000``, which still
+    precedes publication: no path can publish them.
+
+    The exception **type** is deliberately not part of that guarantee, and is
+    not claimed: this summary reads only the **low** cues, in filtered order,
+    while the formatter reads every cue in document order — and because
+    :func:`write_archive` assembles frontmatter first, this read now runs
+    first.  Given two unreadable starts of different kinds, the row fails on
+    whichever one this read reaches first, so a low ``"nope"`` sitting behind a
+    non-low *missing* ``start`` raises ``ValueError`` here where the formatter
+    alone raised ``KeyError``.  The row still fails and still publishes nothing;
+    only the code ``coordinator._safe_error_code`` records for that stage can
+    change, which is why no caller may branch on the type.
     """
 
     scores = [float(s["confidence"]) for s in segments
               if isinstance(s, dict) and isinstance(s.get("confidence"), (int, float))]
     if not scores:
         return {}
+    low = [s for s in segments
+           if isinstance(s, dict) and isinstance(s.get("confidence"), (int, float))
+           and float(s["confidence"]) <= LOW_CONFIDENCE]
     return {
         "asr_mean_confidence": round(sum(scores) / len(scores), 3),
-        "asr_low_confidence_cues": sum(1 for score in scores if score <= LOW_CONFIDENCE),
+        "asr_low_confidence_cues": len(low),
+        "asr_low_confidence_at": sorted(round(float(s["start"]), 3) for s in low),
     }
 
 
