@@ -42,10 +42,21 @@ reuse.
   caller-injected runner reused across batches reports per-batch truth) → one printed line. `RunSummary.asr_items`
   counts rows whose `asr` stage produced a transcript (the existing `asr: ok` attempt), so the line can state reuse
   rather than a bare number.
-- **D2.6 Printed line, stdout, once per batch, only when `asr_items > 0`:** `f"{command}: model constructions={n}
-  for {m} asr item(s)"` with `command ∈ {run, schedule, campaign, asr, pilot}` matching the existing prefix
-  convention (`cli.py` L2068). Zero-ASR batches print nothing, so subtitle-only output is unchanged. *Rejected:*
-  printing per row — A2 asks for the batch's own count, and per-row output would be noise.
+- **D2.6 Printed line, once per batch, when `asr_items > 0` or `model_constructions > 0`, on `stderr`:** `f"{command}: model
+  constructions={n} for {m} asr item(s)"` with `command ∈ {run, schedule, campaign, asr, pilot}` matching the
+  existing prefix convention (`cli.py` L2068). A batch with neither ASR items nor a paid construction (subtitle-only) prints nothing, so
+  subtitle-only output is unchanged; a batch that **paid** a construction prints even when every row failed. **Amended at Task-1 review (2026-09-13):** the original draft said `stdout`; measurement showed
+  that breaks `campaign`, whose stdout is a single JSON document (`cli.py`: `print(json.dumps(summary.to_dict(),
+  ...))`) that downstream callers parse — the line landed inside the document and JSON parsing failed. `stderr`
+  keeps A2's "the run's own output states that construction count" true while preserving every command's stdout
+  contract. *Rejected:* printing per row (A2 asks for the batch's own count; per-row output is noise);
+  command-specific streams (one rule is easier to state and test).
+  **Amended again at plan-QC (2026-09-13):** the guard is "nothing was paid", not "no ASR items" — all three
+  QC seats independently reproduced a batch that **constructed the model and failed every transcription**
+  (`model_constructions == 1`, `asr_items == 0`) printing nothing, which hides precisely the first-decode
+  failure the line exists to expose. The line therefore prints when `asr_items > 0` **or**
+  `model_constructions > 0`; a subtitle-only batch (neither) still prints nothing. `README.md` publishes the
+  same rule.
 - **D2.7 README wording (A2's greppable statement).** The model paragraph near `README.md` L44–54 must contain:
   `model constructions=`, the phrase `forfeits that reuse`, and the literal loop form `bili-asr asr --bvid <bvid>` —
   meaning: one process per item pays one model construction per item. *Rejected:* prose without the printed-line
@@ -60,7 +71,7 @@ reuse.
 | printed line | `<command>: model constructions=<n> for <m> asr item(s)` |
 | documented path | `bili-asr run --scope pending [--offline]`; `schedule`/`campaign` as wrappers |
 | test seam | patch `bili_asr.asr._load_default_model` with the existing fixture factory and set `BILI_ASR_DEVICE=cpu` (the runner then still exercises the real `_get_model` path; test_asr_reproducibility.py's `fake_funasr` fixture is the counter) |
-| new tests | (i) 3 ASR rows through `RunCoordinator.run_batch` with **no injected runner** → `fake.construction_count == 1`, `summary.model_constructions == 1`, `summary.asr_items == 3`; (ii) CLI `run --offline` on a ≥3-row fixture → stdout contains `model constructions=1 for 3 asr item(s)`; (iii) `asr --pending --limit 3` → 1 construction |
+| new tests | (i) 3 ASR rows through `RunCoordinator.run_batch` with **no injected runner** → `fake.construction_count == 1`, `summary.model_constructions == 1`, `summary.asr_items == 3`; (ii) CLI `run --offline` on a ≥3-row fixture → **stderr** contains `model constructions=1 for 3 asr item(s)`; (iii) `asr --pending --limit 3` → 1 construction |
 | kept tests | `::test_target_runner_reuse_oracle_is_target_facing` (L186), `::test_current_transcribe_constructs_once_per_call_characterization` (L180), `::test_fixture_benchmark_reports_only_construction_and_shape` (L313–330) |
 
 ## Boundaries — must not change
@@ -85,7 +96,7 @@ reuse.
 |---|---|
 | D2.1 | guide §4.2 L95–101 (`coordinator.py:494` reuse is the designed contract; run-scoped-asr-provenance L30) |
 | D2.2, D2.3 | guide L100–101: "Invoking `bili-asr asr --bvid …` once per item — the form the run used — reconstructs the model every time"; 21.8 min = 16.3 decode + 5.6 overhead (26 %) at L28–30 |
-| D2.5, D2.6 | A2: "the run's own output states that construction count"; design choice for the per-batch delta and the `asr_items` denominator |
+| D2.5, D2.6 | A2: (stream amended to stderr at Task-1 review — `campaign`'s stdout is a JSON document) "the run's own output states that construction count"; design choice for the per-batch delta and the `asr_items` denominator |
 | D2.7 | A2: "`README.md` states that a per-item `bili-asr asr --bvid …` loop forfeits the reuse" |
 | D2.4 | design choice: one rule — loops hold a runner, the one-shot wrapper stays one-shot |
 
