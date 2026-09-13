@@ -671,6 +671,118 @@ def test_cli_main_coverage_quality_reference_json_without_segments_is_a_diagnost
     assert "Traceback" not in captured.err
 
 
+def test_cli_main_coverage_quality_mixed_row_keeps_defect_reasons_first(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    """The merged row list is defect codes first, then the advisory ones.
+
+    This is the one contract the merge creates: a consumer reading
+    ``rows[].reasons`` sees the defect codes at the head of the list, so a
+    defect is never pushed behind an advisory observation.  Swapping the
+    projection to content-first leaves every other test green, so the order is
+    pinned here on a row that carries both classes at once.
+    """
+
+    from bili_asr import cli
+    from bili_asr.manifest import ManifestStore
+    from bili_asr.quality import CONTENT_REASON_CODES, DEFECT_REASON_CODES
+
+    store = ManifestStore(root=str(tmp_path))
+    store.upsert({
+        "work_id": "BV1mixed:p0",
+        "bvid": "BV1mixed",
+        "page_index": 0,
+        "cid": 102,
+        "title": "Mixed Video",
+        "status": "archived",
+        "duration_s": 20,
+        "source": "asr",
+    })
+    overlong = (
+        "今天的讨论围绕国际劳工仲裁这个主题展开，涉及多个国家的法律资源分配，"
+        "以及普通劳动者在遇到纠纷时能够获得的支持方式与成本问题"
+    )
+    srt_path = tmp_path / "transcripts" / "srt" / "BV1mixed.p0.srt"
+    srt_path.parent.mkdir(parents=True, exist_ok=True)
+    # Out-of-order overlapping cues (defect) carrying an over-long cue (content).
+    srt_path.write_text(
+        f"1\n00:00:03,000 --> 00:00:04,000\n{overlong}\n\n"
+        "2\n00:00:01,000 --> 00:00:02,000\nB\n",
+        encoding="utf-8",
+    )
+
+    exit_code = cli.main(["coverage", "--archive-root", str(tmp_path), "--quality", "--format", "json"])
+    payload = json.loads(capsys.readouterr().out)
+    reasons = payload["rows"][0]["reasons"]
+
+    # Both classes are present, and the defect codes come first in the list.
+    assert [r for r in reasons if r in DEFECT_REASON_CODES] == ["non_monotonic", "overlap"]
+    assert [r for r in reasons if r in CONTENT_REASON_CODES] == ["overlong_cue"]
+    assert reasons == ["non_monotonic", "overlap", "overlong_cue"]
+    # The defect still drives validity and the exit status; the content reason
+    # changes neither.
+    assert exit_code == 1
+    assert payload["summary"]["valid_work_items"] == 0
+    assert payload["summary"]["overlong_cue"] == 1
+
+
+def test_cli_main_coverage_quality_reference_without_row_text_reports_no_block(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    """A `--reference` on a row with no comparable text emits no `reference` block.
+
+    The row here is defect-free — its SRT carries one cue with empty text — so
+    it exits 0 with an empty reason list, and the comparison is simply not
+    reported: a ratio that was never computed must not be fabricated (D3.6).
+    README states this rule; this assertion is what keeps the statement true.
+    """
+
+    from bili_asr import cli
+    from bili_asr.manifest import ManifestStore
+
+    store = ManifestStore(root=str(tmp_path))
+    store.upsert({
+        "work_id": "BV1notext:p0",
+        "bvid": "BV1notext",
+        "page_index": 0,
+        "cid": 103,
+        "title": "No Text Video",
+        "status": "archived",
+        "duration_s": 10,
+        "source": "asr",
+    })
+    srt_path = tmp_path / "transcripts" / "srt" / "BV1notext.p0.srt"
+    srt_path.parent.mkdir(parents=True, exist_ok=True)
+    srt_path.write_text("1\n00:00:00,000 --> 00:00:04,000\n\n", encoding="utf-8")
+    reference = tmp_path / "second.txt"
+    reference.write_text("hello world\n", encoding="utf-8")
+
+    exit_code = cli.main([
+        "coverage", "--archive-root", str(tmp_path), "--quality",
+        "--scope", "BV1notext:p0", "--reference", str(reference), "--format", "json",
+    ])
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+
+    # A clean row: no defect, no diagnostic, so exit 0 — and no invented ratio.
+    assert exit_code == 0
+    assert payload["rows"][0]["reasons"] == []
+    assert payload["summary"]["valid_work_items"] == 1
+    assert "reference" not in payload
+    assert captured.err == ""
+    assert "Traceback" not in captured.err
+
+
+def test_cli_coverage_reference_help_states_the_plain_text_asymmetry(capsys: pytest.CaptureFixture[str]) -> None:
+    """A malformed `.json` reference is refused; `.srt`/`.txt` read as plain text."""
+
+    from bili_asr.cli import build_parser
+
+    parser = build_parser()
+    with pytest.raises(SystemExit) as exc:
+        parser.parse_args(["coverage", "--help"])
+    assert exc.value.code == 0
+    help_text = capsys.readouterr().out
+    assert "--reference" in help_text
+    assert "plain text" in help_text
+
+
 def test_cli_parser_exposes_reference_but_not_fail_under() -> None:
     """D3.8: the reference input exists; the retired exit knob is not ported."""
 

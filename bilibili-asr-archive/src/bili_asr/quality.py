@@ -42,7 +42,9 @@ CONTENT_REASON_CODES = (
 #: so existing output keeps its spelling and its sort order.
 REASON_CODES = DEFECT_REASON_CODES + CONTENT_REASON_CODES
 #: A cue never opens on one of these marks, and a fragment is measured after
-#: stripping them — the same marks :mod:`bili_asr.asr` uses when shaping cues.
+#: stripping them.  This is the retired report's own mark set, not the wider one
+#: :mod:`bili_asr.asr` shapes cues with (``!``, ``?``, ``,``, ``;`` and ``:``
+#: are absent here), so the two are deliberately not the same value.
 LEADING = "，。！？、；："
 #: Content thresholds, matching the cue shaping bounds in :mod:`bili_asr.asr`
 #: (``_CUE_MAX_CHARS`` / ``_CUE_MIN_CHARS`` / ``_CUE_MIN_SECONDS``) so a cue the
@@ -65,11 +67,47 @@ _REFERENCE_STRIP = re.compile(f"[{re.escape(_REFERENCE_PUNCT)}]")
 #: flattened for comparison.  A closing ``---`` line is required, so a lone
 #: leading ``---`` in a transcript stays where it is.
 _FRONTMATTER = re.compile(r"\A---[ \t]*\r?\n.*?\r?\n---[ \t]*(?:\r?\n|\Z)", re.DOTALL)
-#: Repeated-ngram detection: every 8-character window that occurs this often.
+#: Repeated-ngram detection: every ``_NGRAM_CHARS``-character window that
+#: occurs ``_NGRAM_MIN_REPEATS`` times or more.  Eight characters is the retired
+#: report's window, and both figures are pinned from both sides by
+#: ``test_ngram_window_is_the_pinned_eight_characters``.
 _NGRAM_CHARS = 8
 _NGRAM_MIN_REPEATS = 3
 _MAX_BYTES = 8 * 1024 * 1024
 _MAX_CUES = 10_000
+#: How much flattened text either transcript may hold before the comparison is
+#: refused.  ``_MAX_BYTES`` bounds the reference's *bytes*, which is not the
+#: same thing as the *work* of comparing them: with ``autojunk`` off — the
+#: setting that keeps recorded ratios comparable, so it is not negotiable — a
+#: pair of long, near-identical, low-entropy strings, which is exactly what two
+#: transcripts of the same audio are, costs super-linearly.  Measured on this
+#: host by tiling real transcript text to length and injecting 2–20 % edits:
+#: 4 000 characters per side ≈ 6 s, 8 000 ≈ 53 s, 12 000 ≈ 136 s, 16 000 ≈ 323 s
+#: (worst cases), while 10 000 ≈ 6 s and 20 000 ≈ 37 s on the same generator.
+#: The byte cap alone admits ~2.7 M characters per side, i.e. hours of CPU with
+#: no output; this bound caps the work at tens of seconds worst case.
+#: Real transcripts are far smaller: the recorded 448 s probe flattens to 2 098
+#: characters per side (~280 per minute of audio), so the longest row in this
+#: archive (1 115 s) is ≈5 200 and this bound covers ≈70 minutes of audio — every
+#: real comparison here, with several times the headroom.  The trade-off is
+#: deliberate and stated: a near-identical pair of *very* long transcripts is
+#: refused rather than measured, because a ratio nobody can wait for is not a
+#: measurement, and the refusal is loud (stderr + exit 1), never silent.
+_MAX_COMPARE_CHARS = 20_000
+#: Credential-like words as they can appear in a *file name*.  The forbidden
+#: marker's trailing ``\b`` cannot end the match after an underscore (``_`` is a
+#: word character), so ``token_abc123.srt`` escaped it while
+#: ``token-abc123.srt`` did not.  A name may join its words with either
+#: separator, so this local scan supplies that boundary: the marker opens at the
+#: start of the name or after a letter-free separator, and must not run into a
+#: following letter — every separator form redacts, while an ordinary word such
+#: as ``tokenizer`` is left alone.  ``asr._FORBIDDEN_PROVENANCE`` is deliberately
+#: *not* relaxed: it guards provenance strings, where its trailing boundary is
+#: load-bearing.
+_NAME_CREDENTIAL = re.compile(
+    r"(?:^|[^A-Za-z])(?:sessdata|cookie|token|password|secret|credential)(?![A-Za-z])",
+    re.IGNORECASE,
+)
 _SRT_TIME = re.compile(
     r"^(?P<h>\d{1,3}):(?P<m>[0-5]\d):(?P<s>[0-5]\d)[,.](?P<ms>\d{1,3})$"
 )
@@ -375,11 +413,15 @@ def reference_basename(path: Path) -> str:
 
     The operator's directory layout stays out of the report; a name that is
     itself URL- or credential-shaped is replaced too, so no path, URL, or
-    credential-like value can reach the output.
+    credential-like value can reach the output.  The provenance marker alone is
+    not enough for a *name*: its trailing ``\\b`` never fires after an
+    underscore, which is how ``token_abc123.srt`` was published while
+    ``token-abc123.srt`` was redacted, so a name-level scan treats both
+    separators alike.
     """
 
     name = path.name
-    if not name or _FORBIDDEN_MARKER.search(name):
+    if not name or _FORBIDDEN_MARKER.search(name) or _NAME_CREDENTIAL.search(name):
         return "[redacted]"
     return name
 
@@ -394,6 +436,15 @@ def _compare_reference(
     character counts leave this function.  Returns ``None`` when the row has no
     comparable text: that is the row's own defect (``empty``/``artifact_missing``
     already reports it), not a fault of the supplied reference.
+
+    ``_MAX_BYTES`` bounds the reference's bytes but not the *work* of comparing
+    it, so the flattened pair is bounded too.  A pair whose flattened text
+    exceeds :data:`_MAX_COMPARE_CHARS` per side is refused rather than compared:
+    with ``autojunk`` off, a long low-entropy pair costs minutes to hours, and a
+    ratio nobody can wait for is not a measurement.  The refusal reuses the
+    reference path's own diagnostic — stderr plus exit 1, never a silent no-op —
+    and names the side that tripped it, since either transcript can be the large
+    one.
     """
 
     try:
@@ -416,6 +467,14 @@ def _compare_reference(
         raise ReferenceUnavailable("reference has no comparable text")
     if not transcript:
         return None
+    # The bound is checked per side and named for the side it caught: a row's
+    # own flattened text is bounded separately (``_MAX_CUES`` caps cues, not the
+    # ``.txt`` arm), so blaming the reference for a large row would send the
+    # operator after the wrong file.
+    if len(theirs) > _MAX_COMPARE_CHARS:
+        raise ReferenceUnavailable("reference too large to compare")
+    if len(transcript) > _MAX_COMPARE_CHARS:
+        raise ReferenceUnavailable("transcript too large to compare")
     ratio = difflib.SequenceMatcher(
         None, transcript, theirs, autojunk=False
     ).ratio()

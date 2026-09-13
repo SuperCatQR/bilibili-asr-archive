@@ -370,7 +370,8 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help=(
             "Second transcript of the same audio (SRT/TXT/JSON); needs --quality "
-            "and exactly one selected row"
+            "and exactly one selected row. .srt/.txt are read as plain text; a "
+            "cue-less or unparsable .json is refused"
         ),
     )
 

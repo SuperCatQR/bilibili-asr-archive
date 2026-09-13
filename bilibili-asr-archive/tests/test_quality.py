@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import collections
 import json
 from pathlib import Path
 
@@ -413,6 +414,47 @@ def test_clean_cue_scores_no_content_reason(tmp_path: Path) -> None:
     assert result.reasons == ()
 
 
+def test_ngram_window_is_the_pinned_eight_characters(tmp_path: Path) -> None:
+    """``_NGRAM_CHARS`` is pinned from both sides, so it cannot rot silently.
+
+    A body of three repeated 8-character blocks fires ``repeated_ngram`` at the
+    declared window and — because nothing longer repeats three times — at no
+    longer window.  Changing ``_NGRAM_CHARS`` to 12 leaves the focused suite
+    green without this test, which its sibling ``_NGRAM_MIN_REPEATS`` already
+    had guarded.
+    """
+
+    assert quality._NGRAM_CHARS == 8
+    block = "甲乙丙丁戊己庚辛"
+    body = block + "今天天气很好" + block + "这个答案不复杂" + block + "好"
+
+    def windows(count: int) -> int:
+        return max(
+            collections.Counter(
+                body[index : index + count]
+                for index in range(max(0, len(body) - count))
+            ).values(),
+            default=0,
+        )
+
+    # The declared window repeats; every longer window occurs at most twice.
+    assert windows(quality._NGRAM_CHARS) >= quality._NGRAM_MIN_REPEATS
+    for longer in range(quality._NGRAM_CHARS + 1, quality._NGRAM_CHARS + 5):
+        assert windows(longer) < quality._NGRAM_MIN_REPEATS, longer
+
+    result = QualityAnalyzer().analyze(
+        row(srt_path=write_srt(
+            tmp_path,
+            "BV1demo.p0.srt",
+            f"1\n00:00:00,000 --> 00:00:08,000\n{body}\n",
+        )),
+        tmp_path,
+    )
+    assert "repeated_ngram" in result.content_reasons
+    # The window is a content observation: the row stays free of defects.
+    assert result.reasons == ()
+
+
 def test_srt_only_artefact_reports_no_low_confidence(tmp_path: Path) -> None:
     """No recorded score means not computed — never fabricated."""
 
@@ -596,7 +638,23 @@ def test_reference_reports_basename_only(tmp_path: Path) -> None:
 
 @pytest.mark.parametrize(
     "name",
-    ["sessdata-backup.txt", "cookie-jar.txt", "token-file.txt", "my-secret.txt"],
+    [
+        # Both separators: the provenance marker's trailing ``\b`` never fires
+        # after ``_`` (it is a word character), so the hyphenated form alone was
+        # false assurance — these names were published as-is.
+        "sessdata-backup.txt",
+        "cookie-jar.txt",
+        "token-file.txt",
+        "my-secret.txt",
+        "credential-v2.txt",
+        "sessdata_backup.txt",
+        "token_abc123.srt",
+        "cookie_jar.srt",
+        "my_secret.srt",
+        "credential_v2.txt",
+        "SESSDATA_abc123.txt",
+        "token.abc123.txt",
+    ],
 )
 def test_reference_credential_like_name_is_redacted(tmp_path: Path, name: str) -> None:
     """A name that is itself credential-shaped is replaced entirely."""
@@ -608,6 +666,22 @@ def test_reference_credential_like_name_is_redacted(tmp_path: Path, name: str) -
     result = QualityAnalyzer().analyze(row(srt_path=relative), tmp_path, reference)
     assert result.reference is not None
     assert result.reference.reference == "[redacted]"
+
+
+@pytest.mark.parametrize(
+    "name", ["second.txt", "transcript-backup.txt", "tokenizer-notes.txt"]
+)
+def test_ordinary_reference_name_is_not_redacted(tmp_path: Path, name: str) -> None:
+    """The name-level scan redacts credential-like names, not words that merely
+    begin with one: ``tokenizer-notes.txt`` is an ordinary transcript name."""
+
+    relative = _transcript(tmp_path, "hello world")
+    reference = tmp_path / name
+    reference.write_text("hello world\n", encoding="utf-8")
+
+    result = QualityAnalyzer().analyze(row(srt_path=relative), tmp_path, reference)
+    assert result.reference is not None
+    assert result.reference.reference == name
 
 
 @pytest.mark.parametrize("name,body", [("empty.txt", ""), ("blank.txt", "   \n\n")])
@@ -646,6 +720,52 @@ def test_reference_oversized_is_refused(tmp_path: Path) -> None:
     with pytest.raises(ReferenceUnavailable) as exc:
         QualityAnalyzer().analyze(row(srt_path=relative), tmp_path, reference)
     assert exc.value.reason == "reference too large"
+
+
+def test_reference_beyond_the_comparison_bound_is_refused(tmp_path: Path) -> None:
+    """``_MAX_BYTES`` bounds bytes, not work: the flattened pair is bounded too.
+
+    With ``autojunk`` off this pair costs super-linear time — at the measured
+    rate a would-be 8 MiB reference is hours of CPU with no output — so it is
+    refused instead of compared.  The refusal is the reference path's own
+    diagnostic, and the row's own text is never the reason here.
+    """
+
+    relative = _transcript(tmp_path, "hello world")
+    # Flattened length, not file size: the comparison reads the flattened text.
+    body = "甲乙丙丁戊己庚辛壬癸" * ((quality._MAX_COMPARE_CHARS // 10) + 1)
+    assert len(quality.flatten_reference(body)) > quality._MAX_COMPARE_CHARS
+    reference = tmp_path / "second.txt"
+    reference.write_text(body, encoding="utf-8")
+
+    with pytest.raises(ReferenceUnavailable) as exc:
+        QualityAnalyzer().analyze(row(srt_path=relative), tmp_path, reference)
+    assert exc.value.reason == "reference too large to compare"
+
+
+def test_reference_comparison_at_the_bound_is_still_measured(tmp_path: Path) -> None:
+    """The bound is inclusive: a pair at ``_MAX_COMPARE_CHARS`` is compared.
+
+    Pinning the boundary from both sides is what keeps the refusal from
+    silently swallowing ordinary transcripts — a bound tightened to zero would
+    still pass the over-bound test above.
+    """
+
+    size = quality._MAX_COMPARE_CHARS
+    # Distinct characters, so the at-bound comparison is itself fast.
+    body = "".join(chr(0x4E00 + (index % 0x2000)) for index in range(size))
+    relative = write_srt(
+        tmp_path,
+        "BV1demo.p0.srt",
+        f"1\n00:00:00,000 --> 00:00:08,000\n{body}\n",
+    )
+    reference = tmp_path / "second.txt"
+    reference.write_text(body + "\n", encoding="utf-8")
+
+    result = QualityAnalyzer().analyze(row(srt_path=relative), tmp_path, reference)
+    assert result.reference is not None
+    assert result.reference.compared_chars == (size, size)
+    assert result.reference.agreement == 1.0
 
 
 def test_reference_is_ignored_when_the_row_has_no_transcript_text(tmp_path: Path) -> None:
