@@ -661,7 +661,7 @@ def test_reference_is_ignored_when_the_row_has_no_transcript_text(tmp_path: Path
     assert result.content_reasons == ()
 
 
-def test_reference_floor_is_below_the_readme_claim_of_contested_audio(tmp_path: Path) -> None:
-    """The threshold is the retired script's ``~0.95`` figure, declared once."""
+def test_reference_agreement_floor_is_the_retired_scripts_figure() -> None:
+    """The threshold is the retired script's ``~0.95``, declared in one place."""
 
     assert quality.REFERENCE_AGREEMENT_FLOOR == 0.95
