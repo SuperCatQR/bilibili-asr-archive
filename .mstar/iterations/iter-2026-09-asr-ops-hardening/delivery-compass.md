@@ -84,7 +84,7 @@ both.
 | plan_id | Name | Status | Notes |
 |---------|------|--------|-------|
 | 20260912-gpu-enablement-truth | Verified GPU enablement: docs, runtime hint, environment self-check | Done | Spec point 1; merge `5ee7832` |
-| 20260912-batch-model-reuse | Batch model-reuse contract on the documented path | Todo | Spec point 2 |
+| 20260912-batch-model-reuse | Batch model-reuse contract on the documented path | Done | Spec point 2; merge `27ac740` |
 | 20260912-quality-signal-merge | Content-quality reasons folded into the existing quality surface | Todo | Spec point 3 |
 | 20260912-asr-provenance-identity | Declared model identity + VAD capture and low-confidence locations in provenance | Todo | Spec points 4–5 |
 
@@ -169,7 +169,10 @@ re-opens them as defects:
   `guides/2026-09-12-ten-video-audit.md`; the ten videos are the shortest parts of the
   visible corpus (449 s–1115 s, 125 min of audio, guide §1 L9–26), so this iteration
   hardens the path on the cheap end before the corpus run resumes.
-- **Next iteration**：resume corpus acquisition at scale — the 63 visible parts,
+- **Next iteration**：carry the inherited medium residual R1 — `scripts/verify_baseline.py`'s staged tree still
+  cannot collect `tests/test_check_asr_env.py` (`rc=2`, zero tests collected), so the documented baseline gate
+  aborts; the fix is ~2 lines in that file, which no plan in this iteration owns (plan-QC seats 1/2, 2026-09-13).
+  Then resume corpus acquisition at scale — the 63 visible parts,
   449 s–9151 s (≈ 93 h of audio) — with the hardened ASR path and the SQLite
   audio/sidecar work. Source for the corpus figures: `guides/scope-rationale.md` §3
   (the live archive's `video_parts`: 63 rows, min 449 s, max 9151 s). Trigger: this

@@ -63,18 +63,39 @@ spelling, order, `to_dict()` shape and exit semantics; seven content codes join 
   `--fail-under-mean` flag — a second verdict surface on a report that makes no semantic-correctness claim (README
   L345).
 
-## Retirement map — every output of `scripts/asr_quality.py`
+## Retirement map — every *reachable* output of `scripts/asr_quality.py`
 
 | Retired (script line) | Replacement |
 |---|---|
 | header `transcript`/`produced by`/`scale` (L78–85) | `coverage --quality` row (`work_id`, `source`, `language`, `status`, `cue_count`) + archived `asr_*` keys |
-| confidence mean/p10/min + count (L87–98) | reason `low_confidence`; `asr_mean_confidence`, `asr_low_confidence_cues`, `asr_low_confidence_at` (contract 04) |
+| confidence mean + count (L87–98) | reason `low_confidence`; `asr_mean_confidence`, `asr_low_confidence_cues`, `asr_low_confidence_at` (contract 04) |
+| **`p10` / `min` / `chars-per-min` (L87–98)** | **Deliberately dropped** (plan-QC seats 1/3, 2026-09-13): no surface reports them. `p10`/`min` are trivially derivable from `raw.json`'s per-cue confidence; `chars-per-min` is **not reproducible** from the archive (no per-row character total is persisted) — recorded as a known gap, not a silent omission. |
 | top-3 unsure locations (L96–98) | `asr_low_confidence_at` — **all** locations, not the first three |
 | mark / fragment / over-long / duplicate (L104–109) | reasons `leading_mark`, `fragment_cue`, `overlong_cue`, `duplicate_cue` |
 | repeated 8-gram ≥ 3× (L112–113) | reason `repeated_ngram` |
 | agreement (L116–122) | reason `reference_disagreement` + JSON `reference` block |
 | "no cues found", exit 1 (L72–74) | existing reason `empty` (quality.py L87–88) |
 | `--fail-under` (L124–126) | not ported (D3.8) |
+
+## Amendment at Task-1 review (PM, 2026-09-13)
+
+**The two classes are two fields, not one union.** The brief's "append the content codes to
+`REASON_CODES`" and D3.2's "only defects drive validity" conflict as written: `cli.py` computes
+`valid_work_items` and the exit status from `not result.reasons`, so a single union field would flip
+healthy ASR archives to exit 1 unless the consumer learns which codes are defects. The implemented
+shape is therefore:
+
+- `DEFECT_REASON_CODES` (today's seven) drive `QualityResult.reasons` — validity and exit status read
+  from it unchanged, so no consumer needs class knowledge.
+- `CONTENT_REASON_CODES` (the seven new codes) live in `QualityResult.content_reasons`, which never
+  affects validity or the exit code.
+- `REASON_CODES` remains the ordered union, so sort order and spelling are unchanged.
+- `QualityResult.to_dict()` keys are frozen: the content codes reach the coverage output through the
+  **CLI projection** (Task 2), not by mutating this projection.
+
+Task 2 must therefore surface `content_reasons` in the coverage output (per-row and summary counts)
+while keeping validity/exit on the defect codes alone, and must keep A3's probe true: an archive whose
+only observations are content reasons still exits 0 and still reports them.
 
 ## Boundaries — must not change
 
@@ -113,3 +134,16 @@ correctness." Requested at iteration-close via `mstar-compound` — not edited b
 On the 2026-09-12 output root (or a fresh single-item ASR run) record before/after `coverage --quality` output: same
 seven codes with the same values, new codes present, `valid_work_items` and the exit code unchanged. If any named
 exact-equality assertion moves, the ported threshold is wrong — fix the threshold, never the assertion.
+
+## Plan-QC amendment (2026-09-13): parity is per-artefact-shape
+
+The map above is complete **for rows that carry a cue-bearing artefact** (`srt`). A `.txt`- or `.md`-only row
+goes through the plain-text arm, which returns no cues, so **all** text content reasons are absent for that
+shape (`cue_count 0`). This is a documented limit, not a defect: `write_archive` always publishes
+`srt`+`txt`+`md`+`raw` together, so production rows are never in that shape. Rejected: parsing cues out of a
+plain-text transcript — the archive has no timings there and the parse would be guesswork.
+
+`--reference` on a row with **no comparable text** produces no `reference` block and no `reference_disagreement`
+(exit 0); `README.md` states the rule. The reference comparison is bounded by characters per side
+(`_MAX_COMPARE_CHARS`) **and** bytes (`_MAX_BYTES`); the bound is a safety valve, not a measurement, and the
+product-form bound (uniform time) is recorded as a follow-up rather than applied here.
