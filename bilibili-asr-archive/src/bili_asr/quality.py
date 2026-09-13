@@ -58,6 +58,12 @@ REFERENCE_AGREEMENT_FLOOR = 0.95
 #: retired ``scripts/asr_quality.py``.
 _REFERENCE_PUNCT = "。，？！、；：,?!.;:…—·\"'“”‘’（）()《》"
 _REFERENCE_STRIP = re.compile(f"[{re.escape(_REFERENCE_PUNCT)}]")
+#: The published ``.md`` bundle opens with a YAML frontmatter block carrying the
+#: title, the bilibili URL, and the work's identity.  That block is metadata,
+#: never transcript text, so it is dropped before a plain-text artifact is
+#: flattened for comparison.  A closing ``---`` line is required, so a lone
+#: leading ``---`` in a transcript stays where it is.
+_FRONTMATTER = re.compile(r"\A---[ \t]*\r?\n.*?\r?\n---[ \t]*(?:\r?\n|\Z)", re.DOTALL)
 #: Repeated-ngram detection: every 8-character window that occurs this often.
 _NGRAM_CHARS = 8
 _NGRAM_MIN_REPEATS = 3
@@ -150,10 +156,12 @@ class QualityAnalyzer:
         """Measure one manifest row's artifacts.
 
         ``reference`` is an optional second transcript of the same audio.  It is
-        compared against the row's own transcript — the first artifact that
-        yields comparable text, which is the archived SRT when one exists.  A
-        reference that cannot be read raises :class:`ReferenceUnavailable`; it
-        never degrades into a silent "no comparison".
+        compared against the row's own transcript: the best comparable text
+        among the row's artifacts, which is the archived SRT when one exists and
+        otherwise a cue sidecar or the plain transcript, with the published
+        ``.md`` bundle as the last resort.  A reference that cannot be read
+        raises :class:`ReferenceUnavailable`; it never degrades into a silent
+        "no comparison".
         """
 
         reasons: set[str] = set()
@@ -163,6 +171,12 @@ class QualityAnalyzer:
         cue_count = 0
         valid_artifacts = 0
         transcript: str | None = None
+        # The best comparison source seen so far, as a rank: a cue-bearing
+        # artifact (3) outranks a plain transcript (2), and both outrank the
+        # published ``.md`` bundle (1), whose comparable text is its body rather
+        # than the artifact it publishes.  Only a strictly better artifact
+        # replaces the current source, so equal ranks keep the archived SRT.
+        transcript_rank = 0
         if not artifacts:
             reasons.add("artifact_missing")
         for path in artifacts:
@@ -182,10 +196,11 @@ class QualityAnalyzer:
                 continue
             valid_artifacts += 1
             cue_count = min(_MAX_CUES, cue_count + len(cues))
-            if transcript is None:
+            rank = _transcript_rank(path, cues)
+            if rank > transcript_rank:
                 candidate = comparable_text(text, cues)
                 if candidate:
-                    transcript = candidate
+                    transcript, transcript_rank = candidate, rank
             if malformed:
                 reasons.add("malformed")
             if empty:
@@ -273,6 +288,9 @@ def _artifact_paths(row: Mapping[str, object], root: Path) -> list[Path]:
                     Path("subtitles/raw") / f"{stem}.json",
                 )
             )
+            # The derived ``.md`` bundle is appended last: its body is the
+            # transcript, but a transcript artifact outranks it as the
+            # comparison source.
             md_dir = root / "transcripts" / "md"
             if md_dir.is_dir():
                 exact_md = md_dir / f"{stem}.md"
@@ -310,19 +328,40 @@ def flatten_reference(text: str) -> str:
     return _REFERENCE_STRIP.sub("", text).replace(" ", "").lower()
 
 
+def _transcript_rank(path: Path, cues: list[Cue]) -> int:
+    """How well one artifact serves as the row's transcript for comparison.
+
+    Cue-bearing artifacts rank highest because their cue texts are the
+    transcript itself; a plain transcript ranks next; the published ``.md``
+    bundle ranks last, since its comparable text is its body rather than the
+    artifact it publishes.  Anything that yields no comparable text ranks zero,
+    so it can never displace a real transcript.
+    """
+
+    if cues:
+        return 3
+    if path.suffix.lower() == ".md":
+        return 1
+    return 2
+
+
 def comparable_text(text: str, cues: list[Cue]) -> str:
     """One transcript's text, flattened for cross-transcript comparison.
 
     A cue-structured artifact contributes its cue texts through the same cue
     parser as everything else; a plain-text artifact (``.txt``/``.md``) has no
     cue structure, so its non-blank lines are its text — the reading the
-    retired ``scripts/asr_quality.py`` used for the same inputs.
+    retired ``scripts/asr_quality.py`` used for the same inputs.  A leading YAML
+    frontmatter block is metadata rather than text and is dropped first, so a
+    published ``.md`` bundle compares by its body rather than by its title and
+    URL.
     """
 
     if cues:
         return flatten_reference("".join(cue.text for cue in cues))
+    body = _FRONTMATTER.sub("", text, count=1)
     return flatten_reference(
-        "".join(line.strip() for line in text.splitlines() if line.strip())
+        "".join(line.strip() for line in body.splitlines() if line.strip())
     )
 
 
@@ -358,7 +397,15 @@ def _compare_reference(
         text = reference.read_text(encoding="utf-8")
     except (OSError, UnicodeError) as exc:
         raise ReferenceUnavailable("reference unreadable") from exc
-    other, _malformed, _empty = _read_cues(reference, text)
+    other, malformed, empty = _read_cues(reference, text)
+    if reference.suffix.lower() == ".json" and (malformed or empty):
+        # A JSON reference is a cue sidecar: one that does not parse, or that
+        # carries no segment, has no transcript to compare.  Comparing its own
+        # source text would invent a near-zero ratio — the silent wrong answer
+        # this exception exists to prevent — so it is refused like any other
+        # unreadable reference.  A blank ``.txt``/``.srt`` is not a sidecar and
+        # keeps its own, more precise diagnostic below.
+        raise ReferenceUnavailable("reference unreadable")
     theirs = comparable_text(text, other)
     if not theirs:
         raise ReferenceUnavailable("reference has no comparable text")

@@ -15,6 +15,7 @@ from bili_asr.quality import (
     FRAGMENT_MAX_SECONDS,
     OVERLONG_CHARS,
     REASON_CODES,
+    REFERENCE_AGREEMENT_FLOOR,
     QualityAnalyzer,
     ReferenceUnavailable,
 )
@@ -659,6 +660,186 @@ def test_reference_is_ignored_when_the_row_has_no_transcript_text(tmp_path: Path
     assert result.reasons == ("artifact_missing",)
     assert result.reference is None
     assert result.content_reasons == ()
+
+
+def test_reference_comparison_uses_the_transcript_not_the_md_bundle(
+    tmp_path: Path,
+) -> None:
+    """The published ``.md`` bundle never stands in for the row's transcript.
+
+    Its body is the transcript, but the bundle also carries the archive's own
+    YAML frontmatter — title, bilibili URL, identity.  Comparing that metadata
+    would fabricate a disagreeing reference against a transcript that matches.
+    """
+
+    relative = write_raw(
+        tmp_path, "BV1demo.p0.json", [{"start": 0.0, "end": 4.0, "text": "你好世界"}]
+    )
+    # A bundle whose body is exactly the reference, frontmatter and all.
+    md = tmp_path / "transcripts" / "md" / "2026-01-02_BV1demo.p0_demo.md"
+    md.parent.mkdir(parents=True, exist_ok=True)
+    md.write_text(
+        '---\nbvid: "BV1demo"\ntitle: "demo"\n'
+        'url: "https://www.bilibili.com/video/BV1demo"\n---\n\n你好世界\n',
+        encoding="utf-8",
+    )
+    reference = tmp_path / "second.txt"
+    reference.write_text("你好世界\n", encoding="utf-8")
+
+    result = QualityAnalyzer().analyze(
+        row(raw_path=relative, md_path="transcripts/md/" + md.name),
+        tmp_path,
+        reference,
+    )
+    assert result.reasons == ()
+    assert result.reference is not None
+    assert result.reference.agreement == 1.0
+    assert result.reference.compared_chars == (4, 4)
+    assert "reference_disagreement" not in result.content_reasons
+
+
+def test_md_bundle_is_compared_by_its_body_when_it_is_the_only_source(
+    tmp_path: Path,
+) -> None:
+    """The bundle stays usable as a transcript — without its frontmatter.
+
+    With no SRT, TXT or cue sidecar in the row, the bundle is the last resort,
+    so its comparison text must be the body it publishes and not its title,
+    URL, or identity keys.
+    """
+
+    md = tmp_path / "transcripts" / "md" / "2026-01-02_BV1demo.p0_demo.md"
+    md.parent.mkdir(parents=True, exist_ok=True)
+    md.write_text(
+        '---\nbvid: "BV1demo"\ntitle: "demo"\n'
+        'url: "https://www.bilibili.com/video/BV1demo"\n---\n\n你好世界\n',
+        encoding="utf-8",
+    )
+    reference = tmp_path / "second.txt"
+    reference.write_text("你好世界\n", encoding="utf-8")
+
+    result = QualityAnalyzer().analyze(
+        row(md_path="transcripts/md/" + md.name), tmp_path, reference
+    )
+    assert result.reasons == ()
+    assert result.reference is not None
+    assert result.reference.agreement == 1.0
+    assert "reference_disagreement" not in result.content_reasons
+
+
+def test_md_bundle_never_marks_a_defect_free_row_as_disagreeing(
+    tmp_path: Path,
+) -> None:
+    """A defect-free row whose SRT yields no text keeps its clean reason list.
+
+    The row's SRT has one timed cue with empty text — a structural defect this
+    module does not report — and the bundle beside it holds the reference text
+    in its body.  Comparing the bundle's frontmatter would invent a
+    ``reference_disagreement`` against a transcript the row does not contest.
+    """
+
+    relative = _transcript(tmp_path, "")
+    md = tmp_path / "transcripts" / "md" / "2026-01-02_BV1demo.p0_demo.md"
+    md.parent.mkdir(parents=True, exist_ok=True)
+    md.write_text(
+        '---\nbvid: "BV1demo"\ntitle: "demo"\n'
+        'url: "https://www.bilibili.com/video/BV1demo"\n---\n\n你好世界\n',
+        encoding="utf-8",
+    )
+    reference = tmp_path / "second.txt"
+    reference.write_text("你好世界\n", encoding="utf-8")
+
+    result = QualityAnalyzer().analyze(
+        row(srt_path=relative, md_path="transcripts/md/" + md.name),
+        tmp_path,
+        reference,
+    )
+    assert result.reasons == ()
+    assert result.reference is not None
+    assert result.reference.agreement == 1.0
+    assert result.content_reasons == ()
+
+
+def test_frontmatter_free_plain_text_keeps_its_leading_line(tmp_path: Path) -> None:
+    """Stripping frontmatter never eats transcript text that is not frontmatter.
+
+    A leading ``---`` with no closing delimiter is text, not a metadata block.
+    """
+
+    txt_dir = tmp_path / "transcripts" / "txt"
+    txt_dir.mkdir(parents=True, exist_ok=True)
+    (txt_dir / "BV1demo.p0.txt").write_text(
+        "---\n正文从这一行开始\n", encoding="utf-8"
+    )
+    reference = tmp_path / "second.txt"
+    reference.write_text("---\n正文从这一行开始\n", encoding="utf-8")
+
+    result = QualityAnalyzer().analyze(
+        row(txt_path="transcripts/txt/BV1demo.p0.txt"), tmp_path, reference
+    )
+    assert result.reference is not None
+    assert result.reference.agreement == 1.0
+
+
+@pytest.mark.parametrize(
+    "name,body",
+    [
+        ("bad.json", '{"segments": ['),
+        ("empty_segments.json", '{"segments": []}'),
+        ("bare_list.json", "[]"),
+        ("blank.json", ""),
+    ],
+)
+def test_reference_json_that_carries_no_transcript_is_refused(
+    tmp_path: Path, name: str, body: str
+) -> None:
+    """A cue sidecar that does not parse, or has no segment, is unreadable.
+
+    Comparing it as its own source text would report a fabricated near-zero
+    ratio for a reference that never held a transcript.
+    """
+
+    relative = _transcript(tmp_path, "你好世界")
+    reference = tmp_path / name
+    reference.write_text(body, encoding="utf-8")
+
+    with pytest.raises(ReferenceUnavailable) as exc:
+        QualityAnalyzer().analyze(row(srt_path=relative), tmp_path, reference)
+    assert exc.value.reason == "reference unreadable"
+
+
+def test_reference_json_with_segments_still_compares(tmp_path: Path) -> None:
+    """Refusing unreadable sidecars does not narrow the JSON arm."""
+
+    relative = _transcript(tmp_path, "你好世界")
+    reference = tmp_path / "second.json"
+    reference.write_text(
+        json.dumps({"segments": [{"start": 0.0, "end": 4.0, "text": "你好世界"}]}),
+        encoding="utf-8",
+    )
+
+    result = QualityAnalyzer().analyze(row(srt_path=relative), tmp_path, reference)
+    assert result.reference is not None
+    assert result.reference.agreement == 1.0
+
+
+def test_reference_agreement_exactly_at_the_floor_is_not_a_disagreement(
+    tmp_path: Path,
+) -> None:
+    """D3.7: the reason fires *below* the floor, so equality does not fire it.
+
+    The ratio is exact rather than approximate: 19 of 20 flattened characters
+    shared, which ``SequenceMatcher`` reports as exactly ``0.95``.
+    """
+
+    relative = _transcript(tmp_path, "abcdefghijklmnopqrst")
+    reference = tmp_path / "second.txt"
+    reference.write_text("abcdefghijklmnopqrsX\n", encoding="utf-8")
+
+    result = QualityAnalyzer().analyze(row(srt_path=relative), tmp_path, reference)
+    assert result.reference is not None
+    assert result.reference.agreement == REFERENCE_AGREEMENT_FLOOR == 0.95
+    assert "reference_disagreement" not in result.content_reasons
 
 
 def test_reference_agreement_floor_is_the_retired_scripts_figure() -> None:

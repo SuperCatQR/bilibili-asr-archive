@@ -594,6 +594,83 @@ def test_cli_main_coverage_quality_reference_keeps_csv_columns_frozen(tmp_path: 
     assert "second.srt" in captured.err
 
 
+def test_cli_main_coverage_quality_reference_ignores_the_md_bundle(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    """A published .md bundle never becomes the row's transcript for comparison.
+
+    The row's artifacts are the bundle and the cue sidecar, in that manifest
+    order — the shape in which the bundle used to win and report a fabricated
+    disagreement against its own frontmatter.
+    """
+
+    from bili_asr import cli
+    from bili_asr.manifest import ManifestStore
+
+    text = "Hello world"
+    raw = tmp_path / "transcripts" / "raw" / "BV1ref.p0.json"
+    raw.parent.mkdir(parents=True, exist_ok=True)
+    raw.write_text(
+        json.dumps(
+            {"segments": [{"start": 0.0, "end": 4.0, "text": text, "confidence": 0.9}]}
+        ),
+        encoding="utf-8",
+    )
+    md = tmp_path / "transcripts" / "md" / "2026-01-02_BV1ref.p0_demo.md"
+    md.parent.mkdir(parents=True, exist_ok=True)
+    md.write_text(
+        '---\nbvid: "BV1ref"\ntitle: "Reference Video"\n'
+        'url: "https://www.bilibili.com/video/BV1ref"\n---\n\n' + text + "\n",
+        encoding="utf-8",
+    )
+    ManifestStore(root=str(tmp_path)).upsert({
+        "work_id": "BV1ref:p0",
+        "bvid": "BV1ref",
+        "page_index": 0,
+        "cid": 900,
+        "title": "Reference Video",
+        "status": "archived",
+        "duration_s": 30,
+        "source": "asr",
+        "md_path": "transcripts/md/" + md.name,
+        "raw_path": "transcripts/raw/" + raw.name,
+    })
+    reference = tmp_path / "second.srt"
+    reference.write_text(f"1\n00:00:00,000 --> 00:00:04,000\n{text}\n", encoding="utf-8")
+
+    exit_code = cli.main([
+        "coverage", "--archive-root", str(tmp_path), "--quality",
+        "--reference", str(reference), "--format", "json",
+    ])
+    payload = json.loads(capsys.readouterr().out)
+
+    # The cue sidecar is the comparison source even though the bundle is named
+    # first, so the exact match scores 1.0 and no reason is fabricated.
+    assert exit_code == 0
+    assert payload["reference"]["agreement"] == 1.0
+    assert payload["reference"]["compared_chars"] == {"transcript": 10, "reference": 10}
+    assert payload["rows"][0]["reasons"] == []
+    assert payload["summary"]["reference_disagreement"] == 0
+    assert payload["summary"]["valid_work_items"] == 1
+
+
+def test_cli_main_coverage_quality_reference_json_without_segments_is_a_diagnostic(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    """A JSON reference carrying no transcript is a usage error, not a ratio."""
+
+    from bili_asr import cli
+
+    _reference_archive(tmp_path)
+    reference = tmp_path / "broken.json"
+    reference.write_text('{"segments": [', encoding="utf-8")
+
+    assert cli.main([
+        "coverage", "--archive-root", str(tmp_path), "--quality",
+        "--reference", str(reference), "--format", "json",
+    ]) == 1
+    captured = capsys.readouterr()
+    assert "reference unreadable" in captured.err
+    assert captured.out == ""
+    assert "Traceback" not in captured.err
+
+
 def test_cli_parser_exposes_reference_but_not_fail_under() -> None:
     """D3.8: the reference input exists; the retired exit knob is not ported."""
 
