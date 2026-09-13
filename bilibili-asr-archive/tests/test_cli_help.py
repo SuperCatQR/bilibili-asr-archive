@@ -348,6 +348,266 @@ def test_cli_main_coverage_quality_scope_and_redaction(tmp_path: Path, capsys: p
     assert_redacted(proc)
 
 
+def _reference_archive(tmp_path: Path, transcript: str = "Hello world") -> str:
+    """One archived ASR row plus its SRT; returns the SRT's text for reference use."""
+
+    from bili_asr.manifest import ManifestStore
+
+    store = ManifestStore(root=str(tmp_path))
+    store.upsert({
+        "work_id": "BV1ref:p0",
+        "bvid": "BV1ref",
+        "page_index": 0,
+        "cid": 900,
+        "title": "Reference Video",
+        "status": "archived",
+        "duration_s": 30,
+        "source": "asr",
+    })
+    srt_path = tmp_path / "transcripts" / "srt" / "BV1ref.p0.srt"
+    srt_path.parent.mkdir(parents=True, exist_ok=True)
+    srt_path.write_text(
+        f"1\n00:00:00,000 --> 00:00:04,000\n{transcript}\n", encoding="utf-8"
+    )
+    return transcript
+
+
+def test_cli_main_coverage_quality_projects_content_reasons(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    """A3: content reasons appear per row and in the summary, advisory only."""
+
+    from bili_asr import cli
+
+    _reference_archive(tmp_path)
+
+    exit_code = cli.main(["coverage", "--archive-root", str(tmp_path), "--quality", "--format", "json"])
+    payload = json.loads(capsys.readouterr().out)
+
+    # No defect reason anywhere: the exit status and the validity count still
+    # read the defect codes alone.
+    assert exit_code == 0
+    assert payload["summary"]["valid_work_items"] == 1
+    assert payload["rows"][0]["reasons"] == []
+
+    # The content-code counts are surfaced in the summary even at zero, which is
+    # what makes the surface project the vocabulary rather than omit it.
+    from bili_asr.quality import CONTENT_REASON_CODES, DEFECT_REASON_CODES
+
+    for code in (*DEFECT_REASON_CODES, *CONTENT_REASON_CODES):
+        assert code in payload["summary"], code
+        assert payload["summary"][code] == 0
+
+
+def test_cli_main_coverage_quality_reference_agreement_above_floor(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    """Agreement at or above the floor is reported without the reason."""
+
+    from bili_asr import cli
+
+    text = _reference_archive(tmp_path)
+    reference = tmp_path / "second.srt"
+    reference.write_text(f"1\n00:00:00,000 --> 00:00:04,000\n{text}\n", encoding="utf-8")
+
+    exit_code = cli.main([
+        "coverage", "--archive-root", str(tmp_path), "--quality",
+        "--reference", str(reference), "--format", "json",
+    ])
+    payload = json.loads(capsys.readouterr().out)
+
+    assert exit_code == 0
+    assert payload["reference"]["reference"] == "second.srt"
+    assert payload["reference"]["agreement"] == 1.0
+    assert payload["reference"]["floor"] == 0.95
+    assert payload["reference"]["work_id"] == "BV1ref:p0"
+    assert payload["reference"]["compared_chars"] == {"transcript": 10, "reference": 10}
+    assert "reference_disagreement" not in payload["rows"][0]["reasons"]
+    assert payload["summary"]["reference_disagreement"] == 0
+
+
+def test_cli_main_coverage_quality_reference_disagreement_below_floor(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    """A contested reference emits the reason but still exits 0 — it is advisory."""
+
+    from bili_asr import cli
+
+    _reference_archive(tmp_path)
+    reference = tmp_path / "other.srt"
+    reference.write_text(
+        "1\n00:00:00,000 --> 00:00:04,000\n完全不同的另一份转写内容在此\n", encoding="utf-8"
+    )
+
+    exit_code = cli.main([
+        "coverage", "--archive-root", str(tmp_path), "--quality",
+        "--reference", str(reference), "--format", "json",
+    ])
+    payload = json.loads(capsys.readouterr().out)
+
+    assert exit_code == 0
+    assert payload["rows"][0]["reasons"] == ["reference_disagreement"]
+    assert payload["summary"]["reference_disagreement"] == 1
+    # Advisory: the row is still valid because it has no defect.
+    assert payload["summary"]["valid_work_items"] == 1
+    assert payload["reference"]["agreement"] < payload["reference"]["floor"]
+
+
+def test_cli_main_coverage_quality_reference_requires_exactly_one_row(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    """Zero or many selected rows is a diagnostic, never a traceback."""
+
+    from bili_asr import cli
+    from bili_asr.manifest import ManifestStore
+
+    _reference_archive(tmp_path)
+    reference = tmp_path / "second.srt"
+    reference.write_text("1\n00:00:00,000 --> 00:00:04,000\nHello world\n", encoding="utf-8")
+
+    # Two rows: the whole manifest plus one more row.
+    ManifestStore(root=str(tmp_path)).upsert({
+        "work_id": "BV1ref2:p0", "bvid": "BV1ref2", "cid": 901,
+        "title": "Second", "status": "archived", "source": "asr",
+    })
+    assert cli.main([
+        "coverage", "--archive-root", str(tmp_path), "--quality",
+        "--reference", str(reference), "--format", "json",
+    ]) == 1
+    captured = capsys.readouterr()
+    assert "needs exactly one selected row" in captured.err
+    assert captured.out == ""
+    assert "Traceback" not in captured.err
+
+    # Zero rows via an unknown scope.
+    assert cli.main([
+        "coverage", "--archive-root", str(tmp_path), "--quality", "--scope", "BV1nope",
+        "--reference", str(reference), "--format", "json",
+    ]) == 1
+    captured = capsys.readouterr()
+    assert "needs exactly one selected row (got 0)" in captured.err
+    assert "Traceback" not in captured.err
+
+
+def test_cli_main_coverage_quality_reference_unreadable_is_a_diagnostic(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    """A missing or text-free reference fails as a usage error, not a traceback."""
+
+    from bili_asr import cli
+
+    _reference_archive(tmp_path)
+
+    # Absent path: caught before any row is analyzed.
+    assert cli.main([
+        "coverage", "--archive-root", str(tmp_path), "--quality",
+        "--reference", str(tmp_path / "absent.srt"), "--format", "json",
+    ]) == 1
+    captured = capsys.readouterr()
+    assert "reference unreadable" in captured.err
+    assert captured.out == ""
+    assert "Traceback" not in captured.err
+
+    # Present but with nothing to compare: refused, and named as such.
+    blank = tmp_path / "blank.txt"
+    blank.write_text("  \n\n", encoding="utf-8")
+    assert cli.main([
+        "coverage", "--archive-root", str(tmp_path), "--quality",
+        "--reference", str(blank), "--format", "json",
+    ]) == 1
+    captured = capsys.readouterr()
+    assert "reference has no comparable text" in captured.err
+    assert "Traceback" not in captured.err
+    # The diagnostic names no path.
+    assert str(tmp_path) not in captured.err
+
+
+def test_cli_main_coverage_quality_reference_never_serializes_the_path(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    """Only the basename leaves the report — never the operator's path."""
+
+    from bili_asr import cli
+
+    _reference_archive(tmp_path)
+    nested = tmp_path / "secret-dir" / "nested"
+    nested.mkdir(parents=True)
+    reference = nested / "second.srt"
+    reference.write_text("1\n00:00:00,000 --> 00:00:04,000\nHello world\n", encoding="utf-8")
+
+    assert cli.main([
+        "coverage", "--archive-root", str(tmp_path), "--quality",
+        "--reference", str(reference), "--format", "json",
+    ]) == 0
+    out = capsys.readouterr().out
+
+    assert json.loads(out)["reference"]["reference"] == "second.srt"
+    # Neither the directory nor the absolute path may appear anywhere.
+    assert "secret-dir" not in out
+    assert str(nested) not in out
+
+
+def test_cli_main_coverage_quality_reference_redacts_a_credential_like_name(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    """A reference named after a credential is reported as ``[redacted]``."""
+
+    from bili_asr import cli
+
+    _reference_archive(tmp_path)
+    reference = tmp_path / "sessdata-backup.srt"
+    reference.write_text("1\n00:00:00,000 --> 00:00:04,000\nHello world\n", encoding="utf-8")
+
+    assert cli.main([
+        "coverage", "--archive-root", str(tmp_path), "--quality",
+        "--reference", str(reference), "--format", "json",
+    ]) == 0
+    payload = json.loads(capsys.readouterr().out)
+
+    assert payload["reference"]["reference"] == "[redacted]"
+    assert "sessdata-backup" not in json.dumps(payload)
+
+
+def test_cli_main_coverage_quality_reference_needs_quality_flag(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    """--reference without --quality is a usage error, not a silent no-op."""
+
+    from bili_asr import cli
+
+    _reference_archive(tmp_path)
+    reference = tmp_path / "second.srt"
+    reference.write_text("1\n00:00:00,000 --> 00:00:04,000\nHello world\n", encoding="utf-8")
+
+    assert cli.main([
+        "coverage", "--archive-root", str(tmp_path),
+        "--reference", str(reference), "--format", "json",
+    ]) == 1
+    captured = capsys.readouterr()
+    assert "--reference requires --quality" in captured.err
+    assert "Traceback" not in captured.err
+
+
+def test_cli_main_coverage_quality_reference_keeps_csv_columns_frozen(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    """CSV keeps its frozen columns; the ratio goes to stderr instead."""
+
+    from bili_asr import cli
+
+    _reference_archive(tmp_path)
+    reference = tmp_path / "second.srt"
+    reference.write_text("1\n00:00:00,000 --> 00:00:04,000\nHello world\n", encoding="utf-8")
+
+    assert cli.main([
+        "coverage", "--archive-root", str(tmp_path), "--quality",
+        "--reference", str(reference), "--format", "csv",
+    ]) == 0
+    captured = capsys.readouterr()
+
+    header = captured.out.splitlines()[0]
+    assert "reference" not in header
+    assert header.startswith("schema_version,scope,denominator_unit")
+    assert "reference agreement 1.0000" in captured.err
+    assert "second.srt" in captured.err
+
+
+def test_cli_parser_exposes_reference_but_not_fail_under() -> None:
+    """D3.8: the reference input exists; the retired exit knob is not ported."""
+
+    from bili_asr.cli import build_parser
+
+    parser = build_parser()
+    args = parser.parse_args(["coverage", "--reference", "/tmp/second.srt"])
+    assert args.reference == "/tmp/second.srt"
+    assert parser.parse_args(["coverage"]).reference is None
+
+    with pytest.raises(SystemExit):
+        parser.parse_args(["coverage", "--fail-under", "0.5"])
+
+
 def test_install_failure_diagnostics_redact_signed_urls_and_credentials() -> None:
     diagnostic = _redact_diagnostics(
         "ERROR: https://user:secret@example.test/pkg?token=abc&signature=sig&deadline=123 "

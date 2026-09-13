@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import collections
+import difflib
 import json
 import math
 import re
@@ -11,6 +12,7 @@ from pathlib import Path
 from typing import Mapping, NamedTuple
 
 from .archive import LOW_CONFIDENCE, archive_stem
+from .asr import _FORBIDDEN_PROVENANCE as _FORBIDDEN_MARKER
 from .page_identity import artifact_stem, page_identity, parse_work_id
 
 #: Reasons that describe a structural defect: an artifact is missing, unreadable,
@@ -44,10 +46,18 @@ REASON_CODES = DEFECT_REASON_CODES + CONTENT_REASON_CODES
 LEADING = "，。！？、；："
 #: Content thresholds, matching the cue shaping bounds in :mod:`bili_asr.asr`
 #: (``_CUE_MAX_CHARS`` / ``_CUE_MIN_CHARS`` / ``_CUE_MIN_SECONDS``) so a cue the
-#: shaper accepts is never reported as over-long or fragmentary.
+#: shaper sized is reported only when it could not be merged into a neighbour.
 OVERLONG_CHARS = 60
 FRAGMENT_MAX_CHARS = 6
 FRAGMENT_MAX_SECONDS = 1.0
+#: Two transcripts of the same audio agreeing below this ratio is the
+#: ``reference_disagreement`` signal — the systems contested the audio.
+REFERENCE_AGREEMENT_FLOOR = 0.95
+#: Marks stripped before two transcripts are compared, so punctuation and
+#: spacing differences never read as disagreement.  Ported verbatim from the
+#: retired ``scripts/asr_quality.py``.
+_REFERENCE_PUNCT = "。，？！、；：,?!.;:…—·\"'“”‘’（）()《》"
+_REFERENCE_STRIP = re.compile(f"[{re.escape(_REFERENCE_PUNCT)}]")
 #: Repeated-ngram detection: every 8-character window that occurs this often.
 _NGRAM_CHARS = 8
 _NGRAM_MIN_REPEATS = 3
@@ -72,6 +82,31 @@ class Cue(NamedTuple):
     confidence: float | None
 
 
+class ReferenceUnavailable(ValueError):
+    """A supplied reference transcript cannot be used for comparison.
+
+    ``reason`` is a bounded, redaction-safe scalar so the caller reports a
+    diagnostic instead of crashing on the reference.
+    """
+
+    def __init__(self, reason: str) -> None:
+        super().__init__(reason)
+        self.reason = reason
+
+
+class ReferenceAgreement(NamedTuple):
+    """One transcript compared against a second transcript of the same audio.
+
+    ``reference`` is the reference's **basename only** — the operator's path,
+    its parents, and any URL- or credential-shaped name never leave here.
+    """
+
+    reference: str
+    agreement: float
+    floor: float
+    compared_chars: tuple[int, int]
+
+
 @dataclass(frozen=True)
 class QualityResult:
     """Stable projection of quality observations for one manifest row.
@@ -89,6 +124,7 @@ class QualityResult:
     reasons: tuple[str, ...]
     diagnostics: tuple[str, ...]
     content_reasons: tuple[str, ...] = ()
+    reference: ReferenceAgreement | None = None
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -106,14 +142,27 @@ class QualityAnalyzer:
     """Inspect local subtitle/archive artifacts without changing them."""
 
     def analyze(
-        self, row: Mapping[str, object], archive_root: Path
+        self,
+        row: Mapping[str, object],
+        archive_root: Path,
+        reference: Path | None = None,
     ) -> QualityResult:
+        """Measure one manifest row's artifacts.
+
+        ``reference`` is an optional second transcript of the same audio.  It is
+        compared against the row's own transcript — the first artifact that
+        yields comparable text, which is the archived SRT when one exists.  A
+        reference that cannot be read raises :class:`ReferenceUnavailable`; it
+        never degrades into a silent "no comparison".
+        """
+
         reasons: set[str] = set()
         diagnostics: set[str] = set()
         content_reasons: set[str] = set()
         artifacts = _artifact_paths(row, archive_root)
         cue_count = 0
         valid_artifacts = 0
+        transcript: str | None = None
         if not artifacts:
             reasons.add("artifact_missing")
         for path in artifacts:
@@ -133,6 +182,10 @@ class QualityAnalyzer:
                 continue
             valid_artifacts += 1
             cue_count = min(_MAX_CUES, cue_count + len(cues))
+            if transcript is None:
+                candidate = comparable_text(text, cues)
+                if candidate:
+                    transcript = candidate
             if malformed:
                 reasons.add("malformed")
             if empty:
@@ -140,6 +193,13 @@ class QualityAnalyzer:
             _check_cues(cues, row, reasons)
             _check_content(cues, content_reasons)
             _check_identity(path, text, row, reasons)
+        agreement = (
+            None
+            if reference is None
+            else _compare_reference(reference, transcript or "")
+        )
+        if agreement is not None and agreement.agreement < agreement.floor:
+            content_reasons.add("reference_disagreement")
         return QualityResult(
             source=_text_value(row, "source", "subtitle_source"),
             language=_text_value(row, "language", "sub_lan", "subtitle_language"),
@@ -149,6 +209,7 @@ class QualityAnalyzer:
             reasons=tuple(sorted(reasons, key=REASON_CODES.index)),
             diagnostics=tuple(sorted(diagnostics)[:8]),
             content_reasons=tuple(sorted(content_reasons, key=REASON_CODES.index)),
+            reference=agreement,
         )
 
 
@@ -241,6 +302,77 @@ def _contained(path: Path, root: Path) -> bool:
     except ValueError:
         return False
     return True
+
+
+def flatten_reference(text: str) -> str:
+    """Strip punctuation and spacing so punctuation never reads as disagreement."""
+
+    return _REFERENCE_STRIP.sub("", text).replace(" ", "").lower()
+
+
+def comparable_text(text: str, cues: list[Cue]) -> str:
+    """One transcript's text, flattened for cross-transcript comparison.
+
+    A cue-structured artifact contributes its cue texts through the same cue
+    parser as everything else; a plain-text artifact (``.txt``/``.md``) has no
+    cue structure, so its non-blank lines are its text — the reading the
+    retired ``scripts/asr_quality.py`` used for the same inputs.
+    """
+
+    if cues:
+        return flatten_reference("".join(cue.text for cue in cues))
+    return flatten_reference(
+        "".join(line.strip() for line in text.splitlines() if line.strip())
+    )
+
+
+def reference_basename(path: Path) -> str:
+    """The reference's basename, or ``[redacted]`` when even that leaks.
+
+    The operator's directory layout stays out of the report; a name that is
+    itself URL- or credential-shaped is replaced too, so no path, URL, or
+    credential-like value can reach the output.
+    """
+
+    name = path.name
+    if not name or _FORBIDDEN_MARKER.search(name):
+        return "[redacted]"
+    return name
+
+
+def _compare_reference(
+    reference: Path, transcript: str
+) -> ReferenceAgreement | None:
+    """Compare the row's transcript against a second transcript of the same audio.
+
+    Both sides are flattened before a bounded ratio is computed, and the
+    reference's own text is never echoed — only its basename and the two
+    character counts leave this function.  Returns ``None`` when the row has no
+    comparable text: that is the row's own defect (``empty``/``artifact_missing``
+    already reports it), not a fault of the supplied reference.
+    """
+
+    try:
+        if reference.stat().st_size > _MAX_BYTES:
+            raise ReferenceUnavailable("reference too large")
+        text = reference.read_text(encoding="utf-8")
+    except (OSError, UnicodeError) as exc:
+        raise ReferenceUnavailable("reference unreadable") from exc
+    other, _malformed, _empty = _read_cues(reference, text)
+    theirs = comparable_text(text, other)
+    if not theirs:
+        raise ReferenceUnavailable("reference has no comparable text")
+    if not transcript:
+        return None
+    ratio = difflib.SequenceMatcher(
+        None, transcript, theirs, autojunk=False
+    ).ratio()
+    return ReferenceAgreement(
+        reference=reference_basename(reference),
+        agreement=ratio,
+        floor=REFERENCE_AGREEMENT_FLOOR,
+        compared_chars=(len(transcript), len(theirs)),
+    )
 
 
 def _read_cues(path: Path, text: str) -> tuple[list[Cue], bool, bool]:

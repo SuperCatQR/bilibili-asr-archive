@@ -365,6 +365,14 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Include deterministic artifact quality validation signals",
     )
+    coverage_cmd.add_argument(
+        "--reference",
+        default=None,
+        help=(
+            "Second transcript of the same audio (SRT/TXT/JSON); needs --quality "
+            "and exactly one selected row"
+        ),
+    )
 
     integrity_cmd = subparsers.add_parser(
         "verify", help="Verify archive integrity without modifying files"
@@ -1218,7 +1226,12 @@ def _cmd_coverage_quality(args: argparse.Namespace) -> int:
     import csv
     import io
     from pathlib import Path
-    from .quality import QualityAnalyzer, REASON_CODES
+    from .quality import (
+        QualityAnalyzer,
+        REASON_CODES,
+        ReferenceAgreement,
+        ReferenceUnavailable,
+    )
     from .coverage_report import _select_scope, _diagnostic_rows
     from .sidecar_projection import (
         ReaderPolicy,
@@ -1260,6 +1273,23 @@ def _cmd_coverage_quality(args: argparse.Namespace) -> int:
     if scope_state == "unavailable":
         diagnostics.add(("unknown_scope", "scope"))
 
+    # One reference compares against one transcript, so it is only meaningful
+    # when the selection resolves to exactly one row.  Both the usage shape and
+    # the comparison itself are reported as diagnostics, never as tracebacks.
+    reference_path = getattr(args, "reference", None)
+    if reference_path is not None:
+        if len(selected) != 1:
+            print(
+                "coverage: --reference needs exactly one selected row "
+                f"(got {len(selected)})",
+                file=sys.stderr,
+            )
+            return 1
+        reference_path = Path(reference_path)
+        if not reference_path.is_file():
+            print("coverage: reference unreadable", file=sys.stderr)
+            return 1
+
     denominator_available = (
         manifest_state == "available" and scope_state == "available"
     )
@@ -1268,10 +1298,15 @@ def _cmd_coverage_quality(args: argparse.Namespace) -> int:
     total_cues = 0
     valid_work_items = 0
     has_defects = False
+    agreement: ReferenceAgreement | None = None
 
     analyzer = QualityAnalyzer()
     for work_id, entry in sorted(selected.items()):
-        result = analyzer.analyze(entry, root)
+        try:
+            result = analyzer.analyze(entry, root, reference_path)
+        except ReferenceUnavailable as exc:
+            print(f"coverage: {exc.reason}", file=sys.stderr)
+            return 1
         row_dict: dict[str, object] = {
             "work_id": work_id,
             "source": result.source,
@@ -1279,11 +1314,16 @@ def _cmd_coverage_quality(args: argparse.Namespace) -> int:
             "status": result.status,
             "cue_count": result.cue_count,
             "artifact_count": result.artifact_count,
-            "reasons": list(result.reasons),
+            # The projection: defect codes first, then the advisory content
+            # codes, so a reader sees one reason list per row.  Only
+            # ``result.reasons`` feeds validity and the exit status below.
+            "reasons": [*result.reasons, *result.content_reasons],
             "diagnostics": list(result.diagnostics),
         }
+        if result.reference is not None:
+            agreement = result.reference
         rows.append(row_dict)
-        for r in result.reasons:
+        for r in row_dict["reasons"]:
             reason_counts[r] = reason_counts.get(r, 0) + 1
         total_cues += result.cue_count
         if not result.reasons and not result.diagnostics:
@@ -1312,6 +1352,19 @@ def _cmd_coverage_quality(args: argparse.Namespace) -> int:
         "rows": rows,
         "diagnostics": diagnostic_rows,
     }
+    if agreement is not None:
+        # The reference's basename and the two compared lengths only: the
+        # operator's path, a URL, or a credential never enters the report.
+        quality_data["reference"] = {
+            "work_id": rows[0]["work_id"],
+            "reference": agreement.reference,
+            "agreement": agreement.agreement,
+            "floor": agreement.floor,
+            "compared_chars": {
+                "transcript": agreement.compared_chars[0],
+                "reference": agreement.compared_chars[1],
+            },
+        }
 
     if args.format == "json":
         sys.stdout.write(
@@ -1378,6 +1431,15 @@ def _cmd_coverage_quality(args: argparse.Namespace) -> int:
                 }
             )
         sys.stdout.write(output.getvalue())
+        if agreement is not None:
+            # CSV keeps its frozen columns, so the ratio goes to stderr.
+            print(
+                f"coverage: reference agreement {agreement.agreement:.4f} "
+                f"against {agreement.reference} "
+                f"({agreement.compared_chars[0]} vs "
+                f"{agreement.compared_chars[1]} chars, floor {agreement.floor})",
+                file=sys.stderr,
+            )
 
     return 1 if (diagnostic_rows or has_defects) else 0
 
@@ -1387,6 +1449,11 @@ def _cmd_coverage(args: argparse.Namespace) -> int:
     try:
         if getattr(args, "quality", False):
             return _cmd_coverage_quality(args)
+        if getattr(args, "reference", None) is not None:
+            # The reference is a quality input; without --quality there is no
+            # report to carry it, so say so instead of ignoring the argument.
+            print("coverage: --reference requires --quality", file=sys.stderr)
+            return 1
         from .sidecar_projection import ReaderPolicy
         policy = ReaderPolicy(mode="trusted_archive") if getattr(args, "trusted_local", False) else None
         report = CoverageReport.build(args.archive_root, scope=args.scope, policy=policy)

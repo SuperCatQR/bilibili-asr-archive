@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from bili_asr import asr
+from bili_asr import archive, asr, quality
 from bili_asr.archive import LOW_CONFIDENCE, write_archive
 from bili_asr.page_identity import page_identity
 from bili_asr.quality import (
@@ -16,6 +16,7 @@ from bili_asr.quality import (
     OVERLONG_CHARS,
     REASON_CODES,
     QualityAnalyzer,
+    ReferenceUnavailable,
 )
 
 
@@ -316,11 +317,15 @@ def test_reason_vocabulary_splits_into_two_classes() -> None:
 
 
 def test_content_thresholds_track_the_cue_shaper() -> None:
-    """A cue the shaper accepts is never reported as over-long or fragmentary."""
+    """A cue the shaper sized is reported only when it could not be merged."""
 
     assert OVERLONG_CHARS == asr._CUE_MAX_CHARS
     assert FRAGMENT_MAX_CHARS == asr._CUE_MIN_CHARS
     assert FRAGMENT_MAX_SECONDS == asr._CUE_MIN_SECONDS
+    # Identity as well as value: the reason and the archived low-confidence
+    # count must read the same object, so a local re-declaration in quality.py
+    # cannot silently disagree with archive.py.
+    assert quality.LOW_CONFIDENCE is archive.LOW_CONFIDENCE
     assert LOW_CONFIDENCE == 0.4
 
 
@@ -510,4 +515,153 @@ def test_recorded_cue_fixture_still_exits_zero(
     payload = json.loads(capsys.readouterr().out)
     assert payload["summary"]["valid_work_items"] == 1
     assert payload["summary"]["total_cues"] == 2 * len(recorded_cues)
-    assert payload["rows"][0]["reasons"] == []
+    # The row's projected reason list now carries the two advisory content
+    # reasons — asserted per class, so a defect leaking into the projection
+    # (or a content reason going missing) fails here rather than passing on an
+    # accidentally empty list.
+    row_reasons = payload["rows"][0]["reasons"]
+    assert [r for r in row_reasons if r in DEFECT_REASON_CODES] == []
+    assert [r for r in row_reasons if r in CONTENT_REASON_CODES] == [
+        "low_confidence",
+        "overlong_cue",
+    ]
+    assert sorted(row_reasons) == ["low_confidence", "overlong_cue"]
+    # The content counts are surfaced in the summary too, and the defect codes
+    # stay at zero.
+    assert payload["summary"]["low_confidence"] == 1
+    assert payload["summary"]["overlong_cue"] == 1
+    for code in DEFECT_REASON_CODES:
+        assert payload["summary"][code] == 0
+
+
+def _transcript(root: Path, text: str, name: str = "BV1demo.p0.srt") -> str:
+    """An SRT named after the ``row()`` helper's canonical stem, so that the
+    only reasons in play are the ones a test is about."""
+
+    body = f"1\n00:00:00,000 --> 00:00:04,000\n{text}\n"
+    return write_srt(root, name, body)
+
+
+def test_reference_agreement_compares_flattened_text(tmp_path: Path) -> None:
+    """Punctuation and spacing never read as disagreement; the floor holds."""
+
+    relative = _transcript(tmp_path, "你好世界")
+    reference = tmp_path / "second.txt"
+    reference.write_text("你好，世界！\n", encoding="utf-8")
+
+    result = QualityAnalyzer().analyze(
+        row(srt_path=relative), tmp_path, reference
+    )
+    assert result.reference is not None
+    assert result.reference.agreement == 1.0
+    assert result.reference.floor == 0.95
+    assert result.reference.compared_chars == (4, 4)
+    assert "reference_disagreement" not in result.content_reasons
+
+
+def test_reference_disagreement_is_advisory(tmp_path: Path) -> None:
+    """A contested reference adds a content reason and no defect."""
+
+    relative = _transcript(tmp_path, "今天的讨论围绕国际劳工仲裁展开")
+    reference = tmp_path / "second.txt"
+    reference.write_text("完全无关的另一段录音内容\n", encoding="utf-8")
+
+    result = QualityAnalyzer().analyze(
+        row(srt_path=relative), tmp_path, reference
+    )
+    assert result.reasons == (), "a contested reference is never a defect"
+    assert result.content_reasons == ("reference_disagreement",)
+    assert result.reference is not None
+    assert result.reference.agreement < result.reference.floor
+    assert result.reference.reference == "second.txt"
+
+
+def test_reference_reports_basename_only(tmp_path: Path) -> None:
+    """The block never carries the operator's directory layout."""
+
+    relative = _transcript(tmp_path, "hello world")
+    nested = tmp_path / "private" / "runs"
+    nested.mkdir(parents=True)
+    reference = nested / "second.txt"
+    reference.write_text("hello world\n", encoding="utf-8")
+
+    result = QualityAnalyzer().analyze(
+        row(srt_path=relative), tmp_path, reference
+    )
+    assert result.reference is not None
+    assert result.reference.reference == "second.txt"
+    assert "private" not in repr(result.reference)
+
+
+@pytest.mark.parametrize(
+    "name",
+    ["sessdata-backup.txt", "cookie-jar.txt", "token-file.txt", "my-secret.txt"],
+)
+def test_reference_credential_like_name_is_redacted(tmp_path: Path, name: str) -> None:
+    """A name that is itself credential-shaped is replaced entirely."""
+
+    relative = _transcript(tmp_path, "hello world")
+    reference = tmp_path / name
+    reference.write_text("hello world\n", encoding="utf-8")
+
+    result = QualityAnalyzer().analyze(row(srt_path=relative), tmp_path, reference)
+    assert result.reference is not None
+    assert result.reference.reference == "[redacted]"
+
+
+@pytest.mark.parametrize("name,body", [("empty.txt", ""), ("blank.txt", "   \n\n")])
+def test_reference_without_comparable_text_is_refused(
+    tmp_path: Path, name: str, body: str
+) -> None:
+    """A reference with nothing to compare is a diagnostic, not a silent pass."""
+
+    relative = _transcript(tmp_path, "hello world")
+    reference = tmp_path / name
+    reference.write_text(body, encoding="utf-8")
+
+    with pytest.raises(ReferenceUnavailable) as exc:
+        QualityAnalyzer().analyze(row(srt_path=relative), tmp_path, reference)
+    assert exc.value.reason == "reference has no comparable text"
+
+
+def test_reference_unreadable_is_refused(tmp_path: Path) -> None:
+    """A missing reference raises rather than reporting a fabricated ratio."""
+
+    relative = _transcript(tmp_path, "hello world")
+    with pytest.raises(ReferenceUnavailable) as exc:
+        QualityAnalyzer().analyze(
+            row(srt_path=relative), tmp_path, tmp_path / "absent.txt"
+        )
+    assert exc.value.reason == "reference unreadable"
+
+
+def test_reference_oversized_is_refused(tmp_path: Path) -> None:
+    """``_MAX_BYTES`` bounds the reference exactly as it bounds an artifact."""
+
+    relative = _transcript(tmp_path, "hello world")
+    reference = tmp_path / "huge.txt"
+    reference.write_text("x" * (quality._MAX_BYTES + 1), encoding="utf-8")
+
+    with pytest.raises(ReferenceUnavailable) as exc:
+        QualityAnalyzer().analyze(row(srt_path=relative), tmp_path, reference)
+    assert exc.value.reason == "reference too large"
+
+
+def test_reference_is_ignored_when_the_row_has_no_transcript_text(tmp_path: Path) -> None:
+    """A row with no comparable text keeps its own defect; no ratio is invented."""
+
+    reference = tmp_path / "second.txt"
+    reference.write_text("hello world\n", encoding="utf-8")
+
+    result = QualityAnalyzer().analyze(
+        row(srt_path="transcripts/srt/missing.p0.srt"), tmp_path, reference
+    )
+    assert result.reasons == ("artifact_missing",)
+    assert result.reference is None
+    assert result.content_reasons == ()
+
+
+def test_reference_floor_is_below_the_readme_claim_of_contested_audio(tmp_path: Path) -> None:
+    """The threshold is the retired script's ``~0.95`` figure, declared once."""
+
+    assert quality.REFERENCE_AGREEMENT_FLOOR == 0.95
