@@ -43,6 +43,22 @@ _FORBIDDEN_PROVENANCE = re.compile(
 _MODEL_IDENTIFIER = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*(?:/[A-Za-z0-9][A-Za-z0-9._-]*)*")
 
 
+def _is_redaction_safe_model_identifier(value: str, *, hub_level: bool = False) -> bool:
+    """The redaction rule for model identifiers, in one place.
+
+    An identifier-shaped value with no forbidden marker is safe to serialize —
+    that is the rule ``provenance()`` has always applied to ``model_name``.
+    ``hub_level`` additionally demands a slash-qualified ``owner/name`` shape,
+    which is what a declared producer identity must look like (D4.2).
+    """
+
+    if _MODEL_IDENTIFIER.fullmatch(value) is None:
+        return False
+    if _FORBIDDEN_PROVENANCE.search(value) is not None:
+        return False
+    return not hub_level or "/" in value
+
+
 class ASRDependencyError(RuntimeError):
     """The optional ASR dependency group is not installed."""
 
@@ -55,6 +71,12 @@ class ASRModelError(RuntimeError):
 #: hub id (resolved to a pinned local snapshot) or a local checkpoint directory.
 ASR_MODEL_ENV_VAR = "BILI_ASR_MODEL"
 ASR_MODEL_REVISION_ENV_VAR = "BILI_ASR_MODEL_REVISION"
+#: The operator's *declaration* of the hub-level identity behind the loaded
+#: checkpoint.  ``BILI_ASR_MODEL`` may be a local directory, and a path is not a
+#: redaction-safe identifier, so the archive is told what produced a transcript
+#: through this variable instead.  It never changes the load and lands in the
+#: ``model_name`` provenance slot rather than a key of its own.
+ASR_MODEL_ID_ENV_VAR = "BILI_ASR_MODEL_ID"
 ASR_DEVICE_ENV_VAR = "BILI_ASR_DEVICE"
 ASR_LANGUAGE_ENV_VAR = "BILI_ASR_LANGUAGE"
 ASR_VAD_MODEL_ENV_VAR = "BILI_ASR_VAD_MODEL"
@@ -145,6 +167,14 @@ class ASRConfig:
 
     ``hotwords`` biases decoding towards this corpus's vocabulary.  An empty
     tuple sends no bias at all; the terms are recorded in provenance.
+
+    ``model_id`` is the operator's **declaration** of the hub-level identity
+    behind the loaded checkpoint (``BILI_ASR_MODEL_ID``).  ``model_name`` may be
+    a local directory and a path is not a redaction-safe identifier, so the
+    archive is told what produced a transcript here instead; the declaration
+    never changes the load and lands in the ``model_name`` provenance slot, not
+    in a key of its own.  It is appended **last** so existing positional
+    construction is unaffected.
     """
 
     model_name: str
@@ -156,6 +186,7 @@ class ASRConfig:
     hotwords: tuple[str, ...] = ()
     offline: bool = True
     local_source: str = "configured-local"
+    model_id: str | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.model_name, str) or not self.model_name.strip():
@@ -188,6 +219,26 @@ class ASRConfig:
             raise ValueError("local_source must be a non-empty identifier")
         if _FORBIDDEN_LOCAL_SOURCE.search(self.local_source):
             raise ValueError("local_source must be an opaque local identifier")
+        if self.model_id is not None:
+            if not isinstance(self.model_id, str) or not self.model_id.strip():
+                raise ValueError(
+                    f"{ASR_MODEL_ID_ENV_VAR} must be a hub-level model identifier"
+                )
+            # Loud, not silent (D4.2): falling back to ``[redacted]`` would let
+            # the operator believe the archive names its producer.
+            if not _is_redaction_safe_model_identifier(self.model_id, hub_level=True):
+                raise ValueError(
+                    f"{ASR_MODEL_ID_ENV_VAR} must be a hub-level model identifier"
+                )
+            # A declaration that contradicts an already-safe load value would
+            # make the archive lie about which model produced the transcript.
+            if _is_redaction_safe_model_identifier(
+                self.model_name
+            ) and self.model_name != self.model_id:
+                raise ValueError(
+                    f"{ASR_MODEL_ID_ENV_VAR} contradicts {ASR_MODEL_ENV_VAR}: "
+                    f"declared {self.model_id!r}, loaded {self.model_name!r}"
+                )
 
 
 def _materialize_input(audio_path: str) -> tuple[str, str | None]:
@@ -224,6 +275,11 @@ def default_config() -> ASRConfig:
     route executes the checkpoint's own ``model.py``.  Materializing the
     snapshot (pinned revision) and pointing this variable at it keeps the
     boundary download-free and the pin real.
+
+    ``BILI_ASR_MODEL_ID`` is the operator's *declaration* of the hub-level
+    identity behind that checkpoint.  It is read for provenance only — it never
+    reaches the loader — and an unset or blank value means "not declared", the
+    same way the other knobs treat a blank as unset.
     """
 
     return ASRConfig(
@@ -236,6 +292,10 @@ def default_config() -> ASRConfig:
             os.environ.get(VAD_MAX_SEGMENT_ENV_VAR)
         ),
         hotwords=DEFAULT_HOTWORDS + _extra_hotwords(os.environ.get(ASR_HOTWORDS_ENV_VAR)),
+        # A blank declaration is "not declared", like the other knobs treat a
+        # blank as unset — `BILI_ASR_MODEL_ID=` in a shell script must not turn
+        # every run into a validation failure.
+        model_id=(os.environ.get(ASR_MODEL_ID_ENV_VAR) or "").strip() or None,
     )
 
 
@@ -290,6 +350,15 @@ class ASRRunner:
     actually built (one per lazy construction, zero when the run never needed
     audio).  It is the observable form of the run-scoped reuse contract: a
     batch that reuses one runner reports one construction for N items.
+
+    ``model_load_attempts`` is the attempt counter beside it (inherited
+    residual R1 from ``20260912-batch-model-reuse``): a load the factory
+    rejected is **retried once per row**, pays no construction, and is counted
+    here instead.  Without it a batch that failed every load printed
+    ``model constructions=0`` and could not be told apart from a batch that
+    built one model and reused it.  The invariant is
+    ``model_load_attempts >= model_constructions``, with equality when every
+    load succeeded.
     """
 
     def __init__(
@@ -315,6 +384,11 @@ class ASRRunner:
         # Monotonic, never reset by release(): a runner that released and
         # rebuilt paid two constructions, and the count must say so.
         self.model_constructions = 0
+        # Attempts, not successes (R1).  A failed load is retried once per row,
+        # so ``attempts - constructions`` is exactly the number of load
+        # failures this runner has paid for — the evidence the construction
+        # count alone could not carry.
+        self.model_load_attempts = 0
 
     def _get_model(self) -> Any:
         if self._model is not None:
@@ -361,6 +435,12 @@ class ASRRunner:
         # Note: offline/local_source removed - not supported by FunASR API
         
         try:
+            # Counted *before* the call, so every factory invocation is an
+            # attempt whether it returned a model or raised (R1).  ``_model``
+            # stays None on failure and the next row retries the same call,
+            # which is why the attempt counter and the construction counter
+            # must not be the same number.
+            self.model_load_attempts += 1
             self._model = factory(**kwargs)
         except ASRDependencyError:
             raise
@@ -410,7 +490,17 @@ class ASRRunner:
         self._model = None
 
     def provenance(self) -> dict[str, str]:
+        """Redaction-safe configuration; the declared id fills the name slot.
+
+        Precedence (D4.3): the declared ``model_id``, else the configured
+        ``model_name`` when it is itself redaction-safe, else ``[redacted]``.
+        ``model_id`` is a **slot replacement, never a key** (D4.4): it is
+        skipped while rendering and only substitutes into the ``model_name``
+        slot, so the nine-key contract and its order are untouched.
+        """
+
         values = asdict(self.config)
+        declared_id = values.pop("model_id", None)
         safe_values: dict[str, str] = {}
         for key, value in values.items():
             rendered = (
@@ -418,8 +508,11 @@ class ASRRunner:
                 if key == "hotwords" and isinstance(value, tuple)
                 else "" if value is None else str(value)
             )
+            if key == "model_name" and declared_id is not None:
+                rendered = str(declared_id)
             is_safe_model_identifier = (
-                key == "model_name" and _MODEL_IDENTIFIER.fullmatch(rendered) is not None
+                key == "model_name"
+                and _is_redaction_safe_model_identifier(rendered)
             )
             if _FORBIDDEN_PROVENANCE.search(rendered) or (
                 key == "model_name" and not is_safe_model_identifier

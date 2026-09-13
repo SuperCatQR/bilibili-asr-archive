@@ -97,6 +97,34 @@ count, and output shape; run it directly with:
 This fixture does not establish hardware timing, model-weight pinning, network-free
 runtime, or full-corpus coverage.
 
+### Naming the producer: three variables, three jobs
+
+    BILI_ASR_MODEL=/srv/models/Fun-ASR-Nano-2512      # what the loader receives
+    BILI_ASR_MODEL_ID=FunAudioLLM/Fun-ASR-Nano-2512   # what the archive records
+    BILI_ASR_MODEL_REVISION=<pinned-revision>         # optional; loader kwarg + recorded
+
+`BILI_ASR_MODEL` is the checkpoint the loader is given — a hub id or a local
+directory — and it is **never** what a transcript records when it is a path.
+`BILI_ASR_MODEL_ID` is the operator's *declaration* of the hub-level identity
+behind that checkpoint: it never reaches the loader, and it fills the
+`asr_model_name` frontmatter slot instead of a key of its own, so the provenance
+key set does not change. The declaration must be a hub-level `owner/name`
+identifier; anything path-, URL-, or credential-like is rejected loudly with a
+non-zero exit rather than silently recorded, so the archive cannot claim a
+producer the operator did not name. Declaring an id that contradicts an
+already-safe `BILI_ASR_MODEL` is also an error — one of the two would be a lie.
+
+With no declaration, `asr_model_name` keeps a configured id only when that id is
+itself redaction-safe, and is `[redacted]` otherwise: a local checkpoint
+directory records `[redacted]`, because a path is not an identifier. Read back
+what an archive recorded with
+
+    ARCHIVE=/path/to/your/archive    # the archive root you passed to --archive-root
+    grep -n '^asr_model_name:' "$ARCHIVE"/transcripts/md/*.md
+    grep -n '^asr_model_revision:' "$ARCHIVE"/transcripts/md/*.md
+
+The same glob rule as above applies: `"$ARCHIVE"` is quoted, `*.md` is not.
+
 A per-item `bili-asr asr --bvid <bvid>` loop forfeits that reuse: it is one
 process per video, and the run-scoped reuse above does not cross a process
 boundary, so every invocation builds its own model before it transcribes
@@ -127,6 +155,18 @@ denominator, as in `run: model constructions=1 for 0 asr item(s)`. Only a batch
 that neither constructed a model nor transcribed anything (subtitle-only work)
 prints no line at all. If stderr is closed, the line is dropped rather than
 redirected, so `campaign`'s stdout stays one parseable JSON document.
+
+The printed count counts **successful constructions**, and a load the factory
+rejected pays none of them. Such a load leaves no model behind, so the next row
+retries the same load: an N-row batch whose every load fails performs N attempts
+and reports `model constructions=0`, which is why `ASRRunner` keeps a second
+counter beside it. `runner.model_load_attempts` counts every factory invocation,
+successful or not, so `model_load_attempts - model_constructions` is exactly the
+number of failed loads a run paid for, and `model_load_attempts >=
+model_constructions` always holds (equal when every load succeeded). A batch
+that cannot load its checkpoint at all therefore still states its cost — as N
+attempts and 0 constructions — instead of reporting a bare zero that reads like
+"nothing happened".
 
 ## Deterministic verification baseline
 

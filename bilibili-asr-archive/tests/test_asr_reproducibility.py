@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import builtins
+import dataclasses
 import json
 import os
 import pathlib
@@ -356,6 +357,224 @@ def test_provenance_redacts_forbidden_values_without_serializing_payloads():
     )
     serialized = json.dumps(safe)
     assert all(marker.lower() not in serialized.lower() for marker in forbidden_markers)
+
+
+# ------------------------------------ Task 1: declared producer identity (D4.1-D4.5)
+
+
+DECLARED_MODEL_ID = "FunAudioLLM/Fun-ASR-Nano-2512"
+
+
+def test_the_declared_identity_is_the_last_config_field_and_reads_its_env_knob(
+    monkeypatch,
+):
+    """D4.1: appended last, so existing positional construction does not shift."""
+
+    assert asr.ASR_MODEL_ID_ENV_VAR == "BILI_ASR_MODEL_ID"
+    assert [field.name for field in dataclasses.fields(asr.ASRConfig)][-1] == "model_id"
+    assert asr.ASRConfig("model", model_revision="rev").model_id is None
+
+    monkeypatch.delenv("BILI_ASR_MODEL_ID", raising=False)
+    assert asr.default_config().model_id is None
+
+    monkeypatch.setenv("BILI_ASR_MODEL_ID", DECLARED_MODEL_ID)
+    assert asr.default_config().model_id == DECLARED_MODEL_ID
+
+    # A blank declaration is "not declared", like every other blank knob: a
+    # shell `BILI_ASR_MODEL_ID=` must not fail every run.
+    monkeypatch.setenv("BILI_ASR_MODEL_ID", "   ")
+    assert asr.default_config().model_id is None
+
+
+def test_the_declared_identity_fills_the_model_name_slot_and_adds_no_key(
+    monkeypatch,
+):
+    """D4.3/D4.4: declared id -> the existing slot; never a tenth key."""
+
+    local_checkpoint = "/opt/models/Fun-ASR-Nano-2512"
+    monkeypatch.setenv("BILI_ASR_MODEL_ID", DECLARED_MODEL_ID)
+    monkeypatch.setenv("BILI_ASR_MODEL", local_checkpoint)
+    monkeypatch.setenv("BILI_ASR_MODEL_REVISION", "rev-9")
+
+    provenance = asr.ASRRunner(asr.default_config()).provenance()
+
+    # The nine keys, in the order the contract pins (A4 carrier = model_name).
+    assert list(provenance) == [
+        "model_name", "model_revision", "device", "language", "vad_model",
+        "vad_max_segment_s", "hotwords", "offline", "local_source",
+    ]
+    assert provenance["model_name"] == DECLARED_MODEL_ID
+    assert provenance["model_revision"] == "rev-9"
+    # The local path is still never serialized.
+    assert local_checkpoint not in json.dumps(provenance)
+
+
+def test_the_declared_identity_never_reaches_the_loader(monkeypatch):
+    """D4.1: the declaration is provenance, not a load argument."""
+
+    seen: list[dict[str, Any]] = []
+
+    class RecordingModel:
+        def __init__(self, **kwargs):
+            seen.append(dict(kwargs))
+
+        def generate(self, **_kwargs):
+            return [{"text": "ok", "timestamp": []}]
+
+    monkeypatch.setenv("BILI_ASR_MODEL_ID", DECLARED_MODEL_ID)
+
+    config = asr.ASRConfig(
+        "/opt/models/Fun-ASR-Nano-2512", device="cpu", model_id=DECLARED_MODEL_ID
+    )
+    asr.ASRRunner(config, model_factory=RecordingModel).transcribe("fixture.wav")
+
+    assert seen[0]["model"] == "/opt/models/Fun-ASR-Nano-2512"
+    assert "model_id" not in seen[0]
+
+
+def test_a_safe_configured_model_name_is_kept_without_a_declaration():
+    """D4.3 step 2: no declaration, but the configured id is itself safe."""
+
+    provenance = asr.ASRRunner(asr.ASRConfig(DECLARED_MODEL_ID)).provenance()
+
+    assert provenance["model_name"] == DECLARED_MODEL_ID
+
+
+def test_without_a_declaration_an_unsafe_configured_name_stays_redacted():
+    """D4.3 step 3 / A4: no declaration and no safe id -> ``[redacted]``."""
+
+    provenance = asr.ASRRunner(
+        asr.ASRConfig("/opt/models/Fun-ASR-Nano-2512")
+    ).provenance()
+
+    assert provenance["model_name"] == "[redacted]"
+
+
+def test_the_declared_identity_is_equal_to_a_matching_safe_model_name():
+    """A declaration that agrees with the load value is not a contradiction."""
+
+    config = asr.ASRConfig(DECLARED_MODEL_ID, model_id=DECLARED_MODEL_ID)
+
+    assert asr.ASRRunner(config).provenance()["model_name"] == DECLARED_MODEL_ID
+
+
+@pytest.mark.parametrize(
+    "model_id",
+    (
+        "/opt/models/Fun-ASR-Nano-2512",
+        "C:\\models\\Fun-ASR-Nano-2512",
+        "https://models.example/Fun-ASR-Nano-2512",
+        "token=private-model",
+        "Fun-ASR-Nano-2512",  # a bare name is not a hub-level identifier
+        "",
+        "   ",
+    ),
+)
+def test_an_unsafe_declaration_is_a_loud_value_error(model_id):
+    """D4.2: never a silent fall back to ``[redacted]``."""
+
+    with pytest.raises(ValueError) as caught:
+        asr.ASRConfig("model", model_id=model_id)
+
+    assert asr.ASR_MODEL_ID_ENV_VAR in str(caught.value)
+    assert "hub-level model identifier" in str(caught.value)
+
+
+def test_a_declaration_contradicting_a_safe_model_name_is_a_value_error():
+    """D4.3: two different safe identities would make the archive lie."""
+
+    with pytest.raises(ValueError) as caught:
+        asr.ASRConfig("OtherOrg/OtherModel", model_id=DECLARED_MODEL_ID)
+
+    assert asr.ASR_MODEL_ID_ENV_VAR in str(caught.value)
+    assert "contradicts" in str(caught.value)
+
+
+def test_the_declared_identity_is_redaction_scanned_like_any_other_value():
+    """A declared id that is itself identifier-shaped but forbidden is refused."""
+
+    with pytest.raises(ValueError):
+        asr.ASRConfig("model", model_id="org/token")
+
+
+def test_the_module_provenance_helper_records_the_declaration(monkeypatch):
+    """The CLI's no-model provenance path sees the declaration too."""
+
+    def explode(**_kwargs):
+        raise AssertionError("provenance must not build a model")
+
+    monkeypatch.setattr(asr, "_load_default_model", explode)
+    monkeypatch.setenv("BILI_ASR_MODEL", "/opt/models/Fun-ASR-Nano-2512")
+    monkeypatch.setenv("BILI_ASR_MODEL_ID", DECLARED_MODEL_ID)
+
+    recorded = asr.provenance()
+
+    assert recorded["model_name"] == DECLARED_MODEL_ID
+    assert "/opt/models/Fun-ASR-Nano-2512" not in json.dumps(recorded)
+
+
+def test_the_documented_target_scenario_is_a_local_dir_plus_a_declaration(monkeypatch):
+    """A4's exact case: local checkpoint dir in, hub id recorded, path absent.
+
+    This is the 2026-09-12 ten-video run's configuration, which recorded
+    ``[redacted]`` because nothing declared the identity behind the path.
+    """
+
+    local_checkpoint = "/opt/models/Fun-ASR-Nano-2512"
+    monkeypatch.setenv("BILI_ASR_MODEL", local_checkpoint)
+    monkeypatch.setenv("BILI_ASR_MODEL_ID", DECLARED_MODEL_ID)
+    monkeypatch.delenv("BILI_ASR_MODEL_REVISION", raising=False)
+
+    config = asr.default_config()
+
+    assert config.model_name == local_checkpoint  # the loader still gets the path
+    assert config.model_id == DECLARED_MODEL_ID
+    assert asr.ASRRunner(config).provenance()["model_name"] == DECLARED_MODEL_ID
+
+
+def test_the_default_model_name_needs_a_matching_declaration(monkeypatch):
+    """The unset-knob path is a safe id, so a different declaration contradicts it."""
+
+    monkeypatch.delenv("BILI_ASR_MODEL", raising=False)
+    monkeypatch.setenv("BILI_ASR_MODEL_ID", "OtherOrg/OtherModel")
+
+    with pytest.raises(ValueError) as caught:
+        asr.default_config()
+
+    assert "contradicts" in str(caught.value)
+
+    # Declaring the value the default already names is not a contradiction.
+    monkeypatch.setenv("BILI_ASR_MODEL_ID", asr.DEFAULT_MODEL)
+    assert asr.default_config().model_id == asr.DEFAULT_MODEL
+
+
+def test_an_unsafe_declaration_fails_the_row_through_the_batch_path(
+    tmp_root, monkeypatch, counted_batch_seam, capsys
+):
+    """D4.2: the loud error reaches the existing per-item failure path.
+
+    The declaration is read at the same place the runner is built, inside
+    ``process_row``, so a bad value fails that row (redacted code, no
+    traceback leak) while the batch keeps going — and nothing is archived
+    under a producer identity the operator did not validly declare.
+    """
+
+    store, rows = _seed_audio_batch(tmp_root, 2, prefix="BVbadid")
+    monkeypatch.setenv("BILI_ASR_MODEL_ID", "/opt/models/Fun-ASR-Nano-2512")
+
+    summary = RunCoordinator(tmp_root, store, offline=True).run_batch(rows)
+
+    assert [result.ok for result in summary.results] == [False, False]
+    assert [result.failure_codes for result in summary.results] == [
+        ["ValueError"], ["ValueError"],
+    ]
+    # No model was built, so the run paid no construction for either row.
+    assert counted_batch_seam.construction_count == 0
+    assert summary.model_constructions == 0
+    # The rejected value is not echoed anywhere, and no transcript exists.
+    captured = capsys.readouterr()
+    assert "/opt/models" not in captured.out + captured.err
+    assert not (pathlib.Path(tmp_root) / "transcripts" / "md").exists()
 
 
 def test_fixture_benchmark_reports_only_construction_and_shape(fake_funasr):
@@ -712,6 +931,84 @@ def test_a_failed_load_does_not_inflate_the_counter(monkeypatch):
     assert runner.model_constructions == 0
 
 
+def test_a_failed_load_is_retried_per_row_and_counted_as_an_attempt(monkeypatch):
+    """R1 (inherited): attempts and constructions are two different numbers.
+
+    A failed load leaves ``_model`` unset, so every later row retries the same
+    factory call and pays no construction.  The attempt counter is what makes
+    the difference observable: without it ``model constructions=0`` for a
+    three-row batch that failed every load is indistinguishable from a batch
+    that built one model and reused it.
+    """
+
+    attempts = []
+
+    def exploding_factory(**kwargs):
+        attempts.append(dict(kwargs))
+        raise RuntimeError("no checkpoint")
+
+    runner = asr.ASRRunner(
+        asr.ASRConfig("local-test-model", device="cpu"),
+        model_factory=exploding_factory,
+    )
+    assert runner.model_load_attempts == 0
+
+    for path in ("first.wav", "second.wav", "third.wav"):
+        with pytest.raises(asr.ASRModelError):
+            runner.transcribe(path)
+
+    # One retry per row: N attempts, zero constructions (the R1 defect), and
+    # the two counters together state exactly that.
+    assert len(attempts) == 3
+    assert runner.model_load_attempts == 3
+    assert runner.model_constructions == 0
+
+
+def test_a_successful_load_counts_one_attempt_and_one_construction(fake_funasr):
+    """The invariant: attempts equal constructions when every load succeeds."""
+
+    runner = asr.ASRRunner(
+        asr.ASRConfig("local-test-model", device="cpu"), model_factory=fake_funasr
+    )
+
+    runner.transcribe("first.wav")
+    runner.transcribe("second.wav")  # reuse is neither a new attempt nor a build
+
+    assert runner.model_load_attempts == 1
+    assert runner.model_constructions == 1
+
+    runner.release()
+    runner.transcribe("third.wav")  # a released model is rebuilt: both counters move
+
+    assert runner.model_load_attempts == 2
+    assert runner.model_constructions == 2
+
+
+def test_a_mixed_failure_then_success_states_both_counts(fake_funasr, monkeypatch):
+    """A load that fails then succeeds: 2 attempts, 1 construction."""
+
+    outcomes = [RuntimeError("first load failed")]
+
+    class Flaky:
+        def __init__(self, **_kwargs):
+            if outcomes:
+                raise outcomes.pop(0)
+
+        def generate(self, **_kwargs):
+            return [{"text": "ok", "timestamp": []}]
+
+    runner = asr.ASRRunner(
+        asr.ASRConfig("local-test-model", device="cpu"), model_factory=Flaky
+    )
+
+    with pytest.raises(asr.ASRModelError):
+        runner.transcribe("fixture.wav")
+    assert (runner.model_load_attempts, runner.model_constructions) == (1, 0)
+
+    runner.transcribe("fixture.wav")
+    assert (runner.model_load_attempts, runner.model_constructions) == (2, 1)
+
+
 def test_three_item_batch_through_the_documented_path_constructs_once(
     tmp_root, counted_batch_seam
 ):
@@ -1055,3 +1352,20 @@ def test_readme_publishes_the_paid_or_transcribed_rule():
     # The amended guard: paid-but-empty states its cost, subtitle-only is silent.
     assert "failed every transcription" in text
     assert "subtitle-only" in text
+
+
+def test_readme_publishes_the_declaration_surface_and_the_attempt_rule():
+    """A4 is reproduced from README alone; R1's choice is stated there too."""
+
+    readme = os.path.join(os.path.dirname(__file__), "..", "README.md")
+    text = open(readme, encoding="utf-8").read()
+    # The declaration surface (A4: "reproduce from README.md alone").
+    assert "BILI_ASR_MODEL_ID" in text
+    assert "BILI_ASR_MODEL_REVISION" in text
+    assert "^asr_model_name:" in text
+    assert "^asr_model_revision:" in text
+    assert "[redacted]" in text
+    # R1: the counter's scope and the per-row retry are documented, not implied.
+    assert "model_load_attempts" in text
+    assert "successful constructions" in text
+    assert "retries the same load" in text
