@@ -58,6 +58,20 @@
         "source_plan": "20260912-gpu-enablement-truth",
         "registered_at": "2026-09-13",
         "lifecycle_id": "iter-2026-09-asr-ops-hardening"
+      },
+      {
+        "id": "N-4",
+        "title": "The six Latin-script hotwords added 2026-09-14 are unverified: their shards are measured, but the video that speaks them (BV1eGJ46mEHQ) has no audio on the target box, so no A/B against a transcript that says them was possible",
+        "severity": "low",
+        "source": "Operator review of the ten-video transcripts, 2026-09-14; the harmlessness check (95 % identical tail on a Chinese-only part) is recorded in asr.py and README",
+        "scope": "bilibili-asr-archive/src/bili_asr/asr.py DEFAULT_HOTWORDS (the six ASCII entries)",
+        "decision": "accept",
+        "owner": "@project-manager",
+        "target": "the next transcription of a video that speaks ITEM/AITEM/tribunal — confirm the entries reach the transcript, or drop them if they measurably hurt",
+        "tracking": "Registered here; code comment and README both state the unverified status so no reader mistakes it for a proven fix",
+        "source_plan": "20260912-gpu-enablement-truth",
+        "registered_at": "2026-09-14",
+        "lifecycle_id": "iter-2026-09-asr-ops-hardening"
       }
     ],
     "20260912-batch-model-reuse": [

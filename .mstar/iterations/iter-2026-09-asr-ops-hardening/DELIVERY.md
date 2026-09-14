@@ -39,3 +39,20 @@
 4. **R1/R2 (low, quality)** — the retirement map's `asr_low_confidence_at` row predates this iteration's surface work; the repeated-ngram scan is bounded only by the artefact byte cap.
 5. **DONE (2026-09-14)** — A1(i)/(ii)/(iii) verified on the target box; see `guides/2026-09-13-target-host-verification.md`.
 6. **RESOLVED (2026-09-14)** — the host volume was cleared (`C:` 0.2 GB → 29.7 GB) and `wsl --shutdown` restored a writable root; the A2/A4/A5 end-to-end probe then completed with `EXIT=0`. See `guides/2026-09-13-target-host-verification.md`.
+
+## Post-delivery change (2026-09-14) — Latin-script hotwords
+
+The operator asked for a transcript-quality review of the ten-video run. Its finding: the content is
+sound (99 % unique sentences, zero repetition loops, terminology and numbers correct), and the one
+concentrated error class is **Latin script on a Chinese-language model** — `International Employment
+Matters Tribunal` came out `tryBUNAL` / `FOR EMP LOYMENT MAT TERS`, `ITEM`/`AITEM` as `TEM` / `AITM` /
+`ITM`, all on the lowest-confidence video of the batch (mean 0.772 against the batch's 0.816 — the
+confidence signal correctly pointed at it).
+
+Change: those six terms join `DEFAULT_HOTWORDS` (merge `935294d`). Evidence status is stated in the code
+and the README rather than implied: the **shards are measured**, the **benefit is unverified** (the video
+that speaks them no longer has audio on the target box, so no A/B against a transcript that says them was
+possible), and **harmlessness is measured** (the same 6-minute Chinese-only part, 23 Chinese hotwords with
+and without the six: 95 % identical tail, two same-sound character differences, identical opening).
+Suite unchanged at 1565 passed / 4 skipped. Registered as residual **N-4** so the claim stays open until a
+video that speaks them is transcribed.
