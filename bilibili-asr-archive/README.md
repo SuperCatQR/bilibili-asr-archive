@@ -112,13 +112,26 @@ key set does not change. The declaration is scanned by the same identifier rule
 the `model_name` slot already passes, and must additionally be slash-qualified:
 a bare name with no `/`, an
 absolute path (`/srv/models/...`, `C:\models\...`), a URL, or a
-credential-like value (`token=...`) is rejected loudly with a non-zero exit
-rather than silently recorded, so the archive cannot claim a producer the
-operator did not name. That rule is shape-based, not path-aware: a
+credential-like value is rejected loudly with a non-zero exit rather than
+silently recorded, so the archive cannot claim a producer the operator did not
+name. The credential rule is separator-aware, not word-bounded: `token=x`,
+`token-x` and `token_x` all redact (an underscore is a word character, so a
+word-boundary rule would let the last form through), while an ordinary word such
+as `tokenizer` is left alone. That rule is shape-based, not path-aware: a
 *relative* path-shaped value such as `srv/models/Fun-ASR-Nano-2512` satisfies
 it and would be recorded verbatim, so declare the hub identity, not a relative
-path. Declaring an id that contradicts an already-safe `BILI_ASR_MODEL` is also
-an error — one of the two would be a lie.
+path. Declaring an id that contradicts an already-safe hub-level `BILI_ASR_MODEL`
+is also an error — one of the two would be a lie. A `BILI_ASR_MODEL` that
+resolves to a directory on this machine is a checkpoint path whatever its
+spelling, so the documented relative form beside a truthful declaration is
+accepted rather than refused.
+
+Re-run the D4.5 load check on another host with
+`python3.12 scripts/probe_target_host_load.py`: it performs a real load twice
+(with and without `BILI_ASR_MODEL_REVISION` declared), prints the loader kwargs
+it observed, and exits non-zero unless both arms load. `BILI_ASR_PROBE_SOURCE`,
+`BILI_ASR_PROBE_SLICE` and `BILI_ASR_PROBE_SECONDS` override its example inputs;
+its default source path names the documented WSL2 ASR host's layout, not yours.
 
 With no declaration, `asr_model_name` keeps a configured id only when that id is
 itself redaction-safe, and is `[redacted]` otherwise: a local checkpoint
@@ -132,8 +145,11 @@ what an archive recorded with
 The same glob rule as above applies: `"$ARCHIVE"` is quoted, `*.md` is not.
 
 An ASR transcript also records what the run measured — how much audio the VAD
-kept, and where the doubtful cues are — and a subtitle-sourced row records none
-of it, exactly as it records no other `asr_*` key:
+kept, and where the doubtful cues are. The two families follow different gates,
+and only the first is source-gated: a subtitle-sourced row records none of the
+**capture** keys, exactly as it records no other `asr_*` key, while the
+confidence pair below follows the pre-existing score rule (emitted whenever the
+transcript carries scores, whatever its source):
 
     grep -n '^asr_vad_' "$ARCHIVE"/transcripts/md/*.md
     grep -n '^asr_low_confidence_at:' "$ARCHIVE"/transcripts/md/*.md
@@ -141,11 +157,16 @@ of it, exactly as it records no other `asr_*` key:
 `asr_vad_segments` (count), `asr_vad_captured_s` (seconds) and
 `asr_vad_captured_ratio` (`captured_s / duration_s`, clamped to `[0, 1]`)
 describe the stretches of audio the transcript actually covers; touching,
-overlapping and sub-second-adjacent cues count as one stretch, so the numbers
-are an acoustic estimate rather than a punctuation census. The seconds stay
-unclamped, and the ratio is omitted — not guessed — when the row's own
-`duration_s` is not a positive finite number, which leaves a
+overlapping and cues at or below the shaper's 1.0 s pause threshold count as one
+stretch, so the numbers are an acoustic estimate rather than a punctuation
+census. The seconds stay unclamped, and the ratio is omitted — not guessed —
+when the row's own `duration_s` is not a positive finite number, which leaves a
 duration/cue contradiction visible instead of smoothing it away.
+Recompute them from the raw sidecar alone: sort the `segments` intervals larger
+than zero length, fuse any two whose start is at or below the previous end plus
+1.0 s, then take the span count, the summed duration (3 decimals) and
+`min(1.0, captured_s / duration_s)` — a zero-length cue describes no captured
+audio and is skipped, which is what makes the recompute exact.
 `asr_low_confidence_at` is the JSON list of start seconds whose cue scored at or
 below the archived low-confidence threshold, ascending, 3 decimals, duplicates
 kept. It is emitted together with `asr_low_confidence_cues` under one rule: both
@@ -153,6 +174,9 @@ are present whenever the transcript carries any score — `0` and `[]` when no c
 is at or below the threshold — and neither is written when it carries none.
 Because the list names where the doubts are, the count and the list cannot
 disagree, and a reader can recompute both from the raw sidecar's `segments`.
+The list is one entry per low cue, so that single frontmatter line grows with
+the cue count — linearly, and always smaller than the body it summarises,
+which repeats every cue's text.
 
 A per-item `bili-asr asr --bvid <bvid>` loop forfeits that reuse: it is one
 process per video, and the run-scoped reuse above does not cross a process
@@ -192,7 +216,15 @@ retries the same load: an N-row batch whose every load fails performs N attempts
 and **prints no reuse line** — it paid no construction and produced no
 transcript, so the guard above falls silent. Its failures are reported per row
 instead (`run: <work_id>: failed (ASRModelError)`, `<work_id>: archive
-failed`), and no command prints the attempt count.
+failed (ASRModelError)`), and no command prints the attempt count. Both paths
+name the exception class beside the row, so a failure an operator can act on is
+not just the words `archive failed`.
+
+A malformed declaration is refused **before the first row** on the `asr` path:
+the command reads the environment knobs once at entry, prints the `ValueError`'s
+own message — the variable's name, and for a contradiction the two values — and
+exits 1 without archiving anything. The per-row failure line above remains the
+backstop for a row that fails later for another reason.
 
 That count is recorded, not printed: it lives on `ASRRunner.model_load_attempts`,
 beside the construction counter. It counts every factory invocation, successful

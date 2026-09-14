@@ -32,14 +32,28 @@ def _load_default_model(**kwargs: Any) -> Any:
     return AutoModel(**kwargs)
 _INSTALL_HINT = 'pip install -e "bilibili-asr-archive/[asr]"'
 _RICH_TAG = re.compile(r"<\|[^|>]+\|>")
-_FORBIDDEN_LOCAL_SOURCE = re.compile(
-    r"(?:[A-Za-z][A-Za-z0-9+.-]*://|\\\\|(?:^|[\\/])\\/|(?:^|[^A-Za-z])[A-Za-z]:[\\/]|\b(?:sessdata|cookie|token|password|secret|credential)\b)",
+#: Credential markers open at the start of the value or after a letter-free
+#: separator, and must not run into a following letter.  A trailing ``\b``
+#: cannot do that job: ``_`` is a word character, so ``token_abc`` has no
+#: boundary after the marker and the value would be published verbatim.  The
+#: same separator-aware form is what ``quality._NAME_CREDENTIAL`` applies to
+#: file names; an ordinary word such as ``tokenizer`` is still left alone in
+#: both directions.
+_FORBIDDEN_CREDENTIAL_MARKER = (
+    r"(?:^|[^A-Za-z])(?:sessdata|cookie|token|password|secret|credential)(?![A-Za-z])"
+)
+#: Paths, URLs and credential-like values, in one definition.  The
+#: ``local_source`` and provenance scans were byte-identical literals
+#: (plan QC seat 1, S-2), so the weaker credential boundary lived in two
+#: places; one definition is why it now lives in neither.
+_FORBIDDEN_VALUE = re.compile(
+    r"(?:[A-Za-z][A-Za-z0-9+.-]*://|\\\\|(?:^|[\\/])\\/|(?:^|[^A-Za-z])[A-Za-z]:[\\/]|"
+    + _FORBIDDEN_CREDENTIAL_MARKER
+    + r")",
     re.IGNORECASE,
 )
-_FORBIDDEN_PROVENANCE = re.compile(
-    r"(?:[A-Za-z][A-Za-z0-9+.-]*://|\\\\|(?:^|[\\/])\\/|(?:^|[^A-Za-z])[A-Za-z]:[\\/]|\b(?:sessdata|cookie|token|password|secret|credential)\b)",
-    re.IGNORECASE,
-)
+_FORBIDDEN_LOCAL_SOURCE = _FORBIDDEN_VALUE
+_FORBIDDEN_PROVENANCE = _FORBIDDEN_VALUE
 _MODEL_IDENTIFIER = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*(?:/[A-Za-z0-9][A-Za-z0-9._-]*)*")
 
 
@@ -57,6 +71,26 @@ def _is_redaction_safe_model_identifier(value: str, *, hub_level: bool = False) 
     if _FORBIDDEN_PROVENANCE.search(value) is not None:
         return False
     return not hub_level or "/" in value
+
+
+def _is_hub_level_model_name(value: str) -> bool:
+    """Whether ``value`` names a hub repository rather than a local path (D4.3).
+
+    ``hub_level`` above is ``"/" in value``, and that is deliberately all a
+    *declaration* has to satisfy (D4.2): a shape-only rule cannot tell
+    ``models/Fun-ASR-Nano-2512`` from ``Qwen/Qwen2.5-7B`` — both are two
+    segments once.  The contradiction route needs the distinction the shape
+    cannot carry, because it must not punish the relative-path form
+    ``README.md`` documents.  Existence answers it on the machine that owns the
+    layout: the trained checkpoint the operator points ``BILI_ASR_MODEL`` at is
+    a directory that is *there*, and a hub id is a name that is not.  The probe
+    resolves against the process working directory, exactly as the loader
+    would.
+    """
+
+    if not _is_redaction_safe_model_identifier(value, hub_level=True):
+        return False
+    return not os.path.isdir(value)
 
 
 class ASRDependencyError(RuntimeError):
@@ -232,7 +266,12 @@ class ASRConfig:
                 )
             # A declaration that contradicts an already-safe load value would
             # make the archive lie about which model produced the transcript.
-            if _is_redaction_safe_model_identifier(
+            # Hub-level only (D4.3 as amended at plan QC, F-002): a
+            # relative-path-shaped ``BILI_ASR_MODEL`` that resolves to a real
+            # directory is a local checkpoint, not a competing identity, and
+            # refusing it would reject exactly the truthful declaration this
+            # route exists to protect.
+            if _is_hub_level_model_name(
                 self.model_name
             ) and self.model_name != self.model_id:
                 raise ValueError(
@@ -280,6 +319,11 @@ def default_config() -> ASRConfig:
     identity behind that checkpoint.  It is read for provenance only — it never
     reaches the loader — and an unset or blank value means "not declared", the
     same way the other knobs treat a blank as unset.
+
+    A declaration that differs from a *hub-level* ``BILI_ASR_MODEL`` is refused
+    (D4.3); a ``BILI_ASR_MODEL`` that resolves to a directory on this machine
+    is a checkpoint path, whatever its spelling, so a truthful declaration
+    beside it is accepted.
     """
 
     return ASRConfig(
@@ -502,6 +546,14 @@ class ASRRunner:
         ``model_id`` is a **slot replacement, never a key** (D4.4): it is
         skipped while rendering and only substitutes into the ``model_name``
         slot, so the nine-key contract and its order are untouched.
+
+        The re-scan applies the *validator's* strength to whichever value fills
+        the slot (S-2): a declared id is re-checked at hub level, exactly as
+        ``__post_init__`` checks it, while a configured ``model_name`` keeps the
+        historical rule and may therefore be a bare safe identifier such as
+        ``local-model``.  Rendering stays shape-only — it never probes the
+        filesystem — so this is the same rule as validation, not the same
+        predicate as the contradiction route.
         """
 
         values = asdict(self.config)
@@ -517,7 +569,9 @@ class ASRRunner:
                 rendered = str(declared_id)
             is_safe_model_identifier = (
                 key == "model_name"
-                and _is_redaction_safe_model_identifier(rendered)
+                and _is_redaction_safe_model_identifier(
+                    rendered, hub_level=declared_id is not None
+                )
             )
             if _FORBIDDEN_PROVENANCE.search(rendered) or (
                 key == "model_name" and not is_safe_model_identifier
@@ -707,7 +761,18 @@ def segments_to_txt(segments: list[dict[str, Any]]) -> str:
 
 
 def transcribe(audio_path: str, model_name: str | None = None) -> list[dict[str, Any]]:
-    """Compatibility wrapper: one short-lived runner using env/default selection."""
+    """Compatibility wrapper: one short-lived runner using env/default selection.
+
+    ``model_name`` overrides the load value through ``dataclasses.replace``,
+    which re-runs ``ASRConfig.__post_init__``.  While ``BILI_ASR_MODEL_ID``
+    declares an identity, a ``model_name`` override that contradicts it
+    therefore raises ``ValueError`` (F-003) instead of silently producing
+    segments the recorded producer would misdescribe — the same loud refusal
+    D4.2 applies to a mis-declared environment.  An override that agrees with
+    the declaration, or an environment with nothing declared, still returns the
+    usual segments.
+    """
+
     config = default_config()
     if model_name is not None:
         config = replace(config, model_name=model_name)

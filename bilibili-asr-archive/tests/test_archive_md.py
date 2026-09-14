@@ -252,6 +252,50 @@ def test_write_archive_without_provenance_adds_no_asr_keys(tmp_root):
     assert "provenance" not in raw
 
 
+def test_write_archive_publishes_the_exact_asr_key_set(tmp_root):
+    """S-1: the whole published key set is pinned, not only the nine provenance keys.
+
+    The block is assembled by three independent producers (``_capture_summary``,
+    ``_confidence_summary``, the provenance mapping) through successive
+    ``dict.update`` calls, and only the nine-key provenance sub-contract had a
+    test.  A reader who greps a row meets **24 keys, 15 of them ``asr_*``**: six
+    row-identity keys, a measurement family whose capture half is source-gated
+    and whose confidence half is score-gated, then the configuration family.
+    Pinned as an exact list so a key that appears, disappears or is reordered
+    fails here rather than silently changing what the archive says.
+    """
+
+    tmp_path = __import__("pathlib").Path(tmp_root)
+    ident = page_identity("BV1keys", 0, 21)
+    entry = {"bvid": ident.bvid, "work_id": ident.work_id, "page_index": 0, "cid": 21,
+             "title": "keys", "pubdate_str": "2026-01-02", "duration_s": 10}
+    provenance = {
+        "model_name": "FunAudioLLM/Fun-ASR-Nano-2512", "model_revision": "master",
+        "device": "cpu", "language": "中文", "vad_model": "fsmn-vad",
+        "vad_max_segment_s": "30.0", "hotwords": "", "offline": "True",
+        "local_source": "configured-local",
+    }
+    segments = [{"start": 0.0, "end": 2.0, "text": "甲。", "confidence": 0.9},
+                {"start": 2.0, "end": 4.0, "text": "乙。", "confidence": 0.2}]
+
+    paths = write_archive(tmp_path, entry, segments, source="asr",
+                          asr_provenance=provenance)
+
+    front = _frontmatter(tmp_path / paths["md_path"])
+    assert list(front) == [
+        "bvid", "title", "date", "duration_s", "source", "url",
+        "asr_vad_segments", "asr_vad_captured_s", "asr_vad_captured_ratio",
+        "asr_mean_confidence", "asr_low_confidence_cues", "asr_low_confidence_at",
+        "asr_model_name", "asr_model_revision", "asr_device", "asr_language",
+        "asr_vad_model", "asr_vad_max_segment_s", "asr_hotwords", "asr_offline",
+        "asr_local_source", "work_id", "page_index", "cid",
+    ]
+    assert len(front) == 24
+    assert len([key for key in front if key.startswith("asr_")]) == 15
+    # The declared identity is a slot replacement, never a tenth provenance key.
+    assert "asr_model_id" not in front
+
+
 def _frontmatter(md_path):
     """The published frontmatter as a mapping, read from the artefact itself."""
 
@@ -337,6 +381,62 @@ def test_capture_gap_seconds_follows_the_cue_shaper_threshold():
     from bili_asr.archive import CAPTURE_GAP_SECONDS
 
     assert CAPTURE_GAP_SECONDS == asr_module._CUE_MAX_GAP_SECONDS
+
+
+def test_the_shaper_and_the_merger_meet_at_the_threshold_from_opposite_sides():
+    """S-4: the coupling test pins the value; this one pins the *semantics*.
+
+    The equality above cannot notice a future change to either operator.  The
+    shaper splits a formed-cue pause at ``gap >= _CUE_MAX_GAP_SECONDS``, the
+    merger fuses at ``gap <= CAPTURE_GAP_SECONDS``, so a pause of exactly the
+    threshold is two cues in the transcript and one captured stretch here — the
+    deliberate, wider reading.  Both sides of that boundary are asserted on the
+    real shaper and the real published keys, so changing either operator fails.
+    """
+
+    from bili_asr import asr as asr_module
+    from bili_asr.archive import CAPTURE_GAP_SECONDS
+
+    threshold = CAPTURE_GAP_SECONDS
+
+    def cues_for(gap):
+        """The shaper's own output for a pause of ``gap`` between two sentences.
+
+        Ten half-second tokens either side, so both candidate cues are already
+        ``formed()`` — a pause only closes a cue that can stand on its own, and
+        an undersized one is absorbed by the cue before it.
+        """
+
+        tokens = [
+            {"token": ch, "start_time": i * 0.5, "end_time": i * 0.5 + 0.5}
+            for i, ch in enumerate("甲乙丙丁戊己庚辛壬癸")
+        ]
+        base = 10 * 0.5
+        tokens += [
+            {"token": ch, "start_time": base + gap + i * 0.5,
+             "end_time": base + gap + i * 0.5 + 0.5}
+            for i, ch in enumerate("子丑寅卯辰巳午未申酉")
+        ]
+        return asr_module._token_cues(tokens)
+
+    # The shaper splits exactly at the threshold...
+    assert len(cues_for(threshold)) == 2
+    assert len(cues_for(threshold - 0.001)) == 1
+
+    # ...and the merger fuses the split it just made back into one stretch.
+    tmp_path = __import__("pathlib").Path(__import__("tempfile").mkdtemp())
+    entry = {"bvid": "BV1bound", "work_id": "BV1bound:p0", "page_index": 0, "cid": 14,
+             "title": "boundary", "pubdate_str": "2026-01-02", "duration_s": 100}
+    paths = write_archive(
+        tmp_path, entry,
+        [{"start": 0.0, "end": 5.0, "text": "甲。"},
+         {"start": 5.0 + threshold, "end": 10.0 + threshold, "text": "乙。"}],
+        source="asr",
+    )
+    at_threshold = _frontmatter(tmp_path / paths["md_path"])
+
+    assert at_threshold["asr_vad_segments"] == 1
+    assert at_threshold["asr_vad_captured_s"] == round(10.0 + threshold, 3)
 
 
 def test_capture_merges_only_gaps_within_the_threshold(tmp_root):

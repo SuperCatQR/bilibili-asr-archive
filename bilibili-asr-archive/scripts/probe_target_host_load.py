@@ -30,7 +30,8 @@ never modified::
 
 Arms: a negative control (``provenance()`` → 0 factory invocations), the declared
 revision, and no declared revision.  Exit code is non-zero unless both real loads
-succeed.
+succeed.  The revision variable is read from ``asr.ASR_MODEL_REVISION_ENV_VAR``
+rather than hard-coded, so a rename cannot silently turn arm A into arm B.
 """
 
 from __future__ import annotations
@@ -42,8 +43,15 @@ import traceback
 
 import bili_asr.asr as asr
 
-#: A short slice of audio.  Defaults to the pinned checkpoint's own example,
-#: which is a few seconds long; override for another host layout.
+#: The declared-revision variable, imported rather than spelled out: four
+#: hard-coded copies would silently decay arm A into arm B after a rename while
+#: the script still printed ``RESULT {... True ...}``.
+REVISION_ENV_VAR = asr.ASR_MODEL_REVISION_ENV_VAR
+
+#: A short slice of audio.  The default names the documented WSL2 ASR host's
+#: layout as an *example*, not as a contract: this script exists to be re-run
+#: somewhere else, so both paths are overridable and the checkpoint path is
+#: expected to be supplied on a new host.
 SOURCE = os.environ.get("BILI_ASR_PROBE_SOURCE", "/root/e2e-asr/nano/master/example/zh.mp3")
 SLICE = os.environ.get("BILI_ASR_PROBE_SLICE", "/tmp/t3probe/slice.wav")
 SECONDS = os.environ.get("BILI_ASR_PROBE_SECONDS", "3")
@@ -80,11 +88,11 @@ def main() -> int:
     def arm(label: str, revision: str | None) -> bool:
         calls.clear()
         if revision is None:
-            os.environ.pop("BILI_ASR_MODEL_REVISION", None)
+            os.environ.pop(REVISION_ENV_VAR, None)
         else:
-            os.environ["BILI_ASR_MODEL_REVISION"] = revision
+            os.environ[REVISION_ENV_VAR] = revision
         runner = asr.ASRRunner(asr.default_config())
-        print(f"\n--- arm {label}: BILI_ASR_MODEL_REVISION={revision!r}")
+        print(f"\n--- arm {label}: {REVISION_ENV_VAR}={revision!r}")
         try:
             segments = runner.transcribe(SLICE)
         except Exception:

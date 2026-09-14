@@ -284,8 +284,15 @@ LOW_CONFIDENCE = 0.4
 #: intervals are the only capture evidence an artefact has; a cue boundary is a
 #: punctuation or 60-character decision, not a capture boundary, so the spans
 #: are merged back across pauses the shaper itself tolerates.  The value is
-#: ``asr._CUE_MAX_GAP_SECONDS`` — the shaper's own pause threshold, so a gap it
-#: would not have split on is not read back as a capture hole.
+#: ``asr._CUE_MAX_GAP_SECONDS`` — the shaper's own pause threshold.
+#:
+#: The comparison is ``<=``, one step *wider* than the shaper's, and that is the
+#: deliberate reading: the shaper splits at ``gap >= 1.0`` while this merges at
+#: ``gap <= 1.0``, so a pause of exactly the threshold is two cues in the
+#: transcript and one stretch here.  A 1.0 s pause is not a capture hole, and
+#: for a *capture* estimate the gap has to be strictly larger than the shaper's
+#: own tolerance before it counts as lost audio.  The boundary is pinned in both
+#: directions by ``test_the_shaper_and_the_merger_meet_at_the_threshold_from_opposite_sides``.
 #:
 #: Declared here rather than imported: the stated cross-layer rule is that
 #: ``subtitles``/``audio``/``asr``/``archive`` never import each other, only
@@ -358,11 +365,14 @@ def _confidence_summary(segments: list[dict[str, Any]]) -> dict[str, Any]:
 def _merged_cue_spans(segments: list[dict[str, Any]]) -> list[tuple[float, float]]:
     """The transcript's cue intervals with adjacent ones fused into one span.
 
-    Touching, overlapping and sub-:data:`CAPTURE_GAP_SECONDS`-adjacent intervals
-    become a single span, which is what makes the result a *capture* estimate
-    rather than a punctuation census.  Non-finite and reversed intervals are
-    skipped: they cannot describe captured audio, and the quality checker
-    already names them ``malformed``/``out_of_range``.
+    Touching, overlapping and cues separated by **at or below**
+    :data:`CAPTURE_GAP_SECONDS` become a single span, which is what makes the
+    result a *capture* estimate rather than a punctuation census.  The boundary
+    is inclusive on purpose and is one step wider than the shaper's own split
+    rule, so a pause of exactly the threshold is one stretch here rather than a
+    reported hole.  Non-finite and reversed intervals are skipped: they cannot
+    describe captured audio, and the quality checker already names them
+    ``malformed``/``out_of_range``.
 
     **An interval of zero length (``end == start``) is skipped too.**  The rule
     is published here because A5 lets a reader recompute the capture facts from

@@ -94,16 +94,18 @@ _MAX_CUES = 10_000
 #: refused rather than measured, because a ratio nobody can wait for is not a
 #: measurement, and the refusal is loud (stderr + exit 1), never silent.
 _MAX_COMPARE_CHARS = 20_000
-#: Credential-like words as they can appear in a *file name*.  The forbidden
-#: marker's trailing ``\b`` cannot end the match after an underscore (``_`` is a
-#: word character), so ``token_abc123.srt`` escaped it while
-#: ``token-abc123.srt`` did not.  A name may join its words with either
-#: separator, so this local scan supplies that boundary: the marker opens at the
-#: start of the name or after a letter-free separator, and must not run into a
-#: following letter — every separator form redacts, while an ordinary word such
-#: as ``tokenizer`` is left alone.  ``asr._FORBIDDEN_PROVENANCE`` is deliberately
-#: *not* relaxed: it guards provenance strings, where its trailing boundary is
-#: load-bearing.
+#: Credential-like words as they can appear in a *file name*.  A marker's
+#: trailing ``\b`` cannot end the match after an underscore (``_`` is a word
+#: character), so ``token_abc123.srt`` escaped it while ``token-abc123.srt`` did
+#: not.  A name may join its words with either separator, so this scan supplies
+#: that boundary: the marker opens at the start of the name or after a
+#: letter-free separator, and must not run into a following letter — every
+#: separator form redacts, while an ordinary word such as ``tokenizer`` is left
+#: alone.  ``asr._FORBIDDEN_PROVENANCE`` now carries the *same* separator-aware
+#: boundary (plan QC F-001: the old one published ``myorg/token_abc`` verbatim),
+#: so for credentials this scan is a redundant second opinion at the site that
+#: reads names; it stays because it states the name-level rule where names are
+#: read.
 _NAME_CREDENTIAL = re.compile(
     r"(?:^|[^A-Za-z])(?:sessdata|cookie|token|password|secret|credential)(?![A-Za-z])",
     re.IGNORECASE,

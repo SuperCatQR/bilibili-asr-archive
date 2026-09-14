@@ -737,6 +737,154 @@ def test_cli_prints_no_reuse_line_when_every_load_fails(
         assert "model constructions=" not in captured.err
     # The rows' failures are what the operator sees instead, per row.
     assert "failed (ASRModelError)" in run_captured.err
-    assert "BVnoload0:p0: archive failed" in asr_captured.err
+    assert "BVnoload0:p0: archive failed (ASRModelError)" in asr_captured.err
     assert "run: 0 completed, 0 skipped, 3 failed" in run_captured.out
     assert "asr: 0 archived, 3 failed" in asr_captured.out
+
+
+def test_the_asr_path_names_the_exception_class_beside_the_row(
+    tmp_root, monkeypatch, capsys
+):
+    """QC3-F1: the `asr` path used to print fixed text with no reason at all.
+
+    The `run` path states the code (`failed (ValueError)`); this one printed
+    ``<work_id>: archive failed`` and nothing else, so a row that failed
+    downstream of transcription was indistinguishable from any other.  The code
+    is attached now, and the row stays unarchived exactly as before.
+    """
+
+    identity = page_identity("BVcode0", 0, 970, "p0")
+    _seed_audio_ok(tmp_root, [identity])
+    _stub_runner_model(monkeypatch)
+
+    def explode(_root, _entry, _segments, **_kwargs):
+        raise KeyError("downstream")
+
+    _patch_cli(monkeypatch, RouterTransport({}))
+    monkeypatch.setattr(asr_mod.ASRRunner, "transcribe", lambda self, _path: [
+        {"start": 0.0, "end": 1.0, "text": "句子。"}
+    ])
+    # Patch the one archive seam this row reaches, after transcription.
+    from bili_asr import archive as archive_mod
+
+    monkeypatch.setattr(archive_mod, "write_archive", explode)
+
+    rc = main(["asr", "--pending", "--archive-root", tmp_root])
+    captured = capsys.readouterr()
+
+    assert rc == 1, captured.err
+    assert "BVcode0:p0: archive failed (KeyError)" in captured.err
+    # The code is the class name, never the exception's message or payload.
+    assert "downstream" not in captured.err
+    assert "downstream" not in captured.out
+    assert "BVcode0:p0: archive failed\n" not in captured.err
+    assert ManifestStore(root=tmp_root).get(identity.work_id)["status"] == "audio_ok"
+
+
+def test_a_malformed_declaration_is_refused_before_the_first_row(
+    tmp_root, monkeypatch, capsys
+):
+    """QC3-F1: one message at entry, exit 1, and no row pays a load attempt.
+
+    Before this, the same misconfiguration printed one identical
+    ``archive failed`` line per row — the reason reaching no stream and no
+    sidecar.  The declaration is now read once at command entry, so the
+    operator gets the variable's name and nothing is attempted.
+    """
+
+    identities = [
+        page_identity(f"BVdecl{index}", 0, 980 + index, "p0") for index in range(3)
+    ]
+    _seed_audio_ok(tmp_root, identities)
+    attempts = _stub_failing_loads(monkeypatch)
+    monkeypatch.setenv("BILI_ASR_MODEL_ID", "/opt/models/Fun-ASR-Nano-2512")
+    _patch_cli(monkeypatch, RouterTransport({}))
+
+    rc = main(["asr", "--pending", "--limit", "3", "--archive-root", tmp_root])
+    captured = capsys.readouterr()
+
+    assert rc == 1
+    assert (
+        "asr: BILI_ASR_MODEL_ID must be a hub-level model identifier"
+        in captured.err
+    )
+    # Stated once, not once per row, and no row was even reached.
+    assert captured.err.count("BILI_ASR_MODEL_ID") == 1
+    assert "archive failed" not in captured.err
+    assert attempts == []
+    assert [
+        ManifestStore(root=tmp_root).get(i.work_id)["status"] for i in identities
+    ] == ["audio_ok"] * 3
+
+
+def test_a_malformed_declaration_does_not_block_a_subtitle_only_selection(
+    tmp_root, monkeypatch, capsys
+):
+    """The entry check is scoped to the ASR path, not to the command.
+
+    A subtitle-sourced row never reads the ASR knobs, so a malformed
+    declaration must not refuse a selection that would not have loaded a model
+    anyway — the same "no ASR row, no cost" rule D2.6 states for the reuse line.
+    """
+
+    sub = page_identity("BVdeclsub", 0, 990, "p0")
+    ManifestStore(root=tmp_root).upsert(_row(sub, title="has-sub"))
+    constructions = _stub_runner_model(monkeypatch)
+    monkeypatch.setenv("BILI_ASR_MODEL_ID", "/opt/models/Fun-ASR-Nano-2512")
+    _patch_cli(monkeypatch, _subtitle_transport())
+
+    assert (
+        _legacy_subtitle_state(tmp_root, sub, _subtitle_transport())
+        == "subtitle_done"
+    )
+    capsys.readouterr()
+
+    rc = main(["asr", "--pending", "--archive-root", tmp_root])
+    captured = capsys.readouterr()
+
+    assert rc == 0, captured.err
+    assert "BILI_ASR_MODEL_ID" not in captured.err
+    assert constructions == []
+    assert (
+        ManifestStore(root=tmp_root).get(sub.work_id)["status"] == "archived"
+    )
+
+
+def test_the_asr_entry_failure_message_never_carries_a_path(
+    tmp_root, monkeypatch, capsys
+):
+    """QC3-F1's redaction pre-condition, both branches, on the real command.
+
+    Printing a ``ValueError``'s own message is only safe if neither branch can
+    carry an operator path.  The unsafe-declaration branch names the variable
+    and nothing else; the contradiction branch can only fire once **both**
+    values have passed the identifier scan, so it echoes two identifiers.  Each
+    branch is driven through ``main()`` and both streams are scanned.
+    """
+
+    identity = page_identity("BVdeclpath", 0, 995, "p0")
+    local_path = "/opt/models/Fun-ASR-Nano-2512"
+    _seed_audio_ok(tmp_root, [identity])
+    _stub_failing_loads(monkeypatch)
+    _patch_cli(monkeypatch, RouterTransport({}))
+
+    # Branch 1: an absolute path as the *declaration* — refused, path absent.
+    monkeypatch.setenv("BILI_ASR_MODEL_ID", local_path)
+    assert main(["asr", "--pending", "--archive-root", tmp_root]) == 1
+    branch_one = capsys.readouterr()
+    for stream in (branch_one.out, branch_one.err):
+        assert local_path not in stream
+        assert "/opt/" not in stream
+
+    # Branch 2: a declaration contradicting a safe hub-level load value.  The
+    # contradiction branch fires only because both values are identifiers.
+    monkeypatch.setenv("BILI_ASR_MODEL", "OtherOrg/OtherModel")
+    monkeypatch.setenv("BILI_ASR_MODEL_ID", "FunAudioLLM/Fun-ASR-Nano-2512")
+    assert main(["asr", "--pending", "--archive-root", tmp_root]) == 1
+    branch_two = capsys.readouterr()
+    assert "contradicts" in branch_two.err
+    assert "OtherOrg/OtherModel" in branch_two.err
+    assert "FunAudioLLM/Fun-ASR-Nano-2512" in branch_two.err
+    for stream in (branch_two.out, branch_two.err):
+        assert "/opt/" not in stream
+        assert "archive failed" not in stream

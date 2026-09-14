@@ -310,6 +310,13 @@ def test_provenance_preserves_safe_slash_qualified_model_identifier():
         "C:\\models\\Fun-ASR-Nano-2512",
         "https://models.example/Fun-ASR-Nano-2512",
         "token=private-model",
+        # F-001: an underscore is a word character, so the old trailing ``\b``
+        # marker let the credential word run into the next word and the value
+        # was published verbatim.  Both separators now redact.
+        "myorg/token_abc",
+        "myorg/sessdata123",
+        "myorg/secret_1",
+        "token_abc",
     ),
 )
 def test_provenance_redacts_path_url_and_credential_like_model_values(model_name):
@@ -317,6 +324,52 @@ def test_provenance_redacts_path_url_and_credential_like_model_values(model_name
 
     assert provenance["model_name"] == "[redacted]"
     assert model_name not in json.dumps(provenance)
+
+
+def test_the_credential_scan_redacts_across_both_separators_without_over_redacting():
+    """F-001: the separator-aware boundary, pinned on both sides.
+
+    ``_`` is a word character, so the credential marker's trailing ``\\b``
+    could not end the match after it: ``myorg/token_abc`` passed the scan and
+    was published verbatim while ``myorg/token-abc`` was caught.  The scan now
+    uses the separator-aware lookaround already applied to file names, so the
+    two separators agree.  The negative half matters just as much: the fix must
+    not start redacting ordinary identifiers that merely contain a marker.
+    """
+
+    from bili_asr import quality
+
+    for marker in ("token", "sessdata", "cookie", "password", "secret", "credential"):
+        for value in (f"myorg/{marker}_abc", f"myorg/{marker}-abc", f"myorg/{marker}"):
+            assert asr._FORBIDDEN_PROVENANCE.search(value), value
+            assert quality._NAME_CREDENTIAL.search(value), value
+
+    # Not a credential: the marker runs into a following letter.
+    for value in ("myorg/tokenizer", "myorg/SecretSanta", "myorg/cookies"):
+        assert not asr._FORBIDDEN_PROVENANCE.search(value), value
+        assert not quality._NAME_CREDENTIAL.search(value), value
+        assert (
+            asr.ASRRunner(asr.ASRConfig(value)).provenance()["model_name"] == value
+        ), value
+
+
+def test_the_local_source_twin_shares_the_hardened_credential_rule():
+    """S-2: the two byte-identical literals are now one definition.
+
+    ``_FORBIDDEN_LOCAL_SOURCE`` and ``_FORBIDDEN_PROVENANCE`` were separate but
+    identical regexes, so the weak credential boundary had to be fixed twice and
+    was in fact fixed nowhere.  They are one compiled pattern now, which is what
+    makes the ``local_source`` guard (the field ``__post_init__`` validates with
+    the *other* name) reject the underscore form too.
+    """
+
+    assert asr._FORBIDDEN_LOCAL_SOURCE is asr._FORBIDDEN_PROVENANCE
+    # The production default still passes, and the shapes that always failed
+    # still fail.
+    asr.ASRConfig("local-test-model")  # local_source defaults to configured-local
+    for hostile in ("prefix token=secret", "C:\\private", "prefix token_abc"):
+        with pytest.raises(ValueError):
+            asr.ASRConfig("local-test-model", local_source=hostile)
 
 
 def test_environment_model_path_is_runtime_only_and_not_exposed_in_provenance(
@@ -470,6 +523,10 @@ def test_the_declared_identity_is_equal_to_a_matching_safe_model_name():
         "https://models.example/Fun-ASR-Nano-2512",
         "token=private-model",
         "Fun-ASR-Nano-2512",  # a bare name is not a hub-level identifier
+        # F-001: the underscore-adjacent shape is a credential too.
+        "myorg/token_abc",
+        "myorg/sessdata123",
+        "myorg/secret_1",
         "",
         "   ",
     ),
@@ -494,11 +551,84 @@ def test_a_declaration_contradicting_a_safe_model_name_is_a_value_error():
     assert "contradicts" in str(caught.value)
 
 
+def test_a_declaration_beside_a_relative_local_checkpoint_constructs(
+    tmp_path, monkeypatch
+):
+    """F-002: the route is hub-level only, so the documented form is not refused.
+
+    ``models/Fun-ASR-Nano-2512`` satisfies ``_MODEL_IDENTIFIER`` and contains a
+    ``/``, so the shape-only predicate of D4.3's first draft fired on it and the
+    *truthful* declaration ``FunAudioLLM/Fun-ASR-Nano-2512`` aborted the row —
+    the loud failure landed on the truth-telling side.  The predicate is now
+    hub-level: a value that resolves to a directory on this machine is a local
+    checkpoint, whatever its spelling, and the declared identity is recorded.
+    """
+
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "models" / "Fun-ASR-Nano-2512").mkdir(parents=True)
+    monkeypatch.setenv("BILI_ASR_MODEL", "models/Fun-ASR-Nano-2512")
+    monkeypatch.setenv("BILI_ASR_MODEL_ID", DECLARED_MODEL_ID)
+
+    config = asr.default_config()
+    provenance = asr.ASRRunner(config).provenance()
+
+    assert config.model_name == "models/Fun-ASR-Nano-2512"  # the loader is unchanged
+    assert config.model_id == DECLARED_MODEL_ID
+    assert provenance["model_name"] == DECLARED_MODEL_ID
+    assert "models/Fun-ASR-Nano-2512" not in json.dumps(provenance)
+
+
+def test_two_different_hub_ids_still_contradict(tmp_path, monkeypatch):
+    """F-002's other direction: the case D4.3 exists for still raises.
+
+    Neither value resolves to a directory, so both really are hub ids and one
+    of them would be a lie.  The refusal survives the amendment.
+    """
+
+    monkeypatch.chdir(tmp_path)
+    for model in ("OtherOrg/OtherModel", "models/NotDownloaded"):
+        monkeypatch.setenv("BILI_ASR_MODEL", model)
+        monkeypatch.setenv("BILI_ASR_MODEL_ID", DECLARED_MODEL_ID)
+
+        with pytest.raises(ValueError) as caught:
+            asr.default_config()
+
+        assert "contradicts" in str(caught.value)
+        assert model in str(caught.value)
+
+
 def test_the_declared_identity_is_redaction_scanned_like_any_other_value():
     """A declared id that is itself identifier-shaped but forbidden is refused."""
 
     with pytest.raises(ValueError):
         asr.ASRConfig("model", model_id="org/token")
+
+
+def test_transcribe_refuses_a_model_name_override_under_a_declaration(
+    fake_funasr, monkeypatch
+):
+    """F-003: the wrapper's override is composed with the declaration, loudly.
+
+    ``transcribe(path, model_name=…)`` reaches the config through
+    ``dataclasses.replace``, which re-runs ``__post_init__``.  Under a declared
+    identity it therefore raises where the base returned segments — deliberately
+    (the override would contradict the recorded producer), but previously
+    undocumented and unpinned.  Both directions are pinned here, so the
+    behaviour cannot drift silently either way.
+    """
+
+    monkeypatch.setenv("BILI_ASR_MODEL_ID", DECLARED_MODEL_ID)
+
+    # A different hub id contradicts the declaration: refused, nothing loaded.
+    with pytest.raises(ValueError) as caught:
+        asr.transcribe("fixture-audio.wav", model_name="OtherOrg/OtherModel")
+
+    assert "contradicts" in str(caught.value)
+    assert fake_funasr.construction_records == []
+
+    # An override that *agrees* with the declaration is not a contradiction.
+    assert asr.transcribe("fixture-audio.wav", model_name=DECLARED_MODEL_ID)
+    assert fake_funasr.construction_records[0]["model"] == DECLARED_MODEL_ID
 
 
 def test_the_module_provenance_helper_records_the_declaration(monkeypatch):
@@ -1510,6 +1640,39 @@ def test_readme_does_not_claim_relative_paths_are_rejected():
     assert "anything path-, URL-, or credential-like is rejected" not in text
 
 
+def test_readme_states_the_plan_qc_fix_wave_claims():
+    """The sentences this fix wave added are pinned where they are read.
+
+    Each assertion here corresponds to a claim that would be *false* if the code
+    moved back: the two gates of the measurement family (S-3), the inclusive
+    threshold (S-4), the recompute recipe that makes A5 exact (S-5), the
+    separator-aware credential rule (F-001), and the D4.5 probe's existence plus
+    its overridable inputs (S-6).
+    """
+
+    readme = os.path.join(os.path.dirname(__file__), "..", "README.md")
+    text = open(readme, encoding="utf-8").read()
+
+    # S-3: only the capture keys are source-gated; the confidence pair is not.
+    assert "source-gated" in text
+    assert "**capture**" in text
+    assert "score rule" in text
+    # The old, unqualified sentence: one gate stated for both families.
+    assert "records none\nof it, exactly as it records no other" not in text
+    # S-4: the boundary is stated inclusively, not as "sub-second".
+    assert "at or below the shaper's 1.0 s pause threshold" in text
+    assert "sub-second-adjacent" not in text
+    # S-5: the recompute is spelled out, including the zero-length skip.
+    assert "zero-length cue describes no captured" in text
+    # F-001: the credential rule is stated as separator-aware, and the old
+    # "=" -only illustration is gone.
+    assert "separator-aware, not word-bounded" in text
+    assert "credential-like value (`token=...`)" not in text
+    # S-6: the probe is findable and its defaults are labelled as an example.
+    assert "scripts/probe_target_host_load.py" in text
+    assert "BILI_ASR_PROBE_SOURCE" in text
+
+
 def test_a_relative_path_shaped_declaration_is_accepted_and_recorded():
     """F3's code half: the documented rule and the implementation agree.
 
@@ -1548,6 +1711,10 @@ def test_the_substituted_declaration_is_redaction_scanned_like_any_value():
         "C:\\models\\Fun-ASR-Nano-2512",
         "https://models.example/Fun-ASR-Nano-2512",
         "token=private-model",
+        # F-001: the same shape through the bypassing route, where only the
+        # render-side re-scan stands between it and the frontmatter.
+        "myorg/token_abc",
+        "myorg/sessdata123",
     ):
         config = Unvalidated("local-test-model", model_id=hostile)
         provenance = asr.ASRRunner(config).provenance()
@@ -1559,3 +1726,34 @@ def test_the_substituted_declaration_is_redaction_scanned_like_any_value():
             "model_name", "model_revision", "device", "language", "vad_model",
             "vad_max_segment_s", "hotwords", "offline", "local_source",
         ]
+
+
+def test_the_render_rescan_applies_the_validators_strength_to_the_slot():
+    """S-2: rendering and validation now use the same rule, not merely one helper.
+
+    ``__post_init__`` validates a declaration at hub level (``hub_level=True``)
+    while the render-side re-scan used the default (``False``), so a subclass
+    that bypasses validation could render a *bare* declared id the validator
+    would have refused.  The re-scan is now hub-level for a declaration, and
+    still permissive for a configured name — where a bare safe identifier such
+    as ``local-model`` is the historical, legitimate output.
+    """
+
+    class Unvalidated(asr.ASRConfig):
+        def __post_init__(self) -> None:  # deliberately skips D4.2's validation
+            pass
+
+    # A declaration is held to the validator's strength: a bare name is not a
+    # hub-level identifier, so it never reaches the frontmatter.
+    bare_declaration = asr.ASRRunner(
+        Unvalidated("local-test-model", model_id="barename")
+    ).provenance()
+    assert bare_declaration["model_name"] == "[redacted]"
+    assert "barename" not in json.dumps(bare_declaration)
+
+    # With no declaration the slot holds the configured value under the
+    # historical rule, which does allow a bare identifier.
+    assert (
+        asr.ASRRunner(Unvalidated("local-test-model")).provenance()["model_name"]
+        == "local-test-model"
+    )

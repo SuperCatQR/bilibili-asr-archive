@@ -1679,6 +1679,27 @@ def _cmd_asr(args: argparse.Namespace) -> int:
     # selection shares one lazily-built runner, and the selection states what
     # it paid.  ``asr.transcribe``'s one-shot contract is untouched (D2.4).
     runner = None
+    # The declared identity is validated once, here, before the row loop and
+    # outside its per-row ``try`` (QC3-F1).  A mis-declared producer used to
+    # surface as N identical ``archive failed`` lines with the reason reaching
+    # no stream at all; now the ``ValueError``'s own message is printed once and
+    # the command exits 1, leaving the per-row path below as the backstop.
+    # ``default_config()`` only reads the environment knobs, so this builds no
+    # model.  A selection that never reaches the ASR path is skipped: a
+    # subtitle-only run does not read these knobs and must not be refused
+    # because one of them is malformed.
+    #
+    # Both ``ValueError`` branches are redaction-safe by construction (verified
+    # by ``test_the_asr_entry_failure_message_never_carries_a_path``): the
+    # unsafe-declaration branch names only the variable, and the contradiction
+    # branch can only fire once *both* values have passed the identifier scan.
+    config = None
+    if any(entry.get("status") != "subtitle_done" for entry in todo):
+        try:
+            config = asr.default_config()
+        except ValueError as exc:
+            print(f"asr: {exc}", file=sys.stderr)
+            return 1
     # ``asr_count`` is the printed line's denominator and counts the same event
     # the coordinator counts (D2.5): a row whose ASR stage produced a
     # transcript.  It increments at the transcribe boundary below, never after
@@ -1711,7 +1732,9 @@ def _cmd_asr(args: argparse.Namespace) -> int:
                     from .path_policy import confined_audio_file
                     declared = entry.get("audio_path") or os.path.join("audio", f"{stem}.m4a")
                     if runner is None:
-                        runner = asr.ASRRunner(asr.default_config())
+                        runner = asr.ASRRunner(
+                            config if config is not None else asr.default_config()
+                        )
                     with confined_audio_file(args.archive_root, os.fspath(declared)) as safe_audio:
                         segments = runner.transcribe(safe_audio)
                     asr_count.value += 1
@@ -1732,9 +1755,18 @@ def _cmd_asr(args: argparse.Namespace) -> int:
             except asr.ASRDependencyError:
                 failed += 1
                 print(f"{label}: ASR dependency unavailable", file=sys.stderr)
-            except Exception:
+            except Exception as exc:
                 failed += 1
-                print(f"{label}: archive failed", file=sys.stderr)
+                # The `run` path states the code (`failed (ValueError)`), and
+                # this one used to print fixed text with no reason at all
+                # (QC3-F1).  `_safe_error_code` never throws and never echoes a
+                # payload: it reads `code`/`last_code` or the class name.
+                from .coordinator import _safe_error_code
+
+                print(
+                    f"{label}: archive failed ({_safe_error_code(exc)})",
+                    file=sys.stderr,
+                )
     finally:
         _print_in_process_constructions("asr", runner, asr_count.value)
         if runner is not None:
