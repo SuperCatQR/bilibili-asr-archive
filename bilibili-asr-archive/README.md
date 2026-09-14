@@ -131,6 +131,29 @@ what an archive recorded with
 
 The same glob rule as above applies: `"$ARCHIVE"` is quoted, `*.md` is not.
 
+An ASR transcript also records what the run measured — how much audio the VAD
+kept, and where the doubtful cues are — and a subtitle-sourced row records none
+of it, exactly as it records no other `asr_*` key:
+
+    grep -n '^asr_vad_' "$ARCHIVE"/transcripts/md/*.md
+    grep -n '^asr_low_confidence_at:' "$ARCHIVE"/transcripts/md/*.md
+
+`asr_vad_segments` (count), `asr_vad_captured_s` (seconds) and
+`asr_vad_captured_ratio` (`captured_s / duration_s`, clamped to `[0, 1]`)
+describe the stretches of audio the transcript actually covers; touching,
+overlapping and sub-second-adjacent cues count as one stretch, so the numbers
+are an acoustic estimate rather than a punctuation census. The seconds stay
+unclamped, and the ratio is omitted — not guessed — when the row's own
+`duration_s` is not a positive finite number, which leaves a
+duration/cue contradiction visible instead of smoothing it away.
+`asr_low_confidence_at` is the JSON list of start seconds whose cue scored at or
+below the archived low-confidence threshold, ascending, 3 decimals, duplicates
+kept. It is emitted together with `asr_low_confidence_cues` under one rule: both
+are present whenever the transcript carries any score — `0` and `[]` when no cue
+is at or below the threshold — and neither is written when it carries none.
+Because the list names where the doubts are, the count and the list cannot
+disagree, and a reader can recompute both from the raw sidecar's `segments`.
+
 A per-item `bili-asr asr --bvid <bvid>` loop forfeits that reuse: it is one
 process per video, and the run-scoped reuse above does not cross a process
 boundary, so every invocation builds its own model before it transcribes
@@ -168,7 +191,7 @@ rejected pays none of them. Such a load leaves no model behind, so the next row
 retries the same load: an N-row batch whose every load fails performs N attempts
 and **prints no reuse line** — it paid no construction and produced no
 transcript, so the guard above falls silent. Its failures are reported per row
-instead (`run: <work_id>: failed (ASRModelError)`, `asr: <label>: archive
+instead (`run: <work_id>: failed (ASRModelError)`, `<work_id>: archive
 failed`), and no command prints the attempt count.
 
 That count is recorded, not printed: it lives on `ASRRunner.model_load_attempts`,

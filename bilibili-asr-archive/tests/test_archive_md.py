@@ -775,6 +775,13 @@ def test_two_unreadable_starts_may_swap_the_exception_type_but_never_publish(tmp
     """
 
     tmp_path = __import__("pathlib").Path(tmp_root)
+    # Each failing write gets its own root below ``tmp_root``, so the assertion
+    # is about *this row's* publication rather than about the fixture directory:
+    # a whole-root scan passes only while the failing write is the first thing
+    # in a fresh root, and fails for an unrelated reason as soon as any other
+    # row has published there.
+    first_root = tmp_path / "swap-first"
+    first_root.mkdir()
     # Document order puts the non-low missing start first; low-filter order puts
     # the low malformed start first, which is what swaps KeyError -> ValueError.
     segments = [
@@ -784,24 +791,26 @@ def test_two_unreadable_starts_may_swap_the_exception_type_but_never_publish(tmp
 
     with pytest.raises(ValueError):
         write_archive(
-            tmp_path, _confidence_entry("BV1swap"), segments, source="asr"
+            first_root, _confidence_entry("BV1swap"), segments, source="asr"
         )
     assert not [
-        path for path in tmp_path.rglob("*") if path.is_file()
+        path for path in first_root.rglob("*") if path.is_file()
     ], "a row that fails must publish nothing, whichever start it failed on"
 
     # The other order: the same two bad starts, and it is still a failure that
     # publishes nothing — the row's fate does not depend on which came first.
+    second_root = tmp_path / "swap-second"
+    second_root.mkdir()
     swapped = [
         {"start": "nope", "end": 1.0, "text": "甲。", "confidence": 0.1},
         {"end": 2.0, "text": "乙。", "confidence": 0.9},
     ]
     with pytest.raises(ValueError):
         write_archive(
-            tmp_path, _confidence_entry("BV1swap2"), swapped, source="asr"
+            second_root, _confidence_entry("BV1swap2"), swapped, source="asr"
         )
     assert not [
-        path for path in tmp_path.rglob("*") if path.is_file()
+        path for path in second_root.rglob("*") if path.is_file()
     ], "still publishes nothing"
 
 
@@ -827,14 +836,19 @@ def test_a_non_finite_start_is_rejected_by_rounding_to_milliseconds(tmp_root, st
     """
 
     tmp_path = __import__("pathlib").Path(tmp_root)
+    # The failing row publishes into its own root, so "nothing was published"
+    # is a statement about this row rather than about the fixture directory
+    # (the successful boundary row below shares ``tmp_root``).
+    rejected_root = tmp_path / "unscalable"
+    rejected_root.mkdir()
     segment = {"start": start, "end": 2.0, "text": "甲。", "confidence": 0.1}
 
     with pytest.raises(expected):
         write_archive(
-            tmp_path, _confidence_entry("BV1unscalable"), [segment], source="asr"
+            rejected_root, _confidence_entry("BV1unscalable"), [segment], source="asr"
         )
     assert not [
-        path for path in tmp_path.rglob("*") if path.is_file()
+        path for path in rejected_root.rglob("*") if path.is_file()
     ], "nothing may be published for an unrepresentable start"
 
     # The near side of the boundary: large, still scalable, still publishes.

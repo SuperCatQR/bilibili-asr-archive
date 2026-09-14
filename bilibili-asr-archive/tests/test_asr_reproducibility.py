@@ -1371,6 +1371,12 @@ def test_readme_publishes_the_declaration_surface_and_the_attempt_rule():
     assert "^asr_model_name:" in text
     assert "^asr_model_revision:" in text
     assert "[redacted]" in text
+    # The measured facts (A5), documented with the greps spec 04 names, and the
+    # failure line the CLI actually prints on stderr: `<work_id>: archive
+    # failed` (cli.py L1737) — there is no `asr: ` prefix to quote.
+    assert "^asr_vad_" in text
+    assert "^asr_low_confidence_at:" in text
+    assert "asr: <label>: archive" not in text
     # R1: the counter's scope and the per-row retry are documented, not implied.
     assert "model_load_attempts" in text
     assert "successful constructions" in text
