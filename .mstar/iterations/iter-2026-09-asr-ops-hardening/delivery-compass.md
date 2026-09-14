@@ -1,8 +1,9 @@
 ---
 iteration_id: iter-2026-09-asr-ops-hardening
 title: "ASR operational hardening: truthful GPU enablement, batch model reuse, unified quality signals, declared provenance identity"
-status: locked
+status: completed
 start_date: 2026-09-12
+end_date: 2026-09-13
 iteration_base_branch: main
 spec_integration_branch: iteration/iter-2026-09-asr-ops-hardening
 target_branch: main
@@ -161,7 +162,7 @@ re-opens them as defects:
 
 ## Roadmap Position
 
-- **Current iteration（iter-2026-09-asr-ops-hardening）**：turns the 2026-09-12 ten-video
+- **Current iteration（iter-2026-09-asr-ops-hardening）— `delivered` (2026-09-13)**：turned the 2026-09-12 ten-video
   GPU run's measured defects into documented, testable behaviour: truthful GPU enablement
   (A1), reachable model reuse (A2), a single quality surface (A3), declared provenance
   identity (A4), and the two observability facts the run could not answer (A5) — with the
@@ -224,10 +225,15 @@ criterion it defends.
 
 | plan_id | QC decision | QA gate | Residuals | Durable summary |
 |---------|-------------|---------|-----------|-----------------|
-| 20260912-gpu-enablement-truth | — | — | — | — |
-| 20260912-batch-model-reuse | — | — | — | — |
-| 20260912-quality-signal-merge | — | — | — | — |
-| 20260912-asr-provenance-identity | — | — | — | — |
+| 20260912-gpu-enablement-truth | Approve with residuals (tri N=3: 0 Critical / 5 Important / 10 Warning, all closed by two fix waves) | Approve with residuals — suite 1402 passed / 4 skipped | R1 (medium, re-targeted to the next iteration), R2 + N-3 (low) | GPU enablement is now a *checked* recipe: `scripts/check_asr_env.py` (5 stages, exit 0/1/2) plus `docs/wsl-rocm-gpu.md`; A1(i)/(ii) remain an operator action on the target box |
+| 20260912-batch-model-reuse | Approve with residuals (tri N=3: 0 Critical; seats 1/2/3 independently found the same Important) | Approve with residuals — suite 1432 passed / 4 skipped | R1 closed at the provenance plan; R2 (low) | The in-process loops honour the run-scoped reuse rule and the cost is visible: one `<command>: model constructions=<n> for <m> asr item(s)` line per batch on stderr, printed whenever a construction was paid |
+| 20260912-quality-signal-merge | Approve with residuals (tri N=3: 0 Critical / 6 Important, all closed by one fix wave) | Approve with residuals — suite 1491 passed / 4 skipped | R1 (low, `asr_low_confidence_at` has no surface yet), R2 (low, ngram scan bound) | One quality surface: defect codes decide validity while content codes are advisory, and `scripts/asr_quality.py` is retired with its map verified |
+| 20260912-asr-provenance-identity | Approve with residuals (tri N=3: 0 Critical / 1 Important / 2 Warning / 8 Suggestion, all closed or recorded) | Approve with residuals — suite 1565 passed / 4 skipped | R1 (low, the attempt count has no operator surface), R2 (low, unbounded load retries) | The archive names its producer (`BILI_ASR_MODEL_ID`), records how much audio the VAD captured, and says where the doubt is |
+
+**Iteration-level notes**
+
+- Every plan passed a tri-review (N=3, one batch) with **zero Critical**; the recurring defect class this iteration hunted was *documentation asserting behaviour the code does not have* — it was found and closed four times (GPU README path, the reuse line's stream, the zero-ASR claim, the attempt-count paragraph).
+- A6 held all iteration: `tests/test_asr_cues.py` and `tests/fixtures/asr-cues/` are byte-identical across every plan's diff, so no quality change came from moving the text.
 
 Notes:
 
@@ -236,16 +242,69 @@ Notes:
 
 ## Compound Round Summary
 
-> Filled at iteration-close.
+> Filled at iteration-close (2026-09-13). Package inventory: `{ITERATION_DIR}/iter-2026-09-asr-ops-hardening/**`
+> (4 specs + 3 guides, compass excluded by default).
 
-- 结晶文档数：<N>
-- 新增 CONCEPTS.md 条目：<N>
-- 触发 compound-refresh：<是/否>
+- **结晶文档数：1 新增 + 2 刷新**（无新领域词，故 `CONCEPTS.md` 无新增条目）
+  - **新增** `{KNOWLEDGE_DIR}/architecture-patterns/wsl-rocm-gpu-asr.md` — the WSL2/AMD GPU enablement recipe:
+    the working ROCm/vendor-wheel pairing (the upstream ROCm wheel aborts inside the profiler), the HSA runtime
+    plus DXG detection that make the device visible, the failure chain each symptom maps to, and the five-stage
+    host self-check that turns a rotted recipe into a loud host failure. Q1–Q8: 7 Yes, Q5 low → new doc.
+  - **刷新** `{KNOWLEDGE_DIR}/architecture-patterns/run-scoped-asr-provenance.md` — the per-batch reuse line and its
+    stderr contract, the declared identity that occupies the `model_name` slot, the separator-aware redaction rule,
+    the VAD capture facts, the located low-confidence cues, and attempted-vs-successful construction counters.
+  - **刷新** `{KNOWLEDGE_DIR}/architecture-patterns/operational-sidecars.md` — the two-class quality vocabulary
+    (defect codes decide validity, content codes are advisory), the retired parallel quality script with its
+    per-artefact-shape parity, and the bounded `--reference` comparison.
+- **Package triage**（7 篇：1 new-candidate promoted、2 refreshed into existing docs、3 keep-snapshot、1 skipped）
+  - **Promote** → `specs/01-gpu-enablement.md` (the GPU environment knowledge no existing doc covered).
+  - **Refresh into existing** → `specs/02-batch-reuse.md` and `specs/04-provenance-observability.md` feed
+    `run-scoped-asr-provenance.md`; `specs/03-quality-surface.md` feeds `operational-sidecars.md`. Q5 high overlap
+    each time, so no new doc was created (duplicates degrade the store).
+  - **Keep snapshot** → `guides/2026-09-12-ten-video-audit.md` (measurement evidence whose numbers move with the
+    corpus), `guides/hygiene-report.md` (iteration history, partly superseded by `{SPECS_DIR}`),
+    `guides/scope-rationale.md` (iteration history).
+  - **Skip** → `delivery-compass.md` (the default exclusion).
+- **索引登记**：新增 1 行 + 刷新 2 行 in `{KNOWLEDGE_DIR}/README.md`;7 docs ↔ 7 rows, verified.
+- **触发 compound-refresh：否** — no new doc overlaps an existing one, and the two refreshed docs absorbed their
+  iteration's knowledge in place.
+- **Validator note (honest)**: `mstar compound validate --knowledge-dir` reports `FAIL`, but the failure is the
+  validator's TypeScript reference heuristic applied to a Python project — it asserts that every back-ticked
+  ``Module.symbol`` has a matching `.ts`/`.js` module file and that path-shaped strings like `raw.json` exist as
+  files. **All 7 docs fail it, including the 4 this iteration never touched**, so it is a pre-existing global
+  mismatch, not a defect in these docs. The iteration-close-relevant assertions do pass in isolation:
+  `assertIndexRows` → `ok, 0 violations`, `scopeGuard` → `ok`, and the frontmatter schema + reference check pass
+  for the new doc when `repo_root` names this checkout (`compound validate: PASS`).
 
 ## Iteration Retrospective (minimal)
 
-> Filled at iteration-close.
+> Filled at iteration-close (2026-09-13).
 
-- 做得好的：
-- 可改进的：
-- 下迭代建议：
+- **做得好的：**
+  - Every plan was scoped from *measured* evidence (the 2026-09-12 ten-video audit) rather than from reading, so
+    each of the five spec points closed a defect that had a number attached to it (26 % of wall time in model
+    reconstruction; 1–15 unexplained gaps per video; `asr_model_name: "[redacted]"` on every row).
+  - The tri-review (N=3, one batch, distinct lenses) earned its cost three times: the seats independently found the
+    same paid-but-empty defect in plan 2, the unbounded comparison and the underscore-adjacent credential leak in
+    plan 3, and the no-load host probe in plan 4 — each of which a single seat or a task review alone had missed.
+  - A6 (the cue text held still) made "did we change quality?" answerable by `git diff --stat` on one file plus one
+    fixture, so every plan could claim no text regression without re-measuring quality.
+  - The recurring defect class — *documentation asserting behaviour the code does not have* — was caught and closed
+    four separate times, and each close added a test that would fail if the claim drifted back.
+- **可改进的：**
+  - The spec amendments were initially written at the level of *intent* rather than *predicate*: plan 4 D4.3's
+    first amendment said "hub-level only", which does not fix the defect because any slash-qualified string passes
+    `hub_level` — the implementer had to implement the intent and hand the PM a corrected sentence.
+  - Two implementer dispatches died mid-run and left uncommitted work (both recovered by a resume pass), and three
+    QC seats needed nudging to write their reports; long dispatch prompts were the common factor.
+  - The plan-3 `files:` list did not include `scripts/verify_baseline.py`, so a medium residual (R1) shipped
+    unowned and had to be re-targeted at plan QC rather than at planning time.
+- **下迭代建议：**
+  - Carry the inherited medium residual R1 (`verify_baseline.py`'s staged tree still cannot collect
+    `tests/test_check_asr_env.py`, `rc=2`) into the next iteration's first plan — it is a ~2-line fix in a file no
+    plan in this iteration owned.
+  - Resolve the two open operator-surface residuals (R1/R2 from the provenance plan): the model-load attempt count
+    is recorded but printed nowhere, and load retries are unbounded per row.
+  - When a plan's acceptance names a *host* check, write the probe as a load-exercising command from the start:
+    `provenance()` sets the key without touching the model, and the difference cost one review round.
+  - Resume corpus acquisition at scale on the hardened path (63 visible parts, ≈ 93 h of audio).
