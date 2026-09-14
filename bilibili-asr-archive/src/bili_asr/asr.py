@@ -146,6 +146,18 @@ DEFAULT_HOTWORDS: tuple[str, ...] = (
     "定在",
     "自为",
     "理念性",
+    # Latin-script terms the corpus actually speaks.  The Chinese-language model
+    # fragments these into shards when they are missing from the prompt (measured
+    # 2026-09-14 on the ten-video run: "International Employment Matters Tribunal"
+    # came out as tryBUNAL / FOR EMP LOYMENT MAT TERS, and the ITEM/AITEM pair as
+    # TEM / AITM / ITM).  They are listed as whole phrases as well as acronyms so
+    # the decoder has both the spelled-out form and the initialisms.
+    "ITEM",
+    "AITEM",
+    "International Employment Matters Tribunal",
+    "International",
+    "Employment",
+    "Tribunal",
 )
 
 #: VAD component that segments long recordings before the ASR model sees them.
