@@ -30,8 +30,15 @@ and *where* the doubt is. The operator declares the hub-level identity through `
   operator would believe the archive names its producer.
 - **D4.3 Precedence in `provenance()`** (asr.py L396–413): (1) declared `model_id`; (2) else the configured `model_name`
   when it is itself redaction-safe (`_MODEL_IDENTIFIER.fullmatch`, the existing rule L405–407); (3) else `[redacted]`. If
-  `model_name` is *itself* a safe identifier and differs from a declared `model_id`, construction raises `ValueError` — a
-  declaration contradicting the load value would make the archive lie. *Rejected:* emitting a separate `asr_model_id` key —
+  `model_name` is *itself* a **hub-level** safe identifier (`hub_level=True`) and differs from a declared `model_id`,
+  construction raises `ValueError` — a declaration contradicting the load value would make the archive lie.
+  **Amended twice at plan QC (seat 2, F-002, 2026-09-13).** First attempt said "hub-level only
+  (`hub_level=True`)" — that does **not** fix the defect, because `hub_level` is satisfied by any slash-qualified
+  string: `models/Fun-ASR-Nano-2512` and `Qwen/Qwen2.5-7B` both pass it (measured). The predicate is therefore
+  **hub-level AND the value must not resolve to a directory on this machine**: a configured `model_name` that names
+  an existing local directory is a load *location*, not a competing identity, so it cannot contradict a declaration.
+  That keeps exactly the case this route exists for (two different hub ids) and stops punishing the documented
+  relative-path form. Both directions are pinned by test. *Rejected:* emitting a separate `asr_model_id` key —
   two keys for one identity drift, and A4 names `asr_model_name` as the carrier.
 - **D4.4 `model_id` is a slot replacement, never a key.** `provenance()` keeps exactly the nine keys
   `::test_provenance_has_stable_redacted_configuration_keys` (L221–224) pins, in the same order: `model_id` is skipped while
@@ -126,3 +133,19 @@ draft.
    asr_low_confidence_cues` from `raw.json` plus `duration_s`, on the 2026-09-12 output root.
 3. Confirm D4.5's assumption on the host (one load with the revision declared, one without) and record the outcome; if it
    fails, record the amendment request first.
+
+## Plan-QC amendments (2026-09-13)
+
+**D4.10 — zero-length cues are skipped when computing the capture facts** (plan QC seat 1 S-5, seat 2's
+non-scored totality note). `normalize_result` can emit a text-only cue with `start == end == 0.0`
+(`asr.py`) — a `zero-length` cue, `start == end == 0.0` — and the merger drops it so the published `asr_vad_segments` / `captured_s` count only real
+spans; without the skip a naive recompute from `raw.json` would read one more segment than the archive
+publishes. The shipped `<=` fusion boundary (a gap of exactly `CAPTURE_GAP_SECONDS` fuses) is the correct
+capture reading and is pinned by test; the docstring's original "sub-second-adjacent" phrasing was wrong
+(seat 2 F-004) and has been corrected in code.
+
+**The capture keys answer "how much", not "where"** (seat 3 F-2): they discriminate a speaker pause from a
+VAD miss on real material (24 spans / 413.63 s / 0.921 straight-through; 25 / 413.63 / 0.767 with a 90 s
+pause injected; 19 / 334.76 / 0.621 with 90 s of cues deleted), but localising a doubtful stretch still
+requires `raw.json`. `asr_low_confidence_at` is O(cues) in one YAML line (20 000 all-low cues ≈ 169 KiB) —
+linear, bounded, and no reader breaks.

@@ -85,7 +85,7 @@ both.
 |---------|------|--------|-------|
 | 20260912-gpu-enablement-truth | Verified GPU enablement: docs, runtime hint, environment self-check | Done | Spec point 1; merge `5ee7832` |
 | 20260912-batch-model-reuse | Batch model-reuse contract on the documented path | Done | Spec point 2; merge `27ac740` |
-| 20260912-quality-signal-merge | Content-quality reasons folded into the existing quality surface | Todo | Spec point 3 |
+| 20260912-quality-signal-merge | Content-quality reasons folded into the existing quality surface | Done | Spec point 3; merge `6ab1ad2` |
 | 20260912-asr-provenance-identity | Declared model identity + VAD capture and low-confidence locations in provenance | Todo | Spec points 4–5 |
 
 Status values: `Todo` | `InProgress` | `InReview` | `Done` | `Blocked`
