@@ -54,10 +54,26 @@ _NO_SECRET_MARKERS = (
 
 
 def _audio_target(path: str) -> str:
+    """Name the audio the model read, from the fixture body that identifies it.
+
+    The runner hands the model a guarded descriptor, and the ASR boundary
+    copies it to a short-lived temp file, so the model's path names no durable
+    file.  ``_write_audio`` writes the row id into the body, which does.
+    """
+    candidates = [path]
     try:
-        return os.readlink(path)
+        candidates.append(os.readlink(path))
     except OSError:
-        return path
+        pass
+    for candidate in candidates:
+        try:
+            with open(candidate, "rb") as fh:
+                body = fh.read()
+        except OSError:
+            continue
+        if body.startswith(AUDIO_BYTES):
+            return body[len(AUDIO_BYTES):].decode("utf-8", "replace")
+    return path
 
 
 def _row(identity, *, status="meta_ok", duration_s=5, title="clip", **extra):
@@ -118,7 +134,9 @@ def _write_audio(root, identity):
     path = os.path.join(root, "audio", f"{artifact_stem(identity)}.m4a")
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "wb") as fh:
-        fh.write(b"\x00" * 16)
+        # The row id rides in the body so a test can name the audio a model
+        # read even after the boundary copied it to a temp file.
+        fh.write(AUDIO_BYTES + artifact_stem(identity).encode("utf-8"))
     return path
 
 
@@ -536,7 +554,14 @@ def test_schedule_mixed_failure_exits_1_failed_scope_retries(
             raise asr_mod.ASRModelError("model failed")
         return [{"start": 0.0, "end": 1.0, "text": "ok"}]
 
-    monkeypatch.setattr(asr_mod, "transcribe", flaky)
+    # D2.5 seam: `schedule` runs the shared coordinator, which builds its
+    # model through this factory; the injected per-row failure must land there.
+    class FakeModel:
+        def generate(self, **kwargs):
+            return flaky(kwargs["input"])
+
+    monkeypatch.setenv("BILI_ASR_DEVICE", "cpu")
+    monkeypatch.setattr(asr_mod, "_load_default_model", lambda **_kw: FakeModel())
     _patch_cli(monkeypatch, RouterTransport(_base_routes()))
 
     rc = main([
@@ -813,3 +838,53 @@ def test_schedule_resume_skips_only_terminal_not_budget_rows(
     assert loaded[budget_id.work_id]["status"] == "needs_audio"
     assert budget_id.work_id not in _scheduler(tmp_root)["processed_work_ids"]
     _assert_no_secrets(captured, tmp_root)
+
+
+# ------------------------------------------------------------ reuse line label
+
+
+def test_schedule_reuse_line_names_schedule_not_run(tmp_root, monkeypatch, capsys):
+    """D2.6: `schedule` wraps the shared `run_batch`, so it must relabel it.
+
+    Three audio_ok rows with audio already on disk; the coordinator path builds
+    one model for the batch and the line says which command paid it.
+    """
+
+    identities = [
+        page_identity(f"BVsch{index}", 0, 600 + index, "p0") for index in range(3)
+    ]
+    store = ManifestStore(root=tmp_root)
+    for identity in identities:
+        store.upsert(_row(
+            identity, status="audio_ok",
+            audio_path=f"audio/{artifact_stem(identity)}.m4a",
+        ))
+        _write_audio(tmp_root, identity)
+    _patch_cli(monkeypatch, RouterTransport(_base_routes()))
+
+    constructed: list[dict] = []
+
+    class FakeModel:
+        def generate(self, **_kwargs):
+            return [{"text": "schedule-asr", "timestamp": [[0, 1000]]}]
+
+    def factory(**kwargs):
+        constructed.append(dict(kwargs))
+        return FakeModel()
+
+    monkeypatch.setenv("BILI_ASR_DEVICE", "cpu")
+    monkeypatch.setattr(asr_mod, "_load_default_model", factory)
+
+    rc = main([
+        "schedule", "--scope", "pending", "--limit", "3",
+        "--archive-root", tmp_root,
+    ])
+    captured = capsys.readouterr()
+
+    assert rc == 0, captured.err
+    assert len(constructed) == 1
+    assert "schedule: model constructions=1 for 3 asr item(s)" in captured.err
+    assert "run: model constructions=" not in captured.err
+    assert "model constructions=" not in captured.out
+    loaded = ManifestStore(root=tmp_root).load()
+    assert [loaded[i.work_id]["status"] for i in identities] == ["archived"] * 3

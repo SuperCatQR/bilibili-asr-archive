@@ -35,13 +35,61 @@ from test_audio import (
     playurl_ok,
 )
 from test_subtitles import SAMPLE_DOC, nav_ok, player_ok, sub_entry
+from conftest import reuse_line
 
 
-def _audio_target(path: str) -> str:
+def _model_input_bytes(path: str) -> bytes:
+    """The audio the model was handed, read while the path still resolves."""
     try:
-        return os.readlink(path)
+        with open(os.fspath(path), "rb") as fh:
+            return fh.read()
     except OSError:
-        return path
+        return b""
+
+
+class _FakeModel:
+    """Stands in for the FunASR AutoModel the runner builds lazily."""
+
+    def __init__(self, calls=None):
+        self._calls = calls
+
+    def generate(self, **kwargs):
+        if self._calls is not None:
+            self._calls.append(
+                (kwargs["input"], _model_input_bytes(kwargs["input"]))
+            )
+        return [{"start": 0.0, "end": 1.0, "text": "asr-text"}]
+
+
+def _stub_runner_model(monkeypatch, calls=None, released=None):
+    """D2.5 seam: patch the module-level factory, not ``asr.transcribe``.
+
+    ``calls`` records each generation as ``(input path, bytes read)``: the
+    pipeline hands the model a ``/proc/self/fd/N`` descriptor, so the body is
+    what names the confined audio file the row was transcribed from.  Returns
+    the list of construction kwargs.
+
+    ``released`` records each ``ASRRunner.release()`` call, so a test can
+    assert the invocation-scoped runner is handed back on every exit path.
+    """
+    constructions: list[dict] = []
+
+    def factory(**kwargs):
+        constructions.append(dict(kwargs))
+        return _FakeModel(calls)
+
+    if released is not None:
+        real_release = asr_mod.ASRRunner.release
+
+        def recording_release(self):
+            released.append(self)
+            real_release(self)
+
+        monkeypatch.setattr(asr_mod.ASRRunner, "release", recording_release)
+
+    monkeypatch.setenv("BILI_ASR_DEVICE", "cpu")
+    monkeypatch.setattr(asr_mod, "_load_default_model", factory)
+    return constructions
 
 
 def _row(identity, *, duration_s, title="clip"):
@@ -72,13 +120,9 @@ def test_cli_pilot_mixed_meta_ok_archives_both_branches(tmp_root, monkeypatch, c
     store.upsert(_row(sub, duration_s=5, title="has-sub"))
     store.upsert(_row(aud, duration_s=8, title="needs-asr"))
 
-    transcribe_calls: list[str] = []
+    transcribe_calls: list[tuple[str, bytes]] = []
 
-    def fake_transcribe(audio_path, model_name=None):
-        transcribe_calls.append(_audio_target(audio_path))
-        return [{"start": 0.0, "end": 1.0, "text": "asr-text"}]
-
-    monkeypatch.setattr(asr_mod, "transcribe", fake_transcribe)
+    constructions = _stub_runner_model(monkeypatch, transcribe_calls)
     transport = RouterTransport(
         {
             "finger/spi": [SPI_OK],
@@ -98,6 +142,10 @@ def test_cli_pilot_mixed_meta_ok_archives_both_branches(tmp_root, monkeypatch, c
     assert "SECRET-SESS" not in captured.err
     assert "pilot batch branches: subtitle=1, audio-asr=1" in captured.out
     assert "pilot coverage branches: subtitle=1, audio-asr=1" in captured.out
+    # One invocation, one model construction, stated by the pilot itself.
+    assert len(constructions) == 1
+    assert "pilot: model constructions=1 for 1 asr item(s)" in captured.err
+    assert "model constructions=" not in captured.out
 
     loaded = ManifestStore(root=tmp_root).load()
     assert loaded[sub.work_id]["status"] == "archived"
@@ -107,9 +155,7 @@ def test_cli_pilot_mixed_meta_ok_archives_both_branches(tmp_root, monkeypatch, c
     assert os.path.isfile(os.path.join(tmp_root, loaded[aud.work_id]["srt_path"]))
     # post-archive audio reclaim: m4a removed once the row is archived
     assert not os.path.exists(os.path.join(tmp_root, loaded[aud.work_id]["audio_path"]))
-    assert transcribe_calls == [
-        os.path.join(tmp_root, "audio", f"{artifact_stem(aud)}.m4a")
-    ]
+    assert [body for _path, body in transcribe_calls] == [AUDIO_BYTES]
     player = [c for c in transport.calls if "player/wbi/v2" in c["url"]]
     assert [c["params"]["cid"] for c in player] == [111, 222]
     sess_calls = [c for c in transport.calls if c["cookies"].get("SESSDATA") == "SECRET-SESS"]
@@ -129,10 +175,8 @@ def test_cli_pilot_multipart_processes_every_page(tmp_root, monkeypatch, capsys)
 
     monkeypatch.setattr(
         asr_mod,
-        "transcribe",
-        lambda audio_path, model_name=None: [
-            {"start": 0.0, "end": 1.0, "text": "page-asr"}
-        ],
+        "_load_default_model",
+        lambda **_kwargs: _FakeModel(),
     )
     transport = RouterTransport(
         {
@@ -177,10 +221,8 @@ def test_cli_pilot_audio_ok_reuses_local_audio_when_budget_is_full(
 
     monkeypatch.setattr(
         asr_mod,
-        "transcribe",
-        lambda path, model_name=None: [
-            {"start": 0.0, "end": 1.0, "text": "asr-text"}
-        ],
+        "_load_default_model",
+        lambda **_kwargs: _FakeModel(),
     )
     monkeypatch.setattr(
         audio_mod,
@@ -214,10 +256,8 @@ def test_cli_pilot_missing_subtitle_branch_exits_nonzero(tmp_root, monkeypatch, 
     ManifestStore(root=tmp_root).upsert(_row(only, duration_s=4))
     monkeypatch.setattr(
         asr_mod,
-        "transcribe",
-        lambda audio_path, model_name=None: [
-            {"start": 0.0, "end": 1.0, "text": "only-asr"}
-        ],
+        "_load_default_model",
+        lambda **_kwargs: _FakeModel(),
     )
     transport = RouterTransport(
         {
@@ -266,10 +306,8 @@ def test_cli_pilot_summary_separates_batch_and_prior_coverage(
 
     monkeypatch.setattr(
         asr_mod,
-        "transcribe",
-        lambda audio_path, model_name=None: [
-            {"start": 0.0, "end": 1.0, "text": "asr-text"}
-        ],
+        "_load_default_model",
+        lambda **_kwargs: _FakeModel(),
     )
     _patch_cli(monkeypatch, _mixed_transport())
 
@@ -285,13 +323,9 @@ def test_cli_pilot_completed_rerun_skips_archived(tmp_root, monkeypatch, capsys)
     store = ManifestStore(root=tmp_root)
     store.upsert(_row(sub, duration_s=5, title="has-sub"))
     store.upsert(_row(aud, duration_s=8, title="needs-asr"))
-    transcribe_calls: list[str] = []
+    transcribe_calls: list[tuple[str, bytes]] = []
 
-    def fake_transcribe(audio_path, model_name=None):
-        transcribe_calls.append(_audio_target(audio_path))
-        return [{"start": 0.0, "end": 1.0, "text": "asr-text"}]
-
-    monkeypatch.setattr(asr_mod, "transcribe", fake_transcribe)
+    _stub_runner_model(monkeypatch, transcribe_calls)
     _patch_cli(monkeypatch, _mixed_transport())
     assert main(["pilot", "--n", "2", "--archive-root", tmp_root]) == 0
     capsys.readouterr()
@@ -333,12 +367,13 @@ def test_cli_pilot_missing_asr_dependency_does_not_archive(tmp_root, monkeypatch
     store.upsert(_row(aud, duration_s=8, title="needs-asr"))
     hint = 'pip install -e "bilibili-asr-archive/[asr]"'
 
-    def missing_asr(audio_path, model_name=None):
+    def missing_asr(**_kwargs):
         raise ASRDependencyError(
             f"FunASR support is not installed; run: {hint}"
         )
 
-    monkeypatch.setattr(asr_mod, "transcribe", missing_asr)
+    monkeypatch.setenv("BILI_ASR_DEVICE", "cpu")
+    monkeypatch.setattr(asr_mod, "_load_default_model", missing_asr)
     _patch_cli(monkeypatch, _mixed_transport())
     rc = main(["pilot", "--n", "2", "--archive-root", tmp_root])
     captured = capsys.readouterr()
@@ -361,20 +396,19 @@ def test_cli_pilot_resume_after_partial_asr_counts_archived_subtitle(
     store.upsert(_row(sub, duration_s=5, title="has-sub"))
     store.upsert(_row(aud, duration_s=8, title="needs-asr"))
 
-    def missing_asr(audio_path, model_name=None):
+    def missing_asr(**_kwargs):
         raise ASRDependencyError("FunASR support is not installed")
 
-    monkeypatch.setattr(asr_mod, "transcribe", missing_asr)
+    monkeypatch.setenv("BILI_ASR_DEVICE", "cpu")
+    monkeypatch.setattr(asr_mod, "_load_default_model", missing_asr)
     _patch_cli(monkeypatch, _mixed_transport())
     assert main(["pilot", "--n", "2", "--archive-root", tmp_root]) == 1
     capsys.readouterr()
 
     monkeypatch.setattr(
         asr_mod,
-        "transcribe",
-        lambda audio_path, model_name=None: [
-            {"start": 0.0, "end": 1.0, "text": "asr-text"}
-        ],
+        "_load_default_model",
+        lambda **_kwargs: _FakeModel(),
     )
     _patch_cli(monkeypatch, _mixed_transport())
     rc = main(["pilot", "--n", "2", "--archive-root", tmp_root])
@@ -422,10 +456,11 @@ def test_cli_pilot_asr_model_error_names_exception(tmp_root, monkeypatch, capsys
     store.upsert(_row(sub, duration_s=5, title="has-sub"))
     store.upsert(_row(aud, duration_s=8, title="needs-asr"))
 
-    def boom(audio_path, model_name=None):
+    def boom(**_kwargs):
         raise ASRModelError("model failed")
 
-    monkeypatch.setattr(asr_mod, "transcribe", boom)
+    monkeypatch.setenv("BILI_ASR_DEVICE", "cpu")
+    monkeypatch.setattr(asr_mod, "_load_default_model", boom)
     _patch_cli(monkeypatch, _mixed_transport())
     rc = main(["pilot", "--n", "2", "--archive-root", tmp_root])
     captured = capsys.readouterr()
@@ -454,3 +489,181 @@ def test_cli_pilot_risk_budget_prints_branch_summary(tmp_root, monkeypatch, caps
     assert "risk-control ceiling" in captured.err
     assert "pilot batch branches:" in captured.out
     assert "pilot coverage branches:" in captured.out
+
+
+# ------------------------------------------------------------ one runner per invocation
+
+
+def test_cli_pilot_invocation_constructs_the_model_once_for_three_audio_rows(
+    tmp_root, monkeypatch, capsys
+):
+    """D2.3: the pilot's own loop holds one runner for its whole selection.
+
+    All three rows are ``audio_ok`` with audio already on disk, so they need
+    no network at all; three rows (rather than one) prove the selection is
+    wider than a single item.
+    """
+
+    identities = [
+        page_identity(f"BVpilot{index}", 0, 400 + index, "p0") for index in range(3)
+    ]
+    store = ManifestStore(root=tmp_root)
+    audio_dir = os.path.join(tmp_root, "audio")
+    os.makedirs(audio_dir)
+    for identity in identities:
+        row = _row(identity, duration_s=5, title="pilot-reuse")
+        row.update({
+            "status": "audio_ok",
+            "audio_path": f"audio/{artifact_stem(identity)}.m4a",
+        })
+        store.upsert(row)
+        with open(os.path.join(audio_dir, f"{artifact_stem(identity)}.m4a"), "wb") as fh:
+            fh.write(AUDIO_BYTES)
+
+    released: list[object] = []
+    constructions = _stub_runner_model(monkeypatch, released=released)
+    _patch_cli(monkeypatch, RouterTransport({}))
+
+    rc = main(["pilot", "--n", "3", "--archive-root", tmp_root])
+    captured = capsys.readouterr()
+
+    # Exit 1 is the frozen pilot contract here: no subtitle branch was covered.
+    assert rc == 1, captured.err
+    loaded = ManifestStore(root=tmp_root).load()
+    assert [loaded[i.work_id]["status"] for i in identities] == ["archived"] * 3
+    assert len(constructions) == 1
+    # The pilot's finally hands the invocation-scoped runner back exactly once.
+    assert len(released) == 1
+    assert "pilot: model constructions=1 for 3 asr item(s)" in captured.err
+    assert "model constructions=" not in captured.out
+
+
+def test_cli_pilot_releases_the_runner_when_the_loop_is_interrupted(
+    tmp_root, monkeypatch, capsys
+):
+    """The pilot's `finally` releases even when the row raises past `except`.
+
+    Every row-level ``except`` clause in ``_cmd_pilot`` catches ``Exception``,
+    so a ``KeyboardInterrupt`` mid-selection is the path where only the
+    `finally` can release the model — and that is exactly the interruption an
+    operator sends to a long pilot batch.
+    """
+
+    identity = page_identity("BVpilotint", 0, 777, "p0")
+    store = ManifestStore(root=tmp_root)
+    row = _row(identity, duration_s=5, title="pilot-interrupt")
+    row.update({
+        "status": "audio_ok",
+        "audio_path": f"audio/{artifact_stem(identity)}.m4a",
+    })
+    store.upsert(row)
+    audio_dir = os.path.join(tmp_root, "audio")
+    os.makedirs(audio_dir)
+    with open(os.path.join(audio_dir, f"{artifact_stem(identity)}.m4a"), "wb") as fh:
+        fh.write(AUDIO_BYTES)
+
+    released: list[object] = []
+
+    class InterruptingModel:
+        def generate(self, **_kwargs):
+            raise KeyboardInterrupt()
+
+    def factory(**_kwargs):
+        return InterruptingModel()
+
+    real_release = asr_mod.ASRRunner.release
+
+    def recording_release(self):
+        released.append(self)
+        real_release(self)
+
+    monkeypatch.setenv("BILI_ASR_DEVICE", "cpu")
+    monkeypatch.setattr(asr_mod.ASRRunner, "release", recording_release)
+    monkeypatch.setattr(asr_mod, "_load_default_model", factory)
+    _patch_cli(monkeypatch, RouterTransport({}))
+
+    with pytest.raises(KeyboardInterrupt):
+        main(["pilot", "--n", "1", "--archive-root", tmp_root])
+
+    assert len(released) == 1
+    assert ManifestStore(root=tmp_root).get(identity.work_id)["status"] == "audio_ok"
+
+
+# ------------------------------------------------- the pilot's asr_items denominator
+
+
+def _patch_bundle_incomplete_for(monkeypatch, failing):
+    """Fail the archive step for ``failing`` only, on the pilot's path.
+
+    The rows are seeded as ordinary ``audio_ok`` rows with their audio already
+    on disk, so they all reach the real transcription boundary.  This patch
+    then makes one of them fail *after* it produced its transcript: the real
+    ``write_archive`` runs, the real ``ValueError("archive bundle
+    incomplete")`` is raised, and the row keeps its ``audio_ok`` status.
+    """
+    from bili_asr import archive as archive_mod
+
+    stem = artifact_stem(failing)
+    real = archive_mod.archive_bundle_complete
+
+    def patched(archive_root, paths):
+        if any(stem in str(path) for path in paths.values()):
+            return False
+        return real(archive_root, paths)
+
+    monkeypatch.setattr(archive_mod, "archive_bundle_complete", patched)
+
+
+def test_cli_pilot_counts_the_row_that_fails_after_transcription(
+    tmp_root, monkeypatch, capsys
+):
+    """D2.5 for the pilot: the denominator counts the ASR stage, not the archive.
+
+    The pilot's increment used to sit in ``_cmd_pilot`` *after*
+    ``_pilot_archive_asr`` returned, so a row that transcribed and then failed
+    downstream dropped out of the line's denominator while ``run`` counted it
+    at ``asr: ok``.  Row 2 of 3 fails exactly there, so the placement is only
+    observable on this path: the wider selection must still read ``for 3``.
+    """
+
+    identities = [
+        page_identity(f"BVpilotfail{index}", 0, 500 + index, "p0") for index in range(3)
+    ]
+    failing = identities[1]
+    store = ManifestStore(root=tmp_root)
+    audio_dir = os.path.join(tmp_root, "audio")
+    os.makedirs(audio_dir)
+    for identity in identities:
+        row = _row(identity, duration_s=5, title="pilot-asr-count")
+        row.update({
+            "status": "audio_ok",
+            "audio_path": f"audio/{artifact_stem(identity)}.m4a",
+        })
+        store.upsert(row)
+        with open(os.path.join(audio_dir, f"{artifact_stem(identity)}.m4a"), "wb") as fh:
+            fh.write(AUDIO_BYTES)
+
+    constructions = _stub_runner_model(monkeypatch)
+    _patch_bundle_incomplete_for(monkeypatch, failing)
+    _patch_cli(monkeypatch, RouterTransport({}))
+
+    rc = main(["pilot", "--n", "3", "--archive-root", tmp_root])
+    captured = capsys.readouterr()
+
+    # Exit 1 is the frozen pilot contract here: no subtitle branch was covered.
+    assert rc == 1, captured.err
+    loaded = ManifestStore(root=tmp_root).load()
+    # The failing row transcribed, then failed at the archive tail, so it is
+    # neither archived nor lost: it keeps its pre-archive status.
+    assert [loaded[i.work_id]["status"] for i in identities] == [
+        "archived",
+        "audio_ok",
+        "archived",
+    ]
+    # One construction paid for three rows...
+    assert len(constructions) == 1
+    # ...and the line's denominator counts all three, the failed one included.
+    assert reuse_line(captured, "pilot") == (
+        "pilot: model constructions=1 for 3 asr item(s)"
+    )
+    assert "model constructions=" not in captured.out

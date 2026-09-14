@@ -121,8 +121,15 @@ def test_pilot_budget_skip_via_cli(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(bc, "build_default_transport", lambda: RouterTransport({}))
     monkeypatch.setattr(bc, "default_sleeper", lambda: (lambda _s: None))
     called = []
-    monkeypatch.setattr(asr_mod, "transcribe",
-                        lambda p: called.append(p) or [{"start": 0.0, "end": 1.0, "text": "x"}])
+    # D2.5 seam: patch the factory the runner builds through (the one-shot
+    # `asr.transcribe` wrapper is no longer on the pilot's path).
+    class FakeModel:
+        def generate(self, **_kwargs):
+            called.append(True)
+            return [{"start": 0.0, "end": 1.0, "text": "x"}]
+
+    monkeypatch.setenv("BILI_ASR_DEVICE", "cpu")
+    monkeypatch.setattr(asr_mod, "_load_default_model", lambda **_kw: FakeModel())
     rc = main(["pilot", "--n", "2", "--archive-root", str(tmp_path),
                "--max-audio-gb", "0.001"])
     captured = capsys.readouterr()

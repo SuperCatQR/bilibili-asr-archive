@@ -19,16 +19,54 @@ use:
 
 ### GPU Requirements (AMD 7800XT with ROCm)
 
-The ASR fallback uses GPU acceleration and requires:
-- AMD 7800XT GPU with ROCm 5.7+ drivers
-- PyTorch with ROCm support: `pip install torch --index-url https://download.pytorch.org/whl/rocm6.0`
-- FunASR: `pip install -e "bilibili-asr-archive/[asr]"`
+Ask the host instead of trusting a command list. Run this from
+`bilibili-asr-archive/` — the product directory, not the repository root above
+it — with the **same interpreter that holds torch**, which is the venv the
+recipe installs into (a `python3.12` probe of the system interpreter reports
+`torch-present FAIL` on a correctly built host):
 
-**Note**: AMD ROCm uses a CUDA-compatible layer (HIP), so PyTorch still uses `device="cuda"`.
+    export VENV=~/.venvs/bili-asr   # the venv that runs bili-asr
+    "$VENV/bin/python" scripts/check_asr_env.py
 
-For CPU-only mode, override device: `BILI_ASR_DEVICE=cpu` (slower, not recommended for large archives).
+It exits `0` iff all five stages of the verified AMD/WSL recipe hold together,
+`1` when any stage fails (printing the fix for each), and `2` for a usage error
+(an unrecognised argument; `-h`/`--help` exits `0`):
 
-For other GPU vendors (NVIDIA, Intel), see the [PyTorch installation guide](https://pytorch.org/get-started/locally/).
+| # | Stage | Invariant it asserts |
+|---|-------|----------------------|
+| 1 | `dxg-detection` | `/dev/dxg` exists **and** `HSA_ENABLE_DXG_DETECTION=1` |
+| 2 | `rocm-loader-path` | a `/opt/rocm-*/lib` directory is reachable by the dynamic loader |
+| 3 | `torch-present` | torch is importable and is a ROCm build (`torch.version.hip`) |
+| 4 | `hsa-runtime` | the `libhsa-runtime64.so` in the venv's `torch/lib` is the WSL-compatible system runtime |
+| 5 | `device-probe` | a subprocess reports a visible device and its `gcnArchName` (`gfx1101`) |
+
+That check is the only entry point named for "is my GPU usable for ASR". The
+verified recipe it asserts — ROCm runtime, ROCDXG transport, the
+**repo.radeon.com** torch wheel, the userspace libraries, the loader path, the
+WSL-compatible HSA runtime, and `HSA_ENABLE_DXG_DETECTION=1` — plus the three
+failure modes measured on 2026-09-12 are in
+[docs/wsl-rocm-gpu.md](docs/wsl-rocm-gpu.md). This README deliberately does not
+repeat the install commands: the recipe is environment surgery that `docs/`
+owns.
+
+**Note**: AMD ROCm uses a CUDA-compatible layer (HIP), so PyTorch still uses
+`device="cuda"`. A transcript archived on such a host records that in its own
+frontmatter — verify it with
+
+    ARCHIVE=/path/to/your/archive    # the archive root you passed to --archive-root
+    grep -n '^asr_device:' "$ARCHIVE"/transcripts/md/*.md
+
+which prints `asr_device: "cuda"`. A glob is required: the markdown bundle is
+named `{pubdate}_{bvid}.p{page}_<title>.md`, so there is no `<work_id>.md` to
+open. Only `"$ARCHIVE"` is quoted — that keeps an archive root containing spaces
+in one word — while `*.md` is left unquoted so the shell expands it into the
+bundle filenames `grep` searches.
+
+For CPU-only mode, override device: `BILI_ASR_DEVICE=cpu` (slower, not
+recommended for large archives). CPU mode needs none of the five invariants.
+
+For other GPU vendors (NVIDIA, Intel), see the
+[PyTorch installation guide](https://pytorch.org/get-started/locally/).
 
 The hardened archive/audio path requires POSIX descriptor operations
 (`dir_fd`, `O_NOFOLLOW`, and `/proc/self/fd` or `/dev/fd`). Linux and a
@@ -58,6 +96,144 @@ count, and output shape; run it directly with:
 
 This fixture does not establish hardware timing, model-weight pinning, network-free
 runtime, or full-corpus coverage.
+
+### Naming the producer: three variables, three jobs
+
+    BILI_ASR_MODEL=/srv/models/Fun-ASR-Nano-2512      # what the loader receives
+    BILI_ASR_MODEL_ID=FunAudioLLM/Fun-ASR-Nano-2512   # what the archive records
+    BILI_ASR_MODEL_REVISION=<pinned-revision>         # optional; loader kwarg + recorded
+
+`BILI_ASR_MODEL` is the checkpoint the loader is given — a hub id or a local
+directory — and it is **never** what a transcript records when it is a path.
+`BILI_ASR_MODEL_ID` is the operator's *declaration* of the hub-level identity
+behind that checkpoint: it never reaches the loader, and it fills the
+`asr_model_name` frontmatter slot instead of a key of its own, so the provenance
+key set does not change. The declaration is scanned by the same identifier rule
+the `model_name` slot already passes, and must additionally be slash-qualified:
+a bare name with no `/`, an
+absolute path (`/srv/models/...`, `C:\models\...`), a URL, or a
+credential-like value is rejected loudly with a non-zero exit rather than
+silently recorded, so the archive cannot claim a producer the operator did not
+name. The credential rule is separator-aware, not word-bounded: `token=x`,
+`token-x` and `token_x` all redact (an underscore is a word character, so a
+word-boundary rule would let the last form through), while an ordinary word such
+as `tokenizer` is left alone. That rule is shape-based, not path-aware: a
+*relative* path-shaped value such as `srv/models/Fun-ASR-Nano-2512` satisfies
+it and would be recorded verbatim, so declare the hub identity, not a relative
+path. Declaring an id that contradicts an already-safe hub-level `BILI_ASR_MODEL`
+is also an error — one of the two would be a lie. A `BILI_ASR_MODEL` that
+resolves to a directory on this machine is a checkpoint path whatever its
+spelling, so the documented relative form beside a truthful declaration is
+accepted rather than refused.
+
+Re-run the D4.5 load check on another host with
+`python3.12 scripts/probe_target_host_load.py`: it performs a real load twice
+(with and without `BILI_ASR_MODEL_REVISION` declared), prints the loader kwargs
+it observed, and exits non-zero unless both arms load. `BILI_ASR_PROBE_SOURCE`,
+`BILI_ASR_PROBE_SLICE` and `BILI_ASR_PROBE_SECONDS` override its example inputs;
+its default source path names the documented WSL2 ASR host's layout, not yours.
+
+With no declaration, `asr_model_name` keeps a configured id only when that id is
+itself redaction-safe, and is `[redacted]` otherwise: a local checkpoint
+directory records `[redacted]`, because a path is not an identifier. Read back
+what an archive recorded with
+
+    ARCHIVE=/path/to/your/archive    # the archive root you passed to --archive-root
+    grep -n '^asr_model_name:' "$ARCHIVE"/transcripts/md/*.md
+    grep -n '^asr_model_revision:' "$ARCHIVE"/transcripts/md/*.md
+
+The same glob rule as above applies: `"$ARCHIVE"` is quoted, `*.md` is not.
+
+An ASR transcript also records what the run measured — how much audio the VAD
+kept, and where the doubtful cues are. The two families follow different gates,
+and only the first is source-gated: a subtitle-sourced row records none of the
+**capture** keys, exactly as it records no other `asr_*` key, while the
+confidence pair below follows the pre-existing score rule (emitted whenever the
+transcript carries scores, whatever its source):
+
+    grep -n '^asr_vad_' "$ARCHIVE"/transcripts/md/*.md
+    grep -n '^asr_low_confidence_at:' "$ARCHIVE"/transcripts/md/*.md
+
+`asr_vad_segments` (count), `asr_vad_captured_s` (seconds) and
+`asr_vad_captured_ratio` (`captured_s / duration_s`, clamped to `[0, 1]`)
+describe the stretches of audio the transcript actually covers; touching,
+overlapping and cues at or below the shaper's 1.0 s pause threshold count as one
+stretch, so the numbers are an acoustic estimate rather than a punctuation
+census. The seconds stay unclamped, and the ratio is omitted — not guessed —
+when the row's own `duration_s` is not a positive finite number, which leaves a
+duration/cue contradiction visible instead of smoothing it away.
+Recompute them from the raw sidecar alone: sort the `segments` intervals larger
+than zero length, fuse any two whose start is at or below the previous end plus
+1.0 s, then take the span count, the summed duration (3 decimals) and
+`min(1.0, captured_s / duration_s)` — a zero-length cue describes no captured
+audio and is skipped, which is what makes the recompute exact.
+`asr_low_confidence_at` is the JSON list of start seconds whose cue scored at or
+below the archived low-confidence threshold, ascending, 3 decimals, duplicates
+kept. It is emitted together with `asr_low_confidence_cues` under one rule: both
+are present whenever the transcript carries any score — `0` and `[]` when no cue
+is at or below the threshold — and neither is written when it carries none.
+Because the list names where the doubts are, the count and the list cannot
+disagree, and a reader can recompute both from the raw sidecar's `segments`.
+The list is one entry per low cue, so that single frontmatter line grows with
+the cue count — linearly, and always smaller than the body it summarises,
+which repeats every cue's text.
+
+A per-item `bili-asr asr --bvid <bvid>` loop forfeits that reuse: it is one
+process per video, and the run-scoped reuse above does not cross a process
+boundary, so every invocation builds its own model before it transcribes
+anything. For more than a couple of items, prefer one bounded batch command,
+`bili-asr run --scope pending [--offline]`, which holds a single runner across
+the items it processes; `schedule` and `campaign` are bounded wrappers that call
+that same coordinator batch (`--limit N` is required on both). This is a
+property of one process, not of one command: a single
+`bili-asr asr --pending --limit N` invocation also holds one runner across its
+whole selection, so it is the per-item loop above, not the `asr` command, that
+forfeits the reuse.
+
+A batch that paid for a model or transcribed an item states it once, on
+**stderr**: `<command>: model constructions=<n> for <m> asr item(s)`, where
+`<n>` is the model constructions that batch itself paid and `<m>` the items it
+transcribed — for a three-item `run` that line is
+`run: model constructions=1 for 3 asr item(s)`. `<command>` names the
+invocation (`run`, `schedule`, `campaign`, `asr`, or `pilot`), because
+`schedule` and `campaign` share the coordinator's batch entry. The line is a
+diagnostic and never stdout: `campaign`'s stdout is a single JSON document that
+downstream callers parse and `run`'s stdout is its row report, so piping stdout
+to a file leaves this line on the terminal instead of in the file.
+
+The rule is "nothing was paid", not "no items were transcribed": when a batch
+built the model and then failed every transcription — the GPU, ROCm or
+checkpoint failure the line exists to expose — it still prints, with a zero
+denominator, as in `run: model constructions=1 for 0 asr item(s)`. A batch that
+neither constructed a model nor transcribed anything prints no line at all:
+subtitle-only work, or a batch whose every load failed (see below). If stderr is
+closed, the line is dropped rather than redirected, so `campaign`'s stdout stays
+one parseable JSON document.
+
+The printed count counts **successful constructions**, and a load the factory
+rejected pays none of them. Such a load leaves no model behind, so the next row
+retries the same load: an N-row batch whose every load fails performs N attempts
+and **prints no reuse line** — it paid no construction and produced no
+transcript, so the guard above falls silent. Its failures are reported per row
+instead (`run: <work_id>: failed (ASRModelError)`, `<work_id>: archive
+failed (ASRModelError)`), and no command prints the attempt count. Both paths
+name the exception class beside the row, so a failure an operator can act on is
+not just the words `archive failed`.
+
+A malformed declaration is refused **before the first row** on the `asr` path:
+the command reads the environment knobs once at entry, prints the `ValueError`'s
+own message — the variable's name, and for a contradiction the two values — and
+exits 1 without archiving anything. The per-row failure line above remains the
+backstop for a row that fails later for another reason.
+
+That count is recorded, not printed: it lives on `ASRRunner.model_load_attempts`,
+beside the construction counter. It counts every factory invocation, successful
+or not, so `model_load_attempts - model_constructions` is exactly the number of
+failed loads a run paid for, and `model_load_attempts >= model_constructions`
+always holds (equal when every load succeeded). It is an in-process surface: a
+batch that cannot load its checkpoint at all leaves its N retries visible only
+to a caller that holds the runner, while the reuse line's only number stays
+constructions.
 
 ## Deterministic verification baseline
 
@@ -132,6 +308,14 @@ harvest (see the boundary bullet under
     bili-asr verify --trusted-local --archive-root archive
     bili-asr recover --archive-root archive --work-id <work-id>
     bili-asr evaluate-concurrency --evidence evidence.json --thresholds thresholds.json
+
+Every `--bvid` command example in this README carries a real video id, so those
+are paste-ready as they stand. The `<bvid>` placeholder survives in exactly one
+place: the `bili-asr asr --bvid <bvid>` form quoted in the reuse note above,
+written the way `scripts/check_asr_env.py` prints it. Usage synopsis lines (such
+as `run --scope pending|failed|<work_id>...`) are argument grammar, not commands
+to paste. A shell reads a bare `<word>` as redirection, so substitute your own
+value before running any line that still carries one.
 
 ### Concurrency safety evidence gate
 
@@ -343,10 +527,12 @@ The denominator is the selected manifest snapshot in work-item units; if the man
 
   **Subtitle and transcript artifact quality signals (`--quality`)**:
   - Subtitle-first quality provides **deterministic artifact validation only**; it explicitly makes **no claim of semantic correctness**, grammar correctness, or language fluency.
-  - Reason codes are bounded and frozen: `empty` (empty artifact body/lines), `malformed` (unparseable SRT/JSON structure or non-finite timestamp), `non_monotonic` (out-of-order cue timestamps), `overlap` (overlapping cue intervals), `out_of_range` (negative time or cues exceeding known duration), `identity_mismatch` (work_id/bvid mismatch between manifest and artifact stem/frontmatter), and `artifact_missing` (referenced or inferred transcript files missing on disk or outside archive root).
+  - **Defect reason codes** are bounded and frozen, and only these affect validity and the exit code: `empty` (empty artifact body/lines), `malformed` (unparseable SRT/JSON structure or non-finite timestamp), `non_monotonic` (out-of-order cue timestamps), `overlap` (overlapping cue intervals), `out_of_range` (negative time or cues exceeding known duration), `identity_mismatch` (work_id/bvid mismatch between manifest and artifact stem/frontmatter), and `artifact_missing` (referenced or inferred transcript files missing on disk or outside archive root).
+  - **Content reason codes** record what the archived transcript measures and are advisory — the coverage report lists them alongside the defect codes in each row's `reasons`, defect codes first and within each class in the fixed vocabulary order, and counts them in `summary`; they never change `valid_work_items` or the exit code: `low_confidence` (a cue scored at or below the archived low-confidence threshold), `leading_mark` (a cue opens on a closing mark), `fragment_cue` (a cue too short in both text and duration), `overlong_cue` (a cue longer than the shaper's maximum), `duplicate_cue` (consecutive identical cues), `repeated_ngram` (an 8-character window occurring three or more times), and `reference_disagreement` (a `--reference` transcript agreeing below `0.95`). Per-cue confidence comes from the raw sidecar only, so an artifact that records no score reports no `low_confidence`; it is not computed rather than fabricated. The cue-level codes (`low_confidence`, `leading_mark`, `fragment_cue`, `overlong_cue`, `duplicate_cue`, `repeated_ngram`) are read from cue structure, so a row whose artifacts are only `.txt`/`.md` — the plain-text arm yields no cues — reports none of them; `reference_disagreement` still applies, because the plain-text body is comparable text.
+  - **`--reference <path>`** supplies a second transcript of the same audio (`.srt`/`.txt`/`.json`). It requires `--quality` and exactly one selected row (`--scope <work_id>`), and adds a top-level JSON `reference` block carrying `work_id`, the reference's **basename only**, `agreement`, `floor`, and the two compared character counts. CSV keeps its frozen columns and prints the ratio to stderr. An unreadable, oversized, or transcript-less reference is a usage error — `coverage: reference unreadable`, `coverage: reference too large`, `coverage: reference too large to compare`, `coverage: transcript too large to compare`, or `coverage: reference has no comparable text` on stderr, with exit `1` — never a traceback. (The comparison is bounded in work, not only in bytes: a flattened pair above the internal per-side ceiling is refused instead of hanging.) `.srt` and `.txt` references are read as plain text when they carry no cue structure, so a malformed file under those names is compared rather than refused; a cue-less or unparsable `.json` reference is always refused. The block is reported only when the row itself has comparable text: a row with none — no artifacts, unreadable ones, or artifacts whose cues carry no text — emits no `reference` block and no diagnostic for it, keeping whatever defect already describes it (often none), because a ratio that was never computed is not fabricated.
   - **Reclaimed audio acceptance**: When valid transcript artifacts (`.srt`, `.txt`, `.md`, or `.json`) exist on disk for an `archived` entry, absent audio files under `audio/` are recognized as expected post-archive reclaimed disk state and are **not reported as defects**.
   - **Read-only boundary**: Quality inspection never mutates manifest row status, risk tokens, sidecars, or transcript files. It executes zero live network requests and requires no ASR model.
-  - **Exit semantics**: Exits `0` when all scoped artifacts pass validation without defects or diagnostics; exits `1` when any artifact defect reason or telemetry diagnostic is present, or on configuration/usage error.
+  - **Exit semantics**: Exits `0` when all scoped artifacts pass validation without defects or diagnostics; exits `1` when any artifact defect reason or telemetry diagnostic is present, or on configuration/usage error. Content reasons alone never exit `1`.
 
 
 `bili-asr run` coordinates manifest rows through four stages — `harvest`
@@ -596,9 +782,9 @@ observed live run, is in
 [docs/metadata-storage.md](docs/metadata-storage.md).
 
     bili-asr probe-subs --limit-parts 5 --archive-root archive
-    bili-asr probe-subs --bvid <bvid>:p0 --archive-root archive
+    bili-asr probe-subs --bvid BV1S8hA6MEvy:p0 --archive-root archive
     bili-asr harvest-subs --limit-parts 5 --archive-root archive
-    bili-asr harvest-subs --bvid <bvid>:p0 --archive-root archive
+    bili-asr harvest-subs --bvid BV1S8hA6MEvy:p0 --archive-root archive
     bili-asr harvest-subs --limit-parts 5 --language ai-zh --archive-root archive
 
 - **Bounds**: no unbounded runs. `harvest-subs` requires `--limit-parts N`

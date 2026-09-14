@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import os
 import stat
 import threading
@@ -277,22 +278,175 @@ def _lexical_archive_root(archive_root: str | os.PathLike[str]) -> Path:
 #: A cue at or below this mean token score is worth a second look.
 LOW_CONFIDENCE = 0.4
 
+#: Two cue spans this close or closer are one captured stretch of audio.
+#:
+#: The model's result carries no VAD boundary list, so the transcript's own cue
+#: intervals are the only capture evidence an artefact has; a cue boundary is a
+#: punctuation or 60-character decision, not a capture boundary, so the spans
+#: are merged back across pauses the shaper itself tolerates.  The value is
+#: ``asr._CUE_MAX_GAP_SECONDS`` — the shaper's own pause threshold.
+#:
+#: The comparison is ``<=``, one step *wider* than the shaper's, and that is the
+#: deliberate reading: the shaper splits at ``gap >= 1.0`` while this merges at
+#: ``gap <= 1.0``, so a pause of exactly the threshold is two cues in the
+#: transcript and one stretch here.  A 1.0 s pause is not a capture hole, and
+#: for a *capture* estimate the gap has to be strictly larger than the shaper's
+#: own tolerance before it counts as lost audio.  The boundary is pinned in both
+#: directions by ``test_the_shaper_and_the_merger_meet_at_the_threshold_from_opposite_sides``.
+#:
+#: Declared here rather than imported: the stated cross-layer rule is that
+#: ``subtitles``/``audio``/``asr``/``archive`` never import each other, only
+#: ``cli`` composing them (asr-archive-cli.md L61).  The two pure formatters
+#: ``archive.py`` already imports from ``asr`` are the existing exception, so a
+#: new coupling would widen it; the coupling is asserted by
+#: ``test_capture_gap_seconds_follows_the_cue_shaper_threshold`` instead.
+CAPTURE_GAP_SECONDS = 1.0
+
 
 def _confidence_summary(segments: list[dict[str, Any]]) -> dict[str, Any]:
     """Summarize the model's own token confidence for one transcript.
 
     The values are the model's, not a judgement: they make quality measurable
     from the artefact alone, without a human reference transcript.
+
+    ``asr_low_confidence_cues`` and ``asr_low_confidence_at`` are two
+    renderings of **one** filtered list, so ``len(asr_low_confidence_at) ==
+    asr_low_confidence_cues`` holds by construction rather than by test: a cue
+    cannot be counted without also being located.  The locations are the low
+    cues' start seconds, ascending, rounded to 3 decimals like
+    ``asr_mean_confidence`` and with duplicates kept — one entry per counted
+    cue, so a reader can recompute the list from ``raw.json`` exactly.
+
+    Both keys are emitted together whenever the transcript carries any score,
+    including ``0`` and ``[]`` when nothing is at or below
+    :data:`LOW_CONFIDENCE`; when it carries no score neither is emitted, which
+    is this function's existing rule for the count.
+
+    Reading ``start`` adds no new way to fail a row — transcript by transcript:
+    nothing that published without this read fails with it, and nothing that
+    failed without it publishes with it.  The read is the lookup ``s["start"]``,
+    ``float`` of it, then ``round(..., 3)``, and rounding to 3 decimals cannot
+    fail once ``float`` has returned — ``NaN`` and ``inf`` included — so the
+    read fails exactly when that lookup or that ``float`` does.
+    ``segments_to_srt`` already applies both to the same field before anything
+    is published (``segment['start']``, then ``_fmt_srt_time``'s opening
+    ``float(seconds)``), so an absent, non-numeric, ``None`` or
+    out-of-float-range start still aborts the row and reaches no
+    ``_publish_bundle``.  ``NaN``/``inf`` pass the read and are stopped one step
+    *later*, by ``_fmt_srt_time``'s ``float(seconds) * 1000``, which still
+    precedes publication: no path can publish them.
+
+    The exception **type** is deliberately not part of that guarantee, and is
+    not claimed: this summary reads only the **low** cues, in filtered order,
+    while the formatter reads every cue in document order — and because
+    :func:`write_archive` assembles frontmatter first, this read now runs
+    first.  Given two unreadable starts of different kinds, the row fails on
+    whichever one this read reaches first, so a low ``"nope"`` sitting behind a
+    non-low *missing* ``start`` raises ``ValueError`` here where the formatter
+    alone raised ``KeyError``.  The row still fails and still publishes nothing;
+    only the code ``coordinator._safe_error_code`` records for that stage can
+    change, which is why no caller may branch on the type.
     """
 
     scores = [float(s["confidence"]) for s in segments
               if isinstance(s, dict) and isinstance(s.get("confidence"), (int, float))]
     if not scores:
         return {}
+    low = [s for s in segments
+           if isinstance(s, dict) and isinstance(s.get("confidence"), (int, float))
+           and float(s["confidence"]) <= LOW_CONFIDENCE]
     return {
         "asr_mean_confidence": round(sum(scores) / len(scores), 3),
-        "asr_low_confidence_cues": sum(1 for score in scores if score <= LOW_CONFIDENCE),
+        "asr_low_confidence_cues": len(low),
+        "asr_low_confidence_at": sorted(round(float(s["start"]), 3) for s in low),
     }
+
+
+def _merged_cue_spans(segments: list[dict[str, Any]]) -> list[tuple[float, float]]:
+    """The transcript's cue intervals with adjacent ones fused into one span.
+
+    Touching, overlapping and cues separated by **at or below**
+    :data:`CAPTURE_GAP_SECONDS` become a single span, which is what makes the
+    result a *capture* estimate rather than a punctuation census.  The boundary
+    is inclusive on purpose and is one step wider than the shaper's own split
+    rule, so a pause of exactly the threshold is one stretch here rather than a
+    reported hole.  Non-finite and reversed intervals are skipped: they cannot
+    describe captured audio, and the quality checker already names them
+    ``malformed``/``out_of_range``.
+
+    **An interval of zero length (``end == start``) is skipped too.**  The rule
+    is published here because A5 lets a reader recompute the capture facts from
+    ``raw.json`` alone, and a zero-length cue is invisible audio either way it
+    is read: counted, it inflates ``asr_vad_segments`` by a span that describes
+    no captured stretch, and merged, it can bridge two real spans into one and
+    inflate ``asr_vad_captured_s``.  Because the seconds of a zero-length span
+    are ``0.0``, skipping it leaves the summed duration identical to counting
+    it, so a recomputation that skips zero-length intervals reproduces every
+    published value exactly.
+    """
+
+    spans: list[tuple[float, float]] = []
+    for segment in segments:
+        if not isinstance(segment, dict):
+            continue
+        start, end = segment.get("start"), segment.get("end")
+        if isinstance(start, bool) or isinstance(end, bool):
+            continue
+        if not isinstance(start, (int, float)) or not isinstance(end, (int, float)):
+            continue
+        start, end = float(start), float(end)
+        if not (math.isfinite(start) and math.isfinite(end)) or end <= start:
+            continue
+        spans.append((start, end))
+    spans.sort()
+    merged: list[tuple[float, float]] = []
+    for start, end in spans:
+        if merged and start - merged[-1][1] <= CAPTURE_GAP_SECONDS:
+            previous_start, previous_end = merged[-1]
+            merged[-1] = (previous_start, max(previous_end, end))
+        else:
+            merged.append((start, end))
+    return merged
+
+
+def _capture_summary(segments: list[dict[str, Any]], duration_s: Any) -> dict[str, Any]:
+    """Record how much audio the VAD captured, as the cues testify.
+
+    ``asr_vad_segments`` and ``asr_vad_captured_s`` describe the merged cue
+    spans; the ratio divides them by the row's own ``duration_s`` and is clamped
+    to ``[0, 1]`` because a ratio outside it is not a proportion of anything.
+    The seconds stay **unclamped**, so a duration/cue contradiction remains
+    visible in the artefact rather than being smoothed away here.
+
+    The ratio divides the **published** ``asr_vad_captured_s`` — the 3-decimal
+    value from the key above it, not the exact float sum — so a reader holding
+    only the artefact reproduces it exactly.
+
+    The ratio is omitted when ``duration_s`` is not positive and finite — a
+    proportion of an unknown total is not a fact — or when it is a number too
+    large to divide by, which the same rule covers.  The two absolute keys are
+    still emitted, and an empty transcript legitimately reports zero of both.
+    """
+
+    merged = _merged_cue_spans(segments)
+    captured_s = round(sum((end - start for start, end in merged), 0.0), 3)
+    summary: dict[str, Any] = {
+        "asr_vad_segments": len(merged),
+        "asr_vad_captured_s": captured_s,
+    }
+    duration = duration_s
+    if isinstance(duration, bool) or not isinstance(duration, (int, float)):
+        return summary
+    try:
+        duration = float(duration)
+    except OverflowError:
+        # Arbitrary-precision ints beyond float range: an unusable denominator,
+        # so the ratio is omitted rather than allowed to abort publication.
+        return summary
+    if not math.isfinite(duration) or duration <= 0:
+        return summary
+    summary["asr_vad_captured_ratio"] = round(min(1.0, max(0.0, captured_s / duration)), 3)
+    return summary
 
 
 def write_archive(archive_root: str | os.PathLike[str], entry: dict[str, Any], segments: list[dict[str, Any]], *, source: str, raw: Any | None = None, asr_provenance: Mapping[str, str] | None = None) -> dict[str, str]:
@@ -316,6 +470,8 @@ def write_archive(archive_root: str | os.PathLike[str], entry: dict[str, Any], s
     md_path = dirs["md"] / f"{entry.get('pubdate_str', 'unknown')}_{stem}_{_safe_name(str(entry.get('title') or bvid))}.md"
     raw_path = dirs["raw"] / f"{stem}.json"
     frontmatter = {"bvid": bvid, "title": entry.get("title", ""), "date": entry.get("pubdate_str", ""), "duration_s": entry.get("duration_s", 0), "source": source, "url": archive_url(entry)}
+    if source == "asr":
+        frontmatter.update(_capture_summary(segments, frontmatter["duration_s"]))
     frontmatter.update(_confidence_summary(segments))
     if asr_provenance:
         frontmatter.update({f"asr_{key}": value for key, value in asr_provenance.items()})

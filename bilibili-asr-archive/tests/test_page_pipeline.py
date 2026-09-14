@@ -259,18 +259,31 @@ def test_asr_pending_p0_failure_does_not_suppress_p1(tmp_root, monkeypatch):
         })
     os.makedirs(os.path.join(tmp_root, "audio"), exist_ok=True)
     for page in (p0, p1):
-        open(os.path.join(tmp_root, "audio", f"{artifact_stem(page)}.m4a"), "wb").close()
+        # The row id rides in the body: the runner hands the model a confined
+        # descriptor, and the ASR boundary copies it to a short-lived temp
+        # file, so only the body names the audio a row was transcribed from.
+        with open(os.path.join(tmp_root, "audio", f"{artifact_stem(page)}.m4a"), "wb") as fh:
+            fh.write(AUDIO_BYTES + artifact_stem(page).encode("utf-8"))
 
     def fake_transcribe(path):
         try:
             target = os.readlink(path)
         except OSError:
             target = path
-        if artifact_stem(p0) in target:
+        with open(target, "rb") as fh:
+            body = fh.read()
+        if artifact_stem(p0).encode("utf-8") in body:
             raise RuntimeError("p0 failed")
         return [{"start": 0, "end": 1, "text": "p1"}]
 
-    monkeypatch.setattr(asr_mod, "transcribe", fake_transcribe)
+    # D2.5 seam: `asr` now owns one runner for its whole selection, so the
+    # per-row behaviour is injected at the factory the runner builds through.
+    class FakeModel:
+        def generate(self, **kwargs):
+            return fake_transcribe(kwargs["input"])
+
+    monkeypatch.setenv("BILI_ASR_DEVICE", "cpu")
+    monkeypatch.setattr(asr_mod, "_load_default_model", lambda **_kw: FakeModel())
     rc = main(["asr", "--pending", "--archive-root", tmp_root])
     assert rc == 1
     loaded = ManifestStore(root=tmp_root).load()
