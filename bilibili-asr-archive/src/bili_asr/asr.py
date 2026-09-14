@@ -152,6 +152,16 @@ DEFAULT_HOTWORDS: tuple[str, ...] = (
     # came out as tryBUNAL / FOR EMP LOYMENT MAT TERS, and the ITEM/AITEM pair as
     # TEM / AITM / ITM).  They are listed as whole phrases as well as acronyms so
     # the decoder has both the spelled-out form and the initialisms.
+    #
+    # Evidence status, stated plainly: the shards above are measured, but the
+    # *benefit* of these entries is UNVERIFIED.  The one video whose transcript
+    # contained them (BV1eGJ46mEHQ) no longer has audio on the target box, so
+    # they could not be A/B-tested against a transcript that actually speaks
+    # them.  What *was* measured (same 6-minute Chinese-only audio, 23 Chinese
+    # hotwords with and without these six) is that they cause no measurable harm:
+    # 95 % of the tail text identical, the only differences two same-sound
+    # characters, no change in the opening paragraph.  Treat them as a
+    # low-risk prompt bias to be confirmed on the next video that speaks them.
     "ITEM",
     "AITEM",
     "International Employment Matters Tribunal",

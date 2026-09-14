@@ -120,6 +120,16 @@ word-boundary rule would let the last form through), while an ordinary word such
 as `tokenizer` is left alone. That rule is shape-based, not path-aware: a
 *relative* path-shaped value such as `srv/models/Fun-ASR-Nano-2512` satisfies
 it and would be recorded verbatim, so declare the hub identity, not a relative
+`BILI_ASR_HOTWORDS` appends operator-specific terms to the built-in list
+(`DEFAULT_HOTWORDS`, comma-separated). The built-ins cover the corpus's Chinese
+vocabulary plus the Latin-script terms it speaks — the Chinese-language model
+otherwise shatters them (measured: "International Employment Matters Tribunal"
+came out `tryBUNAL` / `FOR EMP LOYMENT MAT TERS`, and `ITEM`/`AITEM` as `TEM` /
+`AITM` / `ITM`). Those entries are a low-risk prompt bias, not a proven fix: the
+same 6-minute Chinese audio transcribed with and without them is 95 % identical,
+and the one video that actually speaks them no longer has audio on the target
+box, so their benefit is **unverified** while their harmlessness is measured.
+
 path. Declaring an id that contradicts an already-safe hub-level `BILI_ASR_MODEL`
 is also an error — one of the two would be a lie. A `BILI_ASR_MODEL` that
 resolves to a directory on this machine is a checkpoint path whatever its
