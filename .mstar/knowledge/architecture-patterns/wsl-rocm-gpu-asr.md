@@ -25,11 +25,11 @@ tags:
 
 ## Context
 
-Under WSL2 an AMD GPU is reached through ROCDXG, not the Linux kernel driver. Only one specific
-runtime + transport + wheel + loader-path + HSA-runtime + environment-variable combination yields a
-visible device, and each missing piece surfaces as a different symptom — most of them reading as "this
-machine has no GPU" rather than "this combination cannot work here". The two published shortcuts
-(ROCm 5.7, the pytorch.org ROCm wheel) are dead ends that do not announce themselves.
+Under WSL2 an AMD GPU is reached through ROCDXG, not the Linux kernel driver. Only one specific runtime
++ transport + wheel + loader-path + HSA-runtime + environment-variable combination yields a visible
+device, and each missing piece surfaces as a different symptom — most of them reading as "this machine
+has no GPU" rather than "this combination cannot work here". The two shortcuts that get published (ROCm
+5.7, the pytorch.org ROCm wheel) are dead ends that do not announce themselves.
 
 ## Guidance
 
@@ -55,15 +55,13 @@ the stack, and it is one invariant with two halves — the `/dev/dxg` path **and
 | hard abort inside torch's bundled `librocprofiler-sdk` (`Found 0 rocprofiler agents and 2 HSA agents`) | the **wrong wheel** — the pytorch.org ROCm wheel, whose bundle cannot work under WSL | install the repo.radeon.com `torch` + matching `triton` in one command |
 | a clean import that still reports no device | DXG detection off, the bundled HSA runtime still in place, or a runtime with no `gfx1101` support | steps 1–2; a runtime predating `gfx1101` cannot be fixed downstream |
 
-Row 2's abort (not a `False`) is why a device probe belongs in a **subprocess**: in-process it would crash
-the checker instead of producing a verdict.
-
-**4. The Windows driver was not the fix.** The working session left the Windows driver **unchanged**; the
-fix was entirely userspace. On the version string: `32.0.31035.1003` is backed by no retained evidence
-file in this repository, so treat "the driver was left unchanged, upgrading it is not the fix" as the
-load-bearing claim and the number as unverified. A missing `/dev/dxg` is a driver or `wsl --update`
-matter (in a container, pass `--device /dev/dxg`); a device that exists but stays invisible is a userspace
-matter.
+Row 2's abort (not a `False`) is why a device probe belongs in a **subprocess**: in-process it would
+crash the checker instead of producing a verdict. **4. The Windows driver was not the fix.** The working
+session left the Windows driver **unchanged**; the fix was entirely userspace. On the version string:
+`32.0.31035.1003` is backed by no retained evidence file in this repository, so treat "the driver was
+left unchanged, upgrading it is not the fix" as the load-bearing claim and the number as unverified. A
+missing `/dev/dxg` is a driver or `wsl --update` matter (in a container, pass the `--device` flag pointing at the WSL DXG node); a
+device that exists but stays invisible is a userspace matter.
 
 **5. Run the five-stage self-check instead of trusting the recipe.** From the product directory, with the
 interpreter that holds torch — a bare `python`/`python3.12` picks the wrong environment and reports
@@ -79,7 +77,7 @@ cd bilibili-asr-archive && export VENV=~/.venvs/bili-asr
 | 1 | `dxg-detection` | `/dev/dxg` exists **and** `HSA_ENABLE_DXG_DETECTION=1` | no WSL GPU transport, or detection is off |
 | 2 | `rocm-loader-path` | a `/opt/rocm-*/lib` holding `libhsa-runtime64.so*` is reachable via `LD_LIBRARY_PATH` or an `/etc/ld.so.conf.d/*rocm*` entry (version globbed, never pinned) | libs missing or undiscoverable |
 | 3 | `torch-present` | torch is importable **in the running interpreter** and is a ROCm build (`torch.version.hip` non-empty) | wrong interpreter, or a missing/non-ROCm wheel |
-| 4 | `hsa-runtime` | the `libhsa-runtime64.so*` in the venv's torch library directory is the system runtime (resolves out of `torch/lib` into a discovered system lib dir, or the bytes match) | the wheel-bundled copy is still in place |
+| 4 | `hsa-runtime` | the `libhsa-runtime64.so*` in the venv's torch library directory is the system runtime (resolves out of the venv's torch library directory into a discovered system lib dir, or the bytes match) | the wheel-bundled copy is still in place |
 | 5 | `device-probe` | a **subprocess** reports a usable device with a non-empty `gcnArchName` | the abort above, a timeout, or a clean `False` |
 
 Exit is `0` iff all five pass, `1` when any fails (each failing stage prints its own `cause:` and fix
@@ -116,9 +114,10 @@ rm -f "$TORCH_LIB"/libhsa-runtime64.so* && cp -f "$ROCM_LIB"/libhsa-runtime64.so
 export HSA_ENABLE_DXG_DETECTION=1          # persist it in ~/.bashrc
 ```
 
-A passing check prints the five stage lines, this device line and the verdict. The same run measured ten
-archived parts / 125 min of audio at decode `rtf_avg` **0.097–0.150**, 21.8 min wall (≈ 16.3 min decode
-+ ≈ 5.6 min per-item overhead — that overhead belongs to `run-scoped-asr-provenance.md`, not to setup):
+A passing check prints the five stage lines, the device line below, and the verdict. The same run
+measured ten archived parts / 125 min of audio at decode `rtf_avg` **0.097–0.150**, 21.8 min wall
+(≈ 16.3 min decode + ≈ 5.6 min per-item overhead — that overhead belongs to
+`.mstar/knowledge/architecture-patterns/run-scoped-asr-provenance.md`, not to setup):
 
 ```text
 check: device ok name=AMD Radeon RX 7800 XT arch=gfx1101 vram_gb=15.8 hip=7.2.0
@@ -132,7 +131,7 @@ asr-env: verified
   Plan `20260912-gpu-enablement-truth`; SDD package `{SDD_DIR}/20260912-gpu-enablement-truth/`.
 - Measurement: `.mstar/iterations/iter-2026-09-asr-ops-hardening/guides/2026-09-12-ten-video-audit.md`
   §4.1 (the three failure modes, the verified combination) and §1 (10 videos / 125 min / `rtf_avg`
-  0.097–0.150 / 21.8 min wall); the driver version was dropped as unsourced in `scope-rationale.md` §2.
+  0.097–0.150 / 21.8 min wall); the driver version was dropped as unsourced in `.mstar/iterations/iter-2026-09-asr-ops-hardening/guides/scope-rationale.md` §2.
 - Implementation: `bilibili-asr-archive/docs/wsl-rocm-gpu.md` (shipped operator recipe),
   `bilibili-asr-archive/scripts/check_asr_env.py` (five stages + remediation text),
   `bilibili-asr-archive/README.md` GPU section, `bilibili-asr-archive/src/bili_asr/asr.py` device hint.
