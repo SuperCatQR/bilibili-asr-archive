@@ -7,7 +7,7 @@
 
 | # | Acceptance | Delivered |
 |---|-----------|-----------|
-| 1 | **A1** GPU enablement is *checked*, not asserted | `scripts/check_asr_env.py` (five stages — dxg-detection, rocm-loader-path, torch-present, hsa-runtime, device-probe — exit 0/1/2) and `docs/wsl-rocm-gpu.md`; the README's GPU section now points at a runnable self-check. A1(i)/(ii) remain an operator action on the WSL2 box |
+| 1 | **A1** GPU enablement is *checked*, not asserted | `scripts/check_asr_env.py` (five stages — dxg-detection, rocm-loader-path, torch-present, hsa-runtime, device-probe — exit 0/1/2) and `docs/wsl-rocm-gpu.md`; the README's GPU section now points at a runnable self-check. **A1(i)/(ii)/(iii) verified on the target box 2026-09-14** — five stages `ok`, `AMD Radeon RX 7800 XT arch=gfx1101 vram_gb=15.8`, exit 0; with the DXG invariant removed, exit 1 with cause and fix per stage (`guides/2026-09-13-target-host-verification.md`) |
 | 2 | **A2** batch model reuse is real and visible | `ASRRunner.model_constructions` (monotonic) + `RunSummary.model_constructions`/`.asr_items`; one line per batch on **stderr** — `<command>: model constructions=<n> for <m> asr item(s)` — labelled per command, printed whenever a construction was paid **or** ASR items ran; `_cmd_asr`/`_pilot_archive_asr` hold one runner per invocation; `run_batch` refuses re-entry |
 | 3 | **A3** one quality surface | content reasons folded into `coverage --quality`: `DEFECT_REASON_CODES` decide validity while `CONTENT_REASON_CODES` are advisory, `--reference` agreement with a basename-only JSON block, bounded comparison, separator-aware redaction; `scripts/asr_quality.py` retired with its map verified signal-by-signal |
 | 4 | **A4** the archive names its producer | `BILI_ASR_MODEL_ID` → the `model_name` slot (never a new key, so the nine-key contract holds); a path can never be an identifier; a declaration contradicting the load value raises. Reproducible from the README alone |
@@ -36,4 +36,5 @@
 2. **R1 (low)** — the model-load attempt count is recorded but printed nowhere an operator can see (needs an A2-aware amendment of spec 02 D2.6).
 3. **R2 (low)** — model-load retries stay unbounded per row.
 4. **R1/R2 (low, quality)** — the retirement map's `asr_low_confidence_at` row predates this iteration's surface work; the repeated-ngram scan is bounded only by the artefact byte cap.
-5. **Operator action** — run A1(i)/(ii) on the WSL2 + RX 7800 XT box: `"$VENV/bin/python" scripts/check_asr_env.py` from `bilibili-asr-archive/`.
+5. **DONE (2026-09-14)** — A1(i)/(ii)/(iii) verified on the target box; see `guides/2026-09-13-target-host-verification.md`.
+6. **Operator action (host capacity)** — that box's Windows `C:` is down to **0.2 GB free**, which remounted the WSL2 root filesystem read-only (`emergency_ro`) and blocked the A2/A4/A5 end-to-end probe. Free space on `C:` or move the distro to `D:` (413 GB free), then re-run the probe.
