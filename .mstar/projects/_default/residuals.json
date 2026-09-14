@@ -15,6 +15,142 @@
         "registered_at": "2026-09-11",
         "lifecycle_id": "iter-2026-09-subtitle-transcript-sqlite"
       }
+    ],
+    "20260912-gpu-enablement-truth": [
+      {
+        "id": "R1",
+        "title": "`scripts/verify_baseline.py`'s staged tree cannot collect `tests/test_check_asr_env.py` (module-level `from scripts.check_asr_env import ...`); the documented baseline gate aborts with zero tests collected (rc=2)",
+        "severity": "medium",
+        "source": "Plan QC fix wave 1 / targeted re-review `review/qc-fix-1-review.md` N-1-adjacent W4; reconfirmed in `review/qc-fix-2-review.md`",
+        "scope": "bilibili-asr-archive/scripts/verify_baseline.py (staged_test_tree) with bilibili-asr-archive/tests/test_check_asr_env.py",
+        "decision": "defer",
+        "owner": "@project-manager",
+        "target": "the next iteration that owns the verification baseline (no plan in iter-2026-09-asr-ops-hardening does; plan-QC re-target 2026-09-13)",
+        "tracking": "Plan QC for 20260912-quality-signal-merge (seats 1/2, I1/I4) confirmed it ships unfixed; recorded in iter-2026-09-asr-ops-hardening delivery-compass ## Roadmap Position as a Next-iteration item",
+        "source_plan": "20260912-gpu-enablement-truth",
+        "registered_at": "2026-09-13",
+        "lifecycle_id": "iter-2026-09-asr-ops-hardening"
+      },
+      {
+        "id": "R2",
+        "title": "The iteration compass's A1 row still tells QA to run `python3.12 scripts/check_asr_env.py`, while `docs/wsl-rocm-gpu.md:40-44` warns that exact invocation yields a false `torch-present FAIL` (spec D1.2's own wording, pre-existing); widened at QA to cover the asr.py hint (closed in 01a39f1) and any remaining published bare-form invocation",
+        "severity": "low",
+        "source": "Targeted re-review `review/qc-fix-2-review.md` (PM note, carried; not a blocker)",
+        "scope": ".mstar/iterations/iter-2026-09-asr-ops-hardening/delivery-compass.md A1 row + .mstar/iterations/.../specs/01-gpu-enablement.md (D1.2 wording); iteration package guides/hygiene-report.md:15,30 (N-3, tracked as its own low row)",
+        "decision": "defer",
+        "owner": "@project-manager",
+        "target": "iteration-close (mstar-compound spec refresh) — decide the QA invocation and align compass + spec 01",
+        "tracking": "A-03-class amendment already appended to specs/01-gpu-enablement.md at QC; this row records the compass-half",
+        "source_plan": "20260912-gpu-enablement-truth",
+        "registered_at": "2026-09-13",
+        "lifecycle_id": "iter-2026-09-asr-ops-hardening"
+      },
+      {
+        "id": "N-3",
+        "title": "`guides/hygiene-report.md:15,30` publishes a bare `python3.12 scripts/check_asr_env.py` invocation (the false-FAIL trap) outside R2's registered scope",
+        "severity": "low",
+        "source": "L4 QA gate targeted re-verification, `review/qa-gate.md` (N-3)",
+        "scope": ".mstar/iterations/iter-2026-09-asr-ops-hardening/guides/hygiene-report.md",
+        "decision": "defer",
+        "owner": "@project-manager",
+        "target": "20260912-quality-signal-merge documentation pass, or iteration-close spec refresh",
+        "tracking": "Durable Roadmap entry added to .mstar/plans/20260912-quality-signal-merge.md",
+        "source_plan": "20260912-gpu-enablement-truth",
+        "registered_at": "2026-09-13",
+        "lifecycle_id": "iter-2026-09-asr-ops-hardening"
+      }
+    ],
+    "20260912-batch-model-reuse": [
+      {
+        "id": "R1",
+        "title": "A *failed* model load is retried once per row (`factory_attempts == N` for an N-row batch), and `model_constructions` legitimately reports 0 because `_model` was never assigned — so the printed count cannot distinguish N load retries from 1 construction",
+        "severity": "low",
+        "source": "Plan QC seat 3 `review/qc3.md` Warning 3; confirmed pre-existing at the plan base (asr.py untouched by this plan); accepted as a residual by the plan-QC fix re-review",
+        "scope": "bilibili-asr-archive/src/bili_asr/asr.py (`_get_model` failure path) + the counter's semantics in src/bili_asr/coordinator.py",
+        "decision": "verified-closed",
+        "owner": "@project-manager",
+        "target": "20260912-asr-provenance-identity (it owns the provenance/counting surface) — decide whether a failed attempt counts, and whether retries are bounded",
+        "tracking": "Durable Roadmap entry added to .mstar/plans/20260912-asr-provenance-identity.md",
+        "source_plan": "20260912-batch-model-reuse",
+        "registered_at": "2026-09-13",
+        "lifecycle_id": "iter-2026-09-asr-ops-hardening",
+        "closed_at": "2026-09-13",
+        "closure_note": "Counting decision recorded and pinned at 20260912-asr-provenance-identity (a5b65ca/b087fd6): failed loads count on ASRRunner.model_load_attempts; the printed line is deliberately unchanged (spec 02 D2.6 freezes its shape); retries stay unbounded per row. The operator-facing half is carried by entries[\"20260912-asr-provenance-identity\"][id=R1], so this residual is not inherited a third time."
+      },
+      {
+        "id": "R2",
+        "title": "The per-batch reuse count lives only on stderr: it is not in `CampaignSummary.to_dict()` nor the run-ledger schema, so an unattended corpus run loses the evidence to scrollback",
+        "severity": "low",
+        "source": "Plan QC seat 3 `review/qc3.md` Suggestion 5; accepted by the fix re-review as consistent with A2's wording and the plan's 'no new CLI surface' non-goal",
+        "scope": "bilibili-asr-archive/src/bili_asr/campaign.py (`to_dict`) + src/bili_asr/run_ledger.py (schema)",
+        "decision": "defer",
+        "owner": "@project-manager",
+        "target": "iteration-close decision — either accept permanently (documented) or fold into the next plan that touches the ledger schema",
+        "tracking": "Recorded here; no durable-roadmap entry until the operator decides",
+        "source_plan": "20260912-batch-model-reuse",
+        "registered_at": "2026-09-13",
+        "lifecycle_id": "iter-2026-09-asr-ops-hardening"
+      }
+    ],
+    "20260912-quality-signal-merge": [
+      {
+        "id": "R1",
+        "title": "The retirement map's `asr_low_confidence_at` row (where the doubt is) has no live surface; the merged quality output reports `low_confidence` as a bare reason with no count and no location",
+        "severity": "low",
+        "source": "Plan QC seats 1 (M5) and 3 (I1), graded on real material",
+        "scope": ".mstar/iterations/iter-2026-09-asr-ops-hardening/specs/03-quality-surface.md:71-72 (map row) + src/bili_asr/quality.py (low_confidence)",
+        "decision": "defer",
+        "owner": "@project-manager",
+        "target": "20260912-asr-provenance-identity (Todo; spec 04 D4.8 / compass A5 own `asr_low_confidence_at`)",
+        "tracking": "Cross-plan: verify the map row after that plan lands; do not close the map row before then",
+        "source_plan": "20260912-quality-signal-merge",
+        "registered_at": "2026-09-13",
+        "lifecycle_id": "iter-2026-09-asr-ops-hardening"
+      },
+      {
+        "id": "R2",
+        "title": "The repeated-ngram pass is O(joined text), bounded only by the artifact byte cap",
+        "severity": "low",
+        "source": "Plan QC seat 3 (W2); inherited from the retired script, which had no cap at all",
+        "scope": "bilibili-asr-archive/src/bili_asr/quality.py (repeated-ngram scan)",
+        "decision": "defer",
+        "owner": "@project-manager",
+        "target": "next plan touching quality.py's content scans",
+        "tracking": "Registered here; bounded today by _MAX_BYTES",
+        "source_plan": "20260912-quality-signal-merge",
+        "registered_at": "2026-09-13",
+        "lifecycle_id": "iter-2026-09-asr-ops-hardening"
+      }
+    ],
+    "20260912-asr-provenance-identity": [
+      {
+        "id": "R1",
+        "title": "The model-load attempt count is recorded but printed nowhere an operator can see: `ASRRunner.model_load_attempts` has no print site in `src/`, so a batch whose every load fails still shows no reuse line and R1's original complaint (\"the printed count cannot distinguish N load retries from 1 construction\") stays literally true at the CLI",
+        "severity": "low",
+        "source": "Plan4 Task-1 review + fix re-review (F1 option (b), F2); the counting decision landed, the operator surface did not",
+        "scope": ".mstar/iterations/iter-2026-09-asr-ops-hardening/specs/02-batch-reuse.md D2.6 (frozen line shape) + src/bili_asr/coordinator.py::_print_model_constructions / RunSummary",
+        "decision": "defer",
+        "owner": "@project-manager",
+        "target": "the next iteration after iter-2026-09-asr-ops-hardening, which must schedule a plan owning spec 02 D2.6 (the frozen reuse-line shape) and coordinator.py's print site; the fix needs an A2-aware spec amendment. Recorded at iter-2026-09-asr-ops-hardening close; owner @project-manager",
+        "tracking": "Durable Roadmap entry added to this plan's block; suggested shape: print attempts in the all-loads-failed case, or an explicit operator-visible diagnostic",
+        "source_plan": "20260912-asr-provenance-identity",
+        "registered_at": "2026-09-13",
+        "lifecycle_id": "iter-2026-09-asr-ops-hardening"
+      },
+      {
+        "id": "R2",
+        "title": "Model-load retries stay unbounded per row (a failed load is retried once per row with no cap)",
+        "severity": "low",
+        "source": "Plan4 Task-1 review F5; pre-existing, deliberately not changed",
+        "scope": "bilibili-asr-archive/src/bili_asr/asr.py (`_get_model` failure path) + the per-row call sites",
+        "decision": "defer",
+        "owner": "@project-manager",
+        "target": "the next iteration after iter-2026-09-asr-ops-hardening, in whichever plan next touches ASRRunner._get_model's failure path; owner @project-manager",
+        "tracking": "Registered here; bounded today only by the row count",
+        "source_plan": "20260912-asr-provenance-identity",
+        "registered_at": "2026-09-13",
+        "lifecycle_id": "iter-2026-09-asr-ops-hardening"
+      }
     ]
   }
 }
