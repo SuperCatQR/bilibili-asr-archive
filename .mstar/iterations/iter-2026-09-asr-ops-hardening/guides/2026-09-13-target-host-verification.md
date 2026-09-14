@@ -43,7 +43,61 @@ false pass — the "wrong environment" trap the recipe warns about is caught by 
 **A rotted recipe fails loudly on the host instead of silently in the docs — the criterion A1(iii)
 exists to defend.**
 
-## A2/A4/A5 on the target — NOT COMPLETED (host filesystem failure, not a product defect)
+## A2/A4/A5 on the target — PASS (after the host volume was cleared)
+
+The end-to-end probe ran against a **real 10-minute part** (`BV1UNPczkEkE.p0.m4a`, 6.1 MB) with the
+checkpoint loaded from a local directory (`/root/e2e-asr/nano/master`), `EXIT=0`:
+
+### A2 — one construction across items, and the counter survives release
+
+```
+item 1: segments=162  decode=185.30s  constructions=1     # includes the ~90 s load
+item 2: segments=162  decode=118.99s  constructions=1     # reused — cost is visible in the delta
+load attempts: 1
+constructions after release: 1
+```
+
+The 66 s decode-time drop between item 1 and item 2 *is* the reuse this plan made observable; the
+counter is monotonic across `release()`.
+
+### A4 — the declared identity, with no path leakage
+
+```
+ASRConfig.model_id : FunAudioLLM/Fun-ASR-Nano-2512      (via BILI_ASR_MODEL_ID)
+provenance() keys  : 9
+  model_name = FunAudioLLM/Fun-ASR-Nano-2512           # the declared id occupies the slot
+  model_revision =                                      # unset in this probe
+  device = cuda     local_source = configured-local      # the local *path* never appears
+```
+
+Nine keys, declared id in the `model_name` slot, and the local checkpoint path absent from the
+serialized provenance — the redaction and slot-replacement rules hold on the real host.
+
+### A5 — how much audio, and where the doubt is
+
+On the run's own recorded sidecar (`BV1147c6sEKs.p0.json`, 162 cues):
+
+```
+asr_mean_confidence    = 0.789
+asr_low_confidence_cues= 1
+asr_low_confidence_at  = [311.11]      # count and list agree; recomputes exactly from raw.json
+asr_vad_segments       = 65
+asr_vad_captured_s     = 731.35        # unclamped
+asr_vad_captured_ratio = 0.98 (duration 746.581 s) / 0.821 (duration 891.04 s) / omitted for "unknown", None, 0
+```
+
+The ratio is omitted rather than guessed when the duration is unusable, and the captured seconds stay
+unclamped. The two operators the plan was scoped for are separable on real material: **injecting a 90 s
+speaker pause** leaves spans and captured seconds unchanged (65 / 731.35, ratio 0.874) while **deleting
+90 s of cues** drops both (50 / 578.82, ratio 0.775) — a pause and a VAD miss now read differently.
+
+### The host failure that delayed this (resolved)
+
+The probe first failed with the WSL2 root filesystem remounted read-only (`emergency_ro`) because
+Windows `C:` had fallen to **0.2 GB free**; the ext4 virtual disk lives on `C:`, so the exhausted host
+volume surfaced inside the guest as an I/O error. After the operator cleared it (`C:` back to 29.7 GB) and
+`wsl --shutdown` + restart, the filesystem returned `rw` and the probe completed. No product code was
+implicated.
 
 The end-to-end probe (transcribe a real part, then assert one construction across two items, the
 declared identity in `provenance()`, and the VAD/low-confidence keys in a written archive) could not
