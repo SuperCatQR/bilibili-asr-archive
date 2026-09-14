@@ -57,8 +57,13 @@ load attempts: 1
 constructions after release: 1
 ```
 
-The 66 s decode-time drop between item 1 and item 2 *is* the reuse this plan made observable; the
-counter is monotonic across `release()`.
+The 66 s decode-time drop between item 1 and item 2 is *part* of the reuse effect, and the log lets it
+be decomposed rather than asserted: the checkpoint load and VAD construction occupy the first **26 s** of
+item 1 (`model is builded` +23.0 s, `Loading ckpt` +25.0 s, `Building VAD model` +25.9 s, all before item
+1's output), so roughly 26 s of the drop is "no second load" and the remaining ~40 s is first-call warm-up
+that a rebuilt model would also re-pay. The load-bearing evidence is the log, not the delta: all four
+construction events occur **exactly once** and all precede item 1. The counter is monotonic across
+`release()`.
 
 ### A4 — the declared identity, with no path leakage
 
@@ -83,13 +88,44 @@ asr_low_confidence_cues= 1
 asr_low_confidence_at  = [311.11]      # count and list agree; recomputes exactly from raw.json
 asr_vad_segments       = 65
 asr_vad_captured_s     = 731.35        # unclamped
-asr_vad_captured_ratio = 0.98 (duration 746.581 s) / 0.821 (duration 891.04 s) / omitted for "unknown", None, 0
+asr_vad_captured_ratio = 0.819 (manifest duration 893 s) / 0.820 (ffprobe 891.985 s)
+                         omitted for "unknown", None, 0
 ```
 
 The ratio is omitted rather than guessed when the duration is unusable, and the captured seconds stay
-unclamped. The two operators the plan was scoped for are separable on real material: **injecting a 90 s
-speaker pause** leaves spans and captured seconds unchanged (65 / 731.35, ratio 0.874) while **deleting
-90 s of cues** drops both (50 / 578.82, ratio 0.775) — a pause and a VAD miss now read differently.
+unclamped. The two operators the plan was scoped for are separable on real material — with the duration
+held at the manifest's 893 s:
+
+| scenario | segments | captured_s | ratio |
+|----------|----------|-----------|-------|
+| baseline | 65 | 731.35 | 0.819 |
+| a **real 90 s speaker pause** inserted at t=400 s (everything after it shifted later) | 66 | 730.48 | 0.818 |
+| **90 s of cues deleted** | 50 | 578.82 | 0.648 |
+
+A pause adds one span boundary and captures essentially the same audio; a VAD miss removes spans and
+audio together. Those two readings are different, which is what A5 asked for.
+
+### Audit of this evidence (2026-09-14) — two defects found in the first draft, both fixed above
+
+The first version of this section was wrong twice, and both errors are worth recording because they are
+the kind this iteration spent four plans hunting:
+
+1. **A mismatched duration.** The ratio was quoted as `0.98 / 0.821` because the probe paired
+   `BV1147c6sEKs`'s sidecar with **`746.581`** — a figure belonging to a *different* video
+   (`BV1UNPczkEkE`, whose `time_speech` appears in the probe log). The sidecar's own last cue ends at
+   `891.04` and its manifest duration is `893`, so the true ratio is **0.819**. A duration taken from
+   one item and applied to another produces a plausible, wrong number — exactly what the ratio's
+   omission rule exists to prevent, applied to my own measurement instead of the code.
+2. **A scenario experiment that tested nothing.** The "injected 90 s pause" shifted *every* cue by
+   +90 s, which leaves all relative gaps untouched — it measured a rescaled duration, not a pause. The
+   corrected experiment inserts the pause *between* cues (everything from t=400 s onward moves later)
+   and shows the intended contrast: `66 / 730.48 / 0.818` versus `50 / 578.82 / 0.648`.
+
+What survived the audit unchanged: the count/list agreement and its exact recomputation from
+`raw.json` (`[311.11]`), the omission for unusable durations, the unclamped seconds, and every A1/A2/A4
+result (the model-build events were verified to occur **once** each — `model is builded`, `Loading
+ckpt`, `Loading pretrained params`, `Building VAD model` all count 1, and all precede item 1 in the log,
+which is what makes the item-1→item-2 decode drop evidence of reuse rather than of warm caches).
 
 ### The host failure that delayed this (resolved)
 
