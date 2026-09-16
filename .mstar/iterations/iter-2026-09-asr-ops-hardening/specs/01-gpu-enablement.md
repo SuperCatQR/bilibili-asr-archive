@@ -22,8 +22,8 @@ and repeats no vendor index URL.
   block: verified target, the three invariants, the check command, the CPU fallback, and the doc link. *Rejected:*
   recipe inline in `README.md` — it is six steps of environment surgery and `docs/` already owns WSL environment
   detail (`docs/wsl-long-live.md`, `docs/audio-retention-policy.md`).
-- **D1.2 Check = `bilibili-asr-archive/scripts/check_asr_env.py`**, run as `python3.12 scripts/check_asr_env.py`
-  from the repository root. *Rejected:* extending `bili-asr verify` — `verify` is the archive-integrity reader
+- **D1.2 Check = `bilibili-asr-archive/scripts/check_asr_env.py`**, run as `bili-asr check-asr-env`
+  from the repository root (or `python -m bili_asr.cli check-asr-env`). *Rejected:* extending `bili-asr verify` — `verify` is the archive-integrity reader
   (manifest/attempts/artifacts) and would conflate a host probe with an archive verdict. *Rejected:* a new
   `bili-asr` subcommand — the frozen CLI surface must stay as specified (`asr-archive-cli.md` L30–44), and the check
   must still run when the package itself cannot import torch.

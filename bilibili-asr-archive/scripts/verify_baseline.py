@@ -263,6 +263,7 @@ def staged_test_tree(destination: Path) -> Path:
     staged_scripts = destination / "scripts"
     staged_scripts.mkdir()
     shutil.copy2(Path(__file__), staged_scripts / "verify_baseline.py")
+    shutil.copy2(ROOT / "scripts" / "check_asr_env.py", staged_scripts / "check_asr_env.py")
     (staged_scripts / "__init__.py").write_text("", encoding="utf-8")
     staged = destination / "tests"
     shutil.copytree(

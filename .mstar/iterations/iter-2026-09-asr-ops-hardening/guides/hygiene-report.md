@@ -12,7 +12,7 @@ Fixed line numbers are post-edit anchors in this package.
 
 | # | File:line | Before | After | Decided by |
 |---|-----------|--------|-------|------------|
-| F1 | `delivery-compass.md` L112 | A1 named the check only as "the environment self-check named in `README.md`"; the check column said "Run the self-check on the target" | A1 names it `scripts/check_asr_env.py`; the check column runs `python3.12 scripts/check_asr_env.py` | `specs/01-gpu-enablement.md` L25 (D1.2: the check is `bilibili-asr-archive/scripts/check_asr_env.py`, run as `python3.12 scripts/check_asr_env.py` from the repository root) |
+| F1 | `delivery-compass.md` L112 | A1 named the check only as "the environment self-check named in `README.md`"; the check column said "Run the self-check on the target" | A1 names it `scripts/check_asr_env.py`; the check column runs `bili-asr check-asr-env` | `specs/01-gpu-enablement.md` L25 (D1.2: the check is `bilibili-asr-archive/scripts/check_asr_env.py`, run as `bili-asr check-asr-env` from the repository root) |
 | F2 | `delivery-compass.md` L112 | A1 negative grep: `grep -rn 'download.pytorch.org/whl/rocm' README.md src/` | `grep -rn 'download.pytorch.org/whl/rocm' README.md src/ docs/` | `specs/01-gpu-enablement.md` L52–56 (D1.7 states the contract extends the compass grep to `docs/`); corroborated by A1's own criterion sentence ("no document or error string still recommends…") and by `guides/scope-rationale.md` L61 ("anywhere in docs or hints") |
 | F3 | `delivery-compass.md` L113 | A2 loop form written `bili-asr asr --bvid …` | `bili-asr asr --bvid <bvid>` | `specs/02-batch-reuse.md` L49–52 (D2.7 fixes the greppable literal as `bili-asr asr --bvid <bvid>`). Without this, A2's own "README statement greppable" check greps a string the README must not contain |
 | F4 | `delivery-compass.md` L115 | "with no declaration `asr_model_name` stays `[redacted]`" | "with no declaration `asr_model_name` keeps the configured id only when that id is itself redaction-safe, and is `[redacted]` otherwise" | `specs/04-provenance-observability.md` L31–35 (D4.3 precedence: declared id → safe configured `model_name` → `[redacted]`) and L79 (frontmatter row). The old clause also contradicted A4's own named regression test `::test_provenance_preserves_safe_slash_qualified_model_identifier` (compass L115; test at `tests/test_asr_reproducibility.py` L250), which pins the safe-configured-id case |
@@ -27,7 +27,7 @@ name they share (§2), so there was nothing on the spec side to correct.
 
 | Name class | Verified spelling | Where |
 |---|---|---|
-| Check script | `scripts/check_asr_env.py`, run `python3.12 scripts/check_asr_env.py` | compass L112 ↔ spec 01 L25, L70 |
+| Check script | `scripts/check_asr_env.py`, run `bili-asr check-asr-env` | compass L112 ↔ spec 01 L25, L70 |
 | Recipe doc | `docs/wsl-rocm-gpu.md` | spec 01 L15, L21, L49, L69 (the compass names no doc path, so there is nothing to disagree) |
 | Env vars | `HSA_ENABLE_DXG_DETECTION`, `BILI_ASR_DEVICE`, `BILI_KEEP_AUDIO=1`, `BILI_ASR_MODEL`, `BILI_ASR_MODEL_ID`, `BILI_ASR_MODEL_REVISION` | compass L36, L148; spec 01 L74; spec 02 L62; spec 04 L20, L39, L78. Constant naming `ASR_MODEL_ID_ENV_VAR` matches the shipped `ASR_*_ENV_VAR` family (`src/bili_asr/asr.py` L54–59) |
 | Provenance keys | `asr_device`, `asr_model_name`, `asr_model_revision`, `asr_vad_segments`, `asr_vad_captured_s`, `asr_vad_captured_ratio`, `asr_low_confidence_at`, `asr_low_confidence_cues`, `asr_mean_confidence` | compass L112, L115–116 ↔ spec 04 L46–56, L65–69, L79–81 |

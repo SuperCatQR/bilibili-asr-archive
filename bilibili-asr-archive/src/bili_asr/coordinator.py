@@ -269,6 +269,7 @@ class RowResult:
 
 
 @dataclass
+@dataclass
 class RunSummary:
     results: list[RowResult] = field(default_factory=list)
     risk_interrupted: bool = False
@@ -276,6 +277,7 @@ class RunSummary:
     # caller-injected runner reused across batches still reports per-batch
     # truth) and how many rows actually produced an ASR transcript.
     model_constructions: int = 0
+    model_load_attempts: int = 0
     asr_items: int = 0
 
     @property
@@ -759,6 +761,11 @@ class RunCoordinator:
                 if injected_runner is not None
                 else 0
             )
+            attempts_before = (
+                getattr(injected_runner, "model_load_attempts", 0)
+                if injected_runner is not None
+                else 0
+            )
             try:
                 summary = self._run_batch_locked(rows)
             finally:
@@ -778,6 +785,11 @@ class RunCoordinator:
                     getattr(batch_runner, "model_constructions", 0)
                     - constructions_before,
                 )
+                summary.model_load_attempts = max(
+                    0,
+                    getattr(batch_runner, "model_load_attempts", 0)
+                    - attempts_before,
+                )
                 summary.asr_items = self._batch_asr_items
                 self._print_model_constructions(summary)
             return summary
@@ -793,12 +805,24 @@ class RunCoordinator:
         first-decode failure it just paid for.  A subtitle-only batch (neither
         a construction nor a transcript) prints nothing.
 
+        When every model load failed (attempts > 0 but constructions == 0 and
+        asr_items == 0), print a diagnostic stating the failed attempts so the
+        operator knows the model was tried but never succeeded.
+
         With fd 2 closed CPython sets ``sys.stderr`` to ``None`` and
         ``print(..., file=None)`` falls back to **stdout**, which would put
         this line inside ``campaign``'s JSON document; a closed stderr means
         the diagnostic has nowhere to go, so nothing is printed.
         """
         if summary.asr_items <= 0 and summary.model_constructions <= 0:
+            # Check if we had failed load attempts
+            if summary.model_load_attempts > 0:
+                if sys.stderr is not None:
+                    print(
+                        f"{self.command}: model load failed {summary.model_load_attempts} time(s), "
+                        f"0 transcripts produced",
+                        file=sys.stderr,
+                    )
             return
         if sys.stderr is None:
             return

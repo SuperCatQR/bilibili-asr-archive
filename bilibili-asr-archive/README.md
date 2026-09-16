@@ -215,20 +215,22 @@ The rule is "nothing was paid", not "no items were transcribed": when a batch
 built the model and then failed every transcription — the GPU, ROCm or
 checkpoint failure the line exists to expose — it still prints, with a zero
 denominator, as in `run: model constructions=1 for 0 asr item(s)`. A batch that
-neither constructed a model nor transcribed anything prints no line at all:
-subtitle-only work, or a batch whose every load failed (see below). If stderr is
-closed, the line is dropped rather than redirected, so `campaign`'s stdout stays
-one parseable JSON document.
+neither constructed a model nor transcribed anything may still print a
+diagnostic: when every model load failed, stderr shows
+`<command>: model load failed <n> time(s), 0 transcripts produced`, where `<n>`
+is the number of failed attempts. This makes repeated configuration errors
+(wrong path, missing checkpoint) visible instead of silent. A subtitle-only
+batch (no ASR attempts at all) prints nothing. If stderr is closed, the line is
+dropped rather than redirected, so `campaign`'s stdout stays one parseable JSON
+document.
 
 The printed count counts **successful constructions**, and a load the factory
 rejected pays none of them. Such a load leaves no model behind, so the next row
 retries the same load: an N-row batch whose every load fails performs N attempts
-and **prints no reuse line** — it paid no construction and produced no
-transcript, so the guard above falls silent. Its failures are reported per row
-instead (`run: <work_id>: failed (ASRModelError)`, `<work_id>: archive
-failed (ASRModelError)`), and no command prints the attempt count. Both paths
-name the exception class beside the row, so a failure an operator can act on is
-not just the words `archive failed`.
+and prints the failure diagnostic above. Per-row failures are also reported
+(`run: <work_id>: failed (ASRModelError)`, `<work_id>: archive
+failed (ASRModelError)`), and both paths name the exception class beside the
+row, so a failure an operator can act on is not just the words `archive failed`.
 
 A malformed declaration is refused **before the first row** on the `asr` path:
 the command reads the environment knobs once at entry, prints the `ValueError`'s
@@ -236,14 +238,17 @@ own message — the variable's name, and for a contradiction the two values — 
 exits 1 without archiving anything. The per-row failure line above remains the
 backstop for a row that fails later for another reason.
 
-That count is recorded, not printed: it lives on `ASRRunner.model_load_attempts`,
+The attempt count is recorded on `ASRRunner.model_load_attempts`,
 beside the construction counter. It counts every factory invocation, successful
 or not, so `model_load_attempts - model_constructions` is exactly the number of
 failed loads a run paid for, and `model_load_attempts >= model_constructions`
-always holds (equal when every load succeeded). It is an in-process surface: a
-batch that cannot load its checkpoint at all leaves its N retries visible only
-to a caller that holds the runner, while the reuse line's only number stays
-constructions.
+always holds (equal when every load succeeded). It is visible to the operator
+through the failed-load diagnostic above, and to a caller that holds the runner
+directly through the counter attribute. The reuse count and historical attempt
+count are **real-time diagnostics only**: they are not recorded in
+`campaign.json`, `run-ledger.jsonl`, or any persistent evidence. An operator
+monitoring a long run sees them on stderr; historical analysis uses per-row
+outcomes instead.
 
 ## Deterministic verification baseline
 
