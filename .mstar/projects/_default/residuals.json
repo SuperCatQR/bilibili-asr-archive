@@ -203,6 +203,22 @@
         "closure_note": "The per-row load retry is now bounded: asr.MAX_MODEL_LOAD_ATTEMPTS caps the factory calls one runner may pay, and a runner past the cap raises without invoking the loader again, so a systematically broken configuration costs at most that many attempts instead of one per remaining row. The counter keeps its documented meaning (factory invocations) because a refused call increments nothing.",
         "closure_evidence": "this plan (.mstar/plans/20260917-residual-burndown.md, 2026-09-17), Task 1; bilibili-asr-archive/src/bili_asr/asr.py (MAX_MODEL_LOAD_ATTEMPTS, _get_model). Tests: tests/test_asr_reproducibility.py::test_the_load_retry_cap_bounds_a_systematically_broken_configuration (7 rows -> exactly the cap in attempts) and ::test_a_load_that_fails_then_succeeds_still_succeeds_inside_the_cap."
       }
+    ],
+    "e2e-23191782-season-7686105": [
+      {
+        "id": "R1",
+        "title": "The ASR chain has no bridge from archive.db: fetch-meta collects real metadata into SQLite, but asr / pilot / download-audio / run / schedule / campaign read manifest/manifest.jsonl only, and no command derives the manifest from the database (nor the transcripts back into SRT/TXT/MD). A documented non-goal of iter-2026-09-bilibili-api-sqlite, so every corpus run needs a hand-built manifest.",
+        "severity": "medium",
+        "source": "E2E run e2e-23191782-season-7686105 (2026-09-17), finding F3 in {WORKFLOW_DIR}/e2e-23191782-season-7686105/reports/e2e.md; verified by mapping every CLI handler to the store it opens (SQLite family: fetch-meta/probe-subs/harvest-subs/status/runs/search/export; manifest family: asr/pilot/download-audio/run/schedule/campaign)",
+        "scope": "bilibili-asr-archive/src/bili_asr/cli.py (the two command families never share a store) with src/bili_asr/manifest.py and the storage layer; the audio work queue already exists in SQLite as video_parts.processing_status ('no-subtitle' rows) and is unused by the ASR chain. The bridge used by this run is scaffolding on the target host (/root/e2e-asr/tools/seed_season.py, unsupported, not in the repository).",
+        "decision": "defer",
+        "owner": "@project-manager",
+        "target": "the next iteration that owns the SQLite-side audio queue. docs/metadata-storage.md §Boundary with the legacy manifest path names exactly three pieces of this work as next-iteration scope: enumerating the audio work queue from SQLite, rebuilding the SRT/TXT/MD projections from the stored transcripts, and giving the legacy audio feeder a source again (harvest-subs no longer produces needs_audio). Trigger: the first corpus run that must feed SQLite-collected metadata into the ASR chain.",
+        "tracking": "Registered here. The boundary is deliberate and published in three places — bilibili-asr-archive/README.md L301 ('feeds nothing below it'), docs/metadata-storage.md L288-305 ('the two paths do not feed each other yet'), and the iter-2026-09-bilibili-api-sqlite compass 'Out of scope' list — so this registers a known deferred capability, not a defect. Operator decision 2026-09-17: register only, no code change now ('只登记 residual，暂不动').",
+        "source_plan": "e2e-23191782-season-7686105",
+        "registered_at": "2026-09-17",
+        "lifecycle_id": "e2e-23191782-season-7686105"
+      }
     ]
   }
 }
