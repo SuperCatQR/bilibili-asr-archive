@@ -441,6 +441,20 @@ def build_parser() -> argparse.ArgumentParser:
         help="Archive root directory (default: ./archive)",
     )
 
+    # The GPU/ROCm environment self-check.  This subcommand is the CLI form the
+    # README and spec 01 D1.2 already document — it had no implementation, so
+    # every published invocation answered "invalid choice: 'check-asr-env'"
+    # while the check itself lived only in `scripts/check_asr_env.py`.
+    #
+    # It takes no arguments and writes nothing: it inspects the host (device
+    # node, loader path, torch build, HSA runtime, a device probe) and exits
+    # `0` iff all five stages hold, `1` when any fails, `2` for a usage error —
+    # the same contract the script implements.
+    subparsers.add_parser(
+        "check-asr-env",
+        help="Verify this host can run local ASR (GPU/ROCm recipe self-check)",
+    )
+
     return parser
 
 
@@ -1300,6 +1314,9 @@ def _cmd_coverage_quality(args: argparse.Namespace) -> int:
     valid_work_items = 0
     has_defects = False
     agreement: ReferenceAgreement | None = None
+    # Where each row's doubtful cues are, keyed by work_id: a value the frozen
+    # CSV columns cannot carry, so it is held here for the stderr pass below.
+    low_confidence_by_work_id: dict[str, tuple[float, ...]] = {}
 
     analyzer = QualityAnalyzer()
     for work_id, entry in sorted(selected.items()):
@@ -1321,6 +1338,8 @@ def _cmd_coverage_quality(args: argparse.Namespace) -> int:
             "reasons": [*result.reasons, *result.content_reasons],
             "diagnostics": list(result.diagnostics),
         }
+        if result.low_confidence_at:
+            low_confidence_by_work_id[work_id] = result.low_confidence_at
         if result.reference is not None:
             agreement = result.reference
         rows.append(row_dict)
@@ -1432,6 +1451,20 @@ def _cmd_coverage_quality(args: argparse.Namespace) -> int:
                 }
             )
         sys.stdout.write(output.getvalue())
+        # The frozen CSV columns carry the reason names, so the values a reason
+        # stands for go to stderr — the same channel the reference ratio uses.
+        # `low_confidence` shipped as a bare code with no location, which left
+        # the operator reading `raw.json` by hand to find the doubtful passage
+        # (residual R1 of 20260912-quality-signal-merge).  One line per row that
+        # has any, so a long run's stderr states *where* the doubt is.
+        for r in rows:
+            low_at = low_confidence_by_work_id.get(str(r.get("work_id")), ())
+            if low_at:
+                print(
+                    f"coverage: {r.get('work_id')} low-confidence at "
+                    + ", ".join(f"{value}s" for value in low_at),
+                    file=sys.stderr,
+                )
         if agreement is not None:
             # CSV keeps its frozen columns, so the ratio goes to stderr.
             print(
@@ -2637,6 +2670,86 @@ def _parse_status_filter(status_args: list[str] | None) -> set[str] | None:
     return statuses if statuses else None
 
 
+def _cmd_check_asr_env(args: argparse.Namespace) -> int:
+    """Run the host self-check the README and spec 01 D1.2 name.
+
+    The check is `scripts/check_asr_env.py`, which is deliberately **not** part
+    of the installed package: it is environment surgery's own verifier, lives
+    beside the recipe in the checkout, and imports nothing from ``bili_asr``.
+    The published invocation therefore names the CLI — so the CLI has to find
+    the script rather than reimplement the five stages here.
+
+    Resolution order, first hit wins:
+
+    1. ``$BILI_ASR_CHECK_SCRIPT`` — an explicit override, for a host that keeps
+       the script somewhere unusual.
+    2. ``scripts/check_asr_env.py`` relative to this file's repository root
+       (``src/bili_asr/cli.py`` → ``../../../scripts/``), which is the checkout
+       layout every documented example assumes.
+    3. ``scripts/check_asr_env.py`` under the current working directory, i.e.
+       the product directory the README tells the operator to run from.
+
+    When none exists the command reports that and exits ``1`` — a missing
+    prerequisite is stated, never simulated as a pass.  The script's own exit
+    codes pass through unchanged (``0`` verified, ``1`` a failed stage, ``2``
+    usage).
+    """
+
+    import importlib.util
+
+    candidates: list[Path] = []
+    override = os.environ.get("BILI_ASR_CHECK_SCRIPT")
+    if override:
+        candidates.append(Path(override).expanduser())
+    # src/bili_asr/cli.py -> repository root -> scripts/
+    candidates.append(Path(__file__).resolve().parents[3] / "scripts" / "check_asr_env.py")
+    candidates.append(Path.cwd() / "scripts" / "check_asr_env.py")
+
+    for candidate in candidates:
+        if candidate.is_file():
+            script = candidate
+            break
+    else:
+        print(
+            "check-asr-env: no check script found; looked for "
+            + ", ".join(str(path) for path in candidates)
+            + " (set BILI_ASR_CHECK_SCRIPT to point at it)",
+            file=sys.stderr,
+        )
+        return 1
+
+    # The script carries its own argparse-free usage contract: no arguments on
+    # the command line, so it is called with none.  Loaded by path and invoked
+    # as a function rather than through `runpy`: the script's `main()` defaults
+    # to `sys.argv[1:]`, which here still holds this subcommand's own name, so
+    # the `__main__` route would answer every invocation as a usage error.
+    spec = importlib.util.spec_from_file_location("_bili_asr_env_check", script)
+    if spec is None or spec.loader is None:
+        print(f"check-asr-env: cannot load {script}", file=sys.stderr)
+        return 1
+    module = importlib.util.module_from_spec(spec)
+    # Registered before execution: the script defines frozen dataclasses, and
+    # `dataclasses._process_class` resolves `cls.__module__` through
+    # `sys.modules`, which a bare `module_from_spec` does not populate.
+    sys.modules[spec.name] = module
+    try:
+        spec.loader.exec_module(module)
+    except Exception:
+        print(f"check-asr-env: cannot load {script}", file=sys.stderr)
+        return 1
+    check_main = getattr(module, "main", None)
+    if not callable(check_main):
+        print(f"check-asr-env: {script} has no main()", file=sys.stderr)
+        return 1
+    try:
+        return int(check_main([]))
+    except SystemExit as exc:  # the script's own `raise SystemExit(main())` guard
+        code = exc.code
+        if code is None:
+            return 0
+        return code if isinstance(code, int) else 1
+
+
 def _cmd_export(args: argparse.Namespace) -> int:
     from .export import export_manifest
     from .manifest import VALID_STATUSES
@@ -2815,6 +2928,8 @@ def _dispatch_command(args: argparse.Namespace) -> int:
         return _cmd_search(args)
     if args.command == "evaluate-concurrency":
         return _cmd_evaluate_concurrency(args)
+    if args.command == "check-asr-env":
+        return _cmd_check_asr_env(args)
     if args.command == "export":
         return _cmd_export(args)
     if args.command == "run":

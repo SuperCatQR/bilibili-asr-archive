@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import collections
+import hashlib
 import json
 from pathlib import Path
 
@@ -1052,3 +1053,103 @@ def test_cue_less_sidecar_alone_invents_no_ratio(tmp_path: Path) -> None:
     assert result.reasons == ("empty",)
     assert result.reference is None
     assert result.content_reasons == ()
+
+
+def test_the_ngram_scan_is_exact_at_the_bound(tmp_path: Path) -> None:
+    """R2 (this plan): the bound is part of the contract, pinned from both sides.
+
+    At or below `_NGRAM_MAX_CHARS` the scan must answer exactly — a three-times
+    repeat anywhere in the body still fires, which is the property the retry of
+    this scan exists to keep.  The body here is built so the repeated window sits
+    *after* the first half, so a bound that silently truncated at some smaller
+    size would drop it.
+    """
+
+    assert quality._NGRAM_MAX_CHARS > quality._NGRAM_CHARS
+    block = "甲乙丙丁戊己庚辛"
+    filler = "这是一个用来把重复推到后面的填充句子"
+    body = filler + block + filler + block + filler + block
+    assert len(body) <= quality._NGRAM_MAX_CHARS, "fixture must fit inside the bound"
+
+    result = QualityAnalyzer().analyze(
+        row(srt_path=write_srt(
+            tmp_path,
+            "BV1demo.p0.srt",
+            f"1\n00:00:00,000 --> 00:00:08,000\n{body}\n",
+        )),
+        tmp_path,
+    )
+    assert "repeated_ngram" in result.content_reasons
+    assert result.reasons == ()
+
+
+
+def _repeat_free_filler(length: int) -> str:
+    """Deterministic text whose every 8-character window is nearly unique.
+
+    Built by concatenating sha256 hex digests, so no window repeats three times —
+    which is what lets a test attribute a `repeated_ngram` hit to the stretch it
+    inserted rather than to the filler.
+    """
+
+    out: list[str] = []
+    total = 0
+    counter = 0
+    while total < length:
+        digest = hashlib.sha256(f"bili-asr-{counter}".encode()).hexdigest()
+        out.append(digest)
+        total += len(digest)
+        counter += 1
+    return "".join(out)[:length]
+
+def test_the_ngram_scan_bounds_its_own_work_above_the_bound() -> None:
+    """Above the bound the scan covers a bounded prefix, and the difference shows.
+
+    The bound is a deliberate trade on an *advisory* code, so the two halves are
+    asserted together: a body whose repeat lies inside the bound fires, and the
+    same repeat pushed past it is allowed to be missed.  Asserting both directions
+    is what keeps the bound documented rather than discovered.
+    """
+
+    block = "甲乙丙丁戊己庚辛"
+    # Three *aligned* occurrences of the window: the blocks start at 0, 8 and 16,
+    # so one 8-character key occurs three times.  A bare `block * 3` does not
+    # (it yields only two aligned windows of that key), so it is not the fixture
+    # this test needs.
+    repeated = block * 4
+    assert quality._has_repeated_ngram(repeated) is True
+
+    # A filler that is itself *free* of repeats: a run of one character (or
+    # zero-padded counters) would fire `repeated_ngram` on its own, which says
+    # nothing about the bound.  Deterministic hex digits keep every window
+    # distinct, and the assertion below proves it rather than assuming it.
+    filler = _repeat_free_filler(quality._NGRAM_MAX_CHARS)
+    assert quality._has_repeated_ngram(filler) is False, "filler must be repeat-free"
+
+    # The repeated stretch pushed past the bound: the prefix scan cannot see it.
+    # This is the accepted miss, stated as the code's own contract.
+    past = filler + repeated
+    assert len(past) > quality._NGRAM_MAX_CHARS
+    assert quality._has_repeated_ngram(past) is False
+
+    # And the same stretch inside the bound is still found — at the very start,
+    # and ending exactly at the bound, so a bound that truncated earlier fails.
+    assert quality._has_repeated_ngram(repeated + filler) is True
+    assert quality._has_repeated_ngram(
+        filler[: quality._NGRAM_MAX_CHARS - len(repeated)] + repeated
+    ) is True
+
+
+def test_the_ngram_bound_does_not_change_a_real_transcripts_answer(tmp_path: Path) -> None:
+    """The archived corpus never reaches the bound, so its answers stay exact.
+
+    The longest archived part joins to a few thousand characters; the bound sits
+    far above that, so this change is invisible to every real artifact.
+    """
+
+    from pathlib import Path as _Path
+
+    fixture = _Path(__file__).resolve().parent / "fixtures" / "asr-cues" / "BV1wLTP6NE9h.p0.tokens.json"
+    payload = json.loads(fixture.read_text(encoding="utf-8"))
+    joined = "".join(str(item.get("text", "")) for item in payload)
+    assert 0 < len(joined) < quality._NGRAM_MAX_CHARS

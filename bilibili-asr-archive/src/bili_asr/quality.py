@@ -73,6 +73,13 @@ _FRONTMATTER = re.compile(r"\A---[ \t]*\r?\n.*?\r?\n---[ \t]*(?:\r?\n|\Z)", re.D
 #: ``test_ngram_window_is_the_pinned_eight_characters``.
 _NGRAM_CHARS = 8
 _NGRAM_MIN_REPEATS = 3
+#: Character ceiling on the repeated-ngram scan, in the joined transcript's own
+#: characters. Sized well above a real transcript (the archive's longest archived
+#: part joins to ~4 k characters) so the exact answer holds for every artifact
+#: this corpus produces, while a pathological or adversarial body cannot turn
+#: the *reporting* path into an unbounded allocation. See
+#: :func:`_has_repeated_ngram` for what the bound gives up above it.
+_NGRAM_MAX_CHARS = 200_000
 _MAX_BYTES = 8 * 1024 * 1024
 _MAX_CUES = 10_000
 #: How much flattened text either transcript may hold before the comparison is
@@ -161,6 +168,22 @@ class QualityResult:
     ``reasons`` holds defect codes only, so validity counts and exit status read
     from it unchanged.  ``content_reasons`` holds the advisory content codes and
     never affects either.
+
+    ``low_confidence_at`` is the one field that carries a **value** rather than
+    a code: the low-confidence cues' start seconds, ascending and rounded to 3
+    decimals exactly as the archived frontmatter renders them
+    (``asr_low_confidence_at``).  The retirement map promised this location list
+    as ``low_confidence``'s replacement output, and a bare reason name cannot
+    keep that promise — "a cue scored low" without *where* leaves the operator
+    reading ``raw.json`` by hand (residual R1 of
+    ``20260912-quality-signal-merge``).
+
+    It is deliberately **not** in :meth:`to_dict`: ``to_dict``'s keys,
+    the CSV column tuple and ``schema_version`` are frozen by
+    ``specs/03-quality-surface.md``, so this value reaches the operator on the
+    human path's stderr instead — the same channel the reference-agreement ratio
+    already uses.  Consumed positions are keyword-only and appended last, so no
+    existing construction or consumer shifts.
     """
 
     source: str | None
@@ -172,6 +195,7 @@ class QualityResult:
     diagnostics: tuple[str, ...]
     content_reasons: tuple[str, ...] = ()
     reference: ReferenceAgreement | None = None
+    low_confidence_at: tuple[float, ...] = ()
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -208,6 +232,7 @@ class QualityAnalyzer:
         reasons: set[str] = set()
         diagnostics: set[str] = set()
         content_reasons: set[str] = set()
+        low_confidence_at: tuple[float, ...] = ()
         artifacts = _artifact_paths(row, archive_root)
         cue_count = 0
         valid_artifacts = 0
@@ -247,7 +272,15 @@ class QualityAnalyzer:
             if empty:
                 reasons.add("empty")
             _check_cues(cues, row, reasons)
-            _check_content(cues, content_reasons)
+            # Per-cue scores live in the raw sidecar only, so the locations must
+            # survive the artifacts that carry none: this runs once per artifact,
+            # and an SRT or `.md` following the sidecar would otherwise clear what
+            # the sidecar supplied.  The first non-empty answer wins — the row has
+            # exactly one artifact that records scores.
+            if not low_confidence_at:
+                low_confidence_at = _check_content(cues, content_reasons)
+            else:
+                _check_content(cues, content_reasons)
             _check_identity(path, text, row, reasons)
         agreement = (
             None
@@ -266,6 +299,7 @@ class QualityAnalyzer:
             diagnostics=tuple(sorted(diagnostics)[:8]),
             content_reasons=tuple(sorted(content_reasons, key=REASON_CODES.index)),
             reference=agreement,
+            low_confidence_at=low_confidence_at,
         )
 
 
@@ -623,13 +657,23 @@ def _check_cues(
         previous_start, previous_end = start, end
 
 
-def _check_content(cues: list[Cue], reasons: set[str]) -> None:
-    """Record what the transcript's content measures.  Advisory, never a defect."""
+def _check_content(
+    cues: list[Cue], reasons: set[str]
+) -> tuple[float, ...]:
+    """Record what the transcript's content measures.  Advisory, never a defect.
 
-    if any(
-        cue.confidence is not None and cue.confidence <= LOW_CONFIDENCE
+    Returns the low-confidence cues' start seconds — the same filtered list the
+    ``low_confidence`` code is derived from, so the count and the locations can
+    never disagree, and an artifact that records no score yields ``()`` rather
+    than a fabricated position.
+    """
+
+    low = [
+        cue
         for cue in cues
-    ):
+        if cue.confidence is not None and cue.confidence <= LOW_CONFIDENCE
+    ]
+    if low:
         reasons.add("low_confidence")
     if any(cue.text and cue.text[:1] in LEADING for cue in cues):
         reasons.add("leading_mark")
@@ -644,13 +688,37 @@ def _check_content(cues: list[Cue], reasons: set[str]) -> None:
     texts = [cue.text for cue in cues]
     if any(bool(text) and text == other for text, other in zip(texts, texts[1:])):
         reasons.add("duplicate_cue")
-    joined = "".join(texts)
+    if _has_repeated_ngram("".join(texts)):
+        reasons.add("repeated_ngram")
+    # Ascending and 3-decimal, matching the archived `asr_low_confidence_at`.
+    return tuple(round(cue.start, 3) for cue in low)
+
+
+def _has_repeated_ngram(joined: str) -> bool:
+    """Whether any :data:`_NGRAM_CHARS`-window of ``joined`` repeats.
+
+    The scan is a counter over sliding windows, so its work is linear in the
+    number of windows — and a long transcript is a long string: the artifact cap
+    is ``_MAX_BYTES``, which at one CJK character per 3 bytes is millions of
+    windows, all of them stored in one dictionary (residual R2 of
+    ``20260912-quality-signal-merge``, inherited from the retired script).
+
+    :data:`_NGRAM_MAX_CHARS` bounds the windows actually counted. At or below it
+    the answer is **exact**. Above it the scan covers the first
+    ``_NGRAM_MAX_CHARS`` characters only, which can miss a repeat that begins
+    past the bound — accepted deliberately: this is an advisory content code
+    (it never affects validity or the exit status), a transcript long enough to
+    hit the bound has already passed every defect check, and an unbounded scan
+    on the *reporting* path is the worse failure. The bound is therefore part of
+    the code's contract, not an implementation detail.
+    """
+
+    limit = min(len(joined), _NGRAM_MAX_CHARS)
     grams = collections.Counter(
         joined[index : index + _NGRAM_CHARS]
-        for index in range(max(0, len(joined) - _NGRAM_CHARS))
+        for index in range(max(0, limit - _NGRAM_CHARS))
     )
-    if any(count >= _NGRAM_MIN_REPEATS for count in grams.values()):
-        reasons.add("repeated_ngram")
+    return any(count >= _NGRAM_MIN_REPEATS for count in grams.values())
 
 
 def _check_identity(

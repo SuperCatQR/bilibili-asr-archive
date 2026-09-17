@@ -194,6 +194,22 @@ DEFAULT_VAD_MODEL = "fsmn-vad"
 DEFAULT_VAD_MAX_SEGMENT_S = 30.0
 VAD_MAX_SEGMENT_ENV_VAR = "BILI_ASR_VAD_MAX_SEGMENT_S"
 
+#: Ceiling on the factory calls one runner may pay for, failures included.
+#:
+#: A failed load leaves ``_model`` unset, so every later row retried the same
+#: doomed call — an N-row batch whose checkpoint path is wrong paid N attempts
+#: (residual R2 of plan ``20260912-asr-provenance-identity``, verified at
+#: ``bc425f6``).  The retry itself is wanted: a transient failure should not
+#: lose every remaining row.  What was missing is a bound, so a systematically
+#: broken configuration stops instead of multiplying its cost by the row count.
+#:
+#: Past the cap the runner raises **without calling the factory again**, so
+#: ``model_load_attempts`` keeps its documented meaning — every factory
+#: invocation, successful or not — and the identifier derived from it
+#: (``attempts - constructions``, "the failed loads this run paid for") stays
+#: truthful.  A suppressed call is not an attempt; it is a refusal to spend one.
+MAX_MODEL_LOAD_ATTEMPTS = 3
+
 #: A confined audio descriptor, as :func:`bili_asr.path_policy.confined_audio_file`
 #: hands it over: ``/proc/self/fd/12`` or ``/dev/fd/12``.
 _DESCRIPTOR_PATH = re.compile(r"^/(?:proc/(?:self|\d+)/fd|dev/fd)/\d+$")
@@ -419,17 +435,21 @@ class ASRRunner:
 
     ``model_load_attempts`` is the attempt counter beside it (inherited
     residual R1 from ``20260912-batch-model-reuse``): a load the factory
-    rejected is **retried once per row**, pays no construction, and is counted
-    here instead.  Without it ``model_constructions == 0`` cannot be told
-    apart between a runner that never needed a model and a runner whose N
+    rejected is **retried once per row** — now **bounded by**
+    :data:`MAX_MODEL_LOAD_ATTEMPTS` (residual R2 of
+    ``20260912-asr-provenance-identity``) — pays no construction, and is
+    counted here instead.  Without it ``model_constructions == 0`` cannot be
+    told apart between a runner that never needed a model and a runner whose
     loads were all rejected.  The invariant is
     ``model_load_attempts >= model_constructions``, with equality when every
     load succeeded.
 
-    This counter is recorded, not printed: the batch reuse line carries
-    constructions only and is suppressed when no construction was paid and no
-    item was transcribed, so a batch whose every load failed prints no line at
-    all and states its N retries only through a caller that holds this runner.
+    Both counters are recorded **and** surfaced: the batch reuse line carries
+    constructions, and a batch whose every load failed states the failures on
+    stderr instead of staying silent, so the operator sees a broken
+    configuration rather than an empty run (``bc425f6``; the per-batch print
+    site is ``RunCoordinator._print_model_constructions``).  A caller that
+    holds the runner reads the same numbers directly off these attributes.
     """
 
     def __init__(
@@ -511,9 +531,24 @@ class ASRRunner:
             # stays None on failure and the next row retries the same call,
             # which is why the attempt counter and the construction counter
             # must not be the same number.
+            #
+            # The retry is bounded (R2): once the cap is spent, a runner with
+            # no model refuses to spend another attempt rather than repeating a
+            # call that has failed every time.  The refusal raises *without*
+            # incrementing, so ``model_load_attempts`` still counts factory
+            # invocations exactly and ``attempts - constructions`` still names
+            # the failed loads this run paid for.
+            if self.model_load_attempts >= MAX_MODEL_LOAD_ATTEMPTS:
+                raise ASRModelError(
+                    "FunASR model load/transcription failed; check configured "
+                    f"local model. Gave up after {MAX_MODEL_LOAD_ATTEMPTS} "
+                    "failed load attempt(s)."
+                )
             self.model_load_attempts += 1
             self._model = factory(**kwargs)
         except ASRDependencyError:
+            raise
+        except ASRModelError:
             raise
         except Exception:
             raise ASRModelError(

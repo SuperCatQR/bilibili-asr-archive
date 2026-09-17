@@ -23,7 +23,7 @@ import re
 from collections.abc import Awaitable, Callable, Mapping
 from typing import Any
 
-from bilibili_api import Credential, request_settings, user
+from bilibili_api import Credential, request_settings
 from bilibili_api.exceptions import (
     ApiException,
     NetworkException,
@@ -31,6 +31,7 @@ from bilibili_api.exceptions import (
     ResponseException,
     WbiRetryTimesExceedException,
 )
+from bilibili_api.user import API as USER_API, User, VideoOrder
 from bilibili_api.utils.network import Api
 from bilibili_api.video import API as VIDEO_API, Video
 
@@ -81,7 +82,15 @@ _PLAIN_HTTP_SCHEME = "http://"
 # ``verify``/``wbi`` are read from it so this adapter cannot drift from the
 # pinned package; ``dm`` is deliberately overridden per call (see
 # ``BilibiliApiGateway._fetch_user_video_page``).
-_USER_VIDEO_PAGE_ENDPOINT = user.API["info"]["video"]
+#
+# Only the three names this adapter uses are imported from the pin's ``user``
+# module — the endpoint description, ``User`` and ``VideoOrder``.  Binding the
+# whole module instead (``from bilibili_api import user``) made every endpoint
+# description in the package source-reachable here through ``user.get_api``
+# without the import boundary noticing; that hole was residual R1 of
+# ``20260911-subtitle-gateway``, and this narrowed import is its closure.  The
+# ``video`` module below is narrowed for the same reason.
+_USER_VIDEO_PAGE_ENDPOINT = USER_API["info"]["video"]
 
 # The package's own endpoint description for the player call
 # (``bilibili_api.video.API["info"]["get_player_info"]``), whose unwrapped
@@ -693,7 +702,7 @@ class BilibiliApiGateway:
                 tid=0,
                 pn=page_number,
                 keyword="",
-                order=user.VideoOrder.PUBDATE.value,
+                order=VideoOrder.PUBDATE.value,
                 order_avoided=True,
                 platform="web",
                 w_webid=w_webid,
@@ -792,7 +801,7 @@ class BilibiliApiGateway:
 
         if mid not in self._w_webid_by_mid:
             try:
-                access_id: object = await user.User(
+                access_id: object = await User(
                     uid=mid, credential=self._credential
                 ).get_access_id()
             except Exception:

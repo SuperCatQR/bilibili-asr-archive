@@ -822,3 +822,213 @@ def test_sentinel_never_appears_in_cli_output(isolated_cli) -> None:
     proc = run_installed(isolated_cli, ["--help"], extra_env={"BILI_SESSDATA": SENTINEL_COOKIE})
     assert SENTINEL_COOKIE not in (proc.stdout + proc.stderr)
     assert_redacted(proc)
+
+
+def _low_confidence_archive(tmp_path: Path) -> str:
+    """One archived ASR row whose raw sidecar records two doubtful cues.
+
+    The cue at 12.5 s scores 0.30 (below `LOW_CONFIDENCE`), the one at 20.0 s
+    scores 0.38 (also below), and the rest score comfortably above — so the
+    locations are exactly `[12.5, 20.0]` and their count is 2.
+    """
+
+    from bili_asr.manifest import ManifestStore
+    from bili_asr import archive as archive_module, asr as asr_module
+
+    store = ManifestStore(root=str(tmp_path))
+    store.upsert({
+        "work_id": "BV1low:p0",
+        "bvid": "BV1low",
+        "page_index": 0,
+        "cid": 901,
+        "title": "Low Confidence Video",
+        "status": "archived",
+        "duration_s": 30,
+        "source": "asr",
+    })
+    segments = [
+        {"start": 0.0, "end": 4.0, "text": "开头这句很清楚", "confidence": 0.91},
+        {"start": 12.5, "end": 16.0, "text": "中间这句听不清", "confidence": 0.30},
+        {"start": 20.0, "end": 24.0, "text": "后面这句也含糊", "confidence": 0.38},
+    ]
+    entry = store.get("BV1low:p0")
+    archive_module.write_archive(
+        tmp_path, entry, segments, source="asr",
+        asr_provenance={"model_name": "local-test-model", "device": "cpu"},
+    )
+    return "low"
+
+
+def test_cli_main_coverage_quality_keeps_json_frozen_but_locates_the_doubt(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """R1 (this plan): the doubt's *location* is reachable without touching the contract.
+
+    `specs/03-quality-surface.md` freezes `to_dict`'s keys, the CSV column tuple
+    and `schema_version`, so the location list may not appear in the JSON
+    document. It must still be *reachable* — a bare `low_confidence` code with no
+    position is what the residual complaints about. The JSON half is asserted
+    byte-stable here; the stderr half is asserted in the CSV test below.
+    """
+
+    from bili_asr import cli
+
+    _low_confidence_archive(tmp_path)
+
+    assert cli.main(
+        ["coverage", "--archive-root", str(tmp_path), "--quality", "--format", "json"]
+    ) == 0
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+
+    # The reason is still reported, and the frozen keys are untouched: no new
+    # key anywhere in the document, on any row.
+    row = payload["rows"][0]
+    assert "low_confidence" in row["reasons"]
+    assert payload["summary"]["low_confidence"] == 1
+    assert set(row) == {
+        "work_id", "source", "language", "status", "cue_count",
+        "artifact_count", "reasons", "diagnostics",
+    }
+    assert set(payload) == {"schema_version", "scope", "denominator", "summary", "rows", "diagnostics"}
+    # The machine-readable path stays machine-readable: no extra stderr line.
+    assert "low-confidence at" not in captured.err
+
+
+def test_cli_main_coverage_quality_csv_states_where_the_doubt_is(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The CSV path is where the location reaches the operator, on stderr.
+
+    CSV keeps its frozen columns, so — exactly like the reference-agreement
+    ratio — the value goes to stderr beside a `coverage:` prefix. A row with no
+    recorded scores emits nothing rather than a fabricated `0.0s`.
+    """
+
+    from bili_asr import cli
+
+    _low_confidence_archive(tmp_path)
+
+    assert cli.main(
+        ["coverage", "--archive-root", str(tmp_path), "--quality", "--format", "csv"]
+    ) == 0
+    captured = capsys.readouterr()
+
+    # The header row is unchanged (the frozen column tuple), and the line names
+    # the row and both doubtful positions, ascending, in seconds.
+    header = captured.out.splitlines()[0]
+    assert header.endswith("reasons,diagnostics")
+    assert "low_confidence_at" not in header
+    assert "coverage: BV1low:p0 low-confidence at 12.5s, 20.0s" in captured.err
+
+
+def test_cli_main_coverage_quality_says_nothing_when_no_score_is_recorded(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """No recorded score means no location — not a fabricated one.
+
+    The same rule the reason already follows: an artifact without per-cue scores
+    reports neither `low_confidence` nor a position, so an SRT-only row must
+    stay silent on the new stderr line.
+    """
+
+    from bili_asr import cli
+
+    from bili_asr.manifest import ManifestStore
+
+    store = ManifestStore(root=str(tmp_path))
+    store.upsert({
+        "work_id": "BV1nos:p0",
+        "bvid": "BV1nos",
+        "page_index": 0,
+        "cid": 902,
+        "title": "Subtitle Video",
+        "status": "archived",
+        "duration_s": 30,
+        "source": "subtitle",
+    })
+    srt_path = tmp_path / "transcripts" / "srt" / "BV1nos.p0.srt"
+    srt_path.parent.mkdir(parents=True, exist_ok=True)
+    srt_path.write_text(
+        "1\n00:00:00,000 --> 00:00:04,000\n这句没有分数记录\n", encoding="utf-8"
+    )
+
+    assert cli.main(
+        ["coverage", "--archive-root", str(tmp_path), "--quality", "--format", "csv"]
+    ) == 0
+    captured = capsys.readouterr()
+    assert "low_confidence" not in captured.out
+    assert "low-confidence at" not in captured.err
+
+
+def test_check_asr_env_runs_the_checkout_script(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The documented `bili-asr check-asr-env` exists and reaches the check.
+
+    The README and spec 01 D1.2 both publish this invocation, but no subcommand
+    implemented it — every documented call answered `invalid choice:
+    'check-asr-env'`.  This pins the wiring: the command resolves the checkout's
+    `scripts/check_asr_env.py`, runs it, and passes its exit status through.
+    (The stages themselves are covered by `tests/test_check_asr_env.py`; here the
+    script is replaced so the test asserts the plumbing, not the host.)
+    """
+
+    from bili_asr import cli
+
+    script = tmp_path / "check_asr_env.py"
+    script.write_text(
+        "import sys\n"
+        "def main(argv=None):\n"
+        "    print('probe ran')\n"
+        "    return 7\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("BILI_ASR_CHECK_SCRIPT", str(script))
+
+    exit_code = cli.main(["check-asr-env"])
+    captured = capsys.readouterr()
+
+    assert exit_code == 7, "the script's exit status passes through unchanged"
+    assert "probe ran" in captured.out
+
+
+def test_check_asr_env_reports_a_missing_script_instead_of_passing(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A missing prerequisite is stated, never simulated as a pass."""
+
+    from bili_asr import cli
+
+    monkeypatch.setenv("BILI_ASR_CHECK_SCRIPT", str(tmp_path / "absent.py"))
+    monkeypatch.chdir(tmp_path)
+
+    exit_code = cli.main(["check-asr-env"])
+    captured = capsys.readouterr()
+
+    # It falls back to the checkout script, which exists here, so a real run is
+    # reported rather than a fabricated verdict: either way the exit code is the
+    # check's own (0 or 1), never a silent success from a missing file.
+    assert exit_code in (0, 1)
+    assert "Traceback" not in captured.err
+
+
+def test_check_asr_env_states_absence_when_no_script_exists_anywhere(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """With no candidate script the command names what it looked for and exits 1."""
+
+    from bili_asr import cli
+
+    monkeypatch.setenv("BILI_ASR_CHECK_SCRIPT", str(tmp_path / "absent.py"))
+    monkeypatch.chdir(tmp_path)
+    # Hide the checkout candidate by pointing the package at a directory whose
+    # repository-relative scripts/ does not exist.
+    monkeypatch.setattr(cli, "__file__", str(tmp_path / "src" / "bili_asr" / "cli.py"))
+
+    exit_code = cli.main(["check-asr-env"])
+    captured = capsys.readouterr()
+
+    assert exit_code == 1
+    assert "no check script found" in captured.err
+    assert "BILI_ASR_CHECK_SCRIPT" in captured.err

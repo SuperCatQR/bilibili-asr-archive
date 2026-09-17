@@ -104,16 +104,22 @@ HTTP_BACKEND_CANONICAL_NAME = "curl-cffi"
 PACKAGE_HTTP_CLIENT_CANONICAL_NAMES = frozenset({"curl-cffi", "httpx", "aiohttp"})
 
 #: The exact bilibili_api import surface the adapter is allowed to use.  The
-#: user-video page call is issued through ``user``'s own endpoint description
-#: and the WBI-signed ``utils.network.Api``, not through a ``user`` delegate;
-#: the subtitle call reads its transport fields from the player endpoint
-#: description the same way.  The ``video`` module is deliberately bound to its
-#: two needed names instead of the whole module (only ``API``, locally aliased
-#: to ``VIDEO_API`` so it cannot be confused with the ``Api`` request class, and
-#: ``Video``), so ``Episode``, ``VideoOnlineMonitor``, ``get_api``,
-#: ``get_cid_info`` and ``get_client`` are not source-reachable here.
+#: user-video page call is issued through the ``user`` module's own endpoint
+#: description and the WBI-signed ``utils.network.Api``, not through a ``user``
+#: delegate; the subtitle call reads its transport fields from the player
+#: endpoint description the same way.  Both the ``user`` and ``video`` modules
+#: are bound to their needed names instead of the whole module — ``user`` to
+#: ``API`` (locally aliased ``USER_API`` so it cannot be confused with the
+#: ``Api`` request class), ``User`` and ``VideoOrder``, ``video`` to ``API``
+#: (``VIDEO_API``) and ``Video`` — so ``Episode``, ``VideoOnlineMonitor``,
+#: ``get_api``, ``get_cid_info`` and ``get_client`` are not source-reachable
+#: here.  Narrowing ``user`` is what closes residual R1 of
+#: ``20260911-subtitle-gateway``: while it was bound whole, ``user.get_api``
+#: reached every endpoint description in the package past this exact-equality
+#: check.
 ALLOWED_PACKAGE_IMPORTS = {
-    "bilibili_api": {"Credential", "request_settings", "user"},
+    "bilibili_api": {"Credential", "request_settings"},
+    "bilibili_api.user": {"API", "User", "VideoOrder"},
     "bilibili_api.utils.network": {"Api"},
     "bilibili_api.video": {"API", "Video"},
     "bilibili_api.exceptions": {
@@ -1737,23 +1743,24 @@ def test_gateway_imports_stay_on_metadata_surface():
     """The adapter imports exactly the enforced allow-list, nothing broader.
 
     ``ALLOWED_PACKAGE_IMPORTS`` is compared exactly: ``Credential`` and the
-    ``request_settings``/``user`` modules from the package root, the WBI-signed
-    ``utils.network.Api``, the two ``video`` names the adapter uses (``API``,
-    bound locally as ``VIDEO_API`` so it cannot be confused with ``Api``, and
-    ``Video``), and the five exception names.  The page call reads
+    ``request_settings`` module from the package root, the three ``user`` names
+    the adapter uses (``API`` bound locally as ``USER_API``, ``User`` and
+    ``VideoOrder``), the WBI-signed ``utils.network.Api``, the two ``video``
+    names (``API``, bound locally as ``VIDEO_API`` so it cannot be confused with
+    ``Api``, and ``Video``), and the five exception names.  The page call reads
     ``user.API["info"]["video"]`` and the subtitle call reads the player
     endpoint description from the same surface, so ``utils.network.Api`` stays
-    the one request path.  ``User`` is not an allow-listed name of its own,
-    because the ``user`` module is bound whole: the adapter reaches the class
-    through it (``user.User(uid=mid, credential=self._credential)``, whose
-    ``get_access_id()`` serves the optional ``w_webid`` token route — the
+    the one request path.
+
+    ``User`` and ``VideoOrder`` are named imports of their own — the module is
+    no longer bound whole, and that narrowing is exactly what closed residual R1
+    of ``20260911-subtitle-gateway``: a whole-module binding made
+    ``user.get_api`` (and through it every endpoint description in the package)
+    reachable past this check.  ``User(uid=mid, credential=…)`` and its
+    ``get_access_id()`` serve the optional ``w_webid`` token route — the
     attribute the next test's positive control requires the scanned source to
-    carry).  That
-    module-wide binding — every other endpoint description reachable through
-    ``user.get_api`` included — is residual R1, deferred to the next plan that
-    touches this module.  The page call itself still goes through the ``user``
-    module's endpoint description and the package ``Api``, never through that
-    delegate.
+    carry.  The page call still goes through the ``user`` module's endpoint
+    description and the package ``Api``, never through a delegate.
     """
 
     gateway_path = (

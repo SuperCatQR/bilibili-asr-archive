@@ -1513,17 +1513,19 @@ def test_readme_publishes_the_declaration_surface_and_the_attempt_rule():
     assert "retries the same load" in text
 
 
-def test_a_batch_whose_every_load_fails_is_silent_and_pays_n_attempts(
+def test_a_batch_whose_every_load_fails_states_the_failures_and_pays_n_attempts(
     tmp_root, monkeypatch, capsys
 ):
-    """F1: the shipped behaviour the README's attempt paragraph must describe.
+    """F1 (as amended by ``bc425f6``): the failed batch states its cost on stderr.
 
     This is the review's scenario at the coordinator seam: three rows, a factory
     that raises on every call.  Every row pays one attempt, no construction is
-    paid and nothing is transcribed, so the guard is silent on both streams.
-    Asserted here as *behaviour* (counts and streams), not as a substring: the
-    test the README's paragraph is checked against has to be able to fail when
-    the paragraph (or the guard) drifts.
+    paid and nothing is transcribed — and the operator is **told**, on stderr,
+    rather than left with an empty run.  That diagnostic is what ``bc425f6``
+    added; before it this test asserted silence (``captured.err == ""``), which
+    is the behaviour it replaced.  Asserted here as *behaviour* (counts and
+    streams), not as a substring: the test the README's paragraph is checked
+    against has to be able to fail when the paragraph (or the guard) drifts.
     """
 
     attempts: list[dict] = []
@@ -1544,26 +1546,27 @@ def test_a_batch_whose_every_load_fails_is_silent_and_pays_n_attempts(
     assert summary.model_constructions == 0
     assert summary.asr_items == 0
     assert [result.ok for result in summary.results] == [False, False, False]
-    # ...and the cost is stated nowhere: no reuse line on either stream.
+    # ...the reuse line is still absent (nothing was constructed, nothing was
+    # transcribed)...
     assert "model constructions=" not in captured.err
     assert "model constructions=" not in captured.out
-    assert captured.err == ""
     assert captured.out == ""
-    # The failures are reported per row instead — the only operator surface.
+    # ...but the failures are stated on stderr, once, with the attempt count.
+    assert "model load failed 3 time(s), 0 transcripts produced" in captured.err
+    # The failures are also reported per row.
     assert len(summary.failed) == 3
 
 
 def test_the_attempt_count_survives_on_the_runner_the_batch_no_longer_holds(
     tmp_root, monkeypatch, capsys
 ):
-    """F1/F2: the count is recorded on an in-process surface, and nowhere else.
+    """F1/F2: the count reaches both the runner and the batch's own summary.
 
-    The coordinator releases its runner at batch exit, so the N attempts a
-    failed batch paid are unreachable from `RunSummary` — this pins that
-    boundary deliberately: the README states the count is *recorded, not
-    printed*, and this test is where either half may not silently change.  A
-    caller that owns the runner (an injected one, or the in-process `asr` /
-    `pilot` loops) is the only surface that can read it.
+    The coordinator releases its runner at batch exit, so before ``bc425f6`` the
+    N attempts a failed batch paid were unreachable from ``RunSummary``; the
+    summary now carries them (the field this test used to assert *absent*), and
+    a caller that owns the runner still reads the same numbers off the runner it
+    gets back.  Both surfaces are pinned here so neither can silently disappear.
     """
 
     attempts: list[dict] = []
@@ -1587,32 +1590,40 @@ def test_the_attempt_count_survives_on_the_runner_the_batch_no_longer_holds(
     assert runner.model_load_attempts == 2
     assert runner.model_constructions == 0
     # ...and the caller-owned runner is handed back, so the count stays
-    # readable after the batch — the surface the README names.
+    # readable after the batch.
     assert coordinator_.asr_runner is runner
     assert summary.model_constructions == 0
-    assert not hasattr(summary, "model_load_attempts")
+    # The summary carries the same attempt count, so an operator surface exists
+    # even when the runner is gone.
+    assert summary.model_load_attempts == 2
 
 
-def test_readme_states_the_attempts_are_recorded_rather_than_printed():
-    """F1's contract in words: the README may not promise a printed attempt line.
+def test_readme_states_the_failed_load_diagnostic_and_the_attempt_count():
+    """F1's contract in words: the README names the diagnostic that *is* printed.
 
-    The review's finding was a paragraph asserting a diagnostic the tool does
-    not emit ("reports ``model constructions=0``", "still states its cost — as N
-    attempts and 0 constructions").  The behavioural tests above pin what is
-    shipped; these assertions pin what is *written*, so the paragraph cannot
-    drift back into promising a line.  Together they agree by construction: the
-    README is only allowed to claim the silence the tests measure.
+    The review's original finding was a paragraph asserting a diagnostic the
+    tool did not emit.  ``bc425f6`` then made the tool emit one and rewrote the
+    paragraph, while this test kept pinning the retired silence.  The contract
+    pinned now is the shipped one: the failed-load diagnostic is named, the
+    attempt counter and its placement are stated, and the two false promises
+    that predate both passes stay gone.
     """
 
     readme = os.path.join(os.path.dirname(__file__), "..", "README.md")
     text = open(readme, encoding="utf-8").read()
 
-    # The truthful rule, stated: silence, and where the number actually lives.
-    assert "prints no reuse line" in text
-    assert "recorded, not printed" in text
+    # The shipped diagnostic, named as the tool prints it.
+    assert "model load failed" in text
+    assert "0 transcripts produced" in text
     assert "ASRRunner.model_load_attempts" in text
-    assert "no command prints the attempt count" in text
-    # ...and the two false promises are gone for good.
+    # The count is a live stderr diagnostic and is not persisted anywhere.
+    assert "real-time diagnostics only" in text
+    assert "retries the same load" in text
+    assert "successful constructions" in text
+    # The retired claims stay gone: the silence the old paragraph promised, and
+    # the two false promises the review removed.
+    assert "prints no reuse line" not in text
+    assert "no command prints the attempt count" not in text
     assert "still states its cost" not in text
     assert "as N attempts and 0 constructions" not in text
     assert "reports `model constructions=0`" not in text
@@ -1757,3 +1768,76 @@ def test_the_render_rescan_applies_the_validators_strength_to_the_slot():
         asr.ASRRunner(Unvalidated("local-test-model")).provenance()["model_name"]
         == "local-test-model"
     )
+
+
+def test_the_load_retry_cap_bounds_a_systematically_broken_configuration(
+    tmp_root, monkeypatch, capsys
+):
+    """R2 (this plan): the per-row retry stops at the cap instead of the row count.
+
+    Seven rows with a factory that always raises.  Before the cap this batch
+    paid seven attempts — one per row — for one broken configuration.  Now it
+    pays ``MAX_MODEL_LOAD_ATTEMPTS`` and refuses the rest, so the cost is bounded
+    by the constant rather than by how many rows happen to be selected.
+    """
+
+    attempts: list[dict] = []
+
+    def exploding_factory(**kwargs):
+        attempts.append(dict(kwargs))
+        raise RuntimeError("no checkpoint")
+
+    monkeypatch.setenv("BILI_ASR_DEVICE", "cpu")
+    monkeypatch.setattr(asr, "_load_default_model", exploding_factory)
+    store, rows = _seed_audio_batch(tmp_root, 7, prefix="BVcap")
+
+    summary = RunCoordinator(tmp_root, store, offline=True).run_batch(rows)
+
+    capsys.readouterr()
+    assert len(attempts) == asr.MAX_MODEL_LOAD_ATTEMPTS
+    assert asr.MAX_MODEL_LOAD_ATTEMPTS < len(rows), "the cap must bind here"
+    # The counter counts factory invocations, and a refused call spends none.
+    assert summary.model_load_attempts == asr.MAX_MODEL_LOAD_ATTEMPTS
+    assert summary.model_constructions == 0
+    # Every row still fails loudly; the cap bounds the cost, not the reporting.
+    assert [result.ok for result in summary.results] == [False] * len(rows)
+    assert len(summary.failed) == len(rows)
+
+
+def test_a_load_that_fails_then_succeeds_still_succeeds_inside_the_cap(
+    tmp_root, monkeypatch, capsys
+):
+    """The cap must not break the case the retry exists for.
+
+    A transient failure is exactly why the retry is per-row, so a factory that
+    fails once and then returns a model must still serve the whole batch — the
+    cap may only stop a runner whose every call has failed.
+    """
+
+    calls = {"count": 0}
+    built: list[dict] = []
+
+    class _Model:
+        def generate(self, **_kwargs):
+            return {"timestamps": [{"token": "好", "start_time": 0.1, "end_time": 0.5, "score": 0.9}]}
+
+    def flaky_factory(**kwargs):
+        calls["count"] += 1
+        if calls["count"] == 1:
+            raise RuntimeError("transient")
+        built.append(dict(kwargs))
+        return _Model()
+
+    monkeypatch.setenv("BILI_ASR_DEVICE", "cpu")
+    monkeypatch.setattr(asr, "_load_default_model", flaky_factory)
+    store, rows = _seed_audio_batch(tmp_root, 1 + asr.MAX_MODEL_LOAD_ATTEMPTS, prefix="BVflakycap")
+
+    summary = RunCoordinator(tmp_root, store, offline=True).run_batch(rows)
+
+    capsys.readouterr()
+    # Row 1 failed its load; row 2 built the model and every later row reused it.
+    assert summary.asr_items == len(rows) - 1
+    assert summary.model_constructions == 1
+    # Two attempts: the failed retry and the successful one — well inside the cap.
+    assert summary.model_load_attempts == 2
+    assert sorted(result.ok for result in summary.results) == [False] + [True] * (len(rows) - 1)

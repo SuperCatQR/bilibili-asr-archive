@@ -13,7 +13,11 @@
         "tracking": "Durable Roadmap entry in .mstar/plans/20260911-subtitle-gateway.md; QC3-003 retarget recorded 2026-09-11",
         "source_plan": "20260911-subtitle-gateway",
         "registered_at": "2026-09-11",
-        "lifecycle_id": "iter-2026-09-subtitle-transcript-sqlite"
+        "lifecycle_id": "iter-2026-09-subtitle-transcript-sqlite",
+        "lifecycle": "resolved",
+        "closed_at": "2026-09-17",
+        "closure_note": "The adapter no longer binds the whole bilibili_api.user module: it imports exactly the three names it uses (API as USER_API, User, VideoOrder) from bilibili_api.user, so user.get_api — and every endpoint description reachable through it — is no longer source-reachable past the import-surface check. ALLOWED_PACKAGE_IMPORTS gained the bilibili_api.user row and lost \"user\" from the package-root row, and the exact-equality assertion keeps the narrowing load-bearing.",
+        "closure_evidence": "this plan (.mstar/plans/20260917-residual-burndown.md, 2026-09-17), Task 4; bilibili-asr-archive/src/bili_asr/sources/bilibili_api_gateway.py (the narrowed import + the comment naming this closure) and tests/test_bilibili_api_gateway.py (ALLOWED_PACKAGE_IMPORTS, the surface test docstring). Verified: tests/test_bilibili_api_gateway.py -> 327 passed, 1 skipped."
       }
     ],
     "20260912-gpu-enablement-truth": [
@@ -29,7 +33,11 @@
         "tracking": "Plan QC for 20260912-quality-signal-merge (seats 1/2, I1/I4) confirmed it ships unfixed; recorded in iter-2026-09-asr-ops-hardening delivery-compass ## Roadmap Position as a Next-iteration item",
         "source_plan": "20260912-gpu-enablement-truth",
         "registered_at": "2026-09-13",
-        "lifecycle_id": "iter-2026-09-asr-ops-hardening"
+        "lifecycle_id": "iter-2026-09-asr-ops-hardening",
+        "lifecycle": "resolved",
+        "closed_at": "2026-09-17",
+        "closure_note": "staged_test_tree() now copies scripts/check_asr_env.py and an empty scripts/__init__.py into the staged tree, so tests/test_check_asr_env.py can resolve its \"from scripts.check_asr_env import ...\" import. Verified on 2026-09-17: the staged file collects rather than aborting at rc=2.",
+        "closure_evidence": "bc425f6 (2026-09-17) — 'fix: resolve P1+P2 residuals'; bilibili-asr-archive/scripts/verify_baseline.py:258-292 (staged_test_tree). Verified: .venv/bin/python -m pytest --collect-only tests/test_check_asr_env.py -> 52 tests collected (was 0 collected / rc=2)."
       },
       {
         "id": "R2",
@@ -43,7 +51,11 @@
         "tracking": "A-03-class amendment already appended to specs/01-gpu-enablement.md at QC; this row records the compass-half",
         "source_plan": "20260912-gpu-enablement-truth",
         "registered_at": "2026-09-13",
-        "lifecycle_id": "iter-2026-09-asr-ops-hardening"
+        "lifecycle_id": "iter-2026-09-asr-ops-hardening",
+        "lifecycle": "resolved",
+        "closed_at": "2026-09-17",
+        "closure_note": "The iteration compass and spec 01 no longer publish the bare \"python3.12 scripts/check_asr_env.py\" invocation that yields a false torch-present FAIL; the command is now the CLI form, and the asr.py hint was already closed in 01a39f1.",
+        "closure_evidence": "bc425f6 (2026-09-17) — 'fix: resolve P1+P2 residuals'; .mstar/iterations/iter-2026-09-asr-ops-hardening/delivery-compass.md (A1 row) + specs/01-gpu-enablement.md (D1.2). Verified: no bare form remains in the iteration package."
       },
       {
         "id": "N-3",
@@ -57,7 +69,11 @@
         "tracking": "Durable Roadmap entry added to .mstar/plans/20260912-quality-signal-merge.md",
         "source_plan": "20260912-gpu-enablement-truth",
         "registered_at": "2026-09-13",
-        "lifecycle_id": "iter-2026-09-asr-ops-hardening"
+        "lifecycle_id": "iter-2026-09-asr-ops-hardening",
+        "lifecycle": "resolved",
+        "closed_at": "2026-09-17",
+        "closure_note": "guides/hygiene-report.md no longer carries the bare invocation (the false-FAIL trap); it publishes the CLI form like the rest of the package.",
+        "closure_evidence": "bc425f6 (2026-09-17) — 'fix: resolve P1+P2 residuals'; .mstar/iterations/iter-2026-09-asr-ops-hardening/guides/hygiene-report.md."
       },
       {
         "id": "N-4",
@@ -67,8 +83,8 @@
         "scope": "bilibili-asr-archive/src/bili_asr/asr.py DEFAULT_HOTWORDS (the six ASCII entries)",
         "decision": "accept",
         "owner": "@project-manager",
-        "target": "the next transcription of a video that speaks ITEM/AITEM/tribunal — confirm the entries reach the transcript, or drop them if they measurably hurt",
-        "tracking": "Registered here; code comment and README both state the unverified status so no reader mistakes it for a proven fix",
+        "target": "the next transcription of a video that speaks ITEM/AITEM/tribunal. Since 2026-09-17 that requires re-downloading the audio first: the operator deleted e2e-asr/batch10-gpu (the only archived batch) on the target host, and BV1eGJ46mEHQ — the video whose transcript exhibits the mangled forms (AITM/TEM/TM/ITM, tryBUNAL, EMP+LOYMENT+MAT+TERS) — was in it. Verify by running that video twice, once with BILI_ASR_HOTWORDS cleared and once with the six Latin-script entries, and comparing the occurrences of the term; drop the entries if they measurably hurt.",
+        "tracking": "Kept open by explicit operator decision 2026-09-17 (\"暂时保留 open，明确记为待下次有音频时验证\"), re-confirmed during the residual burn-down (plan 20260917-residual-burndown): no A/B is possible without audio, so the row is edited rather than closed rather than silently dropped. The code comment and README both still state the unverified status.",
         "source_plan": "20260912-gpu-enablement-truth",
         "registered_at": "2026-09-14",
         "lifecycle_id": "iter-2026-09-asr-ops-hardening"
@@ -81,15 +97,17 @@
         "severity": "low",
         "source": "Plan QC seat 3 `review/qc3.md` Warning 3; confirmed pre-existing at the plan base (asr.py untouched by this plan); accepted as a residual by the plan-QC fix re-review",
         "scope": "bilibili-asr-archive/src/bili_asr/asr.py (`_get_model` failure path) + the counter's semantics in src/bili_asr/coordinator.py",
-        "decision": "verified-closed",
+        "decision": "defer",
         "owner": "@project-manager",
         "target": "20260912-asr-provenance-identity (it owns the provenance/counting surface) — decide whether a failed attempt counts, and whether retries are bounded",
         "tracking": "Durable Roadmap entry added to .mstar/plans/20260912-asr-provenance-identity.md",
         "source_plan": "20260912-batch-model-reuse",
         "registered_at": "2026-09-13",
         "lifecycle_id": "iter-2026-09-asr-ops-hardening",
-        "closed_at": "2026-09-13",
-        "closure_note": "Counting decision recorded and pinned at 20260912-asr-provenance-identity (a5b65ca/b087fd6): failed loads count on ASRRunner.model_load_attempts; the printed line is deliberately unchanged (spec 02 D2.6 freezes its shape); retries stay unbounded per row. The operator-facing half is carried by entries[\"20260912-asr-provenance-identity\"][id=R1], so this residual is not inherited a third time."
+        "closed_at": "2026-09-17",
+        "closure_note": "The counting decision landed and the comparison is now explicit: model_load_attempts counts every factory invocation (attempts, not successes) while model_constructions counts only successful builds, so attempts - constructions is exactly the failed loads a run paid for and attempts >= constructions holds. The illegal decision value this entry carried (\"verified-closed\") was corrected to defer at the 2026-09-17 register pass, which also made the whole register validate again.",
+        "lifecycle": "resolved",
+        "closure_evidence": "bc425f6 (2026-09-17) — 'fix: resolve P1+P2 residuals'; bilibili-asr-archive/src/bili_asr/asr.py (ASRRunner counters) + coordinator.py:246-258 (model_constructions_line). Tests: tests/test_asr_reproducibility.py::test_a_failed_load_is_retried_per_row_and_counted_as_an_attempt, ::test_a_successful_load_counts_one_attempt_and_one_construction."
       },
       {
         "id": "R2",
@@ -97,13 +115,17 @@
         "severity": "low",
         "source": "Plan QC seat 3 `review/qc3.md` Suggestion 5; accepted by the fix re-review as consistent with A2's wording and the plan's 'no new CLI surface' non-goal",
         "scope": "bilibili-asr-archive/src/bili_asr/campaign.py (`to_dict`) + src/bili_asr/run_ledger.py (schema)",
-        "decision": "defer",
+        "decision": "accept",
         "owner": "@project-manager",
         "target": "iteration-close decision — either accept permanently (documented) or fold into the next plan that touches the ledger schema",
         "tracking": "Recorded here; no durable-roadmap entry until the operator decides",
         "source_plan": "20260912-batch-model-reuse",
         "registered_at": "2026-09-13",
-        "lifecycle_id": "iter-2026-09-asr-ops-hardening"
+        "lifecycle_id": "iter-2026-09-asr-ops-hardening",
+        "lifecycle": "waived",
+        "closed_at": "2026-09-17",
+        "closure_note": "Accepted permanently as designed and now documented: the per-batch reuse count is a real-time stderr diagnostic only and is deliberately not persisted into campaign.json or run-ledger.jsonl; historical analysis reads per-row outcomes instead. The README states this, which is the option this entry asked for (\"either accept permanently (documented) or fold into the next plan that touches the ledger schema\").",
+        "closure_evidence": "bc425f6 (2026-09-17) — 'fix: resolve P1+P2 residuals'; bilibili-asr-archive/README.md (the attempt/reuse paragraph, \"real-time diagnostics only\")."
       }
     ],
     "20260912-quality-signal-merge": [
@@ -119,7 +141,11 @@
         "tracking": "Cross-plan: verify the map row after that plan lands; do not close the map row before then",
         "source_plan": "20260912-quality-signal-merge",
         "registered_at": "2026-09-13",
-        "lifecycle_id": "iter-2026-09-asr-ops-hardening"
+        "lifecycle_id": "iter-2026-09-asr-ops-hardening",
+        "lifecycle": "resolved",
+        "closed_at": "2026-09-17",
+        "closure_note": "The low-confidence locations are reachable: QualityResult carries low_confidence_at (the same filtered list the reason is derived from, so count and location cannot disagree) and the human-facing CSV path prints them on stderr, exactly where the frozen columns force the reference-agreement ratio to go. to_dict(), the CSV column tuple, schema_version and the JSON document are byte-identical; a row with no recorded score still emits nothing rather than a fabricated position.",
+        "closure_evidence": "this plan (.mstar/plans/20260917-residual-burndown.md, 2026-09-17), Task 3; bilibili-asr-archive/src/bili_asr/quality.py (QualityResult.low_confidence_at, _check_content) + src/bili_asr/cli.py (the CSV-path stderr line). Tests: tests/test_cli_help.py::test_cli_main_coverage_quality_keeps_json_frozen_but_locates_the_doubt, ::..._csv_states_where_the_doubt_is, ::..._says_nothing_when_no_score_is_recorded."
       },
       {
         "id": "R2",
@@ -133,7 +159,11 @@
         "tracking": "Registered here; bounded today by _MAX_BYTES",
         "source_plan": "20260912-quality-signal-merge",
         "registered_at": "2026-09-13",
-        "lifecycle_id": "iter-2026-09-asr-ops-hardening"
+        "lifecycle_id": "iter-2026-09-asr-ops-hardening",
+        "lifecycle": "resolved",
+        "closed_at": "2026-09-17",
+        "closure_note": "The repeated-ngram pass is no longer O(joined text): the scan moved into quality._repeated_ngram() and is bounded by _NGRAM_MAX_CHARS (200 000 characters), far above any artifact this corpus produces, so real transcripts keep the exact answer while a pathological or adversarial body cannot turn the reporting path into an unbounded allocation. The bound's accepted miss (a repeat beginning past it) is documented on the helper and asserted in both directions.",
+        "closure_evidence": "this plan (.mstar/plans/20260917-residual-burndown.md, 2026-09-17), Task 2; bilibili-asr-archive/src/bili_asr/quality.py (_NGRAM_MAX_CHARS, _repeated_ngram). Tests: tests/test_quality.py::test_the_ngram_scan_bounds_its_own_work_above_the_bound, ::test_the_ngram_scan_is_exact_at_the_bound, ::test_the_ngram_bound_does_not_change_a_real_transcripts_answer. The pinned window/threshold tests stay green."
       }
     ],
     "20260912-asr-provenance-identity": [
@@ -149,7 +179,11 @@
         "tracking": "Durable Roadmap entry added to this plan's block; suggested shape: print attempts in the all-loads-failed case, or an explicit operator-visible diagnostic",
         "source_plan": "20260912-asr-provenance-identity",
         "registered_at": "2026-09-13",
-        "lifecycle_id": "iter-2026-09-asr-ops-hardening"
+        "lifecycle_id": "iter-2026-09-asr-ops-hardening",
+        "lifecycle": "resolved",
+        "closed_at": "2026-09-17",
+        "closure_note": "The attempt count now has an operator surface: RunSummary carries model_load_attempts and _print_model_constructions() prints \"<cmd>: model load failed <n> time(s), 0 transcripts produced\" on stderr when every load failed but no construction was paid.",
+        "closure_evidence": "bc425f6 (2026-09-17) — 'fix: resolve P1+P2 residuals'; bilibili-asr-archive/src/bili_asr/coordinator.py:797-834 (RunSummary.model_load_attempts + the all-loads-failed diagnostic). Tests: tests/test_asr_reproducibility.py (the coordinator-seam case, re-pinned 2026-09-17)."
       },
       {
         "id": "R2",
@@ -163,7 +197,11 @@
         "tracking": "Registered here; bounded today only by the row count",
         "source_plan": "20260912-asr-provenance-identity",
         "registered_at": "2026-09-13",
-        "lifecycle_id": "iter-2026-09-asr-ops-hardening"
+        "lifecycle_id": "iter-2026-09-asr-ops-hardening",
+        "lifecycle": "resolved",
+        "closed_at": "2026-09-17",
+        "closure_note": "The per-row load retry is now bounded: asr.MAX_MODEL_LOAD_ATTEMPTS caps the factory calls one runner may pay, and a runner past the cap raises without invoking the loader again, so a systematically broken configuration costs at most that many attempts instead of one per remaining row. The counter keeps its documented meaning (factory invocations) because a refused call increments nothing.",
+        "closure_evidence": "this plan (.mstar/plans/20260917-residual-burndown.md, 2026-09-17), Task 1; bilibili-asr-archive/src/bili_asr/asr.py (MAX_MODEL_LOAD_ATTEMPTS, _get_model). Tests: tests/test_asr_reproducibility.py::test_the_load_retry_cap_bounds_a_systematically_broken_configuration (7 rows -> exactly the cap in attempts) and ::test_a_load_that_fails_then_succeeds_still_succeeds_inside_the_cap."
       }
     ]
   }

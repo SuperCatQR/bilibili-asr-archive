@@ -226,8 +226,15 @@ document.
 
 The printed count counts **successful constructions**, and a load the factory
 rejected pays none of them. Such a load leaves no model behind, so the next row
-retries the same load: an N-row batch whose every load fails performs N attempts
-and prints the failure diagnostic above. Per-row failures are also reported
+retries the same load: an N-row batch whose every load fails performs up to N
+attempts and prints the failure diagnostic above. The retry is **bounded**:
+after `MAX_MODEL_LOAD_ATTEMPTS` failed loads a runner stops calling the loader
+and raises instead, so a systematically broken configuration (a wrong path, a
+missing checkpoint) costs at most that many attempts rather than one per
+remaining row. The cap counts *attempts*, not rows, and no refused call
+increments the counter — `model_load_attempts` still counts every loader
+invocation, so `model_load_attempts - model_constructions` remains exactly the
+number of failed loads the run paid for. Per-row failures are also reported
 (`run: <work_id>: failed (ASRModelError)`, `<work_id>: archive
 failed (ASRModelError)`), and both paths name the exception class beside the
 row, so a failure an operator can act on is not just the words `archive failed`.
