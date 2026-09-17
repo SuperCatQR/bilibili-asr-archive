@@ -218,6 +218,20 @@
         "source_plan": "e2e-23191782-season-7686105",
         "registered_at": "2026-09-17",
         "lifecycle_id": "e2e-23191782-season-7686105"
+      },
+      {
+        "id": "R2",
+        "title": "`verify` cannot exit 0 on any normally-produced archive: the manifest is append-only, so one part legitimately yields several rows (needs_audio -> audio_ok -> archived); the projection emits `manifest_duplicate_work_id` for that history, but integrity.py's recognised-diagnostic vocabulary omits it, so it falls through to `structural_input_error` and the CLI's `0 if not defects and not diagnostics` turns a clean archive into exit 1.",
+        "severity": "high",
+        "source": "E2E run e2e-23191782-season-7686105 (2026-09-17), finding F6 in {WORKFLOW_DIR}/e2e-23191782-season-7686105/reports/e2e.md. Decisive probe, run on the target against one fully-archived row: `verify --trusted-local --scope BV1RFoxBqEzo:p0 --format text` -> `checked: 1 / defects: 0 / diagnostic: structural_input_error / EXIT=1`",
+        "scope": "bilibili-asr-archive/src/bili_asr/integrity.py (the recognised-diagnostic vocabulary at L205-232 and the report/exit contract) with src/bili_asr/sidecar_projection.py L216 (the emitter) and src/bili_asr/coverage_report.py L76/L325 (the second reader, which already classifies the same string as a record-kind fact and therefore disagrees with verify). Test blind spot: tests/test_integrity.py::test_production_archive_layout_verifies_cleanly writes exactly one manifest row per work_id and asserts only `defects == []` -- never the diagnostics set and never the CLI exit code.",
+        "decision": "defer",
+        "owner": "@project-manager",
+        "target": "the next plan that touches src/bili_asr/integrity.py, or any plan that gates on `verify` in CI/automation (such a gate is unsatisfiable today). Likely shape: add `manifest_duplicate_work_id` to the recognised vocabulary and map it to a diagnostic that states what it is -- or drop it there, since append-only state history is by design, which is the call coverage_report.py already makes -- then pin the exit contract with a test whose fixture carries a real state history.",
+        "tracking": "Registered here. Measured universality: 15 of the 39 work_ids in the season archive carry 2-3 rows, all appended by the product's own paths (the seeder writes one needs_audio row; the coordinator appends audio_ok and archived), and the deleted 2026-09-12 batch manifest had the same 2-rows-per-work_id shape. Consequence is a false alarm on the one command whose job is signalling corruption (alert fatigue on an integrity gate), not data damage. Operator decision 2026-09-17: register only, no code change now.",
+        "source_plan": "e2e-23191782-season-7686105",
+        "registered_at": "2026-09-17",
+        "lifecycle_id": "e2e-23191782-season-7686105"
       }
     ]
   }
