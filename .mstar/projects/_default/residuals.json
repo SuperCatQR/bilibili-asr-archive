@@ -83,8 +83,8 @@
         "scope": "bilibili-asr-archive/src/bili_asr/asr.py DEFAULT_HOTWORDS (the six ASCII entries)",
         "decision": "accept",
         "owner": "@project-manager",
-        "target": "the next transcription of a video that speaks ITEM/AITEM/tribunal. Since 2026-09-17 that requires re-downloading the audio first: the operator deleted e2e-asr/batch10-gpu (the only archived batch) on the target host, and BV1eGJ46mEHQ — the video whose transcript exhibits the mangled forms (AITM/TEM/TM/ITM, tryBUNAL, EMP+LOYMENT+MAT+TERS) — was in it. Verify by running that video twice, once with BILI_ASR_HOTWORDS cleared and once with the six Latin-script entries, and comparing the occurrences of the term; drop the entries if they measurably hurt.",
-        "tracking": "Kept open by explicit operator decision 2026-09-17 (\"暂时保留 open，明确记为待下次有音频时验证\"), re-confirmed during the residual burn-down (plan 20260917-residual-burndown): no A/B is possible without audio, so the row is edited rather than closed rather than silently dropped. The code comment and README both still state the unverified status.",
+        "target": "decide between: drop the bare acronyms ITEM/AITEM and keep only the spelled-out phrase (which shows no measured harm), keep all six and rely on the confidence signal to surface the interference, or A/B the acronyms on an English-quote-heavy lecture (BV19hG56hEfV.p2 has 5 of the 9). The original motivation still stands — the announcement video BV1eGJ46mEHQ mangled the acronyms into TEM/AITM/ITM without them — but that video no longer has audio, so this row now weighs measured harm against remembered benefit.",
+        "tracking": "Kept open by explicit operator decision 2026-09-17 ('暂时保留 open，明确记为待下次有音频时验证'). NEW EVIDENCE 2026-09-17 from the season run's text-quality pass — the two halves of this row's question now have answers: (a) the entries DO reach the transcript (ITEM 8×, AITEM 5×, 'International Employment Matters Tribunal' 3×, and several occurrences are genuine, in Chinese narration about the operator's own project); (b) they MEASURABLY HURT in English-quote passages — 9 occurrences sit inside Hegel quotes being read aloud where the original was almost certainly another English word ('ideal', 'at a', 'predicate'-class shards), e.g. 'THE ITEMthat's the question is anITEM ONE', 'This is expressed in the finite on the AITEM', 'AS A PREDEAL ITEM'. Crucially 8 of those 9 carry confidence below LOW_CONFIDENCE (0.033, 0.04, 0.239, 0.257, 0.275, 0.309, 0.349, 0.375), so this class IS reachable through asr_low_confidence_at — unlike the Chinese homophone class (R3), which is confidently wrong. The full phrase is not implicated (3/3 genuine); the bare acronyms are.",
         "source_plan": "20260912-gpu-enablement-truth",
         "registered_at": "2026-09-14",
         "lifecycle_id": "iter-2026-09-asr-ops-hardening"
@@ -271,6 +271,20 @@
         "owner": "@project-manager",
         "target": "the next plan that touches run_ledger.py or the CLI's exit handling. Note the boundary this does NOT cover: a risk-control interruption exits normally and IS recorded, and every executed stage is already durable in coordinator/attempts.jsonl — so the loss is the run-level row (scope, counts, exit code, coverage snapshot), not the per-stage truth.",
         "tracking": "Registered here. Severity low: no artifact is wrong and no evidence is destroyed; what is missing is the summary row for interrupted runs. A SIGTERM handler that appends the record with the summary's partial counts would close it, but touching signal handling is a product decision, not a cleanup. Operator decision 2026-09-17: register only.",
+        "source_plan": "e2e-23191782-season-7686105",
+        "registered_at": "2026-09-17",
+        "lifecycle_id": "e2e-23191782-season-7686105"
+      },
+      {
+        "id": "R6",
+        "title": "Latin tokens glue inside a cue when Nano omits their leading space: `_token_cues` builds the cue text with `\"\".join(parts)`, while the space-repair rule (`_join_text`) is applied only when absorbing an undersized cue and when handing a closing mark back — so the third place that needs it, intra-cue concatenation, glue words together (measured: 'asME IDEA', 'bothAND', 'questionITSELF', 'anITEM').",
+        "severity": "low",
+        "source": "Deep text-quality pass over the season run's 14 archives, 2026-09-17 ({WORKFLOW_DIR}/e2e-23191782-season-7686105/reports/e2e.md, text-quality section). Counted 26 affected cues out of 18 287 (0.14 %), concentrated in the English-quote-heavy 《逻辑学》 lectures (BV19hG56hEfV.p2 8, BV1KL9tBsEao 8, BV1H69sB6EeF 3, BV1N25V6JEu9.p0 3, …).",
+        "scope": "bilibili-asr-archive/src/bili_asr/asr.py _token_cues: `parts.append(piece)` + `text = _clean_text(pending + \"\".join(parts))` versus `_join_text`, which is called only from `hand_back()` and from the undersized-cue absorption path. `_join_text`'s own docstring already declares the phenomenon and the rule ('Nano emits an English phrase as several tokens and does not always carry the leading space'), so this is the rule applied in two of the three places it is needed. Chinese text is unaffected, which is why 13 of 14 items show none.",
+        "decision": "defer",
+        "owner": "@project-manager",
+        "target": "the next plan that touches the cue shaper (`asr.py` token loop) — apply the same two-ASCII-alphanumeric rule when appending a token inside a cue, and pin it with a fixture whose token stream omits a leading space. Note the existing pinned tests (tests/test_asr_cues.py, the asr-cues fixture) must stay green: the change must not insert spaces where the model supplied them.",
+        "tracking": "Registered here. Severity low: no meaning is lost in most instances and no Chinese cue is affected, but these are the passages where the English quote *is* the text under discussion, so 'asME IDEAIn contrast' costs a reader real effort. Operator decision 2026-09-17: register only, no code change now.",
         "source_plan": "e2e-23191782-season-7686105",
         "registered_at": "2026-09-17",
         "lifecycle_id": "e2e-23191782-season-7686105"
