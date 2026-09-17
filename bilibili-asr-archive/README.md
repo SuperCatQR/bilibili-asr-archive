@@ -130,6 +130,20 @@ same 6-minute Chinese audio transcribed with and without them is 95 % identical,
 and the one video that actually speaks them no longer has audio on the target
 box, so their benefit is **unverified** while their harmlessness is measured.
 
+The list also carries six terms added 2026-09-17 for a different failure mode:
+**exact homophones of common words**, where the decoder's prior beats the audio.
+Each was measured wrong far more often than right on the season run's own output
+(14 lectures, 25.2 h): `扬弃` 10 correct vs 89 wrong (`阳气`/`洋气` — the central
+operation of Hegel's *Logic*, which those lectures read aloud), `自在` 40 vs 13,
+`变易` 0 vs 7, `此在` 4 vs 3, `感性` 12 vs 3, `实存` 17 vs 3. The control that
+makes this the right lever: the entries already in the list that are equally
+homophone-prone are error-free on the same audio (`定在` 145/0, `自为` 34/0,
+`理念性` 69/0). Per-cue confidence cannot find this class — the mis-rendered cues
+score a median 0.776 against 0.812 for the corpus, and 1 of 78 falls at or below
+`LOW_CONFIDENCE` — so `asr_low_confidence_at` is the instrument for *unclear
+audio*, and this list is the instrument for *homophones*. Their benefit is
+likewise **unverified until re-transcribed**.
+
 path. Declaring an id that contradicts an already-safe hub-level `BILI_ASR_MODEL`
 is also an error — one of the two would be a lie. A `BILI_ASR_MODEL` that
 resolves to a directory on this machine is a checkpoint path whatever its

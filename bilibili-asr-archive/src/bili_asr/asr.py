@@ -146,6 +146,43 @@ DEFAULT_HOTWORDS: tuple[str, ...] = (
     "定在",
     "自为",
     "理念性",
+    # The homophone class, added 2026-09-17 from the season run's own output
+    # (workflow ``e2e-23191782-season-7686105``: 14 lectures, 25.2 h, 18 287
+    # cues).  Each entry below is a term the model got *wrong* far more often
+    # than right, and every one of them is the *exact homophone* of a common
+    # word — which is why the decoder's prior wins and why the prompt is the
+    # right lever here:
+    #
+    #   扬弃 (sublation)  10 correct vs 89 wrong (阳气 62, 洋气 27)  90 %
+    #   自在 (in-itself)  40 vs 13 (子在)                            25 %
+    #   变易 (becoming)    0 vs  7 (变异)                           100 %
+    #   此在 (Dasein)      4 vs  3 (次在, 词在)                      43 %
+    #   感性 (sensibility)12 vs  3 (感兴)                            20 %
+    #   实存 (existence)  17 vs  3 (时存)                            15 %
+    #
+    # 扬弃 is the reason this block exists: it is the central operation of
+    # Hegel's *Logic*, and these lectures read that book aloud, so the term is
+    # spoken constantly — yet the decoder preferred the common word 阳气 nine
+    # times out of ten (worst item: 《逻辑学》第二讲, 4 correct vs 57 wrong).
+    # The control that makes this an argument rather than a hunch: the entries
+    # already in this list that are equally homophone-prone are *error-free* on
+    # the same audio (定在 145/0, 自为 34/0, 理念性 69/0).
+    #
+    # Evidence status, stated plainly, as for the Latin block below: the errors
+    # above are measured, the *benefit* of these six is UNVERIFIED until the
+    # same audio is re-transcribed.  A confidence-based fix was ruled out first
+    # — the 78 mis-rendered cues score a median 0.776 against 0.812 for the
+    # corpus, and only 1 of 78 falls at or below ``LOW_CONFIDENCE``, so the
+    # model is confidently wrong and ``asr_low_confidence_at`` cannot find this
+    # class.  Re-running one affected lecture with and without these entries is
+    # the confirming measurement; like the Latin block's, that verification is
+    # registered as an open residual rather than claimed here.
+    "扬弃",
+    "自在",
+    "变易",
+    "此在",
+    "感性",
+    "实存",
     # Latin-script terms the corpus actually speaks.  The Chinese-language model
     # fragments these into shards when they are missing from the prompt (measured
     # 2026-09-14 on the ten-video run: "International Employment Matters Tribunal"
