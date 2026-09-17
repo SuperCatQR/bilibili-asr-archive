@@ -246,6 +246,34 @@
         "source_plan": "e2e-23191782-season-7686105",
         "registered_at": "2026-09-17",
         "lifecycle_id": "e2e-23191782-season-7686105"
+      },
+      {
+        "id": "R4",
+        "title": "`pilot` writes no stage-attempt records, so `--scope failed` cannot see a row the pilot archived or failed: AttemptLedger is instantiated only in coordinator.py, while the pilot path runs its own in-process loop.",
+        "severity": "low",
+        "source": "Full artifact audit of the season run's archive root, 2026-09-17 ({WORKFLOW_DIR}/e2e-23191782-season-7686105/reports/e2e.md, gap G1). Measured: the A2 probe item BV1RFoxBqEzo:p0 is `archived` in the manifest and has `stages=[]` in coordinator/attempts.jsonl — zero records — while all 13 run-archived rows carry download+asr+archive.",
+        "scope": "bilibili-asr-archive/src/bili_asr/cli.py (_cmd_pilot's in-process loop) against src/bili_asr/coordinator.py (the only AttemptLedger owner) and the contract text in {KNOWLEDGE_DIR}/architecture-patterns/operational-sidecars.md §3, which scopes the ledger to 'Run coordinator (`bili-asr run`)'. The pilot's own run-ledger record is also why run-ledger.jsonl has exactly one row for this archive.",
+        "decision": "defer",
+        "owner": "@project-manager",
+        "target": "the next plan that touches the stage-attempt ledger contract or the pilot path — either give the pilot the same per-stage persistence, or state in the knowledge doc and the pilot's help text that pilot-driven work is deliberately outside `--scope failed` recovery. The second is cheaper and may be the honest choice, but it must be written down: the doc's own warning ('otherwise `--scope failed` silently drops rows') currently applies to a path the doc does not name.",
+        "tracking": "Registered here. Severity low: the transcripts and the manifest are correct; what is missing is the audit trail for one entry point, and only when that entry point is used. Operator decision 2026-09-17: register only, no code change now.",
+        "source_plan": "e2e-23191782-season-7686105",
+        "registered_at": "2026-09-17",
+        "lifecycle_id": "e2e-23191782-season-7686105"
+      },
+      {
+        "id": "R5",
+        "title": "An externally killed `run` leaves no `run-ledger.jsonl` record: the record is appended on the normal exit path only, and src/ installs no SIGTERM/SIGINT handler, so the runs most worth reviewing later are exactly the ones with no run-level record.",
+        "severity": "low",
+        "source": "Full artifact audit of the season run's archive root, 2026-09-17 ({WORKFLOW_DIR}/e2e-23191782-season-7686105/reports/e2e.md, gap G2). Measured: after a 38-row `run` was stopped with SIGTERM, run-ledger.jsonl holds exactly one row — the pilot probe's (exit_code 1, 'missing branch coverage: subtitle') — and nothing for the run.",
+        "scope": "bilibili-asr-archive/src/bili_asr/cli.py (_cmd_run appends its record after processing completes) with src/bili_asr/run_ledger.py; the whole of src/ has no signal handling (grep for SIGTERM/SIGINT finds only an unrelated docstring). The contract in {KNOWLEDGE_DIR}/architecture-patterns/operational-sidecars.md §1 lists `run` among the commands that write a run record.",
+        "decision": "defer",
+        "owner": "@project-manager",
+        "target": "the next plan that touches run_ledger.py or the CLI's exit handling. Note the boundary this does NOT cover: a risk-control interruption exits normally and IS recorded, and every executed stage is already durable in coordinator/attempts.jsonl — so the loss is the run-level row (scope, counts, exit code, coverage snapshot), not the per-stage truth.",
+        "tracking": "Registered here. Severity low: no artifact is wrong and no evidence is destroyed; what is missing is the summary row for interrupted runs. A SIGTERM handler that appends the record with the summary's partial counts would close it, but touching signal handling is a product decision, not a cleanup. Operator decision 2026-09-17: register only.",
+        "source_plan": "e2e-23191782-season-7686105",
+        "registered_at": "2026-09-17",
+        "lifecycle_id": "e2e-23191782-season-7686105"
       }
     ]
   }
