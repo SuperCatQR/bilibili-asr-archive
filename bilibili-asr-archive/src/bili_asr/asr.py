@@ -186,21 +186,33 @@ DEFAULT_HOTWORDS: tuple[str, ...] = (
     # Latin-script terms the corpus actually speaks.  The Chinese-language model
     # fragments these into shards when they are missing from the prompt (measured
     # 2026-09-14 on the ten-video run: "International Employment Matters Tribunal"
-    # came out as tryBUNAL / FOR EMP LOYMENT MAT TERS, and the ITEM/AITEM pair as
-    # TEM / AITM / ITM).  They are listed as whole phrases as well as acronyms so
-    # the decoder has both the spelled-out form and the initialisms.
+    # came out as tryBUNAL / FOR EMP LOYMENT MAT TERS).
     #
-    # Evidence status, stated plainly: the shards above are measured, but the
-    # *benefit* of these entries is UNVERIFIED.  The one video whose transcript
-    # contained them (BV1eGJ46mEHQ) no longer has audio on the target box, so
-    # they could not be A/B-tested against a transcript that actually speaks
-    # them.  What *was* measured (same 6-minute Chinese-only audio, 23 Chinese
-    # hotwords with and without these six) is that they cause no measurable harm:
-    # 95 % of the tail text identical, the only differences two same-sound
-    # characters, no change in the opening paragraph.  Treat them as a
-    # low-risk prompt bias to be confirmed on the next video that speaks them.
-    "ITEM",
-    "AITEM",
+    # The bare acronyms ITEM and AITEM were **removed on 2026-09-17** after the
+    # season run measured them doing harm of the same kind they were added to
+    # prevent.  They were pulling acoustically-close English shards onto
+    # themselves inside the Hegel quotes these lectures read aloud — nine
+    # occurrences across the 14 archived lectures, e.g. "THE ITEMthat's the
+    # question is anITEM ONE", "This is expressed in the finite on the AITEM",
+    # "In accessible AITEM distance outside", "就是WHAT IS POSITIVE ITEM" — and
+    # **eight of those nine carried confidence below LOW_CONFIDENCE**
+    # (0.033–0.375), so the interference is reachable through
+    # ``asr_low_confidence_at`` rather than through this list.  Five of the nine
+    # were in one part, BV19hG56hEfV.p2, which is what the A/B re-transcribed.
+    # The spelled-out phrase below is *not* implicated: it appears three times
+    # and is genuine each time (the lecturer explaining the name).
+    #
+    # Two things a future reader needs from this block, kept deliberately:
+    # (1) the acronyms did have a measured *raison d'être* — BV1eGJ46mEHQ's
+    #     announcement of the project mangled them into TEM / AITM / ITM — and
+    #     that video no longer has audio, so the benefit side cannot be re-run
+    #     here; (2) what *was* measured before this removal (same 6-minute
+    #     Chinese-only audio, with and without the six Latin entries) is
+    #     harmless: 95 % of the tail text identical, the only differences two
+    #     same-sound characters, no change in the opening paragraph.  The phrase
+    #     therefore stays as a low-risk prompt bias, and its *benefit* remains
+    #     UNVERIFIED; per-cue confidence is the instrument for any interference
+    #     it causes.
     "International Employment Matters Tribunal",
     "International",
     "Employment",

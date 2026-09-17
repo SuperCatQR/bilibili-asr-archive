@@ -124,11 +124,21 @@ it and would be recorded verbatim, so declare the hub identity, not a relative
 (`DEFAULT_HOTWORDS`, comma-separated). The built-ins cover the corpus's Chinese
 vocabulary plus the Latin-script terms it speaks — the Chinese-language model
 otherwise shatters them (measured: "International Employment Matters Tribunal"
-came out `tryBUNAL` / `FOR EMP LOYMENT MAT TERS`, and `ITEM`/`AITEM` as `TEM` /
-`AITM` / `ITM`). Those entries are a low-risk prompt bias, not a proven fix: the
-same 6-minute Chinese audio transcribed with and without them is 95 % identical,
-and the one video that actually speaks them no longer has audio on the target
-box, so their benefit is **unverified** while their harmlessness is measured.
+came out `tryBUNAL` / `FOR EMP LOYMENT MAT TERS`). Those entries are a low-risk
+prompt bias, not a proven fix: the same 6-minute Chinese audio transcribed with
+and without them is 95 % identical, and the one video that actually speaks them
+no longer has audio on the target box, so their benefit is **unverified** while
+their harmlessness is measured.
+
+The bare acronyms `ITEM` and `AITEM` were **removed on 2026-09-17**, because the
+season run measured them doing harm of the kind they were added to prevent: they
+pulled acoustically-close English shards onto themselves inside the Hegel quotes
+the lectures read aloud (nine occurrences in the 14 archives, e.g. `THE
+ITEMthat's the question is anITEM ONE`, `In accessible AITEM distance outside`).
+The spelled-out phrase stayed — it appears three times and is genuine each time.
+This is what "the list is a prompt bias to be watched" means in practice: the
+same mechanism that fixes a shard can capture a neighbouring word, so an entry
+earns its place by measurement, not by intent.
 
 The list also carries six terms added 2026-09-17 for a different failure mode:
 **exact homophones of common words**, where the decoder's prior beats the audio.
@@ -138,11 +148,19 @@ operation of Hegel's *Logic*, which those lectures read aloud), `自在` 40 vs 1
 `变易` 0 vs 7, `此在` 4 vs 3, `感性` 12 vs 3, `实存` 17 vs 3. The control that
 makes this the right lever: the entries already in the list that are equally
 homophone-prone are error-free on the same audio (`定在` 145/0, `自为` 34/0,
-`理念性` 69/0). Per-cue confidence cannot find this class — the mis-rendered cues
-score a median 0.776 against 0.812 for the corpus, and 1 of 78 falls at or below
-`LOW_CONFIDENCE` — so `asr_low_confidence_at` is the instrument for *unclear
-audio*, and this list is the instrument for *homophones*. Their benefit is
-likewise **unverified until re-transcribed**.
+`理念性` 69/0). Their benefit is likewise **unverified until re-transcribed**.
+
+**The two instruments divide the work, and neither covers the other's class.**
+Per-cue confidence catches what the model *doubts*: unclear audio, a language
+switch, and hotword interference — the low-confidence cues in that run carried a
+median 42.9 % Latin characters against 0.0 % elsewhere, and eight of the nine
+acronym captures above were below `LOW_CONFIDENCE`. The list is the only lever
+for what the model does *not* doubt: a confident homophone substitution scored a
+median 0.776 against 0.812 for the corpus, and only 1 of 78 such cues fell at or
+below `LOW_CONFIDENCE`. So an operator hunting a doubtful passage reads
+`asr_low_confidence_at` (or `bilibili-asr coverage --quality --format csv`, which
+prints every low-confidence position on stderr), and a wrong-but-confident term
+is only findable by looking for the term itself.
 
 path. Declaring an id that contradicts an already-safe hub-level `BILI_ASR_MODEL`
 is also an error — one of the two would be a lie. A `BILI_ASR_MODEL` that
