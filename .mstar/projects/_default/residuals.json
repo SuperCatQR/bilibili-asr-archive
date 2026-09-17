@@ -293,6 +293,22 @@
         "registered_at": "2026-09-17",
         "lifecycle_id": "e2e-23191782-season-7686105"
       }
+    ],
+    "20260917-hotword-acronym-precision": [
+      {
+        "id": "R1",
+        "title": "The full local suite is intermittently red for no product reason: ~200-260 tests error at setup across many files in some runs and the same working tree is fully green in others (measured 261 / 0 / 196 / 0 errors over four consecutive full runs). A spurious red on the suite the repo treats as its verification layer is worse than noise — it costs a re-run and teaches readers to disbelieve the signal.",
+        "severity": "low",
+        "source": "Observed 2026-09-17 while verifying plan 20260917-hotword-acronym-precision: pitfall caught by running the full suite after a two-line change (a constant plus a README paragraph) and seeing 261 errors, then 0, then 196, then 0 on the same tree. Also recorded in the plan's Completion Report.",
+        "scope": "tests/ as a whole — the errors are cross-file and all 'ERROR at setup', and tests/test_verify_baseline.py happens to own the visible tail of the list (23 tests standalone, 100 % green). Candidate fixtures: pytest's tmp_path and any session/module-scoped fixture in conftest.py. The failing run's error text was never captured: my greps over the captured log matched nothing while the summary counted the errors, so the traceback body is still unread.",
+        "decision": "defer",
+        "owner": "@project-manager",
+        "target": "the next plan or iteration that owns the local verification baseline (the same owner the medium-severity gpu-enablement-truth R1 was re-targeted to — that file, scripts/verify_baseline.py, also stages a tree and shells out to pip, so the two may share a cause). First step is diagnosis, not a fix: run the suite until it goes red with `-q --tb=long`, then read the ERRORS section of the captured log instead of grepping the summary.",
+        "tracking": "Registered here. What was RULED OUT by measurement: /tmp space. /tmp is a 3.7 GiB tmpfs (2.0 GiB already held by earlier sessions' leftovers, ~1.7 GiB free), and a full green run moved it by only +31.4 MiB peak — so 'tmpfs exhausted, tmp_path failed' does not explain it. What remains unknown: the trigger. The plan that surfaced this deliberately did not chase it (its scope was a hotword constant); it is recorded so the next suite failure is not misread as a regression from whatever change is in flight.",
+        "source_plan": "20260917-hotword-acronym-precision",
+        "registered_at": "2026-09-17",
+        "lifecycle_id": "20260917-hotword-acronym-precision"
+      }
     ]
   }
 }
