@@ -232,6 +232,20 @@
         "source_plan": "e2e-23191782-season-7686105",
         "registered_at": "2026-09-17",
         "lifecycle_id": "e2e-23191782-season-7686105"
+      },
+      {
+        "id": "R3",
+        "title": "The six Chinese homophone hotwords added 2026-09-17 (扬弃 自在 变易 此在 感性 实存) are unverified in their *benefit*: the errors that motivated them are measured (118 mis-renderings across the season's 14 archives), but no A/B has been run to show the entries actually fix them, and the same list has never been shown to be harmless on this corpus.",
+        "severity": "low",
+        "source": "Transcript quality assessment of the season E2E output, 2026-09-17 ({WORKFLOW_DIR}/e2e-23191782-season-7686105/reports/e2e.md, 'Transcript quality assessment'); the change itself is commit 757baa1.",
+        "scope": "bilibili-asr-archive/src/bili_asr/asr.py DEFAULT_HOTWORDS (the six entries added after 理念性). Counted on the 14 archived lectures (25.2 h, 18 287 cues): 扬弃 10 correct vs 89 wrong (阳气 62 + 洋气 27), 自在 40/13, 变易 0/7, 此在 4/3, 感性 12/3, 实存 17/3. The in-list homophone-prone controls (定在 145/0, 自为 34/0, 理念性 69/0) are error-free, which is why the prompt is the right lever rather than the confidence signal (mis-rendered cues median 0.776 vs 0.812, 1 of 78 at or below LOW_CONFIDENCE).",
+        "decision": "defer",
+        "owner": "@project-manager",
+        "target": "the next transcription of an affected lecture: re-run one with the entries and one with BILI_ASR_HOTWORDS-neutralised defaults over the same audio, and compare the occurrence counts of the term against its homophone. 《逻辑学》第二讲 (BV1H69sB6EeF, 114.5 min, 4 correct vs 57 wrong) is the sharpest single target; a shorter affected part works too. Also state the harmlessness check the Latin block carries (the 95 % identical-tail measurement), which these six have not had.",
+        "tracking": "Registered here. Same evidence class as N-4 (the six Latin hotwords, which remain unverified for want of audio) — this run does not exercise N-4's terms (the season never speaks ITEM/AITEM/tribunal), so N-4 stays open and this row carries the Chinese half. The code comment and README both state the unverified status so no reader mistakes these for a proven fix. Operator decision 2026-09-17: add the terms now, verify on the next run.",
+        "source_plan": "e2e-23191782-season-7686105",
+        "registered_at": "2026-09-17",
+        "lifecycle_id": "e2e-23191782-season-7686105"
       }
     ]
   }
