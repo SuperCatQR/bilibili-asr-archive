@@ -1019,9 +1019,13 @@ Risk interruption takes precedence over per-item failure: a batch that
 archived some rows and then hit the risk ceiling still exits 2.
 
 Successful rows stay in their last stable status. Retryable failures remain
-selectable by the same command or by `run --scope failed`. Explicit `run
---scope` work_id selectors of already-terminal rows skip with
-`already_terminal` and exit 0; they are not duplicated.
+selectable by the same command or by `run --scope failed`. That recovery path
+reads the stage-attempt ledger that `bili-asr run` writes: work archived
+through the `pilot` entry point leaves no attempt records, so no per-stage
+truth exists for pilot work and it is not reachable by `--scope failed`.
+`pilot` is a bounded probe, not a corpus path. Explicit `run --scope` work_id
+selectors of already-terminal rows skip with `already_terminal` and exit 0;
+they are not duplicated.
 
 `harvest-subs`, `download-audio`, and `asr` do not append `run-ledger.jsonl`
 (that sidecar is `pilot` / `run` / `schedule`; `fetch-meta` records its runs

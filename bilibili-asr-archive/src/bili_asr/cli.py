@@ -102,6 +102,16 @@ def build_parser() -> argparse.ArgumentParser:
     pilot = subparsers.add_parser(
         "pilot",
         help="Execute a bounded mixed-branch pilot (subtitle-hit and audio→ASR)",
+        # RawDescription keeps the boundary statement's line breaks, so the
+        # literal token `--scope failed` survives any terminal width (the
+        # default formatter reflows and may break the word at its hyphen).
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        description=(
+            "Bounded mixed-branch probe (subtitle-hit and audio→ASR), not a corpus\n"
+            "path. The stage-attempt ledger is written by `bili-asr run`: work archived\n"
+            "through this entry point leaves no attempt records, so no per-stage truth\n"
+            "exists for pilot work, and it is not reachable by `--scope failed`."
+        ),
     )
     pilot.add_argument("--n", type=int, default=20)
     pilot.add_argument("--archive-root", default=DEFAULT_ARCHIVE_ROOT)
