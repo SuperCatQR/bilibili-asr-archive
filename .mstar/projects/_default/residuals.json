@@ -235,7 +235,11 @@
         "tracking": "Registered here, and materially EXTENDED on 2026-09-17 during the register review: the original entry described only `verify`'s exit contract, which understated the blast radius — plain `coverage` is broken by the same root cause and loses its denominator, while `coverage --quality` is fine. One fix closes both, so this stayed a single row rather than becoming two entries for one cause. Severity held at high rather than raised to critical: two public readers misreport on every real archive (a false red on the integrity gate and the completeness report), but nothing is corrupted, no data is lost, and `recover` is unaffected because `authoritative` is computed from attempt diagnostics only (integrity.py L233-236). Measured universality unchanged: 15 of the season's 39 work_ids carry 2-3 rows, all appended by the product's own paths, and the deleted 2026-09-12 batch manifest had the same shape.",
         "source_plan": "e2e-23191782-season-7686105",
         "registered_at": "2026-09-17",
-        "lifecycle_id": "e2e-23191782-season-7686105"
+        "lifecycle_id": "e2e-23191782-season-7686105",
+        "lifecycle": "resolved",
+        "closed_at": "2026-09-18",
+        "closure_note": "Fixed by plan `20260918-verification-surface-truth` (commits b8847ca, 7c704c3, a85ffd5): the ordinary-history judgement is now named once (`ORDINARY_HISTORY_DIAGNOSTICS`, sidecar_projection.py) and subtracted **by name** at all three readers — `integrity.py`, `coverage_report`'s build path and `cli._cmd_coverage_quality` — with the `manifest_state = \"malformed\"` override deleted. The emitter is retained by design, and the definition it now follows is written down in the iteration's locked contract (`specs/manifest-well-formedness.md` §2/§3).",
+        "closure_evidence": "QA gate `Approve with residuals`, 5/5 acceptance criteria pass, on an archive the QA engineer built itself (5 rows / 2 work_ids with a real 3-row transition, sidecars validated through the repo's own validators). Measured before/after on one archive — merge-base b36b75c: `verify` exit 1 with `structural_input_error`; `coverage` `{count: null, state: unavailable}`, exit 1; `coverage --quality` exit 1. At a85ffd5: all three **exit 0**, `diagnostics: []`, `count: 2 available`. Bidirectionality held under an adversarial case (a row that is both a duplicate work_id and carries an invalid status still fails closed in all three). QC tri-review 3/3 Approve, 0 Critical / 0 Warning; its 13 Suggestions became 6 in-wave fixes and 3 residual entries (R1/R2/R3 of plan 20260918-verification-surface-truth). Evidence: `{SDD_DIR}/20260918-verification-surface-truth/{qa.md, review/qc-consolidated.md}`."
       },
       {
         "id": "R3",
@@ -246,7 +250,7 @@
         "decision": "defer",
         "owner": "@project-manager",
         "target": "the next transcription of an affected lecture: re-run one with the entries and one with BILI_ASR_HOTWORDS-neutralised defaults over the same audio, and compare the occurrence counts of the term against its homophone. 《逻辑学》第二讲 (BV1H69sB6EeF, 114.5 min, 4 correct vs 57 wrong) is the sharpest single target; a shorter affected part works too. Also state the harmlessness check the Latin block carries (the 95 % identical-tail measurement), which these six have not had.",
-        "tracking": "Registered here. Same evidence class as N-4 (the six Latin hotwords, which remain unverified for want of audio) — this run does not exercise N-4's terms (the season never speaks ITEM/AITEM/tribunal), so N-4 stays open and this row carries the Chinese half. The code comment and README both state the unverified status so no reader mistakes these for a proven fix. Operator decision 2026-09-17: add the terms now, verify on the next run.",
+        "tracking": "Registered here. Same evidence class as N-4 (the six Latin hotwords, which remain unverified for want of audio) — this run does not exercise N-4's terms (the season never speaks ITEM/AITEM/tribunal), so N-4 stays open and this row carries the Chinese half. The code comment and README both state the unverified status so no reader mistakes these for a proven fix. Operator decision 2026-09-17: add the terms now, verify on the next run. 2026-09-18: the plan that owned this entry was deferred out of iter-2026-09-residual-closeout by operator decision (scope reduced to plan 20260918-verification-surface-truth); the plan file remains in {PLAN_DIR} and the deferral is recorded in the compass `## Roadmap Position` with owner, trigger and done definition. This entry stays open.",
         "source_plan": "e2e-23191782-season-7686105",
         "registered_at": "2026-09-17",
         "lifecycle_id": "e2e-23191782-season-7686105"
@@ -260,7 +264,7 @@
         "decision": "defer",
         "owner": "@project-manager",
         "target": "the next plan that touches the stage-attempt ledger contract or the pilot path — either give the pilot the same per-stage persistence, or state in the knowledge doc and the pilot's help text that pilot-driven work is deliberately outside `--scope failed` recovery. The second is cheaper and may be the honest choice, but it must be written down: the doc's own warning ('otherwise `--scope failed` silently drops rows') currently applies to a path the doc does not name.",
-        "tracking": "Registered here. Severity low: the transcripts and the manifest are correct; what is missing is the audit trail for one entry point, and only when that entry point is used. Operator decision 2026-09-17: register only, no code change now.",
+        "tracking": "Registered here. Severity low: the transcripts and the manifest are correct; what is missing is the audit trail for one entry point, and only when that entry point is used. Operator decision 2026-09-17: register only, no code change now. 2026-09-18: the plan that owned this entry was deferred out of iter-2026-09-residual-closeout by operator decision (scope reduced to plan 20260918-verification-surface-truth); the plan file remains in {PLAN_DIR} and the deferral is recorded in the compass `## Roadmap Position` with owner, trigger and done definition. This entry stays open.",
         "source_plan": "e2e-23191782-season-7686105",
         "registered_at": "2026-09-17",
         "lifecycle_id": "e2e-23191782-season-7686105"
@@ -274,7 +278,7 @@
         "decision": "defer",
         "owner": "@project-manager",
         "target": "the next plan that touches run_ledger.py or the CLI's exit handling. Note the boundary this does NOT cover: a risk-control interruption exits normally and IS recorded, and every executed stage is already durable in coordinator/attempts.jsonl — so the loss is the run-level row (scope, counts, exit code, coverage snapshot), not the per-stage truth.",
-        "tracking": "Registered here. Severity low: no artifact is wrong and no evidence is destroyed; what is missing is the summary row for interrupted runs. A SIGTERM handler that appends the record with the summary's partial counts would close it, but touching signal handling is a product decision, not a cleanup. Operator decision 2026-09-17: register only.",
+        "tracking": "Registered here. Severity low: no artifact is wrong and no evidence is destroyed; what is missing is the summary row for interrupted runs. A SIGTERM handler that appends the record with the summary's partial counts would close it, but touching signal handling is a product decision, not a cleanup. Operator decision 2026-09-17: register only. 2026-09-18: the plan that owned this entry was deferred out of iter-2026-09-residual-closeout by operator decision (scope reduced to plan 20260918-verification-surface-truth); the plan file remains in {PLAN_DIR} and the deferral is recorded in the compass `## Roadmap Position` with owner, trigger and done definition. This entry stays open.",
         "source_plan": "e2e-23191782-season-7686105",
         "registered_at": "2026-09-17",
         "lifecycle_id": "e2e-23191782-season-7686105"
@@ -288,7 +292,7 @@
         "decision": "defer",
         "owner": "@project-manager",
         "target": "the next plan that touches the cue shaper (`asr.py` token loop) — apply the same two-ASCII-alphanumeric rule when appending a token inside a cue, and pin it with a fixture whose token stream omits a leading space. Note the existing pinned tests (tests/test_asr_cues.py, the asr-cues fixture) must stay green: the change must not insert spaces where the model supplied them.",
-        "tracking": "Registered here. Severity low: no meaning is lost in most instances and no Chinese cue is affected, but these are the passages where the English quote *is* the text under discussion, so 'asME IDEAIn contrast' costs a reader real effort. Operator decision 2026-09-17: register only, no code change now.",
+        "tracking": "Registered here. Severity low: no meaning is lost in most instances and no Chinese cue is affected, but these are the passages where the English quote *is* the text under discussion, so 'asME IDEAIn contrast' costs a reader real effort. Operator decision 2026-09-17: register only, no code change now. 2026-09-18: the plan that owned this entry was deferred out of iter-2026-09-residual-closeout by operator decision (scope reduced to plan 20260918-verification-surface-truth); the plan file remains in {PLAN_DIR} and the deferral is recorded in the compass `## Roadmap Position` with owner, trigger and done definition. This entry stays open.",
         "source_plan": "e2e-23191782-season-7686105",
         "registered_at": "2026-09-17",
         "lifecycle_id": "e2e-23191782-season-7686105"
@@ -307,7 +311,55 @@
         "tracking": "Registered here. What was RULED OUT by measurement: /tmp space. /tmp is a 3.7 GiB tmpfs (2.0 GiB already held by earlier sessions' leftovers, ~1.7 GiB free), and a full green run moved it by only +31.4 MiB peak — so 'tmpfs exhausted, tmp_path failed' does not explain it. What remains unknown: the trigger. The plan that surfaced this deliberately did not chase it (its scope was a hotword constant); it is recorded so the next suite failure is not misread as a regression from whatever change is in flight.",
         "source_plan": "20260917-hotword-acronym-precision",
         "registered_at": "2026-09-17",
-        "lifecycle_id": "20260917-hotword-acronym-precision"
+        "lifecycle_id": "20260917-hotword-acronym-precision",
+        "lifecycle": "resolved",
+        "closed_at": "2026-09-18",
+        "closure_note": "Closed on branch (b) of the plan's three-branch rule — **not reproduced within budget**, so the deliverable is the diagnosability mechanism plus the verbatim run record, which is what compass criterion 5 requires instead of a guess. Root cause: NOT established, and deliberately not asserted; the implementer declined to record a competing-process theory it had not proven. What was eliminated by measurement: the worktree/editable-install invocation trap (conftest's unconditional sys.path.insert defeats it — runs with PYTHONPATH unset and with the control-root src forced were both green), source mismatch, test ordering (no randomization plugin), /tmp space, inodes, TMPDIR and basetemp writability.",
+        "closure_evidence": "Branch (b). Deliverable: `bilibili-asr-archive/tests/conftest.py` (commit 10f1c58, widened by the fix wave in a85ffd5 to setup+teardown) persists every per-test setup/teardown failure — nodeid, fixture list, location, cwd, interpreter, tmpdir, resolved `bili_asr.__file__`, free bytes, full traceback — to the gitignored `bilibili-asr-archive/.tb/errors.log`, appending across runs. **Read the next red at that path** (the commit message and Task 3's report say `setup-failures.log`, a pre-rename name; the code writes `errors.log`, and QC seat 3 raised that discrepancy as qc3-S6). Verbatim run record: seven consecutive green full-suite runs while attempting reproduction, then two post-change green runs (the required minimum) — all nine tails are listed in `{SDD_DIR}/20260918-verification-surface-truth/task-3-report.md`, and QA verified that all seven cited logs exist, their tails match verbatim, and that no run left an `ERRORS` section. **The intermittent failure is NOT claimed fixed**: green runs cannot disprove a pattern that includes green among its outcomes, and the closure says so."
+      }
+    ],
+    "20260918-verification-surface-truth": [
+      {
+        "id": "R1",
+        "title": "`coverage_report._read_manifest` keeps a latent second judgement on `manifest_duplicate_work_id`: it spells the raw literal and sets `valid = False`, i.e. ordinary append-only history as malformed. Unreachable today (zero call sites) but it would re-open the R2 defect the moment the helper gains one.",
+        "severity": "low",
+        "source": "Plan QC tri-review of 20260918-verification-surface-truth, 2026-09-18 — raised independently by all three seats (qc1.md S1, qc2.md S4, qc3.md S2); L2 had carried it as T1-R2.",
+        "scope": "bilibili-asr-archive/src/bili_asr/coverage_report.py:322-324 (helper `_read_manifest`, L286-329). The spec sanctions retention in two places — §2 (note) and §3 item 4 — not in a \"§3.4\" (that section does not exist; corrected 2026-09-18 after qc3-S4). The live sites are the shared set at sidecar_projection.py:190 and its three by-name consumers (integrity.py:230, coverage_report.py:74, cli.py:1274).",
+        "decision": "defer",
+        "owner": "@project-manager",
+        "target": "the next plan or touch that gives `_read_manifest` a call site: **delete the helper**. Wiring it up is not a cheap fix — qc3-S5 measured that it keeps the FIRST row of a duplicated work_id where the live path keeps the LAST, files tuple-shaped `(code, kind)` diagnostics where the readers subtract plain strings, and reads unboundedly with no `ReaderPolicy`; any wire-up must therefore re-derive the projection through `iter_jsonl_records`, not merely consult the named set. Re-open condition is explicit — a call site appearing anywhere makes this defect live again.",
+        "tracking": "Registered here. Disclosed at the plan's consolidated gate ({SDD_DIR}/review/qc-consolidated.md row A).",
+        "source_plan": "20260918-verification-surface-truth",
+        "registered_at": "2026-09-18",
+        "lifecycle_id": "iter-2026-09-residual-closeout"
+      },
+      {
+        "id": "R2",
+        "title": "The manifest/attempt projection is duplicated verbatim between `CoverageReport.build` and `cli._cmd_coverage_quality`, so one ordinary-history code must be remembered in two files and the two copies can drift — the asymmetry between them is what made the original three-reader disagreement possible.",
+        "severity": "low",
+        "source": "Plan QC tri-review of 20260918-verification-surface-truth, 2026-09-18 — qc1.md S2 (drift hazard), verified by reading both blocks post-change: including the new subtraction they remain byte-identical.",
+        "scope": "bilibili-asr-archive/src/bili_asr/cli.py:1265-1287 against bilibili-asr-archive/src/bili_asr/coverage_report.py:65-105. The locked spec fixes the *set* and the three reader sites, not the shared projection, so deduping is outside this plan's shape.",
+        "decision": "defer",
+        "owner": "@project-manager",
+        "target": "the next plan that touches either coverage entry point: derive the manifest/attempt projection once and have both callers consume it, with the ordinary-history subtraction inside the shared path.",
+        "tracking": "Registered here. Disclosed at the plan's consolidated gate ({SDD_DIR}/review/qc-consolidated.md row B).",
+        "source_plan": "20260918-verification-surface-truth",
+        "registered_at": "2026-09-18",
+        "lifecycle_id": "iter-2026-09-residual-closeout"
+      },
+      {
+        "id": "R3",
+        "title": "The forensics hook's log path is still writable through a symlinked parent directory: `O_NOFOLLOW` refuses only a symlink in the final path component, so a pre-existing symlinked `bilibili-asr-archive/.tb/` is followed — the exact hole the plan-QC finding named is improved (no-follow on the file, mode 0600) but not closed.",
+        "severity": "low",
+        "source": "Plan QC fix wave of 20260918-verification-surface-truth, 2026-09-18 — qc2.md S1 asked for the repo's artifact write discipline; the implementer verified both semantics directly (a final symlink is refused, a real file inside a symlinked directory is opened), implemented the flag as specified, and documented the real scope in-code instead of claiming a guarantee the code does not provide. Disclosed in fix-wave-1-report.md.",
+        "scope": "bilibili-asr-archive/tests/conftest.py (the guarded append path added by the fix wave, commit a85ffd5). Closing it needs either a directory-walk O_NOFOLLOW open or an lstat pre-check on `.tb/` — deliberately outside the fix wave's assigned shape.",
+        "decision": "defer",
+        "owner": "@project-manager",
+        "target": "the next touch of tests/conftest.py, or the plan that owns test-infrastructure hardening: add the `lstat` pre-check (refuse a symlinked `.tb/`) or open the directory with `O_NOFOLLOW|O_DIRECTORY` before appending. Impact is bounded — test-only path, fixed filename, and the writer already refuses a symlinked file.",
+        "tracking": "Registered here. Disclosed at the plan's consolidated gate and in the fix-wave report; the in-code comment states the boundary so a later reader does not read the flag as a guarantee.",
+        "source_plan": "20260918-verification-surface-truth",
+        "registered_at": "2026-09-18",
+        "lifecycle_id": "iter-2026-09-residual-closeout"
       }
     ]
   }
