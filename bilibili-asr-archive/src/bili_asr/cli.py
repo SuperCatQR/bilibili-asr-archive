@@ -1251,6 +1251,7 @@ def _cmd_coverage_quality(args: argparse.Namespace) -> int:
     from .sidecar_projection import (
         ReaderPolicy,
         project_attempt_records,
+        ORDINARY_HISTORY_DIAGNOSTICS,
         project_manifest_records,
     )
 
@@ -1270,7 +1271,7 @@ def _cmd_coverage_quality(args: argparse.Namespace) -> int:
             "sidecar_byte_limit" if code.endswith("byte_limit_exceeded") else code,
             "manifest",
         )
-        for code in manifest_diagnostics
+        for code in manifest_diagnostics - ORDINARY_HISTORY_DIAGNOSTICS
     )
     attempts, _attempts_state, attempt_diagnostics = project_attempt_records(
         root / "coordinator" / "attempts.jsonl", policy=policy

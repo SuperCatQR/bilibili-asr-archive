@@ -182,6 +182,15 @@ def _manifest_semantic_diagnostics(record: Mapping[str, Any]) -> set[str]:
     return diagnostics
 
 
+ORDINARY_HISTORY_DIAGNOSTICS = frozenset({"manifest_duplicate_work_id"})
+"""Codes that describe the append-only store's normal shape, not a defect.
+
+A ``work_id`` appearing on several manifest lines is how a state transition
+sequence (``needs_audio`` -> ``audio_ok`` -> ``archived``) is encoded, so the
+projection still reports what it saw while every reader subtracts this set.
+"""
+
+
 def project_manifest_records(
     path: str | Path, *, policy: ReaderPolicy | None = None,
 ) -> tuple[dict[str, dict[str, Any]], str, set[str]]:

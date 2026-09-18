@@ -208,6 +208,24 @@ def test_trailing_blank_after_truncated_attempt_is_tolerated(tmp_path: Path) -> 
     assert STRUCTURAL_INPUT_ERROR not in report.diagnostics
 
 
+def test_append_only_history_is_not_a_structural_error(tmp_path: Path) -> None:
+    """One work_id with a real state history is ordinary, not malformed."""
+    row = {"work_id": "BV1x:p0", "bvid": "BV1x", "cid": 7, "page_index": 0,
+           "pubdate_str": "20260828", "title": "A", "status": "needs_audio"}
+    paths = write_archive(tmp_path, {**row, "status": "archived"},
+                          [{"start": 0, "end": 1, "text": "ok"}], source="cc")
+    _manifest(tmp_path, [row, {**row, "status": "audio_ok"},
+                         {**row, "status": "archived", **paths}])
+    # The attempts sidecar must exist: without it integrity.py L238-241 files
+    # `missing_attempts_sidecar` and the exit stays 1 for an unrelated reason.
+    attempts = tmp_path / "coordinator" / "attempts.jsonl"
+    attempts.parent.mkdir()
+    attempts.write_text(json.dumps(_attempt("BV1x:p0", "ok")) + "\n", encoding="utf-8")
+    report = IntegrityVerifier().verify(tmp_path)
+    assert report.defects == []
+    assert report.diagnostics == []          # -> cli.py L2800 then returns 0
+
+
 def test_manifest_overflow_is_non_authoritative(tmp_path: Path) -> None:
     _manifest(tmp_path, [{"work_id": str(i), "status": "pending"} for i in range(10001)])
     report = IntegrityVerifier().verify(tmp_path)
