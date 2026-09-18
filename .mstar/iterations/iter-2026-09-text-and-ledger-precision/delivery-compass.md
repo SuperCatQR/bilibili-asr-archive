@@ -35,8 +35,8 @@ re-derived here, and `{SPECS_DIR}` gains nothing (see §Adopted assets).
 |---|---|---|---|---|
 | `e2e-23191782-season-7686105 · R6` | low | cue 内拉丁词粘连（`asME IDEA`、`anITEM`）：`_token_cues` 用 `"".join(parts)` 拼接，补空格的 `_join_text` 只在吸收碎片与交还标点两处调用 | **已退役，本迭代不改**：Task 1 在自身授权的 Step-1 出口返回 `NEEDS_CONTEXT`，规则的第二条件在本计划可读的材料上无法评估。`R6` 保持 open 并记录解锁路径，见下 `### Scope changes` | —（原判据 1 已退役） |
 | `e2e-23191782-season-7686105 · R3` | low | 六个中文同音热词（扬弃 自在 变易 此在 感性 实存）的**收益未验证**（错误已实测 118 处） | 按其 residual 自身规定的靶子做 A/B（`BV1H69sB6EeF`，4 正确 vs 57 误写），以计数对比关闭或据实保持 open。**2026-09-18 已闭环**：扬弃 4→38 正确、同音 59→26，相同字符率 97.52 %（阈 ≥95 %），同配置 repeat 噪声地板 0.0000 %；另五个词在本讲**未被触发**，已作为后继 residual `20260918-transcript-text-precision · R1` 登记 | 1 |
-| `e2e-23191782-season-7686105 · R4` | low | `pilot` 不写 stage attempts，`--scope failed` 对 pilot 归档的条目失明（实测 `stages=[]`） | **写下边界**（README + `pilot --help`），消除"静默丢弃"；知识库文本经 compound 提升 | 2 |
-| `e2e-23191782-season-7686105 · R5` | low | 被外部 kill 的 `run` 不留 run-ledger 记录（全仓无任何信号处理） | **实现** SIGTERM/SIGINT 处理：追加一条含局部计数的 run 记录后按约定中断码退出，用测试锚定 | 3 |
+| `e2e-23191782-season-7686105 · R4` | low | `pilot` 不写 stage attempts，`--scope failed` 对 pilot 归档的条目失明（实测 `stages=[]`） | **写下边界**（README + `pilot --help`），消除"静默丢弃"；知识库文本经 compound 提升。**2026-09-18 已闭环**：两个产品面均由 QA 实跑验证（`pilot --help` 命中字面量、README recovery 段命中、`tests/test_cli_help.py` 43 passed）；**按"操作员面闭环"结案**——本行 target 同时点名知识文档，而 `{KNOWLEDGE_DIR}` 在 Execute 期不可写，故知识半部由 package guide 承载并交给 `mstar-compound` 在收口时提升，closure_note 明写了这一点 | 2 |
+| `e2e-23191782-season-7686105 · R5` | low | 被外部 kill 的 `run` 不留 run-ledger 记录（全仓无任何信号处理） | **实现** SIGTERM/SIGINT 处理：追加一条含局部计数的 run 记录后按约定中断码退出，用测试锚定。**2026-09-18 已闭环**：单一 `finally` 写入点 + 一次性处置（SIGTERM/SIGINT 均置 `SIG_IGN` 跨整个 unwind）+ `128+signum`（143/130）+ 由持久状态导出的局部计数；QA 实跑 5+1+1 passed 与两个探针（无信号负对照 rc=1、写失败 stderr + rc 143）。**闭环范围显式限定在 `run` 入口**：`schedule`/`campaign`（`R1`）、guard 之前的窗口（`R2`）、SIGINT 子句内的字节码窗口（`R4`）均由后继 residual 承接 | 3 |
 
 ### Scope changes
 
@@ -73,7 +73,7 @@ never shown to handle.
 | plan_id | Name | Status | 覆盖 residual | 收口判据 | Notes |
 |---------|------|--------|---------------|----------|-------|
 | `20260918-transcript-text-precision` | Hotword benefit measured; cue-writer spacing **retired** | **Done**（2026-09-18） | R3（已闭环）；R6 已退役，保持 open | 1 | 含操作员归档主机上的一次 A/B 测量（同一音频、两条热词清单的文本对比）；Task 1 因证据不足退役，见 `### Scope changes` |
-| `20260918-operational-record-coverage` | Pilot attempt-ledger boundary; interrupted-run record | Todo | R4 + R5 | 2, 3 | 一条是**成文**（R4，不改行为），一条是**实现**（R5） |
+| `20260918-operational-record-coverage` | Pilot attempt-ledger boundary; interrupted-run record | **Done**（2026-09-18） | R4 + R5（均已闭环） | 2, 3 | 一条是**成文**（R4，不改行为），一条是**实现**（R5）；两条都经 QC 三审（两轮修复波）+ QA 实跑门禁 |
 
 Criteria are numbered **1–3** here and nowhere else in this package. The previous iteration's
 numbering (6–9, in `iter-2026-09-residual-closeout/delivery-compass.md`) is **retired**: it was a
@@ -203,7 +203,7 @@ merge-order dependency is claimed.)*
 
 ## Roadmap Position
 
-- **Current iteration（iter-2026-09-text-and-ledger-precision）**：关闭 `R3`（2026-09-18 已闭环）与 plan 2 承担的两条（R4/R5）——让归档**文本**（热词）与运行**记录**（attempts、run-ledger）都不再对操作员说谎或留空；`R6`（cue 写入器）已**退役并保持 open**，见 `### Scope changes`。这也是对上迭代"缩减范围"的兑现。完成定义即判据 **1–3**，逐条给出可复核命令。
+- **Current iteration（iter-2026-09-text-and-ledger-precision）**：关闭 `R3`、`R4`、`R5`（**三条均于 2026-09-18 闭环**）——让归档**文本**（热词）与运行**记录**（attempts、run-ledger）都不再对操作员说谎或留空；`R6`（cue 写入器）已**退役并保持 open**，见 `### Scope changes`。这也是对上迭代"缩减范围"的兑现。完成定义即判据 **1–3**，逐条给出可复核命令；两条 plan 行均已 `Done`。本迭代自行登记了 5 条 `defer` 低风险 residual（plan 1 的 `R1` + plan 2 的 `R1`–`R4`）并 waived 1 条（plan 1 的 `R2`）——它们不阻塞交付，逐条见 `## Quality Gate Summary` 与下方 ②–⑤。
 - **Next iteration（延出项按到期日排序，各自的触发条件 / owner / 完成定义都写死给没有本次对话的读者）**：
 
   **① `e2e-23191782-season-7686105 · R1` — 让 ASR 链从 `archive.db` 取音频工作队列**（medium）。
@@ -245,6 +245,17 @@ merge-order dependency is claimed.)*
 来源与理由：仓库 `AGENTS.md` 写明 *Default integration / PR target: `main`*、*Feature work: plan branches merging into `iteration/<iteration-id>`*；上两个迭代同形。属**成文项目约定**，非静默默认。
 
 **Main worktree branch**：`main`。
+
+**Merge hazard recorded 2026-09-18 (for whoever merges this iteration into `main`).** The integration
+branch's Phase-1 lock commit (`0fc963d`) **tracks** `{WORKFLOW_DIR}/iter-2026-09-text-and-ledger-precision/snapshot.json`,
+while `main` does not track that file at all (it is untracked there) and its content has since moved on.
+Merging the integration branch into `main` as-is would therefore re-introduce a **stale Phase-1 snapshot**
+(or conflict on it). Reconciliation is part of iteration-close: either drop the file from the integration
+side or land `main`'s current snapshot deliberately — do not let the merge decide it silently. The same
+applies to any other `{HARNESS_DIR}` path the Phase-1 lock commit tracks and `main` keeps out of git.
+Verified 2026-09-18: `git diff --stat 0fc963d main` shows exactly this snapshot as the only non-`.mstar/**`-content
+difference, and `git diff --stat 0fc963d main -- bilibili-asr-archive/` is **empty** — the product trees of the
+integration branch, `main` and both feature worktrees are identical at this point.
 
 ## Risk Register
 
@@ -288,7 +299,7 @@ Three specialist roles invoked in order, one invoke each, editing the artifacts 
 | plan_id | QC decision | QA gate | Residuals | Durable summary |
 |---------|-------------|---------|-----------|-----------------|
 | 20260918-transcript-text-precision | **Approve**（tri 3/3 → 定向复审 2/2 Approve → 确认；0 Critical / 0 Warning 未决） | `mandatory` — `Approve with residuals`，**8/8** 验收项通过；`QA mode: acceptance-only`（无测试、无构建、无 GPU 重跑、无网络/主机访问） | open: `20260918-transcript-text-precision · R1`(low, defer — A/B 未触发的那五个中文热词)；`· R2` 已 `waived`（冻结实现者报告的占位符，理由 + 重开条件齐备）；`e2e-…·R3` 已 verified close；**无 blocker-defer**。净开放集不变：medium 1 / low 7 | `{PLAN_DIR}/20260918-transcript-text-precision.md`（`## Review Gate Summary` + `## QA Gate Summary` + `## Done note`） |
-| 20260918-operational-record-coverage | | | | |
+| 20260918-operational-record-coverage | **Approve**（tri 3/3 → 两轮修复波 → 定向复审 qc3 Approve / qc2 Request Changes → 二轮后 qc2 Approve + qc3 确认；0 Critical / 0 Warning 未决） | `mandatory` — `Approve with residuals`，**9/9** 验收项通过；`QA mode: targeted`，**实跑**证据：`pilot --help` 命中、README 命中、`test_cli_help.py` 43 passed（可写 uv cache）5+1+1 passed、无信号负对照 rc=1、写失败探针 stderr + rc 143（无全量套件、无网络、无主机访问） | new (all low, defer, owner @project-manager): `20260918-operational-record-coverage · R1`（schedule/campaign）、`· R2`（guard 之前的窗口）、`· R3`（时间戳字典序比较）、`· R4`（SIGINT 子句内字节码窗口 + C 级 handler 限制）；`e2e-…·R4`/`·R5` 均已 verified close；**无 blocker-defer**。净开放集：medium 1 / low 9 | `{PLAN_DIR}/20260918-operational-record-coverage.md`（`## Review Gate Summary` + `## QA Gate Summary` + `## Done note`） |
 
 ## Compound Round Summary
 

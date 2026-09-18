@@ -271,7 +271,11 @@
         "tracking": "Registered here. Severity low: the transcripts and the manifest are correct; what is missing is the audit trail for one entry point, and only when that entry point is used. Operator decision 2026-09-17: register only, no code change now. 2026-09-18: the plan that owned this entry was deferred out of iter-2026-09-residual-closeout by operator decision (scope reduced to plan 20260918-verification-surface-truth); the plan file remains in {PLAN_DIR} and the deferral is recorded in the compass `## Roadmap Position` with owner, trigger and done definition. This entry stays open.",
         "source_plan": "e2e-23191782-season-7686105",
         "registered_at": "2026-09-17",
-        "lifecycle_id": "e2e-23191782-season-7686105"
+        "lifecycle_id": "e2e-23191782-season-7686105",
+        "lifecycle": "resolved",
+        "closed_at": "2026-09-18",
+        "closure_note": "Closed as an OPERATOR-SURFACE close, and the note says so rather than claiming more: this row's own target names two things — the knowledge doc and the pilot's help text. The product half is done and verified by execution: `pilot --help` prints the boundary (the literal `` `--scope failed` `` at a stable line at 80 and 50 columns, via a new subparser `description=` with a raw formatter so argparse cannot break the token) and the README recovery paragraph beside the exit-code table carries the same boundary. The knowledge half is NOT done at this close and cannot be during Execute: `{KNOWLEDGE_DIR}` is boundary-protected for the iteration's Execute phase, so the knowledge-destined text lives in the iteration package guide (`{ITERATION_DIR}/iter-2026-09-text-and-ledger-precision/guides/pilot-attempt-ledger-boundary.md`, sha256 `be7092499ae122532be8b849e1f54d6c7b9d4953cd650b8d55bc20c4fa0c5d07`, refreshed by the QC fix wave) and is handed to `mstar-compound` at iteration-close to promote into `operational-sidecars.md`. The claim itself was widened on QC advice to match the code: the stage-attempt ledger is written by the run coordinator behind `bili-asr run`, `schedule` and `campaign`, while `pilot` writes no attempt records and is therefore not reachable by `--scope failed`. A closure note claiming the knowledge doc was updated would be unsupportable at these bytes.",
+        "closure_evidence": "Plan `20260918-operational-record-coverage` Task 1, commit `5bcf0bf` (with the writer-naming widening in `36a642d`), on `fix/20260918-operational-record-coverage`. QA gate (mandatory, `targeted`) AC-1 pass, executed: `pilot --help | grep -- \"--scope failed\"` → line 10, exit 0 (baseline before the change: no output, exit 1 — the check discriminates); `grep -n -- \"--scope failed\" README.md` → 357 / 1023 / 1027, the last inside the recovery paragraph; `tests/test_cli_help.py` → **43 passed, 0 errors** with `UV_CACHE_DIR` pointed at a writable cache (the five `test_installed_*` errors are the sandbox's read-only `/root/.cache/uv`, reproduced by the PM on the unmodified control tree as `38 passed, 5 errors`). Report: `{SDD_DIR}/20260918-operational-record-coverage/review/qa.md` (sha256 `3ed45c75…`) — which also states plainly that the knowledge half is objectively not done at HEAD (the guide is the carrier; `operational-sidecars.md` sha256 `bf31ef38…` carries no boundary statement). Plan QC tri-review: `Approve` — `{SDD_DIR}/20260918-operational-record-coverage/review/qc-consolidated.md`."
       },
       {
         "id": "R5",
@@ -285,7 +289,11 @@
         "tracking": "Registered here. Severity low: no artifact is wrong and no evidence is destroyed; what is missing is the summary row for interrupted runs. A SIGTERM handler that appends the record with the summary's partial counts would close it, but touching signal handling is a product decision, not a cleanup. Operator decision 2026-09-17: register only. 2026-09-18: the plan that owned this entry was deferred out of iter-2026-09-residual-closeout by operator decision (scope reduced to plan 20260918-verification-surface-truth); the plan file remains in {PLAN_DIR} and the deferral is recorded in the compass `## Roadmap Position` with owner, trigger and done definition. This entry stays open.",
         "source_plan": "e2e-23191782-season-7686105",
         "registered_at": "2026-09-17",
-        "lifecycle_id": "e2e-23191782-season-7686105"
+        "lifecycle_id": "e2e-23191782-season-7686105",
+        "lifecycle": "resolved",
+        "closed_at": "2026-09-18",
+        "closure_note": "The `run` entry point now records its own interruption. The record write moved into the run body's single `finally`, so a normal exit and an interruption both write exactly once through one site (`_write_run_record`, one caller); a one-shot disposition raises a `BaseException` the coordinator's per-stage `except Exception` handlers cannot swallow and installs `SIG_IGN` for SIGTERM **and** SIGINT across the whole unwind, so a repeated signal cannot destroy the record; the process exits `128+signum` (143 SIGTERM / 130 SIGINT) as a `SystemExit` rather than a traceback; the partial counts come from durable state (`AttemptLedger` attempts at or after this run's `started_at`, plus the coverage summary over the pre-batch manifest load), with `records_existing` still the pre-run manifest count; no lock is acquired, released or stolen, nothing is requeued and the manifest is untouched. SCOPE OF THIS CLOSE — stated so it cannot be read wider than it is: it covers the `run` entry point only. `schedule`/`campaign` share the writer but keep the old silent swallow and write no interruption record (`20260918-operational-record-coverage · R1`); a `run` killed between process entry and the guard still writes nothing (`· R2`); and a second SIGINT landing inside the `except KeyboardInterrupt` clause before the ignore pair is installed is a few-bytecode window that remains (`· R4`). The normal path's record keeps every field meaning and value it had before — no schema change, no new field.",
+        "closure_evidence": "Plan `20260918-operational-record-coverage` Tasks 2 + two QC fix waves, commits `4bc9a56` / `36a642d` / `6fb114a` on `fix/20260918-operational-record-coverage`, plus lint/doc commit `5bcf0bf`. QA gate (mandatory, `targeted`), `Approve with residuals`, **9/9 acceptance criteria pass** — `{SDD_DIR}/20260918-operational-record-coverage/review/qa.md` (sha256 `3ed45c759e54f93b05501aac47395cc042d8b81c1bc3f7d7962288f8345f9c8a`), which EXECUTED the evidence rather than reusing it: `tests/test_coordinator.py -k \"sigterm or sigint\"` → 5 passed; `-k run_appends_run_ledger` → 1 passed; `tests/test_run_ledger.py -k partial` → 1 passed; negative control probe (no signal) → rc 1, so `assert rc == 143` raises — the check is real, not vacuous; write-failure probe (`run-ledger.jsonl` replaced by a directory + SIGTERM) → rc **143** with stderr `run: run-ledger write failed (PersistenceError)` and no traceback, reproducing the implementer's claim verbatim. The interrupted-run assertions themselves pin: exactly one `command: \"run\"` row, `exit_code` 143 (SIGTERM) / 130 (SIGINT), the partial `work_ids`, and a following `run` over the same root that re-enters cleanly. Plan QC tri-review (3 seats, two targeted re-review waves): `Approve` — `{SDD_DIR}/20260918-operational-record-coverage/review/qc-consolidated.md`; the repeated-signal defect was found independently by two seats in wave 1 and closed only after the second fix wave."
       },
       {
         "id": "R6",
@@ -398,6 +406,64 @@
         "closed_at": "2026-09-18",
         "closure_note": "Waived by decision, not fixed: the artifact named is the implementer's own report, whose L2 review is closed and whose bytes are a record of what that round produced. Correcting it now would rewrite a reviewed record to carry numbers the PM derived afterwards; the durable carriers (guide §5/§11, SDD ledger) already hold 14:30:10 / 14:51:08. Nothing depends on the report's placeholder cells — the register closure for R3 cites the guide and the ledger, not this table.",
         "closure_evidence": "Guide `{ITERATION_DIR}/iter-2026-09-text-and-ledger-precision/guides/hotword-ab-20260918.md` §5 and §11 (the three complete CST windows); SDD ledger `{SDD_DIR}/20260918-transcript-text-precision/progress.md` ('PM resolution of the L2 items', from coordinator/attempts.jsonl: 05:17:06Z-05:35:40Z, 06:11:41Z-06:30:10Z, 06:32:49Z-06:51:08Z)."
+      }
+    ],
+    "20260918-operational-record-coverage": [
+      {
+        "id": "R1",
+        "title": "`schedule` (and `campaign`'s batch) drive the same stage-attempt ledger but keep the old behaviour the plan removed from `run`: a SIGTERM during them leaves no run-ledger record, and `_cmd_schedule`'s record write still swallows its failure with `except Exception: pass`.",
+        "severity": "low",
+        "source": "Plan QC tri-review of 20260918-operational-record-coverage, 2026-09-18 — qc1.md S2 (architecture), with the writer list from qc1 S1 / qc2 W2; the deferral itself is the seat's own prescribed disposition ('register a residual for schedule/campaign interruption coverage plus _cmd_schedule's silent append, or plan the same helper's reuse in a follow-up').",
+        "scope": "bilibili-asr-archive/src/bili_asr/cli.py — `_cmd_schedule`'s record write (`except Exception: pass`, ~L2716-2719) and the interruption coverage of the `schedule` entry point; `campaign.py` shares `RunCoordinator`/`run_batch` but writes no run-ledger record at all. The fix path already exists on this branch: `_interruptible_run` / `_signals_ignored` / `_partial_run_state` / the extracted write helper.",
+        "decision": "defer",
+        "owner": "@project-manager",
+        "target": "the next plan that touches `cli.py`'s `schedule` path or the run-ledger write discipline — reuse the `run` path's helper rather than re-implementing it, and decide explicitly whether a campaign batch gets a run-level record. `R5` (season) is closed for the `run` entry point only; this row is the honest boundary of that close.",
+        "tracking": "Registered here at the plan's QC gate (2026-09-18). Deliberately NOT implemented in the QC fix wave: the plan's Files list scopes `R5` to `_cmd_run`, and widening it mid-wave would put an unreviewed second path into the same commit.",
+        "source_plan": "20260918-operational-record-coverage",
+        "registered_at": "2026-09-18",
+        "lifecycle_id": "iter-2026-09-text-and-ledger-precision"
+      },
+      {
+        "id": "R2",
+        "title": "A `run` killed **before** its interruption guard is installed leaves no record: `started_at`/manifest load/scope resolution/client construction/banner prints all precede `_interruptible_run()`, and a SIGTERM there dies on the default disposition with no run-ledger row.",
+        "severity": "low",
+        "source": "Plan QC tri-review of 20260918-operational-record-coverage, 2026-09-18 — qc2.md S4 and qc3.md (residual candidate), both concurring with L2 `task-2-review.md` R2 while correcting its span: process start → the guard, not the implementer's '~20 µs banner→guard gap'.",
+        "scope": "bilibili-asr-archive/src/bili_asr/cli.py — everything from `_cmd_run`'s entry (manifest load, `--scope`/`--limit` resolution, `BiliClient`/`RunCoordinator` construction, the two banner prints) up to the guard's installation. The new tests all synchronise after the banner, so this span is never exercised.",
+        "decision": "defer",
+        "owner": "@project-manager",
+        "target": "the next plan that touches `_cmd_run`'s startup sequence, or any request to make the promise absolute ('an externally killed run always leaves a record'). Closing it means moving `_interruptible_run` to wrap the manifest load and scope resolution — a deliberate trade (an earlier handler means a signal can interrupt a half-loaded store, so the record's derivation must tolerate a partial run), which is why it is not a one-line fix.",
+        "tracking": "Registered here at the plan's QC gate (2026-09-18). Impact is bounded and stated: no counts can be lost on that path because no attempt has been written yet, so the record would be an all-zero row rather than a loss of durable truth. The plan's Goal sentence ('an externally killed `run` leaves a run-level record') is therefore true only from the guard onward — this row is that qualification.",
+        "source_plan": "20260918-operational-record-coverage",
+        "registered_at": "2026-09-18",
+        "lifecycle_id": "iter-2026-09-text-and-ledger-precision"
+      },
+      {
+        "id": "R3",
+        "title": "`_partial_run_state` decides which attempts belong to this run by **lexicographic comparison of formatted timestamps** (`attempt['started_at'] >= started_at`), and `utc_now_iso` emits an optional fractional part — so when one side has a fraction and the other does not, the string order inverts (a run whose start lands on a whole second can admit a previous run's attempt or drop one of its own).",
+        "severity": "low",
+        "source": "Plan QC tri-review of 20260918-operational-record-coverage, 2026-09-18 — qc1.md S4 (raised as a Suggestion with a stdlib probe: `datetime(...µs=0).isoformat()` → `'2026-09-18T00:00:00Z'` vs `µs=1` → `'2026-09-18T00:00:00.000001Z'`, `a >= b` True). Surfaced again by the QC fix wave's report, which correctly noted the wave brief mislabelled it (the brief's `records_existing` item is qc3 S1, not qc1 S4) and that no other fix covers it.",
+        "scope": "bilibili-asr-archive/src/bili_asr/cli.py `_partial_run_state` (the `started_at >= started_at` membership test) and its docstring. The predicate also silently rests on the archive single-writer invariant, which the docstring does not name.",
+        "decision": "defer",
+        "owner": "@project-manager",
+        "target": "the next touch of `_partial_run_state`, or the next change that lets a `run` add manifest keys / alter the timestamp format — fix by comparing parsed values (`datetime.fromisoformat` handles both forms) or by carrying a run id on the attempt, and name the single-writer/lock assumption in the docstring.",
+        "tracking": "Registered here at the plan's QC gate (2026-09-18) rather than fixed in the QC fix wave: the wave had already landed its seven owned findings and was under re-review, and the seat itself measured the exposure as unreachable in-tree today (estimated <<1e-6 per run start; all attempt writers go through `run_ledger.utc_now_iso`). Latent, not live.",
+        "source_plan": "20260918-operational-record-coverage",
+        "registered_at": "2026-09-18",
+        "lifecycle_id": "iter-2026-09-text-and-ledger-precision"
+      },
+      {
+        "id": "R4",
+        "title": "The interruption record is preserved across the whole coordinator unwind, but **not** universally: a second `SIGINT` landing inside the run body's `except KeyboardInterrupt` clause *after* the exception match and *before* the ignore pair is installed leaves `interrupted`/`exit_code` still `None`, so the `finally` fails all three guards and writes no record — the exit is then the propagating `KeyboardInterrupt` rather than a clean 130.",
+        "severity": "low",
+        "source": "Plan QC targeted re-review of 20260918-operational-record-coverage, 2026-09-18 — qc2.md wave-2 round (disclosure (a), `accepted-limitation`), with two corrections the seat required in the register text: the guarantee is not universal, and the cost of closing it is lower than the fix wave claimed.",
+        "scope": "bilibili-asr-archive/src/bili_asr/cli.py — the run body's `except KeyboardInterrupt` clause (the window between the clause matching and `_ignore_interruption_signals()`), and the `finally`'s three guards that decide whether a record is written. The unwind *outside* that clause is safe: a second Ctrl-C there is caught by the same clause, the record is still written exactly once and the exit is still 130.",
+        "decision": "defer",
+        "owner": "@project-manager",
+        "target": "a plan that owns the interruption contract's remaining window. Closing it needs a SIGINT disposition rather than a statement-order change (the guard is already the clause's first statement): install a handler that calls `_ignore_interruption_signals()` and then delegates to `signal.default_int_handler`, which keeps `KeyboardInterrupt` semantics for inner frames — note qc2's correction that the earlier framing (\"a custom handler would change KeyboardInterrupt semantics for every inner frame\") overstated the cost; what any handler-based fix does change is one-shot SIGINT for the rest of the run, already accepted for SIGTERM.",
+        "tracking": "Registered here at the plan's QC gate (2026-09-18). Measured exposure: a few bytecodes wide with no calls in it (nanoseconds), and standard signals coalesce while the first is still unprocessed, so a human double-press (milliseconds apart) lands in the safe unwind, not in this window. Latent, not live — but not zero, and it is the same record-loss mode the plan exists to remove, which is why it is registered rather than absorbed. Sibling rows: R2 (process start → the guard), R1 (`schedule`/`campaign`). Sibling limitation carried in the same row, registered 2026-09-18 after the QA gate pointed out it had no durable carrier: `signal.getsignal(SIGINT)` returns `None` for a disposition not installed from Python, and `signal.signal(sig, None)` raises, so that case cannot be restored — QC judged it an `accepted-limitation` (unreachable on the supported entry path: CPython installs `default_int_handler` for SIGINT at startup and nothing in this path replaces it; and bounded, because the restore runs *after* the record is written, so the worst case is a traceback instead of a clean 130, not data loss). The same pattern already existed for `SIGTERM`. No guard was added, deliberately.",
+        "source_plan": "20260918-operational-record-coverage",
+        "registered_at": "2026-09-18",
+        "lifecycle_id": "iter-2026-09-text-and-ledger-precision"
       }
     ]
   }
