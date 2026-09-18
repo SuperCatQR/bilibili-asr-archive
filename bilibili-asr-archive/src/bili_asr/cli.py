@@ -5,10 +5,14 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import signal
 import sqlite3
 import sys
+import threading
 import time
+from contextlib import contextmanager
 from pathlib import Path
+from typing import Any, Iterator
 
 from .config import (
     ARCHIVE_DATABASE_NAME,
@@ -2287,6 +2291,89 @@ def _cmd_campaign(args: argparse.Namespace) -> int:
     print(json.dumps(summary.to_dict(), ensure_ascii=False, sort_keys=True))
     return summary.exit_code
 
+class _RunInterrupted(BaseException):
+    """Raised by the run body's one-shot ``SIGTERM`` disposition.
+
+    A ``BaseException`` and not an ``Exception``: the coordinator's per-stage
+    ``except Exception`` handlers would otherwise swallow the interruption and
+    let the batch continue past it.
+    """
+
+    def __init__(self, signum: int) -> None:
+        super().__init__(f"interrupted by signal {signum}")
+        self.signum = signum
+
+
+def _restore_signal_handlers(previous: dict[int, Any]) -> None:
+    """Put back the dispositions a swap captured (empty mapping = nothing to do)."""
+    for signum, handler in previous.items():
+        signal.signal(signum, handler)
+
+
+@contextmanager
+def _interruptible_run() -> Iterator[None]:
+    """Deliver the first ``SIGTERM`` to the run body as ``_RunInterrupted``.
+
+    One-shot: the previous disposition is restored before the exception is
+    raised.  ``SIGINT`` keeps CPython's default ``KeyboardInterrupt`` and
+    reaches the same ``finally``.  ``signal.signal`` is main-thread only, so
+    elsewhere the run body keeps the dispositions the process already had.
+    """
+    if threading.current_thread() is not threading.main_thread():
+        yield
+        return
+    previous: dict[int, Any] = {}
+
+    def _on_sigterm(signum: int, _frame: Any) -> None:
+        _restore_signal_handlers(previous)
+        raise _RunInterrupted(signum)
+
+    previous[signal.SIGTERM] = signal.signal(signal.SIGTERM, _on_sigterm)
+    try:
+        yield
+    finally:
+        _restore_signal_handlers(previous)
+
+
+@contextmanager
+def _signals_ignored() -> Iterator[None]:
+    """Ignore ``SIGTERM``/``SIGINT`` for the duration of the record write."""
+    if threading.current_thread() is not threading.main_thread():
+        yield
+        return
+    previous = {
+        signum: signal.signal(signum, signal.SIG_IGN)
+        for signum in (signal.SIGTERM, signal.SIGINT)
+    }
+    try:
+        yield
+    finally:
+        _restore_signal_handlers(previous)
+
+
+def _partial_run_state(root: str, started_at: str) -> tuple[list[str], int, dict[str, int]]:
+    """Record inputs for a run interrupted before it could summarize.
+
+    The interruption path has no ``RunSummary``: what the run already persisted
+    durably is the record's input.  ``work_ids`` are the ids the attempts
+    ledger recorded at or after this run's ``started_at``, in order and deduped
+    (an earlier run's attempts stay out).  ``records_existing`` is the manifest
+    row count -- the same field the normal path passes as ``len(entries)``,
+    never the attempts-ledger length -- and the coverage summary counts the
+    manifest statuses as they stand.
+    """
+    from .coordinator import AttemptLedger
+    from .manifest import ManifestStore
+    from .run_ledger import compute_coverage_summary
+
+    attempts = AttemptLedger(root).load()
+    work_ids = list(
+        dict.fromkeys(a["work_id"] for a in attempts if a["started_at"] >= started_at)
+    )
+    entries = ManifestStore(root=root).load()
+    return work_ids, len(entries), compute_coverage_summary(entries)
+
+
 def _cmd_run(args: argparse.Namespace) -> int:
     from . import bili_client
     from .coordinator import ArchiveBusyError, RunCoordinator, archive_writer
@@ -2314,35 +2401,65 @@ def _cmd_run(args: argparse.Namespace) -> int:
     print(f"run: scope={args.scope} selected {len(rows)} row(s)" + (" [offline]" if args.offline else ""))
     for key, entry in rows:
         print(f"  {entry.get('work_id') or key}: {entry.get('status')}")
+    exit_code: int | None = None
+    interrupted: int | None = None
     try:
         with archive_writer(args.archive_root):
-            summary = coord.run_batch(rows)
-            ok = sum(1 for r in summary.results if r.ok)
-            skipped = summary.skipped_rows
-            failed = summary.failed
-            for r in summary.results:
-                if r.ok:
-                    print(f"{r.work_id}: {r.final_status}")
-            for r in failed:
-                codes = ", ".join(str(c) for c in r.failure_codes) or "unknown"
-                print(f"run: {r.work_id}: failed ({codes})", file=sys.stderr)
-            for r in skipped:
-                print(f"run: {r.work_id}: skipped ({r.skip_reason or 'unknown'})")
-            exit_code = 2 if summary.risk_interrupted else (0 if summary.fully_processed else 1)
-            if summary.risk_interrupted:
-                print("run: risk-control ceiling; stopping — re-run to resume.", file=sys.stderr)
-            print(f"run: {ok} completed, {len(skipped)} skipped" +
-                  (f", {len(failed)} failed" if failed else "") +
-                  (", scope not fully processed" if exit_code == 1 else ""))
-            try:
-                ledger = RunLedger(root=args.archive_root)
-                ledger.append(build_run_record(command="run", started_at=started_at,
-                    finished_at=utc_now_iso(), exit_code=exit_code, mid=None,
-                    work_ids=[r.work_id for r in summary.results] or None,
-                    records_existing=len(entries), coverage_summary=compute_coverage_summary(store.load())))
-            except Exception:
-                pass
-            return exit_code
+            with _interruptible_run():
+                try:
+                    summary = coord.run_batch(rows)
+                    ok = sum(1 for r in summary.results if r.ok)
+                    skipped = summary.skipped_rows
+                    failed = summary.failed
+                    for r in summary.results:
+                        if r.ok:
+                            print(f"{r.work_id}: {r.final_status}")
+                    for r in failed:
+                        codes = ", ".join(str(c) for c in r.failure_codes) or "unknown"
+                        print(f"run: {r.work_id}: failed ({codes})", file=sys.stderr)
+                    for r in skipped:
+                        print(f"run: {r.work_id}: skipped ({r.skip_reason or 'unknown'})")
+                    exit_code = 2 if summary.risk_interrupted else (0 if summary.fully_processed else 1)
+                    if summary.risk_interrupted:
+                        print("run: risk-control ceiling; stopping — re-run to resume.", file=sys.stderr)
+                    print(f"run: {ok} completed, {len(skipped)} skipped" +
+                          (f", {len(failed)} failed" if failed else "") +
+                          (", scope not fully processed" if exit_code == 1 else ""))
+                    return exit_code
+                except _RunInterrupted as exc:
+                    interrupted = exc.signum
+                    return 128 + exc.signum
+                except KeyboardInterrupt:
+                    interrupted = signal.SIGINT
+                    return 128 + signal.SIGINT
+                finally:
+                    # The run body's single record write: a normal exit and an
+                    # interruption both leave exactly one run-ledger row here.
+                    with _signals_ignored():
+                        try:
+                            if interrupted is not None:
+                                # No RunSummary exists on this path, so the
+                                # record's counts come from what the run already
+                                # persisted.
+                                work_ids, records_existing, coverage_summary = _partial_run_state(
+                                    args.archive_root, started_at)
+                                exit_code = 128 + interrupted
+                            elif exit_code is not None:
+                                work_ids = [r.work_id for r in summary.results] or None
+                                records_existing = len(entries)
+                                coverage_summary = compute_coverage_summary(store.load())
+                            if exit_code is not None:
+                                RunLedger(root=args.archive_root).append(build_run_record(
+                                    command="run", started_at=started_at,
+                                    finished_at=utc_now_iso(), exit_code=exit_code, mid=None,
+                                    work_ids=work_ids, records_existing=records_existing,
+                                    coverage_summary=coverage_summary))
+                        except Exception as exc:
+                            # Never silent: on the interruption path this record
+                            # is the only deliverable there is, and the process
+                            # still exits with the interruption code.
+                            print(f"run: run-ledger write failed ({type(exc).__name__})",
+                                  file=sys.stderr)
     except ArchiveBusyError:
         print("run: archive_busy", file=sys.stderr)
         return 1

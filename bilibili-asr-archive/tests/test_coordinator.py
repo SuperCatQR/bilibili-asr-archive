@@ -8,6 +8,10 @@ from __future__ import annotations
 
 import json
 import os
+import signal
+import subprocess
+import sys
+import time
 from pathlib import Path
 
 from bili_asr import asr as asr_mod
@@ -708,6 +712,82 @@ def test_cli_run_appends_run_ledger_record(tmp_root, monkeypatch, capsys):
     assert len(run_records) == 1
     assert run_records[0]["exit_code"] == 0
     assert sub.work_id in (run_records[0].get("work_ids") or [])
+
+
+# ------------------------------------------------- SIGTERM mid-run (Task 2, R5)
+
+# The child is the real CLI over a real archive root, so the fixture must be
+# provably still in flight when the signal lands *and* must not reach the
+# network: `needs_audio` rows under a tiny `--max-audio-gb` are skipped locally
+# (download/audio_budget) and a live batch sleeps 3s between rows, so a
+# two-row fixture cannot finish before the signal.
+_PACKAGE_ROOT = Path(__file__).resolve().parents[1]
+_SRC_DIR = _PACKAGE_ROOT / "src"
+
+
+def _run_argv(archive_root: str, *extra: str) -> list[str]:
+    """The CLI invocation under test (`-u`: the banner must reach the pipe)."""
+    return [sys.executable, "-u", "-m", "bili_asr", "run", "--scope", "pending",
+            "--max-audio-gb", "0.000001", *extra, "--archive-root", archive_root]
+
+
+def test_cli_run_sigterm_leaves_one_interrupted_record_and_root_reusable(tmp_root):
+    from bili_asr.run_ledger import RunLedger
+
+    first = page_identity("BVlater", 0, 111, "p0")
+    second = page_identity("BVsigterm", 0, 222, "p0")
+    store = ManifestStore(root=tmp_root)
+    store.upsert(_row(first, status="needs_audio"))
+    store.upsert(_row(second, status="needs_audio"))
+
+    child = subprocess.Popen(
+        _run_argv(tmp_root), cwd=str(_PACKAGE_ROOT),
+        env=dict(os.environ, PYTHONPATH=str(_SRC_DIR)),
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+    )
+    try:
+        banner = ""
+        deadline = time.monotonic() + 60
+        while time.monotonic() < deadline:
+            line = child.stdout.readline()
+            if not line or line.startswith("run: scope="):
+                banner = line
+                break
+        assert banner.startswith("run: scope=pending selected 2 row(s)"), banner
+        # The banner alone does not prove the child reached the batch (the
+        # handler is installed just after it) or that the interrupted row has
+        # anything to report: wait for that row's first durable attempt, then
+        # signal.  Row two's attempt is 3s away, so the batch is still running.
+        deadline = time.monotonic() + 60
+        while time.monotonic() < deadline:
+            if any(a["work_id"] == first.work_id for a in AttemptLedger(tmp_root).load()):
+                break
+            time.sleep(0.01)
+        else:
+            raise AssertionError("child never recorded an attempt for the first row")
+        child.send_signal(signal.SIGTERM)
+        assert child.wait(timeout=60) == 143, child.stderr.read()
+    finally:
+        if child.poll() is None:
+            child.kill()
+            child.wait()
+
+    run_records = [r for r in RunLedger(root=tmp_root).load() if r.get("command") == "run"]
+    assert len(run_records) == 1
+    assert run_records[0]["exit_code"] == 143
+    assert run_records[0]["work_ids"] == [first.work_id]
+
+    # The archive root the interrupted child left behind is re-enterable: the
+    # next run takes the writer lock and appends its own record.
+    resumed = subprocess.run(
+        _run_argv(tmp_root, "--limit", "1"), cwd=str(_PACKAGE_ROOT),
+        env=dict(os.environ, PYTHONPATH=str(_SRC_DIR)),
+        capture_output=True, text=True, timeout=60,
+    )
+    assert "archive_busy" not in resumed.stderr, resumed.stderr
+    assert resumed.returncode in (0, 1), resumed.stderr
+    assert len([r for r in RunLedger(root=tmp_root).load()
+                if r.get("command") == "run"]) == 2
 
 
 # ------------------------------------------------------------ offline (Task 2)

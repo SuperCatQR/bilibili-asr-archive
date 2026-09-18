@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import json
 import os
+from pathlib import Path
 
 import pytest
 
 from bili_asr import asr as asr_mod
 from bili_asr import bili_client as bc
-from bili_asr.cli import main
+from bili_asr.cli import _partial_run_state, main
 from bili_asr.manifest import ManifestStore
 from bili_asr.meta_cursor import MetaCursorStore, utc_now_iso
 from bili_asr.page_identity import page_identity
@@ -311,6 +312,36 @@ def test_bili_client_does_not_import_run_ledger():
     assert "bili_asr.run_ledger" not in getattr(mod, "__dict__", {})
     src = open(mod.__file__, encoding="utf-8").read()
     assert "run_ledger" not in src
+
+
+# ------------------------------------------------- interrupted run inputs (R5)
+
+
+def test_partial_counts_come_from_the_attempts_this_run_persisted(tmp_path: Path) -> None:
+    """A killed run still says what it managed to do."""
+    from bili_asr.coordinator import AttemptLedger
+
+    started_at = "2026-09-18T00:00:00Z"
+    ledger = AttemptLedger(tmp_path)
+    ledger.append({"stage": "download", "work_id": "BVold:p0", "attempt": 1,
+                   "outcome": "ok", "error_code": None, "artifact_paths": [],
+                   "started_at": "2026-09-17T23:00:00Z",
+                   "finished_at": "2026-09-17T23:00:01Z"})          # before this run
+    for stage in ("download", "asr"):
+        ledger.append({"stage": stage, "work_id": "BV1x:p0", "attempt": 1,
+                       "outcome": "ok", "error_code": None, "artifact_paths": [],
+                       "started_at": started_at, "finished_at": started_at})
+
+    work_ids, records_existing, coverage = _partial_run_state(tmp_path, started_at)
+    record = build_run_record(command="run", started_at=started_at, exit_code=143,
+                              work_ids=work_ids, records_existing=records_existing,
+                              coverage_summary=coverage)
+    assert record["command"] == "run"
+    assert record["work_ids"] == ["BV1x:p0"]      # BVold:p0 belongs to an earlier run
+    assert record["exit_code"] == 143
+    # The manifest's row count, exactly as the normal path passes len(entries) --
+    # this root has no manifest rows yet, while the attempts ledger has three.
+    assert record["records_existing"] == 0
 
 
 # ---------------------------------------------------------------- CLI pilot wiring
