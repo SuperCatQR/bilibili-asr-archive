@@ -112,7 +112,8 @@ def build_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         description=(
             "Bounded mixed-branch probe (subtitle-hit and audio→ASR), not a corpus\n"
-            "path. The stage-attempt ledger is written by `bili-asr run`: work archived\n"
+            "path. The stage-attempt ledger is written by the run coordinator behind\n"
+            "`bili-asr run`, `bili-asr schedule` and `bili-asr campaign`: work archived\n"
             "through this entry point leaves no attempt records, so no per-stage truth\n"
             "exists for pilot work, and it is not reachable by `--scope failed`."
         ),
@@ -2314,8 +2315,14 @@ def _restore_signal_handlers(previous: dict[int, Any]) -> None:
 def _interruptible_run() -> Iterator[None]:
     """Deliver the first ``SIGTERM`` to the run body as ``_RunInterrupted``.
 
-    One-shot: the previous disposition is restored before the exception is
-    raised.  ``SIGINT`` keeps CPython's default ``KeyboardInterrupt`` and
+    One-shot: the exception is raised once, and the true previous disposition
+    comes back in this context manager's ``finally`` -- after the record write.
+    Delivery therefore leaves both signals **ignored** instead of restoring the
+    captured disposition: the ignored state, not the default, is what must hold
+    across the coordinator's unwind (runner release, batch-evidence stderr
+    write), because a repeated ``SIGTERM`` landing there at the default
+    disposition would kill the process before the write site with no record at
+    all.  ``SIGINT`` keeps CPython's ``KeyboardInterrupt`` until that point and
     reaches the same ``finally``.  ``signal.signal`` is main-thread only, so
     elsewhere the run body keeps the dispositions the process already had.
     """
@@ -2325,7 +2332,8 @@ def _interruptible_run() -> Iterator[None]:
     previous: dict[int, Any] = {}
 
     def _on_sigterm(signum: int, _frame: Any) -> None:
-        _restore_signal_handlers(previous)
+        for sig in (signal.SIGTERM, signal.SIGINT):
+            signal.signal(sig, signal.SIG_IGN)
         raise _RunInterrupted(signum)
 
     previous[signal.SIGTERM] = signal.signal(signal.SIGTERM, _on_sigterm)
@@ -2351,16 +2359,17 @@ def _signals_ignored() -> Iterator[None]:
         _restore_signal_handlers(previous)
 
 
-def _partial_run_state(root: str, started_at: str) -> tuple[list[str], int, dict[str, int]]:
+def _partial_run_state(root: str, started_at: str) -> tuple[list[str], dict[str, int]]:
     """Record inputs for a run interrupted before it could summarize.
 
     The interruption path has no ``RunSummary``: what the run already persisted
     durably is the record's input.  ``work_ids`` are the ids the attempts
     ledger recorded at or after this run's ``started_at``, in order and deduped
-    (an earlier run's attempts stay out).  ``records_existing`` is the manifest
-    row count -- the same field the normal path passes as ``len(entries)``,
-    never the attempts-ledger length -- and the coverage summary counts the
-    manifest statuses as they stand.
+    (an earlier run's attempts stay out), and the coverage summary counts the
+    manifest statuses as they stand.  ``records_existing`` is *not* derived
+    here: it means "records that existed before this run", so the run body
+    passes the count from the manifest it loaded above the batch, exactly as
+    the normal path does.
     """
     from .coordinator import AttemptLedger
     from .manifest import ManifestStore
@@ -2371,14 +2380,35 @@ def _partial_run_state(root: str, started_at: str) -> tuple[list[str], int, dict
         dict.fromkeys(a["work_id"] for a in attempts if a["started_at"] >= started_at)
     )
     entries = ManifestStore(root=root).load()
-    return work_ids, len(entries), compute_coverage_summary(entries)
+    return work_ids, compute_coverage_summary(entries)
+
+
+def _write_run_record(
+    root: str,
+    started_at: str,
+    exit_code: int,
+    work_ids: list[str] | None,
+    records_existing: int,
+    coverage_summary: dict[str, int],
+) -> None:
+    """The run body's single ``run-ledger.jsonl`` write site.
+
+    Every input is derived by the caller's branch before the call, so the guard
+    that authorizes the write and the values it writes are bound together.
+    """
+    from .run_ledger import RunLedger, build_run_record, utc_now_iso
+
+    RunLedger(root=root).append(build_run_record(
+        command="run", started_at=started_at, finished_at=utc_now_iso(),
+        exit_code=exit_code, mid=None, work_ids=work_ids,
+        records_existing=records_existing, coverage_summary=coverage_summary))
 
 
 def _cmd_run(args: argparse.Namespace) -> int:
     from . import bili_client
     from .coordinator import ArchiveBusyError, RunCoordinator, archive_writer
     from .manifest import ManifestStore
-    from .run_ledger import RunLedger, build_run_record, compute_coverage_summary, utc_now_iso
+    from .run_ledger import compute_coverage_summary, utc_now_iso
     from .audio_budget import audio_cap_bytes
 
     started_at = utc_now_iso()
@@ -2435,25 +2465,26 @@ def _cmd_run(args: argparse.Namespace) -> int:
                 finally:
                     # The run body's single record write: a normal exit and an
                     # interruption both leave exactly one run-ledger row here.
+                    # `records_existing` is the pre-batch manifest count in both
+                    # cases: the run body loaded that manifest above the batch,
+                    # so this field means "records that existed before this run"
+                    # on every path.
                     with _signals_ignored():
                         try:
                             if interrupted is not None:
                                 # No RunSummary exists on this path, so the
                                 # record's counts come from what the run already
                                 # persisted.
-                                work_ids, records_existing, coverage_summary = _partial_run_state(
-                                    args.archive_root, started_at)
                                 exit_code = 128 + interrupted
+                                work_ids, coverage_summary = _partial_run_state(
+                                    args.archive_root, started_at)
                             elif exit_code is not None:
                                 work_ids = [r.work_id for r in summary.results] or None
-                                records_existing = len(entries)
                                 coverage_summary = compute_coverage_summary(store.load())
                             if exit_code is not None:
-                                RunLedger(root=args.archive_root).append(build_run_record(
-                                    command="run", started_at=started_at,
-                                    finished_at=utc_now_iso(), exit_code=exit_code, mid=None,
-                                    work_ids=work_ids, records_existing=records_existing,
-                                    coverage_summary=coverage_summary))
+                                _write_run_record(
+                                    args.archive_root, started_at, exit_code, work_ids,
+                                    len(entries), coverage_summary)
                         except Exception as exc:
                             # Never silent: on the interruption path this record
                             # is the only deliverable there is, and the process

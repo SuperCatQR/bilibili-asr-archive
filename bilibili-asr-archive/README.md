@@ -523,7 +523,7 @@ Each JSONL line represents one immutable record with the following schema:
 | `command` | `str` | Command executed (`pilot`, `run`, `schedule`). |
 | `started_at` | `str` | ISO-8601 UTC start timestamp. |
 | `finished_at` | `str` | ISO-8601 UTC completion timestamp. |
-| `exit_code` | `int` | Process exit code (`0`, `1`, or `2`). |
+| `exit_code` | `int` | Process exit code (`0`, `1`, or `2`; `128+signal` — `143` `SIGTERM` / `130` `SIGINT` — when the operator interrupted the run). |
 | `mid` | `int \| null` | Target Bilibili mid (if applicable). |
 | `work_ids` | `list[str] \| null` | Processed work identifiers (if applicable). |
 | `pages_fetched` | `int \| null` | Number of pagination pages fetched. |
@@ -1014,18 +1014,24 @@ complementary; `schedule` consumes this same taxonomy. The SQLite
 | 0 | Requested work processed, or every selected row is already terminal (`archived` / `gone`). |
 | 1 | Usage/config error, missing optional ASR, per-item failure, or incomplete scope from a non-risk skip (`offline`, `audio_budget`, missing on-disk input). |
 | 2 | Risk/API terminal interruption. Successful rows and artifacts stay; retry the remaining work. |
+| 143 / 130 | Operator interruption (`SIGTERM` / `SIGINT`, recorded as `128+signal`); successful rows and artifacts stay. |
 
 Risk interruption takes precedence over per-item failure: a batch that
 archived some rows and then hit the risk ceiling still exits 2.
 
 Successful rows stay in their last stable status. Retryable failures remain
 selectable by the same command or by `run --scope failed`. That recovery path
-reads the stage-attempt ledger that `bili-asr run` writes: work archived
-through the `pilot` entry point leaves no attempt records, so no per-stage
-truth exists for pilot work and it is not reachable by `--scope failed`.
-`pilot` is a bounded probe, not a corpus path. Explicit `run --scope` work_id
-selectors of already-terminal rows skip with `already_terminal` and exit 0;
-they are not duplicated.
+reads the stage-attempt ledger that the run coordinator behind `bili-asr run`,
+`schedule` and `campaign` writes: work archived through the `pilot` entry point
+leaves no attempt records, so no per-stage truth exists for pilot work and it is
+not reachable by `--scope failed`. `pilot` is a bounded probe, not a corpus
+path. Explicit `run --scope` work_id selectors of already-terminal rows skip
+with `already_terminal` and exit 0; they are not duplicated.
+
+An interrupted `run` exits `128+signal` — `143` for `SIGTERM`, `130` for
+`SIGINT` — and records that code together with the counts it had already
+persisted, so a stopped run is reconciled from `run-ledger.jsonl` and not from
+its shell status alone.
 
 `harvest-subs`, `download-audio`, and `asr` do not append `run-ledger.jsonl`
 (that sidecar is `pilot` / `run` / `schedule`; `fetch-meta` records its runs

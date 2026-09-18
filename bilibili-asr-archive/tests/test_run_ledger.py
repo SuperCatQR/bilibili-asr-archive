@@ -332,15 +332,18 @@ def test_partial_counts_come_from_the_attempts_this_run_persisted(tmp_path: Path
                        "outcome": "ok", "error_code": None, "artifact_paths": [],
                        "started_at": started_at, "finished_at": started_at})
 
-    work_ids, records_existing, coverage = _partial_run_state(tmp_path, started_at)
+    work_ids, coverage = _partial_run_state(tmp_path, started_at)
     record = build_run_record(command="run", started_at=started_at, exit_code=143,
-                              work_ids=work_ids, records_existing=records_existing,
+                              work_ids=work_ids, records_existing=0,
                               coverage_summary=coverage)
     assert record["command"] == "run"
     assert record["work_ids"] == ["BV1x:p0"]      # BVold:p0 belongs to an earlier run
     assert record["exit_code"] == 143
-    # The manifest's row count, exactly as the normal path passes len(entries) --
-    # this root has no manifest rows yet, while the attempts ledger has three.
+    assert record["coverage_summary"] == {}
+    # `records_existing` is the pre-run manifest count the run body passes from
+    # the entries it loaded above the batch, never something this helper reads:
+    # this root has no manifest rows while the attempts ledger holds three, and
+    # the two-row fixture at the process seam pins the field to 2.
     assert record["records_existing"] == 0
 
 
