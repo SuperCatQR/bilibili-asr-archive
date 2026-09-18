@@ -8,7 +8,15 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
+import signal
+import subprocess
+import sys
+import threading
+import time
 from pathlib import Path
+
+import pytest
 
 from bili_asr import asr as asr_mod
 from bili_asr import coordinator
@@ -708,6 +716,378 @@ def test_cli_run_appends_run_ledger_record(tmp_root, monkeypatch, capsys):
     assert len(run_records) == 1
     assert run_records[0]["exit_code"] == 0
     assert sub.work_id in (run_records[0].get("work_ids") or [])
+
+
+# ------------------------------------------------- signals mid-run (Task 2, R5)
+
+# The child is the real CLI over a real archive root, so the fixture must be
+# provably still in flight when the signal lands *and* must not reach the
+# network: `needs_audio` rows under a tiny `--max-audio-gb` are skipped locally
+# (download/audio_budget) and a live batch sleeps 3s between rows, so a
+# two-row fixture cannot finish before the signal.
+_PACKAGE_ROOT = Path(__file__).resolve().parents[1]
+_SRC_DIR = _PACKAGE_ROOT / "src"
+_CHILD_TIMEOUT_S = 60.0
+
+
+def _run_argv(archive_root: str, *extra: str) -> list[str]:
+    """The CLI invocation under test (`-u`: the banner must reach the pipe)."""
+    return [sys.executable, "-u", "-m", "bili_asr", "run", "--scope", "pending",
+            "--max-audio-gb", "0.000001", *extra, "--archive-root", archive_root]
+
+
+def _child_stderr(child: subprocess.Popen) -> str:
+    """The child's stderr, read only once it cannot write any more."""
+    if child.poll() is None:
+        child.kill()
+        child.wait(timeout=_CHILD_TIMEOUT_S)
+    return child.stderr.read()
+
+
+def _await_banner(child: subprocess.Popen) -> str:
+    """The child's `run: scope=` banner line, read under a real deadline.
+
+    `child.stdout.readline()` blocks until a newline or EOF, so a deadline
+    consulted between reads cannot bound a wedged child: it would hang the
+    suite instead of failing it.  The reads happen on a daemon thread that must
+    finish inside the deadline, and the failure message carries the child's
+    stderr -- a child that died at startup ends the stream, and an empty banner
+    diagnoses nothing on its own.
+    """
+    found: list[str] = []
+
+    def _read_until_banner() -> None:
+        while True:
+            line = child.stdout.readline()
+            if not line or line.startswith("run: scope="):
+                found.append(line)
+                return
+
+    reader = threading.Thread(target=_read_until_banner, daemon=True)
+    reader.start()
+    reader.join(_CHILD_TIMEOUT_S)
+    if reader.is_alive():
+        raise AssertionError(
+            f"the child printed no banner within {_CHILD_TIMEOUT_S:.0f}s; "
+            f"stderr={_child_stderr(child)!r}")
+    return found[0]
+
+
+def _await_file(child: subprocess.Popen, path: Path, what: str) -> None:
+    """Block until the child creates `path`, bounded, failing with its stderr."""
+    deadline = time.monotonic() + _CHILD_TIMEOUT_S
+    while time.monotonic() < deadline:
+        if path.exists():
+            return
+        if child.poll() is not None:
+            break
+        time.sleep(0.01)
+    raise AssertionError(
+        f"{what}; rc={child.poll()}, stderr={_child_stderr(child)!r}")
+
+
+def _await_first_attempt(child: subprocess.Popen, root: str, work_id: str) -> None:
+    """Block until the child durably recorded its first attempt, bounded.
+
+    The banner alone does not prove the child reached the batch (the handler is
+    installed just after it) or that the interrupted row has anything to
+    report: this is that sync point.  Row two's attempt is 3s away, so the
+    batch is still running when the caller signals.
+    """
+    deadline = time.monotonic() + _CHILD_TIMEOUT_S
+    while time.monotonic() < deadline:
+        if any(a["work_id"] == work_id for a in AttemptLedger(root).load()):
+            return
+        if child.poll() is not None:
+            break
+        time.sleep(0.01)
+    raise AssertionError(
+        f"the child never recorded an attempt for {work_id}; "
+        f"rc={child.poll()}, stderr={_child_stderr(child)!r}")
+
+
+def _interrupted_run_case(tmp_root, signum: int, expected_rc: int) -> None:
+    """Signal a live `bili-asr run` and grade the one record it leaves."""
+    from bili_asr.run_ledger import RunLedger
+
+    first = page_identity("BVlater", 0, 111, "p0")
+    second = page_identity("BVsigterm", 0, 222, "p0")
+    store = ManifestStore(root=tmp_root)
+    store.upsert(_row(first, status="needs_audio"))
+    store.upsert(_row(second, status="needs_audio"))
+
+    child = subprocess.Popen(
+        _run_argv(tmp_root), cwd=str(_PACKAGE_ROOT),
+        env=dict(os.environ, PYTHONPATH=str(_SRC_DIR)),
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+    )
+    try:
+        banner = _await_banner(child)
+        assert banner.startswith("run: scope=pending selected 2 row(s)"), (
+            banner, _child_stderr(child))
+        _await_first_attempt(child, tmp_root, first.work_id)
+        child.send_signal(signum)
+        assert child.wait(timeout=_CHILD_TIMEOUT_S) == expected_rc, _child_stderr(child)
+    finally:
+        if child.poll() is None:
+            child.kill()
+            child.wait()
+
+    run_records = [r for r in RunLedger(root=tmp_root).load() if r.get("command") == "run"]
+    assert len(run_records) == 1
+    record = run_records[0]
+    assert record["exit_code"] == expected_rc
+    assert record["work_ids"] == [first.work_id]
+    # The partial counts the run had already persisted, plus the pre-run
+    # manifest count the run body loaded above the batch.
+    assert record["records_existing"] == 2
+    assert record["coverage_summary"] == {"needs_audio": 2}
+
+    # The archive root the interrupted child left behind is re-enterable: the
+    # next run takes the writer lock and appends its own record.
+    resumed = subprocess.run(
+        _run_argv(tmp_root, "--limit", "1"), cwd=str(_PACKAGE_ROOT),
+        env=dict(os.environ, PYTHONPATH=str(_SRC_DIR)),
+        capture_output=True, text=True, timeout=_CHILD_TIMEOUT_S,
+    )
+    assert "archive_busy" not in resumed.stderr, resumed.stderr
+    assert resumed.returncode in (0, 1), resumed.stderr
+    assert len([r for r in RunLedger(root=tmp_root).load()
+                if r.get("command") == "run"]) == 2
+
+
+def test_cli_run_sigterm_leaves_one_interrupted_record_and_root_reusable(tmp_root):
+    _interrupted_run_case(tmp_root, signal.SIGTERM, 143)
+
+
+def test_cli_run_sigint_leaves_one_interrupted_record_and_root_reusable(tmp_root):
+    _interrupted_run_case(tmp_root, signal.SIGINT, 130)
+
+
+# `sitecustomize` on the child's `PYTHONPATH` parks the run inside the guarded
+# unwind without touching the shipped `python -m bili_asr` argv: the wrapper's
+# `finally` runs inside `_interruptible_run()` and before the run-ledger write,
+# so the child holds still in exactly the span a repeated signal must not be
+# able to kill it in.  Racing that span instead would be a coin flip -- it is
+# microseconds wide, and a second send is usually coalesced with the still
+# pending first one.
+_UNWIND_HOOK = '''"""Test hook: announce and hold the guarded unwind open.
+
+Written into a scratch dir and imported by CPython's `site` machinery; the
+marker/release paths arrive through the environment.
+"""
+import os
+import time
+from pathlib import Path
+
+from bili_asr.coordinator import RunCoordinator
+
+_MARKER = Path(os.environ["BILI_TEST_UNWIND_MARKER"])
+_RELEASE = Path(os.environ["BILI_TEST_UNWIND_RELEASE"])
+_ORIGINAL = RunCoordinator.run_batch
+
+
+def _parking_run_batch(self, rows):
+    try:
+        return _ORIGINAL(self, rows)
+    finally:
+        _MARKER.write_text("unwinding", encoding="utf-8")
+        deadline = time.monotonic() + 60
+        while not _RELEASE.exists() and time.monotonic() < deadline:
+            time.sleep(0.01)
+
+
+RunCoordinator.run_batch = _parking_run_batch
+'''
+
+
+def test_cli_run_repeated_sigterm_during_the_unwind_still_writes_the_record(tmp_root):
+    """A second SIGTERM in the unwind must not cost the run its record.
+
+    The child is parked between the signal's delivery and the record write, so
+    the repeated signal is delivered there for certain rather than in a
+    microsecond-wide race.  Before the disposition fix the second SIGTERM lands
+    at the restored default and terminates the child: no record, and no
+    message.  A queued signal is taken before the child's next user-mode
+    instruction, so releasing it after the send cannot let it slip past.
+    """
+    from bili_asr.run_ledger import RunLedger
+
+    first = page_identity("BVlater", 0, 111, "p0")
+    second = page_identity("BVparked", 0, 222, "p0")
+    store = ManifestStore(root=tmp_root)
+    store.upsert(_row(first, status="needs_audio"))
+    store.upsert(_row(second, status="needs_audio"))
+
+    hook_dir = Path(tmp_root).parent / f"{Path(tmp_root).name}-hook"
+    hook_dir.mkdir()
+    (hook_dir / "sitecustomize.py").write_text(_UNWIND_HOOK, encoding="utf-8")
+    marker = hook_dir / "unwinding"
+    release = hook_dir / "release"
+
+    child = subprocess.Popen(
+        _run_argv(tmp_root), cwd=str(_PACKAGE_ROOT),
+        env=dict(os.environ, PYTHONPATH=f"{hook_dir}{os.pathsep}{_SRC_DIR}",
+                 BILI_TEST_UNWIND_MARKER=str(marker),
+                 BILI_TEST_UNWIND_RELEASE=str(release)),
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+    )
+    try:
+        banner = _await_banner(child)
+        assert banner.startswith("run: scope=pending selected 2 row(s)"), (
+            banner, _child_stderr(child))
+        _await_first_attempt(child, tmp_root, first.work_id)
+        child.send_signal(signal.SIGTERM)
+        _await_file(child, marker, "the child never parked in its unwind")
+        child.send_signal(signal.SIGTERM)
+        release.write_text("go", encoding="utf-8")
+        rc = child.wait(timeout=_CHILD_TIMEOUT_S)
+        assert rc == 143, (rc, _child_stderr(child))
+    finally:
+        release.write_text("go", encoding="utf-8")
+        if child.poll() is None:
+            child.kill()
+            child.wait()
+        shutil.rmtree(hook_dir, ignore_errors=True)
+
+    run_records = [r for r in RunLedger(root=tmp_root).load() if r.get("command") == "run"]
+    assert len(run_records) == 1
+    record = run_records[0]
+    assert record["exit_code"] == 143
+    assert record["work_ids"] == [first.work_id]
+    assert record["records_existing"] == 2
+    assert record["coverage_summary"] == {"needs_audio": 2}
+
+
+# The SIGINT-first sequence never runs the handler above: CPython's
+# `KeyboardInterrupt` carries the interruption into the run body, and the guard
+# for it goes up in that branch -- one step *after* the coordinator's own
+# unwind.  The window a repeated Ctrl-C must not be able to kill is therefore
+# the shorter one between the `except KeyboardInterrupt` branch and the write's
+# `_signals_ignored()`, and this hook parks the child exactly there: the wrapper
+# runs before the original context manager is built, so the ignored pair is not
+# yet installed while the child holds still.
+_SIGINT_WINDOW_HOOK = '''"""Test hook: hold the record write's guard open.
+
+Written into a scratch dir and imported by CPython's `site` machinery; the
+marker/release paths arrive through the environment.
+"""
+import os
+import time
+from pathlib import Path
+
+from bili_asr import cli
+
+_MARKER = Path(os.environ["BILI_TEST_UNWIND_MARKER"])
+_RELEASE = Path(os.environ["BILI_TEST_UNWIND_RELEASE"])
+_ORIGINAL = cli._signals_ignored
+
+
+def _parking_signals_ignored():
+    _MARKER.write_text("unwinding", encoding="utf-8")
+    deadline = time.monotonic() + 60
+    while not _RELEASE.exists() and time.monotonic() < deadline:
+        time.sleep(0.01)
+    return _ORIGINAL()
+
+
+cli._signals_ignored = _parking_signals_ignored
+'''
+
+
+def test_cli_run_repeated_sigint_during_the_unwind_still_writes_the_record(tmp_root):
+    """A second Ctrl-C in the SIGINT-first unwind must not cost the record.
+
+    `SIGINT` leaves CPython's handler in place, so nothing installs the ignored
+    pair at delivery time: without the guard the `except KeyboardInterrupt`
+    branch installs, the second Ctrl-C is raised inside the write's `finally`
+    and the record is abandoned -- the repeated-SIGTERM failure mode, reached
+    through the other interruption source.  The child is parked in that window
+    rather than raced (it is microseconds wide), and a queued signal is taken
+    before the child's next user-mode instruction, so releasing it after the
+    send cannot let it slip past.
+    """
+    from bili_asr.run_ledger import RunLedger
+
+    first = page_identity("BVlater", 0, 111, "p0")
+    second = page_identity("BVsigint", 0, 222, "p0")
+    store = ManifestStore(root=tmp_root)
+    store.upsert(_row(first, status="needs_audio"))
+    store.upsert(_row(second, status="needs_audio"))
+
+    hook_dir = Path(tmp_root).parent / f"{Path(tmp_root).name}-hook"
+    hook_dir.mkdir()
+    (hook_dir / "sitecustomize.py").write_text(_SIGINT_WINDOW_HOOK, encoding="utf-8")
+    marker = hook_dir / "unwinding"
+    release = hook_dir / "release"
+
+    child = subprocess.Popen(
+        _run_argv(tmp_root), cwd=str(_PACKAGE_ROOT),
+        env=dict(os.environ, PYTHONPATH=f"{hook_dir}{os.pathsep}{_SRC_DIR}",
+                 BILI_TEST_UNWIND_MARKER=str(marker),
+                 BILI_TEST_UNWIND_RELEASE=str(release)),
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+    )
+    try:
+        banner = _await_banner(child)
+        assert banner.startswith("run: scope=pending selected 2 row(s)"), (
+            banner, _child_stderr(child))
+        _await_first_attempt(child, tmp_root, first.work_id)
+        child.send_signal(signal.SIGINT)
+        _await_file(child, marker, "the child never parked at the record write")
+        child.send_signal(signal.SIGINT)
+        release.write_text("go", encoding="utf-8")
+        rc = child.wait(timeout=_CHILD_TIMEOUT_S)
+        assert rc == 130, (rc, _child_stderr(child))
+    finally:
+        release.write_text("go", encoding="utf-8")
+        if child.poll() is None:
+            child.kill()
+            child.wait()
+        shutil.rmtree(hook_dir, ignore_errors=True)
+
+    run_records = [r for r in RunLedger(root=tmp_root).load() if r.get("command") == "run"]
+    assert len(run_records) == 1
+    record = run_records[0]
+    assert record["exit_code"] == 130
+    assert record["work_ids"] == [first.work_id]
+    assert record["records_existing"] == 2
+    assert record["coverage_summary"] == {"needs_audio": 2}
+
+
+def test_sigterm_delivery_ignores_both_signals_across_the_unwind():
+    """A repeated SIGTERM must not kill the process before the record write.
+
+    The span between delivery and `_signals_ignored()` is the whole coordinator
+    unwind -- runner release, batch-evidence stderr write -- and not a few
+    statements, so delivery must leave both signals ignored: at the captured
+    default a repeated SIGTERM terminates the process in that span with no
+    record at all.  The installed handler is called directly, which is exactly
+    what delivery runs, so a regression is asserted instead of killing the test
+    process.  The ignored `SIGINT` is not the disposition the block captured, so
+    the block's exit is asserted for both signals: otherwise it would leak into
+    the rest of the pytest session as a dead Ctrl-C.
+    """
+    from bili_asr.cli import _RunInterrupted, _interruptible_run
+
+    original_term = signal.getsignal(signal.SIGTERM)
+    original_int = signal.getsignal(signal.SIGINT)
+    try:
+        with _interruptible_run():
+            handler = signal.getsignal(signal.SIGTERM)
+            assert handler is not signal.SIG_DFL
+            with pytest.raises(_RunInterrupted):
+                handler(signal.SIGTERM, None)
+            assert signal.getsignal(signal.SIGTERM) is signal.SIG_IGN
+            assert signal.getsignal(signal.SIGINT) is signal.SIG_IGN
+        # One-shot: both true previous dispositions are back once the body is
+        # done -- `SIGINT` was only captured, never swapped, so restoring it is
+        # what keeps the process's own Ctrl-C working afterwards.
+        assert signal.getsignal(signal.SIGTERM) is original_term
+        assert signal.getsignal(signal.SIGINT) is original_int
+    finally:
+        signal.signal(signal.SIGTERM, original_term)
+        signal.signal(signal.SIGINT, original_int)
 
 
 # ------------------------------------------------------------ offline (Task 2)
