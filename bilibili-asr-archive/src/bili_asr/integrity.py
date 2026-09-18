@@ -14,7 +14,9 @@ import fcntl
 from .archive import archive_stem, _safe_name, archive_bundle_complete
 from .page_identity import artifact_stem, page_identity, parse_work_id
 from .coordinator import _validate_attempt
-from .sidecar_projection import ReaderPolicy, project_attempt_records, project_manifest_records
+from .sidecar_projection import (
+    ORDINARY_HISTORY_DIAGNOSTICS, ReaderPolicy, project_attempt_records, project_manifest_records,
+)
 
 MISSING_RAW_SUBTITLE = "missing_raw_subtitle"
 MISSING_TRANSCRIPT = "missing_transcript"
@@ -224,6 +226,8 @@ class IntegrityVerifier:
             elif diagnostic == "manifest_malformed":
                 continue
             elif diagnostic == "attempt_invalid_record":
+                continue
+            elif diagnostic in ORDINARY_HISTORY_DIAGNOSTICS:
                 continue
             else:
                 report.diagnostics.append(STRUCTURAL_INPUT_ERROR)
