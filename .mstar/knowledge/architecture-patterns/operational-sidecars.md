@@ -1,7 +1,7 @@
 ---
 module: bili-asr operational layer
 date: 2026-08-25
-last_updated: 2026-09-13
+last_updated: 2026-09-18
 problem_type: architecture_pattern
 category: architecture-patterns
 severity: medium
@@ -182,3 +182,36 @@ or replacement of `pilot` as the MVP proof command.
 - Persistence-scale update: `.mstar/iterations/iter-2026-08-persistence-scale-safety/specs/persistence-scale-safety.md` refreshed this guidance with durable append/projection, single-writer, atomic bundle, and confined-audio contracts; integration revision `c871da6` preserves the sequential/no-daemon boundary and the mandatory fixture-only QA evidence.
 - Quality-surface update: `.mstar/iterations/iter-2026-09-asr-ops-hardening/specs/03-quality-surface.md` promoted into guidance 6 — the defect/content split, the retired standalone quality report with its three dropped outputs, and the bounded `--reference` comparison. QA `acceptance-only` (`.mstar/sdd/20260912-quality-signal-merge/review/qa-gate.md`) approved it on a fixture root rebuilt from the recorded run: 1491 passed, 4 skipped, no live HTTP.
 - Current implementation anchors: `bilibili-asr-archive/src/bili_asr/campaign.py`, `bilibili-asr-archive/src/bili_asr/coverage_report.py`, `bilibili-asr-archive/src/bili_asr/quality.py`, `bilibili-asr-archive/src/bili_asr/search_index.py`, `bilibili-asr-archive/src/bili_asr/integrity.py`, and `bilibili-asr-archive/src/bili_asr/concurrency_gate.py`; operator contracts are in `bilibili-asr-archive/README.md`.
+
+## Manifest well-formedness: one definition, three readers
+
+The manifest is **append-only by design** (invariant 10 above). One `work_id` therefore legitimately
+appears on several lines — `needs_audio` → `audio_ok` → `archived` — and the projection takes the latest
+valid row. **That history is well-formed.** It is not a defect and not a malformation.
+
+That sentence has to be *the same sentence* in every reader, and on 2026-09-18 it was not. The projection
+emits `manifest_duplicate_work_id` for ordinary history; three callers then disagreed:
+
+| Reader | What it did | Cost |
+|---|---|---|
+| `integrity.py` (`verify`) | the code was absent from its recognised-diagnostic vocabulary, so the else-branch mapped it to `structural_input_error`; the exit rule counts *any* diagnostic | `defects: 0` but **exit 1** on a healthy archive — the integrity gate could not be satisfied |
+| `coverage_report.py` (plain `coverage`) | forced `manifest_state = "malformed"`, which blanks `denominator_available` | `{count: null, state: "unavailable"}` — the completeness command could not state its own denominator |
+| `cli._cmd_coverage_quality` | no override | reported the same archive correctly — and thereby proved the other two wrong |
+
+**The rule, and how to keep it.** Name the code once (`ORDINARY_HISTORY_DIAGNOSTICS` beside the
+projection that emits it) and have every reader subtract it **by name** — a reader that filters it by
+quoting the raw string literal is a regression waiting to happen. The emitter stays: the projection is
+allowed to report what it saw, and the *readers* decide what it means.
+
+**Two traps this defect taught, both worth remembering:**
+
+- **A half-fix passes a casual check.** Deleting only the coverage override restores the denominator but
+  leaves the code in `diagnostics`, and `_cmd_coverage` exits non-zero on any diagnostic — so the command
+  is still red while looking repaired. The fix has to be bidirectional: healthy history reaches exit 0 /
+  `available`, **and** genuinely malformed input still fails closed. Pin both directions with a fixture
+  that writes **two or more rows for one `work_id`**; a clean-archive fixture with one row per work_id
+  asserts `defects == []` and never sees the defect at all.
+- **Dead code holds judgements too.** `coverage_report._read_manifest` carries a second, contradictory
+  judgement (`valid = False` on the same code, spelled with the raw literal) and has **zero call sites**.
+  It is harmless until someone wires it up, at which point it re-opens exactly this defect. When a rule is
+  "named once", grep for the literal — the duplicate is usually in the code nobody runs.

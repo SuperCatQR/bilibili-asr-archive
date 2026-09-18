@@ -1,16 +1,15 @@
 ---
 iteration_id: iter-2026-09-residual-closeout
-title: "Residual closeout: one definition of manifest well-formedness for every reader, cue-writer Latin spacing, hotword benefit verified, operational records completed, intermittent suite red diagnosed"
-status: locked
+title: "Residual closeout: one definition of manifest well-formedness for every reader, and the intermittent suite red made diagnosable (scope reduced 2026-09-18 — the cue-writer, hotword and ledger plans were deferred to the next iteration and are recorded under Roadmap Position)"
+status: completed
 start_date: 2026-09-18
+end_date: 2026-09-18
 iteration_base_branch: main
 spec_integration_branch: iteration/iter-2026-09-residual-closeout
 target_branch: main
 effort_scale: M
 plans:
   - 20260918-verification-surface-truth
-  - 20260918-transcript-text-precision
-  - 20260918-operational-record-coverage
 ---
 
 # iter-2026-09-residual-closeout Delivery Compass
@@ -35,11 +34,26 @@ plans:
 
 | plan_id | Name | Status | 覆盖 residual | 收口判据 | Notes |
 |---------|------|--------|---------------|----------|-------|
-| `20260918-verification-surface-truth` | Manifest well-formedness defined once; the intermittent suite red diagnosed | Todo | R2 + `20260917-hotword-acronym-precision · R1` | 1, 2, 3, 4, 5 | **唯一 `high`**；先行（理由见下）。改动面：一个具名常量 + **三个**读取者（`integrity.py`、`coverage_report.build`、`cli._cmd_coverage_quality`，2026-09-18 架构复核后由两处修正为三处），并反向修订三处断言旧契约的现存用例 |
-| `20260918-transcript-text-precision` | Cue-writer Latin spacing; hotword benefit verified | Todo | R6 + R3 | 6, 7 | 含操作员归档主机上的一次 A/B 测量；该测量的边界见 Non-Goals |
-| `20260918-operational-record-coverage` | Pilot attempt-ledger boundary; interrupted-run record | Todo | R4 + R5 | 8, 9 | 一条是**成文**（R4，不改行为），一条是**实现**（R5） |
+| `20260918-verification-surface-truth` | Manifest well-formedness defined once; the intermittent suite red diagnosed | Done | R2 + `20260917-hotword-acronym-precision · R1` | 1, 2, 3, 4, 5 | **唯一 `high`**；先行（理由见下）。改动面：一个具名常量 + **三个**读取者（`integrity.py`、`coverage_report.build`、`cli._cmd_coverage_quality`，2026-09-18 架构复核后由两处修正为三处），并反向修订三处断言旧契约的现存用例 |
 
 Status values: `Todo` | `InProgress` | `InReview` | `Done` | `Blocked`
+
+### Scope changes
+
+**2026-09-18 — scope reduced from three plans to one, by explicit operator decision ("正式缩减范围，立刻发货").**
+
+Two plans were written, reviewed and locked at Phase 1 and are now **deferred out of this iteration**;
+their plan files remain on disk in `{PLAN_DIR}` as the next iteration's starting drafts:
+
+| Deferred plan | Would have closed | Why deferred |
+|---|---|---|
+| `20260918-transcript-text-precision` | `R6` (cue-writer Latin spacing) + `R3` (the six Chinese homophone hotwords' benefit, verified by A/B) | The operator chose to ship the `high`-severity reader fix now rather than hold the iteration open for two more plans. Nothing was wrong with the plan: it passed the Phase-1 chain and its Task 1 was reviewed to a working two-condition rule that leaves the pinned fixture byte-identical. |
+| `20260918-operational-record-coverage` | `R4` (write the `pilot` attempt-ledger boundary down) + `R5` (record a run that is interrupted by SIGTERM) | Same decision. Its two tasks are independent of plan 1 and of each other. |
+
+**What this costs, stated plainly:** four of the six residuals this iteration was chartered to close
+(R6, R3, R4, R5) remain **open** in the project register. The iteration ships one plan's worth of work,
+not three, and the compass title says so. The deferral is recorded here and in `## Roadmap Position`
+because a scope reduction that is only visible in chat is not a durable roadmap.
 
 **调度顺序（显式）：** plan 1 → plan 2 / plan 3（后两者在 plan 1 派发之后并行）。
 理由：plan 1 是唯一含 `high` 条目的计划，并且它修的是本迭代**自己的度量面**——`verify` 的退出码、`coverage` 的分母、全量套件的红绿，正是另外两个 plan 的证据被读取时所用的仪器。仪器说谎时，任何"全绿"都不构成证据，所以它先落地。
@@ -99,11 +113,15 @@ Status values: `Todo` | `InProgress` | `InReview` | `Done` | `Blocked`
 
 ## Roadmap Position
 
-- **Current iteration（iter-2026-09-residual-closeout）**：把 open register 的 6 条（1 high + 5 low）修好并**以证据关闭**，使项目的自证工具（`verify` / `coverage` / 测试套件）、归档文本（cue 写入器、热词）与运行记录（attempts / run ledger）三者都不再对操作员说谎或留空。
+- **Current iteration（iter-2026-09-residual-closeout）— `delivered` 2026-09-18（范围缩至 1 个 plan）**：原计划把 open register 的 6 条（1 high + 5 low）修好并**以证据关闭**，使项目的自证工具（`verify` / `coverage` / 测试套件）、归档文本（cue 写入器、热词）与运行记录（attempts / run ledger）三者都不再对操作员说谎或留空。
 - **Next iteration（本迭代明确排除，不是遗漏）**：**`R1` — 让 ASR 链从 `archive.db` 取音频工作队列**（`docs/metadata-storage.md` §Boundary 已命名的三件事：从 SQLite 枚举音频工作队列、从存量转写重建 SRT/TXT/MD 投影、让旧音频 feeder 重新有源）。它在本迭代内**保持 open**（register 该条 `lifecycle` 不改、`decision` 仍为 `defer`），判据 10 负责核对这一点。以下三项写给**没有本次对话的读者**：
   - **触发条件**（满足任一即开 Prepare）：(i) 本迭代 Phase 6 收口之后；或 (ii) **下一次要跑新语料的 ASR 之前**——今天每次语料运行都必须手工造 manifest（季节 E2E 用的是目标机上的 `/root/e2e-asr/tools/seed_season.py` 脚手架，不在仓库内、不受支持），所以"下一次语料运行"就是这个缺口的实际到期日。
   - **owner**：`project-manager` 开 Prepare 并登记 plan 行；Prepare 阶段由 `@product-manager` / `@architect` 先收敛"哪套存储是 ASR 队列 SSOT"的规格，再进 Execute。
   - **完成定义**（可复核，不是"跑通一次"）：三件事全部落地；**一条命令**即可从 `archive.db` 生成 ASR 队列而无需手工 manifest，且队列内容与 `video_parts` 中标记为待转写的 parts 集合一一对应（由集成测试锚定，测试文件与命令写进该 plan）；既有 manifest 路径**要么明确保留、要么明确下线，不留双写**；register 该条关闭时 `closure_evidence` 指向该测试与 plan。
+- **Next iteration（续）—— 2026-09-18 缩减范围时移出的两个 plan**，与上面的 `R1` 同列为下个迭代候选；两者都已完成 Phase 1 的 specify/clarify/plan 与三角色复核，plan 文件可直接采用：
+  - **`20260918-transcript-text-precision`（关闭 `R6` + `R3`）** — owner：`project-manager` 开 Prepare；触发条件：下个迭代启动即纳入（无外部依赖）；完成定义：一条因 token 流缺前导空格而粘连的 cue 不再粘连，且 pinned fixture `tests/fixtures/asr-cues/BV1wLTP6NE9h.p0.tokens.json` 字节不变（判据 6）；`BV1H69sB6EeF` 的 A/B 给出正确形式 vs 同音误写的计数对比与全局文本差异比，`R3` 依该测量关闭或据实保持 open（判据 7）。
+  - **`20260918-operational-record-coverage`（关闭 `R4` + `R5`）** — owner：同上；触发条件：同上；完成定义：`pilot --help` 与 README 写明 pilot 驱动的归档不进入 `--scope failed` 恢复面及其原因（判据 8）；向 `run` 发送 SIGTERM 后 `run-ledger.jsonl` 出现一条含局部计数的 `command: "run"` 记录，由测试锚定（判据 9）。
+  - 两者的验收判据编号沿用本 compass 的 `## Acceptance Criteria`（6–9），因为判据集本身不变，变的只是"由哪次迭代交付"。
 - **最终目标**：语料从采集到转写归档为**单一可信链路**——元数据、音频队列、转写产物与运行记录同源，且每一条交付都有可复核证据。
 
 ## Delivery Branch Policy
@@ -178,13 +196,36 @@ here; and optional snapshot keys with no value must be **omitted**, not `null` (
 `integration_worktree_path` fails the absolute-path validator and makes the whole snapshot unreadable to
 the engine). Both were caught by the engine, not by review, and both are fixed.
 
+## Compound Round Summary
+
+> Filled at iteration-close.
+
+**Package inventory**（`{ITERATION_DIR}/iter-2026-09-residual-closeout/**`，按 compound 契约排除 `delivery-compass.md`）：
+
+| Package 文件 | Triage | 去向 / 理由 |
+|---|---|---|
+| `specs/manifest-well-formedness.md` | **Promote**（已改写为知识，非整文件复制） | 其持久规则改写进 `{KNOWLEDGE_DIR}/architecture-patterns/operational-sidecars.md` 新增节 "Manifest well-formedness: one definition, three readers"。Q5 判为**高重叠**（sidecar 语义本就属该文档），故**更新既有文档而非新建**。源文件顶栏已标 `Promoted to:` |
+| `README.md`（package 索引） | **Keep snapshot** | 仅本迭代史（哪条 residual 归哪个 plan），跨迭代无用 |
+| `guides/` | 空 | 计划 2/3 被延出本迭代，其 guides 从未产出 |
+
+**Plan 实现素材结晶**：
+
+| 候选 | Q1–Q8 | 判定 |
+|---|---|---|
+| 链接工作树里的**测试调用陷阱**（editable 安装把 `bili_asr` 解析到主 checkout，未钉 `PYTHONPATH` 的运行会静默给未修改的树打分，双向产生假证据） | 诊断耗时 ✓、非显然 ✓、可复用 ✓、项目特定 ✓、既有重叠 **无**、失败尝试有价值 ✓、跨模块 ✓ = **7 Yes** | **新建** `{KNOWLEDGE_DIR}/architecture-patterns/worktree-test-invocation.md` |
+| R2 的"一个判定、三个读取者"与两个陷阱（半修仍红；死代码里也藏着判定） | 高重叠（属 sidecar 语义） | 并入上面那条 `operational-sidecars.md` 的更新 |
+
+**索引**：`{KNOWLEDGE_DIR}/README.md` 现 8 行 = 磁盘 8 篇（新增 1 行 + 一段叙述）；索引/引擎均已知悉该篇。**CONCEPTS.md**：本项目无该文件，且本轮无达到收录标准的新领域词，未新建。**未触发 compound-refresh**。
+
+**偏差如实记录（1 项）**：`mstar_compound_validate` 对本轮两篇文档均报 `FAIL`，但**对既有语料同样报 FAIL**——我用一篇从未触碰的 shipped 文档（`subtitle-acquisition-contract.md`）做对照，结果相同。故这是**校验器判定与在库语料口径不一致**（校验链 = `validateSchemaYaml` + `referenceExists`；前者的必填五项 `module`/`date`/`problem_type`/`category`/`severity` 我已逐项对照 `schema.yaml` 枚举核验通过），**不是**本轮引入的缺陷，也不为该校验器改写知识正文。按 skill 契约"runtime 缺席时以 skill 文本为准"，本轮以 skill 的四项义务（frontmatter 契约、索引行、`Promoted to:` 溯源、摘要）人工核验收口。
+
 ## Quality Gate Summary
 
 > Filled at iteration-close. Human summary only; per-plan gate details stay in each main plan, and open residual SSOT stays in `{PROJECT_DIR}/<id>/residuals.json`.
 
 | plan_id | QC decision | QA gate | Residuals | Durable summary |
 |---------|-------------|---------|-----------|-----------------|
-| 20260918-verification-surface-truth | | | | |
+| 20260918-verification-surface-truth | Approve（tri 3/3；定向复审 3/3） | mandatory — `Approve with residuals`，5/5 验收项 | open: R1(low), R2(low), R3(low) — 均登记于 `{PROJECT_DIR}/_default/residuals.json` `entries["20260918-verification-surface-truth"]`，均 `defer` 且带 owner/target；**无 blocker-defer 标记**（三条都是技术债，不是被外部依赖阻塞） | `{PLAN_DIR}/20260918-verification-surface-truth.md` |
 | 20260918-transcript-text-precision | | | | |
 | 20260918-operational-record-coverage | | | | |
 
@@ -205,6 +246,6 @@ Notes:
 
 > Filled at iteration-close.
 
-- 做得好的：
-- 可改进的：
-- 下迭代建议：
+- 做得好的：Phase 1 的三角色 Review & Edit 链**实质拦下了会导致错误交付的缺陷**——产品角色查出不可达验收项与自相矛盾的判据；架构角色证明"只删覆写"是半修、指出 `coverage --quality` 被我描述错了、并阻止了一条会破坏 pinned fixture 的 cue 规则；写作角色查出 compass 仍停在复核前的旧框架。定向复审又抓出 4 条 PM 自己的记账缺陷。
+- 可改进的：**范围估算偏乐观**——Phase 1 锁了 3 个 plan，实际只交付了 1 个（其余由操作员决定延后）。异构 backlog（架构迁移 + 小修混装）不宜压进一次迭代；plan 容量应按"每个 plan 都要走一遍完整 QC/QA 波次"来估。另：`mstar_compound_validate` 与在库语料口径不一致，使 iteration-close 的 compound 门禁只能靠人工核验收口。
+- 下迭代建议：优先接续被延出的两个 plan（判据 6–9 已写好、plan 文件可直接采用），再开 `R1`（`.db`→manifest 桥接）——它的实际到期日是"下一次要跑新语料的 ASR"。

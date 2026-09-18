@@ -1,5 +1,6 @@
 # Manifest well-formedness: one definition, three readers
 
+> Promoted to: `{KNOWLEDGE_DIR}/architecture-patterns/operational-sidecars.md` § "Manifest well-formedness: one definition, three readers" (iteration-close 2026-09-18).
 > Iteration-scoped spec, `iter-2026-09-residual-closeout` · Phase 1 §1.6 review chain complete;
 > PM lock pending ·
 > implemented by `{PLAN_DIR}/20260918-verification-surface-truth.md` ·
