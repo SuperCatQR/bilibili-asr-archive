@@ -25,12 +25,23 @@ re-points their iteration-package references and re-verifies them as a set, then
 both plans' `**Goal:**`, `**Architecture:**`, Global Constraints, task steps and run commands, and the
 review verdicts on them. What *this* iteration's own Phase-1 chain adds is only: (a) the adoption itself
 — re-pointing the plans' iteration-package references from `iter-2026-09-residual-closeout` to this
-package; (b) **criteria 1–4 below**, renumbered onto this compass's own numbering so the plans'
+package; (b) **criteria 1–3 below**, renumbered onto this compass's own numbering so the plans'
 closure duties are checkable without reading a closed iteration's package; (c) the serial scheduling
-decision and its corrected file-overlap basis (see `
+decision and its corrected file-overlap basis (see `## Plans` §Scheduling); and (d) the re-pointed
+deferral records in `## Non-Goals` / `## Roadmap Position`. No technical content of either plan is
+re-derived here, and `{SPECS_DIR}` gains nothing (see §Adopted assets).
+
+| Residual | severity | 问题 | 本迭代的处置 | 收口判据 |
+|---|---|---|---|---|
+| `e2e-23191782-season-7686105 · R6` | low | cue 内拉丁词粘连（`asME IDEA`、`anITEM`）：`_token_cues` 用 `"".join(parts)` 拼接，补空格的 `_join_text` 只在吸收碎片与交还标点两处调用 | **已退役，本迭代不改**：Task 1 在自身授权的 Step-1 出口返回 `NEEDS_CONTEXT`，规则的第二条件在本计划可读的材料上无法评估。`R6` 保持 open 并记录解锁路径，见下 `### Scope changes` | —（原判据 1 已退役） |
+| `e2e-23191782-season-7686105 · R3` | low | 六个中文同音热词（扬弃 自在 变易 此在 感性 实存）的**收益未验证**（错误已实测 118 处） | 按其 residual 自身规定的靶子做 A/B（`BV1H69sB6EeF`，4 正确 vs 57 误写），以计数对比关闭或据实保持 open。**2026-09-18 已闭环**：扬弃 4→38 正确、同音 59→26，相同字符率 97.52 %（阈 ≥95 %），同配置 repeat 噪声地板 0.0000 %；另五个词在本讲**未被触发**，已作为后继 residual `20260918-transcript-text-precision · R1` 登记 | 1 |
+| `e2e-23191782-season-7686105 · R4` | low | `pilot` 不写 stage attempts，`--scope failed` 对 pilot 归档的条目失明（实测 `stages=[]`） | **写下边界**（README + `pilot --help`），消除"静默丢弃"；知识库文本经 compound 提升 | 2 |
+| `e2e-23191782-season-7686105 · R5` | low | 被外部 kill 的 `run` 不留 run-ledger 记录（全仓无任何信号处理） | **实现** SIGTERM/SIGINT 处理：追加一条含局部计数的 run 记录后按约定中断码退出，用测试锚定 | 3 |
+
 ### Scope changes
 
-**2026-09-18 — `R6` retired from this iteration's criteria, mid-Execute, on evidence.**
+**2026-09-18 — `R6` retired from this iteration's criteria, mid-Execute, on evidence; the criterion
+numbering renumbered 1–3 and applied throughout this compass.**
 
 Task 1 of `20260918-transcript-text-precision` returned `NEEDS_CONTEXT` at its authorised Step-1 exit: the
 rule's second condition (a spaced boundary visible in the model's recognised text) **cannot be evaluated
@@ -40,36 +51,39 @@ pinned fixture's 91 inserted spaces sit at **0** firing boundaries, so its byte-
 guard rather than evidence for the repair. Landing the rule would have closed `R6` against a case it was
 never shown to handle.
 
-- **Retired:** criterion 1 (cue separator restored, fixture byte-identical). Criterion 2 is renumbered
-  **1**; criteria 3 and 4 keep their numbers' meaning (now 2 and 3 respectively) — see the rewritten list.
-- **Kept:** the A/B criterion (hotword benefit) — unaffected by this finding.
+- **Retired:** the cue-separator criterion (adoption number 1). The A/B criterion was adoption number 2
+  and is now **1**; the pilot-boundary and interrupted-run criteria were 3 and 4 and are now **2** and
+  **3**. The renumbering is applied in `## Acceptance Criteria`, in both tables above and in
+  `## Roadmap Position` — there is no live 1–4 index left in this package, and no live citation of the
+  retired criterion (the plan files' citations were re-pointed on the same pass).
+- **Kept:** the A/B criterion (hotword benefit) — unaffected by this finding, and discharged on
+  2026-09-18 (`R3` closed; see the table above).
 - **`R6` stays open** in the register with its unblock recorded; it is again deferred, not closed.
-- **What this costs:** this iteration now closes **`R3` only** from its chartered set (plus `R4`/`R5`
-  from plan 2). Stated plainly, as the previous iteration's reduction was.
-
-## Plans` §Scheduling); and (d) the re-pointed
-deferral records in `## Non-Goals` / `## Roadmap Position`. No technical content of either plan is
-re-derived here, and `{SPECS_DIR}` gains nothing (see §Adopted assets).
-
-| Residual | severity | 问题 | 本迭代的处置 | 收口判据 |
-|---|---|---|---|---|
-| `e2e-23191782-season-7686105 · R6` | low | cue 内拉丁词粘连（`asME IDEA`、`anITEM`）：`_token_cues` 用 `"".join(parts)` 拼接，补空格的 `_join_text` 只在吸收碎片与交还标点两处调用 | 在 cue 内拼接处应用同一空格规则，且**不破坏 pinned fixture 的字节**；用省略前导空格的 token 流钉住 | 1 |
-| `e2e-23191782-season-7686105 · R3` | low | 六个中文同音热词（扬弃 自在 变易 此在 感性 实存）的**收益未验证**（错误已实测 118 处） | 按其 residual 自身规定的靶子做 A/B（`BV1H69sB6EeF`，4 正确 vs 57 误写），以计数对比关闭或据实保持 open | 2 |
-| `e2e-23191782-season-7686105 · R4` | low | `pilot` 不写 stage attempts，`--scope failed` 对 pilot 归档的条目失明（实测 `stages=[]`） | **写下边界**（README + `pilot --help`），消除"静默丢弃"；知识库文本经 compound 提升 | 3 |
-| `e2e-23191782-season-7686105 · R5` | low | 被外部 kill 的 `run` 不留 run-ledger 记录（全仓无任何信号处理） | **实现** SIGTERM/SIGINT 处理：追加一条含局部计数的 run 记录后按约定中断码退出，用测试锚定 | 4 |
+  Its next attempt must first obtain the material the rule needs (a raw Nano payload carrying both
+  `timestamps` and `text` for a glued cue).
+- **What this costs:** this iteration closes **`R3`** from its chartered set (plus `R4`/`R5` from
+  plan 2), and `R6` is deferred a second time. Stated plainly, as the previous iteration's reduction
+  was.
+- **What it newly opens:** the five hotwords the A/B did not exercise (自在 变易 此在 感性 实存) are
+  registered as `20260918-transcript-text-precision · R1` rather than left as a non-claim inside the
+  closed `R3` row. The register's open count is unchanged by the close (medium 1 / low 7).
 
 ## Plans
 
 | plan_id | Name | Status | 覆盖 residual | 收口判据 | Notes |
 |---------|------|--------|---------------|----------|-------|
-| `20260918-transcript-text-precision` | Cue-writer Latin spacing; hotword benefit verified | Todo | R6 + R3 | criteria 1, 2 | 含操作员归档主机上的一次 A/B 测量（同一音频、两条热词清单的文本对比） |
-| `20260918-operational-record-coverage` | Pilot attempt-ledger boundary; interrupted-run record | Todo | R4 + R5 | criteria 3, 4 | 一条是**成文**（R4，不改行为），一条是**实现**（R5） |
+| `20260918-transcript-text-precision` | Hotword benefit measured; cue-writer spacing **retired** | **Done**（2026-09-18） | R3（已闭环）；R6 已退役，保持 open | 1 | 含操作员归档主机上的一次 A/B 测量（同一音频、两条热词清单的文本对比）；Task 1 因证据不足退役，见 `### Scope changes` |
+| `20260918-operational-record-coverage` | Pilot attempt-ledger boundary; interrupted-run record | Todo | R4 + R5 | 2, 3 | 一条是**成文**（R4，不改行为），一条是**实现**（R5） |
 
-Criteria are numbered **1–4** here and nowhere else in this package. The previous iteration's
+Criteria are numbered **1–3** here and nowhere else in this package. The previous iteration's
 numbering (6–9, in `iter-2026-09-residual-closeout/delivery-compass.md`) is **retired**: it was a
 property of that iteration's 11-criterion set, not of the two plans, and no artifact of this iteration
 may cite it. The plans' own in-body `(criterion N)` / `(compass criterion N)` cross-references were
-re-pointed onto this numbering on adoption (plan 1: 6→1, 7→2; plan 2: 8→3, 9→4).
+re-pointed onto this numbering in two steps, both reflected in the table above:
+
+1. **On adoption** — plan 1: 6→1, 7→2; plan 2: 8→3, 9→4.
+2. **On the 2026-09-18 retirement** of the cue criterion — plan 1's live criterion is **1** (adoption
+   number 2, originally 7); plan 2's are **2** and **3** (adoption 3 and 4, originally 8 and 9).
 
 Status values: `Todo` | `InProgress` | `InReview` | `Done` | `Blocked`
 
@@ -80,11 +94,14 @@ Status values: `Todo` | `InProgress` | `InReview` | `Done` | `Blocked`
   their iteration-package references were re-pointed from `iter-2026-09-residual-closeout` to this
   iteration (6 references: the 2 guides they write, the 2 pointer paths in their Global Constraints, and
   the 2 criteria-citation blocks), plus the criterion numbers inside those citations.
-- Their acceptance criteria are **renumbered into this compass** (1–4 below, table above); the previous
-  compass's numbering (6–9) is retired with it.
+- Their acceptance criteria are **renumbered into this compass** (1–3 below, table above); the previous
+  compass's numbering (6–9) is retired with it, and the 2026-09-18 retirement of the cue criterion
+  shifted the live numbers a second time (see `### Scope changes`).
 - No new spec is written at this iteration's Phase 1: the two plans' contracts are fully stated in their
-  own `**Requirements**`/`Interfaces` sections, and the one durable contract this work produces — the
-  cue-writer rule — is captured in the pinned fixture plus the Task 1 brief.
+  own `**Requirements**`/`Interfaces` sections. The one durable contract this work was to produce — the
+  cue-writer rule — was **retired on 2026-09-18** (`### Scope changes`), so nothing is owed under this
+  heading; what this iteration produces durably instead is the A/B guide, whose limits the register
+  carries.
 
 ### Scheduling
 
@@ -126,26 +143,17 @@ merge-order dependency is claimed.)*
 
 ## Acceptance Criteria
 
-> 判据编号 **1–4**，与 `## Scope` / `## Plans` 的表格互为索引。每条都给出**第三方可独立复核的观察面**：
+> 判据编号 **1–3**，与 `## Scope` / `## Plans` 的表格互为索引。每条都给出**第三方可独立复核的观察面**：
 > 要跑的命令、要读的文件、或要看的字节。命令的工作目录同两个 plan 的约定——Python / CLI / pytest 从
 > **包根** `/root/workspace/bilibili-asr-archive/bilibili-asr-archive` 运行，`git` 与仓库相对路径从
 > **仓库根** `/root/workspace/bilibili-asr-archive` 运行。
 > 本包内**不存在**引用上一迭代（`iter-2026-09-residual-closeout`）包内路径的判据；闭环证据一律落在
 > **本迭代**的 package、本仓测试文件或产品面（`README.md`、`pilot --help`）。
+>
+> **原判据 1（cue 粘连消除 + pinned fixture 字节不变）已于 2026-09-18 退役**，连同它的可复核命令一并
+> 从本清单移除；退役依据（证据基础不存在）与 `R6` 的保持 open 记录在 `### Scope changes`，不在此处重复。
 
-~~1. **cue 粘连消除，且 pinned fixture 不变**~~ **（2026-09-18 退役——证据基础不存在，见 `### Scope changes`）**
-
-~~（`R6`）：一份 token 流省略前导空格的 fixture 下，`_token_cues`
-   产出的 cue 文本在两个 ASCII 字母数字之间含空格，且**只在模型自己的识别文本已带该分隔符时**补——字符类
-   条件单独成立不得补空格（单条件规则已实测会把 `tribunal`/`token`/`deepseek`/`NGO` 切成碎片）。
-   `tests/fixtures/asr-cues/BV1wLTP6NE9h.p0.tokens.json` 与 `tests/test_asr_cues.py` 的既有期望**字节不变**；
-   中文文本、cue 边界/数量/时间戳均不动。可复核（两条命令并列，都要满足）：
-   ```bash
-   cd /root/workspace/bilibili-asr-archive/bilibili-asr-archive && .venv/bin/python -m pytest tests/test_asr_cues.py -v
-   cd /root/workspace/bilibili-asr-archive && git diff --stat -- bilibili-asr-archive/tests/fixtures/asr-cues/ && git diff --stat -- bilibili-asr-archive/tests/test_asr_cues.py
-   ```
-   第二条须**无输出**。锚定：`tests/test_asr_cues.py` 新增用例 + 既有 pinned-fixture 用例全绿。
-2. **热词收益有测量，且按跑前写定的规则处置**（`R3`）：证据文件必须落在**本迭代** package 的
+1. **热词收益有测量，且按跑前写定的规则处置**（`R3`）：证据文件必须落在**本迭代** package 的
    `guides/hotword-ab-20260918.md`（plan 1 Task 2 Step 6 的产物），且必须同时含三侧：
    - **收益侧**：`BV1H69sB6EeF:p0`（114.5 min）两臂 GPU 转写并列的六个词**逐字计数**——`扬弃` vs
      `阳气`/`洋气`、`自在` vs `子在`、`变易` vs `变异`、`此在` vs `次在`/`词在`、`感性` vs `感兴`、
@@ -158,7 +166,7 @@ merge-order dependency is claimed.)*
    "该证据下无收益"；反证 → 向 PM 提移除建议（移除不是本迭代的改动）。**只跑一臂、或用季节运行的旧数字
    充当另一臂，都不构成收口证据**；主机或模型缓存不可用时如实记为 **not-run** 且 `R3` 保持 open。
    可复核：读该 guide 的方法与两臂产物；`asr.py` L156-161 是词/同音表的可核对来源。
-3. **pilot 边界成文，且落在本迭代允许写入的面**（`R4`）：可复核（同一 cwd，包根）：
+2. **pilot 边界成文，且落在本迭代允许写入的面**（`R4`）：可复核（同一 cwd，包根）：
    ```bash
    cd /root/workspace/bilibili-asr-archive/bilibili-asr-archive && .venv/bin/python -m bili_asr pilot --help | grep -n -- "--scope failed"
    cd /root/workspace/bilibili-asr-archive/bilibili-asr-archive && grep -n -- "--scope failed" README.md
@@ -168,7 +176,7 @@ merge-order dependency is claimed.)*
    文本里出现 pilot 边界（**该段既有的 `run --scope failed` 提及不算数**）；第三条全绿（help 文本改动不得
    破坏其断言）。知识落点文本落在**本迭代** package 的 `guides/pilot-attempt-ledger-boundary.md`，由
    `mstar-compound` 在收口时提升；`{KNOWLEDGE_DIR}/**` 在本迭代内**不被直写**。
-4. **中断留痕**（`R5`）：向 `run` 发送 SIGTERM 后，`run-ledger.jsonl` 出现**恰好一条** `command: "run"`
+3. **中断留痕**（`R5`）：向 `run` 发送 SIGTERM 后，`run-ledger.jsonl` 出现**恰好一条** `command: "run"`
    记录，含已完成的局部 `work_ids` 与退出码 `143`；进程以 `128+signum` 退出（SIGTERM 143 / SIGINT 130），
    **不获取/不释放/不改写归档锁状态、不重排工作、不改 manifest**；第二次信号不产生第二条记录、不产生半行；
    随后同一归档根能正常开始下一次 `run`。锚定（两条都跑）：
@@ -186,16 +194,16 @@ merge-order dependency is claimed.)*
 - **不新增、不删除、不重排热词**：只**验证**已有六个中文热词（`R3`）的收益与代价；`DEFAULT_HOTWORDS` 的词条集合与顺序在**提交中**不变。A/B 的"无热词"臂由**临时未提交**的改动产生，任务收口前必须还原，并以后两臂产物 md frontmatter 的 `asr_hotwords` 读回 + `git status --porcelain` 干净为证（plan 1 Global Constraints）；泄漏进提交的临时改动即为一次静默的热词变更，属越界。反证情形下的**移除建议**只是建议。
 - **不改冻结契约**：`coverage` 的 CSV 列（含 `denominator_*` 四列）、两个 `schema_version`、质量词表两类（defect / content）、`REASON_CODES` 顺序均不变；上迭代刚落地的良构判定（`ORDINARY_HISTORY_DIAGNOSTICS` 及其三处具名读取者：`integrity.py`、`coverage_report` 的 build 路径、`cli._cmd_coverage_quality`）与那三处读取者不动。`verify` 的退出语义沿用上迭代恢复后的含义，本迭代不重开。
 - **不宣称真实环境 E2E——本迭代的验证边界，逐条写死**：
-  - 判据 2 的 A/B 是**解码配置的本地集成测量**（操作员自己的归档主机、仓库自身的 venv），其证据只用于判据 2（`R3`），不用于任何其他判据；
+  - 判据 1 的 A/B 是**解码配置的本地集成测量**（操作员自己的归档主机、仓库自身的 venv），其证据只用于判据 1（`R3`），不用于任何其他判据；
   - 它**不是**浏览器 / 真机 / 安装部署 E2E，也不作为任何 plan 的 task 或门禁的证据义务（`mstar-harness-core` § 定向执行与验证边界）；该类验证的唯一落点是用户显式启动的独立 `mstar-e2e` workflow；
-  - 主机或模型缓存不可用时，如实记为 **not-run**，`R3` **保持 open**；不得用季节运行的既有数字顶替缺失的那一臂（判据 2 末句）。
+  - 主机或模型缓存不可用时，如实记为 **not-run**，`R3` **保持 open**；不得用季节运行的既有数字顶替缺失的那一臂（判据 1 末句）。
 - **不做宿主插件（dsh web 面板）相关的浏览器验收。**
 - **不写知识库**：`{KNOWLEDGE_DIR}/**` 在本迭代内**不被直写**；`R4` 的知识文本经 package → `mstar-compound` 在收口时提升（plan 2 Global Constraints 与 Task 1 的 Out of scope 已排除该知识文件）。
 - **不碰上一迭代的闭环记录**：`{ITERATION_DIR}/iter-2026-09-residual-closeout/**` 是已关闭的 ledger，本迭代只把它当作延出决定的权威来源引用，不修改其中任何文件（含其 compass 与 specs）。
 
 ## Roadmap Position
 
-- **Current iteration（iter-2026-09-text-and-ledger-precision）**：关闭上迭代延出的 4 条（R6/R3/R4/R5）——让归档**文本**（cue 写入器、热词）与运行**记录**（attempts、run-ledger）都不再对操作员说谎或留空；这也是对上迭代"缩减范围"的兑现。完成定义即判据 1–4，逐条给出可复核命令。
+- **Current iteration（iter-2026-09-text-and-ledger-precision）**：关闭 `R3`（2026-09-18 已闭环）与 plan 2 承担的两条（R4/R5）——让归档**文本**（热词）与运行**记录**（attempts、run-ledger）都不再对操作员说谎或留空；`R6`（cue 写入器）已**退役并保持 open**，见 `### Scope changes`。这也是对上迭代"缩减范围"的兑现。完成定义即判据 **1–3**，逐条给出可复核命令。
 - **Next iteration（延出项按到期日排序，各自的触发条件 / owner / 完成定义都写死给没有本次对话的读者）**：
 
   **① `e2e-23191782-season-7686105 · R1` — 让 ASR 链从 `archive.db` 取音频工作队列**（medium）。
@@ -218,7 +226,12 @@ merge-order dependency is claimed.)*
   - **owner**：`project-manager`。
   - **完成定义**：加 `lstat` 预检（拒绝符号链接的 `.tb/`），或以 `O_NOFOLLOW|O_DIRECTORY` 打开目录后再追加；`conftest.py` 内的注释相应更新，使后来者不把该 flag 读成"已完全保证"。
 
-  **⑤ 调度与归属的总纪律**：②③④ 是低优先级技术债，**不阻塞任何交付**，各自带显式重开条件，可**随任意触及相应文件的 plan 一并处理**（上列触发条件就是按"会被哪类改动激活"写的）；若长期无 plan 触及，它们没有独立的到期日，也不应被提升为单独迭代的范围——`R1`（①）才是下一个应当成篇的迭代。
+  **⑤ `20260918-transcript-text-precision · R1`（low，另外五个中文热词的收益仍未验证）**——2026-09-18 的 A/B 只触发 `扬弃`：`自在`/`此在`/`变易` 在本讲两种形式都不出现，`感性`（4）与 `实存`（3）两臂完全相同。六个词里五个的**收益**因此仍未验证（这是"未触发"，不是"被证伪"）。该行已随 `R3` 闭环一并登记，不是藏在已关闭行里的非声明。
+  - **触发条件**：下一次转写**真正用到这五个词**的讲次即可纳入（`自在`/`此在`/`变易` 最锐——季节普查 40 对 13、4 对 3、0 对 7），做法与本次同形：同一音频、两条词表只差这六条、按词对同音计数。
+  - **owner**：`project-manager` 开 Prepare 并登记 plan 行；随任意触及热词表的 plan 一并处理。
+  - **完成定义**：每个词给出两臂计数对比；若第二次讲次仍不触发，则**显式决定**（按季节普查保留，或移除），不留"未验证"。
+
+  **⑥ 调度与归属的总纪律**：②③④⑤ 是低优先级技术债，**不阻塞任何交付**，各自带显式重开条件，可**随任意触及相应文件的 plan 一并处理**（上列触发条件就是按"会被哪类改动激活"写的）；若长期无 plan 触及，它们没有独立的到期日，也不应被提升为单独迭代的范围——`R1`（①）才是下一个应当成篇的迭代。
 - **最终目标**：语料从采集到转写归档为**单一可信链路**——元数据、音频队列、转写产物与运行记录同源，且每一条交付都有可复核证据。
 
 ## Delivery Branch Policy
@@ -237,7 +250,7 @@ merge-order dependency is claimed.)*
 
 | Risk | Likelihood | Impact | Mitigation |
 |------|-----------|--------|------------|
-| cue 修复再次破坏 pinned fixture（上迭代已实测过：字符类规则会切碎单词，4/95 cue 受损） | Med | Med | 判据 1 强制 fixture 字节不变；计划 Task 1 已写明"两条件规则"（类规则 **且** 模型自身文本含分隔符），并给了 split point：若夹具把粘连形式当成期望，停下回报 PM |
+| ~~cue 修复再次破坏 pinned fixture（上迭代已实测过：字符类规则会切碎单词，4/95 cue 受损）~~ **已随该判据退役而关闭（2026-09-18）** | — | Low | 规则**未落地**：Task 1 在自身授权的 Step-1 出口返回 `NEEDS_CONTEXT`，因此本迭代不存在会碰 pinned fixture 的改动。`R6` 保持 open 并另记解锁路径（先取得含 `timestamps` + `text` 的原始 payload）。日后若重启该规则，本行原有的缓解措施（两条件规则 **且** 模型自身文本含分隔符、fixture 字节不变、split point）仍然适用 |
 | A/B 依赖目标主机与模型缓存在位 | Low | Med | 前置条件已在计划中改为**可执行的检查**（`test -x /root/e2e-asr/tools/ab.sh`、`test -d /root/e2e-asr/ab-hotwords`，逐条记录输出；该路径不在本仓，属目标归档主机）；缺失则先补驱动或如实记为 **not-run**，`R3` **保持 open**，不伪称通过 |
 | "无热词"臂是临时未提交改动，泄漏进提交即为一次静默的热词变更 | Low | High | 该臂只由两臂产物 md frontmatter 的 `asr_hotwords` 读回证明（不比调用命令）；收口前要求 `cd /root/workspace/bilibili-asr-archive && git status --porcelain` 无输出 |
 | SIGTERM 处理与 archive 单写者锁交互 | Low | High | 计划 Global Constraints 明确：只追加一条记录后按原语义退出，不获取/不释放锁；处理函数一次性且抛 `BaseException` 子类（`Exception` 会被 coordinator 逐阶段 handler 吞掉）；写期间两信号置 ignore；以 `SystemExit` 呈现 128+signum；用 subprocess 用例锚定，并验证随后能正常开始下一次 run |
@@ -266,7 +279,7 @@ Three specialist roles invoked in order, one invoke each, editing the artifacts 
 |---|------|----------|------------|
 | 1 | `product-manager` | 5 (2 high) | **F1** the draft framed the adoption as if this iteration had done the Phase-1 work (and the package README claimed a lock that had not happened); **F2** the retirement of criteria numbering 6–9 was stated but never propagated — both plans' `Closes:` lines and three in-body citations still pointed at retired numbers; **F3** the scheduling justification asserted an `asr.py`+`cli.py` overlap the plans **contradict** (that was the previous iteration's plan-1-vs-plan-3 situation, imported by mistake) — corrected against the plans' own `Files:` lists; **F4** the three low deferrals lacked trigger/owner/done-definition; **F5** two criteria were missing their gates. |
 | 2 | `architect` | 7 substantive | The drift was real and material, exactly where predicted: **plan 1's cited cue numbers were wrong** (2/34/37/55 hold unrelated text; the real ones are 3/35/38/56), **five `cli.py` anchors had shifted**, one test was **mislabelled as failing** when it already passes (a guard, not a failing test), `records_existing` was ambiguous (it is the manifest count, not the attempts length), and Task 2's split point was **order-free**, not dependent. It re-derived plan 1's "4 of 95 changed" claim (correct) and its two-condition rule (0 changed, fixture byte-identical), ran six `--collect-only` selectors, and verified the `asr.py`/`coordinator.py`/`run_ledger.py`/test anchors as already exact. |
-| 3 | `writing-specialist` | 2 corrected, 1 reported | The compass overstated its own re-pointed reference count (5 → **6**), and plan 1 said "the six hotwords" where the corpus has **two** six-hotword sets from 2026-09 (the six *Chinese homophone* ones are this plan's subject; the six *Latin-script* ones belong to `20260912-gpu-enablement-truth · N-4`) — qualified. Everything else resolved: 14/14 residual citations, 3/3 plan ids, no criterion citation outside 1–4, zero closed-iteration pointers inside live instructions. |
+| 3 | `writing-specialist` | 2 corrected, 1 reported | The compass overstated its own re-pointed reference count (5 → **6**), and plan 1 said "the six hotwords" where the corpus has **two** six-hotword sets from 2026-09 (the six *Chinese homophone* ones are this plan's subject; the six *Latin-script* ones belong to `20260912-gpu-enablement-truth · N-4`) — qualified. Everything else resolved: 14/14 residual citations, 3/3 plan ids, no criterion citation outside 1–4 *(the numbering in force at the time of that chain; the 2026-09-18 retirement renumbered the live set to 1–3 — see `### Scope changes`)*, zero closed-iteration pointers inside live instructions. |
 
 **Reported, not edited** (PM owns these): the seed row's `cid` for `BV1H69sB6EeF:p0` is an operator-host manifest value that appears nowhere in the tree, so the architect could not verify it and did not edit it — Task 2 must read it from the season manifest at run time rather than trusting the plan's literal. `cue-writer` / `cue writer` orthography varies (judged tolerable, flagged).
 
@@ -274,7 +287,7 @@ Three specialist roles invoked in order, one invoke each, editing the artifacts 
 
 | plan_id | QC decision | QA gate | Residuals | Durable summary |
 |---------|-------------|---------|-----------|-----------------|
-| 20260918-transcript-text-precision | | | | |
+| 20260918-transcript-text-precision | **Approve**（tri 3/3 → 定向复审 2/2 Approve → 确认；0 Critical / 0 Warning 未决） | `mandatory` — `Approve with residuals`，**8/8** 验收项通过；`QA mode: acceptance-only`（无测试、无构建、无 GPU 重跑、无网络/主机访问） | open: `20260918-transcript-text-precision · R1`(low, defer — A/B 未触发的那五个中文热词)；`· R2` 已 `waived`（冻结实现者报告的占位符，理由 + 重开条件齐备）；`e2e-…·R3` 已 verified close；**无 blocker-defer**。净开放集不变：medium 1 / low 7 | `{PLAN_DIR}/20260918-transcript-text-precision.md`（`## Review Gate Summary` + `## QA Gate Summary` + `## Done note`） |
 | 20260918-operational-record-coverage | | | | |
 
 ## Compound Round Summary

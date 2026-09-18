@@ -4,7 +4,7 @@
 
 **Goal:** Stop the operational record from silently under-reporting in the two places the season audit found — a pilot-archived row that leaves no attempt trail and is therefore invisible to `--scope failed`, settled by **writing the boundary where an operator reads it** (`pilot --help`, `README.md`) rather than by giving the pilot a ledger of its own; and an externally killed `run` that leaves no run-level record at all, settled by **writing one**, carrying partial counts, on the interruption path.
 
-**Closes:** `e2e-23191782-season-7686105 · R4` (documentation — **no behaviour change**; criterion 3) and `· R5` (behaviour change, test-anchored; criterion 4) — iteration compass `{ITERATION_DIR}/iter-2026-09-text-and-ledger-precision/delivery-compass.md` `## Acceptance Criteria`.
+**Closes:** `e2e-23191782-season-7686105 · R4` (documentation — **no behaviour change**; compass criterion **2**) and `· R5` (behaviour change, test-anchored; compass criterion **3**) — iteration compass `{ITERATION_DIR}/iter-2026-09-text-and-ledger-precision/delivery-compass.md` `## Acceptance Criteria`. *(Criterion numbers re-pointed 2026-09-18: the retirement of the cue criterion shifted the live set from 1–4 to 1–3, so R4's is 2 and R5's is 3 — see the compass `### Scope changes`.)*
 
 **Architecture:** Two entry points and one exit path. `AttemptLedger` is instantiated only in `coordinator.py`, so the `pilot` command's in-process loop archives without persisting stage attempts — the knowledge doc scopes the ledger to "`bili-asr run`", so the omission is within the letter of the contract, but it lands on the failure that same paragraph warns about ("otherwise `--scope failed` silently drops rows") for a path the doc never names. Separately, `_cmd_run` (L2280-2338) appends its run-ledger record on the normal exit path only (`cli.py` L2327-2334, inside the `try:`/`with archive_writer(...)` block whose writer is opened at L2308) and `src/` installs no signal handling at all (grep for `SIGTERM`/`SIGINT` finds two unrelated prose matches), so a `SIGTERM` — the operator's own stop button — is exactly the case with no record.
 
@@ -80,7 +80,7 @@ Read `operational-sidecars.md` §3 and the `run` / `pilot` / `--scope` documenta
 
 - [ ] **Step 2: Apply only the assigned text change**
 
-State, in both product surfaces: the stage-attempt ledger is written by `bili-asr run`; work archived through the `pilot` entry point leaves no attempt records and is therefore **not** reachable by `--scope failed`; the per-stage truth for pilot work does not exist, and `pilot` is a bounded probe, not a corpus path. Keep it to the fact and its consequence — no advice beyond where the recovery path does work. Name the recovery surface with the literal token `` `--scope failed` `` in both surfaces, so the Step 3 grep is the acceptance check itself rather than a proxy for it (compass criterion 3). In `cli.py`, that means the subparser's new `description=`/`epilog=`, i.e. the text `pilot --help` actually prints.
+State, in both product surfaces: the stage-attempt ledger is written by `bili-asr run`; work archived through the `pilot` entry point leaves no attempt records and is therefore **not** reachable by `--scope failed`; the per-stage truth for pilot work does not exist, and `pilot` is a bounded probe, not a corpus path. Keep it to the fact and its consequence — no advice beyond where the recovery path does work. Name the recovery surface with the literal token `` `--scope failed` `` in both surfaces, so the Step 3 grep is the acceptance check itself rather than a proxy for it (compass criterion 2). In `cli.py`, that means the subparser's new `description=`/`epilog=`, i.e. the text `pilot --help` actually prints.
 
 - [ ] **Step 3: Run the named scoped checks**
 
@@ -98,7 +98,7 @@ Baseline before the edit (recorded 2026-09-18, so the check is known to discrimi
 command exits 1 with no output — the literal is not in `pilot --help` today; the README grep finds the
 pre-existing `run --scope failed` mentions, which are explicitly **not** the check.
 
-Record expected and observed for all three: the help line present; the README recovery paragraph (the one beside the exit-code table, which already carries `run --scope failed`) now carrying the pilot boundary as well — the pre-existing mentions are not the check; and the help/CLI test file green (a help-text edit must not break its assertions). These three are the artifact-side check behind `R4`'s closure (compass criterion 3).
+Record expected and observed for all three: the help line present; the README recovery paragraph (the one beside the exit-code table, which already carries `run --scope failed`) now carrying the pilot boundary as well — the pre-existing mentions are not the check; and the help/CLI test file green (a help-text edit must not break its assertions). These three are the artifact-side check behind `R4`'s closure (compass criterion 2).
 
 - [ ] **Step 4: Record `Verification mode: scoped-check`** with the complete fields from `mstar-sdd/references/file-handoffs.md` § Verification evidence; no fabricated test files or outputs.
 
@@ -119,7 +119,7 @@ Record expected and observed for all three: the help line present; the README re
 
 **Interfaces:**
 - Consumes: `RunLedger` / `build_run_record` (existing, `run_ledger.py` L171-206 / L335-348); the `run` summary object **only on the normal path**; on the interruption path the durable truth instead — `AttemptLedger(root).load()` filtered to attempts with `started_at >= <this run's started_at>`, `compute_coverage_summary(store.load())`, and `len(entries)`; `SIGTERM` and `KeyboardInterrupt` as the two interruption sources.
-- Produces: a run-ledger row for an interrupted run built by the existing builder, carrying the same fields as a normal one plus partial counts, consumed by `R5`'s closure assertions — **exactly one** row, `command: "run"`, `exit_code: 143`, the partial `work_ids`, and a next `run` over the same root that starts cleanly (compass criterion 4). The normal path's record keeps today's values byte for byte.
+- Produces: a run-ledger row for an interrupted run built by the existing builder, carrying the same fields as a normal one plus partial counts, consumed by `R5`'s closure assertions — **exactly one** row, `command: "run"`, `exit_code: 143`, the partial `work_ids`, and a next `run` over the same root that starts cleanly (compass criterion 3). The normal path's record keeps today's values byte for byte.
 
 - [ ] **Step 1: Write the failing unit test**
 
