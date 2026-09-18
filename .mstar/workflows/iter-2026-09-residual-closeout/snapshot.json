@@ -1,0 +1,105 @@
+{
+  "schema_version": 1,
+  "id": "iter-2026-09-residual-closeout",
+  "type": "iteration",
+  "status": "running",
+  "started_at": "2026-09-18",
+  "updated_at": "2026-09-18",
+  "phase": "phase-1-prepare",
+  "branch": {
+    "base": "main",
+    "integration": "iteration/iter-2026-09-residual-closeout",
+    "target": "main"
+  },
+  "plans": [
+    {
+      "id": "20260918-verification-surface-truth",
+      "title": "Verification-surface truth: one definition of manifest well-formedness, and the intermittent suite red",
+      "file": ".mstar/plans/20260918-verification-surface-truth.md",
+      "status": "Todo",
+      "owner": "project-manager",
+      "agents": [
+        "fullstack-dev"
+      ],
+      "progress": 0,
+      "tags": [
+        "logic",
+        "verification",
+        "residual"
+      ],
+      "metadata": {
+        "iteration_refs": [
+          "iter-2026-09-residual-closeout"
+        ],
+        "spec_integration_branch": "iteration/iter-2026-09-residual-closeout",
+        "merge_target": "iteration/iter-2026-09-residual-closeout"
+      },
+      "created_at": "2026-09-18",
+      "updated_at": "2026-09-18",
+      "notes": [
+        "Covers e2e-23191782-season-7686105 R2 (high) and 20260917-hotword-acronym-precision R1 (low). Sole high-severity item in the iteration; no dependencies."
+      ],
+      "task_commits": []
+    },
+    {
+      "id": "20260918-transcript-text-precision",
+      "title": "Transcript text precision: cue-writer Latin spacing, and the hotword benefit measured",
+      "file": ".mstar/plans/20260918-transcript-text-precision.md",
+      "status": "Todo",
+      "owner": "project-manager",
+      "agents": [
+        "fullstack-dev"
+      ],
+      "progress": 0,
+      "tags": [
+        "logic",
+        "asr",
+        "residual"
+      ],
+      "metadata": {
+        "iteration_refs": [
+          "iter-2026-09-residual-closeout"
+        ],
+        "spec_integration_branch": "iteration/iter-2026-09-residual-closeout",
+        "merge_target": "iteration/iter-2026-09-residual-closeout"
+      },
+      "created_at": "2026-09-18",
+      "updated_at": "2026-09-18",
+      "notes": [
+        "Covers e2e-23191782-season-7686105 R6 and R3. Task 2 runs a real-host GPU A/B (two arms, BV1H69sB6EeF:p0) as a decoding-configuration measurement."
+      ],
+      "task_commits": []
+    },
+    {
+      "id": "20260918-operational-record-coverage",
+      "title": "Operational record coverage: the pilot's ledger boundary, and a run that records its own interruption",
+      "file": ".mstar/plans/20260918-operational-record-coverage.md",
+      "status": "Todo",
+      "owner": "project-manager",
+      "agents": [
+        "fullstack-dev"
+      ],
+      "progress": 0,
+      "tags": [
+        "ops",
+        "observability",
+        "residual"
+      ],
+      "metadata": {
+        "iteration_refs": [
+          "iter-2026-09-residual-closeout"
+        ],
+        "spec_integration_branch": "iteration/iter-2026-09-residual-closeout",
+        "merge_target": "iteration/iter-2026-09-residual-closeout"
+      },
+      "created_at": "2026-09-18",
+      "updated_at": "2026-09-18",
+      "notes": [
+        "Covers e2e-23191782-season-7686105 R4 (documentation, scoped-check) and R5 (SIGTERM/SIGINT record, unit + subprocess tests)."
+      ],
+      "task_commits": []
+    }
+  ],
+  "plan_parallelism": "serial",
+  "integration_worktree_path": "/root/workspace/bilibili-asr-archive/.worktrees/iter-2026-09-residual-closeout-integration"
+}
