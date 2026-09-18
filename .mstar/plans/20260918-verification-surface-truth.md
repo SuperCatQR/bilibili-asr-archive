@@ -23,9 +23,25 @@ Measured on a scratch root with real history (`/tmp/arch-probe/root2`, 3 rows / 
   `.git`, and the package directory `bilibili-asr-archive/`) and the **package root**
   `/root/workspace/bilibili-asr-archive/bilibili-asr-archive` (holds `.venv/`, `src/`, `tests/`).
   Python and pytest always run from the **package root** as
-  `cd /root/workspace/bilibili-asr-archive/bilibili-asr-archive && .venv/bin/python -m pytest …`;
+  `cd /root/workspace/bilibili-asr-archive/.worktrees/20260918-verification-surface-truth/bilibili-asr-archive && PYTHONPATH=$PWD/src /root/workspace/bilibili-asr-archive/bilibili-asr-archive/.venv/bin/python -m pytest …`;
   the form `bilibili-asr-archive/.venv/bin/python -m pytest tests/…` is runnable from neither root
   (no `tests/` at the repository root, no `bilibili-asr-archive/.venv` under the package root).
+- **Where the code under test actually lives (learned in Task 1, 2026-09-18 — this refines the bullet
+  above for every task on a feature worktree).** The tasks run in
+  `/root/workspace/bilibili-asr-archive/.worktrees/20260918-verification-surface-truth`, and that
+  worktree has **no `.venv`** (it is gitignored, so `git worktree add` does not carry it), while the
+  control-root venv's editable install points `bili_asr` at the **control-root** `src`. Running the
+  bullet above verbatim on the worktree therefore either fails (no `.venv`) or — with the control-root
+  interpreter — silently imports the **unmodified** source and grades the wrong tree. Task 1 hit
+  exactly this. Every task on this plan must run:
+
+  `cd /root/workspace/bilibili-asr-archive/.worktrees/20260918-verification-surface-truth/bilibili-asr-archive && PYTHONPATH=$PWD/src /root/workspace/bilibili-asr-archive/bilibili-asr-archive/.venv/bin/python -m pytest <selector> -v`
+
+  and must confirm `bili_asr.__file__` resolves **under the worktree** before trusting any result.
+  QC and QA inherit the same rule; a run that does not pin `PYTHONPATH` is not evidence about this
+  branch. *(Restored 2026-09-18 after post-merge bookkeeping lost this bullet from the file; the rule
+  itself is unchanged and also captured durably in
+  `{KNOWLEDGE_DIR}/architecture-patterns/worktree-test-invocation.md`.)*
 - Python 3.12; the only interpreter used is the repo venv at
   `bilibili-asr-archive/.venv/bin/python` (i.e. `.venv/bin/python` from the package root).
 - **Do not change the frozen contracts**: `coverage`'s CSV column tuple, `coverage-quality-v1` / `coverage-report-v1` `schema_version`, the two-class quality vocabulary (defect codes decide validity, content codes are advisory), and `REASON_CODES` order all stay byte-identical.
@@ -89,7 +105,7 @@ def test_append_only_history_is_not_a_structural_error(tmp_path: Path) -> None:
 
 - [ ] **Step 2: Run test — expect FAIL**
 
-Run: `cd /root/workspace/bilibili-asr-archive/bilibili-asr-archive && .venv/bin/python -m pytest tests/test_integrity.py -k append_only_history -v`
+Run: `cd /root/workspace/bilibili-asr-archive/.worktrees/20260918-verification-surface-truth/bilibili-asr-archive && PYTHONPATH=$PWD/src /root/workspace/bilibili-asr-archive/bilibili-asr-archive/.venv/bin/python -m pytest tests/test_integrity.py -k append_only_history -v`
 
 - [ ] **Step 3: Minimal implementation**
 
@@ -106,7 +122,7 @@ In `coverage_report.py`, delete the `if "manifest_duplicate_work_id" in manifest
 
 - [ ] **Step 4: Run the same affected test — expect PASS**
 
-Run: `cd /root/workspace/bilibili-asr-archive/bilibili-asr-archive && .venv/bin/python -m pytest tests/test_integrity.py -k append_only_history -v`
+Run: `cd /root/workspace/bilibili-asr-archive/.worktrees/20260918-verification-surface-truth/bilibili-asr-archive && PYTHONPATH=$PWD/src /root/workspace/bilibili-asr-archive/bilibili-asr-archive/.venv/bin/python -m pytest tests/test_integrity.py -k append_only_history -v`
 
 Reuse unaffected evidence with its original range and applicability; do not repeat checks merely because HEAD changed.
 
@@ -144,7 +160,7 @@ assert cli_main(["verify", "--archive-root", str(root), "--format", "json"]) == 
 
 - [ ] **Step 2: Run tests — expect FAIL** (both halves fail until Task 1 lands: the healthy-history half because the reader still calls ordinary history a structural error, the inverted cases because they now assert the opposite of what the implementation does. Note what `-k "history or denominator"` selects today — verified by `--collect-only` on 2026-09-18, exactly one test, `tests/test_coverage_report.py::test_duplicate_manifest_makes_denominator_unavailable`, i.e. the case that pins the old contract.)
 
-Run: `cd /root/workspace/bilibili-asr-archive/bilibili-asr-archive && .venv/bin/python -m pytest tests/test_integrity.py tests/test_coverage_report.py -k "history or denominator" -v`
+Run: `cd /root/workspace/bilibili-asr-archive/.worktrees/20260918-verification-surface-truth/bilibili-asr-archive && PYTHONPATH=$PWD/src /root/workspace/bilibili-asr-archive/bilibili-asr-archive/.venv/bin/python -m pytest tests/test_integrity.py tests/test_coverage_report.py -k "history or denominator" -v`
 
 - [ ] **Step 3: Adjust only test fixtures/assertions**
 
@@ -174,7 +190,7 @@ No production change is expected here; if one proves necessary, it belongs to Ta
 
 Run the full suite until red, capturing the body — **not** the summary:
 
-Run: `cd /root/workspace/bilibili-asr-archive/bilibili-asr-archive && .venv/bin/python -m pytest -q --tb=long > /tmp/suite-red.log 2>&1; echo "exit=$?"` then read the `ERRORS` section of that file (grepping the summary is what failed last time: the summary counted 261 errors while a grep for the error text matched nothing).
+Run: `cd /root/workspace/bilibili-asr-archive/.worktrees/20260918-verification-surface-truth/bilibili-asr-archive && PYTHONPATH=$PWD/src /root/workspace/bilibili-asr-archive/bilibili-asr-archive/.venv/bin/python -m pytest -q --tb=long > /tmp/suite-red.log 2>&1; echo "exit=$?"` then read the `ERRORS` section of that file (grepping the summary is what failed last time: the summary counted 261 errors while a grep for the error text matched nothing).
 
 - [ ] **Step 2: Read the traceback and name the failing fixture**
 
@@ -188,7 +204,7 @@ If the cause is in this repo: fix it and pin it. If it is environmental/external
 
 Run the full suite at least twice after the change and record both outcomes verbatim (`<n> passed, <m> errors`) — an intermittent failure cannot be proven fixed by one green run, and the record must say so honestly rather than claiming a fix. These verbatim outcomes are the evidence the register closure cites.
 
-Run: `cd /root/workspace/bilibili-asr-archive/bilibili-asr-archive && .venv/bin/python -m pytest -q 2>&1 | tail -3` (repeat; keep both tails verbatim)
+Run: `cd /root/workspace/bilibili-asr-archive/.worktrees/20260918-verification-surface-truth/bilibili-asr-archive && PYTHONPATH=$PWD/src /root/workspace/bilibili-asr-archive/bilibili-asr-archive/.venv/bin/python -m pytest -q 2>&1 | tail -3` (repeat; keep both tails verbatim)
 
 - [ ] **Step 5: Commit**
 
