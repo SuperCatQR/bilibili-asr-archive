@@ -242,11 +242,16 @@ def test_module_coverage_formats_and_diagnostic_exit(tmp_path: Path) -> None:
     # Inverted: this half used to double the manifest and assert that the
     # duplicated rows made `coverage` exit 1 with the code in stdout. A repeated
     # work_id is ordinary append-only history, so the code must now be ABSENT and
-    # the denominator available. The non-zero half moves to real damage: a status
-    # outside VALID_STATUSES is still malformed.
+    # the denominator available. Note what the doubling actually builds: the
+    # fixture upserts one `archived` row and the file is then repeated verbatim,
+    # so the two rows are byte-identical and this exercises the duplicate
+    # *shape*, not a `needs_audio` -> `archived` transition. Consequently the
+    # unique work_id count stays 1. The non-zero half moves to real damage: a
+    # status outside VALID_STATUSES is still malformed.
     manifest_path.write_text(manifest_path.read_text() + manifest_path.read_text(), encoding="utf-8")
     diagnostic = run_module(["coverage", "--archive-root", str(tmp_path), "--format", "json"])
     assert "manifest_duplicate_work_id" not in diagnostic.stdout
+    assert json.loads(diagnostic.stdout)["denominator"]["count"] == 1
     assert json.loads(diagnostic.stdout)["denominator"]["state"] == "available"
     assert_redacted(diagnostic)
 

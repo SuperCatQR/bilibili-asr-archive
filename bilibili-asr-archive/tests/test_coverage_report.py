@@ -244,6 +244,20 @@ def test_json_csv_bytes_and_empty_summary_are_exact(tmp_path: Path):
     assert len(parsed) == 1 and parsed[0]["category"] == "summary"
 
 
+def test_ordinary_history_diagnostics_membership_is_pinned():
+    """The set that subtracts a diagnostic inside three exit rules is frozen.
+
+    `ORDINARY_HISTORY_DIAGNOSTICS` is consumed by name at the three readers
+    (`coverage_report`, `integrity`, `cli`) and again in the exit rules those
+    readers gate, so widening it here would silently neutralise a fourth code
+    everywhere at once — the failure mode this plan closed. Pinned like the
+    repo's other frozen vocabularies.
+    """
+    from bili_asr.sidecar_projection import ORDINARY_HISTORY_DIAGNOSTICS
+
+    assert ORDINARY_HISTORY_DIAGNOSTICS == frozenset({"manifest_duplicate_work_id"})
+
+
 def test_all_evidence_bytes_and_mtimes_remain_unchanged(tmp_path: Path):
     files = {}
     write_fixture(tmp_path, [manifest_row("BVone:p1")], cur=cursor(), sched=scheduler(),
@@ -348,3 +362,15 @@ def test_coverage_quality_accepts_append_only_history(tmp_path: Path):
                   ledgers=[ledger(["BVone:p1"])], attempts=[attempt("BVone:p1")])
     assert cli.main(["coverage", "--archive-root", str(tmp_path), "--quality",
                      "--format", "json"]) == 0
+
+    # Fail-closed half: `--quality` is the third changed reader and spec §3.3
+    # requires a genuinely malformed row to still fail it. Both the archive and
+    # the extra row are the ones `test_cli_returns_diagnostic_exit` uses, so the
+    # two readers are pinned against the same healthy input and the same damage.
+    manifest_path = tmp_path / "manifest" / "manifest.jsonl"
+    malformed = manifest_row("BVtwo:p1")
+    malformed["status"] = "no_such_status"
+    manifest_path.write_text(
+        manifest_path.read_text() + json.dumps(malformed) + "\n", encoding="utf-8")
+    assert cli.main(["coverage", "--archive-root", str(tmp_path), "--quality",
+                     "--format", "json"]) == 1
