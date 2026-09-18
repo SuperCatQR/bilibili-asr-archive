@@ -959,6 +959,102 @@ def test_cli_run_repeated_sigterm_during_the_unwind_still_writes_the_record(tmp_
     assert record["coverage_summary"] == {"needs_audio": 2}
 
 
+# The SIGINT-first sequence never runs the handler above: CPython's
+# `KeyboardInterrupt` carries the interruption into the run body, and the guard
+# for it goes up in that branch -- one step *after* the coordinator's own
+# unwind.  The window a repeated Ctrl-C must not be able to kill is therefore
+# the shorter one between the `except KeyboardInterrupt` branch and the write's
+# `_signals_ignored()`, and this hook parks the child exactly there: the wrapper
+# runs before the original context manager is built, so the ignored pair is not
+# yet installed while the child holds still.
+_SIGINT_WINDOW_HOOK = '''"""Test hook: hold the record write's guard open.
+
+Written into a scratch dir and imported by CPython's `site` machinery; the
+marker/release paths arrive through the environment.
+"""
+import os
+import time
+from pathlib import Path
+
+from bili_asr import cli
+
+_MARKER = Path(os.environ["BILI_TEST_UNWIND_MARKER"])
+_RELEASE = Path(os.environ["BILI_TEST_UNWIND_RELEASE"])
+_ORIGINAL = cli._signals_ignored
+
+
+def _parking_signals_ignored():
+    _MARKER.write_text("unwinding", encoding="utf-8")
+    deadline = time.monotonic() + 60
+    while not _RELEASE.exists() and time.monotonic() < deadline:
+        time.sleep(0.01)
+    return _ORIGINAL()
+
+
+cli._signals_ignored = _parking_signals_ignored
+'''
+
+
+def test_cli_run_repeated_sigint_during_the_unwind_still_writes_the_record(tmp_root):
+    """A second Ctrl-C in the SIGINT-first unwind must not cost the record.
+
+    `SIGINT` leaves CPython's handler in place, so nothing installs the ignored
+    pair at delivery time: without the guard the `except KeyboardInterrupt`
+    branch installs, the second Ctrl-C is raised inside the write's `finally`
+    and the record is abandoned -- the repeated-SIGTERM failure mode, reached
+    through the other interruption source.  The child is parked in that window
+    rather than raced (it is microseconds wide), and a queued signal is taken
+    before the child's next user-mode instruction, so releasing it after the
+    send cannot let it slip past.
+    """
+    from bili_asr.run_ledger import RunLedger
+
+    first = page_identity("BVlater", 0, 111, "p0")
+    second = page_identity("BVsigint", 0, 222, "p0")
+    store = ManifestStore(root=tmp_root)
+    store.upsert(_row(first, status="needs_audio"))
+    store.upsert(_row(second, status="needs_audio"))
+
+    hook_dir = Path(tmp_root).parent / f"{Path(tmp_root).name}-hook"
+    hook_dir.mkdir()
+    (hook_dir / "sitecustomize.py").write_text(_SIGINT_WINDOW_HOOK, encoding="utf-8")
+    marker = hook_dir / "unwinding"
+    release = hook_dir / "release"
+
+    child = subprocess.Popen(
+        _run_argv(tmp_root), cwd=str(_PACKAGE_ROOT),
+        env=dict(os.environ, PYTHONPATH=f"{hook_dir}{os.pathsep}{_SRC_DIR}",
+                 BILI_TEST_UNWIND_MARKER=str(marker),
+                 BILI_TEST_UNWIND_RELEASE=str(release)),
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+    )
+    try:
+        banner = _await_banner(child)
+        assert banner.startswith("run: scope=pending selected 2 row(s)"), (
+            banner, _child_stderr(child))
+        _await_first_attempt(child, tmp_root, first.work_id)
+        child.send_signal(signal.SIGINT)
+        _await_file(child, marker, "the child never parked at the record write")
+        child.send_signal(signal.SIGINT)
+        release.write_text("go", encoding="utf-8")
+        rc = child.wait(timeout=_CHILD_TIMEOUT_S)
+        assert rc == 130, (rc, _child_stderr(child))
+    finally:
+        release.write_text("go", encoding="utf-8")
+        if child.poll() is None:
+            child.kill()
+            child.wait()
+        shutil.rmtree(hook_dir, ignore_errors=True)
+
+    run_records = [r for r in RunLedger(root=tmp_root).load() if r.get("command") == "run"]
+    assert len(run_records) == 1
+    record = run_records[0]
+    assert record["exit_code"] == 130
+    assert record["work_ids"] == [first.work_id]
+    assert record["records_existing"] == 2
+    assert record["coverage_summary"] == {"needs_audio": 2}
+
+
 def test_sigterm_delivery_ignores_both_signals_across_the_unwind():
     """A repeated SIGTERM must not kill the process before the record write.
 
@@ -968,11 +1064,14 @@ def test_sigterm_delivery_ignores_both_signals_across_the_unwind():
     default a repeated SIGTERM terminates the process in that span with no
     record at all.  The installed handler is called directly, which is exactly
     what delivery runs, so a regression is asserted instead of killing the test
-    process.
+    process.  The ignored `SIGINT` is not the disposition the block captured, so
+    the block's exit is asserted for both signals: otherwise it would leak into
+    the rest of the pytest session as a dead Ctrl-C.
     """
     from bili_asr.cli import _RunInterrupted, _interruptible_run
 
-    original = signal.getsignal(signal.SIGTERM)
+    original_term = signal.getsignal(signal.SIGTERM)
+    original_int = signal.getsignal(signal.SIGINT)
     try:
         with _interruptible_run():
             handler = signal.getsignal(signal.SIGTERM)
@@ -981,10 +1080,14 @@ def test_sigterm_delivery_ignores_both_signals_across_the_unwind():
                 handler(signal.SIGTERM, None)
             assert signal.getsignal(signal.SIGTERM) is signal.SIG_IGN
             assert signal.getsignal(signal.SIGINT) is signal.SIG_IGN
-        # One-shot: the true previous disposition is back once the body is done.
-        assert signal.getsignal(signal.SIGTERM) is original
+        # One-shot: both true previous dispositions are back once the body is
+        # done -- `SIGINT` was only captured, never swapped, so restoring it is
+        # what keeps the process's own Ctrl-C working afterwards.
+        assert signal.getsignal(signal.SIGTERM) is original_term
+        assert signal.getsignal(signal.SIGINT) is original_int
     finally:
-        signal.signal(signal.SIGTERM, original)
+        signal.signal(signal.SIGTERM, original_term)
+        signal.signal(signal.SIGINT, original_int)
 
 
 # ------------------------------------------------------------ offline (Task 2)

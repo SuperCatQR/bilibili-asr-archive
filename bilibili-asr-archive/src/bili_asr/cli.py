@@ -2311,19 +2311,38 @@ def _restore_signal_handlers(previous: dict[int, Any]) -> None:
         signal.signal(signum, handler)
 
 
+def _ignore_interruption_signals() -> dict[int, Any]:
+    """Leave ``SIGTERM``/``SIGINT`` ignored, and report what they were.
+
+    The pair is swapped as a unit because the ignored state has to cover the
+    whole unwind after the first delivery and the record write at its end, and
+    that unwind is reached through ``SIGTERM`` *or* ``SIGINT``.  ``signal.signal``
+    is main-thread only, so elsewhere nothing is swapped and the empty mapping
+    reads as "nothing to restore".
+    """
+    if threading.current_thread() is not threading.main_thread():
+        return {}
+    return {
+        signum: signal.signal(signum, signal.SIG_IGN)
+        for signum in (signal.SIGTERM, signal.SIGINT)
+    }
+
+
 @contextmanager
 def _interruptible_run() -> Iterator[None]:
     """Deliver the first ``SIGTERM`` to the run body as ``_RunInterrupted``.
 
-    One-shot: the exception is raised once, and the true previous disposition
-    comes back in this context manager's ``finally`` -- after the record write.
-    Delivery therefore leaves both signals **ignored** instead of restoring the
-    captured disposition: the ignored state, not the default, is what must hold
-    across the coordinator's unwind (runner release, batch-evidence stderr
-    write), because a repeated ``SIGTERM`` landing there at the default
-    disposition would kill the process before the write site with no record at
-    all.  ``SIGINT`` keeps CPython's ``KeyboardInterrupt`` until that point and
-    reaches the same ``finally``.  ``signal.signal`` is main-thread only, so
+    One-shot: the exception is raised once, and the true previous dispositions
+    -- ``SIGTERM`` *and* ``SIGINT`` -- come back in this context manager's
+    ``finally``, after the record write.  Delivery therefore leaves both signals
+    **ignored** instead of restoring the captured disposition: the ignored
+    state, not the default, is what must hold across the coordinator's unwind
+    (runner release, batch-evidence stderr write), because a repeated
+    ``SIGTERM`` landing there at the default disposition would kill the process
+    before the write site with no record at all.  ``SIGINT`` keeps CPython's
+    ``KeyboardInterrupt`` until the run body catches it, and that branch
+    installs the same ignored pair before it returns, so a repeated ``Ctrl-C``
+    cannot abandon the write either.  ``signal.signal`` is main-thread only, so
     elsewhere the run body keeps the dispositions the process already had.
     """
     if threading.current_thread() is not threading.main_thread():
@@ -2332,11 +2351,16 @@ def _interruptible_run() -> Iterator[None]:
     previous: dict[int, Any] = {}
 
     def _on_sigterm(signum: int, _frame: Any) -> None:
-        for sig in (signal.SIGTERM, signal.SIGINT):
-            signal.signal(sig, signal.SIG_IGN)
+        # The swapped-out dispositions are deliberately dropped: the ignored
+        # state, not the disposition at delivery, is what must hold until the
+        # write site has run.
+        _ignore_interruption_signals()
         raise _RunInterrupted(signum)
 
     previous[signal.SIGTERM] = signal.signal(signal.SIGTERM, _on_sigterm)
+    # ``SIGINT`` keeps its handler here (CPython's ``KeyboardInterrupt``), but
+    # its disposition is captured so the run block puts both back.
+    previous[signal.SIGINT] = signal.getsignal(signal.SIGINT)
     try:
         yield
     finally:
@@ -2346,13 +2370,7 @@ def _interruptible_run() -> Iterator[None]:
 @contextmanager
 def _signals_ignored() -> Iterator[None]:
     """Ignore ``SIGTERM``/``SIGINT`` for the duration of the record write."""
-    if threading.current_thread() is not threading.main_thread():
-        yield
-        return
-    previous = {
-        signum: signal.signal(signum, signal.SIG_IGN)
-        for signum in (signal.SIGTERM, signal.SIGINT)
-    }
+    previous = _ignore_interruption_signals()
     try:
         yield
     finally:
@@ -2460,6 +2478,13 @@ def _cmd_run(args: argparse.Namespace) -> int:
                     interrupted = exc.signum
                     return 128 + exc.signum
                 except KeyboardInterrupt:
+                    # `SIGINT` never reaches `_on_sigterm`, so the guard has to
+                    # go up here, before this branch unwinds: at the captured
+                    # default a repeated Ctrl-C raises again inside the record
+                    # write's `finally` below and abandons the write.  Symmetric
+                    # with the handler, and the true dispositions come back in
+                    # `_interruptible_run`'s `finally` once the write is done.
+                    _ignore_interruption_signals()
                     interrupted = signal.SIGINT
                     return 128 + signal.SIGINT
                 finally:
