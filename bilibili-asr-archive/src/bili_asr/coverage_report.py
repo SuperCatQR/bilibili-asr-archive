@@ -14,7 +14,7 @@ from .manifest import VALID_STATUSES
 from .meta_cursor import _validate as validate_cursor
 from .scheduler import _validate as validate_scheduler
 from .run_ledger import _validate_record as validate_run_ledger_record
-from .sidecar_projection import ReaderPolicy, iter_jsonl_records, project_attempt_records, project_manifest_records, project_latest_run_record
+from .sidecar_projection import ReaderPolicy, iter_jsonl_records, ORDINARY_HISTORY_DIAGNOSTICS, project_attempt_records, project_manifest_records, project_latest_run_record
 
 SCHEMA_VERSION = "coverage-report-v1"
 TERMINAL_STATUSES = frozenset({"archived", "gone"})
@@ -71,10 +71,8 @@ class CoverageReport:
                 "sidecar_byte_limit" if code.endswith("byte_limit_exceeded") else code,
                 "manifest",
             )
-            for code in manifest_diagnostics
+            for code in manifest_diagnostics - ORDINARY_HISTORY_DIAGNOSTICS
         )
-        if "manifest_duplicate_work_id" in manifest_diagnostics:
-            manifest_state = "malformed"
         cursor, cursor_state = _read_validated_sidecar(
             root / "meta-cursor.json", "meta_cursor", validate_cursor, diagnostics
         )

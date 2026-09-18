@@ -1,5 +1,12 @@
 {
   "version": 2,
-  "updated_at": "2026-09-13",
-  "workflows": []
+  "updated_at": "2026-09-18",
+  "workflows": [
+    {
+      "id": "iter-2026-09-residual-closeout",
+      "type": "iteration",
+      "started_at": "2026-09-18",
+      "dir": "workflows/iter-2026-09-residual-closeout"
+    }
+  ]
 }
