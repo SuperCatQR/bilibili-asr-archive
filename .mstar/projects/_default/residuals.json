@@ -465,6 +465,22 @@
         "registered_at": "2026-09-18",
         "lifecycle_id": "iter-2026-09-text-and-ledger-precision"
       }
+    ],
+    "iter-2026-09-text-and-ledger-precision": [
+      {
+        "id": "R1",
+        "title": "Two of the nine `{KNOWLEDGE_DIR}` docs fail the engine's own `compound validate`, from before this iteration: `operational-sidecars.md` and `testing-patterns/worktree-test-invocation.md`. The validator's reference-existence heuristic flags tokens a human reads as prose or as templates, and its exact rule is not written down anywhere the PM could find.",
+        "severity": "low",
+        "source": "PM compound round at iteration-close of iter-2026-09-text-and-ledger-precision, 2026-09-18 — found by running `mstar_compound_validate` (the engine validator behind `mstar compound validate`) over all nine docs as the compound skill's Phase 3/6 gate. Independently corroborated by the compound writer's own run.",
+        "scope": "`{KNOWLEDGE_DIR}/architecture-patterns/operational-sidecars.md` and `{KNOWLEDGE_DIR}/testing-patterns/worktree-test-invocation.md`. What the iteration FIXED while diagnosing: two bare module filenames re-pointed to full repo paths (`coverage_report.py`, `integrity.py`), two bare-extension literals respelled (`\\`.md\\``, `\\`.txt\\`` → `md`, `txt`), and the worktree doc moved from `architecture-patterns/` to `testing-patterns/` with its `category` corrected (a `testing_pattern` doc had declared `category: architecture-patterns`) plus its index row re-pointed. What remains: the validator still FAILs both docs, and the PM could not name the residual rule without guessing — a scan for path-like backticked tokens that do not resolve now returns only template placeholders in the worktree doc (`<repo-root>/...`, `cd <repo-root>/...`), which must stay templates.",
+        "decision": "defer",
+        "owner": "@project-manager",
+        "target": "the next `mstar compound-refresh` pass, or any session that has the engine source at hand: read the validator's reference rule, then either respell the remaining offenders or record the rule where docs can follow it. `worktree-test-invocation.md` may legitimately need a false-positive exemption for template placeholders — do not break the templates to satisfy a heuristic.",
+        "tracking": "Registered here at the iteration's close (2026-09-18). PROVEN PRE-EXISTING, which is why it is not a blocker for this iteration: `git show HEAD:` copies of both docs fail identically (verified for `operational-sidecars.md` by validating the pre-promotion copy directly), so this iteration's promotion neither caused nor worsened it — the new doc it created (`testing-patterns/hotword-list-measurement.md`) passes end-to-end, index rows included. The iteration's own compound gate therefore passed on its own deliverable while this debt was recorded rather than absorbed.",
+        "source_plan": "iter-2026-09-text-and-ledger-precision",
+        "registered_at": "2026-09-18",
+        "lifecycle_id": "iter-2026-09-text-and-ledger-precision"
+      }
     ]
   }
 }

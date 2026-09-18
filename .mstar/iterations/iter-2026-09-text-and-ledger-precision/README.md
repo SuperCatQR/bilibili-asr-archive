@@ -17,10 +17,16 @@ the three low entries. No technical content was re-derived.
 
 | Path | Purpose | Status |
 |------|---------|--------|
-| [`delivery-compass.md`](delivery-compass.md) | Steering compass — scope, plans, criteria 1–3, non-goals, roadmap, risk register, branch policy | locked at Phase 1; amended mid-Execute (see `### Scope changes`) |
-| `guides/hotword-ab-20260918.md` | The two-arm A/B comparison for the six Chinese homophone hotwords (plan `20260918-transcript-text-precision`, Task 2) | **written** (2026-09-18, 505 lines, incl. the host-evidence appendix) |
-| `guides/pilot-attempt-ledger-boundary.md` | The pilot attempt-ledger boundary text destined for `{KNOWLEDGE_DIR}` (plan `20260918-operational-record-coverage`, Task 1) | **written** (2026-09-18, 189 lines; carries the shipped text, its contract target and the three plan checks before/after) |
+| [`delivery-compass.md`](delivery-compass.md) | Steering compass — scope, plans, criteria 1–3, non-goals, roadmap, risk register, branch policy | locked at Phase 1; amended mid-Execute (see `### Scope changes`); **Keep snapshot** (iteration steering record, excluded from promotion by default) |
+| `guides/hotword-ab-20260918.md` | The two-arm A/B comparison for the six Chinese homophone hotwords (plan `20260918-transcript-text-precision`, Task 2) | **written** (2026-09-18, 505 lines, incl. the host-evidence appendix); **Promoted to:** `.mstar/knowledge/testing-patterns/hotword-list-measurement.md` (structured rewrite: method, findings, limits, traps) |
+| `guides/pilot-attempt-ledger-boundary.md` | The pilot attempt-ledger boundary text destined for `{KNOWLEDGE_DIR}` (plan `20260918-operational-record-coverage`, Task 1) | **written** (2026-09-18, 189 lines; carries the shipped text, its contract target and the three plan checks before/after); **Promoted to:** `.mstar/knowledge/architecture-patterns/operational-sidecars.md` (two new sections: the attempt-ledger writer boundary; a run that records its own interruption) |
 | `specs/` | Empty by design: this iteration writes no iteration-level spec. The cue rule that would have been the one durable contract here was **retired on 2026-09-18** (evidence base absent), so nothing is owed | n/a |
+| `README.md` (this file) | Iteration package index — charter, adoption boundary, package contents, register entries in scope, boundaries observed | **Keep snapshot** (package index, not promoted) |
+
+**Promotion disposition (iteration-close, 2026-09-18):** both `guides/` entries were **Promoted** (the
+hotword A/B guide rewritten as the new `testing-patterns/` doc; the pilot boundary guide's material
+rewritten into two sections of the existing operational-sidecars doc) — nothing in this package was
+**Skipped**, and the two snapshot-only files stay iteration history (marked in the table above).
 
 ## Register entries in scope
 

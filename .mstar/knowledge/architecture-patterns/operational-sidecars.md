@@ -92,7 +92,7 @@ sidecars and deterministic derived stores for operator evidence; never rewrite
    archives to exit 1 unless every consumer learned which codes are defects. Content signals now come from
    this surface alone: the retired parallel quality script's every reachable output has a named replacement
    except `p10`, `min`, and `chars-per-min`, dropped outright (the last is not reproducible from the
-   archive at all). Parity is per **artefact shape**: a `.txt`/`.md`-only row takes the plain-text arm,
+   archive at all). Parity is per **artefact shape**: a txt/md-only row takes the plain-text arm,
    which yields no cues, so cue-level content reasons are absent for that shape — while production always
    publishes `srt`+`txt`+`md`+`raw` together. `--reference <path>` compares one selected row against a
    second transcript of the same audio (flattened text, `SequenceMatcher` with `autojunk` off, reason
@@ -128,7 +128,93 @@ rerun of an already-terminal `work_id` is idempotent (exit 0). `run` and
 
 10. Keep durable sidecars append-oriented and projection-based at scale. Protect each mutation with the archive-root single-writer boundary, append revisions or attempts durably, and derive the latest validated row/run without materializing unbounded history. Preserve legacy compact snapshots for reads, but never let a malformed later revision replace the last valid state. Use trusted-local streaming only for an explicitly operator-owned archive; bounded hostile-input inspection remains capped and fail-closed.
 
-11. Publish transcript bundles as one owned generation rather than exposing independently replaced files. Stage and fsync the complete `srt`/`txt`/`md`/raw set, replace owned outputs deterministically, then write a marker containing exact paths and digests last. Readers accept only a complete marker-matched generation. Apply the same confined-path policy to audio lookup, persistence, and reclaim; reject absolute, traversing, symlink-escaping, directory, and non-regular paths before descriptor-backed consumers use them.
+11. Publish transcript bundles as one owned generation rather than exposing independently replaced files. Stage and fsync the complete srt/txt/md/raw set, replace owned outputs deterministically, then write a marker containing exact paths and digests last. Readers accept only a complete marker-matched generation. Apply the same confined-path policy to audio lookup, persistence, and reclaim; reject absolute, traversing, symlink-escaping, directory, and non-regular paths before descriptor-backed consumers use them.
+
+## The attempt-ledger writer boundary
+
+The stage-attempt ledger (`{archive_root}/coordinator/attempts.jsonl`) has exactly one appender:
+`RunCoordinator`. Three entry points drive it — `bili-asr run`, `bili-asr schedule` and
+`bili-asr campaign` — and that is the complete writer set. The `pilot` entry point builds its own
+in-process loop and constructs no coordinator, so it persists **no** attempts.
+
+That writer set is also the reachability boundary of recovery, because `--scope failed` is derived from
+those attempts: the selector returns the work ids with at least one recorded **failed attempt**,
+intersected with manifest rows that are not `archived`/`gone`. No attempt records means no per-stage truth,
+which means work archived through `pilot` is **invisible to `--scope failed`**. That is not a selector bug
+and not a ledger bug — it is the consequence of an entry point outside the writer set. Stated as the rule:
+**the ledger is what makes recovery reachable, so an entry point that bypasses it is invisible to
+recovery.**
+
+Two consequences for anyone extending this surface:
+
+- **Name every writer.** Describing the ledger as "what `bili-asr run` writes" reads as "work archived
+  through `schedule`/`campaign` also leaves no attempt trail" — the opposite of the truth, since all three
+  drive the same coordinator. Whatever states the boundary states the three.
+- **Publish the boundary where an operator reads it.** The contract's own sentence ("every executed stage
+  must persist an attempt … otherwise `--scope failed` silently drops rows") is inside the letter of the
+  contract and outside what an operator can read: `pilot --help` renders usage plus option help, so a
+  boundary that lives only in `help=` — which the top-level `bili-asr --help` command list renders — stays
+  invisible on the subcommand an operator is actually reading. It belongs in the `pilot` subparser's
+  `description=`, with `argparse`'s `RawDescriptionHelpFormatter` so the literal `--scope failed` token keeps
+  its line breaks and cannot be hyphen-split by the default re-wrapper at a narrow terminal. The README's
+  recovery paragraph, beside the exit-code table, is the second place the same statement is read.
+
+Measured instance (the season audit's recorded finding, cited here and not re-measured): the pilot-archived
+row `BV1RFoxBqEzo:p0` is `archived` in the season manifest with `stages=[]` in
+`{archive_root}/coordinator/attempts.jsonl` — **zero records** — while all **13** run-archived rows carry
+`download+asr+archive`. The pilot does keep its own run-ledger row, so the archive shows one pilot run for
+work the attempt ledger has no trace of.
+
+## A run that records its own interruption
+
+A batch command an operator can interrupt owes them one durable record of the run that actually happened.
+`bili-asr run` produces it, and the shape transfers to any long sequential command that writes a ledger row
+at exit:
+
+1. **One write site.** The record write sits in the run body's single `finally`, so the normal exit and the
+   interruption share one call and "exactly one record" comes from the control flow — not from the ledger
+   primitive and not from a second builder: `build_run_record` already assembles the interruption record,
+   `bilibili-asr-archive/src/bili_asr/run_ledger.py` is untouched, and there is no second write path, no new
+   schema field and no new lock code. A write that fails is reported
+   (`run: run-ledger write failed (PersistenceError)` on stderr) and the process still exits 143/130 — never
+   swallowed into a silent success.
+2. **A one-shot disposition that raises a `BaseException` subclass.** The handler raises
+   `_RunInterrupted(BaseException)`. Anything weaker is caught by the coordinator's per-stage
+   `except Exception` handlers, whose whole job is to keep a batch going: the interruption would be filed
+   as one more failed stage instead of unwinding the run.
+3. **`SIG_IGN` for both signals across the whole unwind.** This is the part that is easy to get wrong, and
+   it was got wrong once. Restoring the captured disposition *at delivery* leaves the process killable
+   during the coordinator's own cleanup; and protecting only the SIGTERM-first path leaves the SIGINT-first
+   path unprotected, because that path never runs the handler at all. The arrangement that holds installs
+   `SIG_IGN` for `SIGTERM` **and** `SIGINT` in all three places reachable mid-unwind — the handler, the run
+   body's `except KeyboardInterrupt` branch as its first statement, and the write guard — and discards the
+   swapped-out dispositions there deliberately: the *ignored state*, not the disposition at delivery, is
+   what must hold until the write has run. The context manager that owns the guard captures **both**
+   previous dispositions and restores both in its `finally`; off the main thread it swaps nothing.
+4. **`128 + signum` returned as a `SystemExit`.** `main()` returns 143 for `SIGTERM` and 130 for `SIGINT`,
+   raised as `SystemExit` — measured with no traceback. An operator interruption is therefore not bucketed
+   with a failed run, which exits 1. The negative control matters as much as the positive one: a batch that
+   finishes before the signal lands exits 1 and never 143, so a check on 143 discriminates.
+5. **Partial counts read from durable state.** No summary object exists on the interruption path, so the
+   record's counts are the ones the run already persisted: the attempts this run wrote (the helper takes the
+   run's `started_at`; membership is decided by lexicographic comparison of formatted timestamps, registered
+   as `R3` on plan `20260918-operational-record-coverage`), the coverage summary over the pre-batch manifest
+   load, and `records_existing` still the **pre-run manifest row count** — read from that same manifest load,
+   never the attempts-ledger length. The normal exit path passes its own count and is unchanged.
+
+**What this shape does not cover.** Each is a registered residual on plan
+`20260918-operational-record-coverage` (severity `low`, `decision: defer`, owner `@project-manager`) —
+registered, not silently absent:
+
+- **The pre-guard window** (`R2`): a `run` killed between process entry and the guard writes nothing — the
+  ~20 µs between the banner line and the guard, plus the same class of window ahead of the command body
+  itself (manifest load, scope resolution, client construction).
+- **The SIGINT clause's few-bytecode window** (`R4`): a second `SIGINT` landing inside the run body's
+  `except KeyboardInterrupt` clause *before* it installs the ignored pair replaces the first exception and
+  skips the rest of the coordinator's cleanup. The record is still written and the exit is still 130, but
+  the guarantee is narrower than "repeated signals are safe" would suggest.
+- **`schedule` and `campaign`** (`R1`): they drive the same stage-attempt ledger and keep the pre-contract
+  behaviour — no interruption record at all. The interruption contract belongs to `run` alone.
 
 ## Boundary and outcome contract
 
@@ -194,8 +280,8 @@ emits `manifest_duplicate_work_id` for ordinary history; three callers then disa
 
 | Reader | What it did | Cost |
 |---|---|---|
-| `integrity.py` (`verify`) | the code was absent from its recognised-diagnostic vocabulary, so the else-branch mapped it to `structural_input_error`; the exit rule counts *any* diagnostic | `defects: 0` but **exit 1** on a healthy archive — the integrity gate could not be satisfied |
-| `coverage_report.py` (plain `coverage`) | forced `manifest_state = "malformed"`, which blanks `denominator_available` | `{count: null, state: "unavailable"}` — the completeness command could not state its own denominator |
+| `bilibili-asr-archive/src/bili_asr/integrity.py` (`verify`) | the code was absent from its recognised-diagnostic vocabulary, so the else-branch mapped it to `structural_input_error`; the exit rule counts *any* diagnostic | `defects: 0` but **exit 1** on a healthy archive — the integrity gate could not be satisfied |
+| `bilibili-asr-archive/src/bili_asr/coverage_report.py` (plain `coverage`) | forced `manifest_state = "malformed"`, which blanks `denominator_available` | `{count: null, state: "unavailable"}` — the completeness command could not state its own denominator |
 | `cli._cmd_coverage_quality` | no override | reported the same archive correctly — and thereby proved the other two wrong |
 
 **The rule, and how to keep it.** Name the code once (`ORDINARY_HISTORY_DIAGNOSTICS` beside the

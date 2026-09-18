@@ -3,7 +3,7 @@ module: bili-asr verification
 date: 2026-09-18
 last_updated: 2026-09-18
 problem_type: testing_pattern
-category: architecture-patterns
+category: testing-patterns
 severity: high
 plan_id: 20260918-verification-surface-truth
 applies_when:

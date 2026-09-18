@@ -136,10 +136,10 @@ merge-order dependency is claimed.)*
 
 | Milestone | Target date | Status |
 |-----------|-------------|--------|
-| Spec freeze (Phase 1 lock) | 2026-09-18 | pending |
-| Dev complete (2 plans Done) | 2026-09-18 | pending |
-| QC complete | 2026-09-18 | pending |
-| Iteration close | 2026-09-18 | pending |
+| Spec freeze (Phase 1 lock) | 2026-09-18 | **done** (`0fc963d`, three-role Phase-1 chain recorded below) |
+| Dev complete (2 plans Done) | 2026-09-18 | **done** — plan 1 `Done`, plan 2 `Done`; plan 2's branch integrated as `34249dc` |
+| QC complete | 2026-09-18 | **done** — plan 1 `Approve`; plan 2 `Approve` after two fix waves + targeted re-reviews; QA gates `Approve with residuals` on both (8/8 and 9/9 acceptance criteria) |
+| Iteration close | 2026-09-18 | **done** — merged to `main` as `476dc9a`; compound round below |
 
 ## Acceptance Criteria
 
@@ -303,16 +303,33 @@ Three specialist roles invoked in order, one invoke each, editing the artifacts 
 
 ## Compound Round Summary
 
-> Filled at iteration-close.
+迭代 package 盘点（`{ITERATION_DIR}/iter-2026-09-text-and-ledger-precision/**`，默认排除 compass）：
 
-- 结晶文档数：<N>
-- 新增 CONCEPTS.md 条目：<N>
-- 触发 compound-refresh：<是/否>
+| 文件 | 判定 | 落点 |
+|---|---|---|
+| `guides/pilot-attempt-ledger-boundary.md` | **Promote**（更新既有文档：高重叠） | `{KNOWLEDGE_DIR}/architecture-patterns/operational-sidecars.md` — 新增两节：**The attempt-ledger writer boundary**（`run`/`schedule`/`campaign` 是写入者集合，`pilot` 构建 no coordinator 故无 attempt，因而对 `--scope failed` 不可见）与 **A run that records its own interruption**（单一 `finally` 写入点、一次性 `BaseException` 处置、跨整个 unwind 的 `SIG_IGN`、`128+signum` 以 `SystemExit` 呈现、由持久状态导出的局部计数，以及它**不覆盖**的三处边界） |
+| `guides/hotword-ab-20260918.md` | **Promote**（结构化重写，新建） | `{KNOWLEDGE_DIR}/testing-patterns/hotword-list-measurement.md` — 方法（两臂"临时移除"设计、为何 env knob 只能加、从产物 readback 证明臂身份、跑前写定的 ≤5 % 阈值、同配置 repeat 测噪声地板）+ 已确立与**未**确立的边界 |
+| `delivery-compass.md` | Keep snapshot | 迭代 steer 记录，默认排除 |
+| package `README.md` | Keep snapshot | package 索引 |
+
+- 结晶文档数：**2 篇提升**（1 更新 + 1 新建）；**0 跳过**；**2 篇留快照**
+- 新增 CONCEPTS.md 条目：**0**（本轮无可入 `CONCEPTS.md` 的新领域词——"attempt ledger"、"hotword list" 等均已在既有文档中定义，且 `CONCEPTS.md` 的 qualifying bar 要求项目特定且未被既有条目覆盖）
+- 触发 compound-refresh：**是（已登记，未执行）**——`{PROJECT_DIR}/_default/residuals.json` 的 `iter-2026-09-text-and-ledger-precision · R1`：九篇知识文档中两篇（`operational-sidecars.md`、`testing-patterns/worktree-test-invocation.md`）**在本迭代之前就**通不过引擎自己的 `compound validate`。本迭代顺手修掉了能确认的三类违规（两个裸模块名改全路径、两处裸扩展名字面量改写、worktree 文档按 `problem_type` 归位到 `testing-patterns/` 并修正 `category`），但验证器仍未通过，且其引用规则的准确表述无处可查——留给下一次 refresh
+- 文档校验证据：新建的 `hotword-list-measurement.md` 经 `mstar_compound_validate`（含 `knowledge_dir` 与 `repo_root`）**PASS**（frontmatter schema + 九篇索引行 + scope guard + 引用存在性）；两篇遗留 FAIL 已证明为**先存**（对 `git show HEAD:` 副本复跑同样 FAIL），故不阻塞本迭代收口
 
 ## Iteration Retrospective (minimal)
 
-> Filled at iteration-close.
-
-- 做得好的：
-- 可改进的：
-- 下迭代建议：
+- **做得好的：**
+  1. **多席位分工抓住了单席位会漏掉的东西。** plan 2 的 R5 修复里，L2 把"重复信号会毁掉记录"判为 Minor（"微秒级"），而两个 QC 席位**各自独立**测出那是**整个 coordinator unwind**；第一轮修复只覆盖了 SIGTERM 先到的路径，是 qc2 在定向复审里点出 SIGINT 先到的路径**根本不经过那个处理器**，才有第二轮修复。同一缺陷两轮才闭合——但闭合得很干净。
+  2. **QA 门禁是"执行"而不是"复用"。** 两个 QA 席位分别 8/8 与 9/9 通过，且都实跑了选择器与探针：无信号负对照（rc=1，证明 `assert rc == 143` 不是空断言）与写失败探针（stderr + 仍以 143 退出）。这三项正是 L2 席位**无权执行**、因而显式路由给 QA 的。
+  3. **限制一律登记，不吸收。** 两个 plan 共登记 5 条 `defer` + 1 条 `waived`，每条都带触发条件、owner、完成定义；plan 2 的 `R4` 更是在 closure_note 里明写"知识半部尚未完成，交由 compound"——没有把"操作员面完成"说成"全部完成"。
+  4. **`Done` 与交付分离。** 两条 plan 行都在 Done note 里写清：`Done` 是行状态，不是交付声明；本机无 engine 动词这一环境限制被写明并传导给迭代尾段。
+- **可改进的：**
+  1. **修复波的 brief 范围来自席位子集，漏了一条 finding**（qc1 的 S4 时间戳字典序比较），是修复者自己发现并回报的——PM 汇总 finding 时应做一次"席位 × finding"的完整性核对，而不是凭记忆列清单。
+  2. **我自己的 consolidated 写了没核对的两个说法**（"`R5` was closed separately" 把未来动作写成既成事实；开放数 low 11 与 QA 数出的 13 未先对齐口径），都被 QA 抓住。**PM 发布数字前必须自己重算**，并把口径差写清楚。
+  3. **行号引用漂移**（L2 的 task-2 报告把测试锚点写偏约 490 行）——与上一迭代同一类问题；引用测试位置时优先用"测试名 + 结构"而非纯行号。
+  4. 引擎校验器（`qc validate-report` / `compound validate`）在本机不可用，各席位只能手工核对契约；`compound validate` 的引用规则更是无处可查（见 `iter-…·R1`）。
+- **下迭代建议：**
+  1. **开一个以 roadmap ① 为唯一大型目标的迭代**：`e2e-23191782-season-7686105 · R1`（medium）——让 ASR 链从 `archive.db` 取音频工作队列，终结"每次语料运行都要手工造 manifest"。它是当前唯一 medium，且完成定义已经写在 compass `## Roadmap Position ①`（三件事 + 一条命令 + 集成测试锚定 + 不留双写）。
+  2. 本轮五条低风险 `defer`（plan 1 的 `R1`、plan 2 的 `R1`–`R4`）**不单独立项**，随触及相应文件的 plan 顺带处理；`R6` 与 `20260918-verification-surface-truth` 的三条同理。
+  3. 收口时先处理 compass `## Delivery Branch Policy` 记录的 **merge hazard**（迭代分支曾 tracked 一份陈旧 snapshot）——本次合并已按"harness 归 main、产品归分支"显式处置，下一次应在 Phase 1 就避免把 `{HARNESS_DIR}` 的易变状态提交到集成分支。
