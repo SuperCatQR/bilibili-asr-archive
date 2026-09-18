@@ -239,11 +239,78 @@ def test_module_coverage_formats_and_diagnostic_exit(tmp_path: Path) -> None:
         assert_redacted(proc)
 
     manifest_path = tmp_path / "manifest" / "manifest.jsonl"
+    # Inverted: this half used to double the manifest and assert that the
+    # duplicated rows made `coverage` exit 1 with the code in stdout. A repeated
+    # work_id is ordinary append-only history, so the code must now be ABSENT and
+    # the denominator available. The non-zero half moves to real damage: a status
+    # outside VALID_STATUSES is still malformed.
     manifest_path.write_text(manifest_path.read_text() + manifest_path.read_text(), encoding="utf-8")
     diagnostic = run_module(["coverage", "--archive-root", str(tmp_path), "--format", "json"])
-    assert diagnostic.returncode == 1
-    assert "manifest_duplicate_work_id" in diagnostic.stdout
+    assert "manifest_duplicate_work_id" not in diagnostic.stdout
+    assert json.loads(diagnostic.stdout)["denominator"]["state"] == "available"
     assert_redacted(diagnostic)
+
+    manifest_path.write_text(
+        manifest_path.read_text()
+        + json.dumps({"work_id": "BV1broken:p1", "bvid": "BV1broken",
+                      "status": "no_such_status"})
+        + "\n",
+        encoding="utf-8",
+    )
+    malformed = run_module(["coverage", "--archive-root", str(tmp_path), "--format", "json"])
+    assert malformed.returncode == 1
+    assert "manifest_invalid_status" in malformed.stdout
+    assert_redacted(malformed)
+
+
+def test_module_verify_accepts_append_only_history(tmp_path: Path) -> None:
+    """CLI-level pin: real state history → `verify` exit 0; real damage → exit 1.
+
+    `cli.py` returns `0 if not payload["defects"] and not payload["diagnostics"]`,
+    so the exit code is the contract, not the report's shape. The attempts sidecar
+    must exist or `missing_attempts_sidecar` keeps the exit at 1 for an unrelated
+    reason.
+    """
+    from bili_asr.archive import write_archive
+    from bili_asr.manifest import ManifestStore
+
+    row = {"work_id": "BV1hist:p1", "bvid": "BV1hist", "cid": 7, "page_index": 1,
+           "pubdate_str": "20260828", "title": "A", "status": "needs_audio"}
+    paths = write_archive(tmp_path, {**row, "status": "archived"},
+                          [{"start": 0, "end": 1, "text": "ok"}], source="cc")
+    store = ManifestStore(root=str(tmp_path))
+    store.upsert(row)
+    store.upsert({**row, "status": "audio_ok"})
+    store.upsert({**row, "status": "archived", **paths})
+    attempts = tmp_path / "coordinator" / "attempts.jsonl"
+    attempts.parent.mkdir(parents=True, exist_ok=True)
+    attempts.write_text(json.dumps({
+        "stage": "archive", "work_id": "BV1hist:p1", "attempt": 1, "outcome": "ok",
+        "error_code": None, "artifact_paths": [],
+        "started_at": "2026-01-01T00:00:00Z", "finished_at": "2026-01-01T00:00:01Z",
+    }) + "\n", encoding="utf-8")
+
+    healthy = run_module(["verify", "--archive-root", str(tmp_path), "--format", "json"])
+    assert healthy.returncode == 0, healthy.stdout
+    payload = json.loads(healthy.stdout)
+    assert payload["defects"] == []
+    assert payload["diagnostics"] == []
+    assert_redacted(healthy)
+
+    # Negative control: a status outside VALID_STATUSES is still malformed and
+    # still fails the same command closed. It is appended to the file directly —
+    # `ManifestStore.upsert` refuses an unknown status, and a corrupt row is
+    # exactly what this half simulates.
+    manifest_path = tmp_path / "manifest" / "manifest.jsonl"
+    manifest_path.write_text(
+        manifest_path.read_text()
+        + json.dumps({"work_id": "BV1broke:p1", "bvid": "BV1broke",
+                      "status": "no_such_status"})
+        + "\n",
+        encoding="utf-8",
+    )
+    assert run_module(["verify", "--archive-root", str(tmp_path),
+                       "--format", "json"]).returncode == 1
 
 
 def test_cli_main_coverage_quality_valid_and_reclaimed_audio(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:

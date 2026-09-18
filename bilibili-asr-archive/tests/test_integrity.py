@@ -226,6 +226,44 @@ def test_append_only_history_is_not_a_structural_error(tmp_path: Path) -> None:
     assert report.diagnostics == []          # -> cli.py L2800 then returns 0
 
 
+def test_verify_exits_zero_on_history_and_non_zero_on_real_damage(tmp_path: Path) -> None:
+    """The exit contract, pinned in both directions through `cli.main`.
+
+    `cli.py`'s `_cmd_verify` returns `0 if not payload["defects"] and not
+    payload["diagnostics"] else 1`, so the exit code — not just the report shape
+    — is what must flip. The healthy half needs `coordinator/attempts.jsonl`;
+    without it `missing_attempts_sidecar` keeps the exit at 1 for an unrelated
+    reason.
+    """
+    from bili_asr import cli
+
+    row = {"work_id": "BV1x:p0", "bvid": "BV1x", "cid": 7, "page_index": 0,
+           "pubdate_str": "20260828", "title": "A", "status": "needs_audio"}
+    paths = write_archive(tmp_path, {**row, "status": "archived"},
+                          [{"start": 0, "end": 1, "text": "ok"}], source="cc")
+    healthy = [{**row, "status": "audio_ok"}, {**row, "status": "archived", **paths}]
+    _manifest(tmp_path, [row, *healthy])
+    attempts = tmp_path / "coordinator" / "attempts.jsonl"
+    attempts.parent.mkdir()
+    attempts.write_text(json.dumps(_attempt("BV1x:p0", "ok")) + "\n", encoding="utf-8")
+    assert cli.main(["verify", "--archive-root", str(tmp_path), "--format", "json"]) == 0
+
+    # A status outside VALID_STATUSES still reaches the else-branch and still
+    # fails the same command closed — the fix is bidirectional.
+    _manifest(tmp_path, [row, *healthy, {**row, "work_id": "BV1broken:p0",
+                                        "bvid": "BV1broken", "status": "no_such_status"}])
+    assert cli.main(["verify", "--archive-root", str(tmp_path), "--format", "json"]) == 1
+
+    # The same input still reaches the command as a defect list, not a silence.
+    from io import StringIO
+    import contextlib
+
+    buffer = StringIO()
+    with contextlib.redirect_stdout(buffer):
+        cli.main(["verify", "--archive-root", str(tmp_path), "--format", "json"])
+    assert STRUCTURAL_INPUT_ERROR in json.loads(buffer.getvalue())["diagnostics"]
+
+
 def test_manifest_overflow_is_non_authoritative(tmp_path: Path) -> None:
     _manifest(tmp_path, [{"work_id": str(i), "status": "pending"} for i in range(10001)])
     report = IntegrityVerifier().verify(tmp_path)

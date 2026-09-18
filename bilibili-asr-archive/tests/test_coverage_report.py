@@ -66,6 +66,23 @@ def codes(report):
     return {item["code"] for item in report.data["diagnostics"]}
 
 
+def _archived_rows(root: Path, *work_ids: str) -> list[dict]:
+    """Manifest rows for archived work_ids, each carrying a real state history.
+
+    Every returned work_id contributes two rows (`needs_audio` → `archived`) and
+    a complete transcript bundle, so the append-only shape — not the single-row
+    shape — is what a caller's fixture exercises. `write_fixture` rewrites only
+    the manifest, so the bundles survive the caller's `write_fixture(...)` call.
+    """
+    rows: list[dict] = []
+    for work_id in work_ids:
+        row = manifest_row(work_id, "needs_audio")
+        paths = write_archive(root, {**row, "status": "archived"},
+                              [{"start": 0, "end": 1, "text": "marker"}], source="cc")
+        rows += [row, {**row, "status": "archived", **paths}]
+    return rows
+
+
 def test_bvid_only_legacy_manifest_row_remains_checkable(tmp_path: Path):
     row = manifest_row("BVlegacy:p1")
     row.pop("work_id")
@@ -126,11 +143,21 @@ def test_latest_retryable_failed_and_skipped_attempts_diagnose(tmp_path: Path):
     assert report.data["rows"][0]["status"] == "meta_ok"
 
 
-def test_duplicate_manifest_makes_denominator_unavailable(tmp_path: Path):
-    write_fixture(tmp_path, [manifest_row("BVone:p1"), manifest_row("BVone:p1")])
+def test_append_only_manifest_history_keeps_denominator_available(tmp_path: Path):
+    """A repeated work_id is ordinary history, NOT a failure.
+
+    Inverted: this test used to be `test_duplicate_manifest_makes_denominator_unavailable`
+    and pinned the old contract by asserting `count is None` plus the code's
+    presence. Append-only state history is the store's normal encoding, so the
+    same input must now reach the opposite verdict.
+    """
+    write_fixture(tmp_path, [manifest_row("BVone:p1", "needs_audio"),
+                            manifest_row("BVone:p1", "audio_ok"),
+                            manifest_row("BVone:p1")])
     report = CoverageReport.build(tmp_path)
-    assert report.data["denominator"]["count"] is None
-    assert "manifest_duplicate_work_id" in codes(report)
+    assert report.data["denominator"]["count"] == 1
+    assert report.data["denominator"]["state"] == "available"
+    assert "manifest_duplicate_work_id" not in codes(report)
 
 
 @pytest.mark.parametrize("name,relative,payload", [
@@ -246,6 +273,78 @@ def test_cli_formats_and_status_sentinel(tmp_path: Path, monkeypatch, capsys):
 
 
 def test_cli_returns_diagnostic_exit(tmp_path: Path):
+    """`coverage` still exits non-zero, but only for real damage.
+
+    Inverted: this case used to double the manifest (an ordinary append-only
+    history transition) and assert that made `coverage` non-zero. The duplicate
+    is no longer a failure; a materially malformed input still is.
+    """
     from bili_asr import cli
-    write_fixture(tmp_path, [manifest_row("BVone:p1"), manifest_row("BVone:p1")])
-    assert cli.main(["coverage", "--archive-root", str(tmp_path), "--format", "json"]) != 0
+
+    # The archive must be otherwise healthy or an unrelated `terminal_missing_artifact`
+    # keeps the exit at 1 and masks the assertion being pinned.
+    rows = _archived_rows(tmp_path, "BVone:p1")
+    write_fixture(tmp_path, rows, cur=cursor(), sched=scheduler(ids=["BVone:p1"]),
+                  ledgers=[ledger(["BVone:p1"])], attempts=[attempt("BVone:p1")])
+    assert cli.main(["coverage", "--archive-root", str(tmp_path), "--format", "json"]) == 0
+
+    # An unknown manifest status is outside the vocabulary and names no verdict
+    # other than malformed, so it keeps the command failing closed. It is
+    # appended to the file directly: `ManifestStore.upsert` refuses to write an
+    # unknown status, and a corrupt row is exactly what is being simulated.
+    manifest_path = tmp_path / "manifest" / "manifest.jsonl"
+    unknown = manifest_row("BVtwo:p1")
+    unknown["status"] = "no_such_status"
+    manifest_path.write_text(
+        manifest_path.read_text() + json.dumps(unknown) + "\n", encoding="utf-8")
+    assert cli.main(["coverage", "--archive-root", str(tmp_path), "--format", "json"]) == 1
+
+
+def test_healthy_append_only_archive_reaches_exit_zero(tmp_path: Path):
+    """Two-way pin: healthy state history → exit 0 with a resolved denominator.
+
+    The exit-0 half needs every sidecar valid — an absent cursor, scheduler or
+    run-ledger reports `evidence_missing` and keeps the exit at 1 for a reason
+    unrelated to the manifest definition. Both work_ids carry a real state
+    history so the target of the pin is the append-only shape, not a single row.
+    """
+    from bili_asr import cli
+
+    rows = _archived_rows(tmp_path, "BVone:p1", "BVtwo:p1")
+    write_fixture(tmp_path, rows, cur=cursor(), sched=scheduler(),
+                  ledgers=[ledger()], attempts=[attempt("BVone:p1"), attempt("BVtwo:p1")])
+    report = CoverageReport.build(tmp_path)
+
+    assert report.data["denominator"] == {"unit": "work_items", "count": 2,
+        "state": "available", "source": "manifest_snapshot"}
+    assert report.data["cumulative"]["state"] == "complete"
+    assert "manifest_duplicate_work_id" not in codes(report)   # no exit-driving code
+    assert cli.main(["coverage", "--archive-root", str(tmp_path), "--format", "json"]) == 0
+
+    # Negative control: the same archive with one genuinely malformed row still
+    # fails closed — the fix is bidirectional, not a blanket silence. Appended
+    # directly, since `ManifestStore.upsert` refuses an unknown status and a
+    # corrupt row is what this half simulates.
+    manifest_path = tmp_path / "manifest" / "manifest.jsonl"
+    malformed = manifest_row("BVthree:p1")
+    malformed["status"] = "no_such_status"
+    manifest_path.write_text(
+        manifest_path.read_text() + json.dumps(malformed) + "\n", encoding="utf-8")
+    assert cli.main(["coverage", "--archive-root", str(tmp_path), "--format", "json"]) == 1
+
+
+def test_coverage_quality_accepts_append_only_history(tmp_path: Path):
+    """`coverage --quality` reaches the same verdict on the same archive (§3.3).
+
+    `--quality` reads the row's own artifacts, so the archive needs a real
+    transcript bundle rather than a manifest row alone — otherwise the row
+    reports `artifact_missing` and the exit stays 1 for a reason unrelated to
+    the manifest definition.
+    """
+    from bili_asr import cli
+
+    rows = _archived_rows(tmp_path, "BVone:p1")
+    write_fixture(tmp_path, rows, cur=cursor(), sched=scheduler(ids=["BVone:p1"]),
+                  ledgers=[ledger(["BVone:p1"])], attempts=[attempt("BVone:p1")])
+    assert cli.main(["coverage", "--archive-root", str(tmp_path), "--quality",
+                     "--format", "json"]) == 0
