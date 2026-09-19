@@ -20,4 +20,4 @@ Note: the bootstrap MVP iteration `iter-2026-08-wmz-asr-mvp` — the source of t
 `.mstar/specs/asr-archive-cli.md` — predates this index and its package is no longer on disk;
 only the frozen spec and `{KNOWLEDGE_DIR}/architecture-patterns/bilibili-asr-archive-cli.md`
 still reference it.
-| `iter-2026-09-artifact-root` | 2026-09-19 | draft (Phase 1, decisions D1-D6 open) | Make the audio/product output location configurable so products can live outside the archive root |
+| `iter-2026-09-artifact-root` | 2026-09-19 | completed | Make the audio/product output location configurable (`--artifact-root`/`BILI_ARTIFACT_ROOT`) so the products can live outside the archive root while state stays; the confinement guard is re-based and audio retention becomes a flag defaulting to retain |

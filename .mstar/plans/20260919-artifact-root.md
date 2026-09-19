@@ -687,3 +687,161 @@ improvised. If a handler cannot pass the resolved roots without reading the envi
 would put configuration resolution back into the library, which D15 forbids. If driving a command end-to-end
 requires a real mount, a network call, or an installed (non-editable) package, STOP and report: that evidence
 belongs to the separate E2E workflow, never to this plan (Global Constraints).
+
+---
+
+## PM rulings after Task 2 (2026-09-19) — plan gaps found by the implementer
+
+**R1 — `CampaignRunner` needs `keep_audio`; accepted as a strict superset.** The task's `Produces` list named
+`campaign.CampaignRunner(archive_root, *, ..., artifact_roots=None)` and "nothing else in the file", but
+`cli._cmd_campaign` builds that runner and the runner is the only path to `RunCoordinator._reclaim_audio` — taken
+literally, `campaign`'s own `--keep-audio/--no-keep-audio` (spec §7, D18) would have been **inert**. The
+implementer added `keep_audio: bool = True` and forwarded it (two lines). **Ruling: accepted**, because a
+documented flag that silently does nothing is worse than a two-line superset of a plan's interface list.
+**T4 must pass `keep_audio=args.keep_audio` at `cli.py:2398-2405`.**
+
+**R2 — the D5 flip's test blast radius was under-specified; T4 owns the repair.** `reclaim_audio`'s `keep` is
+keyword-only and **required**, so `cli._reclaim_after_archive` (`cli.py:1956`) raises `TypeError` until T4 wires
+it: measured `pytest tests/test_cli_asr.py tests/test_cli_pilot.py -q` → **13 failed, 21 passed**. Neither file is
+in any task's `Files` list although both sit in T4's selector set, and `tests/test_long_live.py` (in T2's selector
+set, owned by no task) asserted post-archive reclaim in two cases — the implementer **inverted those two
+expectations minimally with an inline comment** because no CLI flag exists yet to express their intent.
+
+**Rulings:**
+- The inversion is accepted **as a mid-plan state only**. **T4's Files list gains `tests/test_cli_asr.py`,
+  `tests/test_cli_pilot.py` and `tests/test_long_live.py`**, with the instruction to add `"--no-keep-audio"` to the
+  two `main([...])` calls in `test_long_live.py`, **restore** the reclaim assertions there, and treat
+  `tests/test_cli_pilot.py:156-157` the same way once the CLI wiring exists.
+- Until T4 lands, `tests/test_cli_asr.py` and `tests/test_cli_pilot.py` are **known-red**: the failures are all
+  `archive failed (TypeError)` from the unwired CLI, they are **not** T3's to fix, and the plan QC must read them
+  as this ruling's consequence rather than as an unexplained regression.
+- The budget **skip line is `cli.py:2217-2221`**, i.e. T4's Q1 clause (the implementing round confirmed it is not in
+  T2's files).
+
+---
+
+## PM rulings after Task 3 (2026-09-19)
+
+**R3 — `verify`'s grading base must probe BOTH bases per path (Important; fix loop on T3's slice).**
+`integrity.py`'s `_graded_base` picked **one** base per row (the configured root, since `read_bases()` is
+artifact-first) and probed the required paths and the raw document only there, while §10 requires probing both.
+Reachable on the legacy harvested-caption shape: the identity run reports `['malformed_artifact',
+'missing_transcript']` and the configured run reports `['missing_raw_subtitle','missing_transcript']` — **a true
+defect hidden and a false one invented**, which is worse than either alone. It is not a clean→broken flip, which
+is why the seat graded it Important rather than Critical. **Ruling: fix in T3's slice** (`integrity.py` plus
+`tests/test_integrity.py` and `tests/test_artifact_root_readers.py`), because the defect is in the reader's
+grading logic, not in the boundary.
+
+**R4 — the §9 refusal does not cover an existing-but-unopenable configured root; T4 owns it.**
+`integrity.py` silently dropped such a base (the seat's M1), and the boundary's refusal covers only
+symlinked / missing / not-a-directory (`artifact_root.py`). **Ruling: T4's Files list gains
+`src/bili_asr/artifact_root.py` for that one clause** — an existing directory the process cannot open is
+"unusable" under D17 and must take the named exit-1 refusal rather than degrading to a dropped base — plus a
+pin for it. T1's module is otherwise Approved and must not be re-opened beyond this clause.
+
+**M2/M3/M4 — no code change owed; recorded so plan QC can see the reasoning.**
+M2 (identity micro-deltas: a new partial declared-bundle `_safe_path` loop; `ArtifactRoots.of` receiving the raw
+archive root) changes no legal row's verdict. M3 (unreachable fallbacks in `export.py`/`search_index.py`) and M4
+(a lexical-vs-existence base mismatch for a recorded **absolute** value, which §5 already declares illegal) are
+cleanup at best. If T4 touches those files for its own reasons it may take them; otherwise they ride to plan QC
+as ledger items rather than as new work.
+
+**R5 — the defect report does NOT name the base; the closed vocabulary stands.** The T3 fix round fixed I1 but
+declined to add a base-bearing field, correctly flagging it instead of inventing one: the shipped vocabulary is
+`IntegrityDefect(work_id, code)` / `to_dict → {"work_id","code"}` (rendered at `cli.py:3105`), and `diagnostics`
+is a **closed code set** that feeds `recover --defect-code`. Naming the base would therefore be a report-vocabulary
+change with exit-code consequences, not a local improvement. **Ruling: keep the closed vocabulary.** An operator
+who needs the base already has both inputs (the row's recorded value and the configured root), and the fix's
+observable promise — the *same* verdicts with and without a configured root — is what the criterion needs. If a
+future round wants base attribution it must come with the vocabulary change spelled out, as its own plan.
+
+**Also accepted, judged differently from the review and the reviewer should confirm it:** the fix declined the
+seat's suggested "bundle-complete base as an ordering hint", on the ground that an ordering hint would mask a
+defect that is real at the artifact base behind an intact copy elsewhere — which is exactly what the PM's pin
+forbids. Reads follow strict `read_bases()` order and the bundle decides **completeness only**; §5's only disclosed
+masking case is a base that *refuses* a candidate, not a regular file that fails to parse.
+
+---
+
+## PM rulings after Task 4 (2026-09-19) - the last task's four questions
+
+**R6 - the refusal vocabulary is FOUR lines; `artifact root cannot be opened (<path>)` is accepted.** R4 required a
+refusal for an existing-but-denied directory, and the implementer added a new tail rather than reusing one, on the
+ground that neither "does not exist" nor "is not a directory" is true of that input and reusing one would weaken
+the pin for the case it names. **Ruling: accepted**, and the spec's section 9 now lists four lines with a disclosure.
+A message that is literally false is worse than a fourth vocabulary item, and each of the four names a distinct,
+checkable condition.
+
+**R7 - editing `tests/test_campaign.py` was authorised.** Seven of its cases build a fake `argparse` namespace and
+call `cli._cmd_campaign` **directly**, bypassing `main()`; four broke once the handler reads the resolved values.
+The implementer added the two fields to those namespaces rather than putting `getattr` fallbacks into production
+code - **which is the right call**: a silent fallback is precisely the class of defect this iteration keeps removing
+(cf. T2's `_mark_audio_ok`). Same precedent as `tests/test_persistence_scale.py` in the previous iteration: a file
+the plan did not name, broken *by* the change, repaired minimally and disclosed.
+
+**Accepted reading - section 4 governs writes, D8 governs reads.** The `asr`/`pilot` ASR stage reads a **recorded**
+`audio_path` through the ordered bases even though section 4's write map sends the descriptor open to the artifact
+root. A single-base read there would break D6 (legacy audio at the archive root), which is the promise the two-base
+rule exists to keep. Recorded so plan QC does not read the asymmetry as an oversight.
+
+**Owed by the PM (not by any task).** D19's `{SPECS_DIR}/asr-archive-cli.md` revision, now naming three rows: the CLI
+surface gains `--artifact-root`/`--keep-audio`; the Outputs block's "cleanup flag is next-iteration scope" line is
+**inverted** by D5's retain-by-default; and the module-boundary block gains `artifact_root.py`. The implementer
+correctly recorded rather than wrote it, and correctly declined to put a harness-internal debt note into user docs.
+
+**R8 - the Q1 hint is intentionally NOT added to the schedule path's skip line (PM accepted the implementer's
+judgement).** Two sites print an `audio_budget` skip: the run path (`cli.py:2741-2752`, which now carries the clause,
+from the shared `_AUDIO_BUDGET_SKIP_HINT`) and the schedule path (`cli.py:3007-3011`). The implementer declined the
+second, and the reason is the same claim discipline this iteration has enforced throughout: in schedule's
+`--allow-long-live` mode `--max-audio-gb 0` is **refused** by `long_live.refuse_disabled_audio_cap`, so "0 = unlimited"
+would be **partly false advice** on that path. A hint that is false in one mode is worse than an absent hint; if an
+operator later reports the confusion, the fix is a mode-aware clause, which is its own small change and not this
+plan's. `campaign` prints `audio_budget` only inside a JSON `reason_codes` field, not as a skip line.
+
+**Ledger leftovers (same class, not taken - outside the task's write scope, reported so plan QC sees them).**
+`src/bili_asr/coordinator.py:533` repeats the "on another device" assumption in `_note_audio_peak`'s docstring (not
+operator-facing output); the schedule skip line above. Neither changes behaviour.
+
+---
+
+## Review Gate Summary
+
+**Verdict: approve** - plan QC tri-review (mandatory, N=3) over `cee0b94..2ee3bb5`, then **two** fix waves and two rounds
+of re-verification over `2ee3bb5..c72ce43..62a316d`.
+
+All three seats end at `Approve`: qc1 (architecture) and qc3 (reliability) from `Request Changes`, qc2 (correctness) from
+the first re-review. The tri-review's **Critical** was reachable and read-only reproduced by qc1: `pilot` could not
+archive a legacy row whose audio sat at the archive root once a root was configured (the ASR stage read over both bases
+but re-confined against the write base alone) - a break of D6's "an existing archive keeps working". Two seats then
+independently confirmed a **second route** to the same family on the download branch; the PM ruled it fixed rather than
+registered (two of three seats called it blocking), and the fix preserved the self-heal order qc2 identified
+(`_mark_audio_ok` writes before anything can raise - explicitly out of scope, `audio.py` untouched).
+
+Consolidated: `{SDD_DIR}/20260919-artifact-root/review/qc-consolidated.md`; seats `qc1.md`, `qc2.md`, `qc3.md`.
+
+**Two corrections the seats made to the PM's own text are recorded rather than absorbed:** the PM's R3 inference that a
+0-byte stub makes the row fail closed was disproved by both re-review seats (the producers are validity-aware; the real
+cost is one extra fast-path call), and the QA seat found R1's M3 clause describing pre-fix `reclaim_audio`.
+
+## QA Gate Summary
+
+**Verdict: approve with residuals** (`review/qa.md`, sha256 `ffb6c9e2535e84325bcfcd546e1809f21c4d87e70501276238978635f711a47b`)
+- **QA gate: mandatory** (open `R#` on this plan + a behaviour change), **QA mode: targeted**.
+
+All seven acceptance criteria pass on evidence the seat ran itself: **600 passed / 0 failed / 4 deselected** across 21
+files (exceeding the implementers' 244-wide set, which it reproduced rather than trusted), plus three probes - the
+resolution semantics, the four refusals through the real `cli.main` (with `{archive_root}/coordinator/` confirmed
+uncreated), and a 17-command `--help` sweep matching the operator docs exactly (11 + 5, four refusal tails byte-identical,
+cap-hint claims naming `run`/`pilot` only).
+
+**Residuals disclosed and kept open:** `iter-2026-09-artifact-root · R1` (low, the write path's latent silent-no-upsert),
+`· R2` (medium, the measurement hardening + fixtures + the two unreached `fail-closed` doc lines; must not be closed by
+documentation alone), `· R3` (medium, five pairing sites + the validity-vs-existence divergence + S4). None is a
+blocker-defer; no unresolved `critical`.
+
+**Carried uncertainties (disclosed, not absorbed):** the existing-but-unopenable refusal rests on a shipped green pin and
+a source read because the session runs as root (no EACCES to reproduce); R2's network-mount walk cost is unmeasured (no
+mount); S4/S3 are citations only.
+
+**PM owed at close:** the `{SPECS_DIR}/asr-archive-cli.md` revision (D19) - **done 2026-09-19** with this close (the CLI
+surface note, the `artifact_root.py` leaf in the module boundary, and the cleanup line that D5 inverted).

@@ -1,7 +1,7 @@
 # Spec: the artifact root — relocatable products, state that stays put
 
 **Status:** architecture locked (2026-09-19, architect pass) — iteration `iter-2026-09-artifact-root`, Phase 1.
-**Consumers:** plan `20260919-artifact-output-root` (`{PLAN_DIR}/20260919-artifact-output-root.md`).
+**Consumers:** plan `20260919-artifact-root` (`{PLAN_DIR}/20260919-artifact-root.md`).
 **Charter:** iteration compass `D1`–`D6` (user-locked 2026-09-19,
 `{ITERATION_DIR}/iter-2026-09-artifact-root/delivery-compass.md:43-52`) plus the decisions this contract settles
 (D7–D20, §3–§10).
@@ -133,7 +133,7 @@ Applied once, at the command boundary, to the value that resolved:
 | Value | Verdict | Why |
 |---|---|---|
 | lexically equal to the archive root (`os.path.abspath` comparison) | **accepted, identity case** — one base, today's code path, not validated further | an explicit no-op must be a no-op: the archive root's own lifecycle (created on demand by the shipped writers, `manifest._open_manifest_dir(create=True):108-127`) must not change because someone passed a redundant flag |
-| an existing directory | accepted; the artifact subdirectories (`audio/`, `transcripts/{srt,txt,md,raw}/`, `subtitles/raw/`) are created on demand inside it exactly as today (`path_policy.open_audio_directory(create=True):47-55`, `archive._open_transcript_dirs(create=True):72-88`, `subtitles.py:139-140`) | the root is the operator's mount point; the product tree below it is the pipeline's |
+| an existing **non-symlink** directory | accepted; the artifact subdirectories (`audio/`, `transcripts/{srt,txt,md,raw}/`, `subtitles/raw/`) are created on demand inside it exactly as today (`path_policy.open_audio_directory(create=True):47-55`, `archive._open_transcript_dirs(create=True):72-88`, `subtitles.py:139-140`) | the root is the operator's mount point; the product tree below it is the pipeline's. **A symlinked configured root is refused** (§3.2, §6): the check is `islink` on the final component, the same strictness `O_NOFOLLOW` applies to `audio/`, and it is what D4's "a symlinked target directory is still refused" requires. *(PM amendment 2026-09-19: the row previously read "an existing directory", which contradicted §3.2/§6 and let the shipped check pass a symlink — the L2 review of Task 1 found the split.)* |
 | does not exist | **refused** — exit 1, before any work: `artifact root does not exist (<path>)` | creating it is the wrong default: an unmounted FUSE mount point still exists as an empty directory, and auto-creating a *missing* one would publish products to the underlying filesystem instead of the mount. Fail closed, name the path |
 | exists, not a directory | **refused** — exit 1: `artifact root is not a directory (<path>)` | nothing can be written below a non-directory |
 | a path inside the archive root (e.g. `{archive}/artifacts`) | **accepted** | a legitimate "keep the root clean" layout; the two bases are distinct and the ordered resolution (D8) handles it. Refusing it would need a `relative_to` test whose only effect is to forbid something harmless |
@@ -292,7 +292,7 @@ two things that were impossible become possible *by design*:
 | an artifact root **inside** the archive root | impossible to express | **allowed** (§3.3) |
 | a value with `..` after normalisation | n/a — `abspath` is applied at the root boundary (`archive.py:265`) | still impossible to *record* (`path_policy._audio_parts:23`, `archive._component_names:57`) |
 | an `audio_path` that escapes the root it is validated against | refused (`path_policy:87-89`) | refused, now per base — `audio/../secret.m4a`, `/tmp/x.m4a`, `audio/x.wav`, `audio/sub/x.m4a` all still return `None` (`tests/test_persistence_scale.py:527-546` pins this) |
-| a **symlinked root** | refused (ELOOP from `O_NOFOLLOW` on the root, `path_policy:38-40`, `archive.py:266-269`) | refused for **either** root — the configured root is not `resolve()`d (§3.2) |
+| a **symlinked root** | refused (`O_NOFOLLOW` on the root; the observed errno is **ENOTDIR**, because `O_DIRECTORY` is set as well — `ELOOP` is what a bare `O_NOFOLLOW` open would give, and the module refuses a configured symlinked root up front so neither errno is the operator's first signal. *(PM correction 2026-09-19: the fix round's probe measured ENOTDIR; the parenthetical named ELOOP, which is the class this iteration keeps catching.)*`path_policy:38-40`, `archive.py:266-269`) | refused for **either** root — the configured root is not `resolve()`d (§3.2) |
 | a **symlinked `audio/` directory** | refused (`path_policy:43-46`) | refused under either base |
 | a **symlinked audio file** | refused at open (`path_policy:63-65`, `O_NOFOLLOW`; ELOOP → `ValueError` in `unlink_confined_audio:167-169`) and at stat (`:101-106`) | refused under either base |
 | a **non-regular** entry (directory, fifo, device) | refused (`:68-69`, `:105-106`) | refused under either base |
@@ -321,7 +321,7 @@ which is why state does not move: §2.2).
   → **default (keep)**. `audio_reclaim.py:46` (`os.environ.get("BILI_KEEP_AUDIO") == "1"`) is **removed**: the
   library receives `keep: bool` and never reads the environment (D15). Existing behaviour is preserved for
   both documented values — `=1` keeps and `=0` reclaims, as `tests/test_audio_retention_policy.py:31-33`,
-  `:63-65`, `:93-95` assert today; only the *unset* case changes, which is the user-locked flip.
+  `:63-65`, `:93-95` assert today. Two cases change, and both are stated here rather than left to a reader: the **unset** case (the user-locked flip from reclaim to retain) and **`BILI_KEEP_AUDIO=" 1 "`**, which the old `os.environ.get(...) == "1"` comparison treated as *not* set (reclaim) while the resolved rule treats any value other than a literal `"1"`/`"0"` as the default, i.e. retain. *(PM amendment 2026-09-19, closing the L2 review's M4.)*
 - **Where it takes effect:** `coordinator._reclaim_audio` (`:497-505`) and `cli._reclaim_after_archive`
   (`:1951-1958`) both call `reclaim_audio`. Each gains the resolved value; the best-effort
   `except (OSError, ValueError): pass` stays (a row is already `archived` when reclaim runs, `:487`).
@@ -387,6 +387,7 @@ for scoping a flag to the commands that honour it is `--trusted-local` (`:395`, 
 ```text
 <command>: artifact root does not exist (<path>)
 <command>: artifact root is not a directory (<path>)
+<command>: artifact root cannot be opened (<path>)
 ```
 
 Exit-code taxonomy is unchanged: these are usage/config errors, the frozen exit `1`
@@ -560,3 +561,5 @@ three claims are narrower than stated. Everything else held.
 - "Add a second writer lock on the artifact root" — rejected in §8/§14 (the lock protects state; publication is
   staged per stem).
 - "Relocate state too" — rejected by D1 and §2.2 (SQLite locking and the manifest fsync pair on FUSE).
+
+*(PM amendment 2026-09-19, after Task 4: the refusal set is **four** lines, not three. The fourth - `cannot be opened` - was added because none of the other three states an existing-but-denied directory truthfully: "does not exist" and "is not a directory" would both be false, and reusing either would weaken the pin for the case it names. It follows the symlink tail's precedent, and the behaviour is identical either way: exit 1, a named line, no body written, no directory created.)*

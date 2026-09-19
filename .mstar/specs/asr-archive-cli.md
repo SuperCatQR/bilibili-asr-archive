@@ -39,6 +39,15 @@ bili-asr pilot --n 20
 bili-asr status
 ```
 
+> **Revision 2026-09-19 (iteration `iter-2026-09-artifact-root`).** The frozen list above predates the commands added
+> since (`derive-manifest`, `coverage`, `coverage --quality`, `verify`, `recover`, `export`, `search`, `schedule`,
+> `campaign`, `runs`, `reconcile`). Two operator-facing flags landed with that iteration and are part of the shipped
+> surface: **`--artifact-root`** (also `BILI_ARTIFACT_ROOT`; flag wins; unset = the archive root) on the **11** commands
+> that write or read artifact paths, and **`--keep-audio` / `--no-keep-audio`** on the **5** commands that reach the
+> reclaim path. A configured root is validated before the writer lock and refused with one of four named lines
+> (`artifact root does not exist | is not a directory | is a symlink | cannot be opened`, exit 1). Contract:
+> `{ITERATION_DIR}/iter-2026-09-artifact-root/specs/artifact-root-contract.md`.
+
 - Entrypoint: **`bili-asr`** (frozen; no longer "or `wmz-asr`").
 - `pilot` selects a mix: short videos preferred, ≥1 without subtitles (audio→ASR branch), ≥1 with subtitles (zero-ASR branch); `--n` may be lowered for smoke runs.
 - All commands print a summary of manifest state changes; all are idempotent/resumable.
@@ -56,6 +65,8 @@ cli.py            # argparse commands only; no HTTP/ASR logic
   ├─ audio.py     # playurl parse + stream download + ffmpeg remux (calls bili_client for HTTP).
   ├─ asr.py       # SenseVoice wrapper + segment→srt/txt. Import-guarded; no Bilibili knowledge.
   └─ archive.py   # File writers: transcripts/{srt,txt,md,raw} + frontmatter. Pure formatting, no network.
+  └─ artifact_root.py  # Policy leaf: resolves/validates the artifact root and carries the read/write bases.
+                    # stdlib only; imported by cli, the readers and the writers. No I/O beyond probing the root.
 ```
 
 - Cross-layer rule: `subtitles`/`audio`/`asr`/`archive` never import each other; only `cli` (and `pilot` orchestration in `cli`) composes them.
@@ -129,7 +140,8 @@ archive/
   meta/{bvid}.json
   subtitles/raw/{bvid}.json
   transcripts/{srt,txt,md,raw}/
-  audio/{bvid}.m4a   # optional retain; cleanup flag is next-iteration scope
+  audio/{bvid}.m4a   # retained by default since iter-2026-09-artifact-root (--keep-audio /
+                     # --no-keep-audio, BILI_KEEP_AUDIO=1/0); reclaimed audio is expected absence
 ```
 
 ## Verification (DoD)
