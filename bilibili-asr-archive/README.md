@@ -605,7 +605,8 @@ seams as the single-purpose commands. It **complements** the frozen
 This chain is driven from the manifest state only: `run`, `pilot`, `asr`, and
 `schedule` never read `archive.db`, so transcripts stored by the SQLite
 `harvest-subs` do not feed them (and `harvest-subs` no longer marks rows
-`needs_audio`). See
+`needs_audio`; `bili-asr derive-manifest` is what carries this store's audio
+queue across, by appending a `needs_audio` row per captionless part). See
 [Subtitle acquisition on SQLite](#subtitle-acquisition-on-sqlite-probe-subs--harvest-subs)
 for that boundary.
 
@@ -969,10 +970,13 @@ and is not `gone` — the relation `harvest-subs` reports as
   exits `1` with `derive-manifest: archive_busy`. As with `harvest-subs`, the
   lock is taken before the database check, so even a mistyped `--archive-root`
   creates `<root>/coordinator/` and exits `1` without touching the database.
-- **What reads the rows**: `download-audio --missing-subs`, `asr --pending`,
-  `pilot`, and `run` / `schedule` / `campaign --scope pending` select them, and
-  `coverage`, `coverage --quality`, `verify`, and `export` read them. This
-  iteration adds the rows only; none of those readers changes.
+- **What reads the rows**: `download-audio --missing-subs`, `pilot`, and
+  `run` / `schedule` / `campaign --scope pending` select them. `asr --pending`
+  reaches one only after `download-audio` has advanced it to `audio_ok`: that
+  selector takes `subtitle_done` / `audio_ok` rows, never the appended
+  `needs_audio` row itself. `coverage`, `coverage --quality`, `verify`, and
+  `export` read them. This iteration adds the rows only; none of those readers
+  changes.
 - **Two limits, stated**: the store records no per-part audio outcome, so a
   bounded run that keeps failing the same part re-selects it — rotation holds
   after a successful attempt, not after a failed one. And the SRT/TXT/MD

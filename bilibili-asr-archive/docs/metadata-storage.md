@@ -5,8 +5,11 @@ Normalized SQLite storage for the video metadata collected by
 This document describes the database the metadata and subtitle CLI commands
 create, read, and write. The legacy JSONL manifest pipeline
 (`manifest/manifest.jsonl`, `meta-cursor.json`, `run-ledger.jsonl`) is a
-separate, untouched state: none of these commands read it, and no command
-migrates old data into the new database.
+separate state: the metadata and subtitle commands described here do not read
+it, and no command migrates old data into the new database. `bili-asr
+derive-manifest` is the one command that does — it reads the manifest so its
+appends stay additive, and appends to it; see
+[Boundary with the legacy manifest path](#boundary-with-the-legacy-manifest-path).
 
 ## Fresh-start behavior (no migration)
 
