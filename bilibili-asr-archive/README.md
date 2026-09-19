@@ -330,18 +330,25 @@ in committed files or CI artifacts.
 ## Workflow
 
 ⚠️ **The `probe-subs` / `harvest-subs` pair writes to `archive.db`, not to the
-manifest, so it feeds nothing below it.** The ASR/pilot chain
+manifest; `bili-asr derive-manifest` is what carries that store's audio queue
+across.** The ASR/pilot chain
 (`download-audio`, `asr`, `pilot`, `run`, `schedule`, `campaign`) is still driven
-from `manifest/manifest.jsonl`, and the new `harvest-subs` no longer marks rows
-`needs_audio`: `download-audio --missing-subs` gains no entries from the step
-above it, and `asr --pending` does not see the stored transcripts. Run the
-subtitle step for the SQLite archive itself; the legacy chain keeps its own
-harvest (see the boundary bullet under
-[Subtitle acquisition on SQLite](#subtitle-acquisition-on-sqlite-probe-subs--harvest-subs)).
+from `manifest/manifest.jsonl`, and `harvest-subs` still marks no rows
+`needs_audio` itself: `derive-manifest` appends a `needs_audio` row for every
+stored part that holds no transcript and is not `gone`, so
+`download-audio --missing-subs` now does gain entries from the step above it —
+additively, and without rewriting a row the chain already holds. What still does
+not cross: `asr --pending` does not see the stored transcripts, and no SRT/TXT/MD
+projection is rebuilt from them. Run the subtitle step and the derivation for the
+SQLite archive itself; the legacy chain keeps its own harvest (see the boundary
+bullet under
+[Subtitle acquisition on SQLite](#subtitle-acquisition-on-sqlite-probe-subs--harvest-subs)
+and the [derived audio queue](#derived-audio-queue-bili-asr-derive-manifest)).
 
     bili-asr fetch-meta --mid 23191782 --archive-root archive
     bili-asr probe-subs --limit-parts 5 --archive-root archive
     bili-asr harvest-subs --limit-parts 5 --archive-root archive
+    bili-asr derive-manifest --archive-root archive
     bili-asr download-audio --missing-subs --archive-root archive
     bili-asr asr --pending --archive-root archive
     bili-asr status --archive-root archive
@@ -434,7 +441,7 @@ Paths, exception text, and input values are never emitted.
 ### Archive writer isolation
 
 Every archive-mutating command (`fetch-meta`, `recover`, `asr`, `pilot`,
-`harvest-subs`, `download-audio`, `run`, `campaign`, and
+`harvest-subs`, `derive-manifest`, `download-audio`, `run`, `campaign`, and
 `schedule`) holds one archive-root writer lock from initial state load through
 its final state/sidecar write. A second mutation exits `1` with
 `<command>: archive_busy`; it does not wait or partially mutate the archive.
@@ -903,12 +910,13 @@ observed live run, is in
   `src/bili_asr/storage/schema-transcripts.sql`.
 - **Legacy manifest boundary**: the ASR/pilot chain is untouched and still reads
   `manifest/manifest.jsonl`, so `asr --pending`, `pilot`, `run`, `schedule`, and
-  `campaign` do not see transcripts stored here. In particular the new
-  `harvest-subs` no longer produces the manifest status `needs_audio`, so
-  `download-audio --missing-subs` gains no new entries from the SQLite subtitle
-  path — the two paths do not feed each other yet. Rebuilding the SRT/TXT/MD
-  projections from the stored transcripts is deferred work for a later
-  iteration.
+  `campaign` do not see transcripts stored here. `harvest-subs` itself still
+  produces no manifest status `needs_audio`; `bili-asr derive-manifest` is what
+  feeds `download-audio --missing-subs` from this path, by appending one
+  `needs_audio` row per captionless part (see the
+  [derived audio queue](#derived-audio-queue-bili-asr-derive-manifest)).
+  Rebuilding the SRT/TXT/MD projections from the stored transcripts is still
+  deferred work for a later iteration.
 - **Writer lock**: `harvest-subs` is an archive-writer command and holds
   `{archive-root}/coordinator/archive-writer.lock` for the whole run, so a
   second mutating command exits `1` with `harvest-subs: archive_busy`. Apart
@@ -917,6 +925,60 @@ observed live run, is in
   command's database check, so even a failed or mistyped harvest — a missing
   `--archive-root`, say — creates `<root>/coordinator/` and leaves the lock file
   there while exiting `1`; nothing reaches the database.
+
+#### Derived audio queue (`bili-asr derive-manifest`)
+
+`bili-asr derive-manifest` bridges the store to the chain's queue, and is the
+only command that reads `archive.db` and writes `manifest/manifest.jsonl` in one
+run. It appends one `needs_audio` row per stored part that holds no transcript
+and is not `gone` — the relation `harvest-subs` reports as
+`remaining_without_transcript`:
+
+    bili-asr derive-manifest --archive-root archive
+
+- **Command surface**: `--archive-root PATH` (default `archive`), nothing else —
+  no selector, no `--limit`, no `--dry-run`.
+- **Reads**: `{archive-root}/archive.db`, opened **read-only**. The queue is the
+  parts that are not `gone` and hold no transcript, so a part recorded
+  `no-subtitle` is in it and a part whose caption is already stored is not. A
+  missing, unreadable, or pre-transcript-schema database is answered with the
+  same bounded lines and exit `1` the other subtitle commands print; nothing is
+  created and no live database is widened.
+- **Writes**: appended rows in `manifest/manifest.jsonl`, and only appended.
+  Each carries the page-qualified `work_id`, the part's stored duration as
+  `duration_s`, and `status: needs_audio`. A row the chain already holds for that
+  `work_id` is never rewritten, so a second run appends nothing and the effective
+  state (the last row per `work_id`) is unchanged. Nothing is written to
+  `archive.db` — the queue set is identical before and after — and no download or
+  ASR work starts.
+- **Does not do**: materialise a subtitle document, derive a `subtitle_done` (or
+  `audio_ok` / `asr_done` / `archived` / `gone`) row, migrate or import anything
+  in either direction, change or widen the store's schema, or rebuild the
+  SRT/TXT/MD projections from the stored transcripts.
+- **Output shapes**: one line per appended row
+  `<work_id>: needs_audio (duration_s=<n>)`, then one `skip <work_id> <reason>`
+  line for each row left to the chain (`chain_owned`) and each row whose stored
+  `work_id` contradicts the identity rule (`identity_mismatch`), and closes with
+  `derive-manifest: queue=<n> derived=<n> already_derived=<n> chain_owned=<n>
+  identity_mismatch=<n>`, carrying every count including the zeros.
+- **Exit codes**: `0` the derivation completed, an empty queue included; `1` the
+  command could not run (missing or unreadable database, the transcript-schema
+  guard, `archive_busy`, usage). No path of this command produces `2`.
+- **Writer lock**: `derive-manifest` is an archive-writer command, so it holds
+  `{archive-root}/coordinator/archive-writer.lock` and a second mutating command
+  exits `1` with `derive-manifest: archive_busy`. As with `harvest-subs`, the
+  lock is taken before the database check, so even a mistyped `--archive-root`
+  creates `<root>/coordinator/` and exits `1` without touching the database.
+- **What reads the rows**: `download-audio --missing-subs`, `asr --pending`,
+  `pilot`, and `run` / `schedule` / `campaign --scope pending` select them, and
+  `coverage`, `coverage --quality`, `verify`, and `export` read them. This
+  iteration adds the rows only; none of those readers changes.
+- **Two limits, stated**: the store records no per-part audio outcome, so a
+  bounded run that keeps failing the same part re-selects it — rotation holds
+  after a successful attempt, not after a failed one. And the SRT/TXT/MD
+  projection rebuild stays out of this iteration: a stored caption keeps no
+  `srt`/`txt`/`md` bundle until that rebuild lands, and it is not re-queued for
+  audio either, because the derived queue is the no-transcript relation.
 
 #### Opt-in bounded live smokes
 

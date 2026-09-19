@@ -292,16 +292,26 @@ not migrate the rest of the archive. The ASR and pilot chain (`asr`, `pilot`,
 `run`, `schedule`, `campaign`, `download-audio`) is untouched and still reads
 `manifest/manifest.jsonl`:
 
-- the new `harvest-subs` no longer produces the manifest status `needs_audio`,
-  so the legacy audio feeder `download-audio --missing-subs` gains no new
-  entries from the SQLite subtitle path;
+- the new `harvest-subs` still produces no manifest status `needs_audio` itself;
+  `bili-asr derive-manifest` is the command that feeds `download-audio
+  --missing-subs` from this path, by appending a `needs_audio` row per part in
+  the pending-subtitle relation — the parts recorded `no-subtitle` are that
+  queue — additively, never rewriting a row the chain already holds;
 - `bili-asr asr --pending` and the pilot chain are still driven from the
   manifest state, not from `archive.db`, so a transcript stored here does not
-  feed them;
-- the two paths do not feed each other yet. Rebuilding the SRT/TXT/MD
-  projections from the stored transcripts, and enumerating the audio work queue
-  from SQLite — including the parts recorded `no-subtitle`, which are that
-  queue — belong to the next iteration.
+  feed them. The bridge runs the other way round: store facts are appended to the
+  manifest, and the read-only store connection means nothing is ever read back
+  into the database;
+- of the work this section used to defer, enumerating the audio work queue from
+  SQLite has shipped, as `bili-asr derive-manifest --archive-root <root>`. It
+  writes no `archive.db` row and starts no download and no ASR: the operator
+  still runs `download-audio` / `asr` / `run` / `schedule` / `campaign` from the
+  appended rows;
+- still deferred: rebuilding the SRT/TXT/MD projections from the stored
+  transcripts, together with the stem/version-identity decision that rebuild
+  needs. Until it lands, a part whose caption is already stored holds no
+  `srt`/`txt`/`md` bundle — and it is not re-queued for audio either, because the
+  derived queue is the no-transcript relation.
 
 ## No-JSONL contract
 
