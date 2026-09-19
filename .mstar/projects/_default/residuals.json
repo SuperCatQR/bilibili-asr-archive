@@ -496,6 +496,20 @@
         "source_plan": "iter-2026-09-queue-bridge",
         "registered_at": "2026-09-19",
         "lifecycle_id": "iter-2026-09-queue-bridge"
+      },
+      {
+        "id": "R2",
+        "title": "`derive-manifest`'s additive policy does not consult a **legacy bare-`bvid` manifest row**, so a part the chain already archived under that key form is appended as `needs_audio` and a bounded run re-downloads and re-runs it. The row is never rewritten (the literal promise), but the part is re-queued (the intent the plan's own criterion states).",
+        "severity": "low",
+        "source": "Plan QC tri-review of 20260919-sqlite-queue-bridge, 2026-09-19 — qc1 Warning (raised first) and qc2 Warning, **independently**. qc1 supplied a re-run repro through the plan's pinned interpreter: a temp root whose manifest holds `{\"bvid\":\"BV1LEGACY\",\"status\":\"archived\"}` → `derive_rows` appends `BV1LEGACY:p0`; the same state written page-qualified appends nothing. Anchors: manifest.py:55-62 (`_entry_key` keys a bare row by `bvid`), manifest_derivation.py:134 (lookup is `candidate['work_id']`), selection cli.py:1185-1187.",
+        "scope": "`src/bili_asr/services/manifest_derivation.py` (the conflict lookup) and the two published surfaces that scope their additive claim to `work_id` (README's derived-queue limits; `docs/metadata-storage.md`'s boundary bullet). The behaviour is bounded, not destructive: the ASR bundle lands at the page-qualified stem, so a legacy `{bvid}.srt/.txt/.md` is not overwritten — the cost is a re-download plus a re-ASR for an already-archived part.",
+        "decision": "defer",
+        "owner": "@project-manager",
+        "target": "the first operator archive that actually holds legacy bare rows, or the plan that normalizes them (the trigger is measurable: `grep -c` a manifest for rows without `work_id`). Closing it needs a PM decision that reopens this plan's §2/§3.5 principle (the store is the queue's authority) plus a multi-page semantics answer — what a bare row means for page >= 1 — and a test seeded through the store's legacy path, since `upsert` cannot write a bare row.",
+        "tracking": "Registered at this plan's QC gate (2026-09-19). The plan's Done criterion was narrowed in writing on the same pass: it now claims only that a *page-qualified* row the chain holds is never rewritten and cannot be re-queued, and the legacy-key case is stated as a limit in the spec and the README. Measured exposure today: zero (the three archive roots on this host hold no bare rows — qc1 verified).",
+        "source_plan": "iter-2026-09-queue-bridge",
+        "registered_at": "2026-09-19",
+        "lifecycle_id": "iter-2026-09-queue-bridge"
       }
     ]
   }
