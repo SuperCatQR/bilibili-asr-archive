@@ -4,11 +4,12 @@ import json
 from pathlib import Path
 
 from bili_asr.archive import write_archive
+from bili_asr.artifact_root import ArtifactRoots
 from bili_asr.integrity import (
     IntegrityReport, IntegrityVerifier, MALFORMED_ARTIFACT, MISSING_RAW_SUBTITLE,
-    MISSING_TRANSCRIPT, RETRYABLE_INCOMPLETE, STRUCTURAL_INPUT_ERROR,
-    TRUNCATED_ATTEMPTS_LINE, MISSING_ATTEMPTS, ATTEMPTS_BYTE_LIMIT_EXCEEDED,
-    ATTEMPTS_ROW_LIMIT_EXCEEDED,
+    MISSING_TRANSCRIPT, RECOVERY_TARGET_NOT_FOUND, RETRYABLE_INCOMPLETE,
+    STRUCTURAL_INPUT_ERROR, TRUNCATED_ATTEMPTS_LINE, MISSING_ATTEMPTS,
+    ATTEMPTS_BYTE_LIMIT_EXCEEDED, ATTEMPTS_ROW_LIMIT_EXCEEDED,
 )
 
 
@@ -333,3 +334,59 @@ def test_invalid_manifest_semantics_are_named_and_non_authoritative(tmp_path: Pa
     report = IntegrityVerifier().verify(tmp_path)
     assert report.authoritative is False
     assert {"manifest_invalid_status", "manifest_invalid_bvid"} <= set(report.diagnostics)
+
+
+def _two_roots(tmp_path: Path, row: dict[str, object]) -> tuple[Path, Path, ArtifactRoots]:
+    """An archive root holding only state, and an artifact root holding the bundle."""
+    archive = tmp_path / "state"
+    artifact = tmp_path / "artifacts"
+    artifact.mkdir(parents=True, exist_ok=True)
+    row.update(write_archive(artifact, dict(row), [{"start": 0, "end": 1, "text": "ok"}], source="cc"))
+    return archive, artifact, ArtifactRoots.of(archive, artifact)
+
+
+def test_verify_grades_artifacts_at_the_artifact_root(tmp_path: Path) -> None:
+    """`verify` probes the ordered bases; `authoritative` stays a state-only judgement."""
+    row: dict[str, object] = {"work_id": "BV1x:p0", "bvid": "BV1x", "cid": 7, "page_index": 0,
+                              "pubdate_str": "20260828", "title": "A safe/title", "status": "archived"}
+    archive, _artifact, roots = _two_roots(tmp_path, row)
+    _manifest(archive, [row])
+
+    report = IntegrityVerifier().verify(archive, artifact_roots=roots)
+
+    assert report.defects == []
+    assert report.checked == 1
+    # Spec §10: the authoritative judgement is a function of the state reads. The
+    # absent attempts sidecar still makes the report non-authoritative, exactly as
+    # before, and no artifact-root condition flips it either way.
+    assert report.authoritative is False
+    assert MISSING_ATTEMPTS in report.diagnostics
+
+    # Control: the archive root alone is what today's call grades, and the bundle is
+    # not there — the row reads as missing its transcript.
+    assert MISSING_TRANSCRIPT in {
+        defect.code for defect in IntegrityVerifier().verify(archive).defects
+    }
+
+
+def test_recover_forwards_the_artifact_root_into_its_verification(tmp_path: Path) -> None:
+    """`recover` hides a second `verify` call; it must grade the same bases."""
+    row: dict[str, object] = {"work_id": "BV1x:p0", "bvid": "BV1x", "cid": 7, "page_index": 0,
+                              "pubdate_str": "20260828", "title": "A", "status": "archived"}
+    archive, _artifact, roots = _two_roots(tmp_path, row)
+    _manifest(archive, [row])
+    attempts = archive / "coordinator" / "attempts.jsonl"
+    attempts.parent.mkdir(parents=True)
+    attempts.write_text(json.dumps(_attempt(str(row["work_id"]), outcome="ok")) + "\n", encoding="utf-8")
+
+    # The row is graded clean at its own base, so it has no defect to select.
+    assert IntegrityVerifier.recover(
+        archive, work_ids=[str(row["work_id"])], artifact_roots=roots
+    ) == {"ok": False, "code": RECOVERY_TARGET_NOT_FOUND, "selected": []}
+
+    # Omitting the roots grades against the archive root, where the bundle is absent:
+    # the same target is then reported defective — the silent mis-grading that
+    # forwarding exists to remove.
+    assert IntegrityVerifier.recover(archive, work_ids=[str(row["work_id"])])["ok"] is True
+    # The audit sidecar is state and stays at the archive root (D13, spec §10).
+    assert (archive / "coordinator" / "recovery-audit.jsonl").is_file()

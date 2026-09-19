@@ -12,6 +12,7 @@ from typing import Any
 
 import fcntl
 from .archive import archive_stem, _safe_name, archive_bundle_complete
+from .artifact_root import ArtifactRoots
 from .page_identity import artifact_stem, page_identity, parse_work_id
 from .coordinator import _validate_attempt
 from .sidecar_projection import (
@@ -55,6 +56,8 @@ _AUDIT_FORBIDDEN_MARKERS = ("sessdata", "cookie", "http://", "https://", "traceb
 _AUDIT_WRITE_LOCK = threading.Lock()
 _MAX_ROWS = 10000
 _MAX_ATTEMPTS_BYTES = 8 * 1024 * 1024
+#: The four recorded bundle paths; the same order the writers publish them in.
+_BUNDLE_PATH_KEYS = ("srt_path", "txt_path", "md_path", "raw_path")
 
 
 def _fsync_directory(directory: Path) -> None:
@@ -164,6 +167,52 @@ class _RootConfinedReader:
             os.close(file_fd)
 
 
+def _open_artifact_bases(
+    root: Path, roots: ArtifactRoots, archive_reader: _RootConfinedReader
+) -> list[tuple[Path, _RootConfinedReader]]:
+    """The ordered ``(base, reader)`` pairs a row's artifacts are probed under (§5).
+
+    The archive base reuses the reader ``verify`` already opened and keeps the
+    resolved state root, so the unconfigured path stays byte-identical.  A configured
+    base opens its own no-follow reader, because a candidate must only ever be opened
+    relative to the base it was validated against.  A base that cannot be opened
+    cannot hold an artifact and is skipped: the archive base still answers, so an
+    unusable configured root never degrades the report into an empty inventory
+    (contract §10, D17) — refusing that root is the command boundary's job (§9).
+    """
+    pairs: list[tuple[Path, _RootConfinedReader]] = []
+    for base in roots.read_bases():
+        if base == roots.archive_root:
+            pairs.append((root, archive_reader))
+            continue
+        try:
+            pairs.append((base, _RootConfinedReader(base)))
+        except OSError:
+            continue
+    return pairs
+
+
+def _graded_base(
+    artifact_bases: list[tuple[Path, _RootConfinedReader]],
+    declared_bundle: dict[str, str],
+    complete_candidate: bool,
+) -> tuple[Path, _RootConfinedReader, bool]:
+    """The base a row is graded at, its reader, and whether its bundle is complete there.
+
+    The bundle names the base: the first base holding all four declared parts and
+    their marker is the one the row's paths are validated against (contract §5/§10,
+    D8).  A row without a complete bundle is graded at the first base, which with no
+    configured root is the archive root — today's single-base path, unchanged.
+    """
+    base, base_reader = artifact_bases[0]
+    if not complete_candidate:
+        return base, base_reader, False
+    for candidate_base, candidate_reader in artifact_bases:
+        if archive_bundle_complete(candidate_base, declared_bundle):
+            return candidate_base, candidate_reader, True
+    return base, base_reader, False
+
+
 @dataclass(frozen=True)
 class IntegrityDefect:
     work_id: str
@@ -183,24 +232,38 @@ class IntegrityVerifier:
     """Read-only archive integrity verifier."""
 
     def verify(self, archive_root: Path, *, scope: str | None = None,
-               policy: ReaderPolicy | None = None) -> IntegrityReport:
+               policy: ReaderPolicy | None = None,
+               artifact_roots: ArtifactRoots | None = None) -> IntegrityReport:
         """Verify archive evidence without modifying source artifacts.
 
         Direct inspection defaults to bounded input. A trusted local caller must
         explicitly pass ``ReaderPolicy(mode="trusted_archive")``.
+
+        ``artifact_roots`` carries the bases a row's artifacts are probed under
+        (contract §5/§10, D8); the manifest and attempts reads are state and stay at
+        the archive root.  ``report.authoritative`` remains a function of those state
+        reads alone, so an unusable artifact root is the command boundary's refusal
+        (§9), never a non-authoritative report.
         """
         root = Path(archive_root).resolve()
         if not root.is_dir():
             report = IntegrityReport(authoritative=False)
             report.diagnostics.append(STRUCTURAL_INPUT_ERROR)
             return report
+        roots = artifact_roots if artifact_roots is not None else ArtifactRoots.of(root)
         reader = _RootConfinedReader(root)
+        artifact_bases = _open_artifact_bases(root, roots, reader)
         try:
-            return self._verify_with_reader(root, scope, reader, policy or ReaderPolicy())
+            return self._verify_with_reader(
+                root, scope, reader, policy or ReaderPolicy(), artifact_bases
+            )
         finally:
             reader.close()
+            for _base, base_reader in artifact_bases:
+                if base_reader is not reader:
+                    base_reader.close()
 
-    def _verify_with_reader(self, root: Path, scope: str | None, reader: _RootConfinedReader, policy: ReaderPolicy) -> IntegrityReport:
+    def _verify_with_reader(self, root: Path, scope: str | None, reader: _RootConfinedReader, policy: ReaderPolicy, artifact_bases: list[tuple[Path, _RootConfinedReader]]) -> IntegrityReport:
         report = IntegrityReport()
         entries, manifest_state, manifest_diagnostics = project_manifest_records(
             root / "manifest" / "manifest.jsonl", policy=policy
@@ -259,37 +322,41 @@ class IntegrityVerifier:
             if cid is not None and (isinstance(cid, bool) or not isinstance(cid, int)):
                 report.diagnostics.append(STRUCTURAL_INPUT_ERROR)
                 continue
-            required = self._required_paths(row, root)
-            canonical_required = self._canonical_required_paths(row, root)
+            declared_bundle: dict[str, str] = {}
+            complete_candidate = True
+            for bundle_key in _BUNDLE_PATH_KEYS:
+                value = row.get(bundle_key)
+                if not isinstance(value, str):
+                    complete_candidate = False
+                    break
+                declared_bundle[bundle_key] = value
+            base, base_reader, bundle_complete = _graded_base(
+                artifact_bases, declared_bundle, complete_candidate
+            )
+            required = self._required_paths(row, base)
+            canonical_required = self._canonical_required_paths(row, base)
             for declared, canonical in zip(required, canonical_required):
                 if row.get("md_path") is not None and declared != canonical and row.get("title"):
                     defects.add(IDENTITY_PATH_MISMATCH)
             for path in required:
-                if not self._safe_path(path, root): defects.add(IDENTITY_PATH_MISMATCH)
-            present = [p for p in required if reader.is_regular(p)]
-            bundle_paths: dict[str, str] = {}
-            for key in ("srt_path", "txt_path", "md_path", "raw_path"):
-                value = row.get(key)
-                if not isinstance(value, str):
-                    bundle_paths = {}
-                    break
-                candidate = Path(value) if Path(value).is_absolute() else root / value
-                if not self._safe_path(candidate, root):
+                if not self._safe_path(path, base): defects.add(IDENTITY_PATH_MISMATCH)
+            present = [p for p in required if base_reader.is_regular(p)]
+            for bundle_key, value in declared_bundle.items():
+                candidate = Path(value) if Path(value).is_absolute() else base / value
+                if not self._safe_path(candidate, base):
                     defects.add(IDENTITY_PATH_MISMATCH)
-                bundle_paths[key] = value
-            bundle_complete = bool(bundle_paths) and archive_bundle_complete(root, bundle_paths)
             if status in {"archived", "asr_done", "subtitle_done"} and (len(present) < len(canonical_required) or not bundle_complete): defects.add(MISSING_TRANSCRIPT)
-            raw = root / "subtitles" / "raw" / f"{self._canonical_stem(row)}.json"
+            raw = base / "subtitles" / "raw" / f"{self._canonical_stem(row)}.json"
             declared_raw = row.get("raw_path")
             if status == "subtitle_done" and isinstance(declared_raw, str):
-                declared_raw_path = Path(declared_raw) if Path(declared_raw).is_absolute() else root / declared_raw
-                if not self._safe_path(declared_raw_path, root):
+                declared_raw_path = Path(declared_raw) if Path(declared_raw).is_absolute() else base / declared_raw
+                if not self._safe_path(declared_raw_path, base):
                     defects.add(IDENTITY_PATH_MISMATCH)
-            if status == "subtitle_done" and not self._safe_path(raw, root): defects.add(IDENTITY_PATH_MISMATCH)
-            elif status == "subtitle_done" and not reader.is_regular(raw): defects.add(MISSING_RAW_SUBTITLE)
+            if status == "subtitle_done" and not self._safe_path(raw, base): defects.add(IDENTITY_PATH_MISMATCH)
+            elif status == "subtitle_done" and not base_reader.is_regular(raw): defects.add(MISSING_RAW_SUBTITLE)
             artifact_paths = list(canonical_required)
             if status == "subtitle_done": artifact_paths.append(raw)
-            if any(not self._valid_artifact(path, row, reader) for path in artifact_paths if reader.is_regular(path)):
+            if any(not self._valid_artifact(path, row, base_reader) for path in artifact_paths if base_reader.is_regular(path)):
                 defects.add(MALFORMED_ARTIFACT)
             if status in {"pending", "meta_ok", "sub_checked", "needs_audio", "audio_ok"}: defects.add(RETRYABLE_INCOMPLETE)
             report.defects.extend(IntegrityDefect(work_id, code) for code in sorted(defects))
@@ -298,14 +365,18 @@ class IntegrityVerifier:
 
     @staticmethod
     def recover(archive_root: Path, *, work_ids: list[str] | None = None,
-                defect_codes: list[str] | None = None, limit: int = 100) -> dict[str, object]:
+                defect_codes: list[str] | None = None, limit: int = 100,
+                artifact_roots: ArtifactRoots | None = None) -> dict[str, object]:
         """Append one bounded, redacted recovery audit record.
 
         ``limit`` must be an integer from 1 through 100.  Defect-code
         selection is expanded first, then checked against that effective cap.
         The existing audit sidecar is validated and retained atomically; any
         malformed, oversized, or over-row evidence fails closed without a
-        write.
+        write.  Defect selection runs through ``verify``, so ``artifact_roots`` is
+        forwarded into it (contract §10) — a ``recover`` that dropped it would grade
+        every artifact against the wrong base.  The audit sidecar is state and stays
+        under ``{archive_root}/coordinator/`` (D13).
         """
         root = Path(archive_root).resolve()
         if not work_ids and not defect_codes:
@@ -327,7 +398,7 @@ class IntegrityVerifier:
         selected_ids = sorted(set(work_ids or []))
         if len(selected_ids) > effective_limit:
             return {"ok": False, "code": RECOVERY_TARGET_LIMIT_EXCEEDED, "selected": []}
-        report = IntegrityVerifier().verify(root)
+        report = IntegrityVerifier().verify(root, artifact_roots=artifact_roots)
         if not report.authoritative:
             return {"ok": False, "code": RECOVERY_NOT_AUTHORITATIVE, "selected": []}
         defect_filter = set(defect_codes or [])

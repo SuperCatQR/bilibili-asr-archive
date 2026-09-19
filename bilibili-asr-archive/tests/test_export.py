@@ -8,6 +8,8 @@ import json
 import os
 import pytest
 
+from bili_asr.archive import write_archive
+from bili_asr.artifact_root import ArtifactRoots
 from bili_asr.cli import main
 from bili_asr.export import (
     COMPLETED_STATUSES,
@@ -602,3 +604,46 @@ def test_export_sidecars_and_manifest_remain_immutable(tmp_root):
     with open(ledger_file, "r", encoding="utf-8") as fh:
         assert fh.read() == orig_ledger
 
+
+
+def test_export_keeps_the_path_fields_of_a_configured_artifact_root(tmp_path):
+    """Export resolves the artifact path fields against the bases they were written under.
+
+    The five path fields are recorded by the artifact writers, so a containment
+    check against the archive root alone is the export-side version of "a live
+    archive reads as broken" (contract §10, export row).
+    """
+    archive = tmp_path / "state"
+    artifact = tmp_path / "artifacts"
+    archive.mkdir(parents=True)
+    artifact.mkdir(parents=True)
+    roots = ArtifactRoots.of(archive, artifact)
+    row = {"work_id": "BV1x:p0", "bvid": "BV1x", "cid": 7, "page_index": 0,
+           "pubdate_str": "20260828", "title": "Exported", "status": "archived"}
+    row.update(write_archive(artifact, dict(row),
+                             [{"start": 0, "end": 1, "text": "hegel dialectics"}], source="cc"))
+    row["audio_path"] = "audio/BV1x.p0.m4a"
+    ManifestStore(root=str(archive)).upsert(row)
+
+    exported = json.loads(
+        export_manifest(str(archive), "json", with_text=True, artifact_roots=roots)
+    )
+
+    path_keys = [key for key in STANDARD_CSV_COLUMNS if key.endswith("_path")]
+    assert path_keys == ["srt_path", "txt_path", "md_path", "raw_path", "audio_path"]
+    assert all(exported[0][key] for key in path_keys)
+    assert exported[0]["srt_path"] == row["srt_path"]
+    assert exported[0]["audio_path"] == "audio/BV1x.p0.m4a"
+    # `--with-text` reads the transcript artifact, which lives at the configured root.
+    assert "hegel dialectics" in exported[0]["transcript_text"]
+
+    # Control: reading the same row without the context is what the field would show
+    # today, and the transcript text is empty because the archive root holds no file.
+    without_roots = json.loads(export_manifest(str(archive), "json", with_text=True))
+    assert without_roots[0]["transcript_text"] == ""
+
+    # The guard is re-based, not weakened: a value escaping every base is still
+    # stripped from a standard path column (spec §6).
+    assert sanitize_export_entry(
+        {**row, "audio_path": "../escape.m4a"}, artifact_roots=roots
+    )["audio_path"] == ""

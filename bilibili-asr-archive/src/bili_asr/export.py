@@ -10,6 +10,7 @@ from pathlib import Path
 import re
 from typing import Any, Sequence
 
+from .artifact_root import ArtifactRoots
 from .manifest import ManifestStore
 from .search_index import extract_transcript_text
 
@@ -139,6 +140,23 @@ def _safe_contained_relpath(
         return path_str
 
 
+def _contained_relpath_over_bases(
+    bases: tuple[str | os.PathLike[str] | None, ...],
+    path_val: Any,
+) -> str | None:
+    """The first base containing ``path_val``, as a normalized relative path.
+
+    The guard is `_safe_contained_relpath`, asked once per base — contract §5/§6 fix
+    that shape as "shared base list, per-family guard".  An empty base list keeps the
+    shipped rootless behaviour.
+    """
+    for base in bases or (None,):
+        relative = _safe_contained_relpath(base, path_val)
+        if relative is not None:
+            return relative
+    return None
+
+
 def _sanitize_value(
     val: Any,
     archive_root: str | os.PathLike[str] | None = None,
@@ -165,14 +183,25 @@ def sanitize_export_entry(
     with_text: bool = False,
     archive_root: str | os.PathLike[str] | None = None,
     max_text_length: int | None = None,
+    *,
+    artifact_roots: ArtifactRoots | None = None,
 ) -> dict[str, Any]:
     """Return a sanitized copy of a manifest entry without credentials/signed URLs.
 
-    If with_text is True and archive_root is provided, transcript text is loaded
+    If with_text is True and a root is available, transcript text is loaded
     and attached under 'transcript_text'. If with_text is False, transcript text
     is excluded.
-    Path fields are validated against archive_root to prevent path traversal leaks.
+    Path fields are validated against the roots to prevent path traversal leaks.
+
+    ``artifact_roots`` carries the bases the artifact path fields were written under
+    (contract §10, export row): the five path columns are products, so a value that
+    resolves under only one of the two bases still exports as a normalized relative
+    path instead of being stripped to ``""``.  ``None`` keeps the shipped behaviour —
+    ``archive_root`` alone, and the rootless mode when that is ``None`` too.
     """
+    bases: tuple[str | os.PathLike[str] | None, ...] = (
+        artifact_roots.read_bases() if artifact_roots is not None else (archive_root,)
+    )
     raw_sanitized: dict[str, Any] = {}
     for key, value in entry.items():
         key_str = str(key)
@@ -184,7 +213,7 @@ def sanitize_export_entry(
 
         # Path sanitization for known path keys or keys ending in _path
         if key_str in STANDARD_CSV_COLUMNS and key_str.endswith("_path"):
-            safe_rel = _safe_contained_relpath(archive_root, value)
+            safe_rel = _contained_relpath_over_bases(bases, value)
             if safe_rel is not None:
                 raw_sanitized[key_str] = safe_rel
             elif value:
@@ -192,7 +221,7 @@ def sanitize_export_entry(
                 raw_sanitized[key_str] = ""
             continue
         elif key_str.endswith("_path"):
-            safe_rel = _safe_contained_relpath(archive_root, value)
+            safe_rel = _contained_relpath_over_bases(bases, value)
             if safe_rel is not None:
                 raw_sanitized[key_str] = safe_rel
             continue
@@ -201,8 +230,13 @@ def sanitize_export_entry(
 
     if with_text:
         if "transcript_text" not in raw_sanitized:
-            if archive_root is not None:
-                text, _paths = extract_transcript_text(archive_root, entry)
+            text_root = archive_root if archive_root is not None else (
+                artifact_roots.archive_root if artifact_roots is not None else None
+            )
+            if text_root is not None:
+                text, _paths = extract_transcript_text(
+                    text_root, entry, artifact_roots=artifact_roots
+                )
                 text = _redact_sensitive_text(text)
                 if max_text_length is not None and max_text_length >= 0:
                     text = text[:max_text_length]
@@ -247,8 +281,15 @@ def export_rows(
     archive_root: str | os.PathLike[str] | None = None,
     limit: int | None = None,
     max_text_length: int | None = None,
+    *,
+    artifact_roots: ArtifactRoots | None = None,
 ) -> list[dict[str, Any]]:
-    """Derive sanitized export rows from the manifest, optionally filtered by status."""
+    """Derive sanitized export rows from the manifest, optionally filtered by status.
+
+    ``artifact_roots`` is the base list the artifact path fields and ``--with-text``
+    are resolved against (contract §10); ``None`` keeps the single ``archive_root``
+    base this function has always used.
+    """
     if isinstance(store_or_entries, ManifestStore):
         entries = store_or_entries.load()
         root = archive_root if archive_root is not None else store_or_entries.root
@@ -288,6 +329,7 @@ def export_rows(
             with_text=with_text,
             archive_root=root,
             max_text_length=max_text_length,
+            artifact_roots=artifact_roots,
         )
         rows.append(sanitized)
 
@@ -399,10 +441,14 @@ def export_manifest(
     with_text: bool = False,
     limit: int | None = None,
     max_text_length: int | None = None,
+    *,
+    artifact_roots: ArtifactRoots | None = None,
 ) -> str:
     """Export manifest-derived rows to JSON or CSV format.
 
-    Manifest remains SSOT and is never modified.
+    Manifest remains SSOT and is never modified.  ``artifact_roots`` carries the
+    bases the artifact path fields and ``--with-text`` resolve against (contract
+    §10); the store itself stays rooted at the archive root — it is state (D13).
     """
     fmt_lower = fmt.lower().strip()
     if fmt_lower not in {"json", "csv"}:
@@ -417,6 +463,7 @@ def export_manifest(
         archive_root=archive_root,
         limit=limit,
         max_text_length=max_text_length,
+        artifact_roots=artifact_roots,
     )
 
     if fmt_lower == "json":

@@ -11,6 +11,7 @@ import sqlite3
 from typing import Any, Sequence
 
 from .archive import archive_stem
+from .artifact_root import ArtifactRoots
 from .manifest import ManifestStore
 
 FTS5_TABLE_NAME = "transcripts_fts"
@@ -135,11 +136,54 @@ def _safe_contained_relpath(root: str, path_str: str) -> str | None:
     return None
 
 
+def _locate_over_bases(
+    bases: tuple[Path, ...], value: str
+) -> tuple[str, str] | None:
+    """The first base that contains ``value``, with the value made relative to it.
+
+    The containment guard stays per base and unchanged (contract §5/§6); only the
+    base list is shared, so a legacy value that resolves under the archive root is
+    still described relative to it.
+    """
+    for base in bases:
+        base_str = os.fspath(base)
+        relative = _safe_contained_relpath(base_str, value)
+        if relative:
+            return base_str, relative
+    return None
+
+
+def _existing_path(bases: tuple[Path, ...], relative: str) -> str | None:
+    """The first base that actually holds ``relative``, or ``None``.
+
+    Containment is lexical and answers for a base that does not exist, so the base a
+    file is *read* from is decided by existence — the same "first hit over the ordered
+    bases" rule the bundle and audio probes use (contract §5, D8).
+    """
+    for base in bases:
+        full = os.path.join(os.fspath(base), relative)
+        if os.path.isfile(full):
+            return full
+    return None
+
+
 def extract_transcript_text(
     root: str | os.PathLike[str],
     entry: dict[str, Any],
+    *,
+    artifact_roots: ArtifactRoots | None = None,
 ) -> tuple[str, dict[str, str]]:
-    """Load transcript text and gather archive paths for an entry."""
+    """Load transcript text and gather archive paths for an entry.
+
+    ``artifact_roots`` carries the bases the transcripts live under (contract
+    §5/§10, D8): every declared value and every on-disk probe walks ``read_bases()``
+    in order, while the returned mapping keeps its shape — relative path strings.
+    Each located file is read from the base that actually holds it, so a legacy
+    transcript at the archive root is still read there instead of being shadowed by
+    the configured base that merely contains its name.
+    """
+    roots = artifact_roots if artifact_roots is not None else ArtifactRoots.of(root)
+    bases = roots.read_bases()
     root_str = os.fspath(root)
     try:
         stem = archive_stem(entry)
@@ -147,38 +191,37 @@ def extract_transcript_text(
         stem = str(entry.get("bvid") or "")
 
     paths: dict[str, str] = {}
+    located: dict[str, str] = {}
     # Collect paths from entry metadata with containment validation
     for k in ("srt_path", "txt_path", "md_path", "raw_path"):
         raw_val = entry.get(k)
         if raw_val:
-            rel = _safe_contained_relpath(root_str, str(raw_val))
-            if rel:
+            found = _locate_over_bases(bases, str(raw_val))
+            if found:
+                base_str, rel = found
                 paths[k] = rel
+                located[k] = _existing_path(bases, rel) or os.path.join(base_str, rel)
 
     # If not in entry metadata, probe standard disk locations
-    if "txt_path" not in paths:
-        rel = os.path.join("transcripts", "txt", f"{stem}.txt")
-        if os.path.isfile(os.path.join(root_str, rel)):
-            paths["txt_path"] = rel
-    if "srt_path" not in paths:
-        rel = os.path.join("transcripts", "srt", f"{stem}.srt")
-        if os.path.isfile(os.path.join(root_str, rel)):
-            paths["srt_path"] = rel
-    if "md_path" not in paths:
-        rel = os.path.join("transcripts", "md", f"{stem}.md")
-        if os.path.isfile(os.path.join(root_str, rel)):
-            paths["md_path"] = rel
-    if "raw_path" not in paths:
-        rel = os.path.join("transcripts", "raw", f"{stem}.json")
-        if os.path.isfile(os.path.join(root_str, rel)):
-            paths["raw_path"] = rel
+    for k, rel in (
+        ("txt_path", os.path.join("transcripts", "txt", f"{stem}.txt")),
+        ("srt_path", os.path.join("transcripts", "srt", f"{stem}.srt")),
+        ("md_path", os.path.join("transcripts", "md", f"{stem}.md")),
+        ("raw_path", os.path.join("transcripts", "raw", f"{stem}.json")),
+    ):
+        if k in paths:
+            continue
+        full = _existing_path(bases, rel)
+        if full is not None:
+            paths[k] = rel
+            located[k] = full
 
     # Load text content
     text = ""
     # 1. Try txt_path
     txt_path = paths.get("txt_path")
     if txt_path:
-        full_txt = os.path.join(root_str, txt_path)
+        full_txt = located.get("txt_path", os.path.join(root_str, txt_path))
         if os.path.isfile(full_txt):
             try:
                 with open(full_txt, "r", encoding="utf-8") as fh:
@@ -189,7 +232,7 @@ def extract_transcript_text(
     # 2. If no text, try srt_path
     if not text and "srt_path" in paths:
         srt_path = paths["srt_path"]
-        full_srt = os.path.join(root_str, srt_path)
+        full_srt = located.get("srt_path", os.path.join(root_str, srt_path))
         if os.path.isfile(full_srt):
             try:
                 with open(full_srt, "r", encoding="utf-8") as fh:
@@ -207,9 +250,10 @@ def extract_transcript_text(
     if not text:
         raw_candidates = []
         if "raw_path" in paths:
-            raw_candidates.append(os.path.join(root_str, paths["raw_path"]))
-        raw_candidates.append(
-            os.path.join(root_str, "subtitles", "raw", f"{stem}.json")
+            raw_candidates.append(located.get("raw_path", os.path.join(root_str, paths["raw_path"])))
+        raw_candidates.extend(
+            os.path.join(os.fspath(base), "subtitles", "raw", f"{stem}.json")
+            for base in bases
         )
         for raw_cand in raw_candidates:
             if os.path.isfile(raw_cand):
@@ -237,7 +281,7 @@ def extract_transcript_text(
     # 4. If no text, try md_path
     if not text and "md_path" in paths:
         md_path = paths["md_path"]
-        full_md = os.path.join(root_str, md_path)
+        full_md = located.get("md_path", os.path.join(root_str, md_path))
         if os.path.isfile(full_md):
             try:
                 with open(full_md, "r", encoding="utf-8") as fh:
@@ -349,8 +393,22 @@ def _parse_scope_clause(
 class SearchIndex:
     """Manages {archive_root}/search.db FTS5 virtual table for transcript search."""
 
-    def __init__(self, root: str | os.PathLike[str] | Path) -> None:
+    def __init__(
+        self,
+        root: str | os.PathLike[str] | Path,
+        *,
+        artifact_roots: ArtifactRoots | None = None,
+    ) -> None:
+        """``root`` is the archive root: the index file and the manifest stay there.
+
+        ``artifact_roots`` adds the base the transcript products may live under
+        (contract §10, D8): the on-disk probes walk ``read_bases()`` in order, while
+        ``search.db`` never leaves the archive root — it is state (D13).
+        """
         self.root = os.fspath(root)
+        self.artifact_roots = (
+            artifact_roots if artifact_roots is not None else ArtifactRoots.of(self.root)
+        )
         self.db_path = os.path.join(self.root, "search.db")
         self.manifest_path = os.path.join(self.root, "manifest", "manifest.jsonl")
 
@@ -451,18 +509,24 @@ class SearchIndex:
         if not stem:
             return False
 
-        candidate_files = (
-            os.path.join(self.root, "transcripts", "txt", f"{stem}.txt"),
-            os.path.join(self.root, "transcripts", "srt", f"{stem}.srt"),
-            os.path.join(self.root, "transcripts", "md", f"{stem}.md"),
-            os.path.join(self.root, "transcripts", "raw", f"{stem}.json"),
-            os.path.join(self.root, "subtitles", "raw", f"{stem}.json"),
+        candidate_files = tuple(
+            os.path.join(os.fspath(base), relative)
+            for base in self.artifact_roots.read_bases()
+            for relative in (
+                os.path.join("transcripts", "txt", f"{stem}.txt"),
+                os.path.join("transcripts", "srt", f"{stem}.srt"),
+                os.path.join("transcripts", "md", f"{stem}.md"),
+                os.path.join("transcripts", "raw", f"{stem}.json"),
+                os.path.join("subtitles", "raw", f"{stem}.json"),
+            )
         )
         return any(os.path.isfile(p) for p in candidate_files)
 
     def _extract_transcript_text(self, entry: dict[str, Any]) -> tuple[str, dict[str, str]]:
         """Load transcript text and gather archive paths for an entry."""
-        return extract_transcript_text(self.root, entry)
+        return extract_transcript_text(
+            self.root, entry, artifact_roots=self.artifact_roots
+        )
 
     def build(
         self,
@@ -823,13 +887,17 @@ class SearchIndex:
 def search(
     archive_root: str | os.PathLike[str] | Path,
     query: SearchQuery | str,
+    *,
+    artifact_roots: ArtifactRoots | None = None,
 ) -> list[dict[str, object]]:
     """Search completed transcripts in the archive using SearchQuery filters.
 
     Returns list of sanitized dictionaries with bounded snippets and relative paths.
+    ``artifact_roots`` is forwarded to the index, so the transcripts it reads may live
+    under a configured root while ``search.db`` stays at the archive root (§10, D13).
     """
     if isinstance(query, str):
         query = SearchQuery(query=query)
-    index = SearchIndex(archive_root)
+    index = SearchIndex(archive_root, artifact_roots=artifact_roots)
     results = index.search_query(query)
     return [r.to_dict() for r in results]

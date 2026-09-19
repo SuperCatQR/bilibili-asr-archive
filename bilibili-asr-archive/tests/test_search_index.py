@@ -9,6 +9,7 @@ import time
 
 import pytest
 
+from bili_asr.artifact_root import ArtifactRoots
 from bili_asr.cli import main
 from bili_asr.manifest import ManifestStore
 from bili_asr.search_index import (
@@ -924,3 +925,62 @@ def test_cli_search_invalid_limit_and_status_diagnostics(tmp_root, capsys):
     assert code_stat == 1
     err_stat = capsys.readouterr().err
     assert "invalid status filter" in err_stat
+
+
+def test_the_index_reads_transcripts_from_the_artifact_root(tmp_path):
+    """`search.db` stays at the archive root; every artifact probe walks the bases.
+
+    The class holds both roots: the index file is state (D13) while the transcript
+    documents it reads are products, so a single-root `SearchIndex` indexes an
+    archive whose transcripts moved as if they were gone (contract §10, search row).
+    """
+    assert check_fts5_available(), "SQLite FTS5 must be available in the test environment"
+    archive = tmp_path / "state"
+    artifact = tmp_path / "artifacts"
+    archive.mkdir(parents=True)
+    (artifact / "transcripts" / "txt").mkdir(parents=True)
+    (artifact / "transcripts" / "srt").mkdir(parents=True)
+    roots = ArtifactRoots.of(archive, artifact)
+    store = ManifestStore(root=str(archive))
+
+    # A recorded row: text is read through the recorded path at the configured root.
+    recorded = {"work_id": "BV1hegel:p0", "bvid": "BV1hegel", "cid": 101, "page_index": 0,
+                "title": "Hegel", "status": "archived", "duration_s": 10, "source": "asr",
+                "srt_path": "transcripts/srt/BV1hegel.p0.srt",
+                "txt_path": "transcripts/txt/BV1hegel.p0.txt"}
+    store.upsert(recorded)
+    (artifact / "transcripts" / "txt" / "BV1hegel.p0.txt").write_text(
+        "hegel dialectics and phenomenology\n", encoding="utf-8")
+    (artifact / "transcripts" / "srt" / "BV1hegel.p0.srt").write_text(
+        "1\n00:00:00,000 --> 00:00:01,000\nhegel dialectics\n", encoding="utf-8")
+
+    # A row with no path metadata at all: only the on-disk probe can index it.
+    store.upsert({"work_id": "BV1kant:p0", "bvid": "BV1kant", "cid": 102, "page_index": 0,
+                  "title": "Kant", "status": "archived", "duration_s": 10, "source": "asr"})
+    (artifact / "transcripts" / "txt" / "BV1kant.p0.txt").write_text(
+        "kant synthetic a priori\n", encoding="utf-8")
+
+    index = SearchIndex(str(archive), artifact_roots=roots)
+
+    assert index.db_path == os.path.join(str(archive), "search.db")
+    assert index.build() == 2
+    assert (archive / "search.db").is_file()
+    assert not (artifact / "search.db").exists()
+    hits = index.search_query(SearchQuery(query="phenomenology"))
+    assert [hit.work_id for hit in hits] == ["BV1hegel:p0"]
+    assert [
+        hit["work_id"]
+        for hit in search(str(archive), "phenomenology", artifact_roots=roots)
+    ] == ["BV1hegel:p0"]
+    # The on-disk-only row is indexed too, and its text came from the configured root.
+    assert [
+        hit["work_id"]
+        for hit in search(str(archive), "synthetic", artifact_roots=roots)
+    ] == ["BV1kant:p0"]
+
+    # Control: the same index without the context still lists the metadata row, but no
+    # transcript text can be read and the on-disk-only row is invisible — today's
+    # single-base behaviour, which is the regression this case pins.
+    single = SearchIndex(str(archive))
+    assert single.build() == 1
+    assert search(str(archive), "phenomenology") == []
