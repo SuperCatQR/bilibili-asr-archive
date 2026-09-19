@@ -4,7 +4,7 @@ start_date: 2026-09-19
 status: active
 iteration_base_branch: main
 target_branch: main
-plans: []
+plans: [20260919-artifact-root]
 ---
 
 # Delivery Compass — iter-2026-09-artifact-root
@@ -59,6 +59,25 @@ relocated onto the network mount**; products may be.
 - No new storage schema, no second source of truth for audio state.
 - No automatic cloud publication/sync: this iteration makes the **location** configurable; moving finished
   artifacts to the cloud is the operator's `rclone` step, not a pipeline responsibility.
+
+## Plans
+
+| plan_id | Name | Status | Notes |
+|---------|------|--------|-------|
+| `20260919-artifact-root` | Make the audio/product output location configurable (`--artifact-root`) | Todo | `{PLAN_DIR}/20260919-artifact-root.md` — SDD, 4 tasks: T1 resolution core (S), T2 write path + retention (L), T3 readers (L), T4 CLI surface + docs (M); T1 → {T2, T3 parallel} → T4. Contract: `specs/artifact-root-contract.md` (15 sections, decisions D7–D19). `qa_gate: mandatory` / `targeted` — the confinement guard is the security surface. |
+
+## Open Questions
+
+**Q1 — RESOLVED by the user 2026-09-19: option (a).** Keep the cap semantics; the help text, the skip line and the docs must name `--max-audio-gb 0` for a retaining operator. No behaviour change; the cap stays fail-closed.
+
+*(Original escalation, kept for the record.)* The confirmed decision D5 makes
+audio retention the **default**, and the shipped default of `--max-audio-gb` is **10.0** on `pilot`/`run`/
+`schedule`/`campaign` (`cli.py:124,247,281,329`). `would_exceed_budget` fail-closes (`audio_budget.py:72-90`),
+so once retained audio passes 10 GiB the download stage skips **every** row (`coordinator.py:583-594`) and
+`pilot` counts those as failed (`cli.py:2210-2222`) — i.e. the new default would brick a retaining operator's
+downloads. Options: **(a)** keep the cap semantics and document that a retaining operator passes
+`--max-audio-gb 0`, naming it in the help text and the skip line; **(b)** default the cap to 0 when retention is
+on; **(c)** stop counting retained audio against the cap. Nothing else in the plan depends on Q1.
 
 ## 4. Verification sketch (to be firmed up in the spec)
 
