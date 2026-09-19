@@ -33,8 +33,9 @@ Validation (contract §3.3, D10) happens once, in :func:`roots_for`, and only fo
 **configured** root.  A value lexically equal to the archive root is the **identity
 case**: one base, today's code path, not validated further, because an explicit no-op
 must be a no-op.  Any other value must already be an existing, **non-symlink**
-directory or the command refuses with its usage/config exit and names the path.  The
-symlink refusal is explicit and comes first: ``is_dir()`` follows a link, so without it
+directory this process can actually open, or the command refuses with its usage/config
+exit and names the path.  The symlink refusal is explicit and comes first: ``is_dir()``
+follows a link, so without it
 a symlinked root would be accepted here and only fail later — every write raising a raw
 ``OSError`` from ``O_NOFOLLOW``, every read silently degrading to the archive root.  A
 missing root is **never created**: an unmounted mount point still exists as an empty
@@ -196,6 +197,30 @@ def resolve_keep_audio(flag_value: bool | None, environ: Mapping[str, str]) -> b
     return KEEP_AUDIO_DEFAULT
 
 
+def _unopenable(path: Path) -> bool:
+    """True when this process cannot open an existing path **as a directory** (D17).
+
+    :meth:`Path.is_dir` is a stat, and the residue it leaves is the one D17 calls an
+    unusable root: a directory the process may not open — a denied mount, a failing
+    one — passes the type checks and then fails every write, while every read degrades
+    *silently*, because a reader drops a base it cannot open and answers from the
+    archive root instead.  So the probe is the operation the writers and readers
+    actually perform, not another question about the path's shape.
+
+    The primitive is POSIX-only, guarded exactly as ``path_policy.open_audio_directory``
+    guards it: where the platform has no "open the directory itself", the operand that
+    matters cannot be probed and nothing is claimed here.
+    """
+    if os.name != "posix" or not hasattr(os, "O_DIRECTORY"):
+        return False
+    try:
+        descriptor = os.open(path, os.O_RDONLY | os.O_DIRECTORY)
+    except OSError:
+        return True
+    os.close(descriptor)
+    return False
+
+
 def roots_for(
     archive_root: str | os.PathLike[str],
     *,
@@ -206,8 +231,9 @@ def roots_for(
 
     The CLI's one entry point: precedence, the blank rule and the validation of a
     *configured* root live here and nowhere else.  Raises :class:`ArtifactRootError`
-    when a configured root is a symlink, does not exist or is not a directory; it is
-    never created.  The identity case is accepted without touching the filesystem.
+    when a configured root is a symlink, does not exist, is not a directory, or exists
+    as a directory this process cannot open — it is never created.  The identity case is
+    accepted without touching the filesystem.
     """
     environment: Mapping[str, str] = os.environ if environ is None else environ
     roots = ArtifactRoots.of(archive_root, resolve_artifact_root(flag_value, environment))
@@ -222,6 +248,12 @@ def roots_for(
                 "is not a directory" if roots.artifact_root.exists() else "does not exist"
             )
             raise ArtifactRootError(f"artifact root {reason} ({roots.artifact_root})")
+        # R4: an existing directory the process cannot open is "unusable" under D17 and
+        # takes the named exit-1 refusal here, rather than degrading to a base the
+        # readers drop in silence.  It is a distinct condition, so it gets a distinct
+        # line: the two above would each state something false about this path.
+        if _unopenable(roots.artifact_root):
+            raise ArtifactRootError(f"artifact root cannot be opened ({roots.artifact_root})")
     return roots
 
 

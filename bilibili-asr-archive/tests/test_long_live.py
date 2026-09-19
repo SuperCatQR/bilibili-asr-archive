@@ -366,7 +366,7 @@ def test_allow_long_live_skips_when_conservative_estimate_exceeds_cap(
     _assert_no_secrets(captured, tmp_root)
 
 
-def test_allow_long_live_archives_and_measures_peak_with_retained_audio(
+def test_allow_long_live_archives_and_reclaims_with_measured_peak(
     tmp_root, monkeypatch, capsys,
 ):
     identity = _long_identity()
@@ -385,6 +385,9 @@ def test_allow_long_live_archives_and_measures_peak_with_retained_audio(
     rc = main([
         "schedule", "--scope", identity.work_id, "--limit", "1",
         "--allow-long-live", "--max-audio-gb", "10",
+        # The reclaim this case measures is the retention pair's explicit opt-in
+        # (contract D5, plan T4): the default flipped to retain.
+        "--no-keep-audio",
         "--archive-root", tmp_root, "--sessdata", "SECRET-SESS",
     ])
     captured = capsys.readouterr()
@@ -396,11 +399,7 @@ def test_allow_long_live_archives_and_measures_peak_with_retained_audio(
     assert "audio/ after" in captured.out
     loaded = ManifestStore(root=tmp_root).load()
     assert loaded[identity.work_id]["status"] == "archived"
-    # The retention default flipped to retain (contract D5): a `schedule` run
-    # keeps the audio unless the command is asked to reclaim it.  `--keep-audio`
-    # is resolved by the CLI (Task 4) and passed down; until then the shipped
-    # default is what this run gets.
-    assert os.path.isfile(_audio_path(tmp_root, identity))
+    assert not os.path.isfile(_audio_path(tmp_root, identity))
     assert os.path.isfile(filler)
     peak_line = [
         line for line in captured.out.splitlines() if "peak audio/" in line
@@ -411,9 +410,8 @@ def test_allow_long_live_archives_and_measures_peak_with_retained_audio(
     peak = int(peak_line.rsplit("=", 1)[-1])
     after = int(after_line.rsplit("=", 1)[-1])
     assert peak >= 4096 + len(AUDIO_BYTES)
-    # Nothing was reclaimed, so the post-batch sample is the peak itself.
-    assert after == 4096 + len(AUDIO_BYTES)
-    assert after == peak
+    assert after == 4096
+    assert after < peak
     assert transport.stream_calls  # fake download only
     _assert_no_secrets(captured, tmp_root)
 
@@ -482,6 +480,8 @@ def test_schedule_pending_allow_long_live_processes_long_row(
     rc = main([
         "schedule", "--scope", "pending", "--limit", "5",
         "--allow-long-live", "--max-audio-gb", "10",
+        # Reclaim is explicit now (contract D5, plan T4); this row asserted it before.
+        "--no-keep-audio",
         "--archive-root", tmp_root,
     ])
     captured = capsys.readouterr()
@@ -491,9 +491,7 @@ def test_schedule_pending_allow_long_live_processes_long_row(
     loaded = ManifestStore(root=tmp_root).load()
     assert loaded[short_id.work_id]["status"] == "archived"
     assert loaded[long_id.work_id]["status"] == "archived"
-    # Retained by default (contract D5); the reclaim path is the CLI's
-    # `--keep-audio/--no-keep-audio` pair, resolved once at the boundary (Task 4).
-    assert os.path.isfile(_audio_path(tmp_root, long_id))
+    assert not os.path.isfile(_audio_path(tmp_root, long_id))
     assert transport.stream_calls
     sidecar = _scheduler(tmp_root)
     assert sidecar["state"] == "complete"

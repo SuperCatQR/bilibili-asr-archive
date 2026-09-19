@@ -14,6 +14,14 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Iterator
 
+from .artifact_root import (
+    ARTIFACT_ROOT_ENV_VAR,
+    KEEP_AUDIO_ENV_VAR,
+    ArtifactRootError,
+    ArtifactRoots,
+    resolve_keep_audio,
+    roots_for,
+)
 from .config import (
     ARCHIVE_DATABASE_NAME,
     DEFAULT_MID,
@@ -26,6 +34,30 @@ from .config import (
 )
 
 DEFAULT_ARCHIVE_ROOT = os.path.join("archive")
+
+#: The `--artifact-root` help.  One string for the eleven commands that carry it
+#: (spec §9): the flag's meaning, the environment fallback and the default are one
+#: contract, and eleven copies of it would be eleven chances to describe it differently.
+_ARTIFACT_ROOT_HELP = (
+    f"Root for audio/transcript products (or env {ARTIFACT_ROOT_ENV_VAR}); "
+    "default: the archive root. Must already exist"
+)
+
+#: The retention pair's help.  The default is stated because it flipped to *retain*
+#: (contract D5) and an operator upgrading into it has to be told (spec §7).
+_KEEP_AUDIO_HELP = (
+    f"Keep each row's audio after it is archived (or env {KEEP_AUDIO_ENV_VAR}: "
+    "1 keeps, 0 reclaims; default: keep)"
+)
+
+#: The audio cap's help.  Q1's ruling is that the cap keeps its fail-closed semantics
+#: and the retention interaction is named where the operator meets it — here, and on
+#: the skip line the cap prints.
+_MAX_AUDIO_GB_HELP = (
+    "Skip audio downloads that would push audio/ past this many GiB "
+    "(0 = unlimited); retained audio counts toward it, so a retaining "
+    "operator keeps downloading with --max-audio-gb 0"
+)
 
 
 class _UsageErrorArgumentParser(argparse.ArgumentParser):
@@ -101,6 +133,11 @@ def build_parser() -> argparse.ArgumentParser:
     asr_cmd.add_argument("--pending", action="store_true", help="Process audio_ok entries")
     asr_cmd.add_argument("--bvid", default=None)
     asr_cmd.add_argument("--archive-root", default=DEFAULT_ARCHIVE_ROOT)
+    asr_cmd.add_argument("--artifact-root", default=None, help=_ARTIFACT_ROOT_HELP)
+    asr_cmd.add_argument(
+        "--keep-audio", action=argparse.BooleanOptionalAction, default=None,
+        help=_KEEP_AUDIO_HELP,
+    )
     asr_cmd.add_argument("--limit", type=int, default=None)
 
     pilot = subparsers.add_parser(
@@ -120,9 +157,14 @@ def build_parser() -> argparse.ArgumentParser:
     )
     pilot.add_argument("--n", type=int, default=20)
     pilot.add_argument("--archive-root", default=DEFAULT_ARCHIVE_ROOT)
+    pilot.add_argument("--artifact-root", default=None, help=_ARTIFACT_ROOT_HELP)
     pilot.add_argument(
         "--max-audio-gb", type=float, default=10.0,
-        help="Skip audio downloads that would push audio/ past this many GiB (0 = unlimited)",
+        help=_MAX_AUDIO_GB_HELP,
+    )
+    pilot.add_argument(
+        "--keep-audio", action=argparse.BooleanOptionalAction, default=None,
+        help=_KEEP_AUDIO_HELP,
     )
     pilot.add_argument(
         "--max-duration-min", type=int, default=45,
@@ -198,6 +240,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--archive-root", default=DEFAULT_ARCHIVE_ROOT,
         help="Archive root directory (default: ./archive)",
     )
+    dl.add_argument("--artifact-root", default=None, help=_ARTIFACT_ROOT_HELP)
     dl.add_argument(
         "--sessdata", default=None,
         help="SESSDATA cookie (or env BILI_SESSDATA); not stored",
@@ -245,11 +288,16 @@ def build_parser() -> argparse.ArgumentParser:
     )
     run_cmd.add_argument(
         "--max-audio-gb", type=float, default=10.0,
-        help="Skip audio downloads that would push audio/ past this many GiB (0 = unlimited)",
+        help=_MAX_AUDIO_GB_HELP,
     )
     run_cmd.add_argument(
         "--archive-root", default=DEFAULT_ARCHIVE_ROOT,
         help="Archive root directory (default: ./archive)",
+    )
+    run_cmd.add_argument("--artifact-root", default=None, help=_ARTIFACT_ROOT_HELP)
+    run_cmd.add_argument(
+        "--keep-audio", action=argparse.BooleanOptionalAction, default=None,
+        help=_KEEP_AUDIO_HELP,
     )
     run_cmd.add_argument(
         "--sessdata", default=None,
@@ -279,7 +327,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     schedule_cmd.add_argument(
         "--max-audio-gb", type=float, default=10.0,
-        help="Skip audio downloads that would push audio/ past this many GiB (0 = unlimited)",
+        help=_MAX_AUDIO_GB_HELP,
     )
     schedule_cmd.add_argument(
         "--allow-long-live",
@@ -293,6 +341,11 @@ def build_parser() -> argparse.ArgumentParser:
     schedule_cmd.add_argument(
         "--archive-root", default=DEFAULT_ARCHIVE_ROOT,
         help="Archive root directory (default: ./archive)",
+    )
+    schedule_cmd.add_argument("--artifact-root", default=None, help=_ARTIFACT_ROOT_HELP)
+    schedule_cmd.add_argument(
+        "--keep-audio", action=argparse.BooleanOptionalAction, default=None,
+        help=_KEEP_AUDIO_HELP,
     )
     schedule_cmd.add_argument(
         "--sessdata", default=None,
@@ -329,11 +382,16 @@ def build_parser() -> argparse.ArgumentParser:
         "--max-audio-gb",
         type=float,
         default=10.0,
-        help="Skip audio downloads that would push audio/ past this many GiB (0 = unlimited)",
+        help=_MAX_AUDIO_GB_HELP,
     )
     campaign_cmd.add_argument(
         "--archive-root", default=DEFAULT_ARCHIVE_ROOT,
         help="Archive root directory (default: ./archive)",
+    )
+    campaign_cmd.add_argument("--artifact-root", default=None, help=_ARTIFACT_ROOT_HELP)
+    campaign_cmd.add_argument(
+        "--keep-audio", action=argparse.BooleanOptionalAction, default=None,
+        help=_KEEP_AUDIO_HELP,
     )
     campaign_cmd.add_argument(
         "--sessdata", default=None,
@@ -381,11 +439,13 @@ def build_parser() -> argparse.ArgumentParser:
         "--archive-root", default=DEFAULT_ARCHIVE_ROOT,
         help="Archive root directory (default: ./archive)",
     )
+    search_cmd.add_argument("--artifact-root", default=None, help=_ARTIFACT_ROOT_HELP)
 
     coverage_cmd = subparsers.add_parser(
         "coverage", help="Print deterministic read-only coverage telemetry"
     )
     coverage_cmd.add_argument("--archive-root", default=DEFAULT_ARCHIVE_ROOT)
+    coverage_cmd.add_argument("--artifact-root", default=None, help=_ARTIFACT_ROOT_HELP)
     coverage_cmd.add_argument("--scope", default=None)
     coverage_cmd.add_argument("--format", choices=["json", "csv"], default="json")
     coverage_cmd.add_argument(
@@ -411,6 +471,7 @@ def build_parser() -> argparse.ArgumentParser:
         "verify", help="Verify archive integrity without modifying files"
     )
     integrity_cmd.add_argument("--archive-root", default=DEFAULT_ARCHIVE_ROOT)
+    integrity_cmd.add_argument("--artifact-root", default=None, help=_ARTIFACT_ROOT_HELP)
     integrity_cmd.add_argument("--scope", default=None)
     integrity_cmd.add_argument(
         "--trusted-local", action="store_true",
@@ -422,6 +483,7 @@ def build_parser() -> argparse.ArgumentParser:
         "recover", help="Explicitly audit named integrity defects (no requeue execution)"
     )
     recover_cmd.add_argument("--archive-root", default=DEFAULT_ARCHIVE_ROOT)
+    recover_cmd.add_argument("--artifact-root", default=None, help=_ARTIFACT_ROOT_HELP)
     recover_cmd.add_argument("--work-id", action="append", default=None,
                              help="Exact work_id selector (repeatable; required for bounded recovery)")
     recover_cmd.add_argument("--defect-code", action="append", default=None,
@@ -472,6 +534,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--archive-root", default=DEFAULT_ARCHIVE_ROOT,
         help="Archive root directory (default: ./archive)",
     )
+    export_cmd.add_argument("--artifact-root", default=None, help=_ARTIFACT_ROOT_HELP)
 
     # The GPU/ROCm environment self-check.  This subcommand is the CLI form the
     # README and spec 01 D1.2 already document — it had no implementation, so
@@ -1235,6 +1298,9 @@ def _cmd_download_audio(args: argparse.Namespace) -> int:
 
     ok = failed = 0
     risk_interrupted = False
+    # The products' base, resolved once (contract §4).  A write resolves on `write_base`
+    # alone — never on which `audio/` directory happens to exist.
+    write_base = args.artifact_roots.write_base
     for key, entry in todo:
         target = _identity_from_entry(entry, key)
         label = str(key)
@@ -1243,33 +1309,34 @@ def _cmd_download_audio(args: argparse.Namespace) -> int:
 
             if isinstance(target, PageIdentity):
                 stem = artifact_stem(target)
-                out_path = os.path.join(
-                    args.archive_root, "audio", f"{stem}.m4a"
-                )
+                out_path = os.path.join(write_base, "audio", f"{stem}.m4a")
             elif isinstance(target, str):
                 target = resolve_page_identity(client, target)
                 label = target.work_id
                 stem = artifact_stem(target)
                 out_path = os.path.join(
-                    args.archive_root, "audio", f"{stem}.m4a"
+                    write_base, "audio", f"{stem}.m4a"
                 )
             else:
                 raise TypeError("unsupported download target")
             label = target.work_id
-            final = audio.download_audio(client, target, out_path, store=store)
+            final = audio.download_audio(
+                client, target, out_path, store=store,
+                artifact_roots=args.artifact_roots,
+            )
             from .path_policy import confined_audio_path
             try:
                 returned_relative = os.path.relpath(
-                    os.fspath(final), os.fspath(args.archive_root)
+                    os.fspath(final), os.fspath(write_base)
                 )
             except (OSError, ValueError, TypeError):
                 returned_relative = ""
             confined = confined_audio_path(
-                args.archive_root, returned_relative, require_exists=True
+                write_base, returned_relative, require_exists=True
             )
             if confined is None:
                 raise ValueError("invalid audio path")
-            final = os.path.relpath(confined, os.fspath(args.archive_root))
+            final = os.path.relpath(confined, os.fspath(write_base))
         except bili_client.AmbiguousPageError:
             failed += 1
             print(f"{label}: multi-part video needs an explicit page",
@@ -1461,7 +1528,9 @@ def _cmd_coverage_quality(args: argparse.Namespace) -> int:
     analyzer = QualityAnalyzer()
     for work_id, entry in sorted(selected.items()):
         try:
-            result = analyzer.analyze(entry, root, reference_path)
+            result = analyzer.analyze(
+                entry, root, reference_path, artifact_roots=args.artifact_roots
+            )
         except ReferenceUnavailable as exc:
             print(f"coverage: {exc.reason}", file=sys.stderr)
             return 1
@@ -1630,7 +1699,10 @@ def _cmd_coverage(args: argparse.Namespace) -> int:
             return 1
         from .sidecar_projection import ReaderPolicy
         policy = ReaderPolicy(mode="trusted_archive") if getattr(args, "trusted_local", False) else None
-        report = CoverageReport.build(args.archive_root, scope=args.scope, policy=policy)
+        report = CoverageReport.build(
+            args.archive_root, scope=args.scope, policy=policy,
+            artifact_roots=args.artifact_roots,
+        )
         sys.stdout.write(report.to_json() if args.format == "json" else report.to_csv())
         if args.format == "json":
             sys.stdout.write("\n")
@@ -1751,19 +1823,30 @@ def _expand_selected_pages(
     return selected + extras
 
 
-def _subtitle_segments(root: str, entry: dict[str, object]) -> tuple[list[dict[str, object]], object] | None:
+def _subtitle_segments(
+    roots: ArtifactRoots, entry: dict[str, object]
+) -> tuple[list[dict[str, object]], object] | None:
+    """Read one row's harvested caption document over the ordered bases (contract §5).
+
+    The document is a **read**, and the recorded path is root-relative (D7), so the
+    first base that holds it wins: a row harvested before the artifact root was
+    configured keeps resolving at the archive root.
+    """
     import json
     from .archive import archive_stem
 
     stem = archive_stem(entry)
-    raw_path = os.path.join(root, "subtitles", "raw", f"{stem}.json")
-    if not os.path.isfile(raw_path):
-        return None
-    with open(raw_path, encoding="utf-8") as fh:
-        doc = json.load(fh)
-    segments = [{"start": item.get("from", 0), "end": item.get("to", 0), "text": item.get("content", "")}
-                for item in doc.get("body", [])]
-    return segments, doc
+    relative = os.path.join("subtitles", "raw", f"{stem}.json")
+    for base in roots.read_bases():
+        raw_path = os.path.join(os.fspath(base), relative)
+        if not os.path.isfile(raw_path):
+            continue
+        with open(raw_path, encoding="utf-8") as fh:
+            doc = json.load(fh)
+        segments = [{"start": item.get("from", 0), "end": item.get("to", 0), "text": item.get("content", "")}
+                    for item in doc.get("body", [])]
+        return segments, doc
+    return None
 
 
 class _AsrItemCount:
@@ -1888,7 +1971,7 @@ def _cmd_asr(args: argparse.Namespace) -> int:
             provenance = None
             status = entry.get("status")
             subtitle_data = (
-                _subtitle_segments(args.archive_root, entry)
+                _subtitle_segments(args.artifact_roots, entry)
                 if status == "subtitle_done"
                 else None
             )
@@ -1908,21 +1991,28 @@ def _cmd_asr(args: argparse.Namespace) -> int:
                         runner = asr.ASRRunner(
                             config if config is not None else asr.default_config()
                         )
-                    with confined_audio_file(args.archive_root, os.fspath(declared)) as safe_audio:
+                    # A read of the recorded value, so both bases answer (D8): a row
+                    # whose audio predates the configured root still resolves.
+                    audio_base = _audio_base_holding(
+                        args.artifact_roots, os.fspath(declared)
+                    )
+                    with confined_audio_file(audio_base, os.fspath(declared)) as safe_audio:
                         segments = runner.transcribe(safe_audio)
                     asr_count.value += 1
                     provenance = runner.provenance()
                 paths = archive.write_archive(
-                    args.archive_root, entry, segments, source=source, raw=raw,
-                    asr_provenance=provenance,
+                    args.artifact_roots.write_base, entry, segments, source=source,
+                    raw=raw, asr_provenance=provenance,
                 )
-                if not archive.archive_bundle_complete(args.archive_root, paths):
+                if not archive.archive_bundle_complete(args.artifact_roots.write_base, paths):
                     raise ValueError("archive bundle incomplete")
                 updated = dict(store.get(key) or entry)
                 updated.update(paths)
                 updated["status"] = "archived"
                 store.upsert(updated)
-                _reclaim_after_archive(args.archive_root, updated)
+                _reclaim_after_archive(
+                    args.artifact_roots, updated, keep=args.keep_audio
+                )
                 ok += 1
                 print(f"{label}: archived ({source})")
             except asr.ASRDependencyError:
@@ -1948,37 +2038,65 @@ def _cmd_asr(args: argparse.Namespace) -> int:
     return 1 if failed else 0
 
 
-def _reclaim_after_archive(root: str, entry: dict[str, object]) -> None:
-    """Best-effort audio reclaim once a row is archived (plan: audio-reclaim)."""
+def _audio_base_holding(roots: ArtifactRoots, declared: str) -> Path:
+    """The first base that holds one recorded ``audio_path`` (contract §5, D8).
+
+    A recorded value stays root-relative, so the base it is resolved against is decided
+    by which one holds the file — the row's audio may predate the configured root.  A
+    value no base holds is a failure of the read, reported as the guard's own
+    ``OSError`` so the row's ``archive failed`` line keeps naming the same class.
+    """
+    from .path_policy import confined_audio_path
+
+    for base in roots.read_bases():
+        if confined_audio_path(base, declared, require_exists=True) is not None:
+            return base
+    raise OSError("invalid audio path")
+
+
+def _reclaim_after_archive(
+    roots: ArtifactRoots, entry: dict[str, object], *, keep: bool
+) -> None:
+    """Best-effort audio reclaim once a row is archived (plan: audio-reclaim).
+
+    ``keep`` is the retention policy the command boundary resolved (contract §7, D15);
+    the library never reads the environment.  ``roots`` carries both bases, because "do
+    not keep this row's audio" means the copy, wherever it is.
+    """
     from .audio_reclaim import reclaim_audio
 
     try:
-        reclaim_audio(root, entry)
+        reclaim_audio(
+            roots.archive_root, entry, artifact_roots=roots, keep=keep
+        )
     except (OSError, ValueError):
         pass  # per-item non-fatal: transcripts exist; row stays archived
 
 
-def _pilot_archive_subtitle(store, root: str, entry: dict[str, object]) -> dict[str, object]:
+def _pilot_archive_subtitle(
+    store, roots: ArtifactRoots, entry: dict[str, object], *, keep: bool
+) -> dict[str, object]:
     from . import archive
 
-    data = _subtitle_segments(root, entry)
+    base = roots.write_base
+    data = _subtitle_segments(roots, entry)
     if data is None:
         raise ValueError(f"{_pilot_row_key(entry)}: subtitle raw JSON missing")
     segments, raw = data
-    paths = archive.write_archive(root, entry, segments, source="subtitle", raw=raw)
-    if not archive.archive_bundle_complete(root, paths):
+    paths = archive.write_archive(base, entry, segments, source="subtitle", raw=raw)
+    if not archive.archive_bundle_complete(base, paths):
         raise ValueError("archive bundle incomplete")
     updated = dict(entry)
     updated.update(paths)
     updated["status"] = "archived"
     store.upsert(updated)
-    _reclaim_after_archive(root, updated)
+    _reclaim_after_archive(roots, updated, keep=keep)
     return updated
 
 
 def _pilot_archive_asr(
-    store, client, root: str, entry: dict[str, object], target, runner=None,
-    asr_count: "_AsrItemCount | None" = None,
+    store, client, roots: ArtifactRoots, entry: dict[str, object], target, runner=None,
+    asr_count: "_AsrItemCount | None" = None, *, keep: bool,
 ) -> dict[str, object]:
     """Archive one pilot row over ASR.
 
@@ -2012,53 +2130,64 @@ def _pilot_archive_asr(
         target = resolve_page_identity(client, target)
     if not isinstance(target, PageIdentity):
         raise TypeError("unsupported download target")
+    # Writes use `write_base` alone; reads walk the ordered bases (contract §4/§5).
+    base = roots.write_base
     stem = artifact_stem(target)
-    out_path = os.path.join(root, "audio", f"{stem}.m4a")
+    out_path = os.path.join(base, "audio", f"{stem}.m4a")
     existing_rel = entry.get("audio_path") if entry.get("status") == "audio_ok" else None
     existing_audio_path: str | None = None
     from .path_policy import confined_audio_file, confined_audio_path
     if existing_rel:
-        existing_audio_path_obj = confined_audio_path(root, os.fspath(existing_rel), require_exists=True)
-        if existing_audio_path_obj is not None and existing_audio_path_obj.stat().st_size > 0:
-            existing_audio_path = str(existing_audio_path_obj)
+        try:
+            holding = _audio_base_holding(roots, os.fspath(existing_rel))
+        except OSError:
+            holding = None
+        if holding is not None:
+            existing_audio_path_obj = confined_audio_path(
+                holding, os.fspath(existing_rel), require_exists=True
+            )
+            if existing_audio_path_obj is not None and existing_audio_path_obj.stat().st_size > 0:
+                existing_audio_path = str(existing_audio_path_obj)
     if existing_audio_path is not None:
         audio_path = existing_audio_path
     else:
-        downloaded = Path(os.fspath(audio.download_audio(client, target, out_path, store=store)))
+        downloaded = Path(os.fspath(audio.download_audio(
+            client, target, out_path, store=store, artifact_roots=roots
+        )))
         try:
-            downloaded_relative = downloaded.resolve().relative_to(Path(root).resolve()).as_posix()
+            downloaded_relative = downloaded.resolve().relative_to(Path(base).resolve()).as_posix()
         except (OSError, ValueError):
             raise ValueError("invalid audio path")
-        audio_path_obj = confined_audio_path(root, downloaded_relative, require_exists=True)
+        audio_path_obj = confined_audio_path(base, downloaded_relative, require_exists=True)
         if audio_path_obj is None or audio_path_obj.stat().st_size <= 0:
             raise ValueError("invalid audio path")
         audio_path = str(audio_path_obj)
-    declared_audio = os.path.relpath(audio_path, root)
+    declared_audio = os.path.relpath(audio_path, base)
     owns_runner = runner is None
     if owns_runner:
         runner = asr.ASRRunner(asr.default_config())
     try:
-        with confined_audio_file(root, declared_audio) as safe_audio:
+        with confined_audio_file(base, declared_audio) as safe_audio:
             segments = runner.transcribe(safe_audio)
         if asr_count is not None:
             asr_count.value += 1
         current = dict(store.get(target.work_id) or entry)
         paths = archive.write_archive(
-            root, current, segments, source="asr", asr_provenance=runner.provenance()
+            base, current, segments, source="asr", asr_provenance=runner.provenance()
         )
     finally:
         if owns_runner:
             runner.release()
-    if not archive.archive_bundle_complete(root, paths):
+    if not archive.archive_bundle_complete(base, paths):
         raise ValueError("archive bundle incomplete")
     current.update(paths)
     current["status"] = "archived"
     try:
-        current["audio_path"] = os.path.relpath(audio_path, root)
+        current["audio_path"] = os.path.relpath(audio_path, base)
     except ValueError:
         current["audio_path"] = audio_path
     store.upsert(current)
-    _reclaim_after_archive(root, current)
+    _reclaim_after_archive(roots, current, keep=keep)
     return current
 
 
@@ -2188,12 +2317,15 @@ def _cmd_pilot(args: argparse.Namespace) -> int:
             try:
                 if status not in _PILOT_SKIP_HARVEST:
                     status = subtitles.harvest_subtitle(
-                        client, target, store, args.archive_root
+                        client, target, store, args.archive_root,
+                        artifact_roots=args.artifact_roots,
                     )
                 current = dict(store.get(key) or store.get_compatible(key) or entry)
                 label = str(current.get("work_id") or key)
                 if status == "subtitle_done":
-                    _pilot_archive_subtitle(store, args.archive_root, current)
+                    _pilot_archive_subtitle(
+                        store, args.artifact_roots, current, keep=args.keep_audio
+                    )
                     batch_subtitle_count += 1
                     coverage_subtitle_count += 1
                     terminals.append(f"{label}: archived (subtitle)")
@@ -2210,21 +2342,25 @@ def _cmd_pilot(args: argparse.Namespace) -> int:
                     if (
                         status == "needs_audio"
                         and would_exceed_budget(
-                            args.archive_root, current_row, max_bytes
+                            args.artifact_roots.write_base, current_row, max_bytes
                         )
                     ):
                         failed += 1
+                        # Q1's ruling: the cap keeps its fail-closed semantics, and the
+                        # line that reports it names the flag that lifts it.  With audio
+                        # retained, `audio/` only grows, so `0` is the operator's lever.
                         print(
                             f"{label}: skipped ({SKIP_REASON}); "
-                            "audio-dir budget cap reached",
+                            "audio-dir budget cap reached "
+                            "(--max-audio-gb 0 = unlimited)",
                             file=sys.stderr,
                         )
                         continue
                     if runner is None:
                         runner = asr.ASRRunner(asr.default_config())
                     _pilot_archive_asr(
-                        store, client, args.archive_root, current, target, runner,
-                        asr_count,
+                        store, client, args.artifact_roots, current, target, runner,
+                        asr_count, keep=args.keep_audio,
                     )
                     batch_audio_count += 1
                     coverage_audio_count += 1
@@ -2404,6 +2540,11 @@ def _cmd_campaign(args: argparse.Namespace) -> int:
             max_audio_bytes=audio_cap_bytes(args.max_audio_gb),
             sleep=time.sleep,
             scope_rows=_run_scope_rows,
+            artifact_roots=args.artifact_roots,
+            # R1: the runner is the only path to the coordinator's own reclaim, so a
+            # `campaign` that did not forward this would leave its documented
+            # `--keep-audio/--no-keep-audio` silently inert (contract §7, D15).
+            keep_audio=args.keep_audio,
         )
         summary = runner.run(args.scope, args.limit, resume=args.resume)
     except ArchiveBusyError:
@@ -2569,7 +2710,9 @@ def _cmd_run(args: argparse.Namespace) -> int:
     if not args.offline:
         client = bili_client.BiliClient(sessdata=_resolve_sessdata(args))
     coord = RunCoordinator(args.archive_root, store, client=client, offline=args.offline,
-                           max_audio_bytes=audio_cap_bytes(args.max_audio_gb))
+                           max_audio_bytes=audio_cap_bytes(args.max_audio_gb),
+                           artifact_roots=args.artifact_roots,
+                           keep_audio=args.keep_audio)
     print(f"run: scope={args.scope} selected {len(rows)} row(s)" + (" [offline]" if args.offline else ""))
     for key, entry in rows:
         print(f"  {entry.get('work_id') or key}: {entry.get('status')}")
@@ -2750,6 +2893,8 @@ def _cmd_schedule(args: argparse.Namespace) -> int:
         sleep=time.sleep,
         # `run_batch` is shared; the reuse line must name this command, not `run`.
         command="schedule",
+        artifact_roots=args.artifact_roots,
+        keep_audio=args.keep_audio,
     )
     print(
         f"schedule: scope={args.scope} limit={args.limit} "
@@ -2763,12 +2908,15 @@ def _cmd_schedule(args: argparse.Namespace) -> int:
             "re-run with --allow-long-live"
         )
     if args.allow_long_live:
-        usage_snapshot = audio_dir_usage_bytes(args.archive_root)
+        # D16: the cap, the peak and this pre-download plan all measure the configured
+        # root's `audio/` — that is where new bytes land.
+        write_base = args.artifact_roots.write_base
+        usage_snapshot = audio_dir_usage_bytes(write_base)
         for _key, entry in rows:
             if is_long_live(entry):
                 print(format_campaign_plan(
                     campaign_plan(
-                        args.archive_root,
+                        write_base,
                         entry,
                         max_audio_bytes,
                         usage_bytes=usage_snapshot,
@@ -2779,7 +2927,7 @@ def _cmd_schedule(args: argparse.Namespace) -> int:
         with archive_writer(args.archive_root):
             summary = coord.run_batch(rows)
             if args.allow_long_live:
-                after = audio_dir_usage_bytes(args.archive_root)
+                after = audio_dir_usage_bytes(args.artifact_roots.write_base)
                 print(f"schedule: long-live peak audio/ bytes={coord.audio_peak_bytes}")
                 print(f"schedule: long-live audio/ after bytes={after}")
             batch_state = classify_batch_state(
@@ -2937,7 +3085,10 @@ def _cmd_search(args: argparse.Namespace) -> int:
     )
 
     try:
-        results = search(archive_root=args.archive_root, query=sq)
+        results = search(
+            archive_root=args.archive_root, query=sq,
+            artifact_roots=args.artifact_roots,
+        )
     except FTS5UnavailableError as exc:
         print(f"search: {exc}", file=sys.stderr)
         return 1
@@ -3080,6 +3231,7 @@ def _cmd_export(args: argparse.Namespace) -> int:
             out_path=args.out,
             status_filter=status_filter,
             with_text=args.with_text,
+            artifact_roots=args.artifact_roots,
         )
         if not args.out or args.out == "-":
             sys.stdout.write(content + ("\n" if not content.endswith("\n") else ""))
@@ -3094,7 +3246,10 @@ def _cmd_verify(args: argparse.Namespace) -> int:
     from .integrity import IntegrityVerifier
     from .sidecar_projection import ReaderPolicy
     policy = ReaderPolicy(mode="trusted_archive") if getattr(args, "trusted_local", False) else None
-    report = IntegrityVerifier().verify(Path(args.archive_root), scope=args.scope, policy=policy)
+    report = IntegrityVerifier().verify(
+        Path(args.archive_root), scope=args.scope, policy=policy,
+        artifact_roots=args.artifact_roots,
+    )
     payload = report.to_dict()
     if args.format == "json":
         print(json.dumps(payload, ensure_ascii=False, sort_keys=True))
@@ -3113,6 +3268,7 @@ def _cmd_recover(args: argparse.Namespace) -> int:
     payload = IntegrityVerifier.recover(
         Path(args.archive_root), work_ids=args.work_id,
         defect_codes=args.defect_code, limit=args.limit,
+        artifact_roots=args.artifact_roots,
     )
     print(json.dumps(payload, ensure_ascii=False, sort_keys=True))
     return 0 if payload.get("ok") else 1
@@ -3258,6 +3414,25 @@ def main(argv: list[str] | None = None) -> int:
     if args.command is None:
         parser.print_help()
         return 0
+    # One resolution for the whole invocation, before the writer lock (contract §9).
+    # Only a command that declares `--artifact-root` resolves one — the six commands
+    # the flag is deliberately not on read no artifact path, and refusing them for a
+    # configuration they cannot honour would be a false statement about the interface
+    # (D18).  Resolving here rather than inside a handler is what keeps a refused
+    # invocation from creating `{archive_root}/coordinator/` (the lock's documented
+    # side effect) and what keeps a handler's broad `except Exception` — `coverage`'s,
+    # for one — from swallowing the real reason.
+    if hasattr(args, "artifact_root"):
+        try:
+            args.artifact_roots = roots_for(args.archive_root, flag_value=args.artifact_root)
+        except ArtifactRootError as exc:
+            print(f"{args.command}: {exc}", file=sys.stderr)
+            return 1
+        # The retention policy is resolved here too, for the five commands that carry
+        # the pair (spec §7): the libraries receive a value and never read the
+        # environment themselves (D15).
+        if hasattr(args, "keep_audio"):
+            args.keep_audio = resolve_keep_audio(args.keep_audio, os.environ)
     if args.command in _ARCHIVE_WRITER_COMMANDS:
         from .coordinator import ArchiveBusyError, archive_writer
 

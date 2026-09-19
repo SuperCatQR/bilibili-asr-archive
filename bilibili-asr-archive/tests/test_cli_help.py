@@ -1104,3 +1104,89 @@ def test_check_asr_env_states_absence_when_no_script_exists_anywhere(
     assert exit_code == 1
     assert "no check script found" in captured.err
     assert "BILI_ASR_CHECK_SCRIPT" in captured.err
+
+
+# ------------------------------------------- the artifact root and retention flags (§9)
+
+
+#: The eleven commands that touch an artifact path, in spec §9's table order.
+ARTIFACT_ROOT_COMMANDS = (
+    "asr", "pilot", "download-audio", "run", "schedule", "campaign",
+    "coverage", "verify", "recover", "export", "search",
+)
+
+#: The five that archive rows and therefore reclaim (spec §7).
+RETENTION_COMMANDS = ("asr", "pilot", "run", "schedule", "campaign")
+
+#: The six the flag is deliberately not on: none resolves an artifact path, and an
+#: accepted-but-ignored flag would be a false statement about the interface (D18).
+EXCLUDED_COMMANDS = (
+    "fetch-meta", "status", "runs", "probe-subs", "harvest-subs", "derive-manifest",
+)
+
+
+def _command_help(command: str, capsys: pytest.CaptureFixture[str]) -> str:
+    """One command's rendered help, whitespace-flattened.
+
+    argparse re-wraps to the terminal width, so a phrase that spans a line break in one
+    environment is one space in another; the assertions below are about what the help
+    *says*, not about where it happens to wrap.
+    """
+    from bili_asr.cli import build_parser
+
+    with pytest.raises(SystemExit) as exc:
+        build_parser().parse_args([command, "--help"])
+    assert exc.value.code == 0
+    return " ".join(capsys.readouterr().out.split())
+
+
+@pytest.mark.parametrize("command", ARTIFACT_ROOT_COMMANDS)
+def test_artifact_root_is_declared_on_the_commands_that_honour_it(
+    command: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """§9: the flag names its environment fallback and states its default."""
+    help_text = _command_help(command, capsys)
+
+    assert "--artifact-root" in help_text
+    assert "BILI_ARTIFACT_ROOT" in help_text
+    assert "default: the archive root" in help_text
+
+
+@pytest.mark.parametrize("command", RETENTION_COMMANDS)
+def test_the_retention_pair_is_declared_on_the_five_commands_that_reclaim(
+    command: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """§7/D15: both spellings exist, and the default they resolve to is stated."""
+    help_text = _command_help(command, capsys)
+
+    assert "--keep-audio" in help_text
+    assert "--no-keep-audio" in help_text
+    assert "BILI_KEEP_AUDIO" in help_text
+    assert "default: keep" in help_text
+
+
+@pytest.mark.parametrize("command", EXCLUDED_COMMANDS)
+def test_neither_flag_is_declared_on_the_commands_that_do_not_touch_artifacts(
+    command: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """D18's exclusion half, from the operator's side: --help cannot promise a flag."""
+    help_text = _command_help(command, capsys)
+
+    assert "--artifact-root" not in help_text
+    assert "--keep-audio" not in help_text
+
+
+@pytest.mark.parametrize("command", ("pilot", "run", "schedule", "campaign"))
+def test_the_cap_help_names_the_retention_interaction(
+    command: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Q1(a)'s ruling: the cap keeps its semantics, and both help and skip line say how.
+
+    Retaining audio means `audio/` only grows, so an operator who keeps it must be told
+    that `--max-audio-gb 0` is the way to keep downloading — the alternative the PM
+    rejected was silently changing the shipped default.
+    """
+    help_text = _command_help(command, capsys)
+
+    assert "--max-audio-gb 0" in help_text
+    assert "retained audio counts" in help_text
