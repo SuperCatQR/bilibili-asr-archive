@@ -10,7 +10,7 @@ import math
 import os
 from pathlib import Path
 import sqlite3
-from typing import Iterable, Iterator, TypeAlias
+from typing import Iterable, Iterator, Sequence, TypeAlias
 
 from .models import (
     ALLOWED_ATTEMPT_OUTCOMES,
@@ -1121,6 +1121,28 @@ class TranscriptRepository:
                 "ORDER BY attempted ASC, last_attempt_at ASC, bvid ASC, page_index ASC"
             ).fetchall()
         )
+
+    def read_video_pubdates(self, bvids: Sequence[str]) -> dict[str, int]:
+        """Return the stored publication second of each named video.
+
+        ``videos.pubdate`` is the store's own fact: a derived manifest row
+        carries it rather than inventing a date.  An empty input answers ``{}``
+        without executing anything — ``IN ()`` is a syntax error, not a read —
+        and a bvid the archive does not hold simply has no entry, so every
+        lookup the caller makes for a part it just read stays answered.  A
+        repeated bvid is answered once.  Read-only.
+        """
+        if not bvids:
+            return {}
+        keys = tuple(dict.fromkeys(_text(bvid, "bvid") for bvid in bvids))
+        placeholders = ", ".join("?" * len(keys))
+        return {
+            str(row["bvid"]): int(row["pubdate"])
+            for row in self.connection.execute(
+                f"SELECT bvid, pubdate FROM videos WHERE bvid IN ({placeholders})",
+                keys,
+            ).fetchall()
+        }
 
     def count_pending_subtitle_parts(self) -> int:
         """Count the parts the pending relation holds. Read-only."""

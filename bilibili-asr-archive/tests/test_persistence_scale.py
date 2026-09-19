@@ -426,6 +426,7 @@ def test_cli_dispatch_locks_every_archive_mutation(
         "recover",
         "asr",
         "pilot",
+        "derive-manifest",
         "harvest-subs",
         "download-audio",
         "run",

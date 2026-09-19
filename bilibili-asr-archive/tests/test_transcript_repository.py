@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import builtins
+from dataclasses import replace
 import hashlib
 import io
 import json
@@ -1976,3 +1977,62 @@ def test_storage_paths_never_read_or_write_a_legacy_sidecar(tmp_root, monkeypatc
     for relative, payload in poison.items():
         with real_open(os.path.join(tmp_root, relative), encoding="utf-8") as handle:
             assert handle.read() == payload
+
+
+def test_read_video_pubdates_returns_stored_seconds(tmp_root):
+    """The stored ``videos.pubdate`` per bvid, and no entry for a miss.
+
+    The publication second is a store fact the manifest derivation copies onto
+    its rows, so the read answers exactly what ``videos`` holds: one
+    distinguishing value per bvid proves the answer is the stored column and not
+    a constant, and a bvid the archive does not hold yields no key instead of an
+    invented date.
+    """
+    connection = open_database(tmp_root)
+    repository = TranscriptRepository(connection)
+    try:
+        published = replace(make_video_record("BV1PUB", aid=None), pubdate=1_600_000_000)
+        other = replace(make_video_record("BV1OTHER", aid=None), pubdate=1_700_000_000)
+        metadata = MetadataRepository(connection)
+        with metadata.transaction():
+            metadata.upsert_user(make_user_record())
+            metadata.upsert_video(published)
+            metadata.upsert_video(other)
+            metadata.upsert_part(make_part_record("BV1PUB", processing_status="metadata_collected"))
+            metadata.upsert_part(make_part_record("BV1OTHER", cid=9001, processing_status="metadata_collected"))
+
+        assert repository.read_video_pubdates(["BV1PUB", "BV1OTHER"]) == {
+            "BV1PUB": 1_600_000_000,
+            "BV1OTHER": 1_700_000_000,
+        }
+        assert repository.read_video_pubdates(["BV1OTHER", "BV1PUB"]) == {
+            "BV1OTHER": 1_700_000_000,
+            "BV1PUB": 1_600_000_000,
+        }
+        assert repository.read_video_pubdates(["BV1PUB", "BV1UNKNOWN"]) == {
+            "BV1PUB": 1_600_000_000
+        }
+        assert repository.read_video_pubdates(["BV1UNKNOWN"]) == {}
+        # A repeated bvid is answered once, not once per occurrence.
+        assert repository.read_video_pubdates(["BV1PUB", "BV1PUB"]) == {
+            "BV1PUB": 1_600_000_000
+        }
+
+        # The keys are validated like every other read argument in this module.
+        with pytest.raises(TypeError):
+            repository.read_video_pubdates([None])
+        with pytest.raises(ValueError):
+            repository.read_video_pubdates([""])
+    finally:
+        connection.close()
+
+
+def test_read_video_pubdates_of_no_bvid_is_empty(tmp_root):
+    """No bvid means no query: an ``IN ()`` list is a syntax error, not a read."""
+    connection = open_database(tmp_root)
+    repository = TranscriptRepository(connection)
+    try:
+        assert repository.read_video_pubdates([]) == {}
+        assert repository.read_video_pubdates(()) == {}
+    finally:
+        connection.close()

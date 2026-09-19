@@ -207,6 +207,23 @@ def build_parser() -> argparse.ArgumentParser:
         help="Stop after N videos (smoke runs)",
     )
 
+    derive = subparsers.add_parser(
+        "derive-manifest",
+        help="Append manifest rows for the audio queue: parts with no transcript",
+        description=(
+            "Derive the audio queue from archive.db: every stored part that holds "
+            "no transcript and is not gone is appended to the manifest as a "
+            "needs_audio row, so the ASR/audio chain has work to select. The "
+            "database is opened read-only and the manifest is only appended to; "
+            "a row the chain already holds is left alone. An empty queue is "
+            "success."
+        ),
+    )
+    derive.add_argument(
+        "--archive-root", default=DEFAULT_ARCHIVE_ROOT,
+        help="Archive root directory (default: ./archive)",
+    )
+
     run_cmd = subparsers.add_parser(
         "run",
         help="Coordinate manifest rows through stages (complements pilot)",
@@ -1066,6 +1083,77 @@ def _cmd_harvest_subs(args: argparse.Namespace) -> int:
     )
     if result.attempted and result.failed == result.attempted:
         return 2
+    return 0
+
+
+def _cmd_derive_manifest(args: argparse.Namespace) -> int:
+    """Append the manifest rows the stored audio queue needs.
+
+    The queue is the store's own work relation — every part that holds no
+    transcript and is not ``gone`` (``v_pending_subtitles``, read through
+    ``list_pending_subtitle_parts``) — and never the metadata backlog ``status``
+    prints as ``pending:``.  ``cli.py`` composes the layers here, as the
+    cross-layer rule requires: the database is opened read-only through the
+    subtitle guard, the derivation is a pure service call, and the write is
+    ``ManifestStore.upsert`` per appended row under the manifest's own lock.
+
+    Exit taxonomy: 0 the derivation completed, including an empty queue (a
+    missing database, an unreadable one, the schema-rebuild guard, a held
+    archive-writer lock and a usage error are all answered by their shipped
+    paths with 1); no path of this command produces 2.
+    """
+    from .manifest import ManifestStore
+    from .page_identity import parse_work_id
+    from .services.manifest_derivation import (
+        QUEUE_STATUS,
+        SKIP_ALREADY_DERIVED,
+        SKIP_CHAIN_OWNED,
+        SKIP_IDENTITY_MISMATCH,
+        derive_rows,
+    )
+    from .storage import TranscriptRepository
+
+    store = ManifestStore(root=args.archive_root)
+    connection = _open_subtitle_connection(
+        "derive-manifest", args.archive_root, read_only=True
+    )
+    if connection is None:
+        return 1
+    try:
+        repository = TranscriptRepository(connection)
+        queue = [dict(row) for row in repository.list_pending_subtitle_parts()]
+        outcome = derive_rows(
+            queue,
+            repository.read_video_pubdates([part["bvid"] for part in queue]),
+            store.load(),
+        )
+    finally:
+        connection.close()
+
+    for row in outcome.appended:
+        # The bridge never emits a bare-bvid key, so the page-qualified form is
+        # re-validated at the write rather than trusted from the derivation:
+        # ``upsert`` checks the same pair, but it also accepts a bare row when
+        # the bvid already has a legacy one, which is a state this command
+        # promises never to create.
+        stored_bvid, _page = parse_work_id(str(row["work_id"]))
+        if stored_bvid != row["bvid"]:
+            raise ValueError(
+                f"derived work_id {row['work_id']!r} does not match "
+                f"bvid {row['bvid']!r}"
+            )
+        store.upsert(row)
+        print(f"{row['work_id']}: {QUEUE_STATUS} (duration_s={row['duration_s']})")
+    for work_id in outcome.chain_owned:
+        print(f"skip {work_id} {SKIP_CHAIN_OWNED}")
+    for work_id in outcome.identity_mismatch:
+        print(f"skip {work_id} {SKIP_IDENTITY_MISMATCH}")
+    print(
+        f"derive-manifest: queue={len(queue)} derived={len(outcome.appended)} "
+        f"{SKIP_ALREADY_DERIVED}={len(outcome.already_derived)} "
+        f"{SKIP_CHAIN_OWNED}={len(outcome.chain_owned)} "
+        f"{SKIP_IDENTITY_MISMATCH}={len(outcome.identity_mismatch)}"
+    )
     return 0
 
 
@@ -3077,6 +3165,7 @@ _ARCHIVE_WRITER_COMMANDS = frozenset({
     "recover",
     "asr",
     "pilot",
+    "derive-manifest",
     "harvest-subs",
     "download-audio",
     "run",
@@ -3106,6 +3195,8 @@ def _dispatch_command(args: argparse.Namespace) -> int:
         return _cmd_probe_subs(args)
     if args.command == "harvest-subs":
         return _cmd_harvest_subs(args)
+    if args.command == "derive-manifest":
+        return _cmd_derive_manifest(args)
     if args.command == "download-audio":
         return _cmd_download_audio(args)
     if args.command == "search":
