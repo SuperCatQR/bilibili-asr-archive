@@ -19,11 +19,13 @@ from pathlib import Path
 
 import pytest
 
-from bili_asr.archive import write_archive
+from bili_asr.archive import archive_stem, write_archive
 from bili_asr.artifact_root import ArtifactRootError, ArtifactRoots, roots_for
 from bili_asr.coverage_report import CoverageReport
 from bili_asr.export import STANDARD_CSV_COLUMNS, export_manifest
-from bili_asr.integrity import MISSING_TRANSCRIPT, IntegrityVerifier
+from bili_asr.integrity import (
+    MALFORMED_ARTIFACT, MISSING_RAW_SUBTITLE, MISSING_TRANSCRIPT, IntegrityVerifier,
+)
 from bili_asr.quality import QualityAnalyzer
 from bili_asr.search_index import SearchIndex, check_fts5_available, search
 
@@ -180,6 +182,60 @@ def test_the_same_fixture_reports_the_same_inventory_at_either_root(tmp_path: Pa
     assert SearchIndex(str(archive)).build() == 3
     assert {hit["work_id"] for hit in search(str(archive), MARKER_TEXT)} == {
         "BVlegacy:p1", "BVsplit:p1",
+    }
+
+
+def _legacy_caption_row(root: Path, bvid: str) -> dict:
+    """The harvested-caption row §5's legacy case describes (`subtitles.py:143-165`).
+
+    `harvest_subtitle` publishes exactly two files — the caption document under
+    ``subtitles/raw/`` and the srt under ``transcripts/srt/`` — records ``srt_path``
+    alone and marks the row ``subtitle_done``.  There is no txt, no md and no bundle
+    marker, so no base can call this row's bundle complete: where it is graded is
+    decided by the per-path probe alone, which is what makes it the shape to pin.
+    """
+    row = _row(bvid)
+    stem = archive_stem(row)
+    caption = root / "subtitles" / "raw" / f"{stem}.json"
+    caption.parent.mkdir(parents=True, exist_ok=True)
+    caption.write_text(json.dumps({"body": []}), encoding="utf-8")
+    srt = root / "transcripts" / "srt" / f"{stem}.srt"
+    srt.parent.mkdir(parents=True, exist_ok=True)
+    # `json_to_srt` of an empty caption body: present, regular, and not a transcript.
+    srt.write_text("", encoding="utf-8")
+    return {**row, "status": "subtitle_done", "srt_path": f"transcripts/srt/{stem}.srt"}
+
+
+def test_a_legacy_caption_row_keeps_its_verdict_when_the_roots_are_configured(tmp_path: Path):
+    """§10 `verify`: both bases are probed per recorded path, so no verdict moves with the flag.
+
+    The reference run is the identity one, because that is the run this row was
+    published under — `subtitles.py` wrote both files at the archive root.  Grading the
+    row at the empty configured root alone would hide the defect that is really there
+    (the empty caption) and invent one that is not (`missing_raw_subtitle` for a caption
+    document that is present at the base that holds it).
+    """
+    archive = tmp_path / "state"
+    artifact = tmp_path / "artifacts"
+    artifact.mkdir(parents=True)  # an existing configured root, holding nothing
+    archive.mkdir(parents=True)
+    row = _legacy_caption_row(archive, "BVlegacy")
+    _write_state(archive, [row])
+
+    identity = IntegrityVerifier().verify(archive)
+    configured = IntegrityVerifier().verify(
+        archive, artifact_roots=ArtifactRoots.of(archive, artifact)
+    )
+
+    assert identity.checked == configured.checked == 1
+    # The row is defective at the base that holds it, and the identity run says so.
+    assert {(defect.work_id, defect.code) for defect in identity.defects} == {
+        ("BVlegacy:p1", MALFORMED_ARTIFACT), ("BVlegacy:p1", MISSING_TRANSCRIPT),
+    }
+    assert MISSING_RAW_SUBTITLE not in {defect.code for defect in identity.defects}
+    # Configuring a root cannot change which base answers for a recorded path.
+    assert {(defect.work_id, defect.code) for defect in configured.defects} == {
+        (defect.work_id, defect.code) for defect in identity.defects
     }
 
 

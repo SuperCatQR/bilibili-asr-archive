@@ -192,25 +192,42 @@ def _open_artifact_bases(
     return pairs
 
 
-def _graded_base(
-    artifact_bases: list[tuple[Path, _RootConfinedReader]],
-    declared_bundle: dict[str, str],
-    complete_candidate: bool,
-) -> tuple[Path, _RootConfinedReader, bool]:
-    """The base a row is graded at, its reader, and whether its bundle is complete there.
+def _safe_over_bases(
+    artifact_bases: list[tuple[Path, _RootConfinedReader]], candidates: list[Path]
+) -> bool:
+    """Whether one recorded path is confined at a base that could hold it (§5/§10).
 
-    The bundle names the base: the first base holding all four declared parts and
-    their marker is the one the row's paths are validated against (contract §5/§10,
-    D8).  A row without a complete bundle is graded at the first base, which with no
-    configured root is the archive root — today's single-base path, unchanged.
+    ``candidates`` is that path expressed under every base, in ``read_bases()`` order,
+    so each form is judged by its own base's confinement.  A path is legal when *some*
+    base confines it: with one base this is the shipped check unchanged, and with two it
+    never invents a mismatch for a value that is legal where the file actually is.
     """
-    base, base_reader = artifact_bases[0]
-    if not complete_candidate:
-        return base, base_reader, False
-    for candidate_base, candidate_reader in artifact_bases:
-        if archive_bundle_complete(candidate_base, declared_bundle):
-            return candidate_base, candidate_reader, True
-    return base, base_reader, False
+    return any(
+        IntegrityVerifier._safe_path(path, base)
+        for (base, _base_reader), path in zip(artifact_bases, candidates)
+    )
+
+
+def _locate_over_bases(
+    artifact_bases: list[tuple[Path, _RootConfinedReader]], candidates: list[list[Path]]
+) -> list[tuple[Path, _RootConfinedReader] | None]:
+    """For each recorded path, the first base that holds it and that base's reader (§5).
+
+    ``candidates[index]`` is one recorded path under every base, in ``read_bases()``
+    order, so a candidate is only ever opened against the base it was built from — never
+    against a neighbouring base's confinement.  A base that cannot legally hold the path
+    is skipped rather than asked, so a later base still answers for it: that is what
+    keeps a legacy row's verdict independent of where the other copies happen to be.
+    """
+    located: list[tuple[Path, _RootConfinedReader] | None] = []
+    for per_index in candidates:
+        hit: tuple[Path, _RootConfinedReader] | None = None
+        for (base, base_reader), path in zip(artifact_bases, per_index):
+            if IntegrityVerifier._safe_path(path, base) and base_reader.is_regular(path):
+                hit = (path, base_reader)
+                break
+        located.append(hit)
+    return located
 
 
 @dataclass(frozen=True)
@@ -330,33 +347,40 @@ class IntegrityVerifier:
                     complete_candidate = False
                     break
                 declared_bundle[bundle_key] = value
-            base, base_reader, bundle_complete = _graded_base(
-                artifact_bases, declared_bundle, complete_candidate
+            # §10: every recorded path — and the raw document — is probed over the ordered
+            # bases, each candidate against its own base.  The bundle decides completeness
+            # only (complete at either base is complete), while a path is answered by the
+            # first base that holds it, so a defect is read where the file actually is.
+            required = [list(paths) for paths in zip(*[self._required_paths(row, base) for base, _reader in artifact_bases])]
+            canonical_required = [list(paths) for paths in zip(*[self._canonical_required_paths(row, base) for base, _reader in artifact_bases])]
+            bundle_complete = complete_candidate and any(
+                archive_bundle_complete(base, declared_bundle) for base, _reader in artifact_bases
             )
-            required = self._required_paths(row, base)
-            canonical_required = self._canonical_required_paths(row, base)
-            for declared, canonical in zip(required, canonical_required):
-                if row.get("md_path") is not None and declared != canonical and row.get("title"):
+            for index, declared_paths in enumerate(required):
+                if row.get("md_path") is not None and declared_paths[0] != canonical_required[index][0] and row.get("title"):
                     defects.add(IDENTITY_PATH_MISMATCH)
-            for path in required:
-                if not self._safe_path(path, base): defects.add(IDENTITY_PATH_MISMATCH)
-            present = [p for p in required if base_reader.is_regular(p)]
-            for bundle_key, value in declared_bundle.items():
-                candidate = Path(value) if Path(value).is_absolute() else base / value
-                if not self._safe_path(candidate, base):
+                if not _safe_over_bases(artifact_bases, declared_paths):
+                    defects.add(IDENTITY_PATH_MISMATCH)
+            present = [located[0] for located in _locate_over_bases(artifact_bases, required) if located is not None]
+            for value in declared_bundle.values():
+                candidate = [Path(value) if Path(value).is_absolute() else base / value for base, _reader in artifact_bases]
+                if not _safe_over_bases(artifact_bases, candidate):
                     defects.add(IDENTITY_PATH_MISMATCH)
             if status in {"archived", "asr_done", "subtitle_done"} and (len(present) < len(canonical_required) or not bundle_complete): defects.add(MISSING_TRANSCRIPT)
-            raw = base / "subtitles" / "raw" / f"{self._canonical_stem(row)}.json"
+            raw = [base / "subtitles" / "raw" / f"{self._canonical_stem(row)}.json" for base, _reader in artifact_bases]
             declared_raw = row.get("raw_path")
             if status == "subtitle_done" and isinstance(declared_raw, str):
-                declared_raw_path = Path(declared_raw) if Path(declared_raw).is_absolute() else base / declared_raw
-                if not self._safe_path(declared_raw_path, base):
+                declared_raw_paths = [Path(declared_raw) if Path(declared_raw).is_absolute() else base / declared_raw for base, _reader in artifact_bases]
+                if not _safe_over_bases(artifact_bases, declared_raw_paths):
                     defects.add(IDENTITY_PATH_MISMATCH)
-            if status == "subtitle_done" and not self._safe_path(raw, base): defects.add(IDENTITY_PATH_MISMATCH)
-            elif status == "subtitle_done" and not base_reader.is_regular(raw): defects.add(MISSING_RAW_SUBTITLE)
-            artifact_paths = list(canonical_required)
-            if status == "subtitle_done": artifact_paths.append(raw)
-            if any(not self._valid_artifact(path, row, base_reader) for path in artifact_paths if base_reader.is_regular(path)):
+            located_raw: tuple[Path, _RootConfinedReader] | None = None
+            if status == "subtitle_done" and not _safe_over_bases(artifact_bases, raw): defects.add(IDENTITY_PATH_MISMATCH)
+            elif status == "subtitle_done":
+                located_raw = _locate_over_bases(artifact_bases, [raw])[0]  # one recorded path, probed per base
+                if located_raw is None: defects.add(MISSING_RAW_SUBTITLE)
+            artifact_paths = [located for located in _locate_over_bases(artifact_bases, canonical_required) if located is not None]
+            if located_raw is not None: artifact_paths.append(located_raw)
+            if any(not self._valid_artifact(path, row, base_reader) for path, base_reader in artifact_paths):
                 defects.add(MALFORMED_ARTIFACT)
             if status in {"pending", "meta_ok", "sub_checked", "needs_audio", "audio_ok"}: defects.add(RETRYABLE_INCOMPLETE)
             report.defects.extend(IntegrityDefect(work_id, code) for code in sorted(defects))

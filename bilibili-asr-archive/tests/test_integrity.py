@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from bili_asr.archive import write_archive
+from bili_asr.archive import archive_stem, write_archive
 from bili_asr.artifact_root import ArtifactRoots
 from bili_asr.integrity import (
     IntegrityReport, IntegrityVerifier, MALFORMED_ARTIFACT, MISSING_RAW_SUBTITLE,
@@ -390,3 +390,75 @@ def test_recover_forwards_the_artifact_root_into_its_verification(tmp_path: Path
     assert IntegrityVerifier.recover(archive, work_ids=[str(row["work_id"])])["ok"] is True
     # The audit sidecar is state and stays at the archive root (D13, spec §10).
     assert (archive / "coordinator" / "recovery-audit.jsonl").is_file()
+
+
+#: A transcript that `_valid_artifact` accepts; the empty string is the defect.
+_CAPTION_SRT = "1\n00:00:00,000 --> 00:00:01,000\ncaption\n"
+
+
+def _caption_copy(root: Path, row: dict[str, object], srt_text: str) -> str:
+    """One harvested-caption copy below ``root``; returns the recorded ``srt_path``.
+
+    `harvest_subtitle` writes the caption document under ``subtitles/raw/`` and the srt
+    under ``transcripts/srt/``, records ``srt_path`` alone and marks the row
+    ``subtitle_done`` (`subtitles.py:143-165`) — no txt, no md, no bundle marker, so no
+    base holds a bundle this row's completeness could be read from.
+    """
+    stem = archive_stem(row)
+    srt = root / "transcripts" / "srt" / f"{stem}.srt"
+    srt.parent.mkdir(parents=True, exist_ok=True)
+    srt.write_text(srt_text, encoding="utf-8")
+    document = root / "subtitles" / "raw" / f"{stem}.json"
+    document.parent.mkdir(parents=True, exist_ok=True)
+    document.write_text(json.dumps({"body": [{"from": 0, "to": 1, "content": "caption"}]}),
+                        encoding="utf-8")
+    return f"transcripts/srt/{stem}.srt"
+
+
+def _defect_codes(report: IntegrityReport) -> dict[str, set[str]]:
+    codes: dict[str, set[str]] = {}
+    for defect in report.defects:
+        codes.setdefault(defect.work_id, set()).add(defect.code)
+    return codes
+
+
+def test_verify_reads_each_recorded_path_at_the_first_base_that_holds_it(tmp_path: Path) -> None:
+    """§5/§10: the ordered probe decides *which* copy answers — content included.
+
+    Both rows are the legacy harvested-caption shape and both bases hold a file at the
+    recorded ``srt_path``, so the two copies disagree about the row.  The first base
+    that holds a path answers for it: a union over the bases would mark both rows
+    malformed, and falling through to a copy that parses would clear both.  Only the
+    ordered probe reports the defect that is really there, at the base it is in.
+    """
+    archive = tmp_path / "state"
+    artifact = tmp_path / "artifacts"
+    archive.mkdir(parents=True)
+    artifact.mkdir(parents=True)
+    broken = {"work_id": "BVbroken:p0", "bvid": "BVbroken", "cid": 11, "page_index": 0}
+    intact = {"work_id": "BVok:p0", "bvid": "BVok", "cid": 12, "page_index": 0}
+
+    rows: list[dict[str, object]] = []
+    for row, at_artifact, at_archive in (
+        (broken, "", _CAPTION_SRT),          # the defect is real at the configured root
+        (intact, _CAPTION_SRT, ""),          # here the legacy copy is the broken one
+    ):
+        recorded = _caption_copy(artifact, row, at_artifact)
+        assert _caption_copy(archive, row, at_archive) == recorded
+        rows.append({**row, "status": "subtitle_done", "srt_path": recorded})
+    _manifest(archive, rows)
+
+    configured = IntegrityVerifier().verify(
+        archive, artifact_roots=ArtifactRoots.of(archive, artifact)
+    )
+    assert _defect_codes(configured) == {
+        "BVbroken:p0": {MALFORMED_ARTIFACT, MISSING_TRANSCRIPT},
+        "BVok:p0": {MISSING_TRANSCRIPT},
+    }
+
+    # The fixture is symmetric — each row is broken at exactly one base — so the
+    # single-base view mirrors those verdicts from the copy at the archive root.
+    assert _defect_codes(IntegrityVerifier().verify(archive)) == {
+        "BVbroken:p0": {MISSING_TRANSCRIPT},
+        "BVok:p0": {MALFORMED_ARTIFACT, MISSING_TRANSCRIPT},
+    }
