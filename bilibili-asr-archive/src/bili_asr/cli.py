@@ -59,6 +59,19 @@ _MAX_AUDIO_GB_HELP = (
     "operator keeps downloading with --max-audio-gb 0"
 )
 
+#: `schedule`'s own cap help: the retention interaction holds in both of its modes, the
+#: lever does not.  `--allow-long-live` refuses a disabled cap
+#: (``long_live.refuse_disabled_audio_cap``), so the shared wording above would be advice
+#: that is false in one mode on the one command that has two — and a hint that is false in
+#: one mode is worse than an absent hint (plan R8, QC2 W-2).  The exception is stated
+#: instead of the advice, so every claim is true of the mode it is read in.
+_MAX_AUDIO_GB_HELP_SCHEDULE = (
+    "Skip audio downloads that would push audio/ past this many GiB "
+    "(0 = unlimited); retained audio counts toward it, so a retaining "
+    "operator raises the cap — --max-audio-gb 0 is refused under "
+    "--allow-long-live"
+)
+
 #: The same advisory as it appears on a skip line, so the commands that print one
 #: print the same words (Q1: the line that reports the cap names the flag that lifts
 #: it — with retention on, `audio/` only grows, so `0` is the operator's lever).
@@ -334,7 +347,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     schedule_cmd.add_argument(
         "--max-audio-gb", type=float, default=10.0,
-        help=_MAX_AUDIO_GB_HELP,
+        help=_MAX_AUDIO_GB_HELP_SCHEDULE,
     )
     schedule_cmd.add_argument(
         "--allow-long-live",
@@ -2143,6 +2156,13 @@ def _pilot_archive_asr(
     out_path = os.path.join(base, "audio", f"{stem}.m4a")
     existing_rel = entry.get("audio_path") if entry.get("status") == "audio_ok" else None
     existing_audio_path: str | None = None
+    # The base the row's audio is read from: `write_base` for the download below, and
+    # whichever base holds the recorded copy for a row written before the root was
+    # configured.  The ASR stage re-confines the value **there** and records it back
+    # **there** (contract §5, D6/D8): measuring a legacy copy against `write_base` alone
+    # yields a `..`-bearing string the audio guard refuses, so the row fails instead of
+    # archiving.
+    audio_base = base
     from .path_policy import confined_audio_file, confined_audio_path
     if existing_rel:
         try:
@@ -2155,6 +2175,7 @@ def _pilot_archive_asr(
             )
             if existing_audio_path_obj is not None and existing_audio_path_obj.stat().st_size > 0:
                 existing_audio_path = str(existing_audio_path_obj)
+                audio_base = holding
     if existing_audio_path is not None:
         audio_path = existing_audio_path
     else:
@@ -2169,12 +2190,12 @@ def _pilot_archive_asr(
         if audio_path_obj is None or audio_path_obj.stat().st_size <= 0:
             raise ValueError("invalid audio path")
         audio_path = str(audio_path_obj)
-    declared_audio = os.path.relpath(audio_path, base)
+    declared_audio = os.path.relpath(audio_path, audio_base)
     owns_runner = runner is None
     if owns_runner:
         runner = asr.ASRRunner(asr.default_config())
     try:
-        with confined_audio_file(base, declared_audio) as safe_audio:
+        with confined_audio_file(audio_base, declared_audio) as safe_audio:
             segments = runner.transcribe(safe_audio)
         if asr_count is not None:
             asr_count.value += 1
@@ -2190,7 +2211,7 @@ def _pilot_archive_asr(
     current.update(paths)
     current["status"] = "archived"
     try:
-        current["audio_path"] = os.path.relpath(audio_path, base)
+        current["audio_path"] = os.path.relpath(audio_path, audio_base)
     except ValueError:
         current["audio_path"] = audio_path
     store.upsert(current)

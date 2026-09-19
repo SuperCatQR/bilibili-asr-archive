@@ -67,6 +67,14 @@ def reclaim_audio(
     removed = False
     explicit_value = str(entry.get("audio_path") or "")
     candidates = _candidate_paths(entry)
+    # A ``ValueError`` for the recorded value is remembered instead of raised out of the
+    # scan: the refusal is a property of the entry at *that* base — a symlink, a
+    # non-regular file, a name swapped after validation (``path_policy.py:167-179``) — so
+    # it says nothing about the other base's copy, and "do not keep this row's audio"
+    # means the copy, wherever it is.  It is reported once neither base could handle the
+    # recorded value (the shape-invalid case); both callers treat it as non-fatal.
+    explicit_error: ValueError | None = None
+    explicit_handled = False
     for base in roots.read_bases():
         seen: set[str] = set()
         for relative in candidates:
@@ -75,9 +83,9 @@ def reclaim_audio(
             seen.add(relative)
             try:
                 did_remove = unlink_confined_audio(base, relative)
-            except ValueError:
+            except ValueError as exc:
                 if relative == explicit_value:
-                    raise
+                    explicit_error = explicit_error or exc
                 continue
             except OSError:
                 # This base cannot hold the row's audio at all (it has no
@@ -85,6 +93,10 @@ def reclaim_audio(
                 # scan.  That is the day-one case of D6 — a freshly configured
                 # root beside an archive that still holds the row's copy.
                 break
+            if relative == explicit_value:
+                explicit_handled = True
             if did_remove:
                 removed = True
+    if explicit_error is not None and not explicit_handled:
+        raise explicit_error
     return removed

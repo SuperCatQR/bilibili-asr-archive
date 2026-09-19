@@ -1183,10 +1183,35 @@ def test_the_cap_help_names_the_retention_interaction(
     """Q1(a)'s ruling: the cap keeps its semantics, and both help and skip line say how.
 
     Retaining audio means `audio/` only grows, so an operator who keeps it must be told
-    that `--max-audio-gb 0` is the way to keep downloading — the alternative the PM
-    rejected was silently changing the shipped default.
+    what the lever is — the alternative the PM rejected was silently changing the shipped
+    default.  The interaction itself holds in every mode of all four commands; *which*
+    lever each command may name is pinned separately below, because `schedule` has a mode
+    that refuses the one the other three accept (W-2/R8).
     """
     help_text = _command_help(command, capsys)
 
-    assert "--max-audio-gb 0" in help_text
     assert "retained audio counts" in help_text
+
+
+def test_the_cap_help_is_mode_scoped_for_schedule(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """W-2/R8: `schedule` is the one command that refuses `--max-audio-gb 0` in a mode.
+
+    The shared Q1 wording tells a retaining operator that `0` keeps the downloads coming.
+    That is refused under `schedule --allow-long-live`
+    (`long_live.refuse_disabled_audio_cap`), so `schedule` states the exception instead of
+    the advice — a hint that is false in one mode is worse than an absent hint.  The three
+    single-mode commands keep the lever, so the scoping is pinned in both directions.
+
+    The anchors are hyphen-free on purpose: argparse re-wraps help, and it breaks a long
+    token like `--max-audio-gb` across lines, so a flag literal is not a stable substring.
+    """
+    schedule_help = _command_help("schedule", capsys)
+
+    assert "raises the cap" in schedule_help
+    assert "--allow-long-live" in schedule_help
+    assert "keeps downloading" not in schedule_help
+    for command in ("pilot", "run", "campaign"):
+        assert "keeps downloading" in _command_help(command, capsys)
+        assert "raises the cap" not in _command_help(command, capsys)

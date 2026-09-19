@@ -581,6 +581,48 @@ def test_an_existing_but_unopenable_configured_root_is_refused(tmp_root, monkeyp
     assert captured.err == f"coverage: artifact root cannot be opened ({artifact})\n"
 
 
+@pytest.mark.parametrize(
+    "error",
+    [PermissionError(13, "Permission denied"), OSError(5, "Input/output error")],
+    ids=["EACCES", "EIO"],
+)
+def test_a_configured_root_whose_stat_fails_is_refused_with_the_same_tail(
+    error, tmp_root, monkeypatch, capsys
+):
+    """W-1: a root whose *stat* fails is the same input as one this process cannot open.
+
+    ``is_dir()``/``exists()`` are stats, and ``pathlib`` re-raises every ``OSError``
+    outside its ignored errnos (ENOENT/ENOTDIR/EBADF/ELOOP): an ``EACCES`` from an
+    unsearchable ancestor, or an ``ENOTCONN``/``EIO`` from a dropped FUSE mount, escapes
+    the classification and reaches ``main()`` as a bare traceback with **no** refusal
+    line — while the fourth line is the one that names exactly that input (§9/D17).
+
+    The failure is injected at the stat seam; the sibling case above injects it at
+    ``os.open``, where the stat still succeeds — the two together cover both halves of
+    "cannot be opened".  A denied ancestor and a dropped mount are indistinguishable to
+    this process, and this suite runs as root, for which a mode-000 directory is still
+    statable — so chmod would prove nothing on this host.
+    """
+    from pathlib import Path
+
+    archive, artifact = _two_roots(tmp_root)
+    real_is_dir = Path.is_dir
+
+    def denying_is_dir(self):
+        if os.fspath(self) == os.fspath(artifact):
+            raise error
+        return real_is_dir(self)
+
+    monkeypatch.setattr(Path, "is_dir", denying_is_dir)
+    _offline_client(monkeypatch)
+
+    rc = main(["coverage", "--archive-root", archive, "--artifact-root", artifact])
+    captured = capsys.readouterr()
+
+    assert rc == 1
+    assert captured.err == f"coverage: artifact root cannot be opened ({artifact})\n"
+
+
 # --------------------------------------------------- precedence, the identity case, unset
 
 
@@ -922,3 +964,49 @@ def test_coverage_reports_the_same_inventory_with_and_without_the_root(
         identity.work_id: True for identity in identities
     }
     assert with_root["diagnostics"] == []
+
+
+def test_pilot_archives_a_row_whose_audio_is_still_at_the_archive_root(
+    tmp_root, monkeypatch, capsys
+):
+    """D6/§10 inside the pilot's ASR stage: the recorded copy may predate the root.
+
+    The row records the shipped root-relative ``audio/<stem>.m4a``, and it was written
+    before the root was configured — so the file is at the **archive root** while the
+    publish goes to the configured one.  The stage reads the value through both bases
+    (D8) and must then re-confine it against the base that actually holds it: deriving
+    the recorded form from ``write_base`` alone yields a ``..``-bearing string, the
+    audio guard refuses it, and the row fails instead of archiving.
+
+    The negative control is the artifact-root copy (``_drive_pilot``, the shipped
+    case): the same recorded string with the bytes under the configured root, which
+    pins that the fix does not simply resolve the pair the other way round.
+
+    A second, subtitle-branch row rides along because ``pilot`` states its own branch
+    coverage and exits 1 on an audio-only selection — the row under test is still the
+    legacy one, and its verdict is what this case asserts.
+    """
+    archive, artifact = _two_roots(tmp_root)
+    identity = _identity("BVlegacy")
+    sub = _identity("BVlegacysub")
+    recorded = _publish_audio(archive, identity)
+    _write_manifest(archive, [
+        {**_row(identity, status="audio_ok"), **recorded},
+        {**_row(sub, status="subtitle_done"), **_publish_caption(artifact, sub)},
+    ])
+    _stub_asr(monkeypatch)
+    _offline_client(monkeypatch)
+
+    rc = main(["pilot", "--n", "2", "--archive-root", archive,
+               "--artifact-root", artifact])
+    captured = capsys.readouterr()
+
+    assert rc == 0, captured.err
+    archived = ManifestStore(root=archive).get(identity.work_id)
+    assert archived["status"] == "archived"
+    # The recorded value keeps the shipped spelling, whichever base held the bytes.
+    assert archived["audio_path"] == recorded["audio_path"]
+    # The transcript is a product, so it lands under the configured root (D7/§4).
+    assert os.path.isfile(os.path.join(artifact, archived["srt_path"]))
+    # Nothing is moved or copied: the legacy copy stays where the row recorded it (D12).
+    assert os.path.isfile(os.path.join(archive, recorded["audio_path"]))

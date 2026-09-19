@@ -243,11 +243,23 @@ def roots_for(
         # `O_NOFOLLOW` while every read silently fell back to the archive root.
         if os.path.islink(roots.artifact_root):
             raise ArtifactRootError(f"artifact root is a symlink ({roots.artifact_root})")
-        if not roots.artifact_root.is_dir():
-            reason = (
-                "is not a directory" if roots.artifact_root.exists() else "does not exist"
-            )
-            raise ArtifactRootError(f"artifact root {reason} ({roots.artifact_root})")
+        try:
+            if not roots.artifact_root.is_dir():
+                reason = (
+                    "is not a directory" if roots.artifact_root.exists() else "does not exist"
+                )
+                raise ArtifactRootError(f"artifact root {reason} ({roots.artifact_root})")
+        except OSError:
+            # The classification is itself a stat, and `pathlib` re-raises every OSError
+            # outside its ignored errnos (ENOENT/ENOTDIR/EBADF/ELOOP): a root under an
+            # unsearchable ancestor (EACCES) or on a dropped mount (ENOTCONN/EIO) would
+            # otherwise escape `main()`'s `except ArtifactRootError` as a traceback,
+            # where the fourth line below is the one that names exactly that input
+            # (D17, §9).  An absent root is unaffected — those two errnos are the ones
+            # `pathlib` swallows, so it still reports "does not exist".
+            raise ArtifactRootError(
+                f"artifact root cannot be opened ({roots.artifact_root})"
+            ) from None
         # R4: an existing directory the process cannot open is "unusable" under D17 and
         # takes the named exit-1 refusal here, rather than degrading to a base the
         # readers drop in silence.  It is a distinct condition, so it gets a distinct

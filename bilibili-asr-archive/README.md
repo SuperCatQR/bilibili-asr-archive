@@ -564,10 +564,15 @@ pre-marker evidence and must be re-archived before they count as complete.
   measures the configured root's `audio/`, which is where new bytes land.
 - **The cap and retention interact.** Retained audio is never deleted, so
   `audio/` only grows and a long corpus run eventually reports every later row as
-  a budget skip. That is the cap doing its job, not a failure, and the skip line
-  says so — but an operator who means to keep the audio and keep downloading
-  passes **`--max-audio-gb 0`**. The shipped default is unchanged; the retention
-  default is what moved.
+  a budget skip. That is the cap doing its job, not a failure, and the line that
+  reports it names the flag that lifts it — on `run` and on `pilot`, which print
+  the clause `audio-dir budget cap reached (--max-audio-gb 0 = unlimited)`.
+  `schedule` prints the bare reason (`schedule: <work_id>: skipped
+  (audio_budget)`) and `campaign` reports `audio_budget` only as a
+  `reason_codes` entry, so an operator who means to keep the audio and keep
+  downloading passes **`--max-audio-gb 0`** — except with
+  `schedule --allow-long-live`, which requires a configured cap and refuses `0`.
+  The shipped default is unchanged; the retention default is what moved.
 - `--max-duration-min` (pilot only, default 45, `0` = unlimited):
   excludes long items (e.g. multi-hour livestreams) from selection.
 

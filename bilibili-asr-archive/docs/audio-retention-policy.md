@@ -37,17 +37,22 @@ bili-asr run --scope pending --archive-root archive
 ### 保留音频、同时不让磁盘上界截断下载
 
 保留意味着 `audio/` 只会增长，而 `--max-audio-gb`（默认 10 GiB）是 fail-closed 的：跑到某个点之后，每一行都会以
-`audio_budget` 被跳过。要长期保留又想一直下载，就把上界设为不限：
+`audio_budget` 被跳过。要长期保留又想一直下载，就把上界设为不限（四个命令都接受 `0`，只有
+`schedule --allow-long-live` 例外，见下）：
 
 ```bash
 bili-asr campaign --scope pending --limit 500 --max-audio-gb 0 --archive-root archive
 ```
 
-跳过行本身也会提示这一点：
+**只有 `pilot` 和 `run` 的跳过行会把这个参数名一并打出来**（`pilot` 打在 stderr，`run` 的行带 `run:` 前缀）：
 
 ```
 BV1xx:p0: skipped (audio_budget); audio-dir budget cap reached (--max-audio-gb 0 = unlimited)
 ```
+
+`schedule` 的跳过行只打原因（`schedule: <work_id>: skipped (audio_budget)`），`campaign` 只在 JSON 摘要的
+`reason_codes` 里报告 `audio_budget` —— 两者都不带这段提示。另外 `schedule --allow-long-live` 要求上界必须
+开着：在那个模式下传 `--max-audio-gb 0` 会被直接拒绝（退出码 1），要保留就请把上界调大。
 
 ---
 
@@ -248,8 +253,10 @@ bili-asr coverage --archive-root archive --format json | \
 
 ### Q: 保留之后为什么下载开始被跳过了？
 
-**A**: 因为音频上界 `--max-audio-gb`（默认 10 GiB）统计的 `audio/` 目录不再变小。跳过行会写明
-`audio-dir budget cap reached (--max-audio-gb 0 = unlimited)`；保留音频就传 `--max-audio-gb 0`，或者把上界调大。
+**A**: 因为音频上界 `--max-audio-gb`（默认 10 GiB）统计的 `audio/` 目录不再变小。把
+`audio-dir budget cap reached (--max-audio-gb 0 = unlimited)` 打出来的是 `run` 和 `pilot` 的跳过行；
+`schedule` 只打 `(audio_budget)`，`campaign` 只在 `reason_codes` 里报告。保留音频就传 `--max-audio-gb 0`，
+或者把上界调大 —— 注意 `schedule --allow-long-live` 拒绝 `0`，那个模式下只能调大。
 
 ### Q: 音频保留影响性能吗？
 

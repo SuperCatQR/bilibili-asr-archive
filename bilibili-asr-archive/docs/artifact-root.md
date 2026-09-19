@@ -23,6 +23,14 @@
 
 状态为什么不动：manifest 每次追加都要 fsync，SQLite 需要真正的文件锁，两者都不适合放在 FUSE/WebDAV 挂载点上。把状态搬过去等于用「路径偏好」换掉一个正确性保证。
 
+**但 fsync 不是状态独有的要求：产物根目录本身也必须支持「对目录 fsync」。** 产物路径同样在 fsync **目录**描述符 ——
+建 `audio/` 之后（`path_policy.open_audio_directory`）、下载落盘之后（`audio.py` 收尾的 `os.fsync(audio_fd)`）、
+回收删除之后（`path_policy.unlink_confined_audio`）、以及发布字幕包时（`archive.py` 里 `transcripts/` 与四个子目录
+的目录 fsync，连同暂存文件的 fsync，每个包十余次）。校验只做一次 `open(O_RDONLY|O_DIRECTORY)`，**既不写、也不
+fsync**，所以一个「能打开、但拒绝目录 fsync」的挂载（有些网络文件系统对目录 fsync 返回 EINVAL/ENOTSUP）会通过校验，
+然后在**每一行**上以一条原始 `OSError` 失败 —— 那不是上面那四行拒绝里的任何一行，而是产物写入路径自己的报错。
+挂载前请确认所选挂载支持目录 fsync；不支持时这个功能不能用。
+
 ---
 
 ## 不开这个开关时，行为和以前完全一样
@@ -133,7 +141,11 @@
 音频上界 `--max-audio-gb`（默认 10，`0` = 不限）仍然 fail-closed，并且**统计的是产物根目录的 `audio/`** —— 新的字节落在那里，把两个文件系统的用量相加不是一个能据以行动的峰值。
 
 保留 + 上界会互相影响：既然音频不再被删，`audio/` 只会增长，于是跑到某个点之后每一行都会以
-`audio_budget` 被跳过。**要保留又不想被截断，就传 `--max-audio-gb 0`**；跳过行本身也会把这个参数名打出来。
+`audio_budget` 被跳过。**要保留又不想被截断，就传 `--max-audio-gb 0`**。把这句话打出来的只有两个命令：
+`run` 和 `pilot` 的跳过行带一段提示（`… skipped (audio_budget); audio-dir budget cap reached (--max-audio-gb 0 = unlimited)`）；
+`schedule` 的跳过行只打原因（`schedule: <work_id>: skipped (audio_budget)`），`campaign` 只在 JSON 摘要的
+`reason_codes` 里报告 `audio_budget`，两者都不带这段提示。唯一的例外是 `schedule --allow-long-live`：那个模式要求
+上界必须开着，传 `0` 会被直接拒绝（退出码 1），所以在那个模式下请把上界调大而不是关掉。
 
 ---
 

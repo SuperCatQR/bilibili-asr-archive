@@ -304,6 +304,44 @@ def test_reclaim_removes_the_audio_when_it_is_asked_for(tmp_path):
     assert not (day_artifact / "audio").exists()
 
 
+def test_a_symlink_at_the_configured_base_does_not_abandon_the_other_copy(tmp_path):
+    """§7 in its inverse direction: the refusal is per **base**, not per row.
+
+    ``unlink_confined_audio`` refuses a symlinked entry at the base it is validating
+    (``path_policy.py:167-169``), and the configured root is base 1 — so an explicit
+    "do not keep this row's audio" met that refusal there and abandoned the scan,
+    leaving the row's real copy at the archive root on disk.  Each base is judged
+    independently, exactly as the ordered *read* rule already is (D8/§5): the scan
+    moves on and reclaims the copy that is really there.
+    """
+    archive, artifact, roots = _roots(tmp_path)
+    ident = page_identity(BVID, 0, 7, "p0")
+    stem = artifact_stem(ident)
+    for base in (archive, artifact):
+        (base / "audio").mkdir()
+    real = archive / "audio" / f"{stem}.m4a"
+    real.write_bytes(b"audio-bytes")
+    link = artifact / "audio" / f"{stem}.m4a"
+    link.symlink_to(real)
+
+    removed = reclaim_audio(
+        str(archive),
+        {
+            "work_id": ident.work_id,
+            "bvid": ident.bvid,
+            "status": "archived",
+            "audio_path": f"audio/{stem}.m4a",
+        },
+        artifact_roots=roots,
+        keep=False,
+    )
+
+    assert removed is True
+    assert not real.exists()
+    # The refused entry at base 1 is left as it was: never followed, never deleted.
+    assert link.is_symlink()
+
+
 # ------------------------------------------------------------- subtitle writes
 
 
