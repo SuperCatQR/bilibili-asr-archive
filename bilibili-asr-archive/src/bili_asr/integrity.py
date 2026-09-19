@@ -625,5 +625,16 @@ class IntegrityVerifier:
 
     @staticmethod
     def _safe_path(path,root):
-        try: path.resolve().relative_to(root); return True
+        """Whether ``path`` resolves inside ``root`` — the containment probe, asked resolved.
+
+        A candidate is always ``base / <recorded value>``, so resolving only one side makes
+        every base whose *ancestor* is a symlink confine nothing: that configuration is legal
+        (the configured value stays lexical, D9/§3.2, and ``roots_for`` refuses only a
+        symlinked root itself), so the one-sided compare reads a present artifact as missing.
+        Both sides are resolved here, exactly as the sibling readers' resolve-based guards do
+        (``quality._contained``, ``coverage_report._contained_path``).  The base stays lexical
+        everywhere it is compared for identity; that is a different question, decided in
+        ``artifact_root.py``.
+        """
+        try: path.resolve().relative_to(Path(root).resolve()); return True
         except ValueError:return False

@@ -274,3 +274,46 @@ def test_a_configured_root_that_is_absent_is_a_refusal_not_an_empty_inventory(tm
     # before any reader runs, so a reader is never asked to interpret it (contract §9).
     with pytest.raises(ArtifactRootError):
         roots_for(archive, flag_value=str(absent), environ={})
+
+
+def test_a_configured_root_behind_a_symlinked_ancestor_grades_the_same_rows(tmp_path: Path):
+    """A symlinked *ancestor* is a legal configuration, and every reader must agree on it.
+
+    `roots_for` refuses a symlinked root *itself* and nothing else (§3.2/§6), and the
+    configured value is never `resolve()`d (D9) — so a root whose ancestor is a link
+    reaches the readers exactly as the operator wrote it.  The containment probe is a
+    different question from that identity comparison, and it has to be asked the way the
+    sibling readers ask it: otherwise `verify` reads a bundle that is present at the base
+    holding it as `missing_transcript` while `coverage` reports the same row present, in
+    the same invocation, from the same roots.
+    """
+    real = tmp_path / "real"
+    real.mkdir()
+    link = tmp_path / "link"
+    link.symlink_to(real, target_is_directory=True)
+    artifact = link / "artifacts"  # the configured root; its ancestor `link` is a symlink
+    artifact.mkdir(parents=True)
+    archive = tmp_path / "state"
+    archive.mkdir(parents=True)
+    assert not artifact.is_symlink() and artifact.is_dir()
+    assert artifact.resolve() != artifact, "the fixture must exercise a symlinked ancestor"
+
+    moved = _archived_row(artifact, "BVmoved")   # bundle + audio under the configured root
+    legacy = _archived_row(archive, "BVlegacy")  # the mirror: both under the archive root
+    _write_state(archive, [moved, legacy])
+
+    # The boundary accepts the root and passes the lexical value on unchanged (§3.2/D9).
+    roots = roots_for(archive, flag_value=str(artifact), environ={})
+    assert str(roots.artifact_root) == str(artifact)
+
+    coverage = {
+        row["work_id"]: row["artifact_present"]
+        for row in CoverageReport.build(archive, artifact_roots=roots).data["rows"]
+    }
+    assert coverage == {"BVmoved:p1": True, "BVlegacy:p1": True}
+    # One invocation, one inventory: neither row is missing a transcript, whichever side
+    # of the symlink its base is named from — and no other code is invented either.
+    report = IntegrityVerifier().verify(archive, artifact_roots=roots)
+    assert report.checked == 2
+    assert MISSING_TRANSCRIPT not in {defect.code for defect in report.defects}
+    assert report.defects == []
