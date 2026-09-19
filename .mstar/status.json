@@ -1,12 +1,5 @@
 {
   "version": 2,
   "updated_at": "2026-09-19",
-  "workflows": [
-    {
-      "id": "iter-2026-09-artifact-root",
-      "type": "iteration",
-      "started_at": "2026-09-19",
-      "dir": "workflows/iter-2026-09-artifact-root"
-    }
-  ]
+  "workflows": []
 }
