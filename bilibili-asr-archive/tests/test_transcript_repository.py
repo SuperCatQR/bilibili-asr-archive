@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import builtins
+from dataclasses import replace
 import hashlib
 import io
 import json
@@ -23,6 +24,7 @@ from bili_asr.storage import (
     TranscriptWriteResult,
     open_database,
 )
+from bili_asr.storage.database import _PUBDATE_CHUNK
 from fixtures.metadata_records import (
     make_part_record,
     make_user_record,
@@ -34,6 +36,11 @@ from test_storage_schema import _write_pre_iteration_database
 
 BODY = ((0, 1_200, "第一句"), (1_200, 2_400, "第二句"))
 CHANGED_BODY = ((0, 1_200, "第一句"), (1_200, 2_400, "改写后的第二句"))
+#: The statement-parameter ceiling ``read_video_pubdates``' chunking exists for:
+#: SQLite builds before 3.32.0 allow 999 host parameters per statement, and the
+#: read keeps headroom under it.  Pinned on the test's own connection, because
+#: this host's driver raises its ceiling to 250,000.
+_STATEMENT_PARAMETER_CAP = 900
 
 
 def _captioned_part(connection: sqlite3.Connection, bvid: str = "BV1CAPTION") -> int:
@@ -1976,3 +1983,110 @@ def test_storage_paths_never_read_or_write_a_legacy_sidecar(tmp_root, monkeypatc
     for relative, payload in poison.items():
         with real_open(os.path.join(tmp_root, relative), encoding="utf-8") as handle:
             assert handle.read() == payload
+
+
+def test_read_video_pubdates_returns_stored_seconds(tmp_root):
+    """The stored ``videos.pubdate`` per bvid, and no entry for a miss.
+
+    The publication second is a store fact the manifest derivation copies onto
+    its rows, so the read answers exactly what ``videos`` holds: one
+    distinguishing value per bvid proves the answer is the stored column and not
+    a constant, and a bvid the archive does not hold yields no key instead of an
+    invented date.
+    """
+    connection = open_database(tmp_root)
+    repository = TranscriptRepository(connection)
+    try:
+        published = replace(make_video_record("BV1PUB", aid=None), pubdate=1_600_000_000)
+        other = replace(make_video_record("BV1OTHER", aid=None), pubdate=1_700_000_000)
+        metadata = MetadataRepository(connection)
+        with metadata.transaction():
+            metadata.upsert_user(make_user_record())
+            metadata.upsert_video(published)
+            metadata.upsert_video(other)
+            metadata.upsert_part(make_part_record("BV1PUB", processing_status="metadata_collected"))
+            metadata.upsert_part(make_part_record("BV1OTHER", cid=9001, processing_status="metadata_collected"))
+
+        assert repository.read_video_pubdates(["BV1PUB", "BV1OTHER"]) == {
+            "BV1PUB": 1_600_000_000,
+            "BV1OTHER": 1_700_000_000,
+        }
+        assert repository.read_video_pubdates(["BV1OTHER", "BV1PUB"]) == {
+            "BV1OTHER": 1_700_000_000,
+            "BV1PUB": 1_600_000_000,
+        }
+        assert repository.read_video_pubdates(["BV1PUB", "BV1UNKNOWN"]) == {
+            "BV1PUB": 1_600_000_000
+        }
+        assert repository.read_video_pubdates(["BV1UNKNOWN"]) == {}
+        # A repeated bvid is answered once, not once per occurrence.
+        assert repository.read_video_pubdates(["BV1PUB", "BV1PUB"]) == {
+            "BV1PUB": 1_600_000_000
+        }
+
+        # The keys are validated like every other read argument in this module.
+        with pytest.raises(TypeError):
+            repository.read_video_pubdates([None])
+        with pytest.raises(ValueError):
+            repository.read_video_pubdates([""])
+    finally:
+        connection.close()
+
+
+def test_read_video_pubdates_answers_the_same_mapping_across_chunks(tmp_root):
+    """A key list wider than one statement reads as one mapping.
+
+    The queue's distinct bvid count is bounded by the store, not by the read, so
+    the lookup is issued in bounded chunks: SQLite builds before 3.32.0 allow 999
+    host parameters per statement.  The answer must not depend on which chunk a
+    bvid landed in — including the short final one — so a 905-key read under a
+    900-parameter statement cap is compared against single-statement reads of the
+    first chunk and of the remainder, and against the stored column with no
+    constant substituted.
+    """
+    connection = open_database(tmp_root)
+    repository = TranscriptRepository(connection)
+    try:
+        keys = [f"BV{index:010d}" for index in range(_STATEMENT_PARAMETER_CAP + 5)]
+        metadata = MetadataRepository(connection)
+        with metadata.transaction():
+            metadata.upsert_user(make_user_record())
+            for index, bvid in enumerate(keys):
+                metadata.upsert_video(
+                    replace(
+                        make_video_record(bvid, aid=None),
+                        pubdate=1_600_000_000 + index,
+                    )
+                )
+
+        expected = {bvid: 1_600_000_000 + index for index, bvid in enumerate(keys)}
+        # The read is only a multi-chunk read if its own bound stays inside the
+        # cap it exists for; a bound that grew past it fails here instead of
+        # quietly shrinking this case back to a single statement.
+        assert _PUBDATE_CHUNK <= _STATEMENT_PARAMETER_CAP
+        # This host's driver raises its own ceiling to 250,000, so the cap the
+        # case is about is pinned on the connection instead of inherited.
+        connection.setlimit(
+            sqlite3.SQLITE_LIMIT_VARIABLE_NUMBER, _STATEMENT_PARAMETER_CAP
+        )
+
+        assert repository.read_video_pubdates(keys) == expected
+        assert repository.read_video_pubdates(keys[:_STATEMENT_PARAMETER_CAP]) == {
+            bvid: expected[bvid] for bvid in keys[:_STATEMENT_PARAMETER_CAP]
+        }
+        assert repository.read_video_pubdates(keys[_STATEMENT_PARAMETER_CAP:]) == {
+            bvid: expected[bvid] for bvid in keys[_STATEMENT_PARAMETER_CAP:]
+        }
+    finally:
+        connection.close()
+
+
+def test_read_video_pubdates_of_no_bvid_is_empty(tmp_root):
+    """No bvid means no query: an ``IN ()`` list is a syntax error, not a read."""
+    connection = open_database(tmp_root)
+    repository = TranscriptRepository(connection)
+    try:
+        assert repository.read_video_pubdates([]) == {}
+        assert repository.read_video_pubdates(()) == {}
+    finally:
+        connection.close()
