@@ -27,6 +27,7 @@ from dataclasses import replace
 import os
 import sqlite3
 import threading
+import time
 
 from bili_asr.cli import main
 from bili_asr.config import ARCHIVE_DATABASE_NAME
@@ -75,6 +76,15 @@ ZERO_SUMMARY = (
     "derive-manifest: queue=0 derived=0 already_derived=0 "
     "chain_owned=0 identity_mismatch=0"
 )
+
+#: The publication second ``fixtures.metadata_records`` stores for every video and
+#: its **UTC** calendar date, which is what the derived row carries.  The
+#: expectation is rendered with ``gmtime`` rather than written as a literal:
+#: ``1_700_000_000`` is ``2023-11-14T22:13:20Z``, and a literal only
+#: discriminated on a host whose own zone is not UTC (this one is ``+08:00``,
+#: where the local date of that second is the 15th).
+PUBDATE = 1_700_000_000
+PUBDATE_STR = time.strftime("%Y-%m-%d", time.gmtime(PUBDATE))
 
 
 def _seed_archive(
@@ -248,8 +258,8 @@ def test_derive_manifest_appends_one_page_qualified_needs_audio_row_per_queue_pa
         assert row["cid"] == cid
         assert row["bvid"] == QUEUED_BVID
         assert row["page_index"] == int(work_id.rsplit(":p", 1)[1])
-        assert row["pubdate"] == 1_700_000_000
-        assert row["pubdate_str"] == "2023-11-14"
+        assert row["pubdate"] == PUBDATE
+        assert row["pubdate_str"] == PUBDATE_STR
     assert rows[f"{QUEUED_BVID}:p0"]["duration_s"] == 3600
     assert rows[f"{QUEUED_BVID}:p1"]["duration_s"] == 1
     # Nothing was materialised below the archive root: no subtitles/raw/, no

@@ -18,10 +18,11 @@ What is pinned, per compass criterion:
   state the bridge gave it (``needs_audio`` → ``archived``) and no attempt
   record carries ``missing_subtitle_raw`` for a derived ``work_id`` (spec §4's
   invariant, read back from ``coordinator/attempts.jsonl``).  The negative
-  control proves that assertion can fail: one hand-written ``subtitle_done`` row
-  whose ``subtitles/raw/{stem}.json`` does not exist — the state the bridge
-  refuses to write (spec §3.3, §4) — records exactly that code in the same run
-  and does not reach ``archived``.
+  control shows the code is producible (case 3): one hand-written
+  ``subtitle_done`` row whose ``subtitles/raw/{stem}.json`` does not exist — the
+  state the bridge refuses to write (spec §3.3, §4) — records exactly that code
+  in the same run and does not reach ``archived``, so the filter the assertion
+  above applies is live rather than vacuous.
 - **6** — both halves of spec §5 decision 4.  A successful bounded attempt takes
   the row out of ``needs_audio``, so the next bounded selection attempts the
   other part; an attempt the chain's own audio budget skips leaves no recency
@@ -402,21 +403,23 @@ def test_a_derived_queue_runs_to_archived_without_missing_subtitle_raw(
         ("asr", "ok"),
         ("archive", "ok"),
     ]
-    # Spec §4's invariant, read from the ledger the chain itself writes.
+    # Spec §4's invariant, read from the ledger the chain itself writes.  Case 3
+    # below is the control that makes this filter live: no reachable input makes
+    # this assertion fail on its own.
     assert [r for r in attempts if r["error_code"] == MISSING_SUBTITLE_RAW] == []
 
 
 def test_a_chain_held_subtitle_done_row_without_its_raw_document_skips(
     tmp_root, monkeypatch, capsys, fake_gateway_seam
 ):
-    """The negative control: the ``missing_subtitle_raw`` assertion can fail.
+    """The negative control: the ``missing_subtitle_raw`` code is producible (case 3).
 
     The same fixture plus one hand-written ``subtitle_done`` row for the part
     whose caption the store holds: the chain's archive stage reads the segments
     from ``subtitles/raw/{stem}.json``, that document was never written, and the
     run records exactly the code the derived row must never carry.  This is the
-    state spec §3.3 makes structurally impossible for a derived row, so the
-    check in the case above is falsifiable rather than vacuous.
+    state spec §3.3 makes structurally impossible for a derived row, so the filter
+    the case above applies is live rather than vacuous.
     """
 
     _forbid_sockets(monkeypatch)
