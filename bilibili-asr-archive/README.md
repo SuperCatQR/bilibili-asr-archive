@@ -349,26 +349,36 @@ and the [derived audio queue](#derived-audio-queue-bili-asr-derive-manifest)).
     bili-asr probe-subs --limit-parts 5 --archive-root archive
     bili-asr harvest-subs --limit-parts 5 --archive-root archive
     bili-asr derive-manifest --archive-root archive
-    bili-asr download-audio --missing-subs --archive-root archive
-    bili-asr asr --pending --archive-root archive
+    bili-asr download-audio --missing-subs --archive-root archive [--artifact-root <path>]
+    bili-asr asr --pending --archive-root archive [--artifact-root <path>] [--keep-audio | --no-keep-audio]
     bili-asr status --archive-root archive
     bili-asr runs --limit 10 --archive-root archive
-    bili-asr pilot --n 20 --archive-root archive
-    bili-asr search "黑格尔 辩证法" --archive-root archive
-    bili-asr export --format json --out archive/manifest.json --archive-root archive
-    bili-asr coverage --archive-root archive
+    bili-asr pilot --n 20 --archive-root archive [--artifact-root <path>] [--keep-audio | --no-keep-audio]
+    bili-asr search "黑格尔 辩证法" --archive-root archive [--artifact-root <path>]
+    bili-asr export --format json --out archive/manifest.json --archive-root archive [--artifact-root <path>]
+    bili-asr coverage --archive-root archive [--artifact-root <path>]
     bili-asr coverage --trusted-local --archive-root archive
-    bili-asr coverage --quality --archive-root archive
-    bili-asr run --scope pending --archive-root archive
+    bili-asr coverage --quality --archive-root archive [--artifact-root <path>]
+    bili-asr run --scope pending --archive-root archive [--artifact-root <path>] [--keep-audio | --no-keep-audio]
     bili-asr run --scope pending --offline --archive-root archive
     bili-asr run --scope failed --limit 5 --archive-root archive
-    bili-asr schedule --scope pending --limit 20 --archive-root archive
+    bili-asr schedule --scope pending --limit 20 --archive-root archive [--artifact-root <path>] [--keep-audio | --no-keep-audio]
     bili-asr schedule --scope pending --limit 20 --resume --archive-root archive
-    bili-asr campaign --scope pending --limit 20 --archive-root archive
-    bili-asr verify --archive-root archive
+    bili-asr campaign --scope pending --limit 20 --archive-root archive [--artifact-root <path>] [--keep-audio | --no-keep-audio]
+    bili-asr verify --archive-root archive [--artifact-root <path>]
     bili-asr verify --trusted-local --archive-root archive
-    bili-asr recover --archive-root archive --work-id <work-id>
+    bili-asr recover --archive-root archive --work-id <work-id> [--artifact-root <path>]
     bili-asr evaluate-concurrency --evidence evidence.json --thresholds thresholds.json
+
+Bracketed groups are the **optional** flags: `[--artifact-root <path>]` on the
+eleven commands that resolve an artifact path, and `[--keep-audio |
+--no-keep-audio]` on the five that archive rows and therefore reclaim audio
+(see [Where the artifacts go](#where-the-artifacts-go) and
+[Audio retain, reclaim and the disk cap](#audio-retain-reclaim-and-the-disk-cap)).
+The six commands without either bracket — `fetch-meta`, `status`, `runs`,
+`probe-subs`, `harvest-subs`, `derive-manifest` — deliberately do not declare
+them: each resolves no artifact path, and an accepted-but-ignored flag would be a
+false statement in the interface.
 
 Every `--bvid` command example in this README carries a real video id, so those
 are paste-ready as they stand. The `<bvid>` placeholder survives in exactly one
@@ -377,6 +387,49 @@ written the way `scripts/check_asr_env.py` prints it. Usage synopsis lines (such
 as `run --scope pending|failed|<work_id>...`) are argument grammar, not commands
 to paste. A shell reads a bare `<word>` as redirection, so substitute your own
 value before running any line that still carries one.
+
+### Where the artifacts go
+
+By default there is **one root**: `--archive-root`. Every product — audio,
+transcript bundles, harvested caption documents — is written below it, and the
+manifest's lines are exactly what they have always been.
+
+`--artifact-root <path>` (or `BILI_ARTIFACT_ROOT`) names a **second root for the
+products only**, so a mounted drive can hold the bytes while the state stays on
+local disk:
+
+```
+--artifact-root <path>   (non-blank)  -> use it
+else BILI_ARTIFACT_ROOT  (non-blank)  -> use it
+else                                  -> the archive root (today's behaviour)
+```
+
+- **Products move; state does not.** `audio/`, `transcripts/{srt,txt,md,raw}/` and
+  `subtitles/raw/` are written under the configured root. `manifest/`,
+  `archive.db`, `coordinator/`, `meta-cursor.json`, `scheduler.json`,
+  `run-ledger.jsonl`, `campaign.json` and `search.db` stay at the archive root —
+  the manifest's per-append fsync pair and SQLite's locking are exactly what a
+  FUSE/WebDAV mount cannot carry.
+- **The configured root must already exist.** A missing root is refused with
+  `artifact root does not exist (<path>)` and exit 1; it is never created. An
+  unmounted FUSE mount point still exists as an empty directory, so auto-creating
+  a missing one would publish products to the underlying filesystem instead of the
+  mount. Whether the mount is actually up is the operator's check, not the
+  pipeline's.
+- **A blank value is unset** at either level (`export BILI_ARTIFACT_ROOT=` cannot
+  shadow a real flag), `~` is expanded, a relative value resolves against the
+  current directory, and the path is kept lexical — so a **symlinked root is
+  refused**; pass the real path.
+- **An existing archive keeps working, and nothing is migrated for you.** Reads
+  probe the configured root and then the archive root, first hit wins, so rows
+  written before the switch still resolve. Moving historical artifacts is your
+  own `mv`/`rclone`; the tool never copies between roots. Recorded paths stay
+  root-relative and the manifest is never rewritten.
+- **One artifact root per archive root** is the supported configuration: the
+  writer lock stays archive-root-scoped and no second lock is added.
+
+The four refusal lines, the full validation table and the rollback path are in
+[docs/artifact-root.md](docs/artifact-root.md).
 
 ### Concurrency safety evidence gate
 
@@ -449,17 +502,33 @@ Read-only commands such as `status`, `coverage`, `verify`, `runs`, `search`,
 `export`, `probe-subs`, and `evaluate-concurrency` do not claim this writer
 lock: `probe-subs` writes nothing at all on the SQLite subtitle path.
 
-### Audio reclaim and bounded-disk campaigns
+### Audio retain, reclaim and the disk cap
 
-By default, once a row reaches `archived`, its local audio file under
-`{archive-root}/audio/` is deleted automatically to save disk space (failed 
-and in-progress rows keep their audio for retry; the manifest may still record 
-the relative `audio_path` — consumers treat the file as absent).
+Once a row reaches `archived`, its local audio file under `{artifact-root}/audio/`
+is **kept**. That is the default: audio is the only copy of a recording Bilibili
+may delete, and re-downloading it later is the expensive way to get it back.
+(Failed and in-progress rows always kept their audio for retry; the manifest
+records the relative `audio_path` either way.)
 
-**Audio retention policy**: Set `BILI_KEEP_AUDIO=1` to preserve audio files 
-after archival. This enables future reprocessing with improved ASR models 
-without re-downloading from Bilibili. The manifest continues to track 
-`audio_path` for retained files.
+**Reclaiming is now the opt-in.** The five commands that archive rows — `asr`,
+`pilot`, `run`, `schedule`, `campaign` — carry a retention pair, resolved once at
+the command boundary and passed down as a value:
+
+| Setting | Effect |
+|---|---|
+| *nothing set* | **keep** — the default |
+| `--keep-audio` | keep |
+| `--no-keep-audio` | reclaim: the row's audio is removed where it is, under either root |
+| `BILI_KEEP_AUDIO=1` | keep |
+| `BILI_KEEP_AUDIO=0` | reclaim |
+| `BILI_KEEP_AUDIO=` anything else (including blank) | **keep** — the default |
+
+The flag wins over the variable; the variable only matters when the flag is
+absent. `BILI_KEEP_AUDIO=" 1 "` is *not* a literal `1`, so it means the default
+(keep) — the shipped `== "1"` comparison it replaces would have read it as unset
+and reclaimed. Reclaim runs only when the resolved policy asks for it, and it
+looks for the row's audio under both roots: "do not keep this row's audio" means
+the copy, wherever it is. Audio already reclaimed cannot be restored.
 
 Download publication and reclaim are anchored to an opened `audio/` directory 
 and use private random stage/quarantine entries; they never follow a swapped 
@@ -480,16 +549,30 @@ the complete bundle stays readable, and the next sequential run republishes or
 commits it. Older `archived` rows without `raw_path` or a matching marker are
 pre-marker evidence and must be re-archived before they count as complete.
 
-`pilot` and `run` honor a bounded-disk campaign cap:
+`pilot`, `run`, `schedule` and `campaign` honor a bounded-disk campaign cap:
 
     bili-asr pilot --n 20 --max-audio-gb 10 --max-duration-min 45 --archive-root archive
     bili-asr run --scope pending --max-audio-gb 10 --archive-root archive
     bili-asr schedule --scope pending --limit 20 --max-audio-gb 10 --archive-root archive
+    bili-asr campaign --scope pending --limit 20 --max-audio-gb 10 --archive-root archive
 
 - `--max-audio-gb` (default 10, `0` = unlimited): before each audio
-  download, current `audio/` usage plus a conservative estimate
+  download, the **configured root's** `audio/` usage plus a conservative estimate
   (`duration_s` × 64 kbps) is checked; a candidate that would breach the
   cap is **skipped with reason `audio_budget`** and the batch continues.
+  Legacy audio still sitting at the archive root is not counted — the cap
+  measures the configured root's `audio/`, which is where new bytes land.
+- **The cap and retention interact.** Retained audio is never deleted, so
+  `audio/` only grows and a long corpus run eventually reports every later row as
+  a budget skip. That is the cap doing its job, not a failure, and the line that
+  reports it names the flag that lifts it — on `run` and on `pilot`, which print
+  the clause `audio-dir budget cap reached (--max-audio-gb 0 = unlimited)`.
+  `schedule` prints the bare reason (`schedule: <work_id>: skipped
+  (audio_budget)`) and `campaign` reports `audio_budget` only as a
+  `reason_codes` entry, so an operator who means to keep the audio and keep
+  downloading passes **`--max-audio-gb 0`** — except with
+  `schedule --allow-long-live`, which requires a configured cap and refuses `0`.
+  The shipped default is unchanged; the retention default is what moved.
 - `--max-duration-min` (pilot only, default 45, `0` = unlimited):
   excludes long items (e.g. multi-hour livestreams) from selection.
 
@@ -611,6 +694,7 @@ queue across, by appending a `needs_audio` row per captionless part). See
 for that boundary.
 
     bili-asr run --scope pending|failed|<work_id>... [--offline] [--limit N] [--archive-root <root>]
+        [--artifact-root <path>] [--keep-audio | --no-keep-audio]
 
 - **Scope**: `pending` selects all non-terminal processable rows; `failed`
   re-selects rows with a recorded failed stage attempt; otherwise one or
@@ -643,11 +727,15 @@ processing. It **never issues HTTP**: the `harvest` and `download` stages
 reprocessed:
 
 - a row with subtitle raw JSON at
-  `{archive-root}/subtitles/raw/{stem}.json` is re-archived with
+  `{artifact-root}/subtitles/raw/{stem}.json` is re-archived with
   `source=subtitle` (no ASR);
-- a row with audio at `{archive_root}/audio/{stem}.m4a` (or a `.flac`
+- a row with audio at `{artifact-root}/audio/{stem}.m4a` (or a `.flac`
   sibling, or the manifest's `audio_path`) runs local `transcribe` and
   archives with `source=asr`;
+- either product is also found at the archive root — when no artifact root is
+  configured, and for every row written before one was: reads probe the
+  configured root and then the archive root, first hit wins (see
+  [Where the artifacts go](#where-the-artifacts-go));
 - any other row is `skipped` with a reason (`offline` for rows that still
   need harvest, `missing_subtitle_raw` / `missing_audio` for rows whose
   artifact vanished) and the run exits 1 because the scope was not fully
@@ -661,6 +749,7 @@ and `RunLedger`; it does not open sockets itself and does not replace
 `pilot` or `run`.
 
     bili-asr schedule --scope pending|failed|<work_id>... --limit N [--resume] [--max-audio-gb G] [--allow-long-live] [--archive-root <root>]
+        [--artifact-root <path>] [--keep-audio | --no-keep-audio]
 
 - **`--limit N` is required.** A bounded call never infers that the visible
   corpus is fully archived.
@@ -708,6 +797,7 @@ per-row transitions: the manifest, stage-attempt ledger, and `scheduler.json`
 remain authoritative for item state and risk-interruption resume.
 
     bili-asr campaign --scope pending|failed|<work_id>... --limit N [--resume] [--offline] [--max-audio-gb G] [--archive-root <root>]
+        [--artifact-root <path>] [--keep-audio | --no-keep-audio]
 
 - `--limit N` is mandatory and positive. The projection records only bounded,
   validated work IDs, a policy fingerprint, stable reason codes, and
@@ -732,7 +822,7 @@ The JSONL manifest (`{archive-root}/manifest/manifest.jsonl`) remains the single
 
 `bili-asr search <query>` queries a lightweight local SQLite FTS5 read index (`{archive-root}/search.db`) built on demand from completed transcript metadata (`archived` or `subtitle_done` with archive paths present). Incomplete entries (`meta_ok`, `needs_audio`, `audio_ok`) are not searchable as complete transcripts.
 
-    bili-asr search <query> [--limit N] [--rebuild] [--archive-root <root>]
+    bili-asr search <query> [--limit N] [--rebuild] [--archive-root <root>] [--artifact-root <path>]
 
 - **Ranking**: Matches are ranked by BM25 relevance score over `work_id`, `title`, `status`, and full transcript text.
 - **Stale detection**: Automatically verifies whether `search.db` is missing, older than `manifest.jsonl`, or has row count mismatch, rebuilding on demand.
@@ -745,6 +835,7 @@ The JSONL manifest (`{archive-root}/manifest/manifest.jsonl`) remains the single
 `bili-asr export` serializes manifest-derived records into structured JSON or CSV format without touching the manifest or calling external APIs.
 
     bili-asr export --format json|csv [--out <path>] [--status <status>] [--with-text] [--archive-root <root>]
+        [--artifact-root <path>]
 
 - **Deterministic read projection**: JSON and CSV output is 100% byte-stable across repeated invocations, sorting stably by `(bvid, page_index, work_id)` with standard column ordering (`STANDARD_CSV_COLUMNS`).
 - **Formats**: `--format json` (formatted JSON array) or `--format csv` (standard CSV with UTF-8 encoding).

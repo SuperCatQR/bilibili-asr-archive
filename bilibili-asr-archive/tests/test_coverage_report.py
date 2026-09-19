@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from bili_asr.archive import write_archive
+from bili_asr.artifact_root import ArtifactRoots
 from bili_asr.coverage_report import CoverageReport
 
 NOW = "2026-08-28T12:00:00Z"
@@ -374,3 +375,39 @@ def test_coverage_quality_accepts_append_only_history(tmp_path: Path):
         manifest_path.read_text() + json.dumps(malformed) + "\n", encoding="utf-8")
     assert cli.main(["coverage", "--archive-root", str(tmp_path), "--quality",
                      "--format", "json"]) == 1
+
+
+def test_a_configured_artifact_root_is_reported_as_present(tmp_path: Path):
+    """A row's bundle is found at whichever base holds it (contract §5/§10, D8).
+
+    The recorded strings never change (D7), so the only thing deciding whether a
+    row's artifacts are visible is the base list the reader walks. One row is
+    written under the archive root (the legacy case D6 protects) and one under the
+    configured root; both must report `artifact_present`.
+    """
+    archive = tmp_path / "state"
+    artifact = tmp_path / "artifacts"
+    archive.mkdir(parents=True)
+    artifact.mkdir(parents=True)
+    legacy = _archived_rows(archive, "BVlegacy:p1")
+    moved = _archived_rows(artifact, "BVmoved:p1")
+    write_fixture(archive, legacy + moved, cur=cursor(), sched=scheduler(),
+                  ledgers=[ledger()], attempts=[attempt("BVlegacy:p1"), attempt("BVmoved:p1")])
+    moved_srt = moved[-1]["srt_path"]
+
+    report = CoverageReport.build(archive, artifact_roots=ArtifactRoots.of(archive, artifact))
+
+    assert {row["work_id"]: row["artifact_present"] for row in report.data["rows"]} == {
+        "BVlegacy:p1": True, "BVmoved:p1": True,
+    }
+    assert "terminal_missing_artifact" not in codes(report)
+    # Nothing was copied between the bases: the configured row's bundle is only there.
+    assert not (archive / moved_srt).exists()
+    assert (artifact / moved_srt).is_file()
+
+    # Control: with the roots omitted the configured row is graded against the archive
+    # root alone — today's single-base behaviour, unchanged (D6, §11).
+    single = CoverageReport.build(archive)
+    assert {row["work_id"]: row["artifact_present"] for row in single.data["rows"]} == {
+        "BVlegacy:p1": True, "BVmoved:p1": False,
+    }

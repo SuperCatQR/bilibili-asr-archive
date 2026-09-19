@@ -299,3 +299,31 @@ def test_migrate_collision_on_existing_p0_artifact(store, tmp_root):
     assert report.unresolved == ["BV1aa"]
     loaded = ManifestStore(root=tmp_root).load()
     assert loaded["BV1aa"]["unresolved"] is True
+
+
+def test_migrate_collision_on_foreign_stem_under_configured_artifact_root(
+    store, tmp_root
+):
+    """The collision probe scans both bases, so the configured root freezes too."""
+    from bili_asr.artifact_root import ArtifactRoots
+
+    artifact_root = os.path.join(tmp_root, "artifacts")
+    srt_dir = os.path.join(artifact_root, "transcripts", "srt")
+    os.makedirs(srt_dir)
+    open(os.path.join(srt_dir, "BV1aa.p1.srt"), "w").write("x")
+    seed_legacy(store, _entry("BV1aa"))
+    roots = ArtifactRoots.of(tmp_root, artifact_root)
+
+    report = store.migrate_legacy_rows(
+        lambda bvid: [_page(bvid, 0, cid=1)], roots
+    )
+
+    assert report.migrated == []
+    assert report.unresolved == ["BV1aa"]
+    loaded = ManifestStore(root=tmp_root).load()
+    assert loaded["BV1aa"]["unresolved"] is True
+    # Nothing colliding sits at the archive root: the freeze came from the
+    # configured base, which the probe reaches only because it scans both.
+    assert not os.path.exists(
+        os.path.join(tmp_root, "transcripts", "srt", "BV1aa.p1.srt")
+    )

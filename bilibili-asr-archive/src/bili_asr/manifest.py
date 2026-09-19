@@ -14,6 +14,7 @@ import re
 import stat
 from typing import Any, Callable, Mapping, Optional
 
+from .artifact_root import ArtifactRoots
 from .page_identity import PageIdentity, format_work_id, parse_work_id
 from .persistence import _json_line, file_lock
 
@@ -332,15 +333,22 @@ class ManifestStore:
     def migrate_legacy_rows(
         self,
         pages_for: Callable[[str], list[PageIdentity]],
-        archive_root: str | os.PathLike[str] | None = None,
+        artifact_roots: ArtifactRoots | None = None,
         only_bvid: str | None = None,
         *,
         coalesce_existing_page: bool = False,
     ) -> LegacyMigrationReport:
-        """Migrate unambiguous bare-bvid rows; freeze the rest additively."""
+        """Migrate unambiguous bare-bvid rows; freeze the rest additively.
+
+        ``artifact_roots`` carries the bases the collision probe scans
+        (contract §5, D8); ``None`` is the identity case and scans the archive
+        root alone, exactly as before.
+        """
         if not self._loaded:
             self.load()
-        root = os.fspath(archive_root if archive_root is not None else self.root)
+        roots = (
+            artifact_roots if artifact_roots is not None else ArtifactRoots.of(self.root)
+        )
         report = LegacyMigrationReport()
         with self._manifest_lock(create=True):
             current = self._read_latest()
@@ -357,7 +365,7 @@ class ManifestStore:
                 entry = dict(next_entries[key])
                 bvid = str(entry["bvid"])
                 pages = list(pages_for(bvid))
-                colliding_stems = _foreign_page_stems(root, bvid)
+                colliding_stems = _foreign_page_stems(roots, bvid)
                 dest_work_id = format_work_id(bvid, 0)
                 dest_occupied = dest_work_id in next_entries and dest_work_id != key
                 missing_cid = bool(pages) and any(p.cid is None for p in pages)
@@ -415,23 +423,30 @@ _ARTIFACT_REL_DIRS = (
 )
 
 
-def _foreign_page_stems(archive_root: str, bvid: str) -> set[str]:
-    """Return artifact stems `{bvid}.pN` (including p0) in known dirs."""
+def _foreign_page_stems(roots: ArtifactRoots, bvid: str) -> set[str]:
+    """Return artifact stems `{bvid}.pN` (including p0) in known dirs.
+
+    A stem under **either** base freezes the bare-`bvid` row: the artifact it
+    would claim may already exist at the archive root while new products are
+    written under the configured root (contract §10, D8), and migration must not
+    hand a row to a page some other row's files already occupy.
+    """
     found: set[str] = set()
     prefix = f"{bvid}.p"
-    for rel in _ARTIFACT_REL_DIRS:
-        dirpath = os.path.join(archive_root, rel)
-        if not os.path.isdir(dirpath):
-            continue
-        try:
-            names = os.listdir(dirpath)
-        except OSError:
-            continue
-        for name in names:
-            stem, _ext = os.path.splitext(name)
-            if not stem.startswith(prefix):
+    for base in roots.read_bases():
+        for rel in _ARTIFACT_REL_DIRS:
+            dirpath = os.path.join(os.fspath(base), rel)
+            if not os.path.isdir(dirpath):
                 continue
-            if not _STEM_PAGE_RE.match(stem):
+            try:
+                names = os.listdir(dirpath)
+            except OSError:
                 continue
-            found.add(stem)
+            for name in names:
+                stem, _ext = os.path.splitext(name)
+                if not stem.startswith(prefix):
+                    continue
+                if not _STEM_PAGE_RE.match(stem):
+                    continue
+                found.add(stem)
     return found

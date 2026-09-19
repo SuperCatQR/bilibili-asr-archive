@@ -14,6 +14,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, TypeAlias
 
+from .artifact_root import ArtifactRoots
 from .coordinator import ArchiveBusyError, RunCoordinator, RunSummary, archive_writer
 from .manifest import ManifestStore
 from .scheduler import SchedulerStore, settled_processed_ids, terminal_resume_ids
@@ -102,8 +103,12 @@ class CampaignRunner:
         policy_fingerprint: str = "default",
         # coordinator_factory is a test-only injection seam; production uses RunCoordinator.
         coordinator_factory: Callable[..., RunCoordinator] = RunCoordinator,
+        artifact_roots: ArtifactRoots | None = None,
+        keep_audio: bool = True,
     ) -> None:
         self.root = Path(archive_root)
+        self.artifact_roots = artifact_roots
+        self.keep_audio = keep_audio
         self.client = client
         self.offline = offline
         self.max_audio_bytes = max_audio_bytes
@@ -323,6 +328,7 @@ class CampaignRunner:
         coordinator = self.coordinator_factory(
             self.root, store, client=self.client, offline=self.offline,
             max_audio_bytes=self.max_audio_bytes, sleep=self.sleep,
+            artifact_roots=self.artifact_roots, keep_audio=self.keep_audio,
             # `run_batch` is shared; the reuse line must name `campaign`, not `run`.
             command="campaign",
         )

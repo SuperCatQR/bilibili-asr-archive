@@ -385,6 +385,9 @@ def test_allow_long_live_archives_and_reclaims_with_measured_peak(
     rc = main([
         "schedule", "--scope", identity.work_id, "--limit", "1",
         "--allow-long-live", "--max-audio-gb", "10",
+        # The reclaim this case measures is the retention pair's explicit opt-in
+        # (contract D5, plan T4): the default flipped to retain.
+        "--no-keep-audio",
         "--archive-root", tmp_root, "--sessdata", "SECRET-SESS",
     ])
     captured = capsys.readouterr()
@@ -477,6 +480,8 @@ def test_schedule_pending_allow_long_live_processes_long_row(
     rc = main([
         "schedule", "--scope", "pending", "--limit", "5",
         "--allow-long-live", "--max-audio-gb", "10",
+        # Reclaim is explicit now (contract D5, plan T4); this row asserted it before.
+        "--no-keep-audio",
         "--archive-root", tmp_root,
     ])
     captured = capsys.readouterr()

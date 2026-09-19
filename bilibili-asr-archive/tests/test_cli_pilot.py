@@ -11,10 +11,14 @@ def test_pilot_rejects_downloader_path_escape(tmp_path, monkeypatch):
     outside = tmp_path.parent / "escaped.m4a"
     outside.write_bytes(b"audio")
     monkeypatch.setattr(audio_mod, "download_audio", lambda *args, **kwargs: str(outside))
+    from bili_asr.artifact_root import ArtifactRoots
     from bili_asr.page_identity import page_identity
     target = page_identity("BVescape", 0, 1, "p0")
     with pytest.raises(ValueError):
-        cli._pilot_archive_asr(Store(), object(), str(tmp_path), {"bvid": "BVescape", "status": "needs_audio"}, target)
+        cli._pilot_archive_asr(
+            Store(), object(), ArtifactRoots.of(str(tmp_path)),
+            {"bvid": "BVescape", "status": "needs_audio"}, target, keep=True,
+        )
 
 import json
 import os
@@ -135,7 +139,11 @@ def test_cli_pilot_mixed_meta_ok_archives_both_branches(tmp_root, monkeypatch, c
     )
     _patch_cli(monkeypatch, transport)
 
-    rc = main(["pilot", "--n", "2", "--archive-root", tmp_root, "--sessdata", "SECRET-SESS"])
+    # The reclaim path is the CLI's explicit opt-in (contract D5): the default retains.
+    rc = main([
+        "pilot", "--n", "2", "--no-keep-audio", "--archive-root", tmp_root,
+        "--sessdata", "SECRET-SESS",
+    ])
     captured = capsys.readouterr()
     assert rc == 0, captured.err
     assert "SECRET-SESS" not in captured.out
@@ -240,6 +248,9 @@ def test_cli_pilot_audio_ok_reuses_local_audio_when_budget_is_full(
             "1",
             "--max-audio-gb",
             "0.000001",
+            # The post-archive removal this case asserts is the retention pair's
+            # explicit opt-in now (contract D5); the default keeps the audio.
+            "--no-keep-audio",
             "--archive-root",
             tmp_root,
         ]
