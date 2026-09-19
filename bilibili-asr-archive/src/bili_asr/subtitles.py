@@ -16,6 +16,7 @@ import json
 import os
 from typing import Any
 
+from .artifact_root import ArtifactRoots
 from .bili_client import AmbiguousPageError, BiliClient
 from .manifest import ManifestStore
 from .page_identity import PageIdentity, apply_identity, artifact_stem, page_identity
@@ -84,12 +85,19 @@ def harvest_subtitle(
     target: PageIdentity | str,
     store: ManifestStore,
     archive_root: str | os.PathLike[str],
+    *,
+    artifact_roots: ArtifactRoots | None = None,
 ) -> str:
     """Probe subtitles for one page, download if present, update the manifest.
 
     Returns the resulting manifest status: "subtitle_done" when a
     subtitle was downloaded and converted, "needs_audio" when the probe
     returned an empty list (Path A — expected without SESSDATA).
+
+    Both harvested products (``subtitles/raw/{stem}.json`` and
+    ``transcripts/srt/{stem}.srt``) are written under the artifact root when one
+    is configured (contract §2.1/§4); the recorded ``srt_path`` stays the shipped
+    root-relative string (D7).
     """
     if isinstance(target, str):
         existing = store.get_compatible(target) or store.get(target)
@@ -100,7 +108,7 @@ def harvest_subtitle(
             raise ValueError(f"{target}: unresolved; not assigned to a page")
         store.migrate_legacy_rows(
             client.list_pages,
-            archive_root=archive_root,
+            artifact_roots,
             only_bvid=target,
         )
         migrated = store.get_compatible(target)
@@ -133,7 +141,9 @@ def harvest_subtitle(
     # Short-lived signed URL: download immediately, never persist it
     doc = client.download_subtitle(chosen["subtitle_url"])
 
-    root = os.fspath(archive_root)
+    root = os.fspath(
+        artifact_roots.write_base if artifact_roots is not None else archive_root
+    )
     raw_dir = os.path.join(root, RAW_SUB_DIR)
     srt_dir = os.path.join(root, SRT_DIR)
     os.makedirs(raw_dir, exist_ok=True)

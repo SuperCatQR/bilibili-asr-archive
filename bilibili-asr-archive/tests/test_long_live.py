@@ -366,7 +366,7 @@ def test_allow_long_live_skips_when_conservative_estimate_exceeds_cap(
     _assert_no_secrets(captured, tmp_root)
 
 
-def test_allow_long_live_archives_and_reclaims_with_measured_peak(
+def test_allow_long_live_archives_and_measures_peak_with_retained_audio(
     tmp_root, monkeypatch, capsys,
 ):
     identity = _long_identity()
@@ -396,7 +396,11 @@ def test_allow_long_live_archives_and_reclaims_with_measured_peak(
     assert "audio/ after" in captured.out
     loaded = ManifestStore(root=tmp_root).load()
     assert loaded[identity.work_id]["status"] == "archived"
-    assert not os.path.isfile(_audio_path(tmp_root, identity))
+    # The retention default flipped to retain (contract D5): a `schedule` run
+    # keeps the audio unless the command is asked to reclaim it.  `--keep-audio`
+    # is resolved by the CLI (Task 4) and passed down; until then the shipped
+    # default is what this run gets.
+    assert os.path.isfile(_audio_path(tmp_root, identity))
     assert os.path.isfile(filler)
     peak_line = [
         line for line in captured.out.splitlines() if "peak audio/" in line
@@ -407,8 +411,9 @@ def test_allow_long_live_archives_and_reclaims_with_measured_peak(
     peak = int(peak_line.rsplit("=", 1)[-1])
     after = int(after_line.rsplit("=", 1)[-1])
     assert peak >= 4096 + len(AUDIO_BYTES)
-    assert after == 4096
-    assert after < peak
+    # Nothing was reclaimed, so the post-batch sample is the peak itself.
+    assert after == 4096 + len(AUDIO_BYTES)
+    assert after == peak
     assert transport.stream_calls  # fake download only
     _assert_no_secrets(captured, tmp_root)
 
@@ -486,7 +491,9 @@ def test_schedule_pending_allow_long_live_processes_long_row(
     loaded = ManifestStore(root=tmp_root).load()
     assert loaded[short_id.work_id]["status"] == "archived"
     assert loaded[long_id.work_id]["status"] == "archived"
-    assert not os.path.isfile(_audio_path(tmp_root, long_id))
+    # Retained by default (contract D5); the reclaim path is the CLI's
+    # `--keep-audio/--no-keep-audio` pair, resolved once at the boundary (Task 4).
+    assert os.path.isfile(_audio_path(tmp_root, long_id))
     assert transport.stream_calls
     sidecar = _scheduler(tmp_root)
     assert sidecar["state"] == "complete"

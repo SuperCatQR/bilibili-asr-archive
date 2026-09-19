@@ -26,6 +26,7 @@ from typing import Any, Callable, Iterator
 from . import asr as asr_module
 from . import audio as audio_module
 from . import subtitles as subtitles_module
+from .artifact_root import ArtifactRoots
 from .manifest import ManifestStore
 from .page_identity import PageIdentity, artifact_stem, identity_from_entry
 from .persistence import append_jsonl_record, file_lock
@@ -311,6 +312,12 @@ class RunCoordinator:
     ``client`` is the single HTTP owner (BiliClient); pass ``None`` for
     offline runs — harvest/download stages are then skipped with reason
     ``offline`` and never touch the network.
+
+    ``artifact_roots`` carries the root the products live under when it is not
+    the archive root (contract §4); ``self.root`` stays the archive root, which
+    is where every piece of state and the writer lock stay (D13/D14).
+    ``keep_audio`` is the retention policy the command boundary resolved and
+    merely passed down (contract §7, D15) — never read from the environment here.
     """
 
     def __init__(
@@ -324,8 +331,14 @@ class RunCoordinator:
         sleep: Callable[[float], None] | None = None,
         asr_runner: Any | None = None,
         command: str = "run",
+        artifact_roots: ArtifactRoots | None = None,
+        keep_audio: bool = True,
     ) -> None:
         self.root = os.fspath(archive_root)
+        self.artifact_roots = (
+            artifact_roots if artifact_roots is not None else ArtifactRoots.of(self.root)
+        )
+        self.keep_audio = keep_audio
         self.store = store
         self.client = client
         self.offline = offline
@@ -397,39 +410,64 @@ class RunCoordinator:
         self, entry: dict[str, Any]
     ) -> tuple[list[dict[str, Any]], dict[str, Any]] | None:
         stem = artifact_stem_for_entry(entry)
-        raw_path = os.path.join(self.root, "subtitles", "raw", f"{stem}.json")
-        if not os.path.isfile(raw_path):
-            return None
-        with open(raw_path, encoding="utf-8") as fh:
-            doc = json.load(fh)
-        segments = [
-            {
-                "start": item.get("from", 0),
-                "end": item.get("to", 0),
-                "text": item.get("content", ""),
-            }
-            for item in doc.get("body", [])
-        ]
-        return segments, doc
+        relative = os.path.join("subtitles", "raw", f"{stem}.json")
+        # A read: the harvested document may sit under either base (§5, D8).
+        for base in self.artifact_roots.read_bases():
+            raw_path = os.path.join(os.fspath(base), relative)
+            if not os.path.isfile(raw_path):
+                continue
+            with open(raw_path, encoding="utf-8") as fh:
+                doc = json.load(fh)
+            segments = [
+                {
+                    "start": item.get("from", 0),
+                    "end": item.get("to", 0),
+                    "text": item.get("content", ""),
+                }
+                for item in doc.get("body", [])
+            ]
+            return segments, doc
+        return None
 
-    def _existing_audio(self, entry: dict[str, Any]) -> str | None:
+    def _existing_audio(self, entry: dict[str, Any]) -> tuple[Path, str] | None:
+        """The row's audio as ``(base, declared)``, first hit over the bases.
+
+        ``declared`` is the root-relative string the row records (`audio/<name>.<ext>`),
+        so a caller re-confines it at the base it was found under rather than
+        recomputing it against the archive root (§5, D7/D8).
+        """
         stem = artifact_stem_for_entry(entry)
-        candidates: list[str] = []
+        declared_candidates: list[str] = []
         rel = entry.get("audio_path")
         if rel:
-            p = rel if os.path.isabs(str(rel)) else os.path.join(self.root, str(rel))
-            candidates.append(p)
-        base = os.path.join(self.root, "audio", stem)
-        candidates.append(base + ".m4a")
-        candidates.append(base + ".flac")
-        for path in candidates:
+            declared_candidates.append(str(rel))
+        stem_path = os.path.join("audio", stem)
+        declared_candidates.append(stem_path + ".m4a")
+        declared_candidates.append(stem_path + ".flac")
+        for base in self.artifact_roots.read_bases():
+            for declared in declared_candidates:
+                try:
+                    confined = confined_audio_path(base, declared, require_exists=True)
+                    if confined is not None and confined.stat().st_size > 0:
+                        return base, declared
+                except OSError:
+                    continue
+        return None
+
+    def _declared_audio(self, path: str) -> str | None:
+        """The recorded form of one on-disk audio path, from whichever base holds it.
+
+        The download stage may be handed a file the downloader *found* rather than
+        wrote: a legacy copy at the archive root keeps resolving there (D6) and
+        keeps its shipped ``audio/<name>.<ext>`` string.
+        """
+        for base in self.artifact_roots.read_bases():
             try:
-                declared = os.path.relpath(path, self.root)
-                confined = confined_audio_path(self.root, declared, require_exists=True)
-                if confined is not None and confined.stat().st_size > 0:
-                    return str(confined)
-            except OSError:
+                declared = os.path.relpath(path, base)
+            except ValueError:  # Windows across drives
                 continue
+            if confined_audio_path(base, declared, require_exists=True) is not None:
+                return declared
         return None
 
     def _stage_archive_from_subtitle(
@@ -452,7 +490,7 @@ class RunCoordinator:
         segments, raw = data
         try:
             paths = archive_module.write_archive(
-                self.root, entry, segments, source="subtitle", raw=raw
+                self.artifact_roots.write_base, entry, segments, source="subtitle", raw=raw
             )
         except Exception as exc:  # redacted; batch continues
             self._record(
@@ -461,7 +499,9 @@ class RunCoordinator:
             )
             raise
         try:
-            if not archive_module.archive_bundle_complete(self.root, paths):
+            if not archive_module.archive_bundle_complete(
+                self.artifact_roots.write_base, paths
+            ):
                 raise OSError("archive bundle incomplete")
             self._record(
                 "archive", work_id, "ok",
@@ -487,10 +527,15 @@ class RunCoordinator:
         self._reclaim_audio(updated)
 
     def _note_audio_peak(self) -> None:
-        """Record observed `{archive_root}/audio/` usage for campaign proof."""
+        """Record observed `{artifact_root}/audio/` usage for campaign proof.
+
+        The cap and the peak measure the configured root (contract §8, D16):
+        legacy audio still sitting at the archive root is on another device and
+        is not where new bytes land.
+        """
         from .audio_budget import audio_dir_usage_bytes
 
-        usage = audio_dir_usage_bytes(self.root)
+        usage = audio_dir_usage_bytes(self.artifact_roots.write_base)
         if usage > self.audio_peak_bytes:
             self.audio_peak_bytes = usage
 
@@ -500,7 +545,12 @@ class RunCoordinator:
 
         self._note_audio_peak()
         try:
-            reclaim_audio(self.root, entry)
+            reclaim_audio(
+                self.root,
+                entry,
+                artifact_roots=self.artifact_roots,
+                keep=self.keep_audio,
+            )
         except (OSError, ValueError):
             pass  # per-item non-fatal: transcripts exist; row stays archived
 
@@ -511,8 +561,8 @@ class RunCoordinator:
 
         work_id = str(entry.get("work_id") or key)
         started = _utc_now_iso()
-        audio_path = self._existing_audio(entry)
-        if audio_path is None:
+        resolved = self._existing_audio(entry)
+        if resolved is None:
             self._record(
                 "asr", work_id, "skipped",
                 error_code="missing_audio", started_at=started,
@@ -521,11 +571,12 @@ class RunCoordinator:
             result.skip_reason = "missing_audio"
             result.final_status = str(entry.get("status") or "")
             return
+        audio_base, audio_declared = resolved
         try:
             from .path_policy import confined_audio_file
             if self.asr_runner is None:
                 self.asr_runner = asr_module.ASRRunner(asr_module.default_config())
-            with confined_audio_file(self.root, os.path.relpath(audio_path, self.root)) as safe_audio:
+            with confined_audio_file(audio_base, audio_declared) as safe_audio:
                 segments = self.asr_runner.transcribe(safe_audio)
         except Exception as exc:  # redacted; batch continues
             self._record(
@@ -540,7 +591,8 @@ class RunCoordinator:
         started = _utc_now_iso()
         try:
             paths = archive_module.write_archive(
-                self.root, self._current_entry(key, entry), segments, source="asr",
+                self.artifact_roots.write_base, self._current_entry(key, entry), segments,
+                source="asr",
                 asr_provenance=self.asr_runner.provenance() if self.asr_runner else None,
             )
         except Exception as exc:  # redacted; batch continues
@@ -550,7 +602,9 @@ class RunCoordinator:
             )
             raise
         try:
-            if not archive_module.archive_bundle_complete(self.root, paths):
+            if not archive_module.archive_bundle_complete(
+                self.artifact_roots.write_base, paths
+            ):
                 raise OSError("archive bundle incomplete")
             self._record(
                 "archive", work_id, "ok",
@@ -562,12 +616,8 @@ class RunCoordinator:
                 error_code=_safe_error_code(exc), started_at=started,
             )
             raise
-        try:
-            audio_rel = os.path.relpath(audio_path, self.root)
-        except ValueError:
-            raise OSError("audio path outside archive")
         current = self._current_entry(key, entry)
-        current["audio_path"] = audio_rel
+        current["audio_path"] = audio_declared
         self._mark_archived(key, current, paths)
         result.ok = True
         result.final_status = "archived"
@@ -583,7 +633,9 @@ class RunCoordinator:
         if self.max_audio_bytes:
             from .audio_budget import SKIP_REASON, would_exceed_budget
 
-            if would_exceed_budget(self.root, entry, self.max_audio_bytes):
+            if would_exceed_budget(
+                self.artifact_roots.write_base, entry, self.max_audio_bytes
+            ):
                 self._record(
                     "download", work_id, "skipped", error_code=SKIP_REASON,
                     started_at=started,
@@ -594,10 +646,19 @@ class RunCoordinator:
                 return result.final_status
         identity = self._identity_for(entry, key)
         stem = artifact_stem(identity)
-        out_path = os.path.join(self.root, "audio", f"{stem}.m4a")
+        out_path = os.path.join(
+            os.fspath(self.artifact_roots.write_base), "audio", f"{stem}.m4a"
+        )
+        # The configured root is the one case the downloader cannot derive from
+        # `out_path`/`store.root`; the identity case keeps today's call shape.
+        download_kwargs: dict[str, Any] = (
+            {"artifact_roots": self.artifact_roots}
+            if self.artifact_roots.configured
+            else {}
+        )
         try:
             final = audio_module.download_audio(
-                self.client, identity, out_path, store=self.store
+                self.client, identity, out_path, store=self.store, **download_kwargs
             )
         except Exception as exc:  # redacted; batch continues
             self._record(
@@ -610,16 +671,11 @@ class RunCoordinator:
             # campaign peak is never below on-disk audio/ after a failed
             # download that left bytes behind.
             self._note_audio_peak()
-        try:
-            rel = os.path.relpath(final, self.root)
-            confined = confined_audio_path(self.root, rel, require_exists=True)
-            if confined is None:
-                raise OSError("audio path outside archive")
-            rel = os.path.relpath(confined, self.root)
-        except (OSError, ValueError, TypeError):
+        declared = self._declared_audio(final)
+        if declared is None:
             raise OSError("audio path outside archive")
         self._record(
-            "download", work_id, "ok", artifact_paths=[rel], started_at=started
+            "download", work_id, "ok", artifact_paths=[declared], started_at=started
         )
         return "audio_ok"
 
@@ -668,7 +724,8 @@ class RunCoordinator:
                 identity = self._identity_for(entry, key)
                 try:
                     status = subtitles_module.harvest_subtitle(
-                        self.client, identity, self.store, self.root
+                        self.client, identity, self.store, self.root,
+                        artifact_roots=self.artifact_roots,
                     )
                 except Exception as exc:
                     self._record(

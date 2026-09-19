@@ -32,7 +32,7 @@ def test_archived_asr_row_m4a_deleted(tmp_path):
     stem = f"{ 'BV1xx411c7mD' }.p0"
     (audio / "BV1xx411c7mD.p0.m4a").write_bytes(b"x" * 16)
     entry = _entry(work_id="BV1xx411c7mD:p0", page_index=0, cid=123)
-    assert reclaim_audio(tmp_path, entry) is True
+    assert reclaim_audio(tmp_path, entry, keep=False) is True
     assert not (audio / "BV1xx411c7mD.p0.m4a").exists()
 
 
@@ -40,7 +40,7 @@ def test_archived_subtitle_only_row_no_op(tmp_path):
     audio = tmp_path / "audio"
     audio.mkdir()
     entry = _entry()  # no work_id/audio_path: bare bvid fallback, no file
-    assert reclaim_audio(tmp_path, entry) is False
+    assert reclaim_audio(tmp_path, entry, keep=False) is False
     assert list(audio.iterdir()) == []
 
 
@@ -62,7 +62,7 @@ def test_path_traversal_rejected(tmp_path):
     secret.write_bytes(b"x")
     entry = _entry(audio_path=os.path.join("..", "secret.m4a"))
     with pytest.raises(ValueError):
-        reclaim_audio(tmp_path, entry)
+        reclaim_audio(tmp_path, entry, keep=False)
     assert secret.exists()
 
 
@@ -73,7 +73,7 @@ def test_absolute_audio_path_outside_rejected(tmp_path):
     victim.write_bytes(b"x")
     entry = _entry(audio_path=str(victim))
     with pytest.raises(ValueError):
-        reclaim_audio(tmp_path, entry)
+        reclaim_audio(tmp_path, entry, keep=False)
     assert victim.exists()
 
 
@@ -83,7 +83,7 @@ def test_audio_path_inside_audio_dir_reclaimed(tmp_path):
     target = audio / "custom.m4a"
     target.write_bytes(b"x" * 4)
     entry = _entry(audio_path="audio/custom.m4a")
-    assert reclaim_audio(tmp_path, entry) is True
+    assert reclaim_audio(tmp_path, entry, keep=False) is True
     assert not target.exists()
 
 
@@ -92,7 +92,7 @@ def test_flac_candidate_removed(tmp_path):
     audio.mkdir()
     (audio / "BV1xx411c7mD.p0.flac").write_bytes(b"x")
     entry = _entry(work_id="BV1xx411c7mD:p0", page_index=0, cid=1)
-    assert reclaim_audio(tmp_path, entry) is True
+    assert reclaim_audio(tmp_path, entry, keep=False) is True
     assert not (audio / "BV1xx411c7mD.p0.flac").exists()
 
 
@@ -105,7 +105,7 @@ def test_symlink_escape_rejected(tmp_path):
     link.symlink_to(victim)
     entry = _entry(audio_path="audio/linked.m4a")
     with pytest.raises(ValueError):
-        reclaim_audio(tmp_path, entry)
+        reclaim_audio(tmp_path, entry, keep=False)
     assert victim.exists()
 
 
@@ -120,7 +120,7 @@ def test_reclaim_swap_does_not_delete_outside_victim(tmp_path):
     target.unlink()
     target.symlink_to(outside)
     with pytest.raises(ValueError):
-        reclaim_audio(tmp_path, entry)
+        reclaim_audio(tmp_path, entry, keep=False)
     assert outside.read_bytes() == b"victim"
 
 
@@ -146,7 +146,7 @@ def test_reclaim_moves_entry_before_post_validation_name_swap(tmp_path, monkeypa
         return result
 
     monkeypatch.setattr(path_policy.os, "replace", replace_then_swap)
-    assert reclaim_audio(tmp_path, entry) is True
+    assert reclaim_audio(tmp_path, entry, keep=False) is True
     assert victim.read_bytes() == b"victim"
     assert target.is_symlink()
     assert not list(audio.glob(".audio-reclaim-*"))
@@ -188,7 +188,7 @@ def test_coordinator_archive_stage_reclaims_audio(tmp_path, monkeypatch):
     )
     from bili_asr.coordinator import RunCoordinator
 
-    coord = RunCoordinator(str(root), store, offline=True)
+    coord = RunCoordinator(str(root), store, offline=True, keep_audio=False)
     coord.run_batch([(work_id, store.load()[work_id])])
     row = store.load()[work_id]
     assert row["status"] == "archived"
