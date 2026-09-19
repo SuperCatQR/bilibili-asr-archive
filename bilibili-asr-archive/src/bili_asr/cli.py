@@ -207,6 +207,23 @@ def build_parser() -> argparse.ArgumentParser:
         help="Stop after N videos (smoke runs)",
     )
 
+    derive = subparsers.add_parser(
+        "derive-manifest",
+        help="Append manifest rows for the audio queue: parts with no transcript",
+        description=(
+            "Derive the audio queue from archive.db: every stored part that holds "
+            "no transcript and is not gone is appended to the manifest as a "
+            "needs_audio row, so the ASR/audio chain has work to select. The "
+            "database is opened read-only and the manifest is only appended to; "
+            "a row the chain already holds is left alone. An empty queue is "
+            "success."
+        ),
+    )
+    derive.add_argument(
+        "--archive-root", default=DEFAULT_ARCHIVE_ROOT,
+        help="Archive root directory (default: ./archive)",
+    )
+
     run_cmd = subparsers.add_parser(
         "run",
         help="Coordinate manifest rows through stages (complements pilot)",
@@ -1066,6 +1083,113 @@ def _cmd_harvest_subs(args: argparse.Namespace) -> int:
     )
     if result.attempted and result.failed == result.attempted:
         return 2
+    return 0
+
+
+def _cmd_derive_manifest(args: argparse.Namespace) -> int:
+    """Append the manifest rows the stored audio queue needs.
+
+    The queue is the store's own work relation — every part that holds no
+    transcript and is not ``gone`` (``v_pending_subtitles``, read through
+    ``list_pending_subtitle_parts``) — and never the metadata backlog ``status``
+    prints as ``pending:``.  ``cli.py`` composes the layers here, as the
+    cross-layer rule requires: the database is opened read-only through the
+    subtitle guard, the derivation is a pure service call, and the write is
+    ``ManifestStore.upsert`` per appended row under the manifest's own lock.
+
+    Exit taxonomy: 0 the derivation completed, including an empty queue (a
+    missing database, an unreadable one, the schema-rebuild guard, a held
+    archive-writer lock and a usage error are all answered by their shipped
+    paths with 1); no path of this command produces 2.  A write that fails
+    part-way through the append loop is reported rather than left to a
+    traceback: the summary is still printed, with ``derived`` counting the rows
+    that did reach the manifest, one ``derive-manifest: append failed after <k>
+    row(s)`` line on stderr names that count, and the exit code stays 1.  The
+    rows already appended are complete lines the chain reads and a re-run
+    answers ``already_derived`` for them, so the run stays resumable and only
+    its report used to be missing.
+    """
+    from .manifest import ManifestStore
+    from .page_identity import parse_work_id
+    from .services.manifest_derivation import (
+        QUEUE_STATUS,
+        SKIP_ALREADY_DERIVED,
+        SKIP_CHAIN_OWNED,
+        SKIP_IDENTITY_MISMATCH,
+        derive_rows,
+    )
+    from .storage import TranscriptRepository
+
+    store = ManifestStore(root=args.archive_root)
+    connection = _open_subtitle_connection(
+        "derive-manifest", args.archive_root, read_only=True
+    )
+    if connection is None:
+        return 1
+    try:
+        repository = TranscriptRepository(connection)
+        queue = [dict(row) for row in repository.list_pending_subtitle_parts()]
+        outcome = derive_rows(
+            queue,
+            repository.read_video_pubdates([part["bvid"] for part in queue]),
+            store.load(),
+        )
+    finally:
+        connection.close()
+
+    def _print_summary(derived: int) -> None:
+        # §8's one summary line, printed on the success path and on the append's
+        # failure path alike: the counts an operator reads never depend on how
+        # far the run got, and ``derived`` is the number of rows that reached
+        # the manifest rather than the number the derivation proposed.
+        print(
+            f"derive-manifest: queue={len(queue)} derived={derived} "
+            f"{SKIP_ALREADY_DERIVED}={len(outcome.already_derived)} "
+            f"{SKIP_CHAIN_OWNED}={len(outcome.chain_owned)} "
+            f"{SKIP_IDENTITY_MISMATCH}={len(outcome.identity_mismatch)}"
+        )
+
+    written = 0
+    for row in outcome.appended:
+        try:
+            # The bridge never emits a bare-bvid key, so the page-qualified form
+            # is re-validated at the write rather than trusted from the
+            # derivation: ``upsert`` checks the same pair, but it also accepts a
+            # bare row when the bvid already has a legacy one, which is a state
+            # this command promises never to create.  Unreachable defence for
+            # any store the shipped writers produce — the view and
+            # ``format_work_id`` agree on every bvid the gateway admits — kept
+            # so the promise is enforced where it is made, not assumed.
+            stored_bvid, _page = parse_work_id(str(row["work_id"]))
+            if stored_bvid != row["bvid"]:
+                raise ValueError(
+                    f"derived work_id {row['work_id']!r} does not match "
+                    f"bvid {row['bvid']!r}"
+                )
+            store.upsert(row)
+        except Exception as exc:
+            # The guard spans the write and the validation in front of it, and
+            # nothing else: a per-row write can fail (the manifest lock, the
+            # append's own write/fsync, the record validation) and until this
+            # guard existed the summary went down with the traceback on exactly
+            # the run where the operator needs to know how much of the queue is
+            # already durable.  The per-row ``print`` below stays outside it —
+            # an output failure is not an append failure, and the line is only
+            # true for the rows already written.
+            print(
+                f"derive-manifest: append failed after {written} row(s): "
+                f"{type(exc).__name__}: {exc}",
+                file=sys.stderr,
+            )
+            _print_summary(written)
+            return 1
+        written += 1
+        print(f"{row['work_id']}: {QUEUE_STATUS} (duration_s={row['duration_s']})")
+    for work_id in outcome.chain_owned:
+        print(f"skip {work_id} {SKIP_CHAIN_OWNED}")
+    for work_id in outcome.identity_mismatch:
+        print(f"skip {work_id} {SKIP_IDENTITY_MISMATCH}")
+    _print_summary(len(outcome.appended))
     return 0
 
 
@@ -3077,6 +3201,7 @@ _ARCHIVE_WRITER_COMMANDS = frozenset({
     "recover",
     "asr",
     "pilot",
+    "derive-manifest",
     "harvest-subs",
     "download-audio",
     "run",
@@ -3106,6 +3231,8 @@ def _dispatch_command(args: argparse.Namespace) -> int:
         return _cmd_probe_subs(args)
     if args.command == "harvest-subs":
         return _cmd_harvest_subs(args)
+    if args.command == "derive-manifest":
+        return _cmd_derive_manifest(args)
     if args.command == "download-audio":
         return _cmd_download_audio(args)
     if args.command == "search":
