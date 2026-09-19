@@ -9,6 +9,8 @@ field set is §3.1 and the milliseconds conversion §3.2 of the iteration spec
 its store self-contradiction check §3.6.
 """
 
+import time
+
 import pytest
 
 from bili_asr.services.manifest_derivation import (
@@ -35,7 +37,13 @@ ROW_FIELDS = {
 }
 
 PUBDATE = 1_700_000_000
-PUBDATE_STR = "2023-11-14"
+#: ``1_700_000_000`` is ``2023-11-14T22:13:20Z``, and ``pubdate_str`` is that
+#: second's **UTC** calendar date.  The expectation is therefore rendered the
+#: same way rather than written as a literal: a literal only discriminated on a
+#: host whose own zone is not UTC (this one is ``+08:00``, where the local date
+#: of that second is the 15th), so it could not see a ``localtime`` regression on
+#: a UTC runner.
+PUBDATE_STR = time.strftime("%Y-%m-%d", time.gmtime(PUBDATE))
 
 
 def _part(bvid="BV1xx4y1zz", page_index=2, cid=987_654, duration_ms=1_800_000, **kw):
@@ -67,6 +75,15 @@ def test_the_derivation_vocabulary_is_the_reported_one():
 
 
 def test_duration_s_is_floor_seconds_clamped_to_one():
+    """§3.2's conversion, plus the absent-duration policy the contract leaves open.
+
+    The ``0`` and ``None`` arms are not a store shape: ``duration_ms`` is
+    ``INTEGER NOT NULL CHECK (duration_ms > 0)``, so neither can arrive from the
+    read.  They pin this module's own decision — write the smallest usable second
+    rather than a duration the audio budget reads as "unknown" — which §3.2
+    defines only for a positive ``duration_ms``.  The fabricated input is
+    deliberate: a change to that policy should fail here, not ship silently.
+    """
     assert duration_s_from_ms(3_600_500) == 3600
     assert duration_s_from_ms(999) == 1
     # §3.2 clamps only what is *below* one second, and the floor is deliberate:
@@ -95,6 +112,14 @@ def test_a_queue_row_becomes_a_page_qualified_needs_audio_row():
 
 
 def test_a_part_whose_store_work_id_disagrees_is_skipped():
+    """§3.6's skip, on a ``work_id`` no store can hold.
+
+    The store's SQL form and the Python identity agree for every bvid the gateway
+    admits and every ``page_index`` the schema accepts, so this branch is
+    unreachable defence for shipped-writer stores, pinned here by a fabricated
+    ``work_id`` on purpose: it must keep answering as the contract says if the
+    store ever stops agreeing with itself.
+    """
     # §3.6: the store computes work_id in SQL while the manifest's identity rule
     # is Python's, so a row whose two forms differ is skipped, never rewritten.
     part = _part(page_index=2, work_id="BV1xx4y1zz:p3")

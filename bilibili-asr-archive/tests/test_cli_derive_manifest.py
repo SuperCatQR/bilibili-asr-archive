@@ -11,7 +11,8 @@ never the metadata backlog), the row it appends (page-qualified ``work_id``,
 ``needs_audio``, seconds duration, the part's own cid), the additive conflict
 policy (a chain-held row is never regressed, a second run appends nothing), the
 exit taxonomy (``0`` including "nothing to derive", ``1`` for a missing
-database and for a held writer lock), the printed lines and the summary, and the
+database, for a held writer lock and for an append that fails part-way through
+the row loop), the printed lines and the summary, and the
 two boundaries the contract rests on — nothing is materialised, and the command
 joins the archive-writer lock set rather than inventing its own.
 
@@ -336,6 +337,47 @@ def test_derive_manifest_never_regresses_a_row_the_chain_advanced(tmp_root, caps
     # One line for the chain's own row and one for the derived sibling: the
     # command appended only where the chain had said nothing.
     assert len(_manifest_lines(tmp_root)) == 2
+
+
+def test_a_failed_append_keeps_the_prefix_and_still_reports(tmp_root, capsys, monkeypatch):
+    """A write that fails mid-loop keeps the summary and names the prefix.
+
+    The data outcome is the designed one: the rows already appended are complete
+    lines the chain can read, and a re-run answers ``already_derived`` for them.
+    What an operator needs on that run is the report — the summary (with
+    ``derived`` counting what actually reached the manifest) plus one
+    command-specific line naming the count — instead of a bare traceback, and
+    exit ``1``, the code this command reserves for a run that could not complete.
+    """
+    _seed_archive(tmp_root, QUEUE_FIXTURE, captioned=CAPTIONED_PARTS)
+    real_upsert = ManifestStore.upsert
+    attempts: list[str] = []
+
+    def failing_upsert(self, entry):
+        attempts.append(str(entry["work_id"]))
+        if len(attempts) == 2:
+            raise OSError("no space left on device")
+        return real_upsert(self, entry)
+
+    monkeypatch.setattr(ManifestStore, "upsert", failing_upsert)
+
+    assert _derive(tmp_root) == 1
+    captured = capsys.readouterr()
+
+    # The prefix the write did reach is durable: one complete line, the first
+    # queue row, and nothing for the row the failure stopped short of.
+    assert len(_manifest_lines(tmp_root)) == 1
+    assert list(ManifestStore(root=tmp_root).load()) == [f"{QUEUED_BVID}:p0"]
+
+    assert captured.out == (
+        f"{QUEUED_BVID}:p0: needs_audio (duration_s=3600)\n"
+        "derive-manifest: queue=2 derived=1 already_derived=0 "
+        "chain_owned=0 identity_mismatch=0\n"
+    )
+    assert captured.err == (
+        "derive-manifest: append failed after 1 row(s): "
+        "OSError: no space left on device\n"
+    )
 
 
 def test_derive_manifest_missing_database_is_a_configuration_error(tmp_root, capsys):

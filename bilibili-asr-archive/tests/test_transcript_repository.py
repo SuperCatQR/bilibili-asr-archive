@@ -24,6 +24,7 @@ from bili_asr.storage import (
     TranscriptWriteResult,
     open_database,
 )
+from bili_asr.storage.database import _PUBDATE_CHUNK
 from fixtures.metadata_records import (
     make_part_record,
     make_user_record,
@@ -35,6 +36,11 @@ from test_storage_schema import _write_pre_iteration_database
 
 BODY = ((0, 1_200, "第一句"), (1_200, 2_400, "第二句"))
 CHANGED_BODY = ((0, 1_200, "第一句"), (1_200, 2_400, "改写后的第二句"))
+#: The statement-parameter ceiling ``read_video_pubdates``' chunking exists for:
+#: SQLite builds before 3.32.0 allow 999 host parameters per statement, and the
+#: read keeps headroom under it.  Pinned on the test's own connection, because
+#: this host's driver raises its ceiling to 250,000.
+_STATEMENT_PARAMETER_CAP = 900
 
 
 def _captioned_part(connection: sqlite3.Connection, bvid: str = "BV1CAPTION") -> int:
@@ -2023,6 +2029,54 @@ def test_read_video_pubdates_returns_stored_seconds(tmp_root):
             repository.read_video_pubdates([None])
         with pytest.raises(ValueError):
             repository.read_video_pubdates([""])
+    finally:
+        connection.close()
+
+
+def test_read_video_pubdates_answers_the_same_mapping_across_chunks(tmp_root):
+    """A key list wider than one statement reads as one mapping.
+
+    The queue's distinct bvid count is bounded by the store, not by the read, so
+    the lookup is issued in bounded chunks: SQLite builds before 3.32.0 allow 999
+    host parameters per statement.  The answer must not depend on which chunk a
+    bvid landed in — including the short final one — so a 905-key read under a
+    900-parameter statement cap is compared against single-statement reads of the
+    first chunk and of the remainder, and against the stored column with no
+    constant substituted.
+    """
+    connection = open_database(tmp_root)
+    repository = TranscriptRepository(connection)
+    try:
+        keys = [f"BV{index:010d}" for index in range(_STATEMENT_PARAMETER_CAP + 5)]
+        metadata = MetadataRepository(connection)
+        with metadata.transaction():
+            metadata.upsert_user(make_user_record())
+            for index, bvid in enumerate(keys):
+                metadata.upsert_video(
+                    replace(
+                        make_video_record(bvid, aid=None),
+                        pubdate=1_600_000_000 + index,
+                    )
+                )
+
+        expected = {bvid: 1_600_000_000 + index for index, bvid in enumerate(keys)}
+        # The read is only a multi-chunk read if its own bound stays inside the
+        # cap it exists for; a bound that grew past it fails here instead of
+        # quietly shrinking this case back to a single statement.
+        assert _PUBDATE_CHUNK <= _STATEMENT_PARAMETER_CAP
+        # This host's driver raises its own ceiling to 250,000, so the cap the
+        # case is about is pinned on the connection instead of inherited.
+        connection.setlimit(
+            sqlite3.SQLITE_LIMIT_VARIABLE_NUMBER, _STATEMENT_PARAMETER_CAP
+        )
+
+        assert repository.read_video_pubdates(keys) == expected
+        assert repository.read_video_pubdates(keys[:_STATEMENT_PARAMETER_CAP]) == {
+            bvid: expected[bvid] for bvid in keys[:_STATEMENT_PARAMETER_CAP]
+        }
+        assert repository.read_video_pubdates(keys[_STATEMENT_PARAMETER_CAP:]) == {
+            bvid: expected[bvid] for bvid in keys[_STATEMENT_PARAMETER_CAP:]
+        }
     finally:
         connection.close()
 

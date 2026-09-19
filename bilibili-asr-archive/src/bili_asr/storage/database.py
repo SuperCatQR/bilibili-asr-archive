@@ -57,6 +57,12 @@ _SUBTITLE_SCHEMA_OBJECTS = (
     "acquisition_runs",
     "v_pending_subtitles",
 )
+# SQLite builds before 3.32.0 cap one prepared statement at 999 host
+# parameters, and the queue a derivation reads is bounded by the store rather
+# than by this module (spec §2 states no queue bound), so the bvid lookups are
+# issued in chunks comfortably below that ceiling instead of as one unbounded
+# ``IN (...)``.
+_PUBDATE_CHUNK = 900
 
 
 class SchemaContractError(RuntimeError):
@@ -725,8 +731,10 @@ class TranscriptRepository:
     - ``record_subtitle_attempt`` owns one transaction for one ``'no-subtitle'``
       or ``'failed'`` attempt and commits it.
     - ``read_transcript``, ``list_transcript_versions``,
-      ``list_pending_subtitle_parts``, ``count_pending_subtitle_parts`` and
-      ``list_selected_parts`` never write and never commit: they return the
+      ``list_pending_subtitle_parts``, ``count_pending_subtitle_parts``,
+      ``list_selected_parts`` and ``read_video_pubdates`` — the class's only read
+      of the ``videos`` table, which :class:`MetadataRepository` owns — never
+      write and never commit: they return the
       stored rows as they are — a typed ``TranscriptRecord`` for one stored
       version, ``sqlite3.Row`` view data otherwise.
 
@@ -1130,19 +1138,30 @@ class TranscriptRepository:
         without executing anything — ``IN ()`` is a syntax error, not a read —
         and a bvid the archive does not hold simply has no entry, so every
         lookup the caller makes for a part it just read stays answered.  A
-        repeated bvid is answered once.  Read-only.
+        repeated bvid is answered once.  The keys are read in chunks of at most
+        ``_PUBDATE_CHUNK`` parameters, because the caller hands over a whole
+        queue: the store bounds how many distinct bvids there are, the driver
+        bounds one statement, and only the first bound is this module's to
+        assume.  Read-only.
         """
         if not bvids:
             return {}
         keys = tuple(dict.fromkeys(_text(bvid, "bvid") for bvid in bvids))
-        placeholders = ", ".join("?" * len(keys))
-        return {
-            str(row["bvid"]): int(row["pubdate"])
-            for row in self.connection.execute(
-                f"SELECT bvid, pubdate FROM videos WHERE bvid IN ({placeholders})",
-                keys,
-            ).fetchall()
-        }
+        pubdates: dict[str, int] = {}
+        for start in range(0, len(keys), _PUBDATE_CHUNK):
+            chunk = keys[start : start + _PUBDATE_CHUNK]
+            placeholders = ", ".join("?" * len(chunk))
+            pubdates.update(
+                {
+                    str(row["bvid"]): int(row["pubdate"])
+                    for row in self.connection.execute(
+                        f"SELECT bvid, pubdate FROM videos "
+                        f"WHERE bvid IN ({placeholders})",
+                        chunk,
+                    ).fetchall()
+                }
+            )
+        return pubdates
 
     def count_pending_subtitle_parts(self) -> int:
         """Count the parts the pending relation holds. Read-only."""

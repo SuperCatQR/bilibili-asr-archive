@@ -298,8 +298,9 @@ not migrate the rest of the archive. The ASR and pilot chain (`asr`, `pilot`,
 - the new `harvest-subs` still produces no manifest status `needs_audio` itself;
   `bili-asr derive-manifest` is the command that feeds `download-audio
   --missing-subs` from this path, by appending a `needs_audio` row per part in
-  the pending-subtitle relation — the parts recorded `no-subtitle` are that
-  queue — additively, never rewriting a row the chain already holds;
+  the pending-subtitle relation — every stored part with no transcript and not
+  `gone`; the parts recorded `no-subtitle` are among them — additively, never
+  rewriting a row the chain already holds;
 - `bili-asr asr --pending` and the pilot chain are still driven from the
   manifest state, not from `archive.db`, so a transcript stored here does not
   feed them. The bridge runs the other way round: store facts are appended to the

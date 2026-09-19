@@ -14,9 +14,18 @@ clamped to one.  The policy is §3.4's *additive* one — a ``work_id`` the chai
 has already spoken about is left byte-for-byte as found, whatever state it
 holds, and only a part with no effective row at all is appended — plus §3.6's
 ``identity_mismatch`` check for a store row whose SQL-computed ``work_id``
-contradicts the Python identity rule.  Reading the manifest in order to avoid
-regressing a row is not the forbidden direction: D4 forbids the opposite one
-(reading the manifest *into* the store), and the store connection is opened
+contradicts the Python identity rule.  That check is defence rather than a live
+path: the view computes ``work_id`` in SQL exactly as
+:func:`~bili_asr.page_identity.format_work_id` computes it in Python, over a
+bvid the gateway validates and an integral ``page_index``, so the two forms agree
+for every row a shipped writer can store and the branch is pinned by fabricated
+input on purpose.  One store fact has no contract rule at all: ``duration_ms`` is
+``INTEGER NOT NULL CHECK (duration_ms > 0)`` and §3.2 defines the floor and the
+clamp for a positive value only, so an absent (``None``) duration is this
+module's own decision — the smallest usable second, so the row stays
+downloadable — not a reading of the contract.  Reading the manifest in order to
+avoid regressing a row is not the forbidden direction: D4 forbids the opposite
+one (reading the manifest *into* the store), and the store connection is opened
 ``mode=ro`` so that direction is structurally impossible (spec §10).
 """
 
@@ -48,7 +57,10 @@ def duration_s_from_ms(duration_ms: Any) -> int:
     fail-closes: the schema admits a sub-second part (``duration_ms > 0``), and an
     absent duration states the same thing, so either way the row is written with
     the smallest usable second and stays downloadable instead of silently
-    skipping every download.
+    skipping every download.  §3.2 defines the floor and the clamp for a positive
+    ``duration_ms`` only, so the absent arm is this module's policy for a shape
+    the store cannot deliver (``NOT NULL CHECK (duration_ms > 0)``), pinned by a
+    fabricated input in the tests rather than derived from the contract.
     """
 
     if duration_ms is None:
@@ -95,7 +107,10 @@ class DerivationOutcome:
     spelling: ``already_derived`` and ``chain_owned`` are §3.4's two non-append
     answers, and ``identity_mismatch`` is §3.6's store self-contradiction — the
     one case where the store's form and the Python form differ, so the store's
-    form is the row an operator has to go and look at.
+    form is the row an operator has to go and look at.  No store the shipped
+    writers produce can reach that third branch (the module docstring says why):
+    it is defence, kept so a store that stopped agreeing with itself is named
+    rather than crashed on.
     """
 
     appended: tuple[dict[str, Any], ...]

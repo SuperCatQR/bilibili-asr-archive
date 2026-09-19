@@ -964,7 +964,11 @@ and is not `gone` — the relation `harvest-subs` reports as
   identity_mismatch=<n>`, carrying every count including the zeros.
 - **Exit codes**: `0` the derivation completed, an empty queue included; `1` the
   command could not run (missing or unreadable database, the transcript-schema
-  guard, `archive_busy`, usage). No path of this command produces `2`.
+  guard, `archive_busy`, usage) **and** a derivation whose append loop failed
+  part-way: the rows written before the failure stay, the summary is still
+  printed with `derived` counting them, and one
+  `derive-manifest: append failed after <k> row(s)` line on stderr names the
+  count. No path of this command produces `2`.
 - **Writer lock**: `derive-manifest` is an archive-writer command, so it holds
   `{archive-root}/coordinator/archive-writer.lock` and a second mutating command
   exits `1` with `derive-manifest: archive_busy`. As with `harvest-subs`, the
@@ -976,13 +980,30 @@ and is not `gone` — the relation `harvest-subs` reports as
   selector takes `subtitle_done` / `audio_ok` rows, never the appended
   `needs_audio` row itself. `coverage`, `coverage --quality`, `verify`, and
   `export` read them. This iteration adds the rows only; none of those readers
-  changes.
-- **Two limits, stated**: the store records no per-part audio outcome, so a
-  bounded run that keeps failing the same part re-selects it — rotation holds
-  after a successful attempt, not after a failed one. And the SRT/TXT/MD
-  projection rebuild stays out of this iteration: a stored caption keeps no
-  `srt`/`txt`/`md` bundle until that rebuild lands, and it is not re-queued for
-  audio either, because the derived queue is the no-transcript relation.
+  changes. Their exit consequences follow from the rows, though: every derived
+  row is a `retryable_incomplete` defect for `verify`, which therefore exits `1`
+  until the chain advances it, and a corpus-scale append is what reaches the
+  default reader's 10,000-record / 8 MiB ceiling first — past either ceiling the
+  result is non-authoritative and `verify` / `coverage` exit `1` without
+  `--trusted-local`.
+- **Limits, stated**: the store records no per-part audio outcome, so a bounded
+  run that keeps failing the same part re-selects it — rotation holds after a
+  successful attempt, not after a failed one. The appended rows are selected
+  *alongside* whatever `needs_audio` rows the manifest already held, legacy
+  bare-`bvid` rows included, and in manifest file order, so a bounded
+  `--limit 1` run can spend its single slot on a pre-existing row instead of on
+  a row this command just derived. And the SRT/TXT/MD projection rebuild stays
+  out of this iteration: a stored caption keeps no `srt`/`txt`/`md` bundle until
+  that rebuild lands, and it is not re-queued for audio either, because the
+  derived queue is the no-transcript relation.
+- **Append cost, bounded analytically (not measured)**: each appended row is one
+  locked re-read of the whole ledger plus two `fsync` calls, and the whole
+  derivation runs under the archive-writer lock, so appending `N` rows to an
+  `L`-line ledger costs about `N·L + N(N−1)/2` line parses — at `N = L = 2,000`
+  roughly 6M parses and 4,000 fsyncs. That is an analytic bound only: no runtime
+  measurement was taken on a real archive, so a first full-queue derivation
+  should be treated as holding the writer lock for a duration this iteration
+  does not state.
 
 #### Opt-in bounded live smokes
 

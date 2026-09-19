@@ -129,12 +129,15 @@ MISSING_SUBTITLE_RAW = "missing_subtitle_raw"
 #: The audio budget's skip reason (``audio_budget.SKIP_REASON``).
 AUDIO_BUDGET_SKIP = "audio_budget"
 
-#: Criterion 3's live clause — a real model reaching ``archived`` — is not
-#: evidence this offline suite can produce; the skip case below carries the
-#: statement, and the stub-free case carries the observable it does have.
-LIVE_ASR_CLAUSE_UNTESTED = (
-    "criterion 3's live confirmation needs the [asr] extra and a model download, "
-    "which this offline suite must not perform: untested here, not passed"
+#: The stub-free case below is skipped when the extra **is** importable — the
+#: opposite of a missing-extra message — so its reason is its own string: the
+#: reader's condition is "this host has `funasr`", and a reason about a missing
+#: extra would send a triager after the wrong thing.  Criterion 3's live clause
+#: itself (a real model reaching ``archived``) is recorded as untested by the
+#: last case in this file, which carries the environment facts it rests on.
+ASR_EXTRA_INSTALLED = (
+    "the [asr] extra is installed, so the documented install-hint stop cannot "
+    "be observed"
 )
 
 
@@ -587,7 +590,7 @@ def test_a_budget_capped_run_downloads_nothing_and_leaves_the_head_queued(
 
 @pytest.mark.skipif(
     _funasr_is_installed(),
-    reason=LIVE_ASR_CLAUSE_UNTESTED,
+    reason=ASR_EXTRA_INSTALLED,
 )
 def test_a_stub_free_run_stops_at_the_documented_asr_dependency(
     tmp_root, monkeypatch, capsys, fake_gateway_seam

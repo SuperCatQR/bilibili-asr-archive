@@ -1100,7 +1100,14 @@ def _cmd_derive_manifest(args: argparse.Namespace) -> int:
     Exit taxonomy: 0 the derivation completed, including an empty queue (a
     missing database, an unreadable one, the schema-rebuild guard, a held
     archive-writer lock and a usage error are all answered by their shipped
-    paths with 1); no path of this command produces 2.
+    paths with 1); no path of this command produces 2.  A write that fails
+    part-way through the append loop is reported rather than left to a
+    traceback: the summary is still printed, with ``derived`` counting the rows
+    that did reach the manifest, one ``derive-manifest: append failed after <k>
+    row(s)`` line on stderr names that count, and the exit code stays 1.  The
+    rows already appended are complete lines the chain reads and a re-run
+    answers ``already_derived`` for them, so the run stays resumable and only
+    its report used to be missing.
     """
     from .manifest import ManifestStore
     from .page_identity import parse_work_id
@@ -1130,30 +1137,55 @@ def _cmd_derive_manifest(args: argparse.Namespace) -> int:
     finally:
         connection.close()
 
-    for row in outcome.appended:
-        # The bridge never emits a bare-bvid key, so the page-qualified form is
-        # re-validated at the write rather than trusted from the derivation:
-        # ``upsert`` checks the same pair, but it also accepts a bare row when
-        # the bvid already has a legacy one, which is a state this command
-        # promises never to create.
-        stored_bvid, _page = parse_work_id(str(row["work_id"]))
-        if stored_bvid != row["bvid"]:
-            raise ValueError(
-                f"derived work_id {row['work_id']!r} does not match "
-                f"bvid {row['bvid']!r}"
-            )
-        store.upsert(row)
-        print(f"{row['work_id']}: {QUEUE_STATUS} (duration_s={row['duration_s']})")
+    def _print_summary(derived: int) -> None:
+        # §8's one summary line, printed on the success path and on the append's
+        # failure path alike: the counts an operator reads never depend on how
+        # far the run got, and ``derived`` is the number of rows that reached
+        # the manifest rather than the number the derivation proposed.
+        print(
+            f"derive-manifest: queue={len(queue)} derived={derived} "
+            f"{SKIP_ALREADY_DERIVED}={len(outcome.already_derived)} "
+            f"{SKIP_CHAIN_OWNED}={len(outcome.chain_owned)} "
+            f"{SKIP_IDENTITY_MISMATCH}={len(outcome.identity_mismatch)}"
+        )
+
+    written = 0
+    try:
+        for row in outcome.appended:
+            # The bridge never emits a bare-bvid key, so the page-qualified form
+            # is re-validated at the write rather than trusted from the
+            # derivation: ``upsert`` checks the same pair, but it also accepts a
+            # bare row when the bvid already has a legacy one, which is a state
+            # this command promises never to create.  Unreachable defence for
+            # any store the shipped writers produce — the view and
+            # ``format_work_id`` agree on every bvid the gateway admits — kept
+            # so the promise is enforced where it is made, not assumed.
+            stored_bvid, _page = parse_work_id(str(row["work_id"]))
+            if stored_bvid != row["bvid"]:
+                raise ValueError(
+                    f"derived work_id {row['work_id']!r} does not match "
+                    f"bvid {row['bvid']!r}"
+                )
+            store.upsert(row)
+            written += 1
+            print(f"{row['work_id']}: {QUEUE_STATUS} (duration_s={row['duration_s']})")
+    except Exception as exc:
+        # A per-row write can fail — the manifest lock, the append's own
+        # write/fsync, the record validation — and until this guard existed the
+        # summary went down with the traceback on exactly the run where the
+        # operator needs to know how much of the queue is already durable.
+        print(
+            f"derive-manifest: append failed after {written} row(s): "
+            f"{type(exc).__name__}: {exc}",
+            file=sys.stderr,
+        )
+        _print_summary(written)
+        return 1
     for work_id in outcome.chain_owned:
         print(f"skip {work_id} {SKIP_CHAIN_OWNED}")
     for work_id in outcome.identity_mismatch:
         print(f"skip {work_id} {SKIP_IDENTITY_MISMATCH}")
-    print(
-        f"derive-manifest: queue={len(queue)} derived={len(outcome.appended)} "
-        f"{SKIP_ALREADY_DERIVED}={len(outcome.already_derived)} "
-        f"{SKIP_CHAIN_OWNED}={len(outcome.chain_owned)} "
-        f"{SKIP_IDENTITY_MISMATCH}={len(outcome.identity_mismatch)}"
-    )
+    _print_summary(len(outcome.appended))
     return 0
 
 
