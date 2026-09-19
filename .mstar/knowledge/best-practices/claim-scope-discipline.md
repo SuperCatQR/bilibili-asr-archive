@@ -5,18 +5,21 @@ last_updated: 2026-09-19
 problem_type: best_practice
 category: best-practices
 severity: medium
-plan_id: 20260919-sqlite-queue-bridge
+plan_id: 20260919-artifact-root
 applies_when:
   - writing a plan step, example or acceptance claim
   - editing a README, spec or knowledge sentence that describes behaviour
   - reviewing a fix delta, including the sentences it adds
   - stating a limit, guarantee or invariant on a published surface
+  - writing an operator-facing message for a refusal or a skip
+  - patching a sentence someone else (or an earlier round) wrote
 tags:
   - claim-discipline
   - plan-authoring
   - documentation
   - review
   - invariants
+  - operator-messages
 ---
 
 # Published claims must be no wider than the code
@@ -46,6 +49,27 @@ fourth against the review record (its clause was rewritten, so the shipped text 
   that branch cannot perform. A fix delta is a writing delta: the sentences it adds are claims about the
   code, not commentary beside it.
 
+The class was measured a second time, in the artifact-root iteration, and it scaled with the size of the
+surface rather than shrinking: **four** instances landed in the shipped or contract text — the fourth is a
+self-contradiction inside the same operator page, listed beside the first — and **two** were written by the
+coordinator rather than by an implementer.
+
+| Instance | The claim, and the mechanism it outran |
+|---|---|
+| **Operator migration advice, false in both halves** | the artifact-root page told an operator that new downloads land in the archive root's audio directory and that the cap mixes both roots' usage. Neither is true: with a root configured, every write resolves on `write_base`, and the cap measures the configured root's audio directory only. The same page said the opposite nineteen lines later, and the command's own `--help` said the opposite too (`{SDD_DIR}/20260919-artifact-root/task-4-review.md`, I1; corrected at `bilibili-asr-archive/docs/artifact-root.md:122`, `:141`) |
+| **A parenthetical that named the wrong error** | the contract said a symlinked root is refused with `ELOOP`; the measured errno is `ENOTDIR`, because `O_DIRECTORY` is set as well as `O_NOFOLLOW`. The claim's *direction* was right and its mechanism wrong — the kind of sentence a reader quotes as fact (`.mstar/iterations/iter-2026-09-artifact-root/specs/artifact-root-contract.md:295`) |
+| **A docstring claiming a refusal the code did not implement** | the module documented a symlinked configured root as refused while validation used `is_dir()`, which follows links: writes raised a raw `OSError`, reads silently fell back to the archive root, and the named refusal never fired. The root cause was a **spec contradiction** between two sections, not a coding slip (`{SDD_DIR}/20260919-artifact-root/task-1-review.md`, I2; the refusal now exists at `bilibili-asr-archive/src/bili_asr/artifact_root.py:245` and is pinned by `bilibili-asr-archive/tests/test_artifact_root.py:124`) |
+| **A page contradicting itself one paragraph apart** | the same page stated the correct rule and then the false one, which is why a reviewer reading it in order could stop at the first paragraph and pass it (the instance above; both halves are now one sentence in the corrected text) |
+| **An inferred consequence registered as fact** | the coordinator recorded that a 0-byte audio stub would make a row fail closed. Two seats disproved it by probe: the downloader's existing-audio path is validity-aware (`bilibili-asr-archive/src/bili_asr/audio.py:109-131`), so the stub is skipped and the valid legacy copy is returned; the real cost is one extra fast-path call. The correction is recorded beside the inference rather than absorbed (`.mstar/plans/20260919-artifact-root.md`, Review Gate Summary) |
+| **An amendment applied twice against a stale assumption** | a correction was written into a sentence whose current text had already moved, because the patcher worked from its memory of the file instead of reading it; the second application had to be reconciled against the shipped surface (`{SDD_DIR}/20260919-artifact-root/progress.md`, Task 4) |
+
+**The meta-observation, which is the reason this doc exists.** In both measured rounds, **review caught every
+instance and the author caught none** — including the instances the coordinator wrote. The class is not
+detected by care in the act of writing; it is detected by someone else reading the sentence against the
+mechanism. That makes two things the author's job: keep each claim falsifiable enough that a reviewer can
+check it quickly, and treat "I already know what this file says" as the failure mode rather than as
+efficiency.
+
 ## Guidance
 
 1. **Give every claim its range.** A claim is a testable statement about an artefact; state the set it ranges
@@ -70,6 +94,26 @@ fourth against the review record (its clause was rewritten, so the shipped text 
 7. **Tests do not check prose.** The check that works is reading the sentence against the code and asking
    *what would have to be true for this sentence to be false?* If the answer is "nothing reachable", the
    sentence is either a disclosure that needs its bound written down, or a claim that is simply false.
+8. **A message is a claim about the input that produces it.** Before a refusal line, a skip reason or an
+   error tail is printed — or documented — name the input and check that the sentence is true of *that*
+   input. When nothing in the existing vocabulary is true, **add a vocabulary item rather than reuse a false
+   one**: the artifact-root refusal set has four members because the first three are all false of "a
+   directory that exists and the process cannot open it", and each of the four is pinned per input
+   ([artifact-root-split.md](../architecture-patterns/artifact-root-split.md), "the four refusal lines"). Two corollaries: an advice clause that is true in
+   one mode and false in another belongs only on the surface where the mode is known (a `--help` string, not
+   a shared runtime line), and where no honest clause exists, absent advice beats false advice — a hint that
+   is false for the input that produces the message is worse than silence.
+9. **Read the file before patching the sentence; memory of it is a stale source.** The author-side check is a
+   pair of questions, asked before the edit and not after: *what would falsify this sentence?* and *am I
+   reading the current file, or my memory of it?* The second question has its own failure mode — an amendment
+   written against a remembered version rather than the shipped text — and the same discipline covers
+   inferences: "this input will fail closed" is a claim, so probe it or label it as an inference with the
+   probe that would settle it.
+10. **Write so a reviewer can falsify the sentence in one pass, and expect the detection to come from
+    review.** Name the input, the mechanism and the bound inside the sentence itself; a claim whose falsifier
+    is visible gets caught, and a claim that reads as background does not. The measured record is blunt:
+    review found every instance of this class in both rounds, the author found none — including the
+    coordinator's own two.
 
 ## Why This Matters
 
@@ -80,6 +124,14 @@ surfaces of one plan — including one instance introduced while another was bei
 decision (claim narrowed, behaviour registered, exposure measured at zero) was the one that
 kept the plan's queue-authority principle intact. Claim discipline is also what keeps a review honest: a
 reviewer who cannot tell a disclosure from a guarantee cannot size the risk.
+
+The second measurement put the cost somewhere worse than a plan's internal prose: **operator-facing
+migration advice**. A false sentence there does not merely mislead a reviewer — it sends an operator to move
+files that were fine, or explains a budget skip as something the code does not do, and the correction
+arrives only after the move. It also multiplies: the same false claim was found on the operator page and
+repeated by the surrounding surfaces, so the fix had to make the page, the README and the `--help` text agree
+in one direction. That is the shape of the class worth remembering — a claim wider than the code does not
+stay in one file, and the surfaces that repeat it are the ones an operator trusts most.
 
 ## When to Apply
 
@@ -125,6 +177,47 @@ def test_duration_s_is_floor_seconds_clamped_to_one():
     assert duration_s_from_ms(1_000_000) == 1000
 ```
 
+### Before — an operator sentence that is false about both halves
+
+```text
+(artifact-root operator page, migration section)
+Note: the archive root's audio/ is where new downloads go, so do not leave it
+behind when you move — otherwise --max-audio-gb will mix both sides' usage
+together.
+```
+
+The em-dash clause corrected the first half of its own sentence and contradicted the page nineteen lines
+below it: with a root configured, writes resolve on the configured root's audio directory
+(`bilibili-asr-archive/src/bili_asr/cli.py:3490-3503`, `audio.py:133-172`), and the cap measures that root
+alone (`coordinator.py:625-640`, `cli.py:2392-2399`'s per-row budget check). The guidance could drive an unnecessary
+move and mis-explain a budget skip.
+
+### After — one direction, the mechanism named, the advice demoted
+
+```text
+After a root is configured, new bytes go only to the configured root's audio/;
+legacy audio at the archive root stops growing but stays readable (reads probe
+both roots in order), and --max-audio-gb counts only the configured root's audio/.
+Moving the old files is optional tidying, not a precondition for reads or for the cap.
+```
+
+### Before — a refusal vocabulary that had no true member for one input
+
+```text
+(candidate lines, none of which is true of an existing directory the process cannot open)
+artifact root does not exist (<path>)
+artifact root is not a directory (<path>)
+```
+
+### After — a fourth item, each pinned against its own input
+
+```text
+artifact root does not exist (<path>)          # nothing at that path
+artifact root is not a directory (<path>)      # a file, socket or device
+artifact root is a symlink (<path>)            # a symlink at the final component
+artifact root cannot be opened (<path>)        # exists, and the open fails
+```
+
 ## Evidence
 
 - Iteration: `iter-2026-09-queue-bridge`; plan `20260919-sqlite-queue-bridge`
@@ -138,3 +231,15 @@ def test_duration_s_is_floor_seconds_clamped_to_one():
 - Pinned edges: `bilibili-asr-archive/tests/test_manifest_derivation.py:93-102`.
 - Published surfaces the limits had to reach: `bilibili-asr-archive/README.md` (`#### Derived audio queue`,
   "Limits, stated") and `bilibili-asr-archive/docs/metadata-storage.md` (the boundary section).
+- Second measurement, iteration `iter-2026-09-artifact-root` (plan `20260919-artifact-root`): the four
+  instances in the Context table are grounded in
+  `{SDD_DIR}/20260919-artifact-root/task-4-review.md` (I1, the operator migration sentence),
+  `{SDD_DIR}/20260919-artifact-root/task-1-review.md` (I2, the docstring/refusal contradiction),
+  `.mstar/iterations/iter-2026-09-artifact-root/specs/artifact-root-contract.md:295` (the errno
+  parenthetical) and `{SDD_DIR}/20260919-artifact-root/progress.md` (the coordinator's two). The corrected
+  surfaces: `bilibili-asr-archive/docs/artifact-root.md:57-86`, `:122`, `:136-151`,
+  `bilibili-asr-archive/README.md:391-433`, `bilibili-asr-archive/src/bili_asr/artifact_root.py:224-270`.
+- The constructive counterpart — the four refusal lines and the rule that each is true of its input —
+  is stated with its code anchors in
+  [artifact-root-split.md](../architecture-patterns/artifact-root-split.md) ("The operator surface, and the
+  four refusal lines").

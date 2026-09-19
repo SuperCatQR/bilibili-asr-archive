@@ -128,25 +128,32 @@ a local model path for offline runs.
 
 ### Bounded transient-audio policy
 
-Treat downloaded audio as a transient stage artifact rather than archive
-content. Before downloading a `needs_audio` row, estimate its peak footprint as
-`duration_s * 8_000` bytes (a conservative 64 kbps ceiling) plus current archive audio-directory usage. `pilot`, live `run`, and `schedule` skip the
+Audio is **retained by default**; the cap is what bounds it. Before downloading a
+`needs_audio` row, estimate its peak footprint as
+`duration_s * 8_000` bytes (a conservative 64 kbps ceiling) plus current audio-directory usage. `pilot`, live `run`, and `schedule` skip the
 item with `audio_budget` if that would exceed `--max-audio-gb`; the default is
 10 GiB and `0` disables the cap except on `--allow-long-live`, which refuses a
-disabled cap. The pilot's `--max-duration-min` default of 45 excludes long rows,
+disabled cap. A retaining operator therefore keeps downloading with
+`--max-audio-gb 0`, and the run/pilot skip line names that flag. The pilot's `--max-duration-min` default of 45 excludes long rows,
 including pagelist siblings, from bounded selection. `schedule` pending/failed
 uses the same 45-minute short-video policy unless the operator passes
 `--allow-long-live`; an explicit multi-hour `work_id` without that flag is a
 usage error. The long-live summary prints the conservative estimate, measured
 audio-directory peak, and post-archive usage after reclaim.
 
-When an archive write completes, call the filesystem-only reclaim helper to
-remove the row's `.m4a` or `.flac` under `{archive_root}/audio/`. An
-`audio_path` outside that directory is rejected. Reclaim must be best-effort:
+When an archive write completes, the resolved retention policy decides whether the
+filesystem-only reclaim helper removes the row's `.m4a` or `.flac`: `--keep-audio` on
+`asr`/`pilot`/`run`/`schedule`/`campaign` retains, `--no-keep-audio` reclaims, and
+`BILI_KEEP_AUDIO=1`/`=0` keep their meanings as the environment escape hatch. Reclaim
+probes each candidate under every base the artifacts may live under — the configured
+artifact root and the archive root — and a candidate that escapes its own base is
+refused; it is never resolved against one root while the file sits under the other. Reclaim must be best-effort:
 the transcript and `archived` state remain valid if a local deletion fails.
 Failed, `needs_audio`, and `audio_ok` rows retain audio for retry. For an
 `audio_ok` row with a non-empty local file, ASR reuses that file directly and
-must not apply the pre-download budget or make a second HTTP download. The SQLite
+must not apply the pre-download budget or make a second HTTP download; the reuse
+path finds a legacy copy at the archive root as well as one under a configured
+artifact root. The SQLite
 subtitle path produces no `needs_audio` rows, so this policy now applies only to
 rows the legacy manifest path or an explicit selection supplies.
 
@@ -327,3 +334,11 @@ or a measured decision before any concurrency/service implementation.
   contract — additive conflict policy, the single derived status, the effective-key limit — is
   [queue-derivation-bridge.md](queue-derivation-bridge.md). Suite at the plan's gate: 110 passed /
   1 skipped over the bridge's four test files (QA `approve`, targeted).
+- Artifact-root update at `iter-2026-09-artifact-root` (plan `20260919-artifact-root`): the product tree
+  (`audio/`, `transcripts/{srt,txt,md,raw}/`, `subtitles/raw/`) is relocatable with
+  `--artifact-root`/`BILI_ARTIFACT_ROOT` on the eleven commands that resolve an artifact path, while
+  `manifest/`, `archive.db`, `coordinator/` and the sidecars stay at the archive root; audio is retained by
+  default, with `--keep-audio/--no-keep-audio` on the five archiving commands. The split, the two-base
+  ordered read rule, the re-based confinement guard and the four refusal lines are
+  [artifact-root-split.md](artifact-root-split.md); the operator surfaces are
+  `bilibili-asr-archive/README.md:391-433` and `bilibili-asr-archive/docs/artifact-root.md`.

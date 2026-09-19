@@ -5,17 +5,20 @@ last_updated: 2026-09-19
 problem_type: testing_pattern
 category: testing-patterns
 severity: medium
-plan_id: 20260919-sqlite-queue-bridge
+plan_id: 20260919-artifact-root
 applies_when:
   - asserting that something never happens in a run
+  - asserting that two readers, roots or modes agree about one value
   - asserting on a filtered subset of a record list
   - citing one case as the proof of a file-level invariant
+  - pinning a new refusal, message or exit code
 tags:
   - negative-control
   - absence-assertion
   - fixtures
   - evidence
   - chain-test
+  - mutation-control
 ---
 
 # An absence assertion is evidence only if the fixture can reach the producer
@@ -44,7 +47,10 @@ claims have to be worded separately.
 ## Guidance
 
 **Rule: for every `assert <nothing of kind K>`, name the producer of K (`file:line`) and show that the
-fixture reaches it — or say that the case does not, and let a control case carry the proof.**
+fixture reaches it — or say that the case does not, and let a control case carry the proof.** The general
+form, which covers the two shapes in the section below: **an assertion is evidence only if its fixture can
+reach the falsifier** — for an absence, the producer; for an agreement between two readers or modes, the
+shape on which the two would differ.
 
 1. **Name the falsifier.** The producer of the negated thing is a specific code path, not a vibe. Write it
    down (file:line) and check the fixture's route against it: which statuses does the run visit, which
@@ -65,6 +71,37 @@ fixture reaches it — or say that the case does not, and let a control case car
 5. **A reachable-falsifier check is not a coverage claim.** Case-level reachability and file-level
    non-vacuity are different properties; label which case earns which claim in the test file's module
    docstring, not only in the assertion's comment.
+
+## Beyond absence: agreement assertions and untested re-bases
+
+The same rule covers two shapes that do not look like an absence assertion at all, and both were measured in
+the artifact-root iteration.
+
+**An agreement assertion is evidence only if the fixture contains a shape where the two sides could
+differ.** The readers' shared case asserts that one fixture reports the same inventory with and without a
+configured root (`bilibili-asr-archive/tests/test_artifact_root_readers.py:106`) — a strong claim, and it
+passed while a reader was still grading a whole row at one base. Its fixture held no row with an incomplete
+declared bundle, so the identity arm never reached the branch that disagreed; the defect was invisible to the
+case that existed to catch it, and the proof came from a purpose-built shape — a legacy harvested-caption row
+(srt plus `{root}/subtitles/raw/` at one base, only `srt_path` declared), which reported a true defect hidden and a
+false one invented (`{SDD_DIR}/20260919-artifact-root/task-3-review.md`, I1; the pin that now reaches the arm
+is `bilibili-asr-archive/tests/test_artifact_root_readers.py:209`). **Count the fixture's shapes, not the assertions**: name, for
+each agreement claim, the input on which the two sides would disagree, and put that input in the fixture.
+
+**A pin's teeth are a claim too — earn them with a mutation.** Two refusal pins and one lexical-path pin in
+this iteration were demonstrated rather than asserted: the lexical case was run once with `abspath` swapped
+for `realpath` (the assertion failed, with the failure text pasted), a reword mutation proved the
+exact-equality refusal pins were not substring assertions, and both mutations were reverted before the commit
+so the shipped file stayed byte-identical (`{SDD_DIR}/20260919-artifact-root/task-1-report.md:176-193`).
+Where a test only tightens an existing one and no RED is available, the mutation control *is* the evidence.
+
+**The degenerate case is a re-based behaviour with no fixture at all.** Making the audio cap and the peak
+measure the configured root changed which directory four commands read, and nothing in the suite counted a
+walk or placed audio at the configured root: *"the re-base is asserted nowhere and every fixture is a healthy
+local filesystem"* (`{SDD_DIR}/20260919-artifact-root/review/qc3.md`, Suggestion S1, registered as
+`iter-2026-09-artifact-root · R2`). An untested re-base is not a weaker version of a vacuous pin; it is the
+same failure with the evidence removed, and it is worth naming as a gap in the round that makes the change —
+the fixtures for it are the follow-up plan's first item, and the residual says so.
 
 ## Why This Matters
 
@@ -140,3 +177,10 @@ def test_a_chain_held_subtitle_done_row_without_its_raw_document_skips(
   source), `:435-449` (`missing_subtitle_raw`), `:640-663` (offline routing).
 - QA gate: the control was verified as live (`{SDD_DIR}/20260919-sqlite-queue-bridge/review/qa.md`,
   "negative control for the chain test").
+- Second measurement, iteration `iter-2026-09-artifact-root` (plan `20260919-artifact-root`): the agreement
+  case and the fixture shape that reaches its falsifier — `bilibili-asr-archive/tests/test_artifact_root_readers.py:106`
+  (the shared case) against `:209` and `:279-330` (the shapes that discriminate); the fixture gap named by the
+  L2 seat in `{SDD_DIR}/20260919-artifact-root/task-3-review.md` (Q7) and the defect in the same report (I1).
+  The mutation controls: `{SDD_DIR}/20260919-artifact-root/task-1-report.md:176-193` (the reverted `realpath`
+  mutation) and its M1 reword control. The untested re-base: `{SDD_DIR}/20260919-artifact-root/review/qc3.md`
+  (S1) and residual `iter-2026-09-artifact-root · R2` in `.mstar/projects/_default/residuals.json`.
