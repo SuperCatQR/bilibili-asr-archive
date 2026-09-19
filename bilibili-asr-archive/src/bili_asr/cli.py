@@ -2074,6 +2074,28 @@ def _audio_base_holding(roots: ArtifactRoots, declared: str) -> Path:
     raise OSError("invalid audio path")
 
 
+def _audio_base_for_path(roots: ArtifactRoots, path: str | os.PathLike[str]) -> Path:
+    """The first base that holds one on-disk audio path (contract §5, D6).
+
+    ``audio.download_audio`` hands back what its own resolver found over ``read_bases()``
+    when the bytes are already there, so the return may live under the **archive root**
+    for a row that predates the configured root — while ``write_base`` only ever names
+    where a write goes.  Same rule as :func:`_audio_base_holding`, on an absolute path
+    instead of the recorded root-relative one.
+    """
+    from .path_policy import confined_audio_path
+
+    target = os.fspath(path)
+    for base in roots.read_bases():
+        try:
+            declared = os.path.relpath(target, base)
+        except ValueError:  # Windows across drives
+            continue
+        if confined_audio_path(base, declared, require_exists=True) is not None:
+            return base
+    raise OSError("invalid audio path")
+
+
 def _reclaim_after_archive(
     roots: ArtifactRoots, entry: dict[str, object], *, keep: bool
 ) -> None:
@@ -2156,12 +2178,12 @@ def _pilot_archive_asr(
     out_path = os.path.join(base, "audio", f"{stem}.m4a")
     existing_rel = entry.get("audio_path") if entry.get("status") == "audio_ok" else None
     existing_audio_path: str | None = None
-    # The base the row's audio is read from: `write_base` for the download below, and
-    # whichever base holds the recorded copy for a row written before the root was
-    # configured.  The ASR stage re-confines the value **there** and records it back
-    # **there** (contract §5, D6/D8): measuring a legacy copy against `write_base` alone
-    # yields a `..`-bearing string the audio guard refuses, so the row fails instead of
-    # archiving.
+    # The base the row's audio is read from: whichever base holds it — the recorded copy's
+    # for a row written before the root was configured, the downloader's return for a row
+    # that had to fetch (or re-find) it.  The ASR stage re-confines the value **there** and
+    # records it back **there** (contract §5, D6/D8): measuring a legacy copy against
+    # `write_base` alone yields a `..`-bearing string the audio guard refuses, so the row
+    # fails instead of archiving.
     audio_base = base
     from .path_policy import confined_audio_file, confined_audio_path
     if existing_rel:
@@ -2182,11 +2204,16 @@ def _pilot_archive_asr(
         downloaded = Path(os.fspath(audio.download_audio(
             client, target, out_path, store=store, artifact_roots=roots
         )))
+        # The downloader may return a file it *found* rather than wrote — a legacy copy at
+        # the archive root (D6) — so the base that holds the return is the one the value is
+        # re-confined and recorded against, the same rule as the recorded branch above.
         try:
-            downloaded_relative = downloaded.resolve().relative_to(Path(base).resolve()).as_posix()
-        except (OSError, ValueError):
+            audio_base = _audio_base_for_path(roots, downloaded)
+        except OSError:
             raise ValueError("invalid audio path")
-        audio_path_obj = confined_audio_path(base, downloaded_relative, require_exists=True)
+        audio_path_obj = confined_audio_path(
+            audio_base, os.path.relpath(downloaded, audio_base), require_exists=True
+        )
         if audio_path_obj is None or audio_path_obj.stat().st_size <= 0:
             raise ValueError("invalid audio path")
         audio_path = str(audio_path_obj)

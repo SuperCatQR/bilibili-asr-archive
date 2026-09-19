@@ -138,7 +138,7 @@ fsync**，所以一个「能打开、但拒绝目录 fsync」的挂载（有些�
 归档后的音频**默认保留**（见 [audio-retention-policy.md](./audio-retention-policy.md)）。`asr` / `pilot` / `run` /
 `schedule` / `campaign` 都带 `--keep-audio/--no-keep-audio`。
 
-音频上界 `--max-audio-gb`（默认 10，`0` = 不限）仍然 fail-closed，并且**统计的是产物根目录的 `audio/`** —— 新的字节落在那里，把两个文件系统的用量相加不是一个能据以行动的峰值。
+音频上界 `--max-audio-gb`（默认 10，`0` = 不限）在**下载决策**上仍然 fail-closed，并且**统计的是产物根目录的 `audio/`** —— 新的字节落在那里，把两个文件系统的用量相加不是一个能据以行动的峰值。fail-closed 说的是这个**决策**；这个**测量**本身会失败开放：`audio_budget.audio_dir_usage_bytes` 在产物根目录的 `audio/` 不存在或读不到时直接返回 0，单条 `getsize` 失败也会被跳过，所以挂载点中途掉线或某个条目超时，上界会静默量出 0 字节并在这段时间里不再生效（打印出来的 `audio_usage_bytes=0` 意味着「量不到」，而不是「确实是空的」）。
 
 保留 + 上界会互相影响：既然音频不再被删，`audio/` 只会增长，于是跑到某个点之后每一行都会以
 `audio_budget` 被跳过。**要保留又不想被截断，就传 `--max-audio-gb 0`**。把这句话打出来的只有两个命令：
