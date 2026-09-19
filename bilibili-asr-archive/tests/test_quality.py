@@ -9,6 +9,7 @@ import pytest
 
 from bili_asr import archive, asr, quality
 from bili_asr.archive import LOW_CONFIDENCE, write_archive
+from bili_asr.artifact_root import ArtifactRoots
 from bili_asr.page_identity import page_identity
 from bili_asr.quality import (
     CONTENT_REASON_CODES,
@@ -1153,3 +1154,39 @@ def test_the_ngram_bound_does_not_change_a_real_transcripts_answer(tmp_path: Pat
     payload = json.loads(fixture.read_text(encoding="utf-8"))
     joined = "".join(str(item.get("text", "")) for item in payload)
     assert 0 < len(joined) < quality._NGRAM_MAX_CHARS
+
+
+def test_the_quality_analyzer_reads_the_artifact_root(tmp_path: Path) -> None:
+    """`analyze` resolves the row's artifacts over the ordered bases (contract §10).
+
+    The analyzer is reachable only through `coverage --quality`, so a single-base
+    read here is the quality half of "reports a live archive as broken".
+    """
+    archive = tmp_path / "state"
+    artifact = tmp_path / "artifacts"
+    relative = write_srt(
+        artifact, "BV1demo.p0.srt", "1\n00:00:00,000 --> 00:00:01,000\nhello\n"
+    )
+    analyzer = QualityAnalyzer()
+    roots = ArtifactRoots.of(archive, artifact)
+
+    result = analyzer.analyze(row(srt_path=relative), archive, artifact_roots=roots)
+
+    assert result.reasons == ()
+    assert result.artifact_count == 1
+    assert result.cue_count == 1
+
+    # The inferred branch (no path metadata) probes the bases too: the row names no
+    # artifact, so only the on-disk candidates at the configured root can answer.
+    inferred_txt = artifact / "transcripts" / "txt" / "BV2inferred.txt"
+    inferred_txt.parent.mkdir(parents=True, exist_ok=True)
+    inferred_txt.write_text("inferred transcript body\n", encoding="utf-8")
+    inferred_result = analyzer.analyze(
+        row(bvid="BV2inferred", work_id=None, cid=101), archive, artifact_roots=roots
+    )
+    assert "artifact_missing" not in inferred_result.reasons
+    assert inferred_result.artifact_count == 1
+
+    # Control: with the roots omitted the archive root alone is the base, which is
+    # today's behaviour — the artifact is simply not there.
+    assert "artifact_missing" in analyzer.analyze(row(srt_path=relative), archive).reasons

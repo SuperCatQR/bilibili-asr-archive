@@ -1,147 +1,117 @@
-"""Test BILI_KEEP_AUDIO environment variable audio retention policy."""
+"""Retention is a resolved value: the flag, else BILI_KEEP_AUDIO, else retain (D15).
+
+The policy is decided **once** at the command boundary by
+``artifact_root.resolve_keep_audio`` and handed down as ``reclaim_audio``'s
+``keep`` value; the library never reads the environment itself.  These cases
+resolve the policy exactly as a command does — from the real environment — and
+then assert what the value does.
+"""
+
+from __future__ import annotations
 
 import os
-import tempfile
 from pathlib import Path
 
-import pytest
+from bili_asr.artifact_root import KEEP_AUDIO_ENV_VAR, resolve_keep_audio
+from bili_asr.audio_reclaim import reclaim_audio
 
 
-def test_keep_audio_env_prevents_reclaim(tmp_path):
+def _entry() -> dict[str, str]:
+    return {
+        "work_id": "BV1test:p0",
+        "bvid": "BV1test",
+        "status": "archived",
+        "audio_path": "audio/BV1test.m4a",
+    }
+
+
+def _audio_file(tmp_path) -> Path:
+    audio_dir = tmp_path / "audio"
+    audio_dir.mkdir()
+    audio_file = audio_dir / "BV1test.m4a"
+    audio_file.write_bytes(b"fake audio data")
+    return audio_file
+
+
+def test_keep_audio_env_prevents_reclaim(tmp_path, monkeypatch):
     """When BILI_KEEP_AUDIO=1, audio files are not deleted after archival."""
-    from bili_asr.audio_reclaim import reclaim_audio
+    monkeypatch.setenv(KEEP_AUDIO_ENV_VAR, "1")
+    audio_file = _audio_file(tmp_path)
 
-    # Setup: create audio file
-    audio_dir = tmp_path / "audio"
-    audio_dir.mkdir()
-    audio_file = audio_dir / "BV1test.m4a"
-    audio_file.write_bytes(b"fake audio data")
+    keep = resolve_keep_audio(None, os.environ)
+    removed = reclaim_audio(tmp_path, _entry(), keep=keep)
 
-    entry = {
-        "work_id": "BV1test:p0",
-        "bvid": "BV1test",
-        "status": "archived",
-        "audio_path": "audio/BV1test.m4a",
-    }
-
-    # Test: with BILI_KEEP_AUDIO=1, file should NOT be deleted
-    original_value = os.environ.get("BILI_KEEP_AUDIO")
-    try:
-        os.environ["BILI_KEEP_AUDIO"] = "1"
-        removed = reclaim_audio(tmp_path, entry)
-        
-        assert removed is False, "reclaim_audio should return False when BILI_KEEP_AUDIO=1"
-        assert audio_file.exists(), "Audio file should still exist when BILI_KEEP_AUDIO=1"
-    finally:
-        if original_value is None:
-            os.environ.pop("BILI_KEEP_AUDIO", None)
-        else:
-            os.environ["BILI_KEEP_AUDIO"] = original_value
+    assert keep is True
+    assert removed is False
+    assert audio_file.exists()
 
 
-def test_default_behavior_deletes_audio(tmp_path):
-    """Without BILI_KEEP_AUDIO, audio files are deleted after archival (default behavior)."""
-    from bili_asr.audio_reclaim import reclaim_audio
+def test_unset_variable_defaults_to_retain(tmp_path, monkeypatch):
+    """Without BILI_KEEP_AUDIO the resolved policy retains (the D5 flip)."""
+    monkeypatch.delenv(KEEP_AUDIO_ENV_VAR, raising=False)
+    audio_file = _audio_file(tmp_path)
 
-    # Setup: create audio file
-    audio_dir = tmp_path / "audio"
-    audio_dir.mkdir()
-    audio_file = audio_dir / "BV1test.m4a"
-    audio_file.write_bytes(b"fake audio data")
+    keep = resolve_keep_audio(None, os.environ)
+    removed = reclaim_audio(tmp_path, _entry(), keep=keep)
 
-    entry = {
-        "work_id": "BV1test:p0",
-        "bvid": "BV1test",
-        "status": "archived",
-        "audio_path": "audio/BV1test.m4a",
-    }
-
-    # Test: without BILI_KEEP_AUDIO, file should be deleted
-    original_value = os.environ.get("BILI_KEEP_AUDIO")
-    try:
-        os.environ.pop("BILI_KEEP_AUDIO", None)
-        removed = reclaim_audio(tmp_path, entry)
-        
-        assert removed is True, "reclaim_audio should return True when audio is deleted"
-        assert not audio_file.exists(), "Audio file should be deleted by default"
-    finally:
-        if original_value is not None:
-            os.environ["BILI_KEEP_AUDIO"] = original_value
+    assert keep is True
+    assert removed is False
+    assert audio_file.exists()
 
 
-def test_keep_audio_zero_still_deletes(tmp_path):
+def test_keep_audio_zero_still_deletes(tmp_path, monkeypatch):
     """BILI_KEEP_AUDIO=0 explicitly enables deletion."""
-    from bili_asr.audio_reclaim import reclaim_audio
+    monkeypatch.setenv(KEEP_AUDIO_ENV_VAR, "0")
+    audio_file = _audio_file(tmp_path)
 
-    # Setup: create audio file
-    audio_dir = tmp_path / "audio"
-    audio_dir.mkdir()
-    audio_file = audio_dir / "BV1test.m4a"
-    audio_file.write_bytes(b"fake audio data")
+    keep = resolve_keep_audio(None, os.environ)
+    removed = reclaim_audio(tmp_path, _entry(), keep=keep)
 
-    entry = {
-        "work_id": "BV1test:p0",
-        "bvid": "BV1test",
-        "status": "archived",
-        "audio_path": "audio/BV1test.m4a",
-    }
-
-    # Test: BILI_KEEP_AUDIO=0 should still delete
-    original_value = os.environ.get("BILI_KEEP_AUDIO")
-    try:
-        os.environ["BILI_KEEP_AUDIO"] = "0"
-        removed = reclaim_audio(tmp_path, entry)
-        
-        assert removed is True, "reclaim_audio should return True when BILI_KEEP_AUDIO=0"
-        assert not audio_file.exists(), "Audio file should be deleted when BILI_KEEP_AUDIO=0"
-    finally:
-        if original_value is None:
-            os.environ.pop("BILI_KEEP_AUDIO", None)
-        else:
-            os.environ["BILI_KEEP_AUDIO"] = original_value
+    assert keep is False
+    assert removed is True
+    assert not audio_file.exists()
 
 
-def test_coordinator_respects_keep_audio_policy(tmp_path):
-    """RunCoordinator should respect BILI_KEEP_AUDIO when archiving."""
+def test_coordinator_respects_keep_audio_policy(tmp_path, monkeypatch):
+    """RunCoordinator honours the passed-down value after a row is archived.
+
+    This is the boundary D15 draws: the coordinator receives the resolved
+    policy and calls ``reclaim_audio`` with it — nothing here reads the
+    environment, and nothing calls ``reclaim_audio`` directly.
+    """
+    from bili_asr import asr as asr_module
     from bili_asr.coordinator import RunCoordinator
     from bili_asr.manifest import ManifestStore
 
-    # Setup: minimal archive structure
-    audio_dir = tmp_path / "audio"
-    audio_dir.mkdir()
-    audio_file = audio_dir / "BV1test.p0.m4a"
-    audio_file.write_bytes(b"fake audio data")
+    class FakeModel:
+        def generate(self, **_kwargs):
+            return [{"text": "hi", "timestamp": [[0, 1000]]}]
 
-    # Create transcript directories
-    for subdir in ["srt", "txt", "md", "raw"]:
-        (tmp_path / "transcripts" / subdir).mkdir(parents=True)
+    monkeypatch.setattr(
+        asr_module, "_load_default_model", lambda **_kwargs: FakeModel()
+    )
 
-    # Setup manifest
-    manifest = ManifestStore(tmp_path)
-    manifest.load()
-    manifest.upsert({
-        "work_id": "BV1test:p0",
-        "bvid": "BV1test",
-        "page_index": 0,
-        "status": "asr_done",
-        "audio_path": "audio/BV1test.p0.m4a",
-    })
+    def run(keep: bool) -> Path:
+        root = tmp_path / ("retained" if keep else "reclaimed")
+        audio_dir = root / "audio"
+        audio_dir.mkdir(parents=True)
+        audio_file = audio_dir / "BV1test.p0.m4a"
+        audio_file.write_bytes(b"fake audio data")
+        store = ManifestStore(root=root)
+        store.upsert(
+            {
+                "work_id": "BV1test:p0",
+                "bvid": "BV1test",
+                "page_index": 0,
+                "cid": 1,
+                "status": "audio_ok",
+                "audio_path": "audio/BV1test.p0.m4a",
+            }
+        )
+        coordinator = RunCoordinator(str(root), store, offline=True, keep_audio=keep)
+        coordinator.run_batch([("BV1test:p0", store.load()["BV1test:p0"])])
+        assert store.load()["BV1test:p0"]["status"] == "archived"
+        return audio_file
 
-    # Test: with BILI_KEEP_AUDIO=1, coordinator should not delete audio
-    original_value = os.environ.get("BILI_KEEP_AUDIO")
-    try:
-        os.environ["BILI_KEEP_AUDIO"] = "1"
-        
-        # Note: This is an integration point - the actual coordinator flow
-        # would call reclaim_audio internally after archival
-        from bili_asr.audio_reclaim import reclaim_audio
-        entry = manifest.get("BV1test:p0")
-        removed = reclaim_audio(tmp_path, entry)
-        
-        assert removed is False
-        assert audio_file.exists(), "Audio should be retained when BILI_KEEP_AUDIO=1"
-    finally:
-        if original_value is None:
-            os.environ.pop("BILI_KEEP_AUDIO", None)
-        else:
-            os.environ["BILI_KEEP_AUDIO"] = original_value
+    assert run(True).exists(), "keep_audio=True retains the audio"
+    assert not run(False).exists(), "keep_audio=False reclaims the audio"

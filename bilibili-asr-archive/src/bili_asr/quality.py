@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Mapping, NamedTuple
 
 from .archive import LOW_CONFIDENCE, archive_stem
+from .artifact_root import ArtifactRoots
 from .asr import _FORBIDDEN_PROVENANCE as _FORBIDDEN_MARKER
 from .page_identity import artifact_stem, page_identity, parse_work_id
 
@@ -217,6 +218,8 @@ class QualityAnalyzer:
         row: Mapping[str, object],
         archive_root: Path,
         reference: Path | None = None,
+        *,
+        artifact_roots: ArtifactRoots | None = None,
     ) -> QualityResult:
         """Measure one manifest row's artifacts.
 
@@ -227,13 +230,18 @@ class QualityAnalyzer:
         ``.md`` bundle as the last resort.  A reference that cannot be read
         raises :class:`ReferenceUnavailable`; it never degrades into a silent
         "no comparison".
+
+        ``artifact_roots`` carries the bases the row's artifacts are probed under
+        (contract §5/§10, D8); ``None`` is the identity case — the archive root
+        alone, exactly as before.
         """
 
+        roots = artifact_roots if artifact_roots is not None else ArtifactRoots.of(archive_root)
         reasons: set[str] = set()
         diagnostics: set[str] = set()
         content_reasons: set[str] = set()
         low_confidence_at: tuple[float, ...] = ()
-        artifacts = _artifact_paths(row, archive_root)
+        artifacts = _artifact_paths(row, roots)
         cue_count = 0
         valid_artifacts = 0
         transcript: str | None = None
@@ -246,7 +254,7 @@ class QualityAnalyzer:
         if not artifacts:
             reasons.add("artifact_missing")
         for path in artifacts:
-            if not _contained(path, archive_root) or not path.is_file():
+            if not _contained_at_any_base(path, roots) or not path.is_file():
                 reasons.add("artifact_missing")
                 continue
             try:
@@ -336,7 +344,17 @@ def _canonical_stem(row: Mapping[str, object]) -> str | None:
     return bvid
 
 
-def _artifact_paths(row: Mapping[str, object], root: Path) -> list[Path]:
+def _artifact_paths(row: Mapping[str, object], roots: ArtifactRoots) -> list[Path]:
+    """The row's artifact candidates, each resolved at the base that holds it.
+
+    A declared value is a root-relative string (D7), so it is probed over
+    ``roots.read_bases()`` in order and the first base holding the file wins — which
+    is what keeps a legacy row whose only copy sits at the archive root readable
+    (D6).  The inferred candidates and the ``transcripts/md`` glob walk the same base
+    list, and a candidate that exists at neither base is reported at the first one so
+    the caller reads it as missing rather than as absent from the report.
+    """
+    bases = roots.read_bases()
     values: list[object] = []
     for key in (
         "subtitle_path",
@@ -365,28 +383,49 @@ def _artifact_paths(row: Mapping[str, object], root: Path) -> list[Path]:
             )
             # The derived ``.md`` bundle is appended last: its body is the
             # transcript, but a transcript artifact outranks it as the
-            # comparison source.
-            md_dir = root / "transcripts" / "md"
-            if md_dir.is_dir():
-                exact_md = md_dir / f"{stem}.md"
-                if exact_md.is_file():
-                    values.append(exact_md)
-                pubdate = str(row.get("pubdate_str") or "")
-                pattern = f"{pubdate}_{stem}_*.md" if pubdate else f"*_{stem}_*.md"
-                for md_file in sorted(md_dir.glob(pattern)):
-                    if md_file.is_file():
-                        values.append(md_file)
+            # comparison source.  Every base's derived directory is offered, so a
+            # bundle that sits at either base is found.
+            for base in bases:
+                values.extend(_derived_md_candidates(row, stem, base))
     result: list[Path] = []
     for value in values:
         if isinstance(value, (str, Path)) and value:
             path = Path(value)
-            resolved = path if path.is_absolute() else root / path
-            if inferred and not resolved.exists():
-                continue
-            result.append(resolved)
+            candidates = (path,) if path.is_absolute() else tuple(base / path for base in bases)
+            chosen = next((item for item in candidates if item.exists()), None)
+            if chosen is None:
+                if inferred:
+                    continue
+                chosen = candidates[0]
+            result.append(chosen)
     if inferred and not result and values:
-        result.append(root / values[0])
+        result.append(bases[0] / values[0])
     return list(dict.fromkeys(result))
+
+
+def _derived_md_candidates(row: Mapping[str, object], stem: str, base: Path) -> list[Path]:
+    """The derived ``.md`` bundle candidates under one base: exact name, then the glob."""
+    md_dir = base / "transcripts" / "md"
+    if not md_dir.is_dir():
+        return []
+    candidates: list[Path] = []
+    exact_md = md_dir / f"{stem}.md"
+    if exact_md.is_file():
+        candidates.append(exact_md)
+    pubdate = str(row.get("pubdate_str") or "")
+    pattern = f"{pubdate}_{stem}_*.md" if pubdate else f"*_{stem}_*.md"
+    candidates.extend(md_file for md_file in sorted(md_dir.glob(pattern)) if md_file.is_file())
+    return candidates
+
+
+def _contained_at_any_base(path: Path, roots: ArtifactRoots) -> bool:
+    """`_contained`, asked once per base.
+
+    Contract §5/§6 fix the shape as "shared base list, per-family guard": the
+    transcript family keeps its own ``resolve``-based check and only the base list
+    is shared with the audio family's descriptor-anchored guard.
+    """
+    return any(_contained(path, base) for base in roots.read_bases())
 
 
 def _contained(path: Path, root: Path) -> bool:

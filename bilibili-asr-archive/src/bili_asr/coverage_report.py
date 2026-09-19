@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from .archive import archive_stem, archive_bundle_complete
-from .path_policy import confined_audio_path
+from .artifact_root import ArtifactRoots, resolve_audio_path
 from .manifest import VALID_STATUSES
 from .meta_cursor import _validate as validate_cursor
 from .scheduler import _validate as validate_scheduler
@@ -59,8 +59,17 @@ class CoverageReport:
         *,
         scope: str | None = None,
         policy: ReaderPolicy | None = None,
+        artifact_roots: ArtifactRoots | None = None,
     ) -> CoverageReport:
+        """Assemble the projection over one archive root and its ordered read bases.
+
+        Every sidecar below is **state** and stays at the archive root (D13); the
+        bundle and audio probes that follow walk ``artifact_roots.read_bases()`` in
+        order (contract §5/§10, D8).  ``None`` is the identity case — one base, the
+        archive root, which is today's behaviour unchanged.
+        """
         root = Path(archive_root).resolve()
+        roots = artifact_roots if artifact_roots is not None else ArtifactRoots.of(archive_root)
         diagnostics: set[tuple[str, str]] = set()
         manifest, manifest_state, manifest_diagnostics = project_manifest_records(
             root / "manifest" / "manifest.jsonl", policy=policy
@@ -156,7 +165,7 @@ class CoverageReport:
         retryable_ids = _retryable_ids(attempts)
         for work_id, entry in sorted(selected.items()):
             status = str(entry.get("status") or "unknown")
-            artifact_present, reclaimed_audio = _transcript_evidence(root, entry)
+            artifact_present, reclaimed_audio = _transcript_evidence(roots, entry)
             terminal = status == "gone" or (status == "archived" and artifact_present)
             if status == "archived" and not artifact_present:
                 diagnostics.add(("terminal_missing_artifact", "transcript"))
@@ -443,29 +452,48 @@ def _retryable_ids(attempts: list[dict[str, Any]]) -> set[str]:
     }
 
 
-def _transcript_evidence(root: Path, entry: Mapping[str, Any]) -> tuple[bool, bool]:
+def _transcript_evidence(roots: ArtifactRoots, entry: Mapping[str, Any]) -> tuple[bool, bool]:
+    """Whether the row's bundle and audio resolve, over the ordered bases (§5, D8).
+
+    The recorded strings stay root-relative (D7), so no candidate is ever recomputed
+    across roots: each one is validated at its own base, the bundle is complete at the
+    first base holding all four parts and their marker, and the audio is the first base
+    holding the file.
+    """
     bundle_paths = {}
     for key in ("srt_path", "txt_path", "md_path", "raw_path"):
         value = entry.get(key)
-        if not isinstance(value, str) or _contained_path(root, value) is None:
+        if not isinstance(value, str) or not _contained_at_any_base(roots, value):
             return False, False
         bundle_paths[key] = value
-    transcript = archive_bundle_complete(root, bundle_paths)
+    transcript = any(
+        archive_bundle_complete(base, bundle_paths) for base in roots.read_bases()
+    )
     if not transcript or entry.get("status") != "archived":
         return transcript, False
     audio_value = entry.get("audio_path")
     if isinstance(audio_value, str):
-        audio_missing = confined_audio_path(root, audio_value, require_exists=True) is None
+        audio_missing = resolve_audio_path(roots, audio_value, require_exists=True) is None
     else:
         try:
             stem = archive_stem(dict(entry))
         except (KeyError, TypeError, ValueError):
             stem = ""
         audio_missing = bool(stem) and all(
-            confined_audio_path(root, f"audio/{stem}{suffix}", require_exists=True) is None
+            resolve_audio_path(roots, f"audio/{stem}{suffix}", require_exists=True) is None
             for suffix in (".m4a", ".flac")
         )
     return transcript, audio_missing
+
+
+def _contained_at_any_base(roots: ArtifactRoots, relative: str) -> bool:
+    """`_contained_path`, asked once per base.
+
+    The two confinement mechanisms are deliberately not unified (contract §5/§6): the
+    audio family keeps the descriptor-anchored guard, the bundle family keeps this
+    `resolve`-based one, and only the base list they are asked against is shared.
+    """
+    return any(_contained_path(base, relative) is not None for base in roots.read_bases())
 
 
 def _contained_path(root: Path, relative: str) -> Path | None:

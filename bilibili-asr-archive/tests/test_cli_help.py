@@ -1104,3 +1104,114 @@ def test_check_asr_env_states_absence_when_no_script_exists_anywhere(
     assert exit_code == 1
     assert "no check script found" in captured.err
     assert "BILI_ASR_CHECK_SCRIPT" in captured.err
+
+
+# ------------------------------------------- the artifact root and retention flags (§9)
+
+
+#: The eleven commands that touch an artifact path, in spec §9's table order.
+ARTIFACT_ROOT_COMMANDS = (
+    "asr", "pilot", "download-audio", "run", "schedule", "campaign",
+    "coverage", "verify", "recover", "export", "search",
+)
+
+#: The five that archive rows and therefore reclaim (spec §7).
+RETENTION_COMMANDS = ("asr", "pilot", "run", "schedule", "campaign")
+
+#: The six the flag is deliberately not on: none resolves an artifact path, and an
+#: accepted-but-ignored flag would be a false statement about the interface (D18).
+EXCLUDED_COMMANDS = (
+    "fetch-meta", "status", "runs", "probe-subs", "harvest-subs", "derive-manifest",
+)
+
+
+def _command_help(command: str, capsys: pytest.CaptureFixture[str]) -> str:
+    """One command's rendered help, whitespace-flattened.
+
+    argparse re-wraps to the terminal width, so a phrase that spans a line break in one
+    environment is one space in another; the assertions below are about what the help
+    *says*, not about where it happens to wrap.
+    """
+    from bili_asr.cli import build_parser
+
+    with pytest.raises(SystemExit) as exc:
+        build_parser().parse_args([command, "--help"])
+    assert exc.value.code == 0
+    return " ".join(capsys.readouterr().out.split())
+
+
+@pytest.mark.parametrize("command", ARTIFACT_ROOT_COMMANDS)
+def test_artifact_root_is_declared_on_the_commands_that_honour_it(
+    command: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """§9: the flag names its environment fallback and states its default."""
+    help_text = _command_help(command, capsys)
+
+    assert "--artifact-root" in help_text
+    assert "BILI_ARTIFACT_ROOT" in help_text
+    assert "default: the archive root" in help_text
+
+
+@pytest.mark.parametrize("command", RETENTION_COMMANDS)
+def test_the_retention_pair_is_declared_on_the_five_commands_that_reclaim(
+    command: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """§7/D15: both spellings exist, and the default they resolve to is stated."""
+    help_text = _command_help(command, capsys)
+
+    assert "--keep-audio" in help_text
+    assert "--no-keep-audio" in help_text
+    assert "BILI_KEEP_AUDIO" in help_text
+    assert "default: keep" in help_text
+
+
+@pytest.mark.parametrize("command", EXCLUDED_COMMANDS)
+def test_neither_flag_is_declared_on_the_commands_that_do_not_touch_artifacts(
+    command: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """D18's exclusion half, from the operator's side: --help cannot promise a flag."""
+    help_text = _command_help(command, capsys)
+
+    assert "--artifact-root" not in help_text
+    assert "--keep-audio" not in help_text
+
+
+@pytest.mark.parametrize("command", ("pilot", "run", "schedule", "campaign"))
+def test_the_cap_help_names_the_retention_interaction(
+    command: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Q1(a)'s ruling: the cap keeps its semantics, and both help and skip line say how.
+
+    Retaining audio means `audio/` only grows, so an operator who keeps it must be told
+    what the lever is — the alternative the PM rejected was silently changing the shipped
+    default.  The interaction itself holds in every mode of all four commands; *which*
+    lever each command may name is pinned separately below, because `schedule` has a mode
+    that refuses the one the other three accept (W-2/R8).
+    """
+    help_text = _command_help(command, capsys)
+
+    assert "retained audio counts" in help_text
+
+
+def test_the_cap_help_is_mode_scoped_for_schedule(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """W-2/R8: `schedule` is the one command that refuses `--max-audio-gb 0` in a mode.
+
+    The shared Q1 wording tells a retaining operator that `0` keeps the downloads coming.
+    That is refused under `schedule --allow-long-live`
+    (`long_live.refuse_disabled_audio_cap`), so `schedule` states the exception instead of
+    the advice — a hint that is false in one mode is worse than an absent hint.  The three
+    single-mode commands keep the lever, so the scoping is pinned in both directions.
+
+    The anchors are hyphen-free on purpose: argparse re-wraps help, and it breaks a long
+    token like `--max-audio-gb` across lines, so a flag literal is not a stable substring.
+    """
+    schedule_help = _command_help("schedule", capsys)
+
+    assert "raises the cap" in schedule_help
+    assert "--allow-long-live" in schedule_help
+    assert "keeps downloading" not in schedule_help
+    for command in ("pilot", "run", "campaign"):
+        assert "keeps downloading" in _command_help(command, capsys)
+        assert "raises the cap" not in _command_help(command, capsys)
