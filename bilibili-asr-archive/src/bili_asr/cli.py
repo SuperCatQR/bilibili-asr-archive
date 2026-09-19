@@ -1150,8 +1150,8 @@ def _cmd_derive_manifest(args: argparse.Namespace) -> int:
         )
 
     written = 0
-    try:
-        for row in outcome.appended:
+    for row in outcome.appended:
+        try:
             # The bridge never emits a bare-bvid key, so the page-qualified form
             # is re-validated at the write rather than trusted from the
             # derivation: ``upsert`` checks the same pair, but it also accepts a
@@ -1167,20 +1167,24 @@ def _cmd_derive_manifest(args: argparse.Namespace) -> int:
                     f"bvid {row['bvid']!r}"
                 )
             store.upsert(row)
-            written += 1
-            print(f"{row['work_id']}: {QUEUE_STATUS} (duration_s={row['duration_s']})")
-    except Exception as exc:
-        # A per-row write can fail — the manifest lock, the append's own
-        # write/fsync, the record validation — and until this guard existed the
-        # summary went down with the traceback on exactly the run where the
-        # operator needs to know how much of the queue is already durable.
-        print(
-            f"derive-manifest: append failed after {written} row(s): "
-            f"{type(exc).__name__}: {exc}",
-            file=sys.stderr,
-        )
-        _print_summary(written)
-        return 1
+        except Exception as exc:
+            # The guard spans the write and the validation in front of it, and
+            # nothing else: a per-row write can fail (the manifest lock, the
+            # append's own write/fsync, the record validation) and until this
+            # guard existed the summary went down with the traceback on exactly
+            # the run where the operator needs to know how much of the queue is
+            # already durable.  The per-row ``print`` below stays outside it —
+            # an output failure is not an append failure, and the line is only
+            # true for the rows already written.
+            print(
+                f"derive-manifest: append failed after {written} row(s): "
+                f"{type(exc).__name__}: {exc}",
+                file=sys.stderr,
+            )
+            _print_summary(written)
+            return 1
+        written += 1
+        print(f"{row['work_id']}: {QUEUE_STATUS} (duration_s={row['duration_s']})")
     for work_id in outcome.chain_owned:
         print(f"skip {work_id} {SKIP_CHAIN_OWNED}")
     for work_id in outcome.identity_mismatch:

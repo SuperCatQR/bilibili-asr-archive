@@ -300,7 +300,11 @@ not migrate the rest of the archive. The ASR and pilot chain (`asr`, `pilot`,
   --missing-subs` from this path, by appending a `needs_audio` row per part in
   the pending-subtitle relation — every stored part with no transcript and not
   `gone`; the parts recorded `no-subtitle` are among them — additively, never
-  rewriting a row the chain already holds;
+  rewriting a row the chain already holds. And the same effective-key rule is a
+  limit in the other direction: a legacy bare-`bvid` row is not consulted either,
+  so a part whose only record is one is appended anyway — the cost is a
+  re-download and a re-ASR for a part the chain already finished, registered as
+  `iter-2026-09-queue-bridge · R2`;
 - `bili-asr asr --pending` and the pilot chain are still driven from the
   manifest state, not from `archive.db`, so a transcript stored here does not
   feed them. The bridge runs the other way round: store facts are appended to the

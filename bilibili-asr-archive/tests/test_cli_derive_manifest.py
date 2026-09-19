@@ -77,14 +77,19 @@ ZERO_SUMMARY = (
     "chain_owned=0 identity_mismatch=0"
 )
 
-#: The publication second ``fixtures.metadata_records`` stores for every video and
-#: its **UTC** calendar date, which is what the derived row carries.  The
-#: expectation is rendered with ``gmtime`` rather than written as a literal:
-#: ``1_700_000_000`` is ``2023-11-14T22:13:20Z``, and a literal only
-#: discriminated on a host whose own zone is not UTC (this one is ``+08:00``,
-#: where the local date of that second is the 15th).
+#: The publication second ``fixtures.metadata_records`` stores for every video,
+#: and its **UTC** calendar date — what the derived row carries.  The expectation
+#: is rendered with ``gmtime`` rather than written as a literal, because a literal
+#: only discriminated on a host whose own zone is not UTC.
 PUBDATE = 1_700_000_000
 PUBDATE_STR = time.strftime("%Y-%m-%d", time.gmtime(PUBDATE))
+
+#: One second before the UTC date boundary — ``1970-01-01T23:59:59Z``, whose local
+#: date is the 2nd at ``+08:00``.  The case at the end of this file seeds it as the
+#: CLI's second anchor and asserts the literal ``1970-01-01``:
+#: ``tests/test_manifest_derivation.py`` owns the argument for why a
+#: ``gmtime``-derived expectation needs that anchor and that literal.
+PUBDATE_UTC_DAY_EDGE = 86_399
 
 
 def _seed_archive(
@@ -92,13 +97,16 @@ def _seed_archive(
     parts: tuple[tuple[str, int, int, int, str], ...],
     *,
     captioned: tuple[tuple[str, int], ...] = (),
+    pubdates: dict[str, int] | None = None,
 ) -> None:
     """Create ``archive.db`` with one video per bvid and exactly these parts.
 
     ``parts`` is ``(bvid, page_index, cid, duration_ms, processing_status)`` and
     ``captioned`` names the ``(bvid, page_index)`` parts that hold a stored
     ``subtitle-ai`` transcript, so each test scripts which parts the store's own
-    queue relation holds.
+    queue relation holds.  ``pubdates`` overrides the factory's fixed publication
+    second for the named bvids — the one field a case varies here, because it is
+    the field the derived row renders as a date.
     """
     connection = open_database(root)
     try:
@@ -108,9 +116,10 @@ def _seed_archive(
             for bvid in dict.fromkeys(
                 bvid for bvid, _page, _cid, _ms, _status in parts
             ):
-                metadata.upsert_video(
-                    make_video_record(bvid, aid=None, title="队列测试视频")
-                )
+                video = make_video_record(bvid, aid=None, title="队列测试视频")
+                if pubdates and bvid in pubdates:
+                    video = replace(video, pubdate=pubdates[bvid])
+                metadata.upsert_video(video)
             for bvid, page_index, cid, duration_ms, status in parts:
                 metadata.upsert_part(
                     replace(
@@ -280,6 +289,46 @@ def test_derive_manifest_appends_one_page_qualified_needs_audio_row_per_queue_pa
         "derive-manifest: queue=2 derived=2 already_derived=0 "
         "chain_owned=0 identity_mismatch=0",
     ]
+    assert captured.err == ""
+
+
+def test_derive_manifest_renders_the_utc_day_not_the_runners_day(
+    tmp_root, capsys, monkeypatch
+):
+    """The row's ``pubdate_str`` is the second's UTC date, on any runner.
+
+    The expectation above is derived from ``gmtime``, which ignores ``TZ``, so on
+    a UTC runner it holds the same string the old literal did and a ``localtime``
+    regression passes there.  ``tests/test_manifest_derivation.py`` shows why no
+    second epoch and no ``TZ`` pin closes that on every platform; this case takes
+    the same route through the CLI — the module's ``gmtime`` and ``localtime`` are
+    answered by fixed ``struct_time`` values one day apart — and asserts the
+    literal UTC day, so a ``localtime`` rendering fails wherever the host sits.
+    """
+    from bili_asr.services import manifest_derivation
+
+    _seed_archive(
+        tmp_root,
+        ((QUEUED_BVID, 0, 3001, 3_600_500, "metadata_collected"),),
+        pubdates={QUEUED_BVID: PUBDATE_UTC_DAY_EDGE},
+    )
+    monkeypatch.setattr(
+        manifest_derivation.time,
+        "gmtime",
+        lambda _epoch: time.struct_time((1970, 1, 1, 23, 59, 59, 3, 1, 0)),
+    )
+    monkeypatch.setattr(
+        manifest_derivation.time,
+        "localtime",
+        lambda _epoch: time.struct_time((1970, 1, 2, 7, 59, 59, 4, 2, 0)),
+    )
+
+    assert _derive(tmp_root) == 0
+    captured = capsys.readouterr()
+
+    row = ManifestStore(root=tmp_root).load()[f"{QUEUED_BVID}:p0"]
+    assert row["pubdate"] == PUBDATE_UTC_DAY_EDGE
+    assert row["pubdate_str"] == "1970-01-01"
     assert captured.err == ""
 
 

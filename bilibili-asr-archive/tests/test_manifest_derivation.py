@@ -13,6 +13,7 @@ import time
 
 import pytest
 
+from bili_asr.services import manifest_derivation
 from bili_asr.services.manifest_derivation import (
     QUEUE_STATUS,
     SKIP_ALREADY_DERIVED,
@@ -41,9 +42,14 @@ PUBDATE = 1_700_000_000
 #: second's **UTC** calendar date.  The expectation is therefore rendered the
 #: same way rather than written as a literal: a literal only discriminated on a
 #: host whose own zone is not UTC (this one is ``+08:00``, where the local date
-#: of that second is the 15th), so it could not see a ``localtime`` regression on
-#: a UTC runner.
+#: of that second is the 15th).
 PUBDATE_STR = time.strftime("%Y-%m-%d", time.gmtime(PUBDATE))
+
+#: One second before the UTC date boundary — ``1970-01-01T23:59:59Z``, whose local
+#: date is the 2nd at ``+08:00``.  The zone case below renders it, so the row's
+#: ``pubdate_str`` is checked against the literal ``1970-01-01`` rather than
+#: against a second ``gmtime`` call.
+PUBDATE_UTC_DAY_EDGE = 86_399
 
 
 def _part(bvid="BV1xx4y1zz", page_index=2, cid=987_654, duration_ms=1_800_000, **kw):
@@ -109,6 +115,33 @@ def test_a_queue_row_becomes_a_page_qualified_needs_audio_row():
     assert row["pubdate"] == PUBDATE
     assert row["pubdate_str"] == PUBDATE_STR
     assert row["status"] == QUEUE_STATUS == "needs_audio"
+
+
+def test_the_rendered_day_is_utc_regardless_of_the_runners_zone(monkeypatch):
+    """The UTC day of the second, not the runner's day — pinned without ``TZ``.
+
+    ``gmtime`` ignores ``TZ``, so an expectation derived from ``gmtime`` can only
+    fall with the implementation on a host whose zone is not UTC: on a UTC runner
+    the two render the same string and a ``localtime`` regression passes.  No
+    second epoch closes that, because on a UTC runner the local rendering of *any*
+    epoch is its UTC date; neither does pinning ``TZ``, which needs ``tzset`` (not
+    on every platform).  So this case supplies both clocks itself: the module's
+    ``time.gmtime`` and ``time.localtime`` are answered by fixed ``struct_time``
+    values one day apart, which no host's zone can make equal.  The row must
+    render the UTC one; if it renders the local one the assertion fails on every
+    host, and the date is asserted against a literal because an expectation
+    rendered from either stub would confirm whichever stub the code chose.
+    """
+    utc_day = time.struct_time((1970, 1, 1, 23, 59, 59, 3, 1, 0))
+    local_day = time.struct_time((1970, 1, 2, 7, 59, 59, 4, 2, 0))
+    monkeypatch.setattr(manifest_derivation.time, "gmtime", lambda _epoch: utc_day)
+    monkeypatch.setattr(
+        manifest_derivation.time, "localtime", lambda _epoch: local_day
+    )
+
+    row = row_for_part(_part(), PUBDATE_UTC_DAY_EDGE)
+
+    assert row["pubdate_str"] == "1970-01-01"
 
 
 def test_a_part_whose_store_work_id_disagrees_is_skipped():

@@ -108,9 +108,9 @@ class DerivationOutcome:
     answers, and ``identity_mismatch`` is §3.6's store self-contradiction — the
     one case where the store's form and the Python form differ, so the store's
     form is the row an operator has to go and look at.  No store the shipped
-    writers produce can reach that third branch (the module docstring says why):
-    it is defence, kept so a store that stopped agreeing with itself is named
-    rather than crashed on.
+    writers produce can reach that third branch (the module docstring says why): it
+    is unreachable defence for them, and a store that disagrees in the one way that
+    can reach it fails loudly rather than silently skipping the row.
     """
 
     appended: tuple[dict[str, Any], ...]

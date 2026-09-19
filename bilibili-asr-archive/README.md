@@ -992,8 +992,16 @@ and is not `gone` — the relation `harvest-subs` reports as
   *alongside* whatever `needs_audio` rows the manifest already held, legacy
   bare-`bvid` rows included, and in manifest file order, so a bounded
   `--limit 1` run can spend its single slot on a pre-existing row instead of on
-  a row this command just derived. And the SRT/TXT/MD projection rebuild stays
-  out of this iteration: a stored caption keeps no `srt`/`txt`/`md` bundle until
+  a row this command just derived. The other direction is a limit too: the
+  derivation consults the manifest's *effective key*, so a legacy bare-`bvid`
+  row is not consulted at all, and a part whose only record is one is appended
+  as `needs_audio` whatever state that row holds — a terminal `archived` /
+  `asr_done` row included, so a bounded run re-downloads and re-runs work the
+  chain already finished. The row itself is never rewritten and the artifact
+  lands at the page-qualified stem, so nothing is overwritten; the cost is
+  repeated work, registered as `iter-2026-09-queue-bridge · R2`. And the
+  SRT/TXT/MD projection rebuild stays out of this iteration: a stored caption
+  keeps no `srt`/`txt`/`md` bundle until
   that rebuild lands, and it is not re-queued for audio either, because the
   derived queue is the no-transcript relation.
 - **Append cost, bounded analytically (not measured)**: each appended row is one
