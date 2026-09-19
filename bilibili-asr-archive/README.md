@@ -560,8 +560,8 @@ pre-marker evidence and must be re-archived before they count as complete.
   download, the **configured root's** `audio/` usage plus a conservative estimate
   (`duration_s` × 64 kbps) is checked; a candidate that would breach the
   cap is **skipped with reason `audio_budget`** and the batch continues.
-  Legacy audio still sitting at the archive root is not counted — it is on
-  another device and it is not where new bytes land.
+  Legacy audio still sitting at the archive root is not counted — the cap
+  measures the configured root's `audio/`, which is where new bytes land.
 - **The cap and retention interact.** Retained audio is never deleted, so
   `audio/` only grows and a long corpus run eventually reports every later row as
   a budget skip. That is the cap doing its job, not a failure, and the skip line

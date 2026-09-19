@@ -59,6 +59,13 @@ _MAX_AUDIO_GB_HELP = (
     "operator keeps downloading with --max-audio-gb 0"
 )
 
+#: The same advisory as it appears on a skip line, so the commands that print one
+#: print the same words (Q1: the line that reports the cap names the flag that lifts
+#: it — with retention on, `audio/` only grows, so `0` is the operator's lever).
+_AUDIO_BUDGET_SKIP_HINT = (
+    "; audio-dir budget cap reached (--max-audio-gb 0 = unlimited)"
+)
+
 
 class _UsageErrorArgumentParser(argparse.ArgumentParser):
     """argparse exits 2 on usage errors by default.
@@ -2350,9 +2357,8 @@ def _cmd_pilot(args: argparse.Namespace) -> int:
                         # line that reports it names the flag that lifts it.  With audio
                         # retained, `audio/` only grows, so `0` is the operator's lever.
                         print(
-                            f"{label}: skipped ({SKIP_REASON}); "
-                            "audio-dir budget cap reached "
-                            "(--max-audio-gb 0 = unlimited)",
+                            f"{label}: skipped ({SKIP_REASON})"
+                            f"{_AUDIO_BUDGET_SKIP_HINT}",
                             file=sys.stderr,
                         )
                         continue
@@ -2692,7 +2698,7 @@ def _cmd_run(args: argparse.Namespace) -> int:
     from .coordinator import ArchiveBusyError, RunCoordinator, archive_writer
     from .manifest import ManifestStore
     from .run_ledger import compute_coverage_summary, utc_now_iso
-    from .audio_budget import audio_cap_bytes
+    from .audio_budget import SKIP_REASON, audio_cap_bytes
 
     started_at = utc_now_iso()
     store = ManifestStore(root=args.archive_root)
@@ -2733,7 +2739,18 @@ def _cmd_run(args: argparse.Namespace) -> int:
                         codes = ", ".join(str(c) for c in r.failure_codes) or "unknown"
                         print(f"run: {r.work_id}: failed ({codes})", file=sys.stderr)
                     for r in skipped:
-                        print(f"run: {r.work_id}: skipped ({r.skip_reason or 'unknown'})")
+                        # Q1: a budget skip names the flag that lifts it, the same words
+                        # the pilot's line prints — `run` shares this line with every
+                        # other skip reason, so the clause is carried only by that one.
+                        hint = (
+                            _AUDIO_BUDGET_SKIP_HINT
+                            if r.skip_reason == SKIP_REASON
+                            else ""
+                        )
+                        print(
+                            f"run: {r.work_id}: skipped "
+                            f"({r.skip_reason or 'unknown'}){hint}"
+                        )
                     exit_code = 2 if summary.risk_interrupted else (0 if summary.fully_processed else 1)
                     if summary.risk_interrupted:
                         print("run: risk-control ceiling; stopping — re-run to resume.", file=sys.stderr)
@@ -3428,11 +3445,14 @@ def main(argv: list[str] | None = None) -> int:
         except ArtifactRootError as exc:
             print(f"{args.command}: {exc}", file=sys.stderr)
             return 1
-        # The retention policy is resolved here too, for the five commands that carry
-        # the pair (spec §7): the libraries receive a value and never read the
-        # environment themselves (D15).
-        if hasattr(args, "keep_audio"):
-            args.keep_audio = resolve_keep_audio(args.keep_audio, os.environ)
+    # The retention policy resolves on its own guard, not inside the artifact-root one.
+    # Nesting it there would leave `keep_audio` as `None` for a future command that
+    # carries the pair without the root flag — falsy at `reclaim_audio`'s `if keep:`,
+    # i.e. a silent reclaim on a command whose default is retain.  It is resolved here
+    # for the five commands that carry the pair (spec §7); the libraries receive a value
+    # and never read the environment themselves (D15).
+    if hasattr(args, "keep_audio"):
+        args.keep_audio = resolve_keep_audio(args.keep_audio, os.environ)
     if args.command in _ARCHIVE_WRITER_COMMANDS:
         from .coordinator import ArchiveBusyError, archive_writer
 

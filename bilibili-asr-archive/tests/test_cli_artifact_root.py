@@ -788,6 +788,72 @@ def test_the_retention_pair_reaches_reclaim_on_every_command_that_reclaims(
     assert not os.path.exists(os.path.join(artifact, archived["audio_path"]))
 
 
+# ------------------------------------------------- the resolution step's own guards (M1)
+
+
+@pytest.mark.parametrize(
+    "env,expected",
+    [(None, True), ("0", False)],  # unset -> the default (retain); "0" -> reclaim
+)
+def test_retention_resolves_without_the_artifact_root_flag(
+    env, expected, tmp_root, monkeypatch
+):
+    """The retention resolution must not be nested under the artifact-root guard.
+
+    A command that carried the pair without ``--artifact-root`` would leave
+    ``args.keep_audio`` as ``None`` — falsy at ``reclaim_audio``'s ``if keep:`` — so it
+    would reclaim while the row's default is retain.  No shipped command has that shape
+    (the five retention commands all carry both flags), which is why the shape is
+    synthesized at the parser seam: the namespace carries ``keep_audio`` and no
+    ``artifact_root``, so this case fails if the resolution stops having its own guard.
+    """
+    if env is None:
+        monkeypatch.delenv(KEEP_AUDIO_ENV, raising=False)
+    else:
+        monkeypatch.setenv(KEEP_AUDIO_ENV, env)
+    namespace = build_parser().parse_args(["status", "--archive-root", tmp_root])
+    namespace.keep_audio = None
+    assert not hasattr(namespace, "artifact_root")
+
+    class _KeepOnlyParser:
+        def parse_args(self, _argv):
+            return namespace
+
+    monkeypatch.setattr("bili_asr.cli.build_parser", lambda: _KeepOnlyParser())
+    monkeypatch.setattr("bili_asr.cli._dispatch_command", lambda _args: 0)
+
+    assert main([]) == 0
+    assert namespace.keep_audio is expected
+
+
+# --------------------------------------------------------- the budget skip line (Q1)
+
+
+def test_the_run_budget_skip_line_names_the_flag_that_lifts_it(
+    tmp_root, monkeypatch, capsys
+):
+    """Q1: the run path carries the same ``--max-audio-gb 0`` clause as the pilot's line.
+
+    ``run`` prints one skip line for every reason, so the clause rides on the budget
+    reason alone.  The transport is unrouted on purpose: the skip has to happen before
+    any request, so a download attempt would fail this case rather than pass it.
+    """
+    archive, artifact = _two_roots(tmp_root)
+    identity = _identity("BVbudget")
+    _write_manifest(archive, [_row(identity, status="needs_audio", duration_s=600)])
+    _offline_client(monkeypatch, RouterTransport({}))
+
+    rc = main(["run", "--scope", identity.work_id, "--limit", "1",
+               "--archive-root", archive, "--artifact-root", artifact,
+               "--max-audio-gb", "1e-9"])
+    captured = capsys.readouterr()
+
+    assert rc == 1
+    assert f"run: {identity.work_id}: skipped (audio_budget)" in captured.out
+    assert "--max-audio-gb 0 = unlimited" in captured.out
+    assert not os.path.exists(os.path.join(artifact, "audio"))
+
+
 # --------------------------------------------------------------- the excluded commands
 
 
