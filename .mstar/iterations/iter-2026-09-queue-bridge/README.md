@@ -17,3 +17,17 @@ the one item the Phase-1 chain carries past the lock — Q6, owner `PM`, non-blo
 
 Plan: `{PLAN_DIR}/20260919-sqlite-queue-bridge.md` — the iteration's only plan row (`Execution: mstar-sdd`,
 `QA gate: mandatory`, `QA mode: targeted`), with Tasks 1–4.
+
+## Promotion log (iteration-close, 2026-09-19)
+
+| Source | Promoted to | Date | Notes |
+|--------|-------------|------|-------|
+| `specs/sqlite-queue-bridge-contract.md` | `.mstar/knowledge/architecture-patterns/queue-derivation-bridge.md` | 2026-09-19 | New architecture pattern, structured rewrite (not a file copy): the queue relation and its one owning call, the single derived status and the filesystem trap it dodges, the additive conflict policy, the effective-key limit (`R2`), the no-back-write rule kept structural. |
+| plan `20260919-sqlite-queue-bridge` (Tasks 1–3 + both gate summaries) | `.mstar/knowledge/testing-patterns/absence-assertion-negative-control.md`, `.mstar/knowledge/testing-patterns/zone-independent-time-assertions.md`, `.mstar/knowledge/best-practices/claim-scope-discipline.md` | 2026-09-19 | Three new pattern docs: the negative-control requirement for absence assertions (Task 3), the zone-independent clock construction and its measured counter-example (the `pubdate_str` finding), and the claim-scope class the review round produced. |
+| `specs/sqlite-queue-bridge-contract.md` §5/§9 + plan Task 4 | `.mstar/knowledge/architecture-patterns/bilibili-asr-archive-cli.md`, `.mstar/knowledge/architecture-patterns/normalized-transcript-storage.md` | 2026-09-19 | Existing docs updated rather than duplicated: the CLI pattern's projection/feeder bullet now states the shipped enumeration (`derive-manifest`) instead of the deferral it recorded, and the storage doc's known limit names the second consumer of the pending relation and its deliberate reading. |
+| `guides/` | — | — | Empty by design (the plan produced no operator-facing guide); nothing to promote. |
+| `delivery-compass.md`, `README.md` (this file) | — | — | Iteration steering and package index; kept as the iteration snapshot, excluded from promotion. |
+
+Trace convention: this table is the package's `Promoted to:` record (per the compound skill's iteration
+package promotion step 4); the promoted sources above are the ones this iteration's knowledge round drew
+from, rewritten into the target docs rather than copied.

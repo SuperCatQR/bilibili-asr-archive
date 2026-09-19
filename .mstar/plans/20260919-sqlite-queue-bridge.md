@@ -11,7 +11,7 @@ execution_mode: sdd
 
 # Derive the ASR/audio work queue from `archive.db` (`bili-asr derive-manifest`)
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use `mstar-sdd` (recommended) or inline execution. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use `mstar-sdd` (recommended) or inline execution. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Add one command, `bili-asr derive-manifest --archive-root <archive-root>`, that reads the work queue the
 store already records (`archive.db`: every part with no transcript and not `gone`) and appends the manifest rows
@@ -26,8 +26,10 @@ first slice cannot avoid is stated in the spec §5 decision 4 and is **the PM's 
 **Architecture:** The bridge is a one-way derivation SQLite → manifest, composed in `cli.py` like every other
 command (cross-layer rule: only `cli.py` composes layers). It reads the store through a `mode=ro` connection
 (the write direction is structurally impossible), computes rows with a pure service function, and appends them
-through `ManifestStore.upsert`. It is **additive**: a `work_id` the chain already holds is never rewritten, so
-an archived row cannot be re-queued and a live `subtitle_done` row cannot be clobbered. Derived rows are
+through `ManifestStore.upsert`. It is **additive**: a **page-qualified** `work_id` the chain already holds is never rewritten, so
+an archived row cannot be re-queued and a live `subtitle_done` row cannot be clobbered. *(Narrowed at the QC gate
+2026-09-19: a **legacy bare-`bvid`** row is not consulted at all, so a part the chain archived only in that key form
+can be re-queued — see the PM ruling at the end of this file and residual `iter-2026-09-queue-bridge · R2`.)* Derived rows are
 **only** `needs_audio`, because every part in the queue is captionless by construction — which is exactly why
 the archive stage's filesystem trap (`missing_subtitle_raw`) cannot fire for a derived row. The chain
 (`coordinator.py`, `audio.py`, `asr.py`) is not touched. Full contract, with every claim's file:line:
@@ -184,12 +186,16 @@ with slice (2); slice (1) exports `row_for_part` unchanged, so nothing is re-der
 - `page_identity.py:19-27` — `format_work_id` is the Python identity SSOT; `manifest.py:266-272` re-validates
   the same form on write.
 
-- [ ] **Step 1: Write the failing unit tests** in `tests/test_manifest_derivation.py`, using plain dicts (no
+- [x] **Step 1: Write the failing unit tests** in `tests/test_manifest_derivation.py`, using plain dicts (no
       database, no CLI):
 
   ```python
   # exact cases to pin — names are the selectors the task later runs
-  # test_duration_s_is_floor_seconds_clamped_to_one          3600_500 -> 3600; 999 -> 1; 1000 -> 1000
+  # test_duration_s_is_floor_seconds_clamped_to_one          3600_500 -> 3600; 999 -> 1; 1_000_000 -> 1000
+  #   (corrected 2026-09-19: the third case originally read `1000 -> 1000`, which contradicts the formula
+  #    `max(1, duration_ms // 1000)` in the spec and in this task's own run line. It is the round-trip
+  #    example, not a second clamp case — the clamp fires only below one second. Both edges stay pinned:
+  #    `duration_s_from_ms(1000) == 1` and `duration_s_from_ms(1_000_000) == 1000`.)
   # test_a_queue_row_becomes_a_page_qualified_needs_audio_row  the nine fields of spec §3.1, verbatim set
   # test_a_part_whose_store_work_id_disagrees_is_skipped       identity_mismatch, nothing appended
   # test_an_existing_needs_audio_row_is_not_appended           already_derived, nothing appended
@@ -201,7 +207,7 @@ with slice (2); slice (1) exports `row_for_part` unchanged, so nothing is re-der
   `row["duration_s"]` for the three duration cases; the returned tuples for the two skip reasons; and that
   `appended` preserves the input order.
 
-- [ ] **Step 2: Run the new tests — expect FAIL**
+- [x] **Step 2: Run the new tests — expect FAIL**
 
   ```bash
   cd /root/workspace/bilibili-asr-archive/.worktrees/20260919-sqlite-queue-bridge/bilibili-asr-archive \
@@ -210,14 +216,14 @@ with slice (2); slice (1) exports `row_for_part` unchanged, so nothing is re-der
 
   Expected: import error / collection error (`bili_asr.services.manifest_derivation` does not exist).
 
-- [ ] **Step 3: Minimal implementation** in `src/bili_asr/services/manifest_derivation.py`: the three constants,
+- [x] **Step 3: Minimal implementation** in `src/bili_asr/services/manifest_derivation.py`: the three constants,
   `duration_s_from_ms`, `row_for_part`, `DerivationOutcome`, `derive_rows`. Module docstring states the one-way
   direction and cites spec §3. Match the house docstring style of
   `src/bili_asr/services/subtitle_ingest.py` (module docstring then constants then pure functions).
 
-- [ ] **Step 4: Run the same tests — expect PASS** (same command as Step 2).
+- [x] **Step 4: Run the same tests — expect PASS** (same command as Step 2).
 
-- [ ] **Step 5: Commit** the two files with a Conventional-Commits message scoped to the task
+- [x] **Step 5: Commit** the two files with a Conventional-Commits message scoped to the task
   (`feat(queue-bridge): derive manifest rows for the stored audio queue (pure mapping)`).
 
 **STOP conditions:** if `manifest.py:281-290` no longer rejects a row without a page-qualified `work_id`, STOP —
@@ -268,7 +274,7 @@ depends on the command, never on how the pubdate map is produced).
   `archive.db` through `open_database` + `MetadataRepository` with `tests/fixtures/metadata_records.py`
   factories), `:176-205` (`_archive_connection`, `_scalar`, `_exit_code`).
 
-- [ ] **Step 1: Write the failing repository cases** in `tests/test_transcript_repository.py`
+- [x] **Step 1: Write the failing repository cases** in `tests/test_transcript_repository.py`
       (`test_read_video_pubdates_returns_stored_seconds`, `test_read_video_pubdates_of_no_bvid_is_empty`), run
       them, expect FAIL:
 
@@ -277,9 +283,9 @@ depends on the command, never on how the pubdate map is produced).
     && PYTHONPATH=$PWD/src /root/workspace/bilibili-asr-archive/bilibili-asr-archive/.venv/bin/python -m pytest tests/test_transcript_repository.py -k read_video_pubdates -v
   ```
 
-- [ ] **Step 2: Implement `read_video_pubdates`** on `TranscriptRepository` (same command — expect PASS).
+- [x] **Step 2: Implement `read_video_pubdates`** on `TranscriptRepository` (same command — expect PASS).
 
-- [ ] **Step 3: Write the failing CLI cases** in `tests/test_cli_derive_manifest.py`. Build `archive.db` with
+- [x] **Step 3: Write the failing CLI cases** in `tests/test_cli_derive_manifest.py`. Build `archive.db` with
       `_seed_parts`-style seeding: one part with no transcript, one part holding a `subtitle-ai` transcript
       (seed it through `TranscriptRepository.record_acquired_transcript`, as
       `tests/test_transcript_repository.py` does), one part with `processing_status="gone"`. Cases:
@@ -305,21 +311,21 @@ depends on the command, never on how the pubdate map is produced).
   Read the effective-map check the way Acceptance Criterion 1 states it (last row per `work_id`), e.g. through
   `ManifestStore(root=...).load()` rather than by comparing raw file bytes.
 
-- [ ] **Step 4: Run the CLI cases — expect FAIL** (`invalid choice: 'derive-manifest'`):
+- [x] **Step 4: Run the CLI cases — expect FAIL** (`invalid choice: 'derive-manifest'`):
 
   ```bash
   cd /root/workspace/bilibili-asr-archive/.worktrees/20260919-sqlite-queue-bridge/bilibili-asr-archive \
     && PYTHONPATH=$PWD/src /root/workspace/bilibili-asr-archive/bilibili-asr-archive/.venv/bin/python -m pytest tests/test_cli_derive_manifest.py -v
   ```
 
-- [ ] **Step 5: Implement the command** in `cli.py`: subparser with `--archive-root` and a `help=`/`description=`
+- [x] **Step 5: Implement the command** in `cli.py`: subparser with `--archive-root` and a `help=`/`description=`
   that names the queue (spec §2/§8); `_cmd_derive_manifest` following `_cmd_harvest_subs`'s shape and spec §8's
   output contract; add `"derive-manifest"` to `_ARCHIVE_WRITER_COMMANDS`; add the dispatch branch. No other
   flag, no other behaviour.
 
-- [ ] **Step 6: Run the same CLI cases — expect PASS**, then the repository cases again (Step 1's command).
+- [x] **Step 6: Run the same CLI cases — expect PASS**, then the repository cases again (Step 1's command).
 
-- [ ] **Step 7: Commit** the task's files.
+- [x] **Step 7: Commit** the task's files.
 
 **STOP conditions:** if `_open_subtitle_connection` no longer accepts `read_only=True`, or `cli.py` no longer
 routes the lock through `_ARCHIVE_WRITER_COMMANDS`, STOP — the composition pattern this task copies has moved;
@@ -347,7 +353,7 @@ with its own case list in the same file; the file itself stays one artifact per 
   (`_row`, `_patch_cli`, `_stub_asr` at `:40-74`; the offline audio→archive case at `:1124-1148`).
 - Produces: no product surface; the evidence for compass Acceptance Criteria 2, 3 and 6.
 
-- [ ] **Step 1: Write the three cases** in `tests/test_derived_queue_chain.py`, each starting from a store-seeded
+- [x] **Step 1: Write the three cases** in `tests/test_derived_queue_chain.py`, each starting from a store-seeded
       fixture plus a `derive-manifest` run:
 
   ```python
@@ -361,7 +367,7 @@ with its own case list in the same file; the file itself stays one artifact per 
   #        two captionless parts; the first `--missing-subs --limit 1` advances part A, the second attempts B
   ```
 
-- [ ] **Step 2: Run them — the honest expectation is PASS** (Task 2 already shipped the command, so this task
+- [x] **Step 2: Run them — the honest expectation is PASS** (Task 2 already shipped the command, so this task
       adds evidence rather than a red step; a failure here is a contract defect in spec §4, not a missing test),
       **plus one negative control that proves the `missing_subtitle_raw` assertion can fail**: the same fixture
       with a hand-written `subtitle_done` row whose `subtitles/raw/{stem}.json` does not exist must record a
@@ -372,15 +378,15 @@ with its own case list in the same file; the file itself stays one artifact per 
     && PYTHONPATH=$PWD/src /root/workspace/bilibili-asr-archive/bilibili-asr-archive/.venv/bin/python -m pytest tests/test_derived_queue_chain.py -v
   ```
 
-- [ ] **Step 3: Fix only within the plan's scope** — a failure that needs a change to `coordinator.py`,
+- [x] **Step 3: Fix only within the plan's scope** — a failure that needs a change to `coordinator.py`,
   `audio.py`, `asr.py` or `manifest.py` is out of scope by D2/D4: STOP and report it as a contract defect.
 
-- [ ] **Step 4: Run the four suites of this plan together once** as the task's closing evidence (same
+- [x] **Step 4: Run the four suites of this plan together once** as the task's closing evidence (same
       working directory and interpreter as above):
 
       `tests/test_manifest_derivation.py tests/test_cli_derive_manifest.py tests/test_derived_queue_chain.py tests/test_transcript_repository.py`
 
-- [ ] **Step 5: Commit** the test file.
+- [x] **Step 5: Commit** the test file.
 
 **STOP conditions:** a derived row producing `missing_subtitle_raw`, or failing to reach `archived`, STOP —
 spec §4 is wrong and the plan must not be adjusted to make the test green. If the rotation case cannot be made
@@ -419,16 +425,16 @@ carries the operator sequence), then `docs/metadata-storage.md`.
   parts recorded `no-subtitle`, which are that queue — belong to the next iteration." — the second half
   shipped; the first half did not.
 
-- [ ] **Step 1: Edit `README.md`** — replace the paragraph's opening claim with what now flows and what still
+- [x] **Step 1: Edit `README.md`** — replace the paragraph's opening claim with what now flows and what still
       does not; add `bili-asr derive-manifest --archive-root archive` to the documented operator sequence
       between `harvest-subs` and `download-audio --missing-subs` (`:342-353`); add `derive-manifest` to the
       archive-writer command list (`:435-441`).
 
-- [ ] **Step 2: Edit `docs/metadata-storage.md`** — rewrite the boundary section's last two bullets so they name
+- [x] **Step 2: Edit `docs/metadata-storage.md`** — rewrite the boundary section's last two bullets so they name
       the shipped bridge (the queue is now derived from the store) and the projection rebuild as the remaining
       gap. Keep the no-migration and no-importer statements untouched.
 
-- [ ] **Step 3: Run the scoped checks from the package root and record actual output**
+- [x] **Step 3: Run the scoped checks from the package root and record actual output**
 
   ```bash
   cd /root/workspace/bilibili-asr-archive/.worktrees/20260919-sqlite-queue-bridge/bilibili-asr-archive
@@ -439,7 +445,7 @@ carries the operator sequence), then `docs/metadata-storage.md`.
   git -C /root/workspace/bilibili-asr-archive diff --stat cf3f779..HEAD -- .mstar/specs/asr-archive-cli.md   # expect: empty
   ```
 
-- [ ] **Step 4: Commit** the two files and record the `Verification mode: scoped-check` fields (trigger =
+- [x] **Step 4: Commit** the two files and record the `Verification mode: scoped-check` fields (trigger =
   the sentence that is no longer true; expected vs observed; command; outcome).
 
 **STOP conditions:** if `README.md` no longer contains the boundary sentence at `:332-340`, STOP — the published
@@ -466,22 +472,31 @@ a source-kind filter on the queue (correct for the caption backlog, wrong for th
 folding `20260918-operational-record-coverage · R3` in (touches the run-ledger timestamp comparison, not this
 command — it would widen the review surface the register's `target` does not ask for).
 
+
+**PM ruling 2026-09-19 — one authorized exception to "no files outside the tasks' Files lists".**
+Task 2 added one member to the expected set in `tests/test_persistence_scale.py`'s exact-set assertion
+(`"derive-manifest"`). The assertion enumerates `_ARCHIVE_WRITER_COMMANDS`, the constant the task is
+required to extend, so the expectation is *supposed* to change with it; leaving it stale would mean a red
+suite, which is strictly worse than a one-line expectation update. Precedent in this repo: `8ec992b`
+updated the same assertion in the same change that removed `probe-subs` from the set (the assertion was
+introduced by `adc0b72`). The PM accepts the line, the L2 review judges it on its merits, and this note is
+the disclosure — it is not silent drift.
 ## Done criteria
 
-- [ ] Task 1: `pytest tests/test_manifest_derivation.py -v` passes; the row's field set is asserted as an exact
+- [x] Task 1: `pytest tests/test_manifest_derivation.py -v` passes; the row's field set is asserted as an exact
       set; the three duration cases and both skip reasons are asserted (red→green recorded).
-- [ ] Task 2: `pytest tests/test_cli_derive_manifest.py tests/test_transcript_repository.py -v` passes; the
+- [x] Task 2: `pytest tests/test_cli_derive_manifest.py tests/test_transcript_repository.py -v` passes; the
       derived set equals the store queue on the fixture; the second run appends nothing; an `archived` row is
       not regressed; a missing `archive.db` exits `1`; `--help` names the queue; `archive_busy` exits `1`.
-- [ ] Task 3: `pytest tests/test_derived_queue_chain.py -v` passes: a derived row is selected by
+- [x] Task 3: `pytest tests/test_derived_queue_chain.py -v` passes: a derived row is selected by
       `download-audio --missing-subs`, reaches `archived` under `run --scope pending --offline`, produces no
       `missing_subtitle_raw` attempt record, and the second bounded selection rotates to the other part.
-- [ ] Task 4: the scoped greps of Task 4 Step 3 return the stated results, recorded with actual output
+- [x] Task 4: the scoped greps of Task 4 Step 3 return the stated results, recorded with actual output
       (`Verification mode: scoped-check`).
-- [ ] `git diff --stat cf3f779..HEAD -- bilibili-asr-archive/src/bili_asr/coordinator.py bilibili-asr-archive/src/bili_asr/audio.py bilibili-asr-archive/src/bili_asr/asr.py bilibili-asr-archive/src/bili_asr/manifest.py` is empty (D2/D4).
-- [ ] `grep -rn "derive-manifest" src/bili_asr/cli.py` matches the subparser, the handler, the writer-lock set
+- [x] `git diff --stat cf3f779..HEAD -- bilibili-asr-archive/src/bili_asr/coordinator.py bilibili-asr-archive/src/bili_asr/audio.py bilibili-asr-archive/src/bili_asr/asr.py bilibili-asr-archive/src/bili_asr/manifest.py` is empty (D2/D4).
+- [x] `grep -rn "derive-manifest" src/bili_asr/cli.py` matches the subparser, the handler, the writer-lock set
       and the dispatch branch, and nothing else in `src/` mentions the command name.
-- [ ] `git diff --check` exits 0; no files outside the tasks' Files lists are modified (`git status --short`).
+- [x] `git diff --check` exits 0; no files outside the tasks' Files lists are modified (`git status --short`).
 
 ## Plan self-review (PM before locked)
 
@@ -502,3 +517,33 @@ command — it would widen the review surface the register's `target` does not a
 reviews (`task-N-review.md`), and the plan-QC/QA bundle (`review/qc1..3.md`, `review/qa.md`). Gitignored; do not
 paste bundle contents into this file. `QA gate: mandatory` (`qa_mode: targeted`) — behaviour change plus open
 `R#`s.
+
+**PM ruling 2026-09-19 (plan QC, W1 — found independently by two seats).** The additive policy keys on the
+manifest's **effective key**, so a *legacy bare-`bvid` row* (the shape a hand-built manifest has, and the shape
+`ManifestStore.migrate_legacy_rows` exists to normalize) is not consulted: `load()` keys it by `bvid` while the
+derivation looks up `bvid:p{n}`, so the part is appended as `needs_audio` and a bounded run re-downloads and
+re-runs a part the chain already archived under the same `{bvid}.p{page_index}` stem. The literal promise (a row
+is never rewritten) holds; **the intent (an archived part cannot be re-queued) does not.**
+
+**Decision: narrow the claim, do not change the behaviour.** Changing it would reopen this plan's §2/§3.5
+principle (the store is the queue's authority) and needs a multi-page semantics decision (what a bare row means
+for page ≥ 1) that no one has made — not something to improvise at the end of a plan. The measured exposure is
+zero: the three archive roots on this host hold no bare rows. The limit is therefore **stated** in the spec's
+§3.5 and the README's limits bullet, and the behaviour question is **registered** as a residual with an explicit
+trigger (the first operator archive that actually holds legacy bare rows, or the plan that normalizes them).
+
+## Review Gate Summary
+
+**Verdict: approve** — SDD plan QC tri-review (mandatory, N=3) over `f094fb8..879d4eb`, then two fix rounds and per-item re-verification.
+All three seats approved: `qc1` 0C/0W/0S, `qc2` 0C/0W/0S, `qc3` 0C/0W (its five Suggestions fixed in round 1). Consolidated: `{SDD_DIR}/20260919-sqlite-queue-bridge/review/qc-consolidated.md`.
+The one Warning — found **independently by two seats** — was that `derive-manifest` keys the additive check on the manifest's effective key, so a **legacy bare-`bvid` row is never consulted** and its part is re-queued (re-downloaded and re-run). The PM **narrowed the claim in writing** (plan + spec §3.5 now promise only **page-qualified** rows) and **registered** the behaviour question as `iter-2026-09-queue-bridge · R2` rather than reopening the plan's §2/§3.5 principle at the end of the plan. Measured exposure today: zero (the three archive roots on this host hold no bare rows).
+Fix rounds: `c99df83` (mid-list append failure now reported; the pubdate read bounded at ≤900 parameters; three documentation clauses; four test-precision fixes) and `879d4eb` (the legacy-key limit published on both surfaces; the over-reaching docstring clause corrected; the append guard narrowed; a zone-independent pubdate assertion).
+Per-task L2 reviews: `task-1-review.md`, `task-2-review.md`, `task-3-review.md`, `task-4-review.md` (Task 4 needed one fix loop; its reviewer upgraded it to Approved).
+
+## QA Gate Summary
+
+**Verdict: approve** (`review/qa.md`, sha256 `4fada911e555b3c14a18920725f61a0ef5bfa232398c93379aacd4957fccc344`) — **QA gate: mandatory** (open `R#` on this plan + a behaviour change), **QA mode: targeted**.
+Acceptance: compass criteria **1–6 all pass** on witnessed evidence; selectors **110 passed / 1 skipped (111 collected)**, exactly the plan's expectation; the normal-path record identity and the chain test's negative control both pass.
+**Untested, reported as untested (not passed):** the live-ASR clause — the `[asr]` extra is absent in this environment and the case carries a `skipif` with an honest reason.
+One QA finding (medium, register-only): `R2`'s `source_plan` did not match its `entries` key — a PM transcription error at the QC gate. Fixed (one field, no history rewrite); the seat **re-derived the validator predicate from source** (broader than a key comparison: enum and date rules, and `closed_at` + `closure_note` for any non-open lifecycle) and re-ran it over the register: **12 groups / 30 rows / 0 violations**.
+**Carried uncertainty (disclosed, not absorbed):** no `mstar` CLI on this host, so the engine's own register check could not be *executed*; the validator body was replicated faithfully in place. Re-confirm on an engine-capable host.
