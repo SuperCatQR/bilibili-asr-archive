@@ -1,5 +1,6 @@
 ---
 iteration_id: iter-2026-09-queue-bridge
+end_date: 2026-09-19
 start_date: 2026-09-19
 status: locked
 iteration_base_branch: main
@@ -85,7 +86,7 @@ frozen CLI surface), and the plan does not depend on it.
 
 | plan_id | Name | Status | Notes |
 |---------|------|--------|-------|
-| `20260919-sqlite-queue-bridge` | Derive the ASR/audio work queue from `archive.db` | Todo | The iteration's single business plan: `{PLAN_DIR}/20260919-sqlite-queue-bridge.md` — Task 1 pure derivation, Task 2 store read + CLI command, Task 3 chain acceptance over a fixture, Task 4 publish the boundary (README + `docs/metadata-storage.md`); `Execution: mstar-sdd`, `QA gate: mandatory`/`targeted`. Contract: `specs/sqlite-queue-bridge-contract.md`. |
+| `20260919-sqlite-queue-bridge` | Derive the ASR/audio work queue from `archive.db` | Done | The iteration's single business plan: `{PLAN_DIR}/20260919-sqlite-queue-bridge.md` — Task 1 pure derivation, Task 2 store read + CLI command, Task 3 chain acceptance over a fixture, Task 4 publish the boundary (README + `docs/metadata-storage.md`); `Execution: mstar-sdd`, `QA gate: mandatory`/`targeted`. Contract: `specs/sqlite-queue-bridge-contract.md`. |
 
 Candidate fold-in, decided with the plan split: `20260918-operational-record-coverage · R3` is a two-line
 fix in `cli.py` (parse rather than string-compare the run's `started_at`). **Decided (architect, 2026-09-19):
@@ -97,10 +98,10 @@ trigger (the next plan that touches `run_ledger.py` or the CLI's exit handling).
 
 | Milestone | Target date | Status |
 |-----------|-------------|--------|
-| Spec freeze (Phase 1 lock) | 2026-09-19 | pending |
-| Dev complete (plan Done) | 2026-09-19 | pending |
-| QC complete | 2026-09-19 | pending |
-| Iteration close | 2026-09-19 | pending |
+| Spec freeze (Phase 1 lock) | 2026-09-19 | done — three-role chain, compass locked, zero markers |
+| Dev complete (plan Done) | 2026-09-19 | done — 4 SDD tasks, each with a fresh L2 review; Task 4 needed one fix loop |
+| QC complete | 2026-09-19 | done — tri-review approve after two fix rounds; QA gate approve |
+| Iteration close | 2026-09-19 | this round (compound + retro + index + close commit) |
 
 ## Acceptance Criteria
 
@@ -262,7 +263,7 @@ network; the checks below run offline against the built fixture.
 
 ## Roadmap Position
 
-- **Current iteration**: close `e2e-23191782-season-7686105 · R1`'s queue half — a supported way to obtain
+- **Current iteration — delivered 2026-09-19**: close `e2e-23191782-season-7686105 · R1`'s queue half — a supported way to obtain
   the ASR/audio work queue from `archive.db`, and the feeder source that `harvest-subs` removed. This is the
   register's own "cheapest corpus-unblocking slice"; the projection rebuild stays open in the register.
 - **Next iteration** (each item names owner and trigger so a reader with no access to this session can act):
@@ -337,31 +338,68 @@ writing-specialist's hygiene pass and after every non-`PM` marker is cleared.
 
 ## Quality Gate Summary
 
-> Filled at iteration-close. Human summary only; per-plan gate details stay in each main plan, and open
-> residual SSOT stays in `{PROJECT_DIR}/_default/residuals.json`.
+Human summary only; per-plan gate details stay in the main plan, and the residual SSOT stays in
+`{PROJECT_DIR}/_default/residuals.json`. Full bundle: `{SDD_DIR}/20260919-sqlite-queue-bridge/review/qc-consolidated.md`.
 
 | plan_id | QC decision | QA gate | Residuals | Durable summary |
 |---------|-------------|---------|-----------|-----------------|
-| `20260919-sqlite-queue-bridge` | recorded at iteration-close | `mandatory` / `targeted` (plan frontmatter) | recorded at iteration-close | `{PLAN_DIR}/20260919-sqlite-queue-bridge.md` |
+| `20260919-sqlite-queue-bridge` | **approve** — tri-review (qc1/qc2/qc3) after 2 fix rounds and per-item confirmations; the one Warning (found independently by two seats) had its claim narrowed in writing and its behaviour question registered | **approve** — `mandatory` / `targeted`; criteria 1–6 pass on witnessed evidence, 110 passed / 1 skipped, the live-ASR clause reported **untested** | 2 open rows, both low / `defer` / `@project-manager`, see below | `{PLAN_DIR}/20260919-sqlite-queue-bridge.md` (`## Review Gate Summary`, `## QA Gate Summary`) |
+
+**Open residuals disclosed (id · severity · decision · tracking):**
+
+- `iter-2026-09-queue-bridge · R1` · **low** · `defer` · the store cannot rotate a bounded queue over **failed**
+  audio attempts; stated as a limit in the README and spec §5.4, tracked in the register with a measurable trigger.
+- `iter-2026-09-queue-bridge · R2` · **low** · `defer` · a legacy bare-`bvid` manifest row is not consulted, so
+  such a part can be re-queued; published as a limit on both reader surfaces, tracked with a measured trigger.
+- Charter row `e2e-23191782-season-7686105 · R1` · **medium** · still **open** — discharged in its **queue half
+  only** (this iteration); the SRT/TXT/MD projection rebuild remains open in the register and is the trigger for
+  the next iteration's Prepare.
+
+No unresolved `critical` row touches this iteration. No `blocker-defer` rows.
 
 ## Compound Round Summary
 
-> Filled at iteration-close.
+Screened: the iteration package except the compass (`specs/sqlite-queue-bridge-contract.md`; `guides/` is empty by
+design), plus the plan's own defects and the review choreography.
 
-- 结晶文档数：<N>
-- 新增 CONCEPTS.md 条目：<N>
-- 触发 compound-refresh：<是/否>
+**Promoted — 4 new docs, 2 updated:**
+
+| Doc | What it keeps |
+|---|---|
+| `{KNOWLEDGE_DIR}/architecture-patterns/queue-derivation-bridge.md` (new) | The derivation bridge: it appends only rows it alone owns (`needs_audio`, never a `subtitle_done` row, never a document), so the archive stage's filesystem expectation stays unreachable; plus the **effective-key** limit (a legacy bare-`bvid` row is not consulted → the part is re-queued, `· R2`). |
+| `{KNOWLEDGE_DIR}/testing-patterns/absence-assertion-negative-control.md` (new) | An "X never happens" assertion is evidence only if the fixture can reach X's producer; name the falsifier and show the path — the measured case here is that the neighbouring assertion could not fail. |
+| `{KNOWLEDGE_DIR}/testing-patterns/zone-independent-time-assertions.md` (new) | The measured counter-example (`assert a second epoch` does **not** discriminate on a UTC host: 18/18 passed with the regression injected) and the construction that does (stub both clocks, assert a literal; 3 zones verified). |
+| `{KNOWLEDGE_DIR}/best-practices/claim-scope-discipline.md` (new, new category dir) | The defect class this iteration produced three times: **a claim wider than the code** (docs, docstrings, a review report), how each was caught, and the author-side check that would have caught them. |
+| `{KNOWLEDGE_DIR}/architecture-patterns/bilibili-asr-archive-cli.md` (updated) | Its "feeder boundary" bullet said the SQLite audio-queue enumeration was deferred; it now states the shipped command and points at the new doc. |
+| `{KNOWLEDGE_DIR}/architecture-patterns/normalized-transcript-storage.md` (updated) | The "any `transcripts` row means caption" limit now names the second consumer of the pending relation and its deliberate audio-queue reading. |
+
+**Kept / skipped, with reasons:** the operator surface is **not** duplicated into knowledge — it is already published
+in the product README (`#### Derived audio queue`, including the two stated limits), and the new doc points at it;
+the rotation loss (`· R1`) and the `asr-local` view question stay **register rows**, not knowledge; the frozen
+`{SPECS_DIR}` revision is a repo-spec edit (PM-owned, Q6/D14), not reusable guidance; `guides/` is empty by design;
+the review choreography stays in the ephemeral `{SDD_DIR}` bundle and is cited by path only.
+
+**Index and vocabulary:** `{KNOWLEDGE_DIR}/README.md` gained 4 rows (13 docs indexed); `CONCEPTS.md` gained two
+domain terms (`audio queue`, `effective row`).
+
+**Registered false-positive debt, unchanged in kind:** the engine's reference-existence heuristic flags backticked
+Python `module.attr` tokens and timezone names; the new timezone doc adds 4 tokens of that already-registered class
+(`iter-2026-09-text-and-ledger-precision · R1`). The promotion did not "fix" prose to satisfy the heuristic; it fixed
+only the genuinely wrong package-root-relative path references.
+
+- 结晶文档数：**4 新增 + 2 更新**（`{KNOWLEDGE_DIR}` 共 13 篇）
+- 新增 CONCEPTS.md 条目：**2**
+- 触发 compound-refresh：**否**（无文档因本次提升而过期；`normalized-transcript-storage.md` 的既有 limit 已就地细化）
 
 ## Iteration Retrospective (minimal)
 
-> Filled at iteration-close.
-
-- 做得好的：
-- 可改进的：
-- 下迭代建议：
-
-## Quality Gate Summary
-
-| Plan | QC (L3) | QA (L4) | Result |
-|---|---|---|---|
-| `20260919-sqlite-queue-bridge` | tri-review approve (qc1/qc2/qc3), 2 fix rounds + per-item confirmations | approve (`review/qa.md`) — criteria 1–6 pass, 110 passed / 1 skipped, live-ASR clause untested | **Done** — the derived queue reaches the ASR chain; the projection rebuild stays registered |
+- **做得好的**：Phase 1 的三角色链把"最锋利的陷阱"在写代码前就消解掉了 —— Q1 的答案是"派生行一律
+  `needs_audio`、桥不产出任何字幕文档"，于是 archive 阶段的文件系统预期**从构造上不可达**，Task 3 只需要
+  证明它没被触发。SDD 的每 task fresh reviewer 也真的抓到了东西（Task 4 复审 `Needs fixes`，两条 Important
+  都是"读者会照着做错"的句子）。
+- **可改进的**：本迭代反复出现同一类缺陷 —— **论断宽于代码**（文档写了 `asr --pending` 会选中派生行、
+  docstring 说"会响亮报错"、报告把不可失败的断言说成"证明了能失败"）。三次都是**复审**抓到的，不是作者
+  自查到的；说明"写完断言/文档后回头问一句『这条能被证伪吗』"应当前移成作者动作。
+- **下迭代建议**：①把上面那条前移为实现的固定动作（提交前对自己的每条新论断问"反例是什么"）；
+  ②`mstar-compound` 的自检里已经有"可发现性"，但本迭代的经验是**反例比结论更值得沉淀**（时区断言那条，
+  真正有价值的是"断言第二个 epoch 不行"这个实测反例）；③plan 内联示例要当成可执行论断对待。

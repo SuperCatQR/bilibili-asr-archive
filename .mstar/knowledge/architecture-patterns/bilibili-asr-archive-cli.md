@@ -1,7 +1,7 @@
 ---
 module: bilibili-asr-archive CLI
 date: 2026-08-23
-last_updated: 2026-09-11
+last_updated: 2026-09-19
 problem_type: architecture_pattern
 category: architecture-patterns
 severity: medium
@@ -239,9 +239,13 @@ command reads or writes `manifest.jsonl`, `meta-cursor.json`, or `run-ledger.jso
   manifest status `needs_audio`, so the legacy audio feeder
   (`download-audio --missing-subs`) gains no new entries from this path, and the
   ASR/pilot chain is still driven from manifest state rather than from the database.
-  Rebuilding SRT/TXT/MD projections from stored transcripts and enumerating the audio
-  work queue from SQLite (including the parts recorded without a visible caption,
-  which are that queue) are deferred work owned by the audio/ASR iteration.
+  Enumerating the audio work queue from SQLite (including the parts recorded without a
+  visible caption, which are that queue) has since shipped as its own archive-writer
+  command, `derive-manifest` — it appends one `needs_audio` row per stored part that
+  holds no transcript and is not `gone`, reads the manifest read-only to avoid
+  regressing a row the chain owns, and writes nothing else; the command's contract is
+  [queue-derivation-bridge.md](queue-derivation-bridge.md). Rebuilding SRT/TXT/MD
+  projections from stored transcripts is still deferred.
 - **Live smoke.** The opt-in bounded smoke runs from the package directory of the
   checkout under test, with the credential and proxy present in the environment:
 
@@ -317,3 +321,9 @@ or a measured decision before any concurrency/service implementation.
   records, and the bootstrap guard — and
   [subtitle-acquisition-contract.md](subtitle-acquisition-contract.md) — the pin-verified
   acquisition boundary and the track preference.
+- Queue-bridge update at `iter-2026-09-queue-bridge` (plan `20260919-sqlite-queue-bridge`):
+  `derive-manifest` joins the archive-writer command family and the projection/feeder boundary bullet
+  above now states the shipped enumeration instead of the deferral it used to record. The bridge's
+  contract — additive conflict policy, the single derived status, the effective-key limit — is
+  [queue-derivation-bridge.md](queue-derivation-bridge.md). Suite at the plan's gate: 110 passed /
+  1 skipped over the bridge's four test files (QA `approve`, targeted).

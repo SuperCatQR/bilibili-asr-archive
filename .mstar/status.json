@@ -7,6 +7,12 @@
       "type": "iteration",
       "started_at": "2026-09-19",
       "dir": "workflows/iter-2026-09-queue-bridge"
+    },
+    {
+      "id": "iter-2026-09-artifact-root",
+      "type": "iteration",
+      "started_at": "2026-09-19",
+      "dir": "workflows/iter-2026-09-artifact-root"
     }
   ]
 }

@@ -1,6 +1,7 @@
 ---
 module: bili-asr transcript storage
 date: 2026-09-11
+last_updated: 2026-09-19
 problem_type: architecture_pattern
 category: architecture-patterns
 severity: medium
@@ -340,7 +341,12 @@ DESC, run_id DESC)`, restricted to runs with `kind = 'subtitle'`), and exposes
 - **Any `transcripts` row means "this part has a caption".** When ASR rows (`asr-local`)
   start landing, those parts leave the subtitle backlog. That is the locked behaviour, but the
   ASR iteration must decide explicitly whether it wants its own pending view or a
-  `source_kind`-scoped predicate rather than inheriting this one.
+  `source_kind`-scoped predicate rather than inheriting this one. This relation now has a second
+  named consumer, and its reading there is deliberate: `derive-manifest` reads it as the **audio
+  queue** — "the part holds no text at all", so a stored ASR transcript correctly removes the part
+  from that queue — while the *caption* backlog's label is what a source-kind-scoped view still has
+  to repair, in the iteration that first writes `asr-local` rows (see
+  [queue-derivation-bridge.md](queue-derivation-bridge.md)).
 - **The write path verifies the run exists but not its `kind`.** An attempt recorded under an
   `audio`/`asr` run is invisible to `v_pending_subtitles` (which filters `kind = 'subtitle'`),
   so such a part would never rotate out of the subtitle backlog. The shipped caller passes
@@ -365,5 +371,7 @@ DESC, run_id DESC)`, restricted to runs with `kind = 'subtitle'`), and exposes
   that produces the segments stored here.
 - [bilibili-asr-archive-cli.md](bilibili-asr-archive-cli.md) — the operator surface that fills
   these tables and the exit taxonomy around the schema guard.
+- [queue-derivation-bridge.md](queue-derivation-bridge.md) — the command that reads this store's
+  work relation as the audio queue and writes the chain's manifest rows from it, additively.
 - [operational-sidecars.md](operational-sidecars.md) — the JSONL sidecars and the archival-flow
   state machine that this path does not use.
