@@ -2,10 +2,13 @@
 
 Pure and filesystem-touching cases alike stay local: every test uses ``tmp_path`` only,
 no CLI and no monkeypatched ``os.environ`` — each environment is passed as a mapping.
+The one shipped import beyond the module under test is the guard the read loop wraps
+(``path_policy.open_audio_directory``), used to show what the symlink refusal prevents.
 """
 
 from __future__ import annotations
 
+import errno
 import os
 from pathlib import Path
 
@@ -22,6 +25,7 @@ from bili_asr.artifact_root import (
     resolve_keep_audio,
     roots_for,
 )
+from bili_asr.path_policy import open_audio_directory
 
 #: The value shapes §5 pins as refusable at every base.
 _REFUSED_AUDIO_VALUES = (
@@ -65,6 +69,26 @@ def test_the_value_is_stripped_and_tilde_is_expanded(tmp_path):
     assert "~" not in Path(resolved).parts
 
 
+def test_of_is_abspath_only_so_a_tilde_archive_root_stays_literal():
+    # `~` is expanded by `resolve_artifact_root` alone (spec §3.2); §3.4 comments `of` as
+    # "abspath only". A `~`-bearing archive root therefore keeps today's treatment — the
+    # literal component `archive._lexical_archive_root` (`archive.py:264-265`) and
+    # `ManifestStore.root` (`manifest.py:101-107`) both keep — so the no-flag identity
+    # case stays a no-op instead of silently resolving to another directory.
+    literal = Path(os.path.abspath("~/a2"))
+    assert ArtifactRoots.of("~/a2").archive_root == literal
+    assert "~" in ArtifactRoots.of("~/a2").archive_root.parts
+    # Neither root is reinterpreted at this level, the configured one included.
+    assert ArtifactRoots.of("/archive", "~/a2").artifact_root == literal
+    assert ArtifactRoots.of("/archive", "~/a2").write_base == literal
+    # Through the CLI entry point the no-flag case is still the identity case: the
+    # literal archive root is neither reinterpreted nor validated (D10), and this one
+    # does not exist on disk.
+    identity = roots_for("~/a2", environ={})
+    assert identity.configured is False
+    assert identity.read_bases() == (literal,)
+
+
 def test_a_relative_value_resolves_against_the_current_directory(tmp_path):
     assert resolve_artifact_root("relative-artifact-root", {}) == os.path.join(
         os.getcwd(), "relative-artifact-root"
@@ -85,16 +109,53 @@ def test_the_path_is_kept_lexical_and_never_realpath_resolved(tmp_path):
     linked_root = tmp_path / "linked-mount"
     linked_root.symlink_to(real_root, target_is_directory=True)
 
-    roots = roots_for(archive, flag_value=str(linked_root), environ={})
-    assert roots.configured is True
-    # Kept lexical: resolving the symlink here would defeat the O_NOFOLLOW check
-    # on the root, so the path stays as configured and is refused later (§3.2, §6).
-    assert roots.write_base == linked_root
-    assert roots.artifact_root != real_root
+    # `of` never calls `realpath`: the configured value stays lexical, which is what lets
+    # `roots_for` see the link and refuse it (§3.2, §6).
+    unvalidated = ArtifactRoots.of(archive, str(linked_root))
+    assert unvalidated.configured is True
+    assert unvalidated.write_base == linked_root
+    assert unvalidated.artifact_root != real_root
 
     linked_archive = tmp_path / "linked-archive"
     linked_archive.symlink_to(archive, target_is_directory=True)
     assert ArtifactRoots.of(linked_archive).archive_root == linked_archive
+
+
+def test_a_symlinked_configured_root_is_refused(tmp_path):
+    archive = tmp_path / "archive"
+    archive.mkdir()
+    real_root = tmp_path / "real-mount"
+    (real_root / "audio").mkdir(parents=True)
+    linked_root = tmp_path / "linked-mount"
+    linked_root.symlink_to(real_root, target_is_directory=True)
+
+    # §3.2/§6 and D4: the final component is a symlink, so the root is refused before
+    # `is_dir()` can follow it — at either level of the precedence.
+    with pytest.raises(ArtifactRootError) as flag_error:
+        roots_for(archive, flag_value=str(linked_root), environ={})
+    assert str(flag_error.value) == f"artifact root is a symlink ({linked_root})"
+    assert isinstance(flag_error.value, ValueError)
+
+    with pytest.raises(ArtifactRootError) as env_error:
+        roots_for(archive, environ={ARTIFACT_ROOT_ENV_VAR: str(linked_root)})
+    assert str(env_error.value) == f"artifact root is a symlink ({linked_root})"
+
+    # And the refusal is what keeps *both* directions off the link. `of` is unvalidated,
+    # so it still builds the lexical value; through it a write fails with a raw `OSError`
+    # from `O_NOFOLLOW` on the root (`path_policy.py:38-40`) instead of the named refusal,
+    # while the read loop silently returns the archive root's copy — the two failure modes
+    # `roots_for` is the only entry point able to stop (a symlinked *archive* root keeps
+    # today's later-refusal behaviour, §3.3).
+    unvalidated = ArtifactRoots.of(archive, str(linked_root))
+    (archive / "audio").mkdir()
+    (archive / "audio" / "legacy.m4a").write_bytes(b"legacy copy")
+    assert resolve_audio_path(unvalidated, "audio/legacy.m4a") == (
+        archive / "audio" / "legacy.m4a"
+    )
+    with pytest.raises(OSError) as write_error:
+        open_audio_directory(unvalidated.write_base, create=True)
+    # `O_NOFOLLOW` on the root: Linux reports ENOTDIR once `O_DIRECTORY` is also set.
+    assert write_error.value.errno in (errno.ENOTDIR, errno.ELOOP)
 
 
 def test_an_explicit_value_equal_to_the_archive_root_is_the_identity_case(tmp_path):
@@ -117,18 +178,50 @@ def test_a_missing_or_non_directory_root_is_a_refusal(tmp_path):
     missing = tmp_path / "missing-root"
     with pytest.raises(ArtifactRootError) as missing_error:
         roots_for(archive, flag_value=str(missing), environ={})
-    assert str(missing) in str(missing_error.value)
-    assert "does not exist" in str(missing_error.value)
+    # The exact tail §9's CLI line and the T2/T3 handoff depend on (§3.3).
+    assert str(missing_error.value) == f"artifact root does not exist ({missing})"
     # A configured root is a usage/config error: the CLI's existing exit-1 path.
     assert isinstance(missing_error.value, ValueError)
     assert not missing.exists()
+
+    # The value that resolved from the environment is validated identically, not only a
+    # flag-supplied one: precedence does not change the verdict.
+    with pytest.raises(ArtifactRootError) as env_error:
+        roots_for(archive, environ={ARTIFACT_ROOT_ENV_VAR: str(missing)})
+    assert str(env_error.value) == f"artifact root does not exist ({missing})"
 
     not_a_directory = tmp_path / "not-a-directory"
     not_a_directory.write_text("x", encoding="utf-8")
     with pytest.raises(ArtifactRootError) as file_error:
         roots_for(archive, flag_value=str(not_a_directory), environ={})
-    assert str(not_a_directory) in str(file_error.value)
-    assert "is not a directory" in str(file_error.value)
+    assert str(file_error.value) == f"artifact root is not a directory ({not_a_directory})"
+
+
+def test_a_non_path_root_is_refused_with_the_module_error(tmp_path):
+    # The sibling leaf this module wraps guards the same input and never lets a bare
+    # `TypeError` escape (`path_policy._audio_parts:17-20`); this module's consumers get
+    # its own error instead. Not CLI-reachable today — a policy leaf others will consume.
+    for bad in (b"/tmp/bytes-root", 5, object()):
+        with pytest.raises(ArtifactRootError):
+            ArtifactRoots.of(bad)
+        with pytest.raises(ArtifactRootError):
+            ArtifactRoots.of("/archive", bad)
+        with pytest.raises(ArtifactRootError):
+            resolve_artifact_root(bad, {})
+
+    with pytest.raises(ArtifactRootError) as bytes_error:
+        resolve_artifact_root(b"/tmp/bytes-root", {})
+    assert str(bytes_error.value) == "artifact root is not a path (b'/tmp/bytes-root')"
+    assert isinstance(bytes_error.value, ValueError)
+
+    archive = tmp_path / "archive"
+    archive.mkdir()
+    with pytest.raises(ArtifactRootError):
+        roots_for(5, environ={})
+    with pytest.raises(ArtifactRootError):
+        roots_for(archive, flag_value=b"/tmp/bytes-root", environ={})
+    with pytest.raises(ArtifactRootError):
+        roots_for(archive, environ={ARTIFACT_ROOT_ENV_VAR: b"/tmp/bytes-root"})
 
 
 def test_read_bases_are_ordered_and_deduplicated(tmp_path):

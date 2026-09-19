@@ -17,8 +17,12 @@ A blank or whitespace-only value at either level counts as *unset* and never blo
 next level, which is :func:`config.resolve_proxy`'s idiom (``config.py:154-175``) and
 deliberately not :func:`config.resolve_sessdata`'s (``config.py:128-141``): the
 credential's blank-blocks-fallthrough rule exists because it has a security-relevant
-anonymous mode, and a path has no such mode.  ``~`` is expanded, and a relative value
-is made absolute against the process CWD exactly as ``--archive-root`` behaves today.
+anonymous mode, and a path has no such mode.  ``~`` is expanded **here and nowhere
+else**: :func:`resolve_artifact_root` is the only expander, so :meth:`ArtifactRoots.of`
+is abspath-only for both roots and a ``~``-bearing archive root keeps exactly the
+treatment ``archive._lexical_archive_root`` (``archive.py:264-265``) and
+``ManifestStore.root`` (``manifest.py:101-107``) give it today.  A relative value is
+made absolute against the process CWD exactly as ``--archive-root`` behaves today.
 The path is kept **lexical** — ``realpath`` is never applied — because
 ``path_policy.open_audio_directory`` (``path_policy.py:32-57``) opens the root itself
 with ``O_NOFOLLOW``: resolving first would silently follow a symlinked root past that
@@ -28,12 +32,15 @@ refused, so pass the real path.
 Validation (contract §3.3, D10) happens once, in :func:`roots_for`, and only for a
 **configured** root.  A value lexically equal to the archive root is the **identity
 case**: one base, today's code path, not validated further, because an explicit no-op
-must be a no-op.  Any other value must already be an existing directory or the command
-refuses with its usage/config exit and names the path.  A missing root is **never
-created**: an unmounted mount point still exists as an empty directory, and
-auto-creating a missing one would publish products to the underlying filesystem
-instead of the mount.  A root *inside* the archive root is accepted — a legitimate
-layout, and the two bases stay distinct.
+must be a no-op.  Any other value must already be an existing, **non-symlink**
+directory or the command refuses with its usage/config exit and names the path.  The
+symlink refusal is explicit and comes first: ``is_dir()`` follows a link, so without it
+a symlinked root would be accepted here and only fail later — every write raising a raw
+``OSError`` from ``O_NOFOLLOW``, every read silently degrading to the archive root.  A
+missing root is **never created**: an unmounted mount point still exists as an empty
+directory, and auto-creating a missing one would publish products to the underlying
+filesystem instead of the mount.  A root *inside* the archive root is accepted — a
+legitimate layout, and the two bases stay distinct.
 
 Reads (contract §5, D7/D8) never see an absolute recorded path.  The recorded strings
 stay artifact-root-relative (``audio/{stem}.m4a``, ``transcripts/srt/{stem}.srt``), so
@@ -45,6 +52,14 @@ cross-root path computation.  A legacy row written before the root was configure
 therefore keeps resolving to its existing file (§5, D6), and nothing durable records
 the root (D12): a later run with a different root neither rewrites nor invalidates
 earlier rows.
+
+That loop is a **read** rule, and it is a genuine ordered probe only in its default
+mode: with ``require_exists=False`` the first base whose ``audio/`` directory opens wins
+whether or not the file is there, so base 2 is reached only when base 1 has no ``audio/``
+at all and the returned path may not exist.  **Writes must not use it.**  Every artifact
+write, and every write-side re-confinement (``audio.download_audio``'s ``audio.py:151``),
+resolves on :attr:`ArtifactRoots.write_base` alone — one base, chosen by where the write
+goes rather than by which directory happens to exist.
 
 Layering: a shared policy leaf beside ``path_policy``, importing stdlib plus
 ``path_policy`` only — never a manifest, storage or artifact writer — so the
@@ -93,7 +108,12 @@ class ArtifactRoots:
         archive_root: str | os.PathLike[str],
         artifact_root: str | os.PathLike[str] | None = None,
     ) -> "ArtifactRoots":
-        """Build the value object from raw paths — lexical only, no ``isdir`` check."""
+        """Build the value object from raw paths — abspath only, no ``isdir`` check.
+
+        Neither root is reinterpreted: ``~`` is expanded by :func:`resolve_artifact_root`
+        before the value ever reaches this constructor, and the caller that resolves no
+        configuration passes an already-absolute path (contract §3.4, D10).
+        """
         archive = _lexical(archive_root)
         configured = archive if artifact_root is None else _lexical(artifact_root)
         return cls(archive_root=archive, artifact_root=configured)
@@ -115,9 +135,29 @@ class ArtifactRoots:
         return (self.archive_root,)
 
 
+def _root_text(value: str | os.PathLike[str]) -> str:
+    """Turn one raw root into text, or refuse it (contract §3.4).
+
+    The sibling leaf this module wraps refuses a malformed input rather than letting a
+    bare ``TypeError`` escape (``path_policy._audio_parts:17-20``); the same shape here
+    with this module's own error, because it is a policy leaf other layers consume.
+    """
+    try:
+        text = os.fspath(value)
+    except TypeError:
+        text = None
+    if not isinstance(text, str):
+        raise ArtifactRootError(f"artifact root is not a path ({value!r})")
+    return text
+
+
 def _lexical(value: str | os.PathLike[str]) -> Path:
-    """Expand ``~``, make absolute, and never resolve symlinks (contract §3.2)."""
-    return Path(os.path.abspath(os.path.expanduser(os.fspath(value))))
+    """Make absolute; never ``~``, never ``realpath`` (contract §3.2, D9).
+
+    ``~`` expansion is :func:`resolve_artifact_root`'s alone, so ``--archive-root``'s
+    shipped treatment of a tilde-shaped path is not reinterpreted in the no-flag case.
+    """
+    return Path(os.path.abspath(_root_text(value)))
 
 
 def resolve_artifact_root(value: str | None, environ: Mapping[str, str]) -> str | None:
@@ -125,15 +165,16 @@ def resolve_artifact_root(value: str | None, environ: Mapping[str, str]) -> str 
 
     The flag wins over :data:`ARTIFACT_ROOT_ENV_VAR`; a blank or whitespace-only value
     at either level counts as unset and never blocks the next level.  The value that
-    resolves is stripped, ``~`` is expanded and the result is made absolute against the
-    process CWD.  ``None`` means unconfigured — the caller then uses the archive root.
+    resolves is stripped, ``~`` is expanded — the only place in this module that happens
+    (§3.2) — and the result is made absolute against the process CWD.  ``None`` means
+    unconfigured — the caller then uses the archive root.
     """
     for candidate in (value, environ.get(ARTIFACT_ROOT_ENV_VAR)):
         if candidate is None:
             continue
-        stripped = candidate.strip()
+        stripped = _root_text(candidate).strip()
         if stripped:
-            return str(_lexical(stripped))
+            return str(_lexical(os.path.expanduser(stripped)))
     return None
 
 
@@ -165,14 +206,22 @@ def roots_for(
 
     The CLI's one entry point: precedence, the blank rule and the validation of a
     *configured* root live here and nowhere else.  Raises :class:`ArtifactRootError`
-    when a configured root does not exist or is not a directory; it is never created.
-    The identity case is accepted without touching the filesystem.
+    when a configured root is a symlink, does not exist or is not a directory; it is
+    never created.  The identity case is accepted without touching the filesystem.
     """
     environment: Mapping[str, str] = os.environ if environ is None else environ
     roots = ArtifactRoots.of(archive_root, resolve_artifact_root(flag_value, environment))
-    if roots.configured and not roots.artifact_root.is_dir():
-        reason = "is not a directory" if roots.artifact_root.exists() else "does not exist"
-        raise ArtifactRootError(f"artifact root {reason} ({roots.artifact_root})")
+    if roots.configured:
+        # Before `is_dir()`, which follows a link (contract §3.2/§6, D4): accepting a
+        # symlinked root here would let every write fail later with a raw OSError from
+        # `O_NOFOLLOW` while every read silently fell back to the archive root.
+        if os.path.islink(roots.artifact_root):
+            raise ArtifactRootError(f"artifact root is a symlink ({roots.artifact_root})")
+        if not roots.artifact_root.is_dir():
+            reason = (
+                "is not a directory" if roots.artifact_root.exists() else "does not exist"
+            )
+            raise ArtifactRootError(f"artifact root {reason} ({roots.artifact_root})")
     return roots
 
 
@@ -189,6 +238,20 @@ def resolve_audio_path(
     readers use today — and the first hit wins.  ``None`` means the value is missing or
     refused at *every* base: under ``require_exists=True`` the guard returns ``None``
     for both, so the resolver does not try to tell them apart.
+
+    The two modes differ in what "first hit" means, and **only the default is a probe**:
+
+    * ``require_exists=True`` — a base is a hit when it holds the *file*, so the loop
+      really does walk the bases and base 2 is reached whenever base 1 does not hold it.
+    * ``require_exists=False`` — a base is a hit as soon as the shape is valid **and that
+      base's ``audio/`` directory opens**, so base 1 wins even when the file is absent
+      there, base 2 is reached only when base 1 has no ``audio/`` at all, and the
+      returned path **may not exist**.  That is the guard's own semantics
+      (``path_policy.py:98-109``), kept because §5's loop is verbatim.
+
+    **Writes and write-side re-confinement must not use this loop.**  They resolve on
+    :attr:`ArtifactRoots.write_base` alone — one base, the one being written to — so the
+    base is never chosen by which ``audio/`` directory happens to exist (contract §4).
     """
     for base in roots.read_bases():
         confined = confined_audio_path(base, declared, require_exists=require_exists)
