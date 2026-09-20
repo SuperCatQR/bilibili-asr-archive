@@ -1,5 +1,12 @@
 {
   "version": 2,
-  "updated_at": "2026-09-19",
-  "workflows": []
+  "updated_at": "2026-09-20",
+  "workflows": [
+    {
+      "id": "e2e-23191782-longform-pair-webdav",
+      "type": "plan",
+      "started_at": "2026-09-20",
+      "dir": "workflows/e2e-23191782-longform-pair-webdav"
+    }
+  ]
 }
