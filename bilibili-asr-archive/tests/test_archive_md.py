@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from bili_asr.archive import archive_bundle_complete, bundle_marker_path, write_archive
+from bili_asr.archive import archive_bundle_complete, bundle_marker_path, bundle_paths, write_archive
 from bili_asr.page_identity import artifact_stem, page_identity
 
 
@@ -82,6 +82,47 @@ def test_write_archive_unresolved_keeps_bare_bvid_stem(tmp_root):
     md = (tmp_path / paths["md_path"]).read_text(encoding="utf-8")
     assert "work_id:" not in md
     assert "page_index:" not in md
+
+
+def test_bundle_paths_names_the_four_families_and_the_derived_md_name(tmp_root):
+    """``bundle_paths`` names the four families; the writer publishes those names."""
+    from pathlib import Path
+
+    root = Path(tmp_root)
+    ident = page_identity("BV1paths", 0, 77)
+    entry = {
+        "bvid": ident.bvid,
+        "work_id": ident.work_id,
+        "page_index": 0,
+        "cid": 77,
+        "title": 'A/B: "quoted"  title',
+        "pubdate_str": "2026-01-02",
+    }
+    stem = artifact_stem(ident)
+    paths = bundle_paths(root, entry)
+    assert set(paths) == {"srt_path", "txt_path", "md_path", "raw_path"}
+    assert paths["srt_path"] == root / "transcripts" / "srt" / f"{stem}.srt"
+    assert paths["txt_path"] == root / "transcripts" / "txt" / f"{stem}.txt"
+    assert paths["raw_path"] == root / "transcripts" / "raw" / f"{stem}.json"
+    assert paths["md_path"] == root / "transcripts" / "md" / f"2026-01-02_{stem}_AB quoted title.md"
+    assert all(path.is_absolute() for path in paths.values())
+
+    written = write_archive(root, entry, [{"start": 0, "end": 1, "text": "x"}], source="asr")
+    assert set(written) == set(paths)
+    assert all(root / written[key] == paths[key] for key in paths)
+
+    unresolved = bundle_paths(
+        root,
+        {"bvid": "BV1legacy", "title": "legacy", "pubdate_str": "2026-01-02", "unresolved": True},
+    )
+    no_cid = bundle_paths(
+        root,
+        {"bvid": "BV1nocid", "work_id": "BV1nocid:p0", "page_index": 0, "title": "legacy", "pubdate_str": "2026-01-02"},
+    )
+    assert unresolved["srt_path"] == root / "transcripts" / "srt" / "BV1legacy.srt"
+    assert unresolved["md_path"] == root / "transcripts" / "md" / "2026-01-02_BV1legacy_legacy.md"
+    assert no_cid["srt_path"] == root / "transcripts" / "srt" / "BV1nocid.srt"
+    assert no_cid["raw_path"] == root / "transcripts" / "raw" / "BV1nocid.json"
 
 
 
