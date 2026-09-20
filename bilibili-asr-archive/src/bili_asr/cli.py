@@ -3433,8 +3433,8 @@ def _cmd_check_asr_env(args: argparse.Namespace) -> int:
 
     1. ``$BILI_ASR_CHECK_SCRIPT`` — an explicit override, for a host that keeps
        the script somewhere unusual.
-    2. ``scripts/check_asr_env.py`` relative to this file's repository root
-       (``src/bili_asr/cli.py`` → ``../../../scripts/``), which is the checkout
+    2. ``scripts/check_asr_env.py`` relative to this file's package root
+       (``src/bili_asr/cli.py`` → ``../../scripts/``), which is the checkout
        layout every documented example assumes.
     3. ``scripts/check_asr_env.py`` under the current working directory, i.e.
        the product directory the README tells the operator to run from.
@@ -3451,8 +3451,8 @@ def _cmd_check_asr_env(args: argparse.Namespace) -> int:
     override = os.environ.get("BILI_ASR_CHECK_SCRIPT")
     if override:
         candidates.append(Path(override).expanduser())
-    # src/bili_asr/cli.py -> repository root -> scripts/
-    candidates.append(Path(__file__).resolve().parents[3] / "scripts" / "check_asr_env.py")
+    # src/bili_asr/cli.py -> package root -> scripts/
+    candidates.append(Path(__file__).resolve().parents[2] / "scripts" / "check_asr_env.py")
     candidates.append(Path.cwd() / "scripts" / "check_asr_env.py")
 
     for candidate in candidates:
