@@ -536,7 +536,7 @@
         "decision": "defer",
         "owner": "@project-manager",
         "target": "a plan that owns the operator's network-mount configuration end to end: sample the peak only where it is read (one snapshot per batch), distinguish \"measured empty\" from \"cannot measure\" (fail-closed), and add a write+fsync probe (or declare fsync-hostile mounts out of contract). Trigger: the first real corpus run with `--artifact-root` on the WebDAV mount, or any plan touching `audio_budget.py`'s call sites.",
-        "tracking": "Registered at this plan's QC gate (2026-09-19). The docs' false claim about the fsync boundary is corrected in the fix wave rather than deferred; the measurement hardening is registered because sampling design is feature-sized, not a fix-loop item. qc3's fixtures Suggestion (no regression net for any of this) belongs to the same follow-up. Scope extended at the QC re-review (2026-09-19) at qc-specialist-3's request, which held that R2 must not be closed by documentation alone.",
+        "tracking": "Registered at this plan's QC gate (2026-09-19). The docs' false claim about the fsync boundary is corrected in the fix wave rather than deferred; the measurement hardening is registered because sampling design is feature-sized, not a fix-loop item. qc3's fixtures Suggestion (no regression net for any of this) belongs to the same follow-up. Scope extended at the QC re-review (2026-09-19) at qc-specialist-3's request, which held that R2 must not be closed by documentation alone. **2026-09-20 E2E MEASUREMENT (workflow `e2e-23191782-longform-pair-webdav`, scenario A7 on the live rclone mount `/mnt/123pan`, report §R2-A7): item (ii) fail-open is CONFIRMED (an absent / dangling / non-directory `audio/` all return 0 bytes, indistinguishable from a genuinely empty tree, while the boundary layer remains separately fail-closed with a named refusal); item (iii) is CONFIRMED as a code fact (validation performs exactly 1x `open(O_DIRECTORY)`, 0 fsync, 0 write-mode opens) but the predicted late raw failure is NOT reproducible on this mount, which accepts directory fsync; item (i) is real but materially milder than framed (measured 0.39 ms empty -> 0.97 ms at 200 files on WebDAV vs 0.00-0.28 ms local - sub-millisecond absolute cost, so a 1000-row batch spends well under a second). Recommended re-scope at the next pass that owns this row: keep (ii) as the live defect, downgrade (i), and prefer declaring fsync-hostile mounts out of contract over adding a write+fsync probe. The row stays OPEN - the measurement narrows it, it does not close it.**",
         "source_plan": "iter-2026-09-artifact-root",
         "registered_at": "2026-09-19",
         "lifecycle_id": "iter-2026-09-artifact-root"
@@ -568,6 +568,50 @@
         "source_plan": "iter-2026-09-artifact-root",
         "registered_at": "2026-09-20",
         "lifecycle_id": "iter-2026-09-artifact-root"
+      }
+    ],
+    "e2e-23191782-longform-pair-webdav": [
+      {
+        "id": "R1",
+        "title": "`check-asr-env` anchors its helper script at the wrong root, so the README-published GPU self-check only works from the product root: it exits 1 with `no check script found` from the repo root and from a login shell.",
+        "severity": "low",
+        "source": "E2E workflow `e2e-23191782-longform-pair-webdav`, scenario A1 on the target host 2026-09-20 (finding F4, report §R2-A1): `cli.py` builds `Path(__file__).resolve().parents[3] / \"scripts\" / \"check_asr_env.py\"` with the comment 'src/bili_asr/cli.py -> repository root -> scripts/'; in this repository the product root is `parents[2]`, so that candidate resolves to `bilibili-asr-archive/scripts/check_asr_env.py`, which does not exist, and only `Path.cwd()/\"scripts\"/…` can hit.",
+        "scope": "`src/bili_asr/cli.py`'s `check-asr-env` handler and its script resolution. Measured: exit 0 with the full device line from the product root; exit 1 from `/mnt/c/Users/chosenecho` and from the repo root. Impact is low (a self-check, and the documented cwd works), but the failure message names two candidate paths and suggests `BILI_ASR_CHECK_SCRIPT`, which reads like a broken install rather than a wrong anchor.",
+        "decision": "defer",
+        "owner": "@project-manager",
+        "target": "the next plan that touches `src/bili_asr/cli.py`'s `check-asr-env` handler. Closing condition: the anchor resolves from the package's own location (or `parents[2]`) and a test runs the command from a cwd other than the product root.",
+        "tracking": "Registered 2026-09-20 at the E2E workflow's close, from the executor's F4. Deliberately NOT folded into a fix wave: the run was verification-only, and the defect is a published-command ergonomics bug, not a blocker. Related: the frozen spec/README publish this command as the GPU enablement self-check, which is why the anchor matters.",
+        "source_plan": "e2e-23191782-longform-pair-webdav",
+        "registered_at": "2026-09-20",
+        "lifecycle_id": "e2e-23191782-longform-pair-webdav"
+      },
+      {
+        "id": "R2",
+        "title": "A part that already carries an **AI caption** cannot be put through the audio→ASR branch at all: `derive-manifest` excludes it by design (the queue is 'no transcript'), and no shipping flag overrides that, so a local ASR transcript cannot be produced for a captioned item — and the audio branch of the two most recent iterations stays unverified on a live row.",
+        "severity": "low",
+        "source": "E2E workflow `e2e-23191782-longform-pair-webdav`, round 2 on the target host 2026-09-20 (finding F5, report §R2-A3/A4/A5/A6): the two named items turned out to serve live AI captions (`harvest-subs` stored `subtitle-ai`/`ai-zh`, 2756 and 1996 segments); the derived queue then held 61 rows and **excluded both** (`SETS EQUAL: True` against `v_pending_subtitles`), and the plan's own chain command answered `unresolved; not assigned to a page` (exit 1). The executor verified there is no back door: `_todo_for_bvid` returns `[]` and `write_archive` has no transcript-reading call site.",
+        "scope": "The audio/ASR selection surface (`download-audio --missing-subs`, `asr --pending`, `run --scope pending`, `derive-manifest`'s predicate) for parts that hold a stored transcript. Not a defect of the cap: 'subtitles first, local ASR as fallback' is the published design and every command behaved as documented. What is unverified because of it: the artifact-root product placement (`/mnt/123pan`) on a real archived row, and the audio→ASR path of `iter-2026-09-artifact-root` / `iter-2026-09-queue-bridge` on live data. The 2026-09-17 season run remains the only live audio evidence and predates both iterations.",
+        "decision": "defer",
+        "owner": "@project-manager",
+        "target": "the next planning round that decides whether the audio branch needs a live re-verification: either an explicit opt-in to run ASR for caption-bearing parts (a product decision with its own scope), or an E2E over items that genuinely lack captions. Closing condition: a live archived row produced through the audio branch on the current build, OR a recorded decision that the branch is covered by the 2026-09-17 evidence and needs no re-verification.",
+        "tracking": "Registered 2026-09-20 at the E2E workflow's close. Note for the next planner: caption availability is upstream state that changes over time (these items had none on 2026-09-17 and have AI captions on 2026-09-20), so any E2E premise about the audio branch must check caption availability first — the round-2 plan was internally inconsistent in the caption-present case (A3 allowed either outcome; A4/A5/A6 assumed the captionless one).",
+        "source_plan": "e2e-23191782-longform-pair-webdav",
+        "registered_at": "2026-09-20",
+        "lifecycle_id": "e2e-23191782-longform-pair-webdav"
+      },
+      {
+        "id": "R3",
+        "title": "A full channel enumeration is not reachable while one upload-list page is under upstream risk control: `fetch-meta` stops at the blocked page with exit 2 and a preserved cursor (correct behaviour), but there is no bounded cross-page retry/backoff and no way to step over a blocked page other than knowing to pass `--start-page`.",
+        "severity": "low",
+        "source": "E2E workflow `e2e-23191782-longform-pair-webdav`, scenario A2 on the target host 2026-09-20 (finding F6, report §R2-A2): six invocations, every one exit 2 (5x `shape_error`, 1x `rate_limited`); a direct read-only gateway probe raised `GatewayRateLimited` for page 3 while page 4 returned 30 videos. Pages 1-2 committed 60 videos / 63 parts including both target items; `observed_total=1691` means a full enumeration is currently unreachable.",
+        "scope": "`fetch-meta`'s page loop and its operational surface only. The product's failure handling is correct and resume-safe (bounded scalar code, cursor unchanged at `next_page=3 state=ready`, nothing lost) — this row covers the missing *recovery* affordance, not a bug.",
+        "decision": "defer",
+        "owner": "@project-manager",
+        "target": "the next plan that touches `fetch-meta`'s page loop (or the scheduler that calls it). Candidate closers: a bounded retry/backoff with the same exit taxonomy, an explicit skip-past-blocked-page option, or a documented operator recipe. Closing condition: one of those exists and is exercised, or the upstream block is measured to be transient and the row is closed as unneeded.",
+        "tracking": "Registered 2026-09-20 at the E2E workflow's close. Immediate operator workaround available today: `fetch-meta --start-page 4` steps over the blocked page, and the cursor makes the stop resumable. No product repair was warranted from the run itself.",
+        "source_plan": "e2e-23191782-longform-pair-webdav",
+        "registered_at": "2026-09-20",
+        "lifecycle_id": "e2e-23191782-longform-pair-webdav"
       }
     ]
   }
