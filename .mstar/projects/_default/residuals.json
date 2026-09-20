@@ -644,6 +644,120 @@
         "registered_at": "2026-09-20",
         "lifecycle_id": "e2e-23191782-longform-pair-webdav"
       }
+    ],
+    "20260920-transcript-projections": [
+      {
+        "id": "R1",
+        "title": "The projection **replaces** the manifest row it marks `archived` instead of merging, so keys the shipped chain preserves on that same transition are silently dropped (`audio_path`, `artifact_paths`, …): a part whose row still carries `audio_ok`/`audio_path` and whose transcript has since arrived in the store loses the audio reference, the `.m4a` becomes orphaned (only the chain's `_mark_archived` reclaims, and `archived` is terminal) and `coverage`/`export` read `None`.",
+        "severity": "medium",
+        "source": "Plan QC tri-review 2026-09-20, seat 2 (`review/qc2.md` F-001, Warning): `cli.py:1482-1484` upserts exactly the contract's 15 keys; `manifest.py:292-295` appends the record verbatim and `_read_latest` (`:151-177`) keeps the last record per key whole (no per-key merge); the chain performs the same transition by merging (`coordinator.py:520-527`: `_current_entry()` -> `.update(paths)` -> upsert).",
+        "scope": "`cli.py`'s projection arm and contract §5.1's recorded-row definition. Failing input is reachable: a `subtitle-*` transcript for a part whose effective manifest row carries `audio_path`/`status: audio_ok` (written by `download-audio`/`run`, `audio.py:320`, `cli.py:2467-2470`). Fix is one place — `store.upsert({**existing, **projection_row(...)})`, mirroring the chain — plus one contract §5.1 sentence. Undisclosed in both `--help` and contract §11.",
+        "decision": "defer",
+        "owner": "@project-manager",
+        "target": "**Fix wave at this plan's QC gate (CW-1), before the row leaves InReview**; if the wave does not run, the next plan touching `cli.py`'s projection arm. Closing condition: the projection merges onto the existing effective row and a case pins that a pre-existing `audio_path` survives publication.",
+        "tracking": "Registered 2026-09-20 from the QC consolidation (`review/qc-consolidated.md`, gate decision `needs fixes`). This is the strongest finding of the tri: the only one that loses information rather than mis-stating it, and the only one found by the correctness lens alone.",
+        "source_plan": "20260920-transcript-projections",
+        "registered_at": "2026-09-20",
+        "lifecycle_id": "20260920-transcript-projections"
+      },
+      {
+        "id": "R2",
+        "title": "A **hard kill** (SIGKILL/SIGTERM/OOM — `_publish_bundle` has no `finally`) inside the publication path leaks the fixed-name staging directory `transcripts/.archive-bundle-stage`, after which **every** later publication into that root fails permanently until an operator removes it; the printed line is `<work_id>: failed (OSError)`, indistinguishable from an unmounted root.",
+        "severity": "medium",
+        "source": "Plan QC tri-review 2026-09-20, seat 3 (`review/qc3.md` F3, Warning): `archive.py:224-230` / `:244-257` (the fixed-name guard, unchanged by this plan); the delivered docstring `cli.py:1337` paragraph 2 claims unconditional healing — true for a soft failure, false for a hard kill.",
+        "scope": "`archive.py`'s staging/publication guard (not this plan's diff). The docstring half of the claim **is** this plan's diff and is fix-wave scope (CW-2).",
+        "decision": "defer",
+        "owner": "@project-manager",
+        "target": "Next plan that touches `_publish_bundle`/the archive staging path. Closing condition: either the stage name becomes unique per attempt (or a stale-stage takeover rule lands) and a test pins recovery after a simulated hard kill, or the guard's refusal names the wedge so an operator can act on the printed line.",
+        "tracking": "Registered 2026-09-20 from the QC consolidation. Seat 3 named this the item it most wanted fixed before the PR; the PM split it: the sentence is corrected in the fix wave, the guard is registered because it is unchanged code outside this plan's diff.",
+        "source_plan": "20260920-transcript-projections",
+        "registered_at": "2026-09-20",
+        "lifecycle_id": "20260920-transcript-projections"
+      },
+      {
+        "id": "R3",
+        "title": "The four-product-path tuple now has **three** homes — `archive.py:18` (`_REQUIRED_ARTIFACT_KEYS`), `cli.py:1311/1315` (`_PRODUCT_PATH_KEYS`), `transcript_projection.py:88` — and **no test binds any pair**, while `archive_bundle_complete` refuses a mismatched key set (`archive.py:173`): a drift makes every published bundle unreadable to the completeness reader.",
+        "severity": "low",
+        "source": "Plan QC tri-review 2026-09-20, seats 1 and 2 independently (`qc1.md` F-001, `qc2.md` carry-over #9): grep counts 14 references and zero in `tests/`; seat 2 traced the drift as benign in every direction it could reach, seat 1 graded it Warning because the failure mode is total for the reader.",
+        "scope": "The three tuple declarations and the missing binding test. Seats 1 and 3 disagree on reachability (seat 3 holds the relative-root half unreachable because `archive.bundle_paths` has one production caller at `archive.py:487`) — the duplicate-home half stands unrefuted.",
+        "decision": "defer",
+        "owner": "@project-manager",
+        "target": "Next plan touching any of the three sites (the R2-hardening iteration touches `cli.py` and `transcript_projection.py`). Closing condition: one equality test binds the tuples, or two of the three homes are deleted in favour of one.",
+        "tracking": "Registered 2026-09-20 from the QC consolidation. Same class as `iter-2026-09-artifact-root · R3` (a pairing rule re-implemented across modules); the PM keeps them separate because the fix lands in different files.",
+        "source_plan": "20260920-transcript-projections",
+        "registered_at": "2026-09-20",
+        "lifecycle_id": "20260920-transcript-projections"
+      },
+      {
+        "id": "R4",
+        "title": "The UTC date rendering `strftime(\"%Y-%m-%d\", gmtime(pubdate))` is **copy-pasted** at `cli.py:1471-1473` and `transcript_projection.py:264` while the module docstring (`:33-37`) claims each shared rule has one home (`duration_s` *is* imported): a drift puts the published md filename and the row's `pubdate_str` out of step.",
+        "severity": "low",
+        "source": "Plan QC tri-review 2026-09-20, seat 1 (`qc1.md` F-002, Warning): `manifest_derivation.duration_s_from_ms` is imported, the date helper is not.",
+        "scope": "The two call sites and the docstring sentence that overstates the arrangement.",
+        "decision": "defer",
+        "owner": "@project-manager",
+        "target": "Same plan as R3. Closing condition: one helper is imported at both sites (or the docstring stops claiming a single home).",
+        "tracking": "Registered 2026-09-20 from the QC consolidation. Cheap (~6 lines) and exactly the class this iteration's knowledge base tracks (`claim-scope-discipline`).",
+        "source_plan": "20260920-transcript-projections",
+        "registered_at": "2026-09-20",
+        "lifecycle_id": "20260920-transcript-projections"
+      },
+      {
+        "id": "R5",
+        "title": "`already_published` is probed at the **write base** while the row stores **root-relative** paths, so re-running with a different `--artifact-root` republishes and **re-points the row's four paths**; and a transient probe read error (EIO/ESTALE/WebDAV timeout) is read as `not published`, re-publishing over a good bundle and opening the marker-invalidation window (`archive.py:239`) — bytes stay identical, but the published state the predicate exists to protect is lost. Neither behaviour is disclosed in `--help` or contract §11.",
+        "severity": "low",
+        "source": "Plan QC tri-review 2026-09-20, seat 1 (`qc1.md` F-003, Warning) and seat 3 (`qc3.md` F4, Warning) independently: `cli.py:1415`, `:1422-1425` vs the root-relative paths recorded by contract §5.4; `archive.py:205-206` returns False on a read error rather than raising.",
+        "scope": "The `already_published` predicate's base and its error semantics, plus the two disclosure surfaces. The root-change question is a **product decision** (is changing the artifact root supposed to re-point an archived row?) and is why this is registered rather than fixed in a fix wave.",
+        "decision": "defer",
+        "owner": "@project-manager",
+        "target": "The next planning round that decides artifact-root change semantics. Closing condition: the decision is recorded (either the predicate probes the row's own base and refuses to re-point, or the behaviour is published as intended) and a case pins the transient-error path.",
+        "tracking": "Registered 2026-09-20 from the QC consolidation. Two seats found it from different lenses (disclosure vs state loss), which is why it is one row and not two.",
+        "source_plan": "20260920-transcript-projections",
+        "registered_at": "2026-09-20",
+        "lifecycle_id": "20260920-transcript-projections"
+      },
+      {
+        "id": "R6",
+        "title": "The command's `--help` says it writes \"only below the artifact root and to the manifest\", but a third write site exists: `{archive_root}/coordinator/archive-writer.lock` (created by `_ARCHIVE_WRITER_COMMANDS`' lock, `cli.py:3652` + `main()` `:3733`). The sentence is **new text in this diff**, not inherited help.",
+        "severity": "low",
+        "source": "Plan QC tri-review 2026-09-20, seat 1 (`qc1.md` F-004, Warning, upgraded from carry-over #8) and seat 2 (`qc2.md` F-008, Suggestion, same anchor `cli.py:300-301`).",
+        "scope": "One help string; nothing else in the command's surface is affected.",
+        "decision": "defer",
+        "owner": "@project-manager",
+        "target": "**Fix wave at this plan's QC gate (CW-3)** — one clause; else the next plan touching the command's help text. Closing condition: the sentence names the third write or drops the word \"only\".",
+        "tracking": "Registered 2026-09-20 from the QC consolidation. Recorded so the fix is not lost if the wave does not run: the sentence is currently false of the code, which is the defect class this repository's own knowledge base documents.",
+        "source_plan": "20260920-transcript-projections",
+        "registered_at": "2026-09-20",
+        "lifecycle_id": "20260920-transcript-projections"
+      },
+      {
+        "id": "R7",
+        "title": "Corpus-scale cost in the new path: every `already_published` decision **content-reads and SHA-256s all four artifacts** (no size cap), so an idempotent re-run re-reads the entire published corpus over the mount (≈10 GB for 3 000 parts at ≈3.5 MB/bundle) and a *published* candidate re-reads what it just wrote; and `ManifestStore.upsert` re-reads and re-validates the whole JSONL per candidate (`manifest.py:280`, `:162-168`) → O(N²) in the number of candidates, an exposure new to this command because it publishes thousands of bundles in one process.",
+        "severity": "low",
+        "source": "Plan QC tri-review 2026-09-20, seat 3 (`qc3.md` F1/F2, both Warning): `cli.py:1423`, `:1479` → `archive.py:181-198`, `:127-135`; `cli.py:1482` → `manifest.py:280`.",
+        "scope": "The candidate loop's per-candidate cost, not the correctness of the completeness check (which seat 2 verified cannot accept an incomplete bundle).",
+        "decision": "defer",
+        "owner": "@project-manager",
+        "target": "The next plan touching the command's candidate loop (the R2-hardening iteration writes into the same modules). Closing condition: the manifest is loaded/written once per run and the completeness probe is bounded (size or marker-first), with a case that measures a two-candidate run's reads.",
+        "tracking": "Registered 2026-09-20 from the QC consolidation. Not a defect at fixture scale — it is a corpus-scale cost, and this command's whole purpose is corpus scale.",
+        "source_plan": "20260920-transcript-projections",
+        "registered_at": "2026-09-20",
+        "lifecycle_id": "20260920-transcript-projections"
+      },
+      {
+        "id": "R8",
+        "title": "Four smaller items from the same tri: (a) `--limit-parts` bounds the *selection* but not the **read**; (b) there is no per-candidate I/O timeout, so a hung mount blocks the run while it holds the writer flock (every other writer then sees `archive_busy`), and stdout is block-buffered when piped; (c) the duplicate product-key tuple drifts **silently and expensively** (a drift loses the fast path, so every run republishes the corpus and still exits `0`) — pin it with a one-line equality test; (d) `_winner_key` raises an uncaught `KeyError` on a fourth `source_kind`, and the entry construction (`format_work_id`, `time.gmtime`) sits outside the per-candidate guard so one bad row aborts the run.",
+        "severity": "low",
+        "source": "Plan QC tri-review 2026-09-20, seat 3 (`qc3.md` F5/F6/F7, Suggestions) and seat 2 (`qc2.md` F-002/F-011, Suggestions).",
+        "scope": "Small, independent hardening items in the command and the projection service; (c) overlaps R3's tuple duplication and is closed by the same test.",
+        "decision": "defer",
+        "owner": "@project-manager",
+        "target": "The next plan touching `transcript_projection.py` or the command's loop. Closing condition: each item is either fixed or explicitly dropped with a reason.",
+        "tracking": "Registered 2026-09-20 from the QC consolidation as one row: four Suggestions of the same scale and owner, kept together so the register stays readable.",
+        "source_plan": "20260920-transcript-projections",
+        "registered_at": "2026-09-20",
+        "lifecycle_id": "20260920-transcript-projections"
+      }
     ]
   }
 }
