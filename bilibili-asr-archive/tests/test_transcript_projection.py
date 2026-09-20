@@ -11,7 +11,10 @@ root (contract §8).  Anchors are
 facts, §5.1 the row's key set, §6 ``asr-local``.
 
 Which case earns which claim: the winner rule is cases 1–3 against the read's
-own row order, the row's key set is case 8.  The provenance absence in case 10
+own row order, the row's key set is case 8.  Case 12 is the one place the
+mirrored family rule is compared with its home instead of with a literal, and
+case 13 is the order claim case 4 cannot separate from a re-sort (both added by
+the L2 fix round; per-case notes below).  The provenance absence in case 10
 is earned inside that case — its fabricated ``asr-local`` row carries the
 non-null ``model_id`` an invented ``asr_*`` key would read, and it is published
 beside a caption row, so the case fails both on an invented key and on a row
@@ -455,3 +458,72 @@ def test_the_rendered_day_is_utc_regardless_of_the_runners_zone(monkeypatch):
     row = projection_row(candidate.part, candidate.transcript, PATHS)
 
     assert row["pubdate_str"] == "1970-01-01"
+
+
+def test_the_mirrored_family_rule_agrees_with_the_harvesters_over_its_codes():
+    """§3.2 key 2's rule is a copy, and this is what makes it a pinned copy.
+
+    ``_language_family`` mirrors ``subtitle_ingest.language_family``'s body
+    because the projection may not import that module (case 9; §8), and case 9
+    pins the *order tuple* only: an edit to the function's body — a new prefix
+    convention, or a policy that splits ``zh-Hans``/``zh-Hant`` into families —
+    would then leave this module ranking the store's rows by a stale copy with
+    every case still green.  So the comparison here runs against the harvester's
+    own function, and each row's expected family is a literal as well, which
+    keeps the loop from being satisfied by two agreeing defects.
+
+    The codes are §3.2's own where it names them: ``zh-CN``/``zh-Hant`` and the
+    machine caption's ``ai-zh``/``ai-en`` are its consequences, ``zh-Hans`` is a
+    spelling from the cited ``language_family`` docstring, ``en-US``/``de-DE``
+    are the codes case 3 ranks, and ``asr-local`` carries §6's stored kind.  This
+    file is the only place the coupling may exist.
+    """
+    codes = (
+        ("zh-CN", "subtitle-cc", "zh"),
+        ("zh-Hans", "subtitle-cc", "zh"),
+        ("zh-Hant", "subtitle-cc", "zh"),
+        ("en-US", "subtitle-cc", "en"),
+        ("de-DE", "subtitle-cc", "de"),
+        ("zh-CN", "asr-local", "zh"),
+        ("ai-zh", "subtitle-ai", "zh"),
+        ("ai-en", "subtitle-ai", "en"),
+    )
+
+    assert SOURCE_KIND_RANK[subtitle_ingest._SOURCE_KIND_BY_AI[False]] == 0
+    assert SOURCE_KIND_RANK[subtitle_ingest._SOURCE_KIND_BY_AI[True]] == 1
+    for language, source_kind, expected in codes:
+        row = _row(language=language, source_kind=source_kind)
+        assert transcript_projection._language_family(row) == expected
+        assert transcript_projection._language_family(row) == (
+            subtitle_ingest.language_family(
+                language, source_kind == subtitle_ingest._SOURCE_KIND_BY_AI[True]
+            )
+        )
+
+
+def test_ordered_candidates_keeps_the_order_it_is_given_rather_than_re_sorting():
+    """§2.1's order has one home — the read — and this is the case that measures it.
+
+    Case 4 hands the rows over in the read's own order, where a re-sort by
+    ``(bvid, page_index)`` — the read's own leading ``ORDER BY`` — is a semantic
+    no-op, so case 4 cannot tell "keeps the order it is given" from "makes one".
+    (Case 10's assertion happens to catch that re-sort, because its two parts
+    descend by bvid, but it is a key-set case, not an order case.)  The fixture
+    here is deliberately the read's order *reversed* — both bvids and both page
+    indexes descend — and the expectation is that same order: a re-sort answers
+    the ascending list instead.  Row order cannot move the winner (case 2), so
+    only the order claim is measured.
+    """
+    rows = [
+        _row(video_part_id=51, bvid="BV1bb", page_index=1),
+        _row(video_part_id=50, bvid="BV1bb", page_index=0),
+        _row(video_part_id=42, bvid="BV1aa", page_index=1),
+        _row(video_part_id=41, bvid="BV1aa", page_index=0),
+    ]
+
+    assert [candidate.work_id for candidate in ordered_candidates(rows)] == [
+        "BV1bb:p1",
+        "BV1bb:p0",
+        "BV1aa:p1",
+        "BV1aa:p0",
+    ]

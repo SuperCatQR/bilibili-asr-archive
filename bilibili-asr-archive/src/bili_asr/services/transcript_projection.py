@@ -27,8 +27,8 @@ The family rule is the harvester's own (``subtitle_ingest.language_family``), an
 it is mirrored here rather than imported: that module holds the gateway and the
 repository, so importing it would put the acquisition side inside a pure module.
 ``LANGUAGE_FAMILY_ORDER`` is declared for the same reason and a test pins it
-equal to the harvester's default order, which is what keeps the two from
-drifting silently.
+equal to the harvester's default order; the rule below is pinned the same way,
+against the harvester's own function over the codes §3.2 spells out.
 
 The two shared rules that *are* imported keep one home each:
 :func:`~bili_asr.services.manifest_derivation.duration_s_from_ms` for the
