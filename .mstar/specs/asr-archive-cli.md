@@ -41,12 +41,19 @@ bili-asr status
 
 > **Revision 2026-09-19 (iteration `iter-2026-09-artifact-root`).** The frozen list above predates the commands added
 > since (`derive-manifest`, `coverage`, `coverage --quality`, `verify`, `recover`, `export`, `search`, `schedule`,
-> `campaign`, `runs`, `reconcile`). Two operator-facing flags landed with that iteration and are part of the shipped
+> `campaign`, `runs`, `reconcile`, `publish-transcripts`). Two operator-facing flags landed with that iteration and are part of the shipped
 > surface: **`--artifact-root`** (also `BILI_ARTIFACT_ROOT`; flag wins; unset = the archive root) on the **11** commands
-> that write or read artifact paths, and **`--keep-audio` / `--no-keep-audio`** on the **5** commands that reach the
+> that then wrote or read artifact paths, and **`--keep-audio` / `--no-keep-audio`** on the **5** commands that reach the
 > reclaim path. A configured root is validated before the writer lock and refused with one of four named lines
 > (`artifact root does not exist | is not a directory | is a symlink | cannot be opened`, exit 1). Contract:
 > `{ITERATION_DIR}/iter-2026-09-artifact-root/specs/artifact-root-contract.md`.
+>
+> **Revision 2026-09-20 (iteration `iter-2026-09-transcript-projections`; sign-off for this file's change policy is
+> recorded in that iteration's `delivery-compass.md` **D15**).** Two mechanical facts move, and nothing else does. The
+> added-command enumeration above gains `publish-transcripts`, the iteration's product-writing command. With it,
+> **`--artifact-root`** is on the **12** commands that write or read artifact paths — the eleven of the 2026-09-19
+> revision plus `publish-transcripts`; `derive-manifest` is not among them, because it carries no artifact flag. No
+> requirement, no exit-taxonomy line and no behaviour changes with this revision.
 
 - Entrypoint: **`bili-asr`** (frozen; no longer "or `wmz-asr`").
 - `pilot` selects a mix: short videos preferred, ≥1 without subtitles (audio→ASR branch), ≥1 with subtitles (zero-ASR branch); `--n` may be lowered for smoke runs.

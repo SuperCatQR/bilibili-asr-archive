@@ -315,11 +315,20 @@ not migrate the rest of the archive. The ASR and pilot chain (`asr`, `pilot`,
   writes no `archive.db` row and starts no download and no ASR: the operator
   still runs `download-audio` / `asr` / `run` / `schedule` / `campaign` from the
   appended rows;
-- still deferred: rebuilding the SRT/TXT/MD projections from the stored
-  transcripts, together with the stem/version-identity decision that rebuild
-  needs. Until it lands, a part whose caption is already stored holds no
-  `srt`/`txt`/`md` bundle — and it is not re-queued for audio either, because the
-  derived queue is the no-transcript relation.
+- of the work this section used to defer, rebuilding the SRT/TXT/MD projections
+  from the stored transcripts has shipped too, as `bili-asr publish-transcripts
+  --archive-root <root> [--artifact-root <path>]`: one complete archive bundle
+  per stored part that holds a transcript — the stem `{bvid}.p{page_index}` —
+  and one `archived` manifest row per publication; a candidate it cannot publish
+  is named and the run exits `1`. It fetches nothing, and a complete published
+  bundle is never replaced, so a store that later gains a newer transcript
+  version leaves the published product as it is. Two bounds belong beside that:
+  a legacy `subtitle_done` part is published from the store and its
+  `transcripts/srt/{stem}.srt` is replaced when the legacy row was
+  page-qualified (its document under `subtitles/raw/` is not touched), and a
+  `work_id` whose manifest already carries an earlier state is outside what the
+  archive's readers currently agree on. A stored caption is not re-queued for
+  audio either, because the derived queue is the no-transcript relation.
 
 ## No-JSONL contract
 
@@ -328,9 +337,12 @@ write `manifest.jsonl`, `meta-cursor.json`, or `run-ledger.jsonl`. All persisted
 run/page evidence is scalar: `error_code` values are bounded strings of at most
 64 characters from a restricted character set. Credentials, signed URLs, raw
 response bodies, and raw exception text never enter CLI output, logs, or any
-persisted row. Neither subtitle command writes an on-disk projection of the
-transcript: no `subtitles/raw/*.json` and no `transcripts/srt/*.srt` — the
-normalized transcript lives in `archive.db`.
+persisted row. Neither of the two subtitle commands, `probe-subs` and
+`harvest-subs`, writes an on-disk projection of the transcript: neither produces
+`subtitles/raw/*.json` and neither produces `transcripts/srt/*.srt` — the
+normalized transcript lives in `archive.db` until `bili-asr publish-transcripts`
+publishes it (see
+[Boundary with the legacy manifest path](#boundary-with-the-legacy-manifest-path)).
 
 ## Credential boundary
 
