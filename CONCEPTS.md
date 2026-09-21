@@ -19,3 +19,11 @@ Project-specific domain vocabulary. General programming terms do not belong here
 | audio queue | The work the ASR/audio chain draws from the store: every stored part that holds no transcript and is not `gone`, in the repository's locked order. A part recorded `no-subtitle` is in it, and a part holding any transcript (an `asr-local` one included) is not. Not the same set as `status`'s `pending:` line, which is the metadata backlog. |
 | effective row | The row a projection hands a consumer for one ledger key: the last row in the append-only manifest for that key, keyed by `work_id` when the row carries one and by the bare `bvid` otherwise. An additive consumer must consult the ledger's own key function — writing one key form and looking up another silently misses the other bucket. |
 | artifact root | The second, operator-configured root for **products only** (`bili-asr … --artifact-root <path>` / `BILI_ARTIFACT_ROOT`): audio, transcript bundles and harvested subtitle documents are written under it, while the manifest, `archive.db`, `coordinator/` and the sidecars stay at the archive root. Unconfigured it *is* the archive root (one base, the shipped layout); configured it must already exist and the value is kept lexical, so a symlinked root is refused. Recorded artifact paths stay root-relative, and reads probe the configured root then the archive root, first hit wins — which is why an archive needs no migration. |
+
+## transcript projection
+
+The act of publishing a transcript already stored in `archive.db` as an on-disk archive bundle (srt/txt/md/raw + marker) plus one manifest row. Distinct from *acquisition* (fetching a caption or running ASR): a projection decides which stored version wins and records the result so the archive's own readers accept it. Command: `bili-asr publish-transcripts`.
+
+## already_published
+
+The predicate a projection uses to skip work: the effective manifest row **declares** the four bundle paths **and** the completeness reader confirms them at the write base. A row that declares them but fails the read is republished — which is also how an interrupted publication heals.

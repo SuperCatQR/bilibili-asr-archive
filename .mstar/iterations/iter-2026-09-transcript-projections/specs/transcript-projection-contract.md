@@ -130,8 +130,8 @@ Per `video_part_id`, the winner is the minimum under this key, applied in order:
 
 | # | Key | Direction | Source of the fact |
 |---|-----|-----------|--------------------|
-| 1 | `source_kind` rank | `subtitle-cc` (0) → `subtitle-ai` (1) → `asr-local` (2) | the shipped harvester's own preference: an uploader caption before a machine caption (`subtitle_ingest.py:140-143`, `:162`, `:164-171`; the kind mapping is `_SOURCE_KIND_BY_AI`, `:63`) |
-| 2 | language **family** rank | `zh` (0) → `en` (1) → any other family last, by code | applied through the public `language_family(language, is_ai)` (`subtitle_ingest.py:104-120`); the order `("zh", "en")` is the harvester's `_DEFAULT_LANGUAGE_FAMILY_ORDER` (`:59`), **declared** in the projection module and pinned equal by a test (§10 T3) — the `archive.CAPTURE_GAP_SECONDS` precedent for a cross-layer constant (`archive.py:296-303`) |
+| 1 | `source_kind` rank | `subtitle-cc` (0) → `subtitle-ai` (1) → `asr-local` (2) | the shipped harvester's own preference: an uploader caption before a machine caption (`subtitle_ingest.py:140-143`, `:162`, `:164-171`; the kind mapping is `_SOURCE_KIND_BY_AI`, `:61`) |
+| 2 | language **family** rank | `zh` (0) → `en` (1) → any other family last, by code | applied through the public `language_family(language, is_ai)` (`subtitle_ingest.py:104-120`); the order `("zh", "en")` is the harvester's `_DEFAULT_LANGUAGE_FAMILY_ORDER` (`:71`), **declared** in the projection module and pinned equal by a test (§10 T3 — the order half by an order-tuple comparison, the **rule** half by an equivalence case against `language_family` itself) — the `archive.CAPTURE_GAP_SECONDS` precedent for a cross-layer constant (`archive.py:296-303`) |
 | 3 | `language` code | ascending, byte order | `transcripts.language`, an IANA-family code stored trimmed (`database.py:889`, `:1043`) |
 | 4 | `version` | **descending** — the newest stored body of that identity | `read_transcript(…, version=None)`'s own "latest version of the identity" reading (`database.py:1030-1049`) |
 
@@ -273,6 +273,17 @@ entry.get("language")` for its `--source`/`--language` filters (`search_index.py
 `cli.py:438-445`). Nothing else is added: no `audio_path` (no audio exists for a caption), no `sub_lan`/
 `sub_lan_doc` (legacy subtitle keys, `subtitles.py:161-165`), no `artifact_paths` (a coordinator attempt-record
 key).
+
+**The projection merges onto the effective row; it does not replace it.** `ManifestStore.upsert` appends
+the record it is given, and `_read_latest` keeps the last record per key *whole* — there is no per-key merge
+(`manifest.py:151-177`, `:292-295`) — so whichever mapping is written **is** the row afterwards. The command
+therefore composes on the existing effective row exactly as the chain does on the same transition
+(`coordinator.py:520-527`: `_current_entry()` → `.update(paths)` → upsert) and writes
+`{**existing, **the fifteen keys above}`. A part whose row already carries `audio_path`/`artifact_paths` from
+an earlier `download-audio`/`run` **keeps them**: `archived` is terminal, only the chain's `_mark_archived`
+reclaims transient audio, and nothing else would ever re-record those keys. Read the table above as what this
+command *decides*, not as the complete key set of every row it writes. *(Added 2026-09-20 at the plan's QC
+gate; the replacement semantics were the one finding of the tri that lost information — review/qc2.md F-001.)*
 
 ### 5.2 `status: archived` — and why not the other two
 

@@ -1,7 +1,8 @@
 ---
 iteration_id: iter-2026-09-transcript-projections
 start_date: 2026-09-20
-status: locked
+end_date: 2026-09-20
+status: completed
 iteration_base_branch: main
 target_branch: main
 plans: [20260920-transcript-projections]
@@ -121,7 +122,7 @@ zero active, two `PM`-owned open rows.
 
 | plan_id | Name | Status | Notes |
 |---------|------|--------|-------|
-| `20260920-transcript-projections` | Project stored transcripts into archive bundles (and fix the `check-asr-env` anchor) | Todo | The iteration's single business plan: `{PLAN_DIR}/20260920-transcript-projections.md` — `Execution: mstar-sdd`, `QA gate: mandatory`/`targeted`. Contract: `specs/transcript-projection-contract.md` (written by the `architect` in this chain). |
+| `20260920-transcript-projections` | Project stored transcripts into archive bundles (and fix the `check-asr-env` anchor) | Done | The iteration's single business plan: `{PLAN_DIR}/20260920-transcript-projections.md` — `Execution: mstar-sdd`, `QA gate: mandatory`/`targeted`. Contract: `specs/transcript-projection-contract.md` (written by the `architect` in this chain). |
 
 **Plan split confirmed, and the contract it points at is declared.** The plan is **one** plan with **one**
 business deliverable (the projection) and the folded-in F4 fix as its own small task; the
@@ -140,8 +141,8 @@ plan.
 | Milestone | Target date | Status |
 |-----------|-------------|--------|
 | Spec freeze (Phase 1 lock) | 2026-09-20 | chain closed — round 3 (`writing-specialist`) landed; `status: locked` is the PM's, on the two `PM`-owned rows above |
-| Dev complete (plan Done) | 2026-09-20 | pending |
-| QC + QA gate | 2026-09-20 | pending |
+| Dev complete (plan Done) | 2026-09-20 | done — seven SDD tasks, each with a fresh L2 review; the row was set `Done` after both gates |
+| QC + QA gate | 2026-09-20 | done — QC tri `needs fixes` → fix wave `525841f` → three-seat revalidation all `approve with residuals` (R1/R6 closed); QA `mandatory`/`targeted` all six criteria pass |
 | Iteration close (compound + index + roadmap) | 2026-09-20 | pending |
 | PR delivery → merge-ready | 2026-09-20 | pending |
 | Separate E2E workflow re-running the live pair (user-authorised, not part of this iteration) | after delivery | pending |
@@ -293,7 +294,7 @@ is the defect ∪ advisory union, `cli.py:1564-1567`; validity reads the defect 
 
 ## Roadmap Position
 
-- **Current iteration — in progress**: close the projection half of `e2e-23191782-season-7686105 · R1`
+- **Current iteration — delivered 2026-09-20**: close the projection half of `e2e-23191782-season-7686105 · R1`
   (a supported way to publish a stored transcript as an archive bundle, so the caption path can
   produce products at all) and the folded-in `check-asr-env` anchor fix
   (`e2e-23191782-longform-pair-webdav · R1`).
@@ -367,17 +368,65 @@ the writing-specialist's hygiene pass and after every non-`PM` marker is cleared
 
 ## Quality Gate Summary
 
-Human summary only; per-plan gate details stay in the main plan, and the residual SSOT stays in
-`{PROJECT_DIR}/_default/residuals.json`. Filled at the plan's QC/QA gates.
+Human summary only; per-plan details stay in the main plan and the ephemeral review bundle
+(`{SDD_DIR}/20260920-transcript-projections/review/`). Residual SSOT:
+`{PROJECT_DIR}/_default/residuals.json` → `entries["20260920-transcript-projections"]`.
 
 | plan_id | QC decision | QA gate | Residuals | Durable summary |
-|---------|-------------|---------|-----------|-----------------|
-| `20260920-transcript-projections` | pending | pending | pending | pending |
+|---|---|---|---|---|
+| `20260920-transcript-projections` | **approve with residuals** — tri-review `needs fixes` (0 Critical / 9 Warning / 26 Suggestion) → fix wave `525841f` (CW-1 merge semantics, CW-2 docstring, CW-3 help) → three-seat targeted revalidation, all three seats `approve with residuals` | **approve with residuals** — `mandatory`/`targeted`, all six compass criteria **pass** (346 passed / 0 failed, one environment-limited fixture error) | 2 closed in place (`R1`, `R6`), **7 open**: `R2` medium, `R3`–`R5` low, `R7`–`R9` low — each with owner + trigger, none blocker-defer, **no unresolved `critical`** | plan's `## Review Gate Summary` / `## QA Gate Summary`; consolidated: `review/qc-consolidated.md`; QA: `review/qa.md` |
+
+**Open residuals disclosed (id · severity · decision · tracking location):** `R2` · medium · defer · `entries["20260920-transcript-projections"]`
+(a hard kill leaks the fixed-name stage dir and wedges the root) · `R3` · low · defer · same (the product-path tuple has three
+homes and no binding test) · `R4` · low · defer · same (duplicated UTC date rendering) · `R5` · low · defer · same
+(`already_published` base vs root-relative rows; a transient probe error re-publishes and opens the marker window) ·
+`R7` · low · defer · same (corpus-scale per-candidate cost) · `R8` · low · defer · same (four small hardening items) ·
+`R9` · low · **accept** · same (seat 2's remaining Suggestions + RP-1, no action owed). No blocker-defer rows.
 
 ## Compound Round Summary
 
-Filled at iteration-close (`mstar-compound`).
+Round run at this close (`mstar-compound`, iteration package promotion included). Screened: the iteration
+package (`specs/transcript-projection-contract.md`; `guides/` is empty by design, so `delivery-compass.md` was the
+only exclusion), the plan's implementation/debug/review material, and the QC round's own defects.
+
+**Promoted — 3 new docs, 2 updated:**
+
+| Doc | What it keeps |
+|---|---|
+| `{KNOWLEDGE_DIR}/architecture-patterns/transcript-projection-publication.md` (new) | The projection contract, structured from the 722-line spec: split the pure decision from the write; the pinned winner-rule mirror (pin the pair, do not import a network stack into a pure module); read-only store and only two write surfaces; **merge, never replace**; `already_published` = declared **and** complete (also the heal path); claim only what the store knows (no zero-filled provenance); state the hard-kill wedge instead of an unconditional healing promise. Closes the gap the live E2E measured (a store that could collect text and publish nothing). |
+| `{KNOWLEDGE_DIR}/architecture-patterns/row-merge-on-terminal-transition.md` (new) | The QC correctness seat's finding, generalized: on a transition another writer also performs, an append-only ledger read as whole-last-record **loses every key you do not emit** (measured: a pre-existing `audio_path`/`artifact_paths` dropped, the `.m4a` orphaned, readers reading `None`); exact-key addressing beats a bvid-keyed compatibility lookup; the pin is a fixture whose row already carries a key you do not write. |
+| `{KNOWLEDGE_DIR}/best-practices/premise-freshness-before-lock.md` (new) | The planning lesson of this iteration's own origin: a stored artifact is evidence of the past, not a premise for the future; run the branch-deciding probe against the live source before locking; never mix conditional and unconditional expectations in one scenario chain; report a flipped premise as one finding with its causal chain. This is the durable target of register row `e2e-23191782-longform-pair-webdav · R4`. |
+| `{KNOWLEDGE_DIR}/best-practices/claim-scope-discipline.md` (updated) | Five further instances, three of them in **written surfaces a previous review had already touched**: a register/consolidation completeness sentence that was false, a residual row asserting a claim its own source withdrew, a help sentence naming two write sites where the code had three, an acceptance criterion phrased over a field of the wrong type, and a published identity clause that outlived its context. |
+| `{KNOWLEDGE_DIR}/testing-patterns/absence-assertion-negative-control.md` (updated) | The inverted check needs a producer for the thing it forbids (and one half of it was unfalsifiable); a reader's zero must be read after the same reader reported the defect; a control that mutates no shipped line adds a constraint rather than testing one; and the correction that a **faithful reconstruction still needs its shipped call named**. |
+
+**Kept / skipped, with reasons:** the operator surface is not duplicated into knowledge — it is published in the
+product README (the new `#### Publishing stored transcripts` section) and the architecture doc points at it; the
+per-task briefs/reports and the QC seat reports stay ephemeral in `{SDD_DIR}` and are cited by path only; the
+frozen-spec revision is a repo-spec edit, not reusable guidance; the seven open residuals stay **register rows**,
+not knowledge.
+
+**Index and vocabulary:** `{KNOWLEDGE_DIR}/README.md` gained 3 rows (18 docs indexed, gate re-run at the knowledge
+root: `ok: true`); `CONCEPTS.md` gained two domain terms (`transcript projection`, `already_published`).
+
+**Registered false-positive debt, unchanged in kind:** the engine's reference-existence heuristic inside
+`mstar compound validate` fails docs whose prose contains backticked code tokens and pseudo-path citations; the
+schema gate (`validateSchemaYaml`) and the index gate (`assertIndexRows`) both pass for all three new docs, and the
+heuristic's false positives remain the already-registered class `iter-2026-09-text-and-ledger-precision · R1`. One
+genuine reference in the new doc was fixed rather than declared acceptable (a pseudo-path token was rewritten as the
+real repository path).
+
+- 结晶文档数：**3 新增 + 2 更新**（`{KNOWLEDGE_DIR}` 共 18 篇）
+- 新增 CONCEPTS.md 条目：**2**
+- 触发 compound-refresh：**否**
 
 ## Iteration Retrospective (minimal)
 
-Filled at iteration-close.
+- **做得好的**：把"QC 三席并审"用在**跨任务盲点**上真见效 —— 唯一"丢信息"的缺陷（投影替换行、丢掉 `audio_path` 并让 `.m4a` 变孤儿）
+  是**正确性透镜**单独发现的，per-task 的 L2 轮次结构上看不到它，因为写入方自己的契约是满足的。同样的并审还抓出"元组三个家且无绑定测试"、
+  "help 句子漏了第三个写入点"这类只有横向比较才看得见的东西。SDD 的每任务 fresh reviewer 也守住了底线（七任务全 Approved，只 T3 走了一轮 fix loop）。
+- **可改进的**：本迭代的**文档真相**欠账几乎与代码欠账一样多，且反复出现在同一类地方（register 的完整性声明、help 的无条件断言、
+  docstring 的自愈承诺、验收标准的字段类型）。三次都是评审抓到的，不是作者自查到的。
+- **下迭代建议**：① 把"写完论断后问一句『这条能被最宽的输入证伪吗』"前移到作者动作（本轮已把这条并入 `claim-scope-discipline`）；
+  ② QC 修复轮按**发现**派席而不是按"整轮重跑"，本轮证明三席 targeted revalidation 成本低而结论可信；
+  ③ 计划/scope 里的**活前提**必须当场探测（新 `premise-freshness-before-lock` 文档），本轮 4/9 场景失败即此一条。
+

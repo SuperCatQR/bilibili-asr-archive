@@ -330,31 +330,25 @@ in committed files or CI artifacts.
 ## Workflow
 
 ⚠️ **The `probe-subs` / `harvest-subs` pair writes to `archive.db`, not to the
-manifest; `bili-asr derive-manifest` carries that store's audio queue across, and
-`bili-asr publish-transcripts` carries its transcripts out as bundles.** The
-ASR/pilot chain
+manifest; `bili-asr derive-manifest` is what carries that store's audio queue
+across.** The ASR/pilot chain
 (`download-audio`, `asr`, `pilot`, `run`, `schedule`, `campaign`) is still driven
 from `manifest/manifest.jsonl`, and `harvest-subs` still marks no rows
 `needs_audio` itself: `derive-manifest` appends a `needs_audio` row for every
 stored part that holds no transcript and is not `gone`, so
 `download-audio --missing-subs` now does gain entries from the step above it —
 additively, and without rewriting a row the chain already holds. What still does
-not cross: `asr --pending` does not see the stored transcripts. What does come
-out: `publish-transcripts` ranges over every stored part that holds a transcript,
-publishes it as a complete archive bundle and records each publication as an
-`archived` row — a candidate it cannot publish is named and the run exits `1` —
-and it fetches nothing. Run the subtitle step, the publication and the derivation
-for the SQLite archive itself; the legacy chain keeps its own harvest (see the
-boundary bullet under
-[Subtitle acquisition on SQLite](#subtitle-acquisition-on-sqlite-probe-subs--harvest-subs),
-the [derived audio queue](#derived-audio-queue-bili-asr-derive-manifest) and
-[publishing stored transcripts](#publishing-stored-transcripts-bili-asr-publish-transcripts)).
+not cross: `asr --pending` does not see the stored transcripts, and no SRT/TXT/MD
+projection is rebuilt from them. Run the subtitle step and the derivation for the
+SQLite archive itself; the legacy chain keeps its own harvest (see the boundary
+bullet under
+[Subtitle acquisition on SQLite](#subtitle-acquisition-on-sqlite-probe-subs--harvest-subs)
+and the [derived audio queue](#derived-audio-queue-bili-asr-derive-manifest)).
 
     bili-asr fetch-meta --mid 23191782 --archive-root archive
     bili-asr probe-subs --limit-parts 5 --archive-root archive
     bili-asr harvest-subs --limit-parts 5 --archive-root archive
     bili-asr derive-manifest --archive-root archive
-    bili-asr publish-transcripts --archive-root archive [--artifact-root <path>]
     bili-asr download-audio --missing-subs --archive-root archive [--artifact-root <path>]
     bili-asr asr --pending --archive-root archive [--artifact-root <path>] [--keep-audio | --no-keep-audio]
     bili-asr status --archive-root archive
@@ -377,11 +371,11 @@ the [derived audio queue](#derived-audio-queue-bili-asr-derive-manifest) and
     bili-asr evaluate-concurrency --evidence evidence.json --thresholds thresholds.json
 
 Bracketed groups are the **optional** flags: `[--artifact-root <path>]` on the
-twelve commands that resolve an artifact path, and `[--keep-audio |
+eleven commands that resolve an artifact path, and `[--keep-audio |
 --no-keep-audio]` on the five that archive rows and therefore reclaim audio
 (see [Where the artifacts go](#where-the-artifacts-go) and
 [Audio retain, reclaim and the disk cap](#audio-retain-reclaim-and-the-disk-cap)).
-The six commands without either bracket — `fetch-meta`, `status`, `runs`,
+The seven commands without either bracket — `fetch-meta`, `status`, `runs`,
 `probe-subs`, `harvest-subs`, `derive-manifest` — deliberately do not declare
 them: each resolves no artifact path, and an accepted-but-ignored flag would be a
 false statement in the interface.
@@ -1013,10 +1007,8 @@ observed live run, is in
   feeds `download-audio --missing-subs` from this path, by appending one
   `needs_audio` row per captionless part (see the
   [derived audio queue](#derived-audio-queue-bili-asr-derive-manifest)).
-  `bili-asr publish-transcripts` is the way back out of the store: it publishes a
-  stored transcript as a complete archive bundle and records the publication
-  `archived` (see
-  [publishing stored transcripts](#publishing-stored-transcripts-bili-asr-publish-transcripts)).
+  Rebuilding the SRT/TXT/MD projections from the stored transcripts is still
+  deferred work for a later iteration.
 - **Writer lock**: `harvest-subs` is an archive-writer command and holds
   `{archive-root}/coordinator/archive-writer.lock` for the whole run, so a
   second mutating command exits `1` with `harvest-subs: archive_busy`. Apart
@@ -1053,10 +1045,8 @@ and is not `gone` — the relation `harvest-subs` reports as
   ASR work starts.
 - **Does not do**: materialise a subtitle document, derive a `subtitle_done` (or
   `audio_ok` / `asr_done` / `archived` / `gone`) row, migrate or import anything
-  in either direction, or change or widen the store's schema. Publishing a stored
-  transcript as a bundle is the other direction and the other command:
-  `bili-asr publish-transcripts` (see
-  [publishing stored transcripts](#publishing-stored-transcripts-bili-asr-publish-transcripts)).
+  in either direction, change or widen the store's schema, or rebuild the
+  SRT/TXT/MD projections from the stored transcripts.
 - **Output shapes**: one line per appended row
   `<work_id>: needs_audio (duration_s=<n>)`, then one `skip <work_id> <reason>`
   line for each row left to the chain (`chain_owned`) and each row whose stored
@@ -1100,10 +1090,11 @@ and is not `gone` — the relation `harvest-subs` reports as
   `asr_done` row included, so a bounded run re-downloads and re-runs work the
   chain already finished. The row itself is never rewritten and the artifact
   lands at the page-qualified stem, so nothing is overwritten; the cost is
-  repeated work, registered as `iter-2026-09-queue-bridge · R2`. And a stored
-  caption is not this command's product: it holds no `srt`/`txt`/`md` bundle
-  until `bili-asr publish-transcripts` publishes one, and it is not re-queued for
-  audio either, because the derived queue is the no-transcript relation.
+  repeated work, registered as `iter-2026-09-queue-bridge · R2`. And the
+  SRT/TXT/MD projection rebuild stays out of this iteration: a stored caption
+  keeps no `srt`/`txt`/`md` bundle until
+  that rebuild lands, and it is not re-queued for audio either, because the
+  derived queue is the no-transcript relation.
 - **Append cost, bounded analytically (not measured)**: each appended row is one
   locked re-read of the whole ledger plus two `fsync` calls, and the whole
   derivation runs under the archive-writer lock, so appending `N` rows to an
@@ -1112,86 +1103,6 @@ and is not `gone` — the relation `harvest-subs` reports as
   measurement was taken on a real archive, so a first full-queue derivation
   should be treated as holding the writer lock for a duration this iteration
   does not state.
-
-#### Publishing stored transcripts (`bili-asr publish-transcripts`)
-
-`bili-asr publish-transcripts` publishes the transcripts `archive.db` already
-holds as complete archive bundles under the configured artifact root, and records
-each publication as an `archived` row: it is the way out of the store, where
-[`derive-manifest`](#derived-audio-queue-bili-asr-derive-manifest) is the way into
-the chain.
-
-    bili-asr publish-transcripts --archive-root archive [--artifact-root <path>]
-
-- **Command surface**: `--bvid <bvid[:pN]>` (`bvid` = every stored part of that
-  video, `bvid:pN` = exactly that part), `--limit-parts N` (positive integer,
-  bounds the run in parts), and `--archive-root` / `--artifact-root`. No
-  `--keep-audio` / `--no-keep-audio`: it archives no audio, so it reclaims none.
-- **Range**: every stored part that holds at least one stored transcript,
-  whatever its `processing_status` — a `gone` part still holds local text and is
-  a candidate. A part with no transcript is out of range: that is
-  `derive-manifest`'s queue, filled by the append above.
-- **Reads**: `{archive-root}/archive.db`, opened **read-only**, with the same
-  bounded lines and exit `1` the other store commands print for a missing,
-  unreadable, or pre-transcript-schema database. A selector that resolves to no
-  stored part is the configuration error
-  `publish-transcripts: unknown --bvid <value>`, exit `1`.
-- **Writes**: the four families `transcripts/{srt,txt,md,raw}/…` and their
-  `.bundle-ready` marker under the configured root (the archive root when none is
-  configured), plus one appended row per publication in `manifest/manifest.jsonl`
-  — `status: archived`, the four root-relative `*_path` values, and the winner's
-  `source` / `language`. Nothing is written back into `archive.db`, and no
-  `subtitles/raw/` document and no audio are produced.
-- **Fetches nothing**: no network, no download, no ASR — the bytes are the
-  store's. The command holds the archive-writer lock like the other writers, so a
-  second mutating command exits `1` with `publish-transcripts: archive_busy`.
-- **Already published**: a candidate whose effective row declares all four
-  product paths and whose marker the completeness reader confirms at the
-  configured root prints `<work_id>: already_published`, and **nothing is
-  written** for it — no file, no marker, no row. A complete published bundle is
-  never replaced, so a store that later gains a newer transcript version leaves
-  the published product as it is; a publication the reader does not confirm is
-  published again on the next run.
-- **One bundle per part**: a part holding two stored transcript identities
-  publishes exactly one of them — the winner is `subtitle-cc` before
-  `subtitle-ai` before `asr-local`, then the preferred language, then the highest
-  `version` — and the other stays in the store. The run names the winner on every
-  published line:
-  `<work_id>: published (source=<kind> lang=<language> version=<v> cues=<n>) <md path>`,
-  whose `<md path>` is the recorded root-relative form, not a filesystem path.
-- **A legacy `subtitle_done` part is republished**: such a row declares no
-  complete bundle, so the four families are published from the store's transcript
-  and **that part's `transcripts/srt/{stem}.srt` is replaced** when the legacy row
-  was page-qualified (a bare-`bvid` legacy row's file is named after the `bvid`
-  alone and is not touched); the legacy document under `subtitles/raw/` is never
-  touched.
-- **`asr-local` is in range**: the source kind is not filtered, and the writer's
-  `source` is the stored kind verbatim — so a store that ever holds such a row
-  publishes it with `source: "asr-local"` and no `asr_*` provenance keys. No
-  shipped command writes one, so this is a disclosed gap rather than a state the
-  CLI can reach today.
-- **A row that already carries an earlier manifest state is outside what the
-  archive's readers currently agree on**: the projection appends its `archived`
-  row to whatever history that `work_id` already has.
-- **Output and exit codes**: the three per-candidate lines above, then
-  `publish-transcripts: candidates=<n> published=<n> already_published=<n>
-  failed=<n>`, carrying every count including the zeros. Exit `0` when every
-  candidate is published or already published — a run with no candidate at all
-  included; exit `1` when the command cannot keep its promise (a usage or
-  configuration error, a held writer lock, or a candidate whose bundle could not
-  be published: that part's line is `failed (<reason>)`, a bounded redacted
-  scalar, and the summary still prints). No path of this command produces `2`.
-- **What reads the rows**: the manifest readers pick them up unchanged —
-  `verify --trusted-local` requires the four families plus the marker instead of
-  reporting the row `retryable_incomplete`, `coverage` / `coverage --quality`
-  count the artifacts, and `export` / `search` read the row's `source` /
-  `language`. `derive-manifest`'s relation is the no-transcript view, so
-  publishing a transcript neither adds to that queue nor removes from it.
-- **Limits, stated**: the store is read and never written, so a published row
-  changes no `processing_status`, and no part is re-queued for audio. The
-  command keeps no progress record of its own — its only state is the manifest
-  row it appends — so a bounded `--limit-parts` run leaves no trace of the
-  candidates it did not reach.
 
 #### Opt-in bounded live smokes
 
