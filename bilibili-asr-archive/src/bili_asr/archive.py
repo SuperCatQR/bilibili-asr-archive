@@ -449,6 +449,27 @@ def _capture_summary(segments: list[dict[str, Any]], duration_s: Any) -> dict[st
     return summary
 
 
+def bundle_paths(root: str | os.PathLike[str], entry: dict[str, Any]) -> dict[str, Path]:
+    """Return the four artifact paths one entry's bundle occupies below ``root``.
+
+    The names are the writer's rule: ``archive_stem(entry)`` for the srt, txt
+    and raw families, and ``"{pubdate_str}_{stem}_{_safe_name(title)}.md"`` for
+    the markdown one.  ``root`` is used exactly as given, so a relative root
+    yields relative paths; ``write_archive`` passes the root it has already
+    resolved lexically.
+    """
+    base = Path(os.fspath(root))
+    stem = archive_stem(entry)
+    bvid = str(entry["bvid"])
+    dirs = {name: base / "transcripts" / name for name in ("srt", "txt", "md", "raw")}
+    return {
+        "srt_path": dirs["srt"] / f"{stem}.srt",
+        "txt_path": dirs["txt"] / f"{stem}.txt",
+        "md_path": dirs["md"] / f"{entry.get('pubdate_str', 'unknown')}_{stem}_{_safe_name(str(entry.get('title') or bvid))}.md",
+        "raw_path": dirs["raw"] / f"{stem}.json",
+    }
+
+
 def write_archive(archive_root: str | os.PathLike[str], entry: dict[str, Any], segments: list[dict[str, Any]], *, source: str, raw: Any | None = None, asr_provenance: Mapping[str, str] | None = None) -> dict[str, str]:
     """Publish one transcript bundle below the archive root.
 
@@ -462,13 +483,8 @@ def write_archive(archive_root: str | os.PathLike[str], entry: dict[str, Any], s
         root = _lexical_archive_root(archive_root)
     except OSError as exc:
         raise OSError("archive publication path is unsafe") from exc
-    stem = archive_stem(entry)
-    dirs = {name: root / "transcripts" / name for name in ("srt", "txt", "md", "raw")}
     bvid = str(entry["bvid"])
-    srt_path = dirs["srt"] / f"{stem}.srt"
-    txt_path = dirs["txt"] / f"{stem}.txt"
-    md_path = dirs["md"] / f"{entry.get('pubdate_str', 'unknown')}_{stem}_{_safe_name(str(entry.get('title') or bvid))}.md"
-    raw_path = dirs["raw"] / f"{stem}.json"
+    finals = bundle_paths(root, entry)
     frontmatter = {"bvid": bvid, "title": entry.get("title", ""), "date": entry.get("pubdate_str", ""), "duration_s": entry.get("duration_s", 0), "source": source, "url": archive_url(entry)}
     if source == "asr":
         frontmatter.update(_capture_summary(segments, frontmatter["duration_s"]))
@@ -482,7 +498,6 @@ def write_archive(archive_root: str | os.PathLike[str], entry: dict[str, Any], s
         raw = {"segments": segments, "source": source}
         if asr_provenance:
             raw["provenance"] = dict(asr_provenance)
-    finals = {"srt_path": srt_path, "txt_path": txt_path, "md_path": md_path, "raw_path": raw_path}
     contents = {"srt_path": segments_to_srt(segments).encode(), "txt_path": (segments_to_txt(segments) + "\n").encode(), "md_path": md, "raw_path": (json.dumps(raw, ensure_ascii=False, indent=2) + "\n").encode()}
     _publish_bundle(root, finals, contents)
     return {key: os.path.relpath(path, root) for key, path in finals.items()}

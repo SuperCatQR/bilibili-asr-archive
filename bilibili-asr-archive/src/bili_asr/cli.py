@@ -35,9 +35,9 @@ from .config import (
 
 DEFAULT_ARCHIVE_ROOT = os.path.join("archive")
 
-#: The `--artifact-root` help.  One string for the eleven commands that carry it
+#: The `--artifact-root` help.  One string for the twelve commands that carry it
 #: (spec §9): the flag's meaning, the environment fallback and the default are one
-#: contract, and eleven copies of it would be eleven chances to describe it differently.
+#: contract, and twelve copies of it would be twelve chances to describe it differently.
 _ARTIFACT_ROOT_HELP = (
     f"Root for audio/transcript products (or env {ARTIFACT_ROOT_ENV_VAR}); "
     "default: the archive root. Must already exist"
@@ -286,6 +286,39 @@ def build_parser() -> argparse.ArgumentParser:
         "--archive-root", default=DEFAULT_ARCHIVE_ROOT,
         help="Archive root directory (default: ./archive)",
     )
+
+    publish = subparsers.add_parser(
+        "publish-transcripts",
+        help="Publish the stored transcripts as archive bundles (fetches nothing)",
+        description=(
+            "Publish the stored transcripts as complete archive bundles: the four "
+            "artifact families plus the bundle marker under the configured artifact "
+            "root, and one archived manifest row per publication. The range is every "
+            "stored part that holds a transcript, whatever its processing status — a "
+            "gone part still holds local text — and --bvid narrows it to one video or "
+            "one part. The command fetches nothing: no network, no download, no ASR. "
+            "It reads archive.db read-only and writes the products below the "
+            "artifact root, one row to the manifest and the archive-writer lock "
+            "under <archive_root>/coordinator/, and a complete published bundle is "
+            "never replaced, so a store that later gains a newer transcript version "
+            "leaves the published product as it is. A row that already carries an "
+            "earlier manifest state is outside what the archive's readers currently "
+            "agree on."
+        ),
+    )
+    publish.add_argument(
+        "--bvid", default=None,
+        help="Bvid, or bvid:pN for one part, already in the archive database",
+    )
+    publish.add_argument(
+        "--limit-parts", type=int, default=None,
+        help="Bound the run to the first N stored parts holding a transcript",
+    )
+    publish.add_argument(
+        "--archive-root", default=DEFAULT_ARCHIVE_ROOT,
+        help="Archive root directory (default: ./archive)",
+    )
+    publish.add_argument("--artifact-root", default=None, help=_ARTIFACT_ROOT_HELP)
 
     run_cmd = subparsers.add_parser(
         "run",
@@ -1274,6 +1307,215 @@ def _cmd_derive_manifest(args: argparse.Namespace) -> int:
         print(f"skip {work_id} {SKIP_IDENTITY_MISMATCH}")
     _print_summary(len(outcome.appended))
     return 0
+
+
+#: The four product keys a publication records and a recorded row declares
+#: (contract §5.1).  Kept as the command's own tuple rather than reached for
+#: through ``archive``'s private one: the row's four keys and the writer's four
+#: writes are the same vocabulary, and the writer's return is what supplies the
+#: values (``archive.py:488``, root-relative — exactly the recorded form).
+_PRODUCT_PATH_KEYS = ("srt_path", "txt_path", "md_path", "raw_path")
+
+
+def _declared_bundle_paths(row: Any) -> dict[str, str] | None:
+    """Return the four product paths a recorded row declares, or ``None`` (§5.4).
+
+    ``None`` means the row declares no bundle — it is absent, it is a legacy
+    ``subtitle_done`` row carrying ``srt_path`` alone (``subtitles.py:160-165``),
+    or one of the four values is not a string — and such a candidate is
+    published rather than skipped.  The strings are read from the row itself and
+    never re-derived: the question §5.4 asks is what the manifest records, and a
+    re-derivation would disagree with it the moment a title or a pubdate moved.
+    """
+
+    if not row:
+        return None
+    declared = {key: row.get(key) for key in _PRODUCT_PATH_KEYS}
+    if not all(isinstance(value, str) for value in declared.values()):
+        return None
+    return declared
+
+
+def _cmd_publish_transcripts(args: argparse.Namespace) -> int:
+    """Publish the stored transcripts as complete archive bundles (contract §7).
+
+    ``cli.py`` composes the layers here, as the cross-layer rule requires: the
+    store is read through ``TranscriptRepository`` on the read-only connection,
+    the winner and the manifest row are the pure service's, the publication is
+    the shipped archive writer, and the record is ``ManifestStore``.  Nothing is
+    written back into ``archive.db``.
+
+    Per candidate, in the read's locked order: a row that already declares a
+    **complete** bundle at the write base is ``already_published`` and nothing is
+    written for it — no file, no marker, no row (§5.4) — which is what makes a
+    second run byte-identical.  Otherwise the winner's stored body is read,
+    mapped to the writer's segment shape, published under the write base,
+    re-asked of the same completeness reader ``verify`` calls, and only then
+    recorded (§5.1's fifteen keys merged into the row the part already has,
+    ``status: archived``).  A publication the reader does not confirm is
+    ``failed`` and records no row.  When the writer unwound — it returned, raised
+    or was interrupted by ``Ctrl-C`` — its staging directory is gone and the next
+    pass republishes the bundle: that is the state a run killed between its write
+    and its ``upsert`` leaves behind.  A termination that does not unwind the
+    writer — ``SIGKILL``, ``SIGTERM`` at its default disposition, the OOM killer —
+    leaves the fixed-name ``transcripts/.archive-bundle-stage`` in place instead,
+    and the writer then refuses every later publication into that root — each
+    candidate reporting ``failed (OSError)`` — until an operator removes it.
+
+    Every line's ``<reason>`` is a bounded redacted scalar (§7): this command's
+    own two literals ``empty_transcript`` / ``bundle_incomplete`` where it
+    decides, and ``coordinator._safe_error_code`` otherwise — never an exception
+    message, a path or a URL.
+
+    Exit taxonomy: ``0`` when every candidate is published or already published,
+    including a run with no candidate at all; ``1`` for a usage/configuration
+    error (a refused artifact root, an unknown ``--bvid``, a non-positive
+    ``--limit-parts``, a missing or unreadable database, the transcript-schema
+    guard, a held archive-writer lock) and for a candidate that could not be
+    published.  No path of this command produces ``2``: it opens no socket, and
+    ``_UsageErrorArgumentParser`` maps argparse's own usage exit to ``1``.
+    """
+    from . import archive
+    from .coordinator import _safe_error_code
+    from .manifest import ManifestStore
+    from .services.manifest_derivation import duration_s_from_ms
+    from .services.transcript_projection import (
+        ordered_candidates,
+        projection_row,
+        writer_segments,
+    )
+    from .storage import TranscriptRepository
+
+    if args.limit_parts is not None and args.limit_parts < 1:
+        print(
+            "publish-transcripts: --limit-parts must be a positive integer",
+            file=sys.stderr,
+        )
+        return 1
+    bvid, page_index = _subtitle_selector(args.bvid)
+    if bvid is not None and _selector_cannot_name_a_part(bvid):
+        # The same configuration error as an unknown bvid, decided on the
+        # argument alone and before the database is opened: a selector the
+        # storage identifier rule cannot hold names no part in any database.
+        print(f"publish-transcripts: unknown --bvid {args.bvid}", file=sys.stderr)
+        return 1
+    connection = _open_subtitle_connection(
+        "publish-transcripts", args.archive_root, read_only=True
+    )
+    if connection is None:
+        return 1
+    candidates: tuple[Any, ...] = ()
+    published = already_published = failed = 0
+    try:
+        repository = TranscriptRepository(connection)
+        if bvid is not None and not repository.list_selected_parts(bvid, page_index):
+            # "Unknown" ranges over the store's part relation, not over the
+            # candidate set: a stored part that holds no transcript is known and
+            # yields zero candidates, exit 0 (§2.2).
+            print(f"publish-transcripts: unknown --bvid {args.bvid}", file=sys.stderr)
+            return 1
+        candidates = ordered_candidates(
+            (dict(row) for row in repository.list_stored_transcripts(bvid, page_index)),
+            args.limit_parts,
+        )
+        store = ManifestStore(root=args.archive_root)
+        recorded = store.load()
+        write_base = args.artifact_roots.write_base
+        for candidate in candidates:
+            work_id = candidate.work_id
+            part = candidate.part
+            kind = candidate.transcript["source_kind"]
+            language = candidate.transcript["language"]
+            version = candidate.transcript["version"]
+            declared = _declared_bundle_paths(recorded.get(work_id))
+            if declared is not None and archive.archive_bundle_complete(
+                write_base, declared
+            ):
+                # Probed at the write base, deliberately (§5.4): the promise is
+                # that the products are under the configured root, and asking
+                # every read base would answer `already_published` for a bundle
+                # the configured root does not hold.
+                already_published += 1
+                print(f"{work_id}: already_published")
+                continue
+
+            reason: str | None = None
+            written: dict[str, str] = {}
+            try:
+                record = repository.read_transcript(
+                    part["video_part_id"], kind, language, version
+                )
+            except Exception as exc:
+                # One candidate's read failing is that candidate's failure: the
+                # rest of the run still publishes and the summary still counts.
+                reason = str(_safe_error_code(exc))
+            if reason is None and record is None:
+                # Unreachable for the identity this run's own read just answered
+                # — a stored version is never deleted and no shipped writer
+                # deletes one — kept bounded rather than assumed, so a store that
+                # moved under the run reports a failed candidate instead of
+                # raising out of the loop.
+                reason = str(_safe_error_code(LookupError()))
+            if reason is None:
+                try:
+                    segments = writer_segments(record.segments)
+                except ValueError:
+                    # §7's own literal.  A stored transcript is never empty
+                    # (`storage/models.py:382-383`), so this names a shape the
+                    # store cannot deliver rather than a live path.
+                    reason = "empty_transcript"
+            if reason is None:
+                # The writer's entry: the part's own facts plus §3.4's two
+                # renderings, which are the values `projection_row` records one
+                # layer down — the frontmatter is built from this entry, so the
+                # date and the seconds have to be resolved before the write.
+                entry = {
+                    "bvid": part["bvid"],
+                    "work_id": work_id,
+                    "page_index": part["page_index"],
+                    "cid": part["cid"],
+                    "title": part["part_title"],
+                    "duration_s": duration_s_from_ms(part["duration_ms"]),
+                    "pubdate_str": time.strftime(
+                        "%Y-%m-%d", time.gmtime(part["pubdate"])
+                    ),
+                }
+                try:
+                    written = archive.write_archive(
+                        write_base, entry, segments, source=kind
+                    )
+                    if not archive.archive_bundle_complete(write_base, written):
+                        reason = "bundle_incomplete"
+                    else:
+                        # Merged into the effective row, the way the chain's own
+                        # ``archived`` transition merges (``coordinator.py:520-527``
+                        # reads the current entry, updates it and upserts it): the
+                        # projection's own keys win, and every key the fifteen do
+                        # not restate — ``audio_path``, ``artifact_paths`` — is
+                        # carried over, so the row keeps naming what it named.
+                        merged = {
+                            **(recorded.get(work_id) or {}),
+                            **projection_row(part, candidate.transcript, written),
+                        }
+                        store.upsert(merged)
+                except Exception as exc:
+                    reason = str(_safe_error_code(exc))
+            if reason is not None:
+                failed += 1
+                print(f"{work_id}: failed ({reason})")
+                continue
+            published += 1
+            print(
+                f"{work_id}: published (source={kind} lang={language} "
+                f"version={version} cues={len(segments)}) {written['md_path']}"
+            )
+    finally:
+        connection.close()
+    print(
+        f"publish-transcripts: candidates={len(candidates)} published={published} "
+        f"already_published={already_published} failed={failed}"
+    )
+    return 1 if failed else 0
 
 
 def _cmd_download_audio(args: argparse.Namespace) -> int:
@@ -3207,8 +3449,8 @@ def _cmd_check_asr_env(args: argparse.Namespace) -> int:
 
     1. ``$BILI_ASR_CHECK_SCRIPT`` — an explicit override, for a host that keeps
        the script somewhere unusual.
-    2. ``scripts/check_asr_env.py`` relative to this file's repository root
-       (``src/bili_asr/cli.py`` → ``../../../scripts/``), which is the checkout
+    2. ``scripts/check_asr_env.py`` relative to this file's package root
+       (``src/bili_asr/cli.py`` → ``../../scripts/``), which is the checkout
        layout every documented example assumes.
     3. ``scripts/check_asr_env.py`` under the current working directory, i.e.
        the product directory the README tells the operator to run from.
@@ -3225,8 +3467,8 @@ def _cmd_check_asr_env(args: argparse.Namespace) -> int:
     override = os.environ.get("BILI_ASR_CHECK_SCRIPT")
     if override:
         candidates.append(Path(override).expanduser())
-    # src/bili_asr/cli.py -> repository root -> scripts/
-    candidates.append(Path(__file__).resolve().parents[3] / "scripts" / "check_asr_env.py")
+    # src/bili_asr/cli.py -> package root -> scripts/
+    candidates.append(Path(__file__).resolve().parents[2] / "scripts" / "check_asr_env.py")
     candidates.append(Path.cwd() / "scripts" / "check_asr_env.py")
 
     for candidate in candidates:
@@ -3423,6 +3665,7 @@ _ARCHIVE_WRITER_COMMANDS = frozenset({
     "asr",
     "pilot",
     "derive-manifest",
+    "publish-transcripts",
     "harvest-subs",
     "download-audio",
     "run",
@@ -3454,6 +3697,8 @@ def _dispatch_command(args: argparse.Namespace) -> int:
         return _cmd_harvest_subs(args)
     if args.command == "derive-manifest":
         return _cmd_derive_manifest(args)
+    if args.command == "publish-transcripts":
+        return _cmd_publish_transcripts(args)
     if args.command == "download-audio":
         return _cmd_download_audio(args)
     if args.command == "search":

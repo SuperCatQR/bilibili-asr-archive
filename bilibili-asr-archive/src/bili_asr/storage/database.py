@@ -732,11 +732,11 @@ class TranscriptRepository:
       or ``'failed'`` attempt and commits it.
     - ``read_transcript``, ``list_transcript_versions``,
       ``list_pending_subtitle_parts``, ``count_pending_subtitle_parts``,
-      ``list_selected_parts`` and ``read_video_pubdates`` — the class's only read
-      of the ``videos`` table, which :class:`MetadataRepository` owns — never
-      write and never commit: they return the
-      stored rows as they are — a typed ``TranscriptRecord`` for one stored
-      version, ``sqlite3.Row`` view data otherwise.
+      ``list_selected_parts``, ``list_stored_transcripts`` and
+      ``read_video_pubdates`` — the class's reads of the ``videos`` table, which
+      :class:`MetadataRepository` owns — never write and never commit: they
+      return the stored rows as they are — a typed ``TranscriptRecord`` for one
+      stored version, ``sqlite3.Row`` view data otherwise.
 
     Versions are immutable: no method rewrites or deletes a transcript row, a
     segment row, or an attempt row, and no method recomputes the outcome of a
@@ -1200,6 +1200,52 @@ class TranscriptRepository:
                 "WHERE vp.bvid = ? AND vvp.page_index = ?"
             )
             parameters = (bvid, _integer(page_index, "page_index", minimum=0))
+        return list(self.connection.execute(query, parameters).fetchall())
+
+    def list_stored_transcripts(
+        self, bvid: str | None = None, page_index: int | None = None
+    ) -> list[sqlite3.Row]:
+        """Return one row per stored transcript version with its part context.
+
+        The relation is over ``transcripts``, not over parts: a part holding
+        several stored versions appears once per version, and every row repeats
+        its part's columns and its video's ``pubdate``, which is what lets a
+        caller pick one winner per part without a second query.  Membership is
+        the join to ``transcripts`` and nothing else: no ``processing_status``
+        predicate narrows it, so a part whose status is ``gone`` is a row here
+        when the store holds its text.
+
+        ``bvid`` and ``page_index`` each add one predicate when they are given
+        and neither narrows the read when it is absent.  A selector naming no
+        stored part — an unknown bvid, or a stored part holding no transcript —
+        yields no row rather than an invented one.  The order ``bvid,
+        page_index, source_kind, language, version DESC`` lives in this query,
+        not in the caller, and it is deterministic row-for-row.  Read-only: no
+        write, no commit.
+        """
+        where_clauses: list[str] = []
+        parameters: list[object] = []
+        if bvid is not None:
+            where_clauses.append("vp.bvid = ?")
+            parameters.append(_text(bvid, "bvid"))
+        if page_index is not None:
+            where_clauses.append("vp.page_index = ?")
+            parameters.append(_integer(page_index, "page_index", minimum=0))
+        query = (
+            "SELECT vp.video_part_id, vp.bvid, vp.page_index, vp.cid, "
+            "vp.title AS part_title, vp.duration_ms, vd.pubdate, "
+            "t.transcript_id, t.source_kind, t.language, t.model_id, "
+            "t.version, t.content_sha256, t.created_at "
+            "FROM transcripts AS t "
+            "JOIN video_parts AS vp ON vp.video_part_id = t.video_part_id "
+            "JOIN videos AS vd ON vd.bvid = vp.bvid"
+        )
+        if where_clauses:
+            query += " WHERE " + " AND ".join(where_clauses)
+        query += (
+            " ORDER BY vp.bvid ASC, vp.page_index ASC, t.source_kind ASC, "
+            "t.language ASC, t.version DESC"
+        )
         return list(self.connection.execute(query, parameters).fetchall())
 
     def _stored_segments(
