@@ -50,7 +50,8 @@ MARKER_TEXT = "artefactmarker"
 ARTIFACT_ROOT_ENV = "BILI_ARTIFACT_ROOT"
 KEEP_AUDIO_ENV = "BILI_KEEP_AUDIO"
 
-#: The eleven commands of spec §9's table, in the order the table lists them.
+#: The twelve commands that carry the flag: spec §9's eleven in the order the table
+#: lists them, then `publish-transcripts`, the iteration's product-writing command.
 FLAG_COMMANDS = (
     "asr",
     "pilot",
@@ -63,6 +64,7 @@ FLAG_COMMANDS = (
     "recover",
     "export",
     "search",
+    "publish-transcripts",
 )
 
 #: The six commands the flag is deliberately **not** on (D18): none resolves an

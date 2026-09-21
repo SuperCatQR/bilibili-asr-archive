@@ -375,7 +375,7 @@ eleven commands that resolve an artifact path, and `[--keep-audio |
 --no-keep-audio]` on the five that archive rows and therefore reclaim audio
 (see [Where the artifacts go](#where-the-artifacts-go) and
 [Audio retain, reclaim and the disk cap](#audio-retain-reclaim-and-the-disk-cap)).
-The six commands without either bracket — `fetch-meta`, `status`, `runs`,
+The seven commands without either bracket — `fetch-meta`, `status`, `runs`,
 `probe-subs`, `harvest-subs`, `derive-manifest` — deliberately do not declare
 them: each resolves no artifact path, and an accepted-but-ignored flag would be a
 false statement in the interface.

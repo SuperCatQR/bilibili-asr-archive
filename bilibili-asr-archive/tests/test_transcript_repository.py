@@ -71,18 +71,25 @@ def _video_with_parts(
     cids: tuple[int, ...],
     *,
     processing_status: str = "metadata_collected",
+    pubdate: int = 1_700_000_000,
 ) -> dict[int, int]:
     """Store one video with one part per page index; return ``page → part id``.
 
     ``cids`` is positional: the cid at position *i* belongs to page index *i*,
-    so a selection test can name the part it expects by its cid.
+    so a selection test can name the part it expects by its cid.  ``pubdate`` is
+    the video's stored publication second, which a read carrying it proves by
+    two videos differing on it rather than by one constant.
     """
     metadata = MetadataRepository(connection)
     with metadata.transaction():
         metadata.upsert_user(make_user_record())
         # ``aid`` stays NULL: the schema keeps aids unique and these fixtures
         # only need the parts the transcript contract hangs from.
-        metadata.upsert_video(make_video_record(bvid, aid=None, title="字幕测试视频"))
+        metadata.upsert_video(
+            replace(
+                make_video_record(bvid, aid=None, title="字幕测试视频"), pubdate=pubdate
+            )
+        )
         for page_index, cid in enumerate(cids):
             metadata.upsert_part(
                 make_part_record(
@@ -2088,5 +2095,503 @@ def test_read_video_pubdates_of_no_bvid_is_empty(tmp_root):
     try:
         assert repository.read_video_pubdates([]) == {}
         assert repository.read_video_pubdates(()) == {}
+    finally:
+        connection.close()
+
+
+def _stored_row(
+    *,
+    video_part_id: int,
+    bvid: str,
+    page_index: int,
+    cid: int,
+    part_title: str,
+    pubdate: int,
+    transcript_id: int,
+    source_kind: str,
+    language: str,
+    version: int,
+    content_sha256: str,
+    duration_ms: int = 1_234,
+    model_id: int | None = None,
+    created_at: int = 400,
+) -> dict:
+    """Build one expected ``list_stored_transcripts`` row as a plain mapping.
+
+    The key set is the read's declared column list: a read that selects a column
+    too many, names one differently, or derives one instead of returning the
+    stored value fails the mapping equality it is compared against.
+    """
+    return {
+        "video_part_id": video_part_id,
+        "bvid": bvid,
+        "page_index": page_index,
+        "cid": cid,
+        "part_title": part_title,
+        "duration_ms": duration_ms,
+        "pubdate": pubdate,
+        "transcript_id": transcript_id,
+        "source_kind": source_kind,
+        "language": language,
+        "model_id": model_id,
+        "version": version,
+        "content_sha256": content_sha256,
+        "created_at": created_at,
+    }
+
+
+def test_list_stored_transcripts_returns_one_row_per_version_with_part_context(
+    tmp_root,
+):
+    """One row per stored version, carrying its part's and its video's facts.
+
+    The relation is over ``transcripts``, not over parts: a part holding three
+    stored versions appears three times and each row repeats the part context,
+    which is what lets the projection pick one winner per part without a second
+    query.  Two videos with different pubdates make the ``videos`` join
+    discriminating — one constant cannot satisfy both rows — and the title is
+    the part's, not the video's.
+    """
+    connection = open_database(tmp_root)
+    repository = TranscriptRepository(connection)
+    try:
+        parts = _video_with_parts(connection, "BV1STORED", (7001,))
+        other = _video_with_parts(
+            connection, "BV2OTHERPUB", (7101,), pubdate=1_600_000_000
+        )
+        first = _record(repository, parts[0], run_id=_run(repository, 1))
+        second = _record(
+            repository, parts[0], body=CHANGED_BODY, run_id=_run(repository, 2)
+        )
+        ai = _record(
+            repository,
+            parts[0],
+            source_kind="subtitle-ai",
+            language="ai-zh",
+            run_id=_run(repository, 3),
+        )
+        elsewhere = _record(repository, other[0], run_id=_run(repository, 4))
+
+        rows = repository.list_stored_transcripts()
+
+        # The declared key set, once: the part context and the transcript
+        # identity, and no ``work_id`` — the caller derives that identifier from
+        # ``bvid``/``page_index`` rather than reading it here.
+        assert set(rows[0].keys()) == {
+            "video_part_id",
+            "bvid",
+            "page_index",
+            "cid",
+            "part_title",
+            "duration_ms",
+            "pubdate",
+            "transcript_id",
+            "source_kind",
+            "language",
+            "model_id",
+            "version",
+            "content_sha256",
+            "created_at",
+        }
+        assert [dict(row) for row in rows] == [
+            _stored_row(
+                video_part_id=parts[0],
+                bvid="BV1STORED",
+                page_index=0,
+                cid=7001,
+                part_title="第1集",
+                pubdate=1_700_000_000,
+                transcript_id=ai.transcript_id,
+                source_kind="subtitle-ai",
+                language="ai-zh",
+                version=1,
+                content_sha256=ai.content_sha256,
+            ),
+            _stored_row(
+                video_part_id=parts[0],
+                bvid="BV1STORED",
+                page_index=0,
+                cid=7001,
+                part_title="第1集",
+                pubdate=1_700_000_000,
+                transcript_id=second.transcript_id,
+                source_kind="subtitle-cc",
+                language="zh-CN",
+                version=2,
+                content_sha256=second.content_sha256,
+            ),
+            _stored_row(
+                video_part_id=parts[0],
+                bvid="BV1STORED",
+                page_index=0,
+                cid=7001,
+                part_title="第1集",
+                pubdate=1_700_000_000,
+                transcript_id=first.transcript_id,
+                source_kind="subtitle-cc",
+                language="zh-CN",
+                version=1,
+                content_sha256=first.content_sha256,
+            ),
+            _stored_row(
+                video_part_id=other[0],
+                bvid="BV2OTHERPUB",
+                page_index=0,
+                cid=7101,
+                part_title="第1集",
+                pubdate=1_600_000_000,
+                transcript_id=elsewhere.transcript_id,
+                source_kind="subtitle-cc",
+                language="zh-CN",
+                version=1,
+                content_sha256=elsewhere.content_sha256,
+            ),
+        ]
+    finally:
+        connection.close()
+
+
+def test_list_stored_transcripts_order_is_locked_and_deterministic(tmp_root):
+    """The locked order: bvid, page_index, source_kind, language, version DESC.
+
+    The order lives in the query rather than in the caller, so the fixture is
+    inserted in an order that differs from the answer's on every key: the second
+    page's rows are stored before the first page's, the version-2 row before two
+    version-1 rows of other identities, ``ai-zh`` before ``ai-en``, and the
+    lexically-earlier ``source_kind`` last.  Reading twice returns the same
+    sequence, so the order is a property of the read and not of insertion order
+    or row ids.
+    """
+    connection = open_database(tmp_root)
+    repository = TranscriptRepository(connection)
+    try:
+        pages = _video_with_parts(connection, "BV2ORDER", (7001, 7002))
+        earlier = _video_with_parts(connection, "BV1ORDER", (7101,))
+
+        _record(repository, pages[1], run_id=_run(repository, 1))
+        _record(repository, pages[1], body=CHANGED_BODY, run_id=_run(repository, 2))
+        _record(
+            repository,
+            pages[1],
+            source_kind="subtitle-ai",
+            language="ai-zh",
+            run_id=_run(repository, 3),
+        )
+        _record(
+            repository,
+            pages[1],
+            source_kind="subtitle-ai",
+            language="ai-en",
+            run_id=_run(repository, 4),
+        )
+        _record(repository, pages[0], run_id=_run(repository, 5))
+        _record(repository, earlier[0], run_id=_run(repository, 6))
+
+        rows = repository.list_stored_transcripts()
+
+        assert [
+            (
+                row["bvid"],
+                row["page_index"],
+                row["source_kind"],
+                row["language"],
+                row["version"],
+            )
+            for row in rows
+        ] == [
+            ("BV1ORDER", 0, "subtitle-cc", "zh-CN", 1),
+            ("BV2ORDER", 0, "subtitle-cc", "zh-CN", 1),
+            ("BV2ORDER", 1, "subtitle-ai", "ai-en", 1),
+            ("BV2ORDER", 1, "subtitle-ai", "ai-zh", 1),
+            ("BV2ORDER", 1, "subtitle-cc", "zh-CN", 2),
+            ("BV2ORDER", 1, "subtitle-cc", "zh-CN", 1),
+        ]
+        assert [tuple(row) for row in repository.list_stored_transcripts()] == [
+            tuple(row) for row in rows
+        ]
+    finally:
+        connection.close()
+
+
+def test_list_stored_transcripts_includes_a_gone_part_that_holds_a_transcript(
+    tmp_root,
+):
+    """A ``gone`` part holding local text is a row: this read has no status filter.
+
+    The discriminator for that sentence is the second gone part in the same
+    store: it holds no transcript and yields no row, so membership is produced by
+    the stored transcript and not by the part's upstream state.
+    """
+    connection = open_database(tmp_root)
+    repository = TranscriptRepository(connection)
+    try:
+        gone = _video_with_parts(
+            connection, "BV1GONE", (5001,), processing_status="gone"
+        )
+        _video_with_parts(
+            connection, "BV1GONEEMPTY", (5101,), processing_status="gone"
+        )
+        stored = _record(repository, gone[0], run_id=_run(repository, 1))
+
+        assert [dict(row) for row in repository.list_stored_transcripts()] == [
+            _stored_row(
+                video_part_id=gone[0],
+                bvid="BV1GONE",
+                page_index=0,
+                cid=5001,
+                part_title="第1集",
+                pubdate=1_700_000_000,
+                transcript_id=stored.transcript_id,
+                source_kind="subtitle-cc",
+                language="zh-CN",
+                version=1,
+                content_sha256=stored.content_sha256,
+            )
+        ]
+    finally:
+        connection.close()
+
+
+def test_list_stored_transcripts_excludes_a_part_without_a_transcript(tmp_root):
+    """A stored part holding no transcript row is out of the relation.
+
+    The producer of a row here is ``record_acquired_transcript``, and this
+    fixture reaches it: the control below stores a transcript for the very part
+    the first assertion found absent, and the same read then answers it — so the
+    absence is the missing transcript row rather than an inert query.  The part
+    left captionless in that video stays out, which is what makes the filter per
+    part and not per video.
+    """
+    connection = open_database(tmp_root)
+    repository = TranscriptRepository(connection)
+    try:
+        mixed = _video_with_parts(connection, "BV1MIXED", (6001, 6002))
+        held = _captioned_part(connection, "BV1HELD")
+        stored = _record(repository, held, run_id=_run(repository, 1))
+
+        # Whole-collection equality: a read that answered any other part — the
+        # captionless ones included — fails here.
+        assert [dict(row) for row in repository.list_stored_transcripts()] == [
+            _stored_row(
+                video_part_id=held,
+                bvid="BV1HELD",
+                page_index=0,
+                cid=2001,
+                part_title="第一集",
+                pubdate=1_700_000_000,
+                transcript_id=stored.transcript_id,
+                source_kind="subtitle-cc",
+                language="zh-CN",
+                version=1,
+                content_sha256=stored.content_sha256,
+            )
+        ]
+
+        control = _record(repository, mixed[0], run_id=_run(repository, 2))
+
+        assert [dict(row) for row in repository.list_stored_transcripts()] == [
+            _stored_row(
+                video_part_id=held,
+                bvid="BV1HELD",
+                page_index=0,
+                cid=2001,
+                part_title="第一集",
+                pubdate=1_700_000_000,
+                transcript_id=stored.transcript_id,
+                source_kind="subtitle-cc",
+                language="zh-CN",
+                version=1,
+                content_sha256=stored.content_sha256,
+            ),
+            _stored_row(
+                video_part_id=mixed[0],
+                bvid="BV1MIXED",
+                page_index=0,
+                cid=6001,
+                part_title="第1集",
+                pubdate=1_700_000_000,
+                transcript_id=control.transcript_id,
+                source_kind="subtitle-cc",
+                language="zh-CN",
+                version=1,
+                content_sha256=control.content_sha256,
+            ),
+        ]
+    finally:
+        connection.close()
+
+
+def test_list_stored_transcripts_selector_narrows_to_one_part_or_one_video(
+    tmp_root,
+):
+    """``bvid`` narrows to one video, ``bvid`` with ``page_index`` to one part.
+
+    The selector narrows the relation: it invents no row for a part the store
+    holds that holds no transcript, and it drops none of a part's stored
+    identities.  An unknown video and an unknown page both answer no row: this
+    read reports rows, so which selector the caller calls unknown is not decided
+    here.
+    """
+    connection = open_database(tmp_root)
+    repository = TranscriptRepository(connection)
+    try:
+        selected = _video_with_parts(connection, "BV1SEL", (6001, 6002, 6003))
+        other = _video_with_parts(connection, "BV1OTHER", (6101,))
+        page_zero = _record(repository, selected[0], run_id=_run(repository, 1))
+        page_one = _record(repository, selected[1], run_id=_run(repository, 2))
+        page_one_ai = _record(
+            repository,
+            selected[1],
+            source_kind="subtitle-ai",
+            language="ai-zh",
+            run_id=_run(repository, 3),
+        )
+        elsewhere = _record(repository, other[0], run_id=_run(repository, 4))
+
+        assert [dict(row) for row in repository.list_stored_transcripts("BV1SEL")] == [
+            _stored_row(
+                video_part_id=selected[0],
+                bvid="BV1SEL",
+                page_index=0,
+                cid=6001,
+                part_title="第1集",
+                pubdate=1_700_000_000,
+                transcript_id=page_zero.transcript_id,
+                source_kind="subtitle-cc",
+                language="zh-CN",
+                version=1,
+                content_sha256=page_zero.content_sha256,
+            ),
+            _stored_row(
+                video_part_id=selected[1],
+                bvid="BV1SEL",
+                page_index=1,
+                cid=6002,
+                part_title="第2集",
+                pubdate=1_700_000_000,
+                transcript_id=page_one_ai.transcript_id,
+                source_kind="subtitle-ai",
+                language="ai-zh",
+                version=1,
+                content_sha256=page_one_ai.content_sha256,
+            ),
+            _stored_row(
+                video_part_id=selected[1],
+                bvid="BV1SEL",
+                page_index=1,
+                cid=6002,
+                part_title="第2集",
+                pubdate=1_700_000_000,
+                transcript_id=page_one.transcript_id,
+                source_kind="subtitle-cc",
+                language="zh-CN",
+                version=1,
+                content_sha256=page_one.content_sha256,
+            ),
+        ]
+
+        # The other video's part keeps its own identity under its own selector.
+        assert [
+            row["bvid"] for row in repository.list_stored_transcripts("BV1OTHER")
+        ] == ["BV1OTHER"]
+        assert (
+            repository.list_stored_transcripts("BV1OTHER")[0]["transcript_id"]
+            == elsewhere.transcript_id
+        )
+
+        one_part = repository.list_stored_transcripts("BV1SEL", 1)
+        assert [
+            (
+                row["bvid"],
+                row["page_index"],
+                row["source_kind"],
+                row["language"],
+                row["version"],
+            )
+            for row in one_part
+        ] == [
+            ("BV1SEL", 1, "subtitle-ai", "ai-zh", 1),
+            ("BV1SEL", 1, "subtitle-cc", "zh-CN", 1),
+        ]
+        assert {row["video_part_id"] for row in one_part} == {selected[1]}
+        assert [
+            row["bvid"] for row in repository.list_stored_transcripts("BV1SEL", 0)
+        ] == ["BV1SEL"]
+
+        # A stored part that holds no transcript, an unknown page and an unknown
+        # video all answer no row.
+        assert repository.list_stored_transcripts("BV1SEL", 2) == []
+        assert repository.list_stored_transcripts("BV1SEL", 9) == []
+        assert repository.list_stored_transcripts("BV1UNKNOWN") == []
+        assert repository.list_stored_transcripts("BV1UNKNOWN", 0) == []
+    finally:
+        connection.close()
+
+
+def test_list_stored_transcripts_of_an_empty_store_is_empty(tmp_root):
+    """A store holding no transcript answers no row.
+
+    The same read on the same connection answers a row as soon as the store
+    holds one, so the empty answer is the store's emptiness and not a query that
+    can never return anything.
+    """
+    connection = open_database(tmp_root)
+    repository = TranscriptRepository(connection)
+    try:
+        assert repository.list_stored_transcripts() == []
+        assert repository.list_stored_transcripts("BV1NONE") == []
+        assert repository.list_stored_transcripts("BV1NONE", 0) == []
+
+        part = _captioned_part(connection, "BV1NONE")
+        stored = _record(repository, part, run_id=_run(repository, 1))
+
+        assert [dict(row) for row in repository.list_stored_transcripts()] == [
+            _stored_row(
+                video_part_id=part,
+                bvid="BV1NONE",
+                page_index=0,
+                cid=2001,
+                part_title="第一集",
+                pubdate=1_700_000_000,
+                transcript_id=stored.transcript_id,
+                source_kind="subtitle-cc",
+                language="zh-CN",
+                version=1,
+                content_sha256=stored.content_sha256,
+            )
+        ]
+    finally:
+        connection.close()
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "error"),
+    [
+        ({"bvid": "   "}, ValueError),
+        ({"bvid": 7}, TypeError),
+        ({"bvid": "BV1SEL", "page_index": -1}, ValueError),
+        ({"bvid": "BV1SEL", "page_index": True}, TypeError),
+        ({"bvid": "BV1SEL", "page_index": "1"}, TypeError),
+        ({"bvid": "BV1SEL", "page_index": 1.5}, TypeError),
+        ({"page_index": -1}, ValueError),
+    ],
+)
+def test_list_stored_transcripts_arguments_follow_the_module_validation_discipline(
+    tmp_root, kwargs, error
+):
+    """The selector's arguments are validated the way the module's reads are.
+
+    ``None`` is the absent selector rather than a rejected type, so the default
+    form answers instead of raising; a malformed ``bvid`` or ``page_index``
+    raises the module's ``TypeError``/``ValueError`` instead of reaching SQLite.
+    """
+    connection = open_database(tmp_root)
+    repository = TranscriptRepository(connection)
+    try:
+        with pytest.raises(error):
+            repository.list_stored_transcripts(**kwargs)
+
+        assert repository.list_stored_transcripts() == []
+        assert repository.list_stored_transcripts(bvid=None, page_index=None) == []
     finally:
         connection.close()

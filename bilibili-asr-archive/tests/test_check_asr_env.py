@@ -793,3 +793,36 @@ def test_script_runs_on_this_host_without_a_gpu_or_rocm():
     else:
         assert lines[-1].startswith("asr-env: not verified (")
         assert f"  recipe: {DOC_PATH}" in lines
+
+
+def test_the_cli_finds_the_check_script_from_any_working_directory(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+):
+    """The CLI locates the checkout script from a foreign working directory.
+
+    `bili-asr check-asr-env` is published for an operator standing wherever they
+    happen to stand, so the script is found through the package's own anchor —
+    not through the caller's cwd.  With the override removed and a cwd that is
+    neither the package root nor the repository root, the package anchor is the
+    only candidate that can answer, so a located-script run here is that
+    anchor's evidence; the stage verdicts stay the host's.
+    """
+
+    from bili_asr import cli
+
+    monkeypatch.delenv("BILI_ASR_CHECK_SCRIPT", raising=False)
+    foreign = tmp_path / "operator-cwd"
+    foreign.mkdir()
+    monkeypatch.chdir(foreign)
+
+    exit_code = cli.main(["check-asr-env"])
+    captured = capsys.readouterr()
+    lines = captured.out.splitlines()
+
+    assert "no check script found" not in captured.err
+    stage_lines = [line for line in lines if line.startswith("check: ")]
+    assert len(stage_lines) == 5, captured.out + captured.err
+    verdict_lines = [line for line in lines if line.startswith("asr-env: ")]
+    assert len(verdict_lines) == 1, captured.out + captured.err
+    assert re.match(r"^asr-env: (verified|not verified \(\d+ failed\))$", verdict_lines[0])
+    assert exit_code in (0, 1)

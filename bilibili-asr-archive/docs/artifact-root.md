@@ -86,7 +86,7 @@ fsync**，所以一个「能打开、但拒绝目录 fsync」的挂载（有些�
 
 ## 哪些命令带这个参数
 
-带 `--artifact-root` 的十一个命令（它们要读写产物路径）：
+带 `--artifact-root` 的十二个命令（它们要读写产物路径）：
 
     bili-asr asr --pending --archive-root archive --artifact-root /mnt/123pan
     bili-asr pilot --n 20 --archive-root archive --artifact-root /mnt/123pan
@@ -99,6 +99,7 @@ fsync**，所以一个「能打开、但拒绝目录 fsync」的挂载（有些�
     bili-asr recover --work-id <work-id> --archive-root archive --artifact-root /mnt/123pan
     bili-asr export --format json --archive-root archive --artifact-root /mnt/123pan
     bili-asr search "黑格尔 辩证法" --archive-root archive --artifact-root /mnt/123pan
+    bili-asr publish-transcripts --archive-root archive --artifact-root /mnt/123pan
 
 **不带**这个参数的六个命令：`fetch-meta`、`status`、`runs`、`probe-subs`、`harvest-subs`、`derive-manifest`。它们一个产物路径都不解析（`status` 只读 SQLite，`harvest-subs` 不写文件系统投影，`derive-manifest` 只写 manifest 行），一个被接受却被忽略的参数等于在界面上说假话，所以它们连参数都没有。
 

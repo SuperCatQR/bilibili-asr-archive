@@ -1,5 +1,12 @@
 {
   "version": 2,
   "updated_at": "2026-09-20",
-  "workflows": []
+  "workflows": [
+    {
+      "id": "iter-2026-09-transcript-projections",
+      "type": "iteration",
+      "started_at": "2026-09-20",
+      "dir": "workflows/iter-2026-09-transcript-projections"
+    }
+  ]
 }
