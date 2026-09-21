@@ -1109,10 +1109,12 @@ def test_check_asr_env_states_absence_when_no_script_exists_anywhere(
 # ------------------------------------------- the artifact root and retention flags (§9)
 
 
-#: The eleven commands that touch an artifact path, in spec §9's table order.
+#: The twelve commands that touch an artifact path: spec §9's eleven in the table's
+#: order, then the iteration's `publish-transcripts`, which carries the flag and no
+#: retention pair (it publishes stored captions; it reclaims no audio).
 ARTIFACT_ROOT_COMMANDS = (
     "asr", "pilot", "download-audio", "run", "schedule", "campaign",
-    "coverage", "verify", "recover", "export", "search",
+    "coverage", "verify", "recover", "export", "search", "publish-transcripts",
 )
 
 #: The five that archive rows and therefore reclaim (spec §7).

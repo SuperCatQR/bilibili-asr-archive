@@ -427,6 +427,7 @@ def test_cli_dispatch_locks_every_archive_mutation(
         "asr",
         "pilot",
         "derive-manifest",
+        "publish-transcripts",
         "harvest-subs",
         "download-audio",
         "run",
