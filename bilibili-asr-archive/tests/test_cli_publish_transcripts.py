@@ -642,6 +642,54 @@ def test_publish_transcripts_records_the_fifteen_key_row_the_readers_read(tmp_ro
     assert row["md_path"] == f"transcripts/md/{_md_name(FRESH_BVID, 0)}"
 
 
+def test_publish_transcripts_keeps_the_keys_the_effective_row_already_carried(
+    tmp_root, capsys
+):
+    """The ``archived`` row is merged into the effective row, as the chain does.
+
+    A part whose row already names its audio — the state ``download-audio``/``run``
+    leave behind — must still name it once its transcript is published: the
+    projection's fifteen keys win, and every key they do not restate survives.  A
+    row that replaced the recorded one instead would drop ``audio_path`` and
+    ``artifact_paths`` (the keys ``reclaim_audio`` and ``quality`` read), leaving
+    the ``.m4a`` on the root with no record under a terminal ``archived``.
+    """
+    _seed_archive(tmp_root)
+    _store_caption(tmp_root, FRESH_BVID, 0)
+    work_id = f"{FRESH_BVID}:p0"
+    audio_path = f"audio/{FRESH_BVID}_p0.m4a"
+    store = ManifestStore(root=tmp_root)
+    store.load()
+    store.upsert(
+        {
+            **_entry(FRESH_BVID, 0, 3001, 12_000),
+            "title": "音频阶段写下的旧标题",
+            "audio_path": audio_path,
+            "artifact_paths": [audio_path],
+            "status": "audio_ok",
+        }
+    )
+
+    assert _publish(tmp_root, "--bvid", FRESH_BVID) == 0
+    captured = capsys.readouterr()
+
+    # The row declares no product key, so the candidate takes the publish path.
+    assert captured.out.splitlines()[0] == (
+        f"{FRESH_BVID}:p0: published (source=subtitle-ai lang=zh-CN version=1 "
+        f"cues=2) transcripts/md/{_md_name(FRESH_BVID, 0)}"
+    )
+    row = ManifestStore(root=tmp_root).load()[work_id]
+    # The keys the projection does not restate survive the transition …
+    assert row["audio_path"] == audio_path
+    assert row["artifact_paths"] == [audio_path]
+    # … and the keys it does restate are its own: the contracted state, the part's
+    # stored title and the four products.
+    assert row["status"] == "archived"
+    assert row["title"] == "第1集"
+    assert row["srt_path"] == f"transcripts/srt/{FRESH_BVID}.p0.srt"
+    assert row["md_path"] == f"transcripts/md/{_md_name(FRESH_BVID, 0)}"
+
+
 def test_publish_transcripts_writes_products_under_the_artifact_root_and_state_at_the_archive_root(
     tmp_root, capsys
 ):

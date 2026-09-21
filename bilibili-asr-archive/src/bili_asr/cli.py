@@ -297,11 +297,13 @@ def build_parser() -> argparse.ArgumentParser:
             "stored part that holds a transcript, whatever its processing status — a "
             "gone part still holds local text — and --bvid narrows it to one video or "
             "one part. The command fetches nothing: no network, no download, no ASR. "
-            "It reads archive.db read-only and writes only below the artifact root and "
-            "to the manifest, and a complete published bundle is never replaced, so a "
-            "store that later gains a newer transcript version leaves the published "
-            "product as it is. A row that already carries an earlier manifest state is "
-            "outside what the archive's readers currently agree on."
+            "It reads archive.db read-only and writes the products below the "
+            "artifact root, one row to the manifest and the archive-writer lock "
+            "under <archive_root>/coordinator/, and a complete published bundle is "
+            "never replaced, so a store that later gains a newer transcript version "
+            "leaves the published product as it is. A row that already carries an "
+            "earlier manifest state is outside what the archive's readers currently "
+            "agree on."
         ),
     )
     publish.add_argument(
@@ -1349,10 +1351,16 @@ def _cmd_publish_transcripts(args: argparse.Namespace) -> int:
     second run byte-identical.  Otherwise the winner's stored body is read,
     mapped to the writer's segment shape, published under the write base,
     re-asked of the same completeness reader ``verify`` calls, and only then
-    recorded (§5.1's fifteen keys, ``status: archived``).  A publication the
-    reader does not confirm is ``failed`` and records no row: it heals on the
-    next pass, which is the state a run killed between its write and its
-    ``upsert`` leaves behind.
+    recorded (§5.1's fifteen keys merged into the row the part already has,
+    ``status: archived``).  A publication the reader does not confirm is
+    ``failed`` and records no row.  When the writer unwound — it returned, raised
+    or was interrupted by ``Ctrl-C`` — its staging directory is gone and the next
+    pass republishes the bundle: that is the state a run killed between its write
+    and its ``upsert`` leaves behind.  A termination that does not unwind the
+    writer — ``SIGKILL``, ``SIGTERM`` at its default disposition, the OOM killer —
+    leaves the fixed-name ``transcripts/.archive-bundle-stage`` in place instead,
+    and the writer then refuses every later publication into that root — each
+    candidate reporting ``failed (OSError)`` — until an operator removes it.
 
     Every line's ``<reason>`` is a bounded redacted scalar (§7): this command's
     own two literals ``empty_transcript`` / ``bundle_incomplete`` where it
@@ -1479,9 +1487,17 @@ def _cmd_publish_transcripts(args: argparse.Namespace) -> int:
                     if not archive.archive_bundle_complete(write_base, written):
                         reason = "bundle_incomplete"
                     else:
-                        store.upsert(
-                            projection_row(part, candidate.transcript, written)
-                        )
+                        # Merged into the effective row, the way the chain's own
+                        # ``archived`` transition merges (``coordinator.py:520-527``
+                        # reads the current entry, updates it and upserts it): the
+                        # projection's own keys win, and every key the fifteen do
+                        # not restate — ``audio_path``, ``artifact_paths`` — is
+                        # carried over, so the row keeps naming what it named.
+                        merged = {
+                            **(recorded.get(work_id) or {}),
+                            **projection_row(part, candidate.transcript, written),
+                        }
+                        store.upsert(merged)
                 except Exception as exc:
                     reason = str(_safe_error_code(exc))
             if reason is not None:
