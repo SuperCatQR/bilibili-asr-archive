@@ -184,3 +184,27 @@ def test_a_chain_held_subtitle_done_row_without_its_raw_document_skips(
   The mutation controls: `{SDD_DIR}/20260919-artifact-root/task-1-report.md:176-193` (the reverted `realpath`
   mutation) and its M1 reword control. The untested re-base: `{SDD_DIR}/20260919-artifact-root/review/qc3.md`
   (S1) and residual `iter-2026-09-artifact-root · R2` in `.mstar/projects/_default/residuals.json`.
+
+
+## Instances added 2026-09-20 (iter-2026-09-transcript-projections)
+
+The projection's acceptance evidence produced three shapes worth keeping, plus one correction:
+
+- **The inverted check needs a producer for the thing it forbids.** "No `asr_`/`confidence` key in a
+  published caption bundle" is only evidence if some bundle *can* carry them: the fixture publishes
+  one ASR-shaped bundle through the same writer and asserts the inverted check **matches** it. The
+  seat also showed the check's **sidecar half was unfalsifiable** (`json.dumps(indent=2)` can never
+  start a line with those keys) — an assertion that cannot fail is not a weaker control, it is a
+  false claim about coverage.
+- **A reader's zero must be read after the same reader reported the defect.** "`verify` reports zero
+  defects on the projected row" was paired with the same reader reporting `missing_transcript` for
+  the same part **before** the run — so the zero is a transition, not a constant.
+- **A control that mutates no shipped line adds a constraint, it does not test one.** The `gone`-part
+  case is killed by exactly one control, and that control (a status filter the read does not have)
+  exists only inside the test. The seat's recommended hardening: assert the read's own return for
+  that part, so the case rests on the shipped path too.
+- **Correction to the general form**: a fixture can be *faithful* and still not exercise the shipped
+  call. The reader fixture builds bundles by calling `write_archive(..., source="subtitle")` without
+  `raw=`; the shipped command does the same, so the reconstruction is faithful — but a fixture that
+  built the *other* call shape (with `raw=`) would have looked equally plausible and proved nothing
+  about the shipped path. Name the shipped call the fixture reproduces.

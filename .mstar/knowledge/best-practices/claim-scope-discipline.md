@@ -243,3 +243,32 @@ artifact root cannot be opened (<path>)        # exists, and the open fails
   is stated with its code anchors in
   [artifact-root-split.md](../architecture-patterns/artifact-root-split.md) ("The operator surface, and the
   four refusal lines").
+
+
+## Instances added 2026-09-20 (iter-2026-09-transcript-projections)
+
+The class repeated in surfaces a review round had already touched, which is why the rule keeps
+earning its place:
+
+- **A register/summary sentence wider than the register.** The QC consolidation closed with
+  "everything else is registered below … not waived"; a seat then showed that four Suggestions
+  existed only as ruling text with no register row — the sentence was **false**, and the fix was to
+  create the missing row (`R9`) rather than to soften the sentence. *A completeness claim about a
+  register must be checked against the register.*
+- **A row that asserted a claim its own source later withdrew.** Residual `R4` recorded a "docstring
+  overclaims" half; on re-reading, the docstring scoped its claim correctly and the raising seat
+  withdrew that half. The row's title and scope were narrowed rather than left standing. *A register
+  is also a written surface: it inherits the discipline.*
+- **A help sentence that named two write sites while the code had three** (the archive-writer lock).
+  Because the sentence was **new text in the diff**, "pre-existing wording" was not available as a
+  defence — exactly the trap this document exists for.
+- **An acceptance criterion phrased over a field of the wrong type** ("`summary.valid_work_items`
+  includes it" — the field is an integer count). Unevaluable criteria read as met; the gate had to
+  restate it as "the count covers the row".
+- **A published claim's identity clause outliving its context**: the contract's "no `audio_path` — no
+  audio exists for a caption" was true of the *decision* and false of the *row* once replacement
+  semantics were in play (see `architecture-patterns/row-merge-on-terminal-transition.md`).
+
+The author-side check that would have caught all five in one pass: **state the range of the claim,
+then test the sentence against the widest input it can receive** — a register row against the
+register, a help line against the write sites, a criterion against the field's type.
