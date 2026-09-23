@@ -307,3 +307,67 @@ def test_jsonl_carries_no_transcript_text() -> None:
     assert output.endswith("\n")
     assert output.count("\n") == len(alignment_jsonl_lines(alignment))
     assert render_alignment_jsonl(alignment) == "\n".join(alignment_jsonl_lines(alignment)) + "\n"
+
+
+# --- 12. the interval convention is pinned at the boundary -------------------
+# The docstring says the midpoint test is the CLOSED interval
+# block.start_ms <= mid <= block.end_ms. Without this test the ``<=`` could drift to
+# ``<`` (a half-open convention) and all the other tests would still pass.
+
+
+def test_a_cue_midpoint_on_a_block_end_attaches_and_one_ms_past_falls_out() -> None:
+    segments = [(0, 2000, "opening")]
+    cues = [
+        (1800, 2200, "midpoint exactly on the block end"),  # mid = 2000
+        (1801, 2201, "midpoint one ms past the block end"),  # mid = 2001
+    ]
+
+    alignment = align_transcripts("BV1BOUNDARY", segments, cues)
+    accounting = alignment.accounting
+
+    assert accounting.blocks == 1
+    assert accounting.cues_in == 2
+    assert accounting.cues_attached == 1
+    assert accounting.cues_unattached == 1
+    assert accounting.cues_in == accounting.cues_attached + accounting.cues_unattached
+
+    # the cue whose midpoint lands exactly on block.end_ms is in the block ...
+    assert alignment.blocks[0].end_ms == 2000
+    assert alignment.blocks[0].cue_indexes == (1,)
+    # ... and the cue one millisecond past it is not, it is bucketed as unattached.
+    assert [unit.index for unit in alignment.unattached_cues] == [2]
+    assert alignment.unattached_cues[0].text == cues[1][2]
+
+
+# --- 13-14. time order is an enforced input contract -------------------------
+# Out-of-order input used to be an undocumented assumption: an inverted block span would
+# mis-attach cues silently (the partition bar still held, so nothing was lost, but the
+# mis-attachment is the defect class this module exists to expose). The contract is now
+# enforced at the boundary -- rejected, never silently sorted.
+
+
+def test_out_of_order_segments_are_rejected_with_the_index() -> None:
+    with pytest.raises(ValueError) as rejected:
+        normalize_segments([(0, 1000, "first"), (5000, 6000, "second"), (3000, 4000, "earlier")])
+    message = str(rejected.value)
+    assert "index 3" in message
+    assert "time order" in message
+    assert "3000" in message and "5000" in message
+
+    # the rule is non-decreasing, not strictly increasing: coincident starts are legitimate
+    units = normalize_segments([(0, 1000, "a"), (0, 1200, "b"), (1500, 2000, "c")])
+    assert [unit.index for unit in units] == [1, 2, 3]
+
+
+def test_out_of_order_cues_are_rejected_with_the_index() -> None:
+    with pytest.raises(ValueError) as rejected:
+        align_transcripts(
+            "BV1UNSORTED",
+            [(0, 1000, "opening")],
+            [(0, 500, "first"), (4000, 5000, "later"), (2000, 3000, "earlier")],
+        )
+    message = str(rejected.value)
+    assert "cue index 3" in message
+    assert "time order" in message
+    assert "2000" in message and "4000" in message
+

@@ -92,8 +92,15 @@ def normalize_segments(raw: Sequence[tuple[int, int, str]]) -> tuple[Unit, ...]:
     Drops nothing and reorders nothing: ``index`` is the input position, 1-based, and ``text``
     is kept verbatim. An interval with ``end_ms <= start_ms`` raises :class:`ValueError`
     naming the offending index, because a degenerate interval cannot carry a midpoint.
+
+    Input contract: units must already be in time order. A unit whose ``start_ms`` is earlier
+    than the previous unit's ``start_ms`` raises :class:`ValueError` naming the offending
+    index. Out-of-order input is rejected rather than silently sorted: reordering it here would
+    hide a defect in whoever produced the transcript, and a hidden producer defect is exactly
+    the failure mode this service exists to expose.
     """
     units: list[Unit] = []
+    previous_start: int | None = None
     for position, (start_ms, end_ms, text) in enumerate(raw, start=1):
         start = int(start_ms)
         end = int(end_ms)
@@ -102,13 +109,26 @@ def normalize_segments(raw: Sequence[tuple[int, int, str]]) -> tuple[Unit, ...]:
                 f"segment index {position} has a degenerate interval: "
                 f"start_ms={start} end_ms={end} (end_ms must be greater than start_ms)"
             )
+        if previous_start is not None and start < previous_start:
+            raise ValueError(
+                f"segment index {position} is out of time order: "
+                f"start_ms={start} precedes the previous start_ms={previous_start} "
+                "(input must be time-ordered)"
+            )
+        previous_start = start
         units.append(Unit(kind=SEGMENT, index=position, start_ms=start, end_ms=end, text=text))
     return tuple(units)
 
 
 def _normalize_cues(raw: Sequence[tuple[int, int, str]]) -> tuple[Unit, ...]:
-    """Same contract as :func:`normalize_segments`, on the caption side."""
+    """Same contract as :func:`normalize_segments`, on the caption side.
+
+    Cues are held to the identical input contract: 1-based index in input order, verbatim
+    text, a :class:`ValueError` naming the index for a degenerate interval, and a
+    :class:`ValueError` naming the index for a unit that starts before its predecessor.
+    """
     units: list[Unit] = []
+    previous_start: int | None = None
     for position, (start_ms, end_ms, text) in enumerate(raw, start=1):
         start = int(start_ms)
         end = int(end_ms)
@@ -117,6 +137,13 @@ def _normalize_cues(raw: Sequence[tuple[int, int, str]]) -> tuple[Unit, ...]:
                 f"cue index {position} has a degenerate interval: "
                 f"start_ms={start} end_ms={end} (end_ms must be greater than start_ms)"
             )
+        if previous_start is not None and start < previous_start:
+            raise ValueError(
+                f"cue index {position} is out of time order: "
+                f"start_ms={start} precedes the previous start_ms={previous_start} "
+                "(input must be time-ordered)"
+            )
+        previous_start = start
         units.append(Unit(kind=CUE, index=position, start_ms=start, end_ms=end, text=text))
     return tuple(units)
 
