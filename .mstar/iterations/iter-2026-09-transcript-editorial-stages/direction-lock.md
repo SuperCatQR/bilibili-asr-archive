@@ -7,8 +7,17 @@
 
 Add **校对 (proofread)** and **精校 (polish)** to the pipeline as two **supported, verifiable stages**: the
 mechanical half ships as commands that build the two-route alignment artifact and verify proofread /
-reading-edition candidates against the criteria the 2026-09-22/23 wave established, and the agent-facing
-judgement protocol is written down as a contract so the stages are repeatable instead of ad hoc.
+reading-edition candidates against the criteria the 2026-09-22/23 wave established, and the **judgement
+half ships as two loadable agent skills** so the stages are repeatable instead of ad hoc.
+
+> **Amended 2026-09-23 (user direction, at lock review).** The judgement half was originally "a contract
+> so the stages are repeatable instead of ad hoc". The user's ruling: **design 校对/精校 as skills, let the
+> AI do them, and let the programs check them** — i.e. the AI half must be a *loadable skill*
+> (`SKILL.md`), not prose in an iteration spec, while the checking half stays the CLI commands. The
+> original wording is kept above rather than overwritten; the amendment is the operative text from this
+> date. Delivery of the skill: **committed in-repo as the single source of truth + one documented install
+> step** (the host does not auto-scan repository directories, so an uninstalled skill does not load — that
+> limitation is disclosed on the skill's own surface, not hidden).
 
 ## Rationale
 
@@ -69,8 +78,11 @@ judgement protocol is written down as a contract so the stages are repeatable in
 
 ## Scale budget
 
-**`M`** → **2 business plans** (`20260923-transcript-proofread`, `20260923-reading-edition`). No process
-plans; the review chain / QC / QA / close are gates outside the budget.
+**`M`** → **3 business plans** (`20260923-transcript-proofread`, `20260923-reading-edition`,
+`20260923-editorial-skills`). Amended 2026-09-23 with the user's skill direction: the third plan carries
+the judgement half (two `SKILL.md` packages + the install/registration step), which the original two-plan
+split had assumed would ride along as contract text. Still no process plans; the review chain / QC / QA /
+close remain gates outside the budget.
 
 ## Branch resolve (autonomous)
 
