@@ -7,6 +7,8 @@ import pytest
 
 from bili_asr.audio_reclaim import reclaim_audio
 
+import _asr_fakes as asr_fakes
+
 
 def _entry(bvid="BV1xx411c7mD", work_id=None, page_index=0, cid=123,
            audio_path=None, unresolved=False):
@@ -177,15 +179,7 @@ def test_coordinator_archive_stage_reclaims_audio(tmp_path, monkeypatch):
         "page_index": 0, "status": "audio_ok",
         "audio_path": "audio/BV1xx411c7mD.p0.m4a",
     })
-    import bili_asr.asr as asr_mod
-
-    class FakeModel:
-        def generate(self, **_kwargs):
-            return [{"text": "hi", "timestamp": [[0, 1000]]}]
-
-    monkeypatch.setattr(
-        asr_mod, "_load_default_model", lambda **_kwargs: FakeModel()
-    )
+    asr_fakes.install(monkeypatch)
     from bili_asr.coordinator import RunCoordinator
 
     coord = RunCoordinator(str(root), store, offline=True, keep_audio=False)

@@ -15,6 +15,8 @@ from pathlib import Path
 from bili_asr.artifact_root import KEEP_AUDIO_ENV_VAR, resolve_keep_audio
 from bili_asr.audio_reclaim import reclaim_audio
 
+import _asr_fakes as asr_fakes
+
 
 def _entry() -> dict[str, str]:
     return {
@@ -83,13 +85,7 @@ def test_coordinator_respects_keep_audio_policy(tmp_path, monkeypatch):
     from bili_asr.coordinator import RunCoordinator
     from bili_asr.manifest import ManifestStore
 
-    class FakeModel:
-        def generate(self, **_kwargs):
-            return [{"text": "hi", "timestamp": [[0, 1000]]}]
-
-    monkeypatch.setattr(
-        asr_module, "_load_default_model", lambda **_kwargs: FakeModel()
-    )
+    asr_fakes.install(monkeypatch)
 
     def run(keep: bool) -> Path:
         root = tmp_path / ("retained" if keep else "reclaimed")

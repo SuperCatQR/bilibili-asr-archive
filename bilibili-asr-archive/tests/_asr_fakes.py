@@ -130,10 +130,17 @@ def units_for(text: str, step: float = 0.4) -> list[dict]:
 
 
 def _patch_audio(monkeypatch, seconds: float) -> None:
-    """Make the reader and the chunk writer work without numpy/soundfile being installed."""
+    """Make the reader and the chunk writer work without a real audio file.
 
-    import numpy as np
-    import soundfile as sf
+    The boundary reads and chunks audio, so it needs numpy and soundfile — the two light members of
+    the ``[asr]`` extra.  Where they are absent the test **skips** rather than fails: this project
+    verifies the ASR path on the host that owns the extra, and the control host has neither.
+    """
+
+    import pytest
+
+    np = pytest.importorskip("numpy", reason="the ASR path reads audio through numpy")
+    sf = pytest.importorskip("soundfile", reason="the ASR path reads audio through soundfile")
 
     samples = np.zeros(int(16000 * seconds), dtype="float32")
     monkeypatch.setattr(sf, "read", lambda *args, **kwargs: (samples, 16000))

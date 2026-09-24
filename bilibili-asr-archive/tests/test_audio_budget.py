@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import _asr_fakes as asr_fakes
+
 from bili_asr.audio_budget import (
     SKIP_REASON,
     audio_cap_bytes,
@@ -120,21 +122,14 @@ def test_pilot_budget_skip_via_cli(tmp_path, monkeypatch, capsys):
     (audio_dir / "fill.m4a").write_bytes(b"x" * 600_000)
     monkeypatch.setattr(bc, "build_default_transport", lambda: RouterTransport({}))
     monkeypatch.setattr(bc, "default_sleeper", lambda: (lambda _s: None))
-    called = []
     # D2.5 seam: patch the factory the runner builds through (the one-shot
     # `asr.transcribe` wrapper is no longer on the pilot's path).
-    class FakeModel:
-        def generate(self, **_kwargs):
-            called.append(True)
-            return [{"start": 0.0, "end": 1.0, "text": "x"}]
-
-    monkeypatch.setenv("BILI_ASR_DEVICE", "cpu")
-    monkeypatch.setattr(asr_mod, "_load_default_model", lambda **_kw: FakeModel())
+    fakes = asr_fakes.install(monkeypatch)
     rc = main(["pilot", "--n", "2", "--archive-root", str(tmp_path),
                "--max-audio-gb", "0.001"])
     captured = capsys.readouterr()
     assert "audio_budget" in captured.err
-    assert not called
+    assert not fakes.processor.audio
     assert rc == 1  # required audio-ASR branch had zero eligible rows
 
 
