@@ -54,6 +54,31 @@ bili-asr status
 > **`--artifact-root`** is on the **12** commands that write or read artifact paths — the eleven of the 2026-09-19
 > revision plus `publish-transcripts`; `derive-manifest` is not among them, because it carries no artifact flag. No
 > requirement, no exit-taxonomy line and no behaviour changes with this revision.
+>
+> **Revision 2026-09-23 (iteration `iter-2026-09-transcript-editorial-stages`; that iteration's
+> `specs/editorial-stage-contract.md` is the governing contract below, cited as **D11**/**D13**/**D14**/**D16**).** The
+> added-command enumeration gains the iteration's two commands, and nothing else moves. **`align-transcripts`**
+> (`bili-asr align-transcripts [--bvid <bvid[:pN]>] [--archive-root <root>] [--artifact-root <root>]`) is the
+> alignment builder: per candidate it prints `<work_id>: aligned blocks=<n> segments_in=<n> segments_attached=<n>
+> segments_unattached=<n> cues_in=<n> cues_attached=<n> cues_unattached=<n>`, whose two identities
+> (`segments_in == segments_attached + segments_unattached`, the same for cues) the operator reads as a subtraction off
+> the printed line, and it closes with `align-transcripts: candidates=<n> aligned=<n> refused=<n>`. Its two routes are
+> **D13**'s — the ASR route from the bundle's `raw` sidecar (`transcripts/raw/<stem>.json`), the caption route from
+> `archive.db` read-only — and it writes `<artifact-root>/alignments/<work_id>.jsonl` (**D16**), never under
+> `transcripts/{srt,txt,md,raw}`; with **no** selector its range is every stored part holding both routes, while a named
+> selector that lacks a route is a refusal, not silence. **`verify-proofread`**
+> (`bili-asr verify-proofread --candidate <path> --bvid <bvid[:pN]> [--archive-root <root>]`) is the candidate
+> verifier and carries **no** artifact flag: per candidate it prints `<work_id>: ok (body_chars=<n> marks=<n>
+> record_rows=<n>)` or `<work_id>: refused (<rule>) at <location>`, plus `<work_id>: warning (<rule>) at <location>`
+> for the contract **§E** ids whose class is advisory, and it closes with
+> `verify-proofread: candidates=<n> ok=<n> refused=<n>`. **Exit stance (unchanged; restated for both commands):** `0`
+> when every candidate is aligned/ok, **including zero candidates**; `1` for a configuration error — an unknown
+> `--bvid`, which keeps the shipped `unknown --bvid <value>` usage form and carries **no** rule id, an unreadable
+> `--candidate`, a missing or unreadable archive database, a refused artifact root — and for a refused candidate;
+> **`2` is never produced** by either command (**D8**: neither opens a socket, and `_UsageErrorArgumentParser` maps
+> argparse's own usage exit to `1`). With `--artifact-root`, the count of commands carrying it is **13**;
+> `verify-proofread` is not among the thirteen. No requirement, no exit-taxonomy line and no behaviour changes with
+> this revision.
 
 - Entrypoint: **`bili-asr`** (frozen; no longer "or `wmz-asr`").
 - `pilot` selects a mix: short videos preferred, ≥1 without subtitles (audio→ASR branch), ≥1 with subtitles (zero-ASR branch); `--n` may be lowered for smoke runs.

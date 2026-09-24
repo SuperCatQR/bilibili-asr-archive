@@ -320,6 +320,36 @@ def build_parser() -> argparse.ArgumentParser:
     )
     publish.add_argument("--artifact-root", default=None, help=_ARTIFACT_ROOT_HELP)
 
+    align = subparsers.add_parser(
+        "align-transcripts",
+        help="Align a part's two machine routes into one block accounting (fetches nothing)",
+        description=(
+            "Align the two machine routes the archive holds for one stored part — "
+            "the ASR bundle's raw sidecar below the archive root and the caption "
+            "transcript in archive.db — into one block accounting, and write the "
+            "alignment below the configured artifact root. The command aligns "
+            "nothing editorial: it reads bytes and reports which input unit landed "
+            "in which block, so a difference between the routes stays visible "
+            "instead of being resolved. Neither route is ground truth. The range is "
+            "every stored part holding both routes; --bvid narrows it to one video "
+            "or one part, and a named selector that lacks a route is refused rather "
+            "than silently skipped. The command fetches nothing: no network, no "
+            "download, no ASR. It reads archive.db read-only, writes "
+            "<artifact-root>/alignments/<work_id>.jsonl and nothing else, and "
+            "never writes under transcripts/{srt,txt,md,raw} — those four families "
+            "belong to publish-transcripts."
+        ),
+    )
+    align.add_argument(
+        "--bvid", default=None,
+        help="Bvid, or bvid:pN for one part, already in the archive database",
+    )
+    align.add_argument(
+        "--archive-root", default=DEFAULT_ARCHIVE_ROOT,
+        help="Archive root directory (default: ./archive)",
+    )
+    align.add_argument("--artifact-root", default=None, help=_ARTIFACT_ROOT_HELP)
+
     run_cmd = subparsers.add_parser(
         "run",
         help="Coordinate manifest rows through stages (complements pilot)",
@@ -1554,6 +1584,261 @@ def _cmd_publish_transcripts(args: argparse.Namespace) -> int:
         f"already_published={already_published} failed={failed}"
     )
     return 1 if failed else 0
+
+
+def _align_sidecar_route(
+    sidecar: Path,
+) -> tuple[tuple[tuple[int, int, str], ...] | None, str]:
+    """Read the ASR route out of one bundle's ``raw`` sidecar (D13).
+
+    The sidecar's ``start``/``end`` are **seconds** — ``archive.write_archive``
+    writes whatever an ASR run produced — while the service's unit is
+    milliseconds (Task 1), so the conversion happens here, at the one place the
+    route crosses into the service.  The route's own order is kept verbatim:
+    ordering it is not this command's decision, and the service refuses an
+    out-of-order or degenerate route by name instead of silently re-sorting it.
+
+    Returns the route beside the cause when there is none — ``absent`` (no file),
+    ``unreadable`` (an I/O, decoding or JSON failure) or ``shapeless`` (no
+    ``segments`` list of ``{start, end, text}`` objects) — because the operator
+    acts differently on each and one message covering all three would be a false
+    statement about the archive.
+    """
+    try:
+        text = Path(sidecar).read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return None, "absent"
+    except OSError:
+        return None, "unreadable"
+    try:
+        document = json.loads(text)
+    except ValueError:
+        return None, "unreadable"
+    if not isinstance(document, dict):
+        return None, "shapeless"
+    segments = document.get("segments")
+    if not isinstance(segments, list):
+        return None, "shapeless"
+    route: list[tuple[int, int, str]] = []
+    for segment in segments:
+        if not isinstance(segment, dict):
+            return None, "shapeless"
+        try:
+            start_ms = int(round(float(segment["start"]) * 1000))
+            end_ms = int(round(float(segment["end"]) * 1000))
+        except (KeyError, TypeError, ValueError):
+            return None, "shapeless"
+        route.append((start_ms, end_ms, str(segment.get("text", ""))))
+    return tuple(route), ""
+
+
+def _align_caption_route(
+    repository: Any, caption_row: sqlite3.Row
+) -> tuple[tuple[tuple[int, int, str], ...] | None, str]:
+    """Read the caption route out of the store, read-only (D13).
+
+    The store's own unit is already the service's — ``TranscriptSegmentRecord``
+    carries ``start_ms``/``end_ms`` (``storage/models.py:300``) — so nothing is
+    converted here.  ``unreadable`` is a version the listing named that no longer
+    reads back: a different statement about the archive from "this part holds no
+    caption", and the two are kept apart for the same reason Task 2's verifier
+    keeps its own pair apart.
+    """
+    record = repository.read_transcript(
+        int(caption_row["video_part_id"]),
+        str(caption_row["source_kind"]),
+        str(caption_row["language"]),
+        int(caption_row["version"]),
+    )
+    if record is None:
+        return None, "unreadable"
+    return (
+        tuple(
+            (int(segment.start_ms), int(segment.end_ms), str(segment.text))
+            for segment in record.segments
+        ),
+        "",
+    )
+
+
+def _write_alignment_artifact(write_base: str | os.PathLike[str], work_id: str, content: bytes) -> str:
+    """Write ``<artifact-root>/alignments/<work_id>.jsonl`` through a staging name (D16).
+
+    The write is the shipped artifact discipline (``archive.py``'s own staging
+    name plus ``os.replace``): the final name never holds a partial file, so a
+    run killed mid-write leaves the previous artifact whole and a re-run rewrites
+    it byte-identically.  The directory is created below ``write_base`` — the
+    configured root ``roots_for`` has already validated — and the work id is a
+    filename component, so it is refused rather than sanitised when it carries a
+    separator.  ``O_NOFOLLOW`` on the staging open keeps the write from landing
+    on a symlink, as the archive writer's own writes do.
+    """
+    stem = str(work_id)
+    if not stem or stem in (".", "..") or "/" in stem or os.sep in stem or "\\" in stem:
+        raise ValueError(f"invalid work id for an artifact name: {work_id!r}")
+    directory = os.path.join(os.path.abspath(os.fspath(write_base)), "alignments")
+    os.makedirs(directory, exist_ok=True)
+    staging = os.path.join(directory, f".{stem}.jsonl.{os.getpid()}.stage")
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0)
+    try:
+        fd = os.open(staging, flags, 0o644)
+        try:
+            os.write(fd, content)
+            os.fsync(fd)
+        finally:
+            os.close(fd)
+        os.replace(staging, os.path.join(directory, f"{stem}.jsonl"))
+    except BaseException:
+        try:
+            os.unlink(staging)
+        except OSError:
+            pass
+        raise
+    return os.path.join(directory, f"{stem}.jsonl")
+
+
+def _cmd_align_transcripts(args: argparse.Namespace) -> int:
+    """Align each candidate part's two routes and write one alignment per part (D11/D13/D16).
+
+    ``cli.py`` composes the layers here, as the cross-layer rule requires: the
+    store is read through ``TranscriptRepository`` on the read-only connection,
+    the block accounting and the artifact's bytes are the pure service's
+    (Task 1), and the artifact is written below ``args.artifact_roots.write_base``
+    (D16).  Where the two routes come from is this handler's decision and nowhere
+    else (D13): the ASR route is the bundle's ``raw`` sidecar — named by the
+    shipped ``archive.bundle_paths``, so no filename is guessed — and the caption
+    route is the store's own winner row.  Nothing is written back into
+    ``archive.db`` and nothing is written under ``transcripts/{srt,txt,md,raw}``.
+
+    The range is every stored part holding both routes, in ``list_stored_transcripts``'
+    locked order; ``--bvid`` narrows it to one video or one part, following the
+    shipped ``_subtitle_selector`` rule.  A selector naming no stored part is the
+    shipped configuration error ``unknown --bvid <value>`` on exit 1.  A part
+    inside the range that lacks a route is the §E refusal
+    ``route_absent_for_part``, spelled through Task 2's ``verdict_line`` so the
+    one refusal form has one home.  With no selector the range is exactly
+    criterion 1's own phrase — every stored part whose store holds both routes —
+    so a part lacking one is outside the range and produces no candidate rather
+    than an invented one.
+
+    Exit taxonomy: ``0`` when every candidate aligned, **including a run with no
+    candidate at all** (empty is success, ``cli.py:1098-1100``); ``1`` for a
+    usage/configuration error (a selector naming no stored part, a missing or
+    unreadable store, a refused artifact root) and for a candidate that was
+    refused.  No path of this command produces ``2``: it opens no socket, and
+    ``_UsageErrorArgumentParser`` maps argparse's own usage exit to ``1``.
+    """
+    from . import archive
+    from .page_identity import format_work_id
+    from .services.editorial_alignment import (
+        accounting_line,
+        align_transcripts,
+        render_alignment_jsonl,
+    )
+    from .services.editorial_verify import Violation, Verdict, verdict_line
+    from .storage import TranscriptRepository
+
+    command = "align-transcripts"
+    bvid, page_index = _subtitle_selector(args.bvid)
+    if bvid is not None and _selector_cannot_name_a_part(bvid):
+        # Decided on the argument alone, before the database is opened: a
+        # selector the storage identifier rule cannot hold names no part in any
+        # database there is.
+        print(f"{command}: unknown --bvid {args.bvid}", file=sys.stderr)
+        return 1
+    connection = _open_subtitle_connection(command, args.archive_root, read_only=True)
+    if connection is None:
+        return 1
+    named = args.bvid is not None
+    candidates = aligned = refused = 0
+    try:
+        repository = TranscriptRepository(connection)
+        if named and not repository.list_selected_parts(bvid, page_index):
+            # "Unknown" ranges over the store's part relation, not over the
+            # candidate set: a stored part holding no transcript is known and
+            # yields zero candidates, exit 0.
+            print(f"{command}: unknown --bvid {args.bvid}", file=sys.stderr)
+            return 1
+        for row in repository.list_stored_transcripts(bvid, page_index):
+            work_id = format_work_id(str(row["bvid"]), int(row["page_index"]))
+            caption_row = _proofread_caption_row(repository, str(row["bvid"]), row)
+            sidecar = archive.bundle_paths(
+                args.archive_root, _proofread_entry({"work_id": work_id}, row)
+            )["raw_path"]
+            asr_route, asr_cause = _align_sidecar_route(sidecar)
+            if caption_row is None:
+                caption_route, caption_cause = None, "absent"
+            else:
+                caption_route, caption_cause = _align_caption_route(
+                    repository, caption_row
+                )
+            if asr_route is None or caption_route is None:
+                # A part inside the range that cannot be aligned.  With no
+                # selector the part is outside the range and produces no
+                # candidate at all (D11(b): the range is every stored part whose
+                # two routes are reachable), so there is nothing to report and
+                # the loop moves on.  A **named** selector is the operator's
+                # assertion that this part is ready, so the absence is refused by
+                # name instead of passed over — §E's `route_absent_for_part`,
+                # which names the part and which route is absent.
+                if not named:
+                    continue
+                missing, cause = (
+                    ("asr", asr_cause) if asr_route is None else ("caption", caption_cause)
+                )
+                candidates += 1
+                refused += 1
+                print(
+                    verdict_line(
+                        work_id,
+                        Verdict(
+                            ok=False,
+                            violations=(
+                                Violation(
+                                    "route_absent_for_part",
+                                    f"{missing} route ({cause})",
+                                    # D11(b) makes a named selector's absent
+                                    # route a refusal.  §E classes the id
+                                    # **advisory**, which is the range case: there
+                                    # the part is skipped, and this command skips
+                                    # it by leaving it out of the range rather
+                                    # than by printing a warning for a candidate
+                                    # it never had.
+                                    False,
+                                ),
+                            ),
+                            body_chars=0,
+                            marks=0,
+                            record_rows=0,
+                        ),
+                    )
+                )
+                continue
+            try:
+                alignment = align_transcripts(work_id, asr_route, caption_route)
+            except ValueError as exc:
+                # The service is the SSOT for what a valid route is, and it
+                # already refuses a degenerate or out-of-order one by name.  That
+                # is not a missing route, so it is not dressed in
+                # `route_absent_for_part`: the archive's own sidecar or store
+                # holds a route the service cannot align, which is a
+                # configuration error on the shipped `<command>: …` form with no
+                # rule id, and it stops the run rather than being skipped —
+                # skipping it would hide that the archive disagrees with itself.
+                print(f"{command}: {work_id}: {exc}", file=sys.stderr)
+                return 1
+            _write_alignment_artifact(
+                args.artifact_roots.write_base,
+                work_id,
+                render_alignment_jsonl(alignment).encode("utf-8"),
+            )
+            candidates += 1
+            aligned += 1
+            print(accounting_line(work_id, alignment.accounting))
+    finally:
+        connection.close()
+    print(f"{command}: candidates={candidates} aligned={aligned} refused={refused}")
+    return 1 if refused else 0
 
 
 def _proofread_part(
@@ -4023,6 +4308,8 @@ def _dispatch_command(args: argparse.Namespace) -> int:
         return _cmd_derive_manifest(args)
     if args.command == "publish-transcripts":
         return _cmd_publish_transcripts(args)
+    if args.command == "align-transcripts":
+        return _cmd_align_transcripts(args)
     if args.command == "download-audio":
         return _cmd_download_audio(args)
     if args.command == "search":
