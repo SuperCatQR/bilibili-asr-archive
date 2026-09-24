@@ -532,6 +532,44 @@ def build_parser() -> argparse.ArgumentParser:
     )
     integrity_cmd.add_argument("--format", choices=["json", "text"], default="json")
 
+    proofread_cmd = subparsers.add_parser(
+        "verify-proofread",
+        help="Verify a proofread candidate against its part's two routes (reads only)",
+        description=(
+            "Verify one proofread candidate — a finished transcript's markdown "
+            "edition — against the two machine routes the archive holds for one "
+            "stored part: the caption transcript in archive.db and the ASR "
+            "bundle's raw sidecar below the archive root. The command proofreads "
+            "nothing and resolves nothing: it reports, per named rule, whether "
+            "the candidate's markers pair with its record rows, whether every "
+            "recorded change carries its evidence, whether every body character "
+            "is contained in one of the two routes, and whether a hotword's "
+            "window agrees between them. Both routes are machine transcripts and "
+            "neither is ground truth; a marked site is proven marked, never "
+            "resolved. The store is opened read-only and is never written: the "
+            "caption route is a read, the ASR route a file. --candidate and "
+            "--bvid are both required, and --bvid follows publish-transcripts' "
+            "selector rule, so a bare bvid takes the stored part the candidate's "
+            "own frontmatter names. Exit 0 when the candidate is ok, including a "
+            "candidate whose only findings are advisories; 1 for a usage or "
+            "configuration error (an unknown --bvid, a missing or unreadable "
+            "store, an unreadable --candidate, a part whose routes are not both "
+            "reachable) and for a candidate the command refused; never 2."
+        ),
+    )
+    proofread_cmd.add_argument(
+        "--candidate", required=True,
+        help="Path to the proofread candidate markdown file",
+    )
+    proofread_cmd.add_argument(
+        "--bvid", required=True,
+        help="Bvid, or bvid:pN for one part, already in the archive database",
+    )
+    proofread_cmd.add_argument(
+        "--archive-root", default=DEFAULT_ARCHIVE_ROOT,
+        help="Archive root directory (default: ./archive)",
+    )
+
     recover_cmd = subparsers.add_parser(
         "recover", help="Explicitly audit named integrity defects (no requeue execution)"
     )
@@ -1516,6 +1554,290 @@ def _cmd_publish_transcripts(args: argparse.Namespace) -> int:
         f"already_published={already_published} failed={failed}"
     )
     return 1 if failed else 0
+
+
+def _proofread_part(
+    parts: list[sqlite3.Row], page_index: int | None, declared_work_id: str
+) -> sqlite3.Row:
+    """The one stored part a proofread candidate is verified against.
+
+    ``parts`` is ``list_selected_parts``'s answer for one selector, in page
+    order.  An explicit ``bvid:pN`` selector names exactly one part.  A bare
+    ``bvid`` names every stored part of that video, so the candidate's own
+    frontmatter ``work_id`` picks the part it declares; when the two name
+    nothing in common the lowest-page part is used anyway and the identity
+    check refuses the mismatch **by name** (``identity_mismatch``) rather than
+    this helper inventing a second error vocabulary for it.
+    """
+    if page_index is None and declared_work_id:
+        for row in parts:
+            if str(row["work_id"]) == declared_work_id:
+                return row
+    return parts[0]
+
+
+def _proofread_caption_row(
+    repository: Any, bvid: str, part: sqlite3.Row
+) -> sqlite3.Row | None:
+    """The stored caption transcript one part's caption route comes from (D13).
+
+    The store's own locked order — ``source_kind`` ASC, ``language`` ASC,
+    ``version`` DESC (``storage/database.py:1244``) — picks the winner: the
+    highest version of the alphabetically first **caption** kind, so
+    ``subtitle-ai`` outranks ``subtitle-cc`` and no caller mints an order of
+    its own.  An ``asr-local`` row is filtered out on purpose: D13 keeps the ASR
+    route out of the store, and a store that somehow held one still could not
+    answer for the bundle's sidecar.
+    """
+    from .storage import ALLOWED_CAPTION_SOURCE_KINDS
+
+    for row in repository.list_stored_transcripts(bvid, int(part["page_index"])):
+        if int(row["video_part_id"]) != int(part["video_part_id"]):
+            continue
+        if str(row["source_kind"]) in ALLOWED_CAPTION_SOURCE_KINDS:
+            return row
+    return None
+
+
+def _proofread_entry(part: sqlite3.Row, caption: sqlite3.Row) -> dict[str, Any]:
+    """The archive writer's entry shape for one stored part.
+
+    ``archive.bundle_paths`` reads the entry the writer writes, so this composes
+    the same fields from the store's own rows instead of guessing a filename:
+    ``archive_stem`` (``archive.py:34``) resolves to ``<bvid>.pN`` for a resolved
+    part, which is what puts the ASR sidecar at
+    ``<archive_root>/transcripts/raw/<bvid>.pN.json``.  ``page_label`` is empty
+    because it labels a name ``artifact_stem`` never reads.
+    """
+    return {
+        "bvid": str(caption["bvid"]),
+        "work_id": str(part["work_id"]),
+        "page_index": int(caption["page_index"]),
+        "cid": int(caption["cid"]),
+        "unresolved": False,
+        "page_label": "",
+    }
+
+
+def _proofread_sidecar_text(document: Any) -> str:
+    """The ASR route's text: the sidecar's segments concatenated (D13).
+
+    The sidecar's ``start``/``end`` are **seconds** (``archive.write_archive``
+    writes whatever an ASR run produced) while the store's own segment shape is
+    **milliseconds** (``storage/models.py:300``); the two routes never share a
+    timeline.  Neither the containment check nor the hotword screen reads a time
+    value — both read text — so the route is composed here and no conversion is
+    invented.
+    """
+    if not isinstance(document, dict):
+        return ""
+    segments = document.get("segments")
+    if not isinstance(segments, list):
+        return ""
+    return "".join(
+        str(segment.get("text", ""))
+        for segment in segments
+        if isinstance(segment, dict)
+    )
+
+
+def _proofread_hotwords(document: Any) -> tuple[str, ...]:
+    """The ASR provenance's hotword tokens, split on commas and stripped (R5/R7).
+
+    ``asr_provenance`` records the runner's configuration as the one
+    comma-separated string the ASR command was given, and the screen's unit is a
+    **token**: the split lives here, in the layer that holds the sidecar, and the
+    pure module is handed the tokens.  An absent or non-string ``hotwords`` is an
+    empty tuple, which the screen reports as the ``hotword_screen_vacuous``
+    advisory — visible, never a silent pass.
+    """
+    if not isinstance(document, dict):
+        return ()
+    provenance = document.get("provenance")
+    if not isinstance(provenance, dict):
+        return ()
+    recorded = provenance.get("hotwords")
+    if not isinstance(recorded, str):
+        return ()
+    return tuple(token.strip() for token in recorded.split(",") if token.strip())
+
+
+def _proofread_basename_location(location: str, prefix: str, basename: str) -> str:
+    """Re-prefix one path-shaped site with the candidate's own **basename**.
+
+    The pure module holds no path, so it prefixes every site with what it does
+    have — the candidate's frontmatter ``work_id``, or the literal ``candidate``
+    when there is no frontmatter (``services/editorial_verify.py:272``).  The CLI
+    is the layer that holds the path, and D11's location rule is
+    ``<basename>:<line>``: the basename only, never the operator's parents and
+    never the raw ``--candidate`` value, which is why the re-prefix replaces the
+    module's prefix rather than prepending a path to it.  A route site
+    (``[hh:mm:ss]``, ``cue #<i>``) never starts with the prefix and is returned
+    unchanged.
+    """
+    if location.startswith(prefix + ":"):
+        return basename + location[len(prefix):]
+    return location
+
+
+def _cmd_verify_proofread(args: argparse.Namespace) -> int:
+    """Verify one proofread candidate against its part's two routes (D11/D13).
+
+    ``cli.py`` composes the layers here, as the cross-layer rule requires: the
+    store is read through ``TranscriptRepository`` on the **read-only**
+    connection, the ASR route is a file read below the archive root, and every
+    decision about the candidate belongs to the pure service
+    (``services/editorial_verify``).  Nothing is written back into
+    ``archive.db`` and no socket is opened: this command verifies, it does not
+    proofread, and it never repairs the candidate it is given.
+
+    The two routes come from the two places D13 names.  The caption route is the
+    part's stored caption transcript, chosen by the store's own locked order
+    (``_proofread_caption_row``); the ASR route is the bundle's ``raw`` sidecar at
+    ``<archive_root>/transcripts/raw/<bvid>.pN.json``, which is also where the
+    screen's hotword tokens come from.  A part whose two routes are not both
+    reachable has nothing to verify the candidate against, so it is answered as
+    the configuration error it is rather than as a clean run with no candidate —
+    a silently green result for an unverifiable part is the one outcome this
+    command must never print.
+
+    Every printed line is the pure service's (``verdict_line`` /
+    ``closing_line``) with one CLI-side correction: the site prefix is rewritten
+    to the candidate's basename, because the module has no path and the
+    operator's parents must not appear in a report.  ``closing_line`` takes the
+    command name as a parameter, so this command's name is passed, never baked
+    into the shared function.
+
+    Exit taxonomy: ``0`` when the candidate is ok — an advisory is not a
+    refusal; ``1`` for a usage/configuration error (an unknown ``--bvid``, a
+    missing or unreadable database, the transcript-schema guard, an unreadable
+    ``--candidate``, a part whose routes are not both reachable) and for a
+    candidate the command refused.  No path of this command produces ``2``: it
+    opens no socket, and ``_UsageErrorArgumentParser`` maps argparse's own usage
+    exit to ``1``.  A refused count is counted from the verdict, not from its
+    violations, so a candidate whose only findings are advisories is ``ok``.
+    """
+    from . import archive
+    from .services.editorial_verify import (
+        closing_line,
+        parse_candidate,
+        verdict_line,
+        verify_candidate,
+    )
+    from .storage import TranscriptRepository
+
+    command = "verify-proofread"
+
+    bvid, page_index = _subtitle_selector(args.bvid)
+    if bvid is None or _selector_cannot_name_a_part(bvid):
+        # The same configuration error the sibling subtitle commands raise,
+        # decided on the argument alone and before anything is opened: a
+        # selector the storage identifier rule cannot hold names no part.
+        print(f"{command}: unknown --bvid {args.bvid}", file=sys.stderr)
+        return 1
+
+    try:
+        candidate_text = Path(args.candidate).read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError, ValueError):
+        # An absent file, a directory, a permission denial, an embedded NUL and
+        # a file that is not UTF-8 are one answer, naming the path the operator
+        # passed, and never a traceback (§D11).  ``ValueError`` is in the class
+        # because ``Path`` refuses a NUL before the filesystem is asked.
+        print(f"{command}: {args.candidate}: unreadable", file=sys.stderr)
+        return 1
+
+    # The module's own prefix rule, restated because it is private there: the
+    # frontmatter ``work_id``, or the literal ``candidate`` when there is none.
+    prefix = parse_candidate(candidate_text).work_id or "candidate"
+    basename = Path(args.candidate).name
+
+    connection = _open_subtitle_connection(command, args.archive_root, read_only=True)
+    if connection is None:
+        return 1
+    candidates = ok = refused = 0
+    try:
+        repository = TranscriptRepository(connection)
+        parts = repository.list_selected_parts(bvid, page_index)
+        if not parts:
+            # "Unknown" ranges over the store's part relation, not over the
+            # candidate set (§2.2 of the publish contract).
+            print(f"{command}: unknown --bvid {args.bvid}", file=sys.stderr)
+            return 1
+        part = _proofread_part(parts, page_index, prefix)
+        work_id = str(part["work_id"])
+        caption_row = _proofread_caption_row(repository, bvid, part)
+        if caption_row is None:
+            print(
+                f"{command}: {work_id}: route unavailable (caption_absent)",
+                file=sys.stderr,
+            )
+            return 1
+        sidecar = archive.bundle_paths(
+            args.archive_root, _proofread_entry(part, caption_row)
+        )["raw_path"]
+        try:
+            document = json.loads(Path(sidecar).read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError, ValueError):
+            print(
+                f"{command}: {work_id}: route unavailable (asr_unreadable)",
+                file=sys.stderr,
+            )
+            return 1
+        asr_text = _proofread_sidecar_text(document)
+        if not asr_text:
+            print(
+                f"{command}: {work_id}: route unavailable (asr_absent)",
+                file=sys.stderr,
+            )
+            return 1
+        record = repository.read_transcript(
+            int(caption_row["video_part_id"]),
+            str(caption_row["source_kind"]),
+            str(caption_row["language"]),
+            int(caption_row["version"]),
+        )
+        if record is None:
+            # Not ``caption_absent``: the store listed this part's caption row a
+            # moment ago, so the version is gone rather than never written.  One
+            # message for two causes sends an operator to re-run an acquisition
+            # that would not change the answer, which is a false statement about
+            # the archive; the two are kept apart.
+            print(
+                f"{command}: {work_id}: route unavailable (caption_unreadable)",
+                file=sys.stderr,
+            )
+            return 1
+        caption_text = "".join(segment.text for segment in record.segments)
+        candidates = 1
+        verdict = verify_candidate(
+            candidate_text,
+            work_id=work_id,
+            bvid=str(caption_row["bvid"]),
+            reference=work_id,
+            asr_text=asr_text,
+            caption_text=caption_text,
+            hotwords=_proofread_hotwords(document),
+        )
+        rebased = verdict._replace(
+            violations=tuple(
+                violation._replace(
+                    location=_proofread_basename_location(
+                        violation.location, prefix, basename
+                    )
+                )
+                for violation in verdict.violations
+            )
+        )
+        for line in verdict_line(work_id, rebased).splitlines():
+            print(line)
+        if verdict.ok:
+            ok = 1
+        else:
+            refused = 1
+    finally:
+        connection.close()
+    print(closing_line(command, candidates, ok, refused))
+    return 1 if refused else 0
 
 
 def _cmd_download_audio(args: argparse.Namespace) -> int:
@@ -3683,6 +4005,8 @@ def _dispatch_command(args: argparse.Namespace) -> int:
         return _cmd_coverage(args)
     if args.command == "verify":
         return _cmd_verify(args)
+    if args.command == "verify-proofread":
+        return _cmd_verify_proofread(args)
     if args.command == "recover":
         return _cmd_recover(args)
     if args.command == "runs":
