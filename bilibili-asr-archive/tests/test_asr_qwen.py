@@ -545,3 +545,28 @@ def test_the_dependency_hint_names_the_extra() -> None:
 
     assert "[asr]" in asr._INSTALL_HINT
     assert asr.ASRDependencyError("x").args == ("x",)
+
+
+# ---------------------------------------------------------------------------------------
+# Descriptor materialization, carried over from the retired reproducibility suite: the CLI hands
+# the boundary a confined descriptor, which the decoder libraries cannot always open.
+# ---------------------------------------------------------------------------------------
+
+
+def test_a_descriptor_path_is_copied_to_a_readable_file(tmp_path) -> None:
+    source = tmp_path / "audio.m4a"
+    source.write_bytes(b"payload")
+    handle = os.open(source, os.O_RDONLY)
+    temporary = None
+    try:
+        path, temporary = asr._materialize_input(f"/proc/self/fd/{handle}")
+        assert temporary is not None and path == temporary
+        assert pathlib.Path(path).read_bytes() == b"payload"
+    finally:
+        os.close(handle)
+        if temporary:
+            os.unlink(temporary)
+
+
+def test_a_plain_path_is_returned_untouched() -> None:
+    assert asr._materialize_input("/tmp/whatever.m4a") == ("/tmp/whatever.m4a", None)

@@ -129,12 +129,18 @@ def units_for(text: str, step: float = 0.4) -> list[dict]:
     ]
 
 
-def _patch_audio(monkeypatch, seconds: float) -> None:
+def _patch_audio(monkeypatch, seconds: float, reads: list[str] | None,
+                 fail_when=None) -> None:
     """Make the reader and the chunk writer work without a real audio file.
 
     The boundary reads and chunks audio, so it needs numpy and soundfile — the two light members of
     the ``[asr]`` extra.  Where they are absent the test **skips** rather than fails: this project
     verifies the ASR path on the host that owns the extra, and the control host has neither.
+
+    ``reads`` collects the path of every recording the boundary opened.  That is where a row is
+    identified now: the boundary hands the *model* a chunk file (one scratch path for every row), so
+    a test that needs to tell rows apart must hook the read — and ``fail_when`` turns that into a
+    per-row failure, which is what the old ``generate(**kwargs)`` doubles did with ``kwargs["input"]``.
     """
 
     import pytest
@@ -143,21 +149,36 @@ def _patch_audio(monkeypatch, seconds: float) -> None:
     sf = pytest.importorskip("soundfile", reason="the ASR path reads audio through soundfile")
 
     samples = np.zeros(int(16000 * seconds), dtype="float32")
-    monkeypatch.setattr(sf, "read", lambda *args, **kwargs: (samples, 16000))
+
+    def read(path, *args, **kwargs):
+        if reads is not None:
+            reads.append(path)
+        if fail_when is not None and fail_when(str(path)):
+            from bili_asr.asr import ASRModelError
+
+            raise ASRModelError("model failed")
+        return samples, 16000
+
+    monkeypatch.setattr(sf, "read", read)
     monkeypatch.setattr(sf, "write", lambda *args, **kwargs: None)
 
 
 def install(monkeypatch, *, text: str = DEFAULT_TEXT, seconds: float = 3.0,
-            constructions: list[dict] | None = None) -> ModelSet:
+            constructions: list[dict] | None = None, reads: list[str] | None = None,
+            fail_when=None) -> ModelSet:
     """Patch the boundary's factory with a canned model set, plus the audio reader.
 
     ``constructions`` is filled with the factory's kwargs, one entry per model set the runner built —
-    the observable the CLI's reuse line reports.
+    the observable the CLI's reuse line reports.  ``reads`` and ``fail_when`` are documented on
+    :func:`_patch_audio`.
+
+    Descriptor materialization is switched off: the double reads the path it is handed, and the
+    behaviour of the real copy is covered by its own unit test in ``test_asr_qwen.py``.
     """
 
     from bili_asr import asr
 
-    _patch_audio(monkeypatch, seconds)
+    _patch_audio(monkeypatch, seconds, reads, fail_when)
     model_set = ModelSet(text)
 
     def factory(**kwargs):
@@ -166,6 +187,7 @@ def install(monkeypatch, *, text: str = DEFAULT_TEXT, seconds: float = 3.0,
         return model_set
 
     monkeypatch.setenv("BILI_ASR_DEVICE", "cpu")
+    monkeypatch.setattr(asr, "_materialize_input", lambda path: (path, None))
     monkeypatch.setattr(asr, "_load_qwen_models", factory)
     return model_set
 
@@ -175,12 +197,13 @@ def raising(monkeypatch, exception: BaseException) -> None:
 
     from bili_asr import asr
 
-    _patch_audio(monkeypatch, 3.0)
+    _patch_audio(monkeypatch, 3.0, None, None)
 
     def factory(**kwargs):
         raise exception
 
     monkeypatch.setenv("BILI_ASR_DEVICE", "cpu")
+    monkeypatch.setattr(asr, "_materialize_input", lambda path: (path, None))
     monkeypatch.setattr(asr, "_load_qwen_models", factory)
 
 
@@ -189,10 +212,11 @@ def forbidden(monkeypatch) -> None:
 
     from bili_asr import asr
 
-    _patch_audio(monkeypatch, 3.0)
+    _patch_audio(monkeypatch, 3.0, None, None)
 
     def factory(**kwargs):
         raise AssertionError("ASR must not run for this row")
 
     monkeypatch.setenv("BILI_ASR_DEVICE", "cpu")
+    monkeypatch.setattr(asr, "_materialize_input", lambda path: (path, None))
     monkeypatch.setattr(asr, "_load_qwen_models", factory)

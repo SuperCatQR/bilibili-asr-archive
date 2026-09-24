@@ -36,6 +36,8 @@ from test_audio import (
 )
 from test_subtitles import SAMPLE_DOC, nav_ok, player_ok, sub_entry
 
+import _asr_fakes as asr_fakes
+
 
 def _row(identity, *, status="meta_ok", duration_s=5, title="clip"):
     return {
@@ -59,13 +61,9 @@ def _patch_cli(monkeypatch, transport):
 
 
 def _stub_asr(monkeypatch, calls=None):
-    class FakeModel:
-        def generate(self, **kwargs):
-            if calls is not None:
-                calls.append(kwargs["input"])
-            return [{"text": "asr-text", "timestamp": [[0, 1000]]}]
+    """A canned model set; ``calls`` collects the path of every recording the boundary opened."""
 
-    monkeypatch.setattr(asr_mod, "_load_default_model", lambda **_kwargs: FakeModel())
+    return asr_fakes.install(monkeypatch, reads=calls)
 
 
 def _mixed_transport():
@@ -381,21 +379,13 @@ def test_run_batch_default_runner_is_lazy_reused_and_batch_scoped(tmp_root, monk
         audio_dir.mkdir(exist_ok=True)
         (audio_dir / f"{artifact_stem(ident)}.m4a").write_bytes(b"fixture")
     model_constructions = []
-    constructed_models = []
-    class FakeModel:
-        def generate(self, **_kwargs):
-            return [{"text": "ok", "timestamp": [[0, 1000]]}]
-    def fake_factory(**kwargs):
-        model_constructions.append(dict(kwargs))
-        model = FakeModel()
-        constructed_models.append(model)
-        return model
-    monkeypatch.setattr(coordinator.asr_module, "_load_default_model", fake_factory)
+    # One set: the shared double builds it once and the runner reuses it, so the identity assertion
+    # the old per-model list carried is this single construction.
+    asr_fakes.install(monkeypatch, constructions=model_constructions)
     runner = RunCoordinator(tmp_root, store, offline=True)
     runner.run_batch([(i.work_id, store.get(i.work_id)) for i in identities])
     assert len(model_constructions) == 1
     assert runner.asr_runner is None
-    assert len(constructed_models) == 1
     runner.run_batch([(identities[0].work_id, store.get(identities[0].work_id))])
     assert len(model_constructions) == 1
 
@@ -581,19 +571,13 @@ def test_cli_run_per_item_failure_batch_continues(tmp_root, monkeypatch, capsys)
     store.upsert(_row(a, title="a"))
     store.upsert(_row(b, title="b"))
 
-    class FlakyModel:
-        def generate(self, **kwargs):
-            audio_path = kwargs["input"]
-            probe = os.readlink(audio_path) if audio_path.startswith("/proc/self/fd/") else audio_path
-            if artifact_stem(a) in probe:
-                raise ASRModelError("model failed")
-            return [{"text": "ok-text", "timestamp": [[0, 1000]]}]
+    def fail_for_a(path: str) -> bool:
+        probe = os.readlink(path) if path.startswith("/proc/self/fd/") else path
+        return artifact_stem(a) in probe
 
-    # These rows are told apart through the CLI's confined descriptor path, so the
-    # boundary's descriptor materialization is switched off here; it has its own
-    # unit test in tests/test_asr_reproducibility.py.
-    monkeypatch.setattr(asr_mod, "_materialize_input", lambda path: (path, None))
-    monkeypatch.setattr(asr_mod, "_load_default_model", lambda **_kwargs: FlakyModel())
+    # The row is told apart at the boundary's read of its confined audio: the model itself is handed
+    # a chunk file, which is the same scratch path for every row.
+    asr_fakes.install(monkeypatch, fail_when=fail_for_a)
     _patch_cli(monkeypatch, _cid_transport(set()))  # no subtitles anywhere
 
     rc = main(["run", "--scope", "pending", "--archive-root", tmp_root])
@@ -1209,11 +1193,13 @@ def test_run_failure_summary_and_exit_when_scope_not_processed(
                 raise ASRModelError("boom")
             return [{"text": "ok", "timestamp": [[0, 1000]]}]
 
-    # These rows are told apart through the CLI's confined descriptor path, so the
-    # boundary's descriptor materialization is switched off here; it has its own
-    # unit test in tests/test_asr_reproducibility.py.
-    monkeypatch.setattr(asr_mod, "_materialize_input", lambda path: (path, None))
-    monkeypatch.setattr(asr_mod, "_load_default_model", lambda **_kwargs: FlakyModel())
+    def fail_for_a(path: str) -> bool:
+        probe = os.readlink(path) if path.startswith("/proc/self/fd/") else path
+        return artifact_stem(a) in probe
+
+    # The row is told apart at the boundary's read of its confined audio: the model itself is handed
+    # a chunk file, which is the same scratch path for every row.
+    asr_fakes.install(monkeypatch, fail_when=fail_for_a)
     transport = _mixed_transport()
     _patch_cli(monkeypatch, transport)
 
