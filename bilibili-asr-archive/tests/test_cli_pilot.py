@@ -135,8 +135,8 @@ def test_cli_pilot_mixed_meta_ok_archives_both_branches(tmp_root, monkeypatch, c
     assert os.path.isfile(os.path.join(tmp_root, loaded[aud.work_id]["srt_path"]))
     # post-archive audio reclaim: m4a removed once the row is archived
     assert not os.path.exists(os.path.join(tmp_root, loaded[aud.work_id]["audio_path"]))
-    assert len(reads) == 1, "one row, one recording opened"
-    assert artifact_stem(identity) in reads[0], "the boundary read this row's confined audio"
+    assert len(reads) == 1, "one row reached ASR, and it opened one recording"
+    assert artifact_stem(aud) in reads[0], "the boundary read the ASR row's confined audio"
     player = [c for c in transport.calls if "player/wbi/v2" in c["url"]]
     assert [c["params"]["cid"] for c in player] == [111, 222]
     sess_calls = [c for c in transport.calls if c["cookies"].get("SESSDATA") == "SECRET-SESS"]
