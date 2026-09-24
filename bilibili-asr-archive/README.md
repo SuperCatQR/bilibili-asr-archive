@@ -388,6 +388,10 @@ in committed files or CI artifacts.
 
 ## Workflow
 
+The ASR chain's data flow — audio → chunker → the two checkpoints → mark threading → cues →
+products and the store — is drawn in [`docs/asr-pipeline.html`](docs/asr-pipeline.html), a
+self-contained interactive diagram whose source is [`docs/asr-pipeline.dataflow.json`](docs/asr-pipeline.dataflow.json).
+
 ⚠️ **The `probe-subs` / `harvest-subs` pair writes to `archive.db`, not to the
 manifest; `bili-asr derive-manifest` is what carries that store's audio queue
 across.** The ASR/pilot chain
