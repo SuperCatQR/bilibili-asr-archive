@@ -5,6 +5,17 @@
 **UP mid default:** `23191782`  
 **Change policy:** requirement changes require a new spec revision + PM sign-off; plans must not add scope beyond this spec.
 
+> **Revision note, 2026-09-24 — the ASR engine only.** The body below is the frozen bootstrap text and
+> is kept as written: it names SenseVoice-Small, `funasr` and the ModelScope cache, which were the
+> facts when this spec was locked. The engine has since changed twice (SenseVoice → FunASR-Nano →
+> **Qwen3-ASR + Qwen3-ForcedAligner on transformers**), so the ASR-specific statements in *Goals* 4,
+> the module map's `asr.py` line, and the whole `[asr]` dependency boundary are **superseded by**
+> `bilibili-asr-archive/README.md` ("Where the ASR checkpoints live", "Naming the producer") and by the
+> migration plan `.mstar/plans/20260924-qwen3-asr-transformers.md`. Everything else here — the CLI
+> surface, the risk-control contract, the layering rules and the exit taxonomy — still holds, and the
+> layering rule that matters for the engine change is the one that did not move: `asr.py` imports its
+> engine lazily, so the module imports and `status`/`--help` run without the extra.
+
 **Placement:** this file is warehouse-level MVP. Intended page-aware ledger (`work_id` = `bvid:p<zero-based-page-index>`), `artifact_stem`, unresolved legacy rows, and `meta-cursor.json` are **not** frozen here. They live in `.mstar/iterations/iter-2026-08-archive-foundations/` until iteration-close.
 
 ## Problem

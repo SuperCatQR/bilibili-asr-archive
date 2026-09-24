@@ -84,7 +84,7 @@ BV1xx:p0: skipped (audio_budget); audio-dir budget cap reached (--max-audio-gb 0
 ### 场景1：长期归档 + 未来重新处理
 
 ```bash
-# 首次归档（使用 Fun-ASR-Nano-2512）；音频默认保留
+# 首次归档（当时使用 Fun-ASR-Nano-2512；2026-09-24 起为 Qwen3-ASR-1.7B + 强制对齐器）；音频默认保留
 bili-asr pilot --n 100 --max-audio-gb 0 --archive-root archive
 
 # 2027年：有了更好的模型

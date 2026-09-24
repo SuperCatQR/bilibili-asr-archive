@@ -3,7 +3,7 @@
 Personal archival CLI for Bilibili UP 未明子 (UID 23191782) ASR transcripts.
 
 Enumerates videos, harvests AI/CC subtitles first, downloads audio only when
-needed, runs local FunASR-Nano ASR, and archives `srt` / `txt` / `md` with a
+needed, runs local Qwen3-ASR, and archives `srt` / `txt` / `md` with a
 resumable JSONL manifest.
 
 ## Install (editable)
@@ -12,10 +12,45 @@ Base metadata/subtitle/audio workflows (Linux or Windows WSL, Python 3.12+):
 
     python3.12 -m pip install -e ".[dev]"
 
-Local FunASR support is optional because it downloads model weights on first
-use:
+Local ASR support is optional. It needs the two Qwen3-ASR checkpoints (next section) and a torch
+build the recipe below provides — pip is deliberately told nothing about torch, because the wheel
+that works on this host comes from `repo.radeon.com` and not from an index:
 
     python3.12 -m pip install -e ".[asr]"
+
+### Where the ASR checkpoints live
+
+Nothing is vendored and nothing is fetched at run time. Both checkpoints live in the product
+directory, ignored by git:
+
+    bilibili-asr-archive/models/Qwen3-ASR-1.7B-hf/           # the decoder: text, no timings
+    bilibili-asr-archive/models/Qwen3-ForcedAligner-0.6B-hf/ # the aligner: per-character timings
+
+    export BILI_ASR_MODEL=$PWD/models/Qwen3-ASR-1.7B-hf
+    export BILI_ASR_ALIGNER_MODEL=$PWD/models/Qwen3-ForcedAligner-0.6B-hf
+
+Fetch them once (~5.9 GB) and verify the digests before trusting them — `huggingface.co` is not
+reachable from the ASR host, and `hf download` does not work against the mirror either:
+huggingface_hub 1.x uses Xet storage, whose CAS endpoint rejects the mirror's authentication with
+`HTTP 401`. Plain HTTP through the mirror is the working route:
+
+    BASE=https://hf-mirror.com
+    COMMON="config.json processor_config.json chat_template.jinja tokenizer.json tokenizer_config.json"
+    for f in $COMMON generation_config.json model.safetensors; do
+      curl -fL -C - --retry 5 -o "models/Qwen3-ASR-1.7B-hf/$f" \
+        "$BASE/Qwen/Qwen3-ASR-1.7B-hf/resolve/main/$f"
+    done
+    for f in $COMMON model.safetensors; do
+      curl -fL -C - --retry 5 -o "models/Qwen3-ForcedAligner-0.6B-hf/$f" \
+        "$BASE/Qwen/Qwen3-ForcedAligner-0.6B-hf/resolve/main/$f"
+    done
+    sha256sum models/Qwen3-ASR-1.7B-hf/model.safetensors \
+              models/Qwen3-ForcedAligner-0.6B-hf/model.safetensors
+    # 2db53c7d81bd9b8cbc6a074e89be2c968a0d373fb4ee68bb1b1e14f7042dfee1  (4 076 193 080 bytes)  decoder
+    # 00568245ceca5af1991d28562a75fe1ddc9bfeb041c27fda66947ea05c47fb86  (1 835 545 960 bytes)  aligner
+
+`HF_HUB_DISABLE_XET=1` makes the CLI route work as well. ModelScope serves the same two checkpoints
+with the same digests, but throttles large files to roughly 300 kB/s on this host.
 
 ### GPU Requirements (AMD 7800XT with ROCm)
 
@@ -74,9 +109,10 @@ WSL-native filesystem are supported. Native Windows `cmd.exe`/PowerShell paths
 are not supported for hardened publication or reclaim; run the CLI inside WSL
 and keep the archive on a WSL-native path, not `/mnt/c`.
 
-Set `BILI_ASR_MODEL` to a pre-populated local model directory for offline use;
-the default is `FunAudioLLM/Fun-ASR-Nano-2512`. No model weights are vendored. The optional
-ASR dependency is verified by fixture-only tests; installation and model
+Set `BILI_ASR_MODEL` and `BILI_ASR_ALIGNER_MODEL` to pre-populated local model directories for
+offline use; the defaults are `Qwen/Qwen3-ASR-1.7B-hf` and
+`Qwen/Qwen3-ForcedAligner-0.6B-hf`, and neither is fetched at run time. No model weights are
+vendored. The optional ASR dependency is verified by fixture-only tests; installation and model
 availability remain operator responsibilities.
 
 ASR model construction is lazy and reused only within one sequential `run_batch`
@@ -84,23 +120,24 @@ scope. `ASRRunner` is not thread-safe and must not be shared by concurrent calle
 the coordinator releases runners it creates when the batch exits, while an injected
 runner remains owned by its caller. `BILI_ASR_MODEL` may be a pre-populated local
 path at runtime, but paths are never provenance identifiers. Safe slash-qualified
-model identifiers such as `FunAudioLLM/Fun-ASR-Nano-2512` are preserved; absolute paths,
+model identifiers such as `Qwen/Qwen3-ASR-1.7B-hf` are preserved; absolute paths,
 URLs, and credential-like model values are redacted. `ASRRunner.provenance()`
 exposes deterministic configuration identifiers and an optional declared revision.
 It contains no model, media, transcript, or raw exception payloads. Provenance is a
 configuration/report surface, not a ledger field and not a semantic-accuracy claim.
-Fixture evidence reports only fake model construction count, normalized segment
-count, and output shape; run it directly with:
+The fixture evidence lives in `tests/test_asr_qwen.py`: the cue rules, the chunker's tiling
+promise, the runner's construction/attempt contract and the provenance slots, all against a canned
+model set with no GPU. Run it directly with:
 
-    python3.12 -m pytest -q tests/test_asr_reproducibility.py::test_fixture_benchmark_reports_only_construction_and_shape
+    python3.12 -m pytest -q tests/test_asr_qwen.py
 
 This fixture does not establish hardware timing, model-weight pinning, network-free
 runtime, or full-corpus coverage.
 
 ### Naming the producer: three variables, three jobs
 
-    BILI_ASR_MODEL=/srv/models/Fun-ASR-Nano-2512      # what the loader receives
-    BILI_ASR_MODEL_ID=FunAudioLLM/Fun-ASR-Nano-2512   # what the archive records
+    BILI_ASR_MODEL=/srv/models/Qwen3-ASR-1.7B-hf      # what the loader receives
+    BILI_ASR_MODEL_ID=Qwen/Qwen3-ASR-1.7B-hf   # what the archive records
     BILI_ASR_MODEL_REVISION=<pinned-revision>         # optional; loader kwarg + recorded
 
 `BILI_ASR_MODEL` is the checkpoint the loader is given — a hub id or a local
@@ -118,17 +155,25 @@ name. The credential rule is separator-aware, not word-bounded: `token=x`,
 `token-x` and `token_x` all redact (an underscore is a word character, so a
 word-boundary rule would let the last form through), while an ordinary word such
 as `tokenizer` is left alone. That rule is shape-based, not path-aware: a
-*relative* path-shaped value such as `srv/models/Fun-ASR-Nano-2512` satisfies
+*relative* path-shaped value such as `srv/models/Qwen3-ASR-1.7B-hf` satisfies
 it and would be recorded verbatim, so declare the hub identity, not a relative
+path.
+
+### The corpus vocabulary, and which engine measured it
+
 `BILI_ASR_HOTWORDS` appends operator-specific terms to the built-in list
 (`DEFAULT_HOTWORDS`, comma-separated). The built-ins cover the corpus's Chinese
-vocabulary plus the Latin-script terms it speaks — the Chinese-language model
-otherwise shatters them (measured: "International Employment Matters Tribunal"
-came out `tryBUNAL` / `FOR EMP LOYMENT MAT TERS`). Those entries are a low-risk
-prompt bias, not a proven fix: the same 6-minute Chinese audio transcribed with
-and without them is 95 % identical, and the one video that actually speaks them
-no longer has audio on the target box, so their benefit is **unverified** while
-their harmlessness is measured.
+vocabulary plus the Latin-script terms it speaks — the decoder otherwise
+shatters them (measured on the retired FunASR-Nano checkpoint: "International
+Employment Matters Tribunal" came out `tryBUNAL` / `FOR EMP LOYMENT MAT TERS`).
+
+**How the list reaches the model changed with the engine.** Qwen3-ASR takes it as free-form `prompt`
+context, not as a decode-time bias, so **every measurement quoted below belongs to the FunASR era and
+does not carry over unmeasured**: the 95 %-identical with-and-without comparison, the ITEM/AITEM
+removal, and the homophone counts were all taken on the retired checkpoint. Re-measuring this list
+under the new engine — with hotword *insertions* counted separately from recoveries — is a recorded
+work item, and the register already says why it matters: `20260922-proofread-wave · R1` found a token
+from the run's own hotword list written into a transcript where the speaker said something else.
 
 The bare acronyms `ITEM` and `AITEM` were **removed on 2026-09-17**, because the
 season run measured them doing harm of the kind they were added to prevent: they
@@ -160,7 +205,8 @@ median 0.776 against 0.812 for the corpus, and only 1 of 78 such cues fell at or
 below `LOW_CONFIDENCE`. So an operator hunting a doubtful passage reads
 `asr_low_confidence_at` (or `bilibili-asr coverage --quality --format csv`, which
 prints every low-confidence position on stderr), and a wrong-but-confident term
-is only findable by looking for the term itself.
+is only findable by looking for the term itself. (A transcript the Qwen3-ASR engine wrote carries
+no scores at all, so it has no such list — see the provenance section below.)
 
 path. Declaring an id that contradicts an already-safe hub-level `BILI_ASR_MODEL`
 is also an error — one of the two would be a lie. A `BILI_ASR_MODEL` that
@@ -186,20 +232,20 @@ what an archive recorded with
 
 The same glob rule as above applies: `"$ARCHIVE"` is quoted, `*.md` is not.
 
-An ASR transcript also records what the run measured — how much audio the VAD
-kept, and where the doubtful cues are. The two families follow different gates,
-and only the first is source-gated: a subtitle-sourced row records none of the
-**capture** keys, exactly as it records no other `asr_*` key, while the
-confidence pair below follows the pre-existing score rule (emitted whenever the
-transcript carries scores, whatever its source):
+An ASR transcript also records what the run measured — how much audio the cues
+cover, which aligner produced their timings, and how the audio was cut into
+windows. Only the capture family is source-gated: a subtitle-sourced row records
+none of these keys, exactly as it records no other `asr_*` key.
 
     grep -n '^asr_vad_' "$ARCHIVE"/transcripts/md/*.md
-    grep -n '^asr_low_confidence_at:' "$ARCHIVE"/transcripts/md/*.md
+    grep -n '^asr_aligner_model:' "$ARCHIVE"/transcripts/md/*.md
+    grep -n '^asr_chunk_seconds:' "$ARCHIVE"/transcripts/md/*.md
+    grep -n '^asr_low_confidence_at:' "$ARCHIVE"/transcripts/md/*.md   # written by the old engine
 
 `asr_vad_segments` (count), `asr_vad_captured_s` (seconds) and
 `asr_vad_captured_ratio` (`captured_s / duration_s`, clamped to `[0, 1]`)
 describe the stretches of audio the transcript actually covers; touching,
-overlapping and cues at or below the shaper's 1.0 s pause threshold count as one
+overlapping and cues at or below the cue builder's 1.0 s pause threshold count as one
 stretch, so the numbers are an acoustic estimate rather than a punctuation
 census. The seconds stay unclamped, and the ratio is omitted — not guessed —
 when the row's own `duration_s` is not a positive finite number, which leaves a
@@ -209,6 +255,12 @@ than zero length, fuse any two whose start is at or below the previous end plus
 1.0 s, then take the span count, the summed duration (3 decimals) and
 `min(1.0, captured_s / duration_s)` — a zero-length cue describes no captured
 audio and is skipped, which is what makes the recompute exact.
+`asr_aligner_model` names the checkpoint that produced the cue timings
+(`Qwen/Qwen3-ForcedAligner-0.6B-hf` on this host), and `asr_chunk_seconds` is the window the audio
+was cut into for decoding and alignment — 180 s by default, `BILI_ASR_CHUNK_SECONDS` to override.
+The chunker cuts at a low-energy boundary and the chunks tile the recording exactly: no overlap, no
+gap, nothing dropped. That is what lets a cue's timings be read as positions in the original audio,
+and it is checked by `tests/test_asr_qwen.py` rather than asserted here.
 `asr_low_confidence_at` is the JSON list of start seconds whose cue scored at or
 below the archived low-confidence threshold, ascending, 3 decimals, duplicates
 kept. It is emitted together with `asr_low_confidence_cues` under one rule: both
@@ -216,6 +268,13 @@ are present whenever the transcript carries any score — `0` and `[]` when no c
 is at or below the threshold — and neither is written when it carries none.
 Because the list names where the doubts are, the count and the list cannot
 disagree, and a reader can recompute both from the raw sidecar's `segments`.
+
+**A transcript the Qwen3-ASR engine wrote carries no scores, so neither confidence key is written
+for it.** That is the pre-existing rule — no score, no keys — not a new one, and it is why the
+`raw` sidecar's segments have no `confidence` field on those rows. Transcripts archived before the
+engine change still carry both keys, every reader in this repository keeps reading them, and
+`coverage --quality` reports low-confidence positions whenever a row has them and stays silent when
+it does not.
 The list is one entry per low cue, so that single frontmatter line grows with
 the cue count — linearly, and always smaller than the body it summarises,
 which repeats every cue's text.
@@ -586,7 +645,7 @@ still-processable `subtitle_done` / `needs_audio` / `audio_ok` for resume),
 preferring short `duration_s` and reserving both branches when those statuses
 already exist. Each selected row harvests subtitles first: a subtitle hit is
 archived with `source=subtitle` and no ASR; a miss downloads audio, runs local
-FunASR-Nano, and archives with `source=asr`. Multi-part bvids include every
+Qwen3-ASR, and archives with `source=asr`. Multi-part bvids include every
 pagelist `work_id`. The summary prints branch counts and terminal states.
 Missing subtitle or audio-asr coverage exits 1 and names the missing branch.
 A completed rerun skips work already `archived`. Missing optional ASR exits
@@ -681,7 +740,7 @@ The denominator is the selected manifest snapshot in work-item units; if the man
 
 `bili-asr run` coordinates manifest rows through four stages — `harvest`
 (probe + download subtitles), `download` (fetch audio), `asr` (local
-FunASR-Nano), `archive` (write `srt`/`txt`/`md`) — composing the same live
+Qwen3-ASR), `archive` (write `srt`/`txt`/`md`) — composing the same live
 seams as the single-purpose commands. It **complements** the frozen
 `bili-asr pilot` MVP-proof command; it does not replace it.
 
