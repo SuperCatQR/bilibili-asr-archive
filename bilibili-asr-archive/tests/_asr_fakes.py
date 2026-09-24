@@ -177,12 +177,13 @@ def _patch_audio(monkeypatch, seconds: float, reads: list[str] | None,
 
 def install(monkeypatch, *, text: str = DEFAULT_TEXT, seconds: float = 3.0,
             constructions: list[dict] | None = None, reads: list[str] | None = None,
-            fail_when=None) -> ModelSet:
+            fail_when=None, raises: BaseException | None = None) -> ModelSet:
     """Patch the boundary's factory with a canned model set, plus the audio reader.
 
     ``constructions`` is filled with the factory's kwargs, one entry per model set the runner built —
     the observable the CLI's reuse line reports.  ``reads`` and ``fail_when`` are documented on
-    :func:`_patch_audio`.
+    :func:`_patch_audio`.  ``raises`` makes every construction fail *after* being recorded, which is
+    the shape a test needs when it asserts how many attempts a broken checkpoint cost.
 
     Descriptor materialization is switched off: the double reads the path it is handed, and the
     behaviour of the real copy is covered by its own unit test in ``test_asr_qwen.py``.
@@ -196,6 +197,8 @@ def install(monkeypatch, *, text: str = DEFAULT_TEXT, seconds: float = 3.0,
     def factory(**kwargs):
         if constructions is not None:
             constructions.append(dict(kwargs))
+        if raises is not None:
+            raise raises
         return model_set
 
     monkeypatch.setenv("BILI_ASR_DEVICE", "cpu")
@@ -204,19 +207,11 @@ def install(monkeypatch, *, text: str = DEFAULT_TEXT, seconds: float = 3.0,
     return model_set
 
 
-def raising(monkeypatch, exception: BaseException) -> None:
+def raising(monkeypatch, exception: BaseException, *,
+            constructions: list[dict] | None = None) -> None:
     """Patch the factory with one that always raises (a missing extra, a bad checkpoint)."""
 
-    from bili_asr import asr
-
-    _patch_audio(monkeypatch, 3.0, None, None)
-
-    def factory(**kwargs):
-        raise exception
-
-    monkeypatch.setenv("BILI_ASR_DEVICE", "cpu")
-    monkeypatch.setattr(asr, "_materialize_input", lambda path: (path, None))
-    monkeypatch.setattr(asr, "_load_qwen_models", factory)
+    install(monkeypatch, constructions=constructions, raises=exception)
 
 
 def forbidden(monkeypatch) -> None:

@@ -16,7 +16,7 @@ disk — so the three things the surface owes are pinned here rather than inferr
 
 Nothing here reaches the network or a live Bilibili endpoint: the shipped fixtures of
 ``test_audio`` / ``test_subtitles`` script every transport, and the ASR seam is the
-module-level model factory the other CLI suites already stub (``_load_default_model``).
+module-level model factory the other CLI suites already stub (``_load_qwen_models``).
 """
 
 from __future__ import annotations
@@ -42,6 +42,8 @@ from test_audio import (
     playurl_ok,
 )
 from test_subtitles import SAMPLE_DOC, nav_ok, player_ok
+
+import _asr_fakes as asr_fakes
 
 #: The word the fixture transcript carries.  The row's title does not contain it, so a
 #: hit proves the transcript file was really read from the base the row was written to.
@@ -201,8 +203,7 @@ class _FakeModel:
 
 def _stub_asr(monkeypatch) -> None:
     """The D2.5 seam: patch the module-level factory the production site uses."""
-    monkeypatch.setenv("BILI_ASR_DEVICE", "cpu")
-    monkeypatch.setattr(asr_mod, "_load_default_model", lambda **_kwargs: _FakeModel())
+    asr_fakes.install(monkeypatch, text=MARKER_TEXT)
 
 
 def _offline_client(monkeypatch, transport=None) -> None:

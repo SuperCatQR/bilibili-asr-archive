@@ -734,10 +734,19 @@ class ASRRunner:
         An empty recording yields no cues rather than a fabricated one.
         """
 
-        import numpy as np
-        import soundfile as sf
-
+        # The model pair first: a host without the extra must fail with the documented
+        # ``ASRDependencyError`` (which names the ``[asr]`` install), not with whatever the audio
+        # reader happens to import first.  The readers are part of the same extra, so their absence
+        # is reported the same way.
         models = self._get_models()
+        try:
+            import numpy as np
+            import soundfile as sf
+        except ImportError as exc:
+            raise ASRDependencyError(
+                f"the ASR audio readers are not installed; run: {_INSTALL_HINT}"
+            ) from exc
+
         path, temporary = _materialize_input(audio_path)
         scratch: str | None = None
         try:

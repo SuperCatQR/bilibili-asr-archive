@@ -14,6 +14,8 @@ from bili_asr.manifest import ManifestStore
 from bili_asr.page_identity import artifact_stem, page_identity
 from bili_asr.scheduler import SchedulerStore
 
+import _asr_fakes as asr_fakes
+
 _AUDIO_BYTES = b"\x00\x00\x00\x18ftypM4A " + b"payload" * 100
 
 
@@ -238,16 +240,7 @@ def _stub_campaign_model(monkeypatch):
     """D2.5 seam for the real coordinator: count constructions at the factory."""
     constructions: list[dict] = []
 
-    class FakeModel:
-        def generate(self, **_kwargs):
-            return [{"text": "campaign-asr", "timestamp": [[0, 1000]]}]
-
-    def factory(**kwargs):
-        constructions.append(dict(kwargs))
-        return FakeModel()
-
-    monkeypatch.setenv("BILI_ASR_DEVICE", "cpu")
-    monkeypatch.setattr(asr_mod, "_load_default_model", factory)
+    asr_fakes.install(monkeypatch, text="campaign-asr", constructions=constructions)
     return constructions
 
 

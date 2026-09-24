@@ -441,24 +441,24 @@ def test_the_shaper_and_the_merger_meet_at_the_threshold_from_opposite_sides():
     threshold = CAPTURE_GAP_SECONDS
 
     def cues_for(gap):
-        """The shaper's own output for a pause of ``gap`` between two sentences.
+        """The cue builder's own output for a pause of ``gap`` between two sentences.
 
-        Ten half-second tokens either side, so both candidate cues are already
+        Ten half-second pieces either side, so both candidate cues are already
         ``formed()`` — a pause only closes a cue that can stand on its own, and
         an undersized one is absorbed by the cue before it.
         """
 
-        tokens = [
-            {"token": ch, "start_time": i * 0.5, "end_time": i * 0.5 + 0.5}
+        pieces = [
+            {"text": ch, "start": i * 0.5, "end": i * 0.5 + 0.5}
             for i, ch in enumerate("甲乙丙丁戊己庚辛壬癸")
         ]
         base = 10 * 0.5
-        tokens += [
-            {"token": ch, "start_time": base + gap + i * 0.5,
-             "end_time": base + gap + i * 0.5 + 0.5}
+        pieces += [
+            {"text": ch, "start": base + gap + i * 0.5,
+             "end": base + gap + i * 0.5 + 0.5}
             for i, ch in enumerate("子丑寅卯辰巳午未申酉")
         ]
-        return asr_module._token_cues(tokens)
+        return asr_module._aligned_cues(pieces)
 
     # The shaper splits exactly at the threshold...
     assert len(cues_for(threshold)) == 2
@@ -634,10 +634,14 @@ def test_capture_ignores_degenerate_zero_length_cues_like_the_recompute(tmp_root
         raw = json.loads((tmp_path / paths["raw_path"]).read_text(encoding="utf-8"))
         return front, raw
 
-    # A result with text but no timings: the shaper's own zero-length segment.
-    from bili_asr.asr import normalize_result
+    # Text the aligner cannot time is still kept, never dropped: the mark threading anchors every
+    # character at the only instant it has.
+    from bili_asr import asr as asr_module
 
-    text_only = normalize_result({"text": "没有时间戳的一段话"})
+    text_only = asr_module._aligned_cues(
+        asr_module._thread_text("没有时间戳的一段话", [])
+    )
+    assert text_only[0]["text"] == "没有时间戳的一段话"
     assert [(s["start"], s["end"]) for s in text_only] == [(0.0, 0.0)]
     front, raw = published("BV1degtext", text_only, 18)
     # No captured audio is *located*, so zero spans is the fact recorded.

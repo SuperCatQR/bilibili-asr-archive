@@ -32,50 +32,22 @@ from test_audio import (
 from test_subtitles import SAMPLE_DOC, nav_ok, player_ok, sub_entry
 from conftest import reuse_line
 
-
-def _model_input_bytes(path: str) -> bytes:
-    """The audio the model was handed, read while the path still resolves.
-
-    The runner passes a ``/proc/self/fd/N`` descriptor and the ASR boundary
-    copies it to a temp file the model actually opens, so reading it here is
-    the only way to see the bytes the model received.
-    """
-    try:
-        with open(os.fspath(path), "rb") as fh:
-            return fh.read()
-    except OSError:
-        return b""
-
-
-class _FakeModel:
-    """Stands in for the FunASR AutoModel the runner builds lazily."""
-
-    def __init__(self, calls=None):
-        self._calls = calls
-
-    def generate(self, **kwargs):
-        if self._calls is not None:
-            self._calls.append(
-                (kwargs["input"], _model_input_bytes(kwargs["input"]))
-            )
-        return [{"start": 0.0, "end": 1.0, "text": "asr-text"}]
+import _asr_fakes as asr_fakes
 
 
 def _stub_runner_model(monkeypatch, calls=None, released=None):
     """D2.5 seam: patch the module-level factory, not ``asr.transcribe``.
 
-    The real ``_get_model`` path stays under test, so the counter a command
-    reports is the one the production construction site produces.  Returns the
-    list of construction kwargs, one entry per model built.
-
-    ``released`` records each ``ASRRunner.release()`` call, so a test can
-    assert the invocation-scoped runner is handed back on every exit path.
+    The real ``_get_model`` path stays under test, so the counter a command reports is the one the
+    production construction site produces.  Returns the list of construction kwargs, one entry per
+    model set built.  ``calls`` collects the path of every recording the boundary opened — the model
+    is handed a chunk file, so a row is identified at the read, not at the model.  ``released``
+    records each ``ASRRunner.release()`` call, so a test can assert the invocation-scoped runner is
+    handed back on every exit path.
     """
-    constructions: list[dict] = []
 
-    def factory(**kwargs):
-        constructions.append(dict(kwargs))
-        return _FakeModel(calls)
+    constructions: list[dict] = []
+    asr_fakes.install(monkeypatch, text="asr-text", constructions=constructions, reads=calls)
 
     if released is not None:
         real_release = asr_mod.ASRRunner.release
@@ -86,10 +58,7 @@ def _stub_runner_model(monkeypatch, calls=None, released=None):
 
         monkeypatch.setattr(asr_mod.ASRRunner, "release", recording_release)
 
-    monkeypatch.setenv("BILI_ASR_DEVICE", "cpu")
-    monkeypatch.setattr(asr_mod, "_load_default_model", factory)
     return constructions
-
 
 def _seed_audio_ok(root, identities):
     """Rows the ``asr`` command routes straight to transcription."""
@@ -223,7 +192,8 @@ def test_cli_audio_branch_needs_audio_audio_ok_archived(
     assert archived["status"] == "archived"
     assert os.path.isfile(os.path.join(tmp_root, archived["srt_path"]))
     # The model read this row's confined audio, not a stale or foreign file.
-    assert [body for _path, body in transcribe_calls] == [AUDIO_BYTES]
+    assert len(transcribe_calls) == 1, "one row, one recording opened"
+    assert artifact_stem(identity) in transcribe_calls[0], "the boundary read this row's audio"
 
 
 def test_cli_subtitle_branch_subtitle_done_archived_skips_asr(
@@ -265,13 +235,9 @@ def test_cli_asr_missing_optional_asr_exits_1_non_archived(
     ManifestStore(root=tmp_root).upsert(_row(identity, title="needs-asr"))
     hint = 'pip install -e "bilibili-asr-archive/[asr]"'
 
-    def missing_asr(**_kwargs):
-        raise ASRDependencyError(
-            f"FunASR support is not installed; run: {hint}"
-        )
-
-    monkeypatch.setenv("BILI_ASR_DEVICE", "cpu")
-    monkeypatch.setattr(asr_mod, "_load_default_model", missing_asr)
+    asr_fakes.raising(
+        monkeypatch, ASRDependencyError(f"Qwen3-ASR support is not installed; run: {hint}")
+    )
     _patch_cli(monkeypatch)
     monkeypatch.setattr(bc, "build_default_transport", _audio_transport)
 
@@ -303,12 +269,7 @@ def test_cli_asr_rerun_idempotent_leaves_unrelated_rows(
     )
     other_snapshot = dict(store.get(other.work_id))
 
-    monkeypatch.setattr(
-        asr_mod,
-        "_load_default_model",
-        lambda **_kwargs: (_ for _ in ()).throw(AssertionError("ASR must not run")),
-    )
-    monkeypatch.setenv("BILI_ASR_DEVICE", "cpu")
+    asr_fakes.forbidden(monkeypatch)
     _patch_cli(monkeypatch, _subtitle_transport())
 
     assert (
@@ -382,12 +343,11 @@ def test_cli_asr_releases_the_runner_when_transcription_is_interrupted(
     _seed_audio_ok(tmp_root, [identity])
     released: list[object] = []
 
-    class InterruptingModel:
-        def generate(self, **_kwargs):
-            raise KeyboardInterrupt()
+    def interrupting(self, **_kwargs):
+        raise KeyboardInterrupt()
 
-    def factory(**_kwargs):
-        return InterruptingModel()
+    monkeypatch.setattr(asr_fakes.Model, "generate", interrupting)
+    asr_fakes.install(monkeypatch, text="asr-text")
 
     real_release = asr_mod.ASRRunner.release
 
@@ -395,9 +355,7 @@ def test_cli_asr_releases_the_runner_when_transcription_is_interrupted(
         released.append(self)
         real_release(self)
 
-    monkeypatch.setenv("BILI_ASR_DEVICE", "cpu")
     monkeypatch.setattr(asr_mod.ASRRunner, "release", recording_release)
-    monkeypatch.setattr(asr_mod, "_load_default_model", factory)
     _patch_cli(monkeypatch)
 
     with pytest.raises(KeyboardInterrupt):
@@ -451,7 +409,7 @@ def test_cli_asr_prints_the_line_when_every_transcription_fails(
     ]
     _seed_audio_ok(tmp_root, identities)
     constructions = _stub_runner_model(monkeypatch)
-    monkeypatch.setattr(_FakeModel, "generate", lambda self, **kwargs: _raise_asr_error())
+    monkeypatch.setattr(asr_fakes.Model, "generate", lambda self, **kwargs: _raise_asr_error())
     _patch_cli(monkeypatch, RouterTransport({}))
 
     rc = main(["asr", "--pending", "--limit", "3", "--archive-root", tmp_root])
@@ -684,12 +642,8 @@ def _stub_failing_loads(monkeypatch):
     """
     attempts: list[dict] = []
 
-    def factory(**kwargs):
-        attempts.append(dict(kwargs))
-        raise RuntimeError("no checkpoint")
-
-    monkeypatch.setenv("BILI_ASR_DEVICE", "cpu")
-    monkeypatch.setattr(asr_mod, "_load_default_model", factory)
+    asr_fakes.install(monkeypatch, text="asr-text", constructions=attempts,
+                      raises=RuntimeError("no checkpoint"))
     return attempts
 
 

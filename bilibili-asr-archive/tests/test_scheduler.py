@@ -38,6 +38,8 @@ from test_audio import (
 )
 from test_subtitles import SAMPLE_DOC, nav_ok, player_ok, sub_entry
 
+import _asr_fakes as asr_fakes
+
 SECRET = "SECRET-SESS"
 RISK = (412, {"code": -412, "message": "request too frequent"})
 
@@ -101,13 +103,7 @@ def _patch_cli(monkeypatch, transport):
 
 
 def _stub_asr(monkeypatch):
-    class FakeModel:
-        def generate(self, **_kwargs):
-            return [{"text": "asr-text", "timestamp": [[0, 1000]]}]
-
-    monkeypatch.setattr(
-        asr_mod, "_load_default_model", lambda **_kwargs: FakeModel()
-    )
+    return asr_fakes.install(monkeypatch, text="asr-text")
 
 
 def _assert_no_secrets(captured, root):
@@ -549,19 +545,11 @@ def test_schedule_mixed_failure_exits_1_failed_scope_retries(
     _write_subtitle_raw(tmp_root, ok_id)
     _write_audio(tmp_root, fail_id)
 
-    def flaky(audio_path, model_name=None):
-        if artifact_stem(fail_id) in _audio_target(audio_path):
-            raise asr_mod.ASRModelError("model failed")
-        return [{"start": 0.0, "end": 1.0, "text": "ok"}]
-
-    # D2.5 seam: `schedule` runs the shared coordinator, which builds its
-    # model through this factory; the injected per-row failure must land there.
-    class FakeModel:
-        def generate(self, **kwargs):
-            return flaky(kwargs["input"])
-
-    monkeypatch.setenv("BILI_ASR_DEVICE", "cpu")
-    monkeypatch.setattr(asr_mod, "_load_default_model", lambda **_kw: FakeModel())
+    # D2.5 seam: `schedule` runs the shared coordinator.  The per-row failure sits on the
+    # boundary's read of that row's confined audio, which is where a row is still identifiable.
+    asr_fakes.install(
+        monkeypatch, text="ok", fail_when=lambda path: artifact_stem(fail_id) in path
+    )
     _patch_cli(monkeypatch, RouterTransport(_base_routes()))
 
     rc = main([
@@ -864,16 +852,7 @@ def test_schedule_reuse_line_names_schedule_not_run(tmp_root, monkeypatch, capsy
 
     constructed: list[dict] = []
 
-    class FakeModel:
-        def generate(self, **_kwargs):
-            return [{"text": "schedule-asr", "timestamp": [[0, 1000]]}]
-
-    def factory(**kwargs):
-        constructed.append(dict(kwargs))
-        return FakeModel()
-
-    monkeypatch.setenv("BILI_ASR_DEVICE", "cpu")
-    monkeypatch.setattr(asr_mod, "_load_default_model", factory)
+    asr_fakes.install(monkeypatch, text="schedule-asr", constructions=constructed)
 
     rc = main([
         "schedule", "--scope", "pending", "--limit", "3",

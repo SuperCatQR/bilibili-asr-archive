@@ -36,6 +36,8 @@ from test_audio import (
 from test_fetch_meta import FastSleeper
 from test_subtitles import SAMPLE_DOC, nav_ok, player_ok, sub_entry
 
+import _asr_fakes as asr_fakes
+
 
 @pytest.fixture
 def fast_sleep():
@@ -389,12 +391,7 @@ def test_cli_pilot_exit_0_appends_ledger(tmp_root, monkeypatch, capsys):
 
     # D2.5 seam: `pilot` owns one runner for the whole invocation now, so the
     # stub sits on the factory the runner builds its model through.
-    class FakeModel:
-        def generate(self, **_kwargs):
-            return [{"start": 0.0, "end": 1.0, "text": "asr-text"}]
-
-    monkeypatch.setenv("BILI_ASR_DEVICE", "cpu")
-    monkeypatch.setattr(asr_mod, "_load_default_model", lambda **_kw: FakeModel())
+    asr_fakes.install(monkeypatch, text="asr-text")
     _patch_client(monkeypatch, _mixed_transport())
 
     rc = main(["pilot", "--n", "2", "--archive-root", tmp_root, "--sessdata", "SECRET-SESSDATA-12345"])

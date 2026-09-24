@@ -24,12 +24,15 @@ from test_audio import (
 )
 from test_subtitles import RouterTransport as SubRouter
 from test_subtitles import (
+
     SAMPLE_DOC,
     make_client as make_sub_client,
     nav_ok,
     player_ok,
     sub_entry,
 )
+
+import _asr_fakes as asr_fakes
 
 BVID = "BV1multi"
 
@@ -265,25 +268,14 @@ def test_asr_pending_p0_failure_does_not_suppress_p1(tmp_root, monkeypatch):
         with open(os.path.join(tmp_root, "audio", f"{artifact_stem(page)}.m4a"), "wb") as fh:
             fh.write(AUDIO_BYTES + artifact_stem(page).encode("utf-8"))
 
-    def fake_transcribe(path):
-        try:
-            target = os.readlink(path)
-        except OSError:
-            target = path
-        with open(target, "rb") as fh:
-            body = fh.read()
-        if artifact_stem(p0).encode("utf-8") in body:
-            raise RuntimeError("p0 failed")
-        return [{"start": 0, "end": 1, "text": "p1"}]
-
-    # D2.5 seam: `asr` now owns one runner for its whole selection, so the
-    # per-row behaviour is injected at the factory the runner builds through.
-    class FakeModel:
-        def generate(self, **kwargs):
-            return fake_transcribe(kwargs["input"])
-
-    monkeypatch.setenv("BILI_ASR_DEVICE", "cpu")
-    monkeypatch.setattr(asr_mod, "_load_default_model", lambda **_kw: FakeModel())
+    # D2.5 seam: `asr` owns one runner for its whole selection.  The row is told apart at the
+    # boundary's read of its confined audio — the model is handed a chunk file, which is the same
+    # scratch path for every row.
+    asr_fakes.install(
+        monkeypatch,
+        text="p1",
+        fail_when=lambda path: artifact_stem(p0) in path,
+    )
     rc = main(["asr", "--pending", "--archive-root", tmp_root])
     assert rc == 1
     loaded = ManifestStore(root=tmp_root).load()
