@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "bili-asr"
 version = "0.1.0"
-description = "Bilibili ASR transcript archival CLI (AI/CC subtitles first, local FunASR-Nano GPU fallback)"
+description = "Bilibili ASR transcript archival CLI (AI/CC subtitles first, local Qwen3-ASR GPU fallback)"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
@@ -25,7 +25,18 @@ dev = [
     "responses>=0.25",
 ]
 asr = [
-    "funasr>=1.2",
+    # Qwen3-ASR has native transformers support from 5.13.0, which is the whole engine: the
+    # decoder for text and the forced aligner for per-character timings.
+    "transformers>=5.13",
+    # ``device_map=`` (the loader path both checkpoints use) requires accelerate.
+    "accelerate>=1.0",
+    # Reading the archived audio and writing each chunk out again.
+    "soundfile>=0.12",
+    # Resampling when a part is not already 16 kHz mono.
+    "librosa>=0.10",
+    # NOTE: torch is deliberately NOT listed here. The verified AMD/WSL recipe installs the ROCm
+    # wheel from repo.radeon.com (docs/wsl-rocm-gpu.md step 6) together with the matching torchaudio;
+    # letting pip resolve ``torch`` from an index silently gets the wrong build for this host.
 ]
 
 [tool.setuptools.packages.find]
