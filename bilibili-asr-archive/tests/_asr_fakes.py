@@ -150,10 +150,22 @@ def _patch_audio(monkeypatch, seconds: float, reads: list[str] | None,
 
     samples = np.zeros(int(16000 * seconds), dtype="float32")
 
+    def resolve(path: str) -> str:
+        """The file a path names, dereferencing a descriptor while it is still open."""
+
+        if str(path).startswith("/proc/self/fd/"):
+            try:
+                import os
+
+                return os.readlink(str(path))
+            except OSError:  # pragma: no cover - the descriptor is gone
+                return str(path)
+        return str(path)
+
     def read(path, *args, **kwargs):
         if reads is not None:
-            reads.append(path)
-        if fail_when is not None and fail_when(str(path)):
+            reads.append(resolve(path))
+        if fail_when is not None and fail_when(resolve(path)):
             from bili_asr.asr import ASRModelError
 
             raise ASRModelError("model failed")

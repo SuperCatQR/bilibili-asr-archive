@@ -136,8 +136,7 @@ def test_cli_pilot_mixed_meta_ok_archives_both_branches(tmp_root, monkeypatch, c
     # post-archive audio reclaim: m4a removed once the row is archived
     assert not os.path.exists(os.path.join(tmp_root, loaded[aud.work_id]["audio_path"]))
     assert len(reads) == 1, "one row, one recording opened"
-    probe = os.readlink(reads[0]) if reads[0].startswith("/proc/self/fd/") else reads[0]
-    assert artifact_stem(identity) in probe, "the boundary read this row's confined audio"
+    assert artifact_stem(identity) in reads[0], "the boundary read this row's confined audio"
     player = [c for c in transport.calls if "player/wbi/v2" in c["url"]]
     assert [c["params"]["cid"] for c in player] == [111, 222]
     sess_calls = [c for c in transport.calls if c["cookies"].get("SESSDATA") == "SECRET-SESS"]
@@ -307,7 +306,7 @@ def test_cli_pilot_completed_rerun_skips_archived(tmp_root, monkeypatch, capsys)
         for name in files:
             first_files.append(os.path.join(dirpath, name))
     first_files.sort()
-    first_calls = list(transcribe_calls)
+    first_calls = list(reads)
 
     rc = main(["pilot", "--n", "2", "--archive-root", tmp_root])
     captured = capsys.readouterr()
@@ -320,7 +319,7 @@ def test_cli_pilot_completed_rerun_skips_archived(tmp_root, monkeypatch, capsys)
         for name in files:
             rerun_files.append(os.path.join(dirpath, name))
     assert sorted(rerun_files) == first_files
-    assert transcribe_calls == first_calls
+    assert reads == first_calls
     loaded = ManifestStore(root=tmp_root).load()
     assert loaded[sub.work_id]["status"] == "archived"
     assert loaded[aud.work_id]["status"] == "archived"
