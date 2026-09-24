@@ -469,16 +469,21 @@ def test_srt_only_artefact_reports_no_low_confidence(tmp_path: Path) -> None:
 
 @pytest.fixture(scope="module")
 def recorded_cues() -> list[dict]:
-    """The recorded Fun-ASR-Nano result for one archived part, shaped as cues."""
+    """The recorded cues for one archived part, frozen when the FunASR shaper was retired.
+
+    The raw token timestamps the shaper consumed stay beside this file as the evidence; the cues
+    themselves are the product shape the quality surface reads, and the archive still holds
+    transcripts that carry them — so these assertions stay about the quality surface (and about
+    reading a transcript the current engine no longer produces), not about a shaper that is gone.
+    """
 
     path = (
         Path(__file__).parent
         / "fixtures"
         / "asr-cues"
-        / "BV1wLTP6NE9h.p0.tokens.json"
+        / "BV1wLTP6NE9h.p0.cues.json"
     )
-    payload = json.loads(path.read_text(encoding="utf-8"))[0]
-    return asr._token_cues(payload["timestamps"])
+    return json.loads(path.read_text(encoding="utf-8"))
 
 
 def _recorded_entry() -> dict[str, object]:

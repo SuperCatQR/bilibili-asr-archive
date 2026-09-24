@@ -29,6 +29,8 @@ from test_audio import (
 )
 from test_subtitles import SAMPLE_DOC, nav_ok, player_ok, sub_entry
 
+import _asr_fakes as asr_fakes
+
 SECRET = "SECRET-SESS"
 API_FAIL = (200, {"code": -400})
 RISK = (412, {"code": -412, "message": "request too frequent"})
@@ -92,21 +94,16 @@ def _stub_asr(monkeypatch, impl=None):
     """
     constructions: list[dict] = []
 
-    class FakeModel:
-        def generate(self, **kwargs):
-            if impl is not None:
-                # `kwargs["input"]` is the descriptor path (or its short-lived
-                # copy) of this row's confined audio; the old assertions only
-                # ever needed to know *which* audio the model was handed.
-                impl(kwargs["input"])
-            return [{"start": 0.0, "end": 1.0, "text": "asr-text"}]
+    def probe(path: str) -> bool:
+        """Hand ``impl`` the row's own audio; a raise from it is that row's failure."""
 
-    def factory(**kwargs):
-        constructions.append(dict(kwargs))
-        return FakeModel()
+        if impl is not None:
+            impl(path)
+        return False
 
-    monkeypatch.setenv("BILI_ASR_DEVICE", "cpu")
-    monkeypatch.setattr(asr_mod, "_load_default_model", factory)
+    asr_fakes.install(
+        monkeypatch, text="asr-text", constructions=constructions, fail_when=probe
+    )
     return constructions
 
 
@@ -594,19 +591,11 @@ def test_run_mixed_failure_keeps_success_and_failed_scope_retries(
     _write_subtitle_raw(tmp_root, ok_id)
     _write_audio(tmp_root, fail_id)
 
-    def flaky(audio_path, model_name=None):
-        if artifact_stem(fail_id) in _audio_target(audio_path):
-            raise asr_mod.ASRModelError("model failed")
-        return [{"start": 0.0, "end": 1.0, "text": "ok"}]
-
-    # D2.5 seam: `run` builds its model through the factory, so the injected
-    # per-row failure has to sit on the model call.
-    class FakeModel:
-        def generate(self, **kwargs):
-            return flaky(kwargs["input"])
-
-    monkeypatch.setenv("BILI_ASR_DEVICE", "cpu")
-    monkeypatch.setattr(asr_mod, "_load_default_model", lambda **_kw: FakeModel())
+    # D2.5 seam: `run` builds its model through the factory.  The injected per-row failure sits on
+    # the boundary's read of that row's confined audio.
+    asr_fakes.install(
+        monkeypatch, text="ok", fail_when=lambda path: artifact_stem(fail_id) in path
+    )
     _patch_cli(monkeypatch, RouterTransport(_base_routes()))
 
     rc = main(["run", "--scope", "pending", "--archive-root", tmp_root])
@@ -711,18 +700,10 @@ def test_run_per_item_failure_then_risk_still_exits_2(
     _write_audio(tmp_root, fail_id)
     _write_subtitle_raw(tmp_root, ok_id)
 
-    def flaky(audio_path, model_name=None):
-        if artifact_stem(fail_id) in _audio_target(audio_path):
-            raise asr_mod.ASRModelError("model failed")
-        return [{"start": 0.0, "end": 1.0, "text": "ok"}]
-
     # D2.5 seam (see the sibling run test above).
-    class FakeModel:
-        def generate(self, **kwargs):
-            return flaky(kwargs["input"])
-
-    monkeypatch.setenv("BILI_ASR_DEVICE", "cpu")
-    monkeypatch.setattr(asr_mod, "_load_default_model", lambda **_kw: FakeModel())
+    asr_fakes.install(
+        monkeypatch, text="ok", fail_when=lambda path: artifact_stem(fail_id) in path
+    )
     transport = CidRouterTransport(
         {risk_id.cid: RISK},
         routes=_base_routes(),

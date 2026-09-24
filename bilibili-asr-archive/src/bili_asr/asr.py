@@ -1,13 +1,27 @@
-"""Local FunASR ASR boundary.
+"""Local ASR boundary — Qwen3-ASR on transformers, with the forced aligner for timings.
 
-FunASR is imported only when a runner first transcribes.  The runner is
-explicitly configured, lazy, and scoped to one sequential batch; no model
-cache or download orchestration lives here.
+The engine is a **hard switch** (plan `20260924-qwen3-asr-transformers`, D2): there is no FunASR
+code path and no runtime engine flag.  Rollback is a revert of the commit that lands this file,
+not a switch.
 
-API Compatibility: ASRConfig retains `offline` and `local_source` fields for
-backward compatibility with the legacy SenseVoice configuration surface, but
-these parameters are not passed to the FunASR AutoModel API. They remain part
-of the configuration schema and provenance surface only.
+Why the boundary looks like this — measured on the archive's own audio (plan §13.5):
+
+* the decoder returns **text only** (``language <LANG><asr_text>…``), never timings;
+* timings come from a second model, ``Qwen3-ForcedAligner-0.6B``, a non-autoregressive token
+  classifier whose single forward pass over (audio <= 180 s, that text) returns **per-character**
+  ``{text, start_time, end_time}`` for Chinese;
+* a per-cue confidence does not exist in this engine, so no confidence key is published (plan D4) —
+  the frontmatter writer already omits those keys when no score is present;
+* the decoder costs ~0.41x real-time while alignment costs ~0.1 s per 60 s chunk, so the chunk size
+  is tuned around the decoder, not the aligner.
+
+So: audio is chunked (the aligner's practical bound is 180 s), each chunk is transcribed and then
+aligned, the per-chunk timings are offset and stitched, and the surviving cue rules — unchanged from
+the FunASR era, they were measured on this corpus — group the aligned units into subtitle lines.
+
+Dependencies: ``transformers>=5.13`` (native Qwen3-ASR support), ``torch``, ``accelerate`` (the
+``device_map`` path), ``soundfile``/``librosa`` (reading audio).  Transformers is imported only when a
+runner first transcribes; no model download orchestration lives here.
 """
 
 from __future__ import annotations
@@ -17,35 +31,86 @@ import re
 import shutil
 import tempfile
 from dataclasses import asdict, dataclass, replace
-from typing import Any, Callable
+from typing import Any, Callable, NamedTuple
 
-DEFAULT_MODEL = "FunAudioLLM/Fun-ASR-Nano-2512"
+DEFAULT_MODEL = "Qwen/Qwen3-ASR-1.7B-hf"
+DEFAULT_ALIGNER_MODEL = "Qwen/Qwen3-ForcedAligner-0.6B-hf"
 
-
-def _load_default_model(**kwargs: Any) -> Any:
-    try:
-        from funasr import AutoModel  # type: ignore
-    except ImportError as exc:
-        raise ASRDependencyError(
-            f"FunASR support is not installed; run: {_INSTALL_HINT}"
-        ) from exc
-    return AutoModel(**kwargs)
 _INSTALL_HINT = 'pip install -e "bilibili-asr-archive/[asr]"'
+
+#: Transformer output can leak its own control markers when a caller decodes without
+#: ``skip_special_tokens``; nothing downstream may see one.
 _RICH_TAG = re.compile(r"<\|[^|>]+\|>")
-#: Credential markers open at the start of the value or after a letter-free
-#: separator, and must not run into a following letter.  A trailing ``\b``
-#: cannot do that job: ``_`` is a word character, so ``token_abc`` has no
-#: boundary after the marker and the value would be published verbatim.  The
-#: same separator-aware form is what ``quality._NAME_CREDENTIAL`` applies to
-#: file names; an ordinary word such as ``tokenizer`` is still left alone in
-#: both directions.
+
+# ---------------------------------------------------------------------------------------
+# Chunking.  The aligner documents up to 5 minutes; the reference implementation uses 180 s
+# when timings are wanted, which is always here.  A chunk boundary is placed at the quietest
+# point in a window around the target so it does not slice a word, and the chunks tile the
+# input exactly: no overlap, no gap, no dropped tail.
+# ---------------------------------------------------------------------------------------
+
+DEFAULT_CHUNK_SECONDS = 180.0
+_CHUNK_SEARCH_EXPAND_S = 5.0
+_CHUNK_MIN_WINDOW_MS = 100.0
+_CHUNK_MIN_SECONDS = 0.5
+SAMPLE_RATE = 16_000
+
+#: Generation budget per chunk, in tokens per second of audio.  Chinese speech in this corpus runs
+#: near 4 characters/s and one character is about one token, so this is deliberately generous; the
+#: full-item measurement (plan §13.5, follow-up) confirms the margin.
+_MAX_NEW_TOKENS_PER_AUDIO_SECOND = 8
+_MIN_NEW_TOKENS = 256
+
+# ---------------------------------------------------------------------------------------
+# Cue rules — SURVIVORS.  Measured on this corpus in the FunASR era; they are product
+# decisions (what makes a readable subtitle line), not engine decisions.  Only their input
+# changed: per-character alignment units instead of FunASR's token stream.
+# ---------------------------------------------------------------------------------------
+
+_SENTENCE_ENDINGS = "。！？!?"
+_CUE_MAX_CHARS = 60
+_CUE_MAX_GAP_SECONDS = 1.0
+_CUE_MIN_CHARS = 6
+_CUE_MIN_SECONDS = 1.0
+_CUE_CLOSING_MARKS = "。！？!?，、；：,;:"
+
+#: Bounded retry of a failed model load (inherited contract).
+MAX_MODEL_LOAD_ATTEMPTS = 3
+
+# ---------------------------------------------------------------------------------------
+# Environment knobs.
+# ---------------------------------------------------------------------------------------
+
+ASR_MODEL_ENV_VAR = "BILI_ASR_MODEL"
+ASR_ALIGNER_ENV_VAR = "BILI_ASR_ALIGNER_MODEL"
+ASR_MODEL_REVISION_ENV_VAR = "BILI_ASR_MODEL_REVISION"
+#: The operator's *declaration* of the hub-level identity behind the loaded ASR checkpoint.  Read for
+#: provenance only — it never reaches the loader — and a blank value means "not declared".
+ASR_MODEL_ID_ENV_VAR = "BILI_ASR_MODEL_ID"
+ASR_DEVICE_ENV_VAR = "BILI_ASR_DEVICE"
+ASR_LANGUAGE_ENV_VAR = "BILI_ASR_LANGUAGE"
+ASR_HOTWORDS_ENV_VAR = "BILI_ASR_HOTWORDS"
+ASR_CHUNK_SECONDS_ENV_VAR = "BILI_ASR_CHUNK_SECONDS"
+
+#: Corpus vocabulary carried to the decoder as free-form context (the processor's ``prompt``).
+#: Every entry has been observed mis-recognised as a homophone on this archive's own audio
+#: (``马鞍牌`` for 马恩牌, ``公式`` for 攻势, ``智力豆包`` for 智利豆包, ``跟着苗红`` for 根正苗红) or is a
+#: recurring name of the corpus.  The list stays short on purpose: the terms travel as one prompt
+#: line and a long one dilutes the bias.
+DEFAULT_HOTWORDS: tuple[str, ...] = (
+    "未明子", "主义主义", "拟态论", "国际劳工仲裁", "国际劳联", "马恩牌", "攻势", "智利",
+    "根正苗红", "亚美利坚", "黑格尔", "海德格尔", "拉康", "齐泽克", "德勒兹", "康德",
+    "观念论", "本体论", "现象学", "辩证法", "定在", "自为", "理念性", "ITEM", "AITEM",
+    "International Employment Matters Tribunal",
+)
+
+# ---------------------------------------------------------------------------------------
+# Redaction guards.  Engine-agnostic; ``quality.py`` imports ``_FORBIDDEN_PROVENANCE``.
+# ---------------------------------------------------------------------------------------
+
 _FORBIDDEN_CREDENTIAL_MARKER = (
     r"(?:^|[^A-Za-z])(?:sessdata|cookie|token|password|secret|credential)(?![A-Za-z])"
 )
-#: Paths, URLs and credential-like values, in one definition.  The
-#: ``local_source`` and provenance scans were byte-identical literals
-#: (plan QC seat 1, S-2), so the weaker credential boundary lived in two
-#: places; one definition is why it now lives in neither.
 _FORBIDDEN_VALUE = re.compile(
     r"(?:[A-Za-z][A-Za-z0-9+.-]*://|\\\\|(?:^|[\\/])\\/|(?:^|[^A-Za-z])[A-Za-z]:[\\/]|"
     + _FORBIDDEN_CREDENTIAL_MARKER
@@ -55,17 +120,31 @@ _FORBIDDEN_VALUE = re.compile(
 _FORBIDDEN_LOCAL_SOURCE = _FORBIDDEN_VALUE
 _FORBIDDEN_PROVENANCE = _FORBIDDEN_VALUE
 _MODEL_IDENTIFIER = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*(?:/[A-Za-z0-9][A-Za-z0-9._-]*)*")
+_DESCRIPTOR_PATH = re.compile(r"^/(?:proc/(?:self|\d+)/fd|dev/fd)/\d+$")
+
+
+class ASRDependencyError(RuntimeError):
+    """The optional ASR dependency (transformers/torch) is missing or unusable."""
+
+
+class ASRModelError(RuntimeError):
+    """The configured checkpoint could not be loaded, or the run could not transcribe."""
 
 
 def _is_redaction_safe_model_identifier(value: str, *, hub_level: bool = False) -> bool:
     """The redaction rule for model identifiers, in one place.
 
-    An identifier-shaped value with no forbidden marker is safe to serialize —
-    that is the rule ``provenance()`` has always applied to ``model_name``.
-    ``hub_level`` additionally demands a slash-qualified ``owner/name`` shape,
-    which is what a declared producer identity must look like (D4.2).
+    An identifier-shaped value with no forbidden marker is safe to serialize — that is the rule
+    ``provenance()`` has always applied to ``model_name``.  ``hub_level`` additionally demands a
+    slash-qualified ``owner/name`` shape, which is what a *declared* producer identity must look like.
+
+    Note what this rule deliberately does **not** redact: a relative checkpoint path such as
+    ``models/Qwen3-ASR-1.7B-hf`` passes through, because that is the documented form of a local
+    checkpoint (``README.md``) and provenance is supposed to name it.
     """
 
+    if not isinstance(value, str) or not value.strip():
+        return False
     if _MODEL_IDENTIFIER.fullmatch(value) is None:
         return False
     if _FORBIDDEN_PROVENANCE.search(value) is not None:
@@ -74,18 +153,13 @@ def _is_redaction_safe_model_identifier(value: str, *, hub_level: bool = False) 
 
 
 def _is_hub_level_model_name(value: str) -> bool:
-    """Whether ``value`` names a hub repository rather than a local path (D4.3).
+    """Whether ``value`` names a hub repository rather than a local path.
 
-    ``hub_level`` above is ``"/" in value``, and that is deliberately all a
-    *declaration* has to satisfy (D4.2): a shape-only rule cannot tell
-    ``models/Fun-ASR-Nano-2512`` from ``Qwen/Qwen2.5-7B`` — both are two
-    segments once.  The contradiction route needs the distinction the shape
-    cannot carry, because it must not punish the relative-path form
-    ``README.md`` documents.  Existence answers it on the machine that owns the
-    layout: the trained checkpoint the operator points ``BILI_ASR_MODEL`` at is
-    a directory that is *there*, and a hub id is a name that is not.  The probe
-    resolves against the process working directory, exactly as the loader
-    would.
+    The shape alone cannot tell ``models/Qwen3-ASR-1.7B-hf`` from ``Qwen/Qwen3-ASR-1.7B-hf`` — both
+    are two segments once — and the contradiction check must not punish the relative-path form the
+    README documents.  Existence answers it on the machine that owns the layout: the checkpoint the
+    operator points the knob at is a directory that is *there*, and a hub id is a name that is not.
+    The probe resolves against the process working directory, exactly as the loader would.
     """
 
     if not _is_redaction_safe_model_identifier(value, hub_level=True):
@@ -93,225 +167,41 @@ def _is_hub_level_model_name(value: str) -> bool:
     return not os.path.isdir(value)
 
 
-class ASRDependencyError(RuntimeError):
-    """The optional ASR dependency group is not installed."""
-
-
-class ASRModelError(RuntimeError):
-    """FunASR model could not load or transcribe the supplied audio."""
-
-
-#: Environment knobs for the local ASR boundary.  ``BILI_ASR_MODEL`` accepts a
-#: hub id (resolved to a pinned local snapshot) or a local checkpoint directory.
-ASR_MODEL_ENV_VAR = "BILI_ASR_MODEL"
-ASR_MODEL_REVISION_ENV_VAR = "BILI_ASR_MODEL_REVISION"
-#: The operator's *declaration* of the hub-level identity behind the loaded
-#: checkpoint.  ``BILI_ASR_MODEL`` may be a local directory, and a path is not a
-#: redaction-safe identifier, so the archive is told what produced a transcript
-#: through this variable instead.  It never changes the load and lands in the
-#: ``model_name`` provenance slot rather than a key of its own.
-ASR_MODEL_ID_ENV_VAR = "BILI_ASR_MODEL_ID"
-ASR_DEVICE_ENV_VAR = "BILI_ASR_DEVICE"
-ASR_LANGUAGE_ENV_VAR = "BILI_ASR_LANGUAGE"
-ASR_VAD_MODEL_ENV_VAR = "BILI_ASR_VAD_MODEL"
-ASR_HOTWORDS_ENV_VAR = "BILI_ASR_HOTWORDS"
-
-#: Corpus vocabulary the decoder is biased towards.  Every entry has been
-#: observed mis-recognised as a homophone on this archive's own audio
-#: (``马鞍牌`` for 马恩牌, ``公式`` for 攻势, ``智力豆包`` for 智利豆包,
-#: ``跟着苗红`` for 根正苗红) or is a recurring name of the corpus.  The list
-#: stays short on purpose: the terms travel as one prompt line and a long list
-#: dilutes the bias.
-DEFAULT_HOTWORDS: tuple[str, ...] = (
-    "未明子",
-    "主义主义",
-    "拟态论",
-    "国际劳工仲裁",
-    "国际劳联",
-    "马恩牌",
-    "攻势",
-    "智利",
-    "根正苗红",
-    "亚美利坚",
-    "黑格尔",
-    "海德格尔",
-    "拉康",
-    "齐泽克",
-    "德勒兹",
-    "康德",
-    "观念论",
-    "本体论",
-    "现象学",
-    "辩证法",
-    "定在",
-    "自为",
-    "理念性",
-    # The homophone class, added 2026-09-17 from the season run's own output
-    # (workflow ``e2e-23191782-season-7686105``: 14 lectures, 25.2 h, 18 287
-    # cues).  Each entry below is a term the model got *wrong* far more often
-    # than right, and every one of them is the *exact homophone* of a common
-    # word — which is why the decoder's prior wins and why the prompt is the
-    # right lever here:
-    #
-    #   扬弃 (sublation)  10 correct vs 89 wrong (阳气 62, 洋气 27)  90 %
-    #   自在 (in-itself)  40 vs 13 (子在)                            25 %
-    #   变易 (becoming)    0 vs  7 (变异)                           100 %
-    #   此在 (Dasein)      4 vs  3 (次在, 词在)                      43 %
-    #   感性 (sensibility)12 vs  3 (感兴)                            20 %
-    #   实存 (existence)  17 vs  3 (时存)                            15 %
-    #
-    # 扬弃 is the reason this block exists: it is the central operation of
-    # Hegel's *Logic*, and these lectures read that book aloud, so the term is
-    # spoken constantly — yet the decoder preferred the common word 阳气 nine
-    # times out of ten (worst item: 《逻辑学》第二讲, 4 correct vs 57 wrong).
-    # The control that makes this an argument rather than a hunch: the entries
-    # already in this list that are equally homophone-prone are *error-free* on
-    # the same audio (定在 145/0, 自为 34/0, 理念性 69/0).
-    #
-    # Evidence status, stated plainly, as for the Latin block below: the errors
-    # above are measured, the *benefit* of these six is UNVERIFIED until the
-    # same audio is re-transcribed.  A confidence-based fix was ruled out first
-    # — the 78 mis-rendered cues score a median 0.776 against 0.812 for the
-    # corpus, and only 1 of 78 falls at or below ``LOW_CONFIDENCE``, so the
-    # model is confidently wrong and ``asr_low_confidence_at`` cannot find this
-    # class.  Re-running one affected lecture with and without these entries is
-    # the confirming measurement; like the Latin block's, that verification is
-    # registered as an open residual rather than claimed here.
-    "扬弃",
-    "自在",
-    "变易",
-    "此在",
-    "感性",
-    "实存",
-    # Latin-script terms the corpus actually speaks.  The Chinese-language model
-    # fragments these into shards when they are missing from the prompt (measured
-    # 2026-09-14 on the ten-video run: "International Employment Matters Tribunal"
-    # came out as tryBUNAL / FOR EMP LOYMENT MAT TERS).
-    #
-    # The bare acronyms ITEM and AITEM were **removed on 2026-09-17** after the
-    # season run measured them doing harm of the same kind they were added to
-    # prevent.  They were pulling acoustically-close English shards onto
-    # themselves inside the Hegel quotes these lectures read aloud — nine
-    # occurrences across the 14 archived lectures, e.g. "THE ITEMthat's the
-    # question is anITEM ONE", "This is expressed in the finite on the AITEM",
-    # "In accessible AITEM distance outside", "就是WHAT IS POSITIVE ITEM" — and
-    # **eight of those nine carried confidence below LOW_CONFIDENCE**
-    # (0.033–0.375), so the interference is reachable through
-    # ``asr_low_confidence_at`` rather than through this list.  Five of the nine
-    # were in one part, BV19hG56hEfV.p2, which is what the A/B re-transcribed.
-    # The spelled-out phrase below is *not* implicated: it appears three times
-    # and is genuine each time (the lecturer explaining the name).
-    #
-    # Two things a future reader needs from this block, kept deliberately:
-    # (1) the acronyms did have a measured *raison d'être* — BV1eGJ46mEHQ's
-    #     announcement of the project mangled them into TEM / AITM / ITM — and
-    #     that video no longer has audio, so the benefit side cannot be re-run
-    #     here; (2) what *was* measured before this removal (same 6-minute
-    #     Chinese-only audio, with and without the six Latin entries) is
-    #     harmless: 95 % of the tail text identical, the only differences two
-    #     same-sound characters, no change in the opening paragraph.  The phrase
-    #     therefore stays as a low-risk prompt bias, and its *benefit* remains
-    #     UNVERIFIED; per-cue confidence is the instrument for any interference
-    #     it causes.
-    "International Employment Matters Tribunal",
-    "International",
-    "Employment",
-    "Tribunal",
-)
-
-#: VAD component that segments long recordings before the ASR model sees them.
-#: Measured 2026-09-11: without it a 448 s recording collapses to a single
-#: ``。`` (the language model's decode overruns), while the same checkpoint
-#: behind the VAD pipeline returns the full punctuated transcript with token
-#: timestamps.  ``fsmn-vad`` is FunASR's own alias, resolved and cached by the
-#: pinned package exactly like the checkpoint itself.
-DEFAULT_VAD_MODEL = "fsmn-vad"
-
-#: Cap on one VAD segment, in seconds.  Kept at FunASR's own example value:
-#: measured 2026-09-12 on the archive's 448 s recording, lowering it to 15 s
-#: changed nothing that matters (94 -> 95 cues, longest cue 14.5 -> 14.6 s,
-#: transcripts 99 % identical), because the model's own punctuation splits
-#: inside a VAD segment long before this cap binds.  The cap is therefore a
-#: tunable safety bound, not a quality lever — and a smaller one only adds
-#: chunk boundaries that can cut mid-word.
-#:
-#: What the VAD *does* control is how much audio reaches the model at all.  The
-#: content-moving knobs stay at their library defaults: passing the
-#: checkpoint's declared ``max_end_silence_time=800`` collapsed segmentation
-#: from 92 to 58 segments and dropped 11 s of captured speech, and
-#: ``speech_noise_thres=0.9`` dropped 31 s.
-DEFAULT_VAD_MAX_SEGMENT_S = 30.0
-VAD_MAX_SEGMENT_ENV_VAR = "BILI_ASR_VAD_MAX_SEGMENT_S"
-
-#: Ceiling on the factory calls one runner may pay for, failures included.
-#:
-#: A failed load leaves ``_model`` unset, so every later row retried the same
-#: doomed call — an N-row batch whose checkpoint path is wrong paid N attempts
-#: (residual R2 of plan ``20260912-asr-provenance-identity``, verified at
-#: ``bc425f6``).  The retry itself is wanted: a transient failure should not
-#: lose every remaining row.  What was missing is a bound, so a systematically
-#: broken configuration stops instead of multiplying its cost by the row count.
-#:
-#: Past the cap the runner raises **without calling the factory again**, so
-#: ``model_load_attempts`` keeps its documented meaning — every factory
-#: invocation, successful or not — and the identifier derived from it
-#: (``attempts - constructions``, "the failed loads this run paid for") stays
-#: truthful.  A suppressed call is not an attempt; it is a refusal to spend one.
-MAX_MODEL_LOAD_ATTEMPTS = 3
-
-#: A confined audio descriptor, as :func:`bili_asr.path_policy.confined_audio_file`
-#: hands it over: ``/proc/self/fd/12`` or ``/dev/fd/12``.
-_DESCRIPTOR_PATH = re.compile(r"^/(?:proc/(?:self|\d+)/fd|dev/fd)/\d+$")
-
-#: A cue closes on one of these tokens, on a pause at least this long, or when
-#: it reaches the character ceiling — whichever comes first.
-_SENTENCE_ENDINGS = "。！？!?"
-#: Marks that never open a cue: when one lands at a cue boundary it belongs to
-#: the sentence that just ended, so the cue post-pass moves it back.
-_CUE_CLOSING_MARKS = "。！？!?，、；：,;:"
-_CUE_MAX_CHARS = 60
-_CUE_MAX_GAP_SECONDS = 1.0
-#: A cue below either bound is merged into its neighbour while the character
-#: ceiling holds, so a pause in the middle of a thought no longer produces a
-#: one-word subtitle.
-_CUE_MIN_CHARS = 6
-_CUE_MIN_SECONDS = 1.0
+# ---------------------------------------------------------------------------------------
+# Configuration
+# ---------------------------------------------------------------------------------------
 
 
 @dataclass(frozen=True)
 class ASRConfig:
     """Deterministic, redaction-safe configuration for one ASR run.
 
-    ``language`` is the spoken language passed to the model as documented
-    (``中文``, ``英文``, ``日文``); ``None`` leaves the model's own generic
-    transcription prompt in place.  It is never a free-form instruction.
+    ``language`` is the operator's declaration of what is spoken, passed to both models; ``None``
+    leaves the model's own detection in place, and the detected value is deliberately **not**
+    archived or published (plan §10 — the archive records what the operator declared, not a guess).
 
-    ``hotwords`` biases decoding towards this corpus's vocabulary.  An empty
-    tuple sends no bias at all; the terms are recorded in provenance.
+    ``hotwords`` biases the decoder through the processor's free-form ``prompt``; an empty tuple
+    sends no bias, and the terms are recorded in provenance.
 
-    ``model_id`` is the operator's **declaration** of the hub-level identity
-    behind the loaded checkpoint (``BILI_ASR_MODEL_ID``).  ``model_name`` may be
-    a local directory and a path is not a redaction-safe identifier, so the
-    archive is told what produced a transcript here instead; the declaration
-    never changes the load and lands in the ``model_name`` provenance slot, not
-    in a key of its own.  It is appended **last** so existing positional
-    construction is unaffected.
+    ``model_name`` / ``aligner_name`` are hub ids or local checkpoint directories.  ``model_id`` is the
+    operator's declaration of the hub-level identity behind the ASR checkpoint.
     """
 
     model_name: str
+    aligner_name: str = DEFAULT_ALIGNER_MODEL
     model_revision: str | None = None
     device: str = "cuda"
     language: str | None = None
-    vad_model: str | None = DEFAULT_VAD_MODEL
-    vad_max_segment_s: float = DEFAULT_VAD_MAX_SEGMENT_S
-    hotwords: tuple[str, ...] = ()
+    hotwords: tuple[str, ...] = DEFAULT_HOTWORDS
+    chunk_seconds: float = DEFAULT_CHUNK_SECONDS
     offline: bool = True
     local_source: str = "configured-local"
     model_id: str | None = None
 
     def __post_init__(self) -> None:
-        if not isinstance(self.model_name, str) or not self.model_name.strip():
-            raise ValueError("model_name must be a non-empty string")
+        for name, value in (("model_name", self.model_name), ("aligner_name", self.aligner_name)):
+            if not isinstance(value, str) or not value.strip():
+                raise ValueError(f"{name} must be a non-empty string")
         if self.model_revision is not None and (
             not isinstance(self.model_revision, str) or not self.model_revision.strip()
         ):
@@ -322,14 +212,10 @@ class ASRConfig:
             not isinstance(self.language, str) or not self.language.strip()
         ):
             raise ValueError("language must be a non-empty string or null")
-        if self.vad_model is not None and (
-            not isinstance(self.vad_model, str) or not self.vad_model.strip()
-        ):
-            raise ValueError("vad_model must be a non-empty string or null")
-        if isinstance(self.vad_max_segment_s, bool) or not isinstance(
-            self.vad_max_segment_s, (int, float)
-        ) or self.vad_max_segment_s <= 0:
-            raise ValueError("vad_max_segment_s must be a positive number")
+        if isinstance(self.chunk_seconds, bool) or not isinstance(self.chunk_seconds, (int, float)):
+            raise ValueError("chunk_seconds must be a positive number")
+        if self.chunk_seconds <= 0:
+            raise ValueError("chunk_seconds must be a positive number")
         if not isinstance(self.hotwords, tuple) or any(
             not isinstance(term, str) or not term.strip() for term in self.hotwords
         ):
@@ -342,39 +228,77 @@ class ASRConfig:
             raise ValueError("local_source must be an opaque local identifier")
         if self.model_id is not None:
             if not isinstance(self.model_id, str) or not self.model_id.strip():
-                raise ValueError(
-                    f"{ASR_MODEL_ID_ENV_VAR} must be a hub-level model identifier"
-                )
-            # Loud, not silent (D4.2): falling back to ``[redacted]`` would let
-            # the operator believe the archive names its producer.
+                raise ValueError(f"{ASR_MODEL_ID_ENV_VAR} must be a hub-level model identifier")
             if not _is_redaction_safe_model_identifier(self.model_id, hub_level=True):
-                raise ValueError(
-                    f"{ASR_MODEL_ID_ENV_VAR} must be a hub-level model identifier"
-                )
-            # A declaration that contradicts an already-safe load value would
-            # make the archive lie about which model produced the transcript.
-            # Hub-level only (D4.3 as amended at plan QC, F-002): a
-            # relative-path-shaped ``BILI_ASR_MODEL`` that resolves to a real
-            # directory is a local checkpoint, not a competing identity, and
-            # refusing it would reject exactly the truthful declaration this
-            # route exists to protect.
-            if _is_hub_level_model_name(
-                self.model_name
-            ) and self.model_name != self.model_id:
+                raise ValueError(f"{ASR_MODEL_ID_ENV_VAR} must be a hub-level model identifier")
+            if _is_hub_level_model_name(self.model_name) and self.model_name != self.model_id:
                 raise ValueError(
                     f"{ASR_MODEL_ID_ENV_VAR} contradicts {ASR_MODEL_ENV_VAR}: "
                     f"declared {self.model_id!r}, loaded {self.model_name!r}"
                 )
 
 
-def _materialize_input(audio_path: str) -> tuple[str, str | None]:
-    """Return an input path the model's own components can reopen.
+def _resolve_chunk_seconds(environment_value: str | None) -> float:
+    """Configured chunk cap in seconds; unset keeps the measured default, blank stays unset."""
 
-    The CLI hands this boundary a confined descriptor path so the audio never
-    leaves the archive root.  FunASR's VAD component shells out to ``ffmpeg``,
-    and a descriptor is closed on exec, so the child cannot open it: the input
-    is copied to a temporary file instead, which the caller removes.  A plain
-    path is returned untouched.
+    if environment_value is None or not environment_value.strip():
+        return DEFAULT_CHUNK_SECONDS
+    try:
+        value = float(environment_value.strip().rstrip("sS"))
+    except ValueError:
+        raise ValueError(
+            f"{ASR_CHUNK_SECONDS_ENV_VAR} must be a positive number of seconds"
+        ) from None
+    if value <= 0:
+        raise ValueError(f"{ASR_CHUNK_SECONDS_ENV_VAR} must be a positive number of seconds")
+    return value
+
+
+def _extra_hotwords(environment_value: str | None) -> tuple[str, ...]:
+    """The operator's extra hotwords, in order, without duplicates."""
+
+    if not environment_value:
+        return ()
+    terms: list[str] = []
+    for raw in environment_value.replace("，", ",").split(","):
+        term = raw.strip()
+        if term and term not in terms and term not in DEFAULT_HOTWORDS:
+            terms.append(term)
+    return tuple(terms)
+
+
+def default_config() -> ASRConfig:
+    """Build the runner configuration from the documented environment knobs.
+
+    ``BILI_ASR_MODEL`` and ``BILI_ASR_ALIGNER_MODEL`` carry hub ids or **local checkpoint
+    directories**; the archive's own checkpoints live under ``bilibili-asr-archive/models/`` so a
+    run never touches the network.  ``BILI_ASR_MODEL_ID`` is the operator's declaration of the
+    hub-level identity behind the ASR checkpoint: read for provenance only, and refused when it
+    contradicts a hub-level ``BILI_ASR_MODEL``.
+    """
+
+    return ASRConfig(
+        model_name=os.environ.get(ASR_MODEL_ENV_VAR) or DEFAULT_MODEL,
+        aligner_name=os.environ.get(ASR_ALIGNER_ENV_VAR) or DEFAULT_ALIGNER_MODEL,
+        model_revision=os.environ.get(ASR_MODEL_REVISION_ENV_VAR) or None,
+        device=os.environ.get(ASR_DEVICE_ENV_VAR) or "cuda",
+        language=os.environ.get(ASR_LANGUAGE_ENV_VAR) or None,
+        hotwords=DEFAULT_HOTWORDS + _extra_hotwords(os.environ.get(ASR_HOTWORDS_ENV_VAR)),
+        chunk_seconds=_resolve_chunk_seconds(os.environ.get(ASR_CHUNK_SECONDS_ENV_VAR)),
+        model_id=(os.environ.get(ASR_MODEL_ID_ENV_VAR) or "").strip() or None,
+    )
+
+
+def _materialize_input(audio_path: str) -> tuple[str, str | None]:
+    """Return an input path the audio reader can open.
+
+    The CLI hands this boundary a confined descriptor path so the audio never leaves the archive
+    root.  Descriptor paths are not universally openable by the decoder libraries, so one is copied
+    to a temporary file which the caller removes.  A plain path is returned untouched.
+
+    Retained from the FunASR era (plan §13.1): the original reason was a child ``ffmpeg``, which a
+    descriptor cannot be handed to.  Reading is in-process now, so this may be removable — it is kept
+    until a run proves descriptor paths work without it.
     """
 
     if not isinstance(audio_path, str) or not _DESCRIPTOR_PATH.match(audio_path):
@@ -392,113 +316,290 @@ def _materialize_input(audio_path: str) -> tuple[str, str | None]:
     return temporary, temporary
 
 
-def default_config() -> ASRConfig:
-    """Build the runner configuration from the documented environment knobs.
+def _clean_text(text: str) -> str:
+    """The recognised text without control markers, in one line."""
 
-    ``BILI_ASR_MODEL`` carries a **local checkpoint directory**.  A bare hub
-    id cannot be loaded by the pinned package: the checkpoint is a
-    remote-code model whose id has no FunASR alias, and its documented load
-    route executes the checkpoint's own ``model.py``.  Materializing the
-    snapshot (pinned revision) and pointing this variable at it keeps the
-    boundary download-free and the pin real.
+    return _RICH_TAG.sub("", str(text)).strip()
 
-    ``BILI_ASR_MODEL_ID`` is the operator's *declaration* of the hub-level
-    identity behind that checkpoint.  It is read for provenance only — it never
-    reaches the loader — and an unset or blank value means "not declared", the
-    same way the other knobs treat a blank as unset.
 
-    A declaration that differs from a *hub-level* ``BILI_ASR_MODEL`` is refused
-    (D4.3); a ``BILI_ASR_MODEL`` that resolves to a directory on this machine
-    is a checkpoint path, whatever its spelling, so a truthful declaration
-    beside it is accepted.
+def _body(text: str) -> str:
+    """The part of a line that carries meaning, without its closing marks."""
+
+    return str(text).strip(_CUE_CLOSING_MARKS).strip()
+
+
+def _join_text(left: str, right: str) -> str:
+    """Join two cue texts, keeping a separator between Latin words.
+
+    The decoder does not always carry the space between English words, so absorbing a fragment into
+    the cue before it must not glue them together.  Chinese text is unaffected: the space is only
+    added between two ASCII alphanumerics.
     """
 
-    return ASRConfig(
-        model_name=os.environ.get(ASR_MODEL_ENV_VAR) or DEFAULT_MODEL,
-        model_revision=os.environ.get(ASR_MODEL_REVISION_ENV_VAR) or None,
-        device=os.environ.get(ASR_DEVICE_ENV_VAR) or "cuda",
-        language=os.environ.get(ASR_LANGUAGE_ENV_VAR) or None,
-        vad_model=_resolve_vad_model(os.environ.get(ASR_VAD_MODEL_ENV_VAR)),
-        vad_max_segment_s=_resolve_vad_max_segment(
-            os.environ.get(VAD_MAX_SEGMENT_ENV_VAR)
-        ),
-        hotwords=DEFAULT_HOTWORDS + _extra_hotwords(os.environ.get(ASR_HOTWORDS_ENV_VAR)),
-        # A blank declaration is "not declared", like the other knobs treat a
-        # blank as unset — `BILI_ASR_MODEL_ID=` in a shell script must not turn
-        # every run into a validation failure.
-        model_id=(os.environ.get(ASR_MODEL_ID_ENV_VAR) or "").strip() or None,
-    )
+    if (
+        left
+        and right
+        and left[-1].isascii()
+        and left[-1].isalnum()
+        and right[0].isascii()
+        and right[0].isalnum()
+    ):
+        return f"{left} {right}"
+    return left + right
 
 
-def _resolve_vad_max_segment(environment_value: str | None) -> float:
-    """Return the configured VAD segment cap in seconds.
+# ---------------------------------------------------------------------------------------
+# The two pure steps the pipeline is built from.  Both are engine-independent and testable
+# without a model; everything else in this module is plumbing around them.
+# ---------------------------------------------------------------------------------------
 
-    Unset keeps the measured default; a blank value is treated as unset (it
-    cannot silently disable the cap), and a non-numeric value is rejected
-    loudly rather than ignored.
+
+def _split_audio(samples: Any, sample_rate: int, max_chunk_seconds: float) -> list[tuple[Any, float]]:
+    """Cut a waveform into chunks near ``max_chunk_seconds``, at low-energy boundaries.
+
+    Returns ``(chunk_samples, offset_seconds)`` pairs in order whose lengths **tile the input
+    exactly**: no overlap, no gap, nothing dropped and nothing added.  Padding a degenerate chunk up
+    to the aligner's minimum is the caller's business, not the splitter's, precisely so that promise
+    stays checkable.
     """
 
-    if environment_value is None or not environment_value.strip():
-        return DEFAULT_VAD_MAX_SEGMENT_S
-    try:
-        value = float(environment_value.strip().rstrip("sS"))
-    except ValueError:
-        raise ValueError(
-            f"{VAD_MAX_SEGMENT_ENV_VAR} must be a positive number of seconds"
-        ) from None
-    if value <= 0:
-        raise ValueError(
-            f"{VAD_MAX_SEGMENT_ENV_VAR} must be a positive number of seconds"
+    import numpy as np
+
+    samples = np.asarray(samples, dtype=np.float32)
+    if samples.ndim > 1:
+        samples = samples.mean(-1).astype(np.float32)
+    total = int(samples.shape[0])
+    if total <= 0:
+        return []
+    if total / float(sample_rate) <= max_chunk_seconds:
+        return [(samples, 0.0)]
+
+    max_len = int(max_chunk_seconds * sample_rate)
+    expand = int(_CHUNK_SEARCH_EXPAND_S * sample_rate)
+    window = max(4, int((_CHUNK_MIN_WINDOW_MS / 1000.0) * sample_rate))
+
+    chunks: list[tuple[Any, float]] = []
+    start = 0
+    offset = 0.0
+    while (total - start) > max_len:
+        cut = start + max_len
+        # The boundary may only be searched where the window is centred AND clear of the current
+        # start.  Otherwise the quietest point lands on the window's edge — measured: a 3.01 s
+        # recording came back as 161 chunks of ~4 samples, and merely flooring the progress at one
+        # window turned that into a run of 100 ms chunks.  When the window cannot be centred, the
+        # cut itself is the only honest boundary.
+        left = cut - expand
+        right = min(total, cut + expand)
+        if left <= start or right - left <= window:
+            boundary = cut
+        else:
+            segment = np.abs(samples[left:right])
+            windows = np.convolve(segment, np.ones(window, dtype=np.float32), mode="valid")
+            quietest = int(np.argmin(windows))
+            boundary = left + quietest + int(np.argmin(segment[quietest:quietest + window]))
+            boundary = max(boundary, start + window)
+        boundary = max(boundary, start + 1)
+        boundary = min(boundary, total)
+        chunks.append((samples[start:boundary], offset))
+        offset += (boundary - start) / float(sample_rate)
+        start = boundary
+    chunks.append((samples[start:total], offset))
+    return chunks
+
+
+def _thread_text(text: str, units: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Merge the recognised text's marks back onto the aligned units.
+
+    The aligner times the units it is given, and for Chinese those are the characters **without
+    punctuation**: a mark has no audio to align to, so it never comes back in the unit list.  The
+    archive's product is the recognised text, so every character of ``text`` is threaded back here —
+    exactly once, in order — with a timeable unit keeping its own timing and a mark inheriting the
+    instant of the piece beside it.  This step is what keeps the FunASR-era rule "cue text is the
+    recognised text verbatim" true; without it both the marks and the sentence-ending rule that
+    closes cues on them are lost (measured: 287 vs ~983 cues on a 47-minute item, and 1 224 marks
+    missing).
+    """
+
+    pieces: list[dict[str, Any]] = []
+    index = 0
+    position = 0
+    while position < len(text):
+        unit = units[index] if index < len(units) else None
+        unit_text = _clean_text(unit.get("text", "")) if isinstance(unit, dict) else ""
+        if unit_text and text.startswith(unit_text, position):
+            pieces.append({
+                "text": unit_text,
+                "start": float(unit["start_time"]),
+                "end": float(unit["end_time"]),
+            })
+            position += len(unit_text)
+            index += 1
+            continue
+        anchor = pieces[-1]["end"] if pieces else (
+            float(units[index]["start_time"]) if index < len(units) else 0.0
         )
-    return value
+        pieces.append({"text": text[position], "start": anchor, "end": anchor})
+        position += 1
+    # A unit the text does not account for should not exist; if one does it is kept rather than
+    # dropped, and naming that case is the audit's job, not this function's.
+    for unit in units[index:]:
+        if isinstance(unit, dict) and _clean_text(unit.get("text", "")):
+            pieces.append({
+                "text": _clean_text(unit["text"]),
+                "start": float(unit["start_time"]),
+                "end": float(unit["end_time"]),
+            })
+    return pieces
 
 
-def _extra_hotwords(environment_value: str | None) -> tuple[str, ...]:
-    """Return the operator's extra hotwords, in order, without duplicates."""
+def _aligned_cues(pieces: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Shape threaded pieces into subtitle cues, in one pass.
 
-    if not environment_value:
-        return ()
-    terms: list[str] = []
-    for raw in environment_value.replace("，", ",").split(","):
-        term = raw.strip()
-        if term and term not in terms and term not in DEFAULT_HOTWORDS:
-            terms.append(term)
-    return tuple(terms)
+    This is the FunASR-era state machine (plan §13.2), re-driven by aligned pieces instead of FunASR
+    tokens: the rules were measured on this corpus and are product decisions, so only their input
+    changed.  A cue closes on a sentence-ending mark, when :data:`_CUE_MAX_CHARS` is reached, or on a
+    pause of at least :data:`_CUE_MAX_GAP_SECONDS` **in a cue that can already stand on its own**; a
+    cue that is still only marks, or below :data:`_CUE_MIN_CHARS` / :data:`_CUE_MIN_SECONDS`, is
+    absorbed by the cue before it; and a closing mark that arrives at a boundary is handed back to
+    the cue it closes.  Nothing shapes the text a second time, and nothing is dropped.
+    """
+
+    cues: list[dict[str, Any]] = []
+    parts: list[str] = []
+    start: float | None = None
+    last_end: float | None = None
+    pending = ""  # text the cue before it could not take
+
+    def formed() -> bool:
+        return (
+            len(_body("".join(parts))) >= _CUE_MIN_CHARS
+            and (last_end or 0.0) - (start or 0.0) >= _CUE_MIN_SECONDS
+        )
+
+    def reset() -> None:
+        nonlocal parts, start, last_end, pending
+        parts, start, last_end, pending = [], None, None, ""
+
+    def hand_back(piece: str, end: float) -> None:
+        """Give a closing mark to the cue it actually closes."""
+
+        cues[-1]["text"] = _join_text(str(cues[-1]["text"]), piece)
+        cues[-1]["end"] = max(float(cues[-1]["end"]), end)
+
+    def close() -> None:
+        nonlocal pending
+        text = _clean_text(pending + "".join(parts))
+        if not text:
+            reset()
+            return
+        span = last_end if last_end is not None else (start or 0.0)
+        undersized = len(_body(text)) < _CUE_MIN_CHARS or (span - (start or 0.0)) < _CUE_MIN_SECONDS
+        if cues and (undersized or not _body(text)):
+            # a fragment joins the cue before it: the character ceiling is a readability target,
+            # and losing text to it would be worse
+            previous = cues[-1]
+            previous["text"] = _join_text(str(previous["text"]), text)
+            previous["end"] = max(float(previous["end"]), span)
+            reset()
+            return
+        cues.append({"start": start, "end": span, "text": text})
+        reset()
+
+    for piece in pieces:
+        if not isinstance(piece, dict):
+            continue
+        text = str(piece.get("text") or "")
+        if not text:
+            continue
+        begin, end = float(piece["start"]), float(piece["end"])
+        mark = text.strip()
+        if start is None:
+            # a closing mark never opens a cue: it belongs to the cue it closes
+            if mark and mark[0] in _CUE_CLOSING_MARKS:
+                if cues:
+                    hand_back(text, end)
+                else:
+                    pending += text
+                continue
+            start = begin
+        elif begin - (last_end if last_end is not None else begin) >= _CUE_MAX_GAP_SECONDS and formed():
+            close()
+            if mark and mark[0] in _CUE_CLOSING_MARKS and cues:
+                hand_back(text, end)
+                continue
+            start = begin
+        parts.append(text)
+        last_end = end
+        if mark in _SENTENCE_ENDINGS or len(pending + "".join(parts)) >= _CUE_MAX_CHARS:
+            close()
+    close()
+    return cues
 
 
-def _resolve_vad_model(environment_value: str | None) -> str | None:
-    """Return the configured VAD component: unset keeps the default, blank disables."""
+# ---------------------------------------------------------------------------------------
+# The model set and the runner
+# ---------------------------------------------------------------------------------------
 
-    if environment_value is None:
-        return DEFAULT_VAD_MODEL
-    return environment_value.strip() or None
+
+class _ModelSet(NamedTuple):
+    """The two processors and two models one runner owns."""
+
+    processor: Any
+    model: Any
+    aligner_processor: Any
+    aligner: Any
+
+
+def _load_qwen_models(**kwargs: Any) -> _ModelSet:
+    """Build the ASR + aligner pair, lazily and once per runner.
+
+    This is the one place transformers is imported.  The two checkpoints are loaded together so that
+    a runner either has a working pair or none — a half-loaded pair would report a construction the
+    run cannot use.
+    """
+
+    try:
+        import torch
+        from transformers import (
+            AutoModelForMultimodalLM,
+            AutoModelForTokenClassification,
+            AutoProcessor,
+        )
+    except ImportError as exc:
+        raise ASRDependencyError(
+            f"Qwen3-ASR support is not installed; run: {_INSTALL_HINT}"
+        ) from exc
+
+    model_name = kwargs["model_name"]
+    aligner_name = kwargs["aligner_name"]
+    device = kwargs.get("device") or "cuda"
+    revision = kwargs.get("model_revision")
+
+    processor = AutoProcessor.from_pretrained(model_name, revision=revision)
+    model = AutoModelForMultimodalLM.from_pretrained(
+        model_name, revision=revision, dtype=torch.bfloat16, device_map=device
+    )
+    aligner_processor = AutoProcessor.from_pretrained(aligner_name, revision=revision)
+    aligner = AutoModelForTokenClassification.from_pretrained(
+        aligner_name, revision=revision, dtype=torch.bfloat16, device_map=device
+    )
+    model.eval()
+    aligner.eval()
+    return _ModelSet(processor, model, aligner_processor, aligner)
 
 
 class ASRRunner:
-    """Lazy model owner for sequential use within one run scope.
+    """Lazy owner of the model pair for sequential use within one run scope.
 
-    ``model_constructions`` is a monotonic counter of the models this runner
-    actually built (one per lazy construction, zero when the run never needed
-    audio).  It is the observable form of the run-scoped reuse contract: a
-    batch that reuses one runner reports one construction for N items.
+    ``model_constructions`` counts the **model sets** this runner built — one per lazy construction,
+    zero when the run never needed audio.  That keeps the observable run-scoped reuse contract
+    unchanged after the two-model switch: a batch that reuses one runner reports **one** construction
+    for N items, because the aligner rides in the same set.
 
-    ``model_load_attempts`` is the attempt counter beside it (inherited
-    residual R1 from ``20260912-batch-model-reuse``): a load the factory
-    rejected is **retried once per row** — now **bounded by**
-    :data:`MAX_MODEL_LOAD_ATTEMPTS` (residual R2 of
-    ``20260912-asr-provenance-identity``) — pays no construction, and is
-    counted here instead.  Without it ``model_constructions == 0`` cannot be
-    told apart between a runner that never needed a model and a runner whose
-    loads were all rejected.  The invariant is
-    ``model_load_attempts >= model_constructions``, with equality when every
-    load succeeded.
-
-    Both counters are recorded **and** surfaced: the batch reuse line carries
-    constructions, and a batch whose every load failed states the failures on
-    stderr instead of staying silent, so the operator sees a broken
-    configuration rather than an empty run (``bc425f6``; the per-batch print
-    site is ``RunCoordinator._print_model_constructions``).  A caller that
-    holds the runner reads the same numbers directly off these attributes.
+    ``model_load_attempts`` is the attempt counter beside it: a load the factory rejected is retried
+    once per row — bounded by :data:`MAX_MODEL_LOAD_ATTEMPTS` — pays no construction, and is counted
+    here instead.  The invariant is ``model_load_attempts >= model_constructions``, with equality when
+    every load succeeded.
     """
 
     def __init__(
@@ -520,331 +621,219 @@ class ASRRunner:
             raise TypeError("config must be an ASRConfig")
         self.config = config
         self._model_factory = model_factory
-        self._model: Any | None = None
-        # Monotonic, never reset by release(): a runner that released and
-        # rebuilt paid two constructions, and the count must say so.
+        self._models: _ModelSet | None = None
+        # Monotonic, never reset by release(): a runner that released and rebuilt paid two
+        # constructions, and the count must say so.
         self.model_constructions = 0
-        # Attempts, not successes (R1).  A failed load is retried once per row,
-        # so ``attempts - constructions`` is exactly the number of load
-        # failures this runner has paid for — the evidence the construction
-        # count alone could not carry.
+        # Attempts, not successes: a failed load is retried once per row, so
+        # ``attempts - constructions`` is exactly the number of load failures this runner paid for.
         self.model_load_attempts = 0
 
-    def _get_model(self) -> Any:
-        if self._model is not None:
-            return self._model
-        
-        # Check CUDA availability if device is cuda (works for both NVIDIA CUDA and AMD ROCm)
+    def _get_models(self) -> _ModelSet:
+        if self._models is not None:
+            return self._models
+
         if self.config.device.startswith("cuda"):
             try:
                 import torch
-                if not torch.cuda.is_available():
-                    raise ASRDependencyError(
-                        "CUDA/ROCm is not available: no device is visible to PyTorch. "
-                        "Run the environment check from the product directory with the "
-                        "venv's interpreter (the one that has torch installed — "
-                        '`"$VENV/bin/python" scripts/check_asr_env.py`); it names the stage '
-                        "that fails and prints the fix, and `docs/wsl-rocm-gpu.md` carries "
-                        "the verified AMD/WSL ROCm recipe. To transcribe without a device, "
-                        "set `BILI_ASR_DEVICE=cpu`."
-                    )
             except ImportError:
                 raise ASRDependencyError(
                     "PyTorch is required for GPU inference but not installed. "
                     "Install with: pip install torch"
                 ) from None
-        
-        factory = self._model_factory or _load_default_model
-        # FunASR AutoModel accepts model, device, trust_remote_code,
-        # model_revision, hub.  The checkpoint arrives as a local directory:
-        # the pinned Nano checkpoint is a remote-code model without a FunASR
-        # alias, so its snapshot must be materialized before the runner sees
-        # it (see default_config).
+            if not torch.cuda.is_available():
+                raise ASRDependencyError(
+                    "CUDA/ROCm is not available: no device is visible to PyTorch. "
+                    "Run the environment check from the product directory with the venv's "
+                    'interpreter (`"$VENV/bin/python" scripts/check_asr_env.py`); it names the '
+                    "stage that fails and prints the fix, and `docs/wsl-rocm-gpu.md` carries the "
+                    "verified AMD/WSL ROCm recipe. To transcribe without a device, set "
+                    "`BILI_ASR_DEVICE=cpu`."
+                )
+
+        factory = self._model_factory or _load_qwen_models
         kwargs: dict[str, Any] = {
-            "model": self.config.model_name,
+            "model_name": self.config.model_name,
+            "aligner_name": self.config.aligner_name,
             "device": self.config.device,
-            "trust_remote_code": False,
         }
-        if self.config.vad_model is not None:
-            kwargs["vad_model"] = self.config.vad_model
-            kwargs["vad_kwargs"] = {
-                "max_single_segment_time": int(self.config.vad_max_segment_s * 1000)
-            }
         if self.config.model_revision is not None:
             kwargs["model_revision"] = self.config.model_revision
-        # Note: offline/local_source removed - not supported by FunASR API
-        
+
         try:
-            # Counted *before* the call, so every factory invocation is an
-            # attempt whether it returned a model or raised (R1).  ``_model``
-            # stays None on failure and the next row retries the same call,
-            # which is why the attempt counter and the construction counter
-            # must not be the same number.
-            #
-            # The retry is bounded (R2): once the cap is spent, a runner with
-            # no model refuses to spend another attempt rather than repeating a
-            # call that has failed every time.  The refusal raises *without*
-            # incrementing, so ``model_load_attempts`` still counts factory
-            # invocations exactly and ``attempts - constructions`` still names
-            # the failed loads this run paid for.
+            # Counted *before* the call, so every factory invocation is an attempt whether it
+            # returned a pair or raised.  ``_models`` stays None on failure and the next row retries
+            # the same call, which is why the attempt counter and the construction counter must not
+            # be the same number.
             if self.model_load_attempts >= MAX_MODEL_LOAD_ATTEMPTS:
                 raise ASRModelError(
-                    "FunASR model load/transcription failed; check configured "
-                    f"local model. Gave up after {MAX_MODEL_LOAD_ATTEMPTS} "
-                    "failed load attempt(s)."
+                    "Qwen3-ASR model load failed; check the configured local checkpoints. "
+                    f"Gave up after {MAX_MODEL_LOAD_ATTEMPTS} failed load attempt(s)."
                 )
             self.model_load_attempts += 1
-            self._model = factory(**kwargs)
-        except ASRDependencyError:
-            raise
-        except ASRModelError:
+            self._models = factory(**kwargs)
+        except (ASRDependencyError, ASRModelError):
             raise
         except Exception:
             raise ASRModelError(
-                "FunASR model load/transcription failed; check configured local model."
+                "Qwen3-ASR model load failed; check the configured local checkpoints."
             ) from None
-        # Counted only here, after the factory returned a model: a failed load
-        # paid no construction, so it must not inflate the reported count.
+        # Counted only here, after the factory returned a pair: a failed load paid no construction.
         self.model_constructions += 1
-        return self._model
+        return self._models
+
+    # -- the pipeline ------------------------------------------------------------------
+
+    def _transcribe_chunk(self, models: _ModelSet, audio_path: str) -> tuple[str, str]:
+        """One chunk through the decoder: ``(text, detected_language)``.
+
+        The decode format matters: ``decode(..., return_format=...)`` hard-sets
+        ``skip_special_tokens``, and the decoded text is scrubbed of control markers as well — a
+        caller that re-parses a *raw* decode instead would carry ``<|im_end|>`` into the archive.
+        """
+
+        import torch
+
+        prompt = "Vocabulary: " + ", ".join(self.config.hotwords) if self.config.hotwords else None
+        inputs = models.processor.apply_transcription_request(
+            audio=audio_path, language=self.config.language, prompt=prompt
+        )
+        inputs = inputs.to(models.model.device, models.model.dtype)
+        seconds = float(inputs["input_features_mask"].sum(-1).max()) / _MEL_FRAMES_PER_SECOND
+        budget = max(_MIN_NEW_TOKENS, int(seconds * _MAX_NEW_TOKENS_PER_AUDIO_SECOND))
+        with torch.inference_mode():
+            generated = models.model.generate(**inputs, max_new_tokens=budget)
+        tokens = generated[:, inputs["input_ids"].shape[1]:]
+        text = _clean_text(models.processor.decode(tokens, return_format="transcription_only")[0])
+        parsed = models.processor.decode(tokens, return_format="parsed")[0]
+        return text, str(parsed.get("language") or "")
+
+    def _align_chunk(self, models: _ModelSet, audio_path: str, text: str, language: str) -> list[dict[str, Any]]:
+        """One chunk through the aligner: per-unit ``{text, start_time, end_time}`` in seconds."""
+
+        import torch
+
+        inputs, word_lists = models.aligner_processor.prepare_forced_aligner_inputs(
+            audio=audio_path, transcript=text, language=language or "Chinese"
+        )
+        inputs = inputs.to(models.aligner.device, models.aligner.dtype)
+        with torch.inference_mode():
+            logits = models.aligner(**inputs).logits
+        return list(models.aligner_processor.decode_forced_alignment(
+            logits=logits,
+            input_ids=inputs["input_ids"],
+            word_lists=word_lists,
+            timestamp_token_id=models.aligner.config.timestamp_token_id,
+        )[0])
 
     def transcribe(self, audio_path: str) -> list[dict[str, Any]]:
-        """Transcribe one audio file with the parameters the pinned model reads.
+        """Transcribe one audio file into timestamped cues.
 
-        Fun-ASR-Nano reads ``itn`` (not ``use_itn``) and takes ``language`` and
-        ``hotwords`` as prompt text, so only configured values are passed.
-        ``batch_size_s`` / ``merge_vad`` / ``merge_length_s`` belong to a VAD
-        pipeline this boundary configures at construction, not per call.
+        Every cue the caller receives traces to an aligner call over the audio that produced its
+        text: chunk boundaries are ours, the timings are the aligner's, and nothing is interpolated.
+        An empty recording yields no cues rather than a fabricated one.
         """
 
-        request: dict[str, Any] = {"input": audio_path, "cache": {}, "itn": True}
-        if self.config.language is not None:
-            request["language"] = self.config.language
-        if self.config.hotwords:
-            request["hotwords"] = list(self.config.hotwords)
-        source, temporary = _materialize_input(audio_path)
-        request["input"] = source
+        # The model pair first: a host without the extra must fail with the documented
+        # ``ASRDependencyError`` (which names the ``[asr]`` install), not with whatever the audio
+        # reader happens to import first.  The readers are part of the same extra, so their absence
+        # is reported the same way.
+        models = self._get_models()
         try:
-            result = self._get_model().generate(**request)
-        except (ASRDependencyError, ASRModelError):
-            raise
-        except Exception as exc:
-            raise ASRModelError(
-                "FunASR model load/transcription failed; check configured local model."
+            import numpy as np
+            import soundfile as sf
+        except ImportError as exc:
+            raise ASRDependencyError(
+                f"the ASR audio readers are not installed; run: {_INSTALL_HINT}"
             ) from exc
+
+        path, temporary = _materialize_input(audio_path)
+        scratch: str | None = None
+        try:
+            samples, rate = sf.read(path, dtype="float32")
+            samples = np.asarray(samples, dtype=np.float32)
+            if samples.ndim > 1:
+                samples = samples.mean(-1).astype(np.float32)
+            if int(rate) != SAMPLE_RATE:
+                import librosa
+
+                samples = librosa.resample(samples, orig_sr=int(rate), target_sr=SAMPLE_RATE)
+                samples = np.asarray(samples, dtype=np.float32)
+
+            chunks = _split_audio(samples, SAMPLE_RATE, self.config.chunk_seconds)
+            if not chunks:
+                return []
+
+            handle, scratch = tempfile.mkstemp(prefix="bili-asr-chunk-", suffix=".wav")
+            os.close(handle)
+            minimum = int(_CHUNK_MIN_SECONDS * SAMPLE_RATE)
+            pieces: list[dict[str, Any]] = []
+            for chunk, offset in chunks:
+                audio = np.asarray(chunk, dtype=np.float32)
+                if audio.shape[0] < minimum:
+                    # The aligner refuses a degenerate window.  The splitter deliberately does not
+                    # pad — that would break its tiling promise — so the pad happens here, where the
+                    # requirement comes from.
+                    audio = np.pad(audio, (0, minimum - audio.shape[0]))
+                sf.write(scratch, audio, SAMPLE_RATE)
+                text, language = self._transcribe_chunk(models, scratch)
+                if not text:
+                    continue
+                units = [
+                    {
+                        "text": unit["text"],
+                        "start_time": float(unit["start_time"]) + offset,
+                        "end_time": float(unit["end_time"]) + offset,
+                    }
+                    for unit in self._align_chunk(models, scratch, text, language)
+                ]
+                pieces.extend(_thread_text(text, units))
+            return _aligned_cues(pieces)
         finally:
-            if temporary is not None:
-                try:
-                    os.unlink(temporary)
-                except OSError:
-                    pass
-        return normalize_result(result)
+            for leftover in (temporary, scratch):
+                if leftover:
+                    try:
+                        os.unlink(leftover)
+                    except OSError:
+                        pass
 
     def release(self) -> None:
-        """Dereference the model owned by this runner."""
-        self._model = None
+        """Drop the owned model pair.  The counters are monotonic and are **not** reset."""
+
+        self._models = None
 
     def provenance(self) -> dict[str, str]:
-        """Redaction-safe configuration; the declared id fills the name slot.
+        """The redaction-safe provenance of this runner's configuration."""
 
-        Precedence (D4.3): the declared ``model_id``, else the configured
-        ``model_name`` when it is itself redaction-safe, else ``[redacted]``.
-        ``model_id`` is a **slot replacement, never a key** (D4.4): it is
-        skipped while rendering and only substitutes into the ``model_name``
-        slot, so the nine-key contract and its order are untouched.
-
-        The re-scan applies the *validator's* strength to whichever value fills
-        the slot (S-2): a declared id is re-checked at hub level, exactly as
-        ``__post_init__`` checks it, while a configured ``model_name`` keeps the
-        historical rule and may therefore be a bare safe identifier such as
-        ``local-model``.  Rendering stays shape-only — it never probes the
-        filesystem — so this is the same rule as validation, not the same
-        predicate as the contradiction route.
-        """
-
-        values = asdict(self.config)
-        declared_id = values.pop("model_id", None)
-        safe_values: dict[str, str] = {}
-        for key, value in values.items():
-            rendered = (
-                ",".join(value)
-                if key == "hotwords" and isinstance(value, tuple)
-                else "" if value is None else str(value)
-            )
-            if key == "model_name" and declared_id is not None:
-                rendered = str(declared_id)
-            is_safe_model_identifier = (
-                key == "model_name"
-                and _is_redaction_safe_model_identifier(
-                    rendered, hub_level=declared_id is not None
-                )
-            )
-            if _FORBIDDEN_PROVENANCE.search(rendered) or (
-                key == "model_name" and not is_safe_model_identifier
-            ):
-                rendered = "[redacted]"
-            safe_values[key] = rendered
-        return safe_values
+        config = self.config
+        return {
+            "model_name": _redact(config.model_id or config.model_name),
+            "aligner_model": _redact(config.aligner_name),
+            "model_revision": _redact(config.model_revision or ""),
+            "device": _redact(config.device),
+            "language": _redact(config.language or ""),
+            "hotwords": _redact(",".join(config.hotwords)),
+            "chunk_seconds": f"{config.chunk_seconds:g}",
+            "offline": str(config.offline),
+            "local_source": _redact(config.local_source),
+        }
 
 
-def _clean_text(text: str) -> str:
-    return _RICH_TAG.sub("", text or "").strip()
+#: The processor's mel features are 100 frames per second of 16 kHz audio; the token budget per
+#: chunk is derived from the actual feature length rather than from a wall-clock guess.
+_MEL_FRAMES_PER_SECOND = 100.0
 
 
-def _body(text: str) -> str:
-    """The part of a cue that carries meaning, without its closing marks."""
+def _redact(value: str) -> str:
+    """``[redacted]`` for a value that would publish a path, URL or credential."""
 
-    return text.strip(_CUE_CLOSING_MARKS).strip()
-
-
-def _join_text(left: str, right: str) -> str:
-    """Join two cue texts, keeping a separator between Latin words.
-
-    Nano emits an English phrase as several tokens and does not always carry
-    the leading space, so absorbing a fragment into the cue before it must not
-    glue the words together.  Chinese text is unaffected: the space is only
-    added between two ASCII alphanumerics.
-    """
-
-    if (
-        left
-        and right
-        and left[-1].isascii()
-        and left[-1].isalnum()
-        and right[0].isascii()
-        and right[0].isalnum()
-    ):
-        return f"{left} {right}"
-    return left + right
+    return "[redacted]" if value and _FORBIDDEN_PROVENANCE.search(value) else value
 
 
-def _token_cues(tokens: Any) -> list[dict[str, Any]]:
-    """Shape Fun-ASR-Nano token timestamps into subtitle cues, in one pass.
-
-    Nano returns ``timestamps`` as ``{"token", "start_time", "end_time",
-    "score"}`` entries whose times are **seconds** and whose punctuation
-    arrives as its own token, so cue text stays the verbatim token text.  A cue
-    closes on a sentence-ending token, at :data:`_CUE_MAX_CHARS` characters, or
-    on a pause of at least :data:`_CUE_MAX_GAP_SECONDS` — but a pause only
-    closes a cue that can already stand on its own, and a cue that is still
-    only punctuation or below :data:`_CUE_MIN_CHARS` / :data:`_CUE_MIN_SECONDS`
-    is absorbed by the cue before it.  Nothing shapes the text a second time
-    afterwards, and nothing is dropped.
-
-    ``confidence`` is the mean token score of the cue when the model reports
-    scores; it is measurement, not a rewrite.
-    """
-
-    if not isinstance(tokens, list):
-        return []
-    cues: list[dict[str, Any]] = []
-    parts: list[str] = []
-    scores: list[float] = []
-    start: float | None = None
-    last_end: float | None = None
-    pending = ""          # text the cue before it could not take
-
-    def formed() -> bool:
-        return (
-            len(_body("".join(parts))) >= _CUE_MIN_CHARS
-            and (last_end or 0.0) - (start or 0.0) >= _CUE_MIN_SECONDS
-        )
-
-    def reset() -> None:
-        nonlocal parts, scores, start, last_end, pending
-        parts, scores, start, last_end, pending = [], [], None, None, ""
-
-    def hand_back(piece: str, end: float) -> None:
-        """Give a closing mark to the cue it actually closes."""
-
-        cues[-1]["text"] = _join_text(str(cues[-1]["text"]), piece)
-        cues[-1]["end"] = max(float(cues[-1]["end"]), end)
-
-    def close() -> None:
-        nonlocal pending
-        text = _clean_text(pending + "".join(parts))
-        if not text:
-            reset()
-            return
-        confidence = round(sum(scores) / len(scores), 3) if scores else None
-        span = last_end or start or 0.0
-        undersized = len(_body(text)) < _CUE_MIN_CHARS or (span - (start or 0.0)) < _CUE_MIN_SECONDS
-        if cues and (undersized or not _body(text)):
-            # a fragment joins the cue before it: the character ceiling is a
-            # readability target, and losing text to it would be worse
-            previous = cues[-1]
-            previous["text"] = _join_text(str(previous["text"]), text)
-            previous["end"] = max(float(previous["end"]), span)
-            reset()
-            return
-        cue = {"start": start, "end": span, "text": text}
-        if confidence is not None:
-            cue["confidence"] = confidence
-        cues.append(cue)
-        reset()
-
-    for token in tokens:
-        if not isinstance(token, dict):
-            continue
-        piece = str(token.get("token") or "")
-        begin = token.get("start_time")
-        end = token.get("end_time")
-        if not isinstance(begin, (int, float)) or not isinstance(end, (int, float)):
-            continue
-        begin, end = float(begin), float(end)
-        mark = piece.strip()
-        if start is None:
-            # a closing mark never opens a cue: it belongs to the cue it closes
-            if mark and mark[0] in _CUE_CLOSING_MARKS:
-                # a mark is one character: it goes back, ceiling or not
-                if cues:
-                    hand_back(piece, end)
-                else:
-                    pending += piece
-                continue
-            start = begin
-        elif begin - (last_end or begin) >= _CUE_MAX_GAP_SECONDS and formed():
-            close()
-            if mark and mark[0] in _CUE_CLOSING_MARKS and cues:
-                hand_back(piece, end)
-                continue
-            start = begin
-        parts.append(piece)
-        last_end = end
-        raw_score = token.get("score")
-        if isinstance(raw_score, (int, float)) and not isinstance(raw_score, bool):
-            scores.append(float(raw_score))
-        if mark in _SENTENCE_ENDINGS or len(pending + "".join(parts)) >= _CUE_MAX_CHARS:
-            close()
-    close()
-    return cues
-
-
-def normalize_result(result: Any) -> list[dict[str, Any]]:
-    """Turn one FunASR result into timestamped segments.
-
-    The pinned model returns ``timestamps``: one entry per character, in
-    seconds, punctuation included, so cue text is the recognised text verbatim.
-    A result that carries text but no usable timings is kept as a single
-    zero-length segment rather than dropped, so a transcript is never silently
-    lost.
-    """
-
-    items = result if isinstance(result, list) else [result]
-    segments: list[dict[str, Any]] = []
-    for item in items:
-        if not isinstance(item, dict):
-            continue
-        tokens = item.get("timestamps")
-        if isinstance(tokens, list) and any(isinstance(token, dict) for token in tokens):
-            cues = _token_cues(tokens)
-            if cues:
-                segments.extend(cues)
-                continue
-        text = _clean_text(str(item.get("text") or ""))
-        if text:
-            segments.append({"start": 0.0, "end": 0.0, "text": text})
-    return segments
+# ---------------------------------------------------------------------------------------
+# Products — unchanged.  A cue is a subtitle line; these two writers and the SRT clock are what
+# ``archive.py`` imports, and the shape they consume is ``{"start", "end", "text"}`` in seconds.
+# ---------------------------------------------------------------------------------------
 
 
 def _fmt_srt_time(seconds: float) -> str:
@@ -858,38 +847,34 @@ def _fmt_srt_time(seconds: float) -> str:
 def segments_to_srt(segments: list[dict[str, Any]]) -> str:
     blocks = []
     for index, segment in enumerate(segments, start=1):
-        blocks.append(f"{index}\n{_fmt_srt_time(segment['start'])} --> {_fmt_srt_time(segment['end'])}\n{segment['text']}\n")
+        blocks.append(
+            f"{index}\n{_fmt_srt_time(segment['start'])} --> {_fmt_srt_time(segment['end'])}\n"
+            f"{segment['text']}\n"
+        )
     return "\n".join(blocks)
 
 
 def segments_to_txt(segments: list[dict[str, Any]]) -> str:
-    return "\n".join(str(segment.get("text", "")).strip() for segment in segments if str(segment.get("text", "")).strip())
+    return "\n".join(
+        str(segment.get("text", "")).strip()
+        for segment in segments
+        if str(segment.get("text", "")).strip()
+    )
+
+
+# ---------------------------------------------------------------------------------------
+# One-shot helpers, kept for the callers that hold no runner.
+# ---------------------------------------------------------------------------------------
 
 
 def transcribe(audio_path: str, model_name: str | None = None) -> list[dict[str, Any]]:
-    """Compatibility wrapper: one short-lived runner using env/default selection.
+    """Transcribe one file with a fresh runner (one-shot; batches should hold a runner)."""
 
-    ``model_name`` overrides the load value through ``dataclasses.replace``,
-    which re-runs ``ASRConfig.__post_init__``.  While ``BILI_ASR_MODEL_ID``
-    declares an identity, a ``model_name`` override that contradicts it
-    therefore raises ``ValueError`` (F-003) instead of silently producing
-    segments the recorded producer would misdescribe — the same loud refusal
-    D4.2 applies to a mis-declared environment.  An override that agrees with
-    the declaration, or an environment with nothing declared, still returns the
-    usual segments.
-    """
-
-    config = default_config()
-    if model_name is not None:
-        config = replace(config, model_name=model_name)
+    config = replace(default_config(), model_name=model_name) if model_name else None
     return ASRRunner(config).transcribe(audio_path)
 
 
 def provenance() -> dict[str, str]:
-    """Return the redaction-safe configuration of the process-default runner.
-
-    Reads no model and transcribes nothing, so a caller that produced segments
-    through :func:`transcribe` can still record what produced them.
-    """
+    """The provenance of the default configuration."""
 
     return ASRRunner(default_config()).provenance()

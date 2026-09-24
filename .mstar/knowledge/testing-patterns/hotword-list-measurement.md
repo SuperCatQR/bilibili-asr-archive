@@ -43,7 +43,7 @@ Sources for every figure below: `{ITERATION_DIR}/iter-2026-09-text-and-ledger-pr
 whose errors were already counted and whose term is actually spoken. The season register named
 `BV1H69sB6EeF:p0` (《逻辑学》第二讲 存有论（2）扬弃-定在, cid `37953865549`, 6870 s ≈ 114.5 min) the worst
 affected item — 扬弃 4 correct vs 57 wrong. The run identity is fixed with the arm: same audio, same model
-(the FunAudioLLM/Fun-ASR-Nano-2512 checkpoint, local model root nano/master), same device, one seeded row per
+(the FunAudioLLM/Fun-ASR-Nano-2512 checkpoint — **retired 2026-09-24**; the numbers below are that engine's, local model root nano/master), same device, one seeded row per
 archive root, arms run sequentially.
 
 **2. Build the "without" arm by temporary removal, not with the environment knob.** `_extra_hotwords`

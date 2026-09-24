@@ -41,46 +41,20 @@ from test_audio import (
 from test_subtitles import SAMPLE_DOC, nav_ok, player_ok, sub_entry
 from conftest import reuse_line
 
-
-def _model_input_bytes(path: str) -> bytes:
-    """The audio the model was handed, read while the path still resolves."""
-    try:
-        with open(os.fspath(path), "rb") as fh:
-            return fh.read()
-    except OSError:
-        return b""
+import _asr_fakes as asr_fakes
 
 
-class _FakeModel:
-    """Stands in for the FunASR AutoModel the runner builds lazily."""
-
-    def __init__(self, calls=None):
-        self._calls = calls
-
-    def generate(self, **kwargs):
-        if self._calls is not None:
-            self._calls.append(
-                (kwargs["input"], _model_input_bytes(kwargs["input"]))
-            )
-        return [{"start": 0.0, "end": 1.0, "text": "asr-text"}]
-
-
-def _stub_runner_model(monkeypatch, calls=None, released=None):
+def _stub_runner_model(monkeypatch, reads=None, released=None):
     """D2.5 seam: patch the module-level factory, not ``asr.transcribe``.
 
-    ``calls`` records each generation as ``(input path, bytes read)``: the
-    pipeline hands the model a ``/proc/self/fd/N`` descriptor, so the body is
-    what names the confined audio file the row was transcribed from.  Returns
-    the list of construction kwargs.
-
-    ``released`` records each ``ASRRunner.release()`` call, so a test can
-    assert the invocation-scoped runner is handed back on every exit path.
+    The real ``_get_model`` path stays under test, so the counter a command reports is the one the
+    production construction site produces.  ``reads`` collects the path of every recording the
+    boundary opened — the model is handed a chunk file, so a row is identified at the read, not at
+    the model.
     """
-    constructions: list[dict] = []
 
-    def factory(**kwargs):
-        constructions.append(dict(kwargs))
-        return _FakeModel(calls)
+    constructions: list[dict] = []
+    asr_fakes.install(monkeypatch, constructions=constructions, reads=reads)
 
     if released is not None:
         real_release = asr_mod.ASRRunner.release
@@ -91,8 +65,6 @@ def _stub_runner_model(monkeypatch, calls=None, released=None):
 
         monkeypatch.setattr(asr_mod.ASRRunner, "release", recording_release)
 
-    monkeypatch.setenv("BILI_ASR_DEVICE", "cpu")
-    monkeypatch.setattr(asr_mod, "_load_default_model", factory)
     return constructions
 
 
@@ -124,9 +96,9 @@ def test_cli_pilot_mixed_meta_ok_archives_both_branches(tmp_root, monkeypatch, c
     store.upsert(_row(sub, duration_s=5, title="has-sub"))
     store.upsert(_row(aud, duration_s=8, title="needs-asr"))
 
-    transcribe_calls: list[tuple[str, bytes]] = []
+    reads: list[str] = []
 
-    constructions = _stub_runner_model(monkeypatch, transcribe_calls)
+    constructions = _stub_runner_model(monkeypatch, reads)
     transport = RouterTransport(
         {
             "finger/spi": [SPI_OK],
@@ -163,7 +135,8 @@ def test_cli_pilot_mixed_meta_ok_archives_both_branches(tmp_root, monkeypatch, c
     assert os.path.isfile(os.path.join(tmp_root, loaded[aud.work_id]["srt_path"]))
     # post-archive audio reclaim: m4a removed once the row is archived
     assert not os.path.exists(os.path.join(tmp_root, loaded[aud.work_id]["audio_path"]))
-    assert [body for _path, body in transcribe_calls] == [AUDIO_BYTES]
+    assert len(reads) == 1, "one row reached ASR, and it opened one recording"
+    assert artifact_stem(aud) in reads[0], "the boundary read the ASR row's confined audio"
     player = [c for c in transport.calls if "player/wbi/v2" in c["url"]]
     assert [c["params"]["cid"] for c in player] == [111, 222]
     sess_calls = [c for c in transport.calls if c["cookies"].get("SESSDATA") == "SECRET-SESS"]
@@ -181,11 +154,7 @@ def test_cli_pilot_multipart_processes_every_page(tmp_root, monkeypatch, capsys)
     store.upsert(_row(p0, duration_s=2, title="multi"))
     store.upsert(_row(p1, duration_s=50, title="multi"))
 
-    monkeypatch.setattr(
-        asr_mod,
-        "_load_default_model",
-        lambda **_kwargs: _FakeModel(),
-    )
+    asr_fakes.install(monkeypatch)
     transport = RouterTransport(
         {
             "finger/spi": [SPI_OK],
@@ -227,11 +196,7 @@ def test_cli_pilot_audio_ok_reuses_local_audio_when_budget_is_full(
     with open(local_audio, "wb") as fh:
         fh.write(b"audio" * 1000)
 
-    monkeypatch.setattr(
-        asr_mod,
-        "_load_default_model",
-        lambda **_kwargs: _FakeModel(),
-    )
+    asr_fakes.install(monkeypatch)
     monkeypatch.setattr(
         audio_mod,
         "download_audio",
@@ -265,11 +230,7 @@ def test_cli_pilot_audio_ok_reuses_local_audio_when_budget_is_full(
 def test_cli_pilot_missing_subtitle_branch_exits_nonzero(tmp_root, monkeypatch, capsys):
     only = page_identity("BVonly", 0, 333, "p0")
     ManifestStore(root=tmp_root).upsert(_row(only, duration_s=4))
-    monkeypatch.setattr(
-        asr_mod,
-        "_load_default_model",
-        lambda **_kwargs: _FakeModel(),
-    )
+    asr_fakes.install(monkeypatch)
     transport = RouterTransport(
         {
             "finger/spi": [SPI_OK],
@@ -315,11 +276,7 @@ def test_cli_pilot_summary_separates_batch_and_prior_coverage(
     store.upsert(_row(sub, duration_s=5, title="has-sub"))
     store.upsert(_row(aud, duration_s=8, title="needs-asr"))
 
-    monkeypatch.setattr(
-        asr_mod,
-        "_load_default_model",
-        lambda **_kwargs: _FakeModel(),
-    )
+    asr_fakes.install(monkeypatch)
     _patch_cli(monkeypatch, _mixed_transport())
 
     assert main(["pilot", "--n", "2", "--archive-root", tmp_root]) == 0
@@ -334,9 +291,9 @@ def test_cli_pilot_completed_rerun_skips_archived(tmp_root, monkeypatch, capsys)
     store = ManifestStore(root=tmp_root)
     store.upsert(_row(sub, duration_s=5, title="has-sub"))
     store.upsert(_row(aud, duration_s=8, title="needs-asr"))
-    transcribe_calls: list[tuple[str, bytes]] = []
+    reads: list[str] = []
 
-    _stub_runner_model(monkeypatch, transcribe_calls)
+    _stub_runner_model(monkeypatch, reads)
     _patch_cli(monkeypatch, _mixed_transport())
     assert main(["pilot", "--n", "2", "--archive-root", tmp_root]) == 0
     capsys.readouterr()
@@ -349,7 +306,7 @@ def test_cli_pilot_completed_rerun_skips_archived(tmp_root, monkeypatch, capsys)
         for name in files:
             first_files.append(os.path.join(dirpath, name))
     first_files.sort()
-    first_calls = list(transcribe_calls)
+    first_calls = list(reads)
 
     rc = main(["pilot", "--n", "2", "--archive-root", tmp_root])
     captured = capsys.readouterr()
@@ -362,7 +319,7 @@ def test_cli_pilot_completed_rerun_skips_archived(tmp_root, monkeypatch, capsys)
         for name in files:
             rerun_files.append(os.path.join(dirpath, name))
     assert sorted(rerun_files) == first_files
-    assert transcribe_calls == first_calls
+    assert reads == first_calls
     loaded = ManifestStore(root=tmp_root).load()
     assert loaded[sub.work_id]["status"] == "archived"
     assert loaded[aud.work_id]["status"] == "archived"
@@ -378,13 +335,10 @@ def test_cli_pilot_missing_asr_dependency_does_not_archive(tmp_root, monkeypatch
     store.upsert(_row(aud, duration_s=8, title="needs-asr"))
     hint = 'pip install -e "bilibili-asr-archive/[asr]"'
 
-    def missing_asr(**_kwargs):
-        raise ASRDependencyError(
-            f"FunASR support is not installed; run: {hint}"
-        )
-
-    monkeypatch.setenv("BILI_ASR_DEVICE", "cpu")
-    monkeypatch.setattr(asr_mod, "_load_default_model", missing_asr)
+    asr_fakes.raising(
+        monkeypatch,
+        ASRDependencyError(f"Qwen3-ASR support is not installed; run: {hint}"),
+    )
     _patch_cli(monkeypatch, _mixed_transport())
     rc = main(["pilot", "--n", "2", "--archive-root", tmp_root])
     captured = capsys.readouterr()
@@ -407,20 +361,14 @@ def test_cli_pilot_resume_after_partial_asr_counts_archived_subtitle(
     store.upsert(_row(sub, duration_s=5, title="has-sub"))
     store.upsert(_row(aud, duration_s=8, title="needs-asr"))
 
-    def missing_asr(**_kwargs):
-        raise ASRDependencyError("FunASR support is not installed")
-
-    monkeypatch.setenv("BILI_ASR_DEVICE", "cpu")
-    monkeypatch.setattr(asr_mod, "_load_default_model", missing_asr)
+    asr_fakes.raising(
+        monkeypatch, ASRDependencyError("Qwen3-ASR support is not installed")
+    )
     _patch_cli(monkeypatch, _mixed_transport())
     assert main(["pilot", "--n", "2", "--archive-root", tmp_root]) == 1
     capsys.readouterr()
 
-    monkeypatch.setattr(
-        asr_mod,
-        "_load_default_model",
-        lambda **_kwargs: _FakeModel(),
-    )
+    asr_fakes.install(monkeypatch)
     _patch_cli(monkeypatch, _mixed_transport())
     rc = main(["pilot", "--n", "2", "--archive-root", tmp_root])
     captured = capsys.readouterr()
@@ -467,11 +415,7 @@ def test_cli_pilot_asr_model_error_names_exception(tmp_root, monkeypatch, capsys
     store.upsert(_row(sub, duration_s=5, title="has-sub"))
     store.upsert(_row(aud, duration_s=8, title="needs-asr"))
 
-    def boom(**_kwargs):
-        raise ASRModelError("model failed")
-
-    monkeypatch.setenv("BILI_ASR_DEVICE", "cpu")
-    monkeypatch.setattr(asr_mod, "_load_default_model", boom)
+    asr_fakes.raising(monkeypatch, ASRModelError("model failed"))
     _patch_cli(monkeypatch, _mixed_transport())
     rc = main(["pilot", "--n", "2", "--archive-root", tmp_root])
     captured = capsys.readouterr()
@@ -575,12 +519,11 @@ def test_cli_pilot_releases_the_runner_when_the_loop_is_interrupted(
 
     released: list[object] = []
 
-    class InterruptingModel:
-        def generate(self, **_kwargs):
-            raise KeyboardInterrupt()
+    def interrupting(self, **_kwargs):
+        raise KeyboardInterrupt()
 
-    def factory(**_kwargs):
-        return InterruptingModel()
+    monkeypatch.setattr(asr_fakes.Model, "generate", interrupting)
+    asr_fakes.install(monkeypatch)
 
     real_release = asr_mod.ASRRunner.release
 
@@ -588,9 +531,7 @@ def test_cli_pilot_releases_the_runner_when_the_loop_is_interrupted(
         released.append(self)
         real_release(self)
 
-    monkeypatch.setenv("BILI_ASR_DEVICE", "cpu")
     monkeypatch.setattr(asr_mod.ASRRunner, "release", recording_release)
-    monkeypatch.setattr(asr_mod, "_load_default_model", factory)
     _patch_cli(monkeypatch, RouterTransport({}))
 
     with pytest.raises(KeyboardInterrupt):

@@ -1,0 +1,255 @@
+{
+  "schema_version": 1,
+  "diagram_type": "dataflow",
+  "meta": {
+    "title": "未明子归档：ASR 数据流（Qwen3-ASR + 强制对齐器）",
+    "output": "asr-chain.dataflow.html",
+    "viewBox": [
+      1180,
+      540
+    ],
+    "quality_profile": "showcase",
+    "views": [
+      {
+        "id": "main-path",
+        "label": "主路径",
+        "focus": [
+          "audio",
+          "chunker",
+          "decoder",
+          "aligner",
+          "thread",
+          "cues",
+          "products"
+        ],
+        "note": "一段归档音频如何变成一条条带时间戳的字幕行。"
+      },
+      {
+        "id": "two-models",
+        "label": "为什么是两个模型",
+        "focus": [
+          "chunker",
+          "decoder",
+          "aligner",
+          "thread"
+        ],
+        "note": "解码器只给文字；逐字时间戳由对齐器单次前向给出，两者在穿标点这一步会合。"
+      },
+      {
+        "id": "contract",
+        "label": "不变的产品契约",
+        "focus": [
+          "thread",
+          "cues",
+          "products",
+          "store"
+        ],
+        "note": "引擎换了，cue 的形状与 store 的列没有换。"
+      }
+    ]
+  },
+  "stages": [
+    {
+      "label": "输入"
+    },
+    {
+      "label": "分块"
+    },
+    {
+      "label": "两个模型"
+    },
+    {
+      "label": "复原文本"
+    },
+    {
+      "label": "产物与账本"
+    }
+  ],
+  "nodes": [
+    {
+      "id": "audio",
+      "type": "database",
+      "label": "归档音频",
+      "sublabel": "受限描述符",
+      "stage": 0,
+      "row": 1,
+      "tag": "不离开归档根"
+    },
+    {
+      "id": "chunker",
+      "type": "backend",
+      "label": "分块器",
+      "sublabel": "低能量边界",
+      "stage": 1,
+      "row": 1,
+      "tag": "≤180 s，无缝无重叠"
+    },
+    {
+      "id": "decoder",
+      "type": "backend",
+      "label": "Qwen3-ASR-1.7B-hf",
+      "sublabel": "解码器：只给文字",
+      "stage": 2,
+      "row": 0,
+      "width": 176,
+      "tag": "本地 checkpoint，运行时不联网"
+    },
+    {
+      "id": "aligner",
+      "type": "backend",
+      "label": "Qwen3-ForcedAligner-0.6B-hf",
+      "sublabel": "对齐器：逐字时间戳",
+      "stage": 2,
+      "row": 2,
+      "width": 196,
+      "tag": "本地 checkpoint，NAR 单次前向"
+    },
+    {
+      "id": "thread",
+      "type": "backend",
+      "label": "穿标点",
+      "sublabel": "_thread_text",
+      "stage": 3,
+      "row": 1,
+      "tag": "每个字符恰好一次"
+    },
+    {
+      "id": "cues",
+      "type": "backend",
+      "label": "cue 规则",
+      "sublabel": "句末 / 停顿 / 60 字",
+      "stage": 4,
+      "row": 1,
+      "tag": "碎片并入前一条"
+    },
+    {
+      "id": "products",
+      "type": "database",
+      "label": "srt / txt / md / raw",
+      "sublabel": "四件产物 + 标记",
+      "stage": 4,
+      "row": 0,
+      "width": 150,
+      "tag": "{start, end, text}"
+    },
+    {
+      "id": "store",
+      "type": "database",
+      "label": "archive.db",
+      "sublabel": "transcript_segments",
+      "stage": 4,
+      "row": 2,
+      "width": 168,
+      "tag": "start_ms / end_ms / text"
+    }
+  ],
+  "flows": [
+    {
+      "from": "audio",
+      "to": "chunker",
+      "label": "16 kHz 单声道",
+      "classification": "ffmpeg 解码归档音频",
+      "variant": "emphasis",
+      "route": "straight"
+    },
+    {
+      "from": "chunker",
+      "to": "decoder",
+      "label": "每块音频",
+      "classification": "≤180 s 一块",
+      "variant": "emphasis",
+      "route": "auto",
+      "labelDy": -24
+    },
+    {
+      "from": "chunker",
+      "to": "aligner",
+      "label": "同一块音频",
+      "classification": "对齐器需要音频与文字两路",
+      "variant": "default",
+      "route": "auto",
+      "labelAt": [
+        402,
+        314
+      ]
+    },
+    {
+      "from": "decoder",
+      "to": "aligner",
+      "label": "该块文字",
+      "classification": "喂给对齐器的必须是归档的那串字",
+      "variant": "default",
+      "route": "auto"
+    },
+    {
+      "from": "decoder",
+      "to": "thread",
+      "label": "整段文字",
+      "classification": "无时间戳",
+      "variant": "emphasis",
+      "route": "auto"
+    },
+    {
+      "from": "aligner",
+      "to": "thread",
+      "label": "逐字开始/结束",
+      "classification": "已加块偏移，单调",
+      "variant": "emphasis",
+      "route": "auto"
+    },
+    {
+      "from": "thread",
+      "to": "cues",
+      "label": "含标点的字符流",
+      "classification": "先穿标点，再成行",
+      "variant": "emphasis",
+      "route": "straight"
+    },
+    {
+      "from": "cues",
+      "to": "products",
+      "label": "一条 cue 一行字幕",
+      "classification": "srt / txt / md / raw",
+      "variant": "emphasis",
+      "route": "auto"
+    },
+    {
+      "from": "cues",
+      "to": "store",
+      "label": "毫秒三元组",
+      "classification": "manifest 记账后发布",
+      "variant": "default",
+      "route": "auto"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "amber",
+      "title": "为什么是两个模型",
+      "items": [
+        "解码器只返回文字，一行时间戳都没有",
+        "对齐器是 NAR：一次前向给出逐字时间",
+        "分块窗口因此围着解码器调（817 s 对 27 s）",
+        "两个 checkpoint 都在 models/ 下本地加载，运行时不联网"
+      ]
+    },
+    {
+      "dot": "cyan",
+      "title": "引擎换了，契约没换",
+      "items": [
+        "一条 cue 仍是一行字幕：{start, end, text}",
+        "store 仍是 start_ms / end_ms / text，无 confidence 列",
+        "新引擎不产生分数，故不写置信度键；读侧仍读得懂历史转写"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "实测（47.4 分钟真实素材）",
+      "items": [
+        "16 块，146–185 s，拼接严格等于原音频",
+        "386 条 cue，标点齐全，时间戳单调",
+        "墙钟 428 s（0.151× 实时），峰值显存 9.60 GB"
+      ]
+    }
+  ]
+}

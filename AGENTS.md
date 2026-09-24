@@ -7,7 +7,7 @@ Personal tooling workspace for Bilibili UP 未明子 (UID 23191782) ASR transcri
 ## Product
 
 - Package root: `bilibili-asr-archive/`
-- Goal: installable Python CLI that enumerates videos, harvests AI/CC subtitles first, downloads audio when needed, runs local SenseVoice ASR, and archives `srt`/`txt`/`md` with a resumable manifest.
+- Goal: installable Python CLI that enumerates videos, harvests AI/CC subtitles first, downloads audio when needed, runs local Qwen3-ASR, and archives `srt`/`txt`/`md` with a resumable manifest.
 
 ## Tech boundary
 

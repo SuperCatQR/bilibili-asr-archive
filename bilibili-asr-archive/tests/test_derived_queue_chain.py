@@ -43,7 +43,7 @@ from anywhere but the scripted payload, and the ASR model is the repository's ow
 stubbed runner seam (``test_coordinator._stub_asr``).
 
 **What stays untested, and why.**  This environment has no ``[asr]`` extra
-(``funasr`` is not importable), so the real-model ASR path cannot run: the
+(``transformers`` is not importable), so the real-model ASR path cannot run: the
 stub-free case below observes the documented install-hint stop instead, and
 criterion 3's live confirmation is recorded as untested rather than passed.
 """
@@ -132,7 +132,7 @@ AUDIO_BUDGET_SKIP = "audio_budget"
 
 #: The stub-free case below is skipped when the extra **is** importable — the
 #: opposite of a missing-extra message — so its reason is its own string: the
-#: reader's condition is "this host has `funasr`", and a reason about a missing
+#: reader's condition is "this host has `transformers`", and a reason about a missing
 #: extra would send a triager after the wrong thing.  Criterion 3's live clause
 #: itself (a real model reaching ``archived``) is recorded as untested by the
 #: last case in this file, which carries the environment facts it rests on.
@@ -283,10 +283,14 @@ def _put_audio_on_disk(root: str, work_id: str) -> str:
     return path
 
 
-def _funasr_is_installed() -> bool:
-    """Whether the optional ``[asr]`` extra is importable in this environment."""
+def _asr_stack_is_installed() -> bool:
+    """Whether the optional ``[asr]`` extra is importable in this environment.
 
-    return importlib.util.find_spec("funasr") is not None
+    ``transformers`` is the marker: Qwen3-ASR has native support in it, and the boundary imports it
+    (with torch, accelerate and the audio readers) only when a runner first transcribes.
+    """
+
+    return importlib.util.find_spec("transformers") is not None
 
 
 def _attempts(root: str) -> list[dict]:
@@ -592,7 +596,7 @@ def test_a_budget_capped_run_downloads_nothing_and_leaves_the_head_queued(
 
 
 @pytest.mark.skipif(
-    _funasr_is_installed(),
+    _asr_stack_is_installed(),
     reason=ASR_EXTRA_INSTALLED,
 )
 def test_a_stub_free_run_stops_at_the_documented_asr_dependency(
@@ -600,7 +604,7 @@ def test_a_stub_free_run_stops_at_the_documented_asr_dependency(
 ):
     """Without the extra, the derived row reaches the ASR stage and stops there.
 
-    No ASR stub: the runner builds its real model factory, the ``funasr`` import
+    No ASR stub: the runner builds its real model factory, the ``transformers`` import
     fails, and the stage records the dependency code the product documents
     (``asr._INSTALL_HINT``).  The observable that matters here is that the
     derived row reached the **ASR** stage at all — the archive stage stays clean
@@ -644,7 +648,7 @@ def test_the_live_run_with_the_real_asr_model_is_untested_here():
 
     pytest.skip(
         "the [asr] extra is not installed in this environment "
-        f"(funasr importable: {_funasr_is_installed()}), and a real model would "
+        f"(transformers importable: {_asr_stack_is_installed()}), and a real model would "
         "also need the network this file must not touch; the stubbed-run cases "
         "are criterion 3's gate evidence, and the live confirmation is untested, "
         "not passed"

@@ -21,6 +21,8 @@ from pathlib import Path
 import pytest
 
 from bili_asr import asr as asr_module
+
+import _asr_fakes as asr_fakes
 from bili_asr import audio as audio_module
 from bili_asr.artifact_root import ArtifactRoots
 from bili_asr.audio_reclaim import reclaim_audio
@@ -95,13 +97,7 @@ class BoomClient:
 
 
 def _stub_asr(monkeypatch) -> None:
-    class FakeModel:
-        def generate(self, **_kwargs):
-            return [{"text": "hi", "timestamp": [[0, 1000]]}]
-
-    monkeypatch.setattr(
-        asr_module, "_load_default_model", lambda **_kwargs: FakeModel()
-    )
+    asr_fakes.install(monkeypatch)
 
 
 def _page(bvid: str, page_index: int, cid: int):

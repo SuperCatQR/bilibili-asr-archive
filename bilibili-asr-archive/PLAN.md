@@ -67,6 +67,8 @@
 
 **结论：FunASR-Nano-2512（GPU）**。2200h / 50x / AMD 7800XT → 约 44 小时，GPU 加速显著优于 CPU。
 
+> **2026-09-24 更新：本表是引导期的选型记录，此后引擎又换过一次。** 当前引擎为 **Qwen3-ASR-1.7B（transformers）+ Qwen3-ForcedAligner-0.6B**：解码器只给文字，逐字时间戳由对齐器单次前向给出（单次 180 秒窗口），**不再有 per-cue 置信度**。实测：真实 47.4 分钟素材 16 块、386 条 cue、墙钟 428 秒（0.151× 实时）、峰值显存 9.60 GB。依据与迁移计划见 `.mstar/plans/20260924-qwen3-asr-transformers.md`，安装与权重位置见 `README.md`。
+
 ## 3. 流水线设计
 
 ```
@@ -79,7 +81,7 @@ manifest/manifest.jsonl（账本，work_id 为主键）
   ├─② 音频下载: 受限 API 流（登录态、限速、分批）
   │    → audio/{bvid}.p{page}.m4a（归档后回收）
   │
-  ├─③ ASR: ffmpeg 16k 单声道 → FunASR-Nano
+  ├─③ ASR: ffmpeg 16k 单声道 → Qwen3-ASR（分块 ≤180s）→ Qwen3-ForcedAligner（逐字时间戳）
   │
   ├─④ 原子归档: srt / txt / md / raw + .bundle-ready
   │    marker 固定四个相对路径及 SHA-256；marker 最后发布
@@ -124,9 +126,9 @@ manifest/manifest.jsonl（账本，work_id 为主键）
 
 ## 5b. Local ASR reproducibility contract
 
-ASR is an optional local capability: install it with `python3.12 -m pip install -e "[asr]"` only when the operator has a reviewed local environment. Configure a pre-populated local model with `BILI_ASR_MODEL`; tests use fake factories and do not install FunASR, download models/media, or use network credentials. `ASRRunner` lazily constructs and reuses one model only for the current sequential `run_batch` scope. It is not thread-safe and must not be shared by concurrent callers. The coordinator releases a runner it creates when the batch exits, including failure exits; an injected runner remains caller-owned.
+ASR is an optional local capability: install it with `python3.12 -m pip install -e "[asr]"` only when the operator has a reviewed local environment. Configure pre-populated local models with `BILI_ASR_MODEL` and `BILI_ASR_ALIGNER_MODEL`; tests use fake factories and do not install the ASR extra, download models/media, or use network credentials. `ASRRunner` lazily constructs and reuses one **model pair** (decoder + aligner) only for the current sequential `run_batch` scope. It is not thread-safe and must not be shared by concurrent callers. The coordinator releases a runner it creates when the batch exits, including failure exits; an injected runner remains caller-owned.
 
-`ASRRunner.provenance()` is deterministic configuration/report evidence: stable keys describe model name, declared revision, device, offline intent, and opaque local-source intent. A local `BILI_ASR_MODEL` path is a runtime-only model selector, not a provenance identifier. Safe slash-qualified identifiers such as `FunAudioLLM/Fun-ASR-Nano-2512` are preserved; URL, absolute-path, and credential-like model values are redacted, while invalid `local_source` values remain rejected. Cookies, tokens, raw exceptions, model/media/transcript payloads, and ledger fields are excluded. Fixture checks report only fake construction count and normalized output shape; the selector is `tests/test_asr_reproducibility.py::test_fixture_benchmark_reports_only_construction_and_shape`. This evidence is not semantic-quality validation, model-weight pinning, a general network-free-runtime guarantee, hardware timing, or full-corpus completion.
+`ASRRunner.provenance()` is deterministic configuration/report evidence: stable keys describe model name, declared revision, device, offline intent, and opaque local-source intent. A local `BILI_ASR_MODEL` path is a runtime-only model selector, not a provenance identifier. Safe slash-qualified identifiers such as `Qwen/Qwen3-ASR-1.7B-hf` are preserved; URL, absolute-path, and credential-like model values are redacted, while invalid `local_source` values remain rejected. Cookies, tokens, raw exceptions, model/media/transcript payloads, and ledger fields are excluded. Fixture checks report only fake construction count and output shape; the selector is `tests/test_asr_qwen.py`. This evidence is not semantic-quality validation, model-weight pinning, a general network-free-runtime guarantee, hardware timing, or full-corpus completion.
 
 ## 6. 下一迭代触发条件
 

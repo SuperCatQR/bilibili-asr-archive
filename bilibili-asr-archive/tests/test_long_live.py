@@ -43,6 +43,8 @@ from test_scheduler import (
 )
 from test_subtitles import SAMPLE_DOC, player_ok
 
+import _asr_fakes as asr_fakes
+
 THREE_HOURS_S = 3 * 60 * 60
 ESTIMATED_THREE_HOURS = THREE_HOURS_S * 8_000  # 64 kbps ceiling
 DOCS_DIR = Path(__file__).resolve().parents[1] / "docs"
@@ -506,13 +508,9 @@ def test_allow_long_live_asr_failure_keeps_retryable_audio(
         _row(identity, status="needs_audio", duration_s=THREE_HOURS_S)
     )
 
-    def boom(**_kwargs):
-        raise RuntimeError("asr")
-
-    # D2.5 seam: `schedule` runs the shared coordinator, which builds its
-    # runner's model through this factory.
-    monkeypatch.setenv("BILI_ASR_DEVICE", "cpu")
-    monkeypatch.setattr(asr_mod, "_load_default_model", boom)
+    # D2.5 seam: `schedule` runs the shared coordinator, which builds its runner's model through
+    # this factory.
+    asr_fakes.raising(monkeypatch, RuntimeError("asr"))
     transport = _download_transport(identity)
     _patch_cli(monkeypatch, transport)
 
