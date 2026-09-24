@@ -22,3 +22,4 @@ Note: the bootstrap MVP iteration `iter-2026-08-wmz-asr-mvp` — the source of t
 `.mstar/specs/asr-archive-cli.md` — predates this index and its package is no longer on disk;
 only the frozen spec and `{KNOWLEDGE_DIR}/architecture-patterns/bilibili-asr-archive-cli.md`
 still reference it.
+| `iter-2026-09-transcript-editorial-stages` | [`iter-2026-09-transcript-editorial-stages/`](iter-2026-09-transcript-editorial-stages/) | 校对 + 精校 as verifiable pipeline stages: the two-route alignment builder and the proofread/reading-edition verifiers, with the six-item corpus as offline replayable acceptance | `active` |
