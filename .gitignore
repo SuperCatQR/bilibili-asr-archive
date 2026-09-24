@@ -9,6 +9,8 @@
 bilibili-asr-archive/archive/audio/
 bilibili-asr-archive/archive/transcripts/
 bilibili-asr-archive/logs/
+# local ASR checkpoints: multi-GB operator-downloaded weights, never tracked
+bilibili-asr-archive/models/
 __pycache__/
 *.pyc
 .venv/
