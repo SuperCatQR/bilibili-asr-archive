@@ -133,14 +133,31 @@ def tmp_root():
         shutil.rmtree(path, ignore_errors=True)
 
 
+class _NoOpContext:
+    """A context manager that does nothing, standing in for a torch grad mode."""
+
+    def __enter__(self) -> None:
+        return None
+
+    def __exit__(self, *exc_info: object) -> bool:
+        return False
+
+
 @pytest.fixture(autouse=True)
 def mock_torch(monkeypatch):
-    """Mock torch module to report CUDA is available for all tests.
-    
-    This prevents PyTorch import errors in ASR tests that use mocked models.
+    """A torch stand-in that reports CUDA is available and no-ops the grad modes.
+
+    Every test that drives the ASR path with mocked models needs torch to be importable but does
+    not need it to be real.  The boundary runs its decodes and its alignment inside
+    ``torch.inference_mode()``, so the stand-in has to carry that context manager as well as
+    ``cuda.is_available`` — without it every ASR row fails at the first decode with an
+    ``AttributeError`` that the coordinator records as a per-row failure.
     """
+
     fake_torch = types.SimpleNamespace(
-        cuda=types.SimpleNamespace(is_available=lambda: True)
+        cuda=types.SimpleNamespace(is_available=lambda: True),
+        inference_mode=lambda *args, **kwargs: _NoOpContext(),
+        no_grad=lambda *args, **kwargs: _NoOpContext(),
     )
     monkeypatch.setitem(sys.modules, "torch", fake_torch)
 
