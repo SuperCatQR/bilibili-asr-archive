@@ -14,15 +14,23 @@ with a resumable manifest. `AGENTS.md` holds the boundary; `CONCEPTS.md` holds t
 
 | Ref | Tip | What it carries |
 |---|---|---|
-| `main` | `2839186` | The last released product state (`37b0acc`, 2026-09-21) plus one harness-registration commit. **The editorial commands are not here.** |
+| `main` | `3b561ea` | The last released product state (`37b0acc`, 2026-09-21) plus the Qwen3-ASR boundary rebuild, the repo-level `.mstar` publication fix, and one harness-registration commit. **The editorial commands are not here.** |
 | `iteration/iter-2026-09-transcript-editorial-stages` | `aa86ea1` | Phase-1 package + the merged Plan 1 (merge commit of PR #17). |
 | `feat/20260923-transcript-proofread` | `55f846c` | The Plan-1 branch, merged via PR #17 and **kept** — this is where a fix rider commits. |
 
-All three are pushed; the working tree is clean apart from untracked `design/` (two empty
-`DeepSeek iDesign` session stubs, unrelated to the product).
+All three are pushed; the working tree is clean.
 
 Subcommand count: **20 on `main`, 22 at the integration tip** — the two new commands are
 `align-transcripts` and `verify-proofread`.
+
+**The integration branch does not contain the ASR rebuild.** `main` and the integration branch
+forked at `37b0acc` and both moved: 9 commits on the integration side, 17 on `main`. The boundary
+commit `2548ca9` is *not* an ancestor of the integration tip, so that tip still carries
+`DEFAULT_MODEL = "FunAudioLLM/Fun-ASR-Nano-2512"` while `main` carries `Qwen/Qwen3-ASR-1.7B-hf`
+plus `Qwen/Qwen3-ForcedAligner-0.6B-hf`. `git diff --stat main iteration/…` reports 579 files and
+`src/bili_asr/asr.py` alone at 653+/638−. **Merging the iteration into `main` as-is would revert
+the engine boundary**; the close PR needs the rebuild merged back in first (or the iteration
+rebased onto the current `main`).
 
 ## 2. The iteration that is parked
 
@@ -125,9 +133,11 @@ measurement family).
   above, `.mstar/AGENTS.md`, `.mstar/knowledge/**`, `.mstar/specs/**` — the harness's declared
   clone-handoff surface.
 - **Machine-local (does not travel):** the rest of `.mstar/**` — the iteration package, the
-  sealed plans, the SDD records, the workflow snapshot and the register row's target directory.
-  `.mstar/status.json` is tracked while `.mstar/workflows/**` is not, so a fresh checkout can hold
-  a registry row whose `dir` never arrived; that is registered as
-  `20260922-target-host-reconciliation · R1`, and §1–§3 above are written to survive it.
+  sealed plans, the SDD records, the workflow snapshot, the register and its target directory.
+  `.mstar/status.json` was the one file in this set that had been force-added to the index against
+  the `.mstar/**` ignore rule, which made a checkout able to hold a live registry row whose
+  `workflows/` document never arrived (`20260922-target-host-reconciliation · R1`). It was removed
+  from the index on 2026-09-25, so the registry is now entirely local and that contradiction is
+  gone; the register row itself still awaits its own closure.
 - **Offline copy:** every ref can be packed into one file with
   `git bundle create <file> --all` (run from the repository root).

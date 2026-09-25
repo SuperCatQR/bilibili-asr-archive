@@ -171,7 +171,6 @@ archive/
 ## References
 
 - `bilibili-asr-archive/PLAN.md`
-- `bilibili-asr-archive/references/bilibili-API-collect/docs/video/player.md`
-- `bilibili-asr-archive/references/bilibili-API-collect/docs/misc/risk-and-stream.md`
-- `bilibili-asr-archive/references/bilibili-API-collect/docs/misc/sign/wbi.md` (WBI signing reference)
+- `bilibili-asr-archive/references/bilibili-API-collect/player.md`
+- `bilibili-asr-archive/references/bilibili-API-collect/risk-and-stream.md`
 - ADR: `.mstar/iterations/iter-2026-08-wmz-asr-mvp/specs/adr-001-architecture.md`
