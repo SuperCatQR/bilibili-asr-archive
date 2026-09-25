@@ -14,23 +14,30 @@ with a resumable manifest. `AGENTS.md` holds the boundary; `CONCEPTS.md` holds t
 
 | Ref | Tip | What it carries |
 |---|---|---|
-| `main` | `3b561ea` | The last released product state (`37b0acc`, 2026-09-21) plus the Qwen3-ASR boundary rebuild, the repo-level `.mstar` publication fix, and one harness-registration commit. **The editorial commands are not here.** |
+| `main` | `f326398` | The last released product state (`37b0acc`, 2026-09-21) plus the Qwen3-ASR boundary rebuild, the repo-level `.mstar` publication fix, one harness-registration commit, and the 2026-09-25 structure tidy-up. **The editorial commands are not here.** |
 | `iteration/iter-2026-09-transcript-editorial-stages` | `aa86ea1` | Phase-1 package + the merged Plan 1 (merge commit of PR #17). |
 | `feat/20260923-transcript-proofread` | `55f846c` | The Plan-1 branch, merged via PR #17 and **kept** — this is where a fix rider commits. |
 
-All three are pushed; the working tree is clean.
+All three are pushed through the tips above.
+
+Tips are **observations, not a live view**: each is the last commit that ref was at when this
+table was last written (2026-09-25). A commit made afterwards does not make the rest of this
+page wrong. `git rev-parse --short <ref>` is authoritative. `main`'s row names `f326398` —
+the structure tidy-up, which is the commit that rewrote this table.
 
 Subcommand count: **20 on `main`, 22 at the integration tip** — the two new commands are
 `align-transcripts` and `verify-proofread`.
 
 **The integration branch does not contain the ASR rebuild.** `main` and the integration branch
-forked at `37b0acc` and both moved: 9 commits on the integration side, 17 on `main`. The boundary
+forked at `37b0acc` and both moved: 9 commits on the integration side, 18 on `main`. The boundary
 commit `2548ca9` is *not* an ancestor of the integration tip, so that tip still carries
 `DEFAULT_MODEL = "FunAudioLLM/Fun-ASR-Nano-2512"` while `main` carries `Qwen/Qwen3-ASR-1.7B-hf`
-plus `Qwen/Qwen3-ForcedAligner-0.6B-hf`. `git diff --stat main iteration/…` reports 579 files and
-`src/bili_asr/asr.py` alone at 653+/638−. **Merging the iteration into `main` as-is would revert
-the engine boundary**; the close PR needs the rebuild merged back in first (or the iteration
-rebased onto the current `main`).
+plus `Qwen/Qwen3-ForcedAligner-0.6B-hf`. At the 2026-09-25 reading,
+`git diff --stat main iteration/…` reported 586 files and `src/bili_asr/asr.py` alone at
+653+/638− — the counts move with every commit on either side, so read them as a magnitude
+rather than a contract. **Merging the iteration into `main` as-is would revert the engine
+boundary**; the close PR needs the rebuild merged back in first (or the iteration rebased onto
+the current `main`).
 
 ## 2. The iteration that is parked
 
