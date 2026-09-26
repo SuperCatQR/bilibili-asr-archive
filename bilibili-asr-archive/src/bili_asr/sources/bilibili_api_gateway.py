@@ -167,7 +167,13 @@ def _read_optional_aid(item: Mapping) -> int | None:
 
 
 def _normalize_video_summary_item(item: object, requested_mid: int) -> VideoSummary:
-    """Convert one vlist item into a validated summary DTO."""
+    """Convert one vlist item into a validated summary DTO.
+
+    The uploader name is read when the item carries one and stays ``None`` when
+    it does not: absence is a fact about this response rather than something to
+    paper over here, because the placeholder the user record falls back to is
+    the ingestor's decision, not this boundary's.
+    """
 
     if not isinstance(item, Mapping):
         raise GatewayShapeError(detail="video item is not a mapping")
@@ -184,6 +190,11 @@ def _normalize_video_summary_item(item: object, requested_mid: int) -> VideoSumm
         raise GatewayShapeError(
             detail="video item owner mid does not match the requested user"
         )
+    author = item.get("author")
+    if author is not None and (not isinstance(author, str) or not author.strip()):
+        # Present but unusable is a shape error, like the title's arm above;
+        # only the absent case is legitimate (see the docstring).
+        raise GatewayShapeError(detail="video item has no valid author")
     try:
         return VideoSummary(
             bvid=bvid,
@@ -191,6 +202,7 @@ def _normalize_video_summary_item(item: object, requested_mid: int) -> VideoSumm
             title=title.strip(),
             pubdate=_read_pubdate(item),
             mid=owner_mid,
+            author=None if author is None else author.strip(),
         )
     except (TypeError, ValueError) as exc:
         # The DTO rejects text the storage contract cannot hold either — a title
@@ -491,8 +503,12 @@ def _complete_summary_from_detail(
     """Fill the summary's missing aid from its detail response.
 
     Only ``aid`` is taken from the detail; every other field stays exactly as
-    the list response delivered it.  A detail owned by another user, or one
-    naming another video, is a bounded shape error.
+    the list response delivered it — the uploader name included, because the
+    detail is not asked for a name and this rebuild is the only constructor
+    between the page boundary and the ingestor.  Dropping ``author`` here would
+    silently discard a name the page did carry on exactly the aid-less entries
+    this path exists for.  A detail owned by another user, or one naming
+    another video, is a bounded shape error.
     """
 
     if not isinstance(detail, Mapping):
@@ -519,6 +535,7 @@ def _complete_summary_from_detail(
         title=summary.title,
         pubdate=summary.pubdate,
         mid=summary.mid,
+        author=summary.author,
     )
 
 

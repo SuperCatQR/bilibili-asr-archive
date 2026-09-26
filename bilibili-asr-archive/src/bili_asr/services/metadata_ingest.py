@@ -95,16 +95,22 @@ def _run_record(
     )
 
 
-def _user_record(mid: int, moment: int) -> UserRecord:
+def _user_record(mid: int, moment: int, author: str | None = None) -> UserRecord:
     """Build the collected user's current display label.
 
-    The gateway DTO contract carries no display-name field, so the current
-    label is the owner mid; a gateway method that exposes the display name
-    changes only this helper.
+    ``author`` is the uploader name the run observed upstream; the owner mid is
+    the fallback and only the fallback, for a run that observed no name at all.
+    The placeholder is honest — the archive knows the account it collected and
+    nothing else — while inventing a label the page never carried would not be.
+    A call that passes no author keeps the previous shape and its exact
+    behaviour.
     """
 
     return UserRecord(
-        mid=mid, display_name=str(mid), created_at=moment, updated_at=moment
+        mid=mid,
+        display_name=str(mid) if author is None else author,
+        created_at=moment,
+        updated_at=moment,
     )
 
 
@@ -221,6 +227,12 @@ class MetadataIngestor:
         upserted_parts: set[tuple[str, int]] = set()
         outcome: RunOutcome = "complete"
         error_code: str | None = None
+        # The run's own observation of the uploader's display name, taken from
+        # the first summary that carries one.  Run-scoped rather than
+        # page-scoped: a later page that omits the author must not reset a label
+        # an earlier page already answered, and a run that observed none keeps
+        # the owner-mid placeholder for every page it records.
+        observed_author: str | None = None
         page_number = first_page
         while True:
             page_started_at = _now()
@@ -239,6 +251,15 @@ class MetadataIngestor:
                             await self._completed_summary(summary, mid)
                         )
                     summaries.append(completed_by_video[summary.bvid])
+                if observed_author is None:
+                    observed_author = next(
+                        (
+                            summary.author
+                            for summary in summaries
+                            if summary.author is not None
+                        ),
+                        None,
+                    )
                 parts_by_video: dict[str, tuple[VideoPart, ...]] = {}
                 for summary in summaries:
                     # One parts fetch per distinct video: a duplicated page
@@ -288,6 +309,7 @@ class MetadataIngestor:
                 page_finished_at,
                 page.observed_total,
                 limit_reached,
+                observed_author,
             )
             page_count += 1
             discovered_videos.update(summary.bvid for summary in summaries)
@@ -391,6 +413,7 @@ class MetadataIngestor:
         finished_at: int,
         observed_total: int | None,
         limit_reached: bool,
+        author: str | None = None,
     ) -> None:
         """Record one collected page with its payload in the locked order.
 
@@ -401,7 +424,9 @@ class MetadataIngestor:
         duplicated within one page keeps the last occurrence's
         ``source_position``: the discovery primary key
         ``(run_id, page_number, bvid)`` makes the later entry overwrite the
-        earlier one.
+        earlier one.  ``author`` is the run's observed uploader name and only
+        feeds the user row: it is not a video fact, so it never reaches a
+        summary or a part record.
         """
 
         video_records = [
@@ -449,7 +474,7 @@ class MetadataIngestor:
                 started_at=started_at,
                 finished_at=finished_at,
             ),
-            user=_user_record(mid, finished_at),
+            user=_user_record(mid, finished_at, author),
             videos=video_records,
             parts=part_records,
             discoveries=discovery_records,

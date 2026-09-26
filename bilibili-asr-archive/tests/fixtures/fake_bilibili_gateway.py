@@ -692,7 +692,14 @@ def build_fake_package(script: FakeUpstreamScript) -> dict[str, types.ModuleType
 
 
 def make_vlist_item(**overrides: object) -> dict:
-    """Build one documented arc/search vlist item with literal values."""
+    """Build one documented arc/search vlist item with literal values.
+
+    ``author`` is the uploader's display name as upstream's own vlist items
+    carry it.  It is a literal default rather than an override-only key because
+    the run-level ingestor reads it: a test that wants the ``str(mid)``
+    fallback pops the key, which is also how it shows the fallback is the
+    ingestor's decision rather than the page boundary's.
+    """
 
     item = {
         "aid": 111,
@@ -700,6 +707,7 @@ def make_vlist_item(**overrides: object) -> dict:
         "title": "未明子讲座",
         "created": PUBDATE,
         "mid": MID,
+        "author": "未明子",
     }
     item.update(overrides)
     return item

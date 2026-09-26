@@ -185,7 +185,9 @@ def test_fetch_meta_normalizes_single_part_and_multipart_videos_end_to_end(
         user_row = connection.execute(
             "SELECT mid, display_name FROM bilibili_users"
         ).fetchone()
-        assert tuple(user_row) == (MID, str(MID))
+        # The uploader's own name, read off the collected page: the row no
+        # longer holds the owner-mid placeholder.
+        assert tuple(user_row) == (MID, "未明子")
 
         video_rows = connection.execute(
             "SELECT bvid, aid, mid, title, pubdate FROM videos ORDER BY bvid"
@@ -252,7 +254,10 @@ def test_fetch_meta_normalizes_single_part_and_multipart_videos_end_to_end(
             f"{SINGLE_PART_BVID}:p0",
         ]
         first_view_row = view_rows[0]
-        assert first_view_row["user_name"] == str(MID)
+        # End-to-end proof that the stored name reaches a reader: the view joins
+        # ``bilibili_users``, so this column is the collected ``author`` and not
+        # the owner-mid placeholder the user row used to hold.
+        assert first_view_row["user_name"] == "未明子"
         assert first_view_row["video_title"] == "未明子讲座"
         assert first_view_row["part_title"] == "上篇"
         assert first_view_row["processing_status"] == "discovered"

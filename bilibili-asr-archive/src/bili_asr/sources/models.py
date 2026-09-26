@@ -66,6 +66,13 @@ class VideoSummary:
 
     ``aid`` stays nullable: the list response may omit it, and only a
     deliberate detail call may fill the gap.
+
+    ``author`` is the uploader's own display name as this page reported it, and
+    it is nullable too: the list response may omit it, and absence stays
+    absence rather than being filled with ``str(mid)`` here.  The gateway must
+    not fabricate a display label, because ``None`` is what lets the ingestor
+    tell "upstream sent no name" from "upstream sent this name" — the ingestor
+    owns the user record, so the fallback is its decision, not this DTO's.
     """
 
     bvid: str
@@ -73,6 +80,7 @@ class VideoSummary:
     title: str
     pubdate: int
     mid: int
+    author: str | None = None
 
     def __post_init__(self) -> None:
         _text(self.bvid, "bvid")
@@ -81,6 +89,8 @@ class VideoSummary:
         _text(self.title, "title")
         _integer(self.pubdate, "pubdate", minimum=0)
         _integer(self.mid, "mid", minimum=1)
+        if self.author is not None:
+            _text(self.author, "author")
 
 
 @dataclass(frozen=True, slots=True)

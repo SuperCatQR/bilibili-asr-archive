@@ -73,8 +73,15 @@ def _summary(
     aid: int | None = 1001,
     title: str = "未明子讲座",
     owner_mid: int | None = None,
+    author: str | None = "未明子",
 ) -> VideoSummary:
-    """Build one validated summary DTO owned by the requested user."""
+    """Build one validated summary DTO owned by the requested user.
+
+    ``author`` defaults to the uploader name the fixture pages carry, so a run
+    built from these summaries observes one and records it; passing ``None`` is
+    how a case exercises the ingestor's owner-mid fallback, which is the arm
+    the field's absence is for.
+    """
 
     return VideoSummary(
         bvid=bvid,
@@ -82,6 +89,7 @@ def _summary(
         title=title,
         pubdate=PUBDATE,
         mid=MID if owner_mid is None else owner_mid,
+        author=author,
     )
 
 
@@ -153,7 +161,9 @@ def test_single_part_run_completes_with_normalized_rows(tmp_root):
         user_row = connection.execute(
             "SELECT mid, display_name FROM bilibili_users"
         ).fetchone()
-        assert tuple(user_row) == (MID, str(MID))
+        # The observed uploader name, not the owner-mid placeholder: the run
+        # read ``author`` off the page it collected.
+        assert tuple(user_row) == (MID, "未明子")
         video_row = connection.execute("SELECT bvid, aid, mid, title FROM videos").fetchone()
         assert tuple(video_row) == ("BV1SINGLE", 1001, MID, "未明子讲座")
         part_row = connection.execute(
@@ -696,7 +706,10 @@ def test_bilibili_api_gateway_run_persists_normalized_rows(tmp_root, bilibili_ap
         user_row = connection.execute(
             "SELECT mid, display_name FROM bilibili_users"
         ).fetchone()
-        assert tuple(user_row) == (MID, str(MID))
+        # The real adapter read ``author`` off the vlist item the fixture built
+        # and the name survived the aid-completion rebuild between the page
+        # boundary and this row.
+        assert tuple(user_row) == (MID, "未明子")
 
         # The pinned adapter drove exactly the three documented upstream
         # calls: one page fetch, the aid completion, one parts fetch.

@@ -338,6 +338,20 @@ def _load_gateway(sessdata: str | None = None, proxy: str | None = None):
     return module.BilibiliApiGateway(sessdata=sessdata, proxy=proxy)
 
 
+def _normalize_video_summary_item(item: object) -> VideoSummary:
+    """Normalize one raw vlist item through the adapter's page boundary.
+
+    Reached through ``importlib`` for the same reason ``_load_gateway`` is: the
+    seam fixture drops the adapter module so the next import re-binds it, and a
+    module-scope ``from ... import`` would hold the pre-seam function object
+    instead.  ``requested_mid`` is the fixture's own owner, so an item built
+    with ``make_vlist_item`` passes the ownership check by construction.
+    """
+
+    module = importlib.import_module("bili_asr.sources.bilibili_api_gateway")
+    return module._normalize_video_summary_item(item, requested_mid=MID)
+
+
 # --------------------------------------------------- deterministic factories
 
 
@@ -384,6 +398,103 @@ def test_get_user_video_page_normalizes_documented_fields(bilibili_api_seam):
     # The credential value must never surface on any DTO or page.
     assert SESSDATA_BOUNDARY_VALUE not in repr(page)
     assert SESSDATA_BOUNDARY_VALUE not in str(page)
+
+
+def test_summary_carries_the_upstream_author_name():
+    """The vlist item's own ``author`` is the uploader's display name.
+
+    Pinned here rather than at the ingestor because the page boundary is where
+    the field is read: the DTO is the only thing the ingestor sees.
+    """
+
+    summary = _normalize_video_summary_item(
+        make_vlist_item(bvid="BV1author001", author="未明子")
+    )
+
+    assert summary.author == "未明子"
+
+
+def test_summary_author_is_absent_rather_than_invented():
+    """No ``author`` in the item → ``None``, not ``str(mid)``.
+
+    The fallback belongs to the ingestor (it owns the user record); the gateway
+    must not fabricate a display label, because ``None`` is what lets the
+    ingestor tell "upstream sent no name" from "upstream sent this name".
+    """
+
+    item = make_vlist_item(bvid="BV1noauthor0")
+    item.pop("author")
+
+    summary = _normalize_video_summary_item(item)
+
+    assert summary.author is None
+
+
+def test_video_summary_defaults_author_to_none():
+    """The DTO's own default is absence, for the 46 fixture-built items.
+
+    ``_complete_summary_from_detail`` rebuilds a summary without naming an
+    author, and the fixture builder emits one — but nothing may *require* the
+    field, because a caller constructing the DTO from the five documented keys
+    alone is the shape every pre-existing construction site already has.
+    """
+
+    summary = _summary()
+    assert summary.author is None
+
+    without_author = VideoSummary(
+        bvid=BVID, aid=None, title="未明子讲座", pubdate=PUBDATE, mid=MID
+    )
+    assert without_author.author is None
+
+
+def test_get_user_video_page_carries_the_uploader_name_into_the_page(bilibili_api_seam):
+    """The name rides the whole page path, not only the item normalizer."""
+
+    bilibili_api_seam.videos_response = make_videos_response(
+        make_vlist_item(bvid="BV1author001", author="未明子"), count=1
+    )
+    gateway = _load_gateway()
+
+    page = asyncio.run(gateway.get_user_video_page(MID, page_number=1))
+
+    (summary,) = page.videos
+    assert summary.author == "未明子"
+    assert bilibili_api_seam.calls == ["space.arc.search(pn=1, ps=30)"]
+
+
+def test_completed_summary_keeps_the_uploader_name_across_the_rebuild(
+    bilibili_api_seam,
+):
+    """The aid-completion rebuild preserves ``author`` rather than dropping it.
+
+    ``_complete_summary_from_detail`` constructs a fresh ``VideoSummary`` from
+    the detail, and the detail is not asked for a name: a rebuild that forgets
+    the field would silently lose the uploader on exactly the aid-less entries
+    this path exists for.
+    """
+
+    bilibili_api_seam.info_response = make_detail_response()
+    gateway = _load_gateway()
+    summary = _summary(aid=None, author="未明子")
+
+    completed = asyncio.run(gateway.get_completed_video_summary(summary))
+
+    assert completed.aid == 111
+    assert completed.author == "未明子"
+    assert bilibili_api_seam.calls == ["video.get_info"]
+
+
+@pytest.mark.parametrize("author", ["", "   ", 7, True, ["未明子"]])
+def test_get_user_video_page_rejects_a_present_but_unusable_author(author):
+    """Present-and-wrong is a bounded shape error; only absence is legitimate."""
+
+    item = make_vlist_item(bvid="BV1author001", author=author)
+
+    with pytest.raises(GatewayShapeError) as caught:
+        _normalize_video_summary_item(item)
+
+    assert caught.value.code == "shape_error"
 
 
 def test_get_user_video_page_forwards_requested_page_and_size(bilibili_api_seam):
