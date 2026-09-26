@@ -158,6 +158,12 @@ def mock_torch(monkeypatch):
         cuda=types.SimpleNamespace(is_available=lambda: True),
         inference_mode=lambda *args, **kwargs: _NoOpContext(),
         no_grad=lambda *args, **kwargs: _NoOpContext(),
+        # A ``Tensor`` class so third-party probes answer False instead of raising.  The boundary
+        # never reads it; ``scipy`` does, through ``librosa``'s resampler, asking a module named
+        # ``torch`` whether some class *is* ``torch.Tensor``.  A stand-in missing the attribute
+        # turns that probe into an ``AttributeError``, which fails a test for a reason unrelated to
+        # the code under test.
+        Tensor=type("Tensor", (), {}),
     )
     monkeypatch.setitem(sys.modules, "torch", fake_torch)
 
