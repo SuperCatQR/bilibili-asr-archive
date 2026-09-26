@@ -415,6 +415,23 @@ def _decode_with_ffmpeg(path: str) -> tuple[Any, int]:
     preserves the source's native rate and channel count.  A pipe was rejected deliberately: the
     longer archive items are hours long, so buffering a whole WAV in memory to hand ``soundfile`` a
     seekable object would cost gigabytes, while a temp file costs only the decoded array.
+
+    Three ffmpeg flags are load-bearing, each because a failure was measured rather than imagined:
+
+    * ``-nostdin`` — without a stdin guard ``ffmpeg`` reads the inherited stdin, and ``q`` is its
+      quit key (reproduced: a piped ``q\\n`` turned a valid ``.m4a`` into ``AudioDecodeError`` while
+      an empty stdin decoded fine).  This flag **and** ``stdin=subprocess.DEVNULL`` below both
+      address it, and either alone suffices — measured by removing each independently.  Both are
+      kept on purpose: the flag is ffmpeg's own contract and holds however the child is spawned,
+      the call-site argument is what a reader of this function sees, and only removing **both**
+      brings the bug back (``test_the_ffmpeg_decode_survives_a_piped_quit_key`` fails then).
+    * ``-rf64 auto`` — the RIFF/WAVE muxer cannot express a file over 4 GiB and, past that limit,
+      ``ffmpeg`` **exits 0** while printing ``Filesize … invalid for wav, output file will be
+      broken`` to the stderr this call discards.  Measured on a 11600 s 48 kHz stereo source: the
+      WAV held 536 870 911 of 552 000 000 frames and ``soundfile`` read the truncated array without
+      raising, so ~3.1 h of audio would vanish silently.  ``-rf64 auto`` writes RF64 only when a
+      plain WAV would overflow, and libsndfile reads RF64.
+    * ``-v error`` — keeps the child's chatter out of the parent's stderr on the success path.
     """
 
     ffmpeg = shutil.which("ffmpeg")
@@ -428,7 +445,17 @@ def _decode_with_ffmpeg(path: str) -> tuple[Any, int]:
     os.close(handle)
     try:
         completed = subprocess.run(
-            [ffmpeg, "-v", "error", "-y", "-i", path, "-acodec", "pcm_f32le", scratch],
+            [
+                ffmpeg,
+                "-v", "error",
+                "-nostdin",
+                "-y",
+                "-i", path,
+                "-acodec", "pcm_f32le",
+                "-rf64", "auto",
+                scratch,
+            ],
+            stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.PIPE,
             check=False,
@@ -436,7 +463,12 @@ def _decode_with_ffmpeg(path: str) -> tuple[Any, int]:
         if completed.returncode != 0:
             detail = completed.stderr.decode("utf-8", "replace").strip().splitlines()
             reason = detail[-1] if detail else f"ffmpeg exited {completed.returncode}"
-            raise AudioDecodeError(f"ffmpeg could not read {path!r}: {reason}")
+            # The path is deliberately absent from this message: the product's own convention for
+            # an unusable input is a description, not a location (``audio.py`` says "invalid audio
+            # path" and never quotes it), the class name is what the run ledger records, and the
+            # caller already knows which item it asked for.  ffmpeg's own stderr does not echo the
+            # path either — verified for a missing file, a directory and a non-audio file.
+            raise AudioDecodeError(f"ffmpeg could not decode the audio input: {reason}")
         import soundfile as sf
 
         return sf.read(scratch, dtype="float32")

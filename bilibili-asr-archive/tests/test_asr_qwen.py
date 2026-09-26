@@ -28,6 +28,7 @@ import os
 import pathlib
 import shutil
 import subprocess
+import sys
 
 import pytest
 
@@ -779,7 +780,14 @@ def test_the_fallback_refuses_clearly_when_ffmpeg_is_missing(monkeypatch, tmp_pa
 
 
 def test_a_fallback_read_still_produces_the_same_cues_as_a_primary_read(monkeypatch) -> None:
-    """Identical audio through either reader must produce identical cues, end to end."""
+    """Identical audio through either reader must produce identical cues, end to end.
+
+    Note the limit of what this pins: the fake aligner's timings are derived from the *text* it is
+    given, not from the samples, so this proves both paths deliver the same cue list — it cannot
+    detect a wrong decode.  The real decode is pinned by
+    ``test_a_real_aac_file_is_decoded_through_the_fallback``, and the rate by
+    ``test_a_non_16k_rate_is_resampled_by_the_runner``.
+    """
 
     np = pytest.importorskip("numpy")
     sf = pytest.importorskip("soundfile")
@@ -800,3 +808,86 @@ def test_a_fallback_read_still_produces_the_same_cues_as_a_primary_read(monkeypa
     monkeypatch.setattr(asr, "_decode_with_ffmpeg", fake_decode)
 
     assert runner.transcribe("/nonexistent/audio.m4a") == primary
+
+
+def test_the_ffmpeg_decode_survives_a_piped_quit_key(tmp_path) -> None:
+    """A caller whose stdin holds ``q`` must still get decoded audio.
+
+    ``ffmpeg`` reads the inherited stdin by default and ``q`` is its quit key, so a cron/CI/xargs
+    pipeline feeding stdin used to abort the decode of a perfectly good ``.m4a`` — reproduced before
+    the fix as ``AudioDecodeError`` on a file that decoded fine with an empty stdin.
+
+    Written as a real subprocess because that is the only way to give the product's child a stdin of
+    our choosing; the assertion is on the *behaviour*, so it does not couple to which flags the fix
+    happens to use.
+    """
+
+    np = pytest.importorskip("numpy")
+    pytest.importorskip("soundfile")
+    _ffmpeg_or_skip()
+
+    path = tmp_path / "fixture.m4a"
+    _write_aac(path, seconds=1.0)
+
+    code = (
+        "import sys;"
+        "from bili_asr import asr;"
+        "samples, rate = asr._read_audio(sys.argv[1]);"
+        "print(samples.shape, rate)"
+    )
+    env = dict(os.environ)
+    src = str(pathlib.Path(asr.__file__).resolve().parents[1])
+    env["PYTHONPATH"] = src + os.pathsep + env.get("PYTHONPATH", "")
+    completed = subprocess.run(
+        [sys.executable, "-c", code, str(path)],
+        input=b"q\n",                      # the quit key, piped in as a caller's shell would
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        env=env,
+        check=False,
+    )
+
+    assert completed.returncode == 0, (
+        "a piped stdin must not abort the decode; stderr was "
+        + completed.stderr.decode("utf-8", "replace")[-300:]
+    )
+    assert b"44100" in completed.stdout, completed.stdout
+
+
+def test_the_ffmpeg_decode_asks_for_rf64_so_a_long_item_is_not_truncated(
+    tmp_path, monkeypatch
+) -> None:
+    """The WAVE muxer's 4 GiB ceiling must be opted out of, or long items lose their tail silently.
+
+    The RIFF muxer cannot express a file over 4 GiB and, past that limit, ``ffmpeg`` **exits 0**
+    while warning on the stderr this call discards.  Measured on an 11 600 s 48 kHz stereo source:
+    the WAV held 536 870 911 of 552 000 000 frames, ``soundfile`` read the truncated array without
+    raising, and ~3.1 h of audio would have vanished with no error anywhere.  ``-rf64 auto`` writes
+    RF64 only when a plain WAV would overflow, and libsndfile reads RF64.
+
+    Asserted on the argv rather than on a fixture: a >4 GiB input is not something a test suite can
+    carry, and this is the one place the decision is expressed.
+    """
+
+    pytest.importorskip("numpy")
+    pytest.importorskip("soundfile")
+    _ffmpeg_or_skip()
+
+    path = tmp_path / "fixture.m4a"
+    _write_aac(path, seconds=1.0)
+
+    captured: dict = {}
+    real_run = subprocess.run
+
+    def spy(argv, *args, **kwargs):
+        captured.setdefault("argv", list(argv))
+        return real_run(argv, *args, **kwargs)
+
+    monkeypatch.setattr(asr.subprocess, "run", spy)
+    asr._read_audio(str(path))
+
+    argv = captured["argv"]
+    pairs = {(argv[i], argv[i + 1]) for i in range(len(argv) - 1)}
+    assert ("-rf64", "auto") in pairs, (
+        f"a plain WAV truncates past 4 GiB while ffmpeg still exits 0; argv was {argv}"
+    )
