@@ -134,6 +134,23 @@ model set with no GPU. Run it directly with:
 This fixture does not establish hardware timing, model-weight pinning, network-free
 runtime, or full-corpus coverage.
 
+### Reading the audio the downloader writes
+
+`download-audio` writes `.m4a` (AAC). **`soundfile` cannot decode AAC**, so the runner reads
+with `soundfile` first and, on `LibsndfileError`, falls back to `librosa.load` — which for an
+`.m4a` resolves through `audioread` to the system **`ffmpeg`**. Practically:
+
+- `librosa` is a declared `[asr]` dependency and `audioread` is a hard dependency of
+  `librosa`, so the Python side arrives with the extra.
+- **`ffmpeg` does not**, and it is what actually decodes AAC here. An environment with
+  `librosa` but no `ffmpeg` still fails on every `.m4a`.
+- A `.wav` or `.flac` archive decodes through `soundfile` and needs neither.
+
+The fallback is exercised only for containers `libsndfile` cannot open, so a mistake in this
+path cannot be caught by a `.wav` fixture — which is exactly how it went unnoticed until a
+real `.m4a` run failed. The tests pin it with a stub that raises `LibsndfileError`, and the
+regression is registered as `20260924-qwen3-asr-transformers · R1`.
+
 ### Naming the producer: three variables, three jobs
 
     BILI_ASR_MODEL=/srv/models/Qwen3-ASR-1.7B-hf      # what the loader receives
@@ -347,6 +364,42 @@ count are **real-time diagnostics only**: they are not recorded in
 `campaign.json`, `run-ledger.jsonl`, or any persistent evidence. An operator
 monitoring a long run sees them on stderr; historical analysis uses per-row
 outcomes instead.
+
+### An archive can hold two engines' text, and that is decided, not broken
+
+Recorded 2026-09-26 for the reader who greps a transcript and finds an `asr_model_name`
+they did not expect (decision D12, plan `20260924-qwen3-asr-transformers`).
+
+The ASR engine is a hard switch: the boundary that ran FunASR was replaced by Qwen3-ASR
+plus the forced aligner in one unit, and the archive was **not** re-transcribed. The three
+parts already archived in `/mnt/e/asr-archive-20/` therefore still carry
+`asr_model_name: FunAudioLLM/Fun-ASR-Nano-2512`, while every transcript produced after the
+boundary rebuild carries `Qwen/Qwen3-ASR-1.7B-hf` — commit `2548ca9` (2026-09-24 23:27),
+merged to `main` as `3b561ea` on 2026-09-25:
+
+    grep -n '^asr_model_name:' /mnt/e/asr-archive-20/transcripts/md/*.md
+
+These three — `BV1P8No6mEsB`, `BV1S8hA6MEvy`, `BV1fD3o69EiP` — are **accepted as they
+stand**, by operator decision, and are not a defect and not a backlog item. Re-running
+them would buy a newer model's text at the cost of transcripts that record what the
+retired engine actually produced, and it would destroy the evidence that the two engines
+can be told apart from the frontmatter alone.
+
+They are not the only such files. The retired checkpoint's id appears in **22 transcript
+files across the ASR host's seven archive roots** (checked 2026-09-26: 14 under
+`/root/e2e-asr/e2e50`, three under `/mnt/e/asr-archive-20`, five under the
+`ab-hotwords*` experiment roots) — most of them measurement arms from before the switch,
+kept because they are the FunASR side of comparisons that have already been run. The rule
+is the same for all of them: each records the engine that wrote it, so a reader is never
+guessing, and none is scheduled for re-transcription. Nothing in this archive is
+assembled from two engines' text inside one transcript.
+
+What this costs, stated plainly: the two engines' outputs are **not comparable
+token-for-token**, so any corpus-wide measurement that spans the boundary is measuring two
+different decoders. The hotword list is the sharpest instance — every figure in
+"The corpus vocabulary, and which engine measured it" above belongs to the retired
+checkpoint, which is why that section says so and why re-measuring under the shipping
+engine is its own work item rather than an assumption.
 
 ## Deterministic verification baseline
 
