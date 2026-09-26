@@ -100,8 +100,67 @@ ASR_CHUNK_SECONDS_ENV_VAR = "BILI_ASR_CHUNK_SECONDS"
 DEFAULT_HOTWORDS: tuple[str, ...] = (
     "未明子", "主义主义", "拟态论", "国际劳工仲裁", "国际劳联", "马恩牌", "攻势", "智利",
     "根正苗红", "亚美利坚", "黑格尔", "海德格尔", "拉康", "齐泽克", "德勒兹", "康德",
-    "观念论", "本体论", "现象学", "辩证法", "定在", "自为", "理念性", "ITEM", "AITEM",
+    "观念论", "本体论", "现象学", "辩证法", "定在", "自为", "理念性",
+    # The homophone class, added 2026-09-17 from the season run's own output
+    # (workflow ``e2e-23191782-season-7686105``: 14 lectures, 25.2 h, 18 287
+    # cues).  Each entry below is a term the model got *wrong* far more often
+    # than right, and every one of them is the *exact homophone* of a common
+    # word — which is why the decoder's prior wins and why the prompt is the
+    # right lever here:
+    #
+    #   扬弃 (sublation)  10 correct vs 89 wrong (阳气 62, 洋气 27)  90 %
+    #   自在 (in-itself)  40 vs 13 (子在)                            25 %
+    #   变易 (becoming)    0 vs  7 (变异)                           100 %
+    #   此在 (Dasein)      4 vs  3 (次在, 词在)                      43 %
+    #   感性 (sensibility)12 vs  3 (感兴)                            20 %
+    #   实存 (existence)  17 vs  3 (时存)                            15 %
+    #
+    # 扬弃 is the reason this block exists: it is the central operation of
+    # Hegel's *Logic*, and these lectures read that book aloud, so the term is
+    # spoken constantly — yet the decoder preferred the common word 阳气 nine
+    # times out of ten (worst item: 《逻辑学》第二讲, 4 correct vs 57 wrong).
+    # The control that makes this an argument rather than a hunch: the entries
+    # already in this list that are equally homophone-prone are *error-free* on
+    # the same audio (定在 145/0, 自为 34/0, 理念性 69/0).
+    #
+    # Evidence status, stated plainly, as for the Latin block below: the errors
+    # above are measured, the *benefit* of these six is UNVERIFIED until the
+    # same audio is re-transcribed.  A confidence-based fix was ruled out first
+    # — the 78 mis-rendered cues score a median 0.776 against 0.812 for the
+    # corpus, and only 1 of 78 falls at or below ``LOW_CONFIDENCE``, so the
+    # model is confidently wrong and ``asr_low_confidence_at`` cannot find this
+    # class.  Re-running one affected lecture with and without these entries is
+    # the confirming measurement; like the Latin block's, that verification is
+    # registered as an open residual rather than claimed here.
+    "扬弃",
+    "自在",
+    "变易",
+    "此在",
+    "感性",
+    "实存",
+    # Latin-script terms the corpus actually speaks.  The Chinese-language model
+    # fragments these into shards when they are missing from the prompt (measured
+    # 2026-09-14 on the ten-video run: "International Employment Matters Tribunal"
+    # came out as tryBUNAL / FOR EMP LOYMENT MAT TERS, and the ITEM/AITEM pair as
+    # TEM / AITM / ITM).  They are listed as whole phrases as well as acronyms so
+    # the decoder has both the spelled-out form and the initialisms.
+    #
+    # The bare acronyms ITEM and AITEM were **removed on 2026-09-17** after the
+    # season run measured them doing harm of the kind they were added to prevent:
+    # nine occurrences across the 14 archived lectures, e.g. "THE ITEMthat's the
+    # question is anITEM ONE", "This is expressed in the finite on the AITEM",
+    # "In accessible AITEM distance outside", "就是WHAT IS POSITIVE ITEM" — and
+    # every one of them is the acronym capturing a neighbouring word rather than
+    # a spoken initialism.  The spelled-out phrase stayed: it appears three times
+    # and is genuine each time.
+    #
+    # Evidence status: the surface-form measurements are the **retired FunASR-Nano**
+    # checkpoint's and do not carry over unmeasured; re-measuring this list under the
+    # engine that ships, with insertions counted separately from recoveries, is T5.
     "International Employment Matters Tribunal",
+    "International",
+    "Employment",
+    "Tribunal",
 )
 
 # ---------------------------------------------------------------------------------------
@@ -314,6 +373,41 @@ def _materialize_input(audio_path: str) -> tuple[str, str | None]:
             pass
         raise
     return temporary, temporary
+
+
+def _read_audio(path: str) -> tuple[Any, int]:
+    """Read one audio file to ``(samples, rate)``, mono or ``(samples, channels)``.
+
+    ``soundfile`` is the primary reader and libsndfile reads WAV, FLAC, OGG and MP3 — but not AAC,
+    which is the codec inside the ``.m4a`` container this archive's own downloader writes for the
+    preferred DASH audio stream.  A format the primary reader cannot open is therefore not a missing
+    dependency: it is the documented input, so the reader has to be wide enough for it or the
+    product cannot transcribe what it downloaded.
+
+    ``librosa`` is the fallback: already a declared ``[asr]`` dependency, already imported by this
+    module for resampling, and decoding through ``audioread`` (an ``ffmpeg`` child, which
+    ``AGENTS.md`` already requires).  On the formats both readers open they agree sample-for-sample
+    — verified on the target host against an ``ffmpeg -ar 48000 -ac 2`` decode of the same file:
+    no length difference and a maximum absolute difference of 0.000000 — so the fallback widens the
+    reader rather than trading quality.
+
+    The returned shape is the one ``soundfile.read`` returns, so the caller's channel collapse and
+    resample stay the only place that shaping happens.
+    """
+
+    import numpy as np
+    import soundfile as sf
+
+    try:
+        return sf.read(path, dtype="float32")
+    except sf.LibsndfileError:
+        import librosa
+
+        samples, rate = librosa.load(path, sr=None, mono=False)
+        samples = np.asarray(samples, dtype=np.float32)
+        if samples.ndim > 1:
+            samples = samples.T  # librosa is (channels, samples); soundfile is (samples, channels)
+        return samples, int(rate)
 
 
 def _clean_text(text: str) -> str:
@@ -750,7 +844,7 @@ class ASRRunner:
         path, temporary = _materialize_input(audio_path)
         scratch: str | None = None
         try:
-            samples, rate = sf.read(path, dtype="float32")
+            samples, rate = _read_audio(path)
             samples = np.asarray(samples, dtype=np.float32)
             if samples.ndim > 1:
                 samples = samples.mean(-1).astype(np.float32)
