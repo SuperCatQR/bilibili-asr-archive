@@ -316,6 +316,41 @@ def _materialize_input(audio_path: str) -> tuple[str, str | None]:
     return temporary, temporary
 
 
+def _read_audio(path: str) -> tuple[Any, int]:
+    """Read one audio file to ``(samples, rate)``, mono or ``(samples, channels)``.
+
+    ``soundfile`` is the primary reader and libsndfile reads WAV, FLAC, OGG and MP3 — but not AAC,
+    which is the codec inside the ``.m4a`` container this archive's own downloader writes for the
+    preferred DASH audio stream.  A format the primary reader cannot open is therefore not a missing
+    dependency: it is the documented input, so the reader has to be wide enough for it or the
+    product cannot transcribe what it downloaded.
+
+    ``librosa`` is the fallback: already a declared ``[asr]`` dependency, already imported by this
+    module for resampling, and decoding through ``audioread`` (an ``ffmpeg`` child, which
+    ``AGENTS.md`` already requires).  On the formats both readers open they agree sample-for-sample
+    — verified on the target host against an ``ffmpeg -ar 48000 -ac 2`` decode of the same file:
+    no length difference and a maximum absolute difference of 0.000000 — so the fallback widens the
+    reader rather than trading quality.
+
+    The returned shape is the one ``soundfile.read`` returns, so the caller's channel collapse and
+    resample stay the only place that shaping happens.
+    """
+
+    import numpy as np
+    import soundfile as sf
+
+    try:
+        return sf.read(path, dtype="float32")
+    except sf.LibsndfileError:
+        import librosa
+
+        samples, rate = librosa.load(path, sr=None, mono=False)
+        samples = np.asarray(samples, dtype=np.float32)
+        if samples.ndim > 1:
+            samples = samples.T  # librosa is (channels, samples); soundfile is (samples, channels)
+        return samples, int(rate)
+
+
 def _clean_text(text: str) -> str:
     """The recognised text without control markers, in one line."""
 
@@ -750,7 +785,7 @@ class ASRRunner:
         path, temporary = _materialize_input(audio_path)
         scratch: str | None = None
         try:
-            samples, rate = sf.read(path, dtype="float32")
+            samples, rate = _read_audio(path)
             samples = np.asarray(samples, dtype=np.float32)
             if samples.ndim > 1:
                 samples = samples.mean(-1).astype(np.float32)

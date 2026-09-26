@@ -26,6 +26,7 @@ from __future__ import annotations
 import builtins
 import os
 import pathlib
+import sys
 
 import pytest
 
@@ -572,3 +573,115 @@ def test_a_descriptor_path_is_copied_to_a_readable_file(tmp_path) -> None:
 
 def test_a_plain_path_is_returned_untouched() -> None:
     assert asr._materialize_input("/tmp/whatever.m4a") == ("/tmp/whatever.m4a", None)
+
+
+# ---------------------------------------------------------------------------------------
+# The reader's codec boundary.  libsndfile reads WAV, FLAC, OGG and MP3 — not AAC, which is the
+# codec inside the ``.m4a`` this archive's own downloader writes for the preferred DASH audio
+# stream.  The fallback to ``librosa`` is what makes the product able to read what it downloaded;
+# these tests also pin that it changes nothing for the formats the primary reader opens.
+# ---------------------------------------------------------------------------------------
+
+
+class _StubLibrosa:
+    """The fallback reader, stubbed: records its call and returns ``(channels, samples)``."""
+
+    def __init__(self, samples, rate: int = 48000) -> None:
+        self.samples = samples
+        self.rate = rate
+        self.calls: list[dict] = []
+
+    def load(self, path, sr=None, mono=False):
+        self.calls.append({"path": path, "sr": sr, "mono": mono})
+        return self.samples, self.rate
+
+
+class _ForbiddenLibrosa:
+    """A stub whose ``load`` must never run: the primary reader opened the file."""
+
+    def load(self, *args, **kwargs):
+        raise AssertionError("the fallback must not run for a format the primary reader opens")
+
+
+def test_an_m4a_libsndfile_cannot_open_is_read_through_the_fallback(monkeypatch) -> None:
+    """libsndfile's refusal triggers the fallback, and the channel convention must be kept.
+
+    The error built here is the one a real AAC ``.m4a`` produces; its constructor is
+    ``LibsndfileError(code: int, prefix: str = "")`` in soundfile 0.12 through 0.14.
+    """
+
+    np = pytest.importorskip("numpy")
+    sf = pytest.importorskip("soundfile")
+
+    def refuse(*args, **kwargs):
+        raise sf.LibsndfileError(1, "Error opening 'x.m4a': ")
+
+    monkeypatch.setattr(sf, "read", refuse)
+    known = np.arange(8, dtype="float32").reshape(2, 4)  # librosa's (channels, samples)
+    stub = _StubLibrosa(known, 48000)
+    monkeypatch.setitem(sys.modules, "librosa", stub)
+
+    samples, rate = asr._read_audio("x.m4a")
+
+    assert rate == 48000
+    assert samples.shape == (4, 2), "soundfile's (samples, channels) convention must be kept"
+    assert np.array_equal(samples, known.T), "no value may be lost to the transpose"
+    assert len(stub.calls) == 1, stub.calls
+    assert stub.calls[0] == {"path": "x.m4a", "sr": None, "mono": False}, (
+        "the reader keeps the native rate and both channels; resampling is the caller's step"
+    )
+
+
+def test_a_decodable_file_never_reaches_the_fallback(monkeypatch) -> None:
+    """The primary reader's success is the whole path; WAV and FLAC keep their old behaviour."""
+
+    np = pytest.importorskip("numpy")
+    sf = pytest.importorskip("soundfile")
+
+    known = np.linspace(-1.0, 1.0, 160, dtype="float32")
+    monkeypatch.setattr(sf, "read", lambda *args, **kwargs: (known, 16000))
+    monkeypatch.setitem(sys.modules, "librosa", _ForbiddenLibrosa())
+
+    samples, rate = asr._read_audio("x.wav")
+
+    assert rate == 16000
+    assert np.array_equal(samples, known)
+
+
+def test_a_fallback_read_still_produces_the_same_cues_as_a_primary_read(monkeypatch) -> None:
+    """Identical audio through either reader must produce identical cues, end to end."""
+
+    np = pytest.importorskip("numpy")
+    sf = pytest.importorskip("soundfile")
+    runner, _ = _runner(monkeypatch)
+    primary = runner.transcribe("/nonexistent/audio.m4a")
+    assert primary, "the fake models always produce text"
+
+    def refuse(*args, **kwargs):
+        raise sf.LibsndfileError(1, "Error opening 'audio.m4a': ")
+
+    monkeypatch.setattr(sf, "read", refuse)
+    stub = _StubLibrosa(np.zeros((2, asr.SAMPLE_RATE * 3), dtype="float32"), asr.SAMPLE_RATE)
+    monkeypatch.setitem(sys.modules, "librosa", stub)
+
+    assert runner.transcribe("/nonexistent/audio.m4a") == primary
+    assert len(stub.calls) == 1, "the fallback is what read the second item"
+
+
+def test_the_two_readers_agree_on_a_real_wav(tmp_path) -> None:
+    """A real decode, not a stub: on a 16 kHz mono WAV both readers return the same samples."""
+
+    np = pytest.importorskip("numpy")
+    sf = pytest.importorskip("soundfile")
+    librosa = pytest.importorskip("librosa")
+
+    path = tmp_path / "fixture.wav"
+    written = np.linspace(-0.75, 0.75, asr.SAMPLE_RATE, dtype="float32")
+    sf.write(str(path), written, asr.SAMPLE_RATE)
+
+    samples, rate = asr._read_audio(str(path))
+    via_fallback, fallback_rate = librosa.load(str(path), sr=None, mono=False)
+
+    assert rate == fallback_rate == asr.SAMPLE_RATE
+    assert samples.shape == via_fallback.shape == (asr.SAMPLE_RATE,)
+    assert np.array_equal(samples, via_fallback)
