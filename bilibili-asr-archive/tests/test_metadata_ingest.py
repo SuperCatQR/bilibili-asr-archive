@@ -78,9 +78,10 @@ def _summary(
     """Build one validated summary DTO owned by the requested user.
 
     ``author`` defaults to the uploader name the fixture pages carry, so a run
-    built from these summaries observes one and records it; passing ``None`` is
-    how a case exercises the ingestor's owner-mid fallback, which is the arm
-    the field's absence is for.
+    built from these summaries observes one and records it.  Passing ``None``
+    is how a case exercises the ingestor's owner-mid fallback — the arm the
+    field's absence is for — and the cross-run cases below are where that
+    matters: they are the only callers that pass it.
     """
 
     return VideoSummary(
@@ -472,6 +473,190 @@ def test_rate_limited_page_keeps_cursor_and_ends_run_risk_interrupted(tmp_root):
             (interrupted.run_id,),
         ).fetchone()
         assert tuple(page_row) == (2, "risk_interrupted", "rate_limited")
+    finally:
+        connection.close()
+
+
+def test_no_flag_rerun_observing_no_author_keeps_the_stored_display_name(tmp_root):
+    """The cross-run pin: an observation-free run must not revert the label.
+
+    The whole point of recording ``author`` is that a reader sees ``未明子``
+    rather than ``23191782``; a run that observes nothing may therefore not
+    write the placeholder over a name an earlier run established.  The run
+    boundary is what makes this a distinct case — each of the two existing name
+    assertions runs exactly one collection, so both stay green whether or not
+    the opening write reverts.
+    """
+
+    gateway = FakeGateway()
+    gateway.script_page(
+        1, _page(1, _summary("BV1NAMED", aid=801), observed_total=1)
+    )
+    gateway.script_parts("BV1NAMED", (_part("BV1NAMED", 0, cid=801),))
+    gateway.script_page(2, _page(2, observed_total=1))
+    connection = open_database(tmp_root)
+    repository = MetadataRepository(connection)
+    try:
+        ingestor = _ingestor(gateway, repository)
+        first = ingestor.collect_user_pages(MID, start_page=1)
+        assert first.outcome == "complete"
+        user_row = connection.execute(
+            "SELECT mid, display_name, created_at, updated_at FROM bilibili_users"
+        ).fetchone()
+        assert tuple(user_row[:2]) == (MID, "未明子")
+
+        # The cursor sits on the empty page, so the plain no-flag re-run
+        # observes no item at all and ends complete.
+        rerun_gateway = FakeGateway()
+        rerun_gateway.script_page(2, _page(2, observed_total=1))
+        rerun = _ingestor(rerun_gateway, repository).collect_user_pages(MID)
+
+        assert rerun.outcome == "complete"
+        assert rerun.page_count == 1
+        # The stored label is byte-for-byte what the observing run left,
+        # including its stamp: an empty observation is not a fresh one, so it
+        # moves neither the value nor ``updated_at``.
+        assert (
+            tuple(
+                connection.execute(
+                    "SELECT mid, display_name, created_at, updated_at"
+                    " FROM bilibili_users"
+                ).fetchone()
+            )
+            == tuple(user_row)
+        )
+    finally:
+        connection.close()
+
+
+def test_risk_interrupted_run_keeps_the_display_name_it_never_observed(tmp_root):
+    """A rate-limited run must not replace the label it never read.
+
+    The page transaction rolls back, but the run-start write is its own
+    committed transaction — so this arm is reachable even though nothing was
+    collected, and ``-412`` upstream is reachable in production.
+    """
+
+    gateway = FakeGateway()
+    gateway.script_page(
+        1, _page(1, _summary("BV1KEPT", aid=701), observed_total=2)
+    )
+    gateway.script_parts("BV1KEPT", (_part("BV1KEPT", 0, cid=701),))
+    connection = open_database(tmp_root)
+    repository = MetadataRepository(connection)
+    try:
+        _ingestor(gateway, repository).collect_user_pages(MID, page_limit=1)
+        user_row = connection.execute(
+            "SELECT mid, display_name, created_at, updated_at FROM bilibili_users"
+        ).fetchone()
+        assert tuple(user_row[:2]) == (MID, "未明子")
+
+        interrupted_gateway = FakeGateway()
+        interrupted_gateway.script_page(
+            2, GatewayRateLimited(detail="get_user_video_page")
+        )
+        interrupted = _ingestor(interrupted_gateway, repository).collect_user_pages(
+            MID
+        )
+
+        assert interrupted.outcome == "risk_interrupted"
+        assert interrupted.error_code == "rate_limited"
+        assert (
+            tuple(
+                connection.execute(
+                    "SELECT mid, display_name, created_at, updated_at"
+                    " FROM bilibili_users"
+                ).fetchone()
+            )
+            == tuple(user_row)
+        )
+    finally:
+        connection.close()
+
+
+def test_collected_page_without_an_author_keeps_the_stored_display_name(tmp_root):
+    """A collected page with no name writes no user row, so nothing regresses.
+
+    This is the page-writer arm of the same rule: the run observed no name, so
+    the owner-mid placeholder it would carry is not written over the stored
+    label — the page's videos, parts and cursor still land normally.
+    """
+
+    gateway = FakeGateway()
+    gateway.script_page(
+        1, _page(1, _summary("BV1NAMED", aid=801), observed_total=1)
+    )
+    gateway.script_parts("BV1NAMED", (_part("BV1NAMED", 0, cid=801),))
+    gateway.script_page(2, _page(2, observed_total=1))
+    connection = open_database(tmp_root)
+    repository = MetadataRepository(connection)
+    try:
+        _ingestor(gateway, repository).collect_user_pages(MID, start_page=1)
+        user_row = connection.execute(
+            "SELECT mid, display_name, created_at, updated_at FROM bilibili_users"
+        ).fetchone()
+        assert tuple(user_row[:2]) == (MID, "未明子")
+
+        silent_gateway = FakeGateway()
+        silent_gateway.script_page(
+            1,
+            _page(1, _summary("BV1SILENT", aid=802, author=None), observed_total=1),
+        )
+        silent_gateway.script_parts("BV1SILENT", (_part("BV1SILENT", 0, cid=802),))
+        silent_gateway.script_page(2, _page(2, observed_total=1))
+        silent = _ingestor(silent_gateway, repository).collect_user_pages(
+            MID, start_page=1
+        )
+
+        assert silent.outcome == "complete"
+        assert silent.video_count == 1
+        assert (
+            connection.execute(
+                "SELECT COUNT(*) FROM videos WHERE bvid = 'BV1SILENT'"
+            ).fetchone()[0]
+            == 1
+        )
+        assert (
+            tuple(
+                connection.execute(
+                    "SELECT mid, display_name, created_at, updated_at"
+                    " FROM bilibili_users"
+                ).fetchone()
+            )
+            == tuple(user_row)
+        )
+    finally:
+        connection.close()
+
+
+def test_page_without_an_author_stores_the_owner_mid_placeholder(tmp_root):
+    """The fallback is the negative control: no author anywhere → ``str(mid)``.
+
+    A fresh store whose pages carry no name has observed no label, so the
+    placeholder is the honest answer and stays the value the row was created
+    with.  Pinned at the store — the gateway's own absent-rather-than-invented
+    case says only that the DTO leaves ``None``, not what the row ends up
+    holding.
+    """
+
+    gateway = FakeGateway()
+    gateway.script_page(
+        1, _page(1, _summary("BV1NOAUTH", aid=803, author=None), observed_total=1)
+    )
+    gateway.script_parts("BV1NOAUTH", (_part("BV1NOAUTH", 0, cid=803),))
+    gateway.script_page(2, _page(2, observed_total=1))
+    connection = open_database(tmp_root)
+    repository = MetadataRepository(connection)
+    try:
+        result = _ingestor(gateway, repository).collect_user_pages(
+            MID, start_page=1
+        )
+
+        assert result.outcome == "complete"
+        user_row = connection.execute(
+            "SELECT mid, display_name FROM bilibili_users"
+        ).fetchone()
+        assert tuple(user_row) == (MID, str(MID))
     finally:
         connection.close()
 

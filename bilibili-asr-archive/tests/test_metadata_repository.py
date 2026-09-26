@@ -343,6 +343,52 @@ def test_finish_run_record_form_validates_against_database_started_at(tmp_root):
         connection.close()
 
 
+def test_ensure_user_establishes_a_row_without_rewriting_an_existing_one(tmp_root):
+    """The two user writes differ in exactly one way: the update.
+
+    ``ensure_user`` exists for the run-start write, which has to satisfy the
+    run and cursor foreign keys before any page is fetched — and therefore has
+    observed no label.  It must create the row and then leave it alone;
+    ``upsert_user`` stays the refreshing write a page's observed name uses.
+    """
+
+    connection = open_database(tmp_root)
+    repository = MetadataRepository(connection)
+    try:
+        # No row yet: ``ensure_user`` creates it, so a first-ever run keeps
+        # its foreign-key parent.
+        with repository.transaction():
+            repository.ensure_user(make_user_record())
+        assert (
+            connection.execute("SELECT display_name FROM bilibili_users").fetchone()[0]
+            == "未明子"
+        )
+
+        # An existing row is untouched — value and stamp both.
+        with repository.transaction():
+            repository.ensure_user(
+                make_user_record(display_name=str(MID), updated_at=999)
+            )
+        assert tuple(
+            connection.execute(
+                "SELECT display_name, updated_at FROM bilibili_users"
+            ).fetchone()
+        ) == ("未明子", 100)
+
+        # ``upsert_user`` still overwrites: that is how an observed name lands.
+        with repository.transaction():
+            repository.upsert_user(
+                make_user_record(display_name="未明子（新）", updated_at=200)
+            )
+        assert tuple(
+            connection.execute(
+                "SELECT display_name, updated_at FROM bilibili_users"
+            ).fetchone()
+        ) == ("未明子（新）", 200)
+    finally:
+        connection.close()
+
+
 def test_fk_rejection_and_delete_restriction_apply_to_repository_writes(tmp_root):
     connection = open_database(tmp_root)
     repository = MetadataRepository(connection)

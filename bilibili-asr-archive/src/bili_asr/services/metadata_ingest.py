@@ -4,8 +4,9 @@
 run/page transaction flow.  Every page is fetched through the typed
 :class:`BilibiliGateway` protocol and persisted through the Plan-1
 repository's canonical methods in exactly one committed transaction per
-page: upsert user, upsert videos, upsert parts, insert discoveries, update
-the cursor, record the page outcome, commit.
+page: upsert user (when the run has observed a name to write), upsert
+videos, upsert parts, insert discoveries, update the cursor, record the
+page outcome, commit.
 
 The service is synchronous on its surface (the CLI calls it directly) and
 runs the async gateway page calls on one event loop per collection run.
@@ -95,15 +96,19 @@ def _run_record(
     )
 
 
-def _user_record(mid: int, moment: int, author: str | None = None) -> UserRecord:
+def _user_record(mid: int, moment: int, author: str | None) -> UserRecord:
     """Build the collected user's current display label.
 
-    ``author`` is the uploader name the run observed upstream; the owner mid is
-    the fallback and only the fallback, for a run that observed no name at all.
+    ``author`` is the uploader name the caller observed upstream; ``None`` is
+    the explicit "this run observed no name" case and resolves to the owner-mid
+    placeholder.  The parameter is required — not defaulted — so every call
+    site has to say which of the two it is: a default would let a call that
+    observed nothing look identical to one that forgot to pass the name it
+    holds, which is exactly the call-site confusion that let the opening write
+    overwrite an established label (see :meth:`MetadataIngestor._collect`).
+
     The placeholder is honest — the archive knows the account it collected and
     nothing else — while inventing a label the page never carried would not be.
-    A call that passes no author keeps the previous shape and its exact
-    behaviour.
     """
 
     return UserRecord(
@@ -212,7 +217,13 @@ class MetadataIngestor:
 
         started_at = _now()
         with self._repository.transaction():
-            self._repository.upsert_user(_user_record(mid, started_at))
+            # Establish the user row the run and cursor foreign keys need,
+            # without rewriting one: this write happens before any page is
+            # fetched, so it has observed no name, and the owner-mid placeholder
+            # it carries may only ever be the value a row is *created* with.
+            # The name a page does carry reaches the row through the page
+            # transaction below, which upserts and overwrites.
+            self._repository.ensure_user(_user_record(mid, started_at, author=None))
         first_page = start_page if start_page is not None else self._resume_page(mid)
         source_version = self._gateway.get_package_version()
         run_id = uuid.uuid4().hex
@@ -230,8 +241,9 @@ class MetadataIngestor:
         # The run's own observation of the uploader's display name, taken from
         # the first summary that carries one.  Run-scoped rather than
         # page-scoped: a later page that omits the author must not reset a label
-        # an earlier page already answered, and a run that observed none keeps
-        # the owner-mid placeholder for every page it records.
+        # an earlier page already answered.  A run that observed none writes no
+        # user row at all, so the stored label keeps the value the last
+        # observing run gave it (or the placeholder the row was created with).
         observed_author: str | None = None
         page_number = first_page
         while True:
@@ -413,7 +425,7 @@ class MetadataIngestor:
         finished_at: int,
         observed_total: int | None,
         limit_reached: bool,
-        author: str | None = None,
+        author: str | None,
     ) -> None:
         """Record one collected page with its payload in the locked order.
 
@@ -426,7 +438,11 @@ class MetadataIngestor:
         ``(run_id, page_number, bvid)`` makes the later entry overwrite the
         earlier one.  ``author`` is the run's observed uploader name and only
         feeds the user row: it is not a video fact, so it never reaches a
-        summary or a part record.
+        summary or a part record.  ``None`` means this run has not observed a
+        name, and then no user row is written at all — the run-start
+        ``ensure_user`` already satisfies the run and cursor foreign keys, so a
+        page carrying no observation leaves the stored label and its stamp
+        alone rather than restamping the placeholder over them.
         """
 
         video_records = [
@@ -465,6 +481,14 @@ class MetadataIngestor:
             )
             for position, summary in enumerate(summaries)
         ]
+        # A page whose run has observed no name yet writes no user row at all:
+        # ``record_page`` upserts, so handing it the owner-mid placeholder would
+        # replace a stored label with a value this run never saw.  The run-start
+        # write already established the row the run and cursor foreign keys
+        # need, so nothing else has to.  Compass D15's rule, applied to this
+        # column: a collection that observed nothing moves neither the row nor
+        # its ``updated_at`` stamp.
+        user_record = None if author is None else _user_record(mid, finished_at, author)
         self._repository.record_page(
             IngestionPageRecord(
                 run_id=run_id,
@@ -474,7 +498,7 @@ class MetadataIngestor:
                 started_at=started_at,
                 finished_at=finished_at,
             ),
-            user=_user_record(mid, finished_at, author),
+            user=user_record,
             videos=video_records,
             parts=part_records,
             discoveries=discovery_records,

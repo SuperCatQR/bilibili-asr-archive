@@ -256,9 +256,10 @@ class MetadataRepository:
       arguments it still commits its own single-write transaction — either
       the ``'failed'`` evidence transaction (page row plus the run's failure
       transition) or the ok/empty/``risk_interrupted`` page-outcome write.
-    - ``upsert_user``, ``upsert_video``, ``upsert_part``, ``record_discovery``
-      and ``write_cursor`` execute SQL without committing, so a caller can
-      group them in one transaction through :meth:`transaction`.
+    - ``upsert_user``, ``ensure_user``, ``upsert_video``, ``upsert_part``,
+      ``record_discovery`` and ``write_cursor`` execute SQL without
+      committing, so a caller can group them in one transaction through
+      :meth:`transaction`.
     - ``read_cursor``, ``list_pending_parts`` and ``run_stats`` never write
       or commit.
 
@@ -300,6 +301,31 @@ class MetadataRepository:
             ON CONFLICT(mid) DO UPDATE SET
                 display_name = excluded.display_name,
                 updated_at = excluded.updated_at
+            """,
+            (user.mid, user.display_name, user.created_at, user.updated_at),
+        )
+
+    def ensure_user(self, user: UserRecord) -> None:
+        """Establish a user row only when it does not exist; never rewrite one.
+
+        The run and cursor rows carry a foreign key to ``bilibili_users(mid)``
+        (``schema.sql``), so a collection run's opening write must establish the
+        parent row before it starts.  It must not *update* one: that write
+        happens before any page is fetched, so it has observed nothing to write,
+        and an established label may not be replaced by the owner-mid
+        placeholder a run-with-no-observation carries.  The placeholder is
+        therefore only ever the value a row is *created* with.
+
+        :meth:`upsert_user` stays the refreshing write: it is how a name the
+        run did observe reaches an existing row, and it overwrites.
+        """
+        if not isinstance(user, UserRecord):
+            raise TypeError("user must be a UserRecord")
+        self.connection.execute(
+            """
+            INSERT INTO bilibili_users(mid, display_name, created_at, updated_at)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(mid) DO NOTHING
             """,
             (user.mid, user.display_name, user.created_at, user.updated_at),
         )
