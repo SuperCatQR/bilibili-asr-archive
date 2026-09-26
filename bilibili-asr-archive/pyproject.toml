@@ -32,11 +32,20 @@ asr = [
     "accelerate>=1.0",
     # Reading the archived audio and writing each chunk out again.
     "soundfile>=0.12",
-    # Resampling when a part is not already 16 kHz mono.
-    "librosa>=0.10",
+    # Resampling when a part is not already 16 kHz mono.  ``soxr`` is what ``librosa.resample``
+    # calls underneath at its default ``res_type="soxr_hq"``, so this is the same resampler without a
+    # dependency range that could change it silently.  (``librosa`` is deliberately NOT listed: it
+    # was only ever here for decode+resample, its >=1.0 releases dropped the ``audioread`` decode path
+    # the .m4a fallback relied on, and they require numpy>=2.1 which the verified ROCm recipe's
+    # numpy 1.26.4 does not satisfy.)
+    "soxr>=0.5",
     # NOTE: torch is deliberately NOT listed here. The verified AMD/WSL recipe installs the ROCm
     # wheel from repo.radeon.com (docs/wsl-rocm-gpu.md step 6) together with the matching torchaudio;
     # letting pip resolve ``torch`` from an index silently gets the wrong build for this host.
+    # NOTE: the ``ffmpeg`` binary is required too (AGENTS.md) — it decodes the .m4a/AAC the download
+    # layer writes, because libsndfile cannot open that container. It is a platform package rather
+    # than a pip one, so it cannot be declared here; ``_read_audio`` raises ``ASRDependencyError``
+    # naming it when it is absent.
 ]
 
 [tool.setuptools.packages.find]

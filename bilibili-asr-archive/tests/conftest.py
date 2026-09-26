@@ -159,10 +159,12 @@ def mock_torch(monkeypatch):
         inference_mode=lambda *args, **kwargs: _NoOpContext(),
         no_grad=lambda *args, **kwargs: _NoOpContext(),
         # A ``Tensor`` class so third-party probes answer False instead of raising.  The boundary
-        # never reads it; ``scipy`` does, through ``librosa``'s resampler, asking a module named
-        # ``torch`` whether some class *is* ``torch.Tensor``.  A stand-in missing the attribute
-        # turns that probe into an ``AttributeError``, which fails a test for a reason unrelated to
-        # the code under test.
+        # never reads it; ``scipy`` does — its array-API compatibility layer tests a candidate with
+        # ``issubclass(candidate, torch.Tensor)`` and reaches ``getattr(torch, "Tensor")`` on
+        # import, so a stand-in without that attribute turns the probe into an ``AttributeError``
+        # that fails a test for a reason unrelated to the code under test.  This was originally
+        # attributed to ``librosa``'s resampler; scipy runs the same probe on its own, verified
+        # 2026-09-27 in this venv with no librosa involved.
         Tensor=type("Tensor", (), {}),
     )
     monkeypatch.setitem(sys.modules, "torch", fake_torch)

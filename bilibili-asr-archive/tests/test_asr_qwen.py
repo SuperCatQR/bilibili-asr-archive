@@ -26,7 +26,8 @@ from __future__ import annotations
 import builtins
 import os
 import pathlib
-import sys
+import shutil
+import subprocess
 
 import pytest
 
@@ -551,6 +552,57 @@ def test_the_dependency_hint_names_the_extra() -> None:
 
 
 # ---------------------------------------------------------------------------------------
+# The built-in hotword list is a *measured* artifact, and it has already been rewritten once
+# without anything noticing: commit 2548ca9 took it from 33 entries to 26 — deleting the six
+# 2026-09-17 homophone entries and their rationale, re-adding ITEM/AITEM which an earlier commit
+# had removed for measured harm, and dropping three Latin shards — while every gate stayed green
+# because no test read the list (residual ``20260924-qwen3-asr-transformers · R2``).
+#
+# These tests pin the parts the repository's own documentation claims.  They are deliberately
+# exact: a change to the list is a change to what the decoder is asked to reproduce, so it must
+# arrive with a deliberate edit to these expectations, not silently.
+# ---------------------------------------------------------------------------------------
+
+# The six homophone pairs added 2026-09-17 on measured mis-renderings.  `扬弃` is the one the error
+# census named as the worst affected (10 correct vs 89 wrong across 14 lectures, README §vocabulary).
+_HOMOPHONE_ENTRIES = ("扬弃", "自在", "变易", "此在", "感性", "实存")
+
+# The Latin-script terms the corpus speaks, which the decoder shatters without them.
+_LATIN_ENTRIES = ("International Employment Matters Tribunal", "International", "Employment", "Tribunal")
+
+# Removed 2026-09-17 for measured harm: nine occurrences across the 14 archived lectures came out
+# as if they were the English word.  Their absence is a decision, not an omission.
+_WITHDRAWN_ENTRIES = ("ITEM", "AITEM")
+
+
+def test_the_hotword_list_keeps_the_entries_the_readme_documents() -> None:
+    """Every entry the repository's own documentation names must still be in the shipped list."""
+
+    for term in _HOMOPHONE_ENTRIES:
+        assert term in asr.DEFAULT_HOTWORDS, f"the measured homophone entry {term!r} is missing"
+    for term in _LATIN_ENTRIES:
+        assert term in asr.DEFAULT_HOTWORDS, f"the Latin-script entry {term!r} is missing"
+
+
+def test_the_hotword_list_still_excludes_the_withdrawn_acronyms() -> None:
+    """The bare acronyms were removed on measured evidence and must not quietly return."""
+
+    for term in _WITHDRAWN_ENTRIES:
+        assert term not in asr.DEFAULT_HOTWORDS, (
+            f"{term!r} was removed 2026-09-17 for measured harm; re-adding it needs its own measurement"
+        )
+
+
+def test_the_hotword_list_is_free_of_duplicates_and_blanks() -> None:
+    """A duplicate or blank entry is a silent prompt defect; the list is shipped, not cleaned."""
+
+    assert len(set(asr.DEFAULT_HOTWORDS)) == len(asr.DEFAULT_HOTWORDS), "duplicate entry in DEFAULT_HOTWORDS"
+    assert all(term.strip() == term and term for term in asr.DEFAULT_HOTWORDS), (
+        "blank or untrimmed entry in DEFAULT_HOTWORDS"
+    )
+
+
+# ---------------------------------------------------------------------------------------
 # Descriptor materialization, carried over from the retired reproducibility suite: the CLI hands
 # the boundary a confined descriptor, which the decoder libraries cannot always open.
 # ---------------------------------------------------------------------------------------
@@ -578,57 +630,114 @@ def test_a_plain_path_is_returned_untouched() -> None:
 # ---------------------------------------------------------------------------------------
 # The reader's codec boundary.  libsndfile reads WAV, FLAC, OGG and MP3 — not AAC, which is the
 # codec inside the ``.m4a`` this archive's own downloader writes for the preferred DASH audio
-# stream.  The fallback to ``librosa`` is what makes the product able to read what it downloaded;
-# these tests also pin that it changes nothing for the formats the primary reader opens.
+# stream.  The fallback is the ``ffmpeg`` binary; these tests pin that it runs, that it produces the
+# same cues as the primary reader, and that it leaves the formats the primary reader opens alone.
+#
+# The earlier revision of this file stubbed the fallback's *reader* and asserted only that the
+# branch was entered, which is how a fallback that could not decode anything stayed green through
+# every gate (residual ``iter-2026-09-qwen3-asr-closeout · R5``).  The real decode is therefore
+# exercised on a generated AAC file below, not only described.
 # ---------------------------------------------------------------------------------------
 
 
-class _StubLibrosa:
-    """The fallback reader, stubbed: records its call and returns ``(channels, samples)``."""
-
-    def __init__(self, samples, rate: int = 48000) -> None:
-        self.samples = samples
-        self.rate = rate
-        self.calls: list[dict] = []
-
-    def load(self, path, sr=None, mono=False):
-        self.calls.append({"path": path, "sr": sr, "mono": mono})
-        return self.samples, self.rate
+def _ffmpeg_or_skip():
+    ffmpeg = shutil.which("ffmpeg")
+    if not ffmpeg:
+        pytest.skip("ffmpeg is not on PATH")
+    return ffmpeg
 
 
-class _ForbiddenLibrosa:
-    """A stub whose ``load`` must never run: the primary reader opened the file."""
+def _write_aac(path, *, seconds: float = 2.0, rate: int = 44100, channels: int = 2) -> None:
+    """Encode real AAC audio with ffmpeg — the container the downloader writes."""
 
-    def load(self, *args, **kwargs):
-        raise AssertionError("the fallback must not run for a format the primary reader opens")
+    ffmpeg = _ffmpeg_or_skip()
+    subprocess.run(
+        [
+            ffmpeg, "-v", "error", "-y",
+            "-f", "lavfi",
+            "-i", f"sine=frequency=440:duration={seconds}:sample_rate={rate}",
+            "-ac", str(channels),
+            "-c:a", "aac",
+            str(path),
+        ],
+        check=True,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
 
 
-def test_an_m4a_libsndfile_cannot_open_is_read_through_the_fallback(monkeypatch) -> None:
-    """libsndfile's refusal triggers the fallback, and the channel convention must be kept.
+def test_a_real_aac_file_is_decoded_through_the_fallback(tmp_path) -> None:
+    """The path the product actually needs: a real ``.m4a`` reads, with its rate and channels.
 
-    The error built here is the one a real AAC ``.m4a`` produces; its constructor is
-    ``LibsndfileError(code: int, prefix: str = "")`` in soundfile 0.12 through 0.14.
+    This is the test the codec repair owed from the start.  It fails if the fallback cannot decode
+    AAC — which is exactly what happened when ``librosa`` 1.0 dropped ``audioread`` while the
+    suite stayed green.
+    """
+
+    np = pytest.importorskip("numpy")
+    pytest.importorskip("soundfile")
+    _ffmpeg_or_skip()
+
+    path = tmp_path / "fixture.m4a"
+    _write_aac(path, seconds=2.0, rate=44100, channels=2)
+
+    samples, rate = asr._read_audio(str(path))
+
+    assert rate == 44100, f"the native rate must survive the fallback, got {rate}"
+    assert samples.ndim == 2 and samples.shape[1] == 2, (
+        f"both channels must survive; soundfile's (samples, channels) convention, got {samples.shape}"
+    )
+    assert samples.shape[0] > rate, f"two seconds of audio, got {samples.shape[0]} samples"
+    assert float(np.abs(samples).max()) > 0.01, "the decoded audio must not be silence"
+
+
+def test_a_non_16k_rate_is_resampled_by_the_runner(monkeypatch) -> None:
+    """The fallback's *rate* must be honoured — the resample branch is on the ``.m4a`` path.
+
+    The fallback returns the file's native rate (48 kHz for this corpus), while the chunker works in
+    ``SAMPLE_RATE``.  The fake aligner reports fixed timings unrelated to audio length, so cue times
+    cannot measure this; what *can* be checked is that the resampler ran with the source rate and
+    that the chunker then saw 16 kHz samples.  Without the branch, a 3 s file would be chunked as if
+    it were 9 s long.
     """
 
     np = pytest.importorskip("numpy")
     sf = pytest.importorskip("soundfile")
+    soxr = pytest.importorskip("soxr")
+    runner, _ = _runner(monkeypatch)  # installs the fake models, audio read and writes
 
-    def refuse(*args, **kwargs):
-        raise sf.LibsndfileError(1, "Error opening 'x.m4a': ")
+    seen: list[tuple[int, int, int]] = []
+    real_resample = soxr.resample
 
-    monkeypatch.setattr(sf, "read", refuse)
-    known = np.arange(8, dtype="float32").reshape(2, 4)  # librosa's (channels, samples)
-    stub = _StubLibrosa(known, 48000)
-    monkeypatch.setitem(sys.modules, "librosa", stub)
+    def spy(x, in_rate, out_rate, *args, **kwargs):
+        seen.append((len(x), int(in_rate), int(out_rate)))
+        return real_resample(x, in_rate, out_rate, *args, **kwargs)
 
-    samples, rate = asr._read_audio("x.m4a")
+    # ``transcribe`` imports soxr locally, so the spy replaces the attribute on the module object
+    # every import resolves to.
+    monkeypatch.setattr(soxr, "resample", spy)
 
-    assert rate == 48000
-    assert samples.shape == (4, 2), "soundfile's (samples, channels) convention must be kept"
-    assert np.array_equal(samples, known.T), "no value may be lost to the transpose"
-    assert len(stub.calls) == 1, stub.calls
-    assert stub.calls[0] == {"path": "x.m4a", "sr": None, "mono": False}, (
-        "the reader keeps the native rate and both channels; resampling is the caller's step"
+    captured: dict = {}
+    real_split = asr._split_audio
+
+    def spy_split(samples, sample_rate, max_chunk_seconds):
+        captured["rate"] = sample_rate
+        captured["length"] = len(samples)
+        return real_split(samples, sample_rate, max_chunk_seconds)
+
+    monkeypatch.setattr(asr, "_split_audio", spy_split)
+    # three seconds at 48 kHz, i.e. the fallback's own shape and rate; set after _runner, whose own
+    # patch returns 16 kHz and would otherwise win.
+    monkeypatch.setattr(sf, "read", lambda *a, **k: (np.zeros(48_000 * 3, dtype="float32"), 48_000))
+
+    runner.transcribe("/nonexistent/audio.m4a")
+
+    assert seen == [(144_000, 48_000, asr.SAMPLE_RATE)], (
+        f"the resampler must be called once with the source rate, got {seen}"
+    )
+    assert captured["rate"] == asr.SAMPLE_RATE
+    assert captured["length"] == 48_000, (
+        f"3 s at 16 kHz after resampling, got {captured['length']} samples"
     )
 
 
@@ -640,12 +749,33 @@ def test_a_decodable_file_never_reaches_the_fallback(monkeypatch) -> None:
 
     known = np.linspace(-1.0, 1.0, 160, dtype="float32")
     monkeypatch.setattr(sf, "read", lambda *args, **kwargs: (known, 16000))
-    monkeypatch.setitem(sys.modules, "librosa", _ForbiddenLibrosa())
+    monkeypatch.setattr(
+        asr, "_decode_with_ffmpeg",
+        lambda *a, **k: pytest.fail("the fallback must not run for a format libsndfile opens"),
+    )
 
     samples, rate = asr._read_audio("x.wav")
 
     assert rate == 16000
     assert np.array_equal(samples, known)
+
+
+def test_the_fallback_refuses_clearly_when_ffmpeg_is_missing(monkeypatch, tmp_path) -> None:
+    """A host without ffmpeg must be told what to install, not handed a raw decoder error."""
+
+    pytest.importorskip("numpy")
+    sf = pytest.importorskip("soundfile")
+
+    def refuse(*args, **kwargs):
+        raise sf.LibsndfileError(1, "Error opening 'x.m4a': ")
+
+    monkeypatch.setattr(sf, "read", refuse)
+    monkeypatch.setattr(shutil, "which", lambda name: None)
+
+    with pytest.raises(asr.ASRDependencyError) as caught:
+        asr._read_audio("x.m4a")
+
+    assert "ffmpeg" in str(caught.value), "the message must name the missing binary"
 
 
 def test_a_fallback_read_still_produces_the_same_cues_as_a_primary_read(monkeypatch) -> None:
@@ -661,27 +791,12 @@ def test_a_fallback_read_still_produces_the_same_cues_as_a_primary_read(monkeypa
         raise sf.LibsndfileError(1, "Error opening 'audio.m4a': ")
 
     monkeypatch.setattr(sf, "read", refuse)
-    stub = _StubLibrosa(np.zeros((2, asr.SAMPLE_RATE * 3), dtype="float32"), asr.SAMPLE_RATE)
-    monkeypatch.setitem(sys.modules, "librosa", stub)
+    delivered = np.zeros(asr.SAMPLE_RATE * 3, dtype="float32")
+
+    def fake_decode(path):
+        # the fallback's real contract: soundfile's (samples, channels) shape, native rate
+        return delivered, asr.SAMPLE_RATE
+
+    monkeypatch.setattr(asr, "_decode_with_ffmpeg", fake_decode)
 
     assert runner.transcribe("/nonexistent/audio.m4a") == primary
-    assert len(stub.calls) == 1, "the fallback is what read the second item"
-
-
-def test_the_two_readers_agree_on_a_real_wav(tmp_path) -> None:
-    """A real decode, not a stub: on a 16 kHz mono WAV both readers return the same samples."""
-
-    np = pytest.importorskip("numpy")
-    sf = pytest.importorskip("soundfile")
-    librosa = pytest.importorskip("librosa")
-
-    path = tmp_path / "fixture.wav"
-    written = np.linspace(-0.75, 0.75, asr.SAMPLE_RATE, dtype="float32")
-    sf.write(str(path), written, asr.SAMPLE_RATE)
-
-    samples, rate = asr._read_audio(str(path))
-    via_fallback, fallback_rate = librosa.load(str(path), sr=None, mono=False)
-
-    assert rate == fallback_rate == asr.SAMPLE_RATE
-    assert samples.shape == via_fallback.shape == (asr.SAMPLE_RATE,)
-    assert np.array_equal(samples, via_fallback)
