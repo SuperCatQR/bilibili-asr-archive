@@ -431,12 +431,14 @@ def test_summary_author_is_absent_rather_than_invented():
 
 
 def test_video_summary_defaults_author_to_none():
-    """The DTO's own default is absence, for the 46 fixture-built items.
+    """The DTO's own default is absence, and every fixture-built item has a name.
 
     ``_complete_summary_from_detail`` rebuilds a summary without naming an
-    author, and the fixture builder emits one — but nothing may *require* the
-    field, because a caller constructing the DTO from the five documented keys
-    alone is the shape every pre-existing construction site already has.
+    author, and the fixture builder supplies one at each of its call sites —
+    **50** when this field landed (46 before it; the count moves whenever a
+    test file gains a case, so it is dated rather than timeless).  Nothing may
+    *require* the field, because a caller constructing the DTO from the five
+    documented keys alone is a shape the code still has to accept.
     """
 
     summary = _summary()
@@ -487,7 +489,17 @@ def test_completed_summary_keeps_the_uploader_name_across_the_rebuild(
 
 @pytest.mark.parametrize("author", ["", "   ", 7, True, ["未明子"]])
 def test_get_user_video_page_rejects_a_present_but_unusable_author(author):
-    """Present-and-wrong is a bounded shape error; only absence is legitimate."""
+    """Present-and-wrong is a bounded shape error; only absence is legitimate.
+
+    The blast radius is the whole page, not the item: a page-level shape error
+    is terminal for the run, so one entry with a blank name costs all 30 videos
+    on the page even though the ingestor holds a legitimate fallback for the
+    field.  That is the deliberate sibling ``title``/``bvid`` discipline — the
+    fallback covers *absence*, never a value upstream actually sent — and the
+    case below pins the cost so the policy stays a decision rather than an
+    accident.  Whether upstream ever emits ``""`` for a real entry is not
+    something this offline suite can observe.
+    """
 
     item = make_vlist_item(bvid="BV1author001", author=author)
 
@@ -495,6 +507,29 @@ def test_get_user_video_page_rejects_a_present_but_unusable_author(author):
         _normalize_video_summary_item(item)
 
     assert caught.value.code == "shape_error"
+
+
+def test_a_blank_author_costs_every_item_on_the_page(bilibili_api_seam):
+    """One blank name fails the page, so none of its items is returned.
+
+    Documents the M3 blast radius: the fallback one layer down never gets its
+    chance, because the page-level error is terminal and the sibling entries
+    are never persisted either.
+    """
+
+    bilibili_api_seam.videos_response = make_videos_response(
+        make_vlist_item(bvid="BV1author001"),
+        make_vlist_item(bvid="BV1blankauth", author="   "),
+        count=2,
+    )
+    gateway = _load_gateway()
+
+    with pytest.raises(GatewayShapeError) as caught:
+        asyncio.run(gateway.get_user_video_page(MID, page_number=1))
+
+    assert caught.value.code == "shape_error"
+    # The valid sibling entry never came back: the error is raised for the page.
+    assert bilibili_api_seam.calls == ["space.arc.search(pn=1, ps=30)"]
 
 
 def test_get_user_video_page_forwards_requested_page_and_size(bilibili_api_seam):
