@@ -64,6 +64,11 @@ LANGUAGE_FAMILY_ORDER = ("zh", "en")
 #: prefix the family rule strips (``_SOURCE_KIND_BY_AI``, ``subtitle_ingest.py:61``).
 _MACHINE_CAPTION_KIND = "subtitle-ai"
 #: §2.1's part context: what a candidate carries out of the read, and no more.
+#: ``pubdate`` and ``video_title`` are the video's own columns; they are here
+#: beside the part's because the read joins ``videos`` for them, and a caller
+#: holding only a candidate cannot recover them.  The part's ``part_title`` and
+#: the video's ``video_title`` are independent facts — measured, 10 of 63 stored
+#: parts diverge — so both travel and neither stands in for the other (§3.1, D5).
 _PART_KEYS = (
     "video_part_id",
     "bvid",
@@ -72,6 +77,7 @@ _PART_KEYS = (
     "part_title",
     "duration_ms",
     "pubdate",
+    "video_title",
 )
 #: §2.1's identity columns for one stored version.
 _TRANSCRIPT_KEYS = (
@@ -92,7 +98,8 @@ _PRODUCT_PATH_KEYS = ("srt_path", "txt_path", "md_path", "raw_path")
 class Candidate:
     """One part to publish, with the transcript identity that won it.
 
-    ``part`` carries §2.1's part columns alone and ``transcript`` that version's
+    ``part`` carries §2.1's part columns, plus the two the read joins ``videos``
+    for (``pubdate``, ``video_title``), and ``transcript`` that version's
     identity columns alone, both copied out of the read's row, so a caller can
     hand ``part``/``transcript`` straight to :func:`projection_row` and read the
     winner off the candidate without the row's other columns travelling with it.

@@ -1235,11 +1235,13 @@ class TranscriptRepository:
 
         The relation is over ``transcripts``, not over parts: a part holding
         several stored versions appears once per version, and every row repeats
-        its part's columns and its video's ``pubdate``, which is what lets a
-        caller pick one winner per part without a second query.  Membership is
-        the join to ``transcripts`` and nothing else: no ``processing_status``
-        predicate narrows it, so a part whose status is ``gone`` is a row here
-        when the store holds its text.
+        its part's columns, its video's ``pubdate`` and its video's own
+        ``title`` — the collection the part belongs to, carried as
+        ``video_title`` beside the part's own ``part_title``.  The two are
+        independent facts and the join is what keeps them apart without a second
+        query.  Membership is the join to ``transcripts`` and nothing else: no
+        ``processing_status`` predicate narrows it, so a part whose status is
+        ``gone`` is a row here when the store holds its text.
 
         ``bvid`` and ``page_index`` each add one predicate when they are given
         and neither narrows the read when it is absent.  A selector naming no
@@ -1260,6 +1262,7 @@ class TranscriptRepository:
         query = (
             "SELECT vp.video_part_id, vp.bvid, vp.page_index, vp.cid, "
             "vp.title AS part_title, vp.duration_ms, vd.pubdate, "
+            "vd.title AS video_title, "
             "t.transcript_id, t.source_kind, t.language, t.model_id, "
             "t.version, t.content_sha256, t.created_at "
             "FROM transcripts AS t "

@@ -2115,12 +2115,18 @@ def _stored_row(
     duration_ms: int = 1_234,
     model_id: int | None = None,
     created_at: int = 400,
+    video_title: str = "字幕测试视频",
 ) -> dict:
     """Build one expected ``list_stored_transcripts`` row as a plain mapping.
 
     The key set is the read's declared column list: a read that selects a column
     too many, names one differently, or derives one instead of returning the
     stored value fails the mapping equality it is compared against.
+
+    ``video_title`` defaults to the title every fixture in this file seeds its
+    video with (``_captioned_part`` and ``_video_with_parts`` both store
+    ``字幕测试视频``), so it reads as the video's own fact rather than as a
+    repeat of the part's.
     """
     return {
         "video_part_id": video_part_id,
@@ -2130,6 +2136,7 @@ def _stored_row(
         "part_title": part_title,
         "duration_ms": duration_ms,
         "pubdate": pubdate,
+        "video_title": video_title,
         "transcript_id": transcript_id,
         "source_kind": source_kind,
         "language": language,
@@ -2176,7 +2183,9 @@ def test_list_stored_transcripts_returns_one_row_per_version_with_part_context(
 
         # The declared key set, once: the part context and the transcript
         # identity, and no ``work_id`` — the caller derives that identifier from
-        # ``bvid``/``page_index`` rather than reading it here.
+        # ``bvid``/``page_index`` rather than reading it here.  ``video_title``
+        # belongs to the part context beside ``pubdate``: both are the video's
+        # own columns, reached through the read's existing join.
         assert set(rows[0].keys()) == {
             "video_part_id",
             "bvid",
@@ -2185,6 +2194,7 @@ def test_list_stored_transcripts_returns_one_row_per_version_with_part_context(
             "part_title",
             "duration_ms",
             "pubdate",
+            "video_title",
             "transcript_id",
             "source_kind",
             "language",
@@ -2247,6 +2257,33 @@ def test_list_stored_transcripts_returns_one_row_per_version_with_part_context(
                 content_sha256=elsewhere.content_sha256,
             ),
         ]
+    finally:
+        connection.close()
+
+
+def test_list_stored_transcripts_names_the_video_its_part_belongs_to(tmp_root):
+    """``video_title`` is the video's own title; ``part_title`` stays the part's.
+
+    Compass **D5**: ``title`` is the specific thing archived and ``video_title``
+    the collection it came from.  Measured on the live store, 10 of 63 parts
+    diverge, so the fixture is the separating shape — the video is
+    ``字幕测试视频`` while its part is ``第1集`` — rather than a pair that happens
+    to coincide.  A read that returned the part's title twice, or that dropped
+    the video's, fails here.
+    """
+    connection = open_database(tmp_root)
+    repository = TranscriptRepository(connection)
+    try:
+        parts = _video_with_parts(connection, "BV1VDOTITLE", (7201,))
+        _record(repository, parts[0], run_id=_run(repository, 1))
+
+        rows = repository.list_stored_transcripts("BV1VDOTITLE")
+
+        assert len(rows) == 1
+        row = rows[0]
+        # Asserted separately: conflating the two is exactly what D5 forbids.
+        assert row["video_title"] == "字幕测试视频"
+        assert row["part_title"] == "第1集"
     finally:
         connection.close()
 
