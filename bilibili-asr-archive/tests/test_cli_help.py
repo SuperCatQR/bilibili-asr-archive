@@ -222,6 +222,32 @@ def test_search_parser_options_and_help(capsys: pytest.CaptureFixture[str]) -> N
     assert "--limit" in help_text
     assert "--format" in help_text
     assert "--rebuild" in help_text
+    assert "--from" in help_text
+    assert "--to" in help_text
+
+    search_args = parser.parse_args([
+        "search", "黑格尔",
+        "--archive-root", "/tmp/fixture",
+        "--from", "2020-01-01",
+        "--to", "2020-12-31",
+    ])
+    assert search_args.pubdate_from == "2020-01-01"
+    assert search_args.pubdate_to == "2020-12-31"
+
+
+def test_search_index_parser_options_and_help(capsys: pytest.CaptureFixture[str]) -> None:
+    from bili_asr.cli import build_parser
+
+    parser = build_parser()
+    args = parser.parse_args(["search-index", "--archive-root", "/tmp/fixture"])
+    assert args.command == "search-index"
+    assert args.archive_root == "/tmp/fixture"
+
+    with pytest.raises(SystemExit) as exc:
+        parser.parse_args(["search-index", "--help"])
+    assert exc.value.code == 0
+    help_text = capsys.readouterr().out
+    assert "--archive-root" in help_text
 
 
 def test_module_coverage_formats_and_diagnostic_exit(tmp_path: Path) -> None:
