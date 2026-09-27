@@ -1,0 +1,435 @@
+"""Contract tests for the queue-gap read repository.
+
+``MediaQueueRepository`` reads the three gap views one work queue each and owns
+the order the views do not declare.  These tests pin that order, the membership
+each view defines, the narrowing each filter performs, and the attempt evidence
+the typed entry carries.
+
+The store is built through the repositories' own writers wherever one exists.
+The audio attempt row is the one exception: T1b owns the ``mark_*`` writers for
+the audio route, so this file writes that row directly instead of driving a
+method that does not exist yet.
+"""
+
+from __future__ import annotations
+
+import sqlite3
+from typing import get_args
+
+import pytest
+
+from bili_asr.storage import (
+    ALLOWED_QUEUE_GAPS,
+    AcquisitionRunRecord,
+    MediaQueueRepository,
+    MetadataRepository,
+    QueueGap,
+    QueueGapItem,
+    SchemaContractError,
+    TranscriptRepository,
+    TranscriptSegmentRecord,
+    UserRecord,
+    VideoPartRecord,
+    VideoRecord,
+    open_database,
+)
+
+
+_MID = 23191782
+# ``pubdate`` values chosen so the four queued videos separate: two share one
+# publication second (the bvid/page tie-break), and the rest order by date.
+_VIDEOS = (
+    ("BV1AAA", 3_000, "三秒的视频"),
+    ("BV1BBB", 2_000, "两秒的视频"),
+    ("BV1CCC", 1_000, "一秒的视频"),
+    ("BV1DDD", 500, "下架的视频"),
+    ("BV1EEE", 3_000, "另一个三秒的视频"),
+    ("BV1FFF", 1_500, "一秒半的视频"),
+)
+# Every part the fixture stores: one captionless never-attempted part, one whose
+# newest subtitle attempt found nothing, one with an audio attempt and no
+# transcript, one holding a transcript, one gone part with audio evidence, and
+# one whose single subtitle attempt failed.
+_PARTS = (
+    ("BV1AAA", 0, "discovered"),
+    ("BV1AAA", 1, "discovered"),
+    ("BV1BBB", 0, "discovered"),
+    ("BV1CCC", 0, "discovered"),
+    ("BV1DDD", 0, "gone"),
+    ("BV1EEE", 0, "discovered"),
+    ("BV1FFF", 0, "discovered"),
+)
+
+
+def _open_run(
+    transcripts: TranscriptRepository, run_id: str, kind: str
+) -> None:
+    """Open one parent run of ``kind`` so attempt rows have their foreign key."""
+    transcripts.start_acquisition_run(
+        AcquisitionRunRecord(
+            run_id=run_id,
+            kind=kind,
+            selector_kind="pending",
+            selector_target=None,
+            requested_limit=None,
+            credential_present=False,
+            started_at=200,
+        )
+    )
+
+
+def _audio_attempt(
+    connection: sqlite3.Connection, run_id: str, video_part_id: int
+) -> None:
+    """Insert one failed audio attempt row directly.
+
+    ``TranscriptRepository`` writes only the subtitle route's attempts, and the
+    audio route's writers arrive with T1b, so the row the view reads is written
+    here as SQL.  The shape is the attempt contract's: a ``'failed'`` outcome
+    carries a bounded ``error_code`` and references no transcript.
+    """
+    connection.execute(
+        """
+        INSERT INTO acquisition_attempts(
+            run_id, video_part_id, outcome, error_code, transcript_id,
+            started_at, finished_at
+        ) VALUES (?, ?, 'failed', 'audio_unavailable', NULL, 700, 800)
+        """,
+        (run_id, video_part_id),
+    )
+    connection.commit()
+
+
+def _seed(
+    connection: sqlite3.Connection,
+) -> tuple[dict[tuple[str, int], int], MediaQueueRepository]:
+    """Store the fixture's videos, parts, runs and attempts; return the ids."""
+    metadata = MetadataRepository(connection)
+    transcripts = TranscriptRepository(connection)
+    with metadata.transaction():
+        metadata.upsert_user(
+            UserRecord(mid=_MID, display_name="未明子", created_at=100, updated_at=100)
+        )
+        for bvid, pubdate, title in _VIDEOS:
+            metadata.upsert_video(
+                VideoRecord(
+                    bvid=bvid,
+                    aid=None,
+                    mid=_MID,
+                    title=title,
+                    pubdate=pubdate,
+                    created_at=101,
+                    updated_at=101,
+                )
+            )
+        parts = {
+            (bvid, page_index): metadata.upsert_part(
+                VideoPartRecord(
+                    bvid=bvid,
+                    page_index=page_index,
+                    cid=2_000 + index,
+                    title=f"{bvid} 第 {page_index} 段",
+                    duration_ms=1_000 + index,
+                    processing_status=status,
+                    created_at=102,
+                    updated_at=102,
+                )
+            )
+            for index, (bvid, page_index, status) in enumerate(_PARTS, start=1)
+        }
+
+    # BV1AAA:p1 — two subtitle attempts; the newest one listed nothing.
+    _open_run(transcripts, "run-sub-old", "subtitle")
+    transcripts.record_subtitle_attempt(
+        run_id="run-sub-old",
+        video_part_id=parts[("BV1AAA", 1)],
+        outcome="failed",
+        error_code="upstream_timeout",
+        started_at=300,
+        finished_at=400,
+    )
+    _open_run(transcripts, "run-sub-new", "subtitle")
+    transcripts.record_subtitle_attempt(
+        run_id="run-sub-new",
+        video_part_id=parts[("BV1AAA", 1)],
+        outcome="no-subtitle",
+        error_code=None,
+        started_at=500,
+        finished_at=600,
+    )
+
+    # BV1BBB:p0 — the audio route was attempted and produced nothing.
+    _open_run(transcripts, "run-audio-bbb", "audio")
+    _audio_attempt(connection, "run-audio-bbb", parts[("BV1BBB", 0)])
+
+    # BV1CCC:p0 — a stored transcript leaves every queue.
+    _open_run(transcripts, "run-sub-ccc", "subtitle")
+    transcripts.record_acquired_transcript(
+        run_id="run-sub-ccc",
+        video_part_id=parts[("BV1CCC", 0)],
+        source_kind="subtitle-ai",
+        language="zh-CN",
+        segments=(TranscriptSegmentRecord(start_ms=0, end_ms=1_000, text="第一句"),),
+        started_at=900,
+        finished_at=1_000,
+        created_at=1_001,
+    )
+
+    # BV1DDD:p0 — gone, so only the view that does not filter status holds it.
+    _open_run(transcripts, "run-audio-ddd", "audio")
+    _audio_attempt(connection, "run-audio-ddd", parts[("BV1DDD", 0)])
+
+    # BV1FFF:p0 — one failed subtitle attempt: the outcome the audio queue also
+    # accepts, so the newest evidence carries an error code.
+    _open_run(transcripts, "run-sub-fff", "subtitle")
+    transcripts.record_subtitle_attempt(
+        run_id="run-sub-fff",
+        video_part_id=parts[("BV1FFF", 0)],
+        outcome="failed",
+        error_code="risk_control",
+        started_at=1_100,
+        finished_at=1_200,
+    )
+    return parts, MediaQueueRepository(connection)
+
+
+@pytest.fixture
+def queue_store(tmp_root):
+    """A seeded store with its queue repository; the connection is closed last."""
+    connection = open_database(tmp_root)
+    try:
+        yield connection, *_seed(connection)
+    finally:
+        connection.close()
+
+
+def test_queue_gap_literal_matches_its_validation_set():
+    """The three queue names and their enumeration set are one contract."""
+    assert sorted(get_args(QueueGap)) == [
+        "missing_audio",
+        "missing_subtitle",
+        "missing_transcript",
+    ]
+    assert sorted(ALLOWED_QUEUE_GAPS) == sorted(get_args(QueueGap))
+
+
+def test_each_gap_holds_exactly_the_parts_its_view_defines(queue_store):
+    """Membership comes from the view; the repository adds no predicate."""
+    _connection, parts, repository = queue_store
+    assert len(parts) == len(_PARTS)
+
+    members = {
+        gap: [item.work_id for item in repository.list_queue_gaps(gap=gap)]
+        for gap in sorted(ALLOWED_QUEUE_GAPS)
+    }
+    # BV1AAA:p0 and BV1EEE:p0 have no evidence at all, BV1AAA:p1 was attempted
+    # and listed nothing, BV1BBB:p0 was reached on the audio route; BV1CCC:p0
+    # holds a transcript and belongs to no queue.
+    assert members["missing_subtitle"] == [
+        "BV1AAA:p0",
+        "BV1AAA:p1",
+        "BV1EEE:p0",
+        "BV1BBB:p0",
+        "BV1FFF:p0",
+    ]
+    # Only the part whose newest subtitle attempt is a terminal "no caption"
+    # outcome is queued for audio — and it carries no audio attempt yet.
+    assert members["missing_audio"] == ["BV1AAA:p1", "BV1FFF:p0"]
+    # The gone part is here and nowhere else: this view does not filter status.
+    assert members["missing_transcript"] == ["BV1BBB:p0", "BV1DDD:p0"]
+
+    assert all(
+        isinstance(item, QueueGapItem)
+        for item in repository.list_queue_gaps(gap="missing_subtitle")
+    )
+
+
+def test_ordering_is_pubdate_desc_then_bvid_then_page(queue_store):
+    """The repository, not the view, imposes the locked work order."""
+    _connection, _parts, repository = queue_store
+    for gap, expected in (
+        ("missing_subtitle", ["BV1AAA:p0", "BV1AAA:p1", "BV1EEE:p0", "BV1BBB:p0", "BV1FFF:p0"]),
+        ("missing_transcript", ["BV1BBB:p0", "BV1DDD:p0"]),
+    ):
+        items = repository.list_queue_gaps(gap=gap)
+        keys = [(item.pubdate, item.bvid, item.page_index) for item in items]
+        assert keys == sorted(keys, key=lambda key: (-key[0], key[1], key[2]))
+        assert [item.work_id for item in items] == expected
+
+    # The tie inside one publication second is broken by bvid first.
+    assert [
+        (item.bvid, item.page_index)
+        for item in repository.list_queue_gaps(gap="missing_subtitle")
+    ][:3] == [("BV1AAA", 0), ("BV1AAA", 1), ("BV1EEE", 0)]
+
+
+def test_bvid_and_page_filters_narrow_the_read(queue_store):
+    """Each filter adds one predicate and never widens the queue."""
+    _connection, _parts, repository = queue_store
+
+    assert [
+        item.work_id
+        for item in repository.list_queue_gaps(gap="missing_subtitle", bvid="BV1AAA")
+    ] == ["BV1AAA:p0", "BV1AAA:p1"]
+    assert [
+        item.work_id
+        for item in repository.list_queue_gaps(gap="missing_subtitle", page=1)
+    ] == ["BV1AAA:p1"]
+    assert [
+        item.work_id
+        for item in repository.list_queue_gaps(
+            gap="missing_subtitle", bvid="BV1AAA", page=1
+        )
+    ] == ["BV1AAA:p1"]
+    # A video the queue does not hold — here one whose part has a transcript —
+    # answers an empty list rather than an invented row.
+    assert repository.list_queue_gaps(gap="missing_subtitle", bvid="BV1CCC") == []
+    assert [
+        item.work_id
+        for item in repository.list_queue_gaps(gap="missing_audio", page=1)
+    ] == ["BV1AAA:p1"]
+    assert repository.list_queue_gaps(gap="missing_audio", page=4) == []
+
+
+def test_limit_bounds_the_ordered_page(queue_store):
+    """``limit`` takes the head of the locked order, never a fresh sample."""
+    _connection, _parts, repository = queue_store
+    assert [
+        item.work_id
+        for item in repository.list_queue_gaps(gap="missing_subtitle", limit=2)
+    ] == ["BV1AAA:p0", "BV1AAA:p1"]
+    assert [
+        item.work_id
+        for item in repository.list_queue_gaps(gap="missing_subtitle", limit=1)
+    ] == ["BV1AAA:p0"]
+    assert len(repository.list_queue_gaps(gap="missing_subtitle")) == 5
+
+
+def test_gap_and_limit_validation_follow_the_module_rule(queue_store):
+    """A wrong type is a ``TypeError``; a wrong value is a ``ValueError``."""
+    _connection, _parts, repository = queue_store
+
+    with pytest.raises(ValueError, match="gap must be one of"):
+        repository.list_queue_gaps(gap="missing_asr")  # type: ignore[arg-type]
+    with pytest.raises(TypeError, match="gap must be a string"):
+        repository.list_queue_gaps(gap=None)  # type: ignore[arg-type]
+
+    for bad in (0, -1):
+        with pytest.raises(ValueError, match="limit must be a positive integer"):
+            repository.list_queue_gaps(gap="missing_subtitle", limit=bad)
+    # ``bool`` is an ``int`` in Python; it is still not a limit.
+    for bad in (True, False, "2", 1.5):
+        with pytest.raises(TypeError, match="limit must be an integer or None"):
+            repository.list_queue_gaps(gap="missing_subtitle", limit=bad)
+
+
+def test_count_queue_gaps_reports_all_three_queues(queue_store):
+    """Every queue answers a size, a drained one included."""
+    _connection, _parts, repository = queue_store
+    counts = repository.count_queue_gaps()
+    assert counts == {
+        "missing_subtitle": 5,
+        "missing_audio": 2,
+        "missing_transcript": 2,
+    }
+    assert sorted(counts) == sorted(ALLOWED_QUEUE_GAPS)
+    # The counts agree with the unfiltered reads, key for key.
+    for gap in ALLOWED_QUEUE_GAPS:
+        assert counts[gap] == len(repository.list_queue_gaps(gap=gap))
+
+
+def test_count_queue_gaps_reports_zero_for_a_drained_store(tmp_root):
+    """An empty queue is a size, not a missing key."""
+    connection = open_database(tmp_root)
+    try:
+        repository = MediaQueueRepository(connection)
+        assert repository.count_queue_gaps() == {
+            "missing_subtitle": 0,
+            "missing_audio": 0,
+            "missing_transcript": 0,
+        }
+        assert sorted(repository.count_queue_gaps()) == sorted(ALLOWED_QUEUE_GAPS)
+        assert repository.list_queue_gaps(gap="missing_subtitle") == []
+        assert repository.list_queue_gaps(gap="missing_audio", limit=1) == []
+    finally:
+        connection.close()
+
+
+def test_constructor_requires_a_validated_connection_and_the_schema(tmp_root):
+    """The constructor enforces the same preconditions as its siblings."""
+    connection = open_database(tmp_root)
+    try:
+        # A connection without the row factory is rejected before any query.
+        raw = sqlite3.connect(":memory:")
+        try:
+            with pytest.raises(TypeError, match="row_factory"):
+                MediaQueueRepository(raw)
+        finally:
+            raw.close()
+
+        # A store without the transcript-schema contract fails closed with the
+        # bounded rebuild error, not a raw OperationalError.
+        connection.execute("DROP VIEW v_pending_subtitles")
+        with pytest.raises(SchemaContractError):
+            MediaQueueRepository(connection)
+    finally:
+        connection.close()
+
+
+def test_attempt_count_follows_the_gap_route_and_evidence_only_where_held(queue_store):
+    """Each entry counts its own route's attempts and reports the view's evidence."""
+    _connection, _parts, repository = queue_store
+
+    subtitle_entries = {
+        item.work_id: item
+        for item in repository.list_queue_gaps(gap="missing_subtitle")
+    }
+    # Two subtitle attempts on BV1AAA:p1; one on BV1FFF:p0; none elsewhere.
+    assert {work_id: item.attempt_count for work_id, item in subtitle_entries.items()} == {
+        "BV1AAA:p0": 0,
+        "BV1AAA:p1": 2,
+        "BV1EEE:p0": 0,
+        "BV1BBB:p0": 0,
+        "BV1FFF:p0": 1,
+    }
+    # The subtitle view exposes no attempt evidence column: absence, not zero.
+    assert all(
+        item.newest_outcome is None and item.newest_error_code is None
+        for item in subtitle_entries.values()
+    )
+
+    audio_entries = {
+        item.work_id: item
+        for item in repository.list_queue_gaps(gap="missing_audio")
+    }
+    # The audio queue counts audio attempts, so the two subtitle attempts on
+    # BV1AAA:p1 are not this queue's evidence.
+    assert {work_id: item.attempt_count for work_id, item in audio_entries.items()} == {
+        "BV1AAA:p1": 0,
+        "BV1FFF:p0": 0,
+    }
+    assert (
+        audio_entries["BV1AAA:p1"].newest_outcome,
+        audio_entries["BV1AAA:p1"].newest_error_code,
+    ) == ("no-subtitle", None)
+    assert (
+        audio_entries["BV1FFF:p0"].newest_outcome,
+        audio_entries["BV1FFF:p0"].newest_error_code,
+    ) == ("failed", "risk_control")
+
+    transcript_entries = {
+        item.work_id: item
+        for item in repository.list_queue_gaps(gap="missing_transcript")
+    }
+    # One audio attempt per part on that route; no evidence columns here either.
+    assert {
+        work_id: item.attempt_count for work_id, item in transcript_entries.items()
+    } == {"BV1BBB:p0": 1, "BV1DDD:p0": 1}
+    assert all(
+        item.newest_outcome is None and item.newest_error_code is None
+        for item in transcript_entries.values()
+    )
+    assert all(
+        isinstance(item.gap, str) and item.gap == "missing_transcript"
+        for item in transcript_entries.values()
+    )

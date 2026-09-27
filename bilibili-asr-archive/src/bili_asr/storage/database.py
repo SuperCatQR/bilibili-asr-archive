@@ -10,11 +10,12 @@ import math
 import os
 from pathlib import Path
 import sqlite3
-from typing import Iterable, Iterator, Sequence, TypeAlias
+from typing import ClassVar, Iterable, Iterator, Sequence, TypeAlias
 
 from .models import (
     ALLOWED_ATTEMPT_OUTCOMES,
     ALLOWED_CAPTION_SOURCE_KINDS,
+    ALLOWED_QUEUE_GAPS,
     ALLOWED_RUN_OUTCOMES,
     ALLOWED_SOURCE_KINDS,
     MAX_TIMELINE_MS,
@@ -23,6 +24,8 @@ from .models import (
     DiscoveryRecord,
     IngestionPageRecord,
     IngestionRunRecord,
+    QueueGap,
+    QueueGapItem,
     TranscriptRecord,
     TranscriptSegmentRecord,
     TranscriptWriteResult,
@@ -1370,8 +1373,204 @@ class TranscriptRepository:
         return "complete"
 
 
+class MediaQueueRepository:
+    """Read-only view over the three work queues the archive drains.
+
+    One typed entry per part a queue still holds, carrying the video context a
+    caller renders the queue with and the attempt evidence that explains why
+    the part is queued.  Every public method is a read: nothing here writes,
+    commits, or opens a transaction.
+
+    The relation is each view's own; the order is this class's.  The three gap
+    views declare no ``ORDER BY``, so a caller reading them directly would take
+    SQLite's row order as it comes — :meth:`list_queue_gaps` appends the locked
+    work order ``pubdate DESC, bvid ASC, page_index ASC`` to every read, and
+    that order is the only one the CLI may observe.  Membership is never
+    re-derived here either: a part is in a queue because the view's predicates
+    say so, and no argument to these methods reaches a part the view leaves
+    out.
+
+    The connection must come with ``row_factory = sqlite3.Row`` and
+    ``PRAGMA foreign_keys`` enabled — exactly the state :func:`open_database`
+    establishes — and must carry the transcript-schema contract, which is the
+    script the three gap views are defined in: the constructor rejects
+    anything else, so a caller that skipped :func:`require_subtitle_schema`
+    meets the bounded rebuild error instead of a raw
+    ``sqlite3.OperationalError`` from its first query.  The guard is the
+    contract's own object set, not this class's views — a database carrying
+    the contract but missing one gap view still answers
+    ``sqlite3.OperationalError`` for that one queue, which is the honest
+    report of a store that must be rebuilt.
+    """
+
+    _VIEW_BY_GAP: ClassVar[dict[str, str]] = {
+        "missing_subtitle": "v_missing_subtitle",
+        "missing_audio": "v_missing_audio",
+        "missing_transcript": "v_missing_transcript",
+    }
+    # The acquisition route each queue drains, and therefore the run kind the
+    # entry's ``attempt_count`` counts: a captionless part is re-attempted by a
+    # subtitle run, while a part with audio evidence is decoded by an audio
+    # run.  Counting one route's attempts while reading the other route's queue
+    # would answer a question no caller asked.
+    _KIND_BY_GAP: ClassVar[dict[str, str]] = {
+        "missing_subtitle": "subtitle",
+        "missing_audio": "audio",
+        "missing_transcript": "audio",
+    }
+
+    def __init__(self, connection: sqlite3.Connection):
+        _validate_connection(connection)
+        require_subtitle_schema(connection)
+        self.connection = connection
+
+    def list_queue_gaps(
+        self,
+        *,
+        gap: QueueGap,
+        limit: int | None = None,
+        bvid: str | None = None,
+        page: int | None = None,
+    ) -> list[QueueGapItem]:
+        """Return the parts one gap's queue holds, in the locked work order.
+
+        ``gap`` names the queue and is validated against the three the archive
+        drains; a fourth name raises ``ValueError`` rather than silently
+        reading nothing.  ``limit`` follows the module-wide read rule — a
+        non-integer or a ``bool`` raises ``TypeError``, a limit below ``1``
+        raises ``ValueError``, and ``None`` means unbounded.  ``bvid`` and
+        ``page`` each add one predicate when given, so a caller narrows the
+        queue to one video or one part; neither narrows the read when absent.
+
+        The order ``pubdate DESC, bvid ASC, page_index ASC`` is appended by
+        this method, not declared by the view: newest video first, and within
+        one publication second the bvid then the page index break the tie, so
+        the same store always answers the same sequence — page by page, which
+        is what makes ``limit`` a stable rotation through a queue instead of a
+        fresh sample of it.  ``attempt_count`` is counted per entry by run kind
+        (``'subtitle'`` for ``missing_subtitle``, ``'audio'`` for the other
+        two) over the returned rows only, in one grouped read per page rather
+        than one read per row.  Read-only: no write, no commit.
+        """
+        gap = _choice(gap, "gap", ALLOWED_QUEUE_GAPS)
+        if limit is not None:
+            if isinstance(limit, bool) or not isinstance(limit, int):
+                raise TypeError("limit must be an integer or None")
+            if limit < 1:
+                raise ValueError("limit must be a positive integer")
+        where_clauses: list[str] = []
+        parameters: list[object] = []
+        if bvid is not None:
+            where_clauses.append("bvid = ?")
+            parameters.append(_text(bvid, "bvid"))
+        if page is not None:
+            where_clauses.append("page_index = ?")
+            parameters.append(_integer(page, "page_index", minimum=0))
+        query = f"SELECT * FROM {self._VIEW_BY_GAP[gap]}"
+        if where_clauses:
+            query += " WHERE " + " AND ".join(where_clauses)
+        query += " ORDER BY pubdate DESC, bvid ASC, page_index ASC"
+        if limit is not None:
+            query += " LIMIT ?"
+            parameters.append(limit)
+        rows = self.connection.execute(query, parameters).fetchall()
+        counts = self._attempt_counts(
+            [int(row["video_part_id"]) for row in rows], self._KIND_BY_GAP[gap]
+        )
+        return [
+            self._gap_item(row, gap, counts.get(int(row["video_part_id"]), 0))
+            for row in rows
+        ]
+
+    def count_queue_gaps(self) -> dict[QueueGap, int]:
+        """Count the parts each of the three queues holds, all three always.
+
+        ``0`` is reported rather than omitted: a caller renders three queue
+        sizes, and a queue that drained completely is a size, not a missing
+        key.  The keys come back in the declaration order of the view table
+        above, so a caller iterates the mapping without re-sorting it.
+        Read-only: no write, no commit.
+        """
+        return {
+            gap: int(
+                self.connection.execute(
+                    f"SELECT COUNT(*) FROM {view}"
+                ).fetchone()[0]
+            )
+            for gap, view in self._VIEW_BY_GAP.items()
+        }
+
+    @staticmethod
+    def _gap_item(row: sqlite3.Row, gap: str, attempt_count: int) -> QueueGapItem:
+        """Map one view row to one typed queue entry, whatever the view holds.
+
+        One mapper serves all three views.  The shared eight-column prefix is
+        read by name for every one of them; the newest-attempt evidence is read
+        only when the row carries the column at all, which the row's own
+        ``keys()`` answers — so the one gap view that exposes the columns
+        reports them, and the two that do not report ``None`` instead of
+        failing the read that a captionless part must still complete.
+        """
+        columns = set(row.keys())
+
+        def evidence(column: str) -> str | None:
+            """Answer one evidence column's value, or None when absent."""
+            if column not in columns:
+                return None
+            return None if row[column] is None else str(row[column])
+
+        return QueueGapItem(
+            work_id=str(row["work_id"]),
+            bvid=str(row["bvid"]),
+            page_index=int(row["page_index"]),
+            gap=gap,
+            pubdate=int(row["pubdate"]),
+            video_title=str(row["video_title"]),
+            duration_ms=int(row["duration_ms"]),
+            newest_outcome=evidence("newest_outcome"),
+            newest_error_code=evidence("newest_error_code"),
+            attempt_count=attempt_count,
+        )
+
+    def _attempt_counts(
+        self, video_part_ids: Sequence[int], kind: str
+    ) -> dict[int, int]:
+        """Count each named part's attempts on one acquisition route.
+
+        One grouped read for the whole page instead of one read per entry: the
+        ids are passed in chunks of at most ``_PUBDATE_CHUNK`` parameters for
+        the same reason :meth:`TranscriptRepository.read_video_pubdates` chunks
+        its bvids — the queue is bounded by the store rather than by this
+        module, and the driver bounds one statement.  A part with no attempt on
+        that route is absent from the answer rather than present with ``0``, so
+        the caller owns what an unattempted part counts as.  Read-only.
+        """
+        if not video_part_ids:
+            return {}
+        counts: dict[int, int] = {}
+        for start in range(0, len(video_part_ids), _PUBDATE_CHUNK):
+            chunk = video_part_ids[start : start + _PUBDATE_CHUNK]
+            placeholders = ", ".join("?" * len(chunk))
+            counts.update(
+                {
+                    int(row["video_part_id"]): int(row["attempts"])
+                    for row in self.connection.execute(
+                        "SELECT aa.video_part_id AS video_part_id, "
+                        "COUNT(*) AS attempts "
+                        "FROM acquisition_attempts AS aa "
+                        "JOIN acquisition_runs AS ar ON ar.run_id = aa.run_id "
+                        f"WHERE ar.kind = ? AND aa.video_part_id IN ({placeholders}) "
+                        "GROUP BY aa.video_part_id",
+                        (kind, *chunk),
+                    ).fetchall()
+                }
+            )
+        return counts
+
+
 __all__ = [
     "DatabaseConnection",
+    "MediaQueueRepository",
     "MetadataRepository",
     "SchemaContractError",
     "TranscriptRepository",
