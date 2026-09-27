@@ -35,7 +35,7 @@ import shutil
 import subprocess
 import tempfile
 from dataclasses import asdict, dataclass, replace
-from typing import Any, Callable, NamedTuple
+from typing import Any, Callable, Iterable, NamedTuple
 
 DEFAULT_MODEL = "Qwen/Qwen3-ASR-1.7B-hf"
 DEFAULT_ALIGNER_MODEL = "Qwen/Qwen3-ForcedAligner-0.6B-hf"
@@ -288,10 +288,21 @@ class ASRConfig:
 
     model_name: str
     aligner_name: str = DEFAULT_ALIGNER_MODEL
+    #: Free-form context admitted for the decoder prompt.  Terms are admitted
+    #: only by ``evidence_guard_hotwords``; the field stays a plain tuple so the
+    #: provenance record and the redaction path are unchanged.
+    evidence_texts: tuple[str, ...] = ()
     model_revision: str | None = None
     device: str = "cuda"
     language: str | None = None
-    hotwords: tuple[str, ...] = DEFAULT_HOTWORDS
+    # 2026-09-28 governance ruling (plan 20260928-hotword-injection-governance,
+    # residual 20260922-proofread-wave R1): speculative seeding is off.  No term
+    # enters the decoder prompt unless evidence-based seeding admits it (see
+    # ``evidence_guard_hotwords``); the shipped default is therefore empty and
+    # ``BILI_ASR_HOTWORDS`` supplies operator-declared terms that pass the same
+    # guard.  ``DEFAULT_HOTWORDS`` is retained as the documented candidate list
+    # for the pending per-token keep/drop measurement.
+    hotwords: tuple[str, ...] = ()
     chunk_seconds: float = DEFAULT_CHUNK_SECONDS
     offline: bool = True
     local_source: str = "configured-local"
@@ -319,6 +330,16 @@ class ASRConfig:
             not isinstance(term, str) or not term.strip() for term in self.hotwords
         ):
             raise ValueError("hotwords must be a tuple of non-empty strings")
+        if not isinstance(self.evidence_texts, tuple) or any(
+            not isinstance(text, str) for text in self.evidence_texts
+        ):
+            raise ValueError("evidence_texts must be a tuple of strings")
+        admitted, dropped = evidence_guard_hotwords(
+            self.hotwords, self.evidence_texts
+        )
+        if admitted != self.hotwords:
+            object.__setattr__(self, "hotwords", admitted)
+        object.__setattr__(self, "hotwords_dropped", dropped)
         if not isinstance(self.offline, bool):
             raise ValueError("offline must be a bool")
         if not isinstance(self.local_source, str) or not self.local_source.strip():
@@ -364,6 +385,42 @@ def _extra_hotwords(environment_value: str | None) -> tuple[str, ...]:
         if term and term not in terms and term not in DEFAULT_HOTWORDS:
             terms.append(term)
     return tuple(terms)
+
+
+def evidence_guard_hotwords(
+    candidates: Iterable[str],
+    evidence_texts: Iterable[str],
+) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    """Evidence-based hotword guard (2026-09-28 governance ruling).
+
+    A candidate term may reach the decoder prompt only if it occurs in at least
+    one of ``evidence_texts`` — the run's own first-pass transcript or the
+    paired AI-subtitle text.  Speculative seeding is the insertion-error source
+    recorded as residual ``20260922-proofread-wave R1`` (hotword tokens observed
+    in output where the audio says something else), so the default path seeds
+    nothing: ``default_config()`` ships ``hotwords=()`` and operator-declared
+    ``BILI_ASR_HOTWORDS`` terms pass through this same guard at dispatch time.
+
+    The guard is pure string containment — no model calls, no tokenization.
+    CJK terms are matched as-is (a hotword list entry is already the smallest
+    meaningful unit); substring containment is the deliberate semantics: a term
+    that appears anywhere in the evidence is a term this run plausibly needs.
+
+    Returns ``(admitted, dropped)`` in candidate order, de-duplicated, with the
+    drop list ledger-visible at the dispatch site.
+    """
+    seen: set[str] = set()
+    ordered: list[str] = []
+    for term in candidates:
+        term = term.strip()
+        if term and term not in seen:
+            seen.add(term)
+            ordered.append(term)
+    haystack = "\n".join(evidence_texts)
+    admitted = tuple(term for term in ordered if term in haystack)
+    dropped = tuple(term for term in ordered if term not in haystack)
+    return admitted, dropped
+
 
 
 def default_config() -> ASRConfig:
@@ -1019,6 +1076,11 @@ class ASRRunner:
         """Drop the owned model pair.  The counters are monotonic and are **not** reset."""
 
         self._models = None
+
+    @property
+    def hotwords_dropped(self) -> tuple[str, ...]:
+        """Terms the evidence guard refused for this run (ledger-visible)."""
+        return getattr(self.config, "hotwords_dropped", ())
 
     def provenance(self) -> dict[str, str]:
         """The redaction-safe provenance of this runner's configuration."""

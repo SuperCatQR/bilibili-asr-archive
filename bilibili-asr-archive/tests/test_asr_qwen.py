@@ -502,7 +502,11 @@ def test_default_config_resolves_the_declared_language_and_the_prompt_terms(monk
     monkeypatch.setenv("BILI_ASR_CHUNK_SECONDS", "90")
     config = asr.default_config()
     assert config.language == "Chinese"
-    assert "新词" in config.hotwords and config.hotwords.count("攻势") == 1
+    # 2026-09-28 governance ruling: the default config seeds nothing (empty
+    # hotwords); operator env terms are carried on hotwords_dropped until an
+    # evidence text admits them at dispatch time.
+    assert config.hotwords == ()
+    assert "新词" in config.hotwords_dropped and config.hotwords_dropped.count("攻势") == 1
     assert config.chunk_seconds == 90.0
 
 
