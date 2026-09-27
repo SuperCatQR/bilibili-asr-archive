@@ -2354,8 +2354,33 @@ def _cmd_asr(args: argparse.Namespace) -> int:
                     audio_base = _audio_base_holding(
                         args.artifact_roots, os.fspath(declared)
                     )
+                    # Evidence-based seeding (governance ruling 2026-09-28, plan
+                    # 20260928-hotword-injection-governance): the paired AI-subtitle
+                    # text and the run's own first-pass transcript are the only
+                    # texts that may admit a hotword.  Pass 1 runs unguarded; pass 2
+                    # is seeded with the tokens pass 1 produced.  Dropped tokens are
+                    # recorded as ``hotword_dropped_no_evidence`` in the provenance.
+                    subtitle_data_for_evidence = (
+                        _subtitle_segments(args.artifact_roots, entry)
+                        if status == "subtitle_done"
+                        else None
+                    )
+                    paired_subtitle_text = (
+                        "".join(str(seg.get("text", "")) for seg in subtitle_data_for_evidence[0])
+                        if subtitle_data_for_evidence is not None
+                        else None
+                    )
+                    runner.set_hotword_evidence(
+                        evidence_text=None, paired_subtitle_text=paired_subtitle_text
+                    )
                     with confined_audio_file(audio_base, os.fspath(declared)) as safe_audio:
-                        segments = runner.transcribe(safe_audio)
+                        first_pass = runner.transcribe(safe_audio)
+                    transcript_text = "".join(str(seg.get("text", "")) for seg in first_pass)
+                    if runner.rebuild_hotwords_from_first_pass(transcript_text):
+                        with confined_audio_file(audio_base, os.fspath(declared)) as safe_audio:
+                            segments = runner.transcribe(safe_audio)
+                    else:
+                        segments = first_pass
                     asr_count.value += 1
                     provenance = runner.provenance()
                 paths = archive.write_archive(

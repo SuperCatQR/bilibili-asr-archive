@@ -200,6 +200,17 @@ vocabulary plus the Latin-script terms it speaks — the decoder otherwise
 shatters them (measured on the retired FunASR-Nano checkpoint: "International
 Employment Matters Tribunal" came out `tryBUNAL` / `FOR EMP LOYMENT MAT TERS`).
 
+**2026-09-28 governance ruling** (plan `20260928-hotword-injection-governance`,
+residual `20260922-proofread-wave · R1`): the built-in list is **empty while the
+per-token keep/drop measurement is pending operator re-run** — no speculative
+seeding. A term reaches the decoder prompt only through *evidence-based
+seeding*: it must occur in the run's own first-pass transcript or the paired
+AI-subtitle text (`asr.evidence_guard_hotwords`). The run transcribes once
+unguarded, then re-seeds the prompt with only the tokens that first pass
+produced; tokens with no evidence occurrence are dropped and recorded in the
+archive provenance as `hotword_dropped_no_evidence`. The measured-candidate
+tokens this list carried are preserved under `MEASURED_HOTWORD_CANDIDATES`.
+
 **How the list reaches the model changed with the engine.** Qwen3-ASR takes it as free-form `prompt`
 context, not as a decode-time bias, so **every measurement quoted below belongs to the FunASR era and
 does not carry over unmeasured**: the 95 %-identical with-and-without comparison, the ITEM/AITEM
