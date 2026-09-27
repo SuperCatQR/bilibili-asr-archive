@@ -159,6 +159,13 @@ def build_parser() -> argparse.ArgumentParser:
         help=_KEEP_AUDIO_HELP,
     )
     asr_cmd.add_argument("--limit", type=int, default=None)
+    asr_cmd.add_argument(
+        "--queue-source",
+        choices=("store", "manifest"),
+        default="store",
+        help="Where to read the work queue: archive.db gap views (default) "
+             "or the manifest (deprecated rollback)",
+    )
 
     pilot = subparsers.add_parser(
         "pilot",
@@ -193,6 +200,13 @@ def build_parser() -> argparse.ArgumentParser:
     pilot.add_argument(
         "--sessdata", default=None,
         help="SESSDATA cookie for Path B (or env BILI_SESSDATA); not stored",
+    )
+    pilot.add_argument(
+        "--queue-source",
+        choices=("store", "manifest"),
+        default="store",
+        help="Where to read the work queue: archive.db gap views (default) "
+             "or the manifest (deprecated rollback)",
     )
 
     probe = subparsers.add_parser(
@@ -268,6 +282,13 @@ def build_parser() -> argparse.ArgumentParser:
     dl.add_argument(
         "--limit", type=int, default=None,
         help="Stop after N videos (smoke runs)",
+    )
+    dl.add_argument(
+        "--queue-source",
+        choices=("store", "manifest"),
+        default="store",
+        help="Where to read the work queue: archive.db gap views (default) "
+             "or the manifest (deprecated rollback)",
     )
 
     derive = subparsers.add_parser(
@@ -355,6 +376,13 @@ def build_parser() -> argparse.ArgumentParser:
     run_cmd.add_argument(
         "--sessdata", default=None,
         help="SESSDATA cookie for live stages (or env BILI_SESSDATA); not stored",
+    )
+    run_cmd.add_argument(
+        "--queue-source",
+        choices=("store", "manifest"),
+        default="store",
+        help="Where to read the queue scopes (pending/failed): archive.db gap "
+             "views (default) or the manifest (deprecated rollback)",
     )
 
     schedule_cmd = subparsers.add_parser(
@@ -678,6 +706,79 @@ def _is_excluded(entry: dict | None) -> bool:
     return bool(
         entry.get("unresolved") or entry.get("excluded_from_page_processing")
     )
+
+
+def _queue_source_is_manifest(args: argparse.Namespace) -> bool:
+    """Whether the operator pinned the pre-cutover manifest queue.
+
+    ``--queue-source manifest`` is the documented rollback; it preserves the
+    manifest-scan behaviour exactly and prints one deprecation line so the
+    choice is auditable.  Every other mode reads the store gap views.
+    """
+
+    return getattr(args, "queue_source", "store") == "manifest"
+
+
+def _store_audio_todo(args: argparse.Namespace):
+    """The download-audio work list from the store's ``v_missing_audio`` view.
+
+    Returns ``(todo, queue_source, error)``: ``todo`` is the ``(work_id,
+    entry)`` rows in the repository's locked order, ``queue_source`` is the
+    open :class:`~bili_asr.services.queue_source.QueueSource` the caller must
+    close, and ``error`` is a bounded line already printed when the store is
+    unusable.  A part holding subtitles is never selected: the view only holds
+    parts whose caption route is exhausted and that carry no audio evidence —
+    the inversion of the pre-cutover root cause.
+    """
+
+    from .services import queue_source as qs
+
+    source = qs.open_queue_source(args.archive_root)
+    if source is None:
+        print(
+            f"download-audio: no archive database at {args.archive_root}; "
+            "run fetch-meta to create it",
+            file=sys.stderr,
+        )
+        return None, None, True
+    bvid = page = None
+    if args.bvid:
+        from .page_identity import parse_work_id
+
+        try:
+            bvid, page = parse_work_id(args.bvid)
+        except ValueError:
+            bvid, page = args.bvid, None
+    selection = source.select_audio_queue(bvid=bvid, page=page, limit=args.limit)
+    todo = [(key, entry) for key, entry in selection.entries.items()]
+    return todo, source, False
+
+
+def _store_transcript_todo(args: argparse.Namespace, *, command: str):
+    """The asr work list from the store's ``v_missing_transcript`` view."""
+
+    from .services import queue_source as qs
+
+    source = qs.open_queue_source(args.archive_root)
+    if source is None:
+        print(
+            f"{command}: no archive database at {args.archive_root}; "
+            "run fetch-meta to create it",
+            file=sys.stderr,
+        )
+        return None, None, True
+    bvid = page = None
+    selector = getattr(args, "bvid", None)
+    if selector:
+        from .page_identity import parse_work_id
+
+        try:
+            bvid, page = parse_work_id(selector)
+        except ValueError:
+            bvid, page = selector, None
+    selection = source.select_transcript_queue(bvid=bvid, page=page, limit=args.limit)
+    todo = [(key, entry) for key, entry in selection.entries.items()]
+    return todo, source, False
 
 
 _MAX_DISPLAYED_PENDING_PARTS = 20
@@ -1540,37 +1641,60 @@ def _cmd_publish_transcripts(args: argparse.Namespace) -> int:
 def _cmd_download_audio(args: argparse.Namespace) -> int:
     from . import audio, bili_client
     from .manifest import ManifestStore
+    from .services import queue_source as qs
 
     if not args.missing_subs and not args.bvid:
         print("download-audio: select targets with --missing-subs "
               "and/or --bvid", file=sys.stderr)
         return 1
 
-    store = ManifestStore(root=args.archive_root)
-    entries = store.load()
-    if args.bvid:
-        selected = _todo_for_bvid(store, args.bvid, entries)
-        if selected is None:
-            print(f"{args.bvid}: multi-part video needs an explicit page",
-                  file=sys.stderr)
-            return 1
-        todo = selected
+    use_manifest = _queue_source_is_manifest(args)
+    if use_manifest:
+        qs.print_manifest_deprecation()
+
+    # The store gap views are the default queue input; a part holding AI
+    # subtitles is never selected (its caption route is not exhausted, so it
+    # is outside v_missing_audio) — the inversion of the pre-cutover root
+    # cause.  The manifest path is the rollback and is byte-for-byte the old
+    # behaviour.
+    queue_conn = None
+    queue_source = None
+    if use_manifest:
+        store = ManifestStore(root=args.archive_root)
+        entries = store.load()
+        if args.bvid:
+            selected = _todo_for_bvid(store, args.bvid, entries)
+            if selected is None:
+                print(f"{args.bvid}: multi-part video needs an explicit page",
+                      file=sys.stderr)
+                return 1
+            todo = selected
+            if not todo:
+                print(
+                    f"{args.bvid}: unresolved; not assigned to a page",
+                    file=sys.stderr,
+                )
+                return 1
+        else:
+            todo = [
+                (key, e) for key, e in entries.items()
+                if e.get("status") == "needs_audio" and not _is_excluded(e)
+            ]
+        if args.limit is not None:
+            todo = todo[: args.limit]
         if not todo:
-            print(
-                f"{args.bvid}: unresolved; not assigned to a page",
-                file=sys.stderr,
-            )
-            return 1
+            print("download-audio: no needs_audio entries in the manifest")
+            return 0
     else:
-        todo = [
-            (key, e) for key, e in entries.items()
-            if e.get("status") == "needs_audio" and not _is_excluded(e)
-        ]
-    if args.limit is not None:
-        todo = todo[: args.limit]
-    if not todo:
-        print("download-audio: no needs_audio entries in the manifest")
-        return 0
+        store = ManifestStore(root=args.archive_root)
+        todo, queue_source, failed = _store_audio_todo(args)
+        if failed:
+            return 1
+        queue_conn = queue_source.connection
+        if not todo:
+            print("download-audio: queue empty (no parts need audio)")
+            queue_conn.close()
+            return 0
 
     sessdata = _resolve_sessdata(args)
     client = bili_client.BiliClient(sessdata=sessdata)
@@ -1617,6 +1741,7 @@ def _cmd_download_audio(args: argparse.Namespace) -> int:
             )
             if confined is None:
                 raise ValueError("invalid audio path")
+            absolute_audio = os.fspath(confined)
             final = os.path.relpath(confined, os.fspath(write_base))
         except bili_client.AmbiguousPageError:
             failed += 1
@@ -1666,9 +1791,22 @@ def _cmd_download_audio(args: argparse.Namespace) -> int:
             continue
         ok += 1
         print(f"{label}: audio downloaded -> audio_ok ({final})")
+        # Store write-back: the acquisition is positive audio evidence, taking
+        # the part out of v_missing_audio (contract §4c/§4d).  The manifest
+        # row the downloader already upserted stays the attempt ledger.
+        if not use_manifest and queue_source is not None:
+            qs.mark_audio_acquired(
+                queue_source,
+                bvid=entry.get("bvid", label),
+                page_index=int(entry.get("page_index") or 0),
+                audio_path=absolute_audio,
+                declared_relative=final,
+            )
         if key != todo[-1][0]:
             time.sleep(3.0)
 
+    if queue_conn is not None:
+        queue_conn.close()
     print(f"download-audio: {ok} audio_ok"
           + (f", {failed} failed" if failed else ""))
     if risk_interrupted:
@@ -2261,33 +2399,57 @@ def _print_in_process_constructions(
 def _cmd_asr(args: argparse.Namespace) -> int:
     from . import archive, asr
     from .manifest import ManifestStore
+    from .services import queue_source as qs
 
-    store = ManifestStore(root=args.archive_root)
-    entries = store.load()
-    if args.bvid:
-        selected = _todo_for_bvid(store, args.bvid, entries)
-        if selected is None:
-            print(f"{args.bvid}: multi-part video needs an explicit page",
-                  file=sys.stderr)
+    use_manifest = _queue_source_is_manifest(args)
+    if use_manifest:
+        qs.print_manifest_deprecation()
+
+    # Store source (default): the transcript queue is v_missing_transcript —
+    # parts with audio evidence and no stored transcript.  A part holding AI
+    # subtitles is satisfied in every queue and never reaches this branch.
+    queue_conn = None
+    queue_source = None
+    if not use_manifest:
+        store = ManifestStore(root=args.archive_root)
+        rows, queue_source, failed = _store_transcript_todo(args, command="asr")
+        if failed:
             return 1
-        if not selected:
-            print(
-                f"{args.bvid}: unresolved; not assigned to a page",
-                file=sys.stderr,
-            )
-            return 1
-        todo = [e for _key, e in selected]
-    elif args.pending:
-        todo = [
-            e for e in entries.values()
-            if e.get("status") in {"subtitle_done", "audio_ok"}
-            and not _is_excluded(e)
-        ]
+        queue_conn = queue_source.connection
+        todo = [e for _key, e in rows] if rows else []
+        if args.limit is not None:
+            todo = todo[:args.limit]
+        if not todo:
+            print("asr: queue empty (no parts need transcription)")
+            queue_conn.close()
+            return 0
     else:
-        print("asr: select targets with --pending or --bvid", file=sys.stderr)
-        return 1
-    if args.limit is not None:
-        todo = todo[:args.limit]
+        store = ManifestStore(root=args.archive_root)
+        entries = store.load()
+        if args.bvid:
+            selected = _todo_for_bvid(store, args.bvid, entries)
+            if selected is None:
+                print(f"{args.bvid}: multi-part video needs an explicit page",
+                      file=sys.stderr)
+                return 1
+            if not selected:
+                print(
+                    f"{args.bvid}: unresolved; not assigned to a page",
+                    file=sys.stderr,
+                )
+                return 1
+            todo = [e for _key, e in selected]
+        elif args.pending:
+            todo = [
+                e for e in entries.values()
+                if e.get("status") in {"subtitle_done", "audio_ok"}
+                and not _is_excluded(e)
+            ]
+        else:
+            print("asr: select targets with --pending or --bvid", file=sys.stderr)
+            return 1
+        if args.limit is not None:
+            todo = todo[:args.limit]
     ok = failed = 0
     # One invocation is one run scope (D2.2): every audio item of this
     # selection shares one lazily-built runner, and the selection states what
@@ -2389,6 +2551,8 @@ def _cmd_asr(args: argparse.Namespace) -> int:
                     file=sys.stderr,
                 )
     finally:
+        if queue_conn is not None:
+            queue_conn.close()
         _print_in_process_constructions("asr", runner, asr_count.value)
         if runner is not None:
             runner.release()
@@ -2632,7 +2796,35 @@ def _cmd_pilot(args: argparse.Namespace) -> int:
     ledger = RunLedger(root=args.archive_root)
     cursor_store = MetaCursorStore(root=args.archive_root)
     store = ManifestStore(root=args.archive_root)
-    entries = store.load()
+    from .services import queue_source as qs
+
+    use_manifest = _queue_source_is_manifest(args)
+    if use_manifest:
+        qs.print_manifest_deprecation()
+        entries = store.load()
+    else:
+        # Store source: the pilot's work is the union of the audio queue
+        # (captionless, download→ASR) and the transcript queue (audio-backed,
+        # ASR directly).  A part holding subtitles is in neither.
+        source = qs.open_queue_source(args.archive_root)
+        if source is None:
+            print(
+                f"pilot: no archive database at {args.archive_root}; "
+                "run fetch-meta to create it",
+                file=sys.stderr,
+            )
+            return 1
+        try:
+            merged: dict[str, dict[str, Any]] = {}
+            for select in (
+                source.select_audio_queue(),
+                source.select_transcript_queue(),
+            ):
+                for key, entry in select.entries.items():
+                    merged[key] = entry
+            entries = merged
+        finally:
+            source.connection.close()
     last_api_error_code: int | str | None = None
     selected_work_ids: list[str] | None = None
 
@@ -2915,6 +3107,20 @@ def _run_scope_rows(store, entries: dict, scope: str):
         return None, "empty --scope"
     return rows, None
 
+def _store_first_scope_rows(store, entries: dict, scope: str):
+    """Campaign scope resolution: the store is the queue for ``pending``.
+
+    The batch chain cut to the store outright (contract §7) — no rollback
+    switch.  Every other scope (``failed`` and explicit selectors) still
+    resolves against the manifest and the coordinator's attempt ledger, which
+    the manifest write side owns.
+    """
+
+    if scope == "pending":
+        return _store_pending_rows(store.root, "campaign")
+    return _run_scope_rows(store, entries, scope)
+
+
 def _cmd_campaign(args: argparse.Namespace) -> int:
     from . import bili_client
     from .audio_budget import audio_cap_bytes
@@ -2931,7 +3137,7 @@ def _cmd_campaign(args: argparse.Namespace) -> int:
             offline=args.offline,
             max_audio_bytes=audio_cap_bytes(args.max_audio_gb),
             sleep=time.sleep,
-            scope_rows=_run_scope_rows,
+            scope_rows=_store_first_scope_rows,
             artifact_roots=args.artifact_roots,
             # R1: the runner is the only path to the coordinator's own reclaim, so a
             # `campaign` that did not forward this would leave its documented
@@ -3079,12 +3285,39 @@ def _write_run_record(
         records_existing=records_existing, coverage_summary=coverage_summary))
 
 
+def _store_pending_rows(archive_root: str, command: str):
+    """The pending work list from the store gap views, in coordinator row shape.
+
+    Returns ``(rows, error)``; ``error`` is ``None`` on success.  The store is
+    the sole queue input for the pending scope (contract §3): the manifest's
+    needs_audio/derived rows are never read to decide work.  A missing or
+    pre-transcript-schema store is the documented configuration error.
+    """
+
+    from .services import queue_source as qs
+
+    source = qs.open_queue_source(archive_root)
+    if source is None:
+        print(
+            f"{command}: no archive database at {archive_root}; "
+            "run fetch-meta to create it",
+            file=sys.stderr,
+        )
+        return None, "no archive database"
+    try:
+        merged = source.select_pending_scope()
+    finally:
+        source.connection.close()
+    return [(key, entry) for key, entry in merged.items()], None
+
+
 def _cmd_run(args: argparse.Namespace) -> int:
     from . import bili_client
     from .coordinator import ArchiveBusyError, RunCoordinator, archive_writer
     from .manifest import ManifestStore
     from .run_ledger import compute_coverage_summary, utc_now_iso
     from .audio_budget import SKIP_REASON, audio_cap_bytes
+    from .services import queue_source as qs
 
     started_at = utc_now_iso()
     store = ManifestStore(root=args.archive_root)
@@ -3092,10 +3325,19 @@ def _cmd_run(args: argparse.Namespace) -> int:
     if args.limit is not None and args.limit <= 0:
         print("run: --limit must be a positive integer", file=sys.stderr)
         return 1
-    rows, error = _run_scope_rows(store, entries, args.scope)
-    if error:
-        print(f"run: {error}", file=sys.stderr)
-        return 1
+    use_manifest = _queue_source_is_manifest(args)
+    if use_manifest:
+        qs.print_manifest_deprecation()
+    if not use_manifest and args.scope == "pending":
+        # Store-native pending scope: the gap views are the queue (Task 2).
+        rows, error = _store_pending_rows(args.archive_root, "run")
+        if error:
+            return 1
+    else:
+        rows, error = _run_scope_rows(store, entries, args.scope)
+        if error:
+            print(f"run: {error}", file=sys.stderr)
+            return 1
     if args.limit is not None:
         rows = rows[: args.limit]
     client = None
@@ -3232,10 +3474,17 @@ def _cmd_schedule(args: argparse.Namespace) -> int:
         if cap_error:
             print(f"schedule: {cap_error}", file=sys.stderr)
             return 1
-    rows, error = _run_scope_rows(store, entries, args.scope)
-    if error:
-        print(f"schedule: {error}", file=sys.stderr)
-        return 1
+    if args.scope == "pending":
+        # The batch chain (schedule/campaign) cut to the store outright
+        # (contract §7): no rollback switch, the gap views are the queue.
+        rows, error = _store_pending_rows(args.archive_root, "schedule")
+        if error:
+            return 1
+    else:
+        rows, error = _run_scope_rows(store, entries, args.scope)
+        if error:
+            print(f"schedule: {error}", file=sys.stderr)
+            return 1
 
     skip_ids: list[str] | None = None
     matching_resume = False

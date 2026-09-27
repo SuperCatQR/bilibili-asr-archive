@@ -490,7 +490,7 @@ def test_cli_run_pending_executes_stages_and_records_attempts(
     _stub_asr(monkeypatch)
     _patch_cli(monkeypatch, _cid_transport({sub.cid}))
 
-    rc = main(["run", "--scope", "pending", "--archive-root", tmp_root])
+    rc = main(["run", "--scope", "pending", "--queue-source", "manifest", "--queue-source", "manifest", "--archive-root", tmp_root])
     captured = capsys.readouterr()
     assert rc == 0, captured.err
 
@@ -520,7 +520,7 @@ def test_cli_run_rerun_skips_terminal_rows(tmp_root, monkeypatch, capsys):
     transport = _mixed_transport()
     _patch_cli(monkeypatch, transport)
 
-    assert main(["run", "--scope", "pending", "--archive-root", tmp_root]) == 0
+    assert main(["run", "--scope", "pending", "--queue-source", "manifest", "--queue-source", "manifest", "--archive-root", tmp_root]) == 0
     capsys.readouterr()
     manifest_path = os.path.join(tmp_root, "manifest", "manifest.jsonl")
     with open(manifest_path, encoding="utf-8") as fh:
@@ -530,7 +530,7 @@ def test_cli_run_rerun_skips_terminal_rows(tmp_root, monkeypatch, capsys):
         first_attempts = fh.read()
     first_probe_calls = [c for c in transport.calls if "player/wbi/v2" in c["url"]]
 
-    rc = main(["run", "--scope", "pending", "--archive-root", tmp_root])
+    rc = main(["run", "--scope", "pending", "--queue-source", "manifest", "--queue-source", "manifest", "--archive-root", tmp_root])
     captured = capsys.readouterr()
     assert rc == 0, captured.err
     assert "selected 0 row(s)" in captured.out
@@ -553,7 +553,7 @@ def test_cli_run_limit_bounds_batch(tmp_root, monkeypatch, capsys):
     transport = _mixed_transport()
     _patch_cli(monkeypatch, transport)
 
-    rc = main(["run", "--scope", "pending", "--limit", "1",
+    rc = main(["run", "--scope", "pending", "--queue-source", "manifest", "--queue-source", "manifest", "--limit", "1",
                "--archive-root", tmp_root])
     captured = capsys.readouterr()
     assert rc == 0, captured.err
@@ -580,7 +580,7 @@ def test_cli_run_per_item_failure_batch_continues(tmp_root, monkeypatch, capsys)
     asr_fakes.install(monkeypatch, fail_when=fail_for_a)
     _patch_cli(monkeypatch, _cid_transport(set()))  # no subtitles anywhere
 
-    rc = main(["run", "--scope", "pending", "--archive-root", tmp_root])
+    rc = main(["run", "--scope", "pending", "--queue-source", "manifest", "--queue-source", "manifest", "--archive-root", tmp_root])
     captured = capsys.readouterr()
     assert rc == 1
     loaded = ManifestStore(root=tmp_root).load()
@@ -654,7 +654,7 @@ def test_cli_run_gone_marks_terminal_and_continues(tmp_root, monkeypatch, capsys
     )
     _patch_cli(monkeypatch, transport)
 
-    rc = main(["run", "--scope", "pending", "--archive-root", tmp_root])
+    rc = main(["run", "--scope", "pending", "--queue-source", "manifest", "--queue-source", "manifest", "--archive-root", tmp_root])
     captured = capsys.readouterr()
     assert rc == 1
     loaded = ManifestStore(root=tmp_root).load()
@@ -671,7 +671,7 @@ def test_cli_run_offline_flag_skips_http_stages(tmp_root, monkeypatch, capsys):
     transport = _mixed_transport()
     _patch_cli(monkeypatch, transport)
 
-    rc = main(["run", "--scope", "pending", "--offline",
+    rc = main(["run", "--scope", "pending", "--queue-source", "manifest", "--queue-source", "manifest", "--offline",
                "--archive-root", tmp_root])
     captured = capsys.readouterr()
     # missing on-disk input -> scope not fully processed -> exit 1
@@ -693,7 +693,7 @@ def test_cli_run_appends_run_ledger_record(tmp_root, monkeypatch, capsys):
     _stub_asr(monkeypatch)
     _patch_cli(monkeypatch, _mixed_transport())
 
-    rc = main(["run", "--scope", "pending", "--archive-root", tmp_root])
+    rc = main(["run", "--scope", "pending", "--queue-source", "manifest", "--queue-source", "manifest", "--archive-root", tmp_root])
     assert rc == 0
     records = RunLedger(root=tmp_root).load()
     run_records = [r for r in records if r.get("command") == "run"]
@@ -717,6 +717,7 @@ _CHILD_TIMEOUT_S = 60.0
 def _run_argv(archive_root: str, *extra: str) -> list[str]:
     """The CLI invocation under test (`-u`: the banner must reach the pipe)."""
     return [sys.executable, "-u", "-m", "bili_asr", "run", "--scope", "pending",
+            "--queue-source", "manifest",
             "--max-audio-gb", "0.000001", *extra, "--archive-root", archive_root]
 
 
@@ -1092,7 +1093,7 @@ def test_run_offline_reprocesses_subtitle_raw_on_disk(
     transport = _mixed_transport()
     _patch_cli(monkeypatch, transport)
 
-    rc = main(["run", "--scope", "pending", "--offline",
+    rc = main(["run", "--scope", "pending", "--queue-source", "manifest", "--queue-source", "manifest", "--offline",
                "--archive-root", tmp_root])
     captured = capsys.readouterr()
     assert rc == 0, captured.err
@@ -1119,7 +1120,7 @@ def test_run_offline_reprocesses_audio_on_disk(tmp_root, monkeypatch, capsys):
     transport = _mixed_transport()
     _patch_cli(monkeypatch, transport)
 
-    rc = main(["run", "--scope", "pending", "--offline",
+    rc = main(["run", "--scope", "pending", "--queue-source", "manifest", "--queue-source", "manifest", "--offline",
                "--archive-root", tmp_root])
     captured = capsys.readouterr()
     assert rc == 0, captured.err
@@ -1149,7 +1150,7 @@ def test_run_offline_missing_input_skipped_with_reason_zero_http(
     transport = _mixed_transport()
     _patch_cli(monkeypatch, transport)
 
-    rc = main(["run", "--scope", "pending", "--offline",
+    rc = main(["run", "--scope", "pending", "--queue-source", "manifest", "--queue-source", "manifest", "--offline",
                "--archive-root", tmp_root])
     captured = capsys.readouterr()
     assert rc == 1
@@ -1203,7 +1204,7 @@ def test_run_failure_summary_and_exit_when_scope_not_processed(
     transport = _mixed_transport()
     _patch_cli(monkeypatch, transport)
 
-    rc = main(["run", "--scope", "pending", "--archive-root", tmp_root])
+    rc = main(["run", "--scope", "pending", "--queue-source", "manifest", "--queue-source", "manifest", "--archive-root", tmp_root])
     captured = capsys.readouterr()
     # live mode (no --offline): no HTTP routes hit because audio exists,
     # batch continues past the per-item failure
@@ -1255,7 +1256,7 @@ def test_run_download_failure_recorded_and_reselected_by_failed_scope(
     transport = _mixed_transport()
     _patch_cli(monkeypatch, transport)
 
-    rc = main(["run", "--scope", "pending", "--archive-root", tmp_root])
+    rc = main(["run", "--scope", "pending", "--queue-source", "manifest", "--queue-source", "manifest", "--archive-root", tmp_root])
     captured = capsys.readouterr()
     assert rc == 1
     attempts = AttemptLedger(tmp_root).load()
@@ -1300,7 +1301,7 @@ def test_run_offline_archive_write_failure_recorded(
     transport = _mixed_transport()
     _patch_cli(monkeypatch, transport)
 
-    rc = main(["run", "--scope", "pending", "--offline",
+    rc = main(["run", "--scope", "pending", "--queue-source", "manifest", "--queue-source", "manifest", "--offline",
                "--archive-root", tmp_root])
     captured = capsys.readouterr()
     assert rc == 1
@@ -1341,7 +1342,7 @@ def test_complete_bundle_retries_after_manifest_transition_failure(
 
     monkeypatch.setattr(ManifestStore, "upsert", fail_first_archived)
     assert main([
-        "run", "--scope", "pending", "--offline",
+        "run", "--scope", "pending", "--queue-source", "manifest", "--offline",
         "--archive-root", tmp_root,
     ]) == 1
     first_output = capsys.readouterr()
@@ -1358,7 +1359,7 @@ def test_complete_bundle_retries_after_manifest_transition_failure(
     assert archive_mod.archive_bundle_complete(tmp_root, published_paths)
 
     assert main([
-        "run", "--scope", "pending", "--offline",
+        "run", "--scope", "pending", "--queue-source", "manifest", "--offline",
         "--archive-root", tmp_root,
     ]) == 0
     capsys.readouterr()
@@ -1395,7 +1396,7 @@ def test_run_offline_asr_path_archive_write_failure_recorded(
     transport = _mixed_transport()
     _patch_cli(monkeypatch, transport)
 
-    rc = main(["run", "--scope", "pending", "--offline",
+    rc = main(["run", "--scope", "pending", "--queue-source", "manifest", "--queue-source", "manifest", "--offline",
                "--archive-root", tmp_root])
     captured = capsys.readouterr()
     assert rc == 1
@@ -1423,7 +1424,7 @@ def test_run_explicit_scope_rerun_of_terminal_row_is_idempotent_zero(
     transport = _mixed_transport()
     _patch_cli(monkeypatch, transport)
 
-    assert main(["run", "--scope", "pending", "--offline",
+    assert main(["run", "--scope", "pending", "--queue-source", "manifest", "--queue-source", "manifest", "--offline",
                  "--archive-root", tmp_root]) == 0
     capsys.readouterr()
     manifest_path = os.path.join(tmp_root, "manifest", "manifest.jsonl")
@@ -1456,7 +1457,7 @@ def test_run_non_positive_limit_is_usage_error(
     transport = _mixed_transport()
     _patch_cli(monkeypatch, transport)
 
-    rc = main(["run", "--scope", "pending", "--limit", "0",
+    rc = main(["run", "--scope", "pending", "--queue-source", "manifest", "--queue-source", "manifest", "--limit", "0",
                "--archive-root", tmp_root])
     captured = capsys.readouterr()
     assert rc == 1
