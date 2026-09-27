@@ -6,13 +6,14 @@ Two routes into one side-by-side table; no route is ground truth.
   next segment's ``start_ms`` exceeds the current block's ``end_ms`` by more
   than :data:`BLOCK_GAP_MS`.  Subtitles never define block boundaries — the
   2026-09-22 wave's 22.8% drift came from letting caption cues split blocks.
-* A block's *target span* runs from its first segment's start to the first gap
-  after it: either the next block's first segment start, or the last segment's
-  end.  Caption entries attach to exactly one block by interval overlap
-  (largest first, tie broken by earliest start).  An entry overlapping no
-  target span is *unassigned* — a counted route disagreement, never dropped
-  silently: 2026-09-22 showed the true gap count is ~0, and every unattached
-  bucket in that wave was a counting artifact, not a fact.
+* A block's *target span* runs from its first segment's start to the first
+  gap after it — the next block's first segment start, or, for the last
+  block, the silence up to the ~12 s plateau when its own VAD run ended
+  early.  Caption entries attach to exactly one block by interval overlap
+  (largest first, tie broken by earliest span start).  An entry overlapping
+  no target span is *unassigned* — a counted route disagreement, never
+  dropped silently: 2026-09-22 showed the true gap count is ~0, and every
+  unattached bucket in that wave was a counting artifact, not a fact.
 * Similarity between the block's ASR text and the concatenation of its caption
   entries is ``difflib.SequenceMatcher(autojunk=False)`` — the autojunk default
   was a documented 2026-09-18 trap that under-reports common-character
@@ -64,7 +65,6 @@ AGREE_THRESHOLD = 0.85
 MINOR_THRESHOLD = 0.75
 
 _WORK_SUBDIR = os.path.join(".tmp", "proofread-work")
-_CAPTION_SOURCE_KINDS = ("subtitle-cc", "subtitle-ai")
 
 _MARKER_RE = re.compile(r"\s*>>\s*([a-z-]+)(?::\s?(.*))?$")
 

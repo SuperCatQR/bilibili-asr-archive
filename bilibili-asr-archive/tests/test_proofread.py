@@ -172,7 +172,7 @@ def test_proofread_block_semantics_agree_minor_review(proofread_workspace):
                           (12000, 16000, "下面看一个实际发生的例子。"),
                           (16000, 20000, "这个例子说明了问题所在。"),
                           (30000, 34000, "所以回到最初的问题上来。")],
-                         HEAVY_CAPTIONS_MS)
+                         sorted(HEAVY_CAPTIONS_MS, key=lambda entry: entry[0]))
     decisions = {block.index: block.decision for block in align.blocks}
     # Measured against the landed aligner (autojunk=False, whole-run overlap
     # assignment, plateau spans): b1 0.735 review, b2 0.667 review (the extra
