@@ -10,7 +10,7 @@ import math
 import os
 from pathlib import Path
 import sqlite3
-from typing import Iterable, Iterator, Sequence, TypeAlias
+from typing import Iterable, Iterator, Mapping, Sequence, TypeAlias
 
 from .models import (
     ALLOWED_ATTEMPT_OUTCOMES,
@@ -29,6 +29,7 @@ from .models import (
     UserRecord,
     VideoPartRecord,
     VideoRecord,
+    VideoTagRecord,
     _choice,
     _error_code,
     _integer,
@@ -408,6 +409,41 @@ class MetadataRepository:
             raise sqlite3.DatabaseError("upserted video part could not be read back")
         return int(row[0])
 
+    def upsert_video_tags(
+        self, bvid: str, tags: Iterable[VideoTagRecord] = ()
+    ) -> None:
+        """Replace one video's tag set with the observed one.
+
+        The tag set is a *set of facts about a video*, not an append-only
+        log: recollecting a video whose tags changed must converge on what
+        upstream says now rather than accumulate both answers.  The video's
+        existing rows are therefore deleted and the observed set inserted, in
+        one statement pair — inside the caller's transaction, so the
+        replacement commits or rolls back with the rest of that page's
+        payload.  ``bvid`` carries no tags is how a set is cleared.
+
+        Order is not significant: the tag identity is ``(bvid, tag_id)``, so
+        the same set converges regardless of the order upstream listed it in.
+        A record whose ``bvid`` differs from the argument is refused rather
+        than written under another video's key.
+        """
+
+        _text(bvid, "bvid")
+        tag_records = tuple(tags)
+        for tag in tag_records:
+            if not isinstance(tag, VideoTagRecord):
+                raise TypeError("tags must be VideoTagRecord instances")
+            if tag.bvid != bvid:
+                raise ValueError("every tag record must carry the given bvid")
+        self.connection.execute("DELETE FROM video_tags WHERE bvid = ?", (bvid,))
+        self.connection.executemany(
+            """
+            INSERT INTO video_tags(bvid, tag_id, tag_name, tag_type)
+            VALUES (?, ?, ?, ?)
+            """,
+            [(tag.bvid, tag.tag_id, tag.tag_name, tag.tag_type) for tag in tag_records],
+        )
+
     def start_run(self, run: IngestionRunRecord) -> None:
         """Insert one new run record.
 
@@ -505,12 +541,13 @@ class MetadataRepository:
         parts: Iterable[VideoPartRecord] = (),
         discoveries: Iterable[DiscoveryRecord] = (),
         cursor: CursorRecord | None = None,
+        tags: Mapping[str, Iterable[VideoTagRecord]] | None = None,
     ) -> None:
         """Record one page outcome, optionally with its complete payload.
 
         With payload arguments the method owns one transaction and applies the
-        locked parent-before-child order: user, videos, parts, discoveries,
-        cursor, page outcome, commit. If any write fails, the whole
+        locked parent-before-child order: user, videos, parts, tag sets,
+        discoveries, cursor, page outcome, commit. If any write fails, the whole
         transaction is rolled back and the exception is re-raised; the prior
         cursor and entities are unchanged. Recording the resulting failure is
         the caller's step: build a fresh ``IngestionPageRecord`` with
@@ -538,12 +575,21 @@ class MetadataRepository:
         video_records = tuple(videos)
         part_records = tuple(parts)
         discovery_records = tuple(discoveries)
+        # ``tags`` is a mapping rather than a flat iterable because the
+        # replacement is per video: ``None`` means "this page observed no tag
+        # sets at all" (a run whose tag calls all degraded, or a page whose
+        # videos were already recorded), while a key present with an empty
+        # iterable means "this video was observed to carry no tags" and clears
+        # its rows.  The two are deliberately different: conflating them would
+        # turn a failed tag fetch into a silent erasure of known tags.
+        tag_sets = None if tags is None else dict(tags)
         has_payload = (
             user is not None
             or bool(video_records)
             or bool(part_records)
             or bool(discovery_records)
             or cursor is not None
+            or tag_sets is not None
         )
         if page.outcome == "failed" and has_payload:
             raise ValueError("a failed page is recorded without payload arguments")
@@ -563,6 +609,13 @@ class MetadataRepository:
                 self.upsert_video(video_record)
             for part in part_records:
                 self.upsert_part(part)
+            # Tags land after the video upserts: the tag row's foreign key
+            # points at ``videos``, so an observed video must exist before its
+            # tags can.  A tag set for a video this page did not upsert still
+            # writes here — the FK then decides, rather than this method
+            # silently dropping the observation.
+            for tag_bvid, tag_records in (tag_sets or {}).items():
+                self.upsert_video_tags(tag_bvid, tag_records)
             for discovery in discovery_records:
                 self.record_discovery(discovery)
             if cursor is not None:

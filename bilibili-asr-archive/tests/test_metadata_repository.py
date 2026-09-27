@@ -10,7 +10,7 @@ import sqlite3
 import pytest
 
 from bili_asr.storage.database import MetadataRepository, open_database
-from bili_asr.storage.models import UserRecord, VideoPartRecord
+from bili_asr.storage.models import UserRecord, VideoPartRecord, VideoTagRecord
 from fixtures.metadata_records import (
     MID,
     make_cursor_record,
@@ -695,6 +695,151 @@ def test_upsert_part_rejects_an_explicit_video_part_id(tmp_root):
             repository.upsert_video(make_video_record())
             with pytest.raises(ValueError):
                 repository.upsert_part(make_part_record(video_part_id=7))
+    finally:
+        connection.close()
+
+
+# ------------------------------------------------------------ video tags
+
+
+def _tag(tag_id: int = 943, name: str = "爱情", bvid: str = "BV1SINGLE"):
+    """Build one tag record for the fixture video."""
+
+    return VideoTagRecord(
+        bvid=bvid, tag_id=tag_id, tag_name=name, tag_type="old_channel"
+    )
+
+
+def _stored_tags(connection, bvid: str = "BV1SINGLE") -> list[tuple]:
+    rows = connection.execute(
+        "SELECT tag_id, tag_name, tag_type FROM video_tags WHERE bvid = ?"
+        " ORDER BY tag_id",
+        (bvid,),
+    ).fetchall()
+    return [tuple(row) for row in rows]
+
+
+def test_upsert_video_tags_requires_the_video_row(tmp_root):
+    """The tag row's foreign key is enforced, not implied."""
+
+    connection = open_database(tmp_root)
+    repository = MetadataRepository(connection)
+    try:
+        with pytest.raises(sqlite3.IntegrityError):
+            with repository.transaction():
+                repository.upsert_video_tags("BV1SINGLE", [_tag()])
+    finally:
+        connection.close()
+
+
+def test_upsert_video_tags_replaces_instead_of_appending(tmp_root):
+    """A second call converges on the new set; it does not accumulate."""
+
+    connection = open_database(tmp_root)
+    repository = MetadataRepository(connection)
+    try:
+        with repository.transaction():
+            repository.upsert_user(make_user_record())
+            repository.upsert_video(make_video_record())
+            repository.upsert_video_tags("BV1SINGLE", [_tag(1, "一"), _tag(2, "二")])
+        assert _stored_tags(connection) == [
+            (1, "一", "old_channel"),
+            (2, "二", "old_channel"),
+        ]
+
+        with repository.transaction():
+            repository.upsert_video_tags("BV1SINGLE", [_tag(1, "改"), _tag(3, "三")])
+
+        assert _stored_tags(connection) == [
+            (1, "改", "old_channel"),
+            (3, "三", "old_channel"),
+        ]
+    finally:
+        connection.close()
+
+
+def test_upsert_video_tags_with_no_records_clears_the_set(tmp_root):
+    """An empty observation is how a set is emptied."""
+
+    connection = open_database(tmp_root)
+    repository = MetadataRepository(connection)
+    try:
+        with repository.transaction():
+            repository.upsert_user(make_user_record())
+            repository.upsert_video(make_video_record())
+            repository.upsert_video_tags("BV1SINGLE", [_tag()])
+        with repository.transaction():
+            repository.upsert_video_tags("BV1SINGLE")
+
+        assert _stored_tags(connection) == []
+        # The call is idempotent: clearing an already-empty set is not an error.
+        with repository.transaction():
+            repository.upsert_video_tags("BV1SINGLE")
+    finally:
+        connection.close()
+
+
+def test_upsert_video_tags_leaves_other_videos_alone(tmp_root):
+    """Replacing one video's set never touches another's rows."""
+
+    connection = open_database(tmp_root)
+    repository = MetadataRepository(connection)
+    try:
+        with repository.transaction():
+            repository.upsert_user(make_user_record())
+            repository.upsert_video(make_video_record())
+            repository.upsert_video(make_video_record(bvid="BV1OTHER", aid=2002))
+            repository.upsert_video_tags("BV1SINGLE", [_tag(1, "一")])
+            repository.upsert_video_tags(
+                "BV1OTHER", [_tag(1, "一", "BV1OTHER"), _tag(2, "二", "BV1OTHER")]
+            )
+
+        with repository.transaction():
+            repository.upsert_video_tags("BV1SINGLE", [_tag(9, "九")])
+
+        assert _stored_tags(connection) == [(9, "九", "old_channel")]
+        assert _stored_tags(connection, "BV1OTHER") == [
+            (1, "一", "old_channel"),
+            (2, "二", "old_channel"),
+        ]
+    finally:
+        connection.close()
+
+
+def test_upsert_video_tags_refuses_a_record_for_another_video(tmp_root):
+    """A mismatched record is refused rather than written under another key."""
+
+    connection = open_database(tmp_root)
+    repository = MetadataRepository(connection)
+    try:
+        with repository.transaction():
+            repository.upsert_user(make_user_record())
+            repository.upsert_video(make_video_record())
+            with pytest.raises(ValueError):
+                repository.upsert_video_tags("BV1SINGLE", [_tag(bvid="BV1OTHER")])
+            with pytest.raises(TypeError):
+                repository.upsert_video_tags("BV1SINGLE", [("not", "a", "record")])
+    finally:
+        connection.close()
+
+
+def test_upsert_video_tags_rolls_back_with_its_transaction(tmp_root):
+    """A failed group leaves no tag half-state behind."""
+
+    connection = open_database(tmp_root)
+    repository = MetadataRepository(connection)
+    try:
+        with repository.transaction():
+            repository.upsert_user(make_user_record())
+            repository.upsert_video(make_video_record())
+            repository.upsert_video_tags("BV1SINGLE", [_tag(1, "一")])
+
+        with pytest.raises(RuntimeError):
+            with repository.transaction():
+                repository.upsert_video_tags("BV1SINGLE", [_tag(2, "二")])
+                raise RuntimeError("later step failed")
+
+        assert _stored_tags(connection) == [(1, "一", "old_channel")]
     finally:
         connection.close()
 

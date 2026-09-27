@@ -29,6 +29,11 @@ Every package-seam test scripts these fakes instead of touching the pinned
   without a network call.  ``script.access_id_calls`` records the separate
   ``access_id`` token route (kept out of ``calls``: it is a memoized,
   best-effort token fetch, not a metadata call).
+- ``script.tags_response`` / ``script.tags_error`` script the tag call
+  (``video.API["info"]["tags"]``, whose unwrapped payload is the tag array),
+  and ``script.tag_calls`` records every ``bvid`` whose tags were requested —
+  in issue order and independently of the answer — so the once-per-video rule
+  is observable even for a video that carries no tags.
 - ``script.player_response`` / ``script.player_error`` script the player call
   (``video.API["info"]["get_player_info"]``, whose unwrapped payload carries
   the subtitle inventory) and ``script.subtitle_bodies`` scripts the signed
@@ -127,6 +132,26 @@ FAKE_PLAYER_ENDPOINT = {
     "comment": "获取视频上一次播放的记录，字幕和地区信息。需要 分集的 cid, 返回数据中含有json字幕的链接",
 }
 
+#: The package's own endpoint description for the video-tag call
+#: (``bilibili_api.video.API["info"]["tags"]``), mirroring the pinned
+#: distribution literally.  This is the one documented metadata endpoint whose
+#: description declares neither ``verify`` nor ``wbi``, which is the structural
+#: reason the call needs no credential: the adapter must read ``verify: False``
+#: from here rather than assert it, so a pin bump that flips it fails the
+#: offline parity test instead of silently sending a credential-bound request.
+#: Its ``params`` are field documentation (``aid``/``bvid``), not a parameter
+#: mapping to forward verbatim — the call sends ``bvid`` alone.
+FAKE_TAG_ENDPOINT = {
+    "url": "https://api.bilibili.com/x/web-interface/view/detail/tag",
+    "method": "GET",
+    "verify": False,
+    "params": {
+        "aid": "int: av 号",
+        "bvid": "string: BV 号",
+    },
+    "comment": "视频标签信息",
+}
+
 #: The exact upstream call names the gateway adapter may issue.  The page call
 #: is recorded as ``space.arc.search`` because the adapter issues that request
 #: itself through the package's ``Api``: the package's ``User.get_videos``
@@ -134,11 +159,14 @@ FAKE_PLAYER_ENDPOINT = {
 #: ``dm`` parameters and scrapes ``w_webid`` from a page that no longer
 #: server-renders it).  The two subtitle-acquisition routes are the plan's own
 #: authorized surface: the player track listing and the signed subtitle
-#: document.  The set is exact — nothing else may appear.
+#: document.  ``video.tags`` is the tag call, recorded through the same
+#: ``video`` endpoint-description surface ``video.get_info`` records the detail
+#: route with.  The set is exact — nothing else may appear.
 DOCUMENTED_METADATA_CALLS = (
     "space.arc.search",
     "video.get_info",
     "video.get_pages",
+    "video.tags",
     "player.track_list",
     "subtitle.body",
 )
@@ -288,14 +316,22 @@ class FakeUpstreamScript:
     the adapter issues through the package ``Api``; ``player_response`` /
     ``player_error`` script the player request the same way (a plain value or
     a callable receiving the requested ``bvid``/``cid``), whose unwrapped
-    payload carries the subtitle inventory; ``subtitle_bodies`` scripts the
+    payload carries the subtitle inventory; ``tags_response`` / ``tags_error``
+    script the tag request (a plain array, a ``BaseException`` to raise, or a
+    callable receiving the requested ``bvid``), whose unwrapped payload is the
+    array of tag objects; an unscripted ``tags_response`` answers the empty
+    array, because that is what upstream returns for a video with no tags and
+    the call is best-effort by design.  ``tag_calls`` records every ``bvid`` it
+    was asked for, in issue order, independently of what was answered — that
+    list is what makes a per-part fetch observable; ``subtitle_bodies`` scripts the
     signed subtitle documents by URL (a plain document, a ``BaseException`` to
     raise, or a callable receiving the fetched URL).  ``access_id`` /
     ``access_id_error`` script the separate ``access_id`` token route
     (``None`` by default, which is what the route currently yields in
-    production).  ``user_video_page_endpoint`` / ``player_endpoint`` are the
+    production).  ``user_video_page_endpoint`` / ``player_endpoint`` /
+    ``tag_endpoint`` are the
     package-side endpoint descriptions the adapter must read its transport
-    fields from; a test may rewrite either before the adapter module is
+    fields from; a test may rewrite any of them before the adapter module is
     (re-)imported.
     """
 
@@ -305,6 +341,8 @@ class FakeUpstreamScript:
     parts_error: BaseException | None = None
     info_response: object = None
     info_error: BaseException | None = None
+    tags_response: object = None
+    tags_error: BaseException | None = None
     player_response: object = None
     player_error: BaseException | None = None
     subtitle_bodies: dict[str, object] = dataclasses.field(default_factory=dict)
@@ -316,7 +354,11 @@ class FakeUpstreamScript:
     player_endpoint: dict = dataclasses.field(
         default_factory=lambda: dict(FAKE_PLAYER_ENDPOINT)
     )
+    tag_endpoint: dict = dataclasses.field(
+        default_factory=lambda: dict(FAKE_TAG_ENDPOINT)
+    )
     calls: list[str] = dataclasses.field(default_factory=list)
+    tag_calls: list[str] = dataclasses.field(default_factory=list)
     access_id_calls: list[str] = dataclasses.field(default_factory=list)
     api_requests: list[FakeApiRequest] = dataclasses.field(default_factory=list)
     applied_proxies: list[str] = dataclasses.field(default_factory=list)
@@ -339,6 +381,15 @@ class FakeGateway:
     ``sessdata`` attribute holds the credential the composition root handed the
     double — ``None`` until a test installs it that way — so the credential
     boundary is assertable without ever comparing a value in output.
+
+    ``script_tags`` scripts one video's tag inventory and ``tag_calls`` records
+    every ``bvid`` whose tags were requested, in issue order.  A video whose
+    tags were not scripted answers the empty inventory rather than failing:
+    upstream really does answer an empty array for a video with no tags, the
+    tag call is best-effort by design, and making every pre-tag test script it
+    would be an unrelated diff.  ``tag_calls`` records the request rather than
+    the answer, so a per-part implementation is caught by the call count even
+    when a test scripts no tags at all.
     """
 
     def __init__(self, package_version: str = FAKE_PACKAGE_VERSION) -> None:
@@ -347,11 +398,13 @@ class FakeGateway:
         self.page_calls: list[tuple[int, int, int]] = []
         self.parts_calls: list[str] = []
         self.completion_calls: list[str] = []
+        self.tag_calls: list[str] = []
         self.listing_cids: list[int] = []
         self.body_cids: list[int] = []
         self._pages: dict[int, object] = {}
         self._parts: dict[str, object] = {}
         self._completions: dict[str, object] = {}
+        self._tags: dict[str, object] = {}
         self._subtitle_tracks: dict[int, object] = {}
         self._subtitle_segments: dict[int, object] = {}
 
@@ -363,6 +416,11 @@ class FakeGateway:
 
     def script_completion(self, bvid: str, completed: object) -> None:
         self._completions[bvid] = completed
+
+    def script_tags(self, bvid: str, tags: object) -> None:
+        """Script what the tag listing answers for one video, by its ``bvid``."""
+
+        self._tags[bvid] = tags
 
     def script_subtitle_tracks(self, cid: int, tracks: object) -> None:
         """Script what the track listing answers for one part, by its ``cid``."""
@@ -387,6 +445,27 @@ class FakeGateway:
     async def get_completed_video_summary(self, summary: VideoSummary) -> VideoSummary:
         self.completion_calls.append(summary.bvid)
         return self._scripted(self._completions, summary.bvid, "completed-summary")
+
+    async def get_video_tags(self, bvid: str) -> tuple[VideoTag, ...]:
+        """Record the request and answer the scripted inventory.
+
+        An unscripted ``bvid`` answers the empty inventory rather than failing
+        loudly, unlike every other fetch here: the tag call is a best-effort
+        addition whose production answer for an untagged video is exactly that
+        empty array, so defaulting it keeps the pre-tag tests meaningful
+        instead of rewriting each one.  The request is recorded either way.
+
+        A *scripted* ``BaseException`` is raised as-is, like every sibling
+        fetch, so a test can drive the ingestor with a gateway that fails.  The
+        production degradation lives in the adapter, not here: this double is
+        the protocol boundary, and a raising tag fetch through it is precisely
+        the case the real adapter's guard exists to prevent.
+        """
+
+        self.tag_calls.append(bvid)
+        if bvid not in self._tags:
+            return ()
+        return self._scripted(self._tags, bvid, "video-tags")
 
     async def get_subtitle_tracks(
         self, bvid: str, cid: int
@@ -493,15 +572,15 @@ def build_fake_package(script: FakeUpstreamScript) -> dict[str, types.ModuleType
         The package's ``Api`` is built from an endpoint description whose
         ``url``/``method``/``verify``/``wbi`` the adapter must state and whose
         ``dm`` it must override, so those fields are required here and are
-        recorded with the parameters of the issued request.  Three routes are
-        mirrored: the user-video page call and the player call, both answered
-        with the scripted unwrapped payload exactly as the pin's ``raw=False``
-        result delivers it, and the signed subtitle-document fetch, which the
-        pin answers only to ``request(raw=True)`` because a subtitle document
-        has no ``code``/``data`` envelope to unwrap.  Only the local request
-        shaping under test is mirrored (the ``dm`` parameter injection and the
-        ``raw`` request argument); signing, cookies, retries, and byte
-        transport are not, because the adapter may not depend on them.
+        recorded with the parameters of the issued request.  Four routes are
+        mirrored: the user-video page call, the tag call and the player call,
+        all answered with the scripted unwrapped payload exactly as the pin's
+        ``raw=False`` result delivers it, and the signed subtitle-document
+        fetch, which the pin answers only to ``request(raw=True)`` because a
+        subtitle document has no ``code``/``data`` envelope to unwrap.  Only
+        the local request shaping under test is mirrored (the ``dm`` parameter
+        injection and the ``raw`` request argument); signing, cookies, retries,
+        and byte transport are not, because the adapter may not depend on them.
         """
 
         def __init__(
@@ -552,6 +631,14 @@ def build_fake_package(script: FakeUpstreamScript) -> dict[str, types.ModuleType
                         " player payload only"
                     )
                 return self._player_result()
+            if self._is_tag_call():
+                if raw:
+                    raise AssertionError(
+                        "the pin answers the whole envelope to"
+                        " request(raw=True); the seam scripts the unwrapped"
+                        " tag array only"
+                    )
+                return self._tag_result()
             if self._is_user_video_page_call():
                 if raw:
                     raise AssertionError(
@@ -570,6 +657,19 @@ def build_fake_package(script: FakeUpstreamScript) -> dict[str, types.ModuleType
             return self.url in (
                 script.player_endpoint["url"],
                 FAKE_PLAYER_ENDPOINT["url"],
+            )
+
+        def _is_tag_call(self) -> bool:
+            """True for the tag call, at the scripted or the mirrored URL.
+
+            The tag endpoint declares neither ``wbi`` nor ``dm``, so it is
+            matched on its URL alone — the transport flags the adapter chose
+            are asserted from the recorded request, not from this predicate.
+            """
+
+            return self.url in (
+                script.tag_endpoint["url"],
+                FAKE_TAG_ENDPOINT["url"],
             )
 
         def _is_user_video_page_call(self) -> bool:
@@ -626,6 +726,29 @@ def build_fake_package(script: FakeUpstreamScript) -> dict[str, types.ModuleType
                 response = response(bvid=bvid, cid=cid)
             return response
 
+        def _tag_result(self) -> object:
+            """Answer the tag call with the scripted tag array.
+
+            Recorded under ``video.tags`` (the documented call name) and under
+            ``tag_calls`` by ``bvid``, so both the allow-list scan and the
+            once-per-video count see it.
+            """
+
+            bvid = self.params.get("bvid")
+            self._record("video.tags")
+            script.tag_calls.append(bvid)
+            if script.tags_error is not None:
+                raise script.tags_error
+            response = script.tags_response
+            if callable(response):
+                response = response(bvid=bvid)
+            # Unscripted means the empty tag array, not ``None``: the tag call
+            # is best-effort in production, an untagged video really does answer
+            # ``data: []``, and answering ``None`` here would make every
+            # pre-tag test fail on a shape error instead.  A test that wants a
+            # malformed payload scripts one explicitly.
+            return [] if response is None else response
+
         def _subtitle_document_result(self) -> object:
             """Answer the signed subtitle-document fetch with its scripted body."""
 
@@ -674,7 +797,9 @@ def build_fake_package(script: FakeUpstreamScript) -> dict[str, types.ModuleType
             return response
 
     video_mod.Video = Video
-    video_mod.API = {"info": {"get_player_info": script.player_endpoint}}
+    video_mod.API = {
+        "info": {"get_player_info": script.player_endpoint, "tags": script.tag_endpoint}
+    }
 
     package.user = user_mod
     package.video = video_mod
@@ -730,6 +855,28 @@ def make_part_item(**overrides: object) -> dict:
         "page": 1,
         "part": "第一部分",
         "duration": 12,
+    }
+    item.update(overrides)
+    return item
+
+
+def make_tag_item(**overrides: object) -> dict:
+    """Build one documented tag element with literal values.
+
+    The shape is the pinned descriptor's response entry, live-probed: the
+    fields the archive keeps plus the two it deliberately does not
+    (``music_id``, ``jump_url``).  ``jump_url`` is present and empty on
+    purpose: it is the field a loosened normalizer might forward, and its
+    emptiness here means the store's "no URL column" rule is asserted against
+    the schema rather than against a value that happens to be blank.
+    """
+
+    item = {
+        "tag_id": 943,
+        "tag_name": "爱情",
+        "music_id": "",
+        "tag_type": "old_channel",
+        "jump_url": "",
     }
     item.update(overrides)
     return item
@@ -903,6 +1050,7 @@ __all__ = [
     "DOCUMENTED_METADATA_CALLS",
     "FAKE_PACKAGE_VERSION",
     "FAKE_PLAYER_ENDPOINT",
+    "FAKE_TAG_ENDPOINT",
     "FAKE_USER_VIDEO_PAGE_ENDPOINT",
     "FakeApiException",
     "FakeApiRequest",
@@ -932,9 +1080,9 @@ __all__ = [
     "make_detail_response",
     "make_part_item",
     "make_player_response",
-    "make_subtitle_document",
-    "make_subtitle_entry",
+    "make_subtitle_document",    "make_subtitle_entry",
     "make_subtitle_track",
+    "make_tag_item",
     "make_videos_response",
     "make_vlist_item",
     "persisted_row_text",

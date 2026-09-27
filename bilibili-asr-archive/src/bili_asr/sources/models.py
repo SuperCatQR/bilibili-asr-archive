@@ -112,6 +112,34 @@ class VideoPart:
 
 
 @dataclass(frozen=True, slots=True)
+class VideoTag:
+    """One tag upstream reports for one video, normalized to three fields.
+
+    Like ``SubtitleTrack``, this is one entry of an inventory whose owner is
+    the *call's* argument: ``get_video_tags(bvid)`` already names the video, so
+    the DTO does not repeat it.  The identity is ``(bvid, tag_id)`` and the
+    store holds both; here the ``bvid`` is the caller's, carried to the
+    repository by the ingestor rather than through every entry.
+
+    ``tag_name`` is a display label upstream may rename while the id stays the
+    same, and ``tag_type`` is upstream's own classification (``old_channel``
+    and the like).  Only these three are carried: upstream's response also
+    holds a ``music_id`` and a ``jump_url``, and neither is a fact this archive
+    stores — a URL in particular is the kind of value the store's no-URL rule
+    keeps out, so it never reaches a DTO in the first place.
+    """
+
+    tag_id: int
+    tag_name: str
+    tag_type: str
+
+    def __post_init__(self) -> None:
+        _integer(self.tag_id, "tag_id", minimum=1)
+        _text(self.tag_name, "tag_name")
+        _text(self.tag_type, "tag_type")
+
+
+@dataclass(frozen=True, slots=True)
 class UserVideoPage:
     """One bounded page of one user's video summaries."""
 
@@ -202,6 +230,12 @@ class BilibiliGateway(Protocol):
         self, summary: VideoSummary
     ) -> VideoSummary: ...
 
+    # The tag set is a property of the VIDEO, not of a part: it is fetched
+    # once per video and cached for the run's duration.  A tag fetch is
+    # retry-free and degrades to an empty tuple — risk control and transport
+    # failures on this call may not fail the collection run.
+    async def get_video_tags(self, bvid: str) -> tuple[VideoTag, ...]: ...
+
     # A subtitle inventory is an observation, not a promise: an empty tuple
     # means nothing usable was visible with the credentials in effect, and it
     # is a legitimate result rather than a ``not_found`` failure.
@@ -283,4 +317,5 @@ __all__ = [
     "UserVideoPage",
     "VideoPart",
     "VideoSummary",
+    "VideoTag",
 ]

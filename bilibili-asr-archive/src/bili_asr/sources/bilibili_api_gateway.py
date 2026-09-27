@@ -37,6 +37,7 @@ from bilibili_api.video import API as VIDEO_API, Video
 
 from bili_asr.config import resolve_proxy
 from bili_asr.sources.models import (
+    GatewayError,
     GatewayNotFound,
     GatewayRateLimited,
     GatewayResponseError,
@@ -47,6 +48,7 @@ from bili_asr.sources.models import (
     UserVideoPage,
     VideoPart,
     VideoSummary,
+    VideoTag,
 )
 
 PACKAGE_DISTRIBUTION_NAME = "bilibili-api-python"
@@ -102,6 +104,17 @@ _USER_VIDEO_PAGE_ENDPOINT = USER_API["info"]["video"]
 # (``Episode``, ``VideoOnlineMonitor``, ``get_api``, ``get_cid_info``,
 # ``get_client``) source-reachable here without the import boundary noticing.
 _PLAYER_INFO_ENDPOINT = VIDEO_API["info"]["get_player_info"]
+
+# The package's own endpoint description for the video-tag call
+# (``bilibili_api.video.API["info"]["tags"]``).  It is the one documented
+# metadata route that answers anonymously — the descriptor's ``verify`` is
+# ``false`` and the live probe confirms it — so this call carries the
+# credential the adapter already holds and requires none: no credential is
+# ever *added* to turn it on.  Only ``url``/``method``/``verify`` are read from
+# the description; ``params`` there is field documentation (``aid``/``bvid``),
+# not a parameter mapping to forward verbatim, and the adapter sends ``bvid``
+# alone because the tag set is a property of the video rather than of a part.
+_TAG_ENDPOINT = VIDEO_API["info"]["tags"]
 
 
 def _require_positive_argument(value: object, field: str) -> None:
@@ -271,6 +284,45 @@ def _normalize_video_parts(pages: object, bvid: str) -> tuple[VideoPart, ...]:
     if not isinstance(pages, list):
         raise GatewayShapeError(detail="response is not an array")
     return tuple(_normalize_video_part_item(item, bvid) for item in pages)
+
+
+def _normalize_video_tags(entries: object) -> tuple[VideoTag, ...]:
+    """Convert the tag array into validated tag DTOs.
+
+    A video with no tags answers with an empty array, which is an honest
+    observation rather than a failure.  ``tag_id`` and ``tag_name`` are
+    required — an entry missing either cannot be identified or displayed, so
+    it is a bounded shape error rather than a dropped row: silently skipping
+    one would report "this video has N-1 tags" as if upstream had said so.
+    """
+
+    if not isinstance(entries, list):
+        raise GatewayShapeError(detail="tag response is not an array")
+    return tuple(_normalize_video_tag(entry) for entry in entries)
+
+
+def _normalize_video_tag(entry: object) -> VideoTag:
+    """Convert one documented tag entry into a validated tag DTO."""
+
+    if not isinstance(entry, Mapping):
+        raise GatewayShapeError(detail="tag entry is not a mapping")
+    tag_id = entry.get("tag_id")
+    if isinstance(tag_id, bool) or not isinstance(tag_id, int) or tag_id < 1:
+        raise GatewayShapeError(detail="tag entry has no positive tag_id")
+    tag_name = entry.get("tag_name")
+    if not isinstance(tag_name, str) or not tag_name.strip():
+        raise GatewayShapeError(detail="tag entry has no tag_name")
+    tag_type = entry.get("tag_type")
+    if not isinstance(tag_type, str) or not tag_type.strip():
+        raise GatewayShapeError(detail="tag entry has no tag_type")
+    try:
+        return VideoTag(
+            tag_id=tag_id,
+            tag_name=tag_name.strip(),
+            tag_type=tag_type.strip(),
+        )
+    except (TypeError, ValueError) as exc:
+        raise GatewayShapeError(detail="tag entry is not normalizable") from exc
 
 
 def _extract_subtitle_entries(response: object) -> list:
@@ -618,6 +670,72 @@ class BilibiliApiGateway:
             ).get_info(),
         )
         return _complete_summary_from_detail(summary, detail)
+
+    async def get_video_tags(self, bvid: str) -> tuple[VideoTag, ...]:
+        """List the tags one video carries right now.
+
+        One unsigned, WBI-free call: the endpoint's description declares
+        neither ``verify`` nor ``wbi``, and the live probe confirms it answers
+        with the ``bvid`` alone — so no credential is *required* for it and
+        none is added to turn it on.  The credential the adapter already holds
+        is still passed through, because the request path is the same for
+        every call and dropping it would be a second, silent change.
+
+        **This call degrades rather than fails.** It is the one metadata call
+        the plan treats as best-effort: *every* classified upstream failure —
+        risk control, not-found, an unclassified response error, or a broken
+        transport — is answered with an empty tuple so the run continues, and
+        the bounded code travels on the exception mapped by ``_await_upstream``
+        and caught here.  Nothing is logged, printed, or persisted by this
+        method; the code is available to the caller through the same taxonomy
+        every other call uses, and the raw response never reaches anyone.
+
+        Catching the whole taxonomy is deliberate rather than loose.  The
+        endpoint sits in the risk-control family, so a challenge can arrive as
+        any of those classes — the sibling WBI endpoint in that family answers
+        HTTP 412, and a WAF front can just as well answer an unclassified
+        error.  Degrading on only two of them would leave the run failing on
+        the same underlying event under a different code, which is exactly the
+        hard dependency the plan forbids.
+
+        A *malformed successful* response is the deliberate exception: that is
+        a shape error, raised by the normalizer outside this guard, because an
+        unreadable payload is a defect rather than an upstream mood.  Masking
+        it as "no tags" would hide a bug behind the same empty tuple a
+        legitimate empty inventory produces.
+
+        The cost of returning a tuple rather than a result object is that the
+        caller sees the same ``()`` for "this video has no tags" and for "the
+        tags could not be read this time".  The two are *not* interchangeable
+        downstream: a caller that writes an empty set on every empty tuple will
+        erase tags a previous run stored whenever one fetch degrades.  That
+        ambiguity is known and reported rather than papered over — resolving it
+        needs a product ruling on whether a degraded re-run may clear a video's
+        stored tags, and the plan does not give one.
+        """
+
+        if not isinstance(bvid, str) or _BVID_PATTERN.fullmatch(bvid) is None:
+            raise ValueError("bvid must be a BV-prefixed 10-character id")
+        try:
+            response = await self._await_upstream(
+                "get_video_tags",
+                lambda: Api(
+                    url=_TAG_ENDPOINT["url"],
+                    method=_TAG_ENDPOINT["method"],
+                    verify=_TAG_ENDPOINT["verify"],
+                    wbi=False,
+                    dm=False,
+                    credential=self._credential,
+                )
+                .update_params(bvid=bvid)
+                .result,
+            )
+        except GatewayError:
+            # Best-effort call: no tags recorded for this video, run continues.
+            # The mapped exception carried the bounded code; it is not
+            # re-raised and not written anywhere by this method.
+            return ()
+        return _normalize_video_tags(response)
 
     async def get_subtitle_tracks(
         self, bvid: str, cid: int

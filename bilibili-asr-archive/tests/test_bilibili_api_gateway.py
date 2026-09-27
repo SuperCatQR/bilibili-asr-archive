@@ -58,6 +58,7 @@ from fixtures.fake_bilibili_gateway import (
     BVID,
     DOCUMENTED_METADATA_CALLS,
     FAKE_PLAYER_ENDPOINT,
+    FAKE_TAG_ENDPOINT,
     FAKE_USER_VIDEO_PAGE_ENDPOINT,
     MID,
     MIRRORED_ENDPOINT_FIELDS,
@@ -84,6 +85,7 @@ from fixtures.fake_bilibili_gateway import (
     make_subtitle_document,
     make_subtitle_entry,
     make_subtitle_track,
+    make_tag_item,
     make_videos_response,
     make_vlist_item,
     persisted_row_text,
@@ -209,6 +211,28 @@ def _probe_installed_pinned_player_endpoint() -> dict | str:
 
 #: The installed pin's own player endpoint description, captured the same way.
 _INSTALLED_PINNED_PLAYER_ENDPOINT = _probe_installed_pinned_player_endpoint()
+
+
+def _probe_installed_pinned_tag_endpoint() -> dict | str:
+    """Read the pin's tag endpoint description, or why it could not be read.
+
+    Captured at import time for the same reason as the other two descriptions:
+    a lazy import inside a seam test would return the fake.  The description is
+    pure package data, so this needs no network.
+    """
+
+    try:
+        module = importlib.import_module("bilibili_api.video")
+        endpoint = module.API["info"]["tags"]
+    except (ImportError, KeyError, AttributeError, TypeError) as error:
+        return f"{type(error).__name__}: {error}"
+    if not isinstance(endpoint, dict):
+        return f"the description is not a mapping ({type(endpoint).__name__})"
+    return dict(endpoint)
+
+
+#: The installed pin's own tag endpoint description, captured the same way.
+_INSTALLED_PINNED_TAG_ENDPOINT = _probe_installed_pinned_tag_endpoint()
 
 
 def _probe_installed_api_call_shape() -> dict | str:
@@ -1304,8 +1328,248 @@ def test_completed_summary_rejects_non_mapping_detail(bilibili_api_seam):
         asyncio.run(gateway.get_completed_video_summary(_summary(aid=None)))
 
 
-# ------------------------------------------------------------ package version
+# --------------------------------------------------------------- video tags
 
+
+def test_get_video_tags_normalizes_the_documented_fields(bilibili_api_seam):
+    """One unsigned call maps tag entries into validated ``VideoTag`` DTOs.
+
+    The fields upstream also sends but the archive does not store
+    (``music_id``, ``jump_url``) are present in the scripted payload and must
+    not appear on the DTO — the DTO's field set is asserted exactly, so a
+    widened record fails here rather than silently acquiring a URL column.
+    """
+
+    bilibili_api_seam.tags_response = [
+        make_tag_item(tag_id=943, tag_name="爱情"),
+        make_tag_item(tag_id=11128717, tag_name="  人类解放  ", tag_type="old_channel"),
+    ]
+    gateway = _load_gateway()
+
+    tags = asyncio.run(gateway.get_video_tags(BVID))
+
+    from bili_asr.sources.models import VideoTag
+
+    assert tags == (
+        VideoTag(tag_id=943, tag_name="爱情", tag_type="old_channel"),
+        VideoTag(tag_id=11128717, tag_name="人类解放", tag_type="old_channel"),
+    )
+    assert [field.name for field in dataclasses.fields(VideoTag)] == [
+        "tag_id",
+        "tag_name",
+        "tag_type",
+    ]
+    assert bilibili_api_seam.calls == ["video.tags"]
+    assert bilibili_api_seam.tag_calls == [BVID]
+
+
+def test_get_video_tags_sends_the_bvid_alone_and_needs_no_credential(
+    bilibili_api_seam,
+):
+    """The call's shape: the pinned descriptor's transport, ``bvid`` only.
+
+    The tag endpoint's own description declares ``verify: False`` and no
+    ``wbi``, so the issued request must carry neither a device-fingerprint
+    parameter set nor WBI signing — and it must succeed with **no** credential
+    installed, because no credential may be added to a call that answers
+    anonymously today.
+    """
+
+    bilibili_api_seam.tags_response = [make_tag_item()]
+    gateway = _load_gateway(sessdata=None)
+
+    tags = asyncio.run(gateway.get_video_tags(BVID))
+
+    assert len(tags) == 1
+    (request,) = bilibili_api_seam.api_requests
+    assert request.url == FAKE_TAG_ENDPOINT["url"]
+    assert request.method == FAKE_TAG_ENDPOINT["method"]
+    assert request.verify is FAKE_TAG_ENDPOINT["verify"]
+    assert request.verify is False
+    assert request.wbi is False
+    assert request.dm is False
+    assert request.has_sessdata is False
+    assert request.params == {"bvid": BVID}
+
+
+def test_tag_endpoint_follows_a_changed_package_endpoint(bilibili_api_seam):
+    """No transport field is hard-coded: the package description decides."""
+
+    bilibili_api_seam.tag_endpoint["url"] = CHANGED_ENDPOINT_URL
+    bilibili_api_seam.tags_response = []
+    gateway = _load_gateway()
+
+    asyncio.run(gateway.get_video_tags(BVID))
+
+    (request,) = bilibili_api_seam.api_requests
+    assert request.url == CHANGED_ENDPOINT_URL
+
+
+def test_get_video_tags_empty_array_is_an_empty_tuple(bilibili_api_seam):
+    """A video with no tags answers an empty array, not an error.
+
+    Live-probed: a well-formed ``bvid`` outside the archive's account answers
+    ``code=0`` with ``data: []``.  That is an observation, so it must not be
+    mapped onto ``GatewayNotFound`` or a shape error.
+    """
+
+    bilibili_api_seam.tags_response = []
+    gateway = _load_gateway()
+
+    assert asyncio.run(gateway.get_video_tags(BVID)) == ()
+
+
+def test_get_video_tags_missing_tag_id_or_name_is_a_bounded_shape_error(
+    bilibili_api_seam,
+):
+    """An entry that cannot be identified or displayed fails as a shape error.
+
+    Dropping the entry instead would report "this video has N-1 tags" as though
+    upstream had said so.
+    """
+
+    from bili_asr.sources.models import VideoTag
+
+    gateway = _load_gateway()
+    for broken in (
+        {"tag_name": "爱情", "tag_type": "old_channel"},
+        {"tag_id": 943, "tag_type": "old_channel"},
+        {"tag_id": 943, "tag_name": "   ", "tag_type": "old_channel"},
+        {"tag_id": 0, "tag_name": "爱情", "tag_type": "old_channel"},
+        {"tag_id": "943", "tag_name": "爱情", "tag_type": "old_channel"},
+        {"tag_id": 943, "tag_name": "爱情", "tag_type": ""},
+    ):
+        bilibili_api_seam.tags_response = [broken]
+        with pytest.raises(GatewayShapeError):
+            asyncio.run(gateway.get_video_tags(BVID))
+
+    # The control: the same payload with every field present normalizes, so the
+    # loop above is rejecting the missing field and not merely any entry.
+    bilibili_api_seam.tags_response = [
+        make_tag_item(tag_id=943, tag_name="爱情", tag_type="old_channel")
+    ]
+    assert asyncio.run(gateway.get_video_tags(BVID)) == (
+        VideoTag(tag_id=943, tag_name="爱情", tag_type="old_channel"),
+    )
+
+
+def test_get_video_tags_degrades_to_empty_on_risk_control(bilibili_api_seam):
+    """Risk control on the tag call records no tags and never raises.
+
+    Measured in this sandbox: the sibling WBI-signed metadata endpoint answers
+    HTTP 412 with the device-fingerprint parameters this plan deliberately
+    disables, so a ``-352``/``-412``/HTTP 412 answer here is reachable rather
+    than hypothetical.  The tag call is the one metadata call the plan treats
+    as best-effort, so every one of those must come back as an empty tuple with
+    the run still alive.
+    """
+
+    gateway = _load_gateway()
+
+    for error in (
+        FakeResponseCodeException(-352, UPSTREAM_ERROR_TEXT),
+        FakeResponseCodeException(-412, UPSTREAM_ERROR_TEXT),
+        FakeNetworkException(412, UPSTREAM_ERROR_TEXT),
+        FakeNetworkException(429, UPSTREAM_ERROR_TEXT),
+        FakeWbiRetryTimesExceedException(),
+    ):
+        bilibili_api_seam.tags_error = error
+        assert asyncio.run(gateway.get_video_tags(BVID)) == ()
+
+    # The bounded failure left no trace on the wire beyond the call itself, and
+    # nothing upstream sent reached the caller.
+    assert bilibili_api_seam.calls == ["video.tags"] * 5
+    assert bilibili_api_seam.tag_calls == [BVID] * 5
+
+
+def test_get_video_tags_degrades_to_empty_on_transport_failure(bilibili_api_seam):
+    """A transport failure degrades the same way risk control does."""
+
+    bilibili_api_seam.tags_error = FakeResponseException(UPSTREAM_ERROR_TEXT)
+    gateway = _load_gateway()
+
+    assert asyncio.run(gateway.get_video_tags(BVID)) == ()
+
+
+def test_get_video_tags_does_not_swallow_a_shape_error(bilibili_api_seam):
+    """A malformed *successful* response is a bug, not an upstream mood.
+
+    The degradation above exists for failures upstream chose to answer with;
+    an unreadable payload is a defect in this adapter or in the pin's
+    unwrapping, and masking it as "no tags" would hide it behind an empty set
+    exactly like a legitimate empty inventory.
+    """
+
+    bilibili_api_seam.tags_response = {"data": []}
+    gateway = _load_gateway()
+
+    with pytest.raises(GatewayShapeError):
+        asyncio.run(gateway.get_video_tags(BVID))
+
+
+def test_get_video_tags_rejects_a_malformed_bvid(bilibili_api_seam):
+    """The same bvid guard every other call applies, before any request."""
+
+    gateway = _load_gateway()
+
+    for invalid in ("", "BV1MULTI", "bv1xx411c7mD", 12345, None):
+        with pytest.raises(ValueError):
+            asyncio.run(gateway.get_video_tags(invalid))
+    assert bilibili_api_seam.calls == []
+    assert bilibili_api_seam.tag_calls == []
+
+
+def test_fake_tag_endpoint_mirror_matches_the_installed_pinned_description():
+    """The seam's tag description is the installed pin's, field for field.
+
+    ``FAKE_TAG_ENDPOINT`` is the sole offline oracle for this call's shape, so
+    its claim to mirror ``bilibili_api.video.API["info"]["tags"]`` literally is
+    checked against the distribution it mirrors.  The credential-free claim
+    rests on ``verify: False`` and the absence of ``wbi``, so those two are
+    asserted here as facts rather than left implied: a pin bump that flips
+    either fails here instead of turning the call into a credential-bound one
+    silently.
+    """
+
+    pinned_endpoint = _require_installed(
+        _INSTALLED_PINNED_TAG_ENDPOINT, "tag endpoint description"
+    )
+
+    assert FAKE_TAG_ENDPOINT == pinned_endpoint
+    assert FAKE_TAG_ENDPOINT["verify"] is False
+    assert "wbi" not in FAKE_TAG_ENDPOINT
+    assert "dm" not in FAKE_TAG_ENDPOINT
+    # ``params`` is field documentation, not a parameter mapping to forward:
+    # the call sends ``bvid`` alone, whatever this mapping lists.
+    assert set(FAKE_TAG_ENDPOINT["params"]) == {"aid", "bvid"}
+
+
+def test_adapter_issues_the_tag_call_without_the_installed_pins_wbi_flag(
+    bilibili_api_seam,
+):
+    """Scripted with the pin's own description, only ``bvid`` reaches the wire.
+
+    The mirror-parity test proves the seam equals the pin; this runs the real
+    adapter against the pin's own values, so the recorded request reproduces
+    the distribution's transport fields and the single forwarded parameter.
+    """
+
+    bilibili_api_seam.tag_endpoint = dict(_INSTALLED_PINNED_TAG_ENDPOINT)
+    bilibili_api_seam.tags_response = [make_tag_item()]
+    gateway = _load_gateway()
+
+    asyncio.run(gateway.get_video_tags(BVID))
+
+    (request,) = bilibili_api_seam.api_requests
+    assert request.url == _INSTALLED_PINNED_TAG_ENDPOINT["url"]
+    assert request.method == _INSTALLED_PINNED_TAG_ENDPOINT["method"]
+    assert request.verify is _INSTALLED_PINNED_TAG_ENDPOINT["verify"]
+    assert request.wbi is False
+    assert request.dm is False
+    assert request.params == {"bvid": BVID}
+
+
+# ------------------------------------------------------------ package version
 
 def test_package_version_falls_back_to_pinned_literal(bilibili_api_seam):
     """Without the installed distribution the pinned literal is returned."""
@@ -1821,16 +2085,19 @@ def test_subtitle_dtos_are_frozen():
 
 
 def test_gateway_protocol_surface_is_locked():
-    """The protocol declares exactly the locked six methods, signatures included.
+    """The protocol declares exactly the locked seven methods, signatures included.
 
     The four shipped signatures stay untouched — the shipped metadata service
     and the storage plan consume them — and the two subtitle methods are
     exactly the locked pair: ``get_subtitle_tracks(bvid, cid)`` answers a
     possibly empty tuple (an empty inventory is an observation, never a
     ``not_found`` failure), while ``fetch_subtitle_segments(track, bvid, cid)``
-    answers a non-empty tuple or raises ``GatewayNotFound``.
+    answers a non-empty tuple or raises ``GatewayNotFound``.  The seventh is
+    the tag call, which takes ``bvid`` alone because the tag set belongs to the
+    video rather than to a part, and which is the one call allowed to answer an
+    empty tuple for a *failure* as well as for an empty inventory.
 
-    The declaration set is asserted exactly, not method by method: a seventh
+    The declaration set is asserted exactly, not method by method: an eighth
     protocol method fails here instead of slipping through unread.
     """
 
@@ -1839,6 +2106,7 @@ def test_gateway_protocol_surface_is_locked():
         "get_video_parts": ("self", "bvid"),
         "get_completed_video_summary": ("self", "summary"),
         "get_package_version": ("self",),
+        "get_video_tags": ("self", "bvid"),
         "get_subtitle_tracks": ("self", "bvid", "cid"),
         "fetch_subtitle_segments": ("self", "track", "bvid", "cid"),
     }
@@ -2071,14 +2339,18 @@ def test_fake_seam_mirrors_the_player_endpoint_description():
     modules = build_fake_package(script)
 
     assert modules["bilibili_api.video"].API == {
-        "info": {"get_player_info": FAKE_PLAYER_ENDPOINT}
+        "info": {
+            "get_player_info": FAKE_PLAYER_ENDPOINT,
+            "tags": FAKE_TAG_ENDPOINT,
+        }
     }
-    # The description is the script's own object, so a test can rewrite it
-    # before the adapter module is imported against the seam.
+    # The descriptions are the script's own objects, so a test can rewrite
+    # either before the adapter module is imported against the seam.
     assert (
         modules["bilibili_api.video"].API["info"]["get_player_info"]
         is script.player_endpoint
     )
+    assert modules["bilibili_api.video"].API["info"]["tags"] is script.tag_endpoint
 
 
 def test_fake_player_call_records_its_flags_and_parameter_set():
@@ -2410,15 +2682,17 @@ def test_sources_package_reexports_the_subtitle_dtos_only():
 def test_the_documented_call_allow_list_carries_exactly_the_authorized_routes():
     """The seam's call-name guard allows exactly the documented routes.
 
-    The two subtitle-acquisition routes are authorized by this plan; the set
-    stays exact, and a call outside it is still rejected by the shipped guard
-    (the control that keeps the allow-list from passing vacuously).
+    The two subtitle-acquisition routes are authorized by this plan, and the
+    tag route is authorized by the metadata-coverage plan that follows it; the
+    set stays exact, and a call outside it is still rejected by the shipped
+    guard (the control that keeps the allow-list from passing vacuously).
     """
 
     assert DOCUMENTED_METADATA_CALLS == (
         "space.arc.search",
         "video.get_info",
         "video.get_pages",
+        "video.tags",
         "player.track_list",
         "subtitle.body",
     )

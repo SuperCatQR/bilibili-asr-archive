@@ -304,12 +304,17 @@ def test_fetch_meta_normalizes_single_part_and_multipart_videos_end_to_end(
         assert not os.path.exists(os.path.join(tmp_root, relative))
 
     # The pinned adapter drove exactly the documented metadata calls: one
-    # page fetch, one parts fetch per distinct video, then the completing
-    # empty-page fetch (aids present, so no detail calls).
+    # page fetch, then one parts fetch per distinct video and one tag fetch
+    # per distinct video, then the completing empty-page fetch (aids present,
+    # so no detail calls).  The tag fetch is per-video rather than per-part
+    # however many parts that video has: the multipart video below has two
+    # parts and still costs exactly one tag call.
     assert script.calls == [
         "space.arc.search(pn=1, ps=30)",
         "video.get_pages",
         "video.get_pages",
+        "video.tags",
+        "video.tags",
         "space.arc.search(pn=2, ps=30)",
     ]
     assert_only_documented_metadata_calls(script.calls)
@@ -574,14 +579,16 @@ def test_fetch_meta_failed_page_preserves_cursor_and_resume_succeeds(
     for relative in LEGACY_SIDECAR_PATHS:
         assert not os.path.exists(os.path.join(tmp_root, relative))
 
-    # The full call trace: bounded page fetches, one parts fetch per new
-    # video, the failed resume page, then the successful resume.
+    # The full call trace: bounded page fetches, one parts and one tag fetch
+    # per new video, the failed resume page, then the successful resume.
     assert script.calls == [
         "space.arc.search(pn=1, ps=30)",
         "video.get_pages",
+        "video.tags",
         "space.arc.search(pn=2, ps=30)",
         "space.arc.search(pn=2, ps=30)",
         "video.get_pages",
+        "video.tags",
         "space.arc.search(pn=3, ps=30)",
     ]
     assert_only_documented_metadata_calls(script.calls)

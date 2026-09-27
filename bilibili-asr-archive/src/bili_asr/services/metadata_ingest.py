@@ -29,6 +29,7 @@ from bili_asr.sources.models import (
     GatewayShapeError,
     VideoPart,
     VideoSummary,
+    VideoTag,
 )
 from bili_asr.storage.database import MetadataRepository
 from bili_asr.storage.models import (
@@ -41,6 +42,7 @@ from bili_asr.storage.models import (
     UserRecord,
     VideoPartRecord,
     VideoRecord,
+    VideoTagRecord,
 )
 
 SOURCE_PACKAGE = "bilibili-api-python"
@@ -55,6 +57,49 @@ def _now() -> int:
     """Return the current Unix second used for all persisted clocks."""
 
     return int(time.time())
+
+
+def _observed_tag_sets(
+    summaries: list[VideoSummary], tags_by_video: dict[str, tuple[VideoTag, ...]]
+) -> dict[str, list[VideoTagRecord]]:
+    """Return this page's observed tag sets, keyed by bvid.
+
+    Only the videos on *this* page are written, even though the cache is
+    run-scoped: a page's transaction persists that page's observations.  A
+    bvid repeated on the page collapses to one set, the same way its parts and
+    its video row do.
+
+    **The degradation ambiguity, stated where it is acted on.** The gateway
+    answers an empty tuple both for "this video carries no tags" and for "the
+    tag call degraded this time", and the Protocol's return type carries no
+    third state to tell them apart.  This function therefore hands over an
+    empty list for both, and ``upsert_video_tags`` replaces the stored set with
+    it — so a risk-controlled or transport-failed tag fetch *clears* whatever
+    tags a previous run stored for that video.  That is the behavior the plan's
+    own "idempotent, replaces the video's tag set" wording implies and what
+    AC 3 asserts, and it is the honest reading of "record no tags"; it is
+    reported because the opposite reading — leave stored rows alone on a
+    degraded fetch — is also defensible and no D-ruling covers it.  Resolving
+    it properly needs either a distinguishable return (a sentinel or a result
+    object) or an ``error_code`` column on this table, both of which are
+    product decisions outside this task.
+    """
+
+    sets: dict[str, list[VideoTagRecord]] = {}
+    for summary in summaries:
+        observed = tags_by_video.get(summary.bvid)
+        if observed is None:  # pragma: no cover - the fetch loop fills every bvid
+            continue
+        sets[summary.bvid] = [
+            VideoTagRecord(
+                bvid=summary.bvid,
+                tag_id=tag.tag_id,
+                tag_name=tag.tag_name,
+                tag_type=tag.tag_type,
+            )
+            for tag in observed
+        ]
+    return sets
 
 
 def _page_and_run_outcomes(error: GatewayError) -> tuple[PageOutcome, RunOutcome]:
@@ -245,6 +290,13 @@ class MetadataIngestor:
         # user row at all, so the stored label keeps the value the last
         # observing run gave it (or the placeholder the row was created with).
         observed_author: str | None = None
+        # The run's tag observations, keyed by bvid.  Run-scoped rather than
+        # page-scoped, because the tag set is a property of the video: a video
+        # that somehow appears on two pages must not pay for the same call
+        # twice, and the fetch is deliberately per video rather than per part.
+        # An empty tuple is kept as-is and never treated as an observation of
+        # absence — see where the payload is built below.
+        tags_by_video: dict[str, tuple[VideoTag, ...]] = {}
         page_number = first_page
         while True:
             page_started_at = _now()
@@ -280,6 +332,16 @@ class MetadataIngestor:
                     if summary.bvid not in parts_by_video:
                         parts_by_video[summary.bvid] = (
                             await self._gateway.get_video_parts(summary.bvid)
+                        )
+                for summary in summaries:
+                    # One tag fetch per distinct VIDEO, run-scoped: the tag set
+                    # belongs to the video, so a per-part fetch would pay once
+                    # per part and a repeated bvid would pay again.  The call
+                    # itself degrades inside the gateway rather than raising,
+                    # so a risk-controlled tag fetch cannot fail the page.
+                    if summary.bvid not in tags_by_video:
+                        tags_by_video[summary.bvid] = (
+                            await self._gateway.get_video_tags(summary.bvid)
                         )
             except GatewayError as error:
                 page_outcome, run_outcome = _page_and_run_outcomes(error)
@@ -322,6 +384,7 @@ class MetadataIngestor:
                 page.observed_total,
                 limit_reached,
                 observed_author,
+                _observed_tag_sets(summaries, tags_by_video),
             )
             page_count += 1
             discovered_videos.update(summary.bvid for summary in summaries)
@@ -426,11 +489,12 @@ class MetadataIngestor:
         observed_total: int | None,
         limit_reached: bool,
         author: str | None,
+        tags: dict[str, list[VideoTagRecord]],
     ) -> None:
         """Record one collected page with its payload in the locked order.
 
         The repository's ``record_page`` applies the Plan-1 order — user,
-        videos, parts, discoveries, cursor, page outcome — inside one
+        videos, parts, tag sets, discoveries, cursor, page outcome — inside one
         transaction and commits it.  Duplicate summary entries collapse into
         their existing entity rows through the upsert keys, and a bvid
         duplicated within one page keeps the last occurrence's
@@ -502,6 +566,7 @@ class MetadataIngestor:
             videos=video_records,
             parts=part_records,
             discoveries=discovery_records,
+            tags=tags,
             cursor=CursorRecord(
                 mid=mid,
                 next_page=page_number + 1,

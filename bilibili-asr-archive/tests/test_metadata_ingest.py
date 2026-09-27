@@ -29,6 +29,7 @@ from bili_asr.sources.models import (
     UserVideoPage,
     VideoPart,
     VideoSummary,
+    VideoTag,
 )
 from bili_asr.storage.database import MetadataRepository, open_database
 from fixtures.fake_bilibili_gateway import (
@@ -45,6 +46,7 @@ from fixtures.fake_bilibili_gateway import (
     bilibili_api_seam,
     make_detail_response,
     make_part_item,
+    make_tag_item,
     make_videos_response,
     make_vlist_item,
     persisted_row_text,
@@ -896,12 +898,14 @@ def test_bilibili_api_gateway_run_persists_normalized_rows(tmp_root, bilibili_ap
         # boundary and this row.
         assert tuple(user_row) == (MID, "未明子")
 
-        # The pinned adapter drove exactly the three documented upstream
-        # calls: one page fetch, the aid completion, one parts fetch.
+        # The pinned adapter drove exactly the four documented upstream
+        # calls: one page fetch, the aid completion, one parts fetch, and the
+        # per-video tag fetch.
         assert script.calls == [
             "space.arc.search(pn=1, ps=30)",
             "video.get_info",
             "video.get_pages",
+            "video.tags",
         ]
         assert_only_documented_metadata_calls(script.calls)
     finally:
@@ -1124,3 +1128,239 @@ def test_no_leak_marker_scan_catches_contamination():
         with pytest.raises(AssertionError) as caught:
             assert_leaks_no_markers("persisted: " + marker, context="demo row")
         assert marker in str(caught.value)
+
+
+# ------------------------------------------------------------- video tags
+
+
+def test_tags_are_fetched_once_per_video_not_once_per_part(tmp_root):
+    """Three parts of one video must produce exactly ONE tag call.
+
+    The regression is cheap to write and expensive to miss: the tag set is a
+    property of the VIDEO, so a fetch inside the per-part loop pays 3x on this
+    fixture and O(parts) on a long multipart series.
+    """
+    gateway = FakeGateway()
+    gateway.script_page(1, _page(1, _summary("BV1MULTI"), observed_total=1))
+    gateway.script_parts(
+        "BV1MULTI",
+        (_part("BV1MULTI", 0, cid=11), _part("BV1MULTI", 1, cid=22),
+         _part("BV1MULTI", 2, cid=33)),
+    )
+    gateway.script_tags("BV1MULTI", (
+        VideoTag(tag_id=943, tag_name="爱情", tag_type="old_channel"),
+        VideoTag(tag_id=11128717, tag_name="人类解放", tag_type="old_channel"),
+    ))
+    gateway.script_page(2, _page(2, observed_total=1))
+    connection = open_database(tmp_root)
+    repository = MetadataRepository(connection)
+    try:
+        _ingestor(gateway, repository).collect_user_pages(MID, start_page=1)
+
+        assert gateway.tag_calls == ["BV1MULTI"]
+        rows = connection.execute(
+            "SELECT tag_id, tag_name FROM video_tags WHERE bvid = ? ORDER BY tag_id",
+            ("BV1MULTI",),
+        ).fetchall()
+        assert [tuple(row) for row in rows] == [(943, "爱情"), (11128717, "人类解放")]
+    finally:
+        connection.close()
+
+
+def test_tag_calls_are_one_per_distinct_video_across_pages(tmp_root):
+    """A video on two pages still costs one tag call, not one per page.
+
+    The cache is run-scoped rather than page-scoped for this reason: a resumed
+    or re-listed page must not pay for the same video's tags twice.
+    """
+
+    gateway = FakeGateway()
+    gateway.script_page(1, _page(1, _summary("BV1REPEAT"), observed_total=2))
+    gateway.script_page(2, _page(2, _summary("BV1REPEAT"), observed_total=2))
+    gateway.script_page(3, _page(3, observed_total=2))
+    gateway.script_parts("BV1REPEAT", (_part("BV1REPEAT", 0),))
+    gateway.script_tags(
+        "BV1REPEAT",
+        (VideoTag(tag_id=943, tag_name="爱情", tag_type="old_channel"),),
+    )
+    connection = open_database(tmp_root)
+    repository = MetadataRepository(connection)
+    try:
+        _ingestor(gateway, repository).collect_user_pages(MID, start_page=1)
+
+        assert gateway.tag_calls == ["BV1REPEAT"]
+        # The second page observed the same single tag, so the replacement
+        # converged instead of accumulating a duplicate row.
+        rows = connection.execute(
+            "SELECT tag_id, tag_name FROM video_tags WHERE bvid = ?",
+            ("BV1REPEAT",),
+        ).fetchall()
+        assert [tuple(row) for row in rows] == [(943, "爱情")]
+    finally:
+        connection.close()
+
+
+def test_rerun_replaces_the_tag_set_instead_of_appending(tmp_root):
+    """A re-run converges on what upstream says now (AC 3).
+
+    The second run observes one renamed tag and one new one; the stored set
+    must be exactly those two rows, with the first run's extra row gone.
+    """
+
+    gateway = FakeGateway()
+    gateway.script_parts("BV1TAGS", (_part("BV1TAGS", 0),))
+    connection = open_database(tmp_root)
+    repository = MetadataRepository(connection)
+    ingestor = _ingestor(gateway, repository)
+    try:
+        gateway.script_page(1, _page(1, _summary("BV1TAGS"), observed_total=1))
+        gateway.script_page(2, _page(2, observed_total=1))
+        gateway.script_tags(
+            "BV1TAGS",
+            (
+                VideoTag(tag_id=1, tag_name="旧名", tag_type="old_channel"),
+                VideoTag(tag_id=2, tag_name="将被移除", tag_type="old_channel"),
+            ),
+        )
+        ingestor.collect_user_pages(MID, start_page=1)
+
+        gateway.script_page(3, _page(3, _summary("BV1TAGS"), observed_total=1))
+        gateway.script_page(4, _page(4, observed_total=1))
+        gateway.script_tags(
+            "BV1TAGS",
+            (
+                VideoTag(tag_id=1, tag_name="新名", tag_type="old_channel"),
+                VideoTag(tag_id=3, tag_name="新增", tag_type="old_channel"),
+            ),
+        )
+        ingestor.collect_user_pages(MID, start_page=3)
+
+        rows = connection.execute(
+            "SELECT tag_id, tag_name FROM video_tags WHERE bvid = ? ORDER BY tag_id",
+            ("BV1TAGS",),
+        ).fetchall()
+        assert [tuple(row) for row in rows] == [(1, "新名"), (3, "新增")]
+    finally:
+        connection.close()
+
+
+def test_observed_empty_tag_set_clears_the_stored_rows(tmp_root):
+    """An empty observation is a real answer and replaces the stored set.
+
+    Live-probed: a well-formed bvid answers ``code=0`` with ``data: []`` when
+    the video carries no tags.  That observation must clear rows a previous run
+    stored, otherwise the archive would keep tags upstream no longer lists.
+    """
+
+    gateway = FakeGateway()
+    gateway.script_parts("BV1EMPTY", (_part("BV1EMPTY", 0),))
+    connection = open_database(tmp_root)
+    repository = MetadataRepository(connection)
+    ingestor = _ingestor(gateway, repository)
+    try:
+        gateway.script_page(1, _page(1, _summary("BV1EMPTY"), observed_total=1))
+        gateway.script_page(2, _page(2, observed_total=1))
+        gateway.script_tags(
+            "BV1EMPTY",
+            (VideoTag(tag_id=943, tag_name="爱情", tag_type="old_channel"),),
+        )
+        ingestor.collect_user_pages(MID, start_page=1)
+        assert (
+            connection.execute(
+                "SELECT COUNT(*) FROM video_tags WHERE bvid = 'BV1EMPTY'"
+            ).fetchone()[0]
+            == 1
+        )
+
+        gateway.script_page(3, _page(3, _summary("BV1EMPTY"), observed_total=1))
+        gateway.script_page(4, _page(4, observed_total=1))
+        gateway.script_tags("BV1EMPTY", ())
+        ingestor.collect_user_pages(MID, start_page=3)
+
+        assert (
+            connection.execute(
+                "SELECT COUNT(*) FROM video_tags WHERE bvid = 'BV1EMPTY'"
+            ).fetchone()[0]
+            == 0
+        )
+    finally:
+        connection.close()
+
+
+def test_degraded_tag_fetch_does_not_fail_the_run(tmp_root, bilibili_api_seam):
+    """A risk-controlled tag fetch records no tags and lets the run finish.
+
+    Driven through the real adapter on the package seam, because the
+    degradation lives there rather than in the protocol double: upstream
+    answers the tag call with the risk-control code, the adapter turns that
+    into an empty tuple, and the page's other payload must still land.  A test
+    against ``FakeGateway`` alone would only be asserting the double's own
+    behavior.
+    """
+
+    bilibili_api_seam.videos_response = make_videos_response(
+        make_vlist_item(bvid="BV1DEGRADED0"), count=1
+    )
+    bilibili_api_seam.parts_response = [make_part_item(cid=2222)]
+    # The real adapter maps -352 onto GatewayRateLimited and degrades on it.
+    bilibili_api_seam.tags_error = FakeResponseCodeException(-352, UPSTREAM_ERROR_TEXT)
+    connection = open_database(tmp_root)
+    repository = MetadataRepository(connection)
+    try:
+        result = MetadataIngestor(_seam_gateway(), repository).collect_user_pages(
+            MID, start_page=1, page_limit=1
+        )
+
+        assert result.outcome == "limited"
+        assert result.error_code is None
+        assert bilibili_api_seam.tag_calls == ["BV1DEGRADED0"]
+        assert bilibili_api_seam.calls == [
+            "space.arc.search(pn=1, ps=30)",
+            "video.get_pages",
+            "video.tags",
+        ]
+        assert connection.execute("SELECT COUNT(*) FROM video_tags").fetchone()[0] == 0
+        # The rest of the page's payload is intact: the degraded call took
+        # nothing else down with it.
+        assert connection.execute("SELECT COUNT(*) FROM videos").fetchone()[0] == 1
+        assert connection.execute("SELECT COUNT(*) FROM video_parts").fetchone()[0] == 1
+    finally:
+        connection.close()
+
+
+def test_tag_rows_land_through_the_pinned_adapter(tmp_root, bilibili_api_seam):
+    """The seam-driven happy path: the adapter's tags reach the table.
+
+    The scripted inventory is the live-probed upstream shape (``tag_id``,
+    ``tag_name``, ``tag_type``, plus the two fields the archive drops), so the
+    end-to-end assertion also pins that the stored columns are exactly the
+    three the schema declares.
+    """
+
+    bilibili_api_seam.videos_response = make_videos_response(
+        make_vlist_item(bvid="BV1TAGSEAMD0"), count=1
+    )
+    bilibili_api_seam.parts_response = [make_part_item(cid=2222)]
+    bilibili_api_seam.tags_response = [
+        make_tag_item(tag_id=943, tag_name="爱情"),
+        make_tag_item(tag_id=11128717, tag_name="人类解放"),
+    ]
+    connection = open_database(tmp_root)
+    repository = MetadataRepository(connection)
+    try:
+        MetadataIngestor(_seam_gateway(), repository).collect_user_pages(
+            MID, start_page=1, page_limit=1
+        )
+
+        rows = connection.execute(
+            "SELECT bvid, tag_id, tag_name, tag_type FROM video_tags ORDER BY tag_id"
+        ).fetchall()
+        assert [tuple(row) for row in rows] == [
+            ("BV1TAGSEAMD0", 943, "爱情", "old_channel"),
+            ("BV1TAGSEAMD0", 11128717, "人类解放", "old_channel"),
+        ]
+        assert_leaks_no_markers(
+            persisted_row_text(connection), context="tag rows through the adapter"
+        )
+    finally:
+        connection.close()
