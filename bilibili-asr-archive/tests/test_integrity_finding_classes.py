@@ -10,9 +10,9 @@ import json
 from pathlib import Path
 
 from bili_asr.integrity import (
-    BACKLOG_CATEGORY, BACKLOG_CODES, DEFECT_CATEGORY, RETRYABLE_INCOMPLETE,
-    STRUCTURAL_INPUT_ERROR, TRUNCATED_ATTEMPTS_LINE, IntegrityDefect,
-    IntegrityReport, IntegrityVerifier,
+    BACKLOG_CATEGORY, BACKLOG_CODES, DEFECT_CATEGORY, MALFORMED_ARTIFACT,
+    RETRYABLE_INCOMPLETE, STRUCTURAL_INPUT_ERROR, TRUNCATED_ATTEMPTS_LINE,
+    IntegrityDefect, IntegrityReport, IntegrityVerifier,
 )
 
 
@@ -76,15 +76,21 @@ def test_backlog_only_archive_is_zero_defects(tmp_path: Path) -> None:
 def test_unparseable_manifest_is_never_backlog(tmp_path: Path) -> None:
     """Malformed input is defect-class: non-authoritative, and never a backlog row (§2).
 
-    ``verify`` deliberately drops ``manifest_malformed`` from ``diagnostics``
-    (``integrity.py:306-307``); that diagnostic is the coverage side's signal, so the
-    verify-side assertion is the non-authoritative verdict.
+    The defect surface for an unparseable manifest is the **non-authoritative verdict**,
+    plus the ``malformed_artifact`` diagnostic ``verify`` now emits for it
+    (``integrity.py:328-332``; the earlier swallow made ``verify`` exit 0 with no finding
+    of either class while ``coverage`` reported it).  What is asserted here is the
+    counting discipline around that: both ``defect_count`` and ``backlog_count`` stay 0
+    with an empty ``defects`` list, so a malformed manifest is neither a backlog row nor
+    an invented defect row.  Measured for the single-bad-line case this test builds:
+    ``diagnostics == ["malformed_artifact"]``, ``authoritative is False``.
     """
     (tmp_path / "manifest").mkdir()
     (tmp_path / "manifest" / "manifest.jsonl").write_text("{not json}\n", encoding="utf-8")
     report = IntegrityVerifier().verify(tmp_path)
     assert report.authoritative is False
     payload = report.to_dict()
+    assert payload["diagnostics"] == [MALFORMED_ARTIFACT]
     assert payload["defect_count"] == 0
     assert payload["backlog_count"] == 0
     assert payload["defects"] == []
