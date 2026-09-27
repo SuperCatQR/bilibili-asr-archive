@@ -438,7 +438,12 @@ def test_cli_pilot_risk_budget_prints_branch_summary(tmp_root, monkeypatch, caps
 
     monkeypatch.setattr("bili_asr.subtitles.harvest_subtitle", raise_risk)
     _patch_cli(monkeypatch, _mixed_transport())
-    rc = main(["pilot", "--n", "2", "--archive-root", tmp_root])
+    # Harvest-route risk budget: pinned through the manifest rollback source
+    # (the fixture seeds no archive.db, which the store source requires).
+    rc = main([
+        "pilot", "--n", "2", "--queue-source", "manifest",
+        "--archive-root", tmp_root,
+    ])
     captured = capsys.readouterr()
     assert rc == 2
     assert "risk-control ceiling" in captured.err

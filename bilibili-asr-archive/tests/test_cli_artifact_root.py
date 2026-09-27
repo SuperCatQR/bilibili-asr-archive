@@ -244,8 +244,9 @@ def _drive_download_audio(archive, artifact, monkeypatch, capsys):
     _write_manifest(archive, [_row(identity, status="needs_audio")])
     _offline_client(monkeypatch, _audio_transport())
 
-    rc = main(["download-audio", "--missing-subs", "--archive-root", archive,
-               "--artifact-root", artifact])
+    # Manifest-only fixture: pin the rollback source (no archive.db seeded).
+    rc = main(["download-audio", "--missing-subs", "--queue-source", "manifest",
+               "--archive-root", archive, "--artifact-root", artifact])
     captured = capsys.readouterr()
     stem = artifact_stem(identity)
 
@@ -697,7 +698,8 @@ def test_unset_reproduces_todays_layout_byte_for_byte(tmp_root, monkeypatch, cap
         _write_manifest(archive, [_row(identity, status="needs_audio")])
         _offline_client(monkeypatch, _audio_transport())
 
-        argv = ["download-audio", "--missing-subs", "--archive-root", archive]
+        argv = ["download-audio", "--missing-subs", "--queue-source", "manifest",
+                "--archive-root", archive]
         if extra:
             argv += ["--artifact-root", archive]
         assert main(argv) == 0, capsys.readouterr().err

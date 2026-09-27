@@ -261,7 +261,8 @@ def test_download_audio_mixed_success_and_api_failure_is_retryable(
     _patch_cli(monkeypatch, transport)
 
     rc = main([
-        "download-audio", "--missing-subs", "--archive-root", tmp_root,
+        "download-audio", "--missing-subs", "--queue-source", "manifest",
+        "--archive-root", tmp_root,
         "--sessdata", SECRET,
     ])
     captured = capsys.readouterr()
@@ -275,7 +276,10 @@ def test_download_audio_mixed_success_and_api_failure_is_retryable(
     assert _ledger_records(tmp_root) == []
     _assert_no_secrets(captured, tmp_root)
 
-    rc = main(["download-audio", "--missing-subs", "--archive-root", tmp_root])
+    rc = main([
+        "download-audio", "--missing-subs", "--queue-source", "manifest",
+        "--archive-root", tmp_root,
+    ])
     captured = capsys.readouterr()
     assert rc == 1
     loaded = ManifestStore(root=tmp_root).load()
@@ -301,7 +305,10 @@ def test_download_audio_success_then_risk_exit_2_keeps_success(
     )
     _patch_cli(monkeypatch, transport)
 
-    rc = main(["download-audio", "--missing-subs", "--archive-root", tmp_root])
+    rc = main([
+        "download-audio", "--missing-subs", "--queue-source", "manifest",
+        "--archive-root", tmp_root,
+    ])
     captured = capsys.readouterr()
     assert rc == 2
     assert "download-audio:" in captured.out

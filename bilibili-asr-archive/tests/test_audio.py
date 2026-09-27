@@ -515,7 +515,7 @@ def test_cli_download_audio_missing_subs(tmp_root, monkeypatch, capsys):
         stream_routes={f"{STREAM_HOST}/a30216.m4s": AUDIO_BYTES},
     )
     _cli_routes(monkeypatch, transport)
-    rc = main(["download-audio", "--missing-subs", "--archive-root", tmp_root])
+    rc = main(["download-audio", "--missing-subs", "--queue-source", "manifest", "--archive-root", tmp_root])
     assert rc == 0
     store = ManifestStore(root=tmp_root)
     assert store.get(f"{BVID}:p0")["status"] == "audio_ok"
@@ -535,7 +535,7 @@ def test_cli_download_audio_bvid(tmp_root, monkeypatch):
         stream_routes={f"{STREAM_HOST}/a30216.m4s": AUDIO_BYTES},
     )
     _cli_routes(monkeypatch, transport)
-    rc = main(["download-audio", "--bvid", BVID,
+    rc = main(["download-audio", "--bvid", BVID, "--queue-source", "manifest",
                "--archive-root", tmp_root])
     assert rc == 0
     store = ManifestStore(root=tmp_root)
@@ -559,7 +559,7 @@ def test_cli_download_audio_unknown_bvid_stops_without_row(
     _cli_routes(monkeypatch, transport)
 
     rc = main([
-        "download-audio", "--bvid", "BV1unknown",
+        "download-audio", "--bvid", "BV1unknown", "--queue-source", "manifest",
         "--archive-root", tmp_root,
     ])
 
@@ -595,7 +595,7 @@ def test_cli_download_audio_api_error_preserves_status_and_mixed_batch_fails(
     )
     _cli_routes(monkeypatch, transport)
     monkeypatch.setattr("bili_asr.cli.time.sleep", lambda _seconds: None)
-    rc = main(["download-audio", "--missing-subs", "--archive-root", tmp_root])
+    rc = main(["download-audio", "--missing-subs", "--queue-source", "manifest", "--archive-root", tmp_root])
     assert rc == 1
     entries = ManifestStore(root=tmp_root).load()
     failed = entries.get("BV1error") or entries["BV1error:p0"]
@@ -624,7 +624,7 @@ def test_cli_download_audio_transport_error_redacts_exception_message(
     _cli_routes(monkeypatch, transport)
 
     rc = main([
-        "download-audio", "--bvid", "BV1transport",
+        "download-audio", "--bvid", "BV1transport", "--queue-source", "manifest",
         "--archive-root", tmp_root,
     ])
 
@@ -648,6 +648,6 @@ def test_cli_download_audio_budget_exhausted_exit_2(tmp_root, monkeypatch, capsy
          "/x/player/wbi/playurl": [(412, None)] * 5},
     )
     _cli_routes(monkeypatch, transport)
-    rc = main(["download-audio", "--missing-subs", "--archive-root", tmp_root])
+    rc = main(["download-audio", "--missing-subs", "--queue-source", "manifest", "--archive-root", tmp_root])
     assert rc == 2
     assert "risk-control" in capsys.readouterr().err
