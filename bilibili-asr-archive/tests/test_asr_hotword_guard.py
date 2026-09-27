@@ -230,10 +230,12 @@ def test_set_hotword_evidence_is_idempotent_for_the_same_evidence() -> None:
 # ---------------------------------------------------------------------------------------
 
 
-def test_the_runner_rebuild_filters_the_list_through_the_guard() -> None:
+def test_the_runner_rebuild_returns_kept_tokens_for_the_second_pass() -> None:
+    # QC F2 contract: the return is the KEPT vocabulary; an empty kept list
+    # means pass 2 cannot change the output and must not run.
     runner = asr.ASRRunner(_config("扬弃", "此在", "定在"))
-    dropped = runner.rebuild_hotwords_from_first_pass("我们要扬弃这个定在")
-    assert dropped == ["此在"]
+    kept = runner.rebuild_hotwords_from_first_pass("我们要扬弃这个定在")
+    assert kept == ["扬弃", "定在"]
     provenance = runner.provenance()
     assert provenance["hotwords"] == "扬弃,定在"
     assert provenance["hotword_dropped_no_evidence"] == "此在"

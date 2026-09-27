@@ -409,3 +409,84 @@ def sqlite3_connect_plain(path: Path):
     import sqlite3
 
     return sqlite3.connect(path)
+
+
+def test_mixed_md_and_store_keys_do_not_pollute_the_incremental_stamp(tmp_path):
+    """QC F1 regression: a published-md row must not skip store transcripts."""
+    from bili_asr import search_index
+
+    root = tmp_path
+    connection = open_database(root)
+    try:
+        repository = TranscriptRepository(connection)
+        repository.start_acquisition_run(_run_record("search-fixture"))
+        _store_part(
+            root, connection, repository,
+            bvid="BVA", page_index=0, cid=1, pubdate=1,
+            video_title="video A", part_title="A p0",
+            segments=_segments((0, 500, "store text A")),
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+    index = search_index.TranscriptSearchIndex(root)
+    assert index.build() == 1
+
+    # a second part the store has metadata for but no transcript: the md fallback
+    from bili_asr.storage import MetadataRepository
+
+    connection = open_database(root)
+    try:
+        metadata = MetadataRepository(connection)
+        with metadata.transaction():
+            metadata.upsert_video(
+                replace(make_video_record("BVB", aid=None, title="video B"), pubdate=2)
+            )
+            metadata.upsert_part(
+                make_part_record(
+                    "BVB", page_index=0, cid=2, title="B p0",
+                    processing_status="metadata_collected",
+                )
+            )
+        connection.commit()
+    finally:
+        connection.close()
+    (root / "transcripts" / "md").mkdir(parents=True, exist_ok=True)
+    (root / "transcripts" / "md" / "BVB.p0.md").write_text(
+        "plain text body for BVB", encoding="utf-8"
+    )
+    assert index.build() == 1
+
+    # a NEW store transcript for BVB must not be skipped by the md row's id
+    connection = open_database(root)
+    try:
+        repository = TranscriptRepository(connection)
+        part_b = int(connection.execute(
+            "SELECT video_part_id FROM video_parts WHERE bvid = 'BVB'"
+        ).fetchone()["video_part_id"])
+        repository.record_acquired_transcript(
+            run_id="search-fixture",
+            video_part_id=part_b,
+            source_kind="subtitle-ai",
+            language="zh",
+            segments=_segments((0, 500, "store text B")),
+            started_at=2,
+            finished_at=2,
+            created_at=2,
+        )
+        connection.commit()
+    finally:
+        connection.close()
+    assert index.build() == 1, "store transcript for BVB was silently skipped (F1)"
+
+
+
+def test_pass_two_runs_only_when_kept_tokens_exist():
+    """QC F2 regression: an empty kept list means pass 2 cannot change output."""
+    from bili_asr import asr
+
+    cfg = asr.ASRConfig(model_name="m")
+    runner = asr.ASRRunner(cfg)
+    kept = runner.rebuild_hotwords_from_first_pass("一段没有任何热词的转写文本。")
+    assert kept == []

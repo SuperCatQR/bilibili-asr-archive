@@ -1007,8 +1007,19 @@ def _cjk_bigram_stream(text: str) -> str:
     )
 
 
+#: Block-key namespaces keep the two id spaces apart: store segments are keyed
+#: by (transcript_id, ordinal), published-md fallback rows by video_part_id.
+#: A mixed-namespace MAX stamp silently skips store rows (QC F1, 2026-09-28).
+_STORE_KEY_PREFIX = "t"
+_MD_KEY_PREFIX = "m"
+
+
 def _store_block_key(transcript_id: int, ordinal: int) -> str:
-    return f"{transcript_id}:{ordinal}"
+    return f"{_STORE_KEY_PREFIX}{transcript_id}:{ordinal}"
+
+
+def _md_block_key(video_part_id: int) -> str:
+    return f"{_MD_KEY_PREFIX}{video_part_id}:0"
 
 
 def _published_md_bases(artifact_roots: ArtifactRoots) -> tuple[Path, ...]:
@@ -1250,8 +1261,10 @@ class TranscriptSearchIndex:
             if not self._has_index(conn):
                 return -1
             row = conn.execute(
-                f"SELECT MAX(CAST(substr(block_key, 1, instr(block_key, ':') - 1) AS INTEGER)) "
-                f"AS m FROM {STORE_FTS5_TABLE}"
+                f"SELECT MAX(CAST(substr(block_key, 2, instr(block_key, ':') - 2) AS INTEGER)) "
+                f"AS m FROM {STORE_FTS5_TABLE} "
+                f"WHERE substr(block_key, 1, 1) = ?",
+                (_STORE_KEY_PREFIX,),
             ).fetchone()
             return int(row[0]) if row and row[0] is not None else -1
         except sqlite3.DatabaseError as exc:
@@ -1396,7 +1409,7 @@ class TranscriptSearchIndex:
                 text = _redact_text(text)
                 pending.append(
                     (
-                        _store_block_key(part_id, 0),
+                        _md_block_key(part_id),
                         str(part["bvid"]),
                         int(part["page_index"]),
                         0,

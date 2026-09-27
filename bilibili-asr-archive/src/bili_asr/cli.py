@@ -2699,7 +2699,7 @@ def _cmd_asr(args: argparse.Namespace) -> int:
                     with confined_audio_file(audio_base, os.fspath(declared)) as safe_audio:
                         first_pass = runner.transcribe(safe_audio)
                     transcript_text = "".join(str(seg.get("text", "")) for seg in first_pass)
-                    if runner.rebuild_hotwords_from_first_pass(transcript_text):
+                    if runner.rebuild_hotwords_from_first_pass(transcript_text):  # kept tokens
                         with confined_audio_file(audio_base, os.fspath(declared)) as safe_audio:
                             segments = runner.transcribe(safe_audio)
                     else:

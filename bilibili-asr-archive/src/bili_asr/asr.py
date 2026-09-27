@@ -1187,14 +1187,22 @@ class ASRRunner:
         without an occurrence are recorded under ``hotword_dropped_no_evidence`` in
         :meth:`provenance`.
 
-        Returns the dropped tokens (ledger wiring is the caller's, via
-        :attr:`hotwords_dropped` or the provenance fact).
+        Returns the KEPT tokens — the reseeded vocabulary that will bias the
+        second pass.  (An earlier shape returned the dropped list, which made
+        every caller run pass 2 unconditionally: a pass-1 transcript never
+        equals the pre-pass-1 paired-subtitle evidence, so the dropped list is
+        always non-empty whenever any token was subtitle-admitted.  QC F2,
+        2026-09-28.)
+
+        Pass 2 is worth its decode cost only when the kept list is non-empty:
+        an empty kept list means the guard admits nothing beyond what pass 1
+        already produced, and a second decode cannot change the output.
         """
 
         self.set_hotword_evidence(
             evidence_text=transcript_text, paired_subtitle_text=None
         )
-        return list(self._hotwords_dropped)
+        return [term for term in (self._hotwords_effective or ())]
 
     def provenance(self) -> dict[str, str]:
         """The redaction-safe provenance of this runner's configuration."""
