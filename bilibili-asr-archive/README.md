@@ -466,6 +466,20 @@ Generated output is redacted and bounded: no credentials, signed URLs, raw
 exceptions, model artifacts, media, archive data, or environment dumps belong
 in committed files or CI artifacts.
 
+## The operator chain (post-cutover)
+
+The store is the sole queue truth source. The everyday loop is three steps:
+
+1. `bili-asr fetch-meta` — enumerate and persist metadata + subtitles into `archive.db`.
+2. `bili-asr download-audio` — audio for parts the store says owe it (`--queue-source store`
+   is the default; `--queue-source manifest` is the legacy rollback and prints a deprecation line).
+3. `bili-asr asr` — transcribe what still owes a transcript; or read the queue first with
+   `bili-asr status` (three gap groups, newest first — the groups overlap, never sum them).
+
+Around it: `bili-asr proofread` / `proofread-merge` (two-route machine pre-alignment and the
+human-adjudicated merge), and `bili-asr search` / `search-index` (FTS5 over the archived
+transcripts, with `--from/--to` pubdate windows).
+
 ## Workflow
 
 The ASR chain's data flow — audio → chunker → the two checkpoints → mark threading → cues →

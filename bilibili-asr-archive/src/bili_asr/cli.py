@@ -1999,6 +1999,39 @@ def _cmd_status(args: argparse.Namespace) -> int:
                 f"{row['processing_status']}={row['count']}" for row in processing
             )
             print(f"processing: {summary}")
+        # Queue view (B-D1): three gap groups from the store's own views.
+        # Contract §4: the groups are NOT disjoint — their counts must never
+        # be summed; the summary header reports each group separately.
+        try:
+            from .services import queue_source as qs
+
+            source = qs.open_queue_source(args.archive_root)
+        except Exception:
+            source = None
+        if source is not None:
+            try:
+                conn = source.connection
+                for label, view in (
+                    ("missing subtitles", "v_missing_subtitle"),
+                    ("missing audio", "v_missing_audio"),
+                    ("missing transcripts", "v_missing_transcript"),
+                ):
+                    try:
+                        rows = conn.execute(
+                            f"SELECT bvid, page_index, part_title, video_title, "
+                            f"pubdate FROM {view} ORDER BY pubdate DESC LIMIT 20"
+                        ).fetchall()
+                    except Exception:
+                        continue
+                    print(f"queue: {label}: {len(rows)} shown (top 20, newest first)")
+                    for r in rows:
+                        print(f"  {r['bvid']}:p{r['page_index']} {r['part_title']}")
+            finally:
+                conn_close = getattr(source, 'close', None)
+                if callable(conn_close):
+                    conn_close()
+                else:
+                    source.connection.close()
         pending = repository.list_pending_parts()
         print(f"pending: {len(pending)}")
         for row in pending[:_MAX_DISPLAYED_PENDING_PARTS]:
