@@ -35,7 +35,7 @@ import shutil
 import subprocess
 import tempfile
 from dataclasses import asdict, dataclass, replace
-from typing import Any, Callable, NamedTuple
+from typing import Any, Callable, Iterable, NamedTuple
 
 DEFAULT_MODEL = "Qwen/Qwen3-ASR-1.7B-hf"
 DEFAULT_ALIGNER_MODEL = "Qwen/Qwen3-ForcedAligner-0.6B-hf"
@@ -96,12 +96,31 @@ ASR_LANGUAGE_ENV_VAR = "BILI_ASR_LANGUAGE"
 ASR_HOTWORDS_ENV_VAR = "BILI_ASR_HOTWORDS"
 ASR_CHUNK_SECONDS_ENV_VAR = "BILI_ASR_CHUNK_SECONDS"
 
-#: Corpus vocabulary carried to the decoder as free-form context (the processor's ``prompt``).
-#: Every entry has been observed mis-recognised as a homophone on this archive's own audio
-#: (``马鞍牌`` for 马恩牌, ``公式`` for 攻势, ``智力豆包`` for 智利豆包, ``跟着苗红`` for 根正苗红) or is a
-#: recurring name of the corpus.  The list stays short on purpose: the terms travel as one prompt
-#: line and a long one dilutes the bias.
-DEFAULT_HOTWORDS: tuple[str, ...] = (
+#: The shipped decoder-prompt vocabulary.  Governance ruling 2026-09-28 (plan
+#: ``20260928-hotword-injection-governance``, residual ``20260922-proofread-wave R1``):
+#: **empty while the per-token keep/drop measurement is pending operator re-run.**
+#: No token may enter the prompt by speculation — every admitted token has to
+#: occur in the run's own first-pass transcript or its paired AI-subtitle text
+#: (:func:`evidence_guard_hotwords`), and dropped tokens are recorded in the run
+#: ledger as ``hotword_dropped_no_evidence``.  The 33 measured-candidate tokens
+#: that populated this list before the ruling — 27 archive terms plus the six
+#: homophone entries 扬弃/自在/变易/此在/感性/实存, whose benefit was never verified
+#: — are the ruling table's subjects; the archived reasoning for each block is
+#: preserved in git history and in ``.mstar/knowledge/testing-patterns/
+#: hotword-list-measurement.md``.  When the measurement lands, the kept tokens
+#: return here and the rest are dropped from the default source entirely.
+DEFAULT_HOTWORDS: tuple[str, ...] = ()
+
+#: The measured-candidate vocabulary — the tokens the 2026-09-28 keep/drop ruling
+#: (plan ``20260928-hotword-injection-governance``) measures, with the reasoning
+#: each block earned.  These are NOT the shipped prompt list: ``DEFAULT_HOTWORDS``
+#: is empty while the ruling is pending operator re-run (no speculative seeding).
+#: An operator run may feed these through ``BILI_ASR_HOTWORDS`` or an explicit
+#: config, and the evidence guard (:func:`evidence_guard_hotwords`) admits back
+#: only the ones the run's own transcript or paired subtitles carry.  When the
+#: measurement lands, the kept tokens return to ``DEFAULT_HOTWORDS`` and the rest
+#: are dropped from this list too.
+MEASURED_HOTWORD_CANDIDATES: tuple[str, ...] = (
     "未明子", "主义主义", "拟态论", "国际劳工仲裁", "国际劳联", "马恩牌", "攻势", "智利",
     "根正苗红", "亚美利坚", "黑格尔", "海德格尔", "拉康", "齐泽克", "德勒兹", "康德",
     "观念论", "本体论", "现象学", "辩证法", "定在", "自为", "理念性",
@@ -280,7 +299,10 @@ class ASRConfig:
     archived or published (plan §10 — the archive records what the operator declared, not a guess).
 
     ``hotwords`` biases the decoder through the processor's free-form ``prompt``; an empty tuple
-    sends no bias, and the terms are recorded in provenance.
+    sends no bias, and the terms are recorded in provenance.  Governance ruling 2026-09-28:
+    speculative seeding is off, so the shipped default is empty and every token that does reach
+    the prompt is admitted by :func:`evidence_guard_hotwords` against the run's own evidence
+    (the runner's per-run state, not this config — see :class:`ASRRunner`).
 
     ``model_name`` / ``aligner_name`` are hub ids or local checkpoint directories.  ``model_id`` is the
     operator's declaration of the hub-level identity behind the ASR checkpoint.
@@ -291,6 +313,12 @@ class ASRConfig:
     model_revision: str | None = None
     device: str = "cuda"
     language: str | None = None
+    # 2026-09-28 governance ruling (plan 20260928-hotword-injection-governance,
+    # residual 20260922-proofread-wave R1): speculative seeding is off.  No term
+    # enters the decoder prompt unless evidence-based seeding admits it (see
+    # ``evidence_guard_hotwords``); the shipped default is therefore empty and
+    # ``BILI_ASR_HOTWORDS`` supplies operator-declared terms that pass the same
+    # guard at run time.
     hotwords: tuple[str, ...] = DEFAULT_HOTWORDS
     chunk_seconds: float = DEFAULT_CHUNK_SECONDS
     offline: bool = True
@@ -364,6 +392,70 @@ def _extra_hotwords(environment_value: str | None) -> tuple[str, ...]:
         if term and term not in terms and term not in DEFAULT_HOTWORDS:
             terms.append(term)
     return tuple(terms)
+
+
+def evidence_guard_hotwords(
+    candidates: Iterable[str],
+    evidence_texts: Iterable[str | None],
+) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    """Evidence-based hotword guard (2026-09-28 governance ruling, plan
+    ``20260928-hotword-injection-governance``).
+
+    A candidate term may reach the decoder prompt only if it occurs in at least
+    one of ``evidence_texts`` — the run's own first-pass transcript or the
+    paired AI-subtitle text.  Speculative seeding is the insertion-error source
+    recorded as residual ``20260922-proofread-wave R1`` (hotword tokens observed
+    in output where the audio says something else), so the default path seeds
+    nothing: ``DEFAULT_HOTWORDS`` is empty while the per-token keep/drop
+    measurement is pending, and operator-declared ``BILI_ASR_HOTWORDS`` terms
+    pass through this same guard before they can bias a decode.
+
+    The guard is pure string containment — no model calls, no tokenization.
+    CJK terms are matched as-is (a hotword list entry is already the smallest
+    meaningful unit, and the corpus text carries no word boundaries to consult);
+    Latin-script terms are matched case-insensitively, because the prompt list
+    capitalizes them while transcripts do not.  A term occurring only inside a
+    longer word *is* matched — that is the deliberate semantics: a term that
+    appears anywhere in the evidence is a term this run plausibly needs.
+
+    Returns ``(admitted, dropped)`` in candidate order, de-duplicated.
+    """
+
+
+    def _norm(text: str) -> str:
+        return text.casefold()
+
+    seen: set[str] = set()
+    ordered: list[str] = []
+    for term in candidates:
+        term = term.strip()
+        if term and term not in seen:
+            seen.add(term)
+            ordered.append(term)
+    folded = [_norm(text) for text in evidence_texts if text]
+    admitted = tuple(
+        term for term in ordered
+        if any(_norm(term) in text for text in folded)
+    )
+    dropped = tuple(term for term in ordered if term not in admitted)
+    return admitted, dropped
+
+
+def filter_hotwords(
+    candidates: Iterable[str],
+    *,
+    evidence_text: str | None,
+    paired_subtitle_text: str | None = None,
+) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    """The two-text call shape of :func:`evidence_guard_hotwords`.
+
+    ``evidence_text`` is the run's own first-pass transcript; ``paired_subtitle_text``
+    is the AI-subtitle text harvested for the same part (``None`` when the part has no
+    subtitle route).  Both are evidence; a token passing either reaches the prompt.
+    """
+
+
+    return evidence_guard_hotwords(candidates, (evidence_text, paired_subtitle_text))
 
 
 def default_config() -> ASRConfig:
@@ -844,6 +936,15 @@ class ASRRunner:
         # Attempts, not successes: a failed load is retried once per row, so
         # ``attempts - constructions`` is exactly the number of load failures this runner paid for.
         self.model_load_attempts = 0
+        # Run-scoped hotword state (governance ruling 2026-09-28).  ``None`` means
+        # "no evidence supplied yet": no guard has run, so the configured list is
+        # used verbatim — the state of every caller that predates the guard.  Once
+        # evidence arrives, ``_hotwords_effective`` is exactly what the guard admitted
+        # and ``_hotwords_dropped`` is ledger-visible.
+        self._hotwords_effective: tuple[str, ...] | None = None
+        self._hotwords_dropped: tuple[str, ...] = ()
+        self._hotwords_evidence_text: str | None = None
+        self._hotwords_subtitle_text: str | None = None
 
     def _get_models(self) -> _ModelSet:
         if self._models is not None:
@@ -910,7 +1011,8 @@ class ASRRunner:
 
         import torch
 
-        prompt = "Vocabulary: " + ", ".join(self.config.hotwords) if self.config.hotwords else None
+        hotwords = self._prompt_hotwords()
+        prompt = "Vocabulary: " + ", ".join(hotwords) if hotwords else None
         inputs = models.processor.apply_transcription_request(
             audio=audio_path, language=self.config.language, prompt=prompt
         )
@@ -1020,21 +1122,98 @@ class ASRRunner:
 
         self._models = None
 
+    def _prompt_hotwords(self) -> tuple[str, ...]:
+        """The vocabulary that may reach the prompt for the next chunk.
+
+        ``self.config.hotwords`` is the operator's configured list; the effective
+        list is what the evidence guard admitted once evidence was supplied.  A
+        runner that never received evidence keeps its configured list verbatim.
+        """
+
+        return (
+            self.config.hotwords
+            if self._hotwords_effective is None
+            else self._hotwords_effective
+        )
+
+    @property
+    def hotwords_dropped(self) -> tuple[str, ...]:
+        """Terms the evidence guard refused for this run (ledger-visible)."""
+
+        return self._hotwords_dropped
+
+    def set_hotword_evidence(
+        self,
+        *,
+        evidence_text: str | None,
+        paired_subtitle_text: str | None,
+    ) -> None:
+        """Run the evidence guard over the configured list and remember the verdict.
+
+        ``evidence_text`` is the run's own first-pass transcript; ``paired_subtitle_text``
+        is the AI-subtitle text for the same part (``None`` when the part has no
+        subtitle route).  Both are evidence — a token occurring in either survives.
+        Idempotent for the same evidence: the guard is pure string logic, so the
+        same input yields the same verdict and re-setting is a no-op.
+        """
+
+        admitted, dropped = filter_hotwords(
+            self.config.hotwords,
+            evidence_text=evidence_text,
+            paired_subtitle_text=paired_subtitle_text,
+        )
+        # Idempotence: re-applying the *same* evidence is a no-op (the guard is
+        # pure string logic, so the same input yields the same verdict).  A
+        # genuinely different evidence — a real first-pass transcript versus a
+        # later, fuller one — re-seeds and the recorded fact is replaced.
+        if (
+            self._hotwords_effective is not None
+            and (evidence_text, paired_subtitle_text)
+            == (self._hotwords_evidence_text, self._hotwords_subtitle_text)
+        ):
+            return
+        self._hotwords_effective = admitted
+        self._hotwords_dropped = dropped
+        self._hotwords_evidence_text = evidence_text
+        self._hotwords_subtitle_text = paired_subtitle_text
+
+    def rebuild_hotwords_from_first_pass(self, transcript_text: str) -> list[str]:
+        """Reseed the prompt vocabulary from the run's own first-pass transcript.
+
+        The two-pass contract (plan 20260928-hotword-injection-governance, Task 1):
+        a first pass over the audio with the guard's *configured* list produces a
+        transcript; only tokens that transcript itself contains are admitted for the
+        second pass — evidence-based seeding replacing speculative seeding.  Tokens
+        without an occurrence are recorded under ``hotword_dropped_no_evidence`` in
+        :meth:`provenance`.
+
+        Returns the dropped tokens (ledger wiring is the caller's, via
+        :attr:`hotwords_dropped` or the provenance fact).
+        """
+
+        self.set_hotword_evidence(
+            evidence_text=transcript_text, paired_subtitle_text=None
+        )
+        return list(self._hotwords_dropped)
+
     def provenance(self) -> dict[str, str]:
         """The redaction-safe provenance of this runner's configuration."""
 
         config = self.config
-        return {
+        provenance = {
             "model_name": _redact(config.model_id or config.model_name),
             "aligner_model": _redact(config.aligner_name),
             "model_revision": _redact(config.model_revision or ""),
             "device": _redact(config.device),
             "language": _redact(config.language or ""),
-            "hotwords": _redact(",".join(config.hotwords)),
+            "hotwords": _redact(",".join(self._prompt_hotwords())),
             "chunk_seconds": f"{config.chunk_seconds:g}",
             "offline": str(config.offline),
             "local_source": _redact(config.local_source),
         }
+        if self._hotwords_dropped:
+            provenance["hotword_dropped_no_evidence"] = ",".join(self._hotwords_dropped)
+        return provenance
 
 
 #: The processor's mel features are 100 frames per second of 16 kHz audio; the token budget per
