@@ -419,8 +419,13 @@ class IntegrityVerifier:
                 if not _safe_over_bases(artifact_bases, declared_raw_paths):
                     defects.add(IDENTITY_PATH_MISMATCH)
             located_raw: tuple[Path, _RootConfinedReader] | None = None
-            if status == "subtitle_done" and not _safe_over_bases(artifact_bases, raw): defects.add(IDENTITY_PATH_MISMATCH)
-            elif status == "subtitle_done":
+            # §2e: containment is a question about where the path points, so it is asked
+            # for every status — the same widening the declared-raw probe received in T2.
+            # Only containment: absence is not an identity defect, so the locate half and
+            # its `MISSING_RAW_SUBTITLE` stay `subtitle_done`-only.
+            if not _safe_over_bases(artifact_bases, raw):
+                defects.add(IDENTITY_PATH_MISMATCH)
+            if status == "subtitle_done":
                 located_raw = _locate_over_bases(artifact_bases, [raw])[0]  # one recorded path, probed per base
                 if located_raw is None: defects.add(MISSING_RAW_SUBTITLE)
             artifact_paths = [located for located in _locate_over_bases(artifact_bases, canonical_required) if located is not None]

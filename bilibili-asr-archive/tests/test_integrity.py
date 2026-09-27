@@ -6,10 +6,10 @@ from pathlib import Path
 from bili_asr.archive import archive_stem, write_archive
 from bili_asr.artifact_root import ArtifactRoots
 from bili_asr.integrity import (
-    IntegrityReport, IntegrityVerifier, MALFORMED_ARTIFACT, MISSING_RAW_SUBTITLE,
-    MISSING_TRANSCRIPT, RECOVERY_TARGET_NOT_FOUND, RETRYABLE_INCOMPLETE,
-    STRUCTURAL_INPUT_ERROR, TRUNCATED_ATTEMPTS_LINE, MISSING_ATTEMPTS,
-    ATTEMPTS_BYTE_LIMIT_EXCEEDED, ATTEMPTS_ROW_LIMIT_EXCEEDED,
+    IntegrityReport, IntegrityVerifier, IDENTITY_PATH_MISMATCH, MALFORMED_ARTIFACT,
+    MISSING_RAW_SUBTITLE, MISSING_TRANSCRIPT, RECOVERY_TARGET_NOT_FOUND,
+    RETRYABLE_INCOMPLETE, STRUCTURAL_INPUT_ERROR, TRUNCATED_ATTEMPTS_LINE,
+    MISSING_ATTEMPTS, ATTEMPTS_BYTE_LIMIT_EXCEEDED, ATTEMPTS_ROW_LIMIT_EXCEEDED,
 )
 
 
@@ -565,14 +565,16 @@ def test_inflight_non_string_artifact_paths_neither_crashes_nor_is_a_path(tmp_pa
     assert payload["defect_count"] == 0
 
 
-def test_inflight_escaping_symlink_at_the_inferred_raw_path_is_not_a_mismatch(tmp_path: Path) -> None:
-    """Open question settled: an escaping symlink at the *inferred* raw path.
+def test_inflight_escaping_symlink_at_the_inferred_raw_path_is_a_mismatch(tmp_path: Path) -> None:
+    """§2e: the inferred raw candidate is probed for containment on every status.
 
-    `raw_path` is undeclared and the row is `needs_audio`, so the inferred candidate
-    `subtitles/raw/<stem>.json` is never probed for containment — §2d asks that question
-    for `subtitle_done` only.  Measured: the escaping link is silent to this finding; the
-    row carries exactly one `retryable_incomplete` backlog entry and no defect, so `verify`
-    still exits 0.  The link is confined, if at all, by the readers that open the file.
+    Pre-fix this assertion was the opposite — `defect_codes == {retryable_incomplete}`
+    and `verify` exit 0 — because the inferred-raw probe was gated on
+    `subtitle_done`, while `coverage --quality` resolved the same symlink,
+    reported `identity_unconfined`, and exited 1.  §2d's rule is that one archive
+    gets one verdict, and a test that pins the disagreement the plan exists to
+    remove is not a regression guard, so it is flipped to the agreement itself:
+    both readers report the escape and both fail closed.
     """
     row = _inflight_row("BVraw:p0")
     _manifest(tmp_path, [row])
@@ -586,11 +588,44 @@ def test_inflight_escaping_symlink_at_the_inferred_raw_path_is_not_a_mismatch(tm
 
     report = IntegrityVerifier().verify(tmp_path)
 
-    assert _defect_codes(report) == {"BVraw:p0": {RETRYABLE_INCOMPLETE}}
+    assert _defect_codes(report) == {"BVraw:p0": {IDENTITY_PATH_MISMATCH, RETRYABLE_INCOMPLETE}}
+    assert report.defect_count == 1
+    code, payload = _verify_payload(tmp_path)
+    assert code == 1
+    assert payload["defect_count"] == 1
+    # Agreement is the DoD, so it is pinned against the other reader's real
+    # command rather than left implied by the verify-side assertion above.
+    from bili_asr import cli
+
+    assert cli.main(["coverage", "--archive-root", str(tmp_path),
+                     "--quality", "--format", "json"]) == 1
+
+
+def test_inflight_absent_inferred_raw_path_is_not_a_mismatch(tmp_path: Path) -> None:
+    """The no-op control §2e requires: containment is not existence.
+
+    The widened probe must stay inert on the shipped shape — an in-flight row whose
+    inferred `subtitles/raw/<stem>.json` is simply not created yet.  Only a row whose
+    *inferred* path escapes is affected; if absence answered this finding, the probe
+    would turn §2's headline backlog case into a defect and fail the fix's own DoD.
+    """
+    row = _inflight_row("BVabs2:p0")
+    _manifest(tmp_path, [row])
+    _attempts_sidecar(tmp_path, ["BVabs2:p0"])
+
+    assert not (tmp_path / "subtitles" / "raw" / f"{archive_stem(row)}.json").exists()
+
+    report = IntegrityVerifier().verify(tmp_path)
+
+    assert not any(d.code == IDENTITY_PATH_MISMATCH for d in report.defects)
     assert report.defect_count == 0
     code, payload = _verify_payload(tmp_path)
     assert code == 0
     assert payload["defect_count"] == 0
+    from bili_asr import cli
+
+    assert cli.main(["coverage", "--archive-root", str(tmp_path),
+                     "--quality", "--format", "json"]) == 0
 
 
 def test_malformed_manifest_line_reaches_the_report_as_a_defect(tmp_path: Path) -> None:

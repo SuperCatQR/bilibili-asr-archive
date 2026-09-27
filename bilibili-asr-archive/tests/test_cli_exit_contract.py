@@ -524,3 +524,67 @@ def test_backlog_status_set_matches_the_integrity_reader(tmp_path: Path) -> None
     assert "gone" in VALID_STATUSES
     assert "gone" not in _BACKLOG_STATUSES
     assert "archived" not in _BACKLOG_STATUSES
+
+
+def test_backlog_reason_set_matches_the_coverage_reader(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """§2e residual: `_BACKLOG_REASONS` is hand-maintained, so pin it behaviourally.
+
+    Same class as the pinned `_BACKLOG_STATUSES` above: the set decides plain and
+    quality `coverage`'s exit code, and a silent drift re-fails the command on a
+    healthy-but-backlogged archive — the pain §2 exists to remove.  A member is
+    proven by a fixture that exits 0 carrying that reason, a non-member by one
+    that exits 1; the literal set contents are never compared.
+    """
+    from bili_asr.cli import _BACKLOG_REASONS
+
+    # Member: the artifact is not there yet — §2's backlog definition.
+    _fixture(tmp_path, [_row("BVwhy1:p0", "needs_audio")])
+    assert cli.main(["coverage", "--archive-root", str(tmp_path),
+                     "--quality", "--format", "json"]) == 0
+    member = json.loads(capsys.readouterr().out)["rows"][0]["reasons"]
+    assert member == ["artifact_missing"]
+    assert set(member) <= _BACKLOG_REASONS
+
+    # Non-member: the artifact is there and broken, so damage never hides behind
+    # the row's in-flight status even though that status is a backlog status.
+    broken = tmp_path / "transcripts" / "txt" / "BVwhy1.p0.txt"
+    broken.parent.mkdir(parents=True, exist_ok=True)
+    broken.write_text("", encoding="utf-8")
+    assert cli.main(["coverage", "--archive-root", str(tmp_path),
+                     "--quality", "--format", "json"]) == 1
+    non_member = json.loads(capsys.readouterr().out)["rows"][0]["reasons"]
+    assert non_member == ["empty"]
+    assert not set(non_member) & _BACKLOG_REASONS
+
+
+def test_backlog_diagnostic_set_matches_the_coverage_reader(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """§2e residual: `_BACKLOG_DIAGNOSTICS` is the other unpinned mirror set.
+
+    §2b R1's plain-`coverage` gate reclassifies rather than hides: a member
+    diagnostic is still reported and still exits 0, while every other diagnostic
+    keeps the command failing closed.  Pinned by behaviour for the same reason as
+    the reason set above — a silent drift here moves the plain gate.
+    """
+    from bili_asr.cli import _BACKLOG_DIAGNOSTICS
+
+    _fixture(tmp_path, [_row("BVwhy2:p0", "pending")],
+             attempts=[_attempt("BVwhy2:p0", "failed")])
+    assert cli.main(["coverage", "--archive-root", str(tmp_path),
+                     "--format", "json"]) == 0
+    member = {item["code"] for item in json.loads(capsys.readouterr().out)["diagnostics"]}
+    assert member == {"retryable_attempt"}
+    assert member <= _BACKLOG_DIAGNOSTICS
+
+    # Non-member: a malformed manifest line is defect-class, so it is exit-bearing
+    # even alongside the backlog member above.
+    manifest = tmp_path / "manifest" / "manifest.jsonl"
+    manifest.write_text(manifest.read_text() + "not-json\n", encoding="utf-8")
+    assert cli.main(["coverage", "--archive-root", str(tmp_path),
+                     "--format", "json"]) == 1
+    non_member = {item["code"] for item in json.loads(capsys.readouterr().out)["diagnostics"]}
+    assert non_member == {"manifest_malformed", "retryable_attempt"}
+    assert "manifest_malformed" not in _BACKLOG_DIAGNOSTICS
