@@ -6,6 +6,7 @@ import pytest
 
 from bili_asr.archive import archive_bundle_complete, bundle_marker_path, bundle_paths, write_archive
 from bili_asr.page_identity import artifact_stem, page_identity
+from bili_asr.services.manifest_derivation import QUEUE_STATUS
 
 
 def test_write_archive_layout_and_frontmatter(tmp_root):
@@ -398,10 +399,12 @@ def test_write_archive_publishes_a_uniform_key_set_without_a_video_title(tmp_roo
 
     tmp_path = __import__("pathlib").Path(tmp_root)
     ident = page_identity("BV1chain", 0, 21)
-    # ``row_for_part``'s nine fields, verbatim.
+    # ``row_for_part``'s nine fields, verbatim — including ``status``, taken from the constant
+    # the deriver itself writes rather than hand-copied, so this fixture cannot drift away
+    # from the row it claims to reproduce.
     entry = {"bvid": ident.bvid, "work_id": ident.work_id, "page_index": 0, "cid": 21,
              "title": "哲学课3", "duration_s": 10, "pubdate": 1_767_312_000,
-             "pubdate_str": "2026-01-02", "status": "queued"}
+             "pubdate_str": "2026-01-02", "status": QUEUE_STATUS}
     assert "video_title" not in entry
     provenance = {
         "model_name": "FunAudioLLM/Fun-ASR-Nano-2512", "model_revision": "master",
