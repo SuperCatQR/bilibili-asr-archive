@@ -149,11 +149,15 @@ CHAIN_SEGMENTS = [
 #: The four product keys a recorded row declares (contract §5.1).
 PRODUCT_KEYS = ("srt_path", "txt_path", "md_path", "raw_path")
 
-#: The nine frontmatter keys §4.1 allows and the two deliberate omissions §4.2
-#: rests on: no ``asr_*`` provenance key, no confidence summary.
+#: The ten frontmatter keys §4.1 allows and the two deliberate omissions §4.2
+#: rests on: no ``asr_*`` provenance key, no confidence summary.  ``video_title``
+#: is the deliberate additive revision of compass D4/D5 (§4 of the metadata
+#: coverage contract): ``title`` still means the part title, and the video's own
+#: title travels beside it.  The projection contract's §4.1 table was written
+#: before that revision and now reads nine; this set is the live count.
 FRONTMATTER_KEYS = frozenset(
-    {"bvid", "title", "date", "duration_s", "source", "url", "work_id",
-     "page_index", "cid"}
+    {"bvid", "title", "video_title", "date", "duration_s", "source", "url",
+     "work_id", "page_index", "cid"}
 )
 #: Criterion 4's inverted check, verbatim in spirit: no line may open with an
 #: ``asr_`` provenance key or a ``confidence`` one.
@@ -574,7 +578,7 @@ def test_coverage_quality_reports_no_reason_for_the_projected_row(tmp_root, caps
 def test_the_projected_md_and_sidecar_carry_no_asr_key_and_name_the_stored_source(
     tmp_root, capsys
 ):
-    """Criterion 4 and §4.1/§4.2/§4.3: nine frontmatter keys, no provenance."""
+    """Criterion 4 and §4.1/§4.2/§4.3: ten frontmatter keys, no provenance."""
     _build_fixture_f(tmp_root)
     assert _publish(tmp_root) == 0
     capsys.readouterr()
@@ -584,14 +588,23 @@ def test_the_projected_md_and_sidecar_carry_no_asr_key_and_name_the_stored_sourc
     md_text = _read_text(os.path.join(base, declared["md_path"]))
     raw_text = _read_text(os.path.join(base, declared["raw_path"]))
 
-    # §4.1: exactly these nine keys.  The omissions of §4.2 are the same
-    # statement read from the other side, and the inverted check is criterion
-    # 4's own: no line opens with an `asr_` or `confidence` key.
+    # §4.1: exactly these ten keys, the live count after the D4/D5 revision
+    # (`FRONTMATTER_KEYS` above; the contract's own table still reads nine —
+    # M2).  The omissions of §4.2 are the same statement read from the other
+    # side, and the inverted check is criterion 4's own: no line opens with an
+    # `asr_` or `confidence` key.
     frontmatter = _frontmatter(md_text)
     assert set(frontmatter) == FRONTMATTER_KEYS
     assert json.loads(frontmatter["source"]) == "subtitle-ai"
     assert json.loads(frontmatter["work_id"]) == FRESH_WORK_ID
     assert json.loads(frontmatter["bvid"]) == FRESH_BVID
+    # D5/D4 on the published artifact: the two titles are different facts and
+    # both are present — the part's own name and the video's.  Fixture F seeds
+    # every video as 投影读者测试视频 with parts named 第{n}集, so a writer that
+    # emitted the part title twice, or dropped the video's, fails here rather
+    # than satisfying the key-set equality above.
+    assert json.loads(frontmatter["title"]) == "第1集"
+    assert json.loads(frontmatter["video_title"]) == "投影读者测试视频"
     assert json.loads(frontmatter["date"]) == PUBDATE_STR
     # `duration_s` is the floored seconds of the stored milliseconds (§3.4).
     assert json.loads(frontmatter["duration_s"]) == _part_row(FRESH_BVID)[3] // 1000

@@ -37,6 +37,7 @@ from bilibili_api.video import API as VIDEO_API, Video
 
 from bili_asr.config import resolve_proxy
 from bili_asr.sources.models import (
+    GatewayError,
     GatewayNotFound,
     GatewayRateLimited,
     GatewayResponseError,
@@ -47,6 +48,7 @@ from bili_asr.sources.models import (
     UserVideoPage,
     VideoPart,
     VideoSummary,
+    VideoTag,
 )
 
 PACKAGE_DISTRIBUTION_NAME = "bilibili-api-python"
@@ -102,6 +104,17 @@ _USER_VIDEO_PAGE_ENDPOINT = USER_API["info"]["video"]
 # (``Episode``, ``VideoOnlineMonitor``, ``get_api``, ``get_cid_info``,
 # ``get_client``) source-reachable here without the import boundary noticing.
 _PLAYER_INFO_ENDPOINT = VIDEO_API["info"]["get_player_info"]
+
+# The package's own endpoint description for the video-tag call
+# (``bilibili_api.video.API["info"]["tags"]``).  It is the one documented
+# metadata route that answers anonymously — the descriptor's ``verify`` is
+# ``false`` and the live probe confirms it — so this call carries the
+# credential the adapter already holds and requires none: no credential is
+# ever *added* to turn it on.  Only ``url``/``method``/``verify`` are read from
+# the description; ``params`` there is field documentation (``aid``/``bvid``),
+# not a parameter mapping to forward verbatim, and the adapter sends ``bvid``
+# alone because the tag set is a property of the video rather than of a part.
+_TAG_ENDPOINT = VIDEO_API["info"]["tags"]
 
 
 def _require_positive_argument(value: object, field: str) -> None:
@@ -167,7 +180,13 @@ def _read_optional_aid(item: Mapping) -> int | None:
 
 
 def _normalize_video_summary_item(item: object, requested_mid: int) -> VideoSummary:
-    """Convert one vlist item into a validated summary DTO."""
+    """Convert one vlist item into a validated summary DTO.
+
+    The uploader name is read when the item carries one and stays ``None`` when
+    it does not: absence is a fact about this response rather than something to
+    paper over here, because the placeholder the user record falls back to is
+    the ingestor's decision, not this boundary's.
+    """
 
     if not isinstance(item, Mapping):
         raise GatewayShapeError(detail="video item is not a mapping")
@@ -184,6 +203,11 @@ def _normalize_video_summary_item(item: object, requested_mid: int) -> VideoSumm
         raise GatewayShapeError(
             detail="video item owner mid does not match the requested user"
         )
+    author = item.get("author")
+    if author is not None and (not isinstance(author, str) or not author.strip()):
+        # Present but unusable is a shape error, like the title's arm above;
+        # only the absent case is legitimate (see the docstring).
+        raise GatewayShapeError(detail="video item has no valid author")
     try:
         return VideoSummary(
             bvid=bvid,
@@ -191,6 +215,7 @@ def _normalize_video_summary_item(item: object, requested_mid: int) -> VideoSumm
             title=title.strip(),
             pubdate=_read_pubdate(item),
             mid=owner_mid,
+            author=None if author is None else author.strip(),
         )
     except (TypeError, ValueError) as exc:
         # The DTO rejects text the storage contract cannot hold either — a title
@@ -259,6 +284,45 @@ def _normalize_video_parts(pages: object, bvid: str) -> tuple[VideoPart, ...]:
     if not isinstance(pages, list):
         raise GatewayShapeError(detail="response is not an array")
     return tuple(_normalize_video_part_item(item, bvid) for item in pages)
+
+
+def _normalize_video_tags(entries: object) -> tuple[VideoTag, ...]:
+    """Convert the tag array into validated tag DTOs.
+
+    A video with no tags answers with an empty array, which is an honest
+    observation rather than a failure.  ``tag_id`` and ``tag_name`` are
+    required — an entry missing either cannot be identified or displayed, so
+    it is a bounded shape error rather than a dropped row: silently skipping
+    one would report "this video has N-1 tags" as if upstream had said so.
+    """
+
+    if not isinstance(entries, list):
+        raise GatewayShapeError(detail="tag response is not an array")
+    return tuple(_normalize_video_tag(entry) for entry in entries)
+
+
+def _normalize_video_tag(entry: object) -> VideoTag:
+    """Convert one documented tag entry into a validated tag DTO."""
+
+    if not isinstance(entry, Mapping):
+        raise GatewayShapeError(detail="tag entry is not a mapping")
+    tag_id = entry.get("tag_id")
+    if isinstance(tag_id, bool) or not isinstance(tag_id, int) or tag_id < 1:
+        raise GatewayShapeError(detail="tag entry has no positive tag_id")
+    tag_name = entry.get("tag_name")
+    if not isinstance(tag_name, str) or not tag_name.strip():
+        raise GatewayShapeError(detail="tag entry has no tag_name")
+    tag_type = entry.get("tag_type")
+    if not isinstance(tag_type, str) or not tag_type.strip():
+        raise GatewayShapeError(detail="tag entry has no tag_type")
+    try:
+        return VideoTag(
+            tag_id=tag_id,
+            tag_name=tag_name.strip(),
+            tag_type=tag_type.strip(),
+        )
+    except (TypeError, ValueError) as exc:
+        raise GatewayShapeError(detail="tag entry is not normalizable") from exc
 
 
 def _extract_subtitle_entries(response: object) -> list:
@@ -491,8 +555,12 @@ def _complete_summary_from_detail(
     """Fill the summary's missing aid from its detail response.
 
     Only ``aid`` is taken from the detail; every other field stays exactly as
-    the list response delivered it.  A detail owned by another user, or one
-    naming another video, is a bounded shape error.
+    the list response delivered it — the uploader name included, because the
+    detail is not asked for a name and this rebuild is the only constructor
+    between the page boundary and the ingestor.  Dropping ``author`` here would
+    silently discard a name the page did carry on exactly the aid-less entries
+    this path exists for.  A detail owned by another user, or one naming
+    another video, is a bounded shape error.
     """
 
     if not isinstance(detail, Mapping):
@@ -519,6 +587,7 @@ def _complete_summary_from_detail(
         title=summary.title,
         pubdate=summary.pubdate,
         mid=summary.mid,
+        author=summary.author,
     )
 
 
@@ -601,6 +670,77 @@ class BilibiliApiGateway:
             ).get_info(),
         )
         return _complete_summary_from_detail(summary, detail)
+
+    async def get_video_tags(self, bvid: str) -> tuple[VideoTag, ...] | None:
+        """List the tags one video carries right now.
+
+        One unsigned, WBI-free call: the endpoint's description declares
+        neither ``verify`` nor ``wbi``, and the live probe confirms it answers
+        with the ``bvid`` alone — so no credential is *required* for it and
+        none is added to turn it on.  The credential the adapter already holds
+        is still passed through, because the request path is the same for
+        every call and dropping it would be a second, silent change.
+
+        **This call degrades rather than fails.** It is the one metadata call
+        the plan treats as best-effort: *every* classified upstream failure —
+        risk control, not-found, an unclassified response error, or a broken
+        transport — is answered with ``None`` so the run continues, and
+        the bounded code travels on the exception mapped by ``_await_upstream``
+        and caught here.  Nothing is logged, printed, or persisted by this
+        method; the code is available to the caller through the same taxonomy
+        every other call uses, and the raw response never reaches anyone.
+
+        Catching the whole taxonomy is deliberate rather than loose.  The
+        endpoint sits in the risk-control family, so a challenge can arrive as
+        any of those classes — the sibling WBI endpoint in that family answers
+        HTTP 412, and a WAF front can just as well answer an unclassified
+        error.  Degrading on only two of them would leave the run failing on
+        the same underlying event under a different code, which is exactly the
+        hard dependency the plan forbids.
+
+        A *malformed successful* response is the deliberate exception: that is
+        a shape error, raised by the normalizer outside this guard, because an
+        unreadable payload is a defect rather than an upstream mood.  Masking
+        it as "no tags" would hide it behind the same empty tuple a
+        legitimate empty inventory produces.
+
+        **``None`` and ``()`` are different answers, and the difference is the
+        whole point of the return type** (compass **D16**, 2026-09-27).
+        ``None`` is "this call could not read the tags this time"; ``()`` is
+        "read it, and this video carries none", which the normalizer returns
+        for ``data: []``.  The write side acts on the distinction: the ingestor
+        omits a ``None`` bvid from a page's tag sets, and ``record_page``
+        treats an absent key as "no news" rather than as an observation to
+        write, so a degraded re-run leaves the tags a previous run stored
+        **untouched**.  Returning ``()`` here instead would make one degraded
+        fetch clear a stored set, which is the erasure D16 rules out.
+        """
+
+        if not isinstance(bvid, str) or _BVID_PATTERN.fullmatch(bvid) is None:
+            raise ValueError("bvid must be a BV-prefixed 10-character id")
+        try:
+            response = await self._await_upstream(
+                "get_video_tags",
+                lambda: Api(
+                    url=_TAG_ENDPOINT["url"],
+                    method=_TAG_ENDPOINT["method"],
+                    verify=_TAG_ENDPOINT["verify"],
+                    wbi=False,
+                    dm=False,
+                    credential=self._credential,
+                )
+                .update_params(bvid=bvid)
+                .result,
+            )
+        except GatewayError:
+            # Best-effort call, and *not* an observation: ``None`` tells the
+            # caller the tags could not be read, which is what keeps
+            # ``record_page`` from clearing rows a previous run stored
+            # (compass D16).  ``()`` here would be a lie about what upstream
+            # said.  The mapped exception carried the bounded code; it is not
+            # re-raised and not written anywhere by this method.
+            return None
+        return _normalize_video_tags(response)
 
     async def get_subtitle_tracks(
         self, bvid: str, cid: int

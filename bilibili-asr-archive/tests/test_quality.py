@@ -266,9 +266,17 @@ def test_txt_and_md_single_artifacts_are_not_empty_when_populated(
 
 
 def test_missing_identity_and_traversal_are_redacted(tmp_path: Path) -> None:
+    """A declared path that escapes the root is its own reason, and never echoed.
+
+    `../secret.srt` is a *declaration* the archive cannot honour, so per contract
+    §2b R3 it is `identity_unconfined` — a defect — rather than the backlog reason
+    `artifact_missing` (which means "not there yet").  Either way the operator's
+    path text must not reach the report: the code names the problem, the path
+    would leak where the file was being pointed at.
+    """
     result = QualityAnalyzer().analyze(row(srt_path="../secret.srt"), tmp_path)
     payload = json.dumps(result.to_dict())
-    assert result.reasons == ("artifact_missing",)
+    assert result.reasons == ("identity_unconfined",)
     assert "secret" not in payload
     assert "http" not in payload
 
@@ -299,6 +307,8 @@ def test_reclaimed_audio_does_not_count_as_defect(tmp_path: Path) -> None:
 
 def test_reason_vocabulary_splits_into_two_classes() -> None:
     assert DEFECT_REASON_CODES == (
+        # The seven original codes keep their positions: the frozen output order
+        # of every report that already shipped.
         "empty",
         "malformed",
         "non_monotonic",
@@ -306,6 +316,12 @@ def test_reason_vocabulary_splits_into_two_classes() -> None:
         "out_of_range",
         "identity_mismatch",
         "artifact_missing",
+        # Appended by contract §2b R3: a declared path that escapes every read
+        # base, and a declared identity field that is not schema-valid.  Both are
+        # declaration defects rather than "not there yet", so they must not sit
+        # under `artifact_missing` — that alone is the backlog reason.
+        "identity_unconfined",
+        "identity_invalid",
     )
     assert CONTENT_REASON_CODES == (
         "low_confidence",
@@ -318,6 +334,15 @@ def test_reason_vocabulary_splits_into_two_classes() -> None:
     )
     # the ordered union keeps the seven defect codes at their original indices
     assert REASON_CODES == DEFECT_REASON_CODES + CONTENT_REASON_CODES
+    assert REASON_CODES[:7] == (
+        "empty",
+        "malformed",
+        "non_monotonic",
+        "overlap",
+        "out_of_range",
+        "identity_mismatch",
+        "artifact_missing",
+    )
 
 
 def test_content_thresholds_track_the_cue_shaper() -> None:

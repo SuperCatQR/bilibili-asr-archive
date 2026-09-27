@@ -10,7 +10,7 @@ import sqlite3
 import pytest
 
 from bili_asr.storage.database import MetadataRepository, open_database
-from bili_asr.storage.models import UserRecord, VideoPartRecord
+from bili_asr.storage.models import UserRecord, VideoPartRecord, VideoTagRecord
 from fixtures.metadata_records import (
     MID,
     make_cursor_record,
@@ -343,6 +343,52 @@ def test_finish_run_record_form_validates_against_database_started_at(tmp_root):
         connection.close()
 
 
+def test_ensure_user_establishes_a_row_without_rewriting_an_existing_one(tmp_root):
+    """The two user writes differ in exactly one way: the update.
+
+    ``ensure_user`` exists for the run-start write, which has to satisfy the
+    run and cursor foreign keys before any page is fetched — and therefore has
+    observed no label.  It must create the row and then leave it alone;
+    ``upsert_user`` stays the refreshing write a page's observed name uses.
+    """
+
+    connection = open_database(tmp_root)
+    repository = MetadataRepository(connection)
+    try:
+        # No row yet: ``ensure_user`` creates it, so a first-ever run keeps
+        # its foreign-key parent.
+        with repository.transaction():
+            repository.ensure_user(make_user_record())
+        assert (
+            connection.execute("SELECT display_name FROM bilibili_users").fetchone()[0]
+            == "未明子"
+        )
+
+        # An existing row is untouched — value and stamp both.
+        with repository.transaction():
+            repository.ensure_user(
+                make_user_record(display_name=str(MID), updated_at=999)
+            )
+        assert tuple(
+            connection.execute(
+                "SELECT display_name, updated_at FROM bilibili_users"
+            ).fetchone()
+        ) == ("未明子", 100)
+
+        # ``upsert_user`` still overwrites: that is how an observed name lands.
+        with repository.transaction():
+            repository.upsert_user(
+                make_user_record(display_name="未明子（新）", updated_at=200)
+            )
+        assert tuple(
+            connection.execute(
+                "SELECT display_name, updated_at FROM bilibili_users"
+            ).fetchone()
+        ) == ("未明子（新）", 200)
+    finally:
+        connection.close()
+
+
 def test_fk_rejection_and_delete_restriction_apply_to_repository_writes(tmp_root):
     connection = open_database(tmp_root)
     repository = MetadataRepository(connection)
@@ -649,6 +695,267 @@ def test_upsert_part_rejects_an_explicit_video_part_id(tmp_root):
             repository.upsert_video(make_video_record())
             with pytest.raises(ValueError):
                 repository.upsert_part(make_part_record(video_part_id=7))
+    finally:
+        connection.close()
+
+
+# ------------------------------------------------------------ video tags
+
+
+def _tag(tag_id: int = 943, name: str = "爱情", bvid: str = "BV1SINGLE"):
+    """Build one tag record for the fixture video."""
+
+    return VideoTagRecord(
+        bvid=bvid, tag_id=tag_id, tag_name=name, tag_type="old_channel"
+    )
+
+
+def _stored_tags(connection, bvid: str = "BV1SINGLE") -> list[tuple]:
+    rows = connection.execute(
+        "SELECT tag_id, tag_name, tag_type FROM video_tags WHERE bvid = ?"
+        " ORDER BY tag_id",
+        (bvid,),
+    ).fetchall()
+    return [tuple(row) for row in rows]
+
+
+def test_upsert_video_tags_requires_the_video_row(tmp_root):
+    """The tag row's foreign key is enforced, not implied."""
+
+    connection = open_database(tmp_root)
+    repository = MetadataRepository(connection)
+    try:
+        with pytest.raises(sqlite3.IntegrityError):
+            with repository.transaction():
+                repository.upsert_video_tags("BV1SINGLE", [_tag()])
+    finally:
+        connection.close()
+
+
+def test_upsert_video_tags_replaces_instead_of_appending(tmp_root):
+    """A second call converges on the new set; it does not accumulate."""
+
+    connection = open_database(tmp_root)
+    repository = MetadataRepository(connection)
+    try:
+        with repository.transaction():
+            repository.upsert_user(make_user_record())
+            repository.upsert_video(make_video_record())
+            repository.upsert_video_tags("BV1SINGLE", [_tag(1, "一"), _tag(2, "二")])
+        assert _stored_tags(connection) == [
+            (1, "一", "old_channel"),
+            (2, "二", "old_channel"),
+        ]
+
+        with repository.transaction():
+            repository.upsert_video_tags("BV1SINGLE", [_tag(1, "改"), _tag(3, "三")])
+
+        assert _stored_tags(connection) == [
+            (1, "改", "old_channel"),
+            (3, "三", "old_channel"),
+        ]
+    finally:
+        connection.close()
+
+
+def test_upsert_video_tags_with_no_records_clears_the_set(tmp_root):
+    """An empty observation is how a set is emptied."""
+
+    connection = open_database(tmp_root)
+    repository = MetadataRepository(connection)
+    try:
+        with repository.transaction():
+            repository.upsert_user(make_user_record())
+            repository.upsert_video(make_video_record())
+            repository.upsert_video_tags("BV1SINGLE", [_tag()])
+        with repository.transaction():
+            repository.upsert_video_tags("BV1SINGLE")
+
+        assert _stored_tags(connection) == []
+        # The call is idempotent: clearing an already-empty set is not an error.
+        with repository.transaction():
+            repository.upsert_video_tags("BV1SINGLE")
+    finally:
+        connection.close()
+
+
+def test_upsert_video_tags_leaves_other_videos_alone(tmp_root):
+    """Replacing one video's set never touches another's rows."""
+
+    connection = open_database(tmp_root)
+    repository = MetadataRepository(connection)
+    try:
+        with repository.transaction():
+            repository.upsert_user(make_user_record())
+            repository.upsert_video(make_video_record())
+            repository.upsert_video(make_video_record(bvid="BV1OTHER", aid=2002))
+            repository.upsert_video_tags("BV1SINGLE", [_tag(1, "一")])
+            repository.upsert_video_tags(
+                "BV1OTHER", [_tag(1, "一", "BV1OTHER"), _tag(2, "二", "BV1OTHER")]
+            )
+
+        with repository.transaction():
+            repository.upsert_video_tags("BV1SINGLE", [_tag(9, "九")])
+
+        assert _stored_tags(connection) == [(9, "九", "old_channel")]
+        assert _stored_tags(connection, "BV1OTHER") == [
+            (1, "一", "old_channel"),
+            (2, "二", "old_channel"),
+        ]
+    finally:
+        connection.close()
+
+
+def test_upsert_video_tags_refuses_a_record_for_another_video(tmp_root):
+    """A mismatched record is refused rather than written under another key."""
+
+    connection = open_database(tmp_root)
+    repository = MetadataRepository(connection)
+    try:
+        with repository.transaction():
+            repository.upsert_user(make_user_record())
+            repository.upsert_video(make_video_record())
+            with pytest.raises(ValueError):
+                repository.upsert_video_tags("BV1SINGLE", [_tag(bvid="BV1OTHER")])
+            with pytest.raises(TypeError):
+                repository.upsert_video_tags("BV1SINGLE", [("not", "a", "record")])
+    finally:
+        connection.close()
+
+
+def test_upsert_video_tags_rolls_back_with_its_transaction(tmp_root):
+    """A failed group leaves no tag half-state behind."""
+
+    connection = open_database(tmp_root)
+    repository = MetadataRepository(connection)
+    try:
+        with repository.transaction():
+            repository.upsert_user(make_user_record())
+            repository.upsert_video(make_video_record())
+            repository.upsert_video_tags("BV1SINGLE", [_tag(1, "一")])
+
+        with pytest.raises(RuntimeError):
+            with repository.transaction():
+                repository.upsert_video_tags("BV1SINGLE", [_tag(2, "二")])
+                raise RuntimeError("later step failed")
+
+        assert _stored_tags(connection) == [(1, "一", "old_channel")]
+    finally:
+        connection.close()
+
+
+def test_record_page_absent_tag_key_is_no_news_for_a_stored_set(tmp_root):
+    """``record_page`` omits a video's tag writes when its key is absent.
+
+    This is the storage half of compass **D16**, asserted at the source level
+    rather than through the ingestor that happens to pass ``None``: an absent
+    bvid must leave whatever rows exist for that video alone.  ``tags=None``
+    (no tag sets at all) and ``tags={}`` (an empty mapping) are both "no news"
+    for the video, which is precisely why the ingestor can encode a degraded
+    fetch as a missing key instead of an empty list.
+    """
+
+    connection = open_database(tmp_root)
+    repository = MetadataRepository(connection)
+    try:
+        _start_run(repository)
+        with repository.transaction():
+            repository.upsert_video(make_video_record())
+            repository.upsert_video_tags("BV1SINGLE", [_tag(1, "一"), _tag(2, "二")])
+
+        # A page that recorded no tag sets at all, then one whose mapping is
+        # empty: neither may touch the stored set.
+        repository.record_page(make_page_record(page_number=2), tags=None)
+        repository.record_page(make_page_record(page_number=3), tags={})
+
+        assert _stored_tags(connection) == [
+            (1, "一", "old_channel"),
+            (2, "二", "old_channel"),
+        ]
+    finally:
+        connection.close()
+
+
+def test_record_page_present_empty_tag_set_clears_the_video(tmp_root):
+    """A key present with an empty iterable *is* the observation that clears.
+
+    The other half of D16, and the reason the distinction cannot be moved into
+    ``upsert_video_tags``: the absent key above and this present-but-empty key
+    drive opposite outcomes from the same payload channel, so a conditional
+    delete inside ``upsert_video_tags`` would destroy this arm while trying to
+    protect that one.
+    """
+
+    connection = open_database(tmp_root)
+    repository = MetadataRepository(connection)
+    try:
+        _start_run(repository)
+        with repository.transaction():
+            repository.upsert_video(make_video_record())
+            repository.upsert_video_tags("BV1SINGLE", [_tag(1, "一"), _tag(2, "二")])
+
+        repository.record_page(make_page_record(page_number=2), tags={"BV1SINGLE": []})
+
+        assert _stored_tags(connection) == []
+    finally:
+        connection.close()
+
+
+def test_record_page_tag_write_alone_is_a_payload(tmp_root):
+    """A page whose only payload is tags still takes the payload path.
+
+    ``has_payload`` gained ``or tag_sets is not None`` for this case, and
+    without it a tags-only page would fall into the no-payload branch and
+    silently drop the tag write.  The other arguments are left at their
+    defaults deliberately: this is the one caller shape that distinguishes the
+    clause from the surrounding disjunction.
+    """
+
+    connection = open_database(tmp_root)
+    repository = MetadataRepository(connection)
+    try:
+        _start_run(repository)
+        with repository.transaction():
+            repository.upsert_video(make_video_record())
+
+        repository.record_page(
+            make_page_record(page_number=2),
+            tags={"BV1SINGLE": [_tag(1, "一")]},
+        )
+
+        assert _stored_tags(connection) == [(1, "一", "old_channel")]
+        # The page row landed too, so the payload transaction committed rather
+        # than the no-payload single-write path having been taken.
+        assert tuple(
+            connection.execute(
+                "SELECT outcome FROM ingestion_pages WHERE page_number = 2"
+            ).fetchone()
+        ) == ("ok",)
+    finally:
+        connection.close()
+
+
+def test_record_page_tag_foreign_key_is_enforced_within_the_payload(tmp_root):
+    """A tag set for a video the archive does not hold fails the transaction.
+
+    ``record_page`` writes tags after the video upserts and lets the foreign
+    key decide rather than silently dropping the observation; the whole page
+    rolls back.  This is the payload-path variant of the FK pin that
+    ``upsert_video_tags`` already carries.
+    """
+
+    connection = open_database(tmp_root)
+    repository = MetadataRepository(connection)
+    try:
+        _start_run(repository)
+        with pytest.raises(sqlite3.IntegrityError):
+            repository.record_page(
+                make_page_record(),
+                tags={"BV-MISSING": [_tag(1, "一", "BV-MISSING")]},
+            )
+
+        assert connection.execute("SELECT COUNT(*) FROM ingestion_pages").fetchone()[0] == 0
+        assert connection.execute("SELECT COUNT(*) FROM video_tags").fetchone()[0] == 0
     finally:
         connection.close()
 

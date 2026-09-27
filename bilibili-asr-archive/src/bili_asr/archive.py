@@ -485,7 +485,7 @@ def write_archive(archive_root: str | os.PathLike[str], entry: dict[str, Any], s
         raise OSError("archive publication path is unsafe") from exc
     bvid = str(entry["bvid"])
     finals = bundle_paths(root, entry)
-    frontmatter = {"bvid": bvid, "title": entry.get("title", ""), "date": entry.get("pubdate_str", ""), "duration_s": entry.get("duration_s", 0), "source": source, "url": archive_url(entry)}
+    frontmatter = {"bvid": bvid, "title": entry.get("title", ""), "video_title": entry.get("video_title", ""), "date": entry.get("pubdate_str", ""), "duration_s": entry.get("duration_s", 0), "source": source, "url": archive_url(entry)}
     if source == "asr":
         frontmatter.update(_capture_summary(segments, frontmatter["duration_s"]))
     frontmatter.update(_confidence_summary(segments))

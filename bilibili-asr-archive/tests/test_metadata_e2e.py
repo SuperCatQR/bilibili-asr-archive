@@ -185,7 +185,9 @@ def test_fetch_meta_normalizes_single_part_and_multipart_videos_end_to_end(
         user_row = connection.execute(
             "SELECT mid, display_name FROM bilibili_users"
         ).fetchone()
-        assert tuple(user_row) == (MID, str(MID))
+        # The uploader's own name, read off the collected page: the row no
+        # longer holds the owner-mid placeholder.
+        assert tuple(user_row) == (MID, "未明子")
 
         video_rows = connection.execute(
             "SELECT bvid, aid, mid, title, pubdate FROM videos ORDER BY bvid"
@@ -252,7 +254,10 @@ def test_fetch_meta_normalizes_single_part_and_multipart_videos_end_to_end(
             f"{SINGLE_PART_BVID}:p0",
         ]
         first_view_row = view_rows[0]
-        assert first_view_row["user_name"] == str(MID)
+        # End-to-end proof that the stored name reaches a reader: the view joins
+        # ``bilibili_users``, so this column is the collected ``author`` and not
+        # the owner-mid placeholder the user row used to hold.
+        assert first_view_row["user_name"] == "未明子"
         assert first_view_row["video_title"] == "未明子讲座"
         assert first_view_row["part_title"] == "上篇"
         assert first_view_row["processing_status"] == "discovered"
@@ -299,12 +304,17 @@ def test_fetch_meta_normalizes_single_part_and_multipart_videos_end_to_end(
         assert not os.path.exists(os.path.join(tmp_root, relative))
 
     # The pinned adapter drove exactly the documented metadata calls: one
-    # page fetch, one parts fetch per distinct video, then the completing
-    # empty-page fetch (aids present, so no detail calls).
+    # page fetch, then one parts fetch per distinct video and one tag fetch
+    # per distinct video, then the completing empty-page fetch (aids present,
+    # so no detail calls).  The tag fetch is per-video rather than per-part
+    # however many parts that video has: the multipart video below has two
+    # parts and still costs exactly one tag call.
     assert script.calls == [
         "space.arc.search(pn=1, ps=30)",
         "video.get_pages",
         "video.get_pages",
+        "video.tags",
+        "video.tags",
         "space.arc.search(pn=2, ps=30)",
     ]
     assert_only_documented_metadata_calls(script.calls)
@@ -569,14 +579,16 @@ def test_fetch_meta_failed_page_preserves_cursor_and_resume_succeeds(
     for relative in LEGACY_SIDECAR_PATHS:
         assert not os.path.exists(os.path.join(tmp_root, relative))
 
-    # The full call trace: bounded page fetches, one parts fetch per new
-    # video, the failed resume page, then the successful resume.
+    # The full call trace: bounded page fetches, one parts and one tag fetch
+    # per new video, the failed resume page, then the successful resume.
     assert script.calls == [
         "space.arc.search(pn=1, ps=30)",
         "video.get_pages",
+        "video.tags",
         "space.arc.search(pn=2, ps=30)",
         "space.arc.search(pn=2, ps=30)",
         "video.get_pages",
+        "video.tags",
         "space.arc.search(pn=3, ps=30)",
     ]
     assert_only_documented_metadata_calls(script.calls)

@@ -10,11 +10,12 @@ import math
 import os
 from pathlib import Path
 import sqlite3
-from typing import Iterable, Iterator, Sequence, TypeAlias
+from typing import ClassVar, Iterable, Iterator, Mapping, Sequence, TypeAlias
 
 from .models import (
     ALLOWED_ATTEMPT_OUTCOMES,
     ALLOWED_CAPTION_SOURCE_KINDS,
+    ALLOWED_QUEUE_GAPS,
     ALLOWED_RUN_OUTCOMES,
     ALLOWED_SOURCE_KINDS,
     MAX_TIMELINE_MS,
@@ -23,13 +24,17 @@ from .models import (
     DiscoveryRecord,
     IngestionPageRecord,
     IngestionRunRecord,
+    QueueGap,
+    QueueGapItem,
     TranscriptRecord,
     TranscriptSegmentRecord,
     TranscriptWriteResult,
     UserRecord,
     VideoPartRecord,
     VideoRecord,
+    VideoTagRecord,
     _choice,
+    _content_sha256,
     _error_code,
     _integer,
     _text,
@@ -256,9 +261,10 @@ class MetadataRepository:
       arguments it still commits its own single-write transaction — either
       the ``'failed'`` evidence transaction (page row plus the run's failure
       transition) or the ok/empty/``risk_interrupted`` page-outcome write.
-    - ``upsert_user``, ``upsert_video``, ``upsert_part``, ``record_discovery``
-      and ``write_cursor`` execute SQL without committing, so a caller can
-      group them in one transaction through :meth:`transaction`.
+    - ``upsert_user``, ``ensure_user``, ``upsert_video``, ``upsert_part``,
+      ``record_discovery`` and ``write_cursor`` execute SQL without
+      committing, so a caller can group them in one transaction through
+      :meth:`transaction`.
     - ``read_cursor``, ``list_pending_parts`` and ``run_stats`` never write
       or commit.
 
@@ -300,6 +306,31 @@ class MetadataRepository:
             ON CONFLICT(mid) DO UPDATE SET
                 display_name = excluded.display_name,
                 updated_at = excluded.updated_at
+            """,
+            (user.mid, user.display_name, user.created_at, user.updated_at),
+        )
+
+    def ensure_user(self, user: UserRecord) -> None:
+        """Establish a user row only when it does not exist; never rewrite one.
+
+        The run and cursor rows carry a foreign key to ``bilibili_users(mid)``
+        (``schema.sql``), so a collection run's opening write must establish the
+        parent row before it starts.  It must not *update* one: that write
+        happens before any page is fetched, so it has observed nothing to write,
+        and an established label may not be replaced by the owner-mid
+        placeholder a run-with-no-observation carries.  The placeholder is
+        therefore only ever the value a row is *created* with.
+
+        :meth:`upsert_user` stays the refreshing write: it is how a name the
+        run did observe reaches an existing row, and it overwrites.
+        """
+        if not isinstance(user, UserRecord):
+            raise TypeError("user must be a UserRecord")
+        self.connection.execute(
+            """
+            INSERT INTO bilibili_users(mid, display_name, created_at, updated_at)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(mid) DO NOTHING
             """,
             (user.mid, user.display_name, user.created_at, user.updated_at),
         )
@@ -381,6 +412,41 @@ class MetadataRepository:
         if row is None:  # pragma: no cover - the preceding INSERT guarantees this
             raise sqlite3.DatabaseError("upserted video part could not be read back")
         return int(row[0])
+
+    def upsert_video_tags(
+        self, bvid: str, tags: Iterable[VideoTagRecord] = ()
+    ) -> None:
+        """Replace one video's tag set with the observed one.
+
+        The tag set is a *set of facts about a video*, not an append-only
+        log: recollecting a video whose tags changed must converge on what
+        upstream says now rather than accumulate both answers.  The video's
+        existing rows are therefore deleted and the observed set inserted, in
+        one statement pair — inside the caller's transaction, so the
+        replacement commits or rolls back with the rest of that page's
+        payload.  ``bvid`` carries no tags is how a set is cleared.
+
+        Order is not significant: the tag identity is ``(bvid, tag_id)``, so
+        the same set converges regardless of the order upstream listed it in.
+        A record whose ``bvid`` differs from the argument is refused rather
+        than written under another video's key.
+        """
+
+        _text(bvid, "bvid")
+        tag_records = tuple(tags)
+        for tag in tag_records:
+            if not isinstance(tag, VideoTagRecord):
+                raise TypeError("tags must be VideoTagRecord instances")
+            if tag.bvid != bvid:
+                raise ValueError("every tag record must carry the given bvid")
+        self.connection.execute("DELETE FROM video_tags WHERE bvid = ?", (bvid,))
+        self.connection.executemany(
+            """
+            INSERT INTO video_tags(bvid, tag_id, tag_name, tag_type)
+            VALUES (?, ?, ?, ?)
+            """,
+            [(tag.bvid, tag.tag_id, tag.tag_name, tag.tag_type) for tag in tag_records],
+        )
 
     def start_run(self, run: IngestionRunRecord) -> None:
         """Insert one new run record.
@@ -479,12 +545,13 @@ class MetadataRepository:
         parts: Iterable[VideoPartRecord] = (),
         discoveries: Iterable[DiscoveryRecord] = (),
         cursor: CursorRecord | None = None,
+        tags: Mapping[str, Iterable[VideoTagRecord]] | None = None,
     ) -> None:
         """Record one page outcome, optionally with its complete payload.
 
         With payload arguments the method owns one transaction and applies the
-        locked parent-before-child order: user, videos, parts, discoveries,
-        cursor, page outcome, commit. If any write fails, the whole
+        locked parent-before-child order: user, videos, parts, tag sets,
+        discoveries, cursor, page outcome, commit. If any write fails, the whole
         transaction is rolled back and the exception is re-raised; the prior
         cursor and entities are unchanged. Recording the resulting failure is
         the caller's step: build a fresh ``IngestionPageRecord`` with
@@ -512,12 +579,21 @@ class MetadataRepository:
         video_records = tuple(videos)
         part_records = tuple(parts)
         discovery_records = tuple(discoveries)
+        # ``tags`` is a mapping rather than a flat iterable because the
+        # replacement is per video: ``None`` means "this page observed no tag
+        # sets at all" (a run whose tag calls all degraded, or a page whose
+        # videos were already recorded), while a key present with an empty
+        # iterable means "this video was observed to carry no tags" and clears
+        # its rows.  The two are deliberately different: conflating them would
+        # turn a failed tag fetch into a silent erasure of known tags.
+        tag_sets = None if tags is None else dict(tags)
         has_payload = (
             user is not None
             or bool(video_records)
             or bool(part_records)
             or bool(discovery_records)
             or cursor is not None
+            or tag_sets is not None
         )
         if page.outcome == "failed" and has_payload:
             raise ValueError("a failed page is recorded without payload arguments")
@@ -537,6 +613,13 @@ class MetadataRepository:
                 self.upsert_video(video_record)
             for part in part_records:
                 self.upsert_part(part)
+            # Tags land after the video upserts: the tag row's foreign key
+            # points at ``videos``, so an observed video must exist before its
+            # tags can.  A tag set for a video this page did not upsert still
+            # writes here — the FK then decides, rather than this method
+            # silently dropping the observation.
+            for tag_bvid, tag_records in (tag_sets or {}).items():
+                self.upsert_video_tags(tag_bvid, tag_records)
             for discovery in discovery_records:
                 self.record_discovery(discovery)
             if cursor is not None:
@@ -1209,11 +1292,13 @@ class TranscriptRepository:
 
         The relation is over ``transcripts``, not over parts: a part holding
         several stored versions appears once per version, and every row repeats
-        its part's columns and its video's ``pubdate``, which is what lets a
-        caller pick one winner per part without a second query.  Membership is
-        the join to ``transcripts`` and nothing else: no ``processing_status``
-        predicate narrows it, so a part whose status is ``gone`` is a row here
-        when the store holds its text.
+        its part's columns, its video's ``pubdate`` and its video's own
+        ``title`` — the collection the part belongs to, carried as
+        ``video_title`` beside the part's own ``part_title``.  The two are
+        independent facts and the join is what keeps them apart without a second
+        query.  Membership is the join to ``transcripts`` and nothing else: no
+        ``processing_status`` predicate narrows it, so a part whose status is
+        ``gone`` is a row here when the store holds its text.
 
         ``bvid`` and ``page_index`` each add one predicate when they are given
         and neither narrows the read when it is absent.  A selector naming no
@@ -1234,6 +1319,7 @@ class TranscriptRepository:
         query = (
             "SELECT vp.video_part_id, vp.bvid, vp.page_index, vp.cid, "
             "vp.title AS part_title, vp.duration_ms, vd.pubdate, "
+            "vd.title AS video_title, "
             "t.transcript_id, t.source_kind, t.language, t.model_id, "
             "t.version, t.content_sha256, t.created_at "
             "FROM transcripts AS t "
@@ -1370,8 +1456,416 @@ class TranscriptRepository:
         return "complete"
 
 
+class MediaQueueRepository:
+    """The archive's queue surface: the three gap reads and the two writers.
+
+    :meth:`list_queue_gaps` and :meth:`count_queue_gaps` return one typed entry
+    per queued part, with the context and attempt evidence a caller renders it
+    with.  :meth:`mark_audio_acquired` and :meth:`mark_transcript_stored` are
+    the write half: each records, in one transaction, the evidence — an audio
+    object or a stored transcript — that takes a part out of a queue.
+
+    The relation is each view's own; the order is this class's.  The three gap
+    views declare no ``ORDER BY``, so a caller reading them directly would take
+    SQLite's row order as it comes — :meth:`list_queue_gaps` appends the locked
+    work order ``pubdate DESC, bvid ASC, page_index ASC`` to every read, and
+    that order is the only one the CLI may observe.  Membership is never
+    re-derived here either: a part is in a queue because the view's predicates
+    say so, and no argument to these methods reaches a part the view leaves
+    out.
+
+    The connection must come with ``row_factory = sqlite3.Row`` and
+    ``PRAGMA foreign_keys`` enabled — exactly the state :func:`open_database`
+    establishes — and must carry the transcript-schema contract, which is the
+    script the three gap views are defined in: the constructor rejects
+    anything else, so a caller that skipped :func:`require_subtitle_schema`
+    meets the bounded rebuild error instead of a raw
+    ``sqlite3.OperationalError`` from its first query.  The guard is the
+    contract's own object set, not this class's views — a database carrying
+    the contract but missing one gap view still answers
+    ``sqlite3.OperationalError`` for that one queue, which is the honest
+    report of a store that must be rebuilt.
+    """
+
+    _VIEW_BY_GAP: ClassVar[dict[str, str]] = {
+        "missing_subtitle": "v_missing_subtitle",
+        "missing_audio": "v_missing_audio",
+        "missing_transcript": "v_missing_transcript",
+    }
+    # The acquisition route each queue drains, and therefore the run kind the
+    # entry's ``attempt_count`` counts: a captionless part is re-attempted by a
+    # subtitle run, while a part with audio evidence is decoded by an audio
+    # run.  Counting one route's attempts while reading the other route's queue
+    # would answer a question no caller asked.
+    _KIND_BY_GAP: ClassVar[dict[str, str]] = {
+        "missing_subtitle": "subtitle",
+        "missing_audio": "audio",
+        "missing_transcript": "audio",
+    }
+
+    def __init__(self, connection: sqlite3.Connection):
+        _validate_connection(connection)
+        require_subtitle_schema(connection)
+        self.connection = connection
+
+    def mark_audio_acquired(
+        self,
+        *,
+        bvid: str,
+        page_index: int,
+        audio_path: str,
+        sha256: str,
+        byte_size: int,
+        format: str,
+        duration_ms: int,
+        acquisition_source: str,
+        acquired_at: int,
+    ) -> int:
+        """Record that a part's audio has been acquired.  Returns the ``audio_id``.
+
+        **Reuse is keyed on ``storage_key`` (= the caller's ``audio_path``), not
+        on ``sha256``.**  Location is the identity of an archived audio object:
+        the CLI derives a deterministic per-part path, so a re-download or a
+        repaired decode produces a *new* hash for the *same* archived location
+        and must not become a second object.  When a row already sits at that
+        path it is reused, and ``sha256`` / ``byte_size`` / ``format`` /
+        ``duration_ms`` are refreshed **only when they differ** — a re-run of
+        the same acquisition is a no-op, and ``created_at`` keeps first-writer
+        semantics.
+
+        Same content at a new path (no row for this path, but another row
+        already holds this ``sha256``): the content-holding row is reused and
+        its ``storage_key`` is repointed to the caller's path — option (a) of
+        contract §4c.  The alternative (a bounded ``ValueError`` naming both
+        paths) was rejected because such a part would be permanently
+        unrecordable, and ``audio_objects.sha256`` is ``UNIQUE``, so the two
+        paths can never own two rows.  A silent third row is never written.
+
+        The part link is inserted with ``ON CONFLICT DO NOTHING``, so it too
+        keeps first-writer semantics.  Every scalar is bounded by the module's
+        validators before any statement runs, so a malformed field is refused
+        instead of surfacing as a raw ``sqlite3.IntegrityError``: ``sha256``
+        goes through ``_content_sha256`` (64 lowercase hex), not ``_text`` —
+        the value is a content hash the clash/repoint branch below trusts, and
+        free text there could rewrite another object's ``storage_key``.  The
+        rest are ``_text`` / ``_integer``.  ``storage_key`` is the caller's
+        ``audio_path`` verbatim — this layer does not resolve or normalize
+        paths.
+        """
+        bvid = _text(bvid, "bvid")
+        page_index = _integer(page_index, "page_index", minimum=0)
+        audio_path = _text(audio_path, "audio_path")
+        sha256 = _content_sha256(sha256, "sha256")
+        byte_size = _integer(byte_size, "byte_size", minimum=0)
+        format = _text(format, "format")
+        duration_ms = _integer(duration_ms, "duration_ms", minimum=0)
+        acquisition_source = _text(acquisition_source, "acquisition_source")
+        acquired_at = _integer(acquired_at, "acquired_at", minimum=0)
+
+        part = self.connection.execute(
+            "SELECT video_part_id FROM video_parts WHERE bvid = ? AND page_index = ?",
+            (bvid, page_index),
+        ).fetchone()
+        if part is None:
+            raise ValueError(
+                f"unknown video part: bvid={bvid!r}, page_index={page_index!r}"
+            )
+        video_part_id = int(part["video_part_id"])
+
+        with _transaction(self.connection):
+            existing = self.connection.execute(
+                "SELECT audio_id, sha256, byte_size, format, duration_ms "
+                "FROM audio_objects WHERE storage_key = ?",
+                (audio_path,),
+            ).fetchone()
+            repoint = False
+            if existing is None:
+                # No row at this path: the same content may already be archived
+                # under another one.  Reuse that row and move its path column to
+                # the location the caller asked to occupy.
+                existing = self.connection.execute(
+                    "SELECT audio_id, sha256, byte_size, format, duration_ms "
+                    "FROM audio_objects WHERE sha256 = ?",
+                    (sha256,),
+                ).fetchone()
+                repoint = existing is not None
+
+            if existing is None:
+                cursor = self.connection.execute(
+                    """
+                    INSERT INTO audio_objects(
+                        sha256, byte_size, format, duration_ms, storage_key, created_at
+                    ) VALUES (?, ?, ?, ?, ?, ?)
+                    """,
+                    (sha256, byte_size, format, duration_ms, audio_path, acquired_at),
+                )
+                audio_id = int(cursor.lastrowid)
+            else:
+                audio_id = int(existing["audio_id"])
+                updates: dict[str, object] = {
+                    column: value
+                    for column, value in (
+                        ("sha256", sha256),
+                        ("byte_size", byte_size),
+                        ("format", format),
+                        ("duration_ms", duration_ms),
+                    )
+                    if existing[column] != value
+                }
+                if repoint:
+                    updates["storage_key"] = audio_path
+                elif "sha256" in updates:
+                    # The path keeps its row, but this content is already
+                    # archived at another location.  ``sha256`` is UNIQUE, so no
+                    # single row can carry both paths: refuse instead of leaking
+                    # an IntegrityError from the UPDATE below.
+                    clash = self.connection.execute(
+                        "SELECT storage_key FROM audio_objects "
+                        "WHERE sha256 = ? AND audio_id != ?",
+                        (sha256, audio_id),
+                    ).fetchone()
+                    if clash is not None:
+                        raise ValueError(
+                            "audio content already archived at "
+                            f"{clash['storage_key']!r}: cannot record "
+                            f"sha256={sha256!r} at storage_key={audio_path!r}"
+                        )
+                if updates:
+                    assignments = ", ".join(f"{column} = ?" for column in updates)
+                    self.connection.execute(
+                        f"UPDATE audio_objects SET {assignments} WHERE audio_id = ?",
+                        (*updates.values(), audio_id),
+                    )
+
+            self.connection.execute(
+                """
+                INSERT INTO part_audio_objects(
+                    video_part_id, audio_id, acquired_at, acquisition_source
+                ) VALUES (?, ?, ?, ?)
+                ON CONFLICT(video_part_id, audio_id) DO NOTHING
+                """,
+                (video_part_id, audio_id, acquired_at, acquisition_source),
+            )
+        return audio_id
+
+    def mark_transcript_stored(
+        self,
+        *,
+        bvid: str,
+        page_index: int,
+        transcript_id: int,
+        run_id: str,
+        started_at: int,
+        finished_at: int,
+    ) -> None:
+        """Record that a stored transcript now answers for this part.
+
+        The attempt row is the evidence: ``outcome='stored'`` with the transcript
+        reference and no error code, scoped to the caller's existing run.  The
+        part's gap membership changes because that row exists, not because any
+        status column is rewritten.
+        """
+        part = self.connection.execute(
+            "SELECT video_part_id FROM video_parts WHERE bvid = ? AND page_index = ?",
+            (bvid, page_index),
+        ).fetchone()
+        if part is None:
+            raise ValueError(
+                f"unknown video part: bvid={bvid!r}, page_index={page_index!r}"
+            )
+        video_part_id = int(part["video_part_id"])
+
+        run_id = _text(run_id, "run_id")
+        transcript_id = _integer(transcript_id, "transcript_id", minimum=1)
+        started_at = _integer(started_at, "started_at", minimum=0)
+        finished_at = _integer(finished_at, "finished_at", minimum=0)
+        if finished_at < started_at:
+            raise ValueError("finished_at must not precede started_at")
+
+        transcript = self.connection.execute(
+            "SELECT video_part_id FROM transcripts WHERE transcript_id = ?",
+            (transcript_id,),
+        ).fetchone()
+        if transcript is None or int(transcript["video_part_id"]) != video_part_id:
+            raise ValueError(
+                f"unknown transcript for this part: transcript_id={transcript_id!r}, "
+                f"bvid={bvid!r}, page_index={page_index!r}"
+            )
+
+        run = self.connection.execute(
+            "SELECT 1 FROM acquisition_runs WHERE run_id = ?", (run_id,)
+        ).fetchone()
+        if run is None:
+            raise ValueError(f"unknown run_id: {run_id!r}")
+
+        with _transaction(self.connection):
+            self.connection.execute(
+                """
+                INSERT INTO acquisition_attempts(
+                    run_id, video_part_id, outcome, error_code, transcript_id,
+                    started_at, finished_at
+                ) VALUES (?, ?, 'stored', NULL, ?, ?, ?)
+                ON CONFLICT(run_id, video_part_id) DO NOTHING
+                """,
+                (run_id, video_part_id, transcript_id, started_at, finished_at),
+            )
+
+    def list_queue_gaps(
+        self,
+        *,
+        gap: QueueGap,
+        limit: int | None = None,
+        bvid: str | None = None,
+        page: int | None = None,
+    ) -> list[QueueGapItem]:
+        """Return the parts one gap's queue holds, in the locked work order.
+
+        ``gap`` names the queue and is validated against the three the archive
+        drains; a fourth name raises ``ValueError`` rather than silently
+        reading nothing.  ``limit`` follows the module-wide read rule — a
+        non-integer or a ``bool`` raises ``TypeError``, a limit below ``1``
+        raises ``ValueError``, and ``None`` means unbounded.  ``bvid`` and
+        ``page`` each add one predicate when given, so a caller narrows the
+        queue to one video or one part; neither narrows the read when absent.
+
+        The order ``pubdate DESC, bvid ASC, page_index ASC`` is appended by
+        this method, not declared by the view: newest video first, and within
+        one publication second the bvid then the page index break the tie, so
+        the same store always answers the same sequence — page by page, which
+        is what makes ``limit`` a stable rotation through a queue instead of a
+        fresh sample of it.  ``attempt_count`` is counted per entry by run kind
+        (``'subtitle'`` for ``missing_subtitle``, ``'audio'`` for the other
+        two) over the returned rows only, in one grouped read per page rather
+        than one read per row.  Read-only: no write, no commit.
+        """
+        gap = _choice(gap, "gap", ALLOWED_QUEUE_GAPS)
+        if limit is not None:
+            if isinstance(limit, bool) or not isinstance(limit, int):
+                raise TypeError("limit must be an integer or None")
+            if limit < 1:
+                raise ValueError("limit must be a positive integer")
+        where_clauses: list[str] = []
+        parameters: list[object] = []
+        if bvid is not None:
+            where_clauses.append("bvid = ?")
+            parameters.append(_text(bvid, "bvid"))
+        if page is not None:
+            where_clauses.append("page_index = ?")
+            parameters.append(_integer(page, "page_index", minimum=0))
+        query = f"SELECT * FROM {self._VIEW_BY_GAP[gap]}"
+        if where_clauses:
+            query += " WHERE " + " AND ".join(where_clauses)
+        query += " ORDER BY pubdate DESC, bvid ASC, page_index ASC"
+        if limit is not None:
+            query += " LIMIT ?"
+            parameters.append(limit)
+        rows = self.connection.execute(query, parameters).fetchall()
+        counts = self._attempt_counts(
+            [int(row["video_part_id"]) for row in rows], self._KIND_BY_GAP[gap]
+        )
+        return [
+            self._gap_item(row, gap, counts.get(int(row["video_part_id"]), 0))
+            for row in rows
+        ]
+
+    def count_queue_gaps(self) -> dict[QueueGap, int]:
+        """Count the parts each of the three queues holds, all three always.
+
+        **The three values overlap and must never be summed.**  The gaps are not
+        a partition: a transcriptless part with a ``no-subtitle``/``failed``
+        subtitle attempt and no audio sits in ``missing_audio``, and a part with
+        audio evidence and no transcript sits in ``missing_transcript`` — a part
+        may be counted by two of these keys, or by one, but ``sum(...)`` answers
+        no question about the store.  A backlog total needs its own distinct
+        query, not an addition of these three.
+
+        ``0`` is reported rather than omitted: a caller renders three queue
+        sizes, and a queue that drained completely is a size, not a missing
+        key.  The keys come back in the declaration order of the view table
+        above, so a caller iterates the mapping without re-sorting it.
+        Read-only: no write, no commit.
+        """
+        return {
+            gap: int(
+                self.connection.execute(
+                    f"SELECT COUNT(*) FROM {view}"
+                ).fetchone()[0]
+            )
+            for gap, view in self._VIEW_BY_GAP.items()
+        }
+
+    @staticmethod
+    def _gap_item(row: sqlite3.Row, gap: str, attempt_count: int) -> QueueGapItem:
+        """Map one view row to one typed queue entry, whatever the view holds.
+
+        One mapper serves all three views.  The shared nine-column prefix is
+        read by name for every one of them; the newest-attempt evidence is read
+        only when the row carries the column at all, which the row's own
+        ``keys()`` answers — so the one gap view that exposes the columns
+        reports them, and the two that do not report ``None`` instead of
+        failing the read that a captionless part must still complete.
+        """
+        columns = set(row.keys())
+
+        def evidence(column: str) -> str | None:
+            """Answer one evidence column's value, or None when absent."""
+            if column not in columns:
+                return None
+            return None if row[column] is None else str(row[column])
+
+        return QueueGapItem(
+            work_id=str(row["work_id"]),
+            bvid=str(row["bvid"]),
+            page_index=int(row["page_index"]),
+            cid=int(row["cid"]),
+            gap=gap,
+            pubdate=int(row["pubdate"]),
+            video_title=str(row["video_title"]),
+            duration_ms=int(row["duration_ms"]),
+            newest_outcome=evidence("newest_outcome"),
+            newest_error_code=evidence("newest_error_code"),
+            attempt_count=attempt_count,
+        )
+
+    def _attempt_counts(
+        self, video_part_ids: Sequence[int], kind: str
+    ) -> dict[int, int]:
+        """Count each named part's attempts on one acquisition route.
+
+        One grouped read for the whole page instead of one read per entry: the
+        ids are passed in chunks of at most ``_PUBDATE_CHUNK`` parameters for
+        the same reason :meth:`TranscriptRepository.read_video_pubdates` chunks
+        its bvids — the queue is bounded by the store rather than by this
+        module, and the driver bounds one statement.  A part with no attempt on
+        that route is absent from the answer rather than present with ``0``, so
+        the caller owns what an unattempted part counts as.  Read-only.
+        """
+        if not video_part_ids:
+            return {}
+        counts: dict[int, int] = {}
+        for start in range(0, len(video_part_ids), _PUBDATE_CHUNK):
+            chunk = video_part_ids[start : start + _PUBDATE_CHUNK]
+            placeholders = ", ".join("?" * len(chunk))
+            counts.update(
+                {
+                    int(row["video_part_id"]): int(row["attempts"])
+                    for row in self.connection.execute(
+                        "SELECT aa.video_part_id AS video_part_id, "
+                        "COUNT(*) AS attempts "
+                        "FROM acquisition_attempts AS aa "
+                        "JOIN acquisition_runs AS ar ON ar.run_id = aa.run_id "
+                        f"WHERE ar.kind = ? AND aa.video_part_id IN ({placeholders}) "
+                        "GROUP BY aa.video_part_id",
+                        (kind, *chunk),
+                    ).fetchall()
+                }
+            )
+        return counts
+
+
 __all__ = [
     "DatabaseConnection",
+    "MediaQueueRepository",
     "MetadataRepository",
     "SchemaContractError",
     "TranscriptRepository",

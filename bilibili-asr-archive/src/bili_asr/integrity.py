@@ -38,6 +38,12 @@ RECOVERY_TARGET_LIMIT_EXCEEDED = "recovery_target_limit_exceeded"
 RECOVERY_NOT_AUTHORITATIVE = "recovery_not_authoritative"
 RECOVERY_MALFORMED_SIDECAR = "recovery_malformed_sidecar"
 RECOVERY_INVALID_SELECTOR = "recovery_invalid_selector"
+#: The two finding classes (exit-code contract §2).  Only ``RETRYABLE_INCOMPLETE``
+#: is backlog: it means the chain has not reached this row yet — normal operations,
+#: not corruption.  Every other code above is defect-class.
+DEFECT_CATEGORY = "defect"
+BACKLOG_CATEGORY = "backlog"
+BACKLOG_CODES: frozenset[str] = frozenset({RETRYABLE_INCOMPLETE})
 _RECOVERY_MAX_TARGETS = 100
 _AUDIT_REL_PATH = "coordinator/recovery-audit.jsonl"
 _AUDIT_LOCK_REL_PATH = "coordinator/recovery-audit.lock"
@@ -234,7 +240,13 @@ def _locate_over_bases(
 class IntegrityDefect:
     work_id: str
     code: str
-    def to_dict(self) -> dict[str, object]: return {"work_id": self.work_id, "code": self.code}
+
+    @property
+    def category(self) -> str:
+        """``"backlog"`` for work-not-yet-done codes, ``"defect"`` otherwise (contract §2)."""
+        return BACKLOG_CATEGORY if self.code in BACKLOG_CODES else DEFECT_CATEGORY
+
+    def to_dict(self) -> dict[str, object]: return {"work_id": self.work_id, "code": self.code, "category": self.category}
 
 @dataclass
 class IntegrityReport:
@@ -242,8 +254,18 @@ class IntegrityReport:
     defects: list[IntegrityDefect] = field(default_factory=list)
     diagnostics: list[str] = field(default_factory=list)
     authoritative: bool = True
+
+    @property
+    def defect_count(self) -> int:
+        """Defect-class findings only — backlog is reported separately (contract §2)."""
+        return sum(1 for defect in self.defects if defect.category == DEFECT_CATEGORY)
+
+    @property
+    def backlog_count(self) -> int:
+        return sum(1 for defect in self.defects if defect.category == BACKLOG_CATEGORY)
+
     def to_dict(self) -> dict[str, object]:
-        return {"checked": self.checked, "defect_count": len(self.defects), "defects": [d.to_dict() for d in self.defects], "diagnostics": list(self.diagnostics), "authoritative": self.authoritative}
+        return {"checked": self.checked, "defect_count": self.defect_count, "backlog_count": self.backlog_count, "defects": [d.to_dict() for d in self.defects], "diagnostics": list(self.diagnostics), "authoritative": self.authoritative}
 
 class IntegrityVerifier:
     """Read-only archive integrity verifier."""
@@ -304,7 +326,10 @@ class IntegrityVerifier:
             elif diagnostic == "manifest_malformed" and MANIFEST_ROW_LIMIT_EXCEEDED in report.diagnostics:
                 continue
             elif diagnostic == "manifest_malformed":
-                continue
+                # §6 assertion 2: a malformed manifest line is a defect, not
+                # history.  Swallowing it here made `verify` exit 0 with no
+                # findings of either class while `coverage` reported it.
+                report.diagnostics.append(MALFORMED_ARTIFACT)
             elif diagnostic == "attempt_invalid_record":
                 continue
             elif diagnostic in ORDINARY_HISTORY_DIAGNOSTICS:
@@ -366,18 +391,57 @@ class IntegrityVerifier:
                 candidate = [Path(value) if Path(value).is_absolute() else base / value for base, _reader in artifact_bases]
                 if not _safe_over_bases(artifact_bases, candidate):
                     defects.add(IDENTITY_PATH_MISMATCH)
+            # §2d: the declared candidates `quality.py` probes, so both readers
+            # answer the same archive the same way.  Containment only — an absent
+            # artifact is not this finding (that stays backlog), and the probe is a
+            # no-op for shipped rows, which declare canonical relative paths.
+            extra_values: list[object] = []
+            for extra_key in ("subtitle_path", "artifact_path", "artifact_paths"):
+                value = row.get(extra_key)
+                if isinstance(value, (list, tuple)):
+                    extra_values.extend(value)
+                elif value is not None:
+                    extra_values.append(value)
+            for value in extra_values:
+                if not isinstance(value, str):
+                    continue          # a non-string cannot be a path; not this finding
+                candidates = [
+                    Path(value) if Path(value).is_absolute() else base / value
+                    for base, _reader in artifact_bases
+                ]
+                if not _safe_over_bases(artifact_bases, candidates):
+                    defects.add(IDENTITY_PATH_MISMATCH)
             if status in {"archived", "asr_done", "subtitle_done"} and (len(present) < len(canonical_required) or not bundle_complete): defects.add(MISSING_TRANSCRIPT)
-            raw = [base / "subtitles" / "raw" / f"{self._canonical_stem(row)}.json" for base, _reader in artifact_bases]
+            # §2f: BOTH raw locations are writer-real (`archive.py:469` declares `raw_path`
+            # under transcripts/raw/; the subtitle path writes subtitles/raw/), so both are
+            # inferred candidates and both are asked the containment question for every status.
+            raw_candidates = [
+                [base / "subtitles" / "raw" / f"{self._canonical_stem(row)}.json" for base, _reader in artifact_bases],
+                [base / "transcripts" / "raw" / f"{self._canonical_stem(row)}.json" for base, _reader in artifact_bases],
+            ]
             declared_raw = row.get("raw_path")
-            if status == "subtitle_done" and isinstance(declared_raw, str):
+            if isinstance(declared_raw, str):
                 declared_raw_paths = [Path(declared_raw) if Path(declared_raw).is_absolute() else base / declared_raw for base, _reader in artifact_bases]
                 if not _safe_over_bases(artifact_bases, declared_raw_paths):
                     defects.add(IDENTITY_PATH_MISMATCH)
             located_raw: tuple[Path, _RootConfinedReader] | None = None
-            if status == "subtitle_done" and not _safe_over_bases(artifact_bases, raw): defects.add(IDENTITY_PATH_MISMATCH)
-            elif status == "subtitle_done":
-                located_raw = _locate_over_bases(artifact_bases, [raw])[0]  # one recorded path, probed per base
-                if located_raw is None: defects.add(MISSING_RAW_SUBTITLE)
+            escaped_raw = False
+            for raw in raw_candidates:
+                if not _safe_over_bases(artifact_bases, raw):
+                    defects.add(IDENTITY_PATH_MISMATCH)
+                    escaped_raw = True
+                    continue                      # §2f: an escaping path is not "missing"
+                if status == "subtitle_done" and located_raw is None:
+                    located_raw = _locate_over_bases(artifact_bases, [raw])[0]
+            # §2f item 3, measured: the per-candidate `continue` alone does not suppress the
+            # ask.  The *sibling* candidate is confined and absent, so `located_raw` stays
+            # None and the code set remained
+            # `{identity_path_mismatch, missing_raw_subtitle, missing_transcript}` — the
+            # side effect §2f removes.  An escape means the row's raw document cannot be
+            # known to be missing from any candidate, so the ask is suppressed for the whole
+            # row (this is also what un-widens `recover --defect-code missing_raw_subtitle`).
+            if status == "subtitle_done" and located_raw is None and not escaped_raw:
+                defects.add(MISSING_RAW_SUBTITLE)
             artifact_paths = [located for located in _locate_over_bases(artifact_bases, canonical_required) if located is not None]
             if located_raw is not None: artifact_paths.append(located_raw)
             if any(not self._valid_artifact(path, row, base_reader) for path, base_reader in artifact_paths):

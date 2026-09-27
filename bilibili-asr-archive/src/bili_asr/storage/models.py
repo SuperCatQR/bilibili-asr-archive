@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import re
-from typing import Literal
+from typing import Literal, get_args
 
 
 ProcessingStatus = Literal["discovered", "metadata_collected", "gone"]
@@ -20,6 +20,7 @@ AcquisitionKind = Literal["subtitle", "audio", "asr"]
 AcquisitionOutcome = Literal["running", "complete", "partial", "failed"]
 AttemptOutcome = Literal["stored", "unchanged", "no-subtitle", "failed"]
 SourceKind = Literal["subtitle-ai", "subtitle-cc", "asr-local"]
+QueueGap = Literal["missing_subtitle", "missing_audio", "missing_transcript"]
 
 _ALLOWED_PROCESSING_STATUS = frozenset({"discovered", "metadata_collected", "gone"})
 _ALLOWED_RUN_OUTCOMES = frozenset(
@@ -32,6 +33,9 @@ _ALLOWED_ACQUISITION_OUTCOMES = frozenset({"running", "complete", "partial", "fa
 _ALLOWED_ATTEMPT_OUTCOMES = frozenset({"stored", "unchanged", "no-subtitle", "failed"})
 _ALLOWED_SOURCE_KINDS = frozenset({"subtitle-ai", "subtitle-cc", "asr-local"})
 _ALLOWED_SELECTOR_KINDS = frozenset({"pending", "bvid"})
+# The three work queues the archive drains, derived from the literal above so
+# the enumeration set and the type cannot drift apart.
+_ALLOWED_QUEUE_GAPS = frozenset(get_args(QueueGap))
 # The two outcomes a transcript write can report; the other attempt outcomes
 # record an acquisition that produced no transcript at all.
 _ALLOWED_TRANSCRIPT_WRITE_OUTCOMES = frozenset({"stored", "unchanged"})
@@ -201,6 +205,31 @@ class VideoPartRecord:
         """Return the derived work identifier without storing it."""
 
         return f"{self.bvid}:p{self.page_index}"
+
+
+@dataclass(frozen=True, slots=True)
+class VideoTagRecord:
+    """One tag the archive observed on one video.
+
+    The identity is ``(bvid, tag_id)``: ``tag_name`` is a display label
+    upstream may rename while the id stays the same, so the name is a fact
+    about what upstream last said rather than part of the key.  ``tag_type``
+    is upstream's own classification (``old_channel`` and the like) and is
+    likewise stored verbatim.  There is no timestamp column: a tag row is
+    replaced wholesale on recollect, so it carries no per-row observation
+    time to advance.
+    """
+
+    bvid: str
+    tag_id: int
+    tag_name: str
+    tag_type: str
+
+    def __post_init__(self) -> None:
+        _text(self.bvid, "bvid")
+        _integer(self.tag_id, "tag_id", minimum=1)
+        _text(self.tag_name, "tag_name")
+        _text(self.tag_type, "tag_type")
 
 
 @dataclass(frozen=True, slots=True)
@@ -434,6 +463,38 @@ class AcquisitionRunRecord:
             raise ValueError("a terminal run outcome requires finished_at")
 
 
+@dataclass(frozen=True, slots=True)
+class QueueGapItem:
+    """One part that one of the archive's three work queues still holds.
+
+    A read projection, not an input record: every field is a stored fact the
+    gap views already carry, so the constructor validates nothing and the
+    dataclass only names the row the repository returns.  ``cid`` is the part's
+    page identity, carried here because the audio route states it per part and
+    a caller must not have to re-fetch the page to learn it.  ``gap`` says which
+    queue the row came from — it is not a stored column.  ``newest_outcome``
+    and ``newest_error_code`` are the newest subtitle attempt's evidence and
+    are ``None`` for a part the subtitle queue has never attempted, so a
+    caller distinguishes "not tried" from "tried and failed" without a second
+    read.  ``attempt_count`` is the number of ``acquisition_attempts`` rows
+    whose run has the kind this gap's route records — ``'subtitle'`` for
+    ``missing_subtitle``, ``'audio'`` for ``missing_audio`` and
+    ``missing_transcript`` — and is ``0`` for a route never attempted.
+    """
+
+    work_id: str
+    bvid: str
+    page_index: int
+    cid: int
+    gap: QueueGap
+    pubdate: int
+    video_title: str
+    duration_ms: int
+    newest_outcome: str | None
+    newest_error_code: str | None
+    attempt_count: int
+
+
 __all__ = [
     "AcquisitionKind",
     "AcquisitionOutcome",
@@ -446,6 +507,8 @@ __all__ = [
     "MAX_TIMELINE_MS",
     "PageOutcome",
     "ProcessingStatus",
+    "QueueGap",
+    "QueueGapItem",
     "RunOutcome",
     "SourceKind",
     "TranscriptRecord",
@@ -454,8 +517,8 @@ __all__ = [
     "UserRecord",
     "VideoPartRecord",
     "VideoRecord",
+    "VideoTagRecord",
 ]
-
 
 # Public validation surface: the canonical enumeration sets and the error-code
 # validator are exported so gateway and CLI callers validate against the same
@@ -465,6 +528,7 @@ ALLOWED_PAGE_OUTCOMES = _ALLOWED_PAGE_OUTCOMES
 ALLOWED_RUN_OUTCOMES = _ALLOWED_RUN_OUTCOMES
 ALLOWED_CURSOR_STATES = _ALLOWED_CURSOR_STATES
 ALLOWED_PROCESSING_STATUS = _ALLOWED_PROCESSING_STATUS
+ALLOWED_QUEUE_GAPS = _ALLOWED_QUEUE_GAPS
 ALLOWED_ACQUISITION_KINDS = _ALLOWED_ACQUISITION_KINDS
 ALLOWED_ACQUISITION_OUTCOMES = _ALLOWED_ACQUISITION_OUTCOMES
 ALLOWED_ATTEMPT_OUTCOMES = _ALLOWED_ATTEMPT_OUTCOMES
@@ -483,6 +547,7 @@ __all__ += [
     "ALLOWED_CURSOR_STATES",
     "ALLOWED_PAGE_OUTCOMES",
     "ALLOWED_PROCESSING_STATUS",
+    "ALLOWED_QUEUE_GAPS",
     "ALLOWED_RUN_OUTCOMES",
     "ALLOWED_SOURCE_KINDS",
     "validate_error_code",
