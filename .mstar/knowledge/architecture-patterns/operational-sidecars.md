@@ -83,7 +83,9 @@ sidecars and deterministic derived stores for operator evidence; never rewrite
    denominators, limited/risk-interrupted states, sidecar contradictions, and missing terminal artifacts
    remain named diagnostics; no count is inferred. Quality reason codes describe structural artifacts and
    recorded content measurements only, and none claims semantic correctness. Only one of the two classes
-   decides: `DEFECT_REASON_CODES` (the structural seven) drives `QualityResult.reasons`, and so
+   decides: `DEFECT_REASON_CODES` (the structural codes — nine as of iter-2026-09-coverage-truth, the
+   original seven frozen in place with `identity_unconfined` and `identity_invalid` appended) drives
+   `QualityResult.reasons`, and so
    `valid_work_items` and the exit status, while `CONTENT_REASON_CODES` (`low_confidence`, `leading_mark`,
    `fragment_cue`, `overlong_cue`, `duplicate_cue`, `repeated_ngram`, `reference_disagreement`) is advisory
    in `content_reasons` and decides nothing; `REASON_CODES` stays the ordered union, so spelling and sort
