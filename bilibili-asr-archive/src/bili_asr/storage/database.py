@@ -1374,12 +1374,13 @@ class TranscriptRepository:
 
 
 class MediaQueueRepository:
-    """Read-only view over the three work queues the archive drains.
+    """The archive's queue surface: the three gap reads and the two writers.
 
-    One typed entry per part a queue still holds, carrying the video context a
-    caller renders the queue with and the attempt evidence that explains why
-    the part is queued.  Every public method is a read: nothing here writes,
-    commits, or opens a transaction.
+    :meth:`list_queue_gaps` and :meth:`count_queue_gaps` return one typed entry
+    per queued part, with the context and attempt evidence a caller renders it
+    with.  :meth:`mark_audio_acquired` and :meth:`mark_transcript_stored` are
+    the write half: each records, in one transaction, the evidence — an audio
+    object or a stored transcript — that takes a part out of a queue.
 
     The relation is each view's own; the order is this class's.  The three gap
     views declare no ``ORDER BY``, so a caller reading them directly would take
@@ -1482,6 +1483,68 @@ class MediaQueueRepository:
                 (video_part_id, audio_id, acquired_at, acquisition_source),
             )
         return audio_id
+
+    def mark_transcript_stored(
+        self,
+        *,
+        bvid: str,
+        page_index: int,
+        transcript_id: int,
+        run_id: str,
+        started_at: int,
+        finished_at: int,
+    ) -> None:
+        """Record that a stored transcript now answers for this part.
+
+        The attempt row is the evidence: ``outcome='stored'`` with the transcript
+        reference and no error code, scoped to the caller's existing run.  The
+        part's gap membership changes because that row exists, not because any
+        status column is rewritten.
+        """
+        part = self.connection.execute(
+            "SELECT video_part_id FROM video_parts WHERE bvid = ? AND page_index = ?",
+            (bvid, page_index),
+        ).fetchone()
+        if part is None:
+            raise ValueError(
+                f"unknown video part: bvid={bvid!r}, page_index={page_index!r}"
+            )
+        video_part_id = int(part["video_part_id"])
+
+        run_id = _text(run_id, "run_id")
+        transcript_id = _integer(transcript_id, "transcript_id", minimum=1)
+        started_at = _integer(started_at, "started_at", minimum=0)
+        finished_at = _integer(finished_at, "finished_at", minimum=0)
+        if finished_at < started_at:
+            raise ValueError("finished_at must not precede started_at")
+
+        transcript = self.connection.execute(
+            "SELECT video_part_id FROM transcripts WHERE transcript_id = ?",
+            (transcript_id,),
+        ).fetchone()
+        if transcript is None or int(transcript["video_part_id"]) != video_part_id:
+            raise ValueError(
+                f"unknown transcript for this part: transcript_id={transcript_id!r}, "
+                f"bvid={bvid!r}, page_index={page_index!r}"
+            )
+
+        run = self.connection.execute(
+            "SELECT 1 FROM acquisition_runs WHERE run_id = ?", (run_id,)
+        ).fetchone()
+        if run is None:
+            raise ValueError(f"unknown run_id: {run_id!r}")
+
+        with _transaction(self.connection):
+            self.connection.execute(
+                """
+                INSERT INTO acquisition_attempts(
+                    run_id, video_part_id, outcome, error_code, transcript_id,
+                    started_at, finished_at
+                ) VALUES (?, ?, 'stored', NULL, ?, ?, ?)
+                ON CONFLICT(run_id, video_part_id) DO NOTHING
+                """,
+                (run_id, video_part_id, transcript_id, started_at, finished_at),
+            )
 
     def list_queue_gaps(
         self,
