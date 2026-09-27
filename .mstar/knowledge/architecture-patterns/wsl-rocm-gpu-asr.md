@@ -1,6 +1,7 @@
 ---
 module: WSL2 AMD GPU ASR environment
 date: 2026-09-13
+last_updated: 2026-09-27
 problem_type: architecture_pattern
 category: architecture-patterns
 severity: medium
@@ -11,6 +12,8 @@ applies_when:
   - ImportError for libroctx64.so.4 or libMIOpen.so.1 while importing torch
   - deciding whether a missing device is a runtime, wheel, or Windows-driver problem
   - adding or running a host-level "is my GPU usable" pre-flight check
+  - regenerating or trusting a lock file for a project whose GPU wheel comes from a non-default
+    index, or any resolver run against an extra that lists `accelerate`
 tags:
   - wsl2-rocm
   - amd-gpu
@@ -19,6 +22,7 @@ tags:
   - hsa-runtime
   - repo-radeon-wheel
   - environment-self-check
+  - dependency-resolution
 ---
 
 # Enabling GPU ASR on WSL2 with an AMD ROCm GPU
@@ -46,6 +50,30 @@ system file — a bare `cp -f` can leave a differently-suffixed bundled `.so.1` 
 `HSA_ENABLE_DXG_DETECTION=1` is what makes the device visible through the Windows driver; without it the
 HIP runtime never looks for the DXG node and never sees the WSL GPU. That is the least obvious step in
 the stack, and it is one invariant with two halves — the `/dev/dxg` path **and** the variable.
+
+**2b. The recipe above is only reachable if nothing re-resolves torch for you.** The
+`repo.radeon.com` install is correct and stays correct — but it is a *command*, and a command is not a
+guarantee. Two mechanisms silently undo it, and both were observed on 2026-09-27:
+
+- **`accelerate` requires `torch` with no environment marker.** Any extra that lists `accelerate` (the
+  ASR extra does, for `device_map=`) therefore hands the resolver a torch requirement the moment
+  something materialises that extra, and the wheel that arrives is the default-index one.
+- **A lock file is a second declaration, and it wins.** `bilibili-asr-archive/pyproject.toml`
+  deliberately does not declare torch, and says so in a NOTE — but a NOTE is not an input to a resolver, and `uv sync` reconciles the
+  environment *to the lock*: it installs what the lock names and prunes what it does not. A lock that
+  resolved the PyPI CUDA wheel therefore does not merely lag the intent, it **overrides** it, on the
+  host the recipe was written for and verified on.
+
+Measured cost of one such regeneration: `torch 2.14.0` from `https://pypi.org/simple` plus **18**
+`nvidia-*`/`cuda-*` packages, against a base lock with **zero** CUDA packages and no torch at all. The
+device would have gone back to being invisible, and the failure would have presented as the ROCm setup
+having broken.
+
+Rule: an omission guarded only by a comment is not guarded. If a project must keep a package out of the
+default index, the guard has to be something a resolver reads — a `[tool.uv]` source or override, a
+pinned lock, or not depending on the package that drags it in. Treat a lock regeneration as a change to
+the GPU contract rather than as routine hygiene: diff the CUDA/NVIDIA package set before and after, and
+expect the count to be unchanged.
 
 **3. Symptom → cause chain.** Each symptom's real cause differs from what it looks like:
 
@@ -125,6 +153,15 @@ asr-env: verified
 ```
 
 ## Evidence
+
+- The 2026-09-27 resolver incident (§2b): found independently by two adversarial review seats on PR #20
+  (one reviewing ASR runtime code, one the dependency contract) and reproduced by reading the artifact —
+  the regenerated `bilibili-asr-archive/uv.lock` named `torch 2.14.0` sourced from the
+  default index (pypi.org, with files.pythonhosted.org wheels) plus 18
+  `nvidia-*`/`cuda-*` packages, where the previous lock had 0 CUDA packages and no torch. Reverted in
+  commit `902879c` on the branch that carried it; registered as residual
+  `iter-2026-09-qwen3-asr-closeout · R7`, with the stale-lock half as `· R6`. The warning that now names
+  it sits in the `[asr]` extra of the project manifest.
 
 - Iteration spec: `.mstar/iterations/iter-2026-09-asr-ops-hardening/specs/01-gpu-enablement.md`
   (D1.1–D1.9: stage names, exit contract, the subprocess device probe, the widened negative rule).

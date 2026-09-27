@@ -1,17 +1,19 @@
 ---
 module: bili-asr verification
 date: 2026-09-19
-last_updated: 2026-09-19
+last_updated: 2026-09-27
 problem_type: testing_pattern
 category: testing-patterns
 severity: medium
-plan_id: 20260919-artifact-root
+plan_id: 20260919-artifact-root; 20260927-aac-decode-contract
 applies_when:
   - asserting that something never happens in a run
   - asserting that two readers, roots or modes agree about one value
   - asserting on a filtered subset of a record list
   - citing one case as the proof of a file-level invariant
   - pinning a new refusal, message or exit code
+  - a test skips when a prerequisite is missing and the run still reports success
+  - a test double accepts ``*args, **kwargs`` and therefore cannot see its arguments change
 tags:
   - negative-control
   - absence-assertion
@@ -208,3 +210,39 @@ The projection's acceptance evidence produced three shapes worth keeping, plus o
   `raw=`; the shipped command does the same, so the reconstruction is faithful — but a fixture that
   built the *other* call shape (with `raw=`) would have looked equally plausible and proved nothing
   about the shipped path. Name the shipped call the fixture reproduces.
+
+## Instances added 2026-09-27 (PR #20, R5's own test suite)
+
+Four mechanisms, one outcome: a suite that reports success while the surface it names goes
+unexercised. All four were found by mutation — each was reproduced by changing product code and
+watching the suite stay green — not by reading the tests.
+
+- **A skip is a third state, and a summary line hides which surface went dark.** With `ffmpeg` off
+  `PATH`, the ASR suite reported `43 passed, 3 skipped` and **exit 0**; the three skips were precisely
+  the tests exercising the decode path the work existed to fix. The repository had already answered
+  this question, in the opposite direction, in an adjacent file: `bilibili-asr-archive/tests/installed_cli.py`
+  says *"fail the test (never pytest.skip / xfail) with a named prerequisite. Automated verification
+  must not go green because a console script was absent."* When a repo has a written policy for a
+  class of dependency, consistency with that policy beats a locally reasonable preference — skipping
+  is right for an optional library, wrong for a declared requirement, and the difference must be
+  decided once rather than per test.
+- **A test double that accepts `*args, **kwargs` cannot see its arguments change.** The surviving
+  check of the primary reader replaced the soundfile read call with `lambda *args, **kwargs: (known, 16000)` — which
+  discards every read option, so a `frames=1000` truncation and a `dtype="int16"` regression both left
+  the suite green at **46 passed**. A stubbed reader proves the *shape* of what callers do with a
+  result; it can never prove the read itself, so one test per reader has to touch a real file.
+- **Set membership is the wrong assertion for an ordered argv.** `assert ("-rf64", "auto") in pairs`
+  passed while a later `-rf64 never` re-selected the RIFF muxer — the two are last-wins, so the
+  override silently restored the 4 GiB truncation the test existed to prevent. When asserting a flag
+  in a command line, assert its **count**, its **position relative to the thing it qualifies**, and
+  the **absence of a later override**.
+- **A new exception class with no test is a claim, not a contract.** Replacing `AudioDecodeError`'s
+  `raise` with a bare `RuntimeError`, and deleting the entire non-zero-exit guard around it, both left
+  **46 passed** — while the class docstring asserted that its name is what an operator sees in the run
+  ledger. Introducing a type for callers or operators to branch on obliges one `pytest.raises` assertion for it.
+
+**What generalised.** The doc's original rule covers an absence assertion with no reachable producer.
+These four extend it to *presence* assertions whose fixture cannot see the value change — the same
+failure mode wearing the other sign. The diagnostic is identical and cheap: **name the mutation that
+would have to fail, then apply it.** If no single-line change to product code turns the test red, the
+test is documentation rather than verification.
