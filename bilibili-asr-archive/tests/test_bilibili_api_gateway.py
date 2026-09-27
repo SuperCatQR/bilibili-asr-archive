@@ -641,10 +641,17 @@ def test_completed_summary_keeps_the_category_and_cover_across_the_rebuild(
     cover on those videos, which is the loss Task 1 caught for ``author``.
     The detail response carries ``tid``/``pic``/``desc`` too, but the ruling is
     that these come from the response the run already parsed, so the rebuild
-    preserves and never fills from the detail.
+    preserves and never fills from the detail.  The scripted detail below
+    therefore carries a *different* value for each of the three: without that
+    discriminator "preserve" and "fill from the detail" satisfy the same
+    assertions, and the ruling the task exists to keep would be unpinned.
     """
 
-    bilibili_api_seam.info_response = make_detail_response()
+    bilibili_api_seam.info_response = make_detail_response(
+        pic="http://i2.hdslb.com/bfs/archive/from-the-detail.jpg",
+        desc="来自详情接口的简介",
+        tid=999,
+    )
     gateway = _load_gateway()
     summary = _summary(
         aid=None,

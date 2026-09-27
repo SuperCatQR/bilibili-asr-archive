@@ -1694,6 +1694,11 @@ def test_partial_observation_refreshes_only_the_values_it_carried(
     row is refreshed to exactly what it carried, so a field upstream really did
     drop does not survive as a stale value.  This is the arm that keeps D15
     from being read as "never overwrite a populated column".
+
+    The stamp is asserted too, because a partial observation is an observation
+    (D11's "a later collection overwrites it"): a guard that advanced
+    ``observed_at`` only on a *full* observation would satisfy every value
+    assertion above while leaving the row claiming the older collection.
     """
 
     gateway = FakeGateway()
@@ -1705,6 +1710,7 @@ def test_partial_observation_refreshes_only_the_values_it_carried(
         gateway.script_page(1, _page(1, _summary("BV1DETAIL"), observed_total=1))
         gateway.script_page(2, _page(2, observed_total=1))
         ingestor.collect_user_pages(MID, start_page=1)
+        first = _stored_details(connection)
 
         gateway.script_page(
             3,
@@ -1722,10 +1728,14 @@ def test_partial_observation_refreshes_only_the_values_it_carried(
 
         stored = _stored_details(connection)
         assert stored is not None
+        assert first is not None
         assert stored[:3] == (
             "http://i1.hdslb.com/bfs/archive/new.jpg",
             None,
             None,
+        )
+        assert stored[3] > first[3], (
+            "a partial observation is still an observation: the stamp moves"
         )
     finally:
         connection.close()
@@ -1778,5 +1788,45 @@ def test_video_details_land_through_the_pinned_adapter(tmp_root, bilibili_api_se
             ).fetchone()
         ) == (111,)
         assert "video.get_info" in bilibili_api_seam.calls
+    finally:
+        connection.close()
+
+
+def test_video_details_land_from_the_fixture_defaults(tmp_root, bilibili_api_seam):
+    """The case above overrides the three; this one reads them un-overridden.
+
+    ``test_video_details_land_through_the_pinned_adapter`` passes its own
+    ``typeid``/``pic``/``description``, so deleting the fixture's literal
+    defaults would leave it — and the whole suite — green, and the brief's
+    "otherwise the test proves only that the normalizer can read a dictionary
+    the test itself invented" would be satisfied on paper rather than in the
+    store.  Here the item is ``make_vlist_item`` with **no** override of the
+    three, and the assertion is on the literal defaults themselves, so the
+    fixture's documented vlist shape is what the row must hold: dropping a
+    default from the fixture turns this red.
+    """
+
+    bilibili_api_seam.videos_response = make_videos_response(
+        make_vlist_item(bvid="BV1DEFAULTS0", aid=None),
+        count=1,
+    )
+    bilibili_api_seam.info_response = make_detail_response(bvid="BV1DEFAULTS0")
+    bilibili_api_seam.parts_response = [make_part_item(cid=2222)]
+    connection = open_database(tmp_root)
+    repository = MetadataRepository(connection)
+    try:
+        MetadataIngestor(_seam_gateway(), repository).collect_user_pages(
+            MID, start_page=1, page_limit=1
+        )
+
+        row = connection.execute(
+            'SELECT bvid, pic, "desc", tid FROM video_details'
+        ).fetchone()
+        assert tuple(row) == (
+            "BV1DEFAULTS0",
+            "http://i1.hdslb.com/bfs/archive/823a6d798b45afa138b64fce38f8f2c0.jpg",
+            "哲学讲座简介",
+            124,
+        )
     finally:
         connection.close()
