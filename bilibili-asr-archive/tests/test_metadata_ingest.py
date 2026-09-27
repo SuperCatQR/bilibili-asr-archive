@@ -1824,7 +1824,7 @@ def test_video_details_land_from_the_fixture_defaults(tmp_root, bilibili_api_sea
         ).fetchone()
         assert tuple(row) == (
             "BV1DEFAULTS0",
-            "http://i1.hdslb.com/bfs/archive/823a6d798b45afa138b64fce38f8f2c0.jpg",
+            "http://i1.hdslb.com/bfs/archive/367e793f720ea124722f970965a2db1ba3a733a7.jpg",
             "哲学讲座简介",
             124,
         )

@@ -844,6 +844,8 @@ def make_vlist_item(**overrides: object) -> dict:
     the same reason: the normalizer reads them, so an override-only key would
     prove only that it can read a dictionary a test invented.  A test that
     wants the absent case pops them, exactly as it does for the name.
+    ``pic`` is a recorded form rather than a plausible-looking one — the
+    ``arc/search`` archive stem upstream issues is 40 hex characters.
     """
 
     item = {
@@ -854,7 +856,7 @@ def make_vlist_item(**overrides: object) -> dict:
         "mid": MID,
         "author": "未明子",
         "typeid": 124,
-        "pic": "http://i1.hdslb.com/bfs/archive/823a6d798b45afa138b64fce38f8f2c0.jpg",
+        "pic": "http://i1.hdslb.com/bfs/archive/367e793f720ea124722f970965a2db1ba3a733a7.jpg",
         "description": "哲学讲座简介",
     }
     item.update(overrides)
