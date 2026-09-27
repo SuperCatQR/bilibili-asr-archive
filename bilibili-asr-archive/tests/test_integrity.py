@@ -119,7 +119,7 @@ def test_report_shape_is_sorted_and_idempotent(tmp_path: Path) -> None:
     _manifest(tmp_path, [{"work_id": "b", "status": "pending"}, {"work_id": "a", "status": "needs_audio"}])
     first = IntegrityVerifier().verify(tmp_path).to_dict()
     assert first == IntegrityVerifier().verify(tmp_path).to_dict()
-    assert set(first) == {"checked", "defect_count", "defects", "diagnostics", "authoritative"}
+    assert set(first) == {"checked", "defect_count", "backlog_count", "defects", "diagnostics", "authoritative"}
     assert first["defects"] == sorted(first["defects"], key=lambda d: (d["work_id"], d["code"]))
 
 

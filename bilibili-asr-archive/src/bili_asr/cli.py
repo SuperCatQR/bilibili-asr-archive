@@ -520,6 +520,15 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
 
+    coverage_cmd.add_argument(
+        "--strict",
+        action="store_true",
+        help=(
+            "Restore the pre-cutover exit behavior: any finding, either "
+            "class, exits non-zero"
+        ),
+    )
+
     integrity_cmd = subparsers.add_parser(
         "verify", help="Verify archive integrity without modifying files"
     )
@@ -531,6 +540,14 @@ def build_parser() -> argparse.ArgumentParser:
         help="Trust an operator-owned local archive root for unbounded inspection",
     )
     integrity_cmd.add_argument("--format", choices=["json", "text"], default="json")
+    integrity_cmd.add_argument(
+        "--strict",
+        action="store_true",
+        help=(
+            "Restore the pre-cutover exit behavior: any finding, either "
+            "class, exits non-zero"
+        ),
+    )
 
     recover_cmd = subparsers.add_parser(
         "recover", help="Explicitly audit named integrity defects (no requeue execution)"
@@ -1705,6 +1722,22 @@ def _cmd_status(args: argparse.Namespace) -> int:
         repository.connection.close()
 
 
+#: Coverage-side backlog statuses (exit-code contract §2): the row's own status
+#: says the chain has not finished with it yet — normal operations, not damage.
+#: Same set the integrity reader uses for `retryable_incomplete`
+#: (`integrity.py` `if status in {...}: defects.add(RETRYABLE_INCOMPLETE)`).
+_BACKLOG_STATUSES = frozenset(
+    {"pending", "meta_ok", "sub_checked", "needs_audio", "audio_ok"}
+)
+
+#: The one validity reason that means "the artifact is not there yet" rather
+#: than "the artifact is there and broken".  A backlog row is an in-flight
+#: status whose findings are exactly this reason — `empty`/`malformed`/… are
+#: damage even on an in-flight row (contract §2: malformed verdicts belong to
+#: the defect class, never to backlog).
+_BACKLOG_REASONS = frozenset({"artifact_missing"})
+
+
 def _cmd_coverage_quality(args: argparse.Namespace) -> int:
     import csv
     import io
@@ -1782,6 +1815,7 @@ def _cmd_coverage_quality(args: argparse.Namespace) -> int:
     total_cues = 0
     valid_work_items = 0
     has_defects = False
+    has_defect_rows = False
     agreement: ReferenceAgreement | None = None
     # Where each row's doubtful cues are, keyed by work_id: a value the frozen
     # CSV columns cannot carry, so it is held here for the stderr pass below.
@@ -1820,7 +1854,19 @@ def _cmd_coverage_quality(args: argparse.Namespace) -> int:
         if not result.reasons and not result.diagnostics:
             valid_work_items += 1
         else:
+            # Any finding, either class — the `--strict` total and the
+            # pre-cutover gate (contract §2).
             has_defects = True
+            # Backlog (contract §2): an in-flight row whose only problem is
+            # that its artifact does not exist yet.  A row whose artifact is
+            # present but unreadable, or a terminal row missing its artifact,
+            # is damage and must not hide behind the row's status.
+            if not (
+                str(result.status) in _BACKLOG_STATUSES
+                and not result.diagnostics
+                and set(result.reasons) <= _BACKLOG_REASONS
+            ):
+                has_defect_rows = True
 
     diagnostic_rows = _diagnostic_rows(diagnostics)
     summary = {
@@ -1946,7 +1992,11 @@ def _cmd_coverage_quality(args: argparse.Namespace) -> int:
                 file=sys.stderr,
             )
 
-    return 1 if (diagnostic_rows or has_defects) else 0
+    if getattr(args, "strict", False):
+        # Pre-cutover gate (contract §2): any finding of either class.
+        return 1 if (diagnostic_rows or has_defects) else 0
+    # Default gate (contract §2): defect-class rows and diagnostics only.
+    return 1 if (diagnostic_rows or has_defect_rows) else 0
 
 
 def _cmd_coverage(args: argparse.Namespace) -> int:
@@ -3550,7 +3600,7 @@ def _cmd_export(args: argparse.Namespace) -> int:
 
 
 def _cmd_verify(args: argparse.Namespace) -> int:
-    from .integrity import IntegrityVerifier
+    from .integrity import BACKLOG_CATEGORY, DEFECT_CATEGORY, IntegrityVerifier
     from .sidecar_projection import ReaderPolicy
     policy = ReaderPolicy(mode="trusted_archive") if getattr(args, "trusted_local", False) else None
     report = IntegrityVerifier().verify(
@@ -3564,10 +3614,22 @@ def _cmd_verify(args: argparse.Namespace) -> int:
         print(f"checked: {payload['checked']}")
         print(f"defects: {payload['defect_count']}")
         for defect in payload["defects"]:
+            if defect["category"] != DEFECT_CATEGORY:
+                continue
+            print(f"{defect['work_id']}: {defect['code']}")
+        print(f"backlog: {payload['backlog_count']}")
+        for defect in payload["defects"]:
+            if defect["category"] != BACKLOG_CATEGORY:
+                continue
             print(f"{defect['work_id']}: {defect['code']}")
         for diagnostic in payload["diagnostics"]:
             print(f"diagnostic: {diagnostic}")
-    return 0 if not payload["defects"] and not payload["diagnostics"] else 1
+    if getattr(args, "strict", False):
+        # Pre-cutover gate (contract §2): any finding of either class.
+        return 0 if not payload["defects"] and not payload["diagnostics"] else 1
+    # Default gate (contract §2): defect-class findings and diagnostics only.
+    # Backlog rows are printed in their own section and never move the exit code.
+    return 1 if payload["defect_count"] or payload["diagnostics"] else 0
 
 
 def _cmd_recover(args: argparse.Namespace) -> int:
