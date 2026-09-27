@@ -183,6 +183,7 @@ def build_run_record(
     last_api_error_code: int | str | None = None,
     coverage_summary: dict[str, int] | None = None,
     cursor_snapshot: dict[str, Any] | None = None,
+    hotwords_dropped: list[str] | None = None,
 ) -> dict[str, Any]:
     """Construct a run record dictionary before validation."""
     if run_id is None:
@@ -203,6 +204,7 @@ def build_run_record(
         "last_api_error_code": last_api_error_code,
         "coverage_summary": dict(coverage_summary) if coverage_summary is not None else {},
         "cursor_snapshot": dict(cursor_snapshot) if cursor_snapshot is not None else None,
+        "hotwords_dropped": list(hotwords_dropped) if hotwords_dropped else [],
     }
 
 
