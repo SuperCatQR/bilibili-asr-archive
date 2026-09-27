@@ -18,6 +18,25 @@ from .page_identity import artifact_stem, page_identity, parse_work_id
 
 #: Reasons that describe a structural defect: an artifact is missing, unreadable,
 #: or internally inconsistent.  Only these make a work item invalid.
+#:
+#: The two ``identity_*`` codes appended here are the *declaration* half of the
+#: identity family — the row's own identity/artifact metadata is unusable, which
+#: is a different fact from any file's content:
+#:
+#: ``identity_unconfined``
+#:     the row *declares* an artifact path and that declaration escapes every
+#:     read base, so the path is unusable however the file system answers.
+#: ``identity_invalid``
+#:     a declared identity field is not schema-valid (a ``cid`` that is neither
+#:     an int nor null), so the canonical artifact stem cannot be derived and
+#:     every path inferred from it is a guess.
+#:
+#: Both must stay distinct from ``artifact_missing``, which means "the artifact
+#: is not there yet": an in-flight row whose declaration is corrupt is not
+#: backlog (contract §2b R3).  They are appended rather than absorbed into the
+#: seven codes above because those positions are frozen output order (see
+#: REASON_CODES), and because a reader must be able to tell *why* the row is
+#: invalid — the remediation differs from a genuinely absent file.
 DEFECT_REASON_CODES = (
     "empty",
     "malformed",
@@ -26,6 +45,8 @@ DEFECT_REASON_CODES = (
     "out_of_range",
     "identity_mismatch",
     "artifact_missing",
+    "identity_unconfined",
+    "identity_invalid",
 )
 #: Reasons that record what the recorded content measures.  They are advisory:
 #: they describe the transcript, never that the archive is broken, so they leave
@@ -241,7 +262,27 @@ class QualityAnalyzer:
         diagnostics: set[str] = set()
         content_reasons: set[str] = set()
         low_confidence_at: tuple[float, ...] = ()
-        artifacts = _artifact_paths(row, roots)
+        # §2b R3: the row's *declared* identity, validated before any path is
+        # derived from it.  `integrity.py` fails the same row on the same value
+        # (`structural_input_error`, then `continue`), so a `cid` that is neither
+        # an int nor null is corruption on this reader too — not backlog.
+        cid = row.get("cid")
+        identity_invalid = cid is not None and (
+            isinstance(cid, bool) or not isinstance(cid, int)
+        )
+        artifacts: list[Path] = []
+        if identity_invalid:
+            # §2b R3: a `cid` that is neither an int nor null (bools included,
+            # matching `integrity.py`'s own check) makes the canonical artifact
+            # stem underivable, so every path *inferred* from it would be a
+            # guess.  A reason about a guessed filename would describe the guess
+            # rather than the archive, so the walk stops here — `verify` stops at
+            # the same row for the same reason (`structural_input_error`).
+            reasons.add("identity_invalid")
+        else:
+            artifacts = _artifact_paths(row, roots)
+            if not artifacts:
+                reasons.add("artifact_missing")
         cue_count = 0
         valid_artifacts = 0
         transcript: str | None = None
@@ -251,10 +292,16 @@ class QualityAnalyzer:
         # than the artifact it publishes.  Only a strictly better artifact
         # replaces the current source, so equal ranks keep the archived SRT.
         transcript_rank = 0
-        if not artifacts:
-            reasons.add("artifact_missing")
         for path in artifacts:
-            if not _contained_at_any_base(path, roots) or not path.is_file():
+            if not _contained_at_any_base(path, roots):
+                # §2b R3: the row's declaration escapes every read base, so the
+                # path is unusable however the file system answers.  This is *not*
+                # "not there yet" — collapsing it into `artifact_missing` (the one
+                # backlog reason) is the regression R3 names, and the reason must
+                # stay distinct rather than the backlog set widening to absorb it.
+                reasons.add("identity_unconfined")
+                continue
+            if not path.is_file():
                 reasons.add("artifact_missing")
                 continue
             try:
@@ -353,6 +400,11 @@ def _artifact_paths(row: Mapping[str, object], roots: ArtifactRoots) -> list[Pat
     (D6).  The inferred candidates and the ``transcripts/md`` glob walk the same base
     list, and a candidate that exists at neither base is reported at the first one so
     the caller reads it as missing rather than as absent from the report.
+
+    Every candidate is returned unresolved-at-base, so the caller owns the two
+    checks that differ by provenance: containment (a declared value *or* an
+    inferred name can escape through a symlink, and both are `identity_unconfined`)
+    and existence (`artifact_missing`, which alone is backlog).
     """
     bases = roots.read_bases()
     values: list[object] = []

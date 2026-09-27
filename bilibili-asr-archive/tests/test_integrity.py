@@ -230,11 +230,14 @@ def test_append_only_history_is_not_a_structural_error(tmp_path: Path) -> None:
 def test_verify_exits_zero_on_history_and_non_zero_on_real_damage(tmp_path: Path) -> None:
     """The exit contract, pinned in both directions through `cli.main`.
 
-    `cli.py`'s `_cmd_verify` returns `0 if not payload["defects"] and not
-    payload["diagnostics"] else 1`, so the exit code — not just the report shape
-    — is what must flip. The healthy half needs `coordinator/attempts.jsonl`;
-    without it `missing_attempts_sidecar` keeps the exit at 1 for an unrelated
-    reason.
+    `cli.py`'s `_cmd_verify` now has two gates (exit-code contract §2). The
+    default one returns `1 if payload["defect_count"] or payload["diagnostics"]
+    else 0` — backlog rows are printed in their own `backlog:` section and never
+    move the exit code. The `--strict` branch keeps the pre-cutover rule, `0 if
+    not payload["defects"] and not payload["diagnostics"] else 1`, so *any*
+    finding of either class still fails it. This test drives the default gate;
+    the healthy half needs `coordinator/attempts.jsonl`, without which
+    `missing_attempts_sidecar` keeps the exit at 1 for an unrelated reason.
     """
     from bili_asr import cli
 
