@@ -418,7 +418,12 @@ class FakeGateway:
         self._completions[bvid] = completed
 
     def script_tags(self, bvid: str, tags: object) -> None:
-        """Script what the tag listing answers for one video, by its ``bvid``."""
+        """Script what the tag listing answers for one video, by its ``bvid``.
+
+        ``None`` scripts the degraded answer — "could not read this time" —
+        which is a different state from ``()`` ("read it, carries none"); see
+        :meth:`get_video_tags`.
+        """
 
         self._tags[bvid] = tags
 
@@ -446,7 +451,7 @@ class FakeGateway:
         self.completion_calls.append(summary.bvid)
         return self._scripted(self._completions, summary.bvid, "completed-summary")
 
-    async def get_video_tags(self, bvid: str) -> tuple[VideoTag, ...]:
+    async def get_video_tags(self, bvid: str) -> tuple[VideoTag, ...] | None:
         """Record the request and answer the scripted inventory.
 
         An unscripted ``bvid`` answers the empty inventory rather than failing
@@ -454,6 +459,14 @@ class FakeGateway:
         addition whose production answer for an untagged video is exactly that
         empty array, so defaulting it keeps the pre-tag tests meaningful
         instead of rewriting each one.  The request is recorded either way.
+
+        ``script_tags(bvid, None)`` is how a case scripts the *third* state
+        compass D16 added: ``None`` means the call could not read the tags this
+        time, while ``()`` means it did read and the video carries none.  The
+        two drive opposite behavior in the ingestor — the absent key preserves
+        a previous run's rows, the present empty key clears them — so a case
+        that needs the preserving arm must script ``None`` explicitly rather
+        than relying on the unscripted default, which is the clearing one.
 
         A *scripted* ``BaseException`` is raised as-is, like every sibling
         fetch, so a test can drive the ingestor with a gateway that fails.  The
@@ -1080,7 +1093,8 @@ __all__ = [
     "make_detail_response",
     "make_part_item",
     "make_player_response",
-    "make_subtitle_document",    "make_subtitle_entry",
+    "make_subtitle_document",
+    "make_subtitle_entry",
     "make_subtitle_track",
     "make_tag_item",
     "make_videos_response",

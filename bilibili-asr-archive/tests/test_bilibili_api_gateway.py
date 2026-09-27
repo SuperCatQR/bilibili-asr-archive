@@ -1453,15 +1453,19 @@ def test_get_video_tags_missing_tag_id_or_name_is_a_bounded_shape_error(
     )
 
 
-def test_get_video_tags_degrades_to_empty_on_risk_control(bilibili_api_seam):
+def test_get_video_tags_answers_none_on_risk_control(bilibili_api_seam):
     """Risk control on the tag call records no tags and never raises.
 
     Measured in this sandbox: the sibling WBI-signed metadata endpoint answers
     HTTP 412 with the device-fingerprint parameters this plan deliberately
     disables, so a ``-352``/``-412``/HTTP 412 answer here is reachable rather
     than hypothetical.  The tag call is the one metadata call the plan treats
-    as best-effort, so every one of those must come back as an empty tuple with
-    the run still alive.
+    as best-effort, so every one of those must come back as ``None`` — compass
+    **D16**'s "could not read this time" answer — with the run still alive.
+
+    ``None`` rather than ``()`` is the point: ``()`` would claim the video was
+    observed to carry no tags, and the write side clears the stored set on that
+    claim.
     """
 
     gateway = _load_gateway()
@@ -1474,7 +1478,7 @@ def test_get_video_tags_degrades_to_empty_on_risk_control(bilibili_api_seam):
         FakeWbiRetryTimesExceedException(),
     ):
         bilibili_api_seam.tags_error = error
-        assert asyncio.run(gateway.get_video_tags(BVID)) == ()
+        assert asyncio.run(gateway.get_video_tags(BVID)) is None
 
     # The bounded failure left no trace on the wire beyond the call itself, and
     # nothing upstream sent reached the caller.
@@ -1482,13 +1486,39 @@ def test_get_video_tags_degrades_to_empty_on_risk_control(bilibili_api_seam):
     assert bilibili_api_seam.tag_calls == [BVID] * 5
 
 
-def test_get_video_tags_degrades_to_empty_on_transport_failure(bilibili_api_seam):
+def test_get_video_tags_answers_none_on_transport_failure(bilibili_api_seam):
     """A transport failure degrades the same way risk control does."""
 
     bilibili_api_seam.tags_error = FakeResponseException(UPSTREAM_ERROR_TEXT)
     gateway = _load_gateway()
 
-    assert asyncio.run(gateway.get_video_tags(BVID)) == ()
+    assert asyncio.run(gateway.get_video_tags(BVID)) is None
+
+
+def test_get_video_tags_distinguishes_a_degraded_call_from_an_empty_inventory(
+    bilibili_api_seam,
+):
+    """The two empty-looking answers stay apart (compass D16).
+
+    This is the adapter-level pin for the return protocol itself: an empty
+    inventory is an *observation* and answers ``()``, while the same call
+    failing answers ``None``.  The two are asserted side by side in one test so
+    a change that collapses them fails here directly, rather than only in the
+    two-run ingest case where the damage is a cleared set.
+    """
+
+    gateway = _load_gateway()
+
+    bilibili_api_seam.tags_response = []
+    observed = asyncio.run(gateway.get_video_tags(BVID))
+
+    bilibili_api_seam.tags_error = FakeResponseException(UPSTREAM_ERROR_TEXT)
+    degraded = asyncio.run(gateway.get_video_tags(BVID))
+
+    assert observed == ()
+    assert observed is not None
+    assert degraded is None
+    assert degraded != observed
 
 
 def test_get_video_tags_does_not_swallow_a_shape_error(bilibili_api_seam):
@@ -2094,8 +2124,12 @@ def test_gateway_protocol_surface_is_locked():
     ``not_found`` failure), while ``fetch_subtitle_segments(track, bvid, cid)``
     answers a non-empty tuple or raises ``GatewayNotFound``.  The seventh is
     the tag call, which takes ``bvid`` alone because the tag set belongs to the
-    video rather than to a part, and which is the one call allowed to answer an
-    empty tuple for a *failure* as well as for an empty inventory.
+    video rather than to a part, and which is the one call allowed to fail
+    softly rather than raise — answering ``None`` for "could not read this
+    time" and ``()`` for "read it, and this video carries none" (compass
+    **D16**).  Its return annotation is asserted below, because that protocol
+    declaration is what every implementer downstream is entitled to trust and
+    the distinction is the return type rather than a convention.
 
     The declaration set is asserted exactly, not method by method: an eighth
     protocol method fails here instead of slipping through unread.
@@ -2118,6 +2152,10 @@ def test_gateway_protocol_surface_is_locked():
     }
 
     assert declared == expected
+    assert (
+        inspect.signature(BilibiliGateway.get_video_tags).return_annotation
+        == "tuple[VideoTag, ...] | None"
+    )
 
 
 # ------------------------------------------------------- import boundary (AST)

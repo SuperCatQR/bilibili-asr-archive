@@ -671,7 +671,7 @@ class BilibiliApiGateway:
         )
         return _complete_summary_from_detail(summary, detail)
 
-    async def get_video_tags(self, bvid: str) -> tuple[VideoTag, ...]:
+    async def get_video_tags(self, bvid: str) -> tuple[VideoTag, ...] | None:
         """List the tags one video carries right now.
 
         One unsigned, WBI-free call: the endpoint's description declares
@@ -684,7 +684,7 @@ class BilibiliApiGateway:
         **This call degrades rather than fails.** It is the one metadata call
         the plan treats as best-effort: *every* classified upstream failure —
         risk control, not-found, an unclassified response error, or a broken
-        transport — is answered with an empty tuple so the run continues, and
+        transport — is answered with ``None`` so the run continues, and
         the bounded code travels on the exception mapped by ``_await_upstream``
         and caught here.  Nothing is logged, printed, or persisted by this
         method; the code is available to the caller through the same taxonomy
@@ -701,17 +701,19 @@ class BilibiliApiGateway:
         A *malformed successful* response is the deliberate exception: that is
         a shape error, raised by the normalizer outside this guard, because an
         unreadable payload is a defect rather than an upstream mood.  Masking
-        it as "no tags" would hide a bug behind the same empty tuple a
+        it as "no tags" would hide it behind the same empty tuple a
         legitimate empty inventory produces.
 
-        The cost of returning a tuple rather than a result object is that the
-        caller sees the same ``()`` for "this video has no tags" and for "the
-        tags could not be read this time".  The two are *not* interchangeable
-        downstream: a caller that writes an empty set on every empty tuple will
-        erase tags a previous run stored whenever one fetch degrades.  That
-        ambiguity is known and reported rather than papered over — resolving it
-        needs a product ruling on whether a degraded re-run may clear a video's
-        stored tags, and the plan does not give one.
+        **``None`` and ``()`` are different answers, and the difference is the
+        whole point of the return type** (compass **D16**, 2026-09-27).
+        ``None`` is "this call could not read the tags this time"; ``()`` is
+        "read it, and this video carries none", which the normalizer returns
+        for ``data: []``.  The write side acts on the distinction: the ingestor
+        omits a ``None`` bvid from a page's tag sets, and ``record_page``
+        treats an absent key as "no news" rather than as an observation to
+        write, so a degraded re-run leaves the tags a previous run stored
+        **untouched**.  Returning ``()`` here instead would make one degraded
+        fetch clear a stored set, which is the erasure D16 rules out.
         """
 
         if not isinstance(bvid, str) or _BVID_PATTERN.fullmatch(bvid) is None:
@@ -731,10 +733,13 @@ class BilibiliApiGateway:
                 .result,
             )
         except GatewayError:
-            # Best-effort call: no tags recorded for this video, run continues.
-            # The mapped exception carried the bounded code; it is not
+            # Best-effort call, and *not* an observation: ``None`` tells the
+            # caller the tags could not be read, which is what keeps
+            # ``record_page`` from clearing rows a previous run stored
+            # (compass D16).  ``()`` here would be a lie about what upstream
+            # said.  The mapped exception carried the bounded code; it is not
             # re-raised and not written anywhere by this method.
-            return ()
+            return None
         return _normalize_video_tags(response)
 
     async def get_subtitle_tracks(

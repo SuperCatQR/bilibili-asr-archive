@@ -60,7 +60,8 @@ def _now() -> int:
 
 
 def _observed_tag_sets(
-    summaries: list[VideoSummary], tags_by_video: dict[str, tuple[VideoTag, ...]]
+    summaries: list[VideoSummary],
+    tags_by_video: dict[str, tuple[VideoTag, ...] | None],
 ) -> dict[str, list[VideoTagRecord]]:
     """Return this page's observed tag sets, keyed by bvid.
 
@@ -69,26 +70,32 @@ def _observed_tag_sets(
     bvid repeated on the page collapses to one set, the same way its parts and
     its video row do.
 
-    **The degradation ambiguity, stated where it is acted on.** The gateway
-    answers an empty tuple both for "this video carries no tags" and for "the
-    tag call degraded this time", and the Protocol's return type carries no
-    third state to tell them apart.  This function therefore hands over an
-    empty list for both, and ``upsert_video_tags`` replaces the stored set with
-    it — so a risk-controlled or transport-failed tag fetch *clears* whatever
-    tags a previous run stored for that video.  That is the behavior the plan's
-    own "idempotent, replaces the video's tag set" wording implies and what
-    AC 3 asserts, and it is the honest reading of "record no tags"; it is
-    reported because the opposite reading — leave stored rows alone on a
-    degraded fetch — is also defensible and no D-ruling covers it.  Resolving
-    it properly needs either a distinguishable return (a sentinel or a result
-    object) or an ``error_code`` column on this table, both of which are
-    product decisions outside this task.
+    **The two empty answers are kept apart here, which is where it matters**
+    (compass **D16**, 2026-09-27).  ``tags_by_video`` maps a bvid to ``None``
+    when the tag call could not read this time (risk control, transport
+    failure) and to a tuple — possibly empty — when it did read.  A ``None``
+    entry **omits the bvid key** rather than contributing an empty list: the
+    absent key is what ``record_page`` treats as "no news", so nothing is
+    written for that video and the rows a previous run stored survive.  A
+    present key with an empty list is the *observation* that the video carries
+    no tags, and still replaces the stored set with nothing — that is AC 3's
+    "a second run of the same bvid replaces the set rather than appending",
+    and ``upsert_video_tags``' own docstring is the contract for it.
+
+    The distinction cannot be made one layer down: once both answers have been
+    flattened into an empty list, ``upsert_video_tags`` has nothing left to
+    tell them apart, and "never delete on an empty set" would destroy the
+    genuine clear instead of protecting it.
     """
 
     sets: dict[str, list[VideoTagRecord]] = {}
     for summary in summaries:
         observed = tags_by_video.get(summary.bvid)
-        if observed is None:  # pragma: no cover - the fetch loop fills every bvid
+        if observed is None:
+            # The call could not read this time: write nothing for this video
+            # rather than clearing a set a previous run observed.  ``continue``
+            # leaves the key out, which is the shape ``record_page`` reads as
+            # "no news" (D16).
             continue
         sets[summary.bvid] = [
             VideoTagRecord(
@@ -294,9 +301,13 @@ class MetadataIngestor:
         # page-scoped, because the tag set is a property of the video: a video
         # that somehow appears on two pages must not pay for the same call
         # twice, and the fetch is deliberately per video rather than per part.
-        # An empty tuple is kept as-is and never treated as an observation of
-        # absence — see where the payload is built below.
-        tags_by_video: dict[str, tuple[VideoTag, ...]] = {}
+        # A value of ``None`` is the gateway's "could not read this time" and
+        # is cached as such: a page whose payload is built from it omits the
+        # bvid's tag set rather than writing an empty one, so a degraded fetch
+        # cannot clear tags an earlier run stored (compass D16).  An empty
+        # tuple is a *different* answer — read, and the video carries none —
+        # and does replace the stored set with nothing.
+        tags_by_video: dict[str, tuple[VideoTag, ...] | None] = {}
         page_number = first_page
         while True:
             page_started_at = _now()
@@ -338,7 +349,9 @@ class MetadataIngestor:
                     # belongs to the video, so a per-part fetch would pay once
                     # per part and a repeated bvid would pay again.  The call
                     # itself degrades inside the gateway rather than raising,
-                    # so a risk-controlled tag fetch cannot fail the page.
+                    # so a risk-controlled tag fetch cannot fail the page; it
+                    # answers ``None`` for that case and the payload builder
+                    # omits the bvid rather than writing an empty set (D16).
                     if summary.bvid not in tags_by_video:
                         tags_by_video[summary.bvid] = (
                             await self._gateway.get_video_tags(summary.bvid)

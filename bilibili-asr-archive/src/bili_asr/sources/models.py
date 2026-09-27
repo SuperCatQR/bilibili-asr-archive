@@ -232,9 +232,16 @@ class BilibiliGateway(Protocol):
 
     # The tag set is a property of the VIDEO, not of a part: it is fetched
     # once per video and cached for the run's duration.  A tag fetch is
-    # retry-free and degrades to an empty tuple — risk control and transport
-    # failures on this call may not fail the collection run.
-    async def get_video_tags(self, bvid: str) -> tuple[VideoTag, ...]: ...
+    # retry-free and degrades rather than raising — risk control and transport
+    # failures on this call may not fail the collection run — but the
+    # degradation is a *third state*, not an empty set: ``None`` means "this
+    # call could not read the tags this time" and ``()`` means "read it, and
+    # this video carries none".  Callers must not turn the first into the
+    # second: the ingestor omits such a bvid from a page's tag sets, so
+    # nothing is written for it and rows a previous run stored survive
+    # (compass D16).  A key present with an empty iterable is the observation
+    # that clears them.
+    async def get_video_tags(self, bvid: str) -> tuple[VideoTag, ...] | None: ...
 
     # A subtitle inventory is an observation, not a promise: an empty tuple
     # means nothing usable was visible with the credentials in effect, and it
