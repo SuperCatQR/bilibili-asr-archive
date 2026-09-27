@@ -844,6 +844,122 @@ def test_upsert_video_tags_rolls_back_with_its_transaction(tmp_root):
         connection.close()
 
 
+def test_record_page_absent_tag_key_is_no_news_for_a_stored_set(tmp_root):
+    """``record_page`` omits a video's tag writes when its key is absent.
+
+    This is the storage half of compass **D16**, asserted at the source level
+    rather than through the ingestor that happens to pass ``None``: an absent
+    bvid must leave whatever rows exist for that video alone.  ``tags=None``
+    (no tag sets at all) and ``tags={}`` (an empty mapping) are both "no news"
+    for the video, which is precisely why the ingestor can encode a degraded
+    fetch as a missing key instead of an empty list.
+    """
+
+    connection = open_database(tmp_root)
+    repository = MetadataRepository(connection)
+    try:
+        _start_run(repository)
+        with repository.transaction():
+            repository.upsert_video(make_video_record())
+            repository.upsert_video_tags("BV1SINGLE", [_tag(1, "一"), _tag(2, "二")])
+
+        # A page that recorded no tag sets at all, then one whose mapping is
+        # empty: neither may touch the stored set.
+        repository.record_page(make_page_record(page_number=2), tags=None)
+        repository.record_page(make_page_record(page_number=3), tags={})
+
+        assert _stored_tags(connection) == [
+            (1, "一", "old_channel"),
+            (2, "二", "old_channel"),
+        ]
+    finally:
+        connection.close()
+
+
+def test_record_page_present_empty_tag_set_clears_the_video(tmp_root):
+    """A key present with an empty iterable *is* the observation that clears.
+
+    The other half of D16, and the reason the distinction cannot be moved into
+    ``upsert_video_tags``: the absent key above and this present-but-empty key
+    drive opposite outcomes from the same payload channel, so a conditional
+    delete inside ``upsert_video_tags`` would destroy this arm while trying to
+    protect that one.
+    """
+
+    connection = open_database(tmp_root)
+    repository = MetadataRepository(connection)
+    try:
+        _start_run(repository)
+        with repository.transaction():
+            repository.upsert_video(make_video_record())
+            repository.upsert_video_tags("BV1SINGLE", [_tag(1, "一"), _tag(2, "二")])
+
+        repository.record_page(make_page_record(page_number=2), tags={"BV1SINGLE": []})
+
+        assert _stored_tags(connection) == []
+    finally:
+        connection.close()
+
+
+def test_record_page_tag_write_alone_is_a_payload(tmp_root):
+    """A page whose only payload is tags still takes the payload path.
+
+    ``has_payload`` gained ``or tag_sets is not None`` for this case, and
+    without it a tags-only page would fall into the no-payload branch and
+    silently drop the tag write.  The other arguments are left at their
+    defaults deliberately: this is the one caller shape that distinguishes the
+    clause from the surrounding disjunction.
+    """
+
+    connection = open_database(tmp_root)
+    repository = MetadataRepository(connection)
+    try:
+        _start_run(repository)
+        with repository.transaction():
+            repository.upsert_video(make_video_record())
+
+        repository.record_page(
+            make_page_record(page_number=2),
+            tags={"BV1SINGLE": [_tag(1, "一")]},
+        )
+
+        assert _stored_tags(connection) == [(1, "一", "old_channel")]
+        # The page row landed too, so the payload transaction committed rather
+        # than the no-payload single-write path having been taken.
+        assert tuple(
+            connection.execute(
+                "SELECT outcome FROM ingestion_pages WHERE page_number = 2"
+            ).fetchone()
+        ) == ("ok",)
+    finally:
+        connection.close()
+
+
+def test_record_page_tag_foreign_key_is_enforced_within_the_payload(tmp_root):
+    """A tag set for a video the archive does not hold fails the transaction.
+
+    ``record_page`` writes tags after the video upserts and lets the foreign
+    key decide rather than silently dropping the observation; the whole page
+    rolls back.  This is the payload-path variant of the FK pin that
+    ``upsert_video_tags`` already carries.
+    """
+
+    connection = open_database(tmp_root)
+    repository = MetadataRepository(connection)
+    try:
+        _start_run(repository)
+        with pytest.raises(sqlite3.IntegrityError):
+            repository.record_page(
+                make_page_record(),
+                tags={"BV-MISSING": [_tag(1, "一", "BV-MISSING")]},
+            )
+
+        assert connection.execute("SELECT COUNT(*) FROM ingestion_pages").fetchone()[0] == 0
+        assert connection.execute("SELECT COUNT(*) FROM video_tags").fetchone()[0] == 0
+    finally:
+        connection.close()
+
+
 def test_constructor_rejects_a_connection_without_row_factory(tmp_root):
     connection = sqlite3.connect(os.path.join(tmp_root, "bare.db"))
     try:

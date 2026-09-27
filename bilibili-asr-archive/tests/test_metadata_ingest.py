@@ -1293,7 +1293,7 @@ def test_degraded_tag_fetch_does_not_fail_the_run(tmp_root, bilibili_api_seam):
     Driven through the real adapter on the package seam, because the
     degradation lives there rather than in the protocol double: upstream
     answers the tag call with the risk-control code, the adapter turns that
-    into an empty tuple, and the page's other payload must still land.  A test
+    into ``None``, and the page's other payload must still land.  A test
     against ``FakeGateway`` alone would only be asserting the double's own
     behavior.
     """
@@ -1324,6 +1324,125 @@ def test_degraded_tag_fetch_does_not_fail_the_run(tmp_root, bilibili_api_seam):
         # nothing else down with it.
         assert connection.execute("SELECT COUNT(*) FROM videos").fetchone()[0] == 1
         assert connection.execute("SELECT COUNT(*) FROM video_parts").fetchone()[0] == 1
+    finally:
+        connection.close()
+
+
+def test_degraded_tag_fetch_leaves_tags_a_previous_run_stored(tmp_root):
+    """One degraded tag fetch must not erase the set a normal run stored.
+
+    **This is the pin for compass D16, and it needs two runs.**  Every other
+    degradation case in this file runs on a fresh database, where "wrote
+    nothing" and "erased everything" are the same observation — which is
+    exactly how the erasure shipped un-observed.  Here run 1 establishes a
+    stored set and run 2's tag call degrades, so the two outcomes separate: the
+    rows must still be there afterwards.
+
+    The scripted ``None`` is the degraded answer (D16's "could not read this
+    time"), not the empty tuple — the empty tuple is the *observation* that
+    clears, and that arm is pinned by the neighbouring
+    ``test_observed_empty_tag_set_clears_the_stored_rows``.
+    """
+
+    gateway = FakeGateway()
+    gateway.script_parts("BV1DEGRADEDK", (_part("BV1DEGRADEDK", 0),))
+    connection = open_database(tmp_root)
+    repository = MetadataRepository(connection)
+    ingestor = _ingestor(gateway, repository)
+    try:
+        # Run 1: a normal observation stores the set.
+        gateway.script_page(1, _page(1, _summary("BV1DEGRADEDK"), observed_total=1))
+        gateway.script_page(2, _page(2, observed_total=1))
+        gateway.script_tags(
+            "BV1DEGRADEDK",
+            (
+                VideoTag(tag_id=943, tag_name="爱情", tag_type="old_channel"),
+                VideoTag(
+                    tag_id=11128717, tag_name="人类解放", tag_type="old_channel"
+                ),
+            ),
+        )
+        ingestor.collect_user_pages(MID, start_page=1)
+
+        stored = connection.execute(
+            "SELECT tag_id FROM video_tags WHERE bvid = 'BV1DEGRADEDK'"
+            " ORDER BY tag_id"
+        ).fetchall()
+        assert [row[0] for row in stored] == [943, 11128717]
+
+        # Run 2: the tag call degrades (risk control, transport failure — the
+        # adapter answers None for both) while the page's other payload lands.
+        gateway.script_page(3, _page(3, _summary("BV1DEGRADEDK"), observed_total=1))
+        gateway.script_page(4, _page(4, observed_total=1))
+        gateway.script_tags("BV1DEGRADEDK", None)
+        result = ingestor.collect_user_pages(MID, start_page=3)
+
+        assert result.outcome == "complete"
+        assert gateway.tag_calls == ["BV1DEGRADEDK", "BV1DEGRADEDK"]
+        # The observation that failed wrote nothing: the two rows survive.
+        surviving = connection.execute(
+            "SELECT tag_id, tag_name FROM video_tags WHERE bvid = 'BV1DEGRADEDK'"
+            " ORDER BY tag_id"
+        ).fetchall()
+        assert [tuple(row) for row in surviving] == [
+            (943, "爱情"),
+            (11128717, "人类解放"),
+        ]
+    finally:
+        connection.close()
+
+
+def test_degraded_tag_fetch_leaves_tag_rows_through_the_pinned_adapter(
+    tmp_root, bilibili_api_seam
+):
+    """The same two-run pin, driven through the real adapter's degradation.
+
+    The protocol-double case above asserts the ingestor's mapping; this one
+    asserts that the *adapter's* degradation reaches that mapping, because the
+    erasure was only reachable if the adapter turned a failed call into an
+    observation.  Run 2's tag call answers the risk-control code the plan's
+    Global Constraints measured, and run 1's rows must survive it.
+    """
+
+    bilibili_api_seam.videos_response = make_videos_response(
+        make_vlist_item(bvid="BV1DEGRADEDP"), count=1
+    )
+    bilibili_api_seam.parts_response = [make_part_item(cid=2222)]
+    connection = open_database(tmp_root)
+    repository = MetadataRepository(connection)
+    try:
+        # Run 1: the adapter reads the tags and the table gets them.
+        bilibili_api_seam.tags_response = [
+            make_tag_item(tag_id=943, tag_name="爱情"),
+            make_tag_item(tag_id=11128717, tag_name="人类解放"),
+        ]
+        MetadataIngestor(_seam_gateway(), repository).collect_user_pages(
+            MID, start_page=1, page_limit=1
+        )
+        assert [
+            row[0]
+            for row in connection.execute(
+                "SELECT tag_id FROM video_tags WHERE bvid = 'BV1DEGRADEDP'"
+                " ORDER BY tag_id"
+            ).fetchall()
+        ] == [943, 11128717]
+
+        # Run 2: -352 on the tag call, the page's other payload intact.
+        bilibili_api_seam.tags_response = None
+        bilibili_api_seam.tags_error = FakeResponseCodeException(
+            -352, UPSTREAM_ERROR_TEXT
+        )
+        MetadataIngestor(_seam_gateway(), repository).collect_user_pages(
+            MID, start_page=2, page_limit=1
+        )
+
+        assert [
+            tuple(row)
+            for row in connection.execute(
+                "SELECT tag_id, tag_name FROM video_tags WHERE bvid = 'BV1DEGRADEDP'"
+                " ORDER BY tag_id"
+            ).fetchall()
+        ] == [(943, "爱情"), (11128717, "人类解放")]
     finally:
         connection.close()
 
