@@ -326,7 +326,10 @@ class IntegrityVerifier:
             elif diagnostic == "manifest_malformed" and MANIFEST_ROW_LIMIT_EXCEEDED in report.diagnostics:
                 continue
             elif diagnostic == "manifest_malformed":
-                continue
+                # §6 assertion 2: a malformed manifest line is a defect, not
+                # history.  Swallowing it here made `verify` exit 0 with no
+                # findings of either class while `coverage` reported it.
+                report.diagnostics.append(MALFORMED_ARTIFACT)
             elif diagnostic == "attempt_invalid_record":
                 continue
             elif diagnostic in ORDINARY_HISTORY_DIAGNOSTICS:
@@ -388,10 +391,31 @@ class IntegrityVerifier:
                 candidate = [Path(value) if Path(value).is_absolute() else base / value for base, _reader in artifact_bases]
                 if not _safe_over_bases(artifact_bases, candidate):
                     defects.add(IDENTITY_PATH_MISMATCH)
+            # §2d: the declared candidates `quality.py` probes, so both readers
+            # answer the same archive the same way.  Containment only — an absent
+            # artifact is not this finding (that stays backlog), and the probe is a
+            # no-op for shipped rows, which declare canonical relative paths.
+            for extra_key in ("subtitle_path", "artifact_path"):
+                value = row.get(extra_key)
+                if isinstance(value, str):
+                    candidates = [
+                        Path(value) if Path(value).is_absolute() else base / value
+                        for base, _reader in artifact_bases
+                    ]
+                    if not _safe_over_bases(artifact_bases, candidates):
+                        defects.add(IDENTITY_PATH_MISMATCH)
+            for value in row.get("artifact_paths") or ():
+                if isinstance(value, str):
+                    candidates = [
+                        Path(value) if Path(value).is_absolute() else base / value
+                        for base, _reader in artifact_bases
+                    ]
+                    if not _safe_over_bases(artifact_bases, candidates):
+                        defects.add(IDENTITY_PATH_MISMATCH)
             if status in {"archived", "asr_done", "subtitle_done"} and (len(present) < len(canonical_required) or not bundle_complete): defects.add(MISSING_TRANSCRIPT)
             raw = [base / "subtitles" / "raw" / f"{self._canonical_stem(row)}.json" for base, _reader in artifact_bases]
             declared_raw = row.get("raw_path")
-            if status == "subtitle_done" and isinstance(declared_raw, str):
+            if isinstance(declared_raw, str):
                 declared_raw_paths = [Path(declared_raw) if Path(declared_raw).is_absolute() else base / declared_raw for base, _reader in artifact_bases]
                 if not _safe_over_bases(artifact_bases, declared_raw_paths):
                     defects.add(IDENTITY_PATH_MISMATCH)

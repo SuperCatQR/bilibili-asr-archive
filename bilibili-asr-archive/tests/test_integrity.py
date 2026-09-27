@@ -425,6 +425,131 @@ def _defect_codes(report: IntegrityReport) -> dict[str, set[str]]:
     return codes
 
 
+def _inflight_row(work_id: str, **extra: object) -> dict[str, object]:
+    """One in-flight row: a row `verify` reads while the chain is still running."""
+    return {"work_id": work_id, "bvid": work_id.split(":")[0], "cid": 7, "page_index": 0,
+            "pubdate_str": "20260101", "title": "t", "status": "needs_audio", **extra}
+
+
+def _attempts_sidecar(root: Path, ids: list[str]) -> None:
+    """The sidecar an authoritative report needs; absent it the report files
+    `missing_attempts_sidecar` and the exit moves for an unrelated reason."""
+    path = root / "coordinator" / "attempts.jsonl"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("".join(json.dumps(_attempt(work_id, "ok")) + "\n" for work_id in ids),
+                    encoding="utf-8")
+
+
+def _verify_payload(root: Path) -> tuple[int, dict[str, object]]:
+    """The command's exit code and JSON payload — the two-class gate in situ."""
+    from io import StringIO
+    import contextlib
+
+    from bili_asr import cli
+
+    buffer = StringIO()
+    with contextlib.redirect_stdout(buffer):
+        code = cli.main(["verify", "--archive-root", str(root), "--format", "json"])
+    return code, json.loads(buffer.getvalue())
+
+
+def test_inflight_declared_raw_path_escaping_every_base_is_a_defect(tmp_path: Path) -> None:
+    """§2d: `verify` probes a declared `raw_path` for in-flight rows too.
+
+    Pre-fix `verify` exited 0 here (it probed `raw_path` only for
+    `subtitle_done`), while `coverage --quality` reported the escape and exited 1
+    — the fail-closed disagreement §2d closes by widening `verify`.
+    """
+    _manifest(tmp_path, [_inflight_row("BVesc:p0", raw_path="../../evil/x.json")])
+    _attempts_sidecar(tmp_path, ["BVesc:p0"])
+
+    report = IntegrityVerifier().verify(tmp_path)
+
+    assert any(d.code == "identity_path_mismatch" and d.work_id == "BVesc:p0"
+               for d in report.defects)
+    assert report.defect_count >= 1
+    code, payload = _verify_payload(tmp_path)
+    assert code == 1
+    assert payload["defect_count"] >= 1
+
+
+def test_inflight_declared_artifact_path_escaping_every_base_is_a_defect(tmp_path: Path) -> None:
+    """§2d: the second declared candidate set — `artifact_path`.
+
+    Pre-fix `verify` probed `artifact_path` never, so this row was silent to it
+    while `coverage --quality` flagged it.
+    """
+    _manifest(tmp_path, [_inflight_row("BVesc2:p0", artifact_path="../../evil/y.srt")])
+    _attempts_sidecar(tmp_path, ["BVesc2:p0"])
+
+    report = IntegrityVerifier().verify(tmp_path)
+
+    assert any(d.code == "identity_path_mismatch" and d.work_id == "BVesc2:p0"
+               for d in report.defects)
+    code, payload = _verify_payload(tmp_path)
+    assert code == 1
+    assert payload["defect_count"] >= 1
+
+
+def test_inflight_declared_artifact_paths_list_escaping_every_base_is_a_defect(tmp_path: Path) -> None:
+    """§2d: the list form, probed value by value.  Silent to `verify` pre-fix."""
+    _manifest(tmp_path, [_inflight_row("BVesc3:p0", artifact_paths=["../../evil/a.srt"])])
+    _attempts_sidecar(tmp_path, ["BVesc3:p0"])
+
+    report = IntegrityVerifier().verify(tmp_path)
+
+    assert any(d.code == "identity_path_mismatch" and d.work_id == "BVesc3:p0"
+               for d in report.defects)
+    code, payload = _verify_payload(tmp_path)
+    assert code == 1
+    assert payload["defect_count"] >= 1
+
+
+def test_inflight_absent_canonical_path_is_not_an_identity_mismatch(tmp_path: Path) -> None:
+    """The no-op control: absence is never this finding (§2d item 2).
+
+    The widened probe must stay inert on the shipped shape — a canonical
+    relative path whose artifact the chain has not written yet.  It passed
+    pre-fix and must still pass: if the new probe answered "not there" with
+    `identity_path_mismatch` it would convert the §2 headline backlog case into a
+    defect and the fix would fail its own DoD.
+    """
+    _manifest(tmp_path, [_inflight_row("BVabsent:p0", raw_path="subtitles/raw/BVabsent.p0.json")])
+    _attempts_sidecar(tmp_path, ["BVabsent:p0"])
+
+    report = IntegrityVerifier().verify(tmp_path)
+
+    assert not any(d.code == "identity_path_mismatch" for d in report.defects)
+    assert report.defect_count == 0
+    code, payload = _verify_payload(tmp_path)
+    assert code == 0
+    assert payload["defect_count"] == 0
+
+
+def test_malformed_manifest_line_reaches_the_report_as_a_defect(tmp_path: Path) -> None:
+    """§6 assertion 2: a malformed JSONL line is a defect, not swallowed history.
+
+    Pre-fix the `manifest_malformed` branch hit `continue`, so this manifest gave
+    `defects: []` *and* `diagnostics: []` and `verify` exited 0, while `coverage`
+    reported the same line.  The line is a *diagnostic* of defect class, so it
+    must not appear in the backlog section either.
+    """
+    manifest = tmp_path / "manifest" / "manifest.jsonl"
+    manifest.parent.mkdir(parents=True)
+    manifest.write_text("not-json\n", encoding="utf-8")
+    _attempts_sidecar(tmp_path, [])
+
+    report = IntegrityVerifier().verify(tmp_path)
+
+    assert report.defect_count + len(report.diagnostics) > 0
+    assert len(report.diagnostics) > 0
+    code, payload = _verify_payload(tmp_path)
+    assert code != 0
+    # The backlog section reads `defects` entries of category `backlog`; a
+    # diagnostic is outside it, and a malformed line names no work_id to list.
+    assert payload["backlog_count"] == 0
+
+
 def test_verify_reads_each_recorded_path_at_the_first_base_that_holds_it(tmp_path: Path) -> None:
     """§5/§10: the ordered probe decides *which* copy answers — content included.
 
