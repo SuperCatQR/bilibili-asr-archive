@@ -1424,6 +1424,65 @@ class MediaQueueRepository:
         require_subtitle_schema(connection)
         self.connection = connection
 
+    def mark_audio_acquired(
+        self,
+        *,
+        bvid: str,
+        page_index: int,
+        audio_path: str,
+        sha256: str,
+        byte_size: int,
+        format: str,
+        duration_ms: int,
+        acquisition_source: str,
+        acquired_at: int,
+    ) -> int:
+        """Record that a part's audio has been acquired.  Returns the ``audio_id``.
+
+        Idempotent per object: an existing ``audio_objects`` row with the same
+        ``sha256`` is reused rather than duplicated, so a re-run of the same
+        acquisition adds no object row; the part link is inserted with
+        ``ON CONFLICT DO NOTHING``.  ``storage_key`` is the caller's
+        ``audio_path`` verbatim — this layer does not resolve or normalize paths.
+        """
+        part = self.connection.execute(
+            "SELECT video_part_id FROM video_parts WHERE bvid = ? AND page_index = ?",
+            (bvid, page_index),
+        ).fetchone()
+        if part is None:
+            raise ValueError(
+                f"unknown video part: bvid={bvid!r}, page_index={page_index!r}"
+            )
+        video_part_id = int(part["video_part_id"])
+
+        with _transaction(self.connection):
+            existing = self.connection.execute(
+                "SELECT audio_id FROM audio_objects WHERE sha256 = ?", (sha256,)
+            ).fetchone()
+            if existing is None:
+                cursor = self.connection.execute(
+                    """
+                    INSERT INTO audio_objects(
+                        sha256, byte_size, format, duration_ms, storage_key, created_at
+                    ) VALUES (?, ?, ?, ?, ?, ?)
+                    """,
+                    (sha256, byte_size, format, duration_ms, audio_path, acquired_at),
+                )
+                audio_id = int(cursor.lastrowid)
+            else:
+                audio_id = int(existing["audio_id"])
+
+            self.connection.execute(
+                """
+                INSERT INTO part_audio_objects(
+                    video_part_id, audio_id, acquired_at, acquisition_source
+                ) VALUES (?, ?, ?, ?)
+                ON CONFLICT(video_part_id, audio_id) DO NOTHING
+                """,
+                (video_part_id, audio_id, acquired_at, acquisition_source),
+            )
+        return audio_id
+
     def list_queue_gaps(
         self,
         *,
