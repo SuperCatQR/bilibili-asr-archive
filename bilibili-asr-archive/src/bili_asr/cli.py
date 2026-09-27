@@ -320,6 +320,49 @@ def build_parser() -> argparse.ArgumentParser:
     )
     publish.add_argument("--artifact-root", default=None, help=_ARTIFACT_ROOT_HELP)
 
+    proofread = subparsers.add_parser(
+        "proofread",
+        help="Build the side-by-side ASR/字幕 table for a stored part (no adjudication)",
+        description=(
+            "Read one part's two machine routes — the archived ASR raw sidecar and "
+            "the archived AI/CC subtitles (read through the transcript store) — and "
+            "write the machine-pre-aligned side-by-side table plus the alignment "
+            "jsonl under <artifact-root>/.tmp/proofread-work/. Blocks come from ASR "
+            "VAD segments only; the table aligns, it never adjudicates. Guard A "
+            "(coverage) aborts non-zero naming the block when a count fails."
+        ),
+    )
+    proofread.add_argument(
+        "--bvid", required=True,
+        help="Bvid, or bvid:pN for one part, already in the archive database",
+    )
+    proofread.add_argument(
+        "--archive-root", default=DEFAULT_ARCHIVE_ROOT,
+        help="Archive root directory (default: ./archive)",
+    )
+    proofread.add_argument("--artifact-root", default=None, help=_ARTIFACT_ROOT_HELP)
+
+    proofread_merge = subparsers.add_parser(
+        "proofread-merge",
+        help="Merge a completed side-by-side定稿 into the final transcript artifact",
+        description=(
+            "Read the completed side-by-side copy (the .sidebyside.md the operator "
+            "marked with per-block '>> keep|use-asr|use-sub|custom: <text>' decisions) "
+            "and write the final .proofread transcript families (srt/txt/raw) under "
+            "the artifact root, plus the corrections accounting next to the "
+            "alignment jsonl. Every unmarked block defaults to keep."
+        ),
+    )
+    proofread_merge.add_argument(
+        "--bvid", required=True,
+        help="Bvid, or bvid:pN for one part, already in the archive database",
+    )
+    proofread_merge.add_argument(
+        "--archive-root", default=DEFAULT_ARCHIVE_ROOT,
+        help="Archive root directory (default: ./archive)",
+    )
+    proofread_merge.add_argument("--artifact-root", default=None, help=_ARTIFACT_ROOT_HELP)
+
     run_cmd = subparsers.add_parser(
         "run",
         help="Coordinate manifest rows through stages (complements pilot)",
@@ -1535,6 +1578,104 @@ def _cmd_publish_transcripts(args: argparse.Namespace) -> int:
         f"already_published={already_published} failed={failed}"
     )
     return 1 if failed else 0
+
+
+def _proofread_target(args: argparse.Namespace) -> tuple[str, int] | None:
+    """Resolve ``--bvid``/``--part`` into one concrete part.
+
+    ``None`` means the configuration error was already printed.  A selector
+    that cannot name a stored part — or names more than one without ``--part`` —
+    is the documented exit-1 usage error, decided before any route is read.
+    """
+
+    selector_bvid, selector_part = _subtitle_selector(args.bvid)
+    if selector_bvid is None or _selector_cannot_name_a_part(selector_bvid):
+        print(f"{args.command}: unknown --bvid {args.bvid}", file=sys.stderr)
+        return None
+    part = selector_part if selector_part is not None else 0
+    return selector_bvid, part
+
+
+def _cmd_proofread(args: argparse.Namespace) -> int:
+    """Build the side-by-side table + alignment jsonl for one part.
+
+    Exit ``0`` when the table and jsonl are written; ``1`` for a usage error
+    (unknown selector), a missing route, or a Guard A violation — each printed
+    bounded, naming the work id and, for the guard, the block.  ``2`` is never
+    produced: no socket is opened and argparse's own usage exit is mapped to 1.
+    """
+
+    from .proofread import GuardViolationError, ProofreadRouteError, build_sidebyside
+
+    target = _proofread_target(args)
+    if target is None:
+        return 1
+    bvid, part = target
+    work_id = f"{bvid}:p{part}"
+    try:
+        sidebyside_path, align_path = build_sidebyside(
+            bvid, part,
+            archive_root=args.archive_root,
+            artifact_root=os.fspath(args.artifact_roots.write_base),
+        )
+    except ProofreadRouteError as exc:
+        print(f"proofread: {exc}", file=sys.stderr)
+        return 1
+    except GuardViolationError as exc:
+        print(f"proofread: {exc}", file=sys.stderr)
+        return 1
+    print(f"{work_id}: side-by-side written ({sidebyside_path})")
+    print(f"{work_id}: alignment written ({align_path})")
+    return 0
+
+
+def _cmd_proofread_merge(args: argparse.Namespace) -> int:
+    """Merge a completed side-by-side定稿 into the final transcript artifact.
+
+    The定稿 is the marked-up copy of this part's ``.sidebyside.md`` — same bytes
+    plus ``>>`` decision markers on the block headings; it is found as the only
+    ``.sidebyside.md.定稿`` file directly under ``.tmp/proofread-work/inputs/``.
+    Exit ``0`` when the transcript and the corrections accounting are written;
+    ``1`` for a usage error, a missing input, or a merge-contract violation.
+    """
+
+    from .proofread import (
+        ProofreadMergeError,
+        ProofreadRouteError,
+        merge_sidebyside,
+    )
+
+    target = _proofread_target(args)
+    if target is None:
+        return 1
+    bvid, part = target
+    work_id = f"{bvid}:p{part}"
+    inputs_dir = (
+        Path(os.fspath(args.artifact_roots.write_base))
+        / ".tmp" / "proofread-work" / "inputs"
+    )
+    marked = inputs_dir / f"{bvid}.p{part}.sidebyside.md.定稿"
+    if not marked.is_file():
+        print(
+            f"proofread-merge: {work_id}: no completed side-by-side at {marked}; "
+            "copy the .sidebyside.md there and add >> decision markers",
+            file=sys.stderr,
+        )
+        return 1
+    try:
+        transcript_path, corrections_path = merge_sidebyside(
+            marked, bvid=bvid, part=part,
+            artifact_root=os.fspath(args.artifact_roots.write_base),
+        )
+    except ProofreadMergeError as exc:
+        print(f"proofread-merge: {work_id}: {exc}", file=sys.stderr)
+        return 1
+    except ProofreadRouteError as exc:
+        print(f"proofread-merge: {exc}", file=sys.stderr)
+        return 1
+    print(f"{work_id}: proofread transcript written ({transcript_path})")
+    print(f"{work_id}: corrections accounting written ({corrections_path})")
+    return 0
 
 
 def _cmd_download_audio(args: argparse.Namespace) -> int:
@@ -3807,6 +3948,10 @@ def _dispatch_command(args: argparse.Namespace) -> int:
         return _cmd_derive_manifest(args)
     if args.command == "publish-transcripts":
         return _cmd_publish_transcripts(args)
+    if args.command == "proofread":
+        return _cmd_proofread(args)
+    if args.command == "proofread-merge":
+        return _cmd_proofread_merge(args)
     if args.command == "download-audio":
         return _cmd_download_audio(args)
     if args.command == "search":
