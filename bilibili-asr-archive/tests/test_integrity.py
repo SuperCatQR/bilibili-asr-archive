@@ -526,6 +526,73 @@ def test_inflight_absent_canonical_path_is_not_an_identity_mismatch(tmp_path: Pa
     assert payload["defect_count"] == 0
 
 
+def test_inflight_string_artifact_paths_is_one_value_not_characters(tmp_path: Path) -> None:
+    """§2d fix: a bare string is a single path, not an iterable of characters.
+
+    Pre-fix the widened probe iterated the *string*, so every one-character candidate
+    (`base/"t"`, `base/"r"`, …) was judged unconfined and the row was reported
+    `identity_path_mismatch` — an innocent canonical value graded hostile, and `verify`
+    exited 1.  A bare string now reads like `subtitle_path`/`artifact_path` do: one value.
+    """
+    _manifest(tmp_path, [_inflight_row("BVstr:p0", artifact_paths="transcripts/srt/BVstr.p0.srt")])
+    _attempts_sidecar(tmp_path, ["BVstr:p0"])
+
+    report = IntegrityVerifier().verify(tmp_path)
+
+    assert not any(d.code == "identity_path_mismatch" for d in report.defects)
+    assert report.defect_count == 0
+    code, payload = _verify_payload(tmp_path)
+    assert code == 0
+    assert payload["defect_count"] == 0
+
+
+def test_inflight_non_string_artifact_paths_neither_crashes_nor_is_a_path(tmp_path: Path) -> None:
+    """§2d fix: a non-iterable `artifact_paths` is skipped, not fatal.
+
+    Pre-fix `for value in row.get("artifact_paths") or ():` raised
+    `TypeError: 'int' object is not iterable` out of `verify`, so one hand-edited field
+    killed the whole report.  A non-string cannot be a path, so it is not this finding.
+    """
+    _manifest(tmp_path, [_inflight_row("BVint:p0", artifact_paths=5)])
+    _attempts_sidecar(tmp_path, ["BVint:p0"])
+
+    report = IntegrityVerifier().verify(tmp_path)
+
+    assert not any(d.code == "identity_path_mismatch" for d in report.defects)
+    assert report.defect_count == 0
+    code, payload = _verify_payload(tmp_path)
+    assert code == 0
+    assert payload["defect_count"] == 0
+
+
+def test_inflight_escaping_symlink_at_the_inferred_raw_path_is_not_a_mismatch(tmp_path: Path) -> None:
+    """Open question settled: an escaping symlink at the *inferred* raw path.
+
+    `raw_path` is undeclared and the row is `needs_audio`, so the inferred candidate
+    `subtitles/raw/<stem>.json` is never probed for containment — §2d asks that question
+    for `subtitle_done` only.  Measured: the escaping link is silent to this finding; the
+    row carries exactly one `retryable_incomplete` backlog entry and no defect, so `verify`
+    still exits 0.  The link is confined, if at all, by the readers that open the file.
+    """
+    row = _inflight_row("BVraw:p0")
+    _manifest(tmp_path, [row])
+    _attempts_sidecar(tmp_path, ["BVraw:p0"])
+    outside = tmp_path.parent / f"{tmp_path.name}-outside.json"
+    outside.write_text("{}", encoding="utf-8")
+    link = tmp_path / "subtitles" / "raw" / f"{archive_stem(row)}.json"
+    link.parent.mkdir(parents=True)
+    link.symlink_to(outside)
+    assert not link.resolve().is_relative_to(tmp_path.resolve())  # the fixture really escapes
+
+    report = IntegrityVerifier().verify(tmp_path)
+
+    assert _defect_codes(report) == {"BVraw:p0": {RETRYABLE_INCOMPLETE}}
+    assert report.defect_count == 0
+    code, payload = _verify_payload(tmp_path)
+    assert code == 0
+    assert payload["defect_count"] == 0
+
+
 def test_malformed_manifest_line_reaches_the_report_as_a_defect(tmp_path: Path) -> None:
     """§6 assertion 2: a malformed JSONL line is a defect, not swallowed history.
 

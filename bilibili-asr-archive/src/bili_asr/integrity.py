@@ -395,23 +395,22 @@ class IntegrityVerifier:
             # answer the same archive the same way.  Containment only — an absent
             # artifact is not this finding (that stays backlog), and the probe is a
             # no-op for shipped rows, which declare canonical relative paths.
-            for extra_key in ("subtitle_path", "artifact_path"):
+            extra_values: list[object] = []
+            for extra_key in ("subtitle_path", "artifact_path", "artifact_paths"):
                 value = row.get(extra_key)
-                if isinstance(value, str):
-                    candidates = [
-                        Path(value) if Path(value).is_absolute() else base / value
-                        for base, _reader in artifact_bases
-                    ]
-                    if not _safe_over_bases(artifact_bases, candidates):
-                        defects.add(IDENTITY_PATH_MISMATCH)
-            for value in row.get("artifact_paths") or ():
-                if isinstance(value, str):
-                    candidates = [
-                        Path(value) if Path(value).is_absolute() else base / value
-                        for base, _reader in artifact_bases
-                    ]
-                    if not _safe_over_bases(artifact_bases, candidates):
-                        defects.add(IDENTITY_PATH_MISMATCH)
+                if isinstance(value, (list, tuple)):
+                    extra_values.extend(value)
+                elif value is not None:
+                    extra_values.append(value)
+            for value in extra_values:
+                if not isinstance(value, str):
+                    continue          # a non-string cannot be a path; not this finding
+                candidates = [
+                    Path(value) if Path(value).is_absolute() else base / value
+                    for base, _reader in artifact_bases
+                ]
+                if not _safe_over_bases(artifact_bases, candidates):
+                    defects.add(IDENTITY_PATH_MISMATCH)
             if status in {"archived", "asr_done", "subtitle_done"} and (len(present) < len(canonical_required) or not bundle_complete): defects.add(MISSING_TRANSCRIPT)
             raw = [base / "subtitles" / "raw" / f"{self._canonical_stem(row)}.json" for base, _reader in artifact_bases]
             declared_raw = row.get("raw_path")
