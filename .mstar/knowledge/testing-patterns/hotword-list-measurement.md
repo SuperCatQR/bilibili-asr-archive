@@ -61,7 +61,7 @@ affected item — 扬弃 4 correct vs 57 wrong. The run identity is fixed with t
 archive root, arms run sequentially.
 
 **2. Build the "without" arm by temporary removal, not with the environment knob.** `_extra_hotwords`
-(`bilibili-asr-archive/src/bili_asr/asr.py:316`) skips any term already in `DEFAULT_HOTWORDS`, so
+(`bilibili-asr-archive/src/bili_asr/asr.py:351`) skips any term already in `DEFAULT_HOTWORDS`, so
 `BILI_ASR_HOTWORDS` can only **add** — it cannot subtract a committed default entry. The Latin-acronym A/B
 worked by re-adding removed acronyms through that knob; that trick is unavailable for a subtraction problem,
 and the "without" arm exists only as a temporary, uncommitted edit that removes the six lines, restored

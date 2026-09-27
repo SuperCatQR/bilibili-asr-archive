@@ -12,6 +12,13 @@ Base metadata/subtitle/audio workflows (Linux or Windows WSL, Python 3.12+):
 
     python3.12 -m pip install -e ".[dev]"
 
+`ffmpeg` is a **system requirement, not a pip one** — install it alongside Python
+(`sudo apt install ffmpeg`, or the WSL equivalent). The download layer uses it to remux the explicit
+FLAC streams, and the ASR reader uses it to decode the `.m4a`/AAC the downloader writes, which
+`soundfile` cannot open. A host without it fails every `.m4a` with an `ASRDependencyError` naming
+the binary; `scripts/check_asr_env.py` is not a substitute, since it checks the GPU stack and would
+pass on a host with no `ffmpeg` at all.
+
 Local ASR support is optional. It needs the two Qwen3-ASR checkpoints (next section) and a torch
 build the recipe below provides — pip is deliberately told nothing about torch, because the wheel
 that works on this host comes from `repo.radeon.com` and not from an index:
@@ -153,9 +160,12 @@ the fallback through `librosa.load` on the belief that it reaches `audioread` an
 the very error it existed to catch, on any host built from this repository's own declarations, while
 every gate stayed green (residual `iter-2026-09-qwen3-asr-closeout · R5`).
 
-The suite now decodes a **real** AAC file — generated with `ffmpeg` at test time, skipped where
-`ffmpeg` is absent — rather than stubbing both readers, so a fallback that cannot decode fails the
-build instead of passing it.
+The suite now decodes a **real** AAC file — generated with `ffmpeg` at test time — rather than
+stubbing both readers, so a fallback that cannot decode fails the build instead of passing it. When
+`ffmpeg` is absent the codec tests **fail** with a named prerequisite rather than skipping: a green
+run on a host missing a declared requirement is the same false signal that let the first repair ship,
+and this repository has already settled that question for its other prerequisites
+(`tests/installed_cli.py`'s "never pytest.skip / xfail" policy).
 
 ### Naming the producer: three variables, three jobs
 

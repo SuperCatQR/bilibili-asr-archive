@@ -170,10 +170,14 @@ DEFAULT_HOTWORDS: tuple[str, ...] = (
     #
     # Two facts from the original block were dropped when this list was restored in
     # 83ba8d0 and are restored here, because nothing else in the repository carries
-    # them: (1) the acronym-harm demonstration ran on `BV19hG56hEfV.p2`, and (2) that
-    # video is the `BV1eGJ46mEHQ` measurement's whole raison d'etre — its audio is no
-    # longer available, so the benefit side of the acronym decision cannot be re-run
-    # from this repository and must be taken from the recorded counts above.
+    # them.  (1) The harm measurement that justified the removal was taken on
+    # `BV19hG56hEfV.p2`, which carries 5 of the 9 bad cues.  (2) The *benefit* side —
+    # why these acronyms were ever added — was measured on `BV1eGJ46mEHQ`, and **that**
+    # video is the one whose audio no longer exists, so the benefit cannot be re-measured
+    # from here and must be taken from the counts above.  The asymmetry is the point:
+    # the harm can be re-checked (that lecture's audio is one re-download away), the
+    # benefit cannot.  Record: `plans/20260917-hotword-acronym-precision.md`, findings
+    # D1 and D3.
     "International Employment Matters Tribunal",
     "International",
     "Employment",
@@ -208,12 +212,21 @@ class ASRModelError(RuntimeError):
 
 
 class AudioDecodeError(RuntimeError):
-    """The audio file exists but neither reader could decode it.
+    """The audio file exists but the decoder refused it.
 
     Distinct from :class:`ASRDependencyError`: the dependencies are present, the *file* is the
-    problem (corrupt, truncated, or a codec ``ffmpeg`` was not built with).  The coordinator
-    records the exception's type name when it has no scalar ``code`` attribute, so this class name
-    is what an operator sees in the run ledger.
+    problem (unreadable, or a codec ``ffmpeg`` was not built with).  The coordinator records the
+    exception's type name when it has no scalar ``code`` attribute, so this class name is what an
+    operator sees in the run ledger.
+
+    What this class does **not** cover, stated because the difference matters for an archive whose
+    download stage can be interrupted: a file truncated in the middle decodes **silently short**
+    rather than raising.  Measured on a faststart ``.m4a`` cut to 90/70/50/30 % of its bytes, which
+    is the shape an interrupted download leaves when ``moov`` precedes ``mdat``: the decode returned
+    53.9/41.6/29.4/17.1 s of a 60 s recording, exit status 0, no stderr.  Nothing here compares the
+    decoded duration with the row's ``duration_s``, so a short read is not detected — the same was
+    true of the ``librosa`` path this replaced, so this is a pre-existing limit rather than a
+    regression, but the reader should not infer from this class that truncation is caught.
     """
 
 
@@ -382,9 +395,13 @@ def _materialize_input(audio_path: str) -> tuple[str, str | None]:
     root.  Descriptor paths are not universally openable by the decoder libraries, so one is copied
     to a temporary file which the caller removes.  A plain path is returned untouched.
 
-    Retained from the FunASR era (plan §13.1): the original reason was a child ``ffmpeg``, which a
-    descriptor cannot be handed to.  Reading is in-process now, so this may be removable — it is kept
-    until a run proves descriptor paths work without it.
+    The original reason (plan §13.1) was a child ``ffmpeg``, which a descriptor cannot be handed to,
+    and that reason is live again: ``_decode_with_ffmpeg`` runs ``ffmpeg`` as a child for every
+    container libsndfile cannot open, i.e. for every ``.m4a`` this archive downloads.  The descriptor
+    is not passed through (``subprocess.run`` is called without ``pass_fds``), so a ``/proc/self/fd``
+    path handed to it would resolve inside the child to a closed descriptor — measured: the fallback
+    raises ``AudioDecodeError`` for such a path.  This step is therefore load-bearing for the
+    project's primary input format, not merely a legacy convenience, and a ``.m4a`` run exercises it.
     """
 
     if not isinstance(audio_path, str) or not _DESCRIPTOR_PATH.match(audio_path):
@@ -463,11 +480,17 @@ def _decode_with_ffmpeg(path: str) -> tuple[Any, int]:
         if completed.returncode != 0:
             detail = completed.stderr.decode("utf-8", "replace").strip().splitlines()
             reason = detail[-1] if detail else f"ffmpeg exited {completed.returncode}"
-            # The path is deliberately absent from this message: the product's own convention for
-            # an unusable input is a description, not a location (``audio.py`` says "invalid audio
-            # path" and never quotes it), the class name is what the run ledger records, and the
-            # caller already knows which item it asked for.  ffmpeg's own stderr does not echo the
-            # path either — verified for a missing file, a directory and a non-audio file.
+            # Only the LAST stderr line is reported, and that is load-bearing rather than incidental:
+            # ffmpeg's middle line echoes the offending path verbatim ("Error opening input file
+            # /tmp/…m4a."), measured for a missing file and for a non-audio file, while its final
+            # line is path-free ("Error opening input files: No such file or directory").  The path
+            # is deliberately kept out of this message because the product's own convention for an
+            # unusable input is a description rather than a location (``audio.py`` says "invalid
+            # audio path" and never quotes it), and the caller already knows which item it asked for.
+            # So do not "improve" this by joining every line: that would leak the input path, and it
+            # would leak ``scratch``'s path too.  Changing to ``detail[0]`` is safer than joining and
+            # also more specific, since the first line names the cause; it is not done here because
+            # the two cases measured would each need their own check first.
             raise AudioDecodeError(f"ffmpeg could not decode the audio input: {reason}")
         import soundfile as sf
 
