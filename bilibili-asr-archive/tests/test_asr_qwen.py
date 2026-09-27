@@ -641,17 +641,36 @@ def test_a_plain_path_is_returned_untouched() -> None:
 # ---------------------------------------------------------------------------------------
 
 
-def _ffmpeg_or_skip():
+def _require_ffmpeg() -> str:
+    """Return the ``ffmpeg`` path, or FAIL the test naming it as a missing prerequisite.
+
+    Not ``pytest.skip``: this repository has already decided this question the other way for the same
+    class of dependency. ``tests/installed_cli.py`` states the policy in its own docstring — *"fail
+    the test (never pytest.skip / xfail) with a named prerequisite. Automated verification must not
+    go green because a console script was absent."* ``ffmpeg`` is a **declared product requirement**
+    (``AGENTS.md``, and the NOTE in ``pyproject.toml``), so a host without it cannot verify this
+    product, and a green suite on such a host is the same false signal that let R5 ship.
+
+    Measured before this change: with ``ffmpeg`` off ``PATH`` the suite reported
+    ``43 passed, 3 skipped`` and exited 0, the three skips being exactly the tests that exercise the
+    decode path this module exists to verify.
+    """
+
     ffmpeg = shutil.which("ffmpeg")
     if not ffmpeg:
-        pytest.skip("ffmpeg is not on PATH")
+        pytest.fail(
+            "prerequisite missing: the `ffmpeg` binary is not on PATH, and it is a declared "
+            "requirement of this product (AGENTS.md) — the .m4a/AAC decode path cannot be verified "
+            "without it. Install it (e.g. `apt install ffmpeg`) and re-run.",
+            pytrace=False,
+        )
     return ffmpeg
 
 
 def _write_aac(path, *, seconds: float = 2.0, rate: int = 44100, channels: int = 2) -> None:
     """Encode real AAC audio with ffmpeg — the container the downloader writes."""
 
-    ffmpeg = _ffmpeg_or_skip()
+    ffmpeg = _require_ffmpeg()
     subprocess.run(
         [
             ffmpeg, "-v", "error", "-y",
@@ -677,7 +696,7 @@ def test_a_real_aac_file_is_decoded_through_the_fallback(tmp_path) -> None:
 
     np = pytest.importorskip("numpy")
     pytest.importorskip("soundfile")
-    _ffmpeg_or_skip()
+    _require_ffmpeg()
 
     path = tmp_path / "fixture.m4a"
     _write_aac(path, seconds=2.0, rate=44100, channels=2)
@@ -739,6 +758,92 @@ def test_a_non_16k_rate_is_resampled_by_the_runner(monkeypatch) -> None:
     assert captured["rate"] == asr.SAMPLE_RATE
     assert captured["length"] == 48_000, (
         f"3 s at 16 kHz after resampling, got {captured['length']} samples"
+    )
+
+
+def test_a_real_file_round_trips_through_the_primary_reader(tmp_path) -> None:
+    """The primary reader is exercised against a real file, not a stub.
+
+    ``test_a_decodable_file_never_reaches_the_fallback`` replaces ``sf.read`` with
+    ``lambda *args, **kwargs``, which discards every read option — so it cannot see a `frames=`,
+    `start=` or `dtype=` change, and measured mutations of exactly those left the suite green at
+    46 passed.  This test is the one that reads bytes off disk through the real code path, so a
+    primary reader that truncates, seeks, or changes dtype fails here.
+
+    The comparison is a tolerance rather than ``array_equal``: the fixture goes through a 24-bit
+    PCM WAV, so the round trip is lossy at about 1e-5 by construction (measured: max abs difference
+    3.05e-05 on a full-scale ramp).  A tolerance still catches every mutation this test exists for —
+    truncation and seeking change the *shape*, and a dtype change alters the magnitude by orders of
+    magnitude, not by 1e-5.
+    """
+
+    np = pytest.importorskip("numpy")
+    sf = pytest.importorskip("soundfile")
+
+    path = tmp_path / "fixture.wav"
+    written = np.linspace(-0.75, 0.75, asr.SAMPLE_RATE, dtype="float32")
+    sf.write(str(path), written, asr.SAMPLE_RATE)
+
+    samples, rate = asr._read_audio(str(path))
+
+    assert rate == asr.SAMPLE_RATE, f"the native rate must survive, got {rate}"
+    assert samples.shape == written.shape, (
+        f"the whole file must be read: got {samples.shape} for a {written.shape} file "
+        "(a truncating or seeking reader changes this)"
+    )
+    assert samples.dtype == np.float32, f"the reader must return float32, got {samples.dtype}"
+    assert np.abs(samples - written).max() < 1e-4, (
+        "the samples must come back in order and unchanged (24-bit WAV quantisation is ~1e-5); "
+        f"max abs difference was {np.abs(samples - written).max():.2e}"
+    )
+
+
+def test_a_real_file_keeps_its_channel_layout(tmp_path) -> None:
+    """Stereo stays stereo and is returned samples-first, which is the shape callers index."""
+
+    np = pytest.importorskip("numpy")
+    sf = pytest.importorskip("soundfile")
+
+    path = tmp_path / "stereo.wav"
+    written = np.linspace(-0.5, 0.5, asr.SAMPLE_RATE * 2, dtype="float32").reshape(-1, 2)
+    written[:, 1] *= -1.0  # make the channels distinguishable, so a swap is visible
+
+    sf.write(str(path), written, asr.SAMPLE_RATE)
+    samples, rate = asr._read_audio(str(path))
+
+    assert rate == asr.SAMPLE_RATE
+    assert samples.shape == written.shape, f"stereo must stay stereo, got {samples.shape}"
+    # A channel swap or transpose is a sign/magnitude change, far above the 24-bit noise floor.
+    assert np.abs(samples - written).max() < 1e-4, (
+        "the channels must not be swapped or transposed; "
+        f"max abs difference was {np.abs(samples - written).max():.2e}"
+    )
+
+
+def test_an_undecodable_file_raises_the_typed_error(monkeypatch, tmp_path) -> None:
+    """A file the decoder cannot read raises ``AudioDecodeError``, the class the ledger records.
+
+    Measured gap this closes: replacing the class with a bare ``RuntimeError``, and deleting the
+    whole non-zero-exit guard, both left the suite green at 46 passed.
+    """
+
+    np = pytest.importorskip("numpy")
+    sf = pytest.importorskip("soundfile")
+    _require_ffmpeg()
+
+    path = tmp_path / "not-audio.m4a"
+    path.write_text("this is not audio\n", encoding="utf-8")
+
+    def refuse(*args, **kwargs):
+        raise sf.LibsndfileError(1, f"Error opening '{path}': ")
+
+    monkeypatch.setattr(sf, "read", refuse)
+
+    with pytest.raises(asr.AudioDecodeError) as caught:
+        asr._read_audio(str(path))
+
+    assert not isinstance(caught.value, asr.ASRDependencyError), (
+        "an undecodable file is a file problem, not a missing dependency"
     )
 
 
@@ -824,7 +929,7 @@ def test_the_ffmpeg_decode_survives_a_piped_quit_key(tmp_path) -> None:
 
     np = pytest.importorskip("numpy")
     pytest.importorskip("soundfile")
-    _ffmpeg_or_skip()
+    _require_ffmpeg()
 
     path = tmp_path / "fixture.m4a"
     _write_aac(path, seconds=1.0)
@@ -871,7 +976,7 @@ def test_the_ffmpeg_decode_asks_for_rf64_so_a_long_item_is_not_truncated(
 
     pytest.importorskip("numpy")
     pytest.importorskip("soundfile")
-    _ffmpeg_or_skip()
+    _require_ffmpeg()
 
     path = tmp_path / "fixture.m4a"
     _write_aac(path, seconds=1.0)
@@ -887,7 +992,15 @@ def test_the_ffmpeg_decode_asks_for_rf64_so_a_long_item_is_not_truncated(
     asr._read_audio(str(path))
 
     argv = captured["argv"]
-    pairs = {(argv[i], argv[i + 1]) for i in range(len(argv) - 1)}
-    assert ("-rf64", "auto") in pairs, (
-        f"a plain WAV truncates past 4 GiB while ffmpeg still exits 0; argv was {argv}"
+    # Order matters and ffmpeg is last-wins: verified on this build that `-rf64 auto … -rf64 never`
+    # produces a RIFF (4 GiB-capped) container, so a set-membership check would pass while the
+    # truncation this test exists to prevent came back.
+    at = [i for i, a in enumerate(argv) if a == "-rf64"]
+    assert len(at) == 1, f"exactly one -rf64, no later override; argv was {argv}"
+    assert argv[at[0] + 1] == "auto", f"-rf64 must ask for auto; argv was {argv}"
+    assert at[0] > argv.index("-i"), (
+        f"-rf64 must come after the input so it applies to the output; argv was {argv}"
+    )
+    assert "-f" not in argv[at[0]:], (
+        f"a later -f would re-select the muxer and undo -rf64; argv was {argv}"
     )

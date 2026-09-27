@@ -166,6 +166,13 @@ def mock_torch(monkeypatch):
         # attributed to ``librosa``'s resampler; scipy runs the same probe on its own, verified
         # 2026-09-27 in this venv with no librosa involved.
         Tensor=type("Tensor", (), {}),
+        # The dtypes the loader passes to ``from_pretrained`` (``asr.py``).  They are not read by any
+        # test today — every test stubs the model factory — but a stand-in missing them turns the
+        # next test that touches the real loader into an ``AttributeError`` that reads like a
+        # product defect.  Cheap to carry, and the failure it prevents is expensive to diagnose.
+        bfloat16="bfloat16",
+        float16="float16",
+        float32="float32",
     )
     monkeypatch.setitem(sys.modules, "torch", fake_torch)
 
