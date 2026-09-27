@@ -38,6 +38,12 @@ RECOVERY_TARGET_LIMIT_EXCEEDED = "recovery_target_limit_exceeded"
 RECOVERY_NOT_AUTHORITATIVE = "recovery_not_authoritative"
 RECOVERY_MALFORMED_SIDECAR = "recovery_malformed_sidecar"
 RECOVERY_INVALID_SELECTOR = "recovery_invalid_selector"
+#: The two finding classes (exit-code contract §2).  Only ``RETRYABLE_INCOMPLETE``
+#: is backlog: it means the chain has not reached this row yet — normal operations,
+#: not corruption.  Every other code above is defect-class.
+DEFECT_CATEGORY = "defect"
+BACKLOG_CATEGORY = "backlog"
+BACKLOG_CODES: frozenset[str] = frozenset({RETRYABLE_INCOMPLETE})
 _RECOVERY_MAX_TARGETS = 100
 _AUDIT_REL_PATH = "coordinator/recovery-audit.jsonl"
 _AUDIT_LOCK_REL_PATH = "coordinator/recovery-audit.lock"
@@ -234,7 +240,13 @@ def _locate_over_bases(
 class IntegrityDefect:
     work_id: str
     code: str
-    def to_dict(self) -> dict[str, object]: return {"work_id": self.work_id, "code": self.code}
+
+    @property
+    def category(self) -> str:
+        """``"backlog"`` for work-not-yet-done codes, ``"defect"`` otherwise (contract §2)."""
+        return BACKLOG_CATEGORY if self.code in BACKLOG_CODES else DEFECT_CATEGORY
+
+    def to_dict(self) -> dict[str, object]: return {"work_id": self.work_id, "code": self.code, "category": self.category}
 
 @dataclass
 class IntegrityReport:
@@ -242,8 +254,18 @@ class IntegrityReport:
     defects: list[IntegrityDefect] = field(default_factory=list)
     diagnostics: list[str] = field(default_factory=list)
     authoritative: bool = True
+
+    @property
+    def defect_count(self) -> int:
+        """Defect-class findings only — backlog is reported separately (contract §2)."""
+        return sum(1 for defect in self.defects if defect.category == DEFECT_CATEGORY)
+
+    @property
+    def backlog_count(self) -> int:
+        return sum(1 for defect in self.defects if defect.category == BACKLOG_CATEGORY)
+
     def to_dict(self) -> dict[str, object]:
-        return {"checked": self.checked, "defect_count": len(self.defects), "defects": [d.to_dict() for d in self.defects], "diagnostics": list(self.diagnostics), "authoritative": self.authoritative}
+        return {"checked": self.checked, "defect_count": self.defect_count, "backlog_count": self.backlog_count, "defects": [d.to_dict() for d in self.defects], "diagnostics": list(self.diagnostics), "authoritative": self.authoritative}
 
 class IntegrityVerifier:
     """Read-only archive integrity verifier."""
