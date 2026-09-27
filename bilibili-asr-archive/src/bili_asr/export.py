@@ -14,6 +14,11 @@ from .artifact_root import ArtifactRoots
 from .manifest import ManifestStore
 from .search_index import extract_transcript_text
 
+#: The standard CSV column order, pinned: a reader parses this header once and
+#: relies on the position of every column.  ``video_title`` sits directly after
+#: ``title`` because the two are the pair compass **D5** distinguishes — ``title``
+#: is the part's own name, ``video_title`` the collection it came from — and a
+#: custom column would have sorted the video's title to the very end of the row.
 STANDARD_CSV_COLUMNS: tuple[str, ...] = (
     "work_id",
     "bvid",
@@ -21,6 +26,7 @@ STANDARD_CSV_COLUMNS: tuple[str, ...] = (
     "cid",
     "page_label",
     "title",
+    "video_title",
     "status",
     "duration_s",
     "pubdate",
