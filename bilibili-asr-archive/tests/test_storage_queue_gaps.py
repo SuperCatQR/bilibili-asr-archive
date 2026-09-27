@@ -6,9 +6,10 @@ each view defines, the narrowing each filter performs, and the attempt evidence
 the typed entry carries.
 
 The store is built through the repositories' own writers wherever one exists.
-The audio attempt row is the one exception: T1b owns the ``mark_*`` writers for
-the audio route, so this file writes that row directly instead of driving a
-method that does not exist yet.
+The audio rows are the exception: the ``audio_objects`` / ``part_audio_objects``
+evidence pair and the audio route's failed-attempt row are written here as SQL,
+so what a gap view probes is pinned against the declared schema shape rather
+than against the writer ``test_storage_queue_writes.py`` owns.
 """
 
 from __future__ import annotations
@@ -47,9 +48,9 @@ _VIDEOS = (
     ("BV1FFF", 1_500, "一秒半的视频"),
 )
 # Every part the fixture stores: one captionless never-attempted part, one whose
-# newest subtitle attempt found nothing, one with an audio attempt and no
-# transcript, one holding a transcript, one gone part with audio evidence, and
-# one whose single subtitle attempt failed.
+# newest subtitle attempt found nothing, one with archived audio and no
+# transcript, one holding a transcript, one gone part with archived audio, and
+# one whose subtitle attempt failed and whose audio download failed too.
 _PARTS = (
     ("BV1AAA", 0, "discovered"),
     ("BV1AAA", 1, "discovered"),
@@ -83,10 +84,10 @@ def _audio_attempt(
 ) -> None:
     """Insert one failed audio attempt row directly.
 
-    ``TranscriptRepository`` writes only the subtitle route's attempts, and the
-    audio route's writers arrive with T1b, so the row the view reads is written
-    here as SQL.  The shape is the attempt contract's: a ``'failed'`` outcome
-    carries a bounded ``error_code`` and references no transcript.
+    This is *not* audio evidence: the attempt contract's ``kind='audio'`` shape
+    is a ``'failed'`` outcome with a bounded ``error_code`` and no transcript
+    (``stored`` / ``unchanged`` require a ``transcript_id`` an audio download
+    never produces), so a row here records a download that produced nothing.
     """
     connection.execute(
         """
@@ -96,6 +97,34 @@ def _audio_attempt(
         ) VALUES (?, ?, 'failed', 'audio_unavailable', NULL, 700, 800)
         """,
         (run_id, video_part_id),
+    )
+    connection.commit()
+
+
+def _archive_audio(
+    connection: sqlite3.Connection,
+    *,
+    audio_id: int,
+    video_part_id: int,
+    sha256: str,
+    storage_key: str,
+) -> None:
+    """Insert the positive audio evidence: one object row and its part link."""
+    connection.execute(
+        """
+        INSERT INTO audio_objects(
+            audio_id, sha256, byte_size, format, duration_ms, storage_key, created_at
+        ) VALUES (?, ?, 4096, 'm4a', 1234, ?, 650)
+        """,
+        (audio_id, sha256, storage_key),
+    )
+    connection.execute(
+        """
+        INSERT INTO part_audio_objects(
+            video_part_id, audio_id, acquired_at, acquisition_source
+        ) VALUES (?, ?, 650, 'download')
+        """,
+        (video_part_id, audio_id),
     )
     connection.commit()
 
@@ -158,9 +187,17 @@ def _seed(
         finished_at=600,
     )
 
-    # BV1BBB:p0 — the audio route was attempted and produced nothing.
+    # BV1BBB:p0 — audio was attempted (and the attempt failed), then archived:
+    # the object link is the evidence, the attempt row is history.
     _open_run(transcripts, "run-audio-bbb", "audio")
     _audio_attempt(connection, "run-audio-bbb", parts[("BV1BBB", 0)])
+    _archive_audio(
+        connection,
+        audio_id=1,
+        video_part_id=parts[("BV1BBB", 0)],
+        sha256="a" * 64,
+        storage_key="audio/BV1BBB-p0.m4a",
+    )
 
     # BV1CCC:p0 — a stored transcript leaves every queue.
     _open_run(transcripts, "run-sub-ccc", "subtitle")
@@ -176,11 +213,23 @@ def _seed(
     )
 
     # BV1DDD:p0 — gone, so only the view that does not filter status holds it.
+    # Its audio attempt also failed; only the archived object counts.
     _open_run(transcripts, "run-audio-ddd", "audio")
     _audio_attempt(connection, "run-audio-ddd", parts[("BV1DDD", 0)])
+    _archive_audio(
+        connection,
+        audio_id=2,
+        video_part_id=parts[("BV1DDD", 0)],
+        sha256="b" * 64,
+        storage_key="audio/BV1DDD-p0.m4a",
+    )
 
     # BV1FFF:p0 — one failed subtitle attempt: the outcome the audio queue also
-    # accepts, so the newest evidence carries an error code.
+    # accepts, so the newest evidence carries an error code.  Its audio download
+    # also failed and archived nothing, so the part must *stay* in the audio
+    # queue: the attempt row is rotation history, never a claim that bytes
+    # exist.  (Pre-fix this row read as audio evidence and pushed the part into
+    # the transcript queue with no audio on disk.)
     _open_run(transcripts, "run-sub-fff", "subtitle")
     transcripts.record_subtitle_attempt(
         run_id="run-sub-fff",
@@ -190,6 +239,8 @@ def _seed(
         started_at=1_100,
         finished_at=1_200,
     )
+    _open_run(transcripts, "run-audio-fff", "audio")
+    _audio_attempt(connection, "run-audio-fff", parts[("BV1FFF", 0)])
     return parts, MediaQueueRepository(connection)
 
 
@@ -232,16 +283,73 @@ def test_each_gap_holds_exactly_the_parts_its_view_defines(queue_store):
         "BV1BBB:p0",
         "BV1FFF:p0",
     ]
-    # Only the part whose newest subtitle attempt is a terminal "no caption"
-    # outcome is queued for audio — and it carries no audio attempt yet.
+    # Only the parts whose newest subtitle attempt is a terminal "no caption"
+    # outcome are queued for audio.  BV1FFF:p0 stays here although its audio
+    # download was already attempted and failed: a failed attempt is not
+    # acquired bytes, and the queue admits it exactly because no object exists.
     assert members["missing_audio"] == ["BV1AAA:p1", "BV1FFF:p0"]
-    # The gone part is here and nowhere else: this view does not filter status.
+    # Audio evidence is the archived object, so the two parts holding one — the
+    # gone part and the one whose download also failed — are here together.
+    # This view does not filter status.
     assert members["missing_transcript"] == ["BV1BBB:p0", "BV1DDD:p0"]
 
     assert all(
         isinstance(item, QueueGapItem)
         for item in repository.list_queue_gaps(gap="missing_subtitle")
     )
+
+
+def test_a_failed_audio_attempt_is_not_audio_evidence(queue_store):
+    """The fixture's BV1FFF:p0 has *only* a failed audio attempt.
+
+    Contract §4d: ``acquisition_attempts`` cannot express a successful audio
+    acquisition — its CHECK matrix admits ``stored`` / ``unchanged`` only with a
+    ``transcript_id`` an audio download never produces — so probing it is an
+    inversion.  Pre-fix, that part read as audio evidence: it left
+    ``missing_audio``, entered ``missing_transcript``, and rendered
+    ``audio_ok`` — queued for transcription with no audio on disk and no
+    attempt left that could move it back out.
+    """
+    connection, _parts, repository = queue_store
+
+    # The failed attempt leaves the part in the audio queue...
+    assert [
+        item.work_id for item in repository.list_queue_gaps(gap="missing_audio")
+    ] == ["BV1AAA:p1", "BV1FFF:p0"]
+    # ...and does not promote it into the transcription queue, which holds only
+    # the parts that really have archived bytes.
+    assert [
+        item.work_id for item in repository.list_queue_gaps(gap="missing_transcript")
+    ] == ["BV1BBB:p0", "BV1DDD:p0"]
+    # The converged state is "still waiting for audio", not "has audio".
+    assert dict(
+        connection.execute("SELECT work_id, pipeline_state FROM v_part_pipeline")
+    )["BV1FFF:p0"] == "audio_pending"
+
+
+def test_gap_entries_carry_the_part_cid(queue_store):
+    """``cid`` rides the projection: the audio route needs it per part.
+
+    Contract §4d added it before the views froze, so no caller has to re-fetch a
+    page for a value the store already holds.  The stored cids are the fixture's
+    own, pinned here per part so an entry carrying another part's cid fails.
+    """
+    _connection, _parts, repository = queue_store
+    cids = {
+        item.work_id: item.cid
+        for gap in ALLOWED_QUEUE_GAPS
+        for item in repository.list_queue_gaps(gap=gap)
+    }
+    # Every queued part, each with the fixture's own stored cid; the part that
+    # holds a transcript is in no queue and so appears in no entry.
+    assert cids == {
+        "BV1AAA:p0": 2_001,
+        "BV1AAA:p1": 2_002,
+        "BV1BBB:p0": 2_003,
+        "BV1DDD:p0": 2_005,
+        "BV1EEE:p0": 2_006,
+        "BV1FFF:p0": 2_007,
+    }
 
 
 def test_ordering_is_pubdate_desc_then_bvid_then_page(queue_store):
@@ -402,11 +510,13 @@ def test_attempt_count_follows_the_gap_route_and_evidence_only_where_held(queue_
         item.work_id: item
         for item in repository.list_queue_gaps(gap="missing_audio")
     }
-    # The audio queue counts audio attempts, so the two subtitle attempts on
-    # BV1AAA:p1 are not this queue's evidence.
+    # The audio queue counts audio attempts: the two subtitle attempts on
+    # BV1AAA:p1 are not this queue's evidence, while BV1FFF:p0 carries one
+    # failed audio attempt and still holds the queue (a failed attempt is not
+    # acquired bytes).
     assert {work_id: item.attempt_count for work_id, item in audio_entries.items()} == {
         "BV1AAA:p1": 0,
-        "BV1FFF:p0": 0,
+        "BV1FFF:p0": 1,
     }
     assert (
         audio_entries["BV1AAA:p1"].newest_outcome,

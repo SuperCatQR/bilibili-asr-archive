@@ -7,6 +7,12 @@ import pytest
 from bili_asr.storage import MediaQueueRepository, open_database
 
 
+# Two real content hashes: ``sha256`` is validated as a content hash (64
+# lowercase hex), so a placeholder cannot drive the reuse/repoint branches.
+_SHA_A = "a" * 64
+_SHA_B = "b" * 64
+
+
 def _insert_user_video_part(connection, *, bvid: str = "BV1TEST", page_index: int = 0) -> int:
     connection.execute(
         "INSERT INTO bilibili_users(mid, display_name, created_at, updated_at) "
@@ -87,7 +93,7 @@ def _acquire(repository, **overrides) -> int:
         "bvid": "BV1TEST",
         "page_index": 0,
         "audio_path": "audio/BV1TEST-p0.m4a",
-        "sha256": "hash-1",
+        "sha256": _SHA_A,
         "byte_size": 4_096,
         "format": "m4a",
         "duration_ms": 1_234,
@@ -122,7 +128,7 @@ def test_mark_audio_acquired_inserts_reuses_and_rejects_unknown_parts(tmp_root):
             bvid="BV1TEST",
             page_index=0,
             audio_path="audio/BV1TEST-p0.m4a",
-            sha256="hash-1",
+            sha256=_SHA_A,
             byte_size=4_096,
             format="m4a",
             duration_ms=1_234,
@@ -136,7 +142,7 @@ def test_mark_audio_acquired_inserts_reuses_and_rejects_unknown_parts(tmp_root):
         ).fetchall()
         assert len(objects) == 1
         assert objects[0]["audio_id"] == audio_id
-        assert objects[0]["sha256"] == "hash-1"
+        assert objects[0]["sha256"] == _SHA_A
         assert objects[0]["storage_key"] == "audio/BV1TEST-p0.m4a"
         assert objects[0]["created_at"] == 500
 
@@ -155,7 +161,7 @@ def test_mark_audio_acquired_inserts_reuses_and_rejects_unknown_parts(tmp_root):
             bvid="BV1TEST",
             page_index=0,
             audio_path="audio/BV1TEST-p0-renamed.m4a",
-            sha256="hash-1",
+            sha256=_SHA_A,
             byte_size=4_096,
             format="m4a",
             duration_ms=1_234,
@@ -177,7 +183,7 @@ def test_mark_audio_acquired_inserts_reuses_and_rejects_unknown_parts(tmp_root):
                 bvid="BVUNKNOWN",
                 page_index=0,
                 audio_path="audio/unknown.m4a",
-                sha256="hash-2",
+                sha256=_SHA_B,
                 byte_size=1,
                 format="m4a",
                 duration_ms=1,
@@ -201,15 +207,15 @@ def test_mark_audio_acquired_rekeys_reuse_on_path_not_sha256(tmp_root):
 
         original = _acquire(repository)
         # A re-download / repaired decode: same archived location, new bytes.
-        # Content is ``hash-1`` at 4_096 bytes, so only ``sha256`` differs and
+        # Content is ``_SHA_A`` at 4_096 bytes, so only ``sha256`` differs and
         # the remaining columns must keep their first-writer values.
-        redownloaded = _acquire(repository, sha256="hash-2")
+        redownloaded = _acquire(repository, sha256=_SHA_B)
 
         assert redownloaded == original
         rows = _audio_object_rows(connection)
         assert len(rows) == 1
         object_row = rows[0]
-        assert object_row["sha256"] == "hash-2"
+        assert object_row["sha256"] == _SHA_B
         assert object_row["byte_size"] == 4_096
         assert object_row["format"] == "m4a"
         assert object_row["duration_ms"] == 1_234
@@ -247,7 +253,7 @@ def test_mark_audio_acquired_reuse_refreshes_only_differing_columns(tmp_root):
         assert len(rows) == 1
         object_row = rows[0]
         assert object_row["audio_id"] == audio_id
-        assert object_row["sha256"] == "hash-1"
+        assert object_row["sha256"] == _SHA_A
         assert object_row["byte_size"] == 8_192
         assert object_row["format"] == "opus"
         assert object_row["duration_ms"] == 9_999
@@ -282,7 +288,7 @@ def test_mark_audio_acquired_repoints_a_row_that_holds_the_content(tmp_root):
         rows = _audio_object_rows(connection)
         assert len(rows) == 1
         assert rows[0]["storage_key"] == "audio/BV1TEST-p0-moved.m4a"
-        assert rows[0]["sha256"] == "hash-1"
+        assert rows[0]["sha256"] == _SHA_A
         assert rows[0]["created_at"] == 500
         assert len(_part_audio_rows(connection)) == 1
     finally:
@@ -307,12 +313,12 @@ def test_mark_audio_acquired_rejects_a_rekey_that_would_merge_two_rows(tmp_root)
 
         first = _acquire(repository)
         second = _acquire(
-            repository, audio_path="audio/BV1TEST-p0-b.m4a", sha256="hash-2"
+            repository, audio_path="audio/BV1TEST-p0-b.m4a", sha256=_SHA_B
         )
         assert first != second
 
         with pytest.raises(ValueError) as refusal:
-            _acquire(repository, sha256="hash-2")
+            _acquire(repository, sha256=_SHA_B)
 
         message = str(refusal.value)
         assert "audio/BV1TEST-p0.m4a" in message
@@ -324,7 +330,7 @@ def test_mark_audio_acquired_rejects_a_rekey_that_would_merge_two_rows(tmp_root)
             "audio/BV1TEST-p0.m4a",
             "audio/BV1TEST-p0-b.m4a",
         ]
-        assert [row["sha256"] for row in rows] == ["hash-1", "hash-2"]
+        assert [row["sha256"] for row in rows] == [_SHA_A, _SHA_B]
     finally:
         connection.close()
 
@@ -392,6 +398,32 @@ def test_mark_audio_acquired_bounds_its_scalars(tmp_root):
         connection.close()
 
 
+def test_mark_audio_acquired_validates_sha256_as_a_content_hash(tmp_root):
+    """A placeholder cannot drive the clash/repoint branch.
+
+    Contract §4d: ``sha256`` arrives from the acquisition path as a content
+    hash, but the write path's clash lookup and repoint branch trust it.  A
+    free-text value there could make the call rewrite another object's
+    ``storage_key`` — the archive's file pointer — on a non-hash match.
+
+    Pre-fix: ``_text`` accepted ``"hash-1"``, so the first call below succeeded
+    and wrote an ``audio_objects`` row whose ``sha256`` was not a content hash.
+    """
+    connection = open_database(tmp_root)
+    try:
+        _insert_user_video_part(connection)
+        repository = MediaQueueRepository(connection)
+
+        for bad in ("hash-1", "A" * 64, "a" * 63, "a" * 65, "g" * 64, " " + "a" * 63):
+            with pytest.raises(ValueError, match="64 lowercase hexadecimal"):
+                _acquire(repository, sha256=bad)
+
+        assert _audio_object_rows(connection) == []
+        assert _part_audio_rows(connection) == []
+    finally:
+        connection.close()
+
+
 def test_mark_audio_acquired_rejects_a_part_that_exists_at_another_page(tmp_root):
     """The unknown-pair guard covers a wrong page, not just an absent video.
 
@@ -443,7 +475,7 @@ def test_mark_transcript_stored_clears_the_queue_and_is_idempotent(tmp_root):
             bvid="BV1TEST",
             page_index=1,
             audio_path="audio/BV1TEST-p1.m4a",
-            sha256="hash-1",
+            sha256=_SHA_A,
             byte_size=4_096,
             format="m4a",
             duration_ms=1_234,

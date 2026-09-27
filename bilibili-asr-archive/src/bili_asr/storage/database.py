@@ -33,6 +33,7 @@ from .models import (
     VideoPartRecord,
     VideoRecord,
     _choice,
+    _content_sha256,
     _error_code,
     _integer,
     _text,
@@ -1460,16 +1461,19 @@ class MediaQueueRepository:
 
         The part link is inserted with ``ON CONFLICT DO NOTHING``, so it too
         keeps first-writer semantics.  Every scalar is bounded by the module's
-        ``_text`` / ``_integer`` validators before any statement runs, so a
-        malformed field is refused instead of surfacing as a raw
-        ``sqlite3.IntegrityError``.  ``storage_key`` is the caller's
+        validators before any statement runs, so a malformed field is refused
+        instead of surfacing as a raw ``sqlite3.IntegrityError``: ``sha256``
+        goes through ``_content_sha256`` (64 lowercase hex), not ``_text`` —
+        the value is a content hash the clash/repoint branch below trusts, and
+        free text there could rewrite another object's ``storage_key``.  The
+        rest are ``_text`` / ``_integer``.  ``storage_key`` is the caller's
         ``audio_path`` verbatim — this layer does not resolve or normalize
         paths.
         """
         bvid = _text(bvid, "bvid")
         page_index = _integer(page_index, "page_index", minimum=0)
         audio_path = _text(audio_path, "audio_path")
-        sha256 = _text(sha256, "sha256")
+        sha256 = _content_sha256(sha256, "sha256")
         byte_size = _integer(byte_size, "byte_size", minimum=0)
         format = _text(format, "format")
         duration_ms = _integer(duration_ms, "duration_ms", minimum=0)
@@ -1685,6 +1689,14 @@ class MediaQueueRepository:
     def count_queue_gaps(self) -> dict[QueueGap, int]:
         """Count the parts each of the three queues holds, all three always.
 
+        **The three values overlap and must never be summed.**  The gaps are not
+        a partition: a transcriptless part with a ``no-subtitle``/``failed``
+        subtitle attempt and no audio sits in ``missing_audio``, and a part with
+        audio evidence and no transcript sits in ``missing_transcript`` — a part
+        may be counted by two of these keys, or by one, but ``sum(...)`` answers
+        no question about the store.  A backlog total needs its own distinct
+        query, not an addition of these three.
+
         ``0`` is reported rather than omitted: a caller renders three queue
         sizes, and a queue that drained completely is a size, not a missing
         key.  The keys come back in the declaration order of the view table
@@ -1704,7 +1716,7 @@ class MediaQueueRepository:
     def _gap_item(row: sqlite3.Row, gap: str, attempt_count: int) -> QueueGapItem:
         """Map one view row to one typed queue entry, whatever the view holds.
 
-        One mapper serves all three views.  The shared eight-column prefix is
+        One mapper serves all three views.  The shared nine-column prefix is
         read by name for every one of them; the newest-attempt evidence is read
         only when the row carries the column at all, which the row's own
         ``keys()`` answers — so the one gap view that exposes the columns
@@ -1723,6 +1735,7 @@ class MediaQueueRepository:
             work_id=str(row["work_id"]),
             bvid=str(row["bvid"]),
             page_index=int(row["page_index"]),
+            cid=int(row["cid"]),
             gap=gap,
             pubdate=int(row["pubdate"]),
             video_title=str(row["video_title"]),

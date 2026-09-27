@@ -444,7 +444,9 @@ class QueueGapItem:
 
     A read projection, not an input record: every field is a stored fact the
     gap views already carry, so the constructor validates nothing and the
-    dataclass only names the row the repository returns.  ``gap`` says which
+    dataclass only names the row the repository returns.  ``cid`` is the part's
+    page identity, carried here because the audio route states it per part and
+    a caller must not have to re-fetch the page to learn it.  ``gap`` says which
     queue the row came from — it is not a stored column.  ``newest_outcome``
     and ``newest_error_code`` are the newest subtitle attempt's evidence and
     are ``None`` for a part the subtitle queue has never attempted, so a
@@ -458,6 +460,7 @@ class QueueGapItem:
     work_id: str
     bvid: str
     page_index: int
+    cid: int
     gap: QueueGap
     pubdate: int
     video_title: str

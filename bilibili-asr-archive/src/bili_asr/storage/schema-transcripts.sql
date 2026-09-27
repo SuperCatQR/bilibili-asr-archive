@@ -141,12 +141,15 @@ WHERE vp.processing_status <> 'gone'
   );
 
 -- Queue views for the archive work queue: the three gaps and the converged
--- per-part pipeline state.  Each gap view exposes the same eight columns
--- (``video_part_id, work_id, bvid, page_index, part_title, duration_ms,
+-- per-part pipeline state.  Each gap view exposes the same nine columns
+-- (``video_part_id, work_id, bvid, page_index, cid, part_title, duration_ms,
 -- video_title, pubdate``) so the repository can read any of them by name;
--- ``v_missing_audio`` adds its newest-attempt evidence.  Ordering is a
--- repository concern (``pubdate DESC, bvid ASC, page_index ASC``), so none of
--- these views carries an ORDER BY.
+-- ``v_missing_audio`` adds its newest-attempt evidence, and ``v_part_pipeline``
+-- carries the part's status and computed state instead of the projection.
+-- ``cid`` rides the three gap views because the audio route needs it and a
+-- frozen view can never be widened afterwards.  Ordering is a repository
+-- concern (``pubdate DESC, bvid ASC, page_index ASC``), so none of these views
+-- carries an ORDER BY.
 
 -- 1) missing_subtitle: not gone, no stored transcript.  Same predicate as
 -- ``v_pending_subtitles``; that view carries extra attempt columns the queue
@@ -157,6 +160,7 @@ SELECT
     vp.bvid || ':p' || vp.page_index AS work_id,
     vp.bvid,
     vp.page_index,
+    vp.cid,
     vp.title AS part_title,
     vp.duration_ms,
     v.title AS video_title,
@@ -170,9 +174,14 @@ WHERE vp.processing_status <> 'gone'
 
 -- 2) missing_audio: in the subtitle gap and the caption route is exhausted
 -- (newest subtitle attempt outcome IN ('no-subtitle', 'failed')) with no audio
--- evidence yet.  Audio evidence = a ``part_audio_objects`` row OR an
--- ``acquisition_attempts`` row under a ``kind = 'audio'`` run.  Newest-attempt
--- idiom copied from ``v_pending_subtitles``.
+-- evidence yet.  Audio evidence is a ``part_audio_objects`` row and nothing
+-- else: an ``acquisition_attempts`` row under a ``kind = 'audio'`` run can only
+-- ever record a *failed* download, since the attempt contract admits
+-- ``stored`` / ``unchanged`` only with a ``transcript_id`` an audio acquisition
+-- never produces.  Probing attempts here would invert the signal — a part with
+-- audio on disk would be excluded while a part that failed to download would
+-- enter the transcription queue — so this view does not.  Newest-attempt idiom
+-- copied from ``v_pending_subtitles``.
 CREATE VIEW IF NOT EXISTS v_missing_audio AS
 WITH subtitle_attempts AS (
     SELECT
@@ -192,6 +201,7 @@ SELECT
     vp.bvid || ':p' || vp.page_index AS work_id,
     vp.bvid,
     vp.page_index,
+    vp.cid,
     vp.title AS part_title,
     vp.duration_ms,
     v.title AS video_title,
@@ -209,23 +219,19 @@ WHERE vp.processing_status <> 'gone'
   AND latest.outcome IN ('no-subtitle', 'failed')
   AND NOT EXISTS (
       SELECT 1 FROM part_audio_objects AS pao WHERE pao.video_part_id = vp.video_part_id
-  )
-  AND NOT EXISTS (
-      SELECT 1
-      FROM acquisition_attempts AS aa2
-      JOIN acquisition_runs AS ar2 ON ar2.run_id = aa2.run_id
-      WHERE aa2.video_part_id = vp.video_part_id AND ar2.kind = 'audio'
   );
 
 -- 3) missing_transcript: has audio evidence and no stored transcript.  It
 -- deliberately does not filter ``processing_status``: a 'gone' part with audio
--- and no transcript is still a transcribable gap.
+-- and no transcript is still a transcribable gap.  Audio evidence is the same
+-- single probe as ``v_missing_audio``'s.
 CREATE VIEW IF NOT EXISTS v_missing_transcript AS
 SELECT
     vp.video_part_id,
     vp.bvid || ':p' || vp.page_index AS work_id,
     vp.bvid,
     vp.page_index,
+    vp.cid,
     vp.title AS part_title,
     vp.duration_ms,
     v.title AS video_title,
@@ -235,16 +241,8 @@ JOIN videos AS v ON vp.bvid = v.bvid
 WHERE NOT EXISTS (
       SELECT 1 FROM transcripts AS t WHERE t.video_part_id = vp.video_part_id
   )
-  AND (
-      EXISTS (
-          SELECT 1 FROM part_audio_objects AS pao WHERE pao.video_part_id = vp.video_part_id
-      )
-      OR EXISTS (
-          SELECT 1
-          FROM acquisition_attempts AS aa
-          JOIN acquisition_runs AS ar ON ar.run_id = aa.run_id
-          WHERE aa.video_part_id = vp.video_part_id AND ar.kind = 'audio'
-      )
+  AND EXISTS (
+      SELECT 1 FROM part_audio_objects AS pao WHERE pao.video_part_id = vp.video_part_id
   );
 
 -- 4) v_part_pipeline: the converged reachable pipeline state, one row per
@@ -254,7 +252,9 @@ WHERE NOT EXISTS (
 -- 'discovered' (otherwise).  'metadata_collected' is unreachable and is never
 -- emitted.  The branches exclude in order, so ``audio_pending`` states its
 -- residual predicate -- by the time it is reached the transcript and audio
--- evidence probes of ``v_missing_audio`` are already known absent.
+-- evidence probes of ``v_missing_audio`` are already known absent.  ``audio_ok``
+-- keys on the same single ``part_audio_objects`` probe: a failed audio attempt
+-- is attempt history, not acquired bytes, so it renders ``audio_pending``.
 CREATE VIEW IF NOT EXISTS v_part_pipeline AS
 WITH subtitle_attempts AS (
     SELECT
@@ -280,11 +280,6 @@ SELECT
         ) THEN 'transcribed'
         WHEN EXISTS (
             SELECT 1 FROM part_audio_objects AS pao WHERE pao.video_part_id = vp.video_part_id
-        ) OR EXISTS (
-            SELECT 1
-            FROM acquisition_attempts AS aa
-            JOIN acquisition_runs AS ar ON ar.run_id = aa.run_id
-            WHERE aa.video_part_id = vp.video_part_id AND ar.kind = 'audio'
         ) THEN 'audio_ok'
         WHEN vp.processing_status <> 'gone'
              AND latest.outcome IN ('no-subtitle', 'failed') THEN 'audio_pending'
