@@ -81,6 +81,37 @@ def _insert_transcript(
     return int(cursor.lastrowid)
 
 
+def _acquire(repository, **overrides) -> int:
+    """Call ``mark_audio_acquired`` with one valid shape, overridable per field."""
+    arguments: dict[str, object] = {
+        "bvid": "BV1TEST",
+        "page_index": 0,
+        "audio_path": "audio/BV1TEST-p0.m4a",
+        "sha256": "hash-1",
+        "byte_size": 4_096,
+        "format": "m4a",
+        "duration_ms": 1_234,
+        "acquisition_source": "download",
+        "acquired_at": 500,
+    }
+    arguments.update(overrides)
+    return repository.mark_audio_acquired(**arguments)
+
+
+def _audio_object_rows(connection):
+    return connection.execute(
+        "SELECT audio_id, sha256, byte_size, format, duration_ms, storage_key, "
+        "created_at FROM audio_objects ORDER BY audio_id"
+    ).fetchall()
+
+
+def _part_audio_rows(connection):
+    return connection.execute(
+        "SELECT video_part_id, audio_id, acquired_at, acquisition_source "
+        "FROM part_audio_objects ORDER BY video_part_id, audio_id"
+    ).fetchall()
+
+
 def test_mark_audio_acquired_inserts_reuses_and_rejects_unknown_parts(tmp_root):
     connection = open_database(tmp_root)
     try:
@@ -153,6 +184,232 @@ def test_mark_audio_acquired_inserts_reuses_and_rejects_unknown_parts(tmp_root):
                 acquisition_source="download",
                 acquired_at=1_000,
             )
+    finally:
+        connection.close()
+
+
+def test_mark_audio_acquired_rekeys_reuse_on_path_not_sha256(tmp_root):
+    """Same path + different sha256 must not raise, and reuses the path's row.
+
+    Pre-fix: ``sqlite3.IntegrityError: UNIQUE constraint failed:
+    audio_objects.storage_key`` on the second call.
+    """
+    connection = open_database(tmp_root)
+    try:
+        _insert_user_video_part(connection)
+        repository = MediaQueueRepository(connection)
+
+        original = _acquire(repository)
+        # A re-download / repaired decode: same archived location, new bytes.
+        # Content is ``hash-1`` at 4_096 bytes, so only ``sha256`` differs and
+        # the remaining columns must keep their first-writer values.
+        redownloaded = _acquire(repository, sha256="hash-2")
+
+        assert redownloaded == original
+        rows = _audio_object_rows(connection)
+        assert len(rows) == 1
+        object_row = rows[0]
+        assert object_row["sha256"] == "hash-2"
+        assert object_row["byte_size"] == 4_096
+        assert object_row["format"] == "m4a"
+        assert object_row["duration_ms"] == 1_234
+        assert object_row["storage_key"] == "audio/BV1TEST-p0.m4a"
+        assert object_row["created_at"] == 500
+        assert len(_part_audio_rows(connection)) == 1
+    finally:
+        connection.close()
+
+
+def test_mark_audio_acquired_reuse_refreshes_only_differing_columns(tmp_root):
+    """Reuse refreshes the object row in place and keeps ``created_at``.
+
+    Pre-fix: the reuse branch updated nothing, so the corrected ``byte_size`` /
+    ``format`` / ``duration_ms`` silently kept their first-writer values and the
+    assertions below failed on stale data (no exception was raised).
+    """
+    connection = open_database(tmp_root)
+    try:
+        _insert_user_video_part(connection)
+        repository = MediaQueueRepository(connection)
+
+        audio_id = _acquire(repository)
+        again = _acquire(
+            repository,
+            byte_size=8_192,
+            format="opus",
+            duration_ms=9_999,
+            acquisition_source="cache_hit",
+            acquired_at=900,
+        )
+
+        assert again == audio_id
+        rows = _audio_object_rows(connection)
+        assert len(rows) == 1
+        object_row = rows[0]
+        assert object_row["audio_id"] == audio_id
+        assert object_row["sha256"] == "hash-1"
+        assert object_row["byte_size"] == 8_192
+        assert object_row["format"] == "opus"
+        assert object_row["duration_ms"] == 9_999
+        assert object_row["storage_key"] == "audio/BV1TEST-p0.m4a"
+        # ``created_at`` is first-writer state and must survive the refresh.
+        assert object_row["created_at"] == 500
+        # The link is the first writer's, so the second call's source/time do
+        # not overwrite it and no second link appears.
+        links = _part_audio_rows(connection)
+        assert len(links) == 1
+        assert links[0]["acquired_at"] == 500
+        assert links[0]["acquisition_source"] == "download"
+    finally:
+        connection.close()
+
+
+def test_mark_audio_acquired_repoints_a_row_that_holds_the_content(tmp_root):
+    """Same content at a new path reuses the row and repoints ``storage_key``.
+
+    Contract §4c option (a).  Pre-fix: the hash lookup reused the row but left
+    ``storage_key`` stale, so the path column never moved to the new location.
+    """
+    connection = open_database(tmp_root)
+    try:
+        _insert_user_video_part(connection)
+        repository = MediaQueueRepository(connection)
+
+        audio_id = _acquire(repository)
+        moved = _acquire(repository, audio_path="audio/BV1TEST-p0-moved.m4a")
+
+        assert moved == audio_id
+        rows = _audio_object_rows(connection)
+        assert len(rows) == 1
+        assert rows[0]["storage_key"] == "audio/BV1TEST-p0-moved.m4a"
+        assert rows[0]["sha256"] == "hash-1"
+        assert rows[0]["created_at"] == 500
+        assert len(_part_audio_rows(connection)) == 1
+    finally:
+        connection.close()
+
+
+def test_mark_audio_acquired_rejects_a_rekey_that_would_merge_two_rows(tmp_root):
+    """A path re-recorded with another row's content is refused, not collapsed.
+
+    Two archived locations each own a row; pointing the first at the second's
+    content cannot be represented, because ``sha256`` is ``UNIQUE``.  The call
+    is refused as a bounded ``ValueError`` naming both paths rather than
+    surfacing a raw ``IntegrityError`` or silently rewriting either row.
+
+    Pre-fix: no update ran at all, so this call raised no error and left the
+    first row's ``sha256`` stale.
+    """
+    connection = open_database(tmp_root)
+    try:
+        _insert_user_video_part(connection)
+        repository = MediaQueueRepository(connection)
+
+        first = _acquire(repository)
+        second = _acquire(
+            repository, audio_path="audio/BV1TEST-p0-b.m4a", sha256="hash-2"
+        )
+        assert first != second
+
+        with pytest.raises(ValueError) as refusal:
+            _acquire(repository, sha256="hash-2")
+
+        message = str(refusal.value)
+        assert "audio/BV1TEST-p0.m4a" in message
+        assert "audio/BV1TEST-p0-b.m4a" in message
+
+        # The refused call wrote nothing: both rows are exactly as they were.
+        rows = _audio_object_rows(connection)
+        assert [row["storage_key"] for row in rows] == [
+            "audio/BV1TEST-p0.m4a",
+            "audio/BV1TEST-p0-b.m4a",
+        ]
+        assert [row["sha256"] for row in rows] == ["hash-1", "hash-2"]
+    finally:
+        connection.close()
+
+
+def test_mark_audio_acquired_rejects_a_bad_page_index(tmp_root):
+    """``page_index=True`` must not silently link a different part.
+
+    Pre-fix: SQLite compares ``page_index = 1``, so the call succeeded and
+    linked the object to the part at page 1 instead of page 0.
+    """
+    connection = open_database(tmp_root)
+    try:
+        _insert_user_video_part(connection)
+        _insert_video_part_under_video(connection)
+        repository = MediaQueueRepository(connection)
+
+        with pytest.raises(TypeError):
+            _acquire(repository, page_index=True)
+        with pytest.raises(TypeError):
+            _acquire(repository, page_index="0")
+
+        # Nothing was written, and in particular the page-1 part gained no link.
+        assert _audio_object_rows(connection) == []
+        assert _part_audio_rows(connection) == []
+    finally:
+        connection.close()
+
+
+def test_mark_audio_acquired_bounds_its_scalars(tmp_root):
+    """Malformed scalars are refused as bounded errors, not IntegrityError.
+
+    Pre-fix: ``byte_size=-1`` / ``duration_ms=-5`` surfaced as a ``CHECK
+    constraint failed`` and ``format=None`` / ``acquired_at=None`` /
+    ``sha256=None`` as a ``NOT NULL constraint failed``, each a raw
+    ``sqlite3.IntegrityError`` from inside the transaction.
+    """
+    connection = open_database(tmp_root)
+    try:
+        _insert_user_video_part(connection)
+        repository = MediaQueueRepository(connection)
+
+        with pytest.raises(ValueError):
+            _acquire(repository, byte_size=-1)
+        with pytest.raises(ValueError):
+            _acquire(repository, duration_ms=-5)
+        with pytest.raises(ValueError):
+            _acquire(repository, acquired_at=-1)
+        # ``_text`` / ``_integer`` separate "wrong type" from "out of range",
+        # so a missing or non-string scalar is a TypeError the same way the
+        # sibling write paths report one.
+        with pytest.raises(TypeError):
+            _acquire(repository, format=None)
+        with pytest.raises(TypeError):
+            _acquire(repository, sha256=None)
+        with pytest.raises(TypeError):
+            _acquire(repository, acquired_at=None)
+        with pytest.raises(ValueError):
+            _acquire(repository, audio_path="   ")
+        with pytest.raises(ValueError):
+            _acquire(repository, bvid="")
+
+        assert _audio_object_rows(connection) == []
+        assert _part_audio_rows(connection) == []
+    finally:
+        connection.close()
+
+
+def test_mark_audio_acquired_rejects_a_part_that_exists_at_another_page(tmp_root):
+    """The unknown-pair guard covers a wrong page, not just an absent video.
+
+    Pre-fix result: already correct — this pins the guard's message and the
+    fact that no row is written, which the existing test only covered for a
+    wholly absent bvid.
+    """
+    connection = open_database(tmp_root)
+    try:
+        _insert_user_video_part(connection)
+        _insert_video_part_under_video(connection)
+        repository = MediaQueueRepository(connection)
+
+        with pytest.raises(ValueError, match="unknown video part"):
+            _acquire(repository, page_index=7)
+
+        assert _audio_object_rows(connection) == []
+        assert _part_audio_rows(connection) == []
     finally:
         connection.close()
 

@@ -1440,12 +1440,42 @@ class MediaQueueRepository:
     ) -> int:
         """Record that a part's audio has been acquired.  Returns the ``audio_id``.
 
-        Idempotent per object: an existing ``audio_objects`` row with the same
-        ``sha256`` is reused rather than duplicated, so a re-run of the same
-        acquisition adds no object row; the part link is inserted with
-        ``ON CONFLICT DO NOTHING``.  ``storage_key`` is the caller's
-        ``audio_path`` verbatim — this layer does not resolve or normalize paths.
+        **Reuse is keyed on ``storage_key`` (= the caller's ``audio_path``), not
+        on ``sha256``.**  Location is the identity of an archived audio object:
+        the CLI derives a deterministic per-part path, so a re-download or a
+        repaired decode produces a *new* hash for the *same* archived location
+        and must not become a second object.  When a row already sits at that
+        path it is reused, and ``sha256`` / ``byte_size`` / ``format`` /
+        ``duration_ms`` are refreshed **only when they differ** — a re-run of
+        the same acquisition is a no-op, and ``created_at`` keeps first-writer
+        semantics.
+
+        Same content at a new path (no row for this path, but another row
+        already holds this ``sha256``): the content-holding row is reused and
+        its ``storage_key`` is repointed to the caller's path — option (a) of
+        contract §4c.  The alternative (a bounded ``ValueError`` naming both
+        paths) was rejected because such a part would be permanently
+        unrecordable, and ``audio_objects.sha256`` is ``UNIQUE``, so the two
+        paths can never own two rows.  A silent third row is never written.
+
+        The part link is inserted with ``ON CONFLICT DO NOTHING``, so it too
+        keeps first-writer semantics.  Every scalar is bounded by the module's
+        ``_text`` / ``_integer`` validators before any statement runs, so a
+        malformed field is refused instead of surfacing as a raw
+        ``sqlite3.IntegrityError``.  ``storage_key`` is the caller's
+        ``audio_path`` verbatim — this layer does not resolve or normalize
+        paths.
         """
+        bvid = _text(bvid, "bvid")
+        page_index = _integer(page_index, "page_index", minimum=0)
+        audio_path = _text(audio_path, "audio_path")
+        sha256 = _text(sha256, "sha256")
+        byte_size = _integer(byte_size, "byte_size", minimum=0)
+        format = _text(format, "format")
+        duration_ms = _integer(duration_ms, "duration_ms", minimum=0)
+        acquisition_source = _text(acquisition_source, "acquisition_source")
+        acquired_at = _integer(acquired_at, "acquired_at", minimum=0)
+
         part = self.connection.execute(
             "SELECT video_part_id FROM video_parts WHERE bvid = ? AND page_index = ?",
             (bvid, page_index),
@@ -1458,8 +1488,22 @@ class MediaQueueRepository:
 
         with _transaction(self.connection):
             existing = self.connection.execute(
-                "SELECT audio_id FROM audio_objects WHERE sha256 = ?", (sha256,)
+                "SELECT audio_id, sha256, byte_size, format, duration_ms "
+                "FROM audio_objects WHERE storage_key = ?",
+                (audio_path,),
             ).fetchone()
+            repoint = False
+            if existing is None:
+                # No row at this path: the same content may already be archived
+                # under another one.  Reuse that row and move its path column to
+                # the location the caller asked to occupy.
+                existing = self.connection.execute(
+                    "SELECT audio_id, sha256, byte_size, format, duration_ms "
+                    "FROM audio_objects WHERE sha256 = ?",
+                    (sha256,),
+                ).fetchone()
+                repoint = existing is not None
+
             if existing is None:
                 cursor = self.connection.execute(
                     """
@@ -1472,6 +1516,40 @@ class MediaQueueRepository:
                 audio_id = int(cursor.lastrowid)
             else:
                 audio_id = int(existing["audio_id"])
+                updates: dict[str, object] = {
+                    column: value
+                    for column, value in (
+                        ("sha256", sha256),
+                        ("byte_size", byte_size),
+                        ("format", format),
+                        ("duration_ms", duration_ms),
+                    )
+                    if existing[column] != value
+                }
+                if repoint:
+                    updates["storage_key"] = audio_path
+                elif "sha256" in updates:
+                    # The path keeps its row, but this content is already
+                    # archived at another location.  ``sha256`` is UNIQUE, so no
+                    # single row can carry both paths: refuse instead of leaking
+                    # an IntegrityError from the UPDATE below.
+                    clash = self.connection.execute(
+                        "SELECT storage_key FROM audio_objects "
+                        "WHERE sha256 = ? AND audio_id != ?",
+                        (sha256, audio_id),
+                    ).fetchone()
+                    if clash is not None:
+                        raise ValueError(
+                            "audio content already archived at "
+                            f"{clash['storage_key']!r}: cannot record "
+                            f"sha256={sha256!r} at storage_key={audio_path!r}"
+                        )
+                if updates:
+                    assignments = ", ".join(f"{column} = ?" for column in updates)
+                    self.connection.execute(
+                        f"UPDATE audio_objects SET {assignments} WHERE audio_id = ?",
+                        (*updates.values(), audio_id),
+                    )
 
             self.connection.execute(
                 """
