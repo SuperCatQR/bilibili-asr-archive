@@ -578,7 +578,7 @@ def test_coverage_quality_reports_no_reason_for_the_projected_row(tmp_root, caps
 def test_the_projected_md_and_sidecar_carry_no_asr_key_and_name_the_stored_source(
     tmp_root, capsys
 ):
-    """Criterion 4 and §4.1/§4.2/§4.3: nine frontmatter keys, no provenance."""
+    """Criterion 4 and §4.1/§4.2/§4.3: ten frontmatter keys, no provenance."""
     _build_fixture_f(tmp_root)
     assert _publish(tmp_root) == 0
     capsys.readouterr()
@@ -588,9 +588,11 @@ def test_the_projected_md_and_sidecar_carry_no_asr_key_and_name_the_stored_sourc
     md_text = _read_text(os.path.join(base, declared["md_path"]))
     raw_text = _read_text(os.path.join(base, declared["raw_path"]))
 
-    # §4.1: exactly these nine keys.  The omissions of §4.2 are the same
-    # statement read from the other side, and the inverted check is criterion
-    # 4's own: no line opens with an `asr_` or `confidence` key.
+    # §4.1: exactly these ten keys, the live count after the D4/D5 revision
+    # (`FRONTMATTER_KEYS` above; the contract's own table still reads nine —
+    # M2).  The omissions of §4.2 are the same statement read from the other
+    # side, and the inverted check is criterion 4's own: no line opens with an
+    # `asr_` or `confidence` key.
     frontmatter = _frontmatter(md_text)
     assert set(frontmatter) == FRONTMATTER_KEYS
     assert json.loads(frontmatter["source"]) == "subtitle-ai"

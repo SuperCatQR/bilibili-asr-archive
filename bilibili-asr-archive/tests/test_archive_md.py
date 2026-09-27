@@ -373,6 +373,63 @@ def test_write_archive_names_the_video_title_beside_the_part_title(tmp_root):
     assert front["video_title"] == "【哲学进阶】现代哲学 第二讲"
 
 
+def test_write_archive_publishes_a_uniform_key_set_without_a_video_title(tmp_root):
+    """D4: the key set does not vary with the writer input that supplied it.
+
+    Only the stored-transcript projection can hand ``write_archive`` a
+    ``video_title``.  The chain/ASR path reaches it with a
+    ``row_for_part`` row — the nine fields of §3.1 and **no** ``video_title``
+    key (``cli.py:2266``/``:2371``/``:2473``, ``coordinator.py:492``/``:593``) —
+    and the key is published with an empty default there **by decision**, not by
+    accident of ``.get``.  Omitting it on that arm is refused because both pins
+    of the published key set are equality-based (the ordered list below and
+    ``FRONTMATTER_KEYS`` in ``tests/test_published_projection_readers.py``): an
+    artifact missing the key would be a *different* published shape rather than
+    a cheaper one, and a reader parsing a fixed key set would have to branch.
+    ``title``/``date``/``duration_s`` on the same line emit their empty default
+    the same way, and the enriched-entry case above pins the identical list, so
+    the two arms can only move together.
+
+    **Known reader-visible gap, not a completed delivery:** a chain-produced
+    artifact says ``video_title: ""`` until the manifest half
+    (``row_for_part``/``projection_row``) lands and gives the row a real value.
+    This test pins the shape, not the value.
+    """
+
+    tmp_path = __import__("pathlib").Path(tmp_root)
+    ident = page_identity("BV1chain", 0, 21)
+    # ``row_for_part``'s nine fields, verbatim.
+    entry = {"bvid": ident.bvid, "work_id": ident.work_id, "page_index": 0, "cid": 21,
+             "title": "哲学课3", "duration_s": 10, "pubdate": 1_767_312_000,
+             "pubdate_str": "2026-01-02", "status": "queued"}
+    assert "video_title" not in entry
+    provenance = {
+        "model_name": "FunAudioLLM/Fun-ASR-Nano-2512", "model_revision": "master",
+        "device": "cpu", "language": "中文", "vad_model": "fsmn-vad",
+        "vad_max_segment_s": "30.0", "hotwords": "", "offline": "True",
+        "local_source": "configured-local",
+    }
+    segments = [{"start": 0.0, "end": 2.0, "text": "甲。", "confidence": 0.9},
+                {"start": 2.0, "end": 4.0, "text": "乙。", "confidence": 0.2}]
+
+    paths = write_archive(tmp_path, entry, segments, source="asr",
+                          asr_provenance=provenance)
+
+    front = _frontmatter(tmp_path / paths["md_path"])
+    # The 25 keys in order, ``video_title`` directly after ``title``: the same
+    # list the enriched-entry case pins, so the two arms cannot drift apart.
+    assert list(front) == [
+        "bvid", "title", "video_title", "date", "duration_s", "source", "url",
+        "asr_vad_segments", "asr_vad_captured_s", "asr_vad_captured_ratio",
+        "asr_mean_confidence", "asr_low_confidence_cues", "asr_low_confidence_at",
+        "asr_model_name", "asr_model_revision", "asr_device", "asr_language",
+        "asr_vad_model", "asr_vad_max_segment_s", "asr_hotwords", "asr_offline",
+        "asr_local_source", "work_id", "page_index", "cid",
+    ]
+    assert front["video_title"] == ""
+    assert front["title"] == "哲学课3"
+
+
 def _frontmatter(md_path):
     """The published frontmatter as a mapping, read from the artefact itself."""
 
