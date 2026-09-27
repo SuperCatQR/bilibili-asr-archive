@@ -1519,6 +1519,13 @@ def test_get_video_tags_distinguishes_a_degraded_call_from_an_empty_inventory(
     assert observed is not None
     assert degraded is None
     assert degraded != observed
+    # The adapter's own declaration carries the third state too: the protocol
+    # is what callers trust, and an adapter that answered ``None`` while
+    # declaring a non-optional tuple would leave that trust unmet.
+    assert (
+        inspect.signature(type(gateway).get_video_tags).return_annotation
+        == "tuple[VideoTag, ...] | None"
+    )
 
 
 def test_get_video_tags_does_not_swallow_a_shape_error(bilibili_api_seam):
