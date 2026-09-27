@@ -6,6 +6,7 @@ import pytest
 
 from bili_asr.archive import archive_bundle_complete, bundle_marker_path, bundle_paths, write_archive
 from bili_asr.page_identity import artifact_stem, page_identity
+from bili_asr.services.manifest_derivation import QUEUE_STATUS
 
 
 def test_write_archive_layout_and_frontmatter(tmp_root):
@@ -299,17 +300,25 @@ def test_write_archive_publishes_the_exact_asr_key_set(tmp_root):
     The block is assembled by three independent producers (``_capture_summary``,
     ``_confidence_summary``, the provenance mapping) through successive
     ``dict.update`` calls, and only the nine-key provenance sub-contract had a
-    test.  A reader who greps a row meets **24 keys, 15 of them ``asr_*``**: six
+    test.  A reader who greps a row meets **25 keys, 15 of them ``asr_*``**: seven
     row-identity keys, a measurement family whose capture half is source-gated
     and whose confidence half is score-gated, then the configuration family.
     Pinned as an exact list so a key that appears, disappears or is reordered
     fails here rather than silently changing what the archive says.
+
+    **The 25th key is the deliberate format revision of compass D4/D5**
+    (``video_title``, added 2026-09-26 beside ``title`` rather than replacing
+    it): the entry gained the video's own title so a part named ``哲学课3`` can
+    still name its collection, and this list is where that revision is recorded.
+    It sits directly after ``title`` so every key that existed before keeps its
+    index.
     """
 
     tmp_path = __import__("pathlib").Path(tmp_root)
     ident = page_identity("BV1keys", 0, 21)
     entry = {"bvid": ident.bvid, "work_id": ident.work_id, "page_index": 0, "cid": 21,
-             "title": "keys", "pubdate_str": "2026-01-02", "duration_s": 10}
+             "title": "keys", "video_title": "密钥视频", "pubdate_str": "2026-01-02",
+             "duration_s": 10}
     provenance = {
         "model_name": "FunAudioLLM/Fun-ASR-Nano-2512", "model_revision": "master",
         "device": "cpu", "language": "中文", "vad_model": "fsmn-vad",
@@ -324,17 +333,104 @@ def test_write_archive_publishes_the_exact_asr_key_set(tmp_root):
 
     front = _frontmatter(tmp_path / paths["md_path"])
     assert list(front) == [
-        "bvid", "title", "date", "duration_s", "source", "url",
+        "bvid", "title", "video_title", "date", "duration_s", "source", "url",
         "asr_vad_segments", "asr_vad_captured_s", "asr_vad_captured_ratio",
         "asr_mean_confidence", "asr_low_confidence_cues", "asr_low_confidence_at",
         "asr_model_name", "asr_model_revision", "asr_device", "asr_language",
         "asr_vad_model", "asr_vad_max_segment_s", "asr_hotwords", "asr_offline",
         "asr_local_source", "work_id", "page_index", "cid",
     ]
-    assert len(front) == 24
+    assert len(front) == 25
     assert len([key for key in front if key.startswith("asr_")]) == 15
     # The declared identity is a slot replacement, never a tenth provenance key.
     assert "asr_model_id" not in front
+    # Additive, never a redefinition: the part title still says what was archived.
+    assert front["title"] == "keys"
+    assert front["video_title"] == "密钥视频"
+
+
+def test_write_archive_names_the_video_title_beside_the_part_title(tmp_root):
+    """``video_title`` is additive: ``title`` keeps meaning the part title.
+
+    The two are the measured pair, not a fabricated one — ``BV18XXcBnEz6``'s
+    part is titled ``哲学课3`` while its video is titled ``【哲学进阶】现代哲学
+    《第一哲学沉思录》第二讲 第二个沉思（上）``.  10 of the 63 stored parts
+    diverge this way, and conflating them is exactly what compass **D5**
+    forbids: ``title`` is the specific thing archived, ``video_title`` the
+    collection it came from.  Both are asserted on the same published block, so
+    an implementation that redefines ``title`` instead of adding a sibling key
+    fails here.
+    """
+
+    tmp_path = __import__("pathlib").Path(tmp_root)
+    ident = page_identity("BV1vtitle", 0, 7)
+    entry = {"bvid": ident.bvid, "work_id": ident.work_id, "page_index": 0, "cid": 7,
+             "title": "哲学课3", "video_title": "【哲学进阶】现代哲学 第二讲",
+             "pubdate_str": "2026-01-02", "duration_s": 10}
+    paths = write_archive(tmp_path, entry,
+                          [{"start": 0.0, "end": 2.0, "text": "甲。"}], source="subtitle")
+    front = _frontmatter(tmp_path / paths["md_path"])
+    assert front["title"] == "哲学课3"          # unchanged meaning
+    assert front["video_title"] == "【哲学进阶】现代哲学 第二讲"
+
+
+def test_write_archive_publishes_a_uniform_key_set_without_a_video_title(tmp_root):
+    """D4: the key set does not vary with the writer input that supplied it.
+
+    Only the stored-transcript projection can hand ``write_archive`` a
+    ``video_title``.  The chain/ASR path reaches it with a
+    ``row_for_part`` row — the nine fields of §3.1 and **no** ``video_title``
+    key (``cli.py:2266``/``:2371``/``:2473``, ``coordinator.py:492``/``:593``) —
+    and the key is published with an empty default there **by decision**, not by
+    accident of ``.get``.  Omitting it on that arm is refused because both pins
+    of the published key set are equality-based (the ordered list below and
+    ``FRONTMATTER_KEYS`` in ``tests/test_published_projection_readers.py``): an
+    artifact missing the key would be a *different* published shape rather than
+    a cheaper one, and a reader parsing a fixed key set would have to branch.
+    ``title``/``date``/``duration_s`` on the same line emit their empty default
+    the same way, and the enriched-entry case above pins the identical list, so
+    the two arms can only move together.
+
+    **Known reader-visible gap, not a completed delivery:** a chain-produced
+    artifact says ``video_title: ""`` until the manifest half
+    (``row_for_part``/``projection_row``) lands and gives the row a real value.
+    This test pins the shape, not the value.
+    """
+
+    tmp_path = __import__("pathlib").Path(tmp_root)
+    ident = page_identity("BV1chain", 0, 21)
+    # ``row_for_part``'s nine fields, verbatim — including ``status``, taken from the constant
+    # the deriver itself writes rather than hand-copied, so this fixture cannot drift away
+    # from the row it claims to reproduce.
+    entry = {"bvid": ident.bvid, "work_id": ident.work_id, "page_index": 0, "cid": 21,
+             "title": "哲学课3", "duration_s": 10, "pubdate": 1_767_312_000,
+             "pubdate_str": "2026-01-02", "status": QUEUE_STATUS}
+    assert "video_title" not in entry
+    provenance = {
+        "model_name": "FunAudioLLM/Fun-ASR-Nano-2512", "model_revision": "master",
+        "device": "cpu", "language": "中文", "vad_model": "fsmn-vad",
+        "vad_max_segment_s": "30.0", "hotwords": "", "offline": "True",
+        "local_source": "configured-local",
+    }
+    segments = [{"start": 0.0, "end": 2.0, "text": "甲。", "confidence": 0.9},
+                {"start": 2.0, "end": 4.0, "text": "乙。", "confidence": 0.2}]
+
+    paths = write_archive(tmp_path, entry, segments, source="asr",
+                          asr_provenance=provenance)
+
+    front = _frontmatter(tmp_path / paths["md_path"])
+    # The 25 keys in order, ``video_title`` directly after ``title``: the same
+    # list the enriched-entry case pins, so the two arms cannot drift apart.
+    assert list(front) == [
+        "bvid", "title", "video_title", "date", "duration_s", "source", "url",
+        "asr_vad_segments", "asr_vad_captured_s", "asr_vad_captured_ratio",
+        "asr_mean_confidence", "asr_low_confidence_cues", "asr_low_confidence_at",
+        "asr_model_name", "asr_model_revision", "asr_device", "asr_language",
+        "asr_vad_model", "asr_vad_max_segment_s", "asr_hotwords", "asr_offline",
+        "asr_local_source", "work_id", "page_index", "cid",
+    ]
+    assert front["video_title"] == ""
+    assert front["title"] == "哲学课3"
 
 
 def _frontmatter(md_path):

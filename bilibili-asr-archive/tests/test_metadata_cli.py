@@ -338,11 +338,12 @@ def test_fetch_meta_creates_fresh_database_and_completes(
         assert not os.path.exists(os.path.join(tmp_root, relative))
 
     # The pinned adapter drove exactly the documented upstream calls: one
-    # page fetch, one parts fetch, one empty-page fetch (aid present, so no
-    # detail call).
+    # page fetch, one parts fetch, one tag fetch, one empty-page fetch (aid
+    # present, so no detail call).
     assert bilibili_api_seam.calls == [
         "space.arc.search(pn=1, ps=30)",
         "video.get_pages",
+        "video.tags",
         "space.arc.search(pn=2, ps=30)",
     ]
 

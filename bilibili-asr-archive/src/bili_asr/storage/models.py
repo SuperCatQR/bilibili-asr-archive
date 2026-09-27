@@ -204,6 +204,31 @@ class VideoPartRecord:
 
 
 @dataclass(frozen=True, slots=True)
+class VideoTagRecord:
+    """One tag the archive observed on one video.
+
+    The identity is ``(bvid, tag_id)``: ``tag_name`` is a display label
+    upstream may rename while the id stays the same, so the name is a fact
+    about what upstream last said rather than part of the key.  ``tag_type``
+    is upstream's own classification (``old_channel`` and the like) and is
+    likewise stored verbatim.  There is no timestamp column: a tag row is
+    replaced wholesale on recollect, so it carries no per-row observation
+    time to advance.
+    """
+
+    bvid: str
+    tag_id: int
+    tag_name: str
+    tag_type: str
+
+    def __post_init__(self) -> None:
+        _text(self.bvid, "bvid")
+        _integer(self.tag_id, "tag_id", minimum=1)
+        _text(self.tag_name, "tag_name")
+        _text(self.tag_type, "tag_type")
+
+
+@dataclass(frozen=True, slots=True)
 class IngestionRunRecord:
     """Metadata and outcome state for one collection run."""
 
@@ -454,8 +479,8 @@ __all__ = [
     "UserRecord",
     "VideoPartRecord",
     "VideoRecord",
+    "VideoTagRecord",
 ]
-
 
 # Public validation surface: the canonical enumeration sets and the error-code
 # validator are exported so gateway and CLI callers validate against the same

@@ -34,6 +34,15 @@ CREATE TABLE IF NOT EXISTS video_parts (
     FOREIGN KEY (bvid) REFERENCES videos(bvid) ON DELETE RESTRICT
 );
 
+CREATE TABLE IF NOT EXISTS video_tags (
+    bvid TEXT NOT NULL,
+    tag_id INTEGER NOT NULL CHECK (tag_id > 0),
+    tag_name TEXT NOT NULL,
+    tag_type TEXT NOT NULL,
+    PRIMARY KEY (bvid, tag_id),
+    FOREIGN KEY (bvid) REFERENCES videos(bvid) ON DELETE RESTRICT
+);
+
 CREATE TABLE IF NOT EXISTS ingestion_runs (
     run_id TEXT PRIMARY KEY,
     mid INTEGER NOT NULL,
