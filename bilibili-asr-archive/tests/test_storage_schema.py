@@ -48,6 +48,7 @@ BASE_TABLES = {
     "bilibili_users",
     "videos",
     "video_parts",
+    "video_tags",
     "ingestion_runs",
     "ingestion_cursors",
     "ingestion_pages",
@@ -72,6 +73,7 @@ VIEWS = {
 }
 EXPECTED_TABLE_COLUMNS = {
     "bilibili_users": ["mid", "display_name", "created_at", "updated_at"],
+    "video_tags": ["bvid", "tag_id", "tag_name", "tag_type"],
     "videos": [
         "bvid",
         "aid",
@@ -177,6 +179,9 @@ EXPECTED_TABLE_COLUMNS = {
 EXPECTED_FOREIGN_KEYS = {
     "videos": (("mid", "bilibili_users", "mid"),),
     "video_parts": (("bvid", "videos", "bvid"),),
+    # The tag row's parent is the video it tags: a tag cannot outlive, or
+    # precede, the video row it belongs to.
+    "video_tags": (("bvid", "videos", "bvid"),),
     "ingestion_runs": (("mid", "bilibili_users", "mid"),),
     "ingestion_cursors": (("mid", "bilibili_users", "mid"),),
     "ingestion_pages": (("run_id", "ingestion_runs", "run_id"),),
@@ -208,6 +213,10 @@ EXPECTED_UNIQUE_CONSTRAINTS = {
 }
 EXPECTED_PRIMARY_KEY_INDEXES = {
     "videos": (("bvid",),),
+    # ``(bvid, tag_id)`` is the tag identity, and its implicit index is what
+    # serves the one query this table has (all tags of one video).  No declared
+    # index is added: see ``video_tags``' note below.
+    "video_tags": (("bvid", "tag_id"),),
     "ingestion_runs": (("run_id",),),
     "ingestion_pages": (("run_id", "page_number"),),
     "ingestion_discoveries": (("run_id", "page_number", "bvid"),),
@@ -243,6 +252,10 @@ EXPECTED_CHECK_ENUMERATIONS = {
     "video_parts": (
         "processing_status IN ('discovered', 'metadata_collected', 'gone')",
     ),
+    # A tag id is upstream's own positive integer.  Zero and negatives are not
+    # tag identities, so they are refused at the storage boundary rather than
+    # stored as if upstream had said them.
+    "video_tags": ("tag_id > 0",),
     "ingestion_runs": (
         "source_package = 'bilibili-api-python'",
         "outcome IN ('running', 'complete', 'limited', 'risk_interrupted', 'failed')",
@@ -775,6 +788,104 @@ def test_duplicate_candidate_keys_are_rejected(tmp_root):
                 ) VALUES (2, 'hash-2', 1, 'm4a', 1, 'audio/1', 1)
                 """
             )
+    finally:
+        connection.close()
+
+
+def test_video_tags_are_keyed_by_video_and_tag_id(tmp_root):
+    """``(bvid, tag_id)`` is the identity, and nothing else is unique.
+
+    ``tag_name`` is a display label upstream may rename, so it is deliberately
+    *not* part of the key: the same name may label two ids, and one id may be
+    renamed while its row stays the same row.
+    """
+
+    connection = open_database(tmp_root)
+    try:
+        _insert_user_video_part(connection)
+        connection.execute(
+            "INSERT INTO video_tags(bvid, tag_id, tag_name, tag_type)"
+            " VALUES ('BV1TEST', 943, '爱情', 'old_channel')"
+        )
+        # A second video may carry the very same tag id.
+        connection.execute(
+            "INSERT INTO videos(bvid, aid, mid, title, pubdate, created_at, updated_at)"
+            " VALUES ('BV2TEST', 1002, 23191782, '第二个视频', 1, 101, 101)"
+        )
+        connection.execute(
+            "INSERT INTO video_tags(bvid, tag_id, tag_name, tag_type)"
+            " VALUES ('BV2TEST', 943, '爱情', 'old_channel')"
+        )
+        # The same id twice on one video is a duplicate identity.
+        with pytest.raises(sqlite3.IntegrityError):
+            connection.execute(
+                "INSERT INTO video_tags(bvid, tag_id, tag_name, tag_type)"
+                " VALUES ('BV1TEST', 943, '重复', 'old_channel')"
+            )
+        # A renamed label is the same identity, so it is refused too — the
+        # store cannot hold two labels for one tag id.
+        with pytest.raises(sqlite3.IntegrityError):
+            connection.execute(
+                "INSERT INTO video_tags(bvid, tag_id, tag_name, tag_type)"
+                " VALUES ('BV1TEST', 943, 'renamed upstream', 'old_channel')"
+            )
+        # A non-positive tag id is not an identity upstream can issue.
+        for invalid in (0, -1):
+            with pytest.raises(sqlite3.IntegrityError):
+                connection.execute(
+                    "INSERT INTO video_tags(bvid, tag_id, tag_name, tag_type)"
+                    " VALUES ('BV1TEST', ?, 'x', 'old_channel')",
+                    (invalid,),
+                )
+        # A tag cannot precede or outlive the video row it belongs to.
+        with pytest.raises(sqlite3.IntegrityError):
+            connection.execute(
+                "INSERT INTO video_tags(bvid, tag_id, tag_name, tag_type)"
+                " VALUES ('BVUNKNOWN', 1, 'x', 'old_channel')"
+            )
+        with pytest.raises(sqlite3.IntegrityError):
+            connection.execute("DELETE FROM videos WHERE bvid = 'BV1TEST'")
+
+        rows = connection.execute(
+            "SELECT bvid, tag_id, tag_name, tag_type FROM video_tags"
+            " ORDER BY bvid, tag_id"
+        ).fetchall()
+        assert [tuple(row) for row in rows] == [
+            ("BV1TEST", 943, "爱情", "old_channel"),
+            ("BV2TEST", 943, "爱情", "old_channel"),
+        ]
+    finally:
+        connection.close()
+
+
+def test_video_tags_declare_no_index_of_their_own(tmp_root):
+    """The composite primary key is the only index this table needs.
+
+    The task's one declared query is "every tag of one video", which the
+    implicit primary-key index serves directly (measured: ``SEARCH video_tags
+    USING INDEX sqlite_autoindex_video_tags_1 (bvid=?)``).  A declared ``CREATE
+    INDEX`` would therefore be additive cost with no query benefit, and the
+    declared-index contract is pinned per table — so the absence is asserted
+    here rather than left to the contract's own silence.
+    """
+
+    connection = open_database(tmp_root)
+    try:
+        declared = [
+            row["name"]
+            for row in connection.execute("PRAGMA index_list(video_tags)")
+            if row["origin"] == "c"
+        ]
+        assert declared == []
+
+        plan = connection.execute(
+            "EXPLAIN QUERY PLAN SELECT tag_id, tag_name FROM video_tags"
+            " WHERE bvid = ?",
+            ("BV1TEST",),
+        ).fetchall()
+        detail = " ".join(str(row["detail"]) for row in plan)
+        assert "sqlite_autoindex_video_tags_1" in detail
+        assert "SCAN" not in detail
     finally:
         connection.close()
 

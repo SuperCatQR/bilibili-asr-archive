@@ -20,6 +20,7 @@ from bili_asr.sources.models import (
     UserVideoPage,
     VideoPart,
     VideoSummary,
+    VideoTag,
 )
 
 __all__ = [
@@ -35,4 +36,5 @@ __all__ = [
     "UserVideoPage",
     "VideoPart",
     "VideoSummary",
+    "VideoTag",
 ]

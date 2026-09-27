@@ -38,6 +38,9 @@ from bili_asr.services.transcript_projection import (
 from bili_asr.storage.models import TranscriptSegmentRecord
 
 #: §2.1's part context: what a candidate carries out of the read, and no more.
+#: ``pubdate`` and ``video_title`` are the video's own columns, carried beside
+#: the part's because the read joins ``videos`` for them and a caller holding
+#: only a candidate could not recover them.
 PART_KEYS = {
     "video_part_id",
     "bvid",
@@ -46,6 +49,7 @@ PART_KEYS = {
     "part_title",
     "duration_ms",
     "pubdate",
+    "video_title",
 }
 #: §2.1's identity columns: the winning transcript's own keys.
 IDENTITY_KEYS = {
@@ -114,6 +118,7 @@ def _row(
     model_id=None,
     version=1,
     created_at=PUBDATE - 60,
+    video_title="哲学视频",
 ):
     """One ``dict(row)`` of the §2.1 relation, attempt columns excluded."""
     return {
@@ -124,6 +129,7 @@ def _row(
         "part_title": part_title,
         "duration_ms": duration_ms,
         "pubdate": pubdate,
+        "video_title": video_title,
         "transcript_id": transcript_id,
         "source_kind": source_kind,
         "language": language,

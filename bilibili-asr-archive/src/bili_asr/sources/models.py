@@ -66,6 +66,13 @@ class VideoSummary:
 
     ``aid`` stays nullable: the list response may omit it, and only a
     deliberate detail call may fill the gap.
+
+    ``author`` is the uploader's own display name as this page reported it, and
+    it is nullable too: the list response may omit it, and absence stays
+    absence rather than being filled with ``str(mid)`` here.  The gateway must
+    not fabricate a display label, because ``None`` is what lets the ingestor
+    tell "upstream sent no name" from "upstream sent this name" — the ingestor
+    owns the user record, so the fallback is its decision, not this DTO's.
     """
 
     bvid: str
@@ -73,6 +80,7 @@ class VideoSummary:
     title: str
     pubdate: int
     mid: int
+    author: str | None = None
 
     def __post_init__(self) -> None:
         _text(self.bvid, "bvid")
@@ -81,6 +89,8 @@ class VideoSummary:
         _text(self.title, "title")
         _integer(self.pubdate, "pubdate", minimum=0)
         _integer(self.mid, "mid", minimum=1)
+        if self.author is not None:
+            _text(self.author, "author")
 
 
 @dataclass(frozen=True, slots=True)
@@ -99,6 +109,34 @@ class VideoPart:
         _integer(self.cid, "cid", minimum=1)
         _text(self.title, "title")
         _integer(self.duration_ms, "duration_ms", minimum=1)
+
+
+@dataclass(frozen=True, slots=True)
+class VideoTag:
+    """One tag upstream reports for one video, normalized to three fields.
+
+    Like ``SubtitleTrack``, this is one entry of an inventory whose owner is
+    the *call's* argument: ``get_video_tags(bvid)`` already names the video, so
+    the DTO does not repeat it.  The identity is ``(bvid, tag_id)`` and the
+    store holds both; here the ``bvid`` is the caller's, carried to the
+    repository by the ingestor rather than through every entry.
+
+    ``tag_name`` is a display label upstream may rename while the id stays the
+    same, and ``tag_type`` is upstream's own classification (``old_channel``
+    and the like).  Only these three are carried: upstream's response also
+    holds a ``music_id`` and a ``jump_url``, and neither is a fact this archive
+    stores — a URL in particular is the kind of value the store's no-URL rule
+    keeps out, so it never reaches a DTO in the first place.
+    """
+
+    tag_id: int
+    tag_name: str
+    tag_type: str
+
+    def __post_init__(self) -> None:
+        _integer(self.tag_id, "tag_id", minimum=1)
+        _text(self.tag_name, "tag_name")
+        _text(self.tag_type, "tag_type")
 
 
 @dataclass(frozen=True, slots=True)
@@ -192,6 +230,19 @@ class BilibiliGateway(Protocol):
         self, summary: VideoSummary
     ) -> VideoSummary: ...
 
+    # The tag set is a property of the VIDEO, not of a part: it is fetched
+    # once per video and cached for the run's duration.  A tag fetch is
+    # retry-free and degrades rather than raising — risk control and transport
+    # failures on this call may not fail the collection run — but the
+    # degradation is a *third state*, not an empty set: ``None`` means "this
+    # call could not read the tags this time" and ``()`` means "read it, and
+    # this video carries none".  Callers must not turn the first into the
+    # second: the ingestor omits such a bvid from a page's tag sets, so
+    # nothing is written for it and rows a previous run stored survive
+    # (compass D16).  A key present with an empty iterable is the observation
+    # that clears them.
+    async def get_video_tags(self, bvid: str) -> tuple[VideoTag, ...] | None: ...
+
     # A subtitle inventory is an observation, not a promise: an empty tuple
     # means nothing usable was visible with the credentials in effect, and it
     # is a legitimate result rather than a ``not_found`` failure.
@@ -273,4 +324,5 @@ __all__ = [
     "UserVideoPage",
     "VideoPart",
     "VideoSummary",
+    "VideoTag",
 ]

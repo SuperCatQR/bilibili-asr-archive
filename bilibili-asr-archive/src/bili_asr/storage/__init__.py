@@ -49,6 +49,7 @@ from .models import (
     UserRecord,
     VideoPartRecord,
     VideoRecord,
+    VideoTagRecord,
     validate_error_code,
 )
 
@@ -90,6 +91,7 @@ __all__ = [
     "UserRecord",
     "VideoPartRecord",
     "VideoRecord",
+    "VideoTagRecord",
     "duration_to_ms",
     "initialize_schema",
     "normalize_page_index",

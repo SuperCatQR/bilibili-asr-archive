@@ -1493,6 +1493,7 @@ def _cmd_publish_transcripts(args: argparse.Namespace) -> int:
                     "page_index": part["page_index"],
                     "cid": part["cid"],
                     "title": part["part_title"],
+                    "video_title": part["video_title"],
                     "duration_s": duration_s_from_ms(part["duration_ms"]),
                     "pubdate_str": time.strftime(
                         "%Y-%m-%d", time.gmtime(part["pubdate"])
