@@ -199,19 +199,34 @@ def test_trusted_scale_fixture_exposes_current_record_limits(
     trusted_cli = json.loads(capsys.readouterr().out)
     assert trusted_cli["denominator"]["count"] == 10001
 
+    # Exit contract §2: every row here is `pending` — backlog, not damage —
+    # so the trusted run reaches exit 0 and `--strict` keeps the old gate at 1.
     assert main([
         "verify", "--archive-root", str(tmp_path), "--trusted-local",
-    ]) == 1
+    ]) == 0
     trusted_verify = json.loads(capsys.readouterr().out)
     assert trusted_verify["authoritative"] is True
     assert trusted_verify["checked"] == 10001
 
     assert main([
+        "verify", "--archive-root", str(tmp_path), "--trusted-local", "--strict",
+    ]) == 1
+    capsys.readouterr()
+
+    # Same split on the coverage reader: 10001 in-flight rows, no damage.
+    assert main([
         "coverage", "--quality", "--archive-root", str(tmp_path),
         "--trusted-local",
-    ]) == 1
+    ]) == 0
     trusted_quality = json.loads(capsys.readouterr().out)
     assert trusted_quality["denominator"]["count"] == 10001
+    assert trusted_quality["summary"]["artifact_missing"] == 10001
+
+    assert main([
+        "coverage", "--quality", "--archive-root", str(tmp_path),
+        "--trusted-local", "--strict",
+    ]) == 1
+    capsys.readouterr()
 
 
 @pytest.mark.parametrize(

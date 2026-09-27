@@ -401,12 +401,20 @@ def test_cli_main_coverage_quality_scope_and_redaction(tmp_path: Path, capsys: p
     store.upsert({"work_id": "BV1one:p0", "bvid": "BV1one", "status": "archived"})
     store.upsert({"work_id": "BV1two:p0", "bvid": "BV1two", "status": "meta_ok"})
 
-    # Scope pending selects only meta_ok
+    # Scope pending selects only meta_ok.
+    # Inverted by the exit-code contract (§2): an in-flight status whose
+    # artifact is not there yet is backlog, and backlog never moves the exit
+    # code.  The pre-cutover gate is preserved under `--strict` below.
     exit_code = cli.main(["coverage", "--archive-root", str(tmp_path), "--quality", "--scope", "pending", "--format", "json"])
-    assert exit_code == 1  # missing artifact on meta_ok
+    assert exit_code == 0  # missing artifact on meta_ok is backlog, not damage
     payload = json.loads(capsys.readouterr().out)
     assert payload["denominator"]["count"] == 1
     assert payload["rows"][0]["work_id"] == "BV1two:p0"
+
+    # Negative control: the same input under `--strict` still exits 1.
+    exit_code = cli.main(["coverage", "--archive-root", str(tmp_path), "--quality", "--scope", "pending", "--format", "json", "--strict"])
+    assert exit_code == 1
+    capsys.readouterr()
 
     # Unknown scope
     exit_code = cli.main(["coverage", "--archive-root", str(tmp_path), "--quality", "--scope", "BV1unknown", "--format", "json"])
