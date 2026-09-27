@@ -1,6 +1,7 @@
 ---
 module: planning process (iteration scope, E2E scope, plan authoring)
 date: 2026-09-20
+last_updated: 2026-09-27
 problem_type: best_practice
 category: best-practices
 severity: medium

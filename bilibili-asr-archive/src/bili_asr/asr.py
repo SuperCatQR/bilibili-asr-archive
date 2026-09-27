@@ -20,7 +20,10 @@ aligned, the per-chunk timings are offset and stitched, and the surviving cue ru
 the FunASR era, they were measured on this corpus — group the aligned units into subtitle lines.
 
 Dependencies: ``transformers>=5.13`` (native Qwen3-ASR support), ``torch``, ``accelerate`` (the
-``device_map`` path), ``soundfile``/``librosa`` (reading audio).  Transformers is imported only when a
+``device_map`` path), ``soundfile``/``soxr`` (reading and resampling audio), and the **``ffmpeg``
+binary** — the decoder for the containers ``libsndfile`` cannot open (see :func:`_read_audio`).
+``ffmpeg`` is a declared requirement of the product, not an optional extra: the download layer
+already shells out to it to remux explicit FLAC streams.  Transformers is imported only when a
 runner first transcribes; no model download orchestration lives here.
 """
 
@@ -29,6 +32,7 @@ from __future__ import annotations
 import os
 import re
 import shutil
+import subprocess
 import tempfile
 from dataclasses import asdict, dataclass, replace
 from typing import Any, Callable, NamedTuple
@@ -142,8 +146,8 @@ DEFAULT_HOTWORDS: tuple[str, ...] = (
     # fragments these into shards when they are missing from the prompt (measured
     # 2026-09-14 on the ten-video run: "International Employment Matters Tribunal"
     # came out as tryBUNAL / FOR EMP LOYMENT MAT TERS, and the ITEM/AITEM pair as
-    # TEM / AITM / ITM).  They are listed as whole phrases as well as acronyms so
-    # the decoder has both the spelled-out form and the initialisms.
+    # TEM / AITM / ITM).  The spelled-out phrase is listed together with its three
+    # component words, so the decoder has the full form and each part of it.
     #
     # The bare acronyms ITEM and AITEM were **removed on 2026-09-17** after the
     # season run measured them doing harm of the kind they were added to prevent:
@@ -152,11 +156,28 @@ DEFAULT_HOTWORDS: tuple[str, ...] = (
     # "In accessible AITEM distance outside", "就是WHAT IS POSITIVE ITEM" — and
     # every one of them is the acronym capturing a neighbouring word rather than
     # a spoken initialism.  The spelled-out phrase stayed: it appears three times
-    # and is genuine each time.
+    # and is genuine each time.  They are therefore deliberately **absent** from
+    # this list, not overlooked — re-adding either needs its own measurement.
     #
     # Evidence status: the surface-form measurements are the **retired FunASR-Nano**
     # checkpoint's and do not carry over unmeasured; re-measuring this list under the
     # engine that ships, with insertions counted separately from recoveries, is T5.
+    # That round ran 2026-09-26 on the frozen six-item corpus and returned PARTIAL:
+    # every exercised term came out identical with and without the prompt (R=0, I=0),
+    # and E=7 left the recovery clauses uninformative — so the list's benefit is still
+    # unmeasured, and the absence of a falsifying result is not evidence of benefit.
+    # Record: `iter-2026-09-qwen3-asr-closeout/guides/t5-hotword-measurement-results.md`.
+    #
+    # Two facts from the original block were dropped when this list was restored in
+    # 83ba8d0 and are restored here, because nothing else in the repository carries
+    # them.  (1) The harm measurement that justified the removal was taken on
+    # `BV19hG56hEfV.p2`, which carries 5 of the 9 bad cues.  (2) The *benefit* side —
+    # why these acronyms were ever added — was measured on `BV1eGJ46mEHQ`, and **that**
+    # video is the one whose audio no longer exists, so the benefit cannot be re-measured
+    # from here and must be taken from the counts above.  The asymmetry is the point:
+    # the harm can be re-checked (that lecture's audio is one re-download away), the
+    # benefit cannot.  Record: `plans/20260917-hotword-acronym-precision.md`, findings
+    # D1 and D3.
     "International Employment Matters Tribunal",
     "International",
     "Employment",
@@ -188,6 +209,25 @@ class ASRDependencyError(RuntimeError):
 
 class ASRModelError(RuntimeError):
     """The configured checkpoint could not be loaded, or the run could not transcribe."""
+
+
+class AudioDecodeError(RuntimeError):
+    """The audio file exists but the decoder refused it.
+
+    Distinct from :class:`ASRDependencyError`: the dependencies are present, the *file* is the
+    problem (unreadable, or a codec ``ffmpeg`` was not built with).  The coordinator records the
+    exception's type name when it has no scalar ``code`` attribute, so this class name is what an
+    operator sees in the run ledger.
+
+    What this class does **not** cover, stated because the difference matters for an archive whose
+    download stage can be interrupted: a file truncated in the middle decodes **silently short**
+    rather than raising.  Measured on a faststart ``.m4a`` cut to 90/70/50/30 % of its bytes, which
+    is the shape an interrupted download leaves when ``moov`` precedes ``mdat``: the decode returned
+    53.9/41.6/29.4/17.1 s of a 60 s recording, exit status 0, no stderr.  Nothing here compares the
+    decoded duration with the row's ``duration_s``, so a short read is not detected — the same was
+    true of the ``librosa`` path this replaced, so this is a pre-existing limit rather than a
+    regression, but the reader should not infer from this class that truncation is caught.
+    """
 
 
 def _is_redaction_safe_model_identifier(value: str, *, hub_level: bool = False) -> bool:
@@ -355,9 +395,13 @@ def _materialize_input(audio_path: str) -> tuple[str, str | None]:
     root.  Descriptor paths are not universally openable by the decoder libraries, so one is copied
     to a temporary file which the caller removes.  A plain path is returned untouched.
 
-    Retained from the FunASR era (plan §13.1): the original reason was a child ``ffmpeg``, which a
-    descriptor cannot be handed to.  Reading is in-process now, so this may be removable — it is kept
-    until a run proves descriptor paths work without it.
+    The original reason (plan §13.1) was a child ``ffmpeg``, which a descriptor cannot be handed to,
+    and that reason is live again: ``_decode_with_ffmpeg`` runs ``ffmpeg`` as a child for every
+    container libsndfile cannot open, i.e. for every ``.m4a`` this archive downloads.  The descriptor
+    is not passed through (``subprocess.run`` is called without ``pass_fds``), so a ``/proc/self/fd``
+    path handed to it would resolve inside the child to a closed descriptor — measured: the fallback
+    raises ``AudioDecodeError`` for such a path.  This step is therefore load-bearing for the
+    project's primary input format, not merely a legacy convenience, and a ``.m4a`` run exercises it.
     """
 
     if not isinstance(audio_path, str) or not _DESCRIPTOR_PATH.match(audio_path):
@@ -375,6 +419,89 @@ def _materialize_input(audio_path: str) -> tuple[str, str | None]:
     return temporary, temporary
 
 
+def _decode_with_ffmpeg(path: str) -> tuple[Any, int]:
+    """Decode a container ``libsndfile`` cannot open, through the ``ffmpeg`` binary.
+
+    ``ffmpeg`` is a declared requirement of the product (``AGENTS.md``), and the download layer
+    already shells out to it to remux explicit FLAC streams, so this adds no new kind of
+    dependency — it only moves the AAC decode onto a tool that is guaranteed present rather than
+    onto a Python package whose support for it varies by release.
+
+    The audio is decoded to a float WAV in a temporary file and read back with the same
+    ``soundfile`` reader the primary path uses, which keeps one decode shape for both paths and
+    preserves the source's native rate and channel count.  A pipe was rejected deliberately: the
+    longer archive items are hours long, so buffering a whole WAV in memory to hand ``soundfile`` a
+    seekable object would cost gigabytes, while a temp file costs only the decoded array.
+
+    Three ffmpeg flags are load-bearing, each because a failure was measured rather than imagined:
+
+    * ``-nostdin`` — without a stdin guard ``ffmpeg`` reads the inherited stdin, and ``q`` is its
+      quit key (reproduced: a piped ``q\\n`` turned a valid ``.m4a`` into ``AudioDecodeError`` while
+      an empty stdin decoded fine).  This flag **and** ``stdin=subprocess.DEVNULL`` below both
+      address it, and either alone suffices — measured by removing each independently.  Both are
+      kept on purpose: the flag is ffmpeg's own contract and holds however the child is spawned,
+      the call-site argument is what a reader of this function sees, and only removing **both**
+      brings the bug back (``test_the_ffmpeg_decode_survives_a_piped_quit_key`` fails then).
+    * ``-rf64 auto`` — the RIFF/WAVE muxer cannot express a file over 4 GiB and, past that limit,
+      ``ffmpeg`` **exits 0** while printing ``Filesize … invalid for wav, output file will be
+      broken`` to the stderr this call discards.  Measured on a 11600 s 48 kHz stereo source: the
+      WAV held 536 870 911 of 552 000 000 frames and ``soundfile`` read the truncated array without
+      raising, so ~3.1 h of audio would vanish silently.  ``-rf64 auto`` writes RF64 only when a
+      plain WAV would overflow, and libsndfile reads RF64.
+    * ``-v error`` — keeps the child's chatter out of the parent's stderr on the success path.
+    """
+
+    ffmpeg = shutil.which("ffmpeg")
+    if not ffmpeg:
+        raise ASRDependencyError(
+            "reading .m4a/AAC needs the `ffmpeg` binary and it is not on PATH; "
+            "install it (e.g. `apt install ffmpeg`) and re-run"
+        )
+
+    handle, scratch = tempfile.mkstemp(prefix="bili-asr-decode-", suffix=".wav")
+    os.close(handle)
+    try:
+        completed = subprocess.run(
+            [
+                ffmpeg,
+                "-v", "error",
+                "-nostdin",
+                "-y",
+                "-i", path,
+                "-acodec", "pcm_f32le",
+                "-rf64", "auto",
+                scratch,
+            ],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+            check=False,
+        )
+        if completed.returncode != 0:
+            detail = completed.stderr.decode("utf-8", "replace").strip().splitlines()
+            reason = detail[-1] if detail else f"ffmpeg exited {completed.returncode}"
+            # Only the LAST stderr line is reported, and that is load-bearing rather than incidental:
+            # ffmpeg's middle line echoes the offending path verbatim ("Error opening input file
+            # /tmp/…m4a."), measured for a missing file and for a non-audio file, while its final
+            # line is path-free ("Error opening input files: No such file or directory").  The path
+            # is deliberately kept out of this message because the product's own convention for an
+            # unusable input is a description rather than a location (``audio.py`` says "invalid
+            # audio path" and never quotes it), and the caller already knows which item it asked for.
+            # So do not "improve" this by joining every line: that would leak the input path, and it
+            # would leak ``scratch``'s path too.  Changing to ``detail[0]`` is safer than joining and
+            # also more specific, since the first line names the cause; it is not done here because
+            # the two cases measured would each need their own check first.
+            raise AudioDecodeError(f"ffmpeg could not decode the audio input: {reason}")
+        import soundfile as sf
+
+        return sf.read(scratch, dtype="float32")
+    finally:
+        try:
+            os.unlink(scratch)
+        except OSError:
+            pass
+
+
 def _read_audio(path: str) -> tuple[Any, int]:
     """Read one audio file to ``(samples, rate)``, mono or ``(samples, channels)``.
 
@@ -384,12 +511,12 @@ def _read_audio(path: str) -> tuple[Any, int]:
     dependency: it is the documented input, so the reader has to be wide enough for it or the
     product cannot transcribe what it downloaded.
 
-    ``librosa`` is the fallback: already a declared ``[asr]`` dependency, already imported by this
-    module for resampling, and decoding through ``audioread`` (an ``ffmpeg`` child, which
-    ``AGENTS.md`` already requires).  On the formats both readers open they agree sample-for-sample
-    — verified on the target host against an ``ffmpeg -ar 48000 -ac 2`` decode of the same file:
-    no length difference and a maximum absolute difference of 0.000000 — so the fallback widens the
-    reader rather than trading quality.
+    The fallback is the **``ffmpeg`` binary**, not a Python package.  An earlier revision routed this
+    through ``librosa.load`` on the belief that it reaches ``audioread`` and then ``ffmpeg``; that
+    chain broke when ``librosa`` 1.0 dropped ``audioread`` and made ``load`` a bare ``soundfile``
+    call, so the fallback silently re-raised the very error it existed to catch while every test
+    still passed (residual ``iter-2026-09-qwen3-asr-closeout · R5``).  ``ffmpeg`` is pinned by the
+    platform rather than by a version range, and the archive already requires it.
 
     The returned shape is the one ``soundfile.read`` returns, so the caller's channel collapse and
     resample stay the only place that shaping happens.
@@ -401,13 +528,8 @@ def _read_audio(path: str) -> tuple[Any, int]:
     try:
         return sf.read(path, dtype="float32")
     except sf.LibsndfileError:
-        import librosa
-
-        samples, rate = librosa.load(path, sr=None, mono=False)
-        samples = np.asarray(samples, dtype=np.float32)
-        if samples.ndim > 1:
-            samples = samples.T  # librosa is (channels, samples); soundfile is (samples, channels)
-        return samples, int(rate)
+        samples, rate = _decode_with_ffmpeg(path)
+        return np.asarray(samples, dtype=np.float32), int(rate)
 
 
 def _clean_text(text: str) -> str:
@@ -836,6 +958,7 @@ class ASRRunner:
         try:
             import numpy as np
             import soundfile as sf
+            import soxr
         except ImportError as exc:
             raise ASRDependencyError(
                 f"the ASR audio readers are not installed; run: {_INSTALL_HINT}"
@@ -849,9 +972,10 @@ class ASRRunner:
             if samples.ndim > 1:
                 samples = samples.mean(-1).astype(np.float32)
             if int(rate) != SAMPLE_RATE:
-                import librosa
-
-                samples = librosa.resample(samples, orig_sr=int(rate), target_sr=SAMPLE_RATE)
+                # ``soxr`` is what ``librosa.resample`` calls underneath at its default
+                # ``res_type="soxr_hq"``; measured bit-identical on this corpus, and it drops a
+                # dependency whose version range could change the resampler silently.
+                samples = soxr.resample(samples, int(rate), SAMPLE_RATE)
                 samples = np.asarray(samples, dtype=np.float32)
 
             chunks = _split_audio(samples, SAMPLE_RATE, self.config.chunk_seconds)

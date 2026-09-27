@@ -1,6 +1,7 @@
 ---
 module: bili-asr ASR hotword list (DEFAULT_HOTWORDS)
 date: 2026-09-18
+last_updated: 2026-09-27
 problem_type: testing_pattern
 category: testing-patterns
 severity: medium
@@ -26,7 +27,7 @@ related_components:
   - bilibili-asr-archive/src/bili_asr/asr.py (DEFAULT_HOTWORDS, _extra_hotwords)
   - BILI_ASR_HOTWORDS
   - asr_hotwords md frontmatter readback
-  - bilibili-asr-archive/src/bili_asr/manifest.py (read-back surface)
+  - bilibili-asr-archive/src/bili_asr/archive.py (write_archive -> the produced transcript's asr_* frontmatter)
 ---
 
 # Measuring whether a hotword-list change earns its place
@@ -60,7 +61,7 @@ affected item — 扬弃 4 correct vs 57 wrong. The run identity is fixed with t
 archive root, arms run sequentially.
 
 **2. Build the "without" arm by temporary removal, not with the environment knob.** `_extra_hotwords`
-(`bilibili-asr-archive/src/bili_asr/asr.py` L456-467) skips any term already in `DEFAULT_HOTWORDS`, so
+(`bilibili-asr-archive/src/bili_asr/asr.py:351`) skips any term already in `DEFAULT_HOTWORDS`, so
 `BILI_ASR_HOTWORDS` can only **add** — it cannot subtract a committed default entry. The Latin-acronym A/B
 worked by re-adding removed acronyms through that knob; that trick is unavailable for a subtraction problem,
 and the "without" arm exists only as a temporary, uncommitted edit that removes the six lines, restored
@@ -188,7 +189,7 @@ floor, damage classes, with the caption-vs-proofread basis labelled per span).
 - Before adding, removing or reordering a `DEFAULT_HOTWORDS` entry whose only justification is an error count:
   run the benefit side, on the audio where the errors were counted.
 - Whenever the arm to be measured is *committed* configuration with no negative knob — the temporary-removal
-  design plus its double restoration proof is the answer, and the readback is what makes it citable.
+  design plus its byte-anchored restore proof is the answer, and the readback is what makes it citable.
 - Whenever a difference is small enough that decoder jitter is a live competing explanation: measure the floor
   first, or the difference is not yet a result.
 - Not as a corpus-quality claim, and not as a substitute for the error census: the two halves are complementary,

@@ -12,6 +12,13 @@ Base metadata/subtitle/audio workflows (Linux or Windows WSL, Python 3.12+):
 
     python3.12 -m pip install -e ".[dev]"
 
+`ffmpeg` is a **system requirement, not a pip one** — install it alongside Python
+(`sudo apt install ffmpeg`, or the WSL equivalent). The download layer uses it to remux the explicit
+FLAC streams, and the ASR reader uses it to decode the `.m4a`/AAC the downloader writes, which
+`soundfile` cannot open. A host without it fails every `.m4a` with an `ASRDependencyError` naming
+the binary; `scripts/check_asr_env.py` is not a substitute, since it checks the GPU stack and would
+pass on a host with no `ffmpeg` at all.
+
 Local ASR support is optional. It needs the two Qwen3-ASR checkpoints (next section) and a torch
 build the recipe below provides — pip is deliberately told nothing about torch, because the wheel
 that works on this host comes from `repo.radeon.com` and not from an index:
@@ -136,20 +143,29 @@ runtime, or full-corpus coverage.
 
 ### Reading the audio the downloader writes
 
-`download-audio` writes `.m4a` (AAC). **`soundfile` cannot decode AAC**, so the runner reads
-with `soundfile` first and, on `LibsndfileError`, falls back to `librosa.load` — which for an
-`.m4a` resolves through `audioread` to the system **`ffmpeg`**. Practically:
+`download-audio` writes `.m4a` (AAC). **`soundfile` cannot decode AAC**, so the runner reads with
+`soundfile` first and, on `LibsndfileError`, falls back to the **`ffmpeg` binary** — the same
+dependency `download-audio` already uses to remux explicit FLAC streams. Practically:
 
-- `librosa` is a declared `[asr]` dependency and `audioread` is a hard dependency of
-  `librosa`, so the Python side arrives with the extra.
-- **`ffmpeg` does not**, and it is what actually decodes AAC here. An environment with
-  `librosa` but no `ffmpeg` still fails on every `.m4a`.
-- A `.wav` or `.flac` archive decodes through `soundfile` and needs neither.
+- **`ffmpeg` is required**, and it is what decodes AAC here. It is a platform package rather than a
+  pip one, so it cannot be expressed in the `[asr]` extra; a host without it fails on every `.m4a`
+  with an `ASRDependencyError` naming the binary. `AGENTS.md` lists it as a requirement.
+- The Python side is `soundfile` (reading) and `soxr` (resampling), both declared in the extra.
+- A `.wav` or `.flac` archive decodes through `soundfile` and never reaches the fallback.
 
-The fallback is exercised only for containers `libsndfile` cannot open, so a mistake in this
-path cannot be caught by a `.wav` fixture — which is exactly how it went unnoticed until a
-real `.m4a` run failed. The tests pin it with a stub that raises `LibsndfileError`, and the
-regression is registered as `20260924-qwen3-asr-transformers · R1`.
+The fallback is exercised only for containers `libsndfile` cannot open, so a mistake in this path
+cannot be caught by a `.wav` fixture. That is exactly how the first repair shipped broken: it routed
+the fallback through `librosa.load` on the belief that it reaches `audioread` and then `ffmpeg`, but
+`librosa` 1.0 dropped `audioread` and made `load` a bare `soundfile` call — so the fallback re-raised
+the very error it existed to catch, on any host built from this repository's own declarations, while
+every gate stayed green (residual `iter-2026-09-qwen3-asr-closeout · R5`).
+
+The suite now decodes a **real** AAC file — generated with `ffmpeg` at test time — rather than
+stubbing both readers, so a fallback that cannot decode fails the build instead of passing it. When
+`ffmpeg` is absent the codec tests **fail** with a named prerequisite rather than skipping: a green
+run on a host missing a declared requirement is the same false signal that let the first repair ship,
+and this repository has already settled that question for its other prerequisites
+(`tests/installed_cli.py`'s "never pytest.skip / xfail" policy).
 
 ### Naming the producer: three variables, three jobs
 
