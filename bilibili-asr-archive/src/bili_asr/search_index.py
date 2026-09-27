@@ -1,4 +1,47 @@
-"""SQLite FTS5 full-text search index for completed transcript archives."""
+"""SQLite FTS5 full-text search over archived transcripts.
+
+Two index layers live here:
+
+* ``SearchIndex`` — the original manifest-backed index (``search.db`` at the
+  archive root).  Kept intact behind the ``search`` command's legacy manifest
+  filters; a later cleanup plan retires it.
+* ``TranscriptSearchIndex`` — the store-backed index this module's active
+  search path uses.  The FTS table (``transcript_fts``) lives **inside
+  ``archive.db``** and is created only by the ``search-index`` command, behind
+  a gated FTS migration shim: after the normal schema contract check, the
+  command runs ``CREATE VIRTUAL TABLE IF NOT EXISTS transcript_fts …`` plus a
+  small bookkeeping table, and never bumps ``user_version`` — the virtual
+  table's own existence is the state (no-migration rule: no ALTER, no
+  user_version bump, no schema-transcripts.sql change).  Read paths never
+  auto-create the table: a missing index is backlog-class (exit 0 with an
+  explicit "index missing — run search-index" hint), store corruption is
+  defect-class (exit 1).
+
+Index schema — one row per time-bounded transcript block (a stored segment):
+
+    CREATE VIRTUAL TABLE transcript_fts USING fts5(
+        block_key, bvid, page_index, start_ms, end_ms, pubdate,
+        text,        -- segment text, searchable
+        bigram,      -- auxiliary CJK bigram column, searchable
+        source,      -- which route served the text: 'store' | 'published-md'
+        tokenize='unicode61'
+    );
+
+Tokenizer rationale: the corpus is overwhelmingly CJK (Chinese lecture
+transcripts), so the whole-block text is tokenized with ``unicode61``, whose
+case folding and punctuation rules fit the Latin fragments (bvid numbers,
+borrowed terms) exactly as the pre-migration ``search.db`` index tokenized
+them.  CJK has no whitespace, so any single-tokenizer scheme leaves Chinese
+unsearchable; the ``bigram`` auxiliary column therefore also carries an
+overlapping bigram stream of the same text, which makes arbitrary CJK
+substrings matchable while keeping ranking and snippets anchored to ``text``.
+At build time the available tokenizer set is probed and the declaration is
+chosen accordingly: the ``trigram`` tokenizer (a pure bigram/substring engine
+with its own built-in segmentation) when present, otherwise
+``tokenize='simple'`` — the two are equivalent for matching because this
+module queries the aux column only, never builds phrases across it, and the
+active interpreter here ships ``trigram`` but not ``simple``.
+"""
 
 from __future__ import annotations
 
@@ -8,6 +51,7 @@ import os
 from pathlib import Path
 import re
 import sqlite3
+import time
 from typing import Any, Sequence
 
 from .archive import archive_stem
@@ -47,12 +91,14 @@ class FTS5UnavailableError(RuntimeError):
 
 def check_fts5_available(conn: sqlite3.Connection | None = None) -> bool:
     """Return True if SQLite in this environment supports FTS5."""
+    probe = "CREATE VIRTUAL TABLE _test_fts5 USING fts5(x);"
     close_when_done = False
     if conn is None:
         conn = sqlite3.connect(":memory:")
         close_when_done = True
     try:
-        conn.execute("CREATE VIRTUAL TABLE _test_fts5 USING fts5(x);")
+        conn.execute(probe)
+        conn.execute("DROP TABLE IF EXISTS _test_fts5")
         return True
     except sqlite3.OperationalError:
         return False
@@ -889,6 +935,7 @@ def search(
     query: SearchQuery | str,
     *,
     artifact_roots: ArtifactRoots | None = None,
+    auto_build: bool | None = None,
 ) -> list[dict[str, object]]:
     """Search completed transcripts in the archive using SearchQuery filters.
 
@@ -898,6 +945,602 @@ def search(
     """
     if isinstance(query, str):
         query = SearchQuery(query=query)
+    if auto_build is None:
+        auto_build = True
+    if auto_build is not None:
+        query = SearchQuery(
+            query=query.query,
+            status=query.status,
+            source=query.source,
+            language=query.language,
+            scope=query.scope,
+            work_id=query.work_id,
+            title=query.title,
+            min_duration_s=query.min_duration_s,
+            max_duration_s=query.max_duration_s,
+            limit=query.limit,
+            offset=query.offset,
+            auto_build=auto_build,
+            rebuild=query.rebuild,
+        )
     index = SearchIndex(archive_root, artifact_roots=artifact_roots)
     results = index.search_query(query)
     return [r.to_dict() for r in results]
+
+
+# ---------------------------------------------------------------------------
+# Store-backed search layer (transcript store / archive.db)
+# ---------------------------------------------------------------------------
+
+STORE_FTS5_TABLE = "transcript_fts"
+STORE_INDEX_META_TABLE = "transcript_fts_index_meta"
+
+#: The store segment query is the index's only source of truth for text and
+#: time ranges; ``videos.pubdate`` joins the date window.
+_STORE_BLOCKS_SQL = (
+    "SELECT t.transcript_id, t.video_part_id, vp.bvid, vp.page_index, "
+    "vp.cid, vd.pubdate, vd.title AS video_title, vp.title AS part_title, "
+    "ts.ordinal, ts.start_ms, ts.end_ms, ts.text "
+    "FROM transcripts AS t "
+    "JOIN video_parts AS vp ON vp.video_part_id = t.video_part_id "
+    "JOIN videos AS vd ON vd.bvid = vp.bvid "
+    "JOIN transcript_segments AS ts ON ts.transcript_id = t.transcript_id "
+    "ORDER BY t.transcript_id, ts.ordinal"
+)
+
+INDEX_BUILD_BATCH_SIZE = 500
+
+_SOURCE_STORE = "store"
+_SOURCE_PUBLISHED_MD = "published-md"
+
+
+def _cjk_bigram_stream(text: str) -> str:
+    """Overlapping bigram stream of a text's non-space characters.
+
+    The stream feeds the auxiliary FTS column that makes arbitrary CJK
+    substrings matchable; whitespace and punctuation collapse out, so
+    ``否定之否定`` becomes ``否定 定之 之否 否定``.
+    """
+    compact = "".join(ch for ch in text if not ch.isspace())
+    return " ".join(
+        compact[i : i + 2] for i in range(max(0, len(compact) - 1))
+    )
+
+
+#: Block-key namespaces keep the two id spaces apart: store segments are keyed
+#: by (transcript_id, ordinal), published-md fallback rows by video_part_id.
+#: A mixed-namespace MAX stamp silently skips store rows (QC F1, 2026-09-28).
+_STORE_KEY_PREFIX = "t"
+_MD_KEY_PREFIX = "m"
+
+
+def _store_block_key(transcript_id: int, ordinal: int) -> str:
+    return f"{_STORE_KEY_PREFIX}{transcript_id}:{ordinal}"
+
+
+def _md_block_key(video_part_id: int) -> str:
+    return f"{_MD_KEY_PREFIX}{video_part_id}:0"
+
+
+def _published_md_bases(artifact_roots: ArtifactRoots) -> tuple[Path, ...]:
+    """Bases that may hold published per-part markdown transcripts."""
+    return artifact_roots.read_bases()
+
+
+def _parse_published_md_text(path: str) -> str | None:
+    """Read one published markdown transcript's text blocks.
+
+    The published projection is not this plan's contract: the parse accepts
+    the conventional shapes — fenced code blocks and ``HH:MM:SS``-headed
+    sections — and a leading YAML front matter is skipped.  Anything else
+    yields ``None`` so the row is simply not indexed from this source.
+    """
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            content = fh.read()
+    except OSError:
+        return None
+    if content.startswith("---"):
+        parts = content.split("---", 2)
+        if len(parts) >= 3:
+            content = parts[2]
+    lines = content.splitlines()
+    blocks: list[str] = []
+    in_fence = False
+    current: list[str] = []
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith("```"):
+            in_fence = not in_fence
+            continue
+        if in_fence:
+            current.append(stripped)
+            continue
+        if re.match(r"^\d{1,2}:\d{2}:\d{2}\b", stripped):
+            if current:
+                blocks.append(" ".join(current))
+                current = []
+            remainder = stripped[8:].strip()
+            if remainder:
+                current.append(remainder)
+            continue
+        if stripped:
+            current.append(stripped)
+    if current:
+        blocks.append(" ".join(current))
+    if not blocks:
+        return None
+    return "\n".join(blocks)
+
+
+class SearchIndexMissingError(RuntimeError):
+    """The store-backed FTS table does not exist (backlog class, never a defect)."""
+
+
+class TranscriptStoreError(RuntimeError):
+    """The transcript store is unreadable or corrupt (defect class)."""
+
+
+@dataclass(frozen=True)
+class TranscriptSearchHit:
+    """One matched time-bounded transcript block."""
+
+    block_key: str
+    bvid: str
+    page_index: int
+    start_ms: int
+    end_ms: int
+    pubdate: int
+    text: str
+    source: str
+    rank: float
+    snippet: str
+    video_title: str = ""
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "block_key": self.block_key,
+            "bvid": self.bvid,
+            "page_index": self.page_index,
+            "start_ms": self.start_ms,
+            "end_ms": self.end_ms,
+            "pubdate": self.pubdate,
+            "text": self.text,
+            "source": self.source,
+            "rank": self.rank,
+            "snippet": self.snippet,
+            "video_title": self.video_title,
+        }
+
+
+def _store_fts_ddl(tokenizer: str) -> str:
+    return (
+        f"CREATE VIRTUAL TABLE IF NOT EXISTS {STORE_FTS5_TABLE} USING fts5("
+        "block_key UNINDEXED, bvid UNINDEXED, page_index UNINDEXED, "
+        "start_ms UNINDEXED, end_ms UNINDEXED, pubdate UNINDEXED, "
+        "text, bigram, source UNINDEXED, "
+        f"tokenize='{tokenizer}'"
+        ");"
+    )
+
+
+class TranscriptSearchIndex:
+    """Store-backed FTS5 index over archived transcript blocks in ``archive.db``.
+
+    The index table is created only through :meth:`build` (the ``search-index``
+    command path) — never from the store's own ``open_database`` — per the
+    no-migration rule: no ALTER, no ``user_version`` bump, and
+    ``schema-transcripts.sql`` is untouched, so old stores keep their shape.
+    Builds are incremental and idempotent: existing rows are left alone
+    (re-running changes nothing) and only newly stored transcript segments are
+    appended, one transaction per batch.
+    """
+
+    def __init__(
+        self,
+        root: str | os.PathLike[str] | Path,
+        *,
+        artifact_roots: ArtifactRoots | None = None,
+    ) -> None:
+        self.root = os.fspath(root)
+        self.artifact_roots = (
+            artifact_roots if artifact_roots is not None else ArtifactRoots.of(self.root)
+        )
+        self.db_path = os.path.join(self.root, "archive.db")
+
+    # -- helpers -----------------------------------------------------------
+
+    def _connect(self) -> sqlite3.Connection:
+        """Open the store; missing means backlog (the search-index path creates)."""
+        if not os.path.isfile(self.db_path):
+            raise SearchIndexMissingError(
+                "transcript store missing — index missing; run `bili-asr search-index`"
+            )
+        try:
+            return sqlite3.connect(self.db_path)
+        except sqlite3.DatabaseError as exc:
+            raise TranscriptStoreError(f"transcript store unreadable: {exc}") from exc
+
+    def _connect_for_build(self) -> sqlite3.Connection:
+        """Open the store for indexing, creating a fresh one when absent.
+
+        Only the ``search-index`` path may reach here — read paths never
+        auto-create the store or the index (exit-contract §1–§2: a missing
+        index is backlog, not a defect).
+        """
+        os.makedirs(self.root, exist_ok=True)
+        fresh = not os.path.exists(self.db_path)
+        try:
+            conn = sqlite3.connect(self.db_path)
+            conn.row_factory = sqlite3.Row
+        except sqlite3.DatabaseError as exc:
+            raise TranscriptStoreError(f"transcript store unreadable: {exc}") from exc
+        if fresh:
+            # Bootstrap the contract schema, exactly as the store's own
+            # ``open_database`` does — the search-index path may create a
+            # store (an empty archive indexes to zero blocks) but never
+            # ALTERs one.
+            from .storage import open_database
+
+            conn.close()
+            conn = open_database(self.db_path)
+            return conn
+        if not self._looks_like_store(conn):
+            raise TranscriptStoreError(
+                f"transcript store corrupt: {self.db_path} is not a valid archive database"
+            )
+        return conn
+
+    @staticmethod
+    def _looks_like_store(conn: sqlite3.Connection) -> bool:
+        """A store always carries the contract's user table after bootstrap."""
+        try:
+            row = conn.execute(
+                "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'bilibili_users'"
+            ).fetchone()
+            return row is not None
+        except sqlite3.DatabaseError:
+            return False
+
+    def _probe_tokenizer(self, conn: sqlite3.Connection) -> str:
+        """Pick the auxiliary-column tokenizer this SQLite build supports.
+
+        A failed probe leaves the connection inside an aborted transaction
+        (SQLite auto-opens one for the failing DDL), so each attempt rolls
+        back before the next.
+        """
+        for tokenizer in ("trigram", "simple", "unicode61"):
+            try:
+                if tokenizer == "unicode61":
+                    # The default tokenizer (unicode61): present whenever FTS5 is.
+                    conn.execute("CREATE VIRTUAL TABLE _fts_tok_probe USING fts5(x);")
+                else:
+                    conn.execute(
+                        "CREATE VIRTUAL TABLE _fts_tok_probe "
+                        f"USING fts5(x, tokenize='{tokenizer}');"
+                    )
+                conn.execute("DROP TABLE _fts_tok_probe;")
+                return tokenizer
+            except sqlite3.OperationalError:
+                conn.rollback()
+        raise FTS5UnavailableError(
+            "SQLite FTS5 extension is not available in this Python environment"
+        )
+
+    def _ensure_schema(self, conn: sqlite3.Connection) -> None:
+        """The gated FTS migration shim: run only from the search-index path."""
+        if not check_fts5_available(conn):
+            raise FTS5UnavailableError(
+                "SQLite FTS5 extension is not available in this Python environment"
+            )
+        if self._has_index(conn):
+            # Re-CREATE is a no-op and the stored tokenizer declaration stays
+            # authoritative — a re-run must not fail because this build would
+            # have picked a different tokenizer for a fresh table.
+            pass
+        else:
+            tokenizer = self._probe_tokenizer(conn)
+            conn.execute(_store_fts_ddl(tokenizer))
+        conn.execute(
+            f"CREATE TABLE IF NOT EXISTS {STORE_INDEX_META_TABLE} ("
+            "key TEXT PRIMARY KEY, value TEXT"
+            ");"
+        )
+
+    def _has_index(self, conn: sqlite3.Connection) -> bool:
+        row = conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?",
+            (STORE_FTS5_TABLE,),
+        ).fetchone()
+        return row is not None
+
+    def stamp(self) -> int:
+        """The last indexed segment's ``(transcript_id, ordinal)`` stamp, or -1."""
+        conn = self._connect()
+        try:
+            if not self._has_index(conn):
+                return -1
+            row = conn.execute(
+                f"SELECT MAX(CAST(substr(block_key, 2, instr(block_key, ':') - 2) AS INTEGER)) "
+                f"AS m FROM {STORE_FTS5_TABLE} "
+                f"WHERE substr(block_key, 1, 1) = ?",
+                (_STORE_KEY_PREFIX,),
+            ).fetchone()
+            return int(row[0]) if row and row[0] is not None else -1
+        except sqlite3.DatabaseError as exc:
+            raise TranscriptStoreError(f"transcript store corrupt: {exc}") from exc
+        finally:
+            conn.close()
+
+    def count(self) -> int:
+        """Number of indexed blocks, or 0 when no index exists."""
+        conn = self._connect()
+        try:
+            if not self._has_index(conn):
+                return 0
+            row = conn.execute(f"SELECT COUNT(*) FROM {STORE_FTS5_TABLE}").fetchone()
+            return int(row[0]) if row else 0
+        except sqlite3.DatabaseError as exc:
+            raise TranscriptStoreError(f"transcript store corrupt: {exc}") from exc
+        finally:
+            conn.close()
+
+    # -- build -------------------------------------------------------------
+
+    def _new_store_rows(self, conn: sqlite3.Connection, after_transcript_id: int) -> list[sqlite3.Row]:
+        return list(
+            conn.execute(
+                _STORE_BLOCKS_SQL.replace(
+                    "ORDER BY t.transcript_id, ts.ordinal",
+                    "WHERE t.transcript_id > ? ORDER BY t.transcript_id, ts.ordinal",
+                ),
+                (after_transcript_id,),
+            ).fetchall()
+        )
+
+    def _published_md_candidates(
+        self, conn: sqlite3.Connection
+    ) -> list[sqlite3.Row]:
+        """Parts the store holds but has no stored transcript for.
+
+        These are the only candidates for the published-markdown fallback;
+        parts already indexed (from the store or from markdown) carry a
+        ``transcript_fts`` row keyed by their ``video_part_id`` and are
+        excluded by the caller.
+        """
+        return list(
+            conn.execute(
+                "SELECT vp.video_part_id, vp.bvid, vp.page_index, vp.duration_ms, "
+                "vp.cid, vd.pubdate "
+                "FROM video_parts AS vp JOIN videos AS vd ON vd.bvid = vp.bvid "
+                "WHERE NOT EXISTS ("
+                "SELECT 1 FROM transcripts AS t WHERE t.video_part_id = vp.video_part_id)"
+                "ORDER BY vp.video_part_id"
+            ).fetchall()
+        )
+
+    def _published_md_text_for(self, bvid: str, page_index: int) -> str | None:
+        """Best-effort published-markdown text for one part, first hit wins."""
+        stem = f"{bvid}.p{page_index}"
+        for base in _published_md_bases(self.artifact_roots):
+            for rel in (
+                os.path.join("transcripts", "md", f"{stem}.md"),
+                os.path.join("published", "md", f"{stem}.md"),
+                os.path.join("published", f"{stem}.md"),
+            ):
+                full = os.path.join(os.fspath(base), rel)
+                if os.path.isfile(full):
+                    return _parse_published_md_text(full)
+        return None
+
+    def build(self, force: bool = False) -> int:
+        """Create the index when absent and index new transcript blocks.
+
+        Idempotent: existing rows are never re-written, so re-running after a
+        complete build appends nothing and changes nothing.  Incremental:
+        only segments newer than the last indexed ``transcript_id`` are
+        appended, one transaction per batch of
+        :data:`INDEX_BUILD_BATCH_SIZE` rows.  ``force`` keeps the historical
+        rebuild flag shape; the store layer's idempotent incremental build
+        needs no special-casing to honour it, and a drop-and-rebuild is
+        deliberately not offered under the no-migration rule.
+
+        Returns the number of rows appended by this invocation.
+        """
+        conn = self._connect_for_build()
+        try:
+            self._ensure_schema(conn)
+            after_id = -1 if force else self.stamp()
+
+            pending: list[tuple[str, str, int, int, int, int, str, str, str]] = []
+            indexed = 0
+
+            def flush() -> None:
+                nonlocal indexed
+                if not pending:
+                    return
+                conn.executemany(
+                    f"INSERT INTO {STORE_FTS5_TABLE}("
+                    "block_key, bvid, page_index, start_ms, end_ms, pubdate, "
+                    "text, bigram, source"
+                    ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);",
+                    pending,
+                )
+                conn.commit()
+                indexed += len(pending)
+                pending.clear()
+
+            for row in self._new_store_rows(conn, after_id):
+                text = _redact_text(str(row["text"]))
+                pending.append(
+                    (
+                        _store_block_key(int(row["transcript_id"]), int(row["ordinal"])),
+                        str(row["bvid"]),
+                        int(row["page_index"]),
+                        int(row["start_ms"]),
+                        int(row["end_ms"]),
+                        int(row["pubdate"]),
+                        text,
+                        _cjk_bigram_stream(text),
+                        _SOURCE_STORE,
+                    )
+                )
+                if len(pending) >= INDEX_BUILD_BATCH_SIZE:
+                    flush()
+
+            conn.commit()  # flush() may have left a partial batch uncommitted
+            stamped_part_ids = {
+                int(r[0])
+                for r in conn.execute(
+                    f"SELECT DISTINCT CAST(substr(block_key, 1, instr(block_key, ':') - 1) "
+                    f"AS INTEGER) FROM {STORE_FTS5_TABLE}"
+                )
+            }
+            for part in self._published_md_candidates(conn):
+                part_id = int(part["video_part_id"])
+                if part_id in stamped_part_ids:
+                    continue
+                text = self._published_md_text_for(
+                    str(part["bvid"]), int(part["page_index"])
+                )
+                if not text:
+                    continue
+                stamped_part_ids.add(part_id)
+                text = _redact_text(text)
+                pending.append(
+                    (
+                        _md_block_key(part_id),
+                        str(part["bvid"]),
+                        int(part["page_index"]),
+                        0,
+                        int(part["duration_ms"]),
+                        int(part["pubdate"]),
+                        text,
+                        _cjk_bigram_stream(text),
+                        _SOURCE_PUBLISHED_MD,
+                    )
+                )
+                if len(pending) >= INDEX_BUILD_BATCH_SIZE:
+                    flush()
+
+            flush()
+            conn.execute(
+                f"INSERT OR REPLACE INTO {STORE_INDEX_META_TABLE}(key, value) "
+                "VALUES ('indexed_count', ?);",
+                (str(indexed),),
+            )
+            conn.execute(
+                f"INSERT OR REPLACE INTO {STORE_INDEX_META_TABLE}(key, value) "
+                "VALUES ('built_at', ?);",
+                (str(int(time.time())),),
+            )
+            conn.commit()
+            return indexed
+        except sqlite3.DatabaseError as exc:
+            conn.rollback()
+            raise TranscriptStoreError(f"transcript store corrupt: {exc}") from exc
+        finally:
+            conn.close()
+
+    # -- query -------------------------------------------------------------
+
+    def search_blocks(
+        self,
+        query: str,
+        *,
+        pubdate_from: int | None = None,
+        pubdate_to: int | None = None,
+        limit: int | None = 20,
+    ) -> list[TranscriptSearchHit]:
+        """Query the index for matching blocks, optionally date-windowed.
+
+        Read-only against the store except the index table; never creates the
+        index — a missing ``transcript_fts`` raises :class:`SearchIndexMissingError`
+        (backlog class) and a corrupt store raises :class:`TranscriptStoreError`
+        (defect class).
+        """
+        if limit is not None and limit <= 0:
+            return []
+        clean_q = (query or "").strip()
+        if not clean_q:
+            return []
+
+        conn = self._connect()
+        try:
+            if not self._has_index(conn):
+                raise SearchIndexMissingError(
+                    "index missing — run `bili-asr search-index` to build it"
+                )
+            where = [f"{STORE_FTS5_TABLE} MATCH ?"]
+            params: list[Any] = [clean_q]
+            if pubdate_from is not None:
+                where.append("pubdate >= ?")
+                params.append(pubdate_from)
+            if pubdate_to is not None:
+                where.append("pubdate < ?")
+                params.append(pubdate_to)
+            sql = (
+                f"SELECT block_key, bvid, page_index, start_ms, end_ms, pubdate, "
+                f"text, source, rank FROM {STORE_FTS5_TABLE} "
+                f"WHERE {' AND '.join(where)} ORDER BY rank ASC, block_key ASC"
+            )
+            titles = {
+                str(row[0]): str(row[1])
+                for row in conn.execute("SELECT bvid, title FROM videos").fetchall()
+            }
+            if limit is not None:
+                sql += " LIMIT ?"
+                params.append(limit)
+            try:
+                rows = conn.execute(sql, params).fetchall()
+            except sqlite3.OperationalError:
+                # FTS5 query-syntax error (unclosed quote, bare NOT, …): the
+                # plain-text intent is retried as one literal phrase.
+                params[0] = '"' + clean_q.replace('"', '""') + '"'
+                try:
+                    rows = conn.execute(sql, params).fetchall()
+                except sqlite3.OperationalError:
+                    return []
+            hits: list[TranscriptSearchHit] = []
+            for (
+                block_key, bvid, page_index, start_ms, end_ms, pubdate,
+                text, source, rank,
+            ) in rows:
+                snippet = self._snippet_for_hit(conn, block_key, clean_q)
+                hits.append(
+                    TranscriptSearchHit(
+                        block_key=str(block_key),
+                        bvid=str(bvid),
+                        page_index=int(page_index),
+                        start_ms=int(start_ms),
+                        end_ms=int(end_ms),
+                        pubdate=int(pubdate),
+                        text=str(text),
+                        source=str(source),
+                        rank=float(rank) if rank is not None else 0.0,
+                        snippet=snippet,
+                        video_title=titles.get(str(bvid), ""),
+                    )
+                )
+            return hits
+        except sqlite3.DatabaseError as exc:
+            raise TranscriptStoreError(f"transcript store corrupt: {exc}") from exc
+        finally:
+            conn.close()
+
+    def _snippet_for_hit(self, conn: sqlite3.Connection, block_key: str, query: str) -> str:
+        """Bounded redacted snippet around the first query term, via FTS5 snippet()."""
+        try:
+            row = conn.execute(
+                f"SELECT snippet({STORE_FTS5_TABLE}, 6, '[', ']', '…', 12) "
+                f"FROM {STORE_FTS5_TABLE} WHERE {STORE_FTS5_TABLE} MATCH ? "
+                "AND block_key = ? LIMIT 1",
+                (query, block_key),
+            ).fetchone()
+            if row and row[0]:
+                return _redact_text(str(row[0]))
+        except sqlite3.DatabaseError:
+            pass
+        return ""
+
+

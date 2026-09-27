@@ -502,6 +502,9 @@ def test_default_config_resolves_the_declared_language_and_the_prompt_terms(monk
     monkeypatch.setenv("BILI_ASR_CHUNK_SECONDS", "90")
     config = asr.default_config()
     assert config.language == "Chinese"
+    # 2026-09-28 governance ruling: the default config seeds nothing (empty
+    # DEFAULT_HOTWORDS); the operator env knob still appends its terms, which
+    # the evidence guard admits at run time (ASRRunner.set_hotword_evidence).
     assert "新词" in config.hotwords and config.hotwords.count("攻势") == 1
     assert config.chunk_seconds == 90.0
 
@@ -559,6 +562,12 @@ def test_the_dependency_hint_names_the_extra() -> None:
 # had removed for measured harm, and dropping three Latin shards — while every gate stayed green
 # because no test read the list (residual ``20260924-qwen3-asr-transformers · R2``).
 #
+# 2026-09-28 governance ruling (plan ``20260928-hotword-injection-governance``): the shipped
+# list is **empty-with-guard-on** while the per-token keep/drop measurement is pending operator
+# re-run — no speculative seeding.  The measured-candidate tokens that populated the list are
+# preserved under ``MEASURED_HOTWORD_CANDIDATES`` (the pending ruling's subjects); the guard
+# (:func:`asr.evidence_guard_hotwords`) is what admits any of them back into a run's prompt.
+#
 # These tests pin the parts the repository's own documentation claims.  They are deliberately
 # exact: a change to the list is a change to what the decoder is asked to reproduce, so it must
 # arrive with a deliberate edit to these expectations, not silently.
@@ -576,13 +585,22 @@ _LATIN_ENTRIES = ("International Employment Matters Tribunal", "International", 
 _WITHDRAWN_ENTRIES = ("ITEM", "AITEM")
 
 
-def test_the_hotword_list_keeps_the_entries_the_readme_documents() -> None:
-    """Every entry the repository's own documentation names must still be in the shipped list."""
+def test_the_shipped_hotword_list_is_empty_pending_the_keep_drop_measurement() -> None:
+    """Governance ruling 2026-09-28: no speculative seeding while the ruling is pending."""
+
+    assert asr.DEFAULT_HOTWORDS == (), (
+        "the shipped list is empty-with-guard-on; kept tokens return here only with a "
+        "measured delta recorded in the plan's Measurement results"
+    )
+
+
+def test_the_measured_candidates_are_preserved_for_the_pending_ruling() -> None:
+    """The tokens the pending ruling measures stay pinned — an empty shipped list is not a lost list."""
 
     for term in _HOMOPHONE_ENTRIES:
-        assert term in asr.DEFAULT_HOTWORDS, f"the measured homophone entry {term!r} is missing"
+        assert term in asr.MEASURED_HOTWORD_CANDIDATES, f"the measured homophone entry {term!r} is missing"
     for term in _LATIN_ENTRIES:
-        assert term in asr.DEFAULT_HOTWORDS, f"the Latin-script entry {term!r} is missing"
+        assert term in asr.MEASURED_HOTWORD_CANDIDATES, f"the Latin-script entry {term!r} is missing"
 
 
 def test_the_hotword_list_still_excludes_the_withdrawn_acronyms() -> None:

@@ -200,6 +200,17 @@ vocabulary plus the Latin-script terms it speaks — the decoder otherwise
 shatters them (measured on the retired FunASR-Nano checkpoint: "International
 Employment Matters Tribunal" came out `tryBUNAL` / `FOR EMP LOYMENT MAT TERS`).
 
+**2026-09-28 governance ruling** (plan `20260928-hotword-injection-governance`,
+residual `20260922-proofread-wave · R1`): the built-in list is **empty while the
+per-token keep/drop measurement is pending operator re-run** — no speculative
+seeding. A term reaches the decoder prompt only through *evidence-based
+seeding*: it must occur in the run's own first-pass transcript or the paired
+AI-subtitle text (`asr.evidence_guard_hotwords`). The run transcribes once
+unguarded, then re-seeds the prompt with only the tokens that first pass
+produced; tokens with no evidence occurrence are dropped and recorded in the
+archive provenance as `hotword_dropped_no_evidence`. The measured-candidate
+tokens this list carried are preserved under `MEASURED_HOTWORD_CANDIDATES`.
+
 **How the list reaches the model changed with the engine.** Qwen3-ASR takes it as free-form `prompt`
 context, not as a decode-time bias, so **every measurement quoted below belongs to the FunASR era and
 does not carry over unmeasured**: the 95 %-identical with-and-without comparison, the ITEM/AITEM
@@ -455,6 +466,20 @@ Generated output is redacted and bounded: no credentials, signed URLs, raw
 exceptions, model artifacts, media, archive data, or environment dumps belong
 in committed files or CI artifacts.
 
+## The operator chain (post-cutover)
+
+The store is the sole queue truth source. The everyday loop is three steps:
+
+1. `bili-asr fetch-meta` — enumerate and persist metadata + subtitles into `archive.db`.
+2. `bili-asr download-audio` — audio for parts the store says owe it (`--queue-source store`
+   is the default; `--queue-source manifest` is the legacy rollback and prints a deprecation line).
+3. `bili-asr asr` — transcribe what still owes a transcript; or read the queue first with
+   `bili-asr status` (three gap groups, newest first — the groups overlap, never sum them).
+
+Around it: `bili-asr proofread` / `proofread-merge` (two-route machine pre-alignment and the
+human-adjudicated merge), and `bili-asr search` / `search-index` (FTS5 over the archived
+transcripts, with `--from/--to` pubdate windows).
+
 ## Workflow
 
 The ASR chain's data flow — audio → chunker → the two checkpoints → mark threading → cues →
@@ -486,7 +511,8 @@ and the [derived audio queue](#derived-audio-queue-bili-asr-derive-manifest)).
     bili-asr status --archive-root archive
     bili-asr runs --limit 10 --archive-root archive
     bili-asr pilot --n 20 --archive-root archive [--artifact-root <path>] [--keep-audio | --no-keep-audio]
-    bili-asr search "黑格尔 辩证法" --archive-root archive [--artifact-root <path>]
+    bili-asr search "黑格尔 辩证法" --archive-root archive [--from 2020-01-01] [--to 2020-12-31] [--format table|json]
+    bili-asr search-index --archive-root archive   # build/top up the transcript FTS index in archive.db
     bili-asr export --format json --out archive/manifest.json --archive-root archive [--artifact-root <path>]
     bili-asr coverage --archive-root archive [--artifact-root <path>]
     bili-asr coverage --trusted-local --archive-root archive
@@ -539,7 +565,8 @@ else                                  -> the archive root (today's behaviour)
 - **Products move; state does not.** `audio/`, `transcripts/{srt,txt,md,raw}/` and
   `subtitles/raw/` are written under the configured root. `manifest/`,
   `archive.db`, `coordinator/`, `meta-cursor.json`, `scheduler.json`,
-  `run-ledger.jsonl`, `campaign.json` and `search.db` stay at the archive root —
+  `run-ledger.jsonl`, `campaign.json` and the legacy manifest-backed `search.db`
+  stay at the archive root —
   the manifest's per-append fsync pair and SQLite's locking are exactly what a
   FUSE/WebDAV mount cannot carry.
 - **The configured root must already exist.** A missing root is refused with
@@ -961,15 +988,37 @@ The JSONL manifest (`{archive-root}/manifest/manifest.jsonl`) remains the single
 
 #### Full-text search (`bili-asr search`)
 
-`bili-asr search <query>` queries a lightweight local SQLite FTS5 read index (`{archive-root}/search.db`) built on demand from completed transcript metadata (`archived` or `subtitle_done` with archive paths present). Incomplete entries (`meta_ok`, `needs_audio`, `audio_ok`) are not searchable as complete transcripts.
+`bili-asr search <query>` answers "which video mentioned X" from the transcript
+store: `bili-asr search-index` builds an FTS5 index (`transcript_fts`, one row
+per time-bounded transcript block) inside `{archive-root}/archive.db`, and
+`bili-asr search` queries it read-only — every hit carries bvid, part, a
+`HH:MM:SS,mmm → HH:MM:SS,mmm` time range for timestamped jump-to playback, the
+video's pubdate, and a matched snippet. The index is **store-first**: text comes
+from the transcript store, with a best-effort published-markdown fallback for
+parts the store has no text for (each row records which source served it).
 
-    bili-asr search <query> [--limit N] [--rebuild] [--archive-root <root>] [--artifact-root <path>]
+    bili-asr search <query> [--from YYYY-MM-DD] [--to YYYY-MM-DD] [--limit N]
+                            [--format table|json] [--archive-root <root>]
+    bili-asr search-index [--archive-root <root>]
 
-- **Ranking**: Matches are ranked by BM25 relevance score over `work_id`, `title`, `status`, and full transcript text.
-- **Stale detection**: Automatically verifies whether `search.db` is missing, older than `manifest.jsonl`, or has row count mismatch, rebuilding on demand.
-- **Idempotent rebuild**: `--rebuild` forces a clean atomic index rebuild.
-- **No hits**: Exits `1` with a clear message when no matching records are found.
-- **Environment**: Uses standard library `sqlite3` FTS5; fails with a clear message if SQLite in the environment lacks FTS5 extension support.
+- **Index build**: `search-index` is incremental and idempotent — re-running
+  changes nothing; only newly stored transcript blocks are appended. The FTS
+  table is created by the command itself (a gated migration shim), never by
+  read paths and never by a schema migration: old stores keep their shape.
+- **Date filters**: `--from`/`--to` join `videos.pubdate` (`--to` is inclusive
+  of the named day); the default limit is 20 hits.
+- **Exit contract**: a healthy archive — including zero hits and a
+  not-yet-built index (an explicit "index missing — run search-index" line) —
+  exits `0`; store/index corruption exits `1`; usage errors exit `2`.
+- **CJK matching**: the corpus is overwhelmingly Chinese, so beside the
+  plain-text column the index carries an auxiliary bigram column over the same
+  text; the tokenizer declaration is chosen at build time from what the host
+  SQLite supports (`trigram`, else `simple`, else the default `unicode61`).
+- **Legacy manifest filters**: `--status/--source/--language/--scope/--work-id`
+  keep the earlier manifest-backed `search.db` index behind them; that surface
+  and its index file stay in place (a later cleanup plan retires them).
+- **Environment**: standard-library `sqlite3` FTS5; `search-index` refuses with
+  a clear message when the build lacks FTS5.
 
 #### Metadata and transcript export (`bili-asr export`)
 

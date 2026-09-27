@@ -394,7 +394,7 @@ def test_cli_pilot_exit_0_appends_ledger(tmp_root, monkeypatch, capsys):
     asr_fakes.install(monkeypatch, text="asr-text")
     _patch_client(monkeypatch, _mixed_transport())
 
-    rc = main(["pilot", "--n", "2", "--archive-root", tmp_root, "--sessdata", "SECRET-SESSDATA-12345"])
+    rc = main(["pilot", "--n", "2", "--queue-source", "manifest", "--archive-root", tmp_root, "--sessdata", "SECRET-SESSDATA-12345"])
     assert rc == 0
 
     ledger = RunLedger(root=tmp_root)
@@ -413,7 +413,7 @@ def test_cli_pilot_exit_0_appends_ledger(tmp_root, monkeypatch, capsys):
 
 
 def test_cli_pilot_exit_1_empty_manifest_appends_ledger(tmp_root, capsys):
-    rc = main(["pilot", "--archive-root", tmp_root])
+    rc = main(["pilot", "--queue-source", "manifest", "--archive-root", tmp_root])
     assert rc == 1
 
     ledger = RunLedger(root=tmp_root)
@@ -437,7 +437,7 @@ def test_cli_pilot_exit_2_risk_appends_ledger(tmp_root, monkeypatch, capsys):
     monkeypatch.setattr("bili_asr.subtitles.harvest_subtitle", raise_risk)
     _patch_client(monkeypatch, _mixed_transport())
 
-    rc = main(["pilot", "--n", "1", "--archive-root", tmp_root])
+    rc = main(["pilot", "--n", "1", "--queue-source", "manifest", "--archive-root", tmp_root])
     assert rc == 2
 
     ledger = RunLedger(root=tmp_root)

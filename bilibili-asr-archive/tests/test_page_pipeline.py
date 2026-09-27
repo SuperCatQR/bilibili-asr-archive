@@ -200,7 +200,11 @@ def test_cli_download_skips_unresolved_and_processes_other_page(
     monkeypatch.setattr(bc, "build_default_transport", lambda: transport)
     monkeypatch.setattr(bc, "default_sleeper", lambda _s=None: None)
     monkeypatch.setattr("bili_asr.cli.time.sleep", lambda _seconds: None)
-    rc = main(["download-audio", "--missing-subs", "--archive-root", tmp_root])
+    # Manifest-only fixture (unresolved/excluded rows): pin the rollback source.
+    rc = main([
+        "download-audio", "--missing-subs", "--queue-source", "manifest",
+        "--archive-root", tmp_root,
+    ])
     assert rc == 0
     loaded = ManifestStore(root=tmp_root).load()
     assert loaded[BVID]["status"] == "needs_audio"
@@ -222,7 +226,11 @@ def test_cli_download_audio_bvid_unresolved_stops(tmp_root, monkeypatch, capsys)
     })
     monkeypatch.setattr(bc, "build_default_transport", lambda: AudioRouter({}))
     monkeypatch.setattr(bc, "default_sleeper", lambda _s=None: None)
-    rc = main(["download-audio", "--bvid", BVID, "--archive-root", tmp_root])
+    # Manifest-only fixture (unresolved row): pin the rollback source.
+    rc = main([
+        "download-audio", "--bvid", BVID, "--queue-source", "manifest",
+        "--archive-root", tmp_root,
+    ])
     assert rc == 1
     err = capsys.readouterr().err
     assert "unresolved" in err

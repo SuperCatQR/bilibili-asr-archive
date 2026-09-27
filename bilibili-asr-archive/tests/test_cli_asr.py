@@ -156,7 +156,12 @@ def test_download_audio_rejects_escaped_downloader_result(tmp_root, monkeypatch,
     outside = os.path.join(tmp_root, "..", "escaped.m4a")
     monkeypatch.setattr(audio, "download_audio", lambda *args, **kwargs: outside)
     _patch_cli(monkeypatch)
-    rc = main(["download-audio", "--missing-subs", "--archive-root", tmp_root])
+    # The escaped-path guard is pinned through the manifest rollback source:
+    # the store source needs a seeded archive.db, which this fixture omits.
+    rc = main([
+        "download-audio", "--missing-subs", "--queue-source", "manifest",
+        "--archive-root", tmp_root,
+    ])
     captured = capsys.readouterr()
     assert rc == 1
     assert "0 audio_ok" in captured.out

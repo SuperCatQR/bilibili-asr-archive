@@ -503,6 +503,8 @@ def test_a_second_bounded_selection_rotates_past_the_attempted_part(
                 [
                     "download-audio",
                     "--missing-subs",
+                    "--queue-source",
+                    "manifest",
                     "--limit",
                     "1",
                     "--archive-root",
