@@ -1,0 +1,411 @@
+"""Store-backed FTS5 transcript search: index builder, query command, exit contract.
+
+The migrated search layer indexes the transcript store (``archive.db``) instead
+of the manifest: ``search-index`` creates ``transcript_fts`` inside the store
+behind a gated FTS migration shim (never from ``open_database``), and ``search``
+queries it read-only.  Exit codes follow the two-class contract
+(``iter-2026-09-coverage-truth/specs/exit-code-contract.md`` §1–§2): a missing
+index is backlog-class — exit 0 with an explicit "index missing" hint; store
+corruption is defect-class — exit 1.
+"""
+
+from __future__ import annotations
+
+from dataclasses import replace
+import json
+from pathlib import Path
+
+import pytest
+
+from bili_asr import cli
+from bili_asr.search_index import (
+    TranscriptSearchIndex,
+    check_fts5_available,
+)
+from bili_asr.storage import (
+    AcquisitionRunRecord,
+    MetadataRepository,
+    TranscriptRepository,
+    TranscriptSegmentRecord,
+    open_database,
+)
+from fixtures.metadata_records import (
+    make_part_record,
+    make_user_record,
+    make_video_record,
+)
+
+pytestmark = pytest.mark.skipif(
+    not check_fts5_available(), reason="SQLite FTS5 unavailable in this environment"
+)
+
+# 2020-09-13 and 2020-09-14 as unix seconds (UTC).
+PUBDATE_A = 1_600_000_000
+PUBDATE_B = 1_600_086_400
+
+
+def _run_record(run_id: str) -> AcquisitionRunRecord:
+    return AcquisitionRunRecord(
+        run_id=run_id,
+        kind="subtitle",
+        selector_kind="pending",
+        selector_target=None,
+        requested_limit=None,
+        credential_present=False,
+        started_at=100,
+        outcome="running",
+        finished_at=None,
+    )
+
+
+def _segments(*triples: tuple[int, int, str]) -> tuple[TranscriptSegmentRecord, ...]:
+    return tuple(TranscriptSegmentRecord(*triple) for triple in triples)
+
+
+def _store_part(
+    root: Path,
+    connection,
+    repository: TranscriptRepository,
+    *,
+    bvid: str,
+    page_index: int,
+    cid: int,
+    pubdate: int,
+    video_title: str,
+    part_title: str,
+    segments: tuple[TranscriptSegmentRecord, ...],
+    source_kind: str = "subtitle-ai",
+) -> None:
+    """Store one video/part plus one transcript version for it."""
+    metadata = MetadataRepository(connection)
+    with metadata.transaction():
+        metadata.upsert_user(make_user_record())
+        metadata.upsert_video(
+            replace(
+                make_video_record(bvid, aid=None, title=video_title),
+                pubdate=pubdate,
+            )
+        )
+        metadata.upsert_part(
+            make_part_record(
+                bvid,
+                page_index=page_index,
+                cid=cid,
+                title=part_title,
+                processing_status="metadata_collected",
+            )
+        )
+    part_id = int(
+        connection.execute(
+            "SELECT video_part_id FROM video_parts WHERE bvid = ? AND page_index = ?",
+            (bvid, page_index),
+        ).fetchone()["video_part_id"]
+    )
+    repository.record_acquired_transcript(
+        run_id="search-fixture",
+        video_part_id=part_id,
+        source_kind=source_kind,
+        language="zh-CN",
+        segments=segments,
+        started_at=200,
+        finished_at=300,
+        created_at=400,
+    )
+
+
+@pytest.fixture()
+def indexed_store(tmp_path: Path) -> Path:
+    """A store holding three parts (two videos, one multi-part) with known text."""
+    connection = open_database(tmp_path)
+    try:
+        repository = TranscriptRepository(connection)
+        repository.start_acquisition_run(_run_record("search-fixture"))
+
+        _store_part(
+            tmp_path, connection, repository,
+            bvid="BV1alpha", page_index=0, cid=101, pubdate=PUBDATE_A,
+            video_title="黑格尔辩证法第一讲", part_title="P1",
+            segments=_segments(
+                (0, 1_200, "今天我们讲黑格尔"),
+                (1_200, 2_400, "辩证法的核心是否定之否定"),
+            ),
+        )
+        _store_part(
+            tmp_path, connection, repository,
+            bvid="BV1beta", page_index=0, cid=201, pubdate=PUBDATE_B,
+            video_title="康德先验哲学", part_title="P1",
+            segments=_segments(
+                (0, 1_200, "康德先验感性论"),
+                (1_200, 2_400, "自在之物不可知"),
+            ),
+        )
+        _store_part(
+            tmp_path, connection, repository,
+            bvid="BV1beta", page_index=1, cid=202, pubdate=PUBDATE_B,
+            video_title="康德先验哲学", part_title="P2",
+            segments=_segments(
+                (0, 1_200, "黑格尔批评康德"),
+                (1_200, 2_400, "辩证法在这里重新开始"),
+            ),
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+    index = TranscriptSearchIndex(tmp_path)
+    indexed = index.build()
+    assert indexed == 6  # 3 parts x 2 time-bounded blocks each
+    return tmp_path
+
+
+def _argv(root: Path, *extra: str) -> list[str]:
+    return ["search", "--archive-root", str(root), *extra]
+
+
+# ---------------------------------------------------------------------------
+# Index builder
+# ---------------------------------------------------------------------------
+
+def test_search_index_builds_table_inside_archive_db(indexed_store: Path) -> None:
+    conn = sqlite3_connect_plain(indexed_store / "archive.db")
+    try:
+        tables = {
+            row[0]
+            for row in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type IN ('table', 'virtual table')"
+            )
+        }
+        assert "transcript_fts" in tables
+        assert "transcript_fts_index_meta" in tables
+        count = conn.execute("SELECT COUNT(*) FROM transcript_fts").fetchone()[0]
+        assert count == 6
+        sources = {
+            row[0]
+            for row in conn.execute("SELECT DISTINCT source FROM transcript_fts")
+        }
+        # every fixture part is served by the store, so every row is stamped 'store'
+        assert sources == {"store"}
+    finally:
+        conn.close()
+
+
+def test_search_index_idempotent_and_incremental(indexed_store: Path) -> None:
+    """Re-running changes nothing; a new transcript is picked up incrementally."""
+    index = TranscriptSearchIndex(indexed_store)
+    first = index.build()
+    assert first == 0  # the fixture already built the index
+    stamp_after_first = index.stamp()
+
+    again = index.build()
+    assert again == 0
+    assert index.stamp() == stamp_after_first
+
+    # Add one more transcript version on a new part; incremental build appends it.
+    connection = open_database(indexed_store)
+    try:
+        repository = TranscriptRepository(connection)
+        _store_part(
+            indexed_store, connection, repository,
+            bvid="BV1gamma", page_index=0, cid=301, pubdate=PUBDATE_B,
+            video_title="费希特知识学", part_title="P1",
+            segments=_segments((0, 1_200, "费希特谈自我意识")),
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+    added = index.build()
+    assert added == 1  # one new part with one segment
+    assert index.stamp() > stamp_after_first
+    assert index.count() == 7
+
+
+def test_search_index_blocks_served_from_store_and_bigram_aux(indexed_store: Path) -> None:
+    """A block is a time-bounded segment row; CJK text lands in the bigram column."""
+    index = TranscriptSearchIndex(indexed_store)
+    hits = index.search_blocks("黑格尔")
+    assert len(hits) == 2  # BV1alpha P1 and BV1beta P1
+    by_part = {(h.bvid, h.page_index) for h in hits}
+    assert by_part == {("BV1alpha", 0), ("BV1beta", 1)}
+    for hit in hits:
+        assert hit.start_ms >= 0
+        assert hit.end_ms > hit.start_ms
+        assert hit.source == "store"
+        assert hit.pubdate is not None
+
+
+# ---------------------------------------------------------------------------
+# Query command: phrase, pubdate window, formats
+# ---------------------------------------------------------------------------
+
+def test_search_finds_phrase_with_bvid_time_range_and_pubdate(
+    indexed_store: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert cli.main(_argv(indexed_store, "否定之否定")) == 0
+    out = capsys.readouterr().out
+    assert "BV1alpha" in out
+    assert "黑格尔辩证法第一讲" in out
+    assert "00:00:01,200" in out  # 1_200 ms start of the matching block
+    assert "2020-09-13" in out  # PUBDATE_A rendered as a date
+
+
+def test_search_pubdate_filters_exclude_out_of_window_hits(
+    indexed_store: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # "黑格尔" matches BV1alpha (pubdate A) and BV1beta P1 (pubdate B).
+    assert cli.main(_argv(indexed_store, "黑格尔", "--from", "2020-09-14")) == 0
+    out = capsys.readouterr().out
+    assert "BV1beta" in out
+    assert "BV1alpha" not in out
+
+    assert cli.main(_argv(indexed_store, "黑格尔", "--to", "2020-09-13")) == 0
+    out = capsys.readouterr().out
+    assert "BV1alpha" in out
+    assert "BV1beta" not in out
+
+    # An exclusive window on a phrase with hits elsewhere: explicit "no hits", exit 0.
+    assert cli.main(_argv(indexed_store, "黑格尔", "--from", "2021-01-01")) == 0
+    captured = capsys.readouterr()
+    assert "no hits" in captured.out
+
+
+def test_search_default_limit_is_20(
+    indexed_store: Path, monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from bili_asr import search_index
+
+    seen: list[int | None] = []
+
+    original = search_index.TranscriptSearchIndex.search_blocks
+
+    def spy(self, query, *, pubdate_from=None, pubdate_to=None, limit=None):
+        seen.append(limit)
+        return original(self, query, pubdate_from=pubdate_from,
+                        pubdate_to=pubdate_to, limit=limit)
+
+    monkeypatch.setattr(search_index.TranscriptSearchIndex, "search_blocks", spy)
+    assert cli.main(_argv(indexed_store, "黑格尔")) == 0
+    capsys.readouterr()
+    assert seen == [20]
+
+
+def test_search_json_format(indexed_store: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    assert cli.main(_argv(indexed_store, "否定之否定", "--format", "json")) == 0
+    out = capsys.readouterr().out
+    payload = json.loads(out)
+    assert len(payload) == 1
+    row = payload[0]
+    assert row["bvid"] == "BV1alpha"
+    assert row["page_index"] == 0
+    assert row["start_ms"] == 1_200
+    assert row["end_ms"] == 2_400
+    assert row["pubdate"] == PUBDATE_A
+    assert row["source"] == "store"
+    assert "否定之否定" in row["text"]
+
+
+# ---------------------------------------------------------------------------
+# search-index command
+# ---------------------------------------------------------------------------
+
+def test_search_index_command_builds_and_reports(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert cli.main(["search-index", "--archive-root", str(tmp_path)]) == 0
+    out = capsys.readouterr().out
+    assert "indexed 0 block(s); total 0" in out
+    assert (tmp_path / "archive.db").is_file()
+
+    assert cli.main(["search-index", "--archive-root", str(tmp_path)]) == 0
+    out = capsys.readouterr().out
+    assert "indexed 0 block(s); total 0" in out  # idempotent re-run changes nothing
+
+
+def test_search_index_never_creates_index_on_search_path(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Read paths never auto-create: search-index alone owns table creation."""
+    # Merely opening the store (any search attempt) must not create the FTS table.
+    assert cli.main(_argv(tmp_path, "黑格尔")) == 0
+    captured = capsys.readouterr()
+    assert "index missing" in captured.out
+    assert "search-index" in captured.out
+    conn = sqlite3_connect_plain(tmp_path / "archive.db")
+    try:
+        tables = {
+            row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")
+        }
+        assert "transcript_fts" not in tables
+    finally:
+        conn.close()
+
+
+# ---------------------------------------------------------------------------
+# Exit contract (exit-code-contract §1–§2 applied to the index)
+# ---------------------------------------------------------------------------
+
+def test_search_no_hits_exits_zero_with_explicit_line(
+    indexed_store: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert cli.main(_argv(indexed_store, "谢林")) == 0
+    out = capsys.readouterr().out
+    assert "no hits" in out
+
+
+def test_search_corrupt_store_is_defect_exit_1(
+    indexed_store: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    (indexed_store / "archive.db").write_bytes(b"this is not sqlite")
+    assert cli.main(_argv(indexed_store, "黑格尔")) == 1
+    err = capsys.readouterr().err
+    assert "store" in err or "corrupt" in err
+
+
+def test_search_usage_error_is_exit_2(indexed_store: Path) -> None:
+    with pytest.raises(SystemExit) as exc:
+        cli.main(_argv(indexed_store, "黑格尔", "--from", "2020-09-31"))
+    assert exc.value.code == 2
+
+
+def test_search_limit_validation_is_usage_error_exit_2(indexed_store: Path) -> None:
+    with pytest.raises(SystemExit) as exc:
+        cli.main(_argv(indexed_store, "黑格尔", "--limit", "0"))
+    assert exc.value.code == 2
+
+
+def test_search_index_on_corrupt_store_is_defect_exit_1(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    (tmp_path / "archive.db").write_bytes(b"this is not sqlite")
+    assert cli.main(["search-index", "--archive-root", str(tmp_path)]) == 1
+    err = capsys.readouterr().err
+    assert "store" in err or "corrupt" in err
+
+
+def test_search_index_without_fts5_refuses_cleanly(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from bili_asr import cli as cli_module
+
+    monkeypatch.setattr(
+        cli_module.search_index, "check_fts5_available", lambda conn=None: False
+    )
+    assert cli.main(["search-index", "--archive-root", str(tmp_path)]) == 1
+    err = capsys.readouterr().err
+    assert "FTS5" in err
+    conn = sqlite3_connect_plain(tmp_path / "archive.db")
+    try:
+        tables = {
+            row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")
+        }
+        assert "transcript_fts" not in tables
+    finally:
+        conn.close()
+
+
+def sqlite3_connect_plain(path: Path):
+    import sqlite3
+
+    return sqlite3.connect(path)

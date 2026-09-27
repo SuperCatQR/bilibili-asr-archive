@@ -447,16 +447,30 @@ def _drive_search(archive, artifact, monkeypatch, capsys):
                                **_publish_audio(artifact, identity)}])
     _offline_client(monkeypatch)
 
+    # The legacy manifest filter (`--status`) drives the manifest-backed index, so
     # `--rebuild` on both runs: `search.db` is a cache, and the point here is which
-    # transcripts the index can read, not what an earlier run left in it.
-    rc = main(["search", MARKER_TEXT, "--rebuild", "--archive-root", archive,
-               "--artifact-root", artifact])
+    # transcripts the index can read, not what an earlier run left in it.  The
+    # store-backed default has nothing to index (no store rows in this fixture)
+    # and answers exit 0 with an explicit "no hits" line — the exit-contract
+    # change pinned in `test_search.py`.
+    rc = main(["search", MARKER_TEXT, "--status", "archived", "--rebuild",
+               "--archive-root", archive, "--artifact-root", artifact])
     assert rc == 0, capsys.readouterr().err
 
-    rc = main(["search", MARKER_TEXT, "--rebuild", "--archive-root", archive])
+    rc = main(["search", MARKER_TEXT, "--status", "archived", "--rebuild",
+               "--archive-root", archive])
     captured = capsys.readouterr()
-    assert rc == 1
-    assert "no matching transcripts found" in captured.err
+    assert rc == 0
+    assert "no hits" in captured.out
+
+    # The store-backed default path refuses to read transcripts outside the
+    # archive root's store: with only a manifest present it reports the missing
+    # index, never the artifact text.
+    rc = main(["search", MARKER_TEXT, "--archive-root", archive,
+               "--artifact-root", artifact])
+    captured = capsys.readouterr()
+    assert rc == 0
+    assert "index missing" in captured.out
 
 
 _COMMAND_CASES = {

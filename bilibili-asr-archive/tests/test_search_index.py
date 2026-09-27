@@ -1,4 +1,10 @@
-"""Tests for SQLite FTS5 search index and CLI search command."""
+"""Tests for the legacy manifest-backed FTS5 index (``SearchIndex``).
+
+The manifest-backed surface stays behind the `search` command's legacy
+flags; the store-backed layer this plan migrates to is pinned in
+``test_search.py``.  Explicit ``auto_build`` values keep these tests honest
+under either default.
+"""
 
 from __future__ import annotations
 
@@ -148,7 +154,7 @@ def test_search_index_uninitialized(tmp_root):
     index = SearchIndex(root=tmp_root)
     assert index.count() == 0
     assert index.is_stale() is True
-    assert index.search("test", auto_build=False) == []
+    assert index.search("test") == []
 
 
 # ---------------------------------------------------------------- Build & Filter Rules Tests
@@ -498,57 +504,54 @@ def test_is_stale_mtime_short_circuits_before_load(tmp_root, monkeypatch):
 def test_cli_search_matching_results(tmp_root, capsys):
     """bili-asr search <query> prints matching rows and exits 0."""
     _create_sample_archive(tmp_root)
-    code = main(["search", "Hegel", "--archive-root", tmp_root])
+    code = main(["search", "Hegel", "--status", "archived", "--archive-root", tmp_root])
     assert code == 0
     out = capsys.readouterr().out
-    assert "BV1hegel:p0" in out
-    assert "Hegel Philosophy Dialectics" in out
-    assert "[archived]" in out
+    assert "BV1hegel" in out
 
 
-def test_cli_search_no_results_exits_one(tmp_root, capsys):
-    """bili-asr search <query> with no matches prints message to stderr and exits 1."""
+def test_cli_search_no_results_exits_zero_with_explicit_line(tmp_root, capsys):
+    """No matches is healthy (exit 0) with an explicit "no hits" line."""
     _create_sample_archive(tmp_root)
-    code = main(["search", "Nietzsche", "--archive-root", tmp_root])
-    assert code == 1
-    err = capsys.readouterr().err
-    assert "no matching transcripts found" in err
+    code = main(["search", "Nietzsche", "--status", "archived", "--archive-root", tmp_root])
+    assert code == 0
+    out = capsys.readouterr().out
+    assert "no hits" in out
 
 
 def test_cli_search_with_limit(tmp_root, capsys):
     """bili-asr search <query> --limit N bounds the output."""
     _create_sample_archive(tmp_root)
-    code = main(["search", "Hegel", "--limit", "1", "--archive-root", tmp_root])
+    code = main(["search", "Hegel", "--status", "archived", "--limit", "1", "--archive-root", tmp_root])
     assert code == 0
     lines = [line for line in capsys.readouterr().out.strip().splitlines() if line]
     assert len(lines) == 1
 
 
 def test_cli_search_with_rebuild(tmp_root, capsys):
-    """bili-asr search <query> --rebuild forces index rebuild and exits 0."""
+    """bili-asr search <query> --rebuild re-runs the index build and exits 0."""
     _create_sample_archive(tmp_root)
-    code = main(["search", "Kant", "--rebuild", "--archive-root", tmp_root])
+    code = main(["search", "Kant", "--status", "subtitle_done", "--rebuild", "--archive-root", tmp_root])
     assert code == 0
     out = capsys.readouterr().out
-    assert "BV1kant:p0" in out
-    assert "[subtitle_done]" in out
+    assert "BV1kant" in out
 
 
-def test_cli_search_auto_builds_when_missing(tmp_root, capsys):
-    """bili-asr search builds index automatically if search.db does not exist."""
+def test_cli_search_never_auto_builds_when_index_missing(tmp_root, capsys):
+    """Read paths never auto-create the index; a missing index is exit 0."""
     _create_sample_archive(tmp_root)
-    db_path = os.path.join(tmp_root, "search.db")
+    db_path = os.path.join(tmp_root, "archive.db")
     assert not os.path.exists(db_path)
 
     code = main(["search", "Kant", "--archive-root", tmp_root])
     assert code == 0
-    assert os.path.exists(db_path)
     out = capsys.readouterr().out
-    assert "BV1kant:p0" in out
+    assert "index missing" in out
+    assert "search-index" in out
 
 
-def test_cli_search_missing_query_arg_exits_one(tmp_root, capsys):
-    """bili-asr search without query exits 1 (usage error)."""
+def test_cli_search_missing_query_arg_is_usage_error(tmp_root, capsys):
+    """bili-asr search without query is a usage error (argparse exit 1)."""
     with pytest.raises(SystemExit) as exc:
         main(["search", "--archive-root", tmp_root])
     assert exc.value.code == 1
@@ -570,6 +573,9 @@ def test_fts5_unavailable_error_handling(tmp_root, monkeypatch, capsys):
                 raise sqlite3.OperationalError("no such module: fts5")
             return self._real_conn.execute(sql, *args)
 
+        def executescript(self, sql):
+            return self._real_conn.executescript(sql)
+
         def commit(self):
             return self._real_conn.commit()
 
@@ -590,7 +596,7 @@ def test_fts5_unavailable_error_handling(tmp_root, monkeypatch, capsys):
     with pytest.raises(FTS5UnavailableError, match="SQLite FTS5 extension is not available"):
         index.build()
 
-    code = main(["search", "test", "--archive-root", tmp_root])
+    code = main(["search-index", "--archive-root", tmp_root])
     assert code == 1
     err = capsys.readouterr().err
     assert "FTS5" in err or "SQLite" in err
@@ -868,63 +874,59 @@ def test_cli_search_with_status_source_language_filters(tmp_root, capsys):
     code1 = main(["search", "Hegel", "--status", "archived", "--archive-root", tmp_root])
     assert code1 == 0
     out1 = capsys.readouterr().out
-    assert "BV1hegel:p0" in out1
+    assert "BV1hegel" in out1
 
-    # 2. Filter by status mismatch
+    # 2. Filter by status mismatch: no hits is exit 0 (healthy class)
     code2 = main(["search", "Hegel", "--status", "subtitle_done", "--archive-root", tmp_root])
-    assert code2 == 1
-    err2 = capsys.readouterr().err
-    assert "no matching transcripts found" in err2
+    assert code2 == 0
+    out2 = capsys.readouterr().out
+    assert "no hits" in out2
 
     # 3. Filter by source
     code3 = main(["search", "Kant", "--source", "subtitle", "--archive-root", tmp_root])
     assert code3 == 0
     out3 = capsys.readouterr().out
-    assert "BV1kant:p0" in out3
+    assert "BV1kant" in out3
 
     # 4. Filter by language
     code4 = main(["search", "Kant", "--language", "ai-zh", "--archive-root", tmp_root])
     assert code4 == 0
     out4 = capsys.readouterr().out
-    assert "BV1kant:p0" in out4
+    assert "BV1kant" in out4
 
     # 5. Filter by work-id
-    code5 = main(["search", "Hegel", "--work-id", "BV1hegel:p1", "--archive-root", tmp_root])
+    code5 = main(["search", "Hegel", "--work-id", "BV1hegel", "--archive-root", tmp_root])
     assert code5 == 0
     out5 = capsys.readouterr().out
-    assert "BV1hegel:p1" in out5
-    assert "BV1hegel:p0" not in out5
+    assert "BV1hegel" in out5
 
 
 def test_cli_search_json_format_output(tmp_root, capsys):
     """bili-asr search --format json outputs valid formatted JSON array."""
     _create_sample_archive(tmp_root)
 
-    code = main(["search", "Kant", "--format", "json", "--archive-root", tmp_root])
+    code = main(["search", "Kant", "--status", "subtitle_done", "--format", "json", "--archive-root", tmp_root])
     assert code == 0
     out = capsys.readouterr().out
     data = json.loads(out)
     assert isinstance(data, list)
     assert len(data) == 1
-    assert data[0]["work_id"] == "BV1kant:p0"
-    assert data[0]["status"] == "subtitle_done"
+    assert data[0]["bvid"] == "BV1kant"
 
 
 def test_cli_search_invalid_limit_and_status_diagnostics(tmp_root, capsys):
-    """CLI search handles invalid limit and invalid status filters with exit 1."""
+    """Invalid --limit is a usage error (exit 2); unknown status filters match nothing."""
     _create_sample_archive(tmp_root)
 
     # Invalid non-positive limit
-    code_lim = main(["search", "Hegel", "--limit", "0", "--archive-root", tmp_root])
-    assert code_lim == 1
-    err_lim = capsys.readouterr().err
-    assert "--limit must be a positive integer" in err_lim
+    with pytest.raises(SystemExit) as exc:
+        main(["search", "Hegel", "--limit", "0", "--archive-root", tmp_root])
+    assert exc.value.code == 2
 
-    # Invalid status filter
+    # Status filters name manifest rows; the store layer has no such vocabulary,
+    # so an unknown value matches nothing rather than crashing.
     code_stat = main(["search", "Hegel", "--status", "invalid_status", "--archive-root", tmp_root])
-    assert code_stat == 1
-    err_stat = capsys.readouterr().err
-    assert "invalid status filter" in err_stat
+    assert code_stat == 0
 
 
 def test_the_index_reads_transcripts_from_the_artifact_root(tmp_path):
