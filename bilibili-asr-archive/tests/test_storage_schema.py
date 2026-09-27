@@ -266,6 +266,12 @@ EXPECTED_CHECK_ENUMERATIONS = {
     # tag identities, so they are refused at the storage boundary rather than
     # stored as if upstream had said them.
     "video_tags": ("tag_id > 0",),
+    # Task 4's twin of the row above: a category id is upstream's own positive
+    # integer, and NULL is the legitimate "not observed" state, so the CHECK
+    # admits NULL and refuses zero/negatives.  Declared here because the loop
+    # below iterates *declared* entries only -- an undeclared table's CHECK is
+    # silently unpinned (measured: deleting it left this file 39 passed).
+    "video_details": ("tid IS NULL OR tid > 0",),
     "ingestion_runs": (
         "source_package = 'bilibili-api-python'",
         "outcome IN ('running', 'complete', 'limited', 'risk_interrupted', 'failed')",

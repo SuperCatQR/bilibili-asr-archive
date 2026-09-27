@@ -1065,6 +1065,42 @@ def test_upsert_video_details_all_null_observation_touches_nothing(tmp_root):
         connection.close()
 
 
+def test_upsert_video_details_advances_for_a_desc_only_observation(tmp_root):
+    """D15's "at least one of three", pinned where a `pic`-keyed guard fails.
+
+    The rule is "advances when >=1 of ``pic``/``desc``/``tid`` was observed".
+    A guard keyed on ``pic`` alone satisfies every other case in this file --
+    measured: replacing the three-term guard with ``if details.pic is None:``
+    left the whole four-file gate green (481 passed, 1 skipped). This arm is
+    the one that separates the rule from that mutant: ``pic`` is ``None`` here
+    while ``desc`` is not, so a ``pic``-only guard returns early and the stamp
+    never moves.
+    """
+
+    connection = open_database(tmp_root)
+    repository = MetadataRepository(connection)
+    try:
+        with repository.transaction():
+            repository.upsert_user(make_user_record())
+            repository.upsert_video(make_video_record())
+            repository.upsert_video_details(_details(observed_at=200))
+        first = _stored_details(connection)
+
+        with repository.transaction():
+            repository.upsert_video_details(
+                _details(pic=None, desc="只观测到简介", tid=None, observed_at=777)
+            )
+        stored = _stored_details(connection)
+
+        # The observation was real, so the row is refreshed and the stamp moves.
+        assert stored is not None
+        assert first is not None
+        assert stored[1] == "只观测到简介"
+        assert stored[3] == 777 and stored[3] > first[3]
+    finally:
+        connection.close()
+
+
 def test_upsert_video_details_all_null_observation_writes_no_row(tmp_root):
     """A video whose only observation is all-``NULL`` has nothing written.
 

@@ -437,6 +437,19 @@ class MetadataRepository:
         grain is unchanged — one row per video, refreshed — so the guard
         constrains *when* the stamp moves, not what the table holds.
 
+        **A partial observation refreshes the whole row, the stamp included.**
+        "All three are ``None``" is the whole of the skip condition, so an
+        observation carrying only one of the three is a successful collection:
+        the row is written to exactly what it carried, the unobserved columns go
+        to ``NULL``, and ``observed_at`` advances with them.  That is D11 applied
+        verbatim — metadata "is refreshed on recollect … a later collection
+        overwrites it" — because the row is the last collection's *view* of the
+        video, not a per-column last-known-good, so a value upstream really did
+        drop does not survive as a stale one.  Per-column ``COALESCE`` would keep
+        a genuinely retracted cover alive, which is the same class of fiction
+        D15 exists to prevent; a partial observation establishes exactly that
+        much and nothing here is per-column.
+
         ``"desc"`` is quoted because ``desc`` is a SQL keyword and the column
         keeps upstream's own field name.  ``pic`` holds the cover URL in the
         store; ``export`` still redacts its value and this is intended and
