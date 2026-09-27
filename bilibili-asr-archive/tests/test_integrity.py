@@ -614,6 +614,9 @@ def test_inflight_absent_inferred_raw_path_is_not_a_mismatch(tmp_path: Path) -> 
     _attempts_sidecar(tmp_path, ["BVabs2:p0"])
 
     assert not (tmp_path / "subtitles" / "raw" / f"{archive_stem(row)}.json").exists()
+    # §2f: both writer-real raw locations are inferred now, so the control covers
+    # both — an absent candidate is inert wherever it is inferred from.
+    assert not (tmp_path / "transcripts" / "raw" / f"{archive_stem(row)}.json").exists()
 
     report = IntegrityVerifier().verify(tmp_path)
 
@@ -626,6 +629,146 @@ def test_inflight_absent_inferred_raw_path_is_not_a_mismatch(tmp_path: Path) -> 
 
     assert cli.main(["coverage", "--archive-root", str(tmp_path),
                      "--quality", "--format", "json"]) == 0
+
+
+def test_transcripts_raw_escaping_symlink_is_a_mismatch_on_both_readers(tmp_path: Path) -> None:
+    """§2f F-3-005: the second writer-real raw location is inferred and probed too.
+
+    ``archive.py:469`` declares ``raw_path`` under ``transcripts/raw/``; the subtitle
+    path writes ``subtitles/raw/``.  Both are writer-real, so inferring only the
+    subtitle location made the candidate set incomplete.  Pre-fix this row was a live
+    disagreement: ``verify`` exited 0 (it never looked under ``transcripts/raw/``)
+    while ``coverage --quality`` resolved the symlink, reported ``identity_unconfined``
+    and exited 1.
+    """
+    row = _inflight_row("BVtraw:p0")
+    _manifest(tmp_path, [row])
+    _attempts_sidecar(tmp_path, ["BVtraw:p0"])
+    outside = tmp_path.parent / f"{tmp_path.name}-outside-raw.json"
+    outside.write_text("{}", encoding="utf-8")
+    link = tmp_path / "transcripts" / "raw" / f"{archive_stem(row)}.json"
+    link.parent.mkdir(parents=True)
+    link.symlink_to(outside)
+    assert not link.resolve().is_relative_to(tmp_path.resolve())  # the fixture really escapes
+
+    report = IntegrityVerifier().verify(tmp_path)
+
+    assert _defect_codes(report) == {"BVtraw:p0": {IDENTITY_PATH_MISMATCH, RETRYABLE_INCOMPLETE}}
+    assert report.defect_count == 1
+    code, payload = _verify_payload(tmp_path)
+    assert code == 1
+    assert payload["defect_count"] == 1
+    # Agreement is the DoD, so it is pinned against the other reader's real command.
+    from bili_asr import cli
+
+    assert cli.main(["coverage", "--archive-root", str(tmp_path),
+                     "--quality", "--format", "json"]) == 1
+
+
+def test_escaping_but_absent_inferred_raw_is_a_mismatch_on_both_readers(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """§2f F-3-006: existence is the wrong gate for "where does this path point".
+
+    The inferred ``subtitles/raw/<stem>.json`` is a dangling symlink pointing outside
+    every base, so ``exists()`` is false while ``resolve()`` still escapes.  Pre-fix
+    ``verify`` exited 1 (post-§2e it probes the candidate for every status) while
+    ``coverage`` dropped the candidate on ``exists()`` — never asking the containment
+    question — and exited 0.
+    """
+    row = _inflight_row("BVdangle:p0")
+    _manifest(tmp_path, [row])
+    _attempts_sidecar(tmp_path, ["BVdangle:p0"])
+    link = tmp_path / "subtitles" / "raw" / f"{archive_stem(row)}.json"
+    link.parent.mkdir(parents=True)
+    link.symlink_to(tmp_path.parent / f"{tmp_path.name}-never-written.json")
+    assert not link.exists()                                       # absent…
+    assert not link.resolve().is_relative_to(tmp_path.resolve())   # …and escaping
+
+    report = IntegrityVerifier().verify(tmp_path)
+
+    assert _defect_codes(report) == {"BVdangle:p0": {IDENTITY_PATH_MISMATCH, RETRYABLE_INCOMPLETE}}
+    assert report.defect_count == 1
+    code, payload = _verify_payload(tmp_path)
+    assert code == 1
+    assert payload["defect_count"] == 1
+    from bili_asr import cli
+
+    assert cli.main(["coverage", "--archive-root", str(tmp_path),
+                     "--quality", "--format", "json"]) == 1
+    # The exit moves because the containment question was asked, not by accident:
+    # the dropped-on-existence candidate is the one that carries the reason.
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["rows"][0]["reasons"] == ["identity_unconfined"]
+
+
+def test_absent_confined_raw_still_reports_missing_raw_subtitle(
+    tmp_path: Path,
+) -> None:
+    """§2f control: the suppression is confined-only — the ask survives where it should.
+
+    A ``subtitle_done`` row whose caption document was never written has no inferred
+    raw at either writer-real location, and both locations are confined, so the
+    document is genuinely missing and ``missing_raw_subtitle`` must survive edit 1.
+    Without this control, a patch that simply stopped asking would read as green.
+    ``missing_raw_subtitle`` is defect-class, so the exit is 1, not 0: the control
+    pins that the *code* still fires, not that the row is silent.
+    """
+    row = _inflight_row("BVnocap:p0", status="subtitle_done")
+    stem = archive_stem(row)
+    srt = tmp_path / "transcripts" / "srt" / f"{stem}.srt"
+    srt.parent.mkdir(parents=True)
+    srt.write_text(_CAPTION_SRT, encoding="utf-8")
+    row["srt_path"] = f"transcripts/srt/{stem}.srt"
+    _manifest(tmp_path, [row])
+    _attempts_sidecar(tmp_path, ["BVnocap:p0"])
+
+    assert not (tmp_path / "subtitles" / "raw" / f"{stem}.json").exists()
+    assert not (tmp_path / "transcripts" / "raw" / f"{stem}.json").exists()
+
+    report = IntegrityVerifier().verify(tmp_path)
+
+    assert _defect_codes(report) == {"BVnocap:p0": {MISSING_RAW_SUBTITLE, MISSING_TRANSCRIPT}}
+    code, _payload = _verify_payload(tmp_path)
+    assert code == 1
+
+
+def test_subtitle_done_escaping_inferred_raw_does_not_also_report_missing_raw_subtitle(
+    tmp_path: Path,
+) -> None:
+    """§2f item 3: an escaping inferred raw is a containment failure, not a missing document.
+
+    Pre-§2e this row reported ``identity_path_mismatch`` alone; §2e's widening added
+    ``missing_raw_subtitle`` on top, because the ask was no longer gated on
+    confinement.  That measurably widened ``recover --defect-code missing_raw_subtitle``
+    from exit 1/``selected: []`` to exit 0/``selected: [...]`` — naming one containment
+    failure twice, the second time with the less accurate name.  The escape stays
+    named once, by the accurate code, and the exact set is pinned.
+    """
+    row = _inflight_row("BVside:p0", status="subtitle_done")
+    stem = archive_stem(row)
+    srt = tmp_path / "transcripts" / "srt" / f"{stem}.srt"
+    srt.parent.mkdir(parents=True)
+    srt.write_text(_CAPTION_SRT, encoding="utf-8")
+    row["srt_path"] = f"transcripts/srt/{stem}.srt"
+    _manifest(tmp_path, [row])
+    _attempts_sidecar(tmp_path, ["BVside:p0"])
+    outside = tmp_path.parent / f"{tmp_path.name}-outside-caption.json"
+    outside.write_text("{}", encoding="utf-8")
+    link = tmp_path / "subtitles" / "raw" / f"{stem}.json"
+    link.parent.mkdir(parents=True)
+    link.symlink_to(outside)
+    assert not link.resolve().is_relative_to(tmp_path.resolve())  # the fixture really escapes
+
+    report = IntegrityVerifier().verify(tmp_path)
+
+    assert _defect_codes(report) == {"BVside:p0": {IDENTITY_PATH_MISMATCH, MISSING_TRANSCRIPT}}
+    assert MISSING_RAW_SUBTITLE not in {defect.code for defect in report.defects}
+    # The recovery surface §2f un-widens, pinned where the spec measured it: the
+    # escaping row must not be selectable by the code it does not carry.
+    assert IntegrityVerifier.recover(tmp_path, defect_codes=[MISSING_RAW_SUBTITLE]) == {
+        "ok": False, "code": RECOVERY_TARGET_NOT_FOUND, "selected": [],
+    }
 
 
 def test_malformed_manifest_line_reaches_the_report_as_a_defect(tmp_path: Path) -> None:

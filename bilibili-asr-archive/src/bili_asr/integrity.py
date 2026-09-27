@@ -412,22 +412,36 @@ class IntegrityVerifier:
                 if not _safe_over_bases(artifact_bases, candidates):
                     defects.add(IDENTITY_PATH_MISMATCH)
             if status in {"archived", "asr_done", "subtitle_done"} and (len(present) < len(canonical_required) or not bundle_complete): defects.add(MISSING_TRANSCRIPT)
-            raw = [base / "subtitles" / "raw" / f"{self._canonical_stem(row)}.json" for base, _reader in artifact_bases]
+            # §2f: BOTH raw locations are writer-real (`archive.py:469` declares `raw_path`
+            # under transcripts/raw/; the subtitle path writes subtitles/raw/), so both are
+            # inferred candidates and both are asked the containment question for every status.
+            raw_candidates = [
+                [base / "subtitles" / "raw" / f"{self._canonical_stem(row)}.json" for base, _reader in artifact_bases],
+                [base / "transcripts" / "raw" / f"{self._canonical_stem(row)}.json" for base, _reader in artifact_bases],
+            ]
             declared_raw = row.get("raw_path")
             if isinstance(declared_raw, str):
                 declared_raw_paths = [Path(declared_raw) if Path(declared_raw).is_absolute() else base / declared_raw for base, _reader in artifact_bases]
                 if not _safe_over_bases(artifact_bases, declared_raw_paths):
                     defects.add(IDENTITY_PATH_MISMATCH)
             located_raw: tuple[Path, _RootConfinedReader] | None = None
-            # §2e: containment is a question about where the path points, so it is asked
-            # for every status — the same widening the declared-raw probe received in T2.
-            # Only containment: absence is not an identity defect, so the locate half and
-            # its `MISSING_RAW_SUBTITLE` stay `subtitle_done`-only.
-            if not _safe_over_bases(artifact_bases, raw):
-                defects.add(IDENTITY_PATH_MISMATCH)
-            if status == "subtitle_done":
-                located_raw = _locate_over_bases(artifact_bases, [raw])[0]  # one recorded path, probed per base
-                if located_raw is None: defects.add(MISSING_RAW_SUBTITLE)
+            escaped_raw = False
+            for raw in raw_candidates:
+                if not _safe_over_bases(artifact_bases, raw):
+                    defects.add(IDENTITY_PATH_MISMATCH)
+                    escaped_raw = True
+                    continue                      # §2f: an escaping path is not "missing"
+                if status == "subtitle_done" and located_raw is None:
+                    located_raw = _locate_over_bases(artifact_bases, [raw])[0]
+            # §2f item 3, measured: the per-candidate `continue` alone does not suppress the
+            # ask.  The *sibling* candidate is confined and absent, so `located_raw` stays
+            # None and the code set remained
+            # `{identity_path_mismatch, missing_raw_subtitle, missing_transcript}` — the
+            # side effect §2f removes.  An escape means the row's raw document cannot be
+            # known to be missing from any candidate, so the ask is suppressed for the whole
+            # row (this is also what un-widens `recover --defect-code missing_raw_subtitle`).
+            if status == "subtitle_done" and located_raw is None and not escaped_raw:
+                defects.add(MISSING_RAW_SUBTITLE)
             artifact_paths = [located for located in _locate_over_bases(artifact_bases, canonical_required) if located is not None]
             if located_raw is not None: artifact_paths.append(located_raw)
             if any(not self._valid_artifact(path, row, base_reader) for path, base_reader in artifact_paths):

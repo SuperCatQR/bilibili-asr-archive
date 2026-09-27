@@ -446,9 +446,26 @@ def _artifact_paths(row: Mapping[str, object], roots: ArtifactRoots) -> list[Pat
             candidates = (path,) if path.is_absolute() else tuple(base / path for base in bases)
             chosen = next((item for item in candidates if item.exists()), None)
             if chosen is None:
-                if inferred:
-                    continue
-                chosen = candidates[0]
+                # §2f: an inferred candidate must still be offered even when nothing
+                # exists — existence is the wrong gate for "where does this path point",
+                # and a directory component can be the escaping symlink.  The caller's
+                # containment check runs first and reports `identity_unconfined`; a
+                # merely absent-and-confined candidate still reads as `artifact_missing`.
+                #
+                # Corrected against measurement: offering *every* absent candidate made
+                # each absent inferred sibling its own `artifact_missing`, but the inferred
+                # families are alternatives rather than artifacts that must all exist — six
+                # existing tests regressed and a healthy archive flipped to exit 1.  The
+                # offer therefore stays gated on existence, except for a candidate that
+                # escapes every read base: there, absence is the question being asked.
+                chosen = next(
+                    (item for item in candidates if _escapes_every_base(item, roots)),
+                    None,
+                )
+                if chosen is None:
+                    if inferred:
+                        continue
+                    chosen = candidates[0]
             result.append(chosen)
     if inferred and not result and values:
         result.append(bases[0] / values[0])
@@ -486,6 +503,21 @@ def _contained(path: Path, root: Path) -> bool:
     except ValueError:
         return False
     return True
+
+
+def _escapes_every_base(path: Path, roots: ArtifactRoots) -> bool:
+    """True only when the path is *known* to resolve outside every read base.
+
+    Measured: ``resolve()`` raises ``RuntimeError`` on a symlink loop (and ``OSError``
+    on some kernels) while ``exists()`` merely answers False.  B-R10 already carries
+    that crash on the declared-path surface, so an undeterminable answer here reports
+    False and the candidate is dropped exactly as it was before §2f — an inferred
+    candidate must not widen the residual's reach.
+    """
+    try:
+        return not _contained_at_any_base(path, roots)
+    except (OSError, RuntimeError):
+        return False
 
 
 def flatten_reference(text: str) -> str:
