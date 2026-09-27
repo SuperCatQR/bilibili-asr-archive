@@ -65,6 +65,10 @@ VIEWS = {
     "v_ingestion_run_stats",
     "v_pending_metadata",
     "v_pending_subtitles",
+    "v_missing_subtitle",
+    "v_missing_audio",
+    "v_missing_transcript",
+    "v_part_pipeline",
 }
 EXPECTED_TABLE_COLUMNS = {
     "bilibili_users": ["mid", "display_name", "created_at", "updated_at"],
@@ -294,6 +298,49 @@ EXPECTED_VIEW_COLUMNS = {
         "last_attempt_outcome",
         "last_attempt_error_code",
         "last_attempt_credential_present",
+    ],
+    "v_missing_subtitle": [
+        "video_part_id",
+        "work_id",
+        "bvid",
+        "page_index",
+        "cid",
+        "part_title",
+        "duration_ms",
+        "video_title",
+        "pubdate",
+    ],
+    "v_missing_audio": [
+        "video_part_id",
+        "work_id",
+        "bvid",
+        "page_index",
+        "cid",
+        "part_title",
+        "duration_ms",
+        "video_title",
+        "pubdate",
+        "newest_outcome",
+        "newest_error_code",
+    ],
+    "v_missing_transcript": [
+        "video_part_id",
+        "work_id",
+        "bvid",
+        "page_index",
+        "cid",
+        "part_title",
+        "duration_ms",
+        "video_title",
+        "pubdate",
+    ],
+    "v_part_pipeline": [
+        "video_part_id",
+        "work_id",
+        "bvid",
+        "page_index",
+        "processing_status",
+        "pipeline_state",
     ],
 }
 EXPECTED_ENUM_COLUMNS = {
@@ -931,7 +978,15 @@ def test_schema_inspection_matches_the_declared_contract(tmp_root):
                 (view,),
             ).fetchone()
             normalized_ddl = " ".join(ddl_row[0].split())
-            if view in {"v_video_parts", "v_pending_metadata", "v_pending_subtitles"}:
+            if view in {
+                "v_video_parts",
+                "v_pending_metadata",
+                "v_pending_subtitles",
+                "v_missing_subtitle",
+                "v_missing_audio",
+                "v_missing_transcript",
+                "v_part_pipeline",
+            }:
                 assert EXPECTED_VIEW_WORK_ID_EXPRESSION in normalized_ddl
 
         for view, columns in EXPECTED_VIEW_COLUMNS.items():
