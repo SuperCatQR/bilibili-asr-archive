@@ -10,7 +10,12 @@ import sqlite3
 import pytest
 
 from bili_asr.storage.database import MetadataRepository, open_database
-from bili_asr.storage.models import UserRecord, VideoPartRecord, VideoTagRecord
+from bili_asr.storage.models import (
+    UserRecord,
+    VideoDetailRecord,
+    VideoPartRecord,
+    VideoTagRecord,
+)
 from fixtures.metadata_records import (
     MID,
     make_cursor_record,
@@ -956,6 +961,150 @@ def test_record_page_tag_foreign_key_is_enforced_within_the_payload(tmp_root):
 
         assert connection.execute("SELECT COUNT(*) FROM ingestion_pages").fetchone()[0] == 0
         assert connection.execute("SELECT COUNT(*) FROM video_tags").fetchone()[0] == 0
+    finally:
+        connection.close()
+
+
+# --------------------------------------------------------- video details
+
+
+def _details(
+    bvid: str = "BV1SINGLE",
+    *,
+    pic: str | None = "http://i1.hdslb.com/bfs/archive/cover.jpg",
+    desc: str | None = "哲学讲座简介",
+    tid: int | None = 124,
+    observed_at: int = 200,
+) -> VideoDetailRecord:
+    """Build one details record for the fixture video."""
+
+    return VideoDetailRecord(
+        bvid=bvid, pic=pic, desc=desc, tid=tid, observed_at=observed_at
+    )
+
+
+def _stored_details(connection, bvid: str = "BV1SINGLE") -> tuple | None:
+    row = connection.execute(
+        'SELECT pic, "desc", tid, observed_at FROM video_details WHERE bvid = ?',
+        (bvid,),
+    ).fetchone()
+    return None if row is None else tuple(row)
+
+
+def test_upsert_video_details_requires_the_video_row(tmp_root):
+    """The details row's foreign key is enforced, not implied."""
+
+    connection = open_database(tmp_root)
+    repository = MetadataRepository(connection)
+    try:
+        with pytest.raises(sqlite3.IntegrityError):
+            with repository.transaction():
+                repository.upsert_video_details(_details())
+    finally:
+        connection.close()
+
+
+def test_upsert_video_details_refreshes_one_row_instead_of_appending(tmp_root):
+    """D11 at the write: the row is the current value, not a dated series."""
+
+    connection = open_database(tmp_root)
+    repository = MetadataRepository(connection)
+    try:
+        with repository.transaction():
+            repository.upsert_user(make_user_record())
+            repository.upsert_video(make_video_record())
+            repository.upsert_video_details(_details(observed_at=200))
+
+        with repository.transaction():
+            repository.upsert_video_details(
+                _details(pic="http://i1.hdslb.com/bfs/archive/new.jpg",
+                         desc=None, tid=None, observed_at=300)
+            )
+
+        assert (
+            connection.execute(
+                "SELECT COUNT(*) FROM video_details WHERE bvid = 'BV1SINGLE'"
+            ).fetchone()[0]
+            == 1
+        )
+        assert _stored_details(connection) == (
+            "http://i1.hdslb.com/bfs/archive/new.jpg",
+            None,
+            None,
+            300,
+        )
+    finally:
+        connection.close()
+
+
+def test_upsert_video_details_all_null_observation_touches_nothing(tmp_root):
+    """D15 at the write: a collection that observed nothing moves nothing.
+
+    Asserted on the whole row — the three values **and** ``observed_at`` —
+    because the defect D15 rules on is precisely an unconditional
+    ``DO UPDATE SET`` that blanks the values and stamps them fresh.
+    """
+
+    connection = open_database(tmp_root)
+    repository = MetadataRepository(connection)
+    try:
+        with repository.transaction():
+            repository.upsert_user(make_user_record())
+            repository.upsert_video(make_video_record())
+            repository.upsert_video_details(_details(observed_at=200))
+        observed = _stored_details(connection)
+
+        with repository.transaction():
+            repository.upsert_video_details(
+                _details(pic=None, desc=None, tid=None, observed_at=999)
+            )
+
+        assert observed is not None
+        assert _stored_details(connection) == observed
+    finally:
+        connection.close()
+
+
+def test_upsert_video_details_all_null_observation_writes_no_row(tmp_root):
+    """A video whose only observation is all-``NULL`` has nothing written.
+
+    The second half of D15: without it, an implementation that inserts an
+    all-``NULL`` row on the first observation and then guards every update
+    would satisfy "leaves the row untouched" while writing the very row the
+    ruling says the table must not offer.
+    """
+
+    connection = open_database(tmp_root)
+    repository = MetadataRepository(connection)
+    try:
+        with repository.transaction():
+            repository.upsert_user(make_user_record())
+            repository.upsert_video(make_video_record())
+            repository.upsert_video_details(
+                _details(pic=None, desc=None, tid=None, observed_at=999)
+            )
+
+        assert _stored_details(connection) is None
+    finally:
+        connection.close()
+
+
+def test_upsert_video_details_rolls_back_with_its_transaction(tmp_root):
+    """The write is the caller's transaction's, like every sibling upsert."""
+
+    connection = open_database(tmp_root)
+    repository = MetadataRepository(connection)
+    try:
+        with repository.transaction():
+            repository.upsert_user(make_user_record())
+            repository.upsert_video(make_video_record())
+
+        with pytest.raises(RuntimeError):
+            with repository.transaction():
+                repository.upsert_video_details(_details(observed_at=200))
+                raise RuntimeError("payload failure")
+
+        assert _stored_details(connection) is None
     finally:
         connection.close()
 

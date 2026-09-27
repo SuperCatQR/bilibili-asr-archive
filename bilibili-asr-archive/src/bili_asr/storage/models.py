@@ -233,6 +233,37 @@ class VideoTagRecord:
 
 
 @dataclass(frozen=True, slots=True)
+class VideoDetailRecord:
+    """One video's current category and cover as the last collection saw them.
+
+    All three value fields are optional and stay optional: upstream leaves the
+    description empty on some videos, the cover can be absent from a list item,
+    and absence is a legitimate observation rather than an error.  The row is
+    the *current* value, not a dated series — ``observed_at`` records the last
+    **successful** collection, which is why a record carrying none of the three
+    is not a rewrite: ``VideoDetailRecord`` accepts it, and
+    :meth:`MetadataRepository.upsert_video_details` is where the "observed
+    nothing" case is decided.
+    """
+
+    bvid: str
+    pic: str | None
+    desc: str | None
+    tid: int | None
+    observed_at: int
+
+    def __post_init__(self) -> None:
+        _text(self.bvid, "bvid")
+        if self.pic is not None:
+            _text(self.pic, "pic")
+        if self.desc is not None:
+            _text(self.desc, "desc")
+        if self.tid is not None:
+            _integer(self.tid, "tid", minimum=1)
+        _integer(self.observed_at, "observed_at", minimum=0)
+
+
+@dataclass(frozen=True, slots=True)
 class IngestionRunRecord:
     """Metadata and outcome state for one collection run."""
 
@@ -515,6 +546,7 @@ __all__ = [
     "TranscriptSegmentRecord",
     "TranscriptWriteResult",
     "UserRecord",
+    "VideoDetailRecord",
     "VideoPartRecord",
     "VideoRecord",
     "VideoTagRecord",

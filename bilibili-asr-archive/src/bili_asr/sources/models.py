@@ -73,6 +73,18 @@ class VideoSummary:
     not fabricate a display label, because ``None`` is what lets the ingestor
     tell "upstream sent no name" from "upstream sent this name" — the ingestor
     owns the user record, so the fallback is its decision, not this DTO's.
+
+    ``pic``/``desc``/``tid`` are the video's cover URL, description and
+    category id as **this list response** carried them, and all three are
+    nullable: upstream leaves the description empty on some videos and the
+    fields are read from the response already received, so absence is a fact
+    about the page rather than an error.  The category key is spelled
+    ``typeid`` on this endpoint (the view endpoint calls it ``tid``) and this
+    field keeps the stored column's name.  These are the three values the
+    ``video_details`` row is built from, and a run that observed none of them
+    writes no row — so blank text is normalized to ``None`` at the boundary,
+    where "upstream sent nothing" can still be told from "upstream sent a
+    space".
     """
 
     bvid: str
@@ -81,6 +93,9 @@ class VideoSummary:
     pubdate: int
     mid: int
     author: str | None = None
+    pic: str | None = None
+    desc: str | None = None
+    tid: int | None = None
 
     def __post_init__(self) -> None:
         _text(self.bvid, "bvid")
@@ -91,6 +106,12 @@ class VideoSummary:
         _integer(self.mid, "mid", minimum=1)
         if self.author is not None:
             _text(self.author, "author")
+        if self.pic is not None:
+            _text(self.pic, "pic")
+        if self.desc is not None:
+            _text(self.desc, "desc")
+        if self.tid is not None:
+            _integer(self.tid, "tid", minimum=1)
 
 
 @dataclass(frozen=True, slots=True)
