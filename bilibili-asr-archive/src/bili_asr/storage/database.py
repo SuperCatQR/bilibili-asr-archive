@@ -30,6 +30,7 @@ from .models import (
     TranscriptSegmentRecord,
     TranscriptWriteResult,
     UserRecord,
+    VideoDetailRecord,
     VideoPartRecord,
     VideoRecord,
     VideoTagRecord,
@@ -413,6 +414,65 @@ class MetadataRepository:
             raise sqlite3.DatabaseError("upserted video part could not be read back")
         return int(row[0])
 
+    def upsert_video_details(self, details: VideoDetailRecord) -> None:
+        """Insert or refresh one video's category and cover observation.
+
+        **One row per video, and it is refreshed** (compass D11): a second
+        collection of the same ``bvid`` replaces the row rather than adding
+        one, so ``SELECT COUNT(*)`` for that video stays ``1`` forever and
+        ``observed_at`` always holds the newest observation's stamp.  A reader
+        must not treat this table as a history: it cannot answer "what did
+        upstream say on 2026-09-26", because nothing here is dated beyond the
+        single row's own last-write stamp.
+
+        **``observed_at`` means "last *successful* collection" — the guard is
+        the condition, not an adjective** (compass D15).  All three value
+        columns are nullable, so an unconditional ``ON CONFLICT ... DO UPDATE
+        SET`` could blank a populated row with ``NULL``s and stamp it fresh,
+        recording "nothing was true at T" where the collection established no
+        such thing.  The write therefore happens **only when the incoming
+        observation carries at least one of ``pic``/``desc``/``tid``**: an
+        all-``NULL`` observation leaves the existing row and its ``observed_at``
+        untouched, and writes no row at all for a video that has none.  The
+        grain is unchanged — one row per video, refreshed — so the guard
+        constrains *when* the stamp moves, not what the table holds.
+
+        ``"desc"`` is quoted because ``desc`` is a SQL keyword and the column
+        keeps upstream's own field name.  ``pic`` holds the cover URL in the
+        store; ``export`` still redacts its value and this is intended and
+        permanent for this iteration (compass D12 — the cover is store-only,
+        and a cover that must appear in an export is a new decision).
+        """
+
+        if not isinstance(details, VideoDetailRecord):
+            raise TypeError("details must be a VideoDetailRecord")
+        if (
+            details.pic is None
+            and details.desc is None
+            and details.tid is None
+        ):
+            # Nothing was observed: leave the row and its stamp alone, and do
+            # not create one for a video that has none (D15).
+            return
+        self.connection.execute(
+            """
+            INSERT INTO video_details(bvid, pic, "desc", tid, observed_at)
+            VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(bvid) DO UPDATE SET
+                pic = excluded.pic,
+                "desc" = excluded."desc",
+                tid = excluded.tid,
+                observed_at = excluded.observed_at
+            """,
+            (
+                details.bvid,
+                details.pic,
+                details.desc,
+                details.tid,
+                details.observed_at,
+            ),
+        )
+
     def upsert_video_tags(
         self, bvid: str, tags: Iterable[VideoTagRecord] = ()
     ) -> None:
@@ -546,15 +606,16 @@ class MetadataRepository:
         discoveries: Iterable[DiscoveryRecord] = (),
         cursor: CursorRecord | None = None,
         tags: Mapping[str, Iterable[VideoTagRecord]] | None = None,
+        details: Iterable[VideoDetailRecord] = (),
     ) -> None:
         """Record one page outcome, optionally with its complete payload.
 
         With payload arguments the method owns one transaction and applies the
         locked parent-before-child order: user, videos, parts, tag sets,
-        discoveries, cursor, page outcome, commit. If any write fails, the whole
-        transaction is rolled back and the exception is re-raised; the prior
-        cursor and entities are unchanged. Recording the resulting failure is
-        the caller's step: build a fresh ``IngestionPageRecord`` with
+        details, discoveries, cursor, page outcome, commit. If any write fails,
+        the whole transaction is rolled back and the exception is re-raised;
+        the prior cursor and entities are unchanged. Recording the resulting
+        failure is the caller's step: build a fresh ``IngestionPageRecord`` with
         ``outcome='failed'`` and a bounded ``error_code`` and call this method
         again with no payload arguments.
 
@@ -579,6 +640,7 @@ class MetadataRepository:
         video_records = tuple(videos)
         part_records = tuple(parts)
         discovery_records = tuple(discoveries)
+        detail_records = tuple(details)
         # ``tags`` is a mapping rather than a flat iterable because the
         # replacement is per video: ``None`` means "this page observed no tag
         # sets at all" (a run whose tag calls all degraded, or a page whose
@@ -592,6 +654,7 @@ class MetadataRepository:
             or bool(video_records)
             or bool(part_records)
             or bool(discovery_records)
+            or bool(detail_records)
             or cursor is not None
             or tag_sets is not None
         )
@@ -620,6 +683,12 @@ class MetadataRepository:
             # silently dropping the observation.
             for tag_bvid, tag_records in (tag_sets or {}).items():
                 self.upsert_video_tags(tag_bvid, tag_records)
+            # Details land after the same video upserts, for the same foreign
+            # key reason.  An all-``NULL`` record is passed through rather than
+            # filtered here: ``upsert_video_details`` is where D15's
+            # "observed nothing" rule lives, so it stays one rule in one place.
+            for detail in detail_records:
+                self.upsert_video_details(detail)
             for discovery in discovery_records:
                 self.record_discovery(discovery)
             if cursor is not None:

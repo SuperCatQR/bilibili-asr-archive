@@ -43,6 +43,23 @@ CREATE TABLE IF NOT EXISTS video_tags (
     FOREIGN KEY (bvid) REFERENCES videos(bvid) ON DELETE RESTRICT
 );
 
+-- The video's current category and cover, one row per video, refreshed by the
+-- next collection that observed at least one of the three (``observed_at``
+-- records the last *successful* collection, never an attempt).
+-- ``"desc"`` is quoted because ``desc`` is a SQL keyword; the column keeps
+-- upstream's own field name, and ``PRAGMA table_info`` reports it unquoted.
+-- A child table rather than new ``videos`` columns: ``initialize_schema``
+-- runs ``CREATE ... IF NOT EXISTS`` only, so a widened parent table would be
+-- silently absent on every existing ``archive.db``.
+CREATE TABLE IF NOT EXISTS video_details (
+    bvid TEXT PRIMARY KEY,
+    pic TEXT,
+    "desc" TEXT,
+    tid INTEGER CHECK (tid IS NULL OR tid > 0),
+    observed_at INTEGER NOT NULL,
+    FOREIGN KEY (bvid) REFERENCES videos(bvid) ON DELETE RESTRICT
+);
+
 CREATE TABLE IF NOT EXISTS ingestion_runs (
     run_id TEXT PRIMARY KEY,
     mid INTEGER NOT NULL,

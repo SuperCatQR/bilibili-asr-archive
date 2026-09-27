@@ -40,6 +40,7 @@ from bili_asr.storage.models import (
     PageOutcome,
     RunOutcome,
     UserRecord,
+    VideoDetailRecord,
     VideoPartRecord,
     VideoRecord,
     VideoTagRecord,
@@ -507,10 +508,10 @@ class MetadataIngestor:
         """Record one collected page with its payload in the locked order.
 
         The repository's ``record_page`` applies the Plan-1 order — user,
-        videos, parts, tag sets, discoveries, cursor, page outcome — inside one
-        transaction and commits it.  Duplicate summary entries collapse into
-        their existing entity rows through the upsert keys, and a bvid
-        duplicated within one page keeps the last occurrence's
+        videos, parts, tag sets, details, discoveries, cursor, page outcome —
+        inside one transaction and commits it.  Duplicate summary entries
+        collapse into their existing entity rows through the upsert keys, and a
+        bvid duplicated within one page keeps the last occurrence's
         ``source_position``: the discovery primary key
         ``(run_id, page_number, bvid)`` makes the later entry overwrite the
         earlier one.  ``author`` is the run's observed uploader name and only
@@ -520,6 +521,12 @@ class MetadataIngestor:
         ``ensure_user`` already satisfies the run and cursor foreign keys, so a
         page carrying no observation leaves the stored label and its stamp
         alone rather than restamping the placeholder over them.
+
+        Every summary contributes a ``VideoDetailRecord``, including the ones
+        that observed none of ``pic``/``desc``/``tid``: those carry three
+        ``None``s, and the D15 rule that decides what to do with them lives in
+        ``upsert_video_details``, so the "observed nothing" case stays one rule
+        in one place rather than being re-derived by filtering here.
         """
 
         video_records = [
@@ -531,6 +538,16 @@ class MetadataIngestor:
                 pubdate=summary.pubdate,
                 created_at=finished_at,
                 updated_at=finished_at,
+            )
+            for summary in summaries
+        ]
+        detail_records = [
+            VideoDetailRecord(
+                bvid=summary.bvid,
+                pic=summary.pic,
+                desc=summary.desc,
+                tid=summary.tid,
+                observed_at=finished_at,
             )
             for summary in summaries
         ]
@@ -580,6 +597,7 @@ class MetadataIngestor:
             parts=part_records,
             discoveries=discovery_records,
             tags=tags,
+            details=detail_records,
             cursor=CursorRecord(
                 mid=mid,
                 next_page=page_number + 1,

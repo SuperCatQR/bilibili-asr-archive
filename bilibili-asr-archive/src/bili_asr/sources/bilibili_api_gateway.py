@@ -179,6 +179,45 @@ def _read_optional_aid(item: Mapping) -> int | None:
     return value
 
 
+def _read_optional_text(item: Mapping, field: str) -> str | None:
+    """Read one optional text field, collapsing blank text to absence.
+
+    Upstream leaves these fields present-but-empty on real items; empty is not
+    a value the store should carry, because the ingestor counts an observation
+    by whether the field holds anything and a blank would count as one.  So the
+    collapse happens here, where "upstream sent an empty string" and "upstream
+    sent nothing" are both still distinguishable from a real value.  A present
+    non-string, or text carrying a control character the storage contract
+    rejects, is a bounded shape error like every sibling field's.
+    """
+
+    value = item.get(field)
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise GatewayShapeError(detail=f"video item has no valid {field}")
+    return value.strip() or None
+
+
+def _read_optional_typeid(item: Mapping) -> int | None:
+    """Read the list item's ``typeid`` when present; absent stays absent.
+
+    The spelling is this endpoint's own — the view endpoint names the same
+    thing ``tid`` — and the DTO field keeps the stored column's name.  A
+    present-and-unusable value is a bounded shape error: the storage contract
+    checks ``tid IS NULL OR tid > 0``, and failing here keeps a bad category id
+    from surfacing as an ``IntegrityError`` inside a page transaction after the
+    rest of the page normalized cleanly.
+    """
+
+    value = item.get("typeid")
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+        raise GatewayShapeError(detail="video item has no valid typeid")
+    return value
+
+
 def _normalize_video_summary_item(item: object, requested_mid: int) -> VideoSummary:
     """Convert one vlist item into a validated summary DTO.
 
@@ -186,6 +225,11 @@ def _normalize_video_summary_item(item: object, requested_mid: int) -> VideoSumm
     it does not: absence is a fact about this response rather than something to
     paper over here, because the placeholder the user record falls back to is
     the ingestor's decision, not this boundary's.
+
+    The category and cover are read the same way, from the keys **this** list
+    endpoint uses (``typeid``/``pic``/``description``), and they are never
+    filled from a second call: the task stores what a response already received
+    carried, and an item that omitted them establishes nothing about them.
     """
 
     if not isinstance(item, Mapping):
@@ -216,6 +260,9 @@ def _normalize_video_summary_item(item: object, requested_mid: int) -> VideoSumm
             pubdate=_read_pubdate(item),
             mid=owner_mid,
             author=None if author is None else author.strip(),
+            pic=_read_optional_text(item, "pic"),
+            desc=_read_optional_text(item, "description"),
+            tid=_read_optional_typeid(item),
         )
     except (TypeError, ValueError) as exc:
         # The DTO rejects text the storage contract cannot hold either — a title
@@ -555,12 +602,16 @@ def _complete_summary_from_detail(
     """Fill the summary's missing aid from its detail response.
 
     Only ``aid`` is taken from the detail; every other field stays exactly as
-    the list response delivered it — the uploader name included, because the
-    detail is not asked for a name and this rebuild is the only constructor
-    between the page boundary and the ingestor.  Dropping ``author`` here would
-    silently discard a name the page did carry on exactly the aid-less entries
-    this path exists for.  A detail owned by another user, or one naming
-    another video, is a bounded shape error.
+    the list response delivered it — the uploader name, category and cover
+    included, because the detail is not asked for them and this rebuild is the
+    only constructor between the page boundary and the ingestor.  Dropping
+    ``author`` here would silently discard a name the page did carry on exactly
+    the aid-less entries this path exists for, and the same holds for
+    ``pic``/``desc``/``tid``: the detail response does carry ``tid``/``pic``/
+    ``desc``, but filling them from it would make these fields come from a
+    second call on some entries and the page on others, which is the
+    distinction the task exists to keep.  A detail owned by another user, or
+    one naming another video, is a bounded shape error.
     """
 
     if not isinstance(detail, Mapping):
@@ -588,6 +639,9 @@ def _complete_summary_from_detail(
         pubdate=summary.pubdate,
         mid=summary.mid,
         author=summary.author,
+        pic=summary.pic,
+        desc=summary.desc,
+        tid=summary.tid,
     )
 
 

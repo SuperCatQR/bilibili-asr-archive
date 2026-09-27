@@ -556,6 +556,114 @@ def test_a_blank_author_costs_every_item_on_the_page(bilibili_api_seam):
     assert bilibili_api_seam.calls == ["space.arc.search(pn=1, ps=30)"]
 
 
+def test_summary_carries_the_list_items_category_and_cover():
+    """The vlist item's own ``typeid``/``pic``/``description`` reach the DTO.
+
+    The spelling is the *list* endpoint's: its category key is ``typeid``
+    while the view endpoint calls the same thing ``tid``.  The DTO field keeps
+    the stored name from the plan's ``## Naming decisions``.
+    """
+
+    summary = _normalize_video_summary_item(
+        make_vlist_item(
+            bvid="BV1details01",
+            typeid=124,
+            pic="http://i1.hdslb.com/bfs/archive/cover.jpg",
+            description="  哲学讲座简介  ",
+        )
+    )
+
+    assert summary.tid == 124
+    assert summary.pic == "http://i1.hdslb.com/bfs/archive/cover.jpg"
+    # Trimmed like ``title``: upstream's words without transport whitespace.
+    assert summary.desc == "哲学讲座简介"
+
+
+def test_summary_details_are_absent_rather_than_invented():
+    """No ``typeid``/``pic``/``description`` → all three ``None``.
+
+    The negative control for the case above: without it, the positive case
+    would prove only that the normalizer can read keys the test itself
+    supplied.
+    """
+
+    item = make_vlist_item(bvid="BV1details02")
+    for key in ("typeid", "pic", "description"):
+        item.pop(key)
+
+    summary = _normalize_video_summary_item(item)
+
+    assert (summary.tid, summary.pic, summary.desc) == (None, None, None)
+
+
+def test_summary_blank_details_are_absence_rather_than_empty_strings():
+    """A blank ``pic``/``description`` is absence, not a value.
+
+    The plan's live note records empty descriptions on this UP's recent
+    uploads, and the D15 guard counts an observation by these values: a blank
+    string is not one, so the boundary is where the collapse has to happen
+    rather than one layer down after a record has been built.
+    """
+
+    summary = _normalize_video_summary_item(
+        make_vlist_item(bvid="BV1details03", pic="", description="   ")
+    )
+
+    assert (summary.pic, summary.desc) == (None, None)
+
+
+@pytest.mark.parametrize("typeid", [0, -1, "124", True, ["124"]])
+def test_get_user_video_page_rejects_a_present_but_unusable_typeid(typeid):
+    """Present-and-wrong is a bounded shape error; only absence is legitimate.
+
+    Same discipline as ``author`` and ``aid``.  The storage contract checks
+    ``tid IS NULL OR tid > 0``, so a zero or negative category id is refused
+    at the boundary rather than surfacing as an ``IntegrityError`` inside the
+    page transaction after the rest of the page normalized cleanly.
+    """
+
+    with pytest.raises(GatewayShapeError) as caught:
+        _normalize_video_summary_item(
+            make_vlist_item(bvid="BV1details04", typeid=typeid)
+        )
+
+    assert caught.value.code == "shape_error"
+
+
+def test_completed_summary_keeps_the_category_and_cover_across_the_rebuild(
+    bilibili_api_seam,
+):
+    """The aid-completion rebuild preserves the three detail fields.
+
+    ``_complete_summary_from_detail`` is the only constructor between the page
+    boundary and the ingestor and it runs for exactly the aid-less entries: a
+    rebuild that forgot these fields would silently lose the category and
+    cover on those videos, which is the loss Task 1 caught for ``author``.
+    The detail response carries ``tid``/``pic``/``desc`` too, but the ruling is
+    that these come from the response the run already parsed, so the rebuild
+    preserves and never fills from the detail.
+    """
+
+    bilibili_api_seam.info_response = make_detail_response()
+    gateway = _load_gateway()
+    summary = _summary(
+        aid=None,
+        pic="http://i1.hdslb.com/bfs/archive/cover.jpg",
+        desc="哲学讲座简介",
+        tid=124,
+    )
+
+    completed = asyncio.run(gateway.get_completed_video_summary(summary))
+
+    assert completed.aid == 111
+    assert (completed.pic, completed.desc, completed.tid) == (
+        "http://i1.hdslb.com/bfs/archive/cover.jpg",
+        "哲学讲座简介",
+        124,
+    )
+    assert bilibili_api_seam.calls == ["video.get_info"]
+
+
 def test_get_user_video_page_forwards_requested_page_and_size(bilibili_api_seam):
     """The adapter passes the documented page parameters only."""
 
