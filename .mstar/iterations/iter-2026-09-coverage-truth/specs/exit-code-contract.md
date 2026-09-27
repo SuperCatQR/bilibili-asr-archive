@@ -52,6 +52,50 @@ not a new findings taxonomy:
   - a coverage denominator is "unavailable" only on a genuine read/parse
     failure, never as a forced override.
 
+## 2h. PM scope call on the DECLARED axis (asked by the round-2 re-review, 2026-09-27)
+
+§2f ruled item 2 as "stop dropping the inferred candidate when `exists()` is false". The round-2
+re-review asked whether the principle also covers a *second* axis it did not name:
+
+**The declaration axis.** `quality._artifact_paths` computes `inferred = not values` (`quality.py:424`)
+and only then offers the inferred candidate families, while `verify`'s §2f widening builds
+`raw_candidates` unconditionally (`integrity.py:415-443`). So a row that declares **any** path key never
+has the two inferred raw names offered to `coverage`, and an escape at the *undeclared* raw location is
+invisible to it while `verify` reports it.
+
+**Ruling: §2f's principle extends to the declared axis — the pair must agree there too. But the fix is
+NOT owed by the closed iteration, and it is not a `warn-only` follow-up: it is registered (D-R10) with a
+measured closure path.**
+
+Reasoning, in the order that decides it:
+
+1. **The principle is about the pair, and it does not name the axis.** §2f's operative sentence is "the
+   agreement property is over the reader **pair**", and the closing rule it imposed is that "any future
+   agreement sweep must enumerate candidates from the readers' own tables, not from the shapes already
+   known". A declaration gate is exactly a difference between the readers' own candidate tables, so
+   leaving it open contradicts §2f's own remedy. The letter said *existence*; the principle it states is
+   broader, and the principle governs.
+2. **But the axis is not a regression and not writer-reachable.** The reviewer measured it as **neutral**
+   on the §2f diff (`pre` and `post` both 1/0; a different form exists at `base0`), and no writer emits a
+   declaring row that also leaves an escaping raw at the other location. It is fail-open on one reader
+   only, and the failure is not silent (the other reader reports it). That is why this is a **registered
+   low-severity item with a known cost**, not a blocker for the closed iteration.
+3. **The PM could not reproduce the reviewer's end-to-end exit split.** Three fixture attempts produced
+   *invalid bundles* that both readers correctly flagged (`missing_transcript` / `identity_mismatch`),
+   so the end-to-end 1/0 was not independently confirmed. What **was** confirmed is the structural
+   asymmetry, by reading both gates on `main@2696711`. D-R10 is therefore registered at **structural
+   strength with the non-reproduction disclosed** — not at the strength of the reviewer's measurement.
+   Anyone closing it must first build a *valid* `write_archive` bundle (the writer's own naming rule,
+   `archive.py:455-471`, including the `.bundle-ready` marker) and then measure.
+
+**What would settle it** (for whoever owns D-R10): offer the inferred raw candidates to `coverage`
+*in addition to* declared values rather than *instead of* them, then re-run the pair sweep over the
+candidate tables of both readers. The reviewer's attached candidate patch
+(`review/qc3-r2-candidate-B-R18.patch`) does this and passes the touched suites plus the full suite; it
+is **not applied** — a merged-and-closed iteration does not take new code, and the cost it adds
+(~0.56 s → 2.01 s on 3000 healthy declared rows, deliberately naive) belongs in a change that can be
+profiled and reviewed on its own.
+
 ## 3. Caller impact list (Q3)
 
 Verified call sites of the two commands (disk survey 2026-09-27):

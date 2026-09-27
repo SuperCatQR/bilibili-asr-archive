@@ -39,7 +39,8 @@ three rulings are recorded here so no later plan re-derives them.
 
 ### `acquisition_attempts` is caption-shaped; a successful audio download has no writable row
 
-The `acquisition_attempts` CHECK matrix (`schema-transcripts.sql`, the
+The `acquisition_attempts` CHECK matrix
+(`bilibili-asr-archive/src/bili_asr/storage/schema-transcripts.sql`, the
 outcome↔code↔transcript CHECK) admits exactly three shapes:
 
 | Shape | Required |
@@ -133,7 +134,8 @@ Old-database boundary, restated honestly: an old database holding downloaded aud
 `part_audio_objects` rows over-selects into the missing-audio gap (the part is re-queued).
 That is the **safe** direction — a re-download costs time, whereas the inverted reading
 would put a part with no audio into the transcription queue permanently. It converges
-when the operator rebuilds `archive.db` or the inventory backfill lands.
+when the operator rebuilds the archive database (the SQLite store under the archive
+root) or the inventory backfill lands.
 
 One-way-door mechanics: `CREATE VIEW IF NOT EXISTS` does not replace an existing view
 body, so a view predicate is permanent once merged. These views existed only on an

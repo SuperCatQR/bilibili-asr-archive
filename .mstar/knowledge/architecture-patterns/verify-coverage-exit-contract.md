@@ -78,10 +78,12 @@ and it has three consequences that each cost a fix round to learn:
    own statement.**
 2. **Candidate sets must be enumerated from the readers' own tables, not from the shapes
    already known.** The agreement sweep that passed 15/15 was true for the shapes it
-   listed while excluding both `transcripts/raw/` and escaping-but-absent candidates —
+   listed while excluding both the archive-side raw family (whose two writer-real names this
+   doc's sibling section names) and escaping-but-absent candidates —
    which is how the two surviving disagreements survived it. Both raw locations are
-   writer-real (`archive.py` declares `raw_path` under `transcripts/raw/`, `subtitles.py`
-   writes `subtitles/raw/`), so inferring only one was an incomplete candidate set, not a
+   writer-real (`bilibili-asr-archive/src/bili_asr/archive.py` declares `raw_path` under the
+   archive-side raw family, `bilibili-asr-archive/src/bili_asr/subtitles.py` writes the
+   subtitle-side one), so inferring only one was an incomplete candidate set, not a
    deliberate boundary. Existence is the wrong gate for a question about *where a path
    points*: an escaping relative path can be absent and still resolve outside every
    base, and a directory component that is itself an escaping symlink is invisible to a
@@ -170,12 +172,31 @@ while failing the actual requirement.
 
 - Iteration `iter-2026-09-coverage-truth`; plan `20260927-evidence-dashboard`.
 - Contract and rulings: `{ITERATION_DIR}/iter-2026-09-coverage-truth/specs/exit-code-contract.md`
-  §2 (two classes), §2b (retryable_attempt = backlog; `gone` = neither), §2c (`gone`
-  non-exit-bearing in both modes), §2d (widen verify, not narrow coverage), §2e (widen
-  the inferred-raw candidate too; flip the test), §2f (agreement is a pair property;
-  both readers move; suppress the side effect), §2g (two measured deviations from the
-  briefed patches accepted as corrections of PM patch bugs), §3 (caller impact: zero
-  migration).
+  §1–§3 and §6 (the condensed shipped spec; §2h is its latest ruling). The per-ruling sections
+  written during the iteration — §2b (retryable_attempt = backlog; `gone` = neither), §2c (`gone`
+  non-exit-bearing in both modes), §2d (widen verify, not narrow coverage), §2e (widen the
+  inferred-raw candidate too; flip the test), §2f (agreement is a pair property; both readers
+  move; suppress the side effect), §2g (two measured deviations from the briefed patches accepted
+  as corrections of PM patch bugs) — were folded into the shipped spec and into this document
+  when the PR condensed it; this file is the durable record of their content.
+- **§2h — the DECLARED axis remains open (registered `D-R10`).** §2f named the *existence* axis;
+  the pair has a second one. `bilibili-asr-archive/src/bili_asr/quality.py`'
+  `_artifact_paths` offers the inferred candidate families only
+  when `inferred = not values` (`quality.py:424-425`), while `verify`'s §2f widening builds its
+  `raw_candidates` **unconditionally** (`integrity.py:415-443`) — so a row that declares any path
+  key never has the two inferred raw names offered to `coverage`, and an escape at the *undeclared*
+  raw location is invisible to it while `verify` reports it. **The principle extends to this axis**
+  (a difference between the readers' own candidate tables is exactly what §2f's closing remedy says
+  to sweep for), but it is **not fixed**: neutral on the §2f diff, non-writer-reachable, fail-open on
+  one reader only. Registered in `{PROJECT_DIR}/_default/residuals.json` as `D-R10` at **structural
+  strength** — the PM confirmed both gates by reading them but could **not** reproduce the reviewer's
+  end-to-end exit split (three fixture attempts produced invalid bundles both readers correctly
+  flagged). Closing it requires a *valid* `write_archive` bundle (the writer's own naming rule,
+  `bilibili-asr-archive/src/bili_asr/archive.py`, incl. the `.bundle-ready` marker) and then a
+  pair sweep; the reviewer's
+  candidate patch is retained at
+  `{SDD_DIR}/20260927-evidence-dashboard/review/qc3-r2-candidate-B-R18.patch` and was deliberately
+  **not applied** (a merged iteration takes no new code).
 - Plan-QC record (three seats, basis-drift disclosed):
   `{SDD_DIR}/20260927-evidence-dashboard/review/qc-consolidated.md`; fix rounds
   `4cf4fea` (§2e) and `cafb0ca` (§2f, with §2g's accepted deviations).
