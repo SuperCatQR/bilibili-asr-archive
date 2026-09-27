@@ -91,3 +91,11 @@ work to do".
   check run first?*
 - Whenever a source is a network mount or a remote service: listings can be cached while reads fail, so a
   successful `ls` is not evidence the data is there.
+
+## Promoted from
+
+`iter-2026-09-qwen3-asr-closeout` (2026-09-26; see its
+`.mstar/iterations/iter-2026-09-qwen3-asr-closeout/README.md` promotion log) contributed this doc's
+**irreversible** case: a destructive step must probe the source it is about to destroy, a cached
+listing is not evidence that the source is readable, and reuse beats rebuild when a prerequisite turns
+out to be missing. The earlier instances are recorded in the package that promoted them.
