@@ -1,7 +1,8 @@
 ---
 iteration_id: iter-2026-09-coverage-truth
 start_date: 2026-09-27
-status: locked
+end_date: 2026-09-27
+status: completed
 iteration_base_branch: main
 target_branch: main
 plans:
@@ -130,3 +131,9 @@ Status values: `Todo` | `InProgress` | `InReview` | `Done` | `Blocked`
 - 结晶文档数：—
 - 新增 CONCEPTS.md 条目：—
 - 触发 compound-refresh：—
+
+
+## Iteration Retrospective (minimal)
+
+- 库层半边（store-side queue + reader/exit contract）交付正确；范围缩减把 CLI 可见行为推到下一迭代，由 ops-readiness 的 `--queue-source` cutover 接手完成。
+- 教训（QA F-3 捕获）：QC consolidated 报告声称「已登记 register」时必须在同一轮真正写入——两 plan 共 15+14 条声明残留当场补登，避免口头债。
