@@ -182,6 +182,14 @@ def reconcile_audio_inventory(
     is not required to *obtain* a digest; see the module docstring.
     """
     objects_by_key = dict(known_objects)
+    # Content identity. `sha256` is the store's own dedup key, and `audio_objects`
+    # allows exactly one row per digest, so a candidate whose *content* is already
+    # held is "present and matched" even when the single row currently names a
+    # different path.  Without this the store oscillates: three byte-identical
+    # files can only ever own one row, so each run repoints it to a different
+    # path and reports them as newly `recorded` for ever (measured: the key
+    # bouncing A->B->C->B with recorded=2 on every unchanged re-run).
+    known_digests = {sha for _, sha in objects_by_key.values()}
     stored_ids = set(known_audio_ids)
     linked = set(linked_audio_ids)
     recorded = already = missing = 0
@@ -251,6 +259,15 @@ def reconcile_audio_inventory(
             unreadable.append(storage_key)
             continue
 
+        if sha256 in known_digests:
+            # The content is already archived under some path.  Count it and do
+            # NOT record: a second row for one `sha256` is the one thing §3.1 says
+            # `already` never does, and recording would repoint the existing row
+            # and make the next run disagree -- the oscillation this branch
+            # exists to stop.
+            already += 1
+            continue
+
         bvid, page_index = parts
         audio_id = record(
             bvid=bvid,
@@ -264,6 +281,7 @@ def reconcile_audio_inventory(
             acquired_at=moment,
         )
         objects_by_key[storage_key] = (byte_size, sha256)
+        known_digests.add(sha256)
         # `recorded` is "this run wrote the object's content".  For a row that
         # existed and did NOT match, the content is rewritten here, so it counts:
         # calling it `already` would assert the match §3.1 requires, and counting
