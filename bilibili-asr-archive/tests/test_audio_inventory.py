@@ -781,6 +781,11 @@ def test_a_store_failure_mid_walk_is_bounded(tmp_root, capsys, monkeypatch):
     code = main(["derive-audio-inventory", "--archive-root", tmp_root])
     captured = capsys.readouterr()
     assert code == 1, "a bounded store failure exits 1"
+    assert "derive-audio-inventory: recorded=" in captured.out, (
+        "the summary line still prints on the failure path -- it must not go down "
+        "with the traceback on exactly the run an operator needs it"
+    )
+    assert "?" in captured.out, "the unknown counters are marked, not invented"
     assert "failed after" in captured.err, "the failure line names what landed"
     assert "RuntimeError" in captured.err, "and the failure's own type"
 

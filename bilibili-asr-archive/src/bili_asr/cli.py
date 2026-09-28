@@ -1418,15 +1418,26 @@ def _cmd_derive_audio_inventory(args: argparse.Namespace) -> int:
     except Exception as exc:  # noqa: BLE001 - bounded, reasoned, and reported below
         # The walk died part-way.  `mark_audio_acquired` is one transaction per
         # row, so whatever was recorded before the failure is committed and the
-        # operator must be told; the counters reached so far are not available
-        # (the outcome is built at the end), so the written count is read back.
-        written = 0
+        # operator must be told.  §3.1's summary line still prints, with the
+        # **total** the store now holds in the `recorded` slot and the other three
+        # reported as unknown: the per-walk counters are built inside the service
+        # and are not available once it raises, and inventing them here would be
+        # worse than saying what is knowable.  The count is a store read
+        # (`COUNT(*)`), not a guess, and a second failure while reporting must not
+        # mask the first.
+        total = 0
+        known = True
         try:
-            written = len(repository.read_audio_object_keys())
+            total = len(repository.read_audio_object_keys())
         except Exception:  # noqa: BLE001 - the report must not itself raise
-            pass
+            known = False
+        if known:
+            print(
+                f"derive-audio-inventory: recorded={total} already=? missing=? "
+                f"unlinked=? (walk aborted; recorded is the store's current total)"
+            )
         print(
-            f"derive-audio-inventory: failed after {written} object(s) in the "
+            f"derive-audio-inventory: failed after {total} object(s) in the "
             f"store: {type(exc).__name__}: {exc}",
             file=sys.stderr,
         )
