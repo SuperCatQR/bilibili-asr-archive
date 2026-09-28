@@ -442,6 +442,11 @@ def test_cli_dispatch_locks_every_archive_mutation(
         "asr",
         "pilot",
         "derive-manifest",
+        # It writes audio_objects / part_audio_objects, so it is a store-writing
+        # command like derive-manifest beside it (added 2026-09-28 with the
+        # command itself; the earlier omission made its documented archive_busy
+        # refusal unreachable).
+        "derive-audio-inventory",
         "publish-transcripts",
         "harvest-subs",
         "download-audio",
