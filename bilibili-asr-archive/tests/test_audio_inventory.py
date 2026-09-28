@@ -366,6 +366,64 @@ def test_a_second_run_over_an_unchanged_tree_converges(tmp_root):
         connection.close()
 
 
+def test_byte_identical_files_do_not_oscillate_the_store(tmp_root):
+    """F8, the harder shape: several candidates sharing one content.
+
+    The single-candidate case above was fixed by keying on the resolved path, but
+    that is not sufficient.  ``audio_objects`` permits exactly **one** row per
+    ``sha256``, so three byte-identical files can only ever own one row: keyed on
+    the path alone, each run repoints that row to a different candidate and
+    reports the others as newly ``recorded`` — for ever.  Measured on the shipped
+    round: the stored key bounced ``BV1A -> BV1B -> BV1C -> BV1B`` with
+    ``recorded=2`` on every unchanged re-run.
+
+    The rule this pins: a candidate whose **content** the store already holds is
+    ``already``, never a second ``recorded`` — which is also what §3.1 says
+    ``already`` never does ("never a second row for one ``sha256``").
+
+    Mutant that must fail: drop the ``sha256`` membership check and record every
+    candidate whose *path* is unknown — the stability assertion below goes red.
+
+    (Found by the L2 re-reviewer of this fix round, which died before writing its
+    verdict; its probe scripts survived under /tmp and the PM reproduced it.)
+    """
+    root = Path(tmp_root)
+    payload = b"three parts, one recording session"
+    connection = open_database(tmp_root)
+    try:
+        for bvid in ("BV1A", "BV1B", "BV1C"):
+            _insert_user_video_part(connection, bvid=bvid, page_index=0)
+            _write_audio(root, f"audio/{bvid}.p0.m4a", payload)
+        connection.commit()
+        entries = {
+            f"{bvid}:p0": {
+                "work_id": f"{bvid}:p0",
+                "bvid": bvid,
+                "audio_path": f"audio/{bvid}.p0.m4a",
+            }
+            for bvid in ("BV1A", "BV1B", "BV1C")
+        }
+
+        first = _call(tmp_root, connection, entries)
+        assert first.recorded == 1, "one object for one content"
+        assert first.already == 2, "the other two are the same object"
+
+        settled_key = connection.execute(
+            "SELECT storage_key FROM audio_objects"
+        ).fetchone()[0]
+        for moment in (900, 1200, 1500):
+            again = _call(tmp_root, connection, entries, moment=moment)
+            assert (again.recorded, again.already) == (0, 3), (
+                "an unchanged tree records nothing, every time"
+            )
+            assert (
+                connection.execute("SELECT storage_key FROM audio_objects").fetchone()[0]
+                == settled_key
+            ), "and the single row stops moving"
+    finally:
+        connection.close()
+
+
 def test_the_tree_is_untouched_byte_for_byte(tmp_root):
     """F9: the read-only promise, as a test rather than a commit-message claim.
 
@@ -673,8 +731,11 @@ def test_a_store_failure_mid_walk_is_bounded(tmp_root, capsys, monkeypatch):
     Mutant that must fail: dropping the handler's ``except Exception`` bound.
     """
     root = Path(tmp_root)
+    # Distinct content per page: identical bytes would be ONE object (content is
+    # the store's dedup key), so only the first would reach `record` and the
+    # injected second failure would never fire.
     for page in range(2):
-        _write_audio(root, f"audio/BV1FAIL.p{page}.m4a")
+        _write_audio(root, f"audio/BV1FAIL.p{page}.m4a", f"payload {page}".encode())
     connection = open_database(tmp_root)
     try:
         for page in range(2):
@@ -720,6 +781,11 @@ def test_a_store_failure_mid_walk_is_bounded(tmp_root, capsys, monkeypatch):
     code = main(["derive-audio-inventory", "--archive-root", tmp_root])
     captured = capsys.readouterr()
     assert code == 1, "a bounded store failure exits 1"
+    assert "derive-audio-inventory: recorded=" in captured.out, (
+        "the summary line still prints on the failure path -- it must not go down "
+        "with the traceback on exactly the run an operator needs it"
+    )
+    assert "?" in captured.out, "the unknown counters are marked, not invented"
     assert "failed after" in captured.err, "the failure line names what landed"
     assert "RuntimeError" in captured.err, "and the failure's own type"
 
