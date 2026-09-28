@@ -241,7 +241,7 @@ command reads or writes `manifest.jsonl`, `meta-cursor.json`, or `run-ledger.jso
   `{archive_root}/coordinator/`. A second mutating command exits `1` with
   `harvest-subs: archive_busy`.
 - **Projection and feeder boundary.** Neither command writes an on-disk projection of
-  the transcript — no `subtitles/raw/*.json`, no `transcripts/srt/*.srt`; the
+  the transcript — no `subtitles/raw/*.json`, no `transcripts/<stem>/bundle.srt`; the
   normalized transcript lives in `archive.db`. `harvest-subs` no longer produces the
   manifest status `needs_audio`, so the legacy audio feeder
   (`download-audio --missing-subs`) gains no new entries from this path, and the
