@@ -1876,6 +1876,50 @@ class MediaQueueRepository:
             for gap, view in self._VIEW_BY_GAP.items()
         }
 
+    def read_audio_object_keys(self) -> tuple[str, ...]:
+        """Every ``audio_objects.storage_key``, the store's recorded locations.
+
+        The reconciliation matches a manifest candidate on this set, because
+        ``storage_key`` — not ``sha256`` — is what ``mark_audio_acquired`` uses
+        as an object's identity.  Read in one query rather than per candidate so
+        the inventory walk pays one store read, not one per file.
+        """
+        return tuple(
+            str(row["storage_key"])
+            for row in self.connection.execute(
+                "SELECT storage_key FROM audio_objects ORDER BY audio_id"
+            ).fetchall()
+        )
+
+    def read_audio_object_ids(self) -> tuple[int, ...]:
+        """Every ``audio_objects.audio_id``.
+
+        Paired with :meth:`read_linked_audio_ids` this answers the ``unlinked``
+        counter: an object row that no ``part_audio_objects`` row attributes to
+        a part.
+        """
+        return tuple(
+            int(row["audio_id"])
+            for row in self.connection.execute(
+                "SELECT audio_id FROM audio_objects ORDER BY audio_id"
+            ).fetchall()
+        )
+
+    def read_linked_audio_ids(self) -> tuple[int, ...]:
+        """Every ``part_audio_objects.audio_id`` — the objects tied to a part.
+
+        A set, not a bag: an object attributed to several parts is still one
+        attributed object, and the ``unlinked`` counter is a subtraction over
+        objects.
+        """
+        return tuple(
+            int(row["audio_id"])
+            for row in self.connection.execute(
+                "SELECT DISTINCT audio_id FROM part_audio_objects "
+                "ORDER BY audio_id"
+            ).fetchall()
+        )
+
     @staticmethod
     def _gap_item(row: sqlite3.Row, gap: str, attempt_count: int) -> QueueGapItem:
         """Map one view row to one typed queue entry, whatever the view holds.
