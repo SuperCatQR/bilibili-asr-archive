@@ -417,7 +417,8 @@ class IntegrityVerifier:
                     defects.add(IDENTITY_PATH_MISMATCH)
             if status in {"archived", "asr_done", "subtitle_done"} and (len(present) < len(canonical_required) or not bundle_complete): defects.add(MISSING_TRANSCRIPT)
             # §2f: BOTH raw locations are writer-real (`archive.py:469` declares `raw_path`
-            # under transcripts/raw/; the subtitle path writes subtitles/raw/), so both are
+            # under transcripts/{stem}/bundle.raw.json; the subtitle path writes
+            # subtitles/raw/), so both are
             # inferred candidates and both are asked the containment question for every status.
             raw_candidates = [
                 [base / "subtitles" / "raw" / f"{self._canonical_stem(row)}.json" for base, _reader in artifact_bases],

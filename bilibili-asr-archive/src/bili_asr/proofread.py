@@ -55,6 +55,8 @@ from difflib import SequenceMatcher
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
+from .archive import bundle_paths_for_stem
+
 #: Blocks are built from ASR VAD segments alone: a segment whose ``start_ms``
 #: exceeds the block's current ``end_ms`` by more than this opens a new block.
 BLOCK_GAP_MS = 1500
@@ -465,12 +467,12 @@ def read_asr_route_ms(artifact_root: Path, bvid: str, part: int) -> list[tuple[i
     """Read the archived ASR transcript for one part: its ``raw`` sidecar.
 
     The sidecar is the bundle ``write_archive`` published
-    (``transcripts/raw/<bvid>.p<N>.json``); seconds in the file convert to
+    (``transcripts/<bvid>.p<N>/bundle.raw.json``); seconds in the file convert to
     milliseconds exactly (the SRT renderer rounds ``seconds * 1000`` back, so
     no millisecond is lost — the same rule ``writer_segments`` pins).
     """
 
-    raw_path = artifact_root / "transcripts" / "raw" / f"{bvid}.p{part}.json"
+    raw_path = bundle_paths_for_stem(artifact_root, f"{bvid}.p{part}")["raw_path"]
     if not raw_path.is_file():
         raise ProofreadRouteError(f"{bvid}:p{part}: missing ASR route (no {raw_path})")
     try:
@@ -754,7 +756,6 @@ def merge_sidebyside(
     ``(txt_path, corrections_path)``.
     """
 
-    from .archive import bundle_paths_for_stem
     from .asr import segments_to_srt, segments_to_txt
 
     marked = Path(marked_path)

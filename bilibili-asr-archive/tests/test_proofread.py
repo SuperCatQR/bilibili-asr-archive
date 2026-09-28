@@ -110,7 +110,7 @@ def proofread_workspace(tmp_path):
 
     archive_root = tmp_path / "archive"
     artifact_root = tmp_path / "artifacts"
-    (artifact_root / "transcripts" / "raw").mkdir(parents=True)
+    (artifact_root / "transcripts").mkdir(parents=True)
     connection = open_database(os.fspath(archive_root))
     try:
         _write_caption_route(connection, bvid="BV1proofClean", page_index=0, cid=101,
@@ -118,7 +118,8 @@ def proofread_workspace(tmp_path):
         _write_caption_route(connection, bvid="BV1proofHeavy", page_index=0, cid=202,
                              segments_ms=HEAVY_CAPTIONS_MS)
         for raw in ("BV1proofClean.p0.json", "BV1proofHeavy.p0.json"):
-            (artifact_root / "transcripts" / "raw" / raw).write_bytes(
+            (artifact_root / "transcripts" / raw[: -len(".json")]).mkdir(parents=True, exist_ok=True)
+            (artifact_root / "transcripts" / raw[: -len(".json")] / "bundle.raw.json").write_bytes(
                 (FIXTURES / raw).read_bytes()
             )
     finally:

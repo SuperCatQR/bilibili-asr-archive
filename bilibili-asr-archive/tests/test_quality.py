@@ -37,11 +37,28 @@ def row(**values: object) -> dict[str, object]:
     }
 
 
+def work_stem(name: str) -> str:
+    """The work stem (``BV1demo.p0``) carried by an artifact name.
+
+    Fixtures name which work they mean through the old-style artifact name; only
+    the stem is load-bearing now that the four files are fixed names, so this is
+    the one place that reads it out.
+    """
+    match = re.search(r"([A-Za-z0-9]+\.p\d+)", name)
+    assert match, f"no work stem in {name!r}"
+    return match.group(1)
+
+
 def write_srt(root: Path, name: str, body: str) -> str:
-    path = root / "transcripts" / "srt" / name
+    """Publish an srt into its work's bundle directory (shape A).
+
+    ``name`` names the work (``BV1demo.p0.srt``); the file inside is always
+    ``bundle.srt``.
+    """
+    path = root / "transcripts" / work_stem(name) / "bundle.srt"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(body, encoding="utf-8")
-    return "transcripts/srt/" + name
+    return path.relative_to(root).as_posix()
 
 
 def test_valid_monotonic_srt_is_stable_and_read_only(tmp_path: Path) -> None:
@@ -1007,9 +1024,6 @@ def test_reference_agreement_floor_is_the_retired_scripts_figure() -> None:
     assert quality.REFERENCE_AGREEMENT_FLOOR == 0.95
 
 
-_MD_STEM_RE = re.compile(r"([A-Za-z0-9]+\.p\d+)")
-
-
 def write_bundle(root: Path, body: str, name: str = "2026-01-02_BV1demo.p0_demo.md") -> str:
     """A published ``.md`` bundle carrying ``body`` as its transcript text.
 
@@ -1019,9 +1033,7 @@ def write_bundle(root: Path, body: str, name: str = "2026-01-02_BV1demo.p0_demo.
     file itself is always ``bundle.md``.  The composite name is kept in the
     signature so existing callers keep naming which work they mean.
     """
-    match = _MD_STEM_RE.search(name)
-    assert match, f"no work stem in {name!r}"
-    path = root / "transcripts" / match.group(1) / "bundle.md"
+    path = root / "transcripts" / work_stem(name) / "bundle.md"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
         '---\nbvid: "BV1demo"\ntitle: "demo"\n'

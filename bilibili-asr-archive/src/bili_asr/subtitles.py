@@ -23,7 +23,6 @@ from .manifest import ManifestStore
 from .page_identity import PageIdentity, apply_identity, artifact_stem, page_identity
 
 RAW_SUB_DIR = os.path.join("subtitles", "raw")
-SRT_DIR = os.path.join("transcripts", "srt")
 
 # preference order for subtitle language selection
 _LAN_PREFERENCE = ("ai-zh", "zh-CN", "zh-Hans", "en")

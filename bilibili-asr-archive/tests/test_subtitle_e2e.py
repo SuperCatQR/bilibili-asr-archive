@@ -109,7 +109,10 @@ LEGACY_SIDE_CAR_PATHS = (
     "run-ledger.jsonl",
     "coordinator/attempts.jsonl",
 )
-PROJECTION_PREFIXES = ("subtitles/raw/", "transcripts/srt/")
+#: Path prefixes a harvest must NOT leave behind.  Shape A moved the srt into
+#: transcripts/{stem}/, so the old "transcripts/srt/" prefix would match nothing
+#: and the assertion would pass vacuously.
+PROJECTION_PREFIXES = ("subtitles/raw/", "transcripts/")
 #: ``harvest-subs`` is an archive-writer command, so the shipped writer lock is
 #: the one file besides the database a harvest is expected to leave behind.
 ARCHIVE_WRITER_LOCK_PATH = "coordinator/archive-writer.lock"

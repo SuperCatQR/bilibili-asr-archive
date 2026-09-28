@@ -16,9 +16,9 @@ from .page_identity import artifact_stem, page_identity, page_query_index
 
 BUNDLE_MARKER_NAME = ".bundle-ready"
 
-#: Retained spelling for callers that name the marker suffix (tests and the
-#: CLI's staging note).  Shape A uses it as the marker's **basename inside the
-#: work directory**, not as a suffix appended to an artifact name.
+#: Deprecated alias.  The marker is no longer a suffix appended to an artifact
+#: name — it is a fixed basename inside the work directory (``BUNDLE_MARKER_NAME``).
+#: Kept only so external callers keep importing; do not use in new code.
 BUNDLE_MARKER_SUFFIX = BUNDLE_MARKER_NAME
 
 #: The four fixed basenames inside one work's bundle directory (shape A).  The
