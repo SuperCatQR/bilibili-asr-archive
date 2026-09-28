@@ -1876,6 +1876,55 @@ class MediaQueueRepository:
             for gap, view in self._VIEW_BY_GAP.items()
         }
 
+    def read_audio_objects(self) -> dict[str, tuple[int, str]]:
+        """Map every ``audio_objects.storage_key`` to ``(byte_size, sha256)``.
+
+        Both halves make the contract's ``already`` counter ("present **and
+        matched**") checkable: a ``stat`` against the size decides the default
+        run without reading a byte, so the published cost model ("zero file reads
+        for a row that already exists") survives the comparison, and the stored
+        digest is what ``--deep`` compares a fresh read against.
+        """
+        return {
+            str(row["storage_key"]): (int(row["byte_size"]), str(row["sha256"]))
+            for row in self.connection.execute(
+                "SELECT storage_key, byte_size, sha256 FROM audio_objects "
+                "ORDER BY audio_id"
+            ).fetchall()
+        }
+
+    def read_part_durations(self, work_ids: Iterable[str]) -> dict[str, int]:
+        """Map page-qualified work ids to the store's own ``duration_ms``.
+
+        The manifest records whole **seconds** (``duration_s``) because its
+        writers floor and clamp them, so reconstructing milliseconds from a
+        manifest row loses the exact value (``1234567 ms → 1234 s → 1234000 ms``).
+        The store holds the exact figure, so the reconciliation reads it here
+        rather than trusting the coarser surface.  A work id whose part is absent
+        is simply omitted; the caller records the schema's documented "unknown".
+
+        The key set is read straight off the ``video_parts`` rows for the bvids
+        named, then emitted in this module's ``<bvid>:p<index>`` spelling, so the
+        caller never has to parse or re-derive an identity.
+        """
+        requested = {str(work_id) for work_id in work_ids}
+        if not requested:
+            return {}
+        bvids = tuple(dict.fromkeys(key.split(":", 1)[0] for key in requested))
+        durations: dict[str, int] = {}
+        for start in range(0, len(bvids), _PUBDATE_CHUNK):
+            chunk = bvids[start : start + _PUBDATE_CHUNK]
+            placeholders = ", ".join("?" * len(chunk))
+            for row in self.connection.execute(
+                "SELECT bvid, page_index, duration_ms FROM video_parts "
+                f"WHERE bvid IN ({placeholders})",
+                chunk,
+            ).fetchall():
+                key = f"{row['bvid']}:p{int(row['page_index'])}"
+                if key in requested:
+                    durations[key] = int(row["duration_ms"])
+        return durations
+
     def read_audio_object_keys(self) -> tuple[str, ...]:
         """Every ``audio_objects.storage_key``, the store's recorded locations.
 
