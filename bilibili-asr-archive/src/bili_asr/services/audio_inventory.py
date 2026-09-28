@@ -40,6 +40,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Iterable, Mapping
@@ -163,6 +164,19 @@ def reconcile_audio_inventory(
             missing += 1
             continue
 
+        storage_key = str(declared)
+        existed = storage_key in keys
+        if existed and not deep:
+            # The plan's cost model is explicit: **zero file reads** for a
+            # candidate whose `storage_key` already has a row and is not passed to
+            # `--deep`.  So the row check comes *before* the digest, not after.
+            # Resolving the path above is `stat`-shaped and reads no bytes, which
+            # is what keeps a re-run over an unchanged corpus cheap.  Measured:
+            # digesting first cost one read per known row where the plan requires
+            # none.
+            already += 1
+            continue
+
         try:
             bvid, page_index = parse_work_id(str(work_id))
         except ValueError:
@@ -173,20 +187,19 @@ def reconcile_audio_inventory(
 
         try:
             sha256, byte_size = _digest_and_size(resolved)
-        except OSError:
-            # An unreadable-but-present file is not `missing` (it is there) and
-            # cannot be recorded (no digest).  Reporting it as `missing` would be
-            # the one thing §3.1 forbids that counter to do, so it is counted as
-            # neither and surfaces through the store's own error path instead.
-            missing += 1
-            continue
-
-        storage_key = str(declared)
-        existed = storage_key in keys
-        if existed and not deep:
-            # Zero file reads for this candidate once its object row matched:
-            # the digest above was the only read, and the row is left alone.
-            already += 1
+        except OSError as exc:
+            # A present-but-unreadable file.  It is **not** `missing` — the file
+            # is there, and §3.1 defines that counter as the file being absent —
+            # and it cannot be recorded, because `sha256` is `NOT NULL UNIQUE` and
+            # a row without one cannot be deduplicated.  It is therefore counted
+            # as neither, and named on stderr so the operator is not left with a
+            # silently smaller number.  This is the one branch where no counter of
+            # §3.1 fits; it is disclosed in the report rather than folded into
+            # `missing`, which would be the local redefinition §3.1 forbids.
+            print(
+                f"derive-audio-inventory: unreadable: {declared} ({exc})",
+                file=sys.stderr,
+            )
             continue
 
         audio_id = record(

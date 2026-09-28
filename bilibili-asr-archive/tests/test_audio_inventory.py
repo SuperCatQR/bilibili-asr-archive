@@ -222,6 +222,68 @@ def test_a_second_run_converges_instead_of_accumulating(tmp_root):
         connection.close()
 
 
+def test_a_known_row_costs_no_file_read_without_deep(tmp_root, monkeypatch):
+    """The plan's cost model, pinned: zero reads for an already-recorded row.
+
+    ``## Task 2`` is explicit — *"one streamed read per newly recorded file;
+    zero file reads for a candidate whose ``storage_key`` already has a row and
+    is not passed to ``--deep``"*.  The digest is not optional (``sha256`` is
+    ``NOT NULL UNIQUE``), so a naive implementation digests first and asks about
+    the row afterwards, which pays a read per known row on every re-run over an
+    unchanged corpus.  This test is what keeps the check on the near side of the
+    read: it counts the bytes actually read from the audio file.
+    """
+    root = Path(tmp_root)
+    _write_audio(root, "audio/BV1COST.p0.m4a")
+    connection = open_database(tmp_root)
+    repository = MediaQueueRepository(connection)
+    try:
+        _insert_user_video_part(connection, bvid="BV1COST", page_index=0)
+        connection.commit()
+
+        import bili_asr.services.audio_inventory as module
+
+        reads = {"count": 0}
+        real_read = module._digest_and_size
+
+        def counting_digest(path):
+            reads["count"] += 1
+            return real_read(path)
+
+        monkeypatch.setattr(module, "_digest_and_size", counting_digest)
+        entries = {"BV1COST:p0": {"audio_path": "audio/BV1COST.p0.m4a"}}
+        roots = roots_for(tmp_root)
+
+        def run(moment, deep=False):
+            return module.reconcile_audio_inventory(
+                roots=roots,
+                entries=entries,
+                known_storage_keys=repository.read_audio_object_keys(),
+                known_audio_ids=repository.read_audio_object_ids(),
+                linked_audio_ids=repository.read_linked_audio_ids(),
+                record=repository.mark_audio_acquired,
+                moment=moment,
+                deep=deep,
+            )
+
+        first = run(500)
+        assert (first.recorded, reads["count"]) == (1, 1), "a new file is read once"
+
+        reads["count"] = 0
+        second = run(900)
+        assert (second.already, reads["count"]) == (1, 0), (
+            "an already-recorded row costs no read without --deep"
+        )
+
+        reads["count"] = 0
+        deep = run(1200, deep=True)
+        assert (deep.already, reads["count"]) == (1, 1), (
+            "--deep re-verifies the digest of a row that is already present"
+        )
+    finally:
+        connection.close()
+
+
 def test_a_row_that_names_no_audio_path_is_not_a_candidate(tmp_root):
     """``missing`` counts rows that *name* a file — silence is not absence.
 
