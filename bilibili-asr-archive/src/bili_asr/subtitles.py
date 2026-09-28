@@ -18,6 +18,7 @@ from typing import Any
 
 from .artifact_root import ArtifactRoots
 from .bili_client import AmbiguousPageError, BiliClient
+from .archive import bundle_paths_for_stem
 from .manifest import ManifestStore
 from .page_identity import PageIdentity, apply_identity, artifact_stem, page_identity
 
@@ -145,12 +146,14 @@ def harvest_subtitle(
         artifact_roots.write_base if artifact_roots is not None else archive_root
     )
     raw_dir = os.path.join(root, RAW_SUB_DIR)
-    srt_dir = os.path.join(root, SRT_DIR)
     os.makedirs(raw_dir, exist_ok=True)
-    os.makedirs(srt_dir, exist_ok=True)
     stem = artifact_stem(identity)
+    # Shape A: the srt belongs to the work's own bundle directory,
+    # beside the md/txt/raw write_archive publishes for the same stem.
+    srt_path = os.fspath(bundle_paths_for_stem(root, stem)["srt_path"])
+    srt_dir = os.path.dirname(srt_path)
+    os.makedirs(srt_dir, exist_ok=True)
     raw_path = os.path.join(raw_dir, f"{stem}.json")
-    srt_path = os.path.join(srt_dir, f"{stem}.srt")
     with open(raw_path, "w", encoding="utf-8", newline="\n") as fh:
         json.dump(doc, fh, ensure_ascii=False, indent=2)
     with open(srt_path, "w", encoding="utf-8", newline="\n") as fh:

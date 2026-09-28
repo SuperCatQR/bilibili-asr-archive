@@ -325,6 +325,7 @@ def _empty_attempts_sidecar(root: str) -> None:
     have written, empty.
     """
     os.makedirs(os.path.join(root, "coordinator"), exist_ok=True)
+    os.makedirs(os.path.dirname(os.path.join(root, ATTEMPTS_REL_PATH)), exist_ok=True)
     with open(os.path.join(root, ATTEMPTS_REL_PATH), "w", encoding="utf-8"):
         pass
 

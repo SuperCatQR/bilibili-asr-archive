@@ -452,8 +452,8 @@ def test_mixed_md_and_store_keys_do_not_pollute_the_incremental_stamp(tmp_path):
         connection.commit()
     finally:
         connection.close()
-    (root / "transcripts" / "md").mkdir(parents=True, exist_ok=True)
-    (root / "transcripts" / "md" / "BVB.p0.md").write_text(
+    (root / "transcripts" / "BVB.p0").mkdir(parents=True, exist_ok=True)
+    (root / "transcripts" / "BVB.p0" / "bundle.md").write_text(
         "plain text body for BVB", encoding="utf-8"
     )
     assert index.build() == 1

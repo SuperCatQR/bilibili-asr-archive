@@ -754,6 +754,7 @@ def merge_sidebyside(
     ``(txt_path, corrections_path)``.
     """
 
+    from .archive import bundle_paths_for_stem
     from .asr import segments_to_srt, segments_to_txt
 
     marked = Path(marked_path)
@@ -774,9 +775,12 @@ def merge_sidebyside(
         raise ProofreadMergeError("every block is empty; refusing to publish an empty transcript")
 
     stem = f"{bvid}.p{part}.proofread"
-    transcript_path = bundle_dir / "txt" / f"{stem}.txt"
-    srt_path = bundle_dir / "srt" / f"{stem}.srt"
-    raw_path = bundle_dir / "raw" / f"{stem}.json"
+    # Shape A: the proofread bundle owns its own directory, with the four
+    # artifacts as fixed names inside it -- the same rule write_archive uses.
+    proofread_paths = bundle_paths_for_stem(artifact_root_path, stem)
+    transcript_path = proofread_paths["txt_path"]
+    srt_path = proofread_paths["srt_path"]
+    raw_path = proofread_paths["raw_path"]
     for directory in (transcript_path.parent, srt_path.parent, raw_path.parent):
         directory.mkdir(parents=True, exist_ok=True)
     transcript_path.write_text(segments_to_txt(segments) + "\n", encoding="utf-8")

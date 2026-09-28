@@ -383,9 +383,9 @@ def _seed_bare_row(store: ManifestStore, bvid: str) -> None:
 def test_a_foreign_page_stem_under_the_artifact_root_freezes_a_legacy_bare_row(tmp_path):
     """A `pN` stem in *either* base freezes the bare row (spec §10, D13)."""
     archive, artifact, roots = _roots(tmp_path)
-    srt_dir = artifact / "transcripts" / "srt"
+    srt_dir = artifact / "transcripts" / f"{BVID}.p1"
     srt_dir.mkdir(parents=True)
-    (srt_dir / f"{BVID}.p1.srt").write_text("x", encoding="utf-8")
+    (srt_dir / "bundle.srt").write_text("x", encoding="utf-8")
     store = ManifestStore(root=archive)
     _seed_bare_row(store, BVID)
 

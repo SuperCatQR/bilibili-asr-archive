@@ -324,7 +324,7 @@ not migrate the rest of the archive. The ASR and pilot chain (`asr`, `pilot`,
   bundle is never replaced, so a store that later gains a newer transcript
   version leaves the published product as it is. Two bounds belong beside that:
   a legacy `subtitle_done` part is published from the store and its
-  `transcripts/srt/{stem}.srt` is replaced when the legacy row was
+  `transcripts/{stem}/bundle.srt` is replaced when the legacy row was
   page-qualified (its document under `subtitles/raw/` is not touched), and a
   `work_id` whose manifest already carries an earlier state is outside what the
   archive's readers currently agree on. A stored caption is not re-queued for
@@ -339,7 +339,7 @@ run/page evidence is scalar: `error_code` values are bounded strings of at most
 response bodies, and raw exception text never enter CLI output, logs, or any
 persisted row. Neither of the two subtitle commands, `probe-subs` and
 `harvest-subs`, writes an on-disk projection of the transcript: neither produces
-`subtitles/raw/*.json` and neither produces `transcripts/srt/*.srt` — the
+`subtitles/raw/*.json` and neither produces `transcripts/<stem>/bundle.srt` — the
 normalized transcript lives in `archive.db` until `bili-asr publish-transcripts`
 publishes it (see
 [Boundary with the legacy manifest path](#boundary-with-the-legacy-manifest-path)).

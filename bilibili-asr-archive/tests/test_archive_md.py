@@ -78,7 +78,7 @@ def test_write_archive_unresolved_keeps_bare_bvid_stem(tmp_root):
         "unresolved_reason": "ambiguous_bare_bvid",
     }
     paths = write_archive(tmp_path, entry, [{"start": 0, "end": 1, "text": "x"}], source="asr")
-    assert paths["srt_path"].endswith("BV1legacy.srt")
+    assert paths["srt_path"].endswith("BV1legacy/bundle.srt")
     assert ".p" not in paths["srt_path"]
     md = (tmp_path / paths["md_path"]).read_text(encoding="utf-8")
     assert "work_id:" not in md
@@ -105,7 +105,7 @@ def test_bundle_paths_names_the_four_families_and_the_derived_md_name(tmp_root):
     assert paths["srt_path"] == root / "transcripts" / f"{stem}" / "bundle.srt"
     assert paths["txt_path"] == root / "transcripts" / f"{stem}" / "bundle.txt"
     assert paths["raw_path"] == root / "transcripts" / f"{stem}" / "bundle.raw.json"
-    assert paths["md_path"] == root / "transcripts" / "md" / f"2026-01-02_{stem}_AB quoted title.md"
+    assert paths["md_path"] == root / "transcripts" / f"{stem}" / "bundle.md"
     assert all(path.is_absolute() for path in paths.values())
 
     written = write_archive(root, entry, [{"start": 0, "end": 1, "text": "x"}], source="asr")
@@ -120,10 +120,10 @@ def test_bundle_paths_names_the_four_families_and_the_derived_md_name(tmp_root):
         root,
         {"bvid": "BV1nocid", "work_id": "BV1nocid:p0", "page_index": 0, "title": "legacy", "pubdate_str": "2026-01-02"},
     )
-    assert unresolved["srt_path"] == root / "transcripts" / "srt" / "BV1legacy.srt"
-    assert unresolved["md_path"] == root / "transcripts" / "md" / "2026-01-02_BV1legacy_legacy.md"
-    assert no_cid["srt_path"] == root / "transcripts" / "srt" / "BV1nocid.srt"
-    assert no_cid["raw_path"] == root / "transcripts" / "raw" / "BV1nocid.json"
+    assert unresolved["srt_path"] == root / "transcripts" / "BV1legacy" / "bundle.srt"
+    assert unresolved["md_path"] == root / "transcripts" / "BV1legacy" / "bundle.md"
+    assert no_cid["srt_path"] == root / "transcripts" / "BV1nocid" / "bundle.srt"
+    assert no_cid["raw_path"] == root / "transcripts" / "BV1nocid" / "bundle.raw.json"
 
 
 

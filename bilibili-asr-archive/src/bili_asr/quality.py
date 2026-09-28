@@ -850,7 +850,11 @@ def _check_identity(
 
     if stem and path.name:
         if path.suffix.lower() in {".srt", ".json", ".txt", ".md"}:
-            if stem not in path.name:
+            # Shape A carries the identity in the **directory**
+            # (``transcripts/{stem}/bundle.srt``), not in the file name, so the
+            # question is whether the stem appears anywhere in the path.  Asking
+            # ``path.name`` would reject every artifact of the shipped layout.
+            if stem not in path.as_posix():
                 reasons.add("identity_mismatch")
 
     if path.suffix.lower() == ".md":

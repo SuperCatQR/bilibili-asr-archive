@@ -54,7 +54,7 @@ import sqlite3
 import time
 from typing import Any, Sequence
 
-from .archive import archive_stem
+from .archive import archive_stem, bundle_relpaths_for_stem
 from .artifact_root import ArtifactRoots
 from .manifest import ManifestStore
 

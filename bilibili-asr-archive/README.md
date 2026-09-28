@@ -96,7 +96,7 @@ owns.
 frontmatter — verify it with
 
     ARCHIVE=/path/to/your/archive    # the archive root you passed to --archive-root
-    grep -n '^asr_device:' "$ARCHIVE"/transcripts/md/*.md
+    grep -n '^asr_device:' "$ARCHIVE"/transcripts/*/bundle.md
 
 which prints `asr_device: "cuda"`. A glob is required: the markdown bundle is
 named `{pubdate}_{bvid}.p{page}_<title>.md`, so there is no `<work_id>.md` to
@@ -271,8 +271,8 @@ directory records `[redacted]`, because a path is not an identifier. Read back
 what an archive recorded with
 
     ARCHIVE=/path/to/your/archive    # the archive root you passed to --archive-root
-    grep -n '^asr_model_name:' "$ARCHIVE"/transcripts/md/*.md
-    grep -n '^asr_model_revision:' "$ARCHIVE"/transcripts/md/*.md
+    grep -n '^asr_model_name:' "$ARCHIVE"/transcripts/*/bundle.md
+    grep -n '^asr_model_revision:' "$ARCHIVE"/transcripts/*/bundle.md
 
 The same glob rule as above applies: `"$ARCHIVE"` is quoted, `*.md` is not.
 
@@ -281,10 +281,10 @@ cover, which aligner produced their timings, and how the audio was cut into
 windows. Only the capture family is source-gated: a subtitle-sourced row records
 none of these keys, exactly as it records no other `asr_*` key.
 
-    grep -n '^asr_vad_' "$ARCHIVE"/transcripts/md/*.md
-    grep -n '^asr_aligner_model:' "$ARCHIVE"/transcripts/md/*.md
-    grep -n '^asr_chunk_seconds:' "$ARCHIVE"/transcripts/md/*.md
-    grep -n '^asr_low_confidence_at:' "$ARCHIVE"/transcripts/md/*.md   # written by the old engine
+    grep -n '^asr_vad_' "$ARCHIVE"/transcripts/*/bundle.md
+    grep -n '^asr_aligner_model:' "$ARCHIVE"/transcripts/*/bundle.md
+    grep -n '^asr_chunk_seconds:' "$ARCHIVE"/transcripts/*/bundle.md
+    grep -n '^asr_low_confidence_at:' "$ARCHIVE"/transcripts/*/bundle.md   # written by the old engine
 
 `asr_vad_segments` (count), `asr_vad_captured_s` (seconds) and
 `asr_vad_captured_ratio` (`captured_s / duration_s`, clamped to `[0, 1]`)
@@ -404,7 +404,7 @@ parts already archived in `/mnt/e/asr-archive-20/` therefore still carry
 boundary rebuild carries `Qwen/Qwen3-ASR-1.7B-hf` — commit `2548ca9` (2026-09-24 23:27),
 merged to `main` as `3b561ea` on 2026-09-25:
 
-    grep -n '^asr_model_name:' /mnt/e/asr-archive-20/transcripts/md/*.md
+    grep -n '^asr_model_name:' /mnt/e/asr-archive-20/transcripts/*/bundle.md
 
 These three — `BV1P8No6mEsB`, `BV1S8hA6MEvy`, `BV1fD3o69EiP` — are **accepted as they
 stand**, by operator decision, and are not a defect and not a backlog item. Re-running
@@ -695,12 +695,25 @@ final-name symlink to an outside victim.
 
 #### Transcript bundle publication
 
-An archive generation is exactly four files: `transcripts/srt/<stem>.srt`,
-`transcripts/txt/<stem>.txt`, one `transcripts/md/*.md`, and
-`transcripts/raw/<stem>.json`. `<srt>.bundle-ready` is published last and names
-those exact four relative paths with their SHA-256 digests. Readers accept only
-a complete marker-matched generation; a partial or mixed generation remains
-retryable and cannot justify `status=archived`.
+An archive generation is one directory holding exactly four files:
+`transcripts/<stem>/bundle.srt`, `transcripts/<stem>/bundle.txt`,
+`transcripts/<stem>/bundle.md` and `transcripts/<stem>/bundle.raw.json`.
+`transcripts/<stem>/.bundle-ready` is published last and names those exact four
+relative paths with their SHA-256 digests. Readers accept only a complete
+marker-matched generation; a partial or mixed generation remains retryable and
+cannot justify `status=archived`.
+
+**This is a format revision (shape A, 2026-09-28), and it is not
+backward-compatible.** Earlier generations used four sibling directories
+(`transcripts/{srt,txt,raw}/<stem>.<ext>` plus a markdown named
+`transcripts/md/<pubdate>_<stem>_<title>.md`). The markdown was the defect: it
+was the one artifact of the four whose name embedded the pubdate and the title,
+so republishing after either moved left the previous file orphaned beside its
+three siblings, which did not move. The per-work directory removes that
+inconsistency and gives all four artifacts one naming rule and one identity —
+the directory. Transcripts published before this revision must be re-published;
+`archive.db` is rebuildable by policy, and the same rule applies here: there is
+no migration path, and no reader accepts the old shape.
 
 Publication precedes the manifest transition. If all four files and the marker
 are complete but the manifest append fails, the row stays at its prior status,
@@ -1117,7 +1130,7 @@ Exit 2 variants:
 
 `bili-asr harvest-subs` acquires captions for parts already stored in
 `archive.db` and keeps the normalized transcript **in that database**: no
-`subtitles/raw/*.json` and no `transcripts/srt/*.srt` is written, and no JSONL
+`subtitles/raw/*.json` and no `transcripts/<stem>/bundle.srt` is written, and no JSONL
 sidecar is read or written. `bili-asr probe-subs` lists the tracks the selected
 parts expose and writes nothing at all — no database creation, no run or attempt
 row, no lock file. The full contract, with the printed line shapes and the

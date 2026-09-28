@@ -426,7 +426,7 @@ def test_gone_row_with_a_real_defect_still_fails_both_commands(
     row["srt_path"] = "transcripts/BVgonebad.p0/bundle.srt"
     _fixture(tmp_path, [row], attempts=[_attempt("BVgonebad:p0")])
     _sidecars(tmp_path, ["BVgonebad:p0"])
-    broken = tmp_path / "transcripts" / "srt" / "BVgonebad.p0.srt"
+    broken = tmp_path / "transcripts" / "BVgonebad.p0" / "bundle.srt"
     broken.parent.mkdir(parents=True, exist_ok=True)
     broken.write_text("NOT A CUE\n", encoding="utf-8")
 
@@ -549,7 +549,7 @@ def test_backlog_reason_set_matches_the_coverage_reader(
 
     # Non-member: the artifact is there and broken, so damage never hides behind
     # the row's in-flight status even though that status is a backlog status.
-    broken = tmp_path / "transcripts" / "txt" / "BVwhy1.p0.txt"
+    broken = tmp_path / "transcripts" / "BVwhy1.p0" / "bundle.txt"
     broken.parent.mkdir(parents=True, exist_ok=True)
     broken.write_text("", encoding="utf-8")
     assert cli.main(["coverage", "--archive-root", str(tmp_path),

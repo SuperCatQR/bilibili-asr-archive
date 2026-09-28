@@ -44,9 +44,10 @@ def _create_sample_archive_for_export(tmp_root: str) -> ManifestStore:
         "duration_s": 360,
         "pubdate": 1600000000,
         "source": "asr",
-        "txt_path": os.path.join("transcripts", "txt", "BV1hegel.p0.txt"),
-        "srt_path": os.path.join("transcripts", "srt", "BV1hegel.p0.srt"),
+        "txt_path": os.path.join("transcripts", "BV1hegel.p0", "bundle.txt"),
+        "srt_path": os.path.join("transcripts", "BV1hegel.p0", "bundle.srt"),
     }
+    os.makedirs(os.path.dirname(os.path.join(tmp_root, e1["txt_path"])), exist_ok=True)
     with open(os.path.join(tmp_root, e1["txt_path"]), "w", encoding="utf-8") as fh:
         fh.write("Hegel dialectical idealism transcript content.")
 
@@ -62,8 +63,9 @@ def _create_sample_archive_for_export(tmp_root: str) -> ManifestStore:
         "duration_s": 420,
         "pubdate": 1600000100,
         "source": "subtitle",
-        "srt_path": os.path.join("transcripts", "srt", "BV1kant.p0.srt"),
+        "srt_path": os.path.join("transcripts", "BV1kant.p0", "bundle.srt"),
     }
+    os.makedirs(os.path.dirname(os.path.join(tmp_root, e2["srt_path"])), exist_ok=True)
     with open(os.path.join(tmp_root, e2["srt_path"]), "w", encoding="utf-8") as fh:
         fh.write("1\n00:00:00,000 --> 00:00:05,000\nKant synthetic a priori proposition.\n")
 

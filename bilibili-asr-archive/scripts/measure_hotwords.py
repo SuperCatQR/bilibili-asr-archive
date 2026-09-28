@@ -15,8 +15,8 @@ and unresolved.
 
 Layout of ``<dir>`` (each arm root is a complete archive):
 
-    <dir>/with/     transcripts/{txt,srt,md}/<bvid>.p0.*   the evidence-hotword arm
-    <dir>/without/  transcripts/{txt,srt,md}/<bvid>.p0.*   the no-hotword arm
+    <dir>/with/     transcripts/<bvid>.p0/bundle.{txt,srt,md}   the evidence-hotword arm
+    <dir>/without/  transcripts/<bvid>.p0/bundle.{txt,srt,md}   the no-hotword arm
     <dir>/subtitle/ subtitles/raw/<bvid>.p0.json          the paired AI-subtitle text
 
 The corpus audio itself is *not* needed to score a completed run — only the
@@ -69,7 +69,7 @@ def ratio(a: str, b: str) -> float:
 
 
 def read_txt(root: pathlib.Path, bvid: str) -> str | None:
-    path = root / "transcripts" / "txt" / f"{bvid}.p0.txt"
+    path = root / "transcripts" / f"{bvid}.p0" / "bundle.txt"
     return path.read_text(encoding="utf-8") if path.exists() else None
 
 
@@ -84,7 +84,7 @@ def read_cues(srt_text: str) -> dict[tuple[str, str], str]:
 
 
 def read_cues_file(root: pathlib.Path, bvid: str) -> dict[tuple[str, str], str]:
-    path = root / "transcripts" / "srt" / f"{bvid}.p0.srt"
+    path = root / "transcripts" / f"{bvid}.p0" / "bundle.srt"
     if not path.exists():
         return {}
     return read_cues(path.read_text(encoding="utf-8"))
@@ -190,10 +190,16 @@ def main() -> int:
         print("measure_hotwords: need <ab-root>/with and <ab-root>/without", file=sys.stderr)
         return 2
 
+    # Shape A: a work's artifacts live in transcripts/{stem}/, so the stem is the
+    # directory name and the file inside is always bundle.txt.
+    transcripts_dir = arm_with / "transcripts"
+    # The item identity is the *bvid*, not the directory name: the directory is
+    # "{bvid}.p0" while every reader below is called with the bare bvid.
     items = sorted(
-        p.name[: -len(".p0.txt")]
-        for p in (arm_with / "transcripts" / "txt").glob("*.p0.txt")
-    ) if (arm_with / "transcripts" / "txt").exists() else []
+        d.name[: -len(".p0")]
+        for d in transcripts_dir.glob("*.p0")
+        if d.is_dir() and (d / "bundle.txt").is_file()
+    ) if transcripts_dir.is_dir() else []
     if not items:
         print("measure_hotwords: no transcripts in arm 'with' — nothing to measure", file=sys.stderr)
         return 2

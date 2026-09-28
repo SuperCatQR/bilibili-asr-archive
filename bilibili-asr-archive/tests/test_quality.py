@@ -96,9 +96,9 @@ def test_anomaly_reason_codes(tmp_path: Path) -> None:
 
 
 def test_json_and_standard_archive_paths_are_supported(tmp_path: Path) -> None:
-    raw = tmp_path / "transcripts" / "raw"
+    raw = tmp_path / "transcripts" / "BV1demo.p0"
     raw.mkdir(parents=True, exist_ok=True)
-    (raw / "BV1demo.p0.json").write_text(
+    (raw / "bundle.raw.json").write_text(
         json.dumps({"body": [{"from": 0, "to": 1, "content": "x"}]}),
         encoding="utf-8",
     )
@@ -135,11 +135,11 @@ def test_write_archive_canonical_outputs_pass_quality_analysis(
 
 
 def test_json_timestamp_anomalies_and_non_finite_values(tmp_path: Path) -> None:
-    raw_dir = tmp_path / "transcripts" / "raw"
+    raw_dir = tmp_path / "transcripts" / "nan"
     raw_dir.mkdir(parents=True, exist_ok=True)
 
     # Non-finite NaN
-    (raw_dir / "nan.json").write_text(
+    (raw_dir / "bundle.raw.json").write_text(
         '{"body": [{"from": "NaN", "to": 1.0, "content": "x"}]}',
         encoding="utf-8",
     )
@@ -149,7 +149,8 @@ def test_json_timestamp_anomalies_and_non_finite_values(tmp_path: Path) -> None:
     assert "malformed" in res_nan.reasons
 
     # Non-finite Infinity
-    (raw_dir / "inf.json").write_text(
+    (tmp_path / "transcripts" / "inf").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "transcripts" / "inf" / "bundle.raw.json").write_text(
         '{"body": [{"from": 0.0, "to": "Infinity", "content": "x"}]}',
         encoding="utf-8",
     )
@@ -159,7 +160,8 @@ def test_json_timestamp_anomalies_and_non_finite_values(tmp_path: Path) -> None:
     assert "malformed" in res_inf.reasons
 
     # Negative from timestamp
-    (raw_dir / "neg.json").write_text(
+    (tmp_path / "transcripts" / "neg").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "transcripts" / "neg" / "bundle.raw.json").write_text(
         json.dumps({"body": [{"from": -1.0, "to": 1.0, "content": "x"}]}),
         encoding="utf-8",
     )
@@ -169,7 +171,8 @@ def test_json_timestamp_anomalies_and_non_finite_values(tmp_path: Path) -> None:
     assert "out_of_range" in res_neg.reasons
 
     # Non-monotonic
-    (raw_dir / "nonmono.json").write_text(
+    (tmp_path / "transcripts" / "nonmono").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "transcripts" / "nonmono" / "bundle.raw.json").write_text(
         json.dumps(
             {"body": [{"from": 2.0, "to": 3.0}, {"from": 1.0, "to": 1.5}]}
         ),
@@ -181,7 +184,8 @@ def test_json_timestamp_anomalies_and_non_finite_values(tmp_path: Path) -> None:
     assert "non_monotonic" in res_nm.reasons
 
     # Overlap
-    (raw_dir / "overlap.json").write_text(
+    (tmp_path / "transcripts" / "overlap").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "transcripts" / "overlap" / "bundle.raw.json").write_text(
         json.dumps(
             {"body": [{"from": 0.0, "to": 2.0}, {"from": 1.0, "to": 3.0}]}
         ),
@@ -193,7 +197,8 @@ def test_json_timestamp_anomalies_and_non_finite_values(tmp_path: Path) -> None:
     assert "overlap" in res_ov.reasons
 
     # Out of range (exceeds duration_s=10)
-    (raw_dir / "oor.json").write_text(
+    (tmp_path / "transcripts" / "oor").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "transcripts" / "oor" / "bundle.raw.json").write_text(
         json.dumps({"body": [{"from": 9.0, "to": 12.0}]}),
         encoding="utf-8",
     )
@@ -205,7 +210,7 @@ def test_json_timestamp_anomalies_and_non_finite_values(tmp_path: Path) -> None:
 
 def test_markdown_frontmatter_identity_checks(tmp_path: Path) -> None:
     md_dir = tmp_path / "transcripts"
-    md_dir.mkdir(parents=True, exist_ok=True)
+    (md_dir / "BV1demo.p0").mkdir(parents=True, exist_ok=True)
 
     # Matching frontmatter
     md_ok = md_dir / "BV1demo.p0" / "bundle.md"
@@ -245,9 +250,9 @@ def test_markdown_frontmatter_identity_checks(tmp_path: Path) -> None:
 def test_txt_and_md_single_artifacts_are_not_empty_when_populated(
     tmp_path: Path,
 ) -> None:
-    txt_dir = tmp_path / "transcripts" / "txt"
+    txt_dir = tmp_path / "transcripts" / "BV1demo.p0"
     txt_dir.mkdir(parents=True, exist_ok=True)
-    txt_file = txt_dir / "BV1demo.p0.txt"
+    txt_file = txt_dir / "bundle.txt"
     txt_file.write_text("Hello transcript text\nSecond line\n", encoding="utf-8")
 
     res = QualityAnalyzer().analyze(
@@ -258,8 +263,9 @@ def test_txt_and_md_single_artifacts_are_not_empty_when_populated(
     assert res.cue_count == 0
 
     # Empty txt file
-    empty_txt = txt_dir / "BV1demo.p0_empty.txt"
-    empty_txt.write_text("", encoding="utf-8")
+    empty_dir = tmp_path / "transcripts" / "BV1demo.p0_empty"
+    empty_dir.mkdir(parents=True, exist_ok=True)
+    (empty_dir / "bundle.txt").write_text("", encoding="utf-8")
     res_empty = QualityAnalyzer().analyze(
         row(txt_path="transcripts/BV1demo.p0_empty/bundle.txt"), tmp_path
     )
@@ -919,9 +925,9 @@ def test_frontmatter_free_plain_text_keeps_its_leading_line(tmp_path: Path) -> N
     A leading ``---`` with no closing delimiter is text, not a metadata block.
     """
 
-    txt_dir = tmp_path / "transcripts" / "txt"
+    txt_dir = tmp_path / "transcripts" / "BV1demo.p0"
     txt_dir.mkdir(parents=True, exist_ok=True)
-    (txt_dir / "BV1demo.p0.txt").write_text(
+    (txt_dir / "bundle.txt").write_text(
         "---\n正文从这一行开始\n", encoding="utf-8"
     )
     reference = tmp_path / "second.txt"
@@ -1220,7 +1226,7 @@ def test_the_quality_analyzer_reads_the_artifact_root(tmp_path: Path) -> None:
 
     # The inferred branch (no path metadata) probes the bases too: the row names no
     # artifact, so only the on-disk candidates at the configured root can answer.
-    inferred_txt = artifact / "transcripts" / "txt" / "BV2inferred.txt"
+    inferred_txt = artifact / "transcripts" / "BV2inferred" / "bundle.txt"
     inferred_txt.parent.mkdir(parents=True, exist_ok=True)
     inferred_txt.write_text("inferred transcript body\n", encoding="utf-8")
     inferred_result = analyzer.analyze(

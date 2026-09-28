@@ -594,7 +594,10 @@ def test_write_archive_rejects_symlinked_transcript_directory(tmp_path: Path) ->
     outside = tmp_path / "outside"
     outside.mkdir()
     (tmp_path / "transcripts").mkdir()
-    (tmp_path / "transcripts" / "srt").symlink_to(outside, target_is_directory=True)
+    # Shape A: the work's own directory is what the writer must refuse to follow.
+    # Under the four-kind-dir shape the swapped directory was transcripts/srt; the
+    # attack surface moved with the layout, so the assertion has to move with it.
+    (tmp_path / "transcripts" / "BVdir.p0").symlink_to(outside, target_is_directory=True)
     with pytest.raises(OSError):
         write_archive(tmp_path, {"bvid": "BVdir", "work_id": "BVdir:p0", "cid": 1}, [], source="asr")
 
@@ -604,7 +607,7 @@ def test_write_archive_rejects_destination_symlink_swap(tmp_path: Path) -> None:
     row = {"bvid": "BVswap", "work_id": "BVswap:p0", "cid": 1, "page_index": 0}
     outside = tmp_path / "outside.srt"
     outside.write_text("keep", encoding="utf-8")
-    target = tmp_path / "transcripts" / "srt" / "BVswap.p0.srt"
+    target = tmp_path / "transcripts" / "BVswap.p0" / "bundle.srt"
     target.parent.mkdir(parents=True)
     target.write_text("old", encoding="utf-8")
     paths = archive.write_archive(tmp_path, row, [{"start": 0, "end": 1, "text": "x"}], source="asr")

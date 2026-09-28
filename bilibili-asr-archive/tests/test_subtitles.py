@@ -255,7 +255,7 @@ def test_harvest_downloads_shortlived_url_same_run(tmp_root):
     assert dl[0] is client.transport.calls[player_idx + 1]
     # raw + srt artifacts written
     raw_path = os.path.join(tmp_root, "subtitles", "raw", "BV1test00.p0.json")
-    srt_path = os.path.join(tmp_root, "transcripts", "srt", "BV1test00.p0.srt")
+    srt_path = os.path.join(tmp_root, "transcripts", "BV1test00.p0", "bundle.srt")
     assert json.load(open(raw_path, encoding="utf-8")) == doc
     assert "你好" in open(srt_path, encoding="utf-8").read()
     # short-lived URL never persisted

@@ -313,11 +313,9 @@ def test_publish_transcripts_publishes_one_stored_caption_as_a_complete_bundle(
     base = os.path.abspath(tmp_root)
     for bvid in (FRESH_BVID, GONE_BVID):
         stem = f"{bvid}.p0"
-        for family, suffix in (("srt", ".srt"), ("txt", ".txt"), ("raw", ".json")):
-            assert os.path.isfile(os.path.join(base, "transcripts", family, stem + suffix))
-        assert os.path.isfile(
-            os.path.join(base, "transcripts", "md", _md_name(bvid, 0))
-        )
+        for suffix in ("bundle.srt", "bundle.txt", "bundle.raw.json", "bundle.md"):
+            assert os.path.isfile(os.path.join(base, "transcripts", stem, suffix))
+        assert os.path.isfile(os.path.join(base, _md_name(bvid, 0)))
         # The reader the archive itself counts bundles with agrees, marker hashes
         # included — the same call `verify` and `coverage` make.
         assert archive_module.archive_bundle_complete(base, _declared(tmp_root, f"{bvid}:p0"))
@@ -419,7 +417,7 @@ def test_publish_transcripts_republishes_a_bundle_whose_marker_is_missing(
 
     base = os.path.abspath(tmp_root)
     marker = archive_module.bundle_marker_path(
-        os.path.join(base, "transcripts", "srt", f"{MARKER_BVID}.p0.srt")
+        os.path.join(base, "transcripts", f"{MARKER_BVID}.p0", "bundle.srt")
     )
     assert os.path.isfile(marker)
     os.unlink(marker)
@@ -469,7 +467,7 @@ def test_publish_transcripts_reports_failed_and_exits_one_on_a_stale_staging_dir
     assert captured.err == ""
     assert ManifestStore(root=tmp_root).load() == {}
     assert not os.path.exists(
-        os.path.join(base, "transcripts", "srt", f"{FRESH_BVID}.p0.srt")
+        os.path.join(base, "transcripts", f"{FRESH_BVID}.p0")
     )
 
 

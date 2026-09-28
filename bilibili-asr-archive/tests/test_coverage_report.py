@@ -99,7 +99,7 @@ def test_bvid_only_legacy_manifest_row_remains_checkable(tmp_path: Path):
 def test_complete_evidence_has_stable_cumulative_and_batch_totals(tmp_path: Path):
     rows = [manifest_row("BVone:p1"), manifest_row("BVtwo:p1")]
     for row in rows:
-        path = tmp_path / "transcripts" / "txt" / "BVone.p1.txt"
+        path = tmp_path / "transcripts" / "BVone.p1" / "bundle.txt"
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text("marker", encoding="utf-8")
         break
@@ -274,7 +274,7 @@ def test_all_evidence_bytes_and_mtimes_remain_unchanged(tmp_path: Path):
 
 def test_cli_formats_and_status_sentinel(tmp_path: Path, monkeypatch, capsys):
     from bili_asr import cli
-    transcript = tmp_path / "transcripts" / "txt" / "BVone.p1.txt"
+    transcript = tmp_path / "transcripts" / "BVone.p1" / "bundle.txt"
     transcript.parent.mkdir(parents=True)
     transcript.write_text("marker", encoding="utf-8")
     write_fixture(tmp_path, [manifest_row("BVone:p1")], cur=cursor(),

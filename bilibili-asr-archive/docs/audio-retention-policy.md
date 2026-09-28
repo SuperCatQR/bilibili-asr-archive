@@ -110,7 +110,7 @@ bili-asr run --scope pending --archive-root archive
 
 # 对比转录文本和原始音频
 mplayer archive/audio/BV1xx.p0.m4a
-cat archive/transcripts/txt/BV1xx.p0.txt
+cat archive/transcripts/BV1xx.p0/bundle.txt
 ```
 
 ### 场景4：磁盘吃紧，只要文本
