@@ -259,6 +259,30 @@ exist), and it silently went blind to every artifact published before the
 revision. That is the failure mode to look for when moving identity from a name
 to a directory.
 
+### Live verification at the new root (2026-09-28)
+
+The archive root moved from the retired 123pan WebDAV mount to the local
+`/srv/bili-asr-archive`, and the real chain was then run against the live
+bilibili API on that root:
+
+| Step | Result |
+|---|---|
+| `fetch-meta --mid 23191782` | 30 videos, 33 parts, 30 video_details, 111 video_tags |
+| `derive-manifest` | 33 rows derived, 0 identity_mismatch |
+| `publish-transcripts` | published `BV1RrMj6ZEVz:p0`, printing its own path as `transcripts/BV1RrMj6ZEVz.p0/bundle.md` |
+| on disk | `bundle.srt` + `bundle.txt` + `bundle.md` + `bundle.raw.json` + `.bundle-ready`, one directory |
+| `coverage --quality` | that row: `artifact_count=4`, `cue_count=4`, `reasons=[]` |
+| `verify` | checked 33, `defect_count=0` |
+| `search-index` / `search` | hit on the real Chinese title |
+| `export --format csv` | real rows, real titles and pubdates |
+
+The identity data is real (bvid, Chinese title with 【】 brackets, cid, pubdate);
+the transcript text was seeded into the store because this host has no `SESSDATA`
+(subtitle harvest needs login) and no local ASR weights. That is a separate
+host-setup gap, not a layout question. Note what the real title demonstrates: it
+never reaches a path at all now, so `_safe_name`'s escaping rule was dead code and
+has been removed.
+
 The original survey text follows, unedited, as the record of what was known
 before the decision.
 
