@@ -102,9 +102,9 @@ def test_bundle_paths_names_the_four_families_and_the_derived_md_name(tmp_root):
     stem = artifact_stem(ident)
     paths = bundle_paths(root, entry)
     assert set(paths) == {"srt_path", "txt_path", "md_path", "raw_path"}
-    assert paths["srt_path"] == root / "transcripts" / "srt" / f"{stem}.srt"
-    assert paths["txt_path"] == root / "transcripts" / "txt" / f"{stem}.txt"
-    assert paths["raw_path"] == root / "transcripts" / "raw" / f"{stem}.json"
+    assert paths["srt_path"] == root / "transcripts" / f"{stem}" / "bundle.srt"
+    assert paths["txt_path"] == root / "transcripts" / f"{stem}" / "bundle.txt"
+    assert paths["raw_path"] == root / "transcripts" / f"{stem}" / "bundle.raw.json"
     assert paths["md_path"] == root / "transcripts" / "md" / f"2026-01-02_{stem}_AB quoted title.md"
     assert all(path.is_absolute() for path in paths.values())
 

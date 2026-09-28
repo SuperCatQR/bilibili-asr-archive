@@ -3,6 +3,7 @@ from __future__ import annotations
 import collections
 import hashlib
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -143,7 +144,7 @@ def test_json_timestamp_anomalies_and_non_finite_values(tmp_path: Path) -> None:
         encoding="utf-8",
     )
     res_nan = QualityAnalyzer().analyze(
-        row(raw_path="transcripts/raw/nan.json"), tmp_path
+        row(raw_path="transcripts/nan/bundle.raw.json"), tmp_path
     )
     assert "malformed" in res_nan.reasons
 
@@ -153,7 +154,7 @@ def test_json_timestamp_anomalies_and_non_finite_values(tmp_path: Path) -> None:
         encoding="utf-8",
     )
     res_inf = QualityAnalyzer().analyze(
-        row(raw_path="transcripts/raw/inf.json"), tmp_path
+        row(raw_path="transcripts/inf/bundle.raw.json"), tmp_path
     )
     assert "malformed" in res_inf.reasons
 
@@ -163,7 +164,7 @@ def test_json_timestamp_anomalies_and_non_finite_values(tmp_path: Path) -> None:
         encoding="utf-8",
     )
     res_neg = QualityAnalyzer().analyze(
-        row(raw_path="transcripts/raw/neg.json"), tmp_path
+        row(raw_path="transcripts/neg/bundle.raw.json"), tmp_path
     )
     assert "out_of_range" in res_neg.reasons
 
@@ -175,7 +176,7 @@ def test_json_timestamp_anomalies_and_non_finite_values(tmp_path: Path) -> None:
         encoding="utf-8",
     )
     res_nm = QualityAnalyzer().analyze(
-        row(raw_path="transcripts/raw/nonmono.json"), tmp_path
+        row(raw_path="transcripts/nonmono/bundle.raw.json"), tmp_path
     )
     assert "non_monotonic" in res_nm.reasons
 
@@ -187,7 +188,7 @@ def test_json_timestamp_anomalies_and_non_finite_values(tmp_path: Path) -> None:
         encoding="utf-8",
     )
     res_ov = QualityAnalyzer().analyze(
-        row(raw_path="transcripts/raw/overlap.json"), tmp_path
+        row(raw_path="transcripts/overlap/bundle.raw.json"), tmp_path
     )
     assert "overlap" in res_ov.reasons
 
@@ -197,46 +198,46 @@ def test_json_timestamp_anomalies_and_non_finite_values(tmp_path: Path) -> None:
         encoding="utf-8",
     )
     res_oor = QualityAnalyzer().analyze(
-        row(raw_path="transcripts/raw/oor.json"), tmp_path
+        row(raw_path="transcripts/oor/bundle.raw.json"), tmp_path
     )
     assert "out_of_range" in res_oor.reasons
 
 
 def test_markdown_frontmatter_identity_checks(tmp_path: Path) -> None:
-    md_dir = tmp_path / "transcripts" / "md"
+    md_dir = tmp_path / "transcripts"
     md_dir.mkdir(parents=True, exist_ok=True)
 
     # Matching frontmatter
-    md_ok = md_dir / "2026-01-02_BV1demo.p0_title.md"
+    md_ok = md_dir / "BV1demo.p0" / "bundle.md"
     md_ok.write_text(
         '---\nbvid: "BV1demo"\nwork_id: "BV1demo:p0"\n---\n\ncontent\n',
         encoding="utf-8",
     )
     res_ok = QualityAnalyzer().analyze(
-        row(md_path=f"transcripts/md/{md_ok.name}"), tmp_path
+        row(md_path=md_ok.relative_to(tmp_path).as_posix()), tmp_path
     )
     assert res_ok.reasons == ()
     assert res_ok.artifact_count == 1
 
     # Mismatched work_id in frontmatter
-    md_bad_work = md_dir / "2026-01-02_BV1demo.p0_badwork.md"
+    md_bad_work = md_dir / "BV1demo.p0" / "bundle.md"
     md_bad_work.write_text(
         '---\nbvid: "BV1demo"\nwork_id: "BV1other:p0"\n---\n\ncontent\n',
         encoding="utf-8",
     )
     res_bad_work = QualityAnalyzer().analyze(
-        row(md_path=f"transcripts/md/{md_bad_work.name}"), tmp_path
+        row(md_path=md_bad_work.relative_to(tmp_path).as_posix()), tmp_path
     )
     assert "identity_mismatch" in res_bad_work.reasons
 
     # Mismatched bvid in frontmatter
-    md_bad_bvid = md_dir / "2026-01-02_BV1demo.p0_badbvid.md"
+    md_bad_bvid = md_dir / "BV1demo.p0" / "bundle.md"
     md_bad_bvid.write_text(
         '---\nbvid: "BV1other"\nwork_id: "BV1demo:p0"\n---\n\ncontent\n',
         encoding="utf-8",
     )
     res_bad_bvid = QualityAnalyzer().analyze(
-        row(md_path=f"transcripts/md/{md_bad_bvid.name}"), tmp_path
+        row(md_path=md_bad_bvid.relative_to(tmp_path).as_posix()), tmp_path
     )
     assert "identity_mismatch" in res_bad_bvid.reasons
 
@@ -250,7 +251,7 @@ def test_txt_and_md_single_artifacts_are_not_empty_when_populated(
     txt_file.write_text("Hello transcript text\nSecond line\n", encoding="utf-8")
 
     res = QualityAnalyzer().analyze(
-        row(txt_path="transcripts/txt/BV1demo.p0.txt"), tmp_path
+        row(txt_path="transcripts/BV1demo.p0/bundle.txt"), tmp_path
     )
     assert res.reasons == ()
     assert res.artifact_count == 1
@@ -260,7 +261,7 @@ def test_txt_and_md_single_artifacts_are_not_empty_when_populated(
     empty_txt = txt_dir / "BV1demo.p0_empty.txt"
     empty_txt.write_text("", encoding="utf-8")
     res_empty = QualityAnalyzer().analyze(
-        row(txt_path="transcripts/txt/BV1demo.p0_empty.txt"), tmp_path
+        row(txt_path="transcripts/BV1demo.p0_empty/bundle.txt"), tmp_path
     )
     assert "empty" in res_empty.reasons
 
@@ -807,7 +808,7 @@ def test_reference_is_ignored_when_the_row_has_no_transcript_text(tmp_path: Path
     reference.write_text("hello world\n", encoding="utf-8")
 
     result = QualityAnalyzer().analyze(
-        row(srt_path="transcripts/srt/missing.p0.srt"), tmp_path, reference
+        row(srt_path="transcripts/missing.p0/bundle.srt"), tmp_path, reference
     )
     assert result.reasons == ("artifact_missing",)
     assert result.reference is None
@@ -828,7 +829,7 @@ def test_reference_comparison_uses_the_transcript_not_the_md_bundle(
         tmp_path, "BV1demo.p0.json", [{"start": 0.0, "end": 4.0, "text": "你好世界"}]
     )
     # A bundle whose body is exactly the reference, frontmatter and all.
-    md = tmp_path / "transcripts" / "md" / "2026-01-02_BV1demo.p0_demo.md"
+    md = tmp_path / "transcripts" / "BV1demo.p0" / "bundle.md"
     md.parent.mkdir(parents=True, exist_ok=True)
     md.write_text(
         '---\nbvid: "BV1demo"\ntitle: "demo"\n'
@@ -839,7 +840,7 @@ def test_reference_comparison_uses_the_transcript_not_the_md_bundle(
     reference.write_text("你好世界\n", encoding="utf-8")
 
     result = QualityAnalyzer().analyze(
-        row(raw_path=relative, md_path="transcripts/md/" + md.name),
+        row(raw_path=relative, md_path=md.relative_to(tmp_path).as_posix()),
         tmp_path,
         reference,
     )
@@ -860,7 +861,7 @@ def test_md_bundle_is_compared_by_its_body_when_it_is_the_only_source(
     URL, or identity keys.
     """
 
-    md = tmp_path / "transcripts" / "md" / "2026-01-02_BV1demo.p0_demo.md"
+    md = tmp_path / "transcripts" / "BV1demo.p0" / "bundle.md"
     md.parent.mkdir(parents=True, exist_ok=True)
     md.write_text(
         '---\nbvid: "BV1demo"\ntitle: "demo"\n'
@@ -871,7 +872,7 @@ def test_md_bundle_is_compared_by_its_body_when_it_is_the_only_source(
     reference.write_text("你好世界\n", encoding="utf-8")
 
     result = QualityAnalyzer().analyze(
-        row(md_path="transcripts/md/" + md.name), tmp_path, reference
+        row(md_path=md.relative_to(tmp_path).as_posix()), tmp_path, reference
     )
     assert result.reasons == ()
     assert result.reference is not None
@@ -891,7 +892,7 @@ def test_md_bundle_never_marks_a_defect_free_row_as_disagreeing(
     """
 
     relative = _transcript(tmp_path, "")
-    md = tmp_path / "transcripts" / "md" / "2026-01-02_BV1demo.p0_demo.md"
+    md = tmp_path / "transcripts" / "BV1demo.p0" / "bundle.md"
     md.parent.mkdir(parents=True, exist_ok=True)
     md.write_text(
         '---\nbvid: "BV1demo"\ntitle: "demo"\n'
@@ -902,7 +903,7 @@ def test_md_bundle_never_marks_a_defect_free_row_as_disagreeing(
     reference.write_text("你好世界\n", encoding="utf-8")
 
     result = QualityAnalyzer().analyze(
-        row(srt_path=relative, md_path="transcripts/md/" + md.name),
+        row(srt_path=relative, md_path=md.relative_to(tmp_path).as_posix()),
         tmp_path,
         reference,
     )
@@ -927,7 +928,7 @@ def test_frontmatter_free_plain_text_keeps_its_leading_line(tmp_path: Path) -> N
     reference.write_text("---\n正文从这一行开始\n", encoding="utf-8")
 
     result = QualityAnalyzer().analyze(
-        row(txt_path="transcripts/txt/BV1demo.p0.txt"), tmp_path, reference
+        row(txt_path="transcripts/BV1demo.p0/bundle.txt"), tmp_path, reference
     )
     assert result.reference is not None
     assert result.reference.agreement == 1.0
@@ -1000,17 +1001,28 @@ def test_reference_agreement_floor_is_the_retired_scripts_figure() -> None:
     assert quality.REFERENCE_AGREEMENT_FLOOR == 0.95
 
 
-def write_bundle(root: Path, body: str, name: str = "2026-01-02_BV1demo.p0_demo.md") -> str:
-    """A published ``.md`` bundle carrying ``body`` as its transcript text."""
+_MD_STEM_RE = re.compile(r"([A-Za-z0-9]+\.p\d+)")
 
-    path = root / "transcripts" / "md" / name
+
+def write_bundle(root: Path, body: str, name: str = "2026-01-02_BV1demo.p0_demo.md") -> str:
+    """A published ``.md`` bundle carrying ``body`` as its transcript text.
+
+    Shape A: the markdown is ``transcripts/{stem}/bundle.md``, so the ``name``
+    parameter survives only as the carrier of the work's identity — the stem is
+    read out of it (``2026-01-02_BV1demo.p0_demo.md`` → ``BV1demo.p0``) and the
+    file itself is always ``bundle.md``.  The composite name is kept in the
+    signature so existing callers keep naming which work they mean.
+    """
+    match = _MD_STEM_RE.search(name)
+    assert match, f"no work stem in {name!r}"
+    path = root / "transcripts" / match.group(1) / "bundle.md"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
         '---\nbvid: "BV1demo"\ntitle: "demo"\n'
         'url: "https://www.bilibili.com/video/BV1demo"\n---\n\n' + body + "\n",
         encoding="utf-8",
     )
-    return "transcripts/md/" + name
+    return path.relative_to(root).as_posix()
 
 
 def test_transcript_rank_beats_artifact_order_for_a_stale_bundle(

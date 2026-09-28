@@ -214,9 +214,9 @@ def test_the_coordinator_archives_with_bundles_at_the_artifact_root(
     )
 
     assert row["status"] == "archived"
-    assert row["srt_path"] == f"transcripts/srt/{stem}.srt"
-    assert row["txt_path"] == f"transcripts/txt/{stem}.txt"
-    assert row["raw_path"] == f"transcripts/raw/{stem}.json"
+    assert row["srt_path"] == f"transcripts/{stem}/bundle.srt"
+    assert row["txt_path"] == f"transcripts/{stem}/bundle.txt"
+    assert row["raw_path"] == f"transcripts/{stem}/bundle.raw.json"
     for key in ("srt_path", "txt_path", "md_path", "raw_path"):
         recorded = row[key]
         assert not os.path.isabs(recorded)
@@ -355,10 +355,10 @@ def test_harvest_subtitle_writes_raw_and_srt_into_the_artifact_root(tmp_path):
 
     assert status == "subtitle_done"
     assert (artifact / "subtitles" / "raw" / f"{stem}.json").is_file()
-    assert (artifact / "transcripts" / "srt" / f"{stem}.srt").is_file()
+    assert (artifact / "transcripts" / f"{stem}" / "bundle.srt").is_file()
     assert not (archive / "subtitles").exists()
     assert not (archive / "transcripts").exists()
-    assert store.get(ident.work_id)["srt_path"] == f"transcripts/srt/{stem}.srt"
+    assert store.get(ident.work_id)["srt_path"] == f"transcripts/{stem}/bundle.srt"
 
 
 # ----------------------------------------------------------- legacy migration
@@ -434,7 +434,7 @@ def test_the_identity_default_reproduces_todays_paths(tmp_path, monkeypatch):
     assert Path(downloaded) == archive / "audio" / f"{stem}.m4a"
     assert (archive / "audio" / f"{stem}.m4a").is_file()
     assert store.get(ident.work_id)["audio_path"] == f"audio/{stem}.m4a"
-    assert row["srt_path"] == f"transcripts/srt/{stem}.srt"
-    assert (archive / "transcripts" / "srt" / f"{stem}.srt").is_file()
+    assert row["srt_path"] == f"transcripts/{stem}/bundle.srt"
+    assert (archive / "transcripts" / f"{stem}" / "bundle.srt").is_file()
     # Nothing at all was written to the unused directory.
     assert list(artifact.iterdir()) == []

@@ -93,8 +93,12 @@ PUBDATE_STR = time.strftime("%Y-%m-%d", time.gmtime(PUBDATE))
 
 
 def _md_name(bvid: str, page_index: int) -> str:
-    """The writer's md name for page ``page_index`` of ``bvid`` (§3.1)."""
-    return f"{PUBDATE_STR}_{bvid}.p{page_index}_第{page_index + 1}集.md"
+    """The writer's md **path** for page ``page_index`` of ``bvid`` (shape A).
+
+    The markdown no longer embeds the pubdate and title, so this helper returns the
+    bundle-relative path the writer now produces rather than a composite name.
+    """
+    return f"transcripts/{bvid}.p{page_index}/bundle.md"
 
 
 def _entry(bvid: str, page_index: int, cid: int, duration_ms: int) -> dict:
@@ -299,9 +303,9 @@ def test_publish_transcripts_publishes_one_stored_caption_as_a_complete_bundle(
 
     assert captured.out.splitlines() == [
         f"{FRESH_BVID}:p0: published (source=subtitle-ai lang=zh-CN version=1 "
-        f"cues=2) transcripts/md/{_md_name(FRESH_BVID, 0)}",
+        f"cues=2) {_md_name(FRESH_BVID, 0)}",
         f"{GONE_BVID}:p0: published (source=subtitle-ai lang=zh-CN version=1 "
-        f"cues=2) transcripts/md/{_md_name(GONE_BVID, 0)}",
+        f"cues=2) {_md_name(GONE_BVID, 0)}",
         "publish-transcripts: candidates=2 published=2 already_published=0 failed=0",
     ]
     assert captured.err == ""
@@ -340,9 +344,9 @@ def test_publish_transcripts_prints_the_summary_with_every_count_including_zeros
     assert captured.out.splitlines()[:3] == [
         f"{CHAIN_BVID}:p0: already_published",
         f"{FRESH_BVID}:p0: published (source=subtitle-ai lang=zh-CN version=1 "
-        f"cues=2) transcripts/md/{_md_name(FRESH_BVID, 0)}",
+        f"cues=2) {_md_name(FRESH_BVID, 0)}",
         f"{GONE_BVID}:p0: published (source=subtitle-ai lang=zh-CN version=1 "
-        f"cues=2) transcripts/md/{_md_name(GONE_BVID, 0)}",
+        f"cues=2) {_md_name(GONE_BVID, 0)}",
     ]
     assert captured.err == ""
 
@@ -430,7 +434,7 @@ def test_publish_transcripts_republishes_a_bundle_whose_marker_is_missing(
 
     assert captured.out.splitlines() == [
         f"{MARKER_BVID}:p0: published (source=subtitle-ai lang=zh-CN version=1 "
-        f"cues=2) transcripts/md/{_md_name(MARKER_BVID, 0)}",
+        f"cues=2) {_md_name(MARKER_BVID, 0)}",
         "publish-transcripts: candidates=1 published=1 already_published=0 failed=0",
     ]
     assert os.path.isfile(marker)
@@ -636,10 +640,10 @@ def test_publish_transcripts_records_the_fifteen_key_row_the_readers_read(tmp_ro
     # The published identity, in the vocabulary `quality` and `search_index` read.
     assert row["source"] == "subtitle-ai"
     assert row["language"] == "zh-CN"
-    assert row["srt_path"] == f"transcripts/srt/{FRESH_BVID}.p0.srt"
-    assert row["txt_path"] == f"transcripts/txt/{FRESH_BVID}.p0.txt"
-    assert row["raw_path"] == f"transcripts/raw/{FRESH_BVID}.p0.json"
-    assert row["md_path"] == f"transcripts/md/{_md_name(FRESH_BVID, 0)}"
+    assert row["srt_path"] == f"transcripts/{FRESH_BVID}.p0/bundle.srt"
+    assert row["txt_path"] == f"transcripts/{FRESH_BVID}.p0/bundle.txt"
+    assert row["raw_path"] == f"transcripts/{FRESH_BVID}.p0/bundle.raw.json"
+    assert row["md_path"] == f"{_md_name(FRESH_BVID, 0)}"
 
 
 def test_publish_transcripts_keeps_the_keys_the_effective_row_already_carried(
@@ -676,7 +680,7 @@ def test_publish_transcripts_keeps_the_keys_the_effective_row_already_carried(
     # The row declares no product key, so the candidate takes the publish path.
     assert captured.out.splitlines()[0] == (
         f"{FRESH_BVID}:p0: published (source=subtitle-ai lang=zh-CN version=1 "
-        f"cues=2) transcripts/md/{_md_name(FRESH_BVID, 0)}"
+        f"cues=2) {_md_name(FRESH_BVID, 0)}"
     )
     row = ManifestStore(root=tmp_root).load()[work_id]
     # The keys the projection does not restate survive the transition …
@@ -686,8 +690,8 @@ def test_publish_transcripts_keeps_the_keys_the_effective_row_already_carried(
     # stored title and the four products.
     assert row["status"] == "archived"
     assert row["title"] == "第1集"
-    assert row["srt_path"] == f"transcripts/srt/{FRESH_BVID}.p0.srt"
-    assert row["md_path"] == f"transcripts/md/{_md_name(FRESH_BVID, 0)}"
+    assert row["srt_path"] == f"transcripts/{FRESH_BVID}.p0/bundle.srt"
+    assert row["md_path"] == f"{_md_name(FRESH_BVID, 0)}"
 
 
 def test_publish_transcripts_writes_products_under_the_artifact_root_and_state_at_the_archive_root(
@@ -713,7 +717,7 @@ def test_publish_transcripts_writes_products_under_the_artifact_root_and_state_a
     # The printed path is the recorded root-relative form, never a filesystem path.
     assert captured.out.splitlines()[0] == (
         f"{FRESH_BVID}:p0: published (source=subtitle-ai lang=zh-CN version=1 "
-        f"cues=2) transcripts/md/{_md_name(FRESH_BVID, 0)}"
+        f"cues=2) {_md_name(FRESH_BVID, 0)}"
     )
     assert artifact_root not in captured.out
     assert archive_module.archive_bundle_complete(

@@ -47,7 +47,7 @@ def _archived_row(root: Path, bvid: str, *, audio_at: Path | None = None) -> dic
     """One archived row whose bundle is published under ``root``.
 
     Both products are real files, and the recorded strings are the shipped
-    root-relative ones (`transcripts/srt/{stem}.srt`, `audio/{stem}.m4a`) — the
+    root-relative ones (`transcripts/{stem}/bundle.srt`, `audio/{stem}.m4a`) — the
     fixture is exactly what the writers of Task 2 leave behind, so a reader that
     resolves either product against the wrong base is visible here.  ``audio_at``
     places the audio under a different base, which is the half-migrated state §5
@@ -106,7 +106,7 @@ def _fixture(tmp_path: Path) -> tuple[Path, Path, ArtifactRoots, dict, dict, dic
 def test_the_same_fixture_reports_the_same_inventory_at_either_root(tmp_path: Path):
     """Every row is seen with the roots configured, each at the base that holds it.
 
-    The recorded strings are identical in shape (`transcripts/srt/{stem}.srt`, D7),
+    The recorded strings are identical in shape (`transcripts/{stem}/bundle.srt`, D7),
     so only the ordered base list can tell the rows apart — which is exactly what
     "`coverage`, `verify`, `export`, `search` agree with the writers" means.
     """
@@ -199,11 +199,11 @@ def _legacy_caption_row(root: Path, bvid: str) -> dict:
     caption = root / "subtitles" / "raw" / f"{stem}.json"
     caption.parent.mkdir(parents=True, exist_ok=True)
     caption.write_text(json.dumps({"body": []}), encoding="utf-8")
-    srt = root / "transcripts" / "srt" / f"{stem}.srt"
+    srt = root / "transcripts" / f"{stem}" / "bundle.srt"
     srt.parent.mkdir(parents=True, exist_ok=True)
     # `json_to_srt` of an empty caption body: present, regular, and not a transcript.
     srt.write_text("", encoding="utf-8")
-    return {**row, "status": "subtitle_done", "srt_path": f"transcripts/srt/{stem}.srt"}
+    return {**row, "status": "subtitle_done", "srt_path": f"transcripts/{stem}/bundle.srt"}
 
 
 def test_a_legacy_caption_row_keeps_its_verdict_when_the_roots_are_configured(tmp_path: Path):

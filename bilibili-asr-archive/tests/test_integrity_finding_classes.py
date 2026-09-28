@@ -117,8 +117,8 @@ def test_mixed_report_categories_agree_with_class_sets(tmp_path: Path) -> None:
          "pubdate_str": "20260828", "title": "A", "status": "needs_audio"},
         {"work_id": "BV2x:p0", "bvid": "BV2x", "cid": 8, "page_index": 0,
          "pubdate_str": "20260828", "title": "B", "status": "archived",
-         "srt_path": "../../escape.srt", "txt_path": "transcripts/txt/BV2x.p0.txt",
-         "md_path": "transcripts/md/BV2x.p0.md", "raw_path": "subtitles/raw/BV2x.p0.json"},
+         "srt_path": "../../escape.srt", "txt_path": "transcripts/BV2x.p0/bundle.txt",
+         "md_path": "transcripts/BV2x.p0/bundle.md", "raw_path": "subtitles/raw/BV2x.p0.json"},
     ])
     payload = IntegrityVerifier().verify(tmp_path).to_dict()
     categories = [entry["category"] for entry in payload["defects"]]

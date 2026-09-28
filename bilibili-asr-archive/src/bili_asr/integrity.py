@@ -11,7 +11,11 @@ from pathlib import Path
 from typing import Any
 
 import fcntl
-from .archive import archive_stem, _safe_name, archive_bundle_complete
+from .archive import (
+    archive_stem,
+    archive_bundle_complete,
+    bundle_paths_for_stem,
+)
 from .artifact_root import ArtifactRoots
 from .page_identity import artifact_stem, page_identity, parse_work_id
 from .coordinator import _validate_attempt
@@ -417,7 +421,7 @@ class IntegrityVerifier:
             # inferred candidates and both are asked the containment question for every status.
             raw_candidates = [
                 [base / "subtitles" / "raw" / f"{self._canonical_stem(row)}.json" for base, _reader in artifact_bases],
-                [base / "transcripts" / "raw" / f"{self._canonical_stem(row)}.json" for base, _reader in artifact_bases],
+                [bundle_paths_for_stem(base, self._canonical_stem(row))["raw_path"] for base, _reader in artifact_bases],
             ]
             declared_raw = row.get("raw_path")
             if isinstance(declared_raw, str):
@@ -624,18 +628,16 @@ class IntegrityVerifier:
     def _required_paths(row, root):
         names=("srt_path","txt_path","md_path"); values=[row.get(n) for n in names]
         stem=IntegrityVerifier._canonical_stem(row)
-        defaults=[f"transcripts/srt/{stem}.srt",f"transcripts/txt/{stem}.txt",f"transcripts/md/{stem}.md"]
+        defaults=[bundle_paths_for_stem("", stem)[k].as_posix() for k in ("srt_path","txt_path","md_path")]
         return [Path(v) if isinstance(v,str) and Path(v).is_absolute() else root/(v if isinstance(v,str) else defaults[i]) for i,v in enumerate(values)]
 
     @classmethod
     def _canonical_required_paths(cls, row, root):
-        stem = cls._canonical_stem(row)
-        if not row.get("title") and not row.get("pubdate_str"):
-            md_path = root / f"transcripts/md/{stem}.md"
-        else:
-            md_name = f"{row.get('pubdate_str', 'unknown')}_{stem}_{_safe_name(str(row.get('title') or row.get('bvid')))}.md"
-            md_path = root / "transcripts" / "md" / md_name
-        return [root / f"transcripts/{kind}/{stem}.{kind}" for kind in ("srt", "txt")] + [md_path]
+        # Shape A: the markdown no longer embeds the pubdate and title, so the
+        # branch that used to name it differently from its three siblings is
+        # gone -- all four are fixed names in the work's own directory.
+        paths = bundle_paths_for_stem(root, cls._canonical_stem(row))
+        return [paths[k] for k in ("srt_path", "txt_path", "md_path")]
     @staticmethod
     def _canonical_stem(row):
         bvid=str(row.get("bvid") or ""); work=str(row.get("work_id") or "")

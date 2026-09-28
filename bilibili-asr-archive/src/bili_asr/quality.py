@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Mapping, NamedTuple
 
-from .archive import LOW_CONFIDENCE, archive_stem
+from .archive import LOW_CONFIDENCE, archive_stem, bundle_paths_for_stem
 from .artifact_root import ArtifactRoots
 from .asr import _FORBIDDEN_PROVENANCE as _FORBIDDEN_MARKER
 from .page_identity import artifact_stem, page_identity, parse_work_id
@@ -427,9 +427,9 @@ def _artifact_paths(row: Mapping[str, object], roots: ArtifactRoots) -> list[Pat
         if stem:
             values.extend(
                 (
-                    Path("transcripts/srt") / f"{stem}.srt",
-                    Path("transcripts/txt") / f"{stem}.txt",
-                    Path("transcripts/raw") / f"{stem}.json",
+                    bundle_paths_for_stem("", stem)["srt_path"],
+                    bundle_paths_for_stem("", stem)["txt_path"],
+                    bundle_paths_for_stem("", stem)["raw_path"],
                     Path("subtitles/raw") / f"{stem}.json",
                 )
             )
@@ -473,20 +473,17 @@ def _artifact_paths(row: Mapping[str, object], roots: ArtifactRoots) -> list[Pat
 
 
 def _derived_md_candidates(row: Mapping[str, object], stem: str, base: Path) -> list[Path]:
-    """The derived ``.md`` bundle candidates under one base: exact name, then the glob."""
-    md_dir = base / "transcripts" / "md"
-    if not md_dir.is_dir():
-        return []
-    candidates: list[Path] = []
-    exact_md = md_dir / f"{stem}.md"
-    if exact_md.is_file():
-        candidates.append(exact_md)
-    pubdate = str(row.get("pubdate_str") or "")
-    pattern = f"{pubdate}_{stem}_*.md" if pubdate else f"*_{stem}_*.md"
-    candidates.extend(md_file for md_file in sorted(md_dir.glob(pattern)) if md_file.is_file())
-    return candidates
+    """The derived ``.md`` bundle path under one base (shape A: one exact name).
 
-
+    There is no glob any more.  It existed to find a markdown whose name embedded
+    the pubdate and the title -- the one artifact of the four whose name moved
+    when either did.  Under shape A every artifact is a fixed name inside the
+    work's own directory, so there is exactly one place the markdown can be and
+    one name it can have; a miss means the bundle is incomplete, not that a
+    differently-named copy might be lying beside it.
+    """
+    exact_md = bundle_paths_for_stem(base, stem)["md_path"]
+    return [exact_md] if exact_md.is_file() else []
 def _contained_at_any_base(path: Path, roots: ArtifactRoots) -> bool:
     """`_contained`, asked once per base.
 

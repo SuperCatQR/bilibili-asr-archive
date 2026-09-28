@@ -712,7 +712,7 @@ def test_cli_main_coverage_quality_reference_ignores_the_md_bundle(tmp_path: Pat
     from bili_asr.manifest import ManifestStore
 
     text = "Hello world"
-    raw = tmp_path / "transcripts" / "raw" / "BV1ref.p0.json"
+    raw = tmp_path / "transcripts" / "BV1ref.p0" / "bundle.raw.json"
     raw.parent.mkdir(parents=True, exist_ok=True)
     raw.write_text(
         json.dumps(
@@ -720,7 +720,7 @@ def test_cli_main_coverage_quality_reference_ignores_the_md_bundle(tmp_path: Pat
         ),
         encoding="utf-8",
     )
-    md = tmp_path / "transcripts" / "md" / "2026-01-02_BV1ref.p0_demo.md"
+    md = tmp_path / "transcripts" / "BV1ref.p0" / "bundle.md"
     md.parent.mkdir(parents=True, exist_ok=True)
     md.write_text(
         '---\nbvid: "BV1ref"\ntitle: "Reference Video"\n'
@@ -736,8 +736,8 @@ def test_cli_main_coverage_quality_reference_ignores_the_md_bundle(tmp_path: Pat
         "status": "archived",
         "duration_s": 30,
         "source": "asr",
-        "md_path": "transcripts/md/" + md.name,
-        "raw_path": "transcripts/raw/" + raw.name,
+        "md_path": md.relative_to(tmp_path).as_posix(),
+        "raw_path": raw.relative_to(tmp_path).as_posix(),
     })
     reference = tmp_path / "second.srt"
     reference.write_text(f"1\n00:00:00,000 --> 00:00:04,000\n{text}\n", encoding="utf-8")

@@ -119,7 +119,7 @@ def _row(identity, *, status: str = "meta_ok", **extra) -> dict:
 def _publish_bundle(root: str, identity, *, status: str = "archived") -> dict:
     """Publish one complete transcript bundle under ``root`` and return its row fields.
 
-    The recorded strings are the shipped root-relative ones (``transcripts/srt/<stem>.srt``,
+    The recorded strings are the shipped root-relative ones (``transcripts/<stem>/bundle.srt``,
     D7), which is why the same row shape works at either base and only the base list
     decides where it is found.
     """

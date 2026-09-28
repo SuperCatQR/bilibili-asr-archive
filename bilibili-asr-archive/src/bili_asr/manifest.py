@@ -413,28 +413,38 @@ class ManifestStore:
         return report
 
 
-_ARTIFACT_REL_DIRS = (
+#: Directories whose **file names** carry an artifact stem ending in the
+#: extension (`audio/{stem}.m4a`, `subtitles/raw/{stem}.json`).
+_ARTIFACT_FILE_DIRS = (
     "audio",
     os.path.join("subtitles", "raw"),
-    os.path.join("transcripts", "srt"),
-    os.path.join("transcripts", "txt"),
-    os.path.join("transcripts", "md"),
-    os.path.join("transcripts", "raw"),
 )
+
+#: The one directory whose **entry names are the stems** under shape A: each work
+#: owns `transcripts/{stem}/`, so the stem is a directory name, not a file name.
+_TRANSCRIPT_DIR = "transcripts"
 
 
 def _foreign_page_stems(roots: ArtifactRoots, bvid: str) -> set[str]:
-    """Return artifact stems `{bvid}.pN` (including p0) in known dirs.
+    """Return artifact stems ``{bvid}.pN`` (including p0) already on disk.
 
-    A stem under **either** base freezes the bare-`bvid` row: the artifact it
+    A stem under **either** base freezes the bare-``bvid`` row: the artifact it
     would claim may already exist at the archive root while new products are
     written under the configured root (contract §10, D8), and migration must not
     hand a row to a page some other row's files already occupy.
+
+    Shape A moved the stems from **file** names to the **directory** names under
+    ``transcripts/``, so the two kinds of location are scanned differently: the
+    audio and subtitle-raw directories still yield a stem by stripping the file
+    extension, while a ``transcripts`` entry *is* the stem and is accepted only
+    when it is a directory.  Missing that distinction is how this guarantee would
+    silently stop holding — it would find no stems at all and report every bare
+    ``bvid`` as unambiguous.
     """
     found: set[str] = set()
     prefix = f"{bvid}.p"
     for base in roots.read_bases():
-        for rel in _ARTIFACT_REL_DIRS:
+        for rel in _ARTIFACT_FILE_DIRS:
             dirpath = os.path.join(os.fspath(base), rel)
             if not os.path.isdir(dirpath):
                 continue
@@ -444,9 +454,18 @@ def _foreign_page_stems(roots: ArtifactRoots, bvid: str) -> set[str]:
                 continue
             for name in names:
                 stem, _ext = os.path.splitext(name)
-                if not stem.startswith(prefix):
-                    continue
-                if not _STEM_PAGE_RE.match(stem):
-                    continue
-                found.add(stem)
+                if stem.startswith(prefix) and _STEM_PAGE_RE.match(stem):
+                    found.add(stem)
+        transcript_dir = os.path.join(os.fspath(base), _TRANSCRIPT_DIR)
+        if not os.path.isdir(transcript_dir):
+            continue
+        try:
+            entries = os.listdir(transcript_dir)
+        except OSError:
+            continue
+        for name in entries:
+            if not name.startswith(prefix) or not _STEM_PAGE_RE.match(name):
+                continue
+            if os.path.isdir(os.path.join(transcript_dir, name)):
+                found.add(name)
     return found

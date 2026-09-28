@@ -245,8 +245,8 @@ def test_recover_audits_named_defect_without_manifest_or_transcript_mutation(tmp
     store = ManifestStore(root=tmp_root)
     row = _row(ident, status="archived")
     stem = artifact_stem(ident)
-    row.update({"srt_path": f"transcripts/srt/{stem}.srt", "txt_path": f"transcripts/txt/{stem}.txt",
-                "md_path": f"transcripts/md/2026-01-02_{stem}_clip.md"})
+    row.update({"srt_path": f"transcripts/{stem}/bundle.srt", "txt_path": f"transcripts/{stem}/bundle.txt",
+                "md_path": f"transcripts/{stem}/bundle.md"})
     store.upsert(row)
     AttemptLedger(tmp_root).append({
         "stage": "archive",

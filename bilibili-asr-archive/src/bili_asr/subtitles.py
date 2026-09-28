@@ -95,7 +95,7 @@ def harvest_subtitle(
     returned an empty list (Path A — expected without SESSDATA).
 
     Both harvested products (``subtitles/raw/{stem}.json`` and
-    ``transcripts/srt/{stem}.srt``) are written under the artifact root when one
+    ``transcripts/{stem}/bundle.srt``) are written under the artifact root when one
     is configured (contract §2.1/§4); the recorded ``srt_path`` stays the shipped
     root-relative string (D7).
     """

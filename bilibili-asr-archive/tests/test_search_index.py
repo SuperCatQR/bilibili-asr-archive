@@ -309,7 +309,7 @@ def test_search_cjk_chinese_text(tmp_root):
         "title": "未明子 讲 黑格尔 精神现象学",
         "status": "archived",
         "duration_s": 600,
-        "txt_path": "transcripts/txt/BV1wmz.p0.txt",
+        "txt_path": "transcripts/BV1wmz.p0/bundle.txt",
     }
     with open(os.path.join(tmp_root, e["txt_path"]), "w", encoding="utf-8") as fh:
         fh.write("今天 我们 讨论 辩证法 与 绝对精神")
@@ -365,7 +365,7 @@ def test_extract_transcript_from_raw_subtitles_json(tmp_root):
 
 
 def test_extract_transcript_from_raw_asr_json(tmp_root):
-    """Extract transcript text when only transcripts/raw/{stem}.json is present."""
+    """Extract transcript text when only transcripts/{stem}/bundle.raw.json is present."""
     store = ManifestStore(root=tmp_root)
     raw_asr_dir = os.path.join(tmp_root, "transcripts", "raw")
     os.makedirs(raw_asr_dir, exist_ok=True)
@@ -378,7 +378,7 @@ def test_extract_transcript_from_raw_asr_json(tmp_root):
         "title": "Raw ASR Test",
         "status": "archived",
         "duration_s": 240,
-        "raw_path": "transcripts/raw/BV1rawasr.p0.json",
+        "raw_path": "transcripts/BV1rawasr.p0/bundle.raw.json",
     }
     raw_path = os.path.join(raw_asr_dir, "BV1rawasr.p0.json")
     with open(raw_path, "w", encoding="utf-8") as fh:
@@ -414,7 +414,7 @@ def test_legacy_bare_bvid_indexing(tmp_root):
         "duration_s": 150,
         "unresolved": True,
         "unresolved_reason": "ambiguous_bare_bvid",
-        "txt_path": "transcripts/txt/BV1barelegacy.txt",
+        "txt_path": "transcripts/BV1barelegacy/bundle.txt",
     }
     with open(os.path.join(tmp_root, e["txt_path"]), "w", encoding="utf-8") as fh:
         fh.write("Legacy archival content without work_id.")
@@ -461,7 +461,7 @@ def test_stale_detection_lifecycle(tmp_root):
         "cid": 999,
         "title": "New Aristotle Transcript",
         "status": "archived",
-        "txt_path": "transcripts/txt/BV1new.p0.txt",
+        "txt_path": "transcripts/BV1new.p0/bundle.txt",
     }
     txt_path = os.path.join(tmp_root, "transcripts", "txt", "BV1new.p0.txt")
     with open(txt_path, "w", encoding="utf-8") as fh:
@@ -758,7 +758,7 @@ def test_search_deterministic_tie_break_ordering(tmp_root):
     # Create 3 items with identical text and identical score
     for i in (3, 1, 2):
         work_id = f"BV1tie{i}:p0"
-        rel_txt = f"transcripts/txt/BV1tie{i}.p0.txt"
+        rel_txt = f"transcripts/BV1tie{i}.p0/bundle.txt"
         with open(os.path.join(tmp_root, rel_txt), "w", encoding="utf-8") as fh:
             fh.write("Identical transcript text content for deterministic ordering verification.")
         store.upsert({
@@ -834,7 +834,7 @@ def test_search_sanitization_and_path_containment(tmp_root):
     txt_dir = os.path.join(tmp_root, "transcripts", "txt")
     os.makedirs(txt_dir, exist_ok=True)
 
-    rel_txt = "transcripts/txt/BV1safe.p0.txt"
+    rel_txt = "transcripts/BV1safe.p0/bundle.txt"
     with open(os.path.join(tmp_root, rel_txt), "w", encoding="utf-8") as fh:
         fh.write(
             "Discussion on ethics https://secret-stream.bilivideo.com/auth?token=leak_token_abc "
@@ -948,8 +948,8 @@ def test_the_index_reads_transcripts_from_the_artifact_root(tmp_path):
     # A recorded row: text is read through the recorded path at the configured root.
     recorded = {"work_id": "BV1hegel:p0", "bvid": "BV1hegel", "cid": 101, "page_index": 0,
                 "title": "Hegel", "status": "archived", "duration_s": 10, "source": "asr",
-                "srt_path": "transcripts/srt/BV1hegel.p0.srt",
-                "txt_path": "transcripts/txt/BV1hegel.p0.txt"}
+                "srt_path": "transcripts/BV1hegel.p0/bundle.srt",
+                "txt_path": "transcripts/BV1hegel.p0/bundle.txt"}
     store.upsert(recorded)
     (artifact / "transcripts" / "txt" / "BV1hegel.p0.txt").write_text(
         "hegel dialectics and phenomenology\n", encoding="utf-8")

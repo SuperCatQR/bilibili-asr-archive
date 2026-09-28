@@ -196,8 +196,8 @@ PUBDATE_STR = time.strftime("%Y-%m-%d", time.gmtime(PUBDATE))
 
 
 def _md_name(bvid: str, page_index: int = 0) -> str:
-    """The writer's md name for a part of ``bvid`` (§3.1)."""
-    return f"{PUBDATE_STR}_{bvid}.p{page_index}_第{page_index + 1}集.md"
+    """The writer's md path for page ``page_index`` of ``bvid`` (shape A)."""
+    return f"transcripts/{bvid}.p{page_index}/bundle.md"
 
 
 def _entry(bvid: str, page_index: int, cid: int, duration_ms: int) -> dict:
@@ -435,7 +435,7 @@ def _published_line(work_id: str, cues: int, md_name: str) -> str:
     """The line a run prints for a candidate it publishes (§7)."""
     return (
         f"{work_id}: published (source=subtitle-ai lang=zh-CN version=1 "
-        f"cues={cues}) transcripts/md/{md_name}"
+        f"cues={cues}) {md_name}"
     )
 
 
