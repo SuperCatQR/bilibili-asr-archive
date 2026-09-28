@@ -424,6 +424,11 @@ _ARTIFACT_FILE_DIRS = (
 #: owns `transcripts/{stem}/`, so the stem is a directory name, not a file name.
 _TRANSCRIPT_DIR = "transcripts"
 
+#: Any ``{bvid}.pN`` stem appearing anywhere in a name.  Broader than a prefix
+#: test on purpose: the previous shape put the markdown's stem in the middle of
+#: ``<pubdate>_<stem>_<title>.md``, so a prefix-only scan cannot see it.
+_STEM_ANYWHERE_RE = re.compile(r"[A-Za-z0-9]+\.p\d+")
+
 
 def _foreign_page_stems(roots: ArtifactRoots, bvid: str) -> set[str]:
     """Return artifact stems ``{bvid}.pN`` (including p0) already on disk.
@@ -459,13 +464,26 @@ def _foreign_page_stems(roots: ArtifactRoots, bvid: str) -> set[str]:
         transcript_dir = os.path.join(os.fspath(base), _TRANSCRIPT_DIR)
         if not os.path.isdir(transcript_dir):
             continue
-        try:
-            entries = os.listdir(transcript_dir)
-        except OSError:
-            continue
-        for name in entries:
-            if not name.startswith(prefix) or not _STEM_PAGE_RE.match(name):
-                continue
-            if os.path.isdir(os.path.join(transcript_dir, name)):
-                found.add(name)
+        # Walked, not listed once: shape A puts the stem on a directory directly
+        # under transcripts/, while the shape this archive held before the
+        # revision put it on a file one level deeper, inside the per-kind
+        # directories (transcripts/srt/<stem>.srt, transcripts/md/<pubdate>_<stem>_<title>.md).
+        # Both can be on disk at the same time, so a single listing would miss the
+        # older one entirely -- and missing a stem is the *permissive* direction:
+        # it would let migration hand a bare bvid to a page whose stale files are
+        # already sitting there, which is the exact overwrite this probe exists to
+        # prevent.
+        for dirpath, dirnames, filenames in os.walk(transcript_dir):
+            if dirpath == transcript_dir:
+                for name in list(dirnames):
+                    if name.startswith(prefix) and _STEM_PAGE_RE.match(name):
+                        found.add(name)
+            # A stem anywhere in a file name still occupies that page.  Anywhere,
+            # not a prefix test, because the old markdown carried its stem in the
+            # middle; a false positive merely refuses a migration that would have
+            # overwritten an existing path.
+            for name in filenames:
+                for match in _STEM_ANYWHERE_RE.finditer(name):
+                    if match.group(0).startswith(prefix):
+                        found.add(match.group(0))
     return found

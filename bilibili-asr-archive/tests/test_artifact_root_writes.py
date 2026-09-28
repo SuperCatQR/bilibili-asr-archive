@@ -27,7 +27,7 @@ from bili_asr import audio as audio_module
 from bili_asr.artifact_root import ArtifactRoots
 from bili_asr.audio_reclaim import reclaim_audio
 from bili_asr.coordinator import RunCoordinator
-from bili_asr.manifest import ManifestStore
+from bili_asr.manifest import ManifestStore, _foreign_page_stems
 from bili_asr.page_identity import artifact_stem, page_identity
 from bili_asr.subtitles import harvest_subtitle
 
@@ -378,6 +378,52 @@ def _seed_bare_row(store: ManifestStore, bvid: str) -> None:
             }
         }
     )
+
+
+def test_a_foreign_page_stem_is_seen_under_both_the_new_and_the_old_shape(tmp_path):
+    """The collision probe must not narrow when the layout changes.
+
+    This probe guards a *permissive* failure: if it cannot see a stem that is
+    already on disk, migration hands a bare ``bvid`` to a page whose files are
+    sitting right there and overwrites them.  Shape A moved stems from file names
+    (``transcripts/srt/<stem>.srt``) to directory names
+    (``transcripts/<stem>/``), so a probe that only knew the new shape would see
+    nothing in an archive published before the revision — which is the normal
+    state of a real archive.  Each case below is asserted against the new shape,
+    the old shape, and the configured artifact root.
+    """
+    archive, artifact, roots = _roots(tmp_path)
+    store = ManifestStore(root=archive)
+
+    # (label, setup, bvid, expected stems)
+    cases = [
+        ("new shape, own directory",
+         lambda: (archive / "transcripts" / "BV1new.p1").mkdir(parents=True),
+         "BV1new", {"BV1new.p1"}),
+        ("old shape, srt file",
+         lambda: _write_file(archive / "transcripts" / "srt" / "BV1old.p1.srt"),
+         "BV1old", {"BV1old.p1"}),
+        ("old shape, md with the stem in the middle",
+         lambda: _write_file(archive / "transcripts" / "md" / "2026-01-02_BV1mid.p2_title.md"),
+         "BV1mid", {"BV1mid.p2"}),
+        ("old shape under the configured artifact root",
+         lambda: _write_file(artifact / "transcripts" / "raw" / "BV1cfg.p0.json"),
+         "BV1cfg", {"BV1cfg.p0"}),
+        ("audio file name",
+         lambda: _write_file(archive / "audio" / "BV1aud.p3.m4a"),
+         "BV1aud", {"BV1aud.p3"}),
+        ("another work is not claimed",
+         lambda: (archive / "transcripts" / "BVother.p1").mkdir(parents=True),
+         "BV1other", set()),
+    ]
+    for label, setup, bvid, expected in cases:
+        setup()
+        assert _foreign_page_stems(roots, bvid) == expected, label
+
+
+def _write_file(path):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("x", encoding="utf-8")
 
 
 def test_a_foreign_page_stem_under_the_artifact_root_freezes_a_legacy_bare_row(tmp_path):
