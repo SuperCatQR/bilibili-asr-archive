@@ -1,7 +1,7 @@
 """Task-scoped tests for plan 20260928-proofread-pipeline (T1 align, T2 guards, T3 merge).
 
 Fixtures are synthetic: raw ASR sidecars live under ``tests/fixtures/proofread/``
-(copied-into-tree, never read from ``/mnt/123pan``) and the caption route is built
+(copied-into-tree, never read from a live archive root) and the caption route is built
 in-test on a real SQLite transcript store, so every ASR/字幕 shape is decided here.
 
 Marker syntax under test (the contract ``proofread-merge`` parses):

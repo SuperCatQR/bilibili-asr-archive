@@ -14,12 +14,12 @@ from typing import Any, Mapping
 from .asr import segments_to_srt, segments_to_txt
 from .page_identity import artifact_stem, page_identity, page_query_index
 
+#: The bundle's completion marker: a fixed basename **inside** the work's own
+#: directory (``transcripts/{stem}/.bundle-ready``).  It is deliberately not a
+#: suffix on an artifact name any more -- that spelling only made sense while the
+#: four artifacts lived in four different directories and the marker had to name
+#: which sibling it certified.
 BUNDLE_MARKER_NAME = ".bundle-ready"
-
-#: Deprecated alias.  The marker is no longer a suffix appended to an artifact
-#: name — it is a fixed basename inside the work directory (``BUNDLE_MARKER_NAME``).
-#: Kept only so external callers keep importing; do not use in new code.
-BUNDLE_MARKER_SUFFIX = BUNDLE_MARKER_NAME
 
 #: The four fixed basenames inside one work's bundle directory (shape A).  The
 #: directory carries the identity, so the files inside do not repeat it.
@@ -40,9 +40,11 @@ def _bundle_lock(root: Path) -> threading.RLock:
         return _BUNDLE_LOCKS.setdefault(os.fspath(root), threading.RLock())
 
 
-def _safe_name(value: str) -> str:
-    value = "".join(ch for ch in value if ch not in '<>:"/\\|?*')
-    return " ".join(value.split()).strip()[:120] or "untitled"
+# ``_safe_name`` used to sanitise a title for the markdown's file name
+# (``{pubdate}_{stem}_{safe_title}.md``).  Shape A took the title out of every
+# path -- the directory is the stem and the files are fixed basenames -- so the
+# rule has no caller and is gone rather than left as a decoy.  A title now reaches
+# a path only as frontmatter content, where filesystem metacharacters are inert.
 
 
 def archive_stem(entry: dict[str, Any]) -> str:

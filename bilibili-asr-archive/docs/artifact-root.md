@@ -88,18 +88,18 @@ fsync**，所以一个「能打开、但拒绝目录 fsync」的挂载（有些�
 
 带 `--artifact-root` 的十二个命令（它们要读写产物路径）：
 
-    bili-asr asr --pending --archive-root archive --artifact-root /mnt/123pan
-    bili-asr pilot --n 20 --archive-root archive --artifact-root /mnt/123pan
-    bili-asr download-audio --missing-subs --archive-root archive --artifact-root /mnt/123pan
-    bili-asr run --scope pending --archive-root archive --artifact-root /mnt/123pan
-    bili-asr schedule --scope pending --limit 20 --archive-root archive --artifact-root /mnt/123pan
-    bili-asr campaign --scope pending --limit 20 --archive-root archive --artifact-root /mnt/123pan
-    bili-asr coverage --archive-root archive --artifact-root /mnt/123pan
-    bili-asr verify --archive-root archive --artifact-root /mnt/123pan
-    bili-asr recover --work-id <work-id> --archive-root archive --artifact-root /mnt/123pan
-    bili-asr export --format json --archive-root archive --artifact-root /mnt/123pan
-    bili-asr search "黑格尔 辩证法" --archive-root archive --artifact-root /mnt/123pan
-    bili-asr publish-transcripts --archive-root archive --artifact-root /mnt/123pan
+    bili-asr asr --pending --archive-root archive --artifact-root /srv/bili-asr-archive
+    bili-asr pilot --n 20 --archive-root archive --artifact-root /srv/bili-asr-archive
+    bili-asr download-audio --missing-subs --archive-root archive --artifact-root /srv/bili-asr-archive
+    bili-asr run --scope pending --archive-root archive --artifact-root /srv/bili-asr-archive
+    bili-asr schedule --scope pending --limit 20 --archive-root archive --artifact-root /srv/bili-asr-archive
+    bili-asr campaign --scope pending --limit 20 --archive-root archive --artifact-root /srv/bili-asr-archive
+    bili-asr coverage --archive-root archive --artifact-root /srv/bili-asr-archive
+    bili-asr verify --archive-root archive --artifact-root /srv/bili-asr-archive
+    bili-asr recover --work-id <work-id> --archive-root archive --artifact-root /srv/bili-asr-archive
+    bili-asr export --format json --archive-root archive --artifact-root /srv/bili-asr-archive
+    bili-asr search "黑格尔 辩证法" --archive-root archive --artifact-root /srv/bili-asr-archive
+    bili-asr publish-transcripts --archive-root archive --artifact-root /srv/bili-asr-archive
 
 **不带**这个参数的六个命令：`fetch-meta`、`status`、`runs`、`probe-subs`、`harvest-subs`、`derive-manifest`。它们一个产物路径都不解析（`status` 只读 SQLite，`harvest-subs` 不写文件系统投影，`derive-manifest` 只写 manifest 行），一个被接受却被忽略的参数等于在界面上说假话，所以它们连参数都没有。
 
@@ -115,9 +115,9 @@ fsync**，所以一个「能打开、但拒绝目录 fsync」的挂载（有些�
 
 把历史产物搬过去是**操作者自己的事**：
 
-    mv archive/audio/* /mnt/123pan/audio/
-    mv archive/transcripts /mnt/123pan/
-    mv archive/subtitles /mnt/123pan/
+    mv archive/audio/* /srv/bili-asr-archive/audio/
+    mv archive/transcripts /srv/bili-asr-archive/
+    mv archive/subtitles /srv/bili-asr-archive/
     # 或：rclone move archive/audio remote:archive/audio
 
 搬完之后第一个根目录就命中，第二个永远不会被咨询。**不搬也不会坏**，只是两个位置各有一半（新的在挂载点、老的在本地）。注意：配置了产物根目录之后，**新的字节只写进产物根目录的 `audio/`**，归档根目录下的旧音频不再增长——它留在原地照样能被读到（读取按上面的顺序探测两个根目录），而 `--max-audio-gb` **也只统计产物根目录的 `audio/`**，不会把旧音频算进去。所以搬迁是可选的整理，不是读取或上界生效的前提：搬过去只是让读取少探测一个根目录。

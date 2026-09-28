@@ -1,7 +1,11 @@
 # Hotword keep/drop — Measurement results (plan 20260928-hotword-injection-governance)
 
-> **Status: PENDING-OPERATOR.** The corpus audio does not exist on this machine
-> (`/mnt/123pan` answers `Input/output error`; no local archive). The guard and the
+> **Status: PENDING-OPERATOR.** The corpus audio does not exist on this machine.
+> (The historical cause was the `/mnt/123pan` WebDAV mount failing — first
+> `Input/output error`, then a hard `401 Unauthorized` once its credential expired.
+> That mount has since been **retired**: unmounted, `rclone-123pan.service`
+> disabled, and the archive root moved to `/srv/bili-asr-archive`. No local archive
+> is staged there yet.) The guard and the
 > measurement harness are landed and tested; the per-token numbers below are not
 > yet measured. This is an honest outcome, not a failure — the harness is ready to
 > score the run the moment the audio is staged.
@@ -10,8 +14,10 @@
 
 1. **Stage the corpus audio.** The pinned corpus is the six parts where the
    20260922 proofread wave logged the most hotword-adjacent corrections. Re-fetch
-   to a local disk (do **not** run against `/mnt/123pan` directly — a network
-   mount makes `rm -rf` a data-loss primitive; see the knowledge note's trap 4).
+   to a local disk. Do **not** run against a network mount: a WebDAV/FUSE mount
+   makes `rm -rf` a data-loss primitive (see the knowledge note's trap 4) — that
+   is one of the reasons the 123pan mount was retired rather than remounted. The
+   current local archive root is `/srv/bili-asr-archive`.
    The 2026-09-26 round staged them at `/mnt/e/asr-archive-c6/audio` on the target
    host; substitute the nearest long-form part with both routes if a part is
    absent, and record the substitution here.

@@ -123,12 +123,16 @@ echo VERIFY_DONE
 
 | Location | Use |
 |---|---|
-| `/mnt/e` (1.9 TB USB) | **batch/archival data only.** Measured ~94 MB/s write, ~332 MB/s read; not suitable for a code repo or small-file-heavy operations |
+| `/srv/bili-asr-archive` (pad, local ext4) | **the archive root since 2026-09-28.** Local disk, so `rm -rf` is a normal delete rather than a data-loss primitive. Small: ~32 GB free on `/`, enough for a verification corpus, not for the full archive. |
+| `/mnt/e` (1.9 TB USB, on the target host) | **batch/archival data only.** Measured ~94 MB/s write, ~332 MB/s read; not suitable for a code repo or small-file-heavy operations |
 | C: (the WSL root) | the git checkout and anything that must be fast per-file |
-| `/mnt/123pan` (WebDAV via rclone, `rclone-123pan.service`) | **intermediate products and files meant to be read back from the pad** |
+| ~~`/mnt/123pan`~~ (WebDAV via rclone, `rclone-123pan.service`) | **RETIRED 2026-09-28.** The mount degraded to `Input/output error` and then `401 Unauthorized` as its credential expired; it was unmounted and the unit disabled (the unit file is kept at `/etc/systemd/system/rclone-123pan.service` in case the credential is ever renewed). Do not treat it as usable storage. |
 
-Rule of thumb: if it will be read back over the network by a person, put it on `/mnt/123pan`; if it
-is bulk archive, put it on `/mnt/e`; neither holds the working tree.
+Rule of thumb: keep the working tree on a local disk; put the verification/small archive corpus on
+`/srv/bili-asr-archive`; put bulk archival data on `/mnt/e`. Prefer local disk over a network mount for
+anything a pipeline will write and delete — the 123pan retirement is the worked example of why: a
+WebDAV mount that degrades turns routine cleanup into a data-loss primitive, and its failure mode
+(`EIO`, then `401`) looks like a code problem rather than a credential problem.
 
 ### 7. Cleanup
 
