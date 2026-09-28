@@ -162,6 +162,27 @@ archive/
                      # --no-keep-audio, BILI_KEEP_AUDIO=1/0); reclaimed audio is expected absence
 ```
 
+## Revision note — hotword provenance (2026-09-28)
+
+> Revision for iteration `iter-2026-09-ops-readiness`, plan
+> `20260928-hotword-injection-governance`. It supersedes only the meaning of the
+> `hotwords` provenance value; the model / revision / device / language
+> provenance contract is unchanged.
+
+The `hotwords` provenance value is the **effective** prompt vocabulary — the terms
+that actually reached the decoder prompt — not merely the configured list. A term
+may enter the prompt only by evidence-based seeding: it must occur in the run's own
+first-pass transcript or in the paired AI-subtitle text
+(`bili_asr.asr.evidence_guard_hotwords`; pure string logic, no model calls). A run
+transcribes once unguarded and then re-seeds the prompt with only the tokens that
+first pass produced; the second pass runs only when that kept list is non-empty.
+The shipped default (`DEFAULT_HOTWORDS`) is **empty** while the per-token keep/drop
+measurement is pending an operator re-run — no speculative seeding. Tokens with no
+evidence occurrence are dropped from the prompt and recorded in provenance as the
+`hotword_dropped_no_evidence` key (comma-separated, present only when at least one
+configured token was dropped). A run that configured no hotwords is unchanged: no
+prompt-vocabulary line and no `hotword_dropped_no_evidence` key.
+
 ## Verification (DoD)
 
 - Unit: state transitions, subtitle JSON→SRT conversion, SRT/md formatting, import-guard for ASR extra
