@@ -37,12 +37,22 @@ document cannot choose:
     register, L24469 snapshot).  Matching that whole path and then
     ``: FAIL (`` means a header embedded *inside* the path is consumed by the
     anchor, and a document value carrying the same words can only land on a
-    detail line *after* the engine's real header.
+    detail line *after* the engine's real header.  The anchor is a start-of-
+    string comparison plus a newline-terminated regex, never element 0 of
+    ``str.splitlines()``: a *path* may hold any of the ten separators
+    ``splitlines()`` splits on (``\n``, ``\r``, ``\v``, ``\f``, ``\x1c``-
+    ``\x1e``, ``\x85``, ``\u2028``, ``\u2029``), and splitting on them cuts a
+    real header away from its own anchor and reports the engine's violation as
+    unreadable.  The engine's only terminator is ``\n`` (``console.error``
+    appends it, L24469/L24499), so the header scan uses exactly that.
   - a **refusal prologue anchored at the start of the engine's message** —
     ``persist get failed: refusing to persist invalid <kind> document: ``
     (built at L24848, printed by ``failScript`` L25074-25081).  The
     could-not-read prose is ``persist get failed: Invalid JSON in <path>: …``,
     so an *anchored* prologue cannot be produced by a path or a field value.
+    This leg is start-anchored for the same reason and is immune to the
+    separator class above: its anchor is the engine's first *bytes*, ahead of
+    every path the engine echoes, so no path can push it off position 0.
 
 Exit 1 with neither anchor is ``NOT-VALIDATED`` — no validator ran — never
 ``FAIL``, which would invent a violation.
@@ -228,6 +238,26 @@ STATE_FAIL = "FAIL"
 STATE_NOT_VALIDATED = "NOT-VALIDATED"
 
 
+# Every separator `str.splitlines()` recognises, paired with the printable
+# spelling `_one_line` substitutes.  Skipping any of them leaves a raw line
+# break in a report line — the split this report's `"\n"` framing never opened,
+# which is still a break to `splitlines()`, to a terminal, and to any parser
+# that is not this one.  `\r\n` needs no own entry: both halves are escaped.
+_LINE_BREAK_ESCAPES = (
+    ("\t", "\\t"),
+    ("\n", "\\n"),
+    ("\r", "\\r"),
+    ("\x0b", "\\x0b"),
+    ("\x0c", "\\x0c"),
+    ("\x1c", "\\x1c"),
+    ("\x1d", "\\x1d"),
+    ("\x1e", "\\x1e"),
+    ("\x85", "\\x85"),
+    ("\u2028", "\\u2028"),
+    ("\u2029", "\\u2029"),
+)
+
+
 def _one_line(text: str) -> str:
     """Render text so it cannot break the report's one-line-per-finding shape.
 
@@ -236,13 +266,18 @@ def _one_line(text: str) -> str:
     a line nothing parses — the finding would still exist but be unreadable, and
     a reader (or a parser) would see a truncated path.  Control characters are
     escaped rather than dropped, so the bytes are still on the page.
+
+    The escape set is ``str.splitlines()``'s own separators, not just ``\\n``:
+    a reader that treats U+2028, U+0085 or ``\\v`` as a line break splits a
+    finding the report's ``\\n`` framing never opened, and the same is true of
+    any tool that renders one of those as a newline.  Escaping only ``\\n``
+    left those eight separators raw, which is the leak the control below
+    measures.
     """
-    return (
-        text.replace("\\", "\\\\")
-        .replace("\n", "\\n")
-        .replace("\r", "\\r")
-        .replace("\t", "\\t")
-    )
+    escaped = text.replace("\\", "\\\\")
+    for raw, spelling in _LINE_BREAK_ESCAPES:
+        escaped = escaped.replace(raw, spelling)
+    return escaped
 
 
 @dataclass
@@ -351,6 +386,23 @@ def _strip_ansi(text: str) -> str:
     return ANSI_RE.sub("", text)
 
 
+def _header_spellings(path: Path) -> set[str]:
+    """The spellings the engine's *decoded* output may hold for this path.
+
+    The path is echoed verbatim by the engine, but ``_run`` decodes the bytes
+    with universal newlines, so a path containing ``\\r`` (legal on POSIX)
+    arrives in the text as ``\\n``: the raw spelling alone would never be a
+    prefix of the emitted header, and the document's own real violation would
+    be reported as unreadable.  Both spellings are therefore candidates.
+    """
+    spellings = {str(path)}
+    try:
+        spellings.add(str(path.resolve()))
+    except OSError:
+        pass
+    return spellings | {s.replace("\r\n", "\n").replace("\r", "\n") for s in spellings}
+
+
 def _anchored_header(text: str, path: Path) -> int | None:
     """The engine's ``<path>: FAIL (N violations)`` header, anchored to ``path``.
 
@@ -363,19 +415,29 @@ def _anchored_header(text: str, path: Path) -> int | None:
        header (L24499) precedes ``printViolationList`` (L24500).  Every failure
        path was checked — a clean snapshot, invalid JSON, an absent file, a
        directory, a dangling symlink, a violating root register — and the header
-       is the whole of line 1 in each.  So the required line is compared
+       is the whole of line 1 in each.  So the required header is compared
        *positionally*, at the start of the stream, where no document-supplied
        text can reach: injected text can only ever be appended (it arrives
        inside a violation message, i.e. after the header).
-    2. **The whole line is matched, not searched.**  ``fullmatch`` against the
-       exact path this leg handed the engine means anything the document puts on
-       that line is consumed by the anchor itself.  A directory literally named
-       ``FAIL (3 violations)`` therefore cannot lend its count: the line is
+    2. **The whole header is matched, not searched.**  Matching this leg's exact
+       path and then ``: FAIL (`` means anything the document puts on that
+       header is consumed by the anchor itself.  A directory literally named
+       ``FAIL (3 violations)`` therefore cannot lend its count: the header is
        ``<path>/FAIL (3 violations)/snapshot.json: FAIL (1 violation)``, the
        anchor swallows the decoy as part of the path, and the captured count is
        the real one.  Where the directory holds unreadable content the engine
        prints ``Invalid JSON in …`` and no header at all, so the anchor is
        ``None`` — the honest NOT-VALIDATED.
+
+    The path *is* document-chosen, so the anchor is only as good as its
+    tolerance for what a path may contain.  It is therefore anchored by
+    ``str.startswith`` on the path plus a regex that ends the header at a
+    newline, **not** by element 0 of ``str.splitlines()``: a path may contain
+    any of the ten separators ``splitlines()`` recognises (``\\n``, ``\\r``,
+    ``\\v``, ``\\f``, ``\\x1c``-``\\x1e``, ``\\x85``, ``\\u2028``, ``\\u2029``),
+    and splitting on them cuts the header away from its own anchor, turning the
+    engine's real violation into a false ``NOT-VALIDATED``.  The engine writes
+    exactly one terminator, ``\\n``, so a header scan must use exactly that.
 
     A count derived this way is the engine's own number.  Note what is *not*
     done here: the count is never reconciled against the number of
@@ -387,20 +449,12 @@ def _anchored_header(text: str, path: Path) -> int | None:
     inflated that way and can never be removed, so only the anchored header is
     authoritative.
     """
-    candidates = {str(path)}
-    try:
-        candidates.add(str(path.resolve()))
-    except OSError:
-        pass
-    lines = _strip_ansi(text).splitlines()
-    if not lines:
-        return None
-    first = lines[0]
-    for spelling in candidates:
+    text = _strip_ansi(text)
+    for spelling in _header_spellings(path):
         prefix = f"{spelling}: FAIL ("
-        if not first.startswith(prefix):
+        if not text.startswith(prefix):
             continue
-        match = re.fullmatch(re.escape(prefix) + r"(\d+) violations?\)", first)
+        match = re.match(re.escape(prefix) + r"(\d+) violations?\)(?:\n|$)", text)
         if match:
             return int(match.group(1))
     return None

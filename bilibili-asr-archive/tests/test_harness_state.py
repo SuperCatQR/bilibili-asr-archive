@@ -39,6 +39,7 @@ today's clean state would make it red on arrival.
 
 from __future__ import annotations
 
+import ast
 import importlib.util
 import os
 from pathlib import Path
@@ -61,6 +62,9 @@ REPO_ROOT = PACKAGE_ROOT.parent
 # silently passing. Cases say which of the two they are looking at.
 HARNESS_DIR = REPO_ROOT / ".mstar"
 CHECKER = PACKAGE_ROOT / "scripts" / "validate_harness_state.py"
+# The checker source is data for the citation guard: its docstrings are the
+# claims being verified.
+_CHECKER_SOURCE = CHECKER
 
 
 def _load_checker():
@@ -87,6 +91,42 @@ checker = _load_checker() if CHECKER.is_file() else None
 # a number *above* this ceiling means some entry regressed to a violating shape,
 # which is the one register failure this file can assert before Task 2 lands.
 REGISTER_VIOLATION_CEILING = 144
+
+# Every separator `str.splitlines()` splits on, and the printable spelling the
+# checker substitutes. A path may hold any of them, so the controls below drive
+# all of them: a class proven on `\n` alone is not proven, and the checker's own
+# escape set once shared that blind spot with the assertion reading its output.
+_LINE_SEPARATORS = ("\n", "\r", "\x0b", "\x0c", "\x1c", "\x1d", "\x1e", "\x85", "\u2028", "\u2029")
+_SEPARATOR_SPELLINGS = {
+    "\t": "\\t",
+    "\n": "\\n",
+    "\r": "\\r",
+    "\x0b": "\\x0b",
+    "\x0c": "\\x0c",
+    "\x1c": "\\x1c",
+    "\x1d": "\\x1d",
+    "\x1e": "\\x1e",
+    "\x85": "\\x85",
+    "\u2028": "\\u2028",
+    "\u2029": "\\u2029",
+}
+# One splitter covering the class, so a leak of any separator is visible to a
+# reader that treats any of them as a break rather than only `\n`.
+_ALL_SEPARATOR_SPLIT_RE = r"[\n\r\x0b\x0c\x1c\x1d\x1e\x85\u2028\u2029]"
+
+
+def _separator_spelling(separator: str) -> str:
+    """The escaped form the checker must emit for `separator`.
+
+    `separator` is first put through the same universal-newline decoding the
+    checker's own subprocess reads get (`text=True`): a path holding `\\r` is
+    handed to `git ls-files` as `\\r` and decoded back as `\\n`, so the spelling
+    the checker can emit for a CR path is `\\n`. Asserting `\\r` here would fail
+    on correct behaviour — and the raw-separator assertion below still covers
+    the CR case, because that decoded `\\n` must not survive unescaped either.
+    """
+    decoded = separator.replace("\r\n", "\n").replace("\r", "\n")
+    return _SEPARATOR_SPELLINGS[decoded]
 
 _DOC_RE = re.compile(r"^\[(?P<leg>[a-z-]+)\] (?P<state>OK|FAIL|NOT-VALIDATED) (?P<rest>.*)$")
 _SUMMARY_RE = re.compile(r"^summary: (?P<body>.*)$")
@@ -783,6 +823,84 @@ def _forged_snapshot_report_decoy(harness: Path, name: str, content: str) -> Pat
     return snapshot.parent
 
 
+@pytest.mark.parametrize("separator", _LINE_SEPARATORS, ids=lambda s: repr(s))
+def test_a_separator_in_a_path_cannot_hide_a_real_violation(tmp_path: Path, separator: str):
+    """F1: the anchor must survive a separator in the *path* it is anchored to.
+
+    The anchor for legs (a) and (b) is the engine's own `<path>: FAIL (N
+    violations)` header, and the path is document-chosen — so the anchor is only
+    as good as its tolerance for what a path may hold. Taking element 0 of
+    `str.splitlines()` reads the header's *prefix* whenever the path carries one
+    of the separators `splitlines()` splits on, the full-header match then fails,
+    and the checker reports `NOT-VALIDATED` for a document the engine reported a
+    real violation for. That is a false negative on a real violation: the run
+    still exits 1, but the summary says `fail=0 not-validated=1` and the operator
+    is told the opposite of what the engine said. The engine writes exactly one
+    terminator, `\\n`, so the header scan must use exactly that.
+
+    Both legs are driven because both were affected: (a) a workflow dir holding
+    the separator, (b) a harness dir holding it with a v1 root register. The
+    expectation is the engine's own verdict, read from the engine first — so this
+    cannot pass by the fixture ceasing to be a violation.
+    """
+    harness = tmp_path / "leg" / f"h{separator}x" / ".mstar"
+    _build_harness_at(harness)
+    # Leg (a): a `Done`-status snapshot row missing a field the engine validates.
+    (harness / "workflows" / "w1" / "snapshot.json").write_text(
+        '{"schema_version": 1, "id": "w1", "type": "plan", "status": "completed",'
+        ' "started_at": "2026-01-01", "updated_at": "2026-01-01", "plans": []}\n',
+        encoding="utf-8",
+    )
+    # Leg (b): a v1 root register, which the engine reports as a real violation.
+    (harness / "status.json").write_text(
+        '{"version": 1, "updated_at": "2026-01-01", "plans": []}\n', encoding="utf-8"
+    )
+
+    snapshot_expected = _engine_status_header_count(harness / "workflows" / "w1" / "snapshot.json")
+    register_expected = _engine_status_header_count(harness / "status.json")
+    assert snapshot_expected >= 1 and register_expected >= 1, (
+        "precondition: both documents must hold a real engine violation, got "
+        f"{snapshot_expected} and {register_expected}"
+    )
+
+    # Leg (c), the register: the same separator sits in the harness dir the
+    # engine reader is pinned to. This leg's anchor is the engine's first bytes,
+    # ahead of every path it echoes, so it must stay immune — the docstring says
+    # so, which is a claim that needs this control.
+    (harness / "projects" / "p1" / "residuals.json").write_text(
+        '{"entries": {"p1": [{"id": "R1", "title": "t", "severity": "low", "source": "s",'
+        ' "scope": "sc", "decision": "defer", "owner": "o", "target": null, "tracking": null,'
+        ' "source_plan": "p1", "registered_at": "2026-01-01", "lifecycle": "bogus"}]}}\n',
+        encoding="utf-8",
+    )
+    register_leg_expected = len(_engine_register_violations(harness, "p1"))
+    assert register_leg_expected >= 1, "precondition: the register fixture must be refused by the engine"
+
+    run = _run_checker(harness)
+    for leg, expected in (
+        ("snapshots", snapshot_expected),
+        ("status", register_expected),
+        ("registers", register_leg_expected),
+    ):
+        documents = run.leg(leg)
+        assert len(documents) == 1, run.text
+        assert documents[0].state == "FAIL", (
+            f"a separator in the path must not turn leg ({leg})'s real violation into "
+            f"NOT-VALIDATED (separator {separator!r}):\n" + run.text
+        )
+        assert documents[0].count == expected, (
+            f"leg ({leg}) must report the engine's own {expected} violations:\n" + run.text
+        )
+    # The three engine-backed legs are what this control is about; the ratchet's
+    # own tracked-set decoding is a separate concern (and a separate,
+    # pre-existing gap for `\r`), so only these legs' verdicts are asserted.
+    assert not [d for d in run.documents if d.leg in ("snapshots", "status", "registers")
+                and d.state == "NOT-VALIDATED"], (
+        "no document under test was unreadable — the engine reported a violation for each:\n"
+        + run.text
+    )
+
+
 def test_a_verdict_is_never_read_out_of_text_a_document_controls(scratch_harness: Path):
     """F1: the count must be the engine's, not a number the document chose.
 
@@ -1089,48 +1207,123 @@ def test_reported_counts_are_the_engines_own_numbers(scratch_harness: Path):
     assert restored.returncode == 0, "the control must restore the fixture:\n" + restored.text
 
 
-def test_a_path_with_a_newline_cannot_split_its_finding(scratch_harness: Path):
-    """F5: a finding stays one line even when the path it names contains a newline.
+def test_the_harness_dir_echo_cannot_split_the_report(tmp_path: Path):
+    """F5, the branch the ratchet control cannot reach: the caller-supplied dir.
+
+    `main` echoes the harness dir it was handed on its own report line, and that
+    string is *input*, not subprocess output — so it never passes through the
+    universal-newline decoding that turns a `\\r` in a git-listed path into `\\n`.
+    A CR in the harness dir therefore reaches `_one_line` verbatim, and the
+    ratchet control above cannot see it: its hostile separators arrive via
+    `git ls-files` and are decoded first. Without this control the CR escape row
+    has no consumer, and dropping it splits the report's own first line — and
+    every finding line that echoes the dir — into unprefixed fragments.
+
+    Measured with the CR row removed from the checker's escape set: the harness
+    line and all six stale-debt notes break at the CR, and this control's
+    assertion is what goes red.
+    """
+    harness = tmp_path / "h\rx" / ".mstar"
+    _build_harness_at(harness)
+
+    run = _run_checker(harness)
+    lines = re.split(r"\n", run.stdout)
+    header = [line for line in lines if line.startswith("harness dir:")]
+    assert len(header) == 1, (
+        "the harness dir must be echoed on exactly one line even when it holds "
+        "a carriage return:\n" + run.text
+    )
+    assert "h\\rx" in header[0], (
+        "the CR in the harness dir must be escaped, not left to break the line:\n" + header[0]
+    )
+    assert "\r" not in header[0], header[0]
+
+    # The same guarantee for the legs that echo the dir: a raw CR anywhere in
+    # the report is a break a parser will see, whatever framing this file uses.
+    for splitter in (r"\n", _ALL_SEPARATOR_SPLIT_RE):
+        unprefixed = [
+            line
+            for line in re.split(splitter, run.stdout)
+            if line and not re.match(r"^(\[[a-z-]+\]|harness dir:|summary:)", line)
+        ]
+        assert not unprefixed, (
+            f"the harness dir leaked an unprefixed line (split {splitter!r}): {unprefixed}"
+        )
+
+
+@pytest.mark.parametrize("separator", _LINE_SEPARATORS, ids=lambda s: repr(s))
+def test_a_path_with_a_newline_cannot_split_its_finding(scratch_harness: Path, separator: str):
+    """F5: a finding stays one line even when the path it names contains a separator.
 
     Paths are document data, not report structure, and git tracks a path
     containing `\\n` without complaint (`git ls-files -z` is NUL-delimited
     precisely because names may hold anything but NUL). Echoing such a path raw
     puts the rest of the finding on a line nothing parses: the finding still
     exists, but its path reads as truncated and its reason loses its subject.
-    The control forces such a path in.
+    The control forces such a path in — once per separator, because the class is
+    the whole class.
+
+    **The separator set is all ten `str.splitlines()` splits on, not just `\\n`.**
+    Escaping only `\\n` looks correct to a reader whose splitter is `\\n`, and to
+    a checker whose escape set is `\\n` — which is exactly why this control reads
+    the output with an explicit `\\n` split *and* with one covering the class: it
+    must not share the checker's blind spot. Measured before the escape set was
+    widened: a path holding U+2028, U+0085, `\\v`, `\\f`, `\\x1c`-`\\x1e` or U+2029
+    leaked its tail as an unprefixed line while the `\\n` case stayed clean.
     """
-    hostile = "plans/bad\nname.md"
+    spelling = _separator_spelling(separator)
+    hostile = f"plans/bad{separator}name.md"
     _force_add(scratch_harness, hostile)
+    relative = str((scratch_harness / hostile).relative_to(scratch_harness.parent))
     try:
         run = _run_checker(scratch_harness)
         documents = run.leg("ratchet")
         assert len(documents) == 1 and documents[0].state == "FAIL", run.text
         assert documents[0].count == 1, run.text
 
-        findings = [line for line in run.stdout.splitlines() if "is tracked but outside" in line]
+        # The splitter is explicit `\n` on purpose: the report is framed as
+        # `"\n".join(...)`, so a real break is a break, whatever the checker
+        # chose to leave unescaped. `str.splitlines()` here would split in the
+        # same places as the checker's own escape set and hide the leak.
+        lines = re.split(r"\n", run.stdout)
+        findings = [line for line in lines if "is tracked but outside" in line]
         assert len(findings) == 1, (
-            "exactly one finding, on one line, must name the tracked path:\n" + run.text
+            f"exactly one finding, on one line, must name the tracked path (separator "
+            f"{spelling}):\n" + run.text
         )
-        assert "bad\\nname.md" in findings[0], (
-            "the path must survive with its newline escaped, not truncated at it:\n" + findings[0]
+        assert f"bad{spelling}name.md" in findings[0], (
+            f"the path must survive with its separator escaped ({spelling}), not truncated "
+            "at it:\n" + findings[0]
         )
-        # The escaped spelling is what keeps the line single: no raw newline may
-        # remain in it, and the reason must still be attached to the path.
-        assert "\n" not in findings[0], findings[0]
-        assert findings[0].rstrip().endswith("ignore rules say:") or "ignore rules say:" in findings[0], (
+        # The escaped spelling is what keeps the line single: no raw separator
+        # may remain in it, and the reason must still be attached to the path.
+        # The CR case is checked in its decoded form: `text=True` decodes the
+        # subprocess output with universal newlines, so the checker sees a CR in
+        # a path as LF (see `_separator_spelling`).
+        decoded = separator.replace("\r\n", "\n").replace("\r", "\n")
+        assert decoded not in findings[0], findings[0]
+        assert "ignore rules say:" in findings[0], (
             "the finding's reason must stay on the same line as the path it is about:\n" + findings[0]
         )
         # Every emitted line must still be prefixed, or a parser would see the
-        # tail of this finding as an unprefixed line.
-        unprefixed = [
-            line
-            for line in run.stdout.splitlines()
-            if line and not re.match(r"^(\[[a-z-]+\]|harness dir:|summary:)", line)
-        ]
-        assert not unprefixed, f"a finding leaked an unprefixed line: {unprefixed}"
+        # tail of this finding as an unprefixed line. Splitting on the report's
+        # own framing alone would not reach this falsifier for the eight
+        # non-`\n` separators — the leak is a break to `splitlines()`, not to
+        # `"\n".split` — so the class-wide splitter below is what makes the
+        # assertion fail when an escape is removed.
+        for splitter in (r"\n", _ALL_SEPARATOR_SPLIT_RE):
+            unprefixed = [
+                line
+                for line in re.split(splitter, run.stdout)
+                if line and not re.match(r"^(\[[a-z-]+\]|harness dir:|summary:)", line)
+            ]
+            assert not unprefixed, (
+                f"a finding leaked an unprefixed line for separator {spelling} "
+                f"(split {splitter!r}): {unprefixed}"
+            )
     finally:
         (scratch_harness / hostile).unlink()
-        _run(["git", "rm", "-q", "--cached", str((scratch_harness / hostile).relative_to(scratch_harness.parent))], cwd=scratch_harness.parent)
+        _run(["git", "rm", "-q", "--cached", relative], cwd=scratch_harness.parent)
 
     restored = _run_checker(scratch_harness)
     assert restored.returncode == 0, "the control must restore the fixture:\n" + restored.text
@@ -1259,71 +1452,121 @@ def test_present_but_unreadable_root_register_fails_loud(scratch_harness: Path):
     assert restored.returncode == 0, "the control must restore the fixture:\n" + restored.text
 
 
-# The `file:line` citations in the checker's docstring are claims about a build
+# The `file:line` citations in the checker's docstrings are claims about a build
 # that can be replaced under it. Naming them in data lets a test re-read each
-# line with `sed`-equivalent access and fail when the build moves, which is how
-# the stale `validateStatusV22 (L13693)` block survived an earlier review.
+# line and fail when the build moves, which is how the stale
+# `validateStatusV22 (L13693)` block survived an earlier review. The two tables
+# cover different bundles because the docstring cites both: the installed CLI it
+# shells out to, and the host's in-process dsh bundle it names as orientation.
+# `13693` appears in both because the docstring cites that number against both
+# builds with different expected text (the CLI `validateStatusV22` duplicate and
+# the host bundle's SQL `create table`).
+#
+# Completeness is not maintained by hand: `_cited_line_numbers` derives the cited
+# set from the docstrings and the test asserts the tables equal it, so a citation
+# added without a table row (or a row without a citation) fails the guard, and a
+# `checked >= N` threshold that cannot notice either does not come back.
 _CHECKER_CITATIONS_INSTALLED_CLI = {
-    3642: "function validateWorkflowSnapshot(doc) {",
-    4453: "function validatePlanRow(row) {",
-    4490: "function validateResidual(entry) {",
-    5123: "function validateProjectRegister(doc) {",
-    24777: 'var PERSIST_KINDS = ["status", "snapshot", "residuals", "review", "json"];',
-    24778: 'var COORDINATED_PERSIST_KINDS = ["status", "snapshot", "residuals"];',
-    24482: "if (path15.basename(statusPath) === WORKFLOW_SNAPSHOT_FILE) {",
-    24483: "const read = readSnapshotForCheck(statusPath);",
-    24462: "function readSnapshotForCheck(snapshotPath) {",
-    24466: "if (!(error instanceof WorkflowSnapshotValidationError))",
-    24469: "console.error(import_picocolors4.default.red(`${snapshotPath}: FAIL (${count} violation${count === 1 ? \"\" : \"s\"})`));",
-    24470: "printViolationList(error.violations);",
-    24455: "function printViolationList(violations) {",
-    24457: "console.error(`  - [${violation17.severity}] ${violation17.code}: ${violation17.message}`);",
-    24499: "console.error(import_picocolors4.default.red(`${statusPath}: FAIL (${count} violation${count === 1 ? \"\" : \"s\"})`));",
-    24500: "printViolationList(gate3.violations);",
-    24503: "console.error(import_picocolors4.default.red(`status validate failed: ${error.message}`));",
-    24833: "function validatePersistPayload(kind, payload) {",
-    24840: "gate3 = validateProjectRegister(payload);",
-    24847: 'const detail = gate3.violations.map((v) => `[${v.severity}] ${v.code}: ${v.message}`).join("; ");',
-    24848: "throw new Error(`refusing to persist invalid ${kind} document: ${detail}`);",
-    24917: "validatePersistPayload(parsedKind, payload);",
-    25074: "function failScript(error, context) {",
-    24922: 'failScript(error, "persist get");',
-    24908: "const read = await readCoordinatedArtifact(root, { kind: parsedKind, key });",
-    10140: "function summarize(violations) {",
-    10274: "async function readCoordinatedArtifact(harnessRoot, ref) {",
-    10288: "function assertStoredArtifact(kind, payload, path, harnessRoot) {",
-    10298: None,
-    4597: None,  # matched by substring below: the message spans one long line
-    4605: None,
-    4613: None,
-    4574: "function validateStatusV2(docOrPath, opts = {}) {",
-    4681: "var validateStatus = validateStatusV2;",
-    3090: None,
+    3090: 'violations.push(invalid("coordination.row.field", `${what} has unexpected key(s): ${extra.join(", ")}`));',
+    3213: 'async get(ref) {',
+    3642: 'function validateWorkflowSnapshot(doc) {',
     4424: 'var RESIDUAL_LIFECYCLES = ["open", "resolved", "waived", "superseded", "duplicate"];',
+    4453: 'function validatePlanRow(row) {',
+    4490: 'function validateResidual(entry) {',
     4504: None,
     4511: None,
     4531: None,
     4534: None,
     4537: None,
+    4574: 'function validateStatusV2(docOrPath, opts = {}) {',
+    4597: None,
+    4605: None,
+    4613: None,
+    4681: 'var validateStatus = validateStatusV2;',
+    5123: 'function validateProjectRegister(doc) {',
     5141: None,
     5158: None,
+    10140: 'function summarize(violations) {',
+    10274: 'async function readCoordinatedArtifact(harnessRoot, ref) {',
+    10288: 'function assertStoredArtifact(kind, payload, path, harnessRoot) {',
+    10298: None,
+    13693: 'function validateStatusV22(docOrPath, opts = {}) {',
+    13716: None,
+    13724: None,
+    17139: 'function assertStoredArtifact2(kind, payload, path2, harnessRoot) {',
+    17146: 'gate22 = validateProjectRegister2(payload);',
+    24455: 'function printViolationList(violations) {',
+    24456: 'for (const violation17 of violations) {',
+    24457: 'console.error(`  - [${violation17.severity}] ${violation17.code}: ${violation17.message}`);',
+    24458: 'if (violation17.fix)',
+    24459: 'console.error(`    fix: ${violation17.fix}`);',
+    24462: 'function readSnapshotForCheck(snapshotPath) {',
+    24466: 'if (!(error instanceof WorkflowSnapshotValidationError))',
+    24467: 'throw error;',
+    24469: 'console.error(import_picocolors4.default.red(`${snapshotPath}: FAIL (${count} violation${count === 1 ? "" : "s"})`));',
+    24470: 'printViolationList(error.violations);',
+    24482: 'if (path15.basename(statusPath) === WORKFLOW_SNAPSHOT_FILE) {',
+    24483: 'const read = readSnapshotForCheck(statusPath);',
+    24499: 'console.error(import_picocolors4.default.red(`${statusPath}: FAIL (${count} violation${count === 1 ? "" : "s"})`));',
+    24500: 'printViolationList(gate3.violations);',
+    24503: 'console.error(import_picocolors4.default.red(`status validate failed: ${error.message}`));',
+    24777: 'var PERSIST_KINDS = ["status", "snapshot", "residuals", "review", "json"];',
+    24778: 'var COORDINATED_PERSIST_KINDS = ["status", "snapshot", "residuals"];',
+    24833: 'function validatePersistPayload(kind, payload) {',
+    24840: 'gate3 = validateProjectRegister(payload);',
+    24847: 'const detail = gate3.violations.map((v) => `[${v.severity}] ${v.code}: ${v.message}`).join("; ");',
+    24848: 'throw new Error(`refusing to persist invalid ${kind} document: ${detail}`);',
+    24908: 'const read = await readCoordinatedArtifact(root, { kind: parsedKind, key });',
+    24917: 'validatePersistPayload(parsedKind, payload);',
+    24922: 'failScript(error, "persist get");',
+    25074: 'function failScript(error, context) {',
+    25075: 'if (error instanceof SddScriptError) {',
+    25076: 'console.error(import_picocolors4.default.red(`${context} failed: ${error.message}`));',
+    25077: 'process.exitCode = error.exitCode;',
+    25078: 'return;',
+    25079: '}',
+    25080: 'console.error(import_picocolors4.default.red(`${context} failed: ${error.message}`));',
+    25081: 'process.exitCode = 1;',
 }
 
-# `validateStatusV2` is a single long line in the bundle; matched by substring
-# rather than equality so formatting differences do not mask a moved symbol.
+_CHECKER_CITATIONS_DSH = {
+    3103: 'function validateWorkflowSnapshot(doc) {',
+    3308: 'function validatePlanRow(row) {',
+    3345: 'function validateResidual(entry) {',
+    3429: 'function validateStatusV2(docOrPath, opts = {}) {',
+    3452: None,
+    3460: None,
+    3468: None,
+    3536: 'var validateStatus = validateStatusV2;',
+    4117: 'function validateProjectRegister(doc) {',
+    13693: 'workflow_id text primary key references execution_workflows(workflow_id),',
+}
+
+# Long single-line sites are matched by substring rather than equality so a
+# reformat of the template does not mask a moved symbol; every entry here is a
+# key of a table above.
 _CITATION_SUBSTRINGS = {
-    4597: '"status.migration-required"',
-    4605: '"status.migration-required"',
-    4613: '"status.migration-required"',
-    3090: "has unexpected key(s): ${extra.join(\", \")}",
-    10298: "fails validation \\u2014 ${summarize(gate2.violations)}",
+    3090: 'has unexpected key(s): ${extra.join(", ")}',
     4504: '"status.residual.invalid-severity"',
     4511: '"status.residual.invalid-decision"',
     4531: '"status.residual.invalid-lifecycle"',
     4534: '"status.residual.closed-missing-closed-at"',
     4537: '"status.residual.closed-missing-closure-note"',
+    4597: '"status.migration-required"',
+    4605: '"status.migration-required"',
+    4613: '"status.migration-required"',
     5141: '"project.register.invalid-entry-list"',
     5158: '"project.register.mismatched-source-plan"',
+    10298: 'fails validation \\u2014 ${summarize(gate2.violations)}',
+    13716: 'violation42("high", "status.migration-required"',
+    13724: 'violation42("high", "status.migration-required", "v1-shaped status.json (root plans[])',
+}
+
+# The same, for the host bundle's three `status.migration-required` sites.
+_CITATION_SUBSTRINGS_DSH = {
+    3452: 'schema version 2 required',
+    3460: 'root plans[]) is not a v2 document',
+    3468: 'root residual_findings) is not a v2 document',
 }
 
 
@@ -1343,6 +1586,48 @@ def _installed_cli_bundle() -> Path | None:
     return fallback if fallback.is_file() else None
 
 
+def _cited_line_numbers() -> set[int]:
+    """Every `L<n>` the checker's docstrings cite, `L<a>-L<b>` ranges expanded.
+
+    Derived from the checker source, never from the tables below: that is what
+    lets the guard fail when a *citation* is added or removed without the tables
+    following. A `checked >= <constant>` assertion cannot see that — the table
+    can be kept at its old size while a new citation goes unchecked, which is
+    exactly how the dsh block and the "old, wrong" numbers stayed unverified.
+    """
+    tree = ast.parse(_CHECKER_SOURCE.read_text(encoding="utf-8"))
+    numbers: set[int] = set()
+    for node in ast.walk(tree):
+        if not isinstance(node, (ast.Module, ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            continue
+        doc = ast.get_docstring(node, clean=False)
+        if not doc:
+            continue
+        numbers |= {int(n) for n in re.findall(r"L(\d+)", doc)}
+        for start, end in re.findall(r"L(\d+)\s*-\s*L?(\d+)", doc):
+            numbers |= set(range(int(start), int(end) + 1))
+    return numbers
+
+
+def _cited_dsh_bundle() -> Path | None:
+    """The host bundle the docstring names, resolved from the docstring itself.
+
+    The block names one exact path and its byte size, so the guard reads *that*
+    path instead of guessing among installed profiles: if the session's profile
+    changes, the citation is stale and the guard must say so rather than quietly
+    checking a different bundle and reporting green. The docstring wraps the path
+    across two source lines, so whitespace is collapsed before matching — the
+    citation is the path, not its line wrapping.
+    """
+    doc = ast.get_docstring(ast.parse(_CHECKER_SOURCE.read_text(encoding="utf-8")), clean=False) or ""
+    flattened = re.sub(r"\s+", " ", doc)
+    match = re.search(r"(/[^\s]*?node_modules/)\s*(@mstar-harness/dsh/dist/index\.js)", flattened)
+    if match is None:
+        return None
+    path = Path((match.group(1) + match.group(2)).replace(" ", ""))
+    return path if path.is_file() else None
+
+
 def test_checker_docstring_citations_still_name_what_they_claim():
     """F4: every `file:line` the docstring cites must still hold that line.
 
@@ -1350,32 +1635,77 @@ def test_checker_docstring_citations_still_name_what_they_claim():
     naming `validateStatusV22 (L13693)` and `assertStoredArtifact2 (L17139)`
     that no longer existed anywhere — those numbers pointed at SQL `create
     table` text — and nothing failed, because prose cannot fail. This test reads
-    each cited line out of the installed bundle and compares it, so the block
-    goes red when the build moves and the citation block must be re-verified.
+    each cited line out of the bundle the docstring names for it and compares it,
+    so the block goes red when the build moves and the citation block must be
+    re-verified.
+
+    **Both bundles, and every cited line.** The docstring cites 69 line numbers
+    across the installed CLI and the host dsh bundle; the tables must equal that
+    set exactly, which is the count-change guard the earlier `checked >= 43`
+    could not provide. The earlier table also left the whole dsh block and the
+    four "old, wrong" numbers the fix pass quotes as corrected unchecked, so the
+    two prior citation errors lived precisely where the guard was blind.
     """
-    bundle = _installed_cli_bundle()
-    if bundle is None:
+    cited = _cited_line_numbers()
+    declared = set(_CHECKER_CITATIONS_INSTALLED_CLI) | set(_CHECKER_CITATIONS_DSH)
+    assert declared == cited, (
+        "the citation tables and the docstrings' `L<n>` tokens have drifted apart — a "
+        "citation was added, moved or removed without the tables following, so part of "
+        "the docstring is unchecked.\n"
+        f"  cited but untabled: {sorted(cited - declared)}\n"
+        f"  tabled but uncited: {sorted(declared - cited)}"
+    )
+
+    cli_bundle = _installed_cli_bundle()
+    if cli_bundle is None:
         pytest.skip("no installed @mstar-harness/cli bundle to check citations against")
-    lines = bundle.read_text(encoding="utf-8", errors="replace").splitlines()
+    cli_lines = cli_bundle.read_text(encoding="utf-8", errors="replace").splitlines()
+
+    dsh_bundle = _cited_dsh_bundle()
+    if dsh_bundle is None:
+        pytest.skip(
+            "the host dsh bundle the checker's docstring names by exact path is not installed, "
+            "so its block cannot be re-read here"
+        )
+    dsh_lines = dsh_bundle.read_text(encoding="utf-8", errors="replace").splitlines()
+
+    # The block states the bundle's size, so a replaced build is a red guard even
+    # before a line is compared.
+    stated = re.search(r"dist/index\.js,\s*(\d+)\s*bytes", _CHECKER_SOURCE.read_text(encoding="utf-8"))
+    assert stated, "the docstring must state the dsh bundle's size for the citation to be checkable"
+    assert dsh_bundle.stat().st_size == int(stated.group(1)), (
+        f"the docstring cites {dsh_bundle} as {stated.group(1)} bytes, but it is "
+        f"{dsh_bundle.stat().st_size} — the build moved and the block must be re-verified"
+    )
 
     checked = 0
-    for number, expected in _CHECKER_CITATIONS_INSTALLED_CLI.items():
-        assert 1 <= number <= len(lines), f"cited line L{number} is past the end of {bundle}"
-        actual = lines[number - 1].strip()
-        if expected is None:
-            needle = _CITATION_SUBSTRINGS[number]
-            assert needle in actual, (
-                f"{bundle.name}:L{number} no longer contains {needle!r}; the docstring cites this "
-                f"line for a symbol that has moved or gone. Actual line: {actual[:140]!r}"
-            )
-        else:
-            assert actual == expected, (
-                f"{bundle.name}:L{number} no longer reads as the docstring claims.\n"
-                f"  cited: {expected!r}\n  actual: {actual[:160]!r}\n"
-                "Re-verify the docstring's citation block with `sed -n` and update it."
-            )
-        checked += 1
-    assert checked >= 43, f"the citation set shrank unexpectedly: {checked} entries"
+    for bundle, lines, table, substrings in (
+        (cli_bundle, cli_lines, _CHECKER_CITATIONS_INSTALLED_CLI, _CITATION_SUBSTRINGS),
+        (dsh_bundle, dsh_lines, _CHECKER_CITATIONS_DSH, _CITATION_SUBSTRINGS_DSH),
+    ):
+        for number, expected in table.items():
+            assert 1 <= number <= len(lines), f"cited line L{number} is past the end of {bundle}"
+            actual = lines[number - 1].strip()
+            if expected is None:
+                needle = substrings[number]
+                assert needle in actual, (
+                    f"{bundle.name}:L{number} no longer contains {needle!r}; the docstring cites "
+                    f"this line for a symbol that has moved or gone. Actual line: {actual[:140]!r}"
+                )
+            else:
+                assert actual == expected, (
+                    f"{bundle.name}:L{number} no longer reads as the docstring claims.\n"
+                    f"  cited: {expected!r}\n  actual: {actual[:160]!r}\n"
+                    "Re-verify the docstring's citation block with `sed -n` and update it."
+                )
+            checked += 1
+    # Every cited number is re-read once per bundle it is cited against; `13693`
+    # is cited against both, which is why it may legitimately be read twice.
+    assert checked == len(_CHECKER_CITATIONS_INSTALLED_CLI) + len(_CHECKER_CITATIONS_DSH), checked
+    assert checked == len(cited) + len(set(_CHECKER_CITATIONS_DSH) & {13693}), (
+        f"every cited line must be re-read exactly once except a number cited against both "
+        f"bundles: checked={checked}, cited={len(cited)}"
+    )
 
 
 def test_ratchet_reports_an_unresolvable_work_tree(tmp_path: Path):
