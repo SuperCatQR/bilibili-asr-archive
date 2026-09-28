@@ -24,38 +24,38 @@ CLI, an unreadable debt list, a document the reader cannot reach, or an exit
 code the checker cannot interpret is reported as not-validated, and
 not-validated is a failure.
 
-**The verdict is never read out of text the document controls.**  The engine
-echoes the document's *path* into its error prose and quotes document *field
-values* into its violation messages, so ``Run.text`` is document-influenced: a
-directory named ``FAIL (9 violations)``, or a ``source_plan`` holding
-``[low] fake.code: x``, puts engine-shaped words into the text with no
-validator having run.  Each verdict is therefore anchored to something the
-document cannot choose:
+**The verdict is never read out of the engine's text.**  Three independent
+channels let a document, its path, or its environment steer that text, and all
+three were reproduced on the installed CLI before this design was adopted:
 
-  - a **report header anchored to the document's own resolved path** — the
-    engine prints ``<resolved path>: FAIL (N violations)`` (L24499 root
-    register, L24469 snapshot).  Matching that whole path and then
-    ``: FAIL (`` means a header embedded *inside* the path is consumed by the
-    anchor, and a document value carrying the same words can only land on a
-    detail line *after* the engine's real header.  The anchor is a start-of-
-    string comparison plus a newline-terminated regex, never element 0 of
-    ``str.splitlines()``: a *path* may hold any of the ten separators
-    ``splitlines()`` splits on (``\n``, ``\r``, ``\v``, ``\f``, ``\x1c``-
-    ``\x1e``, ``\x85``, ``\u2028``, ``\u2029``), and splitting on them cuts a
-    real header away from its own anchor and reports the engine's violation as
-    unreadable.  The engine's only terminator is ``\n`` (``console.error``
-    appends it, L24469/L24499), so the header scan uses exactly that.
-  - a **refusal prologue anchored at the start of the engine's message** —
-    ``persist get failed: refusing to persist invalid <kind> document: ``
-    (built at L24848, printed by ``failScript`` L25074-25081).  The
-    could-not-read prose is ``persist get failed: Invalid JSON in <path>: …``,
-    so an *anchored* prologue cannot be produced by a path or a field value.
-    This leg is start-anchored for the same reason and is immune to the
-    separator class above: its anchor is the engine's first *bytes*, ahead of
-    every path the engine echoes, so no path can push it off position 0.
+1. the engine quotes document *field values* into violation messages, so a
+   ``source_plan`` holding ``[low] fake.code: x`` makes engine-shaped findings;
+2. it echoes the document's *path* into header and error prose, so a directory
+   named ``FAIL (9 violations)`` — or a path holding any of the ten characters
+   ``str.splitlines()`` treats as a line break (``\n``, ``\r``, ``\v``,
+   ``\f``, ``\x1c``-``\x1e``, ``\x85``, ``\u2028``, ``\u2029``) — shifts
+   or forges whatever a positional parse believed was on "line 1";
+3. the *child process* can write a prelude of its own before the engine runs —
+   ``NODE_OPTIONS=--require <module>``, or ``FORCE_COLOR=1`` alongside the
+   ambient ``NO_COLOR=1`` — displacing the first bytes of the stream.  Nothing
+   positional in ``Run.text`` is therefore out of reach of the environment.
 
-Exit 1 with neither anchor is ``NOT-VALIDATED`` — no validator ran — never
-``FAIL``, which would invent a violation.
+So the verdict does not come from parsing text at all.  It comes from a cross
+product the document and the environment cannot join:
+
+  - **readability is established by the checker itself, from the bytes on
+    disk** — a regular file holding valid JSON, or an explicit reason it is
+    not (``_document_readability``).  No engine prose is involved in this step.
+  - **only for a document that passed that probe is the exit code a verdict**:
+    ``0`` is ``OK``, any positive code is ``FAIL``.  This is what the probe buys
+    — without it, ``rc == 1`` is ambiguous ("violations" versus "could not
+    read"), and the engine's own prose about which is exactly the text in
+    question.  With it, the ambiguity is gone.
+
+A count is printed when the engine's text yields violation rows, and ``?`` when
+it does not: an unreadable *report* degrades the detail, never the verdict.
+``NOT-VALIDATED`` is reserved for documents the checker genuinely could not
+validate — never for one whose engine verdict was ``FAIL``.
 
 Engine rule set cited by ``file:line``, re-verified 2026-09-28 with
 ``sed -n "<n>p" <file>``.  The installed CLI is the binary that actually runs
@@ -184,6 +184,7 @@ not-validated document, 2 on usage.
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import re
 import shutil
@@ -209,6 +210,10 @@ VIOLATION_RE = re.compile(r"\[(?:critical|high|medium|low|nit)\]\s+[A-Za-z0-9_.-
 # per violation, indented two spaces.  Counting *these* is counting the engine's
 # own report structure rather than a regex over prose.
 VIOLATION_LINE_RE = re.compile(r"^  - \[(?:critical|high|medium|low|nit)\] [A-Za-z0-9_.-]+: ")
+# The same row after `_report_detail` has stripped its indentation, so the
+# counter matches the row body rather than its two-space prefix.  Both forms
+# describe the identical engine structure (one row per violation).
+VIOLATION_ROW_RE = re.compile(r"^- \[(?:critical|high|medium|low|nit)\] [A-Za-z0-9_.-]+: ")
 # The engine colours its output for a TTY; a captured stream is normally plain,
 # but never let an escape sequence defeat an anchor.
 ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
@@ -218,8 +223,6 @@ ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
 # register leg's "a validator actually ran" anchor: the could-not-read prose on
 # the same command is `persist get failed: Invalid JSON in <path>: …`, so a
 # document can only produce this prefix by way of the validator's own throw.
-REGISTER_REFUSAL_PROLOGUE = "persist get failed: refusing to persist invalid residuals document: "
-
 # --- The amended published set (compass D11, `.mstar/AGENTS.md` § Published vs
 # local).  The prefix list is the verdict; `git check-ignore --no-index` is
 # evidence, not the verdict.  `{ITERATION_DIR}/README.md` is deliberately NOT
@@ -386,78 +389,201 @@ def _strip_ansi(text: str) -> str:
     return ANSI_RE.sub("", text)
 
 
-def _header_spellings(path: Path) -> set[str]:
-    """The spellings the engine's *decoded* output may hold for this path.
+SHAPE_ABSENT = "absent"
+SHAPE_NOT_REGULAR = "not-regular"
+SHAPE_INVALID_JSON = "invalid-json"
+SHAPE_JSON = "json"
+KIND_DOCUMENT = "document"
+KIND_ROOT_REGISTER = "root-register"
 
-    The path is echoed verbatim by the engine, but ``_run`` decodes the bytes
-    with universal newlines, so a path containing ``\\r`` (legal on POSIX)
-    arrives in the text as ``\\n``: the raw spelling alone would never be a
-    prefix of the emitted header, and the document's own real violation would
-    be reported as unreadable.  Both spellings are therefore candidates.
+
+def _document_shape(path: Path) -> tuple[str, str | None]:
+    """Classify what is on disk at ``path``, with no engine prose involved.
+
+    Returns ``(shape, reason)``.  Four shapes, and the distinction between them
+    is the *whole* job of this function — every verdict decision downstream is
+    made from this classification plus an exit code, never from text:
+
+    ``absent``        nothing there at all, including a dangling symlink
+    ``not-regular``   something is there but it is not a readable regular file
+                      (a directory, a device, a symlink loop)
+    ``invalid-json``  a regular file whose bytes are not JSON
+    ``json``          a regular file holding valid JSON (object or array)
+
+    Why this exists: the engine's *exit code* alone cannot separate "violations"
+    from "could not read" — both are non-zero — and the engine's prose about
+    which is exactly the text a third party can steer.  Three such channels were
+    reproduced on the installed CLI before this function was written:
+
+    1. the engine quotes document *field values* into violation messages, so a
+       value can spell engine-shaped text;
+    2. it echoes the document's *path* into header and error prose, and a path
+       may hold any of the ten characters ``str.splitlines()`` treats as a line
+       break, so anything positional in the stream is path-steerable;
+    3. the child process can write a prelude before the engine runs
+       (``NODE_OPTIONS=--require <module>``, or ``FORCE_COLOR=1`` beside the
+       ambient ``NO_COLOR=1``), displacing whatever a parser thought was first.
+
+    The bytes on disk have none of those properties, so the classification is
+    the anchor.  ``reason`` is populated for the two unreadable shapes.
     """
-    spellings = {str(path)}
-    try:
-        spellings.add(str(path.resolve()))
-    except OSError:
-        pass
-    return spellings | {s.replace("\r\n", "\n").replace("\r", "\n") for s in spellings}
+    if path.is_file():
+        try:
+            payload = json.loads(path.read_bytes())
+        except OSError as exc:
+            return SHAPE_NOT_REGULAR, f"unreadable: {type(exc).__name__}: {exc}"
+        except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+            return SHAPE_INVALID_JSON, f"invalid JSON: {exc}"
+        if not isinstance(payload, (dict, list)):
+            return SHAPE_INVALID_JSON, f"JSON is not an object or array (got {type(payload).__name__})"
+        return SHAPE_JSON, None
+    if path.is_symlink() and not path.exists():
+        return SHAPE_ABSENT, "no such file (dangling symlink)"
+    if path.exists():
+        return SHAPE_NOT_REGULAR, "not a regular file (directory or device)"
+    return SHAPE_ABSENT, "no such file"
 
 
-def _anchored_header(text: str, path: Path) -> int | None:
-    """The engine's ``<path>: FAIL (N violations)`` header, anchored to ``path``.
+def _engine_count(text: str, path: Path) -> int | None:
+    """The engine's own violation count, or ``None`` when it cannot be had.
 
-    Two independent facts make this un-forgeable by document data, and both were
-    measured on the installed CLI rather than assumed:
+    Taken from the engine's header — ``<resolved path>: FAIL (N violations)`` —
+    **matched against this document's exact resolved path** and searched anywhere
+    in the stream rather than required at offset 0.  Both properties are load
+    bearing and each answers a different attack, all reproduced on the installed
+    CLI:
 
-    1. **The header is the first thing the engine writes.**  In
-       ``readSnapshotForCheck`` the ``console.error`` header (L24469) precedes
-       ``printViolationList`` (L24470), and in the root-register branch the
-       header (L24499) precedes ``printViolationList`` (L24500).  Every failure
-       path was checked — a clean snapshot, invalid JSON, an absent file, a
-       directory, a dangling symlink, a violating root register — and the header
-       is the whole of line 1 in each.  So the required header is compared
-       *positionally*, at the start of the stream, where no document-supplied
-       text can reach: injected text can only ever be appended (it arrives
-       inside a violation message, i.e. after the header).
-    2. **The whole header is matched, not searched.**  Matching this leg's exact
-       path and then ``: FAIL (`` means anything the document puts on that
-       header is consumed by the anchor itself.  A directory literally named
-       ``FAIL (3 violations)`` therefore cannot lend its count: the header is
-       ``<path>/FAIL (3 violations)/snapshot.json: FAIL (1 violation)``, the
-       anchor swallows the decoy as part of the path, and the captured count is
-       the real one.  Where the directory holds unreadable content the engine
-       prints ``Invalid JSON in …`` and no header at all, so the anchor is
-       ``None`` — the honest NOT-VALIDATED.
+    - *searched anywhere* rather than positionally: a prelude written by the
+      child process before the engine runs (``NODE_OPTIONS=--require <module>``,
+      or ``FORCE_COLOR=1`` beside the ambient ``NO_COLOR=1``) shifts the stream,
+      which broke a position-0 comparison and reported a real violation as
+      unreadable.
+    - *the whole exact path, then* ``: FAIL (``: the path is document-chosen and
+      the engine echoes it, so a directory named ``FAIL (9 violations)`` would
+      otherwise lend its decoy number. Matching the full path consumes the decoy
+      as part of the path, and the captured number is the engine's own.
 
-    The path *is* document-chosen, so the anchor is only as good as its
-    tolerance for what a path may contain.  It is therefore anchored by
-    ``str.startswith`` on the path plus a regex that ends the header at a
-    newline, **not** by element 0 of ``str.splitlines()``: a path may contain
-    any of the ten separators ``splitlines()`` recognises (``\\n``, ``\\r``,
-    ``\\v``, ``\\f``, ``\\x1c``-``\\x1e``, ``\\x85``, ``\\u2028``, ``\\u2029``),
-    and splitting on them cuts the header away from its own anchor, turning the
-    engine's real violation into a false ``NOT-VALIDATED``.  The engine writes
-    exactly one terminator, ``\\n``, so a header scan must use exactly that.
+    ``N >= 1`` is required: ``FAIL (0 violations)`` is not a shape the engine
+    emits, and accepting it would let a document render a violation as zero.
 
-    A count derived this way is the engine's own number.  Note what is *not*
-    done here: the count is never reconciled against the number of
-    violation-shaped lines in the output.  Such an agreement test looks like a
-    second safety net but is defeatable in the one direction that matters —
-    ``extra.join(", ")`` (L3090 for a coordination row) interpolates document
-    object *keys* unquoted, so a key containing ``"\\n  - [low] fake.code: x"``
-    makes the engine print extra lines that pass the row regex.  Rows can be
-    inflated that way and can never be removed, so only the anchored header is
-    authoritative.
+    **The count is never a verdict input.**  It is only ever computed after the
+    verdict is already FAIL (shape ``json`` and a non-zero exit), so a document
+    that inflates or suppresses its own count can at most misreport the size of
+    a violation it genuinely has — it cannot manufacture a FAIL for a clean
+    document (a clean document exits 0 and the header is never read) and it
+    cannot hide one (the verdict does not depend on this number).
     """
     text = _strip_ansi(text)
-    for spelling in _header_spellings(path):
-        prefix = f"{spelling}: FAIL ("
-        if not text.startswith(prefix):
-            continue
-        match = re.match(re.escape(prefix) + r"(\d+) violations?\)(?:\n|$)", text)
+    candidates = {str(path)}
+    try:
+        candidates.add(str(path.resolve()))
+    except OSError:
+        pass
+    # `_run` captures with `text=True`, so the stream has been decoded with
+    # universal newlines: a ``\r`` in a path (legal on POSIX) reaches us as
+    # ``\n`` and the raw spelling alone would never match, reporting the
+    # engine's genuine count as unknown.  Both spellings are candidates.
+    candidates |= {c.replace("\r\n", "\n").replace("\r", "\n") for c in candidates}
+    for spelling in candidates:
+        match = re.search(
+            "^" + re.escape(spelling) + r": FAIL \(([1-9]\d*) violations?\)",
+            text,
+            re.MULTILINE,
+        )
         if match:
             return int(match.group(1))
     return None
+
+
+def _rows(text: str) -> list[str]:
+    """The engine's violation rows, each with its indented ``fix:`` sub-line."""
+    return _report_detail(text) or _violation_slices(text)
+
+
+def _register_refusal_count(text: str) -> int | None:
+    """The register reader's violation count, for the leg that has no header.
+
+    ``persist get --validate residuals`` does not print a ``FAIL (N violations)``
+    header; it refuses with the violations inline after a fixed prologue
+    (``persist get failed: refusing to persist invalid residuals document: ``,
+    built at L24848, printed by ``failScript`` L25074-25081).  So its count has to
+    come from the violation tokens themselves.
+
+    Reading tokens *is* defeatable in the inflating direction — the engine
+    interpolates document field values into those messages, so a value can spell
+    an extra token (measured: one real violation plus
+    ``source_plan: "[low] fake.code: x"`` counts 2).  That is acceptable here for
+    one reason only: **this leg's verdict does not consult the count.**  The
+    verdict is shape + exit code, both settled before this is called, so an
+    inflated count misreports the size of a refusal that genuinely happened and
+    can neither create nor hide a verdict.  The number is also required to be at
+    least 1: a refusal with no tokens is not counted as zero.
+    """
+    tokens = VIOLATION_RE.findall(text)
+    return len(tokens) or None
+
+
+def _verdict(leg: str, rel: str, path: Path, run: Run, *, kind: str = KIND_DOCUMENT) -> Document:
+    """Decide a verdict from the document's shape plus the engine's exit code.
+
+    The channel is a cross product, never a parse.  For a normal document (a
+    snapshot, or a project register):
+
+    | shape                        | engine ``rc`` | verdict           |
+    |------------------------------|---------------|-------------------|
+    | absent / not-regular / bad JSON | any        | ``NOT-VALIDATED`` |
+    | ``json``                     | 0             | ``OK``            |
+    | ``json``                     | nonzero       | ``FAIL``          |
+
+    ``kind=KIND_ROOT_REGISTER`` is deliberately different, because the engine's
+    own rule set is different for that document class — and that difference was
+    *measured*, not assumed.  ``status.invalid-json`` is one of the root
+    register's own rule codes, so a directory or malformed JSON at ``status.json``
+    makes the engine print ``<path>: FAIL (1 violation)``: unreadable content is
+    a genuine violation there, not a could-not-validate.  The same shapes at a
+    snapshot or a register produce no report at all.  A uniform readability probe
+    would therefore demote a real root-register violation, so this class is
+    routed by shape instead:
+
+    | shape              | verdict                                              |
+    |--------------------|------------------------------------------------------|
+    | absent             | ``NOT-VALIDATED`` (engine answers "file not found")   |
+    | not-regular        | ``FAIL`` — the engine's ``status.invalid-json``       |
+    | invalid-json       | ``FAIL`` — the engine's ``status.invalid-json``       |
+    | json               | ``rc`` decides (0 ``OK``, else ``FAIL``)              |
+
+    The count is **advisory** throughout: it is ``None`` (rendered ``?``) when the
+    engine's text yields no violation rows, which degrades the detail and never
+    the verdict.
+    """
+    shape, reason = _document_shape(path)
+
+    if run.failed_to_start:
+        return Document(
+            leg, rel, STATE_NOT_VALIDATED,
+            detail=[f"engine call could not run: {run.failed_to_start}"],
+        )
+
+    if kind == KIND_ROOT_REGISTER:
+        if shape == SHAPE_ABSENT:
+            return Document(leg, rel, STATE_NOT_VALIDATED, detail=[f"document {reason}"])
+        if shape in (SHAPE_NOT_REGULAR, SHAPE_INVALID_JSON):
+            rows = _rows(run.text)
+            detail = rows or [f"document {reason}"] + _detail_from(run.text)
+            return Document(leg, rel, STATE_FAIL, count=_engine_count(run.text, path), detail=detail)
+    elif shape != SHAPE_JSON:
+        return Document(leg, rel, STATE_NOT_VALIDATED, detail=[f"document {reason}"])
+
+    if run.rc == 0:
+        return Document(leg, rel, STATE_OK, detail=[])
+    if run.rc > 0:
+        rows = _rows(run.text)
+        detail = rows or _detail_from(run.text) or ["engine reported a violation without detail"]
+        return Document(leg, rel, STATE_FAIL, count=_engine_count(run.text, path), detail=detail)
+    return Document(
+        leg, rel, STATE_NOT_VALIDATED,
+        detail=[f"engine CLI exited {run.rc} (no verdict available)"] + _detail_from(run.text),
+    )
 
 
 def _report_detail(text: str) -> list[str]:
@@ -579,37 +705,16 @@ def _find_mstar() -> str | None:
 # --------------------------------------------------------------------------
 
 
-def _status_validate(leg: str, rel: str, path: Path, mstar: str | None) -> Document:
+def _status_validate(
+    leg: str, rel: str, path: Path, mstar: str | None, *, kind: str = KIND_DOCUMENT
+) -> Document:
     if mstar is None:
         return Document(
             leg, rel, STATE_NOT_VALIDATED,
             detail=["engine CLI `mstar` not found on PATH or at " + MSTAR_FALLBACK],
         )
     run = _run([mstar, "status", "validate", str(path)])
-    if run.failed_to_start:
-        return Document(leg, rel, STATE_NOT_VALIDATED, detail=[f"engine CLI could not run: {run.failed_to_start}"])
-    if run.rc == 0:
-        return Document(leg, rel, STATE_OK, detail=[])
-    if run.rc == 1:
-        header = _anchored_header(run.text, path)
-        if header is None:
-            # Exit 1 without a violation report is the engine saying it could
-            # not read the document (`status file not found`), not a verdict on
-            # its contents.  Claiming FAIL here would invent a violation.
-            detail = _detail_from(run.text)
-            return Document(
-                leg, rel, STATE_NOT_VALIDATED,
-                detail=["engine could not read the document (exit 1, no violation report)"] + detail,
-            )
-        detail = _report_detail(run.text) or _violation_slices(run.text) or run.text.splitlines()
-        return Document(leg, rel, STATE_FAIL, count=header, detail=detail)
-    # Any other exit code means the checker cannot interpret the verdict; that
-    # is a not-validated document, never a silent pass.
-    detail = _detail_from(run.text)
-    return Document(
-        leg, rel, STATE_NOT_VALIDATED,
-        detail=[f"engine CLI exited {run.rc} (expected 0 or 1)"] + detail,
-    )
+    return _verdict(leg, rel, path, run, kind=kind)
 
 
 def check_snapshots(harness: Path, report: Report, mstar: str | None) -> None:
@@ -646,13 +751,17 @@ def check_root_register(harness: Path, report: Report, mstar: str | None) -> Non
         # this checker still owns no rule of its own.
         if path.exists() or path.is_symlink():
             report.counters["root-register"] = 1
-            report.documents.append(_status_validate("status", "status.json", path, mstar))
+            report.documents.append(
+                _status_validate("status", "status.json", path, mstar, kind=KIND_ROOT_REGISTER)
+            )
             return
         report.add_note("status", "status.json absent — no root register to validate")
         report.counters["root-register"] = 0
         return
     report.counters["root-register"] = 1
-    report.documents.append(_status_validate("status", "status.json", path, mstar))
+    report.documents.append(
+        _status_validate("status", "status.json", path, mstar, kind=KIND_ROOT_REGISTER)
+    )
 
 
 # --------------------------------------------------------------------------
@@ -666,53 +775,26 @@ def _register_validate(leg: str, rel: str, key: str, harness: Path, mstar: str |
             leg, rel, STATE_NOT_VALIDATED,
             detail=["engine CLI `mstar` not found on PATH or at " + MSTAR_FALLBACK],
         )
+    path = harness / "projects" / key / "residuals.json"
     env = dict(os.environ)
     env["MSTAR_HARNESS_DIR"] = str(harness)
     run = _run([mstar, "persist", "get", "--validate", "residuals", "--key", key], cwd=harness, env=env)
-    if run.failed_to_start:
-        return Document(leg, rel, STATE_NOT_VALIDATED, detail=[f"engine reader could not run: {run.failed_to_start}"])
-    if run.rc == 0:
-        return Document(leg, rel, STATE_OK, detail=[])
-    if run.rc == 1:
-        # The refusal is `persist get failed: refusing to persist invalid
-        # residuals document: <detail>` (built L24848, printed by `failScript`
-        # L25074-25081); the same command's could-not-read prose is `persist get
-        # failed: Invalid JSON in <path>: …`.
-        #
-        # The prologue is required at position 0, not merely present somewhere.
-        # `failScript` writes it as the command's first output, so a genuine
-        # refusal cannot have anything before it, while a *path* can contain
-        # these words — the document's path is echoed by the could-not-read
-        # message, so a harness dir or register path named `… persist get
-        # failed: refusing to persist invalid residuals document: [low] a: x`
-        # would otherwise make an invalid-JSON read look like a refusal (measured:
-        # it forged `FAIL … 1 violations` from a document no validator ever saw).
-        # Anchoring at the start of the stream closes that, because there the
-        # engine's own prologue precedes every path it echoes.
-        first_line = _strip_ansi(run.text).splitlines()[:1]
-        if not first_line or not first_line[0].startswith(REGISTER_REFUSAL_PROLOGUE):
-            # Exit 1 without a refusal is the reader saying it could not reach
-            # or could not validate the document — not a violation.
-            return Document(
-                leg, rel, STATE_NOT_VALIDATED,
-                detail=["engine reader exited 1 without a validator refusal (document unreachable?)"]
-                + _detail_from(run.text),
-            )
-        # Count the engine's own per-violation tokens.  Slice starts *inside a
-        # quoted field value* are document data the engine echoed, not findings:
-        # `source_plan "[low] fake.code: x"` is one violation, not two.
-        slices = _violation_slices(run.text)
-        if not slices:
-            return Document(
-                leg, rel, STATE_NOT_VALIDATED,
-                detail=["engine reader refused the document but named no violation"] + _detail_from(run.text),
-            )
-        return Document(leg, rel, STATE_FAIL, count=len(slices), detail=slices)
-    detail = _detail_from(run.text)
-    return Document(
-        leg, rel, STATE_NOT_VALIDATED,
-        detail=[f"engine reader exited {run.rc} (expected 0 or 1)"] + detail,
-    )
+    # Same channel as the other two legs: our own reading of the register on
+    # disk decides readability, then the reader's exit code is the verdict.  The
+    # reader's prose is never parsed for the decision — it is `refusing to
+    # persist invalid residuals document: …` on a refusal and `Invalid JSON in
+    # <path>: …` on an unreadable document, and both are text the document (its
+    # values) or its path can spell.
+    document = _verdict(leg, rel, path, run)
+    if document.state == STATE_FAIL and document.count is None:
+        # This leg's reader prints no `FAIL (N violations)` header — it refuses
+        # with the violations inline after a fixed prologue — so the header
+        # lookup in `_verdict` finds nothing.  Fall back to the reader's inline
+        # violation tokens.  Safe because the verdict is already FAIL: the number
+        # is display only, so an inflated count misreports the size of a refusal
+        # that really happened and cannot create or hide a verdict.
+        document.count = _register_refusal_count(run.text)
+    return document
 
 
 def check_registers(harness: Path, report: Report, mstar: str | None) -> None:
