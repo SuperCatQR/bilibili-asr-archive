@@ -24,49 +24,144 @@ CLI, an unreadable debt list, a document the reader cannot reach, or an exit
 code the checker cannot interpret is reported as not-validated, and
 not-validated is a failure.
 
-Engine rule set cited by ``file:line`` — the installed CLI is the binary that
-actually runs (``/usr/local/bin/mstar`` -> ``/usr/lib/node_modules/
+**The verdict is never read out of text the document controls.**  The engine
+echoes the document's *path* into its error prose and quotes document *field
+values* into its violation messages, so ``Run.text`` is document-influenced: a
+directory named ``FAIL (9 violations)``, or a ``source_plan`` holding
+``[low] fake.code: x``, puts engine-shaped words into the text with no
+validator having run.  Each verdict is therefore anchored to something the
+document cannot choose:
+
+  - a **report header anchored to the document's own resolved path** — the
+    engine prints ``<resolved path>: FAIL (N violations)`` (L24499 root
+    register, L24469 snapshot).  Matching that whole path and then
+    ``: FAIL (`` means a header embedded *inside* the path is consumed by the
+    anchor, and a document value carrying the same words can only land on a
+    detail line *after* the engine's real header.
+  - a **refusal prologue anchored at the start of the engine's message** —
+    ``persist get failed: refusing to persist invalid <kind> document: ``
+    (built at L24848, printed by ``failScript`` L25074-25081).  The
+    could-not-read prose is ``persist get failed: Invalid JSON in <path>: …``,
+    so an *anchored* prologue cannot be produced by a path or a field value.
+
+Exit 1 with neither anchor is ``NOT-VALIDATED`` — no validator ran — never
+``FAIL``, which would invent a violation.
+
+Engine rule set cited by ``file:line``, re-verified 2026-09-28 with
+``sed -n "<n>p" <file>``.  The installed CLI is the binary that actually runs
+(``/usr/local/bin/mstar`` is a ``/bin/sh`` shim to ``/usr/lib/node_modules/
 @mstar-harness/cli/dist/mstar-harness.js``, ``@mstar-harness/cli`` 3.11.2), so
-those are the primary citations; the in-process dsh engine bundle is cited
-second for readers of the host side.  Line numbers verified 2026-09-28 with
-``grep -n 'function validate<X>' <file>``:
+those are the primary citations; the host's in-process dsh bundle is cited
+second for readers of the host side.
 
   installed CLI  @mstar-harness/cli 3.11.2  dist/mstar-harness.js
-    ``validateWorkflowSnapshot``  L3642   -> leg (a), leg (b) snapshot rows
+    ``validateWorkflowSnapshot``  L3642   -> leg (a) rules
     ``validatePlanRow``           L4453   -> ``plans[]`` rows inside (a)
     ``validateResidual``          L4490   -> each entry inside (c)
     ``validateProjectRegister``   L5123   -> leg (c)
     ``PERSIST_KINDS`` / ``COORDINATED_PERSIST_KINDS``  L24777-24778
-    ``status validate`` routing   L24482   -> by basename: a ``snapshot.json``
-                                             path goes through
-                                             ``readSnapshotForCheck``, which
-                                             throws on unreadable JSON instead
-                                             of reporting a violation.  That is
-                                             why this checker keys on the
-                                             engine's ``FAIL (N violations)``
+    ``status validate`` routing   L24482  (basename test) / L24483
+                                             (``readSnapshotForCheck`` call):
+                                             a ``snapshot.json`` path goes
+                                             through ``readSnapshotForCheck``
+                                             (L24462), which **rethrows**
+                                             anything that is not a
+                                             ``WorkflowSnapshotValidationError``
+                                             (L24466-24467) into ``status
+                                             validate failed: …`` (L24503)
+                                             instead of reporting a violation.
+                                             That is why this checker keys on
+                                             the anchored ``FAIL (N violations)``
                                              header and not on exit 1 alone.
-    ``assertStoredArtifact``      L17139  -> the persist gate that dispatches
-                                             ``kind === "residuals"`` (L17145) to
-                                             ``validateProjectRegister`` at
-                                             L17146, i.e. what legs (c) actually
-                                             receives back.
-    ``status.migration-required`` L13716, L13724  -> the misroute this file
-                                             documents: ``validateStatusV2``
-                                             (L13693) applied to a register sees
+    snapshot report               L24469  (header) / L24470
+                                             (``printViolationList``
+                                             L24455-24459) -> leg (a) detail
+    root register report          L24499  (header) / L24500 -> leg (b)
+    leg (c), what it gets back    ``persist get`` reads through
+                                             ``createFsStore.get`` L3213 — no
+                                             validation there — then, under
+                                             ``--validate`` (call site L24917),
+                                             ``validatePersistPayload`` L24833
+                                             -> residuals dispatch
+                                             ``validateProjectRegister``
+                                             L24840 -> detail joined at L24847
+                                             and thrown at L24848;
+                                             ``failScript`` (L25074-25081)
+                                             prints it with context
+                                             ``"persist get"`` (L24922).
+                                             **Not**
+                                             ``assertStoredArtifact``: that is
+                                             a *different, same-bodied* gate on
+                                             a different command, reached only
+                                             by ``persist get --versioned``
+                                             (L24908 ->
+                                             ``readCoordinatedArtifact``
+                                             L10274, its own copy
+                                             ``assertStoredArtifact`` L10288).
+                                             It does enforce the same rules,
+                                             but its refusal uses a different
+                                             shape — ``summarize`` (L10140) at
+                                             L10298 emits
+                                             ``<kind> <path> fails validation
+                                             — <code>: <message>`` with **no**
+                                             severity prefix — so leg (c), which
+                                             matches the ``refusing to persist
+                                             invalid`` prologue and counts
+                                             ``[severity] code:`` tokens, is
+                                             anchored to the
+                                             ``validatePersistPayload`` gate
+                                             above and not to this one.
+    ``status.migration-required`` L4597, L4605, L4613  -> the misroute this
+                                             file documents: ``validateStatusV2``
+                                             (L4574, aliased by
+                                             ``validateStatus`` at L4681)
+                                             applied to a register sees
                                              ``version !== 2`` and reports a
                                              schema-version defect for a
                                              document that has no
                                              ``schema_version`` to be wrong.
 
-  in-process engine   @mstar-harness/dsh 3.11.2  dist/index.js
+  in-process host engine  @mstar-harness/dsh 3.11.2  dist/index.js
+                          (/root/.dsh/profiles/web/node_modules/
+                          @mstar-harness/dsh/dist/index.js, 707236 bytes —
+                          the profile this session runs; verified 2026-09-28)
     ``validateWorkflowSnapshot``  L3103
     ``validatePlanRow``           L3308
     ``validateResidual``          L3345
     ``validateProjectRegister``   L4117
+    ``validateStatusV2``          L3429, aliased by ``validateStatus`` at
+                                             L3536; its three
+                                             ``status.migration-required``
+                                             sites are L3452 / L3460 / L3468.
 
-  (The two bundles are separate builds of the same rule set; a reader
-  re-deriving a rule should read the installed-CLI line for what this checker
-  actually receives back.)
+  **The two ``…2`` entries above were corrected in the fix pass, and how they
+  were wrong is worth keeping.**  The committed block cited the *duplicate*
+  copies while describing them as the live path: it named ``assertStoredArtifact``
+  ``L17139`` as "what legs (c) actually receives back", but L17139 holds
+  ``assertStoredArtifact2`` (the duplicate), whose own dispatch is
+  ``validateProjectRegister2`` at L17146 — while leg (c) actually reaches
+  ``validatePersistPayload`` L24833 → ``validateProjectRegister`` L24840, and
+  ``assertStoredArtifact`` is only on the ``--versioned`` path (L24908 →
+  ``readCoordinatedArtifact`` L10274, copy L10288).  Likewise
+  ``status.migration-required`` was cited at L13716/L13724 as
+  ``validateStatusV2 (L13693)``, but L13693 is ``validateStatusV22`` (the
+  duplicate); the function ``status validate`` binds via
+  ``var validateStatus = validateStatusV2;`` (L4681) is L4574, with sites
+  L4597/L4605/L4613.  Both copies implement the same rules, so the *behaviour*
+  claim held, but the citation pointed at a function the observed path never
+  calls.  A ``file:line`` that names a same-bodied duplicate is the kind of
+  error a reader cannot see, which is why the fix pass re-read every line rather
+  than trusting the previous verification note.
+
+  (An interim version of this fix pass introduced a further error — it moved
+  those numbers into the *host* block below, where the ``…2`` symbols do not
+  exist at all.  Checking all five installed dsh profiles showed each validator
+  there has exactly one copy, and L13693 in that bundle is SQL ``create table``
+  text.  The block is now cited per-bundle with the bundle named and measured.)
+
+  (The two bundles are separate builds of the same rule set; the installed-CLI
+  lines are the ones this checker actually receives back, and they are the
+  authority — this host block is orientation only.)
 
 Usage::
 
@@ -100,11 +195,20 @@ CALL_TIMEOUT_SECONDS = 120
 # `status validate` report and (semicolon-joined) in the persist validator's
 # refusal.  Used to count and to split violations apart — never to author one.
 VIOLATION_RE = re.compile(r"\[(?:critical|high|medium|low|nit)\]\s+[A-Za-z0-9_.-]+:")
-# `status validate` heads a failing report with `<path>: FAIL (N violations)`.
-# That header is the authoritative "these are violations" signal: exit 1 without
-# it means the engine could not read the document at all (`status file not
-# found`), which is a not-validated document, not a violation.
-FAIL_HEADER_RE = re.compile(r"FAIL \((\d+) violations?\)")
+# `printViolationList` (installed CLI L24456-24457) writes exactly one such line
+# per violation, indented two spaces.  Counting *these* is counting the engine's
+# own report structure rather than a regex over prose.
+VIOLATION_LINE_RE = re.compile(r"^  - \[(?:critical|high|medium|low|nit)\] [A-Za-z0-9_.-]+: ")
+# The engine colours its output for a TTY; a captured stream is normally plain,
+# but never let an escape sequence defeat an anchor.
+ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
+# `failScript` (L25074-25081) prints `${context} failed: ${error.message}` with
+# context `"persist get"` (L24922), and the refusal message is built at L24848 as
+# `refusing to persist invalid ${kind} document: ${detail}`.  This prefix is the
+# register leg's "a validator actually ran" anchor: the could-not-read prose on
+# the same command is `persist get failed: Invalid JSON in <path>: …`, so a
+# document can only produce this prefix by way of the validator's own throw.
+REGISTER_REFUSAL_PROLOGUE = "persist get failed: refusing to persist invalid residuals document: "
 
 # --- The amended published set (compass D11, `.mstar/AGENTS.md` § Published vs
 # local).  The prefix list is the verdict; `git check-ignore --no-index` is
@@ -124,6 +228,23 @@ STATE_FAIL = "FAIL"
 STATE_NOT_VALIDATED = "NOT-VALIDATED"
 
 
+def _one_line(text: str) -> str:
+    """Render text so it cannot break the report's one-line-per-finding shape.
+
+    Paths are document data, not report structure: a tracked path may legally
+    contain a newline, and echoing it raw would push the rest of a finding onto
+    a line nothing parses — the finding would still exist but be unreadable, and
+    a reader (or a parser) would see a truncated path.  Control characters are
+    escaped rather than dropped, so the bytes are still on the page.
+    """
+    return (
+        text.replace("\\", "\\\\")
+        .replace("\n", "\\n")
+        .replace("\r", "\\r")
+        .replace("\t", "\\t")
+    )
+
+
 @dataclass
 class Document:
     """One routed document and the engine's verdict on it."""
@@ -135,12 +256,13 @@ class Document:
     detail: list[str] = field(default_factory=list)
 
     def render(self) -> list[str]:
+        rel = _one_line(self.rel)
         if self.state == STATE_FAIL:
             count = "?" if self.count is None else str(self.count)
-            head = f"[{self.leg}] FAIL {self.rel}: {count} violations"
+            head = f"[{self.leg}] FAIL {rel}: {count} violations"
         else:
-            head = f"[{self.leg}] {self.state} {self.rel}"
-        return [head] + [f"[{self.leg}]   {line}" for line in self.detail]
+            head = f"[{self.leg}] {self.state} {rel}"
+        return [head] + [f"[{self.leg}]   {_one_line(line)}" for line in self.detail]
 
 
 @dataclass
@@ -150,7 +272,7 @@ class Report:
     counters: dict[str, int] = field(default_factory=dict)
 
     def add_note(self, leg: str, text: str) -> None:
-        self.notes.append(f"[{leg}] note {text}")
+        self.notes.append(f"[{leg}] note {_one_line(text)}")
 
     def render(self) -> str:
         lines: list[str] = []
@@ -224,6 +346,133 @@ def _run(
     return Run(rc=completed.returncode, stdout=completed.stdout, stderr=completed.stderr)
 
 
+def _strip_ansi(text: str) -> str:
+    """Drop SGR colour escapes so an anchor cannot be defeated by a repaint."""
+    return ANSI_RE.sub("", text)
+
+
+def _anchored_header(text: str, path: Path) -> int | None:
+    """The engine's ``<path>: FAIL (N violations)`` header, anchored to ``path``.
+
+    Two independent facts make this un-forgeable by document data, and both were
+    measured on the installed CLI rather than assumed:
+
+    1. **The header is the first thing the engine writes.**  In
+       ``readSnapshotForCheck`` the ``console.error`` header (L24469) precedes
+       ``printViolationList`` (L24470), and in the root-register branch the
+       header (L24499) precedes ``printViolationList`` (L24500).  Every failure
+       path was checked — a clean snapshot, invalid JSON, an absent file, a
+       directory, a dangling symlink, a violating root register — and the header
+       is the whole of line 1 in each.  So the required line is compared
+       *positionally*, at the start of the stream, where no document-supplied
+       text can reach: injected text can only ever be appended (it arrives
+       inside a violation message, i.e. after the header).
+    2. **The whole line is matched, not searched.**  ``fullmatch`` against the
+       exact path this leg handed the engine means anything the document puts on
+       that line is consumed by the anchor itself.  A directory literally named
+       ``FAIL (3 violations)`` therefore cannot lend its count: the line is
+       ``<path>/FAIL (3 violations)/snapshot.json: FAIL (1 violation)``, the
+       anchor swallows the decoy as part of the path, and the captured count is
+       the real one.  Where the directory holds unreadable content the engine
+       prints ``Invalid JSON in …`` and no header at all, so the anchor is
+       ``None`` — the honest NOT-VALIDATED.
+
+    A count derived this way is the engine's own number.  Note what is *not*
+    done here: the count is never reconciled against the number of
+    violation-shaped lines in the output.  Such an agreement test looks like a
+    second safety net but is defeatable in the one direction that matters —
+    ``extra.join(", ")`` (L3090 for a coordination row) interpolates document
+    object *keys* unquoted, so a key containing ``"\\n  - [low] fake.code: x"``
+    makes the engine print extra lines that pass the row regex.  Rows can be
+    inflated that way and can never be removed, so only the anchored header is
+    authoritative.
+    """
+    candidates = {str(path)}
+    try:
+        candidates.add(str(path.resolve()))
+    except OSError:
+        pass
+    lines = _strip_ansi(text).splitlines()
+    if not lines:
+        return None
+    first = lines[0]
+    for spelling in candidates:
+        prefix = f"{spelling}: FAIL ("
+        if not first.startswith(prefix):
+            continue
+        match = re.fullmatch(re.escape(prefix) + r"(\d+) violations?\)", first)
+        if match:
+            return int(match.group(1))
+    return None
+
+
+def _report_detail(text: str) -> list[str]:
+    """The engine's report detail, keeping each violation with its ``fix:`` line.
+
+    ``printViolationList`` (L24456-24459) emits one row per violation and, when
+    the violation carries one, an indented ``fix:`` line immediately after it.
+    The fix text is part of what the engine said, so dropping it would lose
+    operator-facing guidance the original report carried. Rows are emitted
+    verbatim as separate lines so each stays on its own line.
+
+    Text that does not match the report shape falls back to the message itself,
+    never to a paraphrase.
+    """
+    lines = _strip_ansi(text).splitlines()
+    rows: list[str] = []
+    index = 0
+    while index < len(lines):
+        line = lines[index]
+        if VIOLATION_LINE_RE.match(line):
+            rows.append(line.strip())
+            # A `fix:` line belongs to the row it follows (L24459), and only
+            # while rows have started — a fix line before any row is not part of
+            # this report.
+            if index + 1 < len(lines):
+                following = lines[index + 1].strip()
+                if following.startswith("fix: ") or following.startswith("fix:"):
+                    rows.append(following)
+                    index += 1
+        index += 1
+    return rows
+
+
+def _quoted_mask(text: str) -> list[bool]:
+    """Mark every character that sits inside a JSON string literal.
+
+    The engine quotes document field values with ``JSON.stringify`` — e.g.
+    severity L4504, decision L4511, lifecycle L4531, and the register's
+    ``source_plan`` L5158 / entries key L5141 — so a value can carry
+    ``[low] fake.code: x`` into the prose.  Such text sits inside quotes; the
+    engine's real violation tokens do not.
+
+    Not every document-derived message is quoted: ``lifecycle "${lifecycle}"
+    requires closed_at`` (L4534) and ``closure_note`` (L4537) interpolate raw.
+    Those interpolate the value of a field that was already validated against
+    ``RESIDUAL_LIFECYCLES`` (L4424) or is a free-text note, and the token regex
+    needs a following ``:`` — so neither can become a token the way an unquoted
+    *key* can (``extra.join(", ")``, L3090, which is why the header count is
+    taken as authoritative rather than reconciled with a row count).
+    """
+    mask = [False] * len(text)
+    in_string = False
+    escaped = False
+    for index, char in enumerate(text):
+        if not in_string:
+            if char == '"':
+                in_string = True
+                mask[index] = True
+            continue
+        mask[index] = True
+        if escaped:
+            escaped = False
+        elif char == "\\":
+            escaped = True
+        elif char == '"':
+            in_string = False
+    return mask
+
+
 def _violation_slices(text: str) -> list[str]:
     """Split engine output into per-violation slices, engine text verbatim.
 
@@ -231,8 +480,14 @@ def _violation_slices(text: str) -> list[str]:
     report would be unreadable without this.  Slices keep the engine's own
     words; the message is never paraphrased.  A text the regex cannot split
     yields an empty list and the caller prints it raw instead.
+
+    A token *inside a quoted field value* is not a violation the engine
+    reported — it is document data the engine echoed — so it never starts a
+    slice.  That is what keeps a ``source_plan`` holding ``[low] fake.code: x``
+    from being counted as a second finding.
     """
-    marks = [m.start() for m in VIOLATION_RE.finditer(text)]
+    mask = _quoted_mask(text)
+    marks = [m.start() for m in VIOLATION_RE.finditer(text) if not mask[m.start()]]
     if not marks:
         return []
     slices = []
@@ -282,7 +537,7 @@ def _status_validate(leg: str, rel: str, path: Path, mstar: str | None) -> Docum
     if run.rc == 0:
         return Document(leg, rel, STATE_OK, detail=[])
     if run.rc == 1:
-        header = FAIL_HEADER_RE.search(run.text)
+        header = _anchored_header(run.text, path)
         if header is None:
             # Exit 1 without a violation report is the engine saying it could
             # not read the document (`status file not found`), not a verdict on
@@ -292,9 +547,8 @@ def _status_validate(leg: str, rel: str, path: Path, mstar: str | None) -> Docum
                 leg, rel, STATE_NOT_VALIDATED,
                 detail=["engine could not read the document (exit 1, no violation report)"] + detail,
             )
-        slices = _violation_slices(run.text)
-        detail = slices or run.text.splitlines()
-        return Document(leg, rel, STATE_FAIL, count=int(header.group(1)), detail=detail)
+        detail = _report_detail(run.text) or _violation_slices(run.text) or run.text.splitlines()
+        return Document(leg, rel, STATE_FAIL, count=header, detail=detail)
     # Any other exit code means the checker cannot interpret the verdict; that
     # is a not-validated document, never a silent pass.
     detail = _detail_from(run.text)
@@ -323,6 +577,23 @@ def check_snapshots(harness: Path, report: Report, mstar: str | None) -> None:
 def check_root_register(harness: Path, report: Report, mstar: str | None) -> None:
     path = harness / "status.json"
     if not path.is_file():
+        # Two very different situations share "not a regular file": the benign
+        # one (this checkout carries the published subset only, so there is no
+        # root register at all — a note) and the defective one (something is
+        # there but is not reachable as a file — a document this leg must fail
+        # loud on, never demote to "nothing to validate", which would drop the
+        # `[status]` document line and silently clean the summary).
+        #
+        # The defective shapes are *delegated*, not adjudicated here: a
+        # directory at this path makes the engine report `status.invalid-json:
+        # EISDIR …` (a real report, anchored to this path, so FAIL), and a
+        # dangling symlink makes it answer `status file not found` over exit 1
+        # with no report (so NOT-VALIDATED).  Either way the run fails loud and
+        # this checker still owns no rule of its own.
+        if path.exists() or path.is_symlink():
+            report.counters["root-register"] = 1
+            report.documents.append(_status_validate("status", "status.json", path, mstar))
+            return
         report.add_note("status", "status.json absent — no root register to validate")
         report.counters["root-register"] = 0
         return
@@ -349,14 +620,38 @@ def _register_validate(leg: str, rel: str, key: str, harness: Path, mstar: str |
     if run.rc == 0:
         return Document(leg, rel, STATE_OK, detail=[])
     if run.rc == 1:
-        slices = _violation_slices(run.text)
-        if not slices:
-            # Exit 1 with no parseable violation is the reader saying it could
-            # not reach or could not validate the document — not a violation.
+        # The refusal is `persist get failed: refusing to persist invalid
+        # residuals document: <detail>` (built L24848, printed by `failScript`
+        # L25074-25081); the same command's could-not-read prose is `persist get
+        # failed: Invalid JSON in <path>: …`.
+        #
+        # The prologue is required at position 0, not merely present somewhere.
+        # `failScript` writes it as the command's first output, so a genuine
+        # refusal cannot have anything before it, while a *path* can contain
+        # these words — the document's path is echoed by the could-not-read
+        # message, so a harness dir or register path named `… persist get
+        # failed: refusing to persist invalid residuals document: [low] a: x`
+        # would otherwise make an invalid-JSON read look like a refusal (measured:
+        # it forged `FAIL … 1 violations` from a document no validator ever saw).
+        # Anchoring at the start of the stream closes that, because there the
+        # engine's own prologue precedes every path it echoes.
+        first_line = _strip_ansi(run.text).splitlines()[:1]
+        if not first_line or not first_line[0].startswith(REGISTER_REFUSAL_PROLOGUE):
+            # Exit 1 without a refusal is the reader saying it could not reach
+            # or could not validate the document — not a violation.
             return Document(
                 leg, rel, STATE_NOT_VALIDATED,
-                detail=["engine reader exited 1 without a violation list (document unreachable?)"]
+                detail=["engine reader exited 1 without a validator refusal (document unreachable?)"]
                 + _detail_from(run.text),
+            )
+        # Count the engine's own per-violation tokens.  Slice starts *inside a
+        # quoted field value* are document data the engine echoed, not findings:
+        # `source_plan "[low] fake.code: x"` is one violation, not two.
+        slices = _violation_slices(run.text)
+        if not slices:
+            return Document(
+                leg, rel, STATE_NOT_VALIDATED,
+                detail=["engine reader refused the document but named no violation"] + _detail_from(run.text),
             )
         return Document(leg, rel, STATE_FAIL, count=len(slices), detail=slices)
     detail = _detail_from(run.text)
@@ -648,7 +943,7 @@ def main(argv: list[str] | None = None) -> int:
     harness = harness.resolve()
 
     report = run_all(harness)
-    print(f"harness dir: {harness}")
+    print(f"harness dir: {_one_line(str(harness))}")
     print(report.render())
     return EXIT_VIOLATION if report.failing else EXIT_CLEAN
 
