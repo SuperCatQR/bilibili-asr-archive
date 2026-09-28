@@ -55,6 +55,8 @@ from difflib import SequenceMatcher
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
+from .archive import bundle_paths_for_stem
+
 #: Blocks are built from ASR VAD segments alone: a segment whose ``start_ms``
 #: exceeds the block's current ``end_ms`` by more than this opens a new block.
 BLOCK_GAP_MS = 1500
@@ -465,12 +467,12 @@ def read_asr_route_ms(artifact_root: Path, bvid: str, part: int) -> list[tuple[i
     """Read the archived ASR transcript for one part: its ``raw`` sidecar.
 
     The sidecar is the bundle ``write_archive`` published
-    (``transcripts/raw/<bvid>.p<N>.json``); seconds in the file convert to
+    (``transcripts/<bvid>.p<N>/bundle.raw.json``); seconds in the file convert to
     milliseconds exactly (the SRT renderer rounds ``seconds * 1000`` back, so
     no millisecond is lost — the same rule ``writer_segments`` pins).
     """
 
-    raw_path = artifact_root / "transcripts" / "raw" / f"{bvid}.p{part}.json"
+    raw_path = bundle_paths_for_stem(artifact_root, f"{bvid}.p{part}")["raw_path"]
     if not raw_path.is_file():
         raise ProofreadRouteError(f"{bvid}:p{part}: missing ASR route (no {raw_path})")
     try:
@@ -774,9 +776,12 @@ def merge_sidebyside(
         raise ProofreadMergeError("every block is empty; refusing to publish an empty transcript")
 
     stem = f"{bvid}.p{part}.proofread"
-    transcript_path = bundle_dir / "txt" / f"{stem}.txt"
-    srt_path = bundle_dir / "srt" / f"{stem}.srt"
-    raw_path = bundle_dir / "raw" / f"{stem}.json"
+    # Shape A: the proofread bundle owns its own directory, with the four
+    # artifacts as fixed names inside it -- the same rule write_archive uses.
+    proofread_paths = bundle_paths_for_stem(artifact_root_path, stem)
+    transcript_path = proofread_paths["txt_path"]
+    srt_path = proofread_paths["srt_path"]
+    raw_path = proofread_paths["raw_path"]
     for directory in (transcript_path.parent, srt_path.parent, raw_path.parent):
         directory.mkdir(parents=True, exist_ok=True)
     transcript_path.write_text(segments_to_txt(segments) + "\n", encoding="utf-8")

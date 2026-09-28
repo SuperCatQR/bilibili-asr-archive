@@ -42,12 +42,12 @@ def test_the_measurement_harness_scores_the_two_arms(tmp_path: Path) -> None:
 
     # with-arm: 扬弃 recovered (subtitle carries it), 攻势 inserted (subtitle
     # does not).  without-arm: neither term appears.
-    _write(ab / "with", "transcripts/txt/BV1test.p0.txt", "我们扬弃这个攻势定在\n")
-    _write(ab / "with", "transcripts/srt/BV1test.p0.srt",
+    _write(ab / "with", "transcripts/BV1test.p0/bundle.txt", "我们扬弃这个攻势定在\n")
+    _write(ab / "with", "transcripts/BV1test.p0/bundle.srt",
            _srt(("00:00:00,000", "00:00:03,000", "我们扬弃这个攻势"),
                 ("00:00:03,000", "00:00:06,000", "定在")))
-    _write(ab / "without", "transcripts/txt/BV1test.p0.txt", "我们阳气这个公式定在\n")
-    _write(ab / "without", "transcripts/srt/BV1test.p0.srt",
+    _write(ab / "without", "transcripts/BV1test.p0/bundle.txt", "我们阳气这个公式定在\n")
+    _write(ab / "without", "transcripts/BV1test.p0/bundle.srt",
            _srt(("00:00:00,000", "00:00:03,000", "我们阳气这个公式"),
                 ("00:00:03,000", "00:00:06,000", "定在")))
 

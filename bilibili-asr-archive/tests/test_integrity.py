@@ -48,7 +48,7 @@ def test_declared_complete_bundle_paths_are_used_exactly(tmp_path: Path) -> None
     paths = write_archive(tmp_path, row, [{"start": 0, "end": 1, "text": "ok"}], source="cc")
     row.update(paths)
     _manifest(tmp_path, [row])
-    row["md_path"] = "transcripts/md/not-the-marker.md"
+    row["md_path"] = "transcripts/not-the-marker/bundle.md"
     _manifest(tmp_path, [row])
     report = IntegrityVerifier().verify(tmp_path)
     assert any(d.code == "identity_path_mismatch" for d in report.defects)
@@ -408,14 +408,14 @@ def _caption_copy(root: Path, row: dict[str, object], srt_text: str) -> str:
     base holds a bundle this row's completeness could be read from.
     """
     stem = archive_stem(row)
-    srt = root / "transcripts" / "srt" / f"{stem}.srt"
+    srt = root / "transcripts" / f"{stem}" / "bundle.srt"
     srt.parent.mkdir(parents=True, exist_ok=True)
     srt.write_text(srt_text, encoding="utf-8")
     document = root / "subtitles" / "raw" / f"{stem}.json"
     document.parent.mkdir(parents=True, exist_ok=True)
     document.write_text(json.dumps({"body": [{"from": 0, "to": 1, "content": "caption"}]}),
                         encoding="utf-8")
-    return f"transcripts/srt/{stem}.srt"
+    return f"transcripts/{stem}/bundle.srt"
 
 
 def _defect_codes(report: IntegrityReport) -> dict[str, set[str]]:
@@ -534,7 +534,7 @@ def test_inflight_string_artifact_paths_is_one_value_not_characters(tmp_path: Pa
     `identity_path_mismatch` — an innocent canonical value graded hostile, and `verify`
     exited 1.  A bare string now reads like `subtitle_path`/`artifact_path` do: one value.
     """
-    _manifest(tmp_path, [_inflight_row("BVstr:p0", artifact_paths="transcripts/srt/BVstr.p0.srt")])
+    _manifest(tmp_path, [_inflight_row("BVstr:p0", artifact_paths="transcripts/BVstr.p0/bundle.srt")])
     _attempts_sidecar(tmp_path, ["BVstr:p0"])
 
     report = IntegrityVerifier().verify(tmp_path)
@@ -616,7 +616,7 @@ def test_inflight_absent_inferred_raw_path_is_not_a_mismatch(tmp_path: Path) -> 
     assert not (tmp_path / "subtitles" / "raw" / f"{archive_stem(row)}.json").exists()
     # §2f: both writer-real raw locations are inferred now, so the control covers
     # both — an absent candidate is inert wherever it is inferred from.
-    assert not (tmp_path / "transcripts" / "raw" / f"{archive_stem(row)}.json").exists()
+    assert not (tmp_path / "transcripts" / f"{archive_stem(row)}" / "bundle.raw.json").exists()
 
     report = IntegrityVerifier().verify(tmp_path)
 
@@ -646,7 +646,7 @@ def test_transcripts_raw_escaping_symlink_is_a_mismatch_on_both_readers(tmp_path
     _attempts_sidecar(tmp_path, ["BVtraw:p0"])
     outside = tmp_path.parent / f"{tmp_path.name}-outside-raw.json"
     outside.write_text("{}", encoding="utf-8")
-    link = tmp_path / "transcripts" / "raw" / f"{archive_stem(row)}.json"
+    link = tmp_path / "transcripts" / f"{archive_stem(row)}" / "bundle.raw.json"
     link.parent.mkdir(parents=True)
     link.symlink_to(outside)
     assert not link.resolve().is_relative_to(tmp_path.resolve())  # the fixture really escapes
@@ -716,15 +716,15 @@ def test_absent_confined_raw_still_reports_missing_raw_subtitle(
     """
     row = _inflight_row("BVnocap:p0", status="subtitle_done")
     stem = archive_stem(row)
-    srt = tmp_path / "transcripts" / "srt" / f"{stem}.srt"
+    srt = tmp_path / "transcripts" / f"{stem}" / "bundle.srt"
     srt.parent.mkdir(parents=True)
     srt.write_text(_CAPTION_SRT, encoding="utf-8")
-    row["srt_path"] = f"transcripts/srt/{stem}.srt"
+    row["srt_path"] = f"transcripts/{stem}/bundle.srt"
     _manifest(tmp_path, [row])
     _attempts_sidecar(tmp_path, ["BVnocap:p0"])
 
     assert not (tmp_path / "subtitles" / "raw" / f"{stem}.json").exists()
-    assert not (tmp_path / "transcripts" / "raw" / f"{stem}.json").exists()
+    assert not (tmp_path / "transcripts" / f"{stem}" / "bundle.raw.json").exists()
 
     report = IntegrityVerifier().verify(tmp_path)
 
@@ -747,10 +747,10 @@ def test_subtitle_done_escaping_inferred_raw_does_not_also_report_missing_raw_su
     """
     row = _inflight_row("BVside:p0", status="subtitle_done")
     stem = archive_stem(row)
-    srt = tmp_path / "transcripts" / "srt" / f"{stem}.srt"
+    srt = tmp_path / "transcripts" / f"{stem}" / "bundle.srt"
     srt.parent.mkdir(parents=True)
     srt.write_text(_CAPTION_SRT, encoding="utf-8")
-    row["srt_path"] = f"transcripts/srt/{stem}.srt"
+    row["srt_path"] = f"transcripts/{stem}/bundle.srt"
     _manifest(tmp_path, [row])
     _attempts_sidecar(tmp_path, ["BVside:p0"])
     outside = tmp_path.parent / f"{tmp_path.name}-outside-caption.json"

@@ -49,11 +49,13 @@ def _create_sample_archive(tmp_root: str):
         "duration_s": 360,
         "source": "asr",
         "pubdate": 1600000000,
-        "txt_path": os.path.join("transcripts", "txt", "BV1hegel.p0.txt"),
-        "srt_path": os.path.join("transcripts", "srt", "BV1hegel.p0.srt"),
+        "txt_path": os.path.join("transcripts", "BV1hegel.p0", "bundle.txt"),
+        "srt_path": os.path.join("transcripts", "BV1hegel.p0", "bundle.srt"),
     }
+    os.makedirs(os.path.dirname(os.path.join(tmp_root, e1["txt_path"])), exist_ok=True)
     with open(os.path.join(tmp_root, e1["txt_path"]), "w", encoding="utf-8") as fh:
         fh.write("Today we study Hegel phenomenology of spirit and dialectical idealism.")
+    os.makedirs(os.path.dirname(os.path.join(tmp_root, e1["srt_path"])), exist_ok=True)
     with open(os.path.join(tmp_root, e1["srt_path"]), "w", encoding="utf-8") as fh:
         fh.write("1\n00:00:00,000 --> 00:00:05,000\nToday we study Hegel phenomenology of spirit.\n")
 
@@ -69,8 +71,9 @@ def _create_sample_archive(tmp_root: str):
         "source": "subtitle",
         "sub_lan": "ai-zh",
         "pubdate": 1600000100,
-        "srt_path": os.path.join("transcripts", "srt", "BV1kant.p0.srt"),
+        "srt_path": os.path.join("transcripts", "BV1kant.p0", "bundle.srt"),
     }
+    os.makedirs(os.path.dirname(os.path.join(tmp_root, e2["srt_path"])), exist_ok=True)
     with open(os.path.join(tmp_root, e2["srt_path"]), "w", encoding="utf-8") as fh:
         fh.write("1\n00:00:00,000 --> 00:00:04,000\nKant examines synthetic a priori propositions.\n\n2\n00:00:04,500 --> 00:00:08,000\nTranscendental aesthetic and logic.\n")
 
@@ -119,8 +122,9 @@ def _create_sample_archive(tmp_root: str):
         "duration_s": 480,
         "source": "asr",
         "pubdate": 1600000200,
-        "txt_path": os.path.join("transcripts", "txt", "BV1hegel.p1.txt"),
+        "txt_path": os.path.join("transcripts", "BV1hegel.p1", "bundle.txt"),
     }
+    os.makedirs(os.path.dirname(os.path.join(tmp_root, e6["txt_path"])), exist_ok=True)
     with open(os.path.join(tmp_root, e6["txt_path"]), "w", encoding="utf-8") as fh:
         fh.write("Being nothing and becoming in Hegel science of logic.")
 
@@ -219,7 +223,7 @@ def test_search_by_transcript_content(tmp_root):
     assert results[0].work_id == "BV1hegel:p0"
     assert results[0].status == "archived"
     assert results[0].title == "Hegel Philosophy Dialectics"
-    assert results[0].path == os.path.join("transcripts", "txt", "BV1hegel.p0.txt")
+    assert results[0].path == os.path.join("transcripts", "BV1hegel.p0", "bundle.txt")
 
 
 def test_search_by_title_and_work_id(tmp_root):
@@ -299,7 +303,7 @@ def test_search_special_characters_syntax_safety(tmp_root):
 def test_search_cjk_chinese_text(tmp_root):
     """Indexing and searching CJK / Chinese text content."""
     store = ManifestStore(root=tmp_root)
-    os.makedirs(os.path.join(tmp_root, "transcripts", "txt"), exist_ok=True)
+    os.makedirs(os.path.join(tmp_root, "transcripts"), exist_ok=True)
 
     e = {
         "bvid": "BV1wmz",
@@ -309,8 +313,9 @@ def test_search_cjk_chinese_text(tmp_root):
         "title": "未明子 讲 黑格尔 精神现象学",
         "status": "archived",
         "duration_s": 600,
-        "txt_path": "transcripts/txt/BV1wmz.p0.txt",
+        "txt_path": "transcripts/BV1wmz.p0/bundle.txt",
     }
+    os.makedirs(os.path.dirname(os.path.join(tmp_root, e["txt_path"])), exist_ok=True)
     with open(os.path.join(tmp_root, e["txt_path"]), "w", encoding="utf-8") as fh:
         fh.write("今天 我们 讨论 辩证法 与 绝对精神")
     store.upsert(e)
@@ -365,9 +370,9 @@ def test_extract_transcript_from_raw_subtitles_json(tmp_root):
 
 
 def test_extract_transcript_from_raw_asr_json(tmp_root):
-    """Extract transcript text when only transcripts/raw/{stem}.json is present."""
+    """Extract transcript text when only transcripts/{stem}/bundle.raw.json is present."""
     store = ManifestStore(root=tmp_root)
-    raw_asr_dir = os.path.join(tmp_root, "transcripts", "raw")
+    raw_asr_dir = os.path.join(tmp_root, "transcripts", "BV1rawasr.p0")
     os.makedirs(raw_asr_dir, exist_ok=True)
 
     e = {
@@ -378,9 +383,9 @@ def test_extract_transcript_from_raw_asr_json(tmp_root):
         "title": "Raw ASR Test",
         "status": "archived",
         "duration_s": 240,
-        "raw_path": "transcripts/raw/BV1rawasr.p0.json",
+        "raw_path": "transcripts/BV1rawasr.p0/bundle.raw.json",
     }
-    raw_path = os.path.join(raw_asr_dir, "BV1rawasr.p0.json")
+    raw_path = os.path.join(raw_asr_dir, "bundle.raw.json")
     with open(raw_path, "w", encoding="utf-8") as fh:
         json.dump(
             {
@@ -405,7 +410,7 @@ def test_extract_transcript_from_raw_asr_json(tmp_root):
 def test_legacy_bare_bvid_indexing(tmp_root):
     """Archived legacy bare-bvid entries are indexed using bare bvid stem."""
     store = ManifestStore(root=tmp_root)
-    os.makedirs(os.path.join(tmp_root, "transcripts", "txt"), exist_ok=True)
+    os.makedirs(os.path.join(tmp_root, "transcripts"), exist_ok=True)
 
     e = {
         "bvid": "BV1barelegacy",
@@ -414,8 +419,9 @@ def test_legacy_bare_bvid_indexing(tmp_root):
         "duration_s": 150,
         "unresolved": True,
         "unresolved_reason": "ambiguous_bare_bvid",
-        "txt_path": "transcripts/txt/BV1barelegacy.txt",
+        "txt_path": "transcripts/BV1barelegacy/bundle.txt",
     }
+    os.makedirs(os.path.dirname(os.path.join(tmp_root, e["txt_path"])), exist_ok=True)
     with open(os.path.join(tmp_root, e["txt_path"]), "w", encoding="utf-8") as fh:
         fh.write("Legacy archival content without work_id.")
     store.upsert(e)
@@ -461,7 +467,7 @@ def test_stale_detection_lifecycle(tmp_root):
         "cid": 999,
         "title": "New Aristotle Transcript",
         "status": "archived",
-        "txt_path": "transcripts/txt/BV1new.p0.txt",
+        "txt_path": "transcripts/BV1new.p0/bundle.txt",
     }
     txt_path = os.path.join(tmp_root, "transcripts", "txt", "BV1new.p0.txt")
     with open(txt_path, "w", encoding="utf-8") as fh:
@@ -758,7 +764,8 @@ def test_search_deterministic_tie_break_ordering(tmp_root):
     # Create 3 items with identical text and identical score
     for i in (3, 1, 2):
         work_id = f"BV1tie{i}:p0"
-        rel_txt = f"transcripts/txt/BV1tie{i}.p0.txt"
+        rel_txt = f"transcripts/BV1tie{i}.p0/bundle.txt"
+        os.makedirs(os.path.dirname(os.path.join(tmp_root, rel_txt)), exist_ok=True)
         with open(os.path.join(tmp_root, rel_txt), "w", encoding="utf-8") as fh:
             fh.write("Identical transcript text content for deterministic ordering verification.")
         store.upsert({
@@ -834,7 +841,8 @@ def test_search_sanitization_and_path_containment(tmp_root):
     txt_dir = os.path.join(tmp_root, "transcripts", "txt")
     os.makedirs(txt_dir, exist_ok=True)
 
-    rel_txt = "transcripts/txt/BV1safe.p0.txt"
+    rel_txt = "transcripts/BV1safe.p0/bundle.txt"
+    os.makedirs(os.path.dirname(os.path.join(tmp_root, rel_txt)), exist_ok=True)
     with open(os.path.join(tmp_root, rel_txt), "w", encoding="utf-8") as fh:
         fh.write(
             "Discussion on ethics https://secret-stream.bilivideo.com/auth?token=leak_token_abc "
@@ -940,26 +948,26 @@ def test_the_index_reads_transcripts_from_the_artifact_root(tmp_path):
     archive = tmp_path / "state"
     artifact = tmp_path / "artifacts"
     archive.mkdir(parents=True)
-    (artifact / "transcripts" / "txt").mkdir(parents=True)
-    (artifact / "transcripts" / "srt").mkdir(parents=True)
+    (artifact / "transcripts" / "BV1hegel.p0").mkdir(parents=True)
+    (artifact / "transcripts" / "BV1kant.p0").mkdir(parents=True)
     roots = ArtifactRoots.of(archive, artifact)
     store = ManifestStore(root=str(archive))
 
     # A recorded row: text is read through the recorded path at the configured root.
     recorded = {"work_id": "BV1hegel:p0", "bvid": "BV1hegel", "cid": 101, "page_index": 0,
                 "title": "Hegel", "status": "archived", "duration_s": 10, "source": "asr",
-                "srt_path": "transcripts/srt/BV1hegel.p0.srt",
-                "txt_path": "transcripts/txt/BV1hegel.p0.txt"}
+                "srt_path": "transcripts/BV1hegel.p0/bundle.srt",
+                "txt_path": "transcripts/BV1hegel.p0/bundle.txt"}
     store.upsert(recorded)
-    (artifact / "transcripts" / "txt" / "BV1hegel.p0.txt").write_text(
+    (artifact / "transcripts" / "BV1hegel.p0" / "bundle.txt").write_text(
         "hegel dialectics and phenomenology\n", encoding="utf-8")
-    (artifact / "transcripts" / "srt" / "BV1hegel.p0.srt").write_text(
+    (artifact / "transcripts" / "BV1hegel.p0" / "bundle.srt").write_text(
         "1\n00:00:00,000 --> 00:00:01,000\nhegel dialectics\n", encoding="utf-8")
 
     # A row with no path metadata at all: only the on-disk probe can index it.
     store.upsert({"work_id": "BV1kant:p0", "bvid": "BV1kant", "cid": 102, "page_index": 0,
                   "title": "Kant", "status": "archived", "duration_s": 10, "source": "asr"})
-    (artifact / "transcripts" / "txt" / "BV1kant.p0.txt").write_text(
+    (artifact / "transcripts" / "BV1kant.p0" / "bundle.txt").write_text(
         "kant synthetic a priori\n", encoding="utf-8")
 
     index = SearchIndex(str(archive), artifact_roots=roots)

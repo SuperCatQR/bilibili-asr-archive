@@ -54,7 +54,7 @@ import sqlite3
 import time
 from typing import Any, Sequence
 
-from .archive import archive_stem
+from .archive import archive_stem, bundle_relpaths_for_stem
 from .artifact_root import ArtifactRoots
 from .manifest import ManifestStore
 
@@ -250,10 +250,10 @@ def extract_transcript_text(
 
     # If not in entry metadata, probe standard disk locations
     for k, rel in (
-        ("txt_path", os.path.join("transcripts", "txt", f"{stem}.txt")),
-        ("srt_path", os.path.join("transcripts", "srt", f"{stem}.srt")),
-        ("md_path", os.path.join("transcripts", "md", f"{stem}.md")),
-        ("raw_path", os.path.join("transcripts", "raw", f"{stem}.json")),
+        ("txt_path", bundle_relpaths_for_stem(stem)["txt_path"]),
+        ("srt_path", bundle_relpaths_for_stem(stem)["srt_path"]),
+        ("md_path", bundle_relpaths_for_stem(stem)["md_path"]),
+        ("raw_path", bundle_relpaths_for_stem(stem)["raw_path"]),
     ):
         if k in paths:
             continue
@@ -559,10 +559,10 @@ class SearchIndex:
             os.path.join(os.fspath(base), relative)
             for base in self.artifact_roots.read_bases()
             for relative in (
-                os.path.join("transcripts", "txt", f"{stem}.txt"),
-                os.path.join("transcripts", "srt", f"{stem}.srt"),
-                os.path.join("transcripts", "md", f"{stem}.md"),
-                os.path.join("transcripts", "raw", f"{stem}.json"),
+                bundle_relpaths_for_stem(stem)["txt_path"],
+                bundle_relpaths_for_stem(stem)["srt_path"],
+                bundle_relpaths_for_stem(stem)["md_path"],
+                bundle_relpaths_for_stem(stem)["raw_path"],
                 os.path.join("subtitles", "raw", f"{stem}.json"),
             )
         )
@@ -1324,7 +1324,7 @@ class TranscriptSearchIndex:
         stem = f"{bvid}.p{page_index}"
         for base in _published_md_bases(self.artifact_roots):
             for rel in (
-                os.path.join("transcripts", "md", f"{stem}.md"),
+                bundle_relpaths_for_stem(stem)["md_path"],
                 os.path.join("published", "md", f"{stem}.md"),
                 os.path.join("published", f"{stem}.md"),
             ):

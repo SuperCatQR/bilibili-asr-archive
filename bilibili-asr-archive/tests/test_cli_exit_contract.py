@@ -194,16 +194,16 @@ def test_coverage_quality_backlog_row_with_broken_artifact_stays_a_defect(
     """
     row = _row("BV1m:p0", "needs_audio")
     row.update({
-        "srt_path": "transcripts/srt/BV1m.p0.srt",
-        "txt_path": "transcripts/txt/BV1m.p0.txt",
-        "md_path": "transcripts/md/x_BV1m.p0_t.md",
-        "raw_path": "transcripts/raw/BV1m.p0.json",
+        "srt_path": "transcripts/BV1m.p0/bundle.srt",
+        "txt_path": "transcripts/BV1m.p0/bundle.txt",
+        "md_path": "transcripts/BV1m.p0/bundle.md",
+        "raw_path": "transcripts/BV1m.p0/bundle.raw.json",
     })
     _fixture(backlog_only, [row])
     corrupt = {
-        "transcripts/txt/BV1m.p0.txt": "",
-        "transcripts/srt/BV1m.p0.srt": "NOT A CUE\n",
-        "transcripts/raw/BV1m.p0.json": "{not json",
+        "transcripts/BV1m.p0/bundle.txt": "",
+        "transcripts/BV1m.p0/bundle.srt": "NOT A CUE\n",
+        "transcripts/BV1m.p0/bundle.raw.json": "{not json",
     }
     for relative, text in corrupt.items():
         path = backlog_only / relative
@@ -423,10 +423,10 @@ def test_gone_row_with_a_real_defect_still_fails_both_commands(
     ruling would be a way to smuggle corruption past the exit code.
     """
     row = _row("BVgonebad:p0", "gone")
-    row["srt_path"] = "transcripts/srt/BVgonebad.p0.srt"
+    row["srt_path"] = "transcripts/BVgonebad.p0/bundle.srt"
     _fixture(tmp_path, [row], attempts=[_attempt("BVgonebad:p0")])
     _sidecars(tmp_path, ["BVgonebad:p0"])
-    broken = tmp_path / "transcripts" / "srt" / "BVgonebad.p0.srt"
+    broken = tmp_path / "transcripts" / "BVgonebad.p0" / "bundle.srt"
     broken.parent.mkdir(parents=True, exist_ok=True)
     broken.write_text("NOT A CUE\n", encoding="utf-8")
 
@@ -549,7 +549,7 @@ def test_backlog_reason_set_matches_the_coverage_reader(
 
     # Non-member: the artifact is there and broken, so damage never hides behind
     # the row's in-flight status even though that status is a backlog status.
-    broken = tmp_path / "transcripts" / "txt" / "BVwhy1.p0.txt"
+    broken = tmp_path / "transcripts" / "BVwhy1.p0" / "bundle.txt"
     broken.parent.mkdir(parents=True, exist_ok=True)
     broken.write_text("", encoding="utf-8")
     assert cli.main(["coverage", "--archive-root", str(tmp_path),

@@ -245,8 +245,8 @@ def test_recover_audits_named_defect_without_manifest_or_transcript_mutation(tmp
     store = ManifestStore(root=tmp_root)
     row = _row(ident, status="archived")
     stem = artifact_stem(ident)
-    row.update({"srt_path": f"transcripts/srt/{stem}.srt", "txt_path": f"transcripts/txt/{stem}.txt",
-                "md_path": f"transcripts/md/2026-01-02_{stem}_clip.md"})
+    row.update({"srt_path": f"transcripts/{stem}/bundle.srt", "txt_path": f"transcripts/{stem}/bundle.txt",
+                "md_path": f"transcripts/{stem}/bundle.md"})
     store.upsert(row)
     AttemptLedger(tmp_root).append({
         "stage": "archive",
@@ -262,6 +262,7 @@ def test_recover_audits_named_defect_without_manifest_or_transcript_mutation(tmp
                                           ("txt", f"{stem}.txt", "ok"),):
         path = os.path.join(tmp_root, "transcripts", directory)
         os.makedirs(path, exist_ok=True)
+        os.makedirs(os.path.dirname(os.path.join(path, filename)), exist_ok=True)
         with open(os.path.join(path, filename), "w", encoding="utf-8") as handle:
             handle.write(content)
     result = IntegrityVerifier().verify(tmp_root)
@@ -1350,7 +1351,10 @@ def test_complete_bundle_retries_after_manifest_transition_failure(
     assert "Traceback" not in first_output.err
     assert ManifestStore(tmp_root).load()[sub.work_id]["status"] == "subtitle_done"
 
-    marker = next((Path(tmp_root) / "transcripts" / "srt").glob("*.bundle-ready"))
+    # Shape A: the marker is .bundle-ready inside the work's own directory,
+    # so the search is transcripts/*/.bundle-ready rather than *.bundle-ready
+    # in a shared per-kind directory.
+    marker = next((Path(tmp_root) / "transcripts").glob("*/.bundle-ready"))
     marker_doc = json.loads(marker.read_text(encoding="ascii"))
     published_paths = {
         key: value["path"]

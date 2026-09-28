@@ -381,7 +381,7 @@ def test_asr_pending_ignores_already_terminal_rows(
     archived = page_identity("BVaArch", 0, 111, "p0")
     gone = page_identity("BVaGone", 0, 222, "p0")
     store = ManifestStore(root=tmp_root)
-    store.upsert(_row(archived, status="archived", srt_path="transcripts/srt/x.srt"))
+    store.upsert(_row(archived, status="archived", srt_path="transcripts/x/bundle.srt"))
     store.upsert(_row(gone, status="gone"))
     transcribe_calls: list[str] = []
 
@@ -637,7 +637,7 @@ def test_run_explicit_terminal_selectors_exit_0_without_duplicating(
     archived = page_identity("BVrArch", 0, 111, "p0")
     gone = page_identity("BVrGone", 0, 222, "p0")
     store = ManifestStore(root=tmp_root)
-    store.upsert(_row(archived, status="archived", srt_path="transcripts/srt/x.srt"))
+    store.upsert(_row(archived, status="archived", srt_path="transcripts/x/bundle.srt"))
     store.upsert(_row(gone, status="gone"))
     _stub_asr(monkeypatch)
     transport = RouterTransport(_base_routes())

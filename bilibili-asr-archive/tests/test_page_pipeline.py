@@ -132,7 +132,7 @@ def test_harvest_pages_independent_status(tmp_root):
     assert store.get(p0.work_id)["status"] == "subtitle_done"
     assert store.get(p1.work_id)["status"] == "needs_audio"
     stem0 = artifact_stem(p0)
-    assert os.path.exists(os.path.join(tmp_root, "transcripts", "srt", f"{stem0}.srt"))
+    assert os.path.exists(os.path.join(tmp_root, "transcripts", stem0, "bundle.srt"))
     player_cids = [
         c["params"]["cid"]
         for c in client.transport.calls

@@ -476,7 +476,7 @@ def test_schedule_terminal_selectors_are_idempotent_exit_0(
     archived = page_identity("BVsArch", 0, 111, "p0")
     gone = page_identity("BVsGone", 0, 222, "p0")
     store = ManifestStore(root=tmp_root)
-    store.upsert(_row(archived, status="archived", srt_path="transcripts/srt/x.srt"))
+    store.upsert(_row(archived, status="archived", srt_path="transcripts/x/bundle.srt"))
     store.upsert(_row(gone, status="gone"))
     _stub_asr(monkeypatch)
     transport = RouterTransport(_base_routes())

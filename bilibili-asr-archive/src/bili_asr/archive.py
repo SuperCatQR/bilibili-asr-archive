@@ -14,7 +14,21 @@ from typing import Any, Mapping
 from .asr import segments_to_srt, segments_to_txt
 from .page_identity import artifact_stem, page_identity, page_query_index
 
-BUNDLE_MARKER_SUFFIX = ".bundle-ready"
+BUNDLE_MARKER_NAME = ".bundle-ready"
+
+#: Deprecated alias.  The marker is no longer a suffix appended to an artifact
+#: name — it is a fixed basename inside the work directory (``BUNDLE_MARKER_NAME``).
+#: Kept only so external callers keep importing; do not use in new code.
+BUNDLE_MARKER_SUFFIX = BUNDLE_MARKER_NAME
+
+#: The four fixed basenames inside one work's bundle directory (shape A).  The
+#: directory carries the identity, so the files inside do not repeat it.
+_BUNDLE_BASENAMES = {
+    "srt_path": "bundle.srt",
+    "txt_path": "bundle.txt",
+    "md_path": "bundle.md",
+    "raw_path": "bundle.raw.json",
+}
 _REQUIRED_ARTIFACT_KEYS = ("srt_path", "txt_path", "md_path", "raw_path")
 _MARKER_MAX_BYTES = 8192
 _BUNDLE_LOCKS: dict[str, threading.RLock] = {}
@@ -46,7 +60,13 @@ def archive_url(entry: dict[str, Any]) -> str:
 
 
 def bundle_marker_path(path: str | os.PathLike[str]) -> Path:
-    return Path(os.fspath(path) + BUNDLE_MARKER_SUFFIX)
+    """The completion marker for the bundle ``path`` belongs to (shape A).
+
+    The marker is a fixed name **inside the work's own directory**, sibling to
+    the four artifacts, so it no longer repeats the artifact's name.  ``path`` is
+    any member of the bundle (``write_archive`` and every probe pass the srt).
+    """
+    return Path(os.fspath(path)).parent / BUNDLE_MARKER_NAME
 
 
 def _component_names(relative: str | os.PathLike[str]) -> tuple[str, ...] | None:
@@ -69,23 +89,18 @@ def _open_dir(parent_fd: int, name: str, *, create: bool = False) -> int:
     return os.open(name, flags, dir_fd=parent_fd)
 
 
-def _open_transcript_dirs(root: Path) -> dict[str, int]:
+def _open_transcripts_dir(root: Path) -> int:
+    """Open (creating) the single ``transcripts`` directory below ``root``.
+
+    Shape A keeps **one** directory level: every work owns
+    ``transcripts/{stem}/`` and the four artifacts are fixed names inside it, so
+    there are no per-kind directories to open.
+    """
     root_fd = os.open(root, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | os.O_NOFOLLOW)
     try:
-        transcripts_fd = _open_dir(root_fd, "transcripts", create=True)
+        return _open_dir(root_fd, "transcripts", create=True)
     finally:
         os.close(root_fd)
-    dirs: dict[str, int] = {}
-    try:
-        for name in ("srt", "txt", "md", "raw"):
-            dirs[name] = _open_dir(transcripts_fd, name, create=True)
-    except Exception:
-        for fd in dirs.values():
-            os.close(fd)
-        os.close(transcripts_fd)
-        raise
-    dirs["_transcripts"] = transcripts_fd
-    return dirs
 
 
 def _fsync_fd(fd: int) -> None:
@@ -153,19 +168,23 @@ def _open_declared(root: Path, relative: str) -> tuple[int, str] | None:
 
 
 def _owned_bundle_parts(paths: Mapping[str, str]) -> bool:
-    expected_dirs = {"srt_path": "srt", "txt_path": "txt", "md_path": "md", "raw_path": "raw"}
-    parsed: dict[str, str] = {}
-    for key, directory in expected_dirs.items():
+    """Shape A: four fixed names inside one ``transcripts/{stem}/`` directory.
+
+    Every bundle is ``transcripts/<stem>/<fixed basename>``, and all four must sit
+    in the **same** directory — that sameness is what makes the directory the
+    work's identity and removes the two-naming-rules defect the four-kind-dir
+    shape had (the markdown file used to embed the pubdate and title, so it moved
+    whenever either did while its siblings did not).
+    """
+    dirs: set[tuple[str, ...]] = set()
+    for key in _REQUIRED_ARTIFACT_KEYS:
         parts = _component_names(paths[key])
-        if parts is None or len(parts) != 3 or parts[:2] != ("transcripts", directory):
+        if parts is None or len(parts) != 3 or parts[0] != "transcripts":
             return False
-        parsed[key] = parts[2]
-    if not parsed["srt_path"].endswith(".srt"):
-        return False
-    stem = parsed["srt_path"][:-4]
-    if parsed["txt_path"] != stem + ".txt" or parsed["raw_path"] != stem + ".json":
-        return False
-    return parsed["md_path"].endswith(".md") and stem in parsed["md_path"][:-3]
+        if parts[2] != _BUNDLE_BASENAMES[key]:
+            return False
+        dirs.add(parts[:2])
+    return len(dirs) == 1
 
 def archive_bundle_complete(archive_root: str | os.PathLike[str], paths: Mapping[str, str]) -> bool:
     try:
@@ -183,7 +202,11 @@ def archive_bundle_complete(archive_root: str | os.PathLike[str], paths: Mapping
                     if item is None:
                         return False
                     opened[key] = item
-                marker_item = _open_declared(root, paths["srt_path"] + BUNDLE_MARKER_SUFFIX)
+                # Shape A: the marker is a fixed name inside the bundle's own
+                # directory, sibling to the four artifacts -- not a suffix on the
+                # srt path as it was under the four-kind-dir shape.
+                marker_rel = os.path.join(os.path.dirname(paths["srt_path"]), BUNDLE_MARKER_NAME)
+                marker_item = _open_declared(root, marker_rel)
                 if marker_item is None:
                     return False
                 document = json.loads(_read_regular_at(*marker_item, limit=_MARKER_MAX_BYTES).decode("ascii"))
@@ -218,28 +241,46 @@ def _invalidate_marker(directory_fd: int, marker_name: str) -> None:
 
 
 def _publish_bundle(root: Path, finals: Mapping[str, Path], contents: Mapping[str, bytes]) -> None:
+    """Publish one work's five files atomically inside its own directory.
+
+    Staging still happens in a fixed sibling directory (``transcripts/.archive-bundle-stage``)
+    and the marker is still invalidated **before** the artifacts are moved into
+    place, so a process that dies mid-publish leaves a directory that
+    ``archive_bundle_complete`` refuses: either the marker is gone, or a digest in
+    it no longer matches.  What changed with shape A is that the five targets now
+    share one directory instead of four kind directories — the same directory the
+    marker lives in, which is what lets the marker travel with its bundle.
+    """
     with _bundle_lock(root):
-        dirs = _open_transcript_dirs(root)
+        transcripts_fd = _open_transcripts_dir(root)
         stage_fd = None
         stage_name = ".archive-bundle-stage"
+        work_name = finals["srt_path"].parent.name
+        work_fd = None
+        names = {key: finals[key].name for key in _REQUIRED_ARTIFACT_KEYS}
+        marker_name = BUNDLE_MARKER_NAME
         try:
-            transcripts_fd = dirs["_transcripts"]
             try:
                 os.mkdir(stage_name, 0o700, dir_fd=transcripts_fd)
             except FileExistsError:
                 raise OSError("archive staging directory already exists")
             stage_fd = _open_dir(transcripts_fd, stage_name)
-            target_dirs = {key: dirs[{"srt_path": "srt", "txt_path": "txt", "md_path": "md", "raw_path": "raw"}[key]] for key in _REQUIRED_ARTIFACT_KEYS}
-            names = {key: finals[key].name for key in _REQUIRED_ARTIFACT_KEYS}
-            marker_name = names["srt_path"] + BUNDLE_MARKER_SUFFIX
             for key in _REQUIRED_ARTIFACT_KEYS:
                 _write_at(stage_fd, names[key], contents[key])
             _write_at(stage_fd, marker_name, _marker_payload(finals, root, contents))
             _fsync_fd(stage_fd)
-            _invalidate_marker(target_dirs["srt_path"], marker_name)
+
+            # The work directory is created once and reused across republishes.
+            try:
+                os.mkdir(work_name, 0o700, dir_fd=transcripts_fd)
+            except FileExistsError:
+                pass
+            work_fd = _open_dir(transcripts_fd, work_name)
+            _invalidate_marker(work_fd, marker_name)
             for key in _REQUIRED_ARTIFACT_KEYS:
-                _replace_at(stage_fd, names[key], target_dirs[key], names[key])
-            _replace_at(stage_fd, marker_name, target_dirs["srt_path"], marker_name)
+                _replace_at(stage_fd, names[key], work_fd, names[key])
+            _replace_at(stage_fd, marker_name, work_fd, marker_name)
+            _fsync_fd(work_fd)
             _fsync_fd(transcripts_fd)
         finally:
             try:
@@ -255,11 +296,9 @@ def _publish_bundle(root: Path, finals: Mapping[str, Path], contents: Mapping[st
                     os.rmdir(stage_name, dir_fd=transcripts_fd)
                 except FileNotFoundError:
                     pass
-            os.close(transcripts_fd)
-            for name, fd in dirs.items():
-                if name != "_transcripts":
-                    os.close(fd)
-
+                if work_fd is not None:
+                    os.close(work_fd)
+                os.close(transcripts_fd)
 
 def _lexical_archive_root(archive_root: str | os.PathLike[str]) -> Path:
     root = Path(os.path.abspath(os.fspath(archive_root)))
@@ -449,26 +488,57 @@ def _capture_summary(segments: list[dict[str, Any]], duration_s: Any) -> dict[st
     return summary
 
 
+def bundle_dir_for_stem(root: str | os.PathLike[str], stem: str) -> Path:
+    """The one directory a work's bundle occupies (shape A)."""
+    return Path(os.fspath(root)) / "transcripts" / stem
+
+
+def bundle_paths_for_stem(root: str | os.PathLike[str], stem: str) -> dict[str, Path]:
+    """The four artifact paths for a known ``stem``.
+
+    This is the layout's single authority: a reader that holds only a stem (the
+    integrity, quality, search and proofread probes all do) asks here instead of
+    restating the shape, which is what stops the layout from being written down
+    in twenty places.
+    """
+    directory = bundle_dir_for_stem(root, stem)
+    return {
+        "srt_path": directory / _BUNDLE_BASENAMES["srt_path"],
+        "txt_path": directory / _BUNDLE_BASENAMES["txt_path"],
+        "md_path": directory / _BUNDLE_BASENAMES["md_path"],
+        "raw_path": directory / _BUNDLE_BASENAMES["raw_path"],
+    }
+
+
+def bundle_relpaths_for_stem(stem: str) -> dict[str, str]:
+    """The four artifact paths for a stem as root-relative POSIX strings.
+
+    The string-shaped siblings of :func:`bundle_paths_for_stem`: probes that
+    compare against a manifest's recorded relative path (and so never build a
+    ``Path``) ask here, so the layout still has one authority.
+    """
+    return {
+        key: value.as_posix()
+        for key, value in bundle_paths_for_stem("", stem).items()
+    }
+
+
 def bundle_paths(root: str | os.PathLike[str], entry: dict[str, Any]) -> dict[str, Path]:
     """Return the four artifact paths one entry's bundle occupies below ``root``.
 
-    The names are the writer's rule: ``archive_stem(entry)`` for the srt, txt
-    and raw families, and ``"{pubdate_str}_{stem}_{_safe_name(title)}.md"`` for
-    the markdown one.  ``root`` is used exactly as given, so a relative root
-    yields relative paths; ``write_archive`` passes the root it has already
+    ``transcripts/{stem}/{bundle.srt,bundle.txt,bundle.md,bundle.raw.json}`` — one
+    directory per work, four fixed names inside it (compass L1 = **A**).  The stem
+    is ``archive_stem(entry)``, so an unresolved or bare-``bvid`` row keeps its
+    bare-``bvid`` directory.  ``root`` is used exactly as given, so a relative
+    root yields relative paths; ``write_archive`` passes the root it has already
     resolved lexically.
-    """
-    base = Path(os.fspath(root))
-    stem = archive_stem(entry)
-    bvid = str(entry["bvid"])
-    dirs = {name: base / "transcripts" / name for name in ("srt", "txt", "md", "raw")}
-    return {
-        "srt_path": dirs["srt"] / f"{stem}.srt",
-        "txt_path": dirs["txt"] / f"{stem}.txt",
-        "md_path": dirs["md"] / f"{entry.get('pubdate_str', 'unknown')}_{stem}_{_safe_name(str(entry.get('title') or bvid))}.md",
-        "raw_path": dirs["raw"] / f"{stem}.json",
-    }
 
+    The markdown file is deliberately **not** named after the pubdate and title
+    any more.  That was the defect this shape removes: the md was the one file of
+    the four whose name moved when the title or the pubdate moved, so a republish
+    orphaned the previous one while its three siblings stayed put.
+    """
+    return bundle_paths_for_stem(root, archive_stem(entry))
 
 def write_archive(archive_root: str | os.PathLike[str], entry: dict[str, Any], segments: list[dict[str, Any]], *, source: str, raw: Any | None = None, asr_provenance: Mapping[str, str] | None = None) -> dict[str, str]:
     """Publish one transcript bundle below the archive root.

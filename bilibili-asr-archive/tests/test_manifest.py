@@ -241,9 +241,10 @@ def test_freeze_multipart_bare_row_byte_stable(store, tmp_root):
 
 def test_migrate_stops_on_pN_artifact_collision(store, tmp_root):
     seed_legacy(store, _entry("BV1aa"))
-    srt_dir = os.path.join(tmp_root, "transcripts", "srt")
+    # Shape A: the foreign stem is the directory name.
+    srt_dir = os.path.join(tmp_root, "transcripts", "BV1aa.p1")
     os.makedirs(srt_dir)
-    open(os.path.join(srt_dir, "BV1aa.p1.srt"), "w").write("x")
+    open(os.path.join(srt_dir, "bundle.srt"), "w").write("x")
     report = store.migrate_legacy_rows(
         lambda bvid: [_page(bvid, 0, cid=1)]
     )
@@ -289,9 +290,10 @@ def test_migrate_coalesces_matching_page_created_by_successful_fetch(store, tmp_
 
 def test_migrate_collision_on_existing_p0_artifact(store, tmp_root):
     seed_legacy(store, _entry("BV1aa"))
-    srt_dir = os.path.join(tmp_root, "transcripts", "srt")
+    # Shape A: a foreign page's stem is a directory under transcripts/.
+    srt_dir = os.path.join(tmp_root, "transcripts", "BV1aa.p0")
     os.makedirs(srt_dir)
-    open(os.path.join(srt_dir, "BV1aa.p0.srt"), "w").write("x")
+    open(os.path.join(srt_dir, "bundle.srt"), "w").write("x")
     report = store.migrate_legacy_rows(
         lambda bvid: [_page(bvid, 0, cid=1)]
     )
@@ -308,9 +310,10 @@ def test_migrate_collision_on_foreign_stem_under_configured_artifact_root(
     from bili_asr.artifact_root import ArtifactRoots
 
     artifact_root = os.path.join(tmp_root, "artifacts")
-    srt_dir = os.path.join(artifact_root, "transcripts", "srt")
+    # Shape A: the foreign stem is the directory name.
+    srt_dir = os.path.join(artifact_root, "transcripts", "BV1aa.p1")
     os.makedirs(srt_dir)
-    open(os.path.join(srt_dir, "BV1aa.p1.srt"), "w").write("x")
+    open(os.path.join(srt_dir, "bundle.srt"), "w").write("x")
     seed_legacy(store, _entry("BV1aa"))
     roots = ArtifactRoots.of(tmp_root, artifact_root)
 
@@ -324,6 +327,4 @@ def test_migrate_collision_on_foreign_stem_under_configured_artifact_root(
     assert loaded["BV1aa"]["unresolved"] is True
     # Nothing colliding sits at the archive root: the freeze came from the
     # configured base, which the probe reaches only because it scans both.
-    assert not os.path.exists(
-        os.path.join(tmp_root, "transcripts", "srt", "BV1aa.p1.srt")
-    )
+    assert not os.path.exists(os.path.join(tmp_root, "transcripts", "BV1aa.p1"))

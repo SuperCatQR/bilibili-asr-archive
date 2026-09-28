@@ -161,10 +161,10 @@ def test_coordinator_archive_stage_reclaims_audio(tmp_path, monkeypatch):
     audio = root / "audio"
     audio.mkdir()
     (root / "transcripts").mkdir()
-    raw_dir = root / "transcripts" / "raw"
+    raw_dir = root / "transcripts" / "BV1xx411c7mD.p0"
     raw_dir.mkdir()
     work_id = "BV1xx411c7mD:p0"
-    (raw_dir / "BV1xx411c7mD.p0.json").write_text(
+    (raw_dir / "bundle.raw.json").write_text(
         json.dumps({"source": "asr", "segments": [
             {"start": 0.0, "end": 1.0, "text": "hi"}
         ]}),

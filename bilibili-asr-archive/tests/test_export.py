@@ -44,9 +44,10 @@ def _create_sample_archive_for_export(tmp_root: str) -> ManifestStore:
         "duration_s": 360,
         "pubdate": 1600000000,
         "source": "asr",
-        "txt_path": os.path.join("transcripts", "txt", "BV1hegel.p0.txt"),
-        "srt_path": os.path.join("transcripts", "srt", "BV1hegel.p0.srt"),
+        "txt_path": os.path.join("transcripts", "BV1hegel.p0", "bundle.txt"),
+        "srt_path": os.path.join("transcripts", "BV1hegel.p0", "bundle.srt"),
     }
+    os.makedirs(os.path.dirname(os.path.join(tmp_root, e1["txt_path"])), exist_ok=True)
     with open(os.path.join(tmp_root, e1["txt_path"]), "w", encoding="utf-8") as fh:
         fh.write("Hegel dialectical idealism transcript content.")
 
@@ -62,8 +63,9 @@ def _create_sample_archive_for_export(tmp_root: str) -> ManifestStore:
         "duration_s": 420,
         "pubdate": 1600000100,
         "source": "subtitle",
-        "srt_path": os.path.join("transcripts", "srt", "BV1kant.p0.srt"),
+        "srt_path": os.path.join("transcripts", "BV1kant.p0", "bundle.srt"),
     }
+    os.makedirs(os.path.dirname(os.path.join(tmp_root, e2["srt_path"])), exist_ok=True)
     with open(os.path.join(tmp_root, e2["srt_path"]), "w", encoding="utf-8") as fh:
         fh.write("1\n00:00:00,000 --> 00:00:05,000\nKant synthetic a priori proposition.\n")
 
@@ -212,10 +214,10 @@ def _export_row(bvid: str, *, video_title: str | None = None) -> dict:
         "bvid": bvid, "work_id": f"{bvid}:p0", "page_index": 0, "cid": 7,
         "page_label": "P1", "title": "哲学课3", "status": "archived",
         "duration_s": 10, "pubdate": 1600000000, "source": "asr",
-        "srt_path": f"transcripts/srt/{bvid}.p0.srt",
-        "txt_path": f"transcripts/txt/{bvid}.p0.txt",
-        "md_path": f"transcripts/md/{bvid}.p0.md",
-        "raw_path": f"transcripts/raw/{bvid}.p0.json",
+        "srt_path": f"transcripts/{bvid}.p0/bundle.srt",
+        "txt_path": f"transcripts/{bvid}.p0/bundle.txt",
+        "md_path": f"transcripts/{bvid}.p0/bundle.md",
+        "raw_path": f"transcripts/{bvid}.p0/bundle.raw.json",
         "audio_path": f"audio/{bvid}.p0.m4a",
     }
     if video_title is not None:
@@ -542,8 +544,8 @@ def test_export_path_safety_and_traversal_redaction(tmp_root):
         "status": "archived",
         "srt_path": "../../../../etc/passwd",
         "audio_path": "/etc/shadow",
-        "txt_path": "transcripts/txt/../../secret.txt",
-        "raw_path": "transcripts/raw/BV1traverse.p0.json",
+        "txt_path": "transcripts/../../secret/bundle.txt",
+        "raw_path": "transcripts/BV1traverse.p0/bundle.raw.json",
     }
     store.upsert(dangerous_entry)
 
@@ -556,7 +558,7 @@ def test_export_path_safety_and_traversal_redaction(tmp_root):
     assert row["audio_path"] == ""
     assert row["txt_path"] == ""
     # Safe relative path is preserved
-    assert row["raw_path"] == "transcripts/raw/BV1traverse.p0.json"
+    assert row["raw_path"] == "transcripts/BV1traverse.p0/bundle.raw.json"
     assert "passwd" not in row["srt_path"]
     assert "shadow" not in row["audio_path"]
 

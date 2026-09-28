@@ -44,7 +44,7 @@ filesystem instead of the mount.  A root *inside* the archive root is accepted โ
 legitimate layout, and the two bases stay distinct.
 
 Reads (contract ยง5, D7/D8) never see an absolute recorded path.  The recorded strings
-stay artifact-root-relative (``audio/{stem}.m4a``, ``transcripts/srt/{stem}.srt``), so
+stay artifact-root-relative (``audio/{stem}.m4a``, ``transcripts/{stem}/bundle.srt``), so
 the manifest's bytes are unchanged by this feature and no reader needs to know which
 root a row was written under.  :func:`resolve_audio_path` walks
 :meth:`ArtifactRoots.read_bases` in order and returns the first hit, with each

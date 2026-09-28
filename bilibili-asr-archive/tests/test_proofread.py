@@ -110,7 +110,7 @@ def proofread_workspace(tmp_path):
 
     archive_root = tmp_path / "archive"
     artifact_root = tmp_path / "artifacts"
-    (artifact_root / "transcripts" / "raw").mkdir(parents=True)
+    (artifact_root / "transcripts").mkdir(parents=True)
     connection = open_database(os.fspath(archive_root))
     try:
         _write_caption_route(connection, bvid="BV1proofClean", page_index=0, cid=101,
@@ -118,7 +118,8 @@ def proofread_workspace(tmp_path):
         _write_caption_route(connection, bvid="BV1proofHeavy", page_index=0, cid=202,
                              segments_ms=HEAVY_CAPTIONS_MS)
         for raw in ("BV1proofClean.p0.json", "BV1proofHeavy.p0.json"):
-            (artifact_root / "transcripts" / "raw" / raw).write_bytes(
+            (artifact_root / "transcripts" / raw[: -len(".json")]).mkdir(parents=True, exist_ok=True)
+            (artifact_root / "transcripts" / raw[: -len(".json")] / "bundle.raw.json").write_bytes(
                 (FIXTURES / raw).read_bytes()
             )
     finally:
@@ -298,8 +299,11 @@ def test_proofread_merge_roundtrip_with_corrections_accounting(proofread_workspa
         marked, bvid="BV1proofHeavy", part=0,
         artifact_root=proofread_workspace[1])
 
-    assert transcript_path == proofread_workspace[1] / "transcripts" / "txt" / \
-        "BV1proofHeavy.p0.proofread.txt"
+    # Shape A: the proofread bundle is its own work directory, named for the
+    # .proofread stem it writes under (not the source part's directory).
+    assert transcript_path == (
+        proofread_workspace[1] / "transcripts" / "BV1proofHeavy.p0.proofread" / "bundle.txt"
+    )
     assert transcript_path.read_text(encoding="utf-8").splitlines() == [
         "我们来讨论劳动法的相关问题。这里涉及很多具体的案例。",
         "修正后的第二段。",
@@ -310,11 +314,11 @@ def test_proofread_merge_roundtrip_with_corrections_accounting(proofread_workspa
     assert accounting["decisions"] == {"use-asr": 1, "custom": 1, "keep": 1}
     assert accounting["blocks"] == 3
     assert accounting["subtitles_asr"] == 1 and accounting["subtitles_sub"] == 2
-    srt = (proofread_workspace[1] / "transcripts" / "srt" / "BV1proofHeavy.p0.proofread.srt")
+    srt = (proofread_workspace[1] / "transcripts" / "BV1proofHeavy.p0.proofread" / "bundle.srt")
     assert srt.exists()
     assert "00:00:00,000 --> 00:00:12,000" in srt.read_text(encoding="utf-8")
-    raw = json.loads((proofread_workspace[1] / "transcripts" / "raw" /
-                      "BV1proofHeavy.p0.proofread.json").read_text(encoding="utf-8"))
+    raw = json.loads((proofread_workspace[1] / "transcripts" / "BV1proofHeavy.p0.proofread" /
+                      "bundle.raw.json").read_text(encoding="utf-8"))
     assert raw["source"] == "proofread" and raw["segments"][1]["text"] == "修正后的第二段。"
 
 
@@ -382,8 +386,9 @@ def test_cli_proofread_merge_publishes_and_counts(proofread_workspace, monkeypat
         "align" / "BV1proofHeavy.p0.corrections.json"
     accounting = json.loads(accounting_path.read_text(encoding="utf-8"))
     assert accounting["decisions"] == {"keep": 3}
-    assert (proofread_workspace[1] / "transcripts" / "txt" /
-            "BV1proofHeavy.p0.proofread.txt").exists()
+    assert (proofread_workspace[1] / "transcripts" /
+
+            "BV1proofHeavy.p0.proofread" / "bundle.txt").exists()
 
 
 def test_bili_asr_resolves_inside_worktree():

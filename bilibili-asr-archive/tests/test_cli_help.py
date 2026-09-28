@@ -255,7 +255,7 @@ def test_module_coverage_formats_and_diagnostic_exit(tmp_path: Path) -> None:
 
     store = ManifestStore(root=str(tmp_path))
     store.upsert({"work_id": "BV1safe:p1", "bvid": "BV1safe", "status": "archived"})
-    transcript = tmp_path / "transcripts" / "txt" / "BV1safe.p1.txt"
+    transcript = tmp_path / "transcripts" / "BV1safe.p1" / "bundle.txt"
     transcript.parent.mkdir(parents=True)
     transcript.write_text("local fixture", encoding="utf-8")
     for fmt in ("json", "csv"):
@@ -360,7 +360,7 @@ def test_cli_main_coverage_quality_valid_and_reclaimed_audio(tmp_path: Path, cap
         "source": "subtitle",
         "sub_lan": "ai-zh",
     })
-    srt_path = tmp_path / "transcripts" / "srt" / "BV1clean.p0.srt"
+    srt_path = tmp_path / "transcripts" / "BV1clean.p0" / "bundle.srt"
     srt_path.parent.mkdir(parents=True, exist_ok=True)
     srt_path.write_text("1\n00:00:00,000 --> 00:00:02,000\nHello\n", encoding="utf-8")
 
@@ -400,7 +400,7 @@ def test_cli_main_coverage_quality_anomalies_and_read_only(tmp_path: Path, capsy
         "source": "subtitle",
         "sub_lan": "ai-zh",
     })
-    srt_path = tmp_path / "transcripts" / "srt" / "BV1bad.p0.srt"
+    srt_path = tmp_path / "transcripts" / "BV1bad.p0" / "bundle.srt"
     srt_path.parent.mkdir(parents=True, exist_ok=True)
     # Non-monotonic cues
     srt_path.write_text("1\n00:00:03,000 --> 00:00:04,000\nA\n\n2\n00:00:01,000 --> 00:00:02,000\nB\n", encoding="utf-8")
@@ -470,7 +470,7 @@ def _reference_archive(tmp_path: Path, transcript: str = "Hello world") -> str:
         "duration_s": 30,
         "source": "asr",
     })
-    srt_path = tmp_path / "transcripts" / "srt" / "BV1ref.p0.srt"
+    srt_path = tmp_path / "transcripts" / "BV1ref.p0" / "bundle.srt"
     srt_path.parent.mkdir(parents=True, exist_ok=True)
     srt_path.write_text(
         f"1\n00:00:00,000 --> 00:00:04,000\n{transcript}\n", encoding="utf-8"
@@ -712,7 +712,7 @@ def test_cli_main_coverage_quality_reference_ignores_the_md_bundle(tmp_path: Pat
     from bili_asr.manifest import ManifestStore
 
     text = "Hello world"
-    raw = tmp_path / "transcripts" / "raw" / "BV1ref.p0.json"
+    raw = tmp_path / "transcripts" / "BV1ref.p0" / "bundle.raw.json"
     raw.parent.mkdir(parents=True, exist_ok=True)
     raw.write_text(
         json.dumps(
@@ -720,7 +720,7 @@ def test_cli_main_coverage_quality_reference_ignores_the_md_bundle(tmp_path: Pat
         ),
         encoding="utf-8",
     )
-    md = tmp_path / "transcripts" / "md" / "2026-01-02_BV1ref.p0_demo.md"
+    md = tmp_path / "transcripts" / "BV1ref.p0" / "bundle.md"
     md.parent.mkdir(parents=True, exist_ok=True)
     md.write_text(
         '---\nbvid: "BV1ref"\ntitle: "Reference Video"\n'
@@ -736,8 +736,8 @@ def test_cli_main_coverage_quality_reference_ignores_the_md_bundle(tmp_path: Pat
         "status": "archived",
         "duration_s": 30,
         "source": "asr",
-        "md_path": "transcripts/md/" + md.name,
-        "raw_path": "transcripts/raw/" + raw.name,
+        "md_path": md.relative_to(tmp_path).as_posix(),
+        "raw_path": raw.relative_to(tmp_path).as_posix(),
     })
     reference = tmp_path / "second.srt"
     reference.write_text(f"1\n00:00:00,000 --> 00:00:04,000\n{text}\n", encoding="utf-8")
@@ -806,7 +806,7 @@ def test_cli_main_coverage_quality_mixed_row_keeps_defect_reasons_first(tmp_path
         "今天的讨论围绕国际劳工仲裁这个主题展开，涉及多个国家的法律资源分配，"
         "以及普通劳动者在遇到纠纷时能够获得的支持方式与成本问题"
     )
-    srt_path = tmp_path / "transcripts" / "srt" / "BV1mixed.p0.srt"
+    srt_path = tmp_path / "transcripts" / "BV1mixed.p0" / "bundle.srt"
     srt_path.parent.mkdir(parents=True, exist_ok=True)
     # Out-of-order overlapping cues (defect) carrying an over-long cue (content).
     srt_path.write_text(
@@ -853,7 +853,7 @@ def test_cli_main_coverage_quality_reference_without_row_text_reports_no_block(t
         "duration_s": 10,
         "source": "asr",
     })
-    srt_path = tmp_path / "transcripts" / "srt" / "BV1notext.p0.srt"
+    srt_path = tmp_path / "transcripts" / "BV1notext.p0" / "bundle.srt"
     srt_path.parent.mkdir(parents=True, exist_ok=True)
     srt_path.write_text("1\n00:00:00,000 --> 00:00:04,000\n\n", encoding="utf-8")
     reference = tmp_path / "second.txt"
@@ -1053,7 +1053,7 @@ def test_cli_main_coverage_quality_says_nothing_when_no_score_is_recorded(
         "duration_s": 30,
         "source": "subtitle",
     })
-    srt_path = tmp_path / "transcripts" / "srt" / "BV1nos.p0.srt"
+    srt_path = tmp_path / "transcripts" / "BV1nos.p0" / "bundle.srt"
     srt_path.parent.mkdir(parents=True, exist_ok=True)
     srt_path.write_text(
         "1\n00:00:00,000 --> 00:00:04,000\n这句没有分数记录\n", encoding="utf-8"

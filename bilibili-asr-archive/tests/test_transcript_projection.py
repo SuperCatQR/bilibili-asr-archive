@@ -95,11 +95,11 @@ CONTENT_SHA = "9f" * 32
 #: The four root-relative names ``write_archive`` returns (``archive.py:503``),
 #: plus a fifth key of the kind a caller may hold: §5.1's key set admits the four.
 PATHS = {
-    "srt_path": "transcripts/srt/BV1xx4y1zz.p2.srt",
-    "txt_path": "transcripts/txt/BV1xx4y1zz.p2.txt",
-    "md_path": "transcripts/md/2023-11-14_BV1xx4y1zz.p2_第一部分：开场.md",
-    "raw_path": "transcripts/raw/BV1xx4y1zz.p2.json",
-    "bundle_marker_path": "transcripts/srt/BV1xx4y1zz.p2.srt.bundle-ready",
+    "srt_path": "transcripts/BV1xx4y1zz.p2/bundle.srt",
+    "txt_path": "transcripts/BV1xx4y1zz.p2/bundle.txt",
+    "md_path": "transcripts/BV1xx4y1zz.p2/bundle.md",
+    "raw_path": "transcripts/BV1xx4y1zz.p2/bundle.raw.json",
+    "bundle_marker_path": "transcripts/BV1xx4y1zz.p2/bundle.srt.bundle-ready",
 }
 
 
