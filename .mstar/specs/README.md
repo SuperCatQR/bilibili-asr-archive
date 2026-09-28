@@ -5,6 +5,7 @@ Warehouse-level locked specs. Iteration drafts live under `{ITERATION_DIR}/<id>/
 | Spec | Status | Notes |
 |------|--------|-------|
 | [asr-archive-cli.md](asr-archive-cli.md) | frozen | MVP from `iter-2026-08-wmz-asr-mvp`. JSONL and artifacts remain bvid-keyed. The file is frozen and is **not** back-edited; the lines below record what later iterations superseded. |
+| [proofread.md](proofread.md) | active | Proofread pipeline contract landed by the 2026-09-28 reconciliation (`8e6419e`): the `proofread` / `proofread-merge` surface, its idempotency rule, and the sidecar shape. |
 
 ## Supersession notes (frozen specs are never back-edited)
 
