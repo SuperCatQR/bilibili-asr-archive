@@ -49,6 +49,7 @@ BASE_TABLES = {
     "videos",
     "video_parts",
     "video_tags",
+    "video_details",
     "ingestion_runs",
     "ingestion_cursors",
     "ingestion_pages",
@@ -74,6 +75,9 @@ VIEWS = {
 EXPECTED_TABLE_COLUMNS = {
     "bilibili_users": ["mid", "display_name", "created_at", "updated_at"],
     "video_tags": ["bvid", "tag_id", "tag_name", "tag_type"],
+    # Unquoted ``desc``: the DDL quotes the SQL keyword, ``PRAGMA table_info``
+    # reports the bare name either way.
+    "video_details": ["bvid", "pic", "desc", "tid", "observed_at"],
     "videos": [
         "bvid",
         "aid",
@@ -182,6 +186,9 @@ EXPECTED_FOREIGN_KEYS = {
     # The tag row's parent is the video it tags: a tag cannot outlive, or
     # precede, the video row it belongs to.
     "video_tags": (("bvid", "videos", "bvid"),),
+    # Same parent as ``video_tags``: a details row cannot outlive, or precede,
+    # the video it describes.
+    "video_details": (("bvid", "videos", "bvid"),),
     "ingestion_runs": (("mid", "bilibili_users", "mid"),),
     "ingestion_cursors": (("mid", "bilibili_users", "mid"),),
     "ingestion_pages": (("run_id", "ingestion_runs", "run_id"),),
@@ -217,6 +224,9 @@ EXPECTED_PRIMARY_KEY_INDEXES = {
     # serves the one query this table has (all tags of one video).  No declared
     # index is added: see ``video_tags``' note below.
     "video_tags": (("bvid", "tag_id"),),
+    # One row per video, so the ``bvid`` primary key is the only index this
+    # table needs; no declared index is added (see ``video_tags``' note).
+    "video_details": (("bvid",),),
     "ingestion_runs": (("run_id",),),
     "ingestion_pages": (("run_id", "page_number"),),
     "ingestion_discoveries": (("run_id", "page_number", "bvid"),),
@@ -256,6 +266,12 @@ EXPECTED_CHECK_ENUMERATIONS = {
     # tag identities, so they are refused at the storage boundary rather than
     # stored as if upstream had said them.
     "video_tags": ("tag_id > 0",),
+    # Task 4's twin of the row above: a category id is upstream's own positive
+    # integer, and NULL is the legitimate "not observed" state, so the CHECK
+    # admits NULL and refuses zero/negatives.  Declared here because the loop
+    # below iterates *declared* entries only -- an undeclared table's CHECK is
+    # silently unpinned (measured: deleting it left this file 39 passed).
+    "video_details": ("tid IS NULL OR tid > 0",),
     "ingestion_runs": (
         "source_package = 'bilibili-api-python'",
         "outcome IN ('running', 'complete', 'limited', 'risk_interrupted', 'failed')",

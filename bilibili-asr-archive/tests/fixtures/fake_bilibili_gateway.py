@@ -837,6 +837,15 @@ def make_vlist_item(**overrides: object) -> dict:
     the run-level ingestor reads it: a test that wants the ``str(mid)``
     fallback pops the key, which is also how it shows the fallback is the
     ingestor's decision rather than the page boundary's.
+
+    ``typeid``, ``pic`` and ``description`` are the **list** endpoint's own
+    spellings for the category id, the cover URL and the description (the view
+    endpoint spells the category ``tid``), and they are literal defaults for
+    the same reason: the normalizer reads them, so an override-only key would
+    prove only that it can read a dictionary a test invented.  A test that
+    wants the absent case pops them, exactly as it does for the name.
+    ``pic`` is a recorded form rather than a plausible-looking one — the
+    ``arc/search`` archive stem upstream issues is 40 hex characters.
     """
 
     item = {
@@ -846,6 +855,9 @@ def make_vlist_item(**overrides: object) -> dict:
         "created": PUBDATE,
         "mid": MID,
         "author": "未明子",
+        "typeid": 124,
+        "pic": "http://i1.hdslb.com/bfs/archive/367e793f720ea124722f970965a2db1ba3a733a7.jpg",
+        "description": "哲学讲座简介",
     }
     item.update(overrides)
     return item

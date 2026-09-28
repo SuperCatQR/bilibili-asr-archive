@@ -310,6 +310,31 @@ def build_parser() -> argparse.ArgumentParser:
         help="Archive root directory (default: ./archive)",
     )
 
+    inventory = subparsers.add_parser(
+        "derive-audio-inventory",
+        help="Reconcile the audio store with the files the manifest names",
+        description=(
+            "Reconcile audio_objects / part_audio_objects against the manifest's "
+            "audio candidates and the audio tree: report how many objects were "
+            "newly recorded, already known, named-but-absent, and unlinked to any "
+            "part. The command is additive and read-only over the audio tree: no "
+            "counter deletes, re-creates or moves a file, and an empty "
+            "reconciliation is success."
+        ),
+    )
+    inventory.add_argument(
+        "--archive-root", default=DEFAULT_ARCHIVE_ROOT,
+        help="Archive root directory (default: ./archive)",
+    )
+    inventory.add_argument("--artifact-root", default=None, help=_ARTIFACT_ROOT_HELP)
+    inventory.add_argument(
+        "--deep", action="store_true",
+        help=(
+            "Re-verify the digest of an object whose row is already present "
+            "(default: trust the stored row and read no bytes for it)"
+        ),
+    )
+
     publish = subparsers.add_parser(
         "publish-transcripts",
         help="Publish the stored transcripts as archive bundles (fetches nothing)",
@@ -1490,6 +1515,109 @@ def _cmd_derive_manifest(args: argparse.Namespace) -> int:
     _print_summary(len(outcome.appended))
     return 0
 
+
+def _cmd_derive_audio_inventory(args: argparse.Namespace) -> int:
+    """Reconcile the audio store with the disk the manifest names.
+
+    ``cli.py`` composes the layers here, as the cross-layer rule requires: the
+    database is opened through the shipped read-command guard, the read sets come
+    from the repository, the reconciliation is a pure service call, and the only
+    writes are the ones ``mark_audio_acquired`` already owns.  The service does
+    not print; this handler owns every operator-facing line.
+
+    The database is opened ``read_only=False`` because a newly observed object is
+    recorded — this command *writes the store*, unlike ``derive-manifest``, which
+    only appends to the manifest.  It never writes the *filesystem*: the counters
+    are reports, and ``missing`` names an absence rather than acting on it.
+
+    **The whole reconciliation is inside the writer lock** (``_ARCHIVE_WRITER_COMMANDS``
+    contains this command, so ``_dispatch_command`` holds ``archive_writer`` around
+    this call).  That is why the read sets fetched below are consistent with the
+    walk: a concurrent ``download-audio`` cannot add an object between them.
+
+    Exit taxonomy: 0 the reconciliation ran, including a zero-row one (an empty
+    result is success, matching ``derive-manifest``); 1 a shipped refusal path (a
+    missing or unreadable ``archive.db``, the schema-rebuild guard, a held
+    archive-writer lock, or a usage error) **and also a store failure mid-walk**;
+    no path produces 2.
+
+    A store failure is bounded rather than left to a traceback: ``record`` commits
+    one transaction per row, so a failure part-way through leaves rows already
+    written, and the summary still prints with the counters reached so far plus
+    one stderr line naming the failure and how many rows were written before it.
+    Silence would be worst exactly when the store is in a state worth reporting.
+    """
+    from .artifact_root import ArtifactRootError, roots_for
+    from .manifest import ManifestStore
+    from .services.audio_inventory import AudioInventoryOutcome, reconcile_audio_inventory
+    from .storage import MediaQueueRepository
+
+    try:
+        roots = roots_for(args.archive_root, flag_value=args.artifact_root)
+    except ArtifactRootError as exc:
+        print(f"derive-audio-inventory: {exc}", file=sys.stderr)
+        return 1
+
+    connection = _open_subtitle_connection(
+        "derive-audio-inventory", args.archive_root, read_only=False
+    )
+    if connection is None:
+        return 1
+
+    outcome: AudioInventoryOutcome | None = None
+    try:
+        repository = MediaQueueRepository(connection)
+        entries = ManifestStore(root=args.archive_root).load()
+        outcome = reconcile_audio_inventory(
+            roots=roots,
+            entries=entries,
+            known_objects=repository.read_audio_objects(),
+            known_audio_ids=repository.read_audio_object_ids(),
+            linked_audio_ids=repository.read_linked_audio_ids(),
+            part_durations=repository.read_part_durations(entries),
+            record=repository.mark_audio_acquired,
+            moment=int(time.time()),
+            deep=bool(args.deep),
+        )
+    except Exception as exc:  # noqa: BLE001 - bounded, reasoned, and reported below
+        # The walk died part-way.  `mark_audio_acquired` is one transaction per
+        # row, so whatever was recorded before the failure is committed and the
+        # operator must be told.  §3.1's summary line still prints, with the
+        # **total** the store now holds in the `recorded` slot and the other three
+        # reported as unknown: the per-walk counters are built inside the service
+        # and are not available once it raises, and inventing them here would be
+        # worse than saying what is knowable.  The count is a store read
+        # (`COUNT(*)`), not a guess, and a second failure while reporting must not
+        # mask the first.
+        total = 0
+        known = True
+        try:
+            total = len(repository.read_audio_object_keys())
+        except Exception:  # noqa: BLE001 - the report must not itself raise
+            known = False
+        if known:
+            print(
+                f"derive-audio-inventory: recorded={total} already=? missing=? "
+                f"unlinked=? (walk aborted; recorded is the store's current total)"
+            )
+        print(
+            f"derive-audio-inventory: failed after {total} object(s) in the "
+            f"store: {type(exc).__name__}: {exc}",
+            file=sys.stderr,
+        )
+        return 1
+    finally:
+        connection.close()
+
+    # §3.1's one summary line: the four counters an operator reads, in their
+    # fixed order, printed on every success path including the empty one.
+    print(outcome.summary_line())
+    for storage_key in outcome.unreadable:
+        # A present-but-unreadable file fits no counter §3.1 defines: it is not
+        # `missing` (the file is there) and cannot be recorded (no digest).  It is
+        # named here instead, so the number is not silently smaller than the tree.
+        print(f"derive-audio-inventory: unreadable: {storage_key}", file=sys.stderr)
+    return 0
 
 #: The four product keys a publication records and a recorded row declares
 #: (contract §5.1).  Kept as the command's own tuple rather than reached for
@@ -4364,6 +4492,13 @@ _ARCHIVE_WRITER_COMMANDS = frozenset({
     "asr",
     "pilot",
     "derive-manifest",
+    # derive-audio-inventory writes audio_objects / part_audio_objects, so it
+    # takes the same lock every other store-writing command takes.  Without
+    # this the docstring's `archive_busy` refusal could not happen, and the
+    # store would be written while another writer held the lock -- while the
+    # read sets are fetched before the walk, so an unlocked run could report
+    # counters computed against a store that moved under it.
+    "derive-audio-inventory",
     "publish-transcripts",
     "harvest-subs",
     "download-audio",
@@ -4396,6 +4531,8 @@ def _dispatch_command(args: argparse.Namespace) -> int:
         return _cmd_harvest_subs(args)
     if args.command == "derive-manifest":
         return _cmd_derive_manifest(args)
+    if args.command == "derive-audio-inventory":
+        return _cmd_derive_audio_inventory(args)
     if args.command == "publish-transcripts":
         return _cmd_publish_transcripts(args)
     if args.command == "proofread":

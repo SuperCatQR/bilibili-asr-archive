@@ -30,6 +30,7 @@ from .models import (
     TranscriptSegmentRecord,
     TranscriptWriteResult,
     UserRecord,
+    VideoDetailRecord,
     VideoPartRecord,
     VideoRecord,
     VideoTagRecord,
@@ -413,6 +414,78 @@ class MetadataRepository:
             raise sqlite3.DatabaseError("upserted video part could not be read back")
         return int(row[0])
 
+    def upsert_video_details(self, details: VideoDetailRecord) -> None:
+        """Insert or refresh one video's category and cover observation.
+
+        **One row per video, and it is refreshed** (compass D11): a second
+        collection of the same ``bvid`` replaces the row rather than adding
+        one, so ``SELECT COUNT(*)`` for that video stays ``1`` forever and
+        ``observed_at`` always holds the newest observation's stamp.  A reader
+        must not treat this table as a history: it cannot answer "what did
+        upstream say on 2026-09-26", because nothing here is dated beyond the
+        single row's own last-write stamp.
+
+        **``observed_at`` means "last *successful* collection" — the guard is
+        the condition, not an adjective** (compass D15).  All three value
+        columns are nullable, so an unconditional ``ON CONFLICT ... DO UPDATE
+        SET`` could blank a populated row with ``NULL``s and stamp it fresh,
+        recording "nothing was true at T" where the collection established no
+        such thing.  The write therefore happens **only when the incoming
+        observation carries at least one of ``pic``/``desc``/``tid``**: an
+        all-``NULL`` observation leaves the existing row and its ``observed_at``
+        untouched, and writes no row at all for a video that has none.  The
+        grain is unchanged — one row per video, refreshed — so the guard
+        constrains *when* the stamp moves, not what the table holds.
+
+        **A partial observation refreshes the whole row, the stamp included.**
+        "All three are ``None``" is the whole of the skip condition, so an
+        observation carrying only one of the three is a successful collection:
+        the row is written to exactly what it carried, the unobserved columns go
+        to ``NULL``, and ``observed_at`` advances with them.  That is D11 applied
+        verbatim — metadata "is refreshed on recollect … a later collection
+        overwrites it" — because the row is the last collection's *view* of the
+        video, not a per-column last-known-good, so a value upstream really did
+        drop does not survive as a stale one.  Per-column ``COALESCE`` would keep
+        a genuinely retracted cover alive, which is the same class of fiction
+        D15 exists to prevent; a partial observation establishes exactly that
+        much and nothing here is per-column.
+
+        ``"desc"`` is quoted because ``desc`` is a SQL keyword and the column
+        keeps upstream's own field name.  ``pic`` holds the cover URL in the
+        store; ``export`` still redacts its value and this is intended and
+        permanent for this iteration (compass D12 — the cover is store-only,
+        and a cover that must appear in an export is a new decision).
+        """
+
+        if not isinstance(details, VideoDetailRecord):
+            raise TypeError("details must be a VideoDetailRecord")
+        if (
+            details.pic is None
+            and details.desc is None
+            and details.tid is None
+        ):
+            # Nothing was observed: leave the row and its stamp alone, and do
+            # not create one for a video that has none (D15).
+            return
+        self.connection.execute(
+            """
+            INSERT INTO video_details(bvid, pic, "desc", tid, observed_at)
+            VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(bvid) DO UPDATE SET
+                pic = excluded.pic,
+                "desc" = excluded."desc",
+                tid = excluded.tid,
+                observed_at = excluded.observed_at
+            """,
+            (
+                details.bvid,
+                details.pic,
+                details.desc,
+                details.tid,
+                details.observed_at,
+            ),
+        )
+
     def upsert_video_tags(
         self, bvid: str, tags: Iterable[VideoTagRecord] = ()
     ) -> None:
@@ -546,15 +619,16 @@ class MetadataRepository:
         discoveries: Iterable[DiscoveryRecord] = (),
         cursor: CursorRecord | None = None,
         tags: Mapping[str, Iterable[VideoTagRecord]] | None = None,
+        details: Iterable[VideoDetailRecord] = (),
     ) -> None:
         """Record one page outcome, optionally with its complete payload.
 
         With payload arguments the method owns one transaction and applies the
         locked parent-before-child order: user, videos, parts, tag sets,
-        discoveries, cursor, page outcome, commit. If any write fails, the whole
-        transaction is rolled back and the exception is re-raised; the prior
-        cursor and entities are unchanged. Recording the resulting failure is
-        the caller's step: build a fresh ``IngestionPageRecord`` with
+        details, discoveries, cursor, page outcome, commit. If any write fails,
+        the whole transaction is rolled back and the exception is re-raised;
+        the prior cursor and entities are unchanged. Recording the resulting
+        failure is the caller's step: build a fresh ``IngestionPageRecord`` with
         ``outcome='failed'`` and a bounded ``error_code`` and call this method
         again with no payload arguments.
 
@@ -579,6 +653,7 @@ class MetadataRepository:
         video_records = tuple(videos)
         part_records = tuple(parts)
         discovery_records = tuple(discoveries)
+        detail_records = tuple(details)
         # ``tags`` is a mapping rather than a flat iterable because the
         # replacement is per video: ``None`` means "this page observed no tag
         # sets at all" (a run whose tag calls all degraded, or a page whose
@@ -592,6 +667,7 @@ class MetadataRepository:
             or bool(video_records)
             or bool(part_records)
             or bool(discovery_records)
+            or bool(detail_records)
             or cursor is not None
             or tag_sets is not None
         )
@@ -620,6 +696,12 @@ class MetadataRepository:
             # silently dropping the observation.
             for tag_bvid, tag_records in (tag_sets or {}).items():
                 self.upsert_video_tags(tag_bvid, tag_records)
+            # Details land after the same video upserts, for the same foreign
+            # key reason.  An all-``NULL`` record is passed through rather than
+            # filtered here: ``upsert_video_details`` is where D15's
+            # "observed nothing" rule lives, so it stays one rule in one place.
+            for detail in detail_records:
+                self.upsert_video_details(detail)
             for discovery in discovery_records:
                 self.record_discovery(discovery)
             if cursor is not None:
@@ -1793,6 +1875,99 @@ class MediaQueueRepository:
             )
             for gap, view in self._VIEW_BY_GAP.items()
         }
+
+    def read_audio_objects(self) -> dict[str, tuple[int, str]]:
+        """Map every ``audio_objects.storage_key`` to ``(byte_size, sha256)``.
+
+        Both halves make the contract's ``already`` counter ("present **and
+        matched**") checkable: a ``stat`` against the size decides the default
+        run without reading a byte, so the published cost model ("zero file reads
+        for a row that already exists") survives the comparison, and the stored
+        digest is what ``--deep`` compares a fresh read against.
+        """
+        return {
+            str(row["storage_key"]): (int(row["byte_size"]), str(row["sha256"]))
+            for row in self.connection.execute(
+                "SELECT storage_key, byte_size, sha256 FROM audio_objects "
+                "ORDER BY audio_id"
+            ).fetchall()
+        }
+
+    def read_part_durations(self, work_ids: Iterable[str]) -> dict[str, int]:
+        """Map page-qualified work ids to the store's own ``duration_ms``.
+
+        The manifest records whole **seconds** (``duration_s``) because its
+        writers floor and clamp them, so reconstructing milliseconds from a
+        manifest row loses the exact value (``1234567 ms → 1234 s → 1234000 ms``).
+        The store holds the exact figure, so the reconciliation reads it here
+        rather than trusting the coarser surface.  A work id whose part is absent
+        is simply omitted; the caller records the schema's documented "unknown".
+
+        The key set is read straight off the ``video_parts`` rows for the bvids
+        named, then emitted in this module's ``<bvid>:p<index>`` spelling, so the
+        caller never has to parse or re-derive an identity.
+        """
+        requested = {str(work_id) for work_id in work_ids}
+        if not requested:
+            return {}
+        bvids = tuple(dict.fromkeys(key.split(":", 1)[0] for key in requested))
+        durations: dict[str, int] = {}
+        for start in range(0, len(bvids), _PUBDATE_CHUNK):
+            chunk = bvids[start : start + _PUBDATE_CHUNK]
+            placeholders = ", ".join("?" * len(chunk))
+            for row in self.connection.execute(
+                "SELECT bvid, page_index, duration_ms FROM video_parts "
+                f"WHERE bvid IN ({placeholders})",
+                chunk,
+            ).fetchall():
+                key = f"{row['bvid']}:p{int(row['page_index'])}"
+                if key in requested:
+                    durations[key] = int(row["duration_ms"])
+        return durations
+
+    def read_audio_object_keys(self) -> tuple[str, ...]:
+        """Every ``audio_objects.storage_key``, the store's recorded locations.
+
+        The reconciliation matches a manifest candidate on this set, because
+        ``storage_key`` — not ``sha256`` — is what ``mark_audio_acquired`` uses
+        as an object's identity.  Read in one query rather than per candidate so
+        the inventory walk pays one store read, not one per file.
+        """
+        return tuple(
+            str(row["storage_key"])
+            for row in self.connection.execute(
+                "SELECT storage_key FROM audio_objects ORDER BY audio_id"
+            ).fetchall()
+        )
+
+    def read_audio_object_ids(self) -> tuple[int, ...]:
+        """Every ``audio_objects.audio_id``.
+
+        Paired with :meth:`read_linked_audio_ids` this answers the ``unlinked``
+        counter: an object row that no ``part_audio_objects`` row attributes to
+        a part.
+        """
+        return tuple(
+            int(row["audio_id"])
+            for row in self.connection.execute(
+                "SELECT audio_id FROM audio_objects ORDER BY audio_id"
+            ).fetchall()
+        )
+
+    def read_linked_audio_ids(self) -> tuple[int, ...]:
+        """Every ``part_audio_objects.audio_id`` — the objects tied to a part.
+
+        A set, not a bag: an object attributed to several parts is still one
+        attributed object, and the ``unlinked`` counter is a subtraction over
+        objects.
+        """
+        return tuple(
+            int(row["audio_id"])
+            for row in self.connection.execute(
+                "SELECT DISTINCT audio_id FROM part_audio_objects "
+                "ORDER BY audio_id"
+            ).fetchall()
+        )
 
     @staticmethod
     def _gap_item(row: sqlite3.Row, gap: str, attempt_count: int) -> QueueGapItem:

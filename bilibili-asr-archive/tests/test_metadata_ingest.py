@@ -14,6 +14,7 @@ the same module's fake ``bilibili_api`` package seam, still fully offline.
 from __future__ import annotations
 
 import importlib
+import itertools
 
 import pytest
 
@@ -76,6 +77,9 @@ def _summary(
     title: str = "未明子讲座",
     owner_mid: int | None = None,
     author: str | None = "未明子",
+    pic: str | None = "http://i1.hdslb.com/bfs/archive/cover.jpg",
+    desc: str | None = "哲学讲座简介",
+    tid: int | None = 124,
 ) -> VideoSummary:
     """Build one validated summary DTO owned by the requested user.
 
@@ -84,6 +88,11 @@ def _summary(
     is how a case exercises the ingestor's owner-mid fallback — the arm the
     field's absence is for — and the cross-run cases below are where that
     matters: they are the only callers that pass it.
+
+    ``pic``/``desc``/``tid`` mirror that arrangement for the same reason: a run
+    built from these summaries has observed the three detail fields, so the D15
+    guard is satisfied and a row is written.  The all-``None`` arm is what the
+    D15 cases exercise, and they are the only callers that pass ``None``.
     """
 
     return VideoSummary(
@@ -93,6 +102,9 @@ def _summary(
         pubdate=PUBDATE,
         mid=MID if owner_mid is None else owner_mid,
         author=author,
+        pic=pic,
+        desc=desc,
+        tid=tid,
     )
 
 
@@ -117,6 +129,23 @@ def _part(
 
 def _ingestor(gateway: FakeGateway, repository: MetadataRepository) -> MetadataIngestor:
     return MetadataIngestor(gateway, repository)
+
+
+@pytest.fixture
+def _ingest_clock(monkeypatch: pytest.MonkeyPatch):
+    """Deterministic monotonic clock for ingestor-produced records.
+
+    Patching the ingestor module's clock keeps run and page timestamps strictly
+    increasing, so the D11 "``observed_at`` advanced" assertion is satisfiable
+    without a real sleep: two collections inside the same wall-clock second
+    would otherwise leave the stamp identical.  The same fixture exists in
+    ``tests/test_metadata_cli.py`` and ``tests/test_metadata_e2e.py``.
+    """
+
+    counter = itertools.count(1)
+    monkeypatch.setattr(
+        "bili_asr.services.metadata_ingest._now", lambda: next(counter)
+    )
 
 
 def test_single_part_run_completes_with_normalized_rows(tmp_root):
@@ -1480,6 +1509,324 @@ def test_tag_rows_land_through_the_pinned_adapter(tmp_root, bilibili_api_seam):
         ]
         assert_leaks_no_markers(
             persisted_row_text(connection), context="tag rows through the adapter"
+        )
+    finally:
+        connection.close()
+
+
+# ---------------------------------------------------------- video details
+
+
+def _stored_details(connection, bvid: str = "BV1DETAIL") -> tuple | None:
+    """Return one details row as a tuple, or ``None`` when the video has none."""
+
+    row = connection.execute(
+        'SELECT pic, "desc", tid, observed_at FROM video_details WHERE bvid = ?',
+        (bvid,),
+    ).fetchone()
+    return None if row is None else tuple(row)
+
+
+def test_video_details_are_recorded_without_a_second_http_call(tmp_root):
+    """``pic``/``desc``/``tid`` come from the page item the run already parses.
+
+    The no-extra-call half is asserted on the recorded call list, not inferred:
+    a run whose ``page_calls`` grew would be paying for these fields twice.
+    """
+
+    gateway = FakeGateway()
+    gateway.script_page(1, _page(1, _summary("BV1DETAIL"), observed_total=1))
+    gateway.script_parts("BV1DETAIL", (_part("BV1DETAIL", 0),))
+    gateway.script_page(2, _page(2, observed_total=1))
+    connection = open_database(tmp_root)
+    repository = MetadataRepository(connection)
+    try:
+        _ingestor(gateway, repository).collect_user_pages(MID, start_page=1)
+
+        # No second call: the same two page fetches the run already made.
+        assert [call[1] for call in gateway.page_calls] == [1, 2]
+
+        assert _stored_details(connection) is not None
+        pic, desc, tid, observed_at = _stored_details(connection)
+        assert (pic, desc, tid) == (
+            "http://i1.hdslb.com/bfs/archive/cover.jpg",
+            "哲学讲座简介",
+            124,
+        )
+        assert observed_at > 0
+    finally:
+        connection.close()
+
+
+def test_video_details_are_refreshed_not_appended(tmp_root, _ingest_clock):
+    """Compass D11: one row per video, overwritten by the next collection.
+
+    This is the test that makes the ruling observable.  An implementer who
+    reaches for an INSERT history (an obvious "improvement" while adding
+    ``observed_at``) passes the case above and fails this one — which is the
+    point, because the schema must not offer a reader what D11 says it does not
+    promise.  The assertion is on the COUNT as well as the value: a timestamped
+    series would also move the newest value.
+    """
+
+    gateway = FakeGateway()
+    gateway.script_parts("BV1DETAIL", (_part("BV1DETAIL", 0),))
+    connection = open_database(tmp_root)
+    repository = MetadataRepository(connection)
+    ingestor = _ingestor(gateway, repository)
+    try:
+        gateway.script_page(1, _page(1, _summary("BV1DETAIL"), observed_total=1))
+        gateway.script_page(2, _page(2, observed_total=1))
+        ingestor.collect_user_pages(MID, start_page=1)
+        first = _stored_details(connection)
+
+        gateway.script_page(3, _page(3, _summary("BV1DETAIL"), observed_total=1))
+        gateway.script_page(4, _page(4, observed_total=1))
+        ingestor.collect_user_pages(MID, start_page=3)
+        second = _stored_details(connection)
+
+        assert (
+            connection.execute(
+                "SELECT COUNT(*) FROM video_details WHERE bvid = ?",
+                ("BV1DETAIL",),
+            ).fetchone()[0]
+            == 1
+        )
+        assert first is not None and second is not None
+        assert second[3] > first[3], "observed_at must advance on a real observation"
+        assert second[:3] == first[:3]
+    finally:
+        connection.close()
+
+
+def test_all_null_observation_leaves_the_row_and_its_stamp_untouched(
+    tmp_root, _ingest_clock
+):
+    """Compass D15: the stamp means "last *successful* collection".
+
+    The three value columns are nullable, so an unconditional
+    ``DO UPDATE SET`` would blank a populated row and stamp it as fresh —
+    recording "nothing was true at T" where the collection established no such
+    thing.  The second run below observes none of ``pic``/``desc``/``tid``; the
+    row must survive it verbatim, ``observed_at`` included.
+    """
+
+    gateway = FakeGateway()
+    gateway.script_parts("BV1DETAIL", (_part("BV1DETAIL", 0),))
+    connection = open_database(tmp_root)
+    repository = MetadataRepository(connection)
+    ingestor = _ingestor(gateway, repository)
+    try:
+        gateway.script_page(1, _page(1, _summary("BV1DETAIL"), observed_total=1))
+        gateway.script_page(2, _page(2, observed_total=1))
+        ingestor.collect_user_pages(MID, start_page=1)
+        observed = _stored_details(connection)
+
+        # The same video, observed again with none of the three values.
+        gateway.script_page(
+            3,
+            _page(
+                3,
+                _summary("BV1DETAIL", pic=None, desc=None, tid=None),
+                observed_total=1,
+            ),
+        )
+        gateway.script_page(4, _page(4, observed_total=1))
+        ingestor.collect_user_pages(MID, start_page=3)
+
+        assert observed is not None
+        assert _stored_details(connection) == observed
+    finally:
+        connection.close()
+
+
+def test_all_null_observation_writes_no_row_for_a_video_that_has_none(tmp_root):
+    """D15's second half: "untouched" may not be satisfied by a row of NULLs.
+
+    A bvid whose only observation carries none of the three values has had
+    nothing written about it, so the table must hold no row at all.  Without
+    this case, "leaves the row untouched" would pass for an implementation
+    that inserts an all-``NULL`` row with a fresh stamp and never updates it.
+    """
+
+    gateway = FakeGateway()
+    gateway.script_page(
+        1,
+        _page(
+            1,
+            _summary("BV1NOFIELDS", pic=None, desc=None, tid=None),
+            observed_total=1,
+        ),
+    )
+    gateway.script_parts("BV1NOFIELDS", (_part("BV1NOFIELDS", 0),))
+    gateway.script_page(2, _page(2, observed_total=1))
+    connection = open_database(tmp_root)
+    repository = MetadataRepository(connection)
+    try:
+        _ingestor(gateway, repository).collect_user_pages(MID, start_page=1)
+
+        assert (
+            connection.execute(
+                "SELECT COUNT(*) FROM video_details WHERE bvid = ?",
+                ("BV1NOFIELDS",),
+            ).fetchone()[0]
+            == 0
+        )
+        # The video row itself still landed: the absence is the details row's,
+        # not a page that failed to persist.
+        assert (
+            connection.execute(
+                "SELECT COUNT(*) FROM videos WHERE bvid = ?", ("BV1NOFIELDS",)
+            ).fetchone()[0]
+            == 1
+        )
+    finally:
+        connection.close()
+
+
+def test_partial_observation_refreshes_only_the_values_it_carried(
+    tmp_root, _ingest_clock
+):
+    """One observed value is enough to refresh the row, NULLs included (D15).
+
+    The guard's condition is "observed **at least one** of the three", not "all
+    three": an item carrying only ``pic`` is a successful observation and the
+    row is refreshed to exactly what it carried, so a field upstream really did
+    drop does not survive as a stale value.  This is the arm that keeps D15
+    from being read as "never overwrite a populated column".
+
+    The stamp is asserted too, because a partial observation is an observation
+    (D11's "a later collection overwrites it"): a guard that advanced
+    ``observed_at`` only on a *full* observation would satisfy every value
+    assertion above while leaving the row claiming the older collection.
+    """
+
+    gateway = FakeGateway()
+    gateway.script_parts("BV1DETAIL", (_part("BV1DETAIL", 0),))
+    connection = open_database(tmp_root)
+    repository = MetadataRepository(connection)
+    ingestor = _ingestor(gateway, repository)
+    try:
+        gateway.script_page(1, _page(1, _summary("BV1DETAIL"), observed_total=1))
+        gateway.script_page(2, _page(2, observed_total=1))
+        ingestor.collect_user_pages(MID, start_page=1)
+        first = _stored_details(connection)
+
+        gateway.script_page(
+            3,
+            _page(
+                3,
+                _summary(
+                    "BV1DETAIL", pic="http://i1.hdslb.com/bfs/archive/new.jpg",
+                    desc=None, tid=None,
+                ),
+                observed_total=1,
+            ),
+        )
+        gateway.script_page(4, _page(4, observed_total=1))
+        ingestor.collect_user_pages(MID, start_page=3)
+
+        stored = _stored_details(connection)
+        assert stored is not None
+        assert first is not None
+        assert stored[:3] == (
+            "http://i1.hdslb.com/bfs/archive/new.jpg",
+            None,
+            None,
+        )
+        assert stored[3] > first[3], (
+            "a partial observation is still an observation: the stamp moves"
+        )
+    finally:
+        connection.close()
+
+
+def test_video_details_land_through_the_pinned_adapter(tmp_root, bilibili_api_seam):
+    """The seam-driven path: the adapter's own keys reach the details table.
+
+    The scripted item is built by ``make_vlist_item``, so the three literal
+    defaults this table reads are the fixture's documented vlist shape rather
+    than values the test wrote next to the assertion.  The item carries **no
+    aid**, so the run takes the ``get_completed_video_summary`` rebuild between
+    the page boundary and the repository — the same path Task 1's ``author``
+    regression travelled — and the fields must survive it.
+    """
+
+    bilibili_api_seam.videos_response = make_videos_response(
+        make_vlist_item(
+            bvid="BV1DETAILSD0",
+            aid=None,
+            typeid=124,
+            pic="http://i1.hdslb.com/bfs/archive/cover.jpg",
+            description="哲学讲座简介",
+        ),
+        count=1,
+    )
+    bilibili_api_seam.info_response = make_detail_response(bvid="BV1DETAILSD0")
+    bilibili_api_seam.parts_response = [make_part_item(cid=2222)]
+    connection = open_database(tmp_root)
+    repository = MetadataRepository(connection)
+    try:
+        MetadataIngestor(_seam_gateway(), repository).collect_user_pages(
+            MID, start_page=1, page_limit=1
+        )
+
+        row = connection.execute(
+            'SELECT bvid, pic, "desc", tid FROM video_details'
+        ).fetchone()
+        assert tuple(row) == (
+            "BV1DETAILSD0",
+            "http://i1.hdslb.com/bfs/archive/cover.jpg",
+            "哲学讲座简介",
+            124,
+        )
+        # The rebuild really ran: the aid it filled is stored, so the row above
+        # is the post-rebuild one rather than a page that never took that path.
+        assert tuple(
+            connection.execute(
+                "SELECT aid FROM videos WHERE bvid = 'BV1DETAILSD0'"
+            ).fetchone()
+        ) == (111,)
+        assert "video.get_info" in bilibili_api_seam.calls
+    finally:
+        connection.close()
+
+
+def test_video_details_land_from_the_fixture_defaults(tmp_root, bilibili_api_seam):
+    """The case above overrides the three; this one reads them un-overridden.
+
+    ``test_video_details_land_through_the_pinned_adapter`` passes its own
+    ``typeid``/``pic``/``description``, so deleting the fixture's literal
+    defaults would leave it — and the whole suite — green, and the brief's
+    "otherwise the test proves only that the normalizer can read a dictionary
+    the test itself invented" would be satisfied on paper rather than in the
+    store.  Here the item is ``make_vlist_item`` with **no** override of the
+    three, and the assertion is on the literal defaults themselves, so the
+    fixture's documented vlist shape is what the row must hold: dropping a
+    default from the fixture turns this red.
+    """
+
+    bilibili_api_seam.videos_response = make_videos_response(
+        make_vlist_item(bvid="BV1DEFAULTS0", aid=None),
+        count=1,
+    )
+    bilibili_api_seam.info_response = make_detail_response(bvid="BV1DEFAULTS0")
+    bilibili_api_seam.parts_response = [make_part_item(cid=2222)]
+    connection = open_database(tmp_root)
+    repository = MetadataRepository(connection)
+    try:
+        MetadataIngestor(_seam_gateway(), repository).collect_user_pages(
+            MID, start_page=1, page_limit=1
+        )
+
+        row = connection.execute(
+            'SELECT bvid, pic, "desc", tid FROM video_details'
+        ).fetchone()
+        assert tuple(row) == (
+            "BV1DEFAULTS0",
+            "http://i1.hdslb.com/bfs/archive/367e793f720ea124722f970965a2db1ba3a733a7.jpg",
+            "哲学讲座简介",
+            124,
         )
     finally:
         connection.close()

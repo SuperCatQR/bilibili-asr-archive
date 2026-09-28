@@ -183,6 +183,116 @@ def test_export_csv_with_text(tmp_root, capsys):
     assert by_id["BV1meta:p0"]["transcript_text"] == ""
 
 
+#: Every standard column, written out rather than derived from
+#: ``STANDARD_CSV_COLUMNS``: a pin that reads the constant it is checking cannot
+#: fail when the constant changes — a reader who re-adds a key to the wrong place
+#: still sees this list, and the literal is what makes that visible.
+#: ``video_title`` sits at index 6, directly after ``title`` (index 5), so every
+#: column that existed before keeps its relative order and the two titles read as
+#: the pair compass **D5** says they are.
+EXPECTED_CSV_HEADER = [
+    "work_id", "bvid", "page_index", "cid", "page_label",
+    "title", "video_title",
+    "status", "duration_s", "pubdate", "source",
+    "srt_path", "txt_path", "md_path", "raw_path", "audio_path",
+]
+
+
+def _export_row(bvid: str, *, video_title: str | None = None) -> dict:
+    """One row carrying **every** standard column, so the header is the full set.
+
+    ``format_csv_export`` writes a standard column only when some row's keys hold
+    it (``fieldnames`` filters ``STANDARD_CSV_COLUMNS`` by ``seen_keys``), so a
+    sparse fixture would pin a *sub*set and could not tell a standard column from
+    a reordered one.  The path values need not exist on disk — the guard asks
+    whether the value resolves under the base, not whether the file is there.
+    """
+
+    row = {
+        "bvid": bvid, "work_id": f"{bvid}:p0", "page_index": 0, "cid": 7,
+        "page_label": "P1", "title": "哲学课3", "status": "archived",
+        "duration_s": 10, "pubdate": 1600000000, "source": "asr",
+        "srt_path": f"transcripts/srt/{bvid}.p0.srt",
+        "txt_path": f"transcripts/txt/{bvid}.p0.txt",
+        "md_path": f"transcripts/md/{bvid}.p0.md",
+        "raw_path": f"transcripts/raw/{bvid}.p0.json",
+        "audio_path": f"audio/{bvid}.p0.m4a",
+    }
+    if video_title is not None:
+        row["video_title"] = video_title
+    return row
+
+
+def test_export_csv_carries_the_video_title_beside_the_part_title(tmp_root):
+    """The CSV surface carries ``video_title`` as a standard column beside ``title``.
+
+    Compass **D5** makes ``title`` the part's own name and ``video_title`` the
+    video's; the pair is the measured one, not a fabricated one — the live
+    ``BV18XXcBnEz6`` part is ``哲学课3`` inside a video titled
+    ``【哲学进阶】现代哲学 第二讲``, and 10 of the 63 stored parts diverge this
+    way.  Both halves are asserted on the same row, because a writer that emitted
+    the part title twice would satisfy either one alone.
+
+    Expected: the header is exactly ``EXPECTED_CSV_HEADER`` — ``video_title`` at
+    index 6, ``title`` at 5, everything else keeping its shipped order — and the
+    row's ``title`` reads ``哲学课3`` while its ``video_title`` reads
+    ``【哲学进阶】现代哲学 第二讲``.  Observed before the change: the key was
+    absent from ``STANDARD_CSV_COLUMNS``, so the sanitizer passed it through as a
+    *custom* key and the header carried it **last**, at index **15** after
+    ``audio_path`` — away from the part title it belongs beside.  The equality
+    below reports that as ``At index 6 diff: 'status' != 'video_title'``.
+    """
+
+    ManifestStore(root=tmp_root).upsert(
+        _export_row("BV1vtitle", video_title="【哲学进阶】现代哲学 第二讲")
+    )
+
+    reader = csv.DictReader(io.StringIO(export_manifest(tmp_root, "csv")))
+    assert reader.fieldnames == EXPECTED_CSV_HEADER
+    # And the literal above is the constant's own order, so the pin cannot drift
+    # away from what the module declares.
+    assert EXPECTED_CSV_HEADER == list(STANDARD_CSV_COLUMNS)
+
+    rows = list(reader)
+    assert len(rows) == 1
+    assert rows[0]["title"] == "哲学课3"                          # part title
+    assert rows[0]["video_title"] == "【哲学进阶】现代哲学 第二讲"  # video title
+    # Distinguishable, so a writer that echoed the part title into both fails.
+    assert rows[0]["title"] != rows[0]["video_title"]
+
+
+def test_export_csv_leaves_the_video_title_cell_empty_for_a_row_without_one(tmp_root):
+    """A row with no ``video_title`` takes an empty cell, not a second header shape.
+
+    The chain/ASR path's rows carry no ``video_title`` until the manifest half
+    lands (``row_for_part``'s nine fields), so a mixed export must stay readable
+    by a consumer that reads the header once: this is the CSV reading of the same
+    statement the md side pins as a uniform key set
+    (``test_write_archive_publishes_a_uniform_key_set_without_a_video_title``).
+
+    Expected: with one enriched row present, the header is the full
+    ``EXPECTED_CSV_HEADER`` — the same 16 columns as the case above — the
+    enriched row carries its title and the other row's cell is ``""``.  Observed
+    before the change: the equality failed at index 6 exactly as its sibling does,
+    because the column arrived as a trailing custom key; the two rows share one
+    header, so the missing value is the only difference this case can and does
+    hold.
+    """
+
+    store = ManifestStore(root=tmp_root)
+    store.upsert(_export_row("BV1vtitle", video_title="【哲学进阶】现代哲学 第二讲"))
+    store.upsert(_export_row("BV1novtitle"))
+
+    reader = csv.DictReader(io.StringIO(export_manifest(tmp_root, "csv")))
+    assert reader.fieldnames == EXPECTED_CSV_HEADER
+
+    by_id = {row["work_id"]: row for row in reader}
+    assert by_id["BV1vtitle:p0"]["video_title"] == "【哲学进阶】现代哲学 第二讲"
+    assert by_id["BV1novtitle:p0"]["video_title"] == ""
+    # The part title is unaffected on the row that has no video title.
+    assert by_id["BV1novtitle:p0"]["title"] == "哲学课3"
+
+
 def test_export_out_file(tmp_root):
     """bili-asr export --format json|csv --out <path> writes to output file."""
     _create_sample_archive_for_export(tmp_root)
