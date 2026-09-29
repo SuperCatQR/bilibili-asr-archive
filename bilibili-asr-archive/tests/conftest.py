@@ -13,6 +13,11 @@ import os
 import sys
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "src")))
+# ``scripts/`` (verify_baseline, check_asr_env, ...) is an importable namespace
+# package rooted at the repo; without the repo root on ``sys.path`` the two test
+# modules that import it fail collection with ``ModuleNotFoundError: No module
+# named 'scripts'``.
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 _TEST_TMP_BASE = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".test-tmp"))
 _counter = itertools.count()

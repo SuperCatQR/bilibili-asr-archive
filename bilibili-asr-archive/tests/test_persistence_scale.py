@@ -30,6 +30,19 @@ from bili_asr.path_policy import confined_audio_file, confined_audio_path
 
 
 
+#: The trusted-scale probe builds tens of thousands of manifest/attempt rows and
+#: then runs the integrity/coverage readers over them, so it is slow by
+#: construction (~100s).  It stays in the suite but runs only when the operator
+#: opts in with ``BILI_SCALE=1`` (the same opt-in shape as the live smokes); a
+#: default run skips it so the fast unit baseline stays fast.
+SCALE_ENV_VAR = "BILI_SCALE"
+
+
+def _require_scale_env() -> None:
+    if os.environ.get(SCALE_ENV_VAR) != "1":
+        pytest.skip(f"scale probe is opt-in: set {SCALE_ENV_VAR}=1 to run it")
+
+
 def _row(work_id: str, status: str = "pending") -> dict[str, object]:
     bvid = work_id.split(":", 1)[0]
     return {
@@ -160,6 +173,7 @@ AttemptLedger(root).append({"stage": "archive", "work_id": "same:p0", "attempt":
 def test_trusted_scale_fixture_exposes_current_record_limits(
     tmp_path: Path, capsys
 ) -> None:
+    _require_scale_env()
     manifest = tmp_path / "manifest" / "manifest.jsonl"
     manifest.parent.mkdir()
     manifest.write_text("".join(json.dumps(_row(f"BV{i}:p0")) + "\n" for i in range(10001)), encoding="utf-8")
