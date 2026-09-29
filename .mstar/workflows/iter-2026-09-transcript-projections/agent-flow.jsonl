@@ -1,0 +1,56 @@
+{"v":1,"ts":1789908467178,"kind":"dispatch","agent":"session-34418add-e374-4599-bc6e-b05e88041ed0","role":"","verdict":"advisory","hard":false}
+{"v":1,"ts":1789908951594,"kind":"settle","agent":"session-34418add-e374-4599-bc6e-b05e88041ed0","outcome":"ok","role":"","childId":"4f4b996f-7cee-4b81-b066-4f2ade646775"}
+{"v":1,"ts":1789908996360,"kind":"dispatch","agent":"session-34418add-e374-4599-bc6e-b05e88041ed0","role":"","verdict":"advisory","hard":false}
+{"v":1,"ts":1789909983199,"kind":"settle","agent":"session-34418add-e374-4599-bc6e-b05e88041ed0","outcome":"ok","role":"","childId":"7dfab485-481f-4026-82d5-ce26c8103c4c"}
+{"v":1,"ts":1789909999856,"kind":"dispatch","agent":"session-34418add-e374-4599-bc6e-b05e88041ed0","role":"","verdict":"advisory","hard":false}
+{"v":1,"ts":1789910626833,"kind":"settle","agent":"session-34418add-e374-4599-bc6e-b05e88041ed0","outcome":"ok","role":"","childId":"c6b285f7-abea-413a-aa11-b5af143558db"}
+{"v":1,"ts":1789910866927,"kind":"dispatch","agent":"session-34418add-e374-4599-bc6e-b05e88041ed0","role":"","verdict":"advisory","hard":false}
+{"v":1,"ts":1789911092415,"kind":"settle","agent":"session-34418add-e374-4599-bc6e-b05e88041ed0","outcome":"ok","role":"","childId":"e29a0764-5443-49ad-acb1-2f0f641e5410"}
+{"v":1,"ts":1789911109153,"kind":"dispatch","agent":"session-34418add-e374-4599-bc6e-b05e88041ed0","role":"","verdict":"advisory","hard":false}
+{"v":1,"ts":1789911266180,"kind":"settle","agent":"session-34418add-e374-4599-bc6e-b05e88041ed0","outcome":"ok","role":"","childId":"a6fd5526-987d-4312-afc2-9a690b82a272"}
+{"v":1,"ts":1789911286210,"kind":"dispatch","agent":"session-34418add-e374-4599-bc6e-b05e88041ed0","role":"","verdict":"advisory","hard":false}
+{"v":1,"ts":1789911674424,"kind":"settle","agent":"session-34418add-e374-4599-bc6e-b05e88041ed0","outcome":"ok","role":"","childId":"88f1c308-13d5-4541-84c6-2ec975dc94dc"}
+{"v":1,"ts":1789911686509,"kind":"dispatch","agent":"session-34418add-e374-4599-bc6e-b05e88041ed0","role":"","verdict":"advisory","hard":false}
+{"v":1,"ts":1789911836642,"kind":"settle","agent":"session-34418add-e374-4599-bc6e-b05e88041ed0","outcome":"ok","role":"","childId":"3a3ea2b5-cf60-42f2-8326-579e0c9bb70f"}
+{"v":1,"ts":1789911855609,"kind":"dispatch","agent":"session-34418add-e374-4599-bc6e-b05e88041ed0","role":"","verdict":"advisory","hard":false}
+{"v":1,"ts":1789912242688,"kind":"settle","agent":"session-34418add-e374-4599-bc6e-b05e88041ed0","outcome":"ok","role":"","childId":"13d49eac-5a13-41ad-bdf8-a3215ec5214f"}
+{"v":1,"ts":1789912252295,"kind":"dispatch","agent":"session-34418add-e374-4599-bc6e-b05e88041ed0","role":"","verdict":"advisory","hard":false}
+{"v":1,"ts":1789912407156,"kind":"settle","agent":"session-34418add-e374-4599-bc6e-b05e88041ed0","outcome":"ok","role":"","childId":"14777be2-7a9a-418c-a7c0-5c823d4587ee"}
+{"v":1,"ts":1789912419763,"kind":"dispatch","agent":"session-34418add-e374-4599-bc6e-b05e88041ed0","role":"","verdict":"advisory","hard":false}
+{"v":1,"ts":1789912655296,"kind":"settle","agent":"session-34418add-e374-4599-bc6e-b05e88041ed0","outcome":"ok","role":"","childId":"ebbccddb-39a4-460e-a7bb-9c960521a4a6"}
+{"v":1,"ts":1789912677339,"kind":"dispatch","agent":"session-34418add-e374-4599-bc6e-b05e88041ed0","role":"","verdict":"advisory","hard":false}
+{"v":1,"ts":1789912677393,"kind":"subagent-link","agent":"session-34418add-e374-4599-bc6e-b05e88041ed0","childId":"a7d617d7-06cf-4550-a727-aef67a761df0","label":"T3 fix re-review","role":""}
+{"v":1,"ts":1789912687112,"kind":"dispatch","agent":"session-34418add-e374-4599-bc6e-b05e88041ed0","role":"","verdict":"advisory","hard":false}
+{"v":1,"ts":1789912687160,"kind":"subagent-link","agent":"session-34418add-e374-4599-bc6e-b05e88041ed0","childId":"d40a7f01-9f45-4e1f-b0c0-e9af804f93d3","label":"SDD implement Task 4","role":""}
+{"v":1,"ts":1789913500090,"kind":"dispatch","agent":"session-34418add-e374-4599-bc6e-b05e88041ed0","role":"","verdict":"advisory","hard":false}
+{"v":1,"ts":1789913500098,"kind":"dispatch","agent":"session-34418add-e374-4599-bc6e-b05e88041ed0","role":"","verdict":"advisory","hard":false}
+{"v":1,"ts":1789913500182,"kind":"subagent-link","agent":"session-34418add-e374-4599-bc6e-b05e88041ed0","childId":"258bb727-1833-4b42-90db-f51e5a0a374d","label":"L2 review Task 4","role":""}
+{"v":1,"ts":1789913500183,"kind":"subagent-link","agent":"session-34418add-e374-4599-bc6e-b05e88041ed0","childId":"b96ce129-c0e1-4ace-8e6f-3be8726baa78","label":"SDD implement Task 5","role":""}
+{"v":1,"ts":1789914040961,"kind":"dispatch","agent":"session-34418add-e374-4599-bc6e-b05e88041ed0","role":"","verdict":"advisory","hard":false}
+{"v":1,"ts":1789914040968,"kind":"dispatch","agent":"session-34418add-e374-4599-bc6e-b05e88041ed0","role":"","verdict":"advisory","hard":false}
+{"v":1,"ts":1789914041039,"kind":"subagent-link","agent":"session-34418add-e374-4599-bc6e-b05e88041ed0","childId":"231c861b-1efd-41a7-9757-5d39dc6afca9","label":"L2 review Task 5","role":""}
+{"v":1,"ts":1789914041040,"kind":"subagent-link","agent":"session-34418add-e374-4599-bc6e-b05e88041ed0","childId":"0773e8bd-5f3a-430b-a0bc-758630e5501e","label":"SDD implement Task 7","role":""}
+{"v":1,"ts":1789914287725,"kind":"dispatch","agent":"session-34418add-e374-4599-bc6e-b05e88041ed0","role":"","verdict":"advisory","hard":false}
+{"v":1,"ts":1789914287732,"kind":"dispatch","agent":"session-34418add-e374-4599-bc6e-b05e88041ed0","role":"","verdict":"advisory","hard":false}
+{"v":1,"ts":1789914287810,"kind":"subagent-link","agent":"session-34418add-e374-4599-bc6e-b05e88041ed0","childId":"e69e9662-d5d3-4110-99b2-0036bae28902","label":"L2 review Task 7","role":""}
+{"v":1,"ts":1789914287825,"kind":"subagent-link","agent":"session-34418add-e374-4599-bc6e-b05e88041ed0","childId":"9350a09f-2ca3-4fbf-871b-34f4f328aef7","label":"SDD implement Task 6","role":""}
+{"v":1,"ts":1789914856052,"kind":"dispatch","agent":"session-34418add-e374-4599-bc6e-b05e88041ed0","role":"","verdict":"advisory","hard":false}
+{"v":1,"ts":1789914856131,"kind":"subagent-link","agent":"session-34418add-e374-4599-bc6e-b05e88041ed0","childId":"4c7d521e-4ccc-43c4-bf96-6b09ae5df5e5","label":"L2 review Task 6","role":""}
+{"v":1,"ts":1789947635943,"kind":"dispatch","agent":"session-34418add-e374-4599-bc6e-b05e88041ed0","role":"","verdict":"advisory","hard":false}
+{"v":1,"ts":1789947635951,"kind":"dispatch","agent":"session-34418add-e374-4599-bc6e-b05e88041ed0","role":"","verdict":"advisory","hard":false}
+{"v":1,"ts":1789947635956,"kind":"dispatch","agent":"session-34418add-e374-4599-bc6e-b05e88041ed0","role":"","verdict":"advisory","hard":false}
+{"v":1,"ts":1789947636068,"kind":"subagent-link","agent":"session-34418add-e374-4599-bc6e-b05e88041ed0","childId":"ff4ceffb-826b-4c1c-ad40-247c8997c8c2","label":"QC seat 1 architecture","role":""}
+{"v":1,"ts":1789947636070,"kind":"subagent-link","agent":"session-34418add-e374-4599-bc6e-b05e88041ed0","childId":"5ac13a07-e5c8-437a-9115-5b91f9b9330d","label":"QC seat 2 correctness","role":""}
+{"v":1,"ts":1789947636071,"kind":"subagent-link","agent":"session-34418add-e374-4599-bc6e-b05e88041ed0","childId":"f59c488b-a909-4d38-bfbd-22c5450bcad1","label":"QC seat 3 reliability","role":""}
+{"v":1,"ts":1789948870246,"kind":"dispatch","agent":"session-34418add-e374-4599-bc6e-b05e88041ed0","role":"","verdict":"advisory","hard":false}
+{"v":1,"ts":1789948870343,"kind":"subagent-link","agent":"session-34418add-e374-4599-bc6e-b05e88041ed0","childId":"8abab156-efca-42e1-a29e-31f2f11fa2a5","label":"QC fix wave CW-1..CW-3","role":""}
+{"v":1,"ts":1789949166087,"kind":"dispatch","agent":"session-34418add-e374-4599-bc6e-b05e88041ed0","role":"","verdict":"advisory","hard":false}
+{"v":1,"ts":1789949166095,"kind":"dispatch","agent":"session-34418add-e374-4599-bc6e-b05e88041ed0","role":"","verdict":"advisory","hard":false}
+{"v":1,"ts":1789949166099,"kind":"dispatch","agent":"session-34418add-e374-4599-bc6e-b05e88041ed0","role":"","verdict":"advisory","hard":false}
+{"v":1,"ts":1789949166203,"kind":"subagent-link","agent":"session-34418add-e374-4599-bc6e-b05e88041ed0","childId":"54c6a2eb-a551-4ff9-b633-a779e936fd44","label":"QC1 revalidation","role":""}
+{"v":1,"ts":1789949166220,"kind":"subagent-link","agent":"session-34418add-e374-4599-bc6e-b05e88041ed0","childId":"5d08de9f-41f7-4f34-b4b3-3337f1a02684","label":"QC2 revalidation","role":""}
+{"v":1,"ts":1789949166221,"kind":"subagent-link","agent":"session-34418add-e374-4599-bc6e-b05e88041ed0","childId":"8d95b9cf-fd45-458c-ad29-f82d33319b0c","label":"QC3 revalidation","role":""}
+{"v":1,"ts":1789949390788,"kind":"dispatch","agent":"session-34418add-e374-4599-bc6e-b05e88041ed0","role":"","verdict":"advisory","hard":false}
+{"v":1,"ts":1789949390853,"kind":"subagent-link","agent":"session-34418add-e374-4599-bc6e-b05e88041ed0","childId":"ab269190-602b-4281-a026-98506b9a99f4","label":"QA gate targeted","role":""}
+{"v":1,"ts":1789950067042,"kind":"dispatch","agent":"session-34418add-e374-4599-bc6e-b05e88041ed0","role":"","verdict":"advisory","hard":false}
+{"v":1,"ts":1789950067107,"kind":"subagent-link","agent":"session-34418add-e374-4599-bc6e-b05e88041ed0","childId":"86e0fe67-50ae-4dad-9d4d-0250699daf80","label":"QA gate targeted retry","role":""}

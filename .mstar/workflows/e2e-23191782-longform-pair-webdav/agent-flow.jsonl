@@ -1,0 +1,2 @@
+{"v":1,"ts":1789875491145,"kind":"dispatch","agent":"session-34418add-e374-4599-bc6e-b05e88041ed0","role":"","verdict":"advisory","hard":false}
+{"v":1,"ts":1789875491227,"kind":"subagent-link","agent":"session-34418add-e374-4599-bc6e-b05e88041ed0","childId":"5f4ce155-4f2f-4f4e-8811-7c4acc3d4d26","label":"E2E run on target GPU host","role":""}

@@ -1,0 +1,90 @@
+{
+  "schema_version": 1,
+  "id": "iter-2026-09-qwen3-asr-closeout",
+  "type": "iteration",
+  "status": "completed",
+  "started_at": "2026-09-25",
+  "updated_at": "2026-09-26",
+  "ended_at": "2026-09-26",
+  "phase": "phase-6-post-merge-close",
+  "branch": {
+    "base": "main",
+    "integration": "iteration/iter-2026-09-qwen3-asr-closeout",
+    "target": "main"
+  },
+  "plans": [
+    {
+      "id": "20260924-qwen3-asr-transformers",
+      "title": "Close out the Qwen3-ASR engine switch: the two-arm hotword measurement, the D12 provenance record for the three legacy-engine artifacts, and the four decisions the plan left unlocked",
+      "file": "/root/workspace/bilibili-asr-archive/.mstar/plans/20260924-qwen3-asr-transformers.md",
+      "status": "Done",
+      "owner": "project-manager",
+      "agents": [
+        "fullstack-dev"
+      ],
+      "progress": 100,
+      "tags": [
+        "asr",
+        "engine",
+        "measurement",
+        "verification"
+      ],
+      "metadata": {
+        "iteration_refs": [
+          "iter-2026-09-qwen3-asr-closeout"
+        ],
+        "spec_integration_branch": "iteration/iter-2026-09-qwen3-asr-closeout",
+        "merge_target": "iteration/iter-2026-09-qwen3-asr-closeout",
+        "primary_spec": ".mstar/specs/asr-archive-cli.md",
+        "main_worktree_branch": "main"
+      },
+      "created_at": "2026-09-24",
+      "updated_at": "2026-09-25",
+      "notes": "T5 ran on the frozen six 2026-09-26 and returned PARTIAL (R=0 I=0 U=0; P6 fail with a hand-read prompted-arm degeneration; E=7 makes P1/P2 uninformative by P9). T6 done (7b86882). The high residual 20260922-proofread-wave R1 is closed. §14 item 4 (real-machine CLI E2E) remains deferred by the operator, which is why the plan is not Done.",
+      "task_commits": [
+        {
+          "sha": "0a95035",
+          "summary": "fix(asr): read the .m4a/AAC the archive's own downloader writes"
+        },
+        {
+          "sha": "83ba8d0",
+          "summary": "fix(asr): restore the hotword list the README documents"
+        },
+        {
+          "sha": "7b86882",
+          "summary": "docs(readme): record the archive's two-engine state, and what decodes .m4a"
+        }
+      ],
+      "done_at": "2026-09-26"
+    }
+  ],
+  "plan_parallelism": "serial",
+  "compass_ref": ".mstar/iterations/iter-2026-09-qwen3-asr-closeout/delivery-compass.md",
+  "integration_worktree_path": "/root/workspace/bilibili-asr-archive/.worktrees/iter-2026-09-qwen3-asr-closeout-integration",
+  "delivery_kind": "development",
+  "delivery": {
+    "compound": {
+      "outcome": "updated",
+      "reason": "Package inventoried (9 files: 2 promoted as referenced tooling, 7 kept as snapshot records); two knowledge docs extended rather than created, per the compound skill's Q5 high-overlap rule — testing-patterns/hotword-list-measurement.md (the 2026-09-26 round, the byte-anchored restore correction, five further traps) and best-practices/premise-freshness-before-lock.md (the irreversible case). Both PASS mstar_compound_validate against repo_root. Recorded in the compass `## Compound Round Summary` and committed as 84e9767."
+    },
+    "pr": {
+      "repo": "SuperCatQR/bilibili-asr-archive",
+      "head": "iteration/iter-2026-09-qwen3-asr-closeout",
+      "target": "main"
+    },
+    "merge": {
+      "provider": "github",
+      "evidence": "PR #19 merged 2026-09-26T18:19:24Z as merge commit 1f2dcd0a62d1 on main (verified: origin/main resolves to 1f2dcd0 with 84e9767 as its parent). Merged over the review's `blocked` verdict by explicit operator authorization; the must-fix is carried as residual `_default · R5` (high) with fix plan .mstar/plans/audit-2026-09-26/001-fix-aac-decode-contract.md."
+    }
+  },
+  "notes": [
+    "Phase 1 in flight: compass status 'active' until the review-and-edit chain closes and the PM locks it (mstar-iteration phase-1 reference 1.6).",
+    "Main worktree branch: main (control root stays on main; the reviewed Phase-1 documents are committed on the integration branch from its own worktree, mstar-iteration phase-2 reference 2.3 step 7).",
+    "Environment note: no mstar CLI is installed on the control host (the host command layer is absent), so every engine lifecycle write in this iteration is hand-written to the frozen contract's schema and validated against the engine's own validator before it is treated as landed.",
+    "Phase 1 closed 2026-09-25: compass status=locked after the product-manager -> architect -> writing-specialist review-and-edit chain (each role one invoke, no chain-owned marker left); integration worktree created at .worktrees/iter-2026-09-qwen3-asr-closeout-integration on branch iteration/iter-2026-09-qwen3-asr-closeout from main (9d530cd), pushed, remote tip == live HEAD. The publish transfer set was EMPTY: every artifact this chain produced lives under the gitignored .mstar/ tree (plans, iterations, workflows, status.json), and .mstar/specs/ + .mstar/knowledge/ were not modified (spec sha256 unchanged 3509282f...). No Phase-1 docs were committed because none are tracked.",
+    "Plan Done 2026-09-26: T5 PARTIAL (R=0 I=0 U=0; P6 fail hand-read; E=7 => P1/P2 uninformative), T6 done, high residual 20260922-proofread-wave R1 closed. Merged into the integration branch as d273242 and pushed. The real-machine CLI E2E stays deferred and is the next iteration's first work per the compass Roadmap Position.",
+    "Phase 4/5 2026-09-26: PR #19 opened (iteration/iter-2026-09-qwen3-asr-closeout -> main) and is mergeable with a clean state; the repo configures no CI and no review threads exist, so the merge-ready gates are satisfied vacuously. Phase 6 has NOT run: the merge itself is the operator's, and until it lands the iteration is not delivered.",
+    "Phase 6 post-merge close 2026-09-26: PR #19 verified merged as 1f2dcd0 (18:19:24Z); terminal snapshot written, root registration removed. The deep PR review returned `blocked` (1 must-fix / 5 should-fix / 6 nits) and the operator authorized merging anyway to land the iteration; the must-fix is registered as `_default · R5` (high) and deliberately left OPEN — reconciliation does not close real findings to make a lifecycle look clean.",
+    "Open residual carried out of this lifecycle: iter-2026-09-qwen3-asr-closeout R5 (high) — the .m4a codec fallback is inert under the librosa the repo's declarations resolve; fix plan .mstar/plans/audit-2026-09-26/001-fix-aac-decode-contract.md (P1). Left open by design: it was found by the post-close PR review, the operator authorized merging with it open, and reconciliation does not close real findings. Also still open and disclosed in the compass: R1 (owed .m4a fixture), R2 (owed DEFAULT_HOTWORDS pin), R3 (mount-loss class), R4 (documentation row)."
+  ]
+}

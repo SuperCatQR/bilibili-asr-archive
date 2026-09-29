@@ -3,24 +3,24 @@
 
 `scripts/validate_harness_state.py` validates every engine-read lifecycle
 document under a harness dir by delegating to the engine's own validators, plus
-a fourth leg that holds the published-set boundary (compass D11) as a ratchet
-over tracked paths. This file runs it against the real harness and against
+a fourth leg that holds the tracked-harness boundary: the harness directory
+travels with Git, so a worktree carries it, and only per-machine / per-run
+state stays local. This file runs it against the real harness and against
 scratch fixtures.
 
 **Why the negative controls are the point.** Every leg here is an *absence*
-assertion — "no document is in a violating shape", "no tracked path is outside
-the published set" — and per
+assertion — "no document is in a violating shape", "no volatile path is
+tracked" — and per
 `{KNOWLEDGE_DIR}/testing-patterns/absence-assertion-negative-control.md` an
 absence assertion is evidence only when the fixture can reach the falsifier.
 So each leg gets a control that injects the thing it negates and asserts the
 leg goes red *naming it*:
 
-  - ratchet, half one: a force-added path outside the published set → red
-    (this is the condition that produced the 11, `git add -f` against
-    `.mstar/**`; without the control the leg is an assertion that cannot fail);
-  - ratchet, half two: a fixture path on the frozen debt list → green. Without
-    this half, "the ratchet works" and "the check is simply off" are
-    indistinguishable;
+  - boundary, half one: a force-added *volatile* path (a snapshot cache, a
+    session log, a register backup, execution scratch) → red, naming it;
+  - boundary, half two: a force-added non-volatile path (a plan, an iteration
+    package README) → green. Without this half, "the boundary works" and "the
+    check is simply off" are indistinguishable;
   - register: an out-of-enum `lifecycle` entry → red, with the engine's own
     message;
   - fail-loud: an engine that cannot be reached → `NOT-VALIDATED`, never a
@@ -55,11 +55,11 @@ PACKAGE_ROOT = TESTS_DIR.parent
 REPO_ROOT = PACKAGE_ROOT.parent
 
 # The brief's discovery rule: the harness dir sits two levels up from the
-# package, i.e. `../../.mstar`. In a git worktree that path holds only the
-# tracked (published) subset — the engine documents are gitignored local
-# process artifacts and live on the control root only — so the engine legs
-# degrade to their explicit "nothing to validate" note there rather than
-# silently passing. Cases say which of the two they are looking at.
+# package, i.e. `../../.mstar`. The harness directory travels with Git (only
+# per-machine state is excluded), so a worktree carries the engine documents
+# too. A checkout that is nevertheless missing them — a pre-2026-09-29 ref, a
+# stripped export — degrades to the explicit "nothing to validate" note rather
+# than silently passing. Cases say which of the two they are looking at.
 HARNESS_DIR = REPO_ROOT / ".mstar"
 CHECKER = PACKAGE_ROOT / "scripts" / "validate_harness_state.py"
 # The checker source is data for the citation guard: its docstrings are the
@@ -68,9 +68,9 @@ _CHECKER_SOURCE = CHECKER
 
 
 def _load_checker():
-    """Import the checker so the controls read the debt list through its parser.
+    """Import the checker so the controls reach its own classification.
 
-    The fixture controls must not re-implement the symbol expansion: a second
+    The fixture controls must not re-implement the volatile-path rules: a second
     copy could drift from the one the checker uses, and then the control would
     prove something about the test rather than about the tool.
     """
@@ -286,9 +286,10 @@ def test_live_harness_snapshots_pass_the_engine():
             "exists to prevent:\n" + run.text
         )
         pytest.skip(
-            f"{HARNESS_DIR} holds no workflows/*/snapshot.json — this checkout carries the published "
-            "subset only (engine documents are gitignored local process artifacts; the control root "
-            "has them). The leg's engine path is exercised by the fixture cases below."
+            f"{HARNESS_DIR} holds no workflows/*/snapshot.json — this checkout does not carry the "
+            "engine documents (the harness travels with Git, so a checkout cut before 2026-09-29 "
+            "or one with `.mstar/` stripped has none). The leg's engine path is exercised by the "
+            "fixture cases below."
         )
 
 
@@ -306,7 +307,7 @@ def test_live_harness_root_register_passes_the_engine():
             "a leg with no documents must say so:\n" + run.text
         )
         pytest.skip(
-            f"{HARNESS_DIR} holds no status.json — this checkout carries the published subset only. "
+            f"{HARNESS_DIR} holds no status.json — this checkout does not carry the root register. "
             "The leg's engine path is exercised by the fixture cases below."
         )
 
@@ -327,8 +328,8 @@ def test_live_harness_register_leg_reports_the_engine_verdict():
     registers = sorted(projects.glob("*/residuals.json")) if projects.is_dir() else []
     if not registers:
         pytest.skip(
-            f"{HARNESS_DIR} holds no projects/*/residuals.json — this checkout carries the published "
-            "subset only. The register leg's engine path is exercised by the fixture case below."
+            f"{HARNESS_DIR} holds no projects/*/residuals.json — this checkout does not carry a "
+            "project register. The register leg's engine path is exercised by the fixture case below."
         )
 
     run = _run_checker(HARNESS_DIR)
@@ -393,25 +394,23 @@ def test_live_harness_register_leg_reports_the_engine_verdict():
     )
 
 
-def test_live_harness_ratchet_holds_the_published_set():
-    """Leg (d): no tracked harness path is outside the published set."""
+def test_live_harness_tracks_everything_but_volatile_state():
+    """Leg (d): no volatile path is tracked under the harness dir."""
     _require_harness()
     _require_checker()
     run = _run_checker(HARNESS_DIR)
     documents = run.leg("ratchet")
-    assert len(documents) == 1, "the ratchet leg reports exactly one document:\n" + run.text
+    assert len(documents) == 1, "the boundary leg reports exactly one document:\n" + run.text
     assert documents[0].state == "OK", (
-        "a tracked path outside the published set is not on the frozen debt list:\n" + run.text
+        "a volatile path (per-machine or per-run state) is tracked under the harness dir:\n"
+        + run.text
     )
     counters = run.counters
-    assert counters["new-out-of-set"] == 0, run.text
-    assert counters["published"] + counters["frozen-debt"] == counters["tracked"], (
-        "every tracked path is published or frozen debt, nothing unclassified:\n" + run.text
-    )
-    if counters["published"] == 0:
+    assert counters["volatile-tracked"] == 0, run.text
+    if counters["tracked"] == 0:
         pytest.skip(
-            f"{HARNESS_DIR} tracks no published path at all — nothing for the boundary to hold "
-            "(the fixture cases below exercise the ratchet itself)."
+            f"{HARNESS_DIR} tracks no path at all — nothing for the boundary to hold "
+            "(the fixture cases below exercise the boundary itself)."
         )
 
 
@@ -420,19 +419,18 @@ def test_live_harness_run_matches_its_per_document_verdicts():
 
     Today the register's engine verdict is dirty, so the run exits 1 and the
     register must be the *only* failing document — a snapshot or the root
-    register failing here is a regression, not the known register debt. Once
-    Task 2 lands, the engine's verdict on the register is clean and this case's
-    first branch asserts the brief's exit 0 over the real harness. That flip is
-    the point of writing the expectation on the engine's verdict rather than on
-    today's state.
+    register failing here is a regression. The engine's verdict on the register
+    is clean, so this case's first branch asserts the brief's exit 0 over the
+    real harness — the expectation is written on the engine's verdict rather
+    than on today's state.
     """
     _require_harness()
     _require_engine()
     run = _run_checker(HARNESS_DIR)
     failing_legs = {d.leg for d in run.failing()}
     assert failing_legs <= {"registers"}, (
-        "only the register leg may be failing before Task 2 corrects the register; snapshots, the "
-        "root register and the ratchet are expected clean:\n" + run.text
+        "only the register leg may be failing; snapshots, the root register and the tracked-harness "
+        "boundary are expected clean:\n" + run.text
     )
     assert run.counters["fail"] == len(run.failing()), (
         "the summary's fail count must equal the failing document lines:\n" + run.text
@@ -459,11 +457,10 @@ def test_live_harness_run_matches_its_per_document_verdicts():
 def scratch_harness(tmp_path: Path) -> Path:
     """A minimal, engine-clean git repo with a harness dir `./.mstar`.
 
-    The engine documents are written to disk but deliberately left *untracked*,
-    exactly as they are in the real repository: `git ls-files .mstar` never
-    lists `workflows/`, `status.json` or `projects/` (they are gitignored local
-    process artifacts), so the ratchet's tracked set is the published subset and
-    a control that force-adds one path is the whole falsifier.
+    The fixture copies the real `.gitignore`, so the harness documents are
+    *tracked* here — the repository's shape since 2026-09-29, when the harness
+    directory became Git-carried. The controls below force-add a volatile path
+    (red) or a non-volatile one (green), which is the whole boundary.
     """
     if shutil.which("git") is None:
         pytest.skip("git is not on PATH, so the tracked-set leg cannot be exercised")
@@ -474,8 +471,8 @@ def scratch_harness(tmp_path: Path) -> Path:
     (harness / "workflows" / "w1").mkdir(parents=True)
     (harness / "projects" / "p1").mkdir(parents=True)
     # The real `.gitignore` and the real AGENTS.md: the fixture must classify
-    # against the same rules and the same frozen debt list as the repo, or the
-    # controls would prove something about a fiction.
+    # against the same rules as the repo, or the controls would prove something
+    # about a fiction.
     shutil.copyfile(REPO_ROOT / ".gitignore", tmp_path / ".gitignore")
     shutil.copyfile(HARNESS_DIR / "AGENTS.md", harness / "AGENTS.md")
     (harness / "workflows" / "w1" / "snapshot.json").write_text(
@@ -515,119 +512,83 @@ def test_scratch_fixture_is_green_before_any_control(scratch_harness: Path):
     assert run.counters["snapshots"] == 1 and run.counters["registers"] == 1, run.text
 
 
-def test_new_out_of_set_tracked_path_fails_the_ratchet(scratch_harness: Path):
-    """Control, ratchet half one: a force-added out-of-set path goes red.
+@pytest.mark.parametrize(
+    "relative",
+    [
+        "snapshots/engine-status.json",
+        "sess-probe.log",
+        "status.json.bak-1790394982",
+        "projects/_default/residuals.json.bak",
+        ".execution-maintenance/scratch.json",
+        "sdd/p1/task-1-brief.md",
+    ],
+)
+def test_a_tracked_volatile_path_fails_the_boundary(scratch_harness: Path, relative: str):
+    """Control, boundary half one: each volatile shape goes red, named.
 
-    This is the falsifier the leg exists to reach — `git add -f` against
-    `.mstar/**` — and the case also pins *why* the leg reads
-    `git check-ignore --no-index`: the plain form is masked by the index and
-    reports nothing for exactly this path.
+    These are the four kinds the repository actually excludes, driven one by one
+    because they are four separate rules: the live snapshot cache, the session
+    log, an operator backup of a register, and execution scratch. Committing any
+    of them churns the repository on every command and pins state that is only
+    true on one machine, which is what the boundary exists to prevent.
+
+    The case also pins *why* the leg reads `git check-ignore --no-index`: the
+    plain form is masked by the index and reports nothing for exactly this path.
     """
-    leak = _force_add(scratch_harness, "plans/20260101-leak.md")
-    relative = str(leak.relative_to(scratch_harness.parent))
+    leak = _force_add(scratch_harness, relative)
+    repo_relative = str(leak.relative_to(scratch_harness.parent))
 
     # The masking this leg must not fall for, asserted rather than assumed:
     # tracked + ignored means the plain form is silent.
-    bare = _run(["git", "check-ignore", relative], cwd=scratch_harness.parent)
+    bare = _run(["git", "check-ignore", repo_relative], cwd=scratch_harness.parent)
     assert bare.returncode == 1 and bare.stdout.strip() == "", (
         "precondition: a tracked, force-added path is masked in the index — the plain "
         f"`git check-ignore` form must report nothing, got {bare.stdout!r}"
     )
-    no_index = _run(["git", "check-ignore", "--no-index", "-v", relative], cwd=scratch_harness.parent)
-    assert no_index.returncode == 0 and relative in no_index.stdout, (
-        f"--no-index must surface the rule for {relative}, got {no_index.stdout!r}"
+    no_index = _run(["git", "check-ignore", "--no-index", "-v", repo_relative], cwd=scratch_harness.parent)
+    assert no_index.returncode == 0 and repo_relative in no_index.stdout, (
+        f"--no-index must surface the rule for {repo_relative}, got {no_index.stdout!r}"
     )
 
     run = _run_checker(scratch_harness)
-    assert run.returncode == 1, "a new out-of-set tracked path must fail the leg:\n" + run.text
-    assert run.counters["new-out-of-set"] == 1, run.text
+    assert run.returncode == 1, "a tracked volatile path must fail the leg:\n" + run.text
+    assert run.counters["volatile-tracked"] == 1, run.text
     ratchet = run.leg("ratchet")
     assert [d.state for d in ratchet] == ["FAIL"], run.text
-    assert relative in run.text, "the leg must name the offending path:\n" + run.text
-    assert "frozen debt list" in run.text, "the finding must say why the path is not tolerated:\n" + run.text
+    assert repo_relative in run.text, "the leg must name the offending path:\n" + run.text
+    assert "volatile state" in run.text, "the finding must say why the path is refused:\n" + run.text
 
 
-def test_frozen_debt_path_is_tolerated_by_the_ratchet(scratch_harness: Path):
-    """Control, ratchet half two: a frozen debt path stays green.
+def test_a_non_volatile_tracked_path_is_tolerated(scratch_harness: Path):
+    """Control, boundary half two: the paths the harness is *for* stay green.
 
-    Without this half, "the ratchet works" and "the check is simply off" are
-    indistinguishable. The path is read out of the real `.mstar/AGENTS.md`, so
-    the case cannot drift from the list the checker reads.
+    Without this half, "the boundary works" and "the check is simply off" are
+    indistinguishable — a leg that failed on everything tracked would pass half
+    one. The paths below are the ones the worktree-carrying harness depends on:
+    a plan, an iteration package README, an iteration contract draft, an index,
+    a knowledge note and a spec — fine to write as dummy content, because none of
+    them is an engine document the other legs read. Each was *outside* the old
+    published set; under this contract each must be tracked and tolerated.
     """
-    agents_md = (scratch_harness / "AGENTS.md").read_text(encoding="utf-8")
-    symbols = checker.parse_symbol_table(agents_md)
-    debt = checker.parse_frozen_debt(agents_md, symbols)
-    assert debt, f"no **debt** row resolved from {scratch_harness}/AGENTS.md — the control has no input"
-    assert symbols, "the § Path symbols table must resolve, or the debt rows cannot expand"
-    # The debt table writes paths from the repository root; the fixture harness
-    # is `./.mstar` inside its own repo, so strip that prefix for force-add.
-    token = debt[0]
-    relative = token.split("/", 1)[1] if token.startswith(".mstar/") else token
-
-    _force_add(scratch_harness, relative)
+    for relative in (
+        "plans/20260101-a-plan.md",
+        "iterations/iter-y/README.md",
+        "iterations/iter-y/specs/contract.md",
+        "iterations/README.md",
+        "knowledge/best-practices/note.md",
+        "specs/asr-archive-cli.md",
+    ):
+        _force_add(scratch_harness, relative)
 
     run = _run_checker(scratch_harness)
     assert run.returncode == 0, (
-        f"the frozen debt path {relative} must be tolerated (the list may only shrink by operator "
-        "action, not by this check):\n" + run.text
+        "the harness directory travels with Git: none of these paths is volatile, so none may "
+        "be refused:\n" + run.text
     )
-    assert run.counters["frozen-debt"] == 1, run.text
-    assert run.counters["new-out-of-set"] == 0, run.text
-
-
-def test_iteration_process_face_is_rejected_while_iteration_specs_are_published(scratch_harness: Path):
-    """Both classification boundaries, on the paths that actually separate them.
-
-    A package README under `{ITERATION_DIR}` is the iteration *process* face,
-    which D11 keeps local — a bare `iterations/` prefix would wrongly pass it.
-    (The specific index file `{ITERATION_DIR}/README.md` cannot carry this case:
-    it is also one of the six frozen debt paths, so its tolerance proves the
-    debt list, not the prefix boundary. `test_frozen_debt_path_is_tolerated_by_
-    the_ratchet` is the case that pins it.)
-
-    And `{ITERATION_DIR}/<id>/specs/**` is published *even when the ignore rules
-    would exclude it*, which is why the leg's verdict is the D11 prefix list and
-    not "is it ignored": a force-added out-of-set path is both tracked and
-    ignored, and the two questions have different answers.
-
-    **Amendment note (plan B Task 4).** `.gitignore` now carries the four-line
-    re-include that makes this boundary real for `{ITERATION_DIR}/<id>/specs/**`,
-    so in the *amended* tree such a draft is genuinely not ignored. This fixture
-    still forces the path in, which keeps the control independent of the rule
-    text — the leg must classify by the D11 prefix list either way. Note that
-    `git check-ignore -v` returns 0 for a *negation* match too, so a `-v`-only
-    assertion cannot distinguish "excluded" from "re-included"; the bare and `-q`
-    forms do (0 = excluded, 1 = re-included), and this control asserts
-    `returncode == 0` on the *ignored* side only.
-    """
-    process_face = _force_add(scratch_harness, "iterations/iter-y/README.md")
-    specs_path = _force_add(scratch_harness, "iterations/iter-y/specs/contract.md")
-
-    # Both paths are force-added, so both are tracked while the ignore rules
-    # treat them differently — or, in a checkout that has not yet merged plan B
-    # Task 4's re-include, *identically*. The leg's answer must be the same
-    # either way, because its verdict is the D11 prefix list, not git's answer.
-    # (An earlier version of this control asserted a specific ignore state for
-    # each path; that made a shared test file depend on a branch-local
-    # `.gitignore` — QC2-F2/F3. The rules themselves are asserted, hermetically,
-    # by `test_the_amended_gitignore_publishes_specs_but_not_the_process_face`.)
-    repo = scratch_harness.parent
-    observed = {}
-    for path in (process_face, specs_path):
-        relative = str(path.relative_to(repo))
-        completed = _run(["git", "check-ignore", "-q", "--no-index", relative], cwd=repo)
-        observed[relative] = "excluded" if completed.returncode == 0 else "re-included"
-
-    run = _run_checker(scratch_harness)
-    assert run.returncode == 1, "an iteration package README is not published:\n" + run.text
-    assert run.counters["new-out-of-set"] == 1, run.text
-    assert "iterations/iter-y/README.md" in run.text, run.text
-    assert "iterations/iter-y/specs/contract.md" not in run.text, (
-        "a published contract draft must not be reported as a finding — git ignoring it is not the "
-        "verdict:\n" + run.text
-    )
-    assert run.counters["published"] == 2, (
-        "AGENTS.md and the iteration spec are the two published tracked paths:\n" + run.text
+    assert run.counters["volatile-tracked"] == 0, run.text
+    assert run.counters["tracked"] >= 7, (
+        "all six force-added paths plus AGENTS.md must be in the tracked set the leg classified:\n"
+        + run.text
     )
 
 
@@ -1038,51 +999,6 @@ def test_a_document_cannot_manufacture_a_report_row(scratch_harness: Path):
     assert restored.returncode == 0, "the control must restore the fixture:\n" + restored.text
 
 
-def _replace_agents_md(harness: Path, text: str) -> None:
-    (harness / "AGENTS.md").write_text(text, encoding="utf-8")
-
-
-def test_unreadable_frozen_debt_list_is_not_validated(scratch_harness: Path):
-    """F3, ratchet branch one: the debt list itself cannot be read.
-
-    The ratchet's verdict depends on `{HARNESS_DIR}/AGENTS.md` — the frozen debt
-    list is read from it so the two cannot drift. If that file cannot be read,
-    the leg has no debt list, so it cannot decide the boundary, and the honest
-    verdict is NOT-VALIDATED rather than "no findings" (which would report a
-    clean ratchet while the rules were never applied). The falsifier is reached
-    by putting a directory where the file belongs: `read_text` raises `EISDIR`.
-    """
-    agents = scratch_harness / "AGENTS.md"
-    payload = agents.read_text(encoding="utf-8")
-    agents.unlink()
-    agents.mkdir()
-    try:
-        run = _run_checker(scratch_harness)
-        documents = run.leg("ratchet")
-        assert len(documents) == 1, run.text
-        assert documents[0].state == "NOT-VALIDATED", (
-            "an unreadable debt list must not produce a verdict about the boundary:\n" + run.text
-        )
-        assert "cannot read the frozen debt list" in run.text, (
-            "the leg must name the reason it could not decide:\n" + run.text
-        )
-        assert run.returncode == 1, "not-validated is a failure:\n" + run.text
-        # The boundary counters are *unknown* here, not zero: no debt list means
-        # no way to classify a tracked path. Reporting `new-out-of-set=0` would
-        # be a claim the leg cannot support, so the counter must be absent
-        # rather than defaulted.
-        assert "new-out-of-set" not in run.counters, (
-            "the leg must not claim zero new out-of-set paths when it never classified any:\n"
-            + run.text
-        )
-    finally:
-        agents.rmdir()
-        _replace_agents_md(scratch_harness, payload)
-
-    restored = _run_checker(scratch_harness)
-    assert restored.returncode == 0, "the control must restore the fixture:\n" + restored.text
-
-
 def test_failed_tracked_set_query_is_not_validated(scratch_harness: Path):
     """F3, ratchet branch two: `git ls-files` fails, so the tracked set is unknown.
 
@@ -1105,50 +1021,14 @@ def test_failed_tracked_set_query_is_not_validated(scratch_harness: Path):
         assert "ls-files" in run.text, (
             "the leg must name the failed query, not a generic failure:\n" + run.text
         )
-        # Same reasoning as the unreadable-debt-list control: an unlistable
-        # tracked set fixes no counters, and a zero here would read as "nothing
-        # outside the set" — the exact claim the leg could not check.
-        assert "new-out-of-set" not in run.counters and "tracked" not in run.counters, (
+        # An unlistable tracked set fixes no counters, and a zero here would read
+        # as "no volatile path is tracked" — the exact claim the leg could not check.
+        assert "volatile-tracked" not in run.counters and "tracked" not in run.counters, (
             "the leg must not report a classified tracked set it never obtained:\n" + run.text
         )
         assert run.returncode == 1, run.text
     finally:
         index.write_bytes(payload)
-
-    restored = _run_checker(scratch_harness)
-    assert restored.returncode == 0, "the control must restore the fixture:\n" + restored.text
-
-
-def test_a_debt_row_naming_an_absent_symbol_is_not_validated(scratch_harness: Path):
-    """F3, ratchet branch three: a debt row names a symbol the table does not define.
-
-    Debt rows are written in symbol form and expanded through the § Path symbols
-    table. A row naming an undefined symbol expands to nothing usable, so the
-    leg cannot tell whether a tracked path is tolerated. Dropping such a row
-    silently would *loosen* the ratchet (the path would look like a new
-    finding) or skip it entirely; failing loud is the only honest option.
-    """
-    agents = scratch_harness / "AGENTS.md"
-    payload = agents.read_text(encoding="utf-8")
-    mutated = payload.replace(
-        "`{PLAN_DIR}/20260927-archive-db-queue-cutover.md`",
-        "`{NO_SUCH_SYMBOL}/20260927-archive-db-queue-cutover.md`",
-    )
-    assert mutated != payload, "precondition: the fixture records that debt row"
-    _replace_agents_md(scratch_harness, mutated)
-    try:
-        run = _run_checker(scratch_harness)
-        documents = run.leg("ratchet")
-        assert len(documents) == 1, run.text
-        assert documents[0].state == "NOT-VALIDATED", (
-            "a debt row the table cannot expand must not silently loosen the ratchet:\n" + run.text
-        )
-        assert "absent from the § Path symbols table" in run.text, run.text
-        assert "NO_SUCH_SYMBOL" in run.text, (
-            "the leg must name the unresolved row, not just that one exists:\n" + run.text
-        )
-    finally:
-        _replace_agents_md(scratch_harness, payload)
 
     restored = _run_checker(scratch_harness)
     assert restored.returncode == 0, "the control must restore the fixture:\n" + restored.text
@@ -1239,7 +1119,7 @@ def test_the_harness_dir_echo_cannot_split_the_report(tmp_path: Path):
     every finding line that echoes the dir — into unprefixed fragments.
 
     Measured with the CR row removed from the checker's escape set: the harness
-    line and all six stale-debt notes break at the CR, and this control's
+    line and the boundary leg's notes break at the CR, and this control's
     assertion is what goes red.
     """
     harness = tmp_path / "h\rx" / ".mstar"
@@ -1291,7 +1171,7 @@ def test_a_path_with_a_newline_cannot_split_its_finding(scratch_harness: Path, s
     leaked its tail as an unprefixed line while the `\\n` case stayed clean.
     """
     spelling = _separator_spelling(separator)
-    hostile = f"plans/bad{separator}name.md"
+    hostile = f"snapshots/bad{separator}name.json"
     _force_add(scratch_harness, hostile)
     relative = str((scratch_harness / hostile).relative_to(scratch_harness.parent))
     try:
@@ -1305,12 +1185,12 @@ def test_a_path_with_a_newline_cannot_split_its_finding(scratch_harness: Path, s
         # chose to leave unescaped. `str.splitlines()` here would split in the
         # same places as the checker's own escape set and hide the leak.
         lines = re.split(r"\n", run.stdout)
-        findings = [line for line in lines if "is tracked but outside" in line]
+        findings = [line for line in lines if "is tracked although it is volatile state" in line]
         assert len(findings) == 1, (
             f"exactly one finding, on one line, must name the tracked path (separator "
             f"{spelling}):\n" + run.text
         )
-        assert f"bad{spelling}name.md" in findings[0], (
+        assert f"bad{spelling}name.json" in findings[0], (
             f"the path must survive with its separator escaped ({spelling}), not truncated "
             "at it:\n" + findings[0]
         )
@@ -1414,8 +1294,8 @@ def test_present_but_unreadable_root_register_fails_loud(scratch_harness: Path):
 
     The root register is the one document the checker routes by path rather than
     by glob, so it needs its own existence test — and `is_file()` collapses two
-    different situations: nothing is there (this checkout carries the published
-    subset only, so a benign "nothing to validate" note is right) and something
+    different situations: nothing is there (a checkout with no harness, so a
+    benign "nothing to validate" note is right) and something
     is there that cannot be read as a file (a defect, which must fail loud).
     Treating the second as the first drops the `[status]` document line
     entirely, so the summary reports a clean run while the root register was
@@ -1752,7 +1632,7 @@ def test_ratchet_reports_an_unresolvable_work_tree(tmp_path: Path):
     assert run.returncode == 1, run.text
 
     # Shape two: the harness dir is the work tree root, so there is no subtree
-    # for the published-set boundary to be defined against.
+    # for the tracked-harness boundary to be defined against.
     root = tmp_path / "rooted"
     root.mkdir()
     (root / "AGENTS.md").write_text(agents, encoding="utf-8")
@@ -1785,7 +1665,7 @@ def test_ratchet_reports_an_unresolvable_work_tree(tmp_path: Path):
     )
     # Independent of which shape: no boundary counter may be claimed when the
     # tracked set was never established.
-    assert "new-out-of-set" not in run.counters, (
+    assert "volatile-tracked" not in run.counters, (
         "the leg must not claim a boundary it never classified:\n" + run.text
     )
 
@@ -1953,26 +1833,25 @@ def test_the_count_requires_at_least_one_violation():
         )
 
 
-def test_the_ratchet_classification_uses_no_index(scratch_harness: Path):
-    """Q3-F4: `--no-index` changes the ignore evidence the leg prints.
+def test_the_boundary_classification_uses_no_index(scratch_harness: Path):
+    """Q3-F4: `--no-index` gives the finding its ignore-rule evidence.
 
-    Leg (d)'s verdict is the D11 prefix list, so `--no-index` does not change the
-    *verdict* — it changes whether the leg can state **which rule** matched. The
-    bare form is masked by the index, so a tracked path that the ignore rules do
-    match reports nothing, and the report line degrades to "not matched by any
-    ignore rule" — evidence that contradicts the truth it exists to show.
-    Removing `--no-index` survived the suite, so this pins the evidence.
+    Leg (d)'s verdict is the volatile prefix list, so `--no-index` does not
+    change the *verdict* — it changes whether the leg can state **which rule**
+    matched. The bare form is masked by the index, so a tracked path that the
+    ignore rules do match reports nothing, and the report line degrades to "not
+    matched by any ignore rule" — evidence that contradicts the truth it exists
+    to show. Removing `--no-index` survived the suite, so this pins the evidence.
     """
     repo = scratch_harness.parent
-    leak = scratch_harness / "plans" / "leak.md"
-    leak.parent.mkdir(parents=True, exist_ok=True)
-    leak.write_text("# a plan file, outside the published set\n", encoding="utf-8")
+    leak = scratch_harness / "sess-probe.log"
+    leak.write_text("# a session log, which stays local\n", encoding="utf-8")
     try:
         subprocess.run(["git", "add", "-f", str(leak)], cwd=str(repo),
                        capture_output=True, timeout=60)
         run = _run_checker(scratch_harness)
         assert any(d.leg == "ratchet" and d.state == "FAIL" for d in run.documents), run.text
-        assert "leak.md" in run.text, run.text
+        assert "sess-probe.log" in run.text, run.text
         # The force-added path IS matched by `.gitignore`; only the `--no-index`
         # form can see that, because the index masks it from the bare form.
         assert "not matched by any ignore rule" not in run.text, (
@@ -1986,7 +1865,7 @@ def test_the_ratchet_classification_uses_no_index(scratch_harness: Path):
     finally:
         subprocess.run(["git", "rm", "--cached", "-f", str(leak)], cwd=str(repo),
                        capture_output=True, timeout=60)
-        shutil.rmtree(leak.parent, ignore_errors=True)
+        leak.unlink(missing_ok=True)
 
 
 @pytest.mark.parametrize("content", ["", "\n", "   \n\t "])
@@ -2035,36 +1914,25 @@ def test_an_empty_register_is_a_verdict_not_a_read_failure(scratch_harness: Path
         register.write_text(original, encoding="utf-8")
 
 
-def test_the_amended_gitignore_publishes_specs_but_not_the_process_face(scratch_harness: Path, tmp_path: Path):
+def test_the_delivered_gitignore_tracks_the_harness_but_not_volatile_state(tmp_path: Path):
     """The rules themselves, not just the checker's prefix list.
 
-    `test_iteration_process_face_is_rejected_while_iteration_specs_are_published`
-    proves the *checker* classifies by the D11 prefix list, and is deliberately
-    independent of the ignore rules. This control is the complement: it asserts
-    the rules in `.gitignore` agree with D11, which is what plan B Task 4 landed.
-    Without it, a re-include written as a bare `!.mstar/iterations/**` (publishing
-    the whole process face) would pass every other test in this file — the
-    checker's verdict comes from its own prefix list and would not notice.
+    The boundary leg classifies by its own volatile prefix list, deliberately
+    independent of the ignore rules — so a `.gitignore` that excluded the whole
+    harness dir would pass every other test in this file while the worktree
+    feature it exists for silently stopped working. This control is the
+    complement: it asserts the delivered rules track the harness directory and
+    exclude exactly the volatile shapes.
 
     `-q` is used rather than `-v` because `-v` returns 0 for a *negation* match
-    too, so it cannot separate excluded from re-included.
+    too, so it cannot separate excluded from included.
     """
     # The rules under test are THIS checkout's `.gitignore` (the delivered file),
-    # not the fixture repo's copy. Reading the fixture repo would make the
-    # control depend on which branch the surrounding checkout sits on: the file
-    # is branch-local while this test file is shared, so on a branch that has not
-    # merged plan B Task 4 the control would go red for a reason unrelated to the
-    # delivery (QC2-F3). So: assert the *delivered rules* directly, by asking git
-    # to classify paths under a scratch repo whose `.gitignore` is this file.
+    # by asking git to classify paths under a scratch repo whose `.gitignore` is
+    # this file.
     delivered = REPO_ROOT / ".gitignore"
     if not delivered.is_file():  # pragma: no cover - packaging guard
         pytest.skip("the delivered `.gitignore` is not reachable from the test file")
-    rules = delivered.read_text(encoding="utf-8")
-    if "iterations" not in rules:  # pragma: no cover - pre-Task-4 checkout
-        pytest.skip(
-            "this checkout's `.gitignore` does not yet carry plan B Task 4's re-include "
-            "(the change is branch-local; the test is shared)"
-        )
 
     scratch = tmp_path / "rules"
     (scratch / ".git").mkdir(parents=True)
@@ -2078,22 +1946,36 @@ def test_the_amended_gitignore_publishes_specs_but_not_the_process_face(scratch_
         )
         return completed.returncode == 0
 
-    # A contract draft under an iteration is published: its parent directories
-    # must be re-included for this to be possible.
-    draft = ".mstar/iterations/iter-x/specs/contract.md"
-    assert not excluded(draft), (
-        f"{draft} must be publishable under the amended rules (D11); a bare "
-        "`!.mstar/iterations/**` or a missing parent re-include would exclude it"
-    )
-    # The process face stays local — this is the half a too-broad re-include breaks.
-    for local in (
-        ".mstar/iterations/README.md",
+    # The harness directory travels with Git: every one of these is part of the
+    # state a fresh worktree must carry.
+    for tracked in (
+        ".mstar/AGENTS.md",
+        ".mstar/status.json",
+        ".mstar/plans/20260101-a-plan.md",
+        ".mstar/workflows/w1/snapshot.json",
+        ".mstar/projects/p1/residuals.json",
         ".mstar/iterations/iter-x/README.md",
         ".mstar/iterations/iter-x/delivery-compass.md",
-        ".mstar/iterations/iter-x/guides/note.md",
-        ".mstar/plans/20260101-a-plan.md",
+        ".mstar/iterations/iter-x/specs/contract.md",
+        ".mstar/knowledge/best-practices/note.md",
+        ".mstar/specs/asr-archive-cli.md",
+    ):
+        assert not excluded(tracked), (
+            f"{tracked} must be trackable: the harness directory travels with Git so a worktree "
+            "carries it; only per-machine / per-run state is excluded"
+        )
+
+    # Volatile state stays local — a snapshot of a live session is not a
+    # deliverable, and committing one would churn the repository per command.
+    for local in (
+        ".mstar/sdd/p1/task-1-brief.md",
+        ".mstar/snapshots/engine-status.json",
+        ".mstar/sess-probe.log",
+        ".mstar/status.json.bak-1790394982",
+        ".mstar/projects/_default/residuals.json.bak",
+        ".mstar/.execution-maintenance/scratch.json",
     ):
         assert excluded(local), (
-            f"{local} must stay refused: D11 publishes only `iterations/<id>/specs/**`, "
-            "and a bare `!.mstar/iterations/**` would leak the process face"
+            f"{local} must stay refused: it is per-machine or per-run state, and committing it "
+            "would churn the repository on every command"
         )

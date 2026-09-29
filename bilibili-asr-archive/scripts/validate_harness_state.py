@@ -5,7 +5,7 @@
 The engine is the authority for what a valid document looks like, so this
 checker never re-implements a rule: it shells out to the engine's own
 validators and reports their verdict. Three document classes are routed, plus
-one git-boundary ratchet:
+one git-boundary boundary check:
 
   (a) ``workflows/*/snapshot.json``   -> ``mstar status validate <path>``
   (b) ``status.json`` (root register) -> ``mstar status validate <path>``
@@ -16,11 +16,11 @@ one git-boundary ratchet:
       register that is in fact fine.  That misrouting is engine behaviour, not
       a register defect, so the register goes through the one engine-backed
       reader that reaches it.
-  (d) the published-set ratchet — see ``check_ratchet`` below.
+  (d) the tracked-harness boundary — see ``check_ratchet`` below.
 
 **Where neither command can reach a document the leg reports
 ``NOT-VALIDATED`` and the run exits 1.**  There is no silent pass: a missing
-CLI, an unreadable debt list, a document the reader cannot reach, or an exit
+CLI, an unreachable document, or an exit
 code the checker cannot interpret is reported as not-validated, and
 not-validated is a failure.
 
@@ -223,18 +223,19 @@ ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
 # register leg's "a validator actually ran" anchor: the could-not-read prose on
 # the same command is `persist get failed: Invalid JSON in <path>: …`, so a
 # document can only produce this prefix by way of the validator's own throw.
-# --- The amended published set (compass D11, `.mstar/AGENTS.md` § Published vs
-# local).  The prefix list is the verdict; `git check-ignore --no-index` is
-# evidence, not the verdict.  `{ITERATION_DIR}/README.md` is deliberately NOT
-# published, so `iterations/` is not a prefix — only `iterations/<id>/specs/`.
-PUBLISHED_EXACT = frozenset({"AGENTS.md"})
-PUBLISHED_PREFIXES = ("specs/", "knowledge/")
-PUBLISHED_ITERATION_SPECS_RE = re.compile(r"^iterations/[^/]+/specs/.+")
-
-# A path-symbol table row is `| `{PLAN_DIR}` | `.mstar/plans/` |` — the symbol is
-# the whole cell, brace-to-brace.  Anchored so a debt row (`{PLAN_DIR}/x.md`)
-# can never be read as a symbol definition.
-BARE_SYMBOL_RE = re.compile(r"^\{[A-Z_]+\}$")
+# --- The tracked-harness boundary (2026-09-29).  The harness directory travels
+# with Git so a fresh `git worktree add` carries the same `.mstar/` the primary
+# checkout has; this supersedes the earlier process-local published set (compass
+# D11).  The verdict is now the *volatile* prefix list: a tracked path may be
+# anything under `.mstar/` that is not per-machine, per-run state.  Ignore-rule
+# evidence (`git check-ignore --no-index`) is printed for a finding, never used
+# as the verdict.
+VOLATILE_PREFIXES = (
+    "sdd/",
+    "snapshots/",
+    ".execution-maintenance/",
+)
+VOLATILE_BASENAME_RE = re.compile(r"^(sess-probe\.log|.*\.bak(-.*)?)$")
 
 STATE_OK = "OK"
 STATE_FAIL = "FAIL"
@@ -748,11 +749,11 @@ def check_root_register(harness: Path, report: Report, mstar: str | None) -> Non
     path = harness / "status.json"
     if not path.is_file():
         # Two very different situations share "not a regular file": the benign
-        # one (this checkout carries the published subset only, so there is no
-        # root register at all — a note) and the defective one (something is
-        # there but is not reachable as a file — a document this leg must fail
-        # loud on, never demote to "nothing to validate", which would drop the
-        # `[status]` document line and silently clean the summary).
+        # one (this checkout carries no root register at all — a note) and the
+        # defective one (something is there but is not reachable as a file — a
+        # document this leg must fail loud on, never demote to "nothing to
+        # validate", which would drop the `[status]` document line and silently
+        # clean the summary).
         #
         # The defective shapes are *delegated*, not adjudicated here: a
         # directory at this path makes the engine report `status.invalid-json:
@@ -859,88 +860,35 @@ def check_registers(harness: Path, report: Report, mstar: str | None) -> None:
 
 
 # --------------------------------------------------------------------------
-# leg (d): the published-set ratchet
+# leg (d): the tracked-harness boundary
 # --------------------------------------------------------------------------
 
 
-def is_published(harness_relative: str) -> bool:
-    """The D11 published set, as a prefix list — the verdict, not git's answer."""
-    if harness_relative in PUBLISHED_EXACT:
-        return True
-    if harness_relative.startswith(PUBLISHED_PREFIXES):
-        return True
-    return bool(PUBLISHED_ITERATION_SPECS_RE.match(harness_relative))
+def is_volatile(harness_relative: str) -> bool:
+    """The paths `{HARNESS_DIR}` keeps local — per-machine, per-run, or engine-owned.
 
+    This is the whole exclusion set; everything else under the harness dir is
+    supposed to travel with Git.  The list is the verdict; ignore-rule evidence
+    is printed beside a finding, never used to decide one.
 
-def parse_symbol_table(agents_md: str) -> dict[str, str]:
-    """Read `.mstar/AGENTS.md` § Path symbols so the debt list cannot drift.
-
-    Only a bare ``{NAME}`` qualifies as a symbol row.  The debt table further
-    down is shaped like a symbol table (backticked token in cell 0, backticked
-    value in cell 1), so a looser test reads each debt row as a symbol mapping
-    the whole path to its re-add commit — which silently rewrites every debt
-    path into a commit hash and turns the ratchet into a false alarm.
+    ``sdd/`` is here because the engine owns it: ``mstar sdd workspace`` writes a
+    nested ``.gitignore`` holding ``*`` into every ``<plan-id>/`` directory, and a
+    nested ignore file outranks the repository's rules — so this entry states the
+    engine's decision rather than pretending to override it.
     """
-    symbols: dict[str, str] = {}
-    for line in agents_md.splitlines():
-        cells = _table_cells(line)
-        if len(cells) < 2:
-            continue
-        symbol = _backticked(cells[0])
-        target = _backticked(cells[1])
-        if symbol and target and BARE_SYMBOL_RE.match(symbol):
-            symbols[symbol] = target
-    return symbols
-
-
-def parse_frozen_debt(agents_md: str, symbols: dict[str, str]) -> list[str]:
-    """Read the `**debt**` rows of the § Published vs local debt table.
-
-    Each row's first backticked token is a path written in symbol form; the
-    verdict cell must carry `**debt**` (rows marked `**published**` are not
-    debt).  Rows whose token names an unknown symbol are returned as-is so the
-    caller can fail loud rather than drop them.
-    """
-    debt: list[str] = []
-    for line in agents_md.splitlines():
-        cells = _table_cells(line)
-        if not cells or "**debt**" not in line:
-            continue
-        token = _backticked(cells[0])
-        if not token:
-            continue
-        debt.append(_expand_symbol(token, symbols))
-    return debt
-
-
-def _table_cells(line: str) -> list[str]:
-    if not line.lstrip().startswith("|"):
-        return []
-    return [cell.strip() for cell in line.strip().strip("|").split("|")]
-
-
-def _backticked(cell: str) -> str | None:
-    match = re.search(r"`([^`]+)`", cell)
-    return match.group(1) if match else None
-
-
-def _expand_symbol(token: str, symbols: dict[str, str]) -> str:
-    for symbol in sorted(symbols, key=len, reverse=True):
-        if token.startswith(symbol):
-            remainder = token[len(symbol):].lstrip("/")
-            base = symbols[symbol].rstrip("/")
-            return f"{base}/{remainder}" if remainder else base
-    return token
+    if harness_relative.startswith(VOLATILE_PREFIXES):
+        return True
+    return bool(VOLATILE_BASENAME_RE.match(harness_relative.rsplit("/", 1)[-1]))
 
 
 def _ignore_evidence(repo_root: Path, paths: list[str]) -> dict[str, str]:
     """Which ignore rule matches each path, read from the RULES.
 
     Bare ``git check-ignore`` is masked by the index: a tracked file reports
-    nothing, which is exactly the population this ratchet exists to find.  So
+    nothing, which is exactly the population this boundary exists to find.  So
     ``--no-index`` is required, and the result is evidence on the report line —
-    the verdict is always the D11 prefix list (a force-added process file is
-    both tracked and ignored; that is the finding, not an exemption).
+    the verdict is the volatile prefix list (a tracked volatile file is both
+    tracked and ignored; that is the finding, not an exemption).
     """
     if not paths:
         return {}
@@ -962,12 +910,18 @@ def _ignore_evidence(repo_root: Path, paths: list[str]) -> dict[str, str]:
 
 
 def check_ratchet(harness: Path, report: Report) -> None:
-    """The published-set ratchet (compass D11), reported as one document.
+    """The tracked-harness boundary, reported as one document.
 
-    Fails on any tracked path outside the published set that is not on the
-    frozen six-path debt list recorded in `{HARNESS_DIR}/AGENTS.md`.  The list
-    is read from that file so the two cannot drift, and it may only shrink: a
-    listed path that is no longer tracked is a stale-debt note, not a failure.
+    Fails when a *volatile* path — per-machine or per-run state, the exclusion
+    set named in `{HARNESS_DIR}/AGENTS.md` § What stays local — is tracked. The
+    harness directory travels with Git, so a worktree carries it; what must not
+    travel is a live snapshot cache, a session log, an operator backup of a
+    register, or execution scratch, because committing one churns the repository
+    on every command and pins state that is only true on one machine.
+
+    The boundary is a prefix list in this file, not git's answer: `git check-ignore`
+    is printed as evidence on a finding, and a tracked-but-ignored path is the
+    finding rather than an exemption.
     """
     leg = "ratchet"
     label = harness.name
@@ -992,7 +946,7 @@ def check_ratchet(harness: Path, report: Report) -> None:
     if harness_rel in (".", ""):
         report.documents.append(Document(
             leg, label, STATE_NOT_VALIDATED,
-            detail=["harness dir is the repository root — the published-set ratchet is defined for a harness subtree"],
+            detail=["harness dir is the repository root — the tracked-harness boundary is defined for a harness subtree"],
         ))
         return
     label = harness_rel
@@ -1006,70 +960,27 @@ def check_ratchet(harness: Path, report: Report) -> None:
         return
     tracked = [p for p in listed.stdout.split("\0") if p]
 
-    try:
-        agents_md = (harness / "AGENTS.md").read_text(encoding="utf-8")
-    except OSError as exc:
-        report.documents.append(Document(
-            leg, label, STATE_NOT_VALIDATED,
-            detail=[f"cannot read the frozen debt list from {harness_rel}/AGENTS.md: {exc}"],
-        ))
-        return
-
-    symbols = parse_symbol_table(agents_md)
-    debt_tokens = parse_frozen_debt(agents_md, symbols)
-    unresolved = [token for token in debt_tokens if token.startswith("{")]
-    if unresolved:
-        report.documents.append(Document(
-            leg, label, STATE_NOT_VALIDATED,
-            detail=["frozen debt row(s) name a symbol absent from the § Path symbols table: "
-                    + ", ".join(unresolved)],
-        ))
-        return
-
-    # The debt table writes paths from the repository root; accept a
-    # harness-relative spelling too, since both resolve against the same file.
-    def to_harness_relative(token: str) -> str:
-        if token == harness_rel:
-            return "."
-        return token[len(harness_rel) + 1:] if token.startswith(harness_rel + "/") else token
-
-    debt = {to_harness_relative(token): token for token in debt_tokens}
     relative_paths = [p[len(harness_rel) + 1:] for p in tracked if p.startswith(harness_rel + "/")]
-    tracked_relative = set(relative_paths)
     evidence = _ignore_evidence(repo_root, tracked)
 
-    published: list[str] = []
-    frozen: list[str] = []
     findings: list[str] = []
     for relative in relative_paths:
-        if is_published(relative):
-            published.append(relative)
-        elif relative in debt:
-            frozen.append(relative)
-        else:
-            repo_path = f"{harness_rel}/{relative}"
-            findings.append(
-                f"{repo_path} is tracked but outside the published set (compass D11: "
-                "{HARNESS_DIR}/AGENTS.md, {SPECS_DIR}/**, {KNOWLEDGE_DIR}/**, {ITERATION_DIR}/<id>/specs/**) "
-                f"and is not on the frozen debt list in {harness_rel}/AGENTS.md"
-                f" — ignore rules say: {evidence.get(repo_path, 'not matched by any ignore rule')}"
-            )
+        if not is_volatile(relative):
+            continue
+        repo_path = f"{harness_rel}/{relative}"
+        findings.append(
+            f"{repo_path} is tracked although it is volatile state (per-machine or per-run): "
+            "the harness directory travels with Git, but snapshots/, sess-probe.log, "
+            "*.bak* and .execution-maintenance/ stay local "
+            f"({harness_rel}/AGENTS.md § What stays local)"
+            f" — ignore rules say: {evidence.get(repo_path, 'not matched by any ignore rule')}"
+        )
 
-    stale = sorted(set(debt) - tracked_relative)
-    for relative in stale:
-        report.add_note(leg, f"stale debt {harness_rel}/{relative}: listed in {harness_rel}/AGENTS.md "
-                             "but no longer tracked — drop the row to tighten the ratchet")
-    if frozen:
-        report.add_note(leg, "frozen debt tolerated (may only shrink): "
-                             + ", ".join(f"{harness_rel}/{p}" for p in sorted(frozen)))
-    if not debt_tokens:
-        report.add_note(leg, f"{harness_rel}/AGENTS.md records no **debt** rows — the frozen debt list is empty")
+    if not findings:
+        report.add_note(leg, f"no volatile path is tracked under {harness_rel} — the boundary holds")
 
     report.counters["tracked"] = len(relative_paths)
-    report.counters["published"] = len(published)
-    report.counters["frozen-debt"] = len(frozen)
-    report.counters["new-out-of-set"] = len(findings)
-    report.counters["stale-debt"] = len(stale)
+    report.counters["volatile-tracked"] = len(findings)
 
     report.documents.append(Document(
         leg,
@@ -1102,7 +1013,7 @@ def main(argv: list[str] | None = None) -> int:
         prog="validate_harness_state.py",
         description=(
             "Validate every engine-read lifecycle document in a Morning Star harness dir and the "
-            "published-set ratchet over its tracked paths. Delegates every rule to the engine "
+            "tracked-harness boundary over its tracked paths. Delegates every rule to the engine "
             "(mstar status validate / mstar persist get --validate); a document it cannot reach "
             "is reported NOT-VALIDATED, which is a failure."
         ),

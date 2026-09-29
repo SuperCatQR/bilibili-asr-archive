@@ -1,0 +1,58 @@
+{
+  "schema_version": 1,
+  "id": "e2e-23191782-longform-pair-webdav",
+  "type": "plan",
+  "status": "completed",
+  "phase": "e2e-closed",
+  "started_at": "2026-09-20",
+  "updated_at": "2026-09-20",
+  "plans": [
+    {
+      "id": "e2e-23191782-longform-pair-webdav",
+      "title": "E2E: run the 未明子 long-form pair (BV1vVDKBvEqL 129.4 min + BV1iMGL6KE9J 89.4 min) through the ASR chain on the WSL2/RX 7800 XT host, on a fresh archive root with the products on the WebDAV artifact root",
+      "file": ".mstar/workflows/e2e-23191782-longform-pair-webdav/reports/e2e.md",
+      "status": "Done",
+      "owner": "project-manager",
+      "agents": [
+        "ops-engineer"
+      ],
+      "progress": 100,
+      "tags": [
+        "e2e",
+        "verification-only",
+        "asr",
+        "gpu",
+        "target-host",
+        "artifact-root",
+        "webdav"
+      ],
+      "created_at": "2026-09-20",
+      "updated_at": "2026-09-20",
+      "notes": [
+        "Explicit operator authorization 2026-09-20 ('确认一下项目的状态，计划一次对未明子 2个长视频的e2e测试'), narrowed by four operator choices the same day: container = standalone E2E workflow; items = one long + one medium (BV1vVDKBvEqL:p0 129.4 min, BV1iMGL6KE9J:p0 89.4 min); products = the WebDAV artifact root /mnt/123pan (also residual iter-2026-09-artifact-root R2's recorded trigger); archive root = fresh, following the full documented operator sequence.",
+        "Verification-only workflow: no iteration phase, no QC tri-review, no development-plan task boundary, no product-code change. The scenario rows A0-A8 in reports/e2e.md are this workflow's plan rows.",
+        "Permitted side effects: metadata enumeration for UID 23191782 on the target host, subtitle acquisition for the two named parts, their audio download, GPU transcription, writes to the fresh archive root (state, local disk) and to the WebDAV artifact root (products), reading the existing session cookie by path. Not permitted: product-code change for the run, production/deploy change, destructive cleanup outside the named roots, media redistribution, the project's full local test suite.",
+        "Target build: the target checkout was at ef5e1e8 (2026-09-17) and lacks derive-manifest and --artifact-root; scenario A0 fast-forwards it to the pad's current main (f22bafd, 59 commits) with a thin git bundle transferred over the ssh channel. Features under test: the configurable artifact root (iter-2026-09-artifact-root) and the store->manifest queue bridge (iter-2026-09-queue-bridge).",
+        "Environment: target WSL2 DESKTOP-HHFROLO (192.168.3.21), RX 7800 XT gfx1101, interpreter /root/gpu-venv via PYTHONPATH=<product>/src. Archive root /root/e2e-asr/longform-pair; artifact root /mnt/123pan/bili-asr-e2e/longform-pair; logs /root/e2e-asr/logs/longform-pair-<UTC-stamp>/.",
+        "Blocker at scope-lock time (2026-09-20 ~03:35Z): the target host was unreachable (No route to host, 100% packet loss on 192.168.3.21) - no scenario had run when this scope was written.",
+        "Dispatched 2026-09-20 (ops-engineer, background) with a bounded reachability gate: the target host was off the network at scope-lock time, so the executor retries the probe every ~60 s for up to 30 minutes before reporting Blocked. Scenario rows A0-A8 live in the plan/report document; the PM advances this row further, not the executor.",
+        "2026-09-20 PM acceptance of the ops report: accepted against the scenario list. All nine scenarios (A0-A8) are `blocked` on ONE external prerequisite - the target host 192.168.3.21 was unreachable for the whole gate window (30 ssh probes, 0 successes, every one exit 255 `No route to host`, 03:38:16Z-04:08:11Z; log .tmp/e2e-longform-pair/probe-log.txt). No scenario command was ever sent and nothing was written to the target, so this run says NOTHING for or against the artifact-root or derive-manifest features. Row set to Blocked; workflow paused, not closed - the scope, the A0 helper, the A0-A8 runner (.tmp/e2e-longform-pair/remote/scenario.sh) and the confirmed flag set are prepared for a re-dispatch once the operator confirms the box is answering.",
+        "2026-09-20 round-2 PM acceptance: the verification run completed with determinate results for all nine scenarios - A0/A1/A3/A7 passed, A2/A4/A5/A6/A8 failed, 0 not-run, 0 blocked. The report is accepted; the product result is PARTLY established and is NOT a clean pass: Bilibili now serves AI captions for both named items (F5), so the chain took its documented subtitles-first branch and the audio->ASR->artifact-root path had no work; A2 was blocked upstream on one upload-list page (F6). What the run DID establish: the target build fast-forwarded to f85fe91 and the GPU self-check passed (A0/A1); the store->manifest bridge derived exactly the store's queue and was idempotent (A4's first two clauses + SETS EQUAL); and the artifact-root behaviour on the live WebDAV mount was measured (A7: per-row walk sub-ms, fail-open measurement CONFIRMED, write/fsync probe absent CONFIRMED as a code fact). Residuals registered: R1 (check-asr-env cwd anchor, F4), R2 (caption-first premise / no way to force the audio branch, F5), R3 (page-3 risk control blocks full enumeration, F6). Residual iter-2026-09-artifact-root R2 was amended with the A7 verdict and left OPEN; R3 untouched."
+      ],
+      "done_at": "2026-09-20"
+    }
+  ],
+  "branch": {
+    "base": "main",
+    "target": "main",
+    "integration": "main"
+  },
+  "notes": [
+    "Verification-only: this workflow creates no branch and opens no PR (branch anchors all 'main' mirror the previous e2e workflow's shape).",
+    "Plan/report file (single document, PM scope + ops results): .mstar/workflows/e2e-23191782-longform-pair-webdav/reports/e2e.md",
+    "Target host: 192.168.3.21 (WSL2 DESKTOP-HHFROLO). Archive root (state): /root/e2e-asr/longform-pair. Artifact root (products): /mnt/123pan/bili-asr-e2e/longform-pair.",
+    "2026-09-20: paused on an operator-side prerequisite (target host off the network). Re-dispatch precondition recorded from the ops report's F2: confirm the box answers BEFORE spending another ops round.",
+    "2026-09-20: closed (terminal). Root status.json entry removed in the same round (removal-at-terminal). Close discipline per the newly registered residual iter-2026-09-artifact-root R4: ended_at written with the terminal status and the document validated with the engine validator (validateWorkflowSnapshot) BEFORE the close was declared."
+  ],
+  "ended_at": "2026-09-20"
+}
