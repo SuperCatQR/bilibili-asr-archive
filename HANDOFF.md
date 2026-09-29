@@ -1,10 +1,52 @@
 # HANDOFF — bilibili-asr-archive
 
-**Parked 2026-09-24; the parked iteration's harness package was deleted 2026-09-25.** The active
-iteration stopped by operator decision: no plan is being advanced. On 2026-09-25 the operator also
-had that iteration's harness package, its workflow snapshot and its two un-started plans deleted,
-along with the registry rows that pointed at them — **§9** is the authoritative list of what went
-and what remains. Nothing in this file is in progress. Read it first when picking the project up.
+**Rewritten 2026-09-29.** This page opened with "Parked 2026-09-24 … Nothing in this file is in
+progress. Read it first when picking the project up." That was true when it was written and is
+false now: **four iterations have shipped since the park, and a fifth is running.** The parked
+lifecycle itself has *not* moved — it is still parked, with the same gates open — so the numbered
+sections below remain authoritative **for that work**. What changed is that they are no longer a
+description of the project.
+
+| Position as of 2026-09-29 | |
+|---|---|
+| `main` | **`371693b`** (2026-09-28) — **30 commits and 7 landed changes (4 of them two-parent merges; the rest squash landings)** past the park's reading (`f326398`) |
+| Active iteration | **`iter-2026-09-harness-hygiene`** — `running`, `phase-2-execute` |
+| Parked lifecycle | **`iter-2026-09-transcript-editorial-stages`** — still parked, gates still open (§2, §3) |
+| Where to start | the **How to resume** section directly below |
+
+**Shipped since the park.** Each `ended_at` is read from that iteration's own
+`{HARNESS_DIR}/workflows/<id>/snapshot.json`; PR links are
+`https://github.com/SuperCatQR/bilibili-asr-archive/pull/<n>`:
+
+| Iteration | Lifecycle | Landed on `main` |
+|---|---|---|
+| `iter-2026-09-qwen3-asr-closeout` | `completed`, ended 2026-09-26 | PR #18 `638fb2d`; close `84e9767` |
+| `iter-2026-09-coverage-truth` | `completed`, ended 2026-09-27 | PR #21 `2696711` |
+| `iter-2026-09-metadata-audio-layout` | `completed`, ended 2026-09-27 | PR #21 `2696711`, then PR #25 `cefed49` |
+| `iter-2026-09-ops-readiness` | `completed`, ended 2026-09-28 | PR #24 `662d9ca` |
+
+Two lifecycle dates disagree and are recorded rather than smoothed over:
+`iter-2026-09-metadata-audio-layout`'s snapshot has top-level `ended_at` 2026-09-27 while its
+`metadata.closed_at` and its `{ITERATION_DIR}/README.md` row both say 2026-09-28. And
+`iter-2026-09-coverage-truth` still carries `phase: phase-2-execute` although `status` is
+`completed`: its PR #21 merge was performed out-of-band by the operator on 2026-09-27 (its own
+snapshot notes say so, and `close_reason` records the merge as verified MERGED
+2026-09-27T13:12:17Z), and the close itself was only written into the register on 2026-09-28 by
+`139d6f9` (`chore(iteration): close iter-2026-09-coverage-truth and index ops-readiness`), which
+never advanced the phase to `phase-6-post-merge-close`.
+
+**Why the parked sections are still here.** Three things on this page are live rather than
+historical, and deleting the page would lose them:
+
+- **The editorial-stages lifecycle is genuinely still parked.** Its ref is still `aa86ea1`, still
+  not merged into `main` (`git merge-base --is-ancestor aa86ea1 main` fails), and the two editorial
+  subcommands are still absent from `main`. §2 and §3 describe real open work, and
+  `{ITERATION_DIR}/README.md:26` points a reader here for the deleted package's recovery path.
+- **§9 is the authoritative record of the 2026-09-25 deletion** — the only description of paths
+  that no longer exist. It is deliberately unchanged; a dated pointer to a second, tracked copy of
+  its archive is in **How to resume**.
+- **§4's recovery steps and §6's residual table** are still the operator's reference for the parked
+  work.
 
 Orientation for a reader with no session context: this repository is a personal archival CLI
 for the Bilibili UP 未明子 (UID 23191782) — enumerate videos, harvest AI/CC subtitles first,
@@ -13,24 +55,99 @@ with a resumable manifest. `AGENTS.md` holds the boundary; `CONCEPTS.md` holds t
 
 ---
 
+## How to resume
+
+*Added 2026-09-29. The parked work below is resumed through the harness, not by hand — the entry
+points moved since this page was written.*
+
+**Entry points.** The harness directory is the **control root**, `/root/workspace/bilibili-asr-archive/.mstar/`
+— not the copy inside any worktree, whose `.mstar/` is a per-checkout snapshot and does not carry
+the live registers.
+
+- `/iteration-start` — start a new iteration
+- `/iteration-drive` — drive the active one (no argument restores the current lifecycle)
+- `/iteration-loop` — the autonomous Phase 1–6 form
+- `.mstar/AGENTS.md` — path symbols and the published-vs-local boundary; read before writing
+  anything under `.mstar/`
+
+**Two `.tmp/` paths are protected evidence — do not "clean" them.** Both are gitignored, both look
+like scratch, and neither is litter. Deleting either is unrecoverable:
+
+| Path | Why it is kept |
+|---|---|
+| `.tmp/deletion-records/` | The working copy of the 2026-09-25 deletion archive (§9). **A second, tracked copy landed 2026-09-29 (`05df363`) at `bilibili-asr-archive/docs/archive/deletion-records-20260925/`** (verified: directory exists, 3 files tracked, both `cmp`-identical to these). `harness-editorial-stages-deleted-20260925.tar.gz` 147 218 B, sha256 `d212a8b712fd25a7b17b9f6710720cec119bf4ed72934812221ec02ba196394e`; `pre-delete-report-20260925-harness-editorial-stages.txt` 71 489 B, sha256 `9d394651b4adb62e3e06648e154093b4de7a8c669007c7f0581f7a3f40dec413` |
+| `.tmp/live-snapshot-backup.json` | A pre-correction backup of `iter-2026-09-text-and-ledger-precision` — an input to the harness-state correction, not a leftover |
+
+**The deletion archive gains a second, tracked home (compass D12, ruled 2026-09-28).** The ruling
+is that both files are published into Git at
+`bilibili-asr-archive/docs/archive/deletion-records-20260925/`, alongside a tracked `README.md`
+recording their provenance, and that `.tmp/deletion-records/` is retained as the working original.
+**§9 below remains the record of the deletion** and is deliberately unchanged; what the publication
+changes is that the bytes no longer exist on one machine only. *As of 2026-09-29 that directory was
+not yet on disk or on any ref* — the task that writes it is `20260928-workspace-reclamation` Task 2,
+and it had not landed when this page was rewritten: `git log --all --oneline --
+bilibili-asr-archive/docs/archive/deletion-records-20260925/` returned nothing and `.tmp/deletion-records/`  (this check was written before Task 2 landed; re-run it today and it reports the tracked copy as present)
+was still the sole copy. So treat the publication as **landed (see the check below)**: check before relying on
+it, and verify with:
+
+```bash
+ls bilibili-asr-archive/docs/archive/deletion-records-20260925/     # empty/absent → not landed yet
+cmp .tmp/deletion-records/<f> bilibili-asr-archive/docs/archive/deletion-records-20260925/<f>
+sha256sum bilibili-asr-archive/docs/archive/deletion-records-20260925/*
+git ls-files bilibili-asr-archive/docs/archive/deletion-records-20260925/
+```
+
+**The 123pan mount §9 names is retired — noted here, not in §9.** Measured 2026-09-29:
+`mountpoint /mnt/123pan` → *is not a mountpoint*; `systemctl is-enabled rclone-123pan` → `disabled`;
+no `bili-asr-e2e` tree exists under `/srv` or under the former mount. The archive root moved to the
+local `/srv/bili-asr-archive` in `ab391a2` (`chore(storage): retire the 123pan mount and move the
+archive root to /srv`, 2026-09-28). §9's `bili-asr-e2e/deletion-records/` line is left exactly as
+written because it records **where the archive was delivered**, which is a historical fact; the
+correct treatment of the retired mount is this dated note.
+
+**One open harness observation, recorded by plan A.** In
+`.mstar/projects/_default/roadmap.md` § **P3.5** (registered 2026-09-28, owner PM): **the engine's
+fallback lifecycle selection is mtime-sensitive when the root register is legitimately empty.**
+`status.json`'s `workflows[]` is cleared at terminal state per contract, which is correct — but
+selection then degrades to "the most recently modified snapshot", so the same session can resolve a
+different historical lifecycle at different times and report a different workflow. It affects
+session-start context, not documents. Until the engine exposes an explicit selection, **do not
+treat the workflow name reported at session start as evidence of the current iteration.** (That
+path is machine-local, not under git.)
+
+---
+
 ## 1. Where everything is
 
 | Ref | Tip | What it carries |
 |---|---|---|
-| `main` | `f326398` | The last released product state (`37b0acc`, 2026-09-21) plus the Qwen3-ASR boundary rebuild, the repo-level `.mstar` publication fix, one harness-registration commit, and the 2026-09-25 structure tidy-up. **The editorial commands are not here.** |
+| `main` | `371693b` | The last released product state (`37b0acc`, 2026-09-21), the Qwen3-ASR boundary rebuild, the repo-level `.mstar` publication fix, one harness-registration commit, the 2026-09-25 structure tidy-up, and then **everything the four iterations below shipped**: the Qwen3-ASR closeout, the archive.db queue layer and evidence dashboard, metadata enrichment plus `derive-audio-inventory`, the queue-SSOT cutover at the CLI with `proofread`/`search`/`search-index`, and shape A's one-directory-per-work bundle layout. **The editorial commands are still not here.** |
 | `iteration/iter-2026-09-transcript-editorial-stages` | `aa86ea1` | The merged Plan 1 (merge commit of PR #17) plus the Phase-1 package as it stood at the lock — the pre-deletion snapshot of the files §9 removed from disk. |
 | `feat/20260923-transcript-proofread` | `55f846c` | The Plan-1 branch, merged via PR #17 and **kept** — this is where a fix rider commits. |
 
-All three are pushed through the tips above.
+All three are pushed through the tips above (**corrected 2026-09-29**). Verify with
+`git branch -a` — all three have an `origin/<ref>` — and
+`git rev-parse --short origin/main` and likewise one ref at a time — `--short` with several revisions exits 128 on this host (2026-09-29), so pass them individually.
 
-Tips are **observations, not a live view**: each is the last commit that ref was at when this
-table was last written (2026-09-25). A commit made afterwards does not make the rest of this
-page wrong. `git rev-parse --short <ref>` is authoritative. `main`'s row names `f326398` — the
-structure tidy-up that rewrote this table — and `0c47504` revised this page again; §9 below was
-written on the same date. Read each row as the date it was written, not as the current tip.
+Tips are **observations, not a live view**: each is the last commit that ref was at when its row
+was last written. A commit made afterwards does not make the rest of this page wrong.
+`git rev-parse --short <ref>` is authoritative. `main`'s row read `f326398` — the structure tidy-up
+that rewrote this table — from 2026-09-25 until it was corrected to `371693b` on 2026-09-29
+(`git rev-parse --short main`); `0c47504` and `9d530cd` revised this page in between, and §9 below
+was written on the first of those dates. The two parked rows are unchanged and still name
+`aa86ea1` and `55f846c`. Read each row as the date it was written, not as the current tip.
 
-Subcommand count: **20 on `main`, 22 at the integration tip** — the two new commands are
-`align-transcripts` and `verify-proofread`.
+Subcommand count: **24 on `main`, 22 at the integration tip.** *Corrected 2026-09-29* — this line
+read "20 on `main`, 22 at the integration tip", which was right when written and is now wrong on
+the `main` side only. The integration figure is still correct: `aa86ea1` really does carry 22.
+The two commands the parked iteration adds are `align-transcripts` and `verify-proofread`; the four
+`main` gained since are `derive-audio-inventory`, `proofread`, `proofread-merge` and `search-index`.
+Re-derive both sides from the source, per ref:
+
+```bash
+git show main:bilibili-asr-archive/src/bili_asr/cli.py    | grep -c 'add_parser('   # 24
+git show aa86ea1:bilibili-asr-archive/src/bili_asr/cli.py | grep -c 'add_parser('   # 22
+```
 
 **The integration branch does not contain the ASR rebuild.** `main` and the integration branch
 forked at `37b0acc` and both moved: 9 commits on the integration side, 18 on `main`. The boundary
@@ -43,6 +160,13 @@ rather than a contract. **Merging the iteration into `main` as-is would revert t
 boundary**; the close PR needs the rebuild merged back in first (or the iteration rebased onto
 the current `main`).
 
+*Counts refreshed 2026-09-29.* Still 9 commits on the integration side, but **48 on `main`** — the
+"18" above was the 2026-09-25 reading (`git rev-list --count 37b0acc..aa86ea1` → 9,
+`git rev-list --count 37b0acc..main` → 48). `git diff --stat main aa86ea1` now reports **678 files,
+259 613 insertions(+), 34 688 deletions(−)**. The ratio is the point rather than either number: the
+integration side has not moved at all while `main` took 30 more commits, so the rescue this
+paragraph describes has grown, not shrunk.
+
 ## 2. The iteration that is parked
 
 `iter-2026-09-transcript-editorial-stages` — make 校对 (proofread) and 精校 (reading edition)
@@ -54,7 +178,7 @@ stage contract under `specs/`) — **deleted from disk 2026-09-25** (§9). Three
 
 | Plan | State | Evidence |
 |---|---|---|
-| `20260923-transcript-proofread` (3 tasks) | **Code complete and merged into the integration branch — with the plan's gates open** | T1 `ebbbac6` + rider `360098c` (reviewed, approved with minor); T2 `a9f411e` → `45222e9` → `e366c35`; T3 `55f846c`. PR [#17](https://github.com/SuperCatQR/bilibili-asr-archive/pull/17), merge `aa86ea1`: 6 commits, 8 files, +4034/−0. |
+| `20260923-transcript-proofread` (3 tasks) | **Code complete and merged into the integration branch — with the plan's gates open** | T1 `ebbbac` + rider `360098c` (reviewed, approved with minor); T2 `a9f411e` → `45222e9` → `e366c35`; T3 `55f846c`. PR [#17](https://github.com/SuperCatQR/bilibili-asr-archive/pull/17), merge `aa86ea1`: 6 commits, 8 files, +4034/−0. |
 | `20260923-reading-edition` (4 tasks) | **Deleted 2026-09-25** — never started, never committed | — (existed on disk only; preserved in the deletion archive, §9) |
 | `20260923-editorial-skills` (2 tasks) | **Deleted 2026-09-25** — never started, never committed | — (existed on disk only; preserved in the deletion archive, §9) |
 
@@ -108,7 +232,7 @@ QC tri-review and the QA gate → only then does the iteration-close PR
 |---|---|
 | Full suite at `55f846c` (this machine, 2026-09-24) | **1875 passed / 5 skipped / 5 errors** in 107 s |
 | The 5 errors | `tests/test_cli_help.py` `installed_*` — they need `uv` to provision an isolated venv, and `uv` is absent here. Pre-existing, not product failures |
-| Editorial suites with the corpus mounted | **94 passed / 0 skipped** — the six-item replay really runs against `/mnt/123pan/bili-asr-e2e` (sha256-pinned; the corpus is path-referenced by design and never copied into the repo) |
+| Editorial suites with the corpus mounted | **94 passed / 0 skipped** — the six-item replay really ran against `/mnt/123pan/bili-asr-e2e` — **that path exists nowhere on the host as of 2026-09-29** (the 123pan mount is retired, see the note above); the measurement stands, the route to reproduce it does not (sha256-pinned; the corpus is path-referenced by design and never copied into the repo) |
 | The merged integration tip, smoke-tested | 22 subcommands; the three editorial suites **94 passed** |
 | Fails-before, recorded per task | T2c `11 failed, 45 passed` (all `invalid choice: 'verify-proofread'`); T3 `17 failed, 7 passed` (`invalid choice: 'align-transcripts'` + the missing document) |
 
@@ -131,6 +255,14 @@ Registered under `.mstar/projects/_default/residuals.json` →
 Next iteration's first row (already registered, high): `20260922-proofread-wave · R1` — the ASR
 hotword list is itself an insertion source (target: `src/bili_asr/asr.py` and the hotword
 measurement family).
+
+*Superseded 2026-09-29.* That row is no longer the next one — **`20260922-proofread-wave · R1` was
+closed on 2026-09-27** by `iter-2026-09-qwen3-asr-closeout`, whose two-arm measurement on the frozen
+six-item corpus landed the evidence, plus the guard layer in `b6daab5`. Read it in
+`.mstar/projects/_default/residuals.json` → `entries["20260922-proofread-wave"][0]`
+(`lifecycle: resolved`, `closed_at: 2026-09-27`, `closure_note` naming `b6daab5`). The paragraph is
+left as written because it is the park's record of what was believed then; do not treat it as the
+next action. `R2` in that group is the one still open.
 
 ## 7. What was deliberately not done
 

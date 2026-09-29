@@ -585,24 +585,38 @@ def test_iteration_process_face_is_rejected_while_iteration_specs_are_published(
     debt list, not the prefix boundary. `test_frozen_debt_path_is_tolerated_by_
     the_ratchet` is the case that pins it.)
 
-    And `{ITERATION_DIR}/<id>/specs/**` is published *even though `.gitignore`
-    still ignores it*, which is why the leg's verdict is the D11 prefix list and
-    not "is it ignored": five such drafts are tracked in the real repository
-    today, and the amendment that publishes them is intent rather than a
-    `.gitignore` rule.
+    And `{ITERATION_DIR}/<id>/specs/**` is published *even when the ignore rules
+    would exclude it*, which is why the leg's verdict is the D11 prefix list and
+    not "is it ignored": a force-added out-of-set path is both tracked and
+    ignored, and the two questions have different answers.
+
+    **Amendment note (plan B Task 4).** `.gitignore` now carries the four-line
+    re-include that makes this boundary real for `{ITERATION_DIR}/<id>/specs/**`,
+    so in the *amended* tree such a draft is genuinely not ignored. This fixture
+    still forces the path in, which keeps the control independent of the rule
+    text — the leg must classify by the D11 prefix list either way. Note that
+    `git check-ignore -v` returns 0 for a *negation* match too, so a `-v`-only
+    assertion cannot distinguish "excluded" from "re-included"; the bare and `-q`
+    forms do (0 = excluded, 1 = re-included), and this control asserts
+    `returncode == 0` on the *ignored* side only.
     """
     process_face = _force_add(scratch_harness, "iterations/iter-y/README.md")
     specs_path = _force_add(scratch_harness, "iterations/iter-y/specs/contract.md")
 
-    # Both are ignored by the rules; only one is in the published set. A leg
-    # that asked git instead of the prefix list would report the wrong one.
+    # Both paths are force-added, so both are tracked while the ignore rules
+    # treat them differently — or, in a checkout that has not yet merged plan B
+    # Task 4's re-include, *identically*. The leg's answer must be the same
+    # either way, because its verdict is the D11 prefix list, not git's answer.
+    # (An earlier version of this control asserted a specific ignore state for
+    # each path; that made a shared test file depend on a branch-local
+    # `.gitignore` — QC2-F2/F3. The rules themselves are asserted, hermetically,
+    # by `test_the_amended_gitignore_publishes_specs_but_not_the_process_face`.)
+    repo = scratch_harness.parent
+    observed = {}
     for path in (process_face, specs_path):
-        relative = str(path.relative_to(scratch_harness.parent))
-        evidence = _run(["git", "check-ignore", "--no-index", "-v", relative], cwd=scratch_harness.parent)
-        assert evidence.returncode == 0, (
-            f"precondition: {relative} is ignored by the .gitignore rules, so 'is it ignored' cannot "
-            "separate the two paths"
-        )
+        relative = str(path.relative_to(repo))
+        completed = _run(["git", "check-ignore", "-q", "--no-index", relative], cwd=repo)
+        observed[relative] = "excluded" if completed.returncode == 0 else "re-included"
 
     run = _run_checker(scratch_harness)
     assert run.returncode == 1, "an iteration package README is not published:\n" + run.text
@@ -2019,3 +2033,67 @@ def test_an_empty_register_is_a_verdict_not_a_read_failure(scratch_harness: Path
         )
     finally:
         register.write_text(original, encoding="utf-8")
+
+
+def test_the_amended_gitignore_publishes_specs_but_not_the_process_face(scratch_harness: Path, tmp_path: Path):
+    """The rules themselves, not just the checker's prefix list.
+
+    `test_iteration_process_face_is_rejected_while_iteration_specs_are_published`
+    proves the *checker* classifies by the D11 prefix list, and is deliberately
+    independent of the ignore rules. This control is the complement: it asserts
+    the rules in `.gitignore` agree with D11, which is what plan B Task 4 landed.
+    Without it, a re-include written as a bare `!.mstar/iterations/**` (publishing
+    the whole process face) would pass every other test in this file — the
+    checker's verdict comes from its own prefix list and would not notice.
+
+    `-q` is used rather than `-v` because `-v` returns 0 for a *negation* match
+    too, so it cannot separate excluded from re-included.
+    """
+    # The rules under test are THIS checkout's `.gitignore` (the delivered file),
+    # not the fixture repo's copy. Reading the fixture repo would make the
+    # control depend on which branch the surrounding checkout sits on: the file
+    # is branch-local while this test file is shared, so on a branch that has not
+    # merged plan B Task 4 the control would go red for a reason unrelated to the
+    # delivery (QC2-F3). So: assert the *delivered rules* directly, by asking git
+    # to classify paths under a scratch repo whose `.gitignore` is this file.
+    delivered = REPO_ROOT / ".gitignore"
+    if not delivered.is_file():  # pragma: no cover - packaging guard
+        pytest.skip("the delivered `.gitignore` is not reachable from the test file")
+    rules = delivered.read_text(encoding="utf-8")
+    if "iterations" not in rules:  # pragma: no cover - pre-Task-4 checkout
+        pytest.skip(
+            "this checkout's `.gitignore` does not yet carry plan B Task 4's re-include "
+            "(the change is branch-local; the test is shared)"
+        )
+
+    scratch = tmp_path / "rules"
+    (scratch / ".git").mkdir(parents=True)
+    shutil.copy(delivered, scratch / ".gitignore")
+    subprocess.run(["git", "init", "-q"], cwd=str(scratch), capture_output=True, timeout=60)
+
+    def excluded(relative: str) -> bool:
+        completed = subprocess.run(
+            ["git", "check-ignore", "-q", "--no-index", relative],
+            cwd=str(scratch), capture_output=True, timeout=60,
+        )
+        return completed.returncode == 0
+
+    # A contract draft under an iteration is published: its parent directories
+    # must be re-included for this to be possible.
+    draft = ".mstar/iterations/iter-x/specs/contract.md"
+    assert not excluded(draft), (
+        f"{draft} must be publishable under the amended rules (D11); a bare "
+        "`!.mstar/iterations/**` or a missing parent re-include would exclude it"
+    )
+    # The process face stays local — this is the half a too-broad re-include breaks.
+    for local in (
+        ".mstar/iterations/README.md",
+        ".mstar/iterations/iter-x/README.md",
+        ".mstar/iterations/iter-x/delivery-compass.md",
+        ".mstar/iterations/iter-x/guides/note.md",
+        ".mstar/plans/20260101-a-plan.md",
+    ):
+        assert excluded(local), (
+            f"{local} must stay refused: D11 publishes only `iterations/<id>/specs/**`, "
+            "and a bare `!.mstar/iterations/**` would leak the process face"
+        )
