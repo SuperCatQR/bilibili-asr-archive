@@ -85,12 +85,13 @@ def _load_checker():
 
 checker = _load_checker() if CHECKER.is_file() else None
 
-# The register's violation count may only shrink. Recorded 2026-09-28 from
-# `MSTAR_HARNESS_DIR=.mstar mstar persist get --validate residuals --key
-# _default` on the pre-Task-2 register: 144 violations. Task 2 drives it to 0;
-# a number *above* this ceiling means some entry regressed to a violating shape,
-# which is the one register failure this file can assert before Task 2 lands.
-REGISTER_VIOLATION_CEILING = 144
+# The register must hold ZERO engine violations. This was a 144-violation ceiling
+# while Task 2 was pending (the pre-Task-2 count, which could only shrink); Task 2
+# has landed and the register validates clean, so the guard is now exact. A
+# ceiling would not guard: a regression 0 -> 1 satisfies `1 <= 144`, so the very
+# failure this assertion exists to catch would pass. Verified by mutating a live
+# register entry to `lifecycle: "closed"` and confirming this fails.
+REGISTER_VIOLATION_CEILING = 0
 
 # Every separator `str.splitlines()` splits on, and the printable spelling the
 # checker substitutes. A path may hold any of them, so the controls below drive
@@ -384,10 +385,11 @@ def test_live_harness_register_leg_reports_the_engine_verdict():
             re.findall(r"\[(?:critical|high|medium|low|nit)\]\s+[A-Za-z0-9_.-]+:", engine.stderr)
         )
 
-    assert total_engine_violations <= REGISTER_VIOLATION_CEILING, (
-        f"the register carries {total_engine_violations} engine violations, above the "
-        f"{REGISTER_VIOLATION_CEILING} recorded 2026-09-28 — the count may only shrink "
-        "(Task 2 drives it to 0), so this is a regression to a violating shape."
+    assert total_engine_violations == REGISTER_VIOLATION_CEILING, (
+        f"the register carries {total_engine_violations} engine violations, expected "
+        f"{REGISTER_VIOLATION_CEILING} — Task 2 drove it to zero, so any count above zero is a "
+        "regression to a violating shape, and this assertion is exact rather than a ceiling "
+        "precisely so that a 0 -> 1 regression cannot slip through."
     )
 
 
