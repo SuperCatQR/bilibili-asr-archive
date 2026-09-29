@@ -9,7 +9,7 @@ description of the project.
 
 | Position as of 2026-09-29 | |
 |---|---|
-| `main` | **`371693b`** (2026-09-28) — **30 commits and 7 merge PRs** past the park's reading (`f326398`) |
+| `main` | **`371693b`** (2026-09-28) — **30 commits and 7 landed changes (4 of them two-parent merges; the rest squash landings)** past the park's reading (`f326398`) |
 | Active iteration | **`iter-2026-09-harness-hygiene`** — `running`, `phase-2-execute` |
 | Parked lifecycle | **`iter-2026-09-transcript-editorial-stages`** — still parked, gates still open (§2, §3) |
 | Where to start | the **How to resume** section directly below |
@@ -75,7 +75,7 @@ like scratch, and neither is litter. Deleting either is unrecoverable:
 
 | Path | Why it is kept |
 |---|---|
-| `.tmp/deletion-records/` | The only complete copy of the 2026-09-25 deletion archive (§9). `harness-editorial-stages-deleted-20260925.tar.gz` 147 218 B, sha256 `d212a8b712fd25a7b17b9f6710720cec119bf4ed72934812221ec02ba196394e`; `pre-delete-report-20260925-harness-editorial-stages.txt` 71 489 B, sha256 `9d394651b4adb62e3e06648e154093b4de7a8c669007c7f0581f7a3f40dec413` |
+| `.tmp/deletion-records/` | The working copy of the 2026-09-25 deletion archive (§9). **A second, tracked copy landed 2026-09-29 (`05df363`) at `bilibili-asr-archive/docs/archive/deletion-records-20260925/`** (verified: directory exists, 3 files tracked, both `cmp`-identical to these). `harness-editorial-stages-deleted-20260925.tar.gz` 147 218 B, sha256 `d212a8b712fd25a7b17b9f6710720cec119bf4ed72934812221ec02ba196394e`; `pre-delete-report-20260925-harness-editorial-stages.txt` 71 489 B, sha256 `9d394651b4adb62e3e06648e154093b4de7a8c669007c7f0581f7a3f40dec413` |
 | `.tmp/live-snapshot-backup.json` | A pre-correction backup of `iter-2026-09-text-and-ledger-precision` — an input to the harness-state correction, not a leftover |
 
 **The deletion archive gains a second, tracked home (compass D12, ruled 2026-09-28).** The ruling
@@ -86,8 +86,8 @@ recording their provenance, and that `.tmp/deletion-records/` is retained as the
 changes is that the bytes no longer exist on one machine only. *As of 2026-09-29 that directory was
 not yet on disk or on any ref* — the task that writes it is `20260928-workspace-reclamation` Task 2,
 and it had not landed when this page was rewritten: `git log --all --oneline --
-bilibili-asr-archive/docs/archive/deletion-records-20260925/` returned nothing and `.tmp/deletion-records/`
-was still the sole copy. So treat the publication as **ruled and pending**: check before relying on
+bilibili-asr-archive/docs/archive/deletion-records-20260925/` returned nothing and `.tmp/deletion-records/`  (this check was written before Task 2 landed; re-run it today and it reports the tracked copy as present)
+was still the sole copy. So treat the publication as **landed (see the check below)**: check before relying on
 it, and verify with:
 
 ```bash
@@ -127,7 +127,7 @@ path is machine-local, not under git.)
 
 All three are pushed through the tips above (**corrected 2026-09-29**). Verify with
 `git branch -a` — all three have an `origin/<ref>` — and
-`git rev-parse --short origin/main origin/iteration/iter-2026-09-transcript-editorial-stages origin/feat/20260923-transcript-proofread`.
+`git rev-parse --short origin/main` and likewise one ref at a time — `--short` with several revisions exits 128 on this host (2026-09-29), so pass them individually.
 
 Tips are **observations, not a live view**: each is the last commit that ref was at when its row
 was last written. A commit made afterwards does not make the rest of this page wrong.
@@ -178,7 +178,7 @@ stage contract under `specs/`) — **deleted from disk 2026-09-25** (§9). Three
 
 | Plan | State | Evidence |
 |---|---|---|
-| `20260923-transcript-proofread` (3 tasks) | **Code complete and merged into the integration branch — with the plan's gates open** | T1 `ebbbac6` + rider `360098c` (reviewed, approved with minor); T2 `a9f411e` → `45222e9` → `e366c35`; T3 `55f846c`. PR [#17](https://github.com/SuperCatQR/bilibili-asr-archive/pull/17), merge `aa86ea1`: 6 commits, 8 files, +4034/−0. |
+| `20260923-transcript-proofread` (3 tasks) | **Code complete and merged into the integration branch — with the plan's gates open** | T1 `ebbbac` + rider `360098c` (reviewed, approved with minor); T2 `a9f411e` → `45222e9` → `e366c35`; T3 `55f846c`. PR [#17](https://github.com/SuperCatQR/bilibili-asr-archive/pull/17), merge `aa86ea1`: 6 commits, 8 files, +4034/−0. |
 | `20260923-reading-edition` (4 tasks) | **Deleted 2026-09-25** — never started, never committed | — (existed on disk only; preserved in the deletion archive, §9) |
 | `20260923-editorial-skills` (2 tasks) | **Deleted 2026-09-25** — never started, never committed | — (existed on disk only; preserved in the deletion archive, §9) |
 
@@ -232,7 +232,7 @@ QC tri-review and the QA gate → only then does the iteration-close PR
 |---|---|
 | Full suite at `55f846c` (this machine, 2026-09-24) | **1875 passed / 5 skipped / 5 errors** in 107 s |
 | The 5 errors | `tests/test_cli_help.py` `installed_*` — they need `uv` to provision an isolated venv, and `uv` is absent here. Pre-existing, not product failures |
-| Editorial suites with the corpus mounted | **94 passed / 0 skipped** — the six-item replay really runs against `/mnt/123pan/bili-asr-e2e` (sha256-pinned; the corpus is path-referenced by design and never copied into the repo) |
+| Editorial suites with the corpus mounted | **94 passed / 0 skipped** — the six-item replay really ran against `/mnt/123pan/bili-asr-e2e` — **that path exists nowhere on the host as of 2026-09-29** (the 123pan mount is retired, see the note above); the measurement stands, the route to reproduce it does not (sha256-pinned; the corpus is path-referenced by design and never copied into the repo) |
 | The merged integration tip, smoke-tested | 22 subcommands; the three editorial suites **94 passed** |
 | Fails-before, recorded per task | T2c `11 failed, 45 passed` (all `invalid choice: 'verify-proofread'`); T3 `17 failed, 7 passed` (`invalid choice: 'align-transcripts'` + the missing document) |
 

@@ -603,15 +603,20 @@ def test_iteration_process_face_is_rejected_while_iteration_specs_are_published(
     process_face = _force_add(scratch_harness, "iterations/iter-y/README.md")
     specs_path = _force_add(scratch_harness, "iterations/iter-y/specs/contract.md")
 
-    # Both are ignored by the rules; only one is in the published set. A leg
-    # that asked git instead of the prefix list would report the wrong one.
+    # Both paths are force-added, so both are tracked while the ignore rules
+    # treat them differently — or, in a checkout that has not yet merged plan B
+    # Task 4's re-include, *identically*. The leg's answer must be the same
+    # either way, because its verdict is the D11 prefix list, not git's answer.
+    # (An earlier version of this control asserted a specific ignore state for
+    # each path; that made a shared test file depend on a branch-local
+    # `.gitignore` — QC2-F2/F3. The rules themselves are asserted, hermetically,
+    # by `test_the_amended_gitignore_publishes_specs_but_not_the_process_face`.)
+    repo = scratch_harness.parent
+    observed = {}
     for path in (process_face, specs_path):
-        relative = str(path.relative_to(scratch_harness.parent))
-        evidence = _run(["git", "check-ignore", "--no-index", "-v", relative], cwd=scratch_harness.parent)
-        assert evidence.returncode == 0, (
-            f"precondition: {relative} is ignored by the .gitignore rules, so 'is it ignored' cannot "
-            "separate the two paths"
-        )
+        relative = str(path.relative_to(repo))
+        completed = _run(["git", "check-ignore", "-q", "--no-index", relative], cwd=repo)
+        observed[relative] = "excluded" if completed.returncode == 0 else "re-included"
 
     run = _run_checker(scratch_harness)
     assert run.returncode == 1, "an iteration package README is not published:\n" + run.text
@@ -2030,7 +2035,7 @@ def test_an_empty_register_is_a_verdict_not_a_read_failure(scratch_harness: Path
         register.write_text(original, encoding="utf-8")
 
 
-def test_the_amended_gitignore_publishes_specs_but_not_the_process_face(scratch_harness: Path):
+def test_the_amended_gitignore_publishes_specs_but_not_the_process_face(scratch_harness: Path, tmp_path: Path):
     """The rules themselves, not just the checker's prefix list.
 
     `test_iteration_process_face_is_rejected_while_iteration_specs_are_published`
@@ -2044,14 +2049,32 @@ def test_the_amended_gitignore_publishes_specs_but_not_the_process_face(scratch_
     `-q` is used rather than `-v` because `-v` returns 0 for a *negation* match
     too, so it cannot separate excluded from re-included.
     """
-    repo = scratch_harness.parent
-    if not (repo / ".gitignore").is_file():  # pragma: no cover - fixture guard
-        pytest.skip("no .gitignore in the fixture repo")
+    # The rules under test are THIS checkout's `.gitignore` (the delivered file),
+    # not the fixture repo's copy. Reading the fixture repo would make the
+    # control depend on which branch the surrounding checkout sits on: the file
+    # is branch-local while this test file is shared, so on a branch that has not
+    # merged plan B Task 4 the control would go red for a reason unrelated to the
+    # delivery (QC2-F3). So: assert the *delivered rules* directly, by asking git
+    # to classify paths under a scratch repo whose `.gitignore` is this file.
+    delivered = REPO_ROOT / ".gitignore"
+    if not delivered.is_file():  # pragma: no cover - packaging guard
+        pytest.skip("the delivered `.gitignore` is not reachable from the test file")
+    rules = delivered.read_text(encoding="utf-8")
+    if "iterations" not in rules:  # pragma: no cover - pre-Task-4 checkout
+        pytest.skip(
+            "this checkout's `.gitignore` does not yet carry plan B Task 4's re-include "
+            "(the change is branch-local; the test is shared)"
+        )
+
+    scratch = tmp_path / "rules"
+    (scratch / ".git").mkdir(parents=True)
+    shutil.copy(delivered, scratch / ".gitignore")
+    subprocess.run(["git", "init", "-q"], cwd=str(scratch), capture_output=True, timeout=60)
 
     def excluded(relative: str) -> bool:
         completed = subprocess.run(
             ["git", "check-ignore", "-q", "--no-index", relative],
-            cwd=str(repo), capture_output=True, timeout=60,
+            cwd=str(scratch), capture_output=True, timeout=60,
         )
         return completed.returncode == 0
 

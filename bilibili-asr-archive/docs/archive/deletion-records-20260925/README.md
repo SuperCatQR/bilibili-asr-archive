@@ -1,7 +1,7 @@
 # 2026-09-25 deletion archive — published copy
 
 **This directory is the second, tracked home of the 2026-09-25 deletion archive.** It was
-published on 2026-09-28 by plan `20260928-workspace-reclamation` (Task 2) under compass **D12**,
+published on 2026-09-29 (ruling 2026-09-28) by plan `20260928-workspace-reclamation` (Task 2) under compass **D12**,
 so that the bytes survive any `.tmp/` sweep by construction rather than by prose exclusion.
 
 `.tmp/deletion-records/` remains the **working original** and was **not** moved or deleted.
@@ -15,8 +15,9 @@ On **2026-09-25** the operator had the harness records of the parked iteration
 is the authoritative record of what went and what remained.
 
 The archive below was written to the **123pan delivery side** under `bili-asr-e2e/deletion-records/`.
-**That delivery side is retired:** `/mnt/123pan` is not a mountpoint and is empty, its
-`rclone-123pan.service` is gone, and no `bili-asr-e2e` tree exists anywhere under `/srv`. The
+**That delivery side is retired:** `/mnt/123pan` is not a mountpoint and is empty, the
+`rclone-123pan.service` unit **is still installed and loaded** (state `disabled`/`Active: failed` —
+measured 2026-09-29, so it is inert rather than removed), and no `bili-asr-e2e` tree exists under `/srv`. The
 archive root that *did* move to `/srv` is the **product** archive
 (`/srv/bili-asr-archive/{archive.db,manifest,transcripts}`) — it is not this archive and holds no
 copy of it. §9's 123pan path is left unrewritten there, as the record of where the archive *was*
@@ -38,14 +39,16 @@ A byte-exact copy of every deleted file — 24 members: the 4-file iteration pac
 (`delivery-compass.md`, `direction-lock.md`, `README.md`, `specs/editorial-stage-contract.md`),
 the 2-file workflow snapshot (`snapshot.json`, `agent-flow.jsonl`), the two un-started plans
 (`20260923-reading-edition.md`, `20260923-editorial-skills.md`), and the two duplicate package
-copies inside each of the two gitignored scratch fixtures.
+copies inside each of the two gitignored scratch fixtures — **that enumeration names 16 of the 24
+members; the remaining 8 are the same two-worktree package duplication repeated across the other
+scratch fixtures. The count and the hashes below are exact; this list is the named subset.**
 
 **The bytes that exist only here.** §9 records that the deleted on-disk `delivery-compass.md` was
 **55 232 B** while every committed revision is 47 394 B — the on-disk file carried a delta that was
 never committed, and that delta exists **only** in this archive. §9 also records that
 `20260923-reading-edition.md` and `20260923-editorial-skills.md` were **never committed to any
 ref**, and that `workflows/<id>/` was machine-local by design: for those three groups the archive
-is the only copy, and after this publication that claim holds against a clone too.
+is the only copy, and after this publication that claim holds against a clone too — **once this commit is pushed: as of 2026-09-29 `git branch -a --contains` reports it on no remote ref, so the bytes are safe from a `.tmp` sweep locally but would not yet survive a clone.**
 
 ## `HANDOFF.md` §9 anchors
 
