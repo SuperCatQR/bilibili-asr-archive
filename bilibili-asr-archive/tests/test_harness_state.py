@@ -1819,3 +1819,45 @@ def test_the_engines_fix_guidance_survives_into_the_report(scratch_harness: Path
 
     restored = _run_checker(scratch_harness)
     assert restored.returncode == 0, "the control must restore the fixture:\n" + restored.text
+
+
+@pytest.mark.parametrize("payload", ['"just a string"', "42", "null", "[1, 2, 3]"])
+def test_parsable_json_of_the_wrong_shape_is_a_violation_not_a_skip(scratch_harness: Path, payload: str):
+    """F1 (fix pass #3 re-review): the shape class must not adjudicate validity.
+
+    Parsable JSON whose top level is not the object the engine expects is *not*
+    an unreadable document — the engine reads it and reports a real violation
+    against it (`workflow.snapshot.invalid`, `status.invalid-doc`,
+    `project.register.invalid`). Classifying it as "invalid JSON" hid that
+    violation behind NOT-VALIDATED on the snapshot and register legs, while the
+    root register happened to answer correctly only because it has a rule code
+    of its own. The expectation is taken from the engine, so this cannot pass by
+    the fixture ceasing to be a violation.
+    """
+    snapshot = scratch_harness / "workflows" / "w1" / "snapshot.json"
+    register = scratch_harness / "projects" / "p1" / "residuals.json"
+    original_snapshot = snapshot.read_text(encoding="utf-8")
+    original_register = register.read_text(encoding="utf-8")
+    snapshot.write_text(payload, encoding="utf-8")
+    register.write_text(payload, encoding="utf-8")
+    try:
+        # Leg (a): the engine reports a real violation for this shape.
+        engine_said = _run(["mstar", "status", "validate", str(snapshot)], cwd=PACKAGE_ROOT)
+        assert "FAIL (" in engine_said.stdout + engine_said.stderr, (
+            "precondition: the engine must report a violation for parsable non-object JSON:\n"
+            + engine_said.stdout + engine_said.stderr
+        )
+        run = _run_checker(scratch_harness)
+        for leg in ("snapshots", "registers"):
+            documents = run.leg(leg)
+            assert len(documents) == 1, run.text
+            assert documents[0].state == "FAIL", (
+                f"leg ({leg}): parsable JSON of the wrong shape is a violation the engine "
+                f"reported, and must not be demoted to NOT-VALIDATED:\n" + run.text
+            )
+    finally:
+        snapshot.write_text(original_snapshot, encoding="utf-8")
+        register.write_text(original_register, encoding="utf-8")
+
+    restored = _run_checker(scratch_harness)
+    assert restored.returncode == 0, "the control must restore the fixture:\n" + restored.text

@@ -407,8 +407,12 @@ def _document_shape(path: Path) -> tuple[str, str | None]:
     ``absent``        nothing there at all, including a dangling symlink
     ``not-regular``   something is there but it is not a readable regular file
                       (a directory, a device, a symlink loop)
-    ``invalid-json``  a regular file whose bytes are not JSON
-    ``json``          a regular file holding valid JSON (object or array)
+    ``invalid-json``  a regular file whose bytes cannot be parsed as JSON
+    ``json``          a regular file holding parsable JSON — *whatever* its
+                      top-level shape.  A bare string or number is parsable, and
+                      the engine reports a real violation for it
+                      (``status.invalid-doc``, ``project.register.invalid``);
+                      adjudicating it here would hide that violation.
 
     Why this exists: the engine's *exit code* alone cannot separate "violations"
     from "could not read" — both are non-zero — and the engine's prose about
@@ -434,8 +438,13 @@ def _document_shape(path: Path) -> tuple[str, str | None]:
             return SHAPE_NOT_REGULAR, f"unreadable: {type(exc).__name__}: {exc}"
         except (json.JSONDecodeError, UnicodeDecodeError) as exc:
             return SHAPE_INVALID_JSON, f"invalid JSON: {exc}"
-        if not isinstance(payload, (dict, list)):
-            return SHAPE_INVALID_JSON, f"JSON is not an object or array (got {type(payload).__name__})"
+        # Parsable JSON that is *not* the shape the engine expects (a bare
+        # string, a number, `null`) is NOT an unreadable document: the engine
+        # reads it and reports a real violation against it — `status.invalid-doc`
+        # / `project.register.invalid`.  Classifying it as invalid JSON would
+        # hide that violation behind NOT-VALIDATED, so the shape class stays
+        # `json` and the engine's verdict decides.  Only genuinely unparseable
+        # bytes and unreadable files are withheld from the engine's judgement.
         return SHAPE_JSON, None
     if path.is_symlink() and not path.exists():
         return SHAPE_ABSENT, "no such file (dangling symlink)"
