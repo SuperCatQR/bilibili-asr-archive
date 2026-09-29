@@ -240,7 +240,10 @@ def _refusal_segments(stderr: str) -> list[str]:
 def _engine_register_violations(harness: Path, key: str) -> list[str]:
     env = {**os.environ, "MSTAR_HARNESS_DIR": str(harness)}
     completed = subprocess.run(
-        ["mstar", "persist", "get", "--validate", "residuals", "--key", key],
+        # Bound form (`--key=<k>`), matching the checker: a bare `--key` makes the
+        # engine read the next token as a top-level option, so a hostile key would
+        # have made this oracle agree with the very bug it exists to detect.
+        ["mstar", "persist", "get", "--validate", "residuals", f"--key={key}"],
         cwd=str(harness),
         env=env,
         capture_output=True,
@@ -344,7 +347,7 @@ def test_live_harness_register_leg_reports_the_engine_verdict():
         env = dict(os.environ)
         env["MSTAR_HARNESS_DIR"] = str(HARNESS_DIR)
         engine = subprocess.run(
-            ["mstar", "persist", "get", "--validate", "residuals", "--key", key],
+            ["mstar", "persist", "get", "--validate", "residuals", f"--key={key}"],
             cwd=str(HARNESS_DIR),
             env=env,
             capture_output=True,
@@ -1861,3 +1864,52 @@ def test_parsable_json_of_the_wrong_shape_is_a_violation_not_a_skip(scratch_harn
 
     restored = _run_checker(scratch_harness)
     assert restored.returncode == 0, "the control must restore the fixture:\n" + restored.text
+
+
+def test_a_project_name_cannot_reach_argv(scratch_harness: Path):
+    """QC1-F1: the project directory name is document-controlled; argv is a channel.
+
+    `_register_validate` derives `key` from the *directory name* under
+    `projects/`. Passing it as a separate token (`--key <name>`) let the name
+    reach argv, and the engine parses a bare `--key` as a complete option pair
+    and reads the next token as a new top-level option — so a project directory
+    named `--version` made the reader print its version and **exit 0**. Since the
+    verdict *is* the exit code, a genuinely invalid register then reported `OK`
+    and the whole run exited 0.
+
+    Binding the value to its flag (`--key=<name>`) keeps the name out of argv
+    entirely. The expectation is the engine's own answer for the same bytes under
+    a legal key, so this control cannot pass by the fixture ceasing to be invalid.
+    """
+    projects = scratch_harness / "projects"
+    hostile = projects / "--version"
+    legal = projects / "p1"
+    hostile.mkdir(parents=True)
+    legal.mkdir(parents=True, exist_ok=True)
+    body = "{}"  # invalid: the engine refuses with project.register.missing-entries
+    (hostile / "residuals.json").write_text(body, encoding="utf-8")
+    (legal / "residuals.json").write_text(body, encoding="utf-8")
+    try:
+        # Precondition: the engine refuses these bytes, so the only question is
+        # whether the name lets the checker escape that refusal.
+        env = {**os.environ, "MSTAR_HARNESS_DIR": str(scratch_harness)}
+        engine_said = subprocess.run(
+            ["mstar", "persist", "get", "--validate", "residuals", "--key=p1"],
+            cwd=str(scratch_harness), env=env, capture_output=True, text=True, timeout=300,
+        )
+        assert "refusing to persist invalid" in engine_said.stdout + engine_said.stderr, (
+            "precondition: the engine must refuse this register:\n"
+            + engine_said.stdout + engine_said.stderr
+        )
+
+        run = _run_checker(scratch_harness)
+        documents = {d.target: d for d in run.leg("registers")}
+        assert "projects/--version/residuals.json" in documents, run.text
+        assert documents["projects/--version/residuals.json"].state == "FAIL", (
+            "a project named `--version` must not let an invalid register report OK "
+            "(the name reached argv and the engine answered its version, exit 0):\n" + run.text
+        )
+        assert run.returncode == 1, run.text
+    finally:
+        shutil.rmtree(hostile, ignore_errors=True)
+        shutil.rmtree(legal, ignore_errors=True)

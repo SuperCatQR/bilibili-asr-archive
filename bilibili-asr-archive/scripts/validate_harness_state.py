@@ -433,9 +433,11 @@ def _document_shape(path: Path) -> tuple[str, str | None]:
     """
     if path.is_file():
         try:
-            payload = json.loads(path.read_bytes())
+            raw = path.read_bytes()
         except OSError as exc:
             return SHAPE_NOT_REGULAR, f"unreadable: {type(exc).__name__}: {exc}"
+        try:
+            json.loads(raw)
         except (json.JSONDecodeError, UnicodeDecodeError) as exc:
             return SHAPE_INVALID_JSON, f"invalid JSON: {exc}"
         # Parsable JSON that is *not* the shape the engine expects (a bare
@@ -778,6 +780,10 @@ def check_root_register(harness: Path, report: Report, mstar: str | None) -> Non
 # --------------------------------------------------------------------------
 
 
+def _reason_for_empty(path: Path) -> str:
+    return "is empty (the reader treats it as an absent value)"
+
+
 def _register_validate(leg: str, rel: str, key: str, harness: Path, mstar: str | None) -> Document:
     if mstar is None:
         return Document(
@@ -787,7 +793,17 @@ def _register_validate(leg: str, rel: str, key: str, harness: Path, mstar: str |
     path = harness / "projects" / key / "residuals.json"
     env = dict(os.environ)
     env["MSTAR_HARNESS_DIR"] = str(harness)
-    run = _run([mstar, "persist", "get", "--validate", "residuals", "--key", key], cwd=harness, env=env)
+        # `--key=<value>`, never `--key <value>`: a project directory name is
+    # document-controlled and is interpolated into argv here.  The engine parses
+    # a bare `--key` as a complete option pair and reads the *next* token as a
+    # new top-level option, so a project named `--version` made the reader print
+    # its version and exit 0 — a forged OK for a register the engine refused.
+    # Binding the value to its flag removes the whole argv channel: the name can
+    # no longer reach argv as a token at all, whatever it contains.
+    run = _run(
+        [mstar, "persist", "get", "--validate", "residuals", f"--key={key}"],
+        cwd=harness, env=env,
+    )
     # Same channel as the other two legs: our own reading of the register on
     # disk decides readability, then the reader's exit code is the verdict.  The
     # reader's prose is never parsed for the decision — it is `refusing to
@@ -795,6 +811,25 @@ def _register_validate(leg: str, rel: str, key: str, harness: Path, mstar: str |
     # <path>: …` on an unreadable document, and both are text the document (its
     # values) or its path can spell.
     document = _verdict(leg, rel, path, run)
+    # The register leg is the one class where an *empty* document is a verdict
+    # rather than a read failure: the reader treats whitespace-only bytes as an
+    # absent value and applies its rules, refusing with
+    # `project.register.missing-entries`.  The snapshot and root-register legs
+    # both make the engine throw on empty content and emit no verdict at all, so
+    # this correction is leg-scoped rather than global — a shared shape class
+    # cannot express a per-leg difference, and applying it everywhere made the
+    # snapshot leg report FAIL for a document the engine never judged.
+    if document.state == STATE_NOT_VALIDATED and path.is_file():
+        try:
+            if not path.read_bytes().strip():
+                rows = _rows(run.text)
+                return Document(
+                    leg, rel, STATE_FAIL,
+                    count=_register_refusal_count(run.text),
+                    detail=rows or [f"document {_reason_for_empty(path)}"] + _detail_from(run.text),
+                )
+        except OSError:
+            pass
     if document.state == STATE_FAIL and document.count is None:
         # This leg's reader prints no `FAIL (N violations)` header — it refuses
         # with the violations inline after a fixed prologue — so the header
