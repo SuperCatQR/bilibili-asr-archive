@@ -1915,3 +1915,61 @@ def test_a_project_name_cannot_reach_argv(scratch_harness: Path):
     finally:
         shutil.rmtree(hostile, ignore_errors=True)
         shutil.rmtree(legal, ignore_errors=True)
+
+
+def test_the_count_requires_at_least_one_violation():
+    """Q3-F2: `FAIL (0 violations)` is not a shape the engine emits.
+
+    `_engine_count` requires `[1-9]\\d*` so a document cannot render a violation as
+    zero. Dropping that requirement survived the whole suite because no control
+    called the parser with a zero count. This one does, through the checker's own
+    function — the same code path the report uses.
+    """
+    if checker is None:  # pragma: no cover - harness checkout only
+        pytest.skip("checker source not reachable from this checkout")
+    path = Path("/tmp/h/snapshot.json")
+    for text, expected in (
+        (f"{path}: FAIL (0 violations)", None),
+        (f"{path}: FAIL (1 violation)", 1),
+        (f"{path}: FAIL (3 violations)", 3),
+    ):
+        assert checker._engine_count(text, path) == expected, (
+            f"parsing {text!r} must yield {expected!r}: a zero count is not a shape the "
+            "engine emits, so accepting it would let a document render a real violation as none"
+        )
+
+
+def test_the_ratchet_classification_uses_no_index(scratch_harness: Path):
+    """Q3-F4: `--no-index` changes the ignore evidence the leg prints.
+
+    Leg (d)'s verdict is the D11 prefix list, so `--no-index` does not change the
+    *verdict* — it changes whether the leg can state **which rule** matched. The
+    bare form is masked by the index, so a tracked path that the ignore rules do
+    match reports nothing, and the report line degrades to "not matched by any
+    ignore rule" — evidence that contradicts the truth it exists to show.
+    Removing `--no-index` survived the suite, so this pins the evidence.
+    """
+    repo = scratch_harness.parent
+    leak = scratch_harness / "plans" / "leak.md"
+    leak.parent.mkdir(parents=True, exist_ok=True)
+    leak.write_text("# a plan file, outside the published set\n", encoding="utf-8")
+    try:
+        subprocess.run(["git", "add", "-f", str(leak)], cwd=str(repo),
+                       capture_output=True, timeout=60)
+        run = _run_checker(scratch_harness)
+        assert any(d.leg == "ratchet" and d.state == "FAIL" for d in run.documents), run.text
+        assert "leak.md" in run.text, run.text
+        # The force-added path IS matched by `.gitignore`; only the `--no-index`
+        # form can see that, because the index masks it from the bare form.
+        assert "not matched by any ignore rule" not in run.text, (
+            "the ignore evidence must come from the rules, not the index: a tracked path "
+            "masked by the index makes the bare `git check-ignore` form report nothing, "
+            "which would print a claim the rules contradict:\n" + run.text
+        )
+        assert ".gitignore:" in run.text, (
+            "the leg must name the matching rule as evidence:\n" + run.text
+        )
+    finally:
+        subprocess.run(["git", "rm", "--cached", "-f", str(leak)], cwd=str(repo),
+                       capture_output=True, timeout=60)
+        shutil.rmtree(leak.parent, ignore_errors=True)
