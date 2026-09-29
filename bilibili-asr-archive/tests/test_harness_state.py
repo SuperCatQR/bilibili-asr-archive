@@ -585,11 +585,20 @@ def test_iteration_process_face_is_rejected_while_iteration_specs_are_published(
     debt list, not the prefix boundary. `test_frozen_debt_path_is_tolerated_by_
     the_ratchet` is the case that pins it.)
 
-    And `{ITERATION_DIR}/<id>/specs/**` is published *even though `.gitignore`
-    still ignores it*, which is why the leg's verdict is the D11 prefix list and
-    not "is it ignored": five such drafts are tracked in the real repository
-    today, and the amendment that publishes them is intent rather than a
-    `.gitignore` rule.
+    And `{ITERATION_DIR}/<id>/specs/**` is published *even when the ignore rules
+    would exclude it*, which is why the leg's verdict is the D11 prefix list and
+    not "is it ignored": a force-added out-of-set path is both tracked and
+    ignored, and the two questions have different answers.
+
+    **Amendment note (plan B Task 4).** `.gitignore` now carries the four-line
+    re-include that makes this boundary real for `{ITERATION_DIR}/<id>/specs/**`,
+    so in the *amended* tree such a draft is genuinely not ignored. This fixture
+    still forces the path in, which keeps the control independent of the rule
+    text — the leg must classify by the D11 prefix list either way. Note that
+    `git check-ignore -v` returns 0 for a *negation* match too, so a `-v`-only
+    assertion cannot distinguish "excluded" from "re-included"; the bare and `-q`
+    forms do (0 = excluded, 1 = re-included), and this control asserts
+    `returncode == 0` on the *ignored* side only.
     """
     process_face = _force_add(scratch_harness, "iterations/iter-y/README.md")
     specs_path = _force_add(scratch_harness, "iterations/iter-y/specs/contract.md")
@@ -2019,3 +2028,49 @@ def test_an_empty_register_is_a_verdict_not_a_read_failure(scratch_harness: Path
         )
     finally:
         register.write_text(original, encoding="utf-8")
+
+
+def test_the_amended_gitignore_publishes_specs_but_not_the_process_face(scratch_harness: Path):
+    """The rules themselves, not just the checker's prefix list.
+
+    `test_iteration_process_face_is_rejected_while_iteration_specs_are_published`
+    proves the *checker* classifies by the D11 prefix list, and is deliberately
+    independent of the ignore rules. This control is the complement: it asserts
+    the rules in `.gitignore` agree with D11, which is what plan B Task 4 landed.
+    Without it, a re-include written as a bare `!.mstar/iterations/**` (publishing
+    the whole process face) would pass every other test in this file — the
+    checker's verdict comes from its own prefix list and would not notice.
+
+    `-q` is used rather than `-v` because `-v` returns 0 for a *negation* match
+    too, so it cannot separate excluded from re-included.
+    """
+    repo = scratch_harness.parent
+    if not (repo / ".gitignore").is_file():  # pragma: no cover - fixture guard
+        pytest.skip("no .gitignore in the fixture repo")
+
+    def excluded(relative: str) -> bool:
+        completed = subprocess.run(
+            ["git", "check-ignore", "-q", "--no-index", relative],
+            cwd=str(repo), capture_output=True, timeout=60,
+        )
+        return completed.returncode == 0
+
+    # A contract draft under an iteration is published: its parent directories
+    # must be re-included for this to be possible.
+    draft = ".mstar/iterations/iter-x/specs/contract.md"
+    assert not excluded(draft), (
+        f"{draft} must be publishable under the amended rules (D11); a bare "
+        "`!.mstar/iterations/**` or a missing parent re-include would exclude it"
+    )
+    # The process face stays local — this is the half a too-broad re-include breaks.
+    for local in (
+        ".mstar/iterations/README.md",
+        ".mstar/iterations/iter-x/README.md",
+        ".mstar/iterations/iter-x/delivery-compass.md",
+        ".mstar/iterations/iter-x/guides/note.md",
+        ".mstar/plans/20260101-a-plan.md",
+    ):
+        assert excluded(local), (
+            f"{local} must stay refused: D11 publishes only `iterations/<id>/specs/**`, "
+            "and a bare `!.mstar/iterations/**` would leak the process face"
+        )

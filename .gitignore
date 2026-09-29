@@ -5,6 +5,14 @@
 !.mstar/knowledge/**
 !.mstar/specs/
 !.mstar/specs/**
+# Iteration contract drafts only (compass D11): the process face — package
+# README, delivery-compass.md, iterations/README.md, guides/ — stays local.
+# The three parent re-includes must precede the leaf: git cannot re-include a
+# path whose parent directory is still excluded.
+!.mstar/iterations/
+!.mstar/iterations/*/
+!.mstar/iterations/*/specs/
+!.mstar/iterations/*/specs/**
 # runtime / media
 bilibili-asr-archive/archive/audio/
 bilibili-asr-archive/archive/transcripts/
