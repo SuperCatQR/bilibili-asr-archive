@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "id": "e2e-23191782-queue-ssot-chain",
+  "type": "plan",
+  "status": "stopped",
+  "close_reason": "Abandoned by operator decision 2026-09-29. Report-only workflow registered but never started; the plan row is Todo and the reports/ directory is empty. No scenarios were ever run. Row recorded as Done solely to satisfy the close verb's terminal-state requirement after operator abandonment.",
+  "started_at": "2026-09-29T14:08:18.283Z",
+  "ended_at": "2026-09-29",
+  "updated_at": "2026-09-29",
+  "plans": [
+    {
+      "id": "e2e-23191782-queue-ssot-chain",
+      "title": "E2E: post-cutover store-queue chain on main — caption-bearing vs caption-less admission, audio->GPU ASR->shape A bundle, reader exits, store convergence",
+      "file": ".mstar/workflows/e2e-23191782-queue-ssot-chain/reports/e2e.md",
+      "status": "Done",
+      "close_reason": "Abandoned by operator 2026-09-29 before any scenario was run."
+    }
+  ],
+  "delivery_kind": "verification/report-only",
+  "project": "_default",
+  "completion_policy": "No branch and no PR: the deliverable is this workflow's own report at .mstar/workflows/e2e-23191782-queue-ssot-chain/reports/e2e.md, accepted by the PM against the assigned scenario list A0-A8 with exactly one determinate outcome each; the workflow closes terminal on that acceptance, independent of what the scenarios conclude. A failed product scenario is still a completed verification run.",
+  "delivery": {
+    "completion": {
+      "policy": "No branch and no PR: the deliverable is this workflow's own report at .mstar/workflows/e2e-23191782-queue-ssot-chain/reports/e2e.md, accepted by the PM against the assigned scenario list A0-A8 with exactly one determinate outcome each; the workflow closes terminal on that acceptance, independent of what the scenarios conclude. A failed product scenario is still a completed verification run.",
+      "evidence": "Operator decision 2026-09-29: workflow abandoned before any scenario was run; reports/ is empty. Recorded as fulfilment solely to satisfy the close gate after operator abandonment."
+    }
+  }
+}
