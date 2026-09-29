@@ -121,7 +121,7 @@ path is machine-local, not under git.)
 
 | Ref | Tip | What it carries |
 |---|---|---|
-| `main` | `371693b` | The last released product state (`37b0acc`, 2026-09-21), the Qwen3-ASR boundary rebuild, the repo-level `.mstar` publication fix, one harness-registration commit, the 2026-09-25 structure tidy-up, and then **everything the four iterations below shipped**: the Qwen3-ASR closeout, the archive.db queue layer and evidence dashboard, metadata enrichment plus `derive-audio-inventory`, the queue-SSOT cutover at the CLI with `proofread`/`search`/`search-index`, and shape A's one-directory-per-work bundle layout. **The editorial commands are still not here.** |
+| `main` | `371693b` | The last released product state (`37b0acc`, 2026-09-21), the Qwen3-ASR boundary rebuild, the repo-level `.mstar` publication fix, one harness-registration commit, the 2026-09-25 structure tidy-up, and then **everything the four iterations below shipped**: the Qwen3-ASR closeout, the archive.db queue layer and evidence dashboard, metadata enrichment plus `derive-audio-inventory`, the queue-SSOT cutover at the CLI with `proofread`/`search`/`search-index`, and shape A's one-directory-per-work bundle layout. Note that **shape A is not one of the four iterations below**: it is a separate landing (`d743043`, PR #26) whose L1 decision post-dates the iteration it merged under, and its residual group `20260928-layout-shape-a` carries an **open `medium` residual (`L-R2`, no arm's-length L2 verdict)** — it has no row in the table below and is not covered by any lifecycle there (QA-C2). **The editorial commands are still not here.** |
 | `iteration/iter-2026-09-transcript-editorial-stages` | `aa86ea1` | The merged Plan 1 (merge commit of PR #17) plus the Phase-1 package as it stood at the lock — the pre-deletion snapshot of the files §9 removed from disk. |
 | `feat/20260923-transcript-proofread` | `55f846c` | The Plan-1 branch, merged via PR #17 and **kept** — this is where a fix rider commits. |
 
@@ -178,7 +178,7 @@ stage contract under `specs/`) — **deleted from disk 2026-09-25** (§9). Three
 
 | Plan | State | Evidence |
 |---|---|---|
-| `20260923-transcript-proofread` (3 tasks) | **Code complete and merged into the integration branch — with the plan's gates open** | T1 `ebbbac` + rider `360098c` (reviewed, approved with minor); T2 `a9f411e` → `45222e9` → `e366c35`; T3 `55f846c`. PR [#17](https://github.com/SuperCatQR/bilibili-asr-archive/pull/17), merge `aa86ea1`: 6 commits, 8 files, +4034/−0. |
+| `20260923-transcript-proofread` (3 tasks) | **Code complete and merged into the integration branch — with the plan's gates open** | T1 `ebbbbac6` + rider `360098c` (reviewed, approved with minor); T2 `a9f411e` → `45222e9` → `e366c35`; T3 `55f846c`. PR [#17](https://github.com/SuperCatQR/bilibili-asr-archive/pull/17), merge `aa86ea1`: 6 commits, 8 files, +4034/−0. |
 | `20260923-reading-edition` (4 tasks) | **Deleted 2026-09-25** — never started, never committed | — (existed on disk only; preserved in the deletion archive, §9) |
 | `20260923-editorial-skills` (2 tasks) | **Deleted 2026-09-25** — never started, never committed | — (existed on disk only; preserved in the deletion archive, §9) |
 
@@ -258,9 +258,9 @@ measurement family).
 
 *Superseded 2026-09-29.* That row is no longer the next one — **`20260922-proofread-wave · R1` was
 closed on 2026-09-27** by `iter-2026-09-qwen3-asr-closeout`, whose two-arm measurement on the frozen
-six-item corpus landed the evidence, plus the guard layer in `b6daab5`. Read it in
+six-item corpus landed the evidence, plus the guard layer whose content reached `main` in `662d9ca` (its own commit `b6daab5` is reachable from no ref — the change landed by squash, so cite the squash; QA-C6). Read it in
 `.mstar/projects/_default/residuals.json` → `entries["20260922-proofread-wave"][0]`
-(`lifecycle: resolved`, `closed_at: 2026-09-27`, `closure_note` naming `b6daab5`). The paragraph is
+(`lifecycle: resolved`, `closed_at: 2026-09-27`, `closure_note` naming `b6daab5`; the guard half belongs to plan `20260928-hotword-injection-governance` under **`iter-2026-09-ops-readiness`**, not the closeout iteration — QA-C6). The paragraph is
 left as written because it is the park's record of what was believed then; do not treat it as the
 next action. `R2` in that group is the one still open.
 
@@ -280,6 +280,9 @@ next action. `R2` in that group is the one still open.
   above, `.mstar/AGENTS.md`, `.mstar/knowledge/**`, `.mstar/specs/**` — the harness's declared
   clone-handoff surface.
 - **Machine-local (does not travel):** the rest of `.mstar/**` — the SDD records, the sealed
+  plans, and the workflow snapshots. **Caveat (QA-C5): 11 `.mstar/**` paths are still tracked at
+  `main` — two `{PLAN_DIR}` plans and the iteration delivery records — so "does not travel" is the
+  intended boundary, not the current one. Treat it as a debt list, not a fact.** The sealed
   plans, the register and its target directory. (Some of what this bullet described — the parked
   iteration's package and workflow snapshot, and the two un-started plans — was deleted on
   2026-09-25; §9 is authoritative.)
