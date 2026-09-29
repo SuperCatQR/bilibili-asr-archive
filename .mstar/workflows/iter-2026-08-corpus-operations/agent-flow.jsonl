@@ -1,0 +1,55 @@
+{"v":1,"ts":1787753974063,"kind":"dispatch","agent":"session-35fa8420-2661-46f5-9739-a2d9d83cb38b","role":"","verdict":"advisory","hard":false}
+{"v":1,"ts":1787754248134,"kind":"dispatch","agent":"session-35fa8420-2661-46f5-9739-a2d9d83cb38b","role":"","verdict":"advisory","hard":false}
+{"v":1,"ts":1787754612946,"kind":"dispatch","agent":"session-35fa8420-2661-46f5-9739-a2d9d83cb38b","role":"","verdict":"advisory","hard":false}
+{"v":1,"ts":1787754798849,"kind":"dispatch","agent":"session-35fa8420-2661-46f5-9739-a2d9d83cb38b","role":"","verdict":"advisory","hard":false}
+{"v":1,"ts":1787754843346,"kind":"dispatch","agent":"session-35fa8420-2661-46f5-9739-a2d9d83cb38b","role":"","verdict":"advisory","hard":false}
+{"v":1,"ts":1787755226130,"kind":"dispatch","agent":"session-35fa8420-2661-46f5-9739-a2d9d83cb38b","role":"","verdict":"advisory","hard":false}
+{"v":1,"ts":1787755924989,"kind":"dispatch","agent":"session-35fa8420-2661-46f5-9739-a2d9d83cb38b","role":"","verdict":"advisory","hard":false}
+{"v":1,"ts":1787757081514,"kind":"dispatch","agent":"session-35fa8420-2661-46f5-9739-a2d9d83cb38b","role":"","verdict":"advisory","hard":false}
+{"v":1,"ts":1787757211242,"kind":"dispatch","agent":"session-35fa8420-2661-46f5-9739-a2d9d83cb38b","role":"","verdict":"advisory","hard":false}
+{"v":1,"ts":1787757586517,"kind":"dispatch","agent":"session-35fa8420-2661-46f5-9739-a2d9d83cb38b","role":"","verdict":"advisory","hard":false}
+{"v":1,"ts":1787760397898,"kind":"dispatch","agent":"session-1b214774-0cb8-4e15-b40e-9859d61a126a","role":"fullstack-dev (track: primary).","planId":"20260826-mixed-outcome-contract","taskCategory":"bug / contract.","verdict":"advisory","hard":false}
+{"v":1,"ts":1787840374256,"kind":"dispatch","agent":"session-1b214774-0cb8-4e15-b40e-9859d61a126a","role":"fullstack-dev-2","taskCategory":"logic","verdict":"advisory","hard":false}
+{"v":1,"ts":1787840618715,"kind":"settle","agent":"session-1b214774-0cb8-4e15-b40e-9859d61a126a","outcome":"ok","role":"fullstack-dev-2"}
+{"v":1,"ts":1787840655657,"kind":"dispatch","agent":"session-1b214774-0cb8-4e15-b40e-9859d61a126a","role":"code-reviewer","planId":"20260826-cli-verification-baseline","taskCategory":"logic review","verdict":"advisory","hard":false}
+{"v":1,"ts":1787840794592,"kind":"settle","agent":"session-1b214774-0cb8-4e15-b40e-9859d61a126a","outcome":"ok","role":"code-reviewer","planId":"20260826-cli-verification-baseline"}
+{"v":1,"ts":1787840831432,"kind":"dispatch","agent":"session-1b214774-0cb8-4e15-b40e-9859d61a126a","role":"fullstack-dev-2","taskCategory":"logic","verdict":"advisory","hard":false}
+{"v":1,"ts":1787841675176,"kind":"settle","agent":"session-1b214774-0cb8-4e15-b40e-9859d61a126a","outcome":"error","role":"fullstack-dev-2"}
+{"v":1,"ts":1787842157000,"kind":"dispatch","agent":"session-1b214774-0cb8-4e15-b40e-9859d61a126a","role":"code-reviewer","planId":"20260826-cli-verification-baseline","taskCategory":"logic review","verdict":"advisory","hard":false}
+{"v":1,"ts":1787842279670,"kind":"settle","agent":"session-1b214774-0cb8-4e15-b40e-9859d61a126a","outcome":"ok","role":"code-reviewer","planId":"20260826-cli-verification-baseline"}
+{"v":1,"ts":1787842311092,"kind":"dispatch","agent":"session-1b214774-0cb8-4e15-b40e-9859d61a126a","role":"qc-specialist","planId":"20260826-cli-verification-baseline","taskCategory":"review","verdict":"advisory","hard":false}
+{"v":1,"ts":1787842311096,"kind":"dispatch","agent":"session-1b214774-0cb8-4e15-b40e-9859d61a126a","role":"qc-specialist-2","planId":"20260826-cli-verification-baseline","taskCategory":"review","verdict":"advisory","hard":false}
+{"v":1,"ts":1787842311100,"kind":"dispatch","agent":"session-1b214774-0cb8-4e15-b40e-9859d61a126a","role":"qc-specialist-3","planId":"20260826-cli-verification-baseline","taskCategory":"review","verdict":"advisory","hard":false}
+{"v":1,"ts":1787842726457,"kind":"settle","agent":"session-1b214774-0cb8-4e15-b40e-9859d61a126a","outcome":"ok","role":"qc-specialist","planId":"20260826-cli-verification-baseline"}
+{"v":1,"ts":1787842748377,"kind":"settle","agent":"session-1b214774-0cb8-4e15-b40e-9859d61a126a","outcome":"ok","role":"qc-specialist-2","planId":"20260826-cli-verification-baseline"}
+{"v":1,"ts":1787842774000,"kind":"settle","agent":"session-1b214774-0cb8-4e15-b40e-9859d61a126a","outcome":"ok","role":"qc-specialist-3","planId":"20260826-cli-verification-baseline"}
+{"v":1,"ts":1787842843407,"kind":"dispatch","agent":"session-1b214774-0cb8-4e15-b40e-9859d61a126a","role":"fullstack-dev-2","taskCategory":"logic","verdict":"advisory","hard":false}
+{"v":1,"ts":1787843201986,"kind":"settle","agent":"session-1b214774-0cb8-4e15-b40e-9859d61a126a","outcome":"ok","role":"fullstack-dev-2"}
+{"v":1,"ts":1787843241373,"kind":"dispatch","agent":"session-1b214774-0cb8-4e15-b40e-9859d61a126a","role":"code-reviewer","planId":"20260826-cli-verification-baseline","taskCategory":"logic review","verdict":"advisory","hard":false}
+{"v":1,"ts":1787843396619,"kind":"settle","agent":"session-1b214774-0cb8-4e15-b40e-9859d61a126a","outcome":"ok","role":"code-reviewer","planId":"20260826-cli-verification-baseline"}
+{"v":1,"ts":1787843424991,"kind":"dispatch","agent":"session-1b214774-0cb8-4e15-b40e-9859d61a126a","role":"qc-specialist-3","planId":"20260826-cli-verification-baseline","taskCategory":"targeted review","verdict":"advisory","hard":false}
+{"v":1,"ts":1787843661004,"kind":"settle","agent":"session-1b214774-0cb8-4e15-b40e-9859d61a126a","outcome":"ok","role":"qc-specialist-3","planId":"20260826-cli-verification-baseline"}
+{"v":1,"ts":1787843728925,"kind":"dispatch","agent":"session-1b214774-0cb8-4e15-b40e-9859d61a126a","role":"qa-engineer","planId":"20260826-cli-verification-baseline","taskCategory":"acceptance","verdict":"advisory","hard":false}
+{"v":1,"ts":1787844042865,"kind":"settle","agent":"session-1b214774-0cb8-4e15-b40e-9859d61a126a","outcome":"ok","role":"qa-engineer","planId":"20260826-cli-verification-baseline"}
+{"v":1,"ts":1787844442897,"kind":"dispatch","agent":"session-1b214774-0cb8-4e15-b40e-9859d61a126a","role":"fullstack-dev-2","taskCategory":"logic","verdict":"advisory","hard":false}
+{"v":1,"ts":1787844568928,"kind":"settle","agent":"session-1b214774-0cb8-4e15-b40e-9859d61a126a","outcome":"ok","role":"fullstack-dev-2"}
+{"v":1,"ts":1787844587838,"kind":"dispatch","agent":"session-1b214774-0cb8-4e15-b40e-9859d61a126a","role":"code-reviewer","planId":"20260826-cli-verification-baseline","taskCategory":"logic review","verdict":"advisory","hard":false}
+{"v":1,"ts":1787844697497,"kind":"settle","agent":"session-1b214774-0cb8-4e15-b40e-9859d61a126a","outcome":"ok","role":"code-reviewer","planId":"20260826-cli-verification-baseline"}
+{"v":1,"ts":1787844718388,"kind":"dispatch","agent":"session-1b214774-0cb8-4e15-b40e-9859d61a126a","role":"qc-specialist","planId":"20260826-cli-verification-baseline","verdict":"advisory","hard":false}
+{"v":1,"ts":1787844718391,"kind":"dispatch","agent":"session-1b214774-0cb8-4e15-b40e-9859d61a126a","role":"qc-specialist-2","planId":"20260826-cli-verification-baseline","verdict":"advisory","hard":false}
+{"v":1,"ts":1787844718394,"kind":"dispatch","agent":"session-1b214774-0cb8-4e15-b40e-9859d61a126a","role":"qc-specialist-3","planId":"20260826-cli-verification-baseline","verdict":"advisory","hard":false}
+{"v":1,"ts":1787845043627,"kind":"settle","agent":"session-1b214774-0cb8-4e15-b40e-9859d61a126a","outcome":"ok","role":"qc-specialist","planId":"20260826-cli-verification-baseline"}
+{"v":1,"ts":1787845083507,"kind":"settle","agent":"session-1b214774-0cb8-4e15-b40e-9859d61a126a","outcome":"ok","role":"qc-specialist-2","planId":"20260826-cli-verification-baseline"}
+{"v":1,"ts":1787845108466,"kind":"settle","agent":"session-1b214774-0cb8-4e15-b40e-9859d61a126a","outcome":"ok","role":"qc-specialist-3","planId":"20260826-cli-verification-baseline"}
+{"v":1,"ts":1787845139447,"kind":"dispatch","agent":"session-1b214774-0cb8-4e15-b40e-9859d61a126a","role":"fullstack-dev-2","taskCategory":"security logic","verdict":"advisory","hard":false}
+{"v":1,"ts":1787845281576,"kind":"settle","agent":"session-1b214774-0cb8-4e15-b40e-9859d61a126a","outcome":"ok","role":"fullstack-dev-2"}
+{"v":1,"ts":1787845295687,"kind":"dispatch","agent":"session-1b214774-0cb8-4e15-b40e-9859d61a126a","role":"code-reviewer","planId":"20260826-cli-verification-baseline","verdict":"advisory","hard":false}
+{"v":1,"ts":1787845408479,"kind":"settle","agent":"session-1b214774-0cb8-4e15-b40e-9859d61a126a","outcome":"ok","role":"code-reviewer","planId":"20260826-cli-verification-baseline"}
+{"v":1,"ts":1787845430200,"kind":"dispatch","agent":"session-1b214774-0cb8-4e15-b40e-9859d61a126a","role":"qc-specialist-2","planId":"20260826-cli-verification-baseline","verdict":"advisory","hard":false}
+{"v":1,"ts":1787845430204,"kind":"dispatch","agent":"session-1b214774-0cb8-4e15-b40e-9859d61a126a","role":"qc-specialist-3","planId":"20260826-cli-verification-baseline","verdict":"advisory","hard":false}
+{"v":1,"ts":1787845804759,"kind":"settle","agent":"session-1b214774-0cb8-4e15-b40e-9859d61a126a","outcome":"ok","role":"qc-specialist-2","planId":"20260826-cli-verification-baseline"}
+{"v":1,"ts":1787845872210,"kind":"settle","agent":"session-1b214774-0cb8-4e15-b40e-9859d61a126a","outcome":"error","role":"qc-specialist-3","planId":"20260826-cli-verification-baseline"}
+{"v":1,"ts":1787845916448,"kind":"dispatch","agent":"session-1b214774-0cb8-4e15-b40e-9859d61a126a","role":"qc-specialist-3","planId":"20260826-cli-verification-baseline","taskCategory":"targeted review","verdict":"advisory","hard":false}
+{"v":1,"ts":1787846072995,"kind":"settle","agent":"session-1b214774-0cb8-4e15-b40e-9859d61a126a","outcome":"ok","role":"qc-specialist-3","planId":"20260826-cli-verification-baseline"}
+{"v":1,"ts":1787846224858,"kind":"dispatch","agent":"session-1b214774-0cb8-4e15-b40e-9859d61a126a","role":"qa-engineer","planId":"20260826-cli-verification-baseline","taskCategory":"acceptance","verdict":"advisory","hard":false}
+{"v":1,"ts":1787846481473,"kind":"settle","agent":"session-1b214774-0cb8-4e15-b40e-9859d61a126a","outcome":"ok","role":"qa-engineer","planId":"20260826-cli-verification-baseline"}

@@ -1,0 +1,87 @@
+{
+ "schema_version": 1,
+ "id": "iter-2026-09-text-and-ledger-precision",
+ "type": "iteration",
+ "status": "completed",
+ "started_at": "2026-09-18",
+ "updated_at": "2026-09-18",
+ "phase": "phase-2-execute",
+ "branch": {
+  "base": "main",
+  "integration": "iteration/iter-2026-09-text-and-ledger-precision",
+  "target": "main"
+ },
+ "plans": [
+  {
+   "id": "20260918-transcript-text-precision",
+   "title": "Transcript text precision: cue-writer Latin spacing, and the hotword benefit measured",
+   "file": ".mstar/plans/20260918-transcript-text-precision.md",
+   "status": "Done",
+   "owner": "project-manager",
+   "agents": [
+    "fullstack-dev"
+   ],
+   "progress": 100,
+   "tags": [
+    "logic",
+    "asr",
+    "residual"
+   ],
+   "metadata": {
+    "iteration_refs": [
+     "iter-2026-09-text-and-ledger-precision"
+    ],
+    "spec_integration_branch": "iteration/iter-2026-09-text-and-ledger-precision",
+    "merge_target": "iteration/iter-2026-09-text-and-ledger-precision",
+    "working_branch": "fix/20260918-transcript-text-precision",
+    "worktree_path": "/root/workspace/bilibili-asr-archive/.worktrees/20260918-transcript-text-precision"
+   },
+   "created_at": "2026-09-18",
+   "updated_at": "2026-09-18",
+   "notes": [
+    "Adopted from iter-2026-09-residual-closeout (locked and review-chain-approved there, deferred when that iteration's scope was reduced). Closes R6 and R3. Task 2 runs a real-host GPU A/B (two arms, BV1H69sB6EeF:p0) as a decoding-configuration measurement.",
+    "Task 1 BLOCKED on evidence (NEEDS_CONTEXT at the plan's authorised Step-1 exit): the two-condition cue rule cannot be evaluated on any readable material — the archived payload stores only the pipeline's output, and the pinned fixture's 91 inserted spaces sit at 0 firing boundaries, making 'fixture byte-identical' a regression guard rather than evidence. PM decision 2026-09-18: do NOT land the rule; R6 stays open with its unblock recorded; this plan now closes R3 only. Nothing was changed, no green was manufactured.",
+    "Task 2 DONE (pending L2 review): the six Chinese homophone hotwords measured by a three-run A/B on the archive host. with(33) 扬弃 38 / homophones 26; without(27) 扬弃 4 / homophones 59 — the without arm reproduced the season baseline independently. A self-added same-config repeat run came out byte-identical (noise floor zero), so the 2.4751 % global difference (bar <=5 %) is attributable. Benefit is 扬弃's alone: the other five terms are inert on this lecture (unexercised, not refuted). R3 closable on this evidence; PM closes after L2.",
+    "Task 2 L2 review APPROVED (code-reviewer Mode A, {SDD_DIR}/20260918-transcript-text-precision/task-2-review.md): Spec Compliance compliant, 0 Critical / 0 Important / 3 Minor; no diff was owed (branch tip = BASE = 0fc963d). All 12 host-side warnings were resolved by the PM on the archive host with read-only reads — every headline number reproduced (md asr_hotwords 33/27/33, 扬弃 38 vs 4, homophones 26 vs 59, ratio 0.9752 exactly with difflib autojunk=False, cues 1400/1410, conf 0.751, low-conf 48/51, repeat byte-identical, 1275 shared buckets with 209 differing, driver sha256 match). R3 CLOSED 2026-09-18 (verified close) on the row's own target; its five unexercised terms are carried forward as successor row 20260918-transcript-text-precision · R1, so the open count is unchanged (medium 1 / low 7). The plan stays InProgress: plan QC tri-review and the QA gate are still owed before Done. Minors M1-M3 are in the SDD ledger under '## Minor (for plan QC)'.",
+    "DONE 2026-09-18. Gates executed in order: per-task L2 review (Task 2 Approved; Task 1 retired on evidence with no change to review) -> plan QC tri-review Request Changes (6 Warnings) -> fix wave -> targeted re-review 2/2 Approve -> bounded confirmation -> mandatory QA gate Approve with residuals (8/8 acceptance criteria pass). Records: {SDD_DIR}/review/qc-consolidated.md, {SDD_DIR}/review/qa.md, and this plan's durable '## Review Gate Summary' / '## QA Gate Summary'. Outcome: R3 closed (verified close, QA re-verified); successor R1 open (low, defer, owner PM); R2 waived. Net open set unchanged (medium 1 / low 7). HOW THE ROW WAS ADVANCED (disclosed, not papered over): this host has no mstar CLI and no importable engine package, so the plan's own scoped engine sequence (bind/prepare/progress/handoff/accept/integration-*/complete) could not run; the status was written through the CLI-less legacy route with this snapshot + the compass as carriers, and NO PR identity, merge record or per-row integration anchor is fabricated. The plan's '## Done note' records the same, and the coordinator inherits the limitation for the phase-3 close and later stages. Execution lease released as part of completion (holder was project-manager@dsh:iter-2026-09-text-and-ledger-precision). The feature worktree is left in place (its branch tip equals the integration tip; nothing to merge)."
+   ],
+   "task_commits": []
+  },
+  {
+   "id": "20260918-operational-record-coverage",
+   "title": "Operational record coverage: the pilot's ledger boundary, and a run that records its own interruption",
+   "file": ".mstar/plans/20260918-operational-record-coverage.md",
+   "status": "Done",
+   "owner": "project-manager",
+   "agents": [
+    "fullstack-dev"
+   ],
+   "progress": 100,
+   "tags": [
+    "ops",
+    "observability",
+    "residual"
+   ],
+   "metadata": {
+    "iteration_refs": [
+     "iter-2026-09-text-and-ledger-precision"
+    ],
+    "spec_integration_branch": "iteration/iter-2026-09-text-and-ledger-precision",
+    "merge_target": "iteration/iter-2026-09-text-and-ledger-precision"
+   },
+   "created_at": "2026-09-18",
+   "updated_at": "2026-09-18",
+   "notes": [
+    "Adopted from iter-2026-09-residual-closeout (same provenance). Closes R4 (documentation, scoped-check) and R5 (SIGTERM/SIGINT record, unit + subprocess tests).",
+    "STARTED 2026-09-18. Lease claimed; feature worktree cut from the integration tip 0fc963d (same as plan 1: the integration branch carries only the Phase-1 lock commit, and this plan's branch is its own). Scheduling: Task 1 -> Task 2, SERIAL, because both tasks write src/bili_asr/cli.py (Task 1 the pilot subparser registration, Task 2 _cmd_run) and parallel writers must never share a file in one worktree. Evidence plan: R4 is a scoped-check documentation task; R5 is a behaviour change anchored by a helper unit test plus a deterministic subprocess SIGTERM test. Engine verbs are unavailable on this host (no mstar CLI / engine package) — the same disclosed limitation as plan 1; the row will be advanced through the CLI-less legacy route with the snapshot, compass and plan as carriers.",
+    "DONE 2026-09-18. Gates: per-task L2 reviews (both Approved) -> plan QC tri-review Request Changes (3 Warnings, one of them found independently by two seats: the SIGINT half of the interruption guard) -> fix wave 1 (36a642d) -> targeted re-review (qc3 Approve; qc2 kept F-001 partially fixed) -> fix wave 2 (6fb114a) -> targeted re-review qc2 Approve + qc3 confirmation -> mandatory QA gate Approve with residuals, 9/9 acceptance criteria pass with EXECUTED evidence (5+1+1 selectors passed, a negative control that fails loudly, and a write-failure probe showing stderr + exit 143). Register: R4 and R5 closed (both verified closes, with QA's required scoping) and four new low/defer rows registered (R1 schedule/campaign, R2 pre-guard window, R3 timestamp comparison, R4 SIGINT clause window). Open set after the closes: medium 1 / low 9. HOW THE ROW WAS ADVANCED: this host has no mstar CLI and no importable engine package, so the plan's scoped engine sequence could not run; Done was written through the CLI-less legacy route with this snapshot, the compass row and the plan's durable gate summaries as carriers, and no PR identity, merge record or integration anchor is fabricated. Same limitation as plan 1, disclosed there and here; the iteration's phase-3 close inherits it. Execution lease released as part of completion (holder was project-manager@dsh:iter-2026-09-text-and-ledger-precision). The feature worktree is left in place: its branch carries the plan's product commits and still has to be integrated into the iteration branch at close (unlike plan 1, which had nothing to merge).",
+    "INTEGRATED 2026-09-18: the plan's branch was merged into iteration/iter-2026-09-text-and-ledger-precision as 34249dc (--no-ff), and the merged tree is byte-identical to the reviewed branch tip 6fb114a (git diff --stat empty). The iteration branch now carries the phase-1 lock commit plus this plan's product work; plan 1 contributed no product commits. Remaining for the iteration tail: the phase-3 close, PR delivery to main, and the snapshot-merge reconciliation recorded in the compass Delivery Branch Policy."
+   ],
+   "task_commits": []
+  }
+ ],
+ "plan_parallelism": "serial",
+ "integration_worktree_path": "/root/workspace/bilibili-asr-archive/.worktrees/iter-2026-09-text-and-ledger-precision-integration",
+ "ended_at": "2026-09-19",
+ "close_note": "Merged to main as 476dc9a; close commit 887ef0e. Snapshot reconciled 2026-09-28 (was left at `running`)."
+}

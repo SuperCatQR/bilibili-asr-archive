@@ -1,0 +1,61 @@
+{
+  "schema_version": 1,
+  "id": "e2e-23191782-asr-vs-subtitle-webdav",
+  "type": "plan",
+  "status": "completed",
+  "phase": "e2e-closed",
+  "started_at": "2026-09-22",
+  "updated_at": "2026-09-22",
+  "delivery_kind": "verification/report-only",
+  "completion_policy": "No branch and no PR: the deliverable is this workflow's own report at .mstar/workflows/e2e-23191782-asr-vs-subtitle-webdav/reports/e2e.md, accepted by the PM against the assigned scenario list A0-A8 with exactly one determinate outcome each plus the six-row comparison table; the workflow closes terminal on that acceptance, independent of what the comparison concludes.",
+  "project": "_default",
+  "plans": [
+    {
+      "id": "e2e-23191782-asr-vs-subtitle-webdav",
+      "title": "E2E: run local GPU ASR over six 未明子 items (7.30 h total, all single-part) on a fresh caption-free archive root and compare the ASR transcript against the live AI subtitle of the same audio",
+      "file": ".mstar/workflows/e2e-23191782-asr-vs-subtitle-webdav/reports/e2e.md",
+      "status": "Done",
+      "owner": "project-manager",
+      "agents": [
+        "ops-engineer"
+      ],
+      "progress": 100,
+      "tags": [
+        "e2e",
+        "verification-only",
+        "asr",
+        "gpu",
+        "comparison",
+        "artifact-root",
+        "webdav"
+      ],
+      "created_at": "2026-09-22",
+      "updated_at": "2026-09-22",
+      "notes": [
+        "Explicit operator authorization 2026-09-22: '做ASR，把ASR和LIVE AI字幕对比一下' — run local GPU ASR over the six items already in play and compare against the live AI subtitle for the same audio. Deliverable: per-item comparison plus a six-row table.",
+        "Verification-only workflow: no iteration phase, no QC tri-review, no development-plan task boundary, no product-code change. The scenario rows A0-A8 in reports/e2e.md are this workflow's plan rows.",
+        "Branch premise, derived from the code and then ASSERTED live (A1) instead of inherited: derive-manifest's queue is the store's v_pending_subtitles relation — every part holding no transcript and not gone — and download-audio --bvid resolves through the manifest's effective entries (_todo_for_bvid, cli.py:624-648), which is exactly why the previous run's caption-bearing store answered 'unresolved; not assigned to a page' (cli.py:1541). This run therefore uses a FRESH root in which the captions are never harvested, so all six enter the queue and the audio -> ASR -> artifact-root chain runs on them with NO product change and no override (Route B as recorded on residual e2e-23191782-longform-pair-webdav R2).",
+        "GPU gate: check-asr-env needs HSA_ENABLE_DXG_DETECTION=1 exported on this host — the previous E2E measured the bare invocation exiting 1 (residual e2e-23191782-subtitle-publish-webdav R1). Every ASR command in this run exports it, and A0 records both invocations rather than presenting the bare failure as a blocker.",
+        "Roots: archive root (fresh, local) /root/e2e-asr/asr-vs-subtitle; artifact root (products + retained audio, WebDAV) /mnt/123pan/bili-asr-e2e/asr-vs-subtitle; AI-caption reference /mnt/123pan/bili-asr-e2e/subtitle-publish is a READ-ONLY INPUT and A4 must prove it byte-unchanged. Logs /root/e2e-asr/logs/asr-vs-subtitle-<UTC-stamp>/.",
+        "The comparison is deliberately double-read: the product's own surface (coverage --quality --reference, one selected row per invocation, yielding ReferenceAgreement(agreement, floor, compared_chars)) AND an independent character-error-rate analysis with printed normalization (A7). Neither transcript is ground truth — the report must say so.",
+        "Dispatched 2026-09-22 to ops-engineer (background) with Execute as: ops-engineer / Task category: ops / Delegation: forbidden. The executor returns results in its closing message; the PM reviews against the scenario list and owns the final state.",
+        "2026-09-22 PM acceptance: accepted against the scenario list. Nine scenarios, all determinate — A0/A1/A2/A3/A4/A5/A7 passed, A6 and A8 failed, 0 not-run, 0 blocked. What the run establishes about the product: the audio -> ASR -> artifact-root branch is verified end to end on live rows for the first time (fetch-meta window -> derive-manifest -> download-audio -> GPU ASR -> published bundles), with no product change and no override; 7.30 h of audio decoded in 4166 s wall (rtf 0.159, engine rtf_avg 0.147) on the RX 7800 XT; 145 596 128 bytes of audio retained under the artifact root; 36 artifact-root files with marker sha256 matching the on-disk bytes 24/24. The two failures are read-side, not the ASR branch: A6's `coverage --reference` refuses pairs over its 20 000-character cap (2 of 6 rows), and A8's ASR manifest rows carry no `source`/`language` so search/export/verify cannot express their provenance. PM verification performed independently rather than trusting the executor: the checkout is untouched (37b0acc, only the pre-existing `.env.bak`); the read-only caption reference root is byte-identical to ALL THREE of the run's recorded sha256 sets and to a fresh PM recomputation (30 files); the A6 refusal was reproduced by the PM with exit 1, empty stdout and the named message against a 28 236-character reference; the store counts behind F4 were read directly (transcripts/transcript_segments/asr_models/audio_objects/attempts all 0 while the manifest holds 6 archived + 6 audio_ok rows); the ASR-vs-caption cue-granularity ratio was recounted from both SRTs (1.94 and 1.88, matching the executor's 1.8-2.0x); and the PM recomputed the character error rate with its own independently written normalization for three items, landing within 0.001 of the run's figures (0.0560/0.0647/0.0866 vs 0.0556/0.0646/0.0858) with character counts matching exactly. Residuals registered at close (bucket `e2e-23191782-asr-vs-subtitle-webdav`): R1 (`coverage --reference` 20 000-char cap, medium), R2 (ASR manifest rows without source/language, medium), R3 (ASR work never reaches the store, medium — the knowledge doc scopes this deliberately; the row records the measured cost), R4 (`publish-transcripts` is a silent no-op on an audio-only root, low). Two existing rows were amended with this run's confirmations: `e2e-23191782-longform-pair-webdav . R3` (the first fetch-meta was refused outright with rate_limited and a bounded retry then succeeded) and `e2e-23191782-subtitle-publish-webdav . R1` (the host variable is still unpersisted one run later). Comparison verdict, stated with its limit: the local ASR and the live AI caption track each other closely — verbatim character error rate 5.6-10.9 % (mean 8.4 %) with the AI caption as the reference — and they diverge systematically in segmentation (the caption emits 1.88-1.99x more, shorter cues) and one-sidedly in vocabulary (the ASR recovers 2-17 of the 33 default hotwords per item, the caption 0-3; the ASR never lacks a hotword the caption has). Neither side is ground truth: the numbers measure disagreement between two machine transcripts, not accuracy."
+      ],
+      "done_at": "2026-09-22"
+    }
+  ],
+  "branch": {
+    "base": "main",
+    "target": "main",
+    "integration": "main"
+  },
+  "notes": [
+    "Verification-only: this workflow creates no branch and opens no PR (branch anchors all 'main', mirroring the two previous e2e workflows).",
+    "Plan/report file (single document, PM scope + ops results): .mstar/workflows/e2e-23191782-asr-vs-subtitle-webdav/reports/e2e.md",
+    "Target host: 192.168.3.21 (WSL2 DESKTOP-HHFROLO). Budget: 7.30 h of audio at the host's measured decode rtf 0.097-0.150 (knowledge/architecture-patterns/wsl-rocm-gpu-asr.md) ≈ 45-70 min decode plus downloads and per-item overhead — the run is incremental per item so partial results are usable on their own.",
+    "Registration performed in-session by the PM (this host has no mstar CLI): the root status.json row and this snapshot were written directly and validated with the engine's validateStatusV2(harnessDir) and validateWorkflowSnapshot before the dispatch.",
+    "Close discipline (per residual iter-2026-09-artifact-root R4): the terminal write must carry ended_at and pass validateWorkflowSnapshot BEFORE the root registry row is removed (removal-at-terminal).",
+    "2026-09-22: closed (terminal). The terminal snapshot carries `ended_at` and passed the engine's `validateWorkflowSnapshot` BEFORE the root registry row was removed; `status.json` then passed `validateStatusV2(harnessDir)` after the removal (close discipline per residual `iter-2026-09-artifact-root . R4`). This host has no `mstar` CLI, so the PM wrote both documents directly and validated them with the engine functions from the installed harness bundle."
+  ],
+  "ended_at": "2026-09-22"
+}

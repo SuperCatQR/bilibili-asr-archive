@@ -1,0 +1,193 @@
+{
+  "schema_version": 1,
+  "id": "iter-2026-09-asr-ops-hardening",
+  "type": "iteration",
+  "status": "completed",
+  "started_at": "2026-09-12",
+  "updated_at": "2026-09-13",
+  "phase": "phase-6-post-merge-close",
+  "branch": {
+    "base": "main",
+    "integration": "iteration/iter-2026-09-asr-ops-hardening",
+    "target": "main"
+  },
+  "plans": [
+    {
+      "id": "20260912-gpu-enablement-truth",
+      "title": "Verified GPU enablement: docs, runtime hint, environment self-check",
+      "file": ".mstar/plans/20260912-gpu-enablement-truth.md",
+      "status": "Done",
+      "owner": "project-manager",
+      "agents": [
+        "fullstack-dev"
+      ],
+      "progress": 100,
+      "tags": [
+        "docs",
+        "gpu",
+        "ops"
+      ],
+      "metadata": {
+        "iteration_refs": [
+          "iter-2026-09-asr-ops-hardening"
+        ],
+        "spec_integration_branch": "iteration/iter-2026-09-asr-ops-hardening",
+        "merge_target": "iteration/iter-2026-09-asr-ops-hardening"
+      },
+      "created_at": "2026-09-12",
+      "updated_at": "2026-09-13",
+      "notes": [
+        "Task 1 DONE (89d9c15): check_asr_env.py five stages; task review Approved with Minor (0C/0I/5M).",
+        "Task 2 DONE (4753b81 + fix 1e285ba): docs/wsl-rocm-gpu.md; review Request Changes -> fix round -> Approved with Minor.",
+        "Task 3 DONE (0e4e5b0 + fix 5cade0b): published surfaces corrected; review Request Changes (pilot overclaim) -> fix -> Approved with Minor. All 3 tasks complete; plan QC tri next.",
+        "Plan Done (merge 5ee7832): QC tri 0C/5I/10W -> 2 fix waves -> Approve; QA Approve with residuals (R1 medium, R2/N-3 low). A1(i)/(ii) target half pending the operator's WSL2 run."
+      ],
+      "task_commits": [
+        "89d9c15",
+        "4753b81",
+        "1e285ba",
+        "0e4e5b0",
+        "5cade0b",
+        "77e3cc1",
+        "4b02245",
+        "a14d732",
+        "01a39f1"
+      ],
+      "done_at": "2026-09-13",
+      "merge_commit": "5ee7832"
+    },
+    {
+      "id": "20260912-batch-model-reuse",
+      "title": "Batch model-reuse contract on the documented path",
+      "file": ".mstar/plans/20260912-batch-model-reuse.md",
+      "status": "Done",
+      "owner": "project-manager",
+      "agents": [
+        "fullstack-dev"
+      ],
+      "progress": 100,
+      "tags": [
+        "backend",
+        "cli",
+        "throughput"
+      ],
+      "metadata": {
+        "iteration_refs": [
+          "iter-2026-09-asr-ops-hardening"
+        ],
+        "spec_integration_branch": "iteration/iter-2026-09-asr-ops-hardening",
+        "merge_target": "iteration/iter-2026-09-asr-ops-hardening"
+      },
+      "created_at": "2026-09-12",
+      "updated_at": "2026-09-13",
+      "notes": [
+        "Task 1 DONE (0d8b7c5 + fix 3a08989): construction counter + per-batch line; review Request Changes (stdout broke campaign JSON) -> spec D2.6 amended to stderr -> fix -> Approved with Minor.",
+        "Task 2 DONE (cb4d587 + fixes 82ba5e3/0a1d354): one runner per invocation, all five labels, campaign stdout guarded; Approved with Minor after fix + guard rounds.",
+        "Plan Done (merge 27ac740): QC tri 0C/3x Approve-with-residuals, one convergent Important (paid-but-empty) closed; QA Approve with residuals (R1/R2 low)."
+      ],
+      "task_commits": [
+        "0d8b7c5",
+        "3a08989",
+        "e6b1fd5",
+        "cb4d587",
+        "82ba5e3",
+        "0a1d354",
+        "b2f9550",
+        "8b5ac50",
+        "035125c"
+      ],
+      "done_at": "2026-09-13",
+      "merge_commit": "27ac740"
+    },
+    {
+      "id": "20260912-quality-signal-merge",
+      "title": "Content-quality reasons folded into the existing quality surface",
+      "file": ".mstar/plans/20260912-quality-signal-merge.md",
+      "status": "Done",
+      "owner": "project-manager",
+      "agents": [
+        "fullstack-dev"
+      ],
+      "progress": 100,
+      "tags": [
+        "backend",
+        "quality",
+        "coverage"
+      ],
+      "metadata": {
+        "iteration_refs": [
+          "iter-2026-09-asr-ops-hardening"
+        ],
+        "spec_integration_branch": "iteration/iter-2026-09-asr-ops-hardening",
+        "merge_target": "iteration/iter-2026-09-asr-ops-hardening"
+      },
+      "created_at": "2026-09-12",
+      "updated_at": "2026-09-12",
+      "notes": [
+        "Task 1 DONE (fc13614): two-class vocabulary + one parser; PM resolved the brief/D3.2 conflict as two fields (spec 03 amendment); Approved with Minor, 3 carry-forwards into Task 2.",
+        "Task 2 DONE (9575d6b + fix c06e56a): content projection + --reference; review Request Changes (md bundle as comparison source) -> fix -> Approved with Minor.",
+        "Task 3 DONE (faebe2d): parallel script retired, retirement map verified on a real archive root; Approved with Minor (3). All three tasks complete; plan QC tri next.",
+        "Plan Done (merge 6ab1ad2): QC tri 0C/6I all closed by one fix wave; QA Approve with residuals (R1/R2 low)."
+      ],
+      "task_commits": [
+        "fc13614",
+        "9575d6b",
+        "c06e56a",
+        "faebe2d",
+        "9575d6b",
+        "c06e56a",
+        "faebe2d",
+        "5b39333"
+      ],
+      "done_at": "2026-09-13",
+      "merge_commit": "6ab1ad2"
+    },
+    {
+      "id": "20260912-asr-provenance-identity",
+      "title": "Declared model identity + VAD capture and low-confidence locations in provenance",
+      "file": ".mstar/plans/20260912-asr-provenance-identity.md",
+      "status": "Done",
+      "owner": "project-manager",
+      "agents": [
+        "fullstack-dev"
+      ],
+      "progress": 100,
+      "tags": [
+        "backend",
+        "provenance",
+        "observability"
+      ],
+      "metadata": {
+        "iteration_refs": [
+          "iter-2026-09-asr-ops-hardening"
+        ],
+        "spec_integration_branch": "iteration/iter-2026-09-asr-ops-hardening",
+        "merge_target": "iteration/iter-2026-09-asr-ops-hardening"
+      },
+      "created_at": "2026-09-12",
+      "updated_at": "2026-09-12",
+      "notes": [
+        "Phase 1 locked 2026-09-12: review-and-edit chain complete (product-manager -> architect -> writing-specialist); 4 spec drafts + 4 plan files on disk.",
+        "Task 1 DONE (a5b65ca/b087fd6 + fix 4f509ff): declared identity via BILI_ASR_MODEL_ID; review Request Changes (README promised an unprinted behaviour) -> option (b) -> Approved with Minor.",
+        "Task 2 DONE (a3ad89c + fix 08cfbfd): VAD capture facts (spans/seconds/ratio, ASR-only); Approved with Minor after a fix round.",
+        "Task 3 DONE (0666310 + fix 26817c9): asr_low_confidence_at; review Request Changes (host remedy proved nothing about loading) -> option (a) real load probe on the host -> Approve; D4.5 verified.",
+        "Plan Done (merge aabf75c): QC tri 0C/1I/2W/8S, all closed by 48690b7 + PM spec amendments; QA Approve with residuals (R1/R2 low)."
+      ],
+      "task_commits": [
+        "a5b65ca",
+        "b087fd6",
+        "4f509ff",
+        "a3ad89c",
+        "08cfbfd",
+        "0666310",
+        "26817c9",
+        "48690b7"
+      ],
+      "done_at": "2026-09-13",
+      "merge_commit": "aabf75c"
+    }
+  ],
+  "plan_parallelism": "serial",
+  "integration_worktree_path": "/root/workspace/bilibili-asr-archive/.worktrees/iter-2026-09-asr-ops-hardening-integration",
+  "ended_at": "2026-09-13"
+}

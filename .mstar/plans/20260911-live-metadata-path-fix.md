@@ -1,0 +1,404 @@
+# Live Metadata Path Fix — transport, proxy, and risk-control-safe page call
+
+> Post-delivery defect fix for the metadata stack shipped by iteration
+> `iter-2026-09-bilibili-api-sqlite`. Standalone plan (no iteration); branch from
+> `main`, PR back to `main`.
+
+**Goal:** Make the shipped live metadata path actually work end-to-end against the real
+Bilibili API: declare an HTTP client backend, make the proxy configurable, and issue the
+user-video page call in a shape that passes upstream risk control — then prove it with a
+bounded live smoke.
+
+**Architecture:** All changes stay inside the Plan-2 gateway boundary
+(`bilibili-asr-archive/src/bili_asr/sources/bilibili_api_gateway.py`) plus packaging
+(`pyproject.toml` / `uv.lock`) and operator docs. The typed DTOs, `BilibiliGateway`
+protocol, bounded error taxonomy, ingestor, repository, schema, and CLI command surface
+are unchanged. The adapter owns the third-party transport shape: it resolves a proxy,
+applies it to the pinned package, and issues the one-page user-video call through the
+package's WBI-signed `Api` with the device-fingerprint (`dm`) parameters disabled and an
+explicitly present (possibly empty) `w_webid`.
+
+**Tech Stack:** Python 3.12, `bilibili-api-python==17.4.2` (pin retained), `curl_cffi`
+(new runtime dependency), pytest, existing fake-`bilibili_api` seam.
+
+**Execution:** mstar-sdd
+
+## Status
+
+- Priority: P0 (post-delivery defect; the shipped live path cannot complete)
+- Task category: backend / external integration fix
+- Status: Done
+- Depends on: `iter-2026-09-bilibili-api-sqlite` (delivered, merged `b62ab88`)
+- Primary context: `.mstar/iterations/iter-2026-09-bilibili-api-sqlite/specs/bilibili-api-gateway.md`
+- Owner: fullstack-dev
+- QA gate: mandatory
+
+## Problem (reproduced 2026-09-11, evidence on disk)
+
+The metadata stack passes its offline suites, but the live path fails for three
+independent, individually reproduced reasons. None of them is a credential problem:
+`x/web-interface/nav` returns `code=0, isLogin=True` with the operator's `BILI_SESSDATA`.
+
+1. **D1 — no HTTP backend declared.** `bilibili-api-python==17.4.2` declares no HTTP
+   client in `Requires-Dist` (and publishes no extras), yet every request raises
+   `ArgsException("尚未安装第三方请求库或未注册自定义第三方请求库")` until `curl_cffi`,
+   `httpx`, or `aiohttp` is installed. `pyproject.toml` adds none, so a fresh install can
+   never reach the network; our adapter maps that `ArgsException` (an `ApiException`
+   subclass) to `response_error`. **This also invalidates the iteration's recorded live
+   evidence**: the Plan-2/Plan-3 "bounded `response_error` under anonymous access" notes
+   were produced by this in-process failure — the request never left the process.
+2. **D2 — the package disables proxies by default.** `bilibili_api.clients.CurlCFFIClient`
+   constructs `AsyncSession(..., proxies={"all": proxy})` with `proxy=""` unless the caller
+   configures one; the explicit empty entry defeats `trust_env`, so environment proxies
+   (`HTTPS_PROXY`/`ALL_PROXY`) are ignored. On this host the direct route to Bilibili is
+   blocked → `curl: (28) Connection timed out` for 30 s. With
+   `request_settings.set_proxy("http://127.0.0.1:7890")` the same call behaves normally.
+3. **D3 — the library's page-call shape trips risk control.** `user.API["info"]["video"]`
+   carries `dm: True`, so the library injects device-fingerprint parameters that this
+   environment cannot satisfy, and `w_webid = await self.get_access_id()` returns `None`
+   because the scraper's source page no longer emits `__RENDER_DATA__`
+   (`space.bilibili.com/23191782/dynamic` → HTTP 200, ~10 KB JS shell, no `access_id`).
+   Order-swapped reproduction against the same credential:
+
+   | call shape | result |
+   |---|---|
+   | `Api(..., wbi=True, dm=True)` + `w_webid=""` | **HTTP 412** risk-control page |
+   | `Api(..., wbi=True, dm=False)` + `w_webid=""` | **`code=0`**, `vlist=5`, `page.count=1691` |
+   | `Api(..., wbi=True, dm=False)` without the `w_webid` parameter | **HTTP 412** |
+
+   With items 1–3 worked around in-process, the typed gateway fetched a real page
+   (5 videos, `observed_total=1691`) and real parts (`BV1S8hA6MEvy`, 1 part, positive
+   `cid`) and the ingestor/repository composition behaved as designed. After ~25 diagnostic
+   requests the upstream began throttling this egress (`-799` on the legacy endpoint, then
+   412/-412 on the WBI endpoint), so the final end-to-end run needs a cooldown.
+
+4. **D4 — the shipped page size is outside what upstream accepts (found during Task 4's
+   live run, 2026-09-11).** The adapter/protocol default is `page_size=100` (and the pinned
+   spec's "Required upstream calls #1" writes `ps=100`), while the pinned library's own API
+   config documents `ps` as `const int: 30` and its `get_videos` default is `ps=30`.
+   Focused live probes after the Task-3 fix (same credential, proxy, and call shape, spaced
+   12 s apart): `ps=30` → `code=0` (30 items), `ps=50` → `code=0` (50 items),
+   `ps=100` → HTTP 412 (and Task 4's production run hit JSON `-400` three times at
+   `ps=100`). Conclusion: large page sizes are rejected by this endpoint, so the shipped
+   default cannot collect a page.
+
+## Global Constraints
+
+- Retain the pin `bilibili-api-python==17.4.2`; do not bump or replace the library in this
+  plan (a version bump would need its own spec change).
+- Only `sources/bilibili_api_gateway.py` imports `bilibili_api`; the existing AST
+  import-boundary test keeps enforcing this.
+- DTOs, the `BilibiliGateway` protocol surface (4 methods), the bounded exception
+  taxonomy and its scalar codes, page/cursor semantics, the ingestor, the repository, and
+  `schema.sql` are **unchanged**.
+- Credentials: `SESSDATA` still comes only from `BILI_SESSDATA` or `--sessdata`, and is
+  never serialized into DTOs, exception messages, logs, fixtures, rows, or reports. Proxy
+  URLs are configuration, not secrets, but must never be logged together with credential
+  material.
+- Proxy resolution precedence (locked): explicit constructor argument →
+  `BILI_HTTP_PROXY` → `HTTPS_PROXY` → `https_proxy` → `ALL_PROXY` → `all_proxy`; when
+  none is set, the adapter must not force a proxy (library default behaviour preserved).
+- The user-video page call must send `w_webid` as a present string (empty allowed) and must
+  not send `dm`-family parameters; if the package ever yields a non-empty `access_id`, that
+  value is preferred over the empty fallback.
+- All tests stay offline; the live smoke stays opt-in and bounded (UID 23191782, one page,
+  temporary archive root, no subtitle/playback/audio/ASR calls, no unbounded retries).
+- No new retry/backoff machinery and no attempts to defeat risk control beyond using the
+  shape the upstream accepts.
+
+## Locked decisions
+
+- **HTTP backend:** `curl_cffi` (the library's recommended transport for risk control);
+  declared as a runtime dependency in `pyproject.toml` with the lockfile regenerated.
+- **Proxy surface:** `BilibiliApiGateway(sessdata=None, proxy=None)`; when a proxy
+  resolves, the adapter applies it to the pinned package's request settings before the
+  first call. `BILI_HTTP_PROXY` is the documented operator knob; standard `HTTPS_PROXY`
+  works as a fallback so proxied hosts need no extra configuration.
+- **Page call:** the adapter issues `GET x/space/wbi/arc/search` through the package's
+  WBI-signed `Api` (`wbi=True`, `dm=False`) with the parameter set the library uses
+  (`mid`, `ps`, `tid`, `pn`, `keyword`, `order`, `order_avoided`, `platform`, `w_webid`),
+  then feeds the response through the existing normalization/validation path. The pinned
+  iteration spec is both annotated (transport amendment + page-size bound) and corrected in
+  place where it named the old shape (`Required upstream calls #1` now names the WBI-signed
+  call with `ps=30`, and the protocol block's default reads `page_size: int = 30`); the DTO,
+  normalization, ownership, and error-taxonomy sections are untouched.
+- **Page size:** the adapter, the protocol declaration, and the shipped service-path constant
+  `services/metadata_ingest.py` `PAGE_SIZE` all become **30** — matching the pinned library's own
+  documented `const int: 30` and its `get_videos` default. Upstream rejects `ps=100` (`-400`/412)
+  while `ps=30` and `ps=50` return `code=0`. The ingestor passes that constant explicitly, so
+  changing only the protocol/adapter defaults would have left the shipped path on the rejected
+  100 — hence the Task-5 deviation (one literal), PM-accepted and recorded 2026-09-11. Cursor
+  semantics are page-based and therefore unchanged.
+- **Docs:** `.env.example` gains `BILI_HTTP_PROXY`; `docs/metadata-storage.md` and the
+  README record the transport dependency, the proxy knob, and the corrected live-smoke
+  expectations (anonymous and credentialed outcomes).
+
+## Interfaces
+
+- Consumes (unchanged): `MetadataRepository` (Plan 1), `MetadataIngestor` (Plan 2),
+  `BilibiliGateway` protocol + DTOs, the bounded exception taxonomy.
+- Produces: `BilibiliApiGateway(sessdata=None, proxy=None)` with a resolved-proxy
+  attribute, a documented `BILI_HTTP_PROXY` knob, a declared `curl_cffi` dependency, and
+  a live-verified one-page collection.
+
+## Tasks
+
+### Task 1: Declare the HTTP backend and prove the packaging contract
+
+**Files:**
+- Modify: `bilibili-asr-archive/pyproject.toml`
+- Modify: `bilibili-asr-archive/uv.lock`
+- Test: `bilibili-asr-archive/tests/test_bilibili_api_gateway.py`
+
+**Interfaces:**
+- Consumes: existing `pyproject.toml` dependency block.
+- Produces: a declared runtime HTTP backend (`curl_cffi`) so a fresh install can issue
+  requests, plus an offline contract test that fails if the declaration disappears.
+
+- [x] Add the HTTP backend to the runtime `dependencies` (locked: `curl_cffi`) without
+  touching unrelated dependencies; regenerate `uv.lock` and confirm `uv lock --check`
+  reports a no-op.
+- [x] Add an offline test asserting the dependency is declared (parity between
+  `pyproject.toml` and the installed distribution, mirroring the existing package-data
+  parity pattern) — no network in the test.
+- [x] Record the pinned-package rationale in the test docstring: why the backend must be
+  declared even though the library does not require it transitively.
+
+Run: `cd bilibili-asr-archive && .venv/bin/python -m pytest tests/test_bilibili_api_gateway.py -v`
+
+### Task 2: Resolve and apply proxy configuration in the gateway
+
+**Files:**
+- Modify: `bilibili-asr-archive/src/bili_asr/sources/bilibili_api_gateway.py`
+- Modify: `bilibili-asr-archive/src/bili_asr/config.py`
+- Modify: `bilibili-asr-archive/tests/fixtures/fake_bilibili_gateway.py` (shared seam; PM-accepted
+  deviation disclosed in the SDD ledger — the fixture had to mirror the adapter's new surface
+  because four test modules consume it)
+- Test: `bilibili-asr-archive/tests/test_bilibili_api_gateway.py`
+
+**Interfaces:**
+- Consumes: `BilibiliApiGateway` constructor and the pinned package's request settings.
+- Produces: `BilibiliApiGateway(sessdata=None, proxy=None)` with locked precedence
+  (argument → `BILI_HTTP_PROXY` → `HTTPS_PROXY` → `https_proxy` → `ALL_PROXY` →
+  `all_proxy`), a `resolved_proxy` attribute, and the proxy applied to the package before
+  the first request.
+
+- [x] Implement proxy resolution as a pure helper (empty/blank values are "unset";
+  precedence exactly as locked) and apply a resolved proxy to the package's request
+  settings at construction; when nothing resolves, leave the library default untouched.
+- [x] Keep the credential boundary intact: no proxy value, and never a credential, appears
+  in DTOs, exception messages, logs, or persisted rows; the CLI display path stays
+  presence-only.
+- [x] Test: precedence order, blank-value handling, no-proxy default (library setting
+  untouched), apply-once behaviour, and the no-leak assertions over output and rows.
+
+Run: `cd bilibili-asr-archive && .venv/bin/python -m pytest tests/test_bilibili_api_gateway.py tests/test_metadata_cli.py -v`
+
+### Task 3: Issue the user-video page call in a risk-control-safe shape
+
+**Files:**
+- Modify: `bilibili-asr-archive/src/bili_asr/sources/bilibili_api_gateway.py`
+- Modify: `bilibili-asr-archive/tests/fixtures/fake_bilibili_gateway.py`
+- Test: `bilibili-asr-archive/tests/test_bilibili_api_gateway.py`
+- Modify: `.mstar/iterations/iter-2026-09-bilibili-api-sqlite/specs/bilibili-api-gateway.md`
+  (PM-owned annotation; the task records the superseded transport clause — implementers
+  must not edit the spec themselves)
+
+**Interfaces:**
+- Consumes: the pinned package's WBI-signed `Api`, the existing normalization helpers.
+- Produces: an unchanged `UserVideoPage` result produced by a call shape that passes
+  upstream risk control (`dm` disabled, `w_webid` present) with bounded error mapping
+  preserved.
+
+- [x] Replace the `User.get_videos(...)` delegate with the WBI-signed `Api` call shape
+  (`dm=False`; `w_webid` = the package's non-empty `access_id` when available, else `""`),
+  forwarding the same parameter set and feeding the response into the existing
+  normalization/validation path unchanged.
+- [x] Keep the bounded taxonomy mapping identical (412/429 and `-412`/`-352`/`-799` →
+  `rate_limited`; `-404`/`-62002` → `not_found`; shape problems → `shape_error`; other
+  upstream failures → `response_error`/`transport_error`), including the WBI-retry case.
+- [x] Extend the fake seam to assert the call shape: `dm` is disabled, `w_webid` is always
+  present (empty allowed), and a non-empty `access_id` is preferred when the seam provides
+  one; assert no `dm`-family parameters are sent.
+- [x] Keep DTO field ownership/validation and `observed_total` semantics unchanged; the
+  existing Task-1/Task-2/Task-3 test suites must pass unmodified except for explicitly
+  disclosed fixtures.
+- [x] PM annotates the pinned spec's "Required upstream calls #1" with the superseded
+  transport clause and the reason (discovered 2026-09-11).
+
+Run: `cd bilibili-asr-archive && .venv/bin/python -m pytest tests/test_bilibili_api_gateway.py tests/test_metadata_ingest.py -v`
+
+### Task 4: Bounded live verification and operator documentation
+
+**Files:**
+- Modify: `bilibili-asr-archive/tests/test_live_metadata_smoke.py`
+- Modify: `bilibili-asr-archive/docs/metadata-storage.md`
+- Modify: `bilibili-asr-archive/README.md`
+- Modify: `.env.example`
+
+**Interfaces:**
+- Consumes: the gateway, ingestor, CLI, and the operator's `BILI_SESSDATA` +
+  `BILI_HTTP_PROXY`.
+- Produces: live evidence of a real one-page collection and operator instructions that
+  match reality.
+
+- [x] Update the opt-in live smoke to assert the happy path (one page, UID 23191782,
+  temporary archive root, real rows: user + videos + parts + discovery + run + page and a
+  cursor advanced past the committed page) while keeping the anonymous bounded-failure
+  branch and the skip-by-default gate.
+- [x] Run the bounded live smoke once with the operator credential and proxy present;
+  record the observed outcome, row counts, and any bounded blocker in the report. If
+  upstream is still throttling, wait for the cooldown and retry once before recording a
+  blocker.
+- [x] Document in `docs/metadata-storage.md` + README: the required HTTP backend, the
+  `BILI_HTTP_PROXY` knob (with the standard `HTTPS_PROXY` fallback), the corrected
+  live-smoke expectations, and the fact that the library needs an explicit proxy in
+  proxied environments.
+- [x] Add `BILI_HTTP_PROXY` (commented, with an example) to `.env.example`.
+
+Run: `cd bilibili-asr-archive && BILI_LIVE_SMOKE=1 .venv/bin/python -m pytest tests/test_live_metadata_smoke.py -v`
+
+### Task 5: Bound the default page size to an upstream-accepted value
+
+**Files:**
+- Modify: `bilibili-asr-archive/src/bili_asr/sources/models.py` (protocol default)
+- Modify: `bilibili-asr-archive/src/bili_asr/sources/bilibili_api_gateway.py` (adapter default)
+- Modify: `bilibili-asr-archive/src/bili_asr/services/metadata_ingest.py` (shipped `PAGE_SIZE` constant)
+- Modify: `bilibili-asr-archive/tests/fixtures/fake_bilibili_gateway.py`
+- Test: `bilibili-asr-archive/tests/test_bilibili_api_gateway.py`
+- Modify: any test that pins the old default (disclose each)
+
+**Interfaces:**
+- Consumes: the Task-3 call shape and the ingestor's page-based cursor contract.
+- Produces: a default page size upstream accepts, with the live path able to collect a page.
+
+- [x] Change the protocol/adapter default page size from 100 to **30** (locked), keeping the
+  parameter name and the ability to pass an explicit `page_size`; do not add a CLI flag.
+- [x] Update the seam + tests that pin the old default (disclose every changed assertion);
+  add a test asserting the default is 30 and that an explicit override still flows through.
+- [x] PM annotates the pinned spec's "Required upstream calls #1" with the page-size bound
+  and the evidence (implementers must not edit the spec).
+- [x] Live re-run of the bounded smoke (one page, UID 23191782, temporary root, credential
+  + proxy) — record the outcome, row counts, and cursor in the report.
+
+Run: `cd bilibili-asr-archive && /root/workspace/bilibili-asr-archive/bilibili-asr-archive/.venv/bin/python -m pytest tests/test_bilibili_api_gateway.py tests/test_metadata_ingest.py -v`
+
+## STOP Conditions
+
+- The corrected call shape (`dm=False`, `w_webid` present) still returns 412/-352 from a
+  cooled-down egress → document the bounded blocker with the exact evidence and escalate;
+  do not add fingerprint spoofing, retry storms, or alternate credentials.
+- The package cannot issue the page call without `dm` parameters in any supported shape →
+  stop and escalate (upstream library change needed).
+- Satisfying the transport requires changing the pinned library version → stop and ask;
+  the pin is spec-locked.
+- Any change would require touching the ingestor, repository, schema, or DTO contract →
+  stop; that is out of scope for this plan.
+
+## Durable Roadmap and Dependencies
+
+- This plan closes the "live path actually works" gap left by
+  `iter-2026-09-bilibili-api-sqlite`; the next iteration (subtitle/transcript) inherits the
+  fixed transport.
+
+- The iteration's recorded QA note ("anonymous anti-bot rejection") is corrected by this
+  plan's §Problem, **and** the tracked knowledge doc that repeated it
+  (`.mstar/knowledge/architecture-patterns/normalized-metadata-stack.md`) was rewritten in the
+  same round (QC-1 F-001) — no residual remains for either statement.
+- Deferred: real `w_webid` derivation when upstream restores SSR data; a first-class `dm`
+  setting if the library adds one; a page-size upper bound *enforced* at the adapter boundary
+  (currently documented only, to avoid rejecting caller overrides silently); and consolidation
+  of the seam's mirrored surface should the library's endpoint description change.
+
+## Acceptance / Done Criteria
+
+- [x] `curl_cffi` is declared in `pyproject.toml`, `uv.lock` is reproducible
+  (`uv lock --check` no-op), and a fresh install can import an HTTP backend.
+- [x] `BilibiliApiGateway` resolves and applies a proxy with the locked precedence; an
+  unset proxy leaves library behaviour untouched; no proxy/credential value leaks into
+  output, logs, or rows.
+- [x] The user-video page call is issued with `dm` disabled and `w_webid` present
+  (non-empty preferred when available), with the bounded error taxonomy unchanged.
+- [x] The adapter/protocol default page size is 30 (upstream-accepted; `ps=100` is rejected
+  with `-400`/412) and an explicit `page_size` override still flows through.
+- [x] The opt-in live smoke completes one page for UID 23191782 into a temporary archive
+  root with real normalized rows and an advanced cursor — or records an explicit, cooled-down
+  upstream blocker with evidence.
+- [x] Offline suites remain green — baseline at plan open was 865 passed / 2 skipped; after
+  Task 1 it is 866, after Task 2 885, after Task 3 892, after Task 5 **894 passed / 2 skipped**, and after the QC fix waves **903 passed / 2 skipped**
+  (each delta is the new tests added by that task or wave) — including the AST import-boundary test
+  and the no-leak scans.
+- [x] `docs/metadata-storage.md`, README, and `.env.example` describe the backend, the
+  proxy knob, and the live-smoke expectations accurately.
+- [x] `git diff --check` is clean.
+
+## Prepare → Execute Handoff
+
+The diagnosis above is the Prepare input: evidence was produced live on 2026-09-11
+(§Problem). Execute Task 1 → Task 2 → Task 3 → Task 4 (serial). After all tasks: SDD branch
+review package, mandatory QC tri-review (N=3), mandatory QA gate (which owns the live
+re-run), then merge to `main` via PR.
+
+## Review Gate Summary
+
+- Decision: QC tri (N=3) converged — seat 1 Request Changes (1W, PM-fixed) → targeted re-review Approve; seats 2/3 Approve; both fix waves revalidated. Plan-level Approve issued by the mandatory QA gate (`review/qa-gate.md`: fresh-install proof, 903 passed / 2 skipped, live happy path exit 0, lock hashes + aarch64 wheel verified, DoD 8/8). Merged to `main` via PR #13 (`1f94920`).
+- Review range / Diff basis: `25a11fe..a898fdf` (main at branch cut → final reviewed head; QC reviewed through `5667844`, fix wave 2 `a898fdf` revalidated by seats 1–2)
+- Review bundle: `.mstar/sdd/20260911-live-metadata-path-fix/review/`
+- QC inputs: `qc1.md`, `qc2.md`, `qc3.md`
+- Blocking result: pending
+- Residual findings: pending
+
+## QA Gate Summary
+
+- QA gate: mandatory
+- QA mode: acceptance (owns the bounded live smoke re-run)
+- Verdict: **Approve — recommend merge to `main`** (qa-engineer, 2026-09-11; HEAD `a898fdf`, range `25a11fe..a898fdf`)
+- Evidence: `.mstar/sdd/20260911-live-metadata-path-fix/review/qa-gate.md` — aligned checkout (cwd/branch/HEAD/clean tree exact);
+  `uv lock --check` no-op + scratch-env fresh install importing `curl_cffi 0.16.3` and `bilibili-api-python 17.4.2`
+  (full fresh project install also verified); offline suite **903 passed / 2 skipped** (the 2 skips are the two opt-in
+  live-smoke gates) with the AST import-boundary tests and no-leak scans green; **live smoke reproduced on the first
+  attempt** from the worktree package dir (credentialed happy path, exit 0, 2.12 s) —
+  `outcome=limited videos=30 parts=33 discoveries=30 page_rows=1 cursor_next_page=2 cursor_state=limited observed_total=1691`,
+  credential occurrences in the run log 0, no bounded blocker (anonymous arm not exercised live); `uv.lock` delta
+  35 insertions / 0 deletions, `curl-cffi 0.16.3` with sdist+21 wheel sha256 hashes incl. `manylinux2014_aarch64`
+  (host arch), no package removed or downgraded; `git diff --check` clean; all 8 acceptance criteria mapped; residual
+  register absent/empty (zero-residual). Scratch envs removed; control venv untouched.
+
+## Sign-off
+
+- Product intent: pending product-manager review
+- Architecture: pending architect review
+- Writing/corpus hygiene: pending writing-specialist review
+- PM lock: locked (PM, 2026-09-11; Prepare input = live diagnosis §Problem)
+- Implementation owner: fullstack-dev
+- QA owner: qa-engineer
+- Review cleanup: zero-residual
+
+## Plan self-review
+
+1. Every defect (D1/D2/D3) maps to a task and an acceptance criterion.
+2. No task requires changing DTOs, the ingestor, the repository, or the schema.
+3. The pinned spec deviation is explicit and annotated, not silent.
+4. The live verification is bounded and has an honest blocker path.
+5. No new credential surface, retry storm, or risk-control evasion is introduced.
+
+## Evidence Index
+
+- Iteration that shipped the stack:
+  `.mstar/iterations/iter-2026-09-bilibili-api-sqlite/delivery-compass.md`
+- Pinned gateway spec (transport clause superseded):
+  `.mstar/iterations/iter-2026-09-bilibili-api-sqlite/specs/bilibili-api-gateway.md`
+- Knowledge: `.mstar/knowledge/architecture-patterns/normalized-metadata-stack.md`
+- Live diagnosis artifacts: `/tmp/live-*` archive roots from the 2026-09-11 session
+  (failure evidence); the corrected-shape success is recorded in this plan's §Problem.
+
+## Status Transition
+
+Starts `Todo`; enters `InProgress` once the feature branch exists; `InReview` after
+implementation; `Done` only by `project-manager`/`qa-engineer` after QC and the mandatory
+QA gate, then merged to `main` by PR.
+
+## End
+
+The gateway stays the only module that knows the third-party transport; everything below it
+keeps the contract it already has.

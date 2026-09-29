@@ -1,0 +1,115 @@
+{
+ "schema_version": 1,
+ "id": "iter-2026-09-ops-readiness",
+ "type": "iteration",
+ "status": "completed",
+ "phase": "phase-6-post-merge-close",
+ "started_at": "2026-09-27",
+ "updated_at": "2026-09-27",
+ "branch": {
+  "base": "main",
+  "integration": "iteration/iter-2026-09-ops-readiness",
+  "target": "main"
+ },
+ "plan_parallelism": "serial",
+ "compass_ref": ".mstar/iterations/iter-2026-09-ops-readiness/delivery-compass.md",
+ "integration_worktree_path": "/root/workspace/bilibili-asr-archive/.worktrees/iter-2026-09-ops-readiness-integration",
+ "plans": [
+  {
+   "id": "20260928-queue-cli-cutover",
+   "title": "Queue SSOT CLI/coordinator wiring + status queue view + cutover docs",
+   "status": "Done",
+   "file": "/root/workspace/bilibili-asr-archive/.mstar/plans/20260928-queue-cli-cutover.md",
+   "metadata": {
+    "spec_integration_branch": "iteration/iter-2026-09-ops-readiness",
+    "merge_target": "iteration/iter-2026-09-ops-readiness",
+    "merge_commit": "9caf83f",
+    "integration_suite": "1613 passed / 147 skipped",
+    "working_branch": "feat/20260928-queue-cli-cutover",
+    "worktree_path": "/root/workspace/bilibili-asr-archive/.worktrees/iter-2026-09-ops-readiness-integration",
+    "done_at": "2026-09-28",
+    "qa_gate": "qc-tri-approve-with-residuals",
+    "close_note": "--queue-source cutover landed; derive-manifest removal + subtitle_ingest D-4 explicitly deferred to follow-on (roadmap P2.5)"
+   }
+  },
+  {
+   "id": "20260928-hotword-injection-governance",
+   "title": "Hotword insertion-error governance + benefit A/B",
+   "status": "Done",
+   "file": "/root/workspace/bilibili-asr-archive/.mstar/plans/20260928-hotword-injection-governance.md",
+   "metadata": {
+    "spec_integration_branch": "iteration/iter-2026-09-ops-readiness",
+    "merge_target": "iteration/iter-2026-09-ops-readiness",
+    "merge_commit": "7e0adf6",
+    "integration_suite": "1613 passed / 147 skipped",
+    "working_branch": "feat/20260928-hotword-injection-governance",
+    "worktree_path": "/root/workspace/bilibili-asr-archive/.worktrees/iter-2026-09-ops-readiness-integration",
+    "done_at": "2026-09-28",
+    "qa_gate": "qc-tri-approve-with-residuals",
+    "close_note": "guard landed; A/B numbers PENDING-OPERATOR (roadmap P2.5); spec addendum staged in docs/ for coordinator landing"
+   }
+  },
+  {
+   "id": "20260928-proofread-pipeline",
+   "title": "bili-asr proofread subcommand (merge-v2 productization)",
+   "status": "Done",
+   "file": "/root/workspace/bilibili-asr-archive/.mstar/plans/20260928-proofread-pipeline.md",
+   "metadata": {
+    "spec_integration_branch": "iteration/iter-2026-09-ops-readiness",
+    "merge_target": "iteration/iter-2026-09-ops-readiness",
+    "merge_commit": "28a9e5d",
+    "integration_suite": "1613 passed / 147 skipped",
+    "working_branch": "feat/20260928-proofread-pipeline",
+    "worktree_path": "/root/workspace/bilibili-asr-archive/.worktrees/iter-2026-09-ops-readiness-integration",
+    "done_at": "2026-09-28",
+    "qa_gate": "qc-tri-approve-with-residuals",
+    "close_note": "proofread + proofread-merge + spec proofread.md landed"
+   }
+  },
+  {
+   "id": "20260928-transcript-search",
+   "title": "bili-asr search FTS5 retrieval over archived transcripts",
+   "status": "Done",
+   "file": "/root/workspace/bilibili-asr-archive/.mstar/plans/20260928-transcript-search.md",
+   "metadata": {
+    "spec_integration_branch": "iteration/iter-2026-09-ops-readiness",
+    "merge_target": "iteration/iter-2026-09-ops-readiness",
+    "merge_commit": "55c516c",
+    "integration_suite": "1613 passed / 147 skipped",
+    "working_branch": "feat/20260928-transcript-search",
+    "worktree_path": "/root/workspace/bilibili-asr-archive/.worktrees/iter-2026-09-ops-readiness-integration",
+    "done_at": "2026-09-28",
+    "qa_gate": "qc-tri-approve-with-residuals",
+    "close_note": "store-backed FTS5 + pubdate windows landed; legacy manifest index retirement deferred"
+   }
+  },
+  {
+   "id": "20260928-ops-docs-and-closeout",
+   "title": "Coverage provenance note, README chain, tail verification",
+   "status": "Done",
+   "file": "/root/workspace/bilibili-asr-archive/.mstar/plans/20260928-ops-docs-and-closeout.md",
+   "metadata": {
+    "spec_integration_branch": "iteration/iter-2026-09-ops-readiness",
+    "merge_target": "iteration/iter-2026-09-ops-readiness",
+    "working_branch": "iteration/iter-2026-09-ops-readiness",
+    "worktree_path": "/root/workspace/bilibili-asr-archive/.worktrees/iter-2026-09-ops-readiness-integration",
+    "merge_commit": "a16aebc",
+    "done_at": "2026-09-28",
+    "qa_gate": "qc-tri-approve-with-residuals",
+    "close_note": "status queue view (B-D1) + README operator chain landed on integration; coverage provenance note (B-D2) recorded as the remaining docs tail"
+   }
+  }
+ ],
+ "ended_at": "2026-09-28",
+ "delivery": {
+  "pr": {
+   "repo": "SuperCatQR/bilibili-asr-archive",
+   "head": "iteration/iter-2026-09-ops-readiness",
+   "target": "main"
+  },
+  "merge": {
+   "provider": "github",
+   "evidence": "PR #24 squash-merged 2026-09-27T15:25:54Z as 662d9ca on main (verified: origin/main resolves to 662d9ca)"
+  }
+ }
+}

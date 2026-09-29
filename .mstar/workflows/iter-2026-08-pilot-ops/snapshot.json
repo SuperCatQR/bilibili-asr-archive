@@ -1,0 +1,321 @@
+{
+ "schema_version": 1,
+ "id": "iter-2026-08-pilot-ops",
+ "type": "iteration",
+ "status": "completed",
+ "started_at": "2026-08-25",
+ "ended_at": "2026-08-25",
+ "updated_at": "2026-08-25",
+ "phase": "phase-5-complete",
+ "plans": [
+  {
+   "id": "20260825-executable-pilot-workflow",
+   "title": "Executable Two-Branch Pilot Workflow",
+   "file": ".mstar/plans/20260825-executable-pilot-workflow.md",
+   "status": "Done",
+   "owner": "@fullstack-dev",
+   "agents": [
+    "@fullstack-dev",
+    "@code-reviewer",
+    "@qc-specialist",
+    "@qc-specialist-2",
+    "@qc-specialist-3",
+    "@qa-engineer"
+   ],
+   "progress": 100,
+   "tags": [
+    "P1",
+    "pilot",
+    "cli"
+   ],
+   "created_at": "2026-08-25",
+   "updated_at": "2026-08-25",
+   "done_at": "2026-08-25",
+   "notes": [
+    "FF merge into iteration/iter-2026-08-pilot-ops at c4ce9bb; QC tri Approve; QA Approve; 180 passed"
+   ],
+   "metadata": {
+    "iteration_refs": [
+     "iter-2026-08-pilot-ops"
+    ],
+    "primary_spec": ".mstar/specs/asr-archive-cli.md",
+    "spec_integration_branch": "iteration/iter-2026-08-pilot-ops",
+    "merge_target": "iteration/iter-2026-08-pilot-ops",
+    "phase": "phase-2-execute",
+    "priority": "high",
+    "gates": {
+     "qc": "mandatory",
+     "qa": "mandatory"
+    },
+    "working_branch": "plan/20260825-executable-pilot-workflow",
+    "sdd_dir": ".mstar/sdd/20260825-executable-pilot-workflow",
+    "sdd_progress": ".mstar/sdd/20260825-executable-pilot-workflow/progress.md",
+    "task_commits": [
+     {
+      "task_id": "T1",
+      "base": "559dfcb54816a8e275e5d162ab27f86cde187476",
+      "head": "8de38460fc58294e12fc97c2ef318965d7875b67"
+     },
+     {
+      "task_id": "T2",
+      "base": "8de38460fc58294e12fc97c2ef318965d7875b67",
+      "head": "301c48e0bae68213e164defa84aa42b6269d694b"
+     },
+     {
+      "task_id": "QC-fix",
+      "base": "301c48e0bae68213e164defa84aa42b6269d694b",
+      "head": "c4ce9bbb8b6c0709699df68489619ac3e6ef5ff3"
+     }
+    ],
+    "merge_commit": "c4ce9bbb8b6c0709699df68489619ac3e6ef5ff3"
+   }
+  },
+  {
+   "id": "20260825-state-machine-entrypoint-tests",
+   "title": "State-Machine + Installed Entrypoint Integration Tests",
+   "file": ".mstar/plans/20260825-state-machine-entrypoint-tests.md",
+   "status": "Done",
+   "owner": "@fullstack-dev",
+   "agents": [
+    "@fullstack-dev",
+    "@code-reviewer",
+    "@qc-specialist",
+    "@qc-specialist-2",
+    "@qc-specialist-3"
+   ],
+   "progress": 100,
+   "tags": [
+    "P2",
+    "tests",
+    "entrypoint"
+   ],
+   "created_at": "2026-08-25",
+   "updated_at": "2026-08-25",
+   "done_at": "2026-08-25",
+   "notes": [
+    "FF merge into iteration/iter-2026-08-pilot-ops at 7965288; QC tri Approve; QA Approve; 189 passed"
+   ],
+   "metadata": {
+    "iteration_refs": [
+     "iter-2026-08-pilot-ops"
+    ],
+    "primary_spec": ".mstar/specs/asr-archive-cli.md",
+    "spec_integration_branch": "iteration/iter-2026-08-pilot-ops",
+    "merge_target": "iteration/iter-2026-08-pilot-ops",
+    "blocked_by": [
+     "20260825-executable-pilot-workflow"
+    ],
+    "phase": "phase-2-execute",
+    "priority": "medium",
+    "gates": {
+     "qc": "mandatory",
+     "qa": "mandatory"
+    },
+    "working_branch": "plan/20260825-state-machine-entrypoint-tests",
+    "sdd_dir": ".mstar/sdd/20260825-state-machine-entrypoint-tests",
+    "sdd_progress": ".mstar/sdd/20260825-state-machine-entrypoint-tests/progress.md",
+    "task_commits": [
+     {
+      "task_id": "T1",
+      "base": "c4ce9bbb8b6c0709699df68489619ac3e6ef5ff3",
+      "head": "10ebd0238e73efe35e0d7a4adaaabfc58a37d470"
+     },
+     {
+      "task_id": "T2",
+      "base": "10ebd0238e73efe35e0d7a4adaaabfc58a37d470",
+      "head": "79652889e7e7b7a6c8419a4bf30badf6f73ee757"
+     }
+    ],
+    "merge_commit": "79652889e7e7b7a6c8419a4bf30badf6f73ee757"
+   }
+  },
+  {
+   "id": "20260825-operational-ledger",
+   "title": "Operational Run Ledger",
+   "file": ".mstar/plans/20260825-operational-ledger.md",
+   "status": "Done",
+   "owner": "@fullstack-dev",
+   "agents": [
+    "@fullstack-dev",
+    "@code-reviewer"
+   ],
+   "progress": 100,
+   "tags": [
+    "P1",
+    "ledger",
+    "ops"
+   ],
+   "created_at": "2026-08-25",
+   "updated_at": "2026-08-25",
+   "done_at": "2026-08-25",
+   "notes": [
+    "lease takeover: prior holder dsh:goal-9443ff6c (dead drive session) -> dsh:goal-8b9c4626; user authorized via '继续'; worktree/branch unchanged",
+    "All tasks complete; L2 approved (T1/T2); branch review-package generated; QC tri pending",
+    "FF merge into iteration/iter-2026-08-pilot-ops at cffe0f1; QC tri Approve (fix round cffe0f1, re-review Approve); QA Pass; 218 passed"
+   ],
+   "metadata": {
+    "iteration_refs": [
+     "iter-2026-08-pilot-ops"
+    ],
+    "primary_spec": ".mstar/specs/asr-archive-cli.md",
+    "spec_integration_branch": "iteration/iter-2026-08-pilot-ops",
+    "merge_target": "iteration/iter-2026-08-pilot-ops",
+    "phase": "phase-2-execute",
+    "priority": "high",
+    "gates": {
+     "qc": "mandatory",
+     "qa": "mandatory"
+    },
+    "working_branch": "plan/20260825-operational-ledger",
+    "sdd_dir": ".mstar/sdd/20260825-operational-ledger",
+    "sdd_progress": ".mstar/sdd/20260825-operational-ledger/progress.md",
+    "task_commits": [
+     {
+      "task_id": "T2",
+      "base": "6397e1c055e06c0e09b4aababa778b0ed0048804",
+      "head": "f65a19d"
+     }
+    ],
+    "merge_commit": "cffe0f1de6ecc8a9d75060ebebb6db0b3a9fb2ce"
+   }
+  },
+  {
+   "id": "20260825-search-export-fts5",
+   "title": "SQLite FTS5 Search/Export Read Model",
+   "file": ".mstar/plans/20260825-search-export-fts5.md",
+   "status": "Done",
+   "owner": "@fullstack-dev",
+   "agents": [
+    "@fullstack-dev",
+    "@code-reviewer"
+   ],
+   "progress": 100,
+   "tags": [
+    "P2",
+    "search",
+    "fts5"
+   ],
+   "created_at": "2026-08-25",
+   "updated_at": "2026-08-25",
+   "done_at": "2026-08-25",
+   "notes": [
+    "All tasks complete; L2 approved (T1/T2); branch review-package generated; QC tri pending",
+    "FF merge into iteration/iter-2026-08-pilot-ops at 5b392cc; QC tri Approve (fix 5b392cc, QC3 re-review Approve); QA Pass; 255 passed"
+   ],
+   "metadata": {
+    "iteration_refs": [
+     "iter-2026-08-pilot-ops"
+    ],
+    "primary_spec": ".mstar/specs/asr-archive-cli.md",
+    "spec_integration_branch": "iteration/iter-2026-08-pilot-ops",
+    "merge_target": "iteration/iter-2026-08-pilot-ops",
+    "phase": "phase-2-execute",
+    "priority": "medium",
+    "gates": {
+     "qc": "mandatory",
+     "qa": "mandatory"
+    },
+    "working_branch": "plan/20260825-search-export-fts5",
+    "sdd_dir": ".mstar/sdd/20260825-search-export-fts5",
+    "sdd_progress": ".mstar/sdd/20260825-search-export-fts5/progress.md",
+    "task_commits": [
+     {
+      "task_id": "T1",
+      "base": "cffe0f1de6ecc8a9d75060ebebb6db0b3a9fb2ce",
+      "head": "cb7ff6069c76b443e682bb2b64cfcd03daedad99"
+     },
+     {
+      "task_id": "T2",
+      "base": "cb7ff6069c76b443e682bb2b64cfcd03daedad99",
+      "head": "2b8dd6969f825c62985522023b501d2583066bff"
+     },
+     {
+      "task_id": "QC-fix",
+      "base": "2b8dd6969f825c62985522023b501d2583066bff",
+      "head": "5b392cc64f44099e48f83e32a8fc2ade6fe01e4c"
+     }
+    ],
+    "merge_commit": "5b392cc64f44099e48f83e32a8fc2ade6fe01e4c"
+   }
+  },
+  {
+   "id": "20260825-run-coordinator-offline",
+   "title": "Run Coordinator + Offline Reprocessing",
+   "file": ".mstar/plans/20260825-run-coordinator-offline.md",
+   "status": "Done",
+   "owner": "@fullstack-dev",
+   "agents": [
+    "@fullstack-dev",
+    "@code-reviewer"
+   ],
+   "progress": 100,
+   "tags": [
+    "P2",
+    "coordinator",
+    "offline"
+   ],
+   "created_at": "2026-08-25",
+   "updated_at": "2026-08-25",
+   "done_at": "2026-08-25",
+   "notes": [
+    "lease takeover: prior holder dsh:goal-8b9c4626 (dead drive session; T1 dispatched ~07:35Z, zero commits, no report) -> dsh:goal-3d8e188a; user authorized via 'drive'; worktree/branch unchanged",
+    "T1 complete (5b392cc..6827180); L2 review Approved 0C/0I/5M",
+    "T2 complete (6827180..2abf3e4); L2 review Approved 0C/0I/2M; branch review-package generated; QC tri pending",
+    "QC tri Request Changes (W1 x3 seats, F-002 qc2 + suggestions); fix round d665034 zero-residual 277 passed; targeted re-review pending",
+    "lease takeover: prior holder dsh:goal-3d8e188a (QC/QA complete, merge pending) -> dsh:goal-6b93fde0; user authorized via '继续阶段'; worktree/branch unchanged",
+    "FF merge into iteration/iter-2026-08-pilot-ops at d665034; QC tri Approve (re-review); QA Pass; 277 passed"
+   ],
+   "metadata": {
+    "iteration_refs": [
+     "iter-2026-08-pilot-ops"
+    ],
+    "primary_spec": ".mstar/specs/asr-archive-cli.md",
+    "spec_integration_branch": "iteration/iter-2026-08-pilot-ops",
+    "merge_target": "iteration/iter-2026-08-pilot-ops",
+    "blocked_by": [
+     "20260825-executable-pilot-workflow",
+     "20260825-operational-ledger"
+    ],
+    "phase": "phase-2-execute",
+    "priority": "medium",
+    "gates": {
+     "qc": "mandatory",
+     "qa": "mandatory"
+    },
+    "working_branch": "plan/20260825-run-coordinator-offline",
+    "sdd_dir": ".mstar/sdd/20260825-run-coordinator-offline",
+    "sdd_progress": ".mstar/sdd/20260825-run-coordinator-offline/progress.md",
+    "task_commits": [
+     {
+      "task_id": "T1",
+      "base": "5b392cc64f44099e48f83e32a8fc2ade6fe01e4c",
+      "head": "6827180ffc2fdeb660b495ebb8278d6a6be90ff9"
+     },
+     {
+      "task_id": "T2",
+      "base": "6827180ffc2fdeb660b495ebb8278d6a6be90ff9",
+      "head": "2abf3e45ec560266c304a7d7d03438a5b7f137a0"
+     },
+     {
+      "task_id": "QC-fix",
+      "base": "2abf3e45ec560266c304a7d7d03438a5b7f137a0",
+      "head": "d665034"
+     }
+    ],
+    "merge_commit": "d665034"
+   }
+  }
+ ],
+ "execution_policy": {
+  "plan_parallelism": "serial",
+  "worktree_mode": "single-feature-branch",
+  "push_policy": "no-pr"
+ },
+ "branch": {
+  "base": "main",
+  "integration": "iteration/iter-2026-08-pilot-ops",
+  "target": "main"
+ },
+ "compass_ref": ".mstar/iterations/iter-2026-08-pilot-ops/delivery-compass.md",
+ "integration_worktree_path": "/root/workspace/bilibili-asr-archive"
+}

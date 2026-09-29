@@ -1,0 +1,63 @@
+{
+  "schema_version": 1,
+  "id": "iter-2026-09-transcript-projections",
+  "type": "iteration",
+  "status": "completed",
+  "phase": "phase-6-post-merge-close",
+  "started_at": "2026-09-20",
+  "updated_at": "2026-09-21",
+  "branch": {
+    "base": "main",
+    "integration": "iteration/iter-2026-09-transcript-projections",
+    "target": "main"
+  },
+  "plan_parallelism": "serial",
+  "compass_ref": ".mstar/iterations/iter-2026-09-transcript-projections/delivery-compass.md",
+  "plans": [
+    {
+      "id": "20260920-transcript-projections",
+      "title": "Publish stored transcripts as archive bundles (`bili-asr` projection command) + the folded-in `check-asr-env` anchor fix",
+      "file": ".mstar/plans/20260920-transcript-projections.md",
+      "status": "Done",
+      "progress": 100,
+      "execution_mode": "sdd",
+      "qa_gate": "mandatory",
+      "qa_mode": "targeted",
+      "metadata": {
+        "spec_integration_branch": "iteration/iter-2026-09-transcript-projections",
+        "merge_target": "iteration/iter-2026-09-transcript-projections",
+        "primary_spec": ".mstar/iterations/iter-2026-09-transcript-projections/specs/transcript-projection-contract.md",
+        "main_worktree_branch": "main"
+      },
+      "created_at": "2026-09-20",
+      "updated_at": "2026-09-20",
+      "notes": [
+        "Phase 1 opened 2026-09-20 on the user's direction lock: the iteration closes the projection half of the medium charter row e2e-23191782-season-7686105 R1 (a stored transcript must be publishable as a complete archive bundle), with the check-asr-env anchor fix (register e2e-23191782-longform-pair-webdav R1) folded in. Both folds were confirmed by the operator the same day, as was the verification split: fixture-based self-verification inside the iteration, the real-device re-run as a separate E2E workflow after delivery.",
+        "Charter evidence: the live E2E workflow e2e-23191782-longform-pair-webdav measured on 2026-09-20 that both named items now carry AI captions, that the chain correctly took the subtitles-first branch, and that no row could reach 'archived' because no command can project a stored transcript into an artifact bundle (report A3/A4/A5/A6/A8).",
+        "Single business plan 20260920-transcript-projections (Execution: sdd, QA gate: mandatory/targeted). Phase 1 chain (product-manager -> architect -> writing-specialist) then PM lock; branch anchors: base main, integration iteration/iter-2026-09-transcript-projections, target main (repo AGENTS.md convention).",
+        "Environment note (compass D9): no mstar CLI is installed on the control host, so every engine lifecycle write is hand-written to the frozen contract's schema and validated with the engine's own validator before it is treated as landed.",
+        "Phase 1 locked and published 2026-09-20: the three-role review-and-edit chain ran in order (product-manager -> architect -> writing-specialist), each editing in place; zero non-PM markers remained; the two PM-owned rows were resolved as D15 at the lock. Prepare gates (specify/clarify/plan/primary_spec) all done. The reviewed package was transferred into the integration worktree and committed there as 87892a0, pushed to origin/iteration/iter-2026-09-transcript-projections (remote tip == integration HEAD). Control root = the primary checkout on main (recorded Main worktree branch); the plan and this snapshot stay local process artifacts by convention.",
+        "Phase 2 entry 2026-09-20: five gates in the phase-2 reference 2.0 all hold (a non-Done row exists; pre-implement gate GO; user intent is continue Execute; branch anchors registered; control root + integration worktree established with the feature worktree below). execution_lease claimed for plan 20260920-transcript-projections: worktree /root/workspace/bilibili-asr-archive/.worktrees/20260920-transcript-projections on fix/20260920-transcript-projections (created from the integration branch, which already carries the Phase 1 package). SDD shape: one sticky implementer session across the plan's tasks in that single feature worktree, with a fresh per-task reviewer; the plan's wave A has four independent tasks, but parallelising them would need four isolated worktrees for XS/S-sized files and buys no wall-clock this environment can use, while a single serial worktree keeps the change set coherent for the branch review package. Disclosed rather than silent.",
+        "Phase 2 implementation loop complete 2026-09-20 (all seven tasks landed on fix/20260920-transcript-projections, base 87892a0): T1 d7cac7d (archive.bundle_paths; Approved 0/0/2M) -> T2 b3a6217 (list_stored_transcripts; 0/0/1M) -> T3 d26aa72 + fix 400f18e (projection service; round 1 Needs fixes, round 2 Approved 0/0/1M) -> T4 d068829 (the publish-transcripts command; 0/0/4M) -> T5 00a24cb (readers agree over Fixture F, tests only; 0/1 advisory/4M) -> T7 fd5465e (check-asr-env anchor; 0/0/2M, and it CLOSED register row e2e-23191782-longform-pair-webdav R1 on the reviewer's explicit ruling) -> T6 d35635d (the boundary published across the four files compass D15 authorised; review in flight). Every task has a fresh L2 review on disk in {SDD_DIR}.",
+        "STOP POINT (PM, 2026-09-20): the implementation loop is complete; what remains is the plan's QC tri-review and QA gate, the integration merge, then Phase 3 close -> Phase 4 PR -> Phase 5 merge-ready -> Phase 6 post-merge close. Resume with /iteration-drive: the plan row stays InProgress with its execution_lease (holder project-manager, worktree .worktrees/20260920-transcript-projections on fix/20260920-transcript-projections), and {SDD_DIR} carries the ledger (progress.md), the QC carry-over register (qc-carryover.md, 19 items), every task brief/report and every task review. The review package the QC seats read has NOT been built yet (a git diff of 87892a0..HEAD into {SDD_DIR}/review/branch.diff plus the review-package header).",
+        "Plan QC tri-review completed 2026-09-20 (range 87892a01..d35635d, three seats in one dispatch): qc-specialist needs fixes (0/4/13), qc-specialist-2 needs fixes (0/1/10), qc-specialist-3 approve with residuals (0/4/3). PM consolidated gate decision: needs fixes (Request Changes) - no Critical, no Unconfirmed, but two seats withheld approval and all three declared truncated coverage, which bars an Approve. Fix-wave scope CW-1..CW-3 is recorded in review/qc-consolidated.md: CW-1 the projection must merge onto the existing effective manifest row rather than replace it (a pre-existing audio_path is otherwise dropped and its .m4a orphaned); CW-2 the cli.py docstring's unconditional healing claim; CW-3 the --help sentence omitting the writer-lock write site. Eight residuals registered (R1..R8). Remaining gate order: fix wave -> three-seat targeted re-review (same qcN.md under Revalidation) -> QA gate -> merge -> Phase 3-6.",
+        "QC fix wave dispatched 2026-09-20 (CW-1 merge semantics, CW-2 the cli.py docstring's unconditional healing claim, CW-3 the --help lock clause). PM-side documentation half of CW-1 landed in the control-root copy of the iteration contract (§5.1, 'The projection merges onto the effective row'), flagged with the finding it closes. CARRY-FORWARD owed at Phase 3 close: the integration branch's copy of that contract (committed at 87892a0) still lacks the sentence, so the same edit must ride the close commit.",
+        "QC fix wave landed 2026-09-20 as 525841f (2 files, +76/-12): CW-1 the projection now merges onto the effective manifest row ({**existing, **projection_row}) so a pre-existing audio_path/artifact_paths survives, with a RED->GREEN pin; CW-2 the docstring's healing claim narrowed to the mechanism (unwound writer heals, a non-unwinding kill wedges the root until an operator removes the stage dir); CW-3 the --help sentence now names the archive-writer lock. The PM added the matching contract 5.1 sentence in the control-root copy (the integration copy rides the Phase-3 close commit). Three-seat targeted re-review running on d35635d..525841f.",
+        "QC gate closed 2026-09-20: initial tri needs fixes -> fix wave 525841f -> three-seat targeted re-review, all three approve with residuals. No Critical, no Unconfirmed. Residuals R1 (merge semantics) and R6 (help claim) closed in place on the raising seats' rulings; R2-R5, R7-R9 open with owners+triggers; R9 added after seat 2 showed the consolidation's 'everything else is registered' sentence was false. Carry-forwards before Done: contract 5.1 on the integration copy, README:384-386 census, contract 3.2 citations/8 arrow/11 bound. Next gate: QA (mandatory/targeted).",
+        "QA gate dispatch attempt 1 (2026-09-20) FAILED: the qa-engineer child exited without producing review/qa.md and without reporting; the feature worktree stayed clean at 525841f, so nothing was damaged and nothing was proved. The gate remains pending (a failed dispatch is not a gate outcome). Re-dispatched with the same alignment fields and an incremental-reporting requirement.",
+        "QA gate PASSED 2026-09-20 (qa-engineer, mandatory/targeted, review/qa.md): all six compass acceptance criteria pass with witnessed evidence at 525841f; 346 passed / 0 failed / 1 environment-limited error (installed_* on a read-only uv cache). Recommendation approve with residuals. Carry-forwards to close: the compass's stale reference to e2e-23191782-season-7686105 R2 (register records it resolved 2026-09-18) and AC3's unevaluable 'valid_work_items includes it' phrasing (the field is a count).",
+        "Plan row set Done 2026-09-20 by the PM after both gates passed: QC tri -> fix wave 525841f -> three-seat revalidation (all approve with residuals; R1/R6 closed in place) and QA mandatory/targeted (all six compass criteria pass, 346 passed / 0 failed / 1 environment-limited error). `Done` records the plan, not a product pass: the live-corpus proof of the projection path is the separate E2E workflow in the compass Roadmap Position. Execution lease deleted in this same update (the Done authority owns that), per the register contract.",
+        "Plan branch merged into the integration checkout 2026-09-20 (serial; merge lease held by the PM for the whole read-check-merge sequence and released in this update). Merge commit 71b858e on iteration/iter-2026-09-transcript-projections, --no-ff from fix/20260920-transcript-projections; the integration checkout's tree is the whole delivered change set (T1-T7 + the QC fix wave). Next: Phase 3 iteration-close.",
+        "Phase 6 post-merge close 2026-09-21: PR #16 merged into main as db805c3b75ff (verified merged: origin/main tip equals the PR merge commit; the API-reported merge_commit_sha and the fetched ref agree). Terminal snapshot written (completed + ended_at) with no dangling lease; root registry entry removed in the same round (§6.2, removal-at-terminal). Cleanup (§6.4) remains an explicit, non-automatic step."
+      ],
+      "done_at": "2026-09-20"
+    }
+  ],
+  "notes": [
+    "Phase 1 in flight: compass status 'active' until the review-and-edit chain closes and the PM locks it (compass '## Phase 1 review chain').",
+    "Main worktree branch: main (control root stays on main; reviewed Phase-1 documents are committed on the integration branch in its own worktree, mstar-iteration phase-2 reference 2.3 step 7).",
+    "Coordination paths (resolved from the control root, per phase-2 reference 2.3 step 6): status register /root/workspace/bilibili-asr-archive/.mstar/status.json; snapshot SSOT /root/workspace/bilibili-asr-archive/.mstar/workflows/iter-2026-09-transcript-projections/snapshot.json; project register /root/workspace/bilibili-asr-archive/.mstar/projects/_default/residuals.json; plans SSOT /root/workspace/bilibili-asr-archive/.mstar/plans/; iterations SSOT /root/workspace/bilibili-asr-archive/.mstar/iterations/; SDD tree /root/workspace/bilibili-asr-archive/.mstar/sdd/20260920-transcript-projections/."
+  ],
+  "integration_worktree_path": "/root/workspace/bilibili-asr-archive/.worktrees/iter-2026-09-transcript-projections-integration",
+  "ended_at": "2026-09-21"
+}

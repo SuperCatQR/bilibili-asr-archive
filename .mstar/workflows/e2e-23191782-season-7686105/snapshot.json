@@ -1,0 +1,54 @@
+{
+  "schema_version": 1,
+  "id": "e2e-23191782-season-7686105",
+  "type": "plan",
+  "status": "stopped",
+  "started_at": "2026-09-17",
+  "updated_at": "2026-09-17",
+  "phase": "e2e-execute",
+  "plans": [
+    {
+      "id": "e2e-23191782-season-7686105",
+      "title": "E2E: run 未明子 season 7686105 (合集·哲学进阶•现代哲学) through the ASR chain on the WSL2/RX 7800 XT host",
+      "file": ".mstar/workflows/e2e-23191782-season-7686105/reports/e2e.md",
+      "status": "Blocked",
+      "owner": "project-manager",
+      "agents": [
+        "ops-engineer"
+      ],
+      "progress": 36,
+      "tags": [
+        "e2e",
+        "verification-only",
+        "asr",
+        "gpu",
+        "target-host"
+      ],
+      "created_at": "2026-09-17",
+      "updated_at": "2026-09-17",
+      "notes": [
+        "Explicit operator authorization: '跑未明子的50个视频', then narrowed to season 7686105 ('把这个系列视频全跑了'). Verification-only workflow: no iteration phase, no QC tri-review, no development-plan task boundary.",
+        "Permitted side effects: download audio for the season, transcribe on the target GPU, write the archive root /root/e2e-asr/e2e50 on the target host. No product code change, no deploy to production, no media redistribution.",
+        "Target build: target repo fast-forwarded bc425f6 -> 9c385cc (today's 4 residual fixes + the check-asr-env subcommand). Interpreter: /root/gpu-venv (torch 2.9.1+rocm7.2.0, the pair check-asr-env verifies); the repo .venv is broken (torch 2.14, bili_asr not installed).",
+        "Scenarios: A1 check-asr-env exits 0 on the target GPU; A2 one item end-to-end (download->GPU ASR->archive->reclaim); A3 all 39 parts of the season archived with 4 artifacts each + bundle markers; A4 provenance carries the declared model id and the 3 VAD keys; A5 quality signals reachable (coverage --quality); A6 audio reclaimed after archive.",
+        "Bootstrap gap: the ASR chain reads manifest/manifest.jsonl and no shipped command derives it from archive.db (documented in README §Workflow). E2E scaffolding /root/e2e-asr/tools/seed_season.py bridges one named season; it is not a product path.",
+        "Operational finding: bilibili-asr-archive/.env is malformed (the BILI_SESSDATA= line holds a Chinese comment; the real cookie is on the next line with no key). A naive grep export puts non-ASCII in an HTTP header -> UnicodeEncodeError -> 'finger/spi bootstrap transport error'. The working source is ~/.config/bili-asr/session.env; the driver sources it and refuses non-ASCII.",
+        "Operational finding: passing --sessdata on the command line exposes the cookie in ps; the driver exports BILI_SESSDATA instead.",
+        "Measured rate: rtf_avg 0.152 on the batched GPU path (43.7 min item, ~1.3 min decode). Season 76.6 h -> est. 12-15 h wall clock.",
+        "STOPPED by operator at 2026-09-17 21:42 (run PID 10649, 3h39m elapsed): 14 of 39 parts archived, 24 still needs_audio, 1 audio_ok (BV1NRDNBUE5e:p0, its 58 MB audio retained so a resume reuses it). SIGTERM, exited in 2s; no bili_asr/run_e2e processes remain. Product-level integrity of what was archived: `verify --trusted-local` reports zero defects on the 14 archived rows (the 25 retryable_incomplete rows are exactly the unprocessed remainder). Resumable with `run_e2e.sh run`.",
+        "Transcript quality assessed on the 14 archives (25.2 h, 18 287 cues, 424 188 chars): structure clean (0 zero-length / 0 non-monotonic / SRT 14-of-14 valid), confidence calibrated for English passages (low-confidence cues 42.9% Latin vs 0.0% elsewhere) but blind to Chinese homophones. Actionable defect: 扬弃 renders as 阳气/洋气 90% of the time (89 errors vs 10 correct) and is absent from DEFAULT_HOTWORDS, while equally homophone-prone in-list terms (定在/自为/理念性) are error-free. A5 completed: coverage --quality runs and the new CSV stderr surface prints all 501 doubtful positions across 14 rows.",
+        "Full artifact audit (product-contract based): bundle sha256 14/14 pass with 0 independent mismatches; four-way artifact consistency exact for all 14; md measurement keys recomputable from raw; no orphans or missing files; manifest 39 work_ids with no invalid status; attempts 40 rows 0 corrupt; archive.db integrity ok. Three operational gaps found (all low): G1 pilot writes no attempt records so --scope failed cannot see pilot-archived rows, G2 an externally killed run leaves no run-ledger record (no SIGTERM handler), G3 meta-cursor.json absent as a facet of the two-stack boundary."
+      ]
+    }
+  ],
+  "branch": {
+    "base": "main",
+    "target": "main",
+    "integration": "main"
+  },
+  "notes": [
+    "Run log: /root/e2e-asr/logs/full-20260917-174448.log (target host)",
+    "Archive root: /root/e2e-asr/e2e50 (target host)"
+  ],
+  "ended_at": "2026-09-17"
+}
