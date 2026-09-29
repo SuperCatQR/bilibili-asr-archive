@@ -1973,3 +1973,49 @@ def test_the_ratchet_classification_uses_no_index(scratch_harness: Path):
         subprocess.run(["git", "rm", "--cached", "-f", str(leak)], cwd=str(repo),
                        capture_output=True, timeout=60)
         shutil.rmtree(leak.parent, ignore_errors=True)
+
+
+@pytest.mark.parametrize("content", ["", "\n", "   \n\t "])
+def test_an_empty_register_is_a_verdict_not_a_read_failure(scratch_harness: Path, content: str):
+    """QC3-F1/M26: a whitespace-only register is judged by the engine, not skipped.
+
+    The engine treats an empty/whitespace-only register as an *absent value* and
+    applies its own rules, refusing with `project.register.missing-entries` — a
+    real verdict. The checker's shared shape probe calls such bytes unparseable,
+    and the verdict would invert to NOT-VALIDATED. A leg-scoped correction in
+    `_register_validate` restores the engine's answer; disabling that branch
+    survived the whole suite, so this pins it.
+
+    The registration also matters in the other direction: the snapshot and
+    root-register legs must NOT get this treatment, because the engine *throws*
+    on empty content there and emits no verdict — inventing one would be the
+    mirrored defect. That half is covered by
+    `test_a_verdict_is_never_read_out_of_text_a_document_controls`.
+    """
+    register = scratch_harness / "projects" / "p1" / "residuals.json"
+    original = register.read_text(encoding="utf-8")
+    register.write_text(content, encoding="utf-8")
+    try:
+        # Expectation from the engine first, so this cannot pass by the fixture
+        # ceasing to be a refusal.
+        env = {**os.environ, "MSTAR_HARNESS_DIR": str(scratch_harness)}
+        engine = subprocess.run(
+            ["mstar", "persist", "get", "--validate", "residuals", "--key=p1"],
+            cwd=str(scratch_harness), env=env, capture_output=True, text=True, timeout=300,
+        )
+        assert "refusing to persist invalid" in engine.stdout + engine.stderr, (
+            "precondition: the engine must refuse a whitespace-only register:\n"
+            + engine.stdout + engine.stderr
+        )
+        run = _run_checker(scratch_harness)
+        documents = run.leg("registers")
+        assert len(documents) == 1, run.text
+        assert documents[0].state == "FAIL", (
+            "the engine judged these bytes and refused them; reporting NOT-VALIDATED "
+            "inverts its verdict:\n" + run.text
+        )
+        assert "missing-entries" in run.text, (
+            "the engine's own violation code must survive into the report:\n" + run.text
+        )
+    finally:
+        register.write_text(original, encoding="utf-8")
