@@ -92,6 +92,7 @@ def _cmd_fetch_meta(args: argparse.Namespace) -> int:
             mid=config.mid,
             start_page=config.start_page,
             page_limit=config.page_limit,
+            skip_failed_page=config.skip_failed_page,
         )
     except Exception:
         # C5: the ingestor resolves bounded gateway failures internally, so

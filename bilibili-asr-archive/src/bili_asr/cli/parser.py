@@ -50,6 +50,15 @@ def build_parser() -> argparse.ArgumentParser:
         "--limit-pages", type=int, default=None,
         help=f"Stop after collecting N pages (default: {DEFAULT_PAGE_LIMIT})",
     )
+    fetch_meta.add_argument(
+        "--skip-failed-page", action="store_true",
+        help=(
+            "Advance the cursor past a page that failed terminally instead of "
+            "leaving it wedged, so the next --resume makes progress. The page "
+            "is still recorded as failed in ingestion_pages and still shown by "
+            "`runs`; this is never the default behaviour."
+        ),
+    )
 
     status = subparsers.add_parser(
         "status",
