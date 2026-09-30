@@ -174,8 +174,8 @@ residual **`20260926-video-metadata-enrichment · R6`**（severity medium，`dec
 |---|---|---|
 | 控制字符集合常量 | **`_INVALID_CONTROL_CHARACTERS`** = `("\x00", "\r", "\n")` | Task 1 report §6。UPPER_SNAKE 模块常量，与 `_BVID_PATTERN`/`_RATE_LIMITED_API_CODES` 同区同形；**不用** `_FORBIDDEN_*`/`_ILLEGAL_*`——"禁止"暗示本函数会拒绝，而它恰恰是把拒绝转成缺失。实测确认它**逐字等于** storage `_text` 的拒绝集（`storage/models.py:74`），并显式拒绝 `str.isspace()`（`\t`/`\x0b`/`\x0c` 的 `isspace()` 为真但 `_text` 接受 —— 用它会悄悄放大规则） |
 | `desc` 归一化后的行为名 | **不引入名词**：keyword-only 参数 `control_characters_are_absence: bool = False` | Task 1 report §6。谓词式主谓宾，字面即行为，一行内可回答"这个字段会怎样"；`sanitize`/`clean` 被本节约束点名含糊；默认 `False` 使 `pic` 与未来字段保持在旧纪律（Q1 陷阱的直接对策） |
-| D-3 的跳过开关 | **待 Task 3a 报告**（implementer 正在跑；命名受本节约束：必须让操作者一眼看出留下缺口证据） | Task 3a 报告 §6（待收回后 PM 补入） |
-| 新增的 residual id | **待 T5**（register 该桶现有 `R1..R7`、`M-R1..M-R11`，新条目沿用 `R#` 序列 → `R8`） | register 现状实测 |
+| D-3 的跳过开关 | **`--skip-failed-page`** | Task 3 report §6 + QC 三席复核（`review/qc-consolidated.md`）。`pytest`/`ruff` 的惯用 `--skip-*` 前缀，动宾结构读作"跳过失败的页"；命名约束要求的"一眼看出留下缺口证据"由 help 文本承担而非名字本身。**未选** `--ignore-errors`（隐去缺口）/`--force`（暗示覆盖一切，含限流）/`--continue-on-error`（未说明越过的是哪一页）。落地后由 PM 于 2026-09-30 回填本行 |
+| 新增的 residual id | **`R8`**（D-2 暴露面）+ **`R9`**（`--start-page` + 开关的回退边界） | register 实测：本桶 `R1..R7` 已满，新条目沿用 `R#` 序列。`R8`/`R9` 已于 2026-09-30 写入 `.mstar/projects/_default/residuals.json`；`R6` 同日关至 `accept`/`resolved`，`M-R2` 保持 `open` |
 
 ### 复现（本表结论的可核验形式）
 
