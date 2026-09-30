@@ -13,9 +13,10 @@ runs the async gateway page calls on one event loop per collection run.
 Gateway failures roll the failed page back completely and persist only its
 bounded scalar error code.  The previous cursor is preserved so a later run
 can resume from the same page — with one opt-in exception:
-``--skip-failed-page`` commits it one page past a terminally failed page so
-the next ``--resume`` can progress, leaving the failed page row and its code
-in place so the gap stays visible.
+``--skip-failed-page`` commits it one page past a failed page so the next
+``--resume`` can progress, leaving the failed page row and its code in place
+so the gap stays visible.  It skips every non-rate-limit gateway failure,
+transient ones included; a rate limit is never skipped.
 """
 
 from __future__ import annotations

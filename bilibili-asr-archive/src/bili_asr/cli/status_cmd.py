@@ -91,7 +91,8 @@ def _cmd_status(args: argparse.Namespace) -> int:
         # The cursor row is reported exactly as stored, so this line never
         # implies more than the store holds. A failed or risk-interrupted run
         # leaves it untouched, with one exception: the opt-in
-        # --skip-failed-page commits it one page past a terminally failed page
+        # --skip-failed-page commits it one page past a failed page (any
+        # non-rate-limit gateway failure, transient ones included)
         # (D-3), and this line then reports that stored value truthfully.
         for user_row in connection.execute(
             "SELECT mid FROM bilibili_users ORDER BY mid"

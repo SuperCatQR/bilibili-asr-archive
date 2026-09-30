@@ -42,8 +42,9 @@ def _cmd_fetch_meta(args: argparse.Namespace) -> int:
     DEFAULT_PAGE_LIMIT bound); 1 usage/configuration error; 2 terminal
     failure in one of two variants — a bounded gateway failure (the
     fail-fast gateway: one attempt per page, a bounded scalar code, cursor
-    unchanged unless --skip-failed-page moved it past a terminally failed
-    page, resume safe) or an unexpected internal error (the fixed
+    unchanged unless --skip-failed-page moved it past a failed page (every
+    non-rate-limit failure is skipped, so a transient one is too; a rate
+    limit never is), resume safe) or an unexpected internal error (the fixed
     "fetch-meta: unexpected error" message with no scalar code; the cursor
     may hold the last committed page of the run and the run row may remain
     `running`, so consult status/runs before re-running).  This handler
