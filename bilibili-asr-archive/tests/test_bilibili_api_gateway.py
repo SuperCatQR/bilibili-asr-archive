@@ -54,6 +54,7 @@ from bili_asr.sources.models import (
     VideoSummary,
 )
 from bili_asr.storage.database import MetadataRepository, open_database
+from bili_asr.storage.models import VideoDetailRecord
 from fixtures.fake_bilibili_gateway import (
     BVID,
     DOCUMENTED_METADATA_CALLS,
@@ -610,6 +611,160 @@ def test_summary_blank_details_are_absence_rather_than_empty_strings():
     )
 
     assert (summary.pic, summary.desc) == (None, None)
+
+
+# ----------------------- the desc boundary: the multiline read and its limits
+
+
+def test_a_multiline_description_is_read_as_absence():
+    """An interior newline in ``description`` reads as absence, siblings intact.
+
+    This is the green pin for the boundary fix.  The storage contract's
+    ``_text`` refuses a newline, so before the fix the raw value reached
+    ``VideoSummary`` and its ``ValueError`` surfaced as a bounded
+    ``GatewayShapeError`` for the item.  The normalizer now answers that
+    refusal with absence for this one field, and the opt-in is per field:
+    ``pic``/``tid`` are still read from the same item rather than dropped
+    with it.
+    """
+
+    summary = _normalize_video_summary_item(
+        make_vlist_item(
+            bvid="BV1descmlt01",
+            description="第一行\n第二行",
+            pic="http://i1.hdslb.com/bfs/archive/cover.jpg",
+            typeid=124,
+        )
+    )
+
+    assert summary.desc is None
+    assert summary.pic == "http://i1.hdslb.com/bfs/archive/cover.jpg"
+    assert summary.tid == 124
+
+
+def test_a_multiline_description_does_not_fail_the_page(bilibili_api_seam):
+    """One multi-line description no longer costs the page its sibling items.
+
+    The sibling surviving is the point: before the fix the page fan-out
+    normalized each item inside a tuple comprehension, so the first raising
+    item aborted the whole page, and upstream's one multi-line description
+    wedged enumeration permanently because the cursor never advanced past it.
+    Both items must come back, the good item's ``desc`` intact and
+    ``observed_total`` intact with it — the total is the evidence the cursor
+    compares against, so losing it is the same failure in a second seat.
+    """
+
+    bilibili_api_seam.videos_response = make_videos_response(
+        make_vlist_item(bvid="BV1descgood1", description="哲学讲座简介"),
+        make_vlist_item(bvid="BV1descmlt12", description="第一行\n第二行"),
+        count=2,
+    )
+    gateway = _load_gateway()
+
+    page = asyncio.run(gateway.get_user_video_page(MID, page_number=1))
+
+    assert [summary.bvid for summary in page.videos] == [
+        "BV1descgood1",
+        "BV1descmlt12",
+    ]
+    good, multiline = page.videos
+    assert good.desc == "哲学讲座简介"
+    assert multiline.desc is None
+    assert page.observed_total == 2
+
+
+def test_a_description_that_is_only_transport_whitespace_still_strips():
+    """Newline-wrapped words still strip to their words, never to ``None``.
+
+    The over-normalization guard for the fix above.  The strip runs before the
+    control-character decision, so a value upstream sent and a reader can
+    represent is never discarded as absence: reading this description as no
+    observation at all would be the loss the fix exists to avoid, pointing the
+    other way.
+    """
+
+    summary = _normalize_video_summary_item(
+        make_vlist_item(bvid="BV1descws001", description="\na\n")
+    )
+
+    assert summary.desc == "a"
+
+
+@pytest.mark.parametrize("mark", ["\n", "\x00", "\r"])
+def test_a_control_character_in_pic_still_fails_the_page(bilibili_api_seam, mark):
+    """The relaxation is opt-in per field: ``pic`` keeps the old discipline.
+
+    Negative control B for the fix.  ``pic`` is read through the same
+    ``_read_optional_text`` helper, so a field-agnostic rule — rather than the
+    flag the caller passes — would swallow a control character in a cover URL
+    as absence too.  Both arms must stay red: the item boundary raises
+    ``GatewayShapeError`` and the page-level call is terminal for the page,
+    exactly as before the fix.
+    """
+
+    pic = f"http://i1.hdslb.com/bfs/archive/cover{mark}.jpg"
+
+    with pytest.raises(GatewayShapeError) as caught:
+        _normalize_video_summary_item(
+            make_vlist_item(bvid="BV1picctrl01", pic=pic)
+        )
+
+    assert caught.value.code == "shape_error"
+
+    bilibili_api_seam.videos_response = make_videos_response(
+        make_vlist_item(bvid="BV1picctrl01", pic=pic), count=1
+    )
+    gateway = _load_gateway()
+
+    with pytest.raises(GatewayShapeError) as caught:
+        asyncio.run(gateway.get_user_video_page(MID, page_number=1))
+
+    assert caught.value.code == "shape_error"
+
+
+def test_a_control_character_in_title_still_fails_the_page(bilibili_api_seam):
+    """A title carrying a newline still fails the item and the page.
+
+    Negative control A for the fix.  The plan keeps whole-page failure for the
+    fields whose values reach a locked output, and the desc relaxation must not
+    have leaked into it: a title is printed verbatim one line per record, so a
+    newline in it is a shape the output cannot hold rather than prose.
+    """
+
+    title = "未明子讲座\n伪造第二行"
+
+    with pytest.raises(GatewayShapeError) as caught:
+        _normalize_video_summary_item(
+            make_vlist_item(bvid="BV1titlectl1", title=title)
+        )
+
+    assert caught.value.code == "shape_error"
+
+    bilibili_api_seam.videos_response = make_videos_response(
+        make_vlist_item(bvid="BV1titlectl1", title=title), count=1
+    )
+    gateway = _load_gateway()
+
+    with pytest.raises(GatewayShapeError) as caught:
+        asyncio.run(gateway.get_user_video_page(MID, page_number=1))
+
+    assert caught.value.code == "shape_error"
+
+
+def test_the_detail_record_still_refuses_a_control_character_desc():
+    """The storage DTO stays strict: defence in depth behind the boundary read.
+
+    The boundary normalization is what keeps this refusal unreachable in
+    practice, and the row must keep it anyway — relaxing the DTO instead of
+    the reader would move the decision below the layer that can still tell
+    "upstream sent a line break" from "this write is corrupt", and every other
+    caller of the record would inherit the relaxation.
+    """
+
+    with pytest.raises(ValueError):
+        VideoDetailRecord(
+            bvid="BV1detailrec", pic="p", desc="a\nb", tid=124, observed_at=1
+        )
 
 
 @pytest.mark.parametrize("typeid", [0, -1, "124", True, ["124"]])
