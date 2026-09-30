@@ -79,6 +79,7 @@ class MetadataConfig:
     start_page: int | None
     page_limit: int | None
     resume: bool
+    skip_failed_page: bool
     sessdata: str | None = field(repr=False)
 
 
@@ -97,6 +98,7 @@ def load_metadata_config(args: argparse.Namespace) -> MetadataConfig:
     start_page = args.start_page
     page_limit = args.limit_pages
     resume = bool(args.resume)
+    skip_failed_page = bool(getattr(args, "skip_failed_page", False))
 
     if isinstance(mid, bool) or not isinstance(mid, int) or mid < 1:
         raise MetadataConfigError("--mid must be a positive integer")
@@ -119,6 +121,7 @@ def load_metadata_config(args: argparse.Namespace) -> MetadataConfig:
         start_page=start_page,
         page_limit=page_limit,
         resume=resume,
+        skip_failed_page=skip_failed_page,
         sessdata=resolve_sessdata(
             getattr(args, "sessdata", None), os.environ.get(SESSDATA_ENV_VAR)
         ),

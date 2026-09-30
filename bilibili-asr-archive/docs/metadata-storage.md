@@ -30,7 +30,10 @@ appends stay additive, and appends to it; see
   `archive.db` is the only way to restart a collection from page 1; old
   archive data is never discovered, read, or modified by any command.
 - A failed page never advances the cursor: resume is always safe, and no
-  partially written page payload survives a failure.
+  partially written page payload survives a failure. The one exception is
+  the opt-in `--skip-failed-page`, which commits the cursor one page past a
+  terminally failed page so the next `--resume` can progress; the failed
+  page row keeps its error code, so the gap stays visible.
 - `--limit-pages` is optional and defaults to `DEFAULT_PAGE_LIMIT = 10`: a
   run without the flag stops after 10 pages, ends the run `limited` (exit
   0, never claimed complete), and re-running the command resumes from the
@@ -613,6 +616,9 @@ Exit 2 variants:
   `rate_limited`): the gateway is fail-fast per page — one attempt per
   page, no retry. The failed page records its bounded scalar code, the
   cursor remains unchanged, and re-running `fetch-meta` resumes safely.
+  With `--skip-failed-page` the cursor is instead committed one page past a
+  terminally failed page, so the next `--resume` progresses; the page row
+  still records the failure and its code.
 - **Unexpected internal error** (the fixed line `fetch-meta: unexpected
   error`, no scalar code, no traceback): the cursor may already hold the
   last committed page of the run and the run row may remain `running` —
