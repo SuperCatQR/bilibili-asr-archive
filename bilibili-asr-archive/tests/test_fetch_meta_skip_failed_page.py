@@ -8,13 +8,12 @@ that hit the failure still ends ``failed`` and still exits 2, the page row is
 still ``failed`` with its bounded code, and ``runs`` still renders that code —
 the gap stays visible rather than being erased.
 
-The wedged page is driven from a **multi-line ``title``**, not a multi-line
-``description``: the list-endpoint normalizer rejects a title carrying a
-control character as a bounded shape error (``_text`` in
-``sources/models.py``, reached through ``VideoSummary``), while a description
-is a separate track's field — a fixture built on it would silently stop
-wedging the page once that track lands and this file would pass for the wrong
-reason.
+The wedged page is driven by a **scripted ``GatewayShapeError``** from the protocol double
+rather than by a malformed text field.  That is deliberate and stronger than a field-based
+fixture: the wedge is field-independent, so no other track's change to a specific normalizer
+(``title``, ``description``, or any later one) can silently make these tests stop exercising the
+skip path.  The real ``title`` -> ``shape_error`` mapping is covered separately at
+``tests/test_bilibili_api_gateway.py:831``.
 
 Every test runs the shared protocol double from
 ``tests/fixtures/fake_bilibili_gateway.py`` over a real repository in a
@@ -89,13 +88,14 @@ def _part(bvid: str, page_index: int, *, cid: int = 2222) -> VideoPart:
 
 
 def _wedged_gateway(failed_page: int = FAILED_PAGE) -> FakeGateway:
-    """Script one collected page, then a page whose title wedges it terminally.
+    """Script one collected page, then one the gateway wedges terminally.
 
-    The wedged page answers a bounded ``GatewayShapeError`` — what the page
-    boundary raises for a title the store cannot hold — rather than a raw
-    validation error, so the fixture exercises the same arm production does.
-    ``GatewayShapeError`` is not a ``GatewayRateLimited``, so the page and the
-    run both read ``failed``.
+    The wedged page answers a **scripted** bounded ``GatewayShapeError`` — the
+    documented page-boundary shape failure — rather than a raw validation
+    error, so the fixture exercises the same arm production does.  It is
+    field-independent: no normalizer change (``title``, ``description``, or
+    any later one) can un-wedge it.  ``GatewayShapeError`` is not a
+    ``GatewayRateLimited``, so the page and the run both read ``failed``.
     """
 
     gateway = FakeGateway()
@@ -281,3 +281,41 @@ def test_runs_shows_the_gap(tmp_root, capsys, fake_gateway_seam):
     assert len(gapped) == 1, out
     assert "outcome=failed" in gapped[0]
     assert "pages=1" in gapped[0]
+
+
+def test_failure_line_reports_the_advanced_cursor(tmp_root, capsys, fake_gateway_seam):
+    """The failure line must not claim "unchanged" once the cursor moved.
+
+    Under ``--skip-failed-page`` the cursor is committed one page past the
+    failure, so the old unconditional ``cursor unchanged at page N`` asserted
+    the opposite of what the store holds.  This is the regression guard: the
+    line has to say ``advanced to page`` and must not say ``unchanged``.
+    """
+
+    gateway = fake_gateway_seam
+    gateway.script_page(1, _page(1, _summary("BV1WEDGEAAAA"), observed_total=3))
+    gateway.script_parts("BV1WEDGEAAAA", (_part("BV1WEDGEAAAA", 0),))
+    gateway.script_page(
+        FAILED_PAGE, GatewayShapeError(detail="video item is not normalizable")
+    )
+
+    assert main(["fetch-meta", "--archive-root", tmp_root, "--limit-pages", "1"]) == 0
+    capsys.readouterr()
+
+    assert (
+        main(
+            [
+                "fetch-meta",
+                "--archive-root",
+                tmp_root,
+                "--resume",
+                "--skip-failed-page",
+            ]
+        )
+        == 2
+    )
+    failure_out, failure_err = capsys.readouterr()
+    assert SHAPE_ERROR_CODE in failure_err
+    assert f"advanced to page {FAILED_PAGE + 1}" in failure_err
+    assert "unchanged" not in failure_err
+    assert "unchanged" not in failure_out

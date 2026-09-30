@@ -42,7 +42,8 @@ def _cmd_fetch_meta(args: argparse.Namespace) -> int:
     DEFAULT_PAGE_LIMIT bound); 1 usage/configuration error; 2 terminal
     failure in one of two variants — a bounded gateway failure (the
     fail-fast gateway: one attempt per page, a bounded scalar code, cursor
-    unchanged, resume safe) or an unexpected internal error (the fixed
+    unchanged unless --skip-failed-page moved it past a terminally failed
+    page, resume safe) or an unexpected internal error (the fixed
     "fetch-meta: unexpected error" message with no scalar code; the cursor
     may hold the last committed page of the run and the run row may remain
     `running`, so consult status/runs before re-running).  This handler
@@ -109,11 +110,24 @@ def _cmd_fetch_meta(args: argparse.Namespace) -> int:
         f"mid={config.mid} (outcome={result.outcome})"
     )
     if result.outcome in {"risk_interrupted", "failed"}:
-        cursor_clause = (
-            f"cursor unchanged at page {result.next_cursor.next_page}"
-            if result.next_cursor is not None
-            else "no cursor recorded"
-        )
+        # The clause has to be true under ``--skip-failed-page`` too: there the
+        # cursor was deliberately committed one page past the failure, so
+        # "unchanged" would assert the opposite of the stored state.  The flag
+        # is the only thing that can move it on this path, so the branch is
+        # exactly the flag's own condition.
+        if (
+            config.skip_failed_page
+            and result.outcome == "failed"
+            and result.next_cursor is not None
+        ):
+            cursor_clause = (
+                f"cursor advanced to page {result.next_cursor.next_page} "
+                f"(the failed page was skipped)"
+            )
+        elif result.next_cursor is not None:
+            cursor_clause = f"cursor unchanged at page {result.next_cursor.next_page}"
+        else:
+            cursor_clause = "no cursor recorded"
         print(
             f"fetch-meta: metadata gateway failure ({result.error_code}); "
             f"{cursor_clause} — re-run fetch-meta to resume.",

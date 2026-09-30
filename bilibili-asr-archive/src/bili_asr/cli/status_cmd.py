@@ -88,9 +88,11 @@ def _cmd_status(args: argparse.Namespace) -> int:
         hidden = len(pending) - _MAX_DISPLAYED_PENDING_PARTS
         if hidden > 0:
             print(f"  + {hidden} more pending part(s)")
-        # The cursor row is reported exactly as stored: a failed or
-        # risk-interrupted run leaves it untouched, so this line never implies
-        # the cursor advanced past a failed page (C3).
+        # The cursor row is reported exactly as stored, so this line never
+        # implies more than the store holds. A failed or risk-interrupted run
+        # leaves it untouched, with one exception: the opt-in
+        # --skip-failed-page commits it one page past a terminally failed page
+        # (D-3), and this line then reports that advanced value truthfully.
         for user_row in connection.execute(
             "SELECT mid FROM bilibili_users ORDER BY mid"
         ):

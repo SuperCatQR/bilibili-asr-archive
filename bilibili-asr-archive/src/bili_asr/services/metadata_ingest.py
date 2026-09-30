@@ -384,12 +384,16 @@ class MetadataIngestor:
                 error_code = error.code
                 page_count += 1
                 if skip_failed_page and page_outcome == "failed":
-                    # The escape hatch (D-3).  A terminally failed page is
-                    # deterministic: resuming at it would fail identically on every
-                    # later run, so the cursor is moved past it here.  The run's own
-                    # outcome is untouched — it really did fail, and
-                    # ``_record_failed_page`` has already made it terminal with the
-                    # page row above as its evidence.  Only the *next* run's
+                    # The escape hatch (D-3).  A page whose outcome mapped to
+                    # 'failed' is skipped: for the shape errors that motivated
+                    # this flag the failure is deterministic and resuming at it
+                    # would fail identically on every later run, and for the
+                    # transport/response classes the same mapping applies even
+                    # though they can be transient (recovery from a hasty skip
+                    # is --start-page or a cursor reset).  The run's own outcome
+                    # is untouched — it really did fail, and
+                    # ``_record_failed_page`` has already made it terminal with
+                    # the page row above as its evidence.  Only the *next* run's
                     # starting point changes, which is what makes the wedge
                     # escapable rather than permanent.
                     #
