@@ -1354,6 +1354,21 @@
         "source_plan": "20260926-video-metadata-enrichment",
         "registered_at": "2026-09-28",
         "lifecycle_id": "iter-2026-09-metadata-audio-layout"
+      },
+      {
+        "id": "M-R12",
+        "title": "`page.total` from recArchivesByKeywords is not a row count and must never bound a walk: on mid 23191782 it reports 1739 against 1730 rows served (and keyword `爱情` 13 vs 12), so a `total` below the true count would shrink `ceil(total/ps)` and silently drop whole pages.",
+        "severity": "medium",
+        "source": "operator-reported anomaly, investigated this session (2026-09-30): the keyword API returned `total=13` for `爱情` while serving 12 rows, and `PLAN.md:21` already carried an unexplained 1739-vs-1730 full-catalog gap. Root cause measured live, not inferred; fix shipped as 1baeb6d.",
+        "scope": "src/bili_asr/bili_client.py (fetch_pages: the two `total`-derived stops, now removed) with bili_asr/run_ledger.py (the `complete (total N)` display, now `observed_total`). REACHABILITY: fetch_pages has no production caller — `fetch-meta` runs the WBI-signed x/space/wbi/arc/search path (MetadataIngestor + BilibiliApiGateway) and terminates on empty pages only, and the CLI exposes no keyword entry point. The live path records `observed_total` as diagnostics and compares it to nothing. So the shipped fix is hardening for a re-enabled path, not a live repair.",
+        "decision": "defer",
+        "owner": "@project-manager",
+        "target": "next plan that re-enables a keyword/page-counted enumeration path, or the next metadata-shape follow-up. Closing condition: a case pins the invariant on the path that is actually live — whichever enumeration entry point a future plan introduces must terminate on row evidence (empty page / no-new-bvid) and must not derive a page bound from `total`.",
+        "tracking": "commit 1baeb6d (this session) carries the fix, its rationale and the measured evidence; tests/test_meta_cursor.py::test_fetch_pages_does_not_truncate_when_total_undercounts fails on the pre-fix code with `{'BV1A'} == {'BV1A','BV1B'}` and is the standing guard.",
+        "detail": "Measured 2026-09-30 against mid 23191782. (1) Rows are trustworthy: every exhaustively paged keyword (爱情/拉康/笛卡尔/恋爱/庶政学/常常/格尔黑/子明未/主义主义) returned only rows whose titles literally contain the keyword, 0 exceptions; a full re-enumeration reproduced the 2026-09-25 1730-row snapshot exactly (missing 0, extra 0), and the 哲学 sweep (ps=30, pn=1..15) served a union identical to the corpus literal set (406 == 406). (2) `total` is a separate, looser upstream quantity: 7 candidate matchers fitted against 56 measured keywords — the best matched only 39/56; `革命者的常态` reports total 27 with 0 rows returned and 0 corpus titles containing all 7 characters; description-indexing is ruled out (BV11p5qzAE6s's desc holds both 爱情 and 革命者的常态, yet `刻意追求性压抑` from the same desc returns 0). The exact upstream matcher stays uncharacterised and is not worth further probing. (3) The 1739-vs-1730 gap is the same mechanism split across the walk: last-page row counts at ps=100/50/30 are 39/39/29, matching 1739's pagination arithmetic exactly (not 1730's 30/20), while interior short pages pn 5,6,7,8,20,24 deficit exactly 9 — the index holds 1739 and 9 rows are dropped when rendering rows. (4) The defect is directional: a `total` above the true count only costs an extra page (caught by the empty-page and no-new-bvid stops), but a `total` below it truncates silently. `total` was never measured below the row count, so no live data was lost — this is a latent-defect fix.",
+        "lifecycle": "open",
+        "source_plan": "20260926-video-metadata-enrichment",
+        "registered_at": "2026-09-30"
       }
     ],
     "20260927-archive-db-queue-cutover": [
