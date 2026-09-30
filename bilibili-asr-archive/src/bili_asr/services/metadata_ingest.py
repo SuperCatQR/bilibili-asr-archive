@@ -10,9 +10,12 @@ page outcome, commit.
 
 The service is synchronous on its surface (the CLI calls it directly) and
 runs the async gateway page calls on one event loop per collection run.
-Gateway failures roll the failed page back completely; only a bounded scalar
-error code is persisted afterwards, and the previous cursor is preserved
-exactly so a later run can resume from it.
+Gateway failures roll the failed page back completely and persist only its
+bounded scalar error code.  The previous cursor is preserved so a later run
+can resume from the same page — with one opt-in exception:
+``--skip-failed-page`` commits it one page past a terminally failed page so
+the next ``--resume`` can progress, leaving the failed page row and its code
+in place so the gap stays visible.
 """
 
 from __future__ import annotations
