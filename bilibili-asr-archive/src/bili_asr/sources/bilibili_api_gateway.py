@@ -79,6 +79,15 @@ _BVID_PATTERN = re.compile(r"^BV[a-zA-Z0-9]{10}$")
 _HTTPS_SCHEME = "https://"
 _PLAIN_HTTP_SCHEME = "http://"
 
+# Exactly the characters the storage contract's ``_text`` rule refuses (its
+# message is "contains invalid control characters").  ``\t``/``\x0b``/``\x0c``
+# are deliberately absent: that rule accepts them, and a predicate over
+# ``str.isspace()`` here would quietly widen this set.  A field whose stored
+# text has no reader that renders it can be read as absent instead of raising
+# on these; a field with a locked output shape cannot (see
+# ``_read_optional_text``).
+_INVALID_CONTROL_CHARACTERS = ("\x00", "\r", "\n")
+
 # The package's own endpoint description for the user-video page call
 # (``bilibili_api.user.API["info"]["video"]``).  ``url``/``method``/
 # ``verify``/``wbi`` are read from it so this adapter cannot drift from the
@@ -179,7 +188,12 @@ def _read_optional_aid(item: Mapping) -> int | None:
     return value
 
 
-def _read_optional_text(item: Mapping, field: str) -> str | None:
+def _read_optional_text(
+    item: Mapping,
+    field: str,
+    *,
+    control_characters_are_absence: bool = False,
+) -> str | None:
     """Read one optional text field, collapsing blank text to absence.
 
     Upstream leaves these fields present-but-empty on real items; empty is not
@@ -187,8 +201,30 @@ def _read_optional_text(item: Mapping, field: str) -> str | None:
     by whether the field holds anything and a blank would count as one.  So the
     collapse happens here, where "upstream sent an empty string" and "upstream
     sent nothing" are both still distinguishable from a real value.  A present
-    non-string, or text carrying a control character the storage contract
-    rejects, is a bounded shape error like every sibling field's.
+    non-string is a bounded shape error like every sibling field's.
+
+    ``control_characters_are_absence`` is how the **caller** says whether the
+    storage contract's refusal of ``\\x00``/``\\r``/``\\n`` should be answered
+    with absence or with that refusal.  It is opt-in per field rather than a
+    rule this function applies to everything it reads, because the two callers
+    answer differently and the difference is a decision, not an oversight:
+
+    * ``desc`` passes it.  The description is the one field here that no
+      output renders — it is neither in the CLI's locked one-line-per-record
+      listing nor among the export's columns, so it has no shape to break and a
+      control character only makes the value unrepresentable.  Reading it as
+      absent keeps the page, its sibling items and the cursor, where raising
+      discards all three.
+    * ``pic`` does not, and that is deliberate.  A cover URL carrying a control
+      character is corrupt data rather than a line break, so it stays a page
+      failure.  A field-agnostic rule here would silently relax ``pic`` — which
+      is why this is a parameter with a default that preserves the old
+      behaviour, instead of something the reader switches on by itself.
+
+    The strip runs first, so a control character that is only transport
+    whitespace is already gone and never reaches that decision: ``"\\na"`` is
+    ``"a"`` here, exactly as it was before.  What the flag decides is only the
+    value left after stripping still carrying one.
     """
 
     value = item.get(field)
@@ -196,7 +232,12 @@ def _read_optional_text(item: Mapping, field: str) -> str | None:
         return None
     if not isinstance(value, str):
         raise GatewayShapeError(detail=f"video item has no valid {field}")
-    return value.strip() or None
+    text = value.strip()
+    if control_characters_are_absence and any(
+        mark in text for mark in _INVALID_CONTROL_CHARACTERS
+    ):
+        return None
+    return text or None
 
 
 def _read_optional_typeid(item: Mapping) -> int | None:
@@ -261,7 +302,9 @@ def _normalize_video_summary_item(item: object, requested_mid: int) -> VideoSumm
             mid=owner_mid,
             author=None if author is None else author.strip(),
             pic=_read_optional_text(item, "pic"),
-            desc=_read_optional_text(item, "description"),
+            desc=_read_optional_text(
+                item, "description", control_characters_are_absence=True
+            ),
             tid=_read_optional_typeid(item),
         )
     except (TypeError, ValueError) as exc:
