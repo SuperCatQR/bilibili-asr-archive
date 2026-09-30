@@ -1,0 +1,13 @@
+95:_USER_VIDEO_PAGE_ENDPOINT = USER_API["info"]["video"]
+96-
+97-# The package's own endpoint description for the player call
+98-# (``bilibili_api.video.API["info"]["get_player_info"]``), whose unwrapped
+99-# payload carries the part's subtitle inventory.  ``url``/``method``/``wbi``
+100-# are read from it for the same reason; ``dm`` and ``verify`` are deliberately
+101-# overridden per call (see ``BilibiliApiGateway._fetch_subtitle_inventory``).
+102-# Only the endpoint description and ``Video`` are imported from the pin's
+103-# ``video`` module: binding the whole module would make its other names
+pn=1 UNPARSABLE Expecting value: line 1 column 1 (char 0)
+pn=6 code -799 msg 请求过于频繁，请稍后再试 vlist_len None 
+gateway pn=1 OK n=30 total=None
+gateway pn=6 GatewayShapeError: GatewayShapeError('GatewayShapeError(shape_error): video item is not normalizable')

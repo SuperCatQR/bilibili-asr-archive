@@ -1,5 +1,18 @@
 {
   "version": 2,
   "updated_at": "2026-09-30",
-  "workflows": []
+  "workflows": [
+    {
+      "id": "e2e-23191782-love-items-dual-route",
+      "type": "plan",
+      "started_at": "2026-09-30",
+      "dir": "workflows/e2e-23191782-love-items-dual-route"
+    },
+    {
+      "id": "20260930-metadata-shape-resilience",
+      "type": "plan",
+      "started_at": "2026-09-30",
+      "dir": "workflows/20260930-metadata-shape-resilience"
+    }
+  ]
 }

@@ -1,0 +1,33 @@
+== /root/workspace/bilibili-asr-archive/bilibili-asr-archive/models/Qwen3-ASR-1.7B-hf
+total 3991888
+drwxr-xr-x 3 root root       4096 Sep 24 20:27 .
+drwxr-xr-x 4 root root       4096 Sep 24 20:23 ..
+drwxr-xr-x 3 root root       4096 Sep 24 20:23 .cache
+-rw-r--r-- 1 root root        157 Sep 24 20:25 .filelist
+-rw-r--r-- 1 root root       1570 Sep 24 20:23 .gitattributes
+-rw-r--r-- 1 root root      16538 Sep 24 20:23 README.md
+-rw-r--r-- 1 root root       1434 Sep 24 20:23 chat_template.jinja
+-rw-r--r-- 1 root root       2399 Sep 24 20:23 config.json
+-rw-r--r-- 1 root root        165 Sep 24 20:23 generation_config.json
+-rw-r--r-- 1 root root 4076193080 Sep 24 20:27 model.safetensors
+-rw-r--r-- 1 root root        487 Sep 24 20:23 processor_config.json
+-rw-r--r-- 1 root root   11429653 Sep 24 20:27 tokenizer.json
+-rw-r--r-- 1 root root        998 Sep 24 20:23 tokenizer_config.json
+   total: 3.9G
+== /root/workspace/bilibili-asr-archive/bilibili-asr-archive/models/Qwen3-ForcedAligner-0.6B-hf
+total 1803984
+drwxr-xr-x 3 root root       4096 Sep 24 20:27 .
+drwxr-xr-x 4 root root       4096 Sep 24 20:23 ..
+drwxr-xr-x 3 root root       4096 Sep 24 20:23 .cache
+-rw-r--r-- 1 root root        134 Sep 24 20:27 .filelist
+-rw-r--r-- 1 root root       1570 Sep 24 20:23 .gitattributes
+-rw-r--r-- 1 root root       9419 Sep 24 20:23 README.md
+-rw-r--r-- 1 root root        551 Sep 24 20:23 chat_template.jinja
+-rw-r--r-- 1 root root     248029 Sep 24 20:23 config.json
+-rw-r--r-- 1 root root 1835545960 Sep 24 20:27 model.safetensors
+-rw-r--r-- 1 root root        487 Sep 24 20:23 processor_config.json
+-rw-r--r-- 1 root root   11429842 Sep 24 20:27 tokenizer.json
+-rw-r--r-- 1 root root        998 Sep 24 20:23 tokenizer_config.json
+   total: 1.8G
+ASR config OK: Qwen3ASRConfig = qwen3_asr
+ALIGNER config OK: Qwen3ASRConfig = qwen3_asr

@@ -1,0 +1,15 @@
+  File "<stdin>", line 6
+    from bili_api_bridge import Credential if False else None
+                                           ^^
+SyntaxError: invalid syntax
+=== pn=6: 30 items ===
+  ITEM 27 FAILS: GatewayShapeError(shape_error): video item is not normalizable
+     bvid  = 'BV18b9DYeE3s'
+     title = '【随便聊聊】何为抑郁，怎样不抑郁'
+     mid   = 23191782 (want 23191782)
+     author= '未明子'
+     ctl(title) = []
+     pubdate=None created=1741387364
+     keys  = ['aid', 'attribute', 'author', 'bvid', 'comment', 'copyright', 'created', 'description', 'elec_arc_badge', 'elec_arc_type', 'enable_vt', 'hide_click', 'is_avoided', 'is_charging_arc', 'is_lesson_finished', 'is_lesson_video', 'is_live_playback', 'is_pay', 'is_self_view', 'is_steins_gate', 'is_union_video', 'jump_url', 'length', 'lesson_update_info', 'meta', 'mid', 'pic', 'play', 'playback_position', 'review', 'season_id', 'subtitle', 'title', 'typeid', 'video_review', 'view_self_type', 'vt', 'vt_display']
+  good=29 bad=1
+  normalizable bvids: ['BV1vNTqzFEve', 'BV16D7azJEcm', 'BV1J87YzXECK', 'BV1qR7az2EzY', 'BV1BVJWz8EBW', 'BV1YFEUzpEsT', 'BV1H7JTzXEEd', 'BV1zDEBzqExD', 'BV1kEVszWEbm', 'BV15pL9zwEhk', 'BV17jL9zKE9n', 'BV1zz5zzFENq', 'BV11p5qzAE6s', 'BV1iddQYQE7D', 'BV12jduYEEYg', 'BV1Ynd7YUEgP', 'BV1TFRSYbEcR', 'BV1ZHfgYyEHn', 'BV16qZxYdEiS', 'BV1jiofYkEWj', 'BV1jiofYkEjw', 'BV1aJZTYxEUP', 'BV1sCX2YyE5w', 'BV14VXFYUEYn', 'BV1AYX7YfEDg', 'BV1FbX3YMEb9', 'BV1ciQCYfEx9', 'BV1CL9fYLEiB', 'BV1vo9zY1Eeo']

@@ -1,0 +1,7 @@
+Linux DESKTOP-HHFROLO 6.18.33.2-microsoft-standard-WSL2 #1 SMP PREEMPT_DYNAMIC Thu Jun 18 21:54:43 UTC 2026 x86_64 x86_64 x86_64 GNU/Linux
+nproc=12
+               total        used        free      shared  buff/cache   available
+Mem:              24           0          23           0           0          23
+ffmpeg version 6.1.1-3ubuntu5 Copyright (c) 2000-2023 the FFmpeg developers
+/dev/sdd       1007G  282G  674G  30% /
+E:              1.9T  616G  1.3T  34% /mnt/e

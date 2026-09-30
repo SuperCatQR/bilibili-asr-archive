@@ -1,0 +1,7 @@
+/root/workspace/bilibili-asr-archive/bilibili-asr-archive/models/Qwen3-ASR-1.7B-hf/
+/root/workspace/bilibili-asr-archive/bilibili-asr-archive/models/Qwen3-ForcedAligner-0.6B-hf/
+3.9G	/root/workspace/bilibili-asr-archive/bilibili-asr-archive/models/Qwen3-ASR-1.7B-hf/
+1.8G	/root/workspace/bilibili-asr-archive/bilibili-asr-archive/models/Qwen3-ForcedAligner-0.6B-hf/
+models--Qwen--Qwen3-ASR-1.7B-hf
+models--Qwen--Qwen3-ForcedAligner-0.6B-hf
+-rw-r--r-- 1 root root 4076193080 Sep 24 20:27 /root/workspace/bilibili-asr-archive/bilibili-asr-archive/models/Qwen3-ASR-1.7B-hf/model.safetensors

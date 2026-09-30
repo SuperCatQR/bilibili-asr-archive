@@ -1,0 +1,24 @@
+=== failing item, field by field ===
+  bvid         = 'BV18b9DYeE3s'  (type str)
+  title        = '【随便聊聊】何为抑郁，怎样不抑郁'  (type str)
+  mid          = 23191782  (type int)
+  author       = '未明子'  (type str)
+  pic          = 'http://i1.hdslb.com/bfs/archive/47b5e468ae7089dc37e0a0ecab8815baed5356b4.jpg'  (type str)
+  description  = '理解抑郁以及拒绝抑郁的方法，不代表就【能】不抑郁。\n抑郁本身是器质性的，该吃药吃药，该入院入院。'  (type str)
+  typeid       = 124  (type int)
+  created      = 1741387364  (type int)
+  pubdate      = None  (type NoneType)
+  aid          = 114123136310249  (type int)
+  length       = '120:27'  (type str)
+  subtitle     = ''  (type str)
+
+=== field probes against the DTO ===
+  pic   : OK  value='http://i1.hdslb.com/bfs/archive/47b5e468ae7089dc37e0a0ecab8815baed5356b4.jpg'
+  desc  : REJECTED ValueError: desc contains invalid control characters  value='理解抑郁以及拒绝抑郁的方法，不代表就【能】不抑郁。\n抑郁本身是器质性的，该吃药吃药，该入院入院。'
+  tid   : OK  value=124
+  aid   : OK  value=114123136310249
+  title : OK  value='【随便聊聊】何为抑郁，怎样不抑郁'
+  author: OK  value='未明子'
+
+=== the real reader path ===
+  REJECTED: ValueError: desc contains invalid control characters

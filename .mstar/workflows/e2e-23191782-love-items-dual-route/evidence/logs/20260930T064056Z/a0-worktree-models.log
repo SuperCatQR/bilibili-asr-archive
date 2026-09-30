@@ -1,0 +1,19 @@
+ls: cannot access '/root/e2e-asr/love-dual-route/build/bilibili-asr-archive/models': No such file or directory
+/root/.cache/huggingface
+/root/.cache/huggingface/hub
+/root/.cache/huggingface/hub/models--Qwen--Qwen3-ASR-1.7B-hf
+/root/.cache/huggingface/hub/models--Qwen--Qwen3-ASR-1.7B-hf/refs
+/root/.cache/huggingface/hub/models--Qwen--Qwen3-ASR-1.7B-hf/refs/main
+/root/.cache/huggingface/hub/models--Qwen--Qwen3-ForcedAligner-0.6B-hf
+/root/.cache/huggingface/hub/models--Qwen--Qwen3-ForcedAligner-0.6B-hf/refs
+/root/.cache/huggingface/hub/models--Qwen--Qwen3-ForcedAligner-0.6B-hf/refs/main
+/root/.cache/huggingface/.check_for_skill_update_done
+/root/.cache/huggingface/.check_for_update_done
+/root/.cache/huggingface/.agent_harnesses.json
+/root/.cache/huggingface/xet
+/root/.cache/huggingface/xet/logs
+/root/.cache/huggingface/xet/logs/xet_20260924T202346490+0800_36851.log
+/root/.cache/huggingface/xet/logs/xet_20260924T202342963+0800_36806.log
+/root/.cache/huggingface/xet/https___cas_serv-tGqkUaZf_CBPHQ6h
+/root/.cache/huggingface/xet/https___cas_serv-tGqkUaZf_CBPHQ6h/staging
+HF_HOME=unset HF_HUB_OFFLINE=unset

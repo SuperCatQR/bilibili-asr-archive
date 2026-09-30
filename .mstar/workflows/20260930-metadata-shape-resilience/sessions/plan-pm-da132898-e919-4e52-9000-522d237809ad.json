@@ -1,0 +1,8 @@
+{
+  "schema_version": 1,
+  "role": "plan-pm",
+  "session_id": "da132898-e919-4e52-9000-522d237809ad",
+  "workflow_id": "20260930-metadata-shape-resilience",
+  "plan_id": "20260930-metadata-shape-resilience",
+  "harness_root": "/root/workspace/bilibili-asr-archive/.mstar"
+}

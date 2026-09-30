@@ -1,0 +1,74 @@
+videos=30 missing=['BV1vNTqzFEve', 'BV1zz5zzFENq']
+=== widened attempt 1 (resume, 1 page) ===
+fetch-meta: metadata gateway failure (shape_error); cursor unchanged at page 6 — re-run fetch-meta to resume.
+sessdata: present
+fetch-meta: collected 1 page(s) for mid=23191782 (outcome=failed)
+   EXIT=2
+videos=30 missing=['BV1vNTqzFEve', 'BV1zz5zzFENq']
+=== widened attempt 2 (resume, 1 page) ===
+fetch-meta: metadata gateway failure (rate_limited); cursor unchanged at page 6 — re-run fetch-meta to resume.
+sessdata: present
+fetch-meta: collected 1 page(s) for mid=23191782 (outcome=risk_interrupted)
+   EXIT=2
+videos=30 missing=['BV1vNTqzFEve', 'BV1zz5zzFENq']
+=== widened attempt 3 (resume, 1 page) ===
+fetch-meta: metadata gateway failure (shape_error); cursor unchanged at page 6 — re-run fetch-meta to resume.
+sessdata: present
+fetch-meta: collected 1 page(s) for mid=23191782 (outcome=failed)
+   EXIT=2
+videos=30 missing=['BV1vNTqzFEve', 'BV1zz5zzFENq']
+=== widened attempt 4 (resume, 1 page) ===
+fetch-meta: metadata gateway failure (rate_limited); cursor unchanged at page 6 — re-run fetch-meta to resume.
+sessdata: present
+fetch-meta: collected 1 page(s) for mid=23191782 (outcome=risk_interrupted)
+   EXIT=2
+videos=30 missing=['BV1vNTqzFEve', 'BV1zz5zzFENq']
+=== widened attempt 5 (resume, 1 page) ===
+fetch-meta: metadata gateway failure (shape_error); cursor unchanged at page 6 — re-run fetch-meta to resume.
+sessdata: present
+fetch-meta: collected 1 page(s) for mid=23191782 (outcome=failed)
+   EXIT=2
+videos=30 missing=['BV1vNTqzFEve', 'BV1zz5zzFENq']
+=== widened attempt 6 (resume, 1 page) ===
+fetch-meta: metadata gateway failure (shape_error); cursor unchanged at page 6 — re-run fetch-meta to resume.
+sessdata: present
+fetch-meta: collected 1 page(s) for mid=23191782 (outcome=failed)
+   EXIT=2
+videos=30 missing=['BV1vNTqzFEve', 'BV1zz5zzFENq']
+=== widened attempt 7 (resume, 1 page) ===
+fetch-meta: metadata gateway failure (rate_limited); cursor unchanged at page 6 — re-run fetch-meta to resume.
+sessdata: present
+fetch-meta: collected 1 page(s) for mid=23191782 (outcome=risk_interrupted)
+   EXIT=2
+videos=30 missing=['BV1vNTqzFEve', 'BV1zz5zzFENq']
+=== widened attempt 8 (resume, 1 page) ===
+fetch-meta: metadata gateway failure (rate_limited); cursor unchanged at page 6 — re-run fetch-meta to resume.
+sessdata: present
+fetch-meta: collected 1 page(s) for mid=23191782 (outcome=risk_interrupted)
+   EXIT=2
+videos=30 missing=['BV1vNTqzFEve', 'BV1zz5zzFENq']
+=== widened attempt 9 (resume, 1 page) ===
+fetch-meta: metadata gateway failure (rate_limited); cursor unchanged at page 6 — re-run fetch-meta to resume.
+sessdata: present
+fetch-meta: collected 1 page(s) for mid=23191782 (outcome=risk_interrupted)
+   EXIT=2
+videos=30 missing=['BV1vNTqzFEve', 'BV1zz5zzFENq']
+=== widened attempt 10 (resume, 1 page) ===
+fetch-meta: metadata gateway failure (shape_error); cursor unchanged at page 6 — re-run fetch-meta to resume.
+sessdata: present
+fetch-meta: collected 1 page(s) for mid=23191782 (outcome=failed)
+   EXIT=2
+videos=30 missing=['BV1vNTqzFEve', 'BV1zz5zzFENq']
+=== widened attempt 11 (resume, 1 page) ===
+fetch-meta: metadata gateway failure (rate_limited); cursor unchanged at page 6 — re-run fetch-meta to resume.
+sessdata: present
+fetch-meta: collected 1 page(s) for mid=23191782 (outcome=risk_interrupted)
+   EXIT=2
+videos=30 missing=['BV1vNTqzFEve', 'BV1zz5zzFENq']
+=== widened attempt 12 (resume, 1 page) ===
+fetch-meta: metadata gateway failure (rate_limited); cursor unchanged at page 6 — re-run fetch-meta to resume.
+sessdata: present
+fetch-meta: collected 1 page(s) for mid=23191782 (outcome=risk_interrupted)
+   EXIT=2
+FOUND=0 ATTEMPTS=12
+videos=30 missing=['BV1vNTqzFEve', 'BV1zz5zzFENq']

@@ -1,0 +1,26 @@
+=== attempt 1 ===
+fetch-meta: metadata gateway failure (shape_error); cursor unchanged at page 6 — re-run fetch-meta to resume.
+sessdata: present
+fetch-meta: collected 2 page(s) for mid=23191782 (outcome=failed)
+attempt 1 EXIT=2
+=== attempt 2 ===
+fetch-meta: metadata gateway failure (rate_limited); cursor unchanged at page 6 — re-run fetch-meta to resume.
+sessdata: present
+fetch-meta: collected 2 page(s) for mid=23191782 (outcome=risk_interrupted)
+attempt 2 EXIT=2
+=== attempt 3 ===
+fetch-meta: metadata gateway failure (rate_limited); cursor unchanged at page 6 — re-run fetch-meta to resume.
+sessdata: present
+fetch-meta: collected 1 page(s) for mid=23191782 (outcome=risk_interrupted)
+attempt 3 EXIT=2
+=== attempt 4 ===
+fetch-meta: metadata gateway failure (rate_limited); cursor unchanged at page 6 — re-run fetch-meta to resume.
+sessdata: present
+fetch-meta: collected 1 page(s) for mid=23191782 (outcome=risk_interrupted)
+attempt 4 EXIT=2
+=== attempt 5 ===
+fetch-meta: metadata gateway failure (rate_limited); cursor unchanged at page 6 — re-run fetch-meta to resume.
+sessdata: present
+fetch-meta: collected 1 page(s) for mid=23191782 (outcome=risk_interrupted)
+attempt 5 EXIT=2
+OK=0 ATTEMPTS=5

@@ -1,0 +1,6 @@
+ed291be Merge pull request #28 from SuperCatQR/feat/20260929-harness-state-tracked
+HEAD sha: ed291be76b88fb72f940b3284b3a179f50ca56b3
+detached? DETACHED
+PORCELAIN_LINES=0
+/root/workspace/bilibili-asr-archive  d41c257 [main]
+/root/e2e-asr/love-dual-route/build   ed291be (detached HEAD)
