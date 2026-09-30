@@ -42,7 +42,9 @@ def _cmd_fetch_meta(args: argparse.Namespace) -> int:
     DEFAULT_PAGE_LIMIT bound); 1 usage/configuration error; 2 terminal
     failure in one of two variants — a bounded gateway failure (the
     fail-fast gateway: one attempt per page, a bounded scalar code, cursor
-    unchanged, resume safe) or an unexpected internal error (the fixed
+    unchanged unless --skip-failed-page moved it past a failed page (every
+    non-rate-limit failure is skipped, so a transient one is too; a rate
+    limit never is), resume safe) or an unexpected internal error (the fixed
     "fetch-meta: unexpected error" message with no scalar code; the cursor
     may hold the last committed page of the run and the run row may remain
     `running`, so consult status/runs before re-running).  This handler
@@ -92,6 +94,7 @@ def _cmd_fetch_meta(args: argparse.Namespace) -> int:
             mid=config.mid,
             start_page=config.start_page,
             page_limit=config.page_limit,
+            skip_failed_page=config.skip_failed_page,
         )
     except Exception:
         # C5: the ingestor resolves bounded gateway failures internally, so
@@ -108,11 +111,26 @@ def _cmd_fetch_meta(args: argparse.Namespace) -> int:
         f"mid={config.mid} (outcome={result.outcome})"
     )
     if result.outcome in {"risk_interrupted", "failed"}:
-        cursor_clause = (
-            f"cursor unchanged at page {result.next_cursor.next_page}"
-            if result.next_cursor is not None
-            else "no cursor recorded"
-        )
+        # The clause reports the value the store now holds, not a direction of
+        # movement: under ``--skip-failed-page`` the cursor was deliberately
+        # committed one page past the failure, so "unchanged" would assert the
+        # opposite of the stored state, while "advanced" would claim movement
+        # that ``--start-page`` may have made untrue.  ``risk_interrupted`` is
+        # excluded because the ingestor deliberately does not skip a rate
+        # limit, so that arm still reads "unchanged".
+        if (
+            config.skip_failed_page
+            and result.outcome == "failed"
+            and result.next_cursor is not None
+        ):
+            cursor_clause = (
+                f"cursor set to page {result.next_cursor.next_page} "
+                f"(the failed page was skipped)"
+            )
+        elif result.next_cursor is not None:
+            cursor_clause = f"cursor unchanged at page {result.next_cursor.next_page}"
+        else:
+            cursor_clause = "no cursor recorded"
         print(
             f"fetch-meta: metadata gateway failure ({result.error_code}); "
             f"{cursor_clause} — re-run fetch-meta to resume.",

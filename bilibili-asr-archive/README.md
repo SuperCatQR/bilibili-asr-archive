@@ -1082,7 +1082,11 @@ below; this subsection covers the metadata and read commands only.
   from the stored cursor when one exists and starts at page 1 otherwise.
   `--resume` requires a stored cursor and exits `1` when there is none;
   `--start-page` overrides the cursor. A failed page never advances the
-  cursor, so resume is always safe.
+  cursor, so resume is always safe — with one opt-in exception:
+  `--skip-failed-page` commits the cursor one page past a failed page so the
+  next `--resume` can progress, and the failed page keeps its bounded error
+  code so the gap stays visible. It skips any non-rate-limit gateway failure,
+  so a transient error is skipped too.
 - **Credential boundary**: optional SESSDATA comes from `--sessdata` or the
   `BILI_SESSDATA` environment variable (cookie **value**, not a file path).
   It is sent as an API cookie only and is never echoed, logged, persisted,
@@ -1119,7 +1123,11 @@ Exit 2 variants:
 - **Gateway failure** (bounded scalar code, e.g. `response_error`,
   `rate_limited`): the gateway is fail-fast per page — one attempt per
   page, no retry. The failed page records its bounded scalar code, the
-  cursor remains unchanged, and re-running `fetch-meta` resumes safely.
+  cursor remains unchanged, and re-running `fetch-meta` resumes safely —
+  unless `--skip-failed-page` is set, which commits the cursor one page past
+  a failed page so the next `--resume` progresses; the page row
+  still records the failure and its code. Every non-rate-limit gateway failure
+  is skipped, transient ones included; a rate limit never is.
 - **Unexpected internal error** (the fixed line `fetch-meta: unexpected
   error`, no scalar code, no traceback): the cursor may already hold the
   last committed page of the run and the run row may remain `running` —

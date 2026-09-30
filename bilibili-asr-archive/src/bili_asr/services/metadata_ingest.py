@@ -10,9 +10,13 @@ page outcome, commit.
 
 The service is synchronous on its surface (the CLI calls it directly) and
 runs the async gateway page calls on one event loop per collection run.
-Gateway failures roll the failed page back completely; only a bounded scalar
-error code is persisted afterwards, and the previous cursor is preserved
-exactly so a later run can resume from it.
+Gateway failures roll the failed page back completely and persist only its
+bounded scalar error code.  The previous cursor is preserved so a later run
+can resume from the same page — with one opt-in exception:
+``--skip-failed-page`` commits it one page past a failed page so the next
+``--resume`` can progress, leaving the failed page row and its code in place
+so the gap stays visible.  It skips every non-rate-limit gateway failure,
+transient ones included; a rate limit is never skipped.
 """
 
 from __future__ import annotations
@@ -217,6 +221,8 @@ class MetadataIngestor:
         mid: int,
         start_page: int | None = None,
         page_limit: int | None = None,
+        *,
+        skip_failed_page: bool = False,
     ) -> IngestionRunResult:
         """Run one resumable metadata collection for ``mid``.
 
@@ -233,7 +239,12 @@ class MetadataIngestor:
 
         self._validate_arguments(mid, start_page, page_limit)
         return asyncio.run(
-            self._collect(mid=mid, start_page=start_page, page_limit=page_limit)
+            self._collect(
+                mid=mid,
+                start_page=start_page,
+                page_limit=page_limit,
+                skip_failed_page=skip_failed_page,
+            )
         )
 
     @staticmethod
@@ -264,7 +275,11 @@ class MetadataIngestor:
         return 1 if cursor is None else cursor.next_page
 
     async def _collect(
-        self, mid: int, start_page: int | None, page_limit: int | None
+        self,
+        mid: int,
+        start_page: int | None,
+        page_limit: int | None,
+        skip_failed_page: bool = False,
     ) -> IngestionRunResult:
         """Fetch and persist pages until completion, a limit, or a failure."""
 
@@ -372,6 +387,45 @@ class MetadataIngestor:
                 outcome = run_outcome
                 error_code = error.code
                 page_count += 1
+                if skip_failed_page and page_outcome == "failed":
+                    # The escape hatch (D-3).  A page whose outcome mapped to
+                    # 'failed' is skipped: for the shape errors that motivated
+                    # this flag the failure is deterministic and resuming at it
+                    # would fail identically on every later run, and for the
+                    # transport/response classes the same mapping applies even
+                    # though they can be transient (recovery from a hasty skip
+                    # is --start-page or a cursor reset).  The run's own outcome
+                    # is untouched — it really did fail, and
+                    # ``_record_failed_page`` has already made it terminal with
+                    # the page row above as its evidence.  Only the *next* run's
+                    # starting point changes, which is what makes the wedge
+                    # escapable rather than permanent.
+                    #
+                    # ``risk_interrupted`` is excluded on purpose: a rate limit is
+                    # transient and the existing behaviour (stop, keep the cursor)
+                    # is the correct one for it.
+                    previous = self._repository.read_cursor(mid)
+                    # The cursor write is its own committed transaction, the
+                    # module's one write-group discipline: ``write_cursor`` does
+                    # not commit on its own, and the CLI closes the connection
+                    # (``cli/meta.py`` ``finally``) as soon as the command
+                    # returns, which would roll an uncommitted cursor back and
+                    # leave the very wedge this flag exists to escape.
+                    with self._repository.transaction():
+                        self._repository.write_cursor(
+                            CursorRecord(
+                                mid=mid,
+                                next_page=page_number + 1,
+                                observed_total=(
+                                    previous.observed_total
+                                    if previous is not None
+                                    else None
+                                ),
+                                state="ready",
+                                last_error_code=error.code,
+                                updated_at=_now(),
+                            )
+                        )
                 break
             page_finished_at = _now()
             if not summaries:
