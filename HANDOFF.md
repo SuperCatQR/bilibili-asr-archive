@@ -11,7 +11,7 @@ description of the project.
 |---|---|
 | `main` | **`371693b`** (2026-09-28) — **30 commits and 7 landed changes (4 of them two-parent merges; the rest squash landings)** past the park's reading (`f326398`) |
 | Active iteration | **`iter-2026-09-harness-hygiene`** — `running`, `phase-2-execute` |
-| Parked lifecycle | **`iter-2026-09-transcript-editorial-stages`** — still parked, gates still open (§2, §3) |
+| Parked lifecycle | **`iter-2026-09-transcript-editorial-stages`** — still parked, gates still open (§2, §3). Its branch refs were **retired 2026-09-30** — fetch `refs/pull/17/head` before resuming (*Ref retirement* in §1) |
 | Where to start | the **How to resume** section directly below |
 
 **Shipped since the park.** Each `ended_at` is read from that iteration's own
@@ -122,12 +122,16 @@ path is machine-local, not under git.)
 | Ref | Tip | What it carries |
 |---|---|---|
 | `main` | `371693b` | The last released product state (`37b0acc`, 2026-09-21), the Qwen3-ASR boundary rebuild, the repo-level `.mstar` publication fix, one harness-registration commit, the 2026-09-25 structure tidy-up, and then **everything the four iterations below shipped**: the Qwen3-ASR closeout, the archive.db queue layer and evidence dashboard, metadata enrichment plus `derive-audio-inventory`, the queue-SSOT cutover at the CLI with `proofread`/`search`/`search-index`, and shape A's one-directory-per-work bundle layout. Note that **shape A is not one of the four iterations below**: it is a separate landing (`d743043`, PR #26) whose L1 decision post-dates the iteration it merged under, and its residual group `20260928-layout-shape-a` carries an **open `medium` residual (`L-R2`, no arm's-length L2 verdict)** — it has no row in the table below and is not covered by any lifecycle there (QA-C2). **The editorial commands are still not here.** |
-| `iteration/iter-2026-09-transcript-editorial-stages` | `aa86ea1` | The merged Plan 1 (merge commit of PR #17) plus the Phase-1 package as it stood at the lock — the pre-deletion snapshot of the files §9 removed from disk. |
-| `feat/20260923-transcript-proofread` | `55f846c` | The Plan-1 branch, merged via PR #17 and **kept** — this is where a fix rider commits. |
+| ~~`iteration/iter-2026-09-transcript-editorial-stages`~~ | ~~`aa86ea1`~~ | The merged Plan 1 (merge commit of PR #17) plus the Phase-1 package as it stood at the lock — the pre-deletion snapshot of the files §9 removed from disk. **Retired 2026-09-30** — see *Ref retirement* below. |
+| ~~`feat/20260923-transcript-proofread`~~ | ~~`55f846c`~~ | The Plan-1 branch, merged via PR #17 and **kept** — this is where a fix rider commits. **Retired 2026-09-30** — see *Ref retirement* below. |
 
-All three are pushed through the tips above (**corrected 2026-09-29**). Verify with
-`git branch -a` — all three have an `origin/<ref>` — and
-`git rev-parse --short origin/main` and likewise one ref at a time — `--short` with several revisions exits 128 on this host (2026-09-29), so pass them individually.
+*Corrected 2026-09-30.* This paragraph read "All three are pushed through the tips above
+(**corrected 2026-09-29**). Verify with `git branch -a` — all three have an `origin/<ref>`".
+**Only `main` still has a live branch ref.** The two parked refs were retired on 2026-09-30 with
+operator authorisation (*Ref retirement* below); their commits are still reachable through GitHub's
+PR refs. Verify what remains with `git branch -a`, and read tips one ref at a time —
+`git rev-parse --short origin/main` — `--short` with several revisions exits 128 on this host
+(2026-09-29).
 
 Tips are **observations, not a live view**: each is the last commit that ref was at when its row
 was last written. A commit made afterwards does not make the rest of this page wrong.
@@ -167,13 +171,56 @@ the current `main`).
 integration side has not moved at all while `main` took 30 more commits, so the rescue this
 paragraph describes has grown, not shrunk.
 
+### Ref retirement — 2026-09-30
+
+Three refs were deleted on **2026-09-30** on explicit operator authorisation. **No content was
+lost**: every commit they held is still reachable from GitHub's PR refs, which outlive the branch
+refs (verified on this host: a branch deleted on 2026-09-30 left its `refs/pull/<n>/head` serving
+the same OID, and a `fetch` of it succeeded from a clean clone).
+
+| Ref retired | Was | Recover with |
+|---|---|---|
+| `iteration/iter-2026-09-metadata-audio-layout` (local + `origin`) | `d28825b` — PR #25's branch, squash-merged into `main` as `cefed49`; the 20 pre-squash commits were held only by this ref | `git fetch origin refs/pull/25/head:refs/heads/<any-name>` → `d28825b` (identical OID) |
+| `feat/20260923-transcript-proofread` (local + `origin`) | `55f846c` — Plan 1's branch, merged via PR #17 | `git fetch origin refs/pull/17/head:refs/heads/<any-name>` → `55f846c` (identical OID) |
+| `iteration/iter-2026-09-transcript-editorial-stages` (local + `origin`) | `aa86ea1` — PR #17's merge commit | Same `refs/pull/17/head` fetch; `aa86ea1` is `55f846c` plus one merge event and **carries no content of its own** (its tree is byte-identical to `55f846c`). Re-creatable from `89a9ebb` + `55f846c` if the object is ever needed. |
+
+**What the retirement does *not* mean.** The parked iteration is **still parked and its gates are
+still open** (§2, §3) — retiring the refs removes a branch name, not the work. The six editorial
+source files (~3 400 lines: `services/editorial_alignment.py`, `services/editorial_verify.py`,
+three test modules, `docs/editorial-stages.md`) exist on **no `main` commit and in no part of the
+deletion archive**; `refs/pull/17/head` is now their only home. A resuming agent must fetch that
+ref **before** reading any of them — the body of §2 and §3, and
+`{PLAN_DIR}/20260928-proofread-pipeline.md` Step 1, all assume the branch is present.
+
+**Why these refs and why this way.** The sanctioned planner
+(`mstar worktree cleanup --all-workflows --remote`) **refuses** all three —
+`cleanup.refuse.foreign-branch` on the editorial pair and
+`cleanup.refuse.unmerged` on `origin/iteration/iter-2026-09-metadata-audio-layout`, because no
+snapshot row claims ownership of them (a historical metadata gap, not evidence of abandonment) and
+the squash landing is invisible to ancestor tests. The retirement is therefore an **operator
+decision outside the engine's sanctioned path**, recorded as such here rather than presented as a
+cleanup verdict. Deletion used expected-OID compare-and-delete
+(`git push --force-with-lease=refs/heads/<b>:<observed-oid> origin :refs/heads/<b>`), never a bare
+delete. **Three tracked records still say "Do not touch" / "operator-owned" about exactly these
+refs** — `{PLAN_DIR}/20260928-workspace-reclamation.md` Task 1 ("`feat/20260923-transcript-proofread`
+… `iteration/iter-2026-09-transcript-editorial-stages` … parked, operator-owned"),
+`{PLAN_DIR}/20260925-repo-cleanup.md` ("留（3 条）… parked 迭代的续做入口"), and the
+`iter-2026-09-harness-hygiene` compass Non-Goals ("Deleting the parked
+`iter-2026-09-transcript-editorial-stages` refs (operator-owned; `HANDOFF.md` §9 governs them)").
+Those are **dated records of the rulings that then applied** and are deliberately left
+byte-unchanged — the reclamation plan is itself an argument for this treatment, since
+`iter-2026-09-harness-hygiene` left §9 byte-identical and put its dated pointer outside it. This
+section is that pointer.
+
 ## 2. The iteration that is parked
 
 `iter-2026-09-transcript-editorial-stages` — make 校对 (proofread) and 精校 (reading edition)
 **repeatable, verifiable pipeline stages**: the mechanical checks as commands, the editorial
 judgement as a written protocol plus loadable agent skills (compass **D2**). Package:
 `.mstar/iterations/iter-2026-09-transcript-editorial-stages/` (compass, direction lock, the
-stage contract under `specs/`) — **deleted from disk 2026-09-25** (§9). Three plans, nine tasks,
+stage contract under `specs/`) — **deleted from disk 2026-09-25** (§9); the two branch refs that
+carried it were **retired 2026-09-30** (*Ref retirement* in §1), so read it out of `refs/pull/17/head`
+or the deletion archive rather than from a checked-out branch. Three plans, nine tasks,
 `M` scale.
 
 | Plan | State | Evidence |
@@ -208,12 +255,21 @@ body. None of the following has been done.
 ## 4. Resume — the first four steps
 
 ```bash
-# 1. read the state, then work where the code is
+# 1. read the state, then work where the code is.
+#    CORRECTED 2026-09-30 — the branch refs were retired: the old
+#    `git log --oneline -3 origin/iteration/iter-2026-09-transcript-editorial-stages`
+#    now fails with "unknown revision". Fetch the PR ref first; it is the only home
+#    of the editorial code (see *Ref retirement* in §1).
 git -C <repo> fetch origin
-git -C <repo> log --oneline -3 origin/iteration/iter-2026-09-transcript-editorial-stages
+git -C <repo> fetch origin refs/pull/17/head:refs/heads/editorial-stages
+git -C <repo> log --oneline -3 editorial-stages
 
-# 2. the fix rider commits on the kept feature branch (worktree .worktrees/20260923-transcript-proofread)
+# 2. the fix rider commits on that branch. The worktree named here
+#    (.worktrees/20260923-transcript-proofread) was reclaimed before 2026-09-30 and no
+#    longer exists, so re-create one from the fetched ref — Base for it is the fetched
+#    branch, not `main`.
 git -C <repo> worktree list
+git -C <repo> worktree add -b fix/<name> .worktrees/<name> editorial-stages
 
 # 3. from that worktree: the invocation matters — the repo venv is an editable install of the
 #    PRIMARY checkout, so pin PYTHONPATH or the suite grades the wrong tree
@@ -223,8 +279,10 @@ PYTHONPATH=$PWD/src <repo>/bilibili-asr-archive/.venv/bin/python -m pytest -q
 ```
 
 Then: fix Finding 1 and the four minors → re-run the Task 2 review → review Task 3 → run the plan
-QC tri-review and the QA gate → only then does the iteration-close PR
-(`iteration/iter-2026-09-transcript-editorial-stages` → `main`) become the honest next artifact.
+QC tri-review and the QA gate → only then does the iteration-close PR become the honest next
+artifact. *Corrected 2026-09-30:* the PR target is still `main`, but its head is no longer the
+retired `iteration/iter-2026-09-transcript-editorial-stages` branch — open it from whatever branch
+step 1 fetched or re-created.
 
 ## 5. Evidence you do not have to re-measure
 
@@ -350,6 +408,9 @@ Both files were re-read from the remote after upload and their hashes matched th
 
 - **Iteration package (4 files)** — also in git: `f33ee02` (first lock), `89a9ebb` (re-lock after
   D18) and both kept branches. `git show 89a9ebb:.mstar/iterations/<id>/delivery-compass.md` works.
+  **As of 2026-09-30 the two branches are retired** (see *Ref retirement* in §1): reach these
+  commits through `refs/pull/17/head` (`55f846c`), which carries `89a9ebb` and `f33ee02` as
+  ancestors, or through whatever local ref the §4 step 1 fetch created.
   **But the deleted `delivery-compass.md` was 55 232 B while every committed version is 47 394 B** —
   the on-disk file carried a delta that was never committed, and that delta exists **only** in the
   archive above.
@@ -368,13 +429,19 @@ drop the package off the branch that is the recovery path) and do **not** `git c
 want a clean `git status` there, the honest move is to leave the branch alone and accept the
 working-tree delta, or to re-lock the iteration deliberately.
 
-**What this deletion does *not* mean:** the branch `iteration/iter-2026-09-transcript-editorial-stages`
-and the kept feature branch still exist locally and on `origin`, and the merged Plan-1 code is
-unaffected. Deleting the *harness records* does not un-park, un-merge or abandon the iteration —
-it removes the local paper trail. The five open gates in §3 are still the honest next work, and
-the substance of residual `R2`'s blocked-on-Finding-1 note is still true — but the entry itself is
-no longer registered: it was one of the four removed from `residuals.json`, and its full text now
-lives only in the archive report's final section, which keeps all four entries verbatim for
-re-registration if wanted; every one of them carries `source_plan: 20260923-transcript-proofread`,
-a plan that is still on disk and out of this deletion's scope. What is gone is the local
-registry rows that once made those records discoverable from the machine.
+**What this deletion does *not* mean:** the merged Plan-1 code is unaffected. Deleting the
+*harness records* does not un-park, un-merge or abandon the iteration — it removes the local paper
+trail. The five open gates in §3 are still the honest next work, and the substance of residual
+`R2`'s blocked-on-Finding-1 note is still true — but the entry itself is no longer registered: it
+was one of the four removed from `residuals.json`, and its full text now lives only in the archive
+report's final section, which keeps all four entries verbatim for re-registration if wanted; every
+one of them carries `source_plan: 20260923-transcript-proofread`, a plan that is still on disk and
+out of this deletion's scope. What is gone is the local registry rows that once made those records
+discoverable from the machine.
+
+*Corrected 2026-09-30.* This section's opening sentence read "the branch
+`iteration/iter-2026-09-transcript-editorial-stages` and the kept feature branch still exist
+locally and on `origin`". **They no longer do** — both were retired on 2026-09-30 (*Ref
+retirement* in §1). Everything else in this section is a dated record of the 2026-09-25 deletion
+and is left as written; the "Working-tree state in the two kept worktrees" note above is now
+**moot**, because those worktrees were reclaimed before 2026-09-30.
