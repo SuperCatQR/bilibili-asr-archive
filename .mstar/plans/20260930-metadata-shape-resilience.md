@@ -167,14 +167,22 @@ residual **`20260926-video-metadata-enrichment · R6`**（severity medium，`dec
 ## Naming decisions
 
 > 按 `USER.md` 的强制要求，命名一律经 `naming-analyzer` 决定，不凭直觉。
+> **PM 负责把各 track 的结论 reconcile 到本表** —— implementer 被明确禁止写共享产物（另一 track 并发），
+> 所以他们的命名词表在各自报告里，由 PM 汇入。
 
-待定的命名（implementer 在 T1 前用 skill 定，并把结论写回本节）：
+| 待命名 | 结论 | 依据 / 出处 |
+|---|---|---|
+| 控制字符集合常量 | **`_INVALID_CONTROL_CHARACTERS`** = `("\x00", "\r", "\n")` | Task 1 report §6。UPPER_SNAKE 模块常量，与 `_BVID_PATTERN`/`_RATE_LIMITED_API_CODES` 同区同形；**不用** `_FORBIDDEN_*`/`_ILLEGAL_*`——"禁止"暗示本函数会拒绝，而它恰恰是把拒绝转成缺失。实测确认它**逐字等于** storage `_text` 的拒绝集（`storage/models.py:74`），并显式拒绝 `str.isspace()`（`\t`/`\x0b`/`\x0c` 的 `isspace()` 为真但 `_text` 接受 —— 用它会悄悄放大规则） |
+| `desc` 归一化后的行为名 | **不引入名词**：keyword-only 参数 `control_characters_are_absence: bool = False` | Task 1 report §6。谓词式主谓宾，字面即行为，一行内可回答"这个字段会怎样"；`sanitize`/`clean` 被本节约束点名含糊；默认 `False` 使 `pic` 与未来字段保持在旧纪律（Q1 陷阱的直接对策） |
+| D-3 的跳过开关 | **待 Task 3a 报告**（implementer 正在跑；命名受本节约束：必须让操作者一眼看出留下缺口证据） | Task 3a 报告 §6（待收回后 PM 补入） |
+| 新增的 residual id | **待 T5**（register 该桶现有 `R1..R7`、`M-R1..M-R11`，新条目沿用 `R#` 序列 → `R8`） | register 现状实测 |
 
-| 待命名 | 约束 |
-|---|---|
-| `desc` 归一化后的行为名 | 必须表达"不可表示→缺失"，不要用 `sanitize`/`clean` 这类含糊词 |
-| D-3 的跳过/推进开关 | 必须让操作者一眼看出它**留下缺口证据**，不能听起来像"忽略错误" |
-| 新增的 residual id | 沿用 register 现有 `R#` 序列 |
+### 复现（本表结论的可核验形式）
+
+```bash
+grep -n "_INVALID_CONTROL_CHARACTERS\|control_characters_are_absence" \
+  bilibili-asr-archive/src/bili_asr/sources/bilibili_api_gateway.py
+```
 
 ## Constraints
 
