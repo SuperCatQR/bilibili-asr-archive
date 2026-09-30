@@ -82,10 +82,11 @@ _PLAIN_HTTP_SCHEME = "http://"
 # Exactly the characters the storage contract's ``_text`` rule refuses (its
 # message is "contains invalid control characters").  ``\t``/``\x0b``/``\x0c``
 # are deliberately absent: that rule accepts them, and a predicate over
-# ``str.isspace()`` here would quietly widen this set.  A field whose stored
-# text has no reader that renders it can be read as absent instead of raising
-# on these; a field with a locked output shape cannot (see
-# ``_read_optional_text``).
+# ``str.isspace()`` here would quietly widen this set.  Whether such a byte
+# is read as absence or refused is the caller's decision, taken per field
+# rather than per character (see ``_read_optional_text``): a line break in a
+# description is ordinary prose, where the same byte inside a cover URL makes
+# the value corrupt data.
 _INVALID_CONTROL_CHARACTERS = ("\x00", "\r", "\n")
 
 # The package's own endpoint description for the user-video page call
@@ -209,12 +210,11 @@ def _read_optional_text(
     rule this function applies to everything it reads, because the two callers
     answer differently and the difference is a decision, not an oversight:
 
-    * ``desc`` passes it.  The description is the one field here that no
-      output renders — it is neither in the CLI's locked one-line-per-record
-      listing nor among the export's columns, so it has no shape to break and a
-      control character only makes the value unrepresentable.  Reading it as
-      absent keeps the page, its sibling items and the cursor, where raising
-      discards all three.
+    * ``desc`` passes it.  A line break in a description is ordinary upstream
+      prose rather than damage, so the refusal of a value the store cannot hold
+      is answered with absence.  That keeps the page, its sibling items and the
+      cursor's progress, where raising loses the page's items and leaves the
+      cursor on that page.
     * ``pic`` does not, and that is deliberate.  A cover URL carrying a control
       character is corrupt data rather than a line break, so it stays a page
       failure.  A field-agnostic rule here would silently relax ``pic`` — which
