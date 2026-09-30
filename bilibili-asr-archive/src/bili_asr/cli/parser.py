@@ -53,10 +53,12 @@ def build_parser() -> argparse.ArgumentParser:
     fetch_meta.add_argument(
         "--skip-failed-page", action="store_true",
         help=(
-            "Advance the cursor past a page that failed terminally instead of "
-            "leaving it wedged, so the next --resume makes progress. The page "
-            "is still recorded as failed in ingestion_pages and still shown by "
-            "`runs`; this is never the default behaviour."
+            "Advance the cursor past a page whose gateway call failed instead "
+            "of leaving it wedged, so the next --resume makes progress. Every "
+            "non-rate-limit failure is skipped, so a transient error is skipped "
+            "too; a rate limit never is. The page is still recorded as failed "
+            "in ingestion_pages and still shown by `runs`; this is never the "
+            "default behaviour."
         ),
     )
 
