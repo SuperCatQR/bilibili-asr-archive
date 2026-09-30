@@ -455,7 +455,7 @@ def test_cli_pilot_exit_2_risk_appends_ledger(tmp_root, monkeypatch, capsys):
 def test_format_cursor_summary():
     assert format_cursor_summary(None) == "none"
     assert format_cursor_summary({}) == "none"
-    assert format_cursor_summary({"state": "complete", "total": 100}) == "complete (total 100)"
+    assert format_cursor_summary({"state": "complete", "total": 100}) == "complete (observed_total 100)"
     assert format_cursor_summary({"state": "complete", "total": None}) == "complete"
     assert (
         format_cursor_summary({"state": "limited", "next_page": 3, "total": 50})
@@ -497,7 +497,7 @@ def test_format_run_summary():
     assert "run-20260825-test1" in line
     assert "command: fetch-meta" in line
     assert "exit: 0" in line
-    assert "cursor: complete (total 40)" in line
+    assert "cursor: complete (observed_total 40)" in line
     assert "coverage: [meta_ok: 40]" in line
     assert "(2026-08-25T10:00:00Z)" in line
 

@@ -149,19 +149,55 @@ def test_bili_client_does_not_import_meta_cursor():
 # metadata path: tests/test_metadata_cli.py and tests/test_metadata_e2e.py)
 
 
-def test_fetch_pages_stops_at_last_catalog_page(fast_sleep):
-    """R4: complete when pn reaches ceil(total/ps), no empty-page pair."""
+def test_fetch_pages_ignores_total_and_walks_to_the_empty_page(fast_sleep):
+    """R4 (re-scoped 2026-09-30): completion rests on row evidence, not `total`.
+
+    R4 originally asked for a stop at ``ceil(total/ps)`` to cap a walk that
+    could otherwise loop when upstream repeats its last page. That loop is
+    already caught by the row-based stop below it -- a repeated page is
+    non-empty and adds no new bvids -- while a `total`-derived page bound can
+    truncate the walk: ``page.total`` and the ``archives`` rows are different
+    quantities upstream (measured 2026-09-30: total 1739 vs 1730 rows served,
+    and ``爱情`` 13 vs 12). So the page bound is gone and this test pins the
+    replacement: a page whose ``total`` is already satisfied does not end the
+    walk; the empty page does.
+    """
     transport = FakeTransport(
         [
-            (200, ok_page([arc("BV1A")], total=2)),
+            (200, ok_page([arc("BV1A")], total=1)),
+            (200, ok_page([], total=1)),
+            (200, ok_page([], total=1)),
         ],
     )
     client = bc.BiliClient(transport=transport, sleeper=fast_sleep, jitter=lambda: 0.0)
     pages = client.fetch_pages(23191782, start_page=1)
     assert len(pages) == 1
     assert client.enumeration_complete is True
-    leftover = [c for c in transport.calls if "recArchivesByKeywords" in c["url"]]
-    assert len(leftover) == 1
+    page_calls = [c for c in transport.calls if "recArchivesByKeywords" in c["url"]]
+    assert [c["params"]["pn"] for c in page_calls] == [1, 2, 3]
+    assert client.last_observed_total == 1
+
+
+def test_fetch_pages_does_not_truncate_when_total_undercounts(fast_sleep):
+    """The defect this guards: a `total` below the true row count must not cut the walk.
+
+    ``total=1`` with two real rows on two pages is the shape that a
+    ``total``-derived bound turns into a silent truncation -- the walk would
+    stop after one page and lose BV1B entirely.
+    """
+    transport = FakeTransport(
+        [
+            (200, ok_page([arc("BV1A")], total=1)),
+            (200, ok_page([arc("BV1B")], total=1)),
+            (200, ok_page([], total=1)),
+            (200, ok_page([], total=1)),
+        ],
+    )
+    client = bc.BiliClient(transport=transport, sleeper=fast_sleep, jitter=lambda: 0.0)
+    pages = client.fetch_pages(23191782, start_page=1)
+    served = {a["bvid"] for page in pages for a in page}
+    assert served == {"BV1A", "BV1B"}, "a low `total` must not drop a whole page"
+    assert client.enumeration_complete is True
 
 
 def test_fetch_pages_stops_when_nonempty_adds_no_new(fast_sleep):

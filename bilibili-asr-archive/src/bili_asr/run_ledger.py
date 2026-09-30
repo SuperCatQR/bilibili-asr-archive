@@ -115,8 +115,14 @@ def format_cursor_summary(cursor_snapshot: dict[str, Any] | None) -> str:
     err = cursor_snapshot.get("last_api_error_code")
 
     if state == "complete":
+        # ``total`` is the upstream-reported match count, not the number of
+        # rows this walk collected -- the two are different quantities
+        # upstream (measured 2026-09-30: mid 23191782 reports 1739 while
+        # enumerating 1730 rows). It is labelled ``observed_total`` here, the
+        # same term the ``limited`` branch below already uses, so a completed
+        # enumeration is never read as "we hold ``total`` items".
         if total is not None:
-            return f"complete (total {total})"
+            return f"complete (observed_total {total})"
         return "complete"
     elif state == "limited":
         details = [f"next_page {next_page}"]

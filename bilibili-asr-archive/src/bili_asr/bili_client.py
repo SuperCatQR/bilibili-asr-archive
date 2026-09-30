@@ -417,9 +417,18 @@ class BiliClient:
 
         Returns a list of per-page archive lists (new/dupe mix preserved).
         Raises RiskBudgetExhausted when the retry budget runs out mid-page.
-        Stops on: empty page streak (2), last catalog page
-        (``ceil(total/ps)``), a non-empty page that adds no new bvids,
-        ``len(seen) >= total``, or ``max_pages`` fetches **this call**.
+        Stops on: empty page streak (2), a non-empty page that adds no new
+        bvids, or ``max_pages`` fetches **this call**.
+        ``page.total`` deliberately does **not** terminate the walk. It counts
+        a looser upstream match set than the ``archives`` rows the same
+        response carries (measured 2026-09-30 on mid 23191782: ``total`` 1739
+        against 1730 served rows, ``爱情`` 13 against 12, and keyword queries
+        whose ``total`` is non-zero while no row is returned at all). Because
+        the two numbers are not the same quantity, a ``total`` smaller than
+        the real row count would cut the walk short and silently drop whole
+        pages -- so completion is decided only by what the rows themselves
+        show. ``last_observed_total`` still records the upstream figure for
+        diagnostics; a disagreement is a reportable fact, never a stop signal.
         CLI owns cursor I/O; this method only iterates ``pn`` from start_page.
         ``on_page`` (optional) is invoked after each successful HTTP page so
         the CLI can merge JSONL. This module does not import the cursor store.
@@ -466,14 +475,10 @@ class BiliClient:
             if arcs and not added:
                 self.enumeration_complete = True
                 break
-            if total is not None and total > 0 and len(seen) >= total:
-                self.enumeration_complete = True
-                break
-            if total is not None and total > 0:
-                last_pn = (int(total) + page_size - 1) // page_size
-                if pn >= last_pn:
-                    self.enumeration_complete = True
-                    break
+            # No ``total``-derived stop here on purpose: ``page.total`` and the
+            # ``archives`` rows are different quantities upstream (see the
+            # docstring), so a total below the true row count would truncate
+            # the walk. Completion rests on the row evidence above.
             if max_pages is not None and pages_this_call >= max_pages:
                 break
             # Inter-page pacing: real randomized delay (0.8-1.6s like the
