@@ -1082,7 +1082,10 @@ below; this subsection covers the metadata and read commands only.
   from the stored cursor when one exists and starts at page 1 otherwise.
   `--resume` requires a stored cursor and exits `1` when there is none;
   `--start-page` overrides the cursor. A failed page never advances the
-  cursor, so resume is always safe.
+  cursor, so resume is always safe — with one opt-in exception:
+  `--skip-failed-page` commits the cursor one page past a terminally failed
+  page so the next `--resume` can progress, and the failed page keeps its
+  bounded error code so the gap stays visible.
 - **Credential boundary**: optional SESSDATA comes from `--sessdata` or the
   `BILI_SESSDATA` environment variable (cookie **value**, not a file path).
   It is sent as an API cookie only and is never echoed, logged, persisted,

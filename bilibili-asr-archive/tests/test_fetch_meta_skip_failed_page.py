@@ -17,8 +17,9 @@ skip path.  The real ``title`` -> ``shape_error`` mapping is covered separately 
 
 Every test runs the shared protocol double from
 ``tests/fixtures/fake_bilibili_gateway.py`` over a real repository in a
-temporary SQLite database, fully offline.  Test 4 additionally drives the real
-``fetch-meta`` command path and reads its rendered output.
+temporary SQLite database, fully offline.  The last three tests drive the real
+``fetch-meta`` command path through ``main`` so the CLI surface itself is
+covered.
 """
 
 from __future__ import annotations
@@ -289,7 +290,7 @@ def test_failure_line_reports_the_advanced_cursor(tmp_root, capsys, fake_gateway
     Under ``--skip-failed-page`` the cursor is committed one page past the
     failure, so the old unconditional ``cursor unchanged at page N`` asserted
     the opposite of what the store holds.  This is the regression guard: the
-    line has to say ``advanced to page`` and must not say ``unchanged``.
+    line has to say ``set to page`` and must not say ``unchanged``.
     """
 
     gateway = fake_gateway_seam
@@ -316,6 +317,46 @@ def test_failure_line_reports_the_advanced_cursor(tmp_root, capsys, fake_gateway
     )
     failure_out, failure_err = capsys.readouterr()
     assert SHAPE_ERROR_CODE in failure_err
-    assert f"advanced to page {FAILED_PAGE + 1}" in failure_err
+    assert f"set to page {FAILED_PAGE + 1}" in failure_err
     assert "unchanged" not in failure_err
+    assert "unchanged" not in failure_out
+
+
+def test_failure_line_keeps_unchanged_under_a_rate_limit(tmp_root, capsys, fake_gateway_seam):
+    """A rate limit is never skipped, so the line must still say "unchanged".
+
+    The ``risk_interrupted`` arm of the failure line is excluded structurally
+    (``_page_and_run_outcomes`` maps a rate limit to ``risk_interrupted``, which
+    cannot satisfy the ``outcome == "failed"`` guard).  Without this case the
+    guard would be unverified at the surface an operator reads: dropping it from
+    the branch would print "skipped" under a rate limit and no test would fail.
+    """
+
+    gateway = fake_gateway_seam
+    gateway.script_page(1, _page(1, _summary("BV1RATEAAAA"), observed_total=3))
+    gateway.script_parts("BV1RATEAAAA", (_part("BV1RATEAAAA", 0),))
+    gateway.script_page(
+        FAILED_PAGE, GatewayRateLimited(detail="get_user_video_page")
+    )
+
+    assert main(["fetch-meta", "--archive-root", tmp_root, "--limit-pages", "1"]) == 0
+    capsys.readouterr()
+
+    assert (
+        main(
+            [
+                "fetch-meta",
+                "--archive-root",
+                tmp_root,
+                "--resume",
+                "--skip-failed-page",
+            ]
+        )
+        == 2
+    )
+    failure_out, failure_err = capsys.readouterr()
+    assert "rate_limited" in failure_err
+    assert "unchanged" in failure_err
+    assert "skipped" not in failure_err
+    assert "set to page" not in failure_err
     assert "unchanged" not in failure_out

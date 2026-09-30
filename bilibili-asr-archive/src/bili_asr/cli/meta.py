@@ -110,18 +110,20 @@ def _cmd_fetch_meta(args: argparse.Namespace) -> int:
         f"mid={config.mid} (outcome={result.outcome})"
     )
     if result.outcome in {"risk_interrupted", "failed"}:
-        # The clause has to be true under ``--skip-failed-page`` too: there the
-        # cursor was deliberately committed one page past the failure, so
-        # "unchanged" would assert the opposite of the stored state.  The flag
-        # is the only thing that can move it on this path, so the branch is
-        # exactly the flag's own condition.
+        # The clause reports the value the store now holds, not a direction of
+        # movement: under ``--skip-failed-page`` the cursor was deliberately
+        # committed one page past the failure, so "unchanged" would assert the
+        # opposite of the stored state, while "advanced" would claim movement
+        # that ``--start-page`` may have made untrue.  ``risk_interrupted`` is
+        # excluded because the ingestor deliberately does not skip a rate
+        # limit, so that arm still reads "unchanged".
         if (
             config.skip_failed_page
             and result.outcome == "failed"
             and result.next_cursor is not None
         ):
             cursor_clause = (
-                f"cursor advanced to page {result.next_cursor.next_page} "
+                f"cursor set to page {result.next_cursor.next_page} "
                 f"(the failed page was skipped)"
             )
         elif result.next_cursor is not None:
