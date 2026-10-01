@@ -1419,6 +1419,82 @@ def test_get_video_parts_rejects_non_list_response(bilibili_api_seam):
             asyncio.run(gateway.get_video_parts(BVID))
 
 
+# -------------------------------------------------- per-row metadata pacing
+
+
+def _load_paced_gateway():
+    """Build the gateway against the seam with non-blocking pacing seams.
+
+    The recorded sleeps stand in for ``time.sleep`` so the pacing delay is
+    asserted without slowing the suite, and the zero jitter pins the delay
+    to the range's floor so the value itself is assertable.
+    """
+
+    module = importlib.import_module("bili_asr.sources.bilibili_api_gateway")
+    sleeps: list[float] = []
+    gateway = module.BilibiliApiGateway(
+        sessdata=SESSDATA_BOUNDARY_VALUE,
+        _sleeper=sleeps.append,
+        _jitter=lambda: 0.0,
+    )
+    return gateway, sleeps
+
+
+async def _drive_paced_getter(gateway, script):
+    """Run detail + parts + tags three times through one paced gateway.
+
+    Each repetition stands in for one video of a ``fetch-meta`` page; the
+    seam's ``get_info`` scripts one detail payload, so the driver reuses
+    the fixture bvid and varies only the call count, which is what the
+    pacing assertion counts.
+    """
+
+    script.info_response = make_detail_response()
+    script.parts_response = [make_part_item()]
+    script.tags_response = [make_tag_item()]
+    for _ in range(3):
+        await gateway.get_completed_video_summary(_summary())
+        await gateway.get_video_parts(BVID)
+        await gateway.get_video_tags(BVID)
+
+
+def test_pacing_sleeps_before_every_per_row_metadata_call(bilibili_api_seam):
+    """All three per-row getters sleep the shared pacing delay before each call.
+
+    A full ``fetch-meta`` page drives the detail, parts and tags legs once
+    per video: back-to-back that is the ~90-call burst that trips risk
+    control.  One paced gateway runs all three legs for three videos (nine
+    upstream calls) and every call must be preceded by exactly one pacing
+    sleep in the documented inter-page range (``0.8-1.6 s``; the zero-jitter
+    seam pins the observed value to the 0.8 s floor).
+    """
+
+    gateway, sleeps = _load_paced_gateway()
+
+    asyncio.run(_drive_paced_getter(gateway, bilibili_api_seam))
+
+    assert bilibili_api_seam.calls == [
+        "video.get_info",
+        "video.get_pages",
+        "video.tags",
+    ] * 3
+    assert len(sleeps) == len(bilibili_api_seam.calls)
+    assert all(0.8 <= delay <= 1.6 for delay in sleeps)
+
+
+def test_completed_summary_short_circuit_skips_pacing(bilibili_api_seam):
+    """A summary that already carries ``aid`` never paces: no call, no sleep."""
+
+    gateway, sleeps = _load_paced_gateway()
+    summary = _summary(aid=111)
+
+    completed = asyncio.run(gateway.get_completed_video_summary(summary))
+
+    assert completed is summary
+    assert bilibili_api_seam.calls == []
+    assert sleeps == []
+
+
 # ------------------------------------------------------------ error mapping
 
 

@@ -16,10 +16,13 @@ API credential never reaches the CDN host.
 
 from __future__ import annotations
 
+import asyncio
 import importlib.metadata
 import math
 import os
+import random
 import re
+import time
 from collections.abc import Awaitable, Callable, Mapping
 from typing import Any
 
@@ -69,6 +72,18 @@ _SUBTITLE_NOT_FOUND_API_CODES = _NOT_FOUND_API_CODES | {-101}
 
 # Same shape check the package itself applies in Video.set_bvid.
 _BVID_PATTERN = re.compile(r"^BV[a-zA-Z0-9]{10}$")
+
+# Per-row metadata pacing, in the same range the legacy page-fetch path
+# (``BiliClient.fetch_pages``) already sleeps between whole pages: the
+# inter-page formula there is ``0.8 + jitter * 0.8`` with jitter in
+# ``[0, 1)``, i.e. a uniform 0.8-1.6 s delay.  ``fetch-meta`` fires these
+# getters once per video per page (~30 rows), so a full-corpus page
+# otherwise issues ~90 back-to-back upstream calls — the exact pattern
+# that trips risk control (``-412``) mid-run.  Execution stays strictly
+# sequential (``sequential-no-daemon`` is by design); only the delay is
+# added.
+_METADATA_PACING_MIN_SECONDS = 0.8
+_METADATA_PACING_JITTER_SPAN_SECONDS = 0.8
 
 # The one scheme a signed subtitle-document URL is put on the wire under, and
 # the plain-``http`` form upstream may answer with instead.  Upstream answers
@@ -691,7 +706,14 @@ def _complete_summary_from_detail(
 class BilibiliApiGateway:
     """Concrete :class:`BilibiliGateway` adapter over the pinned package."""
 
-    def __init__(self, sessdata: str | None = None, proxy: str | None = None) -> None:
+    def __init__(
+        self,
+        sessdata: str | None = None,
+        proxy: str | None = None,
+        *,
+        _sleeper: Callable[[float], object] | None = None,
+        _jitter: Callable[[], float] | None = None,
+    ) -> None:
         """Build the package credential and apply one resolved proxy.
 
         The optional SESSDATA value is passed to the package ``Credential``
@@ -718,6 +740,31 @@ class BilibiliApiGateway:
         if self.resolved_proxy is not None:
             request_settings.set_proxy(self.resolved_proxy)
         self._w_webid_by_mid: dict[int, str] = {}
+        # Pacing seams, mirroring the legacy page-fetch path's sleeper/jitter
+        # injection: tests substitute non-blocking fakes so the pacing sleep
+        # is asserted without slowing the suite.
+        self._sleeper: Callable[[float], object] = (
+            _sleeper if _sleeper is not None else time.sleep
+        )
+        self._jitter: Callable[[], float] = (
+            _jitter if _jitter is not None else lambda: random.uniform(0.0, 1.0)
+        )
+
+    def _pace(self) -> None:
+        """Sleep the per-row metadata delay before one upstream call.
+
+        The single pacing primitive shared by the three per-row getters
+        (``get_completed_video_summary`` / ``get_video_parts`` /
+        ``get_video_tags``): a full-corpus ``fetch-meta`` page otherwise
+        fires ~90 unpaced sequential upstream calls.  The delay matches the
+        documented inter-page range used by ``fetch_pages`` and the run
+        stays strictly sequential.
+        """
+
+        self._sleeper(
+            _METADATA_PACING_MIN_SECONDS
+            + max(0.0, self._jitter()) * _METADATA_PACING_JITTER_SPAN_SECONDS
+        )
 
     async def get_user_video_page(
         self, mid: int, page_number: int, page_size: int = 30
@@ -743,6 +790,7 @@ class BilibiliApiGateway:
 
         if not isinstance(bvid, str) or _BVID_PATTERN.fullmatch(bvid) is None:
             raise ValueError("bvid must be a BV-prefixed 10-character id")
+        self._pace()
         pages = await self._await_upstream(
             "get_video_parts",
             lambda: Video(bvid=bvid, credential=self._credential).get_pages(),
@@ -760,6 +808,7 @@ class BilibiliApiGateway:
             raise TypeError("summary must be a VideoSummary")
         if summary.aid is not None:
             return summary
+        self._pace()
         detail = await self._await_upstream(
             "get_completed_video_summary",
             lambda: Video(
@@ -815,6 +864,7 @@ class BilibiliApiGateway:
 
         if not isinstance(bvid, str) or _BVID_PATTERN.fullmatch(bvid) is None:
             raise ValueError("bvid must be a BV-prefixed 10-character id")
+        self._pace()
         try:
             response = await self._await_upstream(
                 "get_video_tags",
