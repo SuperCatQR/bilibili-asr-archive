@@ -1425,16 +1425,23 @@ def test_get_video_parts_rejects_non_list_response(bilibili_api_seam):
 def _load_paced_gateway():
     """Build the gateway against the seam with non-blocking pacing seams.
 
-    The recorded sleeps stand in for ``time.sleep`` so the pacing delay is
-    asserted without slowing the suite, and the zero jitter pins the delay
-    to the range's floor so the value itself is assertable.
+    The recorded sleeps stand in for the default ``asyncio.sleep`` so the
+    pacing delay is asserted without slowing the suite.  The seam is now an
+    awaitable: ``_pace`` awaits the sleeper's return value, so the fake is
+    an async recorder (awaited like the real ``asyncio.sleep``, but never
+    blocks and never sleeps).  The zero jitter pins the delay to the range's
+    floor so the value itself is assertable.
     """
 
     module = importlib.import_module("bili_asr.sources.bilibili_api_gateway")
     sleeps: list[float] = []
+
+    async def _record_sleep(delay: float) -> None:
+        sleeps.append(delay)
+
     gateway = module.BilibiliApiGateway(
         sessdata=SESSDATA_BOUNDARY_VALUE,
-        _sleeper=sleeps.append,
+        _sleeper=_record_sleep,
         _jitter=lambda: 0.0,
     )
     return gateway, sleeps
@@ -1493,6 +1500,73 @@ def test_completed_summary_short_circuit_skips_pacing(bilibili_api_seam):
     assert completed is summary
     assert bilibili_api_seam.calls == []
     assert sleeps == []
+
+
+def test_pacing_default_sleeper_is_awaitable_without_blocking():
+    """The default sleeper seam is ``asyncio.sleep``: awaiting ``_pace`` works.
+
+    Regression test for QC W4: ``_pace`` used to call ``time.sleep`` inside
+    the async getters, blocking the event loop for 0.8-1.6 s per call.  The
+    default sleeper must be an awaitable the getters can ``await``, so the
+    loop is yielded rather than blocked.
+    """
+
+    module = importlib.import_module("bili_asr.sources.bilibili_api_gateway")
+    gateway = module.BilibiliApiGateway(sessdata=SESSDATA_BOUNDARY_VALUE)
+
+    assert gateway._sleeper is asyncio.sleep
+
+
+def test_pacing_gate_small_selection_skips_sleep(bilibili_api_seam):
+    """A run whose expected row count is a single row never pays the delay.
+
+    QC S1: pacing used to be unconditional, so a single-bvid / one-row
+    selection paid the 0.8-1.6 s floor on every per-row getter call.  With
+    the floor set to the run's expected row count, a small selection issues
+    its upstream calls back to back — the sleeper is never awaited.
+    """
+
+    gateway, sleeps = _load_paced_gateway()
+    gateway.set_pacing_floor(1)
+
+    asyncio.run(_drive_paced_getter(gateway, bilibili_api_seam))
+
+    assert len(bilibili_api_seam.calls) == 9
+    assert sleeps == []
+
+
+def test_pacing_gate_full_page_still_paces(bilibili_api_seam):
+    """A run expecting more than one row keeps the documented per-call delay."""
+
+    gateway, sleeps = _load_paced_gateway()
+    gateway.set_pacing_floor(30)
+
+    asyncio.run(_drive_paced_getter(gateway, bilibili_api_seam))
+
+    assert len(sleeps) == len(bilibili_api_seam.calls)
+    assert all(0.8 <= delay <= 1.6 for delay in sleeps)
+
+
+def test_pacing_gate_reset_restores_default_pacing(bilibili_api_seam):
+    """``set_pacing_floor(None)`` restores the always-pace default."""
+
+    gateway, sleeps = _load_paced_gateway()
+    gateway.set_pacing_floor(1)
+    gateway.set_pacing_floor(None)
+
+    asyncio.run(_drive_paced_getter(gateway, bilibili_api_seam))
+
+    assert len(sleeps) == len(bilibili_api_seam.calls)
+
+
+def test_pacing_gate_rejects_invalid_expected_rows():
+    """The gate's row count is a positive integer or ``None`` — never looser."""
+
+    gateway, _ = _load_paced_gateway()
+
+    for bad in (0, -1, True, 1.5):
+        with pytest.raises(ValueError):
+            gateway.set_pacing_floor(bad)
 
 
 # ------------------------------------------------------------ error mapping

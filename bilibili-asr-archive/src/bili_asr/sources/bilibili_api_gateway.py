@@ -22,7 +22,6 @@ import math
 import os
 import random
 import re
-import time
 from collections.abc import Awaitable, Callable, Mapping
 from typing import Any
 
@@ -711,7 +710,7 @@ class BilibiliApiGateway:
         sessdata: str | None = None,
         proxy: str | None = None,
         *,
-        _sleeper: Callable[[float], object] | None = None,
+        _sleeper: Callable[[float], Awaitable[object]] | None = None,
         _jitter: Callable[[], float] | None = None,
     ) -> None:
         """Build the package credential and apply one resolved proxy.
@@ -742,15 +741,42 @@ class BilibiliApiGateway:
         self._w_webid_by_mid: dict[int, str] = {}
         # Pacing seams, mirroring the legacy page-fetch path's sleeper/jitter
         # injection: tests substitute non-blocking fakes so the pacing sleep
-        # is asserted without slowing the suite.
-        self._sleeper: Callable[[float], object] = (
-            _sleeper if _sleeper is not None else time.sleep
+        # is asserted without slowing the suite.  The default sleeper is
+        # ``asyncio.sleep`` — a plain awaitable — so awaiting it in the async
+        # getters yields to the event loop instead of blocking it the way
+        # ``time.sleep`` would.
+        self._sleeper: Callable[[float], Awaitable[object]] = (
+            _sleeper if _sleeper is not None else asyncio.sleep
         )
         self._jitter: Callable[[], float] = (
             _jitter if _jitter is not None else lambda: random.uniform(0.0, 1.0)
         )
+        # Pacing gate: the per-row delay is paid only when the run is expected
+        # to enumerate more rows than this floor.  A full-corpus ``fetch-meta``
+        # run drives ~90 upstream calls per page and needs the delay; a
+        # single-bvid / small selection does not, so the floor lets that path
+        # skip the 0.8-1.6 s latency per call.  The default of ``None`` means
+        # "always pace" — the legacy full-corpus behaviour every existing
+        # caller relies on; the enumeration entry point lowers it per run.
+        self._pacing_floor: int | None = None
 
-    def _pace(self) -> None:
+    def set_pacing_floor(self, expected_rows: int | None) -> None:
+        """Gate per-row pacing on the run's expected row count.
+
+        ``expected_rows`` is the number of video rows the current run will
+        enumerate; pacing sleeps are paid only when it exceeds 1, so a
+        single-bvid or one-page selection issues its (few) upstream calls
+        back to back instead of paying the 0.8-1.6 s floor per call.
+        ``None`` restores the default "always pace".
+        """
+
+        if expected_rows is not None and (
+            isinstance(expected_rows, bool) or not isinstance(expected_rows, int) or expected_rows < 1
+        ):
+            raise ValueError("expected_rows must be a positive integer or None")
+        self._pacing_floor = expected_rows
+
+    async def _pace(self) -> None:
         """Sleep the per-row metadata delay before one upstream call.
 
         The single pacing primitive shared by the three per-row getters
@@ -758,10 +784,15 @@ class BilibiliApiGateway:
         ``get_video_tags``): a full-corpus ``fetch-meta`` page otherwise
         fires ~90 unpaced sequential upstream calls.  The delay matches the
         documented inter-page range used by ``fetch_pages`` and the run
-        stays strictly sequential.
+        stays strictly sequential.  The sleep itself is awaited (the default
+        sleeper is ``asyncio.sleep``), so the event loop is yielded rather
+        than blocked; when the run's expected row count does not exceed the
+        pacing floor, no sleep is paid at all.
         """
 
-        self._sleeper(
+        if self._pacing_floor is not None and self._pacing_floor <= 1:
+            return
+        await self._sleeper(
             _METADATA_PACING_MIN_SECONDS
             + max(0.0, self._jitter()) * _METADATA_PACING_JITTER_SPAN_SECONDS
         )
@@ -790,7 +821,7 @@ class BilibiliApiGateway:
 
         if not isinstance(bvid, str) or _BVID_PATTERN.fullmatch(bvid) is None:
             raise ValueError("bvid must be a BV-prefixed 10-character id")
-        self._pace()
+        await self._pace()
         pages = await self._await_upstream(
             "get_video_parts",
             lambda: Video(bvid=bvid, credential=self._credential).get_pages(),
@@ -808,7 +839,7 @@ class BilibiliApiGateway:
             raise TypeError("summary must be a VideoSummary")
         if summary.aid is not None:
             return summary
-        self._pace()
+        await self._pace()
         detail = await self._await_upstream(
             "get_completed_video_summary",
             lambda: Video(
@@ -864,7 +895,7 @@ class BilibiliApiGateway:
 
         if not isinstance(bvid, str) or _BVID_PATTERN.fullmatch(bvid) is None:
             raise ValueError("bvid must be a BV-prefixed 10-character id")
-        self._pace()
+        await self._pace()
         try:
             response = await self._await_upstream(
                 "get_video_tags",
