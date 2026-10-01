@@ -7,6 +7,12 @@
       "type": "plan",
       "started_at": "2026-09-30",
       "dir": "workflows/20260930-metadata-shape-resilience"
+    },
+    {
+      "id": "20261001-cli-import-integrity",
+      "type": "plan",
+      "started_at": "2026-10-01",
+      "dir": "workflows/20261001-cli-import-integrity"
     }
   ]
 }
