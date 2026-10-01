@@ -290,7 +290,8 @@ def _pilot_archive_asr(
             asr_count.value += 1
         current = dict(store.get(target.work_id) or entry)
         paths = archive.write_archive(
-            base, current, segments, source="asr", asr_provenance=runner.provenance()
+            base, current, segments, source="asr", asr_provenance=runner.provenance(),
+            characters=asr.characters_of(runner),
         )
     finally:
         if owns_runner:

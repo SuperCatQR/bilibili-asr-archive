@@ -221,6 +221,7 @@ def _cmd_asr(args: argparse.Namespace) -> int:
                 paths = archive.write_archive(
                     args.artifact_roots.write_base, entry, segments, source=source,
                     raw=raw, asr_provenance=provenance,
+                    characters=asr.characters_of(runner) if source == "asr" else None,
                 )
                 if not archive.archive_bundle_complete(args.artifact_roots.write_base, paths):
                     raise ValueError("archive bundle incomplete")

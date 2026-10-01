@@ -542,7 +542,59 @@ def bundle_paths(root: str | os.PathLike[str], entry: dict[str, Any]) -> dict[st
     """
     return bundle_paths_for_stem(root, archive_stem(entry))
 
-def write_archive(archive_root: str | os.PathLike[str], entry: dict[str, Any], segments: list[dict[str, Any]], *, source: str, raw: Any | None = None, asr_provenance: Mapping[str, str] | None = None) -> dict[str, str]:
+def characters_for(segments: list[dict[str, Any]], characters: Any) -> dict[str, Any]:
+    """Return the ``characters`` block to publish for ``segments``, or raise.
+
+    The block is the **character-level record the ASR boundary produced** — the instants the
+    forced aligner gave each character, which the cue rules otherwise throw away.  It is passed
+    through rather than recomputed: nothing here can re-derive it, and a fabricated one would be
+    worse than none.
+
+    What this function *is* is the integrity gate the plan makes a product requirement
+    (``characters.text`` must equal ``"".join(s["text"] for s in segments)``): the two are
+    independent statements about the same transcript, one character-granular and one cue-granular,
+    and a writer that publishes them disagreeing has published a claim it cannot support.  So a
+    mismatch **refuses the write** instead of recording the inconsistency.
+
+    The shape is checked here too — the three arrays are one instant per character of ``text``, so
+    a record whose arrays disagree in length describes a transcript it cannot support and is refused
+    the same way.  A record that passes both checks is returned as a copy, so the published block
+    cannot be mutated by whoever still holds the runner's own record.
+    """
+
+    if characters is None:
+        return {}
+    if not isinstance(characters, dict):
+        raise ValueError("characters must be a mapping")
+    text = characters.get("text")
+    starts = characters.get("starts")
+    ends = characters.get("ends")
+    if not isinstance(text, str) or not isinstance(starts, list) or not isinstance(ends, list):
+        raise ValueError("characters must carry text, starts and ends")
+    joined = "".join(str(segment.get("text", "")) for segment in segments)
+    if text != joined:
+        differing = next(
+            (
+                position
+                for position, (left, right) in enumerate(zip(text, joined))
+                if left != right
+            ),
+            min(len(text), len(joined)),
+        )
+        raise ValueError(
+            "characters.text does not match the segments it is published beside: "
+            f"first difference at character {differing} "
+            f"({len(text)} characters vs {len(joined)})"
+        )
+    if len(starts) != len(text) or len(ends) != len(text):
+        raise ValueError(
+            "characters must carry one instant per character "
+            f"({len(text)} characters, {len(starts)} starts, {len(ends)} ends)"
+        )
+    return {"text": text, "starts": list(starts), "ends": list(ends)}
+
+
+def write_archive(archive_root: str | os.PathLike[str], entry: dict[str, Any], segments: list[dict[str, Any]], *, source: str, raw: Any | None = None, asr_provenance: Mapping[str, str] | None = None, characters: Any | None = None) -> dict[str, str]:
     """Publish one transcript bundle below the archive root.
 
     ``asr_provenance`` carries the ASR runner's redaction-safe configuration
@@ -570,6 +622,12 @@ def write_archive(archive_root: str | os.PathLike[str], entry: dict[str, Any], s
         raw = {"segments": segments, "source": source}
         if asr_provenance:
             raw["provenance"] = dict(asr_provenance)
+    # The character-level record rides only on the ASR path: a subtitle-derived raw has no
+    # character timings, and inventing them would be a claim about audio nobody aligned.
+    block = characters_for(segments, characters) if source == "asr" else {}
+    if block:
+        raw["characters"] = block
+        raw["schema"] = "archive-raw-v2"
     contents = {"srt_path": segments_to_srt(segments).encode(), "txt_path": (segments_to_txt(segments) + "\n").encode(), "md_path": md, "raw_path": (json.dumps(raw, ensure_ascii=False, indent=2) + "\n").encode()}
     _publish_bundle(root, finals, contents)
     return {key: os.path.relpath(path, root) for key, path in finals.items()}

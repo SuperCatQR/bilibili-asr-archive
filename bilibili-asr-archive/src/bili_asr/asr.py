@@ -844,6 +844,63 @@ def _aligned_cues(pieces: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return cues
 
 
+def _characters_from_pieces(
+    pieces: list[dict[str, Any]], cues: list[dict[str, Any]]
+) -> dict[str, Any]:
+    """The character-level record for ``cues`` built from ``pieces``.
+
+    ``_thread_text`` is the last step that still knows which character of the transcript each
+    instant belongs to: ``_aligned_cues`` projects that stream onto readable cue text and, in
+    doing so, drops the whitespace that sat on a cue boundary (measured on one real 47-minute
+    item: 98 characters, and every one of them whitespace).  So the record cannot be a dump of
+    the pieces — it is the pieces **projected onto the published cue text**, walked in step so
+    every character of that text keeps the instant the aligner gave it.
+
+    A character the cue text carries and the pieces do not — the separator ``_join_text``
+    inserts between two Latin words — inherits the instant of the piece beside it, the same
+    rule a punctuation mark gets in :func:`_thread_text`.  A character neither stream explains
+    raises :class:`ValueError`: the record would be a claim about the cue text that the cue
+    text contradicts.
+
+    Seconds, like ``segments``, and three parallel arrays rather than one dict per character
+    (the object shape measured 8x here against 2.8x, plan D-5).
+    """
+
+    text = "".join(str(cue.get("text", "")) for cue in cues)
+    stream: list[tuple[str, float, float]] = [
+        (character, float(piece["start"]), float(piece["end"]))
+        for piece in pieces
+        for character in str(piece.get("text", ""))
+    ]
+    starts: list[float] = []
+    ends: list[float] = []
+    index = 0
+    anchor = stream[0][1] if stream else 0.0
+    for position, character in enumerate(text):
+        # Whitespace the cue text does not carry: it sat on a cue boundary and was stripped.
+        while index < len(stream) and stream[index][0] != character and stream[index][0].isspace():
+            index += 1
+        if index < len(stream) and stream[index][0] == character:
+            start, end = stream[index][1], stream[index][2]
+            index += 1
+            anchor = end
+        elif character.isspace():
+            start = end = anchor
+        else:
+            raise ValueError(
+                "the cue text is not a projection of the threaded pieces: "
+                f"character {position} is in no piece"
+            )
+        starts.append(start)
+        ends.append(end)
+    if any(not character.isspace() for character, *_ in stream[index:]):
+        raise ValueError(
+            "the cue text is not a projection of the threaded pieces: "
+            f"{len(stream) - index} piece characters are not in the cue text"
+        )
+    return {"text": text, "starts": starts, "ends": ends}
+
+
 # ---------------------------------------------------------------------------------------
 # The model set and the runner
 # ---------------------------------------------------------------------------------------
@@ -945,6 +1002,8 @@ class ASRRunner:
         self._hotwords_dropped: tuple[str, ...] = ()
         self._hotwords_evidence_text: str | None = None
         self._hotwords_subtitle_text: str | None = None
+        # The character-level record of the last successful ``transcribe`` (see ``characters()``).
+        self._last_characters: dict[str, Any] | None = None
 
     def _get_models(self) -> _ModelSet:
         if self._models is not None:
@@ -1044,14 +1103,32 @@ class ASRRunner:
             timestamp_token_id=models.aligner.config.timestamp_token_id,
         )[0])
 
+    def characters(self) -> dict[str, Any] | None:
+        """The character-level record for the **last** :meth:`transcribe`, or ``None``.
+
+        A by-product of the same run rather than a second pass: :meth:`transcribe` already holds
+        the threaded pieces (the last step that knows each character's instant) and the cues it
+        built from them, so the record costs one walk over the transcript and no model call.
+        ``None`` means no transcription has run — the record is not invented for audio the
+        runner never read.
+        """
+
+        return self._last_characters
+
     def transcribe(self, audio_path: str) -> list[dict[str, Any]]:
         """Transcribe one audio file into timestamped cues.
 
         Every cue the caller receives traces to an aligner call over the audio that produced its
         text: chunk boundaries are ours, the timings are the aligner's, and nothing is interpolated.
         An empty recording yields no cues rather than a fabricated one.
+
+        The character-level record of the same run is left for :meth:`characters`; callers that
+        publish it read it right after this returns.
         """
 
+        # The record describes one run: a call that fails leaves no stale one behind for a caller
+        # that reads ``characters()`` after a later, unrelated failure.
+        self._last_characters = None
         # The model pair first: a host without the extra must fail with the documented
         # ``ASRDependencyError`` (which names the ``[asr]`` install), not with whatever the audio
         # reader happens to import first.  The readers are part of the same extra, so their absence
@@ -1082,6 +1159,7 @@ class ASRRunner:
 
             chunks = _split_audio(samples, SAMPLE_RATE, self.config.chunk_seconds)
             if not chunks:
+                self._last_characters = None
                 return []
 
             handle, scratch = tempfile.mkstemp(prefix="bili-asr-chunk-", suffix=".wav")
@@ -1108,7 +1186,11 @@ class ASRRunner:
                     for unit in self._align_chunk(models, scratch, text, language)
                 ]
                 pieces.extend(_thread_text(text, units))
-            return _aligned_cues(pieces)
+            cues = _aligned_cues(pieces)
+            # The pieces are the character-level truth and the cues are the published text; the
+            # record is the former projected onto the latter, so the two cannot disagree.
+            self._last_characters = _characters_from_pieces(pieces, cues)
+            return cues
         finally:
             for leftover in (temporary, scratch):
                 if leftover:
@@ -1265,6 +1347,19 @@ def segments_to_txt(segments: list[dict[str, Any]]) -> str:
         for segment in segments
         if str(segment.get("text", "")).strip()
     )
+
+
+def characters_of(runner: Any) -> dict[str, Any] | None:
+    """The character-level record ``runner`` produced for its last transcription, if any.
+
+    Read through ``getattr`` because the record is **optional by design**: a runner double that
+    never held aligner output answers with nothing, and so does an ASR boundary from before this
+    record existed.  Nothing is fabricated for either — the ``characters`` field is only ever a
+    captured fact.
+    """
+
+    reader = getattr(runner, "characters", None)
+    return reader() if callable(reader) else None
 
 
 # ---------------------------------------------------------------------------------------

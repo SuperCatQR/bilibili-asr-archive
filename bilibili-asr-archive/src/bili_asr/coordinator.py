@@ -617,6 +617,7 @@ class RunCoordinator:
                 self.artifact_roots.write_base, self._current_entry(key, entry), segments,
                 source="asr",
                 asr_provenance=self.asr_runner.provenance() if self.asr_runner else None,
+                characters=asr_module.characters_of(runner),
             )
         except Exception as exc:  # redacted; batch continues
             self._record(
