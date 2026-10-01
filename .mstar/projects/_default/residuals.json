@@ -1467,6 +1467,21 @@
         "lifecycle": "open",
         "source_plan": "20260926-video-metadata-enrichment",
         "registered_at": "2026-10-01"
+      },
+      {
+        "id": "R14",
+        "title": "F7: the ASR stage writes its archive bundle but records NO `transcripts` row in `archive.db`, so `v_missing_transcript` keeps listing parts already transcribed and `pipeline_state` reads `audio_ok` for an archived part. A naive re-run re-selects the work and pays the GPU again.",
+        "severity": "high",
+        "source": "E2E workflow e2e-23191782-love-items-dual-route (round 2, its finding F7); re-confirmed by plan 20261001-cli-import-integrity Task 6 from two failing tests.",
+        "scope": "`src/bili_asr/cli/asr.py` / the archive stage: the transcript artifact is written but no `transcripts` row is recorded, so `v_missing_transcript` (which requires audio evidence AND no stored transcript) never drops the part. Two tests assert the intended behaviour: `tests/test_cli_queue_source.py::test_asr_store_source_selects_transcript_gap_part` and `::test_pilot_store_source_uses_gap_views`.",
+        "decision": "accept",
+        "owner": "@project-manager",
+        "target": "make the ASR/archive path record a `transcripts` row through the repository's own writer, so the gap view converges. NOTE: no caller of a transcript-store writer exists anywhere in `src/` today (verified) — which is also why R12's fixtures could not express a caption-held row. Owning plan: 20260929-asr-local-transcript-storage.",
+        "tracking": "workflows/e2e-23191782-love-items-dual-route/reports/e2e.md (finding F7, with the round-2 evidence index)",
+        "what": "Measured twice, independently. E2E round 2 B7: after `asr` reported `archived (asr)` for 4/4, `transcripts` COUNT was 0 and all four parts stayed in `v_missing_transcript`, with `pipeline_state` reading `audio_ok`; D4 priced a naive re-run at ~37 min of GPU for no new state. Task 6's reviewer re-confirmed it from the two failing tests: the run DOES archive (manifest status `archived`, full bundle on disk) but writes nothing to the store, so the gap view keeps offering finished work.\n\nThis is class B of R11's four-class residual split; R11 was closed as a class rather than a count, and this residual is that class's own home. It is deliberately NOT fixed inside 20261001-cli-import-integrity, whose scope was import integrity and the test gate.",
+        "lifecycle": "open",
+        "source_plan": "20260926-video-metadata-enrichment",
+        "registered_at": "2026-10-01"
       }
     ],
     "20260927-archive-db-queue-cutover": [
