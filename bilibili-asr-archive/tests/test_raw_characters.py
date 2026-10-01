@@ -208,6 +208,41 @@ def test_a_record_may_give_two_characters_the_same_instant(tmp_root) -> None:
     assert raw["characters"]["starts"] == [0.0, 0.0]
 
 
+def test_an_empty_record_is_the_same_as_no_record(tmp_root) -> None:
+    """A zero-character transcription must not claim ``archive-raw-v2``.
+
+    ``asr.py`` skips a chunk that decoded to nothing, so an all-empty record is reachable.  It is
+    truthy as a dict, so it used to publish ``characters`` *and* the marker on a bundle that carries
+    no character timings — leaving the two ASR shapes disagreeing about what the marker means.
+    ``None`` and an empty record must produce the same bundle.
+    """
+
+    from pathlib import Path
+
+    tmp_path = Path(tmp_root)
+
+    write_archive(
+        tmp_path, _entry("BV1emptytrivial", 11), [], source="asr", characters=None,
+    )
+    write_archive(
+        tmp_path, _entry("BV1emptyrecord", 12), [], source="asr",
+        characters={"text": "", "starts": [], "ends": []},
+    )
+
+    def _raw(bvid: str, cid: int) -> dict:
+        stem = f"{bvid}.p0"
+        return json.loads(
+            (tmp_path / "transcripts" / stem / "bundle.raw.json").read_text(encoding="utf-8")
+        )
+
+    raw_none = _raw("BV1emptytrivial", 11)
+    raw_empty = _raw("BV1emptyrecord", 12)
+
+    assert "characters" not in raw_none and "characters" not in raw_empty
+    assert "schema" not in raw_none and "schema" not in raw_empty
+    assert set(raw_none) == set(raw_empty)
+
+
 def test_a_subtitle_derived_raw_carries_no_characters(tmp_root) -> None:
     """Negative control: the caption path has no character timings, so it must not claim any.
 
@@ -355,14 +390,14 @@ def test_a_real_transcription_reaches_the_published_raw(tmp_root, monkeypatch) -
     ``_thread_text``, ``_aligned_cues``, the record and the writer's gate — is the real code path.
     """
 
-    import numpy as np
-    import soundfile
+    # The guards must come first: importing below them would go red at collection on a host
+    # without the [asr] extra instead of skipping, contradicting this docstring.
+    # (Found by L2 review: the imports sat above their own guards.)
+    np = pytest.importorskip("numpy")
+    soundfile = pytest.importorskip("soundfile")
     from pathlib import Path
 
     from bili_asr.page_identity import page_identity
-
-    pytest.importorskip("numpy")
-    pytest.importorskip("soundfile")
 
     text = "今天讲两件事。明天我们接着讲第三件事。"
     units = _units(text)

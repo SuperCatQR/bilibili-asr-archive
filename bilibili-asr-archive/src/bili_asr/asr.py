@@ -862,8 +862,11 @@ def _characters_from_pieces(
     raises :class:`ValueError`: the record would be a claim about the cue text that the cue
     text contradicts.
 
-    Seconds, like ``segments``, and three parallel arrays rather than one dict per character
-    (the object shape measured 8x here against 2.8x, plan D-5).
+    Seconds, like ``segments``, and three parallel arrays rather than one dict per character.  The
+    size argument is in the plan's D-5 correction, not here: the shape choice is not what drives the
+    cost (the dominant term is the digit count of the timestamps themselves, and the writer's
+    pretty-printing), which is why an earlier version of this docstring quoted a figure the plan has
+    since withdrawn.
     """
 
     text = "".join(str(cue.get("text", "")) for cue in cues)

@@ -586,6 +586,13 @@ def characters_for(segments: list[dict[str, Any]], characters: Any) -> dict[str,
             f"first difference at character {differing} "
             f"({len(text)} characters vs {len(joined)})"
         )
+    # An all-empty record describes nothing, so it means "no record" rather than "a record of
+    # length zero".  Publishing it would set ``schema: archive-raw-v2`` on a bundle that carries no
+    # character timings, and a consumer switching on that marker would treat a zero-character
+    # transcription as character-annotated.  ``None`` and an empty record must therefore agree.
+    # (Found by L2 review: the empty record was truthy, so the two shapes disagreed.)
+    if not text and not starts and not ends:
+        return {}
     if len(starts) != len(text) or len(ends) != len(text):
         raise ValueError(
             "characters must carry one instant per character "
