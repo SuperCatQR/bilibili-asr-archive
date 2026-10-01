@@ -1007,6 +1007,11 @@ class ASRRunner:
         self._hotwords_subtitle_text: str | None = None
         # The character-level record of the last successful ``transcribe`` (see ``characters()``).
         self._last_characters: dict[str, Any] | None = None
+        # The cue list of the last successful ``transcribe`` (see
+        # ``transcribed_segments()``).  The store write-back converts these
+        # into transcript segments; it is cleared on failure like the character
+        # record, so a caller never stores a stale transcript.
+        self._last_transcribed_segments: list[dict[str, Any]] | None = None
 
     def _get_models(self) -> _ModelSet:
         if self._models is not None:
@@ -1130,6 +1135,16 @@ class ASRRunner:
 
         return self._last_characters
 
+    def transcribed_segments(self) -> list[dict[str, Any]] | None:
+        """The cue list for the **last** :meth:`transcribe`, or ``None``.
+
+        The store write-back converts these into transcript segments; the list
+        is the same object :meth:`transcribe` returned, so the caller archives
+        and stores one transcript.  ``None`` means no transcription has run.
+        """
+
+        return self._last_transcribed_segments
+
     def transcribe(self, audio_path: str, *, bust_cache: bool = False) -> list[dict[str, Any]]:
         """Transcribe one audio file into timestamped cues.
 
@@ -1148,6 +1163,7 @@ class ASRRunner:
         # The record describes one run: a call that fails leaves no stale one behind for a caller
         # that reads ``characters()`` after a later, unrelated failure.
         self._last_characters = None
+        self._last_transcribed_segments = None
         # The model pair first: a host without the extra must fail with the documented
         # ``ASRDependencyError`` (which names the ``[asr]`` install), not with whatever the audio
         # reader happens to import first.  The readers are part of the same extra, so their absence
@@ -1179,6 +1195,7 @@ class ASRRunner:
             chunks = _split_audio(samples, SAMPLE_RATE, self.config.chunk_seconds)
             if not chunks:
                 self._last_characters = None
+                self._last_transcribed_segments = None
                 return []
 
             handle, scratch = tempfile.mkstemp(prefix="bili-asr-chunk-", suffix=".wav")
@@ -1209,6 +1226,7 @@ class ASRRunner:
             # The pieces are the character-level truth and the cues are the published text; the
             # record is the former projected onto the latter, so the two cannot disagree.
             self._last_characters = _characters_from_pieces(pieces, cues)
+            self._last_transcribed_segments = list(cues)
             return cues
         finally:
             for leftover in (temporary, scratch):
