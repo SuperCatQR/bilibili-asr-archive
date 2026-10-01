@@ -482,6 +482,71 @@ def test_mixed_md_and_store_keys_do_not_pollute_the_incremental_stamp(tmp_path):
 
 
 
+def test_skip_stamped_parts_before_probe_on_rebuild(tmp_path, monkeypatch):
+    """Plan 005: a rebuild with zero new transcripts must not re-probe/re-read
+    markdown for already-stamped parts — the ``stamped_part_ids`` anti-join is
+    pushed into the candidate SQL, so the filesystem probe never runs."""
+    from bili_asr import search_index
+
+    root = tmp_path
+    connection = open_database(root)
+    try:
+        repository = TranscriptRepository(connection)
+        repository.start_acquisition_run(_run_record("search-fixture"))
+        _store_part(
+            root, connection, repository,
+            bvid="BVA", page_index=0, cid=1, pubdate=1,
+            video_title="video A", part_title="A p0",
+            segments=_segments((0, 500, "store text A")),
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+    # part B: metadata only (no store transcript) — served by the md fallback
+    from bili_asr.storage import MetadataRepository
+
+    connection = open_database(root)
+    try:
+        metadata = MetadataRepository(connection)
+        with metadata.transaction():
+            metadata.upsert_video(
+                replace(make_video_record("BVB", aid=None, title="video B"), pubdate=2)
+            )
+            metadata.upsert_part(
+                make_part_record(
+                    "BVB", page_index=0, cid=2, title="B p0",
+                    processing_status="metadata_collected",
+                )
+            )
+        connection.commit()
+    finally:
+        connection.close()
+    (root / "transcripts" / "BVB.p0").mkdir(parents=True, exist_ok=True)
+    (root / "transcripts" / "BVB.p0" / "bundle.md").write_text(
+        "00:00:00\nplain text body for BVB\n", encoding="utf-8"
+    )
+
+    index = search_index.TranscriptSearchIndex(root)
+    assert index.build() == 2  # A from the store, B from the published md
+
+    probed: list[tuple[str, int]] = []
+    original = search_index.TranscriptSearchIndex._published_md_text_for
+
+    def spy(self, bvid, page_index):
+        probed.append((bvid, page_index))
+        return original(self, bvid, page_index)
+
+    monkeypatch.setattr(
+        search_index.TranscriptSearchIndex, "_published_md_text_for", spy
+    )
+    assert index.build() == 0  # nothing new: zero appended blocks
+    # already-stamped parts (B from md, A excluded as having a store transcript)
+    # must never reach the filesystem probe on a rebuild.
+    assert probed == []
+
+
+
 def test_pass_two_runs_only_when_kept_tokens_exist():
     """QC F2 regression: an empty kept list means pass 2 cannot change output."""
     from bili_asr import asr
