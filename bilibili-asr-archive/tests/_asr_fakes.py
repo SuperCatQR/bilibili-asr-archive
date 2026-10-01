@@ -1,9 +1,12 @@
 """Test doubles for the ASR boundary's model seam.
 
 The boundary talks to exactly four objects — an ASR processor and model, an aligner processor and
-model — plus the audio reader.  Every suite that drives the ASR path through the CLI needs those
-without a GPU, a checkpoint or the optional ``[asr]`` extra installed, so the doubles live here once
-instead of once per suite.
+model — plus the audio reader.  Every suite that drives the ASR path through the CLI gets those
+without a GPU or a checkpoint: the model factory is replaced here, and ``tests/conftest.py``'s
+``mock_torch`` supplies the tensor surface.  The audio reader is **not** replaced — it is exercised
+for real, so the light members of the ASR stack (``numpy``/``soundfile``/``soxr``) are declared as
+test dependencies rather than stubbed.  The heavy three (``transformers``/``accelerate``/``torch``)
+stay optional.
 
 Usage:
 
