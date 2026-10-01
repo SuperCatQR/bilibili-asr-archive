@@ -1063,8 +1063,18 @@ class ASRRunner:
 
     # -- the pipeline ------------------------------------------------------------------
 
-    def _transcribe_chunk(self, models: _ModelSet, audio_path: str) -> tuple[str, str]:
+    def _transcribe_chunk(
+        self, models: _ModelSet, audio_path: str, *, bust_cache: bool = False
+    ) -> tuple[str, str]:
         """One chunk through the decoder: ``(text, detected_language)``.
+
+        ``bust_cache`` is the per-pass cache control: ``True`` disables the transformers
+        dynamic prefix cache for this decode (``use_cache=False``, the documented
+        per-call argument on ``generate`` for the pinned ``transformers>=5.13``), so a
+        re-decode with a re-seeded prompt — the two-pass hotword contract's pass 2 — starts
+        from a clean model/cache state instead of being served pass 1's cached span, where
+        the re-seeded vocabulary never reaches the prompt.  ``False`` keeps the default
+        (cache-warm) behaviour for ordinary decodes.
 
         The decode format matters: ``decode(..., return_format=...)`` hard-sets
         ``skip_special_tokens``, and the decoded text is scrubbed of control markers as well — a
@@ -1082,7 +1092,9 @@ class ASRRunner:
         seconds = float(inputs["input_features_mask"].sum(-1).max()) / _MEL_FRAMES_PER_SECOND
         budget = max(_MIN_NEW_TOKENS, int(seconds * _MAX_NEW_TOKENS_PER_AUDIO_SECOND))
         with torch.inference_mode():
-            generated = models.model.generate(**inputs, max_new_tokens=budget)
+            generated = models.model.generate(**inputs, max_new_tokens=budget, **(
+                {"use_cache": False} if bust_cache else {}
+            ))
         tokens = generated[:, inputs["input_ids"].shape[1]:]
         text = _clean_text(models.processor.decode(tokens, return_format="transcription_only")[0])
         parsed = models.processor.decode(tokens, return_format="parsed")[0]
@@ -1118,12 +1130,16 @@ class ASRRunner:
 
         return self._last_characters
 
-    def transcribe(self, audio_path: str) -> list[dict[str, Any]]:
+    def transcribe(self, audio_path: str, *, bust_cache: bool = False) -> list[dict[str, Any]]:
         """Transcribe one audio file into timestamped cues.
 
         Every cue the caller receives traces to an aligner call over the audio that produced its
         text: chunk boundaries are ours, the timings are the aligner's, and nothing is interpolated.
         An empty recording yields no cues rather than a fabricated one.
+
+        ``bust_cache`` re-decodes from a clean model/cache state (the per-pass cache control,
+        see :meth:`_transcribe_chunk`): it is the pass-2 knob of the two-pass hotword contract —
+        the re-seeded prompt is only effective if the re-decode does not reuse pass 1's cache.
 
         The character-level record of the same run is left for :meth:`characters`; callers that
         publish it read it right after this returns.
@@ -1177,7 +1193,7 @@ class ASRRunner:
                     # requirement comes from.
                     audio = np.pad(audio, (0, minimum - audio.shape[0]))
                 sf.write(scratch, audio, SAMPLE_RATE)
-                text, language = self._transcribe_chunk(models, scratch)
+                text, language = self._transcribe_chunk(models, scratch, bust_cache=bust_cache)
                 if not text:
                     continue
                 units = [
