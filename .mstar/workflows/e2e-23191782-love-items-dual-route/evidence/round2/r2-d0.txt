@@ -1,0 +1,20 @@
+=== D0: credential hygiene — scan every log + store for the cookie VALUE ===
+  credential loaded, length=222 (value never printed)
+  files containing the cookie VALUE across logs+stores: 0  (expect 0)
+  credential referenced by PATH only: yes (. /root/.config/bili-asr/session.env)
+  credential_present columns value:
+    route2 acquisition_runs.credential_present = [0]
+
+=== D1: stale-credential trap, re-measured ===
+  /root/.bili-sessdata : present (244 B)
+  /root/.config/bili-asr/session.env : present (246 B)
+
+=== D2: upstream refusals met this round ===
+      2 rate_limited
+      2 risk_interrupted
+
+=== D3: scope-fidelity (before/after) ===
+  refs/heads/main: d41c2572e27c116fb422f4be93927f0e71b422e3  (round-1 baseline d41c257)
+  build-r2 HEAD: be28369c946c15fc7be55bd0767da79838f1e87a  (= r2main, the authorized tip)
+  build-r2 porcelain lines: 1  (1 = the R10 hot-fix, disclosed)
+  /mnt/123pan untouched this round: not mounted into any command

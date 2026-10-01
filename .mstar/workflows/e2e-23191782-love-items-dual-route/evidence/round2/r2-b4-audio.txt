@@ -1,0 +1,35 @@
+=== B4: audio tree before ===
+0	/mnt/e/bili-e2e/love-dual-route/route2
+--- BV1Y7M4zNEfF:p0 ---
+BV1Y7M4zNEfF:p0: audio downloaded -> audio_ok (audio/BV1Y7M4zNEfF.p0.m4a)
+download-audio: 1 audio_ok
+EXIT=0 elapsed=2s
+--- BV1zz5zzFENq:p0 ---
+BV1zz5zzFENq:p0: audio downloaded -> audio_ok (audio/BV1zz5zzFENq.p0.m4a)
+download-audio: 1 audio_ok
+EXIT=0 elapsed=1s
+--- BV1vNTqzFEve:p0 ---
+BV1vNTqzFEve:p0: audio downloaded -> audio_ok (audio/BV1vNTqzFEve.p0.m4a)
+download-audio: 1 audio_ok
+EXIT=0 elapsed=3s
+--- BV1BdtazGEBE:p0 ---
+BV1BdtazGEBE:p0: audio downloaded -> audio_ok (audio/BV1BdtazGEBE.p0.m4a)
+download-audio: 1 audio_ok
+EXIT=0 elapsed=2s
+=== B4: audio objects on /mnt/e with sizes + sha256 ===
+  audio/BV1BdtazGEBE.p0.m4a            52514154 B  sha256=1dfa531106e28a1b…
+  audio/BV1Y7M4zNEfF.p0.m4a            11990340 B  sha256=e213bb6f04b1614d…
+  audio/BV1vNTqzFEve.p0.m4a            23771198 B  sha256=fd0b10c87b3ff0de…
+  audio/BV1zz5zzFENq.p0.m4a             9491630 B  sha256=3af3193fca36d24d…
+TOTAL 97767322 bytes / 4 files (93.2 MiB)
+=== B4: every row reached audio_ok? state stays local? ===
+  part_audio_objects:
+    {'bvid': 'BV1BdtazGEBE', 'audio_id': 4, 'acquisition_source': 'download'}
+    {'bvid': 'BV1Y7M4zNEfF', 'audio_id': 1, 'acquisition_source': 'download'}
+    {'bvid': 'BV1vNTqzFEve', 'audio_id': 3, 'acquisition_source': 'download'}
+    {'bvid': 'BV1zz5zzFENq', 'audio_id': 2, 'acquisition_source': 'download'}
+  v_missing_audio now: 0 (expect 0: all four have audio)
+  v_missing_transcript now: 4 (expect 4: audio evidence present, no transcript)
+  transcripts: 0
+=== boundary: archive.db must NOT be under /mnt/e ===
+  archive.db under artifact root: 0 (expect 0)

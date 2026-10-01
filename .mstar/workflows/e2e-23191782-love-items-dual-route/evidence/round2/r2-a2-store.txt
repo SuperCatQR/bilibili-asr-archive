@@ -1,0 +1,8 @@
+=== r2 A2 evidence: store state ===
+videos: 60
+transcripts: 0
+cursor: {'next_page': 7, 'state': 'limited', 'observed_total': 1691}
+  BV1Y7M4zNEfF: cid=30506419561 dur_ms=2598000 status=discovered
+  BV1vNTqzFEve: cid=30412768784 dur_ms=5112000 status=discovered
+  BV1zz5zzFENq: cid=29471998505 dur_ms=2087000 status=discovered
+  BV1BdtazGEBE: cid=31594841414 dur_ms=6395000 status=discovered

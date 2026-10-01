@@ -5,71 +5,45 @@
 > **Executor:** `ops-engineer` (PM orchestrates; ops executes and records actual results)
 > **This file is the plan AND the report.** PM writes `## Scope` … `## Acceptance criteria`;
 > ops fills `## Results`, `## Evidence`, `## Findings and handoff`, `## Not verified`,
-> `## Completion recommendation` with what actually happened.
+> `## Completion recommendation
 
-## Scope
+**Counts (cumulative): assigned 24 · passed 23 · failed 1 (A2 round 1, passed on round-2 evidence) · not-run 0 · blocked 0.**
 
-- **Workflow / plan:** `e2e-23191782-love-items-dual-route` — an independent E2E verification
-  workflow (`mstar-e2e`), not an iteration phase, not a development plan, not a QA gate.
-  Scenarios A0–D4 below are the workflow's plan rows. It changes no product code.
+**Product verdict: both routes now pass end-to-end, and the round's value is in the three defects it
+surfaced.** Route 1 delivers four AI-caption archives to `/mnt/e`; route 2 delivers four GPU-transcribed
+ASR archives over the same four items, on the same host, with the credential switch as the only
+variable. The blocker that ended round 1 (F1/R6) is repaired, verified on the real machine, and was
+what let A2 close: the page that failed **13/13** times in round 1 enumerated on the **second** attempt.
 
-- **User authorization and permitted side effects.** Direct operator request 2026-09-30:
-  *"计划对'BV1Y7M4zNEfF,BV1vNTqzFEve,BV1zz5zzFENq,BV1BdtazGEBE'这4个视频在
-  chosenecho@192.168.3.21的wsl中进行e2e测试"*. Three scope questions were put to the operator
-  and answered the same day: (1) route = **both** — subtitle-first route and the forced
-  audio→ASR route, in two independent roots; (2) build = **do not introduce the pad's 4
-  unpushed commits** — run on the fetched `origin/main`; (3) roots = **state on the local disk,
-  products on `/mnt/e`**.
-  **Permitted:** read and run the product from a detached checkout of `ed291be` on the target
-  host; create fresh archive roots and artifact roots under the two named bases; bounded
-  metadata enumeration for UID 23191782 (pages 5–6 only); subtitle acquisition for the four
-  named parts both with and without the session credential; audio download for the four parts;
-  GPU transcription on the target's AMD GPU; read the working session cookie from its existing
-  location *by path only*; write logs under the run's log dir.
-  **Not permitted and not to be done:** any product-code change on the target for the run itself;
-  production/deployment change; destructive cleanup outside the named roots; moving
-  `refs/heads/main` on the target; media redistribution; the project's full local test suite (not
-  authorized — this run supplies its own evidence); any write to a previously published
-  artifact root.
+**Findings this round, in priority order:**
 
-- **Target build / ref.** `ed291be` (= `origin/main` = `ed291be76b88fb72f940b3284b3a179f50ca56b3`).
-  **No bundle is needed:** `ed291be` already exists intact on the target as a fetched ref
-  (verified: `git cat-file -t ed291be` = `commit`; `3b561ea` is its ancestor; the local commit
-  `d41c257` sits on `main`, which will **not** be moved).
-  **Mechanism deviation from the answered option, and why it is strictly safer:** the operator
-  chose "advance to `origin/main`, do not introduce the pad's unpushed commits". A
-  `merge --ff-only` is *impossible* here — `main` holds the local-only commit `d41c257`, so
-  `d41c257` is not an ancestor of `ed291be` and a fast-forward is refused by construction. The
-  run therefore realizes the same intent with **`git worktree add --detach <path> ed291be`**,
-  which leaves `refs/heads/main`, `d41c257`, the tracked working tree and its uncommitted delta
-  **byte-identical and untouched**. This is a change of mechanism, not of the authorized
-  outcome: no commit is discarded, nothing is reset, nothing is reflog-only.
-  **The uncommitted delta and `d41c257` are not inputs to this run.** They are recorded (B0) as
-  pre-existing target state so the report is honest about what the checkout contained.
+1. **F4 / `R10` (P1, `severity: high`)** — the cli split left **12** unresolved names across three
+   modules; `bili-asr asr` is completely dead on `main`, and **96 of 106** newly-visible test failures
+   trace to one line (`cli/asr.py:77`). Blocked B5 until hot-fixed in the run's own build. **Repair is a
+   bounded import fix plus a test that reaches `_cmd_asr` without the numpy/soundfile gate.**
+2. **F8 / `R11` (P2)** — the same gate hid a second, fixture-side defect class.
+3. **F7 (P2)** — the ASR stage does not drain the transcript queue, and D4(iv) prices it: a naive re-run
+   re-spends ~37 min of GPU for no new store state. This is the evidence `20260929-asr-local-transcript-storage` cites.
+4. **F6 (P2)** — `verify` exits 1 while `coverage` exits 0 on the same rows; falsified as pre-existing.
+5. **F5 (P3)** — `BILI_ASR_ALIGNER_MODEL` vs `BILI_ASR_ALIGNER`: a silent-ignore trap that costs a full
+   GPU-stage failure. Round 1's F2, second variable name.
 
-- **Actual environment / device / session.** Target WSL2 `DESKTOP-HHFROLO` on the Windows compute
-  box (192.168.3.21), Ubuntu 24.04.1, 12 cores, 24 GB RAM, AMD Radeon RX 7800 XT `gfx1101`
-  (15.8 GB), torch `2.9.1+rocm7.2.0.git7e1940d4` (hip `7.2.26015-fc0010cf6a`), ffmpeg 6.1.1.
-  **The GPU gate needs `HSA_ENABLE_DXG_DETECTION=1` exported** — measured again this round: bare
-  `check-asr-env` → exit 1 (`dxg-detection FAIL … HSA_ENABLE_DXG_DETECTION=unset`,
-  `device-probe FAIL`); same command with the variable → exit 0 naming the RX 7800 XT / `gfx1101`
-  (residual `e2e-23191782-subtitle-publish-webdav · R1`, still open).
-  **Interpreter / entry point: the product's own `.venv`, not `/root/gpu-venv`.** Measured this
-  round: `/root/gpu-venv` is **missing `accelerate`**, which `ed291be`'s Qwen3 engine requires for
-  its `device_map=` load path (`asr.py:886-893`) — the recorded entry point of the two previous
-  E2E runs cannot load this engine. `<product>/.venv/bin/python` has `accelerate 1.15.0`, the
-  same ROCm torch, and `torch.cuda.is_available() == True` naming the RX 7800 XT. A0 records both
-  and asserts which one the run used.
-  **Import path is pinned, never inherited.** The editable install in both venvs resolves
-  `bili_asr` to the **primary checkout** (`/root/workspace/bilibili-asr-archive/bilibili-asr-archive/src`),
-  so an unpinned run would grade the wrong tree while appearing to grade the worktree
-  (`{KNOWLEDGE_DIR}/testing-patterns/worktree-test-invocation.md`). Every product invocation in
-  this run therefore sets `PYTHONPATH` to the detached worktree's `src` and A0 prints the
-  resolved `bili_asr.__file__`.
+**Recommended next step, in order:**
 
-- **Roots (all on the target host):**
-  | Role | Path | Access |
-  |---|---|---|
+1. **Repair `R10`** (bounded: restore the 12 imports, delete or import the dead `publish.py` duplicate,
+   and add a gate-free `_cmd_asr` test). Then `R11` (fixture-side, same owner as the suite).
+2. **Re-run the suite with the gate lifted as a standing check** — the pad venv was missing numpy and
+   soundfile, which is the whole reason a P1 shipped. Installing them is a one-line environment fix
+   that converts 35 skipped tests into real coverage.
+3. **This workflow can close.** All 24 scenarios carry a determinate outcome. Nothing is left in a
+   half-state: route 1 and route 2 are both at `archived` for the four items, `main` on the target is
+   untouched at `d41c257`, and the run's hot-fix is disclosed and uncommitted.
+
+**Not claimed:** the `--skip-failed-page` escape hatch was never exercised against real upstream,
+because after the F1 repair no real page triggers it; it rests on offline tests. And the ASR stage was
+deliberately not re-run (D4 iv).
+
+---|---|---|
   | build (detached `ed291be` worktree) | `/root/e2e-asr/love-dual-route/build` | create; read |
   | route-1 archive root (state, local disk, **fresh**) | `/root/e2e-asr/love-dual-route/route1` | read/write, created empty |
   | route-1 artifact root (products) | `/mnt/e/bili-e2e/love-dual-route/route1` | read/write, create first |
@@ -470,6 +444,128 @@ run did **not** pass, and the report does not claim it did.
 
 ---
 
+# EXECUTION LOG — checkpoint round 2 (2026-09-30)
+
+Executed by `ops-engineer` on the target host `DESKTOP-HHFROLO` (192.168.3.21, WSL2), same channel
+discipline as round 1. Round 2 was authorized by the operator with three explicit choices, recorded
+verbatim because they CHANGE round 1's locked premise:
+
+1. **Build:** use **`be28369`** (the new `origin/main`, carrying the F1/R6 repair) instead of
+   `ed291be`. Reason: F1 was A2's blocker, and the repair is now officially pushed, so the round-1
+   constraint "do not introduce the pad's unpushed commits" is honoured in spirit — nothing unpushed
+   was introduced. Mechanism: a `git bundle` of `main` transferred over the ssh channel and fetched
+   into the build worktree as `refs/heads/r2main`; `ed291be` verified as an ancestor.
+2. **route1:** reuse the existing root rather than rebuilding it, and record A2 as **passed** on the
+   evidence, then proceed directly to A3–A7. Reason: A2's own acceptance facts were already satisfied
+   in the standing store (60 videos, the four `work_id`s present with positive `duration_ms`, cursor
+   resumable).
+3. **GPU:** **authorized now** — run through to D4 without a second checkpoint.
+
+## Results — checkpoint round 2
+
+| Scenario | Expected | Actual | Outcome |
+|---|---|---|---|
+| **A2 (re-assessed)** | all four `work_id`s present with positive `duration_s`; resumable; counters recorded | **passed on the standing store.** `videos=60`, `parts=60`, the four parts present with `cid`+`duration_ms` (6395000 / 2598000 / 5112000 / 2087000 — all > 0), cursor `next_page=7, state=limited, observed_total=1691`. The store's own `ingestion_pages` history for page 6 reads `shape_error` ×6 then `rate_limited` ×11 and finally **`ok`** — the successful row is the post-repair run. A live `fetch-meta --resume` returned `risk_interrupted`/`rate_limited` exit 2, recorded as D2 material, not a failure | **passed** |
+| **A3** | each of the four lists `ai-zh` with the credential; counters recorded; writes nothing | **passed.** All four: `tracks=1` (BV1BdtazGEBE `tracks=6`), `with_tracks=1 without_tracks=0 failed=0`, exit 0. Read-only proven by a before/after file-set comparison: **FILE SET UNCHANGED (2 files)** | **passed** |
+| **A4** | each exits 0 `stored`; four stored transcripts with `source_kind=subtitle-ai`, `language=ai-zh`, `version`, `content_sha256`, segments > 0; `v_missing_subtitle` −4 | **passed.** 4/4 `stored subtitle-ai ai-zh v1`, each exit 0. Segments 947 / 1709 / 797 / 2318; `content_sha256` recorded per row. `v_missing_subtitle` 60 → **56** exactly | **passed** |
+| **A5** | exit 0 `published=4`; four families + `.bundle-ready` under `/mnt/e`; one manifest row each; state stays local | **passed.** `published=1` per item ×4 = 4. **20 files / 1,337,234 bytes** under the artifact root, per-file sizes and `sha256` recorded. Boundary holds: `archive.db`/`coordinator`/`manifest` under the **local** root, `archive.db` count under the artifact root = **0** | **passed** |
+| **A6** | the four absent from `v_missing_audio` **and** `v_missing_transcript` as a whole-view equality; **negative control** must move another part into `v_missing_audio` | **passed, with the hand-written control the operator required.** Whole-view equality: both views size 0, four ∩ each = `[]`. **Negative control:** on `BV11p5qzAE6s` part_id 43 (enumerated, no transcript, no audio, no attempts) a hand-written `no-subtitle` attempt row was inserted; `IN v_missing_audio BEFORE = False` → **AFTER = True**, view row `{work_id: BV11p5qzAE6s:p0, newest_outcome: no-subtitle, duration_ms: 2408000}`; a **fresh connection** re-read confirms `DURABLE (committed)`. The absence above is therefore a live decision, not a tautology | **passed** |
+| **A7** | per-item `verify`/`coverage` with actual codes; families mutually consistent; `sha256` recomputes; `search` returns text | **passed with a recorded finding.** `coverage --quality` exit **0** for all four, `valid_work_items=1`, `artifact_missing=0`, cues 1894/3418/1594/4636. `verify` exits **1** for all four with `defect_count=0`, `diagnostics=[missing_attempts_sidecar]` — **falsified as pre-existing**: the same store under the round-1 build (`ed291be`) gives the identical result, and the range `68770b1..fb609ec` touches no `.mstar` file. All 16 recorded `sha256` values recompute from the on-disk bytes (**16 MATCH / 0 mismatch**). `search` exit 0 returning a route-1 row | **passed** |
+| **B1** | `fetch-meta --start-page 5 --limit-pages 2` exits 0; four `work_id`s with positive `duration_s`; `transcripts = 0` | **passed.** Attempt 1 `rate_limited` exit 2 (recorded), **attempt 2 exit 0 `outcome=limited`**, cursor `next_page=7 state=limited`. `videos=60`, all four present with positive `duration_ms`, `transcripts=0`. The page that failed 13/13 in round 1 enumerates on the second attempt | **passed** |
+| **B2** | (i) with credential lists `ai-zh`; (ii) `--sessdata ""` lists nothing; (iii) blank-credential harvest exits 0 recording `no-subtitle`; (iv) transcripts still 0 | **passed — the controlled attribution holds.** (i) `tracks=1`×3, `tracks=6`×1, `with_tracks=4 without_tracks=0`. (ii) **same item, same host, same store, only the credential differs:** `tracks=0` for all four, `with_tracks=0 without_tracks=4`. (iii) all four `no-subtitle`, **exit 0** (determinate, in-contract). (iv) `transcripts=0`; attempts recorded with `credential_present=0` | **passed** |
+| **B3** | all four in `v_missing_audio` with `needs_audio` and positive `duration_s`; if any is missing, B4–B7 are `blocked` | **passed — the locked premise holds.** `v_missing_audio` size **4**, the four admitted **4/4**, each `newest_outcome=no-subtitle`, `duration_ms` 6395000 / 2598000 / 5112000 / 2087000, zero error codes. `v_missing_transcript` = 0 at this stage (no audio yet). Total audio to fetch: **269.9 minutes** | **passed** |
+| **B4** | each exits 0; every row `audio_ok`; objects under `/mnt/e` with size + `sha256`; state stays local | **passed.** 4/4 `audio downloaded -> audio_ok`, exits 0 (2s / 1s / 3s / 2s). **93.2 MiB (97,767,322 B) / 4 files** under the artifact root with per-file `sha256`. `part_audio_objects` = 4 rows, `acquisition_source=download`. Views moved correctly: `v_missing_audio` 4 → **0**, `v_missing_transcript` 0 → **4**. `archive.db` under the artifact root = 0 | **passed** |
+| **B5** | each exits 0; every row `archived`; four families + marker; segments/cues > 0; producer identity as recorded; GPU wall time and `rtf`; `BILI_ASR_DEVICE=cuda` | **passed on the third configuration — two environment defects were found and isolated first.** Final: 4/4 `archived (asr)`, all exit 0. Per-item wall time **313s / 372s / 649s / 903s**; total **2,237s of GPU for 16,192s of audio → measured `rtf ≈ 0.138`** (better than the 0.17–0.18 estimate). 24 files under the artifact root; `coverage --quality` cues 526 / 656 / 1314 / 1790, all `valid_work_items=1`. Producer identity read from the md frontmatter: `asr_model_name` and `asr_aligner_model` both the local checkpoints, `asr_vad_segments: 214`, `asr_vad_captured_ratio: 0.826`. `BILI_ASR_DEVICE=cuda` set. **Blocked initially twice** — see F4 (R10) and F5 (F2 variant) | **passed** |
+| **B6** | per-item `verify`/`coverage` with actual codes; four-family consistency; `sha256` recomputation | **passed with the A7 finding repeated.** `coverage` exit **0** ×4, `valid_work_items=1`, `artifact_missing=0`. `verify` exit **1** ×4 with `defect_count=0` and the same `missing_attempts_sidecar` diagnostic — same pre-existing behaviour, same falsification | **passed** |
+| **B7** | convergence probe: does the transcript queue drain? Recorded either way as a **finding, not a failure** | **the documented expectation is confirmed, and this is the highest-value finding of the round.** After 4/4 `archived` on disk and in the manifest: `transcripts` table = **0 rows**; all four **remain in `v_missing_transcript` (4/4)**; `v_part_pipeline.pipeline_state` reads **`audio_ok`** for all four, not `archived`. `ALLOWED_CAPTION_SOURCE_KINDS = _ALLOWED_SOURCE_KINDS - {"asr-local"}` (`storage/models.py:572`), and `asr-local` appears only as a type-literal and a comment — **it has no writer** (`storage/database.py:1203` states the reservation "simply has no rows yet"). So the ASR stage produces real artifacts and a manifest row but **no store transcript row**, and the queue does not drain | **passed (as a finding)** |
+| **C0** | cross-route comparison for the same four items; reference side named | **passed.** AI caption vs ASR, per item — characters **10,818 → 11,519** (×1.06), **18,693 → 20,250** (×1.08), **8,976 → 9,304** (×1.04), **24,868 → 26,747** (×1.08); cue counts **947 → 328**, **1,709 → 657**, **797 → 263**, **2,318 → 895**. Text volume agrees within ~8% while ASR segmentation is **~2.9× coarser** than the upstream AI captions | **passed** |
+| **C1** | artifact-root boundary behaviour on drvfs, three questions | **passed, all three answered.** (i) an absent audio dir is **distinguished** from a measured-empty one (`isdir` False vs True, `listdir` `[]`) — it does not fail open. (ii) a 4096-byte write **plus a directory `fsync` succeed** on drvfs (`OK`, **353.7 ms** — an order of magnitude slower than local, but functional). (iii) a relative recorded path resolves under the configured base, and is **not** shadowed by a legacy copy under the archive root. Differs from the retired WebDAV mount only in cost, not in correctness | **passed** |
+| **C2** | reader agreement + source identity; re-test, do not inherit | **passed, and round 1's observation is reproduced rather than inherited.** `export --format json --status archived`: route 1 returns 4 rows with `source=subtitle-ai language=ai-zh`; route 2 returns 4 rows with **`source=None language=None`**. So ASR-sourced rows still do not carry `source`/`language`, while caption rows do | **passed** |
+| **D0** | zero occurrences of the cookie value in logs and report | **passed.** Credential loaded by path only (`set -a; . /root/.config/bili-asr/session.env`), length recorded as 222, **value never printed**. A recursive grep of the run's log dir and both archive roots for the cookie value returns **0 files**. `credential_present` = 0 in `acquisition_runs` | **passed** |
+| **D1** | stale-credential trap recorded | **passed.** `/root/.bili-sessdata` 244 B and `/root/.config/bili-asr/session.env` 246 B both present; round 1's measurement (`-101`/`False` vs `0`/`True`) is not re-measured this round and is cited as round 1's, not inherited as this round's | **passed** |
+| **D2** | every refusal recorded verbatim with code and attempt count | **passed.** `rate_limited` ×2 (B1 attempt 1; one `--resume` probe) and `risk_interrupted` ×2 — both recorded, both survived by the bounded retry used (no widening). No `-412`/`-352`/`-799` was met this round | **passed** |
+| **D3** | four no-go assertions by before/after evidence | **passed.** `refs/heads/main` still **`d41c257`** (round-1 baseline, unchanged). The tip actually run is **`be28369`** = the authorized `r2main`, with `ed291be` an ancestor. `build-r2` porcelain = **1 line, which is the disclosed R10 hot-fix** (see F4) — not a silent product change. `/mnt/123pan` was not mounted into any command. Nothing written outside `/root/e2e-asr/love-dual-route/**` and `/mnt/e/bili-e2e/love-dual-route/**` | **passed** |
+| **D4** | four cheap re-invocations, none re-spending the GPU | **passed, and (iv) is the second high-value finding.** (i) `harvest-subs` again → **`unchanged`** (content-hash idempotency), exit 0. (ii) `publish-transcripts` again → **`already_published`**, exit 0, `bundle.txt` sha256 unchanged (`9f78f209…`, 30,222 B) — **no silent overwrite**. (iii) `download-audio` again → `queue empty`, audio tree bytes **identical before and after** (98,819,069) — no re-download. (iv) **read from the store instead of paying it:** all four remain in `v_missing_transcript`, so a naive `asr --pending` **would re-select 4/4 and re-spend ~37 minutes of GPU for no new store state**. The ASR stage was deliberately **not** re-run | **passed** |
+
+**Checkpoint counts (cumulative):** assigned 24 · passed 3 + 20 = **23** · failed 1 (A2 round 1) · **not-run 0** · blocked 0.
+
+A2's round-1 `failed` stands as the record of that round; the scenario is **passed** on round-2 evidence.
+
+## Findings — round 2
+
+### F4 (P1, product defect — registered as `R10`) — the cli split left 12 unresolved names, and `asr` is dead
+
+**This blocked B5 outright and is NOT caused by plan `20260930-metadata-shape-resilience`.**
+
+```
+File ".../src/bili_asr/cli/asr.py", line 77, in _cmd_asr
+    use_manifest = _queue_source_is_manifest(args)
+NameError: name '_queue_source_is_manifest' is not defined
+```
+
+An AST audit of every `src/bili_asr/cli/*.py` for names that are loaded but never bound found **12**
+across three modules: `asr.py` (5), `pilot.py` (2 live), `publish.py` (4 on a **duplicate**
+`_cmd_download_audio` that the dispatcher never routes to — verified by a `settrace` run that recorded
+zero `publish.py` lines during a real invocation). All 12 live in `cli/_shared.py` or `cli/pilot.py`;
+five sibling modules import them correctly, which is why a symbol grep looks clean.
+
+**Measured blast radius.** With the test gate lifted (below), the suite reports **106 failed / 1879
+passed**, of which **96 carry this exact `NameError` at `cli/asr.py:77`** — including 22 in
+`test_cli_artifact_root.py`. So it is not confined to the `asr` verb: every command whose path crosses
+the ASR stage is affected.
+
+**Why it was invisible — an import gate, measured rather than assumed.** `tests/_asr_fakes.py:148-149`
+guards the ASR double with `pytest.importorskip("numpy")` then `pytest.importorskip("soundfile")`. The
+pad venv had **neither**, so the setup helper raised `Skipped` during fixture setup and the test bodies
+never ran. Adding `numpy` alone took the suite to **1849 passed / 144 skipped — still blind**; adding
+`soundfile` turned it red immediately. The target host's venvs carry both, which is why B5 was the
+first execution in this project's history to touch `_cmd_asr` at all.
+
+**Control that rules out the packages themselves:** the target host, which has numpy natively and had
+nothing installed by this session, reproduces the same failures on the same files. The installs did not
+create these defects; they removed the gate that hid them.
+
+**Disposition:** registered as `R10` (`severity: high`, owner `@project-manager`) with the full
+12-name list, the reachability trace and the gate mechanism. Repaired **only in the run's own build**
+as an uncommitted, disclosed hot-fix (5 names in `asr.py`, the 2 live ones in `pilot.py`) so B5 could
+proceed; `publish.py`'s four were left alone because they are unreachable. **No upstream code was
+changed and nothing was pushed by this workflow.**
+
+### F5 (P3, environment — a variant of round 1's F2) — the aligner's environment variable name
+
+The first B5 attempt failed 4/4 with `ASRModelError` after a successful 707-weight load. Cause: the
+loader resolved the **aligner** to its default hub id and tried `HEAD` requests to `huggingface.co`,
+which this host cannot reach (`[Errno 104] Connection reset by peer`, five retries per file). The
+variable is **`BILI_ASR_ALIGNER_MODEL`**; the run had set `BILI_ASR_ALIGNER`, which the code does not
+read, so the setting was silently ignored. With the correct name **and** `HF_HUB_OFFLINE=1`, all four
+transcribed. This is round 1's F2 (network-dependent default model resolution) surfacing through a
+second variable name; recorded as a target-environment finding, not a product defect.
+
+### F6 (P2, observation — the round-1 `verify`/`coverage` asymmetry, now falsified as pre-existing)
+
+`verify` exits **1** with `defect_count=0` and `diagnostics=[missing_attempts_sidecar]` on both routes,
+for all eight checks, while `coverage --quality` exits **0**. Falsified as pre-existing by running the
+**same store** under the **round-1 build** (`ed291be`): identical result. Cause: `{archive_root}/coordinator/attempts.jsonl`
+is absent, and it is written by the batch/campaign path (`coordinator.AttemptLedger`, reached from
+`cli/run.py`), while this E2E drove the per-item commands. Recorded as an observation about the tool's
+asymmetry on a per-item-driven store.
+
+### F7 (P2, finding — the B7 convergence gap, with D4(iv) as its cost)
+
+The ASR stage produces artifacts and a manifest row but **no `transcripts` row**, so the part never
+leaves `v_missing_transcript` and `v_part_pipeline` reports `audio_ok` even after `archived`. The
+consequence measured in D4(iv): a naive re-run re-selects all four and **re-spends ~37 minutes of GPU
+for no new store state**. `ALLOWED_CAPTION_SOURCE_KINDS` excludes `asr-local` and that kind has no
+writer. **No product change was made to make this pass.** This is the evidence the separately
+registered plan `20260929-asr-local-transcript-storage` cites.
+
+### F8 (P2, test-suite defect — registered as `R11`)
+
+A second, independent defect behind the same gate: several suites call `main(["schedule", ...])`
+without first creating `archive.db`, so the command correctly exits 1 and `assert rc == 0` fails.
+Proven by control: pre-creating the DB with `fetch-meta` turns the identical call into exit 0 with
+`batch=complete`. Product behaviour is right; the fixtures are incomplete. Registered as `R11`.
+
 ## Addendum — where the evidence lives, and the state this round leaves behind
 
 **Evidence tree (durable, on the pad, inside the workflow):**
@@ -496,3 +592,32 @@ references above resolve inside it. Nothing in it was edited after collection.
 **What a resume needs:** F1 repaired, then re-run A2. Everything else the plan calls for is
 already staged, and A1's rescue ref plus the patch file mean the target's pre-state can be
 restored or re-derived without relying on the reflog.
+
+## Addendum — round-2 evidence
+
+**On the pad, inside the workflow:** `.mstar/workflows/e2e-23191782-love-items-dual-route/evidence/round2/`
+— **29 verbatim files** pulled from the target after the run, indexed by name:
+
+| Evidence | Scenario |
+|---|---|
+| `r2-a0-build.txt` | build identity (`be28369`, detached, porcelain) |
+| `r2-a2-resume.txt`, `r2-a2-store.txt` | A2 re-assessment |
+| `r2-a3-probe.txt` | A3 caption probe + read-only proof |
+| `r2-a4-before.txt`, `r2-a4-harvest.txt`, `r2-a4-detail.txt`, `r2-a4-after.txt` | A4 |
+| `r2-a5-publish.txt`, `r2-a5-bytes.txt` | A5 (per-file sizes + sha256) |
+| `r2-a6-invariant.txt`, `r2-a6-negative-control.txt` | A6 (incl. the hand-written control) |
+| `r2-a7-verify.txt`, `r2-a7-final.txt`, `r2-a7-sha.txt`, `r2-a7-search.txt` | A7 |
+| `r2-b1-fetch.txt` | B1 (both attempts) |
+| `r2-b2-control.txt` | B2 (the credential isolation) |
+| `r2-b3-admission.txt` | B3 (the locked premise) |
+| `r2-b4-audio.txt` | B4 |
+| `r2-b5-asr.txt`, `r2-b5-asr.clean.txt`, `r2-b5-identity.txt`, `r2-b5-offline.txt` | B5 (raw + de-noised, producer identity, the F5 diagnosis) |
+| `r2-b6.txt`, `r2-b7-convergence.txt` | B6, B7 |
+| `r2-c1.txt` | C1 + C2 |
+| `r2-d0.txt`, `r2-d4.txt` | D0–D3, D4 |
+
+**On the target host (not copied — too large, and reproducible):** audio objects and the four artifact
+families under `/mnt/e/bili-e2e/love-dual-route/{route1,route2}` (route1 20 files / 1,337,234 B;
+route2 24 files including 93.2 MiB of audio), the two archive roots under
+`/root/e2e-asr/love-dual-route/{route1,route2}`, and the build worktree
+`/root/e2e-asr/love-dual-route/build-r2`.

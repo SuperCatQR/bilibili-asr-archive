@@ -1,0 +1,3 @@
+=== A7: search WITH the required query (my earlier call omitted it) ===
+BV1BdtazGEBE:p0: 【哲学与现实】爱情升级指南——当你说“我爱你”时，你到底在怎说什么 [archived] (score: -0.0000, path: transcripts/BV1BdtazGEBE.p0/bundle.txt)
+EXIT=0

@@ -1,0 +1,19 @@
+  BV1Y7M4zNEfF bundle.txt          30222B  recorded=9f78f20958679b80… actual=9f78f20958679b80…  MATCH
+  BV1Y7M4zNEfF bundle.md           30523B  recorded=ed0e91fa0e513d3b… actual=ed0e91fa0e513d3b…  MATCH
+  BV1Y7M4zNEfF bundle.srt          63258B  recorded=19e5872771f59c7a… actual=19e5872771f59c7a…  MATCH
+  BV1Y7M4zNEfF bundle.raw.json    100614B  recorded=e650a2c0f8316dcf… actual=e650a2c0f8316dcf…  MATCH
+  BV1vNTqzFEve bundle.txt          50791B  recorded=cd5f7109fc8bf334… actual=cd5f7109fc8bf334…  MATCH
+  BV1vNTqzFEve bundle.md           51104B  recorded=a110bbc4bea064d4… actual=a110bbc4bea064d4…  MATCH
+  BV1vNTqzFEve bundle.srt         111207B  recorded=a902ca92c80cfcc7… actual=a902ca92c80cfcc7…  MATCH
+  BV1vNTqzFEve bundle.raw.json    178213B  recorded=0ee4bd2bb25710b6… actual=0ee4bd2bb25710b6…  MATCH
+  BV1zz5zzFENq bundle.txt          25256B  recorded=c5af56404f45da20… actual=c5af56404f45da20…  MATCH
+  BV1zz5zzFENq bundle.md           25557B  recorded=1a113ed6177bee94… actual=1a113ed6177bee94…  MATCH
+  BV1zz5zzFENq bundle.srt          53042B  recorded=b038d4f2787f9e25… actual=b038d4f2787f9e25…  MATCH
+  BV1zz5zzFENq bundle.raw.json     84397B  recorded=0c3e89896e761966… actual=0c3e89896e761966…  MATCH
+  BV1BdtazGEBE bundle.txt          68688B  recorded=c8aede8d11b6406d… actual=c8aede8d11b6406d…  MATCH
+  BV1BdtazGEBE bundle.md           69109B  recorded=9e88eda95fce1249… actual=9e88eda95fce1249…  MATCH
+  BV1BdtazGEBE bundle.srt         151028B  recorded=7a3044ed5dff3ca0… actual=7a3044ed5dff3ca0…  MATCH
+  BV1BdtazGEBE bundle.raw.json    241841B  recorded=05ec43be74928670… actual=05ec43be74928670…  MATCH
+
+A7 sha256 recomputation: 16 MATCH / 0 MISMATCH  -> PASS
+bundle schema: archive-bundle-v1

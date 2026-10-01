@@ -1,0 +1,5 @@
+=== r2 A2 evidence: build identity ===
+HEAD=be28369c946c15fc7be55bd0767da79838f1e87a
+detached=DETACHED
+porcelain_lines=0
+r2main=be28369c946c15fc7be55bd0767da79838f1e87a

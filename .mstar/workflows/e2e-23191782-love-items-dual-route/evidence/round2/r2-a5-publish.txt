@@ -1,0 +1,16 @@
+--- BV1Y7M4zNEfF:p0 ---
+BV1Y7M4zNEfF:p0: published (source=subtitle-ai lang=ai-zh version=1 cues=947) transcripts/BV1Y7M4zNEfF.p0/bundle.md
+publish-transcripts: candidates=1 published=1 already_published=0 failed=0
+EXIT=0 elapsed=0s
+--- BV1vNTqzFEve:p0 ---
+BV1vNTqzFEve:p0: published (source=subtitle-ai lang=ai-zh version=1 cues=1709) transcripts/BV1vNTqzFEve.p0/bundle.md
+publish-transcripts: candidates=1 published=1 already_published=0 failed=0
+EXIT=0 elapsed=0s
+--- BV1zz5zzFENq:p0 ---
+BV1zz5zzFENq:p0: published (source=subtitle-ai lang=ai-zh version=1 cues=797) transcripts/BV1zz5zzFENq.p0/bundle.md
+publish-transcripts: candidates=1 published=1 already_published=0 failed=0
+EXIT=0 elapsed=0s
+--- BV1BdtazGEBE:p0 ---
+BV1BdtazGEBE:p0: published (source=subtitle-ai lang=ai-zh version=1 cues=2318) transcripts/BV1BdtazGEBE.p0/bundle.md
+publish-transcripts: candidates=1 published=1 already_published=0 failed=0
+EXIT=0 elapsed=0s

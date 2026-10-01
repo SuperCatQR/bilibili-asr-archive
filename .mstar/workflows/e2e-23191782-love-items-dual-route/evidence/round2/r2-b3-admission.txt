@@ -1,0 +1,19 @@
+=== B3: the LOCKED PREMISE — all four must be admitted to v_missing_audio ===
+v_missing_audio total size = 4
+the four admitted           = 4/4
+  BV1BdtazGEBE:p0        outcome=no-subtitle  error=None   duration_ms=6395000  OK
+  BV1Y7M4zNEfF:p0        outcome=no-subtitle  error=None   duration_ms=2598000  OK
+  BV1vNTqzFEve:p0        outcome=no-subtitle  error=None   duration_ms=5112000  OK
+  BV1zz5zzFENq:p0        outcome=no-subtitle  error=None   duration_ms=2087000  OK
+
+=== also: status shows needs_audio for the four? ===
+=== processing_status + v_missing_transcript for the four ===
+   {'bvid': 'BV1BdtazGEBE', 'page_index': 0, 'cid': 31594841414, 'duration_ms': 6395000, 'processing_status': 'discovered'}
+   {'bvid': 'BV1Y7M4zNEfF', 'page_index': 0, 'cid': 30506419561, 'duration_ms': 2598000, 'processing_status': 'discovered'}
+   {'bvid': 'BV1vNTqzFEve', 'page_index': 0, 'cid': 30412768784, 'duration_ms': 5112000, 'processing_status': 'discovered'}
+   {'bvid': 'BV1zz5zzFENq', 'page_index': 0, 'cid': 29471998505, 'duration_ms': 2087000, 'processing_status': 'discovered'}
+  the four in v_missing_transcript = 0  (expect 0: no audio evidence yet)
+  v_missing_transcript total: 0
+  part_audio_objects total: 0
+
+  TOTAL AUDIO TO FETCH: 269.9 minutes

@@ -1,0 +1,2 @@
+=== transcripts columns ===
+['transcript_id', 'video_part_id', 'source_kind', 'language', 'model_id', 'version', 'content_sha256', 'created_at']

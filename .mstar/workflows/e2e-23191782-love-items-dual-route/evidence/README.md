@@ -48,3 +48,18 @@ No file here was edited after collection; the report's section references point 
 **The `rescue/` ref and this ledger exist so that the target host's pre-run state is recoverable
 without touching `refs/heads/main`.** Nothing in this directory was produced by modifying the
 target's tracked files.
+
+## round2/ — checkpoint round 2 (2026-09-30)
+
+29 files, pulled verbatim from `/root/e2e-asr/love-dual-route/logs/20260930T-R2/` on the target after
+round 2 completed. Same discipline as round 1: nothing was edited after collection.
+
+`r2-b5-asr.clean.txt` is the same log as `r2-b5-asr.txt` with the `Loading weights:` progress bars and
+the ROCm SDPA `UserWarning` repaints stripped — those lines are ~95% of the byte count and carry no
+evidence. The raw file is kept alongside it so the de-noising is auditable.
+
+Round 2's own control experiments live in the files rather than in prose:
+`r2-a6-negative-control.txt` (the hand-written `no-subtitle` row, with the before/after view read and a
+fresh-connection durability re-read), `r2-b2-control.txt` (the credential isolation: same item, same
+host, same store, only the credential differs), and `r2-d4.txt` (the four re-run probes, including the
+byte-identical audio tree that proves no re-download).

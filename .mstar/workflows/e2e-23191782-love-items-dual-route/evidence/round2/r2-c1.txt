@@ -1,0 +1,140 @@
+=== C1: artifact-root boundary on drvfs (/mnt/e) ===
+-- (i) absent vs measured-empty audio dir --
+   absent dir exists()=False  empty dir exists()=True  listdir(empty)=[]
+   write 4096B + dir fsync: OK  (353.7 ms)
+   relative recorded path resolves under base: True
+   shadowed by a legacy copy under archive root? False
+
+=== C2: reader agreement + source identity ===
+-- route1 --
+[
+  {
+    "work_id": "BV1BdtazGEBE:p0",
+    "bvid": "BV1BdtazGEBE",
+    "page_index": 0,
+    "cid": 31594841414,
+    "title": "【哲学与现实】爱情升级指南——当你说“我爱你”时，你到底在怎说什么",
+    "status": "archived",
+    "duration_s": 6395,
+    "pubdate": 1754765050,
+    "source": "subtitle-ai",
+    "srt_path": "transcripts/BV1BdtazGEBE.p0/bundle.srt",
+    "txt_path": "transcripts/BV1BdtazGEBE.p0/bundle.txt",
+    "md_path": "transcripts/BV1BdtazGEBE.p0/bundle.md",
+    "raw_path": "transcripts/BV1BdtazGEBE.p0/bundle.raw.json",
+    "language": "ai-zh",
+    "pubdate_str": "2025-08-09"
+  },
+  {
+    "work_id": "BV1Y7M4zNEfF:p0",
+    "bvid": "BV1Y7M4zNEfF",
+    "page_index": 0,
+    "cid": 30506419561,
+    "title": "【行动指南】从爱情走向革命",
+    "status": "archived",
+    "duration_s": 2598,
+    "pubdate": 1749964942,
+    "source": "subtitle-ai",
+    "srt_path": "transcripts/BV1Y7M4zNEfF.p0/bundle.srt",
+    "txt_path": "transcripts/BV1Y7M4zNEfF.p0/bundle.txt",
+    "md_path": "transcripts/BV1Y7M4zNEfF.p0/bundle.md",
+    "raw_path": "transcripts/BV1Y7M4zNEfF.p0/bundle.raw.json",
+    "language": "ai-zh",
+    "pubdate_str": "2025-06-15"
+  },
+  {
+    "work_id": "BV1vNTqzFEve:p0",
+    "bvid": "BV1vNTqzFEve",
+    "page_index": 0,
+    "cid": 30412768784,
+    "title": "【爱欲经济学】爱情的阶次和解放",
+    "status": "archived",
+    "duration_s": 5112,
+    "pubdate": 1749502692,
+    "source": "subtitle-ai",
+    "srt_path": "transcripts/BV1vNTqzFEve.p0/bundle.srt",
+    "txt_path": "transcripts/BV1vNTqzFEve.p0/bundle.txt",
+    "md_path": "transcripts/BV1vNTqzFEve.p0/bundle.md",
+    "raw_path": "transcripts/BV1vNTqzFEve.p0/bundle.raw.json",
+    "language": "ai-zh",
+    "pubdate_str": "2025-06-09"
+  },
+  {
+    "work_id": "BV1zz5zzFENq:p0",
+    "bvid": "BV1zz5zzFENq",
+    "page_index": 0,
+    "cid": 29471998505,
+    "title": "【历史唯物主义】革命与爱情",
+    "status": "archived",
+    "duration_s": 2087,
+    "pubdate": 1744914824,
+    "source": "subtitle-ai",
+    "srt_path": "transcripts/BV1zz5zzFENq.p0/bundle.srt",
+    "txt_path": "transcripts/BV1zz5zzFENq.p0/bundle.txt",
+    "md_path": "transcripts/BV1zz5zzFENq.p0/bundle.md",
+    "raw_path": "transcripts/BV1zz5zzFENq.p0/bundle.raw.json",
+    "language": "ai-zh",
+    "pubdate_str": "2025-04-17"
+  }
+]
+   export rows=4
+    source= subtitle-ai  language= ai-zh  status= archived
+    source= subtitle-ai  language= ai-zh  status= archived
+-- route2 --
+[
+  {
+    "work_id": "BV1BdtazGEBE:p0",
+    "bvid": "BV1BdtazGEBE",
+    "page_index": 0,
+    "cid": 31594841414,
+    "page_label": "",
+    "status": "archived",
+    "srt_path": "transcripts/BV1BdtazGEBE.p0/bundle.srt",
+    "txt_path": "transcripts/BV1BdtazGEBE.p0/bundle.txt",
+    "md_path": "transcripts/BV1BdtazGEBE.p0/bundle.md",
+    "raw_path": "transcripts/BV1BdtazGEBE.p0/bundle.raw.json",
+    "audio_path": "audio/BV1BdtazGEBE.p0.m4a"
+  },
+  {
+    "work_id": "BV1Y7M4zNEfF:p0",
+    "bvid": "BV1Y7M4zNEfF",
+    "page_index": 0,
+    "cid": 30506419561,
+    "page_label": "",
+    "status": "archived",
+    "srt_path": "transcripts/BV1Y7M4zNEfF.p0/bundle.srt",
+    "txt_path": "transcripts/BV1Y7M4zNEfF.p0/bundle.txt",
+    "md_path": "transcripts/BV1Y7M4zNEfF.p0/bundle.md",
+    "raw_path": "transcripts/BV1Y7M4zNEfF.p0/bundle.raw.json",
+    "audio_path": "audio/BV1Y7M4zNEfF.p0.m4a"
+  },
+  {
+    "work_id": "BV1vNTqzFEve:p0",
+    "bvid": "BV1vNTqzFEve",
+    "page_index": 0,
+    "cid": 30412768784,
+    "page_label": "",
+    "status": "archived",
+    "srt_path": "transcripts/BV1vNTqzFEve.p0/bundle.srt",
+    "txt_path": "transcripts/BV1vNTqzFEve.p0/bundle.txt",
+    "md_path": "transcripts/BV1vNTqzFEve.p0/bundle.md",
+    "raw_path": "transcripts/BV1vNTqzFEve.p0/bundle.raw.json",
+    "audio_path": "audio/BV1vNTqzFEve.p0.m4a"
+  },
+  {
+    "work_id": "BV1zz5zzFENq:p0",
+    "bvid": "BV1zz5zzFENq",
+    "page_index": 0,
+    "cid": 29471998505,
+    "page_label": "",
+    "status": "archived",
+    "srt_path": "transcripts/BV1zz5zzFENq.p0/bundle.srt",
+    "txt_path": "transcripts/BV1zz5zzFENq.p0/bundle.txt",
+    "md_path": "transcripts/BV1zz5zzFENq.p0/bundle.md",
+    "raw_path": "transcripts/BV1zz5zzFENq.p0/bundle.raw.json",
+    "audio_path": "audio/BV1zz5zzFENq.p0.m4a"
+  }
+]
+   export rows=4
+    source= None  language= None  status= archived
+    source= None  language= None  status= archived

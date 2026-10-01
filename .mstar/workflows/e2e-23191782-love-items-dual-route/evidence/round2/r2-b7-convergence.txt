@@ -1,0 +1,24 @@
+=== B7 CONVERGENCE PROBE: does the transcript queue drain? ===
+
+-- transcripts table (does the ASR path write one?) --
+   total transcripts rows: 0
+
+-- v_missing_transcript for the four --
+-- v_missing_transcript columns --
+   ['video_part_id', 'work_id', 'bvid', 'page_index', 'cid', 'part_title', 'duration_ms', 'video_title', 'pubdate']
+    {'video_part_id': 8, 'work_id': 'BV1BdtazGEBE:p0', 'bvid': 'BV1BdtazGEBE', 'page_index': 0, 'cid': 31594841414, 'part_title': '【哲学与现实】爱情升级指南——当你说“我爱你”时，你到底在怎说什么', 'duration_ms': 6395000, 'video_title': '【哲学与现实】爱情升级指南——当你说“我爱你”时，你到底在怎说什么', 'pubdate': 1754765050}
+    {'video_part_id': 30, 'work_id': 'BV1Y7M4zNEfF:p0', 'bvid': 'BV1Y7M4zNEfF', 'page_index': 0, 'cid': 30506419561, 'part_title': '【行动指南】从爱情走向革命', 'duration_ms': 2598000, 'video_title': '【行动指南】从爱情走向革命', 'pubdate': 1749964942}
+    {'video_part_id': 31, 'work_id': 'BV1vNTqzFEve:p0', 'bvid': 'BV1vNTqzFEve', 'page_index': 0, 'cid': 30412768784, 'part_title': '【爱欲经济学】爱情的阶次和解放', 'duration_ms': 5112000, 'video_title': '【爱欲经济学】爱情的阶次和解放', 'pubdate': 1749502692}
+    {'video_part_id': 42, 'work_id': 'BV1zz5zzFENq:p0', 'bvid': 'BV1zz5zzFENq', 'page_index': 0, 'cid': 29471998505, 'part_title': '【历史唯物主义】革命与爱情', 'duration_ms': 2087000, 'video_title': '【历史唯物主义】革命与爱情', 'pubdate': 1744914824}
+  => 4/4 STILL in v_missing_transcript  (the documented expectation)
+
+-- v_part_pipeline columns + rows --
+   ['video_part_id', 'work_id', 'bvid', 'page_index', 'processing_status', 'pipeline_state']
+    {'video_part_id': 8, 'work_id': 'BV1BdtazGEBE:p0', 'bvid': 'BV1BdtazGEBE', 'page_index': 0, 'processing_status': 'discovered', 'pipeline_state': 'audio_ok'}
+    {'video_part_id': 30, 'work_id': 'BV1Y7M4zNEfF:p0', 'bvid': 'BV1Y7M4zNEfF', 'page_index': 0, 'processing_status': 'discovered', 'pipeline_state': 'audio_ok'}
+    {'video_part_id': 31, 'work_id': 'BV1vNTqzFEve:p0', 'bvid': 'BV1vNTqzFEve', 'page_index': 0, 'processing_status': 'discovered', 'pipeline_state': 'audio_ok'}
+    {'video_part_id': 42, 'work_id': 'BV1zz5zzFENq:p0', 'bvid': 'BV1zz5zzFENq', 'page_index': 0, 'processing_status': 'discovered', 'pipeline_state': 'audio_ok'}
+
+-- part_audio_objects: 4 rows (kept, per --keep-audio default)
+
+-- ALLOWED_CAPTION_SOURCE_KINDS in code --
