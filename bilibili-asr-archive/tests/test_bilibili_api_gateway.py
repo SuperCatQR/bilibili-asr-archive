@@ -4171,6 +4171,12 @@ def test_the_subtitle_routes_stay_on_the_documented_call_surface(
 
 LIVE_SMOKE_ENV = "BILI_LIVE_SMOKE"
 
+#: The default-run skip text; the central gate (conftest ``opt_in_gate``) reuses
+#: it byte-identically.
+_LIVE_SMOKE_SKIP_REASON = (
+    f"live smoke is opt-in: set {LIVE_SMOKE_ENV}=1 to request it"
+)
+
 #: Tokens that must never appear in the live smoke's persisted rows: cookie
 #: names and playback-CDN signature markers indicate credential or playback
 #: leakage rather than ordinary metadata.
@@ -4183,7 +4189,8 @@ def _live_smoke_requested() -> bool:
     return os.environ.get(LIVE_SMOKE_ENV, "") == "1"
 
 
-def test_live_smoke_single_public_page_for_archive_owner(tmp_root):
+@pytest.mark.live_smoke
+def test_live_smoke_single_public_page_for_archive_owner(tmp_root, opt_in_gate):
     """Opt-in live probe: ONE public metadata page for UID 23191782.
 
     Skipped unless the operator sets ``BILI_LIVE_SMOKE=1``.  The probe
@@ -4194,8 +4201,9 @@ def test_live_smoke_single_public_page_for_archive_owner(tmp_root):
     process-local.
     """
 
-    if not _live_smoke_requested():
-        pytest.skip(f"live smoke is opt-in: set {LIVE_SMOKE_ENV}=1 to request it")
+    env_var, _marker = opt_in_gate
+    if os.environ.get(env_var, "") != "1":
+        pytest.skip(_LIVE_SMOKE_SKIP_REASON)
 
     try:
         gateway = _load_gateway()
