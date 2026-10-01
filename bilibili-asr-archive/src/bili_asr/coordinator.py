@@ -965,7 +965,8 @@ class RunCoordinator:
 
 
 def artifact_stem_for_entry(entry: dict[str, Any]) -> str:
-    """Reuse archive.archive_stem for page-aware stems."""
-    from .archive import archive_stem
+    """The entry's canonical stem (compass D5) — delegates to
+    ``page_identity.canonical_stem`` (the archive_stem semantics)."""
+    from .page_identity import canonical_stem
 
-    return archive_stem(entry)
+    return canonical_stem(entry)
