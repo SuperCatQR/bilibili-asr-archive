@@ -469,13 +469,17 @@ def _source_text(source: Any) -> str:
     A textual source is the value the operator will recognise; anything else is
     a shape the archive never writes, so it is shown as JSON rather than
     assumed to be printable.
+
+    Every branch is bounded, including the JSON one: an unbounded fallback would
+    let a hostile or merely odd sidecar put an arbitrary string into the refusal
+    line.  (Found by L2 review — the fallback used to be uncapped while this
+    docstring already claimed otherwise.)
     """
 
     if source is None:
         return "<missing>"
-    if isinstance(source, str):
-        return source if len(source) <= 32 else source[:32] + "…"
-    return json.dumps(source, ensure_ascii=False)
+    text = source if isinstance(source, str) else json.dumps(source, ensure_ascii=False)
+    return text if len(text) <= 32 else text[:32] + "…"
 
 
 def read_asr_route_ms(artifact_root: Path, bvid: str, part: int) -> list[tuple[int, int, str]]:

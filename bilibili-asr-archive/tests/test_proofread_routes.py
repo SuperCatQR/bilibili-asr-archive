@@ -11,13 +11,21 @@ Two defects, one file:
    them ``agree 1.000``, exit 0, no error.  A fake success is worse than a
    refusal — it is the failure this file exists to prevent, so the negative
    control below is the point of the file and not one case among many.
-2. The two routes had to share one root (ASR read from the artifact root, captions
-   from ``<archive-root>/archive.db``).  A run that exhausts the caption route on
-   one root and produces ASR on another — exactly what the E2E does — was refused
-   with ``missing caption route``.  ``--asr-root`` / ``--caption-root`` separate
-   the two reads; naming neither must read exactly what was read before, so the
-   default path is pinned here by the sha256 of both outputs, captured from the
-   pre-change module.
+2. The two reads could not be aimed independently **without also moving the write
+   base**.  This was mis-stated when the work started — as "the two routes had to
+   share one root" — and that claim is false about the pre-change interface: at
+   `73e90d3` the ASR read already took `--artifact-root` and the caption read
+   already took `--archive-root`, two independently settable flags, so the E2E's
+   separated shape was reachable unfixed as
+   `--archive-root <caption root> --artifact-root <asr root>`.  Found by L2 review;
+   the PM's plan carried the wrong story and the implementer inherited it.
+   What `--asr-root` / `--caption-root` genuinely add is narrower: moving a **read**
+   root while the write base stays where `--artifact-root` puts it.  Naming neither
+   must read exactly what was read before, so the default path is pinned here by the
+   sha256 of both outputs, captured from the pre-change module — and the two
+   `*_moves_the_read_off_its_default` tests below exist because passing a flag the
+   value it already defaults to proves only plumbing, not behaviour (measured: an
+   implementation that ignores both parameters passed every other test in this file).
 
 Fixtures are synthetic and offline: the ASR sidecars are written in-test (no live
 archive root is read) and the caption route is built on a real SQLite transcript
