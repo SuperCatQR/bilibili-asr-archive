@@ -1321,35 +1321,16 @@ def _redact(value: str) -> str:
 
 
 # ---------------------------------------------------------------------------------------
-# Products — unchanged.  A cue is a subtitle line; these two writers and the SRT clock are what
-# ``archive.py`` imports, and the shape they consume is ``{"start", "end", "text"}`` in seconds.
+# Products — the segment renderers and the SRT clock now live in :mod:`bili_asr.cues`
+# (plan 009 consolidated the cue parsers); they are re-exported here because
+# ``archive.py`` and the test tree import them from this module.  A cue is a
+# subtitle line; the shape they consume is ``{"start", "end", "text"}`` in
+# seconds.
 # ---------------------------------------------------------------------------------------
 
-
-def _fmt_srt_time(seconds: float) -> str:
-    milliseconds = max(0, round(float(seconds) * 1000))
-    hours, remainder = divmod(milliseconds, 3_600_000)
-    minutes, remainder = divmod(remainder, 60_000)
-    secs, millis = divmod(remainder, 1_000)
-    return f"{hours:02d}:{minutes:02d}:{secs:02d},{millis:03d}"
-
-
-def segments_to_srt(segments: list[dict[str, Any]]) -> str:
-    blocks = []
-    for index, segment in enumerate(segments, start=1):
-        blocks.append(
-            f"{index}\n{_fmt_srt_time(segment['start'])} --> {_fmt_srt_time(segment['end'])}\n"
-            f"{segment['text']}\n"
-        )
-    return "\n".join(blocks)
-
-
-def segments_to_txt(segments: list[dict[str, Any]]) -> str:
-    return "\n".join(
-        str(segment.get("text", "")).strip()
-        for segment in segments
-        if str(segment.get("text", "")).strip()
-    )
+from .cues import _fmt_srt_time as _fmt_srt_time  # noqa: F401  (deliberate re-export)
+from .cues import segments_to_srt as segments_to_srt  # noqa: F401  (deliberate re-export)
+from .cues import segments_to_txt as segments_to_txt  # noqa: F401  (deliberate re-export)
 
 
 def characters_of(runner: Any) -> dict[str, Any] | None:
