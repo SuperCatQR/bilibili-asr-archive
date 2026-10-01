@@ -107,8 +107,7 @@ def _budget_row(bvid, cid, duration_s, status="meta_ok", audio_path=None):
 
 def test_pilot_budget_skip_via_cli(tmp_path, monkeypatch, capsys):
     """Audio row skipped with named reason when cap would be breached."""
-    import sys
-    sys.path.insert(0, "tests")
+    # tests/ is importable via conftest's sys.path preamble (repo root on sys.path).
     from test_cli_pilot import RouterTransport, SPI_OK, nav_ok, nav_response, player_ok  # noqa
     from bili_asr import bili_client as bc
     from bili_asr import asr as asr_mod
