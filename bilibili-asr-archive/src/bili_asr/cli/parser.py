@@ -319,6 +319,21 @@ def build_parser() -> argparse.ArgumentParser:
         help="Archive root directory (default: ./archive)",
     )
     proofread.add_argument("--artifact-root", default=None, help=_ARTIFACT_ROOT_HELP)
+    proofread.add_argument(
+        "--asr-root", default=None,
+        help=(
+            "Root holding the ASR raw sidecar "
+            "(transcripts/<bvid>.p<N>/bundle.raw.json); default: the artifact root. "
+            "Use it when the two routes live on different roots"
+        ),
+    )
+    proofread.add_argument(
+        "--caption-root", default=None,
+        help=(
+            "Root holding archive.db, which the AI/CC caption route is read from; "
+            "default: the archive root. Use it when the two routes live on different roots"
+        ),
+    )
 
     proofread_merge = subparsers.add_parser(
         "proofread-merge",

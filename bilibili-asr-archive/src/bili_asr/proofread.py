@@ -463,6 +463,25 @@ def render_alignment_jsonl(alignment: Alignment) -> str:
 # --------------------------------------------------------------------------------------
 
 
+def _source_text(source: Any) -> str:
+    """Render a sidecar's ``source`` for the refusal below: verbatim, bounded.
+
+    A textual source is the value the operator will recognise; anything else is
+    a shape the archive never writes, so it is shown as JSON rather than
+    assumed to be printable.
+
+    Every branch is bounded, including the JSON one: an unbounded fallback would
+    let a hostile or merely odd sidecar put an arbitrary string into the refusal
+    line.  (Found by L2 review — the fallback used to be uncapped while this
+    docstring already claimed otherwise.)
+    """
+
+    if source is None:
+        return "<missing>"
+    text = source if isinstance(source, str) else json.dumps(source, ensure_ascii=False)
+    return text if len(text) <= 32 else text[:32] + "…"
+
+
 def read_asr_route_ms(artifact_root: Path, bvid: str, part: int) -> list[tuple[int, int, str]]:
     """Read the archived ASR transcript for one part: its ``raw`` sidecar.
 
@@ -470,6 +489,14 @@ def read_asr_route_ms(artifact_root: Path, bvid: str, part: int) -> list[tuple[i
     (``transcripts/<bvid>.p<N>/bundle.raw.json``); seconds in the file convert to
     milliseconds exactly (the SRT renderer rounds ``seconds * 1000`` back, so
     no millisecond is lost — the same rule ``writer_segments`` pins).
+
+    The sidecar's own ``source`` is checked, and only ``asr`` is this route.  A
+    caption-derived sidecar (``subtitle-ai`` / ``subtitle``) or a merged one
+    (``proofread``) holds the *other* route's text, so reading it here would put
+    one route on both sides of the table: every block agrees with itself, the
+    table adjudicates nothing, and — worse — it reports success.  The refusal
+    therefore names the source actually found, so the operator can see which
+    file was picked up rather than having to infer it.
     """
 
     raw_path = bundle_paths_for_stem(artifact_root, f"{bvid}.p{part}")["raw_path"]
@@ -479,6 +506,12 @@ def read_asr_route_ms(artifact_root: Path, bvid: str, part: int) -> list[tuple[i
         document = json.loads(raw_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
         raise ProofreadRouteError(f"{bvid}:p{part}: unreadable ASR route ({exc})") from exc
+    source = document.get("source")
+    if source != "asr":
+        raise ProofreadRouteError(
+            f"{bvid}:p{part}: expected source=asr, found source={_source_text(source)} "
+            f"in {raw_path}"
+        )
     segments = document.get("segments")
     if not isinstance(segments, list) or not segments:
         raise ProofreadRouteError(f"{bvid}:p{part}: ASR route holds no segment")
@@ -590,6 +623,8 @@ def build_sidebyside(
     *,
     archive_root: str | os.PathLike[str],
     artifact_root: str | os.PathLike[str],
+    asr_root: str | os.PathLike[str] | None = None,
+    caption_root: str | os.PathLike[str] | None = None,
 ) -> tuple[Path, Path]:
     """Build the side-by-side table and the alignment jsonl for one part.
 
@@ -598,14 +633,29 @@ def build_sidebyside(
     families belong to ``publish-transcripts`` and to ``proofread-merge``.
     Guard A runs before anything is written: a coverage violation aborts with
     :class:`GuardViolationError` naming the block and no artifact appears.
+
+    The two routes are read from two roots, and the roots are separable because
+    the routes really are separable: an end-to-end run that exhausts the caption
+    route on one root leaves the ASR sidecar on another, and demanding one root
+    for both refuses a pair of inputs that exist and are perfectly readable.
+    ``asr_root`` (the ASR sidecar) and ``caption_root`` (the transcript store)
+    each default to what they have always been — ``artifact_root`` and
+    ``archive_root`` respectively — so an invocation that names neither reads
+    exactly what it read before.  Writes follow ``artifact_root`` alone: the new
+    parameters *move reads*, they do not create a second output location.
     """
 
     archive_root_path = Path(archive_root)
     artifact_root_path = Path(artifact_root)
     work_id = f"{bvid}:p{part}"
-    asr_route = read_asr_route_ms(artifact_root_path, bvid, part)
+    asr_route = read_asr_route_ms(
+        artifact_root_path if asr_root is None else Path(asr_root), bvid, part
+    )
     subtitle_route = read_subtitle_route_ms(
-        archive_root_path, artifact_root_path, bvid, part
+        archive_root_path if caption_root is None else Path(caption_root),
+        artifact_root_path,
+        bvid,
+        part,
     )
     alignment = guard_a_coverage(work_id, asr_route, subtitle_route)
 
