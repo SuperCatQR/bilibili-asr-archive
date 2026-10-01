@@ -231,6 +231,14 @@ def _cmd_proofread(args: argparse.Namespace) -> int:
     (unknown selector), a missing route, or a Guard A violation — each printed
     bounded, naming the work id and, for the guard, the block.  ``2`` is never
     produced: no socket is opened and argparse's own usage exit is mapped to 1.
+
+    ``--asr-root`` / ``--caption-root`` move each route's *read* independently
+    (the E2E's two roots hold one route each); neither is resolved or validated
+    here, because the readers already refuse a root that does not yield its
+    route with a message naming the path they looked at — the same line whether
+    the root was defaulted or passed.  They are not routed through
+    ``roots_for``: that is the write base's guard, and the two read roots are
+    neither written to nor created.
     """
 
     from bili_asr.proofread import GuardViolationError, ProofreadRouteError, build_sidebyside
@@ -245,6 +253,8 @@ def _cmd_proofread(args: argparse.Namespace) -> int:
             bvid, part,
             archive_root=args.archive_root,
             artifact_root=os.fspath(args.artifact_roots.write_base),
+            asr_root=args.asr_root,
+            caption_root=args.caption_root,
         )
     except ProofreadRouteError as exc:
         print(f"proofread: {exc}", file=sys.stderr)
