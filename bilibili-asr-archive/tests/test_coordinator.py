@@ -369,6 +369,64 @@ def test_attempt_counter_increments_across_instantiations(tmp_root):
     assert [r["attempt"] for r in records] == [1, 2]
 
 
+def _attempt_record(stage, work_id, *, attempt=1, outcome="failed"):
+    return {
+        "stage": stage,
+        "work_id": work_id,
+        "attempt": attempt,
+        "outcome": outcome,
+        "error_code": None,
+        "artifact_paths": [],
+        "started_at": "2026-10-02T00:00:00Z",
+        "finished_at": "2026-10-02T00:00:01Z",
+    }
+
+
+def test_attempt_numbering_matches_full_scan_without_rescanning(tmp_root, monkeypatch):
+    """Per-key numbering is identical to the full-scan version, at O(1) per append.
+
+    Regression for plan 006: ``AttemptLedger.append`` used to stream and parse
+    the whole ``attempts.jsonl`` on every append just to find the latest attempt
+    number; it must now trust the in-memory map seeded once at construction.
+    """
+    ledger = AttemptLedger(tmp_root)
+    keys = [("BVa:p0", "harvest"), ("BVa:p0", "asr"), ("BVb:p0", "harvest")]
+    for work_id, stage in keys:
+        ledger.append(_attempt_record(stage, work_id))
+        ledger.append(_attempt_record(stage, work_id))
+        ledger.append(_attempt_record(stage, work_id))
+    ledger.append(_attempt_record("harvest", "BVa:p0"))
+    # A fresh ledger on the non-empty sidecar seeds its map from one scan,
+    # then appends at max + 1 without re-reading the file.
+    ledger2 = AttemptLedger(tmp_root)
+    scan_calls = 0
+    real_iter_valid = type(ledger2)._iter_valid
+
+    def counting_iter_valid(self, *, strict=False):
+        nonlocal scan_calls
+        scan_calls += 1
+        yield from real_iter_valid(self, strict=strict)
+
+    monkeypatch.setattr(type(ledger2), "_iter_valid", counting_iter_valid)
+    ledger2.append(_attempt_record("harvest", "BVa:p0"))
+    ledger2.append(_attempt_record("asr", "BVa:p0"))
+    ledger2.append(_attempt_record("harvest", "BVc:p0"))
+    assert scan_calls == 0
+    monkeypatch.undo()
+    records = AttemptLedger(tmp_root).load()
+    per_key: dict[tuple[str, str], list[int]] = {}
+    for record in records:
+        per_key.setdefault((record["work_id"], record["stage"]), []).append(record["attempt"])
+    assert per_key == {
+        ("BVa:p0", "harvest"): [1, 2, 3, 4, 5],
+        ("BVa:p0", "asr"): [1, 2, 3, 4],
+        ("BVb:p0", "harvest"): [1, 2, 3],
+        ("BVc:p0", "harvest"): [1],
+    }
+    for numbers in per_key.values():
+        assert numbers == list(range(1, len(numbers) + 1))
+
+
 # ------------------------------------------------------------ ASR runner binding
 
 def test_run_batch_default_runner_is_lazy_reused_and_batch_scoped(tmp_root, monkeypatch):
