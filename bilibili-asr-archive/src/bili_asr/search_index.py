@@ -56,7 +56,7 @@ from typing import Any, Sequence
 
 from .archive import archive_stem, bundle_relpaths_for_stem
 from .artifact_root import ArtifactRoots
-from .manifest import ManifestStore
+from .manifest import JOURNAL_NAME, ManifestStore
 
 FTS5_TABLE_NAME = "transcripts_fts"
 INDEX_META_TABLE = "_index_meta"
@@ -457,6 +457,7 @@ class SearchIndex:
         )
         self.db_path = os.path.join(self.root, "search.db")
         self.manifest_path = os.path.join(self.root, "manifest", "manifest.jsonl")
+        self.journal_path = os.path.join(self.root, "manifest", JOURNAL_NAME)
 
     def count(self) -> int:
         """Return the number of indexed rows in search.db, or 0 if uninitialized."""
@@ -477,7 +478,8 @@ class SearchIndex:
         self,
         manifest_entries: dict[str, dict[str, Any]] | ManifestStore | None = None,
     ) -> bool:
-        """Check if search.db is missing, older than manifest.jsonl, schema mismatch, or row mismatch."""
+        """Check if search.db is missing, older than the manifest snapshot or its
+        append journal, schema mismatch, or row mismatch."""
         if not os.path.isfile(self.db_path):
             return True
 
@@ -505,12 +507,19 @@ class SearchIndex:
         except (sqlite3.OperationalError, sqlite3.DatabaseError):
             return True
 
-        # If manifest file exists, check mtime comparison
-        if os.path.isfile(self.manifest_path):
+        # If manifest files exist, check mtime comparison.  The journal is a
+        # live sidecar of the snapshot (ManifestStore.upsert appends there
+        # without touching manifest.jsonl), so a journaled same-count change
+        # must also invalidate the index.
+        mtimes = [
+            os.path.getmtime(path)
+            for path in (self.manifest_path, self.journal_path)
+            if os.path.isfile(path)
+        ]
+        if mtimes:
             try:
-                manifest_mtime = os.path.getmtime(self.manifest_path)
                 db_mtime = os.path.getmtime(self.db_path)
-                if manifest_mtime > db_mtime:
+                if max(mtimes) > db_mtime:
                     return True
             except OSError:
                 return True
@@ -1299,23 +1308,35 @@ class TranscriptSearchIndex:
         )
 
     def _published_md_candidates(
-        self, conn: sqlite3.Connection
+        self, conn: sqlite3.Connection, exclude: set[int] | None = None
     ) -> list[sqlite3.Row]:
         """Parts the store holds but has no stored transcript for.
 
         These are the only candidates for the published-markdown fallback;
         parts already indexed (from the store or from markdown) carry a
         ``transcript_fts`` row keyed by their ``video_part_id`` and are
-        excluded by the caller.
+        excluded here, in SQL, so the caller never re-probes or re-reads
+        their markdown on a rebuild.
         """
+        params: list[object] = []
+        stamped_clause = ""
+        if exclude:
+            stamped_clause = (
+                "AND vp.video_part_id NOT IN ("
+                + ",".join("?" for _ in exclude)
+                + ") "
+            )
+            params.extend(sorted(exclude))
         return list(
             conn.execute(
                 "SELECT vp.video_part_id, vp.bvid, vp.page_index, vp.duration_ms, "
                 "vp.cid, vd.pubdate "
                 "FROM video_parts AS vp JOIN videos AS vd ON vd.bvid = vp.bvid "
                 "WHERE NOT EXISTS ("
-                "SELECT 1 FROM transcripts AS t WHERE t.video_part_id = vp.video_part_id)"
-                "ORDER BY vp.video_part_id"
+                "SELECT 1 FROM transcripts AS t WHERE t.video_part_id = vp.video_part_id) "
+                + stamped_clause
+                + "ORDER BY vp.video_part_id",
+                params,
             ).fetchall()
         )
 
@@ -1389,14 +1410,20 @@ class TranscriptSearchIndex:
                     flush()
 
             conn.commit()  # flush() may have left a partial batch uncommitted
+            # Only md-sourced rows carry a video_part_id in the key
+            # (``m<video_part_id>:0``); store rows are ``t<transcript_id>:<ordinal>``,
+            # so the id is read from after the ``m`` prefix — reading from column 1
+            # would harvest store transcript_ids and never the stamped part.
             stamped_part_ids = {
                 int(r[0])
                 for r in conn.execute(
-                    f"SELECT DISTINCT CAST(substr(block_key, 1, instr(block_key, ':') - 1) "
-                    f"AS INTEGER) FROM {STORE_FTS5_TABLE}"
+                    f"SELECT DISTINCT CAST(substr(block_key, 2, instr(block_key, ':') - 2) "
+                    f"AS INTEGER) FROM {STORE_FTS5_TABLE} "
+                    f"WHERE substr(block_key, 1, 1) = ?",
+                    (_MD_KEY_PREFIX,),
                 )
             }
-            for part in self._published_md_candidates(conn):
+            for part in self._published_md_candidates(conn, stamped_part_ids):
                 part_id = int(part["video_part_id"])
                 if part_id in stamped_part_ids:
                     continue
