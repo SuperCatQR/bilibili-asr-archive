@@ -133,9 +133,10 @@ def _patch_audio(monkeypatch, seconds: float, reads: list[str] | None,
                  fail_when=None) -> None:
     """Make the reader and the chunk writer work without a real audio file.
 
-    The boundary reads and chunks audio, so it needs numpy and soundfile — the two light members of
-    the ``[asr]`` extra.  Where they are absent the test **skips** rather than fails: this project
-    verifies the ASR path on the host that owns the extra, and the control host has neither.
+    The boundary reads and chunks audio, so it needs numpy, soundfile and soxr — the three light
+    members of the ``[asr]`` extra.  All three are declared as test dependencies, so the ASR path is
+    exercised on every host rather than skipped where they are absent; only the heavy three
+    (``transformers``/``accelerate``/``torch``) are left to the doubles.
 
     ``reads`` collects the path of every recording the boundary opened.  That is where a row is
     identified now: the boundary hands the *model* a chunk file (one scratch path for every row), so
@@ -143,10 +144,8 @@ def _patch_audio(monkeypatch, seconds: float, reads: list[str] | None,
     per-row failure, which is what the old ``generate(**kwargs)`` doubles did with ``kwargs["input"]``.
     """
 
-    import pytest
-
-    np = pytest.importorskip("numpy", reason="the ASR path reads audio through numpy")
-    sf = pytest.importorskip("soundfile", reason="the ASR path reads audio through soundfile")
+    import numpy as np
+    import soundfile as sf
 
     samples = np.zeros(int(16000 * seconds), dtype="float32")
 
