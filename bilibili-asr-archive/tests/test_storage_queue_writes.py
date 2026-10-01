@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import sqlite3
+
 import pytest
 
 from bili_asr.storage import (
@@ -14,6 +16,7 @@ from bili_asr.storage import (
 )
 from bili_asr.services.queue_source import (
     QueueSource,
+    record_caption_transcript,
     record_local_transcript,
 )
 
@@ -856,5 +859,196 @@ def test_record_local_transcript_is_best_effort_on_store_failure(tmp_root):
             model_revision=None,
         )
         assert connection.execute("SELECT COUNT(*) FROM transcripts").fetchone()[0] == 0
+    finally:
+        connection.close()
+
+
+# ---------------------------------------------------------------------------
+# R14 (plan r14-routes-writeback): the subtitle-arm + run-batch routes converge
+# v_missing_transcript through the same best-effort write-back seam.
+# ---------------------------------------------------------------------------
+
+
+def test_record_caption_transcript_converges_every_gap_view(tmp_root):
+    """A subtitle-sourced transcript leaves every gap view, through the caption writer.
+
+    The subtitle-arm write-back's deliverable: a part whose transcript came
+    from a harvested caption owes a ``transcripts`` row with
+    source_kind ``'subtitle-ai'``/``'subtitle-cc'`` — written through the
+    CAPTION writer (``TranscriptRepository.record_acquired_transcript``), never
+    the ``'asr-local'`` singleton — so the part leaves ``v_missing_subtitle`` /
+    ``v_missing_audio`` / ``v_missing_transcript`` together.  The part here has
+    no audio evidence, so it starts in the subtitle gap; the caption row alone
+    must clear it.
+    """
+    connection = open_database(tmp_root)
+    try:
+        repository = MediaQueueRepository(connection)
+        video_part_id = _insert_user_video_part(connection, bvid="BVcap")
+        _insert_acquisition_run(connection, run_id="run-cap", kind="subtitle")
+
+        # Negative control: the captionless part is genuinely queued first.
+        assert repository.count_queue_gaps() == {
+            "missing_subtitle": 1,
+            "missing_audio": 0,
+            "missing_transcript": 0,
+        }
+
+        record_caption_transcript(
+            QueueSource(connection),
+            run_id="run-cap",
+            bvid="BVcap",
+            page_index=0,
+            source_kind="subtitle-ai",
+            language="ai-zh",
+            segments=(TranscriptSegmentRecord(start_ms=0, end_ms=1_000, text="字幕"),),
+        )
+
+        # The caption row cleared every gap view, not just the transcript one.
+        assert repository.count_queue_gaps() == {
+            "missing_subtitle": 0,
+            "missing_audio": 0,
+            "missing_transcript": 0,
+        }
+
+        # The stored row is a real caption transcript on the real part.
+        row = connection.execute(
+            "SELECT source_kind, language, model_id FROM transcripts "
+            "WHERE video_part_id = ?",
+            (video_part_id,),
+        ).fetchone()
+        assert row["source_kind"] == "subtitle-ai"
+        assert row["language"] == "ai-zh"
+        assert row["model_id"] is None  # a caption carries no ASR model identity
+
+        # The attempt row is the companion evidence, keyed to the caption run.
+        attempt = connection.execute(
+            "SELECT outcome, transcript_id FROM acquisition_attempts "
+            "WHERE run_id = 'run-cap' AND video_part_id = ?",
+            (video_part_id,),
+        ).fetchone()
+        assert attempt["outcome"] == "stored"
+        assert attempt["transcript_id"] is not None
+    finally:
+        connection.close()
+
+
+def test_record_caption_transcript_is_best_effort_and_keeps_caption_guard(tmp_root):
+    """Store failures are swallowed, and the caption accepted set is unchanged.
+
+    The write-back is best-effort exactly like the ASR sibling: a part the
+    store does not hold is skipped, and a body the caption writer refuses (an
+    empty segment tuple) is swallowed — the archive on disk stands.  The
+    caption writer's accepted-kind set stays exactly the two caption kinds:
+    this entry point cannot widen it, and an asr-local caption is still refused
+    here exactly as through every other caption caller.
+    """
+    connection = open_database(tmp_root)
+    try:
+        _insert_acquisition_run(connection, run_id="run-capbe", kind="subtitle")
+
+        # Unknown part: resolution finds nothing, no write, no raise.
+        record_caption_transcript(
+            QueueSource(connection),
+            run_id="run-capbe",
+            bvid="BVmissing",
+            page_index=0,
+            source_kind="subtitle-cc",
+            language="zh-CN",
+            segments=(TranscriptSegmentRecord(start_ms=0, end_ms=1_000, text="x"),),
+        )
+        assert connection.execute("SELECT COUNT(*) FROM transcripts").fetchone()[0] == 0
+
+        # A caption body the caption writer refuses (empty segments) is swallowed.
+        _insert_user_video_part(connection, bvid="BVcapbe")
+        record_caption_transcript(
+            QueueSource(connection),
+            run_id="run-capbe",
+            bvid="BVcapbe",
+            page_index=0,
+            source_kind="subtitle-cc",
+            language="zh-CN",
+            segments=(),
+        )
+        assert connection.execute("SELECT COUNT(*) FROM transcripts").fetchone()[0] == 0
+
+        # The caption writer still refuses asr-local through this entry point:
+        # the accepted set is unchanged.
+        part_id = _insert_video_part_under_video(connection, bvid="BVcapbe")
+        transcripts = TranscriptRepository(connection)
+        with pytest.raises(ValueError):
+            transcripts.record_acquired_transcript(
+                run_id="run-capbe",
+                video_part_id=part_id,
+                source_kind="asr-local",
+                language="zh",
+                segments=(TranscriptSegmentRecord(start_ms=0, end_ms=1_000, text="字幕"),),
+                started_at=110,
+                finished_at=111,
+                created_at=112,
+            )
+        assert (
+            connection.execute("SELECT COUNT(*) FROM transcripts").fetchone()[0] == 0
+        )
+        assert ALLOWED_CAPTION_SOURCE_KINDS == frozenset(
+            {"subtitle-ai", "subtitle-cc"}
+        )
+    finally:
+        connection.close()
+
+
+def test_queue_source_ensure_asr_run_creates_one_run_per_source(tmp_root):
+    """The lazy run-scope helper is idempotent per source and best-effort.
+
+    Every transcript write-back keys to one ``kind='asr'`` run per invocation;
+    ``ensure_asr_run`` opens it lazily (only when a row actually records a
+    transcript) and reuses the one id across calls, so a batch records exactly
+    one run no matter how many parts it archives.  A store that refuses the
+    run leaves the id ``None`` so every write-back skips.
+    """
+    connection = open_database(tmp_root)
+    try:
+        source = QueueSource(connection)
+
+        # Lazily created on first use, not before.
+        assert source.asr_run_id is None
+        first = source.ensure_asr_run("run")
+        assert first is not None
+        assert source.asr_run_id == first
+
+        # Idempotent per source: the same id comes back, no second run row.
+        assert source.ensure_asr_run("run") == first
+        assert source.ensure_asr_run("run") == first
+        runs = connection.execute(
+            "SELECT run_id, kind, outcome FROM acquisition_runs WHERE run_id = ?",
+            (first,),
+        ).fetchall()
+        assert len(runs) == 1
+        assert runs[0]["kind"] == "asr"
+        assert runs[0]["outcome"] == "running"
+    finally:
+        connection.close()
+
+
+def test_queue_source_ensure_asr_run_is_best_effort_on_store_failure(tmp_root, monkeypatch):
+    """A store that refuses the run leaves the id ``None`` (write-backs skip)."""
+    connection = open_database(tmp_root)
+    try:
+        from bili_asr.storage import TranscriptRepository
+
+        source = QueueSource(connection)
+
+        def refuse(*args, **kwargs):
+            raise sqlite3.Error("store refused")
+
+        monkeypatch.setattr(TranscriptRepository, "start_acquisition_run", refuse)
+        assert source.ensure_asr_run("run") is None
+        assert source.asr_run_id is None
+        # A refused run stays refused: the id stays None and no run row exists.
+        assert source.ensure_asr_run("run") is None
+        assert (
+            connection.execute("SELECT COUNT(*) FROM acquisition_runs").fetchone()[0]
+            == 0
+        )
     finally:
         connection.close()

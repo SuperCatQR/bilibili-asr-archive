@@ -1546,3 +1546,196 @@ def test_safe_error_code_sanitizes_forbidden_markers(tmp_root):
     stored = coord._record("harvest", "BVsane:p0", "failed",
                            error_code=sanitized)
     assert stored["error_code"] == "evil.example/=abc"
+
+
+# ---------------------------------------------------------------------------
+# R14 (plan r14-routes-writeback): the coordinator/run-batch archive seam
+# records the transcripts row both arms owe.  These drive RunCoordinator
+# directly over a store seeded through the repositories' own writers, the same
+# discipline the rest of this module's fixtures keep.
+# ---------------------------------------------------------------------------
+
+_MID = 23191782
+
+
+def _seed_part(root, bvid, page_index, cid):
+    """One stored video part; returns its ``video_part_id``."""
+    from bili_asr.storage import (
+        MetadataRepository,
+        UserRecord,
+        VideoPartRecord,
+        VideoRecord,
+        open_database,
+    )
+
+    connection = open_database(root)
+    try:
+        metadata = MetadataRepository(connection)
+        with metadata.transaction():
+            metadata.upsert_user(
+                UserRecord(mid=_MID, display_name="未明子", created_at=1, updated_at=1)
+            )
+            metadata.upsert_video(
+                VideoRecord(
+                    bvid=bvid, aid=None, mid=_MID, title="视频",
+                    pubdate=1_700_000_000, created_at=2, updated_at=2,
+                )
+            )
+            metadata.upsert_part(
+                VideoPartRecord(
+                    bvid=bvid, page_index=page_index, cid=cid, title="第一段",
+                    duration_ms=5_000, processing_status="discovered",
+                    created_at=3, updated_at=3,
+                )
+            )
+        connection.commit()
+        row = connection.execute(
+            "SELECT video_part_id FROM video_parts WHERE bvid = ? AND page_index = ?",
+            (bvid, page_index),
+        ).fetchone()
+        return int(row["video_part_id"])
+    finally:
+        connection.close()
+
+
+def _queue_counts(root):
+    from bili_asr.storage import MediaQueueRepository, open_database
+
+    connection = open_database(root)
+    try:
+        return MediaQueueRepository(connection).count_queue_gaps()
+    finally:
+        connection.close()
+
+
+def _transcript_rows(root):
+    from bili_asr.storage import open_database
+
+    connection = open_database(root)
+    try:
+        return connection.execute(
+            "SELECT source_kind, language FROM transcripts ORDER BY transcript_id"
+        ).fetchall()
+    finally:
+        connection.close()
+
+
+def test_run_batch_asr_route_records_the_local_transcript(tmp_root, monkeypatch):
+    """The coordinator ASR archive stage converges ``v_missing_transcript``.
+
+    Before this plan only the ``asr``/``pilot`` in-process loops recorded the
+    locally-produced transcript row; the coordinator/run-batch route archived
+    the artifact and left the part in the gap view.  After a successful ASR
+    archive the part must hold a real ``'asr-local'`` transcript row and have
+    left ``v_missing_transcript`` — with one ``kind='asr'`` run carrying both
+    parts' attempt evidence.
+    """
+    from bili_asr.storage import open_database
+
+    aud_a = page_identity("BVrbA", 0, 301, "p0")
+    aud_b = page_identity("BVrbB", 0, 302, "p0")
+    store = ManifestStore(root=tmp_root)
+    store.upsert(_row(aud_a, status="audio_ok", title="a"))
+    store.upsert(_row(aud_b, status="audio_ok", title="b"))
+    audio_dir = os.path.join(tmp_root, "audio")
+    os.makedirs(audio_dir)
+    for identity in (aud_a, aud_b):
+        with open(os.path.join(audio_dir, f"{artifact_stem(identity)}.m4a"),
+                  "wb") as fh:
+            fh.write(AUDIO_BYTES)
+    _seed_part(tmp_root, aud_a.bvid, aud_a.page_index, aud_a.cid)
+    _seed_part(tmp_root, aud_b.bvid, aud_b.page_index, aud_b.cid)
+    # Audio evidence puts both parts in the transcript queue before the run.
+    from _archive_database import _seed_archive_database
+
+    _seed_archive_database(tmp_root)
+
+    transcribe_calls: list[str] = []
+    _stub_asr(monkeypatch, transcribe_calls)
+    _patch_cli(monkeypatch, RouterTransport({}))
+
+    coord = RunCoordinator(tmp_root, store, client=None, offline=True)
+    summary = coord.run_batch([(aud_a.work_id, store.get(aud_a.work_id)),
+                               (aud_b.work_id, store.get(aud_b.work_id))])
+
+    assert summary.fully_processed
+    assert [r.final_status for r in summary.results] == ["archived", "archived"]
+    assert ManifestStore(root=tmp_root).get(aud_a.work_id)["status"] == "archived"
+
+    # Both parts left the transcript gap; the store holds one asr-local row
+    # per part.
+    counts = _queue_counts(tmp_root)
+    assert counts["missing_transcript"] == 0
+    rows = _transcript_rows(tmp_root)
+    assert [r["source_kind"] for r in rows] == ["asr-local", "asr-local"]
+
+    # Exactly one kind='asr' run carries both parts' attempt evidence — the
+    # run-scoping contract (one invocation is one run).
+    connection = open_database(tmp_root)
+    try:
+        runs = connection.execute(
+            "SELECT run_id, kind FROM acquisition_runs WHERE kind = 'asr'"
+        ).fetchall()
+        assert len(runs) == 1
+        attempts = connection.execute(
+            "SELECT COUNT(*) AS n FROM acquisition_attempts WHERE run_id = ?",
+            (runs[0]["run_id"],),
+        ).fetchone()
+        assert attempts["n"] == 2
+    finally:
+        connection.close()
+
+
+def test_run_batch_subtitle_route_records_the_caption_transcript(
+    tmp_root, monkeypatch, capsys
+):
+    """The coordinator subtitle archive stage converges every gap view.
+
+    A caption archived from the raw document owes a ``transcripts`` row through
+    the CAPTION writer (source_kind ``'subtitle-ai'``/``'subtitle-cc'``, never
+    the ``'asr-local'`` singleton).  The AI-harvested part records
+    ``'subtitle-ai'`` and the CC-harvested part records ``'subtitle-cc'``, both
+    keyed to one run, and both leave the subtitle gap they started in.
+    """
+    sub_ai = page_identity("BVsubAI", 0, 401, "p0")
+    sub_cc = page_identity("BVsubCC", 0, 402, "p0")
+    store = ManifestStore(root=tmp_root)
+    # ``sub_lan`` is what the subtitle harvest seam records for the chosen
+    # track; the ``ai-`` prefix marks the machine-generated caption.
+    ai_row = _row(sub_ai, status="subtitle_done", title="ai")
+    ai_row["sub_lan"] = "ai-zh"
+    cc_row = _row(sub_cc, status="subtitle_done", title="cc")
+    cc_row["sub_lan"] = "zh-CN"
+    store.upsert(ai_row)
+    store.upsert(cc_row)
+    raw_dir = os.path.join(tmp_root, "subtitles", "raw")
+    os.makedirs(raw_dir)
+    for identity in (sub_ai, sub_cc):
+        with open(os.path.join(raw_dir, f"{artifact_stem(identity)}.json"),
+                  "w", encoding="utf-8") as fh:
+            json.dump(SAMPLE_DOC, fh)
+    _seed_part(tmp_root, sub_ai.bvid, sub_ai.page_index, sub_ai.cid)
+    _seed_part(tmp_root, sub_cc.bvid, sub_cc.page_index, sub_cc.cid)
+
+    # Both caption-holding parts start in the subtitle gap.
+    assert _queue_counts(tmp_root)["missing_subtitle"] == 2
+
+    _patch_cli(monkeypatch, RouterTransport({}))
+    coord = RunCoordinator(tmp_root, store, client=None, offline=True)
+    summary = coord.run_batch([(sub_ai.work_id, store.get(sub_ai.work_id)),
+                               (sub_cc.work_id, store.get(sub_cc.work_id))])
+    capsys.readouterr()
+
+    assert summary.fully_processed
+    assert ManifestStore(root=tmp_root).get(sub_ai.work_id)["status"] == "archived"
+
+    # The caption rows cleared every gap view, and the source kinds follow the
+    # harvested track's machine flag.
+    counts = _queue_counts(tmp_root)
+    assert counts == {
+        "missing_subtitle": 0,
+        "missing_audio": 0,
+        "missing_transcript": 0,
+    }
+    rows = _transcript_rows(tmp_root)
+    assert sorted(r["source_kind"] for r in rows) == ["subtitle-ai", "subtitle-cc"]
