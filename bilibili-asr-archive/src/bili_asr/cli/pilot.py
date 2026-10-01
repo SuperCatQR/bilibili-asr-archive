@@ -11,6 +11,7 @@ import time
 
 from bili_asr.cli._shared import (
     DEFAULT_ARCHIVE_ROOT,
+    _AUDIO_BUDGET_SKIP_HINT,
     _archive_database_exists,
     _identity_from_entry,
     _is_excluded,
@@ -18,6 +19,7 @@ from bili_asr.cli._shared import (
     _open_read_connection,
     _open_read_repository,
     _queue_source_is_manifest,
+    _record_api_error,
     _resolve_sessdata,
     _store_audio_todo,
     _store_transcript_todo,

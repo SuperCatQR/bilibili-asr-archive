@@ -33,6 +33,7 @@ from test_subtitles import SAMPLE_DOC, nav_ok, player_ok, sub_entry
 from conftest import reuse_line
 
 import _asr_fakes as asr_fakes
+from _archive_database import _seed_archive_database
 
 
 def _stub_runner_model(monkeypatch, calls=None, released=None):
@@ -71,6 +72,7 @@ def _seed_audio_ok(root, identities):
         store.upsert(row)
         with open(os.path.join(audio_dir, f"{artifact_stem(identity)}.m4a"), "wb") as fh:
             fh.write(AUDIO_BYTES)
+    _seed_archive_database(root)
 
 
 def _row(identity, *, duration_s=5, title="clip", status="meta_ok", **extra):
@@ -171,6 +173,7 @@ def test_cli_audio_branch_needs_audio_audio_ok_archived(
 ):
     identity = page_identity("BVaud", 0, 222, "p0")
     ManifestStore(root=tmp_root).upsert(_row(identity, title="needs-asr"))
+    _seed_archive_database(tmp_root)
     transcribe_calls: list[str] = []
 
     _stub_runner_model(monkeypatch, transcribe_calls)
@@ -206,6 +209,7 @@ def test_cli_subtitle_branch_subtitle_done_archived_skips_asr(
 ):
     identity = page_identity("BVsub", 0, 111, "p0")
     ManifestStore(root=tmp_root).upsert(_row(identity, title="has-sub"))
+    _seed_archive_database(tmp_root)
     transcribe_calls: list[str] = []
 
     # The seam records the model's generation inputs: this row must never
@@ -238,6 +242,7 @@ def test_cli_asr_missing_optional_asr_exits_1_non_archived(
 
     identity = page_identity("BVaud", 0, 222, "p0")
     ManifestStore(root=tmp_root).upsert(_row(identity, title="needs-asr"))
+    _seed_archive_database(tmp_root)
     hint = 'pip install -e "bilibili-asr-archive/[asr]"'
 
     asr_fakes.raising(
@@ -272,6 +277,7 @@ def test_cli_asr_rerun_idempotent_leaves_unrelated_rows(
     store.upsert(
         _row(other, title="already-done", status="archived", srt_path="keep.srt")
     )
+    _seed_archive_database(tmp_root)
     other_snapshot = dict(store.get(other.work_id))
 
     asr_fakes.forbidden(monkeypatch)
@@ -378,6 +384,7 @@ def test_cli_asr_subtitle_only_selection_constructs_no_model(
 
     sub = page_identity("BVsubonly", 0, 111, "p0")
     ManifestStore(root=tmp_root).upsert(_row(sub, title="has-sub"))
+    _seed_archive_database(tmp_root)
     constructions = _stub_runner_model(monkeypatch)
     _patch_cli(monkeypatch, _subtitle_transport())
 
@@ -788,6 +795,7 @@ def test_a_malformed_declaration_does_not_block_a_subtitle_only_selection(
 
     sub = page_identity("BVdeclsub", 0, 990, "p0")
     ManifestStore(root=tmp_root).upsert(_row(sub, title="has-sub"))
+    _seed_archive_database(tmp_root)
     constructions = _stub_runner_model(monkeypatch)
     monkeypatch.setenv("BILI_ASR_MODEL_ID", "/opt/models/Fun-ASR-Nano-2512")
     _patch_cli(monkeypatch, _subtitle_transport())

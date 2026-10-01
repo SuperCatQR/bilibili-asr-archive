@@ -20,9 +20,18 @@ bili-asr = "bili_asr.cli:main"
 
 [project.optional-dependencies]
 dev = [
+    # The light members of the ASR stack.  The test double exercises the real audio path,
+    # which calls numpy/soundfile/soxr directly; of the three, only soundfile and soxr are
+    # declared in the [asr] extra — numpy arrives transitively through both, and is named
+    # here explicitly because the test tree imports it in its own right.  The heavy three
+    # (transformers/accelerate/torch) are substituted by tests/conftest.py's ``mock_torch``
+    # and tests/_asr_fakes.py, so they are deliberately NOT test dependencies.
+    "numpy>=1.26",
     "packaging>=24",
     "pytest>=8",
     "responses>=0.25",
+    "soundfile>=0.12",
+    "soxr>=0.5",
 ]
 asr = [
     # Qwen3-ASR has native transformers support from 5.13.0, which is the whole engine: the

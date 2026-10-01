@@ -30,6 +30,7 @@ from test_audio import (
 from test_subtitles import SAMPLE_DOC, nav_ok, player_ok, sub_entry
 
 import _asr_fakes as asr_fakes
+from _archive_database import _seed_archive_database
 
 SECRET = "SECRET-SESS"
 API_FAIL = (200, {"code": -400})
@@ -346,6 +347,7 @@ def test_asr_mixed_success_and_per_item_failure_exits_1(
     _stub_asr(monkeypatch, flaky)
     _patch_cli(monkeypatch, RouterTransport({}))
 
+    _seed_archive_database(tmp_root)
     rc = main(["asr", "--pending", "--archive-root", tmp_root])
     captured = capsys.readouterr()
     # Incomplete requested work is exit 1 even when another row archived.
@@ -395,6 +397,7 @@ def test_asr_pending_ignores_already_terminal_rows(
     with open(manifest_path, encoding="utf-8") as fh:
         before = fh.read()
 
+    _seed_archive_database(tmp_root)
     rc = main(["asr", "--pending", "--archive-root", tmp_root])
     captured = capsys.readouterr()
     assert rc == 0
@@ -436,6 +439,7 @@ def test_asr_optional_dependency_after_success_exits_1(
     _stub_asr(monkeypatch, missing)
     _patch_cli(monkeypatch, RouterTransport({}))
 
+    _seed_archive_database(tmp_root)
     rc = main(["asr", "--pending", "--archive-root", tmp_root])
     captured = capsys.readouterr()
     assert rc == 1
@@ -471,6 +475,7 @@ def test_asr_subtitle_done_missing_raw_is_incomplete_skip(
     _stub_asr(monkeypatch, unexpected)
     _patch_cli(monkeypatch, RouterTransport({}))
 
+    _seed_archive_database(tmp_root)
     rc = main(["asr", "--pending", "--archive-root", tmp_root])
     captured = capsys.readouterr()
     assert rc == 1
@@ -502,6 +507,7 @@ def test_pilot_mixed_success_and_api_failure_records_ledger(
     )
     _patch_cli(monkeypatch, transport)
 
+    _seed_archive_database(tmp_root)
     rc = main([
         "pilot", "--n", "2", "--archive-root", tmp_root, "--sessdata", SECRET,
     ])
@@ -542,6 +548,7 @@ def test_pilot_success_then_risk_exit_2_keeps_success(
     )
     _patch_cli(monkeypatch, transport)
 
+    _seed_archive_database(tmp_root)
     rc = main(["pilot", "--n", "2", "--archive-root", tmp_root])
     captured = capsys.readouterr()
     assert rc == 2
@@ -570,6 +577,7 @@ def test_pilot_mixed_success_and_audio_budget_skip_exits_1(
     _stub_asr(monkeypatch)
     _patch_cli(monkeypatch, RouterTransport(_base_routes()))
 
+    _seed_archive_database(tmp_root)
     rc = main([
         "pilot", "--n", "2", "--archive-root", tmp_root,
         "--max-audio-gb", "0.001",
@@ -605,6 +613,7 @@ def test_run_mixed_failure_keeps_success_and_failed_scope_retries(
     )
     _patch_cli(monkeypatch, RouterTransport(_base_routes()))
 
+    _seed_archive_database(tmp_root)
     rc = main(["run", "--scope", "pending", "--archive-root", tmp_root])
     captured = capsys.readouterr()
     assert rc == 1
@@ -678,6 +687,7 @@ def test_run_risk_after_success_exit_2_precedes_per_item_failure(
     )
     _patch_cli(monkeypatch, transport)
 
+    _seed_archive_database(tmp_root)
     rc = main(["run", "--scope", "pending", "--archive-root", tmp_root])
     captured = capsys.readouterr()
     assert rc == 2
@@ -717,6 +727,7 @@ def test_run_per_item_failure_then_risk_still_exits_2(
     )
     _patch_cli(monkeypatch, transport)
 
+    _seed_archive_database(tmp_root)
     rc = main(["run", "--scope", "pending", "--archive-root", tmp_root])
     captured = capsys.readouterr()
     assert rc == 2
@@ -742,6 +753,7 @@ def test_run_offline_skip_does_not_roll_back_success(
     transport = RouterTransport(_base_routes())
     _patch_cli(monkeypatch, transport)
 
+    _seed_archive_database(tmp_root)
     rc = main([
         "run", "--scope", "pending", "--offline", "--archive-root", tmp_root,
     ])

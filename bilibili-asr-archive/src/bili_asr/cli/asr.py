@@ -12,9 +12,11 @@ from bili_asr.cli._shared import (
     _metadata_database_path,
     _open_read_connection,
     _open_read_repository,
+    _queue_source_is_manifest,
+    _store_audio_todo,
+    _store_transcript_todo,
     _subtitle_schema_rebuild_line,
     _subtitle_selector,
-    _store_audio_todo,
     _todo_for_bvid,
 )
 
@@ -73,6 +75,15 @@ def _cmd_asr(args: argparse.Namespace) -> int:
     from bili_asr import archive, asr
     from bili_asr.manifest import ManifestStore
     from bili_asr.services import queue_source as qs
+
+    # Function-local on purpose: ``pilot`` imports this module at ITS module level
+    # (``_AsrItemCount``/``_print_in_process_constructions``), so a module-level import here
+    # would be a cycle.  Deferring to call time keeps the dependency one-directional.
+    from bili_asr.cli.pilot import (
+        _audio_base_holding,
+        _reclaim_after_archive,
+        _subtitle_segments,
+    )
 
     use_manifest = _queue_source_is_manifest(args)
     if use_manifest:

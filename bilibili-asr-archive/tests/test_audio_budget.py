@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import _asr_fakes as asr_fakes
+from _archive_database import _seed_archive_database
 
 from bili_asr.audio_budget import (
     SKIP_REASON,
@@ -120,6 +121,9 @@ def test_pilot_budget_skip_via_cli(tmp_path, monkeypatch, capsys):
     audio_dir.mkdir()
     # Small equivalent of a 1 GiB cap: 600s*8000B/s exceeds this cap.
     (audio_dir / "fill.m4a").write_bytes(b"x" * 600_000)
+    # The store is the queue source: without it the pilot exits at its
+    # precondition and the budget line under test is never reached.
+    _seed_archive_database(str(tmp_path))
     monkeypatch.setattr(bc, "build_default_transport", lambda: RouterTransport({}))
     monkeypatch.setattr(bc, "default_sleeper", lambda: (lambda _s: None))
     # D2.5 seam: patch the factory the runner builds through (the one-shot

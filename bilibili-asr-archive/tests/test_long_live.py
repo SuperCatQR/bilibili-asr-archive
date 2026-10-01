@@ -44,6 +44,7 @@ from test_scheduler import (
 from test_subtitles import SAMPLE_DOC, player_ok
 
 import _asr_fakes as asr_fakes
+from _archive_database import _seed_archive_database
 
 THREE_HOURS_S = 3 * 60 * 60
 ESTIMATED_THREE_HOURS = THREE_HOURS_S * 8_000  # 64 kbps ceiling
@@ -199,6 +200,7 @@ def test_schedule_pending_holds_long_live_without_flag(
     transport = _download_transport(long_id)
     _patch_cli(monkeypatch, transport)
 
+    _seed_archive_database(tmp_root)
     rc = main([
         "schedule", "--scope", "pending", "--limit", "5",
         "--archive-root", tmp_root,
@@ -229,6 +231,7 @@ def test_schedule_pending_only_long_live_is_limited_not_complete(
     transport = _download_transport(identity)
     _patch_cli(monkeypatch, transport)
 
+    _seed_archive_database(tmp_root)
     rc = main([
         "schedule", "--scope", "pending", "--limit", "5",
         "--archive-root", tmp_root,
@@ -479,6 +482,7 @@ def test_schedule_pending_allow_long_live_processes_long_row(
     transport = _download_transport(long_id)
     _patch_cli(monkeypatch, transport)
 
+    _seed_archive_database(tmp_root)
     rc = main([
         "schedule", "--scope", "pending", "--limit", "5",
         "--allow-long-live", "--max-audio-gb", "10",
@@ -537,6 +541,7 @@ def test_schedule_unknown_duration_held_without_allow_long_live(
     _patch_cli(monkeypatch, transport)
     _stub_asr(monkeypatch)
 
+    _seed_archive_database(tmp_root)
     rc = main([
         "schedule", "--scope", "pending", "--limit", "5",
         "--archive-root", tmp_root,
@@ -574,6 +579,7 @@ def test_schedule_resume_long_live_without_flag_keeps_risk_token(
     _patch_cli(monkeypatch, transport)
     _stub_asr(monkeypatch)
 
+    _seed_archive_database(tmp_root)
     rc = main([
         "schedule", "--scope", "pending", "--limit", "1", "--resume",
         "--archive-root", tmp_root,
@@ -615,6 +621,7 @@ def test_schedule_resume_risk_stopped_long_row_without_flag_refuses(
     _patch_cli(monkeypatch, transport)
     _stub_asr(monkeypatch)
 
+    _seed_archive_database(tmp_root)
     rc = main([
         "schedule", "--scope", "pending", "--limit", "1", "--resume",
         "--archive-root", tmp_root,
@@ -657,6 +664,7 @@ def test_schedule_resume_mixed_held_long_then_short_risk_continues(
     _stub_asr(monkeypatch)
     _patch_cli(monkeypatch, RouterTransport(_base_routes()))
 
+    _seed_archive_database(tmp_root)
     rc = main([
         "schedule", "--scope", "pending", "--limit", "5", "--resume",
         "--archive-root", tmp_root,

@@ -15,6 +15,7 @@ from bili_asr.page_identity import artifact_stem, page_identity
 from bili_asr.scheduler import SchedulerStore
 
 import _asr_fakes as asr_fakes
+from _archive_database import _seed_archive_database
 
 _AUDIO_BYTES = b"\x00\x00\x00\x18ftypM4A " + b"payload" * 100
 
@@ -233,6 +234,7 @@ def _seed_campaign_audio_rows(root, count):
         })
         with open(os.path.join(audio_dir, f"{artifact_stem(identity)}.m4a"), "wb") as fh:
             fh.write(_AUDIO_BYTES)
+    _seed_archive_database(root)
     return identities
 
 

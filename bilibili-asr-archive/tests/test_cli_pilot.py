@@ -42,6 +42,7 @@ from test_subtitles import SAMPLE_DOC, nav_ok, player_ok, sub_entry
 from conftest import reuse_line
 
 import _asr_fakes as asr_fakes
+from _archive_database import _seed_archive_database
 
 
 def _stub_runner_model(monkeypatch, reads=None, released=None):
@@ -112,6 +113,7 @@ def test_cli_pilot_mixed_meta_ok_archives_both_branches(tmp_root, monkeypatch, c
     _patch_cli(monkeypatch, transport)
 
     # The reclaim path is the CLI's explicit opt-in (contract D5): the default retains.
+    _seed_archive_database(tmp_root)
     rc = main([
         "pilot", "--n", "2", "--no-keep-audio", "--archive-root", tmp_root,
         "--sessdata", "SECRET-SESS",
@@ -166,6 +168,7 @@ def test_cli_pilot_multipart_processes_every_page(tmp_root, monkeypatch, capsys)
         stream_routes={f"{STREAM_HOST}/a30216.m4s": AUDIO_BYTES},
     )
     _patch_cli(monkeypatch, transport)
+    _seed_archive_database(tmp_root)
     rc = main(["pilot", "--n", "1", "--archive-root", tmp_root])
     captured = capsys.readouterr()
     assert rc == 0, captured.err
@@ -206,6 +209,7 @@ def test_cli_pilot_audio_ok_reuses_local_audio_when_budget_is_full(
     )
     _patch_cli(monkeypatch, RouterTransport({}))
 
+    _seed_archive_database(tmp_root)
     rc = main(
         [
             "pilot",
@@ -241,6 +245,7 @@ def test_cli_pilot_missing_subtitle_branch_exits_nonzero(tmp_root, monkeypatch, 
         stream_routes={f"{STREAM_HOST}/a30216.m4s": AUDIO_BYTES},
     )
     _patch_cli(monkeypatch, transport)
+    _seed_archive_database(tmp_root)
     rc = main(["pilot", "--n", "1", "--archive-root", tmp_root])
     captured = capsys.readouterr()
     assert rc == 1
@@ -279,6 +284,7 @@ def test_cli_pilot_summary_separates_batch_and_prior_coverage(
     asr_fakes.install(monkeypatch)
     _patch_cli(monkeypatch, _mixed_transport())
 
+    _seed_archive_database(tmp_root)
     assert main(["pilot", "--n", "2", "--archive-root", tmp_root]) == 0
     captured = capsys.readouterr()
     assert "pilot batch branches: subtitle=1, audio-asr=1" in captured.out
@@ -295,6 +301,7 @@ def test_cli_pilot_completed_rerun_skips_archived(tmp_root, monkeypatch, capsys)
 
     _stub_runner_model(monkeypatch, reads)
     _patch_cli(monkeypatch, _mixed_transport())
+    _seed_archive_database(tmp_root)
     assert main(["pilot", "--n", "2", "--archive-root", tmp_root]) == 0
     capsys.readouterr()
 
@@ -340,6 +347,7 @@ def test_cli_pilot_missing_asr_dependency_does_not_archive(tmp_root, monkeypatch
         ASRDependencyError(f"Qwen3-ASR support is not installed; run: {hint}"),
     )
     _patch_cli(monkeypatch, _mixed_transport())
+    _seed_archive_database(tmp_root)
     rc = main(["pilot", "--n", "2", "--archive-root", tmp_root])
     captured = capsys.readouterr()
     assert rc == 1
@@ -365,6 +373,7 @@ def test_cli_pilot_resume_after_partial_asr_counts_archived_subtitle(
         monkeypatch, ASRDependencyError("Qwen3-ASR support is not installed")
     )
     _patch_cli(monkeypatch, _mixed_transport())
+    _seed_archive_database(tmp_root)
     assert main(["pilot", "--n", "2", "--archive-root", tmp_root]) == 1
     capsys.readouterr()
 
@@ -417,6 +426,7 @@ def test_cli_pilot_asr_model_error_names_exception(tmp_root, monkeypatch, capsys
 
     asr_fakes.raising(monkeypatch, ASRModelError("model failed"))
     _patch_cli(monkeypatch, _mixed_transport())
+    _seed_archive_database(tmp_root)
     rc = main(["pilot", "--n", "2", "--archive-root", tmp_root])
     captured = capsys.readouterr()
     assert rc == 1
@@ -484,6 +494,7 @@ def test_cli_pilot_invocation_constructs_the_model_once_for_three_audio_rows(
     constructions = _stub_runner_model(monkeypatch, released=released)
     _patch_cli(monkeypatch, RouterTransport({}))
 
+    _seed_archive_database(tmp_root)
     rc = main(["pilot", "--n", "3", "--archive-root", tmp_root])
     captured = capsys.readouterr()
 
@@ -539,6 +550,7 @@ def test_cli_pilot_releases_the_runner_when_the_loop_is_interrupted(
     monkeypatch.setattr(asr_mod.ASRRunner, "release", recording_release)
     _patch_cli(monkeypatch, RouterTransport({}))
 
+    _seed_archive_database(tmp_root)
     with pytest.raises(KeyboardInterrupt):
         main(["pilot", "--n", "1", "--archive-root", tmp_root])
 
@@ -604,6 +616,7 @@ def test_cli_pilot_counts_the_row_that_fails_after_transcription(
     _patch_bundle_incomplete_for(monkeypatch, failing)
     _patch_cli(monkeypatch, RouterTransport({}))
 
+    _seed_archive_database(tmp_root)
     rc = main(["pilot", "--n", "3", "--archive-root", tmp_root])
     captured = capsys.readouterr()
 
