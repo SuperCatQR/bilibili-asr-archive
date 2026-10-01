@@ -96,6 +96,13 @@ def _live_smoke_requested() -> bool:
     return os.environ.get(LIVE_SMOKE_ENV, "") == "1"
 
 
+#: The default-run skip text; the central gate (conftest ``opt_in_gate``) reuses
+#: it byte-identically, and the rehearsal below pins the prefix.
+_LIVE_SMOKE_SKIP_REASON = (
+    f"live smoke is opt-in: set {LIVE_SMOKE_ENV}=1 to request it"
+)
+
+
 def _pinned_package_version() -> str:
     """Return the installed distribution version, or fail loudly.
 
@@ -310,9 +317,11 @@ def _assert_anonymous_error_code_is_documented(error_code: str) -> None:
         )
 
 
+@pytest.mark.live_smoke
 def test_live_smoke_fetch_meta_one_page_lands_normalized_rows(
     tmp_root: str,
     capsys: pytest.CaptureFixture[str],
+    opt_in_gate,
 ) -> None:
     """Opt-in live probe: ONE public metadata page through the real CLI.
 
@@ -325,8 +334,9 @@ def test_live_smoke_fetch_meta_one_page_lands_normalized_rows(
     or ASR code.
     """
 
-    if not _live_smoke_requested():
-        pytest.skip(f"live smoke is opt-in: set {LIVE_SMOKE_ENV}=1 to request it")
+    env_var, _marker = opt_in_gate
+    if os.environ.get(env_var, "") != "1":
+        pytest.skip(_LIVE_SMOKE_SKIP_REASON)
 
     # Loud-fail guard: an opted-in smoke without the pinned distribution
     # fails loudly with install guidance instead of silently skipping.
@@ -548,3 +558,17 @@ def test_anonymous_arm_fails_loudly_on_every_undocumented_code(error_code):
 
     with pytest.raises(pytest.fail.Exception):
         _assert_anonymous_error_code_is_documented(error_code)
+
+
+def test_live_smoke_skip_reason_is_stable():
+    """The opt-in skip text stays the byte-identical string docs quote.
+
+    The default run's skip now comes from the central conftest gate
+    (``opt_in_gate``), so this rehearsal pins the exact text the smoke has
+    always skipped with: a wording drift would break operator docs and the
+    reason-keyed skip tallies that read the report.
+    """
+
+    assert _LIVE_SMOKE_SKIP_REASON == (
+        "live smoke is opt-in: set BILI_LIVE_SMOKE=1 to request it"
+    )

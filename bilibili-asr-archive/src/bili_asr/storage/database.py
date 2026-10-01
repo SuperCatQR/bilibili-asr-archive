@@ -15,6 +15,7 @@ from typing import ClassVar, Iterable, Iterator, Mapping, Sequence, TypeAlias
 from .models import (
     ALLOWED_ATTEMPT_OUTCOMES,
     ALLOWED_CAPTION_SOURCE_KINDS,
+    ALLOWED_LOCAL_TRANSCRIPT_SOURCE_KINDS,
     ALLOWED_QUEUE_GAPS,
     ALLOWED_RUN_OUTCOMES,
     ALLOWED_SOURCE_KINDS,
@@ -1089,6 +1090,143 @@ class TranscriptRepository:
                         video_part_id,
                         source_kind,
                         language,
+                        version,
+                        content_sha256,
+                        created_at,
+                    ),
+                )
+                transcript_id = int(cursor.lastrowid)
+                self.connection.executemany(
+                    """
+                    INSERT INTO transcript_segments(
+                        transcript_id, ordinal, start_ms, end_ms, text
+                    ) VALUES (?, ?, ?, ?, ?)
+                    """,
+                    [
+                        (transcript_id, ordinal, start_ms, end_ms, text)
+                        for ordinal, (start_ms, end_ms, text) in enumerate(canonical)
+                    ],
+                )
+                outcome = "stored"
+            else:
+                transcript_id = int(existing_row["transcript_id"])
+                version = int(existing_row["version"])
+                outcome = "unchanged"
+            self.connection.execute(
+                """
+                INSERT INTO acquisition_attempts(
+                    run_id, video_part_id, outcome, error_code, transcript_id,
+                    started_at, finished_at
+                ) VALUES (?, ?, ?, NULL, ?, ?, ?)
+                """,
+                (
+                    run_id,
+                    video_part_id,
+                    outcome,
+                    transcript_id,
+                    started_at,
+                    finished_at,
+                ),
+            )
+
+        return TranscriptWriteResult(
+            outcome=outcome,
+            transcript_id=transcript_id,
+            version=version,
+            content_sha256=content_sha256,
+        )
+
+    def record_local_transcript(
+        self,
+        *,
+        run_id: str,
+        video_part_id: int,
+        language: str,
+        segments: tuple[TranscriptSegmentRecord, ...],
+        model_name: str,
+        model_revision: str | None,
+        started_at: int,
+        finished_at: int,
+        created_at: int,
+    ) -> TranscriptWriteResult:
+        """Store one locally-produced transcript body as a transcript version.
+
+        The explicitly-named sibling of :meth:`record_acquired_transcript` for
+        the ``'asr-local'`` identity.  The caption writer keeps validating
+        against :data:`ALLOWED_CAPTION_SOURCE_KINDS`; this entry point validates
+        ``source_kind`` against ``{'asr-local'}`` alone, so the caption guard is
+        provably unchanged for every existing caller (plan 20260929-asr-local-
+        transcript-storage, Task 1 — option (a), a second named entry point).
+
+        The write mirrors the caption path one transaction: the model identity
+        is upserted into ``asr_models`` first (the ``transcripts.model_id``
+        foreign key demands a row; nothing else inserts one), the content hash
+        decides ``'stored'`` vs ``'unchanged'``, and the attempt row is written
+        last and committed with the version, so a version is never stored
+        without its attempt evidence.  ``model_revision`` is the caller's
+        provenance string, defaulting to ``""`` when the runner names none.
+        """
+
+        run_id = _text(run_id, "run_id")
+        video_part_id = _integer(video_part_id, "video_part_id", minimum=1)
+        language = _language_code(language)
+        model_name = _text(model_name, "model_name")
+        revision = _text(model_revision, "model_revision") if model_revision else ""
+        segment_records = tuple(segments)
+        if not segment_records:
+            raise ValueError("a transcript requires at least one segment")
+        started_at = _integer(started_at, "started_at", minimum=0)
+        finished_at = _integer(finished_at, "finished_at", minimum=0)
+        created_at = _integer(created_at, "created_at", minimum=0)
+        if finished_at < started_at:
+            raise ValueError("finished_at must not precede started_at")
+        source_kind = _choice(
+            "asr-local", "source_kind", ALLOWED_LOCAL_TRANSCRIPT_SOURCE_KINDS
+        )
+        canonical = self._canonical_segments(segment_records)
+        content_sha256 = _segment_content_sha256(canonical)
+
+        with _transaction(self.connection):
+            self._require_video_part(video_part_id)
+            self._require_acquisition_run(run_id)
+            model_row = self.connection.execute(
+                "SELECT model_id FROM asr_models WHERE model_name = ? AND revision = ?",
+                (model_name, revision),
+            ).fetchone()
+            if model_row is None:
+                model_cursor = self.connection.execute(
+                    "INSERT INTO asr_models(model_name, revision, created_at) "
+                    "VALUES (?, ?, ?)",
+                    (model_name, revision, created_at),
+                )
+                model_id = int(model_cursor.lastrowid)
+            else:
+                model_id = int(model_row["model_id"])
+            existing_row = self.connection.execute(
+                """
+                SELECT transcript_id, version
+                FROM transcripts
+                WHERE video_part_id = ? AND source_kind = ? AND language = ?
+                  AND content_sha256 = ?
+                """,
+                (video_part_id, source_kind, language, content_sha256),
+            ).fetchone()
+            if existing_row is None:
+                version = self._next_transcript_version(
+                    video_part_id, source_kind, language
+                )
+                cursor = self.connection.execute(
+                    """
+                    INSERT INTO transcripts(
+                        video_part_id, source_kind, language, model_id, version,
+                        content_sha256, created_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        video_part_id,
+                        source_kind,
+                        language,
+                        model_id,
                         version,
                         content_sha256,
                         created_at,

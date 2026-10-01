@@ -17,7 +17,6 @@ from bili_asr.cli._shared import (
     _open_read_repository,
     _open_subtitle_connection,
     _record_api_error,
-    _resolve_sessdata,
     _run_error_codes,
     _selector_cannot_name_a_part,
     _subtitle_schema_rebuild_line,
@@ -145,50 +144,6 @@ def _cmd_fetch_meta(args: argparse.Namespace) -> int:
     return 0
 
 
-def _run_error_codes(
-    repository: "MetadataRepository", run_ids: list[str]
-) -> dict[str, str]:
-    """Collect one bounded error code per rendered run from page evidence.
-
-    Only the runs the listing renders are queried and each query takes at
-    most one row (LIMIT 1), so the scan never grows with page history.
-    """
-    codes: dict[str, str] = {}
-    for run_id in run_ids:
-        # Composition-root exception (adjudicated): this raw SQL read stays at the CLI seam.
-        row = repository.connection.execute(
-            "SELECT error_code FROM ingestion_pages"
-            " WHERE run_id = ? AND error_code IS NOT NULL"
-            " ORDER BY page_number LIMIT 1",
-            (run_id,),
-        ).fetchone()
-        if row is not None:
-            codes[run_id] = str(row["error_code"])
-    return codes
-
-
-def _format_run_line(stats: sqlite3.Row, error_code: str | None) -> str:
-    """Render one run row: identity, times, outcome, counts, bounded error."""
-    finished = stats["finished_at"]
-    fields = [
-        f"run {stats['run_id']}",
-        f"mid={stats['mid']}",
-        f"started={stats['started_at']}",
-        f"finished={finished if finished is not None else '-'}",
-        f"outcome={stats['outcome']}",
-        f"pages={stats['page_count']}",
-        f"videos={stats['video_count']}",
-    ]
-    if error_code is not None:
-        fields.append(f"error={error_code}")
-    return " ".join(fields)
-
-
-def _resolve_sessdata(args: argparse.Namespace) -> str | None:
-    """SESSDATA from --sessdata or env BILI_SESSDATA; blank forces anonymous."""
-    return resolve_sessdata(args.sessdata, os.environ.get(SESSDATA_ENV_VAR))
-
-
 def _cmd_probe_subs(args: argparse.Namespace) -> int:
     """List the subtitle tracks the selected parts expose, writing nothing.
 
@@ -226,7 +181,7 @@ def _cmd_probe_subs(args: argparse.Namespace) -> int:
         # database is opened.
         print(f"probe-subs: unknown --bvid {args.bvid}", file=sys.stderr)
         return 1
-    sessdata = _resolve_sessdata(args)
+    sessdata = resolve_sessdata(args.sessdata, os.environ.get(SESSDATA_ENV_VAR))
     connection = _open_subtitle_connection(
         "probe-subs", args.archive_root, read_only=True
     )
@@ -329,7 +284,7 @@ def _cmd_harvest_subs(args: argparse.Namespace) -> int:
             file=sys.stderr,
         )
         return 1
-    sessdata = _resolve_sessdata(args)
+    sessdata = resolve_sessdata(args.sessdata, os.environ.get(SESSDATA_ENV_VAR))
     connection = _open_subtitle_connection("harvest-subs", args.archive_root)
     if connection is None:
         return 1

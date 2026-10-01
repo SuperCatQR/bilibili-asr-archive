@@ -14,7 +14,8 @@ import sys
 from dataclasses import dataclass
 from typing import Any, Mapping
 
-from .meta_cursor import utc_now_iso
+from .manifest import TERMINAL_STATUSES
+from .persistence import utc_now_iso
 
 SCHEDULER_FILENAME = "scheduler.json"
 
@@ -29,7 +30,6 @@ VALID_STATES = frozenset(
 
 RESUME_STATE = "risk_interrupted"
 _DURABLE_SKIP_REASONS = frozenset({"already_terminal"})
-_TERMINAL_STATUSES = frozenset({"archived", "gone"})
 
 
 @dataclass(frozen=True)
@@ -109,7 +109,7 @@ def terminal_resume_ids(
         entry = entries.get(work_id)
         if not isinstance(entry, Mapping):
             continue
-        if entry.get("status") in _TERMINAL_STATUSES:
+        if entry.get("status") in TERMINAL_STATUSES:
             kept.append(work_id)
     return kept
 

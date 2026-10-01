@@ -22,9 +22,10 @@ transient ones included; a rate limit is never skipped.
 from __future__ import annotations
 
 import asyncio
-import time
 import uuid
 from dataclasses import dataclass
+
+from bili_asr.services._common import _now
 
 from bili_asr.sources.models import (
     BilibiliGateway,
@@ -58,10 +59,6 @@ SOURCE_PACKAGE = "bilibili-api-python"
 PAGE_SIZE = 30
 
 
-def _now() -> int:
-    """Return the current Unix second used for all persisted clocks."""
-
-    return int(time.time())
 
 
 def _observed_tag_sets(

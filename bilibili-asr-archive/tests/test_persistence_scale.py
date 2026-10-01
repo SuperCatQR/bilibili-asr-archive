@@ -37,10 +37,14 @@ from bili_asr.path_policy import confined_audio_file, confined_audio_path
 #: default run skips it so the fast unit baseline stays fast.
 SCALE_ENV_VAR = "BILI_SCALE"
 
+#: The default-run skip text; the central gate (conftest ``opt_in_gate``) reuses
+#: it byte-identically.
+_SCALE_SKIP_REASON = f"scale probe is opt-in: set {SCALE_ENV_VAR}=1 to run it"
+
 
 def _require_scale_env() -> None:
     if os.environ.get(SCALE_ENV_VAR) != "1":
-        pytest.skip(f"scale probe is opt-in: set {SCALE_ENV_VAR}=1 to run it")
+        pytest.skip(_SCALE_SKIP_REASON)
 
 
 def _row(work_id: str, status: str = "pending") -> dict[str, object]:
@@ -170,9 +174,12 @@ AttemptLedger(root).append({"stage": "archive", "work_id": "same:p0", "attempt":
     assert sorted(numbers) == [1, 2]
 
 
+@pytest.mark.scale
 def test_trusted_scale_fixture_exposes_current_record_limits(
-    tmp_path: Path, capsys
+    tmp_path: Path, capsys, opt_in_gate
 ) -> None:
+    env_var, _marker = opt_in_gate
+    assert env_var == SCALE_ENV_VAR
     _require_scale_env()
     manifest = tmp_path / "manifest" / "manifest.jsonl"
     manifest.parent.mkdir()

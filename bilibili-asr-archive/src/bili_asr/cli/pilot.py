@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Any
+import hashlib
 import json
 import os
 import sys
@@ -26,7 +27,12 @@ from bili_asr.cli._shared import (
     _subtitle_selector,
     _todo_for_bvid,
 )
-from bili_asr.cli.asr import _AsrItemCount, _print_in_process_constructions
+from bili_asr.cli.asr import (
+    _AsrItemCount,
+    _asr_transcript_segments,
+    _ensure_asr_run,
+    _print_in_process_constructions,
+)
 from bili_asr.cli.status_cmd import _PILOT_PROCESSABLE, _PILOT_SKIP_HARVEST
 from bili_asr.config import resolve_sessdata
 
@@ -311,6 +317,60 @@ def _pilot_archive_asr(
     return current
 
 
+def _open_writeback_source(args, use_manifest: bool):
+    """The live queue source the pilot's write-backs write through, or ``None``.
+
+    The selection-time source is closed once the work list is built (its only
+    job is the read), so the write-backs need their own connection.  This is
+    best-effort by construction: a store that cannot be opened here simply
+    skips the write-back, exactly as a store that refuses a write does — the
+    archive on disk is never lost to a store problem.  The ``kind='asr'`` run
+    the transcript write-backs key to is (re)created on this source.
+    """
+
+    if use_manifest:
+        return None
+    from bili_asr.services import queue_source as qs
+
+    source = qs.open_queue_source(args.archive_root)
+    if source is not None:
+        _ensure_asr_run(source, "pilot")
+    return source
+
+
+def _record_pilot_audio_acquired(
+    queue_source, roots: ArtifactRoots, entry: dict[str, object]
+) -> None:
+    """Record pilot-acquired audio back into the store (best-effort).
+
+    The pilot downloads (or reuses) the audio it archives over ASR; that
+    acquisition is positive audio evidence, taking the part out of
+    ``v_missing_audio`` — the same write-back ``download-audio`` owns through
+    :func:`bili_asr.services.queue_source.mark_audio_acquired`.  Without it a
+    pilot-archived part keeps sitting in the audio queue and is re-served on
+    every run.  Best-effort: a store failure must not lose an archive already
+    on disk.
+    """
+
+    from bili_asr.services import queue_source as qs
+
+    audio_rel = entry.get("audio_path")
+    if not audio_rel:
+        return
+    try:
+        base = _audio_base_holding(roots, os.fspath(audio_rel))
+    except OSError:
+        return
+    audio_path = os.path.join(os.fspath(base), os.fspath(audio_rel))
+    qs.mark_audio_acquired(
+        queue_source,
+        bvid=str(entry.get("bvid") or ""),
+        page_index=int(entry.get("page_index") or 0),
+        audio_path=audio_path,
+        declared_relative=os.fspath(audio_rel),
+    )
+
+
 def _archived_branch_counts(entries: dict[str, dict[str, object]]) -> tuple[int, int]:
     subtitle_count = audio_count = 0
     for entry in entries.values():
@@ -453,6 +513,11 @@ def _cmd_pilot(args: argparse.Namespace) -> int:
     # Same denominator rule as ``_cmd_asr`` (D2.5): the row is counted when
     # its ASR stage produced a transcript, inside ``_pilot_archive_asr``.
     asr_count = _AsrItemCount()
+    # The store write-backs' live connection, opened lazily on first use and
+    # closed on every exit path (the ``finally`` below).  ``None`` on the
+    # manifest route or when the store cannot be opened — the write-backs are
+    # best-effort and skip rather than fail the archive.
+    writeback_source = None
 
     try:
         for index, entry in enumerate(selected):
@@ -505,10 +570,45 @@ def _cmd_pilot(args: argparse.Namespace) -> int:
                         continue
                     if runner is None:
                         runner = asr.ASRRunner(asr.default_config())
-                    _pilot_archive_asr(
+                    archived_row = _pilot_archive_asr(
                         store, client, args.artifact_roots, current, target, runner,
                         asr_count, keep=args.keep_audio,
                     )
+                    # Store write-backs, both best-effort (the archive already
+                    # succeeded on disk): the acquired audio is positive audio
+                    # evidence taking the part out of v_missing_audio — the same
+                    # write-back download-audio owns — and the locally-produced
+                    # transcript is a real transcripts row taking it out of
+                    # v_missing_transcript (plan 20260929-asr-local-transcript-
+                    # storage, Task 2).
+                    if not use_manifest:
+                        if writeback_source is None:
+                            writeback_source = _open_writeback_source(
+                                args, use_manifest
+                            )
+                        if writeback_source is not None:
+                            _record_pilot_audio_acquired(
+                                writeback_source, args.artifact_roots, archived_row
+                            )
+                            if getattr(writeback_source, "asr_run_id", None):
+                                try:
+                                    provenance = runner.provenance() if runner else {}
+                                except Exception:
+                                    provenance = {}
+                                recorded = (
+                                    runner.transcribed_segments() if runner else None
+                                )
+                                if recorded:
+                                    qs.record_local_transcript(
+                                        writeback_source,
+                                        run_id=writeback_source.asr_run_id,
+                                        bvid=str(current.get("bvid") or key),
+                                        page_index=int(current.get("page_index") or 0),
+                                        language=provenance.get("language") or "und",
+                                        segments=_asr_transcript_segments(recorded),
+                                        model_name=provenance.get("model_name", ""),
+                                        model_revision=provenance.get("model_revision"),
+                                    )
                     batch_audio_count += 1
                     coverage_audio_count += 1
                     terminals.append(f"{label}: archived (asr)")
@@ -596,6 +696,8 @@ def _cmd_pilot(args: argparse.Namespace) -> int:
         _print_in_process_constructions("pilot", runner, asr_count.value)
         if runner is not None:
             runner.release()
+        if writeback_source is not None:
+            writeback_source.connection.close()
 
     _pilot_print_summary(
         batch_subtitle_count,

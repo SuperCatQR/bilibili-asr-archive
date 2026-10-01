@@ -36,6 +36,9 @@ VALID_STATUSES = frozenset(
     }
 )
 
+#: Terminal manifest rows — reruns always skip these.
+TERMINAL_STATUSES = frozenset({"archived", "gone"})
+
 DEFAULT_REL_PATH = os.path.join("manifest", "manifest.jsonl")
 
 #: Ledger sidecar of the deterministic snapshot: per-row upserts append here,
@@ -124,6 +127,12 @@ class ManifestStore:
         # cost bound holds even when nothing ever calls save()/compact().
         self._appends_since_compact = 0
         self._journal_bytes = 0
+        # Journal identity as of the last in-memory load, for cross-process
+        # invalidation: an interleaved append from another process changes the
+        # signature, so a later upsert re-replays instead of silently
+        # overwriting the foreign row on save()/compact(). Cheap -- one
+        # os.stat on the small journal, under the store lock.
+        self._journal_signature: tuple[int, int] | None = None
 
     def _open_manifest_dir(self, *, create: bool = False) -> int:
         nofollow = getattr(os, "O_NOFOLLOW", None)
@@ -189,10 +198,32 @@ class ManifestStore:
             os.close(directory_fd)
         return entries
 
+    def _journal_stat_signature(self) -> tuple[int, int] | None:
+        """(st_size, st_mtime_ns) of the journal, or None when it is absent."""
+        try:
+            st = os.stat(self._journal_path)
+        except FileNotFoundError:
+            return None
+        return (st.st_size, st.st_mtime_ns)
+
+    def _refresh_if_stale_locked(self) -> None:
+        """Re-replay the ledger when another process moved the journal on disk.
+
+        Called with the manifest lock held. The comparison is one stat against
+        the signature recorded at the last load/replay; identical => no foreign
+        append => keep the cached batch view (the per-batch 1-read cost bound).
+        """
+        if self._journal_stat_signature() == self._journal_signature:
+            return
+        self._entries, self._journal_bytes = self._replay_latest()
+        self._loaded = True
+        self._journal_signature = self._journal_stat_signature()
+
     def load(self) -> dict[str, dict[str, Any]]:
         """Replay snapshot + journal into memory; last fully-appended row wins per key."""
         self._entries, self._journal_bytes = self._replay_latest()
         self._loaded = True
+        self._journal_signature = self._journal_stat_signature()
         return self._entries
 
     def _replay_latest(self) -> tuple[dict[str, dict[str, Any]], int]:
@@ -243,6 +274,15 @@ class ManifestStore:
                 payload = _json_line(dict(record))
                 os.write(fd, payload)
                 os.fsync(fd)
+                # Keep the invalidation signature in sync with our own append
+                # (one fstat; cheaper than the fsync above) so the next upsert
+                # of this instance does not mistake its own write for a
+                # foreign one.  An interleaved foreign append lands after
+                # this fstat and shifts the signature, so the next upsert
+                # still re-replays -- that ordering is what the cross-process
+                # regression test pins down.
+                st = os.fstat(fd)
+                own_signature = (st.st_size, st.st_mtime_ns)
             finally:
                 os.close(fd)
             os.fsync(directory_fd)
@@ -250,6 +290,7 @@ class ManifestStore:
             os.close(directory_fd)
         self._appends_since_compact += 1
         self._journal_bytes += len(payload)
+        self._journal_signature = own_signature
 
     def _maybe_compact_locked(
         self, entries: dict[str, dict[str, Any]], *, journal_bytes: int
@@ -343,6 +384,7 @@ class ManifestStore:
             self._remove_journal()
             self._appends_since_compact = 0
             self._journal_bytes = 0
+            self._journal_signature = self._journal_stat_signature()
             if not current:
                 self._entries = {}
                 self._loaded = True
@@ -357,9 +399,10 @@ class ManifestStore:
             current, _journal_bytes = self._replay_latest()
             if current:
                 self._replace_snapshot(current)
-            self._remove_journal()
+                self._remove_journal()
             self._appends_since_compact = 0
             self._journal_bytes = 0
+            self._journal_signature = self._journal_stat_signature()
             self._entries = current
             self._loaded = True
 
@@ -391,6 +434,9 @@ class ManifestStore:
             if not self._loaded:
                 self._entries, self._journal_bytes = self._replay_latest()
                 self._loaded = True
+                self._journal_signature = self._journal_stat_signature()
+            else:
+                self._refresh_if_stale_locked()
             if not work_id:
                 existing = self._entries.get(str(bvid))
                 freeze = _is_unresolved(entry) or bool(
@@ -411,6 +457,7 @@ class ManifestStore:
                 # in-memory mutation: roll back so a failed upsert leaves the
                 # caller's view identical to the replayed ledger.
                 self._entries, self._journal_bytes = self._replay_latest()
+                self._journal_signature = self._journal_stat_signature()
                 raise
             self._maybe_compact_locked(self._entries, journal_bytes=self._journal_bytes)
             return stored
@@ -551,6 +598,7 @@ class ManifestStore:
                 self._remove_journal()
                 self._appends_since_compact = 0
                 self._journal_bytes = 0
+                self._journal_signature = self._journal_stat_signature()
                 self._entries = next_entries
         return report
 

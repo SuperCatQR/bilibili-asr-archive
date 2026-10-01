@@ -4,7 +4,18 @@ from __future__ import annotations
 
 import pytest
 
-from bili_asr.storage import MediaQueueRepository, open_database
+from bili_asr.storage import (
+    ALLOWED_CAPTION_SOURCE_KINDS,
+    AcquisitionRunRecord,
+    MediaQueueRepository,
+    TranscriptRepository,
+    TranscriptSegmentRecord,
+    open_database,
+)
+from bili_asr.services.queue_source import (
+    QueueSource,
+    record_local_transcript,
+)
 
 
 # Two real content hashes: ``sha256`` is validated as a content hash (64
@@ -640,5 +651,210 @@ def test_mark_transcript_stored_rejects_bad_parts_transcripts_runs_and_times(tmp
             ).fetchone()[0]
             == 0
         )
+    finally:
+        connection.close()
+
+
+# ---------------------------------------------------------------------------
+# R14: the ASR transcript write-back pins v_missing_transcript convergence
+# ---------------------------------------------------------------------------
+
+_SHA_AUDIO = "c" * 64
+
+
+def _audio_backed_part(connection, *, bvid: str = "BVT", page_index: int = 0,
+                       cid: int = 3001) -> int:
+    """One audio-backed part in v_missing_transcript (audio evidence, no transcript)."""
+    connection.execute(
+        "INSERT INTO bilibili_users(mid, display_name, created_at, updated_at) "
+        "VALUES (?, ?, ?, ?)",
+        (23191782, "未明子", 100, 100),
+    )
+    connection.execute(
+        "INSERT INTO videos(bvid, aid, mid, title, pubdate, created_at, updated_at) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?)",
+        (bvid, 1001, 23191782, "视频", 1_700_000_000, 101, 101),
+    )
+    cursor = connection.execute(
+        """
+        INSERT INTO video_parts(
+            bvid, page_index, cid, title, duration_ms, processing_status,
+            created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (bvid, page_index, cid, "第一段", 1_234, "discovered", 102, 102),
+    )
+    video_part_id = int(cursor.lastrowid)
+    connection.execute(
+        "INSERT INTO audio_objects("
+        "  audio_id, sha256, byte_size, format, duration_ms, storage_key, created_at"
+        ") VALUES (1, ?, 4, 'm4a', 1234, ?, 103)",
+        (_SHA_AUDIO, f"audio/{bvid}.p{page_index}.m4a"),
+    )
+    connection.execute(
+        "INSERT INTO part_audio_objects("
+        "  video_part_id, audio_id, acquired_at, acquisition_source"
+        ") VALUES (?, 1, 104, 'download')",
+        (video_part_id,),
+    )
+    connection.commit()
+    return video_part_id
+
+
+def _running_asr_run(connection, *, run_id: str) -> None:
+    connection.execute(
+        "INSERT INTO acquisition_runs("
+        "  run_id, kind, selector_kind, selector_target, requested_limit, "
+        "  credential_present, started_at, finished_at, outcome"
+        ") VALUES (?, 'asr', 'pending', NULL, NULL, 0, 100, NULL, 'running')",
+        (run_id,),
+    )
+    connection.commit()
+
+
+def test_record_local_transcript_converges_v_missing_transcript(tmp_root):
+    """The ASR write-back's deliverable: the part LEAVES v_missing_transcript.
+
+    The before/after assertion is the operator-visible effect (plan
+    20260929-asr-local-transcript-storage, Task 3 / DoD-2), not a unit
+    assertion on the writer: build a part that is genuinely in the view,
+    run the write-back through the queue-source helper, and assert the view
+    count drops 1 → 0.
+    """
+    connection = open_database(tmp_root)
+    try:
+        repository = MediaQueueRepository(connection)
+        video_part_id = _audio_backed_part(connection, bvid="BVconv")
+        _running_asr_run(connection, run_id="run-asr-conv")
+
+        # Negative control: the fixture must be able to REACH the producer —
+        # the part is genuinely queued before the write.
+        assert repository.count_queue_gaps()["missing_transcript"] == 1
+        assert [
+            (i.bvid, i.page_index)
+            for i in repository.list_queue_gaps(gap="missing_transcript")
+        ] == [("BVconv", 0)]
+
+        record_local_transcript(
+            QueueSource(connection),
+            run_id="run-asr-conv",
+            bvid="BVconv",
+            page_index=0,
+            language="zh",
+            segments=(TranscriptSegmentRecord(start_ms=0, end_ms=1_000, text="转写"),),
+            model_name="Qwen3-ASR-Toolkit-xxx",
+            model_revision="abc123",
+        )
+
+        # The changed count: 1 → 0.  The part left the transcript queue.
+        assert repository.count_queue_gaps()["missing_transcript"] == 0
+
+        # The stored row is a real asr-local transcript on the real part, with
+        # model identity resolved through asr_models (not NULL).
+        row = connection.execute(
+            "SELECT source_kind, language, model_id FROM transcripts "
+            "WHERE video_part_id = ?",
+            (video_part_id,),
+        ).fetchone()
+        assert row["source_kind"] == "asr-local"
+        assert row["language"] == "zh"
+        assert row["model_id"] is not None
+        model = connection.execute(
+            "SELECT model_name, revision FROM asr_models WHERE model_id = ?",
+            (row["model_id"],),
+        ).fetchone()
+        assert model["model_name"] == "Qwen3-ASR-Toolkit-xxx"
+        assert model["revision"] == "abc123"
+
+        # The attempt row is the companion evidence, written for the same run
+        # and pointing at the stored transcript (DoD-3).
+        attempt = connection.execute(
+            "SELECT outcome, transcript_id FROM acquisition_attempts "
+            "WHERE run_id = 'run-asr-conv' AND video_part_id = ?",
+            (video_part_id,),
+        ).fetchone()
+        assert attempt["outcome"] == "stored"
+        assert attempt["transcript_id"] is not None
+    finally:
+        connection.close()
+
+
+def test_record_local_transcript_does_not_weaken_caption_guard(tmp_root):
+    """The caption writer still cannot write asr-local (DoD-4).
+
+    Task 1 widened the boundary with a second, explicitly-named entry point;
+    the shared caption path must be provably unchanged — a caption writer
+    passing source_kind='asr-local' is refused exactly as before, and the
+    caption accepted set is byte-for-byte the original two kinds.
+    """
+    connection = open_database(tmp_root)
+    try:
+        part_id = _audio_backed_part(connection, bvid="BVguard")
+        transcripts = TranscriptRepository(connection)
+        _running_asr_run(connection, run_id="run-asr-guard")
+
+        segments = (TranscriptSegmentRecord(start_ms=0, end_ms=1_000, text="字幕"),)
+        # The caption entry point refuses asr-local: the caption guard holds.
+        with pytest.raises(ValueError):
+            transcripts.record_acquired_transcript(
+                run_id="run-asr-guard",
+                video_part_id=part_id,
+                source_kind="asr-local",
+                language="zh",
+                segments=segments,
+                started_at=110,
+                finished_at=111,
+                created_at=112,
+            )
+        assert (
+            connection.execute("SELECT COUNT(*) FROM transcripts").fetchone()[0] == 0
+        )
+
+        # The caption accepted set is exactly the two caption kinds, untouched.
+        assert ALLOWED_CAPTION_SOURCE_KINDS == frozenset(
+            {"subtitle-ai", "subtitle-cc"}
+        )
+    finally:
+        connection.close()
+
+
+def test_record_local_transcript_is_best_effort_on_store_failure(tmp_root):
+    """A store write failure does not raise out of the helper (DoD-5).
+
+    The archive already succeeded on disk before the write-back runs; the
+    helper swallows the store failure so the operator keeps the archive.  A
+    part the store does not hold is answered by skipping, not by raising.
+    """
+    connection = open_database(tmp_root)
+    try:
+        _running_asr_run(connection, run_id="run-asr-be")
+        # No video part for BVmissing: the resolution finds nothing and the
+        # helper returns without raising and without writing.
+        record_local_transcript(
+            QueueSource(connection),
+            run_id="run-asr-be",
+            bvid="BVmissing",
+            page_index=0,
+            language="zh",
+            segments=(TranscriptSegmentRecord(start_ms=0, end_ms=1_000, text="x"),),
+            model_name="m",
+            model_revision=None,
+        )
+        assert connection.execute("SELECT COUNT(*) FROM transcripts").fetchone()[0] == 0
+
+        # A store-side refusal (an empty segment tuple the repository rejects)
+        # is swallowed by the helper — the archive on disk is kept.
+        _audio_backed_part(connection, bvid="BVbe")
+        record_local_transcript(
+            QueueSource(connection),
+            run_id="run-asr-be",
+            bvid="BVbe",
+            page_index=0,
+            language="zh",
+            segments=(),
+            model_name="m",
+            model_revision=None,
+        )
+        assert connection.execute("SELECT COUNT(*) FROM transcripts").fetchone()[0] == 0
     finally:
         connection.close()

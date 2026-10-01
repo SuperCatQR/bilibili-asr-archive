@@ -14,7 +14,7 @@ from typing import Any
 
 from .manifest import VALID_STATUSES
 from .meta_cursor import VALID_STATES
-from .persistence import append_jsonl_record, file_lock
+from .persistence import append_jsonl_record, file_lock, utc_now_iso
 
 LEDGER_FILENAME = "run-ledger.jsonl"
 
@@ -74,10 +74,6 @@ _FORBIDDEN_MARKERS = (
     "Traceback",
 )
 _MAX_ERROR_CODE_LEN = 64
-
-
-def utc_now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
 def generate_run_id() -> str:

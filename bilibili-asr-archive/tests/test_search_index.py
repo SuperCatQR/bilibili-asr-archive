@@ -504,6 +504,44 @@ def test_is_stale_mtime_short_circuits_before_load(tmp_root, monkeypatch):
     assert not load_called
 
 
+def test_is_stale_journal_append_without_snapshot_change(tmp_root):
+    """Journal append (upsert) with unchanged snapshot mtime makes is_stale() True."""
+    store = _create_sample_archive(tmp_root)
+    index = SearchIndex(root=tmp_root)
+    index.build(store.load())
+    assert index.is_stale() is False
+
+    # Materialize the snapshot so the upsert below is a pure journal append;
+    # then pin snapshot + db mtimes so only the journal can be newer.
+    store.save()
+    past_time = time.time() - 100
+    os.utime(index.db_path, (past_time, past_time))
+    os.utime(index.manifest_path, (past_time, past_time))
+
+    # Same-count change: journal append only, snapshot untouched.  BV1audio
+    # is audio_ok (not indexable), so the completed-count check cannot
+    # short-circuit the journal-mtime check this test exercises.
+    store.upsert(
+        {
+            "bvid": "BV1audio",
+            "work_id": "BV1audio:p0",
+            "page_index": 0,
+            "cid": 103,
+            "title": "Unprocessed Audio Lecture",
+            "status": "audio_ok",
+            "duration_s": 501,
+            "audio_path": "audio/BV1audio.p0.m4a",
+        }
+    )
+
+    assert os.path.isfile(index.journal_path)
+    assert index.is_stale() is True
+
+    # Rebuild folds the journal back in and restores freshness.
+    index.build(store.load())
+    assert index.is_stale() is False
+
+
 # ---------------------------------------------------------------- CLI Command Tests
 
 

@@ -10,14 +10,13 @@ from typing import Any, Mapping
 
 from .archive import archive_stem, archive_bundle_complete
 from .artifact_root import ArtifactRoots, resolve_audio_path
-from .manifest import VALID_STATUSES
+from .manifest import TERMINAL_STATUSES, VALID_STATUSES
 from .meta_cursor import _validate as validate_cursor
 from .scheduler import _validate as validate_scheduler
 from .run_ledger import _validate_record as validate_run_ledger_record
 from .sidecar_projection import ReaderPolicy, iter_jsonl_records, ORDINARY_HISTORY_DIAGNOSTICS, project_attempt_records, project_manifest_records, project_latest_run_record
 
 SCHEMA_VERSION = "coverage-report-v1"
-TERMINAL_STATUSES = frozenset({"archived", "gone"})
 RETRYABLE_OUTCOMES = frozenset({"failed", "skipped"})
 ATTEMPT_STAGES = frozenset({"harvest", "download", "asr", "archive"})
 ATTEMPT_OUTCOMES = frozenset({"ok", "failed", "skipped"})

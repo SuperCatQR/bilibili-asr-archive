@@ -178,6 +178,13 @@ def _live_smoke_requested() -> bool:
     return os.environ.get(LIVE_SMOKE_ENV, "") == "1"
 
 
+#: The default-run skip text; the central gate (conftest ``opt_in_gate``) reuses
+#: it byte-identically, and the rehearsal below pins the literal.
+_LIVE_SMOKE_SKIP_REASON = (
+    f"live subtitle probe is opt-in: set {LIVE_SMOKE_ENV}=1 to request it"
+)
+
+
 def _pinned_package_version() -> str:
     """Return the installed distribution version, or fail loudly.
 
@@ -422,7 +429,8 @@ def _probe_one_part(
     )
 
 
-def test_live_subtitle_probe_reports_one_real_part_inventory():
+@pytest.mark.live_smoke
+def test_live_subtitle_probe_reports_one_real_part_inventory(opt_in_gate):
     """Opt-in live probe: ONE real part's subtitle inventory and body.
 
     Skipped unless the operator sets ``BILI_LIVE_SMOKE=1``.  The probe resolves
@@ -434,10 +442,9 @@ def test_live_subtitle_probe_reports_one_real_part_inventory():
     and milliseconds.
     """
 
-    if not _live_smoke_requested():
-        pytest.skip(
-            f"live subtitle probe is opt-in: set {LIVE_SMOKE_ENV}=1 to request it"
-        )
+    env_var, _marker = opt_in_gate
+    if os.environ.get(env_var, "") != "1":
+        pytest.skip(_LIVE_SMOKE_SKIP_REASON)
 
     assert _pinned_package_version() == PINNED_PACKAGE_VERSION
 
@@ -896,3 +903,17 @@ def test_probe_records_the_whole_evidence_chain_without_leaking_a_label(capsys):
     assert_leaks_no_markers(evidence, context="live subtitle probe rehearsal")
     assert RAW_JSON_BODY_MARKER not in evidence
     assert gateway.calls == ["get_subtitle_tracks", "fetch_subtitle_segments"]
+
+
+def test_live_smoke_skip_reason_is_stable():
+    """The opt-in skip text stays the byte-identical string docs quote.
+
+    The default run's skip now comes from the central conftest gate
+    (``opt_in_gate``), so this rehearsal pins the exact text the probe has
+    always skipped with: a wording drift would break operator docs and the
+    reason-keyed skip tallies that read the report.
+    """
+
+    assert _LIVE_SMOKE_SKIP_REASON == (
+        "live subtitle probe is opt-in: set BILI_LIVE_SMOKE=1 to request it"
+    )

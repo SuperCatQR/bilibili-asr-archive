@@ -270,6 +270,68 @@ def mark_transcript_stored(
         pass
 
 
+def record_local_transcript(
+    queue_source: QueueSource,
+    *,
+    run_id: str,
+    bvid: str,
+    page_index: int,
+    language: str,
+    segments: tuple,
+    model_name: str,
+    model_revision: str | None,
+) -> None:
+    """Write one locally-produced transcript back into the store (best-effort).
+
+    The transcript half of the audio write-back: after the ASR path archives a
+    part, this records the ``transcripts`` row that takes the part out of
+    ``v_missing_transcript`` (plan 20260929-asr-local-transcript-storage,
+    Task 2).  The transcript row and its attempt evidence are written in one
+    transaction through the repository's own
+    :meth:`TranscriptRepository.record_local_transcript` — never the caption
+    entry point, whose accepted-kind set stays exactly as strict.
+
+    ``video_part_id`` is resolved through the store from ``(bvid, page_index)``
+    here — never fabricated from a page index.  A part the store does not hold
+    fails this row only.  Best-effort in the same sense as
+    :func:`mark_audio_acquired`: every store failure — a missing part, a
+    refused segment, a full store — is swallowed, because the archive the row
+    would record already succeeded on disk and must not be lost to a store
+    problem.  What is **not** swallowed is the caller's own work: the archive
+    itself, which this helper never touches.
+    """
+
+    import sqlite3 as _sqlite3
+
+    from bili_asr.storage import TranscriptRepository
+
+    try:
+        connection = queue_source.connection
+        part = connection.execute(
+            "SELECT video_part_id FROM video_parts WHERE bvid = ? AND page_index = ?",
+            (bvid, int(page_index)),
+        ).fetchone()
+        if part is None:
+            return
+        video_part_id = int(part["video_part_id"])
+        now = int(time.time())
+        TranscriptRepository(connection).record_local_transcript(
+            run_id=run_id,
+            video_part_id=video_part_id,
+            language=language,
+            segments=segments,
+            model_name=model_name,
+            model_revision=model_revision,
+            started_at=now,
+            finished_at=now,
+            created_at=now,
+        )
+    except (_sqlite3.Error, OSError, ValueError, TypeError, KeyError):
+        # The archive already succeeded on disk; a store write-back problem
+        # must not turn that into a failure.
+        pass
+
+
 __all__ = [
     "MANIFEST_SOURCE_DEPRECATION",
     "QueueSelection",
@@ -279,4 +341,5 @@ __all__ = [
     "mark_transcript_stored",
     "open_queue_source",
     "print_manifest_deprecation",
+    "record_local_transcript",
 ]

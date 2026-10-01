@@ -201,6 +201,13 @@ def _live_smoke_requested() -> bool:
     return os.environ.get(LIVE_SMOKE_ENV, "") == "1"
 
 
+#: The default-run skip text; the central gate (conftest ``opt_in_gate``) reuses
+#: it byte-identically, and the rehearsal below pins the literal.
+_LIVE_SMOKE_SKIP_REASON = (
+    f"live subtitle CLI smoke is opt-in: set {LIVE_SMOKE_ENV}=1 to request it"
+)
+
+
 def _pinned_package_version() -> str:
     """Return the installed distribution version, or fail loudly.
 
@@ -268,10 +275,7 @@ def _live_preconditions() -> None:
     """
 
     if not _live_smoke_requested():
-        pytest.skip(
-            f"live subtitle CLI smoke is opt-in: set {LIVE_SMOKE_ENV}=1 to"
-            " request it"
-        )
+        pytest.skip(_LIVE_SMOKE_SKIP_REASON)
     assert _pinned_package_version() == PINNED_PACKAGE_VERSION
     _require_live_credential()
 
@@ -825,9 +829,11 @@ def _record_and_skip(outcome: str, *, detail: str) -> NoReturn:
     )
 
 
+@pytest.mark.live_smoke
 def test_live_smoke_one_part_through_probe_and_harvest(
     tmp_root: str,
     capsys: pytest.CaptureFixture[str],
+    opt_in_gate,
 ) -> None:
     """Opt-in live smoke: ONE real part through ``probe-subs`` and ``harvest-subs``.
 
@@ -842,7 +848,11 @@ def test_live_smoke_one_part_through_probe_and_harvest(
     """
 
     # Opt in, the pinned distribution, the credential — in that order, and the
-    # credential one is loud (see :func:`_live_preconditions`).
+    # credential one is loud (see :func:`_live_preconditions`). The central
+    # gate fixture resolves the marker's env knob (BILI_LIVE_SMOKE); the
+    # precondition re-check below keeps the documented order rehearsable.
+    env_var, _marker = opt_in_gate
+    assert env_var == LIVE_SMOKE_ENV
     _live_preconditions()
 
     credential = os.environ.get(SESSDATA_ENV_VAR)
@@ -1509,3 +1519,17 @@ def test_probe_result_carries_the_credential_presence_the_cli_observed(
     # The value reached the adapter, and appears nowhere else.
     assert fake_gateway_seam.sessdata == SESSDATA_BOUNDARY_VALUE
     _assert_no_credential_leak(SESSDATA_BOUNDARY_VALUE, out + err)
+
+
+def test_live_smoke_skip_reason_is_stable() -> None:
+    """The opt-in skip text stays the byte-identical string docs quote.
+
+    The default run's skip now comes from the central conftest gate
+    (``opt_in_gate``), so this rehearsal pins the exact text the smoke has
+    always skipped with: a wording drift would break operator docs and the
+    reason-keyed skip tallies that read the report.
+    """
+
+    assert _LIVE_SMOKE_SKIP_REASON == (
+        "live subtitle CLI smoke is opt-in: set BILI_LIVE_SMOKE=1 to request it"
+    )
