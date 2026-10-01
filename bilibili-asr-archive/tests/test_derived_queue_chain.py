@@ -461,7 +461,17 @@ def test_a_chain_held_subtitle_done_row_without_its_raw_document_skips(
     _patch_cli(monkeypatch, transport)
 
     assert (
-        main(["run", "--scope", "pending", "--offline", "--archive-root", tmp_root])
+        main(
+            [
+                "run", "--scope", "pending", "--offline",
+                # Pinned to the manifest source: the store route cannot select a part
+                # that already holds a caption, and this control's whole point is that
+                # such a part reaches the archive stage.  Same pin as the other
+                # class-A fixtures (Task 6).
+                "--queue-source", "manifest",
+                "--archive-root", tmp_root,
+            ]
+        )
         == 1
     )
     capsys.readouterr()

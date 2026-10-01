@@ -348,7 +348,11 @@ def test_asr_mixed_success_and_per_item_failure_exits_1(
     _patch_cli(monkeypatch, RouterTransport({}))
 
     _seed_archive_database(tmp_root)
-    rc = main(["asr", "--pending", "--archive-root", tmp_root])
+    # Pinned to the manifest source: these fixtures drive the legacy route, whose selection is
+    # the manifest's own statuses.  The store route is the default since the cutover and resolves
+    # `pending` through the gap views instead, which excludes a part already holding a caption and
+    # relabels a harvest-eligible one `needs_audio` (see R13/R15).  Same pin as tests/test_audio.py.
+    rc = main(["asr", "--pending", "--queue-source", "manifest", "--archive-root", tmp_root])
     captured = capsys.readouterr()
     # Incomplete requested work is exit 1 even when another row archived.
     assert rc == 1
@@ -364,7 +368,11 @@ def test_asr_mixed_success_and_per_item_failure_exits_1(
     assert artifact_stem(fail_id) in transcribe_calls[0]
     _assert_no_secrets(captured, tmp_root)
 
-    rc = main(["asr", "--pending", "--archive-root", tmp_root])
+    # Pinned to the manifest source: these fixtures drive the legacy route, whose selection is
+    # the manifest's own statuses.  The store route is the default since the cutover and resolves
+    # `pending` through the gap views instead, which excludes a part already holding a caption and
+    # relabels a harvest-eligible one `needs_audio` (see R13/R15).  Same pin as tests/test_audio.py.
+    rc = main(["asr", "--pending", "--queue-source", "manifest", "--archive-root", tmp_root])
     captured = capsys.readouterr()
     assert rc == 1
     loaded = ManifestStore(root=tmp_root).load()
@@ -440,7 +448,11 @@ def test_asr_optional_dependency_after_success_exits_1(
     _patch_cli(monkeypatch, RouterTransport({}))
 
     _seed_archive_database(tmp_root)
-    rc = main(["asr", "--pending", "--archive-root", tmp_root])
+    # Pinned to the manifest source: these fixtures drive the legacy route, whose selection is
+    # the manifest's own statuses.  The store route is the default since the cutover and resolves
+    # `pending` through the gap views instead, which excludes a part already holding a caption and
+    # relabels a harvest-eligible one `needs_audio` (see R13/R15).  Same pin as tests/test_audio.py.
+    rc = main(["asr", "--pending", "--queue-source", "manifest", "--archive-root", tmp_root])
     captured = capsys.readouterr()
     assert rc == 1
     assert "ASR dependency unavailable" in captured.err
@@ -476,7 +488,11 @@ def test_asr_subtitle_done_missing_raw_is_incomplete_skip(
     _patch_cli(monkeypatch, RouterTransport({}))
 
     _seed_archive_database(tmp_root)
-    rc = main(["asr", "--pending", "--archive-root", tmp_root])
+    # Pinned to the manifest source: these fixtures drive the legacy route, whose selection is
+    # the manifest's own statuses.  The store route is the default since the cutover and resolves
+    # `pending` through the gap views instead, which excludes a part already holding a caption and
+    # relabels a harvest-eligible one `needs_audio` (see R13/R15).  Same pin as tests/test_audio.py.
+    rc = main(["asr", "--pending", "--queue-source", "manifest", "--archive-root", tmp_root])
     captured = capsys.readouterr()
     assert rc == 1
     assert "missing_subtitle_raw" in captured.err
@@ -508,8 +524,13 @@ def test_pilot_mixed_success_and_api_failure_records_ledger(
     _patch_cli(monkeypatch, transport)
 
     _seed_archive_database(tmp_root)
+    # Pinned to the manifest source: these fixtures drive the legacy route, whose selection is
+    # the manifest's own statuses.  The store route is the default since the cutover and resolves
+    # `pending` through the gap views instead, which excludes a part already holding a caption and
+    # relabels a harvest-eligible one `needs_audio` (see R13/R15).  Same pin as tests/test_audio.py.
     rc = main([
-        "pilot", "--n", "2", "--archive-root", tmp_root, "--sessdata", SECRET,
+        "pilot", "--n", "2", "--queue-source", "manifest", "--archive-root", tmp_root,
+        "--sessdata", SECRET,
     ])
     captured = capsys.readouterr()
     assert rc == 1
@@ -523,7 +544,11 @@ def test_pilot_mixed_success_and_api_failure_records_ledger(
     assert recs[0]["exit_code"] == 1
     _assert_no_secrets(captured, tmp_root)
 
-    rc = main(["pilot", "--n", "2", "--archive-root", tmp_root])
+    # Pinned to the manifest source: these fixtures drive the legacy route, whose selection is
+    # the manifest's own statuses.  The store route is the default since the cutover and resolves
+    # `pending` through the gap views instead, which excludes a part already holding a caption and
+    # relabels a harvest-eligible one `needs_audio` (see R13/R15).  Same pin as tests/test_audio.py.
+    rc = main(["pilot", "--n", "2", "--queue-source", "manifest", "--archive-root", tmp_root])
     captured = capsys.readouterr()
     assert rc == 1
     loaded = ManifestStore(root=tmp_root).load()
@@ -549,7 +574,11 @@ def test_pilot_success_then_risk_exit_2_keeps_success(
     _patch_cli(monkeypatch, transport)
 
     _seed_archive_database(tmp_root)
-    rc = main(["pilot", "--n", "2", "--archive-root", tmp_root])
+    # Pinned to the manifest source: these fixtures drive the legacy route, whose selection is
+    # the manifest's own statuses.  The store route is the default since the cutover and resolves
+    # `pending` through the gap views instead, which excludes a part already holding a caption and
+    # relabels a harvest-eligible one `needs_audio` (see R13/R15).  Same pin as tests/test_audio.py.
+    rc = main(["pilot", "--n", "2", "--queue-source", "manifest", "--archive-root", tmp_root])
     captured = capsys.readouterr()
     assert rc == 2
     assert "pilot batch branches:" in captured.out
@@ -578,8 +607,12 @@ def test_pilot_mixed_success_and_audio_budget_skip_exits_1(
     _patch_cli(monkeypatch, RouterTransport(_base_routes()))
 
     _seed_archive_database(tmp_root)
+    # Pinned to the manifest source: these fixtures drive the legacy route, whose selection is
+    # the manifest's own statuses.  The store route is the default since the cutover and resolves
+    # `pending` through the gap views instead, which excludes a part already holding a caption and
+    # relabels a harvest-eligible one `needs_audio` (see R13/R15).  Same pin as tests/test_audio.py.
     rc = main([
-        "pilot", "--n", "2", "--archive-root", tmp_root,
+        "pilot", "--n", "2", "--queue-source", "manifest", "--archive-root", tmp_root,
         "--max-audio-gb", "0.001",
     ])
     captured = capsys.readouterr()
@@ -614,7 +647,11 @@ def test_run_mixed_failure_keeps_success_and_failed_scope_retries(
     _patch_cli(monkeypatch, RouterTransport(_base_routes()))
 
     _seed_archive_database(tmp_root)
-    rc = main(["run", "--scope", "pending", "--archive-root", tmp_root])
+    # Pinned to the manifest source: these fixtures drive the legacy route, whose selection is
+    # the manifest's own statuses.  The store route is the default since the cutover and resolves
+    # `pending` through the gap views instead, which excludes a part already holding a caption and
+    # relabels a harvest-eligible one `needs_audio` (see R13/R15).  Same pin as tests/test_audio.py.
+    rc = main(["run", "--scope", "pending", "--queue-source", "manifest", "--archive-root", tmp_root])
     captured = capsys.readouterr()
     assert rc == 1
     assert "scope not fully processed" in captured.out
@@ -631,7 +668,11 @@ def test_run_mixed_failure_keeps_success_and_failed_scope_retries(
     )
     _assert_no_secrets(captured, tmp_root)
 
-    rc = main(["run", "--scope", "failed", "--archive-root", tmp_root])
+    # Pinned to the manifest source: these fixtures drive the legacy route, whose selection is
+    # the manifest's own statuses.  The store route is the default since the cutover and resolves
+    # `pending` through the gap views instead, which excludes a part already holding a caption and
+    # relabels a harvest-eligible one `needs_audio` (see R13/R15).  Same pin as tests/test_audio.py.
+    rc = main(["run", "--scope", "failed", "--queue-source", "manifest", "--archive-root", tmp_root])
     captured = capsys.readouterr()
     assert rc == 1
     assert f"selected 1 row(s)" in captured.out
@@ -688,7 +729,11 @@ def test_run_risk_after_success_exit_2_precedes_per_item_failure(
     _patch_cli(monkeypatch, transport)
 
     _seed_archive_database(tmp_root)
-    rc = main(["run", "--scope", "pending", "--archive-root", tmp_root])
+    # Pinned to the manifest source: these fixtures drive the legacy route, whose selection is
+    # the manifest's own statuses.  The store route is the default since the cutover and resolves
+    # `pending` through the gap views instead, which excludes a part already holding a caption and
+    # relabels a harvest-eligible one `needs_audio` (see R13/R15).  Same pin as tests/test_audio.py.
+    rc = main(["run", "--scope", "pending", "--queue-source", "manifest", "--archive-root", tmp_root])
     captured = capsys.readouterr()
     assert rc == 2
     loaded = ManifestStore(root=tmp_root).load()
@@ -728,7 +773,11 @@ def test_run_per_item_failure_then_risk_still_exits_2(
     _patch_cli(monkeypatch, transport)
 
     _seed_archive_database(tmp_root)
-    rc = main(["run", "--scope", "pending", "--archive-root", tmp_root])
+    # Pinned to the manifest source: these fixtures drive the legacy route, whose selection is
+    # the manifest's own statuses.  The store route is the default since the cutover and resolves
+    # `pending` through the gap views instead, which excludes a part already holding a caption and
+    # relabels a harvest-eligible one `needs_audio` (see R13/R15).  Same pin as tests/test_audio.py.
+    rc = main(["run", "--scope", "pending", "--queue-source", "manifest", "--archive-root", tmp_root])
     captured = capsys.readouterr()
     assert rc == 2
     loaded = ManifestStore(root=tmp_root).load()

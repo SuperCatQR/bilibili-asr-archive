@@ -223,8 +223,17 @@ def test_the_coordinator_archives_with_bundles_at_the_artifact_root(
         assert ".." not in Path(recorded).parts
         assert (artifact / recorded).is_file()
         assert not (archive / recorded).exists()
-    for name in ("srt", "txt", "md", "raw"):
-        assert (artifact / "transcripts" / name).is_dir()
+    # Shape A: one directory per bundle holding the four fixed names — not four
+    # top-level ``transcripts/{srt,txt,md,raw}`` directories, which the earlier
+    # layout used and ``d743043`` replaced.  The directory also carries the
+    # atomicity marker (``.bundle-ready``), so assert containment, not equality.
+    bundle_dir = artifact / "transcripts" / stem
+    assert bundle_dir.is_dir()
+    for name in ("bundle.srt", "bundle.txt", "bundle.md", "bundle.raw.json"):
+        assert (bundle_dir / name).is_file()
+    assert not any(
+        (artifact / "transcripts" / name).is_dir() for name in ("srt", "txt", "md", "raw")
+    )
     # State stays at the archive root (D13), and a configured root adds nothing
     # there but the audio the legacy probe may still read.
     assert (archive / "manifest" / "manifest.jsonl").is_file()

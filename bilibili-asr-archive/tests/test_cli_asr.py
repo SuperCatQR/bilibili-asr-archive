@@ -226,7 +226,11 @@ def test_cli_subtitle_branch_subtitle_done_archived_skips_asr(
     assert after_harvest["status"] == "subtitle_done"
     assert os.path.isfile(os.path.join(tmp_root, after_harvest["srt_path"]))
 
-    rc = main(["asr", "--pending", "--archive-root", tmp_root])
+    # Pinned to the manifest source: these fixtures drive the legacy route, whose selection is
+    # the manifest's own statuses.  The store route is the default since the cutover and resolves
+    # `pending` through the gap views instead, which excludes a part already holding a caption and
+    # relabels a harvest-eligible one `needs_audio` (see R13/R15).  Same pin as tests/test_audio.py.
+    rc = main(["asr", "--pending", "--queue-source", "manifest", "--archive-root", tmp_root])
     captured = capsys.readouterr()
     assert rc == 0, captured.err
     archived = ManifestStore(root=tmp_root).get(identity.work_id)
@@ -288,7 +292,11 @@ def test_cli_asr_rerun_idempotent_leaves_unrelated_rows(
         == "subtitle_done"
     )
     capsys.readouterr()
-    assert main(["asr", "--pending", "--archive-root", tmp_root]) == 0
+    # Pinned to the manifest source: these fixtures drive the legacy route, whose selection is
+    # the manifest's own statuses.  The store route is the default since the cutover and resolves
+    # `pending` through the gap views instead, which excludes a part already holding a caption and
+    # relabels a harvest-eligible one `needs_audio` (see R13/R15).  Same pin as tests/test_audio.py.
+    assert main(["asr", "--pending", "--queue-source", "manifest", "--archive-root", tmp_root]) == 0
     capsys.readouterr()
 
     first_lines = _jsonl_lines(tmp_root)
@@ -297,7 +305,11 @@ def test_cli_asr_rerun_idempotent_leaves_unrelated_rows(
     assert ManifestStore(root=tmp_root).get(target.work_id)["status"] == "archived"
     assert ManifestStore(root=tmp_root).get(other.work_id) == other_snapshot
 
-    rc = main(["asr", "--pending", "--archive-root", tmp_root])
+    # Pinned to the manifest source: these fixtures drive the legacy route, whose selection is
+    # the manifest's own statuses.  The store route is the default since the cutover and resolves
+    # `pending` through the gap views instead, which excludes a part already holding a caption and
+    # relabels a harvest-eligible one `needs_audio` (see R13/R15).  Same pin as tests/test_audio.py.
+    rc = main(["asr", "--pending", "--queue-source", "manifest", "--archive-root", tmp_root])
     captured = capsys.readouterr()
     assert rc == 0, captured.err
     rerun_lines = _jsonl_lines(tmp_root)
@@ -394,7 +406,11 @@ def test_cli_asr_subtitle_only_selection_constructs_no_model(
     )
     capsys.readouterr()
 
-    rc = main(["asr", "--pending", "--archive-root", tmp_root])
+    # Pinned to the manifest source: these fixtures drive the legacy route, whose selection is
+    # the manifest's own statuses.  The store route is the default since the cutover and resolves
+    # `pending` through the gap views instead, which excludes a part already holding a caption and
+    # relabels a harvest-eligible one `needs_audio` (see R13/R15).  Same pin as tests/test_audio.py.
+    rc = main(["asr", "--pending", "--queue-source", "manifest", "--archive-root", tmp_root])
     captured = capsys.readouterr()
 
     assert rc == 0, captured.err
@@ -806,7 +822,11 @@ def test_a_malformed_declaration_does_not_block_a_subtitle_only_selection(
     )
     capsys.readouterr()
 
-    rc = main(["asr", "--pending", "--archive-root", tmp_root])
+    # Pinned to the manifest source: these fixtures drive the legacy route, whose selection is
+    # the manifest's own statuses.  The store route is the default since the cutover and resolves
+    # `pending` through the gap views instead, which excludes a part already holding a caption and
+    # relabels a harvest-eligible one `needs_audio` (see R13/R15).  Same pin as tests/test_audio.py.
+    rc = main(["asr", "--pending", "--queue-source", "manifest", "--archive-root", tmp_root])
     captured = capsys.readouterr()
 
     assert rc == 0, captured.err

@@ -37,7 +37,8 @@ from bili_asr import asr
 
 # ---------------------------------------------------------------------------------------
 # Fakes.  The boundary talks to exactly four objects, so the fakes are four small ones — and they
-# are plain Python, which keeps this suite runnable on a host with no torch and no numpy.
+# are plain Python, which keeps this suite runnable on a host with no torch.  numpy and soundfile,
+# by contrast, are real test dependencies: the audio path calls them, so they are imported directly.
 # ---------------------------------------------------------------------------------------
 
 
@@ -368,9 +369,9 @@ def test_config_refuses_a_hostile_local_source() -> None:
 def _runner(monkeypatch, text: str = "今天讲两件事。明天我们接着讲第三件事。", **kwargs):
     """A runner over fake models and fake audio.
 
-    The audio read is patched because the ASR stack (numpy + soundfile) is an optional extra: these
-    tests describe the runner's contract, not the decoder libraries, so they run wherever numpy and
-    soundfile are installed and skip where they are not.
+    The audio read is patched because these tests describe the runner's contract, not the decoder
+    libraries.  numpy and soundfile are nonetheless imported for real — they are declared test
+    dependencies, not an optional extra — so a host without them fails here rather than skipping.
     """
 
     import numpy as np
