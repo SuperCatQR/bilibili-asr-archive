@@ -43,6 +43,10 @@ def _manifest_path(root):
     return os.path.join(root, "manifest", "manifest.jsonl")
 
 
+def _journal_path(root):
+    return os.path.join(root, "manifest", "manifest.journal.jsonl")
+
+
 def test_load_empty_missing_file(store):
     assert store.load() == {}
 
@@ -102,9 +106,13 @@ def test_upsert_dedupe_same_bvid(store, tmp_root):
     assert loaded["BV1aa:p0"]["status"] == "meta_ok"
     assert loaded["BV1aa:p0"]["title"] == "new"
 
-    with open(_manifest_path(tmp_root), encoding="utf-8") as fh:
-        lines = fh.read().splitlines()
-    assert len(lines) == 2
+    # Per-row upserts now land in the journal; the snapshot compacts later.
+    ledger_lines = []
+    for path in (_manifest_path(tmp_root), _journal_path(tmp_root)):
+        if os.path.exists(path):
+            with open(path, encoding="utf-8") as fh:
+                ledger_lines.extend(fh.read().splitlines())
+    assert len(ledger_lines) == 2
 
 
 def test_resume_dedupe_no_duplicate_bvids(store, tmp_root):
@@ -115,9 +123,12 @@ def test_resume_dedupe_no_duplicate_bvids(store, tmp_root):
     store2.upsert(_auto("BV1aa"))  # resume re-upsert same work_id
     store2.upsert(_auto("BV1cc", cid=3))
 
-    with open(_manifest_path(tmp_root), encoding="utf-8") as fh:
-        lines = fh.read().splitlines()
-    bvids = [json.loads(l)["bvid"] for l in lines]
+    ledger_lines = []
+    for path in (_manifest_path(tmp_root), _journal_path(tmp_root)):
+        if os.path.exists(path):
+            with open(path, encoding="utf-8") as fh:
+                ledger_lines.extend(fh.read().splitlines())
+    bvids = [json.loads(l)["bvid"] for l in ledger_lines]
     assert len(bvids) == 3
     assert len({bvids[0], bvids[1], bvids[2]}) == 2
 
@@ -328,3 +339,88 @@ def test_migrate_collision_on_foreign_stem_under_configured_artifact_root(
     # Nothing colliding sits at the archive root: the freeze came from the
     # configured base, which the probe reaches only because it scans both.
     assert not os.path.exists(os.path.join(tmp_root, "transcripts", "BV1aa.p1"))
+
+
+def test_journal_crash_mid_batch_replays_last_full_record_per_key(store, tmp_root):
+    # Seed a snapshot through save(); subsequent upserts append to the journal.
+    store.save({"BV1aa:p0": _auto("BV1aa")})
+
+    rows = [
+        _auto("BV1aa", title="t1"),
+        _auto("BV1bb"),
+        _auto("BV1aa", title="t2"),
+    ]
+    for row in rows:
+        store.upsert(row)
+    assert os.path.exists(_journal_path(tmp_root))
+
+    # Simulate a crash mid-journal: truncate inside the final "t2" append, so
+    # that line tears while every earlier line stays fully intact.
+    with open(_journal_path(tmp_root), "rb") as fh:
+        journal = fh.read()
+    t2_start = journal.rindex(b'"t2"')
+    cut = t2_start - 5
+    with open(_journal_path(tmp_root), "wb") as fh:
+        fh.write(journal[:cut])
+
+    recovered = ManifestStore(root=tmp_root)
+    loaded = recovered.load()
+    # Torn append is dropped: BV1aa falls back to its last fully-appended row.
+    assert loaded["BV1aa:p0"]["title"] == "t1"
+    # Rows appended before the tear are unaffected.
+    assert loaded["BV1bb:p0"]["title"] == "some title"
+    assert len(loaded) == 2
+
+
+def test_snapshot_deterministic_after_compaction(store, tmp_root):
+    store.upsert(_auto("BV1aa"))
+    store.upsert(_auto("BV1bb", cid=2))
+    store.upsert(_auto("BV1aa", title="second"))
+    store.compact()
+    # Compaction folded the journal in and reset it.
+    assert not os.path.exists(_journal_path(tmp_root))
+
+    first = open(_manifest_path(tmp_root), "rb").read()
+    store.save()
+    second = open(_manifest_path(tmp_root), "rb").read()
+    assert first == second
+
+    # Post-compaction upserts go to the journal and must not change the
+    # snapshot until the next compaction; compacting reproduces the same bytes
+    # only when no new rows landed, so assert byte-stability across save() and
+    # a no-op compact() round-trip.
+    store.compact()
+    third = open(_manifest_path(tmp_root), "rb").read()
+    assert second == third
+
+
+def test_batch_cost_bounded_full_rereads(store, tmp_root, monkeypatch):
+    # L-line pre-existing manifest: history replayed through save().
+    seed = {f"BV{i:04x}:p0": _auto(f"BV{i:04x}") for i in range(64)}
+    store.save(seed)
+
+    store2 = ManifestStore(root=tmp_root)
+    reads = 0
+    original = ManifestStore._read_latest
+
+    def counting(self):
+        nonlocal reads
+        reads += 1
+        return original(self)
+
+    monkeypatch.setattr(ManifestStore, "_read_latest", counting)
+
+    k = 12
+    for i in range(k):
+        store2.upsert(_auto(f"BV{i:04x}", title=f"batch {i}"))
+
+    # The batch takes the journal path: exactly one full snapshot re-read
+    # (first upsert) instead of K.
+    assert reads == 1
+
+    # Journal replay still yields the latest rows for this process...
+    assert store2.get("BV0000:p0")["title"] == "batch 0"
+    # ...and for a fresh process reading from disk.
+    reloaded = ManifestStore(root=tmp_root).load()
+    assert reloaded["BV0000:p0"]["title"] == "batch 0"
+    assert len(reloaded) == 64
