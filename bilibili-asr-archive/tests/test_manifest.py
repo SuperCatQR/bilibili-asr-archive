@@ -424,3 +424,34 @@ def test_batch_cost_bounded_full_rereads(store, tmp_root, monkeypatch):
     reloaded = ManifestStore(root=tmp_root).load()
     assert reloaded["BV0000:p0"]["title"] == "batch 0"
     assert len(reloaded) == 64
+
+
+def test_upsert_invalidates_cache_on_foreign_journal_append(store, tmp_root):
+    # Process A holds a loaded store; a second writer (same fs, separate
+    # process semantics) appends between two of A's upserts.  A's next
+    # upsert must re-replay so save()/compact() cannot overwrite the
+    # foreign row with the stale cached view.
+    store.upsert(_auto("BVaaaa"))
+
+    other = ManifestStore(root=tmp_root)
+    other.upsert(_auto("BVbbbb"))
+
+    # Foreign append changed the journal: the stale cache would hold only
+    # BVaaaa.  The invalidation re-replays before applying this upsert.
+    store.upsert(_auto("BVcccc", status="pending"))
+    assert store.get("BVbbbb:p0") is not None
+
+    # save() publishes the merged view, not the pre-invalidation cache.
+    store.save()
+    reloaded = ManifestStore(root=tmp_root).load()
+    assert set(reloaded) == {"BVaaaa:p0", "BVbbbb:p0", "BVcccc:p0"}
+
+    # Same guarantee through compact(): foreign row survives the fold.
+    other2 = ManifestStore(root=tmp_root)
+    other2.upsert(_auto("BVdddd"))
+    store.upsert(_auto("BVeeee", status="pending"))
+    store.compact()
+    reloaded = ManifestStore(root=tmp_root).load()
+    assert set(reloaded) == {
+        "BVaaaa:p0", "BVbbbb:p0", "BVcccc:p0", "BVdddd:p0", "BVeeee:p0",
+    }
