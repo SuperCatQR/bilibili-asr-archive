@@ -56,7 +56,7 @@ from typing import Any, Sequence
 
 from .archive import archive_stem, bundle_relpaths_for_stem
 from .artifact_root import ArtifactRoots
-from .manifest import ManifestStore
+from .manifest import JOURNAL_NAME, ManifestStore
 
 FTS5_TABLE_NAME = "transcripts_fts"
 INDEX_META_TABLE = "_index_meta"
@@ -457,6 +457,7 @@ class SearchIndex:
         )
         self.db_path = os.path.join(self.root, "search.db")
         self.manifest_path = os.path.join(self.root, "manifest", "manifest.jsonl")
+        self.journal_path = os.path.join(self.root, "manifest", JOURNAL_NAME)
 
     def count(self) -> int:
         """Return the number of indexed rows in search.db, or 0 if uninitialized."""
@@ -477,7 +478,8 @@ class SearchIndex:
         self,
         manifest_entries: dict[str, dict[str, Any]] | ManifestStore | None = None,
     ) -> bool:
-        """Check if search.db is missing, older than manifest.jsonl, schema mismatch, or row mismatch."""
+        """Check if search.db is missing, older than the manifest snapshot or its
+        append journal, schema mismatch, or row mismatch."""
         if not os.path.isfile(self.db_path):
             return True
 
@@ -505,12 +507,19 @@ class SearchIndex:
         except (sqlite3.OperationalError, sqlite3.DatabaseError):
             return True
 
-        # If manifest file exists, check mtime comparison
-        if os.path.isfile(self.manifest_path):
+        # If manifest files exist, check mtime comparison.  The journal is a
+        # live sidecar of the snapshot (ManifestStore.upsert appends there
+        # without touching manifest.jsonl), so a journaled same-count change
+        # must also invalidate the index.
+        mtimes = [
+            os.path.getmtime(path)
+            for path in (self.manifest_path, self.journal_path)
+            if os.path.isfile(path)
+        ]
+        if mtimes:
             try:
-                manifest_mtime = os.path.getmtime(self.manifest_path)
                 db_mtime = os.path.getmtime(self.db_path)
-                if manifest_mtime > db_mtime:
+                if max(mtimes) > db_mtime:
                     return True
             except OSError:
                 return True
