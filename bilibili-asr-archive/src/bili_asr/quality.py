@@ -14,6 +14,7 @@ from typing import Mapping, NamedTuple
 from .archive import LOW_CONFIDENCE, archive_stem, bundle_paths_for_stem
 from .artifact_root import ArtifactRoots
 from .asr import _FORBIDDEN_PROVENANCE as _FORBIDDEN_MARKER
+from .cues import read_cues as _read_shared_cues
 from .page_identity import artifact_stem, page_identity, parse_work_id
 
 #: Reasons that describe a structural defect: an artifact is missing, unreadable,
@@ -139,11 +140,6 @@ _NAME_CREDENTIAL = re.compile(
     r"(?:^|[^A-Za-z])(?:sessdata|cookie|token|password|secret|credential)(?![A-Za-z])",
     re.IGNORECASE,
 )
-_SRT_TIME = re.compile(
-    r"^(?P<h>\d{1,3}):(?P<m>[0-5]\d):(?P<s>[0-5]\d)[,.](?P<ms>\d{1,3})$"
-)
-
-
 class Cue(NamedTuple):
     """One cue, as the single parser reads it from any artifact shape.
 
@@ -643,107 +639,14 @@ def _compare_reference(
 
 
 def _read_cues(path: Path, text: str) -> tuple[list[Cue], bool, bool]:
-    if not text.strip():
-        return [], False, True
-    if path.suffix.lower() == ".srt":
-        cues: list[Cue] = []
-        malformed = False
-        blocks = re.split(r"\n\s*\n", text.replace("\r\n", "\n"))
-        for block in blocks:
-            lines = [line.strip() for line in block.splitlines() if line.strip()]
-            if not lines:
-                continue
-            timing = next((line for line in lines if "-->" in line), None)
-            if timing is None:
-                malformed = True
-                continue
-            parts = [part.strip() for part in timing.split("-->", 1)]
-            if len(parts) != 2:
-                malformed = True
-                continue
-            start, end = _parse_time(parts[0]), _parse_time(parts[1])
-            if start is None or end is None:
-                malformed = True
-            else:
-                cues.append(Cue(start, end, _cue_text(lines, timing), None))
-        return cues[:_MAX_CUES], malformed, not cues
-    if path.suffix.lower() == ".json":
-        try:
-            document = json.loads(text)
-        except (ValueError, TypeError):
-            return [], True, False
-        if isinstance(document, dict):
-            if "body" in document and isinstance(document["body"], list):
-                items = document["body"]
-            elif "segments" in document and isinstance(document["segments"], list):
-                items = document["segments"]
-            else:
-                return [], True, False
-        elif isinstance(document, list):
-            items = document
-        else:
-            return [], True, False
-        cues = []
-        malformed = False
-        for item in items[:_MAX_CUES]:
-            if not isinstance(item, dict):
-                malformed = True
-                continue
-            start_raw = item.get("from") if "from" in item else item.get("start")
-            end_raw = item.get("to") if "to" in item else item.get("end")
-            if start_raw is None or end_raw is None:
-                malformed = True
-                continue
-            try:
-                start, end = float(start_raw), float(end_raw)
-            except (TypeError, ValueError):
-                malformed = True
-                continue
-            if not (math.isfinite(start) and math.isfinite(end)):
-                malformed = True
-                continue
-            cues.append(Cue(start, end, _text_of(item), _confidence_of(item)))
-        return cues, malformed, not cues
-    lines = [line.strip() for line in text.splitlines() if line.strip()]
-    return [], False, not lines
+    """The single cue parser, shared via :mod:`bili_asr.cues` (plan 009).
 
-
-def _cue_text(lines: list[str], timing: str) -> str:
-    """The cue's text: every line after the timing line, joined.
-
-    Taking the lines *after* the timing line — rather than dropping digit-only
-    lines — keeps a cue whose text is itself a number.
+    This module's reason-code order is a pinned contract, so the parse
+    result must not change: the shared reader is called leniently (no source
+    guard), exactly as this body behaved before the consolidation.
     """
 
-    index = lines.index(timing)
-    return " ".join(lines[index + 1 :])
-
-
-def _text_of(item: Mapping[str, object]) -> str:
-    value = item.get("text")
-    if value is None:
-        value = item.get("content")
-    return "" if value is None else str(value)
-
-
-def _confidence_of(item: Mapping[str, object]) -> float | None:
-    value = item.get("confidence")
-    if isinstance(value, bool) or not isinstance(value, (int, float)):
-        return None
-    score = float(value)
-    return score if math.isfinite(score) else None
-
-
-def _parse_time(value: str) -> float | None:
-    match = _SRT_TIME.match(value)
-    if not match:
-        return None
-    return (
-        int(match["h"]) * 3600
-        + int(match["m"]) * 60
-        + int(match["s"])
-        + int(match["ms"].ljust(3, "0")) / 1000
-    )
+    return _read_shared_cues(path, text)
 
 
 def _check_cues(

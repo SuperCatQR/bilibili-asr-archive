@@ -100,9 +100,11 @@ def _cmd_asr(args: argparse.Namespace) -> int:
         if failed:
             return 1
         queue_conn = queue_source.connection
+        # ``--limit`` is owned by the queue-source read: ``_store_transcript_todo``
+        # already passed ``args.limit`` into the store-side ``LIMIT ?``, so a
+        # second slice here would only mask which side owns the bound (the
+        # download-audio store branch relies on the store limit alone).
         todo = [e for _key, e in rows] if rows else []
-        if args.limit is not None:
-            todo = todo[:args.limit]
         if not todo:
             print("asr: queue empty (no parts need transcription)")
             queue_conn.close()
@@ -204,8 +206,9 @@ def _cmd_asr(args: argparse.Namespace) -> int:
                     # 20260928-hotword-injection-governance): the paired AI-subtitle
                     # text and the run's own first-pass transcript are the only
                     # texts that may admit a hotword.  Pass 1 runs unguarded; pass 2
-                    # is seeded with the tokens pass 1 produced.  Dropped tokens are
-                    # recorded as ``hotword_dropped_no_evidence`` in the provenance.
+                    # is seeded with the tokens pass 1 produced and re-decodes with a
+                    # clean model/cache state.  Dropped tokens are recorded as
+                    # ``hotword_dropped_no_evidence`` in the provenance.
                     subtitle_data_for_evidence = (
                         _subtitle_segments(args.artifact_roots, entry)
                         if status == "subtitle_done"
@@ -216,17 +219,10 @@ def _cmd_asr(args: argparse.Namespace) -> int:
                         if subtitle_data_for_evidence is not None
                         else None
                     )
-                    runner.set_hotword_evidence(
-                        evidence_text=None, paired_subtitle_text=paired_subtitle_text
-                    )
                     with confined_audio_file(audio_base, os.fspath(declared)) as safe_audio:
-                        first_pass = runner.transcribe(safe_audio)
-                    transcript_text = "".join(str(seg.get("text", "")) for seg in first_pass)
-                    if runner.rebuild_hotwords_from_first_pass(transcript_text):  # kept tokens
-                        with confined_audio_file(audio_base, os.fspath(declared)) as safe_audio:
-                            segments = runner.transcribe(safe_audio)
-                    else:
-                        segments = first_pass
+                        segments = asr.two_pass_transcribe(
+                            runner, safe_audio, paired_subtitle_text=paired_subtitle_text
+                        )
                     asr_count.value += 1
                     provenance = runner.provenance()
                 paths = archive.write_archive(

@@ -10,7 +10,7 @@ import stat
 from typing import Any, Iterator, Literal, Mapping
 
 from .coordinator import _validate_attempt
-from .manifest import VALID_STATUSES, validate_manifest_record
+from .manifest import JOURNAL_NAME, VALID_STATUSES, validate_manifest_record
 from .page_identity import parse_work_id
 
 
@@ -190,21 +190,59 @@ def _manifest_semantic_diagnostics(record: Mapping[str, Any]) -> set[str]:
 ORDINARY_HISTORY_DIAGNOSTICS = frozenset({"manifest_duplicate_work_id"})
 
 
+def replay_journal_records(
+    path: str | Path, *, policy: ReaderPolicy | None = None,
+) -> Iterator[JsonlRecord]:
+    """Replay ``manifest.journal.jsonl`` next to a snapshot, oldest row first.
+
+    Mirrors :meth:`ManifestStore._replay_latest` journal semantics for
+    read-only projections: a torn trailing line (crash mid-append) stops the
+    replay, since nothing after it was fully appended either.  The journal is
+    a sidecar of the deterministic snapshot, so a row superseding a snapshot
+    copy reads as ordinary history, never as a duplicate defect.
+    """
+    journal_path = Path(path).with_name(JOURNAL_NAME)
+    pending: JsonlRecord | None = None
+    for item in iter_jsonl_records(journal_path, policy=policy, name="manifest"):
+        if item.diagnostic:
+            if pending is not None:
+                yield pending
+                pending = None
+            yield item
+            return
+        if pending is not None:
+            yield pending
+        pending = item
+    if pending is not None:
+        yield pending
+
+
 def project_manifest_records(
     path: str | Path, *, policy: ReaderPolicy | None = None,
 ) -> tuple[dict[str, dict[str, Any]], str, set[str]]:
-    """Project latest valid manifest rows and retain semantic diagnostics."""
+    """Project latest valid manifest rows and retain semantic diagnostics.
+
+    The effective ledger is the deterministic snapshot folded with its
+    append journal (plan 003): journal rows replay oldest-first with
+    last-write-wins per key, so a reader never sees a stale snapshot while
+    the only fresh copy of a row still lives in the journal.
+    """
     entries: dict[str, dict[str, Any]] = {}
     diagnostics: set[str] = set()
     state = "available"
-    for item in iter_jsonl_records(path, policy=policy, name="manifest"):
+    source = Path(path)
+    snapshot_missing = not source.is_file() or source.is_symlink()
+    for item in iter_jsonl_records(source, policy=policy, name="manifest"):
         if item.diagnostic:
+            if item.diagnostic == "missing":
+                # No snapshot yet is pre-transition normal, not damage; the
+                # journal replay below decides whether the ledger exists.
+                continue
             state = "malformed"
             diagnostics.add({
                 "manifest_record_limit": "manifest_row_limit_exceeded",
                 "manifest_byte_limit": "manifest_byte_limit_exceeded",
                 "symlink": "manifest_malformed",
-                "missing": "manifest_malformed",
                 "malformed_middle": "manifest_malformed",
                 "truncated_final": "manifest_malformed",
                 "invalid_utf8": "structural_input_error",
@@ -223,9 +261,34 @@ def project_manifest_records(
         if key in entries:
             diagnostics.add("manifest_duplicate_work_id")
         entries[key] = item.value
-    if not Path(path).exists():
-        state = "missing"
-    elif Path(path).is_symlink():
+    # Replay the append journal so the projection sees the effective ledger;
+    # a journaled row superseding a snapshot copy is the store's normal
+    # transition shape, so it never surfaces as a duplicate defect.
+    for item in replay_journal_records(source, policy=policy):
+        if item.diagnostic:
+            if item.diagnostic == "missing":
+                # No journaled appends since the last compaction is ordinary.
+                continue
+            state = "malformed"
+            diagnostics.add({
+                "manifest_record_limit": "manifest_row_limit_exceeded",
+                "manifest_byte_limit": "manifest_byte_limit_exceeded",
+                "invalid_utf8": "structural_input_error",
+            }.get(item.diagnostic, "manifest_malformed"))
+            continue
+        assert item.value is not None
+        semantic = _manifest_semantic_diagnostics(item.value)
+        diagnostics.update(semantic)
+        if semantic or not _valid_manifest(item.value):
+            state = "malformed"
+            diagnostics.add("manifest_invalid")
+            continue
+        entries[_manifest_key(item.value)] = item.value
+    if snapshot_missing and not entries:
+        # The effective ledger is absent (no snapshot and no journaled rows),
+        # so report the same pre-journal "missing" shape — no defect.
+        return entries, "missing", diagnostics
+    if source.is_symlink():
         state = "malformed"
     return entries, state, diagnostics
 
