@@ -6,17 +6,24 @@ import tempfile
 import time
 import traceback
 import types
+import uuid
 
 import pytest
 
-import os
-import sys
-
+# --- sys.path preamble -------------------------------------------------------
+# The test interpreter is intentionally NOT the pip-installed artifact (see
+# tests/installed_cli.py for the console-script lane): the suite loads the
+# source tree via sys.path. These are the only two inserts in the suite — one
+# per path, declared once here; do not re-add ad-hoc ``sys.path.insert`` calls
+# in individual test modules.
+#
+# The package sources live in ``src/``:
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "src")))
 # ``scripts/`` (verify_baseline, check_asr_env, ...) is an importable namespace
 # package rooted at the repo; without the repo root on ``sys.path`` the two test
 # modules that import it fail collection with ``ModuleNotFoundError: No module
-# named 'scripts'``.
+# named 'scripts'``. The repo root also makes the ``tests/`` directory itself
+# importable, so sibling test modules can be imported by name.
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 _TEST_TMP_BASE = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".test-tmp"))
@@ -128,9 +135,16 @@ def tmp_root():
     Notes on this environment: the sandbox denies directory creation under
     %TEMP% from Python and breaks pytest's tmpdir plugin cleanup, so we use a
     self-managed workspace-local temp dir created and removed in-process.
+
+    The name ends in a UUID so a leftover dir from a killed run cannot collide
+    with the next one: with only PID+counter in the name, PID reuse reproduced
+    an intermittent FileExistsError setup red on an unchanged tree.
     """
     os.makedirs(_TEST_TMP_BASE, exist_ok=True)
-    path = os.path.join(_TEST_TMP_BASE, f"manifest-test-{os.getpid()}-{next(_counter)}")
+    path = os.path.join(
+        _TEST_TMP_BASE,
+        f"manifest-test-{os.getpid()}-{next(_counter)}-{uuid.uuid4().hex}",
+    )
     os.makedirs(path)
     try:
         yield path
