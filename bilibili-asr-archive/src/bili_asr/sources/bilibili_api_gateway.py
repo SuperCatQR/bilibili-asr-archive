@@ -770,9 +770,10 @@ class BilibiliApiGateway:
         ``None`` restores the default "always pace".
         """
 
-        if expected_rows is not None and (
-            isinstance(expected_rows, bool) or not isinstance(expected_rows, int) or expected_rows < 1
-        ):
+        invalid = isinstance(expected_rows, bool) or not isinstance(
+            expected_rows, int
+        )
+        if expected_rows is not None and (invalid or expected_rows < 1):
             raise ValueError("expected_rows must be a positive integer or None")
         self._pacing_floor = expected_rows
 
