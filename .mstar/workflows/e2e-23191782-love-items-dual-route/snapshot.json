@@ -2,18 +2,19 @@
   "schema_version": 1,
   "id": "e2e-23191782-love-items-dual-route",
   "type": "plan",
-  "status": "running",
+  "status": "completed",
   "started_at": "2026-09-30",
-  "updated_at": "2026-09-30",
+  "updated_at": "2026-10-01",
   "plans": [
     {
       "id": "20260930-love-items-dual-route",
       "title": "E2E: 未明子 4 条 爱情 标题稿件 双路线验证（字幕优先 + 强制音频→ASR）",
       "file": ".mstar/workflows/e2e-23191782-love-items-dual-route/reports/e2e.md",
-      "status": "Todo"
+      "status": "Done"
     }
   ],
   "delivery_kind": "verification/report-only",
   "project": "_default",
-  "completion_policy": "No branch and no PR: the deliverable is this workflow's own report at .mstar/workflows/e2e-23191782-love-items-dual-route/reports/e2e.md, accepted by the PM against the assigned scenario list A0-D4 with exactly one determinate outcome each; the workflow closes terminal on that acceptance, independent of what the scenarios conclude. A failed product scenario is still a completed verification run."
+  "completion_policy": "No branch and no PR: the deliverable is this workflow's own report at .mstar/workflows/e2e-23191782-love-items-dual-route/reports/e2e.md, accepted by the PM against the assigned scenario list A0-D4 with exactly one determinate outcome each; the workflow closes terminal on that acceptance, independent of what the scenarios conclude. A failed product scenario is still a completed verification run.",
+  "ended_at": "2026-10-01"
 }
