@@ -424,3 +424,21 @@ def test_batch_cost_bounded_full_rereads(store, tmp_root, monkeypatch):
     reloaded = ManifestStore(root=tmp_root).load()
     assert reloaded["BV0000:p0"]["title"] == "batch 0"
     assert len(reloaded) == 64
+
+
+def test_compact_with_only_torn_journal_keeps_journal(store, tmp_root):
+    # The replayed effective state is empty (the journal's only row is a torn
+    # append), so there is no snapshot to rewrite. compact() must leave the
+    # journal in place rather than delete the sole on-disk history — mirror
+    # migrate_legacy_rows, which removes the journal only on a real rewrite.
+    journal_dir = os.path.join(tmp_root, "manifest")
+    os.makedirs(journal_dir, exist_ok=True)
+    with open(_journal_path(tmp_root), "w", encoding="utf-8") as fh:
+        fh.write(json.dumps(_auto("BV1aa"))[:20])  # torn line, no newline
+
+    store.compact()
+
+    assert os.path.exists(_journal_path(tmp_root))
+    assert not os.path.exists(_manifest_path(tmp_root))
+    # The torn row replays to nothing, so the store stays empty.
+    assert store.load() == {}

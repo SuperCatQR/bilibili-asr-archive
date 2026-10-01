@@ -357,7 +357,7 @@ class ManifestStore:
             current, _journal_bytes = self._replay_latest()
             if current:
                 self._replace_snapshot(current)
-            self._remove_journal()
+                self._remove_journal()
             self._appends_since_compact = 0
             self._journal_bytes = 0
             self._entries = current
