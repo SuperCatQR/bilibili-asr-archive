@@ -1,7 +1,0 @@
-{
-  "schema_version": 1,
-  "role": "coordinator",
-  "session_id": "8eb4c4e6-5244-4f14-8e54-642966e7df42",
-  "workflow_id": "20260930-metadata-shape-resilience",
-  "harness_root": "/root/workspace/bilibili-asr-archive/.mstar"
-}
