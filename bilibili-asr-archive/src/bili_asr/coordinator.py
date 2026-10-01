@@ -27,7 +27,8 @@ from . import asr as asr_module
 from . import audio as audio_module
 from . import subtitles as subtitles_module
 from .artifact_root import ArtifactRoots
-from .manifest import ManifestStore
+from .manifest import TERMINAL_STATUSES, ManifestStore
+from .persistence import utc_now_iso
 from .page_identity import PageIdentity, artifact_stem, identity_from_entry
 from .persistence import append_jsonl_record, file_lock
 from .path_policy import confined_audio_path
@@ -41,8 +42,6 @@ _HARVEST_STATUSES = frozenset({"pending", "meta_ok", "sub_checked"})
 _SKIP_HARVEST_STATUSES = frozenset(
     {"subtitle_done", "needs_audio", "audio_ok", "archived"}
 )
-# terminal manifest rows: reruns always skip these
-TERMINAL_STATUSES = frozenset({"archived", "gone"})
 
 # Sidecar may hold only redacted scalar codes — never cookies, URLs, traces.
 _FORBIDDEN_MARKERS = (
@@ -94,12 +93,6 @@ def archive_writer(root: str | os.PathLike[str], *, blocking: bool = False) -> I
     else:
         _ARCHIVE_WRITER_STATE.owned = None
         lock.__exit__(None, None, None)
-
-
-def _utc_now_iso() -> str:
-    from .run_ledger import utc_now_iso
-
-    return utc_now_iso()
 
 
 # qc3-S2: a hostile/odd .code string may itself carry forbidden markers;
@@ -394,8 +387,8 @@ class RunCoordinator:
                 "outcome": outcome,
                 "error_code": error_code,
                 "artifact_paths": list(artifact_paths or []),
-                "started_at": started_at or _utc_now_iso(),
-                "finished_at": _utc_now_iso(),
+                "started_at": started_at or utc_now_iso(),
+                "finished_at": utc_now_iso(),
             }
         )
         self._attempt_counts[key] = stored["attempt"]
@@ -487,7 +480,7 @@ class RunCoordinator:
         from . import archive as archive_module
 
         work_id = str(entry.get("work_id") or key)
-        started = _utc_now_iso()
+        started = utc_now_iso()
         data = self._subtitle_segments(entry)
         if data is None:
             self._record(
@@ -571,7 +564,7 @@ class RunCoordinator:
         from . import archive as archive_module
 
         work_id = str(entry.get("work_id") or key)
-        started = _utc_now_iso()
+        started = utc_now_iso()
         resolved = self._existing_audio(entry)
         if resolved is None:
             self._record(
@@ -616,7 +609,7 @@ class RunCoordinator:
         # This row produced an ASR transcript: the denominator of the printed
         # reuse line (D2.5).  Counted here, at the `asr: ok` attempt.
         self._batch_asr_items += 1
-        started = _utc_now_iso()
+        started = utc_now_iso()
         try:
             paths = archive_module.write_archive(
                 self.artifact_roots.write_base, self._current_entry(key, entry), segments,
@@ -658,7 +651,7 @@ class RunCoordinator:
         # offline / client-less rows never reach this stage: process_row
         # routes them to on-disk reprocessing or a skipped record first.
         work_id = str(entry.get("work_id") or key)
-        started = _utc_now_iso()
+        started = utc_now_iso()
         if self.max_audio_bytes:
             from .audio_budget import SKIP_REASON, would_exceed_budget
 
@@ -749,7 +742,7 @@ class RunCoordinator:
                 return result
 
             if status in _HARVEST_STATUSES:
-                started = _utc_now_iso()
+                started = utc_now_iso()
                 identity = self._identity_for(entry, key)
                 try:
                     status = subtitles_module.harvest_subtitle(

@@ -36,6 +36,9 @@ VALID_STATUSES = frozenset(
     }
 )
 
+#: Terminal manifest rows — reruns always skip these.
+TERMINAL_STATUSES = frozenset({"archived", "gone"})
+
 DEFAULT_REL_PATH = os.path.join("manifest", "manifest.jsonl")
 
 #: Ledger sidecar of the deterministic snapshot: per-row upserts append here,

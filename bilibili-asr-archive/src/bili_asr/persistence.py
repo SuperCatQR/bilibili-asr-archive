@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
+from datetime import datetime, timezone
 import errno
 import json
 import os
@@ -10,6 +11,11 @@ from pathlib import Path
 import tempfile
 import threading
 from typing import Any, Iterator, Mapping
+
+
+def utc_now_iso() -> str:
+    """Single UTC ISO-8601 timestamp source (``...Z``, microsecond precision)."""
+    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
 class PersistenceError(OSError):

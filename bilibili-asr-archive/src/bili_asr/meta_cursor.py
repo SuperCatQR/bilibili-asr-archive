@@ -5,11 +5,12 @@ Filesystem ownership only. BiliClient must never import this module.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
 import json
 import os
 import sys
 from typing import Any
+
+from .persistence import utc_now_iso
 
 CURSOR_FILENAME = "meta-cursor.json"
 
@@ -44,10 +45,6 @@ _FORBIDDEN_MARKERS = (
     "Traceback",
 )
 _MAX_ERROR_CODE_LEN = 64
-
-
-def utc_now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
 def _validate(cursor: dict[str, Any]) -> dict[str, Any]:

@@ -34,9 +34,10 @@ import asyncio
 from collections import Counter
 from dataclasses import dataclass
 import sqlite3
-import time
 from typing import Callable
 import uuid
+
+from bili_asr.services._common import _now
 
 from bili_asr.page_identity import format_work_id
 from bili_asr.sources.models import (
@@ -71,10 +72,6 @@ _OUTCOME_FAILED = "failed"
 _DEFAULT_LANGUAGE_FAMILY_ORDER = ("zh", "en")
 
 
-def _now() -> int:
-    """Return the current Unix second used for all persisted clocks."""
-
-    return int(time.time())
 
 
 def _choice(value: str, field: str, allowed: frozenset[str]) -> str:
