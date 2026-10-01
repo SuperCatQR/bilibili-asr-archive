@@ -2020,6 +2020,68 @@
         "source_plan": "20260928-layout-shape-a",
         "registered_at": "2026-09-28"
       }
+    ],
+    "20261001-cue-timeline-and-proofread": [
+      {
+        "id": "C-R1",
+        "title": "SIZE: the character record costs 8.55x, not the planned 2.8x, and both levers touch serialization shared with published artifacts",
+        "severity": "medium",
+        "source": "L2 review of 08b26ae (F1) + the PM's own re-measurement on BV1BdtazGEBE (2026-10-01); recorded in plan D-5 and lane-1-report.md §5",
+        "scope": "the raw sidecar's serialization — archive.py:631 (json.dumps(..., indent=2)) and the timestamp precision carried from asr.py:1183-1184 (float(unit[...]) + offset, where offset is boundary_samples/16000.0)",
+        "decision": "defer",
+        "owner": "@project-manager",
+        "target": "the next plan that touches the raw serialization or a byte budget for the archive. Measured on BV1BdtazGEBE (156 750 B baseline): 8.55x at today's serialization, 6.28x with 2-dp rounding, 5.91x compact, 3.64x both. Neither lever is in this plan's scope because both change bytes that published artifacts already carry (plan D-2), so landing either needs its own change and a schema version.",
+        "tracking": "{PLAN_DIR}/20261001-cue-timeline-and-proofread.md §D-5 (corrected 201350f); {SDD_DIR}/20261001-cue-timeline-and-proofread/lane-1-report.md §5",
+        "what": "The character-level record acquires per-character instants for ~50k characters per item, so the raw sidecar grows 8.55x on a real 47-minute item (156 750 B -> ~1.29 MB), not the 2.8x the plan's D-5 estimated. Two mechanisms, both measured: the writer pretty-prints with indent=2 (a fixed 8 B per number) and the timestamps themselves carry float noise for 79% of values (chunk offset 180.0076875-style), because offset is boundary_samples/16000.0. The plan's estimate counted neither. Accepted as-is because D exists to trade disk for GPU time and ~1.3 MB/item is small against 93 MB of audio for the same four items, but the number in circulation was wrong three times (2.8x estimated, 6.67x first reported, 8.55x measured) and the mechanism was misattributed twice (pretty-printing called the dominant term; it is 32% of the added bytes).",
+        "lifecycle": "open",
+        "source_plan": "20261001-cue-timeline-and-proofread",
+        "registered_at": "2026-10-01"
+      },
+      {
+        "id": "C-R2",
+        "title": "TEST INFRA: conftest's tmp_root raises FileExistsError on PID reuse, making any lane's verification randomly red",
+        "severity": "medium",
+        "source": "L2 review of 08b26ae (PM-verified) — the implementer hit it for real and reproduced it deterministically; .tb/errors.log holds 40 same-shape entries",
+        "scope": "tests/conftest.py:125-138 (the tmp_root fixture) — it names dirs manifest-test-{pid}-{counter} under a shared <repo>/.test-tmp/",
+        "decision": "defer",
+        "owner": "@project-manager",
+        "target": "the next touch of tests/conftest.py, or the plan that owns test-infrastructure hardening. Closing condition: the fixture tolerates a leftover directory from a killed run (unique suffix, or refuse-and-recreate), and a test pins the reuse case.",
+        "tracking": "{SDD_DIR}/20261001-cue-timeline-and-proofread/lane-1-review.md (Minor); lane-1-report.md records the deterministic reproduction",
+        "what": "The tmp_root fixture builds its directory name from PID plus a counter under a shared .test-tmp/, so a leftover directory from a killed run plus PID reuse makes SETUP fail with FileExistsError. Measured: pre-creating manifest-test-<pid>-{0..8} yields exactly 4 passed / 9 errors (the 9 tests using that fixture), and the same reproduction fires on the pre-existing test_archive_md.py (32 passed / 9 errors), which proves it predates the lane that reported it. Impact is bounded to test runs, but it is the trap that makes an innocent change look broken — it cost this plan one unreproducible red run and a reviewer had to distinguish it from a real defect.",
+        "lifecycle": "open",
+        "source_plan": "20261001-cue-timeline-and-proofread",
+        "registered_at": "2026-10-01"
+      },
+      {
+        "id": "C-R3",
+        "title": "SILENT PASS: the 'accept any parseable sidecar' shape likely exists in proofread's sibling readers of bundle.raw.json",
+        "severity": "medium",
+        "source": "L2 review of 1de131a, recorded for Task 5 per the plan's own instruction to register this class rather than fix it in-lane",
+        "scope": "readers of bundle.raw.json other than proofread.read_asr_route_ms — the same defect class as C-1, which produced an all-agree-1.000 table that reported success",
+        "decision": "defer",
+        "owner": "@project-manager",
+        "target": "a plan that surveys every bundle.raw.json reader for the same shape: does it identify what it read, or does it accept any parseable document? Closing condition: each reader either validates the identity it depends on or is recorded as legitimately indifferent.",
+        "tracking": "{SDD_DIR}/20261001-cue-timeline-and-proofread/lane-2-review.md (round-1 F5, 'for Task 5 / residual bookkeeping')",
+        "what": "proofread.read_asr_route_ms accepted any parseable bundle.raw.json as the ASR route, so a caption-derived sidecar produced a side-by-side where every block agreed with itself and nothing errored. That reader is fixed (source must be 'asr'), but the review notes the shape is shared: a reader that takes whatever parses cannot tell 'this is the document I expected' from 'this is a document'. Not fixed here because the survey is its own scope and the plan says to register the class rather than widen this lane.",
+        "lifecycle": "open",
+        "source_plan": "20261001-cue-timeline-and-proofread",
+        "registered_at": "2026-10-01"
+      },
+      {
+        "id": "C-R4",
+        "title": "EVIDENCE GAP: the CLI half of --asr-root/--caption-root has no behavioural test, and an empty root silently becomes the cwd",
+        "severity": "low",
+        "source": "L2 review of a1c43ff, three Minor findings, none blocking",
+        "scope": "cli/publish.py:237-239 (a docstring claiming every refusal names the path it looked at), cli/publish.py:256-257 (flag forwarding), cli/parser.py:323,331 + proofread.py:651-659 (no normalisation of the two new roots)",
+        "decision": "defer",
+        "owner": "@project-manager",
+        "target": "the next plan touching the proofread command surface. Three closers: (a) one CLI test whose --asr-root differs from --artifact-root (measured: deleting both forwarding kwargs leaves 14 passed, so the argparse layer is untested); (b) resolve or refuse the two new roots the way --artifact-root already is via roots_for (cli/main.py:116) — measured: --asr-root '' becomes Path('.'), the cwd; (c) soften the publish.py:237-239 sentence or make proofread.py:574/:585 name the root they searched.",
+        "tracking": "{SDD_DIR}/20261001-cue-timeline-and-proofread/lane-2-review.md (three Minor findings)",
+        "what": "Three small gaps the L2 review measured but did not block on. The library layer now has decoy tests proving the flags move the reads, but the argparse-to-library forwarding has none — deleting it is invisible. --asr-root '' (what an unset $VAR expands to) becomes Path('.'), so the command reads the cwd where --artifact-root would refuse the shape. And a docstring claims every refusal names the path it looked at while two of the three caption refusals name no path — precisely the case --caption-root newly exposes. None changes a realistic outcome today, because the source check still refuses a wrong root.",
+        "lifecycle": "open",
+        "source_plan": "20261001-cue-timeline-and-proofread",
+        "registered_at": "2026-10-01"
+      }
     ]
   }
 }
