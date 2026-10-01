@@ -7,6 +7,7 @@ Filesystem names use `artifact_stem` only.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Mapping
 import re
 
 _WORK_ID_RE = re.compile(r"^(?P<bvid>[^:]+):p(?P<page_index>0|[1-9]\d*)$")
@@ -97,3 +98,58 @@ def identity_from_entry(
             page_label=str(entry.get("page_label") or ""),
         )
     return bvid
+
+
+def canonical_stem(row: Mapping[str, object]) -> str:
+    """The one canonical artifact stem for a ledger row (compass D5).
+
+    The stem derives solely from the row's ``(bvid, page_index)`` identity and
+    is parseable back to it via ``parse_work_id`` (``{bvid}.p{page_index}``).
+    ``page_label`` is a display concern and never enters the stem. Contract:
+
+    - page-resolved row (``work_id`` present, not ``unresolved``): the stem is
+      the parsed identity's stem. A malformed ``work_id`` raises — fail-loud
+      rather than silently deriving a display string into a path. ``cid`` is
+      not part of the stem: the identity D5 derives from is
+      ``(bvid, page_index)``, both carried by ``work_id`` itself.
+    - unresolved row: the bare ``bvid`` fallback (the archive's own
+      ``archive_stem`` shape for a video-level row).
+    - a row missing ``bvid`` raises (``KeyError``), matching ``archive_stem``:
+      a stem without an identity is not guessable.
+
+    This is the single definition; ``quality``, ``integrity`` and
+    ``coordinator`` delegate here instead of carrying their own copies.
+    Callers that probe real archive rows catch ``KeyError``/``ValueError``
+    and report the row as identity-invalid rather than crashing the report.
+    """
+    bvid = str(row["bvid"])
+    if row.get("unresolved") or not row.get("work_id"):
+        return bvid
+    work_id = str(row["work_id"])
+    wb, page_index = parse_work_id(work_id)
+    return artifact_stem(
+        page_identity(
+            wb,
+            page_index,
+            int(row.get("cid") or 0),
+            page_label=str(row.get("page_label") or ""),
+        )
+    )
+
+
+def display_label(row: Mapping[str, object]) -> str:
+    """Display-only label for a ledger row (compass D5: display ≠ stem).
+
+    What a report surface shows a human for a row whose canonical stem cannot
+    be derived. ``page_label`` is honoured here, and the raw ``work_id`` may
+    surface for an identity-invalid row — but this value is NEVER a path
+    component. Filesystem names use ``canonical_stem`` / ``artifact_stem``
+    only.
+    """
+    bvid = str(row.get("bvid") or "").strip()
+    work_id = str(row.get("work_id") or "").strip()
+    if work_id:
+        return work_id
+    if bvid:
+        return bvid
+    return str(row.get("page_label") or "")
