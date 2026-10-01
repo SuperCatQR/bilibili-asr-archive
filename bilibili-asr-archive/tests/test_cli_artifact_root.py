@@ -44,6 +44,7 @@ from test_audio import (
 from test_subtitles import SAMPLE_DOC, nav_ok, player_ok
 
 import _asr_fakes as asr_fakes
+from _archive_database import _seed_archive_database
 
 #: The word the fixture transcript carries.  The row's title does not contain it, so a
 #: hit proves the transcript file was really read from the base the row was written to.
@@ -153,11 +154,19 @@ def _publish_caption(root: str, identity) -> dict:
     return {}
 
 
-def _write_manifest(archive: str, rows: list[dict]) -> None:
-    """Write the manifest — state, and therefore always at the archive root (D13)."""
+def _write_manifest(archive: str, rows: list[dict], *, audio_base: str | None = None) -> None:
+    """Write the manifest — state, and therefore always at the archive root (D13).
+
+    The store is seeded from the rows just written: since the ``--queue-source``
+    cutover the queue lives in ``archive.db``, so a manifest-only fixture cannot
+    drive the commands that read it (``asr``/``pilot``/``run``/``schedule``).
+    ``audio_base`` names the directory holding a row's audio when the fixture
+    wrote it under the configured artifact root rather than the archive root.
+    """
     store = ManifestStore(root=archive)
     for row in rows:
         store.upsert(row)
+    _seed_archive_database(archive, audio_base=audio_base)
 
 
 def _write_sidecars(archive: str, work_ids: list[str], *, now: str = "2026-01-02T00:00:00Z") -> None:
@@ -259,7 +268,8 @@ def _drive_download_audio(archive, artifact, monkeypatch, capsys):
 def _drive_asr(archive, artifact, monkeypatch, capsys):
     identity = _identity("BVasr")
     _write_manifest(archive, [{**_row(identity, status="audio_ok"),
-                               **_publish_audio(artifact, identity)}])
+                               **_publish_audio(artifact, identity)}],
+                    audio_base=artifact)
     _stub_asr(monkeypatch)
     _offline_client(monkeypatch)
 
@@ -279,7 +289,7 @@ def _drive_pilot(archive, artifact, monkeypatch, capsys):
     _write_manifest(archive, [
         {**_row(sub, status="subtitle_done"), **_publish_caption(artifact, sub)},
         {**_row(aud, status="audio_ok"), **_publish_audio(artifact, aud)},
-    ])
+    ], audio_base=artifact)
     _stub_asr(monkeypatch)
     _offline_client(monkeypatch)
 
@@ -297,7 +307,8 @@ def _drive_pilot(archive, artifact, monkeypatch, capsys):
 def _drive_run(archive, artifact, monkeypatch, capsys):
     identity = _identity("BVrun")
     _write_manifest(archive, [{**_row(identity, status="audio_ok"),
-                               **_publish_audio(artifact, identity)}])
+                               **_publish_audio(artifact, identity)}],
+                    audio_base=artifact)
     _stub_asr(monkeypatch)
     _offline_client(monkeypatch)
 
@@ -315,7 +326,8 @@ def _drive_run(archive, artifact, monkeypatch, capsys):
 def _drive_schedule(archive, artifact, monkeypatch, capsys):
     identity = _identity("BVsched")
     _write_manifest(archive, [{**_row(identity, status="audio_ok"),
-                               **_publish_audio(artifact, identity)}])
+                               **_publish_audio(artifact, identity)}],
+                    audio_base=artifact)
     _stub_asr(monkeypatch)
     _offline_client(monkeypatch)
 
@@ -335,7 +347,8 @@ def _drive_schedule(archive, artifact, monkeypatch, capsys):
 def _drive_campaign(archive, artifact, monkeypatch, capsys):
     identity = _identity("BVcamp")
     _write_manifest(archive, [{**_row(identity, status="audio_ok"),
-                               **_publish_audio(artifact, identity)}])
+                               **_publish_audio(artifact, identity)}],
+                    audio_base=artifact)
     _stub_asr(monkeypatch)
     _offline_client(monkeypatch)
 
@@ -759,7 +772,8 @@ def _retention_case(archive: str, artifact: str, monkeypatch, argv: list[str]) -
     """Archive one ``audio_ok`` row under the configured root; report whether audio stayed."""
     identity = _identity("BVkeep")
     _write_manifest(archive, [{**_row(identity, status="audio_ok"),
-                               **_publish_audio(artifact, identity)}])
+                               **_publish_audio(artifact, identity)}],
+                    audio_base=artifact)
     _stub_asr(monkeypatch)
     _offline_client(monkeypatch)
 
@@ -827,7 +841,7 @@ def test_the_retention_pair_reaches_reclaim_on_every_command_that_reclaims(
         # The pilot states its own branch coverage, so both branches have to exist.
         sub = _identity("BVreclaimsub")
         rows.append({**_row(sub, status="subtitle_done"), **_publish_caption(artifact, sub)})
-    _write_manifest(archive, rows)
+    _write_manifest(archive, rows, audio_base=artifact)
     _stub_asr(monkeypatch)
     _offline_client(monkeypatch)
 
@@ -1054,7 +1068,7 @@ def _drive_pilot_download_branch(tmp_root, monkeypatch, capsys, *, bvid, at_arch
         # No `audio_path`: the status alone decides the branch (`existing_rel` is None).
         _row(identity, status="needs_audio"),
         {**_row(sub, status="subtitle_done"), **_publish_caption(artifact, sub)},
-    ])
+    ], audio_base=archive if at_archive else artifact)
     _stub_asr(monkeypatch)
     # No transport route at all: only the on-disk fast path may serve this row.
     _offline_client(monkeypatch)

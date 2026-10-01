@@ -33,6 +33,7 @@ from test_subtitles import (
 )
 
 import _asr_fakes as asr_fakes
+from _archive_database import _seed_archive_database
 
 BVID = "BV1multi"
 
@@ -284,6 +285,7 @@ def test_asr_pending_p0_failure_does_not_suppress_p1(tmp_root, monkeypatch):
         text="p1",
         fail_when=lambda path: artifact_stem(p0) in path,
     )
+    _seed_archive_database(tmp_root)
     rc = main(["asr", "--pending", "--archive-root", tmp_root])
     assert rc == 1
     loaded = ManifestStore(root=tmp_root).load()

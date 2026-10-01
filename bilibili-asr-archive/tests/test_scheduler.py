@@ -39,6 +39,7 @@ from test_audio import (
 from test_subtitles import SAMPLE_DOC, nav_ok, player_ok, sub_entry
 
 import _asr_fakes as asr_fakes
+from _archive_database import _seed_archive_database
 
 SECRET = "SECRET-SESS"
 RISK = (412, {"code": -412, "message": "request too frequent"})
@@ -402,6 +403,7 @@ def test_schedule_limit_marks_limited_and_does_not_claim_corpus_complete(
     _stub_asr(monkeypatch)
     _patch_cli(monkeypatch, RouterTransport(_base_routes()))
 
+    _seed_archive_database(tmp_root)
     rc = main([
         "schedule", "--scope", "pending", "--limit", "2",
         "--archive-root", tmp_root, "--sessdata", SECRET,
@@ -443,6 +445,7 @@ def test_schedule_second_batch_completes_requested_scope_not_corpus(
     _stub_asr(monkeypatch)
     _patch_cli(monkeypatch, RouterTransport(_base_routes()))
 
+    _seed_archive_database(tmp_root)
     assert main([
         "schedule", "--scope", "pending", "--limit", "1",
         "--archive-root", tmp_root,
@@ -513,6 +516,7 @@ def test_schedule_missing_artifact_exits_1_and_keeps_success(
     _stub_asr(monkeypatch)
     _patch_cli(monkeypatch, RouterTransport(_base_routes()))
 
+    _seed_archive_database(tmp_root)
     rc = main([
         "schedule", "--scope", "pending", "--limit", "5",
         "--archive-root", tmp_root,
@@ -552,6 +556,7 @@ def test_schedule_mixed_failure_exits_1_failed_scope_retries(
     )
     _patch_cli(monkeypatch, RouterTransport(_base_routes()))
 
+    _seed_archive_database(tmp_root)
     rc = main([
         "schedule", "--scope", "pending", "--limit", "5",
         "--archive-root", tmp_root,
@@ -602,6 +607,7 @@ def test_schedule_risk_after_success_exits_2_and_resume_continues(
     )
     _patch_cli(monkeypatch, transport)
 
+    _seed_archive_database(tmp_root)
     rc = main([
         "schedule", "--scope", "pending", "--limit", "5",
         "--archive-root", tmp_root, "--sessdata", SECRET,
@@ -657,6 +663,7 @@ def test_schedule_resume_ignored_for_limited_sidecar(
     _stub_asr(monkeypatch)
     _patch_cli(monkeypatch, RouterTransport(_base_routes()))
 
+    _seed_archive_database(tmp_root)
     assert main([
         "schedule", "--scope", "pending", "--limit", "1",
         "--archive-root", tmp_root,
@@ -724,6 +731,7 @@ def test_schedule_persist_failure_does_not_advise_resume(
         raise OSError("disk full: /secret/SESSDATA=leak")
 
     monkeypatch.setattr(SchedulerStore, "replace_atomic", boom)
+    _seed_archive_database(tmp_root)
     rc = main([
         "schedule", "--scope", "pending", "--limit", "5",
         "--archive-root", tmp_root, "--sessdata", SECRET,
@@ -799,6 +807,7 @@ def test_schedule_resume_skips_only_terminal_not_budget_rows(
     )
     _patch_cli(monkeypatch, transport)
 
+    _seed_archive_database(tmp_root)
     rc = main([
         "schedule", "--scope", "pending", "--limit", "5",
         "--max-audio-gb", "0.001", "--archive-root", tmp_root,
@@ -854,6 +863,7 @@ def test_schedule_reuse_line_names_schedule_not_run(tmp_root, monkeypatch, capsy
 
     asr_fakes.install(monkeypatch, text="schedule-asr", constructions=constructed)
 
+    _seed_archive_database(tmp_root)
     rc = main([
         "schedule", "--scope", "pending", "--limit", "3",
         "--archive-root", tmp_root,
