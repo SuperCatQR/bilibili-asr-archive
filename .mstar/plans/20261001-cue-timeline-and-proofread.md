@@ -64,9 +64,14 @@ are product decisions, so only their input changed."
    **不检查 `source` 字段**。于是在只有字幕产物的 root 上，它会把 `source=subtitle-ai` 派生的
    `bundle.raw.json` 当作 ASR 路使用，产出**全部 `agree 1.000`** 的并排表（实测 64 blocks 全 1.000）。
    那是自己跟自己比，一个需要裁决的地方都没有——**假校对**，且不报错。
-2. **两路必须同 root**：ASR 路从 `artifact_root` 取，字幕路从 `archive_root/archive.db` 取
-   （`proofread.py:500`）。而 E2E 的两个 root 是**故意分开**的（route2 清空凭据让字幕路线耗尽），
-   于是 `proofread` 在 route2 上直接报 `missing caption route` 拒绝——实测。
+2. ~~**两路必须同 root**~~ → **【2026-10-01 更正：此条是错的，PM 写的，勿照此实现】**
+   原文写「ASR 路从 `artifact_root` 取，字幕路从 `archive_root/archive.db` 取，所以两路必须同 root」。
+   **事实：改动前两路本来就各取一个独立的 CLI 参数**（`--artifact-root` 与 `--archive-root`），
+   分离形态一直可达：`--archive-root <字幕 root> --artifact-root <ASR root>`（L2 审查者在改前模块上
+   实证渲染真实两 root 对 → 52 blocks、**0 个 1.000**）。所以真正的缺口**不是"必须同 root"**，
+   而是「**要移动一个读 root 就必须同时移动写基**」——新参数 `--asr-root` / `--caption-root`
+   提供的正是"读 root 与写基解耦"这一较窄的能力。
+   本条错误已传入实现者报告并被沿用，由 L2 审查抓出，见 `lane-2-report.md` 的 PM 验证节。
 
 ## 决策（operator 2026-10-01，不再是实现者的自由选择）
 
@@ -247,7 +252,14 @@ round 到 2 位即可降到 6.28x，不会动已发布产物（旧产物已是�
 **要求：**
 1. `read_asr_route_ms` 校验 `source == "asr"`，否则 `ProofreadRouteError` 且**错误信息点名实际 source**。
 2. `--asr-root` / `--caption-root` 可选参数；未给时行为与现在**逐字不变**（回归保护）。
+   **参数名已按 `## Naming decisions` 定下**，且其真实作用是「读 root 与写基解耦」，
+   不是「让原本必须同 root 的两路能分开」（见上方 Problem Statement P3.2 的更正）。
 3. 负对照测试：对字幕派生的 raw 必须**报错**（RED 基线第 2 条），这是本 task 的核心防回归。
+4. **传默认值不算测行为**（L2 审查在 Task 3 上实测到的坑，Task 2 同类风险）：
+   若新增参数在每个调用点传的都是它已有的默认值，那么"忽略该参数"的实现能通过全部测试。
+   **每个新参数至少要有一个"取值 ≠ 默认值"的用例**，否则用突变实验（把参数换成常量）自查。
+5. CLI 层与新库层各需一个行为用例：库层测 `build_sidebyside`，CLI 层测 argparse 转发
+   （实测：删掉 `publish.py` 里的转发 kwargs 后，仅库层测试仍全绿）。
 4. 分离 root 的正例测试：用两个 root 跑通并排表。
 
 **Task budget:** 2
