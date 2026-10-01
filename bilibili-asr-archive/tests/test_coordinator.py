@@ -126,15 +126,27 @@ class CidRouterTransport(RouterTransport):
 
 
 
+def _seed_recover_attempts(root) -> None:
+    """One valid attempt row plus the materialized manifest snapshot.
+
+    ``verify`` grades a root authoritative only when the manifest snapshot
+    exists on disk (a journal-only upsert is not state until the store
+    compacts), so every ``recover`` fixture seeds both forms.
+    """
+
+    ManifestStore(root=root).save()
+    AttemptLedger(root).append({"stage": "harvest", "work_id": "BVrecover-seed:p0",
+        "attempt": 1, "outcome": "ok", "error_code": None, "artifact_paths": [],
+        "started_at": "2026-08-28T00:00:00Z", "finished_at": "2026-08-28T00:00:01Z"})
+
+
 def test_recover_defect_code_expansion_fails_before_audit_write(tmp_root):
     from bili_asr.integrity import IntegrityVerifier, RETRYABLE_INCOMPLETE, RECOVERY_TARGET_LIMIT_EXCEEDED
     store = ManifestStore(root=tmp_root)
     for index in range(101):
         ident = page_identity(f"BV{index}", 0, index + 1, "p0")
         store.upsert(_row(ident, status="pending"))
-    AttemptLedger(tmp_root).append({"stage": "harvest", "work_id": "BV0:p0", "attempt": 1,
-        "outcome": "ok", "error_code": None, "artifact_paths": [],
-        "started_at": "2026-08-28T00:00:00Z", "finished_at": "2026-08-28T00:00:01Z"})
+    _seed_recover_attempts(tmp_root)
     result = IntegrityVerifier.recover(tmp_root, defect_codes=[RETRYABLE_INCOMPLETE])
     assert result == {"ok": False, "code": RECOVERY_TARGET_LIMIT_EXCEEDED, "selected": []}
     assert not (Path(tmp_root) / "coordinator" / "recovery-audit.jsonl").exists()
@@ -144,9 +156,7 @@ def test_recover_rejects_invalid_limit_without_writing(tmp_root):
     from bili_asr.integrity import IntegrityVerifier, RECOVERY_TARGET_LIMIT_EXCEEDED
     ident = page_identity("BVlimit", 0, 1, "p0")
     ManifestStore(root=tmp_root).upsert(_row(ident, status="pending"))
-    AttemptLedger(tmp_root).append({"stage": "harvest", "work_id": ident.work_id, "attempt": 1,
-        "outcome": "ok", "error_code": None, "artifact_paths": [],
-        "started_at": "2026-08-28T00:00:00Z", "finished_at": "2026-08-28T00:00:01Z"})
+    _seed_recover_attempts(tmp_root)
     result = IntegrityVerifier.recover(tmp_root, work_ids=[ident.work_id], limit=0)
     assert result["ok"] is False and result["code"] == RECOVERY_TARGET_LIMIT_EXCEEDED
     assert not (Path(tmp_root) / "coordinator" / "recovery-audit.jsonl").exists()
@@ -156,9 +166,7 @@ def test_recover_fails_closed_on_malformed_or_oversize_audit(tmp_root):
     from bili_asr.integrity import IntegrityVerifier, RECOVERY_MALFORMED_SIDECAR, _AUDIT_REL_PATH, _AUDIT_MAX_BYTES
     ident = page_identity("BVsidecar", 0, 1, "p0")
     ManifestStore(root=tmp_root).upsert(_row(ident, status="pending"))
-    AttemptLedger(tmp_root).append({"stage": "harvest", "work_id": ident.work_id, "attempt": 1,
-        "outcome": "ok", "error_code": None, "artifact_paths": [],
-        "started_at": "2026-08-28T00:00:00Z", "finished_at": "2026-08-28T00:00:01Z"})
+    _seed_recover_attempts(tmp_root)
     audit_path = Path(tmp_root) / _AUDIT_REL_PATH
     audit_path.parent.mkdir(parents=True, exist_ok=True)
     audit_path.write_text("{bad}\n", encoding="utf-8")
@@ -176,9 +184,7 @@ def test_recover_rejects_unterminated_audit_at_exact_byte_boundary(tmp_root, mon
 
     ident = page_identity("BVboundary", 0, 1, "p0")
     ManifestStore(root=tmp_root).upsert(_row(ident, status="pending"))
-    AttemptLedger(tmp_root).append({"stage": "harvest", "work_id": ident.work_id, "attempt": 1,
-        "outcome": "ok", "error_code": None, "artifact_paths": [],
-        "started_at": "2026-08-28T00:00:00Z", "finished_at": "2026-08-28T00:00:01Z"})
+    _seed_recover_attempts(tmp_root)
     audit_path = Path(tmp_root) / _AUDIT_REL_PATH
     audit_path.parent.mkdir(parents=True, exist_ok=True)
     existing_record = {"action": "audit", "work_ids": ["prior"],
@@ -204,9 +210,7 @@ def test_recover_rolls_back_when_directory_fsync_fails(tmp_root, monkeypatch):
 
     ident = page_identity("BVfsync", 0, 1, "p0")
     ManifestStore(root=tmp_root).upsert(_row(ident, status="pending"))
-    AttemptLedger(tmp_root).append({"stage": "harvest", "work_id": ident.work_id, "attempt": 1,
-        "outcome": "ok", "error_code": None, "artifact_paths": [],
-        "started_at": "2026-08-28T00:00:00Z", "finished_at": "2026-08-28T00:00:01Z"})
+    _seed_recover_attempts(tmp_root)
     audit_path = Path(tmp_root) / _AUDIT_REL_PATH
     audit_path.parent.mkdir(parents=True, exist_ok=True)
     before = b'{"action":"requeue","defect_codes":["retryable_incomplete"],"work_ids":["prior"]}\n'
@@ -225,9 +229,7 @@ def test_recover_rejects_oversized_existing_audit_record(tmp_root):
     from bili_asr.integrity import IntegrityVerifier, RECOVERY_MALFORMED_SIDECAR, _AUDIT_REL_PATH
     ident = page_identity("BVlogical", 0, 1, "p0")
     ManifestStore(root=tmp_root).upsert(_row(ident, status="pending"))
-    AttemptLedger(tmp_root).append({"stage": "harvest", "work_id": ident.work_id, "attempt": 1,
-        "outcome": "ok", "error_code": None, "artifact_paths": [],
-        "started_at": "2026-08-28T00:00:00Z", "finished_at": "2026-08-28T00:00:01Z"})
+    _seed_recover_attempts(tmp_root)
     audit_path = Path(tmp_root) / _AUDIT_REL_PATH
     audit_path.parent.mkdir(parents=True, exist_ok=True)
     oversized = {"action": "audit", "work_ids": [f"work-{index}" for index in range(101)],
@@ -248,16 +250,7 @@ def test_recover_audits_named_defect_without_manifest_or_transcript_mutation(tmp
     row.update({"srt_path": f"transcripts/{stem}/bundle.srt", "txt_path": f"transcripts/{stem}/bundle.txt",
                 "md_path": f"transcripts/{stem}/bundle.md"})
     store.upsert(row)
-    AttemptLedger(tmp_root).append({
-        "stage": "archive",
-        "work_id": ident.work_id,
-        "attempt": 1,
-        "outcome": "ok",
-        "error_code": None,
-        "artifact_paths": [],
-        "started_at": "2026-08-28T00:00:00Z",
-        "finished_at": "2026-08-28T00:00:01Z",
-    })
+    _seed_recover_attempts(tmp_root)
     for directory, filename, content in (("srt", f"{stem}.srt", "1\n00:00:00,000 --> 00:00:01,000\nok"),
                                           ("txt", f"{stem}.txt", "ok"),):
         path = os.path.join(tmp_root, "transcripts", directory)
@@ -293,9 +286,7 @@ def test_recover_rejects_invalid_existing_audit_fields_without_replacement(tmp_r
 
     ident = page_identity("BVinvalid", 0, 1, "p0")
     ManifestStore(root=tmp_root).upsert(_row(ident, status="pending"))
-    AttemptLedger(tmp_root).append({"stage": "harvest", "work_id": ident.work_id, "attempt": 1,
-        "outcome": "ok", "error_code": None, "artifact_paths": [],
-        "started_at": "2026-08-28T00:00:00Z", "finished_at": "2026-08-28T00:00:01Z"})
+    _seed_recover_attempts(tmp_root)
     audit_path = Path(tmp_root) / _AUDIT_REL_PATH
     audit_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -574,6 +565,9 @@ def test_cli_run_rerun_skips_terminal_rows(tmp_root, monkeypatch, capsys):
     sub = page_identity("BVsub", 0, 111, "p0")
     store = ManifestStore(root=tmp_root)
     store.upsert(_row(sub, title="has-sub"))
+    # Materialize the snapshot: the byte-identity assertions below read
+    # ``manifest.jsonl`` directly, and a journal-only upsert never writes it.
+    store.save()
     transcribe_calls: list[str] = []
     _stub_asr(monkeypatch, transcribe_calls)
     transport = _mixed_transport()
@@ -1477,6 +1471,9 @@ def test_run_explicit_scope_rerun_of_terminal_row_is_idempotent_zero(
     sub = page_identity("BVterm", 0, 111, "p0")
     store = ManifestStore(root=tmp_root)
     store.upsert(_row(sub, status="subtitle_done", title="raw"))
+    # Materialize the snapshot: the byte-identity assertions below read
+    # ``manifest.jsonl`` directly, and a journal-only upsert never writes it.
+    store.save()
     stem = artifact_stem(sub)
     raw_dir = os.path.join(tmp_root, "subtitles", "raw")
     os.makedirs(raw_dir)

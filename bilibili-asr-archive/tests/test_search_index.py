@@ -141,6 +141,9 @@ def _create_sample_archive(tmp_root: str):
 
     for e in (e1, e2, e3, e4, e5, e6, e7):
         store.upsert(e)
+    # Materialize the snapshot: the immutability tests read and compare
+    # ``manifest.jsonl`` bytes, and journal-only upserts never write it.
+    store.save()
 
     return store
 

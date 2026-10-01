@@ -31,25 +31,28 @@ What it records per manifest row, keyed on the row's own ``status``:
 - a row that neither holds a caption nor has audio bytes on disk gets the
   ``no-subtitle`` attempt ``v_missing_audio`` requires, which is what puts a
   captionless part in the download queue;
-- a row already holding a caption (``subtitle_done`` / ``archived``) gets **no
-  attempt history**: the manifest's caption is not store state, and the store
-  does express "this part still owes a subtitle" — ``v_missing_subtitle``.  A
-  fabricated ``no-subtitle`` attempt would instead claim the caption route was
-  tried and came back empty, which is the reverse of what the row says.
+- a row already holding a caption (``subtitle_done`` / ``archived``) gets the
+  store-side caption the row asserts: one stored transcript under a subtitle
+  source kind, so the part leaves ``v_missing_subtitle`` and the store stops
+  claiming the caption route is still owed.  ``v_missing_subtitle``'s predicate
+  is *no stored transcript*, so without this write a caption-holding row is
+  selected as harvest-needed (status ``meta_ok``) and the command re-probes a
+  caption route that already succeeded — the drift that made the scheduler
+  fixtures red after the queue-source cutover.  It gets **no** ``no-subtitle``
+  attempt history: a fabricated one would claim the caption route was tried
+  and came back empty, which is the reverse of what the row says.
 
 The ``no-subtitle`` attempt is recorded for ``meta_ok`` rows as well: several
 fixtures harvest the row to ``needs_audio`` *after* seeding, and the store has
 to describe the part the command will actually meet.  A ``meta_ok`` row is in
 ``v_missing_subtitle`` either way, so its harvest queue membership is unchanged.
 
-Deliberately minimal (YAGNI): no caller here needs a stored caption row, an
-attempt history beyond the one ``no-subtitle`` fact the audio queue's own
-predicate reads, or a stored transcript.  What this mapping cannot bridge: a
-caption the store does not hold is not reachable by any gap view — the two
-caption queues require a transcript's *absence*, and the audio queue requires
-the caption route to look exhausted.  A fixture that seeds a ``subtitle_done``
-row is therefore asking for a state the store route cannot select, and no
-amount of seeding changes that.
+Deliberately minimal (YAGNI): the caption record is one transcript with one
+segment — enough to satisfy the gap views' *has-a-transcript* predicates — and
+the attempt history is at most the one ``no-subtitle`` fact the audio queue's
+own predicate reads.  What this mapping cannot bridge: a caption the store
+holds still needs a stored transcript to be visible, and the stored caption's
+*content* is not derived from the fixture's raw subtitle document.
 """
 
 from __future__ import annotations
@@ -63,6 +66,7 @@ from bili_asr.storage import (
     MediaQueueRepository,
     MetadataRepository,
     TranscriptRepository,
+    TranscriptSegmentRecord,
     UserRecord,
     VideoPartRecord,
     VideoRecord,
@@ -140,7 +144,10 @@ def _seed_archive_database(root: str, *, audio_base: str | None = None) -> None:
         for bvid, page_index, entry in parts:
             if _record_audio_evidence(queue, base, bvid, page_index, entry):
                 continue
-            if _holds_a_caption(entry):
+            if entry.get("status") in {"subtitle_done", "archived"}:
+                # The row asserts a harvested caption; record the store-side
+                # transcript so the gap views agree the part owes no subtitle.
+                _record_caption(connection, bvid, page_index)
                 continue
             _record_no_subtitle(connection, transcripts, bvid, page_index)
         connection.commit()
@@ -192,18 +199,53 @@ def _record_audio_evidence(
     return True
 
 
-def _holds_a_caption(entry: dict) -> bool:
-    """Whether the row's own status says a subtitle is already in hand.
+def _record_caption(connection, bvid: str, page_index: int) -> None:
+    """Record the one stored transcript that takes the part out of ``v_missing_subtitle``.
 
-    ``subtitle_done`` is the harvested-caption state and ``archived`` the
-    terminal one; both mean the caption route produced a subtitle.  Such a row
-    gets no attempt history at all, so the store answers "this part still owes a
-    subtitle" (``v_missing_subtitle``) rather than the opposite.  A
-    ``no-subtitle`` attempt here would tell the download queue that the caption
-    route came back empty for a part the manifest says holds captions.
+    The caption's content is irrelevant to the queue views (their predicate is
+    *has a transcript*), so one minimal segment under ``subtitle-ai`` is the
+    whole record.  Guarded by an existence check so a second seed of the same
+    root is a no-op rather than a refused write or an extra version.
     """
 
-    return entry.get("status") in {"subtitle_done", "archived"}
+    transcripts = TranscriptRepository(connection)
+    row = connection.execute(
+        "SELECT video_part_id FROM video_parts WHERE bvid = ? AND page_index = ?",
+        (bvid, page_index),
+    ).fetchone()
+    if row is None:  # pragma: no cover - the caller just wrote it
+        return
+    video_part_id = int(row["video_part_id"])
+    if connection.execute(
+        "SELECT 1 FROM transcripts WHERE video_part_id = ?", (video_part_id,)
+    ).fetchone() is not None:
+        return
+    if connection.execute(
+        "SELECT 1 FROM acquisition_runs WHERE run_id = ?", (_RUN_ID,)
+    ).fetchone() is None:
+        transcripts.start_acquisition_run(
+            AcquisitionRunRecord(
+                run_id=_RUN_ID,
+                kind="subtitle",
+                selector_kind="pending",
+                selector_target=None,
+                requested_limit=None,
+                credential_present=False,
+                started_at=10,
+                finished_at=12,
+                outcome="complete",
+            )
+        )
+    transcripts.record_acquired_transcript(
+        run_id=_RUN_ID,
+        video_part_id=video_part_id,
+        source_kind="subtitle-ai",
+        language="zh-CN",
+        segments=(TranscriptSegmentRecord(start_ms=0, end_ms=1_000, text="caption"),),
+        started_at=11,
+        finished_at=12,
+        created_at=13,
+    )
 
 
 def _record_no_subtitle(connection, transcripts, bvid: str, page_index: int) -> None:
