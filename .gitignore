@@ -65,3 +65,6 @@ bilibili-asr-archive/refactor/
 e2e-test*.md
 **/verify_acceptance.sh
 
+
+# mstar issue/catalog/roadmap SQLite (process authority; local)
+.mstar/store.db*
