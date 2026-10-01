@@ -1362,6 +1362,31 @@ def characters_of(runner: Any) -> dict[str, Any] | None:
     return reader() if callable(reader) else None
 
 
+def two_pass_transcribe(
+    runner: ASRRunner, audio_path: str, *, paired_subtitle_text: str | None
+) -> list[dict[str, Any]]:
+    """The two-pass hotword decode, shared by every production caller.
+
+    ``paired_subtitle_text`` is the AI-subtitle text for the same part (``None``
+    when the part has no subtitle route).  The contract (plan
+    20260928-hotword-injection-governance): pass 1 decodes unguarded, the prompt
+    is re-seeded with the tokens pass 1 itself produced, and pass 2 re-decodes
+    with ``bust_cache=True`` — the re-seeded vocabulary only reaches the model if
+    the re-decode does not reuse pass 1's transformers prefix cache.  When the
+    guard keeps nothing beyond pass 1's own output, pass 2 cannot change the
+    transcript and its cost is skipped: pass 1's segments are the result.
+    """
+
+    runner.set_hotword_evidence(
+        evidence_text=None, paired_subtitle_text=paired_subtitle_text
+    )
+    first_pass = runner.transcribe(audio_path)
+    transcript_text = "".join(str(seg.get("text", "")) for seg in first_pass)
+    if runner.rebuild_hotwords_from_first_pass(transcript_text):  # kept tokens
+        return runner.transcribe(audio_path, bust_cache=True)
+    return first_pass
+
+
 # ---------------------------------------------------------------------------------------
 # One-shot helpers, kept for the callers that hold no runner.
 # ---------------------------------------------------------------------------------------

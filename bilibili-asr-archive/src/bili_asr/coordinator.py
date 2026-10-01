@@ -582,25 +582,19 @@ class RunCoordinator:
             # transcript, and the paired AI-subtitle text when the part has a
             # subtitle route, are the only texts that may admit a hotword.
             # Pass 1 runs unguarded; pass 2 is seeded with the tokens pass 1
-            # itself produced.  Tokens the transcript does not contain are
-            # recorded in the archive provenance as ``hotword_dropped_no_evidence``.
+            # itself produced and re-decodes with a clean model/cache state.
+            # Tokens the transcript does not contain are recorded in the archive
+            # provenance as ``hotword_dropped_no_evidence``.
             subtitle_raw = self._subtitle_segments(self._current_entry(key, entry))
             paired_subtitle_text = (
                 "".join(str(seg.get("text", "")) for seg in subtitle_raw[0])
                 if subtitle_raw is not None
                 else None
             )
-            runner.set_hotword_evidence(
-                evidence_text=None, paired_subtitle_text=paired_subtitle_text
-            )
             with confined_audio_file(audio_base, audio_declared) as safe_audio:
-                first_pass = runner.transcribe(safe_audio)
-            transcript_text = "".join(str(seg.get("text", "")) for seg in first_pass)
-            if runner.rebuild_hotwords_from_first_pass(transcript_text):  # kept tokens
-                with confined_audio_file(audio_base, audio_declared) as safe_audio:
-                    segments = runner.transcribe(safe_audio)
-            else:
-                segments = first_pass
+                segments = asr_module.two_pass_transcribe(
+                    runner, safe_audio, paired_subtitle_text=paired_subtitle_text
+                )
         except Exception as exc:  # redacted; batch continues
             self._record(
                 "asr", work_id, "failed",

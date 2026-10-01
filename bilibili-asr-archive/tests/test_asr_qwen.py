@@ -517,6 +517,52 @@ def test_two_pass_transcribe_reseeds_the_prompt_and_busts_the_cache_on_pass_2(mo
     )
 
 
+def test_two_pass_transcribe_helper_busts_the_cache_on_pass_2(monkeypatch) -> None:
+    """The production wiring: ``asr.two_pass_transcribe`` is what the CLI and the
+    coordinator call, and its pass 2 must reach ``generate`` with ``use_cache=False``.
+
+    The knob-level test above pins ``transcribe(bust_cache=True)`` directly; this one
+    drives the shared helper the production call sites use, so a regression that leaves
+    the knob unwired (QC finding C1) fails here even though the knob test still passes.
+    """
+
+    runner, _ = _runner(monkeypatch, text="今天讲两件事。", hotwords=("今天",))
+    segments = asr.two_pass_transcribe(
+        runner, "/nonexistent/two-pass.wav", paired_subtitle_text=None
+    )
+    assert segments, "the fake models always produce text"
+
+    model = runner._get_models().model
+    assert len(model.calls) == 2, f"one chunk per pass, got {len(model.calls)} generate calls"
+    first_call, second_call = model.calls
+    # The reseed reached the prompt: pass 2's processor request carried the vocabulary line.
+    pass2_prompt = runner._get_models().processor.requests[-1]["prompt"]
+    assert pass2_prompt == "Vocabulary: 今天", pass2_prompt
+    assert runner._get_models().processor.requests[0]["prompt"] is None
+    assert "use_cache" not in first_call, "pass 1 keeps the default (warm) cache behaviour"
+    assert second_call["use_cache"] is False, (
+        "the helper's pass 2 must re-decode from a clean cache state; without this the "
+        "two-pass fix is inert in production"
+    )
+
+
+def test_two_pass_transcribe_helper_skips_pass_2_when_nothing_is_kept(monkeypatch) -> None:
+    """No kept tokens means pass 2 cannot change the transcript: one decode, pass 1's segments."""
+
+    runner, _ = _runner(monkeypatch, text="今天讲两件事。", hotwords=("未明子",))
+    segments = asr.two_pass_transcribe(
+        runner, "/nonexistent/two-pass.wav", paired_subtitle_text=None
+    )
+    assert segments, "the fake models always produce text"
+
+    model = runner._get_models().model
+    assert len(model.calls) == 1, (
+        "pass 2 is skipped when the guard keeps nothing; got "
+        f"{len(model.calls)} generate calls"
+    )
+    assert "use_cache" not in model.calls[0], "the single decode is the warm-cache pass 1"
+
+
 # ---------------------------------------------------------------------------------------
 # Provenance: the new keys, and the redaction that must survive the engine change.
 # ---------------------------------------------------------------------------------------
