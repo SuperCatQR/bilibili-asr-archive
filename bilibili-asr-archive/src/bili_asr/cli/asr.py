@@ -100,9 +100,11 @@ def _cmd_asr(args: argparse.Namespace) -> int:
         if failed:
             return 1
         queue_conn = queue_source.connection
+        # ``--limit`` is owned by the queue-source read: ``_store_transcript_todo``
+        # already passed ``args.limit`` into the store-side ``LIMIT ?``, so a
+        # second slice here would only mask which side owns the bound (the
+        # download-audio store branch relies on the store limit alone).
         todo = [e for _key, e in rows] if rows else []
-        if args.limit is not None:
-            todo = todo[:args.limit]
         if not todo:
             print("asr: queue empty (no parts need transcription)")
             queue_conn.close()
