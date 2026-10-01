@@ -157,6 +157,57 @@ def test_the_writer_refuses_a_record_with_a_missing_instant(tmp_root) -> None:
         )
 
 
+def test_the_writer_refuses_a_record_with_inverted_instants(tmp_root) -> None:
+    """A character cannot end before it starts.
+
+    The plan states three shape invariants; only the length one was enforced until L2 review.
+    An inverted interval describes a transcript that never happened, and a re-tiler indexing it
+    would emit cues that run backwards.
+    """
+
+    from pathlib import Path
+
+    with pytest.raises(ValueError, match="must not be inverted"):
+        write_archive(
+            Path(tmp_root), _entry("BV1inverted"), [{"start": 0.0, "end": 1.0, "text": "甲乙"}],
+            source="asr",
+            characters={"text": "甲乙", "starts": [0.9, 0.1], "ends": [0.2, 0.4]},
+        )
+
+
+def test_the_writer_refuses_a_record_whose_instants_run_backwards(tmp_root) -> None:
+    """Instants advance with the transcript; a decreasing array is time running backwards."""
+
+    from pathlib import Path
+
+    with pytest.raises(ValueError, match="must not run backwards"):
+        write_archive(
+            Path(tmp_root), _entry("BV1backwards"), [{"start": 0.0, "end": 1.0, "text": "甲乙"}],
+            source="asr",
+            characters={"text": "甲乙", "starts": [5.0, 2.0], "ends": [5.5, 2.5]},
+        )
+
+
+def test_a_record_may_give_two_characters_the_same_instant(tmp_root) -> None:
+    """Non-decreasing, not strictly increasing: a zero-length span is legitimate.
+
+    Pinned so the monotonicity check above cannot be tightened into a false refusal — an aligner
+    may hand two characters the same instant, and that is a shape the writer must still publish.
+    """
+
+    from pathlib import Path
+
+    paths = write_archive(
+        Path(tmp_root), _entry("BV1tie"), [{"start": 0.0, "end": 1.0, "text": "甲乙"}],
+        source="asr",
+        characters={"text": "甲乙", "starts": [0.0, 0.0], "ends": [0.5, 0.5]},
+    )
+
+    raw = json.loads(Path(tmp_root, paths["raw_path"]).read_text(encoding="utf-8"))
+
+    assert raw["characters"]["starts"] == [0.0, 0.0]
+
+
 def test_a_subtitle_derived_raw_carries_no_characters(tmp_root) -> None:
     """Negative control: the caption path has no character timings, so it must not claim any.
 

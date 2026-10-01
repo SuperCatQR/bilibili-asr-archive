@@ -591,6 +591,28 @@ def characters_for(segments: list[dict[str, Any]], characters: Any) -> dict[str,
             "characters must carry one instant per character "
             f"({len(text)} characters, {len(starts)} starts, {len(ends)} ends)"
         )
+    # The plan states three shape invariants; the length check above is only the
+    # first.  A record whose instants run backwards, or whose interval is inverted,
+    # describes a transcript that never happened — and a re-tiler indexing it would
+    # emit cues that go back in time.  Both are refused rather than published.
+    # (Found by L2 review: only the length invariant was enforced.)
+    for position, (start, end) in enumerate(zip(starts, ends)):
+        if not isinstance(start, (int, float)) or not isinstance(end, (int, float)):
+            raise ValueError(
+                f"characters instants must be numbers: position {position} carries "
+                f"{type(start).__name__} / {type(end).__name__}"
+            )
+        if start > end:
+            raise ValueError(
+                "characters instants must not be inverted: "
+                f"position {position} starts at {start!r} and ends at {end!r}"
+            )
+    for position in range(1, len(text)):
+        if starts[position] < starts[position - 1] or ends[position] < ends[position - 1]:
+            raise ValueError(
+                "characters instants must not run backwards: "
+                f"position {position} is earlier than {position - 1}"
+            )
     return {"text": text, "starts": list(starts), "ends": list(ends)}
 
 
