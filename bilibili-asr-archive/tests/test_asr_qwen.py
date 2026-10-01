@@ -163,7 +163,7 @@ def _pieces(text: str, step: float = 0.4) -> list[dict]:
 
 
 def test_split_audio_tiles_the_input_exactly() -> None:
-    np = pytest.importorskip("numpy")
+    import numpy as np
     samples = np.random.default_rng(7).standard_normal(asr.SAMPLE_RATE * 10).astype("float32")
     chunks = asr._split_audio(samples, asr.SAMPLE_RATE, 3.0)
     assert len(chunks) >= 4
@@ -174,7 +174,7 @@ def test_split_audio_tiles_the_input_exactly() -> None:
 
 
 def test_split_audio_keeps_a_short_recording_whole() -> None:
-    np = pytest.importorskip("numpy")
+    import numpy as np
     samples = np.zeros(asr.SAMPLE_RATE * 2, dtype="float32")
     chunks = asr._split_audio(samples, asr.SAMPLE_RATE, 180.0)
     assert len(chunks) == 1
@@ -190,7 +190,7 @@ def test_split_audio_keeps_a_degenerate_tail_short_and_still_tiles() -> None:
     3.01 s recording came back as 161 chunks.
     """
 
-    np = pytest.importorskip("numpy")
+    import numpy as np
     samples = np.zeros(int(asr.SAMPLE_RATE * 3.01), dtype="float32")
     chunks = asr._split_audio(samples, asr.SAMPLE_RATE, 3.0)
     assert len(chunks) == 2, chunks
@@ -199,7 +199,7 @@ def test_split_audio_keeps_a_degenerate_tail_short_and_still_tiles() -> None:
 
 
 def test_split_audio_never_returns_a_degenerate_chunk() -> None:
-    np = pytest.importorskip("numpy")
+    import numpy as np
     samples = np.random.default_rng(3).standard_normal(asr.SAMPLE_RATE * 4).astype("float32")
     chunks = asr._split_audio(samples, asr.SAMPLE_RATE, 1.0)
     floor = int(asr._CHUNK_MIN_WINDOW_MS / 1000.0 * asr.SAMPLE_RATE)
@@ -207,7 +207,7 @@ def test_split_audio_never_returns_a_degenerate_chunk() -> None:
 
 
 def test_split_audio_of_nothing_is_no_chunks() -> None:
-    np = pytest.importorskip("numpy")
+    import numpy as np
     assert asr._split_audio(np.zeros(0, dtype="float32"), asr.SAMPLE_RATE, 180.0) == []
 
 
@@ -373,8 +373,8 @@ def _runner(monkeypatch, text: str = "今天讲两件事。明天我们接着讲
     soundfile are installed and skip where they are not.
     """
 
-    np = pytest.importorskip("numpy")
-    sf = pytest.importorskip("soundfile")
+    import numpy as np
+    import soundfile as sf
     samples = np.zeros(asr.SAMPLE_RATE * 3, dtype="float32")
     monkeypatch.setattr(sf, "read", lambda *args, **kwargs_: (samples, asr.SAMPLE_RATE))
     monkeypatch.setattr(sf, "write", lambda *args, **kwargs_: None)
@@ -402,8 +402,8 @@ def test_the_runner_is_lazy_and_constructs_one_model_set_for_many_items(monkeypa
 
 
 def test_a_failed_load_pays_an_attempt_and_no_construction(monkeypatch) -> None:
-    pytest.importorskip("numpy")
-    pytest.importorskip("soundfile")
+    import numpy as np
+    import soundfile as sf
 
     def factory(**kwargs):
         raise RuntimeError("boom")
@@ -440,8 +440,8 @@ def test_the_runner_pads_a_short_final_chunk_before_alignment(monkeypatch) -> No
     """The splitter tiles exactly; the aligner's minimum is met where that requirement lives."""
 
     runner, _ = _runner(monkeypatch, chunk_seconds=3.0)
-    np = pytest.importorskip("numpy")
-    sf = pytest.importorskip("soundfile")
+    import numpy as np
+    import soundfile as sf
     samples = np.zeros(int(asr.SAMPLE_RATE * 3.01), dtype="float32")
     monkeypatch.setattr(sf, "read", lambda *args, **kwargs_: (samples, asr.SAMPLE_RATE))
     written: list[int] = []
@@ -458,8 +458,8 @@ def test_the_pipeline_stitches_per_chunk_timings_with_their_offset(monkeypatch) 
     """Two chunks: the second chunk's units must land at their offset in the recording."""
 
     runner, _ = _runner(monkeypatch, chunk_seconds=1.0)
-    np = pytest.importorskip("numpy")
-    sf = pytest.importorskip("soundfile")
+    import numpy as np
+    import soundfile as sf
     long_audio = np.zeros(asr.SAMPLE_RATE * 3, dtype="float32")  # 3 chunks of 1 s
     monkeypatch.setattr(sf, "read", lambda *args, **kwargs_: (long_audio, asr.SAMPLE_RATE))
     cues = runner.transcribe("/nonexistent/long.wav")
@@ -712,8 +712,8 @@ def test_a_real_aac_file_is_decoded_through_the_fallback(tmp_path) -> None:
     suite stayed green.
     """
 
-    np = pytest.importorskip("numpy")
-    pytest.importorskip("soundfile")
+    import numpy as np
+    import soundfile as sf
     _require_ffmpeg()
 
     path = tmp_path / "fixture.m4a"
@@ -739,9 +739,9 @@ def test_a_non_16k_rate_is_resampled_by_the_runner(monkeypatch) -> None:
     it were 9 s long.
     """
 
-    np = pytest.importorskip("numpy")
-    sf = pytest.importorskip("soundfile")
-    soxr = pytest.importorskip("soxr")
+    import numpy as np
+    import soundfile as sf
+    import soxr
     runner, _ = _runner(monkeypatch)  # installs the fake models, audio read and writes
 
     seen: list[tuple[int, int, int]] = []
@@ -795,8 +795,8 @@ def test_a_real_file_round_trips_through_the_primary_reader(tmp_path) -> None:
     magnitude, not by 1e-5.
     """
 
-    np = pytest.importorskip("numpy")
-    sf = pytest.importorskip("soundfile")
+    import numpy as np
+    import soundfile as sf
 
     path = tmp_path / "fixture.wav"
     written = np.linspace(-0.75, 0.75, asr.SAMPLE_RATE, dtype="float32")
@@ -819,8 +819,8 @@ def test_a_real_file_round_trips_through_the_primary_reader(tmp_path) -> None:
 def test_a_real_file_keeps_its_channel_layout(tmp_path) -> None:
     """Stereo stays stereo and is returned samples-first, which is the shape callers index."""
 
-    np = pytest.importorskip("numpy")
-    sf = pytest.importorskip("soundfile")
+    import numpy as np
+    import soundfile as sf
 
     path = tmp_path / "stereo.wav"
     written = np.linspace(-0.5, 0.5, asr.SAMPLE_RATE * 2, dtype="float32").reshape(-1, 2)
@@ -845,8 +845,8 @@ def test_an_undecodable_file_raises_the_typed_error(monkeypatch, tmp_path) -> No
     whole non-zero-exit guard, both left the suite green at 46 passed.
     """
 
-    np = pytest.importorskip("numpy")
-    sf = pytest.importorskip("soundfile")
+    import numpy as np
+    import soundfile as sf
     _require_ffmpeg()
 
     path = tmp_path / "not-audio.m4a"
@@ -868,8 +868,8 @@ def test_an_undecodable_file_raises_the_typed_error(monkeypatch, tmp_path) -> No
 def test_a_decodable_file_never_reaches_the_fallback(monkeypatch) -> None:
     """The primary reader's success is the whole path; WAV and FLAC keep their old behaviour."""
 
-    np = pytest.importorskip("numpy")
-    sf = pytest.importorskip("soundfile")
+    import numpy as np
+    import soundfile as sf
 
     known = np.linspace(-1.0, 1.0, 160, dtype="float32")
     monkeypatch.setattr(sf, "read", lambda *args, **kwargs: (known, 16000))
@@ -887,8 +887,8 @@ def test_a_decodable_file_never_reaches_the_fallback(monkeypatch) -> None:
 def test_the_fallback_refuses_clearly_when_ffmpeg_is_missing(monkeypatch, tmp_path) -> None:
     """A host without ffmpeg must be told what to install, not handed a raw decoder error."""
 
-    pytest.importorskip("numpy")
-    sf = pytest.importorskip("soundfile")
+    import numpy as np
+    import soundfile as sf
 
     def refuse(*args, **kwargs):
         raise sf.LibsndfileError(1, "Error opening 'x.m4a': ")
@@ -912,8 +912,8 @@ def test_a_fallback_read_still_produces_the_same_cues_as_a_primary_read(monkeypa
     ``test_a_non_16k_rate_is_resampled_by_the_runner``.
     """
 
-    np = pytest.importorskip("numpy")
-    sf = pytest.importorskip("soundfile")
+    import numpy as np
+    import soundfile as sf
     runner, _ = _runner(monkeypatch)
     primary = runner.transcribe("/nonexistent/audio.m4a")
     assert primary, "the fake models always produce text"
@@ -945,8 +945,8 @@ def test_the_ffmpeg_decode_survives_a_piped_quit_key(tmp_path) -> None:
     happens to use.
     """
 
-    np = pytest.importorskip("numpy")
-    pytest.importorskip("soundfile")
+    import numpy as np
+    import soundfile as sf
     _require_ffmpeg()
 
     path = tmp_path / "fixture.m4a"
@@ -992,8 +992,8 @@ def test_the_ffmpeg_decode_asks_for_rf64_so_a_long_item_is_not_truncated(
     carry, and this is the one place the decision is expressed.
     """
 
-    pytest.importorskip("numpy")
-    pytest.importorskip("soundfile")
+    import numpy as np
+    import soundfile as sf
     _require_ffmpeg()
 
     path = tmp_path / "fixture.m4a"
