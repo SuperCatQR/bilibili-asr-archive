@@ -4,15 +4,15 @@
   "type": "plan",
   "status": "running",
   "started_at": "2026-10-01",
-  "updated_at": "2026-10-01T06:20:39.113Z",
+  "updated_at": "2026-10-01T09:49:20.101Z",
   "plans": [
     {
       "id": "20261001-cli-import-integrity",
       "title": "CLI 导入完整性与测试门控修复 — 了结 R10/R11（asr 命令在 main 上完全不可用）",
       "file": ".mstar/plans/20261001-cli-import-integrity.md",
-      "status": "InProgress",
+      "status": "InReview",
       "coordination": {
-        "revision": 2,
+        "revision": 3,
         "prepared": {
           "assignment_path": "/root/workspace/bilibili-asr-archive/.mstar/sdd/20261001-cli-import-integrity/plan-assignment.md",
           "assignment_sha256": "45f16bbaed82369ab357d3edee4ba588919e72d71db32efa92a220804bebbc1d",
@@ -26,6 +26,18 @@
           "session_id": "6fc01243-6275-4a45-93b2-8bc5b15e3855",
           "session_file": "/root/workspace/bilibili-asr-archive/.mstar/workflows/20261001-cli-import-integrity/sessions/plan-pm-6fc01243-6275-4a45-93b2-8bc5b15e3855.json",
           "bound_at": "2026-10-01T06:20:39.113Z"
+        },
+        "progress": {
+          "status": "InReview",
+          "summary": "R10 (12 unresolved CLI names + the test gate that hid them) and R11 (fixture gaps) repaired; merged to main at 7417f27; suite 81 -> 41 failed with zero new failures",
+          "evidence_paths": [
+            "/root/workspace/bilibili-asr-archive/.mstar/sdd/20261001-cli-import-integrity/task-1-report.md",
+            "/root/workspace/bilibili-asr-archive/.mstar/sdd/20261001-cli-import-integrity/task-2-report.md",
+            "/root/workspace/bilibili-asr-archive/.mstar/sdd/20261001-cli-import-integrity/task-3-report.md",
+            "/root/workspace/bilibili-asr-archive/.mstar/sdd/20261001-cli-import-integrity/task-4-report.md",
+            "/root/workspace/bilibili-asr-archive/.mstar/sdd/20261001-cli-import-integrity/task-4b-report.md",
+            "/root/workspace/bilibili-asr-archive/.mstar/sdd/20261001-cli-import-integrity/qc-consolidated.md"
+          ]
         }
       },
       "execution_lease": {
@@ -34,7 +46,8 @@
         "worktree_path": "/root/workspace/bilibili-asr-archive",
         "working_branch": "fix/20261001-cli-import-integrity",
         "session_label": "plan-pm"
-      }
+      },
+      "metadata": {}
     }
   ],
   "delivery_kind": "development",
