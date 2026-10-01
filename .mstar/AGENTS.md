@@ -40,6 +40,36 @@ Everything else under `.mstar/` is expected to be tracked, including `{PLAN_DIR}
 as one of its legs: a **volatile** path that is tracked fails the run, and every other tracked
 path under the harness dir is tolerated.
 
+### Tracked is necessary, not automatic — commit a new harness document before any worktree needs it
+
+**Being inside `.mstar/` does not put a file in a worktree. Only a commit does.** `git worktree add`
+checks out **commits**; a file that exists only in the primary checkout's working tree — a freshly
+written plan, a new `workflows/<id>/`, a register edit — is *not* in any commit, so no other worktree
+sees it, and `git push` would not carry it either (`push` sends commits, never untracked files).
+
+Measured 2026-10-01: a plan was written to `{PLAN_DIR}` and two lane worktrees were created from
+`main`; both showed 55 tracked plans and **neither could see the new one**. The same session's second
+plan was untracked too. The fix is one step, before the worktree is created or before it is told the
+plan exists:
+
+```bash
+git add {PLAN_DIR}/<plan-id>.md && git commit -m "docs(plan): <what it decides>"
+```
+
+Rules that follow from this:
+
+- **Write → commit → then create or update the worktree.** A lane handed a plan path that is untracked
+  will fail to find it, and the failure looks like a path typo rather than a missing commit.
+- **When a worktree already exists**, bring it forward with `git merge --ff-only <sha>` (or
+  `git cherry-pick` if it has diverged). **Do not** `git reset --hard` a live worktree: it discards
+  whatever that lane has not yet committed.
+- **Commit only your own artifacts.** In a shared checkout several sessions write `.mstar/`
+  concurrently; `status.json` and another session's plan / `workflows/<id>/` are routinely dirty at the
+  same time. Stage the specific paths you authored — a bare `git add .mstar` sweeps in someone else's
+  in-flight registration.
+- The same rule covers **any** new harness document a peer needs: `{ITERATION_DIR}` package files,
+  knowledge docs, spec revisions — tracked-by-design still means committed-before-visible.
+
 ### Supersedes: the process-local published set (compass D11)
 
 Until 2026-09-29 the opposite rule applied. `.mstar/**` was ignored by default with four
