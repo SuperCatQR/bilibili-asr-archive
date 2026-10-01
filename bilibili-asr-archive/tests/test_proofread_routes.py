@@ -307,6 +307,75 @@ def _split_root_workspace(tmp_path: Path) -> tuple[Path, Path]:
     return asr_root, caption_root
 
 
+def test_asr_root_moves_the_read_off_its_default(tmp_path: Path) -> None:
+    """``asr_root`` must actually MOVE the read: a decoy default must not be read.
+
+    The sibling split-root tests pass ``asr_root`` the same value as
+    ``artifact_root``, so an implementation that ignores the parameter entirely
+    satisfies them (measured: constants at the two ternaries leave all of the
+    older split-root tests green).  Here the default location holds a different,
+    wrong document: if ``asr_root`` is honoured the decoy is never opened and the
+    table carries the real ASR text; if it is ignored the decoy is read and the
+    assertion fails.
+    """
+
+    from bili_asr.proofread import build_sidebyside
+
+    asr_root, caption_root = _split_root_workspace(tmp_path)
+    decoy = tmp_path / "decoy-asr"
+    decoy.mkdir()
+    _write_raw(decoy, "BV1split.p0", {
+        "segments": [
+            {"start": 0.0, "end": 8.0, "text": "这是诱饵文件，绝不应被读取。"},
+            {"start": 30.0, "end": 34.0, "text": "诱饵的第二段。"},
+        ],
+        "source": "asr",
+    })
+
+    sidebyside_path, _ = build_sidebyside(
+        "BV1split", 0,
+        archive_root=os.fspath(caption_root),
+        artifact_root=os.fspath(decoy),
+        asr_root=os.fspath(asr_root),
+        caption_root=os.fspath(caption_root),
+    )
+
+    table = sidebyside_path.read_text(encoding="utf-8")
+    assert "诱饵" not in table, "asr_root was ignored: the default root was read"
+    assert "劳动法" in table, "the real ASR root's text is missing from the table"
+
+
+def test_caption_root_moves_the_read_off_its_default(tmp_path: Path) -> None:
+    """``caption_root`` must actually MOVE the read: a decoy default must not be read."""
+
+    from bili_asr.proofread import build_sidebyside
+    from bili_asr.storage import open_database
+
+    asr_root, caption_root = _split_root_workspace(tmp_path)
+    decoy = tmp_path / "decoy-caption"
+    decoy.mkdir()
+    connection = open_database(os.fspath(decoy))
+    try:
+        _write_caption_route(
+            connection, bvid="BV1split", page_index=0, cid=301,
+            segments_ms=[(0, 8000, "诱饵字幕，绝不应被读取。"),
+                         (30000, 34000, "诱饵字幕第二段。")],
+        )
+    finally:
+        connection.close()
+
+    sidebyside_path, _ = build_sidebyside(
+        "BV1split", 0,
+        archive_root=os.fspath(decoy),
+        artifact_root=os.fspath(asr_root),
+        asr_root=os.fspath(asr_root),
+        caption_root=os.fspath(caption_root),
+    )
+
+    table = sidebyside_path.read_text(encoding="utf-8")
+    assert "诱饵字幕" not in table, "caption_root was ignored: the default root was read"
+
+
 def test_split_roots_produce_the_sidebyside(tmp_path: Path) -> None:
     """``asr_root`` + ``caption_root`` read the two routes from two roots."""
 
