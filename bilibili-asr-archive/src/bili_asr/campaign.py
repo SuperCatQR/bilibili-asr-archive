@@ -17,6 +17,7 @@ from typing import Any, Callable, TypeAlias
 from .artifact_root import ArtifactRoots
 from .coordinator import ArchiveBusyError, RunCoordinator, RunSummary, archive_writer
 from .manifest import ManifestStore
+from .manifest import TERMINAL_STATUSES
 from .scheduler import SchedulerStore, settled_processed_ids, terminal_resume_ids
 
 ScopeRows: TypeAlias = Callable[
@@ -32,7 +33,6 @@ _SCHEMA_VERSION = 1
 _VALID_STATES = frozenset({"complete", "limited", "risk_interrupted"})
 _SAFE_ID_RE = re.compile(r"^[A-Za-z0-9._:-]{1,128}$")
 _SAFE_CODE_RE = re.compile(r"^[a-z0-9_:-]{1,64}$")
-_TERMINAL_FINAL_STATUSES = frozenset({"archived", "gone"})
 
 
 def _safe_id(value: object) -> str:
@@ -335,7 +335,7 @@ class CampaignRunner:
         run_summary: RunSummary = coordinator.run_batch(selected_rows)
         result_by_id = {result.work_id: result for result in run_summary.results}
         failed_or_skipped = bool(run_summary.failed or run_summary.skipped_rows)
-        terminal_results = all(result.final_status in _TERMINAL_FINAL_STATUSES for result in run_summary.results)
+        terminal_results = all(result.final_status in TERMINAL_STATUSES for result in run_summary.results)
         complete = (
             bool(selected_rows)
             and matching <= batch_limit

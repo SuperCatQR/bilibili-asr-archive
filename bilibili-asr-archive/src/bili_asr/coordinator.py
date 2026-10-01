@@ -27,7 +27,7 @@ from . import asr as asr_module
 from . import audio as audio_module
 from . import subtitles as subtitles_module
 from .artifact_root import ArtifactRoots
-from .manifest import ManifestStore
+from .manifest import TERMINAL_STATUSES, ManifestStore
 from .page_identity import PageIdentity, artifact_stem, identity_from_entry
 from .persistence import append_jsonl_record, file_lock
 from .path_policy import confined_audio_path
@@ -41,8 +41,6 @@ _HARVEST_STATUSES = frozenset({"pending", "meta_ok", "sub_checked"})
 _SKIP_HARVEST_STATUSES = frozenset(
     {"subtitle_done", "needs_audio", "audio_ok", "archived"}
 )
-# terminal manifest rows: reruns always skip these
-TERMINAL_STATUSES = frozenset({"archived", "gone"})
 
 # Sidecar may hold only redacted scalar codes — never cookies, URLs, traces.
 _FORBIDDEN_MARKERS = (
