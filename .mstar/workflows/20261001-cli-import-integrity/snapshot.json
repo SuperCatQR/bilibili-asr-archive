@@ -1,0 +1,53 @@
+{
+  "schema_version": 1,
+  "id": "20261001-cli-import-integrity",
+  "type": "plan",
+  "status": "running",
+  "started_at": "2026-10-01",
+  "updated_at": "2026-10-01T06:20:39.113Z",
+  "plans": [
+    {
+      "id": "20261001-cli-import-integrity",
+      "title": "CLI 导入完整性与测试门控修复 — 了结 R10/R11（asr 命令在 main 上完全不可用）",
+      "file": ".mstar/plans/20261001-cli-import-integrity.md",
+      "status": "InProgress",
+      "coordination": {
+        "revision": 2,
+        "prepared": {
+          "assignment_path": "/root/workspace/bilibili-asr-archive/.mstar/sdd/20261001-cli-import-integrity/plan-assignment.md",
+          "assignment_sha256": "45f16bbaed82369ab357d3edee4ba588919e72d71db32efa92a220804bebbc1d",
+          "plan_sha256": "7a76cc59047884ca8711114da17e3df1930d00410e4eaf5bf902e87a85092852",
+          "qa_gate": "mandatory",
+          "findings_cleanup": "allow-residual",
+          "prepared_by": "f5cd5c61-5456-40af-9bf3-25d3972460b0",
+          "prepared_at": "2026-10-01T06:20:31.686Z"
+        },
+        "session": {
+          "session_id": "6fc01243-6275-4a45-93b2-8bc5b15e3855",
+          "session_file": "/root/workspace/bilibili-asr-archive/.mstar/workflows/20261001-cli-import-integrity/sessions/plan-pm-6fc01243-6275-4a45-93b2-8bc5b15e3855.json",
+          "bound_at": "2026-10-01T06:20:39.113Z"
+        }
+      },
+      "execution_lease": {
+        "holder": "6fc01243-6275-4a45-93b2-8bc5b15e3855",
+        "claimed_at": "2026-10-01T06:20:39.112Z",
+        "worktree_path": "/root/workspace/bilibili-asr-archive",
+        "working_branch": "fix/20261001-cli-import-integrity",
+        "session_label": "plan-pm"
+      }
+    }
+  ],
+  "delivery_kind": "development",
+  "project": "_default",
+  "branch": {
+    "source": "main",
+    "target": "main"
+  },
+  "coordination": {
+    "coordinator": {
+      "session_id": "f5cd5c61-5456-40af-9bf3-25d3972460b0",
+      "session_file": "/root/workspace/bilibili-asr-archive/.mstar/workflows/20261001-cli-import-integrity/sessions/coordinator-f5cd5c61-5456-40af-9bf3-25d3972460b0.json",
+      "bound_at": "2026-10-01T06:16:29.973Z"
+    }
+  }
+}
