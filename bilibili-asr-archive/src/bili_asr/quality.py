@@ -11,11 +11,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Mapping, NamedTuple
 
-from .archive import LOW_CONFIDENCE, archive_stem, bundle_paths_for_stem
+from .archive import LOW_CONFIDENCE, bundle_paths_for_stem
 from .artifact_root import ArtifactRoots
 from .asr import _FORBIDDEN_PROVENANCE as _FORBIDDEN_MARKER
 from .cues import read_cues as _read_shared_cues
-from .page_identity import artifact_stem, page_identity, parse_work_id
+from .page_identity import canonical_stem
 
 #: Reasons that describe a structural defect: an artifact is missing, unreadable,
 #: or internally inconsistent.  Only these make a work item invalid.
@@ -363,28 +363,20 @@ def _text_value(row: Mapping[str, object], *keys: str) -> str | None:
 
 
 def _canonical_stem(row: Mapping[str, object]) -> str | None:
-    bvid = _text_value(row, "bvid")
-    if row.get("unresolved"):
-        return bvid
-    work_id = _text_value(row, "work_id")
-    if work_id:
-        try:
-            bvid_part, page_index = parse_work_id(work_id)
-            ident = page_identity(
-                bvid_part,
-                page_index,
-                cid=int(row.get("cid") or 0),
-                page_label=str(row.get("page_label") or ""),
-            )
-            return artifact_stem(ident)
-        except ValueError:
-            return work_id
-    if bvid and row.get("cid") is not None:
-        try:
-            return archive_stem(dict(row))
-        except (KeyError, TypeError, ValueError):
-            pass
-    return bvid
+    """The row's canonical stem (compass D5) — delegates to
+    ``page_identity.canonical_stem``.
+
+    A row whose identity cannot derive a canonical stem (missing ``bvid``,
+    malformed ``work_id``) is identity-invalid: the stem is unguessable, so
+    no artifact path may be inferred from one. Returns ``None``; the caller
+    then surfaces the row's own ``identity_invalid``/declaration reasons
+    rather than guessing paths. ``page_label`` never enters the stem — the
+    display helper owns that surface.
+    """
+    try:
+        return canonical_stem(row)
+    except (KeyError, TypeError, ValueError):
+        return None
 
 
 def _artifact_paths(row: Mapping[str, object], roots: ArtifactRoots) -> list[Path]:

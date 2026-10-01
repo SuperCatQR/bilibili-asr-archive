@@ -12,12 +12,11 @@ from typing import Any
 
 import fcntl
 from .archive import (
-    archive_stem,
     archive_bundle_complete,
     bundle_paths_for_stem,
 )
 from .artifact_root import ArtifactRoots
-from .page_identity import artifact_stem, page_identity, parse_work_id
+from .page_identity import canonical_stem
 from .coordinator import _validate_attempt
 from .sidecar_projection import (
     ORDINARY_HISTORY_DIAGNOSTICS, ReaderPolicy, project_attempt_records, project_manifest_records,
@@ -420,10 +419,20 @@ class IntegrityVerifier:
             # under transcripts/{stem}/bundle.raw.json; the subtitle path writes
             # subtitles/raw/), so both are
             # inferred candidates and both are asked the containment question for every status.
-            raw_candidates = [
-                [base / "subtitles" / "raw" / f"{self._canonical_stem(row)}.json" for base, _reader in artifact_bases],
-                [bundle_paths_for_stem(base, self._canonical_stem(row))["raw_path"] for base, _reader in artifact_bases],
-            ]
+            # compass D5: an identity-invalid row has no guessable stem, so it
+            # contributes no inferred raw candidates — its declared raw_path
+            # (if any) is still probed below.
+            try:
+                raw_stem = self._canonical_stem(row)
+            except (KeyError, TypeError, ValueError):
+                raw_stem = None
+            raw_candidates = (
+                [
+                    [base / "subtitles" / "raw" / f"{raw_stem}.json" for base, _reader in artifact_bases],
+                    [bundle_paths_for_stem(base, raw_stem)["raw_path"] for base, _reader in artifact_bases],
+                ]
+                if raw_stem is not None else []
+            )
             declared_raw = row.get("raw_path")
             if isinstance(declared_raw, str):
                 declared_raw_paths = [Path(declared_raw) if Path(declared_raw).is_absolute() else base / declared_raw for base, _reader in artifact_bases]
@@ -628,8 +637,20 @@ class IntegrityVerifier:
     @staticmethod
     def _required_paths(row, root):
         names=("srt_path","txt_path","md_path"); values=[row.get(n) for n in names]
-        stem=IntegrityVerifier._canonical_stem(row)
-        defaults=[bundle_paths_for_stem("", stem)[k].as_posix() for k in ("srt_path","txt_path","md_path")]
+        try:
+            stem = IntegrityVerifier._canonical_stem(row)
+        except (KeyError, TypeError, ValueError):
+            # compass D5: an identity-invalid row (missing bvid / malformed
+            # work_id) has no guessable stem, so no default path may be
+            # inferred from one; the row's own declared values are still
+            # probed.
+            stem = None
+        if stem is None:
+            # compass D5: an identity-invalid row has no guessable stem, so
+            # no default path may be inferred from one. Declared values are
+            # still probed; undeclared slots have no candidate at all.
+            return [Path(v) if isinstance(v, str) and Path(v).is_absolute() else root / v for v in values if isinstance(v, str)]
+        defaults = [bundle_paths_for_stem("", stem)[k].as_posix() for k in ("srt_path","txt_path","md_path")]
         return [Path(v) if isinstance(v,str) and Path(v).is_absolute() else root/(v if isinstance(v,str) else defaults[i]) for i,v in enumerate(values)]
 
     @classmethod
@@ -637,18 +658,21 @@ class IntegrityVerifier:
         # Shape A: the markdown no longer embeds the pubdate and title, so the
         # branch that used to name it differently from its three siblings is
         # gone -- all four are fixed names in the work's own directory.
-        paths = bundle_paths_for_stem(root, cls._canonical_stem(row))
+        #
+        # compass D5: an identity-invalid row (missing bvid / malformed
+        # work_id) has no canonical stem; the inferred canonical bundle is
+        # therefore empty — the row's declared paths (if any) carry what can
+        # be probed, and an inferred path must not be guessed.
+        try:
+            paths = bundle_paths_for_stem(root, cls._canonical_stem(row))
+        except (KeyError, TypeError, ValueError):
+            return []
         return [paths[k] for k in ("srt_path", "txt_path", "md_path")]
     @staticmethod
     def _canonical_stem(row):
-        bvid=str(row.get("bvid") or ""); work=str(row.get("work_id") or "")
-        if work and not row.get("unresolved"):
-            try:
-                wb,pi=parse_work_id(work)
-                if bvid and bvid!=wb:return work
-                return artifact_stem(page_identity(wb,pi,int(row.get("cid") or 0)))
-            except (TypeError,ValueError): return work
-        return archive_stem(row)
+        """The row's canonical stem (compass D5) — delegates to
+        ``page_identity.canonical_stem``."""
+        return canonical_stem(row)
 
 
     @staticmethod

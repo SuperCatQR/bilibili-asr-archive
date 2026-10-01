@@ -302,10 +302,18 @@ def test_bounded_record_limit_ignores_blank_lines_and_preserves_physical_line_nu
 
 
 
-@pytest.mark.parametrize("operation", ["write", "fsync", "replace", "directory_fsync"])
+#: Failure-injection operations for the manifest snapshot.  ``write`` is not
+#: a case since the journal-append rework (plan 003, ``ae88b4e``): a per-row
+#: upsert no longer opens ``manifest.jsonl`` for writing (it appends to the
+#: journal and compacts lazily), so the write-injection seam has nothing to
+#: catch and is removed rather than patched around.
+@pytest.mark.parametrize("operation", ["fsync", "replace", "directory_fsync"])
 def test_manifest_failure_injection_preserves_unrelated_file(tmp_path: Path, monkeypatch, operation: str) -> None:
     store = ManifestStore(tmp_path)
     store.upsert(_row("prior:p0"))
+    # Materialize the snapshot: every operation below targets
+    # ``manifest.jsonl`` itself, and a journal-only upsert never writes it.
+    store.save()
     marker = tmp_path / "unrelated.txt"
     marker.write_text("keep", encoding="utf-8")
     manifest_path = Path(store.path)
@@ -313,14 +321,7 @@ def test_manifest_failure_injection_preserves_unrelated_file(tmp_path: Path, mon
     manifest_mtime_before = manifest_path.stat().st_mtime_ns
     directory_fsync_injected = False
 
-    if operation == "write":
-        original_write = os.write
-        def fail_manifest_write(fd, data):
-            if os.path.basename(os.readlink(f"/proc/self/fd/{fd}")) == "manifest.jsonl":
-                raise OSError("injected write")
-            return original_write(fd, data)
-        monkeypatch.setattr("bili_asr.manifest.os.write", fail_manifest_write)
-    elif operation == "fsync":
+    if operation == "fsync":
         original_fsync = os.fsync
         def fail_file_fsync(fd):
             if not stat.S_ISDIR(os.fstat(fd).st_mode):
@@ -340,10 +341,7 @@ def test_manifest_failure_injection_preserves_unrelated_file(tmp_path: Path, mon
         monkeypatch.setattr("bili_asr.manifest.os.fsync", fail_directory_fsync)
 
     with pytest.raises(OSError):
-        if operation == "write":
-            store.upsert(_row("new:p0"))
-        else:
-            replace_file_atomically(manifest_path, b"new\n")
+        replace_file_atomically(manifest_path, b"new\n")
     if operation == "directory_fsync":
         assert directory_fsync_injected
     assert manifest_path.read_bytes() == manifest_before

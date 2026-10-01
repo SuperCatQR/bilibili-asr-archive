@@ -126,15 +126,27 @@ class CidRouterTransport(RouterTransport):
 
 
 
+def _seed_recover_attempts(root) -> None:
+    """One valid attempt row plus the materialized manifest snapshot.
+
+    ``verify`` grades a root authoritative only when the manifest snapshot
+    exists on disk (a journal-only upsert is not state until the store
+    compacts), so every ``recover`` fixture seeds both forms.
+    """
+
+    ManifestStore(root=root).save()
+    AttemptLedger(root).append({"stage": "harvest", "work_id": "BVrecover-seed:p0",
+        "attempt": 1, "outcome": "ok", "error_code": None, "artifact_paths": [],
+        "started_at": "2026-08-28T00:00:00Z", "finished_at": "2026-08-28T00:00:01Z"})
+
+
 def test_recover_defect_code_expansion_fails_before_audit_write(tmp_root):
     from bili_asr.integrity import IntegrityVerifier, RETRYABLE_INCOMPLETE, RECOVERY_TARGET_LIMIT_EXCEEDED
     store = ManifestStore(root=tmp_root)
     for index in range(101):
         ident = page_identity(f"BV{index}", 0, index + 1, "p0")
         store.upsert(_row(ident, status="pending"))
-    AttemptLedger(tmp_root).append({"stage": "harvest", "work_id": "BV0:p0", "attempt": 1,
-        "outcome": "ok", "error_code": None, "artifact_paths": [],
-        "started_at": "2026-08-28T00:00:00Z", "finished_at": "2026-08-28T00:00:01Z"})
+    _seed_recover_attempts(tmp_root)
     result = IntegrityVerifier.recover(tmp_root, defect_codes=[RETRYABLE_INCOMPLETE])
     assert result == {"ok": False, "code": RECOVERY_TARGET_LIMIT_EXCEEDED, "selected": []}
     assert not (Path(tmp_root) / "coordinator" / "recovery-audit.jsonl").exists()
@@ -144,9 +156,7 @@ def test_recover_rejects_invalid_limit_without_writing(tmp_root):
     from bili_asr.integrity import IntegrityVerifier, RECOVERY_TARGET_LIMIT_EXCEEDED
     ident = page_identity("BVlimit", 0, 1, "p0")
     ManifestStore(root=tmp_root).upsert(_row(ident, status="pending"))
-    AttemptLedger(tmp_root).append({"stage": "harvest", "work_id": ident.work_id, "attempt": 1,
-        "outcome": "ok", "error_code": None, "artifact_paths": [],
-        "started_at": "2026-08-28T00:00:00Z", "finished_at": "2026-08-28T00:00:01Z"})
+    _seed_recover_attempts(tmp_root)
     result = IntegrityVerifier.recover(tmp_root, work_ids=[ident.work_id], limit=0)
     assert result["ok"] is False and result["code"] == RECOVERY_TARGET_LIMIT_EXCEEDED
     assert not (Path(tmp_root) / "coordinator" / "recovery-audit.jsonl").exists()
@@ -156,9 +166,7 @@ def test_recover_fails_closed_on_malformed_or_oversize_audit(tmp_root):
     from bili_asr.integrity import IntegrityVerifier, RECOVERY_MALFORMED_SIDECAR, _AUDIT_REL_PATH, _AUDIT_MAX_BYTES
     ident = page_identity("BVsidecar", 0, 1, "p0")
     ManifestStore(root=tmp_root).upsert(_row(ident, status="pending"))
-    AttemptLedger(tmp_root).append({"stage": "harvest", "work_id": ident.work_id, "attempt": 1,
-        "outcome": "ok", "error_code": None, "artifact_paths": [],
-        "started_at": "2026-08-28T00:00:00Z", "finished_at": "2026-08-28T00:00:01Z"})
+    _seed_recover_attempts(tmp_root)
     audit_path = Path(tmp_root) / _AUDIT_REL_PATH
     audit_path.parent.mkdir(parents=True, exist_ok=True)
     audit_path.write_text("{bad}\n", encoding="utf-8")
@@ -176,9 +184,7 @@ def test_recover_rejects_unterminated_audit_at_exact_byte_boundary(tmp_root, mon
 
     ident = page_identity("BVboundary", 0, 1, "p0")
     ManifestStore(root=tmp_root).upsert(_row(ident, status="pending"))
-    AttemptLedger(tmp_root).append({"stage": "harvest", "work_id": ident.work_id, "attempt": 1,
-        "outcome": "ok", "error_code": None, "artifact_paths": [],
-        "started_at": "2026-08-28T00:00:00Z", "finished_at": "2026-08-28T00:00:01Z"})
+    _seed_recover_attempts(tmp_root)
     audit_path = Path(tmp_root) / _AUDIT_REL_PATH
     audit_path.parent.mkdir(parents=True, exist_ok=True)
     existing_record = {"action": "audit", "work_ids": ["prior"],
@@ -204,9 +210,7 @@ def test_recover_rolls_back_when_directory_fsync_fails(tmp_root, monkeypatch):
 
     ident = page_identity("BVfsync", 0, 1, "p0")
     ManifestStore(root=tmp_root).upsert(_row(ident, status="pending"))
-    AttemptLedger(tmp_root).append({"stage": "harvest", "work_id": ident.work_id, "attempt": 1,
-        "outcome": "ok", "error_code": None, "artifact_paths": [],
-        "started_at": "2026-08-28T00:00:00Z", "finished_at": "2026-08-28T00:00:01Z"})
+    _seed_recover_attempts(tmp_root)
     audit_path = Path(tmp_root) / _AUDIT_REL_PATH
     audit_path.parent.mkdir(parents=True, exist_ok=True)
     before = b'{"action":"requeue","defect_codes":["retryable_incomplete"],"work_ids":["prior"]}\n'
@@ -225,9 +229,7 @@ def test_recover_rejects_oversized_existing_audit_record(tmp_root):
     from bili_asr.integrity import IntegrityVerifier, RECOVERY_MALFORMED_SIDECAR, _AUDIT_REL_PATH
     ident = page_identity("BVlogical", 0, 1, "p0")
     ManifestStore(root=tmp_root).upsert(_row(ident, status="pending"))
-    AttemptLedger(tmp_root).append({"stage": "harvest", "work_id": ident.work_id, "attempt": 1,
-        "outcome": "ok", "error_code": None, "artifact_paths": [],
-        "started_at": "2026-08-28T00:00:00Z", "finished_at": "2026-08-28T00:00:01Z"})
+    _seed_recover_attempts(tmp_root)
     audit_path = Path(tmp_root) / _AUDIT_REL_PATH
     audit_path.parent.mkdir(parents=True, exist_ok=True)
     oversized = {"action": "audit", "work_ids": [f"work-{index}" for index in range(101)],
@@ -248,16 +250,7 @@ def test_recover_audits_named_defect_without_manifest_or_transcript_mutation(tmp
     row.update({"srt_path": f"transcripts/{stem}/bundle.srt", "txt_path": f"transcripts/{stem}/bundle.txt",
                 "md_path": f"transcripts/{stem}/bundle.md"})
     store.upsert(row)
-    AttemptLedger(tmp_root).append({
-        "stage": "archive",
-        "work_id": ident.work_id,
-        "attempt": 1,
-        "outcome": "ok",
-        "error_code": None,
-        "artifact_paths": [],
-        "started_at": "2026-08-28T00:00:00Z",
-        "finished_at": "2026-08-28T00:00:01Z",
-    })
+    _seed_recover_attempts(tmp_root)
     for directory, filename, content in (("srt", f"{stem}.srt", "1\n00:00:00,000 --> 00:00:01,000\nok"),
                                           ("txt", f"{stem}.txt", "ok"),):
         path = os.path.join(tmp_root, "transcripts", directory)
@@ -293,9 +286,7 @@ def test_recover_rejects_invalid_existing_audit_fields_without_replacement(tmp_r
 
     ident = page_identity("BVinvalid", 0, 1, "p0")
     ManifestStore(root=tmp_root).upsert(_row(ident, status="pending"))
-    AttemptLedger(tmp_root).append({"stage": "harvest", "work_id": ident.work_id, "attempt": 1,
-        "outcome": "ok", "error_code": None, "artifact_paths": [],
-        "started_at": "2026-08-28T00:00:00Z", "finished_at": "2026-08-28T00:00:01Z"})
+    _seed_recover_attempts(tmp_root)
     audit_path = Path(tmp_root) / _AUDIT_REL_PATH
     audit_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -574,6 +565,9 @@ def test_cli_run_rerun_skips_terminal_rows(tmp_root, monkeypatch, capsys):
     sub = page_identity("BVsub", 0, 111, "p0")
     store = ManifestStore(root=tmp_root)
     store.upsert(_row(sub, title="has-sub"))
+    # Materialize the snapshot: the byte-identity assertions below read
+    # ``manifest.jsonl`` directly, and a journal-only upsert never writes it.
+    store.save()
     transcribe_calls: list[str] = []
     _stub_asr(monkeypatch, transcribe_calls)
     transport = _mixed_transport()
@@ -1477,6 +1471,9 @@ def test_run_explicit_scope_rerun_of_terminal_row_is_idempotent_zero(
     sub = page_identity("BVterm", 0, 111, "p0")
     store = ManifestStore(root=tmp_root)
     store.upsert(_row(sub, status="subtitle_done", title="raw"))
+    # Materialize the snapshot: the byte-identity assertions below read
+    # ``manifest.jsonl`` directly, and a journal-only upsert never writes it.
+    store.save()
     stem = artifact_stem(sub)
     raw_dir = os.path.join(tmp_root, "subtitles", "raw")
     os.makedirs(raw_dir)
@@ -1546,3 +1543,196 @@ def test_safe_error_code_sanitizes_forbidden_markers(tmp_root):
     stored = coord._record("harvest", "BVsane:p0", "failed",
                            error_code=sanitized)
     assert stored["error_code"] == "evil.example/=abc"
+
+
+# ---------------------------------------------------------------------------
+# R14 (plan r14-routes-writeback): the coordinator/run-batch archive seam
+# records the transcripts row both arms owe.  These drive RunCoordinator
+# directly over a store seeded through the repositories' own writers, the same
+# discipline the rest of this module's fixtures keep.
+# ---------------------------------------------------------------------------
+
+_MID = 23191782
+
+
+def _seed_part(root, bvid, page_index, cid):
+    """One stored video part; returns its ``video_part_id``."""
+    from bili_asr.storage import (
+        MetadataRepository,
+        UserRecord,
+        VideoPartRecord,
+        VideoRecord,
+        open_database,
+    )
+
+    connection = open_database(root)
+    try:
+        metadata = MetadataRepository(connection)
+        with metadata.transaction():
+            metadata.upsert_user(
+                UserRecord(mid=_MID, display_name="未明子", created_at=1, updated_at=1)
+            )
+            metadata.upsert_video(
+                VideoRecord(
+                    bvid=bvid, aid=None, mid=_MID, title="视频",
+                    pubdate=1_700_000_000, created_at=2, updated_at=2,
+                )
+            )
+            metadata.upsert_part(
+                VideoPartRecord(
+                    bvid=bvid, page_index=page_index, cid=cid, title="第一段",
+                    duration_ms=5_000, processing_status="discovered",
+                    created_at=3, updated_at=3,
+                )
+            )
+        connection.commit()
+        row = connection.execute(
+            "SELECT video_part_id FROM video_parts WHERE bvid = ? AND page_index = ?",
+            (bvid, page_index),
+        ).fetchone()
+        return int(row["video_part_id"])
+    finally:
+        connection.close()
+
+
+def _queue_counts(root):
+    from bili_asr.storage import MediaQueueRepository, open_database
+
+    connection = open_database(root)
+    try:
+        return MediaQueueRepository(connection).count_queue_gaps()
+    finally:
+        connection.close()
+
+
+def _transcript_rows(root):
+    from bili_asr.storage import open_database
+
+    connection = open_database(root)
+    try:
+        return connection.execute(
+            "SELECT source_kind, language FROM transcripts ORDER BY transcript_id"
+        ).fetchall()
+    finally:
+        connection.close()
+
+
+def test_run_batch_asr_route_records_the_local_transcript(tmp_root, monkeypatch):
+    """The coordinator ASR archive stage converges ``v_missing_transcript``.
+
+    Before this plan only the ``asr``/``pilot`` in-process loops recorded the
+    locally-produced transcript row; the coordinator/run-batch route archived
+    the artifact and left the part in the gap view.  After a successful ASR
+    archive the part must hold a real ``'asr-local'`` transcript row and have
+    left ``v_missing_transcript`` — with one ``kind='asr'`` run carrying both
+    parts' attempt evidence.
+    """
+    from bili_asr.storage import open_database
+
+    aud_a = page_identity("BVrbA", 0, 301, "p0")
+    aud_b = page_identity("BVrbB", 0, 302, "p0")
+    store = ManifestStore(root=tmp_root)
+    store.upsert(_row(aud_a, status="audio_ok", title="a"))
+    store.upsert(_row(aud_b, status="audio_ok", title="b"))
+    audio_dir = os.path.join(tmp_root, "audio")
+    os.makedirs(audio_dir)
+    for identity in (aud_a, aud_b):
+        with open(os.path.join(audio_dir, f"{artifact_stem(identity)}.m4a"),
+                  "wb") as fh:
+            fh.write(AUDIO_BYTES)
+    _seed_part(tmp_root, aud_a.bvid, aud_a.page_index, aud_a.cid)
+    _seed_part(tmp_root, aud_b.bvid, aud_b.page_index, aud_b.cid)
+    # Audio evidence puts both parts in the transcript queue before the run.
+    from _archive_database import _seed_archive_database
+
+    _seed_archive_database(tmp_root)
+
+    transcribe_calls: list[str] = []
+    _stub_asr(monkeypatch, transcribe_calls)
+    _patch_cli(monkeypatch, RouterTransport({}))
+
+    coord = RunCoordinator(tmp_root, store, client=None, offline=True)
+    summary = coord.run_batch([(aud_a.work_id, store.get(aud_a.work_id)),
+                               (aud_b.work_id, store.get(aud_b.work_id))])
+
+    assert summary.fully_processed
+    assert [r.final_status for r in summary.results] == ["archived", "archived"]
+    assert ManifestStore(root=tmp_root).get(aud_a.work_id)["status"] == "archived"
+
+    # Both parts left the transcript gap; the store holds one asr-local row
+    # per part.
+    counts = _queue_counts(tmp_root)
+    assert counts["missing_transcript"] == 0
+    rows = _transcript_rows(tmp_root)
+    assert [r["source_kind"] for r in rows] == ["asr-local", "asr-local"]
+
+    # Exactly one kind='asr' run carries both parts' attempt evidence — the
+    # run-scoping contract (one invocation is one run).
+    connection = open_database(tmp_root)
+    try:
+        runs = connection.execute(
+            "SELECT run_id, kind FROM acquisition_runs WHERE kind = 'asr'"
+        ).fetchall()
+        assert len(runs) == 1
+        attempts = connection.execute(
+            "SELECT COUNT(*) AS n FROM acquisition_attempts WHERE run_id = ?",
+            (runs[0]["run_id"],),
+        ).fetchone()
+        assert attempts["n"] == 2
+    finally:
+        connection.close()
+
+
+def test_run_batch_subtitle_route_records_the_caption_transcript(
+    tmp_root, monkeypatch, capsys
+):
+    """The coordinator subtitle archive stage converges every gap view.
+
+    A caption archived from the raw document owes a ``transcripts`` row through
+    the CAPTION writer (source_kind ``'subtitle-ai'``/``'subtitle-cc'``, never
+    the ``'asr-local'`` singleton).  The AI-harvested part records
+    ``'subtitle-ai'`` and the CC-harvested part records ``'subtitle-cc'``, both
+    keyed to one run, and both leave the subtitle gap they started in.
+    """
+    sub_ai = page_identity("BVsubAI", 0, 401, "p0")
+    sub_cc = page_identity("BVsubCC", 0, 402, "p0")
+    store = ManifestStore(root=tmp_root)
+    # ``sub_lan`` is what the subtitle harvest seam records for the chosen
+    # track; the ``ai-`` prefix marks the machine-generated caption.
+    ai_row = _row(sub_ai, status="subtitle_done", title="ai")
+    ai_row["sub_lan"] = "ai-zh"
+    cc_row = _row(sub_cc, status="subtitle_done", title="cc")
+    cc_row["sub_lan"] = "zh-CN"
+    store.upsert(ai_row)
+    store.upsert(cc_row)
+    raw_dir = os.path.join(tmp_root, "subtitles", "raw")
+    os.makedirs(raw_dir)
+    for identity in (sub_ai, sub_cc):
+        with open(os.path.join(raw_dir, f"{artifact_stem(identity)}.json"),
+                  "w", encoding="utf-8") as fh:
+            json.dump(SAMPLE_DOC, fh)
+    _seed_part(tmp_root, sub_ai.bvid, sub_ai.page_index, sub_ai.cid)
+    _seed_part(tmp_root, sub_cc.bvid, sub_cc.page_index, sub_cc.cid)
+
+    # Both caption-holding parts start in the subtitle gap.
+    assert _queue_counts(tmp_root)["missing_subtitle"] == 2
+
+    _patch_cli(monkeypatch, RouterTransport({}))
+    coord = RunCoordinator(tmp_root, store, client=None, offline=True)
+    summary = coord.run_batch([(sub_ai.work_id, store.get(sub_ai.work_id)),
+                               (sub_cc.work_id, store.get(sub_cc.work_id))])
+    capsys.readouterr()
+
+    assert summary.fully_processed
+    assert ManifestStore(root=tmp_root).get(sub_ai.work_id)["status"] == "archived"
+
+    # The caption rows cleared every gap view, and the source kinds follow the
+    # harvested track's machine flag.
+    counts = _queue_counts(tmp_root)
+    assert counts == {
+        "missing_subtitle": 0,
+        "missing_audio": 0,
+        "missing_transcript": 0,
+    }
+    rows = _transcript_rows(tmp_root)
+    assert sorted(r["source_kind"] for r in rows) == ["subtitle-ai", "subtitle-cc"]
