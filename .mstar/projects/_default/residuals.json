@@ -2143,6 +2143,21 @@
         "lifecycle": "open",
         "source_plan": "20261001-cue-timeline-and-proofread",
         "registered_at": "2026-10-01"
+      },
+      {
+        "id": "C-R5",
+        "title": "Task 4 (真机重跑与验证) was never delivered: the plan's code work (Tasks 1-3) is complete and merged, but the ON-HARDWARE verification — re-running the four artefacts on GPU and hand-inspecting at least 5 proofread blocks — has no report, no evidence, and no run record.",
+        "severity": "medium",
+        "source": "PM 2026-10-01, while closing the workflow: {SDD_DIR}/20261001-cue-timeline-and-proofread/ holds lane-1 (Task 1) and lane-2 (Task 3) reports only — no task-4/task-5 artefacts. The plan's Tasks carry no checkbox syntax, so its progress was not readable from the file.",
+        "scope": "Task 4 of plan 20261001-cue-timeline-and-proofread (budget 3): transfer the new build to the target host, create a NEW artefact root (not route1/route2, per D-2), re-run the four GPU transcripts, and record the before/after table, GPU wall time, the `characters` field's measured size growth, and a side-by-side proofread table with >=5 blocks hand-inspected.",
+        "decision": "accept",
+        "owner": "@project-manager",
+        "target": "Run it as ONE target-host session together with plan 20260929-asr-local-transcript-storage's own hardware verification — R14's write-back lands in the same code path this task must re-measure (F7 convergence), so two separate trips would re-do the same build transfer and the same GPU run. Its precondition (R10, `bili-asr asr` usable on main) is now SATISFIED, so this is not blocked — it is simply not executed.",
+        "tracking": "Absence of a task-4 report in {SDD_DIR}/20261001-cue-timeline-and-proofread/; the plan's new `## 执行状态` section records the same finding. Tasks 1-3 evidence: 08b26ae (lane-1-report.md), 1de131a (lane-2-report.md), both merged to main.",
+        "what": "The plan's Tasks 1-3 (the `characters` field, the cue-splitting calibration, and the proofread source/cross-root fix) are implemented, reviewed (lane-1-review.md, lane-2-review.md) and merged into `main`. Task 4 is the only unexecuted task, and Task 5's requirement to report the on-hardware verification conclusions depends on it — so Task 5 is partial by construction, not by omission.\n\nWhy this is registered rather than silently marked Done: the plan was about to be closed as complete. Completing it without Task 4 would assert a verification that never happened. The honest end state is `Done (code) / Task 4 transferred`, which is what the plan's `## 执行状态` table now says.",
+        "lifecycle": "open",
+        "source_plan": "20261001-cue-timeline-and-proofread",
+        "registered_at": "2026-10-01"
       }
     ]
   }

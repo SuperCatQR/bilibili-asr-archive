@@ -1,12 +1,5 @@
 {
   "version": 2,
   "updated_at": "2026-10-01",
-  "workflows": [
-    {
-      "id": "20261001-cue-timeline-and-proofread",
-      "type": "plan",
-      "started_at": "2026-10-01T08:42:16.742Z",
-      "dir": "workflows/20261001-cue-timeline-and-proofread"
-    }
-  ]
+  "workflows": []
 }

@@ -2,7 +2,7 @@
   "schema_version": 1,
   "id": "20261001-cue-timeline-and-proofread",
   "type": "plan",
-  "status": "running",
+  "status": "completed",
   "started_at": "2026-10-01T08:42:16.742Z",
   "updated_at": "2026-10-01",
   "plans": [
@@ -10,7 +10,7 @@
       "id": "20261001-cue-timeline-and-proofread",
       "title": "时间轴精细化 + 校对环节重构（A: cue 切分校准 / D: 字符级留存 / C: proofread 路由完整性）",
       "file": ".mstar/plans/20261001-cue-timeline-and-proofread.md",
-      "status": "Todo"
+      "status": "Done"
     }
   ],
   "delivery_kind": "development",
@@ -18,5 +18,6 @@
   "branch": {
     "source": "main",
     "target": "main"
-  }
+  },
+  "ended_at": "2026-10-01"
 }

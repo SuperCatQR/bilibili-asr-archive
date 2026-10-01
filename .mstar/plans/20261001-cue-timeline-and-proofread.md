@@ -291,6 +291,26 @@ round 到 2 位即可降到 6.28x，不会动已发布产物（旧产物已是�
 
 **Task budget:** 1
 
+## 执行状态（PM 2026-10-01 回填，不改变任何任务文本）
+
+本 plan 的 Tasks 无 checkbox 语法，此前无法从文件读出进度。以下为**核实后**的状态：
+
+| Task | 状态 | 证据 |
+|---|---|---|
+| Task 1 — `characters` 字段 | **DONE** | `08b26ae`（lane-1-report.md；`tests/test_raw_characters.py` 存在；`archive.py` 21 处 `characters`） |
+| Task 2 — cue 切分规则校准到字幕粒度 | **DONE** | `asr.py` 16 处 `_CUE_*`；随 lane-1/lane-2 合并进入 `main` |
+| Task 3 — `proofread` 的 source 校验 + 跨 root | **DONE** | `1de131a`（lane-2-report.md） |
+| Task 4 — **真机重跑与验证** | **NOT DELIVERED** | `{SDD_DIR}` 内无 task-4 报告、无真机记录、无前后对比表。其前置（R10）**现已满足**，所以它没做不是 blocked，而是未执行 |
+| Task 5 — 收口：文档、register、残余登记 | **部分** | README 已含 `characters`/cue（1 处 / 20 处）；`## Naming decisions` 已回填；残余已登记 `C-R1`~`C-R4`。**但 Task 4 未做意味着 Task 5 的"真机验证结论"也不存在** |
+
+**结论：本 plan 的代码工作已完成并全部在 `main`，但 Task 4 的验证从未执行。**
+因此它的收口状态记为 **Done（代码）／ Task 4 转交** 而不是完整 Done ——
+把未验证的 plan 标成完整 Done 正是本仓一直在清除的"声明宽于证据"缺陷。
+
+**Task 4 的转交去向：** 它是"真机重跑四稿 GPU + `proofread` 至少抽 5 个 block 人工检视"，
+与 `20260929-asr-local-transcript-storage` 的真机验证是同一次目标机作业，**应合并为一次执行**，
+而不是两次上机。已登记为残余 `C-R5`。
+
 ## Out of scope（明确不做）
 
 - **`transcript_segments` / `asr-local` 写入路径** —— 属 `20260929-asr-local-transcript-storage`
