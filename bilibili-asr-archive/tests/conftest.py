@@ -196,6 +196,35 @@ def mock_torch(monkeypatch):
     monkeypatch.setitem(sys.modules, "torch", fake_torch)
 
 
+# --- opt-in gates (plan 008-pytest-markers) ----------------------------------
+# One central env-var -> marker mapping for the whole suite. Each opt-in test
+# takes the ``opt_in_gate`` fixture and passes the exact skip reason it has
+# always used; the default run's skip text is therefore byte-identical to the
+# per-file gates this replaces, while ``-m live_smoke`` / ``-m scale`` can now
+# select and CI-gate the opted-in tests.
+OPT_IN_ENV_VARS = {"live_smoke": "BILI_LIVE_SMOKE", "scale": "BILI_SCALE"}
+
+
+@pytest.fixture
+def opt_in_gate(request):
+    """Central opt-in gate for live/scale tests: skip unless the env knob is ``1``.
+
+    The fixture reads the calling test's ``live_smoke``/``scale`` marker, maps
+    it through :data:`OPT_IN_ENV_VARS`, and skips with the reason the test
+    passes when the operator has not opted in.  Semantics stay per-file: only
+    the documented ``1`` opts in, and the knob names do not change.
+    """
+
+    for marker_name, env_var in OPT_IN_ENV_VARS.items():
+        if request.node.get_closest_marker(marker_name) is not None:
+            break
+    else:  # pragma: no cover - contract misuse fails loudly instead of passing silently
+        raise RuntimeError(
+            "opt_in_gate requires a live_smoke or scale marker on the test"
+        )
+    return env_var, request.node.get_closest_marker(marker_name)
+
+
 def reuse_line(captured, command):
     """The one ``model constructions=`` line, or a failure explaining its absence.
 

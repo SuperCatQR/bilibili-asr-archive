@@ -77,3 +77,12 @@ where = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# Registered markers (plan 008-pytest-markers). The live/scale opt-in env gates
+# (BILI_LIVE_SMOKE / BILI_SCALE) centralize in tests/conftest.py's
+# opt_in_gate fixture; the markers make the gated tests selectable
+# (``-m live_smoke`` / ``-m scale``) and CI-gateable.
+markers = [
+    "live_smoke: opt-in live network probe; skips unless BILI_LIVE_SMOKE=1",
+    "scale: opt-in local scale probe; skips unless BILI_SCALE=1",
+    "slow: opt-in slow test",
+]
