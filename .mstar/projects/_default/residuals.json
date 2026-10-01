@@ -1482,6 +1482,21 @@
         "lifecycle": "open",
         "source_plan": "20260926-video-metadata-enrichment",
         "registered_at": "2026-10-01"
+      },
+      {
+        "id": "R15",
+        "title": "The store route cannot express \"`meta_ok`, go harvest\" through `pilot`: `entry_for_item` relabels a harvest-eligible row `needs_audio`, which is in `_PILOT_SKIP_HARVEST`, so the harvest is skipped and the pilot's subtitle / audio-asr branch split collapses.",
+        "severity": "medium",
+        "source": "plan 20261001-cli-import-integrity Task 6's L2 review, found by INSTRUMENTING main() across all 30 pinned call sites (read-only pytest plugin) and comparing the manifest + both roots at each — not by reading the diff. It surfaced only because 9 pin comments asserted the opposite.",
+        "scope": "`services/queue_source.py:78` (`entry_for_item`'s status vocabulary) and `cli/pilot.py:369-384` (the store branch merges the audio+transcript queues and then skips `needs_audio`). Tests: the 9 pinned sites in `tests/test_cli_pilot.py` (:117,:175,:293,:312,:362,:390,:447) and `tests/test_mixed_outcome_contract.py` (:519,:565), whose fixtures seed `meta_ok` rows with no caption raw.",
+        "decision": "defer",
+        "owner": "@project-manager",
+        "target": "give the store route a way to express a harvest-eligible row — either a dedicated state distinct from `needs_audio`, or by excluding such rows from `_PILOT_SKIP_HARVEST`. Shares a root cause with R13 (the same structural gap reached through `schedule` instead of `pilot`), so the two are best decided together.",
+        "tracking": "task-6-review.md (instrumented site-by-site table: 16 honest / 6 no-caption / 3 mixed) and task-6-report.md §2's PM correction",
+        "what": "Found by instrumentation: at 9 of the 30 pinned call sites the fixture seeds a `meta_ok` row (the shared `_row` helper's default status) with no `subtitles/raw` document, and the caption is harvested inside the pinned run. The store route DOES select such a row, but `entry_for_item` relabels it `needs_audio` because the gap is not `missing_transcript`; `needs_audio` is in `_PILOT_SKIP_HARVEST`, so the pilot skips the very harvest the row needs, and the `subtitle=1, audio-asr=1` split the baseline expects collapses. Structurally the same gap as R13 — the store has no state meaning \"harvest this\" as distinct from \"download audio\" — reached through `pilot` rather than `schedule`.\n\nBefore this review the defect was invisible because those 9 comments asserted the fixtures already held captions, which would have made the store route's behaviour correct. The comments are fixed; the defect is now on the register instead of behind a false claim.",
+        "lifecycle": "open",
+        "source_plan": "20260926-video-metadata-enrichment",
+        "registered_at": "2026-10-01"
       }
     ],
     "20260927-archive-db-queue-cutover": [
