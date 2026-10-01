@@ -15,7 +15,7 @@ from dataclasses import dataclass
 from typing import Any, Mapping
 
 from .manifest import TERMINAL_STATUSES
-from .meta_cursor import utc_now_iso
+from .persistence import utc_now_iso
 
 SCHEDULER_FILENAME = "scheduler.json"
 
