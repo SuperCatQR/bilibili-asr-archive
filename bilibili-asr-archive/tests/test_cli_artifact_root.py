@@ -293,7 +293,10 @@ def _drive_pilot(archive, artifact, monkeypatch, capsys):
     _stub_asr(monkeypatch)
     _offline_client(monkeypatch)
 
-    rc = main(["pilot", "--n", "2", "--archive-root", archive, "--artifact-root", artifact])
+    # Pinned to the manifest source: the store route cannot select a part that already holds a caption,
+    # and this fixture's row is such a part.  Same pin as the cutover's own tests (tests/test_audio.py).
+    rc = main(["pilot", "--n", "2", "--queue-source", "manifest", "--archive-root", archive,
+               "--artifact-root", artifact])
     captured = capsys.readouterr()
 
     assert rc == 0, captured.err
@@ -845,9 +848,11 @@ def test_the_retention_pair_reaches_reclaim_on_every_command_that_reclaims(
     _stub_asr(monkeypatch)
     _offline_client(monkeypatch)
 
+    # Pinned to the manifest source: the store route cannot select a part that already holds a caption,
+    # and this fixture's row is such a part.  Same pin as the cutover's own tests (tests/test_audio.py).
     argv = {
         "asr": ["asr", "--pending"],
-        "pilot": ["pilot", "--n", "2"],
+        "pilot": ["pilot", "--n", "2", "--queue-source", "manifest"],
         "run": ["run", "--scope", aud.work_id, "--limit", "1"],
         "schedule": ["schedule", "--scope", aud.work_id, "--limit", "1"],
         "campaign": ["campaign", "--scope", aud.work_id, "--limit", "1"],
@@ -1030,7 +1035,9 @@ def test_pilot_archives_a_row_whose_audio_is_still_at_the_archive_root(
     _stub_asr(monkeypatch)
     _offline_client(monkeypatch)
 
-    rc = main(["pilot", "--n", "2", "--archive-root", archive,
+    # Pinned to the manifest source: the store route cannot select a part that already holds a caption,
+    # and this fixture's row is such a part.  Same pin as the cutover's own tests (tests/test_audio.py).
+    rc = main(["pilot", "--n", "2", "--queue-source", "manifest", "--archive-root", archive,
                "--artifact-root", artifact])
     captured = capsys.readouterr()
 
@@ -1073,7 +1080,9 @@ def _drive_pilot_download_branch(tmp_root, monkeypatch, capsys, *, bvid, at_arch
     # No transport route at all: only the on-disk fast path may serve this row.
     _offline_client(monkeypatch)
 
-    rc = main(["pilot", "--n", "2", "--archive-root", archive,
+    # Pinned to the manifest source: the store route cannot select a part that already holds a caption,
+    # and this fixture's row is such a part.  Same pin as the cutover's own tests (tests/test_audio.py).
+    rc = main(["pilot", "--n", "2", "--queue-source", "manifest", "--archive-root", archive,
                "--artifact-root", artifact])
     return archive, artifact, identity, recorded, rc, capsys.readouterr()
 
