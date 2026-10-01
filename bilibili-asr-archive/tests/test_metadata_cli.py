@@ -652,7 +652,16 @@ def test_status_ignores_legacy_sidecar_rows(
     assert "BV1LEGACYROW" not in out
     assert "legacy-cursor-state" not in out
     assert os.path.isfile(legacy_cursor_path)
-    assert os.path.isfile(os.path.join(tmp_root, "manifest", "manifest.jsonl"))
+    # ``status`` must not rewrite the legacy sidecars either: the legacy
+    # manifest row stays an unread journal entry (the snapshot the other
+    # legacy-sidecar tests pin is never materialized), the legacy cursor
+    # keeps its bytes.  What ``status`` must never do is create the snapshot
+    # itself — ``fetch-meta``'s contract above is that it writes only
+    # ``archive.db``, so the bare ``manifest/`` directory is the honest
+    # post-condition.
+    manifest_dir = os.path.join(tmp_root, "manifest")
+    assert os.path.isdir(manifest_dir)
+    assert not os.path.exists(os.path.join(manifest_dir, "manifest.jsonl"))
 
 
 # ---------------------------------------------------------------- runs
