@@ -30,7 +30,6 @@ from bili_asr.cli._shared import (
 from bili_asr.cli.asr import (
     _AsrItemCount,
     _asr_transcript_segments,
-    _ensure_asr_run,
     _print_in_process_constructions,
 )
 from bili_asr.cli.status_cmd import _PILOT_PROCESSABLE, _PILOT_SKIP_HARVEST
@@ -334,7 +333,7 @@ def _open_writeback_source(args, use_manifest: bool):
 
     source = qs.open_queue_source(args.archive_root)
     if source is not None:
-        _ensure_asr_run(source, "pilot")
+        source.ensure_asr_run("pilot")
     return source
 
 

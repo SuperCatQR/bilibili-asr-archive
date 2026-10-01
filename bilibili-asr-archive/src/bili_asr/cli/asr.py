@@ -71,27 +71,7 @@ def _ensure_asr_run(queue_source, command: str) -> None:
     to a store problem.
     """
 
-    import time
-
-    from bili_asr.storage import AcquisitionRunRecord, TranscriptRepository
-
-    try:
-        now = int(time.time())
-        run_id = f"{command}-{now}"
-        TranscriptRepository(queue_source.connection).start_acquisition_run(
-            AcquisitionRunRecord(
-                run_id=run_id,
-                kind="asr",
-                selector_kind="pending",
-                selector_target=None,
-                requested_limit=None,
-                credential_present=False,
-                started_at=now,
-            )
-        )
-        queue_source.asr_run_id = run_id
-    except Exception:
-        queue_source.asr_run_id = None
+    queue_source.ensure_asr_run(command)
 
 
 def _print_in_process_constructions(

@@ -103,6 +103,49 @@ class QueueSource:
     def __init__(self, connection):
         self.connection = connection
         self.repository = MediaQueueRepository(connection)
+        # The ``kind='asr'`` acquisition run this source's transcript
+        # write-backs key to, created lazily by :meth:`ensure_asr_run` (the
+        # run-scoping contract: one invocation is one run).  ``None`` when the
+        # store refuses the run — every per-part write-back then skips.
+        self.asr_run_id: str | None = None
+
+    def ensure_asr_run(self, command: str) -> str | None:
+        """Open this invocation's one ``kind='asr'`` acquisition run, best-effort.
+
+        One invocation is one run scope (the same shape the audio half names):
+        the run is the lifecycle parent the transcript write-back's attempt
+        rows are keyed to.  A store that refuses the run leaves
+        ``self.asr_run_id`` ``None`` so the row loop's per-part write-back is
+        skipped — the archive on disk is never lost to a store problem.
+        Idempotent per source: the first created id is reused, so a caller
+        opening the source once per invocation records exactly one run.
+        """
+
+        import sys as _sys
+        import time as _time
+
+        from bili_asr.storage import AcquisitionRunRecord, TranscriptRepository
+
+        if self.asr_run_id is not None:
+            return self.asr_run_id
+        try:
+            now = int(_time.time())
+            run_id = f"{command}-{now}"
+            TranscriptRepository(self.connection).start_acquisition_run(
+                AcquisitionRunRecord(
+                    run_id=run_id,
+                    kind="asr",
+                    selector_kind="pending",
+                    selector_target=None,
+                    requested_limit=None,
+                    credential_present=False,
+                    started_at=now,
+                )
+            )
+            self.asr_run_id = run_id
+        except Exception:
+            self.asr_run_id = None
+        return self.asr_run_id
 
     # ------------------------------------------------------------------ read
 
@@ -332,6 +375,68 @@ def record_local_transcript(
         pass
 
 
+def record_caption_transcript(
+    queue_source: QueueSource,
+    *,
+    run_id: str,
+    bvid: str,
+    page_index: int,
+    source_kind: str,
+    language: str,
+    segments: tuple,
+) -> None:
+    """Write one subtitle-sourced transcript back into the store (best-effort).
+
+    The caption-arm sibling of :func:`record_local_transcript`: a caption
+    harvested or archived from a subtitle source also owes a ``transcripts``
+    row (source_kind ``'subtitle-ai'``/``'subtitle-cc'``), taking the part out
+    of every gap view (plan r14-routes-writeback).  The write goes through the
+    CAPTION writer — :meth:`TranscriptRepository.record_acquired_transcript`,
+    whose accepted-kind set stays exactly the two caption kinds — never the
+    ``'asr-local'`` singleton, and its attempt evidence rides the same one
+    transaction the caption writer already owns.
+
+    ``source_kind`` and ``language`` are the *stored* vocabulary values the
+    caller already resolved (a gateway track's ``is_ai`` → ``subtitle-ai`` /
+    ``subtitle-cc``; the track language trimmed), never a caller-invented
+    literal.  ``video_part_id`` is resolved through the store from
+    ``(bvid, page_index)`` here — never fabricated from a page index.
+    Best-effort in exactly :func:`record_local_transcript`'s sense: every
+    store failure — a missing part, a caption kind the caption writer refuses,
+    a full store — is swallowed, because the archive the row would record
+    already succeeded on disk and must not be lost to a store problem.
+    """
+
+    import sqlite3 as _sqlite3
+
+    from bili_asr.storage import TranscriptRepository
+
+    try:
+        connection = queue_source.connection
+        part = connection.execute(
+            "SELECT video_part_id FROM video_parts WHERE bvid = ? AND page_index = ?",
+            (bvid, int(page_index)),
+        ).fetchone()
+        if part is None:
+            return
+        video_part_id = int(part["video_part_id"])
+        now = int(time.time())
+        TranscriptRepository(connection).record_acquired_transcript(
+            run_id=run_id,
+            video_part_id=video_part_id,
+            source_kind=source_kind,
+            language=language,
+            segments=segments,
+            started_at=now,
+            finished_at=now,
+            created_at=now,
+        )
+    except (_sqlite3.Error, OSError, ValueError, TypeError, KeyError):
+        # The archive already succeeded on disk; a store write-back problem
+        # must not turn that into a failure.
+        pass
+
+
 __all__ = [
     "MANIFEST_SOURCE_DEPRECATION",
     "QueueSelection",
@@ -341,5 +446,6 @@ __all__ = [
     "mark_transcript_stored",
     "open_queue_source",
     "print_manifest_deprecation",
+    "record_caption_transcript",
     "record_local_transcript",
 ]
