@@ -570,6 +570,12 @@ ALLOWED_SOURCE_KINDS = _ALLOWED_SOURCE_KINDS
 # (per model/run) identity rule and is owned by the audio/ASR iteration, so a
 # caption write never accepts it.
 ALLOWED_CAPTION_SOURCE_KINDS = _ALLOWED_SOURCE_KINDS - {"asr-local"}
+# The one source kind a *local* transcript write may claim.  This is the
+# named, explicit boundary for the ASR write-back: the caption writer keeps
+# validating against ``ALLOWED_CAPTION_SOURCE_KINDS`` (unchanged), while the
+# local writer validates against exactly this singleton — never the shared
+# caption set, so the caption guarantee cannot be widened silently.
+ALLOWED_LOCAL_TRANSCRIPT_SOURCE_KINDS = frozenset({"asr-local"})
 
 __all__ += [
     "ALLOWED_ACQUISITION_KINDS",
@@ -577,6 +583,7 @@ __all__ += [
     "ALLOWED_ATTEMPT_OUTCOMES",
     "ALLOWED_CAPTION_SOURCE_KINDS",
     "ALLOWED_CURSOR_STATES",
+    "ALLOWED_LOCAL_TRANSCRIPT_SOURCE_KINDS",
     "ALLOWED_PAGE_OUTCOMES",
     "ALLOWED_PROCESSING_STATUS",
     "ALLOWED_QUEUE_GAPS",

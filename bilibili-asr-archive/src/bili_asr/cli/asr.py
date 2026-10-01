@@ -38,6 +38,62 @@ class _AsrItemCount:
         self.value = 0
 
 
+def _asr_transcript_segments(segments: list) -> tuple:
+    """Convert ASR cues to ``TranscriptSegmentRecord``s, best-effort.
+
+    One cue the record refuses (an empty text, an ``end`` not after its
+    ``start``) is answered as *this part's* failure — a ``ValueError`` the
+    caller reports for the row — never as an escaping error that ends the
+    batch, and never by silently dropping the segment.  Cue times are seconds
+    floats on the ASR side and whole milliseconds on the storage side.
+    """
+
+    from bili_asr.storage import TranscriptSegmentRecord
+
+    records = []
+    for cue in segments:
+        start_ms = int(round(float(cue.get("start", 0.0)) * 1000))
+        end_ms = int(round(float(cue.get("end", 0.0)) * 1000))
+        records.append(
+            TranscriptSegmentRecord(start_ms=start_ms, end_ms=end_ms, text=str(cue.get("text", "")))
+        )
+    return tuple(records)
+
+
+def _ensure_asr_run(queue_source, command: str) -> None:
+    """Create this invocation's one ``kind='asr'`` acquisition run, best-effort.
+
+    One invocation is one run scope (the same shape the audio half names): the
+    run is the lifecycle parent the transcript write-back's attempt rows are
+    keyed to.  The created id is remembered on the ``QueueSource`` as
+    ``asr_run_id``; a store that refuses the run leaves it ``None`` so the row
+    loop's per-part write-back is skipped — the archive on disk is never lost
+    to a store problem.
+    """
+
+    import time
+
+    from bili_asr.storage import AcquisitionRunRecord, TranscriptRepository
+
+    try:
+        now = int(time.time())
+        run_id = f"{command}-{now}"
+        TranscriptRepository(queue_source.connection).start_acquisition_run(
+            AcquisitionRunRecord(
+                run_id=run_id,
+                kind="asr",
+                selector_kind="pending",
+                selector_target=None,
+                requested_limit=None,
+                credential_present=False,
+                started_at=now,
+            )
+        )
+        queue_source.asr_run_id = run_id
+    except Exception:
+        queue_source.asr_run_id = None
+
+
 def _print_in_process_constructions(
     command: str, runner: object, asr_items: int
 ) -> None:
@@ -109,6 +165,10 @@ def _cmd_asr(args: argparse.Namespace) -> int:
             print("asr: queue empty (no parts need transcription)")
             queue_conn.close()
             return 0
+        # One invocation is one run scope for the transcript write-back too
+        # (plan 20260929-asr-local-transcript-storage, Task 2): the created
+        # ``kind='asr'`` run is the parent the per-part attempt rows key to.
+        _ensure_asr_run(queue_source, "asr")
     else:
         store = ManifestStore(root=args.archive_root)
         entries = store.load()
@@ -232,6 +292,31 @@ def _cmd_asr(args: argparse.Namespace) -> int:
                 )
                 if not archive.archive_bundle_complete(args.artifact_roots.write_base, paths):
                     raise ValueError("archive bundle incomplete")
+                # Store write-back: a locally-produced transcript is a real
+                # transcripts row, taking the part out of v_missing_transcript
+                # (plan 20260929-asr-local-transcript-storage, Task 2).  Only
+                # the ASR route produces a local transcript; the subtitle
+                # route's caption has its own writer.  Best-effort: the archive
+                # already succeeded on disk, so a store failure must not lose
+                # it.  Order matters — the row first, the attempt evidence it
+                # carries with it; there is no separate mark to mis-order.
+                if (
+                    not use_manifest
+                    and queue_source is not None
+                    and source == "asr"
+                    and getattr(queue_source, "asr_run_id", None) is not None
+                ):
+                    language = (provenance or {}).get("language") or "und"
+                    qs.record_local_transcript(
+                        queue_source,
+                        run_id=queue_source.asr_run_id,
+                        bvid=entry.get("bvid", key),
+                        page_index=int(entry.get("page_index") or 0),
+                        language=language,
+                        segments=_asr_transcript_segments(segments),
+                        model_name=(provenance or {}).get("model_name", ""),
+                        model_revision=(provenance or {}).get("model_revision"),
+                    )
                 updated = dict(store.get(key) or entry)
                 updated.update(paths)
                 updated["status"] = "archived"
