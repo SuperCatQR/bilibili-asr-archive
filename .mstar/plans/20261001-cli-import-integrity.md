@@ -140,7 +140,7 @@ Python snake_case 函数、`_` 前缀私有、`UPPER_SNAKE` 常量。删除的 `
 4. **门控移除的证明**：`grep -c importorskip tests/_asr_fakes.py` == 0，且
    `pytest --collect-only -q | tail -1` 的 collected 数**增加**（skip 变执行）
 5. **目标文件全绿**：12 个失败文件全部 0 failed
-6. **全套件**：给出最终 `passed/failed/skipped` 三个数，且 `failed == 0`
+6. **全套件**：给出最终 `passed/failed/skipped` 三个数。**PM 2026-10-01 更正**：原文写 `failed == 0`，那是基于「81 个失败全是 fixture 缺口」的错误估计；实测其中 **37 个是结构性原因**（store 路由无法选中已持字幕的行，见 R12），任何 fixture 都修不了。因此本条改为：`failed` 必须从 **81 显著下降**，且**失败集是基线的严格子集（零新增失败）**，剩余的每一个都必须归入已登记的类别并给出断言行号。
 
 **不得**用"我装了依赖所以绿了"来交差——D-2 明确禁止。
 
