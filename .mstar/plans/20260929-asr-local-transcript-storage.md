@@ -188,6 +188,69 @@ ASR 归档过的 part 收敛，`asr` 队列不会反复把同一 part 端上来�
 | Q1 | Which `language` value a locally-produced transcript records — a real code from the model's own configuration, or `.strip()`ed configured value? State the value and its source; do not default silently. | architect | No |
 | Q2 | Does the write-back belong inside `queue_source`'s existing helper family (a `record_local_transcript` sibling to `mark_transcript_stored`), or in the CLI handler? Decide from the layering rules the storage module's own docstrings state, and record the call. | architect | No |
 
+## Evidence added 2026-10-01 (plan `20261001-cli-import-integrity`, on `main` = `75fa447`)
+
+This plan was written at `ed291be`. Two things measured since then **change its execution**, and one
+of its own open questions is still the right call — recorded here so the implementer does not redo
+the discovery.
+
+### 1. Two independent confirmations of the defect, and its second half
+
+The defect is confirmed exactly as described, from two directions since `ed291be`:
+
+- **E2E round 2** (`workflows/e2e-23191782-love-items-dual-route/reports/e2e.md`, finding **F7**):
+  after `asr` reported `archived (asr)` for 4/4 rows, `SELECT COUNT(*) FROM transcripts` was **0**, all
+  four parts stayed in `v_missing_transcript`, and `pipeline_state` read `audio_ok`. A naive re-run was
+  priced at **~37 min of GPU for no new state** (that workflow's D4).
+- **Two queue-level tests** already assert the intended behaviour and fail today:
+  `tests/test_cli_queue_source.py::test_asr_store_source_selects_transcript_gap_part` and
+  `::test_pilot_store_source_uses_gap_views`. They fail on `main` at `75fa447` (`41 failed /
+  1976 passed / 7 skipped`).
+
+**The second half, which Task 2 does not yet name.** `_stage_archive_from_subtitle` writes its archive
+and then calls the same `_mark_archived` (`coordinator.py:516`), and `_mark_archived` writes **only the
+manifest** (`coordinator.py:520-527`). So the *subtitle* path does not record a transcript row either.
+Whether that is in scope is a real question — it is the same omission on the other route. Task 2 names
+only the ASR arm; decide and state whether the subtitle arm is included here or gets its own residual.
+
+### 2. The `asr_models` row is a hard prerequisite Task 1/2 do not mention
+
+`transcripts.model_id` has `FOREIGN KEY (model_id) REFERENCES asr_models(model_id) ON DELETE RESTRICT`
+(`schema-transcripts.sql:27`), and **nothing in `src/` inserts into `asr_models`** (verified: zero
+`INSERT INTO asr_models` / model-upsert callers). So a write-back that sets `model_id` will hit the FK,
+and one that leaves it NULL discards the model identity the `asr-local` rule is defined in terms of.
+Either way the plan needs a decision it does not currently own: an `asr_models` upsert, its input
+(`asr_runner.provenance()` is already being handed to the archive writer at `coordinator.py:621`, so the
+data exists), and where it lives. **Add it as an explicit task or an owned open question — do not let
+the implementer discover it at runtime.**
+
+### 3. Confirmations of this plan's own Task 1 choices
+
+Task 1 forbids silently widening the shared constant, and offers (a) a second named entry point or
+(b) a named parameter. The measurements support **(a)**:
+`ALLOWED_CAPTION_SOURCE_KINDS = _ALLOWED_SOURCE_KINDS - {"asr-local"}` (`models.py:572`), and the
+existing insert path validates through it (`database.py:1051-1052`). A second explicitly-named entry
+point keeps that guard intact for every existing caller — `(b)` would make the guard a per-call
+argument, which is weaker for the caption callers that never pass it.
+
+Task 1's "keep the schema untouched" also holds up: `source_kind IN ('subtitle-ai','subtitle-cc',
+'asr-local')` is already in the `CHECK`, and `ux_transcripts_subtitle_content` is already partial to the
+two caption kinds (`.sql:15-19, 30-35`). No schema change is forced.
+
+### 4. Residual register state to close when this plan lands
+
+- **R14 (high)** — this plan's defect. Registered 2026-10-01 precisely so it stops living inside another
+  plan's closure note.
+- **R13 (medium)** — `schedule`/`campaign` cannot reach a caption-holding row *and* have no
+  `--queue-source` by contract §7 (`run.py:88-95`, "no rollback switch"). Whether this plan's write-back
+  makes R13's 12 tests expressible, or whether they need rewriting against the store's vocabulary, is
+  **decided by whether the write-back lands**: after it, "caption held" is representable and the
+  question becomes a fixture question again.
+- **R15 (medium)** — `pilot`'s store route labels a harvest-eligible row `needs_audio`, which is in
+  `_PILOT_SKIP_HARVEST` (`status_cmd.py:497`), so it skips the harvest that row needs. **Re-measure
+  after the write-back** — a stored transcript removes such rows from `v_missing_subtitle`, so this may
+  shrink on its own. Do not change `_PILOT_SKIP_HARVEST` before re-measuring.
+
 ## Engine lifecycle
 
 Registered as a plan row of `iter-2026-09-queue-ssot-closeout`. Implementation happens in the

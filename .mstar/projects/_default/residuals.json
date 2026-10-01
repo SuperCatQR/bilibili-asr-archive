@@ -1497,6 +1497,21 @@
         "lifecycle": "open",
         "source_plan": "20260926-video-metadata-enrichment",
         "registered_at": "2026-10-01"
+      },
+      {
+        "id": "R16",
+        "title": "The `importorskip` gate returned in a NEW file: `tests/test_raw_characters.py:396-397` gates on numpy/soundfile, and its docstring + a guard-order comment both still describe those as an optional `[asr]` extra whose absence should SKIP — a stance this plan deliberately reversed.",
+        "severity": "low",
+        "source": "plan 20261001-cli-import-integrity, found by the PM re-running the whole-tree `grep -rn importorskip tests/` AFTER merging `fix/20261001-cli-import-integrity` into `main` (0 -> 2 occurrences). Introduced by commit `08b26ae` on plan 20261001-cue-timeline-and-proofread (feature branch `fix/20261001-raw-character-timings`), which was written without knowledge of the gate removal.",
+        "scope": "`tests/test_raw_characters.py:388-397`. The file genuinely needs the two modules (`np.zeros(...)`, `monkeypatch.setattr(soundfile, ...)`), so the guards are inert on any host that can run the file at all.",
+        "decision": "accept",
+        "owner": "@project-manager",
+        "target": "convert the two `pytest.importorskip` calls to plain imports, matching `tests/test_asr_qwen.py` (3070acf) and `tests/_asr_fakes.py` (922812b), and replace the two stale sentences: the docstring's \"the light members of the `[asr]` extra, so this skips where they are absent\" and the guard-order comment's \"would go red at collection on a host without the [asr] extra instead of skipping, contradicting this docstring\". Both describe the pre-reversal contract. Owner is the cue-timeline plan, not this one — the file is theirs.",
+        "tracking": "PM's post-merge `grep -rn importorskip tests/ --include=*.py` = 2; both lines cited above. The reversal is recorded at `{SDD_DIR}/20261001-cli-import-integrity/progress.md` rounds 2-3 and in the dev extra of `bilibili-asr-archive/pyproject.toml`.",
+        "what": "`pyproject.toml`'s `dev` extra declares `numpy>=1.26`, `soundfile>=0.12`, `soxr>=0.5`, so the two guards can never fire on a correctly-provisioned test host — they are pure noise that hides the real requirement. Worse, the accompanying prose asserts the opposite of the shipped contract: a future reader would conclude these tests are optional and that absence should be tolerated, when the repository now treats the three light members as declared test dependencies. Same defect class as the three instances this plan already fixed (T3's `_patch_audio` docstring at 922812b, `_asr_fakes`' module docstring at 29a506b, and `test_asr_qwen.py`'s `_runner` docstring at T4b) — a claim wider than its evidence, and the fourth scope a test-infrastructure change invalidated.",
+        "lifecycle": "open",
+        "source_plan": "20260926-video-metadata-enrichment",
+        "registered_at": "2026-10-01"
       }
     ],
     "20260927-archive-db-queue-cutover": [
