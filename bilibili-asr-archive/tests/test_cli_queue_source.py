@@ -302,6 +302,111 @@ def test_asr_store_source_selects_transcript_gap_part(
         assert f"{transcript_id.work_id}: archive failed" in captured.err
 
 
+def test_asr_store_limit_is_applied_once(tmp_root, monkeypatch, capsys):
+    """``asr --limit N`` reads exactly N rows on the store route (single application).
+
+    The store-side ``LIMIT ?`` is the sole owner of the bound; the CLI must not
+    re-slice the store's rows.  The per-row read hook identifies each selected
+    row, so an exact count pins the single-application contract: a future
+    over-fetching store read (per-bvid cap etc.) cannot silently reintroduce
+    the second slice this plan removed.
+    """
+    _, first_id = _seed_store(tmp_root)
+    connection = open_database(tmp_root)
+    try:
+        metadata = MetadataRepository(connection)
+        transcripts = TranscriptRepository(connection)
+        with metadata.transaction():
+            for index, identity in enumerate(
+                (page_identity("BVlimitB", 0, 9003, "p0"),
+                 page_identity("BVlimitC", 0, 9004, "p0"))
+            ):
+                metadata.upsert_video(
+                    VideoRecord(
+                        bvid=identity.bvid,
+                        aid=None,
+                        mid=_MID,
+                        title=f"limited-{index}",
+                        pubdate=1_000,
+                        created_at=2,
+                        updated_at=2,
+                    )
+                )
+                metadata.upsert_part(
+                    VideoPartRecord(
+                        bvid=identity.bvid,
+                        page_index=identity.page_index,
+                        cid=identity.cid,
+                        title=f"{identity.bvid} 段",
+                        duration_ms=5_000,
+                        processing_status="discovered",
+                        created_at=3,
+                        updated_at=3,
+                    )
+                )
+        # Reuse the fixture's audio object (audio_id 1, sha256 UNIQUE): each
+        # extra part just links it as its own audio evidence.
+        for bvid in ("BVlimitB", "BVlimitC"):
+            connection.execute(
+                "INSERT INTO part_audio_objects("
+                "  video_part_id, audio_id, acquired_at, acquisition_source"
+                ") VALUES ("
+                "  (SELECT video_part_id FROM video_parts WHERE bvid=?"
+                "   AND page_index=0), 1, 4, 'download')",
+                (bvid,),
+            )
+        # The third part's subtitle route is exhausted so it joins the queue.
+        transcripts.start_acquisition_run(
+            AcquisitionRunRecord(
+                run_id="run-sub-limitc",
+                kind="subtitle",
+                selector_kind="pending",
+                selector_target=None,
+                requested_limit=None,
+                credential_present=False,
+                started_at=20,
+            )
+        )
+        transcripts.record_subtitle_attempt(
+            run_id="run-sub-limitc",
+            video_part_id=connection.execute(
+                "SELECT video_part_id FROM video_parts WHERE bvid=? AND page_index=0",
+                ("BVlimitC",),
+            ).fetchone()[0],
+            outcome="no-subtitle",
+            error_code=None,
+            started_at=21,
+            finished_at=22,
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+    for bvid in ("BVlimitB", "BVlimitC"):
+        _write_audio_file(tmp_root, page_identity(bvid, 0, 0, "p0"))
+
+    transcribe_calls: list[str] = []
+    _stub_runner_model(monkeypatch, transcribe_calls)
+    _patch_cli(monkeypatch)
+
+    rc = main(["asr", "--pending", "--limit", "2", "--archive-root", tmp_root])
+    captured = capsys.readouterr()
+    # Exactly N rows were read and transcribed — the store-side bound is the
+    # single authority; a CLI re-slice on top of an over-fetching store read
+    # would show up here as a count below the store's candidate set.
+    assert len(transcribe_calls) == 2, captured.out + captured.err
+    assert rc == 0, captured.err
+    assert "asr: 2 archived" in captured.out
+    # Exactly the two limited rows archived; the third candidate was never
+    # read (its audio file was never opened) — the bound came from the store
+    # read, not from dropping rows after the fact.  The store gap view still
+    # lists all three candidates: this route's write-back is the manifest
+    # (store transcript write-back is owned by test_storage_queue_writes.py),
+    # so queue membership is not the assertion here.
+    archived = {call.rsplit("/", 1)[-1] for call in transcribe_calls}
+    assert archived == {"BVlimitB.p0.m4a", "BVlimitC.p0.m4a"}, transcribe_calls
+
+
 def test_asr_store_source_skips_part_with_subtitles(tmp_root, monkeypatch, capsys):
     """A part holding AI subtitles never reaches the audio→ASR branch.
 

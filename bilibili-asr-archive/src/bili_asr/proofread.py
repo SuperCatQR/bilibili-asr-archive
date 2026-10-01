@@ -56,6 +56,8 @@ from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 from .archive import bundle_paths_for_stem
+from .cues import CueParseError
+from .cues import read_route_ms as _read_route_ms
 
 #: Blocks are built from ASR VAD segments alone: a segment whose ``start_ms``
 #: exceeds the block's current ``end_ms`` by more than this opens a new block.
@@ -463,25 +465,6 @@ def render_alignment_jsonl(alignment: Alignment) -> str:
 # --------------------------------------------------------------------------------------
 
 
-def _source_text(source: Any) -> str:
-    """Render a sidecar's ``source`` for the refusal below: verbatim, bounded.
-
-    A textual source is the value the operator will recognise; anything else is
-    a shape the archive never writes, so it is shown as JSON rather than
-    assumed to be printable.
-
-    Every branch is bounded, including the JSON one: an unbounded fallback would
-    let a hostile or merely odd sidecar put an arbitrary string into the refusal
-    line.  (Found by L2 review — the fallback used to be uncapped while this
-    docstring already claimed otherwise.)
-    """
-
-    if source is None:
-        return "<missing>"
-    text = source if isinstance(source, str) else json.dumps(source, ensure_ascii=False)
-    return text if len(text) <= 32 else text[:32] + "…"
-
-
 def read_asr_route_ms(artifact_root: Path, bvid: str, part: int) -> list[tuple[int, int, str]]:
     """Read the archived ASR transcript for one part: its ``raw`` sidecar.
 
@@ -500,33 +483,10 @@ def read_asr_route_ms(artifact_root: Path, bvid: str, part: int) -> list[tuple[i
     """
 
     raw_path = bundle_paths_for_stem(artifact_root, f"{bvid}.p{part}")["raw_path"]
-    if not raw_path.is_file():
-        raise ProofreadRouteError(f"{bvid}:p{part}: missing ASR route (no {raw_path})")
     try:
-        document = json.loads(raw_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
-        raise ProofreadRouteError(f"{bvid}:p{part}: unreadable ASR route ({exc})") from exc
-    source = document.get("source")
-    if source != "asr":
-        raise ProofreadRouteError(
-            f"{bvid}:p{part}: expected source=asr, found source={_source_text(source)} "
-            f"in {raw_path}"
-        )
-    segments = document.get("segments")
-    if not isinstance(segments, list) or not segments:
-        raise ProofreadRouteError(f"{bvid}:p{part}: ASR route holds no segment")
-    triples: list[tuple[int, int, str]] = []
-    for position, segment in enumerate(segments, start=1):
-        try:
-            start_ms = round(float(segment["start"]) * 1000)
-            end_ms = round(float(segment["end"]) * 1000)
-            text = str(segment["text"])
-        except (KeyError, TypeError, ValueError) as exc:
-            raise ProofreadRouteError(
-                f"{bvid}:p{part}: ASR segment {position} is malformed ({exc})"
-            ) from exc
-        triples.append((start_ms, end_ms, text))
-    return triples
+        return _read_route_ms(raw_path, require_source="asr", label=f"{bvid}:p{part}")
+    except CueParseError as exc:
+        raise ProofreadRouteError(exc.detail) from exc
 
 
 def read_subtitle_route_ms(
@@ -806,7 +766,7 @@ def merge_sidebyside(
     ``(txt_path, corrections_path)``.
     """
 
-    from .asr import segments_to_srt, segments_to_txt
+    from .cues import segments_to_srt, segments_to_txt
 
     marked = Path(marked_path)
     try:

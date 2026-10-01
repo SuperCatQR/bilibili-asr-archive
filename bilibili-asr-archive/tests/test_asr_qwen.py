@@ -102,7 +102,11 @@ class _FakeModel:
     device = "cpu"
     dtype = None
 
+    def __init__(self) -> None:
+        self.calls: list[dict] = []
+
     def generate(self, **inputs) -> _Tokens:
+        self.calls.append(inputs)
         return _Tokens(12)
 
 
@@ -466,6 +470,97 @@ def test_the_pipeline_stitches_per_chunk_timings_with_their_offset(monkeypatch) 
     cues = runner.transcribe("/nonexistent/long.wav")
     assert cues, "the fake models always produce text"
     assert max(cue["end"] for cue in cues) > 1.0, "the second chunk's timings were offset"
+
+
+# ---------------------------------------------------------------------------------------
+# The two-pass hotword contract (plan 20260928-hotword-injection-governance, and plan 001
+# second-pass-asr-cache-bust): pass 1 decodes unguarded, the prompt is re-seeded with the
+# tokens pass 1 produced, and pass 2 must re-decode from a CLEAN model/cache state — the
+# re-seeded vocabulary must actually reach the model for the whole audio, not be served
+# from pass 1's prefix cache.
+# ---------------------------------------------------------------------------------------
+
+
+def test_two_pass_transcribe_reseeds_the_prompt_and_busts_the_cache_on_pass_2(monkeypatch) -> None:
+    """The pass-2 ``generate`` call must observe the re-seeded prompt AND a non-warm cache.
+
+    Fails on the pre-fix code: both passes issued identical ``generate(**inputs,
+    max_new_tokens=budget)`` calls, so the second call has no ``use_cache`` key (the
+    dynamic prefix cache stays default-active and pass 2 is served partly from pass 1's
+    state).  After the fix, the second pass is the one with ``use_cache is False``.
+    """
+
+    runner, _ = _runner(monkeypatch, text="今天讲两件事。", hotwords=("今天",))
+    runner.set_hotword_evidence(evidence_text=None, paired_subtitle_text=None)
+    first_pass = runner.transcribe("/nonexistent/pass1.wav")
+    kept = runner.rebuild_hotwords_from_first_pass(
+        "".join(str(seg.get("text", "")) for seg in first_pass)
+    )
+    assert kept == ["今天"], "the first-pass transcript carries the configured token"
+    segments = runner.transcribe("/nonexistent/pass2.wav", bust_cache=True)
+    assert segments, "the fake models always produce text"
+
+    model = runner._get_models().model
+    assert len(model.calls) == 2, f"one chunk per pass, got {len(model.calls)} generate calls"
+    first_call, second_call = model.calls
+    # The reseed reached the prompt: pass 2's processor request carried the vocabulary line.
+    pass2_prompt = runner._get_models().processor.requests[-1]["prompt"]
+    assert pass2_prompt == "Vocabulary: 今天", pass2_prompt
+    assert runner._get_models().processor.requests[0]["prompt"] is None
+    # The cache boundary: pass 2's generate call is the cold one.  ``use_cache=False`` is
+    # the pinned transformers>=5.13 per-call cache-control argument (GenerationConfig
+    # field, documented in the KV-cache guide as the way to disable the prefix cache).
+    assert "use_cache" not in first_call, "pass 1 keeps the default (warm) cache behaviour"
+    assert second_call["use_cache"] is False, (
+        "pass 2 must re-decode from a clean cache state; without this the re-seeded "
+        "hotword vocabulary never reaches the model for the cached span"
+    )
+
+
+def test_two_pass_transcribe_helper_busts_the_cache_on_pass_2(monkeypatch) -> None:
+    """The production wiring: ``asr.two_pass_transcribe`` is what the CLI and the
+    coordinator call, and its pass 2 must reach ``generate`` with ``use_cache=False``.
+
+    The knob-level test above pins ``transcribe(bust_cache=True)`` directly; this one
+    drives the shared helper the production call sites use, so a regression that leaves
+    the knob unwired (QC finding C1) fails here even though the knob test still passes.
+    """
+
+    runner, _ = _runner(monkeypatch, text="今天讲两件事。", hotwords=("今天",))
+    segments = asr.two_pass_transcribe(
+        runner, "/nonexistent/two-pass.wav", paired_subtitle_text=None
+    )
+    assert segments, "the fake models always produce text"
+
+    model = runner._get_models().model
+    assert len(model.calls) == 2, f"one chunk per pass, got {len(model.calls)} generate calls"
+    first_call, second_call = model.calls
+    # The reseed reached the prompt: pass 2's processor request carried the vocabulary line.
+    pass2_prompt = runner._get_models().processor.requests[-1]["prompt"]
+    assert pass2_prompt == "Vocabulary: 今天", pass2_prompt
+    assert runner._get_models().processor.requests[0]["prompt"] is None
+    assert "use_cache" not in first_call, "pass 1 keeps the default (warm) cache behaviour"
+    assert second_call["use_cache"] is False, (
+        "the helper's pass 2 must re-decode from a clean cache state; without this the "
+        "two-pass fix is inert in production"
+    )
+
+
+def test_two_pass_transcribe_helper_skips_pass_2_when_nothing_is_kept(monkeypatch) -> None:
+    """No kept tokens means pass 2 cannot change the transcript: one decode, pass 1's segments."""
+
+    runner, _ = _runner(monkeypatch, text="今天讲两件事。", hotwords=("未明子",))
+    segments = asr.two_pass_transcribe(
+        runner, "/nonexistent/two-pass.wav", paired_subtitle_text=None
+    )
+    assert segments, "the fake models always produce text"
+
+    model = runner._get_models().model
+    assert len(model.calls) == 1, (
+        "pass 2 is skipped when the guard keeps nothing; got "
+        f"{len(model.calls)} generate calls"
+    )
+    assert "use_cache" not in model.calls[0], "the single decode is the warm-cache pass 1"
 
 
 # ---------------------------------------------------------------------------------------

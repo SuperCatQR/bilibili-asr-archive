@@ -38,6 +38,18 @@ VALID_STATUSES = frozenset(
 
 DEFAULT_REL_PATH = os.path.join("manifest", "manifest.jsonl")
 
+#: Ledger sidecar of the deterministic snapshot: per-row upserts append here,
+#: and :meth:`ManifestStore.save` / :meth:`ManifestStore.compact` fold the
+#: journal into a rewritten byte-stable ``manifest.jsonl`` snapshot once the
+#: append history crosses the compaction threshold.
+JOURNAL_NAME = "manifest.journal.jsonl"
+
+#: Rewrite the snapshot once an appending store holds this many journal rows.
+_JOURNAL_COMPACT_THRESHOLD = 256
+
+#: Wrap the journal when its byte size exceeds the snapshot's by this factor.
+_JOURNAL_WRAP_BYTES_FACTOR = 2
+
 UNRESOLVED_REASON_AMBIGUOUS_BARE_BVID = "ambiguous_bare_bvid"
 
 _STEM_PAGE_RE = re.compile(r"^(.+)\.p(\d+)$")
@@ -103,8 +115,15 @@ class ManifestStore:
                  rel_path: str = DEFAULT_REL_PATH) -> None:
         self.root = os.fspath(root)
         self.path = os.path.join(self.root, rel_path)
+        manifest_dir, snapshot_name = os.path.split(rel_path)
+        self._journal_path = os.path.join(self.root, manifest_dir, JOURNAL_NAME)
+        self._snapshot_name = snapshot_name
         self._entries: dict[str, dict[str, Any]] = {}
         self._loaded = False
+        # Append counters for the lazy-compaction trigger; per-instance so the
+        # cost bound holds even when nothing ever calls save()/compact().
+        self._appends_since_compact = 0
+        self._journal_bytes = 0
 
     def _open_manifest_dir(self, *, create: bool = False) -> int:
         nofollow = getattr(os, "O_NOFOLLOW", None)
@@ -171,22 +190,96 @@ class ManifestStore:
         return entries
 
     def load(self) -> dict[str, dict[str, Any]]:
-        """Read the JSONL file (if any) into memory; last write wins per key."""
-        self._entries = self._read_latest()
+        """Replay snapshot + journal into memory; last fully-appended row wins per key."""
+        self._entries, self._journal_bytes = self._replay_latest()
         self._loaded = True
         return self._entries
+
+    def _replay_latest(self) -> tuple[dict[str, dict[str, Any]], int]:
+        """Replay the deterministic snapshot then the journal, oldest row first.
+
+        Returns the effective entries plus the journal's on-disk byte size.
+        A torn trailing journal line (crash mid-append) is dropped: replay
+        exposes only fully-appended records, so the resumable SSOT invariant
+        holds even when the process died between ``write`` and a full line.
+        """
+        entries = self._read_latest()
+        journal_bytes = 0
+        try:
+            directory_fd = self._open_manifest_dir()
+        except FileNotFoundError:
+            return entries, journal_bytes
+        try:
+            try:
+                fd = self._open_regular_at(directory_fd, JOURNAL_NAME, os.O_RDONLY)
+            except FileNotFoundError:
+                return entries, journal_bytes
+            with os.fdopen(fd, "rb") as fh:
+                raw = fh.read()
+        finally:
+            os.close(directory_fd)
+        journal_bytes = len(raw)
+        for line in raw.decode("utf-8", errors="replace").splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                entry = validate_manifest_record(json.loads(line))
+            except ValueError:
+                # Torn write at the tail: nothing after it was fully appended
+                # either, so stop replaying rather than skip mid-stream.
+                break
+            entries[_entry_key(entry)] = entry
+        return entries, journal_bytes
 
     def _append_record(self, record: Mapping[str, Any]) -> None:
         directory_fd = self._open_manifest_dir(create=True)
         try:
             fd = self._open_regular_at(
-                directory_fd, "manifest.jsonl", os.O_WRONLY | os.O_APPEND | os.O_CREAT,
+                directory_fd, JOURNAL_NAME,
+                os.O_WRONLY | os.O_APPEND | os.O_CREAT,
             )
             try:
-                os.write(fd, _json_line(dict(record)))
+                payload = _json_line(dict(record))
+                os.write(fd, payload)
                 os.fsync(fd)
             finally:
                 os.close(fd)
+            os.fsync(directory_fd)
+        finally:
+            os.close(directory_fd)
+        self._appends_since_compact += 1
+        self._journal_bytes += len(payload)
+
+    def _maybe_compact_locked(
+        self, entries: dict[str, dict[str, Any]], *, journal_bytes: int
+    ) -> None:
+        """Fold the journal into the snapshot once append history is dominant.
+
+        Caller must hold the manifest lock. Thresholds are deliberately
+        conservative so the common batch never compacts mid-run; compaction
+        rewrites the deterministic snapshot (byte-stable by construction, since
+        it sorts keys and serializes with fixed separators) and atomically
+        resets the journal.
+        """
+        snapshot_bytes = os.path.getsize(self.path) if os.path.exists(self.path) else 0
+        if not (
+            self._appends_since_compact >= _JOURNAL_COMPACT_THRESHOLD
+            and journal_bytes >= max(1, _JOURNAL_WRAP_BYTES_FACTOR * snapshot_bytes)
+        ):
+            return
+        self._replace_snapshot(entries)
+        self._remove_journal()
+        self._appends_since_compact = 0
+        self._journal_bytes = 0
+
+    def _remove_journal(self) -> None:
+        directory_fd = self._open_manifest_dir()
+        try:
+            try:
+                os.unlink(JOURNAL_NAME, dir_fd=directory_fd)
+            except FileNotFoundError:
+                pass
             os.fsync(directory_fd)
         finally:
             os.close(directory_fd)
@@ -235,12 +328,21 @@ class ManifestStore:
         )
 
     def save(self, entries: dict[str, dict[str, Any]] | None = None) -> None:
-        """Durably publish a deterministic latest-row snapshot without stale loss."""
+        """Durably publish a deterministic latest-row snapshot without stale loss.
+
+        Rows persisted through the append journal since the last snapshot are
+        folded in first, so a ``save()`` after journal-appended upserts cannot
+        resurrect pre-transition states. The rewritten snapshot is deterministic
+        (keys sorted, fixed separators), and the journal is reset to empty.
+        """
         requested = dict(entries) if entries is not None else None
         with self._manifest_lock(create=True):
-            current = self._read_latest()
+            current, _journal_bytes = self._replay_latest()
             if requested is not None:
                 current.update(requested)
+            self._remove_journal()
+            self._appends_since_compact = 0
+            self._journal_bytes = 0
             if not current:
                 self._entries = {}
                 self._loaded = True
@@ -252,14 +354,23 @@ class ManifestStore:
     def compact(self) -> None:
         """Replace journal history with the deterministic latest-row snapshot."""
         with self._manifest_lock(create=True):
-            current = self._read_latest()
+            current, _journal_bytes = self._replay_latest()
             if current:
                 self._replace_snapshot(current)
+            self._remove_journal()
+            self._appends_since_compact = 0
+            self._journal_bytes = 0
             self._entries = current
             self._loaded = True
 
     def upsert(self, entry: dict[str, Any]) -> dict[str, Any]:
-        """Insert or replace one record and persist under a fresh-state lock."""
+        """Insert or replace one record and persist it under the store lock.
+
+        Persistence is an O(1) journal append: the full snapshot re-read now
+        happens only once, on the first upsert of a store instance (or after an
+        external change invalidated the in-memory view), not on every row of a
+        batch.
+        """
         validate_manifest_record(entry)
         bvid = entry.get("bvid")
         if not bvid:
@@ -277,8 +388,9 @@ class ManifestStore:
                 f"unknown status {status!r}; valid: {sorted(VALID_STATUSES)}"
             )
         with self._manifest_lock(create=True):
-            self._entries = self._read_latest()
-            self._loaded = True
+            if not self._loaded:
+                self._entries, self._journal_bytes = self._replay_latest()
+                self._loaded = True
             if not work_id:
                 existing = self._entries.get(str(bvid))
                 freeze = _is_unresolved(entry) or bool(
@@ -291,8 +403,16 @@ class ManifestStore:
                     raise ValueError("new automatic row requires work_id")
             stored = dict(entry)
             key = _entry_key(stored)
-            self._append_record(stored)
             self._entries[key] = stored
+            try:
+                self._append_record(stored)
+            except BaseException:
+                # Durability is the resumable-SSOT contract, not a tentative
+                # in-memory mutation: roll back so a failed upsert leaves the
+                # caller's view identical to the replayed ledger.
+                self._entries, self._journal_bytes = self._replay_latest()
+                raise
+            self._maybe_compact_locked(self._entries, journal_bytes=self._journal_bytes)
             return stored
 
     def get(self, work_id: str) -> Optional[dict[str, Any]]:
@@ -352,9 +472,28 @@ class ManifestStore:
         report = LegacyMigrationReport()
         with self._manifest_lock(create=True):
             current = self._read_latest()
-            self._entries = current
+            # Fold in rows journaled since the last snapshot so the in-memory
+            # view is current, but run the migration against the pure snapshot:
+            # the coalesce merge orders the legacy row under the page row.
+            effective, self._journal_bytes = self._replay_latest()
+            self._entries = effective
             self._loaded = True
             next_entries: dict[str, dict[str, Any]] = dict(current)
+            # Journaled rows for keys the migration does not touch survive the
+            # rewrite; the source rows the migration operates on (re-keyed or
+            # updated below) are already merged correctly.
+            # Journaled rows for keys still in snapshot form (including the
+            # bare-bvid identity a destination row will be re-keyed from)
+            # supersede the snapshot copy inside the coalesce merge.
+            for key, journaled in effective.items():
+                snapshot_row = next_entries.get(key)
+                if snapshot_row is not None and _is_bare_legacy(snapshot_row):
+                    merged = dict(snapshot_row)
+                    merged.update(journaled)
+                    next_entries[key] = merged
+            for key, entry in effective.items():
+                if key not in next_entries:
+                    next_entries[key] = entry
 
             bare_keys = sorted(
                 key for key, entry in current.items()
@@ -409,6 +548,9 @@ class ManifestStore:
                     report.unresolved.append(bvid)
             if next_entries != current:
                 self._replace_snapshot(next_entries)
+                self._remove_journal()
+                self._appends_since_compact = 0
+                self._journal_bytes = 0
                 self._entries = next_entries
         return report
 
