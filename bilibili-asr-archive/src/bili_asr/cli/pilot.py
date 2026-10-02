@@ -63,7 +63,9 @@ def _pilot_select(
         e for e in _pilot_processable(entries)
         if not max_duration_exceeded(e, max_duration_min)
     ]
-    subtitle = [e for e in processable if e.get("status") == "subtitle_done"]
+    subtitle = [
+        e for e in processable if e.get("status") in {"meta_ok", "subtitle_done"}
+    ]
     audio = [e for e in processable if e.get("status") in {"needs_audio", "audio_ok"}]
     subtitle.sort(key=_pilot_duration_key)
     audio.sort(key=_pilot_duration_key)
@@ -425,9 +427,11 @@ def _cmd_pilot(args: argparse.Namespace) -> int:
         qs.print_manifest_deprecation()
         entries = store.load()
     else:
-        # Store source: the pilot's work is the union of the audio queue
-        # (captionless, download→ASR) and the transcript queue (audio-backed,
-        # ASR directly).  A part holding subtitles is in neither.
+        # Store source: the pilot's work is the union of the subtitle queue
+        # (harvest-eligible, ``meta_ok``), the audio queue (captionless,
+        # download→ASR) and the transcript queue (audio-backed, ASR
+        # directly).  A part holding subtitles is in none of them.  Without
+        # the subtitle queue the harvest branch collapses — the R15 drift.
         source = qs.open_queue_source(args.archive_root)
         if source is None:
             print(
@@ -439,6 +443,7 @@ def _cmd_pilot(args: argparse.Namespace) -> int:
         try:
             merged: dict[str, dict[str, Any]] = {}
             for select in (
+                source.select_subtitle_queue(),
                 source.select_audio_queue(),
                 source.select_transcript_queue(),
             ):

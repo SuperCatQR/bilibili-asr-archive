@@ -72,10 +72,19 @@ def entry_for_item(item: QueueGapItem) -> dict[str, Any]:
     render publication the way the archive writer's frontmatter reads it.
     ``video_title`` and the part's own title travel as the title pair the
     writer records.  The queued part's ``gap`` names the route it drains, so
-    the row records the status that route starts from.
+    the row records the status that route starts from: ``audio_ok`` for the
+    transcription queue, ``meta_ok`` for the subtitle queue.  The subtitle
+    queue holds parts whose caption route is not exhausted but whose audio
+    route may also be open, so the row must name the harvest route
+    (``meta_ok``) — relabeling it ``needs_audio`` would collapse the harvest
+    branch, which is the R13/R15 drift.
     """
 
-    status = "audio_ok" if item.gap == "missing_transcript" else "needs_audio"
+    status = {
+        "missing_transcript": "audio_ok",
+        "missing_audio": "needs_audio",
+        "missing_subtitle": "meta_ok",
+    }[item.gap]
     return {
         "bvid": item.bvid,
         "work_id": item.work_id,
@@ -192,6 +201,10 @@ class QueueSource:
                 merged.setdefault(key, entry)
         for key, entry in self.select_subtitle_queue(limit=limit).entries.items():
             if key not in merged:
+                # ``entry_for_item`` already names a subtitle-queue row
+                # ``meta_ok`` (the harvest-eligible state); the override
+                # below only restates it, kept explicit so this scope's
+                # contract does not silently drift if the mapping moves.
                 row = dict(entry)
                 row["status"] = "meta_ok"
                 merged[key] = row
