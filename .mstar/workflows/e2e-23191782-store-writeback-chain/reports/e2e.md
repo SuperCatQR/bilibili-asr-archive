@@ -131,3 +131,61 @@ read from `s6-store.txt` + `s6-anomaly-runs.txt`; F4 from `s6-store.txt`; F5 fro
 - **Operator-facing one-liner**: the chain works end-to-end on the GPU host; the remaining defects are
   bookkeeping-class (run lifecycle/selector/language labels), plus one live-reproduced silent-skip
   hazard (`I-000166`) that the active iteration is already scheduled to fix.
+
+## Addendum (2026-10-03): falsification record for two open high issues
+
+Attempted during the post-run closeout; **the closes were refused by the engine**, so the evidence is
+recorded here instead of being lost. Both issues are **stale at `1e756df`** — each refuted by three
+independent layers.
+
+### `I-000067` (high, review-obligation) — "the ASR stage records NO `transcripts` row"
+
+| Layer | Evidence |
+|---|---|
+| The two tests the issue itself names | `tests/test_cli_queue_source.py::test_asr_store_source_selects_transcript_gap_part` **PASSED**; `::test_pilot_store_source_uses_gap_views` **PASSED** (2 passed) |
+| The write-back's own witnesses | `tests/test_coordinator.py::test_run_batch_asr_route_records_the_local_transcript` **PASSED**; `tests/test_storage_queue_writes.py::test_record_local_transcript_converges_v_missing_transcript`, `::test_record_local_transcript_does_not_weaken_caption_guard`, `::test_record_local_transcript_is_best_effort_on_store_failure` **all PASSED** |
+| Hardware E2E (this run, S6) | `transcript_id=2 source_kind=asr-local version=1`, 55 segments, attempt `outcome=stored` with `transcript_id` set, `v_missing_transcript` **1 → 0**, `pipeline_state=transcribed` |
+
+Source at `1e756df`: `cli/asr.py:284-296` (guard) → `:290 qs.record_local_transcript` → `services/queue_source.py:329`; plus `coordinator.py:990`. Fixed by R14 (`11374d1` + `aee6f2e`, both ancestors of `main`).
+
+### `I-000149` (high, bug) — "cross-process attempt numbering + strict malformed-history check lost"
+
+All four related contract tests **PASSED** in 0.25 s:
+`tests/test_persistence_scale.py::test_two_process_same_attempt_key_numbers_do_not_conflict`,
+`::test_malformed_attempt_history_fails_closed_for_authoritative_append`,
+`::test_malformed_tail_written_after_construction_fails_closed`,
+`::test_foreign_append_between_construction_read_and_fingerprint_is_replayed`.
+Plus the two performance-regression witnesses: `tests/test_coordinator.py::test_attempt_numbering_matches_full_scan_without_rescanning` (asserts `scan_calls == 0`) and `::test_attempt_counter_increments_across_instantiations`.
+
+Source at `1e756df`: `coordinator.py:210` (fingerprint before the seeding read), `:256` `file_lock`, `:267-268` (size delta → `_replay_tail`), `:276` `ValueError("malformed attempt history")`, `:300-363` strict tail parse. Fixed by plan `fix-006-attempt-ledger` (merge `8e1dd03`).
+
+### Why the closes did not land
+
+`mstar issue close` refuses with `issue.scope-refused`: *"This mutation requires an existing scoped
+session envelope; no session credential is written to the store."* Supplying a well-formed envelope
+file is explicitly rejected — *"a file that merely parses as an envelope is not a credential"* — and
+`mstar session run` mints a `MSTAR_EXECUTION_IDENTITY` that the child command does not accept as
+`--session`. Both the unscoped route and the plan-scoped route (`mstar plan issue-close` on the owning
+plan `r14-asr-transcript-writeback`) were tried. **These two issues remain `open` in the store and need
+an operator-side close or a proper engine-issued session to be marked `resolved`.**
+
+## Addendum 2: environment changes left on the compute host (for the operator)
+
+The run made exactly two host-side changes, both under the operator's Q4 authorization. Recorded here
+because they outlive the run and are not visible from the repo.
+
+| Path | Change | Effect | Verified |
+|---|---|---|---|
+| `/etc/profile.d/bili-asr-gpu.sh` | new file (0644) exporting `HSA_ENABLE_DXG_DETECTION=1` | **login shells** now pass a bare `check-asr-env`: `bash -lc '<venv>/bin/bili-asr check-asr-env'` → **exit 0**, `device ok … arch=gfx1101 vram_gb=15.8` | `evidence/s12-login-after.txt` |
+| `/etc/environment` | appended `HSA_ENABLE_DXG_DETECTION=1` | intended for the WSL service-layer path; **did not take effect** in any tested invocation (no observable behaviour change) | `evidence/s12-placement.txt` |
+
+Reverted during the run (my own diagnostic attempts, not wanted): an `export …` line appended to
+`~/.config/bili-asr/session.env` and one appended to `~/.profile`. Both were ineffective by
+construction — Ubuntu's `~/.bashrc` returns at its interactivity guard before its sourcing line, and
+`~/.bash_profile` (54 B) pre-empts `~/.profile` for login shells. `session.env` is back to its original
+single `BILI_SESSDATA` key.
+
+**Still not achieved, and not fixable by configuration**: `wsl -e bash -s` — the invocation form this
+repo's runbooks and the pad↔host channel use — reads **no startup file at all**, so a bare
+`check-asr-env` through that form still exits 1. An operator driving the tool that way must export the
+variable in the command itself. This bounds `I-000118`'s host-side closure to the login-shell case.
