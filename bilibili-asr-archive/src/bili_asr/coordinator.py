@@ -248,16 +248,27 @@ class AttemptLedger:
         os.makedirs(os.path.dirname(self.path), exist_ok=True)
         lock_path = self.path + ".lock"
         with file_lock(lock_path):
-            if self._history_malformed:
-                raise ValueError("malformed attempt history")
             # Single-writer fast path (D12): when the sidecar size matches the
             # last size this instance saw, no foreign append happened and the
             # in-memory map is authoritative — no re-read.  A size delta means
             # another process appended under the same flock; replay only the
             # new tail strictly (malformed tail fails closed) and refresh the
             # map before numbering.
+            #
+            # The malformed verdict is re-derived here, per append, instead of
+            # being latched for the instance's lifetime: a construction-time
+            # read can catch a foreign writer's torn tail, and a healed journal
+            # must not leave the instance permanently unable to record
+            # evidence.  The O(1) no-delta path performs no read at all.
             if self._file_size() != self._last_seen_size:
                 self._replay_tail(self._last_seen_size or 0)
+            if self._history_malformed:
+                # Seeding (or the tail replay) found malformed history: grade
+                # the bytes that are on disk NOW.  A journal that healed since
+                # recovers; one that is still malformed fails closed.
+                self._revalidate_history()
+                if self._history_malformed:
+                    raise ValueError("malformed attempt history")
             key = (stored["work_id"], stored["stage"])
             latest = self._latest_attempts.get(key, 0)
             if record.get("_preserve_attempt"):
@@ -279,32 +290,97 @@ class AttemptLedger:
     def _replay_tail(self, offset: int) -> None:
         """Re-read and strictly validate only the journal tail past ``offset``.
 
-        The sidecar is append-only and never truncated (D12), so bytes past
-        the last seen size are exactly the foreign appends; replaying them
-        into the in-memory map restores cross-process numbering without a
-        full scan.  Strict validation keeps the authoritative append
-        fail-closed on a malformed history, as it was before the in-memory
-        map landed.
+        The sidecar is append-only and never truncated (D12), so the bytes at
+        the fingerprint are a foreign append; replaying them into the in-memory
+        map restores cross-process numbering without a full scan.  Strict
+        validation keeps the authoritative append fail-closed on a malformed
+        history, as it was before the in-memory map landed.
+
+        The fingerprint is a byte offset taken *without* the flock, so it can
+        land inside a record or inside a multi-byte character.  Two alignment
+        rules keep a valid journal from being accused:
+
+        * the read starts at the last ``b"\\n"`` at or before the offset, so the
+          tail always begins on a record boundary (the extra bytes before the
+          offset are re-validated too — they are already-known records);
+        * the tail is split on ``"\\n"`` only, never ``str.splitlines()``, which
+          also breaks on U+2028/U+2029/U+0085 — legal inside a JSON string and
+          written raw by this repo's own writer (``ensure_ascii=False``).
+
+        Invalid UTF-8 is corruption, not a substitution opportunity: decoding is
+        strict so a mutilated record cannot pass as valid through U+FFFD.
         """
+
         try:
             with open(self.path, "rb") as fh:
-                fh.seek(offset)
-                tail = fh.read()
+                fh.seek(0, os.SEEK_END)
+                size = fh.tell()
+                start = min(offset, size)
+                if start > 0:
+                    fh.seek(start - 1)
+                    if fh.read(1) != b"\n":
+                        # The fingerprint landed mid-record: walk back to the
+                        # record boundary so the tail parses as whole records.
+                        fh.seek(0)
+                        head = fh.read(start)
+                        boundary = head.rfind(b"\n")
+                        start = boundary + 1 if boundary >= 0 else 0
+                fh.seek(start)
+                raw = fh.read()
         except OSError as exc:
             raise ValueError("attempt history unavailable") from exc
-        if not tail:
-            return
-        text = tail.decode("utf-8", errors="replace")
-        for line_number, line in enumerate(text.splitlines(), 1):
+        try:
+            text = raw.decode("utf-8")
+        except UnicodeDecodeError as exc:
+            self._history_malformed = True
+            raise ValueError("malformed attempt history in tail") from exc
+        if text:
+            self._replay_lines(text, context="tail")
+
+    def _revalidate_history(self) -> None:
+        """Re-derive the malformed verdict from the journal on disk, now.
+
+        Called only on the no-delta path when seeding already flagged the
+        history: a torn tail observed at construction heals when the foreign
+        writer finishes, and the instance must recover instead of refusing
+        every later append for its whole lifetime.  Also refreshes the
+        in-memory map (the healed tail's records belong in it).
+        """
+
+        try:
+            with open(self.path, "rb") as fh:
+                raw = fh.read()
+        except OSError as exc:
+            raise ValueError("attempt history unavailable") from exc
+        try:
+            text = raw.decode("utf-8")
+        except UnicodeDecodeError as exc:
+            self._history_malformed = True
+            raise ValueError("malformed attempt history") from exc
+        self._history_malformed = False
+        self._replay_lines(text, context="history", strict=False)
+
+    def _replay_lines(self, text: str, *, context: str, strict: bool = True) -> None:
+        """Replay whole JSONL records from ``text`` into the in-memory map.
+
+        ``strict`` marks the tail path, where a malformed record means the
+        authoritative append must fail closed; the re-validation path passes
+        ``strict=False`` because it is deriving the verdict, not enforcing it.
+        """
+
+        for line_number, line in enumerate(text.split("\n"), 1):
             if not line.strip():
                 continue
             try:
                 prior = _validate_attempt(json.loads(line))
             except (json.JSONDecodeError, ValueError) as exc:
+                if strict:
+                    self._history_malformed = True
+                    raise ValueError(
+                        f"malformed attempt history at {context} line {line_number}"
+                    ) from exc
                 self._history_malformed = True
-                raise ValueError(
-                    f"malformed attempt history at tail line {line_number}"
-                ) from exc
+                continue
             key = (prior["work_id"], prior["stage"])
             self._latest_attempts[key] = max(
                 self._latest_attempts.get(key, 0), prior["attempt"]

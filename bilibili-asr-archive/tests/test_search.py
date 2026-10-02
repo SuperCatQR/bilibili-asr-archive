@@ -644,3 +644,32 @@ def test_pass_two_runs_only_when_kept_tokens_exist():
     runner = asr.ASRRunner(cfg)
     kept = runner.rebuild_hotwords_from_first_pass("一段没有任何热词的转写文本。")
     assert kept == []
+
+
+def test_search_zero_hit_on_corrupt_store_is_still_defect(
+    indexed_store: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A zero-hit query on a corrupt store stays defect-class (exit 1).
+
+    The zero-hit early return must not sit ahead of the store-readability
+    proof: a damaged ``videos`` table read as a clean empty result, where the
+    pre-batching eager title read raised :class:`TranscriptStoreError`.
+    """
+    import sqlite3 as _sqlite3
+
+    from bili_asr import search_index
+
+    real = _sqlite3.connect(indexed_store / "archive.db")
+    real.execute("DROP TABLE videos")
+    real.commit()
+
+    class _Connect:
+        def connect(self):
+            return real
+
+    monkeypatch.setattr(
+        search_index.TranscriptSearchIndex, "_connect", lambda self: real
+    )
+    with pytest.raises(search_index.TranscriptStoreError):
+        search_index.TranscriptSearchIndex(indexed_store).search_blocks("zzzz-nothing")
+    real.close()
