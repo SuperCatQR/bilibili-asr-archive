@@ -73,10 +73,29 @@ def _attempt(work_id: str, number: int = 1, *, stage: str = "archive") -> dict[s
     }
 
 
+def _child_env() -> dict[str, str]:
+    """Environment for spawned children: the tree under test's ``src`` first.
+
+    ``sys.executable`` inherits the venv, whose editable ``.pth`` resolves
+    ``bili_asr`` to whatever checkout it was installed from — for a feature
+    worktree that is the CONTROL checkout, not the tree under test.  Children
+    would then exercise the wrong code and the assertions in this module would
+    report a false signal.  Prepending this test file's own ``src`` makes the
+    child import exactly the code the parent runs.
+    """
+
+    src = str(Path(__file__).resolve().parents[1] / "src")
+    env = dict(os.environ)
+    existing = env.get("PYTHONPATH", "")
+    env["PYTHONPATH"] = f"{src}{os.pathsep}{existing}" if existing else src
+    return env
+
+
 def _run_children(tmp_path: Path, script: str, *child_args: tuple[str, ...]) -> None:
     ready_dir = tmp_path / "ready"
     ready_dir.mkdir()
     release = tmp_path / "release"
+    env = _child_env()
     processes = [
         subprocess.Popen(
             [
@@ -87,7 +106,8 @@ def _run_children(tmp_path: Path, script: str, *child_args: tuple[str, ...]) -> 
                 str(ready_dir / f"{i}.ready"),
                 str(release),
                 *args_for_child,
-            ]
+            ],
+            env=env,
         )
         for i, args_for_child in enumerate(child_args)
     ]
