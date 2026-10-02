@@ -94,6 +94,14 @@ author: project-manager
 | ID | 场景 | 断言的期望 | 证据 |
 |---|---|---|---|
 | **S0** | 检出同步到基准（授权 A4） | `HEAD==1e756df`；`git status --porcelain` 为空；`bili-asr asr --help` 出现 `--queue-source`；`derive-manifest` 子命令存在 | 补丁文件 `$EV/s0-dirty-asr.patch`；`s0-identity.txt`（`rev-parse HEAD`、`bili-asr --help` 子命令计数=24） |
+
+**S0 的传输方式**（已实测可行，无需新依赖）：pad 侧 `git bundle create <file> main`（实测 **6,891,176 B ≈ 6.9 MB**）
+→ `base64` 经 ssh stdin 写入算力机 → `git fetch <bundle> main:refs/heads/main`。
+算力机**没有 GitHub 直连**（`git ls-remote` rc=124、`curl` 000），所以不要尝试 `git pull`。
+代码同步**不需要重装**：editable 安装是纯 `.pth`（`site-packages/__editable__.bili_asr-0.1.0.pth` 内容就是
+`.../bilibili-asr-archive/src`），且 `pyproject` 在 `0a95035..1e756df` 之间只把 `librosa` 换成 `soxr`、
+给 `[dev]` 加了 `numpy/soundfile/soxr`——**这些算力机 venv 里全都有**。
+`cli.py` → `cli/` 包的形态变化也兼容（两侧都导出 `main`，console script 无需改写）。
 | **S1** | 环境能力门（两条臂都是断言） | 裸 `check-asr-env` → **exit 1**（`dxg-detection FAIL` + `device-probe FAIL`）；带 `HSA_ENABLE_DXG_DETECTION=1` → **exit 0**，输出 `device ok … arch=gfx1101 vram_gb=15.8` | `s1-bare.txt` / `s1-dxg.txt`（含 exit code）。这同时把 `I-000118` 的文档矛盾钉成证据 |
 | **S2** | 全新 store 引导 + 元数据入库 | `fetch-meta --mid 23191782 --start-page 5 --limit-pages 2 --resume` 后 `archive.db` 存在；`video_parts` ≥ 57（实测页 5=29 行、页 6=29 行）。**页 6 已知首轮易挫**（13/13 `shape_error`+`risk_interrupted` 后重试成功）⇒ 允许重试一次并记录两次输出 | `s2-fetch.txt`；`s2-counts.txt`（`videos`/`video_parts`/`ingestion_runs` 计数） |
 | **S3** | **字幕臂准入**：带 AI 字幕的 part | `harvest-subs --bvid <CAP_BV> --archive-root $ARCH` 后该 part 出现 `transcripts` 行 `source_kind='subtitle-ai'`；`v_missing_subtitle`=0；并且它 **不在** `v_missing_audio`、**不在** `v_missing_transcript` | `s3-harvest.txt`；`s3-store.txt`（该 part 的 transcript 行 + 三个视图计数） |
@@ -131,6 +139,13 @@ $P/.venv/bin/bili-asr asr --bvid <AUD_BV>:p0 \
 
 > 断言 1 是 `I-000067` 的真机证伪点；断言 6 是"写回是否真的收敛视图"的证明；
 > 断言 5 是"写回不是孤儿行、带了 attempt 证据"的证明。
+
+**已知混淆项（判定前必须先排除）**：`I-000166`（high，在 `1e756df` 上仍开）——
+`ensure_asr_run` 用 `run_id = f"{command}-{int(time.time())}"`（`queue_source.py:142`）撞
+`acquisition_runs.run_id` 主键；一旦撞键，`asr_run_id` 变 `None`，
+`cli/asr.py:284-289` 的守卫会让**该次调用的全部写回静默跳过**。
+所以 S6 若出现"归档产物齐全但 `transcripts` 无新行"，**先查** `acquisition_runs` 是否有同秒撞键，
+再判写回缺陷——否则会把它误判成 `I-000067` 复发。
 
 **功耗预算**（来自上次真机实测，可复用）：2598 s 音频 → 372 s；5112 s → 649 s；6395 s → 903 s。
 即 **≈0.14 s 音频/秒**。本场景选 **最短** 的候选 part 以压预算，**上限 30 min wall**，超时按 `failed` 记录并保留已产出证据。
@@ -205,7 +220,23 @@ S6 ≈5–15（GPU），S7 ≈1，S8 ≈2，S9 ≈1，S10 ≈1 ⇒ **合计 ≈3
 - 只读座位（如需并行核证）用 read-only 委派；**不进入** QA、不插入 iteration phase、不做 QC tri-review。
 - ops 只报结果，**Done 状态由 PM 独占**；执行者不得自标 Done。
 
-## 10. 开放问题（需操作者回答）
+## 10. 与并行审计 plan 019 的关系（不冲突，但需合流）
+
+同一工作树里另有一个活跃会话刚写下
+`.mstar/plans/audit-2026-10-02/019-close-the-queue-ssot-loop-with-a-measured-store-route-run-on-a-real-root.md`
+（`I-000181`，P3，direction），要的正是「一次真实 root 上的 store 路由实测」。
+
+**二者互补，不是重复**：019 是**开发向** plan，而 harness 明确禁止开发 plan 的 AC 依赖真机回执
+（live API / 指名主机 / GPU）——`mstar-e2e` 原文即指出这类 AC 会被 Prepare 改写成隔离证明，
+**只有操作者的独立场景授权才能触发真机验证**。所以 019 只能"指向"这次运行；**本 E2E 就是它的真机腿**。
+建议合流方式：019 保持开发向、不在其 AC 里写真机；本运行产出的报告作为 019 的证据指针。
+
+另：019 的 Evidence 行有两处**引用错误**（本计划的只读核证发现，未改他人文件）——
+它把 `queue_source.py:300` 写成 `record_local_transcript`、`:329` 写成 `record_transcript`；
+实际 `:300` 是 `mark_transcript_stored`、`:329` 是 `record_local_transcript`，
+且 `src/` 中**不存在**名为 `record_transcript` 的符号。它引用的 `11374d1`/`aee6f2e` 是祖先这一点正确。
+
+## 11. 开放问题（需操作者回答）
 
 | # | 问题 | 影响 |
 |---|---|---|
