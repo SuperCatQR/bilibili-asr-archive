@@ -41,7 +41,7 @@
 | **S5** audio download | `part_audio_objects` row `acquisition_source='download'`; bytes on disk >0; leaves `v_missing_audio`; enters `v_missing_transcript` | `audio_ok (audio/BV1aAhLzsENb.p0.m4a)`; pao row `video_part_id=12 audio_id=1 acquisition_source=download`; **3,064,353 bytes**; missing_audio 0; missing_transcript 1 | **passed** | `evidence/s5-download.txt`, `evidence/s5-pao.txt`, `evidence/s5-bytes.txt` |
 | **S6** **ASR → archive + store write-back convergence (headline)** | see per-assertion detail below | **all 7 assertion groups hold** | **passed** | `evidence/s6-asr.txt`, `evidence/s6-store.txt`, `evidence/s6-bundle.txt`, `evidence/s6-pre.txt` |
 | **S7** re-run spends nothing | `asr: queue empty …`, exit 0, no new run, no model load | `asr: queue empty (no parts need transcription)` RC=0; `kind='asr'` run count **1 → 1**; wall **0 s** (a real run is ~51 s) | **passed** | `evidence/s7-rerun.txt`, `evidence/s7-norun.txt` |
-| **S8** reader exits | status counts the part; search finds freshly written ASR text; `verify`/`coverage` exits recorded | `search-index: indexed 250 block(s)`; `search 大智者` → **`BV1aAhLzsENb P0 … [00:00:08,480 → 00:00:11,840] 因为[大智者]，有[大智者]`** (asr-local content IS indexed/searchable); `search 职业革命家` → 5 caption-arm blocks; `status` RC=0; `verify` RC=**1** (`defect_count 0, backlog_count 0, diagnostics: structural_input_error ×2`); `coverage --strict` RC=**1** (`cumulative complete 1/1`, 4 × `evidence_missing` diagnostics) | **passed** (with two characterized non-zero exits) | `evidence/s8-status.txt`, `evidence/s8-search.txt`, `evidence/s8-verify.txt`, `evidence/s8-coverage.txt` |
+| **S8** reader exits | status counts the part; search finds freshly written ASR text; **`verify` exit 0** (as the plan states); `coverage --strict` exit recorded | `search-index: indexed 250 block(s)`; `search 大智者` → **`BV1aAhLzsENb P0 … [00:00:08,480 → 00:00:11,840] 因为[大智者]，有[大智者]`** (asr-local content IS indexed/searchable); `search 职业革命家` → 5 caption-arm blocks; `status` RC=0; `verify` RC=**1** (`defect_count 0, backlog_count 0, diagnostics: structural_input_error ×2`); `coverage --strict` RC=**1** (`cumulative complete 1/1`, 4 × `evidence_missing` diagnostics) | **failed (partial)** — the search and status expectations hold; the stated `verify` exit-0 expectation **does not** | `evidence/s8-status.txt`, `evidence/s8-search.txt`, `evidence/s8-verify.txt`, `evidence/s8-coverage.txt` |
 | **S9** publish idempotence | first run publishes or reports state; second reports `already_published` and replaces nothing | `already_published` on both runs; `bundle.md` sha256 **identical** before/after (`cc87d231…ebce0`); `published=0 already_published=1 failed=0` | **passed** | `evidence/s9-first.txt`, `evidence/s9-second.txt`, `evidence/s9-hash.txt`, `evidence/s9-tree.txt` |
 | **S10** hotword as-shipped state | `DEFAULT_HOTWORDS == ()`; measured candidates shipped; path inert unset | `DEFAULT_HOTWORDS: tuple[str, ...] = ()`; `MEASURED_HOTWORD_CANDIDATES` present; `BILI_ASR_HOTWORDS` unset | **passed** | `evidence/s10-hotwords.txt` |
 | **S11** human inspection leg (closes `I-000102`) | force the caption-bearing part's audio route, then `proofread`; hand-inspect ≥5 blocks | forcing row written via the product's own `ManifestStore`; `download-audio` (manifest route) `audio_ok`; `asr` (manifest route) `archived (asr)` 84 s, raw sidecar written; `proofread` RC=0 → side-by-side + alignment (29 blocks, 83 ASR segments, 195/195 subtitle entries assigned, **0 unassigned**); machine verdicts 24 agree / 3 minor / 2 review; **8 blocks hand-inspected**, 5 agree / 2 minor-despite-passing / 1 review | **passed** | `evidence/s11-force.txt`, `s11-download.txt`, `s11-asr.txt`, `s11-proofread.txt`, `s11-sidebyside.md`, `s11-alignment.jsonl`, **`evidence/s11-inspection.md`** |
@@ -120,7 +120,8 @@ read from `s6-store.txt` + `s6-anomaly-runs.txt`; F4 from `s6-store.txt`; F5 fro
 
 ## Completion recommendation
 
-- **Assigned scenarios: 13 (S0–S12). Completed: 13. Blocked: 0. Not-run: 0. Failed: 0.**
+- **Assigned scenarios: 13 (S0–S12). Completed: 13. Blocked: 0. Not-run: 0. Failed: 1 (S8, partial — see Addendum 3).**
+  The corrected tally is **12 passed / 1 failed / 0 blocked / 0 not-run**.
 - **Product verdict: the headline capability is confirmed on real hardware.** ASR → archive → store
   write-back → gap-view convergence → searchable text all hold at `1e756df` on the RX 7800 XT. The
   store-driven chain's central claim is no longer analytic.
@@ -189,3 +190,31 @@ single `BILI_SESSDATA` key.
 repo's runbooks and the pad↔host channel use — reads **no startup file at all**, so a bare
 `check-asr-env` through that form still exits 1. An operator driving the tool that way must export the
 variable in the command itself. This bounds `I-000118`'s host-side closure to the login-shell case.
+
+## Addendum 3: correction — S8 was mis-reported as `passed`
+
+Raised by the post-run framing check of this report, and it is a real defect **in the report**, not in
+the product.
+
+The plan (`plans/e2e-23191782-store-writeback-chain.md:114`) states S8's expected result as:
+`status` counts the part; `search` hits the freshly written ASR text; **`verify` exit 0**;
+`coverage --strict`'s exit and counts recorded.
+
+Observed: `verify` exits **1** (`defect_count 0, backlog_count 0, diagnostics: structural_input_error ×2`).
+
+The report was written as `passed (with two characterized non-zero exits)`. That is the wrong verdict:
+it **reclassified the expectation after the fact** instead of failing the scenario. Recording a
+diagnostic faithfully is not the same as passing — the plan said exit 0 and the command said 1.
+
+**Corrected verdict: S8 = `failed (partial)`.** The search and status halves passed; the stated
+`verify` half did not. Consequences:
+
+- The run's tally is **12 passed / 1 failed / 0 blocked / 0 not-run**, not 13/0/0/0. A failed product
+  scenario is still a completed verification run (mstar-e2e), and the workflow's `completed` lifecycle
+  is unaffected — only the product verdict changes.
+- `I-000185` already captures the underlying product behaviour (reader exit codes fire on a healthy
+  archive). This correction sharpens it: the issue is no longer "a characterized non-zero exit", it is
+  **the one scenario the run actually failed**.
+
+Nothing in the S0–S7/S9–S12 evidence chain is affected; the write-back headline (S6) is untouched by
+this correction and remains fully supported.
