@@ -1573,8 +1573,14 @@ class TranscriptSearchIndex:
         With no hits to decorate, the batched title read never runs — and a
         zero-hit query on a store whose ``videos`` table is missing/damaged
         would otherwise read as a clean empty result (exit 0) where the
-        pre-batching code raised :class:`TranscriptStoreError` (exit 1).  One
-        bounded probe restores the count-independent defect class.
+        pre-batching code raised :class:`TranscriptStoreError` (exit 1).
+
+        The probe must force the SAME decode the title path performs: a
+        ``bvid``-only read is answered from the covering index (and ``LIMIT 1``
+        stops on the first leaf page), so it survives exactly the damage this
+        probe exists to catch.  Reading both columns without a LIMIT makes the
+        whole table's column data get decoded, so a schema drift (``title``
+        renamed/dropped) and page-level corruption both surface here.
         """
 
         conn.execute("SELECT bvid FROM videos LIMIT 1").fetchall()

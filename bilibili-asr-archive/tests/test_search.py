@@ -673,3 +673,107 @@ def test_search_zero_hit_on_corrupt_store_is_still_defect(
     with pytest.raises(search_index.TranscriptStoreError):
         search_index.TranscriptSearchIndex(indexed_store).search_blocks("zzzz-nothing")
     real.close()
+
+
+def test_search_zero_hit_on_videos_schema_drift_is_still_defect(
+    indexed_store: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The zero-hit probe must force the decode the title path performs.
+
+    A ``bvid``-only probe is answered from the covering index, so a ``videos``
+    shape defect (``title`` renamed/dropped — an ordinary schema-drift repair)
+    stayed invisible on the zero-hit path: base exited 1, the narrow probe
+    exited 0.  Reading both columns restores the count-independent defect class.
+    """
+    import sqlite3 as _sqlite3
+
+    from bili_asr import search_index
+
+    real = _sqlite3.connect(indexed_store / "archive.db")
+    real.execute("ALTER TABLE videos RENAME COLUMN title TO title_x")
+    real.commit()
+
+    monkeypatch.setattr(
+        search_index.TranscriptSearchIndex, "_connect", lambda self: real
+    )
+    with pytest.raises(search_index.TranscriptStoreError):
+        search_index.TranscriptSearchIndex(indexed_store).search_blocks("zzzz-nothing")
+    real.close()
+
+
+def test_search_unusable_fts_with_damaged_videos_is_still_defect(
+    indexed_store: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The FTS retry-exhaustion exit must also prove store readability.
+
+    ``search_blocks`` has two clean-empty exits.  The FTS double-failure return
+    sat ahead of the readability proof, so an unusable ``transcript_fts`` plus a
+    damaged ``videos`` reported a clean empty result (exit 0) where base exited
+    1 — the defect class must not depend on which failure mode was hit.
+    """
+    import sqlite3 as _sqlite3
+
+    from bili_asr import search_index
+
+    real = _sqlite3.connect(indexed_store / "archive.db")
+    real.execute("DROP TABLE videos")
+    # Make every MATCH raise: replace the FTS table with a plain (non-FTS) one
+    # of the same name, so both the query and its plain-text retry fail.
+    real.execute(f"DROP TABLE {search_index.STORE_FTS5_TABLE}")
+    real.execute(
+        f"CREATE TABLE {search_index.STORE_FTS5_TABLE} "
+        "(block_key TEXT, bvid TEXT, page_index INT, start_ms INT, end_ms INT, "
+        "pubdate INT, text TEXT, source TEXT, rank REAL)"
+    )
+    real.commit()
+
+    monkeypatch.setattr(
+        search_index.TranscriptSearchIndex, "_connect", lambda self: real
+    )
+    try:
+        with pytest.raises(search_index.TranscriptStoreError):
+            search_index.TranscriptSearchIndex(indexed_store).search_blocks("zzzz-nothing")
+    finally:
+        real.close()
+
+
+def test_search_blocks_returns_every_hit_past_the_chunk_boundary(
+    indexed_store: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """More than one IN-list chunk must still decorate every hit.
+
+    The chunking introduced with the batched reads (``_IN_CHUNK``) is what keeps
+    the key lists away from SQLite's bound-variable ceiling; without a test
+    driving past the boundary, raising/removing it leaves the suite green while
+    silently reintroducing the ceiling.
+    """
+    import sqlite3 as _sqlite3
+
+    from bili_asr import search_index
+
+    real = _sqlite3.connect(indexed_store / "archive.db")
+    total = search_index.TranscriptSearchIndex._IN_CHUNK + 5
+    for i in range(total):
+        key = f"chunk{i}:0"
+        bvid = f"BVchunk{i}"
+        real.execute(
+            f"INSERT INTO {search_index.STORE_FTS5_TABLE} VALUES "
+            f"(?, ?, 0, 0, 10, 1, 'chunked needle', 'srt', 0.0)",
+            (key, bvid),
+        )
+        real.execute(
+            "INSERT INTO videos (bvid, mid, title, pubdate, created_at, updated_at) "
+            "VALUES (?, 1, ?, 1, 1, 1)",
+            (bvid, f"title{i}"),
+        )
+    real.commit()
+
+    monkeypatch.setattr(
+        search_index.TranscriptSearchIndex, "_connect", lambda self: real
+    )
+    hits = search_index.TranscriptSearchIndex(indexed_store).search_blocks(
+        "needle", limit=None
+    )
+    real.close()
+    assert len(hits) == total
+    assert all(h.video_title and h.snippet for h in hits)

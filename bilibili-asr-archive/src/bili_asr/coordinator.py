@@ -195,6 +195,11 @@ class AttemptLedger:
       the collision path is cheap; the no-collision path stays O(1).
     """
 
+    # Bounded window for the fingerprint snap-back: the record boundary is
+    # nearly always within this many bytes of the (unflocked) fingerprint, so
+    # the common case does not read the whole prefix.
+    _FINGERPRINT_WINDOW = 8192
+
     def __init__(self, root: str | os.PathLike[str]) -> None:
         self.root = os.fspath(root)
         self.path = os.path.join(self.root, ATTEMPTS_REL_PATH)
@@ -321,12 +326,30 @@ class AttemptLedger:
                     if fh.read(1) != b"\n":
                         # The fingerprint landed mid-record: walk back to the
                         # record boundary so the tail parses as whole records.
-                        fh.seek(0)
-                        head = fh.read(start)
-                        boundary = head.rfind(b"\n")
-                        start = boundary + 1 if boundary >= 0 else 0
+                        # The walk is O(offset) in the worst case, so scan a
+                        # bounded window first (the boundary is nearly always
+                        # within a few hundred bytes) and only fall back to the
+                        # full prefix when that window holds no newline.
+                        window = self._FINGERPRINT_WINDOW
+                        lo = max(0, start - window)
+                        fh.seek(lo)
+                        chunk = fh.read(start - lo)
+                        boundary = chunk.rfind(b"\n")
+                        if boundary >= 0:
+                            start = lo + boundary + 1
+                        else:
+                            fh.seek(0)
+                            head = fh.read(start)
+                            found = head.rfind(b"\n")
+                            start = found + 1 if found >= 0 else 0
                 fh.seek(start)
                 raw = fh.read()
+        except FileNotFoundError:
+            # A missing journal is a normal, self-healing state (base recreated
+            # it): fall back to absent-on-disk instead of failing the append.
+            self._last_seen_size = None
+            self._history_malformed = False
+            return
         except OSError as exc:
             raise ValueError("attempt history unavailable") from exc
         try:
@@ -350,6 +373,11 @@ class AttemptLedger:
         try:
             with open(self.path, "rb") as fh:
                 raw = fh.read()
+        except FileNotFoundError:
+            # Same self-healing state as a missing tail: treat as absent.
+            self._last_seen_size = None
+            self._history_malformed = False
+            return
         except OSError as exc:
             raise ValueError("attempt history unavailable") from exc
         try:

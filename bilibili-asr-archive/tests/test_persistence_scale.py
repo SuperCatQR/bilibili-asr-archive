@@ -780,3 +780,23 @@ def test_torn_tail_does_not_latch_the_instance_after_healing(tmp_path: Path) -> 
     stored = ledger.append(_attempt("t:p0", 1))
     assert stored["attempt"] == 3
     assert [r["attempt"] for r in AttemptLedger(tmp_path).load()] == [1, 2, 3]
+
+
+def test_deleted_journal_self_heals_like_base(tmp_path: Path) -> None:
+    """A journal deleted between appends must not fail the writer.
+
+    Base performed no read on append, so a deleted sidecar (external cleanup /
+    integrity recovery) simply got recreated; the tail-replay path must treat
+    it as absent-on-disk rather than raising, and must agree with integrity.py
+    (which classes a missing sidecar as valid).
+    """
+
+    path = tmp_path / "coordinator" / "attempts.jsonl"
+    ledger = AttemptLedger(tmp_path)
+    first = ledger.append(_attempt("d:p0", 1))
+    assert first["attempt"] == 1
+    path.unlink()
+    second = ledger.append(_attempt("d:p0", 2))
+    assert second["attempt"] == 2
+    assert path.exists()
+    assert AttemptLedger(tmp_path).load() == [_attempt("d:p0", 2)]
