@@ -1,0 +1,178 @@
+{
+  "schema_version": 1,
+  "id": "iter-2026-10-followup",
+  "type": "iteration",
+  "status": "completed",
+  "phase": "phase-1-prepare",
+  "started_at": "2026-10-02",
+  "updated_at": "2026-10-02",
+  "compass_ref": "iterations/iter-2026-10-followup/delivery-compass.md",
+  "branch": {
+    "base": "main",
+    "integration": "iteration/iter-2026-10-followup",
+    "target": "main"
+  },
+  "plans": [
+    {
+      "id": "r14-asr-transcript-writeback",
+      "title": "ASR to store transcript write-back (R14)",
+      "file": "/root/workspace/bilibili-asr-archive/.mstar/plans/r14-asr-transcript-writeback.md",
+      "status": "Done",
+      "metadata": {
+        "iteration_refs": [
+          "iterations/iter-2026-10-followup/delivery-compass.md"
+        ],
+        "spec_integration_branch": "iteration/iter-2026-10-followup",
+        "merge_target": "iteration/iter-2026-10-followup",
+        "merge_commit": "9e63d29ad6404c73dffa71213903cd27af11e350"
+      },
+      "done_at": "2026-10-02"
+    },
+    {
+      "id": "qc-w1-compact-journal-guard",
+      "title": "compact() keep journal when snapshot absent",
+      "file": "/root/workspace/bilibili-asr-archive/.mstar/plans/qc-w1-compact-journal-guard.md",
+      "status": "Done",
+      "metadata": {
+        "iteration_refs": [
+          "iterations/iter-2026-10-followup/delivery-compass.md"
+        ],
+        "spec_integration_branch": "iteration/iter-2026-10-followup",
+        "merge_target": "iteration/iter-2026-10-followup",
+        "merge_commit": "52bc99010599748c832d885dada74fe365cc0385"
+      },
+      "done_at": "2026-10-02"
+    },
+    {
+      "id": "qc-w2-search-index-stale",
+      "title": "search_index.is_stale journal-aware",
+      "file": "/root/workspace/bilibili-asr-archive/.mstar/plans/qc-w2-search-index-stale.md",
+      "status": "Done",
+      "metadata": {
+        "iteration_refs": [
+          "iterations/iter-2026-10-followup/delivery-compass.md"
+        ],
+        "spec_integration_branch": "iteration/iter-2026-10-followup",
+        "merge_target": "iteration/iter-2026-10-followup",
+        "merge_commit": "d7a2a6ba929ca806d8d8eb4d4cb74454d49826d4"
+      },
+      "qa_gate": "pm-acceptance",
+      "qa_mode": "targeted",
+      "l2_review": {
+        "report": "/root/workspace/bilibili-asr-archive/.mstar/sdd/qc-w2-search-index-stale/task-1-review.md",
+        "verdict": "Approved",
+        "findings": "[]"
+      },
+      "done_at": "2026-10-02"
+    },
+    {
+      "id": "qc-w3-upsert-cross-process",
+      "title": "ManifestStore.upsert cross-process invalidation",
+      "file": "/root/workspace/bilibili-asr-archive/.mstar/plans/qc-w3-upsert-cross-process.md",
+      "status": "Done",
+      "metadata": {
+        "iteration_refs": [
+          "iterations/iter-2026-10-followup/delivery-compass.md"
+        ],
+        "spec_integration_branch": "iteration/iter-2026-10-followup",
+        "merge_target": "iteration/iter-2026-10-followup",
+        "merge_commit": "22a8dc9994ea31e0083212f09644d81639b97295"
+      },
+      "qa_gate": "pm-acceptance",
+      "qa_mode": "targeted",
+      "l2_review": {
+        "report": "/root/workspace/bilibili-asr-archive/.mstar/sdd/qc-w3-upsert-cross-process/task-1-review.md",
+        "verdict": "Approved",
+        "findings": "[] (1 Minor cold-path)"
+      },
+      "done_at": "2026-10-02"
+    },
+    {
+      "id": "qc-w4-pace-async",
+      "title": "metadata _pace asyncio + row-count gate",
+      "file": "/root/workspace/bilibili-asr-archive/.mstar/plans/qc-w4-pace-async.md",
+      "status": "Done",
+      "metadata": {
+        "iteration_refs": [
+          "iterations/iter-2026-10-followup/delivery-compass.md"
+        ],
+        "spec_integration_branch": "iteration/iter-2026-10-followup",
+        "merge_target": "iteration/iter-2026-10-followup",
+        "merge_commit": "d7a2a6ba929ca806d8d8eb4d4cb74454d49826d4"
+      },
+      "done_at": "2026-10-02"
+    },
+    {
+      "id": "005-search-index-skip-stamped",
+      "title": "search-index skip already-stamped parts",
+      "file": "/root/workspace/bilibili-asr-archive/.mstar/plans/005-search-index-skip-stamped.md",
+      "status": "Done",
+      "metadata": {
+        "iteration_refs": [
+          "iterations/iter-2026-10-followup/delivery-compass.md"
+        ],
+        "spec_integration_branch": "iteration/iter-2026-10-followup",
+        "merge_target": "iteration/iter-2026-10-followup",
+        "merge_commit": "e4a055c3ae56120593b378228b2531fcbbdd6a86"
+      },
+      "done_at": "2026-10-02"
+    },
+    {
+      "id": "006-attempt-ledger-inmemory",
+      "title": "attempt-ledger in-memory count",
+      "file": "/root/workspace/bilibili-asr-archive/.mstar/plans/006-attempt-ledger-inmemory.md",
+      "status": "Done",
+      "qa_gate": "pm-acceptance",
+      "qa_mode": "targeted",
+      "l2_review": {
+        "report": "/root/workspace/bilibili-asr-archive/.mstar/sdd/006-attempt-ledger-inmemory/task-1-review.md",
+        "verdict": "Approved",
+        "findings": "[] (1 Minor style)"
+      },
+      "done_at": "2026-10-02",
+      "metadata": {
+        "merge_commit": "12c5800d046798cad9e320f3e49423aa8c985e6a"
+      }
+    },
+    {
+      "id": "008-pytest-markers",
+      "title": "pytest markers + opt-in gates",
+      "file": "/root/workspace/bilibili-asr-archive/.mstar/plans/008-pytest-markers.md",
+      "status": "Done",
+      "metadata": {
+        "iteration_refs": [
+          "iterations/iter-2026-10-followup/delivery-compass.md"
+        ],
+        "spec_integration_branch": "iteration/iter-2026-10-followup",
+        "merge_target": "iteration/iter-2026-10-followup",
+        "merge_commit": "b4c734b68be4106ab236402ee3d09454c89c3e7d"
+      },
+      "done_at": "2026-10-02"
+    },
+    {
+      "id": "010-dedupe-shared-helpers",
+      "title": "dedupe shared constant/helper clusters",
+      "file": "/root/workspace/bilibili-asr-archive/.mstar/plans/010-dedupe-shared-helpers.md",
+      "status": "Done",
+      "metadata": {
+        "iteration_refs": [
+          "iterations/iter-2026-10-followup/delivery-compass.md"
+        ],
+        "spec_integration_branch": "iteration/iter-2026-10-followup",
+        "merge_target": "iteration/iter-2026-10-followup",
+        "merge_commit": "98685a0e6a13dd56e6f0391889e059263268b853"
+      },
+      "done_at": "2026-10-02"
+    }
+  ],
+  "project": "_default",
+  "integration_worktree_path": "/root/workspace/bilibili-asr-archive/.worktrees/iter-2026-10-followup-integration",
+  "pr": {
+    "url": "https://github.com/SuperCatQR/bilibili-asr-archive/pull/31",
+    "number": 31,
+    "base": "main",
+    "head": "iteration/iter-2026-10-followup",
+    "opened_at": "2026-10-02"
+  },
+  "ended_at": "2026-10-02"
+}

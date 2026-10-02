@@ -1,0 +1,177 @@
+{
+  "schema_version": 1,
+  "id": "iter-2026-10-audit-burndown",
+  "type": "iteration",
+  "status": "completed",
+  "phase": "phase-1-prepare",
+  "started_at": "2026-10-02",
+  "updated_at": "2026-10-02",
+  "compass_ref": "iterations/iter-2026-10-audit-burndown/delivery-compass.md",
+  "branch": {
+    "base": "main",
+    "integration": "iteration/iter-2026-10-audit-burndown",
+    "target": "main"
+  },
+  "plans": [
+    {
+      "id": "001-second-pass-asr-cache-bust",
+      "title": "Second hotword pass re-decodes from clean state",
+      "file": "/root/workspace/bilibili-asr-archive/.mstar/plans/001-second-pass-asr-cache-bust.md",
+      "status": "Done",
+      "metadata": {
+        "iteration_refs": [
+          "iterations/iter-2026-10-audit-burndown/delivery-compass.md"
+        ],
+        "spec_integration_branch": "iteration/iter-2026-10-audit-burndown",
+        "merge_target": "iteration/iter-2026-10-audit-burndown",
+        "working_branch": "fix/20261002-001-asr-cache",
+        "worktree_path": "/root/workspace/bilibili-asr-archive/.worktrees/20261002-001-asr-cache",
+        "merge_commit": "f23e5eb3ffad9b5913995d5dfefd01a97fd3ff3b"
+      },
+      "qa_gate": "pm-acceptance",
+      "qa_mode": "targeted",
+      "l2_review": {
+        "report": "/root/workspace/bilibili-asr-archive/.mstar/sdd/001-second-pass-asr-cache-bust/task-1-review.md",
+        "verdict": "Approved (incl. QC-C1 fix re-review 1acbdfd)",
+        "findings": "[] (2 Minor cosmetic)",
+        "known_incomplete": "PASS-2 NOT yet wired in production (coordinator.py:601 + cli/asr.py:227 call transcribe without bust_cache=True); owned by plan 010, must not close without it"
+      },
+      "done_at": "2026-10-02"
+    },
+    {
+      "id": "003-batch-manifest-ledger-writes",
+      "title": "Batch manifest ledger writes",
+      "file": "/root/workspace/bilibili-asr-archive/.mstar/plans/003-batch-manifest-ledger-writes.md",
+      "status": "Done",
+      "metadata": {
+        "iteration_refs": [
+          "iterations/iter-2026-10-audit-burndown/delivery-compass.md"
+        ],
+        "spec_integration_branch": "iteration/iter-2026-10-audit-burndown",
+        "merge_target": "iteration/iter-2026-10-audit-burndown",
+        "working_branch": "fix/20261002-003-manifest-ledger",
+        "worktree_path": "/root/workspace/bilibili-asr-archive/.worktrees/20261002-003-manifest-ledger",
+        "merge_commit": "fa6d5f8949db5e48c0b3bee2d7ba3fff5994bfcc"
+      },
+      "qa_gate": "pm-acceptance",
+      "qa_mode": "targeted",
+      "l2_review": {
+        "report": "/root/workspace/bilibili-asr-archive/.mstar/sdd/003-batch-manifest-ledger-writes/task-1-review.md",
+        "verdict": "Approved (incl. fix re-review c31ab81)",
+        "findings": "1 Important (journal-split bounded staleness for non-store readers: search_index.is_stale snapshot-mtime-only; coverage/integrity/status projections read only manifest.jsonl up to 256-row journal staleness) -> residual for triage; 2 Minor",
+        "gate_verified": "pytest test_manifest.py = 26 passed on provisioned venv (PM)"
+      },
+      "done_at": "2026-10-02"
+    },
+    {
+      "id": "002-store-asr-limit-once",
+      "title": "Apply --limit once on the store-sourced asr queue",
+      "file": "/root/workspace/bilibili-asr-archive/.mstar/plans/002-store-asr-limit-once.md",
+      "status": "Done",
+      "metadata": {
+        "iteration_refs": [
+          "iterations/iter-2026-10-audit-burndown/delivery-compass.md"
+        ],
+        "spec_integration_branch": "iteration/iter-2026-10-audit-burndown",
+        "merge_target": "iteration/iter-2026-10-audit-burndown",
+        "working_branch": "fix/20261002-002-asr-limit",
+        "worktree_path": "/root/workspace/bilibili-asr-archive/.worktrees/20261002-002-asr-limit",
+        "merge_commit": "14ed8219b74b00640b64241016055ec5cf1ddb19"
+      },
+      "qa_gate": "pm-acceptance",
+      "qa_mode": "targeted",
+      "l2_review": {
+        "report": "/root/workspace/bilibili-asr-archive/.mstar/sdd/002-store-asr-limit-once/task-1-review.md",
+        "verdict": "Approved",
+        "findings": "[]",
+        "note": "2 pre-existing failures (test_asr_store_source_selects_transcript_gap_part, test_pilot_store_source_uses_gap_views) are R14 surface, unrelated to this diff (reviewer confirmed by reading assertions)"
+      },
+      "done_at": "2026-10-02"
+    },
+    {
+      "id": "004-pace-metadata-getters",
+      "title": "Pace the three per-row metadata getters",
+      "file": "/root/workspace/bilibili-asr-archive/.mstar/plans/004-pace-metadata-getters.md",
+      "status": "Done",
+      "metadata": {
+        "iteration_refs": [
+          "iterations/iter-2026-10-audit-burndown/delivery-compass.md"
+        ],
+        "spec_integration_branch": "iteration/iter-2026-10-audit-burndown",
+        "merge_target": "iteration/iter-2026-10-audit-burndown",
+        "working_branch": "fix/20261002-004-metadata-pace",
+        "worktree_path": "/root/workspace/bilibili-asr-archive/.worktrees/20261002-004-metadata-pace",
+        "merge_commit": "af2cc96e7a92b446fbab79d3e8ded7afdc0de4d7"
+      },
+      "qa_gate": "pm-acceptance",
+      "qa_mode": "targeted",
+      "l2_review": {
+        "report": "/root/workspace/bilibili-asr-archive/.mstar/sdd/004-pace-metadata-getters/task-1-review.md",
+        "verdict": "Approved",
+        "findings": "[]",
+        "gate_verified": "pytest test_bilibili_api_gateway.py = 369 passed 1 skipped on provisioned venv (PM)"
+      },
+      "done_at": "2026-10-02"
+    },
+    {
+      "id": "007-conftest-tmp-root-syspath",
+      "title": "Fix conftest sys.path + tmp_root PID-reuse flake",
+      "file": "/root/workspace/bilibili-asr-archive/.mstar/plans/007-conftest-tmp-root-syspath.md",
+      "status": "Done",
+      "metadata": {
+        "iteration_refs": [
+          "iterations/iter-2026-10-audit-burndown/delivery-compass.md"
+        ],
+        "spec_integration_branch": "iteration/iter-2026-10-audit-burndown",
+        "merge_target": "iteration/iter-2026-10-audit-burndown",
+        "working_branch": "fix/20261002-007-conftest",
+        "worktree_path": "/root/workspace/bilibili-asr-archive/.worktrees/20261002-007-conftest",
+        "merge_commit": "f181fc8cdb8993c7f24144d977eb20fb2936d82a"
+      },
+      "qa_gate": "pm-acceptance",
+      "qa_mode": "targeted",
+      "l2_review": {
+        "report": "/root/workspace/bilibili-asr-archive/.mstar/sdd/007-conftest-tmp-root-syspath/task-1-review.md",
+        "verdict": "Approved",
+        "findings": "[] (2 Minor style notes)",
+        "gate_verified": "pytest storage_schema+audio_budget+manifest = 74 passed on provisioned venv (reviewer env gap closed by PM)"
+      },
+      "done_at": "2026-10-02"
+    },
+    {
+      "id": "009-consolidate-cue-parsers",
+      "title": "Consolidate the three cue-parsers",
+      "file": "/root/workspace/bilibili-asr-archive/.mstar/plans/009-consolidate-cue-parsers.md",
+      "status": "Done",
+      "metadata": {
+        "iteration_refs": [
+          "iterations/iter-2026-10-audit-burndown/delivery-compass.md"
+        ],
+        "spec_integration_branch": "iteration/iter-2026-10-audit-burndown",
+        "merge_target": "iteration/iter-2026-10-audit-burndown",
+        "working_branch": "fix/20261002-009-cue-parsers",
+        "worktree_path": "/root/workspace/bilibili-asr-archive/.worktrees/20261002-009-cue-parsers",
+        "merge_commit": "a7942f331eaf1eed0f9b88fcfd0a5d9023f38d15"
+      },
+      "qa_gate": "pm-acceptance",
+      "qa_mode": "targeted",
+      "l2_review": {
+        "report": "/root/workspace/bilibili-asr-archive/.mstar/sdd/009-consolidate-cue-parsers/task-1-review.md",
+        "verdict": "Approved",
+        "findings": "[] (2 Minor non-blocking; C-R3 follow-up flagged)",
+        "gate_verified": "pytest test_quality+test_proofread_routes=77 passed, test_asr_qwen=50 passed on provisioned venv (PM)"
+      },
+      "done_at": "2026-10-02"
+    }
+  ],
+  "project": "_default",
+  "integration_worktree_path": "/root/workspace/bilibili-asr-archive/.worktrees/iter-2026-10-audit-burndown-integration",
+  "pr": {
+    "url": "https://github.com/SuperCatQR/bilibili-asr-archive/pull/30",
+    "number": 30,
+    "base": "main",
+    "head": "iteration/iter-2026-10-audit-burndown",
+    "opened_at": "2026-10-02"
+  },
+  "ended_at": "2026-10-02"
+}

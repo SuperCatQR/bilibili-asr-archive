@@ -1,0 +1,72 @@
+{
+  "schema_version": 1,
+  "id": "iter-2026-10-closeout",
+  "type": "iteration",
+  "status": "completed",
+  "phase": "phase-1-prepare",
+  "started_at": "2026-10-02",
+  "updated_at": "2026-10-02",
+  "compass_ref": "iterations/iter-2026-10-closeout/delivery-compass.md",
+  "branch": {
+    "base": "main",
+    "integration": "iteration/iter-2026-10-closeout",
+    "target": "main"
+  },
+  "plans": [
+    {
+      "id": "r14-routes-writeback",
+      "title": "R14 coordinator/run + subtitle-arm write-back",
+      "file": "/root/workspace/bilibili-asr-archive/.mstar/plans/r14-routes-writeback.md",
+      "status": "Done",
+      "metadata": {
+        "iteration_refs": [
+          "iterations/iter-2026-10-closeout/delivery-compass.md"
+        ],
+        "spec_integration_branch": "iteration/iter-2026-10-closeout",
+        "merge_target": "iteration/iter-2026-10-closeout",
+        "merge_commit": "f1dfe04a7be7afd39cc24943f95e9d5dbbfe6dd1"
+      },
+      "done_at": "2026-10-02"
+    },
+    {
+      "id": "stem-contract-consolidation",
+      "title": "canonical-stem contract consolidation",
+      "file": "/root/workspace/bilibili-asr-archive/.mstar/plans/stem-contract-consolidation.md",
+      "status": "Done",
+      "metadata": {
+        "iteration_refs": [
+          "iterations/iter-2026-10-closeout/delivery-compass.md"
+        ],
+        "spec_integration_branch": "iteration/iter-2026-10-closeout",
+        "merge_target": "iteration/iter-2026-10-closeout",
+        "merge_commit": "a0363f57a78a90c3ab535ccb4880dde572807024"
+      },
+      "done_at": "2026-10-02"
+    },
+    {
+      "id": "test-drift-repair",
+      "title": "fix pre-existing test drift",
+      "file": "/root/workspace/bilibili-asr-archive/.mstar/plans/test-drift-repair.md",
+      "status": "Done",
+      "metadata": {
+        "iteration_refs": [
+          "iterations/iter-2026-10-closeout/delivery-compass.md"
+        ],
+        "spec_integration_branch": "iteration/iter-2026-10-closeout",
+        "merge_target": "iteration/iter-2026-10-closeout",
+        "merge_commit": "c5ec0948dbd79330d689f4c54203c9a4362ec869"
+      },
+      "done_at": "2026-10-02"
+    }
+  ],
+  "project": "_default",
+  "integration_worktree_path": "/root/workspace/bilibili-asr-archive/.worktrees/iter-2026-10-closeout-integration",
+  "pr": {
+    "url": "https://github.com/SuperCatQR/bilibili-asr-archive/pull/32",
+    "number": 32,
+    "base": "main",
+    "head": "iteration/iter-2026-10-closeout",
+    "opened_at": "2026-10-02"
+  },
+  "ended_at": "2026-10-02"
+}

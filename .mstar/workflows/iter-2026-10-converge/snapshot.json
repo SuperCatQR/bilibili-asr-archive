@@ -1,0 +1,72 @@
+{
+  "schema_version": 1,
+  "id": "iter-2026-10-converge",
+  "type": "iteration",
+  "status": "completed",
+  "phase": "phase-1-prepare",
+  "started_at": "2026-10-02",
+  "updated_at": "2026-10-02",
+  "compass_ref": "iterations/iter-2026-10-converge/delivery-compass.md",
+  "branch": {
+    "base": "main",
+    "integration": "iteration/iter-2026-10-converge",
+    "target": "main"
+  },
+  "plans": [
+    {
+      "id": "fix-006-attempt-ledger",
+      "title": "Restore cross-process attempt numbering + malformed-history",
+      "file": "/root/workspace/bilibili-asr-archive/.mstar/plans/fix-006-attempt-ledger.md",
+      "status": "Done",
+      "metadata": {
+        "iteration_refs": [
+          "iterations/iter-2026-10-converge/delivery-compass.md"
+        ],
+        "spec_integration_branch": "iteration/iter-2026-10-converge",
+        "merge_target": "iteration/iter-2026-10-converge",
+        "merge_commit": "8e1dd03"
+      },
+      "done_at": "2026-10-02"
+    },
+    {
+      "id": "store-route-expressiveness",
+      "title": "pilot/schedule meta_ok go harvest + pin 12 fixtures",
+      "file": "/root/workspace/bilibili-asr-archive/.mstar/plans/store-route-expressiveness.md",
+      "status": "Done",
+      "metadata": {
+        "iteration_refs": [
+          "iterations/iter-2026-10-converge/delivery-compass.md"
+        ],
+        "spec_integration_branch": "iteration/iter-2026-10-converge",
+        "merge_target": "iteration/iter-2026-10-converge",
+        "merge_commit": "f7f818f"
+      },
+      "done_at": "2026-10-02"
+    },
+    {
+      "id": "search-n1-batching",
+      "title": "batch search_blocks snippet reads",
+      "file": "/root/workspace/bilibili-asr-archive/.mstar/plans/search-n1-batching.md",
+      "status": "Done",
+      "metadata": {
+        "iteration_refs": [
+          "iterations/iter-2026-10-converge/delivery-compass.md"
+        ],
+        "spec_integration_branch": "iteration/iter-2026-10-converge",
+        "merge_target": "iteration/iter-2026-10-converge",
+        "merge_commit": "7898605"
+      },
+      "done_at": "2026-10-02"
+    }
+  ],
+  "project": "_default",
+  "integration_worktree_path": "/root/workspace/bilibili-asr-archive/.worktrees/iter-2026-10-converge-integration",
+  "pr": {
+    "url": "https://github.com/SuperCatQR/bilibili-asr-archive/pull/33",
+    "number": 33,
+    "base": "main",
+    "head": "iteration/iter-2026-10-converge",
+    "opened_at": "2026-10-02"
+  },
+  "ended_at": "2026-10-02"
+}
