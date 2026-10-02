@@ -1,0 +1,8 @@
+=== S1b: check-asr-env with HSA_ENABLE_DXG_DETECTION=1 ===
+check: dxg-detection ok
+check: rocm-loader-path ok
+check: torch-present ok
+check: hsa-runtime ok
+check: device ok name=AMD Radeon RX 7800 XT arch=gfx1101 vram_gb=15.8 hip=7.2.26015-fc0010cf6a
+asr-env: verified
+S1b exit code (captured separately)=0

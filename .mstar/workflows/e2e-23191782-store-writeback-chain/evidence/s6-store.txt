@@ -1,0 +1,21 @@
+--- select t.transcript_id,t.source_kind,t.language,t.version,t.model_id,length(t.content_sha256) as sha_len,t.created_at from transcripts t join video_parts vp using(video_part_id) where vp.bvid='BV1aAhLzsENb'
+    transcript_id=2 | source_kind=asr-local | language=und | version=1 | model_id=1 | sha_len=64 | created_at=1790983662
+--- select count(*) as segment_rows from transcript_segments ts join transcripts t using(transcript_id) join video_parts vp using(video_part_id) where vp.bvid='BV1aAhLzsENb'
+    segment_rows=55
+--- select min(ordinal) as min_ord,max(ordinal) as max_ord,count(*) as n,sum(case when end_ms>start_ms then 1 else 0 end) as well_ordered from transcript_segments ts join transcripts t using(transcript_id) join video_parts vp using(video_part_id) where vp.bvid='BV1aAhLzsENb'
+    min_ord=0 | max_ord=54 | n=55 | well_ordered=55
+--- select model_id,model_name,revision from asr_models
+    model_id=1 | model_name=/root/workspace/bilibili-asr-archive/bilibili-asr-archive/models/Qwen3-ASR-1.7B-hf | revision=
+--- select run_id,kind,selector_kind,selector_target,outcome from acquisition_runs where kind='asr'
+    run_id=asr-1790983612 | kind=asr | selector_kind=pending | selector_target=None | outcome=running
+--- select aa.run_id,aa.outcome,aa.error_code,aa.transcript_id from acquisition_attempts aa join video_parts vp using(video_part_id) where vp.bvid='BV1aAhLzsENb'
+    run_id=d5e2077bc1944f72a72439013fccbfd5 | outcome=no-subtitle | error_code=None | transcript_id=None
+    run_id=asr-1790983612 | outcome=stored | error_code=None | transcript_id=2
+--- select count(*) as aud_in_missing_transcript_after from v_missing_transcript where bvid='BV1aAhLzsENb'
+    aud_in_missing_transcript_after=0
+--- select pipeline_state from v_part_pipeline where bvid='BV1aAhLzsENb'
+    pipeline_state=transcribed
+--- select substr(text,1,60) as first_segment_text from transcript_segments ts join transcripts t using(transcript_id) join video_parts vp using(video_part_id) where vp.bvid='BV1aAhLzsENb' order by ts.ordinal limit 3
+    first_segment_text=我们今天要讲的就是说，
+    first_segment_text=有大的智慧，必然会有大的勇敢，
+    first_segment_text=因为大智者，有大智者

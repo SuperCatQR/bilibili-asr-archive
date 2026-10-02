@@ -1,0 +1,6 @@
+--- select count(*) as videos from videos
+    videos=60
+--- select count(*) as parts from video_parts
+    parts=60
+--- select count(*) as runs from ingestion_runs
+    runs=2

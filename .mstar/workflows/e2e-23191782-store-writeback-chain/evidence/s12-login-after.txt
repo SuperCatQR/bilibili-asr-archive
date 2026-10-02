@@ -1,0 +1,7 @@
+=== bash -lc 'bili-asr check-asr-env' (login shell reads /etc/profile.d/bili-asr-gpu.sh) ===
+check: torch-present ok
+check: hsa-runtime ok
+check: device ok name=AMD Radeon RX 7800 XT arch=gfx1101 vram_gb=15.8 hip=7.2.26015-fc0010cf6a
+asr-env: verified
+exit in login shell = 0
+exit in 'wsl -e bash -s' (no startup file is read) = 1

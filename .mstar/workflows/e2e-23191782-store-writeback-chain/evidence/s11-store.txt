@@ -1,0 +1,2 @@
+--- select t.transcript_id,t.source_kind,t.language,t.version from transcripts t join video_parts vp using(video_part_id) where vp.bvid='BV1acKfzEEWS' order by t.transcript_id
+    transcript_id=1 | source_kind=subtitle-ai | language=ai-zh | version=1

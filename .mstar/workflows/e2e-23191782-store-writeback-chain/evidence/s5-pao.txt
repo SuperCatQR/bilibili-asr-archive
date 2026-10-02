@@ -1,0 +1,8 @@
+--- select pao.video_part_id,pao.audio_id,pao.acquisition_source,pao.acquired_at from part_audio_objects pao join video_parts vp using(video_part_id) where vp.bvid='BV1aAhLzsENb'
+    video_part_id=12 | audio_id=1 | acquisition_source=download | acquired_at=1790983612
+--- select count(*) as aud_in_missing_audio from v_missing_audio where bvid='BV1aAhLzsENb'
+    aud_in_missing_audio=0
+--- select count(*) as aud_in_missing_transcript from v_missing_transcript where bvid='BV1aAhLzsENb'
+    aud_in_missing_transcript=1
+--- select bvid,duration_ms,(select status from v_missing_transcript where bvid='BV1aAhLzsENb') as _dummy from v_missing_transcript where bvid='BV1aAhLzsENb'
+    ERR no such column: status

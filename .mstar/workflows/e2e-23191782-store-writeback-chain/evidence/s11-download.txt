@@ -1,0 +1,4 @@
+queue-source manifest is deprecated; archive.db is the sole queue
+BV1acKfzEEWS:p0: audio downloaded -> audio_ok (audio/BV1acKfzEEWS.p0.m4a)
+download-audio: 1 audio_ok
+RC=0

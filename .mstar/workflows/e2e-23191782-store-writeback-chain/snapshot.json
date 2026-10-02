@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "id": "e2e-23191782-store-writeback-chain",
+  "type": "plan",
+  "status": "running",
+  "started_at": "2026-10-03",
+  "updated_at": "2026-10-03",
+  "plans": [
+    {
+      "id": "e2e-23191782-store-writeback-chain",
+      "title": "E2E 计划：store 驱动链 — 字幕/音频准入 · ASR→store 写回收敛 · 读者出口",
+      "file": "/root/workspace/bilibili-asr-archive/.mstar/plans/e2e-23191782-store-writeback-chain.md",
+      "status": "Todo"
+    }
+  ],
+  "delivery_kind": "verification/report-only",
+  "project": "_default",
+  "completion_policy": "No branch and no PR: the deliverable is this workflow's own report, accepted by the PM against the assigned scenario list S0-S12 with exactly one determinate outcome each; the workflow closes terminal on that acceptance, independent of what the scenarios conclude. A failed product scenario is still a completed verification run."
+}

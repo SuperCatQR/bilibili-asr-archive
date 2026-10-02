@@ -1,0 +1,10 @@
+--- select ar.kind,aa.outcome,aa.error_code,ar.selector_kind,ar.selector_target from acquisition_attempts aa join acquisition_runs ar using(run_id) join video_parts vp using(video_part_id) where vp.bvid='BV1aAhLzsENb'
+    kind=subtitle | outcome=no-subtitle | error_code=None | selector_kind=bvid | selector_target=BV1aAhLzsENb
+--- select count(*) as aud_after from v_missing_audio where bvid='BV1aAhLzsENb'
+    aud_after=1
+--- select count(*) as aud_transcripts from transcripts t join video_parts vp using(video_part_id) where vp.bvid='BV1aAhLzsENb'
+    aud_transcripts=0
+--- select count(*) as aud_audio_objects from part_audio_objects pao join video_parts vp using(video_part_id) where vp.bvid='BV1aAhLzsENb'
+    aud_audio_objects=0
+--- select vp.bvid,vp.duration_ms from v_missing_audio where bvid='BV1aAhLzsENb'
+    ERR no such column: vp.bvid

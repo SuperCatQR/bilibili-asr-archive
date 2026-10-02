@@ -1,0 +1,8 @@
+total 128
+drwx------ 2 root root  4096 Oct  3 07:32 .
+drwxr-xr-x 4 root root  4096 Oct  3 07:32 ..
+-rw-r--r-- 1 root root   596 Oct  3 07:32 .bundle-ready
+-rw-r--r-- 1 root root  6958 Oct  3 07:32 bundle.md
+-rw-r--r-- 1 root root 87774 Oct  3 07:32 bundle.raw.json
+-rw-r--r-- 1 root root  9042 Oct  3 07:32 bundle.srt
+-rw-r--r-- 1 root root  6230 Oct  3 07:32 bundle.txt

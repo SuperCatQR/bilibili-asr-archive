@@ -1,0 +1,10 @@
+=== attempt 1: --start-page 5 --limit-pages 2 (no --resume; mutually exclusive per parser) ===
+fetch-meta: metadata gateway failure (rate_limited); cursor unchanged at page 6 — re-run fetch-meta to resume.
+sessdata: present
+fetch-meta: collected 2 page(s) for mid=23191782 (outcome=risk_interrupted)
+RC=2
+=== attempt 2 (retry after rate_limited; plan allows exactly one retry) ===
+sessdata: present
+fetch-meta: collected 1 page(s) for mid=23191782 (outcome=limited)
+cursor: next_page=7 state=limited
+RC=0

@@ -1,0 +1,7 @@
+/root/e2e-asr/store-writeback-chain/artifacts/transcripts/BV1aAhLzsENb.p0/bundle.raw.json
+/root/e2e-asr/store-writeback-chain/artifacts/transcripts/BV1aAhLzsENb.p0/bundle.txt
+/root/e2e-asr/store-writeback-chain/artifacts/transcripts/BV1aAhLzsENb.p0/bundle.md
+/root/e2e-asr/store-writeback-chain/artifacts/transcripts/BV1aAhLzsENb.p0/.bundle-ready
+/root/e2e-asr/store-writeback-chain/artifacts/transcripts/BV1aAhLzsENb.p0/bundle.srt
+--- bundle-ready markers ---
+/root/e2e-asr/store-writeback-chain/artifacts/transcripts/BV1aAhLzsENb.p0/.bundle-ready
