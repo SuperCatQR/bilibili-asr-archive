@@ -181,21 +181,47 @@ class AttemptLedger:
 
     The per-``(work_id, stage)`` latest attempt number is kept in an in-memory
     map seeded once at construction (a single full scan of any existing
-    sidecar) and trusted thereafter, so ``append`` never re-reads the file.
-    Numbering therefore assumes the project's sequential-no-daemon
-    single-writer contract (decision D12): another process appending between
-    this ledger's construction and its next append is out of contract.
+    sidecar).  The single-writer fast path (D12) trusts that map without
+    re-reading, so a batch pays no per-row re-read; cross-process safety is
+    restored by a cheap fingerprint, not by scanning growing state:
+
+    * The sidecar is append-only and never compacted (D12), so its size is a
+      monotone write fingerprint.  ``append`` records the size it last saw;
+      under the flock, a foreign append since then shows up as a size delta.
+    * On that collision only, the ledger re-reads the journal tail (the bytes
+      past the last seen size) strictly — a malformed tail raises before
+      anything is written — and replays those records into the in-memory map
+      before numbering.  The journal is small and the tail shorter still, so
+      the collision path is cheap; the no-collision path stays O(1).
     """
 
     def __init__(self, root: str | os.PathLike[str]) -> None:
         self.root = os.fspath(root)
         self.path = os.path.join(self.root, ATTEMPTS_REL_PATH)
         self._latest_attempts: dict[tuple[str, str], int] = {}
-        for prior in self._iter_valid():
-            key = (prior["work_id"], prior["stage"])
-            self._latest_attempts[key] = max(
-                self._latest_attempts.get(key, 0), prior["attempt"]
-            )
+        # Lenient seeding (load() stays tolerant), but remember whether the
+        # history we seeded from contained malformed records: an authoritative
+        # append must fail closed on a corrupt sidecar instead of extending
+        # it, without re-reading the file per append.
+        self._history_malformed = False
+        if os.path.exists(self.path):
+            with open(self.path, "r", encoding="utf-8") as fh:
+                for line in fh:
+                    if not line.strip():
+                        continue
+                    try:
+                        prior = _validate_attempt(json.loads(line))
+                    except (json.JSONDecodeError, ValueError):
+                        self._history_malformed = True
+                        continue
+                    key = (prior["work_id"], prior["stage"])
+                    self._latest_attempts[key] = max(
+                        self._latest_attempts.get(key, 0), prior["attempt"]
+                    )
+        # Monotone write fingerprint of the append-only sidecar (D12): its
+        # byte size as of the last load/replay this instance performed.
+        # None until the sidecar exists or this instance itself appends.
+        self._last_seen_size = self._file_size()
 
     def load(self) -> list[dict[str, Any]]:
         if not os.path.exists(self.path):
@@ -217,10 +243,17 @@ class AttemptLedger:
         os.makedirs(os.path.dirname(self.path), exist_ok=True)
         lock_path = self.path + ".lock"
         with file_lock(lock_path):
+            if self._history_malformed:
+                raise ValueError("malformed attempt history")
+            # Single-writer fast path (D12): when the sidecar size matches the
+            # last size this instance saw, no foreign append happened and the
+            # in-memory map is authoritative — no re-read.  A size delta means
+            # another process appended under the same flock; replay only the
+            # new tail strictly (malformed tail fails closed) and refresh the
+            # map before numbering.
+            if self._file_size() != self._last_seen_size:
+                self._replay_tail(self._last_seen_size or 0)
             key = (stored["work_id"], stored["stage"])
-            # Trust the in-memory map (seeded once at construction) instead
-            # of re-scanning the whole sidecar per append; single-writer is
-            # by design (decision D12).
             latest = self._latest_attempts.get(key, 0)
             if record.get("_preserve_attempt"):
                 next_attempt = stored["attempt"]
@@ -229,7 +262,48 @@ class AttemptLedger:
             stored["attempt"] = next_attempt
             self._latest_attempts[key] = next_attempt
             append_jsonl_record(self.path, stored, lock_path=lock_path)
+            self._last_seen_size = self._file_size()
         return stored
+
+    def _file_size(self) -> int | None:
+        try:
+            return os.path.getsize(self.path)
+        except OSError:
+            return None
+
+    def _replay_tail(self, offset: int) -> None:
+        """Re-read and strictly validate only the journal tail past ``offset``.
+
+        The sidecar is append-only and never truncated (D12), so bytes past
+        the last seen size are exactly the foreign appends; replaying them
+        into the in-memory map restores cross-process numbering without a
+        full scan.  Strict validation keeps the authoritative append
+        fail-closed on a malformed history, as it was before the in-memory
+        map landed.
+        """
+        try:
+            with open(self.path, "rb") as fh:
+                fh.seek(offset)
+                tail = fh.read()
+        except OSError as exc:
+            raise ValueError("attempt history unavailable") from exc
+        if not tail:
+            return
+        text = tail.decode("utf-8", errors="replace")
+        for line_number, line in enumerate(text.splitlines(), 1):
+            if not line.strip():
+                continue
+            try:
+                prior = _validate_attempt(json.loads(line))
+            except (json.JSONDecodeError, ValueError) as exc:
+                self._history_malformed = True
+                raise ValueError(
+                    f"malformed attempt history at tail line {line_number}"
+                ) from exc
+            key = (prior["work_id"], prior["stage"])
+            self._latest_attempts[key] = max(
+                self._latest_attempts.get(key, 0), prior["attempt"]
+            )
 
     def _iter_valid(self, *, strict: bool = False):
         if not os.path.exists(self.path):
