@@ -114,6 +114,8 @@ authorization: "Q1 授权 A4（检出同步）；Q2 启用 S11；Q3 确认写根
 | **S8** | 读者出口 | `status` 该 part 计为已转写；`search-index` 后 `search <ASR 文本中的独有字符串>` **能命中该块**；`verify` **exit 0**；`coverage --strict` 的 exit 与 `defect_count`/`backlog_count` 记录在案 | `s8-status.txt` / `s8-search.txt` / `s8-verify.txt`（含 exit code）/ `s8-coverage.txt` |
 | **S9** | 发布幂等 | 首次 `publish-transcripts --bvid <AUD_BV> --limit-parts 1` 产出 bundle（含 `.bundle-ready`）；**第二次** 输出含 `already_published` 且既有 bundle **未被替换** | `s9-first.txt` / `s9-second.txt`；`stat` 前后 mtime/大小 |
 | **S10** | 热词装载态（as-shipped） | 基准树上 `DEFAULT_HOTWORDS == ()`；`MEASURED_HOTWORD_CANDIDATES` 存在；不设 `BILI_ASR_HOTWORDS` 时两遍热词路径 **inert** | `s10-hotwords.txt` |
+| **S11** | **人工抽检腿（已授权启用）**：闭合 `I-000102` | 对 S3 已产出 `subtitle-ai` 的 part 强制取音频 + 转写（**故意偏离**默认队列语义），再跑 `proofread --bvid <CAP_BV>`；产出 ≥5 个校对块的**人工判定记录**（一致/次要/待审按 `mstar` 冻结阈值 0.85/0.75 归档） | `s11-asr.txt`；`s11-proofread.txt`；`$EV/s11-inspection.md`（≥5 块，含判定与依据） |
+| **S12** | **DXG 持久化（已授权，闭合 `I-000118` 主机侧）** | 把 `HSA_ENABLE_DXG_DETECTION=1` 持久化进算力机 shell profile（`~/.config/bili-asr/session.env`，该文件已被 `~/.bashrc` source）→ **裸** `check-asr-env` **exit 0** | `s12-persist.txt`（写入前后该文件的键名清单，**不含值**）；`s12-bare-after.txt`（裸跑，含 exit code） |
 
 ### 4.1 S6 断言明细（收敛是本计划的核心）
 
