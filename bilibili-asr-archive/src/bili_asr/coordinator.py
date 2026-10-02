@@ -204,6 +204,15 @@ class AttemptLedger:
         # append must fail closed on a corrupt sidecar instead of extending
         # it, without re-reading the file per append.
         self._history_malformed = False
+        # Monotone write fingerprint of the append-only sidecar (D12): its
+        # byte size as of the last load/replay this instance performed.
+        # Captured BEFORE the seeding read: a foreign append landing between
+        # the read and this fingerprint would otherwise be absorbed into an
+        # already-current size and never replayed (a duplicate attempt
+        # number).  The sidecar only grows, so a pre-read size is
+        # conservative — the first append replays that window as a tail.
+        # None until the sidecar exists or this instance itself appends.
+        self._last_seen_size = self._file_size()
         if os.path.exists(self.path):
             with open(self.path, "r", encoding="utf-8") as fh:
                 for line in fh:
@@ -218,10 +227,6 @@ class AttemptLedger:
                     self._latest_attempts[key] = max(
                         self._latest_attempts.get(key, 0), prior["attempt"]
                     )
-        # Monotone write fingerprint of the append-only sidecar (D12): its
-        # byte size as of the last load/replay this instance performed.
-        # None until the sidecar exists or this instance itself appends.
-        self._last_seen_size = self._file_size()
 
     def load(self) -> list[dict[str, Any]]:
         if not os.path.exists(self.path):
