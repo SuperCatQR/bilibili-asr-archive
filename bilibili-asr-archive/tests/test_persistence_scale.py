@@ -73,10 +73,29 @@ def _attempt(work_id: str, number: int = 1, *, stage: str = "archive") -> dict[s
     }
 
 
+def _child_env() -> dict[str, str]:
+    """Environment for spawned children: the tree under test's ``src`` first.
+
+    ``sys.executable`` inherits the venv, whose editable ``.pth`` resolves
+    ``bili_asr`` to whatever checkout it was installed from — for a feature
+    worktree that is the CONTROL checkout, not the tree under test.  Children
+    would then exercise the wrong code and the assertions in this module would
+    report a false signal.  Prepending this test file's own ``src`` makes the
+    child import exactly the code the parent runs.
+    """
+
+    src = str(Path(__file__).resolve().parents[1] / "src")
+    env = dict(os.environ)
+    existing = env.get("PYTHONPATH", "")
+    env["PYTHONPATH"] = f"{src}{os.pathsep}{existing}" if existing else src
+    return env
+
+
 def _run_children(tmp_path: Path, script: str, *child_args: tuple[str, ...]) -> None:
     ready_dir = tmp_path / "ready"
     ready_dir.mkdir()
     release = tmp_path / "release"
+    env = _child_env()
     processes = [
         subprocess.Popen(
             [
@@ -87,7 +106,8 @@ def _run_children(tmp_path: Path, script: str, *child_args: tuple[str, ...]) -> 
                 str(ready_dir / f"{i}.ready"),
                 str(release),
                 *args_for_child,
-            ]
+            ],
+            env=env,
         )
         for i, args_for_child in enumerate(child_args)
     ]
@@ -355,6 +375,66 @@ def test_malformed_attempt_history_fails_closed_for_authoritative_append(tmp_pat
     path.write_text(json.dumps(_attempt("x:p0")) + "\n{bad}\n", encoding="utf-8")
     with pytest.raises(ValueError, match="malformed attempt history"):
         AttemptLedger(tmp_path).append(_attempt("x:p0", 2))
+
+
+def test_malformed_tail_written_after_construction_fails_closed(tmp_path: Path) -> None:
+    """A malformed foreign tail raises on the collision path, not just at seeding.
+
+    The construction-time malformed flag only covers the history read at
+    construction.  A corruption that lands after the ledger was built (the
+    tail-replay path) must also fail closed before anything is written.
+    """
+
+    path = tmp_path / "coordinator" / "attempts.jsonl"
+    path.parent.mkdir()
+    path.write_text(json.dumps(_attempt("x:p0")) + "\n", encoding="utf-8")
+    ledger = AttemptLedger(tmp_path)
+    with path.open("a", encoding="utf-8") as fh:
+        fh.write("{bad}\n")
+    with pytest.raises(ValueError, match="malformed attempt history"):
+        ledger.append(_attempt("x:p0", 2))
+    assert path.read_text(encoding="utf-8") == json.dumps(_attempt("x:p0")) + "\n{bad}\n"
+
+
+def test_foreign_append_between_construction_read_and_fingerprint_is_replayed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A foreign append landing inside the constructor's window is not lost.
+
+    The window is real: ``__init__`` reads the sidecar and fingerprints its
+    size.  When the fingerprint was captured AFTER the read, an append
+    landing between the two steps was absorbed into the observed size — the
+    next append saw no delta, trusted a stale map, and wrote a duplicate
+    attempt number.  Simulated deterministically by performing the foreign
+    append on the first ``_file_size`` call (the worst moment: just before
+    the fingerprint), which is exactly the interleave the window allows.
+    """
+
+    path = tmp_path / "coordinator" / "attempts.jsonl"
+    path.parent.mkdir()
+    path.write_text(json.dumps(_attempt("same:p0", 1)) + "\n", encoding="utf-8")
+
+    real_file_size = AttemptLedger._file_size
+    injected = False
+
+    def racing_file_size(ledger: AttemptLedger) -> int | None:
+        nonlocal injected
+        if not injected:
+            injected = True
+            # The concurrent writer's append lands here — after the seeding
+            # read, before (old code) / after (fixed code) the fingerprint.
+            with path.open("a", encoding="utf-8") as fh:
+                fh.write(json.dumps(_attempt("same:p0", 2)) + "\n")
+        return real_file_size(ledger)
+
+    monkeypatch.setattr(AttemptLedger, "_file_size", racing_file_size)
+    ledger = AttemptLedger(tmp_path)
+    stored = ledger.append(_attempt("same:p0", 1))
+    monkeypatch.setattr(AttemptLedger, "_file_size", real_file_size)
+    assert stored["attempt"] == 3
+    numbers = [record["attempt"] for record in AttemptLedger(tmp_path).load()]
+    assert numbers == [1, 2, 3]
+    assert len(numbers) == len(set(numbers))
 
 
 def test_public_attempt_load_keeps_valid_records_with_malformed_history(tmp_path: Path) -> None:
@@ -632,3 +712,111 @@ def test_write_archive_rejects_destination_symlink_swap(tmp_path: Path) -> None:
     paths = archive.write_archive(tmp_path, row, [{"start": 0, "end": 1, "text": "x"}], source="asr")
     assert outside.read_text(encoding="utf-8") == "keep"
     assert archive.archive_bundle_complete(tmp_path, paths)
+
+
+def test_valid_journal_with_fingerprint_inside_a_record_is_not_accused(tmp_path: Path) -> None:
+    """A fingerprint landing mid-record must not accuse a valid journal (QC C1).
+
+    The size fingerprint is taken without the flock, so it can land inside a
+    record or inside a multi-byte character.  The replay must snap to the last
+    record boundary; otherwise it parses a fragment and latches the instance
+    against every later append (base and pre-006 accept the same bytes).
+    """
+
+    path = tmp_path / "coordinator" / "attempts.jsonl"
+    path.parent.mkdir()
+    first, second = _attempt("same:p0", 1), _attempt("same:p0", 2)
+    blob = json.dumps(first) + "\n" + json.dumps(second) + "\n"
+    path.write_text(blob, encoding="utf-8")
+    ledger = AttemptLedger(tmp_path)
+    ledger._last_seen_size = len(json.dumps(first).encode("utf-8")) // 2
+    stored = ledger.append(_attempt("same:p0", 1))
+    assert stored["attempt"] == 3
+    assert [r["attempt"] for r in AttemptLedger(tmp_path).load()] == [1, 2, 3]
+
+
+def test_valid_journal_with_u2028_in_a_detail_is_not_accused(tmp_path: Path) -> None:
+    """U+2028 inside a JSON string is legal and must not split a journal line.
+
+    ``str.splitlines()`` breaks on U+2028/U+2029/U+0085; the repo's own writer
+    emits them raw (``ensure_ascii=False``), so a replay that splits on them
+    accuses a VALID FOREIGN TAIL and latches the instance.  The U+2028-bearing
+    record is the foreign append, so the replayed tail is what carries it.
+    """
+
+    path = tmp_path / "coordinator" / "attempts.jsonl"
+    path.parent.mkdir()
+    path.write_text(json.dumps(_attempt("u:p0", 1)) + "\n", encoding="utf-8")
+    ledger = AttemptLedger(tmp_path)
+    foreign = _attempt("u:p0", 2)
+    foreign["error_code"] = "E\u2028X"
+    with path.open("a", encoding="utf-8") as fh:
+        fh.write(json.dumps(foreign, ensure_ascii=False) + "\n")
+    stored = ledger.append(_attempt("u:p0", 1))
+    assert stored["attempt"] == 3
+    assert [r["attempt"] for r in AttemptLedger(tmp_path).load()] == [1, 2, 3]
+
+
+def test_invalid_bytes_in_tail_fail_closed(tmp_path: Path) -> None:
+    """A tail carrying invalid UTF-8 is corruption, not a substitution surface.
+
+    ``errors="replace"`` would let the mutated line pass strict validation with
+    the bad byte silently rewritten to U+FFFD — and, when the byte sits in
+    ``work_id``, silently change the map key.  The tail must decode strictly.
+    """
+
+    path = tmp_path / "coordinator" / "attempts.jsonl"
+    path.parent.mkdir()
+    path.write_text(json.dumps(_attempt("c:p0", 1)) + "\n", encoding="utf-8")
+    ledger = AttemptLedger(tmp_path)
+    # A lone 0xFF inside the foreign record's work_id: substitution would make
+    # it a valid (but wrong) key instead of corruption.
+    line = json.dumps(_attempt("c:p0", 2)).encode("utf-8").replace(b'"c:p0"', b'"c\xff:p0"', 1)
+    with path.open("ab") as fh:
+        fh.write(line + b"\n")
+    with pytest.raises(ValueError, match="malformed attempt history"):
+        ledger.append(_attempt("c:p0", 1))
+
+
+def test_torn_tail_does_not_latch_the_instance_after_healing(tmp_path: Path) -> None:
+    """A transient torn tail heals; the instance must recover (QC W2).
+
+    Pre-006 re-validated per append, so a healed journal recovered.  A
+    lifetime latch would leave the run unable to record any later evidence.
+    """
+
+    path = tmp_path / "coordinator" / "attempts.jsonl"
+    path.parent.mkdir()
+    path.write_text(json.dumps(_attempt("t:p0", 1)) + "\n", encoding="utf-8")
+    ledger = AttemptLedger(tmp_path)
+    with path.open("a", encoding="utf-8") as fh:
+        fh.write('{"stage":"archive","work_id":"t:p0","att')  # torn record
+    with pytest.raises(ValueError, match="malformed attempt history"):
+        ledger.append(_attempt("t:p0", 2))
+    # The foreign writer finishes its record: the journal is valid again.
+    with path.open("a", encoding="utf-8") as fh:
+        fh.write('empt":2,"outcome":"ok","error_code":null,"artifact_paths":[],'
+                 '"started_at":"2026-08-31T00:00:00Z","finished_at":"2026-08-31T00:00:01Z"}\n')
+    stored = ledger.append(_attempt("t:p0", 1))
+    assert stored["attempt"] == 3
+    assert [r["attempt"] for r in AttemptLedger(tmp_path).load()] == [1, 2, 3]
+
+
+def test_deleted_journal_self_heals_like_base(tmp_path: Path) -> None:
+    """A journal deleted between appends must not fail the writer.
+
+    Base performed no read on append, so a deleted sidecar (external cleanup /
+    integrity recovery) simply got recreated; the tail-replay path must treat
+    it as absent-on-disk rather than raising, and must agree with integrity.py
+    (which classes a missing sidecar as valid).
+    """
+
+    path = tmp_path / "coordinator" / "attempts.jsonl"
+    ledger = AttemptLedger(tmp_path)
+    first = ledger.append(_attempt("d:p0", 1))
+    assert first["attempt"] == 1
+    path.unlink()
+    second = ledger.append(_attempt("d:p0", 2))
+    assert second["attempt"] == 2
+    assert path.exists()
+    assert AttemptLedger(tmp_path).load() == [_attempt("d:p0", 2)]

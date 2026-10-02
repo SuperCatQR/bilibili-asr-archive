@@ -238,6 +238,53 @@ def test_search_index_blocks_served_from_store_and_bigram_aux(indexed_store: Pat
 # Query command: phrase, pubdate window, formats
 # ---------------------------------------------------------------------------
 
+
+class _CountingConnection:
+    """sqlite3.Connection stand-in that counts execute() calls by SQL verb."""
+
+    def __init__(self, real: sqlite3.Connection) -> None:
+        self._real = real
+        self.counts: dict[str, int] = {}
+
+    def execute(self, sql, parameters=(), /):
+        verb = str(sql).strip().split(None, 1)[0].upper()
+        self.counts[verb] = self.counts.get(verb, 0) + 1
+        return self._real.execute(sql, parameters)
+
+    def close(self) -> None:
+        self._real.close()
+
+
+def test_search_blocks_issues_a_bounded_number_of_queries(indexed_store: Path) -> None:
+    """One snippet query for ALL hit block_keys + one bounded title scan (O-R3)."""
+    import sqlite3 as _sqlite3
+
+    from bili_asr import search_index
+
+    counting = _CountingConnection(_sqlite3.connect(indexed_store / "archive.db"))
+
+    def counting_connect(self):
+        return counting
+
+    monkeypatch = pytest.MonkeyPatch()
+    try:
+        monkeypatch.setattr(
+            search_index.TranscriptSearchIndex, "_connect", counting_connect
+        )
+        hits = search_index.TranscriptSearchIndex(indexed_store).search_blocks("黑格尔")
+    finally:
+        monkeypatch.undo()
+        counting.close()
+
+    assert len(hits) == 2  # K hits …
+    selects = counting.counts.get("SELECT", 0)
+    # … but a constant number of SELECTs: 1 (index probe) + 1 (MATCH) +
+    # 1 (batched snippets) + 1 (bounded titles), never 1-per-hit.
+    assert selects <= 4, f"expected a bounded query count, got {selects}"
+    for hit in hits:
+        assert hit.snippet
+        assert hit.video_title
+
 def test_search_finds_phrase_with_bvid_time_range_and_pubdate(
     indexed_store: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -360,6 +407,48 @@ def test_search_corrupt_store_is_defect_exit_1(
     assert cli.main(_argv(indexed_store, "黑格尔")) == 1
     err = capsys.readouterr().err
     assert "store" in err or "corrupt" in err
+
+
+def test_search_corrupt_videos_read_is_defect_not_silent_empty_titles(
+    indexed_store: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A mid-read ``videos`` corruption stays defect-class (exit 1), not empty titles.
+
+    The batched title read moved into ``_titles_for_bvids``; it must not swallow
+    ``sqlite3.DatabaseError`` the way the snippet batch may, because the base
+    behaviour (read inline under ``search_blocks``) raised
+    :class:`TranscriptStoreError` (exit-code-contract §2, defect class).  The
+    rest of the read path — index probe, MATCH, batched snippets — succeeds
+    here, so the failure genuinely lands mid-read.
+    """
+    import sqlite3 as _sqlite3
+
+    from bili_asr import search_index
+
+    real = _sqlite3.connect(indexed_store / "archive.db")
+    reached: list[str] = []
+
+    class _VideosReadFails:
+        def execute(self, sql, parameters=(), /):
+            text = str(sql)
+            if "FROM videos" in text:
+                reached.append("videos")
+                raise _sqlite3.DatabaseError("database disk image is malformed")
+            if "snippet(" in text:
+                reached.append("snippets")
+            return real.execute(sql, parameters)
+
+        def close(self) -> None:
+            real.close()
+
+    monkeypatch.setattr(
+        search_index.TranscriptSearchIndex, "_connect", lambda self: _VideosReadFails()
+    )
+    with pytest.raises(search_index.TranscriptStoreError):
+        search_index.TranscriptSearchIndex(indexed_store).search_blocks("黑格尔")
+    real.close()
+    # The failure is mid-read, after the snippets batch: not a connect/probe failure.
+    assert reached == ["snippets", "videos"]
 
 
 def test_search_usage_error_is_exit_2(indexed_store: Path) -> None:
@@ -555,3 +644,136 @@ def test_pass_two_runs_only_when_kept_tokens_exist():
     runner = asr.ASRRunner(cfg)
     kept = runner.rebuild_hotwords_from_first_pass("一段没有任何热词的转写文本。")
     assert kept == []
+
+
+def test_search_zero_hit_on_corrupt_store_is_still_defect(
+    indexed_store: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A zero-hit query on a corrupt store stays defect-class (exit 1).
+
+    The zero-hit early return must not sit ahead of the store-readability
+    proof: a damaged ``videos`` table read as a clean empty result, where the
+    pre-batching eager title read raised :class:`TranscriptStoreError`.
+    """
+    import sqlite3 as _sqlite3
+
+    from bili_asr import search_index
+
+    real = _sqlite3.connect(indexed_store / "archive.db")
+    real.execute("DROP TABLE videos")
+    real.commit()
+
+    class _Connect:
+        def connect(self):
+            return real
+
+    monkeypatch.setattr(
+        search_index.TranscriptSearchIndex, "_connect", lambda self: real
+    )
+    with pytest.raises(search_index.TranscriptStoreError):
+        search_index.TranscriptSearchIndex(indexed_store).search_blocks("zzzz-nothing")
+    real.close()
+
+
+def test_search_zero_hit_on_videos_schema_drift_is_still_defect(
+    indexed_store: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The zero-hit probe must force the decode the title path performs.
+
+    A ``bvid``-only probe is answered from the covering index, so a ``videos``
+    shape defect (``title`` renamed/dropped — an ordinary schema-drift repair)
+    stayed invisible on the zero-hit path: base exited 1, the narrow probe
+    exited 0.  Reading both columns restores the count-independent defect class.
+    """
+    import sqlite3 as _sqlite3
+
+    from bili_asr import search_index
+
+    real = _sqlite3.connect(indexed_store / "archive.db")
+    real.execute("ALTER TABLE videos RENAME COLUMN title TO title_x")
+    real.commit()
+
+    monkeypatch.setattr(
+        search_index.TranscriptSearchIndex, "_connect", lambda self: real
+    )
+    with pytest.raises(search_index.TranscriptStoreError):
+        search_index.TranscriptSearchIndex(indexed_store).search_blocks("zzzz-nothing")
+    real.close()
+
+
+def test_search_unusable_fts_with_damaged_videos_is_still_defect(
+    indexed_store: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The FTS retry-exhaustion exit must also prove store readability.
+
+    ``search_blocks`` has two clean-empty exits.  The FTS double-failure return
+    sat ahead of the readability proof, so an unusable ``transcript_fts`` plus a
+    damaged ``videos`` reported a clean empty result (exit 0) where base exited
+    1 — the defect class must not depend on which failure mode was hit.
+    """
+    import sqlite3 as _sqlite3
+
+    from bili_asr import search_index
+
+    real = _sqlite3.connect(indexed_store / "archive.db")
+    real.execute("DROP TABLE videos")
+    # Make every MATCH raise: replace the FTS table with a plain (non-FTS) one
+    # of the same name, so both the query and its plain-text retry fail.
+    real.execute(f"DROP TABLE {search_index.STORE_FTS5_TABLE}")
+    real.execute(
+        f"CREATE TABLE {search_index.STORE_FTS5_TABLE} "
+        "(block_key TEXT, bvid TEXT, page_index INT, start_ms INT, end_ms INT, "
+        "pubdate INT, text TEXT, source TEXT, rank REAL)"
+    )
+    real.commit()
+
+    monkeypatch.setattr(
+        search_index.TranscriptSearchIndex, "_connect", lambda self: real
+    )
+    try:
+        with pytest.raises(search_index.TranscriptStoreError):
+            search_index.TranscriptSearchIndex(indexed_store).search_blocks("zzzz-nothing")
+    finally:
+        real.close()
+
+
+def test_search_blocks_returns_every_hit_past_the_chunk_boundary(
+    indexed_store: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """More than one IN-list chunk must still decorate every hit.
+
+    The chunking introduced with the batched reads (``_IN_CHUNK``) is what keeps
+    the key lists away from SQLite's bound-variable ceiling; without a test
+    driving past the boundary, raising/removing it leaves the suite green while
+    silently reintroducing the ceiling.
+    """
+    import sqlite3 as _sqlite3
+
+    from bili_asr import search_index
+
+    real = _sqlite3.connect(indexed_store / "archive.db")
+    total = search_index.TranscriptSearchIndex._IN_CHUNK + 5
+    for i in range(total):
+        key = f"chunk{i}:0"
+        bvid = f"BVchunk{i}"
+        real.execute(
+            f"INSERT INTO {search_index.STORE_FTS5_TABLE} VALUES "
+            f"(?, ?, 0, 0, 10, 1, 'chunked needle', 'srt', 0.0)",
+            (key, bvid),
+        )
+        real.execute(
+            "INSERT INTO videos (bvid, mid, title, pubdate, created_at, updated_at) "
+            "VALUES (?, 1, ?, 1, 1, 1)",
+            (bvid, f"title{i}"),
+        )
+    real.commit()
+
+    monkeypatch.setattr(
+        search_index.TranscriptSearchIndex, "_connect", lambda self: real
+    )
+    hits = search_index.TranscriptSearchIndex(indexed_store).search_blocks(
+        "needle", limit=None
+    )
+    real.close()
+    assert len(hits) == total
+    assert all(h.video_title and h.snippet for h in hits)

@@ -1511,10 +1511,6 @@ class TranscriptSearchIndex:
                 f"text, source, rank FROM {STORE_FTS5_TABLE} "
                 f"WHERE {' AND '.join(where)} ORDER BY rank ASC, block_key ASC"
             )
-            titles = {
-                str(row[0]): str(row[1])
-                for row in conn.execute("SELECT bvid, title FROM videos").fetchall()
-            }
             if limit is not None:
                 sql += " LIMIT ?"
                 params.append(limit)
@@ -1527,13 +1523,33 @@ class TranscriptSearchIndex:
                 try:
                     rows = conn.execute(sql, params).fetchall()
                 except sqlite3.OperationalError:
-                    return []
+                    # Also a clean-empty exit: prove the store is readable
+                    # before reporting no hits (an unusable FTS index must not
+                    # mask a damaged `videos` table).
+                    self._probe_videos_readable(conn)
+                    rows = []
+            if not rows:
+                # Defect class must not depend on the match count: prove the
+                # store is readable before reporting a clean empty result, the
+                # way the (pre-batching) eager title read did.  A damaged
+                # `videos` table still surfaces as TranscriptStoreError here.
+                self._probe_videos_readable(conn)
+                return []
+            # Batch the per-hit reads: one query fetches the snippets for ALL
+            # hit block_keys and one bounds the title scan to the hit bvids —
+            # a constant query count, not one-per-hit (residual O-R3).  Both
+            # helpers chunk their ``IN (...)`` lists (keys per batch) so the
+            # list never approaches SQLite's variable ceiling (~250000 on the
+            # 3.45.1 build here) and no single batch can degrade the rest.
+            block_keys = [str(row[0]) for row in rows]
+            bvids = sorted({str(row[1]) for row in rows})
+            snippets = self._snippets_for_hits(conn, block_keys, clean_q)
+            titles = self._titles_for_bvids(conn, bvids)
             hits: list[TranscriptSearchHit] = []
             for (
                 block_key, bvid, page_index, start_ms, end_ms, pubdate,
                 text, source, rank,
             ) in rows:
-                snippet = self._snippet_for_hit(conn, block_key, clean_q)
                 hits.append(
                     TranscriptSearchHit(
                         block_key=str(block_key),
@@ -1545,7 +1561,7 @@ class TranscriptSearchIndex:
                         text=str(text),
                         source=str(source),
                         rank=float(rank) if rank is not None else 0.0,
-                        snippet=snippet,
+                        snippet=snippets.get(str(block_key), ""),
                         video_title=titles.get(str(bvid), ""),
                     )
                 )
@@ -1555,19 +1571,81 @@ class TranscriptSearchIndex:
         finally:
             conn.close()
 
-    def _snippet_for_hit(self, conn: sqlite3.Connection, block_key: str, query: str) -> str:
-        """Bounded redacted snippet around the first query term, via FTS5 snippet()."""
-        try:
-            row = conn.execute(
-                f"SELECT snippet({STORE_FTS5_TABLE}, 6, '[', ']', '…', 12) "
-                f"FROM {STORE_FTS5_TABLE} WHERE {STORE_FTS5_TABLE} MATCH ? "
-                "AND block_key = ? LIMIT 1",
-                (query, block_key),
-            ).fetchone()
-            if row and row[0]:
-                return _redact_text(str(row[0]))
-        except sqlite3.DatabaseError:
-            pass
-        return ""
+    def _probe_videos_readable(self, conn: sqlite3.Connection) -> None:
+        """Prove the ``videos`` table is readable, or raise the defect class.
+
+        With no hits to decorate, the batched title read never runs — and a
+        zero-hit query on a store whose ``videos`` table is missing/damaged
+        would otherwise read as a clean empty result (exit 0) where the
+        pre-batching code raised :class:`TranscriptStoreError` (exit 1).
+
+        The probe must force the SAME decode the title path performs: a
+        ``bvid``-only read is answered from the covering index (and ``LIMIT 1``
+        stops on the first leaf page), so it survives exactly the damage this
+        probe exists to catch.  Reading both columns without a LIMIT makes the
+        whole table's column data get decoded, so a schema drift (``title``
+        renamed/dropped) and page-level corruption both surface here.
+        """
+
+        conn.execute("SELECT bvid, title FROM videos").fetchall()
+
+    # SQLite's bound-variable ceiling is ~250000 on the 3.45.1 build here; this
+    # is a conservative chunk so a large result set never approaches it.
+    _IN_CHUNK = 900
+
+    @staticmethod
+    def _chunked(items: Sequence[str]):
+        """Yield ``items`` in bounded slices (keeps every IN (...) list small)."""
+
+        for start in range(0, len(items), TranscriptSearchIndex._IN_CHUNK):
+            yield items[start : start + TranscriptSearchIndex._IN_CHUNK]
+
+    def _snippets_for_hits(
+        self, conn: sqlite3.Connection, block_keys: Sequence[str], query: str
+    ) -> dict[str, str]:
+        """Snippets for ALL hit block_keys, in bounded batched queries (no N+1)."""
+        if not block_keys:
+            return {}
+        snippets: dict[str, str] = {}
+        for chunk in self._chunked(list(block_keys)):
+            placeholders = ", ".join("?" for _ in chunk)
+            try:
+                rows = conn.execute(
+                    f"SELECT block_key, snippet({STORE_FTS5_TABLE}, 6, '[', ']', '…', 12) "
+                    f"FROM {STORE_FTS5_TABLE} WHERE {STORE_FTS5_TABLE} MATCH ? "
+                    f"AND block_key IN ({placeholders})",
+                    (query, *chunk),
+                ).fetchall()
+            except sqlite3.DatabaseError:
+                # Snippets are presentation-only; a damaged snippet read degrades
+                # this chunk rather than failing the search (pre-existing shape).
+                continue
+            snippets.update(
+                {str(row[0]): _redact_text(str(row[1])) for row in rows if row[1]}
+            )
+        return snippets
+
+    def _titles_for_bvids(
+        self, conn: sqlite3.Connection, bvids: Sequence[str]
+    ) -> dict[str, str]:
+        """Titles for exactly the hit bvids (bounded scan, not the whole table).
+
+        Deliberately does not swallow ``sqlite3.DatabaseError``: a corrupt
+        ``videos`` read must propagate to ``search_blocks``'s handler and stay
+        defect-class (exit 1), exactly as it was when this read sat inline.
+        Chunked so a large hit set never approaches the variable ceiling.
+        """
+
+        if not bvids:
+            return {}
+        titles: dict[str, str] = {}
+        for chunk in self._chunked(list(bvids)):
+            placeholders = ", ".join("?" for _ in chunk)
+            rows = conn.execute(
+                f"SELECT bvid, title FROM videos WHERE bvid IN ({placeholders})",
+                tuple(chunk),
+            ).fetchall()
+            titles.update({str(row[0]): str(row[1]) for row in rows})
+        return titles
 
 
