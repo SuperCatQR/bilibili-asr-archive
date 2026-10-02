@@ -1523,7 +1523,11 @@ class TranscriptSearchIndex:
                 try:
                     rows = conn.execute(sql, params).fetchall()
                 except sqlite3.OperationalError:
-                    return []
+                    # Also a clean-empty exit: prove the store is readable
+                    # before reporting no hits (an unusable FTS index must not
+                    # mask a damaged `videos` table).
+                    self._probe_videos_readable(conn)
+                    rows = []
             if not rows:
                 # Defect class must not depend on the match count: prove the
                 # store is readable before reporting a clean empty result, the
@@ -1583,7 +1587,7 @@ class TranscriptSearchIndex:
         renamed/dropped) and page-level corruption both surface here.
         """
 
-        conn.execute("SELECT bvid FROM videos LIMIT 1").fetchall()
+        conn.execute("SELECT bvid, title FROM videos").fetchall()
 
     # SQLite's bound-variable ceiling is ~250000 on the 3.45.1 build here; this
     # is a conservative chunk so a large result set never approaches it.
