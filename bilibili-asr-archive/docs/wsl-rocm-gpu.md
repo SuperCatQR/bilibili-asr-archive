@@ -122,7 +122,7 @@ On a host with no working device, the same command exits `1` and prints, per fai
 check: dxg-detection FAIL dxg_device=missing HSA_ENABLE_DXG_DETECTION=unset
   cause: WSL2 has no usable DXG transport: the HIP runtime needs both the DXG device node and HSA_ENABLE_DXG_DETECTION=1
   fix:
-    export HSA_ENABLE_DXG_DETECTION=1   # persist it in ~/.bashrc for later shells
+    export HSA_ENABLE_DXG_DETECTION=1   # persist it, see step 8 for where — ~/.bashrc alone is measured NOT to work
     ls -l /dev/dxg   # absent: install the Windows AMD driver with WSL support, run "wsl --update", then "wsl --shutdown"; in a container pass --device /dev/dxg
     HSA_ENABLE_DXG_DETECTION=1 "${VENV:?…}/bin/python" scripts/check_asr_env.py   # re-run with both invariants held
 check: rocm-loader-path FAIL …   # then one cause:/fix: block per failing stage
@@ -288,8 +288,23 @@ stage on the bytes of the file it replaced.
 
 ```bash
 export HSA_ENABLE_DXG_DETECTION=1
-echo 'export HSA_ENABLE_DXG_DETECTION=1' >> ~/.bashrc   # the check's dxg-detection fix says to persist this line
+# Persist it for later shells.  Measured 2026-10-03 on WSL2/Ubuntu 24.04: the
+# usual `echo … >> ~/.bashrc` does NOT work here.  Ubuntu's stock ~/.bashrc
+# returns at its interactivity guard (`[ -z "$PS1" ] && return`) before the line
+# matters, and `wsl -e bash -s` — the invocation form this repo's own runbooks
+# use — reads no startup file at all.  A login shell is what can be fixed:
+sudo tee /etc/profile.d/bili-asr-gpu.sh >/dev/null <<'SH'
+# AMD/WSL GPU requirement for bili-asr: without this the HSA runtime cannot
+# find the DXG adapter and torch.cuda.is_available() returns False.
+export HSA_ENABLE_DXG_DETECTION=1
+SH
+# Verify with a login shell — this is the form that must exit 0:
+bash -lc '"$VENV"/bin/bili-asr check-asr-env'
 ```
+
+Left unpacked from the measurement, because it bounds the claim: `wsl -e bash -s` still exits `1`
+after this change, for the reason above (no startup file is read). An operator driving the tool
+through that form must export the variable in the command itself.
 
 Then run the measured proof — import, device properties, and a matmul on the device:
 
