@@ -1511,10 +1511,6 @@ class TranscriptSearchIndex:
                 f"text, source, rank FROM {STORE_FTS5_TABLE} "
                 f"WHERE {' AND '.join(where)} ORDER BY rank ASC, block_key ASC"
             )
-            titles = {
-                str(row[0]): str(row[1])
-                for row in conn.execute("SELECT bvid, title FROM videos").fetchall()
-            }
             if limit is not None:
                 sql += " LIMIT ?"
                 params.append(limit)
@@ -1528,12 +1524,20 @@ class TranscriptSearchIndex:
                     rows = conn.execute(sql, params).fetchall()
                 except sqlite3.OperationalError:
                     return []
+            if not rows:
+                return []
+            # Batch the per-hit reads: one query fetches the snippets for ALL
+            # hit block_keys and one bounds the title scan to the hit bvids —
+            # a constant query count, not one-per-hit (residual O-R3).
+            block_keys = [str(row[0]) for row in rows]
+            bvids = sorted({str(row[1]) for row in rows})
+            snippets = self._snippets_for_hits(conn, block_keys, clean_q)
+            titles = self._titles_for_bvids(conn, bvids)
             hits: list[TranscriptSearchHit] = []
             for (
                 block_key, bvid, page_index, start_ms, end_ms, pubdate,
                 text, source, rank,
             ) in rows:
-                snippet = self._snippet_for_hit(conn, block_key, clean_q)
                 hits.append(
                     TranscriptSearchHit(
                         block_key=str(block_key),
@@ -1545,7 +1549,7 @@ class TranscriptSearchIndex:
                         text=str(text),
                         source=str(source),
                         rank=float(rank) if rank is not None else 0.0,
-                        snippet=snippet,
+                        snippet=snippets.get(str(block_key), ""),
                         video_title=titles.get(str(bvid), ""),
                     )
                 )
@@ -1555,19 +1559,42 @@ class TranscriptSearchIndex:
         finally:
             conn.close()
 
-    def _snippet_for_hit(self, conn: sqlite3.Connection, block_key: str, query: str) -> str:
-        """Bounded redacted snippet around the first query term, via FTS5 snippet()."""
+    def _snippets_for_hits(
+        self, conn: sqlite3.Connection, block_keys: Sequence[str], query: str
+    ) -> dict[str, str]:
+        """Snippets for ALL hit block_keys in ONE query (no N+1 per-hit reads)."""
+        if not block_keys:
+            return {}
+        placeholders = ", ".join("?" for _ in block_keys)
         try:
-            row = conn.execute(
-                f"SELECT snippet({STORE_FTS5_TABLE}, 6, '[', ']', '…', 12) "
+            rows = conn.execute(
+                f"SELECT block_key, snippet({STORE_FTS5_TABLE}, 6, '[', ']', '…', 12) "
                 f"FROM {STORE_FTS5_TABLE} WHERE {STORE_FTS5_TABLE} MATCH ? "
-                "AND block_key = ? LIMIT 1",
-                (query, block_key),
-            ).fetchone()
-            if row and row[0]:
-                return _redact_text(str(row[0]))
+                f"AND block_key IN ({placeholders})",
+                (query, *block_keys),
+            ).fetchall()
         except sqlite3.DatabaseError:
-            pass
-        return ""
+            return {}
+        return {
+            str(row[0]): _redact_text(str(row[1]))
+            for row in rows
+            if row[1]
+        }
+
+    def _titles_for_bvids(
+        self, conn: sqlite3.Connection, bvids: Sequence[str]
+    ) -> dict[str, str]:
+        """Titles for exactly the hit bvids (bounded scan, not the whole table)."""
+        if not bvids:
+            return {}
+        placeholders = ", ".join("?" for _ in bvids)
+        try:
+            rows = conn.execute(
+                f"SELECT bvid, title FROM videos WHERE bvid IN ({placeholders})",
+                tuple(bvids),
+            ).fetchall()
+        except sqlite3.DatabaseError:
+            return {}
+        return {str(row[0]): str(row[1]) for row in rows}
 
 

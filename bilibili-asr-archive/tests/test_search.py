@@ -238,6 +238,55 @@ def test_search_index_blocks_served_from_store_and_bigram_aux(indexed_store: Pat
 # Query command: phrase, pubdate window, formats
 # ---------------------------------------------------------------------------
 
+
+class _CountingConnection:
+    """sqlite3.Connection stand-in that counts execute() calls by SQL verb."""
+
+    def __init__(self, real: sqlite3.Connection) -> None:
+        self._real = real
+        self.counts: dict[str, int] = {}
+
+    def execute(self, sql, parameters=(), /):
+        verb = str(sql).strip().split(None, 1)[0].upper()
+        self.counts[verb] = self.counts.get(verb, 0) + 1
+        return self._real.execute(sql, parameters)
+
+    def close(self) -> None:
+        self._real.close()
+
+
+def test_search_blocks_issues_a_bounded_number_of_queries(indexed_store: Path) -> None:
+    """One snippet query for ALL hit block_keys + one bounded title scan (O-R3)."""
+    import sqlite3 as _sqlite3
+
+    from bili_asr import search_index
+
+    counting = _CountingConnection(_sqlite3.connect(indexed_store / "archive.db"))
+    original_connect = search_index.TranscriptSearchIndex._connect
+
+    def counting_connect(self):
+        return counting
+
+    monkeypatch = pytest.MonkeyPatch()
+    try:
+        monkeypatch.setattr(
+            search_index.TranscriptSearchIndex, "_connect", counting_connect
+        )
+        hits = search_index.TranscriptSearchIndex(indexed_store).search_blocks("黑格尔")
+    finally:
+        monkeypatch.undo()
+        counting.close()
+
+    assert len(hits) == 2  # K hits …
+    selects = counting.counts.get("SELECT", 0)
+    # … but a constant number of SELECTs: 1 (index probe) + 1 (MATCH) +
+    # 1 (batched snippets) + 1 (bounded titles), never 1-per-hit.
+    assert selects <= 4, f"expected a bounded query count, got {selects}"
+    assert counting.counts.get("SELECT", 0) == 4
+    for hit in hits:
+        assert hit.snippet
+        assert hit.video_title
+
 def test_search_finds_phrase_with_bvid_time_range_and_pubdate(
     indexed_store: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
