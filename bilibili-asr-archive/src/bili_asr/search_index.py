@@ -1529,6 +1529,12 @@ class TranscriptSearchIndex:
             # Batch the per-hit reads: one query fetches the snippets for ALL
             # hit block_keys and one bounds the title scan to the hit bvids —
             # a constant query count, not one-per-hit (residual O-R3).
+            # Latent ceiling: both helpers build one ``IN (...)`` list sized by
+            # the result count, so ``limit=None`` (no in-repo caller — the CLI
+            # always passes a limit, default 20) would pass
+            # ``SQLITE_MAX_VARIABLE_NUMBER`` (32766 here) somewhere past 32k
+            # hits and fail loudly.  Upgrade path when a caller needs unbounded
+            # search: chunk the key lists (e.g. 900 per batch) and merge.
             block_keys = [str(row[0]) for row in rows]
             bvids = sorted({str(row[1]) for row in rows})
             snippets = self._snippets_for_hits(conn, block_keys, clean_q)
@@ -1584,17 +1590,19 @@ class TranscriptSearchIndex:
     def _titles_for_bvids(
         self, conn: sqlite3.Connection, bvids: Sequence[str]
     ) -> dict[str, str]:
-        """Titles for exactly the hit bvids (bounded scan, not the whole table)."""
+        """Titles for exactly the hit bvids (bounded scan, not the whole table).
+
+        Deliberately does not swallow ``sqlite3.DatabaseError``: a corrupt
+        ``videos`` read must propagate to ``search_blocks``'s handler and stay
+        defect-class (exit 1), exactly as it was when this read sat inline.
+        """
         if not bvids:
             return {}
         placeholders = ", ".join("?" for _ in bvids)
-        try:
-            rows = conn.execute(
-                f"SELECT bvid, title FROM videos WHERE bvid IN ({placeholders})",
-                tuple(bvids),
-            ).fetchall()
-        except sqlite3.DatabaseError:
-            return {}
+        rows = conn.execute(
+            f"SELECT bvid, title FROM videos WHERE bvid IN ({placeholders})",
+            tuple(bvids),
+        ).fetchall()
         return {str(row[0]): str(row[1]) for row in rows}
 
 

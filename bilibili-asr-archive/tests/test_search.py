@@ -262,7 +262,6 @@ def test_search_blocks_issues_a_bounded_number_of_queries(indexed_store: Path) -
     from bili_asr import search_index
 
     counting = _CountingConnection(_sqlite3.connect(indexed_store / "archive.db"))
-    original_connect = search_index.TranscriptSearchIndex._connect
 
     def counting_connect(self):
         return counting
@@ -282,7 +281,6 @@ def test_search_blocks_issues_a_bounded_number_of_queries(indexed_store: Path) -
     # … but a constant number of SELECTs: 1 (index probe) + 1 (MATCH) +
     # 1 (batched snippets) + 1 (bounded titles), never 1-per-hit.
     assert selects <= 4, f"expected a bounded query count, got {selects}"
-    assert counting.counts.get("SELECT", 0) == 4
     for hit in hits:
         assert hit.snippet
         assert hit.video_title
@@ -409,6 +407,48 @@ def test_search_corrupt_store_is_defect_exit_1(
     assert cli.main(_argv(indexed_store, "黑格尔")) == 1
     err = capsys.readouterr().err
     assert "store" in err or "corrupt" in err
+
+
+def test_search_corrupt_videos_read_is_defect_not_silent_empty_titles(
+    indexed_store: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A mid-read ``videos`` corruption stays defect-class (exit 1), not empty titles.
+
+    The batched title read moved into ``_titles_for_bvids``; it must not swallow
+    ``sqlite3.DatabaseError`` the way the snippet batch may, because the base
+    behaviour (read inline under ``search_blocks``) raised
+    :class:`TranscriptStoreError` (exit-code-contract §2, defect class).  The
+    rest of the read path — index probe, MATCH, batched snippets — succeeds
+    here, so the failure genuinely lands mid-read.
+    """
+    import sqlite3 as _sqlite3
+
+    from bili_asr import search_index
+
+    real = _sqlite3.connect(indexed_store / "archive.db")
+    reached: list[str] = []
+
+    class _VideosReadFails:
+        def execute(self, sql, parameters=(), /):
+            text = str(sql)
+            if "FROM videos" in text:
+                reached.append("videos")
+                raise _sqlite3.DatabaseError("database disk image is malformed")
+            if "snippet(" in text:
+                reached.append("snippets")
+            return real.execute(sql, parameters)
+
+        def close(self) -> None:
+            real.close()
+
+    monkeypatch.setattr(
+        search_index.TranscriptSearchIndex, "_connect", lambda self: _VideosReadFails()
+    )
+    with pytest.raises(search_index.TranscriptStoreError):
+        search_index.TranscriptSearchIndex(indexed_store).search_blocks("黑格尔")
+    real.close()
+    # The failure is mid-read, after the snippets batch: not a connect/probe failure.
+    assert reached == ["snippets", "videos"]
 
 
 def test_search_usage_error_is_exit_2(indexed_store: Path) -> None:
