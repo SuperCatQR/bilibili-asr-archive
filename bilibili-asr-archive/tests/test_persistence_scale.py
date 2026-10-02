@@ -357,6 +357,66 @@ def test_malformed_attempt_history_fails_closed_for_authoritative_append(tmp_pat
         AttemptLedger(tmp_path).append(_attempt("x:p0", 2))
 
 
+def test_malformed_tail_written_after_construction_fails_closed(tmp_path: Path) -> None:
+    """A malformed foreign tail raises on the collision path, not just at seeding.
+
+    The construction-time malformed flag only covers the history read at
+    construction.  A corruption that lands after the ledger was built (the
+    tail-replay path) must also fail closed before anything is written.
+    """
+
+    path = tmp_path / "coordinator" / "attempts.jsonl"
+    path.parent.mkdir()
+    path.write_text(json.dumps(_attempt("x:p0")) + "\n", encoding="utf-8")
+    ledger = AttemptLedger(tmp_path)
+    with path.open("a", encoding="utf-8") as fh:
+        fh.write("{bad}\n")
+    with pytest.raises(ValueError, match="malformed attempt history"):
+        ledger.append(_attempt("x:p0", 2))
+    assert path.read_text(encoding="utf-8") == json.dumps(_attempt("x:p0")) + "\n{bad}\n"
+
+
+def test_foreign_append_between_construction_read_and_fingerprint_is_replayed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A foreign append landing inside the constructor's window is not lost.
+
+    The window is real: ``__init__`` reads the sidecar and fingerprints its
+    size.  When the fingerprint was captured AFTER the read, an append
+    landing between the two steps was absorbed into the observed size — the
+    next append saw no delta, trusted a stale map, and wrote a duplicate
+    attempt number.  Simulated deterministically by performing the foreign
+    append on the first ``_file_size`` call (the worst moment: just before
+    the fingerprint), which is exactly the interleave the window allows.
+    """
+
+    path = tmp_path / "coordinator" / "attempts.jsonl"
+    path.parent.mkdir()
+    path.write_text(json.dumps(_attempt("same:p0", 1)) + "\n", encoding="utf-8")
+
+    real_file_size = AttemptLedger._file_size
+    injected = False
+
+    def racing_file_size(ledger: AttemptLedger) -> int | None:
+        nonlocal injected
+        if not injected:
+            injected = True
+            # The concurrent writer's append lands here — after the seeding
+            # read, before (old code) / after (fixed code) the fingerprint.
+            with path.open("a", encoding="utf-8") as fh:
+                fh.write(json.dumps(_attempt("same:p0", 2)) + "\n")
+        return real_file_size(ledger)
+
+    monkeypatch.setattr(AttemptLedger, "_file_size", racing_file_size)
+    ledger = AttemptLedger(tmp_path)
+    stored = ledger.append(_attempt("same:p0", 1))
+    monkeypatch.setattr(AttemptLedger, "_file_size", real_file_size)
+    assert stored["attempt"] == 3
+    numbers = [record["attempt"] for record in AttemptLedger(tmp_path).load()]
+    assert numbers == [1, 2, 3]
+    assert len(numbers) == len(set(numbers))
+
+
 def test_public_attempt_load_keeps_valid_records_with_malformed_history(tmp_path: Path) -> None:
     path = tmp_path / "coordinator" / "attempts.jsonl"
     path.parent.mkdir()
