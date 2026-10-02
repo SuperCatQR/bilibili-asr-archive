@@ -2,18 +2,20 @@
 plan_id: e2e-23191782-store-writeback-chain
 title: "E2E: store-driven chain on the GPU host — caption/audio admission, ASR→store write-back convergence, reader exits"
 type: verification/report-only
-status: draft
+status: authorized
 target_ref: 1e756df
 compute_host: chosenecho@192.168.3.21 (WSL2)
 report_path: .mstar/workflows/e2e-23191782-store-writeback-chain/reports/e2e.md
 created_at: 2026-10-03
-author: project-manager
+authorized_at: 2026-10-03
+authorized_by: operator
+authorization: "Q1 授权 A4（检出同步）；Q2 启用 S11；Q3 确认写根；Q4 允许持久化 HSA_ENABLE_DXG_DETECTION=1；Q5 候选集沿用页 5–6；过程中的问题登记，硬阻塞尝试修复"
 ---
 
-# E2E 计划（草案）：store 驱动链 — 字幕/音频准入 · ASR→store 写回收敛 · 读者出口
+# E2E 计划：store 驱动链 — 字幕/音频准入 · ASR→store 写回收敛 · 读者出口
 
-> 这是 **独立 E2E 验证**（`mstar-e2e`），不是开发迭代的一部分，也 **不** 进入任何开发 plan 的
-> Acceptance Criteria。它只在操作者明确授权后执行；本文是待批准的草案。
+> **已授权执行**（2026-10-03）。这是 **独立 E2E 验证**（`mstar-e2e`），不是开发迭代的一部分，
+> 也 **不** 进入任何开发 plan 的 Acceptance Criteria。
 
 ## 1. 为什么是这一次
 
