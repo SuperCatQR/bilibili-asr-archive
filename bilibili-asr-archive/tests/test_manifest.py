@@ -299,6 +299,42 @@ def test_migrate_coalesces_matching_page_created_by_successful_fetch(store, tmp_
     assert loaded["BV1aa:p0"]["legacy_only"] == "keep"
 
 
+def test_migrate_keeps_journaled_supersede_of_existing_page_row(store, tmp_root):
+    # I-000195: the rewrite base must be the effective replay view. A journaled
+    # row superseding a page-qualified snapshot row used to be dropped when the
+    # migration rewrote the snapshot and unlinked the journal -- the only copy
+    # of the newer transition.
+    store.save({
+        "BV1aa:p0": _entry("BV1aa", work_id="BV1aa:p0", page_index=0, cid=1),
+        "BV9zz": _entry("BV9zz"),
+    })
+    store.upsert(
+        _entry("BV1aa", work_id="BV1aa:p0", page_index=0, cid=1, status="archived")
+    )
+    assert os.path.exists(_journal_path(tmp_root))
+    assert store.get("BV1aa:p0")["status"] == "archived"
+
+    report = ManifestStore(root=tmp_root).migrate_legacy_rows(
+        lambda bvid: [_page(bvid, 0, cid=1)]
+    )
+    # Report semantics unchanged: the bare legacy row is the only re-key.
+    assert report.migrated == ["BV9zz:p0"]
+    assert report.unresolved == []
+
+    with open(_manifest_path(tmp_root), encoding="utf-8") as fh:
+        snapshot = {
+            row["work_id"]: row
+            for row in (json.loads(line) for line in fh if line.strip())
+        }
+    assert snapshot["BV1aa:p0"]["status"] == "archived"
+    # The journal was discarded together with the rewrite, so a fresh reader
+    # sees the superseded value only if the base carried it.
+    assert not os.path.exists(_journal_path(tmp_root))
+    reloaded = ManifestStore(root=tmp_root).load()
+    assert reloaded["BV1aa:p0"]["status"] == "archived"
+    assert set(reloaded) == {"BV1aa:p0", "BV9zz:p0"}
+
+
 def test_migrate_collision_on_existing_p0_artifact(store, tmp_root):
     seed_legacy(store, _entry("BV1aa"))
     # Shape A: a foreign page's stem is a directory under transcripts/.

@@ -533,29 +533,24 @@ class ManifestStore:
         )
         report = LegacyMigrationReport()
         with self._manifest_lock(create=True):
+            # Source rows for the migration are the bare-legacy snapshot rows;
+            # they define exactly which rows the report counts as re-keyed /
+            # unresolved, and that report is consumed by
+            # ``subtitles.harvest_subtitle`` and the CLI, so the selection stays
+            # on the snapshot (a row journaled bare since the last snapshot is
+            # not a legacy source row).
             current = self._read_latest()
-            # Fold in rows journaled since the last snapshot so the in-memory
-            # view is current, but run the migration against the pure snapshot:
-            # the coalesce merge orders the legacy row under the page row.
+            # The rewrite base, however, must be the effective replay view,
+            # exactly as ``save()`` builds it: with the snapshot alone as the
+            # base, a journaled row superseding a page-qualified snapshot row
+            # was dropped by this rewrite and the journal holding its only copy
+            # was unlinked with it -- durable loss of the newer transition.
+            # (The pre-overlays that existed for the snapshot-only base are gone
+            # with it; the replay already covers every key.)
             effective, self._journal_bytes = self._replay_latest()
             self._entries = effective
             self._loaded = True
-            next_entries: dict[str, dict[str, Any]] = dict(current)
-            # Journaled rows for keys the migration does not touch survive the
-            # rewrite; the source rows the migration operates on (re-keyed or
-            # updated below) are already merged correctly.
-            # Journaled rows for keys still in snapshot form (including the
-            # bare-bvid identity a destination row will be re-keyed from)
-            # supersede the snapshot copy inside the coalesce merge.
-            for key, journaled in effective.items():
-                snapshot_row = next_entries.get(key)
-                if snapshot_row is not None and _is_bare_legacy(snapshot_row):
-                    merged = dict(snapshot_row)
-                    merged.update(journaled)
-                    next_entries[key] = merged
-            for key, entry in effective.items():
-                if key not in next_entries:
-                    next_entries[key] = entry
+            next_entries: dict[str, dict[str, Any]] = dict(effective)
 
             bare_keys = sorted(
                 key for key, entry in current.items()
