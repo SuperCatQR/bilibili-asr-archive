@@ -137,10 +137,10 @@ Status values: `Todo` | `InProgress` | `InReview` | `Done` | `Blocked`
 
 | plan_id | QC decision | QA gate | Residuals | Durable summary |
 |---------|-------------|---------|-----------|-----------------|
-| caption-writeback-guard | — | mandatory | — | — |
-| journal-replay-integrity | — | mandatory | — | — |
-| asr-run-id-uniqueness | — | mandatory | — | — |
-| journal-compaction-lifecycle | — | mandatory | — | — |
+| caption-writeback-guard | tri-review all `Needs Discussion`, 0 Critical / 0 Warning | mandatory → **Accepted with open issues** (7/7) | `I-000165` open (record half delivered; operator half tracked as `I-000192`/`I-000193`) | plan `## QA Gate Summary`; `{SDD_DIR}/caption-writeback-guard/review/qc-consolidated.md` |
+| journal-replay-integrity | tri-review `Approve`×2 / `Request Changes` → **Approve with residuals** | mandatory → **Accepted** (7/7) | `I-000164` open (closure PM-owned); `I-000195` routed to plan 014 (now fixed); `I-000196` decode asymmetry | plan `## QA Gate Summary`; `{SDD_DIR}/journal-replay-integrity/review/qc-consolidated.md` |
+| asr-run-id-uniqueness | tri-review `Approve`/`Approve`/`Request Changes` → revalidation **`Approve`×3** | mandatory → **Accepted with open issues** (7/7) | `I-000166` open (closure PM-owned); `I-000197` latch scope; `I-000198` narrowed-except consequence; `I-000199` exit-120 | plan `## QA Gate Summary`; `{SDD_DIR}/asr-run-id-uniqueness/review/qc-consolidated.md` |
+| journal-compaction-lifecycle | tri-review `Approve`/`Request Changes`/`Request Changes` → revalidation **`Approve`×3** (2 Criticals found + fixed) | mandatory → **Accepted with open issues** (8/8) | `I-000167`/`I-000170` open (closure PM-owned); `I-000195` **fixed** at `91e74ad`; `I-000202`/`I-000203`; `I-000204` (occ 2 open); `I-000205` (high, repair path) | plan `## QA Gate Summary`; `{SDD_DIR}/journal-compaction-lifecycle/review/qc-consolidated.md` |
 
 ## Compound Round Summary
 
