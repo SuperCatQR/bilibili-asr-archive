@@ -25,6 +25,7 @@ from bili_asr.storage.database import (
     _normalize_view_sql,
     _shipped_view_bodies,
     _statement_view_name,
+    _strip_sql_comments,
 )
 from bili_asr.storage.models import (
     ALLOWED_ACQUISITION_KINDS,
@@ -1951,6 +1952,52 @@ def test_the_normalized_form_is_readable_prose():
     )
 
 
+def test_the_normalized_form_of_a_real_view_is_the_whole_statement():
+    """Pin a REAL shipped body, not a toy, or the guard above is length-blind.
+
+    The statements in the test above are under 60 characters, while the shipped
+    views normalize to 397-1417.  A symmetric defect gated on length — "if the
+    text is longer than 500 characters, return the first 100" — therefore passed
+    every suite, and with it a genuinely stale real-length body was judged current
+    and silently never refreshed.  That is the original defect, reachable through
+    the very guard added to prevent it.
+
+    So this pins a real body three ways: the tokens that sit far past any short
+    prefix must survive, the result must have the body's full length, and it must
+    equal the normalization of what SQLite actually stores for that statement.
+    """
+    bodies = _shipped_view_bodies()
+    shipped = bodies["v_missing_audio"]
+    normalized = _normalize_view_sql(shipped)
+
+    # (a) load-bearing tokens far past any short prefix
+    assert "confirmations" in normalized, (
+        "missing 'confirmations' - the normalized form is not the full statement"
+    )
+    assert "error_code is null" in normalized, (
+        "missing the corroboration filter - normalized form truncated"
+    )
+    # (b) the full length, not a prefix of it
+    assert len(normalized) > 600, (
+        f"normalized v_missing_audio is only {len(normalized)} chars; the shipped "
+        "body normalizes to over a thousand, so the form has been truncated"
+    )
+    # (c) it agrees with what SQLite stores for the same statement
+    connection = sqlite3.connect(":memory:")
+    try:
+        connection.executescript(shipped.replace("IF NOT EXISTS ", "", 1))
+        stored = str(
+            connection.execute(
+                "SELECT sql FROM sqlite_master WHERE name = 'v_missing_audio'"
+            ).fetchone()[0]
+        )
+    finally:
+        connection.close()
+    assert normalized == _normalize_view_sql(stored), (
+        "the shipped form must normalize to the same shape SQLite stores"
+    )
+
+
 def test_a_trailing_comment_does_not_make_a_view_look_stale():
     """Both comment forms are removed, so neither can force a rewrite loop.
 
@@ -1988,3 +2035,43 @@ def test_a_literal_only_difference_is_treated_as_stale():
     assert _normalize_view_sql(
         "CREATE VIEW   v\n  AS   SELECT  1 AS x"
     ) == _normalize_view_sql("CREATE VIEW v AS SELECT 1 AS x")
+
+
+def test_every_quoting_form_is_respected_when_stripping_comments():
+    """A ``--`` inside ANY quoted region is data, not a comment.
+
+    Only understanding single quotes would truncate the statement at the first
+    ``--`` inside a double-quoted, backtick or bracketed identifier, making two
+    views that select *different* columns normalize equal — a false negative, so
+    a genuinely stale body would be judged current and never refresh.  Block
+    comments must be removed rather than truncated at.
+    """
+    for left, right, label in (
+        (
+            'CREATE VIEW v AS SELECT 1 AS "a--b"',
+            'CREATE VIEW v AS SELECT 1 AS "a--c"',
+            "double-quoted identifier",
+        ),
+        (
+            "CREATE VIEW v AS SELECT 1 AS `a--b`",
+            "CREATE VIEW v AS SELECT 1 AS `a--c`",
+            "backtick identifier",
+        ),
+        (
+            "CREATE VIEW v AS SELECT 1 AS [a--b]",
+            "CREATE VIEW v AS SELECT 1 AS [a--c]",
+            "bracket identifier",
+        ),
+        (
+            "CREATE VIEW v AS SELECT 1 /* -- */ AS x",
+            "CREATE VIEW v AS SELECT 1 /* -- */ AS y",
+            "block comment between differing tokens",
+        ),
+    ):
+        assert _normalize_view_sql(left) != _normalize_view_sql(right), label
+
+    # ...and a real comment is still removed.
+    assert _normalize_view_sql("CREATE VIEW v AS SELECT 1 /* note */") == (
+        "create view v as select 1"
+    )
+    assert _strip_sql_comments("SELECT '--' , /* x */ 2") == "SELECT '--' ,  2"

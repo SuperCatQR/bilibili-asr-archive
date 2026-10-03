@@ -221,34 +221,55 @@ def _shipped_view_bodies() -> dict[str, str]:
 
 
 def _strip_sql_comments(statement: str) -> str:
-    """Remove SQL comments, respecting string literals.
+    """Remove SQL comments, respecting every quoted region.
 
     Both a whole-line comment and a trailing one are removed, because SQLite
-    stores however the statement was written: a comment left in either form would
-    make the shipped and stored texts differ forever.  The scan is literal-aware
-    so a ``--`` inside a quoted string is left alone.
+    stores whatever was written: a comment left in either form would make the
+    shipped and stored texts differ forever.
+
+    The scan understands all four of SQLite's quoting forms — ``'...'`` strings
+    (with ``''`` escaping), ``"..."`` and ``[...]`` identifiers, and MySQL-style
+    ``` `...` ``` identifiers — plus ``/* ... */`` block comments.  It has to:
+    ``--`` inside *any* quoted region is data, and a scan that only knew about
+    single quotes would truncate the statement at that marker, which makes two
+    views selecting *different* columns normalize equal.  That is a false
+    negative — a genuinely stale body judged current — i.e. exactly the defect
+    this refresh exists to close.
     """
 
     out: list[str] = []
     index = 0
-    in_literal = False
     length = len(statement)
+    # (closing character, doubled-character escape) for each quoted form.
+    quotes: dict[str, tuple[str, bool]] = {
+        "'": ("'", True),
+        '"': ('"', True),
+        "`": ("`", True),
+        "[": ("]", False),
+    }
     while index < length:
         char = statement[index]
-        if in_literal:
+        if char in quotes:
+            closing, doubled = quotes[char]
             out.append(char)
-            if char == "'":
-                if index + 1 < length and statement[index + 1] == "'":
-                    out.append("'")
-                    index += 2
-                    continue
-                in_literal = False
             index += 1
+            while index < length:
+                current = statement[index]
+                out.append(current)
+                if current == closing:
+                    if doubled and index + 1 < length and statement[index + 1] == closing:
+                        out.append(current)
+                        index += 2
+                        continue
+                    index += 1
+                    break
+                index += 1
             continue
-        if char == "'":
-            in_literal = True
-            out.append(char)
-            index += 1
+        if char == "/" and index + 1 < length and statement[index + 1] == "*":
+            closing_block = statement.find("*/", index + 2)
+            if closing_block < 0:
+                break
+            index = closing_block + 2
             continue
         if char == "-" and index + 1 < length and statement[index + 1] == "-":
             # Skip to the end of the line, keeping the newline itself so two
@@ -382,8 +403,13 @@ def refresh_shipped_views(connection: sqlite3.Connection) -> int:
             connection.execute(f"DROP VIEW IF EXISTS {name}")
             connection.execute(shipped[name].replace("IF NOT EXISTS ", "", 1))
     except BaseException:
-        connection.execute("ROLLBACK TO refresh_shipped_views")
-        connection.execute("RELEASE refresh_shipped_views")
+        # Suppress a failure in the rollback itself so the ORIGINAL error is what
+        # the caller sees; a masked syntax error would be much harder to place.
+        for undo in ("ROLLBACK TO refresh_shipped_views", "RELEASE refresh_shipped_views"):
+            try:
+                connection.execute(undo)
+            except sqlite3.Error:
+                continue
         raise
     connection.execute("RELEASE refresh_shipped_views")
     return len(stale)
