@@ -468,10 +468,23 @@ def test_mark_transcript_stored_clears_the_queue_and_is_idempotent(tmp_root):
         repository = MediaQueueRepository(connection)
 
         _insert_acquisition_run(connection, run_id="run-subtitle", kind="subtitle")
+        _insert_acquisition_run(connection, run_id="run-subtitle-2", kind="subtitle")
         _insert_acquisition_run(connection, run_id="run-asr")
         _insert_attempt(
             connection,
             run_id="run-subtitle",
+            video_part_id=captionless_id,
+            outcome="no-subtitle",
+            error_code=None,
+        )
+        # A second INDEPENDENT empty observation (distinct run).  Exhaustion is
+        # attested: an empty inventory carries no error code, which makes it an
+        # indefinite negative, and it admits the part only once two distinct
+        # runs have seen it empty -- otherwise a single transiently-invisible
+        # inventory would route a captioned part into the paid branch.
+        _insert_attempt(
+            connection,
+            run_id="run-subtitle-2",
             video_part_id=captionless_id,
             outcome="no-subtitle",
             error_code=None,
