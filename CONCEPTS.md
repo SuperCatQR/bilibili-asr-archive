@@ -30,6 +30,19 @@ The act of publishing a transcript already stored in `archive.db` as an on-disk 
 The predicate a projection uses to skip work: the effective manifest row **declares** the four bundle paths **and** the completeness reader confirms them at the write base. A row that declares them but fails the read is republished — which is also how an interrupted publication heals.
 
 
+## manifest journal
+
+The manifest's append-only per-row update log (`manifest/manifest.journal.jsonl`), from which the deterministic
+snapshot (`manifest.jsonl`) is rebuilt by a fold. The journal is what makes a per-row write O(1); the snapshot is
+what every non-store reader projects.
+
+A **torn fragment** is a journal line a writer never terminated (crash between `write` and its `\n`) — or one that
+shared a physical line with a later append that landed on it. Replay stops at the fragment and exposes nothing
+after it. The records a fragment leaves behind are **stranded**: fsynced and readable by no one, because replay
+refuses to skip mid-stream. A journal may only be discarded once every record it holds is durably published, so a
+strand suspends the discard; the fold **settles** it by publishing the stranded records first. *Avoid:* torn tail
+(the tail is the usual shape, not the only one), corrupt line (the bytes are a record or a fragment, not garbage).
+
 ## Flagged ambiguities
 
 - **audio object vs audio queue** — the *object* is stored content (identity: location); the *queue* is the work the chain still owes (parts with no transcript). A part can be in the queue with no object yet, and can hold an object while no longer being in the queue; the two are never synonyms.
