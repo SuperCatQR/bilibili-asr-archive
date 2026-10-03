@@ -632,3 +632,49 @@ def test_save_empty_current_touches_no_artifact(store, tmp_root):
     assert os.path.exists(_journal_path(tmp_root))
     assert _snapshot_stat(_journal_path(tmp_root)) == journal_before
     assert not os.path.exists(_manifest_path(tmp_root))
+
+def test_fold_refuses_to_discard_rows_stranded_behind_a_torn_fragment(store, tmp_root):
+    # A crash can leave a torn fragment in the journal, and another handle can
+    # then append *complete* rows after it. Replay stops at the fragment (it
+    # must not skip mid-stream), so those later rows are reachable by no reader
+    # -- and they are the only copy. The fold decides on the journal's
+    # whole-file size, so it would otherwise publish a snapshot without them
+    # and unlink the journal holding them.
+    #
+    # The invariant asserted is *recoverability*, not "the file still exists":
+    # a fold that unlinks and is then followed by more appends recreates an
+    # (empty-of-them) journal, so an existence check would pass while the rows
+    # were already gone.
+    store.save({"BV1aa411c7mD": {"bvid": "BV1aa411c7mD", "status": "meta_ok"}})
+
+    os.makedirs(os.path.dirname(_journal_path(tmp_root)), exist_ok=True)
+    with open(_journal_path(tmp_root), "a", encoding="utf-8") as fh:
+        fh.write('{"work_id": "BVtorn:p0", "status": "arch')  # torn: invalid JSON
+
+    stranded = [f"BVsurv{i}" for i in range(3)]
+    survivor = ManifestStore(root=tmp_root)
+    for bvid in stranded:
+        survivor.upsert(_auto(bvid))
+
+    # Cross the byte floor (_JOURNAL_MIN_COMPACT_BYTES) so the fold fires.
+    folder = ManifestStore(root=tmp_root)
+    for i in range(4):
+        folder.upsert(_auto(f"BVmore{i}"))
+
+    def reachable(key: str) -> bool:
+        """A row is reachable if a reader sees it, or its bytes survive."""
+        if key in ManifestStore(root=tmp_root).load():
+            return True
+        journal = _journal_path(tmp_root)
+        return os.path.exists(journal) and key in open(journal, encoding="utf-8").read()
+
+    for bvid in stranded:
+        assert reachable(f"{bvid}:p0"), (
+            f"{bvid} was fsynced but is gone from both the snapshot and the journal"
+        )
+
+    # The stranding shape must be detected by the replay itself, so a manual
+    # compact() refuses the same discard rather than deleting the only copy.
+    ManifestStore(root=tmp_root).compact()
+    for bvid in stranded:
+        assert reachable(f"{bvid}:p0"), "compact() discarded rows the replay never folded"

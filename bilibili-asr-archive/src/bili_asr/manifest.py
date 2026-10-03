@@ -129,6 +129,14 @@ class ManifestStore:
         # per-instance append count: two handles over one root must not need a
         # shared counter to fold a journal that is outgrowing the snapshot.
         self._journal_bytes = 0
+        # Bytes of the journal the last replay could not consume because a torn
+        # fragment stopped it, and whether a *complete* row follows that
+        # fragment. A complete row there belongs to another handle that appended
+        # after a crash fragment; the replay (correctly) refuses to skip
+        # mid-stream, so such a row is visible to no reader. Discarding the
+        # journal would then delete its only copy, so the discard refuses while
+        # this is set -- see :meth:`_remove_journal`.
+        self._journal_has_unfolded_rows = False
         # Journal identity as of the last in-memory load, for cross-process
         # invalidation: an interleaved append from another process changes the
         # signature, so a later upsert re-replays instead of silently
@@ -235,9 +243,19 @@ class ManifestStore:
         A torn trailing journal line (crash mid-append) is dropped: replay
         exposes only fully-appended records, so the resumable SSOT invariant
         holds even when the process died between ``write`` and a full line.
+
+        The torn line is only safe to drop while nothing follows it, which is
+        the normal cross-process shape (another handle appends to an existing
+        fully-terminated file).  It is *not* safe when a **complete** record
+        follows the fragment: that record was fsynced by whoever wrote it and
+        no reader can reach it, because replay refuses to skip mid-stream.  The
+        scan therefore continues past the fragment purely to detect that shape
+        and record it in :attr:`_journal_has_unfolded_rows`, which makes
+        :meth:`_remove_journal` refuse to delete the only copy.
         """
         entries = self._read_latest()
         journal_bytes = 0
+        self._journal_has_unfolded_rows = False
         try:
             directory_fd = self._open_manifest_dir()
         except FileNotFoundError:
@@ -259,6 +277,7 @@ class ManifestStore:
         # torn-tail ``break`` below then reads as the end of the journal. Same
         # rule as ``_read_latest`` above; ``coordinator.py`` documents it for
         # ``AttemptLedger``.
+        torn = False
         for line in raw.decode("utf-8", errors="replace").split("\n"):
             line = line.strip()
             if not line:
@@ -267,8 +286,16 @@ class ManifestStore:
                 entry = validate_manifest_record(json.loads(line))
             except ValueError:
                 # Torn write at the tail: nothing after it was fully appended
-                # either, so stop replaying rather than skip mid-stream.
-                break
+                # either, so stop folding rows from here on rather than skip
+                # mid-stream.  Keep scanning (without folding) only to learn
+                # whether a complete record was stranded behind the fragment.
+                torn = True
+                continue
+            if torn:
+                # A complete record after a torn fragment: unfetchable by any
+                # reader, and therefore not ours to delete.
+                self._journal_has_unfolded_rows = True
+                continue
             entries[_entry_key(entry)] = entry
         return entries, journal_bytes
 
@@ -322,11 +349,36 @@ class ManifestStore:
             _JOURNAL_MIN_COMPACT_BYTES, _JOURNAL_WRAP_BYTES_FACTOR * snapshot_bytes
         ):
             return
+        # A fold is only a fold if it can also discard the journal.  While a
+        # torn fragment strands complete rows behind it, the replay can never
+        # fold them, so rewriting the snapshot would publish the same view
+        # again on every append and leave the journal in place anyway -- the
+        # rewrite would be pure cost, with the size check re-firing forever.
+        # Skip the whole fold and let a later append retry once the fragment is
+        # no longer blocking; ``_remove_journal`` independently refuses the
+        # discard, so this is the cost optimisation, not the guarantee.
+        if self._journal_has_unfolded_rows:
+            return
         self._replace_snapshot(entries)
         self._remove_journal()
         self._journal_bytes = 0
 
     def _remove_journal(self) -> None:
+        """Discard the journal, unless it holds rows the replay never folded.
+
+        This is the one owner of the invariant every caller relies on: a
+        journal may only be unlinked once *every* row it contains is durably
+        published in the snapshot (``I-000138``).  The replay cannot fold a
+        record that follows a torn fragment -- it stops at the fragment rather
+        than skip mid-stream -- so when such a record exists the journal is the
+        only copy and deleting it would lose fsynced data.  Refusing here keeps
+        the guarantee true for ``_maybe_compact_locked``, ``save()``, and
+        ``migrate_legacy_rows()`` alike, instead of each caller having to
+        remember it; the journal simply survives to be folded by a later append
+        once the fragment is out of the way.
+        """
+        if self._journal_has_unfolded_rows:
+            return
         directory_fd = self._open_manifest_dir()
         try:
             try:
