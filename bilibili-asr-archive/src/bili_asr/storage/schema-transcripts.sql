@@ -182,7 +182,8 @@ WHERE vp.processing_status <> 'gone'
 -- audio on disk would be excluded while a part that failed to download would
 -- enter the transcription queue — so this view does not.  Newest-attempt idiom
 -- copied from ``v_pending_subtitles``.
-CREATE VIEW IF NOT EXISTS v_missing_audio AS
+DROP VIEW IF EXISTS v_missing_audio;
+CREATE VIEW v_missing_audio AS
 WITH subtitle_attempts AS (
     SELECT
         aa.video_part_id,
@@ -225,7 +226,8 @@ WHERE vp.processing_status <> 'gone'
 -- deliberately does not filter ``processing_status``: a 'gone' part with audio
 -- and no transcript is still a transcribable gap.  Audio evidence is the same
 -- single probe as ``v_missing_audio``'s.
-CREATE VIEW IF NOT EXISTS v_missing_transcript AS
+DROP VIEW IF EXISTS v_missing_transcript;
+CREATE VIEW v_missing_transcript AS
 SELECT
     vp.video_part_id,
     vp.bvid || ':p' || vp.page_index AS work_id,
