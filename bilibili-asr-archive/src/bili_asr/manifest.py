@@ -129,14 +129,19 @@ class ManifestStore:
         # per-instance append count: two handles over one root must not need a
         # shared counter to fold a journal that is outgrowing the snapshot.
         self._journal_bytes = 0
-        # Bytes of the journal the last replay could not consume because a torn
-        # fragment stopped it, and whether a *complete* row follows that
-        # fragment. A complete row there belongs to another handle that appended
-        # after a crash fragment; the replay (correctly) refuses to skip
-        # mid-stream, so such a row is visible to no reader. Discarding the
-        # journal would then delete its only copy, so the discard refuses while
-        # this is set -- see :meth:`_remove_journal`.
+        # Records the last replay found *after* a torn fragment, and whether
+        # one exists at all. A record there belongs to another handle that
+        # appended after a crash fragment: the replay refuses to skip
+        # mid-stream, so such a record is readable by nobody, and discarding the
+        # journal would delete its only copy. The repair is to repack the
+        # journal without the fragment (see :meth:`_repack_journal_locked`);
+        # until that runs, the discard refuses -- see :meth:`_remove_journal`.
         self._journal_has_unfolded_rows = False
+        self._journal_recoverable: list[dict[str, Any]] = []
+        # False when a scan budget ran out, i.e. the collector may have missed a
+        # record.  Only a complete collection may authorise publishing-and-
+        # discarding; an incomplete one keeps the journal (safe direction).
+        self._journal_recoverable_complete = True
         # Journal identity as of the last in-memory load, for cross-process
         # invalidation: an interleaved append from another process changes the
         # signature, so a later upsert re-replays instead of silently
@@ -256,6 +261,8 @@ class ManifestStore:
         entries = self._read_latest()
         journal_bytes = 0
         self._journal_has_unfolded_rows = False
+        self._journal_recoverable = []
+        self._journal_recoverable_complete = True
         try:
             directory_fd = self._open_manifest_dir()
         except FileNotFoundError:
@@ -286,11 +293,15 @@ class ManifestStore:
                 entry = validate_manifest_record(json.loads(line))
             except (ValueError, RecursionError):
                 # Torn write, or a line json.loads refuses (deep nesting
-                # exhausts the parser's stack): stop folding rows from here on
-                # rather than skip mid-stream.  Keep scanning (without folding)
-                # only to learn whether anything was stranded behind it.
+                # exhausts the parser's stack): stop *folding* rows from here on
+                # rather than skip mid-stream.  Keep scanning to collect
+                # whatever complete records the fragment stranded, so the
+                # repair can keep them.
                 torn = True
-                if self._unparsed_line_holds_a_record(line):
+                merged = self._record_merged_into(line)
+                if not self._journal_recoverable_complete:
+                    self._journal_has_unfolded_rows = True
+                if merged is not None:
                     # The fragment and a *complete* record share this physical
                     # line: the next append landed on the unterminated
                     # fragment, so the whole-line parse fails while the record
@@ -298,11 +309,14 @@ class ManifestStore:
                     # whoever wrote it and no reader can reach it, so the
                     # journal holding it must not be discarded.
                     self._journal_has_unfolded_rows = True
+                    self._journal_recoverable.append(merged)
                 continue
             if torn:
                 # A complete record after a torn fragment: unfetchable by any
-                # reader, and therefore not ours to delete.
+                # reader through the replay's stop-at-the-fragment rule, and
+                # therefore not ours to delete.
                 self._journal_has_unfolded_rows = True
+                self._journal_recoverable.append(entry)
                 continue
             entries[_entry_key(entry)] = entry
         return entries, journal_bytes
@@ -313,15 +327,20 @@ class ManifestStore:
     #: only delays a fold, while discarding a record loses it.
     _UNPARSED_LINE_SCAN_LIMIT = 64
 
-    def _unparsed_line_holds_a_record(self, line: str) -> bool:
-        """Does an unparsable line still end with a complete record?
+    def _record_merged_into(self, line: str) -> dict[str, Any] | None:
+        """Return the complete record an unparsable line was merged with.
 
         A record is one JSON object serialized by ``_json_line`` and normally
         occupies its own line.  When the previous write died mid-line, the next
         append lands on that unterminated fragment, so fragment and record
         become a single physical line that no whole-line parse can read.  The
         record is the line's tail, so this walks the ``{`` anchors right to
-        left and accepts the first suffix that parses as a valid record.
+        left and returns the first suffix that parses as a valid record.
+
+        ``None`` covers both "no record here" and "the scan budget ran out".
+        The two are told apart by :attr:`_journal_recoverable_complete`, which
+        the exhausted branch clears: an incomplete collection must never
+        authorise a discard, so the caller keeps the journal in that case.
         """
         attempts = 0
         for start in range(len(line) - 1, -1, -1):
@@ -329,14 +348,14 @@ class ManifestStore:
                 continue
             attempts += 1
             if attempts > self._UNPARSED_LINE_SCAN_LIMIT:
-                return True
+                self._journal_recoverable_complete = False
+                return None
             suffix = line[start:]
             try:
-                validate_manifest_record(json.loads(suffix))
+                return validate_manifest_record(json.loads(suffix))
             except (ValueError, RecursionError):
                 continue
-            return True
-        return False
+        return None
 
     def _append_record(self, record: Mapping[str, Any]) -> None:
         directory_fd = self._open_manifest_dir(create=True)
@@ -388,16 +407,20 @@ class ManifestStore:
             _JOURNAL_MIN_COMPACT_BYTES, _JOURNAL_WRAP_BYTES_FACTOR * snapshot_bytes
         ):
             return
-        # A fold is only a fold if it can also discard the journal.  While a
-        # torn fragment strands complete rows behind it, the replay can never
-        # fold them, so rewriting the snapshot would publish the same view
-        # again on every append and leave the journal in place anyway -- the
-        # rewrite would be pure cost, with the size check re-firing forever.
-        # Skip the whole fold and let a later append retry once the fragment is
-        # no longer blocking; ``_remove_journal`` independently refuses the
-        # discard, so this is the cost optimisation, not the guarantee.
+        # A torn fragment stops the replay from folding whatever follows it, so
+        # the rewrite would publish the same view again on every append and the
+        # size check would re-fire forever -- the journal growing without bound
+        # and those records unreadable throughout.  Settle it in the fold: the
+        # records the fragment stranded are published here, and only then may
+        # the journal be discarded.  An *incomplete* collection must not
+        # authorise that, so it falls back to leaving the journal alone.
         if self._journal_has_unfolded_rows:
-            return
+            if not self._journal_recoverable_complete:
+                return
+            for recovered in self._journal_recoverable:
+                entries[_entry_key(recovered)] = recovered
+            self._journal_has_unfolded_rows = False
+            self._journal_recoverable = []
         self._replace_snapshot(entries)
         self._remove_journal()
         self._journal_bytes = 0

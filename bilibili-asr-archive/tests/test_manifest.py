@@ -717,3 +717,43 @@ def test_fold_refuses_to_discard_a_record_merged_into_a_torn_fragment(store, tmp
         or (os.path.exists(snapshot) and "BVstranded0" in open(snapshot, encoding="utf-8").read())
     )
     assert recoverable, "the merged record was discarded with the journal"
+
+def test_fold_publishes_records_a_torn_fragment_stranded(store, tmp_root):
+    # Refusing the discard keeps the rows alive but unreadable, and the journal
+    # grows without bound because no fold can complete. The fold therefore has
+    # to *settle* the strand: publish the records the fragment stranded, and
+    # only then discard. Otherwise a fragment permanently degrades the ledger
+    # into a growing journal whose tail no reader can see.
+    store.save({"BV1aa411c7mD": {"bvid": "BV1aa411c7mD", "status": "meta_ok"}})
+
+    os.makedirs(os.path.dirname(_journal_path(tmp_root)), exist_ok=True)
+    with open(_journal_path(tmp_root), "a", encoding="utf-8") as fh:
+        fh.write('{"work_id": "BVtorn:p0", "status": "arch')  # torn, never terminated
+
+    stranded = [f"BVsurv{i}" for i in range(3)]
+    survivor = ManifestStore(root=tmp_root)
+    for bvid in stranded:
+        survivor.upsert(_auto(bvid))
+
+    # Cross the byte floor so the fold fires.
+    folder = ManifestStore(root=tmp_root)
+    for i in range(6):
+        folder.upsert(_auto(f"BVmore{i}"))
+
+    # Every stranded record must now be readable from the snapshot -- not merely
+    # present somewhere on disk.
+    visible = ManifestStore(root=tmp_root).load()
+    for bvid in stranded:
+        assert f"{bvid}:p0" in visible, (
+            f"{bvid} was fsynced before the fragment but is still unreadable"
+        )
+    # The fault line is gone with the journal it lived in, and the records that
+    # were reachable before the fragment stay readable. (The journal file may
+    # exist again: appends after the fold start a fresh one, holding only rows
+    # written after it -- so the assertion is on the fragment, not on the path.)
+    assert "BV1aa411c7mD" in visible
+    journal = _journal_path(tmp_root)
+    if os.path.exists(journal):
+        assert "BVtorn" not in open(journal, encoding="utf-8").read(), (
+            "the fold left the unparsable fragment in place"
+        )
