@@ -250,7 +250,14 @@ class ManifestStore:
         finally:
             os.close(directory_fd)
         journal_bytes = len(raw)
-        for line in raw.decode("utf-8", errors="replace").splitlines():
+        # Split on the record separator the writer emits ("\n") only. A
+        # line-separator-aware split would also break on U+2028/U+2029/U+0085 —
+        # legal inside a JSON string and written raw by this repo's writer
+        # (``ensure_ascii=False``) — turning one row into fragments that the
+        # torn-tail ``break`` below then reads as the end of the journal. Same
+        # rule as ``_read_latest`` above; ``coordinator.py`` documents it for
+        # ``AttemptLedger``.
+        for line in raw.decode("utf-8", errors="replace").split("\n"):
             line = line.strip()
             if not line:
                 continue
