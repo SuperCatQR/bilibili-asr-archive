@@ -76,10 +76,15 @@ from bili_asr.storage import (
 #: The archive's single owner mid, as every other fixture in the suite uses it.
 _MID = 23191782
 
-#: One run id for the whole seed: the ``no-subtitle`` attempts below are
-#: per-``(run_id, video_part_id)``, so a second call for the same part is a
-#: write the repository refuses rather than a duplicate fact.
+#: Two run ids for the whole seed.  ``v_missing_audio`` requires exhaustion to
+#: be *attested*: an empty caption inventory carries no error code, which makes
+#: it an indefinite negative, and an indefinite negative admits a part only once
+#: two **independent** observations exist — independent meaning a distinct
+#: ``run_id`` (``COUNT(DISTINCT run_id)``).  So a seeded caption-exhausted part
+#: needs its ``no-subtitle`` fact under both runs; one would no longer be
+#: enough, which is exactly the defect this seeds against.
 _RUN_ID = "seed-archive-database"
+_RUN_ID_CONFIRM = "seed-archive-database-confirm"
 
 
 def _seed_archive_database(root: str, *, audio_base: str | None = None) -> None:
@@ -249,32 +254,21 @@ def _record_caption(connection, bvid: str, page_index: int) -> None:
 
 
 def _record_no_subtitle(connection, transcripts, bvid: str, page_index: int) -> None:
-    """Record the part's newest caption attempt as ``no-subtitle``.
+    """Record the part's caption exhaustion as ``no-subtitle`` in two runs.
 
-    ``v_missing_audio`` admits a part only when its newest subtitle attempt
-    outcome is ``no-subtitle`` or ``failed``, so this is the fact that makes a
-    caption-exhausted row selectable for audio.  Both writes are guarded by an
-    existence check rather than by catching the repository's refusal: a second
-    seed of the same root re-uses the run and the attempt it already recorded,
-    and any *other* failure stays visible instead of being silently absorbed.
+    ``v_missing_audio`` admits a caption-exhausted part only once exhaustion is
+    *attested*.  An empty inventory is recorded as ``no-subtitle`` with no error
+    code, which is an **indefinite** negative — the gateway contract says an
+    inventory the credential in effect could not see is an empty tuple — so the
+    part is admitted only when two **independent** observations exist, where
+    independent means a distinct ``run_id``.  Hence two runs here.
+
+    Both writes are guarded by an existence check rather than by catching the
+    repository's refusal: a second seed of the same root re-uses the runs and
+    attempts it already recorded, and any *other* failure stays visible instead
+    of being silently absorbed.
     """
 
-    if connection.execute(
-        "SELECT 1 FROM acquisition_runs WHERE run_id = ?", (_RUN_ID,)
-    ).fetchone() is None:
-        transcripts.start_acquisition_run(
-            AcquisitionRunRecord(
-                run_id=_RUN_ID,
-                kind="subtitle",
-                selector_kind="pending",
-                selector_target=None,
-                requested_limit=None,
-                credential_present=False,
-                started_at=10,
-                finished_at=12,
-                outcome="complete",
-            )
-        )
     row = connection.execute(
         "SELECT video_part_id FROM video_parts WHERE bvid = ? AND page_index = ?",
         (bvid, page_index),
@@ -282,16 +276,40 @@ def _record_no_subtitle(connection, transcripts, bvid: str, page_index: int) -> 
     if row is None:  # pragma: no cover - the caller just wrote it
         return
     video_part_id = int(row["video_part_id"])
-    if connection.execute(
-        "SELECT 1 FROM acquisition_attempts WHERE run_id = ? AND video_part_id = ?",
-        (_RUN_ID, video_part_id),
-    ).fetchone() is not None:
-        return
-    transcripts.record_subtitle_attempt(
-        run_id=_RUN_ID,
-        video_part_id=video_part_id,
-        outcome="no-subtitle",
-        error_code=None,
-        started_at=11,
-        finished_at=12,
-    )
+
+    # The first run keeps the original seed's timestamps exactly (run 10..12,
+    # attempt 11..12) so nothing that depended on them shifts; the confirming
+    # run sits strictly later.
+    for run_id, run_started, run_finished, att_started, att_finished in (
+        (_RUN_ID, 10, 12, 11, 12),
+        (_RUN_ID_CONFIRM, 20, 22, 21, 22),
+    ):
+        if connection.execute(
+            "SELECT 1 FROM acquisition_runs WHERE run_id = ?", (run_id,)
+        ).fetchone() is None:
+            transcripts.start_acquisition_run(
+                AcquisitionRunRecord(
+                    run_id=run_id,
+                    kind="subtitle",
+                    selector_kind="pending",
+                    selector_target=None,
+                    requested_limit=None,
+                    credential_present=False,
+                    started_at=run_started,
+                    finished_at=run_finished,
+                    outcome="complete",
+                )
+            )
+        if connection.execute(
+            "SELECT 1 FROM acquisition_attempts WHERE run_id = ? AND video_part_id = ?",
+            (run_id, video_part_id),
+        ).fetchone() is not None:
+            continue
+        transcripts.record_subtitle_attempt(
+            run_id=run_id,
+            video_part_id=video_part_id,
+            outcome="no-subtitle",
+            error_code=None,
+            started_at=att_started,
+            finished_at=att_finished,
+        )

@@ -208,22 +208,30 @@ def _harvest_the_captionless_parts(
     store's attempt tables by hand: the gateway double answers an empty track
     inventory for these cids and the real service records the ``no-subtitle``
     attempt.
+
+    Run **twice**, because exhaustion is attested rather than inferred: an empty
+    inventory carries no error code, which makes it an indefinite negative, and
+    a part is admitted to the audio queue only once two **independent**
+    observations exist — independent meaning a distinct run, and each
+    ``harvest-subs`` invocation opens its own run.  One pass would leave these
+    parts unqueued, which is the behaviour this fixture exists to drive past.
     """
 
     for cid in cids:
         gateway.script_subtitle_tracks(cid, ())
-    assert (
-        main(
-            [
-                "harvest-subs",
-                "--limit-parts",
-                str(len(cids)),
-                "--archive-root",
-                root,
-            ]
+    for _pass in range(2):
+        assert (
+            main(
+                [
+                    "harvest-subs",
+                    "--limit-parts",
+                    str(len(cids)),
+                    "--archive-root",
+                    root,
+                ]
+            )
+            == 0
         )
-        == 0
-    )
 
 
 def _part_attempt_outcomes(root: str, bvid: str, page_index: int) -> list[str]:
@@ -320,9 +328,12 @@ def test_a_derived_row_is_selected_by_missing_subs_and_attempts_that_work_id(
     assert set(rows) == {QUEUED_WORK_ID}
     assert rows[QUEUED_WORK_ID]["status"] == "needs_audio"
     assert rows[QUEUED_WORK_ID]["duration_s"] == QUEUED_DURATION_MS // 1000
+    # Two entries: exhaustion is attested, so the fixture harvests twice and the
+    # part carries one empty-inventory observation per run (distinct runs are
+    # what the corroboration rule counts).
     assert (
         _part_attempt_outcomes(tmp_root, QUEUED_BVID, QUEUED_PAGE_INDEX)
-        == ["no-subtitle"]
+        == ["no-subtitle", "no-subtitle"]
     )
     assert _part_transcript_count(tmp_root, CAPTIONED_BVID, 0) == 1
 
