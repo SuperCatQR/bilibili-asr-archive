@@ -39,6 +39,16 @@ plans: caption-writeback-guard(Todo) journal-replay-integrity(Todo)
 - **建议做法方向**（供 grill 收敛，不是 lock）：让"空且未验证"不再等于"已耗尽"；或把该次观测记为可区分状态（如伴随 `unverified` 类错误码），使**单次空清单不能持久地把一个 part 判为无字幕**；并让 `probe-subs` 与 `harvest-subs` 对同一 part、同一时刻给出**一致**答案。
 - **规模**：S（1 个业务 plan）。`bilibili-asr-archive/src/bili_asr/services/subtitle_ingest.py:424-433`（`_probe_part`）、`:438-487`（`_acquire_part`）、`src/bili_asr/sources/bilibili_api_gateway.py:924-941`（`get_subtitle_tracks`）、`src/bili_asr/storage/schema-transcripts.sql:185-220`（`v_missing_audio`）。
 
+### B1b（强烈推荐，high）— ASR 转写必须声明覆盖范围，不得静默成功
+
+- **issue**：`I-000188`（high，2026-10-03 校对链 E2E 测得）
+- **实测**：`BV1YFEUzpEsT:p0` 的归档转写为 **13 段、跨度 0.0–59.0 s**，而解码音频 **73.561 s**（新下载全长，`_read_audio` 复测一致），**20% 的语音未被触及**；`video_parts.duration_ms=74000`。同一 p0 的 store 尝试为 `outcome=stored`、bundle 为 `archived`、四族产物齐全、**无 error_code、无告警**。
+- **归因（逐步实测，非推理）**：① 不是下载——新下载 303,078 B / 73.561 s；② 不是 token 预算——`_MAX_NEW_TOKENS_PER_AUDIO_SECOND` 8→32（588→2352 tokens）输出**逐字节相同**；③ 不是静音——跳过区 −27.0 dB 均值 / −4.0 dB 峰值，对照已覆盖区 −26.0 / −4.0；④ **该区在自身电平下模型输出 0 字符，+20 dB 才出字**，而**真静音对照（67–73.5 s）任何增益都输出 0**、已覆盖区对照正常出字；⑤ 两个增益版本**互相不一致**且都不匹配字幕 → 该区是"难"，**不是**靠调增益可恢复。
+- **为什么是 high**：这是**成功外观下的错误归档**——与 `I-000166`（run id 撞键静默跳过写回）、`I-000187`（空清单当耗尽）**同一失效类**：账本说成功，事实不是。
+- **附带价值**：唯一发现它的机制是 `proofread` 的 **Guard A**——而这要求两条路线且是 opt-in、且在发布之后。**检测手段不能是校对链**（它需要"有字幕的 part 也跑 ASR"，而 store 路由永不给这个组合）。
+- **规模**：S–M（1 个业务 plan）。`src/bili_asr/asr.py:1195-1221`（chunk 循环无覆盖率断言）、`:1097-1100`（预算，已实测排除）。
+- **附**：同一轮席位源码核证另发现 `I-000189`（medium，`proofread-merge` 静默丢弃缺行块且仍计入台账、退出 0）与 `T4-F1`（low，spec `proofread.md:27` 措辞过宽）——若开校对方向的迭代，两者是同族残余。
+
 ### B2（可选，medium）— 登记系统的"已验证但关不掉"死角
 
 - **issue**：`I-000186`（medium，2026-10-03 本轮登记）
