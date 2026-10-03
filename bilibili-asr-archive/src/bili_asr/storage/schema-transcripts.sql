@@ -181,6 +181,9 @@ WHERE vp.processing_status <> 'gone'
 -- only once two **independent** observations exist, where independent means a
 -- distinct ``run_id``.  ``COUNT(DISTINCT run_id)`` is load-bearing: two probes
 -- inside one run are ONE observation, so a retry loop cannot inflate the count.
+-- (The table's PRIMARY KEY is ``(run_id, video_part_id)``, which makes a second
+-- row for one part in one run unwritable in the first place; changing that key
+-- would weaken this, so treat it as a review trigger.)
 -- Measured 2026-10-03: a single empty inventory became a durable verdict and put
 -- a part that did have subtitles into the paid branch; a genuinely caption-less
 -- control part reports empty on every run, so it still reaches this queue — one
@@ -193,8 +196,7 @@ WHERE vp.processing_status <> 'gone'
 -- audio on disk would be excluded while a part that failed to download would
 -- enter the transcription queue — so this view does not.  Newest-attempt idiom
 -- copied from ``v_pending_subtitles``.
-DROP VIEW IF EXISTS v_missing_audio;
-CREATE VIEW v_missing_audio AS
+CREATE VIEW IF NOT EXISTS v_missing_audio AS
 WITH subtitle_attempts AS (
     SELECT
         aa.video_part_id,
@@ -251,8 +253,7 @@ WHERE vp.processing_status <> 'gone'
 -- deliberately does not filter ``processing_status``: a 'gone' part with audio
 -- and no transcript is still a transcribable gap.  Audio evidence is the same
 -- single probe as ``v_missing_audio``'s.
-DROP VIEW IF EXISTS v_missing_transcript;
-CREATE VIEW v_missing_transcript AS
+CREATE VIEW IF NOT EXISTS v_missing_transcript AS
 SELECT
     vp.video_part_id,
     vp.bvid || ':p' || vp.page_index AS work_id,
@@ -287,6 +288,8 @@ WITH subtitle_attempts AS (
     SELECT
         aa.video_part_id,
         aa.outcome,
+        aa.error_code,
+        aa.run_id,
         ROW_NUMBER() OVER (
             PARTITION BY aa.video_part_id
             ORDER BY aa.finished_at DESC, aa.run_id DESC
@@ -294,6 +297,15 @@ WITH subtitle_attempts AS (
     FROM acquisition_attempts AS aa
     JOIN acquisition_runs AS ar ON ar.run_id = aa.run_id
     WHERE ar.kind = 'subtitle'
+)
+-- The same corroboration rule ``v_missing_audio`` applies, so the two views
+-- never disagree about one row: an empty inventory with no error code is an
+-- indefinite negative and needs two independent observations (distinct runs).
+, empty_inventory_confirmations AS (
+    SELECT video_part_id, COUNT(DISTINCT run_id) AS confirmations
+    FROM subtitle_attempts
+    WHERE outcome = 'no-subtitle' AND error_code IS NULL
+    GROUP BY video_part_id
 )
 SELECT
     vp.video_part_id,
@@ -309,10 +321,17 @@ SELECT
             SELECT 1 FROM part_audio_objects AS pao WHERE pao.video_part_id = vp.video_part_id
         ) THEN 'audio_ok'
         WHEN vp.processing_status <> 'gone'
-             AND latest.outcome IN ('no-subtitle', 'failed') THEN 'audio_pending'
+             AND (
+                   latest.outcome = 'failed'
+                OR (latest.outcome = 'no-subtitle'
+                    AND (  latest.error_code = 'not_found'
+                        OR COALESCE(eic.confirmations, 0) >= 2))
+             ) THEN 'audio_pending'
         WHEN latest.outcome = 'no-subtitle' THEN 'no_subtitle'
         ELSE 'discovered'
     END AS pipeline_state
 FROM video_parts AS vp
 LEFT JOIN subtitle_attempts AS latest
-    ON latest.video_part_id = vp.video_part_id AND latest.recency = 1;
+    ON latest.video_part_id = vp.video_part_id AND latest.recency = 1
+LEFT JOIN empty_inventory_confirmations AS eic
+    ON eic.video_part_id = vp.video_part_id;

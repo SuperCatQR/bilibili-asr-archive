@@ -423,6 +423,113 @@ def test_two_empty_looks_in_one_run_are_one_observation(queue_store):
         item.work_id for item in repository.list_queue_gaps(gap="missing_audio")
     ]
 
+
+def test_only_indefinite_observations_confirm_an_empty_inventory(queue_store):
+    """Only *indefinite* observations corroborate: the counter's filter is load-bearing.
+
+    ``empty_inventory_confirmations`` counts ``outcome = 'no-subtitle'`` rows
+    whose ``error_code IS NULL``.  Dropping that filter would let a ``not_found``
+    row (a definite negative) or a ``failed`` row (which observed nothing about
+    the inventory at all) supply the second "confirmation" — admitting a part on
+    one empty look plus one unrelated row, which is the conflation this whole
+    fix exists to remove.
+
+    The *newest* attempt decides admission, and the corroboration count is
+    independent of recency, so each case below keeps the indefinite observation
+    newest (later ``finished_at``) and checks the count alone.
+    """
+    connection, parts, repository = queue_store
+    transcripts = TranscriptRepository(connection)
+
+    # One indefinite observation, made NEWEST by using the latest timestamps.
+    _open_run(transcripts, "run-definite", "subtitle")
+    transcripts.record_subtitle_attempt(
+        run_id="run-definite",
+        video_part_id=parts[("BV1EEE", 0)],
+        outcome="no-subtitle",
+        error_code="not_found",
+        started_at=100,
+        finished_at=200,
+    )
+    _open_run(transcripts, "run-failed", "subtitle")
+    transcripts.record_subtitle_attempt(
+        run_id="run-failed",
+        video_part_id=parts[("BV1EEE", 0)],
+        outcome="failed",
+        error_code="upstream_timeout",
+        started_at=300,
+        finished_at=400,
+    )
+    _open_run(transcripts, "run-indefinite", "subtitle")
+    transcripts.record_subtitle_attempt(
+        run_id="run-indefinite",
+        video_part_id=parts[("BV1EEE", 0)],
+        outcome="no-subtitle",
+        error_code=None,
+        started_at=500,
+        finished_at=600,
+    )
+
+    # The newest attempt is indefinite, and no *other indefinite* row exists, so
+    # the not_found and failed rows above must not have contributed a second
+    # confirmation.
+    assert "BV1EEE:p0" not in [
+        item.work_id for item in repository.list_queue_gaps(gap="missing_audio")
+    ]
+
+    # A second INDEFINITE observation admits it.
+    _open_run(transcripts, "run-indefinite-2", "subtitle")
+    transcripts.record_subtitle_attempt(
+        run_id="run-indefinite-2",
+        video_part_id=parts[("BV1EEE", 0)],
+        outcome="no-subtitle",
+        error_code=None,
+        started_at=700,
+        finished_at=800,
+    )
+    assert "BV1EEE:p0" in [
+        item.work_id for item in repository.list_queue_gaps(gap="missing_audio")
+    ]
+
+
+def test_v_part_pipeline_agrees_with_v_missing_audio(queue_store):
+    """The two views must not contradict each other on the same row.
+
+    ``v_part_pipeline`` documents ``audio_pending`` as meaning the part is in
+    ``v_missing_audio``.  If the pipeline view kept the old one-look predicate
+    while the queue view gained corroboration, a part with a single empty
+    observation would render ``audio_pending`` while being absent from the audio
+    queue — the two views disagreeing about one row.  This pins them together.
+    """
+    connection, parts, repository = queue_store
+    transcripts = TranscriptRepository(connection)
+
+    # The fixture's caption-exhausted part has TWO independent observations, so
+    # both views agree on it trivially.  A part with exactly ONE is what tells
+    # the predicates apart, so add one.
+    _open_run(transcripts, "run-one-look", "subtitle")
+    transcripts.record_subtitle_attempt(
+        run_id="run-one-look",
+        video_part_id=parts[("BV1EEE", 0)],
+        outcome="no-subtitle",
+        error_code=None,
+        started_at=900,
+        finished_at=1_000,
+    )
+
+    states = {
+        str(row["work_id"]): str(row["pipeline_state"])
+        for row in connection.execute("select work_id, pipeline_state from v_part_pipeline")
+    }
+    in_queue = {
+        item.work_id
+        for item in repository.list_queue_gaps(gap="missing_audio")
+    }
+    for work_id, state in states.items():
+        assert (state == "audio_pending") == (work_id in in_queue), (
+            f"{work_id}: pipeline_state={state!r} but in v_missing_audio={work_id in in_queue}"
+        )
+
 def test_a_failed_audio_attempt_is_not_audio_evidence(queue_store):
     """The fixture's BV1FFF:p0 has *only* a failed audio attempt.
 

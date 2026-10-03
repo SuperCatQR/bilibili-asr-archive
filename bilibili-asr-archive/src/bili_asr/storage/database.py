@@ -9,6 +9,7 @@ import json
 import math
 import os
 from pathlib import Path
+import re
 import sqlite3
 from typing import ClassVar, Iterable, Iterator, Mapping, Sequence, TypeAlias
 
@@ -59,6 +60,10 @@ _TRANSCRIPT_SCHEMA_RESOURCE = resources.files(__package__).joinpath(
 # The columns and objects only the transcript contract has: the bootstrap
 # decision reads the columns, the capability guard reads both.
 _TRANSCRIPT_CONTRACT_COLUMNS = frozenset({"language", "content_sha256"})
+#: A view name this module will interpolate into DDL.  Anchored and restricted
+#: to a bare identifier so a refresh can never carry SQL from anywhere else.
+_VIEW_NAME_RE = re.compile(r"CREATE\s+VIEW(?:\s+IF\s+NOT\s+EXISTS)?\s+([A-Za-z_][A-Za-z0-9_]*)", re.IGNORECASE)
+
 _SUBTITLE_SCHEMA_OBJECTS = (
     "acquisition_attempts",
     "acquisition_runs",
@@ -158,6 +163,110 @@ def _has_subtitle_schema(connection: sqlite3.Connection) -> bool:
     return set(_SUBTITLE_SCHEMA_OBJECTS) <= _schema_object_names(connection)
 
 
+def _shipped_view_bodies() -> dict[str, str]:
+    """The ``name -> CREATE VIEW`` bodies this build ships, keyed by view name.
+
+    Read from the checked-in transcript script so there is one source of truth:
+    the body compared against ``sqlite_master`` is the body this build would
+    create.  A statement that fails to parse is skipped rather than guessed at —
+    ``executescript`` below reports that failure with its own error.
+    """
+
+    script = _TRANSCRIPT_SCHEMA_RESOURCE.read_text(encoding="utf-8")
+    bodies: dict[str, str] = {}
+    buffer = ""
+    for line in script.splitlines(keepends=True):
+        buffer += line
+        if not sqlite3.complete_statement(buffer):
+            continue
+        statement = buffer.strip()
+        buffer = ""
+        if "CREATE VIEW" not in statement.upper():
+            continue
+        match = _VIEW_NAME_RE.search(statement)
+        if match is not None:
+            bodies[match.group(1)] = statement
+    return bodies
+
+
+def _normalize_view_sql(statement: str) -> str:
+    """Collapse a view body to the shape SQLite stores, for comparison only.
+
+    SQLite keeps the original text of a view's ``SELECT`` but drops the trailing
+    semicolon and rewrites the header, so the shipped statement and the stored
+    one are never byte-equal even when the view is current.  Whitespace is
+    collapsed as well, which makes the comparison a statement about the body
+    rather than about formatting.
+    """
+
+    # Drop the leading SQL comments a shipped statement carries: SQLite stores
+    # a view's text without them, so comparing raw text would call every shipped
+    # view stale and rewrite all of them on every open.
+    lines = []
+    for line in statement.splitlines():
+        if line.lstrip().startswith("--"):
+            continue
+        lines.append(line)
+    text = "\n".join(lines).strip().rstrip(";").strip()
+    # SQLite also drops the IF NOT EXISTS clause when it stores a view, so the
+    # shipped form has to lose it too before the two can be compared.
+    text = re.sub(r"(?i)^create\s+view\s+if\s+not\s+exists\s+", "CREATE VIEW ", text)
+    return " ".join(text.split()).casefold()
+
+
+def refresh_shipped_views(connection: sqlite3.Connection) -> int:
+    """Recreate any shipped view whose stored body differs from this build's.
+
+    ``CREATE VIEW IF NOT EXISTS`` means a re-executed schema script never updates
+    a view that already exists, so a corrected predicate would silently never
+    reach an existing archive.  This closes that gap without making every open a
+    write:
+
+    * the stored body is compared against the shipped one first, and nothing is
+      touched when they agree — so a read-only archive, or one opened while
+      another handle holds a read transaction, is not forced into a write it does
+      not need;
+    * a refresh runs inside one explicit transaction, so a failure cannot leave
+      the view absent — SQLite rolls DDL back (verified: a failing ``CREATE``
+      after a ``DROP`` leaves the original view in place).
+
+    Views the shipped script defines are the only ones considered; anything else
+    in the database is left alone.  Returns the number of views refreshed.
+    """
+
+    shipped = _shipped_view_bodies()
+    if not shipped:
+        return 0
+    # Positional indexing, like ``_schema_object_names``: a caller may hand us a
+    # wrapped connection without ``row_factory = sqlite3.Row``, and reading by
+    # name here would raise ``TypeError`` on it.
+    stored = {
+        str(row[0]): str(row[1])
+        for row in connection.execute(
+            "SELECT name, sql FROM sqlite_master "
+            "WHERE type = 'view' AND sql IS NOT NULL"
+        )
+    }
+    stale = [
+        name
+        for name, body in shipped.items()
+        if name in stored
+        and _normalize_view_sql(stored[name]) != _normalize_view_sql(body)
+    ]
+    if not stale:
+        return 0
+    for name in stale:
+        # The name comes from this build's own script, never from a caller, and
+        # is re-validated so it can only ever be a bare identifier.
+        if _VIEW_NAME_RE.fullmatch("CREATE VIEW IF NOT EXISTS " + name) is None:
+            raise sqlite3.DatabaseError(f"refusing to refresh view {name!r}")
+    with _transaction(connection):
+        for name in stale:
+            connection.execute(f"DROP VIEW IF EXISTS {name}")
+            connection.execute(shipped[name].replace("IF NOT EXISTS ", "", 1))
+    return len(stale)
+
+
 def initialize_schema(connection: sqlite3.Connection) -> sqlite3.Connection:
     """Initialize ``connection`` from the checked-in schema scripts, idempotently.
 
@@ -175,6 +284,7 @@ def initialize_schema(connection: sqlite3.Connection) -> sqlite3.Connection:
         connection.executescript(
             _TRANSCRIPT_SCHEMA_RESOURCE.read_text(encoding="utf-8")
         )
+        refresh_shipped_views(connection)
     connection.commit()
     return connection
 

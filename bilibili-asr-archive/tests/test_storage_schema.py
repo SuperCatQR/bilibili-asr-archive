@@ -18,6 +18,7 @@ from bili_asr.storage import (
     duration_to_ms,
     normalize_page_index,
     open_database,
+    refresh_shipped_views,
     require_subtitle_schema,
 )
 from bili_asr.storage.models import (
@@ -1242,8 +1243,11 @@ def test_bootstrap_reapplies_the_contract_to_a_current_database(tmp_root):
     reopened = open_database(database_path)
     try:
         assert require_subtitle_schema(reopened) is None
-        # Re-applying the script is a no-op: every statement is IF NOT EXISTS,
-        # so the declared DDL and the rows are untouched.
+        # Re-applying the script is a no-op for already-current objects: tables
+        # and the untouched views are IF NOT EXISTS, and the shipped views are
+        # compared against the stored bodies by ``refresh_shipped_views``, which
+        # rewrites only a view whose body differs (a current one is not touched,
+        # so nothing here moves).
         assert {
             name: _stored_ddl(reopened, name) for name in declared_ddl
         } == declared_ddl
@@ -1769,3 +1773,80 @@ def test_acquisition_run_record_validates_the_locked_shape():
         _acquisition_run(credential_present=1)
     with pytest.raises(TypeError):
         _acquisition_run(started_at="100")
+
+
+def test_a_stale_view_body_is_refreshed_on_open(tmp_path):
+    """A corrected view predicate must reach an EXISTING archive.
+
+    Every view in the transcript script is declared ``CREATE VIEW IF NOT
+    EXISTS``, and ``initialize_schema`` re-executes that script on every open.
+    Without a refresh, SQLite keeps the *old* body and a corrected predicate
+    silently never applies to an archive that already exists — the same failure
+    class as the ``acquisition_attempts`` CHECK constraint, which is why this is
+    pinned rather than assumed.
+
+    The refresh must also not turn every open into a write: a current database
+    is compared first and left alone, so a read-only archive still opens.
+    """
+    database_path = tmp_path / "archive.db"
+    connection = open_database(database_path)
+    try:
+        require_subtitle_schema(connection)
+        shipped = str(
+            connection.execute(
+                "SELECT sql FROM sqlite_master WHERE name = 'v_missing_audio'"
+            ).fetchone()[0]
+        )
+        assert "confirmations" in shipped
+    finally:
+        connection.close()
+
+    # Replace the view with a stale body, as an archive created by an older
+    # build would carry.
+    connection = open_database(database_path)
+    try:
+        connection.execute("DROP VIEW v_missing_audio")
+        connection.execute(
+            "CREATE VIEW v_missing_audio AS SELECT 1 AS video_part_id"
+        )
+        connection.commit()
+        assert "confirmations" not in _stored_ddl(connection, "v_missing_audio")
+    finally:
+        connection.close()
+
+    # Reopening refreshes it: the shipped body wins over the stale one.
+    reopened = open_database(database_path)
+    try:
+        assert "confirmations" in _stored_ddl(reopened, "v_missing_audio")
+    finally:
+        reopened.close()
+
+
+def test_refreshing_views_leaves_a_current_archive_untouched(tmp_path):
+    """A current archive is not written on open, so read-only opens keep working.
+
+    ``refresh_shipped_views`` compares the stored body with the shipped one
+    before touching anything.  That comparison is what keeps a read-only archive
+    (or one opened while another handle holds a read transaction) from being
+    forced into a write it does not need, so the observable contract is:
+    reopening a current database changes neither the file nor its schema version.
+    """
+    database_path = tmp_path / "archive.db"
+    connection = open_database(database_path)
+    try:
+        require_subtitle_schema(connection)
+    finally:
+        connection.close()
+
+    before = os.stat(database_path)
+    connection = open_database(database_path)
+    try:
+        version_before = int(connection.execute("PRAGMA schema_version").fetchone()[0])
+        assert refresh_shipped_views(connection) == 0
+        version_after = int(connection.execute("PRAGMA schema_version").fetchone()[0])
+    finally:
+        connection.close()
+
+    after = os.stat(database_path)
+    assert version_after == version_before, "a current archive must not be rewritten"
+    assert after.st_mtime_ns == before.st_mtime_ns, "the file must not be touched"
