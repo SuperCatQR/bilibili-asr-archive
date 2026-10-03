@@ -21,6 +21,11 @@ from bili_asr.storage import (
     refresh_shipped_views,
     require_subtitle_schema,
 )
+from bili_asr.storage.database import (
+    _normalize_view_sql,
+    _shipped_view_bodies,
+    _statement_view_name,
+)
 from bili_asr.storage.models import (
     ALLOWED_ACQUISITION_KINDS,
     ALLOWED_ACQUISITION_OUTCOMES,
@@ -1850,3 +1855,95 @@ def test_refreshing_views_leaves_a_current_archive_untouched(tmp_path):
     after = os.stat(database_path)
     assert version_after == version_before, "a current archive must not be rewritten"
     assert after.st_mtime_ns == before.st_mtime_ns, "the file must not be touched"
+
+
+def test_a_failing_view_refresh_leaves_the_view_in_place(tmp_path):
+    """The refresh is atomic: a failure must not leave a view missing.
+
+    A plain ``_transaction`` block does NOT give this: it commits but never
+    issues ``BEGIN``, so a ``DROP VIEW`` inside it autocommits and a failing
+    ``CREATE`` leaves the view absent from ``sqlite_master``.  The queue readers
+    would then raise a raw ``no such table``.  The refresh uses a savepoint, and
+    this pins that — the failure is injected through the shipped-body lookup so
+    the real code path runs.
+    """
+    from bili_asr.storage import database as database_module
+
+    database_path = tmp_path / "archive.db"
+    connection = open_database(database_path)
+    try:
+        require_subtitle_schema(connection)
+        # Make the stored body stale so the refresh actually fires, then break
+        # the replacement statement so its CREATE fails.
+        connection.execute("DROP VIEW v_missing_audio")
+        connection.execute("CREATE VIEW v_missing_audio AS SELECT 1 AS video_part_id")
+        connection.commit()
+
+        real_bodies = database_module._shipped_view_bodies
+
+        def broken() -> dict[str, str]:
+            bodies = real_bodies()
+            bodies["v_missing_audio"] = (
+                "CREATE VIEW IF NOT EXISTS v_missing_audio AS SELECT FROM WHERE"
+            )
+            return bodies
+
+        database_module._shipped_view_bodies = broken
+        try:
+            with pytest.raises(sqlite3.Error):
+                refresh_shipped_views(connection)
+        finally:
+            database_module._shipped_view_bodies = real_bodies
+
+        assert (
+            connection.execute(
+                "SELECT count(*) FROM sqlite_master WHERE name = 'v_missing_audio'"
+            ).fetchone()[0]
+            == 1
+        ), "a failed refresh must leave the previous view in place"
+    finally:
+        connection.close()
+
+
+def test_the_view_name_cannot_come_from_a_comment():
+    """The shipped-name extractor reads the statement, not its comment block.
+
+    The transcript script is densely commented, and a comment that quotes the
+    words "CREATE VIEW" would otherwise supply the name for the *next*
+    statement — the refresh would then drop the wrong view and recreate it with
+    the wrong body.
+    """
+    statement = (
+        "-- unlike CREATE VIEW IF NOT EXISTS v_decoy AS ...\n"
+        "CREATE VIEW IF NOT EXISTS v_real AS SELECT 1 AS x"
+    )
+    assert _statement_view_name(statement) == "v_real"
+
+    # Every shipped view still resolves to its own name.
+    assert set(_shipped_view_bodies()) == {
+        "v_pending_subtitles",
+        "v_missing_subtitle",
+        "v_missing_audio",
+        "v_missing_transcript",
+        "v_part_pipeline",
+    }
+
+
+def test_a_literal_only_difference_is_treated_as_stale():
+    """Normalization must not erase differences inside string literals.
+
+    Collapsing whitespace or folding case across a whole statement would also
+    rewrite literal text, so a stored body differing from the shipped one only
+    inside a literal would read as current and never refresh.
+    """
+    assert _normalize_view_sql(
+        "CREATE VIEW v AS SELECT 'no-subtitle' AS x"
+    ) != _normalize_view_sql("CREATE VIEW v AS SELECT 'NO-SUBTITLE' AS x")
+    assert _normalize_view_sql(
+        "CREATE VIEW v AS SELECT 'a  b' AS x"
+    ) != _normalize_view_sql("CREATE VIEW v AS SELECT 'a b' AS x")
+    # Formatting outside literals still compares equal, so a current view is
+    # never needlessly rewritten.
+    assert _normalize_view_sql(
+        "CREATE VIEW   v\n  AS   SELECT  1 AS x"
+    ) == _normalize_view_sql("CREATE VIEW v AS SELECT 1 AS x")

@@ -60,10 +60,6 @@ _TRANSCRIPT_SCHEMA_RESOURCE = resources.files(__package__).joinpath(
 # The columns and objects only the transcript contract has: the bootstrap
 # decision reads the columns, the capability guard reads both.
 _TRANSCRIPT_CONTRACT_COLUMNS = frozenset({"language", "content_sha256"})
-#: A view name this module will interpolate into DDL.  Anchored and restricted
-#: to a bare identifier so a refresh can never carry SQL from anywhere else.
-_VIEW_NAME_RE = re.compile(r"CREATE\s+VIEW(?:\s+IF\s+NOT\s+EXISTS)?\s+([A-Za-z_][A-Za-z0-9_]*)", re.IGNORECASE)
-
 _SUBTITLE_SCHEMA_OBJECTS = (
     "acquisition_attempts",
     "acquisition_runs",
@@ -163,6 +159,41 @@ def _has_subtitle_schema(connection: sqlite3.Connection) -> bool:
     return set(_SUBTITLE_SCHEMA_OBJECTS) <= _schema_object_names(connection)
 
 
+#: A view name this module will interpolate into DDL.  Matched with ``match``
+#: against the comment-stripped statement, so a comment that happens to contain
+#: the words "CREATE VIEW" cannot supply a name for the *next* statement; the
+#: keyword list rejects an unquoted identifier that is really syntax.
+_VIEW_NAME_RE = re.compile(
+    r"CREATE\s+VIEW(?:\s+IF\s+NOT\s+EXISTS)?\s+([A-Za-z_][A-Za-z0-9_]*)\s+AS\b",
+    re.IGNORECASE | re.DOTALL,
+)
+#: The only shape a view name may have before it is interpolated into DDL.
+_BARE_IDENTIFIER_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+
+_SQL_KEYWORDS = frozenset(
+    {"if", "not", "exists", "as", "select", "with", "values", "table", "view"}
+)
+
+
+def _statement_view_name(statement: str) -> str | None:
+    """The view name a shipped statement defines, or ``None``.
+
+    Comments are stripped first: a leading comment block that mentions "CREATE
+    VIEW" would otherwise be matched instead of the statement's own clause.
+    """
+
+    body = "\n".join(
+        line for line in statement.splitlines() if not line.lstrip().startswith("--")
+    )
+    match = _VIEW_NAME_RE.match(body.strip())
+    if match is None:
+        return None
+    name = match.group(1)
+    if name.casefold() in _SQL_KEYWORDS:
+        return None
+    return name
+
+
 def _shipped_view_bodies() -> dict[str, str]:
     """The ``name -> CREATE VIEW`` bodies this build ships, keyed by view name.
 
@@ -183,9 +214,9 @@ def _shipped_view_bodies() -> dict[str, str]:
         buffer = ""
         if "CREATE VIEW" not in statement.upper():
             continue
-        match = _VIEW_NAME_RE.search(statement)
-        if match is not None:
-            bodies[match.group(1)] = statement
+        name = _statement_view_name(statement)
+        if name is not None:
+            bodies[name] = statement
     return bodies
 
 
@@ -211,7 +242,40 @@ def _normalize_view_sql(statement: str) -> str:
     # SQLite also drops the IF NOT EXISTS clause when it stores a view, so the
     # shipped form has to lose it too before the two can be compared.
     text = re.sub(r"(?i)^create\s+view\s+if\s+not\s+exists\s+", "CREATE VIEW ", text)
-    return " ".join(text.split()).casefold()
+    # Normalize OUTSIDE string literals only.  Collapsing whitespace or folding
+    # case across the whole statement would also rewrite literal text, and a body
+    # differing from the shipped one only inside a literal — say 'no-subtitle'
+    # against 'NO-SUBTITLE' — would then read as current and never refresh.
+    parts: list[str] = []
+    literal: list[str] = []
+    in_literal = False
+    index = 0
+    while index < len(text):
+        char = text[index]
+        if char == "'":
+            if in_literal and index + 1 < len(text) and text[index + 1] == "'":
+                literal.append("''")
+                index += 2
+                continue
+            if in_literal:
+                parts.append("'" + "".join(literal) + "'")
+                literal = []
+                in_literal = False
+            else:
+                in_literal = True
+            index += 1
+            continue
+        (literal if in_literal else parts).append(char)
+        index += 1
+    if in_literal:  # an unterminated literal; compare it as written
+        parts.append("'" + "".join(literal))
+    normalized = []
+    for part in parts:
+        if part.startswith("'") and part.endswith("'") and len(part) >= 2:
+            normalized.append(part)
+        else:
+            normalized.append(" ".join(part.casefold().split()))
+    return " ".join(piece for piece in normalized if piece)
 
 
 def refresh_shipped_views(connection: sqlite3.Connection) -> int:
@@ -226,9 +290,10 @@ def refresh_shipped_views(connection: sqlite3.Connection) -> int:
       touched when they agree — so a read-only archive, or one opened while
       another handle holds a read transaction, is not forced into a write it does
       not need;
-    * a refresh runs inside one explicit transaction, so a failure cannot leave
-      the view absent — SQLite rolls DDL back (verified: a failing ``CREATE``
-      after a ``DROP`` leaves the original view in place).
+    * a refresh runs inside a **savepoint**, so a failure cannot leave the view
+      absent: ``_transaction`` commits but never issues BEGIN, which would let a
+      DROP autocommit (measured: a failing CREATE then left the view missing from
+      ``sqlite_master``), whereas ``ROLLBACK TO`` restores it.
 
     Views the shipped script defines are the only ones considered; anything else
     in the database is left alone.  Returns the number of views refreshed.
@@ -255,15 +320,26 @@ def refresh_shipped_views(connection: sqlite3.Connection) -> int:
     ]
     if not stale:
         return 0
+    # The names come from this build's own script and each is re-validated as a
+    # bare identifier before it can reach any DDL string.
     for name in stale:
-        # The name comes from this build's own script, never from a caller, and
-        # is re-validated so it can only ever be a bare identifier.
-        if _VIEW_NAME_RE.fullmatch("CREATE VIEW IF NOT EXISTS " + name) is None:
+        if not _BARE_IDENTIFIER_RE.fullmatch(name):
             raise sqlite3.DatabaseError(f"refusing to refresh view {name!r}")
-    with _transaction(connection):
+    # A SAVEPOINT, not ``_transaction``: that helper commits but never issues
+    # BEGIN, so a DROP inside it would autocommit and a failing CREATE would
+    # leave the view *absent* — measured, and the reason this is not a plain
+    # transaction block.  A savepoint is also safe when a transaction is already
+    # open around this call.
+    connection.execute("SAVEPOINT refresh_shipped_views")
+    try:
         for name in stale:
             connection.execute(f"DROP VIEW IF EXISTS {name}")
             connection.execute(shipped[name].replace("IF NOT EXISTS ", "", 1))
+    except BaseException:
+        connection.execute("ROLLBACK TO refresh_shipped_views")
+        connection.execute("RELEASE refresh_shipped_views")
+        raise
+    connection.execute("RELEASE refresh_shipped_views")
     return len(stale)
 
 
