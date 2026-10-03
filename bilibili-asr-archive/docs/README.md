@@ -7,6 +7,9 @@ deliberately leaves out. Reference counts are tracked-surface hits at
 
 | Document | What it is | Refs |
 |---|---|---|
+| [design-philosophy.md](design-philosophy.md) | 项目北极星：三大环节（抓取/内容处理/数据处理）、数据库四公理、五条设计哲学。方向决策的上游锚点。 | — |
+| [roadmap.md](roadmap.md) | 阶段路线图：Phase 0 事件流可信 → 处理器注册表 → 缺口队列 → 谓词收敛 → 画面/评论/关系。与在飞分支的关系在此对齐。 | — |
+| [roadmap-gantt.md](roadmap-gantt.md) | 路线图的甘特图（Mermaid）：Phase 0–7 的相对工期、关键路径、压缩空间，锚定当前在飞迭代。 | — |
 | [metadata-storage.md](metadata-storage.md) | `archive.db`: the normalized SQLite store behind `fetch-meta` and `harvest-subs` — tables, views, ingestion state, and the read/write contracts. | 12 |
 | [wsl-rocm-gpu.md](wsl-rocm-gpu.md) | The one AMD path **measured** to give a usable ASR device on Windows WSL2 — the ROCm/torch wheel pairing, HSA/DXG detection, and the failure chain per symptom. | 8 |
 | [artifact-root.md](artifact-root.md) | `--artifact-root` operator guide: which root is which, how to place products on a mount, and why some things never leave the archive root. | 7 |
