@@ -1052,3 +1052,319 @@ def test_queue_source_ensure_asr_run_is_best_effort_on_store_failure(tmp_root, m
         )
     finally:
         connection.close()
+
+
+# ---------------------------------------------------------------------------
+# asr-run-id-uniqueness (plan asr-run-id-uniqueness): the run id must not
+# collide inside one wall-clock second, and a genuine store refusal must be
+# visible — once per source instance — instead of silently disabling the scope.
+# ---------------------------------------------------------------------------
+
+
+def test_queue_source_ensure_asr_run_two_same_second_sources_both_write_back(
+    tmp_root, monkeypatch
+):
+    """Two same-command runs inside one second each get a usable run id.
+
+    The defect class: ``ensure_asr_run`` minted ``f"{command}-{int(time())}"``
+    against ``acquisition_runs.run_id`` — a ``TEXT PRIMARY KEY`` — so a second
+    run inside the same wall-clock second collided, the store's
+    ``IntegrityError`` was swallowed by a blanket ``except``, the id stayed
+    ``None`` and every transcript write-back of that scope was skipped while
+    stdout still reported each row as archived.  A batch boundary re-opens the
+    source (``RunCoordinator._close_writeback_source``), so the collision is
+    reachable in-process: two connections over one store are that shape.
+
+    The clock is injected rather than slept on: the whole test runs inside one
+    frozen wall-clock second while the nanosecond clock advances one
+    nanosecond per read, so the pre-fix id (the whole second) collides
+    deterministically and the assertion is that the two ids differ — never
+    that they differ *because* of timing.  The end-to-end half is deliberate:
+    an id being non-``None`` is not the observable the operator cares about,
+    the ``transcripts`` row each run id writes is.
+    """
+    import itertools
+    import time as time_module
+
+    connection_a = open_database(tmp_root)
+    connection_b = open_database(tmp_root)
+    try:
+        first_part_id = _audio_backed_part(connection_a, bvid="BVcollide", page_index=0)
+        second_part_id = _insert_video_part_under_video(
+            connection_a, bvid="BVcollide", page_index=1, cid=3002
+        )
+        connection_a.commit()
+
+        nanoseconds = itertools.count(1_700_000_000_000_000_000)
+        monkeypatch.setattr(time_module, "time", lambda: 1_700_000_000.0)
+        monkeypatch.setattr(time_module, "time_ns", lambda: next(nanoseconds))
+
+        source_a = QueueSource(connection_a)
+        source_b = QueueSource(connection_b)
+
+        first = source_a.ensure_asr_run("asr")
+        second = source_b.ensure_asr_run("asr")
+
+        # The collision: pre-fix both calls mint the same key, the second
+        # insert is refused and ``second`` comes back ``None``.
+        assert first is not None
+        assert second is not None
+        assert first != second
+
+        rows = connection_a.execute(
+            "SELECT run_id FROM acquisition_runs"
+        ).fetchall()
+        assert sorted(str(row["run_id"]) for row in rows) == sorted([first, second])
+
+        segments = (TranscriptSegmentRecord(start_ms=0, end_ms=1_000, text="转写"),)
+        record_local_transcript(
+            source_a,
+            run_id=first,
+            bvid="BVcollide",
+            page_index=0,
+            language="zh",
+            segments=segments,
+            model_name="m",
+            model_revision=None,
+        )
+        record_local_transcript(
+            source_b,
+            run_id=second,
+            bvid="BVcollide",
+            page_index=1,
+            language="zh",
+            segments=segments,
+            model_name="m",
+            model_revision=None,
+        )
+
+        # Each run id landed its own transcript row: the write-backs the
+        # collision would have silently disabled are recorded in the store.
+        stored = connection_a.execute(
+            "SELECT video_part_id, source_kind FROM transcripts"
+        ).fetchall()
+        assert {int(row["video_part_id"]) for row in stored} == {
+            first_part_id,
+            second_part_id,
+        }
+        assert {str(row["source_kind"]) for row in stored} == {"asr-local"}
+        attempts = connection_a.execute(
+            "SELECT run_id, outcome FROM acquisition_attempts"
+        ).fetchall()
+        assert {(str(row["run_id"]), str(row["outcome"])) for row in attempts} == {
+            (first, "stored"),
+            (second, "stored"),
+        }
+    finally:
+        connection_a.close()
+        connection_b.close()
+
+
+def test_queue_source_ensure_asr_run_reports_refusal_once_per_instance(
+    tmp_root, monkeypatch, capsys
+):
+    """A refused run is stated once per source instance, on stderr only.
+
+    D8 (product-manager ruling): the refusal happens before any row is
+    recorded and skips the whole scope, so the diagnostic names the command,
+    the refusing exception class and the skipped transcript write-backs — once
+    per ``QueueSource`` instance, because a persistently failing store retries
+    on every call and a per-call line would degrade into per-row noise.  stdout
+    stays empty: it still reports each row as archived, and the refusal must
+    not read as a clean success.
+    """
+    connection = open_database(tmp_root)
+    try:
+        from bili_asr.storage import TranscriptRepository
+
+        def refuse(*args, **kwargs):
+            raise sqlite3.IntegrityError("run_id already used")
+
+        monkeypatch.setattr(TranscriptRepository, "start_acquisition_run", refuse)
+
+        source = QueueSource(connection)
+        assert source.ensure_asr_run("asr") is None
+        captured = capsys.readouterr()
+        lines = captured.err.splitlines()
+        assert len(lines) == 1, captured.err
+        assert "asr" in lines[0]
+        assert "IntegrityError" in lines[0]
+        assert "write-back" in lines[0]
+        assert "skipped" in lines[0]
+        assert captured.out == ""
+
+        # Latched per instance: the retry is refused again, and stays silent.
+        assert source.ensure_asr_run("asr") is None
+        assert capsys.readouterr().err == ""
+
+        # A new instance is a new scope and earns its own single line.
+        other = QueueSource(connection)
+        assert other.ensure_asr_run("asr") is None
+        assert len(capsys.readouterr().err.splitlines()) == 1
+    finally:
+        connection.close()
+
+
+def test_queue_source_ensure_asr_run_refusal_is_silent_with_stderr_closed(
+    tmp_root, monkeypatch, capsys
+):
+    """With fd 2 closed the refusal returns ``None`` without printing or raising.
+
+    CPython sets ``sys.stderr`` to ``None`` when fd 2 is closed, and
+    ``print(..., file=None)`` falls back to stdout — where the diagnostic would
+    land inside the caller's own output (the ``archived`` lines, or
+    ``campaign``'s single JSON document).  A stream that is gone means the
+    diagnostic has nowhere to go: the rule
+    ``coordinator._print_model_constructions`` already follows.
+    """
+    import sys
+
+    connection = open_database(tmp_root)
+    try:
+        from bili_asr.storage import TranscriptRepository
+
+        def refuse(*args, **kwargs):
+            raise sqlite3.Error("store refused")
+
+        monkeypatch.setattr(TranscriptRepository, "start_acquisition_run", refuse)
+        monkeypatch.setattr(sys, "stderr", None)
+
+        source = QueueSource(connection)
+        assert source.ensure_asr_run("asr") is None
+        captured = capsys.readouterr()
+        assert captured.out == ""
+        assert captured.err == ""
+    finally:
+        connection.close()
+
+
+def test_queue_source_ensure_asr_run_refusal_survives_a_dead_stderr_stream(
+    tmp_root, monkeypatch, capsys
+):
+    """A stream that dies after startup cannot raise out of the refusal report.
+
+    The ``sys.stderr is None`` guard only covers fd 2 closed *before* the
+    interpreter starts.  When fd 2 dies later (``os.close(2)``, a broken pipe),
+    ``sys.stderr`` is still a live ``TextIOWrapper`` whose writes fail with
+    ``OSError``; an unguarded ``print`` would then raise that out of
+    ``ensure_asr_run``, whose documented contract is to return ``None`` when
+    the store refuses the run.  A present stream that is unusable in another
+    way fails with a class that is not an ``OSError`` at all — a closed
+    wrapper or one whose buffer was detached raises ``ValueError``, and a
+    byte-oriented stream raises ``TypeError`` — so the guard must name those
+    classes too.
+
+    The stubs are built without closing fd 2 of the test session, which
+    pytest's capture replaces anyway (and the house pattern of the test above
+    stubs ``sys.stderr`` rather than closing the real fd).  A read-only fd
+    fails every write with ``EBADF`` and can never be reused, so that write
+    really is attempted and really fails; the closed/detached wrappers and the
+    binary stream fail deterministically for the same reason.  Each stream's
+    failures are counted: the latch must keep the line from being retried on a
+    later refusal.
+    """
+    import contextlib
+    import io
+    import os
+    import sys
+
+    class DeadStderr(io.TextIOWrapper):
+        """A stderr-shaped stream whose fd or wrapper state refuses writes."""
+
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            self.writes = 0
+
+        def write(self, text):
+            self.writes += 1
+            return super().write(text)
+
+    class DeadBinary(io.BufferedWriter):
+        """A byte-oriented stream: ``print`` hands it ``str``, it wants bytes."""
+
+        def __init__(self, raw):
+            super().__init__(raw)
+            self.writes = 0
+
+        def write(self, data):
+            self.writes += 1
+            return super().write(data)
+
+    def _wrapper():
+        return DeadStderr(
+            open(os.devnull, "wb"),
+            encoding="utf-8",
+            write_through=True,
+            line_buffering=True,
+        )
+
+    # A present-but-unusable stream is wider than the ``OSError`` of a dead fd:
+    # a wrapper that is closed (``ValueError: I/O operation on closed file.``)
+    # or whose buffer was detached (``ValueError: underlying buffer has been
+    # detached``), and a byte-oriented stream (``TypeError``).  None of those
+    # classes is an ``OSError``, and each shape gets its own instance below,
+    # because the latch is per instance.
+    closed = _wrapper()
+    closed.close()
+    detached = _wrapper()
+    detached_buffer = detached.detach()
+    binary = DeadBinary(open(os.devnull, "wb", buffering=0))
+
+    connection = open_database(tmp_root)
+    dead = DeadStderr(
+        os.fdopen(os.open(os.devnull, os.O_RDONLY), "wb", buffering=0),
+        encoding="utf-8",
+        write_through=True,
+        line_buffering=True,
+    )
+    try:
+        from bili_asr.storage import TranscriptRepository
+
+        def refuse(*args, **kwargs):
+            raise sqlite3.Error("store refused")
+
+        monkeypatch.setattr(TranscriptRepository, "start_acquisition_run", refuse)
+
+        # Every present-but-unusable shape is exercised on its own instance,
+        # because the latch is per instance: a dead fd (``OSError``), a closed
+        # wrapper and a detached wrapper (both ``ValueError``), and a
+        # byte-oriented stream (``TypeError``).  None of the latter three is an
+        # ``OSError``, so a guard naming only ``OSError`` lets them escape.
+        for label, stream in (
+            ("dead fd", dead),
+            ("closed wrapper", closed),
+            ("detached wrapper", detached),
+            ("binary stream", binary),
+        ):
+            monkeypatch.setattr(sys, "stderr", stream)
+            source = QueueSource(connection)
+            assert source.ensure_asr_run("asr") is None, label
+
+            # The diagnostic really was written to the unusable stream, and
+            # the write really failed — the failure was swallowed, not
+            # avoided.  Exactly one write: ``print`` fails on the text write
+            # and never reaches the trailing newline.
+            assert stream.writes == 1, label
+
+            # An unusable stream is not a transient condition: the latch
+            # stays set and the line is not retried on the next refusal.
+            assert source.ensure_asr_run("asr") is None, label
+            assert stream.writes == 1, label
+            assert source._asr_run_refusal_reported is True, label
+
+        # stderr only: the failed writes must not fall back to stdout.
+        captured = capsys.readouterr()
+        assert captured.out == ""
+        assert captured.err == ""
+    finally:
+        # Restore the session's stderr before pytest's capture unwinds (the
+        # fixture would do this later, but the dead stream must not stay
+        # installed if an assertion above raised).
+        monkeypatch.undo()
+        # A detached wrapper cannot be closed again (``ValueError``); its
+        # buffer is released explicitly instead.
+        with contextlib.suppress(ValueError):
+            detached.close()
+        detached_buffer.close()
+        for stream in (dead, closed, binary):
+            stream.close()

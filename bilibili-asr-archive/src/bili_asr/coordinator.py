@@ -847,7 +847,6 @@ class RunCoordinator:
                 self.artifact_roots.write_base, paths
             ):
                 raise OSError("archive bundle incomplete")
-            self._record_subtitle_transcript(entry=entry, raw=raw, segments=segments)
             self._record(
                 "archive", work_id, "ok",
                 artifact_paths=sorted(paths.values()), started_at=started,
@@ -859,6 +858,12 @@ class RunCoordinator:
             )
             raise
         self._mark_archived(key, entry, paths)
+        # Store write-back (plan r14-routes-writeback): the caption-sourced
+        # transcript owes a ``transcripts`` row taking the part out of
+        # ``v_missing_transcript``.  Best-effort: the archive already
+        # succeeded on disk, so a store failure must not disturb the row's
+        # archived outcome.
+        self._record_subtitle_transcript(entry=entry, raw=raw, segments=segments)
         result.ok = True
         result.final_status = "archived"
 
