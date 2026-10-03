@@ -14,6 +14,7 @@ from .database import (
     initialize_schema,
     normalize_page_index,
     open_database,
+    refresh_shipped_views,
     require_subtitle_schema,
 )
 from .models import (

@@ -167,7 +167,11 @@ def _seed(
             for index, (bvid, page_index, status) in enumerate(_PARTS, start=1)
         }
 
-    # BV1AAA:p1 — two subtitle attempts; the newest one listed nothing.
+    # BV1AAA:p1 — three subtitle attempts; the two newest independently listed
+    # nothing.  Exhaustion is attested, not inferred from one look: an empty
+    # inventory carrying no error code is an *indefinite* negative (this
+    # credential may simply not have seen the part), so it admits only once two
+    # distinct runs have observed it empty.  Hence two runs here, not one.
     _open_run(transcripts, "run-sub-old", "subtitle")
     transcripts.record_subtitle_attempt(
         run_id="run-sub-old",
@@ -185,6 +189,15 @@ def _seed(
         error_code=None,
         started_at=500,
         finished_at=600,
+    )
+    _open_run(transcripts, "run-sub-confirm", "subtitle")
+    transcripts.record_subtitle_attempt(
+        run_id="run-sub-confirm",
+        video_part_id=parts[("BV1AAA", 1)],
+        outcome="no-subtitle",
+        error_code=None,
+        started_at=700,
+        finished_at=800,
     )
 
     # BV1BBB:p0 — audio was attempted (and the attempt failed), then archived:
@@ -298,6 +311,224 @@ def test_each_gap_holds_exactly_the_parts_its_view_defines(queue_store):
         for item in repository.list_queue_gaps(gap="missing_subtitle")
     )
 
+
+
+def test_one_empty_inventory_is_not_exhaustion(queue_store):
+    """A single empty look must not admit a part: exhaustion is attested.
+
+    Measured 2026-10-03 (``I-000187``): ``probe-subs`` reported ``tracks=0`` /
+    "(no subtitles visible)" for two parts, and minutes later ``harvest-subs``
+    stored ``subtitle-ai`` for both — the inventory had simply not been visible
+    to the credential in effect.  The gateway contract says as much: "An
+    inventory the credential in effect could not see is an empty tuple".
+
+    So an empty inventory (``outcome='no-subtitle'`` with no error code) is an
+    *indefinite* negative.  One such observation is not exhaustion, and the part
+    must stay out of the audio queue.
+    """
+    connection, parts, repository = queue_store
+    transcripts = TranscriptRepository(connection)
+
+    # BV1EEE:p0 carries no evidence at all in the fixture; give it exactly one
+    # empty observation, from a single run.  (BV1DDD:p0 is unusable: it is
+    # processing_status='gone', which the view excludes.)
+    _open_run(transcripts, "run-emptied-once", "subtitle")
+    transcripts.record_subtitle_attempt(
+        run_id="run-emptied-once",
+        video_part_id=parts[("BV1EEE", 0)],
+        outcome="no-subtitle",
+        error_code=None,
+        started_at=900,
+        finished_at=1_000,
+    )
+
+    assert "BV1EEE:p0" not in [
+        item.work_id for item in repository.list_queue_gaps(gap="missing_audio")
+    ]
+
+    # A second, independent observation (distinct run) is what admits it.
+    _open_run(transcripts, "run-emptied-twice", "subtitle")
+    transcripts.record_subtitle_attempt(
+        run_id="run-emptied-twice",
+        video_part_id=parts[("BV1EEE", 0)],
+        outcome="no-subtitle",
+        error_code=None,
+        started_at=1_100,
+        finished_at=1_200,
+    )
+
+    assert "BV1EEE:p0" in [
+        item.work_id for item in repository.list_queue_gaps(gap="missing_audio")
+    ]
+
+
+def test_a_definite_not_found_admits_at_once(queue_store):
+    """A gateway ``not_found`` is a claim about the part, so one look suffices.
+
+    It must not be made to wait for corroboration: "this video has no subtitle
+    resource" is definite evidence, unlike "I could not see an inventory".
+    """
+    connection, parts, repository = queue_store
+    transcripts = TranscriptRepository(connection)
+
+    _open_run(transcripts, "run-not-found", "subtitle")
+    transcripts.record_subtitle_attempt(
+        run_id="run-not-found",
+        video_part_id=parts[("BV1EEE", 0)],
+        outcome="no-subtitle",
+        error_code="not_found",
+        started_at=900,
+        finished_at=1_000,
+    )
+
+    assert "BV1EEE:p0" in [
+        item.work_id for item in repository.list_queue_gaps(gap="missing_audio")
+    ]
+
+
+def test_two_empty_looks_in_one_run_are_one_observation(queue_store):
+    """``COUNT(DISTINCT run_id)`` is load-bearing, so a retry cannot inflate it.
+
+    The attempt table's primary key is ``(run_id, video_part_id)``, so a second
+    empty observation inside one run is not merely counted once — it cannot be
+    written at all.  This asserts that, which is what makes the corroboration
+    rule resistant to a retry loop.
+    """
+    import sqlite3 as _sqlite3
+
+    connection, parts, repository = queue_store
+    transcripts = TranscriptRepository(connection)
+
+    _open_run(transcripts, "run-one-only", "subtitle")
+    transcripts.record_subtitle_attempt(
+        run_id="run-one-only",
+        video_part_id=parts[("BV1EEE", 0)],
+        outcome="no-subtitle",
+        error_code=None,
+        started_at=900,
+        finished_at=1_000,
+    )
+
+    with pytest.raises(_sqlite3.IntegrityError):
+        transcripts.record_subtitle_attempt(
+            run_id="run-one-only",
+            video_part_id=parts[("BV1EEE", 0)],
+            outcome="no-subtitle",
+            error_code=None,
+            started_at=1_100,
+            finished_at=1_200,
+        )
+
+    assert "BV1EEE:p0" not in [
+        item.work_id for item in repository.list_queue_gaps(gap="missing_audio")
+    ]
+
+
+def test_only_indefinite_observations_confirm_an_empty_inventory(queue_store):
+    """Only *indefinite* observations corroborate: the counter's filter is load-bearing.
+
+    ``empty_inventory_confirmations`` counts ``outcome = 'no-subtitle'`` rows
+    whose ``error_code IS NULL``.  Dropping that filter would let a ``not_found``
+    row (a definite negative) or a ``failed`` row (which observed nothing about
+    the inventory at all) supply the second "confirmation" — admitting a part on
+    one empty look plus one unrelated row, which is the conflation this whole
+    fix exists to remove.
+
+    The *newest* attempt decides admission, and the corroboration count is
+    independent of recency, so each case below keeps the indefinite observation
+    newest (later ``finished_at``) and checks the count alone.
+    """
+    connection, parts, repository = queue_store
+    transcripts = TranscriptRepository(connection)
+
+    # One indefinite observation, made NEWEST by using the latest timestamps.
+    _open_run(transcripts, "run-definite", "subtitle")
+    transcripts.record_subtitle_attempt(
+        run_id="run-definite",
+        video_part_id=parts[("BV1EEE", 0)],
+        outcome="no-subtitle",
+        error_code="not_found",
+        started_at=100,
+        finished_at=200,
+    )
+    _open_run(transcripts, "run-failed", "subtitle")
+    transcripts.record_subtitle_attempt(
+        run_id="run-failed",
+        video_part_id=parts[("BV1EEE", 0)],
+        outcome="failed",
+        error_code="upstream_timeout",
+        started_at=300,
+        finished_at=400,
+    )
+    _open_run(transcripts, "run-indefinite", "subtitle")
+    transcripts.record_subtitle_attempt(
+        run_id="run-indefinite",
+        video_part_id=parts[("BV1EEE", 0)],
+        outcome="no-subtitle",
+        error_code=None,
+        started_at=500,
+        finished_at=600,
+    )
+
+    # The newest attempt is indefinite, and no *other indefinite* row exists, so
+    # the not_found and failed rows above must not have contributed a second
+    # confirmation.
+    assert "BV1EEE:p0" not in [
+        item.work_id for item in repository.list_queue_gaps(gap="missing_audio")
+    ]
+
+    # A second INDEFINITE observation admits it.
+    _open_run(transcripts, "run-indefinite-2", "subtitle")
+    transcripts.record_subtitle_attempt(
+        run_id="run-indefinite-2",
+        video_part_id=parts[("BV1EEE", 0)],
+        outcome="no-subtitle",
+        error_code=None,
+        started_at=700,
+        finished_at=800,
+    )
+    assert "BV1EEE:p0" in [
+        item.work_id for item in repository.list_queue_gaps(gap="missing_audio")
+    ]
+
+
+def test_v_part_pipeline_agrees_with_v_missing_audio(queue_store):
+    """The two views must not contradict each other on the same row.
+
+    ``v_part_pipeline`` documents ``audio_pending`` as meaning the part is in
+    ``v_missing_audio``.  If the pipeline view kept the old one-look predicate
+    while the queue view gained corroboration, a part with a single empty
+    observation would render ``audio_pending`` while being absent from the audio
+    queue — the two views disagreeing about one row.  This pins them together.
+    """
+    connection, parts, repository = queue_store
+    transcripts = TranscriptRepository(connection)
+
+    # The fixture's caption-exhausted part has TWO independent observations, so
+    # both views agree on it trivially.  A part with exactly ONE is what tells
+    # the predicates apart, so add one.
+    _open_run(transcripts, "run-one-look", "subtitle")
+    transcripts.record_subtitle_attempt(
+        run_id="run-one-look",
+        video_part_id=parts[("BV1EEE", 0)],
+        outcome="no-subtitle",
+        error_code=None,
+        started_at=900,
+        finished_at=1_000,
+    )
+
+    states = {
+        str(row["work_id"]): str(row["pipeline_state"])
+        for row in connection.execute("select work_id, pipeline_state from v_part_pipeline")
+    }
+    in_queue = {
+        item.work_id
+        for item in repository.list_queue_gaps(gap="missing_audio")
+    }
+    for work_id, state in states.items():
+        assert (state == "audio_pending") == (work_id in in_queue), (
+            f"{work_id}: pipeline_state={state!r} but in v_missing_audio={work_id in in_queue}"
+        )
 
 def test_a_failed_audio_attempt_is_not_audio_evidence(queue_store):
     """The fixture's BV1FFF:p0 has *only* a failed audio attempt.
@@ -492,10 +723,10 @@ def test_attempt_count_follows_the_gap_route_and_evidence_only_where_held(queue_
         item.work_id: item
         for item in repository.list_queue_gaps(gap="missing_subtitle")
     }
-    # Two subtitle attempts on BV1AAA:p1; one on BV1FFF:p0; none elsewhere.
+    # Three subtitle attempts on BV1AAA:p1; one on BV1FFF:p0; none elsewhere.
     assert {work_id: item.attempt_count for work_id, item in subtitle_entries.items()} == {
         "BV1AAA:p0": 0,
-        "BV1AAA:p1": 2,
+        "BV1AAA:p1": 3,
         "BV1EEE:p0": 0,
         "BV1BBB:p0": 0,
         "BV1FFF:p0": 1,
@@ -510,7 +741,7 @@ def test_attempt_count_follows_the_gap_route_and_evidence_only_where_held(queue_
         item.work_id: item
         for item in repository.list_queue_gaps(gap="missing_audio")
     }
-    # The audio queue counts audio attempts: the two subtitle attempts on
+    # The audio queue counts audio attempts: the three subtitle attempts on
     # BV1AAA:p1 are not this queue's evidence, while BV1FFF:p0 carries one
     # failed audio attempt and still holds the queue (a failed attempt is not
     # acquired bytes).
