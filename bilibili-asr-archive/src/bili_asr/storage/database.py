@@ -220,68 +220,108 @@ def _shipped_view_bodies() -> dict[str, str]:
     return bodies
 
 
+def _strip_sql_comments(statement: str) -> str:
+    """Remove SQL comments, respecting string literals.
+
+    Both a whole-line comment and a trailing one are removed, because SQLite
+    stores however the statement was written: a comment left in either form would
+    make the shipped and stored texts differ forever.  The scan is literal-aware
+    so a ``--`` inside a quoted string is left alone.
+    """
+
+    out: list[str] = []
+    index = 0
+    in_literal = False
+    length = len(statement)
+    while index < length:
+        char = statement[index]
+        if in_literal:
+            out.append(char)
+            if char == "'":
+                if index + 1 < length and statement[index + 1] == "'":
+                    out.append("'")
+                    index += 2
+                    continue
+                in_literal = False
+            index += 1
+            continue
+        if char == "'":
+            in_literal = True
+            out.append(char)
+            index += 1
+            continue
+        if char == "-" and index + 1 < length and statement[index + 1] == "-":
+            # Skip to the end of the line, keeping the newline itself so two
+            # tokens on either side of a removed comment do not fuse together.
+            newline = statement.find("\n", index)
+            if newline < 0:
+                break
+            index = newline
+            continue
+        out.append(char)
+        index += 1
+    return "".join(out)
+
+
 def _normalize_view_sql(statement: str) -> str:
     """Collapse a view body to the shape SQLite stores, for comparison only.
 
     SQLite keeps the original text of a view's ``SELECT`` but drops the trailing
     semicolon and rewrites the header, so the shipped statement and the stored
-    one are never byte-equal even when the view is current.  Whitespace is
-    collapsed as well, which makes the comparison a statement about the body
+    one are never byte-equal even when the view is current.  Whitespace and case
+    are collapsed as well, which makes the comparison a statement about the body
     rather than about formatting.
+
+    Two properties are load-bearing and were each measured:
+
+    * comments are stripped from **both** sides.  SQLite *preserves* a comment
+      that sits inside a view statement, and every shipped view carries several
+      (4 to 24 lines each), so stripping only the shipped body would make every
+      view read as stale on every open.
+    * whitespace and case are collapsed **outside string literals only**.  A body
+      differing from the shipped one only inside a literal — ``'no-subtitle'``
+      against ``'NO-SUBTITLE'`` — must still read as different, or a genuinely
+      stale view would never refresh.
     """
 
-    # Drop SQL comment lines.  Note the direction of this: SQLite *preserves* a
-    # comment that sits inside a view statement, and every shipped view carries
-    # several (4-24 lines each), so the comparison is only sound because comments
-    # are stripped on BOTH sides.  Stripping the shipped body alone would make
-    # every view read as stale on every open -- do not narrow this to one side.
-    # Only *leading* comment lines are dropped: a comment on a statement's final
-    # line would survive and make that view refresh on every open.  No shipped
-    # view is written that way today, and a current archive is verified to
-    # refresh zero times, so it is latent rather than live.
-    lines = []
-    for line in statement.splitlines():
-        if line.lstrip().startswith("--"):
-            continue
-        lines.append(line)
-    text = "\n".join(lines).strip().rstrip(";").strip()
+    text = _strip_sql_comments(statement).strip().rstrip(";").strip()
     # SQLite also drops the IF NOT EXISTS clause when it stores a view, so the
     # shipped form has to lose it too before the two can be compared.
     text = re.sub(r"(?i)^create\s+view\s+if\s+not\s+exists\s+", "CREATE VIEW ", text)
-    # Normalize OUTSIDE string literals only.  Collapsing whitespace or folding
-    # case across the whole statement would also rewrite literal text, and a body
-    # differing from the shipped one only inside a literal — say 'no-subtitle'
-    # against 'NO-SUBTITLE' — would then read as current and never refresh.
-    parts: list[str] = []
-    literal: list[str] = []
-    in_literal = False
+
+    out: list[str] = []
+    plain: list[str] = []
     index = 0
-    while index < len(text):
+    length = len(text)
+
+    def flush_plain() -> None:
+        if plain:
+            out.append(" ".join("".join(plain).casefold().split()))
+            plain.clear()
+
+    while index < length:
         char = text[index]
         if char == "'":
-            if in_literal and index + 1 < len(text) and text[index + 1] == "'":
-                literal.append("''")
-                index += 2
-                continue
-            if in_literal:
-                parts.append("'" + "".join(literal) + "'")
-                literal = []
-                in_literal = False
-            else:
-                in_literal = True
+            flush_plain()
+            literal = ["'"]
+            index += 1
+            while index < length:
+                current = text[index]
+                literal.append(current)
+                if current == "'":
+                    if index + 1 < length and text[index + 1] == "'":
+                        literal.append("'")
+                        index += 2
+                        continue
+                    break
+                index += 1
+            out.append("".join(literal))
             index += 1
             continue
-        (literal if in_literal else parts).append(char)
+        plain.append(char)
         index += 1
-    if in_literal:  # an unterminated literal; compare it as written
-        parts.append("'" + "".join(literal))
-    normalized = []
-    for part in parts:
-        if part.startswith("'") and part.endswith("'") and len(part) >= 2:
-            normalized.append(part)
-        else:
-            normalized.append(" ".join(part.casefold().split()))
-    return " ".join(piece for piece in normalized if piece)
+    flush_plain()
+    return " ".join(piece for piece in out if piece)
 
 
 def refresh_shipped_views(connection: sqlite3.Connection) -> int:

@@ -1929,6 +1929,47 @@ def test_the_view_name_cannot_come_from_a_comment():
     }
 
 
+def test_the_normalized_form_is_readable_prose():
+    """The normalized form must be the statement, not a mangling of it.
+
+    Equality alone cannot catch this: a normalizer that emitted the statement one
+    character per list item and rejoined it with spaces produced garbage that was
+    still *symmetrically* garbage, so every ``a == b`` assertion passed while the
+    function returned nonsense.  (This actually happened in development, and the
+    suite was green.)  Asserting the exact text is what makes that visible.
+    """
+    assert _normalize_view_sql("CREATE VIEW v AS SELECT 1 AS x") == (
+        "create view v as select 1 as x"
+    )
+    # A literal survives intact, including its case and internal spacing.
+    assert _normalize_view_sql("CREATE VIEW v AS SELECT 'Keep  Me' AS x") == (
+        "create view v as select 'Keep  Me' as x"
+    )
+    # Comments vanish without fusing the tokens around them.
+    assert _normalize_view_sql("CREATE VIEW v AS SELECT 1 -- note") == (
+        "create view v as select 1"
+    )
+
+
+def test_a_trailing_comment_does_not_make_a_view_look_stale():
+    """Both comment forms are removed, so neither can force a rewrite loop.
+
+    SQLite stores a statement's text as written, so a view shipped with a
+    trailing comment would otherwise differ from itself on every reopen and be
+    rewritten forever.
+    """
+    assert _normalize_view_sql("CREATE VIEW v AS SELECT 1 -- note") == _normalize_view_sql(
+        "CREATE VIEW v AS SELECT 1"
+    )
+    assert _normalize_view_sql(
+        "CREATE VIEW v AS\nSELECT 1\n-- note\n"
+    ) == _normalize_view_sql("CREATE VIEW v AS SELECT 1")
+    # A comment marker inside a literal is data, not a comment.
+    assert _normalize_view_sql("CREATE VIEW v AS SELECT '--' AS x") == (
+        "create view v as select '--' as x"
+    )
+
+
 def test_a_literal_only_difference_is_treated_as_stale():
     """Normalization must not erase differences inside string literals.
 
