@@ -168,8 +168,19 @@ session envelope; no session credential is written to the store."* Supplying a w
 file is explicitly rejected — *"a file that merely parses as an envelope is not a credential"* — and
 `mstar session run` mints a `MSTAR_EXECUTION_IDENTITY` that the child command does not accept as
 `--session`. Both the unscoped route and the plan-scoped route (`mstar plan issue-close` on the owning
-plan `r14-asr-transcript-writeback`) were tried. **These two issues remain `open` in the store and need
-an operator-side close or a proper engine-issued session to be marked `resolved`.**
+plan `r14-asr-transcript-writeback`) were tried. **These two issues remain `open` in the store.** The engine's four close guards were read in
+`/usr/lib/node_modules/@mstar-harness/cli/dist/mstar-harness.js` and each was reproduced by a real
+attempt:
+
+1. no envelope -> `requires an existing scoped session envelope; no session credential is written to the store`;
+2. a hand-written envelope on this (completed) workflow -> `a finished lifecycle holds no live authority … a file that merely parses as an envelope is not a credential`;
+3. an envelope aimed at the active iteration -> the engine-issued path does not exist, and a hand-made one fails the recorded-binding check (`plan.coordination.session`), which **no workflow in this repo has ever recorded**;
+4. the plan-scoped route -> `I-000067`/`I-000149` carry no `plan` provenance link, and the store holds **0** such links, so "a plan session closes only its own findings" cannot apply to any plan.
+
+Measured scale of the dead end: of **32 resolved issues, all 32 are legacy-import and 0 were closed
+through a live channel**. Registered as **`I-000186`** (medium) — a verified-stale issue is currently
+*reportable but not closable*. A manual store write would invert the schema evidence (`issue_transitions`
+exists for exactly this purpose) and was deliberately **not** attempted.
 
 ## Addendum 2: environment changes left on the compute host (for the operator)
 
