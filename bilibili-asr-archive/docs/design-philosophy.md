@@ -1,8 +1,8 @@
 # Design philosophy — B 站视频归档整合工作流
 
-Status: **项目北极星**（2026-10-03 定稿，分支 `thinking`）。
+Status: **项目北极星**（2026-10-03 定稿于分支 `thinking`；2026-10-04 修订，已在 `main`）。
 本文是产品方向的上游锚点：新环节、新数据源、新处理器的设计先对齐这里，再谈实现。
-实现约定的词汇表在 `../CONCEPTS.md`；本文不重复定义，只陈述方向与公理。
+实现约定的词汇表在仓库根的 [`CONCEPTS.md`](../../CONCEPTS.md)；本文不重复定义，只陈述方向与公理。
 
 ---
 
@@ -115,7 +115,9 @@ proofread 的一致率分级（≥0.85 一致 / 0.75–0.85 次要 / <0.75 待�
 ### 5.1 实体与事件分离
 
 - **实体**（`videos` / `video_parts` / `audio_objects`）是可变的当前状态。
-- **事件**（`ingestion_runs` / `acquisition_attempts` / 未来的 `processor_runs`）是不可变追加流。
+- **事件**（`ingestion_runs` / `acquisition_runs` / `acquisition_attempts` / 未来的 `processor_runs`）是不可变追加流。
+  其中 `acquisition_runs` 是 `acquisition_attempts` 的父表，也是 ASR 运行已有的 run 级记录
+  （`kind` 已含 `'asr'`，见 `storage/schema-transcripts.sql`）。
 - 事件可以重放出实体；实体只是事件的缓存。
 
 ### 5.2 完整血缘

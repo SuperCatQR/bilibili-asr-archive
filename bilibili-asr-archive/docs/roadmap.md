@@ -1,27 +1,52 @@
 # Roadmap — 归档整合处理工作流
 
-Status: living document（2026-10-03 初版，分支 `thinking`）。
+Status: living document（2026-10-03 初版于分支 `thinking`；2026-10-04 修订，已在 `main`）。
 上游锚点是 [`design-philosophy.md`](design-philosophy.md)；这里把方向落成阶段。
 阶段按**价值解锁**排序，不按数据源排序；每个阶段独立可验证、可交付。
 
-> 与在飞工作的关系：当前 `iter-2026-10-ledger-integrity`（journal 完整性）
-> 属于 Phase 0——它是派生图"事件流可信"的前提，先于一切新环节。
+> **与在飞工作的关系（2026-10-04 更新）**：`iter-2026-10-ledger-integrity` 已全部收口
+> （四个 plan Done，PR #35 合并）——**Phase 0 完成**。
+> 当前在飞的是 `iter-2026-10-asr-success-attestable`，即下文 **Phase 0.5**。
 
 ---
 
-## Phase 0 — 事件流可信（进行中）
+## Phase 0 — 事件流可信（已完成，2026-10-03）
 
 **目标**：journal / ledger 作为不可变事件流是可靠的，任何当前状态都可从中重放。
 **为什么排第一**：派生图的全部公理（可重放、可重建、幂等）都建立在"事件流是事实"上。
-**在飞**：`asr-run-id-uniqueness`（幂等键）、`journal-compaction-lifecycle`（压实不丢事件）。
-**出口标准**：manifest/store 任一损毁可从 journal 重放到一致状态；run id 唯一性有主键兜底。
+**已交付**：`caption-writeback-guard`（merge `2ad1726`）、`journal-replay-integrity`（merge `1dc720b`）、
+`asr-run-id-uniqueness`（merge `4357617`）、`journal-compaction-lifecycle`（merge `ab9683a`/`ec9d3d2`）。
+**出口标准达成**：journal 回放不被合法 Unicode 行分隔符截断；compaction 可达且 `save()` 顺序与兄弟方法一致；
+ASR run id 唯一（纳秒时钟 + PK 兜底）；write-back 被拒时不再静默。
+
+## Phase 0.5 — 证据层加深（进行中，2026-10-03 起）
+
+**目标**：让"成功"与"耗尽"成为可证实的断言，而不是默认为真。
+**为什么单独成阶段**：现实给出的新数据点——Phase 0 之后，最紧迫的不是加新处理器，
+而是**现有成功判定本身不可信**（短解码可冒充成功；未见过的字幕清单可放行进付费分支）。
+"事件流是事实"之后，下一步是"**事件流里的结论是事实**"。
+
+**在飞 plan**：
+- `caption-exhaustion-attestation`（InProgress）— 让 part 的字幕耗尽可能被证实，
+  未见的清单不得放行进付费分支。
+- `asr-coverage-attestation`（Todo）— 让 ASR 转录的覆盖可证实，短解码不得读成成功。
+
+**出口标准**：两条 leg 各自的缺陷类被钉住且翻转（回归测试先红后绿）；
+取证路径在既有 schema 内可承载（本迭代两次显式升级门：需 schema 改动/迁移即 STOP）。
 
 ## Phase 1 — 处理器注册表 + processor_runs（下一个迭代候选）
 
 **目标**：把"ASR 是一个处理器实例"从理念变成骨架。
+**关键前提（2026-10-04 补）**：这不是新建平行表，而是**泛化既有形状**——
+- `acquisition_runs`（`schema-transcripts.sql:50`）已是 `run_id TEXT PRIMARY KEY` + `kind` +
+  `outcome ∈ running/complete/partial/failed` + 起止时间，且 **`kind` 已含 `'asr'`**；
+- `asr_models (model_name, revision)` + `transcripts.model_id` 已承载 processor/version 血缘；
+- provenance 契约已成熟（`docs/spec-addendum-asr-archive-cli-provenance.md`）。
+
 **范围（刻意收窄）**：
 
-- 一张 `processor_runs` 表：`(run_id, processor, version, input_ref, params_hash, code_rev, started/finished, outcome)`。
+- 把上述 run 形状泛化为 `processor_runs`：`(run_id, processor, version, input_ref, params_hash, code_rev, started/finished, outcome)`
+  —— 优先**扩展** `acquisition_runs` 或将其与 `asr_models` 的关系显式化，而非新建平行机制。
 - 一个注册表：处理器声明输入类型与 `name@version`。
 - ASR 迁入该骨架，作为第一个实例；不引入第二个处理器。
 
@@ -69,12 +94,15 @@ Status: living document（2026-10-03 初版，分支 `thinking`）。
 
 ## 排序逻辑（为什么是这个顺序）
 
-1. **Phase 0 先于一切**：事件流不可信，重放就是空话。
-2. **Phase 1–2 先于新数据源**：注册表和缺口队列是所有后续环节的公共骨架；
+1. **Phase 0 先于一切**：事件流不可信，重放就是空话。（**已完成**）
+2. **Phase 0.5 先于新骨架**：事件流可信之后，"事件流里的结论是否可信"成为下一个真实瓶颈——
+   短解码冒充成功、未见清单放行进付费分支，都是**判定**缺陷而非机制缺陷。现实先于计划：
+   这个阶段是从在飞工作倒推出来的，不是初版 roadmap 预见的。
+3. **Phase 1–2 先于新数据源**：注册表和缺口队列是所有后续环节的公共骨架；
    先有骨架，新处理器/新数据源才是"注册一下"而不是"写一条新管线"。
-3. **Phase 3 是 N=2 检验**：只有第二个处理器真正跑通，抽象才算成立（哲学 §8）。
-4. **Phase 4 是产品灵魂**：声明式收敛是"数据处理 loop"的落地，依赖 1–3 全部。
-5. **画面/评论/关系放后面**：它们是水平拓展，需要的是已被验证的骨架，不是新骨架。
+4. **Phase 3 是 N=2 检验**：只有第二个处理器真正跑通，抽象才算成立（哲学 §8）。
+5. **Phase 4 是产品灵魂**：声明式收敛是"数据处理 loop"的落地，依赖 1–3 全部。
+6. **画面/评论/关系放后面**：它们是水平拓展，需要的是已被验证的骨架，不是新骨架。
 
 ## 不做事项（本路线图范围内）
 
