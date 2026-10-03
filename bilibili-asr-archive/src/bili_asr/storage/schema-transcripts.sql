@@ -172,9 +172,20 @@ WHERE vp.processing_status <> 'gone'
       SELECT 1 FROM transcripts AS t WHERE t.video_part_id = vp.video_part_id
   );
 
--- 2) missing_audio: in the subtitle gap and the caption route is exhausted
--- (newest subtitle attempt outcome IN ('no-subtitle', 'failed')) with no audio
--- evidence yet.  Audio evidence is a ``part_audio_objects`` row and nothing
+-- 2) missing_audio: in the subtitle gap and the caption route is exhausted with
+-- no audio evidence yet.  Exhaustion is attested, not inferred from one look.
+-- The newest subtitle attempt admits the part when it is a ``'failed'`` outcome,
+-- or when it is ``'no-subtitle'`` with a *definite* ``'not_found'`` error code.
+-- An *indefinite* ``'no-subtitle'`` — ``error_code IS NULL``, i.e. the
+-- inventory was empty but this credential may simply not have seen it — admits
+-- only once two **independent** observations exist, where independent means a
+-- distinct ``run_id``.  ``COUNT(DISTINCT run_id)`` is load-bearing: two probes
+-- inside one run are ONE observation, so a retry loop cannot inflate the count.
+-- Measured 2026-10-03: a single empty inventory became a durable verdict and put
+-- a part that did have subtitles into the paid branch; a genuinely caption-less
+-- control part reports empty on every run, so it still reaches this queue — one
+-- observation later than under the one-look predicate.
+-- Audio evidence is a ``part_audio_objects`` row and nothing
 -- else: an ``acquisition_attempts`` row under a ``kind = 'audio'`` run can only
 -- ever record a *failed* download, since the attempt contract admits
 -- ``stored`` / ``unchanged`` only with a ``transcript_id`` an audio acquisition
@@ -189,6 +200,7 @@ WITH subtitle_attempts AS (
         aa.video_part_id,
         aa.outcome,
         aa.error_code,
+        aa.run_id,
         ROW_NUMBER() OVER (
             PARTITION BY aa.video_part_id
             ORDER BY aa.finished_at DESC, aa.run_id DESC
@@ -196,6 +208,12 @@ WITH subtitle_attempts AS (
     FROM acquisition_attempts AS aa
     JOIN acquisition_runs AS ar ON ar.run_id = aa.run_id
     WHERE ar.kind = 'subtitle'
+)
+, empty_inventory_confirmations AS (
+    SELECT video_part_id, COUNT(DISTINCT run_id) AS confirmations
+    FROM subtitle_attempts
+    WHERE outcome = 'no-subtitle' AND error_code IS NULL
+    GROUP BY video_part_id
 )
 SELECT
     vp.video_part_id,
@@ -213,11 +231,18 @@ FROM video_parts AS vp
 JOIN videos AS v ON vp.bvid = v.bvid
 JOIN subtitle_attempts AS latest
     ON latest.video_part_id = vp.video_part_id AND latest.recency = 1
+LEFT JOIN empty_inventory_confirmations AS eic
+    ON eic.video_part_id = vp.video_part_id
 WHERE vp.processing_status <> 'gone'
   AND NOT EXISTS (
       SELECT 1 FROM transcripts AS t WHERE t.video_part_id = vp.video_part_id
   )
-  AND latest.outcome IN ('no-subtitle', 'failed')
+  AND (
+        latest.outcome = 'failed'
+     OR (latest.outcome = 'no-subtitle'
+         AND (  latest.error_code = 'not_found'
+             OR COALESCE(eic.confirmations, 0) >= 2))
+      )
   AND NOT EXISTS (
       SELECT 1 FROM part_audio_objects AS pao WHERE pao.video_part_id = vp.video_part_id
   );
