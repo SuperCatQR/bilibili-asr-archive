@@ -117,6 +117,11 @@ class QueueSource:
         # run-scoping contract: one invocation is one run).  ``None`` when the
         # store refuses the run — every per-part write-back then skips.
         self.asr_run_id: str | None = None
+        # The refusal diagnostic is latched per instance: the refusal happens
+        # before any row is recorded and skips the whole scope, and a store
+        # that keeps refusing retries on every call, so an unlatched line
+        # would degrade into per-row noise (D8).
+        self._asr_run_refusal_reported = False
 
     def ensure_asr_run(self, command: str) -> str | None:
         """Open this invocation's one ``kind='asr'`` acquisition run, best-effort.
@@ -128,9 +133,23 @@ class QueueSource:
         skipped — the archive on disk is never lost to a store problem.
         Idempotent per source: the first created id is reused, so a caller
         opening the source once per invocation records exactly one run.
+
+        The id is minted from ``time.time_ns()``, not the whole second
+        ``run_id`` used to be: the key is a ``TEXT PRIMARY KEY``, and the
+        coordinator re-opens the source at every batch boundary, so a second
+        same-command run inside one wall-clock second collided with the first
+        — the store's refusal was swallowed and the scope's write-backs were
+        silently skipped while stdout still reported each row as archived.
+        ``started_at`` keeps the second resolution the schema stores.
+
+        The ``except`` names the classes the store actually raises, so a
+        programming error is no longer reported as a refused run.  A genuine
+        refusal is stated once per instance on stderr (silently dropped when
+        fd 2 is closed, never rerouted to stdout); see
+        :meth:`_report_refused_asr_run`.
         """
 
-        import sys as _sys
+        import sqlite3 as _sqlite3
         import time as _time
 
         from bili_asr.storage import AcquisitionRunRecord, TranscriptRepository
@@ -139,7 +158,7 @@ class QueueSource:
             return self.asr_run_id
         try:
             now = int(_time.time())
-            run_id = f"{command}-{now}"
+            run_id = f"{command}-{_time.time_ns()}"
             TranscriptRepository(self.connection).start_acquisition_run(
                 AcquisitionRunRecord(
                     run_id=run_id,
@@ -152,9 +171,43 @@ class QueueSource:
                 )
             )
             self.asr_run_id = run_id
-        except Exception:
+        except (_sqlite3.Error, OSError, ValueError) as exc:
             self.asr_run_id = None
+            self._report_refused_asr_run(command, exc)
         return self.asr_run_id
+
+    def _report_refused_asr_run(self, command: str, exc: BaseException) -> None:
+        """State a refused run once per instance, on stderr only.
+
+        The operator reading stdout sees every row of the scope reported as
+        ``archived`` and no evidence that the transcript write-backs were
+        skipped — the gap only shows up later, in another command's
+        ``v_missing_transcript`` view.  This line names the command, the
+        refusing exception's class and the skipped write-backs; it is printed
+        at most once per instance, because the whole scope is skipped and a
+        store that keeps refusing would otherwise print one line per retry.
+
+        With fd 2 closed CPython sets ``sys.stderr`` to ``None`` and
+        ``print(..., file=None)`` falls back to **stdout**, where it would land
+        inside the caller's own output; a stream that is gone means the
+        diagnostic has nowhere to go, so nothing is printed (the rule
+        ``coordinator._print_model_constructions`` already follows).  The
+        latch is set either way: a closed fd 2 is not a transient condition.
+        """
+
+        import sys as _sys
+
+        if self._asr_run_refusal_reported:
+            return
+        self._asr_run_refusal_reported = True
+        if _sys.stderr is None:
+            return
+        print(
+            f"{command}: acquisition run refused by the store "
+            f"({type(exc).__name__}); transcript write-backs are skipped "
+            "for this run",
+            file=_sys.stderr,
+        )
 
     # ------------------------------------------------------------------ read
 
