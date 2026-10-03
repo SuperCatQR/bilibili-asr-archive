@@ -1807,22 +1807,36 @@ def test_run_batch_subtitle_archive_records_published_bundle_when_writeback_fail
     assert all(os.path.isfile(os.path.join(tmp_root, path))
                for path in expected_paths)
 
-    # Observable 2a: the journal the run itself appends to.  ``upsert`` records
-    # through ``manifest/manifest.journal.jsonl``; folding that journal into the
-    # snapshot belongs to the store's own compaction path, whose trigger this
-    # test deliberately does not restate -- another plan in this iteration
-    # reworks it.  The journal is where this run's write lands, so reading it
-    # keeps this test independent of the folding code another plan owns.  The
-    # journal is
-    # append-only, so the run's write is the *last* row for this work id: the
-    # seed's ``subtitle_done`` row stays above it, which is also what makes the
-    # archived claim visible as a transition rather than as an initial state.
-    with open(os.path.join(tmp_root, "manifest", "manifest.journal.jsonl"),
-              encoding="utf-8") as fh:
-        journal = [json.loads(line) for line in fh if line.strip()]
-    rows_for_sub = [r["status"] for r in journal if r["work_id"] == sub.work_id]
-    assert rows_for_sub[-1] == "archived"
-    assert "subtitle_done" in rows_for_sub[:-1]
+    # Observable 2a: the run's own manifest write.  ``upsert`` records through
+    # ``manifest/manifest.journal.jsonl``; folding that journal into the
+    # snapshot belongs to the store's own compaction path, and a sibling plan in
+    # this iteration reworked that trigger to fold on the journal's **on-disk
+    # size** -- so at this fixture's size the fold can fire mid-run and the
+    # journal may already be gone by the time this reads.  The run's write is
+    # therefore read from whichever of the two files the store left it in, with
+    # each branch asserting what that file can witness:
+    #   * journal present -- it is append-only, so the run's write is the *last*
+    #     row for this work id and the seed's ``subtitle_done`` row stays above
+    #     it, which is what makes the archived claim visible as a transition;
+    #   * journal folded -- the snapshot keeps last-wins per work id, so the
+    #     same row is present as its final state and the transition is no longer
+    #     observable as a sequence.
+    # Both branches pin the same guarantee: the run recorded ``archived`` for
+    # this work id, and the write-back failure below changed nothing about it.
+    journal_path = os.path.join(tmp_root, "manifest", "manifest.journal.jsonl")
+    snapshot_path = os.path.join(tmp_root, "manifest", "manifest.jsonl")
+    if os.path.exists(journal_path):
+        with open(journal_path, encoding="utf-8") as fh:
+            recorded = [json.loads(line) for line in fh if line.strip()]
+        rows_for_sub = [r["status"] for r in recorded if r["work_id"] == sub.work_id]
+        assert rows_for_sub[-1] == "archived"
+        assert "subtitle_done" in rows_for_sub[:-1]
+    else:
+        with open(snapshot_path, encoding="utf-8") as fh:
+            recorded = [json.loads(line) for line in fh if line.strip()]
+        assert [
+            (r["work_id"], r["status"]) for r in recorded if r["work_id"] == sub.work_id
+        ] == [(sub.work_id, "archived")]
 
     # Observable 2b: the snapshot a store-less reader opens.  ``ManifestStore.save()``
     # is the store's documented fold of the journal into it.
