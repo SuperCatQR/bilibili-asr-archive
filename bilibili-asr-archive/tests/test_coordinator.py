@@ -1736,3 +1736,118 @@ def test_run_batch_subtitle_route_records_the_caption_transcript(
     }
     rows = _transcript_rows(tmp_root)
     assert sorted(r["source_kind"] for r in rows) == ["subtitle-ai", "subtitle-cc"]
+
+
+def test_run_batch_subtitle_archive_records_published_bundle_when_writeback_fails(
+    tmp_root, monkeypatch, capsys
+):
+    """A bundle already published on disk is recorded as published (I-000165).
+
+    The caption archive stage publishes the four-artifact bundle and then runs
+    the store write-back, whose intent is best-effort: store evidence must not
+    revise an on-disk outcome.  That swallow lives inside
+    ``queue_source.record_caption_transcript``, but only over its *body* — the
+    ``segments=`` argument is converted in ``_record_subtitle_transcript``'s
+    own frame first, so a cue shape the store's ``TranscriptSegmentRecord``
+    refuses raises before the swallow tuple can see it.  The reachable class is
+    exactly such a shape: ``write_archive`` publishes an empty-text cue
+    (``segments_to_srt`` formats it), and the store refuses it
+    (``text must not be empty``).
+
+    While the call site sat inside the publication guard, that raise was
+    answered with ``archive: failed`` and ``_mark_archived`` was skipped: the
+    bundle on disk was complete, the ledger said the opposite, and the row
+    stayed ``subtitle_done`` for a rerun to redo.
+
+    Both observables are read back from the files an outside reader opens —
+    ``coordinator/attempts.jsonl`` and ``manifest/manifest.jsonl`` — never from
+    a mock's call order.  The absence of a ``transcripts`` row is this
+    fixture's precondition rather than its claim: the cue conversion refuses
+    the shape before the caption store write is reached, so this case cannot
+    falsify that absence itself.  The control that creates the row is
+    ``test_run_batch_subtitle_route_records_the_caption_transcript`` above.
+    """
+    from bili_asr.archive import bundle_relpaths_for_stem
+
+    sub = page_identity("BVcapWB", 0, 501, "p0")
+    store = ManifestStore(root=tmp_root)
+    # ``sub_lan`` is what the subtitle harvest seam records for the chosen
+    # track; without it the write-back returns before its cue conversion and
+    # this case would pin nothing.
+    row = _row(sub, status="subtitle_done", title="empty-cue caption")
+    row["sub_lan"] = "ai-zh"
+    store.upsert(row)
+    raw_dir = os.path.join(tmp_root, "subtitles", "raw")
+    os.makedirs(raw_dir)
+    # The reachable cue shape, verbatim from the plan's table: publish-OK,
+    # store-refused.
+    with open(os.path.join(raw_dir, f"{artifact_stem(sub)}.json"), "w",
+              encoding="utf-8") as fh:
+        json.dump({"body": [{"from": 1.0, "to": 2.0, "content": ""}]}, fh)
+    _seed_part(tmp_root, sub.bvid, sub.page_index, sub.cid)
+
+    _patch_cli(monkeypatch, RouterTransport({}))
+    coord = RunCoordinator(tmp_root, store, client=None, offline=True)
+    coord.run_batch([(sub.work_id, store.get(sub.work_id))])
+    capsys.readouterr()
+
+    # Observable 1: the attempt ledger, parsed as the plain JSONL a reader
+    # outside this process parses.  Whole-record equality, so an unexpected
+    # second record fails here too.
+    with open(os.path.join(tmp_root, "coordinator", "attempts.jsonl"),
+              encoding="utf-8") as fh:
+        attempts = [json.loads(line) for line in fh if line.strip()]
+    assert [
+        (r["work_id"], r["stage"], r["outcome"], r["error_code"])
+        for r in attempts
+    ] == [(sub.work_id, "archive", "ok", None)]
+    expected_paths = sorted(bundle_relpaths_for_stem(artifact_stem(sub)).values())
+    assert sorted(attempts[0]["artifact_paths"]) == expected_paths
+    # ...and the four it names are the artifacts actually on disk.
+    assert all(os.path.isfile(os.path.join(tmp_root, path))
+               for path in expected_paths)
+
+    # Observable 2a: the run's own manifest write.  ``upsert`` records through
+    # ``manifest/manifest.journal.jsonl``; folding that journal into the
+    # snapshot belongs to the store's own compaction path, and a sibling plan in
+    # this iteration reworked that trigger to fold on the journal's **on-disk
+    # size** -- so at this fixture's size the fold can fire mid-run and the
+    # journal may already be gone by the time this reads.  The run's write is
+    # therefore read from whichever of the two files the store left it in, with
+    # each branch asserting what that file can witness:
+    #   * journal present -- it is append-only, so the run's write is the *last*
+    #     row for this work id and the seed's ``subtitle_done`` row stays above
+    #     it, which is what makes the archived claim visible as a transition;
+    #   * journal folded -- the snapshot keeps last-wins per work id, so the
+    #     same row is present as its final state and the transition is no longer
+    #     observable as a sequence.
+    # Both branches pin the same guarantee: the run recorded ``archived`` for
+    # this work id, and the write-back failure below changed nothing about it.
+    journal_path = os.path.join(tmp_root, "manifest", "manifest.journal.jsonl")
+    snapshot_path = os.path.join(tmp_root, "manifest", "manifest.jsonl")
+    if os.path.exists(journal_path):
+        with open(journal_path, encoding="utf-8") as fh:
+            recorded = [json.loads(line) for line in fh if line.strip()]
+        rows_for_sub = [r["status"] for r in recorded if r["work_id"] == sub.work_id]
+        assert rows_for_sub[-1] == "archived"
+        assert "subtitle_done" in rows_for_sub[:-1]
+    else:
+        with open(snapshot_path, encoding="utf-8") as fh:
+            recorded = [json.loads(line) for line in fh if line.strip()]
+        assert [
+            (r["work_id"], r["status"]) for r in recorded if r["work_id"] == sub.work_id
+        ] == [(sub.work_id, "archived")]
+
+    # Observable 2b: the snapshot a store-less reader opens.  ``ManifestStore.save()``
+    # is the store's documented fold of the journal into it.
+    ManifestStore(root=tmp_root).save()
+    with open(os.path.join(tmp_root, "manifest", "manifest.jsonl"),
+              encoding="utf-8") as fh:
+        manifest = [json.loads(line) for line in fh if line.strip()]
+    assert [(r["work_id"], r["status"]) for r in manifest] == [
+        (sub.work_id, "archived"),
+    ]
+
+    # The best-effort intent: the store write-back stored nothing, and neither
+    # observable above moved because of it.
+    assert _transcript_rows(tmp_root) == []

@@ -299,6 +299,42 @@ def test_migrate_coalesces_matching_page_created_by_successful_fetch(store, tmp_
     assert loaded["BV1aa:p0"]["legacy_only"] == "keep"
 
 
+def test_migrate_keeps_journaled_supersede_of_existing_page_row(store, tmp_root):
+    # I-000195: the rewrite base must be the effective replay view. A journaled
+    # row superseding a page-qualified snapshot row used to be dropped when the
+    # migration rewrote the snapshot and unlinked the journal -- the only copy
+    # of the newer transition.
+    store.save({
+        "BV1aa:p0": _entry("BV1aa", work_id="BV1aa:p0", page_index=0, cid=1),
+        "BV9zz": _entry("BV9zz"),
+    })
+    store.upsert(
+        _entry("BV1aa", work_id="BV1aa:p0", page_index=0, cid=1, status="archived")
+    )
+    assert os.path.exists(_journal_path(tmp_root))
+    assert store.get("BV1aa:p0")["status"] == "archived"
+
+    report = ManifestStore(root=tmp_root).migrate_legacy_rows(
+        lambda bvid: [_page(bvid, 0, cid=1)]
+    )
+    # Report semantics unchanged: the bare legacy row is the only re-key.
+    assert report.migrated == ["BV9zz:p0"]
+    assert report.unresolved == []
+
+    with open(_manifest_path(tmp_root), encoding="utf-8") as fh:
+        snapshot = {
+            row["work_id"]: row
+            for row in (json.loads(line) for line in fh if line.strip())
+        }
+    assert snapshot["BV1aa:p0"]["status"] == "archived"
+    # The journal was discarded together with the rewrite, so a fresh reader
+    # sees the superseded value only if the base carried it.
+    assert not os.path.exists(_journal_path(tmp_root))
+    reloaded = ManifestStore(root=tmp_root).load()
+    assert reloaded["BV1aa:p0"]["status"] == "archived"
+    assert set(reloaded) == {"BV1aa:p0", "BV9zz:p0"}
+
+
 def test_migrate_collision_on_existing_p0_artifact(store, tmp_root):
     seed_legacy(store, _entry("BV1aa"))
     # Shape A: a foreign page's stem is a directory under transcripts/.
@@ -471,3 +507,253 @@ def test_upsert_invalidates_cache_on_foreign_journal_append(store, tmp_root):
     assert set(reloaded) == {
         "BVaaaa:p0", "BVbbbb:p0", "BVcccc:p0", "BVdddd:p0", "BVeeee:p0",
     }
+
+
+def test_journal_row_with_u2028_does_not_truncate_the_replay(store, tmp_root):
+    # A row whose text carries U+2028 (LINE SEPARATOR) is legal JSON and lands
+    # on disk raw: the writer serializes with ensure_ascii=False. str.splitlines()
+    # breaks on U+2028/U+2029/U+0085 as well as "\n", so it cut the row into
+    # fragments; the first fragment failed validation and the torn-tail break
+    # stopped the replay, hiding every later row. save() then republished that
+    # truncated view -- deleting the later row from the snapshot for good.
+    store.save({"BV0aa:p0": _auto("BV0aa")})  # a pre-existing snapshot row
+
+    journal_dir = os.path.join(tmp_root, "manifest")
+    os.makedirs(journal_dir, exist_ok=True)
+    journal_rows = [
+        _auto("BV1aa", title="before\u2028after"),
+        _auto("BV1bb", cid=2, title="later row"),
+    ]
+    with open(_journal_path(tmp_root), "w", encoding="utf-8") as fh:
+        for row in journal_rows:
+            # Built at runtime, not pasted literally: this source file must not
+            # itself carry the separator.
+            fh.write(json.dumps(row, ensure_ascii=False, separators=(",", ":")) + "\n")
+
+    # Replay half: the separator-bearing row must not swallow the row after it.
+    loaded = ManifestStore(root=tmp_root).load()
+    assert set(loaded) == {"BV0aa:p0", "BV1aa:p0", "BV1bb:p0"}
+    assert loaded["BV1aa:p0"]["title"] == "before\u2028after"
+
+    # Durable half: the rewritten snapshot must still hold every replayed row.
+    store.save()
+    with open(_manifest_path(tmp_root), encoding="utf-8") as fh:
+        snapshot_rows = [json.loads(line) for line in fh.read().split("\n") if line.strip()]
+    assert {row["work_id"] for row in snapshot_rows} == {"BV0aa:p0", "BV1aa:p0", "BV1bb:p0"}
+
+
+def _snapshot_stat(path):
+    st = os.stat(path)
+    return (st.st_size, st.st_mtime_ns)
+
+
+def test_file_based_trigger_folds_journal_grown_by_another_handle(store, tmp_root):
+    # An L-line snapshot seeded directly on disk (no ManifestStore involved),
+    # then appends through one instance that never calls save()/compact(). Its
+    # own append count stays far below the old per-instance threshold, so only
+    # the on-disk sizes can fold this journal.
+    row_bytes = 192
+    os.makedirs(os.path.dirname(_manifest_path(tmp_root)), exist_ok=True)
+    seed_rows = [
+        _auto(f"BV{i:04x}", cid=i + 1, title="L" * (row_bytes - 120))
+        for i in range(4)
+    ]
+    with open(_manifest_path(tmp_root), "w", encoding="utf-8") as fh:
+        for row in seed_rows:
+            fh.write(json.dumps(row, ensure_ascii=False, separators=(",", ":")) + "\n")
+    snapshot_bytes = os.path.getsize(_manifest_path(tmp_root))
+
+    for i in range(16):
+        store.upsert(_auto(f"BV{i:04x}", cid=i + 1, title="M" * (row_bytes - 120)))
+
+    journal_bytes = (
+        os.path.getsize(_journal_path(tmp_root)) if os.path.exists(_journal_path(tmp_root)) else 0
+    )
+    # The file-based trigger folds once the journal reaches 2x the snapshot, so
+    # the journal can never exceed that bound plus the row that crossed it. A
+    # per-instance counter lets these 16 appends grow to 4x the snapshot
+    # unfolded, which is the bound this asserts.
+    assert journal_bytes <= max(2 * snapshot_bytes, 512) + row_bytes
+    with open(_manifest_path(tmp_root), encoding="utf-8") as fh:
+        snapshot_text = fh.read()
+    # Folded rows are published into the snapshot, not stranded in the journal.
+    assert '"M' in snapshot_text
+
+    reloaded = ManifestStore(root=tmp_root).load()
+    # Every seeded row plus every appended row survives the fold that the
+    # per-instance counter could not reach.
+    assert len(reloaded) == 16
+    assert reloaded["BV0000:p0"]["title"] == "M" * (row_bytes - 120)
+    assert reloaded["BV0003:p0"]["title"] == "M" * (row_bytes - 120)
+
+
+def test_tiny_ledger_does_not_compact_per_row(store, tmp_root):
+    seed = {f"BV{i:04x}:p0": _auto(f"BV{i:04x}", cid=i + 1) for i in range(64)}
+    store.save(seed)
+    snapshot_before = _snapshot_stat(_manifest_path(tmp_root))
+
+    for i in range(8):
+        store.upsert(_auto(f"BV{i:04x}", cid=i + 1, title=f"update {i}"))
+
+    assert _snapshot_stat(_manifest_path(tmp_root)) == snapshot_before
+    assert os.path.exists(_journal_path(tmp_root))
+
+
+def test_save_failure_before_discard_keeps_journal_rows(store, tmp_root, monkeypatch):
+    store.save({_auto("BVseed")["work_id"]: _auto("BVseed")})
+    snapshot_before = open(_manifest_path(tmp_root), "rb").read()
+    store.upsert(_auto("BV1aa"))
+    store.upsert(_auto("BV1bb", cid=2))
+    assert os.path.getsize(_journal_path(tmp_root)) > 0
+
+    def boom(entries, *args, **kwargs):
+        raise OSError(28, "no space left on device")
+
+    monkeypatch.setattr(store, "_replace_snapshot", boom)
+    with pytest.raises(OSError):
+        store.save()
+
+    # The journal was not discarded while the snapshot stayed stale.
+    assert os.path.exists(_journal_path(tmp_root))
+    assert open(_manifest_path(tmp_root), "rb").read() == snapshot_before
+    reloaded = ManifestStore(root=tmp_root).load()
+    assert set(reloaded) == {"BVseed:p0", "BV1aa:p0", "BV1bb:p0"}
+
+
+def test_save_empty_current_touches_no_artifact(store, tmp_root):
+    journal_dir = os.path.join(tmp_root, "manifest")
+    os.makedirs(journal_dir, exist_ok=True)
+    with open(_journal_path(tmp_root), "w", encoding="utf-8") as fh:
+        fh.write(json.dumps(_auto("BV1aa"))[:20])  # torn append: replays to nothing
+    journal_before = _snapshot_stat(_journal_path(tmp_root))
+
+    store.save()
+
+    assert os.path.exists(_journal_path(tmp_root))
+    assert _snapshot_stat(_journal_path(tmp_root)) == journal_before
+    assert not os.path.exists(_manifest_path(tmp_root))
+
+def test_fold_refuses_to_discard_rows_stranded_behind_a_torn_fragment(store, tmp_root):
+    # A crash can leave a torn fragment in the journal, and another handle can
+    # then append *complete* rows after it. Replay stops at the fragment (it
+    # must not skip mid-stream), so those later rows are reachable by no reader
+    # -- and they are the only copy. The fold decides on the journal's
+    # whole-file size, so it would otherwise publish a snapshot without them
+    # and unlink the journal holding them.
+    #
+    # The invariant asserted is *recoverability*, not "the file still exists":
+    # a fold that unlinks and is then followed by more appends recreates an
+    # (empty-of-them) journal, so an existence check would pass while the rows
+    # were already gone.
+    store.save({"BV1aa411c7mD": {"bvid": "BV1aa411c7mD", "status": "meta_ok"}})
+
+    os.makedirs(os.path.dirname(_journal_path(tmp_root)), exist_ok=True)
+    with open(_journal_path(tmp_root), "a", encoding="utf-8") as fh:
+        fh.write('{"work_id": "BVtorn:p0", "status": "arch')  # torn: invalid JSON
+
+    stranded = [f"BVsurv{i}" for i in range(3)]
+    survivor = ManifestStore(root=tmp_root)
+    for bvid in stranded:
+        survivor.upsert(_auto(bvid))
+
+    # Cross the byte floor (_JOURNAL_MIN_COMPACT_BYTES) so the fold fires.
+    folder = ManifestStore(root=tmp_root)
+    for i in range(4):
+        folder.upsert(_auto(f"BVmore{i}"))
+
+    def reachable(key: str) -> bool:
+        """A row is reachable if a reader sees it, or its bytes survive."""
+        if key in ManifestStore(root=tmp_root).load():
+            return True
+        journal = _journal_path(tmp_root)
+        return os.path.exists(journal) and key in open(journal, encoding="utf-8").read()
+
+    for bvid in stranded:
+        assert reachable(f"{bvid}:p0"), (
+            f"{bvid} was fsynced but is gone from both the snapshot and the journal"
+        )
+
+    # The stranding shape must be detected by the replay itself, so a manual
+    # compact() refuses the same discard rather than deleting the only copy.
+    ManifestStore(root=tmp_root).compact()
+    for bvid in stranded:
+        assert reachable(f"{bvid}:p0"), "compact() discarded rows the replay never folded"
+
+def test_fold_refuses_to_discard_a_record_merged_into_a_torn_fragment(store, tmp_root):
+    # The stranding shape has a second form that a "complete line follows the
+    # fragment" check cannot see: when the fragment's own line was never
+    # terminated, the next append lands ON it, so fragment and complete record
+    # occupy one physical line that no whole-line parse can read. The record is
+    # intact at the end of that line and is the only copy, so the journal must
+    # survive -- detection has to look inside the unparsable line, not only at
+    # the lines after it.
+    store.save({"BV1aa411c7mD": {"bvid": "BV1aa411c7mD", "status": "meta_ok"}})
+
+    os.makedirs(os.path.dirname(_journal_path(tmp_root)), exist_ok=True)
+    # Long enough that ONE merged append carries the journal past the floor.
+    with open(_journal_path(tmp_root), "a", encoding="utf-8") as fh:
+        fh.write('{"work_id": "BVtorn:p0", "status": "arch' + "x" * 300)
+
+    ManifestStore(root=tmp_root).upsert(_auto("BVstranded0"))
+    # The append landed on the unterminated fragment, so fragment and record
+    # share one physical line: the file has a single "\n" (the one the record
+    # itself wrote) and that whole line cannot be parsed as a record.
+    merged = open(_journal_path(tmp_root), encoding="utf-8").read()
+    assert merged.count("\n") == 1, merged
+    with pytest.raises(ValueError):
+        json.loads(merged.strip())
+
+    # A further append from another handle crosses the fold threshold.
+    ManifestStore(root=tmp_root).upsert(_auto("BVlater0"))
+    while not os.path.exists(_manifest_path(tmp_root)):
+        ManifestStore(root=tmp_root).upsert(_auto("BVlater1"))
+        break
+
+    journal = _journal_path(tmp_root)
+    snapshot = _manifest_path(tmp_root)
+    recoverable = (
+        "BVstranded0:p0" in ManifestStore(root=tmp_root).load()
+        or (os.path.exists(journal) and "BVstranded0" in open(journal, encoding="utf-8").read())
+        or (os.path.exists(snapshot) and "BVstranded0" in open(snapshot, encoding="utf-8").read())
+    )
+    assert recoverable, "the merged record was discarded with the journal"
+
+def test_fold_publishes_records_a_torn_fragment_stranded(store, tmp_root):
+    # Refusing the discard keeps the rows alive but unreadable, and the journal
+    # grows without bound because no fold can complete. The fold therefore has
+    # to *settle* the strand: publish the records the fragment stranded, and
+    # only then discard. Otherwise a fragment permanently degrades the ledger
+    # into a growing journal whose tail no reader can see.
+    store.save({"BV1aa411c7mD": {"bvid": "BV1aa411c7mD", "status": "meta_ok"}})
+
+    os.makedirs(os.path.dirname(_journal_path(tmp_root)), exist_ok=True)
+    with open(_journal_path(tmp_root), "a", encoding="utf-8") as fh:
+        fh.write('{"work_id": "BVtorn:p0", "status": "arch')  # torn, never terminated
+
+    stranded = [f"BVsurv{i}" for i in range(3)]
+    survivor = ManifestStore(root=tmp_root)
+    for bvid in stranded:
+        survivor.upsert(_auto(bvid))
+
+    # Cross the byte floor so the fold fires.
+    folder = ManifestStore(root=tmp_root)
+    for i in range(6):
+        folder.upsert(_auto(f"BVmore{i}"))
+
+    # Every stranded record must now be readable from the snapshot -- not merely
+    # present somewhere on disk.
+    visible = ManifestStore(root=tmp_root).load()
+    for bvid in stranded:
+        assert f"{bvid}:p0" in visible, (
+            f"{bvid} was fsynced before the fragment but is still unreadable"
+        )
+    # The fault line is gone with the journal it lived in, and the records that
+    # were reachable before the fragment stay readable. (The journal file may
+    # exist again: appends after the fold start a fresh one, holding only rows
+    # written after it -- so the assertion is on the fragment, not on the path.)
+    assert "BV1aa411c7mD" in visible
+    journal = _journal_path(tmp_root)
+    if os.path.exists(journal):
+        assert "BVtorn" not in open(journal, encoding="utf-8").read(), (
+            "the fold left the unparsable fragment in place"
+        )
