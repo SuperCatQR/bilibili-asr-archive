@@ -39,7 +39,7 @@
 | **S3** caption-arm admission | `harvest-subs` writes `source_kind='subtitle-ai'`; part leaves all three gap views | `harvest BV1acKfzEEWS:p0 stored subtitle-ai ai-zh v1`; 1 transcript row, 195 segments, sha 64-hex; in `v_missing_subtitle`=0, `v_missing_audio`=0, `v_missing_transcript`=0; `pipeline_state=transcribed` | **passed** | `evidence/s3-probe.txt`, `evidence/s3-harvest.txt`, `evidence/s3-store.txt` |
 | **S4** audio-branch admission (two-state) | before any attempt: `v_missing_audio` for the part = 0; after `harvest-subs` records `no-subtitle`: = 1; no transcript, no audio object | **before = 0**; `harvest BV1aAhLzsENb:p0 no-subtitle`; attempt row `kind=subtitle outcome=no-subtitle error_code=None selector_kind=bvid`; **after = 1**; transcripts=0; audio_objects=0. Rollup after: missing_subtitle 59, missing_audio 1, missing_transcript 0 | **passed** | `evidence/s4-pre.txt`, `evidence/s4-harvest.txt`, `evidence/s4-post.txt`, `evidence/s4-rollup.txt` |
 | **S5** audio download | `part_audio_objects` row `acquisition_source='download'`; bytes on disk >0; leaves `v_missing_audio`; enters `v_missing_transcript` | `audio_ok (audio/BV1aAhLzsENb.p0.m4a)`; pao row `video_part_id=12 audio_id=1 acquisition_source=download`; **3,064,353 bytes**; missing_audio 0; missing_transcript 1 | **passed** | `evidence/s5-download.txt`, `evidence/s5-pao.txt`, `evidence/s5-bytes.txt` |
-| **S6** **ASR → archive + store write-back convergence (headline)** | see per-assertion detail below | **all 7 assertion groups hold** | **passed** | `evidence/s6-asr.txt`, `evidence/s6-store.txt`, `evidence/s6-bundle.txt`, `evidence/s6-pre.txt` |
+| **S6** **ASR → archive + store write-back convergence (headline)** | see per-assertion detail below | **all 7 assertion groups hold** | **passed with caveat** — `I-000166` (unbounded, `owner: null`) is a wall-clock lottery on this very guard; it did not fire in this run | `evidence/s6-asr.txt`, `evidence/s6-store.txt`, `evidence/s6-bundle.txt`, `evidence/s6-pre.txt` |
 | **S7** re-run spends nothing | `asr: queue empty …`, exit 0, no new run, no model load | `asr: queue empty (no parts need transcription)` RC=0; `kind='asr'` run count **1 → 1**; wall **0 s** (a real run is ~51 s) | **passed** | `evidence/s7-rerun.txt`, `evidence/s7-norun.txt` |
 | **S8** reader exits | status counts the part; search finds freshly written ASR text; **`verify` exit 0** (as the plan states); `coverage --strict` exit recorded | `search-index: indexed 250 block(s)`; `search 大智者` → **`BV1aAhLzsENb P0 … [00:00:08,480 → 00:00:11,840] 因为[大智者]，有[大智者]`** (asr-local content IS indexed/searchable); `search 职业革命家` → 5 caption-arm blocks; `status` RC=0; `verify` RC=**1** (`defect_count 0, backlog_count 0, diagnostics: structural_input_error ×2`); `coverage --strict` RC=**1** (`cumulative complete 1/1`, 4 × `evidence_missing` diagnostics) | **failed (partial)** — the search and status expectations hold; the stated `verify` exit-0 expectation **does not** | `evidence/s8-status.txt`, `evidence/s8-search.txt`, `evidence/s8-verify.txt`, `evidence/s8-coverage.txt` |
 | **S9** publish idempotence | first run publishes or reports state; second reports `already_published` and replaces nothing | `already_published` on both runs; `bundle.md` sha256 **identical** before/after (`cc87d231…ebce0`); `published=0 already_published=1 failed=0` | **passed** | `evidence/s9-first.txt`, `evidence/s9-second.txt`, `evidence/s9-hash.txt`, `evidence/s9-tree.txt` |
@@ -122,6 +122,7 @@ read from `s6-store.txt` + `s6-anomaly-runs.txt`; F4 from `s6-store.txt`; F5 fro
 
 - **Assigned scenarios: 13 (S0–S12). Completed: 13. Blocked: 0. Not-run: 0. Failed: 1 (S8, partial — see Addendum 3).**
   The corrected tally is **12 passed / 1 failed / 0 blocked / 0 not-run**.
+- **No scenario demonstrated a green `verify`/`coverage` path.** S8 failed on exactly that expectation; `I-000185` owns it.
 - **Product verdict: the headline capability is confirmed on real hardware.** ASR → archive → store
   write-back → gap-view convergence → searchable text all hold at `1e756df` on the RX 7800 XT. The
   store-driven chain's central claim is no longer analytic.
@@ -218,3 +219,27 @@ diagnostic faithfully is not the same as passing — the plan said exit 0 and th
 
 Nothing in the S0–S7/S9–S12 evidence chain is affected; the write-back headline (S6) is untouched by
 this correction and remains fully supported.
+
+## Addendum 4: independent falsification review (seat t3) — all four findings applied
+
+A read-only adversarial review (`code-reviewer`, task `t3`) was run against this report and its
+committed evidence. **C1–C5 all survived falsification.** Its four findings were checked and applied;
+two of them were real defects in this report.
+
+| Finding | Check | Action taken |
+|---|---|---|
+| **R1** (medium) — the report's "PASSED" claims had **no committed transcript**; `evidence/logs/` was empty, so the pass-verdicts were unverifiable from the artifact set | **Valid.** The claim was true but unevidenced. | Ran the 12 named tests on the compute host at `1e756df` → **12 passed, rc=0, 4.76 s**; transcript committed at `evidence/logs/pytest-witnesses.txt` with its `head=` and interpreter line. The claim is now checkable from the repo. |
+| **R2** (low) — S6's bare `passed` under-states a live-reproduced failure mode, and the report said `I-000166`'s "owner = the active plan" when the store says `owner: null` | **Valid on both halves.** Verified `owner=None` in the store. | S6 relabelled **`passed with caveat`**, naming `I-000166` and `owner: null`. The report no longer asserts an ownership the store does not record. |
+| **R3** (low) — the completion line dropped the qualifier that S8's expectation was `verify` exit 0 | **Valid** — and already self-corrected in Addendum 3 before this review landed. | Addendum 3 stands; the product-verdict block now also states plainly that no scenario demonstrated a green `verify`/`coverage` path. |
+| **R4** (low) — C1's ordinal contiguity was an **inference** from `count`/`min`/`max` + the composite PK, not a direct query | **Valid as a method criticism.** | Ran the direct query (`count(distinct ordinal)`, empty-text count) → `n=55 distinct_ordinals=55 min=0 max=54 well_ordered=55 empty_text=0`, contiguous `True`. Committed at `evidence/s6-contiguity.txt`. The conclusion is unchanged; the evidence is now direct. |
+
+### What the review changed about the run's standing
+
+Nothing in the S0–S7/S9–S12 evidence chain, and nothing about the headline. The two substantive
+changes are (a) the pass-verdicts are now **evidenced rather than asserted**, and (b) S6 carries the
+caveat that its guard has an unbounded, self-reproduced silent-skip mode — the caveat that makes S7's
+"no re-spend" claim legible as *conditional on S6 having landed*, which it did.
+
+The review also confirmed the report's own framing as honest where it was honest: S8's non-zero exits
+are recorded verbatim, `F5` is registered, and no green reader path is claimed — the defect there was
+labelling, not concealment.

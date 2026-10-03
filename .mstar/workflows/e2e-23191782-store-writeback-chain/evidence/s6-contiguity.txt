@@ -1,0 +1,4 @@
+=== R4: direct contiguity query (replaces the earlier inference from n/min/max + PK) ===
+--- select count(*) n, count(distinct ts.ordinal) distinct_ordinals, min, max, well_ordered, empty_text
+    n=55 distinct_ordinals=55 min=0 max=54 well_ordered=55 empty_text=0
+    contiguous (distinct == n == max-min+1): True
