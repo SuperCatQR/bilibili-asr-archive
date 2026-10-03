@@ -241,6 +241,21 @@ watching the suite stay green — not by reading the tests.
   **46 passed** — while the class docstring asserted that its name is what an operator sees in the run
   ledger. Introducing a type for callers or operators to branch on obliges one `pytest.raises` assertion for it.
 
+## Instances added 2026-10-03 (iter-2026-10-ledger-integrity, journal fold)
+
+Two shapes where the assertion named the wrong property:
+
+- **Assert recoverability, not an artifact's existence.** A new test for "the fold must not discard rows a
+  torn fragment stranded" first asserted that the journal file still exists — and it was **green pre-fix**:
+  the pre-fix bug *unlinks* the journal, and later appends recreate the file, so existence passes while the
+  rows are already gone. The corrected form asserts recoverability (a fresh `load()` sees the row, or its
+  bytes remain in the journal) and was red pre-fix. *When the bug under test deletes-and-recreates, any
+  existence check can be satisfied by the recreation.*
+- **A fold-bound assertion fitted to its loop length is not a guard.** A test asserting "journal bytes stay
+  under `max(2 × snapshot, 512)`" passed at its fixture's loop count and failed at a larger n although the
+  code was correct — the assertion had encoded the fixture, not the property. Where a bound is asserted, name
+  the term that should be binding and construct the fixture so that it is.
+
 **What generalised.** The doc's original rule covers an absence assertion with no reachable producer.
 These four extend it to *presence* assertions whose fixture cannot see the value change — the same
 failure mode wearing the other sign. The diagnostic is identical and cheap: **name the mutation that

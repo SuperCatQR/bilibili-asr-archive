@@ -144,16 +144,24 @@ Status values: `Todo` | `InProgress` | `InReview` | `Done` | `Blocked`
 
 ## Compound Round Summary
 
-> Filled at iteration-close.
+> Filled at iteration-close (`compound-report.md` carries the overlap decisions, the skipped candidates and
+> their reasons).
 
-- 结晶文档数：<N>
-- 新增 CONCEPTS.md 条目：<N>
-- 触发 compound-refresh：<是/否>
+- 结晶文档数：**2 新增**（`best-practices/reachability-delta-not-asserted.md`、
+  `testing-patterns/cross-plan-premise-collision.md`）＋ **5 篇既有文档更新**（journal 模式、operational
+  sidecars、absence-assertion、claim-scope、容器事实）
+- 新增 CONCEPTS.md 条目：**1**（`manifest journal`）
+- 触发 compound-refresh：**否**
+- Iteration package 提升：仅 `direction-lock.md`（compass 默认排除）→ 判定为 keep，无需提升
 
 ## Iteration Retrospective (minimal)
 
-> Filled at iteration-close.
+> Filled at iteration-close from `compound-report.md`'s review input.
 
-- 做得好的：
-- 可改进的：
-- 下迭代建议：
+- **做得好的**：跨 plan 集成核查（D12）在收口前捞出 1 个新失败（`I-000206`）并顺带修好 2 个既有失败——本次成本
+  最低的一次证据动作；拒绝型守卫把「未折叠不得丢弃」收进 `_remove_journal` 一个所有者，四个调用点不必各自记得。
+- **可改进的**：`manifest.py` 被三个 plan 同时改动 → 测试前提互相失效；三个实现轮 + 一个审查轮 context 耗尽，
+  PM 不得不亲自做复现与修复提交（已在 `task-5-report.md` 与提交信息中披露）——说明单文件高密度计划应把
+  **复现预算**写进计划本身。守卫引入的「不可读」半边起初没有被写成契约句，直到 QC 座位补上。
+- **下迭代建议**：把 D12 的**失败集合差集**固化为迭代收口的固定步骤，而非本次临时采用；若再动 `manifest.py`，
+  先处理当时的 strands 修复残留（本迭代已实现 `68fd978`，相关 issue 已按证据关闭）。

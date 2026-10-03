@@ -132,6 +132,30 @@ rerun of an already-terminal `work_id` is idempotent (exit 0). `run` and
 
 11. Publish transcript bundles as one owned generation rather than exposing independently replaced files. Stage and fsync the complete srt/txt/md/raw set, replace owned outputs deterministically, then write a marker containing exact paths and digests last. Readers accept only a complete marker-matched generation. Apply the same confined-path policy to audio lookup, persistence, and reclaim; reject absolute, traversing, symlink-escaping, directory, and non-regular paths before descriptor-backed consumers use them.
 
+## A skipped write-back must be loud; a refused run must not be
+
+A write-back that fails per row may stay silent (best-effort, unchanged) — but a write-back that is skipped
+for an **entire run scope** must say so on stderr. The measured case: a run id collision was swallowed into
+`asr_run_id = None`, after which every transcript write-back for that scope was silently skipped while stdout
+still reported each row as `archived`; a run-scoped count of the loss was only visible from a different command
+(`status`), so nothing on the run's own surface contradicted the clean success it printed. The repair is an
+instance-latched, stderr-only line naming the command, the refusal reason, and the skipped scope. It is latched
+**per instance**, not per row or per call: the refusal happens before any row is recorded, so naming one row
+understates the blast radius, and a persistently failing store would otherwise repeat the line per row.
+
+The diagnostic is itself a claim with a no-raise contract (`ensure_asr_run` returns `None`; it must not raise),
+so its failure set is the interesting part. A `stderr` that is **present in the process but unusable** is not
+an `OSError`: a closed or `detach()`ed `TextIOWrapper` raises `ValueError`, a binary stream raises `TypeError`,
+and an encoding-mismatched stream raises `UnicodeEncodeError` (a `ValueError`). The guard therefore spans
+`(OSError, ValueError, TypeError)` — still narrower than `except Exception` — and is pinned by one case per
+shape, each asserting `None` was returned, the line was attempted exactly once, no retry happened, and no
+stdout fallback occurred. Two related traps: a **mid-flight** dead fd 2 leaves the interpreter holding a live
+wrapper whose shutdown flush raises, so the process can exit `120` where the base exited `0` (an observable any
+caller checking `$?` sees, captured rather than waived); and narrowing a business `except` to name the classes
+the call path can raise is a **policy** whose class set should be enumerated as a set, not by example — the same
+narrowing that deliberately drops a connection-contract error also drops a schema-contract error reached
+through the identical mid-flight shape.
+
 ## The attempt-ledger writer boundary
 
 The stage-attempt ledger (`{archive_root}/coordinator/attempts.jsonl`) has exactly one appender:

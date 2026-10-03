@@ -272,3 +272,19 @@ earning its place:
 The author-side check that would have caught all five in one pass: **state the range of the claim,
 then test the sentence against the widest input it can receive** — a register row against the
 register, a help line against the write sites, a criterion against the field's type.
+
+## Instances added 2026-10-03 (iter-2026-10-ledger-integrity)
+
+- **A fix's honest contract has two halves, and both must be written — by the seat that knows the
+  mechanism.** The repair that stopped the journal fold from deleting stranded rows does *not* make
+  those rows readable: while the fragment stays, they are retained and invisible to every reader. The
+  published sentence names both ("no record is discarded — … remain unreadable to every reader until
+  …"), and the repair a stranded tail needs is registered as its own surface. The half left out is
+  the half a later reader mistakes for done.
+- **A repair can falsify a sentence written one section above it.** The motivation paragraph bounded
+  the journal residue as "≤ 2× snapshot" from the append path alone; that bound holds only while a
+  fold can complete. Once a strand refuses the discard, the residue is unbounded and grows with the
+  journal. The correction was **appended as an amendment beside the false sentence** (stating the
+  measured counter-case and that the unqualified property must not be carried away) instead of being
+  quietly rewritten — a bounded-residue claim that later readers treat as a guarantee costs more than
+  the sentence.

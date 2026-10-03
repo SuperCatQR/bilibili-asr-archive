@@ -43,6 +43,14 @@ misattribution in iter-2026-10-converge and produced a false regression report.
 Any multi-worktree / editable-install project, especially when subagents or subprocess tests
 are involved.
 
+## Container notes
+
+In this workspace's container the interpreter on `PATH` is `python3` (3.12); there is no bare `python`, and
+the package root is the nested `bilibili-asr-archive/` (so `src` is `bilibili-asr-archive/src`, never
+`<repo>/src`). Run focused selectors from the package root with an absolute `PYTHONPATH`; caller tests that
+import optional ASR dependencies (e.g. `numpy`) cannot execute here — compare the **FAILED sets** of both
+bases instead of reading a pass count.
+
 ## Related
 - `worktree-test-invocation.md` (venv binding / wrong-tree hazard)
 - `parallel-lane-file-contamination.md` (another multi-lane isolation trap)
