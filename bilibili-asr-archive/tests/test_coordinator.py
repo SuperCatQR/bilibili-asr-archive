@@ -1808,13 +1808,12 @@ def test_run_batch_subtitle_archive_records_published_bundle_when_writeback_fail
                for path in expected_paths)
 
     # Observable 2a: the journal the run itself appends to.  ``upsert`` records
-    # through ``manifest/manifest.journal.jsonl``; a fold into the snapshot
-    # happens in the store's own ``save()``/``compact()`` or inside ``upsert``
-    # via ``_maybe_compact_locked`` once the store holds
-    # ``_JOURNAL_COMPACT_THRESHOLD`` (256) rows or the journal exceeds twice the
-    # snapshot's bytes.  Either way the journal is where this run's write lands,
-    # so reading it keeps this test independent of the folding code another plan
-    # owns.  The journal is
+    # through ``manifest/manifest.journal.jsonl``; folding that journal into the
+    # snapshot belongs to the store's own compaction path, whose trigger this
+    # test deliberately does not restate -- another plan in this iteration
+    # reworks it.  The journal is where this run's write lands, so reading it
+    # keeps this test independent of the folding code another plan owns.  The
+    # journal is
     # append-only, so the run's write is the *last* row for this work id: the
     # seed's ``subtitle_done`` row stays above it, which is also what makes the
     # archived claim visible as a transition rather than as an initial state.
