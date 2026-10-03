@@ -1,6 +1,6 @@
-# Roadmap — 归档整合处理工作流
+# Roadmap — 视频归档整合平台
 
-Status: living document（2026-10-03 初版于分支 `thinking`；2026-10-04 修订，已在 `main`）。
+Status: living document（2026-10-03 初版于分支 `thinking`；2026-10-04 二次修订：平台承诺 + 三轨道并发，已在 `main`）。
 上游锚点是 [`design-philosophy.md`](design-philosophy.md)；这里把方向落成阶段。
 阶段按**价值解锁**排序，不按数据源排序；每个阶段独立可验证、可交付。
 
@@ -19,7 +19,7 @@ Status: living document（2026-10-03 初版于分支 `thinking`；2026-10-04 修
 **出口标准达成**：journal 回放不被合法 Unicode 行分隔符截断；compaction 可达且 `save()` 顺序与兄弟方法一致；
 ASR run id 唯一（纳秒时钟 + PK 兜底）；write-back 被拒时不再静默。
 
-## Phase 0.5 — 证据层加深（进行中，2026-10-03 起）
+## Phase 0.5 — 证据层加深（进行中，2026-10-03 起；并发探索的硬前置）
 
 **目标**：让"成功"与"耗尽"成为可证实的断言，而不是默认为真。
 **为什么单独成阶段**：现实给出的新数据点——Phase 0 之后，最紧迫的不是加新处理器，
@@ -34,7 +34,18 @@ ASR run id 唯一（纳秒时钟 + PK 兜底）；write-back 被拒时不再静�
 **出口标准**：两条 leg 各自的缺陷类被钉住且翻转（回归测试先红后绿）；
 取证路径在既有 schema 内可承载（本迭代两次显式升级门：需 schema 改动/迁移即 STOP）。
 
-## Phase 1 — 处理器注册表 + processor_runs（下一个迭代候选）
+**cross-cutting 前置（Phase 0.5 收口前必须关闭）**：
+- `I-000190`（并发 workflow-close 写入 clobber 活跃 session 的 `status.json` 条目，
+  静默暂停该 session）；`I-000207`（peer session 的 stale write 复活已关闭 plan row，
+  连带复活其 execution lease）；`I-000195`（`migrate_legacy_rows` 提交 snapshot-only 视图
+  后 unlink journal，永久删除 journaled 子状态）。三条同属 snapshot 写入并发缺陷族；
+  processor_runs 是所有处理器的公共表，写并发只会更常见——不带病进 Phase 1。
+- **editorial-stages 正式裁决**：`iter-2026-09-transcript-editorial-stages` parked 两周，
+  分支 ref 已于 2026-09-30 退役。两条路二选一，结果写进本文档：(a) 正式 close，
+  `HANDOFF.md` §2/§3 降级为历史记录；(b) 恢复为 Phase 4 的输入，recovery path
+  （`git fetch origin refs/pull/17/head`）写进 Phase 4 的范围。
+
+## Phase 1 — 处理器注册表 + processor_runs（已承诺，方向=平台）
 
 **目标**：把"ASR 是一个处理器实例"从理念变成骨架。
 **关键前提（2026-10-04 补）**：这不是新建平行表，而是**泛化既有形状**——
@@ -48,9 +59,13 @@ ASR run id 唯一（纳秒时钟 + PK 兜底）；write-back 被拒时不再静�
 - 把上述 run 形状泛化为 `processor_runs`：`(run_id, processor, version, input_ref, params_hash, code_rev, started/finished, outcome)`
   —— 优先**扩展** `acquisition_runs` 或将其与 `asr_models` 的关系显式化，而非新建平行机制。
 - 一个注册表：处理器声明输入类型与 `name@version`。
-- ASR 迁入该骨架，作为第一个实例；不引入第二个处理器。
+- ASR 迁入该骨架，作为第一个实例。
 
-**明确不做**：通用派生图引擎、调度器、并发执行（`sequential-no-daemon` 仍然有效）。
+**明确不做**：
+- 通用派生图引擎、调度器、并发执行（`sequential-no-daemon` 仍然有效）。
+- **第二个处理器进入注册表**——即使接口预留了多处理器能力。预留不等于验证；
+  N=2 检验属于 Phase 3，必须真实跑通，不是类型层面的"看起来支持"。
+
 **出口标准**：ASR 重跑产生重复行数为零（幂等键生效）；`status` 能报告"哪些 audio 还没被 `asr@vX` 覆盖"。
 
 ## Phase 2 — 派生缺口队列（"收集"的声明式实现）
@@ -92,16 +107,45 @@ ASR run id 唯一（纳秒时钟 + PK 兜底）；write-back 被拒时不再静�
 
 ---
 
-## 排序逻辑（为什么是这个顺序）
+## 轨道结构（2026-10-04 修订：平台方向下的并发探索）
+
+三条并行轨道，共享一次 Phase 0.5 收口。**探索不等于落地**：
+
+```
+                Phase 0.5 (attestable) — 收口前一切并发的硬前置
+                        |
+        +---------------+---------------+
+        |               |               |
+   Track A          Track B          Track C
+   骨架             内容             数据源
+   Phase 1→2       Phase 4→5       Phase 6→7
+        |               |               |
+        v               v               v
+   处理器注册表      终态谓词+画面     评论+关系
+   缺口队列          editorial恢复    有界观察
+```
+
+**硬约束**：Track B/C 的设计文档、schema 草案、采集器原型**可在任意时刻进行**
+（不受 Track A 阻塞）；但**落地**（新表、新处理器注册、新 source 接入派生管线）
+必须等 Track A 对应阶段就位——否则会产生孤立 schema，骨架就位时被迫重改。
+
+| Track | 阶段 | 落地前置 | 探索（现在就能开始） |
+|-------|------|---------|---------------------|
+| A 骨架 | Phase 1 → Phase 2 | Phase 0.5 出口 | — |
+| B 内容 | Phase 4 → Phase 5 | Phase 1 出口（软依赖，可并行设计） | editorial-stages 裁决；proofread 谓词泛化设计；画面 schema 草案 |
+| C 数据源 | Phase 6 → Phase 7 | Phase 1 出口（软依赖） | 评论有界观察边界（时间窗/条数封顶/采集频率）；关系类型清单 |
+
+## 排序逻辑（为什么 Phase 0 → 0.5 → 1 不能跳）
 
 1. **Phase 0 先于一切**：事件流不可信，重放就是空话。（**已完成**）
-2. **Phase 0.5 先于新骨架**：事件流可信之后，"事件流里的结论是否可信"成为下一个真实瓶颈——
-   短解码冒充成功、未见清单放行进付费分支，都是**判定**缺陷而非机制缺陷。现实先于计划：
-   这个阶段是从在飞工作倒推出来的，不是初版 roadmap 预见的。
-3. **Phase 1–2 先于新数据源**：注册表和缺口队列是所有后续环节的公共骨架；
+2. **Phase 0.5 先于一切并发**：`I-000187`/`I-000188` 不修，任何并发探索的结果都不可信——
+   不知道一条记录是真成功还是看起来成功。这不是排序偏好，是地基。
+3. **Phase 1–2 先于新数据源落地**：注册表和缺口队列是所有后续环节的公共骨架；
    先有骨架，新处理器/新数据源才是"注册一下"而不是"写一条新管线"。
-4. **Phase 3 是 N=2 检验**：只有第二个处理器真正跑通，抽象才算成立（哲学 §8）。
+   **探索可以并行，落地必须排队。**
+4. **Phase 3 是 N=2 检验**：只有第二个处理器真实跑通，抽象才算成立（哲学 §8）。
 5. **Phase 4 是产品灵魂**：声明式收敛是"数据处理 loop"的落地，依赖 1–3 全部。
+   editorial-stages 的恢复入口在这里（见 Phase 0.5 cross-cutting 前置）。
 6. **画面/评论/关系放后面**：它们是水平拓展，需要的是已被验证的骨架，不是新骨架。
 
 ## 不做事项（本路线图范围内）
@@ -110,3 +154,4 @@ ASR run id 唯一（纳秒时钟 + PK 兜底）；write-back 被拒时不再静�
 - 不引入重型数据库（SQLite + 对象仓按哲学 §5 继续）。
 - 不做评论的全量无限固化（有界观察是决策，不是妥协）。
 - 不为了"未来可能用到"提前建画面/评论的空表——处理器出现时表才出现。
+- Phase 1 不预留多处理器接口的演示性实现——预留不等于验证，N=2 必须真实发生。
