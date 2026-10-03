@@ -191,8 +191,11 @@ class QueueSource:
         ``print(..., file=None)`` falls back to **stdout**, where it would land
         inside the caller's own output; a stream that is gone means the
         diagnostic has nowhere to go, so nothing is printed (the rule
-        ``coordinator._print_model_constructions`` already follows).  The
-        latch is set either way: a closed fd 2 is not a transient condition.
+        ``coordinator._print_model_constructions`` already follows).  A stream
+        that dies after startup (``os.close(2)``, a broken pipe) leaves
+        ``sys.stderr`` a live wrapper whose write raises ``OSError`` — same
+        reasoning, swallowed the same way, and not retried.  The latch is set
+        either way: a dead stream is not a transient condition.
         """
 
         import sys as _sys
@@ -202,12 +205,17 @@ class QueueSource:
         self._asr_run_refusal_reported = True
         if _sys.stderr is None:
             return
-        print(
-            f"{command}: acquisition run refused by the store "
-            f"({type(exc).__name__}); transcript write-backs are skipped "
-            "for this run",
-            file=_sys.stderr,
-        )
+        try:
+            print(
+                f"{command}: acquisition run refused by the store "
+                f"({type(exc).__name__}); transcript write-backs are skipped "
+                "for this run",
+                file=_sys.stderr,
+            )
+        except OSError:
+            # The stream died after startup; a diagnostic may not raise out of
+            # the refusal path, and the run stays refused.
+            return
 
     # ------------------------------------------------------------------ read
 

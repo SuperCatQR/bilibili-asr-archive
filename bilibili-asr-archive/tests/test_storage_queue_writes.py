@@ -1236,3 +1236,79 @@ def test_queue_source_ensure_asr_run_refusal_is_silent_with_stderr_closed(
         assert captured.err == ""
     finally:
         connection.close()
+
+
+def test_queue_source_ensure_asr_run_refusal_survives_a_dead_stderr_stream(
+    tmp_root, monkeypatch, capsys
+):
+    """A stream that dies after startup cannot raise out of the refusal report.
+
+    The ``sys.stderr is None`` guard only covers fd 2 closed *before* the
+    interpreter starts.  When fd 2 dies later (``os.close(2)``, a broken pipe),
+    ``sys.stderr`` is still a live ``TextIOWrapper`` whose writes fail with
+    ``OSError``; an unguarded ``print`` would then raise that out of
+    ``ensure_asr_run``, whose documented contract is to return ``None`` when
+    the store refuses the run.
+
+    The stub is that same shape — a live ``TextIOWrapper`` whose fd rejects
+    writes — built without closing fd 2 of the test session, which pytest's
+    capture replaces anyway (and the house pattern of the test above stubs
+    ``sys.stderr`` rather than closing the real fd).  A read-only fd fails
+    every write with ``EBADF`` and can never be reused, so the write really is
+    attempted and really fails, and its failures are counted: the latch must
+    keep the line from being retried on a later refusal.
+    """
+    import io
+    import os
+    import sys
+
+    class DeadStderr(io.TextIOWrapper):
+        """A live stderr-shaped stream whose fd refuses every write."""
+
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            self.writes = 0
+
+        def write(self, text):
+            self.writes += 1
+            return super().write(text)
+
+    connection = open_database(tmp_root)
+    dead = DeadStderr(
+        os.fdopen(os.open(os.devnull, os.O_RDONLY), "wb", buffering=0),
+        encoding="utf-8",
+        write_through=True,
+        line_buffering=True,
+    )
+    try:
+        from bili_asr.storage import TranscriptRepository
+
+        def refuse(*args, **kwargs):
+            raise sqlite3.Error("store refused")
+
+        monkeypatch.setattr(TranscriptRepository, "start_acquisition_run", refuse)
+        monkeypatch.setattr(sys, "stderr", dead)
+
+        source = QueueSource(connection)
+        assert source.ensure_asr_run("asr") is None
+
+        # The diagnostic really was written to the dead stream, and the write
+        # really failed — the OSError was swallowed, not avoided.
+        assert dead.writes == 1
+
+        # A dead stream is not a transient condition: the latch stays set and
+        # the line is not retried on the next refusal.
+        assert source.ensure_asr_run("asr") is None
+        assert dead.writes == 1
+        assert source._asr_run_refusal_reported is True
+
+        # stderr only: the failed write must not fall back to stdout.
+        captured = capsys.readouterr()
+        assert captured.out == ""
+        assert captured.err == ""
+    finally:
+        # Restore the session's stderr before pytest's capture unwinds (the
+        # fixture would do this later, but the dead stream must not stay
+        # installed if an assertion above raised).
+        monkeypatch.undo()
+        dead.close()
