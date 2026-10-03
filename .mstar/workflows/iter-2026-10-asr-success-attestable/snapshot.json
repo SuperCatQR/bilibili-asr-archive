@@ -2,10 +2,10 @@
   "schema_version": 1,
   "id": "iter-2026-10-asr-success-attestable",
   "type": "iteration",
-  "status": "running",
-  "phase": "phase-1-prepare",
+  "status": "completed",
+  "phase": "phase-3-close",
   "started_at": "2026-10-03",
-  "updated_at": "2026-10-03T14:16:57Z",
+  "updated_at": "2026-10-03T23:59:44Z",
   "compass_ref": "iterations/iter-2026-10-asr-success-attestable/delivery-compass.md",
   "branch": {
     "base": "main",
@@ -30,20 +30,16 @@
       "id": "caption-exhaustion-attestation",
       "title": "Make caption exhaustion attestable",
       "file": "/root/workspace/bilibili-asr-archive/.mstar/plans/caption-exhaustion-attestation.md",
-      "status": "InProgress",
+      "status": "Done",
       "metadata": {
         "iteration_refs": [
           "iterations/iter-2026-10-asr-success-attestable/delivery-compass.md"
         ],
         "spec_integration_branch": "iteration/iter-2026-10-asr-success-attestable",
-        "merge_target": "iteration/iter-2026-10-asr-success-attestable"
-      },
-      "execution_lease": {
-        "holder": "session-6b291bf7-9531-4396-a243-528549c1369f",
-        "claimed_at": "2026-10-03T14:16:57Z",
-        "worktree_path": "/root/workspace/bilibili-asr-archive/.worktrees/caption-exhaustion-attestation",
+        "merge_target": "iteration/iter-2026-10-asr-success-attestable",
         "working_branch": "fix/20261003-caption-exhaustion-attestation",
-        "session_label": "iter-2026-10-asr-success-attestable coordinator"
+        "worktree_path": "/root/workspace/bilibili-asr-archive/.worktrees/caption-exhaustion-attestation",
+        "merge_commit": "d154ef0"
       }
     }
   ],

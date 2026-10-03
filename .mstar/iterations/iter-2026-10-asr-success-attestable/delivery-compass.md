@@ -1,7 +1,7 @@
 ---
 iteration_id: iter-2026-10-asr-success-attestable
 start_date: 2026-10-03
-status: locked
+status: completed
 iteration_base_branch: main
 target_branch: main
 plans:
@@ -49,7 +49,7 @@ plans:
 
 | plan_id | Name | Status | Notes |
 |---------|------|--------|-------|
-| `asr-coverage-attestation` | ASR 产出覆盖率必须可证实（`I-000188`） | **Blocked** | **操作者 2026-10-03 裁决：先不动 `I-000188`，仅登记状态（`I-000201`）**。Phase 1 产物保留；实现待操作者放行 |
+| `asr-coverage-attestation` | ASR 产出覆盖率必须可证实（`I-000188`） | **Blocked** （本轮不实施 — 见 D12/`I-000201`；Phase 1 产物保留，待操作者放行） | **操作者 2026-10-03 裁决：先不动 `I-000188`，仅登记状态（`I-000201`）**。Phase 1 产物保留；实现待操作者放行 |
 | `caption-exhaustion-attestation` | 字幕耗尽判定必须可证实（`I-000187`） | Todo | 业务 plan 2 |
 
 ## Milestones
@@ -109,3 +109,57 @@ plans:
 
 - `specs/` — 本迭代锁定的规格（Phase 1 只写 `<iteration-id>/specs/`；全局 `{SPECS_DIR}` 在 Phase 3 提升）
 - `guides/` — 按需
+
+## Close-out (2026-10-04)
+
+**Iteration closed with one plan Done and one intentionally deferred.**
+
+| plan | outcome |
+|---|---|
+| `caption-exhaustion-attestation` | **Done** — merged to `main` as `ff11351` (PR #212). Closes `I-000187`. |
+| `asr-coverage-attestation` | **Blocked, not abandoned** — deferred by operator ruling (`I-000201`, decision D12). `I-000188` remains open and unfixed **by choice, recorded**, with its full reproduction and evidence trail. Its Phase 1 artifacts (plan, D8/D9, both witness specs) are preserved so the work resumes without re-derivation. |
+
+The iteration is not "all plans done"; it is closed at the operator's instruction with the remaining
+plan's deferral on the record. That distinction matters because a later reader must not read
+`asr-coverage-attestation` as a plan nobody finished.
+
+### What landed
+
+The defect closed here is the same failure class the whole direction was opened against: **a ledger
+saying success while the fact differs.** An empty caption inventory — which the gateway itself
+describes as possibly invisible to the credential in use — was recorded once and read as proof the
+video had no captions, routing a part that *did* have subtitles into the paid ASR branch. Measured on
+real hardware, twice.
+
+The fix leaves the recording path untouched, because it already drew the distinction; only the
+reading path conflated it. That is why the change is a view predicate and a corroboration count
+rather than new vocabulary — and why the first design, which proposed new `error_code` values, had to
+be re-carriered when it turned out the schema's own CHECK refuses them on every existing database.
+
+### What the review loop cost, and why it was worth it
+
+Four adversarial rounds. Each found a defect in the previous round's fix:
+
+1. the refresh performed a `DROP`/`CREATE` on every open — turning every read into a write, breaking
+   concurrent readers and read-only archives, and leaving a view absent on a mid-script failure;
+2. its conditional replacement matched the view name with an unanchored search over the statement's
+   comment block, compared bodies literal-blind, and returned *mangled text* that every equality test
+   passed because both sides were mangled identically;
+3. the absolute assertion added for that mangling pinned 30-character toy strings while the real
+   bodies normalize to over a thousand, so a length-gated defect still slipped through;
+4. the round that finally caught the scan's remaining quote forms.
+
+Every one of those was found by running the code, not by reading it. The single highest-value test in
+the change is the one that asserts an **absolute** property of a **real** input, because a symmetric
+defect is invisible to every comparison.
+
+### Honest residuals
+
+- `I-000187` still reads `open` in the store: the `close` channel refuses without a scoped session
+  envelope (`I-000186`). The closure evidence is recorded at
+  `.mstar/sdd/caption-exhaustion-attestation/I-000187-closure.md` with the exact command to close the
+  row when the channel works.
+- `I-000210` — two credential-absent runs satisfy the corroboration rule.
+- `I-000211` — `probe-subs` still leaves no durable trace.
+- `I-000212` — two architect seats were dispatched against a stale premise.
+- `I-000213`/`I-000214` — probe rows created to test the mutation channel; no technical content.
