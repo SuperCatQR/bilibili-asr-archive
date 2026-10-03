@@ -1,7 +1,8 @@
 ---
 iteration_id: iter-2026-10-ledger-integrity
 start_date: 2026-10-03
-status: locked
+end_date: 2026-10-03
+status: completed
 iteration_base_branch: main
 target_branch: main
 plans: ["caption-writeback-guard", "journal-replay-integrity", "asr-run-id-uniqueness", "journal-compaction-lifecycle"]
@@ -107,6 +108,8 @@ Status values: `Todo` | `InProgress` | `InReview` | `Done` | `Blocked`
 | D10 | plan `caption-writeback-guard` 的第二观测量接受 **journal 或 snapshot 任一**为观测点（`manifest.journal.jsonl` 是 run 的写入落点；`manifest.jsonl` 只在 `save()`/`compact()` 折叠后才有该行，而 `src/` 中二者均无调用者） | implement 轮实测发现：原 Done criteria 假定 run 会写 `manifest.jsonl`，与 store 自身生命周期不符（`upsert` 追加 journal，折叠仅经 `save()`/`compact()`）。已按 drift 规则**先回写 plan 再继续**（`caption-writeback-guard.md` Done criteria 内联更正 + 本行记录）。该 store 生命周期缺口为本迭代既有范围（`I-000167`/`I-000170` → plan `journal-compaction-lifecycle`），本 plan 不创建也不关闭它 | implement-round drift (verified in worktree) |
 
 | D11 | `I-000195`（`migrate_legacy_rows` 提交 snapshot-only 视图后 unlink journal，durable 删除 journaled supersede；high）**路由进 plan `journal-compaction-lifecycle`**（作为新增 Task），而非留待下迭代 | 同文件（`manifest.py`）、同不变量（`I-000138`「未折叠成功不得 unlink」）、同修复形状；该 plan 尚未开工（Todo），故不废弃任何已完成工作；且其 `## Contracts to preserve` 原已引用 `migrate_legacy_rows`，前提需一并更正。延后意味着在后续迭代为一个可从生产路径（`subtitles.py:109` ← `cli/pilot.py:531`、`coordinator.py:1095`）到达的 high 级 durable 数据丢失再开第三次 `manifest.py`。**不新增业务 plan**，故 `L` 预算（4）不变 | plan-QC seat 3 finding (verified by PM) |
+
+| D12 | 集成分支上的**跨 plan 集成核查**（不只信任各 plan 自身的绿灯）：四个 plan 全部 merge 后，对 `manifest|queue|storage|coordinator|journal` 相关测试做 base(`1e756df`) vs 集成分支的**失败集合差集** | 该迭代的四个 plan 共享 `manifest.py` 与 `coordinator.py` 的行为面，plan 之间的**测试前提**会互相失效，而各自的 QA 只看自己那份 diff。实测有效：差集查出 1 个新失败（`I-000206`，plan 012 的 file-based trigger 折叠了 plan 011 测试所读的 journal），修复后差集为空且本迭代还顺带修好 2 个既有失败 | 集成核查实测 |
 
 ## Risk Register
 

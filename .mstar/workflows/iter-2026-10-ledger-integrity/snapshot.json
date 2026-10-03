@@ -68,21 +68,18 @@
    "id": "journal-compaction-lifecycle",
    "title": "Make journal compaction reachable and order save() like its siblings",
    "file": "/root/workspace/bilibili-asr-archive/.mstar/plans/journal-compaction-lifecycle.md",
-   "status": "InProgress",
+   "status": "Done",
    "metadata": {
     "iteration_refs": [
      "iterations/iter-2026-10-ledger-integrity/delivery-compass.md"
     ],
     "spec_integration_branch": "iteration/iter-2026-10-ledger-integrity",
-    "merge_target": "iteration/iter-2026-10-ledger-integrity"
-   },
-   "execution_lease": {
-    "holder": "session-20b2311c-b68b-4fc7-a6b9-2f1db8cec2df",
-    "claimed_at": "2026-10-03T11:09:26Z",
-    "worktree_path": "/root/workspace/bilibili-asr-archive/.worktrees/journal-compaction-lifecycle",
+    "merge_target": "iteration/iter-2026-10-ledger-integrity",
     "working_branch": "fix/20261003-journal-compaction-lifecycle",
-    "session_label": "iter-2026-10-ledger-integrity coordinator"
-   }
+    "worktree_path": "/root/workspace/bilibili-asr-archive/.worktrees/journal-compaction-lifecycle",
+    "merge_commit": "ab9683a"
+   },
+   "done_at": "2026-10-03"
   }
  ],
  "project": "_default",
