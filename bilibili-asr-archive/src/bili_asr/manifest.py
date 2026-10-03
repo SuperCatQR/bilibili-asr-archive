@@ -285,11 +285,18 @@ class ManifestStore:
             try:
                 entry = validate_manifest_record(json.loads(line))
             except ValueError:
-                # Torn write at the tail: nothing after it was fully appended
-                # either, so stop folding rows from here on rather than skip
+                # Torn write: stop folding rows from here on rather than skip
                 # mid-stream.  Keep scanning (without folding) only to learn
-                # whether a complete record was stranded behind the fragment.
+                # whether anything was stranded behind the fragment.
                 torn = True
+                if self._unparsed_line_holds_a_record(line):
+                    # The fragment and a *complete* record share this physical
+                    # line: the next append landed on the unterminated
+                    # fragment, so the whole-line parse fails while the record
+                    # sits intact at the end of the line.  It was fsynced by
+                    # whoever wrote it and no reader can reach it, so the
+                    # journal holding it must not be discarded.
+                    self._journal_has_unfolded_rows = True
                 continue
             if torn:
                 # A complete record after a torn fragment: unfetchable by any
@@ -298,6 +305,37 @@ class ManifestStore:
                 continue
             entries[_entry_key(entry)] = entry
         return entries, journal_bytes
+
+    #: Attempts spent looking for a whole record inside an unparsable journal
+    #: line before assuming one is present.  Detection is a correctness matter:
+    #: an exhausted budget counts as *present*, because retaining a fragment
+    #: only delays a fold, while discarding a record loses it.
+    _UNPARSED_LINE_SCAN_LIMIT = 64
+
+    def _unparsed_line_holds_a_record(self, line: str) -> bool:
+        """Does an unparsable line still end with a complete record?
+
+        A record is one JSON object serialized by ``_json_line`` and normally
+        occupies its own line.  When the previous write died mid-line, the next
+        append lands on that unterminated fragment, so fragment and record
+        become a single physical line that no whole-line parse can read.  The
+        record is the line's tail, so this walks the ``{`` anchors right to
+        left and accepts the first suffix that parses as a valid record.
+        """
+        attempts = 0
+        for start in range(len(line) - 1, -1, -1):
+            if line[start] != "{":
+                continue
+            attempts += 1
+            if attempts > self._UNPARSED_LINE_SCAN_LIMIT:
+                return True
+            suffix = line[start:]
+            try:
+                validate_manifest_record(json.loads(suffix))
+            except (ValueError, RecursionError):
+                continue
+            return True
+        return False
 
     def _append_record(self, record: Mapping[str, Any]) -> None:
         directory_fd = self._open_manifest_dir(create=True)

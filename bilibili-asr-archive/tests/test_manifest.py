@@ -678,3 +678,42 @@ def test_fold_refuses_to_discard_rows_stranded_behind_a_torn_fragment(store, tmp
     ManifestStore(root=tmp_root).compact()
     for bvid in stranded:
         assert reachable(f"{bvid}:p0"), "compact() discarded rows the replay never folded"
+
+def test_fold_refuses_to_discard_a_record_merged_into_a_torn_fragment(store, tmp_root):
+    # The stranding shape has a second form that a "complete line follows the
+    # fragment" check cannot see: when the fragment's own line was never
+    # terminated, the next append lands ON it, so fragment and complete record
+    # occupy one physical line that no whole-line parse can read. The record is
+    # intact at the end of that line and is the only copy, so the journal must
+    # survive -- detection has to look inside the unparsable line, not only at
+    # the lines after it.
+    store.save({"BV1aa411c7mD": {"bvid": "BV1aa411c7mD", "status": "meta_ok"}})
+
+    os.makedirs(os.path.dirname(_journal_path(tmp_root)), exist_ok=True)
+    # Long enough that ONE merged append carries the journal past the floor.
+    with open(_journal_path(tmp_root), "a", encoding="utf-8") as fh:
+        fh.write('{"work_id": "BVtorn:p0", "status": "arch' + "x" * 300)
+
+    ManifestStore(root=tmp_root).upsert(_auto("BVstranded0"))
+    # The append landed on the unterminated fragment, so fragment and record
+    # share one physical line: the file has a single "\n" (the one the record
+    # itself wrote) and that whole line cannot be parsed as a record.
+    merged = open(_journal_path(tmp_root), encoding="utf-8").read()
+    assert merged.count("\n") == 1, merged
+    with pytest.raises(ValueError):
+        json.loads(merged.strip())
+
+    # A further append from another handle crosses the fold threshold.
+    ManifestStore(root=tmp_root).upsert(_auto("BVlater0"))
+    while not os.path.exists(_manifest_path(tmp_root)):
+        ManifestStore(root=tmp_root).upsert(_auto("BVlater1"))
+        break
+
+    journal = _journal_path(tmp_root)
+    snapshot = _manifest_path(tmp_root)
+    recoverable = (
+        "BVstranded0:p0" in ManifestStore(root=tmp_root).load()
+        or (os.path.exists(journal) and "BVstranded0" in open(journal, encoding="utf-8").read())
+        or (os.path.exists(snapshot) and "BVstranded0" in open(snapshot, encoding="utf-8").read())
+    )
+    assert recoverable, "the merged record was discarded with the journal"
