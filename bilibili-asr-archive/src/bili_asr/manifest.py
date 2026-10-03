@@ -284,10 +284,11 @@ class ManifestStore:
                 continue
             try:
                 entry = validate_manifest_record(json.loads(line))
-            except ValueError:
-                # Torn write: stop folding rows from here on rather than skip
-                # mid-stream.  Keep scanning (without folding) only to learn
-                # whether anything was stranded behind the fragment.
+            except (ValueError, RecursionError):
+                # Torn write, or a line json.loads refuses (deep nesting
+                # exhausts the parser's stack): stop folding rows from here on
+                # rather than skip mid-stream.  Keep scanning (without folding)
+                # only to learn whether anything was stranded behind it.
                 torn = True
                 if self._unparsed_line_holds_a_record(line):
                     # The fragment and a *complete* record share this physical
