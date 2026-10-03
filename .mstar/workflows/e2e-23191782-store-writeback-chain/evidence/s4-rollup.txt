@@ -1,0 +1,10 @@
+--- select count(*) as v_missing_subtitle from v_missing_subtitle
+    v_missing_subtitle=59
+--- select count(*) as v_missing_audio from v_missing_audio
+    v_missing_audio=1
+--- select count(*) as v_missing_transcript from v_missing_transcript
+    v_missing_transcript=0
+--- select pipeline_state,count(*) as n from v_part_pipeline group by 1 order by 2 desc
+    pipeline_state=discovered | n=58
+    pipeline_state=transcribed | n=1
+    pipeline_state=audio_pending | n=1

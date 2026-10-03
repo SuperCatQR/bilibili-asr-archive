@@ -1,0 +1,42 @@
+NOTE: first attempt passed both --bvid and --limit-parts; the CLI requires exactly one.
+The earlier failures are kept in the evidence trail (s3-probe-attempt1.txt).
+=== probe-subs --bvid BV1aAhLzsENb ===
+sessdata: present
+probe BV1aAhLzsENb:p0 tracks=0
+  (no subtitles visible)
+probe-subs: probed=1 with_tracks=0 without_tracks=1 failed=0
+=== probe-subs --bvid BV1DT3UzwEbj ===
+sessdata: present
+probe BV1DT3UzwEbj:p0 tracks=0
+  (no subtitles visible)
+probe-subs: probed=1 with_tracks=0 without_tracks=1 failed=0
+=== probe-subs --bvid BV1acKfzEEWS ===
+sessdata: present
+probe BV1acKfzEEWS:p0 tracks=1
+  track ai-zh ai 中文
+probe-subs: probed=1 with_tracks=1 without_tracks=0 failed=0
+=== probe-subs --bvid BV1SWKZzCE32 ===
+sessdata: present
+probe BV1SWKZzCE32:p0 tracks=1
+  track ai-zh ai 中文
+probe-subs: probed=1 with_tracks=1 without_tracks=0 failed=0
+=== probe-subs --bvid BV1xLTcz2E2h ===
+sessdata: present
+probe BV1xLTcz2E2h:p0 tracks=1
+  track ai-zh ai 中文
+probe-subs: probed=1 with_tracks=1 without_tracks=0 failed=0
+=== probe-subs --bvid BV1EM3VzyEVo ===
+sessdata: present
+probe BV1EM3VzyEVo:p0 tracks=1
+  track ai-zh ai 中文
+probe-subs: probed=1 with_tracks=1 without_tracks=0 failed=0
+=== probe-subs --bvid BV1MeuAzFEK1 ===
+sessdata: present
+probe BV1MeuAzFEK1:p0 tracks=1
+  track ai-zh ai 中文
+probe-subs: probed=1 with_tracks=1 without_tracks=0 failed=0
+=== probe-subs --bvid BV1YEtNzXE7e ===
+sessdata: present
+probe BV1YEtNzXE7e:p0 tracks=1
+  track ai-zh ai 中文
+probe-subs: probed=1 with_tracks=1 without_tracks=0 failed=0

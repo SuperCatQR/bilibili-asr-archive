@@ -1,0 +1,22 @@
+export BILI_SESSDATA=<redacted>
+--- does ~/.bashrc source it? ---
+100:if [ -f "$HOME/.config/bili-asr/session.env" ]; then . "$HOME/.config/bili-asr/session.env"; fi
+--- key names AFTER ---
+export BILI_SESSDATA=<redacted>
+
+export HSA_ENABLE_DXG_DETECTION=<redacted>
+# ~/.bashrc: executed by bash(1) for non-login shells.
+# see /usr/share/doc/bash/examples/startup-files (in the package bash-doc)
+# for examples
+
+# If not running interactively, don't do anything
+[ -z "$PS1" ] && return
+
+# don't put duplicate lines in the history. See bash(1) for more options
+# ... or force ignoredups and ignorespace
+HISTCONTROL=ignoredups:ignorespace
+
+# append to the history file, don't overwrite it
+--- the sourcing line sits at line 100, AFTER the guard -> non-interactive shells never reach it ---
+PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin"
+HSA_ENABLE_DXG_DETECTION=1

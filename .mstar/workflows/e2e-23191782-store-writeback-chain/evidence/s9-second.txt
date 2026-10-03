@@ -1,0 +1,4 @@
+=== second publish (expect already_published, nothing replaced) ===
+BV1aAhLzsENb:p0: already_published
+publish-transcripts: candidates=1 published=0 already_published=1 failed=0
+RC=0

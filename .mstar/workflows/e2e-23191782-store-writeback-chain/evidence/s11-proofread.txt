@@ -1,0 +1,5 @@
+BV1acKfzEEWS:p0: side-by-side written (/root/e2e-asr/store-writeback-chain/artifacts/.tmp/proofread-work/inputs/BV1acKfzEEWS.p0.sidebyside.md)
+BV1acKfzEEWS:p0: alignment written (/root/e2e-asr/store-writeback-chain/artifacts/.tmp/proofread-work/align/BV1acKfzEEWS.p0.alignment.jsonl)
+RC=0
+/root/e2e-asr/store-writeback-chain/artifacts/.tmp/proofread-work/inputs/BV1acKfzEEWS.p0.sidebyside.md
+/root/e2e-asr/store-writeback-chain/artifacts/.tmp/proofread-work/align/BV1acKfzEEWS.p0.alignment.jsonl

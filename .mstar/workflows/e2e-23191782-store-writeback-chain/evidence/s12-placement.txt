@@ -1,0 +1,4 @@
+--- surviving placements ---
+  /etc/profile.d/bili-asr-gpu.sh : 1
+  /etc/environment : 1
+export BILI_SESSDATA=<redacted> 

@@ -1,0 +1,1 @@
+/root/e2e-asr/store-writeback-chain/artifacts/transcripts/BV1aAhLzsENb.p0/.bundle-ready

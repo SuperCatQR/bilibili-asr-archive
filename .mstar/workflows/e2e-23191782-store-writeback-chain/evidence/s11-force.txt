@@ -1,0 +1,7 @@
+=== S11 forcing device: append a needs_audio manifest row for BV1acKfzEEWS:p0 ===
+cid=30713908862 duration_ms=539000 title=【实事求是】为什么职业革命家一定要学习黑格尔哲学
+manifest rows before: 1
+row for BV1acKfzEEWS:p0 already present: False
+manifest rows after: 2
+row written: {'work_id': 'BV1acKfzEEWS:p0', 'bvid': 'BV1acKfzEEWS', 'page_index': 0, 'cid': 30713908862, 'title': '【实事求是】为什么职业革命家一定要学习黑格尔哲学', 'duration_s': 539, 'status': 'needs_audio', 'page_label': ''}
+RC=0

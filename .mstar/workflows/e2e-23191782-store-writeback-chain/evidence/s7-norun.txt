@@ -1,0 +1,2 @@
+asr runs before=1 after=1
+wall_seconds=0 (model load alone costs ~5s; a real run would be ~50s)
