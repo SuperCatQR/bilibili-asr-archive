@@ -1,97 +1,98 @@
 {
- "schema_version": 1,
- "id": "iter-2026-10-ledger-integrity",
- "type": "iteration",
- "status": "running",
- "phase": "phase-1-prepare",
- "started_at": "2026-10-03",
- "updated_at": "2026-10-03",
- "compass_ref": "iterations/iter-2026-10-ledger-integrity/delivery-compass.md",
- "branch": {
-  "base": "main",
-  "integration": "iteration/iter-2026-10-ledger-integrity",
-  "target": "main"
- },
- "plans": [
-  {
-   "id": "caption-writeback-guard",
-   "title": "Hoist the caption write-back out of the archive success guard",
-   "file": "/root/workspace/bilibili-asr-archive/.mstar/plans/caption-writeback-guard.md",
-   "status": "Done",
-   "metadata": {
-    "iteration_refs": [
-     "iterations/iter-2026-10-ledger-integrity/delivery-compass.md"
-    ],
-    "spec_integration_branch": "iteration/iter-2026-10-ledger-integrity",
-    "merge_target": "iteration/iter-2026-10-ledger-integrity",
-    "working_branch": "fix/20261003-caption-writeback-guard",
-    "worktree_path": "/root/workspace/bilibili-asr-archive/.worktrees/caption-writeback-guard",
-    "merge_commit": "2ad1726"
-   },
-   "done_at": "2026-10-03"
+  "schema_version": 1,
+  "id": "iter-2026-10-ledger-integrity",
+  "type": "iteration",
+  "status": "completed",
+  "phase": "phase-1-prepare",
+  "started_at": "2026-10-03",
+  "updated_at": "2026-10-03",
+  "compass_ref": "iterations/iter-2026-10-ledger-integrity/delivery-compass.md",
+  "branch": {
+    "base": "main",
+    "integration": "iteration/iter-2026-10-ledger-integrity",
+    "target": "main"
   },
-  {
-   "id": "journal-replay-integrity",
-   "title": "Split the manifest journal replay on newline, not str.splitlines()",
-   "file": "/root/workspace/bilibili-asr-archive/.mstar/plans/journal-replay-integrity.md",
-   "status": "Done",
-   "metadata": {
-    "iteration_refs": [
-     "iterations/iter-2026-10-ledger-integrity/delivery-compass.md"
-    ],
-    "spec_integration_branch": "iteration/iter-2026-10-ledger-integrity",
-    "merge_target": "iteration/iter-2026-10-ledger-integrity",
-    "working_branch": "fix/20261003-journal-replay-integrity",
-    "worktree_path": "/root/workspace/bilibili-asr-archive/.worktrees/journal-replay-integrity",
-    "merge_commit": "1dc720b"
-   },
-   "done_at": "2026-10-03"
+  "plans": [
+    {
+      "id": "caption-writeback-guard",
+      "title": "Hoist the caption write-back out of the archive success guard",
+      "file": "/root/workspace/bilibili-asr-archive/.mstar/plans/caption-writeback-guard.md",
+      "status": "Done",
+      "metadata": {
+        "iteration_refs": [
+          "iterations/iter-2026-10-ledger-integrity/delivery-compass.md"
+        ],
+        "spec_integration_branch": "iteration/iter-2026-10-ledger-integrity",
+        "merge_target": "iteration/iter-2026-10-ledger-integrity",
+        "working_branch": "fix/20261003-caption-writeback-guard",
+        "worktree_path": "/root/workspace/bilibili-asr-archive/.worktrees/caption-writeback-guard",
+        "merge_commit": "2ad1726"
+      },
+      "done_at": "2026-10-03"
+    },
+    {
+      "id": "journal-replay-integrity",
+      "title": "Split the manifest journal replay on newline, not str.splitlines()",
+      "file": "/root/workspace/bilibili-asr-archive/.mstar/plans/journal-replay-integrity.md",
+      "status": "Done",
+      "metadata": {
+        "iteration_refs": [
+          "iterations/iter-2026-10-ledger-integrity/delivery-compass.md"
+        ],
+        "spec_integration_branch": "iteration/iter-2026-10-ledger-integrity",
+        "merge_target": "iteration/iter-2026-10-ledger-integrity",
+        "working_branch": "fix/20261003-journal-replay-integrity",
+        "worktree_path": "/root/workspace/bilibili-asr-archive/.worktrees/journal-replay-integrity",
+        "merge_commit": "1dc720b"
+      },
+      "done_at": "2026-10-03"
+    },
+    {
+      "id": "asr-run-id-uniqueness",
+      "title": "Make the ASR run id unique so a same-second collision cannot silence write-backs",
+      "file": "/root/workspace/bilibili-asr-archive/.mstar/plans/asr-run-id-uniqueness.md",
+      "status": "Done",
+      "metadata": {
+        "iteration_refs": [
+          "iterations/iter-2026-10-ledger-integrity/delivery-compass.md"
+        ],
+        "spec_integration_branch": "iteration/iter-2026-10-ledger-integrity",
+        "merge_target": "iteration/iter-2026-10-ledger-integrity",
+        "working_branch": "fix/20261003-asr-run-id-uniqueness",
+        "worktree_path": "/root/workspace/bilibili-asr-archive/.worktrees/asr-run-id-uniqueness",
+        "merge_commit": "4357617"
+      },
+      "done_at": "2026-10-03"
+    },
+    {
+      "id": "journal-compaction-lifecycle",
+      "title": "Make journal compaction reachable and order save() like its siblings",
+      "file": "/root/workspace/bilibili-asr-archive/.mstar/plans/journal-compaction-lifecycle.md",
+      "status": "Done",
+      "metadata": {
+        "iteration_refs": [
+          "iterations/iter-2026-10-ledger-integrity/delivery-compass.md"
+        ],
+        "spec_integration_branch": "iteration/iter-2026-10-ledger-integrity",
+        "merge_target": "iteration/iter-2026-10-ledger-integrity",
+        "working_branch": "fix/20261003-journal-compaction-lifecycle",
+        "worktree_path": "/root/workspace/bilibili-asr-archive/.worktrees/journal-compaction-lifecycle",
+        "merge_commit": "ab9683a"
+      },
+      "done_at": "2026-10-03"
+    }
+  ],
+  "project": "_default",
+  "coordination": {
+    "coordinator": {
+      "session_id": "session-20b2311c-b68b-4fc7-a6b9-2f1db8cec2df",
+      "session_file": "/root/workspace/bilibili-asr-archive/.mstar/workflows/iter-2026-10-ledger-integrity/sessions/coordinator-session-20b2311c-b68b-4fc7-a6b9-2f1db8cec2df.json",
+      "bound_at": "2026-10-03T01:07:40.167Z"
+    }
   },
-  {
-   "id": "asr-run-id-uniqueness",
-   "title": "Make the ASR run id unique so a same-second collision cannot silence write-backs",
-   "file": "/root/workspace/bilibili-asr-archive/.mstar/plans/asr-run-id-uniqueness.md",
-   "status": "Done",
-   "metadata": {
-    "iteration_refs": [
-     "iterations/iter-2026-10-ledger-integrity/delivery-compass.md"
-    ],
-    "spec_integration_branch": "iteration/iter-2026-10-ledger-integrity",
-    "merge_target": "iteration/iter-2026-10-ledger-integrity",
-    "working_branch": "fix/20261003-asr-run-id-uniqueness",
-    "worktree_path": "/root/workspace/bilibili-asr-archive/.worktrees/asr-run-id-uniqueness",
-    "merge_commit": "4357617"
-   },
-   "done_at": "2026-10-03"
+  "integration_worktree_path": "/root/workspace/bilibili-asr-archive/.worktrees/iter-2026-10-ledger-integrity-integration",
+  "execution_policy": {
+    "plan_parallelism": "serial"
   },
-  {
-   "id": "journal-compaction-lifecycle",
-   "title": "Make journal compaction reachable and order save() like its siblings",
-   "file": "/root/workspace/bilibili-asr-archive/.mstar/plans/journal-compaction-lifecycle.md",
-   "status": "Done",
-   "metadata": {
-    "iteration_refs": [
-     "iterations/iter-2026-10-ledger-integrity/delivery-compass.md"
-    ],
-    "spec_integration_branch": "iteration/iter-2026-10-ledger-integrity",
-    "merge_target": "iteration/iter-2026-10-ledger-integrity",
-    "working_branch": "fix/20261003-journal-compaction-lifecycle",
-    "worktree_path": "/root/workspace/bilibili-asr-archive/.worktrees/journal-compaction-lifecycle",
-    "merge_commit": "ab9683a"
-   },
-   "done_at": "2026-10-03"
-  }
- ],
- "project": "_default",
- "coordination": {
-  "coordinator": {
-   "session_id": "session-20b2311c-b68b-4fc7-a6b9-2f1db8cec2df",
-   "session_file": "/root/workspace/bilibili-asr-archive/.mstar/workflows/iter-2026-10-ledger-integrity/sessions/coordinator-session-20b2311c-b68b-4fc7-a6b9-2f1db8cec2df.json",
-   "bound_at": "2026-10-03T01:07:40.167Z"
-  }
- },
- "integration_worktree_path": "/root/workspace/bilibili-asr-archive/.worktrees/iter-2026-10-ledger-integrity-integration",
- "execution_policy": {
-  "plan_parallelism": "serial"
- }
+  "ended_at": "2026-10-03"
 }

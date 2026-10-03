@@ -56,7 +56,7 @@ None — Q1 已由 architect 收敛为 D9（见 `## Decisions`）。
 | caption-writeback-guard | Hoist the caption write-back out of the archive success guard | Done | 1e756df..2b34bba → merge 2ad1726; QC approve-with-residuals, QA accepted | audit 011 · `I-000165` · P1 |
 | journal-replay-integrity | Split the manifest journal replay on `"\n"`, not `str.splitlines()` | Done | 1e756df..fbe2087 → merge 1dc720b; QC approve-with-residuals (pre-existing finding routed to 014), QA accepted | audit 012 · `I-000164` · P1 |
 | asr-run-id-uniqueness | Mint the ASR run id from the nanosecond clock so a same-second collision cannot silently disable a scope's transcript write-backs; narrow the `except`; state a refused run once per instance on stderr | Done | 1dc720b..a23b44c → merge 4357617; QC tri + revalidation all Approve (guard widened after 3-seat convergence), QA accepted with open issues (`I-000199` captured) |
-| journal-compaction-lifecycle | Make journal compaction reachable and order `save()` like its siblings | Todo | audit 014 · `I-000167`+`I-000170` · P1 |
+| journal-compaction-lifecycle | Make journal compaction reachable and order `save()` like its siblings | Done | audit 014 · `I-000167`+`I-000170` · P1 · 4357617..68fd978 → merge `ab9683a`+`ec9d3d2` · QC tri 2 Criticals fixed · `I-000195` 一并修 |
 
 Status values: `Todo` | `InProgress` | `InReview` | `Done` | `Blocked`
 

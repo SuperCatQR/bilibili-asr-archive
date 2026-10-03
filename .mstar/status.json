@@ -1,5 +1,12 @@
 {
   "version": 2,
-  "updated_at": "2026-10-02",
-  "workflows": []
+  "updated_at": "2026-10-03",
+  "workflows": [
+    {
+      "id": "iter-2026-10-asr-success-attestable",
+      "type": "iteration",
+      "started_at": "2026-10-03",
+      "dir": "workflows/iter-2026-10-asr-success-attestable"
+    }
+  ]
 }
