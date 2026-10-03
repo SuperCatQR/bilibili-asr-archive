@@ -504,3 +504,95 @@ def test_journal_row_with_u2028_does_not_truncate_the_replay(store, tmp_root):
     with open(_manifest_path(tmp_root), encoding="utf-8") as fh:
         snapshot_rows = [json.loads(line) for line in fh.read().split("\n") if line.strip()]
     assert {row["work_id"] for row in snapshot_rows} == {"BV0aa:p0", "BV1aa:p0", "BV1bb:p0"}
+
+
+def _snapshot_stat(path):
+    st = os.stat(path)
+    return (st.st_size, st.st_mtime_ns)
+
+
+def test_file_based_trigger_folds_journal_grown_by_another_handle(store, tmp_root):
+    # An L-line snapshot seeded directly on disk (no ManifestStore involved),
+    # then appends through one instance that never calls save()/compact(). Its
+    # own append count stays far below the old per-instance threshold, so only
+    # the on-disk sizes can fold this journal.
+    row_bytes = 192
+    os.makedirs(os.path.dirname(_manifest_path(tmp_root)), exist_ok=True)
+    seed_rows = [
+        _auto(f"BV{i:04x}", cid=i + 1, title="L" * (row_bytes - 120))
+        for i in range(4)
+    ]
+    with open(_manifest_path(tmp_root), "w", encoding="utf-8") as fh:
+        for row in seed_rows:
+            fh.write(json.dumps(row, ensure_ascii=False, separators=(",", ":")) + "\n")
+    snapshot_bytes = os.path.getsize(_manifest_path(tmp_root))
+
+    for i in range(16):
+        store.upsert(_auto(f"BV{i:04x}", cid=i + 1, title="M" * (row_bytes - 120)))
+
+    journal_bytes = (
+        os.path.getsize(_journal_path(tmp_root)) if os.path.exists(_journal_path(tmp_root)) else 0
+    )
+    # The file-based trigger folds once the journal reaches 2x the snapshot, so
+    # the journal can never exceed that bound plus the row that crossed it. A
+    # per-instance counter lets these 16 appends grow to 4x the snapshot
+    # unfolded, which is the bound this asserts.
+    assert journal_bytes <= max(2 * snapshot_bytes, 512) + row_bytes
+    with open(_manifest_path(tmp_root), encoding="utf-8") as fh:
+        snapshot_text = fh.read()
+    # Folded rows are published into the snapshot, not stranded in the journal.
+    assert '"M' in snapshot_text
+
+    reloaded = ManifestStore(root=tmp_root).load()
+    # Every seeded row plus every appended row survives the fold that the
+    # per-instance counter could not reach.
+    assert len(reloaded) == 16
+    assert reloaded["BV0000:p0"]["title"] == "M" * (row_bytes - 120)
+    assert reloaded["BV0003:p0"]["title"] == "M" * (row_bytes - 120)
+
+
+def test_tiny_ledger_does_not_compact_per_row(store, tmp_root):
+    seed = {f"BV{i:04x}:p0": _auto(f"BV{i:04x}", cid=i + 1) for i in range(64)}
+    store.save(seed)
+    snapshot_before = _snapshot_stat(_manifest_path(tmp_root))
+
+    for i in range(8):
+        store.upsert(_auto(f"BV{i:04x}", cid=i + 1, title=f"update {i}"))
+
+    assert _snapshot_stat(_manifest_path(tmp_root)) == snapshot_before
+    assert os.path.exists(_journal_path(tmp_root))
+
+
+def test_save_failure_before_discard_keeps_journal_rows(store, tmp_root, monkeypatch):
+    store.save({_auto("BVseed")["work_id"]: _auto("BVseed")})
+    snapshot_before = open(_manifest_path(tmp_root), "rb").read()
+    store.upsert(_auto("BV1aa"))
+    store.upsert(_auto("BV1bb", cid=2))
+    assert os.path.getsize(_journal_path(tmp_root)) > 0
+
+    def boom(entries, *args, **kwargs):
+        raise OSError(28, "no space left on device")
+
+    monkeypatch.setattr(store, "_replace_snapshot", boom)
+    with pytest.raises(OSError):
+        store.save()
+
+    # The journal was not discarded while the snapshot stayed stale.
+    assert os.path.exists(_journal_path(tmp_root))
+    assert open(_manifest_path(tmp_root), "rb").read() == snapshot_before
+    reloaded = ManifestStore(root=tmp_root).load()
+    assert set(reloaded) == {"BVseed:p0", "BV1aa:p0", "BV1bb:p0"}
+
+
+def test_save_empty_current_touches_no_artifact(store, tmp_root):
+    journal_dir = os.path.join(tmp_root, "manifest")
+    os.makedirs(journal_dir, exist_ok=True)
+    with open(_journal_path(tmp_root), "w", encoding="utf-8") as fh:
+        fh.write(json.dumps(_auto("BV1aa"))[:20])  # torn append: replays to nothing
+    journal_before = _snapshot_stat(_journal_path(tmp_root))
+
+    store.save()
+
+    assert os.path.exists(_journal_path(tmp_root))
+    assert _snapshot_stat(_journal_path(tmp_root)) == journal_before
+    assert not os.path.exists(_manifest_path(tmp_root))

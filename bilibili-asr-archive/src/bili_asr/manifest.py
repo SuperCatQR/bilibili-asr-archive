@@ -47,11 +47,12 @@ DEFAULT_REL_PATH = os.path.join("manifest", "manifest.jsonl")
 #: append history crosses the compaction threshold.
 JOURNAL_NAME = "manifest.journal.jsonl"
 
-#: Rewrite the snapshot once an appending store holds this many journal rows.
-_JOURNAL_COMPACT_THRESHOLD = 256
-
 #: Wrap the journal when its byte size exceeds the snapshot's by this factor.
 _JOURNAL_WRAP_BYTES_FACTOR = 2
+
+#: Never compact below this journal size: a ledger of one small row is a few
+#: hundred bytes, so a bare factor rule would rewrite the snapshot per append.
+_JOURNAL_MIN_COMPACT_BYTES = 512
 
 UNRESOLVED_REASON_AMBIGUOUS_BARE_BVID = "ambiguous_bare_bvid"
 
@@ -123,9 +124,10 @@ class ManifestStore:
         self._snapshot_name = snapshot_name
         self._entries: dict[str, dict[str, Any]] = {}
         self._loaded = False
-        # Append counters for the lazy-compaction trigger; per-instance so the
-        # cost bound holds even when nothing ever calls save()/compact().
-        self._appends_since_compact = 0
+        # On-disk journal size as of the last replay. The lazy-compaction
+        # trigger is computed from the file sizes themselves, never from a
+        # per-instance append count: two handles over one root must not need a
+        # shared counter to fold a journal that is outgrowing the snapshot.
         self._journal_bytes = 0
         # Journal identity as of the last in-memory load, for cross-process
         # invalidation: an interleaved append from another process changes the
@@ -295,30 +297,33 @@ class ManifestStore:
             os.fsync(directory_fd)
         finally:
             os.close(directory_fd)
-        self._appends_since_compact += 1
         self._journal_bytes += len(payload)
         self._journal_signature = own_signature
 
-    def _maybe_compact_locked(
-        self, entries: dict[str, dict[str, Any]], *, journal_bytes: int
-    ) -> None:
-        """Fold the journal into the snapshot once append history is dominant.
+    def _maybe_compact_locked(self, entries: dict[str, dict[str, Any]]) -> None:
+        """Fold the journal into the snapshot once it outgrows the snapshot.
 
-        Caller must hold the manifest lock. Thresholds are deliberately
-        conservative so the common batch never compacts mid-run; compaction
+        Caller must hold the manifest lock. Both sizes are read from disk, so
+        the trigger is a function of the ledger itself rather than of which
+        process (or how many handles) happened to do the appending: a journal
+        past ``max(_JOURNAL_MIN_COMPACT_BYTES, factor * snapshot)`` folds on the
+        next append even when this instance made none of those appends. The
+        floor keeps a tiny ledger from rewriting the snapshot per row; above it
+        the factor keeps the common batch from compacting mid-run. Compaction
         rewrites the deterministic snapshot (byte-stable by construction, since
-        it sorts keys and serializes with fixed separators) and atomically
-        resets the journal.
+        it sorts keys and serializes with fixed separators) and only then
+        discards the journal.
         """
         snapshot_bytes = os.path.getsize(self.path) if os.path.exists(self.path) else 0
-        if not (
-            self._appends_since_compact >= _JOURNAL_COMPACT_THRESHOLD
-            and journal_bytes >= max(1, _JOURNAL_WRAP_BYTES_FACTOR * snapshot_bytes)
+        journal_bytes = (
+            os.path.getsize(self._journal_path) if os.path.exists(self._journal_path) else 0
+        )
+        if journal_bytes < max(
+            _JOURNAL_MIN_COMPACT_BYTES, _JOURNAL_WRAP_BYTES_FACTOR * snapshot_bytes
         ):
             return
         self._replace_snapshot(entries)
         self._remove_journal()
-        self._appends_since_compact = 0
         self._journal_bytes = 0
 
     def _remove_journal(self) -> None:
@@ -381,22 +386,26 @@ class ManifestStore:
         Rows persisted through the append journal since the last snapshot are
         folded in first, so a ``save()`` after journal-appended upserts cannot
         resurrect pre-transition states. The rewritten snapshot is deterministic
-        (keys sorted, fixed separators), and the journal is reset to empty.
+        (keys sorted, fixed separators); the journal is discarded only after
+        that snapshot is successfully published, so a failure in between leaves
+        the journal-only rows recoverable on the next load. With nothing to
+        publish the call touches neither artifact on disk.
         """
         requested = dict(entries) if entries is not None else None
         with self._manifest_lock(create=True):
             current, _journal_bytes = self._replay_latest()
             if requested is not None:
                 current.update(requested)
-            self._remove_journal()
-            self._appends_since_compact = 0
-            self._journal_bytes = 0
-            self._journal_signature = self._journal_stat_signature()
             if not current:
                 self._entries = {}
                 self._loaded = True
+                self._journal_bytes = 0
+                self._journal_signature = self._journal_stat_signature()
                 return
             self._replace_snapshot(current)
+            self._remove_journal()
+            self._journal_bytes = 0
+            self._journal_signature = self._journal_stat_signature()
             self._entries = current
             self._loaded = True
 
@@ -407,7 +416,6 @@ class ManifestStore:
             if current:
                 self._replace_snapshot(current)
                 self._remove_journal()
-            self._appends_since_compact = 0
             self._journal_bytes = 0
             self._journal_signature = self._journal_stat_signature()
             self._entries = current
@@ -466,7 +474,7 @@ class ManifestStore:
                 self._entries, self._journal_bytes = self._replay_latest()
                 self._journal_signature = self._journal_stat_signature()
                 raise
-            self._maybe_compact_locked(self._entries, journal_bytes=self._journal_bytes)
+            self._maybe_compact_locked(self._entries)
             return stored
 
     def get(self, work_id: str) -> Optional[dict[str, Any]]:
@@ -603,7 +611,6 @@ class ManifestStore:
             if next_entries != current:
                 self._replace_snapshot(next_entries)
                 self._remove_journal()
-                self._appends_since_compact = 0
                 self._journal_bytes = 0
                 self._journal_signature = self._journal_stat_signature()
                 self._entries = next_entries
