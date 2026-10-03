@@ -471,3 +471,36 @@ def test_upsert_invalidates_cache_on_foreign_journal_append(store, tmp_root):
     assert set(reloaded) == {
         "BVaaaa:p0", "BVbbbb:p0", "BVcccc:p0", "BVdddd:p0", "BVeeee:p0",
     }
+
+
+def test_journal_row_with_u2028_does_not_truncate_the_replay(store, tmp_root):
+    # A row whose text carries U+2028 (LINE SEPARATOR) is legal JSON and lands
+    # on disk raw: the writer serializes with ensure_ascii=False. str.splitlines()
+    # breaks on U+2028/U+2029/U+0085 as well as "\n", so it cut the row into
+    # fragments; the first fragment failed validation and the torn-tail break
+    # stopped the replay, hiding every later row. save() then republished that
+    # truncated view -- deleting the later row from the snapshot for good.
+    store.save({"BV0aa:p0": _auto("BV0aa")})  # a pre-existing snapshot row
+
+    journal_dir = os.path.join(tmp_root, "manifest")
+    os.makedirs(journal_dir, exist_ok=True)
+    journal_rows = [
+        _auto("BV1aa", title="before\u2028after"),
+        _auto("BV1bb", cid=2, title="later row"),
+    ]
+    with open(_journal_path(tmp_root), "w", encoding="utf-8") as fh:
+        for row in journal_rows:
+            # Built at runtime, not pasted literally: this source file must not
+            # itself carry the separator.
+            fh.write(json.dumps(row, ensure_ascii=False, separators=(",", ":")) + "\n")
+
+    # Replay half: the separator-bearing row must not swallow the row after it.
+    loaded = ManifestStore(root=tmp_root).load()
+    assert set(loaded) == {"BV0aa:p0", "BV1aa:p0", "BV1bb:p0"}
+    assert loaded["BV1aa:p0"]["title"] == "before\u2028after"
+
+    # Durable half: the rewritten snapshot must still hold every replayed row.
+    store.save()
+    with open(_manifest_path(tmp_root), encoding="utf-8") as fh:
+        snapshot_rows = [json.loads(line) for line in fh.read().split("\n") if line.strip()]
+    assert {row["work_id"] for row in snapshot_rows} == {"BV0aa:p0", "BV1aa:p0", "BV1bb:p0"}
