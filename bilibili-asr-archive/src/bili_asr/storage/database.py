@@ -230,9 +230,15 @@ def _normalize_view_sql(statement: str) -> str:
     rather than about formatting.
     """
 
-    # Drop the leading SQL comments a shipped statement carries: SQLite stores
-    # a view's text without them, so comparing raw text would call every shipped
-    # view stale and rewrite all of them on every open.
+    # Drop SQL comment lines.  Note the direction of this: SQLite *preserves* a
+    # comment that sits inside a view statement, and every shipped view carries
+    # several (4-24 lines each), so the comparison is only sound because comments
+    # are stripped on BOTH sides.  Stripping the shipped body alone would make
+    # every view read as stale on every open -- do not narrow this to one side.
+    # Only *leading* comment lines are dropped: a comment on a statement's final
+    # line would survive and make that view refresh on every open.  No shipped
+    # view is written that way today, and a current archive is verified to
+    # refresh zero times, so it is latent rather than live.
     lines = []
     for line in statement.splitlines():
         if line.lstrip().startswith("--"):
