@@ -191,11 +191,16 @@ class QueueSource:
         ``print(..., file=None)`` falls back to **stdout**, where it would land
         inside the caller's own output; a stream that is gone means the
         diagnostic has nowhere to go, so nothing is printed (the rule
-        ``coordinator._print_model_constructions`` already follows).  A stream
-        that dies after startup (``os.close(2)``, a broken pipe) leaves
-        ``sys.stderr`` a live wrapper whose write raises ``OSError`` — same
-        reasoning, swallowed the same way, and not retried.  The latch is set
-        either way: a dead stream is not a transient condition.
+        ``coordinator._print_model_constructions`` already follows).  On a
+        stream that is present the write is attempted once; a stream
+        ``print`` cannot write to is swallowed the same way and not
+        retried: one that dies after startup (``os.close(2)``, a broken pipe)
+        leaves ``sys.stderr`` a live wrapper whose write raises ``OSError``,
+        and one that is present but unusable in another way raises
+        ``ValueError`` (a closed wrapper, a detached buffer) or ``TypeError``
+        (a byte-oriented stream) — same reasoning for every shape.  The latch
+        is set either way: a stream that cannot accept the line is not a
+        transient condition.
         """
 
         import sys as _sys
@@ -212,9 +217,9 @@ class QueueSource:
                 "for this run",
                 file=_sys.stderr,
             )
-        except OSError:
-            # The stream died after startup; a diagnostic may not raise out of
-            # the refusal path, and the run stays refused.
+        except (OSError, ValueError, TypeError):
+            # The stream cannot accept the line; a diagnostic may not raise out
+            # of the refusal path, and the run stays refused.
             return
 
     # ------------------------------------------------------------------ read

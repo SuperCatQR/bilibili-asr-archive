@@ -1248,22 +1248,28 @@ def test_queue_source_ensure_asr_run_refusal_survives_a_dead_stderr_stream(
     ``sys.stderr`` is still a live ``TextIOWrapper`` whose writes fail with
     ``OSError``; an unguarded ``print`` would then raise that out of
     ``ensure_asr_run``, whose documented contract is to return ``None`` when
-    the store refuses the run.
+    the store refuses the run.  A present stream that is unusable in another
+    way fails with a class that is not an ``OSError`` at all — a closed
+    wrapper or one whose buffer was detached raises ``ValueError``, and a
+    byte-oriented stream raises ``TypeError`` — so the guard must name those
+    classes too.
 
-    The stub is that same shape — a live ``TextIOWrapper`` whose fd rejects
-    writes — built without closing fd 2 of the test session, which pytest's
-    capture replaces anyway (and the house pattern of the test above stubs
-    ``sys.stderr`` rather than closing the real fd).  A read-only fd fails
-    every write with ``EBADF`` and can never be reused, so the write really is
-    attempted and really fails, and its failures are counted: the latch must
-    keep the line from being retried on a later refusal.
+    The stubs are built without closing fd 2 of the test session, which
+    pytest's capture replaces anyway (and the house pattern of the test above
+    stubs ``sys.stderr`` rather than closing the real fd).  A read-only fd
+    fails every write with ``EBADF`` and can never be reused, so that write
+    really is attempted and really fails; the closed/detached wrappers and the
+    binary stream fail deterministically for the same reason.  Each stream's
+    failures are counted: the latch must keep the line from being retried on a
+    later refusal.
     """
+    import contextlib
     import io
     import os
     import sys
 
     class DeadStderr(io.TextIOWrapper):
-        """A live stderr-shaped stream whose fd refuses every write."""
+        """A stderr-shaped stream whose fd or wrapper state refuses writes."""
 
         def __init__(self, *args, **kwargs):
             super().__init__(*args, **kwargs)
@@ -1272,6 +1278,37 @@ def test_queue_source_ensure_asr_run_refusal_survives_a_dead_stderr_stream(
         def write(self, text):
             self.writes += 1
             return super().write(text)
+
+    class DeadBinary(io.BufferedWriter):
+        """A byte-oriented stream: ``print`` hands it ``str``, it wants bytes."""
+
+        def __init__(self, raw):
+            super().__init__(raw)
+            self.writes = 0
+
+        def write(self, data):
+            self.writes += 1
+            return super().write(data)
+
+    def _wrapper():
+        return DeadStderr(
+            open(os.devnull, "wb"),
+            encoding="utf-8",
+            write_through=True,
+            line_buffering=True,
+        )
+
+    # A present-but-unusable stream is wider than the ``OSError`` of a dead fd:
+    # a wrapper that is closed (``ValueError: I/O operation on closed file.``)
+    # or whose buffer was detached (``ValueError: underlying buffer has been
+    # detached``), and a byte-oriented stream (``TypeError``).  None of those
+    # classes is an ``OSError``, and each shape gets its own instance below,
+    # because the latch is per instance.
+    closed = _wrapper()
+    closed.close()
+    detached = _wrapper()
+    detached_buffer = detached.detach()
+    binary = DeadBinary(open(os.devnull, "wb", buffering=0))
 
     connection = open_database(tmp_root)
     dead = DeadStderr(
@@ -1287,22 +1324,35 @@ def test_queue_source_ensure_asr_run_refusal_survives_a_dead_stderr_stream(
             raise sqlite3.Error("store refused")
 
         monkeypatch.setattr(TranscriptRepository, "start_acquisition_run", refuse)
-        monkeypatch.setattr(sys, "stderr", dead)
 
-        source = QueueSource(connection)
-        assert source.ensure_asr_run("asr") is None
+        # Every present-but-unusable shape is exercised on its own instance,
+        # because the latch is per instance: a dead fd (``OSError``), a closed
+        # wrapper and a detached wrapper (both ``ValueError``), and a
+        # byte-oriented stream (``TypeError``).  None of the latter three is an
+        # ``OSError``, so a guard naming only ``OSError`` lets them escape.
+        for label, stream in (
+            ("dead fd", dead),
+            ("closed wrapper", closed),
+            ("detached wrapper", detached),
+            ("binary stream", binary),
+        ):
+            monkeypatch.setattr(sys, "stderr", stream)
+            source = QueueSource(connection)
+            assert source.ensure_asr_run("asr") is None, label
 
-        # The diagnostic really was written to the dead stream, and the write
-        # really failed — the OSError was swallowed, not avoided.
-        assert dead.writes == 1
+            # The diagnostic really was written to the unusable stream, and
+            # the write really failed — the failure was swallowed, not
+            # avoided.  Exactly one write: ``print`` fails on the text write
+            # and never reaches the trailing newline.
+            assert stream.writes == 1, label
 
-        # A dead stream is not a transient condition: the latch stays set and
-        # the line is not retried on the next refusal.
-        assert source.ensure_asr_run("asr") is None
-        assert dead.writes == 1
-        assert source._asr_run_refusal_reported is True
+            # An unusable stream is not a transient condition: the latch
+            # stays set and the line is not retried on the next refusal.
+            assert source.ensure_asr_run("asr") is None, label
+            assert stream.writes == 1, label
+            assert source._asr_run_refusal_reported is True, label
 
-        # stderr only: the failed write must not fall back to stdout.
+        # stderr only: the failed writes must not fall back to stdout.
         captured = capsys.readouterr()
         assert captured.out == ""
         assert captured.err == ""
@@ -1311,4 +1361,10 @@ def test_queue_source_ensure_asr_run_refusal_survives_a_dead_stderr_stream(
         # fixture would do this later, but the dead stream must not stay
         # installed if an assertion above raised).
         monkeypatch.undo()
-        dead.close()
+        # A detached wrapper cannot be closed again (``ValueError``); its
+        # buffer is released explicitly instead.
+        with contextlib.suppress(ValueError):
+            detached.close()
+        detached_buffer.close()
+        for stream in (dead, closed, binary):
+            stream.close()
