@@ -181,7 +181,9 @@ WHERE vp.processing_status <> 'gone'
 -- only once two **independent** observations exist, where independent means a
 -- distinct credentialed ``run_id``. Anonymous observations cannot establish
 -- exhaustion: those parts stay off the paid branch until authenticated harvests
--- have actually seen the empty inventory. ``COUNT(DISTINCT run_id)`` is load-bearing: two probes
+-- have actually seen the empty inventory.  In the query below, "credentialed"
+-- means ``credential_present = 1``; that predicate is load-bearing alongside
+-- ``COUNT(DISTINCT run_id)``: two probes
 -- inside one run are ONE observation, so a retry loop cannot inflate the count.
 -- (The table's PRIMARY KEY is ``(run_id, video_part_id)``, which makes a second
 -- row for one part in one run unwritable in the first place; changing that key
@@ -304,7 +306,8 @@ WITH subtitle_attempts AS (
 )
 -- The same corroboration rule ``v_missing_audio`` applies, so the two views
 -- never disagree about one row: an empty inventory with no error code is an
--- indefinite negative and needs two independent observations (distinct runs).
+-- indefinite negative and needs two independent credentialed observations
+-- (distinct runs with ``credential_present = 1``).
 , empty_inventory_confirmations AS (
     SELECT video_part_id, COUNT(DISTINCT run_id) AS confirmations
     FROM subtitle_attempts

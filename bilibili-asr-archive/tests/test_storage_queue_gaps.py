@@ -382,6 +382,57 @@ def test_one_empty_inventory_is_not_exhaustion(queue_store):
     ]
 
 
+@pytest.mark.parametrize(
+    ("first_credential", "second_credential", "admitted"),
+    [
+        (False, False, False),
+        (False, True, False),
+        (True, True, True),
+    ],
+)
+def test_empty_inventory_admission_requires_two_credentialed_runs(
+    queue_store, first_credential, second_credential, admitted
+):
+    """Anonymous empty inventories never trigger the paid audio branch.
+
+    A missing credential can make a visible inventory look empty, so it is not
+    corroboration.  The two pipeline projections must apply the same rule:
+    only two independent authenticated runs can admit audio acquisition.
+    """
+    connection, parts, repository = queue_store
+    transcripts = TranscriptRepository(connection)
+
+    for run_id, credential_present, finished_at in (
+        ("run-empty-first", first_credential, 900),
+        ("run-empty-second", second_credential, 1_000),
+    ):
+        _open_run(
+            transcripts,
+            run_id,
+            "subtitle",
+            credential_present=credential_present,
+        )
+        transcripts.record_subtitle_attempt(
+            run_id=run_id,
+            video_part_id=parts[("BV1EEE", 0)],
+            outcome="no-subtitle",
+            error_code=None,
+            started_at=finished_at - 100,
+            finished_at=finished_at,
+        )
+
+    in_audio_queue = "BV1EEE:p0" in [
+        item.work_id for item in repository.list_queue_gaps(gap="missing_audio")
+    ]
+    pipeline_state = dict(
+        connection.execute(
+            "SELECT work_id, pipeline_state FROM v_part_pipeline"
+        )
+    )["BV1EEE:p0"]
+    assert in_audio_queue is admitted
+    assert (pipeline_state == "audio_pending") is admitted
+
+
 def test_a_definite_not_found_admits_at_once(queue_store):
     """A gateway ``not_found`` is a claim about the part, so one look suffices.
 
