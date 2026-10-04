@@ -6,6 +6,7 @@ Warehouse-level locked specs. Iteration drafts live under `{ITERATION_DIR}/<id>/
 |------|--------|-------|
 | [asr-archive-cli.md](asr-archive-cli.md) | frozen | MVP from `iter-2026-08-wmz-asr-mvp`. JSONL and artifacts remain bvid-keyed. The file is frozen and is **not** back-edited; the lines below record what later iterations superseded. |
 | [proofread.md](proofread.md) | active | Proofread pipeline contract landed by the 2026-09-28 reconciliation (`8e6419e`): the `proofread` / `proofread-merge` surface, its idempotency rule, and the sidecar shape. |
+| [issue-store-close-route.md](issue-store-close-route.md) | active | The issue-store close route (ruled 2026-10-04): the four authorization gates, the measured `issue.scope-refused` on all-39-terminal snapshots and 0 `execution_sessions` rows, and the **reachable route** past them — register a lifecycle, bind its coordinator, close (`workflow.register` → `plan bind --coordinator` → `issue close`, proven end-to-end with `issue_transitions.imported = 0`). Also records the corrected ruling (a terminal repository is not a dead end), route (M) as the fallback for a session that cannot register one, the closure-payload shape (`I-000187-closure.md` as the worked example), and the engine-side convenience gap carried in-spec. |
 
 ## Supersession notes (frozen specs are never back-edited)
 

@@ -115,7 +115,7 @@ _ROADMAP = Roadmap(
              status="active", after=("p05fix",),
              note="已合并 ff11351 · PR #212；此行保留取证轨迹"),
         Node("p05ed", "editorial-stages 裁决", "gate", "task", 2, "2026-10-04",
-             "ready", note="parked 两周；close 或恢复为 Phase 4 输入，二选一"),
+             "done", note="2026-10-04 裁决 = 正式 close（不恢复）；HANDOFF §2/§3 降为历史记录"),
         Node("p05b", "asr-coverage-attestation", "gate", "task", 5,
              after=("p05a",), status="blocked",
              note="I-000188 · 待操作者放行（D12 / I-000201）"),

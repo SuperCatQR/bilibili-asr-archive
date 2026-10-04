@@ -40,10 +40,15 @@ ASR run id 唯一（纳秒时钟 + PK 兜底）；write-back 被拒时不再静�
   连带复活其 execution lease）；`I-000195`（`migrate_legacy_rows` 提交 snapshot-only 视图
   后 unlink journal，永久删除 journaled 子状态）。三条同属 snapshot 写入并发缺陷族；
   processor_runs 是所有处理器的公共表，写并发只会更常见——不带病进 Phase 1。
-- **editorial-stages 正式裁决**：`iter-2026-09-transcript-editorial-stages` parked 两周，
-  分支 ref 已于 2026-09-30 退役。两条路二选一，结果写进本文档：(a) 正式 close，
-  `HANDOFF.md` §2/§3 降级为历史记录；(b) 恢复为 Phase 4 的输入，recovery path
-  （`git fetch origin refs/pull/17/head`）写进 Phase 4 的范围。
+- **editorial-stages 正式裁决（2026-10-04 已裁决：选项 (a)，正式关闭）**：
+  `iter-2026-09-transcript-editorial-stages` parked 两周后**关闭，不恢复**为任何后续阶段的输入。
+  其分支 ref 已于 2026-09-30 退役；`HANDOFF.md` §2/§3 同日（2026-10-04）降级为**历史记录**
+  （以该文件开头的 2026-10-04 标注为准）。关闭是裁决，不是遗忘——**恢复路径保留在文字里**：
+  `git fetch origin refs/pull/17/head:refs/heads/<name>` → `55f846c`，约 3 400 行
+  editorial 代码的唯一住所（`aa86ea1` 的 tree 与 `55f846c` 逐字节相同）；两个未启动的
+  plan 文件只存在于
+  `bilibili-asr-archive/docs/archive/deletion-records-20260925/harness-editorial-stages-deleted-20260925.tar.gz`。
+  将来若要重做校对/精校，**开新迭代重新论证**，不复活本 track。
 
 ## Phase 1 — 处理器注册表 + processor_runs（已承诺，方向=平台）
 
@@ -87,6 +92,9 @@ ASR run id 唯一（纳秒时钟 + PK 兜底）；write-back 被拒时不再静�
 **范围**：谓词定义机制 + 分支追加（旧链保留，查询层指向新链）。
 **先例**：`transcripts` 多版本 + `publish-transcripts` 投影；proofread 0.85/0.75 分级。
 **出口标准**：对一批 <0.75 的转录，系统能换 `asr@v2`（或新参数）产出新分支并在投影层切换，旧版本不删。
+**输入（2026-10-04 修订）**：**不含 editorial-stages 恢复**。该 track 已正式关闭（见 Phase 0.5
+cross-cutting 前置），Phase 4 的谓词设计以 `proofread` 的 0.85/0.75 分级与 `transcripts` 多版本
+为先例自行展开，不再把它列为预期输入。
 
 ## Phase 5 — 画面字节本体（第一类非音频字节）
 
@@ -122,7 +130,7 @@ ASR run id 唯一（纳秒时钟 + PK 兜底）；write-back 被拒时不再静�
         |               |               |
         v               v               v
    处理器注册表      终态谓词+画面     评论+关系
-   缺口队列          editorial恢复    有界观察
+   缺口队列          有界观察
 ```
 
 **硬约束**：Track B/C 的设计文档、schema 草案、采集器原型**可在任意时刻进行**
@@ -132,7 +140,7 @@ ASR run id 唯一（纳秒时钟 + PK 兜底）；write-back 被拒时不再静�
 | Track | 阶段 | 落地前置 | 探索（现在就能开始） |
 |-------|------|---------|---------------------|
 | A 骨架 | Phase 1 → Phase 2 | Phase 0.5 出口 | — |
-| B 内容 | Phase 4 → Phase 5 | Phase 1 出口（软依赖，可并行设计） | editorial-stages 裁决；proofread 谓词泛化设计；画面 schema 草案 |
+| B 内容 | Phase 4 → Phase 5 | Phase 1 出口（软依赖，可并行设计） | proofread 谓词泛化设计；画面 schema 草案（editorial-stages 已于 2026-10-04 正式关闭，不再是本轨道的探索项） |
 | C 数据源 | Phase 6 → Phase 7 | Phase 1 出口（软依赖） | 评论有界观察边界（时间窗/条数封顶/采集频率）；关系类型清单 |
 
 ## 排序逻辑（为什么 Phase 0 → 0.5 → 1 不能跳）
@@ -145,7 +153,8 @@ ASR run id 唯一（纳秒时钟 + PK 兜底）；write-back 被拒时不再静�
    **探索可以并行，落地必须排队。**
 4. **Phase 3 是 N=2 检验**：只有第二个处理器真实跑通，抽象才算成立（哲学 §8）。
 5. **Phase 4 是产品灵魂**：声明式收敛是"数据处理 loop"的落地，依赖 1–3 全部。
-   editorial-stages 的恢复入口在这里（见 Phase 0.5 cross-cutting 前置）。
+   （2026-10-04：原文所列的 editorial-stages 恢复入口已随该 track 正式关闭而移除，
+   见 Phase 0.5 cross-cutting 前置与 Phase 4 的"输入"行。）
 6. **画面/评论/关系放后面**：它们是水平拓展，需要的是已被验证的骨架，不是新骨架。
 
 ## 不做事项（本路线图范围内）

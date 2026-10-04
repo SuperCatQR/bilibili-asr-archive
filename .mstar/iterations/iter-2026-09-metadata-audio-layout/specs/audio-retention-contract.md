@@ -101,7 +101,7 @@ schema object is shared between the two plans (D3 vs D7), but a reader comparing
 guarantees is narrower: the `audio_objects` / `part_audio_objects` entries — including
 `EXPECTED_UNIQUE_CONSTRAINTS["audio_objects"] == (("sha256",), ("storage_key",))` at `:201` — are untouched.
 
-### 3.1 The reconciliation vocabulary (product definitions, ruled 2026-09-26)
+### 3.1 The reconciliation vocabulary (product definitions, ruled 2026-09-26; `recorded`/`missing` amended 2026-10-04)
 
 `derive-audio-inventory` prints one summary line. Its four counters are defined here so the command's output
 is a contract rather than a naming exercise, and so the acceptance criterion that reads them (compass AC 6)
@@ -109,10 +109,30 @@ can be checked by a reader who did not write the command:
 
 | Counter | Counts | Never |
 |---|---|---|
-| `recorded` | a manifest candidate that had **no** `audio_objects` row and now has one | never invented when the file was absent |
+| `recorded` | a manifest candidate this run **wrote the content of** — either it had **no** `audio_objects` row, or it had a row that **did not match** (same declared `storage_key`, different bytes: the file was replaced in place, and the row is refreshed rather than appended) | never invented when the file was absent |
 | `already` | a candidate whose object row was already present and matched — a re-run converges, it does not accumulate | never a second row for one `sha256` |
-| `missing` | a manifest row that **names** an `audio_path` and the file is not there (the shipped reclaim path, or a manual delete) | never deleted, never re-created, never silently dropped from the report |
+| `missing` | a manifest row that **names** an `audio_path` and the file is **not there** — a named path that resolves nowhere (the shipped reclaim path, or a manual delete) | never a present-but-unreadable file (see below); never deleted, never re-created, never silently dropped from the report |
 | `unlinked` | an observed audio object that **no** `part_audio_objects` row attributes to a part — the store can see the file but not tie it to a work | never used to delete an unattributed file |
+
+**A present-but-unreadable file is reported by name, and it is not a fifth counter** (ruled 2026-10-04,
+`I-000044`). `reconcile_audio_inventory` appends such a `storage_key` to the outcome's `unreadable` tuple
+(`audio_inventory.py:222`, `:236`, `:259`) — the `except OSError` arms around `stat`/digest reads — and the
+command prints each one on **stderr** as `derive-audio-inventory: unreadable: {storage_key}`
+(`cli/queue.py:230-234`). It is excluded from `missing` by definition: `missing` is "names a path that is not
+there" and increments only when a named `audio_path` resolves nowhere (`:212`), while an unreadable file *is*
+there. It is also not `recorded`: `sha256` is `NOT NULL UNIQUE`, so a row without a digest cannot be
+deduplicated and must not be written. Naming the rows separately is what keeps the summary line from reading
+smaller than the tree without redefining a counter this section owns (`AudioInventoryOutcome` docstring,
+`:73-80`). **No counter changes; the table's `Never` column stays honest.**
+
+**`recorded` covers the row-exists-but-does-not-match case** (ruled 2026-10-04, `I-000050` — settled, not
+flagged). The wording above it read "a manifest candidate that had **no** `audio_objects` row and now has
+one", which covered only the common case. The code has always counted the second case as `recorded`, because
+this run wrote the object's content afresh: calling it `already` would assert the *and matched* the same
+section requires of that counter, and counting it as neither would hide a rewrite. The next unchanged run
+finds a matching row and reports `already`, which is the convergence the counter pair exists to give. The
+code comment at `audio_inventory.py:283-292` names this as residual **A-R7**; this amendment **settles it** —
+the contract now states the behaviour the code already has, and A-R7 no longer needs a ruling.
 
 `--deep` re-verifies the digest of an object whose row is already present; it is **not** a "hash or don't"
 switch, because `audio_objects.sha256` is `NOT NULL UNIQUE` (`schema.sql:94`) and a row without it cannot be

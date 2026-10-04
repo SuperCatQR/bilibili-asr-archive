@@ -1,17 +1,28 @@
 # HANDOFF — bilibili-asr-archive
 
+> **Corrected 2026-10-04 — the parked lifecycle is formally closed.** The operator ruled option (a) of the
+> `editorial-stages 正式裁决` (`bilibili-asr-archive/docs/roadmap.md`, Phase 0.5 prerequisite): the
+> `iter-2026-09-transcript-editorial-stages` track is **closed, not resumed**, and **§2 and §3 below are
+> downgraded to historical record** — they are not open work and no later iteration owes their gates. Nothing
+> was deleted: the facts (the `refs/pull/17/head` → `55f846c` recovery path, the gate list, the ref
+> retirement) are kept verbatim because they remain the recovery path if the track is ever re-opened as a
+> *new* iteration. The header paragraphs, the position table, *Ref retirement* and §4 below carry the same
+> dated correction.
+
 **Rewritten 2026-09-29.** This page opened with "Parked 2026-09-24 … Nothing in this file is in
 progress. Read it first when picking the project up." That was true when it was written and is
 false now: **four iterations have shipped since the park, and a fifth is running.** The parked
 lifecycle itself has *not* moved — it is still parked, with the same gates open — so the numbered
 sections below remain authoritative **for that work**. What changed is that they are no longer a
 description of the project.
+*(Superseded 2026-10-04: the parked lifecycle has now been formally closed. Under the ruling at the top of
+this page, §2/§3 are historical record.)*
 
 | Position as of 2026-09-29 | |
 |---|---|
 | `main` | **`371693b`** (2026-09-28) — **30 commits and 7 landed changes (4 of them two-parent merges; the rest squash landings)** past the park's reading (`f326398`) |
 | Active iteration | **`iter-2026-09-harness-hygiene`** — `running`, `phase-2-execute` |
-| Parked lifecycle | **`iter-2026-09-transcript-editorial-stages`** — still parked, gates still open (§2, §3). Its branch refs were **retired 2026-09-30** — fetch `refs/pull/17/head` before resuming (*Ref retirement* in §1) |
+| Parked lifecycle | **`iter-2026-09-transcript-editorial-stages`** — ~~still parked, gates still open (§2, §3)~~ **closed 2026-10-04 (§2/§3 are historical record)**. Its branch refs were **retired 2026-09-30** — fetch `refs/pull/17/head` to recover the code (*Ref retirement* in §1) |
 | Where to start | the **How to resume** section directly below |
 
 **Shipped since the park.** Each `ended_at` is read from that iteration's own
@@ -38,15 +49,21 @@ never advanced the phase to `phase-6-post-merge-close`.
 **Why the parked sections are still here.** Three things on this page are live rather than
 historical, and deleting the page would lose them:
 
-- **The editorial-stages lifecycle is genuinely still parked.** Its ref is still `aa86ea1`, still
+- ~~**The editorial-stages lifecycle is genuinely still parked.** Its ref is still `aa86ea1`, still
   not merged into `main` (`git merge-base --is-ancestor aa86ea1 main` fails), and the two editorial
   subcommands are still absent from `main`. §2 and §3 describe real open work, and
-  `{ITERATION_DIR}/README.md:26` points a reader here for the deleted package's recovery path.
+  `{ITERATION_DIR}/README.md:26` points a reader here for the deleted package's recovery path.~~
+  **Superseded 2026-10-04.** The facts still hold — `git merge-base --is-ancestor aa86ea1 main` still fails,
+  and the two editorial subcommands are still absent from `main` — but they are now the record of a **closed**
+  track, not of open work. §2/§3 are historical record under the ruling at the top of this page; the deleted
+  package's recovery path stays documented (§9, *Ref retirement*), because the closure preserves the path
+  rather than the obligation.
 - **§9 is the authoritative record of the 2026-09-25 deletion** — the only description of paths
   that no longer exist. It is deliberately unchanged; a dated pointer to a second, tracked copy of
   its archive is in **How to resume**.
-- **§4's recovery steps and §6's residual table** are still the operator's reference for the parked
-  work.
+- **§4's recovery steps and §6's residual table** are still the operator's reference ~~for the parked
+  work~~ **for the closed track's recovery path** (2026-10-04: §4's steps are the procedure to run *if* the
+  track is ever re-opened as a new iteration; no iteration is owed them).
 
 Orientation for a reader with no session context: this repository is a personal archival CLI
 for the Bilibili UP 未明子 (UID 23191782) — enumerate videos, harvest AI/CC subtitles first,
@@ -184,13 +201,17 @@ the same OID, and a `fetch` of it succeeded from a clean clone).
 | `feat/20260923-transcript-proofread` (local + `origin`) | `55f846c` — Plan 1's branch, merged via PR #17 | `git fetch origin refs/pull/17/head:refs/heads/<any-name>` → `55f846c` (identical OID) |
 | `iteration/iter-2026-09-transcript-editorial-stages` (local + `origin`) | `aa86ea1` — PR #17's merge commit | Same `refs/pull/17/head` fetch; `aa86ea1` is `55f846c` plus one merge event and **carries no content of its own** (its tree is byte-identical to `55f846c`). Re-creatable from `89a9ebb` + `55f846c` if the object is ever needed. |
 
-**What the retirement does *not* mean.** The parked iteration is **still parked and its gates are
-still open** (§2, §3) — retiring the refs removes a branch name, not the work. The six editorial
+**What the retirement does *not* mean.** ~~The parked iteration is **still parked and its gates are
+still open** (§2, §3) — retiring the refs removes a branch name, not the work.~~ **Corrected 2026-10-04:**
+the iteration was **formally closed** the day of this correction (`editorial-stages 正式裁决`, option (a) —
+see the ruling at the top of this page); §2/§3 are historical record. What the retirement still does not
+mean is that any bytes were lost. The six editorial
 source files (~3 400 lines: `services/editorial_alignment.py`, `services/editorial_verify.py`,
 three test modules, `docs/editorial-stages.md`) exist on **no `main` commit and in no part of the
-deletion archive**; `refs/pull/17/head` is now their only home. A resuming agent must fetch that
-ref **before** reading any of them — the body of §2 and §3, and
-`{PLAN_DIR}/20260928-proofread-pipeline.md` Step 1, all assume the branch is present.
+deletion archive**; `refs/pull/17/head` is ~~now~~ their only home, and it remains the recovery path a
+future, separately-argued iteration would fetch **before** reading any of them. The body of §2 and §3 records
+what was left open when the track closed, so a re-opener starts from the same facts rather than re-deriving
+them.
 
 **Why these refs and why this way.** The sanctioned planner
 (`mstar worktree cleanup --all-workflows --remote`) **refuses** all three —
@@ -212,7 +233,14 @@ byte-unchanged — the reclamation plan is itself an argument for this treatment
 `iter-2026-09-harness-hygiene` left §9 byte-identical and put its dated pointer outside it. This
 section is that pointer.
 
-## 2. The iteration that is parked
+## 2. The iteration that is parked — **HISTORICAL RECORD as of 2026-10-04**
+
+> **This section is not open work.** On 2026-10-04 the operator ruled option (a) of the
+> `editorial-stages 正式裁决` (`bilibili-asr-archive/docs/roadmap.md`, Phase 0.5 prerequisite): the track is
+> **closed, not resumed**, and this section plus §3 are downgraded to the record of what was left open when
+> it closed. Nothing below is owed to any iteration. The recovery path it names is deliberately kept — a
+> future reader who wants to redo 校对/精校 opens a **new** iteration and fetches `refs/pull/17/head`
+> (`55f846c`) before reading any of the code.
 
 `iter-2026-09-transcript-editorial-stages` — make 校对 (proofread) and 精校 (reading edition)
 **repeatable, verifiable pipeline stages**: the mechanical checks as commands, the editorial
@@ -223,13 +251,27 @@ carried it were **retired 2026-09-30** (*Ref retirement* in §1), so read it out
 or the deletion archive rather than from a checked-out branch. Three plans, nine tasks,
 `M` scale.
 
+Recovery, restated so this section stays self-contained (measured 2026-10-04 on this host:
+`git ls-remote origin refs/pull/17/head` → `55f846c5b67bd69973d4e4721f825828cbfa926a`):
+
+```bash
+git fetch origin refs/pull/17/head:refs/heads/editorial-stages   # ~3 400 lines, the only copy
+tar -tzf bilibili-asr-archive/docs/archive/deletion-records-20260925/harness-editorial-stages-deleted-20260925.tar.gz | grep plans/
+#   → .mstar/plans/20260923-reading-edition.md (27 349 B), .mstar/plans/20260923-editorial-skills.md (18 074 B)
+```
+
 | Plan | State | Evidence |
 |---|---|---|
 | `20260923-transcript-proofread` (3 tasks) | **Code complete and merged into the integration branch — with the plan's gates open** | T1 `ebbbbac6` + rider `360098c` (reviewed, approved with minor); T2 `a9f411e` → `45222e9` → `e366c35`; T3 `55f846c`. PR [#17](https://github.com/SuperCatQR/bilibili-asr-archive/pull/17), merge `aa86ea1`: 6 commits, 8 files, +4034/−0. |
 | `20260923-reading-edition` (4 tasks) | **Deleted 2026-09-25** — never started, never committed | — (existed on disk only; preserved in the deletion archive, §9) |
 | `20260923-editorial-skills` (2 tasks) | **Deleted 2026-09-25** — never started, never committed | — (existed on disk only; preserved in the deletion archive, §9) |
 
-## 3. Open gates — close these, or waive them on the record, before the iteration can close
+## 3. Open gates — close these, or waive them on the record, before the iteration can close — **HISTORICAL RECORD as of 2026-10-04**
+
+> **None of these gates is owed any more.** The track closed on 2026-10-04 with the gates open and the
+> closure on the record (the ruling quoted at the top of this page and in §2): the open gates are why the
+> track was closed deliberately rather than silently finished, and this list is what a *re-opener* would
+> inherit. Do not read it as a TODO list, and do not close this iteration on it.
 
 PR #17 was merged **with the gates open**, disclosed in the PR comment and the merge-commit
 body. None of the following has been done.
@@ -253,6 +295,10 @@ body. None of the following has been done.
    two marker-parity candidates until the fix lands.
 
 ## 4. Resume — the first four steps
+
+> **Corrected 2026-10-04 — this is a re-open procedure, not an owed one.** The track closed on 2026-10-04
+> with §2/§3 as historical record; the steps below are how a *new* iteration would recover the code and
+> pick up the closed track's open gates. Run them only after that decision is taken in its own right.
 
 ```bash
 # 1. read the state, then work where the code is.
@@ -279,8 +325,9 @@ PYTHONPATH=$PWD/src <repo>/bilibili-asr-archive/.venv/bin/python -m pytest -q
 ```
 
 Then: fix Finding 1 and the four minors → re-run the Task 2 review → review Task 3 → run the plan
-QC tri-review and the QA gate → only then does the iteration-close PR become the honest next
-artifact. *Corrected 2026-09-30:* the PR target is still `main`, but its head is no longer the
+QC tri-review and the QA gate → ~~only then does the iteration-close PR become the honest next
+artifact~~ *(2026-10-04: none of this is owed — the track is closed; the sequence is what a re-opening
+iteration would execute.)* *Corrected 2026-09-30:* the PR target is still `main`, but its head is no longer the
 retired `iteration/iter-2026-09-transcript-editorial-stages` branch — open it from whatever branch
 step 1 fetched or re-created.
 

@@ -31,7 +31,7 @@ Mermaid 的 `section` 是**视觉分带**，不是泳道：它没有依赖链、
 <!-- BEGIN GENERATED: build_roadmap_gantt.py --table -->
 | id | 名称 | 泳道 | 起 | 天 | 状态 | 备注 |
 |---|---|---|---|---|---|---|
-| `p05ed` | editorial-stages 裁决 | Phase 0.5 — 证据层 | 2026-10-04 | 2 | 可开始 | parked 两周；close 或恢复为 Phase 4 输入，二选一 |
+| `p05ed` | editorial-stages 裁决 | Phase 0.5 — 证据层 | 2026-10-04 | 2 | 已完成 | 2026-10-04 裁决 = 正式 close（不恢复）；HANDOFF §2/§3 降为历史记录 |
 | `p05fix` | snapshot 写并发缺陷族 | Phase 0.5 — 证据层 | 2026-10-04 | 4 | 进行中 | I-000190 / I-000195 / I-000207 |
 | `p4design` | proofread 谓词泛化设计 | Track B — 内容 | 2026-10-04 | 4 | 可开始 | 纯设计，不产生 schema，不受骨架阻塞 |
 | `p5design` | 画面 schema 草案 | Track B — 内容 | 2026-10-04 | 3 | 可开始 | 纯设计 |
@@ -79,8 +79,10 @@ Mermaid 的 `section` 是**视觉分带**，不是泳道：它没有依赖链、
 ## 读图说明
 
 - **Phase 0.5 是所有并发的硬前置。** 除两条 attestation leg 外，
-  `I-000190`/`I-000195`/`I-000207`（snapshot 写并发缺陷族）与 editorial-stages 裁决
-  也在本阶段关闭——`processor_runs` 是公共表，写并发只会更常见。
+  `I-000190`/`I-000195`/`I-000207`（snapshot 写并发缺陷族）也在本阶段关闭——
+  `processor_runs` 是公共表，写并发只会更常见。
+  `p05ed`（editorial-stages 裁决）已于 2026-10-04 **完成**：裁决为正式 close、不恢复；
+  `HANDOFF.md` §2/§3 降为历史记录（见 `roadmap.md` Phase 0.5 cross-cutting 前置）。
 - **Track B/C 现在就能开始的是设计，不是落地。**
   `p4design`/`p5design`/`p6design`/`p7design` 不产生 schema、不接派生管线，
   因此写在 2026-10-04（与门禁同日）且不连任何门禁线。
@@ -110,7 +112,7 @@ Mermaid 的 `section` 是**视觉分带**，不是泳道：它没有依赖链、
 | Track B/C 探索与 Phase 0.5 全并行 | 设计阶段 ~4 天 | 已体现在图中；无额外代价 |
 | N=2 用现成 loudness 库而非自研 | `p3a` 约 2 天 | 血缘字段照记，依赖外部库版本 |
 | Track B/C 落地并行（一人多上下文） | `m-p2`→`m-p7` 总时长 | 注意力切换成本；不建议在一人模式下做 |
-| `p05ed`（editorial 裁决）与 `p05fix` 并行 | 2 天 | 两者无交集；裁决只是二选一的书面决定 |
+| ~~`p05ed`（editorial 裁决）与 `p05fix` 并行~~ | — | **已完成 2026-10-04**（正式 close、不恢复）；压缩手段本身不再适用 |
 
 ## 重新生成
 

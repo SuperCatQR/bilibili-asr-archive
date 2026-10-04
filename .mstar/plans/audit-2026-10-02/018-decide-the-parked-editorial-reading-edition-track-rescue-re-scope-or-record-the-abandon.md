@@ -11,6 +11,7 @@
 - **Evidence**: `HANDOFF.md:187-192` (ref retirement); `bilibili-asr-archive/docs/archive/deletion-records-20260925/README.md` (the tracked second home); the tarball's plan members
 - **Planned at**: commit `1e756df`, 2026-10-02
 - **Captured issue**: `I-000178`
+- **RULED 2026-10-04 — the decision is made; this plan is closed as a decision record, not executed as a task.** The operator chose **Abandon (Task 2's third option)**: the parked track is formally closed, not resumed, and the recovery path is kept in writing. Landed as: `bilibili-asr-archive/docs/roadmap.md` (Phase 0.5 prerequisite, Phase 4 input, track table, ordering-logic item 5), `HANDOFF.md` (header ruling + §2/§3 downgraded to historical record; recovery path and `55f846c` kept) and `{ITERATION_DIR}/README.md` (the row reads `closed (2026-10-04)`). **Task 3's conditional "if rescue" step did not run** — the two plan files stay inside the tracked deletion tarball, which is where the ruling leaves them.
 
 ## Problem
 

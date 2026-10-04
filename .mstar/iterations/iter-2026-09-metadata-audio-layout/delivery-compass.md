@@ -348,7 +348,7 @@ session had closed both plans). Every claim here was re-verified against the tre
 | plan_id | Review | Delivered | Open residuals (id + severity + tracking) |
 |---------|--------|-----------|-------------------------------------------|
 | `20260926-video-metadata-enrichment` | L2 Approved per task (T1–T5; T4 twice, two seats) + plan QC tri Approve (0C/0I/2W/6I) | Tasks 1–5 all merged: T1–T3 in `main` via PR #21 `2696711`; T4 `318c0ed`+`9110798`+`2241575`; T5 `b098906`; R3 `7a5c358`; integration `5048de6`, 1699 passed / 123 skipped | **15 open**: R1 (medium — `video_title` unreachable for CSV consumers until the manifest half), R2 (medium — `CREATE VIEW IF NOT EXISTS` silent no-op), R3 (low — **partially closed**; its transcript-projection half is R5), R4 (medium — unattributed external commit+merge on this plan's branch), R5 (low — a third contract, another iteration), R6 (medium — a multi-line `description` costs the whole page), R7 (low — the dead T4 review seat), M-R1/M-R2 (medium — unpaced tag GETs; `GatewayShapeError` fails the page), M-R6–M-R11 (low) |
-| `20260926-audio-inventory` | **No independent L2 verdict** (the seat died; the PM authored Task 2 and re-read it adversarially — residual A-R4) | AC 4 + AC 5 hold (`test_storage_queue_writes.py:174-177` 11 passed; `test_audio_retention_policy.py`+`test_audio_reclaim.py` 13 passed / 2 skipped) but were earned by PR #21 `2696711` / PR #24 `662d9ca`, **not** this plan. **AC 6 delivered 2026-09-28**: `678b376`+`bda9465`, 8 tests, end-to-end `recorded=1 already=0 missing=0 unlinked=0` exit 0 | **4 open**: A-R1 (medium — a present-but-unreadable file fits no §3.1 counter; needs a product ruling), A-R2 (low — Task 1's plan text describes an API that never shipped), A-R3 (medium — AC 6 was recorded as met while the command did not exist), A-R4 (medium — the L2 seat is owed). Task 3 remains 0/5, coverage-completeness only |
+| `20260926-audio-inventory` | **No independent L2 verdict** (the seat died; the PM authored Task 2 and re-read it adversarially — residual A-R4) | AC 4 + AC 5 hold (`test_storage_queue_writes.py:174-177` 11 passed; `test_audio_retention_policy.py`+`test_audio_reclaim.py` 13 passed / 2 skipped) but were earned by PR #21 `2696711` / PR #24 `662d9ca`, **not** this plan. **AC 6 delivered 2026-09-28**: `678b376`+`bda9465`, 8 tests, end-to-end `recorded=1 already=0 missing=0 unlinked=0` exit 0 | **4 open**: A-R1 (medium — **RULED 2026-10-04**: no fifth counter; a present-but-unreadable file is reported by name on stderr and is never `missing` — `audio-retention-contract.md` §3.1; supersedes the earlier "needs a product ruling" wording), A-R2 (low — Task 1's plan text describes an API that never shipped), A-R3 (medium — AC 6 was recorded as met while the command did not exist), A-R4 (medium — the L2 seat is owed). Task 3 remains 0/5, coverage-completeness only |
 
 **Unresolved critical: none.** Blocker-defer: none — no open residual blocks a delivery. **Acceptance
 criteria**: AC 1–7 all met; AC 6 and AC 4's evidence pointer were corrected at this close, and an earlier PM
@@ -359,7 +359,18 @@ documented operator-owned open item that blocks the unwritten layout plan, not t
 review seats across this iteration died silently leaving skeletons, so some verdicts rest on PM reproduction
 rather than a reviewer's word — each such case is named in its residual; (c) the unreadable-file branch of the
 audio reconciliation was never genuinely exercised (the probe ran as root, which bypasses mode bits), so it is
-reasoned and disclosed rather than demonstrated (A-R1).
+reasoned and disclosed rather than demonstrated — **the disclosure now carries the ruling (2026-10-04): the
+branch's contract position is settled in `specs/audio-retention-contract.md` §3.1 (reported by name, never
+`missing`, no fifth counter); what remains untested is the branch's runtime behaviour, which is the observation
+this note makes, not an open ruling.**
+
+**Post-close rulings, 2026-10-04 (`I-000044` + `I-000050`).** Two §3.1 wording defects this package left open
+are settled in the contract itself, with no code change (the code already behaved as ruled):
+`recorded` now states the row-exists-but-does-not-match case (file replaced in place — counted as `recorded`,
+next unchanged run reports `already`; this settles `A-R7`, which the code comment at
+`audio_inventory.py:283-292` had flagged rather than decided), and the present-but-unreadable case is stated
+explicitly as a stderr-named row that is never folded into `missing`. Residual `A-R1`'s "needs a product
+ruling" half is discharged; the "never genuinely exercised" half is not.
 ## Compound Round Summary
 
 Package inventoried per §3.2 step 1 (`{ITERATION_DIR}/iter-2026-09-metadata-audio-layout/**`, compass excluded):

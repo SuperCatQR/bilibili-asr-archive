@@ -2,9 +2,35 @@
 
 Read-only audit of **every open issue** in `{HARNESS_DIR}/store.db` against `main` at `5df748e`.
 Executed by the cleanup/audit session through a fan-out of read-only verification seats (dsh `workflow`,
-10 + 6 + 1 batches). **Advisory**: this report changes no issue row — the store's close/waive channel
-refuses without a scoped session envelope (`I-000186`, re-verified this session), so every verdict below
-is a *recommendation* with its evidence, to be applied when that channel works.
+10 + 6 + 1 batches).
+
+## Applied — 2026-10-04
+
+**The recommended dispositions below are applied, not pending.** All 52 rows the audit recommended for
+closure now carry their disposition in the store, closed through the engine's own privileged verbs against a
+registered lifecycle (`.mstar/specs/issue-store-close-route.md` records the route):
+
+| Disposition applied | Rows |
+|---|---|
+| `resolved` | 42 |
+| `duplicate` | 7 |
+| `waived` | 4 |
+| `superseded` | 1 |
+| **total** | **54** |
+
+(54 transitions, not 52 — two rows, `I-000187` and `I-000213`, had been staged for closure earlier and are
+counted in this pass's engine-written set.) Every transition carries `imported = 0`, distinguishing it from
+the pre-existing imported history, and every closure carries its own `references` plus an `alignmentRef`
+naming this plan. The open register fell from **178 to 126**. The 126 remaining are exactly the rows the
+audit recommended keeping open, plus the 7 awaiting an operator ruling — verified row by row: no
+`keep-open` row was closed.
+
+**Correction to the route.** An earlier revision of the close-route spec ruled that out-of-plan findings close
+by a documented *manual* route, on the finding that all 39 workflow snapshots are terminal and
+`execution_sessions` holds 0 rows. That finding is true and is still why the channel refused — but it is not a
+dead end: the engine registers new lifecycles on request, and a registered lifecycle is `running`, which
+satisfies the gate. The route used here is the engine's own (`workflow register` → `plan bind --coordinator`
+→ `issue close`), proven on a scratch harness before being applied. No by-hand mutation was needed or made.
 
 ## Why this audit
 
@@ -120,6 +146,21 @@ genuinely open, and 39 of those are stale `review-obligation` prose whose subjec
 | I-000173 | low | AUDIT-2026-10-02R2: set_pacing_floor() has no production caller, so the small-selection pacing opt-out the delta documented is unreachable |
 | I-000097 | low | NO {PLAN_DIR} PLAN FOR THE LAYOUT MIGRATION. The survey stated no migration plan could be written until decision L1 landed; L1 landed on 2026-09-28 A… |
 | I-000050 | low | CONTRACT WORDING, not a code defect. Section 3.1 words `recorded` as "a manifest candidate that had NO audio_objects row and now has one", but the fi… |
+
+### D.1 Rulings applied — 2026-10-04
+
+The operator ruled the rows above. Recorded here because the store's own close/waive channel refuses
+(see the opening paragraph and `.mstar/specs/issue-store-close-route.md`), so this report is the carrier:
+
+| id | ruling |
+|---|---|
+| **I-000072** | **ACCEPTED — the operator accepts the unattributed external commit+merge on the plan branch.** Rationale, one line: the content outcome was verified correct and its test functions are on `main` (`test_degraded_tag_fetch_leaves_tags_a_previous_run_stored` at `tests/test_metadata_ingest.py:1360`, `test_record_page_present_empty_tag_set_clears_the_video` at `tests/test_metadata_repository.py:884`), the process deviation is recorded rather than repeated, and the governance question does not warrant re-litigating a landed change. **This acceptance is deliberate and final — a later reader must not reopen it.** (Carrier note: `audit-2026-10-02/` holds no per-row file for this id and the register export is a read-only store mirror, so the ruling lands here.) |
+| **I-000173 / I-000142** | **DELETE the unreachable pacing opt-out.** `set_pacing_floor` had no production caller; the seam and its four tests were removed 2026-10-04 (`bilibili_api_gateway.py`, `tests/test_bilibili_api_gateway.py`). The I-000141 rationale (awaitable sleeper) was re-verified before deletion. |
+| **I-000044 / I-000050** | **§3.1 amended, no code change** — `unreadable` reported by name on stderr and never `missing` (no fifth counter); `recorded` covers a row that exists but does not match. `audio-retention-contract.md` §3.1 is the carrier; residual A-R7 settled. |
+| **I-000178** | **Parked editorial track formally CLOSED** (not resumed); `HANDOFF.md` §2/§3 downgraded to historical record with the `refs/pull/17/head` → `55f846c` recovery path preserved; `bilibili-asr-archive/docs/roadmap.md` updated so Phase 4 no longer promises to resume it. |
+| **I-000186** | **Manual/documented route is the intended route for out-of-plan findings** until the engine offers a reachable one; spec at `.mstar/specs/issue-store-close-route.md`, engine-side todo carried in-spec. |
+| **I-000208** | **Two squash-merged refs accepted as a permanent residual** (documented); hand-bypassing the guard remains refused; engine fix belongs upstream. Recorded in `iter-2026-10-asr-success-attestable/delivery-compass.md` (close-out section). |
+| **I-000097** | **Not decided — under investigation** (whether the layout-migration precondition is live or void); left open. |
 
 ## E. Still open — the rows that are actually work
 

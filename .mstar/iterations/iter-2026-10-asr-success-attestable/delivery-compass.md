@@ -163,3 +163,42 @@ defect is invisible to every comparison.
 - `I-000211` — `probe-subs` still leaves no durable trace.
 - `I-000212` — two architect seats were dispatched against a stale premise.
 - `I-000213`/`I-000214` — probe rows created to test the mutation channel; no technical content.
+
+### Two iteration refs are retained deliberately — a permanent residual, not an oversight (2026-10-04)
+
+The Phase 6 cleanup removed this iteration's worktrees and fix branches, and then correctly **refused its
+integration branch**. Two refs survive on `origin`, and this section is the record that they are *meant* to:
+
+| Ref | Tip | PR |
+|---|---|---|
+| `iteration/iter-2026-10-ledger-integrity` | `ec9d3d2` | #35, squash-merged onto `main` as `1de04c5` |
+| `iteration/iter-2026-10-asr-success-attestable` | `d154ef0` | #212, squash-merged onto `main` as `ff11351` |
+
+**Why the guard cannot be satisfied (measured, not inferred).** The cleanup guard proves a merge by ancestry
+against the owner snapshot's base. For a remote branch it consults `remoteEvidence`, whose entries are built
+with `prMerged: null`; the field is **never populated anywhere in the installed engine** — on
+`/usr/lib/node_modules/@mstar-harness/cli/dist/mstar-harness.js` (v3.11.2),
+`grep -c 'prMerged: true'` → **0**, while the guard's consumer at `:35498-35503` returns "refuse" for
+`prMerged === null` unless `ancestor` is true. A squash merge is by construction *not* an ancestor of its
+base, so both branches fall through to `!evidence.ancestor` and the guard refuses **forever**. Verified live
+2026-10-04: `git ls-remote --heads origin` still lists both refs at the tips above, and the merge commits are
+on `main` — this is a guard-evidence gap, not unmerged work.
+
+**Hand-bypassing the guard is refused by this row's own acceptance.** `I-000208`'s acceptance states the
+bypass explicitly: "the guard itself should not be bypassed by hand: if the ancestry rule is wrong for
+squash-merge repos, the repair belongs in the cleanup guard's evidence consult, not in a one-off
+`git push --delete`." Both refs are therefore **accepted as a permanent residual**, recorded here so a later
+reader does not re-litigate it: an operator reading `cleanup.refuse.unmerged` for either ref is reading the
+expected outcome, not a pending cleanup.
+
+**Recovery path — preserved for each ref, identical OIDs to the branch tips:**
+
+```bash
+git fetch origin refs/pull/35/head:refs/heads/ledger-integrity      # → ec9d3d2
+git fetch origin refs/pull/212/head:refs/heads/asr-success-attestable  # → d154ef0
+```
+
+**The real repair belongs upstream, not in this repository.** The engine is not repo code, so the fix — a
+`prMerged` value actually derived from the PR consult, or an explicit squash-merge evidence mode — belongs in
+`@mstar-harness/cli`'s cleanup guard. It is out of scope here and is not attempted; this section is the
+carrier so the engine-side gap is discoverable from the iteration it bit.
