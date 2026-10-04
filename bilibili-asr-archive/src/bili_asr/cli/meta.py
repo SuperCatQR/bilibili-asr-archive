@@ -152,6 +152,10 @@ def _cmd_probe_subs(args: argparse.Namespace) -> int:
     bound, a missing database, an unknown --bvid, the schema guard); 2 the probe
     failed on every selected part, or an unexpected internal error.  A partial
     per-part failure stays visible in the printed ``failed=`` count.
+
+    This is a deliberate read-only contract: probe observations are diagnostic
+    only and must not count as harvested subtitle evidence or create a
+    re-driveable archive row.
     """
     from bili_asr.services.subtitle_ingest import (
         SubtitleIngestor,

@@ -34,6 +34,7 @@ from bili_asr.storage import (
     VideoRecord,
     open_database,
 )
+from bili_asr.services.queue_source import entry_for_item
 
 
 _MID = 23191782
@@ -60,6 +61,24 @@ _PARTS = (
     ("BV1EEE", 0, "discovered"),
     ("BV1FFF", 0, "discovered"),
 )
+
+
+def test_entry_for_item_rejects_unknown_gap():
+    item = QueueGapItem(
+        work_id="BV1BAD:p0",
+        bvid="BV1BAD",
+        page_index=0,
+        cid=1,
+        gap="unexpected",
+        pubdate=0,
+        video_title="bad gap",
+        duration_ms=1_000,
+        newest_outcome=None,
+        newest_error_code=None,
+        attempt_count=0,
+    )
+    with pytest.raises(ValueError, match="unsupported queue gap"):
+        entry_for_item(item)
 
 
 def _open_run(

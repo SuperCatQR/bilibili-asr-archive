@@ -96,6 +96,7 @@ def test_cli_pilot_mixed_meta_ok_archives_both_branches(tmp_root, monkeypatch, c
     store = ManifestStore(root=tmp_root)
     store.upsert(_row(sub, duration_s=5, title="has-sub"))
     store.upsert(_row(aud, duration_s=8, title="needs-asr"))
+    store.save()
 
     reads: list[str] = []
 
@@ -310,6 +311,7 @@ def test_cli_pilot_completed_rerun_skips_archived(tmp_root, monkeypatch, capsys)
     store = ManifestStore(root=tmp_root)
     store.upsert(_row(sub, duration_s=5, title="has-sub"))
     store.upsert(_row(aud, duration_s=8, title="needs-asr"))
+    store.save()
     reads: list[str] = []
 
     _stub_runner_model(monkeypatch, reads)

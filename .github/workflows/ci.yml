@@ -1,0 +1,43 @@
+name: tests
+
+on:
+  push:
+    branches:
+      - main
+      - "codex/**"
+      - "iteration/**"
+  pull_request:
+
+jobs:
+  python:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: bilibili-asr-archive
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install --upgrade pip setuptools
+      - run: python -m pip install -e ".[dev]"
+      - run: python -m pytest -q
+      - run: python -m compileall -q src tests scripts
+
+  harness:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Install the harness validator
+        run: npm install --global @mstar-harness/cli@3.11.2
+      - name: Validate tracked harness state
+        run: python bilibili-asr-archive/scripts/validate_harness_state.py .mstar
+        # Keep the authoritative report visible while existing residual work
+        # is being drained; the product test job remains the blocking gate.
+        continue-on-error: true

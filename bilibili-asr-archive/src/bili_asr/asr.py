@@ -34,13 +34,24 @@ import re
 import shutil
 import subprocess
 import tempfile
+from collections.abc import Mapping
 from dataclasses import asdict, dataclass, replace
 from typing import Any, Callable, Iterable, NamedTuple
 
 DEFAULT_MODEL = "Qwen/Qwen3-ASR-1.7B-hf"
 DEFAULT_ALIGNER_MODEL = "Qwen/Qwen3-ForcedAligner-0.6B-hf"
+DEFAULT_TRANSCRIPT_LANGUAGE = "und"
 
 _INSTALL_HINT = 'pip install -e "bilibili-asr-archive/[asr]"'
+
+
+def provenance_language(provenance: Any) -> str:
+    """Return the persisted language with one shared implicit fallback."""
+    if isinstance(provenance, Mapping):
+        value = provenance.get("language")
+        if value:
+            return str(value)
+    return DEFAULT_TRANSCRIPT_LANGUAGE
 
 #: Transformer output can leak its own control markers when a caller decodes without
 #: ``skip_special_tokens``; nothing downstream may see one.
@@ -984,7 +995,7 @@ def apply_provenance_evidence(entry: dict[str, Any], runner: Any) -> None:
     except Exception:
         provenance = {}
     entry["source"] = "asr"
-    entry["language"] = provenance.get("language") or "und"
+    entry["language"] = provenance_language(provenance)
 
 
 def apply_coverage_evidence(entry: dict[str, Any], runner: Any) -> dict[str, Any] | None:

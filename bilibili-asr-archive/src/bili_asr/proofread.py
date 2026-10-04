@@ -723,8 +723,13 @@ def parse_sidebyside_marked(text: str) -> tuple[MergedBlock, ...]:
                 else:
                     body = (payload or "").strip()
                 position += 1
-            elif decision == "custom":
-                body = (payload or "").strip()
+            else:
+                # A marker without its adjacent table row is not a valid
+                # completed proofread block.  Treating it as an empty body
+                # silently drops the block from the published transcript.
+                raise ProofreadMergeError(
+                    f"block {block_index}: missing side-by-side row"
+                )
             blocks.append(
                 MergedBlock(
                     index=block_index, start_ms=start_ms, end_ms=end_ms,

@@ -505,6 +505,10 @@ class ManifestStore:
         a crash before publication or before journal discard replays that same
         view, never older journal rows over the caller's updates. With nothing
         to publish the call touches neither artifact on disk.
+
+        The no-argument path is derived from journal replay, and current
+        source callers do not supply a competing entries view; callers that do
+        supply one still get the same-view journal handoff above.
         """
         requested = dict(entries) if entries is not None else None
         with self._manifest_lock(create=True):

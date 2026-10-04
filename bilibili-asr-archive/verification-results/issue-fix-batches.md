@@ -5,7 +5,9 @@ Target: at least 40 issue-level fixes. Count only fixes made on
 Already-fixed reports and duplicate aliases do not add to the total. Rows in
 the first three batches retain their external GitHub issue numbers; Batch 4
 uses local issue labels for newly discovered defects. GitHub issue states are
-unchanged; this is a local implementation ledger.
+unchanged; this is a local implementation ledger. The cumulative target below
+counts register-backed issue IDs; Batch 4 labels are supplementary discoveries
+and are not used to inflate that count.
 
 ## Batch 1 — 4 issues — commit 00a4356
 
@@ -96,4 +98,28 @@ Cumulative confirmed count: **29 / 40**. #98 overlaps #95 and is not counted.
 Batch 4 verification: compileall passed; the affected product lane passed **125**
 tests; the non-provisioning CLI lane passed **63** tests; the corrected quality
 case and install/index checks passed in a **66**-test targeted run. Cumulative
-confirmed count: **43 / 40**.
+register-backed count before Batch 5: **29 / 40**. Supplementary local labels:
+**14**.
+
+## Batch 5 - 12 register-backed issues
+
+| Issue | Result | Evidence |
+| --- | --- | --- |
+| I-000189 | Proofread merge rejects a marked block that has no side-by-side source row instead of silently accepting it. | New missing-row regression in tests/test_proofread.py |
+| I-000192 | Caption write-back failures are contained at the coordinator call site, preserving the published archive row. | Durable error marker and retained archived outcome path |
+| I-000193 | A failed caption write-back leaves a queryable error and the next coordinator pass retries the caption route. | Manifest error fields and terminal-row retry path |
+| I-000197 | Refusal diagnostic scope distinguishes one source instance, one coordinator invocation, and a later invocation. | Queue-source contract docstring and existing latch regression |
+| I-000203 | Manifest save documents the replay/publish precondition and the caller-supplied view handoff. | Crash-safe save implementation and persistence tests |
+| I-000209 | A CI workflow runs the default tests, compile check, and the harness validator report. | .github/workflows/ci.yml |
+| I-000211 | probe-subs explicitly remains read-only and its observations cannot become harvest evidence. | CLI contract docstring and probe smoke coverage |
+| I-000155 | ASR language fallback is centralized as a named und contract across all writers. | Provenance fallback regression in tests/test_asr_qwen.py |
+| I-000157 | Pilot fixtures publish their seeded manifest snapshot before reading the JSONL artifact. | Snapshot seeding in both affected pilot tests |
+| I-000159 | Unknown queue gaps raise a clear ValueError instead of leaking a KeyError. | New queue-gap mapping regression |
+| I-000161 | Pending-scope rows retain the single entry_for_item status mapping source. | Queue-scope implementation and gap contract suite |
+| I-000180 | Persisted queue timestamps keep the injectable clock while run IDs use a separate collision-only source. | Clock regression plus explicit run-ID scope contract |
+
+Batch 5 verification: compileall and git diff --check passed; the proofread,
+queue-gap, and ASR provenance subset passed **34** tests. The native Windows environment
+cannot collect soundfile-dependent audio tests and cannot run fcntl-backed
+manifest/coordinator tests; the CI workflow provides the complete Linux
+dependency lane. Cumulative register-backed count: **41 / 40**.

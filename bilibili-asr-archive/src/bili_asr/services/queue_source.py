@@ -83,11 +83,14 @@ def entry_for_item(item: QueueGapItem) -> dict[str, Any]:
     branch, which is the R13/R15 drift.
     """
 
-    status = {
-        "missing_transcript": "audio_ok",
-        "missing_audio": "needs_audio",
-        "missing_subtitle": "meta_ok",
-    }[item.gap]
+    try:
+        status = {
+            "missing_transcript": "audio_ok",
+            "missing_audio": "needs_audio",
+            "missing_subtitle": "meta_ok",
+        }[item.gap]
+    except KeyError as exc:
+        raise ValueError(f"unsupported queue gap {item.gap!r}") from exc
     return {
         "bvid": item.bvid,
         "work_id": item.work_id,
@@ -164,6 +167,8 @@ class QueueSource:
             return self.asr_run_id
         try:
             now = _common._now()
+            # The injectable clock owns persisted timestamps; this is only a
+            # collision-resistant row identity and must not become evidence.
             run_id = f"{command}-{time.time_ns()}"
             TranscriptRepository(self.connection).start_acquisition_run(
                 AcquisitionRunRecord(
@@ -206,9 +211,11 @@ class QueueSource:
     def _report_refused_asr_run(self, command: str, exc: BaseException) -> None:
         """State a refused run once per source, using an unbuffered diagnostic.
 
-        In-process CLI loops own one source. The coordinator carries this latch
-        across its per-batch sources, so looping batches also report only once
-        per coordinator invocation, even when creation is retried next batch.
+        The latch is per source instance for in-process CLI loops. The
+        coordinator carries the same source-level latch across its per-batch
+        source objects, so it reports once per coordinator invocation even
+        when creation is retried next batch; a later coordinator invocation
+        deliberately gets a fresh diagnostic.
         """
         if self._asr_run_refusal_reported:
             return
@@ -264,13 +271,9 @@ class QueueSource:
                 merged.setdefault(key, entry)
         for key, entry in self.select_subtitle_queue(limit=limit).entries.items():
             if key not in merged:
-                # ``entry_for_item`` already names a subtitle-queue row
-                # ``meta_ok`` (the harvest-eligible state); the override
-                # below only restates it, kept explicit so this scope's
-                # contract does not silently drift if the mapping moves.
-                row = dict(entry)
-                row["status"] = "meta_ok"
-                merged[key] = row
+                # ``entry_for_item`` already names the harvest-eligible
+                # ``meta_ok`` route; retain that single mapping source.
+                merged[key] = entry
         return merged
 
     def _select(self, gap: str, *, bvid: str | None, page: int | None,
@@ -460,7 +463,7 @@ def record_caption_transcript(
     source_kind: str,
     language: str,
     segments: tuple,
-) -> None:
+) -> bool:
     """Write one subtitle-sourced transcript back into the store (best-effort).
 
     The caption-arm sibling of :func:`record_local_transcript`: a caption
@@ -494,7 +497,7 @@ def record_caption_transcript(
             (bvid, int(page_index)),
         ).fetchone()
         if part is None:
-            return
+            return False
         video_part_id = int(part["video_part_id"])
         now = _common._now()
         TranscriptRepository(connection).record_acquired_transcript(
@@ -507,10 +510,11 @@ def record_caption_transcript(
             finished_at=now,
             created_at=now,
         )
+        return True
     except (_sqlite3.Error, OSError, ValueError, TypeError, KeyError):
         # The archive already succeeded on disk; a store write-back problem
         # must not turn that into a failure.
-        pass
+        return False
 
 
 __all__ = [

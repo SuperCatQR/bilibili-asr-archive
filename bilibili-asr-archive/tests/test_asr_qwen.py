@@ -35,6 +35,16 @@ import pytest
 from bili_asr import asr
 
 
+def test_missing_asr_provenance_uses_named_language_fallback():
+    class Runner:
+        def provenance(self):
+            return {}
+
+    entry = {}
+    asr.apply_provenance_evidence(entry, Runner())
+    assert entry["language"] == asr.DEFAULT_TRANSCRIPT_LANGUAGE == "und"
+
+
 # ---------------------------------------------------------------------------------------
 # Fakes.  The boundary talks to exactly four objects, so the fakes are four small ones — and they
 # are plain Python, which keeps this suite runnable on a host with no torch.  numpy and soundfile,

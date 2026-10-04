@@ -1847,6 +1847,9 @@ def test_run_batch_subtitle_archive_records_published_bundle_when_writeback_fail
     assert [(r["work_id"], r["status"]) for r in manifest] == [
         (sub.work_id, "archived"),
     ]
+    final_manifest = next(r for r in manifest if r["work_id"] == sub.work_id)
+    assert final_manifest["transcript_writeback_error"] == "ValueError"
+    assert final_manifest["transcript_writeback_failed_at"]
 
     # The best-effort intent: the store write-back stored nothing, and neither
     # observable above moved because of it.

@@ -722,13 +722,67 @@ class RunCoordinator:
                 except Exception:
                     pass
 
+    def _record_transcript_writeback_failure(
+        self, entry: dict[str, Any], exc: BaseException | str
+    ) -> None:
+        """Leave a repairable signal when transcript evidence could not be stored.
+
+        The archive row has already been published when this helper runs.  A
+        scalar code and timestamp on that row let a later coordinator pass
+        retry the caption path without treating the durable archive as failed.
+        If the manifest itself is unavailable, the diagnostic still identifies
+        the work item while preserving the published outcome.
+        """
+
+        work_id = str(entry.get("work_id") or entry.get("bvid") or "unknown")
+        raw_error_code = (
+            str(exc) if isinstance(exc, str) else _safe_error_code(exc)
+        )
+        error_code = _sanitize_code_str(str(raw_error_code))
+        try:
+            updated = self._current_entry(work_id, entry)
+        except Exception:
+            # The marker exists for store failures too; keep the published
+            # outcome repairable even when the manifest cannot be read now.
+            updated = dict(entry)
+        updated["transcript_writeback_error"] = error_code
+        updated["transcript_writeback_failed_at"] = utc_now_iso()
+        try:
+            self.store.upsert(updated)
+        except Exception:
+            pass
+        from .diagnostics import write_stderr
+
+        write_stderr(
+            f"{self.command}: transcript write-back failed for {work_id} "
+            f"({error_code}); archived row retained"
+        )
+
+    def _clear_transcript_writeback_failure(self, entry: dict[str, Any]) -> None:
+        """Clear a previously recorded write-back failure after a retry succeeds."""
+
+        updated = self._current_entry(str(entry.get("work_id") or ""), entry)
+        changed = False
+        for field in ("transcript_writeback_error", "transcript_writeback_failed_at"):
+            if field in updated:
+                updated.pop(field, None)
+                changed = True
+        if not changed:
+            return
+        try:
+            self.store.upsert(updated)
+        except Exception:
+            # The transcript row is already durable; stale repair metadata is
+            # preferable to turning a successful retry into a failed archive.
+            pass
+
     def _record_subtitle_transcript(
         self,
         *,
         entry: dict[str, Any],
         raw: dict[str, Any],
         segments: list[dict[str, Any]],
-    ) -> None:
+    ) -> bool:
         """Record a subtitle-sourced transcript row for an archived part.
 
         A caption archived from the raw document also owes the store a
@@ -753,30 +807,47 @@ class RunCoordinator:
 
         identity = writeback_identity(entry)
         if identity is None:
-            return
+            return True
         source_kind = _caption_source_kind_from_entry(entry)
         if source_kind is None:
-            return
+            return True
         language = _caption_language_from_entry(entry)
         if language is None:
-            return
-        source = self._queue_source_for_writeback()
-        if source is None:
-            return
-        run_id = source.ensure_asr_run(self.command)
-        if run_id is None:
-            return
-        from .services import queue_source as qs
+            return True
+        try:
+            source = self._queue_source_for_writeback()
+            if source is None:
+                self._record_transcript_writeback_failure(
+                    entry, "queue_source_unavailable"
+                )
+                return False
+            run_id = source.ensure_asr_run(self.command)
+            if run_id is None:
+                self._record_transcript_writeback_failure(
+                    entry, "acquisition_run_refused"
+                )
+                return False
+            from .services import queue_source as qs
 
-        qs.record_caption_transcript(
-            source,
-            run_id=run_id,
-            bvid=identity[0],
-            page_index=identity[1],
-            source_kind=source_kind,
-            language=language,
-            segments=_caption_transcript_segments(segments),
-        )
+            stored = qs.record_caption_transcript(
+                source,
+                run_id=run_id,
+                bvid=identity[0],
+                page_index=identity[1],
+                source_kind=source_kind,
+                language=language,
+                segments=_caption_transcript_segments(segments),
+            )
+            if stored is False:
+                self._record_transcript_writeback_failure(
+                    entry, "caption_store_rejected"
+                )
+                return False
+        except Exception as exc:
+            self._record_transcript_writeback_failure(entry, exc)
+            return False
+        self._clear_transcript_writeback_failure(entry)
+        return True
 
     def _record_asr_transcript(self, entry: dict[str, Any], segments: list) -> None:
         """Record the locally-produced (ASR) transcript row for an archived part.
@@ -817,7 +888,7 @@ class RunCoordinator:
                 run_id=run_id,
                 bvid=identity[0],
                 page_index=identity[1],
-                language=(provenance or {}).get("language") or "und",
+                language=asr_module.provenance_language(provenance),
                 segments=tuple(
                     TranscriptSegmentRecord(
                         start_ms=int(round(float(cue.get("start", 0.0)) * 1000)),
@@ -829,11 +900,11 @@ class RunCoordinator:
                 model_name=(provenance or {}).get("model_name", ""),
                 model_revision=(provenance or {}).get("model_revision"),
             )
-        except (TypeError, ValueError, KeyError):
+        except Exception as exc:
             # The cue shape that reached the archive writer is not one the
             # store can record; the archive on disk stands and the gap-view
             # row is supplementary evidence.
-            pass
+            self._record_transcript_writeback_failure(entry, exc)
 
     def _stage_archive_from_subtitle(
         self, key: str, entry: dict[str, Any], result: RowResult
@@ -884,7 +955,14 @@ class RunCoordinator:
         # ``v_missing_transcript``.  Best-effort: the archive already
         # succeeded on disk, so a store failure must not disturb the row's
         # archived outcome.
-        self._record_subtitle_transcript(entry=entry, raw=raw, segments=segments)
+        try:
+            self._record_subtitle_transcript(
+                entry=entry, raw=raw, segments=segments
+            )
+        except Exception as exc:
+            # Keep the call-site contract explicit: supplementary store
+            # evidence can fail after publication without changing archive: ok.
+            self._record_transcript_writeback_failure(entry, exc)
         result.ok = True
         result.final_status = "archived"
 
@@ -1102,6 +1180,16 @@ class RunCoordinator:
         result = RowResult(work_id=work_id, final_status=status)
 
         if status in TERMINAL_STATUSES:
+            if status == "archived" and entry.get("transcript_writeback_error"):
+                retry_data = self._subtitle_segments(entry)
+                if retry_data is not None:
+                    retry_segments, retry_raw = retry_data
+                    if self._record_subtitle_transcript(
+                        entry=entry, raw=retry_raw, segments=retry_segments
+                    ):
+                        result.ok = True
+                        result.final_status = "archived"
+                        return result
             result.skipped = True
             result.skip_reason = "already_terminal"
             return result

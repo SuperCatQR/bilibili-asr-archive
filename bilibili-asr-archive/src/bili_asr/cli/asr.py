@@ -311,7 +311,7 @@ def _cmd_asr(args: argparse.Namespace) -> int:
                             run_id=queue_source.asr_run_id,
                             bvid=identity[0],
                             page_index=identity[1],
-                            language=(provenance or {}).get("language") or "und",
+                            language=asr.provenance_language(provenance),
                             segments=_asr_transcript_segments(segments),
                             model_name=(provenance or {}).get("model_name", ""),
                             model_revision=(provenance or {}).get("model_revision"),

@@ -351,6 +351,16 @@ def test_proofread_merge_rejects_unknown_marker(proofread_workspace):
                          artifact_root=proofread_workspace[1])
 
 
+def test_proofread_merge_rejects_marked_block_without_side_by_side_row(tmp_path):
+    from bili_asr.proofread import ProofreadMergeError, parse_sidebyside_marked
+
+    marked = (
+        "## 1 [00:00:00,000-00:00:01,000] (agree 1.000) >> keep\n"
+    )
+    with pytest.raises(ProofreadMergeError, match="missing side-by-side row"):
+        parse_sidebyside_marked(marked)
+
+
 # --------------------------------------------------------------------------------------
 # CLI wiring (invocation through ``bili_asr.cli.main``).
 # --------------------------------------------------------------------------------------
