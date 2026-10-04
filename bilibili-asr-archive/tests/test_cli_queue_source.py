@@ -106,28 +106,32 @@ def _seed_store(root):
         )
         # The captionless part's subtitle route is exhausted (no-subtitle), so
         # it enters the audio queue rather than remaining subtitle-pending.
-        transcripts.start_acquisition_run(
-            AcquisitionRunRecord(
-                run_id="run-sub-queuea",
-                kind="subtitle",
-                selector_kind="pending",
-                selector_target=None,
-                requested_limit=None,
-                credential_present=False,
-                started_at=10,
+        # Exhaustion is attested, not inferred from one look: an empty inventory
+        # with no error code is an *indefinite* negative, so it takes two
+        # distinct runs to confirm — hence the two runs below.
+        for run_id, started in (("run-sub-queuea", 10), ("run-sub-queuea-2", 13)):
+            transcripts.start_acquisition_run(
+                AcquisitionRunRecord(
+                    run_id=run_id,
+                    kind="subtitle",
+                    selector_kind="pending",
+                    selector_target=None,
+                    requested_limit=None,
+                    credential_present=False,
+                    started_at=started,
+                )
             )
-        )
-        transcripts.record_subtitle_attempt(
-            run_id="run-sub-queuea",
-            video_part_id=connection.execute(
-                "SELECT video_part_id FROM video_parts WHERE bvid=? AND page_index=0",
-                (audio_id.bvid,),
-            ).fetchone()[0],
-            outcome="no-subtitle",
-            error_code=None,
-            started_at=11,
-            finished_at=12,
-        )
+            transcripts.record_subtitle_attempt(
+                run_id=run_id,
+                video_part_id=connection.execute(
+                    "SELECT video_part_id FROM video_parts WHERE bvid=? AND page_index=0",
+                    (audio_id.bvid,),
+                ).fetchone()[0],
+                outcome="no-subtitle",
+                error_code=None,
+                started_at=started + 1,
+                finished_at=started + 2,
+            )
         connection.commit()
     finally:
         connection.close()
@@ -367,6 +371,7 @@ def test_asr_store_limit_is_applied_once(tmp_root, monkeypatch, capsys):
                 started_at=20,
             )
         )
+        # Two independent empty observations: one look is not exhaustion.
         transcripts.record_subtitle_attempt(
             run_id="run-sub-limitc",
             video_part_id=connection.execute(
@@ -377,6 +382,28 @@ def test_asr_store_limit_is_applied_once(tmp_root, monkeypatch, capsys):
             error_code=None,
             started_at=21,
             finished_at=22,
+        )
+        transcripts.start_acquisition_run(
+            AcquisitionRunRecord(
+                run_id="run-sub-limitc-2",
+                kind="subtitle",
+                selector_kind="pending",
+                selector_target=None,
+                requested_limit=None,
+                credential_present=False,
+                started_at=23,
+            )
+        )
+        transcripts.record_subtitle_attempt(
+            run_id="run-sub-limitc-2",
+            video_part_id=connection.execute(
+                "SELECT video_part_id FROM video_parts WHERE bvid=? AND page_index=0",
+                ("BVlimitC",),
+            ).fetchone()[0],
+            outcome="no-subtitle",
+            error_code=None,
+            started_at=24,
+            finished_at=25,
         )
         connection.commit()
     finally:
