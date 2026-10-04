@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>未明子 ASR 归档平台 — 多轨道路线图</title>
+<style>
+:root {
+  --bg:#f6f8fb; --panel:#fff; --text:#0f172a; --muted:#64748b;
+  --line:#e2e8f0; --inside:#fff; --outside:#334155; --rail:#dc2626;
+}
+html[data-theme="dark"] {
+  --bg:#020617; --panel:#0b1220; --text:#e2e8f0; --muted:#94a3b8;
+  --line:#1e293b; --inside:#fff; --outside:#cbd5e1; --rail:#f87171;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);
+  font:14px/1.55 ui-sans-serif,system-ui,"Noto Sans SC","PingFang SC","Microsoft YaHei",sans-serif}
+header{max-width:1360px;margin:0 auto;padding:22px 22px 8px}
+h1{margin:0 0 5px;font-size:20px;letter-spacing:.01em}
+.lede{margin:0;color:var(--muted);font-size:13px}
+.meta{margin:9px 0 0;color:var(--muted);font-size:12px}
+.meta code{background:var(--panel);border:1px solid var(--line);border-radius:4px;padding:1px 5px}
+.controls{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:14px 0 0}
+.controls button{font:inherit;font-size:12px;padding:5px 11px;cursor:pointer;
+  background:var(--panel);color:var(--text);border:1px solid var(--line);border-radius:999px}
+.controls button[aria-pressed="true"]{background:#2563eb;border-color:#2563eb;color:#fff}
+.legend{display:flex;gap:15px;flex-wrap:wrap;margin:13px 0 0;font-size:12px;color:var(--muted)}
+.legend span{display:inline-flex;align-items:center;gap:6px}
+.swatch{width:11px;height:11px;border-radius:3px;display:inline-block}
+.diamond{width:9px;height:9px;display:inline-block;transform:rotate(45deg);background:#dc2626}
+.dash{width:16px;height:0;display:inline-block;border-top:2px dashed #d97706}
+main{max-width:1360px;margin:0 auto;padding:0 22px 44px}
+.scroller{background:var(--panel);border:1px solid var(--line);border-radius:12px;
+  padding:8px 8px 4px;overflow-x:auto}
+svg#gantt{display:block;width:100%;height:auto;min-width:0}
+body.zoom2 svg#gantt{width:200%}
+body.zoom3 svg#gantt{width:300%}
+.grid,.lane-sep{stroke:var(--line);stroke-width:1}
+.lane-title{font-size:14.5px;font-weight:700}
+.lane-sub{font-size:11px;fill:var(--muted)}
+.axis{font-size:11px;fill:var(--muted);font-weight:600}
+.today{stroke:#dc2626;stroke-width:2;opacity:.85}
+.today-label{font-size:10px;fill:#dc2626;font-weight:700}
+.bar{outline:none}
+.bar rect{transition:filter .12s ease,opacity .12s ease}
+.bar:hover rect,.bar:focus rect{filter:brightness(1.16)}
+.bar.crit rect{stroke-width:2.2}
+.bar-label{font-size:11px;fill:var(--inside);font-weight:600}
+.bar-label.outside{fill:var(--outside);font-weight:500}
+.ms-label{font-size:10.5px;fill:var(--text);font-weight:600}
+.gate{fill:none;stroke:#d97706;stroke-width:1.5;stroke-dasharray:5 4;opacity:.92}
+.gate-arrow{fill:none;stroke:#d97706;stroke-width:1.5}
+.crit-rail{fill:var(--rail);opacity:.55}
+.foot{font-size:10.5px;fill:var(--muted)}
+body.dim-blocked .bar.blocked{opacity:.26}
+body.focus-crit .bar:not(.crit){opacity:.2}
+body.focus-crit .gate{opacity:.25}
+h2{font-size:15px;margin:26px 0 8px}
+ul.notes{margin:0;padding-left:20px}
+ul.notes li{margin:5px 0;color:var(--muted)}
+ul.notes b{color:var(--text);font-weight:600}
+table{border-collapse:collapse;width:100%;margin:8px 0 0;font-size:13px}
+th,td{text-align:left;padding:6px 9px;border-bottom:1px solid var(--line);vertical-align:top}
+th{color:var(--muted);font-weight:600;font-size:12px}
+td code{font-size:11.5px;background:var(--bg);border:1px solid var(--line);
+  border-radius:4px;padding:0 4px}
+</style>
+</head>
+<body>
+<header>
+  <h1>未明子 ASR 归档平台 — 多轨道路线图</h1>
+  <p class="lede">Phase 0.5 是唯一的硬门禁；三条轨道在它出口后并行，其中两条的<b>落地</b>受 Track A 约束。</p>
+  <p class="meta">
+    锚点 <code>2026-10-04</code> · 生成于 <code>2026-10-04</code> ·
+    末端 <code>2026-11-23</code> · 关键路径 <code>m-gate → p1a → p1b → p1c → m-p1 → p2a → p2b → m-p2 → p3a → p3b → m-p3</code>
+  </p>
+  <div class="controls">
+    <button id="theme" type="button">浅色</button>
+    <button id="blocked" type="button" aria-pressed="false">弱化被阻塞项</button>
+    <button id="crit" type="button" aria-pressed="false">聚焦关键路径</button>
+    <button id="zoom" type="button">缩放 1×</button>
+    <button id="print" type="button">打印 / 存 PDF</button>
+  </div>
+  <div class="legend">
+    <span><i class="swatch" style="background:#16a34a"></i>已完成</span>
+    <span><i class="swatch" style="background:#dc2626"></i>进行中</span>
+    <span><i class="swatch" style="background:#2563eb"></i>可开始</span>
+    <span><i class="swatch" style="background:#64748b"></i>被阻塞</span>
+    <span><i class="diamond"></i>泳道出口里程碑</span>
+    <span><i class="dash"></i>跨泳道硬门禁</span>
+  </div>
+</header>
+<main>
+  <div class="scroller"><svg id="gantt" viewBox="0 0 1110 1210" preserveAspectRatio="xMinYMin meet" role="img" aria-labelledby="gantt-title gantt-desc" xmlns="http://www.w3.org/2000/svg">
+<title id="gantt-title">未明子 ASR 归档平台 — 多轨道路线图</title>
+<desc id="gantt-desc">五条泳道：Phase 0.5 证据层（硬前置）、Track A 骨架、Track B 内容、Track C 数据源、N=2 检验。菱形为该泳道出口里程碑，橙色虚线为跨泳道硬门禁。</desc>
+<rect class="lane-band" x="0" y="88.0" width="1110" height="190.0" fill="#dc2626" opacity="0.062"/>
+<line class="lane-sep" x1="0" y1="83.0" x2="1110" y2="83.0"/>
+<text class="lane-title" x="16" y="114.0" fill="#dc2626">Phase 0.5 — 证据层</text>
+<text class="lane-sub" x="16" y="133.0">成功与耗尽必须可证实 · 一切并发的硬前置</text>
+<rect class="lane-band" x="0" y="288.0" width="1110" height="254.0" fill="#2563eb" opacity="0.03"/>
+<line class="lane-sep" x1="0" y1="283.0" x2="1110" y2="283.0"/>
+<text class="lane-title" x="16" y="314.0" fill="#2563eb">Track A — 骨架</text>
+<text class="lane-sub" x="16" y="333.0">处理器注册表 → 缺口队列（落地主链）</text>
+<rect class="lane-band" x="0" y="552.0" width="1110" height="222.0" fill="#7c3aed" opacity="0.062"/>
+<line class="lane-sep" x1="0" y1="547.0" x2="1110" y2="547.0"/>
+<text class="lane-title" x="16" y="578.0" fill="#7c3aed">Track B — 内容</text>
+<text class="lane-sub" x="16" y="597.0">终态谓词 → 画面字节</text>
+<rect class="lane-band" x="0" y="784.0" width="1110" height="222.0" fill="#059669" opacity="0.03"/>
+<line class="lane-sep" x1="0" y1="779.0" x2="1110" y2="779.0"/>
+<text class="lane-title" x="16" y="810.0" fill="#059669">Track C — 数据源</text>
+<text class="lane-sub" x="16" y="829.0">评论 source → 派生关系</text>
+<rect class="lane-band" x="0" y="1016.0" width="1110" height="126.0" fill="#d97706" opacity="0.062"/>
+<line class="lane-sep" x1="0" y1="1011.0" x2="1110" y2="1011.0"/>
+<text class="lane-title" x="16" y="1042.0" fill="#d97706">N=2 检验</text>
+<text class="lane-sub" x="16" y="1061.0">第二个非 ASR 处理器真实跑通</text>
+<line class="grid" x1="265.6" y1="58.0" x2="265.6" y2="1160.0"/>
+<text class="axis" x="270.6" y="50.0">2026-10</text>
+<line class="grid" x1="674.8" y1="58.0" x2="674.8" y2="1160.0"/>
+<text class="axis" x="679.8" y="50.0">2026-11</text>
+<g class="bar ready" tabindex="0" data-node="p05ed"><title>editorial-stages 裁决 — 可开始（2 天，起 2026-10-04）；parked 两周；close 或恢复为 Phase 4 输入，二选一</title><rect x="305.2" y="96.0" width="26.4" height="24.0" rx="5" fill="#2563eb" stroke="#1d4ed8"/></g>
+<text class="bar-label outside" x="338.6" y="112.0">editorial-stages 裁决</text>
+<g class="bar active" tabindex="0" data-node="p05fix"><title>snapshot 写并发缺陷族 — 进行中（4 天，起 2026-10-04）；I-000190 / I-000195 / I-000207</title><rect x="305.2" y="128.0" width="52.8" height="24.0" rx="5" fill="#dc2626" stroke="#b91c1c"/></g>
+<text class="bar-label outside" x="365.0" y="144.0">snapshot 写并发缺陷族</text>
+<g class="bar active" tabindex="0" data-node="p05a"><title>caption-exhaustion-attestation — 进行中（4 天，起 2026-10-08）；已合并 ff11351 · PR #212；此行保留取证轨迹</title><rect x="358.0" y="160.0" width="52.8" height="24.0" rx="5" fill="#dc2626" stroke="#b91c1c"/></g>
+<text class="bar-label outside" x="417.8" y="176.0">caption-exhaustion-attestation</text>
+<g class="bar blocked" tabindex="0" data-node="p05b"><title>asr-coverage-attestation — 被阻塞（5 天，起 2026-10-12）；I-000188 · 待操作者放行（D12 / I-000201）</title><rect x="410.8" y="192.0" width="66.0" height="24.0" rx="5" fill="#64748b" stroke="#475569"/></g>
+<text class="bar-label outside" x="483.8" y="208.0">asr-coverage-attestation</text>
+<g class="milestone" data-node="m-gate"><title>成功与耗尽可证实 — 2026-10-17</title><path d="M 476.8 227.5 L 485.3 236.0 L 476.8 244.5 L 468.3 236.0 Z" fill="#dc2626"/><text class="ms-label" x="489.8" y="239.5">成功与耗尽可证实</text></g>
+<g class="bar crit blocked" tabindex="0" data-node="p1a"><title>processor_runs + 血缘 schema — 被阻塞（4 天，起 2026-10-17）；关键路径；扩展 acquisition_runs，不建平行表</title><rect x="476.8" y="296.0" width="52.8" height="24.0" rx="5" fill="#64748b" stroke="#475569"/></g>
+<text class="bar-label outside" x="536.6" y="312.0">processor_runs + 血缘 schema</text>
+<g class="bar crit blocked" tabindex="0" data-node="p1b"><title>处理器注册表 name@version — 被阻塞（3 天，起 2026-10-21）；关键路径</title><rect x="529.6" y="328.0" width="39.6" height="24.0" rx="5" fill="#64748b" stroke="#475569"/></g>
+<text class="bar-label outside" x="576.2" y="344.0">处理器注册表 name@version</text>
+<g class="bar crit blocked" tabindex="0" data-node="p1c"><title>ASR 迁入骨架（第一个实例） — 被阻塞（4 天，起 2026-10-24）；关键路径</title><rect x="569.2" y="360.0" width="52.8" height="24.0" rx="5" fill="#64748b" stroke="#475569"/></g>
+<text class="bar-label outside" x="629.0" y="376.0">ASR 迁入骨架（第一个实例）</text>
+<g class="bar crit blocked" tabindex="0" data-node="p2a"><title>声明式差集求值 — 被阻塞（5 天，起 2026-10-28）；关键路径；替代 _store_audio_todo 硬编码</title><rect x="622.0" y="392.0" width="66.0" height="24.0" rx="5" fill="#64748b" stroke="#475569"/></g>
+<text class="bar-label outside" x="695.0" y="408.0">声明式差集求值</text>
+<g class="bar crit blocked" tabindex="0" data-node="p2b"><title>注册即跑通假想 loudness — 被阻塞（3 天，起 2026-11-02）；关键路径</title><rect x="688.0" y="424.0" width="39.6" height="24.0" rx="5" fill="#64748b" stroke="#475569"/></g>
+<text class="bar-label outside" x="734.6" y="440.0">注册即跑通假想 loudness</text>
+<g class="milestone" data-node="m-p1"><title>Phase 1 出口：重跑零重复行 — 2026-10-28</title><path d="M 622.0 459.5 L 630.5 468.0 L 622.0 476.5 L 613.5 468.0 Z" fill="#2563eb"/><text class="ms-label" x="635.0" y="471.5">Phase 1 出口：重跑零重复行</text></g>
+<g class="milestone" data-node="m-p2"><title>Phase 2 出口：不写新队列代码 — 2026-11-05</title><path d="M 727.6 491.5 L 736.1 500.0 L 727.6 508.5 L 719.1 500.0 Z" fill="#2563eb"/><text class="ms-label" x="740.6" y="503.5">Phase 2 出口：不写新队列代码</text></g>
+<g class="bar ready" tabindex="0" data-node="p4design"><title>proofread 谓词泛化设计 — 可开始（4 天，起 2026-10-04）；纯设计，不产生 schema，不受骨架阻塞</title><rect x="305.2" y="560.0" width="52.8" height="24.0" rx="5" fill="#2563eb" stroke="#1d4ed8"/></g>
+<text class="bar-label outside" x="365.0" y="576.0">proofread 谓词泛化设计</text>
+<g class="bar blocked" tabindex="0" data-node="p4a"><title>终态谓词定义机制 — 被阻塞（5 天，起 2026-10-28）</title><rect x="622.0" y="560.0" width="66.0" height="24.0" rx="5" fill="#64748b" stroke="#475569"/></g>
+<text class="bar-label outside" x="695.0" y="576.0">终态谓词定义机制</text>
+<g class="bar blocked" tabindex="0" data-node="p5b"><title>抽帧 + 场景切分处理器 — 被阻塞（5 天，起 2026-11-11）</title><rect x="806.8" y="560.0" width="66.0" height="24.0" rx="5" fill="#64748b" stroke="#475569"/></g>
+<text class="bar-label outside" x="879.8" y="576.0">抽帧 + 场景切分处理器</text>
+<g class="bar ready" tabindex="0" data-node="p5design"><title>画面 schema 草案 — 可开始（3 天，起 2026-10-04）；纯设计</title><rect x="305.2" y="592.0" width="39.6" height="24.0" rx="5" fill="#2563eb" stroke="#1d4ed8"/></g>
+<text class="bar-label outside" x="351.8" y="608.0">画面 schema 草案</text>
+<g class="bar blocked" tabindex="0" data-node="p4b"><title>派生分支追加 + 投影层切换 — 被阻塞（5 天，起 2026-11-02）</title><rect x="688.0" y="592.0" width="66.0" height="24.0" rx="5" fill="#64748b" stroke="#475569"/></g>
+<text class="bar-label outside" x="761.0" y="608.0">派生分支追加 + 投影层切换</text>
+<g class="bar blocked" tabindex="0" data-node="p5a"><title>video_objects / frame_objects — 被阻塞（4 天，起 2026-11-07）</title><rect x="754.0" y="624.0" width="52.8" height="24.0" rx="5" fill="#64748b" stroke="#475569"/></g>
+<text class="bar-label outside" x="813.8" y="640.0">video_objects / frame_objects</text>
+<g class="bar blocked" tabindex="0" data-node="p5c"><title>画面 OCR 与 ASR 对齐 — 被阻塞（6 天，起 2026-11-16）</title><rect x="872.8" y="656.0" width="79.2" height="24.0" rx="5" fill="#64748b" stroke="#475569"/></g>
+<text class="bar-label outside" x="959.0" y="672.0">画面 OCR 与 ASR 对齐</text>
+<g class="milestone" data-node="m-p4"><title>Phase 4 出口：&lt;0.75 自动出新分支 — 2026-11-07</title><path d="M 754.0 691.5 L 762.5 700.0 L 754.0 708.5 L 745.5 700.0 Z" fill="#7c3aed"/><text class="ms-label" x="767.0" y="703.5">Phase 4 出口：&lt;0.75 自动出新分支</text></g>
+<g class="milestone" data-node="m-p5"><title>画面与音频同一路径 — 2026-11-22</title><path d="M 952.0 723.5 L 960.5 732.0 L 952.0 740.5 L 943.5 732.0 Z" fill="#7c3aed"/><text class="ms-label" x="965.0" y="735.5">画面与音频同一路径</text></g>
+<g class="bar ready" tabindex="0" data-node="p6design"><title>评论有界观察边界设计 — 可开始（2 天，起 2026-10-04）；时间窗 / 条数封顶 / 采集频率</title><rect x="305.2" y="792.0" width="26.4" height="24.0" rx="5" fill="#2563eb" stroke="#1d4ed8"/></g>
+<text class="bar-label outside" x="338.6" y="808.0">评论有界观察边界设计</text>
+<g class="bar blocked" tabindex="0" data-node="p6a"><title>comments / comment_events 表 — 被阻塞（3 天，起 2026-10-28）</title><rect x="622.0" y="792.0" width="39.6" height="24.0" rx="5" fill="#64748b" stroke="#475569"/></g>
+<text class="bar-label outside" x="668.6" y="808.0">comments / comment_events 表</text>
+<g class="bar ready" tabindex="0" data-node="p7design"><title>关系类型清单 — 可开始（1 天，起 2026-10-04）；声明 / 派生 / 语料</title><rect x="305.2" y="824.0" width="13.2" height="24.0" rx="5" fill="#2563eb" stroke="#1d4ed8"/></g>
+<text class="bar-label outside" x="325.4" y="840.0">关系类型清单</text>
+<g class="bar blocked" tabindex="0" data-node="p6b"><title>有界观察采集器 — 被阻塞（4 天，起 2026-10-31）</title><rect x="661.6" y="824.0" width="52.8" height="24.0" rx="5" fill="#64748b" stroke="#475569"/></g>
+<text class="bar-label outside" x="721.4" y="840.0">有界观察采集器</text>
+<g class="bar blocked" tabindex="0" data-node="p7a"><title>转录相似度 / embedding 近邻 — 被阻塞（4 天，起 2026-11-04）</title><rect x="714.4" y="856.0" width="52.8" height="24.0" rx="5" fill="#64748b" stroke="#475569"/></g>
+<text class="bar-label outside" x="774.2" y="872.0">转录相似度 / embedding 近邻</text>
+<g class="bar blocked" tabindex="0" data-node="p7b"><title>关系带 processor 版本入库 — 被阻塞（5 天，起 2026-11-08）</title><rect x="767.2" y="888.0" width="66.0" height="24.0" rx="5" fill="#64748b" stroke="#475569"/></g>
+<text class="bar-label outside" x="840.2" y="904.0">关系带 processor 版本入库</text>
+<g class="milestone" data-node="m-p6"><title>评论进入同一派生管线 — 2026-11-04</title><path d="M 714.4 923.5 L 722.9 932.0 L 714.4 940.5 L 705.9 932.0 Z" fill="#059669"/><text class="ms-label" x="727.4" y="935.5">评论进入同一派生管线</text></g>
+<g class="milestone" data-node="m-p7"><title>关系可随算法重算 — 2026-11-13</title><path d="M 833.2 955.5 L 841.7 964.0 L 833.2 972.5 L 824.7 964.0 Z" fill="#059669"/><text class="ms-label" x="846.2" y="967.5">关系可随算法重算</text></g>
+<g class="bar crit blocked" tabindex="0" data-node="p3a"><title>响度 / 频谱 / 时长统计处理器 — 被阻塞（4 天，起 2026-11-05）；关键路径；现成库优先，血缘字段照记</title><rect x="727.6" y="1024.0" width="52.8" height="24.0" rx="5" fill="#64748b" stroke="#475569"/></g>
+<text class="bar-label outside" x="787.4" y="1040.0">响度 / 频谱 / 时长统计处理器</text>
+<g class="bar crit blocked" tabindex="0" data-node="p3b"><title>全库特征 artifact 带血缘入库 — 被阻塞（3 天，起 2026-11-09）；关键路径</title><rect x="780.4" y="1056.0" width="39.6" height="24.0" rx="5" fill="#64748b" stroke="#475569"/></g>
+<text class="bar-label outside" x="827.0" y="1072.0">全库特征 artifact 带血缘入库</text>
+<g class="milestone" data-node="m-p3"><title>抽象对多处理器成立 — 2026-11-12</title><path d="M 820.0 1091.5 L 828.5 1100.0 L 820.0 1108.5 L 811.5 1100.0 Z" fill="#d97706"/><text class="ms-label" x="833.0" y="1103.5">抽象对多处理器成立</text></g>
+<path class="gate" d="M 490.0 274.0 L 490.0 285.0 L 505.0 285.0 L 505.0 292.0 L 476.8 292.0 L 476.8 302.0"><title>成功与耗尽可证实 → processor_runs + 血缘 schema（硬门禁）</title></path>
+<path class="gate-arrow" d="M 473.2 297.4 L 476.8 302.0 L 480.4 297.4"><title>成功与耗尽可证实 → processor_runs + 血缘 schema（硬门禁）</title></path>
+<path class="gate" d="M 635.2 538.0 L 635.2 549.0 L 650.2 549.0 L 650.2 556.0 L 622.0 556.0 L 622.0 566.0"><title>Phase 1 出口：重跑零重复行 → 终态谓词定义机制（硬门禁）</title></path>
+<path class="gate-arrow" d="M 618.4 561.4 L 622.0 566.0 L 625.6 561.4"><title>Phase 1 出口：重跑零重复行 → 终态谓词定义机制（硬门禁）</title></path>
+<path class="gate" d="M 635.2 538.0 L 635.2 549.0 L 650.2 549.0 L 650.2 788.0 L 622.0 788.0 L 622.0 798.0"><title>Phase 1 出口：重跑零重复行 → comments / comment_events 表（硬门禁）</title></path>
+<path class="gate-arrow" d="M 618.4 793.4 L 622.0 798.0 L 625.6 793.4"><title>Phase 1 出口：重跑零重复行 → comments / comment_events 表（硬门禁）</title></path>
+<path class="gate" d="M 740.8 538.0 L 740.8 549.0 L 755.8 549.0 L 755.8 1020.0 L 727.6 1020.0 L 727.6 1030.0"><title>Phase 2 出口：不写新队列代码 → 响度 / 频谱 / 时长统计处理器（硬门禁）</title></path>
+<path class="gate-arrow" d="M 724.0 1025.4 L 727.6 1030.0 L 731.2 1025.4"><title>Phase 2 出口：不写新队列代码 → 响度 / 频谱 / 时长统计处理器（硬门禁）</title></path>
+<line class="today" x1="305.2" y1="58.0" x2="305.2" y2="1160.0"><title>今天 2026-10-04</title></line>
+<text class="today-label" x="310.2" y="38.0" text-anchor="start">today 2026-10-04</text>
+<rect class="crit-rail" x="476.8" y="1172.0" width="13.2" height="4" rx="2"/>
+<rect class="crit-rail" x="476.8" y="1172.0" width="52.8" height="4" rx="2"/>
+<rect class="crit-rail" x="529.6" y="1172.0" width="39.6" height="4" rx="2"/>
+<rect class="crit-rail" x="569.2" y="1172.0" width="52.8" height="4" rx="2"/>
+<rect class="crit-rail" x="622.0" y="1172.0" width="13.2" height="4" rx="2"/>
+<rect class="crit-rail" x="622.0" y="1172.0" width="66.0" height="4" rx="2"/>
+<rect class="crit-rail" x="688.0" y="1172.0" width="39.6" height="4" rx="2"/>
+<rect class="crit-rail" x="727.6" y="1172.0" width="13.2" height="4" rx="2"/>
+<rect class="crit-rail" x="727.6" y="1172.0" width="52.8" height="4" rx="2"/>
+<rect class="crit-rail" x="780.4" y="1172.0" width="39.6" height="4" rx="2"/>
+<rect class="crit-rail" x="820.0" y="1172.0" width="13.2" height="4" rx="2"/>
+<text class="foot" x="16" y="1177.0">关键路径</text>
+<text class="foot" x="841.2" y="1177.0">2026-11-13</text>
+</svg></div>
+
+  <h2>怎么读这张图</h2>
+  <ul class="notes">
+    <li><b>竖排是泳道，不是章节。</b>Mermaid 的 <code>section</code> 只是视觉分带，
+      无法表达「三条独立依赖链收敛到同一门禁」；这里每条泳道有自己的出口里程碑与依赖链。</li>
+    <li><b>菱形 = 该泳道出口。</b>达成日由依赖链推导，不是写死的日历承诺；
+      一条泳道可以有多个里程碑。</li>
+    <li><b>橙色虚线 = 硬门禁。</b>它由 <code>after</code> 边自动推导，
+      因此图与依赖数据不可能对不上。</li>
+    <li><b>Track B/C 现在就能开始的是设计，不是落地。</b>
+      <code>p4design</code> / <code>p5design</code> / <code>p6design</code> /
+      <code>p7design</code> 不产生 schema，因此不受骨架阻塞——这才是「并发探索」的准确含义。</li>
+    <li><b>Track B/C 之间无硬依赖。</b>结构上可并行；一人推进时仍建议串行，
+      因为注意力切换本身是成本。</li>
+    <li><b>底部红线表示关键路径的总跨度</b>，从 Phase 0.5 到 N=2 检验出口。</li>
+  </ul>
+
+  <h2>跨泳道硬门禁</h2>
+  <table>
+    <thead><tr><th>源</th><th>目标</th><th>跨泳道</th></tr></thead>
+    <tbody><tr><td><code>m-gate</code></td><td><code>p1a</code></td><td>Phase 0.5 — 证据层 → Track A — 骨架</td></tr><tr><td><code>m-p1</code></td><td><code>p4a</code></td><td>Track A — 骨架 → Track B — 内容</td></tr><tr><td><code>m-p1</code></td><td><code>p6a</code></td><td>Track A — 骨架 → Track C — 数据源</td></tr><tr><td><code>m-p2</code></td><td><code>p3a</code></td><td>Track A — 骨架 → N=2 检验</td></tr></tbody>
+  </table>
+
+  <h2>里程碑</h2>
+  <table>
+    <thead><tr><th>id</th><th>出口</th><th>泳道</th><th>达成日</th><th>关键路径</th></tr></thead>
+    <tbody><tr><td><code>m-gate</code></td><td>成功与耗尽可证实</td><td>Phase 0.5 — 证据层</td><td>2026-10-17</td><td>是</td></tr><tr><td><code>m-p1</code></td><td>Phase 1 出口：重跑零重复行</td><td>Track A — 骨架</td><td>2026-10-28</td><td>是</td></tr><tr><td><code>m-p2</code></td><td>Phase 2 出口：不写新队列代码</td><td>Track A — 骨架</td><td>2026-11-05</td><td>是</td></tr><tr><td><code>m-p4</code></td><td>Phase 4 出口：&lt;0.75 自动出新分支</td><td>Track B — 内容</td><td>2026-11-07</td><td>—</td></tr><tr><td><code>m-p5</code></td><td>画面与音频同一路径</td><td>Track B — 内容</td><td>2026-11-22</td><td>—</td></tr><tr><td><code>m-p6</code></td><td>评论进入同一派生管线</td><td>Track C — 数据源</td><td>2026-11-04</td><td>—</td></tr><tr><td><code>m-p7</code></td><td>关系可随算法重算</td><td>Track C — 数据源</td><td>2026-11-13</td><td>—</td></tr><tr><td><code>m-p3</code></td><td>抽象对多处理器成立</td><td>N=2 检验</td><td>2026-11-12</td><td>是</td></tr></tbody>
+  </table>
+
+  <h2>任务台账</h2>
+  <table>
+    <thead><tr><th>id</th><th>名称</th><th>泳道</th><th>类型</th><th>起</th>
+      <th>天</th><th>状态</th><th>备注</th></tr></thead>
+    <tbody><tr><td><code>p05ed</code></td><td>editorial-stages 裁决</td><td>Phase 0.5 — 证据层</td><td>task</td><td>2026-10-04</td><td>2</td><td>可开始</td><td>parked 两周；close 或恢复为 Phase 4 输入，二选一</td></tr><tr><td><code>p05fix</code></td><td>snapshot 写并发缺陷族</td><td>Phase 0.5 — 证据层</td><td>task</td><td>2026-10-04</td><td>4</td><td>进行中</td><td>I-000190 / I-000195 / I-000207</td></tr><tr><td><code>p4design</code></td><td>proofread 谓词泛化设计</td><td>Track B — 内容</td><td>task</td><td>2026-10-04</td><td>4</td><td>可开始</td><td>纯设计，不产生 schema，不受骨架阻塞</td></tr><tr><td><code>p5design</code></td><td>画面 schema 草案</td><td>Track B — 内容</td><td>task</td><td>2026-10-04</td><td>3</td><td>可开始</td><td>纯设计</td></tr><tr><td><code>p6design</code></td><td>评论有界观察边界设计</td><td>Track C — 数据源</td><td>task</td><td>2026-10-04</td><td>2</td><td>可开始</td><td>时间窗 / 条数封顶 / 采集频率</td></tr><tr><td><code>p7design</code></td><td>关系类型清单</td><td>Track C — 数据源</td><td>task</td><td>2026-10-04</td><td>1</td><td>可开始</td><td>声明 / 派生 / 语料</td></tr><tr><td><code>p05a</code></td><td>caption-exhaustion-attestation</td><td>Phase 0.5 — 证据层</td><td>task</td><td>2026-10-08</td><td>4</td><td>进行中</td><td>已合并 ff11351 · PR #212；此行保留取证轨迹</td></tr><tr><td><code>p05b</code></td><td>asr-coverage-attestation</td><td>Phase 0.5 — 证据层</td><td>task</td><td>2026-10-12</td><td>5</td><td>被阻塞</td><td>I-000188 · 待操作者放行（D12 / I-000201）</td></tr><tr><td><code>m-gate</code></td><td>成功与耗尽可证实</td><td>Phase 0.5 — 证据层</td><td>milestone</td><td>2026-10-17</td><td>—</td><td>被阻塞</td><td></td></tr><tr><td><code>p1a</code></td><td>processor_runs + 血缘 schema</td><td>Track A — 骨架</td><td>task</td><td>2026-10-17</td><td>4</td><td>被阻塞</td><td>扩展 acquisition_runs，不建平行表</td></tr><tr><td><code>p1b</code></td><td>处理器注册表 name@version</td><td>Track A — 骨架</td><td>task</td><td>2026-10-21</td><td>3</td><td>被阻塞</td><td></td></tr><tr><td><code>p1c</code></td><td>ASR 迁入骨架（第一个实例）</td><td>Track A — 骨架</td><td>task</td><td>2026-10-24</td><td>4</td><td>被阻塞</td><td></td></tr><tr><td><code>m-p1</code></td><td>Phase 1 出口：重跑零重复行</td><td>Track A — 骨架</td><td>milestone</td><td>2026-10-28</td><td>—</td><td>被阻塞</td><td></td></tr><tr><td><code>p2a</code></td><td>声明式差集求值</td><td>Track A — 骨架</td><td>task</td><td>2026-10-28</td><td>5</td><td>被阻塞</td><td>替代 _store_audio_todo 硬编码</td></tr><tr><td><code>p4a</code></td><td>终态谓词定义机制</td><td>Track B — 内容</td><td>task</td><td>2026-10-28</td><td>5</td><td>被阻塞</td><td></td></tr><tr><td><code>p6a</code></td><td>comments / comment_events 表</td><td>Track C — 数据源</td><td>task</td><td>2026-10-28</td><td>3</td><td>被阻塞</td><td></td></tr><tr><td><code>p6b</code></td><td>有界观察采集器</td><td>Track C — 数据源</td><td>task</td><td>2026-10-31</td><td>4</td><td>被阻塞</td><td></td></tr><tr><td><code>p2b</code></td><td>注册即跑通假想 loudness</td><td>Track A — 骨架</td><td>task</td><td>2026-11-02</td><td>3</td><td>被阻塞</td><td></td></tr><tr><td><code>p4b</code></td><td>派生分支追加 + 投影层切换</td><td>Track B — 内容</td><td>task</td><td>2026-11-02</td><td>5</td><td>被阻塞</td><td></td></tr><tr><td><code>m-p6</code></td><td>评论进入同一派生管线</td><td>Track C — 数据源</td><td>milestone</td><td>2026-11-04</td><td>—</td><td>被阻塞</td><td></td></tr><tr><td><code>p7a</code></td><td>转录相似度 / embedding 近邻</td><td>Track C — 数据源</td><td>task</td><td>2026-11-04</td><td>4</td><td>被阻塞</td><td></td></tr><tr><td><code>m-p2</code></td><td>Phase 2 出口：不写新队列代码</td><td>Track A — 骨架</td><td>milestone</td><td>2026-11-05</td><td>—</td><td>被阻塞</td><td></td></tr><tr><td><code>p3a</code></td><td>响度 / 频谱 / 时长统计处理器</td><td>N=2 检验</td><td>task</td><td>2026-11-05</td><td>4</td><td>被阻塞</td><td>现成库优先，血缘字段照记</td></tr><tr><td><code>m-p4</code></td><td>Phase 4 出口：&lt;0.75 自动出新分支</td><td>Track B — 内容</td><td>milestone</td><td>2026-11-07</td><td>—</td><td>被阻塞</td><td></td></tr><tr><td><code>p5a</code></td><td>video_objects / frame_objects</td><td>Track B — 内容</td><td>task</td><td>2026-11-07</td><td>4</td><td>被阻塞</td><td></td></tr><tr><td><code>p7b</code></td><td>关系带 processor 版本入库</td><td>Track C — 数据源</td><td>task</td><td>2026-11-08</td><td>5</td><td>被阻塞</td><td></td></tr><tr><td><code>p3b</code></td><td>全库特征 artifact 带血缘入库</td><td>N=2 检验</td><td>task</td><td>2026-11-09</td><td>3</td><td>被阻塞</td><td></td></tr><tr><td><code>p5b</code></td><td>抽帧 + 场景切分处理器</td><td>Track B — 内容</td><td>task</td><td>2026-11-11</td><td>5</td><td>被阻塞</td><td></td></tr><tr><td><code>m-p3</code></td><td>抽象对多处理器成立</td><td>N=2 检验</td><td>milestone</td><td>2026-11-12</td><td>—</td><td>被阻塞</td><td></td></tr><tr><td><code>m-p7</code></td><td>关系可随算法重算</td><td>Track C — 数据源</td><td>milestone</td><td>2026-11-13</td><td>—</td><td>被阻塞</td><td></td></tr><tr><td><code>p5c</code></td><td>画面 OCR 与 ASR 对齐</td><td>Track B — 内容</td><td>task</td><td>2026-11-16</td><td>6</td><td>被阻塞</td><td></td></tr><tr><td><code>m-p5</code></td><td>画面与音频同一路径</td><td>Track B — 内容</td><td>milestone</td><td>2026-11-22</td><td>—</td><td>被阻塞</td><td></td></tr></tbody>
+  </table>
+</main>
+<script>
+(function(){
+  var root=document.documentElement;
+  function theme(t){
+    root.setAttribute('data-theme',t);
+    try{localStorage.setItem('roadmap-theme',t)}catch(e){}
+    document.getElementById('theme').textContent=(t==='dark')?'浅色':'深色';
+  }
+  var s=null;try{s=localStorage.getItem('roadmap-theme')}catch(e){}
+  theme(s||(matchMedia('(prefers-color-scheme: light)').matches?'light':'dark'));
+  document.getElementById('theme').onclick=function(){
+    theme(root.getAttribute('data-theme')==='dark'?'light':'dark');
+  };
+  function tog(id,cls){
+    var b=document.getElementById(id);
+    b.onclick=function(){
+      var on=document.body.classList.toggle(cls);
+      b.setAttribute('aria-pressed',on?'true':'false');
+    };
+  }
+  tog('blocked','dim-blocked');
+  tog('crit','focus-crit');
+  document.getElementById('print').onclick=function(){window.print()};
+  var z=1;
+  document.getElementById('zoom').onclick=function(){
+    document.body.classList.remove('zoom2','zoom3');
+    z=z===1?2:(z===2?3:1);
+    if(z>1)document.body.classList.add('zoom'+z);
+    this.textContent='缩放 '+z+'×';
+  };
+})();
+</script>
+</body>
+</html>

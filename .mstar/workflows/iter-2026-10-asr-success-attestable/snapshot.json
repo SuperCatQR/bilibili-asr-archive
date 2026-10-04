@@ -44,5 +44,6 @@
     }
   ],
   "project": "_default",
-  "integration_worktree_path": "/root/workspace/bilibili-asr-archive/.worktrees/iter-2026-10-asr-success-attestable-integration"
+  "integration_worktree_path": "/root/workspace/bilibili-asr-archive/.worktrees/iter-2026-10-asr-success-attestable-integration",
+  "ended_at": "2026-10-03T23:59:44Z"
 }
