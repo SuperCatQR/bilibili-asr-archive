@@ -180,6 +180,63 @@ a new row would need the same channel**. The gap, one paragraph — note it is n
 > without requiring a *live* workflow. It belongs **upstream** in `@mstar-harness/cli`; it is not repo code and
 > is not attempted here. It does **not** gate the audit's closures.
 
+## The lifecycle's own completion ceremony, and where this repository wedges
+
+A registered lifecycle is not free: it must eventually be taken to a recorded completion, or it sits
+`running` forever. The ceremony, each step measured on engine 3.11.2 against scratch harnesses:
+
+| Step | Verb | Notes |
+|---|---|---|
+| 1 | `workflow register --delivery-kind verification/report-only --completion-policy <text>` | snapshot is `running` |
+| 2 | `plan bind --coordinator --session-id <id>` | the engine writes the envelope |
+| 3 | `plan prepare --assignment <abs> --file <abs plan> --expect 0` | the Assignment needs ten exact headers |
+| 4 | `plan bind --workflow <id> --plan <plan> --session-id <id>` | plan-pm seat; `handoff` becomes an allowed operation |
+| 5 | `plan handoff --file <evidence> --expect <rev>` | evidence takes **path strings**, not `{path, sha256}` |
+| 6 | `plan accept --handoff <id> --expect <rev>` | coordinator accepts; row must be `InReview` |
+| 7 | `workflow evidence --file <json> --session <coordinator>` | the report-only fulfilment record (`delivery.completion`) |
+| 8 | `plan complete --handoff <id> --expect <rev>` | row → `Done` |
+| 9 | `status workflow-close --session <coordinator> --ended-at <date>` | workflow terminal + unregistered |
+
+**Proven clean end-to-end** on `/root/tmp-work/scratch/end4`: after step 9 the snapshot read
+`status: completed`, the row `Done`, and `status.json`'s `workflows[]` was empty — no debris.
+
+### The two conditions the ceremony imposes on the plan worktree
+
+`assertFeatureCheckout` requires the worktree named by the Assignment to be **clean** and at **exactly the
+handed-off `source_sha`**. Two measured consequences:
+
+- **`plan handoff` and `plan accept` do not run with the control root as the plan worktree.** Steps 5–8 each
+  commit a snapshot write into `<control root>/.mstar/workflows/<id>/snapshot.json`, which is a *tracked*
+  path; the next step then sees the worktree dirty, or clean but at a HEAD that has moved past the pinned
+  `source_sha`. Measured on the second attempt against the control root: handoff first refuses
+  `coordination.git-proof — … has uncommitted changes`, and after that write is committed it refuses
+  `… HEAD to be the pinned source <sha> — … is at <newer sha>`. The two are mutually unsatisfiable in one
+  worktree.
+- **The plan worktree must therefore be a separate feature worktree.** With the Assignment declaring
+  `/…/.worktrees/<name>`, the engine's snapshot writes land in the control root and never touch the validated
+  worktree; steps 5–8 then pass in sequence, and a feature worktree whose HEAD is committed once before step 5
+  satisfies the pin for the whole ceremony. This is also the shape the harness's own branch model describes
+  (control root + per-plan worktree).
+
+**Where this repository wedged, stated plainly.** The audit-closure lifecycle
+(`workflows/20261004-issue-register-audit`) was registered and *prepared with the control root as its plan
+worktree*. Its handoff was submitted, then returned, and the row now sits `InProgress`. It cannot be
+re-prepared: `assertPrepareAdmission` refuses while `coordination.prepared` and `coordination.handoff` are
+both populated (`coordination.prepare-already-prepared`, `coordination.prepare-handoff-active`), and
+`plan progress` offers no path to `Done`. **No repair was attempted by editing the snapshot** — that is
+exactly the by-hand mutation this spec exists to route around. Two sanctioned exits remain for the operator:
+
+- **Retire it with the same verbs**, after re-registering the work under a lifecycle whose Assignment names a
+  feature worktree (the recipe above), and leaving this one as the recorded instance of the wedge; or
+- **Leave it `running`.** It holds a valid coordinator envelope, so further register-only closures can still
+  be applied through `issue close` while it lives (`I-000186`'s own subject). Nothing about the 52 applied
+  closures depends on it: they are rows in the store, written with `imported = 0`.
+
+The engine-side gap, narrowed to one sentence: **there is no sanctioned way to re-point or abandon a prepared
+Assignment, so an Assignment that names the wrong worktree wedges its plan permanently.** The repair belongs
+upstream alongside the convenience route above — an `abandon`/`re-prepare` seam for a plan whose row has
+advanced no further than `InProgress`. It is not repo code and is not attempted here.
+
 ## Evidence log
 
 | Check | Command / path | Result (2026-10-04) |
