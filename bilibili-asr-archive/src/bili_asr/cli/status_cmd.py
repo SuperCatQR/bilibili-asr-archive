@@ -269,7 +269,8 @@ def _cmd_coverage_quality(args: argparse.Namespace) -> int:
             # gate.  Genuine corruption on such a row still counts: a present but
             # malformed artifact, or an unreadable/oversized one, is damage on any
             # status and `verify` flags it too.
-            if set(result.reasons) - _BACKLOG_REASONS or result.diagnostics:
+            if (set(result.reasons) - _BACKLOG_REASONS
+                    or set(result.diagnostics) - _BACKLOG_DIAGNOSTICS):
                 has_defects = True
                 has_defect_rows = True
         else:
@@ -283,7 +284,7 @@ def _cmd_coverage_quality(args: argparse.Namespace) -> int:
             # must not hide behind the row's status.
             if not (
                 str(result.status) in _BACKLOG_STATUSES
-                and not result.diagnostics
+                and not (set(result.diagnostics) - _BACKLOG_DIAGNOSTICS)
                 and set(result.reasons) <= _BACKLOG_REASONS
             ):
                 has_defect_rows = True
@@ -322,6 +323,12 @@ def _cmd_coverage_quality(args: argparse.Namespace) -> int:
                 "reference": agreement.compared_chars[1],
             },
         }
+        if agreement.method == "windowed":
+            quality_data["reference"].update({
+                "method": agreement.method,
+                "total_chars": agreement.total_chars,
+                "windows": agreement.windows,
+            })
 
     if args.format == "json":
         sys.stdout.write(
@@ -408,7 +415,7 @@ def _cmd_coverage_quality(args: argparse.Namespace) -> int:
                 f"coverage: reference agreement {agreement.agreement:.4f} "
                 f"against {agreement.reference} "
                 f"({agreement.compared_chars[0]} vs "
-                f"{agreement.compared_chars[1]} chars, floor {agreement.floor})",
+                f"{agreement.compared_chars[1]} chars, {agreement.method}, floor {agreement.floor})",
                 file=sys.stderr,
             )
 
@@ -416,7 +423,10 @@ def _cmd_coverage_quality(args: argparse.Namespace) -> int:
         # Pre-cutover gate (contract §2): any finding of either class.
         return 1 if (diagnostic_rows or has_defects) else 0
     # Default gate (contract §2): defect-class rows and diagnostics only.
-    return 1 if (diagnostic_rows or has_defect_rows) else 0
+    defect_diagnostics = [
+        row for row in diagnostic_rows if row["code"] not in _BACKLOG_DIAGNOSTICS
+    ]
+    return 1 if (defect_diagnostics or has_defect_rows) else 0
 
 
 def _cmd_coverage(args: argparse.Namespace) -> int:

@@ -14,7 +14,7 @@ from typing import Mapping, NamedTuple
 from .archive import LOW_CONFIDENCE, bundle_paths_for_stem
 from .artifact_root import ArtifactRoots
 from .asr import _FORBIDDEN_PROVENANCE as _FORBIDDEN_MARKER
-from .cues import read_cues as _read_shared_cues
+from .cues import CueParseError, read_cues as _read_shared_cues
 from .page_identity import canonical_stem
 
 #: Reasons that describe a structural defect: an artifact is missing, unreadable,
@@ -105,24 +105,8 @@ _NGRAM_MIN_REPEATS = 3
 _NGRAM_MAX_CHARS = 200_000
 _MAX_BYTES = 8 * 1024 * 1024
 _MAX_CUES = 10_000
-#: How much flattened text either transcript may hold before the comparison is
-#: refused.  ``_MAX_BYTES`` bounds the reference's *bytes*, which is not the
-#: same thing as the *work* of comparing them: with ``autojunk`` off — the
-#: setting that keeps recorded ratios comparable, so it is not negotiable — a
-#: pair of long, near-identical, low-entropy strings, which is exactly what two
-#: transcripts of the same audio are, costs super-linearly.  Measured on this
-#: host by tiling real transcript text to length and injecting 2–20 % edits:
-#: 4 000 characters per side ≈ 6 s, 8 000 ≈ 53 s, 12 000 ≈ 136 s, 16 000 ≈ 323 s
-#: (worst cases), while 10 000 ≈ 6 s and 20 000 ≈ 37 s on the same generator.
-#: The byte cap alone admits ~2.7 M characters per side, i.e. hours of CPU with
-#: no output; this bound caps the work at tens of seconds worst case.
-#: Real transcripts are far smaller: the recorded 448 s probe flattens to 2 098
-#: characters per side (~280 per minute of audio), so the longest row in this
-#: archive (1 115 s) is ≈5 200 and this bound covers ≈70 minutes of audio — every
-#: real comparison here, with several times the headroom.  The trade-off is
-#: deliberate and stated: a near-identical pair of *very* long transcripts is
-#: refused rather than measured, because a ratio nobody can wait for is not a
-#: measurement, and the refusal is loud (stderr + exit 1), never silent.
+#: Maximum flattened characters per side for an exact full comparison.
+#: Longer transcripts use bounded samples; see _compare_reference.
 _MAX_COMPARE_CHARS = 20_000
 #: Credential-like words as they can appear in a *file name*.  A marker's
 #: trailing ``\b`` cannot end the match after an underscore (``_`` is a word
@@ -177,6 +161,9 @@ class ReferenceAgreement(NamedTuple):
     agreement: float
     floor: float
     compared_chars: tuple[int, int]
+    method: str = "full"
+    total_chars: tuple[int, int] | None = None
+    windows: tuple[tuple[int, int, int, int], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -306,18 +293,26 @@ class QualityAnalyzer:
                     diagnostics.add("file_too_large")
                     continue
                 text = path.read_text(encoding="utf-8")
-                cues, malformed, empty = _read_cues(path, text)
+                cues, malformed, empty = _read_shared_cues(
+                    path, text, require_source="asr" if row.get("source") == "asr" else None
+                )
+            except CueParseError:
+                reasons.add("malformed")
+                diagnostics.add("source_mismatch")
+                continue
             except (OSError, UnicodeError):
                 reasons.add("malformed")
                 diagnostics.add("unreadable")
                 continue
             valid_artifacts += 1
-            cue_count = min(_MAX_CUES, cue_count + len(cues))
+            # SRT and raw are representations of the same transcript. Count
+            # cues from the preferred comparable artifact once, not per file.
             rank = _transcript_rank(path, cues)
             if rank > transcript_rank:
                 candidate = comparable_text(text, cues)
                 if candidate:
                     transcript, transcript_rank = candidate, rank
+                    cue_count = len(cues)
             if malformed:
                 reasons.add("malformed")
             if empty:
@@ -581,14 +576,11 @@ def _compare_reference(
     comparable text: that is the row's own defect (``empty``/``artifact_missing``
     already reports it), not a fault of the supplied reference.
 
-    ``_MAX_BYTES`` bounds the reference's bytes but not the *work* of comparing
-    it, so the flattened pair is bounded too.  A pair whose flattened text
-    exceeds :data:`_MAX_COMPARE_CHARS` per side is refused rather than compared:
-    with ``autojunk`` off, a long low-entropy pair costs minutes to hours, and a
-    ratio nobody can wait for is not a measurement.  The refusal reuses the
-    reference path's own diagnostic — stderr plus exit 1, never a silent no-op —
-    and names the side that tripped it, since either transcript can be the large
-    one.
+    Short pairs retain the full comparison. Longer pairs sample at most ten
+    evenly spaced 2000-character windows per side, recording their offsets and
+    the full lengths. The mean window agreement is weighted by the ratio of
+    the two full lengths, so a tiny matching prefix cannot attest a long row.
+    This is a sampled comparison; it cannot detect changes between windows.
     """
 
     try:
@@ -611,14 +603,26 @@ def _compare_reference(
         raise ReferenceUnavailable("reference has no comparable text")
     if not transcript:
         return None
-    # The bound is checked per side and named for the side it caught: a row's
-    # own flattened text is bounded separately (``_MAX_CUES`` caps cues, not the
-    # ``.txt`` arm), so blaming the reference for a large row would send the
-    # operator after the wrong file.
-    if len(theirs) > _MAX_COMPARE_CHARS:
-        raise ReferenceUnavailable("reference too large to compare")
-    if len(transcript) > _MAX_COMPARE_CHARS:
-        raise ReferenceUnavailable("transcript too large to compare")
+    lengths = (len(transcript), len(theirs))
+    if max(lengths) > _MAX_COMPARE_CHARS:
+        width = min(2000, min(lengths))
+        count = min(10, max(1, min(lengths) // width))
+        windows = []
+        scores = []
+        for index in range(count):
+            position = index / (count - 1) if count > 1 else 0.5
+            left = round((len(transcript) - width) * position)
+            right = round((len(theirs) - width) * position)
+            windows.append((left, left + width, right, right + width))
+            scores.append(difflib.SequenceMatcher(
+                None, transcript[left:left + width], theirs[right:right + width],
+                autojunk=False,
+            ).ratio())
+        ratio = sum(scores) / count * (2 * min(lengths) / sum(lengths))
+        return ReferenceAgreement(
+            reference_basename(reference), ratio, REFERENCE_AGREEMENT_FLOOR,
+            (count * width, count * width), "windowed", lengths, tuple(windows),
+        )
     ratio = difflib.SequenceMatcher(
         None, transcript, theirs, autojunk=False
     ).ratio()

@@ -26,6 +26,7 @@ from typing import Any
 from bili_asr.storage import MediaQueueRepository, QueueGapItem
 from bili_asr.storage.database import open_database
 from bili_asr.diagnostics import write_stderr
+from bili_asr.formatting import pubdate_utc
 from . import _common
 
 #: The deprecation line printed once to stderr when the operator pins the
@@ -97,7 +98,7 @@ def entry_for_item(item: QueueGapItem) -> dict[str, Any]:
         "title": item.video_title,
         "duration_s": _duration_s_from_ms(item.duration_ms),
         "pubdate": item.pubdate,
-        "pubdate_str": time.strftime("%Y-%m-%d", time.gmtime(item.pubdate)),
+        "pubdate_str": pubdate_utc(item.pubdate),
         "video_title": item.video_title,
     }
 

@@ -32,7 +32,7 @@ one (reading the manifest *into* the store), and the store connection is opened
 from __future__ import annotations
 
 from dataclasses import dataclass
-import time
+from bili_asr.formatting import pubdate_utc
 from typing import Any, Mapping, Sequence
 
 from bili_asr.page_identity import format_work_id
@@ -92,7 +92,7 @@ def row_for_part(part: Mapping[str, Any], pubdate: int) -> dict[str, Any]:
         "title": part["part_title"],
         "duration_s": duration_s_from_ms(part["duration_ms"]),
         "pubdate": pubdate,
-        "pubdate_str": time.strftime("%Y-%m-%d", time.gmtime(pubdate)),
+        "pubdate_str": pubdate_utc(pubdate),
         "status": QUEUE_STATUS,
     }
 
@@ -147,6 +147,13 @@ def derive_rows(
             identity_mismatch.append(stored_work_id)
             continue
         held = existing.get(candidate["work_id"])
+        legacy = existing.get(candidate["bvid"])
+        if held is None and legacy is not None:
+            # A video-level archive has no page attribution. Preserve that
+            # ownership and avoid paying again until the operator resolves it.
+            if legacy.get("status") in {"archived", "subtitle_done", "gone"}:
+                chain_owned.append(candidate["work_id"])
+                continue
         if held is None:
             appended.append(candidate)
         elif held.get("status") == QUEUE_STATUS:

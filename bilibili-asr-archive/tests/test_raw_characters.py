@@ -408,7 +408,7 @@ def test_a_real_transcription_reaches_the_published_raw(tmp_root, monkeypatch) -
 
     runner = asr.ASRRunner(asr.ASRConfig(model_name="Qwen/Qwen3-ASR-1.7B-hf", device="cpu"))
     monkeypatch.setattr(runner, "_get_models", lambda: object())
-    monkeypatch.setattr(runner, "_transcribe_chunk", lambda models, path: (text, "Chinese"))
+    monkeypatch.setattr(runner, "_transcribe_chunk", lambda models, path, **kwargs: (text, "Chinese"))
     monkeypatch.setattr(runner, "_align_chunk", lambda models, path, chunk_text, language: units)
 
     assert runner.characters() is None, "no run yet: the record is not invented"

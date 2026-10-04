@@ -1425,14 +1425,11 @@ class TranscriptSearchIndex:
             }
             for part in self._published_md_candidates(conn, stamped_part_ids):
                 part_id = int(part["video_part_id"])
-                if part_id in stamped_part_ids:
-                    continue
                 text = self._published_md_text_for(
                     str(part["bvid"]), int(part["page_index"])
                 )
                 if not text:
                     continue
-                stamped_part_ids.add(part_id)
                 text = _redact_text(text)
                 pending.append(
                     (

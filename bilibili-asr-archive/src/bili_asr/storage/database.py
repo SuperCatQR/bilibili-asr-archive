@@ -2143,6 +2143,14 @@ class MediaQueueRepository:
         part's gap membership changes because that row exists, not because any
         status column is rewritten.
         """
+        bvid = _text(bvid, "bvid")
+        page_index = _integer(page_index, "page_index", minimum=0)
+        run_id = _text(run_id, "run_id")
+        transcript_id = _integer(transcript_id, "transcript_id", minimum=1)
+        started_at = _integer(started_at, "started_at", minimum=0)
+        finished_at = _integer(finished_at, "finished_at", minimum=0)
+        if finished_at < started_at:
+            raise ValueError("finished_at must not precede started_at")
         part = self.connection.execute(
             "SELECT video_part_id FROM video_parts WHERE bvid = ? AND page_index = ?",
             (bvid, page_index),
@@ -2152,13 +2160,6 @@ class MediaQueueRepository:
                 f"unknown video part: bvid={bvid!r}, page_index={page_index!r}"
             )
         video_part_id = int(part["video_part_id"])
-
-        run_id = _text(run_id, "run_id")
-        transcript_id = _integer(transcript_id, "transcript_id", minimum=1)
-        started_at = _integer(started_at, "started_at", minimum=0)
-        finished_at = _integer(finished_at, "finished_at", minimum=0)
-        if finished_at < started_at:
-            raise ValueError("finished_at must not precede started_at")
 
         transcript = self.connection.execute(
             "SELECT video_part_id FROM transcripts WHERE transcript_id = ?",

@@ -605,6 +605,9 @@ def build_sidebyside(
     parameters *move reads*, they do not create a second output location.
     """
 
+    for label, value in (("asr-root", asr_root), ("caption-root", caption_root)):
+        if value is not None and not os.fspath(value).strip():
+            raise ProofreadRouteError(f"{label} must name a non-empty directory")
     archive_root_path = Path(archive_root)
     artifact_root_path = Path(artifact_root)
     work_id = f"{bvid}:p{part}"

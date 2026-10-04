@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any
 import os
 import sys
-import time
+from bili_asr.formatting import pubdate_utc
 
 from bili_asr.cli._shared import (
     DEFAULT_ARCHIVE_ROOT,
@@ -166,9 +166,7 @@ def _cmd_publish_transcripts(args: argparse.Namespace) -> int:
                     "title": part["part_title"],
                     "video_title": part["video_title"],
                     "duration_s": duration_s_from_ms(part["duration_ms"]),
-                    "pubdate_str": time.strftime(
-                        "%Y-%m-%d", time.gmtime(part["pubdate"])
-                    ),
+                    "pubdate_str": pubdate_utc(part["pubdate"]),
                 }
                 try:
                     written = archive.write_archive(

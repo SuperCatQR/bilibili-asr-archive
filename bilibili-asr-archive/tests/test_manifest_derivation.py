@@ -134,9 +134,9 @@ def test_the_rendered_day_is_utc_regardless_of_the_runners_zone(monkeypatch):
     """
     utc_day = time.struct_time((1970, 1, 1, 23, 59, 59, 3, 1, 0))
     local_day = time.struct_time((1970, 1, 2, 7, 59, 59, 4, 2, 0))
-    monkeypatch.setattr(manifest_derivation.time, "gmtime", lambda _epoch: utc_day)
+    monkeypatch.setattr("bili_asr.formatting.time.gmtime", lambda _epoch: utc_day)
     monkeypatch.setattr(
-        manifest_derivation.time, "localtime", lambda _epoch: local_day
+        "bili_asr.formatting.time.localtime", lambda _epoch: local_day
     )
 
     row = row_for_part(_part(), PUBDATE_UTC_DAY_EDGE)

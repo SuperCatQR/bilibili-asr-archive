@@ -29,7 +29,7 @@ _BUNDLE_BASENAMES = {
     "md_path": "bundle.md",
     "raw_path": "bundle.raw.json",
 }
-_REQUIRED_ARTIFACT_KEYS = ("srt_path", "txt_path", "md_path", "raw_path")
+from .artifacts import REQUIRED_ARTIFACT_KEYS as _REQUIRED_ARTIFACT_KEYS
 _MARKER_MAX_BYTES = 8192
 _BUNDLE_LOCKS: dict[str, threading.RLock] = {}
 _BUNDLE_LOCKS_GUARD = threading.Lock()
@@ -673,6 +673,6 @@ def write_archive(archive_root: str | os.PathLike[str], entry: dict[str, Any], s
     if block:
         raw["characters"] = block
         raw["schema"] = "archive-raw-v2"
-    contents = {"srt_path": segments_to_srt(segments).encode(), "txt_path": (segments_to_txt(segments) + "\n").encode(), "md_path": md, "raw_path": (json.dumps(raw, ensure_ascii=False, indent=2) + "\n").encode()}
+    contents = {"srt_path": segments_to_srt(segments).encode(), "txt_path": (segments_to_txt(segments) + "\n").encode(), "md_path": md, "raw_path": (json.dumps(raw, ensure_ascii=False, separators=(",", ":")) + "\n").encode()}
     _publish_bundle(root, finals, contents)
     return {key: os.path.relpath(path, root) for key, path in finals.items()}

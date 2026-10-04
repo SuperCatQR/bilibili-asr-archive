@@ -148,7 +148,7 @@ def test_write_archive_canonical_outputs_pass_quality_analysis(
     result = QualityAnalyzer().analyze(entry, tmp_path)
     assert result.reasons == ()
     assert result.artifact_count == 4
-    assert result.cue_count == 2
+    assert result.cue_count == 1
 
 
 def test_json_timestamp_anomalies_and_non_finite_values(tmp_path: Path) -> None:
@@ -574,7 +574,7 @@ def test_recorded_cue_fixture_yields_the_two_advisory_reasons(
     assert result.content_reasons == ("low_confidence", "overlong_cue")
     # the 95-cue stream is counted once per cue-bearing artifact (srt + raw)
     assert result.artifact_count == 4
-    assert result.cue_count == 2 * len(recorded_cues)
+    assert result.cue_count == len(recorded_cues)
     assert sum(1 for cue in recorded_cues if cue["confidence"] <= LOW_CONFIDENCE) == 1
     assert sum(1 for cue in recorded_cues if len(cue["text"]) > OVERLONG_CHARS) == 2
     # the shape layer is untouched: the cue fixture keeps the shaper's invariants
@@ -613,7 +613,7 @@ def test_recorded_cue_fixture_still_exits_zero(
     assert exit_code == 0
     payload = json.loads(capsys.readouterr().out)
     assert payload["summary"]["valid_work_items"] == 1
-    assert payload["summary"]["total_cues"] == 2 * len(recorded_cues)
+    assert payload["summary"]["total_cues"] == len(recorded_cues)
     # The row's projected reason list now carries the two advisory content
     # reasons — asserted per class, so a defect leaking into the projection
     # (or a content reason going missing) fails here rather than passing on an
@@ -778,7 +778,7 @@ def test_reference_oversized_is_refused(tmp_path: Path) -> None:
     assert exc.value.reason == "reference too large"
 
 
-def test_reference_beyond_the_comparison_bound_is_refused(tmp_path: Path) -> None:
+def test_reference_beyond_the_full_comparison_bound_is_sampled(tmp_path: Path) -> None:
     """``_MAX_BYTES`` bounds bytes, not work: the flattened pair is bounded too.
 
     With ``autojunk`` off this pair costs super-linear time — at the measured
@@ -794,9 +794,10 @@ def test_reference_beyond_the_comparison_bound_is_refused(tmp_path: Path) -> Non
     reference = tmp_path / "second.txt"
     reference.write_text(body, encoding="utf-8")
 
-    with pytest.raises(ReferenceUnavailable) as exc:
-        QualityAnalyzer().analyze(row(srt_path=relative), tmp_path, reference)
-    assert exc.value.reason == "reference too large to compare"
+    result = QualityAnalyzer().analyze(row(srt_path=relative), tmp_path, reference)
+    assert result.reference.method == "windowed"
+    assert result.reference.total_chars[1] == len(quality.flatten_reference(body))
+    assert result.reference.compared_chars[1] <= quality._MAX_COMPARE_CHARS
 
 
 def test_reference_comparison_at_the_bound_is_still_measured(tmp_path: Path) -> None:

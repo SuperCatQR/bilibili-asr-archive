@@ -106,6 +106,8 @@ def read_cues(
             document = json.loads(text)
         except (ValueError, TypeError):
             return [], True, False
+        if require_source is not None and not isinstance(document, dict):
+            raise CueParseError("malformed", f"expected source={require_source} in {path}")
         if isinstance(document, dict):
             if require_source is not None and document.get("source") != require_source:
                 raise CueParseError(

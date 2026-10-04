@@ -1484,3 +1484,10 @@ corroborate an empty subtitle inventory without an explicit error. Anonymous
 empty observations do not count: these parts remain outside the audio branch
 until authenticated harvests can inspect their inventory. Explicit `not_found`
 and recorded subtitle failures retain their existing audio fallback routes.
+
+Quality `cue_count` and `total_cues` count one preferred transcript's cues per
+work item; SRT and raw sidecars do not add duplicate cues. Reference comparisons
+above 20,000 flattened characters use up to ten evenly spaced windows of 2,000
+characters, with the sampled offsets and full lengths recorded in JSON. This
+sampled agreement can miss edits between windows. Retryable diagnostics are
+backlog in plain and quality coverage; `--strict` includes backlog findings.

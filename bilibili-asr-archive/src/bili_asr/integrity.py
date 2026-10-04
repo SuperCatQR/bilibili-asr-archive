@@ -66,7 +66,7 @@ _AUDIT_WRITE_LOCK = threading.Lock()
 _MAX_ROWS = 10000
 _MAX_ATTEMPTS_BYTES = 8 * 1024 * 1024
 #: The four recorded bundle paths; the same order the writers publish them in.
-_BUNDLE_PATH_KEYS = ("srt_path", "txt_path", "md_path", "raw_path")
+from .artifacts import REQUIRED_ARTIFACT_KEYS as _BUNDLE_PATH_KEYS
 
 
 def _fsync_directory(directory: Path) -> None:
@@ -695,17 +695,15 @@ class IntegrityVerifier:
                 if len(parts) != 2 or not all(IntegrityVerifier._valid_srt_time(part) for part in parts):
                     return False
         elif path.suffix == ".json":
+            from .cues import CueParseError, read_cues
+
             try:
-                document = json.loads(text)
-            except (TypeError, ValueError):
+                cues, malformed, empty = read_cues(
+                    path, text, require_source="asr" if row.get("source") == "asr" else None
+                )
+            except CueParseError:
                 return False
-            if isinstance(document, dict):
-                items = document.get("body", document.get("segments"))
-            else:
-                items = document
-            if not isinstance(items, list):
-                return False
-            if any(not isinstance(item, dict) for item in items[:10000]):
+            if malformed or empty or any(not cue.text.strip() for cue in cues):
                 return False
         return True
 

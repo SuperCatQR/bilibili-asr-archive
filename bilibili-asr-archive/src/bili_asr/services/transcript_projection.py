@@ -40,10 +40,11 @@ where the read deliberately leaves ``work_id`` to Python).
 from __future__ import annotations
 
 from dataclasses import dataclass
-import time
 from typing import TYPE_CHECKING, Any, Iterable, Mapping, Sequence
 
 from bili_asr.page_identity import format_work_id
+from bili_asr.formatting import pubdate_utc
+from bili_asr.artifacts import REQUIRED_ARTIFACT_KEYS as _PRODUCT_PATH_KEYS
 from bili_asr.services.manifest_derivation import duration_s_from_ms
 
 if TYPE_CHECKING:  # types only: this module never builds or checks one (§8).
@@ -91,7 +92,6 @@ _TRANSCRIPT_KEYS = (
 )
 #: §5.1's product paths, root-relative to the write base — the four keys the
 #: caller's mapping contributes to the row, and the only ones it may.
-_PRODUCT_PATH_KEYS = ("srt_path", "txt_path", "md_path", "raw_path")
 
 
 @dataclass(frozen=True)
@@ -268,7 +268,7 @@ def projection_row(
         "title": part["part_title"],
         "duration_s": duration_s_from_ms(part["duration_ms"]),
         "pubdate": pubdate,
-        "pubdate_str": time.strftime("%Y-%m-%d", time.gmtime(pubdate)),
+        "pubdate_str": pubdate_utc(pubdate),
         "status": ARCHIVED_STATUS,
         "source": transcript["source_kind"],
         "language": transcript["language"],

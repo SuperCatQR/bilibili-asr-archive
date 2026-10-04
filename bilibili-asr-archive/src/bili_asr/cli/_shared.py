@@ -477,7 +477,7 @@ def _resolve_sessdata(args: argparse.Namespace) -> str | None:
 #: names its products with these keys, so the completeness read and the
 #: writes are the same vocabulary, and the writer's return is what supplies the
 #: values (``archive.py:488``, root-relative — exactly the recorded form).
-_PRODUCT_PATH_KEYS = ("srt_path", "txt_path", "md_path", "raw_path")
+from bili_asr.artifacts import REQUIRED_ARTIFACT_KEYS as _PRODUCT_PATH_KEYS
 
 
 def _declared_bundle_paths(row: Any) -> dict[str, str] | None:
