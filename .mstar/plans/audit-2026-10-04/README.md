@@ -21,9 +21,24 @@ registered lifecycle (`.mstar/specs/issue-store-close-route.md` records the rout
 (54 transitions, not 52 — two rows, `I-000187` and `I-000213`, had been staged for closure earlier and are
 counted in this pass's engine-written set.) Every transition carries `imported = 0`, distinguishing it from
 the pre-existing imported history, and every closure carries its own `references` plus an `alignmentRef`
-naming this plan. The open register fell from **178 to 126**. The 126 remaining are exactly the rows the
+naming this plan. The open register fell from **178 to 124**. The remaining 124 are exactly the rows the
 audit recommended keeping open, plus the 7 awaiting an operator ruling — verified row by row: no
 `keep-open` row was closed.
+
+### Two rows closed after the batch, by implementation rather than by adjudication
+
+- **`I-000188`** (`resolved`) — the audit's own verdict for it was `keep-open`, and it was right at the
+  time. It was then **implemented** in the same session through the plan that owned it
+  (`asr-coverage-attestation`, per its D9 measurement and D11 carrier): the manifest row now carries
+  `decoded_s` / `produced_s` / `coverage` / `coverage_min` / `coverage_short`, and `write_archive`
+  publishes the same measurement as `coverage_*` frontmatter in the `.md` and a `coverage` object in the
+  raw sidecar — both surfaces its acceptance names. Code at `946cd06` (store) and `e1c8f95` (bundle);
+  the witness is genuine red-to-green (8/8 failed before the first commit, 6/10 before the second).
+- **`I-000201`** (`resolved`) — the operator's deferral row for the above. Its acceptance held that the
+  defect "stays open and unfixed for now … worked when the iteration resumes", with the row itself as the
+  trigger to re-scope if the iteration were abandoned. The iteration did not resume; the work was carried
+  to completion anyway, so the escape clause never had to fire and the deferral is discharged rather than
+  lapsed.
 
 **Correction to the route.** An earlier revision of the close-route spec ruled that out-of-plan findings close
 by a documented *manual* route, on the finding that all 39 workflow snapshots are terminal and
