@@ -4,13 +4,13 @@
   "type": "plan",
   "status": "running",
   "started_at": "2026-10-04T06:16:54.401Z",
-  "updated_at": "2026-10-04T06:53:29.291Z",
+  "updated_at": "2026-10-04T09:44:42.195Z",
   "plans": [
     {
       "id": "audit-2026-10-04",
       "title": "Plan audit-2026-10-04 — Apply the issue-register audit's verdicts",
       "file": "/root/workspace/bilibili-asr-archive/.mstar/plans/audit-2026-10-04.md",
-      "status": "InProgress",
+      "status": "InReview",
       "metadata": {
         "catalog_pin": {
           "store_id": "7476bf82-e1c5-400c-bf5f-5c56c35c8d7b",
@@ -20,7 +20,7 @@
         }
       },
       "coordination": {
-        "revision": 4,
+        "revision": 5,
         "prepared": {
           "assignment_path": "/root/workspace/bilibili-asr-archive/.mstar/workflows/20261004-issue-register-audit/assignments/seat-1.md",
           "assignment_sha256": "d3e28ea51c3d31d2a28def8ace09530b10c1a58a1b4a856e9f204862bb3da40f",
@@ -51,16 +51,16 @@
           "bound_at": "2026-10-04T06:51:03.277Z"
         },
         "handoff": {
-          "id": "0464e482-ff6d-47b4-bcd2-dd47bc0bf7f3",
-          "attempt": 1,
-          "state": "returned",
+          "id": "2d6c11c3-d379-4777-ac28-1be15fecdb42",
+          "attempt": 2,
+          "state": "submitted",
           "submitted_by": "audit-pm-1",
-          "submitted_at": "2026-10-04T06:51:59.266Z",
+          "submitted_at": "2026-10-04T09:44:42.192Z",
           "source_branch": "main",
-          "source_sha": "98007713258bbe86f622e5822fc9d653f4adbd56",
+          "source_sha": "f537cb5fa0d94cd1ae785923539c251e4716222a",
           "worktree_path": "/root/workspace/bilibili-asr-archive",
-          "review_base": "98007713258bbe86f622e5822fc9d653f4adbd56",
-          "review_head": "98007713258bbe86f622e5822fc9d653f4adbd56",
+          "review_base": "f537cb5fa0d94cd1ae785923539c251e4716222a",
+          "review_head": "f537cb5fa0d94cd1ae785923539c251e4716222a",
           "qc": {
             "decision": "Approve",
             "reports": [
@@ -81,9 +81,7 @@
               "path": "/root/workspace/bilibili-asr-archive/.mstar/sdd/audit-2026-10-04/review/qa.md",
               "sha256": "2c790d911cfb80a35ea281196ec5aa1f7b52fa6fadaa9492f12951962c6efdd3"
             }
-          },
-          "returned_at": "2026-10-04T06:53:29.291Z",
-          "return_reason": "assignment declared the control root as the plan worktree; correcting it to a dedicated feature worktree"
+          }
         }
       },
       "execution_lease": {

@@ -220,22 +220,52 @@ handed-off `source_sha`**. Two measured consequences:
 
 **Where this repository wedged, stated plainly.** The audit-closure lifecycle
 (`workflows/20261004-issue-register-audit`) was registered and *prepared with the control root as its plan
-worktree*. Its handoff was submitted, then returned, and the row now sits `InProgress`. It cannot be
-re-prepared: `assertPrepareAdmission` refuses while `coordination.prepared` and `coordination.handoff` are
-both populated (`coordination.prepare-already-prepared`, `coordination.prepare-handoff-active`), and
-`plan progress` offers no path to `Done`. **No repair was attempted by editing the snapshot** — that is
-exactly the by-hand mutation this spec exists to route around. Two sanctioned exits remain for the operator:
+worktree*. Its handoff was submitted, returned, and re-submitted after the Assignment was restored, so the row
+now sits `InReview` — and it can go no further. Four mechanisms lock it, and they were each measured rather
+than inferred:
 
-- **Retire it with the same verbs**, after re-registering the work under a lifecycle whose Assignment names a
-  feature worktree (the recipe above), and leaving this one as the recorded instance of the wedge; or
-- **Leave it `running`.** It holds a valid coordinator envelope, so further register-only closures can still
-  be applied through `issue close` while it lives (`I-000186`'s own subject). Nothing about the 52 applied
-  closures depends on it: they are rows in the store, written with `imported = 0`.
+1. **The git gate is circular.** `assertFeatureCheckout` (`:31230`, called by accept at `:31369`) requires the
+   plan worktree clean *and* at exactly the handoff's `source_sha`; the completion path additionally requires
+   `refs/heads/<source>` to resolve to that same sha (`assertStandaloneSourceGitProof`, `:31683`). Every
+   ceremony write lands in `<control root>/.mstar/workflows/<id>/snapshot.json`, a **tracked** path. So each
+   step dirties the worktree being judged; committing that write satisfies cleanliness but moves `main` past
+   the pin, which the next step refuses. Both refusals were observed in sequence. **No commit ordering
+   converges: the two conditions are mutually unsatisfiable in one worktree.**
+2. **The named repair is refused.** The engine's own remedy — "the coordinator must re-run `prepare` against
+   the reviewed input" — cannot run: `assertPrepareAdmission` (`:26052`) raises
+   `coordination.prepare-already-prepared` while `coordination.prepared` is set, and
+   `coordination.prepare-handoff-active` while a handoff exists. `workflow amend-prepare`'s patch grammar
+   accepts only `mainWorktreeBranch | appendPlans | correctPlanFiles | integrationWorktreePath |
+   planParallelism`, none of which re-points an Assignment.
+3. **Nothing can clear `coordination.prepared`.** `grep -cE 'prepared: (undefined|void 0)|delete
+   [A-Za-z_.]*\.prepared'` over the whole engine returns **0**. No verb, on any route, ever clears it — so a
+   plan prepared against the wrong worktree is wedged *permanently*, not merely until a retry.
+4. **No sanctioned stop on this route.** `closeWorkflow` does carry a `failed`/`stopped` branch that skips both
+   the row-`Done` requirement and the git check (`:22993`, `:23032` → `settleStoppedFileClaims`), and it
+   releases leases. But it is reachable only through `workflow lifecycle --status stopped`, which refuses here
+   with `execution.not-active — the execution authority is legacy`; the **file** route's `status workflow-close`
+   hardcodes `outcome: "completed"` (`:55521`) and exposes no `--outcome` flag.
+
+**The disposition is therefore not mine to invent.** The lifecycle contract §5
+(`mstar-artifacts/references/plan-workflow-lifecycle-contract.md:88`) rules on exactly this case, and its
+instruction is explicit: this exposure is deliberately deferred, and a workflow that must become terminal on
+that deferred path *"is a named blocker for its owner: reported as such, rather than closed as `completed` or
+edited by hand."* That is what was done: the wedge is captured as **`I-000215`** (high), with the gates and
+their line numbers, and **no repair was attempted by editing the snapshot** — that is precisely the by-hand
+mutation this spec exists to route around. An earlier draft of this section offered "retire it with the same
+verbs" as an available exit; that was wrong, and §1 above is why.
+
+**What the wedge does and does not cost.** Nothing about the audit's results depends on it: the closures are
+rows in the store, written with `imported = 0`. The workflow's coordinator envelope still authenticates
+register-only `issue close` calls, so the register keeps working while it lives (`I-000186`'s own subject).
+What it does cost is the register entry and a **leaked execution lease** (`audit-pm-1`, worktree the control
+root, branch `main`) that no verb will release — which is the exact debris this lifecycle existed to remove.
 
 The engine-side gap, narrowed to one sentence: **there is no sanctioned way to re-point or abandon a prepared
 Assignment, so an Assignment that names the wrong worktree wedges its plan permanently.** The repair belongs
-upstream alongside the convenience route above — an `abandon`/`re-prepare` seam for a plan whose row has
-advanced no further than `InProgress`. It is not repo code and is not attempted here.
+upstream, tracked as `I-000215` — either an `abandon`/`re-prepare` seam for a plan whose row has advanced no
+further than `InReview`, or the installed `failed`/`stopped` exposure the contract defers, which would make the
+existing stop branch reachable. It is not repo code and is not attempted here.
 
 ## Evidence log
 

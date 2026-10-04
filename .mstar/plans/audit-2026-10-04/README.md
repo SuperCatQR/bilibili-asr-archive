@@ -6,24 +6,29 @@ Executed by the cleanup/audit session through a fan-out of read-only verificatio
 
 ## Applied — 2026-10-04
 
-**The recommended dispositions below are applied, not pending.** All 52 rows the audit recommended for
-closure now carry their disposition in the store, closed through the engine's own privileged verbs against a
-registered lifecycle (`.mstar/specs/issue-store-close-route.md` records the route):
+**The recommended dispositions below are applied, not pending.** Every row the audit recommended for closure
+now carries its disposition in the store, closed through the engine's own privileged verbs against a
+registered lifecycle (`.mstar/specs/issue-store-close-route.md` records the route). The engine-written set is
+**56 transitions**, in three waves:
 
-| Disposition applied | Rows |
-|---|---|
-| `resolved` | 42 |
-| `duplicate` | 7 |
-| `waived` | 4 |
-| `superseded` | 1 |
-| **total** | **54** |
+| Wave | Rows | Composition |
+|---|---|---|
+| 2026-10-03 (two earlier closes) | 2 | `resolved` 2 (`I-000204`, `I-000205`) |
+| 2026-10-04 06:18–06:19 (the audit batch) | 52 | `resolved` 40, `duplicate` 7, `waived` 4, `superseded` 1 |
+| 2026-10-04 07:27 (post-batch, by implementation) | 2 | `resolved` 2 (`I-000188`, `I-000201` — see below) |
+| **total** | **56** | `resolved` 44, `duplicate` 7, `waived` 4, `superseded` 1 |
 
-(54 transitions, not 52 — two rows, `I-000187` and `I-000213`, had been staged for closure earlier and are
-counted in this pass's engine-written set.) Every transition carries `imported = 0`, distinguishing it from
-the pre-existing imported history, and every closure carries its own `references` plus an `alignmentRef`
-naming this plan. The open register fell from **178 to 124**. The remaining 124 are exactly the rows the
-audit recommended keeping open, plus the 7 awaiting an operator ruling — verified row by row: no
-`keep-open` row was closed.
+Every transition carries `imported = 0`, distinguishing it from the pre-existing imported history. Every
+closure carries its own evidence: the 48 `resolved`/`waived` rows carry an `alignmentRef` (44 of them naming
+this plan; the other four name the ledger-integrity plan or the coverage-attestation plan, correctly, because
+those are what they align to), and the 8 `duplicate`/`superseded` rows carry the `canonicalIssueId` their
+disposition requires instead. The open register fell from **178 to 125**.
+
+The audit's own recommendation was honoured in the direction that matters: **no row recommended `keep-open`
+was closed by the adjudication batch.** Verified row by row, with one stated exception that is not part of
+that batch — `I-000188`, whose verdict was `keep-open`, was later closed (`resolved`) because the defect was
+actually *fixed* rather than adjudicated away, and `I-000201`, its deferral row, followed it. Both are
+recorded below; neither closed on a judgement call about the register.
 
 ### Two rows closed after the batch, by implementation rather than by adjudication
 
@@ -46,6 +51,29 @@ by a documented *manual* route, on the finding that all 39 workflow snapshots ar
 dead end: the engine registers new lifecycles on request, and a registered lifecycle is `running`, which
 satisfies the gate. The route used here is the engine's own (`workflow register` → `plan bind --coordinator`
 → `issue close`), proven on a scratch harness before being applied. No by-hand mutation was needed or made.
+
+### The lifecycle this audit opened cannot be closed, and that is disclosed rather than papered over
+
+The registration that made the route reachable is itself now permanent debris. This workflow's Assignment
+named the **control root** as its plan worktree, and the close ceremony's own writes land in
+`<control root>/.mstar/workflows/<id>/snapshot.json` — a tracked path. So each step dirties the worktree the
+next step judges: `plan accept` refuses `coordination.git-proof` on the dirty tree, and committing that write
+moves `main` past the pinned `source_sha` that `assertFeatureCheckout` requires. **Verified both ways; no
+commit ordering converges.** The engine's named repair ("re-run `prepare`") is refused by
+`assertPrepareAdmission`, `workflow amend-prepare` cannot re-point an Assignment, and `grep` for any site
+clearing `coordination.prepared` returns **0** across the whole engine. The `failed`/`stopped` branch that
+would skip the git check is reachable only on the active-execution route, which refuses here because this
+store's execution authority is `legacy`; the file route hardcodes `outcome: "completed"`.
+
+Captured as **`I-000215`** (high) — the lifecycle contract §5 rules that such a workflow *"is a named blocker
+for its owner: reported as such, rather than closed as `completed` or edited by hand."* **No repair was
+attempted by editing the snapshot.** Full gate-by-gate analysis with line numbers is in
+`.mstar/specs/issue-store-close-route.md`.
+
+**What this does and does not affect.** Nothing above depends on the lifecycle: all 56 closures are store
+rows written with `imported = 0`, and its coordinator envelope still authenticates register-only `issue close`
+calls. What survives is the register entry and a leaked execution lease — the exact kind of debris this audit
+exists to remove. The honest summary is that this pass cleaned up 53 findings and left one piece of its own.
 
 ## Why this audit
 
