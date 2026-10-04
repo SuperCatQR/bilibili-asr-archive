@@ -220,9 +220,9 @@ def test_staged_test_tree_copies_checkout_inputs(tmp_path: Path):
         assert (tmp_path / "docs" / "wsl-long-live-evidence.md").is_file()
     assert (tmp_path / "scripts" / "verify_baseline.py").is_file()
     assert (staged / "test_cli_pilot.py").is_file()
+    assert (staged / "test_installed_baseline.py").is_file()
     assert not (staged / "test_cli_help.py").exists()
     assert not (staged / "test_verify_baseline.py").exists()
-    assert not (staged / "test_installed_cli.py").exists()
 
 
 def test_network_deny_guard_blocks_all_socket_connect_variants(monkeypatch: pytest.MonkeyPatch):

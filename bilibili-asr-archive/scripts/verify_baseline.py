@@ -272,7 +272,7 @@ def staged_test_tree(destination: Path) -> Path:
         ignore=lambda directory, names: {
             name
             for name in names
-            if name in {"test_verify_baseline.py", "test_installed_cli.py", "test_cli_help.py"}
+            if name in {"test_verify_baseline.py", "test_cli_help.py"}
             or name == "__pycache__"
             or name.endswith(".pyc")
         },

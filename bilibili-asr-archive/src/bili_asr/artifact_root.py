@@ -70,7 +70,7 @@ cross-layer rule that only ``cli`` composes the stages is not widened.
 from __future__ import annotations
 
 import os
-from collections.abc import Mapping
+from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -297,11 +297,38 @@ def resolve_audio_path(
     :attr:`ArtifactRoots.write_base` alone — one base, the one being written to — so the
     base is never chosen by which ``audio/`` directory happens to exist (contract §4).
     """
-    for base in roots.read_bases():
-        confined = confined_audio_path(base, declared, require_exists=require_exists)
-        if confined is not None:
-            return confined
+    for _base, _declared, confined in iter_audio_paths(
+        roots, (declared,), require_exists=require_exists
+    ):
+        return confined
     return None
+
+
+def iter_audio_paths(
+    roots: ArtifactRoots,
+    declared_candidates: Iterable[str | os.PathLike[str] | None],
+    *,
+    require_exists: bool = True,
+) -> Iterator[tuple[Path, str | os.PathLike[str], Path]]:
+    """Yield confined audio candidates in the contract's base/candidate order.
+
+    All readers use the same ordered, per-base confinement rule.  Keeping the loop
+    here prevents one caller from accidentally resolving a legacy archive copy
+    against the configured root or weakening the no-follow guard.
+    """
+    # A caller may pass a generator assembled from manifest fields. Materialize
+    # once so every read base sees the same candidate sequence.
+    candidates = tuple(declared_candidates)
+    for base in roots.read_bases():
+        for declared in candidates:
+            if declared is None:
+                continue
+            try:
+                confined = confined_audio_path(base, declared, require_exists=require_exists)
+            except OSError:
+                continue
+            if confined is not None:
+                yield base, declared, confined
 
 
 __all__ = [
@@ -310,6 +337,7 @@ __all__ = [
     "KEEP_AUDIO_ENV_VAR",
     "ArtifactRootError",
     "ArtifactRoots",
+    "iter_audio_paths",
     "resolve_artifact_root",
     "resolve_audio_path",
     "resolve_keep_audio",

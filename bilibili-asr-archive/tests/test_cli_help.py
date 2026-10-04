@@ -255,6 +255,9 @@ def test_module_coverage_formats_and_diagnostic_exit(tmp_path: Path) -> None:
 
     store = ManifestStore(root=str(tmp_path))
     store.upsert({"work_id": "BV1safe:p1", "bvid": "BV1safe", "status": "archived"})
+    # Upserts append the crash-safe journal; compact before mutating a fixture
+    # that intentionally exercises the snapshot projection directly.
+    store.compact()
     transcript = tmp_path / "transcripts" / "BV1safe.p1" / "bundle.txt"
     transcript.parent.mkdir(parents=True)
     transcript.write_text("local fixture", encoding="utf-8")
@@ -716,7 +719,10 @@ def test_cli_main_coverage_quality_reference_ignores_the_md_bundle(tmp_path: Pat
     raw.parent.mkdir(parents=True, exist_ok=True)
     raw.write_text(
         json.dumps(
-            {"segments": [{"start": 0.0, "end": 4.0, "text": text, "confidence": 0.9}]}
+            {
+                "source": "asr",
+                "segments": [{"start": 0.0, "end": 4.0, "text": text, "confidence": 0.9}],
+            }
         ),
         encoding="utf-8",
     )
@@ -725,6 +731,11 @@ def test_cli_main_coverage_quality_reference_ignores_the_md_bundle(tmp_path: Pat
     md.write_text(
         '---\nbvid: "BV1ref"\ntitle: "Reference Video"\n'
         'url: "https://www.bilibili.com/video/BV1ref"\n---\n\n' + text + "\n",
+        encoding="utf-8",
+    )
+    srt = raw.parent / "bundle.srt"
+    srt.write_text(
+        "1\n00:00:00,000 --> 00:00:04,000\n" + text + "\n",
         encoding="utf-8",
     )
     ManifestStore(root=str(tmp_path)).upsert({
@@ -738,6 +749,7 @@ def test_cli_main_coverage_quality_reference_ignores_the_md_bundle(tmp_path: Pat
         "source": "asr",
         "md_path": md.relative_to(tmp_path).as_posix(),
         "raw_path": raw.relative_to(tmp_path).as_posix(),
+        "srt_path": srt.relative_to(tmp_path).as_posix(),
     })
     reference = tmp_path / "second.srt"
     reference.write_text(f"1\n00:00:00,000 --> 00:00:04,000\n{text}\n", encoding="utf-8")

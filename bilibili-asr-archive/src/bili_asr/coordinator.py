@@ -26,7 +26,7 @@ from typing import Any, Callable, Iterator
 from . import asr as asr_module
 from . import audio as audio_module
 from . import subtitles as subtitles_module
-from .artifact_root import ArtifactRoots
+from .artifact_root import ArtifactRoots, iter_audio_paths
 from .manifest import TERMINAL_STATUSES, ManifestStore
 from .persistence import utc_now_iso
 from .page_identity import PageIdentity, artifact_stem, identity_from_entry
@@ -644,14 +644,14 @@ class RunCoordinator:
         stem_path = os.path.join("audio", stem)
         declared_candidates.append(stem_path + ".m4a")
         declared_candidates.append(stem_path + ".flac")
-        for base in self.artifact_roots.read_bases():
-            for declared in declared_candidates:
-                try:
-                    confined = confined_audio_path(base, declared, require_exists=True)
-                    if confined is not None and confined.stat().st_size > 0:
-                        return base, declared
-                except OSError:
-                    continue
+        for base, declared, confined in iter_audio_paths(
+            self.artifact_roots, declared_candidates
+        ):
+            try:
+                if confined.stat().st_size > 0:
+                    return base, str(declared)
+            except OSError:
+                continue
         return None
 
     def _declared_audio(self, path: str) -> str | None:

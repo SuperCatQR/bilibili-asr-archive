@@ -1,9 +1,11 @@
 # Audio pipeline issue batches
 
-Target: at least 40 distinct GitHub issues. Count only fixes made on
+Target: at least 40 issue-level fixes. Count only fixes made on
 `codex/audio-pipeline-reliability`, with concrete changes and verification.
-Already-fixed reports and duplicate aliases do not add to the total.
-GitHub issue states are unchanged; this is a local implementation ledger.
+Already-fixed reports and duplicate aliases do not add to the total. Rows in
+the first three batches retain their external GitHub issue numbers; Batch 4
+uses local issue labels for newly discovered defects. GitHub issue states are
+unchanged; this is a local implementation ledger.
 
 ## Batch 1 — 4 issues — commit 00a4356
 
@@ -71,3 +73,27 @@ check of recovery, integrity, search, proofread, store writes and all pipeline
 regressions passed **186 with 2 existing skips**. The pre-existing raw-character
 test double was updated for the current decode signature and now passes.
 Cumulative confirmed count: **29 / 40**. #98 overlaps #95 and is not counted.
+
+## Batch 4 — 14 issue-level fixes
+
+| Issue | Result | Evidence |
+| --- | --- | --- |
+| A4-01 | Audio path probing has one shared ordered resolver for configured and archive roots. | `test_iter_audio_paths_preserves_base_then_candidate_order` |
+| A4-02 | Candidate generators are materialized once, so fallback roots cannot exhaust a one-shot iterator. | `test_iter_audio_paths_reuses_generator_candidates_for_each_base` |
+| A4-03 | Root precedence is evaluated before candidate precedence, preserving the documented first-hit rule. | Artifact-root ordering regression |
+| A4-04 | Download-side reuse resolves audio through the same confinement and configured-root fallback. | Audio reuse regression suite |
+| A4-05 | Coordinator-side reuse uses the same resolver and returns the declared path belonging to the selected base. | Coordinator recovery regression suite |
+| A4-06 | Zero-byte audio is rejected consistently before it can satisfy an existing-audio check. | Audio/coordinator non-empty checks |
+| A4-07 | Search index metadata is exposed through a typed, connection-safe read API. | Metadata accessor tests |
+| A4-08 | `indexed_count` records the complete index row count after incremental store and Markdown work. | Six-to-seven row incremental regression |
+| A4-09 | An existing database with no index reports empty metadata without creating tables; a missing database keeps its typed backlog error. | Pre-build metadata regression |
+| A4-10 | `check-asr-env` is shipped beside the package, so installed CLI checks do not depend on a checkout. | Installed module smoke test |
+| A4-11 | The installed baseline proves schema bootstrap, status output, and packaged checker presence. | `test_installed_baseline.py` |
+| A4-12 | Baseline staging includes the installed smoke suite and its operator command names the file that exists. | Staging and installed-runner tests |
+| A4-13 | The fast offline development lane no longer invokes recursive environment provisioning. | README command contract |
+| A4-14 | Quality comparison fixtures declare the ASR source required by guarded raw sidecars. | Coverage quality regression |
+
+Batch 4 verification: compileall passed; the affected product lane passed **125**
+tests; the non-provisioning CLI lane passed **63** tests; the corrected quality
+case and install/index checks passed in a **66**-test targeted run. Cumulative
+confirmed count: **43 / 40**.

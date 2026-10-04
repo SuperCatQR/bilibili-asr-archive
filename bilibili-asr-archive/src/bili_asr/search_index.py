@@ -1294,6 +1294,25 @@ class TranscriptSearchIndex:
         finally:
             conn.close()
 
+    def metadata(self) -> dict[str, str]:
+        """Return build metadata without exposing the SQLite connection.
+
+        A missing index is a normal pre-build state, so it returns an empty mapping;
+        malformed store state remains a typed store error like :meth:`count`.
+        """
+        conn = self._connect()
+        try:
+            if not self._has_index(conn):
+                return {}
+            rows = conn.execute(
+                f"SELECT key, value FROM {STORE_INDEX_META_TABLE} ORDER BY key"
+            ).fetchall()
+            return {str(row[0]): str(row[1]) for row in rows}
+        except sqlite3.DatabaseError as exc:
+            raise TranscriptStoreError(f"transcript store corrupt: {exc}") from exc
+        finally:
+            conn.close()
+
     # -- build -------------------------------------------------------------
 
     def _new_store_rows(self, conn: sqlite3.Connection, after_transcript_id: int) -> list[sqlite3.Row]:
@@ -1448,10 +1467,13 @@ class TranscriptSearchIndex:
                     flush()
 
             flush()
+            total_indexed = int(
+                conn.execute(f"SELECT COUNT(*) FROM {STORE_FTS5_TABLE}").fetchone()[0]
+            )
             conn.execute(
                 f"INSERT OR REPLACE INTO {STORE_INDEX_META_TABLE}(key, value) "
                 "VALUES ('indexed_count', ?);",
-                (str(indexed),),
+                (str(total_indexed),),
             )
             conn.execute(
                 f"INSERT OR REPLACE INTO {STORE_INDEX_META_TABLE}(key, value) "

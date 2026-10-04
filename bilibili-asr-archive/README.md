@@ -458,7 +458,7 @@ prepare the reviewed, curated local wheel directory (`/path/to/reviewed-wheels`)
 The baseline creates a disposable isolated virtual environment, installs the
 local package with its declared `dev` extras using only the specified local
 package source (`PIP_NO_INDEX=1`), runs the installed `bili-asr --help` proof,
-then runs the complete product pytest suite from a staged test and documentation tree; installer self-tests (`test_cli_help.py`, `test_installed_cli.py`, and `test_verify_baseline.py`) are intentionally excluded because they provision the verifier and would recurse. During pytest it installs a process-level Python socket API deny guard: calls through `socket.create_connection`, `socket.socket.connect`, or `connect_ex` in that pytest interpreter raise before reaching the OS. This is not a host or kernel firewall, and it does not claim to block non-Python processes or every possible networking mechanism.
+then runs the complete product pytest suite from a staged test and documentation tree. The recursive provisioning tests (`test_cli_help.py` and `test_verify_baseline.py`) are excluded, while `test_installed_baseline.py` stays in the staged suite and proves that the installed package bootstraps its schema, reports status, and ships the ASR environment checker. During pytest it installs a process-level Python socket API deny guard: calls through `socket.create_connection`, `socket.socket.connect`, or `connect_ex` in that pytest interpreter raise before reaching the OS. This is not a host or kernel firewall, and it does not claim to block non-Python processes or every possible networking mechanism.
 It also strips `PYTHONPATH`, proxy variables, and `BILI_SESSDATA`; it never
 calls Bilibili, downloads a model, transfers media, or prints environment
 values. Its compact machine-readable result is
@@ -486,13 +486,19 @@ in committed files or CI artifacts.
 
 ## The operator chain (post-cutover)
 
-The store is the sole queue truth source. The everyday loop is three steps:
+The store is the metadata queue truth source. The legacy manifest remains the execution queue for audio and ASR until each store route is explicitly bridged; `download-audio --queue-source store` is the default and `--queue-source manifest` is the rollback path. The everyday loop is three steps:
 
 1. `bili-asr fetch-meta` — enumerate and persist metadata + subtitles into `archive.db`.
 2. `bili-asr download-audio` — audio for parts the store says owe it (`--queue-source store`
    is the default; `--queue-source manifest` is the legacy rollback and prints a deprecation line).
 3. `bili-asr asr` — transcribe what still owes a transcript; or read the queue first with
    `bili-asr status` (three gap groups, newest first — the groups overlap, never sum them).
+
+For a fast offline development check without provisioning the full baseline, run a focused lane:
+
+    python3.12 -m pytest -q tests/test_artifact_root.py tests/test_audio_pipeline_reliability.py tests/test_pipeline_writeback_safety.py tests/test_pipeline_recovery_quality.py tests/test_search.py
+
+This lane is a smoke check; `scripts/verify_baseline.py` remains the install and dependency proof.
 
 Around it: `bili-asr proofread` / `proofread-merge` (two-route machine pre-alignment and the
 human-adjudicated merge), and `bili-asr search` / `search-index` (FTS5 over the archived
@@ -1324,14 +1330,13 @@ and is not `gone` — the relation `harvest-subs` reports as
   keeps no `srt`/`txt`/`md` bundle until
   that rebuild lands, and it is not re-queued for audio either, because the
   derived queue is the no-transcript relation.
-- **Append cost, bounded analytically (not measured)**: each appended row is one
-  locked re-read of the whole ledger plus two `fsync` calls, and the whole
-  derivation runs under the archive-writer lock, so appending `N` rows to an
-  `L`-line ledger costs about `N·L + N(N−1)/2` line parses — at `N = L = 2,000`
-  roughly 6M parses and 4,000 fsyncs. That is an analytic bound only: no runtime
-  measurement was taken on a real archive, so a first full-queue derivation
-  should be treated as holding the writer lock for a duration this iteration
-  does not state.
+- **Append cost, bounded analytically (not measured)**: each row appends one
+  journal record under the archive-writer lock and pays one `fsync`. The store
+  replays the snapshot and journal once per store instance (or after an external
+  change), then keeps later appends O(1); compaction rewrites the snapshot only
+  after the journal crosses its size threshold. A first full-queue derivation
+  therefore avoids the former `N·L` repeated ledger parses, although wall time
+  still depends on the filesystem and the compaction point.
 
 #### Opt-in bounded live smokes
 

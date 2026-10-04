@@ -62,7 +62,7 @@ This check does not skip. Isolated verification (no live HTTP / model download):
 
   uv venv --python 3.12 .venv
   uv pip install --python .venv/bin/python -e ".[dev]"
-  .venv/bin/pytest tests/test_cli_help.py tests/test_installed_cli.py
+  .venv/bin/pytest tests/test_cli_help.py tests/test_installed_baseline.py
 
 The tests themselves provision a separate temporary virtualenv; a `bili-asr`
 already present in the developer checkout is not a substitute.

@@ -7,7 +7,6 @@ from pathlib import Path
 import json
 import os
 import sys
-from pathlib import Path
 
 from bili_asr.cli._shared import (
     DEFAULT_ARCHIVE_ROOT,
@@ -19,20 +18,19 @@ from bili_asr.cli.search import _parse_status_filter
 def _cmd_check_asr_env(args: argparse.Namespace) -> int:
     """Run the host self-check the README and spec 01 D1.2 name.
 
-    The check is `scripts/check_asr_env.py`, which is deliberately **not** part
-    of the installed package: it is environment surgery's own verifier, lives
-    beside the recipe in the checkout, and imports nothing from ``bili_asr``.
-    The published invocation therefore names the CLI — so the CLI has to find
-    the script rather than reimplement the five stages here.
+    The check is the stdlib-only ``check_asr_env.py`` helper. It is shipped
+    beside the installed package and remains available from ``scripts/`` in a
+    source checkout; the CLI loads it rather than reimplementing its stages.
 
     Resolution order, first hit wins:
 
     1. ``$BILI_ASR_CHECK_SCRIPT`` — an explicit override, for a host that keeps
        the script somewhere unusual.
-    2. ``scripts/check_asr_env.py`` relative to this file's package root
+    2. ``check_asr_env.py`` beside the installed ``bili_asr`` package.
+    3. ``scripts/check_asr_env.py`` relative to this file's package root
        (``src/bili_asr/cli.py`` → ``../../scripts/``), which is the checkout
        layout every documented example assumes.
-    3. ``scripts/check_asr_env.py`` under the current working directory, i.e.
+    4. ``scripts/check_asr_env.py`` under the current working directory, i.e.
        the product directory the README tells the operator to run from.
 
     When none exists the command reports that and exits ``1`` — a missing
@@ -52,6 +50,7 @@ def _cmd_check_asr_env(args: argparse.Namespace) -> int:
     # the patched anchor, matching the pre-split behaviour where the handler
     # lived in ``cli.py`` itself).
     import bili_asr.cli as _cli_pkg
+    candidates.append(Path(_cli_pkg.__file__).resolve().parents[1] / "check_asr_env.py")
     candidates.append(Path(_cli_pkg.__file__).resolve().parents[3] / "scripts" / "check_asr_env.py")
     candidates.append(Path.cwd() / "scripts" / "check_asr_env.py")
 
