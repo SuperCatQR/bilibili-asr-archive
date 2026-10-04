@@ -300,6 +300,12 @@ def _cmd_asr(args: argparse.Namespace) -> int:
                 updated = dict(store.get(key) or entry)
                 updated.update(paths)
                 updated["status"] = "archived"
+                # Coverage attestation (plan asr-coverage-attestation): the ASR route's measured
+                # span rides this row.  The subtitle route runs no ASR, so it made no measurement
+                # and no key is written for it — an absent ``coverage`` reads as *not evaluable*,
+                # which is the honest answer, not "covered".
+                if source == "asr":
+                    asr.apply_coverage_evidence(updated, runner)
                 store.upsert(updated)
                 _reclaim_after_archive(
                     args.artifact_roots, updated, keep=args.keep_audio

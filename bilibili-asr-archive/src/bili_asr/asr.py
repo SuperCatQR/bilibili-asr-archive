@@ -59,6 +59,41 @@ _CHUNK_MIN_WINDOW_MS = 100.0
 _CHUNK_MIN_SECONDS = 0.5
 SAMPLE_RATE = 16_000
 
+# ---------------------------------------------------------------------------------------
+# Coverage attestation (plan asr-coverage-attestation; iteration D9 measurement, D11 carrier).
+#
+# A run can decode a recording in full and still come back with a transcript that covers only
+# part of it — measured on `BV1YFEUzpEsT:p0` (I-000188): the decode was 73.561 s (3 244 032
+# samples @ 44.1 kHz, resampled to 16 kHz) and the archived cues spanned 0.0–59.0 s, i.e.
+# `produced_s / decoded_s = 59.0 / 73.561 = 0.80204…`, while the row recorded `outcome=stored`,
+# a complete bundle and no warning.  Nothing compared the span the model produced with the audio
+# it was fed; this block is that comparison, and it is the only thing that measures it.
+#
+# Threshold basis: the defect sits at 0.80204 and a correct run sits just under 1.0, so the
+# constant lies in (0.803, 1.0).  0.97 is biased high on purpose — a false shortfall flag on a
+# real success costs more than a narrow band, because a correct run still loses the sub-second
+# edges (VAD lead-in, trailing silence, cue-end rounding), while any loss past ~3% is flagged,
+# including a truncated final chunk that a round 0.9 would sail past.  1.0 is rejected:
+# harmless arithmetical tails would flag.  Retune from 0.80204, not from a guess.
+#
+# Detection only: nothing here aborts a run, and nothing suppresses the write.  The transcript is
+# the expensive artifact and a partial one is still evidence.
+# ---------------------------------------------------------------------------------------
+
+COVERAGE_MIN = 0.97
+
+#: The row keys the measurement writes.  Kept as one tuple so a re-run can clear exactly what a
+#: previous run wrote before the new measurement (or the absence of one) is recorded.
+COVERAGE_KEYS = ("decoded_s", "produced_s", "coverage", "coverage_min", "coverage_short")
+
+#: Verdicts for a record read back from the archive.  A record with no ``coverage`` is **not
+#: evaluable** — never "covered": the archive persists no decoded duration for rows written before
+#: this measurement existed, and container ``duration_s`` is a header, not the span the model
+#: consumed.  The three values are the whole read-only vocabulary (D9 reading rule).
+COVERAGE_VERDICT_COVERED = "covered"
+COVERAGE_VERDICT_SHORT = "short"
+COVERAGE_VERDICT_NOT_EVALUABLE = "not-evaluable"
+
 #: Generation budget per chunk, in tokens per second of audio.  Chinese speech in this corpus runs
 #: near 4 characters/s and one character is about one token, so this is deliberately generous; the
 #: full-item measurement (plan §13.5, follow-up) confirms the margin.
@@ -904,6 +939,98 @@ def _characters_from_pieces(
     return {"text": text, "starts": starts, "ends": ends}
 
 
+def _coverage_record(
+    decoded_seconds: float, cues: list[dict[str, Any]]
+) -> dict[str, Any] | None:
+    """The coverage evidence for one run, or ``None`` when there is nothing to claim.
+
+    ``decoded_seconds`` is ``sum(len(chunk) / SAMPLE_RATE)`` over **that run's** ``_split_audio``
+    output — a measured quantity, not a header/container guess, and exactly what
+    :class:`AudioDecodeError`'s documented gap says was missing.  The splitter's tiling promise
+    makes that sum equal the decoded sample count, so the denominator needs no tolerance band and
+    a shortfall stays attributable to the model rather than to the split.
+
+    ``produced_s`` is ``max(cue.end) - min(cue.start)`` — a **span**, not a span-sum, so
+    duplicate or overlapping cues cannot inflate coverage.  ``coverage`` is compared **unrounded**.
+
+    ``None`` means "no coverage claim at all" (``decoded_s == 0``): a run that decoded nothing has
+    nothing to attest, and inventing a ratio there would be a claim about audio nobody read.
+    """
+
+    if decoded_seconds <= 0:
+        return None
+    if cues:
+        produced = max(float(cue["end"]) for cue in cues) - min(
+            float(cue["start"]) for cue in cues
+        )
+    else:
+        # A run that produced no cue at all covers 0 of what it decoded — the same rule that makes
+        # an empty transcript with a non-zero decode a shortfall rather than a no-speech outcome.
+        produced = 0.0
+    coverage = produced / decoded_seconds
+    return {
+        "decoded_s": float(decoded_seconds),
+        "produced_s": float(produced),
+        "coverage": float(coverage),
+        "coverage_min": COVERAGE_MIN,
+        "coverage_short": bool(coverage < COVERAGE_MIN),
+    }
+
+
+def apply_coverage_evidence(entry: dict[str, Any], runner: Any) -> dict[str, Any] | None:
+    """Write the last run's coverage evidence onto a manifest row, in place.
+
+    The one writer helper both routes share (the in-process ``asr``/``pilot`` loops and
+    :class:`RunCoordinator`): the evidence is a property of the **run**, so it must reach the row
+    through every path that ran ASR, and a path that forgot it would leave a measured defect
+    looking like an unqualified success.
+
+    The previous run's keys are cleared first, so a re-run that measured nothing cannot leave an
+    older run's ``coverage`` standing as if it described this one — an unqualified success cannot
+    be laundered and cannot be inherited either (spec rule 6).
+
+    The carrier is the manifest row itself (D11): ``decoded_s`` / ``produced_s`` / ``coverage`` /
+    ``coverage_min`` beside the existing outcome vocabulary, plus the boolean marker
+    ``coverage_short``.  No new ``outcome`` and no new ``error_code`` value — the existing CHECK
+    constraint and the Python guards refuse those on every existing database, and the schema is
+    ``CREATE TABLE IF NOT EXISTS`` with no in-place migration.
+
+    Returns the record that was written, or ``None`` when the runner has no measurement to offer
+    (it never transcribed, or it decoded nothing).
+    """
+
+    for key in COVERAGE_KEYS:
+        entry.pop(key, None)
+    reader = getattr(runner, "transcribed_coverage", None) if runner is not None else None
+    record = reader() if callable(reader) else None
+    if not record:
+        return None
+    entry.update(record)
+    return record
+
+
+def coverage_verdict(entry: Any) -> str:
+    """One archived row's coverage verdict, read-only, from the archive alone.
+
+    Three values, and the third is the point: a record with no ``coverage`` is
+    :data:`COVERAGE_VERDICT_NOT_EVALUABLE` — *not* "covered" and *not* clean.  Reading an absent
+    field as "no gap" would call every pre-existing row fine, which is the illusion this plan
+    removes; the store persists no decoded duration for those rows, so their coverage is not
+    reconstructible and the honest answer is the partition, not a guess.
+    """
+
+    if not isinstance(entry, dict):
+        return COVERAGE_VERDICT_NOT_EVALUABLE
+    coverage = entry.get("coverage")
+    if isinstance(coverage, bool) or not isinstance(coverage, (int, float)):
+        return COVERAGE_VERDICT_NOT_EVALUABLE
+    return (
+        COVERAGE_VERDICT_SHORT
+        if float(coverage) < COVERAGE_MIN
+        else COVERAGE_VERDICT_COVERED
+    )
+
+
 # ---------------------------------------------------------------------------------------
 # The model set and the runner
 # ---------------------------------------------------------------------------------------
@@ -1012,6 +1139,9 @@ class ASRRunner:
         # into transcript segments; it is cleared on failure like the character
         # record, so a caller never stores a stale transcript.
         self._last_transcribed_segments: list[dict[str, Any]] | None = None
+        # The coverage measurement of the same run (see ``transcribed_coverage()``).  ``None``
+        # means "no measurement to offer": the run never transcribed, or it decoded nothing.
+        self._last_coverage: dict[str, Any] | None = None
 
     def _get_models(self) -> _ModelSet:
         if self._models is not None:
@@ -1145,6 +1275,20 @@ class ASRRunner:
 
         return self._last_transcribed_segments
 
+    def transcribed_coverage(self) -> dict[str, Any] | None:
+        """The coverage evidence for the **last** :meth:`transcribe`, or ``None``.
+
+        ``None`` means the run has no measurement to offer — it never transcribed, or it decoded
+        nothing (``decoded_s == 0``), in which case no coverage claim is made at all.  The shape is
+        the record :func:`_coverage_record` builds; :func:`apply_coverage_evidence` is the one
+        place that carries it onto a manifest row.
+
+        Not to be confused with the record of an *earlier* run: the pair is cleared together with
+        the other ``_last_*`` state, so a failed call leaves no stale measurement behind.
+        """
+
+        return self._last_coverage
+
     def transcribe(self, audio_path: str, *, bust_cache: bool = False) -> list[dict[str, Any]]:
         """Transcribe one audio file into timestamped cues.
 
@@ -1157,13 +1301,17 @@ class ASRRunner:
         the re-seeded prompt is only effective if the re-decode does not reuse pass 1's cache.
 
         The character-level record of the same run is left for :meth:`characters`; callers that
-        publish it read it right after this returns.
+        publish it read it right after this returns.  The coverage measurement of the same run is
+        left for :meth:`transcribed_coverage`, on the same rule — a by-product of the run, not a
+        second pass, and not part of the returned cue list.
         """
 
         # The record describes one run: a call that fails leaves no stale one behind for a caller
-        # that reads ``characters()`` after a later, unrelated failure.
+        # that reads ``characters()`` after a later, unrelated failure.  The coverage measurement
+        # is part of that record, so it is cleared with it.
         self._last_characters = None
         self._last_transcribed_segments = None
+        self._last_coverage = None
         # The model pair first: a host without the extra must fail with the documented
         # ``ASRDependencyError`` (which names the ``[asr]`` install), not with whatever the audio
         # reader happens to import first.  The readers are part of the same extra, so their absence
@@ -1196,7 +1344,15 @@ class ASRRunner:
             if not chunks:
                 self._last_characters = None
                 self._last_transcribed_segments = None
+                self._last_coverage = None
                 return []
+
+            # The run's own decoded duration: the measured quantity the coverage comparison is
+            # against, and — because ``_split_audio`` tiles the input exactly — exactly the number
+            # of samples this run fed the model.  Taken before the loop so a chunk that decodes to
+            # nothing (``if not text: continue`` below) still counts in the denominator: that
+            # branch is where the measured defect's span went missing.
+            decoded_seconds = sum(len(chunk) / SAMPLE_RATE for chunk, _offset in chunks)
 
             handle, scratch = tempfile.mkstemp(prefix="bili-asr-chunk-", suffix=".wav")
             os.close(handle)
@@ -1212,6 +1368,10 @@ class ASRRunner:
                 sf.write(scratch, audio, SAMPLE_RATE)
                 text, language = self._transcribe_chunk(models, scratch, bust_cache=bust_cache)
                 if not text:
+                    # The silent point the plan names: an empty-transcript chunk is dropped with
+                    # no record of its own.  It is not tracked here either — the run-level
+                    # comparison below is what makes the drop visible, and it does so without
+                    # changing this branch's behaviour or aborting the run.
                     continue
                 units = [
                     {
@@ -1227,6 +1387,10 @@ class ASRRunner:
             # record is the former projected onto the latter, so the two cannot disagree.
             self._last_characters = _characters_from_pieces(pieces, cues)
             self._last_transcribed_segments = list(cues)
+            # The run's coverage evidence, measured from what this run decoded and what it
+            # produced.  It rides the manifest row (D11 carrier); the return shape of this method
+            # is deliberately unchanged.
+            self._last_coverage = _coverage_record(decoded_seconds, cues)
             return cues
         finally:
             for leftover in (temporary, scratch):

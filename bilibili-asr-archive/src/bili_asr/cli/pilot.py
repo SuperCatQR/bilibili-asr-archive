@@ -307,6 +307,9 @@ def _pilot_archive_asr(
         raise ValueError("archive bundle incomplete")
     current.update(paths)
     current["status"] = "archived"
+    # Coverage attestation (plan asr-coverage-attestation): this route runs ASR, so its measured
+    # span rides the row it writes — the same carrier as the `asr` loop and the coordinator.
+    asr.apply_coverage_evidence(current, runner)
     try:
         current["audio_path"] = os.path.relpath(audio_path, audio_base)
     except ValueError:

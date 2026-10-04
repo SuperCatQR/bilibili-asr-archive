@@ -868,11 +868,17 @@ class RunCoordinator:
         result.final_status = "archived"
 
     def _mark_archived(
-        self, key: str, entry: dict[str, Any], paths: dict[str, str]
+        self, key: str, entry: dict[str, Any], paths: dict[str, str], runner: Any = None
     ) -> None:
         updated = self._current_entry(key, entry)
         updated.update(paths)
         updated["status"] = "archived"
+        # Coverage attestation (plan asr-coverage-attestation): the ASR stage's measured span
+        # rides the row it archives.  ``runner`` is ``None`` on the subtitle route, which ran no
+        # ASR and so makes no measurement — that route leaves the field as it found it, and the
+        # helper clears any stale measurement before it writes the new one on the ASR route.
+        if runner is not None:
+            asr_module.apply_coverage_evidence(updated, runner)
         self.store.upsert(updated)
         self._reclaim_audio(updated)
 
@@ -986,7 +992,7 @@ class RunCoordinator:
             raise
         current = self._current_entry(key, entry)
         current["audio_path"] = audio_declared
-        self._mark_archived(key, current, paths)
+        self._mark_archived(key, current, paths, runner)
         # Store write-back (plan r14-routes-writeback): the locally-produced
         # transcript owes a ``transcripts`` row taking the part out of
         # ``v_missing_transcript``.  Best-effort: the archive already
