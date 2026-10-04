@@ -343,7 +343,7 @@ def _mark_audio_ok(
     # else `store.root` exactly as before.  Computing it against the wrong base
     # is the silent failure of contract §15 correction 7: `os.path.relpath`
     # succeeds with `..` components, `confined_audio_path` refuses the shape, and
-    # the row silently never reaches `audio_ok`.
+    # the row never reaches `audio_ok`. Reject that wiring error explicitly.
     bases = (
         artifact_roots.read_bases()
         if artifact_roots is not None
@@ -359,3 +359,4 @@ def _mark_audio_ok(
         entry["audio_path"] = final_rel
         store.upsert(entry)
         return
+    raise OSError("audio path outside archive")

@@ -63,7 +63,8 @@ _PARTS = (
 
 
 def _open_run(
-    transcripts: TranscriptRepository, run_id: str, kind: str
+    transcripts: TranscriptRepository, run_id: str, kind: str,
+    *, credential_present: bool = True,
 ) -> None:
     """Open one parent run of ``kind`` so attempt rows have their foreign key."""
     transcripts.start_acquisition_run(
@@ -73,7 +74,7 @@ def _open_run(
             selector_kind="pending",
             selector_target=None,
             requested_limit=None,
-            credential_present=False,
+            credential_present=credential_present,
             started_at=200,
         )
     )

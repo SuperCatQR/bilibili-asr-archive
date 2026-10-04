@@ -117,7 +117,7 @@ def _seed_store(root):
                     selector_kind="pending",
                     selector_target=None,
                     requested_limit=None,
-                    credential_present=False,
+                    credential_present=True,
                     started_at=started,
                 )
             )

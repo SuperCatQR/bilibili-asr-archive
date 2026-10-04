@@ -98,18 +98,14 @@ def _print_in_process_constructions(
     stdout, so a missing stream prints nothing rather than breaking it.
     """
     from bili_asr.coordinator import model_constructions_line
+    from bili_asr.diagnostics import write_stderr
 
     constructions = (
         int(getattr(runner, "model_constructions", 0)) if runner is not None else 0
     )
     if asr_items <= 0 and constructions <= 0:
         return
-    if sys.stderr is None:
-        return
-    print(
-        model_constructions_line(command, constructions, asr_items),
-        file=sys.stderr,
-    )
+    write_stderr(model_constructions_line(command, constructions, asr_items))
 
 
 def _cmd_asr(args: argparse.Namespace) -> int:
@@ -293,6 +289,7 @@ def _cmd_asr(args: argparse.Namespace) -> int:
                 # and no key is written for it — an absent ``coverage`` reads as *not evaluable*,
                 # which is the honest answer, not "covered".
                 if source == "asr":
+                    asr.apply_provenance_evidence(updated, runner)
                     asr.apply_coverage_evidence(updated, runner)
                 store.upsert(updated)
                 _reclaim_after_archive(
@@ -300,16 +297,20 @@ def _cmd_asr(args: argparse.Namespace) -> int:
                 )
                 # Publication and the resumable manifest precede supplementary
                 # store writes, including cue conversion that can itself fail.
+                from bili_asr.page_identity import writeback_identity
+
+                identity = writeback_identity(entry)
                 if (
                     queue_source is not None and source == "asr"
                     and queue_source.asr_run_id is not None
+                    and identity is not None
                 ):
                     try:
                         qs.record_local_transcript(
                             queue_source,
                             run_id=queue_source.asr_run_id,
-                            bvid=entry.get("bvid", key),
-                            page_index=int(entry.get("page_index") or 0),
+                            bvid=identity[0],
+                            page_index=identity[1],
                             language=(provenance or {}).get("language") or "und",
                             segments=_asr_transcript_segments(segments),
                             model_name=(provenance or {}).get("model_name", ""),

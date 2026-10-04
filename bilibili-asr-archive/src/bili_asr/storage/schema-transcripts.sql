@@ -179,7 +179,9 @@ WHERE vp.processing_status <> 'gone'
 -- An *indefinite* ``'no-subtitle'`` — ``error_code IS NULL``, i.e. the
 -- inventory was empty but this credential may simply not have seen it — admits
 -- only once two **independent** observations exist, where independent means a
--- distinct ``run_id``.  ``COUNT(DISTINCT run_id)`` is load-bearing: two probes
+-- distinct credentialed ``run_id``. Anonymous observations cannot establish
+-- exhaustion: those parts stay off the paid branch until authenticated harvests
+-- have actually seen the empty inventory. ``COUNT(DISTINCT run_id)`` is load-bearing: two probes
 -- inside one run are ONE observation, so a retry loop cannot inflate the count.
 -- (The table's PRIMARY KEY is ``(run_id, video_part_id)``, which makes a second
 -- row for one part in one run unwritable in the first place; changing that key
@@ -203,6 +205,7 @@ WITH subtitle_attempts AS (
         aa.outcome,
         aa.error_code,
         aa.run_id,
+        ar.credential_present,
         ROW_NUMBER() OVER (
             PARTITION BY aa.video_part_id
             ORDER BY aa.finished_at DESC, aa.run_id DESC
@@ -214,7 +217,7 @@ WITH subtitle_attempts AS (
 , empty_inventory_confirmations AS (
     SELECT video_part_id, COUNT(DISTINCT run_id) AS confirmations
     FROM subtitle_attempts
-    WHERE outcome = 'no-subtitle' AND error_code IS NULL
+    WHERE outcome = 'no-subtitle' AND error_code IS NULL AND credential_present = 1
     GROUP BY video_part_id
 )
 SELECT
@@ -290,6 +293,7 @@ WITH subtitle_attempts AS (
         aa.outcome,
         aa.error_code,
         aa.run_id,
+        ar.credential_present,
         ROW_NUMBER() OVER (
             PARTITION BY aa.video_part_id
             ORDER BY aa.finished_at DESC, aa.run_id DESC
@@ -304,7 +308,7 @@ WITH subtitle_attempts AS (
 , empty_inventory_confirmations AS (
     SELECT video_part_id, COUNT(DISTINCT run_id) AS confirmations
     FROM subtitle_attempts
-    WHERE outcome = 'no-subtitle' AND error_code IS NULL
+    WHERE outcome = 'no-subtitle' AND error_code IS NULL AND credential_present = 1
     GROUP BY video_part_id
 )
 SELECT

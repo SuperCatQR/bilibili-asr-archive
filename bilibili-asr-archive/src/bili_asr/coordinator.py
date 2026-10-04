@@ -556,6 +556,7 @@ class RunCoordinator:
         # on disk is never lost to a store problem.
         self._writeback_source: Any | None = None
         self._writeback_source_failed = False
+        self._writeback_refusal_reported = False
         self.ledger = AttemptLedger(self.root)
         # Latest attempt number per (work_id, stage); seeded by the ledger's
         # one-time construction scan and updated by ``AttemptLedger.append``.
@@ -683,7 +684,9 @@ class RunCoordinator:
         The source opens at most once per batch: the first archived row pays
         the open, a root whose store cannot be opened (or refuses to open)
         records the miss and every later write-back skips without re-probing.
-        The caller closes the connection when the batch's rows are done.
+        The caller closes the connection when the batch's rows are done. Run
+        refusal diagnostics share a coordinator latch across reopened sources;
+        the open-failure latch separately prevents repeated connection probes.
         """
 
         if self._writeback_source is not None:
@@ -697,6 +700,7 @@ class RunCoordinator:
             self._writeback_source_failed = True
             return None
         self._writeback_source = source
+        source._asr_run_refusal_reported = self._writeback_refusal_reported
         return source
 
     def _close_writeback_source(self, *, outcome: str | None = None) -> None:
@@ -705,6 +709,9 @@ class RunCoordinator:
         source = self._writeback_source
         self._writeback_source = None
         if source is not None:
+            self._writeback_refusal_reported |= getattr(
+                source, "_asr_run_refusal_reported", False
+            )
             try:
                 source.finish_asr_run(outcome=outcome)
             except Exception:
@@ -737,12 +744,16 @@ class RunCoordinator:
         language at all is answered by skipping this part's write-back: the
         caption kind is genuinely ambiguous, and the plan's STOP condition
         says the gap-view row is best-effort, never a reason to refuse an
-        archive that already succeeded on disk.  The evidence the two gap
-        views key on is the transcript row itself, so the write-back runs
-        before the attempt ledger records the ``archive: ok`` whose row count
-        the summary reads.
+        archive that already succeeded on disk. Write-back runs after
+        ``_mark_archived``, outside the archive success guard. Its outcome
+        never changes the archived row or the ``archive: ok`` attempt.
         """
 
+        from .page_identity import writeback_identity
+
+        identity = writeback_identity(entry)
+        if identity is None:
+            return
         source_kind = _caption_source_kind_from_entry(entry)
         if source_kind is None:
             return
@@ -760,8 +771,8 @@ class RunCoordinator:
         qs.record_caption_transcript(
             source,
             run_id=run_id,
-            bvid=str(entry.get("bvid") or ""),
-            page_index=int(entry.get("page_index") or 0),
+            bvid=identity[0],
+            page_index=identity[1],
             source_kind=source_kind,
             language=language,
             segments=_caption_transcript_segments(segments),
@@ -781,6 +792,11 @@ class RunCoordinator:
         disturb the ledger's outcome.
         """
 
+        from .page_identity import writeback_identity
+
+        identity = writeback_identity(entry)
+        if identity is None:
+            return
         source = self._queue_source_for_writeback()
         if source is None:
             return
@@ -799,8 +815,8 @@ class RunCoordinator:
             qs.record_local_transcript(
                 source,
                 run_id=run_id,
-                bvid=str(entry.get("bvid") or ""),
-                page_index=int(entry.get("page_index") or 0),
+                bvid=identity[0],
+                page_index=identity[1],
                 language=(provenance or {}).get("language") or "und",
                 segments=tuple(
                     TranscriptSegmentRecord(
@@ -883,6 +899,7 @@ class RunCoordinator:
         # ASR and so makes no measurement — that route leaves the field as it found it, and the
         # helper clears any stale measurement before it writes the new one on the ASR route.
         if runner is not None:
+            asr_module.apply_provenance_evidence(updated, runner)
             asr_module.apply_coverage_evidence(updated, runner)
         self.store.upsert(updated)
         self._reclaim_audio(updated)
@@ -1282,23 +1299,20 @@ class RunCoordinator:
         this line inside ``campaign``'s JSON document; a closed stderr means
         the diagnostic has nowhere to go, so nothing is printed.
         """
+        from .diagnostics import write_stderr
+
         if summary.asr_items <= 0 and summary.model_constructions <= 0:
             # Check if we had failed load attempts
             if summary.model_load_attempts > 0:
-                if sys.stderr is not None:
-                    print(
-                        f"{self.command}: model load failed {summary.model_load_attempts} time(s), "
-                        f"0 transcripts produced",
-                        file=sys.stderr,
-                    )
+                write_stderr(
+                    f"{self.command}: model load failed {summary.model_load_attempts} time(s), "
+                    "0 transcripts produced"
+                )
             return
-        if sys.stderr is None:
-            return
-        print(
+        write_stderr(
             model_constructions_line(
                 self.command, summary.model_constructions, summary.asr_items
-            ),
-            file=sys.stderr,
+            )
         )
 
     def _run_batch_locked(
@@ -1392,7 +1406,7 @@ def _caption_language_from_entry(entry: dict[str, Any]) -> str | None:
 
     if not isinstance(entry, dict):
         return None
-    for key in ("sub_lan", "subtitle_language"):
+    for key in ("sub_lan", "subtitle_language", "sub_lan_doc"):
         value = entry.get(key)
         if not isinstance(value, str):
             continue

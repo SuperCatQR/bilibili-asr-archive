@@ -309,6 +309,7 @@ def _pilot_archive_asr(
         raise ValueError("archive bundle incomplete")
     current.update(paths)
     current["status"] = "archived"
+    asr.apply_provenance_evidence(current, runner)
     # Coverage attestation (plan asr-coverage-attestation): this route runs ASR, so its measured
     # span rides the row it writes — the same carrier as the `asr` loop and the coordinator.
     asr.apply_coverage_evidence(current, runner)
@@ -362,7 +363,10 @@ def _record_pilot_audio_acquired(
     from bili_asr.services import queue_source as qs
 
     audio_rel = entry.get("audio_path")
-    if not audio_rel:
+    from bili_asr.page_identity import writeback_identity
+
+    identity = writeback_identity(entry)
+    if not audio_rel or identity is None:
         return
     try:
         base = _audio_base_holding(roots, os.fspath(audio_rel))
@@ -371,8 +375,8 @@ def _record_pilot_audio_acquired(
     audio_path = os.path.join(os.fspath(base), os.fspath(audio_rel))
     qs.mark_audio_acquired(
         queue_source,
-        bvid=str(entry.get("bvid") or ""),
-        page_index=int(entry.get("page_index") or 0),
+        bvid=identity[0],
+        page_index=identity[1],
         audio_path=audio_path,
         declared_relative=os.fspath(audio_rel),
     )
@@ -606,12 +610,15 @@ def _cmd_pilot(args: argparse.Namespace) -> int:
                                 recorded = (
                                     runner.transcribed_segments() if runner else None
                                 )
-                                if recorded:
+                                from bili_asr.page_identity import writeback_identity
+
+                                identity = writeback_identity(current)
+                                if recorded and identity is not None:
                                     qs.record_local_transcript(
                                         writeback_source,
                                         run_id=writeback_source.asr_run_id,
-                                        bvid=str(current.get("bvid") or key),
-                                        page_index=int(current.get("page_index") or 0),
+                                        bvid=identity[0],
+                                        page_index=identity[1],
                                         language=provenance.get("language") or "und",
                                         segments=_asr_transcript_segments(recorded),
                                         model_name=provenance.get("model_name", ""),

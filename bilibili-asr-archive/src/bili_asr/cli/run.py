@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from contextlib import contextmanager
-from typing import Iterator
 import json
 import sys
 
@@ -39,14 +37,14 @@ def _run_scope_rows(store, entries: dict, scope: str):
     could not be resolved at all.
     """
     from bili_asr import search_index
-    from bili_asr.manifest import VALID_STATUSES
+    from bili_asr.manifest import TERMINAL_STATUSES, VALID_STATUSES
 
     if scope == "pending":
         return (
             [
                 (key, e)
                 for key, e in sorted(entries.items())
-                if e.get("status") in VALID_STATUSES - {"archived", "gone"}
+                if e.get("status") in VALID_STATUSES - TERMINAL_STATUSES
                 and not _is_excluded(e)
             ],
             None,
@@ -63,7 +61,7 @@ def _run_scope_rows(store, entries: dict, scope: str):
             if (str(e.get("work_id") or key) in failed
                 or str(e.get("bvid") or "") in failed)
             and not _is_excluded(e)
-            and e.get("status") not in {"archived", "gone"}
+            and e.get("status") not in TERMINAL_STATUSES
         ]
         return rows, None
 

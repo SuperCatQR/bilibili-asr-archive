@@ -25,6 +25,8 @@ from typing import Any
 
 from bili_asr.storage import MediaQueueRepository, QueueGapItem
 from bili_asr.storage.database import open_database
+from bili_asr.diagnostics import write_stderr
+from . import _common
 
 #: The deprecation line printed once to stderr when the operator pins the
 #: pre-cutover manifest queue with ``--queue-source manifest``.
@@ -154,15 +156,14 @@ class QueueSource:
         """
 
         import sqlite3 as _sqlite3
-        import time as _time
 
         from bili_asr.storage import AcquisitionRunRecord, TranscriptRepository
 
         if self.asr_run_id is not None:
             return self.asr_run_id
         try:
-            now = int(_time.time())
-            run_id = f"{command}-{_time.time_ns()}"
+            now = _common._now()
+            run_id = f"{command}-{time.time_ns()}"
             TranscriptRepository(self.connection).start_acquisition_run(
                 AcquisitionRunRecord(
                     run_id=run_id,
@@ -175,7 +176,7 @@ class QueueSource:
                 )
             )
             self.asr_run_id = run_id
-        except (_sqlite3.Error, OSError, ValueError) as exc:
+        except (_sqlite3.Error, OSError, ValueError, TypeError) as exc:
             self.asr_run_id = None
             self._report_refused_asr_run(command, exc)
         return self.asr_run_id
@@ -195,57 +196,27 @@ class QueueSource:
             return
         try:
             TranscriptRepository(self.connection).finish_acquisition_run(
-                self.asr_run_id, int(time.time()), outcome=outcome,
+                self.asr_run_id, _common._now(), outcome=outcome,
             )
-        except (sqlite3.Error, OSError, ValueError):
+        except (sqlite3.Error, OSError, ValueError, TypeError):
             return
         self._asr_run_finished = True
 
     def _report_refused_asr_run(self, command: str, exc: BaseException) -> None:
-        """State a refused run once per instance, on stderr only.
+        """State a refused run once per source, using an unbuffered diagnostic.
 
-        The operator reading stdout sees every row of the scope reported as
-        ``archived`` and no evidence that the transcript write-backs were
-        skipped — the gap only shows up later, in another command's
-        ``v_missing_transcript`` view.  This line names the command, the
-        refusing exception's class and the skipped write-backs; it is printed
-        at most once per instance, because the whole scope is skipped and a
-        store that keeps refusing would otherwise print one line per retry.
-
-        With fd 2 closed CPython sets ``sys.stderr`` to ``None`` and
-        ``print(..., file=None)`` falls back to **stdout**, where it would land
-        inside the caller's own output; a stream that is gone means the
-        diagnostic has nowhere to go, so nothing is printed (the rule
-        ``coordinator._print_model_constructions`` already follows).  On a
-        stream that is present the write is attempted once; a stream
-        ``print`` cannot write to is swallowed the same way and not
-        retried: one that dies after startup (``os.close(2)``, a broken pipe)
-        leaves ``sys.stderr`` a live wrapper whose write raises ``OSError``,
-        and one that is present but unusable in another way raises
-        ``ValueError`` (a closed wrapper, a detached buffer) or ``TypeError``
-        (a byte-oriented stream) — same reasoning for every shape.  The latch
-        is set either way: a stream that cannot accept the line is not a
-        transient condition.
+        In-process CLI loops own one source. The coordinator carries this latch
+        across its per-batch sources, so looping batches also report only once
+        per coordinator invocation, even when creation is retried next batch.
         """
-
-        import sys as _sys
-
         if self._asr_run_refusal_reported:
             return
         self._asr_run_refusal_reported = True
-        if _sys.stderr is None:
-            return
-        try:
-            print(
-                f"{command}: acquisition run refused by the store "
-                f"({type(exc).__name__}); transcript write-backs are skipped "
-                "for this run",
-                file=_sys.stderr,
-            )
-        except (OSError, ValueError, TypeError):
-            # The stream cannot accept the line; a diagnostic may not raise out
-            # of the refusal path, and the run stays refused.
-            return
+        write_stderr(
+            f"{command}: acquisition run refused by the store "
+            f"({type(exc).__name__}); transcript write-backs are skipped "
+            "for this run"
+        )
 
     # ------------------------------------------------------------------ read
 
@@ -381,7 +352,7 @@ def mark_audio_acquired(
             format=os.path.splitext(audio_path)[1].lstrip(".") or "m4a",
             duration_ms=0,
             acquisition_source="download",
-            acquired_at=int(time.time()),
+            acquired_at=_common._now(),
         )
     except (OSError, ValueError):
         # The download already completed; store evidence is supplementary.
@@ -404,7 +375,7 @@ def mark_transcript_stored(
     """
 
     try:
-        now = int(time.time())
+        now = _common._now()
         queue_source.repository.mark_transcript_stored(
             bvid=bvid,
             page_index=page_index,
@@ -461,7 +432,7 @@ def record_local_transcript(
         if part is None:
             return
         video_part_id = int(part["video_part_id"])
-        now = int(time.time())
+        now = _common._now()
         TranscriptRepository(connection).record_local_transcript(
             run_id=run_id,
             video_part_id=video_part_id,
@@ -524,7 +495,7 @@ def record_caption_transcript(
         if part is None:
             return
         video_part_id = int(part["video_part_id"])
-        now = int(time.time())
+        now = _common._now()
         TranscriptRepository(connection).record_acquired_transcript(
             run_id=run_id,
             video_part_id=video_part_id,

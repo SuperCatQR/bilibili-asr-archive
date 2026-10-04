@@ -71,8 +71,8 @@ def _insert_acquisition_run(connection, *, run_id: str, kind: str = "asr") -> No
         "INSERT INTO acquisition_runs("
         "run_id, kind, selector_kind, selector_target, requested_limit, "
         "credential_present, started_at, finished_at, outcome"
-        ") VALUES (?, ?, 'pending', NULL, NULL, 0, 100, 300, 'complete')",
-        (run_id, kind),
+        ") VALUES (?, ?, 'pending', NULL, NULL, ?, 100, 300, 'complete')",
+        (run_id, kind, int(kind == "subtitle")),
     )
 
 
@@ -1353,16 +1353,16 @@ def test_queue_source_ensure_asr_run_refusal_survives_a_dead_stderr_stream(
             source = QueueSource(connection)
             assert source.ensure_asr_run("asr") is None, label
 
-            # The diagnostic really was written to the unusable stream, and
-            # the write really failed — the failure was swallowed, not
-            # avoided.  Exactly one write: ``print`` fails on the text write
-            # and never reaches the trailing newline.
-            assert stream.writes == 1, label
+            # Text wrappers bypass their buffer so a failed write cannot be
+            # retried at interpreter shutdown. Custom binary writers get one
+            # guarded call. Neither path redirects diagnostics to stdout.
+            expected_writes = int(label == "binary stream")
+            assert stream.writes == expected_writes, label
 
             # An unusable stream is not a transient condition: the latch
             # stays set and the line is not retried on the next refusal.
             assert source.ensure_asr_run("asr") is None, label
-            assert stream.writes == 1, label
+            assert stream.writes == expected_writes, label
             assert source._asr_run_refusal_reported is True, label
 
         # stderr only: the failed writes must not fall back to stdout.

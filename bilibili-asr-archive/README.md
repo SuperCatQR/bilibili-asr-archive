@@ -1478,3 +1478,9 @@ of fabricating a `needs_audio` page. Resume is per `work_id`: a completed or
 failed p0 does not skip p1.
 
 No media redistribution; personal archival only.
+
+Audio queue eligibility requires two distinct authenticated harvest runs to
+corroborate an empty subtitle inventory without an explicit error. Anonymous
+empty observations do not count: these parts remain outside the audio branch
+until authenticated harvests can inspect their inventory. Explicit `not_found`
+and recorded subtitle failures retain their existing audio fallback routes.

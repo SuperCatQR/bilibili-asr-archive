@@ -39,6 +39,23 @@ def parse_work_id(work_id: str) -> tuple[str, int]:
     return match.group("bvid"), int(match.group("page_index"))
 
 
+def writeback_identity(entry: Mapping[str, object]) -> tuple[str, int] | None:
+    """Resolve a store write from the canonical work id, never a guessed p0.
+
+    A legacy video-level row can still publish its bundle, but cannot attribute
+    that transcript to a particular part. Conflicting identities also skip.
+    """
+    if entry.get("unresolved") or not isinstance(entry.get("work_id"), str):
+        return None
+    try:
+        bvid, page_index = parse_work_id(entry["work_id"])
+    except ValueError:
+        return None
+    if entry.get("bvid") not in (None, "", bvid):
+        return None
+    return bvid, page_index
+
+
 def artifact_stem(identity: PageIdentity) -> str:
     stem = f"{identity.bvid}.p{identity.page_index}"
     if ":" in stem:

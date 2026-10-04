@@ -977,6 +977,16 @@ def _coverage_record(
     }
 
 
+def apply_provenance_evidence(entry: dict[str, Any], runner: Any) -> None:
+    """Carry the ASR branch's provenance on its resumable manifest row."""
+    try:
+        provenance = runner.provenance() or {}
+    except Exception:
+        provenance = {}
+    entry["source"] = "asr"
+    entry["language"] = provenance.get("language") or "und"
+
+
 def apply_coverage_evidence(entry: dict[str, Any], runner: Any) -> dict[str, Any] | None:
     """Write the last run's coverage evidence onto a manifest row, in place.
 
