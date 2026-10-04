@@ -20,12 +20,30 @@
 #   sess-probe.log                — a session log
 #   *.bak*, *.bak-*               — operator backups of register files
 #   .execution-maintenance/       — machine-local execution scratch
+#   .status-write.lockdir/        — the engine's own status-write mutex. It is
+#                                   a DIRECTORY created next to a snapshot for
+#                                   the duration of one write, and it is
+#                                   created INSIDE the window in which the same
+#                                   engine shells out to `git status --porcelain`
+#                                   to prove the plan worktree clean. Left
+#                                   untracked-but-unignored, the lock makes the
+#                                   engine read its own lock as an uncommitted
+#                                   change and refuse `plan handoff` /
+#                                   `plan accept` with
+#                                   `coordination.git-proof` — the handoff can
+#                                   then never be submitted. Measured
+#                                   2026-10-04 on the installed engine 3.11.2
+#                                   (`withStatusWriteLock`, STATUS_WRITE_LOCKDIR
+#                                   `mstar-harness.js:21762`): `git status`
+#                                   returned `?? …/.status-write.lockdir/`
+#                                   while the command held the lock.
 .mstar/sdd/
 .mstar/snapshots/
 .mstar/**/sess-probe.log
 .mstar/**/*.bak*
 .mstar/**/*.bak-*
 .mstar/.execution-maintenance/
+.mstar/**/.status-write.lockdir/
 # runtime / media
 bilibili-asr-archive/archive/audio/
 bilibili-asr-archive/archive/transcripts/
