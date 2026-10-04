@@ -117,13 +117,17 @@ class QueueSource:
         # run-scoping contract: one invocation is one run).  ``None`` when the
         # store refuses the run — every per-part write-back then skips.
         self.asr_run_id: str | None = None
+        self._asr_run_finished = False
         # The refusal diagnostic is latched per instance: the refusal happens
         # before any row is recorded and skips the whole scope, and a store
         # that keeps refusing retries on every call, so an unlatched line
         # would degrade into per-row noise (D8).
         self._asr_run_refusal_reported = False
 
-    def ensure_asr_run(self, command: str) -> str | None:
+    def ensure_asr_run(
+        self, command: str, *, selector_target: str | None = None,
+        requested_limit: int | None = None,
+    ) -> str | None:
         """Open this invocation's one ``kind='asr'`` acquisition run, best-effort.
 
         One invocation is one run scope (the same shape the audio half names):
@@ -163,9 +167,9 @@ class QueueSource:
                 AcquisitionRunRecord(
                     run_id=run_id,
                     kind="asr",
-                    selector_kind="pending",
-                    selector_target=None,
-                    requested_limit=None,
+                    selector_kind="bvid" if selector_target else "pending",
+                    selector_target=selector_target,
+                    requested_limit=requested_limit,
                     credential_present=False,
                     started_at=now,
                 )
@@ -175,6 +179,27 @@ class QueueSource:
             self.asr_run_id = None
             self._report_refused_asr_run(command, exc)
         return self.asr_run_id
+
+    def finish_asr_run(self, *, outcome: str | None = None) -> None:
+        """Finish this source's run once, before closing its connection.
+
+        Callers supply failed/partial when processing failed or was interrupted;
+        otherwise the repository derives the outcome from stored attempts.
+        A failed bookkeeping write cannot invalidate a published archive.
+        """
+        import sqlite3
+
+        from bili_asr.storage import TranscriptRepository
+
+        if self.asr_run_id is None or self._asr_run_finished:
+            return
+        try:
+            TranscriptRepository(self.connection).finish_acquisition_run(
+                self.asr_run_id, int(time.time()), outcome=outcome,
+            )
+        except (sqlite3.Error, OSError, ValueError):
+            return
+        self._asr_run_finished = True
 
     def _report_refused_asr_run(self, command: str, exc: BaseException) -> None:
         """State a refused run once per instance, on stderr only.

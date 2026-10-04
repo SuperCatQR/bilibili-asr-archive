@@ -392,9 +392,11 @@ def test_download_audio_explicit_flac_url_remuxes(tmp_root, monkeypatch):
         stream_routes={f"{STREAM_HOST}/a30232.flac": flac},
     )
     calls = []
-    monkeypatch.setattr(
-        audio, "_run_ffmpeg", lambda src, dst: calls.append((src, dst))
-    )
+    def convert(src, dst):
+        calls.append((src, dst))
+        with open(dst, "wb") as handle:
+            handle.write(AUDIO_BYTES)
+    monkeypatch.setattr(audio, "_run_ffmpeg", convert)
     out = os.path.join(tmp_root, "audio", f"{BVID}.m4a")
     result = audio.download_audio(client, BVID, out)
     assert result == out
@@ -418,9 +420,11 @@ def test_download_audio_mime_only_flac_remuxes(tmp_root, monkeypatch):
         stream_routes={f"{STREAM_HOST}/a30232.m4s": flac},
     )
     calls = []
-    monkeypatch.setattr(
-        audio, "_run_ffmpeg", lambda src, dst: calls.append((src, dst))
-    )
+    def convert(src, dst):
+        calls.append((src, dst))
+        with open(dst, "wb") as handle:
+            handle.write(AUDIO_BYTES)
+    monkeypatch.setattr(audio, "_run_ffmpeg", convert)
     out = os.path.join(tmp_root, "audio", f"{BVID}.m4a")
     result = audio.download_audio(client, BVID, out)
     assert result == out

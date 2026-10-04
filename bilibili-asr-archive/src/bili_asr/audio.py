@@ -7,7 +7,7 @@ Spec constraints (plan 002 / asr-archive-cli.md):
 - Stream base URLs are short-lived signed URLs: used in the same run as the
   playurl probe, never persisted to the manifest.
 - Manifest transition: needs_audio -> audio_ok.
-- Explicit FLAC streams are remuxed to .m4a via ffmpeg when available;
+- Explicit FLAC streams are converted losslessly to ALAC in .m4a when ffmpeg is available;
   without ffmpeg the raw .flac is kept (pure-API fallback, AGENTS.md boundary).
 """
 
@@ -22,7 +22,7 @@ from pathlib import Path
 from typing import Any
 
 from .artifact_root import ArtifactRoots
-from .bili_client import BiliClient
+from .bili_client import BiliClient, StreamDownloadError
 from .manifest import ManifestStore
 from .page_identity import PageIdentity, apply_identity
 from .subtitles import resolve_page_identity
@@ -48,6 +48,10 @@ class FFmpegUnavailable(Exception):
     """ffmpeg binary not found on PATH; caller keeps the raw container."""
 
 
+class AudioConversionError(RuntimeError):
+    """The downloaded audio could not be converted to its archive container."""
+
+
 def pick_audio_stream(
     streams: list[dict[str, Any]] | None,
 ) -> dict[str, Any] | None:
@@ -61,11 +65,23 @@ def pick_audio_stream(
     return streams[0]
 
 
-def _stream_url(stream: dict[str, Any]) -> str:
-    url = stream.get("baseUrl") or stream.get("base_url") or ""
-    if url.startswith("//"):
-        url = "https:" + url
-    return url
+def _stream_urls(stream: dict[str, Any]) -> tuple[str, ...]:
+    """Primary and backup CDN addresses, normalized and deduplicated in order."""
+    candidates = [stream.get("baseUrl"), stream.get("base_url")]
+    for key in ("backupUrl", "backup_url"):
+        backups = stream.get(key)
+        if isinstance(backups, (list, tuple)):
+            candidates.extend(backups)
+    urls = []
+    for value in candidates:
+        if not isinstance(value, str):
+            continue
+        url = value.strip()
+        if url.startswith("//"):
+            url = "https:" + url
+        if url.startswith(("https://", "http://")) and url not in urls:
+            urls.append(url)
+    return tuple(urls)
 
 
 def _run_ffmpeg(src: str, dst: str) -> None:
@@ -77,11 +93,18 @@ def _run_ffmpeg(src: str, dst: str) -> None:
         for path in (src, dst)
         if path.startswith(("/proc/self/fd/", "/dev/fd/"))
     )
-    subprocess.run(
-        [ffmpeg, "-y", "-loglevel", "error", "-i", src, "-c", "copy", dst],
-        check=True,
+    completed = subprocess.run(
+        [ffmpeg, "-nostdin", "-y", "-loglevel", "error", "-i", src,
+         "-map", "0:a:0", "-vn", "-c:a", "alac", "-f", "ipod", dst],
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.PIPE,
+        check=False,
         pass_fds=pass_fds,
     )
+    if completed.returncode:
+        # ffmpeg diagnostics can contain signed URLs or descriptor paths.
+        raise AudioConversionError("ffmpeg audio conversion failed")
 
 
 def _create_audio_stage(audio_fd: int, suffix: str) -> tuple[str, int]:
@@ -102,8 +125,11 @@ def _create_audio_stage(audio_fd: int, suffix: str) -> tuple[str, int]:
 
 
 def _stage_is_regular(stage_fd: int) -> None:
-    if not stat.S_ISREG(os.fstat(stage_fd).st_mode):
+    info = os.fstat(stage_fd)
+    if not stat.S_ISREG(info.st_mode):
         raise OSError("audio stage is not regular")
+    if info.st_size == 0:
+        raise StreamDownloadError("audio stream produced an empty file")
 
 
 def _existing_audio(out_path: str, roots: ArtifactRoots) -> str | None:
@@ -221,7 +247,10 @@ def download_audio(
             f"{identity.work_id}: playurl has no dash audio streams"
         )
 
-    url = _stream_url(chosen)
+    urls = _stream_urls(chosen)
+    if not urls:
+        raise NoAudioStreamError(f"{identity.work_id}: audio stream has no usable URL")
+    url = urls[0]
     mime_type = str(chosen.get("mimeType") or chosen.get("mime_type") or "")
     is_flac = url.lower().split("?", 1)[0].endswith(".flac") or "flac" in mime_type.lower()
 
@@ -234,8 +263,18 @@ def download_audio(
     converted_fd: int | None = None
     try:
         stage_name, stage_fd = _create_audio_stage(audio_fd, ".download")
-        client.download_audio_stream(url, descriptor_path(stage_fd))
-        _stage_is_regular(stage_fd)
+        for url in urls:
+            # A failed CDN can leave a prefix; each attempt starts from zero.
+            os.ftruncate(stage_fd, 0)
+            os.lseek(stage_fd, 0, os.SEEK_SET)
+            try:
+                client.download_audio_stream(url, descriptor_path(stage_fd))
+                _stage_is_regular(stage_fd)
+            except StreamDownloadError:
+                if url == urls[-1]:
+                    raise StreamDownloadError("all audio CDN addresses failed") from None
+            else:
+                break
         os.fsync(stage_fd)
 
         if is_flac:

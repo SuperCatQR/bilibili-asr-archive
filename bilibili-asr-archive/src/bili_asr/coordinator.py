@@ -699,16 +699,21 @@ class RunCoordinator:
         self._writeback_source = source
         return source
 
-    def _close_writeback_source(self) -> None:
+    def _close_writeback_source(self, *, outcome: str | None = None) -> None:
         """Close the write-back source, if the batch ever opened one."""
 
         source = self._writeback_source
         self._writeback_source = None
         if source is not None:
             try:
-                source.connection.close()
+                source.finish_asr_run(outcome=outcome)
             except Exception:
                 pass
+            finally:
+                try:
+                    source.connection.close()
+                except Exception:
+                    pass
 
     def _record_subtitle_transcript(
         self,
@@ -1013,6 +1018,17 @@ class RunCoordinator:
         # routes them to on-disk reprocessing or a skipped record first.
         work_id = str(entry.get("work_id") or key)
         started = utc_now_iso()
+        existing = self._existing_audio(entry)
+        if existing is not None:
+            _base, declared = existing
+            current = self._current_entry(key, entry)
+            current.update(status="audio_ok", audio_path=declared)
+            self.store.upsert(current)
+            self._record(
+                "download", work_id, "ok", artifact_paths=[declared], started_at=started,
+            )
+            self._note_audio_peak()
+            return "audio_ok"
         if self.max_audio_bytes:
             from .audio_budget import SKIP_REASON, would_exceed_budget
 
@@ -1132,7 +1148,7 @@ class RunCoordinator:
                 entry = self._current_entry(key, entry)
                 self._stage_archive_from_subtitle(key, entry, result)
             elif status in {"needs_audio", "audio_ok"}:
-                if status == "needs_audio":
+                if status == "needs_audio" or self._existing_audio(entry) is None:
                     status = self._stage_download(key, entry, result)
                     if result.skipped:
                         return result
@@ -1193,6 +1209,7 @@ class RunCoordinator:
         # interrupted-batch tests model exactly that), and the release path
         # must still run.
         summary = RunSummary()
+        completed = False
         with archive_writer(self.root):
             self.asr_runner = injected_runner
             self._batch_asr_items = 0
@@ -1208,6 +1225,7 @@ class RunCoordinator:
             )
             try:
                 summary = self._run_batch_locked(rows)
+                completed = True
             finally:
                 # The batch's evidence is stated, the write-back source closed,
                 # and the runner handed back on *every* exit path, Ctrl-C
@@ -1215,7 +1233,15 @@ class RunCoordinator:
                 # release so a ``BaseException`` cannot carry the count away,
                 # and the pending exception still propagates (this ``finally``
                 # never swallows or returns).
-                self._close_writeback_source()
+                if not completed:
+                    # The summary is returned only after the loop. Interruption
+                    # leaves the invocation incomplete even after write-backs.
+                    outcome = "partial"
+                elif summary.failed or summary.risk_interrupted:
+                    outcome = "partial" if summary.ok_count else "failed"
+                else:
+                    outcome = None
+                self._close_writeback_source(outcome=outcome)
                 if injected_runner is None and self.asr_runner is not None:
                     self.asr_runner.release()
                 batch_runner = self.asr_runner

@@ -13,8 +13,8 @@ Base metadata/subtitle/audio workflows (Linux or Windows WSL, Python 3.12+):
     python3.12 -m pip install -e ".[dev]"
 
 `ffmpeg` is a **system requirement, not a pip one** — install it alongside Python
-(`sudo apt install ffmpeg`, or the WSL equivalent). The download layer uses it to remux the explicit
-FLAC streams, and the ASR reader uses it to decode the `.m4a`/AAC the downloader writes, which
+(`sudo apt install ffmpeg`, or the WSL equivalent). The download layer uses it to convert explicit
+FLAC streams losslessly to ALAC in `.m4a`, and the ASR reader uses it to decode the `.m4a`/AAC the downloader writes, which
 `soundfile` cannot open. A host without it fails every `.m4a` with an `ASRDependencyError` naming
 the binary; `scripts/check_asr_env.py` is not a substitute, since it checks the GPU stack and would
 pass on a host with no `ffmpeg` at all.
@@ -129,7 +129,10 @@ runner remains owned by its caller. `BILI_ASR_MODEL` may be a pre-populated loca
 path at runtime, but paths are never provenance identifiers. Safe slash-qualified
 model identifiers such as `Qwen/Qwen3-ASR-1.7B-hf` are preserved; absolute paths,
 URLs, and credential-like model values are redacted. `ASRRunner.provenance()`
-exposes deterministic configuration identifiers and an optional declared revision.
+exposes configuration identifiers, an optional declared revision, and the last transcription's
+detected language (for example, `Chinese`). Multiple detected languages are recorded as `mul`.
+Before transcription, or after a failed call, language falls back to the configured value;
+store write-back uses `und` when neither is available.
 It contains no model, media, transcript, or raw exception payloads. Provenance is a
 configuration/report surface, not a ledger field and not a semantic-accuracy claim.
 The fixture evidence lives in `tests/test_asr_qwen.py`: the cue rules, the chunker's tiling
@@ -143,9 +146,24 @@ runtime, or full-corpus coverage.
 
 ### Reading the audio the downloader writes
 
-`download-audio` writes `.m4a` (AAC). **`soundfile` cannot decode AAC**, so the runner reads with
+`download-audio` normally writes `.m4a` (AAC). Explicit FLAC streams are converted losslessly to
+ALAC in the same container. **`soundfile` cannot decode AAC**, so the runner reads with
 `soundfile` first and, on `LibsndfileError`, falls back to the **`ffmpeg` binary** — the same
-dependency `download-audio` already uses to remux explicit FLAC streams. Practically:
+dependency `download-audio` already uses to convert explicit FLAC streams.
+
+Downloads try the primary CDN address followed by the stream's unique backup addresses. Each
+attempt starts with an empty temporary file; empty downloads and failed conversions are never
+published or marked `audio_ok`. The `run`/`schedule`/`campaign` coordinator reuses existing audio
+before checking the download budget, and downloads again when an `audio_ok` row has lost its file
+during an online run. Offline runs continue to skip missing input.
+
+ASR acquisition runs are finished before their database connections close, including failed and
+interrupted invocations. `asr --bvid` records its requested target, and `--limit` records its bound.
+After a bundle has been verified and recorded `archived`, a supplementary transcript store
+write-back cannot invalidate that published result. Errors raised at the CLI write-back boundary
+emit a diagnostic.
+
+Practically:
 
 - **`ffmpeg` is required**, and it is what decodes AAC here. It is a platform package rather than a
   pip one, so it cannot be expressed in the `[asr]` extra; a host without it fails on every `.m4a`

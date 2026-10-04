@@ -338,7 +338,10 @@ def _open_writeback_source(args, use_manifest: bool):
 
     source = qs.open_queue_source(args.archive_root)
     if source is not None:
-        source.ensure_asr_run("pilot")
+        source.ensure_asr_run(
+            "pilot", selector_target=getattr(args, "bvid", None),
+            requested_limit=args.n,
+        )
     return source
 
 
@@ -522,6 +525,7 @@ def _cmd_pilot(args: argparse.Namespace) -> int:
     # manifest route or when the store cannot be opened — the write-backs are
     # best-effort and skip rather than fail the archive.
     writeback_source = None
+    completed = False
 
     try:
         for index, entry in enumerate(selected):
@@ -696,11 +700,16 @@ def _cmd_pilot(args: argparse.Namespace) -> int:
                 print(f"{label}: {type(exc).__name__}", file=sys.stderr)
             if index != len(selected) - 1:
                 time.sleep(3.0)
+        completed = True
     finally:
         _print_in_process_constructions("pilot", runner, asr_count.value)
         if runner is not None:
             runner.release()
         if writeback_source is not None:
+            outcome = (
+                "partial" if batch_subtitle_count + batch_audio_count else "failed"
+            ) if failed or not completed else None
+            writeback_source.finish_asr_run(outcome=outcome)
             writeback_source.connection.close()
 
     _pilot_print_summary(

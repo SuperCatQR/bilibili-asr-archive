@@ -60,7 +60,10 @@ def _asr_transcript_segments(segments: list) -> tuple:
     return tuple(records)
 
 
-def _ensure_asr_run(queue_source, command: str) -> None:
+def _ensure_asr_run(
+    queue_source, command: str, *, selector_target: str | None = None,
+    requested_limit: int | None = None,
+) -> None:
     """Create this invocation's one ``kind='asr'`` acquisition run, best-effort.
 
     One invocation is one run scope (the same shape the audio half names): the
@@ -71,7 +74,9 @@ def _ensure_asr_run(queue_source, command: str) -> None:
     to a store problem.
     """
 
-    queue_source.ensure_asr_run(command)
+    queue_source.ensure_asr_run(
+        command, selector_target=selector_target, requested_limit=requested_limit,
+    )
 
 
 def _print_in_process_constructions(
@@ -145,10 +150,6 @@ def _cmd_asr(args: argparse.Namespace) -> int:
             print("asr: queue empty (no parts need transcription)")
             queue_conn.close()
             return 0
-        # One invocation is one run scope for the transcript write-back too
-        # (plan 20260929-asr-local-transcript-storage, Task 2): the created
-        # ``kind='asr'`` run is the parent the per-part attempt rows key to.
-        _ensure_asr_run(queue_source, "asr")
     else:
         store = ManifestStore(root=args.archive_root)
         entries = store.load()
@@ -201,6 +202,8 @@ def _cmd_asr(args: argparse.Namespace) -> int:
             config = asr.default_config()
         except ValueError as exc:
             print(f"asr: {exc}", file=sys.stderr)
+            if queue_conn is not None:
+                queue_conn.close()
             return 1
     # ``asr_count`` is the printed line's denominator and counts the same event
     # the coordinator counts (D2.5): a row whose ASR stage produced a
@@ -208,7 +211,13 @@ def _cmd_asr(args: argparse.Namespace) -> int:
     # the archive tail, so a row that fails downstream still counts and the
     # two paths cannot disagree on the same input.
     asr_count = _AsrItemCount()
+    completed = False
     try:
+        if queue_source is not None:
+            _ensure_asr_run(
+                queue_source, "asr", selector_target=args.bvid,
+                requested_limit=args.limit,
+            )
         for entry in todo:
             key = str(entry.get("work_id") or entry["bvid"])
             label = key
@@ -276,31 +285,6 @@ def _cmd_asr(args: argparse.Namespace) -> int:
                 )
                 if not archive.archive_bundle_complete(args.artifact_roots.write_base, paths):
                     raise ValueError("archive bundle incomplete")
-                # Store write-back: a locally-produced transcript is a real
-                # transcripts row, taking the part out of v_missing_transcript
-                # (plan 20260929-asr-local-transcript-storage, Task 2).  Only
-                # the ASR route produces a local transcript; the subtitle
-                # route's caption has its own writer.  Best-effort: the archive
-                # already succeeded on disk, so a store failure must not lose
-                # it.  Order matters — the row first, the attempt evidence it
-                # carries with it; there is no separate mark to mis-order.
-                if (
-                    not use_manifest
-                    and queue_source is not None
-                    and source == "asr"
-                    and getattr(queue_source, "asr_run_id", None) is not None
-                ):
-                    language = (provenance or {}).get("language") or "und"
-                    qs.record_local_transcript(
-                        queue_source,
-                        run_id=queue_source.asr_run_id,
-                        bvid=entry.get("bvid", key),
-                        page_index=int(entry.get("page_index") or 0),
-                        language=language,
-                        segments=_asr_transcript_segments(segments),
-                        model_name=(provenance or {}).get("model_name", ""),
-                        model_revision=(provenance or {}).get("model_revision"),
-                    )
                 updated = dict(store.get(key) or entry)
                 updated.update(paths)
                 updated["status"] = "archived"
@@ -314,6 +298,28 @@ def _cmd_asr(args: argparse.Namespace) -> int:
                 _reclaim_after_archive(
                     args.artifact_roots, updated, keep=args.keep_audio
                 )
+                # Publication and the resumable manifest precede supplementary
+                # store writes, including cue conversion that can itself fail.
+                if (
+                    queue_source is not None and source == "asr"
+                    and queue_source.asr_run_id is not None
+                ):
+                    try:
+                        qs.record_local_transcript(
+                            queue_source,
+                            run_id=queue_source.asr_run_id,
+                            bvid=entry.get("bvid", key),
+                            page_index=int(entry.get("page_index") or 0),
+                            language=(provenance or {}).get("language") or "und",
+                            segments=_asr_transcript_segments(segments),
+                            model_name=(provenance or {}).get("model_name", ""),
+                            model_revision=(provenance or {}).get("model_revision"),
+                        )
+                    except Exception as exc:
+                        print(
+                            f"{label}: transcript store write-back failed ({type(exc).__name__})",
+                            file=sys.stderr,
+                        )
                 ok += 1
                 print(f"{label}: archived ({source})")
             except asr.ASRDependencyError:
@@ -331,8 +337,13 @@ def _cmd_asr(args: argparse.Namespace) -> int:
                     f"{label}: archive failed ({_safe_error_code(exc)})",
                     file=sys.stderr,
                 )
+        completed = True
     finally:
         if queue_conn is not None:
+            outcome = (
+                "partial" if ok else "failed"
+            ) if failed or not completed else None
+            queue_source.finish_asr_run(outcome=outcome)
             queue_conn.close()
         _print_in_process_constructions("asr", runner, asr_count.value)
         if runner is not None:

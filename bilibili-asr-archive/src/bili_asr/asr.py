@@ -1142,6 +1142,7 @@ class ASRRunner:
         # The coverage measurement of the same run (see ``transcribed_coverage()``).  ``None``
         # means "no measurement to offer": the run never transcribed, or it decoded nothing.
         self._last_coverage: dict[str, Any] | None = None
+        self._last_language: str | None = None
 
     def _get_models(self) -> _ModelSet:
         if self._models is not None:
@@ -1312,6 +1313,7 @@ class ASRRunner:
         self._last_characters = None
         self._last_transcribed_segments = None
         self._last_coverage = None
+        self._last_language = None
         # The model pair first: a host without the extra must fail with the documented
         # ``ASRDependencyError`` (which names the ``[asr]`` install), not with whatever the audio
         # reader happens to import first.  The readers are part of the same extra, so their absence
@@ -1358,6 +1360,7 @@ class ASRRunner:
             os.close(handle)
             minimum = int(_CHUNK_MIN_SECONDS * SAMPLE_RATE)
             pieces: list[dict[str, Any]] = []
+            languages: set[str] = set()
             for chunk, offset in chunks:
                 audio = np.asarray(chunk, dtype=np.float32)
                 if audio.shape[0] < minimum:
@@ -1373,6 +1376,8 @@ class ASRRunner:
                     # comparison below is what makes the drop visible, and it does so without
                     # changing this branch's behaviour or aborting the run.
                     continue
+                if language.strip():
+                    languages.add(language.strip())
                 units = [
                     {
                         "text": unit["text"],
@@ -1391,6 +1396,12 @@ class ASRRunner:
             # produced.  It rides the manifest row (D11 carrier); the return shape of this method
             # is deliberately unchanged.
             self._last_coverage = _coverage_record(decoded_seconds, cues)
+            # Preserve the engine's detected language for automatic-language
+            # runs. Multiple languages are explicit; no evidence stays unset.
+            if len(languages) == 1:
+                self._last_language = next(iter(languages))
+            elif languages:
+                self._last_language = "mul"
             return cues
         finally:
             for leftover in (temporary, scratch):
@@ -1488,7 +1499,7 @@ class ASRRunner:
         return [term for term in (self._hotwords_effective or ())]
 
     def provenance(self) -> dict[str, str]:
-        """The redaction-safe provenance of this runner's configuration."""
+        """Redacted configuration and the last successful transcription's language."""
 
         config = self.config
         provenance = {
@@ -1496,7 +1507,7 @@ class ASRRunner:
             "aligner_model": _redact(config.aligner_name),
             "model_revision": _redact(config.model_revision or ""),
             "device": _redact(config.device),
-            "language": _redact(config.language or ""),
+            "language": _redact(self._last_language or config.language or ""),
             "hotwords": _redact(",".join(self._prompt_hotwords())),
             "chunk_seconds": f"{config.chunk_seconds:g}",
             "offline": str(config.offline),
