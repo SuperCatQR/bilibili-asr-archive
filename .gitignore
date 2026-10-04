@@ -89,3 +89,9 @@ e2e-test*.md
 
 # store-migration backup snapshots (local ops artifact, multi-MB)
 .mstar/archived/store-migration/backups/
+
+# agent-teams runtime scratch (durable per-workspace team state written by the
+# AgentTeams runtime: member roster, per-run archives, retired-member ids). It is
+# session machinery, not project content — nothing in the product, the harness or
+# the plans references it, and it was never tracked.
+.agent-teams/

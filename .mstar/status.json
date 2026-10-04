@@ -1,5 +1,12 @@
 {
   "version": 2,
   "updated_at": "2026-10-04",
-  "workflows": []
+  "workflows": [
+    {
+      "id": "20261004-issue-register-audit",
+      "type": "plan",
+      "started_at": "2026-10-04T06:16:54.401Z",
+      "dir": "workflows/20261004-issue-register-audit"
+    }
+  ]
 }
