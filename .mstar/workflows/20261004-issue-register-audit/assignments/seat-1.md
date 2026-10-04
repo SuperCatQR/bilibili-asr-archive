@@ -7,7 +7,7 @@
 **Workflow id**: 20261004-issue-register-audit
 **Plan id**: audit-2026-10-04
 **Plan path**: /root/workspace/bilibili-asr-archive/.mstar/plans/audit-2026-10-04.md
-**Worktree path**: /root/workspace/bilibili-asr-archive/.worktrees/audit-2026-10-04
+**Worktree path**: /root/workspace/bilibili-asr-archive
 **Working branch**: main
 **SDD dir**: /root/workspace/bilibili-asr-archive/.mstar/sdd/audit-2026-10-04
 **QA gate**: pm-acceptance
