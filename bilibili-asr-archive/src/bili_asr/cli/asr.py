@@ -269,6 +269,10 @@ def _cmd_asr(args: argparse.Namespace) -> int:
                     args.artifact_roots.write_base, entry, segments, source=source,
                     raw=raw, asr_provenance=provenance,
                     characters=asr.characters_of(runner) if source == "asr" else None,
+                    # The same measurement the store write-back carries (I-000188 acceptance:
+                    # "visible in the store and in the bundle").  `runner` is None on the
+                    # subtitle route, and the helper returns None when there is no measurement.
+                    coverage=asr.transcribed_coverage(runner) if source == "asr" else None,
                 )
                 if not archive.archive_bundle_complete(args.artifact_roots.write_base, paths):
                     raise ValueError("archive bundle incomplete")

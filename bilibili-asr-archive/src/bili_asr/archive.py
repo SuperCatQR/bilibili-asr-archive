@@ -623,7 +623,7 @@ def characters_for(segments: list[dict[str, Any]], characters: Any) -> dict[str,
     return {"text": text, "starts": list(starts), "ends": list(ends)}
 
 
-def write_archive(archive_root: str | os.PathLike[str], entry: dict[str, Any], segments: list[dict[str, Any]], *, source: str, raw: Any | None = None, asr_provenance: Mapping[str, str] | None = None, characters: Any | None = None) -> dict[str, str]:
+def write_archive(archive_root: str | os.PathLike[str], entry: dict[str, Any], segments: list[dict[str, Any]], *, source: str, raw: Any | None = None, asr_provenance: Mapping[str, str] | None = None, characters: Any | None = None, coverage: Mapping[str, Any] | None = None) -> dict[str, str]:
     """Publish one transcript bundle below the archive root.
 
     ``asr_provenance`` carries the ASR runner's redaction-safe configuration
@@ -631,6 +631,15 @@ def write_archive(archive_root: str | os.PathLike[str], entry: dict[str, Any], s
     raw sidecar and as ``asr_*`` frontmatter keys, so any transcript can be
     traced back to the model that produced it.  The subtitle path passes
     nothing and is unchanged.
+
+    ``coverage`` carries this run's coverage attestation (``decoded_s`` /
+    ``produced_s`` / ``coverage`` / ``coverage_min`` / ``coverage_short``, built
+    by :func:`bili_asr.asr._coverage_record`).  It is recorded as ``coverage_*``
+    frontmatter keys **and** in the raw sidecar, because ``I-000188``'s
+    acceptance names both surfaces: a reader holding only the published bundle
+    must be able to see that the transcript covers part of what was decoded,
+    without reading the store.  The subtitle path has no measurement to carry
+    and passes nothing.
     """
     try:
         root = _lexical_archive_root(archive_root)
@@ -644,6 +653,11 @@ def write_archive(archive_root: str | os.PathLike[str], entry: dict[str, Any], s
     frontmatter.update(_confidence_summary(segments))
     if asr_provenance:
         frontmatter.update({f"asr_{key}": value for key, value in asr_provenance.items()})
+    if coverage:
+        # The published span the model produced against the span it decoded.  Both surfaces carry
+        # it (I-000188 acceptance: "visible in the store and in the bundle"), and the frontmatter
+        # keys are prefixed so a reader can tell the attestation from `asr_*` provenance.
+        frontmatter.update({f"coverage_{key}": value for key, value in coverage.items()})
     if entry.get("work_id") and not entry.get("unresolved"):
         frontmatter.update({"work_id": entry["work_id"], "page_index": entry.get("page_index"), "cid": entry.get("cid")})
     md = ("---\n" + "".join(f"{k}: {json.dumps(v, ensure_ascii=False)}\n" for k, v in frontmatter.items()) + "---\n\n" + segments_to_txt(segments) + "\n").encode("utf-8")
@@ -651,6 +665,8 @@ def write_archive(archive_root: str | os.PathLike[str], entry: dict[str, Any], s
         raw = {"segments": segments, "source": source}
         if asr_provenance:
             raw["provenance"] = dict(asr_provenance)
+        if coverage:
+            raw["coverage"] = dict(coverage)
     # The character-level record rides only on the ASR path: a subtitle-derived raw has no
     # character timings, and inventing them would be a claim about audio nobody aligned.
     block = characters_for(segments, characters) if source == "asr" else {}

@@ -968,6 +968,9 @@ class RunCoordinator:
                 source="asr",
                 asr_provenance=self.asr_runner.provenance() if self.asr_runner else None,
                 characters=asr_module.characters_of(runner),
+                # Same measurement as `_mark_archived` writes to the row (I-000188: store *and*
+                # bundle).  `runner` is the run's runner, so this reads THIS run's measurement.
+                coverage=asr_module.transcribed_coverage(runner),
             )
         except Exception as exc:  # redacted; batch continues
             self._record(

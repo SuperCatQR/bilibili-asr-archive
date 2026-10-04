@@ -307,3 +307,71 @@ def test_a_rerun_recomputes_and_a_no_decode_run_claims_nothing(tmp_root, monkeyp
     asr.apply_coverage_evidence(entry, runner)
     assert entry["coverage"] == pytest.approx(0.80206, abs=1e-4)
     assert entry["coverage_short"] is True
+
+
+def test_the_published_bundle_carries_the_same_attestation(tmp_root, monkeypatch, capsys):
+    """AC1's other named surface: the signal is visible *in the bundle*, not only in the store.
+
+    The acceptance reads "visible in the store and in the bundle", so a reader holding only the
+    published artefact must be able to see the shortfall without opening the store.  The span the
+    model produced against the span it decoded rides the ``.md`` frontmatter as ``coverage_*`` and
+    the raw sidecar as a ``coverage`` object.
+    """
+
+    identity = page_identity("BVbundle", 0, 42, "p0")
+    _seed_audio_ok_row(tmp_root, identity)
+    _cover(monkeypatch, text=DEFECT_TEXT, step=DEFECT_STEP, seconds=DEFECT_DECODED_S)
+
+    rc = main(["asr", "--pending", "--queue-source", "manifest", "--archive-root", tmp_root])
+    captured = capsys.readouterr()
+    assert rc == 0, captured.err
+
+    row = _recorded_row(tmp_root, identity.work_id)
+    md_path = os.path.join(tmp_root, row["md_path"])
+    raw_path = os.path.join(tmp_root, row["raw_path"])
+
+    with open(md_path, encoding="utf-8") as fh:
+        body = fh.read()
+    frontmatter = body.split("---", 2)[1]
+    # The attestation is present and self-describing in the published text.  Keys are prefixed
+    # with `coverage_` over the record's own names, so the ratio is `coverage_coverage`.
+    assert "coverage_coverage_short: true" in frontmatter, (
+        "the bundle must itself say the run fell short:\n" + frontmatter
+    )
+    assert f"coverage_coverage_min: {asr.COVERAGE_MIN}" in frontmatter, frontmatter
+    assert "coverage_coverage: 0.802" in frontmatter, (
+        "the bundle carries the measured ratio, not a rounded stand-in:\n" + frontmatter
+    )
+    assert "coverage_decoded_s: 73.561" in frontmatter, frontmatter
+
+    with open(raw_path, encoding="utf-8") as fh:
+        raw = json.load(fh)
+    measured = raw["coverage"]
+    assert measured["decoded_s"] == pytest.approx(DEFECT_DECODED_S)
+    assert measured["produced_s"] == pytest.approx(59.0, abs=1e-6)
+    assert measured["coverage"] == pytest.approx(0.80206, abs=1e-4)
+    assert measured["coverage_short"] is True
+
+    # The published frontmatter and the sidecar carry the same measurement.  The `asr_*`
+    # provenance and the VAD capture summary beside them are untouched by this change, which the
+    # existing asr/archive suites pin; this test owns only the coverage surface.
+    assert measured["coverage_min"] == asr.COVERAGE_MIN
+
+
+def test_a_path_with_no_measurement_publishes_no_coverage_keys(tmp_root, monkeypatch, capsys):
+    """The subtitle route has no decode to compare, so it claims nothing.
+
+    A bundle that invented a ``coverage`` for a caption-derived transcript would be asserting a
+    measurement nobody made — the same class of error as reading an absent record as "covered".
+    """
+
+    from bili_asr import archive as archive_module
+
+    entry = {"bvid": "BVsub", "title": "t", "duration_s": 10, "pubdate_str": "2026-01-02"}
+    segments = [{"start": 0.0, "end": 1.0, "text": "hello"}]
+    paths = archive_module.write_archive(tmp_root, entry, segments, source="subtitle")
+    with open(os.path.join(tmp_root, paths["md_path"]), encoding="utf-8") as fh:
+        frontmatter = fh.read().split("---", 2)[1]
+    assert "coverage" not in frontmatter, frontmatter
+    with open(os.path.join(tmp_root, paths["raw_path"]), encoding="utf-8") as fh:
+        assert "coverage" not in json.load(fh)

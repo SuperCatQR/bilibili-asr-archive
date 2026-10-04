@@ -299,6 +299,8 @@ def _pilot_archive_asr(
         paths = archive.write_archive(
             base, current, segments, source="asr", asr_provenance=runner.provenance(),
             characters=asr.characters_of(runner),
+            # Same measurement as the store write-back below (I-000188: store *and* bundle).
+            coverage=asr.transcribed_coverage(runner),
         )
     finally:
         if owns_runner:

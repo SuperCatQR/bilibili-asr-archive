@@ -1544,6 +1544,23 @@ def characters_of(runner: Any) -> dict[str, Any] | None:
     return reader() if callable(reader) else None
 
 
+def transcribed_coverage(runner: Any) -> dict[str, Any] | None:
+    """The coverage evidence ``runner`` measured for its last transcription, if any.
+
+    The module-level counterpart of :meth:`ASRRunner.transcribed_coverage`, and the same shape as
+    :func:`characters_of` beside it: read through ``getattr`` so a runner double without the
+    method, or an ASR boundary from before this measurement existed, answers with nothing rather
+    than fabricating a clean bill.  ``None`` reaches the bundle as *no attestation*, which is the
+    truthful record — the frontmatter simply carries no ``coverage_*`` key.
+
+    This is the bundle-side half of the same measurement :func:`apply_coverage_evidence` writes to
+    the manifest row; ``I-000188``'s acceptance requires the signal in both surfaces.
+    """
+
+    reader = getattr(runner, "transcribed_coverage", None)
+    return reader() if callable(reader) else None
+
+
 def two_pass_transcribe(
     runner: ASRRunner, audio_path: str, *, paired_subtitle_text: str | None
 ) -> list[dict[str, Any]]:
