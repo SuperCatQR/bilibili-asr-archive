@@ -751,31 +751,6 @@ class BilibiliApiGateway:
         self._jitter: Callable[[], float] = (
             _jitter if _jitter is not None else lambda: random.uniform(0.0, 1.0)
         )
-        # Pacing gate: the per-row delay is paid only when the run is expected
-        # to enumerate more rows than this floor.  A full-corpus ``fetch-meta``
-        # run drives ~90 upstream calls per page and needs the delay; a
-        # single-bvid / small selection does not, so the floor lets that path
-        # skip the 0.8-1.6 s latency per call.  The default of ``None`` means
-        # "always pace" — the legacy full-corpus behaviour every existing
-        # caller relies on; the enumeration entry point lowers it per run.
-        self._pacing_floor: int | None = None
-
-    def set_pacing_floor(self, expected_rows: int | None) -> None:
-        """Gate per-row pacing on the run's expected row count.
-
-        ``expected_rows`` is the number of video rows the current run will
-        enumerate; pacing sleeps are paid only when it exceeds 1, so a
-        single-bvid or one-page selection issues its (few) upstream calls
-        back to back instead of paying the 0.8-1.6 s floor per call.
-        ``None`` restores the default "always pace".
-        """
-
-        invalid = isinstance(expected_rows, bool) or not isinstance(
-            expected_rows, int
-        )
-        if expected_rows is not None and (invalid or expected_rows < 1):
-            raise ValueError("expected_rows must be a positive integer or None")
-        self._pacing_floor = expected_rows
 
     async def _pace(self) -> None:
         """Sleep the per-row metadata delay before one upstream call.
@@ -787,12 +762,16 @@ class BilibiliApiGateway:
         documented inter-page range used by ``fetch_pages`` and the run
         stays strictly sequential.  The sleep itself is awaited (the default
         sleeper is ``asyncio.sleep``), so the event loop is yielded rather
-        than blocked; when the run's expected row count does not exceed the
-        pacing floor, no sleep is paid at all.
+        than blocked.
+
+        Pacing is unconditional by design: every caller pays the delay, which
+        is what keeps a page-driven enumeration inside the risk-control
+        budget.  A row-count gate existed here between 2026-10-02 and
+        2026-10-04 (``set_pacing_floor``, removed by the ruling on
+        ``I-000173``/``I-000142``) — it never had a production caller, so it
+        only ever documented an opt-out the product did not offer.
         """
 
-        if self._pacing_floor is not None and self._pacing_floor <= 1:
-            return
         await self._sleeper(
             _METADATA_PACING_MIN_SECONDS
             + max(0.0, self._jitter()) * _METADATA_PACING_JITTER_SPAN_SECONDS

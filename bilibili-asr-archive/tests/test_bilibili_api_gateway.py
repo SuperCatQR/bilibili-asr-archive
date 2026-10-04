@@ -1517,56 +1517,13 @@ def test_pacing_default_sleeper_is_awaitable_without_blocking():
     assert gateway._sleeper is asyncio.sleep
 
 
-def test_pacing_gate_small_selection_skips_sleep(bilibili_api_seam):
-    """A run whose expected row count is a single row never pays the delay.
-
-    QC S1: pacing used to be unconditional, so a single-bvid / one-row
-    selection paid the 0.8-1.6 s floor on every per-row getter call.  With
-    the floor set to the run's expected row count, a small selection issues
-    its upstream calls back to back — the sleeper is never awaited.
-    """
-
-    gateway, sleeps = _load_paced_gateway()
-    gateway.set_pacing_floor(1)
-
-    asyncio.run(_drive_paced_getter(gateway, bilibili_api_seam))
-
-    assert len(bilibili_api_seam.calls) == 9
-    assert sleeps == []
-
-
-def test_pacing_gate_full_page_still_paces(bilibili_api_seam):
-    """A run expecting more than one row keeps the documented per-call delay."""
-
-    gateway, sleeps = _load_paced_gateway()
-    gateway.set_pacing_floor(30)
-
-    asyncio.run(_drive_paced_getter(gateway, bilibili_api_seam))
-
-    assert len(sleeps) == len(bilibili_api_seam.calls)
-    assert all(0.8 <= delay <= 1.6 for delay in sleeps)
-
-
-def test_pacing_gate_reset_restores_default_pacing(bilibili_api_seam):
-    """``set_pacing_floor(None)`` restores the always-pace default."""
-
-    gateway, sleeps = _load_paced_gateway()
-    gateway.set_pacing_floor(1)
-    gateway.set_pacing_floor(None)
-
-    asyncio.run(_drive_paced_getter(gateway, bilibili_api_seam))
-
-    assert len(sleeps) == len(bilibili_api_seam.calls)
-
-
-def test_pacing_gate_rejects_invalid_expected_rows():
-    """The gate's row count is a positive integer or ``None`` — never looser."""
-
-    gateway, _ = _load_paced_gateway()
-
-    for bad in (0, -1, True, 1.5):
-        with pytest.raises(ValueError):
-            gateway.set_pacing_floor(bad)
+# The row-count gate the QC S1 fix shipped alongside the async seam
+# (``set_pacing_floor``, four tests: small-selection skip, full-page pace,
+# reset, invalid input) was removed 2026-10-04 with the seam itself — it had
+# no production caller (``I-000173``/``I-000142``), so it asserted an opt-out
+# the product never wired.  Pacing is now unconditional, and
+# ``test_pacing_sleeps_before_every_per_row_metadata_call`` above is the test
+# that pins it.
 
 
 # ------------------------------------------------------------ error mapping
