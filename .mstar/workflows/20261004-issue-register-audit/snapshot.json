@@ -4,13 +4,13 @@
   "type": "plan",
   "status": "running",
   "started_at": "2026-10-04T06:16:54.401Z",
-  "updated_at": "2026-10-04T06:51:03.277Z",
+  "updated_at": "2026-10-04T06:51:59.267Z",
   "plans": [
     {
       "id": "audit-2026-10-04",
       "title": "Plan audit-2026-10-04 — Apply the issue-register audit's verdicts",
       "file": "/root/workspace/bilibili-asr-archive/.mstar/plans/audit-2026-10-04.md",
-      "status": "InProgress",
+      "status": "InReview",
       "metadata": {
         "catalog_pin": {
           "store_id": "7476bf82-e1c5-400c-bf5f-5c56c35c8d7b",
@@ -20,7 +20,7 @@
         }
       },
       "coordination": {
-        "revision": 2,
+        "revision": 3,
         "prepared": {
           "assignment_path": "/root/workspace/bilibili-asr-archive/.mstar/workflows/20261004-issue-register-audit/assignments/seat-1.md",
           "assignment_sha256": "d3e28ea51c3d31d2a28def8ace09530b10c1a58a1b4a856e9f204862bb3da40f",
@@ -49,6 +49,39 @@
           "session_id": "audit-pm-1",
           "session_file": "/root/workspace/bilibili-asr-archive/.mstar/workflows/20261004-issue-register-audit/sessions/plan-pm-audit-pm-1.json",
           "bound_at": "2026-10-04T06:51:03.277Z"
+        },
+        "handoff": {
+          "id": "0464e482-ff6d-47b4-bcd2-dd47bc0bf7f3",
+          "attempt": 1,
+          "state": "submitted",
+          "submitted_by": "audit-pm-1",
+          "submitted_at": "2026-10-04T06:51:59.266Z",
+          "source_branch": "main",
+          "source_sha": "98007713258bbe86f622e5822fc9d653f4adbd56",
+          "worktree_path": "/root/workspace/bilibili-asr-archive",
+          "review_base": "98007713258bbe86f622e5822fc9d653f4adbd56",
+          "review_head": "98007713258bbe86f622e5822fc9d653f4adbd56",
+          "qc": {
+            "decision": "Approve",
+            "reports": [
+              {
+                "path": "/root/workspace/bilibili-asr-archive/.mstar/sdd/audit-2026-10-04/review/qc1.md",
+                "sha256": "436b7a966c3d17b6a12002ab68af1cdb3b69064d1f7490bae72a2039454ede73"
+              }
+            ],
+            "consolidated": {
+              "path": "/root/workspace/bilibili-asr-archive/.mstar/sdd/audit-2026-10-04/review/qc-consolidated.md",
+              "sha256": "1ef0fd029b73f5e85e91b1a375056cb05658bbd1aac4179836adc984a3d8f707"
+            }
+          },
+          "qa": {
+            "gate": "pm-acceptance",
+            "decision": "pass",
+            "report": {
+              "path": "/root/workspace/bilibili-asr-archive/.mstar/sdd/audit-2026-10-04/review/qa.md",
+              "sha256": "2c790d911cfb80a35ea281196ec5aa1f7b52fa6fadaa9492f12951962c6efdd3"
+            }
+          }
         }
       },
       "execution_lease": {
