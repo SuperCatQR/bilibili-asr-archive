@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from bili_asr.diagnostics import write_stderr
+
 import os
 import sys
 import time
@@ -87,6 +89,18 @@ def _cmd_derive_manifest(args: argparse.Namespace) -> int:
             f"{SKIP_IDENTITY_MISMATCH}={len(outcome.identity_mismatch)}"
         )
 
+    def _publish_snapshot() -> bool:
+        """Materialize the journal before this command reports completion."""
+        try:
+            store.save()
+        except Exception as exc:  # noqa: BLE001 - preserve bounded CLI output
+            write_stderr(
+                "derive-manifest: snapshot publish failed "
+                f"({type(exc).__name__})"
+            )
+            return False
+        return True
+
     written = 0
     for row in outcome.appended:
         try:
@@ -114,11 +128,11 @@ def _cmd_derive_manifest(args: argparse.Namespace) -> int:
             # already durable.  The per-row ``print`` below stays outside it —
             # an output failure is not an append failure, and the line is only
             # true for the rows already written.
-            print(
+            write_stderr(
                 f"derive-manifest: append failed after {written} row(s): "
-                f"{type(exc).__name__}: {exc}",
-                file=sys.stderr,
+                f"{type(exc).__name__}: {exc}"
             )
+            _publish_snapshot()
             _print_summary(written)
             return 1
         written += 1
@@ -127,6 +141,9 @@ def _cmd_derive_manifest(args: argparse.Namespace) -> int:
         print(f"skip {work_id} {SKIP_CHAIN_OWNED}")
     for work_id in outcome.identity_mismatch:
         print(f"skip {work_id} {SKIP_IDENTITY_MISMATCH}")
+    if not _publish_snapshot():
+        _print_summary(len(outcome.appended))
+        return 1
     _print_summary(len(outcome.appended))
     return 0
 
@@ -168,9 +185,13 @@ def _cmd_derive_audio_inventory(args: argparse.Namespace) -> int:
     from bili_asr.storage import MediaQueueRepository
 
     try:
-        roots = roots_for(args.archive_root, flag_value=args.artifact_root)
+        roots = getattr(args, "artifact_roots", None)
+        if roots is None:
+            roots = roots_for(
+                args.archive_root, flag_value=args.artifact_root, require_writable=False
+            )
     except ArtifactRootError as exc:
-        print(f"derive-audio-inventory: {exc}", file=sys.stderr)
+        write_stderr(f"derive-audio-inventory: {exc}")
         return 1
 
     connection = _open_subtitle_connection(
@@ -215,10 +236,9 @@ def _cmd_derive_audio_inventory(args: argparse.Namespace) -> int:
                 f"derive-audio-inventory: recorded={total} already=? missing=? "
                 f"unlinked=? (walk aborted; recorded is the store's current total)"
             )
-        print(
+        write_stderr(
             f"derive-audio-inventory: failed after {total} object(s) in the "
-            f"store: {type(exc).__name__}: {exc}",
-            file=sys.stderr,
+            f"store: {type(exc).__name__}: {exc}"
         )
         return 1
     finally:
@@ -231,7 +251,7 @@ def _cmd_derive_audio_inventory(args: argparse.Namespace) -> int:
         # A present-but-unreadable file fits no counter §3.1 defines: it is not
         # `missing` (the file is there) and cannot be recorded (no digest).  It is
         # named here instead, so the number is not silently smaller than the tree.
-        print(f"derive-audio-inventory: unreadable: {storage_key}", file=sys.stderr)
+        write_stderr(f"derive-audio-inventory: unreadable: {storage_key}")
     return 0
 
 #: The four product keys a publication records and a recorded row declares
@@ -243,8 +263,8 @@ def _cmd_download_audio(args: argparse.Namespace) -> int:
     from bili_asr.services import queue_source as qs
 
     if not args.missing_subs and not args.bvid:
-        print("download-audio: select targets with --missing-subs "
-              "and/or --bvid", file=sys.stderr)
+        write_stderr("download-audio: select targets with --missing-subs "
+              "and/or --bvid")
         return 1
 
     use_manifest = _queue_source_is_manifest(args)
@@ -264,14 +284,12 @@ def _cmd_download_audio(args: argparse.Namespace) -> int:
         if args.bvid:
             selected = _todo_for_bvid(store, args.bvid, entries)
             if selected is None:
-                print(f"{args.bvid}: multi-part video needs an explicit page",
-                      file=sys.stderr)
+                write_stderr(f"{args.bvid}: multi-part video needs an explicit page")
                 return 1
             todo = selected
             if not todo:
-                print(
-                    f"{args.bvid}: unresolved; not assigned to a page",
-                    file=sys.stderr,
+                write_stderr(
+                    f"{args.bvid}: unresolved; not assigned to a page"
                 )
                 return 1
         else:
@@ -294,6 +312,11 @@ def _cmd_download_audio(args: argparse.Namespace) -> int:
             print("download-audio: queue empty (no parts need audio)")
             queue_conn.close()
             return 0
+        queue_source.ensure_audio_run(
+            "download-audio",
+            selector_target=args.bvid if args.bvid else None,
+            requested_limit=args.limit,
+        )
 
     sessdata = _resolve_sessdata(args)
     client = bili_client.BiliClient(sessdata=sessdata)
@@ -302,12 +325,28 @@ def _cmd_download_audio(args: argparse.Namespace) -> int:
 
     ok = failed = 0
     risk_interrupted = False
+
+    def record_failure(entry: dict, error_code: str) -> None:
+        if queue_source is None:
+            return
+        bvid = str(entry.get("bvid") or "")
+        if not bvid:
+            return
+        try:
+            page_index = int(entry.get("page_index") or 0)
+        except (TypeError, ValueError):
+            page_index = 0
+        queue_source.record_audio_failed(
+            bvid=bvid, page_index=page_index, error_code=error_code,
+        )
+
     # The products' base, resolved once (contract §4).  A write resolves on `write_base`
     # alone — never on which `audio/` directory happens to exist.
     write_base = args.artifact_roots.write_base
     for key, entry in todo:
         target = _identity_from_entry(entry, key)
         label = str(key)
+
         try:
             from bili_asr.page_identity import PageIdentity
 
@@ -344,49 +383,56 @@ def _cmd_download_audio(args: argparse.Namespace) -> int:
             final = os.path.relpath(confined, os.fspath(write_base))
         except bili_client.AmbiguousPageError:
             failed += 1
-            print(f"{label}: multi-part video needs an explicit page",
-                  file=sys.stderr)
+            record_failure(entry, "ambiguous_page")
+            write_stderr(f"{label}: multi-part video needs an explicit page")
             continue
         except audio.NoAudioStreamError:
             failed += 1
-            print(f"{label}: no audio stream available", file=sys.stderr)
+            record_failure(entry, "no_audio_stream")
+            write_stderr(f"{label}: no audio stream available")
             continue
         except bili_client.RiskBudgetExhausted as exc:
             failed += 1
-            print(f"{label}: risk-control ceiling (last {exc.last_code}); "
-                  f"stopping — re-run to resume.", file=sys.stderr)
+            record_failure(entry, "risk_budget_exhausted")
+            write_stderr(f"{label}: risk-control ceiling (last {exc.last_code}); "
+                  f"stopping — re-run to resume.")
             risk_interrupted = True
             break
         except bili_client.StreamDownloadError:
             failed += 1
-            print(f"{label}: audio stream failed; continuing.", file=sys.stderr)
+            record_failure(entry, "stream_download")
+            write_stderr(f"{label}: audio stream failed; continuing.")
             continue
         except bili_client.APIResponseError as exc:
             failed += 1
+            record_failure(entry, f"api_{exc.code}")
             _record_api_error(store, key, exc.code)
-            print(f"{label}: API response error (code {exc.code}); "
-                  f"continuing.", file=sys.stderr)
+            write_stderr(f"{label}: API response error (code {exc.code}); "
+                  f"continuing.")
             continue
         except bili_client.GoneResponse as exc:
             failed += 1
+            record_failure(entry, f"gone_{exc.code}")
             e = dict(store.get(key) or store.get_compatible(key) or {})
             if e.get("work_id"):
                 e["status"] = "gone"
                 store.upsert(e)
-            print(f"{label}: terminal API response (code {exc.code}); "
-                  f"marked gone.", file=sys.stderr)
+            write_stderr(f"{label}: terminal API response (code {exc.code}); "
+                  f"marked gone.")
             continue
         except ValueError as exc:
             failed += 1
+            record_failure(entry, "invalid_target")
             msg = str(exc)
             if "missing cid" in msg or "unresolved" in msg:
-                print(f"{label}: {msg}", file=sys.stderr)
+                write_stderr(f"{label}: {msg}")
             else:
-                print(f"{label}: unexpected error", file=sys.stderr)
+                write_stderr(f"{label}: unexpected error")
             continue
         except Exception:
             failed += 1
-            print(f"{label}: unexpected error", file=sys.stderr)
+            record_failure(entry, "unexpected")
+            write_stderr(f"{label}: unexpected error")
             continue
         ok += 1
         print(f"{label}: audio downloaded -> audio_ok ({final})")
@@ -404,6 +450,22 @@ def _cmd_download_audio(args: argparse.Namespace) -> int:
         if key != todo[-1][0]:
             time.sleep(3.0)
 
+    if not use_manifest and queue_source is not None:
+        outcome = (
+            "risk_interrupted" if risk_interrupted
+            else "failed" if failed and not ok
+            else "partial" if failed
+            else "complete"
+        )
+        queue_source.finish_audio_run(outcome=outcome)
+    try:
+        store.save()
+    except Exception as exc:  # noqa: BLE001 - report after the attempt ledger
+        write_stderr(
+            "download-audio: snapshot publish failed "
+            f"({type(exc).__name__})"
+        )
+        failed += 1
     if queue_conn is not None:
         queue_conn.close()
     print(f"download-audio: {ok} audio_ok"

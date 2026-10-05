@@ -312,4 +312,5 @@ def _record_no_subtitle(connection, transcripts, bvid: str, page_index: int) -> 
             error_code=None,
             started_at=att_started,
             finished_at=att_finished,
+            credential_verified=True,
         )

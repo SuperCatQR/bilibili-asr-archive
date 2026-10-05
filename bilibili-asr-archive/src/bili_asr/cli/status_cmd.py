@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from bili_asr.diagnostics import write_stderr
+
 from typing import Any
 
 import json
@@ -23,6 +25,7 @@ from bili_asr.cli._shared import (
     _subtitle_selector,
 )
 from bili_asr.config import redact_sessdata
+from bili_asr.manifest import BACKLOG_STATUSES
 
 def _cmd_status(args: argparse.Namespace) -> int:
     """Report metadata state from the fresh SQLite database only."""
@@ -110,11 +113,8 @@ def _cmd_status(args: argparse.Namespace) -> int:
 
 #: Coverage-side backlog statuses (exit-code contract §2): the row's own status
 #: says the chain has not finished with it yet — normal operations, not damage.
-#: Same set the integrity reader uses for `retryable_incomplete`
-#: (`integrity.py` `if status in {...}: defects.add(RETRYABLE_INCOMPLETE)`).
-_BACKLOG_STATUSES = frozenset(
-    {"pending", "meta_ok", "sub_checked", "needs_audio", "audio_ok"}
-)
+#: Shared with the integrity reader's `retryable_incomplete` classification.
+_BACKLOG_STATUSES = BACKLOG_STATUSES
 
 #: Terminal-complete statuses (contract §2b R2): the row is finished as far as the
 #: archive is concerned, so a missing artifact is *expected* rather than damage.
@@ -201,15 +201,14 @@ def _cmd_coverage_quality(args: argparse.Namespace) -> int:
     reference_path = getattr(args, "reference", None)
     if reference_path is not None:
         if len(selected) != 1:
-            print(
+            write_stderr(
                 "coverage: --reference needs exactly one selected row "
-                f"(got {len(selected)})",
-                file=sys.stderr,
+                f"(got {len(selected)})"
             )
             return 1
         reference_path = Path(reference_path)
         if not reference_path.is_file():
-            print("coverage: reference unreadable", file=sys.stderr)
+            write_stderr("coverage: reference unreadable")
             return 1
 
     denominator_available = (
@@ -233,7 +232,7 @@ def _cmd_coverage_quality(args: argparse.Namespace) -> int:
                 entry, root, reference_path, artifact_roots=args.artifact_roots
             )
         except ReferenceUnavailable as exc:
-            print(f"coverage: {exc.reason}", file=sys.stderr)
+            write_stderr(f"coverage: {exc.reason}")
             return 1
         row_dict: dict[str, object] = {
             "work_id": work_id,
@@ -248,6 +247,21 @@ def _cmd_coverage_quality(args: argparse.Namespace) -> int:
             "reasons": [*result.reasons, *result.content_reasons],
             "diagnostics": list(result.diagnostics),
         }
+        # Coverage evidence is produced by the ASR stage and must remain a
+        # defect on every read path.  Quality analysis can otherwise report a
+        # perfectly well-formed bundle as valid while the model covered only
+        # part of the decoded audio.
+        coverage_short = entry.get("coverage_short")
+        if coverage_short is True:
+            row_dict["diagnostics"].append("transcript_coverage_short")
+            diagnostics.add(("transcript_coverage_short", "transcript"))
+            has_defects = True
+            has_defect_rows = True
+        elif coverage_short is not None and not isinstance(coverage_short, bool):
+            row_dict["diagnostics"].append("coverage_evidence_invalid")
+            diagnostics.add(("coverage_evidence_invalid", "transcript"))
+            has_defects = True
+            has_defect_rows = True
         if result.low_confidence_at:
             low_confidence_by_work_id[work_id] = result.low_confidence_at
         if result.reference is not None:
@@ -404,19 +418,17 @@ def _cmd_coverage_quality(args: argparse.Namespace) -> int:
         for r in rows:
             low_at = low_confidence_by_work_id.get(str(r.get("work_id")), ())
             if low_at:
-                print(
+                write_stderr(
                     f"coverage: {r.get('work_id')} low-confidence at "
-                    + ", ".join(f"{value}s" for value in low_at),
-                    file=sys.stderr,
+                    + ", ".join(f"{value}s" for value in low_at)
                 )
         if agreement is not None:
             # CSV keeps its frozen columns, so the ratio goes to stderr.
-            print(
+            write_stderr(
                 f"coverage: reference agreement {agreement.agreement:.4f} "
                 f"against {agreement.reference} "
                 f"({agreement.compared_chars[0]} vs "
-                f"{agreement.compared_chars[1]} chars, {agreement.method}, floor {agreement.floor})",
-                file=sys.stderr,
+                f"{agreement.compared_chars[1]} chars, {agreement.method}, floor {agreement.floor})"
             )
 
     if getattr(args, "strict", False):
@@ -437,7 +449,7 @@ def _cmd_coverage(args: argparse.Namespace) -> int:
         if getattr(args, "reference", None) is not None:
             # The reference is a quality input; without --quality there is no
             # report to carry it, so say so instead of ignoring the argument.
-            print("coverage: --reference requires --quality", file=sys.stderr)
+            write_stderr("coverage: --reference requires --quality")
             return 1
         from bili_asr.sidecar_projection import ReaderPolicy
         policy = ReaderPolicy(mode="trusted_archive") if getattr(args, "trusted_local", False) else None
@@ -460,7 +472,7 @@ def _cmd_coverage(args: argparse.Namespace) -> int:
             row for row in diagnostics if row["code"] not in _BACKLOG_DIAGNOSTICS
         ] else 0
     except Exception:
-        print("coverage: diagnostic coverage_report_unavailable", file=sys.stderr)
+        write_stderr("coverage: diagnostic coverage_report_unavailable")
         return 1
 
 
@@ -477,7 +489,7 @@ def _cmd_runs(args: argparse.Namespace) -> int:
         return 1
     try:
         if args.limit is not None and args.limit < 1:
-            print("runs: --limit must be a positive integer", file=sys.stderr)
+            write_stderr("runs: --limit must be a positive integer")
             return 1
         stats_rows = repository.run_stats()
         if not stats_rows:

@@ -386,7 +386,7 @@ def test_publish_transcripts_leaves_a_chain_archived_bundle_byte_identical(
     work_id = f"{CHAIN_BVID}:p0"
     base = os.path.abspath(tmp_root)
     before_bundle = _bundle_hashes(base, _declared(tmp_root, work_id))
-    before_lines = _manifest_lines(tmp_root)
+    before_rows = ManifestStore(root=tmp_root).load()
 
     assert _publish(tmp_root) == 0
     captured = capsys.readouterr()
@@ -397,7 +397,7 @@ def test_publish_transcripts_leaves_a_chain_archived_bundle_byte_identical(
     ]
     assert captured.err == ""
     assert _bundle_hashes(base, _declared(tmp_root, work_id)) == before_bundle
-    assert _manifest_lines(tmp_root) == before_lines
+    assert ManifestStore(root=tmp_root).load() == before_rows
 
 
 def test_publish_transcripts_republishes_a_bundle_whose_marker_is_missing(
@@ -425,7 +425,7 @@ def test_publish_transcripts_republishes_a_bundle_whose_marker_is_missing(
     before_row = dict(ManifestStore(root=tmp_root).load()[work_id])
     before_declared = _declared(tmp_root, work_id)
     assert not archive_module.archive_bundle_complete(base, before_declared)
-    assert len(_manifest_lines(tmp_root)) == 1
+    assert set(ManifestStore(root=tmp_root).load()) == {work_id}
 
     assert _publish(tmp_root) == 0
     captured = capsys.readouterr()
@@ -437,38 +437,32 @@ def test_publish_transcripts_republishes_a_bundle_whose_marker_is_missing(
     ]
     assert os.path.isfile(marker)
     assert archive_module.archive_bundle_complete(base, before_declared)
-    # The republished row is the same statement the first run recorded: the
-    # append-only history gained a line (the readers' own history defect, R2), the
-    # effective state did not move.
+    # Snapshot compaction folds the repair's journal entry into one effective
+    # row; the repaired bundle does not change the part's archive identity.
     assert ManifestStore(root=tmp_root).load()[work_id] == before_row
-    assert len(_manifest_lines(tmp_root)) == 2
+    assert set(ManifestStore(root=tmp_root).load()) == {work_id}
 
 
-def test_publish_transcripts_reports_failed_and_exits_one_on_a_stale_staging_directory(
+def test_publish_transcripts_ignores_a_stale_fixed_staging_directory(
     tmp_root, capsys
 ):
-    """§5.5 (iv): the writer's staging guard refuses, the part is named, exit 1.
-
-    The summary still prints — the counts an operator reads do not depend on how
-    far the run got — and no row is recorded for the part that could not publish.
-    """
+    """A legacy fixed-name staging directory cannot block a fresh publish."""
     _seed_archive(tmp_root)
     _store_caption(tmp_root, FRESH_BVID, 0)
     base = os.path.abspath(tmp_root)
     os.makedirs(os.path.join(base, "transcripts", ".archive-bundle-stage"))
 
-    assert _publish(tmp_root) == 1
+    assert _publish(tmp_root) == 0
     captured = capsys.readouterr()
 
     assert captured.out.splitlines() == [
-        f"{FRESH_BVID}:p0: failed (OSError)",
-        "publish-transcripts: candidates=1 published=0 already_published=0 failed=1",
+        f"{FRESH_BVID}:p0: published (source=subtitle-ai lang=zh-CN version=1 "
+        f"cues=2) {_md_name(FRESH_BVID, 0)}",
+        "publish-transcripts: candidates=1 published=1 already_published=0 failed=0",
     ]
     assert captured.err == ""
-    assert ManifestStore(root=tmp_root).load() == {}
-    assert not os.path.exists(
-        os.path.join(base, "transcripts", f"{FRESH_BVID}.p0")
-    )
+    assert ManifestStore(root=tmp_root).load()[f"{FRESH_BVID}:p0"]["status"] == "archived"
+    assert os.path.isdir(os.path.join(base, "transcripts", ".archive-bundle-stage"))
 
 
 def test_publish_transcripts_opens_the_only_connection_read_only(
@@ -492,12 +486,12 @@ def test_publish_transcripts_opens_the_only_connection_read_only(
 
     real_list = TranscriptRepository.list_stored_transcripts
 
-    def spy(self, bvid=None, page_index=None):
+    def spy(self, bvid=None, page_index=None, *, limit_parts=None):
         try:
             self.connection.execute("CREATE TABLE probe (value INTEGER)")
         except sqlite3.Error as exc:
             captured["write_error"] = exc
-        return real_list(self, bvid, page_index)
+        return real_list(self, bvid, page_index, limit_parts=limit_parts)
 
     monkeypatch.setattr(cli_module, "_open_read_connection", forbidden)
     monkeypatch.setattr(TranscriptRepository, "list_stored_transcripts", spy)
@@ -610,8 +604,8 @@ def test_publish_transcripts_holds_the_archive_writer_lock(tmp_root, capsys):
     assert not holder.is_alive()
 
 
-def test_publish_transcripts_records_the_fifteen_key_row_the_readers_read(tmp_root, capsys):
-    """§5.1: exactly the fifteen keys, and each one the value the readers read."""
+def test_publish_transcripts_records_projection_fields_and_its_producer(tmp_root, capsys):
+    """Readers get the fifteen projection fields and explicit producer evidence."""
     _seed_archive(tmp_root)
     _store_caption(tmp_root, FRESH_BVID, 0)
 
@@ -622,7 +616,7 @@ def test_publish_transcripts_records_the_fifteen_key_row_the_readers_read(tmp_ro
     assert set(row) == {
         "work_id", "bvid", "page_index", "cid", "title", "duration_s", "pubdate",
         "pubdate_str", "status", "srt_path", "txt_path", "md_path", "raw_path",
-        "source", "language",
+        "source", "language", "archive_producer",
     }
     assert row["work_id"] == f"{FRESH_BVID}:p0"
     assert row["bvid"] == FRESH_BVID
@@ -638,6 +632,7 @@ def test_publish_transcripts_records_the_fifteen_key_row_the_readers_read(tmp_ro
     # The published identity, in the vocabulary `quality` and `search_index` read.
     assert row["source"] == "subtitle-ai"
     assert row["language"] == "zh-CN"
+    assert row["archive_producer"] == "stage-cli"
     assert row["srt_path"] == f"transcripts/{FRESH_BVID}.p0/bundle.srt"
     assert row["txt_path"] == f"transcripts/{FRESH_BVID}.p0/bundle.txt"
     assert row["raw_path"] == f"transcripts/{FRESH_BVID}.p0/bundle.raw.json"

@@ -97,6 +97,7 @@ def test_empty_download_is_retryable_and_never_marks_audio_ok(tmp_root):
 
 
 @pytest.mark.parametrize("selector", ["pending", "bvid"])
+@pytest.mark.skipif(os.name == "nt", reason="descriptor-safe audio access requires POSIX")
 def test_asr_run_records_scope_limit_detected_language_and_completion(
     tmp_root, monkeypatch, selector,
 ):
@@ -104,6 +105,7 @@ def test_asr_run_records_scope_limit_detected_language_and_completion(
     _write_audio_file(tmp_root, identity)
     _stub_runner_model(monkeypatch, [])
     _patch_cli(monkeypatch)
+
     target = ["--pending"] if selector == "pending" else ["--bvid", identity.work_id]
     assert main(["asr", *target, "--limit", "1", "--archive-root", tmp_root]) == 0
     connection = open_database(tmp_root)
@@ -116,6 +118,17 @@ def test_asr_run_records_scope_limit_detected_language_and_completion(
         assert run["finished_at"] >= run["started_at"]
         transcript = connection.execute("SELECT language FROM transcripts WHERE source_kind='asr-local'").fetchone()
         assert transcript["language"] == "Chinese"
+        coverage = connection.execute(
+            "SELECT decoded_s, produced_s, coverage, coverage_min, coverage_short "
+            "FROM transcript_coverage_attestations WHERE run_id = ?",
+            (run["run_id"],),
+        ).fetchone()
+        assert coverage is not None
+        assert coverage["decoded_s"] > 0
+        assert coverage["coverage"] == pytest.approx(
+            coverage["produced_s"] / coverage["decoded_s"]
+        )
+        assert coverage["coverage_short"] == int(coverage["coverage"] < coverage["coverage_min"])
     finally:
         connection.close()
 
@@ -209,6 +222,27 @@ def test_finishing_a_source_twice_preserves_its_terminal_record(tmp_root):
         source.finish_asr_run(outcome="failed")
         source.finish_asr_run(outcome="complete")
         assert connection.execute("SELECT outcome FROM acquisition_runs WHERE run_id=?", (run_id,)).fetchone()[0] == "failed"
+    finally:
+        connection.close()
+
+
+def test_asr_run_refuses_a_connection_that_loses_its_row_factory(
+    tmp_root, capsys,
+):
+    """A post-construction store contract violation is a refusal, not a crash."""
+
+    connection = open_database(tmp_root)
+    try:
+        source = QueueSource(connection)
+        # MediaQueueRepository validates this at construction.  A caller can
+        # still violate it before the lazy ASR run is opened.
+        connection.row_factory = None
+
+        assert source.ensure_asr_run("asr") is None
+        assert connection.execute(
+            "SELECT COUNT(*) FROM acquisition_runs WHERE kind='asr'"
+        ).fetchone()[0] == 0
+        assert "acquisition run refused by the store (TypeError)" in capsys.readouterr().err
     finally:
         connection.close()
 

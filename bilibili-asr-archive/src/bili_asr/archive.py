@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import hashlib
+import errno
 import json
 import math
 import os
+import secrets
 import stat
+import sys
 import threading
 from pathlib import Path
 from typing import Any, Mapping
@@ -33,6 +36,10 @@ from .artifacts import REQUIRED_ARTIFACT_KEYS as _REQUIRED_ARTIFACT_KEYS
 _MARKER_MAX_BYTES = 8192
 _BUNDLE_LOCKS: dict[str, threading.RLock] = {}
 _BUNDLE_LOCKS_GUARD = threading.Lock()
+
+
+class _InvalidArchiveBundle(OSError):
+    """An observed malformed artifact, rather than an unreadable one."""
 
 
 def _bundle_lock(root: Path) -> threading.RLock:
@@ -138,16 +145,47 @@ def _read_fd(fd: int, limit: int) -> bytes:
         if not chunk:
             return bytes(data)
         data.extend(chunk)
-    raise OSError("oversized archive file")
+    raise _InvalidArchiveBundle("oversized archive file")
 
 
-def _read_regular_at(directory_fd: int, name: str, limit: int | None = None) -> bytes:
-    fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=directory_fd)
+def _read_regular_at(
+    directory_fd: int | None, name: str | os.PathLike[str], limit: int
+) -> bytes:
+    flags = (os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+             | getattr(os, "O_NONBLOCK", 0) | getattr(os, "O_BINARY", 0))
+    fd = os.open(name, flags, dir_fd=directory_fd)
     try:
         info = os.fstat(fd)
         if not stat.S_ISREG(info.st_mode):
-            raise OSError("archive artifact is not regular")
-        return _read_fd(fd, limit if limit is not None else max(info.st_size, 1) + 1)
+            raise _InvalidArchiveBundle("archive artifact is not regular")
+        return _read_fd(fd, limit)
+    finally:
+        os.close(fd)
+
+
+def _regular_digest(path: str | os.PathLike[str], *, dir_fd: int | None = None) -> str:
+    """Hash one regular artifact with bounded memory and reject concurrent edits."""
+    flags = (os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+             | getattr(os, "O_NONBLOCK", 0) | getattr(os, "O_BINARY", 0))
+    fd = os.open(path, flags, dir_fd=dir_fd)
+    try:
+        before = os.fstat(fd)
+        if not stat.S_ISREG(before.st_mode):
+            raise _InvalidArchiveBundle("archive artifact is not regular")
+        digest = hashlib.sha256()
+        size = 0
+        while chunk := os.read(fd, 65536):
+            size += len(chunk)
+            if size > before.st_size:
+                raise OSError("archive artifact changed during verification")
+            digest.update(chunk)
+        after = os.fstat(fd)
+        fingerprint = lambda info: (
+            info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns, info.st_ctime_ns
+        )
+        if size != before.st_size or fingerprint(before) != fingerprint(after):
+            raise OSError("archive artifact changed during verification")
+        return digest.hexdigest()
     finally:
         os.close(fd)
 
@@ -188,7 +226,44 @@ def _owned_bundle_parts(paths: Mapping[str, str]) -> bool:
         dirs.add(parts[:2])
     return len(dirs) == 1
 
-def archive_bundle_complete(archive_root: str | os.PathLike[str], paths: Mapping[str, str]) -> bool:
+def archive_bundle_complete(
+    archive_root: str | os.PathLike[str],
+    paths: Mapping[str, str],
+    *,
+    require_readable: bool = False,
+) -> bool:
+    """Verify a bundle; optionally refuse an inconclusive filesystem read.
+
+    Readers retain the boolean contract. Publishers use ``require_readable``
+    before deciding to replace a bundle: missing paths and observed corruption
+    return ``False``, while permission, device and concurrent-read failures
+    raise ``OSError`` so an unverified existing bundle is preserved.
+    """
+    if os.name == "nt":
+        try:
+            root = Path(os.path.abspath(os.fspath(archive_root)))
+            if set(paths) != set(_REQUIRED_ARTIFACT_KEYS) or not _owned_bundle_parts(paths):
+                return False
+            marker = root / os.path.dirname(paths["srt_path"]) / BUNDLE_MARKER_NAME
+            document = json.loads(
+                _read_regular_at(None, marker, limit=_MARKER_MAX_BYTES).decode("ascii")
+            )
+            artifacts = document.get("artifacts") if isinstance(document, dict) and document.get("schema") == "archive-bundle-v1" else None
+            if not isinstance(artifacts, dict) or set(artifacts) != set(_REQUIRED_ARTIFACT_KEYS):
+                return False
+            for key in _REQUIRED_ARTIFACT_KEYS:
+                item = artifacts[key]
+                target = root / paths[key]
+                expected_path = os.fspath(paths[key]).replace(os.sep, "/")
+                if not isinstance(item, dict) or set(item) != {"path", "sha256"} or item.get("path") != expected_path or _regular_digest(target) != item.get("sha256"):
+                    return False
+            return True
+        except OSError as exc:
+            if require_readable and not _repairable_bundle_error(exc):
+                raise
+            return False
+        except (UnicodeError, ValueError, TypeError, KeyError, json.JSONDecodeError):
+            return False
     try:
         root = _lexical_archive_root(archive_root)
         if set(paths) != set(_REQUIRED_ARTIFACT_KEYS) or any(not isinstance(paths[key], str) for key in _REQUIRED_ARTIFACT_KEYS):
@@ -219,7 +294,8 @@ def archive_bundle_complete(archive_root: str | os.PathLike[str], paths: Mapping
                     item = artifacts[key]
                     if not isinstance(item, dict) or set(item) != {"path", "sha256"} or item["path"] != paths[key] or not isinstance(item["sha256"], str) or len(item["sha256"]) != 64:
                         return False
-                    if hashlib.sha256(_read_regular_at(*opened[key])).hexdigest() != item["sha256"]:
+                    directory_fd, name = opened[key]
+                    if _regular_digest(name, dir_fd=directory_fd) != item["sha256"]:
                         return False
                 return True
             finally:
@@ -227,8 +303,18 @@ def archive_bundle_complete(archive_root: str | os.PathLike[str], paths: Mapping
                     os.close(fd)
                 if marker_item is not None:
                     os.close(marker_item[0])
-    except (OSError, UnicodeError, ValueError, TypeError, KeyError, json.JSONDecodeError):
+    except OSError as exc:
+        if require_readable and not _repairable_bundle_error(exc):
+            raise
         return False
+    except (UnicodeError, ValueError, TypeError, KeyError, json.JSONDecodeError):
+        return False
+
+
+def _repairable_bundle_error(error: OSError) -> bool:
+    return isinstance(error, _InvalidArchiveBundle) or error.errno in {
+        errno.ENOENT, errno.ENOTDIR, errno.ELOOP,
+    }
 
 
 def _invalidate_marker(directory_fd: int, marker_name: str) -> None:
@@ -242,31 +328,65 @@ def _invalidate_marker(directory_fd: int, marker_name: str) -> None:
     _fsync_fd(directory_fd)
 
 
+def _create_bundle_stage(transcripts_fd: int) -> tuple[str, int]:
+    """Create an unpredictable staging directory for one publication.
+
+    A fixed staging name lets a hard-terminated publisher strand a directory
+    that blocks every later publication. A per-attempt name keeps that stale
+    state isolated while retaining descriptor-relative confinement.
+    """
+    for _ in range(8):
+        name = f".archive-bundle-stage-{secrets.token_hex(16)}"
+        try:
+            os.mkdir(name, 0o700, dir_fd=transcripts_fd)
+        except FileExistsError:
+            continue
+        try:
+            return name, _open_dir(transcripts_fd, name)
+        except BaseException:
+            try:
+                os.rmdir(name, dir_fd=transcripts_fd)
+            except OSError:
+                pass
+            raise
+    raise OSError("unable to allocate archive staging directory")
+
+
 def _publish_bundle(root: Path, finals: Mapping[str, Path], contents: Mapping[str, bytes]) -> None:
     """Publish one work's five files atomically inside its own directory.
 
-    Staging still happens in a fixed sibling directory (``transcripts/.archive-bundle-stage``)
-    and the marker is still invalidated **before** the artifacts are moved into
-    place, so a process that dies mid-publish leaves a directory that
-    ``archive_bundle_complete`` refuses: either the marker is gone, or a digest in
-    it no longer matches.  What changed with shape A is that the five targets now
+    Staging uses a unique sibling directory and the marker is invalidated
+    **before** the artifacts are moved into place, so a process that dies
+    mid-publish cannot strand a name that blocks the next publication. What
+    changed with shape A is that the five targets now
     share one directory instead of four kind directories — the same directory the
     marker lives in, which is what lets the marker travel with its bundle.
     """
+    if os.name == "nt":
+        with _bundle_lock(root):
+            work = finals["srt_path"].parent
+            work.parent.mkdir(parents=True, exist_ok=True)
+            work.mkdir(mode=0o700, exist_ok=True)
+            for key in _REQUIRED_ARTIFACT_KEYS:
+                target = finals[key]
+                temporary = target.with_name(f".{target.name}.{secrets.token_hex(16)}.tmp")
+                temporary.write_bytes(contents[key])
+                os.replace(temporary, target)
+            marker = work / BUNDLE_MARKER_NAME
+            temporary = work / f".{BUNDLE_MARKER_NAME}.{secrets.token_hex(16)}.tmp"
+            temporary.write_bytes(_marker_payload(finals, root, contents))
+            os.replace(temporary, marker)
+        return
     with _bundle_lock(root):
         transcripts_fd = _open_transcripts_dir(root)
         stage_fd = None
-        stage_name = ".archive-bundle-stage"
+        stage_name = ""
         work_name = finals["srt_path"].parent.name
         work_fd = None
         names = {key: finals[key].name for key in _REQUIRED_ARTIFACT_KEYS}
         marker_name = BUNDLE_MARKER_NAME
         try:
-            try:
-                os.mkdir(stage_name, 0o700, dir_fd=transcripts_fd)
-            except FileExistsError:
-                raise OSError("archive staging directory already exists")
-            stage_fd = _open_dir(transcripts_fd, stage_name)
+            stage_name, stage_fd = _create_bundle_stage(transcripts_fd)
             for key in _REQUIRED_ARTIFACT_KEYS:
                 _write_at(stage_fd, names[key], contents[key])
             _write_at(stage_fd, marker_name, _marker_payload(finals, root, contents))
@@ -285,25 +405,51 @@ def _publish_bundle(root: Path, finals: Mapping[str, Path], contents: Mapping[st
             _fsync_fd(work_fd)
             _fsync_fd(transcripts_fd)
         finally:
-            try:
-                if stage_fd is not None:
-                    for name in (*names.values(), marker_name):
-                        try:
-                            os.unlink(name, dir_fd=stage_fd)
-                        except FileNotFoundError:
-                            pass
+            active_error = sys.exc_info()[1]
+            cleanup_error: OSError | None = None
+
+            def record_cleanup_error(error: OSError) -> None:
+                nonlocal cleanup_error
+                if cleanup_error is None:
+                    cleanup_error = error
+
+            if stage_fd is not None:
+                for name in (*names.values(), marker_name):
+                    try:
+                        os.unlink(name, dir_fd=stage_fd)
+                    except FileNotFoundError:
+                        pass
+                    except OSError as error:
+                        record_cleanup_error(error)
+                try:
                     os.close(stage_fd)
-            finally:
+                except OSError as error:
+                    record_cleanup_error(error)
+            if stage_name:
                 try:
                     os.rmdir(stage_name, dir_fd=transcripts_fd)
                 except FileNotFoundError:
                     pass
-                if work_fd is not None:
+                except OSError as error:
+                    record_cleanup_error(error)
+            if work_fd is not None:
+                try:
                     os.close(work_fd)
+                except OSError as error:
+                    record_cleanup_error(error)
+            try:
                 os.close(transcripts_fd)
+            except OSError as error:
+                record_cleanup_error(error)
+            if active_error is None and cleanup_error is not None:
+                raise cleanup_error
 
 def _lexical_archive_root(archive_root: str | os.PathLike[str]) -> Path:
     root = Path(os.path.abspath(os.fspath(archive_root)))
+    if os.name == "nt":
+        if root.is_symlink() or not root.is_dir():
+            raise OSError("archive publication path is unsafe")
+        return root
     fd = os.open(
         root,
         os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0),
@@ -604,10 +750,28 @@ def characters_for(segments: list[dict[str, Any]], characters: Any) -> dict[str,
     # emit cues that go back in time.  Both are refused rather than published.
     # (Found by L2 review: only the length invariant was enforced.)
     for position, (start, end) in enumerate(zip(starts, ends)):
-        if not isinstance(start, (int, float)) or not isinstance(end, (int, float)):
+        if (
+            isinstance(start, bool)
+            or isinstance(end, bool)
+            or not isinstance(start, (int, float))
+            or not isinstance(end, (int, float))
+        ):
             raise ValueError(
                 f"characters instants must be numbers: position {position} carries "
                 f"{type(start).__name__} / {type(end).__name__}"
+            )
+        # Integers are finite without a float conversion (which could overflow).
+        # NaN also defeats both the interval and monotonicity comparisons below,
+        # and JSON's default encoder would publish it as a non-standard number.
+        if any(isinstance(value, float) and not math.isfinite(value) for value in (start, end)):
+            raise ValueError(
+                "characters instants must be finite: "
+                f"position {position} starts at {start!r} and ends at {end!r}"
+            )
+        if start < 0 or end < 0:
+            raise ValueError(
+                "characters instants must not be negative: "
+                f"position {position} starts at {start!r} and ends at {end!r}"
             )
         if start > end:
             raise ValueError(
@@ -675,4 +839,7 @@ def write_archive(archive_root: str | os.PathLike[str], entry: dict[str, Any], s
         raw["schema"] = "archive-raw-v2"
     contents = {"srt_path": segments_to_srt(segments).encode(), "txt_path": (segments_to_txt(segments) + "\n").encode(), "md_path": md, "raw_path": (json.dumps(raw, ensure_ascii=False, separators=(",", ":")) + "\n").encode()}
     _publish_bundle(root, finals, contents)
-    return {key: os.path.relpath(path, root) for key, path in finals.items()}
+    return {
+        key: os.path.relpath(path, root).replace(os.sep, "/")
+        for key, path in finals.items()
+    }

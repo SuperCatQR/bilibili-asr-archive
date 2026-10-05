@@ -322,9 +322,10 @@ def test_fetch_meta_creates_fresh_database_and_completes(
         cursor_row = _cursor_row(connection)
         assert tuple(cursor_row)[:5] == (MID, 2, 0, "complete", None)
         pending = MetadataRepository(connection).list_pending_parts()
-        assert [row["work_id"] for row in pending] == [
-            f"{bvid}:p{index}" for index in range(part_count)
-        ]
+        assert pending == []
+        assert connection.execute(
+            "SELECT COUNT(*) FROM video_parts WHERE processing_status = 'metadata_collected'"
+        ).fetchone()[0] == part_count
     finally:
         connection.close()
 
@@ -624,10 +625,8 @@ def test_status_reports_counts_pending_and_cursor_from_sqlite(
     assert "users: 1" in out
     assert "videos: 1" in out
     assert "parts: 2" in out
-    assert "discovered=2" in out
-    assert "pending: 2" in out
-    assert "BV1STATUSPRB:p0" in out
-    assert "BV1STATUSPRB:p1" in out
+    assert "metadata_collected=2" in out
+    assert "pending: 0" in out
     assert "state=complete" in out
 
 

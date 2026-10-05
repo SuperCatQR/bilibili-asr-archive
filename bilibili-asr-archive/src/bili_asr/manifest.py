@@ -39,6 +39,12 @@ VALID_STATUSES = frozenset(
 #: Terminal manifest rows — reruns always skip these.
 TERMINAL_STATUSES = frozenset({"archived", "gone"})
 
+#: Acquisition states whose missing products are retryable backlog. Completed
+#: subtitle/ASR stages still require their expected artifacts to be checked.
+BACKLOG_STATUSES = frozenset(
+    {"pending", "meta_ok", "sub_checked", "needs_audio", "audio_ok"}
+)
+
 DEFAULT_REL_PATH = os.path.join("manifest", "manifest.jsonl")
 
 #: Ledger sidecar of the deterministic snapshot: per-row upserts append here,
@@ -145,6 +151,8 @@ class ManifestStore:
         self._journal_signature: tuple[int, int] | None = None
 
     def _open_manifest_dir(self, *, create: bool = False) -> int:
+        if os.name == "nt":
+            raise OSError("descriptor-based manifest opening is unavailable")
         nofollow = getattr(os, "O_NOFOLLOW", None)
         directory = getattr(os, "O_DIRECTORY", None)
         if nofollow is None or directory is None:
@@ -163,6 +171,25 @@ class ManifestStore:
             os.close(root_fd)
         return manifest_fd
 
+    def _windows_manifest_dir(self, *, create: bool = False) -> str:
+        """Return the validated manifest directory for Windows path I/O.
+
+        Windows has no portable ``openat``/directory-fd equivalent.  Keep the
+        same confinement checks before using path operations and let the
+        file-lock helper provide the cross-process lock.
+        """
+        root = os.path.abspath(self.root)
+        if not os.path.isdir(root) or os.path.islink(root):
+            raise OSError("manifest root is not a regular directory")
+        directory = os.path.join(root, "manifest")
+        if create:
+            os.makedirs(directory, mode=0o755, exist_ok=True)
+        if not os.path.exists(directory) and not create:
+            raise FileNotFoundError(directory)
+        if not os.path.isdir(directory) or os.path.islink(directory):
+            raise OSError("manifest directory is not a regular directory")
+        return directory
+
     @staticmethod
     def _open_regular_at(directory_fd: int, name: str, flags: int) -> int:
         nofollow = getattr(os, "O_NOFOLLOW", None)
@@ -179,6 +206,11 @@ class ManifestStore:
 
     @contextmanager
     def _manifest_lock(self, *, create: bool = False):
+        if os.name == "nt":
+            directory = self._windows_manifest_dir(create=create)
+            with file_lock(os.path.join(directory, "manifest.jsonl")):
+                yield
+            return
         directory_fd = self._open_manifest_dir(create=create)
         try:
             lock_path = f"/proc/self/fd/{directory_fd}/manifest.jsonl"
@@ -188,6 +220,18 @@ class ManifestStore:
             os.close(directory_fd)
     def _read_latest(self) -> dict[str, dict[str, Any]]:
         entries: dict[str, dict[str, Any]] = {}
+        if os.name == "nt":
+            try:
+                directory = self._windows_manifest_dir()
+                with open(os.path.join(directory, "manifest.jsonl"), "r", encoding="utf-8") as fh:
+                    for line in fh:
+                        line = line.strip()
+                        if line:
+                            entry = validate_manifest_record(json.loads(line))
+                            entries[_entry_key(entry)] = entry
+            except FileNotFoundError:
+                return entries
+            return entries
         try:
             directory_fd = self._open_manifest_dir()
         except FileNotFoundError:
@@ -257,19 +301,27 @@ class ManifestStore:
         self._journal_has_unfolded_rows = False
         self._journal_recoverable = []
         self._journal_recoverable_complete = True
-        try:
-            directory_fd = self._open_manifest_dir()
-        except FileNotFoundError:
-            return entries
-        try:
+        if os.name == "nt":
             try:
-                fd = self._open_regular_at(directory_fd, JOURNAL_NAME, os.O_RDONLY)
+                directory = self._windows_manifest_dir()
+                with open(os.path.join(directory, JOURNAL_NAME), "rb") as fh:
+                    raw = fh.read()
             except FileNotFoundError:
                 return entries
-            with os.fdopen(fd, "rb") as fh:
-                raw = fh.read()
-        finally:
-            os.close(directory_fd)
+        else:
+            try:
+                directory_fd = self._open_manifest_dir()
+            except FileNotFoundError:
+                return entries
+            try:
+                try:
+                    fd = self._open_regular_at(directory_fd, JOURNAL_NAME, os.O_RDONLY)
+                except FileNotFoundError:
+                    return entries
+                with os.fdopen(fd, "rb") as fh:
+                    raw = fh.read()
+            finally:
+                os.close(directory_fd)
         # Split on the record separator the writer emits ("\n") only. A
         # line-separator-aware split would also break on U+2028/U+2029/U+0085 —
         # legal inside a JSON string and written raw by this repo's writer
@@ -353,6 +405,18 @@ class ManifestStore:
         return None
 
     def _append_record(self, record: Mapping[str, Any]) -> None:
+        if os.name == "nt":
+            directory = self._windows_manifest_dir(create=True)
+            path = os.path.join(directory, JOURNAL_NAME)
+            payload = _json_line(dict(record))
+            with open(path, "ab") as fh:
+                fh.write(payload)
+                fh.flush()
+                os.fsync(fh.fileno())
+                st = os.fstat(fh.fileno())
+                own_signature = (st.st_size, st.st_mtime_ns)
+            self._journal_signature = own_signature
+            return
         directory_fd = self._open_manifest_dir(create=True)
         try:
             fd = self._open_regular_at(
@@ -434,6 +498,13 @@ class ManifestStore:
         """
         if self._journal_has_unfolded_rows:
             return
+        if os.name == "nt":
+            directory = self._windows_manifest_dir()
+            try:
+                os.unlink(os.path.join(directory, JOURNAL_NAME))
+            except FileNotFoundError:
+                pass
+            return
         directory_fd = self._open_manifest_dir()
         try:
             try:
@@ -451,6 +522,23 @@ class ManifestStore:
         self, name: str, entries: dict[str, dict[str, Any]]
     ) -> None:
         """Atomically publish a complete manifest file under its directory fd."""
+        if os.name == "nt":
+            directory = self._windows_manifest_dir(create=True)
+            target = os.path.join(directory, name)
+            temporary = f".{name}.{os.getpid()}.{id(entries)}.tmp"
+            temporary_path = os.path.join(directory, temporary)
+            try:
+                with open(temporary_path, "wb") as fh:
+                    fh.write(self._snapshot_bytes(entries))
+                    fh.flush()
+                    os.fsync(fh.fileno())
+                os.replace(temporary_path, target)
+            finally:
+                try:
+                    os.unlink(temporary_path)
+                except FileNotFoundError:
+                    pass
+            return
         directory_fd = self._open_manifest_dir(create=True)
         temporary = ""
         try:

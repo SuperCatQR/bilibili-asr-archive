@@ -859,6 +859,17 @@ def _aligned_cues(pieces: list[dict[str, Any]]) -> list[dict[str, Any]]:
         cues.append({"start": start, "end": span, "text": text})
         reset()
 
+    def append_piece(text: str) -> None:
+        """Append one aligned fragment, repairing omitted Latin separators at the boundary."""
+
+        if not parts:
+            parts.append(text)
+        else:
+            # Qwen's aligner may return one word per piece without the whitespace that was
+            # present in the recognised text.  Apply the same boundary rule used when cues
+            # are merged, before length/closing decisions inspect the accumulated text.
+            parts[-1] = _join_text(parts[-1], text)
+
     for piece in pieces:
         if not isinstance(piece, dict):
             continue
@@ -882,7 +893,7 @@ def _aligned_cues(pieces: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 hand_back(text, end)
                 continue
             start = begin
-        parts.append(text)
+        append_piece(text)
         last_end = end
         if mark in _SENTENCE_ENDINGS or len(pending + "".join(parts)) >= _CUE_MAX_CHARS:
             close()
@@ -978,6 +989,9 @@ def _coverage_record(
         # A run that produced no cue at all covers 0 of what it decoded — the same rule that makes
         # an empty transcript with a non-zero decode a shortfall rather than a no-speech outcome.
         produced = 0.0
+    # Alignment timestamps can overshoot the decoded window.  Keep the derived
+    # evidence within the storage contract; published cue timestamps stay intact.
+    produced = min(produced, decoded_seconds)
     coverage = produced / decoded_seconds
     return {
         "decoded_s": float(decoded_seconds),
@@ -1535,7 +1549,9 @@ class ASRRunner:
             "local_source": _redact(config.local_source),
         }
         if self._hotwords_dropped:
-            provenance["hotword_dropped_no_evidence"] = ",".join(self._hotwords_dropped)
+            provenance["hotword_dropped_no_evidence"] = ",".join(
+                _redact(term) for term in self._hotwords_dropped
+            )
         return provenance
 
 

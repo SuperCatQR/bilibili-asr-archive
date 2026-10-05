@@ -9,9 +9,9 @@ from datetime import datetime, timezone
 import json
 import os
 import secrets
-import sys
 from typing import Any
 
+from .diagnostics import write_stderr
 from .manifest import VALID_STATUSES
 from .meta_cursor import VALID_STATES
 from .persistence import append_jsonl_record, file_lock, utc_now_iso
@@ -28,6 +28,7 @@ VALID_COMMANDS = frozenset(
         "pilot",
         "run",
         "schedule",
+        "campaign",
     }
 )
 
@@ -53,6 +54,7 @@ _SCHEMA_KEYS = (
     "last_api_error_code",
     "coverage_summary",
     "cursor_snapshot",
+    "hotwords_dropped",
 )
 
 _CURSOR_SCHEMA_KEYS = (
@@ -74,6 +76,38 @@ _FORBIDDEN_MARKERS = (
     "Traceback",
 )
 _MAX_ERROR_CODE_LEN = 64
+
+
+def _redacted_hotword(term: str) -> str:
+    from .asr import _redact
+
+    if any(marker.lower() in term.lower() for marker in _FORBIDDEN_MARKERS):
+        return "[redacted]"
+    return _redact(term)
+
+
+def collect_hotwords_dropped(collected: list[str], runner: Any) -> None:
+    """Capture this row's guard verdict before the reused runner replaces it.
+
+    The runner's tuple property is the original token boundary; splitting the
+    comma-joined provenance would corrupt terms that themselves contain commas.
+    Optional metadata from older runners cannot turn a successful ASR into a
+    failed row. Sensitive tokens retain only the existing redaction placeholder.
+    """
+    try:
+        dropped = getattr(runner, "hotwords_dropped", ())
+    except Exception:
+        return
+    if not isinstance(dropped, (tuple, list)):
+        return
+    seen = set(collected)
+    for term in dropped:
+        if not isinstance(term, str) or not term.strip():
+            continue
+        safe = _redacted_hotword(term)
+        if safe not in seen:
+            collected.append(safe)
+            seen.add(safe)
 
 
 def generate_run_id() -> str:
@@ -312,6 +346,16 @@ def _validate_record(record: dict[str, Any]) -> dict[str, Any]:
     if cursor_snapshot is not None:
         cursor_snapshot = _validate_cursor_snapshot(cursor_snapshot)
 
+    hotwords_dropped = record.get("hotwords_dropped", [])
+    if not isinstance(hotwords_dropped, list) or any(
+        not isinstance(term, str) or not term.strip()
+        for term in hotwords_dropped
+    ):
+        raise ValueError("hotwords_dropped must be a list of non-empty strings")
+    if any(_redacted_hotword(term) != term for term in hotwords_dropped):
+        raise ValueError("hotwords_dropped contains an unredacted value")
+    hotwords_dropped = list(dict.fromkeys(hotwords_dropped))
+
     stored = {
         "run_id": run_id,
         "command": command,
@@ -326,6 +370,7 @@ def _validate_record(record: dict[str, Any]) -> dict[str, Any]:
         "last_api_error_code": last_api_error_code,
         "coverage_summary": coverage_summary,
         "cursor_snapshot": cursor_snapshot,
+        "hotwords_dropped": hotwords_dropped,
     }
 
     dumped = json.dumps(stored, ensure_ascii=False).lower()
@@ -366,7 +411,7 @@ class RunLedger:
                         raw = json.loads(line)
                         records.append(_validate_record(raw))
                     except (json.JSONDecodeError, ValueError):
-                        print("run-ledger: ignoring corrupt line", file=sys.stderr)
+                        write_stderr("run-ledger: ignoring corrupt line")
                         continue
         except OSError:
             return []
@@ -390,7 +435,7 @@ class RunLedger:
                     try:
                         latest = _validate_record(json.loads(line))
                     except (json.JSONDecodeError, ValueError):
-                        print("run-ledger: ignoring corrupt line", file=sys.stderr)
+                        write_stderr("run-ledger: ignoring corrupt line")
         except OSError:
             return None
         return latest

@@ -171,8 +171,10 @@ def read_route_ms(
         raise CueParseError("malformed", f"{label}: missing ASR route (no {path})")
     try:
         document = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
         raise CueParseError("malformed", f"{label}: unreadable ASR route ({exc})") from exc
+    if not isinstance(document, dict):
+        raise CueParseError("malformed", f"{label}: ASR route is not an object in {path}")
     if require_source is not None and document.get("source") != require_source:
         raise CueParseError(
             "malformed",
@@ -185,10 +187,20 @@ def read_route_ms(
     triples: list[tuple[int, int, str]] = []
     for position, segment in enumerate(segments, start=1):
         try:
-            start_ms = round(float(segment["start"]) * 1000)
-            end_ms = round(float(segment["end"]) * 1000)
-            text = str(segment["text"])
-        except (KeyError, TypeError, ValueError) as exc:
+            if not isinstance(segment, dict):
+                raise ValueError("segment is not an object")
+            if isinstance(segment["start"], bool) or isinstance(segment["end"], bool):
+                raise ValueError("timings must be numbers")
+            start, end = float(segment["start"]), float(segment["end"])
+            if not (math.isfinite(start) and math.isfinite(end)):
+                raise ValueError("timings must be finite")
+            if start < 0 or end < start:
+                raise ValueError("timings must be non-negative and ordered")
+            text = segment["text"]
+            if not isinstance(text, str):
+                raise ValueError("text must be a string")
+            start_ms, end_ms = round(start * 1000), round(end * 1000)
+        except (KeyError, TypeError, ValueError, OverflowError) as exc:
             raise CueParseError(
                 "malformed", f"{label}: ASR segment {position} is malformed ({exc})"
             ) from exc

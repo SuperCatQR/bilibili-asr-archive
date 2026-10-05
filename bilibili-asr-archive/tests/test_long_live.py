@@ -101,6 +101,11 @@ def test_pilot_and_schedule_parser_defaults_keep_short_video_and_audio_cap():
     schedule = parser.parse_args(["schedule", "--scope", "pending", "--limit", "1"])
     assert schedule.max_audio_gb == 10.0
     assert schedule.allow_long_live is False
+    assert schedule.queue_source == "store"
+    manifest_schedule = parser.parse_args(
+        ["schedule", "--scope", "pending", "--limit", "1", "--queue-source", "manifest"]
+    )
+    assert manifest_schedule.queue_source == "manifest"
 
 
 def test_apply_long_live_policy_holds_pending_and_refuses_explicit():

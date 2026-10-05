@@ -32,7 +32,7 @@ one (reading the manifest *into* the store), and the store connection is opened
 from __future__ import annotations
 
 from dataclasses import dataclass
-from bili_asr.formatting import pubdate_utc
+import time
 from typing import Any, Mapping, Sequence
 
 from bili_asr.page_identity import format_work_id
@@ -84,7 +84,7 @@ def row_for_part(part: Mapping[str, Any], pubdate: int) -> dict[str, Any]:
 
     bvid = part["bvid"]
     page_index = part["page_index"]
-    return {
+    row = {
         "work_id": format_work_id(bvid, page_index),
         "bvid": bvid,
         "page_index": page_index,
@@ -92,9 +92,16 @@ def row_for_part(part: Mapping[str, Any], pubdate: int) -> dict[str, Any]:
         "title": part["part_title"],
         "duration_s": duration_s_from_ms(part["duration_ms"]),
         "pubdate": pubdate,
-        "pubdate_str": pubdate_utc(pubdate),
+        # Keep the conversion at this service boundary so callers can pin the
+        # UTC clock in isolation while testing the derived row.
+        "pubdate_str": time.strftime("%Y-%m-%d", time.gmtime(pubdate)),
         "status": QUEUE_STATUS,
     }
+    # Queue rows already carry the video's collection title. Preserve it for
+    # ASR archives while keeping legacy nine-field callers compatible.
+    if "video_title" in part:
+        row["video_title"] = part["video_title"]
+    return row
 
 
 @dataclass(frozen=True)

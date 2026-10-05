@@ -57,7 +57,30 @@ def open_audio_directory(
         os.close(root_fd)
 
 
+def _windows_audio_directory(
+    archive_root: str | os.PathLike[str], *, create: bool = False
+) -> Path:
+    """Return the validated audio directory for platforms without dir_fds."""
+    root = Path(os.path.abspath(os.fspath(archive_root)))
+    if root.is_symlink() or not root.is_dir():
+        raise OSError("archive root is not a directory")
+    audio = root / "audio"
+    if audio.exists() or audio.is_symlink():
+        if audio.is_symlink() or not audio.is_dir():
+            raise OSError("audio root is not a directory")
+    elif create:
+        audio.mkdir(mode=0o755)
+    else:
+        raise FileNotFoundError(os.fspath(audio))
+    return audio
+
+
 def _open_audio_file(archive_root: str | os.PathLike[str], parts: tuple[str, ...]) -> int:
+    if os.name == "nt":
+        path = _windows_audio_directory(archive_root) / parts[1]
+        if path.is_symlink() or not path.is_file():
+            raise OSError("audio file is not regular")
+        return os.open(path, os.O_RDONLY)
     audio_fd = open_audio_directory(archive_root)
     try:
         fd = os.open(
@@ -91,6 +114,15 @@ def confined_audio_path(
         root = Path(os.fspath(archive_root))
         if not root.is_absolute():
             root = Path(os.path.abspath(root))
+        if os.name == "nt":
+            audio = _windows_audio_directory(root, create=not require_exists)
+            candidate = audio / parts[1]
+            if candidate.exists() or candidate.is_symlink():
+                if candidate.is_symlink() or not candidate.is_file():
+                    return None
+            elif require_exists:
+                return None
+            return root.joinpath(*parts)
         if require_exists:
             fd = _open_audio_file(root, parts)
             os.close(fd)
@@ -132,6 +164,13 @@ def confined_audio_file(
     parts = _audio_parts(declared_path)
     if parts is None or not require_exists:
         raise OSError("invalid audio path")
+    if os.name == "nt":
+        audio = _windows_audio_directory(archive_root)
+        path = audio / parts[1]
+        if path.is_symlink() or not path.is_file():
+            raise OSError("audio file is not regular")
+        yield os.fspath(path)
+        return
     fd = _open_audio_file(archive_root, parts)
     try:
         yield descriptor_path(fd)
@@ -147,6 +186,24 @@ def unlink_confined_audio(
     parts = _audio_parts(declared_path)
     if parts is None:
         raise ValueError("invalid audio path")
+    if os.name == "nt":
+        audio = _windows_audio_directory(archive_root)
+        target = audio / parts[1]
+        if not target.exists() and not target.is_symlink():
+            return False
+        if target.is_symlink() or not target.is_file():
+            raise ValueError("invalid audio path")
+        quarantine = audio / f".audio-reclaim-{secrets.token_hex(16)}"
+        os.replace(target, quarantine)
+        try:
+            if quarantine.is_symlink() or not quarantine.is_file():
+                raise ValueError("invalid audio path")
+            quarantine.unlink()
+            return True
+        except Exception:
+            if quarantine.exists() and not target.exists():
+                os.replace(quarantine, target)
+            raise
     audio_fd = open_audio_directory(archive_root)
     quarantine_name = f".audio-reclaim-{secrets.token_hex(16)}"
     moved = False

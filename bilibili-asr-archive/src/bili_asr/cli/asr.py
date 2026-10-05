@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from bili_asr.diagnostics import write_stderr
+
 import os
 import sys
 
@@ -152,13 +154,11 @@ def _cmd_asr(args: argparse.Namespace) -> int:
         if args.bvid:
             selected = _todo_for_bvid(store, args.bvid, entries)
             if selected is None:
-                print(f"{args.bvid}: multi-part video needs an explicit page",
-                      file=sys.stderr)
+                write_stderr(f"{args.bvid}: multi-part video needs an explicit page")
                 return 1
             if not selected:
-                print(
-                    f"{args.bvid}: unresolved; not assigned to a page",
-                    file=sys.stderr,
+                write_stderr(
+                    f"{args.bvid}: unresolved; not assigned to a page"
                 )
                 return 1
             todo = [e for _key, e in selected]
@@ -169,7 +169,7 @@ def _cmd_asr(args: argparse.Namespace) -> int:
                 and not _is_excluded(e)
             ]
         else:
-            print("asr: select targets with --pending or --bvid", file=sys.stderr)
+            write_stderr("asr: select targets with --pending or --bvid")
             return 1
         if args.limit is not None:
             todo = todo[:args.limit]
@@ -197,7 +197,7 @@ def _cmd_asr(args: argparse.Namespace) -> int:
         try:
             config = asr.default_config()
         except ValueError as exc:
-            print(f"asr: {exc}", file=sys.stderr)
+            write_stderr(f"asr: {exc}")
             if queue_conn is not None:
                 queue_conn.close()
             return 1
@@ -229,7 +229,7 @@ def _cmd_asr(args: argparse.Namespace) -> int:
             try:
                 if status == "subtitle_done" and subtitle_data is None:
                     failed += 1
-                    print(f"{label}: skipped (missing_subtitle_raw)", file=sys.stderr)
+                    write_stderr(f"{label}: skipped (missing_subtitle_raw)")
                     continue
                 if subtitle_data is not None:
                     segments, raw = subtitle_data
@@ -270,6 +270,7 @@ def _cmd_asr(args: argparse.Namespace) -> int:
                         )
                     asr_count.value += 1
                     provenance = runner.provenance()
+                coverage = asr.transcribed_coverage(runner) if source == "asr" else None
                 paths = archive.write_archive(
                     args.artifact_roots.write_base, entry, segments, source=source,
                     raw=raw, asr_provenance=provenance,
@@ -277,13 +278,17 @@ def _cmd_asr(args: argparse.Namespace) -> int:
                     # The same measurement the store write-back carries (I-000188 acceptance:
                     # "visible in the store and in the bundle").  `runner` is None on the
                     # subtitle route, and the helper returns None when there is no measurement.
-                    coverage=asr.transcribed_coverage(runner) if source == "asr" else None,
+                    coverage=coverage,
                 )
                 if not archive.archive_bundle_complete(args.artifact_roots.write_base, paths):
                     raise ValueError("archive bundle incomplete")
                 updated = dict(store.get(key) or entry)
                 updated.update(paths)
                 updated["status"] = "archived"
+                updated["source"] = source
+                # Content source is shared with coordinator archives.  Keep
+                # the actual producer separate for operational evidence checks.
+                updated["archive_producer"] = "stage-cli"
                 # Coverage attestation (plan asr-coverage-attestation): the ASR route's measured
                 # span rides this row.  The subtitle route runs no ASR, so it made no measurement
                 # and no key is written for it — an absent ``coverage`` reads as *not evaluable*,
@@ -315,17 +320,17 @@ def _cmd_asr(args: argparse.Namespace) -> int:
                             segments=_asr_transcript_segments(segments),
                             model_name=(provenance or {}).get("model_name", ""),
                             model_revision=(provenance or {}).get("model_revision"),
+                            coverage=coverage,
                         )
                     except Exception as exc:
-                        print(
-                            f"{label}: transcript store write-back failed ({type(exc).__name__})",
-                            file=sys.stderr,
+                        write_stderr(
+                            f"{label}: transcript store write-back failed ({type(exc).__name__})"
                         )
                 ok += 1
                 print(f"{label}: archived ({source})")
             except asr.ASRDependencyError:
                 failed += 1
-                print(f"{label}: ASR dependency unavailable", file=sys.stderr)
+                write_stderr(f"{label}: ASR dependency unavailable")
             except Exception as exc:
                 failed += 1
                 # The `run` path states the code (`failed (ValueError)`), and
@@ -334,9 +339,8 @@ def _cmd_asr(args: argparse.Namespace) -> int:
                 # payload: it reads `code`/`last_code` or the class name.
                 from bili_asr.coordinator import _safe_error_code
 
-                print(
-                    f"{label}: archive failed ({_safe_error_code(exc)})",
-                    file=sys.stderr,
+                write_stderr(
+                    f"{label}: archive failed ({_safe_error_code(exc)})"
                 )
         completed = True
     finally:

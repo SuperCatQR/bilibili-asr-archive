@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from bili_asr.diagnostics import write_stderr
+
 from datetime import datetime, timezone
 import json
 import sys
@@ -25,7 +27,7 @@ def _parse_pubdate_bound(value: str | None, flag: str, *, inclusive_end: bool = 
     try:
         day = datetime.strptime(value, "%Y-%m-%d")
     except ValueError:
-        print(f"search: {flag} must be YYYY-MM-DD, got {value!r}", file=sys.stderr)
+        write_stderr(f"search: {flag} must be YYYY-MM-DD, got {value!r}")
         raise SystemExit(2)
     day = day.replace(tzinfo=timezone.utc)
     if inclusive_end:
@@ -60,13 +62,13 @@ def _cmd_search_index(args: argparse.Namespace) -> int:
     try:
         indexed = index.build()
     except search_index.FTS5UnavailableError as exc:
-        print(f"search-index: {exc}", file=sys.stderr)
+        write_stderr(f"search-index: {exc}")
         return 1
     except search_index.TranscriptStoreError as exc:
-        print(f"search-index: {exc}", file=sys.stderr)
+        write_stderr(f"search-index: {exc}")
         return 1
     except OSError as exc:
-        print(f"search-index: transcript store unreadable: {exc}", file=sys.stderr)
+        write_stderr(f"search-index: transcript store unreadable: {exc}")
         return 1
     print(f"search-index: indexed {indexed} block(s); total {index.count()}")
     return 0
@@ -90,7 +92,7 @@ def _cmd_search(args: argparse.Namespace) -> int:
     )
 
     if args.limit is not None and args.limit <= 0:
-        print("search: --limit must be a positive integer", file=sys.stderr)
+        write_stderr("search: --limit must be a positive integer")
         raise SystemExit(2)
 
     pubdate_from = _parse_pubdate_bound(getattr(args, "pubdate_from", None), "--from")
@@ -98,7 +100,7 @@ def _cmd_search(args: argparse.Namespace) -> int:
         getattr(args, "pubdate_to", None), "--to", inclusive_end=True
     )
     if pubdate_from is not None and pubdate_to is not None and pubdate_from >= pubdate_to:
-        print("search: --from must be earlier than --to", file=sys.stderr)
+        write_stderr("search: --from must be earlier than --to")
         raise SystemExit(2)
 
     legacy_filters = any(
@@ -128,10 +130,10 @@ def _cmd_search(args: argparse.Namespace) -> int:
             print(f"search: no hits for {args.query!r}")
             return 0
         except (search_index.TranscriptStoreError, OSError) as exc:
-            print(f"search: {exc}", file=sys.stderr)
+            write_stderr(f"search: {exc}")
             return 1
         except search_index.FTS5UnavailableError as exc:
-            print(f"search: {exc}", file=sys.stderr)
+            write_stderr(f"search: {exc}")
             return 1
         return _print_block_hits(args, hits)
 
@@ -157,10 +159,10 @@ def _cmd_search(args: argparse.Namespace) -> int:
             artifact_roots=args.artifact_roots,
         )
     except search_index.FTS5UnavailableError as exc:
-        print(f"search: {exc}", file=sys.stderr)
+        write_stderr(f"search: {exc}")
         return 1
     except Exception:
-        print("search: unexpected error", file=sys.stderr)
+        write_stderr("search: unexpected error")
         return 1
 
     if not results:

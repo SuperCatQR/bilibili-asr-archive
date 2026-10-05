@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import sqlite3
 import time
 from dataclasses import dataclass
 from typing import Any
@@ -129,6 +130,76 @@ class QueueSource:
         # that keeps refusing retries on every call, so an unlatched line
         # would degrade into per-row noise (D8).
         self._asr_run_refusal_reported = False
+        self.audio_run_id: str | None = None
+        self._audio_run_finished = False
+
+    def ensure_audio_run(
+        self, command: str, *, selector_target: str | None = None,
+        requested_limit: int | None = None,
+    ) -> str | None:
+        """Open one invocation-scoped audio acquisition run."""
+        import sqlite3
+        from bili_asr.storage import AcquisitionRunRecord, TranscriptRepository
+
+        if self.audio_run_id is not None:
+            return self.audio_run_id
+        try:
+            run_id = f"{command}-{time.time_ns()}"
+            TranscriptRepository(self.connection).start_acquisition_run(
+                AcquisitionRunRecord(
+                    run_id=run_id,
+                    kind="audio",
+                    selector_kind="bvid" if selector_target else "pending",
+                    selector_target=selector_target,
+                    requested_limit=requested_limit,
+                    credential_present=False,
+                    started_at=_common._now(),
+                )
+            )
+            self.audio_run_id = run_id
+        except (sqlite3.Error, OSError, ValueError, TypeError):
+            self.audio_run_id = None
+        return self.audio_run_id
+
+    def record_audio_failed(
+        self, *, bvid: str, page_index: int, error_code: str,
+    ) -> None:
+        """Best-effort negative evidence for one failed audio download."""
+        if self.audio_run_id is None:
+            return
+        from bili_asr.storage import TranscriptRepository
+        try:
+            part = self.connection.execute(
+                "SELECT video_part_id FROM video_parts WHERE bvid = ? AND page_index = ?",
+                (bvid, page_index),
+            ).fetchone()
+            if part is None:
+                return
+            now = _common._now()
+            TranscriptRepository(self.connection).record_audio_attempt(
+                run_id=self.audio_run_id,
+                video_part_id=int(part["video_part_id"]),
+                error_code=error_code,
+                started_at=now,
+                finished_at=now,
+            )
+        except (sqlite3.Error, OSError, ValueError, TypeError):
+            return
+
+    def finish_audio_run(self, *, outcome: str | None = None) -> None:
+        """Finish the invocation's audio run before closing its connection."""
+        import sqlite3
+        from bili_asr.storage import TranscriptRepository
+
+        if self.audio_run_id is None or self._audio_run_finished:
+            return
+        try:
+            TranscriptRepository(self.connection).finish_acquisition_run(
+                self.audio_run_id, _common._now(), outcome=outcome,
+            )
+        except (sqlite3.Error, OSError, ValueError, TypeError):
+            return
+        self._audio_run_finished = True
 
     def ensure_asr_run(
         self, command: str, *, selector_target: str | None = None,
@@ -323,7 +394,7 @@ def print_manifest_deprecation() -> None:
 
     import sys
 
-    print(MANIFEST_SOURCE_DEPRECATION, file=sys.stderr)
+    write_stderr(MANIFEST_SOURCE_DEPRECATION)
 
 
 def mark_audio_acquired(
@@ -345,20 +416,24 @@ def mark_audio_acquired(
     """
 
     try:
+        digest = hashlib.sha256()
+        byte_size = 0
         with open(audio_path, "rb") as fh:
-            payload = fh.read()
+            while chunk := fh.read(1024 * 1024):
+                digest.update(chunk)
+                byte_size += len(chunk)
         queue_source.repository.mark_audio_acquired(
             bvid=bvid,
             page_index=page_index,
             audio_path=audio_path,
-            sha256=hashlib.sha256(payload).hexdigest(),
-            byte_size=len(payload),
+            sha256=digest.hexdigest(),
+            byte_size=byte_size,
             format=os.path.splitext(audio_path)[1].lstrip(".") or "m4a",
             duration_ms=0,
             acquisition_source="download",
             acquired_at=_common._now(),
         )
-    except (OSError, ValueError):
+    except (sqlite3.Error, OSError, ValueError, TypeError, KeyError):
         # The download already completed; store evidence is supplementary.
         pass
 
@@ -388,7 +463,7 @@ def mark_transcript_stored(
             started_at=now,
             finished_at=now,
         )
-    except (OSError, ValueError, KeyError):
+    except (sqlite3.Error, OSError, ValueError, TypeError, KeyError):
         pass
 
 
@@ -402,6 +477,7 @@ def record_local_transcript(
     segments: tuple,
     model_name: str,
     model_revision: str | None,
+    coverage: dict | None = None,
 ) -> None:
     """Write one locally-produced transcript back into the store (best-effort).
 
@@ -437,17 +513,38 @@ def record_local_transcript(
             return
         video_part_id = int(part["video_part_id"])
         now = _common._now()
-        TranscriptRepository(connection).record_local_transcript(
-            run_id=run_id,
-            video_part_id=video_part_id,
-            language=language,
-            segments=segments,
-            model_name=model_name,
-            model_revision=model_revision,
-            started_at=now,
-            finished_at=now,
-            created_at=now,
-        )
+        repository = TranscriptRepository(connection)
+        try:
+            repository.record_local_transcript(
+                run_id=run_id,
+                video_part_id=video_part_id,
+                language=language,
+                segments=segments,
+                model_name=model_name,
+                model_revision=model_revision,
+                started_at=now,
+                finished_at=now,
+                created_at=now,
+                coverage=coverage,
+            )
+        except ValueError:
+            # Coverage is supplementary evidence.  A malformed/overrun
+            # alignment must not discard the durable transcript row or leave
+            # the part permanently visible in v_missing_transcript.
+            if coverage is None:
+                raise
+            repository.record_local_transcript(
+                run_id=run_id,
+                video_part_id=video_part_id,
+                language=language,
+                segments=segments,
+                model_name=model_name,
+                model_revision=model_revision,
+                started_at=now,
+                finished_at=now,
+                created_at=now,
+                coverage=None,
+            )
     except (_sqlite3.Error, OSError, ValueError, TypeError, KeyError):
         # The archive already succeeded on disk; a store write-back problem
         # must not turn that into a failure.

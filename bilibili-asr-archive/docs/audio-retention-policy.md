@@ -36,7 +36,7 @@ bili-asr run --scope pending --archive-root archive
 
 ### 保留音频、同时不让磁盘上界截断下载
 
-保留意味着 `audio/` 只会增长，而 `--max-audio-gb`（默认 10 GiB）是 fail-closed 的：跑到某个点之后，每一行都会以
+保留意味着 `audio/` 只会增长。`--max-audio-gb`（默认 10 GiB）会在下载前按时长估算新增容量；未知时长或无法测量目录占用时拒绝下载。达到估算上界之后，每一行都会以
 `audio_budget` 被跳过。要长期保留又想一直下载，就把上界设为不限（四个命令都接受 `0`，只有
 `schedule --allow-long-live` 例外，见下）：
 
@@ -176,7 +176,7 @@ find archive/audio -name "*.m4a" -size +100M -delete
 
 ### ✅ 兼容的功能
 
-- `--max-audio-gb`：磁盘上界仍然 fail-closed，统计配置根目录的 `audio/`；**保留 + 上界要注意**，长期保留时用
+- `--max-audio-gb`：下载前检查配置根目录的 `audio/` 占用和新增容量估算，测量失败会拒绝下载；**保留 + 上界要注意**，长期保留时用
   `--max-audio-gb 0`（见快速开始）
 - `--offline`：离线模式下从已有音频重新处理
 - `coverage --quality`：质量检查识别已回收的音频
@@ -259,6 +259,8 @@ bili-asr coverage --archive-root archive --format json | \
 或者把上界调大 —— 注意 `schedule --allow-long-live` 拒绝 `0`，那个模式下只能调大。
 
 ### Q: 音频保留影响性能吗？
+
+容量检查每批先扫描一次目录，再按本批下载和回收的文件更新占用；失败下载会重新扫描以计入残留文件。长期保留不会导致每条任务重复遍历整个音频目录。该检查是下载准入估算，不是流式写入的硬配额；下载、转码临时文件仍可能造成额外峰值。多个任务共享同一个产物目录时，应串行写入。
 
 **A**: 不影响。保留只是跳过删除步骤，不改变 ASR 处理速度。
 

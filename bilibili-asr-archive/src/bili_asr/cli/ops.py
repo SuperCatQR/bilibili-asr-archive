@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from bili_asr.diagnostics import write_stderr
+
 from pathlib import Path
 
 import json
@@ -59,11 +61,10 @@ def _cmd_check_asr_env(args: argparse.Namespace) -> int:
             script = candidate
             break
     else:
-        print(
+        write_stderr(
             "check-asr-env: no check script found; looked for "
             + ", ".join(str(path) for path in candidates)
-            + " (set BILI_ASR_CHECK_SCRIPT to point at it)",
-            file=sys.stderr,
+            + " (set BILI_ASR_CHECK_SCRIPT to point at it)"
         )
         return 1
 
@@ -74,7 +75,7 @@ def _cmd_check_asr_env(args: argparse.Namespace) -> int:
     # the `__main__` route would answer every invocation as a usage error.
     spec = importlib.util.spec_from_file_location("_bili_asr_env_check", script)
     if spec is None or spec.loader is None:
-        print(f"check-asr-env: cannot load {script}", file=sys.stderr)
+        write_stderr(f"check-asr-env: cannot load {script}")
         return 1
     module = importlib.util.module_from_spec(spec)
     # Registered before execution: the script defines frozen dataclasses, and
@@ -84,11 +85,11 @@ def _cmd_check_asr_env(args: argparse.Namespace) -> int:
     try:
         spec.loader.exec_module(module)
     except Exception:
-        print(f"check-asr-env: cannot load {script}", file=sys.stderr)
+        write_stderr(f"check-asr-env: cannot load {script}")
         return 1
     check_main = getattr(module, "main", None)
     if not callable(check_main):
-        print(f"check-asr-env: {script} has no main()", file=sys.stderr)
+        write_stderr(f"check-asr-env: {script} has no main()")
         return 1
     try:
         return int(check_main([]))
@@ -107,10 +108,9 @@ def _cmd_export(args: argparse.Namespace) -> int:
     if status_filter is not None:
         invalid = status_filter - VALID_STATUSES
         if invalid:
-            print(
+            write_stderr(
                 f"export: invalid status filter: {sorted(invalid)}; "
-                f"valid statuses: {sorted(VALID_STATUSES)}",
-                file=sys.stderr,
+                f"valid statuses: {sorted(VALID_STATUSES)}"
             )
             return 1
 
@@ -127,7 +127,7 @@ def _cmd_export(args: argparse.Namespace) -> int:
             sys.stdout.write(content + ("\n" if not content.endswith("\n") else ""))
             sys.stdout.flush()
     except Exception:
-        print("export: unexpected error", file=sys.stderr)
+        write_stderr("export: unexpected error")
         return 1
     return 0
 

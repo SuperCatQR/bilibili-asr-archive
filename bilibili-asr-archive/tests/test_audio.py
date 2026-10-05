@@ -22,6 +22,20 @@ BVID = "BV1test00"
 STREAM_HOST = "upos-sz-mirrorcoso.bilivideo.com"
 
 
+def test_run_ffmpeg_omits_posix_pass_fds_on_windows(monkeypatch):
+    calls = []
+
+    class Completed:
+        returncode = 0
+
+    monkeypatch.setattr(audio.shutil, "which", lambda _: "ffmpeg")
+    monkeypatch.setattr(audio.subprocess, "run", lambda *args, **kwargs: (calls.append(kwargs), Completed())[1])
+
+    audio._run_ffmpeg("input.flac", "output.m4a")
+
+    assert ("pass_fds" in calls[0]) is (os.name != "nt")
+
+
 class RouterTransport:
     """Routes by URL substring to scripted (status, body) queues.
 
@@ -123,6 +137,31 @@ def test_pick_audio_stream_preference(ids, expected):
 
 def test_pick_audio_stream_empty():
     assert audio.pick_audio_stream([]) is None
+
+
+def test_pick_audio_stream_normalizes_string_quality_ids():
+    streams = [
+        {"id": "30280", "baseUrl": "https://h/30280.m4s"},
+        {"id": "30216", "baseUrl": "https://h/30216.m4s"},
+    ]
+    assert audio.pick_audio_stream(streams) is streams[1]
+
+
+def test_pick_audio_stream_falls_back_to_highest_numeric_quality():
+    streams = [
+        {"id": 30240, "baseUrl": "https://h/30240.m4s"},
+        {"id": "30280", "baseUrl": "https://h/30280.m4s"},
+    ]
+    assert audio.pick_audio_stream(streams) is streams[1]
+
+
+def test_stream_urls_accepts_single_string_backup_url():
+    primary = f"https://{STREAM_HOST}/primary.m4s"
+    backup = f"https://{STREAM_HOST}/backup.m4s"
+    assert audio._stream_urls({"baseUrl": primary, "backupUrl": backup}) == (
+        primary,
+        backup,
+    )
 
 
 def test_pick_audio_stream_none():
@@ -362,6 +401,23 @@ def test_download_audio_skips_existing(tmp_root):
         assert fh.read() == b"already-there"
 
 
+def test_download_audio_skips_existing_bare_bvid_before_pagelist(tmp_root, monkeypatch):
+    """Resuming a local file must not require pagelist access."""
+    client = make_client({})
+    out = os.path.join(tmp_root, "audio", f"{BVID}.m4a")
+    os.makedirs(os.path.dirname(out), exist_ok=True)
+    with open(out, "wb") as fh:
+        fh.write(b"already-there")
+
+    def fail_resolution(*_args, **_kwargs):
+        raise AssertionError("bare-bvid resume resolved pagelist")
+
+    monkeypatch.setattr(audio, "resolve_page_identity", fail_resolution)
+    assert audio.download_audio(client, BVID, out) == out
+    assert client.transport.calls == []
+    assert client.transport.stream_calls == []
+
+
 def test_download_audio_30232_m4s_does_not_remux(tmp_root, monkeypatch):
     client = make_client(
         {"pagelist": [pagelist_ok()],
@@ -400,10 +456,11 @@ def test_download_audio_explicit_flac_url_remuxes(tmp_root, monkeypatch):
     out = os.path.join(tmp_root, "audio", f"{BVID}.m4a")
     result = audio.download_audio(client, BVID, out)
     assert result == out
-    assert calls and all(
-        path.startswith(("/proc/self/fd/", "/dev/fd/"))
-        for path in calls[0]
-    )
+    assert calls
+    if os.name != "nt":
+        assert all(path.startswith(("/proc/self/fd/", "/dev/fd/")) for path in calls[0])
+    else:
+        assert all(os.path.basename(path).startswith((".audio-stage-", ".audio-converted-")) for path in calls[0])
     assert not os.path.exists(calls[0][0])
     assert os.path.basename(out).endswith(".m4a")
 
@@ -428,10 +485,35 @@ def test_download_audio_mime_only_flac_remuxes(tmp_root, monkeypatch):
     out = os.path.join(tmp_root, "audio", f"{BVID}.m4a")
     result = audio.download_audio(client, BVID, out)
     assert result == out
-    assert calls and all(
-        path.startswith(("/proc/self/fd/", "/dev/fd/"))
-        for path in calls[0]
+    assert calls
+    if os.name != "nt":
+        assert all(path.startswith(("/proc/self/fd/", "/dev/fd/")) for path in calls[0])
+    else:
+        assert all(os.path.basename(path).startswith((".audio-stage-", ".audio-converted-")) for path in calls[0])
+
+
+def test_download_audio_detects_flac_from_backup_url(tmp_root, monkeypatch):
+    flac = b"fLaC" + b"data" * 10
+    primary = f"https://{STREAM_HOST}/opaque-stream"
+    backup = f"https://{STREAM_HOST}/fallback.flac"
+    client = make_client(
+        {"pagelist": [pagelist_ok()],
+         "/x/player/wbi/playurl": [playurl_ok(streams=[
+             {"id": 30232, "baseUrl": primary, "backupUrl": backup},
+         ])]},
+        stream_routes={primary: flac},
     )
+    calls = []
+
+    def convert(src, dst):
+        calls.append((src, dst))
+        with open(dst, "wb") as handle:
+            handle.write(AUDIO_BYTES)
+
+    monkeypatch.setattr(audio, "_run_ffmpeg", convert)
+    out = os.path.join(tmp_root, "audio", f"{BVID}.m4a")
+    assert audio.download_audio(client, BVID, out) == out
+    assert calls
 
 
 def test_download_audio_flac_without_ffmpeg_keeps_flac(tmp_root, monkeypatch):
@@ -478,7 +560,8 @@ def test_download_audio_updates_manifest_audio_ok(tmp_root):
                          store=store)
     entry = store.get(f"{BVID}:p0")
     assert entry["status"] == "audio_ok"
-    assert entry["audio_path"] == os.path.join("audio", f"{BVID}.m4a")
+    # Manifest storage keys use stable POSIX separators on every platform.
+    assert entry["audio_path"] == f"audio/{BVID}.m4a"
     assert "last_api_error_code" not in entry
     assert "hdslb" not in json.dumps(entry)
     assert "bilivideo" not in json.dumps(entry)  # no stream URL persisted

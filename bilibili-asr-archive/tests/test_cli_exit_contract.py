@@ -476,18 +476,12 @@ def test_verify_is_unaffected_by_the_gone_ruling(tmp_path: Path) -> None:
 
 
 def test_backlog_status_set_matches_the_integrity_reader(tmp_path: Path) -> None:
-    """F9: the in-flight status set is duplicated, so pin the two together.
+    """Pin backlog classification through the real integrity reader.
 
-    `cli.py`'s `_BACKLOG_STATUSES` and `integrity.py`'s inline
-    `if status in {"pending", "meta_ok", ...}: defects.add(RETRYABLE_INCOMPLETE)`
-    encode the same rule, and the duplication is **unavoidable as an import**:
-    `integrity.py` exports no constant for it (only the inline literal at the
-    `RETRYABLE_INCOMPLETE` site), the brief forbids editing `integrity.py`, and
-    moving the set into a third module would relocate the duplication rather
-    than remove it.  Rather than leave two literals free to drift, the
-    equivalence is asserted *behaviorally*: the verifier is asked which statuses
-    it calls retryable, and the CLI set must match that answer exactly.  A future
-    edit to either side fails here instead of silently reclassifying rows.
+    Both readers import the manifest's shared status set. This behavioral
+    assertion also catches a change to either reader's use of that set: the
+    verifier is asked which statuses it calls retryable, and the CLI backlog
+    classification must match that answer exactly.
     """
     from bili_asr.cli import _BACKLOG_STATUSES
     from bili_asr.integrity import RETRYABLE_INCOMPLETE, IntegrityVerifier

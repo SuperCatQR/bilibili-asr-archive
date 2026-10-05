@@ -241,6 +241,9 @@ class QualityAnalyzer:
         """
 
         roots = artifact_roots if artifact_roots is not None else ArtifactRoots.of(archive_root)
+        # Enumeration repeats the same raw candidates and bases. Share their
+        # resolves for this row only; the read guard below remains fresh.
+        probe = _ContainmentProbe(roots)
         reasons: set[str] = set()
         diagnostics: set[str] = set()
         content_reasons: set[str] = set()
@@ -263,7 +266,12 @@ class QualityAnalyzer:
             # the same row for the same reason (`structural_input_error`).
             reasons.add("identity_invalid")
         else:
-            artifacts = _artifact_paths(row, roots)
+            # Both writer-real raw locations must remain confined even when
+            # the row explicitly names a complete bundle. These are identity
+            # probes, not extra transcript representations to read or count.
+            if _inferred_raw_escapes(row, roots, probe):
+                reasons.add("identity_unconfined")
+            artifacts = _artifact_paths(row, roots, probe)
             if not artifacts:
                 reasons.add("artifact_missing")
         cue_count = 0
@@ -374,7 +382,9 @@ def _canonical_stem(row: Mapping[str, object]) -> str | None:
         return None
 
 
-def _artifact_paths(row: Mapping[str, object], roots: ArtifactRoots) -> list[Path]:
+def _artifact_paths(
+    row: Mapping[str, object], roots: ArtifactRoots, probe: _ContainmentProbe,
+) -> list[Path]:
     """The row's artifact candidates, each resolved at the base that holds it.
 
     A declared value is a root-relative string (D7), so it is probed over
@@ -442,7 +452,7 @@ def _artifact_paths(row: Mapping[str, object], roots: ArtifactRoots) -> list[Pat
                 # offer therefore stays gated on existence, except for a candidate that
                 # escapes every read base: there, absence is the question being asked.
                 chosen = next(
-                    (item for item in candidates if _escapes_every_base(item, roots)),
+                    (item for item in candidates if _escapes_every_base(item, probe)),
                     None,
                 )
                 if chosen is None:
@@ -453,6 +463,34 @@ def _artifact_paths(row: Mapping[str, object], roots: ArtifactRoots) -> list[Pat
     if inferred and not result and values:
         result.append(bases[0] / values[0])
     return list(dict.fromkeys(result))
+
+
+def _inferred_raw_escapes(
+    row: Mapping[str, object], roots: ArtifactRoots, probe: _ContainmentProbe,
+) -> bool:
+    """Ask verify's two raw containment questions independently of declarations.
+
+    Each family is legal when some read base confines its own candidate. An
+    absent but confined caption sidecar contributes no missing-artifact reason;
+    it is an alternative route, not part of the declared archive bundle.
+    """
+    stem = _canonical_stem(row)
+    if stem is None:
+        return False
+    bases = roots.read_bases()
+    families = (
+        tuple(base / "subtitles" / "raw" / f"{stem}.json" for base in bases),
+        tuple(bundle_paths_for_stem(base, stem)["raw_path"] for base in bases),
+    )
+    for candidates in families:
+        try:
+            if not any(probe.contained(path, base) for base, path in zip(bases, candidates)):
+                return True
+        except (OSError, RuntimeError):
+            # Match the existing inferred-path probe: an unresolved symlink
+            # loop or inaccessible parent does not prove an outside location.
+            continue
+    return False
 
 
 def _derived_md_candidates(row: Mapping[str, object], stem: str, base: Path) -> list[Path]:
@@ -467,6 +505,29 @@ def _derived_md_candidates(row: Mapping[str, object], stem: str, base: Path) -> 
     """
     exact_md = bundle_paths_for_stem(base, stem)["md_path"]
     return [exact_md] if exact_md.is_file() else []
+class _ContainmentProbe:
+    """Memoize enumeration resolves within one row, never across reads or rows."""
+
+    def __init__(self, roots: ArtifactRoots) -> None:
+        self.bases = roots.read_bases()
+        self._resolved: dict[Path, Path] = {}
+
+    def resolve(self, path: Path) -> Path:
+        if path not in self._resolved:
+            self._resolved[path] = path.resolve()
+        return self._resolved[path]
+
+    def contained(self, path: Path, base: Path) -> bool:
+        try:
+            self.resolve(path).relative_to(self.resolve(base))
+        except ValueError:
+            return False
+        return True
+
+    def contained_at_any_base(self, path: Path) -> bool:
+        return any(self.contained(path, base) for base in self.bases)
+
+
 def _contained_at_any_base(path: Path, roots: ArtifactRoots) -> bool:
     """`_contained`, asked once per base.
 
@@ -474,18 +535,10 @@ def _contained_at_any_base(path: Path, roots: ArtifactRoots) -> bool:
     transcript family keeps its own ``resolve``-based check and only the base list
     is shared with the audio family's descriptor-anchored guard.
     """
-    return any(_contained(path, base) for base in roots.read_bases())
+    return _ContainmentProbe(roots).contained_at_any_base(path)
 
 
-def _contained(path: Path, root: Path) -> bool:
-    try:
-        path.resolve().relative_to(root.resolve())
-    except ValueError:
-        return False
-    return True
-
-
-def _escapes_every_base(path: Path, roots: ArtifactRoots) -> bool:
+def _escapes_every_base(path: Path, probe: _ContainmentProbe) -> bool:
     """True only when the path is *known* to resolve outside every read base.
 
     Measured: ``resolve()`` raises ``RuntimeError`` on a symlink loop (and ``OSError``
@@ -495,7 +548,7 @@ def _escapes_every_base(path: Path, roots: ArtifactRoots) -> bool:
     candidate must not widen the residual's reach.
     """
     try:
-        return not _contained_at_any_base(path, roots)
+        return not probe.contained_at_any_base(path)
     except (OSError, RuntimeError):
         return False
 

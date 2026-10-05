@@ -19,11 +19,22 @@ FLAC streams losslessly to ALAC in `.m4a`, and the ASR reader uses it to decode 
 the binary; `scripts/check_asr_env.py` is not a substitute, since it checks the GPU stack and would
 pass on a host with no `ffmpeg` at all.
 
-Local ASR support is optional. It needs the two Qwen3-ASR checkpoints (next section) and a torch
-build the recipe below provides — pip is deliberately told nothing about torch, because the wheel
-that works on this host comes from `repo.radeon.com` and not from an index:
+Local ASR support is optional. Install and verify the host's torch build first, following
+[the GPU recipe](docs/wsl-rocm-gpu.md), then install this extra with the same interpreter.
+`accelerate` requires torch transitively, so running the pip command in a fresh environment
+can install a PyPI build that does not match the GPU:
 
     python3.12 -m pip install -e ".[asr]"
+
+For uv, the lock excludes torch so it can remain supplied by the host. Base development
+environments can use `uv sync --extra dev`. In an existing GPU environment, select its path
+and retain packages installed by the GPU recipe:
+
+    UV_PROJECT_ENVIRONMENT="$VENV" uv sync --extra asr --inexact
+
+Always use `--inexact` when syncing an environment containing the separately installed GPU
+runtime; exact sync removes packages absent from the lock. The ASR extra does not install
+torch or model checkpoints under uv. See [uv's sync behavior](https://docs.astral.sh/uv/concepts/projects/sync/).
 
 ### Where the ASR checkpoints live
 
@@ -486,13 +497,22 @@ in committed files or CI artifacts.
 
 ## The operator chain (post-cutover)
 
-The store is the metadata queue truth source. The legacy manifest remains the execution queue for audio and ASR until each store route is explicitly bridged; `download-audio --queue-source store` is the default and `--queue-source manifest` is the rollback path. The everyday loop is three steps:
+The store supplies the default queues for `download-audio`, `asr`, `pilot`,
+`run`, and `schedule`. Their `--queue-source manifest` option retains the
+legacy fallback. The manifest also records execution state and published
+artifact paths; it is not a replacement for the store's acquisition evidence.
+The everyday loop is:
 
-1. `bili-asr fetch-meta` — enumerate and persist metadata + subtitles into `archive.db`.
-2. `bili-asr download-audio` — audio for parts the store says owe it (`--queue-source store`
-   is the default; `--queue-source manifest` is the legacy rollback and prints a deprecation line).
-3. `bili-asr asr` — transcribe what still owes a transcript; or read the queue first with
-   `bili-asr status` (three gap groups, newest first — the groups overlap, never sum them).
+1. `bili-asr fetch-meta` — enumerate videos and persist their metadata in `archive.db`.
+2. `bili-asr harvest-subs --limit-parts N` — acquire captions before paying for audio or ASR.
+3. `bili-asr publish-transcripts --pending --limit-parts N` — publish stored captions as SRT/TXT/MD.
+4. `bili-asr download-audio --limit N` — download parts with verified caption exhaustion.
+5. `bili-asr asr --pending --limit N` — transcribe audio still missing a stored transcript.
+
+Read `bili-asr status` before each batch; its gap groups overlap and must not
+be summed. An empty caption inventory needs two distinct harvest runs with
+verified login before admitting audio. Explicit listing absence is recorded
+separately; a failed subtitle-body read does not establish absence.
 
 For a fast offline development check without provisioning the full baseline, run a focused lane:
 
@@ -510,29 +530,40 @@ The ASR chain's data flow — audio → chunker → the two checkpoints → mark
 products and the store — is drawn in [`docs/asr-pipeline.html`](docs/asr-pipeline.html), a
 self-contained interactive diagram whose source is [`docs/asr-pipeline.dataflow.json`](docs/asr-pipeline.dataflow.json).
 
-⚠️ **The `probe-subs` / `harvest-subs` pair writes to `archive.db`, not to the
-manifest; `bili-asr derive-manifest` is what carries that store's audio queue
-across.** The ASR/pilot chain
-(`download-audio`, `asr`, `pilot`, `run`, `schedule`, `campaign`) is still driven
-from `manifest/manifest.jsonl`, and `harvest-subs` still marks no rows
-`needs_audio` itself: `derive-manifest` appends a `needs_audio` row for every
-stored part that holds no transcript and is not `gone`, so
-`download-audio --missing-subs` now does gain entries from the step above it —
-additively, and without rewriting a row the chain already holds. What still does
-not cross: `asr --pending` does not see the stored transcripts, and no SRT/TXT/MD
-projection is rebuilt from them. Run the subtitle step and the derivation for the
-SQLite archive itself; the legacy chain keeps its own harvest (see the boundary
-bullet under
-[Subtitle acquisition on SQLite](#subtitle-acquisition-on-sqlite-probe-subs--harvest-subs)
-and the [derived audio queue](#derived-audio-queue-bili-asr-derive-manifest)).
+`probe-subs` only inspects the current gateway response; it writes no
+acquisition evidence. `harvest-subs` stores captions and durable observations
+in `archive.db`. `publish-transcripts` creates their text bundles. The default
+store queues feed audio and ASR directly, and successful ASR writes its
+transcript back so subsequent batches skip it. `derive-manifest` remains an
+optional bridge for the explicit manifest route. `campaign` uses manifest
+scopes and a bounded checkpoint of its selected work.
+
+Metadata video-detail, part and tag requests retain the 0.8–1.6-second pacing floor
+for small selections as well as full enumeration. This protects the shared
+upstream rate budget; selecting a single video does not disable pacing.
 
     bili-asr fetch-meta --mid 23191782 --archive-root archive
     bili-asr probe-subs --limit-parts 5 --archive-root archive
     bili-asr harvest-subs --limit-parts 5 --archive-root archive
-    bili-asr derive-manifest --archive-root archive
-    bili-asr download-audio --missing-subs --archive-root archive [--artifact-root <path>]
-    bili-asr asr --pending --archive-root archive [--artifact-root <path>] [--keep-audio | --no-keep-audio]
+    bili-asr publish-transcripts --pending --limit-parts 5 --archive-root archive
+    bili-asr download-audio --limit 5 --archive-root archive [--artifact-root <path>]
+    bili-asr asr --pending --limit 5 --archive-root archive [--artifact-root <path>] [--keep-audio | --no-keep-audio]
     bili-asr status --archive-root archive
+
+`publish-transcripts --pending` skips verified complete bundles before spending
+the limit, so repeated bounded runs advance through the remaining captions.
+Damaged bundles remain eligible for repair. An inconclusive read counts as a
+failed attempt and preserves the existing bundle.
+
+For a manifest-era archive that already contains complete transcripts, adopt
+its verified bundles before using store queues:
+
+    bili-asr adopt-transcripts --limit-parts 20 --archive-root archive [--artifact-root <path>]
+
+Adoption is offline and validates page identity, hashes and all four published
+files. Already stored parts are skipped before the limit, so repeated bounded
+runs drain the remaining imports. Missing or damaged bundles are reported and
+remain eligible for repair; adoption does not download or run ASR.
     bili-asr runs --limit 10 --archive-root archive
     bili-asr pilot --n 20 --archive-root archive [--artifact-root <path>] [--keep-audio | --no-keep-audio]
     bili-asr search "黑格尔 辩证法" --archive-root archive [--from 2020-01-01] [--to 2020-12-31] [--format table|json]
@@ -1145,8 +1176,11 @@ below; this subsection covers the metadata and read commands only.
 Exit 2 variants:
 
 - **Gateway failure** (bounded scalar code, e.g. `response_error`,
-  `rate_limited`): the gateway is fail-fast per page — one attempt per
-  page, no retry. The failed page records its bounded scalar code, the
+  `rate_limited`): each upload-list page has one attempt by default.
+  `--page-retries 1..3` permits additional attempts after rate-control or
+  transport failures, waiting 30/60/120 seconds. Authentication and malformed
+  responses fail immediately; retries never repeat per-video fan-out.
+  After exhaustion, the failed page records its bounded scalar code, the
   cursor remains unchanged, and re-running `fetch-meta` resumes safely —
   unless `--skip-failed-page` is set, which commits the cursor one page past
   a failed page so the next `--resume` progresses; the page row
@@ -1221,9 +1255,10 @@ observed live run, is in
 - **Credential**: `--sessdata` or `BILI_SESSDATA` (flag wins), with the same
   resolution and presence-only redaction as the metadata commands
   (`sessdata: present|absent`); the value reaches the gateway's cookie only and
-  is never echoed, logged, or persisted. `harvest-subs` records the presence in
-  its run row, so a part it recorded `no-subtitle` stays interpretable — an
-  invisible caption may exist and simply be login-gated.
+  is never echoed, logged, or persisted. `harvest-subs` records credential
+  presence and verified-login evidence separately. An expired credential
+  yields an authentication failure; an unverified empty inventory cannot
+  admit the audio queue. Historical ambiguous absence requires revalidation.
 - **Schema guard and rebuild**: on a database that predates the transcript
   schema both commands print one line on stderr — `<command>: archive database
   predates the transcript schema; rebuild it (delete <archive-root>/archive.db
@@ -1235,15 +1270,11 @@ observed live run, is in
   runs). The database is created from two checked-in
   resources, `src/bili_asr/storage/schema.sql` and
   `src/bili_asr/storage/schema-transcripts.sql`.
-- **Legacy manifest boundary**: the ASR/pilot chain is untouched and still reads
-  `manifest/manifest.jsonl`, so `asr --pending`, `pilot`, `run`, `schedule`, and
-  `campaign` do not see transcripts stored here. `harvest-subs` itself still
-  produces no manifest status `needs_audio`; `bili-asr derive-manifest` is what
-  feeds `download-audio --missing-subs` from this path, by appending one
-  `needs_audio` row per captionless part (see the
-  [derived audio queue](#derived-audio-queue-bili-asr-derive-manifest)).
-  Rebuilding the SRT/TXT/MD projections from the stored transcripts is still
-  deferred work for a later iteration.
+- **Execution bridge**: the default store queues expose missing audio,
+  missing transcripts and captions waiting for publication. Use
+  `publish-transcripts` for stored caption bundles and `adopt-transcripts`
+  for verified manifest-era products. `derive-manifest` supports the explicit
+  manifest fallback and never rewrites work already recorded there.
 - **Writer lock**: `harvest-subs` is an archive-writer command and holds
   `{archive-root}/coordinator/archive-writer.lock` for the whole run, so a
   second mutating command exits `1` with `harvest-subs: archive_busy`. Apart

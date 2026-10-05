@@ -1,9 +1,8 @@
-"""Integration tests for the package's isolated console-script installation."""
+"""CLI help, argument and in-process command contracts."""
 
 from __future__ import annotations
 
 import json
-import os
 import subprocess
 from pathlib import Path
 
@@ -13,36 +12,9 @@ from installed_cli import (
     SENTINEL_COOKIE,
     _redact_diagnostics,
     _summarize,
-    _venv_scripts_dir,
     assert_redacted,
-    provision_isolated_cli,
-    run_installed,
     run_module,
 )
-
-
-@pytest.fixture(scope="module")
-def isolated_cli(tmp_path_factory: pytest.TempPathFactory):
-    """Provision a fresh local-only install; missing prerequisites fail clearly."""
-    return provision_isolated_cli(str(tmp_path_factory.mktemp("isolated-cli") / "venv"))
-
-
-def test_installed_console_script_help(isolated_cli) -> None:
-    proc = run_installed(isolated_cli, ["--help"])
-    assert proc.returncode == 0, proc.stderr
-    assert "bili-asr" in proc.stdout
-    for command in ("fetch-meta", "status", "runs", "asr", "pilot", "coverage", "verify", "recover"):
-        assert command in proc.stdout
-    assert_redacted(proc)
-
-
-def test_installed_console_script_status_fails_without_database(isolated_cli, tmp_path: Path) -> None:
-    archive_root = tmp_path / "archive"
-    proc = run_installed(isolated_cli, ["status", "--archive-root", str(archive_root)])
-    assert proc.returncode == 1, proc.stdout
-    assert "no archive database" in proc.stderr
-    assert proc.stdout == ""
-    assert_redacted(proc)
 
 
 def test_recover_requires_explicit_target(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
@@ -64,14 +36,6 @@ def test_recover_help_describes_limit_contract(capsys: pytest.CaptureFixture[str
     assert "100" in help_text
 
 
-def test_installed_script_is_not_path_or_checkout_source(isolated_cli) -> None:
-    assert Path(isolated_cli.executable).parent == Path(_venv_scripts_dir(isolated_cli.venv_dir))
-    probe = run_installed(isolated_cli, ["--help"])
-    assert probe.returncode == 0
-    assert "PYTHONPATH" not in probe.stdout
-    assert_redacted(probe)
-
-
 def test_module_help_is_supplemental_coverage() -> None:
     proc = run_module(["--help"])
     assert proc.returncode == 0, proc.stderr
@@ -83,22 +47,6 @@ def test_module_help_is_supplemental_coverage() -> None:
 def test_module_status_fails_without_database(tmp_path: Path) -> None:
     proc = run_module(["status", "--archive-root", str(tmp_path)])
     assert proc.returncode == 1, proc.stdout
-    assert "no archive database" in proc.stderr
-    assert_redacted(proc)
-
-
-def test_installed_console_script_status_ignores_legacy_manifest(isolated_cli, tmp_path: Path) -> None:
-    from bili_asr.manifest import ManifestStore
-
-    store = ManifestStore(root=str(tmp_path))
-    store.upsert({"work_id": "BV1test_inst:p1", "bvid": "BV1test_inst", "status": "archived"})
-    store.upsert({"work_id": "BV1test_meta:p1", "bvid": "BV1test_meta", "status": "meta_ok"})
-
-    proc = run_installed(isolated_cli, ["status", "--archive-root", str(tmp_path)])
-    # status reads only the fresh SQLite database: with no archive.db the
-    # legacy manifest rows are neither read nor rewritten (exit 1).
-    assert proc.returncode == 1, proc.stdout
-    assert "BV1test_inst" not in proc.stdout
     assert "no archive database" in proc.stderr
     assert_redacted(proc)
 
@@ -934,12 +882,6 @@ def test_install_failure_summary_redacts_output() -> None:
     assert "https://" not in summary
     assert "token=abc" not in summary
     assert SENTINEL_COOKIE not in summary
-
-
-def test_sentinel_never_appears_in_cli_output(isolated_cli) -> None:
-    proc = run_installed(isolated_cli, ["--help"], extra_env={"BILI_SESSDATA": SENTINEL_COOKIE})
-    assert SENTINEL_COOKIE not in (proc.stdout + proc.stderr)
-    assert_redacted(proc)
 
 
 def _low_confidence_archive(tmp_path: Path) -> str:

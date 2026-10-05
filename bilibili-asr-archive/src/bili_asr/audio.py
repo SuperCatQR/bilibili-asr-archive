@@ -24,7 +24,7 @@ from typing import Any
 from .artifact_root import ArtifactRoots, iter_audio_paths
 from .bili_client import BiliClient, StreamDownloadError
 from .manifest import ManifestStore
-from .page_identity import PageIdentity, apply_identity
+from .page_identity import PageIdentity, apply_identity, identity_from_entry
 from .subtitles import resolve_page_identity
 from .path_policy import (
     confined_audio_file,
@@ -38,6 +38,11 @@ AUDIO_DIR = os.path.join("audio")
 # Spec preference order for dash.audio quality ids:
 # 30216 (64K) > 30232 (132K) > 30250 (Dolby) > first listed.
 _AUDIO_ID_PREFERENCE = (30216, 30232, 30250)
+
+
+def _portable_relpath(path: str | os.PathLike[str], base: str | os.PathLike[str]) -> str:
+    """Return the manifest's stable, platform-independent relative key."""
+    return os.path.relpath(os.fspath(path), os.fspath(base)).replace(os.sep, "/")
 
 
 class NoAudioStreamError(Exception):
@@ -58,10 +63,23 @@ def pick_audio_stream(
     """Choose the best dash audio stream by the explicit quality order."""
     if not streams:
         return None
+    normalized: list[tuple[dict[str, Any], int | None]] = []
+    for stream in streams:
+        stream_id = stream.get("id")
+        if isinstance(stream_id, str) and stream_id.strip().isdigit():
+            stream_id = int(stream_id.strip())
+        normalized.append((stream, stream_id if isinstance(stream_id, int) else None))
     for preferred in _AUDIO_ID_PREFERENCE:
-        for s in streams:
-            if s.get("id") == preferred:
+        for s, stream_id in normalized:
+            if stream_id == preferred:
                 return s
+    # Gateway ordering is not a quality guarantee.  When none of the known
+    # preferred IDs is present, choose the highest numeric quality ID rather
+    # than silently accepting the first response item.  Keep malformed-only
+    # responses deterministic by retaining the original first-stream fallback.
+    numeric = [(stream_id, stream) for stream, stream_id in normalized if stream_id is not None]
+    if numeric:
+        return max(numeric, key=lambda item: item[0])[1]
     return streams[0]
 
 
@@ -70,7 +88,9 @@ def _stream_urls(stream: dict[str, Any]) -> tuple[str, ...]:
     candidates = [stream.get("baseUrl"), stream.get("base_url")]
     for key in ("backupUrl", "backup_url"):
         backups = stream.get(key)
-        if isinstance(backups, (list, tuple)):
+        if isinstance(backups, str):
+            candidates.append(backups)
+        elif isinstance(backups, (list, tuple)):
             candidates.extend(backups)
     urls = []
     for value in candidates:
@@ -93,14 +113,20 @@ def _run_ffmpeg(src: str, dst: str) -> None:
         for path in (src, dst)
         if path.startswith(("/proc/self/fd/", "/dev/fd/"))
     )
+    run_kwargs: dict[str, Any] = {
+        "stdin": subprocess.DEVNULL,
+        "stdout": subprocess.DEVNULL,
+        "stderr": subprocess.PIPE,
+        "check": False,
+    }
+    # ``pass_fds`` is POSIX-only.  Windows receives ordinary paths here and
+    # rejects the keyword before ffmpeg can start, even when the tuple is empty.
+    if os.name != "nt":
+        run_kwargs["pass_fds"] = pass_fds
     completed = subprocess.run(
         [ffmpeg, "-nostdin", "-y", "-loglevel", "error", "-i", src,
          "-map", "0:a:0", "-vn", "-c:a", "alac", "-f", "ipod", dst],
-        stdin=subprocess.DEVNULL,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.PIPE,
-        check=False,
-        pass_fds=pass_fds,
+        **run_kwargs,
     )
     if completed.returncode:
         # ffmpeg diagnostics can contain signed URLs or descriptor paths.
@@ -164,7 +190,7 @@ def _archive_root_for_download(
     Otherwise the base is today's derivation — the store's root, or the ``audio/``
     component of the requested path.
     """
-    requested = os.fspath(out_path)
+    requested = os.path.abspath(os.fspath(out_path))
     if artifact_roots is not None:
         root = Path(os.path.abspath(os.fspath(artifact_roots.write_base)))
         relative = os.path.relpath(requested, root)
@@ -186,8 +212,11 @@ def _archive_root_for_download(
             raise OSError("invalid audio path")
         root = Path(os.path.join(*parts[:audio_index]))
         relative = os.path.join("audio", *parts[audio_index + 1 :])
-    audio_fd = open_audio_directory(root, create=True)
-    os.close(audio_fd)
+    if os.name != "nt":
+        audio_fd = open_audio_directory(root, create=True)
+        os.close(audio_fd)
+    else:
+        (root / "audio").mkdir(parents=True, exist_ok=True)
     confined = confined_audio_path(root, relative, require_exists=False)
     if confined is None:
         raise OSError("invalid audio path")
@@ -226,11 +255,19 @@ def download_audio(
             return existing
         identity = target
     else:
-        identity = resolve_page_identity(client, target)
+        # A resumable target is enough to answer this request. Resolving a bare
+        # bvid would otherwise make a pagelist network call before checking the
+        # local archive, defeating offline resume for already downloaded audio.
         existing = _existing_audio(out_path, roots)
         if existing is not None:
-            _mark_audio_ok(store, identity, existing, artifact_roots)
+            if store is not None:
+                known = store.get_compatible(target) or store.get(target)
+                if known and known.get("work_id") and known.get("cid") is not None:
+                    known_identity = identity_from_entry(known, target)
+                    if isinstance(known_identity, PageIdentity):
+                        _mark_audio_ok(store, known_identity, existing, artifact_roots)
             return existing
+        identity = resolve_page_identity(client, target)
 
     audio_dir = os.path.dirname(out_path)
     if audio_dir != os.fspath(archive_root / "audio"):
@@ -246,12 +283,19 @@ def download_audio(
     urls = _stream_urls(chosen)
     if not urls:
         raise NoAudioStreamError(f"{identity.work_id}: audio stream has no usable URL")
-    url = urls[0]
     mime_type = str(chosen.get("mimeType") or chosen.get("mime_type") or "")
-    is_flac = url.lower().split("?", 1)[0].endswith(".flac") or "flac" in mime_type.lower()
+    is_flac = any(
+        candidate.lower().split("?", 1)[0].endswith(".flac")
+        for candidate in urls
+    ) or "flac" in mime_type.lower()
 
     final_name = confined_out.name
     final_path = os.fspath(archive_root / "audio" / final_name)
+    if os.name == "nt":
+        return _download_audio_windows(
+            client, urls, is_flac, archive_root, final_name, final_path,
+            store, identity, artifact_roots,
+        )
     audio_fd = open_audio_directory(archive_root)
     stage_name = ""
     stage_fd: int | None = None
@@ -316,6 +360,60 @@ def download_audio(
     _mark_audio_ok(store, identity, final_path, artifact_roots)
     return final_path
 
+
+def _download_audio_windows(
+    client: BiliClient,
+    urls: tuple[str, ...],
+    is_flac: bool,
+    archive_root: Path,
+    final_name: str,
+    final_path: str,
+    store: ManifestStore | None,
+    identity: PageIdentity,
+    artifact_roots: ArtifactRoots | None,
+) -> str:
+    """Download through validated paths on Windows, which has no dir_fd API."""
+    audio_dir = archive_root / "audio"
+    stage = audio_dir / f".audio-stage-{secrets.token_hex(16)}.download"
+    converted = audio_dir / f".audio-stage-{secrets.token_hex(16)}.m4a"
+    try:
+        for url in urls:
+            try:
+                client.download_audio_stream(url, os.fspath(stage))
+                if not stage.is_file() or stage.stat().st_size == 0:
+                    raise StreamDownloadError("audio stream produced an empty file")
+            except StreamDownloadError:
+                try:
+                    stage.unlink()
+                except FileNotFoundError:
+                    pass
+                if url == urls[-1]:
+                    raise StreamDownloadError("all audio CDN addresses failed") from None
+            else:
+                break
+
+        output_path = final_path
+        if is_flac:
+            try:
+                _run_ffmpeg(os.fspath(stage), os.fspath(converted))
+                if not converted.is_file() or converted.stat().st_size == 0:
+                    raise AudioConversionError("ffmpeg audio conversion failed")
+                os.replace(converted, audio_dir / final_name)
+            except FFmpegUnavailable:
+                flac_name = os.path.splitext(final_name)[0] + ".flac"
+                os.replace(stage, audio_dir / flac_name)
+                output_path = os.fspath(audio_dir / flac_name)
+        else:
+            os.replace(stage, audio_dir / final_name)
+        _mark_audio_ok(store, identity, output_path, artifact_roots)
+        return output_path
+    finally:
+        for path in (stage, converted):
+            try:
+                path.unlink()
+            except FileNotFoundError:
+                pass
+
 def _mark_audio_ok(
     store: ManifestStore | None,
     identity: PageIdentity,
@@ -347,7 +445,7 @@ def _mark_audio_ok(
     )
     for base in bases:
         try:
-            final_rel = os.path.relpath(final_path, base)
+            final_rel = _portable_relpath(final_path, base)
         except ValueError:  # Windows across drives
             continue
         if confined_audio_path(base, final_rel, require_exists=True) is None:

@@ -257,6 +257,8 @@ def copy_checkout_docs(source_root: Path, destination: Path) -> None:
 
 def staged_test_tree(destination: Path) -> Path:
     shutil.copy2(ROOT / "README.md", destination / "README.md")
+    for name in ("pyproject.toml", "uv.lock"):
+        shutil.copy2(ROOT / name, destination / name)
     copy_checkout_docs(ROOT, destination)
     # Keep the verifier module available to test_verify_baseline without importing
     # any checkout source; all product imports must still resolve from the wheel.
@@ -264,6 +266,7 @@ def staged_test_tree(destination: Path) -> Path:
     staged_scripts.mkdir()
     shutil.copy2(Path(__file__), staged_scripts / "verify_baseline.py")
     shutil.copy2(ROOT / "scripts" / "check_asr_env.py", staged_scripts / "check_asr_env.py")
+    shutil.copy2(ROOT / "scripts" / "forensic_log.py", staged_scripts / "forensic_log.py")
     (staged_scripts / "__init__.py").write_text("", encoding="utf-8")
     staged = destination / "tests"
     shutil.copytree(
@@ -272,7 +275,7 @@ def staged_test_tree(destination: Path) -> Path:
         ignore=lambda directory, names: {
             name
             for name in names
-            if name in {"test_verify_baseline.py", "test_cli_help.py"}
+            if name in {"test_verify_baseline.py", "test_installed_cli.py"}
             or name == "__pycache__"
             or name.endswith(".pyc")
         },

@@ -53,11 +53,12 @@ from __future__ import annotations
 
 import hashlib
 import os
+import stat
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Iterable, Mapping
 
-from ..artifact_root import ArtifactRoots, resolve_audio_path
+from ..artifact_root import ArtifactRoots, iter_audio_paths, resolve_audio_path
 from ..audio_reclaim import _candidate_paths
 from ..page_identity import parse_work_id
 
@@ -137,7 +138,35 @@ def _resolve_existing(
     for declared in _candidate_paths(entry):
         resolved = resolve_audio_path(roots, declared, require_exists=True)
         if resolved is not None:
-            return str(declared), resolved
+            # Manifest and storage keys are portable archive-relative names.
+            # Windows may hand us a legacy backslash spelling, but persisting
+            # that spelling makes the same file look new on the next run or
+            # after moving the archive to a POSIX host.
+            return str(declared).replace("\\", "/"), resolved
+
+        # ``require_exists=True`` proves presence by opening the file.  That is
+        # useful for ordinary readers, but it collapses a present file whose
+        # open is denied (permissions, transient I/O) into the same ``None``
+        # result as an absent file.  Inventory needs the distinction so the
+        # caller can report ``unreadable`` rather than violating the meaning of
+        # the ``missing`` counter.  The non-opening resolver still applies the
+        # same confinement and no-follow checks; stat only decides whether the
+        # candidate is present before the digest pass reports the read failure.
+        for _base, _candidate, candidate_path in iter_audio_paths(
+            roots, (declared,), require_exists=False
+        ):
+            try:
+                info = os.stat(candidate_path, follow_symlinks=False)
+            except FileNotFoundError:
+                continue
+            except OSError:
+                # A metadata refusal is itself evidence that this named path
+                # cannot be read.  Keep it out of ``missing``; the digest stage
+                # will either confirm the failure or surface a more specific
+                # error while preserving the same classification.
+                return str(declared).replace("\\", "/"), candidate_path
+            if stat.S_ISREG(info.st_mode):
+                return str(declared).replace("\\", "/"), candidate_path
     return None
 
 

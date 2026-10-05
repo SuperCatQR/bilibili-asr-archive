@@ -38,7 +38,9 @@ from bilibili_api.utils.network import Api
 from bilibili_api.video import API as VIDEO_API, Video
 
 from bili_asr.config import resolve_proxy
+from bili_asr.bili_client import NAV_URL
 from bili_asr.sources.models import (
+    GatewayAuthenticationError,
     GatewayError,
     GatewayNotFound,
     GatewayRateLimited,
@@ -63,11 +65,9 @@ _NOT_FOUND_API_CODES = frozenset({-404, -62002})
 _RATE_LIMITED_HTTP_STATUSES = frozenset({412, 429})
 _NOT_FOUND_HTTP_STATUSES = frozenset({404})
 
-# The subtitle calls add the login signal to the shipped not-found set: ``-101``
-# means the credential in effect saw nothing for this part, which the caller
-# records as ``no-subtitle``.  The metadata path keeps the shipped set, where
-# ``-101`` stays a generic response error.
-_SUBTITLE_NOT_FOUND_API_CODES = _NOT_FOUND_API_CODES | {-101}
+# A login rejection is not evidence that a part has no subtitles.  Keep this
+# separate from gone signals so failed authentication cannot admit audio work.
+_AUTHENTICATION_API_CODES = frozenset({-101})
 
 # Same shape check the package itself applies in Video.set_bvid.
 _BVID_PATTERN = re.compile(r"^BV[a-zA-Z0-9]{10}$")
@@ -363,6 +363,9 @@ def _normalize_video_part_item(item: object, bvid: str) -> VideoPart:
     part_title = item.get("part")
     if not isinstance(part_title, str) or not part_title.strip():
         raise GatewayShapeError(detail="page item has no title")
+    # Display titles stay on one output line, but a valid upstream line break
+    # must not prevent every part on this metadata page from being collected.
+    part_title = re.sub(r"[\r\n]+", " ", part_title).strip()
     duration_seconds = item.get("duration")
     if (
         isinstance(duration_seconds, bool)
@@ -375,7 +378,7 @@ def _normalize_video_part_item(item: object, bvid: str) -> VideoPart:
             bvid=bvid,
             page_index=api_page - 1,
             cid=cid,
-            title=part_title.strip(),
+            title=part_title,
             duration_ms=math.floor(duration_seconds * 1000),
         )
     except (TypeError, ValueError) as exc:
@@ -919,6 +922,28 @@ class BilibiliApiGateway:
         )
         return _normalize_subtitle_tracks(entries)
 
+    async def validate_subtitle_credentials(self) -> None:
+        """Require a current logged-in nav response before recording absence.
+
+        Check every credentialed empty observation rather than caching a valid
+        answer for a whole batch: a cookie can expire while that batch runs.
+        The nav payload and its account details never leave this boundary.
+        """
+
+        operation = "validate_subtitle_credentials"
+        response = await self._await_upstream(
+            operation,
+            lambda: Api(
+                url=NAV_URL, method="GET", verify=False, wbi=False, dm=False,
+                credential=self._credential,
+            ).result,
+            authentication_api_codes=_AUTHENTICATION_API_CODES,
+        )
+        if not isinstance(response, Mapping) or not isinstance(response.get("isLogin"), bool):
+            raise GatewayShapeError(detail=operation)
+        if not response["isLogin"]:
+            raise GatewayAuthenticationError(detail=operation)
+
     async def fetch_subtitle_segments(
         self, track: SubtitleTrack, bvid: str, cid: int
     ) -> tuple[SubtitleSegment, ...]:
@@ -1050,15 +1075,14 @@ class BilibiliApiGateway:
         """List one part's subtitle inventory entries through the taxonomy.
 
         ``operation`` is the public method this listing serves, so a mapped
-        failure names the boundary the caller invoked.  The subtitle calls pass
-        the extended not-found set, where ``-101`` means "nothing visible under
-        this credential" rather than a generic response error.
+        failure names the boundary the caller invoked.  Login rejection is an
+        authentication failure, never a definitive absence of subtitles.
         """
 
         response = await self._await_upstream(
             operation,
             lambda: self._fetch_subtitle_inventory(bvid, cid),
-            not_found_api_codes=_SUBTITLE_NOT_FOUND_API_CODES,
+            authentication_api_codes=_AUTHENTICATION_API_CODES,
         )
         return _extract_subtitle_entries(response)
 
@@ -1115,15 +1139,14 @@ class BilibiliApiGateway:
         call: Callable[[], Awaitable[Any]],
         *,
         not_found_api_codes: frozenset[int] = _NOT_FOUND_API_CODES,
+        authentication_api_codes: frozenset[int] = frozenset(),
     ) -> Any:
         """Await one upstream call and map its failures onto the taxonomy.
 
         The mapped exception message carries the bounded code and the
         operation name only; upstream text, URLs, and payload content stay
-        process-local.  ``not_found_api_codes`` is the not-found set of the
-        boundary being served: the metadata path keeps the shipped one, where
-        ``-101`` is a response error, while the subtitle calls extend it so the
-        login signal reads as "not visible".
+        process-local.  Subtitle calls classify authentication rejection
+        separately from absence; the metadata path retains its response error.
         """
 
         try:
@@ -1137,6 +1160,8 @@ class BilibiliApiGateway:
         except ResponseCodeException as exc:
             if exc.code in _RATE_LIMITED_API_CODES:
                 raise GatewayRateLimited(detail=operation) from exc
+            if exc.code in authentication_api_codes:
+                raise GatewayAuthenticationError(detail=operation) from exc
             if exc.code in not_found_api_codes:
                 raise GatewayNotFound(detail=operation) from exc
             raise GatewayResponseError(detail=operation) from exc

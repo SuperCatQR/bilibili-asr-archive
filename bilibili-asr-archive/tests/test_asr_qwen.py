@@ -330,6 +330,19 @@ def test_latin_words_keep_their_separator_when_a_fragment_is_absorbed() -> None:
     assert asr._join_text("思想", "观念") == "思想观念"
 
 
+def test_latin_tokens_keep_their_separator_inside_a_cue() -> None:
+    """Aligned word pieces may omit spaces even though each belongs to one cue."""
+
+    pieces = [
+        {"text": "International", "start": 0.0, "end": 0.6},
+        {"text": "Employment", "start": 0.6, "end": 1.2},
+        {"text": "Matters", "start": 1.2, "end": 1.8},
+    ]
+    cues = asr._aligned_cues(pieces)
+
+    assert [cue["text"] for cue in cues] == ["International Employment Matters"]
+
+
 def test_cues_are_monotonic_and_carry_the_recognised_text() -> None:
     text = "第一句话说完了。第二句话也说完了吧。"
     cues = asr._aligned_cues(_pieces(text))

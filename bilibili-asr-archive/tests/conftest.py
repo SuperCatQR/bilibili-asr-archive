@@ -26,6 +26,8 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..",
 # importable, so sibling test modules can be imported by name.
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
+from scripts.forensic_log import open_forensic_log
+
 _TEST_TMP_BASE = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".test-tmp"))
 _counter = itertools.count()
 
@@ -90,28 +92,9 @@ def pytest_runtest_makereport(item, call):
     if not report.failed:
         return
     try:
-        os.makedirs(_TRACEBACK_DIR, exist_ok=True)
-        # A new on-disk artifact follows the repo's own write discipline
-        # (manifest.py:204-209): O_CREAT with O_NOFOLLOW, and mode 0600, so the
-        # file is not world-readable although the block carries environment
-        # facts. Scope, stated exactly: O_NOFOLLOW refuses a symlink as the
-        # *final* path component — a pre-existing `errors.log` symlink is
-        # rejected rather than written through. Its parent `.tb/` is created by
-        # makedirs, which follows a pre-existing directory symlink; refusing
-        # that needs O_DIRECTORY|O_NOFOLLOW walking, and the fallback is the
-        # guarded failure anyway (worst case: no log, with the reason in every
-        # run's message).
-        try:
-            fd = os.open(
-                _TRACEBACK_PATH,
-                os.O_WRONLY | os.O_CREAT | os.O_APPEND | os.O_NOFOLLOW,
-                0o600,
-            )
-        except OSError as exc:  # pragma: no cover - diagnostic path only
-            print(f"conftest: {call.when} error not persisted: {exc}",
-                  file=sys.stderr)
-            return
-        with os.fdopen(fd, "a", encoding="utf-8") as handle:
+        # Parent directories and the final file are opened without following
+        # links. A refusal leaves the original test failure in charge.
+        with open_forensic_log(_TRACEBACK_PATH) as handle:
             handle.write(f"{'=' * 78}\n")
             handle.write(
                 f"{time.strftime('%Y-%m-%dT%H:%M:%S')} {call.when.upper()} ERROR\n"
@@ -124,6 +107,12 @@ def pytest_runtest_makereport(item, call):
                 handle.write(f"{report.longrepr}\n")
             else:  # pragma: no cover - pytest always populates longrepr for failures
                 handle.write(f"{traceback.format_exc()}\n")
+    except OSError as exc:  # pragma: no cover - diagnostic path only
+        try:
+            print(f"conftest: {call.when} error not persisted: {exc}",
+                  file=sys.stderr)
+        except Exception:
+            pass
     except Exception:  # pragma: no cover - never mask the original failure
         pass
 
@@ -198,9 +187,9 @@ def mock_torch(monkeypatch):
 
 # --- opt-in gates (plan 008-pytest-markers) ----------------------------------
 # One central env-var -> marker mapping for the whole suite. Each opt-in test
-# takes the ``opt_in_gate`` fixture and passes the exact skip reason it has
-# always used; the default run's skip text is therefore byte-identical to the
-# per-file gates this replaces, while ``-m live_smoke`` / ``-m scale`` can now
+# takes the ``opt_in_gate`` fixture and supplies its existing skip reason in
+# the marker's ``skip_reason`` keyword; the default run's skip text stays
+# byte-identical to the per-file gates this replaces, while ``-m live_smoke`` / ``-m scale`` can now
 # select and CI-gate the opted-in tests.
 OPT_IN_ENV_VARS = {"live_smoke": "BILI_LIVE_SMOKE", "scale": "BILI_SCALE"}
 
@@ -211,7 +200,8 @@ def opt_in_gate(request):
 
     The fixture reads the calling test's ``live_smoke``/``scale`` marker, maps
     it through :data:`OPT_IN_ENV_VARS`, and skips with the reason the test
-    passes when the operator has not opted in.  Semantics stay per-file: only
+    supplies in the marker's ``skip_reason`` keyword. A new caller without a
+    custom reason receives a safe default. Semantics stay per-file: only
     the documented ``1`` opts in, and the knob names do not change.
     """
 
@@ -222,7 +212,13 @@ def opt_in_gate(request):
         raise RuntimeError(
             "opt_in_gate requires a live_smoke or scale marker on the test"
         )
-    return env_var, request.node.get_closest_marker(marker_name)
+    marker = request.node.get_closest_marker(marker_name)
+    if os.environ.get(env_var) != "1":
+        reason = marker.kwargs.get(
+            "skip_reason", f"{marker_name} test is opt-in: set {env_var}=1 to run it"
+        )
+        pytest.skip(reason)
+    return env_var, marker
 
 
 def reuse_line(captured, command):

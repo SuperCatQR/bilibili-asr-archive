@@ -385,16 +385,13 @@ def test_an_old_artifact_is_byte_identical_when_no_record_is_passed(tmp_root) ->
 def test_a_real_transcription_reaches_the_published_raw(tmp_root, monkeypatch) -> None:
     """``transcribe`` → ``characters()`` → ``write_archive``: the wiring, not just the parts.
 
-    The model pair is replaced and the audio read is patched (numpy and soundfile are the light
-    members of the ``[asr]`` extra, so this skips where they are absent); everything between —
+    The model pair is replaced and the audio read is patched. Numpy and soundfile
+    are required development dependencies; everything between —
     ``_thread_text``, ``_aligned_cues``, the record and the writer's gate — is the real code path.
     """
 
-    # The guards must come first: importing below them would go red at collection on a host
-    # without the [asr] extra instead of skipping, contradicting this docstring.
-    # (Found by L2 review: the imports sat above their own guards.)
-    np = pytest.importorskip("numpy")
-    soundfile = pytest.importorskip("soundfile")
+    import numpy as np
+    import soundfile
     from pathlib import Path
 
     from bili_asr.page_identity import page_identity

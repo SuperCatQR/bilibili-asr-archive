@@ -503,12 +503,13 @@ def read_subtitle_route_ms(
 
     import sqlite3
 
-    from .storage import TranscriptRepository
+    from .storage import SchemaContractError, TranscriptRepository
     from .storage.models import ALLOWED_CAPTION_SOURCE_KINDS
 
     db_path = archive_root / "archive.db"
     if not db_path.is_file():
         raise ProofreadRouteError(f"{bvid}:p{part}: missing caption route (no {db_path})")
+    connection = None
     try:
         resolved = db_path.resolve()
         connection = sqlite3.connect(f"{resolved.as_uri()}?mode=ro", uri=True)
@@ -516,6 +517,8 @@ def read_subtitle_route_ms(
         connection.execute("PRAGMA foreign_keys = ON")
         connection.execute("PRAGMA schema_version").fetchone()
     except (OSError, sqlite3.Error) as exc:
+        if connection is not None:
+            connection.close()
         raise ProofreadRouteError(
             f"{bvid}:p{part}: unreadable caption route ({type(exc).__name__})"
         ) from exc
@@ -568,6 +571,10 @@ def read_subtitle_route_ms(
             (segment.start_ms, segment.end_ms, segment.text)
             for segment in winner.segments
         ]
+    except (sqlite3.Error, SchemaContractError, ValueError, TypeError, OverflowError) as exc:
+        raise ProofreadRouteError(
+            f"{bvid}:p{part}: unreadable caption route ({type(exc).__name__})"
+        ) from exc
     finally:
         connection.close()
 

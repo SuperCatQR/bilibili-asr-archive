@@ -34,7 +34,11 @@ Validation (contract §3.3, D10) happens once, in :func:`roots_for`, and only fo
 case**: one base, today's code path, not validated further, because an explicit no-op
 must be a no-op.  Any other value must already be an existing, **non-symlink**
 directory this process can actually open, or the command refuses with its usage/config
-exit and names the path.  The symlink refusal is explicit and comes first: ``is_dir()``
+exit and names the path.  Artifact writers additionally create, write, sync and remove
+a temporary probe here; readers do not require a writable product root.  Directory
+sync is probed on POSIX, matching the descriptor-based publishers; Windows publishers
+use file sync without a directory-descriptor primitive.  The symlink refusal is
+explicit and comes first: ``is_dir()``
 follows a link, so without it
 a symlinked root would be accepted here and only fail later — every write raising a raw
 ``OSError`` from ``O_NOFOLLOW``, every read silently degrading to the archive root.  A
@@ -70,6 +74,7 @@ cross-layer rule that only ``cli`` composes the stages is not widened.
 from __future__ import annotations
 
 import os
+import uuid
 from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -221,11 +226,59 @@ def _unopenable(path: Path) -> bool:
     return False
 
 
+def _probe_writable(path: Path) -> None:
+    """Exercise the writer's write/sync operations without retaining a product.
+
+    A readable mount can still reject writes, file sync, or directory sync.  Check
+    those before a command takes its writer lock or begins processing rows.  The
+    POSIX probe stays relative to a no-follow directory descriptor, as the artifact
+    publishers do; platforms without that primitive use the file-sync boundary
+    their publishers support.
+    """
+    directory_fd = None
+    name = f".bili-asr-probe-{uuid.uuid4().hex}"
+    try:
+        if os.name == "posix" and hasattr(os, "O_DIRECTORY"):
+            directory_fd = os.open(
+                path, os.O_RDONLY | os.O_DIRECTORY | getattr(os, "O_NOFOLLOW", 0)
+            )
+        try:
+            options = {"dir_fd": directory_fd} if directory_fd is not None else {}
+            target = name if directory_fd is not None else path / name
+            descriptor = os.open(
+                target,
+                os.O_WRONLY | os.O_CREAT | os.O_EXCL
+                | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_BINARY", 0),
+                0o600,
+                **options,
+            )
+            try:
+                content = b"bili-asr artifact-root probe\n"
+                if os.write(descriptor, content) != len(content):
+                    raise OSError("artifact root probe write was incomplete")
+                os.fsync(descriptor)
+                if directory_fd is not None:
+                    os.fsync(directory_fd)
+            finally:
+                try:
+                    os.close(descriptor)
+                finally:
+                    os.unlink(target, **options)
+                    if directory_fd is not None:
+                        os.fsync(directory_fd)
+        finally:
+            if directory_fd is not None:
+                os.close(directory_fd)
+    except OSError as exc:
+        raise ArtifactRootError(f"artifact root cannot be written and synced ({path})") from exc
+
+
 def roots_for(
     archive_root: str | os.PathLike[str],
     *,
     flag_value: str | None = None,
     environ: Mapping[str, str] | None = None,
+    require_writable: bool = True,
 ) -> ArtifactRoots:
     """Resolve and validate the roots for one command invocation (contract §3.2/§3.3).
 
@@ -233,7 +286,9 @@ def roots_for(
     *configured* root live here and nowhere else.  Raises :class:`ArtifactRootError`
     when a configured root is a symlink, does not exist, is not a directory, or exists
     as a directory this process cannot open — it is never created.  The identity case is
-    accepted without touching the filesystem.
+    accepted without touching the filesystem.  Artifact writers additionally require
+    a real write and sync probe; callers that only read products pass
+    ``require_writable=False``.
     """
     environment: Mapping[str, str] = os.environ if environ is None else environ
     roots = ArtifactRoots.of(archive_root, resolve_artifact_root(flag_value, environment))
@@ -266,6 +321,8 @@ def roots_for(
         # line: the two above would each state something false about this path.
         if _unopenable(roots.artifact_root):
             raise ArtifactRootError(f"artifact root cannot be opened ({roots.artifact_root})")
+        if require_writable:
+            _probe_writable(roots.artifact_root)
     return roots
 
 

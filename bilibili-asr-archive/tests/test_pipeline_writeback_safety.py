@@ -35,6 +35,7 @@ def test_only_authenticated_empty_observations_corroborate_exhaustion(tmp_root, 
             transcripts.record_subtitle_attempt(
                 run_id=run_id, video_part_id=part, outcome="no-subtitle",
                 error_code=None, started_at=1000 + number, finished_at=1000 + number,
+                credential_verified=credential,
             )
         queued = {item.work_id for item in repository.list_queue_gaps(gap="missing_audio")}
         assert ("BV1AAA:p0" in queued) == all(credentials)
@@ -140,6 +141,42 @@ def test_queue_writebacks_share_one_injectable_clock(tmp_root, monkeypatch):
         connection.close()
 
 
+def test_audio_run_and_failure_attempt_share_one_injectable_clock(tmp_root, monkeypatch):
+    """Audio lifecycle timestamps stay on the service clock, including failures."""
+    identity, _ = _seed_store(tmp_root)
+    monkeypatch.setattr(_common, "_now", lambda: 2_100_000_000)
+    connection = open_database(tmp_root)
+    try:
+        source = qs.QueueSource(connection)
+        run_id = source.ensure_audio_run("download-audio", selector_target=identity.bvid)
+        assert run_id is not None
+        source.record_audio_failed(
+            bvid=identity.bvid,
+            page_index=identity.page_index,
+            error_code="stream-http",
+        )
+        source.finish_audio_run(outcome="failed")
+        run = connection.execute(
+            "SELECT started_at, finished_at, outcome FROM acquisition_runs "
+            "WHERE run_id = ?",
+            (run_id,),
+        ).fetchone()
+        assert tuple(run) == (2_100_000_000, 2_100_000_000, "failed")
+        attempt = connection.execute(
+            "SELECT started_at, finished_at, outcome, error_code "
+            "FROM acquisition_attempts WHERE run_id = ?",
+            (run_id,),
+        ).fetchone()
+        assert tuple(attempt) == (
+            2_100_000_000,
+            2_100_000_000,
+            "failed",
+            "stream-http",
+        )
+    finally:
+        connection.close()
+
+
 def test_scope_filters_honor_an_added_terminal_status(tmp_root, monkeypatch):
     monkeypatch.setattr(manifest, "TERMINAL_STATUSES", manifest.TERMINAL_STATUSES | {"retired"})
     monkeypatch.setattr(manifest, "VALID_STATUSES", manifest.VALID_STATUSES | {"retired"})
@@ -149,6 +186,23 @@ def test_scope_filters_honor_an_added_terminal_status(tmp_root, monkeypatch):
         rows, error = _run_scope_rows(SimpleNamespace(root=tmp_root), entries, scope)
         assert error is None
         assert [key for key, _ in rows] == ["BVlive"]
+
+
+def test_failed_scope_reselects_archived_transcript_writeback_failure(
+    tmp_root, monkeypatch
+):
+    monkeypatch.setattr(RunCoordinator, "failed_work_ids", lambda self: set())
+    entries = {
+        "BVretry": {
+            "bvid": "BVretry",
+            "status": "archived",
+            "transcript_writeback_error": "OperationalError",
+        },
+        "BVdone": {"bvid": "BVdone", "status": "archived"},
+    }
+    rows, error = _run_scope_rows(SimpleNamespace(root=tmp_root), entries, "failed")
+    assert error is None
+    assert [key for key, _ in rows] == ["BVretry"]
 
 
 def test_unconfined_audio_cannot_silently_skip_manifest_write(tmp_root, tmp_path):

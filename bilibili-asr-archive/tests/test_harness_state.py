@@ -823,6 +823,7 @@ def test_a_separator_in_a_path_cannot_hide_a_real_violation(tmp_path: Path, sepa
     expectation is the engine's own verdict, read from the engine first — so this
     cannot pass by the fixture ceasing to be a violation.
     """
+    _require_engine()
     harness = tmp_path / "leg" / f"h{separator}x" / ".mstar"
     _build_harness_at(harness)
     # Leg (a): a `Done`-status snapshot row missing a field the engine validates.

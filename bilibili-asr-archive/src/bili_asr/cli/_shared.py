@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from bili_asr.diagnostics import write_stderr
+
 import argparse
 import json
 import os
@@ -83,6 +85,13 @@ class _UsageErrorArgumentParser(argparse.ArgumentParser):
     Spec exit taxonomy reserves 2 for terminal API failure; usage/config
     errors must exit 1 (QC2-2). --help / --version keep exit 0.
     """
+
+    def _print_message(self, message: str | None, file=None) -> None:
+        if file is None or file is sys.stderr:
+            if message:
+                write_stderr(message.removesuffix("\n"))
+            return
+        super()._print_message(message, file)
 
     def exit(self, status: int = 0, message: str | None = None) -> None:
         if status == 2:
@@ -173,10 +182,9 @@ def _store_audio_todo(args: argparse.Namespace):
 
     source = qs.open_queue_source(args.archive_root)
     if source is None:
-        print(
+        write_stderr(
             f"download-audio: no archive database at {args.archive_root}; "
-            "run fetch-meta to create it",
-            file=sys.stderr,
+            "run fetch-meta to create it"
         )
         return None, None, True
     bvid = page = None
@@ -199,10 +207,9 @@ def _store_transcript_todo(args: argparse.Namespace, *, command: str):
 
     source = qs.open_queue_source(args.archive_root)
     if source is None:
-        print(
+        write_stderr(
             f"{command}: no archive database at {args.archive_root}; "
-            "run fetch-meta to create it",
-            file=sys.stderr,
+            "run fetch-meta to create it"
         )
         return None, None, True
     bvid = page = None
@@ -236,10 +243,9 @@ def _archive_database_exists(command: str, archive_root: str) -> bool:
     """
     if os.path.isfile(_metadata_database_path(archive_root)):
         return True
-    print(
+    write_stderr(
         f"{command}: no archive database at {archive_root}; "
-        "run fetch-meta to create it",
-        file=sys.stderr,
+        "run fetch-meta to create it"
     )
     return False
 
@@ -259,10 +265,9 @@ def _open_read_connection(command: str, archive_root: str):
     try:
         return open_database(archive_root)
     except (OSError, sqlite3.Error) as exc:
-        print(
+        write_stderr(
             f"{command}: unreadable archive database at {archive_root} "
-            f"({type(exc).__name__})",
-            file=sys.stderr,
+            f"({type(exc).__name__})"
         )
         return None
 
@@ -297,10 +302,9 @@ def _open_read_only_connection(command: str, archive_root: str):
     except (OSError, sqlite3.Error) as exc:
         if connection is not None:
             connection.close()
-        print(
+        write_stderr(
             f"{command}: unreadable archive database at {archive_root} "
-            f"({type(exc).__name__})",
-            file=sys.stderr,
+            f"({type(exc).__name__})"
         )
         return None
     return connection
@@ -374,8 +378,8 @@ def _open_subtitle_connection(
         require_subtitle_schema(connection)
     except SchemaContractError:
         connection.close()
-        print(
-            _subtitle_schema_rebuild_line(command, archive_root), file=sys.stderr
+        write_stderr(
+            _subtitle_schema_rebuild_line(command, archive_root)
         )
         return None
     except (OSError, sqlite3.Error) as exc:
@@ -383,10 +387,9 @@ def _open_subtitle_connection(
         # on its first read rather than on ``connect``: answer it exactly as
         # both open helpers answer their own statements (F-QA-001).
         connection.close()
-        print(
+        write_stderr(
             f"{command}: unreadable archive database at {archive_root} "
-            f"({type(exc).__name__})",
-            file=sys.stderr,
+            f"({type(exc).__name__})"
         )
         return None
     return connection

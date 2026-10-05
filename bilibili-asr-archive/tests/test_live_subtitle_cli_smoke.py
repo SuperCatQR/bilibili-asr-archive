@@ -147,7 +147,7 @@ PART_LIMIT = 1
 #: ``harvest-subs`` is an archive-writer command, so it takes the shipped writer
 #: lock at :data:`ARCHIVE_WRITER_LOCK_PATH`.  ``probe-subs`` is deliberately not
 #: one and leaves nothing.
-ARCHIVE_WRITER_LOCK_PATH = os.path.join("coordinator", "archive-writer.lock")
+ARCHIVE_WRITER_LOCK_PATH = "coordinator/archive-writer.lock"
 
 #: The bounded codes that are recorded as blocker evidence rather than failing
 #: the smoke.  ``rate_limited`` is an upstream refusal of the locked call shape;
@@ -265,17 +265,13 @@ def _require_live_credential() -> None:
 
 
 def _live_preconditions() -> None:
-    """Apply the smoke's three preconditions, in their documented order.
+    """Check the pin and credential after the central opt-in fixture.
 
-    Opt in first, so a default pytest run skips without needing a credential or
-    the pinned distribution; then the pin, which fails loudly rather than
-    skipping; then the credential, which fails loudly for the same reason
-    (:func:`_require_live_credential`).  Extracted so the order itself is
-    rehearsable offline, instead of resting on a live run.
+    The fixture skips the default run before these checks. Once opted in, a
+    missing pinned distribution or credential fails loudly, in that order.
+    Extracted so both checks remain rehearsable without a live request.
     """
 
-    if not _live_smoke_requested():
-        pytest.skip(_LIVE_SMOKE_SKIP_REASON)
     assert _pinned_package_version() == PINNED_PACKAGE_VERSION
     _require_live_credential()
 
@@ -829,7 +825,7 @@ def _record_and_skip(outcome: str, *, detail: str) -> NoReturn:
     )
 
 
-@pytest.mark.live_smoke
+@pytest.mark.live_smoke(skip_reason=_LIVE_SMOKE_SKIP_REASON)
 def test_live_smoke_one_part_through_probe_and_harvest(
     tmp_root: str,
     capsys: pytest.CaptureFixture[str],
@@ -849,8 +845,7 @@ def test_live_smoke_one_part_through_probe_and_harvest(
 
     # Opt in, the pinned distribution, the credential — in that order, and the
     # credential one is loud (see :func:`_live_preconditions`). The central
-    # gate fixture resolves the marker's env knob (BILI_LIVE_SMOKE); the
-    # precondition re-check below keeps the documented order rehearsable.
+    # gate fixture already enforced opt-in before this test body runs.
     env_var, _marker = opt_in_gate
     assert env_var == LIVE_SMOKE_ENV
     _live_preconditions()
@@ -1062,25 +1057,20 @@ def test_the_live_smoke_switch_is_opt_in(monkeypatch: pytest.MonkeyPatch) -> Non
 def test_the_live_preconditions_gate_in_the_documented_order(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Default skips; opted in without a credential fails loudly; else it runs.
+    """After the fixture opts in, missing prerequisites fail rather than skip.
 
-    The three preconditions are the live smoke's own preamble, so driving them
-    offline is what keeps the live body from resting on a single recorded run.
-    The order matters twice over: the opt-in gate comes first, so a default
-    pytest run skips without a credential *or* the pinned distribution; and past
-    that gate a missing credential is a failure rather than a skip, because the
-    smoke derives its expectation from the same environment the command reads —
-    an anonymous run answers ``sessdata=absent`` with no visible tracks, which is
-    exactly what a login-gated caption looks like (QC2-009/Q3-03).
+    The fixture-only nested pytest regression covers default-run skipping.
+    These checks exercise the live body's pin and credential in order without
+    making a network request.
     """
 
-    # Default: not opted in, so the skip is decided before anything else — no
-    # credential and no pinned distribution are needed.
-    monkeypatch.delenv(LIVE_SMOKE_ENV, raising=False)
     monkeypatch.delenv(SESSDATA_ENV_VAR, raising=False)
-    with pytest.raises(pytest.skip.Exception) as skipped:
+    monkeypatch.setitem(globals(), "_pinned_package_version", lambda: "wrong")
+    with pytest.raises(AssertionError):
         _live_preconditions()
-    assert f"{LIVE_SMOKE_ENV}=1" in str(skipped.value)
+    monkeypatch.setitem(
+        globals(), "_pinned_package_version", lambda: PINNED_PACKAGE_VERSION,
+    )
 
     # Opted in, no credential: loud, and by a plain ``fail`` rather than a
     # ``skip`` — a skip here is the hazard this guard exists to remove.

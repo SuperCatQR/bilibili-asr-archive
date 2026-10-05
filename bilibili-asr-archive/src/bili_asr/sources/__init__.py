@@ -9,6 +9,7 @@ without ``bilibili_api``.
 
 from bili_asr.sources.models import (
     BilibiliGateway,
+    GatewayAuthenticationError,
     GatewayError,
     GatewayNotFound,
     GatewayRateLimited,
@@ -25,6 +26,7 @@ from bili_asr.sources.models import (
 
 __all__ = [
     "BilibiliGateway",
+    "GatewayAuthenticationError",
     "GatewayError",
     "GatewayNotFound",
     "GatewayRateLimited",

@@ -81,6 +81,7 @@ class MetadataConfig:
     resume: bool
     skip_failed_page: bool
     sessdata: str | None = field(repr=False)
+    page_retries: int = 0
 
 
 def load_metadata_config(args: argparse.Namespace) -> MetadataConfig:
@@ -99,6 +100,7 @@ def load_metadata_config(args: argparse.Namespace) -> MetadataConfig:
     page_limit = args.limit_pages
     resume = bool(args.resume)
     skip_failed_page = bool(getattr(args, "skip_failed_page", False))
+    page_retries = getattr(args, "page_retries", 0)
 
     if isinstance(mid, bool) or not isinstance(mid, int) or mid < 1:
         raise MetadataConfigError("--mid must be a positive integer")
@@ -112,6 +114,12 @@ def load_metadata_config(args: argparse.Namespace) -> MetadataConfig:
         raise MetadataConfigError("--limit-pages must be a positive integer")
     if resume and start_page is not None:
         raise MetadataConfigError("--resume and --start-page are mutually exclusive")
+    if (
+        isinstance(page_retries, bool)
+        or not isinstance(page_retries, int)
+        or not 0 <= page_retries <= 3
+    ):
+        raise MetadataConfigError("--page-retries must be an integer between 0 and 3")
     if page_limit is None:
         page_limit = DEFAULT_PAGE_LIMIT
 
@@ -122,6 +130,7 @@ def load_metadata_config(args: argparse.Namespace) -> MetadataConfig:
         page_limit=page_limit,
         resume=resume,
         skip_failed_page=skip_failed_page,
+        page_retries=page_retries,
         sessdata=resolve_sessdata(
             getattr(args, "sessdata", None), os.environ.get(SESSDATA_ENV_VAR)
         ),

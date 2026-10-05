@@ -117,6 +117,13 @@ def test_a_queue_row_becomes_a_page_qualified_needs_audio_row():
     assert row["status"] == QUEUE_STATUS == "needs_audio"
 
 
+def test_a_queue_video_title_survives_manifest_derivation():
+    row = row_for_part(_part(video_title="课程总标题"), PUBDATE)
+
+    assert row["title"] == "第一部分：开场"
+    assert row["video_title"] == "课程总标题"
+
+
 def test_the_rendered_day_is_utc_regardless_of_the_runners_zone(monkeypatch):
     """The UTC day of the second, not the runner's day — pinned without ``TZ``.
 

@@ -27,11 +27,13 @@ from . import asr as asr_module
 from . import audio as audio_module
 from . import subtitles as subtitles_module
 from .artifact_root import ArtifactRoots, iter_audio_paths
+from .audio_budget import AudioUsageError, AudioUsageTracker
 from .manifest import TERMINAL_STATUSES, ManifestStore
 from .persistence import utc_now_iso
 from .page_identity import PageIdentity, artifact_stem, identity_from_entry
 from .persistence import append_jsonl_record, file_lock
 from .path_policy import confined_audio_path
+from .run_ledger import collect_hotwords_dropped
 
 STAGES = ("harvest", "download", "asr", "archive")
 OUTCOMES = ("ok", "failed", "skipped")
@@ -460,7 +462,6 @@ class RowResult:
 
 
 @dataclass
-@dataclass
 class RunSummary:
     results: list[RowResult] = field(default_factory=list)
     risk_interrupted: bool = False
@@ -470,6 +471,7 @@ class RunSummary:
     model_constructions: int = 0
     model_load_attempts: int = 0
     asr_items: int = 0
+    hotwords_dropped: list[str] = field(default_factory=list)
 
     @property
     def failed(self) -> list[RowResult]:
@@ -540,10 +542,14 @@ class RunCoordinator:
         # default keeps the documented coordinator path's own label.
         self.command = command
         self._batch_asr_items = 0
+        self.hotwords_dropped: list[str] = []
         # Re-entrancy tripwire for ``run_batch`` (see its docstring): the
         # denominator above is per-coordinator, not per-batch.
         self._batch_depth = 0
-        self.audio_peak_bytes = 0
+        self.audio_peak_bytes: int | None = 0
+        self._audio_usage: AudioUsageTracker | None = None
+        self._audio_usage_error: AudioUsageError | None = None
+        self._audio_usage_prepared = False
         # The store write-back (plan r14-routes-writeback): the transcript
         # half of the archive stage — every locally-produced (ASR) or
         # subtitle-sourced transcript owes a ``transcripts`` row taking the
@@ -663,7 +669,7 @@ class RunCoordinator:
         """
         for base in self.artifact_roots.read_bases():
             try:
-                declared = os.path.relpath(path, base)
+                declared = os.path.relpath(path, base).replace(os.sep, "/")
             except ValueError:  # Windows across drives
                 continue
             if confined_audio_path(base, declared, require_exists=True) is not None:
@@ -899,6 +905,7 @@ class RunCoordinator:
                 ),
                 model_name=(provenance or {}).get("model_name", ""),
                 model_revision=(provenance or {}).get("model_revision"),
+                coverage=asr_module.transcribed_coverage(runner),
             )
         except Exception as exc:
             # The cue shape that reached the archive writer is not one the
@@ -972,6 +979,10 @@ class RunCoordinator:
         updated = self._current_entry(key, entry)
         updated.update(paths)
         updated["status"] = "archived"
+        updated["source"] = "asr" if runner is not None else "subtitle"
+        # A coordinator archive owes operational sidecars even when its
+        # content source is the same as a standalone stage command's.
+        updated["archive_producer"] = "coordinator"
         # Coverage attestation (plan asr-coverage-attestation): the ASR stage's measured span
         # rides the row it archives.  ``runner`` is ``None`` on the subtitle route, which ran no
         # ASR and so makes no measurement — that route leaves the field as it found it, and the
@@ -982,24 +993,60 @@ class RunCoordinator:
         self.store.upsert(updated)
         self._reclaim_audio(updated)
 
-    def _note_audio_peak(self) -> None:
+    def prepare_audio_usage(self) -> int:
+        """Measure once under the writer lock for planning and the next batch."""
+        self._audio_usage = AudioUsageTracker(self.artifact_roots.write_base)
+        self._audio_usage_error = None
+        self._audio_usage_prepared = True
+        self.audio_peak_bytes = self._audio_usage.usage_bytes
+        return self._audio_usage.usage_bytes
+
+    def audio_usage_bytes(self) -> int:
+        if self._audio_usage_error is not None:
+            raise self._audio_usage_error
+        if self._audio_usage is None:
+            try:
+                self._audio_usage = AudioUsageTracker(self.artifact_roots.write_base)
+                if self.audio_peak_bytes is not None:
+                    self.audio_peak_bytes = max(
+                        self.audio_peak_bytes, self._audio_usage.usage_bytes
+                    )
+            except AudioUsageError as exc:
+                self._audio_usage_error = exc
+                self.audio_peak_bytes = None
+                raise
+        return self._audio_usage.usage_bytes
+
+    def _note_audio_peak(
+        self, entry: dict[str, Any] | None = None, *, rescan: bool = False
+    ) -> None:
         """Record observed `{artifact_root}/audio/` usage for campaign proof.
 
         The cap and the peak measure the configured root (contract §8, D16):
         legacy audio still sitting at the archive root is on another device and
         is not where new bytes land.
         """
-        from .audio_budget import audio_dir_usage_bytes
-
-        usage = audio_dir_usage_bytes(self.artifact_roots.write_base)
-        if usage > self.audio_peak_bytes:
-            self.audio_peak_bytes = usage
+        try:
+            self.audio_usage_bytes()
+            assert self._audio_usage is not None
+            if rescan:
+                self._audio_usage.rescan()
+            elif entry is not None:
+                self._audio_usage.refresh_entry(entry)
+            usage = self._audio_usage.usage_bytes
+            if self.audio_peak_bytes is not None:
+                self.audio_peak_bytes = max(self.audio_peak_bytes, usage)
+        except (OSError, ValueError):
+            # A measurement failure after publication must preserve its archive.
+            # Subsequent downloads with a finite cap require reliable usage.
+            self._audio_usage_error = AudioUsageError("audio usage unavailable")
+            self.audio_peak_bytes = None
 
     def _reclaim_audio(self, entry: dict[str, Any]) -> None:
         """Best-effort audio reclaim once a row is archived."""
         from .audio_reclaim import reclaim_audio
 
-        self._note_audio_peak()
+        self._note_audio_peak(entry)
         try:
             reclaim_audio(
                 self.root,
@@ -1009,6 +1056,8 @@ class RunCoordinator:
             )
         except (OSError, ValueError):
             pass  # per-item non-fatal: transcripts exist; row stays archived
+        finally:
+            self._note_audio_peak(entry)
 
     def _stage_asr_archive(
         self, key: str, entry: dict[str, Any], result: RowResult
@@ -1051,6 +1100,7 @@ class RunCoordinator:
                 segments = asr_module.two_pass_transcribe(
                     runner, safe_audio, paired_subtitle_text=paired_subtitle_text
                 )
+            collect_hotwords_dropped(self.hotwords_dropped, runner)
         except Exception as exc:  # redacted; batch continues
             self._record(
                 "asr", work_id, "failed",
@@ -1122,13 +1172,14 @@ class RunCoordinator:
             self._record(
                 "download", work_id, "ok", artifact_paths=[declared], started_at=started,
             )
-            self._note_audio_peak()
+            self._note_audio_peak(current)
             return "audio_ok"
         if self.max_audio_bytes:
             from .audio_budget import SKIP_REASON, would_exceed_budget
 
             if would_exceed_budget(
-                self.artifact_roots.write_base, entry, self.max_audio_bytes
+                self.artifact_roots.write_base, entry, self.max_audio_bytes,
+                usage_bytes=self.audio_usage_bytes(),
             ):
                 self._record(
                     "download", work_id, "skipped", error_code=SKIP_REASON,
@@ -1150,10 +1201,12 @@ class RunCoordinator:
             if self.artifact_roots.configured
             else {}
         )
+        downloaded = False
         try:
             final = audio_module.download_audio(
                 self.client, identity, out_path, store=self.store, **download_kwargs
             )
+            downloaded = True
         except Exception as exc:  # redacted; batch continues
             self._record(
                 "download", work_id, "failed",
@@ -1164,7 +1217,9 @@ class RunCoordinator:
             # Sample leftover partials as well as a successful file so
             # campaign peak is never below on-disk audio/ after a failed
             # download that left bytes behind.
-            self._note_audio_peak()
+            self._note_audio_peak(
+                self._current_entry(key, entry), rescan=not downloaded
+            )
         declared = self._declared_audio(final)
         if declared is None:
             raise OSError("audio path outside archive")
@@ -1316,8 +1371,14 @@ class RunCoordinator:
         summary = RunSummary()
         completed = False
         with archive_writer(self.root):
+            if not self._audio_usage_prepared:
+                self._audio_usage = None
+                self._audio_usage_error = None
+                self.audio_peak_bytes = 0
+            self._audio_usage_prepared = False
             self.asr_runner = injected_runner
             self._batch_asr_items = 0
+            self.hotwords_dropped = []
             constructions_before = (
                 getattr(injected_runner, "model_constructions", 0)
                 if injected_runner is not None
@@ -1364,6 +1425,7 @@ class RunCoordinator:
                     - attempts_before,
                 )
                 summary.asr_items = self._batch_asr_items
+                summary.hotwords_dropped = list(self.hotwords_dropped)
                 self._print_model_constructions(summary)
             return summary
 

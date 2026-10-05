@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from bili_asr.diagnostics import write_stderr
+
 import json
 import sys
 
@@ -10,7 +12,10 @@ import sqlite3
 import threading
 import time
 from contextlib import contextmanager
+from datetime import datetime, timezone
 from typing import Any, Iterator
+
+from bili_asr.cli.run_record import recorded_command
 
 from bili_asr.cli._shared import (
     DEFAULT_ARCHIVE_ROOT,
@@ -58,10 +63,18 @@ def _run_scope_rows(store, entries: dict, scope: str):
         rows = [
             (key, e)
             for key, e in sorted(entries.items())
-            if (str(e.get("work_id") or key) in failed
-                or str(e.get("bvid") or "") in failed)
-            and not _is_excluded(e)
-            and e.get("status") not in TERMINAL_STATUSES
+            if (
+                (
+                    str(e.get("work_id") or key) in failed
+                    or str(e.get("bvid") or "") in failed
+                    or bool(e.get("transcript_writeback_error"))
+                )
+                and not _is_excluded(e)
+            )
+            and (
+                e.get("status") not in TERMINAL_STATUSES
+                or bool(e.get("transcript_writeback_error"))
+            )
         ]
         return rows, None
 
@@ -94,12 +107,14 @@ def _store_first_scope_rows(store, entries: dict, scope: str):
     return _run_scope_rows(store, entries, scope)
 
 
+@recorded_command("campaign")
 def _cmd_campaign(args: argparse.Namespace) -> int:
     from bili_asr import bili_client
     from bili_asr.audio_budget import audio_cap_bytes
     from bili_asr.campaign import CampaignRunner
     from bili_asr.coordinator import ArchiveBusyError
 
+    runner = None
     try:
         client = None
         if not args.offline:
@@ -119,17 +134,23 @@ def _cmd_campaign(args: argparse.Namespace) -> int:
         )
         summary = runner.run(args.scope, args.limit, resume=args.resume)
     except ArchiveBusyError:
-        print("campaign: archive_busy", file=sys.stderr)
+        write_stderr("campaign: archive_busy")
         return 1
     except Exception:
         # Never expose runtime payloads, credentials, URLs, or traces.
-        print("campaign: invalid configuration or execution failure", file=sys.stderr)
+        write_stderr("campaign: invalid configuration or execution failure")
         return 1
+    finally:
+        if runner is not None:
+            args._run_record.records_existing = getattr(runner, "records_existing", None)
+            args._run_record.work_ids = getattr(runner, "run_work_ids", None)
+            args._run_record.last_api_error_code = getattr(runner, "last_api_error_code", None)
+            args._run_record.hotwords_dropped = list(getattr(runner, "hotwords_dropped", []))
     print(json.dumps(summary.to_dict(), ensure_ascii=False, sort_keys=True))
     return summary.exit_code
 
 class _RunInterrupted(BaseException):
-    """Raised by the run body's one-shot ``SIGTERM`` disposition.
+    """Raised by a batch command's one-shot interruption disposition.
 
     A ``BaseException`` and not an ``Exception``: the coordinator's per-stage
     ``except Exception`` handlers would otherwise swallow the interruption and
@@ -166,7 +187,7 @@ def _ignore_interruption_signals() -> dict[int, Any]:
 
 @contextmanager
 def _interruptible_run() -> Iterator[None]:
-    """Deliver the first ``SIGTERM`` to the run body as ``_RunInterrupted``.
+    """Deliver the first SIGTERM/SIGINT as ``_RunInterrupted``.
 
     One-shot: the exception is raised once, and the true previous dispositions
     -- ``SIGTERM`` *and* ``SIGINT`` -- come back in this context manager's
@@ -175,10 +196,9 @@ def _interruptible_run() -> Iterator[None]:
     state, not the default, is what must hold across the coordinator's unwind
     (runner release, batch-evidence stderr write), because a repeated
     ``SIGTERM`` landing there at the default disposition would kill the process
-    before the write site with no record at all.  ``SIGINT`` keeps CPython's
-    ``KeyboardInterrupt`` until the run body catches it, and that branch
-    installs the same ignored pair before it returns, so a repeated ``Ctrl-C``
-    cannot abandon the write either.  ``signal.signal`` is main-thread only, so
+    before the write site with no record at all. SIGINT uses the same one-shot
+    handler, so repeated Ctrl-C is ignored at first delivery, before exception
+    matching or coordinator cleanup runs. ``signal.signal`` is main-thread only, so
     elsewhere the run body keeps the dispositions the process already had.
     """
     if threading.current_thread() is not threading.main_thread():
@@ -186,17 +206,22 @@ def _interruptible_run() -> Iterator[None]:
         return
     previous: dict[int, Any] = {}
 
-    def _on_sigterm(signum: int, _frame: Any) -> None:
+    delivered = False
+
+    def _on_interruption(signum: int, _frame: Any) -> None:
+        nonlocal delivered
+        # A second Python invocation between the disposition swaps must return.
+        if delivered:
+            return
+        delivered = True
         # The swapped-out dispositions are deliberately dropped: the ignored
         # state, not the disposition at delivery, is what must hold until the
         # write site has run.
         _ignore_interruption_signals()
         raise _RunInterrupted(signum)
 
-    previous[signal.SIGTERM] = signal.signal(signal.SIGTERM, _on_sigterm)
-    # ``SIGINT`` keeps its handler here (CPython's ``KeyboardInterrupt``), but
-    # its disposition is captured so the run block puts both back.
-    previous[signal.SIGINT] = signal.getsignal(signal.SIGINT)
+    previous[signal.SIGTERM] = signal.signal(signal.SIGTERM, _on_interruption)
+    previous[signal.SIGINT] = signal.signal(signal.SIGINT, _on_interruption)
     try:
         yield
     finally:
@@ -222,40 +247,32 @@ def _partial_run_state(root: str, started_at: str) -> tuple[list[str], dict[str,
     (an earlier run's attempts stay out), and the coverage summary counts the
     manifest statuses as they stand.  ``records_existing`` is *not* derived
     here: it means "records that existed before this run", so the run body
-    passes the count from the manifest it loaded above the batch, exactly as
-    the normal path does.
+    passes its original count. Membership relies on the archive single-writer
+    lock; compare UTC instants because optional fractions do not sort as ISO text.
     """
     from bili_asr.coordinator import AttemptLedger
     from bili_asr.manifest import ManifestStore
     from bili_asr.run_ledger import compute_coverage_summary
 
+    def instant(value: str) -> datetime | None:
+        try:
+            parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+            return parsed.replace(tzinfo=timezone.utc) if parsed.tzinfo is None else parsed.astimezone(timezone.utc)
+        except (ValueError, TypeError, AttributeError):
+            return None
+
+    boundary = instant(started_at)
+    if boundary is None:
+        raise ValueError("invalid run start timestamp")
     attempts = AttemptLedger(root).load()
     work_ids = list(
-        dict.fromkeys(a["work_id"] for a in attempts if a["started_at"] >= started_at)
+        dict.fromkeys(
+            a["work_id"] for a in attempts
+            if (timestamp := instant(a["started_at"])) is not None and timestamp >= boundary
+        )
     )
     entries = ManifestStore(root=root).load()
     return work_ids, compute_coverage_summary(entries)
-
-
-def _write_run_record(
-    root: str,
-    started_at: str,
-    exit_code: int,
-    work_ids: list[str] | None,
-    records_existing: int,
-    coverage_summary: dict[str, int],
-) -> None:
-    """The run body's single ``run-ledger.jsonl`` write site.
-
-    Every input is derived by the caller's branch before the call, so the guard
-    that authorizes the write and the values it writes are bound together.
-    """
-    from bili_asr.run_ledger import RunLedger, build_run_record, utc_now_iso
-
-    RunLedger(root=root).append(build_run_record(
-        command="run", started_at=started_at, finished_at=utc_now_iso(),
-        exit_code=exit_code, mid=None, work_ids=work_ids,
-        records_existing=records_existing, coverage_summary=coverage_summary))
 
 
 def _store_pending_rows(archive_root: str, command: str):
@@ -267,36 +284,61 @@ def _store_pending_rows(archive_root: str, command: str):
     pre-transcript-schema store is the documented configuration error.
     """
 
+    from bili_asr.manifest import ManifestStore
     from bili_asr.services import queue_source as qs
 
     source = qs.open_queue_source(archive_root)
     if source is None:
-        print(
+        write_stderr(
             f"{command}: no archive database at {archive_root}; "
-            "run fetch-meta to create it",
-            file=sys.stderr,
+            "run fetch-meta to create it"
         )
         return None, "no archive database"
     try:
         merged = source.select_pending_scope()
     finally:
         source.connection.close()
+    entries = ManifestStore(root=archive_root).load()
+    # A gap view can omit a subtitle that is harvested but not archived yet.
+    # Merge the manifest's in-flight status back onto queue candidates while
+    # keeping the store as the source of the candidate set.
+    for key, queued in list(merged.items()):
+        current = entries.get(key)
+        if current is None:
+            continue
+        status = str(current.get("status") or "")
+        if status == "archived" and not current.get("transcript_writeback_error"):
+            merged.pop(key, None)
+            continue
+        if status in {"subtitle_done", "needs_audio", "audio_ok", "meta_ok"}:
+            enriched = dict(queued)
+            enriched.update(current)
+            if status != "subtitle_done":
+                enriched["status"] = queued.get("status", status)
+            merged[key] = enriched
+    for key, current in sorted(entries.items()):
+        status = str(current.get("status") or "")
+        if status == "subtitle_done" or (
+            status == "archived" and current.get("transcript_writeback_error")
+        ):
+            merged.setdefault(key, dict(current))
     return [(key, entry) for key, entry in merged.items()], None
 
 
+@recorded_command("run")
 def _cmd_run(args: argparse.Namespace) -> int:
     from bili_asr import bili_client
     from bili_asr.coordinator import ArchiveBusyError, RunCoordinator, archive_writer
     from bili_asr.manifest import ManifestStore
-    from bili_asr.run_ledger import compute_coverage_summary, utc_now_iso
     from bili_asr.audio_budget import SKIP_REASON, audio_cap_bytes
     from bili_asr.services import queue_source as qs
 
-    started_at = utc_now_iso()
+    record = args._run_record
     store = ManifestStore(root=args.archive_root)
     entries = store.load()
+    record.records_existing = len(entries)
     if args.limit is not None and args.limit <= 0:
-        print("run: --limit must be a positive integer", file=sys.stderr)
+        write_stderr("run: --limit must be a positive integer")
         return 1
     use_manifest = _queue_source_is_manifest(args)
     if use_manifest:
@@ -309,7 +351,7 @@ def _cmd_run(args: argparse.Namespace) -> int:
     else:
         rows, error = _run_scope_rows(store, entries, args.scope)
         if error:
-            print(f"run: {error}", file=sys.stderr)
+            write_stderr(f"run: {error}")
             return 1
     if args.limit is not None:
         rows = rows[: args.limit]
@@ -323,104 +365,67 @@ def _cmd_run(args: argparse.Namespace) -> int:
     print(f"run: scope={args.scope} selected {len(rows)} row(s)" + (" [offline]" if args.offline else ""))
     for key, entry in rows:
         print(f"  {entry.get('work_id') or key}: {entry.get('status')}")
-    exit_code: int | None = None
-    interrupted: int | None = None
     try:
         with archive_writer(args.archive_root):
-            with _interruptible_run():
-                try:
-                    summary = coord.run_batch(rows)
-                    ok = sum(1 for r in summary.results if r.ok)
-                    skipped = summary.skipped_rows
-                    failed = summary.failed
-                    for r in summary.results:
-                        if r.ok:
-                            print(f"{r.work_id}: {r.final_status}")
-                    for r in failed:
-                        codes = ", ".join(str(c) for c in r.failure_codes) or "unknown"
-                        print(f"run: {r.work_id}: failed ({codes})", file=sys.stderr)
-                    for r in skipped:
-                        # Q1: a budget skip names the flag that lifts it, the same words
-                        # the pilot's line prints — `run` shares this line with every
-                        # other skip reason, so the clause is carried only by that one.
-                        hint = (
-                            _AUDIO_BUDGET_SKIP_HINT
-                            if r.skip_reason == SKIP_REASON
-                            else ""
-                        )
-                        print(
-                            f"run: {r.work_id}: skipped "
-                            f"({r.skip_reason or 'unknown'}){hint}"
-                        )
-                    exit_code = 2 if summary.risk_interrupted else (0 if summary.fully_processed else 1)
-                    if summary.risk_interrupted:
-                        print("run: risk-control ceiling; stopping — re-run to resume.", file=sys.stderr)
-                    print(f"run: {ok} completed, {len(skipped)} skipped" +
-                          (f", {len(failed)} failed" if failed else "") +
-                          (", scope not fully processed" if exit_code == 1 else ""))
-                    return exit_code
-                except _RunInterrupted as exc:
-                    interrupted = exc.signum
-                    return 128 + exc.signum
-                except KeyboardInterrupt:
-                    # `SIGINT` never reaches `_on_sigterm`, so the guard has to
-                    # go up here, before this branch unwinds: at the captured
-                    # default a repeated Ctrl-C raises again inside the record
-                    # write's `finally` below and abandons the write.  Symmetric
-                    # with the handler, and the true dispositions come back in
-                    # `_interruptible_run`'s `finally` once the write is done.
-                    _ignore_interruption_signals()
-                    interrupted = signal.SIGINT
-                    return 128 + signal.SIGINT
-                finally:
-                    # The run body's single record write: a normal exit and an
-                    # interruption both leave exactly one run-ledger row here.
-                    # `records_existing` is the pre-batch manifest count in both
-                    # cases: the run body loaded that manifest above the batch,
-                    # so this field means "records that existed before this run"
-                    # on every path.
-                    import bili_asr.cli as _cli_pkg
-                    with _cli_pkg._signals_ignored():
-                        try:
-                            if interrupted is not None:
-                                # No RunSummary exists on this path, so the
-                                # record's counts come from what the run already
-                                # persisted.
-                                exit_code = 128 + interrupted
-                                work_ids, coverage_summary = _partial_run_state(
-                                    args.archive_root, started_at)
-                            elif exit_code is not None:
-                                work_ids = [r.work_id for r in summary.results] or None
-                                coverage_summary = compute_coverage_summary(store.load())
-                            if exit_code is not None:
-                                _write_run_record(
-                                    args.archive_root, started_at, exit_code, work_ids,
-                                    len(entries), coverage_summary)
-                        except Exception as exc:
-                            # Never silent: on the interruption path this record
-                            # is the only deliverable there is, and the process
-                            # still exits with the interruption code.
-                            print(f"run: run-ledger write failed ({type(exc).__name__})",
-                                  file=sys.stderr)
+            summary = coord.run_batch(rows)
+            record.work_ids = [result.work_id for result in summary.results] or None
+            ok = sum(1 for r in summary.results if r.ok)
+            skipped = summary.skipped_rows
+            failed = summary.failed
+            for r in summary.results:
+                if r.ok:
+                    print(f"{r.work_id}: {r.final_status}")
+            for r in failed:
+                codes = ", ".join(str(c) for c in r.failure_codes) or "unknown"
+                write_stderr(f"run: {r.work_id}: failed ({codes})")
+            for r in skipped:
+                # Q1: a budget skip names the flag that lifts it, the same words
+                # the pilot's line prints — `run` shares this line with every
+                # other skip reason, so the clause is carried only by that one.
+                hint = (
+                    _AUDIO_BUDGET_SKIP_HINT
+                    if r.skip_reason == SKIP_REASON
+                    else ""
+                )
+                print(
+                    f"run: {r.work_id}: skipped "
+                    f"({r.skip_reason or 'unknown'}){hint}"
+                )
+            exit_code = 2 if summary.risk_interrupted else (0 if summary.fully_processed else 1)
+            if summary.risk_interrupted:
+                write_stderr("run: risk-control ceiling; stopping — re-run to resume.")
+            print(f"run: {ok} completed, {len(skipped)} skipped" +
+                  (f", {len(failed)} failed" if failed else "") +
+                  (", scope not fully processed" if exit_code == 1 else ""))
+            try:
+                store.save()
+            except Exception as exc:
+                write_stderr(
+                    f"run: manifest snapshot failed ({type(exc).__name__})"
+                )
+                if exit_code == 0:
+                    exit_code = 1
+            return exit_code
     except ArchiveBusyError:
-        print("run: archive_busy", file=sys.stderr)
+        write_stderr("run: archive_busy")
         return 1
+    finally:
+        record.hotwords_dropped = list(getattr(coord, "hotwords_dropped", []))
 
 
+@recorded_command("schedule")
 def _cmd_schedule(args: argparse.Namespace) -> int:
     from bili_asr import bili_client
     from bili_asr.coordinator import ArchiveBusyError, RunCoordinator, archive_writer
     from bili_asr.manifest import ManifestStore
     from bili_asr.meta_cursor import MetaCursorStore
     from bili_asr.run_ledger import (
-        RunLedger,
-        build_run_record,
         compute_coverage_summary,
         format_coverage_summary,
         format_cursor_summary,
         utc_now_iso,
     )
-    from bili_asr.audio_budget import audio_cap_bytes, audio_dir_usage_bytes
+    from bili_asr.audio_budget import AudioUsageError, audio_cap_bytes
     from bili_asr.long_live import (
         apply_long_live_policy,
         campaign_plan,
@@ -434,21 +439,28 @@ def _cmd_schedule(args: argparse.Namespace) -> int:
         settled_processed_ids,
         terminal_resume_ids,
     )
+    from bili_asr.services import queue_source as qs
 
-    started_at = utc_now_iso()
+    record = args._run_record
     store = ManifestStore(root=args.archive_root)
     entries = store.load()
+    record.records_existing = len(entries)
     cursor_store = MetaCursorStore(root=args.archive_root)
+    cursor_snapshot = cursor_store.load()
+    record.cursor_snapshot = cursor_snapshot
     sched_store = SchedulerStore(root=args.archive_root)
     if args.limit is None or args.limit <= 0:
-        print("schedule: --limit must be a positive integer", file=sys.stderr)
+        write_stderr("schedule: --limit must be a positive integer")
         return 1
     if args.allow_long_live:
         cap_error = refuse_disabled_audio_cap(args.max_audio_gb)
         if cap_error:
-            print(f"schedule: {cap_error}", file=sys.stderr)
+            write_stderr(f"schedule: {cap_error}")
             return 1
-    if args.scope == "pending":
+    use_manifest = _queue_source_is_manifest(args)
+    if use_manifest:
+        qs.print_manifest_deprecation()
+    if not use_manifest and args.scope == "pending":
         # The batch chain (schedule/campaign) cut to the store outright
         # (contract §7): no rollback switch, the gap views are the queue.
         rows, error = _store_pending_rows(args.archive_root, "schedule")
@@ -457,7 +469,7 @@ def _cmd_schedule(args: argparse.Namespace) -> int:
     else:
         rows, error = _run_scope_rows(store, entries, args.scope)
         if error:
-            print(f"schedule: {error}", file=sys.stderr)
+            write_stderr(f"schedule: {error}")
             return 1
 
     skip_ids: list[str] | None = None
@@ -468,14 +480,12 @@ def _cmd_schedule(args: argparse.Namespace) -> int:
         )
         if lookup.diagnostic:
             if lookup.refuse:
-                print(
-                    f"schedule: --resume refused ({lookup.diagnostic})",
-                    file=sys.stderr,
+                write_stderr(
+                    f"schedule: --resume refused ({lookup.diagnostic})"
                 )
                 return 1
-            print(
-                f"schedule: --resume ignored ({lookup.diagnostic})",
-                file=sys.stderr,
+            write_stderr(
+                f"schedule: --resume ignored ({lookup.diagnostic})"
             )
         if lookup.processed_ids is not None:
             matching_resume = True
@@ -493,17 +503,18 @@ def _cmd_schedule(args: argparse.Namespace) -> int:
         explicit_scope=args.scope not in {"pending", "failed"},
     )
     if policy_error:
-        print(f"schedule: {policy_error}", file=sys.stderr)
+        write_stderr(f"schedule: {policy_error}")
         return 1
     if matching_resume and not args.allow_long_live and not rows and held:
-        print(
+        write_stderr(
             "schedule: --resume refused (risk-stopped long-duration "
-            "row requires --allow-long-live)",
-            file=sys.stderr,
+            "row requires --allow-long-live)"
         )
         return 1
 
     matching = len(rows)
+    # Batch completion describes the currently selected scope. Enumeration
+    # progress is reported separately and may still have undiscovered pages.
     truncated = matching > args.limit or held > 0
     rows = rows[: args.limit]
 
@@ -533,28 +544,28 @@ def _cmd_schedule(args: argparse.Namespace) -> int:
             f"schedule: {held} long-duration row(s) held; "
             "re-run with --allow-long-live"
         )
-    if args.allow_long_live:
-        # D16: the cap, the peak and this pre-download plan all measure the configured
-        # root's `audio/` — that is where new bytes land.
-        write_base = args.artifact_roots.write_base
-        usage_snapshot = audio_dir_usage_bytes(write_base)
-        for _key, entry in rows:
-            if is_long_live(entry):
-                print(format_campaign_plan(
-                    campaign_plan(
-                        write_base,
-                        entry,
-                        max_audio_bytes,
-                        usage_bytes=usage_snapshot,
-                    )
-                ))
-
     try:
         with archive_writer(args.archive_root):
-            summary = coord.run_batch(rows)
             if args.allow_long_live:
-                after = audio_dir_usage_bytes(args.artifact_roots.write_base)
-                print(f"schedule: long-live peak audio/ bytes={coord.audio_peak_bytes}")
+                # The plan and download guard use the same owned snapshot.
+                usage_snapshot = coord.prepare_audio_usage()
+                for _key, entry in rows:
+                    if is_long_live(entry):
+                        print(format_campaign_plan(campaign_plan(
+                            args.artifact_roots.write_base,
+                            entry,
+                            max_audio_bytes,
+                            usage_bytes=usage_snapshot,
+                        )))
+            summary = coord.run_batch(rows)
+            record.work_ids = [result.work_id for result in summary.results] or None
+            if args.allow_long_live:
+                try:
+                    after: int | str = coord.audio_usage_bytes()
+                except AudioUsageError:
+                    after = "unknown"
+                peak = coord.audio_peak_bytes
+                print(f"schedule: long-live peak audio/ bytes={peak if peak is not None else 'unknown'}")
                 print(f"schedule: long-live audio/ after bytes={after}")
             batch_state = classify_batch_state(
                 risk_interrupted=summary.risk_interrupted,
@@ -578,6 +589,7 @@ def _cmd_schedule(args: argparse.Namespace) -> int:
                 if codes:
                     last_api_error_code = codes[-1]
 
+            record.last_api_error_code = last_api_error_code
             persisted = False
             try:
                 sched_store.replace_atomic(
@@ -593,10 +605,9 @@ def _cmd_schedule(args: argparse.Namespace) -> int:
                 )
                 persisted = True
             except Exception as exc:
-                print(
+                write_stderr(
                     "schedule: failed to persist scheduler.json "
-                    f"({type(exc).__name__})",
-                    file=sys.stderr,
+                    f"({type(exc).__name__})"
                 )
 
             ok = sum(1 for result in summary.results if result.ok)
@@ -609,9 +620,8 @@ def _cmd_schedule(args: argparse.Namespace) -> int:
                 codes = ", ".join(
                     str(code) for code in result.failure_codes
                 ) or "unknown"
-                print(
-                    f"schedule: {result.work_id}: failed ({codes})",
-                    file=sys.stderr,
+                write_stderr(
+                    f"schedule: {result.work_id}: failed ({codes})"
                 )
             for result in skipped:
                 print(
@@ -622,16 +632,14 @@ def _cmd_schedule(args: argparse.Namespace) -> int:
             exit_code = 0
             if summary.risk_interrupted:
                 if persisted:
-                    print(
+                    write_stderr(
                         "schedule: risk-control ceiling; stopping — "
-                        "re-run with --resume.",
-                        file=sys.stderr,
+                        "re-run with --resume."
                     )
                 else:
-                    print(
+                    write_stderr(
                         "schedule: risk-control ceiling; scheduler.json "
-                        "was not persisted.",
-                        file=sys.stderr,
+                        "was not persisted."
                     )
                 exit_code = 2
             elif not summary.fully_processed:
@@ -640,7 +648,6 @@ def _cmd_schedule(args: argparse.Namespace) -> int:
                 exit_code = 1
 
             coverage = compute_coverage_summary(store.load())
-            cursor_snapshot = cursor_store.load()
             if persisted:
                 print(f"schedule: batch={batch_state}")
             else:
@@ -653,24 +660,21 @@ def _cmd_schedule(args: argparse.Namespace) -> int:
                 + (", scope not fully processed" if exit_code == 1 else "")
             )
 
-            ledger = RunLedger(root=args.archive_root)
             try:
-                record = build_run_record(
-                    command="schedule",
-                    started_at=started_at,
-                    finished_at=utc_now_iso(),
-                    exit_code=exit_code,
-                    mid=None,
-                    work_ids=[result.work_id for result in summary.results] or None,
-                    records_existing=len(entries),
-                    last_api_error_code=last_api_error_code,
-                    coverage_summary=coverage,
-                    cursor_snapshot=cursor_snapshot,
+                store.save()
+            except Exception as exc:
+                write_stderr(
+                    f"schedule: manifest snapshot failed ({type(exc).__name__})"
                 )
-                ledger.append(record)
-            except Exception:
-                pass
+                if exit_code == 0:
+                    exit_code = 1
+
             return exit_code
     except ArchiveBusyError:
-        print("schedule: archive_busy", file=sys.stderr)
+        write_stderr("schedule: archive_busy")
         return 1
+    except AudioUsageError:
+        write_stderr("schedule: audio usage unavailable; batch refused")
+        return 1
+    finally:
+        record.hotwords_dropped = list(getattr(coord, "hotwords_dropped", []))

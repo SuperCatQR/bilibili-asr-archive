@@ -131,6 +131,7 @@ def _seed_store(root):
                 error_code=None,
                 started_at=started + 1,
                 finished_at=started + 2,
+                credential_verified=True,
             )
         connection.commit()
     finally:
@@ -430,7 +431,7 @@ def test_asr_store_limit_is_applied_once(tmp_root, monkeypatch, capsys):
     # lists all three candidates: this route's write-back is the manifest
     # (store transcript write-back is owned by test_storage_queue_writes.py),
     # so queue membership is not the assertion here.
-    archived = {call.rsplit("/", 1)[-1] for call in transcribe_calls}
+    archived = {os.path.basename(call) for call in transcribe_calls}
     assert archived == {"BVlimitB.p0.m4a", "BVlimitC.p0.m4a"}, transcribe_calls
 
 

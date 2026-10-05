@@ -17,8 +17,8 @@ part), and finishes the run with the outcome derived from those attempts.
 
 Outcome mapping (one outcome per attempted part):
 
-- the listing was empty, or upstream answered ``not_found`` for the listing or
-  the body → ``no-subtitle`` (the part is not a failure; it stays eligible for a
+- the listing was empty, or upstream answered ``not_found`` for the listing
+  → ``no-subtitle`` (the part is not a failure; it stays eligible for a
   later run, and the attempt row carries ``not_found`` when upstream said so);
 - the body was fetched and stored → ``stored``, or ``unchanged`` when a stored
   version of the same identity already carries that content;
@@ -44,6 +44,7 @@ from bili_asr.sources.models import (
     BilibiliGateway,
     GatewayError,
     GatewayNotFound,
+    GatewayResponseError,
     GatewayShapeError,
     SubtitleSegment,
     SubtitleTrack,
@@ -426,6 +427,8 @@ class SubtitleIngestor:
 
         try:
             tracks = await self._gateway.get_subtitle_tracks(item.bvid, item.cid)
+            if not tracks and self._credential_present:
+                await self._gateway.validate_subtitle_credentials()
         except GatewayError as error:
             return SubtitleProbePart(
                 work_id=item.work_id, tracks=(), error_code=error.code
@@ -457,23 +460,33 @@ class SubtitleIngestor:
             tracks = await self._gateway.get_subtitle_tracks(item.bvid, item.cid)
         except GatewayNotFound:
             return self._record_captionless_part(
-                run_id, item, "not_found", started_at
+                run_id, item, "not_found", started_at, absence_verified=True
             )
         except GatewayError as error:
             return self._record_failed_part(run_id, item, error, started_at)
         track = select_subtitle_track(tracks, languages)
         if track is None:
-            # Either nothing was visible or nothing matched the requested
-            # languages: no usable track for this attempt, which is never a
-            # failure and leaves the part pending for a later run.
-            return self._record_captionless_part(run_id, item, None, started_at)
+            # A cookie being present does not make this an authenticated
+            # absence.  A failed login or unreadable validity check must not
+            # become the empty-inventory proof used by the audio queue.
+            if self._credential_present:
+                try:
+                    await self._gateway.validate_subtitle_credentials()
+                except GatewayError as error:
+                    return self._record_failed_part(run_id, item, error, started_at)
+            return self._record_captionless_part(
+                run_id, item, None, started_at,
+                credential_verified=self._credential_present,
+            )
         try:
             segments = await self._gateway.fetch_subtitle_segments(
                 track, item.bvid, item.cid
             )
         except GatewayNotFound:
-            return self._record_captionless_part(
-                run_id, item, "not_found", started_at
+            # A listed track's body may disappear or be empty during retrieval.
+            # That does not attest that the player has no usable subtitles.
+            return self._record_failed_part(
+                run_id, item, GatewayResponseError(code="subtitle_body_unavailable"), started_at
             )
         except GatewayError as error:
             return self._record_failed_part(run_id, item, error, started_at)
@@ -548,6 +561,9 @@ class SubtitleIngestor:
         item: _SubtitleWorkItem,
         error_code: str | None,
         started_at: int,
+        *,
+        credential_verified: bool = False,
+        absence_verified: bool = False,
     ) -> SubtitlePartOutcome:
         """Record one attempt that found no usable caption — never a failure.
 
@@ -563,6 +579,8 @@ class SubtitleIngestor:
             error_code=error_code,
             started_at=started_at,
             finished_at=self._clock(),
+            credential_verified=credential_verified,
+            absence_verified=absence_verified,
         )
         return SubtitlePartOutcome(
             work_id=item.work_id,

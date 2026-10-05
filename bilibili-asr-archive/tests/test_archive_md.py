@@ -234,7 +234,41 @@ def test_archive_failure_cleans_only_owned_staging(tmp_root, monkeypatch):
     with pytest.raises(OSError):
         write_archive(tmp_path, entry, [{"start": 0, "end": 1, "text": "x"}], source="asr")
     assert unrelated.read_text(encoding="utf-8") == "keep"
-    assert not list((tmp_path / "transcripts" / "srt").glob(".archive-bundle-*"))
+    assert not list((tmp_path / "transcripts").glob(".archive-bundle-stage-*"))
+
+
+def test_failed_stage_cleanup_does_not_block_later_publication(tmp_root, monkeypatch):
+    from pathlib import Path
+    import os
+
+    tmp_path = Path(tmp_root)
+    entry = {"bvid": "BVcleanup", "work_id": "BVcleanup:p0", "page_index": 0, "cid": 1}
+    original_rmdir = os.rmdir
+    failed = False
+
+    def fail_once_for_stage(name, *, dir_fd=None):
+        nonlocal failed
+        if not failed and str(name).startswith(".archive-bundle-stage-"):
+            failed = True
+            raise OSError("injected stage cleanup failure")
+        return original_rmdir(name, dir_fd=dir_fd)
+
+    monkeypatch.setattr("bili_asr.archive.os.rmdir", fail_once_for_stage)
+    with pytest.raises(OSError, match="injected stage cleanup failure"):
+        write_archive(
+            tmp_path, entry, [{"start": 0, "end": 1, "text": "first"}], source="asr"
+        )
+
+    stale_stages = list((tmp_path / "transcripts").glob(".archive-bundle-stage-*"))
+    assert failed
+    assert len(stale_stages) == 1
+
+    monkeypatch.setattr("bili_asr.archive.os.rmdir", original_rmdir)
+    paths = write_archive(
+        tmp_path, entry, [{"start": 0, "end": 1, "text": "second"}], source="asr"
+    )
+    assert archive_bundle_complete(tmp_path, paths)
+    assert stale_stages[0].is_dir()
 
 
 def test_write_archive_records_asr_provenance_in_both_sinks(tmp_root):

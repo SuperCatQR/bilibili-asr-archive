@@ -518,7 +518,7 @@ def test_verify_counts_the_projected_row_complete_and_absent_from_defects(
 
 
 def test_coverage_quality_reports_no_reason_for_the_projected_row(tmp_root, capsys):
-    """Criterion 3 and §5.3: no reason, four artifacts, two cues per segment.
+    """Criterion 3 and §5.3: no reason, four artifacts, one cue per segment.
 
     ``reasons`` is the union of the defect codes and the advisory content codes
     (``cli.py``'s ``_cmd_coverage_quality`` projects the row that way), so the
@@ -548,9 +548,8 @@ def test_coverage_quality_reports_no_reason_for_the_projected_row(tmp_root, caps
     assert projected["diagnostics"] == []
     # The four families: srt, txt, md and the raw sidecar.
     assert projected["artifact_count"] == 4
-    # Both the srt and the sidecar carry the cues, so the count is twice the
-    # winner's stored segment count (§5.3).
-    assert projected["cue_count"] == 2 * len(CAPTION_SEGMENTS)
+    # SRT and the raw sidecar represent the same transcript; count its cues once.
+    assert projected["cue_count"] == len(CAPTION_SEGMENTS)
     assert projected["source"] == "subtitle-ai"
     assert projected["language"] == "zh-CN"
     assert projected["status"] == "archived"
