@@ -32,7 +32,7 @@ def _dispatch_command(args: argparse.Namespace) -> int:
     return getattr(_cli_pkg, spec.handler)(args)
 
 
-def _main(argv: list[str] | None = None) -> int:
+def _main(argv: list[str] | None = None, *, _publication_worker: bool = False) -> int:
     """Implementation of ``main``; the public ``main`` lives in ``bili_asr.cli``
     so that tests monkeypatching ``bili_asr.cli.build_parser`` /
     ``bili_asr.cli._dispatch_command`` observe the patched attributes."""
@@ -49,6 +49,12 @@ def _main(argv: list[str] | None = None) -> int:
     spec = COMMANDS.get(args.command)
     if spec is None:
         raise ValueError(f"command {args.command!r} is not implemented")
+    if args.command == "publish-transcripts" and not _publication_worker:
+        from bili_asr.services.publication_supervisor import supervise_publication
+        return supervise_publication(
+            list(sys.argv[1:] if argv is None else argv),
+            timeout_seconds=args.io_timeout_seconds,
+        )
     # One resolution for the whole invocation, before the writer lock (contract §9).
     # Only a command that declares `--artifact-root` resolves one — the six commands
     # the flag is deliberately not on read no artifact path, and refusing them for a

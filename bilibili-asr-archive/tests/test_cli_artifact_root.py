@@ -29,7 +29,13 @@ import pytest
 from bili_asr import asr as asr_mod
 from bili_asr import bili_client as bc
 from bili_asr.archive import write_archive
-from bili_asr.cli import build_parser, main
+from functools import partial
+from bili_asr.cli import build_parser
+from bili_asr.cli.main import _main
+
+# Test root confinement within the worker; publication supervisor tests cover
+# the public process boundary separately.
+main = partial(_main, _publication_worker=True)
 from bili_asr.manifest import ManifestStore
 from bili_asr.page_identity import artifact_stem, page_identity
 

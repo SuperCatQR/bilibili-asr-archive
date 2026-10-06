@@ -36,7 +36,7 @@ workers cannot later publish because their only operation is verification.
 Interruptions also trigger bounded cleanup. Process creation itself is outside
 the bound, as are SQLite reads, artifact publication/fsync and manifest writes.
 
-## Remaining gaps and whole-candidate fencing analysis
+## Historical boundary analysis (superseded by supervised publication)
 
 #49 remains a performance tradeoff: hashes are still necessary for strict
 already-published decisions. Non-pending `--limit-parts N` bounds database part
@@ -46,14 +46,16 @@ bundles inspected; they can still scan the published corpus. Documentation
 gives a roughly 10.5 GB / 3,000 bundle re-read example and scope guidance.
 This mitigates operational cost, without eliminating unrestricted full hashes.
 
-#50 remains partially open: a hung write, fsync, database or manifest mount
+At the PR 222 boundary, #50 remained partially open: a hung write, fsync, database or manifest mount
 operation can still hold the parent writer lock. Moving these writes to a child
 and releasing the parent's lock on timeout is unsafe: SIGKILL cannot guarantee
 immediate cancellation of uninterruptible kernel I/O, and a blocked rename/write
 could resume after another publisher acquires the lock. A user-space generation
 fence checked before a syscall cannot revoke a syscall already in progress.
-Giving the child the writer lock preserves safety but loses the requested
-bounded lock-release promise. A reliable fence would require transactional or
+Giving the child the writer lock preserves safety but cannot guarantee
+bounded kernel lock release. The recovered full issue contains no such release
+acceptance: its acceptance is `defer`. The supervised follow-up therefore bounds
+CLI waiting while retaining the lock until its writer actually exits. A reliable fence would require transactional or
 remote storage semantics that can reject stale writes at the storage boundary;
 none exists in the current mounted-filesystem design. No unsafe writer isolation
 or unsupported claim of thread cancellation was introduced.
@@ -84,3 +86,7 @@ coverage. Separate real child tests cover process isolation, stall deadline,
 continuation, descriptor noninheritance and strict content integrity; a fake
 unreapable process tests bounded cleanup/capacity without manufacturing a real
 unkillable kernel task.
+
+The subsequent CLI publication supervisor addresses database, root-probe, write,
+fsync and manifest stalls with candidate phase deadlines and worker-owned locks.
+See `issues-publication-deadline.md` for current behavior and verification.
