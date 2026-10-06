@@ -6,8 +6,6 @@ import argparse
 
 from bili_asr.cli._shared import (
     DEFAULT_ARCHIVE_ROOT,
-    _ARTIFACT_ROOT_HELP,
-    _KEEP_AUDIO_HELP,
     _MAX_AUDIO_GB_HELP,
     _MAX_AUDIO_GB_HELP_SCHEDULE,
     _UsageErrorArgumentParser,
@@ -100,11 +98,6 @@ def build_parser() -> argparse.ArgumentParser:
     asr_cmd.add_argument("--pending", action="store_true", help="Process audio_ok entries")
     asr_cmd.add_argument("--bvid", default=None)
     asr_cmd.add_argument("--archive-root", default=DEFAULT_ARCHIVE_ROOT)
-    asr_cmd.add_argument("--artifact-root", default=None, help=_ARTIFACT_ROOT_HELP)
-    asr_cmd.add_argument(
-        "--keep-audio", action=argparse.BooleanOptionalAction, default=None,
-        help=_KEEP_AUDIO_HELP,
-    )
     asr_cmd.add_argument("--limit", type=int, default=None)
     asr_cmd.add_argument(
         "--queue-source",
@@ -131,14 +124,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
     pilot.add_argument("--n", type=int, default=20)
     pilot.add_argument("--archive-root", default=DEFAULT_ARCHIVE_ROOT)
-    pilot.add_argument("--artifact-root", default=None, help=_ARTIFACT_ROOT_HELP)
     pilot.add_argument(
         "--max-audio-gb", type=float, default=10.0,
         help=_MAX_AUDIO_GB_HELP,
-    )
-    pilot.add_argument(
-        "--keep-audio", action=argparse.BooleanOptionalAction, default=None,
-        help=_KEEP_AUDIO_HELP,
     )
     pilot.add_argument(
         "--max-duration-min", type=int, default=45,
@@ -221,7 +209,6 @@ def build_parser() -> argparse.ArgumentParser:
         "--archive-root", default=DEFAULT_ARCHIVE_ROOT,
         help="Archive root directory (default: ./archive)",
     )
-    dl.add_argument("--artifact-root", default=None, help=_ARTIFACT_ROOT_HELP)
     dl.add_argument(
         "--sessdata", default=None,
         help="SESSDATA cookie (or env BILI_SESSDATA); not stored",
@@ -271,7 +258,6 @@ def build_parser() -> argparse.ArgumentParser:
         "--archive-root", default=DEFAULT_ARCHIVE_ROOT,
         help="Archive root directory (default: ./archive)",
     )
-    inventory.add_argument("--artifact-root", default=None, help=_ARTIFACT_ROOT_HELP)
     inventory.add_argument(
         "--deep", action="store_true",
         help=(
@@ -318,7 +304,6 @@ def build_parser() -> argparse.ArgumentParser:
         "--archive-root", default=DEFAULT_ARCHIVE_ROOT,
         help="Archive root directory (default: ./archive)",
     )
-    publish.add_argument("--artifact-root", default=None, help=_ARTIFACT_ROOT_HELP)
 
     proofread = subparsers.add_parser(
         "proofread",
@@ -340,7 +325,6 @@ def build_parser() -> argparse.ArgumentParser:
         "--archive-root", default=DEFAULT_ARCHIVE_ROOT,
         help="Archive root directory (default: ./archive)",
     )
-    proofread.add_argument("--artifact-root", default=None, help=_ARTIFACT_ROOT_HELP)
     proofread.add_argument(
         "--asr-root", default=None,
         help=(
@@ -376,7 +360,6 @@ def build_parser() -> argparse.ArgumentParser:
         "--archive-root", default=DEFAULT_ARCHIVE_ROOT,
         help="Archive root directory (default: ./archive)",
     )
-    proofread_merge.add_argument("--artifact-root", default=None, help=_ARTIFACT_ROOT_HELP)
 
     run_cmd = subparsers.add_parser(
         "run",
@@ -404,11 +387,6 @@ def build_parser() -> argparse.ArgumentParser:
     run_cmd.add_argument(
         "--archive-root", default=DEFAULT_ARCHIVE_ROOT,
         help="Archive root directory (default: ./archive)",
-    )
-    run_cmd.add_argument("--artifact-root", default=None, help=_ARTIFACT_ROOT_HELP)
-    run_cmd.add_argument(
-        "--keep-audio", action=argparse.BooleanOptionalAction, default=None,
-        help=_KEEP_AUDIO_HELP,
     )
     run_cmd.add_argument(
         "--sessdata", default=None,
@@ -460,11 +438,6 @@ def build_parser() -> argparse.ArgumentParser:
         "--archive-root", default=DEFAULT_ARCHIVE_ROOT,
         help="Archive root directory (default: ./archive)",
     )
-    schedule_cmd.add_argument("--artifact-root", default=None, help=_ARTIFACT_ROOT_HELP)
-    schedule_cmd.add_argument(
-        "--keep-audio", action=argparse.BooleanOptionalAction, default=None,
-        help=_KEEP_AUDIO_HELP,
-    )
     schedule_cmd.add_argument(
         "--sessdata", default=None,
         help="SESSDATA cookie for live stages (or env BILI_SESSDATA); not stored",
@@ -512,11 +485,6 @@ def build_parser() -> argparse.ArgumentParser:
     campaign_cmd.add_argument(
         "--archive-root", default=DEFAULT_ARCHIVE_ROOT,
         help="Archive root directory (default: ./archive)",
-    )
-    campaign_cmd.add_argument("--artifact-root", default=None, help=_ARTIFACT_ROOT_HELP)
-    campaign_cmd.add_argument(
-        "--keep-audio", action=argparse.BooleanOptionalAction, default=None,
-        help=_KEEP_AUDIO_HELP,
     )
     campaign_cmd.add_argument(
         "--sessdata", default=None,
@@ -572,7 +540,6 @@ def build_parser() -> argparse.ArgumentParser:
         "--archive-root", default=DEFAULT_ARCHIVE_ROOT,
         help="Archive root directory (default: ./archive)",
     )
-    search_cmd.add_argument("--artifact-root", default=None, help=_ARTIFACT_ROOT_HELP)
 
     search_index_cmd = subparsers.add_parser(
         "search-index",
@@ -582,13 +549,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--archive-root", default=DEFAULT_ARCHIVE_ROOT,
         help="Archive root directory (default: ./archive)",
     )
-    search_index_cmd.add_argument("--artifact-root", default=None, help=_ARTIFACT_ROOT_HELP)
 
     coverage_cmd = subparsers.add_parser(
         "coverage", help="Print deterministic read-only coverage telemetry"
     )
     coverage_cmd.add_argument("--archive-root", default=DEFAULT_ARCHIVE_ROOT)
-    coverage_cmd.add_argument("--artifact-root", default=None, help=_ARTIFACT_ROOT_HELP)
     coverage_cmd.add_argument("--scope", default=None)
     coverage_cmd.add_argument("--format", choices=["json", "csv"], default="json")
     coverage_cmd.add_argument(
@@ -624,7 +589,6 @@ def build_parser() -> argparse.ArgumentParser:
         "verify", help="Verify archive integrity without modifying files"
     )
     integrity_cmd.add_argument("--archive-root", default=DEFAULT_ARCHIVE_ROOT)
-    integrity_cmd.add_argument("--artifact-root", default=None, help=_ARTIFACT_ROOT_HELP)
     integrity_cmd.add_argument("--scope", default=None)
     integrity_cmd.add_argument(
         "--trusted-local", action="store_true",
@@ -644,7 +608,6 @@ def build_parser() -> argparse.ArgumentParser:
         "recover", help="Explicitly audit named integrity defects (no requeue execution)"
     )
     recover_cmd.add_argument("--archive-root", default=DEFAULT_ARCHIVE_ROOT)
-    recover_cmd.add_argument("--artifact-root", default=None, help=_ARTIFACT_ROOT_HELP)
     recover_cmd.add_argument("--work-id", action="append", default=None,
                              help="Exact work_id selector (repeatable; required for bounded recovery)")
     recover_cmd.add_argument("--defect-code", action="append", default=None,
@@ -695,7 +658,6 @@ def build_parser() -> argparse.ArgumentParser:
         "--archive-root", default=DEFAULT_ARCHIVE_ROOT,
         help="Archive root directory (default: ./archive)",
     )
-    export_cmd.add_argument("--artifact-root", default=None, help=_ARTIFACT_ROOT_HELP)
 
     # The GPU/ROCm environment self-check.  This subcommand is the CLI form the
     # README and spec 01 D1.2 already document — it had no implementation, so
@@ -711,4 +673,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="Verify this host can run local ASR (GPU/ROCm recipe self-check)",
     )
 
+    from bili_asr.cli.registry import add_policy_arguments
+
+    add_policy_arguments(subparsers)
     return parser

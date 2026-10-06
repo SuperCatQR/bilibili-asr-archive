@@ -178,6 +178,32 @@ lie about what is known. The anonymous-versus-authenticated distinction is carri
 credential presence (`sessdata: present|absent` at the operator surface, the run's stored
 credential flag in the evidence), not by a different code.
 
+### Read-only probing and durable exhaustion (decision #211, 2026-10-06)
+
+Keep `probe-subs` read-only. Its output describes the current upstream response,
+not a durable acquisition verdict; it creates neither an acquisition run nor an
+attempt. This preserves inspection of a read-only archive and avoids taking the
+archive writer lock merely to inspect tracks. Different results from a later
+harvest are possible because visibility and upstream availability can change.
+Operators needing an auditable observation should use `harvest-subs`, whose run
+and attempt rows retain the observation and its credential evidence.
+
+Probe output must never count toward caption exhaustion or authorize paid audio
+acquisition. The current store projections require either explicit listing
+absence or two independent harvest observations of indefinite inventory emptiness
+with both run-level `credential_present = 1` and per-attempt
+`credential_verified = 1`. Anonymous observations and cookie presence without
+verified authentication do not corroborate exhaustion (#210).
+
+The retained cost of this decision is that historical probe output cannot be
+reconciled from `archive.db` alone. A probe that reports no tracks should lead to
+a credentialed harvest, rather than manual admission to the audio queue. This
+accepts the observation asymmetry explicitly while keeping queue admission based
+on durable harvest evidence. The behavior is pinned by the read-only connection
+and no-new-files tests in `tests/test_subtitle_cli.py` and
+`tests/test_subtitle_e2e.py`, and the credentialed corroboration tests in
+`tests/test_storage_queue_gaps.py` (paths relative to the product directory).
+
 ### Signed-URL resolution and the bounded re-list
 
 The fetch resolves the URL itself, because the URL never crosses the boundary. One

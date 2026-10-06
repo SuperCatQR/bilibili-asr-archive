@@ -63,7 +63,9 @@ def test_a_blank_value_at_either_level_counts_as_unset(tmp_path):
 
 
 def test_the_value_is_stripped_and_tilde_is_expanded(tmp_path):
-    assert resolve_artifact_root("  /tmp/artifact-root  ", {}) == "/tmp/artifact-root"
+    assert resolve_artifact_root("  /tmp/artifact-root  ", {}) == os.path.abspath(
+        "/tmp/artifact-root"
+    )
     resolved = resolve_artifact_root("  ~/artifact-root  ", {})
     assert resolved == os.path.abspath(os.path.expanduser("~/artifact-root"))
     assert resolved == resolved.strip()
@@ -108,7 +110,10 @@ def test_the_path_is_kept_lexical_and_never_realpath_resolved(tmp_path):
     real_root = tmp_path / "real-mount"
     real_root.mkdir()
     linked_root = tmp_path / "linked-mount"
-    linked_root.symlink_to(real_root, target_is_directory=True)
+    try:
+        linked_root.symlink_to(real_root, target_is_directory=True)
+    except OSError as exc:
+        pytest.skip(f"symlinks unavailable: {exc}")
 
     # `of` never calls `realpath`: the configured value stays lexical, which is what lets
     # `roots_for` see the link and refuse it (§3.2, §6).
@@ -128,7 +133,10 @@ def test_a_symlinked_configured_root_is_refused(tmp_path):
     real_root = tmp_path / "real-mount"
     (real_root / "audio").mkdir(parents=True)
     linked_root = tmp_path / "linked-mount"
-    linked_root.symlink_to(real_root, target_is_directory=True)
+    try:
+        linked_root.symlink_to(real_root, target_is_directory=True)
+    except OSError as exc:
+        pytest.skip(f"symlinks unavailable: {exc}")
 
     # §3.2/§6 and D4: the final component is a symlink, so the root is refused before
     # `is_dir()` can follow it — at either level of the precedence.
@@ -288,7 +296,10 @@ def test_resolve_audio_path_rejects_an_escaping_or_wrong_shaped_value_at_every_b
         (base / "escaped.m4a").write_bytes(b"escaped")
         (base / "audio" / "wrong.wav").write_bytes(b"wrong extension")
         (base / "audio" / "sub" / "deep.m4a").write_bytes(b"too deep")
-        (base / "audio" / "link.m4a").symlink_to(base / "escaped.m4a")
+        try:
+            (base / "audio" / "link.m4a").symlink_to(base / "escaped.m4a")
+        except OSError as exc:
+            pytest.skip(f"symlinks unavailable: {exc}")
 
     roots = roots_for(archive, flag_value=str(artifact), environ={})
     identity = ArtifactRoots.of(archive)

@@ -11,7 +11,7 @@ import time
 import uuid
 
 from bili_asr.cli._shared import (
-    DEFAULT_ARCHIVE_ROOT, _ARTIFACT_ROOT_HELP, _open_subtitle_connection,
+    DEFAULT_ARCHIVE_ROOT, _open_subtitle_connection,
     _selector_cannot_name_a_part, _subtitle_selector,
 )
 
@@ -29,7 +29,6 @@ def add_adoption_parser(subparsers) -> None:
         ),
     )
     parser.add_argument("--archive-root", default=DEFAULT_ARCHIVE_ROOT)
-    parser.add_argument("--artifact-root", default=None, help=_ARTIFACT_ROOT_HELP)
     parser.add_argument("--bvid", default=None, help="One video or bvid:pN already in the store")
     parser.add_argument("--limit-parts", type=int, default=None, help="Inspect at most N archived parts missing a stored transcript")
 

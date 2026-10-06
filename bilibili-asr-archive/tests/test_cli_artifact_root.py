@@ -575,7 +575,10 @@ def test_a_symlinked_configured_root_is_refused_with_its_own_tail(tmp_root, monk
     """§3.2/§6: the lexical path is kept, so a symlinked root is refused, never followed."""
     archive, artifact = _two_roots(tmp_root)
     link = os.path.join(tmp_root, "mounted-link")
-    os.symlink(artifact, link)
+    try:
+        os.symlink(artifact, link, target_is_directory=True)
+    except (OSError, NotImplementedError) as exc:
+        pytest.skip(f"symlinks unavailable: {exc}")
     _offline_client(monkeypatch)
 
     rc = main(["verify", "--archive-root", archive, "--artifact-root", link])
@@ -600,14 +603,15 @@ def test_an_existing_but_unopenable_configured_root_is_refused(tmp_root, monkeyp
     nothing on this host.
     """
     archive, artifact = _two_roots(tmp_root)
-    real_open = os.open
+    probe = "open" if os.name == "posix" and hasattr(os, "O_DIRECTORY") else "scandir"
+    real_probe = getattr(os, probe)
 
-    def denying_open(path, *args, **kwargs):
+    def denying_probe(path, *args, **kwargs):
         if os.fspath(path) == os.fspath(artifact):
             raise PermissionError(13, "Permission denied")
-        return real_open(path, *args, **kwargs)
+        return real_probe(path, *args, **kwargs)
 
-    monkeypatch.setattr(os, "open", denying_open)
+    monkeypatch.setattr(os, probe, denying_probe)
     _offline_client(monkeypatch)
 
     rc = main(["coverage", "--archive-root", archive, "--artifact-root", artifact])
@@ -634,7 +638,8 @@ def test_a_configured_root_whose_stat_fails_is_refused_with_the_same_tail(
     line — while the fourth line is the one that names exactly that input (§9/D17).
 
     The failure is injected at the stat seam; the sibling case above injects it at
-    ``os.open``, where the stat still succeeds — the two together cover both halves of
+    the platform's directory-open probe, where the stat still succeeds — together
+    they cover both halves of
     "cannot be opened".  A denied ancestor and a dropped mount are indistinguishable to
     this process, and this suite runs as root, for which a mode-000 directory is still
     statable — so chmod would prove nothing on this host.

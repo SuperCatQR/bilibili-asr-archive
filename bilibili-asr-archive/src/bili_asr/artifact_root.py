@@ -212,11 +212,16 @@ def _unopenable(path: Path) -> bool:
     archive root instead.  So the probe is the operation the writers and readers
     actually perform, not another question about the path's shape.
 
-    The primitive is POSIX-only, guarded exactly as ``path_policy.open_audio_directory``
-    guards it: where the platform has no "open the directory itself", the operand that
-    matters cannot be probed and nothing is claimed here.
+    POSIX uses a directory descriptor, as ``path_policy.open_audio_directory`` does.
+    Platforms without that primitive open a directory iterator instead to detect
+    access errors. This fallback checks openability, not descriptor confinement.
     """
     if os.name != "posix" or not hasattr(os, "O_DIRECTORY"):
+        try:
+            with os.scandir(path):
+                pass
+        except OSError:
+            return True
         return False
     try:
         descriptor = os.open(path, os.O_RDONLY | os.O_DIRECTORY)

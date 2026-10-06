@@ -22,6 +22,7 @@ from .artifact_root import ArtifactRoots
 from .manifest import BACKLOG_STATUSES, JOURNAL_NAME
 from .page_identity import canonical_stem
 from .coordinator import _validate_attempt
+from .persistence import file_lock
 from .sidecar_projection import (
     ORDINARY_HISTORY_DIAGNOSTICS, ReaderPolicy, is_plain_cli_archive,
     project_attempt_records, project_manifest_records,
@@ -75,6 +76,11 @@ from .artifacts import REQUIRED_ARTIFACT_KEYS as _BUNDLE_PATH_KEYS
 
 
 def _fsync_directory(directory: Path) -> None:
+    # Windows does not expose a directory descriptor that can be fsynced.  The
+    # file itself is still flushed before replace; callers use this hook as a
+    # durability boundary and tests may inject failures through it.
+    if os.name == "nt":
+        return
     directory_fd = os.open(directory, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
     try:
         os.fsync(directory_fd)
@@ -94,7 +100,8 @@ def _open_coordinator(root: Path) -> tuple[int, Path]:
 
 def _reject_symlink(path: Path) -> None:
     try:
-        if path.is_symlink():
+        is_junction = getattr(path, "is_junction", lambda: False)
+        if path.is_symlink() or is_junction():
             raise OSError(f"symlinked recovery path: {path.name}")
     except OSError:
         raise
@@ -120,12 +127,125 @@ def _valid_recovery_audit_record(record: object) -> bool:
     return all(code in _RECOVERY_DEFECT_CODES for code in defect_codes)
 
 
+def _append_recovery_audit_windows(
+    root: Path, audit: dict[str, object], line_bytes: bytes
+) -> dict[str, object]:
+    """Append a recovery record using Windows path APIs.
+
+    The POSIX implementation below relies on ``openat`` and directory file
+    descriptors, neither of which Windows provides.  Keep the same bounded
+    validation and atomic replacement contract with a same-directory
+    temporary file and the shared persistence lock instead.
+    """
+    coordinator = root / "coordinator"
+    audit_path = root / _AUDIT_REL_PATH
+    lock_path = root / _AUDIT_LOCK_REL_PATH
+    temporary: Path | None = None
+    try:
+        if coordinator.exists() and (
+            coordinator.is_symlink()
+            or getattr(coordinator, "is_junction", lambda: False)()
+            or not coordinator.is_dir()
+        ):
+            raise OSError("unsafe coordinator path")
+        coordinator.mkdir(parents=True, exist_ok=True)
+        if (
+            coordinator.is_symlink()
+            or getattr(coordinator, "is_junction", lambda: False)()
+            or not coordinator.is_dir()
+        ):
+            raise OSError("unsafe coordinator path")
+        for path in (audit_path, lock_path):
+            _reject_symlink(path)
+
+        # file_lock provides the same process and cross-process serialization
+        # as the descriptor branch, while preserving the public lock filename.
+        with file_lock(lock_path):
+            audit_existed = audit_path.exists()
+            if audit_existed:
+                _reject_symlink(audit_path)
+                if not audit_path.is_file():
+                    raise OSError("recovery audit sidecar is not a regular file")
+                with audit_path.open("rb") as handle:
+                    existing_bytes = handle.read(_AUDIT_MAX_BYTES + 1)
+            else:
+                existing_bytes = b""
+            separator = b"\n" if existing_bytes and not existing_bytes.endswith(b"\n") else b""
+            replacement = existing_bytes + separator + line_bytes
+            if len(existing_bytes) > _AUDIT_MAX_BYTES or len(replacement) > _AUDIT_MAX_BYTES:
+                return {"ok": False, "code": RECOVERY_MALFORMED_SIDECAR, "selected": []}
+            existing_lines = [line for line in existing_bytes.splitlines() if line.strip()]
+            if len(existing_lines) >= _AUDIT_MAX_ROWS:
+                return {"ok": False, "code": RECOVERY_MALFORMED_SIDECAR, "selected": []}
+            for line in existing_lines:
+                if not _valid_recovery_audit_record(json.loads(line.decode("utf-8"))):
+                    raise ValueError("invalid recovery audit record")
+
+            temp_fd, temp_name = tempfile.mkstemp(
+                prefix=".recovery-audit.", suffix=".tmp", dir=coordinator
+            )
+            temporary = coordinator / temp_name
+            with os.fdopen(temp_fd, "wb") as handle:
+                handle.write(replacement)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(temporary, audit_path)
+            temporary = None
+            try:
+                _fsync_directory(coordinator)
+            except OSError:
+                # The new file is already visible, so restore the exact old
+                # bytes (or remove it when there was no old sidecar).
+                try:
+                    if audit_existed:
+                        rollback_fd, rollback_name = tempfile.mkstemp(
+                            prefix=".recovery-audit.", suffix=".rollback", dir=coordinator
+                        )
+                        rollback_path = coordinator / rollback_name
+                        try:
+                            with os.fdopen(rollback_fd, "wb") as handle:
+                                handle.write(existing_bytes)
+                                handle.flush()
+                                os.fsync(handle.fileno())
+                            os.replace(rollback_path, audit_path)
+                        finally:
+                            if rollback_path.exists():
+                                rollback_path.unlink()
+                    elif audit_path.exists():
+                        audit_path.unlink()
+                except OSError:
+                    pass
+                return {"ok": False, "code": RECOVERY_MALFORMED_SIDECAR, "selected": []}
+    except (OSError, UnicodeError, json.JSONDecodeError, ValueError):
+        return {"ok": False, "code": RECOVERY_MALFORMED_SIDECAR, "selected": []}
+    finally:
+        if temporary is not None:
+            try:
+                temporary.unlink()
+            except OSError:
+                pass
+    return {
+        "ok": True,
+        "selected": audit["work_ids"],
+        "audit_path": _AUDIT_REL_PATH,
+    }
+
+
 class _RootConfinedReader:
     """Open archive files without following attacker-controlled path links."""
 
     def __init__(self, root: Path) -> None:
         self._root = root
-        self._root_fd = os.open(root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        if os.name == "nt":
+            if (
+                root.is_symlink()
+                or getattr(root, "is_junction", lambda: False)()
+                or not root.is_dir()
+            ):
+                raise OSError("unsafe archive root")
+            self._root_fd = -1
+        else:
+            self._root_fd = os.open(root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
 
     def _relative_path(self, path: Path) -> Path:
         return path.relative_to(self._root) if path.is_absolute() else path
@@ -140,6 +260,16 @@ class _RootConfinedReader:
         parts = path.parts
         if not parts or any(part in ("", ".", "..") for part in parts):
             raise OSError("unsafe relative path")
+        if os.name == "nt":
+            # ``openat``/O_NOFOLLOW are unavailable on Windows.  Check every
+            # component before opening the final path so a symlink cannot be
+            # introduced through an intermediate directory in normal use.
+            candidate = self._root
+            for component in parts:
+                candidate /= component
+                if candidate.is_symlink() or getattr(candidate, "is_junction", lambda: False)():
+                    raise OSError("symlinked archive path")
+            return os.open(candidate, flags)
         directory_fd = os.dup(self._root_fd)
         try:
             for component in parts[:-1]:
@@ -153,7 +283,7 @@ class _RootConfinedReader:
     def read(self, path: Path, max_bytes: int) -> bytes:
         file_fd = -1
         try:
-            file_fd = self._open(path, os.O_RDONLY | os.O_NONBLOCK)
+            file_fd = self._open(path, os.O_RDONLY | getattr(os, "O_NONBLOCK", 0))
             file_stat = os.fstat(file_fd)
             if not stat.S_ISREG(file_stat.st_mode) or file_stat.st_size > max_bytes:
                 raise OSError("unsafe or oversized file")
@@ -172,7 +302,7 @@ class _RootConfinedReader:
 
     def is_regular(self, path: Path) -> bool:
         try:
-            file_fd = self._open(path, os.O_RDONLY | os.O_NONBLOCK)
+            file_fd = self._open(path, os.O_RDONLY | getattr(os, "O_NONBLOCK", 0))
         except OSError:
             return False
         try:
@@ -533,6 +663,9 @@ class IntegrityVerifier:
             return {"ok": False, "code": RECOVERY_TARGET_LIMIT_EXCEEDED, "selected": []}
         audit_path = root / _AUDIT_REL_PATH
         line_bytes = (json.dumps(audit, ensure_ascii=False, sort_keys=True) + "\n").encode("utf-8")
+        if os.name == "nt":
+            with _AUDIT_WRITE_LOCK:
+                return _append_recovery_audit_windows(root, audit, line_bytes)
         with _AUDIT_WRITE_LOCK:
             temporary_path: Path | None = None
             temporary_owned = False

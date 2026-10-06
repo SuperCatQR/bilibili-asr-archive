@@ -22,6 +22,21 @@ def _manifest(root: Path, rows: list[dict[str, object]]) -> None:
     path.write_text("".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8")
 
 
+def test_root_confined_reader_works_without_posix_directory_flags(tmp_path: Path) -> None:
+    from bili_asr.integrity import _RootConfinedReader
+
+    payload = b"archive state\n"
+    target = tmp_path / "state.json"
+    target.write_bytes(payload)
+    reader = _RootConfinedReader(tmp_path)
+    try:
+        assert reader.read(Path("state.json"), 1024) == payload
+        assert reader.is_regular(Path("state.json"))
+    finally:
+        reader.close()
+    assert reader._root_fd == -1
+
+
 #: Record-limit probes build tens of thousands of rows, so they are slow by
 #: construction.  They stay in the suite but run only when the operator opts in
 #: with ``BILI_SCALE=1`` (the same opt-in shape as the live smokes); a default

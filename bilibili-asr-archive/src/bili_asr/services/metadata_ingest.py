@@ -63,8 +63,6 @@ MAX_PAGE_RETRIES = 3
 PAGE_RETRY_BACKOFF_SECONDS = 30
 
 
-
-
 def _observed_tag_sets(
     summaries: list[VideoSummary],
     tags_by_video: dict[str, tuple[VideoTag, ...] | None],

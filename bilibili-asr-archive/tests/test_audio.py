@@ -300,7 +300,10 @@ def test_download_audio_replaces_swapped_symlink_without_touching_victim(
 
     def download_then_swap(url, stage_path):
         original_download(url, stage_path)
-        out.symlink_to(victim)
+        try:
+            out.symlink_to(victim)
+        except OSError as exc:
+            pytest.skip(f"symlinks unavailable: {exc}")
 
     monkeypatch.setattr(client, "download_audio_stream", download_then_swap)
     result = audio.download_audio(client, BVID, out)
@@ -310,6 +313,65 @@ def test_download_audio_replaces_swapped_symlink_without_touching_victim(
     assert not out.is_symlink()
     assert victim.read_bytes() == b"victim"
     assert not list(out.parent.glob(".audio-stage-*"))
+
+
+def test_audio_root_derivation_uses_final_audio_component(tmp_path):
+    # An ancestor can itself be named audio; only the target's parent is the
+    # archive audio directory.
+    root = tmp_path / "audio" / "archive"
+    root.mkdir(parents=True)
+    target = root / "audio" / "BVnested.m4a"
+
+    derived_root, confined = audio._archive_root_for_download(target, None)
+
+    assert derived_root == root
+    assert confined == target
+
+
+def test_windows_download_retries_after_rejecting_symlinked_stage(tmp_path):
+    from pathlib import Path
+    from bili_asr.page_identity import page_identity
+
+    audio_dir = tmp_path / "audio"
+    audio_dir.mkdir()
+    victim = tmp_path / "victim.m4a"
+    victim.write_bytes(b"keep")
+    identity = page_identity(BVID, 0, 111)
+    calls = []
+
+    class Client:
+        def download_audio_stream(self, url, destination):
+            calls.append(url)
+            path = Path(destination)
+            if len(calls) == 1:
+                path.unlink()
+                try:
+                    path.symlink_to(victim)
+                except OSError as exc:
+                    pytest.skip(f"symlinks unavailable: {exc}")
+                return
+            path.write_bytes(b"backup-audio")
+
+    primary = "https://cdn.example/primary.m4s"
+    backup = "https://cdn.example/backup.m4s"
+    output = audio_dir / f"{BVID}.m4a"
+    result = audio._download_audio_windows(
+        Client(),
+        (primary, backup),
+        False,
+        tmp_path,
+        output.name,
+        os.fspath(output),
+        None,
+        identity,
+        None,
+    )
+
+    assert result == os.fspath(output)
+    assert calls == [primary, backup]
+    assert output.read_bytes() == b"backup-audio"
+    assert victim.read_bytes() == b"keep"
+    assert not list(audio_dir.glob(".audio-stage-*"))
 
 
 def test_download_audio_prefers_30216_and_sends_referer_ua(tmp_root):
