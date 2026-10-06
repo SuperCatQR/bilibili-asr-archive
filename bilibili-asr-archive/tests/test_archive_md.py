@@ -197,6 +197,23 @@ def test_write_archive_rejects_marker_symlink_and_nonregular_without_touching_ta
     assert marker.is_dir()
 
 
+def test_marker_directory_is_refused_without_symlink_privilege(tmp_root):
+    from pathlib import Path
+    import pytest
+    root = Path(tmp_root)
+    row = {"bvid": "BVmarker-dir", "work_id": "BVmarker-dir:p0",
+           "page_index": 0, "cid": 1}
+    paths = write_archive(root, row, [{"start": 0, "end": 1, "text": "old"}], source="asr")
+    before = {key: (root / value).read_bytes() for key, value in paths.items()}
+    marker = bundle_marker_path(root / paths["srt_path"])
+    marker.unlink()
+    marker.mkdir()
+    with pytest.raises(OSError, match="marker is not a regular file"):
+        write_archive(root, row, [{"start": 0, "end": 1, "text": "new"}], source="asr")
+    assert marker.is_dir()
+    assert all((root / paths[key]).read_bytes() == content for key, content in before.items())
+
+
 def test_pre_marker_archived_evidence_is_incomplete(tmp_root):
     from pathlib import Path
     tmp_path = Path(tmp_root)

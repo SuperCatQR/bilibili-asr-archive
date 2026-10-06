@@ -203,12 +203,13 @@ consumes `segments: list[dict]` with **seconds** (`segments_to_srt` reads `segme
 ### 4.1 The exact frontmatter key set
 
 `write_archive` builds frontmatter from the entry it is handed (`archive.py:472-480`). Handing it the candidate's
-part facts plus `source=<stored source_kind>` produces **exactly these nine keys, and no others**:
+part facts plus `source=<stored source_kind>` produces **exactly these ten keys, and no others**:
 
 | Key | Value | Source of the fact |
 |-----|-------|--------------------|
 | `bvid` | `video_parts.bvid` | store |
 | `title` | `video_parts.title` (the **part** title, not the collection's) | store |
+| `video_title` | `videos.title` (the video's title, independently of the part title) | store, joined video facts |
 | `date` | `pubdate_str` (§3.4) | store, rendered |
 | `duration_s` | `duration_s_from_ms(duration_ms)` (§3.4) | store, converted |
 | `source` | the winner's `transcripts.source_kind` **verbatim** | store |

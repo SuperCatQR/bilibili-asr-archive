@@ -252,7 +252,8 @@ class BilibiliGateway(Protocol):
     ) -> VideoSummary: ...
 
     # The tag set is a property of the VIDEO, not of a part: it is fetched
-    # once per video and cached for the run's duration.  A tag fetch is
+    # per distinct video, with bounded reuse of recent observations in a run.
+    # A new run refreshes relisted videos. A tag fetch is
     # retry-free and degrades rather than raising — risk control and transport
     # failures on this call may not fail the collection run — but the
     # degradation is a *third state*, not an empty set: ``None`` means "this

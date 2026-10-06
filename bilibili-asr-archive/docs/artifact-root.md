@@ -139,7 +139,7 @@ fsync**，所以一个「能打开、但拒绝目录 fsync」的挂载（有些�
 归档后的音频**默认保留**（见 [audio-retention-policy.md](./audio-retention-policy.md)）。`asr` / `pilot` / `run` /
 `schedule` / `campaign` 都带 `--keep-audio/--no-keep-audio`。
 
-音频上界 `--max-audio-gb`（默认 10，`0` = 不限）在**下载决策**上仍然 fail-closed，并且**统计的是产物根目录的 `audio/`** —— 新的字节落在那里，把两个文件系统的用量相加不是一个能据以行动的峰值。fail-closed 说的是这个**决策**；这个**测量**本身会失败开放：`audio_budget.audio_dir_usage_bytes` 在产物根目录的 `audio/` 不存在或读不到时直接返回 0，单条 `getsize` 失败也会被跳过，所以挂载点中途掉线或某个条目超时，上界会静默量出 0 字节并在这段时间里不再生效（打印出来的 `audio_usage_bytes=0` 意味着「量不到」，而不是「确实是空的」）。
+Audio budgets use an invocation-owned usage snapshot and refresh only after downloads or reclaim. A finite cap refuses a download when usage cannot be measured; zero means a measured empty directory, not a read failure. Planning and execution share the same snapshot. Writer root validation probes a real file write and sync and, where supported, directory fsync once per invocation; readers do not write probes. These checks do not provide a deadline for a kernel filesystem operation on an unresponsive mount.
 
 保留 + 上界会互相影响：既然音频不再被删，`audio/` 只会增长，于是跑到某个点之后每一行都会以
 `audio_budget` 被跳过。**要保留又不想被截断，就传 `--max-audio-gb 0`**。把这句话打出来的只有两个命令：
@@ -163,3 +163,26 @@ fsync**，所以一个「能打开、但拒绝目录 fsync」的挂载（有些�
 - [audio-retention-policy.md](./audio-retention-policy.md) —— 音频保留策略与 `BILI_KEEP_AUDIO` 真值表
 - [../README.md](../README.md#where-the-artifacts-go) —— 命令一览与「产物去哪儿」
 - [metadata-storage.md](./metadata-storage.md) —— SQLite 元数据存储（状态，永远留在归档根目录）
+
+## Publication root changes and execution recovery
+
+Changing `--artifact-root` explicitly requests publication at the new write base.
+It does not delete or migrate the previous bundle. Newly published manifest rows
+record `artifact_base` as an absolute lexical path in addition to the four
+root-relative product paths. Historical rows without this field remain legacy
+unattributed evidence; readers still use the invocation's configured read bases.
+A later publication at a different base therefore creates distinguishable journal
+evidence. An inconclusive read preserves products and fails the candidate.
+
+Acquisition gaps in `archive.db` remain the source of new work. Pending batch
+commands also resume publication of `subtitle_done` execution rows and retry
+archived rows with a recorded store write-back failure, but only when their
+part identity exists in the store and is not marked `gone`. This is an execution recovery surface, not
+permission to acquire a manifest-only part. A stale `needs_audio` execution row
+cannot override an already satisfied store transcript.
+
+Completeness verification intentionally reads and hashes every product. Streaming
+bounds memory, not corpus network I/O. There is no per-candidate deadline capable
+of cancelling a kernel operation on a hung filesystem. Use bounded invocations
+and a filesystem/mount configuration with its own timeout policy; these operational
+steps do not close the unresolved corpus cost and hung-mount requirements.

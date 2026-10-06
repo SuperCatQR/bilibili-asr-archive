@@ -315,6 +315,67 @@ def test_identity_mismatch_is_reported_without_leaking_path(
     assert result.reasons == ("identity_mismatch",)
 
 
+@pytest.mark.parametrize(
+    "relative",
+    [
+        "transcripts/BV1demo.p10/bundle.srt",
+        "BV1demo.p1/transcripts/BV1other.p0/bundle.srt",
+        "transcripts/srt/BV1demo.p10.srt",
+        "BV1demo.p1/transcripts/srt/BV1other.p0.srt",
+    ],
+)
+def test_identity_rejects_page_prefixes_and_matching_ancestors(
+    tmp_path: Path, relative: str,
+) -> None:
+    path = tmp_path / relative
+    path.parent.mkdir(parents=True)
+    path.write_text("1\n00:00:00,000 --> 00:00:01,000\nx\n", encoding="utf-8")
+    result = QualityAnalyzer().analyze(
+        row(work_id="BV1demo:p1", srt_path=relative), tmp_path,
+    )
+    assert result.reasons == ("identity_mismatch",)
+    assert result.cue_count == 1
+
+
+@pytest.mark.parametrize(
+    "relative",
+    [
+        "transcripts/BV1demo.p1/bundle.srt",
+        "transcripts/BV1demo.p1.proofread/bundle.srt",
+        "transcripts/srt/BV1demo.p1.srt",
+        "transcripts/md/2026-10-06_BV1demo.p1_demo.md",
+    ],
+)
+def test_identity_accepts_exact_bundle_and_legacy_names(
+    tmp_path: Path, relative: str,
+) -> None:
+    path = tmp_path / relative
+    path.parent.mkdir(parents=True)
+    path.write_text("1\n00:00:00,000 --> 00:00:01,000\nx\n", encoding="utf-8")
+    result = QualityAnalyzer().analyze(
+        row(work_id="BV1demo:p1", srt_path=relative), tmp_path,
+    )
+    assert "identity_mismatch" not in result.reasons
+
+
+def test_no_candidate_and_absent_declaration_share_frozen_backlog_payload(
+    tmp_path: Path,
+) -> None:
+    analyzer = QualityAnalyzer()
+    no_candidate = analyzer.analyze(row(bvid=None, work_id=None), tmp_path)
+    absent_declaration = analyzer.analyze(
+        row(srt_path="transcripts/BV1demo.p0/bundle.srt"), tmp_path,
+    )
+    expected = {
+        "source": "subtitle", "language": "ai-zh", "status": "archived",
+        "cue_count": 0, "artifact_count": 0,
+        "reasons": ["artifact_missing"], "diagnostics": [],
+    }
+    assert no_candidate.to_dict() == expected
+    assert absent_declaration.to_dict() == expected
+    assert no_candidate.content_reasons == absent_declaration.content_reasons == ()
+
+
 def test_reclaimed_audio_does_not_count_as_defect(tmp_path: Path) -> None:
     relative = write_srt(
         tmp_path, "BV1demo.p0.srt", "1\n00:00:00,000 --> 00:00:01,000\nx\n"

@@ -568,7 +568,7 @@ class MetadataRepository:
             yield connection
 
     def upsert_user(self, user: UserRecord) -> None:
-        """Insert or update the current display label for a user."""
+        """Store a changed display label; unchanged labels keep their timestamp."""
         if not isinstance(user, UserRecord):
             raise TypeError("user must be a UserRecord")
         self.connection.execute(
@@ -578,6 +578,7 @@ class MetadataRepository:
             ON CONFLICT(mid) DO UPDATE SET
                 display_name = excluded.display_name,
                 updated_at = excluded.updated_at
+            WHERE bilibili_users.display_name != excluded.display_name
             """,
             (user.mid, user.display_name, user.created_at, user.updated_at),
         )
@@ -2199,6 +2200,8 @@ class MediaQueueRepository:
         acquisition_source = _text(acquisition_source, "acquisition_source")
         acquired_at = _integer(acquired_at, "acquired_at", minimum=0)
 
+        # Preflight SELECT does not start a deferred transaction; refusal
+        # preserves any transaction and pending writes the caller owns.
         part = self.connection.execute(
             "SELECT video_part_id FROM video_parts WHERE bvid = ? AND page_index = ?",
             (bvid, page_index),
@@ -2310,6 +2313,8 @@ class MediaQueueRepository:
         finished_at = _integer(finished_at, "finished_at", minimum=0)
         if finished_at < started_at:
             raise ValueError("finished_at must not precede started_at")
+        # Preflight SELECT does not start a deferred transaction; refusal
+        # preserves any transaction and pending writes the caller owns.
         part = self.connection.execute(
             "SELECT video_part_id FROM video_parts WHERE bvid = ? AND page_index = ?",
             (bvid, page_index),
@@ -2378,10 +2383,7 @@ class MediaQueueRepository:
         """
         gap = _choice(gap, "gap", ALLOWED_QUEUE_GAPS)
         if limit is not None:
-            if isinstance(limit, bool) or not isinstance(limit, int):
-                raise TypeError("limit must be an integer or None")
-            if limit < 1:
-                raise ValueError("limit must be a positive integer")
+            _integer(limit, "limit", minimum=1)
         where_clauses: list[str] = []
         parameters: list[object] = []
         if bvid is not None:

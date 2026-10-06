@@ -279,7 +279,7 @@ def _store_pending_rows(archive_root: str, command: str):
     """The pending work list from the store gap views, in coordinator row shape.
 
     Returns ``(rows, error)``; ``error`` is ``None`` on success.  The store is
-    the sole queue input for the pending scope (contract §3): the manifest's
+    the acquisition queue input for the pending scope (contract §3): the manifest's
     needs_audio/derived rows are never read to decide work.  A missing or
     pre-transcript-schema store is the documented configuration error.
     """
@@ -295,10 +295,29 @@ def _store_pending_rows(archive_root: str, command: str):
         )
         return None, "no archive database"
     try:
+        entries = ManifestStore(root=archive_root).load()
         merged = source.select_pending_scope()
+        # Publication recovery is a separate execution scope. Store identity
+        # must exist before a durable manifest stage may re-enter this scope.
+        known_parts = set()
+        recovery_candidates = {}
+        for key, current in entries.items():
+            status = str(current.get("status") or "")
+            if not (status == "subtitle_done" or (
+                status == "archived" and current.get("transcript_writeback_error")
+            )):
+                continue
+            bvid, page = current.get("bvid"), current.get("page_index")
+            if not isinstance(bvid, str) or not bvid or type(page) is not int:
+                continue
+            recovery_candidates[key] = current
+            if source.connection.execute(
+                "SELECT 1 FROM video_parts WHERE bvid = ? AND page_index = ? "
+                "AND processing_status != 'gone'", (bvid, page)
+            ).fetchone() is not None:
+                known_parts.add((bvid, page))
     finally:
         source.connection.close()
-    entries = ManifestStore(root=archive_root).load()
     # A gap view can omit a subtitle that is harvested but not archived yet.
     # Merge the manifest's in-flight status back onto queue candidates while
     # keeping the store as the source of the candidate set.
@@ -316,11 +335,10 @@ def _store_pending_rows(archive_root: str, command: str):
             if status != "subtitle_done":
                 enriched["status"] = queued.get("status", status)
             merged[key] = enriched
-    for key, current in sorted(entries.items()):
-        status = str(current.get("status") or "")
-        if status == "subtitle_done" or (
-            status == "archived" and current.get("transcript_writeback_error")
-        ):
+    # Reuse the validated candidates: unrelated or malformed manifest fields
+    # must not be hashed while selecting the publication-recovery scope.
+    for key, current in sorted(recovery_candidates.items()):
+        if (current["bvid"], current["page_index"]) in known_parts:
             merged.setdefault(key, dict(current))
     return [(key, entry) for key, entry in merged.items()], None
 
