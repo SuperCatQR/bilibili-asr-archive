@@ -788,23 +788,7 @@ def characters_for(segments: list[dict[str, Any]], characters: Any) -> dict[str,
 
 
 def write_archive(archive_root: str | os.PathLike[str], entry: dict[str, Any], segments: list[dict[str, Any]], *, source: str, raw: Any | None = None, asr_provenance: Mapping[str, str] | None = None, characters: Any | None = None, coverage: Mapping[str, Any] | None = None) -> dict[str, str]:
-    """Publish one transcript bundle below the archive root.
-
-    ``asr_provenance`` carries the ASR runner's redaction-safe configuration
-    (model, revision, device, language, VAD, hotwords).  It is recorded in the
-    raw sidecar and as ``asr_*`` frontmatter keys, so any transcript can be
-    traced back to the model that produced it.  The subtitle path passes
-    nothing and is unchanged.
-
-    ``coverage`` carries this run's coverage attestation (``decoded_s`` /
-    ``produced_s`` / ``coverage`` / ``coverage_min`` / ``coverage_short``, built
-    by :func:`bili_asr.asr._coverage_record`).  It is recorded as ``coverage_*``
-    frontmatter keys **and** in the raw sidecar, because ``I-000188``'s
-    acceptance names both surfaces: a reader holding only the published bundle
-    must be able to see that the transcript covers part of what was decoded,
-    without reading the store.  The subtitle path has no measurement to carry
-    and passes nothing.
-    """
+    "Publish one transcript bundle below the archive root.\n\n    ``asr_provenance`` carries the ASR runner's redaction-safe configuration\n    (model, revision, device, language, VAD, hotwords).  It is recorded in the\n    raw sidecar and as ``asr_*`` frontmatter keys, so any transcript can be\n    traced back to the model that produced it.  The subtitle path passes\n    nothing and is unchanged.\n\n    ``coverage`` carries this run's coverage attestation (``decoded_s`` /\n    ``produced_s`` / ``coverage`` / ``coverage_min`` / ``coverage_short``, built\n    by :func:`bili_asr.asr.coverage._coverage_record`).  It is recorded as ``coverage_*``\n    frontmatter keys **and** in the raw sidecar, because ``I-000188``'s\n    acceptance names both surfaces: a reader holding only the published bundle\n    must be able to see that the transcript covers part of what was decoded,\n    without reading the store.  The subtitle path has no measurement to carry\n    and passes nothing.\n    "
     try:
         root = _lexical_archive_root(archive_root)
     except OSError as exc:

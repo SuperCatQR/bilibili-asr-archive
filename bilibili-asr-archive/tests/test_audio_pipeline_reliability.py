@@ -1,5 +1,12 @@
 """Audio pipeline regressions, using real codecs and offline model doubles."""
 
+import bili_asr.asr.audio as _module_asr_audio
+import bili_asr.asr.config as _module_asr_config
+import bili_asr.asr.constants as _module_asr_constants
+import bili_asr.asr.errors as _module_asr_errors
+import bili_asr.asr.runner as _module_asr_runner
+
+
 import io
 import os
 from pathlib import Path
@@ -9,18 +16,18 @@ import pytest
 import soundfile as sf
 
 from bili_asr import archive, asr, audio, bili_client
-from bili_asr.cli import main
+from bili_asr.cli.main import main
 from bili_asr.coordinator import RunCoordinator
 from bili_asr.manifest import ManifestStore
 from bili_asr.page_identity import page_identity
 from bili_asr.services.queue_source import QueueSource
 from bili_asr.storage import open_database
 
-from _asr_fakes import ModelSet, install
-from test_audio import AUDIO_BYTES, STREAM_HOST, make_client, playurl_ok
-from test_cli_asr import _audio_transport, _patch_cli, _stub_runner_model
-from test_cli_queue_source import _seed_store, _write_audio_file
-from test_coordinator import _row
+from tests.support.asr_fakes import ModelSet, install
+from tests.support.audio import AUDIO_BYTES, STREAM_HOST, make_client, playurl_ok
+from tests.support.cli_asr import _audio_transport, _patch_cli, _stub_runner_model
+from tests.support.cli_queue_source import _seed_store, _write_audio_file
+from tests.support.coordinator import _row
 
 
 @pytest.mark.parametrize("subtype", ["PCM_16", "PCM_24"])
@@ -41,11 +48,11 @@ def test_flac_download_converts_losslessly_and_reaches_asr(tmp_root, subtype):
     output = os.path.join(tmp_root, "audio", "BVlossless.p0.m4a")
 
     assert audio.download_audio(client, identity, output, store=store) == output
-    decoded, decoded_rate = asr._read_audio(output)
+    decoded, decoded_rate = _module_asr_audio._read_audio(output)
     assert decoded_rate == rate
     np.testing.assert_array_equal(decoded, expected)
     models = ModelSet()
-    runner = asr.ASRRunner(asr.ASRConfig(model_name=asr.DEFAULT_MODEL, device="cpu"), model_factory=lambda **kwargs: models)
+    runner = _module_asr_runner.ASRRunner(_module_asr_config.ASRConfig(model_name=_module_asr_constants.DEFAULT_MODEL, device="cpu"), model_factory=lambda **kwargs: models)
     assert runner.transcribe(output)
     assert runner.transcribed_coverage()["decoded_s"] == 2.0
     assert store.get(identity.work_id)["status"] == "audio_ok"
@@ -144,7 +151,7 @@ def test_store_writeback_failure_preserves_published_asr(tmp_root, monkeypatch, 
         raise error("private store path")
 
     boundary = (
-        "bili_asr.cli.asr._asr_transcript_segments"
+        'bili_asr.cli.processing._asr_transcript_segments'
         if error is ValueError
         else "bili_asr.services.queue_source.record_local_transcript"
     )
@@ -167,9 +174,9 @@ def test_failed_or_interrupted_asr_finishes_its_run(tmp_root, monkeypatch, inter
     _patch_cli(monkeypatch)
 
     def fail(*args, **kwargs):
-        raise KeyboardInterrupt() if interrupted else asr.AudioDecodeError("bad audio")
+        raise KeyboardInterrupt() if interrupted else _module_asr_errors.AudioDecodeError("bad audio")
 
-    monkeypatch.setattr(asr.ASRRunner, "transcribe", fail)
+    monkeypatch.setattr(_module_asr_runner.ASRRunner, "transcribe", fail)
     command = ["asr", "--pending", "--archive-root", tmp_root]
     if interrupted:
         with pytest.raises(KeyboardInterrupt):
@@ -249,24 +256,24 @@ def test_asr_run_refuses_a_connection_that_loses_its_row_factory(
 
 def test_detected_language_is_cleared_after_an_unrelated_failure(monkeypatch):
     models = install(monkeypatch)
-    runner = asr.ASRRunner(asr.ASRConfig(model_name=asr.DEFAULT_MODEL, device="cpu"), model_factory=lambda **kwargs: models)
+    runner = _module_asr_runner.ASRRunner(_module_asr_config.ASRConfig(model_name=_module_asr_constants.DEFAULT_MODEL, device="cpu"), model_factory=lambda **kwargs: models)
     assert runner.provenance()["language"] == ""
     runner.transcribe("first.wav")
     assert runner.provenance()["language"] == "Chinese"
 
     def fail(path):
-        raise asr.AudioDecodeError("unreadable")
+        raise _module_asr_errors.AudioDecodeError("unreadable")
 
-    monkeypatch.setattr(asr, "_read_audio", fail)
-    with pytest.raises(asr.AudioDecodeError):
+    monkeypatch.setattr(_module_asr_audio, "_read_audio", fail)
+    with pytest.raises(_module_asr_errors.AudioDecodeError):
         runner.transcribe("second.wav")
     assert runner.provenance()["language"] == ""
 
 
 def test_multiple_detected_languages_are_marked_as_multilingual(monkeypatch):
     models = install(monkeypatch, seconds=2)
-    runner = asr.ASRRunner(
-        asr.ASRConfig(model_name=asr.DEFAULT_MODEL, device="cpu", chunk_seconds=1),
+    runner = _module_asr_runner.ASRRunner(
+        _module_asr_config.ASRConfig(model_name=_module_asr_constants.DEFAULT_MODEL, device="cpu", chunk_seconds=1),
         model_factory=lambda **kwargs: models,
     )
     languages = iter(["Chinese", "English"])

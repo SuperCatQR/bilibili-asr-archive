@@ -1,39 +1,4 @@
-"""Offline subtitle end-to-end verification: CLI → service → repository → SQLite.
-
-Every test drives the real user-facing command path — ``bili_asr.cli.main`` with
-plain argv — over the shared ``FakeGateway`` protocol double from
-``tests/fixtures/``, installed in place of the concrete adapter at the gateway
-seam.  The whole subtitle stack therefore runs offline exactly as an operator
-runs it: argparse, the read-command database guard, the transcript-schema guard,
-``TranscriptRepository``, ``SubtitleIngestor``, the acquisition run/attempt
-records and the printed lines — with only the gateway boundary scripted.  (The
-adapter itself and the package seam below it are covered by the gateway plan's
-suite and the opt-in live smoke; this file is the deterministic evidence above
-that boundary.)
-
-What is pinned here:
-
-- one bounded harvest lands normalized ``transcripts``/``transcript_segments``
-  rows — language, ``source_kind``, version 1, the contract's content hash — with
-  their ``acquisition_runs``/``acquisition_attempts`` evidence;
-- re-acquiring the same part is content-idempotent: ``unchanged``, no new
-  version, no duplicated segments; a revised body appends version 2 while
-  version 1 stays readable through the repository;
-- a part with nothing visible and a part whose body fetch fails keep bounded
-  evidence rows, the run does not claim success for either of them, and the
-  partial failure stays visible in the printed counts with exit code 0;
-- the pending enumeration advances: a part left ``no-subtitle`` stores a
-  transcript in a later run, and a never-attempted part is attempted before a
-  previously attempted one;
-- every run summary prints all four outcome counts including zeros, the
-  persisted run id, credential presence and how many parts still lack a
-  transcript; a selection that resolved to nothing (``attempted=0``) exits 0;
-- ``probe-subs`` prints the locked ``probe``/``track``/``tracks=0`` lines and
-  writes nothing at all — no database, no run row, no file;
-- neither command leaves a legacy sidecar or a transcript projection in the
-  archive root, and no credential or raw upstream text reaches output or any
-  persisted row.
-"""
+"Offline subtitle end-to-end verification: CLI → service → repository → SQLite.\n\nEvery test drives the real user-facing command path — ``bili_asr.cli.main.main`` with\nplain argv — over the shared ``FakeGateway`` protocol double from\n``tests/fixtures/``, installed in place of the concrete adapter at the gateway\nseam.  The whole subtitle stack therefore runs offline exactly as an operator\nruns it: argparse, the read-command database guard, the transcript-schema guard,\n``TranscriptRepository``, ``SubtitleIngestor``, the acquisition run/attempt\nrecords and the printed lines — with only the gateway boundary scripted.  (The\nadapter itself and the package seam below it are covered by the gateway plan's\nsuite and the opt-in live smoke; this file is the deterministic evidence above\nthat boundary.)\n\nWhat is pinned here:\n\n- one bounded harvest lands normalized ``transcripts``/``transcript_segments``\n  rows — language, ``source_kind``, version 1, the contract's content hash — with\n  their ``acquisition_runs``/``acquisition_attempts`` evidence;\n- re-acquiring the same part is content-idempotent: ``unchanged``, no new\n  version, no duplicated segments; a revised body appends version 2 while\n  version 1 stays readable through the repository;\n- a part with nothing visible and a part whose body fetch fails keep bounded\n  evidence rows, the run does not claim success for either of them, and the\n  partial failure stays visible in the printed counts with exit code 0;\n- the pending enumeration advances: a part left ``no-subtitle`` stores a\n  transcript in a later run, and a never-attempted part is attempted before a\n  previously attempted one;\n- every run summary prints all four outcome counts including zeros, the\n  persisted run id, credential presence and how many parts still lack a\n  transcript; a selection that resolved to nothing (``attempted=0``) exits 0;\n- ``probe-subs`` prints the locked ``probe``/``track``/``tracks=0`` lines and\n  writes nothing at all — no database, no run row, no file;\n- neither command leaves a legacy sidecar or a transcript projection in the\n  archive root, and no credential or raw upstream text reaches output or any\n  persisted row.\n"
 
 from __future__ import annotations
 
@@ -46,7 +11,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from bili_asr.cli import main
+from bili_asr.cli.main import main
 from bili_asr.config import ARCHIVE_DATABASE_NAME
 from bili_asr.sources.models import (
     GatewayAuthenticationError,
@@ -63,7 +28,7 @@ from bili_asr.storage.models import (
     ALLOWED_ACQUISITION_KINDS,
     ALLOWED_CAPTION_SOURCE_KINDS,
 )
-from fixtures.fake_bilibili_gateway import (
+from tests.fixtures.fake_bilibili_gateway import (
     SESSDATA_BOUNDARY_VALUE,
     UPSTREAM_ERROR_TEXT,
     FakeGateway,
@@ -71,7 +36,7 @@ from fixtures.fake_bilibili_gateway import (
     fake_gateway_seam,
     persisted_row_text,
 )
-from fixtures.metadata_records import (
+from tests.fixtures.metadata_records import (
     make_part_record,
     make_user_record,
     make_video_record,

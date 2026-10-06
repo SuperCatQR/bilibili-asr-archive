@@ -7,12 +7,12 @@ import sqlite3
 import pytest
 
 from bili_asr import archive
-from bili_asr.cli import main
+from bili_asr.cli.main import main
 from bili_asr.manifest import ManifestStore
 from bili_asr.storage import TranscriptRepository, open_database
 
-from test_cli_asr import _patch_cli, _stub_runner_model
-from test_cli_queue_source import _seed_store, _write_audio_file
+from tests.support.cli_asr import _patch_cli, _stub_runner_model
+from tests.support.cli_queue_source import _seed_store, _write_audio_file
 
 
 @pytest.mark.skipif(os.name == "nt", reason="descriptor-safe audio access requires POSIX")

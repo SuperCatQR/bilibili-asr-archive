@@ -24,13 +24,19 @@ came from (its evidence argument is the caller's declaration).
 """
 from __future__ import annotations
 
+import bili_asr.asr.config as _module_asr_config
+import bili_asr.asr.constants as _module_asr_constants
+import bili_asr.asr.hotwords as _module_asr_hotwords
+import bili_asr.asr.runner as _module_asr_runner
+
+
 import os
 
 from bili_asr import asr
 
 
-def _config(*hotwords: str) -> asr.ASRConfig:
-    return asr.ASRConfig(model_name="m", device="cpu", hotwords=tuple(hotwords))
+def _config(*hotwords: str) -> _module_asr_config.ASRConfig:
+    return _module_asr_config.ASRConfig(model_name="m", device="cpu", hotwords=tuple(hotwords))
 
 
 # ---------------------------------------------------------------------------------------
@@ -39,7 +45,7 @@ def _config(*hotwords: str) -> asr.ASRConfig:
 
 
 def test_guard_admits_terms_present_in_evidence() -> None:
-    admitted, dropped = asr.evidence_guard_hotwords(
+    admitted, dropped = _module_asr_hotwords.evidence_guard_hotwords(
         ("扬弃", "自在", "不存在的词"),
         ("这一段讲扬弃和自在的概念",),
     )
@@ -49,12 +55,12 @@ def test_guard_admits_terms_present_in_evidence() -> None:
 
 def test_guard_is_pure_containment_no_model_calls() -> None:
     # The guard must be plain string logic: any term occurring anywhere passes.
-    admitted, _ = asr.evidence_guard_hotwords(("主义主义",), ("……主义主义……",))
+    admitted, _ = _module_asr_hotwords.evidence_guard_hotwords(("主义主义",), ("……主义主义……",))
     assert admitted == ("主义主义",)
 
 
 def test_dedup_and_blank_filtering() -> None:
-    admitted, dropped = asr.evidence_guard_hotwords(
+    admitted, dropped = _module_asr_hotwords.evidence_guard_hotwords(
         ("扬弃", "扬弃", " ", "自在"), ("扬弃",)
     )
     assert admitted == ("扬弃",)
@@ -62,7 +68,7 @@ def test_dedup_and_blank_filtering() -> None:
 
 
 def test_a_token_with_no_evidence_occurrence_is_dropped() -> None:
-    kept, dropped = asr.filter_hotwords(("扬弃",), evidence_text="今天我们讲定在")
+    kept, dropped = _module_asr_hotwords.filter_hotwords(("扬弃",), evidence_text="今天我们讲定在")
     assert kept == ()
     assert dropped == ("扬弃",)
 
@@ -70,10 +76,10 @@ def test_a_token_with_no_evidence_occurrence_is_dropped() -> None:
 def test_a_token_occurs_in_the_paired_subtitle_text_and_survives() -> None:
     # The transcript shows the homophone; the paired AI subtitle carries the
     # intended term — exactly the seeding case the guard exists to admit.
-    kept, dropped = asr.filter_hotwords(("攻势",), evidence_text="公式是国际的")
+    kept, dropped = _module_asr_hotwords.filter_hotwords(("攻势",), evidence_text="公式是国际的")
     assert kept == ()
     assert dropped == ("攻势",)
-    kept, dropped = asr.filter_hotwords(
+    kept, dropped = _module_asr_hotwords.filter_hotwords(
         ("攻势",), evidence_text="公式是国际的", paired_subtitle_text="这里讲攻势"
     )
     assert kept == ("攻势",)
@@ -81,19 +87,19 @@ def test_a_token_occurs_in_the_paired_subtitle_text_and_survives() -> None:
 
 
 def test_surviving_tokens_keep_the_configured_order() -> None:
-    kept, dropped = asr.filter_hotwords(("定在", "此在", "扬弃"), evidence_text="扬弃定在")
+    kept, dropped = _module_asr_hotwords.filter_hotwords(("定在", "此在", "扬弃"), evidence_text="扬弃定在")
     assert kept == ("定在", "扬弃")
     assert dropped == ("此在",)
 
 
 def test_duplicates_are_de_duplicated_in_operator_order() -> None:
-    kept, dropped = asr.filter_hotwords(("定在", "定在", "此在"), evidence_text="定在")
+    kept, dropped = _module_asr_hotwords.filter_hotwords(("定在", "定在", "此在"), evidence_text="定在")
     assert kept == ("定在",)
     assert dropped == ("此在",)
 
 
 def test_latin_script_tokens_match_by_casefolded_substring() -> None:
-    kept, dropped = asr.filter_hotwords(
+    kept, dropped = _module_asr_hotwords.filter_hotwords(
         ("International", "Employment", "Tribunal"),
         evidence_text="the international employment tribunal is fake",
     )
@@ -102,13 +108,13 @@ def test_latin_script_tokens_match_by_casefolded_substring() -> None:
 
 
 def test_the_empty_list_stays_empty_and_reports_nothing_dropped() -> None:
-    kept, dropped = asr.filter_hotwords((), evidence_text="任何文本都可以")
+    kept, dropped = _module_asr_hotwords.filter_hotwords((), evidence_text="任何文本都可以")
     assert kept == ()
     assert dropped == ()
 
 
 def test_no_evidence_text_drops_every_token() -> None:
-    kept, dropped = asr.filter_hotwords(("扬弃", "定在"), evidence_text=None)
+    kept, dropped = _module_asr_hotwords.filter_hotwords(("扬弃", "定在"), evidence_text=None)
     assert kept == ()
     assert dropped == ("扬弃", "定在")
 
@@ -116,7 +122,7 @@ def test_no_evidence_text_drops_every_token() -> None:
 def test_a_term_occurring_only_inside_a_longer_word_is_not_evidence() -> None:
     # Substring matching is whole-string occurrence; a term must appear as a
     # run of characters, and CJK text carries no word delimiters to consult.
-    kept, dropped = asr.filter_hotwords(("马恩",), evidence_text="马克思恩格斯讲过")
+    kept, dropped = _module_asr_hotwords.filter_hotwords(("马恩",), evidence_text="马克思恩格斯讲过")
     assert kept == ()
     assert dropped == ("马恩",)
 
@@ -128,8 +134,8 @@ def test_the_guard_needs_no_model_or_torch() -> None:
     import sys
 
     before = set(sys.modules)
-    asr.filter_hotwords(("扬弃",), evidence_text="扬弃")
-    asr.evidence_guard_hotwords(("定在",), ("定在",))
+    _module_asr_hotwords.filter_hotwords(("扬弃",), evidence_text="扬弃")
+    _module_asr_hotwords.evidence_guard_hotwords(("定在",), ("定在",))
     added = set(sys.modules) - before
     assert not any(name.split(".")[0] in ("torch", "transformers") for name in added), (
         f"the guard path must stay pure string logic, pulled in: {sorted(added)}"
@@ -143,29 +149,29 @@ def test_the_guard_needs_no_model_or_torch() -> None:
 
 
 def test_config_default_seeds_nothing() -> None:
-    cfg = asr.ASRConfig(model_name="m")
+    cfg = _module_asr_config.ASRConfig(model_name="m")
     assert cfg.hotwords == ()
-    assert asr.DEFAULT_HOTWORDS == ()
+    assert _module_asr_constants.DEFAULT_HOTWORDS == ()
 
 
 def test_the_operator_extra_knob_still_appends_terms() -> None:
     import os
 
-    config = asr.ASRConfig(
+    config = _module_asr_config.ASRConfig(
         model_name="m",
         device="cpu",
-        hotwords=asr.DEFAULT_HOTWORDS + asr._extra_hotwords("新词,攻势"),
+        hotwords=_module_asr_constants.DEFAULT_HOTWORDS + _module_asr_hotwords._extra_hotwords("新词,攻势"),
     )
     assert config.hotwords == ("新词", "攻势")
-    saved = os.environ.get(asr.ASR_HOTWORDS_ENV_VAR)
-    os.environ[asr.ASR_HOTWORDS_ENV_VAR] = "新词,攻势"
+    saved = os.environ.get(_module_asr_constants.ASR_HOTWORDS_ENV_VAR)
+    os.environ[_module_asr_constants.ASR_HOTWORDS_ENV_VAR] = "新词,攻势"
     try:
-        assert asr.default_config().hotwords == ("新词", "攻势")
+        assert _module_asr_config.default_config().hotwords == ("新词", "攻势")
     finally:
         if saved is None:
-            os.environ.pop(asr.ASR_HOTWORDS_ENV_VAR, None)
+            os.environ.pop(_module_asr_constants.ASR_HOTWORDS_ENV_VAR, None)
         else:
-            os.environ[asr.ASR_HOTWORDS_ENV_VAR] = saved
+            os.environ[_module_asr_constants.ASR_HOTWORDS_ENV_VAR] = saved
 
 
 # ---------------------------------------------------------------------------------------
@@ -174,7 +180,7 @@ def test_the_operator_extra_knob_still_appends_terms() -> None:
 
 
 def test_the_provenance_records_the_effective_hotword_list() -> None:
-    runner = asr.ASRRunner(_config("扬弃", "此在"))
+    runner = _module_asr_runner.ASRRunner(_config("扬弃", "此在"))
     runner.set_hotword_evidence(evidence_text="我们扬弃定在", paired_subtitle_text=None)
     assert runner.provenance()["hotwords"] == "扬弃"
 
@@ -182,13 +188,13 @@ def test_the_provenance_records_the_effective_hotword_list() -> None:
 def test_a_run_without_evidence_leaves_the_configured_list_untouched() -> None:
     # A runner that never received evidence predates the guard: its configured
     # list is the prompt vocabulary verbatim (no retroactive filtering).
-    runner = asr.ASRRunner(_config("扬弃", "此在"))
+    runner = _module_asr_runner.ASRRunner(_config("扬弃", "此在"))
     assert runner.provenance()["hotwords"] == "扬弃,此在"
     assert "hotword_dropped_no_evidence" not in runner.provenance()
 
 
 def test_a_run_with_dropped_tokens_records_the_fact_once_as_csv() -> None:
-    runner = asr.ASRRunner(_config("扬弃", "此在", "定在"))
+    runner = _module_asr_runner.ASRRunner(_config("扬弃", "此在", "定在"))
     runner.set_hotword_evidence(evidence_text="定在", paired_subtitle_text=None)
     provenance = runner.provenance()
     assert provenance["hotwords"] == "定在"
@@ -205,7 +211,7 @@ def test_dropped_hotwords_are_redacted_in_real_archive_products(tmp_path) -> Non
         "C:\\private\\models",
         "token_private_value",
     )
-    runner = asr.ASRRunner(_config("保留", "扬弃", *secrets))
+    runner = _module_asr_runner.ASRRunner(_config("保留", "扬弃", *secrets))
     runner.set_hotword_evidence(evidence_text="保留", paired_subtitle_text=None)
     provenance = runner.provenance()
     assert provenance["hotwords"] == "保留"
@@ -235,7 +241,7 @@ def test_a_run_with_every_token_dropped_sends_no_prompt_but_records_the_fact() -
     # Every token dropped == empty effective list == no prompt; the drop fact is
     # still recorded (the run *had* configured tokens, and the ledger must say
     # where they went).  Backwards-quietness is about the *zero-hotword* run.
-    runner = asr.ASRRunner(_config("扬弃"))
+    runner = _module_asr_runner.ASRRunner(_config("扬弃"))
     runner.set_hotword_evidence(evidence_text="", paired_subtitle_text="")
     provenance = runner.provenance()
     assert provenance["hotwords"] == ""
@@ -245,7 +251,7 @@ def test_a_run_with_every_token_dropped_sends_no_prompt_but_records_the_fact() -
 def test_a_zero_hotword_run_is_backwards_quiet() -> None:
     # A run that never configured hotwords stays shape-identical to the
     # pre-guard state: no prompt, no drop fact.
-    runner = asr.ASRRunner(_config())
+    runner = _module_asr_runner.ASRRunner(_config())
     runner.set_hotword_evidence(evidence_text="anything", paired_subtitle_text=None)
     provenance = runner.provenance()
     assert provenance["hotwords"] == ""
@@ -253,7 +259,7 @@ def test_a_zero_hotword_run_is_backwards_quiet() -> None:
 
 
 def test_set_hotword_evidence_is_idempotent_for_the_same_evidence() -> None:
-    runner = asr.ASRRunner(_config("扬弃", "此在"))
+    runner = _module_asr_runner.ASRRunner(_config("扬弃", "此在"))
     runner.set_hotword_evidence(evidence_text="扬弃", paired_subtitle_text=None)
     first = runner.provenance()
     runner.set_hotword_evidence(evidence_text="扬弃", paired_subtitle_text=None)
@@ -269,7 +275,7 @@ def test_set_hotword_evidence_is_idempotent_for_the_same_evidence() -> None:
 def test_the_runner_rebuild_returns_kept_tokens_for_the_second_pass() -> None:
     # QC F2 contract: the return is the KEPT vocabulary; an empty kept list
     # means pass 2 cannot change the output and must not run.
-    runner = asr.ASRRunner(_config("扬弃", "此在", "定在"))
+    runner = _module_asr_runner.ASRRunner(_config("扬弃", "此在", "定在"))
     kept = runner.rebuild_hotwords_from_first_pass("我们要扬弃这个定在")
     assert kept == ["扬弃", "定在"]
     provenance = runner.provenance()
@@ -278,7 +284,7 @@ def test_the_runner_rebuild_returns_kept_tokens_for_the_second_pass() -> None:
 
 
 def test_a_second_rebuild_replaces_the_previous_fact() -> None:
-    runner = asr.ASRRunner(_config("扬弃", "此在"))
+    runner = _module_asr_runner.ASRRunner(_config("扬弃", "此在"))
     runner.rebuild_hotwords_from_first_pass("扬弃")
     assert runner.provenance()["hotword_dropped_no_evidence"] == "此在"
     runner.rebuild_hotwords_from_first_pass("此在")

@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from bili_asr.cli import main
+from bili_asr.cli.main import main
 from bili_asr.coordinator import RunCoordinator
 from bili_asr.integrity import MISSING_ATTEMPTS
 from bili_asr.manifest import ManifestStore
@@ -15,11 +15,11 @@ from bili_asr.page_identity import artifact_stem, page_identity
 from bili_asr.sidecar_projection import is_plain_cli_archive
 from bili_asr.storage import AcquisitionRunRecord, TranscriptRepository, open_database
 
-from test_cli_asr import _patch_cli, _stub_runner_model
-from test_cli_publish_transcripts import CAPTION_SEGMENTS, FRESH_BVID, PARTS, _seed_archive
-from test_cli_queue_source import _seed_store, _write_audio_file
-from test_coordinator import SAMPLE_DOC, _row, _seed_part
-from test_coverage_report import cursor, ledger, scheduler
+from tests.support.cli_asr import _patch_cli, _stub_runner_model
+from tests.support.cli_publish_transcripts import CAPTION_SEGMENTS, FRESH_BVID, PARTS, _seed_archive
+from tests.support.cli_queue_source import _seed_store, _write_audio_file
+from tests.support.coordinator import SAMPLE_DOC, _row, _seed_part
+from tests.support.coverage_report import cursor, ledger, scheduler
 
 
 pytestmark = pytest.mark.skipif(

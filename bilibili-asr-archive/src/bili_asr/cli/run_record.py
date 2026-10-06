@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+import bili_asr.cli.run_state as _module_cli_run_state
+import bili_asr.cli.signals as _module_cli_signals
+
+
 from dataclasses import dataclass, field
 from contextlib import ExitStack
 from functools import wraps
@@ -39,7 +43,7 @@ def _append_record(state: CommandRunRecord) -> None:
     work_ids = state.work_ids
     try:
         if state.interrupted:
-            work_ids, coverage = cli._partial_run_state(state.root, started_at)
+            work_ids, coverage = _module_cli_run_state._partial_run_state(state.root, started_at)
             work_ids = list(dict.fromkeys([*work_ids, *state.visited_work_ids])) or None
         else:
             coverage = compute_coverage_summary(ManifestStore(root=state.root).load())
@@ -85,11 +89,11 @@ def recorded_command(command: str) -> Callable:
 
             state = CommandRunRecord(root=args.archive_root, command=command)
             args._run_record = state
-            with cli._interruptible_run():
+            with _module_cli_signals._interruptible_run():
                 try:
                     state.started_at = utc_now_iso()
                     state.exit_code = handler(args)
-                except cli._RunInterrupted as exc:
+                except _module_cli_signals._RunInterrupted as exc:
                     state.interrupted = True
                     state.exit_code = 128 + exc.signum
                 except KeyboardInterrupt:
@@ -100,18 +104,18 @@ def recorded_command(command: str) -> Callable:
                 finally:
                     with ExitStack() as protection:
                         try:
-                            protection.enter_context(cli._signals_ignored())
-                        except cli._RunInterrupted as exc:
+                            protection.enter_context(_module_cli_signals._signals_ignored())
+                        except _module_cli_signals._RunInterrupted as exc:
                             # First delivery while entering the write guard is
                             # still before any append; the handler already made
                             # repeated deliveries inert, so finishing is safe.
                             state.interrupted = True
                             state.exit_code = 128 + exc.signum
-                            protection.enter_context(cli._signals_ignored())
+                            protection.enter_context(_module_cli_signals._signals_ignored())
                         except KeyboardInterrupt:
                             state.interrupted = True
                             state.exit_code = 128 + signal.SIGINT
-                            protection.enter_context(cli._signals_ignored())
+                        protection.enter_context(_module_cli_signals._signals_ignored())
                         _append_record(state)
             return state.exit_code
         return invoke

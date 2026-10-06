@@ -8,19 +8,23 @@ fail loudly rather than be weakened.
 
 from __future__ import annotations
 
+import bili_asr.asr.errors as _module_asr_errors
+
+
 import json
 import os
 from pathlib import Path
 
 from bili_asr import asr as asr_mod
 from bili_asr import bili_client as bc
-from bili_asr.cli import main
-from bili_asr.coordinator import AttemptLedger, RowResult, RunSummary
+from bili_asr.cli.main import main
+from bili_asr.pipeline.attempts import AttemptLedger
+from bili_asr.pipeline.models import RowResult, RunSummary
 from bili_asr.manifest import ManifestStore
 from bili_asr.page_identity import artifact_stem, page_identity
 from bili_asr.run_ledger import LEDGER_FILENAME, RunLedger
 
-from test_audio import (
+from tests.support.audio import (
     AUDIO_BYTES,
     SPI_OK,
     STREAM_HOST,
@@ -28,10 +32,10 @@ from test_audio import (
     nav_response,
     playurl_ok,
 )
-from test_subtitles import SAMPLE_DOC, nav_ok, player_ok, sub_entry
+from tests.support.subtitles import SAMPLE_DOC, nav_ok, player_ok, sub_entry
 
-import _asr_fakes as asr_fakes
-from _archive_database import _seed_archive_database
+import tests.support.asr_fakes as asr_fakes
+from tests.support.archive_database import _seed_archive_database
 
 SECRET = "SECRET-SESS"
 API_FAIL = (200, {"code": -400})
@@ -91,7 +95,7 @@ def _manifest_bytes(root: str) -> dict[str, bytes]:
 def _patch_cli(monkeypatch, transport):
     monkeypatch.setattr(bc, "build_default_transport", lambda: transport)
     monkeypatch.setattr(bc, "default_sleeper", lambda: (lambda _s: None))
-    monkeypatch.setattr("bili_asr.cli.time.sleep", lambda _s: None)
+    monkeypatch.setattr('bili_asr.cli.pilot.time.sleep', lambda _s: None)
 
 
 def _stub_asr(monkeypatch, impl=None):
@@ -352,7 +356,7 @@ def test_asr_mixed_success_and_per_item_failure_exits_1(
         # Record the confined archive file behind the descriptor, not the
         # boundary's short-lived copy: this asserts *which row* was read.
         transcribe_calls.append(_audio_target(audio_path))
-        raise asr_mod.ASRModelError("model failed")
+        raise _module_asr_errors.ASRModelError("model failed")
 
     _stub_asr(monkeypatch, flaky)
     _patch_cli(monkeypatch, RouterTransport({}))
@@ -450,7 +454,7 @@ def test_asr_optional_dependency_after_success_exits_1(
 
     def missing(audio_path):
         transcribe_calls.append(_audio_target(audio_path))
-        raise asr_mod.ASRDependencyError("FunASR support is not installed")
+        raise _module_asr_errors.ASRDependencyError("FunASR support is not installed")
 
     _stub_asr(monkeypatch, missing)
     _patch_cli(monkeypatch, RouterTransport({}))

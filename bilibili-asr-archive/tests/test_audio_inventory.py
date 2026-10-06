@@ -19,7 +19,7 @@ from pathlib import Path
 import pytest
 
 from bili_asr.artifact_root import roots_for
-from bili_asr.cli import main
+from bili_asr.cli.main import main
 from bili_asr.services.audio_inventory import (
     ACQUISITION_SOURCE,
     AudioInventoryOutcome,
@@ -722,8 +722,8 @@ def test_the_command_takes_the_archive_writer_lock(tmp_root, capsys):
 
     Mutant that must fail: removing the command from that set.
     """
-    from bili_asr.cli import _ARCHIVE_WRITER_COMMANDS
-    from bili_asr.coordinator import archive_writer
+    from bili_asr.cli.main import _ARCHIVE_WRITER_COMMANDS
+    from bili_asr.pipeline.locks import archive_writer
 
     assert "derive-audio-inventory" in _ARCHIVE_WRITER_COMMANDS
 

@@ -37,7 +37,7 @@ class _CandidateFailure:
 
 def _project_publication_candidates(rows: list[Any]) -> Iterator[Any]:
     """Keep one damaged part from aborting projection of the other parts."""
-    from bili_asr.coordinator import _safe_error_code
+    from bili_asr.pipeline.attempts import _safe_error_code
     from bili_asr.page_identity import format_work_id
     from bili_asr.services.transcript_projection import ordered_candidates
 
@@ -124,7 +124,7 @@ def _cmd_publish_transcripts(args: argparse.Namespace) -> int:
     ``_UsageErrorArgumentParser`` maps argparse's own usage exit to ``1``.
     """
     from bili_asr import archive
-    from bili_asr.coordinator import _safe_error_code
+    from bili_asr.pipeline.attempts import _safe_error_code
     from bili_asr.manifest import ManifestStore
     from bili_asr.services.manifest_derivation import duration_s_from_ms
     from bili_asr.services.transcript_projection import (
@@ -409,5 +409,3 @@ def _cmd_proofread_merge(args: argparse.Namespace) -> int:
     print(f"{work_id}: proofread transcript written ({transcript_path})")
     print(f"{work_id}: corrections accounting written ({corrections_path})")
     return 0
-
-

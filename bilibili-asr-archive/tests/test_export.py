@@ -10,7 +10,7 @@ import pytest
 
 from bili_asr.archive import write_archive
 from bili_asr.artifact_root import ArtifactRoots
-from bili_asr.cli import main
+from bili_asr.cli.main import main
 from bili_asr.export import (
     COMPLETED_STATUSES,
     STANDARD_CSV_COLUMNS,

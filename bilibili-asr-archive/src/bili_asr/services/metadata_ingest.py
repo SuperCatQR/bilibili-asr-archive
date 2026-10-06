@@ -38,7 +38,7 @@ from bili_asr.sources.models import (
     VideoSummary,
     VideoTag,
 )
-from bili_asr.storage.database import MetadataRepository
+from bili_asr.storage.metadata import MetadataRepository
 from bili_asr.storage.models import (
     CursorRecord,
     DiscoveryRecord,

@@ -10,7 +10,8 @@ import pytest
 
 from bili_asr import asr as asr_mod
 from bili_asr import bili_client as bc
-from bili_asr.cli import _partial_run_state, main
+from bili_asr.cli.run_state import _partial_run_state
+from bili_asr.cli.main import main
 from bili_asr.manifest import ManifestStore
 from bili_asr.meta_cursor import MetaCursorStore, utc_now_iso
 from bili_asr.page_identity import page_identity
@@ -25,7 +26,7 @@ from bili_asr.run_ledger import (
     generate_run_id,
 )
 
-from test_audio import (
+from tests.support.audio import (
     AUDIO_BYTES,
     SPI_OK,
     STREAM_HOST,
@@ -33,10 +34,10 @@ from test_audio import (
     nav_response,
     playurl_ok,
 )
-from test_fetch_meta import FastSleeper
-from test_subtitles import SAMPLE_DOC, nav_ok, player_ok, sub_entry
+from tests.support.fetch_meta import FastSleeper
+from tests.support.subtitles import SAMPLE_DOC, nav_ok, player_ok, sub_entry
 
-import _asr_fakes as asr_fakes
+import tests.support.asr_fakes as asr_fakes
 
 
 @pytest.fixture
@@ -50,7 +51,7 @@ def _patch_client(monkeypatch, transport, sleeper=None):
         monkeypatch.setattr(bc, "default_sleeper", lambda: sleeper)
     else:
         monkeypatch.setattr(bc, "default_sleeper", lambda: (lambda _seconds: None))
-    monkeypatch.setattr("bili_asr.cli.time.sleep", lambda _seconds: None)
+    monkeypatch.setattr('bili_asr.cli.pilot.time.sleep', lambda _seconds: None)
 
 
 # ---------------------------------------------------------------- RunLedger core
@@ -321,7 +322,7 @@ def test_bili_client_does_not_import_run_ledger():
 
 def test_partial_counts_come_from_the_attempts_this_run_persisted(tmp_path: Path) -> None:
     """A killed run still says what it managed to do."""
-    from bili_asr.coordinator import AttemptLedger
+    from bili_asr.pipeline.attempts import AttemptLedger
 
     started_at = "2026-09-18T00:00:00Z"
     ledger = AttemptLedger(tmp_path)
@@ -504,4 +505,3 @@ def test_format_run_summary():
 
 # (the CLI status/runs tests moved to the SQLite metadata path:
 # tests/test_metadata_cli.py)
-

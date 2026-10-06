@@ -12,7 +12,7 @@ from types import SimpleNamespace
 import pytest
 
 from scripts import forensic_log
-import conftest as _conftest
+import tests.conftest as _conftest
 
 
 REPO = Path(__file__).parents[1]

@@ -7,11 +7,11 @@ from pathlib import Path
 import pytest
 
 from bili_asr.archive import archive_bundle_complete
-from bili_asr.cli import main
+from bili_asr.cli.main import main
 from bili_asr.manifest import ManifestStore
 from bili_asr.storage import TranscriptRepository, open_database
 
-from test_transcript_repository import _record, _run, _video_with_parts
+from tests.support.transcript_repository import _record, _run, _video_with_parts
 
 
 def _seed(root: Path, damage: str) -> tuple[str, int]:

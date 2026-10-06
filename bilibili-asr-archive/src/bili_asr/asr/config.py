@@ -1,0 +1,157 @@
+"""Config implementation."""
+
+from __future__ import annotations
+
+import os
+from dataclasses import dataclass
+import bili_asr.asr.constants as _dependency_constants
+import bili_asr.asr.hotwords as _dependency_hotwords
+
+
+def _is_redaction_safe_model_identifier(value: str, *, hub_level: bool = False) -> bool:
+    """The redaction rule for model identifiers, in one place.
+
+    An identifier-shaped value with no forbidden marker is safe to serialize — that is the rule
+    ``provenance()`` has always applied to ``model_name``.  ``hub_level`` additionally demands a
+    slash-qualified ``owner/name`` shape, which is what a *declared* producer identity must look like.
+
+    Note what this rule deliberately does **not** redact: a relative checkpoint path such as
+    ``models/Qwen3-ASR-1.7B-hf`` passes through, because that is the documented form of a local
+    checkpoint (``README.md``) and provenance is supposed to name it.
+    """
+
+    if not isinstance(value, str) or not value.strip():
+        return False
+    if _dependency_constants._MODEL_IDENTIFIER.fullmatch(value) is None:
+        return False
+    if _dependency_constants._FORBIDDEN_PROVENANCE.search(value) is not None:
+        return False
+    return not hub_level or "/" in value
+
+
+def _is_hub_level_model_name(value: str) -> bool:
+    """Whether ``value`` names a hub repository rather than a local path.
+
+    The shape alone cannot tell ``models/Qwen3-ASR-1.7B-hf`` from ``Qwen/Qwen3-ASR-1.7B-hf`` — both
+    are two segments once — and the contradiction check must not punish the relative-path form the
+    README documents.  Existence answers it on the machine that owns the layout: the checkpoint the
+    operator points the knob at is a directory that is *there*, and a hub id is a name that is not.
+    The probe resolves against the process working directory, exactly as the loader would.
+    """
+
+    if not _is_redaction_safe_model_identifier(value, hub_level=True):
+        return False
+    return not os.path.isdir(value)
+
+
+@dataclass(frozen=True)
+class ASRConfig:
+    """Deterministic, redaction-safe configuration for one ASR run.
+
+    ``language`` is the operator's declaration of what is spoken, passed to both models; ``None``
+    leaves the model's own detection in place, and the detected value is deliberately **not**
+    archived or published (plan §10 — the archive records what the operator declared, not a guess).
+
+    ``hotwords`` biases the decoder through the processor's free-form ``prompt``; an empty tuple
+    sends no bias, and the terms are recorded in provenance.  Governance ruling 2026-09-28:
+    speculative seeding is off, so the shipped default is empty and every token that does reach
+    the prompt is admitted by :func:`evidence_guard_hotwords` against the run's own evidence
+    (the runner's per-run state, not this config — see :class:`ASRRunner`).
+
+    ``model_name`` / ``aligner_name`` are hub ids or local checkpoint directories.  ``model_id`` is the
+    operator's declaration of the hub-level identity behind the ASR checkpoint.
+    """
+
+    model_name: str
+    aligner_name: str = _dependency_constants.DEFAULT_ALIGNER_MODEL
+    model_revision: str | None = None
+    device: str = "cuda"
+    language: str | None = None
+    # 2026-09-28 governance ruling (plan 20260928-hotword-injection-governance,
+    # residual 20260922-proofread-wave R1): speculative seeding is off.  No term
+    # enters the decoder prompt unless evidence-based seeding admits it (see
+    # ``evidence_guard_hotwords``); the shipped default is therefore empty and
+    # ``BILI_ASR_HOTWORDS`` supplies operator-declared terms that pass the same
+    # guard at run time.
+    hotwords: tuple[str, ...] = _dependency_constants.DEFAULT_HOTWORDS
+    chunk_seconds: float = _dependency_constants.DEFAULT_CHUNK_SECONDS
+    offline: bool = True
+    local_source: str = "configured-local"
+    model_id: str | None = None
+
+    def __post_init__(self) -> None:
+        for name, value in (("model_name", self.model_name), ("aligner_name", self.aligner_name)):
+            if not isinstance(value, str) or not value.strip():
+                raise ValueError(f"{name} must be a non-empty string")
+        if self.model_revision is not None and (
+            not isinstance(self.model_revision, str) or not self.model_revision.strip()
+        ):
+            raise ValueError("model_revision must be a non-empty string or null")
+        if not isinstance(self.device, str) or not self.device.strip():
+            raise ValueError("device must be a non-empty string")
+        if self.language is not None and (
+            not isinstance(self.language, str) or not self.language.strip()
+        ):
+            raise ValueError("language must be a non-empty string or null")
+        if isinstance(self.chunk_seconds, bool) or not isinstance(self.chunk_seconds, (int, float)):
+            raise ValueError("chunk_seconds must be a positive number")
+        if self.chunk_seconds <= 0:
+            raise ValueError("chunk_seconds must be a positive number")
+        if not isinstance(self.hotwords, tuple) or any(
+            not isinstance(term, str) or not term.strip() for term in self.hotwords
+        ):
+            raise ValueError("hotwords must be a tuple of non-empty strings")
+        if not isinstance(self.offline, bool):
+            raise ValueError("offline must be a bool")
+        if not isinstance(self.local_source, str) or not self.local_source.strip():
+            raise ValueError("local_source must be a non-empty identifier")
+        if _dependency_constants._FORBIDDEN_LOCAL_SOURCE.search(self.local_source):
+            raise ValueError("local_source must be an opaque local identifier")
+        if self.model_id is not None:
+            if not isinstance(self.model_id, str) or not self.model_id.strip():
+                raise ValueError(f"{_dependency_constants.ASR_MODEL_ID_ENV_VAR} must be a hub-level model identifier")
+            if not _is_redaction_safe_model_identifier(self.model_id, hub_level=True):
+                raise ValueError(f"{_dependency_constants.ASR_MODEL_ID_ENV_VAR} must be a hub-level model identifier")
+            if _is_hub_level_model_name(self.model_name) and self.model_name != self.model_id:
+                raise ValueError(
+                    f"{_dependency_constants.ASR_MODEL_ID_ENV_VAR} contradicts {_dependency_constants.ASR_MODEL_ENV_VAR}: "
+                    f"declared {self.model_id!r}, loaded {self.model_name!r}"
+                )
+
+
+def _resolve_chunk_seconds(environment_value: str | None) -> float:
+    """Configured chunk cap in seconds; unset keeps the measured default, blank stays unset."""
+
+    if environment_value is None or not environment_value.strip():
+        return _dependency_constants.DEFAULT_CHUNK_SECONDS
+    try:
+        value = float(environment_value.strip().rstrip("sS"))
+    except ValueError:
+        raise ValueError(
+            f"{_dependency_constants.ASR_CHUNK_SECONDS_ENV_VAR} must be a positive number of seconds"
+        ) from None
+    if value <= 0:
+        raise ValueError(f"{_dependency_constants.ASR_CHUNK_SECONDS_ENV_VAR} must be a positive number of seconds")
+    return value
+
+
+def default_config() -> ASRConfig:
+    """Build the runner configuration from the documented environment knobs.
+
+    ``BILI_ASR_MODEL`` and ``BILI_ASR_ALIGNER_MODEL`` carry hub ids or **local checkpoint
+    directories**; the archive's own checkpoints live under ``bilibili-asr-archive/models/`` so a
+    run never touches the network.  ``BILI_ASR_MODEL_ID`` is the operator's declaration of the
+    hub-level identity behind the ASR checkpoint: read for provenance only, and refused when it
+    contradicts a hub-level ``BILI_ASR_MODEL``.
+    """
+
+    return ASRConfig(
+        model_name=os.environ.get(_dependency_constants.ASR_MODEL_ENV_VAR) or _dependency_constants.DEFAULT_MODEL,
+        aligner_name=os.environ.get(_dependency_constants.ASR_ALIGNER_ENV_VAR) or _dependency_constants.DEFAULT_ALIGNER_MODEL,
+        model_revision=os.environ.get(_dependency_constants.ASR_MODEL_REVISION_ENV_VAR) or None,
+        device=os.environ.get(_dependency_constants.ASR_DEVICE_ENV_VAR) or "cuda",
+        language=os.environ.get(_dependency_constants.ASR_LANGUAGE_ENV_VAR) or None,
+        hotwords=_dependency_constants.DEFAULT_HOTWORDS + _dependency_hotwords._extra_hotwords(os.environ.get(_dependency_constants.ASR_HOTWORDS_ENV_VAR)),
+        chunk_seconds=_resolve_chunk_seconds(os.environ.get(_dependency_constants.ASR_CHUNK_SECONDS_ENV_VAR)),
+        model_id=(os.environ.get(_dependency_constants.ASR_MODEL_ID_ENV_VAR) or "").strip() or None,
+    )

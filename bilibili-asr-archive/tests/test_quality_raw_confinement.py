@@ -1,6 +1,9 @@
 """Real archive bundles pin quality/verify agreement on undeclared raw paths."""
 from __future__ import annotations
 
+import bili_asr.cli.main as _module_cli_main
+
+
 import json
 from pathlib import Path
 
@@ -46,7 +49,7 @@ def _quality_payload(root: Path, capsys, *, artifact_root: Path | None = None) -
     argv = ["coverage", "--archive-root", str(root), "--quality", "--format", "json"]
     if artifact_root is not None:
         argv.extend(["--artifact-root", str(artifact_root)])
-    code = cli.main(argv)
+    code = _module_cli_main.main(argv)
     return code, json.loads(capsys.readouterr().out)
 
 
@@ -92,7 +95,7 @@ def test_declared_bundle_cannot_hide_outside_caption_raw(
     assert result.cue_count == 2
     assert result.artifact_count == 4
     assert {item.code for item in integrity.defects} == {"identity_path_mismatch"}
-    assert cli.main(["verify", "--archive-root", str(root), "--format", "json"]) == 1
+    assert _module_cli_main.main(["verify", "--archive-root", str(root), "--format", "json"]) == 1
     capsys.readouterr()
     code, payload = _quality_payload(root, capsys)
     assert code == 1

@@ -15,7 +15,7 @@ answer with the parts the manifest names.
 
 Usage, from a fixture that has just written its manifest rows::
 
-    from _archive_database import _seed_archive_database
+    from tests.support.archive_database import _seed_archive_database
 
     _seed_archive_database(root)
 

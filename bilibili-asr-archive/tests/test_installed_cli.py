@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from installed_cli import (
+from tests.support.installed_cli import (
     SENTINEL_COOKIE, _venv_scripts_dir, assert_redacted,
     provision_isolated_cli, run_installed,
 )
@@ -38,7 +38,7 @@ def test_installed_console_script_status_fails_without_database(isolated_cli, tm
 
 def test_stdlib_venv_install_works_without_uv_or_inherited_backend(monkeypatch, tmp_path: Path) -> None:
     """A fresh Python 3.12 venv installs the locally built wheel offline."""
-    import installed_cli as helper
+    import tests.support.installed_cli as helper
 
     monkeypatch.setattr(helper, "_find_uv", lambda: None)
     isolated = provision_isolated_cli(str(tmp_path / "stdlib-cli"))

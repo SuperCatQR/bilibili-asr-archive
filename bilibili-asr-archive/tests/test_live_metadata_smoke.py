@@ -1,35 +1,4 @@
-"""Opt-in bounded live smoke: one real CLI page into a temporary database.
-
-This module holds the only networked metadata test.  It drives the real
-user-facing command path — ``bili_asr.cli.main`` with plain argv, the real
-``BilibiliApiGateway`` adapter over the pinned ``bilibili-api-python``
-distribution, and the fresh SQLite repository — for exactly one public
-metadata page of the archive owner (UID 23191782, ``--start-page 1``,
-``--limit-pages 1``) inside a temporary archive root.  No subtitle, playback,
-audio, or ASR code is invoked, and nothing outside the temporary root is
-written.
-
-Default pytest runs skip the smoke; it executes only when the operator sets
-``BILI_LIVE_SMOKE=1``.  Two documented outcomes are valid:
-
-- the happy path (exit 0) lands the expected normalized rows — user, videos
-  joined to their user through ``mid``, parts joined to their video through
-  ``bvid``, one discovery row per collected video, a terminal run row,
-  exactly one page-evidence row, and the fresh cursor advanced past the
-  committed page — while every persisted surface stays free of credential,
-  signed-URL, and playback markers;
-- the bounded upstream failure (exit 2) is a valid, documented CLI outcome:
-  the failure evidence stays scalar (terminal run row, one bounded page row,
-  no entity or discovery growth, no cursor row), and the smoke verifies it.
-  Without a credential the run is anonymous, and an upstream rejection of
-  anonymous metadata access is one bounded failure among others
-  (``rate_limited``, or ``response_error`` for other upstream failures): the
-  smoke reports exactly those documented codes as the documented no-credential
-  behavior (a clearly-reasoned skip, after its assertions ran), while any other
-  bounded code — ``transport_error`` from a dead proxy, for instance — fails
-  loudly, as does the same bounded failure with an operator credential in the
-  environment.
-"""
+'Opt-in bounded live smoke: one real CLI page into a temporary database.\n\nThis module holds the only networked metadata test.  It drives the real\nuser-facing command path — ``bili_asr.cli.main.main`` with plain argv, the real\n``BilibiliApiGateway`` adapter over the pinned ``bilibili-api-python``\ndistribution, and the fresh SQLite repository — for exactly one public\nmetadata page of the archive owner (UID 23191782, ``--start-page 1``,\n``--limit-pages 1``) inside a temporary archive root.  No subtitle, playback,\naudio, or ASR code is invoked, and nothing outside the temporary root is\nwritten.\n\nDefault pytest runs skip the smoke; it executes only when the operator sets\n``BILI_LIVE_SMOKE=1``.  Two documented outcomes are valid:\n\n- the happy path (exit 0) lands the expected normalized rows — user, videos\n  joined to their user through ``mid``, parts joined to their video through\n  ``bvid``, one discovery row per collected video, a terminal run row,\n  exactly one page-evidence row, and the fresh cursor advanced past the\n  committed page — while every persisted surface stays free of credential,\n  signed-URL, and playback markers;\n- the bounded upstream failure (exit 2) is a valid, documented CLI outcome:\n  the failure evidence stays scalar (terminal run row, one bounded page row,\n  no entity or discovery growth, no cursor row), and the smoke verifies it.\n  Without a credential the run is anonymous, and an upstream rejection of\n  anonymous metadata access is one bounded failure among others\n  (``rate_limited``, or ``response_error`` for other upstream failures): the\n  smoke reports exactly those documented codes as the documented no-credential\n  behavior (a clearly-reasoned skip, after its assertions ran), while any other\n  bounded code — ``transport_error`` from a dead proxy, for instance — fails\n  loudly, as does the same bounded failure with an operator credential in the\n  environment.\n'
 
 from __future__ import annotations
 
@@ -38,10 +7,10 @@ import os
 
 import pytest
 
-from bili_asr.cli import main
+from bili_asr.cli.main import main
 from bili_asr.config import SESSDATA_ENV_VAR
 from bili_asr.storage import open_database
-from fixtures.fake_bilibili_gateway import (
+from tests.fixtures.fake_bilibili_gateway import (
     RAW_JSON_BODY_MARKER,
     SESSDATA_BOUNDARY_VALUE,
     SIGNED_URL_MARKER,

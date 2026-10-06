@@ -17,8 +17,10 @@ import pytest
 from bili_asr import asr as asr_mod
 from bili_asr import bili_client as bc
 from bili_asr.audio_budget import estimate_audio_bytes, max_duration_exceeded
-from bili_asr.cli import _pilot_select, build_parser, main
-from bili_asr.coordinator import AttemptLedger
+from bili_asr.cli.pilot import _pilot_select
+from bili_asr.cli.parser import build_parser
+from bili_asr.cli.main import main
+from bili_asr.pipeline.attempts import AttemptLedger
 from bili_asr.long_live import (
     DEFAULT_SHORT_MAX_DURATION_MIN,
     apply_long_live_policy,
@@ -30,8 +32,8 @@ from bili_asr.meta_cursor import utc_now_iso
 from bili_asr.page_identity import artifact_stem, page_identity
 from bili_asr.scheduler import SchedulerStore
 
-from test_audio import AUDIO_BYTES, SPI_OK, STREAM_HOST, RouterTransport, playurl_ok
-from test_scheduler import (
+from tests.support.audio import AUDIO_BYTES, SPI_OK, STREAM_HOST, RouterTransport, playurl_ok
+from tests.support.scheduler import (
     CidRouterTransport,
     _assert_no_secrets,
     _base_routes,
@@ -41,10 +43,10 @@ from test_scheduler import (
     _stub_asr,
     _write_subtitle_raw,
 )
-from test_subtitles import SAMPLE_DOC, player_ok
+from tests.support.subtitles import SAMPLE_DOC, player_ok
 
-import _asr_fakes as asr_fakes
-from _archive_database import _seed_archive_database
+import tests.support.asr_fakes as asr_fakes
+from tests.support.archive_database import _seed_archive_database
 
 THREE_HOURS_S = 3 * 60 * 60
 ESTIMATED_THREE_HOURS = THREE_HOURS_S * 8_000  # 64 kbps ceiling

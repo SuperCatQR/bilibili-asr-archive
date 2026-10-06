@@ -55,7 +55,7 @@ import time
 from dataclasses import replace
 
 from bili_asr import archive as archive_module
-from bili_asr.cli import main
+from bili_asr.cli.main import main
 from bili_asr.manifest import ManifestStore
 from bili_asr.storage import (
     AcquisitionRunRecord,
@@ -64,7 +64,7 @@ from bili_asr.storage import (
     TranscriptSegmentRecord,
     open_database,
 )
-from fixtures.metadata_records import (
+from tests.fixtures.metadata_records import (
     make_part_record,
     make_user_record,
     make_video_record,

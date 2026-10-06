@@ -5,6 +5,10 @@ later tasks are expected to fix.  All inputs are synthetic and local-only.
 """
 from __future__ import annotations
 
+import bili_asr.cli.main as _module_cli_main
+import bili_asr.pipeline.locks as _module_pipeline_locks
+
+
 import json
 import os
 import stat
@@ -18,7 +22,8 @@ import pytest
 from bili_asr.coverage_report import CoverageReport
 from bili_asr.integrity import IntegrityVerifier, STRUCTURAL_INPUT_ERROR
 from bili_asr.manifest import ManifestStore
-from bili_asr.coordinator import AttemptLedger, ArchiveBusyError, archive_writer
+from bili_asr.pipeline.attempts import AttemptLedger
+from bili_asr.pipeline.locks import ArchiveBusyError, archive_writer
 from bili_asr.persistence import PersistenceError, file_lock, replace_file_atomically
 from bili_asr.sidecar_projection import (
     ReaderPolicy,
@@ -222,7 +227,7 @@ def test_trusted_scale_fixture_exposes_current_record_limits(
         f"BV{i}:p0" for i in range(10001)
     }
 
-    from bili_asr.cli import main
+    from bili_asr.cli.main import main
 
     assert main(["coverage", "--archive-root", str(tmp_path)]) == 1
     bounded_cli = json.loads(capsys.readouterr().out)
@@ -529,7 +534,7 @@ def test_cli_dispatch_locks_every_archive_mutation(
     from contextlib import contextmanager
     from bili_asr import cli, coordinator
 
-    assert cli._ARCHIVE_WRITER_COMMANDS == {
+    assert _module_cli_main._ARCHIVE_WRITER_COMMANDS == {
         "fetch-meta",
         "recover",
         "asr",
@@ -550,23 +555,23 @@ def test_cli_dispatch_locks_every_archive_mutation(
     }
     # ``probe-subs`` reads the SQLite transcript path and writes nothing, so it
     # is a reader like ``status``: no writer lock, no file, no new database.
-    assert "probe-subs" not in cli._ARCHIVE_WRITER_COMMANDS
+    assert "probe-subs" not in _module_cli_main._ARCHIVE_WRITER_COMMANDS
 
     @contextmanager
     def busy_writer(_root):
         raise ArchiveBusyError()
         yield
 
-    monkeypatch.setattr(coordinator, "archive_writer", busy_writer)
+    monkeypatch.setattr(_module_pipeline_locks, "archive_writer", busy_writer)
     # status is a read command: it never takes the writer lock, so it
     # succeeds against an existing fresh database while the writer lock
     # stays busy.
     from bili_asr.storage import open_database
 
     open_database(os.fspath(tmp_path)).close()
-    assert cli.main(["status", "--archive-root", os.fspath(tmp_path)]) == 0
+    assert _module_cli_main.main(["status", "--archive-root", os.fspath(tmp_path)]) == 0
     capsys.readouterr()
-    assert cli.main([
+    assert _module_cli_main.main([
         "fetch-meta",
         "--mid",
         "23191782",
@@ -576,7 +581,7 @@ def test_cli_dispatch_locks_every_archive_mutation(
     captured = capsys.readouterr()
     assert captured.out == ""
     assert captured.err == "fetch-meta: archive_busy\n"
-    assert cli.main([
+    assert _module_cli_main.main([
         "adopt-transcripts", "--archive-root", os.fspath(tmp_path),
     ]) == 1
     captured = capsys.readouterr()

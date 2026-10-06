@@ -22,7 +22,7 @@ import pytest
 
 from bili_asr import asr as asr_module
 
-import _asr_fakes as asr_fakes
+import tests.support.asr_fakes as asr_fakes
 from bili_asr import audio as audio_module
 from bili_asr.artifact_root import ArtifactRoots
 from bili_asr.audio_reclaim import reclaim_audio

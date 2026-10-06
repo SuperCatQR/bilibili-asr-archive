@@ -23,6 +23,7 @@ from bili_asr.services.manifest_derivation import (
     duration_s_from_ms,
     row_for_part,
 )
+from tests.support.manifest_derivation import PUBDATE, _part
 
 #: §3.1's nine fields, verbatim: the row carries these and no others.
 ROW_FIELDS = {
@@ -37,7 +38,6 @@ ROW_FIELDS = {
     "status",
 }
 
-PUBDATE = 1_700_000_000
 #: ``1_700_000_000`` is ``2023-11-14T22:13:20Z``, and ``pubdate_str`` is that
 #: second's **UTC** calendar date.  The expectation is therefore rendered the
 #: same way rather than written as a literal: a literal only discriminated on a
@@ -52,24 +52,6 @@ PUBDATE_STR = time.strftime("%Y-%m-%d", time.gmtime(PUBDATE))
 PUBDATE_UTC_DAY_EDGE = 86_399
 
 
-def _part(bvid="BV1xx4y1zz", page_index=2, cid=987_654, duration_ms=1_800_000, **kw):
-    """One ``dict(row)`` of the §2 relation, attempt evidence included."""
-    row = {
-        "video_part_id": 41,
-        "work_id": f"{bvid}:p{page_index}",
-        "bvid": bvid,
-        "page_index": page_index,
-        "cid": cid,
-        "part_title": "第一部分：开场",
-        "duration_ms": duration_ms,
-        "attempted": 1,
-        "last_attempt_at": 1_785_701_056,
-        "last_attempt_outcome": "no-subtitle",
-        "last_attempt_error_code": None,
-        "last_attempt_credential_present": 0,
-    }
-    row.update(kw)
-    return row
 
 
 def test_the_derivation_vocabulary_is_the_reported_one():

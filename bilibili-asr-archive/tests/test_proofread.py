@@ -15,6 +15,9 @@ Marker syntax under test (the contract ``proofread-merge`` parses):
 
 from __future__ import annotations
 
+import bili_asr.cli.main as _module_cli_main
+
+
 import json
 import os
 from pathlib import Path
@@ -36,7 +39,7 @@ def _write_caption_route(
     from bili_asr.storage import MetadataRepository
     from bili_asr.storage.models import TranscriptSegmentRecord
 
-    fixtures = __import__("importlib").import_module("fixtures.metadata_records")
+    fixtures = __import__("importlib").import_module("tests.fixtures.metadata_records")
     metadata = MetadataRepository(connection)
     with metadata.transaction():
         metadata.upsert_user(fixtures.make_user_record())
@@ -375,22 +378,22 @@ def _cli_env(workspace, monkeypatch):
 def test_cli_proofread_writes_under_proofread_work(proofread_workspace, monkeypatch):
     from bili_asr import cli
 
-    assert cli.main(["proofread", "--bvid", "BV1proofClean"] + _cli_env(proofread_workspace, monkeypatch)) == 0
+    assert _module_cli_main.main(["proofread", "--bvid", "BV1proofClean"] + _cli_env(proofread_workspace, monkeypatch)) == 0
     expected = proofread_workspace[1] / ".tmp" / "proofread-work" / "inputs" / \
         "BV1proofClean.p0.sidebyside.md"
     assert expected.exists()
-    assert cli.main(["proofread", "--bvid", "BV1absent:p0"] +
+    assert _module_cli_main.main(["proofread", "--bvid", "BV1absent:p0"] +
                     _cli_env(proofread_workspace, monkeypatch)) == 1
 
 
 def test_cli_proofread_merge_publishes_and_counts(proofread_workspace, monkeypatch):
     from bili_asr import cli
 
-    assert cli.main(["proofread", "--bvid", "BV1proofHeavy"] + _cli_env(proofread_workspace, monkeypatch)) == 0
+    assert _module_cli_main.main(["proofread", "--bvid", "BV1proofHeavy"] + _cli_env(proofread_workspace, monkeypatch)) == 0
     inputs_dir = proofread_workspace[1] / ".tmp" / "proofread-work" / "inputs"
     (inputs_dir / "BV1proofHeavy.p0.sidebyside.md.定稿").write_bytes(
         (inputs_dir / "BV1proofHeavy.p0.sidebyside.md").read_bytes())
-    assert cli.main(["proofread-merge", "--bvid", "BV1proofHeavy"] +
+    assert _module_cli_main.main(["proofread-merge", "--bvid", "BV1proofHeavy"] +
                     _cli_env(proofread_workspace, monkeypatch)) == 0
     accounting_path = proofread_workspace[1] / ".tmp" / "proofread-work" / \
         "align" / "BV1proofHeavy.p0.corrections.json"

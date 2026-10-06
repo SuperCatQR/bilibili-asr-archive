@@ -27,7 +27,8 @@ from bili_asr.integrity import (
     MALFORMED_ARTIFACT, MISSING_RAW_SUBTITLE, MISSING_TRANSCRIPT, IntegrityVerifier,
 )
 from bili_asr.quality import QualityAnalyzer
-from bili_asr.search_index import SearchIndex, check_fts5_available, search
+from bili_asr.search_index.manifest import SearchIndex, search
+from bili_asr.search_index.common import check_fts5_available
 
 #: The word every fixture transcript carries; the title deliberately does not
 #: contain it, so a hit proves the transcript text was really read.

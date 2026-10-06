@@ -7,14 +7,14 @@ from types import SimpleNamespace
 import pytest
 
 from bili_asr import archive, quality
-from bili_asr.cli import main
+from bili_asr.cli.main import main
 from bili_asr.manifest import ManifestStore
 from bili_asr.page_identity import page_identity
 from bili_asr.services.manifest_derivation import derive_rows
 from bili_asr.storage import MediaQueueRepository, open_database
 
-from test_coordinator import _row
-from test_manifest_derivation import _part, PUBDATE
+from tests.support.coordinator import _row
+from tests.support.manifest_derivation import _part, PUBDATE
 
 
 @pytest.mark.parametrize("failure", ["snapshot", "journal-discard"])

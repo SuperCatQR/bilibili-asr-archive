@@ -11,6 +11,14 @@ corruption is defect-class — exit 1.
 
 from __future__ import annotations
 
+import bili_asr.asr.config as _module_asr_config
+import bili_asr.asr.runner as _module_asr_runner
+import bili_asr.cli.main as _module_cli_main
+import bili_asr.search_index.constants as _module_search_index_constants
+import bili_asr.search_index.errors as _module_search_index_errors
+import bili_asr.search_index.store as _module_search_index_store
+
+
 from dataclasses import replace
 import json
 from pathlib import Path
@@ -18,10 +26,8 @@ from pathlib import Path
 import pytest
 
 from bili_asr import cli
-from bili_asr.search_index import (
-    TranscriptSearchIndex,
-    check_fts5_available,
-)
+from bili_asr.search_index.store import TranscriptSearchIndex
+from bili_asr.search_index.common import check_fts5_available
 from bili_asr.storage import (
     AcquisitionRunRecord,
     MetadataRepository,
@@ -29,7 +35,7 @@ from bili_asr.storage import (
     TranscriptSegmentRecord,
     open_database,
 )
-from fixtures.metadata_records import (
+from tests.fixtures.metadata_records import (
     make_part_record,
     make_user_record,
     make_video_record,
@@ -280,9 +286,9 @@ def test_search_blocks_issues_a_bounded_number_of_queries(indexed_store: Path) -
     monkeypatch = pytest.MonkeyPatch()
     try:
         monkeypatch.setattr(
-            search_index.TranscriptSearchIndex, "_connect", counting_connect
+            _module_search_index_store.TranscriptSearchIndex, "_connect", counting_connect
         )
-        hits = search_index.TranscriptSearchIndex(indexed_store).search_blocks("黑格尔")
+        hits = _module_search_index_store.TranscriptSearchIndex(indexed_store).search_blocks("黑格尔")
     finally:
         monkeypatch.undo()
         counting.close()
@@ -299,7 +305,7 @@ def test_search_blocks_issues_a_bounded_number_of_queries(indexed_store: Path) -
 def test_search_finds_phrase_with_bvid_time_range_and_pubdate(
     indexed_store: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    assert cli.main(_argv(indexed_store, "否定之否定")) == 0
+    assert _module_cli_main.main(_argv(indexed_store, "否定之否定")) == 0
     out = capsys.readouterr().out
     assert "BV1alpha" in out
     assert "黑格尔辩证法第一讲" in out
@@ -311,18 +317,18 @@ def test_search_pubdate_filters_exclude_out_of_window_hits(
     indexed_store: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     # "黑格尔" matches BV1alpha (pubdate A) and BV1beta P1 (pubdate B).
-    assert cli.main(_argv(indexed_store, "黑格尔", "--from", "2020-09-14")) == 0
+    assert _module_cli_main.main(_argv(indexed_store, "黑格尔", "--from", "2020-09-14")) == 0
     out = capsys.readouterr().out
     assert "BV1beta" in out
     assert "BV1alpha" not in out
 
-    assert cli.main(_argv(indexed_store, "黑格尔", "--to", "2020-09-13")) == 0
+    assert _module_cli_main.main(_argv(indexed_store, "黑格尔", "--to", "2020-09-13")) == 0
     out = capsys.readouterr().out
     assert "BV1alpha" in out
     assert "BV1beta" not in out
 
     # An exclusive window on a phrase with hits elsewhere: explicit "no hits", exit 0.
-    assert cli.main(_argv(indexed_store, "黑格尔", "--from", "2021-01-01")) == 0
+    assert _module_cli_main.main(_argv(indexed_store, "黑格尔", "--from", "2021-01-01")) == 0
     captured = capsys.readouterr()
     assert "no hits" in captured.out
 
@@ -335,21 +341,21 @@ def test_search_default_limit_is_20(
 
     seen: list[int | None] = []
 
-    original = search_index.TranscriptSearchIndex.search_blocks
+    original = _module_search_index_store.TranscriptSearchIndex.search_blocks
 
     def spy(self, query, *, pubdate_from=None, pubdate_to=None, limit=None):
         seen.append(limit)
         return original(self, query, pubdate_from=pubdate_from,
                         pubdate_to=pubdate_to, limit=limit)
 
-    monkeypatch.setattr(search_index.TranscriptSearchIndex, "search_blocks", spy)
-    assert cli.main(_argv(indexed_store, "黑格尔")) == 0
+    monkeypatch.setattr(_module_search_index_store.TranscriptSearchIndex, "search_blocks", spy)
+    assert _module_cli_main.main(_argv(indexed_store, "黑格尔")) == 0
     capsys.readouterr()
     assert seen == [20]
 
 
 def test_search_json_format(indexed_store: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    assert cli.main(_argv(indexed_store, "否定之否定", "--format", "json")) == 0
+    assert _module_cli_main.main(_argv(indexed_store, "否定之否定", "--format", "json")) == 0
     out = capsys.readouterr().out
     payload = json.loads(out)
     assert len(payload) == 1
@@ -370,12 +376,12 @@ def test_search_json_format(indexed_store: Path, capsys: pytest.CaptureFixture[s
 def test_search_index_command_builds_and_reports(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    assert cli.main(["search-index", "--archive-root", str(tmp_path)]) == 0
+    assert _module_cli_main.main(["search-index", "--archive-root", str(tmp_path)]) == 0
     out = capsys.readouterr().out
     assert "indexed 0 block(s); total 0" in out
     assert (tmp_path / "archive.db").is_file()
 
-    assert cli.main(["search-index", "--archive-root", str(tmp_path)]) == 0
+    assert _module_cli_main.main(["search-index", "--archive-root", str(tmp_path)]) == 0
     out = capsys.readouterr().out
     assert "indexed 0 block(s); total 0" in out  # idempotent re-run changes nothing
 
@@ -385,7 +391,7 @@ def test_search_index_never_creates_index_on_search_path(
 ) -> None:
     """Read paths never auto-create: search-index alone owns table creation."""
     # Merely opening the store (any search attempt) must not create the FTS table.
-    assert cli.main(_argv(tmp_path, "黑格尔")) == 0
+    assert _module_cli_main.main(_argv(tmp_path, "黑格尔")) == 0
     captured = capsys.readouterr()
     assert "index missing" in captured.out
     assert "search-index" in captured.out
@@ -406,7 +412,7 @@ def test_search_index_never_creates_index_on_search_path(
 def test_search_no_hits_exits_zero_with_explicit_line(
     indexed_store: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    assert cli.main(_argv(indexed_store, "谢林")) == 0
+    assert _module_cli_main.main(_argv(indexed_store, "谢林")) == 0
     out = capsys.readouterr().out
     assert "no hits" in out
 
@@ -415,7 +421,7 @@ def test_search_corrupt_store_is_defect_exit_1(
     indexed_store: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     (indexed_store / "archive.db").write_bytes(b"this is not sqlite")
-    assert cli.main(_argv(indexed_store, "黑格尔")) == 1
+    assert _module_cli_main.main(_argv(indexed_store, "黑格尔")) == 1
     err = capsys.readouterr().err
     assert "store" in err or "corrupt" in err
 
@@ -453,10 +459,10 @@ def test_search_corrupt_videos_read_is_defect_not_silent_empty_titles(
             real.close()
 
     monkeypatch.setattr(
-        search_index.TranscriptSearchIndex, "_connect", lambda self: _VideosReadFails()
+        _module_search_index_store.TranscriptSearchIndex, "_connect", lambda self: _VideosReadFails()
     )
-    with pytest.raises(search_index.TranscriptStoreError):
-        search_index.TranscriptSearchIndex(indexed_store).search_blocks("黑格尔")
+    with pytest.raises(_module_search_index_errors.TranscriptStoreError):
+        _module_search_index_store.TranscriptSearchIndex(indexed_store).search_blocks("黑格尔")
     real.close()
     # The failure is mid-read, after the snippets batch: not a connect/probe failure.
     assert reached == ["snippets", "videos"]
@@ -464,13 +470,13 @@ def test_search_corrupt_videos_read_is_defect_not_silent_empty_titles(
 
 def test_search_usage_error_is_exit_2(indexed_store: Path) -> None:
     with pytest.raises(SystemExit) as exc:
-        cli.main(_argv(indexed_store, "黑格尔", "--from", "2020-09-31"))
+        _module_cli_main.main(_argv(indexed_store, "黑格尔", "--from", "2020-09-31"))
     assert exc.value.code == 2
 
 
 def test_search_limit_validation_is_usage_error_exit_2(indexed_store: Path) -> None:
     with pytest.raises(SystemExit) as exc:
-        cli.main(_argv(indexed_store, "黑格尔", "--limit", "0"))
+        _module_cli_main.main(_argv(indexed_store, "黑格尔", "--limit", "0"))
     assert exc.value.code == 2
 
 
@@ -478,7 +484,7 @@ def test_search_index_on_corrupt_store_is_defect_exit_1(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     (tmp_path / "archive.db").write_bytes(b"this is not sqlite")
-    assert cli.main(["search-index", "--archive-root", str(tmp_path)]) == 1
+    assert _module_cli_main.main(["search-index", "--archive-root", str(tmp_path)]) == 1
     err = capsys.readouterr().err
     assert "store" in err or "corrupt" in err
 
@@ -492,7 +498,7 @@ def test_search_index_without_fts5_refuses_cleanly(
     monkeypatch.setattr(
         cli_module.search_index, "check_fts5_available", lambda conn=None: False
     )
-    assert cli.main(["search-index", "--archive-root", str(tmp_path)]) == 1
+    assert _module_cli_main.main(["search-index", "--archive-root", str(tmp_path)]) == 1
     err = capsys.readouterr().err
     assert "FTS5" in err
     conn = sqlite3_connect_plain(tmp_path / "archive.db")
@@ -530,7 +536,7 @@ def test_mixed_md_and_store_keys_do_not_pollute_the_incremental_stamp(tmp_path):
     finally:
         connection.close()
 
-    index = search_index.TranscriptSearchIndex(root)
+    index = _module_search_index_store.TranscriptSearchIndex(root)
     assert index.build() == 1
 
     # a second part the store has metadata for but no transcript: the md fallback
@@ -627,18 +633,18 @@ def test_skip_stamped_parts_before_probe_on_rebuild(tmp_path, monkeypatch):
         "00:00:00\nplain text body for BVB\n", encoding="utf-8"
     )
 
-    index = search_index.TranscriptSearchIndex(root)
+    index = _module_search_index_store.TranscriptSearchIndex(root)
     assert index.build() == 2  # A from the store, B from the published md
 
     probed: list[tuple[str, int]] = []
-    original = search_index.TranscriptSearchIndex._published_md_text_for
+    original = _module_search_index_store.TranscriptSearchIndex._published_md_text_for
 
     def spy(self, bvid, page_index):
         probed.append((bvid, page_index))
         return original(self, bvid, page_index)
 
     monkeypatch.setattr(
-        search_index.TranscriptSearchIndex, "_published_md_text_for", spy
+        _module_search_index_store.TranscriptSearchIndex, "_published_md_text_for", spy
     )
     assert index.build() == 0  # nothing new: zero appended blocks
     # already-stamped parts (B from md, A excluded as having a store transcript)
@@ -651,8 +657,8 @@ def test_pass_two_runs_only_when_kept_tokens_exist():
     """QC F2 regression: an empty kept list means pass 2 cannot change output."""
     from bili_asr import asr
 
-    cfg = asr.ASRConfig(model_name="m")
-    runner = asr.ASRRunner(cfg)
+    cfg = _module_asr_config.ASRConfig(model_name="m")
+    runner = _module_asr_runner.ASRRunner(cfg)
     kept = runner.rebuild_hotwords_from_first_pass("一段没有任何热词的转写文本。")
     assert kept == []
 
@@ -679,10 +685,10 @@ def test_search_zero_hit_on_corrupt_store_is_still_defect(
             return real
 
     monkeypatch.setattr(
-        search_index.TranscriptSearchIndex, "_connect", lambda self: real
+        _module_search_index_store.TranscriptSearchIndex, "_connect", lambda self: real
     )
-    with pytest.raises(search_index.TranscriptStoreError):
-        search_index.TranscriptSearchIndex(indexed_store).search_blocks("zzzz-nothing")
+    with pytest.raises(_module_search_index_errors.TranscriptStoreError):
+        _module_search_index_store.TranscriptSearchIndex(indexed_store).search_blocks("zzzz-nothing")
     real.close()
 
 
@@ -705,10 +711,10 @@ def test_search_zero_hit_on_videos_schema_drift_is_still_defect(
     real.commit()
 
     monkeypatch.setattr(
-        search_index.TranscriptSearchIndex, "_connect", lambda self: real
+        _module_search_index_store.TranscriptSearchIndex, "_connect", lambda self: real
     )
-    with pytest.raises(search_index.TranscriptStoreError):
-        search_index.TranscriptSearchIndex(indexed_store).search_blocks("zzzz-nothing")
+    with pytest.raises(_module_search_index_errors.TranscriptStoreError):
+        _module_search_index_store.TranscriptSearchIndex(indexed_store).search_blocks("zzzz-nothing")
     real.close()
 
 
@@ -730,20 +736,20 @@ def test_search_unusable_fts_with_damaged_videos_is_still_defect(
     real.execute("DROP TABLE videos")
     # Make every MATCH raise: replace the FTS table with a plain (non-FTS) one
     # of the same name, so both the query and its plain-text retry fail.
-    real.execute(f"DROP TABLE {search_index.STORE_FTS5_TABLE}")
+    real.execute(f"DROP TABLE {_module_search_index_constants.STORE_FTS5_TABLE}")
     real.execute(
-        f"CREATE TABLE {search_index.STORE_FTS5_TABLE} "
+        f"CREATE TABLE {_module_search_index_constants.STORE_FTS5_TABLE} "
         "(block_key TEXT, bvid TEXT, page_index INT, start_ms INT, end_ms INT, "
         "pubdate INT, text TEXT, source TEXT, rank REAL)"
     )
     real.commit()
 
     monkeypatch.setattr(
-        search_index.TranscriptSearchIndex, "_connect", lambda self: real
+        _module_search_index_store.TranscriptSearchIndex, "_connect", lambda self: real
     )
     try:
-        with pytest.raises(search_index.TranscriptStoreError):
-            search_index.TranscriptSearchIndex(indexed_store).search_blocks("zzzz-nothing")
+        with pytest.raises(_module_search_index_errors.TranscriptStoreError):
+            _module_search_index_store.TranscriptSearchIndex(indexed_store).search_blocks("zzzz-nothing")
     finally:
         real.close()
 
@@ -763,12 +769,12 @@ def test_search_blocks_returns_every_hit_past_the_chunk_boundary(
     from bili_asr import search_index
 
     real = _sqlite3.connect(indexed_store / "archive.db")
-    total = search_index.TranscriptSearchIndex._IN_CHUNK + 5
+    total = _module_search_index_store.TranscriptSearchIndex._IN_CHUNK + 5
     for i in range(total):
         key = f"chunk{i}:0"
         bvid = f"BVchunk{i}"
         real.execute(
-            f"INSERT INTO {search_index.STORE_FTS5_TABLE} VALUES "
+            f"INSERT INTO {_module_search_index_constants.STORE_FTS5_TABLE} VALUES "
             f"(?, ?, 0, 0, 10, 1, 'chunked needle', 'srt', 0.0)",
             (key, bvid),
         )
@@ -780,9 +786,9 @@ def test_search_blocks_returns_every_hit_past_the_chunk_boundary(
     real.commit()
 
     monkeypatch.setattr(
-        search_index.TranscriptSearchIndex, "_connect", lambda self: real
+        _module_search_index_store.TranscriptSearchIndex, "_connect", lambda self: real
     )
-    hits = search_index.TranscriptSearchIndex(indexed_store).search_blocks(
+    hits = _module_search_index_store.TranscriptSearchIndex(indexed_store).search_blocks(
         "needle", limit=None
     )
     real.close()

@@ -6,6 +6,9 @@ monkeypatched to a deterministic stub.
 
 from __future__ import annotations
 
+import bili_asr.pipeline.models as _module_pipeline_models
+
+
 import json
 import os
 import shutil
@@ -21,12 +24,13 @@ import pytest
 from bili_asr import asr as asr_mod
 from bili_asr import coordinator
 from bili_asr import bili_client as bc
-from bili_asr.cli import main
-from bili_asr.coordinator import AttemptLedger, RunCoordinator
+from bili_asr.cli.main import main
+from bili_asr.pipeline.attempts import AttemptLedger
+from bili_asr.coordinator import RunCoordinator
 from bili_asr.manifest import ManifestStore
 from bili_asr.page_identity import artifact_stem, page_identity
 
-from test_audio import (
+from tests.support.audio import (
     AUDIO_BYTES,
     SPI_OK,
     STREAM_HOST,
@@ -34,36 +38,16 @@ from test_audio import (
     nav_response,
     playurl_ok,
 )
-from test_subtitles import SAMPLE_DOC, nav_ok, player_ok, sub_entry
+from tests.support.subtitles import SAMPLE_DOC, nav_ok, player_ok, sub_entry
 
-import _asr_fakes as asr_fakes
-
-
-def _row(identity, *, status="meta_ok", duration_s=5, title="clip"):
-    return {
-        "bvid": identity.bvid,
-        "work_id": identity.work_id,
-        "page_index": identity.page_index,
-        "cid": identity.cid,
-        "page_label": identity.page_label,
-        "status": status,
-        "title": title,
-        "duration_s": duration_s,
-        "pubdate": 1,
-        "pubdate_str": "2026-01-02",
-    }
+import tests.support.asr_fakes as asr_fakes
+from tests.support.coordinator import _MID, _patch_cli, _row, _seed_part, _stub_asr
 
 
-def _patch_cli(monkeypatch, transport):
-    monkeypatch.setattr(bc, "build_default_transport", lambda: transport)
-    monkeypatch.setattr(bc, "default_sleeper", lambda: (lambda _s: None))
-    monkeypatch.setattr("bili_asr.cli.time.sleep", lambda _s: None)
 
 
-def _stub_asr(monkeypatch, calls=None):
-    """A canned model set; ``calls`` collects the path of every recording the boundary opened."""
 
-    return asr_fakes.install(monkeypatch, reads=calls)
+
 
 
 def _mixed_transport():
@@ -525,7 +509,7 @@ def test_run_batch_keeps_injected_runner_caller_owned(tmp_root, monkeypatch):
         offline=True,
         asr_runner=injected_runner,
     )
-    monkeypatch.setattr(runner, "_run_batch_locked", lambda _rows: coordinator.RunSummary())
+    monkeypatch.setattr(runner, "_run_batch_locked", lambda _rows: _module_pipeline_models.RunSummary())
 
     runner.run_batch([])
 
@@ -658,7 +642,7 @@ def test_cli_run_limit_bounds_batch(tmp_root, monkeypatch, capsys):
 
 
 def test_cli_run_per_item_failure_batch_continues(tmp_root, monkeypatch, capsys):
-    from bili_asr.asr import ASRModelError
+    from bili_asr.asr.errors import ASRModelError
 
     a = page_identity("BVAud", 0, 111, "p0")
     b = page_identity("BVBud", 0, 222, "p0")
@@ -1148,7 +1132,7 @@ def test_sigterm_delivery_ignores_both_signals_across_the_unwind():
     the block's exit is asserted for both signals: otherwise it would leak into
     the rest of the pytest session as a dead Ctrl-C.
     """
-    from bili_asr.cli import _RunInterrupted, _interruptible_run
+    from bili_asr.cli.signals import _RunInterrupted, _interruptible_run
 
     original_term = signal.getsignal(signal.SIGTERM)
     original_int = signal.getsignal(signal.SIGINT)
@@ -1267,7 +1251,7 @@ def test_run_offline_missing_input_skipped_with_reason_zero_http(
 def test_run_failure_summary_and_exit_when_scope_not_processed(
     tmp_root, monkeypatch, capsys
 ):
-    from bili_asr.asr import ASRModelError
+    from bili_asr.asr.errors import ASRModelError
 
     a = page_identity("BVsumFail", 0, 111, "p0")
     b = page_identity("BVmissOk", 0, 222, "p0")
@@ -1570,7 +1554,7 @@ def test_run_non_positive_limit_is_usage_error(
 def test_safe_error_code_sanitizes_forbidden_markers(tmp_root):
     # qc3-S2: a hostile .code string carrying forbidden markers must be
     # sanitized so _record never throws and never masks the stage error.
-    from bili_asr.coordinator import _safe_error_code
+    from bili_asr.pipeline.attempts import _safe_error_code
 
     class HostileCode(Exception):
         code = "https://evil.example/SESSDATA=abc"
@@ -1594,47 +1578,8 @@ def test_safe_error_code_sanitizes_forbidden_markers(tmp_root):
 # discipline the rest of this module's fixtures keep.
 # ---------------------------------------------------------------------------
 
-_MID = 23191782
 
 
-def _seed_part(root, bvid, page_index, cid):
-    """One stored video part; returns its ``video_part_id``."""
-    from bili_asr.storage import (
-        MetadataRepository,
-        UserRecord,
-        VideoPartRecord,
-        VideoRecord,
-        open_database,
-    )
-
-    connection = open_database(root)
-    try:
-        metadata = MetadataRepository(connection)
-        with metadata.transaction():
-            metadata.upsert_user(
-                UserRecord(mid=_MID, display_name="未明子", created_at=1, updated_at=1)
-            )
-            metadata.upsert_video(
-                VideoRecord(
-                    bvid=bvid, aid=None, mid=_MID, title="视频",
-                    pubdate=1_700_000_000, created_at=2, updated_at=2,
-                )
-            )
-            metadata.upsert_part(
-                VideoPartRecord(
-                    bvid=bvid, page_index=page_index, cid=cid, title="第一段",
-                    duration_ms=5_000, processing_status="discovered",
-                    created_at=3, updated_at=3,
-                )
-            )
-        connection.commit()
-        row = connection.execute(
-            "SELECT video_part_id FROM video_parts WHERE bvid = ? AND page_index = ?",
-            (bvid, page_index),
-        ).fetchone()
-        return int(row["video_part_id"])
-    finally:
-        connection.close()
 
 
 def _queue_counts(root):
@@ -1685,7 +1630,7 @@ def test_run_batch_asr_route_records_the_local_transcript(tmp_root, monkeypatch)
     _seed_part(tmp_root, aud_a.bvid, aud_a.page_index, aud_a.cid)
     _seed_part(tmp_root, aud_b.bvid, aud_b.page_index, aud_b.cid)
     # Audio evidence puts both parts in the transcript queue before the run.
-    from _archive_database import _seed_archive_database
+    from tests.support.archive_database import _seed_archive_database
 
     _seed_archive_database(tmp_root)
 

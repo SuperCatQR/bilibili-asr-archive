@@ -9,6 +9,10 @@ ASR/audio path from the state a pre-cutover archive already holds.
 
 from __future__ import annotations
 
+import bili_asr.asr.errors as _module_asr_errors
+import bili_asr.asr.runner as _module_asr_runner
+
+
 import json
 import os
 import sys
@@ -17,11 +21,11 @@ import pytest
 
 from bili_asr import asr as asr_mod
 from bili_asr import bili_client as bc
-from bili_asr.cli import main
+from bili_asr.cli.main import main
 from bili_asr.manifest import ManifestStore
 from bili_asr.page_identity import artifact_stem, page_identity
 
-from test_audio import (
+from tests.support.audio import (
     AUDIO_BYTES,
     SPI_OK,
     STREAM_HOST,
@@ -29,37 +33,14 @@ from test_audio import (
     nav_response,
     playurl_ok,
 )
-from test_subtitles import SAMPLE_DOC, nav_ok, player_ok, sub_entry
-from conftest import reuse_line
+from tests.support.subtitles import SAMPLE_DOC, nav_ok, player_ok, sub_entry
+from tests.conftest import reuse_line
 
-import _asr_fakes as asr_fakes
-from _archive_database import _seed_archive_database
+import tests.support.asr_fakes as asr_fakes
+from tests.support.archive_database import _seed_archive_database
+from tests.support.cli_asr import _audio_transport, _patch_cli, _stub_runner_model
 
 
-def _stub_runner_model(monkeypatch, calls=None, released=None):
-    """D2.5 seam: patch the module-level factory, not ``asr.transcribe``.
-
-    The real ``_get_model`` path stays under test, so the counter a command reports is the one the
-    production construction site produces.  Returns the list of construction kwargs, one entry per
-    model set built.  ``calls`` collects the path of every recording the boundary opened — the model
-    is handed a chunk file, so a row is identified at the read, not at the model.  ``released``
-    records each ``ASRRunner.release()`` call, so a test can assert the invocation-scoped runner is
-    handed back on every exit path.
-    """
-
-    constructions: list[dict] = []
-    asr_fakes.install(monkeypatch, text="asr-text", constructions=constructions, reads=calls)
-
-    if released is not None:
-        real_release = asr_mod.ASRRunner.release
-
-        def recording_release(self):
-            released.append(self)
-            real_release(self)
-
-        monkeypatch.setattr(asr_mod.ASRRunner, "release", recording_release)
-
-    return constructions
 
 def _seed_audio_ok(root, identities):
     """Rows the ``asr`` command routes straight to transcription."""
@@ -92,10 +73,6 @@ def _row(identity, *, duration_s=5, title="clip", status="meta_ok", **extra):
     return row
 
 
-def _patch_cli(monkeypatch, transport=None):
-    if transport is not None:
-        monkeypatch.setattr(bc, "build_default_transport", lambda: transport)
-    monkeypatch.setattr(bc, "default_sleeper", lambda: (lambda _seconds: None))
 
 
 def _jsonl_lines(root):
@@ -108,16 +85,6 @@ def _jsonl_work_ids(root):
     return [row.get("work_id") or row.get("bvid") for row in _jsonl_lines(root)]
 
 
-def _audio_transport():
-    return RouterTransport(
-        {
-            "finger/spi": [SPI_OK],
-            "nav": [nav_ok(), nav_response()],
-            "player/wbi/v2": [player_ok([])],
-            "/x/player/wbi/playurl": [playurl_ok()],
-        },
-        stream_routes={f"{STREAM_HOST}/a30216.m4s": AUDIO_BYTES},
-    )
 
 
 def _subtitle_transport():
@@ -242,7 +209,7 @@ def test_cli_subtitle_branch_subtitle_done_archived_skips_asr(
 def test_cli_asr_missing_optional_asr_exits_1_non_archived(
     tmp_root, monkeypatch, capsys
 ):
-    from bili_asr.asr import ASRDependencyError
+    from bili_asr.asr.errors import ASRDependencyError
 
     identity = page_identity("BVaud", 0, 222, "p0")
     ManifestStore(root=tmp_root).upsert(_row(identity, title="needs-asr"))
@@ -372,13 +339,13 @@ def test_cli_asr_releases_the_runner_when_transcription_is_interrupted(
     monkeypatch.setattr(asr_fakes.Model, "generate", interrupting)
     asr_fakes.install(monkeypatch, text="asr-text")
 
-    real_release = asr_mod.ASRRunner.release
+    real_release = _module_asr_runner.ASRRunner.release
 
     def recording_release(self):
         released.append(self)
         real_release(self)
 
-    monkeypatch.setattr(asr_mod.ASRRunner, "release", recording_release)
+    monkeypatch.setattr(_module_asr_runner.ASRRunner, "release", recording_release)
     _patch_cli(monkeypatch)
 
     with pytest.raises(KeyboardInterrupt):
@@ -454,7 +421,7 @@ def test_cli_asr_prints_the_line_when_every_transcription_fails(
 
 
 def _raise_asr_error():
-    raise asr_mod.ASRModelError("first decode failed")
+    raise _module_asr_errors.ASRModelError("first decode failed")
 
 
 def test_cli_asr_reuse_line_is_dropped_when_stderr_is_closed(
@@ -517,17 +484,17 @@ def test_cli_asr_counts_only_the_row_whose_transcribe_returned(
     _seed_audio_ok(asr_root, identities)
     _seed_audio_ok(run_root, identities)
     constructions = _stub_runner_model(monkeypatch)
-    real_transcribe = asr_mod.ASRRunner.transcribe
+    real_transcribe = _module_asr_runner.ASRRunner.transcribe
     raising_stem = artifact_stem(raising)
 
     def fail_for_row_one(self, audio_path):
         # `asr` hands the runner a /proc/self/fd descriptor while `run` hands it
         # the real audio path; realpath resolves both to the same file.
         if raising_stem in os.path.realpath(os.fspath(audio_path)):
-            raise asr_mod.ASRModelError("row 1 decode failed")
+            raise _module_asr_errors.ASRModelError("row 1 decode failed")
         return real_transcribe(self, audio_path)
 
-    monkeypatch.setattr(asr_mod.ASRRunner, "transcribe", fail_for_row_one)
+    monkeypatch.setattr(_module_asr_runner.ASRRunner, "transcribe", fail_for_row_one)
     _patch_cli(monkeypatch, RouterTransport({}))
 
     rc = main(["asr", "--pending", "--limit", "3", "--archive-root", asr_root])
@@ -743,7 +710,7 @@ def test_the_asr_path_names_the_exception_class_beside_the_row(
         raise KeyError("downstream")
 
     _patch_cli(monkeypatch, RouterTransport({}))
-    monkeypatch.setattr(asr_mod.ASRRunner, "transcribe", lambda self, _path: [
+    monkeypatch.setattr(_module_asr_runner.ASRRunner, "transcribe", lambda self, _path: [
         {"start": 0.0, "end": 1.0, "text": "句子。"}
     ])
     # Patch the one archive seam this row reaches, after transcription.

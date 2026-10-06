@@ -13,6 +13,14 @@ field existed) must still be readable by every reader that touches it.
 
 from __future__ import annotations
 
+import bili_asr.asr.alignment as _module_asr_alignment
+import bili_asr.asr.audio as _module_asr_audio
+import bili_asr.asr.config as _module_asr_config
+import bili_asr.asr.constants as _module_asr_constants
+import bili_asr.asr.coverage as _module_asr_coverage
+import bili_asr.asr.runner as _module_asr_runner
+
+
 import json
 
 import pytest
@@ -39,9 +47,9 @@ def _units(text: str, step: float = 0.4) -> list[dict]:
 def _record(text: str) -> tuple[list[dict], dict]:
     """Run the two pure steps the way ``ASRRunner.transcribe`` does, and return cues + record."""
 
-    pieces = asr._thread_text(text, [dict(unit) for unit in _units(text)])
-    cues = asr._aligned_cues([dict(piece) for piece in pieces])
-    return cues, asr._characters_from_pieces(pieces, cues)
+    pieces = _module_asr_alignment._thread_text(text, [dict(unit) for unit in _units(text)])
+    cues = _module_asr_alignment._aligned_cues([dict(piece) for piece in pieces])
+    return cues, _module_asr_alignment._characters_from_pieces(pieces, cues)
 
 
 def test_the_three_arrays_are_parallel_and_ordered() -> None:
@@ -74,7 +82,7 @@ def test_a_character_the_cue_text_does_not_carry_is_refused() -> None:
     pieces = [{"text": "你好", "start": 0.0, "end": 1.0}]
 
     with pytest.raises(ValueError, match="not a projection"):
-        asr._characters_from_pieces(pieces, [{"start": 0.0, "end": 1.0, "text": "再见"}])
+        _module_asr_alignment._characters_from_pieces(pieces, [{"start": 0.0, "end": 1.0, "text": "再见"}])
 
 
 def test_piece_text_the_cue_text_drops_is_refused_when_it_is_not_whitespace() -> None:
@@ -83,7 +91,7 @@ def test_piece_text_the_cue_text_drops_is_refused_when_it_is_not_whitespace() ->
     pieces = [{"text": "你好", "start": 0.0, "end": 1.0}]
 
     with pytest.raises(ValueError, match="not a projection"):
-        asr._characters_from_pieces(pieces, [{"start": 0.0, "end": 1.0, "text": "你好吗"}])
+        _module_asr_alignment._characters_from_pieces(pieces, [{"start": 0.0, "end": 1.0, "text": "你好吗"}])
 
 
 # ---------------------------------------------------------------------------------------
@@ -398,12 +406,12 @@ def test_a_real_transcription_reaches_the_published_raw(tmp_root, monkeypatch) -
 
     text = "今天讲两件事。明天我们接着讲第三件事。"
     units = _units(text)
-    samples = np.zeros(asr.SAMPLE_RATE * 3, dtype="float32")
-    monkeypatch.setattr(soundfile, "read", lambda *args, **kwargs: (samples, asr.SAMPLE_RATE))
+    samples = np.zeros(_module_asr_constants.SAMPLE_RATE * 3, dtype="float32")
+    monkeypatch.setattr(soundfile, "read", lambda *args, **kwargs: (samples, _module_asr_constants.SAMPLE_RATE))
     monkeypatch.setattr(soundfile, "write", lambda *args, **kwargs: None)
-    monkeypatch.setattr(asr, "_materialize_input", lambda path: (path, None))
+    monkeypatch.setattr(_module_asr_audio, "_materialize_input", lambda path: (path, None))
 
-    runner = asr.ASRRunner(asr.ASRConfig(model_name="Qwen/Qwen3-ASR-1.7B-hf", device="cpu"))
+    runner = _module_asr_runner.ASRRunner(_module_asr_config.ASRConfig(model_name="Qwen/Qwen3-ASR-1.7B-hf", device="cpu"))
     monkeypatch.setattr(runner, "_get_models", lambda: object())
     monkeypatch.setattr(runner, "_transcribe_chunk", lambda models, path, **kwargs: (text, "Chinese"))
     monkeypatch.setattr(runner, "_align_chunk", lambda models, path, chunk_text, language: units)
@@ -411,7 +419,7 @@ def test_a_real_transcription_reaches_the_published_raw(tmp_root, monkeypatch) -
     assert runner.characters() is None, "no run yet: the record is not invented"
 
     segments = runner.transcribe("/nonexistent/one.wav")
-    characters = asr.characters_of(runner)
+    characters = _module_asr_coverage.characters_of(runner)
 
     assert characters is not None
     assert characters["text"] == "".join(str(segment["text"]) for segment in segments)
@@ -434,4 +442,3 @@ def test_a_real_transcription_reaches_the_published_raw(tmp_root, monkeypatch) -
     assert raw["characters"]["text"] == "".join(
         str(segment["text"]) for segment in raw["segments"]
     )
-

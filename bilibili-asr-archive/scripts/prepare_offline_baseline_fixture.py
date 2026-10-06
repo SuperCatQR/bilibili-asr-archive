@@ -17,6 +17,8 @@ from typing import Any
 from packaging.requirements import Requirement
 from packaging.utils import canonicalize_name, parse_wheel_filename
 
+from scripts.project_staging import stage_project
+
 ROOT = Path(__file__).resolve().parents[1]
 FIXTURE_SCHEMA = "bili-asr-offline-fixture/v1"
 PROJECT_NAME = "bili-asr"
@@ -125,11 +127,7 @@ def preflight_fixture(fixture: Path) -> None:
     with tempfile.TemporaryDirectory(prefix="bili-asr-fixture-preflight-") as temp:
         temporary = Path(temp)
         project = temporary / "project"
-        shutil.copytree(
-            ROOT,
-            project,
-            ignore=shutil.ignore_patterns(".git", ".venv", ".test-tmp", ".pytest_cache", "__pycache__", "verification-results"),
-        )
+        stage_project(ROOT, project)
         venv = temporary / "venv"
         create = subprocess.run([sys.executable, "-m", "venv", str(venv)], cwd=project, capture_output=True, text=True)
         if create.returncode:

@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from bili_asr.cli import build_parser, main
+from bili_asr.cli.parser import build_parser
+from bili_asr.cli.main import main
 from bili_asr.config import MetadataConfigError, load_metadata_config
 from bili_asr.services.metadata_ingest import MetadataIngestor
 from bili_asr.sources.models import (
@@ -19,7 +20,7 @@ from bili_asr.sources.models import (
     VideoSummary,
 )
 from bili_asr.storage import MetadataRepository, open_database
-from fixtures.fake_bilibili_gateway import (
+from tests.fixtures.fake_bilibili_gateway import (
     MID,
     UPSTREAM_ERROR_TEXT,
     FakeGateway,

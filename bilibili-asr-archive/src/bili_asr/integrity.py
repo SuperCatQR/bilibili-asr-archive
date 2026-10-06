@@ -21,7 +21,7 @@ from .archive import (
 from .artifact_root import ArtifactRoots
 from .manifest import BACKLOG_STATUSES, JOURNAL_NAME
 from .page_identity import canonical_stem
-from .coordinator import _validate_attempt
+from bili_asr.pipeline.attempts import _validate_attempt
 from .persistence import file_lock
 from .sidecar_projection import (
     ORDINARY_HISTORY_DIAGNOSTICS, ReaderPolicy, is_plain_cli_archive,

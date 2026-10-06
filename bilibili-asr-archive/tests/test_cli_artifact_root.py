@@ -29,11 +29,12 @@ import pytest
 from bili_asr import asr as asr_mod
 from bili_asr import bili_client as bc
 from bili_asr.archive import write_archive
-from bili_asr.cli import build_parser, main
+from bili_asr.cli.parser import build_parser
+from bili_asr.cli.main import main
 from bili_asr.manifest import ManifestStore
 from bili_asr.page_identity import artifact_stem, page_identity
 
-from test_audio import (
+from tests.support.audio import (
     AUDIO_BYTES,
     SPI_OK,
     STREAM_HOST,
@@ -41,10 +42,10 @@ from test_audio import (
     nav_response,
     playurl_ok,
 )
-from test_subtitles import SAMPLE_DOC, nav_ok, player_ok
+from tests.support.subtitles import SAMPLE_DOC, nav_ok, player_ok
 
-import _asr_fakes as asr_fakes
-from _archive_database import _seed_archive_database
+import tests.support.asr_fakes as asr_fakes
+from tests.support.archive_database import _seed_archive_database
 
 #: The word the fixture transcript carries.  The row's title does not contain it, so a
 #: hit proves the transcript file was really read from the base the row was written to.
@@ -221,7 +222,7 @@ def _offline_client(monkeypatch, transport=None) -> None:
         bc, "build_default_transport", lambda: transport or RouterTransport({})
     )
     monkeypatch.setattr(bc, "default_sleeper", lambda: (lambda _seconds: None))
-    monkeypatch.setattr("bili_asr.cli.time.sleep", lambda _seconds: None)
+    monkeypatch.setattr('bili_asr.cli.pilot.time.sleep', lambda _seconds: None)
 
 
 def _audio_transport() -> RouterTransport:
@@ -903,8 +904,8 @@ def test_retention_resolves_without_the_artifact_root_flag(
         def parse_args(self, _argv):
             return namespace
 
-    monkeypatch.setattr("bili_asr.cli.build_parser", lambda: _KeepOnlyParser())
-    monkeypatch.setattr("bili_asr.cli._dispatch_command", lambda _args: 0)
+    monkeypatch.setattr('bili_asr.cli.parser.build_parser', lambda: _KeepOnlyParser())
+    monkeypatch.setattr('bili_asr.cli.main.main._dispatch_command', lambda _args: 0)
 
     assert main([]) == 0
     assert namespace.keep_audio is expected

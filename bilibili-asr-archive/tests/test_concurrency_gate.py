@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import bili_asr.cli.concurrency as _module_cli_concurrency
+
+
 import copy
 import json
 from collections.abc import Mapping, Sequence
@@ -8,7 +11,7 @@ from pathlib import Path
 import pytest
 
 from bili_asr import cli
-from bili_asr.cli import main
+from bili_asr.cli.main import main
 from bili_asr.concurrency_gate import ConcurrencyGate
 
 
@@ -423,14 +426,14 @@ def test_cli_unreadable_category_uses_reader_monkeypatch(tmp_path, evidence, thr
     write_json(evidence_path, evidence)
     write_json(thresholds_path, thresholds)
 
-    original_reader = cli._read_concurrency_json_object
+    original_reader = _module_cli_concurrency._read_concurrency_json_object
 
     def unreadable_reader(path: str) -> dict[str, object]:
         if path == str(evidence_path):
-            raise cli._ConcurrencyInputError("input_file_unreadable")
+            raise _module_cli_concurrency._ConcurrencyInputError("input_file_unreadable")
         return original_reader(path)
 
-    monkeypatch.setattr(cli, "_read_concurrency_json_object", unreadable_reader)
+    monkeypatch.setattr(_module_cli_concurrency, "_read_concurrency_json_object", unreadable_reader)
     exit_code, payload = run_cli(evidence_path, thresholds_path, capsys)
 
     assert exit_code != 0

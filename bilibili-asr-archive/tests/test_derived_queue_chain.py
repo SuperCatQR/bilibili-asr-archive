@@ -1,52 +1,4 @@
-"""The chain accepts what the bridge writes (spec §4; compass criteria 2, 3, 6).
-
-Every case starts from **Fixture F**: a disposable archive root whose
-``archive.db`` records a captionless part through the shipping harvest path
-(``harvest-subs`` against the scripted gateway double, which records the part's
-``no-subtitle`` attempt) beside a part that already holds a stored caption.
-``derive-manifest`` then appends the manifest row the chain reads, and the chain
-itself is driven end to end through ``bili_asr.cli.main``.
-
-What is pinned, per compass criterion:
-
-- **2** — the captionless part the harvest path recorded is reachable by the
-  audio path with no hand editing: ``download-audio --missing-subs --limit 1``
-  does not print the shipped ``download-audio: no needs_audio entries in the
-  manifest`` line, and the attempt is signed for the derived page's stored
-  ``cid`` (one playurl call, no page resolution).
-- **3** — ``run --scope pending --offline`` carries the derived row past the
-  state the bridge gave it (``needs_audio`` → ``archived``) and no attempt
-  record carries ``missing_subtitle_raw`` for a derived ``work_id`` (spec §4's
-  invariant, read back from ``coordinator/attempts.jsonl``).  The negative
-  control shows the code is producible (case 3): one hand-written
-  ``subtitle_done`` row whose ``subtitles/raw/{stem}.json`` does not exist — the
-  state the bridge refuses to write (spec §3.3, §4) — records exactly that code
-  in the same run and does not reach ``archived``, so the filter the assertion
-  above applies is live rather than vacuous.
-- **6** — both halves of spec §5 decision 4.  A successful bounded attempt takes
-  the row out of ``needs_audio``, so the next bounded selection attempts the
-  other part; an attempt the chain's own audio budget skips leaves no recency
-  anywhere, so the next bounded selection proposes the same head again.  The
-  lost half is the residual the compass registers, demonstrated here rather than
-  asserted in prose.
-
-**No network, by construction, in three layers.**  A ``run --offline`` case
-builds no client at all (``cli.py``: ``client = None`` unless the flag is
-absent), so it hands the seam a transport that raises on any use and asserts the
-transport recorded no call.  The ``download-audio`` cases and the budget case
-replace ``bili_client.build_default_transport`` with the frozen spec's scripted
-in-memory ``RouterTransport`` (``{SPECS_DIR}/asr-archive-cli.md:103-109``), which
-answers from dicts and fails loudly on an unrouted URL.  On top of both, every
-case installs a socket tripwire, so a code path that reached for a real socket
-would fail here instead of quietly using the network.  No case downloads audio
-from anywhere but the scripted payload, and the ASR model is the repository's own
-stubbed runner seam (``test_coordinator._stub_asr``).
-
-**What stays untested, and why.**  This environment has no ``[asr]`` extra
-(``transformers`` is not importable), so the real-model ASR path cannot run: the
-stub-free case below observes the documented install-hint stop instead, and
-criterion 3's live confirmation is recorded as untested rather than passed.
-"""
+"The chain accepts what the bridge writes (spec §4; compass criteria 2, 3, 6).\n\nEvery case starts from **Fixture F**: a disposable archive root whose\n``archive.db`` records a captionless part through the shipping harvest path\n(``harvest-subs`` against the scripted gateway double, which records the part's\n``no-subtitle`` attempt) beside a part that already holds a stored caption.\n``derive-manifest`` then appends the manifest row the chain reads, and the chain\nitself is driven end to end through ``bili_asr.cli.main.main``.\n\nWhat is pinned, per compass criterion:\n\n- **2** — the captionless part the harvest path recorded is reachable by the\n  audio path with no hand editing: ``download-audio --missing-subs --limit 1``\n  does not print the shipped ``download-audio: no needs_audio entries in the\n  manifest`` line, and the attempt is signed for the derived page's stored\n  ``cid`` (one playurl call, no page resolution).\n- **3** — ``run --scope pending --offline`` carries the derived row past the\n  state the bridge gave it (``needs_audio`` → ``archived``) and no attempt\n  record carries ``missing_subtitle_raw`` for a derived ``work_id`` (spec §4's\n  invariant, read back from ``coordinator/attempts.jsonl``).  The negative\n  control shows the code is producible (case 3): one hand-written\n  ``subtitle_done`` row whose ``subtitles/raw/{stem}.json`` does not exist — the\n  state the bridge refuses to write (spec §3.3, §4) — records exactly that code\n  in the same run and does not reach ``archived``, so the filter the assertion\n  above applies is live rather than vacuous.\n- **6** — both halves of spec §5 decision 4.  A successful bounded attempt takes\n  the row out of ``needs_audio``, so the next bounded selection attempts the\n  other part; an attempt the chain's own audio budget skips leaves no recency\n  anywhere, so the next bounded selection proposes the same head again.  The\n  lost half is the residual the compass registers, demonstrated here rather than\n  asserted in prose.\n\n**No network, by construction, in three layers.**  A ``run --offline`` case\nbuilds no client at all (``cli.py``: ``client = None`` unless the flag is\nabsent), so it hands the seam a transport that raises on any use and asserts the\ntransport recorded no call.  The ``download-audio`` cases and the budget case\nreplace ``bili_client.build_default_transport`` with the frozen spec's scripted\nin-memory ``RouterTransport`` (``{SPECS_DIR}/asr-archive-cli.md:103-109``), which\nanswers from dicts and fails loudly on an unrouted URL.  On top of both, every\ncase installs a socket tripwire, so a code path that reached for a real socket\nwould fail here instead of quietly using the network.  No case downloads audio\nfrom anywhere but the scripted payload, and the ASR model is the repository's own\nstubbed runner seam (``test_coordinator._stub_asr``).\n\n**What stays untested, and why.**  This environment has no ``[asr]`` extra\n(``transformers`` is not importable), so the real-model ASR path cannot run: the\nstub-free case below observes the documented install-hint stop instead, and\ncriterion 3's live confirmation is recorded as untested rather than passed.\n"
 
 from __future__ import annotations
 
@@ -56,13 +8,13 @@ import socket
 
 import pytest
 
-from bili_asr.cli import main
-from bili_asr.coordinator import AttemptLedger
+from bili_asr.cli.main import main
+from bili_asr.pipeline.attempts import AttemptLedger
 from bili_asr.manifest import ManifestStore
 from bili_asr.page_identity import artifact_stem, identity_from_entry
 
-from fixtures.fake_bilibili_gateway import FakeGateway, fake_gateway_seam
-from test_audio import (
+from tests.fixtures.fake_bilibili_gateway import FakeGateway, fake_gateway_seam
+from tests.support.audio import (
     AUDIO_BYTES,
     SPI_OK,
     STREAM_HOST,
@@ -70,8 +22,8 @@ from test_audio import (
     nav_response,
     playurl_ok,
 )
-from test_cli_derive_manifest import _archive_connection, _derive, _seed_archive
-from test_coordinator import _patch_cli, _row, _stub_asr
+from tests.support.cli_derive_manifest import _archive_connection, _derive, _seed_archive
+from tests.support.coordinator import _patch_cli, _row, _stub_asr
 
 #: The captionless part: no transcript row, recorded ``no-subtitle`` by
 #: ``harvest-subs``.  This is the part the bridge derives.

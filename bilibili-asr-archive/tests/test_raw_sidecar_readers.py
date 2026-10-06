@@ -8,7 +8,8 @@ from pathlib import Path
 import pytest
 
 from bili_asr.cues import CueParseError, read_route_ms
-from bili_asr.search_index import SearchIndex, extract_transcript_text
+from bili_asr.search_index.manifest import SearchIndex
+from bili_asr.search_index.readers import extract_transcript_text
 
 
 def _raw_sidecar(tmp_path: Path, document: object) -> tuple[Path, dict]:
@@ -61,7 +62,7 @@ def test_asr_route_invalid_utf8_is_a_route_refusal(tmp_path: Path) -> None:
 
 
 def test_proofread_cli_reports_malformed_route(tmp_path: Path, capsys) -> None:
-    from bili_asr.cli import main
+    from bili_asr.cli.main import main
 
     _raw_sidecar(tmp_path, [])
     assert main([

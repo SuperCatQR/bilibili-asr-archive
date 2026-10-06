@@ -26,7 +26,8 @@ import time
 
 import pytest
 
-from bili_asr.cli import build_parser, main
+from bili_asr.cli.parser import build_parser
+from bili_asr.cli.main import main
 from bili_asr.config import (
     DEFAULT_MID,
     DEFAULT_PAGE_LIMIT,
@@ -36,7 +37,7 @@ from bili_asr.config import (
 )
 from bili_asr.storage import MetadataRepository, open_database
 from bili_asr.storage.models import IngestionRunRecord, UserRecord
-from fixtures.fake_bilibili_gateway import (
+from tests.fixtures.fake_bilibili_gateway import (
     MID,
     SESSDATA_BOUNDARY_VALUE,
     UPSTREAM_ERROR_TEXT,

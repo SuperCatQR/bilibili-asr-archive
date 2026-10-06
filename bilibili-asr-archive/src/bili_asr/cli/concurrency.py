@@ -62,13 +62,10 @@ def _write_concurrency_error(error_code: str) -> None:
 def _cmd_evaluate_concurrency(args: argparse.Namespace) -> int:
     from bili_asr.concurrency_gate import ConcurrencyGate
 
-    # Resolve through the package namespace so monkeypatches against
-    # ``bili_asr.cli`` take effect (the test contract pins the package attributes).
-    import bili_asr.cli as _cli_pkg
 
     try:
-        evidence = _cli_pkg._read_concurrency_json_object(args.evidence)
-        thresholds = _cli_pkg._read_concurrency_json_object(args.thresholds)
+        evidence = _read_concurrency_json_object(args.evidence)
+        thresholds = _read_concurrency_json_object(args.thresholds)
     except _ConcurrencyInputError as exc:
         _write_concurrency_error(exc.error_code)
         return 1

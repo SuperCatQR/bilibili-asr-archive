@@ -8,7 +8,7 @@ Kept as an entry point for prior muscle memory only.
 """
 import sys
 
-from bili_asr.cli import main
+from bili_asr.cli.main import main
 
 if __name__ == "__main__":
     argv = ["fetch-meta", "--mid", "23191782"]

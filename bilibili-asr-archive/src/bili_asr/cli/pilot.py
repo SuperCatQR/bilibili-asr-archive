@@ -1,42 +1,25 @@
-"""The `_cmd_pilot` handler and pilot-selection helpers."""
+"""Pilot implementation."""
 
 from __future__ import annotations
 
-from bili_asr.diagnostics import write_stderr
+import bili_asr.asr.config as _module_asr_config
+import bili_asr.asr.coverage as _module_asr_coverage
+import bili_asr.asr.errors as _module_asr_errors
+import bili_asr.asr.provenance as _module_asr_provenance
+import bili_asr.asr.runner as _module_asr_runner
 
+
+from bili_asr.diagnostics import write_stderr
 from pathlib import Path
 from typing import Any
-import hashlib
-import json
 import os
-import sys
 import time
-
-from bili_asr.cli._shared import (
-    DEFAULT_ARCHIVE_ROOT,
-    _AUDIO_BUDGET_SKIP_HINT,
-    _archive_database_exists,
-    _identity_from_entry,
-    _is_excluded,
-    _metadata_database_path,
-    _open_read_connection,
-    _open_read_repository,
-    _queue_source_is_manifest,
-    _record_api_error,
-    _resolve_sessdata,
-    _store_audio_todo,
-    _store_transcript_todo,
-    _subtitle_selector,
-    _todo_for_bvid,
-)
-from bili_asr.cli.asr import (
-    _AsrItemCount,
-    _asr_transcript_segments,
-    _print_in_process_constructions,
-)
+from bili_asr.cli._shared import _AUDIO_BUDGET_SKIP_HINT, _identity_from_entry, _is_excluded, _queue_source_is_manifest, _record_api_error, _resolve_sessdata
+from bili_asr.cli.processing import _AsrItemCount, _asr_transcript_segments, _print_in_process_constructions
 from bili_asr.cli.status_cmd import _PILOT_PROCESSABLE, _PILOT_SKIP_HARVEST
-from bili_asr.config import resolve_sessdata
 from bili_asr.cli.run_record import recorded_command
+import bili_asr.cli.processing_paths as _dependency_processing_paths
+
 
 def _pilot_row_key(entry: dict[str, object]) -> str:
     return str(entry.get("work_id") or entry.get("bvid") or "")
@@ -104,96 +87,13 @@ def _expand_selected_pages(
     return selected + extras
 
 
-def _subtitle_segments(
-    roots: ArtifactRoots, entry: dict[str, object]
-) -> tuple[list[dict[str, object]], object] | None:
-    """Read one row's harvested caption document over the ordered bases (contract §5).
-
-    The document is a **read**, and the recorded path is root-relative (D7), so the
-    first base that holds it wins: a row harvested before the artifact root was
-    configured keeps resolving at the archive root.
-    """
-    import json
-    from bili_asr.archive import archive_stem
-
-    stem = archive_stem(entry)
-    relative = os.path.join("subtitles", "raw", f"{stem}.json")
-    for base in roots.read_bases():
-        raw_path = os.path.join(os.fspath(base), relative)
-        if not os.path.isfile(raw_path):
-            continue
-        with open(raw_path, encoding="utf-8") as fh:
-            doc = json.load(fh)
-        segments = [{"start": item.get("from", 0), "end": item.get("to", 0), "text": item.get("content", "")}
-                    for item in doc.get("body", [])]
-        return segments, doc
-    return None
-
-
-def _audio_base_holding(roots: ArtifactRoots, declared: str) -> Path:
-    """The first base that holds one recorded ``audio_path`` (contract §5, D8).
-
-    A recorded value stays root-relative, so the base it is resolved against is decided
-    by which one holds the file — the row's audio may predate the configured root.  A
-    value no base holds is a failure of the read, reported as the guard's own
-    ``OSError`` so the row's ``archive failed`` line keeps naming the same class.
-    """
-    from bili_asr.path_policy import confined_audio_path
-
-    for base in roots.read_bases():
-        if confined_audio_path(base, declared, require_exists=True) is not None:
-            return base
-    raise OSError("invalid audio path")
-
-
-def _audio_base_for_path(roots: ArtifactRoots, path: str | os.PathLike[str]) -> Path:
-    """The first base that holds one on-disk audio path (contract §5, D6).
-
-    ``audio.download_audio`` hands back what its own resolver found over ``read_bases()``
-    when the bytes are already there, so the return may live under the **archive root**
-    for a row that predates the configured root — while ``write_base`` only ever names
-    where a write goes.  Same rule as :func:`_audio_base_holding`, on an absolute path
-    instead of the recorded root-relative one.
-    """
-    from bili_asr.path_policy import confined_audio_path
-
-    target = os.fspath(path)
-    for base in roots.read_bases():
-        try:
-            declared = os.path.relpath(target, base).replace(os.sep, "/")
-        except ValueError:  # Windows across drives
-            continue
-        if confined_audio_path(base, declared, require_exists=True) is not None:
-            return base
-    raise OSError("invalid audio path")
-
-
-def _reclaim_after_archive(
-    roots: ArtifactRoots, entry: dict[str, object], *, keep: bool
-) -> None:
-    """Best-effort audio reclaim once a row is archived (plan: audio-reclaim).
-
-    ``keep`` is the retention policy the command boundary resolved (contract §7, D15);
-    the library never reads the environment.  ``roots`` carries both bases, because "do
-    not keep this row's audio" means the copy, wherever it is.
-    """
-    from bili_asr.audio_reclaim import reclaim_audio
-
-    try:
-        reclaim_audio(
-            roots.archive_root, entry, artifact_roots=roots, keep=keep
-        )
-    except (OSError, ValueError):
-        pass  # per-item non-fatal: transcripts exist; row stays archived
-
-
 def _pilot_archive_subtitle(
     store, roots: ArtifactRoots, entry: dict[str, object], *, keep: bool
 ) -> dict[str, object]:
     from bili_asr import archive
 
     base = roots.write_base
-    data = _subtitle_segments(roots, entry)
+    data = _dependency_processing_paths._subtitle_segments(roots, entry)
     if data is None:
         raise ValueError(f"{_pilot_row_key(entry)}: subtitle raw JSON missing")
     segments, raw = data
@@ -204,7 +104,7 @@ def _pilot_archive_subtitle(
     updated.update(paths)
     updated["status"] = "archived"
     store.upsert(updated)
-    _reclaim_after_archive(roots, updated, keep=keep)
+    _dependency_processing_paths._reclaim_after_archive(roots, updated, keep=keep)
     return updated
 
 
@@ -261,7 +161,7 @@ def _pilot_archive_asr(
     from bili_asr.path_policy import confined_audio_file, confined_audio_path
     if existing_rel:
         try:
-            holding = _audio_base_holding(roots, os.fspath(existing_rel))
+            holding = _dependency_processing_paths._audio_base_holding(roots, os.fspath(existing_rel))
         except OSError:
             holding = None
         if holding is not None:
@@ -281,7 +181,7 @@ def _pilot_archive_asr(
         # the archive root (D6) — so the base that holds the return is the one the value is
         # re-confined and recorded against, the same rule as the recorded branch above.
         try:
-            audio_base = _audio_base_for_path(roots, downloaded)
+            audio_base = _dependency_processing_paths._audio_base_for_path(roots, downloaded)
         except OSError:
             raise ValueError("invalid audio path")
         downloaded_rel = os.path.relpath(downloaded, audio_base).replace(os.sep, "/")
@@ -292,7 +192,7 @@ def _pilot_archive_asr(
     declared_audio = os.path.relpath(audio_path, audio_base).replace(os.sep, "/")
     owns_runner = runner is None
     if owns_runner:
-        runner = asr.ASRRunner(asr.default_config())
+        runner = _module_asr_runner.ASRRunner(_module_asr_config.default_config())
     try:
         with confined_audio_file(audio_base, declared_audio) as safe_audio:
             segments = runner.transcribe(safe_audio)
@@ -305,9 +205,9 @@ def _pilot_archive_asr(
         current = dict(store.get(target.work_id) or entry)
         paths = archive.write_archive(
             base, current, segments, source="asr", asr_provenance=runner.provenance(),
-            characters=asr.characters_of(runner),
+            characters=_module_asr_coverage.characters_of(runner),
             # Same measurement as the store write-back below (I-000188: store *and* bundle).
-            coverage=asr.transcribed_coverage(runner),
+            coverage=_module_asr_coverage.transcribed_coverage(runner),
         )
     finally:
         if owns_runner:
@@ -316,16 +216,16 @@ def _pilot_archive_asr(
         raise ValueError("archive bundle incomplete")
     current.update(paths)
     current["status"] = "archived"
-    asr.apply_provenance_evidence(current, runner)
+    _module_asr_provenance.apply_provenance_evidence(current, runner)
     # Coverage attestation (plan asr-coverage-attestation): this route runs ASR, so its measured
     # span rides the row it writes — the same carrier as the `asr` loop and the coordinator.
-    asr.apply_coverage_evidence(current, runner)
+    _module_asr_coverage.apply_coverage_evidence(current, runner)
     try:
         current["audio_path"] = os.path.relpath(audio_path, audio_base).replace(os.sep, "/")
     except ValueError:
         current["audio_path"] = audio_path
     store.upsert(current)
-    _reclaim_after_archive(roots, current, keep=keep)
+    _dependency_processing_paths._reclaim_after_archive(roots, current, keep=keep)
     return current
 
 
@@ -376,7 +276,7 @@ def _record_pilot_audio_acquired(
     if not audio_rel or identity is None:
         return
     try:
-        base = _audio_base_holding(roots, os.fspath(audio_rel))
+        base = _dependency_processing_paths._audio_base_holding(roots, os.fspath(audio_rel))
     except OSError:
         return
     audio_path = os.path.join(os.fspath(base), os.fspath(audio_rel))
@@ -580,7 +480,7 @@ def _cmd_pilot(args: argparse.Namespace) -> int:
                         )
                         continue
                     if runner is None:
-                        runner = asr.ASRRunner(asr.default_config())
+                        runner = _module_asr_runner.ASRRunner(_module_asr_config.default_config())
                     audio_attempted = True
                     archived_row = _pilot_archive_asr(
                         store, client, args.artifact_roots, current, target, runner,
@@ -621,11 +521,11 @@ def _cmd_pilot(args: argparse.Namespace) -> int:
                                         run_id=writeback_source.asr_run_id,
                                         bvid=identity[0],
                                         page_index=identity[1],
-                                        language=asr.provenance_language(provenance),
+                                        language=_module_asr_provenance.provenance_language(provenance),
                                         segments=_asr_transcript_segments(recorded),
                                         model_name=provenance.get("model_name", ""),
                                         model_revision=provenance.get("model_revision"),
-                                        coverage=asr.transcribed_coverage(runner),
+                                        coverage=_module_asr_coverage.transcribed_coverage(runner),
                                     )
                     batch_audio_count += 1
                     coverage_audio_count += 1
@@ -633,7 +533,7 @@ def _cmd_pilot(args: argparse.Namespace) -> int:
                     print(f"{label}: archived (asr)")
                 else:
                     raise ValueError(f"unexpected status {status!r}")
-            except asr.ASRDependencyError as exc:
+            except _module_asr_errors.ASRDependencyError as exc:
                 write_stderr(str(exc))
                 write_stderr(
                     f"{label}: ASR dependency unavailable; row not archived"

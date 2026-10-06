@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import bili_asr.cli.main as _module_cli_main
+
+
 from collections import Counter
 import json
 from pathlib import Path
@@ -48,7 +51,7 @@ def test_real_quality_cli_does_not_resolve_each_base_for_every_absent_candidate(
         return original(path, *args, **kwargs)
 
     monkeypatch.setattr(Path, "resolve", observed)
-    assert cli.main([
+    assert _module_cli_main.main([
         "coverage", "--archive-root", str(root), "--artifact-root", str(artifacts),
         "--quality", "--format", "json",
     ]) == 0

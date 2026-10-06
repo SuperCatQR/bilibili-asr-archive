@@ -1,25 +1,9 @@
-"""Offline contract tests for ``bili-asr publish-transcripts`` (contract §7, §10).
-
-Everything here is offline.  The command is driven end to end through
-``bili_asr.cli.main`` — argparse, the read-only store connection, the
-transcript-schema guard, ``TranscriptRepository``, the pure projection service,
-the archive writer and ``ManifestStore`` — against a temporary archive database,
-so no network call is made, no live corpus is touched and no ASR runs.
-
-What is pinned: the five states §5.5 discriminates (a fresh transcript, a
-chain-archived bundle, a second stored version, an interrupted publication and a
-``gone`` part that still holds local text), the exact printed lines and the
-summary with its zeros, the idempotency §5.4 rests on (a complete bundle is
-never rewritten), the exit stance (``0``/``1``, never ``2``), and the boundaries
-the command promises — the store is opened read-only and never written, one row
-is appended per publication, and the products land under ``--artifact-root``
-while the state stays at the archive root.
-
-The store fixture is built through the repository APIs only: no test here writes
-raw SQL into ``archive.db``.
-"""
+'Offline contract tests for ``bili-asr publish-transcripts`` (contract §7, §10).\n\nEverything here is offline.  The command is driven end to end through\n``bili_asr.cli.main.main`` — argparse, the read-only store connection, the\ntranscript-schema guard, ``TranscriptRepository``, the pure projection service,\nthe archive writer and ``ManifestStore`` — against a temporary archive database,\nso no network call is made, no live corpus is touched and no ASR runs.\n\nWhat is pinned: the five states §5.5 discriminates (a fresh transcript, a\nchain-archived bundle, a second stored version, an interrupted publication and a\n``gone`` part that still holds local text), the exact printed lines and the\nsummary with its zeros, the idempotency §5.4 rests on (a complete bundle is\nnever rewritten), the exit stance (``0``/``1``, never ``2``), and the boundaries\nthe command promises — the store is opened read-only and never written, one row\nis appended per publication, and the products land under ``--artifact-root``\nwhile the state stays at the archive root.\n\nThe store fixture is built through the repository APIs only: no test here writes\nraw SQL into ``archive.db``.\n'
 
 from __future__ import annotations
+
+import bili_asr.cli._shared as _module_cli__shared
+
 
 from dataclasses import replace
 import hashlib
@@ -30,9 +14,9 @@ import time
 
 from bili_asr import archive as archive_module
 from bili_asr import cli as cli_module
-from bili_asr.cli import main
+from bili_asr.cli.main import main
 from bili_asr.config import ARCHIVE_DATABASE_NAME
-from bili_asr.coordinator import ARCHIVE_WRITER_LOCK
+from bili_asr.pipeline.locks import ARCHIVE_WRITER_LOCK
 from bili_asr.manifest import ManifestStore
 from bili_asr.persistence import file_lock
 from bili_asr.storage import (
@@ -42,45 +26,27 @@ from bili_asr.storage import (
     TranscriptSegmentRecord,
     open_database,
 )
-from fixtures.metadata_records import (
+from tests.fixtures.metadata_records import (
     make_part_record,
     make_user_record,
     make_video_record,
 )
+from tests.support.cli_publish_transcripts import BARE_BVID, CAPTION_SEGMENTS, CHAIN_BVID, DRIFT_BVID, FRESH_BVID, GONE_BVID, MARKER_BVID, PARTS, PRODUCT_KEYS, PUBDATE, PUBDATE_STR, _bundle_hashes, _chain_archive, _declared, _entry, _exit_code, _part_id, _publish, _seed_archive, _store_caption
 
 #: The fixture's five states, one part each (§5.5), plus a stored part that holds
 #: no transcript at all — the *known* selector that yields zero candidates.
-FRESH_BVID = "BV1FRESH"
-CHAIN_BVID = "BV1CHAIN"
-DRIFT_BVID = "BV1DRIFT"
-MARKER_BVID = "BV1MARKER"
-GONE_BVID = "BV1GONE"
-BARE_BVID = "BV1BARE"
 
 #: ``(bvid, page_index, cid, duration_ms, processing_status)``.  The durations make
 #: the seconds conversion falsifiable: 12_000 floors to 12 and 3_000 to 3.
-PARTS = (
-    (FRESH_BVID, 0, 3001, 12_000, "metadata_collected"),
-    (CHAIN_BVID, 0, 5001, 7_000, "metadata_collected"),
-    (DRIFT_BVID, 0, 6001, 8_000, "metadata_collected"),
-    (MARKER_BVID, 0, 7001, 9_000, "metadata_collected"),
-    (GONE_BVID, 0, 4001, 5_000, "gone"),
-    (BARE_BVID, 0, 8001, 3_000, "metadata_collected"),
-)
 
 #: The caption body the fixture stores: two cues, no leading mark, no fragment and
 #: no repeated n-gram, so a later reader check that asks for an empty ``reasons``
 #: list (``quality.py:26-34``) is not defeated by this file's text.
-CAPTION_SEGMENTS = (
-    TranscriptSegmentRecord(0, 2_500, "档案里的第一句台词"),
-    TranscriptSegmentRecord(3_000, 6_000, "第二句记录在案的台词"),
-)
 #: The body a second stored version carries: same identity, different content hash,
 #: so the store appends ``version=2`` instead of answering ``unchanged``.
 SECOND_VERSION_SEGMENTS = (TranscriptSegmentRecord(0, 1_500, "改过一次的字幕"),)
 
 #: The four product keys a row declares (contract §5.1).
-PRODUCT_KEYS = ("srt_path", "txt_path", "md_path", "raw_path")
 
 MANIFEST_REL_PATH = os.path.join("manifest", "manifest.jsonl")
 
@@ -88,8 +54,6 @@ MANIFEST_REL_PATH = os.path.join("manifest", "manifest.jsonl")
 #: its **UTC** calendar date — the row's ``pubdate``/``pubdate_str`` and the md
 #: name's leading component.  Rendered with ``gmtime`` rather than written as a
 #: literal, because a literal only discriminates on a host whose own zone is UTC.
-PUBDATE = 1_700_000_000
-PUBDATE_STR = time.strftime("%Y-%m-%d", time.gmtime(PUBDATE))
 
 
 def _md_name(bvid: str, page_index: int) -> str:
@@ -101,125 +65,18 @@ def _md_name(bvid: str, page_index: int) -> str:
     return f"transcripts/{bvid}.p{page_index}/bundle.md"
 
 
-def _entry(bvid: str, page_index: int, cid: int, duration_ms: int) -> dict:
-    """The writer's entry for one stored part — the fields its frontmatter reads."""
-    return {
-        "bvid": bvid,
-        "work_id": f"{bvid}:p{page_index}",
-        "page_index": page_index,
-        "cid": cid,
-        "title": f"第{page_index + 1}集",
-        "duration_s": max(1, duration_ms // 1000),
-        "pubdate_str": PUBDATE_STR,
-    }
 
 
-def _seed_archive(root: str, parts=PARTS) -> None:
-    """Create ``archive.db`` with one video per bvid and exactly these parts."""
-    connection = open_database(root)
-    try:
-        metadata = MetadataRepository(connection)
-        with metadata.transaction():
-            metadata.upsert_user(make_user_record())
-            for bvid in dict.fromkeys(bvid for bvid, _page, _cid, _ms, _status in parts):
-                metadata.upsert_video(
-                    make_video_record(bvid, aid=None, title="投影测试视频")
-                )
-            for bvid, page_index, cid, duration_ms, status in parts:
-                metadata.upsert_part(
-                    replace(
-                        make_part_record(
-                            bvid,
-                            page_index=page_index,
-                            cid=cid,
-                            title=f"第{page_index + 1}集",
-                            processing_status=status,
-                        ),
-                        duration_ms=duration_ms,
-                    )
-                )
-    finally:
-        connection.close()
 
 
-def _part_id(connection, bvid: str, page_index: int) -> int:
-    """One stored part's primary key, read from the store's own relation."""
-    return int(
-        connection.execute(
-            "SELECT video_part_id FROM video_parts WHERE bvid = ? AND page_index = ?",
-            (bvid, page_index),
-        ).fetchone()["video_part_id"]
-    )
 
 
-def _store_caption(
-    root: str,
-    bvid: str,
-    page_index: int,
-    *,
-    segments=CAPTION_SEGMENTS,
-    version_tag: str = "v1",
-) -> None:
-    """Store one acquired ``subtitle-ai`` caption through the repository."""
-    connection = open_database(root)
-    try:
-        repository = TranscriptRepository(connection)
-        run_id = f"caption-{version_tag}-{bvid}-p{page_index}"
-        repository.start_acquisition_run(
-            AcquisitionRunRecord(
-                run_id=run_id,
-                kind="subtitle",
-                selector_kind="pending",
-                selector_target=None,
-                requested_limit=None,
-                credential_present=False,
-                started_at=101,
-            )
-        )
-        repository.record_acquired_transcript(
-            run_id=run_id,
-            video_part_id=_part_id(connection, bvid, page_index),
-            source_kind="subtitle-ai",
-            language="zh-CN",
-            segments=segments,
-            started_at=200,
-            finished_at=300,
-            created_at=400,
-        )
-    finally:
-        connection.close()
 
 
-def _chain_archive(root: str, bvid: str, page_index: int, cid: int) -> dict:
-    """Publish one bundle the way the chain does and record its ``archived`` row.
-
-    State (ii) of §5.5, built with the shipped writer rather than by the command
-    under test: the four families, the marker, and the row that declares them.
-    """
-    entry = _entry(bvid, page_index, cid, 7_000)
-    paths = archive_module.write_archive(
-        root,
-        entry,
-        [{"start": 0.0, "end": 2.5, "text": "链上归档的台词"}],
-        source="subtitle",
-    )
-    store = ManifestStore(root=root)
-    store.load()
-    store.upsert({**entry, **paths, "status": "archived"})
-    return paths
 
 
-def _exit_code(argv: list[str]) -> int:
-    """Return the command's exit code, argparse usage errors included."""
-    try:
-        return main(argv)
-    except SystemExit as exit_signal:
-        return int(exit_signal.code)
 
 
-def _publish(root: str, *extra: str) -> int:
-    """Run the command the way an operator does, and return its exit code."""
-    return _exit_code(["publish-transcripts", "--archive-root", root, *extra])
 
 
 def _file_hashes(root: str) -> dict[str, str]:
@@ -234,15 +91,6 @@ def _file_hashes(root: str) -> dict[str, str]:
     return digests
 
 
-def _bundle_hashes(base: str, declared: dict[str, str]) -> dict[str, str]:
-    """``path -> sha256`` for one declared bundle: the four families and the marker."""
-    paths = [os.path.join(base, declared[key]) for key in PRODUCT_KEYS]
-    paths.append(str(archive_module.bundle_marker_path(paths[0])))
-    digests = {}
-    for path in paths:
-        with open(path, "rb") as handle:
-            digests[os.path.relpath(path, base)] = hashlib.sha256(handle.read()).hexdigest()
-    return digests
 
 
 def _manifest_lines(root: str) -> list[str]:
@@ -260,10 +108,6 @@ def _archive_files(root: str) -> list[str]:
     )
 
 
-def _declared(root: str, work_id: str) -> dict[str, str]:
-    """The four product paths the effective row of ``work_id`` declares."""
-    row = ManifestStore(root=root).load()[work_id]
-    return {key: row[key] for key in PRODUCT_KEYS}
 
 
 def _stored_bodies(root: str) -> dict[int, str]:
@@ -493,7 +337,7 @@ def test_publish_transcripts_opens_the_only_connection_read_only(
             captured["write_error"] = exc
         return real_list(self, bvid, page_index, limit_parts=limit_parts)
 
-    monkeypatch.setattr(cli_module, "_open_read_connection", forbidden)
+    monkeypatch.setattr(_module_cli__shared, "_open_read_connection", forbidden)
     monkeypatch.setattr(TranscriptRepository, "list_stored_transcripts", spy)
 
     assert _publish(tmp_root) == 0

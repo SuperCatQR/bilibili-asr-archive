@@ -15,7 +15,7 @@ import pytest
 from bili_asr import bili_client as bc
 from bili_asr.meta_cursor import MetaCursorStore, utc_now_iso
 
-from test_fetch_meta import FakeTransport, FastSleeper, SPI_NEW, SPI_OK, arc, ok_page
+from tests.support.fetch_meta import FakeTransport, FastSleeper, SPI_NEW, SPI_OK, arc, ok_page
 
 
 @pytest.fixture

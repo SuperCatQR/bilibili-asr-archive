@@ -15,7 +15,7 @@ from pathlib import Path
 from bili_asr.artifact_root import KEEP_AUDIO_ENV_VAR, resolve_keep_audio
 from bili_asr.audio_reclaim import reclaim_audio
 
-import _asr_fakes as asr_fakes
+import tests.support.asr_fakes as asr_fakes
 
 
 def _entry() -> dict[str, str]:

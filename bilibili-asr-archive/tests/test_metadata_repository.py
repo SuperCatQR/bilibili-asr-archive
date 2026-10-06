@@ -9,14 +9,15 @@ import sqlite3
 
 import pytest
 
-from bili_asr.storage.database import MetadataRepository, open_database
+from bili_asr.storage.metadata import MetadataRepository
+from bili_asr.storage.database import open_database
 from bili_asr.storage.models import (
     UserRecord,
     VideoDetailRecord,
     VideoPartRecord,
     VideoTagRecord,
 )
-from fixtures.metadata_records import (
+from tests.fixtures.metadata_records import (
     MID,
     make_cursor_record,
     make_discovery_record,
