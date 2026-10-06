@@ -33,9 +33,9 @@ def _cmd_asr(args: argparse.Namespace) -> int:
     if use_manifest:
         qs.print_manifest_deprecation()
 
-    # Store source (default): the transcript queue is v_missing_transcript —
-    # parts with audio evidence and no stored transcript.  A part holding AI
-    # subtitles is satisfied in every queue and never reaches this branch.
+    # Store source (default): the transcript queue is v_missing_transcript,
+    # augmented with captioned parts when local ASR is enabled.  This keeps
+    # the standalone command aligned with run/schedule/campaign.
     queue_conn = None
     queue_source = None
     if not use_manifest:
@@ -44,10 +44,6 @@ def _cmd_asr(args: argparse.Namespace) -> int:
         if failed:
             return 1
         queue_conn = queue_source.connection
-        # ``--limit`` is owned by the queue-source read: ``_store_transcript_todo``
-        # already passed ``args.limit`` into the store-side ``LIMIT ?``, so a
-        # second slice here would only mask which side owns the bound (the
-        # download-audio store branch relies on the store limit alone).
         todo = [e for _key, e in rows] if rows else []
         if not todo:
             print("asr: queue empty (no parts need transcription)")
@@ -98,7 +94,7 @@ def _cmd_asr(args: argparse.Namespace) -> int:
     # unsafe-declaration branch names only the variable, and the contradiction
     # branch can only fire once *both* values have passed the identifier scan.
     config = None
-    if any(entry.get("status") != "subtitle_done" for entry in todo):
+    if args.asr_with_subtitles or any(entry.get("status") != "subtitle_done" for entry in todo):
         try:
             config = _module_asr_config.default_config()
         except ValueError as exc:
@@ -126,17 +122,16 @@ def _cmd_asr(args: argparse.Namespace) -> int:
             raw = None
             provenance = None
             status = entry.get("status")
-            subtitle_data = (
-                _subtitle_segments(args.artifact_roots, entry)
-                if status == "subtitle_done"
-                else None
-            )
+            # Read paired subtitle evidence for both ``subtitle_done`` rows and
+            # audio-backed caption candidates.  The latter are the normal
+            # default path after the queue policy change.
+            subtitle_data = _subtitle_segments(args.artifact_roots, entry)
             try:
                 if status == "subtitle_done" and subtitle_data is None:
                     failed += 1
                     write_stderr(f"{label}: skipped (missing_subtitle_raw)")
                     continue
-                if subtitle_data is not None:
+                if subtitle_data is not None and not args.asr_with_subtitles:
                     segments, raw = subtitle_data
                 else:
                     source = "asr"
@@ -159,11 +154,7 @@ def _cmd_asr(args: argparse.Namespace) -> int:
                     # is seeded with the tokens pass 1 produced and re-decodes with a
                     # clean model/cache state.  Dropped tokens are recorded as
                     # ``hotword_dropped_no_evidence`` in the provenance.
-                    subtitle_data_for_evidence = (
-                        _subtitle_segments(args.artifact_roots, entry)
-                        if status == "subtitle_done"
-                        else None
-                    )
+                    subtitle_data_for_evidence = subtitle_data
                     paired_subtitle_text = (
                         "".join(str(seg.get("text", "")) for seg in subtitle_data_for_evidence[0])
                         if subtitle_data_for_evidence is not None

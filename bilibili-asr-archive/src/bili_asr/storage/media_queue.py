@@ -348,6 +348,70 @@ class MediaQueueRepository:
             for row in rows
         ]
 
+    def list_asr_subtitle_candidates(
+        self,
+        *,
+        limit: int | None = None,
+        bvid: str | None = None,
+        page: int | None = None,
+    ) -> list[QueueGapItem]:
+        """Return captioned parts that still lack a local ASR transcript.
+
+        Caption transcripts answer the subtitle route, but they do not answer
+        the local-ASR route.  This read is deliberately separate from the
+        three gap views so the historical subtitle/audio exhaustion rules stay
+        intact while the default coordinator can schedule the second pass.
+        ``gap='missing_transcript'`` keeps the returned projection compatible
+        with the existing queue item shape; callers must treat it as an ASR
+        candidate rather than as the legacy audio-only view.
+        """
+        if limit is not None:
+            if isinstance(limit, bool) or not isinstance(limit, int):
+                raise TypeError("limit must be an integer or None")
+            if limit < 1:
+                raise ValueError("limit must be a positive integer")
+        clauses = [
+            "vp.processing_status <> 'gone'",
+            "EXISTS (SELECT 1 FROM transcripts AS caption "
+            "WHERE caption.video_part_id = vp.video_part_id "
+            "AND caption.source_kind IN ('subtitle-ai', 'subtitle-cc'))",
+            "NOT EXISTS (SELECT 1 FROM transcripts AS asr "
+            "WHERE asr.video_part_id = vp.video_part_id "
+            "AND asr.source_kind = 'asr-local')",
+        ]
+        parameters: list[object] = []
+        if bvid is not None:
+            clauses.append("vp.bvid = ?")
+            parameters.append(_text(bvid, "bvid"))
+        if page is not None:
+            clauses.append("vp.page_index = ?")
+            parameters.append(_integer(page, "page_index", minimum=0))
+        query = """
+            SELECT
+                vp.video_part_id,
+                vp.bvid || ':p' || vp.page_index AS work_id,
+                vp.bvid,
+                vp.page_index,
+                vp.cid,
+                vp.title AS part_title,
+                vp.duration_ms,
+                v.title AS video_title,
+                v.pubdate
+            FROM video_parts AS vp
+            JOIN videos AS v ON vp.bvid = v.bvid
+            WHERE """ + " AND ".join(clauses) + " ORDER BY v.pubdate DESC, vp.bvid ASC, vp.page_index ASC"
+        if limit is not None:
+            query += " LIMIT ?"
+            parameters.append(limit)
+        rows = self.connection.execute(query, parameters).fetchall()
+        counts = self._attempt_counts(
+            [int(row["video_part_id"]) for row in rows], "asr"
+        )
+        return [
+            self._gap_item(row, "missing_transcript", counts.get(int(row["video_part_id"]), 0))
+            for row in rows
+        ]
+
     def count_queue_gaps(self) -> dict[QueueGap, int]:
         """Count the parts each of the three queues holds, all three always.
 

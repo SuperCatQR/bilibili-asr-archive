@@ -149,7 +149,7 @@ def _pilot_archive_asr(
     base = roots.write_base
     stem = artifact_stem(target)
     out_path = os.path.join(base, "audio", f"{stem}.m4a")
-    existing_rel = entry.get("audio_path") if entry.get("status") == "audio_ok" else None
+    existing_rel = entry.get("audio_path") if entry.get("status") in {"audio_ok", "subtitle_done"} else None
     existing_audio_path: str | None = None
     # The base the row's audio is read from: whichever base holds it — the recorded copy's
     # for a row written before the root was configured, the downloader's return for a row
@@ -322,7 +322,7 @@ def _pilot_print_summary(
         print(f"pilot terminal: {line}")
 
 
-def _store_pilot_entries(source: Any) -> dict[str, dict[str, Any]]:
+def _store_pilot_entries(source: Any, *, asr_with_subtitles: bool = True) -> dict[str, dict[str, Any]]:
     """Merge all store queue views while preserving the most advanced route."""
     merged: dict[str, dict[str, Any]] = {}
     for select in (
@@ -331,6 +331,9 @@ def _store_pilot_entries(source: Any) -> dict[str, dict[str, Any]]:
         source.select_subtitle_queue(),
     ):
         for key, entry in select.entries.items():
+            merged.setdefault(key, entry)
+    if asr_with_subtitles:
+        for key, entry in source.select_asr_subtitle_queue().entries.items():
             merged.setdefault(key, entry)
     return merged
 
@@ -361,7 +364,9 @@ def _cmd_pilot(args: argparse.Namespace) -> int:
             )
             return 1
         try:
-            entries = _store_pilot_entries(source)
+            entries = _store_pilot_entries(
+                source, asr_with_subtitles=args.asr_with_subtitles
+            )
         finally:
             source.connection.close()
     record.records_existing = len(entries)
@@ -441,7 +446,7 @@ def _cmd_pilot(args: argparse.Namespace) -> int:
                     )
                 current = dict(store.get(key) or store.get_compatible(key) or entry)
                 label = str(current.get("work_id") or key)
-                if status == "subtitle_done":
+                if status == "subtitle_done" and not args.asr_with_subtitles:
                     _pilot_archive_subtitle(
                         store, args.artifact_roots, current, keep=args.keep_audio
                     )
@@ -449,7 +454,7 @@ def _cmd_pilot(args: argparse.Namespace) -> int:
                     coverage_subtitle_count += 1
                     terminals.append(f"{label}: archived (subtitle)")
                     print(f"{label}: archived (subtitle)")
-                elif status in {"needs_audio", "audio_ok"}:
+                elif status == "subtitle_done" or status in {"needs_audio", "audio_ok"}:
                     from bili_asr.audio_budget import (
                         SKIP_REASON,
                         audio_cap_bytes,

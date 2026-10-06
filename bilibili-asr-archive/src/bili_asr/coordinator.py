@@ -73,12 +73,14 @@ class RunCoordinator:
         command: str = "run",
         artifact_roots: ArtifactRoots | None = None,
         keep_audio: bool = True,
+        asr_with_subtitles: bool = True,
     ) -> None:
         self.root = os.fspath(archive_root)
         self.artifact_roots = (
             artifact_roots if artifact_roots is not None else ArtifactRoots.of(self.root)
         )
         self.keep_audio = keep_audio
+        self.asr_with_subtitles = asr_with_subtitles
         self.store = store
         self.client = client
         self.offline = offline
@@ -333,7 +335,16 @@ class RunCoordinator:
         status = str(entry.get("status") or "pending")
         result = _dependency_models.RowResult(work_id=work_id, final_status=status)
 
-        if status in TERMINAL_STATUSES:
+        asr_candidate = (
+            self.asr_with_subtitles
+            and status == "archived"
+            and str(entry.get("source") or "") in {"subtitle", "subtitle-ai", "subtitle-cc"}
+            and not entry.get("asr_provenance")
+            and not entry.get("asr_model_name")
+        )
+        if asr_candidate:
+            status = "audio_ok" if self._existing_audio(entry) is not None else "subtitle_done"
+        if status in TERMINAL_STATUSES and not asr_candidate:
             if status == "archived" and entry.get("transcript_writeback_error"):
                 retry_data = self._subtitle_segments(entry)
                 if retry_data is not None:
@@ -356,7 +367,7 @@ class RunCoordinator:
                 entry = self._current_entry(key, entry)
                 audio = self._existing_audio(entry)
                 subtitle_raw = self._subtitle_segments(entry)
-                if subtitle_raw is not None:
+                if audio is None and subtitle_raw is not None:
                     _dependency_stages.stage_archive_from_subtitle(self, key, entry, result)
                     return result
                 if audio is not None:
@@ -371,7 +382,7 @@ class RunCoordinator:
                     return result
                 # subtitle_done without raw / audio row without audio: let
                 # the natural stage record its missing-input skip reason.
-                if status == "subtitle_done":
+                if status == "subtitle_done" and not self.asr_with_subtitles:
                     _dependency_stages.stage_archive_from_subtitle(self, key, entry, result)
                 else:
                     _dependency_stages.stage_asr_archive(self, key, entry, result)
@@ -403,10 +414,10 @@ class RunCoordinator:
             elif status not in _dependency_attempts._SKIP_HARVEST_STATUSES:
                 raise ValueError(f"unexpected status {status!r}")
 
-            if status == "subtitle_done":
+            if status == "subtitle_done" and not self.asr_with_subtitles:
                 entry = self._current_entry(key, entry)
                 _dependency_stages.stage_archive_from_subtitle(self, key, entry, result)
-            elif status in {"needs_audio", "audio_ok"}:
+            elif status == "subtitle_done" or status in {"needs_audio", "audio_ok"}:
                 if status == "needs_audio" or self._existing_audio(entry) is None:
                     status = _dependency_stages.stage_download(self, key, entry, result)
                     if result.skipped:
@@ -432,10 +443,19 @@ class RunCoordinator:
     def _batch_needs_asr(self, rows: list[tuple[str, dict[str, Any]]]) -> bool:
         for key, entry in rows:
             status = str(entry.get("status") or "pending")
-            if status in TERMINAL_STATUSES:
+            candidate = (
+                self.asr_with_subtitles
+                and status == "archived"
+                and str(entry.get("source") or "") in {"subtitle", "subtitle-ai", "subtitle-cc"}
+                and not entry.get("asr_provenance")
+                and not entry.get("asr_model_name")
+            )
+            if status in TERMINAL_STATUSES and not candidate:
                 continue
             current = self._current_entry(key, entry)
-            if self._subtitle_segments(current) is not None:
+            if candidate:
+                status = "audio_ok" if self._existing_audio(current) is not None else "subtitle_done"
+            if self._subtitle_segments(current) is not None and not self.asr_with_subtitles:
                 continue
             if status in {"needs_audio", "audio_ok", "subtitle_done"} and self._existing_audio(current) is not None:
                 return True

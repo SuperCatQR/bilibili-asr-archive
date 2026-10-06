@@ -127,6 +127,43 @@ def test_each_gap_holds_exactly_the_parts_its_view_defines(queue_store):
     )
 
 
+def test_captioned_part_remains_an_asr_candidate_until_local_transcript_exists(queue_store):
+    connection, parts, repository = queue_store
+    transcripts = TranscriptRepository(connection)
+    identity = "BV1BBB"
+    _open_run(transcripts, "run-ai-caption", "subtitle")
+    transcripts.record_acquired_transcript(
+        run_id="run-ai-caption",
+        video_part_id=parts[(identity, 0)],
+        source_kind="subtitle-ai",
+        language="zh-CN",
+        segments=(TranscriptSegmentRecord(start_ms=0, end_ms=1_000, text="caption"),),
+        started_at=10,
+        finished_at=11,
+        created_at=12,
+    )
+
+    candidates = repository.list_asr_subtitle_candidates()
+    assert "BV1BBB:p0" in {item.work_id for item in candidates}
+
+    _open_run(transcripts, "run-local-asr", "asr")
+    transcripts.record_local_transcript(
+        run_id="run-local-asr",
+        video_part_id=parts[(identity, 0)],
+        language="zh-CN",
+        segments=(TranscriptSegmentRecord(start_ms=0, end_ms=1_000, text="local asr"),),
+        model_name="test-model",
+        model_revision=None,
+        started_at=20,
+        finished_at=21,
+        created_at=22,
+    )
+
+    assert "BV1BBB:p0" not in {
+        item.work_id for item in repository.list_asr_subtitle_candidates()
+    }
+
+
 
 def test_one_empty_inventory_is_not_exhaustion(queue_store):
     """A single empty look must not admit a part: exhaustion is attested.

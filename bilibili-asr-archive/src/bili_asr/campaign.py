@@ -127,10 +127,12 @@ class CampaignRunner:
         coordinator_factory: Callable[..., RunCoordinator] = RunCoordinator,
         artifact_roots: ArtifactRoots | None = None,
         keep_audio: bool = True,
+        asr_with_subtitles: bool = True,
     ) -> None:
         self.root = Path(archive_root)
         self.artifact_roots = artifact_roots
         self.keep_audio = keep_audio
+        self.asr_with_subtitles = asr_with_subtitles
         self.client = client
         self.offline = offline
         self.max_audio_bytes = max_audio_bytes
@@ -393,6 +395,7 @@ class CampaignRunner:
             self.root, store, client=self.client, offline=self.offline,
             max_audio_bytes=self.max_audio_bytes, sleep=self.sleep,
             artifact_roots=self.artifact_roots, keep_audio=self.keep_audio,
+            asr_with_subtitles=self.asr_with_subtitles,
             # `run_batch` is shared; the reuse line must name `campaign`, not `run`.
             command="campaign",
         )
