@@ -202,3 +202,19 @@ git fetch origin refs/pull/212/head:refs/heads/asr-success-attestable  # → d15
 `prMerged` value actually derived from the PR consult, or an explicit squash-merge evidence mode — belongs in
 `@mstar-harness/cli`'s cleanup guard. It is out of scope here and is not attempted; this section is the
 carrier so the engine-side gap is discoverable from the iteration it bit.
+
+**Superseded 2026-10-06 — the operator ruled in place, the refs are gone.** The operator's instruction was
+"就地删除，然后提交合并" (delete in place, then commit). Both refs were therefore removed by hand, with the
+squash merges recorded as their merge evidence, and the guard's `cleanup.refuse.unmerged` remains correct for
+what it can see — the exception is an operator ruling, not a guard defect being patched here:
+
+| Ref | Tip removed | Squash merge evidence | Operator-side delete |
+|---|---|---|---|
+| `iteration/iter-2026-10-asr-success-attestable` | `d154ef0` | PR #212 → `ff11351` (tree-identical to `d154ef0`) | local `git branch -D` + remote `--force-with-lease=…:d154ef0…` |
+| `iteration/iter-2026-10-ledger-integrity` | `ec9d3d2` | PR #35 → `1de04c5` (patch-id identical, scoped diff empty) | local `git branch -D` + remote `--force-with-lease=…:ec9d3d2…` |
+| `codex/audio-pipeline-reliability` | `f8d795f` | PR #214 merged as `dc1e78e` (two-parent merge, head is parent 2) | remote `--force-with-lease=…:f8d795f…` |
+
+Recovery path is unchanged and still live server-side (`refs/pull/35/head` `ec9d3d2`, `refs/pull/212/head`
+`d154ef0`, `refs/pull/214/head` `f8d795f`, all re-verified 2026-10-06 after the deletion). The pre-delete map
+is `.tmp/worktree-cleanup-20261006.txt`. The paragraph above is kept as the record of the 2026-10-04 ruling
+that this one supersedes; the engine-side gap it names is still real and still belongs upstream.
