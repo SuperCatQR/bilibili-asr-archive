@@ -7,7 +7,13 @@ from types import SimpleNamespace
 import pytest
 
 from bili_asr import cli, coordinator
+from functools import partial
+from bili_asr.cli.main import _main
 from bili_asr.cli.registry import COMMANDS, ArtifactPolicy, CommandSpec, add_policy_arguments
+
+# These parser/lock/dispatch seams exercise the invocation policy inside the
+# publication worker. The supervisor has dedicated real-process tests.
+worker_main = partial(_main, _publication_worker=True)
 
 
 ARTIFACT_READERS = {
@@ -94,7 +100,7 @@ def test_unknown_command_from_parser_seam_keeps_named_error(monkeypatch):
     parser = SimpleNamespace(parse_args=lambda argv: Namespace(command="unknown"))
     monkeypatch.setattr(cli, "build_parser", lambda: parser)
     with pytest.raises(ValueError, match="command 'unknown' is not implemented"):
-        cli.main([])
+        worker_main([])
 
 
 def _invocation(monkeypatch, command, archive, artifact=None):
@@ -118,7 +124,7 @@ def test_busy_archive_refuses_every_state_writer_and_allows_readers(command, tmp
     args = _invocation(monkeypatch, command, tmp_path)
     seen = []
     monkeypatch.setattr(cli, "_dispatch_command", lambda value: seen.append(value) or 0)
-    result = cli.main([])
+    result = worker_main([])
     if command in ARCHIVE_WRITERS:
         assert result == 1
         assert seen == []
@@ -141,7 +147,7 @@ def test_bad_artifact_root_refuses_before_lock_or_handler(command, tmp_path, mon
 
     monkeypatch.setattr(coordinator, "archive_writer", unexpected)
     monkeypatch.setattr(cli, "_dispatch_command", unexpected)
-    assert cli.main([]) == 1
+    assert worker_main([]) == 1
     assert capsys.readouterr().err.startswith(f"{command}: artifact root is not a directory")
     assert not archive.exists()
 
@@ -166,6 +172,6 @@ def test_artifact_write_probe_only_applies_to_product_writers(command, tmp_path,
     monkeypatch.setattr(entrypoint, "roots_for", resolve)
     monkeypatch.setattr(coordinator, "archive_writer", writer)
     monkeypatch.setattr(cli, "_dispatch_command", lambda value: 0)
-    assert cli.main([]) == 0
+    assert worker_main([]) == 0
     assert probes == [command in ARTIFACT_WRITERS]
     assert args.artifact_roots is roots

@@ -297,6 +297,10 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     publish.add_argument(
+        "--io-timeout-seconds", type=float, default=60.0,
+        help="Publication setup, each candidate and final snapshot deadline (default: 60; finite positive)",
+    )
+    publish.add_argument(
         "--verify-read-budget-bytes", type=int, default=256 * 1024 * 1024,
         help="Total strict verification byte budget per invocation (default: 268435456; positive)",
     )

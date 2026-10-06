@@ -85,9 +85,17 @@ def file_lock(path: str | os.PathLike[str], *, blocking: bool = True) -> Iterato
                     fh.write(b"0")
                     fh.flush()
                 fh.seek(0)
-                msvcrt.locking(
-                    fh.fileno(), msvcrt.LK_LOCK if blocking else msvcrt.LK_NBLCK, 1
-                )
+                try:
+                    msvcrt.locking(
+                        fh.fileno(), msvcrt.LK_LOCK if blocking else msvcrt.LK_NBLCK, 1
+                    )
+                except OSError as exc:
+                    # Windows reports competing byte-range locks as EACCES.
+                    # Normalize only refusal from the locking syscall; opening
+                    # an inaccessible lock file remains a permission failure.
+                    if not blocking and exc.errno in (errno.EACCES, errno.EAGAIN):
+                        raise BlockingIOError(errno.EAGAIN, "lock busy") from exc
+                    raise
                 acquired = True
             else:
                 import fcntl

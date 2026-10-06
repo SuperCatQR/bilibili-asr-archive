@@ -700,12 +700,27 @@ that request, so physical cancellation is not guaranteed. Unreaped workers
 are capped at four; more verification is refused until they exit. Workers
 perform no publication writes, so surviving workers cannot later publish.
 
-This is a **verification-read deadline**, not a deadline for all candidate I/O.
-Process creation, database reads, publication writes/fsync, and manifest
-journal/snapshot writes remain outside it. A mount blocking those operations
-can still hold the parent's writer lock. A true whole-candidate deadline needs
-a different publication/lock ownership design; releasing a lock while a
-blocked writer may later resume would allow conflicting publishers.
+`--io-timeout-seconds` defaults to 60 and must be finite and positive.
+The CLI supervises a separate publication process before resolving artifact
+roots or opening the archive lock. A dedicated progress channel starts a new
+deadline for each candidate and for final snapshot persistence; initial root
+validation, lock acquisition, database selection and manifest replay share the
+setup deadline. Database reads, artifact writes, fsync, manifest journal writes
+and cleanup therefore cannot keep the calling CLI waiting indefinitely. This
+is independent of the verification-read deadline and byte allowance.
+
+An I/O deadline stops the invocation and returns 1; it does not continue with
+the next candidate. The supervisor requests termination and allows only a short
+bounded cleanup interval. The publication process owns the writer lock for its
+entire lifetime. If an uninterruptible kernel operation prevents termination,
+that process retains the lock until it actually exits, and other writers may
+still report `archive_busy`. Never remove the lock or start an overlapping
+writer to bypass this protection. Timeout means completion was not confirmed;
+it does not imply rollback. Rerun after the mount recovers to reconcile complete
+bundles and retry incomplete publication. Raise the explicit timeout for a
+healthy slow mount or large candidate. Process creation and a blocked terminal
+output device are outside the supervisor's filesystem deadline. Direct Python
+handler calls retain their existing synchronous library contract.
 
 
 ### Finite verification byte budget

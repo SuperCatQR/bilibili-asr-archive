@@ -7,7 +7,12 @@ from pathlib import Path
 
 import pytest
 
-from bili_asr.cli import main
+from functools import partial
+from bili_asr.cli.main import _main
+
+# Exercise the publication worker in-process so fault injection and captured
+# output remain local; supervisor process/deadline tests cover the public entry.
+main = partial(_main, _publication_worker=True)
 from bili_asr.manifest import ManifestStore
 from bili_asr.services.transcript_projection import ordered_candidates
 from bili_asr.storage import TranscriptRepository, open_database

@@ -125,6 +125,7 @@ def _cmd_publish_transcripts(args: argparse.Namespace) -> int:
     ``_UsageErrorArgumentParser`` maps argparse's own usage exit to ``1``.
     """
     from bili_asr import archive
+    from bili_asr.services.publication_supervisor import publication_phase
     from bili_asr.services.bundle_verification import (
         verify_bundle, VerificationReadBudget,
     )
@@ -180,6 +181,7 @@ def _cmd_publish_transcripts(args: argparse.Namespace) -> int:
         recorded = store.load()
         write_base = args.artifact_roots.write_base
         for candidate in candidates:
+            publication_phase("candidate")
             if verification_budget.remaining == 0:
                 failed += 1
                 write_stderr("publish-transcripts: verification read budget exhausted; remaining candidates unverified")
@@ -307,6 +309,7 @@ def _cmd_publish_transcripts(args: argparse.Namespace) -> int:
                 and published + failed >= args.limit_parts
             ):
                 break
+        publication_phase("final")
         if published:
             try:
                 store.save()
