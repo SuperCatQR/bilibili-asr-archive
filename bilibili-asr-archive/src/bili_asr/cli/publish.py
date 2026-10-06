@@ -262,6 +262,7 @@ def _cmd_publish_transcripts(args: argparse.Namespace) -> int:
                             **(recorded.get(work_id) or {}),
                             **projection_row(part, candidate.transcript, written),
                             "archive_producer": "stage-cli",
+                            "artifact_base": os.path.abspath(write_base),
                         }
                         store.upsert(merged)
                 except Exception as exc:

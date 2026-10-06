@@ -150,8 +150,10 @@ ASR_CHUNK_SECONDS_ENV_VAR = "BILI_ASR_CHUNK_SECONDS"
 #: (:func:`evidence_guard_hotwords`), and dropped tokens are recorded in the run
 #: ledger as ``hotword_dropped_no_evidence``.  The 33 measured-candidate tokens
 #: that populated this list before the ruling — 27 archive terms plus the six
-#: homophone entries 扬弃/自在/变易/此在/感性/实存, whose benefit was never verified
-#: — are the ruling table's subjects; the archived reasoning for each block is
+#: homophone entries 扬弃/自在/变易/此在/感性/实存. The 2026-09-18 old-engine A/B
+#: measured 扬弃; the other five remain unverified in benefit (I-000017/#41).
+#: That Fun-ASR-Nano measurement does not validate the current Qwen prompt.
+#: All 33 candidates are the ruling table's subjects; the reasoning for each block is
 #: preserved in git history and in ``.mstar/knowledge/testing-patterns/
 #: hotword-list-measurement.md``.  When the measurement lands, the kept tokens
 #: return here and the rest are dropped from the default source entirely.

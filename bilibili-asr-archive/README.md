@@ -260,13 +260,23 @@ earns its place by measurement, not by intent.
 
 The list also carries six terms added 2026-09-17 for a different failure mode:
 **exact homophones of common words**, where the decoder's prior beats the audio.
-Each was measured wrong far more often than right on the season run's own output
+The season run's own output recorded correct and homophone-error counts
 (14 lectures, 25.2 h): `扬弃` 10 correct vs 89 wrong (`阳气`/`洋气` — the central
 operation of Hegel's *Logic*, which those lectures read aloud), `自在` 40 vs 13,
 `变易` 0 vs 7, `此在` 4 vs 3, `感性` 12 vs 3, `实存` 17 vs 3. The control that
 makes this the right lever: the entries already in the list that are equally
 homophone-prone are error-free on the same audio (`定在` 145/0, `自为` 34/0,
-`理念性` 69/0). Their benefit is likewise **unverified until re-transcribed**.
+`理念性` 69/0). The 2026-09-18 paired re-transcription of
+`BV1H69sB6EeF:p0` measured the benefit of **扬弃** on the then-current
+Fun-ASR-Nano engine. The other five terms **自在、变易、此在、感性、实存 remain
+unverified in benefit** (#41 / I-000017): the first three were absent from
+that part and the latter two were already correct in both arms. An error
+census alone does not prove a prompt helps. The engine-specific measurements
+and limits are preserved in
+[the hotword measurement note](../.mstar/knowledge/testing-patterns/hotword-list-measurement.md).
+That old-engine result does not validate the current Qwen prompt; the default
+prompt list remains empty under the 2026-09-28 governance ruling pending
+per-token measurement on the current engine.
 
 **The two instruments divide the work, and neither covers the other's class.**
 Per-cue confidence catches what the model *doubts*: unclear audio, a language
@@ -469,7 +479,7 @@ prepare the reviewed, curated local wheel directory (`/path/to/reviewed-wheels`)
 The baseline creates a disposable isolated virtual environment, installs the
 local package with its declared `dev` extras using only the specified local
 package source (`PIP_NO_INDEX=1`), runs the installed `bili-asr --help` proof,
-then runs the complete product pytest suite from a staged test and documentation tree. The recursive provisioning tests (`test_cli_help.py` and `test_verify_baseline.py`) are excluded, while `test_installed_baseline.py` stays in the staged suite and proves that the installed package bootstraps its schema, reports status, and ships the ASR environment checker. During pytest it installs a process-level Python socket API deny guard: calls through `socket.create_connection`, `socket.socket.connect`, or `connect_ex` in that pytest interpreter raise before reaching the OS. This is not a host or kernel firewall, and it does not claim to block non-Python processes or every possible networking mechanism.
+then runs the complete product pytest suite from a staged test and documentation tree. The recursive provisioning tests (`test_installed_cli.py` and `test_verify_baseline.py`) are excluded; the in-process help and CLI contract cases in `test_cli_help.py` remain covered. `test_installed_baseline.py` stays in the staged suite and proves that the installed package bootstraps its schema, reports status, and ships the ASR environment checker. During pytest it installs a process-level Python socket API deny guard: calls through `socket.create_connection`, `socket.socket.connect`, or `connect_ex` in that pytest interpreter raise before reaching the OS. This is not a host or kernel firewall, and it does not claim to block non-Python processes or every possible networking mechanism.
 It also strips `PYTHONPATH`, proxy variables, and `BILI_SESSDATA`; it never
 calls Bilibili, downloads a model, transfers media, or prints environment
 values. Its compact machine-readable result is
@@ -533,8 +543,13 @@ self-contained interactive diagram whose source is [`docs/asr-pipeline.dataflow.
 `probe-subs` only inspects the current gateway response; it writes no
 acquisition evidence. `harvest-subs` stores captions and durable observations
 in `archive.db`. `publish-transcripts` creates their text bundles. The default
-store queues feed audio and ASR directly, and successful ASR writes its
-transcript back so subsequent batches skip it. `derive-manifest` remains an
+store queues feed audio and ASR directly. **The ASR stage itself publishes
+SRT/TXT/MD on the audio branch**, then writes supplementary transcript evidence
+back so subsequent batches skip it. `publish-transcripts` publishes captions
+selected from the store; an audio-only root without stored caption candidates
+can correctly report `candidates=0 published=0 already_published=0` and exit
+zero. This means there was no stored-caption publication work; it does not
+attest that ASR has run or that an audio bundle exists. `derive-manifest` remains an
 optional bridge for the explicit manifest route. `campaign` uses manifest
 scopes and a bounded checkpoint of its selected work.
 
@@ -1052,7 +1067,15 @@ remain authoritative for item state and risk-interruption resume.
 
 ### SQLite FTS5 full-text search and metadata export
 
-The JSONL manifest (`{archive-root}/manifest/manifest.jsonl`) remains the single source of truth (SSOT). Both `search` and `export` are read-only commands that never modify or rewrite the manifest ledger.
+The manifest ledger's authoritative state is the replay of
+`{archive-root}/manifest/manifest.jsonl` (compacted snapshot) followed by
+`manifest/manifest.journal.jsonl` (pending appended updates), with the last
+complete row winning per work item. Either file can be absent in a valid fresh
+root; a snapshot alone can be stale. Both `search` and `export` are read-only
+commands that never modify or rewrite this ledger. Store transcript search
+uses `archive.db` as described below. To copy or back up manifest state, stop
+its writers and preserve both ledger files when present; copying only the
+snapshot can omit the most recent progress.
 
 #### Full-text search (`bili-asr search`)
 
@@ -1287,7 +1310,7 @@ observed live run, is in
 #### Derived audio queue (`bili-asr derive-manifest`)
 
 `bili-asr derive-manifest` bridges the store to the chain's queue, and is the
-only command that reads `archive.db` and writes `manifest/manifest.jsonl` in one
+command that reads `archive.db` and appends to the manifest ledger in one
 run. It appends one `needs_audio` row per stored part that holds no transcript
 and is not `gone` — the relation `harvest-subs` reports as
 `remaining_without_transcript`:
@@ -1302,7 +1325,10 @@ and is not `gone` — the relation `harvest-subs` reports as
   missing, unreadable, or pre-transcript-schema database is answered with the
   same bounded lines and exit `1` the other subtitle commands print; nothing is
   created and no live database is widened.
-- **Writes**: appended rows in `manifest/manifest.jsonl`, and only appended.
+- **Writes**: appended rows in `manifest/manifest.journal.jsonl`; normal
+  compaction may fold these into `manifest/manifest.jsonl` and retire the
+  folded journal under the manifest lock. Preserve both files when copying
+  a quiescent root, and read their replayed state through `ManifestStore`.
   Each carries the page-qualified `work_id`, the part's stored duration as
   `duration_s`, and `status: needs_audio`. A row the chain already holds for that
   `work_id` is never rewritten, so a second run appends nothing and the effective
@@ -1490,6 +1516,20 @@ in `archive.db`). All operator
 surfaces carry redacted scalar codes/reasons only.
 
 ### Corpus coverage evidence spine
+
+Coverage figures belong to the archive that produced them. Record the host,
+absolute archive root, measurement date, selector, numerator and denominator
+unit alongside `status` / `coverage` output; a source checkout does not carry
+the operator's archive database or manifest ledger. The historical 2026-09-25
+review (#61 / I-000043) contrasted **150/1730 (8.7%) on another machine** with
+**6/1730 (0.35%) on its reviewed checkout's store**. The tracked issue does not
+retain either host name, absolute root or original command output, and does
+not fully establish the denominator's selection/unit. These are attributed
+historical figures with incomplete provenance, not current coverage claims.
+They cannot size the remaining work for this checkout. Measure the archive
+actually in use and retain its command/output and the provenance fields above
+before publishing a replacement percentage; this documentation update did
+not copy the external archive or repeat a live corpus measurement.
 
 The shipped sequential workflow now includes all six corpus-coverage slices: bounded `campaign` execution, cumulative `coverage` reconciliation, optional deterministic artifact quality signals, filtered local transcript search/export, read-only `verify` plus audit-only `recover`, and the `evaluate-concurrency` safety gate. The manifest remains SSOT; the campaign checkpoint, reports, index, and recovery audit are additive evidence or derived projections.
 

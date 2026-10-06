@@ -138,12 +138,12 @@ def _audio_base_holding(roots: ArtifactRoots, declared: str) -> Path:
     value no base holds is a failure of the read, reported as the guard's own
     ``OSError`` so the row's ``archive failed`` line keeps naming the same class.
     """
-    from bili_asr.path_policy import confined_audio_path
+    from bili_asr.artifact_root import usable_audio_path
 
-    for base in roots.read_bases():
-        if confined_audio_path(base, declared, require_exists=True) is not None:
-            return base
-    raise OSError("invalid audio path")
+    found = usable_audio_path(roots, (declared,))
+    if found is None:
+        raise OSError("invalid audio path")
+    return found[0]
 
 
 def _audio_base_for_path(roots: ArtifactRoots, path: str | os.PathLike[str]) -> Path:
@@ -155,17 +155,12 @@ def _audio_base_for_path(roots: ArtifactRoots, path: str | os.PathLike[str]) -> 
     where a write goes.  Same rule as :func:`_audio_base_holding`, on an absolute path
     instead of the recorded root-relative one.
     """
-    from bili_asr.path_policy import confined_audio_path
+    from bili_asr.artifact_root import usable_audio_for_path
 
-    target = os.fspath(path)
-    for base in roots.read_bases():
-        try:
-            declared = os.path.relpath(target, base).replace(os.sep, "/")
-        except ValueError:  # Windows across drives
-            continue
-        if confined_audio_path(base, declared, require_exists=True) is not None:
-            return base
-    raise OSError("invalid audio path")
+    found = usable_audio_for_path(roots, path)
+    if found is None:
+        raise OSError("invalid audio path")
+    return found[0]
 
 
 def _reclaim_after_archive(
@@ -202,6 +197,7 @@ def _pilot_archive_subtitle(
         raise ValueError("archive bundle incomplete")
     updated = dict(entry)
     updated.update(paths)
+    updated["artifact_base"] = os.path.abspath(base)
     updated["status"] = "archived"
     store.upsert(updated)
     _reclaim_after_archive(roots, updated, keep=keep)
@@ -250,46 +246,24 @@ def _pilot_archive_asr(
     stem = artifact_stem(target)
     out_path = os.path.join(base, "audio", f"{stem}.m4a")
     existing_rel = entry.get("audio_path") if entry.get("status") == "audio_ok" else None
-    existing_audio_path: str | None = None
     # The base the row's audio is read from: whichever base holds it — the recorded copy's
     # for a row written before the root was configured, the downloader's return for a row
     # that had to fetch (or re-find) it.  The ASR stage re-confines the value **there** and
     # records it back **there** (contract §5, D6/D8): measuring a legacy copy against
     # `write_base` alone yields a `..`-bearing string the audio guard refuses, so the row
     # fails instead of archiving.
-    audio_base = base
-    from bili_asr.path_policy import confined_audio_file, confined_audio_path
-    if existing_rel:
-        try:
-            holding = _audio_base_holding(roots, os.fspath(existing_rel))
-        except OSError:
-            holding = None
-        if holding is not None:
-            existing_audio_path_obj = confined_audio_path(
-                holding, os.fspath(existing_rel), require_exists=True
-            )
-            if existing_audio_path_obj is not None and existing_audio_path_obj.stat().st_size > 0:
-                existing_audio_path = str(existing_audio_path_obj)
-                audio_base = holding
-    if existing_audio_path is not None:
-        audio_path = existing_audio_path
-    else:
-        downloaded = Path(os.fspath(audio.download_audio(
+    from bili_asr.path_policy import confined_audio_file
+    from bili_asr.artifact_root import usable_audio_path, usable_audio_for_path
+    found = usable_audio_path(roots, (existing_rel,)) if existing_rel else None
+    if found is None:
+        downloaded = audio.download_audio(
             client, target, out_path, store=store, artifact_roots=roots
-        )))
-        # The downloader may return a file it *found* rather than wrote — a legacy copy at
-        # the archive root (D6) — so the base that holds the return is the one the value is
-        # re-confined and recorded against, the same rule as the recorded branch above.
-        try:
-            audio_base = _audio_base_for_path(roots, downloaded)
-        except OSError:
+        )
+        found = usable_audio_for_path(roots, downloaded)
+        if found is None:
             raise ValueError("invalid audio path")
-        downloaded_rel = os.path.relpath(downloaded, audio_base).replace(os.sep, "/")
-        audio_path_obj = confined_audio_path(audio_base, downloaded_rel, require_exists=True)
-        if audio_path_obj is None or audio_path_obj.stat().st_size <= 0:
-            raise ValueError("invalid audio path")
-        audio_path = str(audio_path_obj)
-    declared_audio = os.path.relpath(audio_path, audio_base).replace(os.sep, "/")
+    audio_base, declared_audio, audio_path_obj = found
+    audio_path = os.fspath(audio_path_obj)
     owns_runner = runner is None
     if owns_runner:
         runner = asr.ASRRunner(asr.default_config())
@@ -315,6 +289,7 @@ def _pilot_archive_asr(
     if not archive.archive_bundle_complete(base, paths):
         raise ValueError("archive bundle incomplete")
     current.update(paths)
+    current["artifact_base"] = os.path.abspath(roots.write_base)
     current["status"] = "archived"
     asr.apply_provenance_evidence(current, runner)
     # Coverage attestation (plan asr-coverage-attestation): this route runs ASR, so its measured

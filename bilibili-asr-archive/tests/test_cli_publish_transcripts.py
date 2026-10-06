@@ -24,6 +24,7 @@ from __future__ import annotations
 from dataclasses import replace
 import hashlib
 import os
+from pathlib import Path
 import sqlite3
 import threading
 import time
@@ -516,7 +517,7 @@ def test_publish_transcripts_unknown_bvid_is_exit_one_and_writes_nothing(tmp_roo
     assert captured.err == "publish-transcripts: unknown --bvid BV1ABSENT\n"
     assert ManifestStore(root=tmp_root).load() == {}
     # Only the shipped writer lock's own directory: no manifest, no products.
-    assert _archive_files(tmp_root) == sorted([ARCHIVE_DATABASE_NAME, ARCHIVE_WRITER_LOCK])
+    assert _archive_files(tmp_root) == sorted([ARCHIVE_DATABASE_NAME, Path(ARCHIVE_WRITER_LOCK).as_posix()])
 
 
 def test_publish_transcripts_a_known_bvid_holding_no_transcript_is_zero_candidates(
@@ -533,7 +534,7 @@ def test_publish_transcripts_a_known_bvid_holding_no_transcript_is_zero_candidat
     )
     assert captured.err == ""
     assert ManifestStore(root=tmp_root).load() == {}
-    assert _archive_files(tmp_root) == sorted([ARCHIVE_DATABASE_NAME, ARCHIVE_WRITER_LOCK])
+    assert _archive_files(tmp_root) == sorted([ARCHIVE_DATABASE_NAME, Path(ARCHIVE_WRITER_LOCK).as_posix()])
 
 
 def test_publish_transcripts_non_positive_limit_parts_is_exit_one(tmp_root, capsys):
@@ -616,7 +617,7 @@ def test_publish_transcripts_records_projection_fields_and_its_producer(tmp_root
     assert set(row) == {
         "work_id", "bvid", "page_index", "cid", "title", "duration_s", "pubdate",
         "pubdate_str", "status", "srt_path", "txt_path", "md_path", "raw_path",
-        "source", "language", "archive_producer",
+        "source", "language", "archive_producer", "artifact_base",
     }
     assert row["work_id"] == f"{FRESH_BVID}:p0"
     assert row["bvid"] == FRESH_BVID
@@ -719,6 +720,25 @@ def test_publish_transcripts_writes_products_under_the_artifact_root_and_state_a
     assert os.path.isfile(os.path.join(archive_root, MANIFEST_REL_PATH))
     assert not os.path.exists(os.path.join(archive_root, "transcripts"))
     assert _archive_files(archive_root) == sorted(
-        [ARCHIVE_DATABASE_NAME, ARCHIVE_WRITER_LOCK, MANIFEST_REL_PATH,
-         MANIFEST_REL_PATH + ".lock"]
+        [ARCHIVE_DATABASE_NAME, Path(ARCHIVE_WRITER_LOCK).as_posix(), Path(MANIFEST_REL_PATH).as_posix(),
+         Path(MANIFEST_REL_PATH + ".lock").as_posix()]
     )
+
+
+def test_changed_artifact_root_records_publication_base(tmp_root):
+    _seed_archive(tmp_root)
+    _store_caption(tmp_root, FRESH_BVID, 0)
+    bases = [os.path.join(tmp_root, "first"), os.path.join(tmp_root, "second")]
+    publications = []
+    for base in bases:
+        os.makedirs(base)
+        assert _publish(tmp_root, "--bvid", FRESH_BVID, "--artifact-root", base) == 0
+        row = ManifestStore(root=tmp_root).load()[f"{FRESH_BVID}:p0"]
+        assert row["artifact_base"] == os.path.abspath(base)
+        publications.append(dict(row))
+        assert archive_module.archive_bundle_complete(base, _declared(tmp_root, f"{FRESH_BVID}:p0"))
+    assert publications[0] != publications[1]
+    assert {key: publications[0][key] for key in PRODUCT_KEYS} == {key: publications[1][key] for key in PRODUCT_KEYS}
+    before = _manifest_lines(tmp_root)
+    assert _publish(tmp_root, "--bvid", FRESH_BVID, "--artifact-root", bases[-1]) == 0
+    assert _manifest_lines(tmp_root) == before

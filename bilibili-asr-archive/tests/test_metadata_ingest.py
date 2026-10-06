@@ -1223,8 +1223,8 @@ def test_tags_are_fetched_once_per_video_not_once_per_part(tmp_root):
 def test_tag_calls_are_one_per_distinct_video_across_pages(tmp_root):
     """A video on two pages still costs one tag call, not one per page.
 
-    The cache is run-scoped rather than page-scoped for this reason: a resumed
-    or re-listed page must not pay for the same video's tags twice.
+    The bounded cache reuses recent observations within one run.
+    A resumed run deliberately starts a fresh observation cache.
     """
 
     gateway = FakeGateway()
@@ -1971,5 +1971,59 @@ def test_video_details_land_from_the_fixture_defaults(tmp_root, bilibili_api_sea
             "哲学讲座简介",
             124,
         )
+    finally:
+        connection.close()
+
+
+def test_tag_cache_eviction_preserves_page_answers_and_refetches_old_video(tmp_root, monkeypatch):
+    monkeypatch.setattr("bili_asr.services.metadata_ingest.TAG_CACHE_SIZE", 2)
+    gateway = FakeGateway()
+    videos = ("BV1A", "BV1B", "BV1C")
+    gateway.script_page(1, _page(1, *(_summary(bvid, aid=1001 + index) for index, bvid in enumerate(videos)), _summary("BV1A")))
+    gateway.script_page(2, _page(2, _summary("BV1A")))
+    gateway.script_page(3, _page(3))
+    for index, bvid in enumerate(videos):
+        gateway.script_parts(bvid, (_part(bvid, 0),))
+        gateway.script_tags(bvid, (VideoTag(tag_id=index + 1, tag_name=bvid, tag_type="old_channel"),))
+    connection = open_database(tmp_root)
+    try:
+        _ingestor(gateway, MetadataRepository(connection)).collect_user_pages(MID, start_page=1)
+        assert gateway.tag_calls == ["BV1A", "BV1B", "BV1C", "BV1A"]
+        assert connection.execute("SELECT COUNT(*) FROM video_tags").fetchone()[0] == 3
+    finally:
+        connection.close()
+
+
+def test_later_named_page_updates_author_and_nameless_page_preserves_it(tmp_root):
+    gateway = FakeGateway()
+    for page_number, author in enumerate(("first", "latest", None), 1):
+        bvid = f"BV1NAME{page_number}"
+        gateway.script_page(page_number, _page(page_number, _summary(bvid, aid=1000 + page_number, author=author)))
+        gateway.script_parts(bvid, (_part(bvid, 0),))
+    gateway.script_page(4, _page(4))
+    connection = open_database(tmp_root)
+    try:
+        _ingestor(gateway, MetadataRepository(connection)).collect_user_pages(MID, start_page=1)
+        assert connection.execute("SELECT display_name FROM bilibili_users").fetchone()[0] == "latest"
+    finally:
+        connection.close()
+
+
+def test_resumed_run_refreshes_tags_for_relisted_video(tmp_root):
+    gateway = FakeGateway()
+    gateway.script_parts("BV1RESUME", (_part("BV1RESUME", 0),))
+    gateway.script_page(1, _page(1, _summary("BV1RESUME")))
+    gateway.script_tags("BV1RESUME", (VideoTag(tag_id=1, tag_name="old", tag_type="old_channel"),))
+    gateway.script_page(2, GatewayTransportError("transport_error"))
+    connection = open_database(tmp_root)
+    try:
+        ingestor = _ingestor(gateway, MetadataRepository(connection))
+        assert ingestor.collect_user_pages(MID, start_page=1).outcome == "failed"
+        gateway.script_page(2, _page(2, _summary("BV1RESUME")))
+        gateway.script_page(3, _page(3))
+        gateway.script_tags("BV1RESUME", ())
+        ingestor.collect_user_pages(MID)
+        assert gateway.tag_calls == ["BV1RESUME", "BV1RESUME"]
+        assert connection.execute("SELECT COUNT(*) FROM video_tags").fetchone()[0] == 0
     finally:
         connection.close()

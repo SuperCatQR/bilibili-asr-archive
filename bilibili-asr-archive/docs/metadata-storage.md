@@ -631,3 +631,37 @@ Defined in the "Subtitle acquisition" section above: `0` the bounded run
 completed (a probe with zero visible tracks and a selection that resolved to no
 part included), `1` usage/configuration or the transcript-schema guard, `2` every
 attempted part failed or an unexpected internal error.
+
+
+## Metadata freshness and queue ownership
+
+Tag collection keeps at most 256 recent video observations per collection run
+(including degraded answers). A repeated video still resident in this cache
+reuses its answer; after eviction it is fetched again. Current-page answers
+remain available for persistence even when that page exceeds the cache bound.
+Each new run, including `fetch-meta --resume`, starts a fresh cache. Persisted
+`video_tags` records the last successful observation, not a freshness proof:
+resuming deliberately refreshes relisted videos so changed or removed tags can
+converge. An empty successful inventory clears tags; a degraded answer preserves
+the previous inventory. Resume therefore does not promise zero repeated tag
+requests across process or run boundaries.
+
+Each collected page may refresh the uploader's display name from its first
+named summary. A later named page can replace an earlier label; a nameless page
+preserves the stored label. Reobserving the identical label preserves the user's
+`updated_at`; this timestamp describes a label change, not a page heartbeat.
+
+Queue write-back validates scalar arguments and resolves the part, transcript,
+and run before opening its write group. On the supported SQLite deferred
+connection, those SELECT lookups do not start a transaction. A lookup refusal
+on an idle connection therefore leaves it idle. If the caller already owns a
+transaction, lookup refusal leaves that transaction and its pending writes
+intact: it neither commits nor rolls back caller work. Successful write-back
+retains the repository's existing commit/rollback write-group contract; callers
+should finish unrelated pending writes before invoking it.
+
+A part marked `gone` is excluded from subtitle and audio acquisition queues.
+If it already has archived audio and lacks a transcript, it remains in
+`missing_transcript`: local transcription of retained bytes is still useful
+and needs no network reacquisition. Queue membership follows the corresponding
+view; `gone` is not a blanket exclusion from all work.

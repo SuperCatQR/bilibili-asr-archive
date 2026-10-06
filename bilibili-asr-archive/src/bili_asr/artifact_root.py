@@ -366,6 +366,44 @@ def resolve_audio_path(
     return None
 
 
+def usable_audio_path(
+    roots: ArtifactRoots,
+    declared_candidates: Iterable[str | os.PathLike[str] | None],
+) -> tuple[Path, str, Path] | None:
+    """Return the first confined nonempty audio as (base, declared, path).
+
+    Holding-base selection includes usability: an empty configured-root stub
+    cannot shadow a usable legacy file. Consumers share this predicate and
+    keep the selected relative name instead of re-deriving/probing it.
+    """
+    from .path_policy import confined_audio_file
+
+    for base, declared, confined in iter_audio_paths(roots, declared_candidates):
+        try:
+            with confined_audio_file(base, declared) as safe_audio:
+                if os.stat(safe_audio).st_size > 0:
+                    return base, os.fspath(declared), confined
+        except OSError:
+            continue
+    return None
+
+
+def usable_audio_for_path(
+    roots: ArtifactRoots, path: str | os.PathLike[str],
+) -> tuple[Path, str, Path] | None:
+    """Pair one returned absolute audio path with its own confined base."""
+    for base in roots.read_bases():
+        try:
+            declared = os.path.relpath(path, base).replace(os.sep, "/")
+        except ValueError:
+            continue
+        # Restrict this probe to the base used to derive the relative name.
+        found = usable_audio_path(ArtifactRoots.of(base), (declared,))
+        if found is not None:
+            return found
+    return None
+
+
 def iter_audio_paths(
     roots: ArtifactRoots,
     declared_candidates: Iterable[str | os.PathLike[str] | None],
@@ -402,6 +440,8 @@ __all__ = [
     "iter_audio_paths",
     "resolve_artifact_root",
     "resolve_audio_path",
+    "usable_audio_path",
+    "usable_audio_for_path",
     "resolve_keep_audio",
     "roots_for",
 ]

@@ -26,7 +26,7 @@ from typing import Any, Callable, Iterator
 from . import asr as asr_module
 from . import audio as audio_module
 from . import subtitles as subtitles_module
-from .artifact_root import ArtifactRoots, iter_audio_paths
+from .artifact_root import ArtifactRoots, usable_audio_path, usable_audio_for_path
 from .audio_budget import AudioUsageError, AudioUsageTracker
 from .manifest import TERMINAL_STATUSES, ManifestStore
 from .persistence import utc_now_iso
@@ -650,15 +650,8 @@ class RunCoordinator:
         stem_path = os.path.join("audio", stem)
         declared_candidates.append(stem_path + ".m4a")
         declared_candidates.append(stem_path + ".flac")
-        for base, declared, confined in iter_audio_paths(
-            self.artifact_roots, declared_candidates
-        ):
-            try:
-                if confined.stat().st_size > 0:
-                    return base, str(declared)
-            except OSError:
-                continue
-        return None
+        found = usable_audio_path(self.artifact_roots, declared_candidates)
+        return (found[0], found[1]) if found is not None else None
 
     def _declared_audio(self, path: str) -> str | None:
         """The recorded form of one on-disk audio path, from whichever base holds it.
@@ -667,22 +660,8 @@ class RunCoordinator:
         wrote: a legacy copy at the archive root keeps resolving there (D6) and
         keeps its shipped ``audio/<name>.<ext>`` string.
         """
-        for base in self.artifact_roots.read_bases():
-            try:
-                declared = os.path.relpath(path, base).replace(os.sep, "/")
-            except ValueError:  # Windows across drives
-                continue
-            if confined_audio_path(base, declared, require_exists=True) is not None:
-                return declared
-        return None
-
-    # ------------------------------------------------------- store write-back
-    #
-    # Plan r14-routes-writeback: the archive stage's two transcript routes both
-    # owe a ``transcripts`` row.  Both write-backs are best-effort — the archive
-    # already succeeded on disk, so a store failure must never turn that into a
-    # row failure — and both resolve ``video_part_id`` through the store from
-    # ``(bvid, page_index)``, never from a fabricated page index.
+        found = usable_audio_for_path(self.artifact_roots, path)
+        return found[1] if found is not None else None
 
     def _queue_source_for_writeback(self):
         """This batch's lazily-opened queue source, or ``None``.
@@ -978,6 +957,7 @@ class RunCoordinator:
     ) -> None:
         updated = self._current_entry(key, entry)
         updated.update(paths)
+        updated["artifact_base"] = os.path.abspath(self.artifact_roots.write_base)
         updated["status"] = "archived"
         updated["source"] = "asr" if runner is not None else "subtitle"
         # A coordinator archive owes operational sidecars even when its

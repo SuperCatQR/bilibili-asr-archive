@@ -21,7 +21,7 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
-from .artifact_root import ArtifactRoots, iter_audio_paths
+from .artifact_root import ArtifactRoots, usable_audio_path
 from .bili_client import BiliClient, StreamDownloadError
 from .manifest import ManifestStore
 from .page_identity import PageIdentity, apply_identity, identity_from_entry
@@ -168,14 +168,8 @@ def _existing_audio(out_path: str, roots: ArtifactRoots) -> str | None:
     """
     relative_out = os.path.relpath(out_path, roots.write_base)
     candidates = [relative_out, os.path.splitext(relative_out)[0] + ".flac"]
-    for base, relative, confined in iter_audio_paths(roots, candidates):
-        try:
-            with confined_audio_file(base, relative) as safe_audio:
-                if os.stat(safe_audio).st_size > 0:
-                    return os.fspath(confined)
-        except OSError:
-            continue
-    return None
+    found = usable_audio_path(roots, candidates)
+    return os.fspath(found[2]) if found is not None else None
 
 
 def _archive_root_for_download(
