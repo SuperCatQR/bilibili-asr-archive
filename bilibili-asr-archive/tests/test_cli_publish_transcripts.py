@@ -742,3 +742,64 @@ def test_changed_artifact_root_records_publication_base(tmp_root):
     before = _manifest_lines(tmp_root)
     assert _publish(tmp_root, "--bvid", FRESH_BVID, "--artifact-root", bases[-1]) == 0
     assert _manifest_lines(tmp_root) == before
+
+
+def test_verification_timeout_preserves_bundle_and_continues_candidates(tmp_root, monkeypatch, capsys):
+    from bili_asr.services import bundle_verification
+    _seed_archive(tmp_root)
+    _store_caption(tmp_root, CHAIN_BVID, 0)
+    _store_caption(tmp_root, FRESH_BVID, 0)
+    _chain_archive(tmp_root, CHAIN_BVID, 0, 5001)
+    declared = _declared(tmp_root, f"{CHAIN_BVID}:p0")
+    before = _bundle_hashes(tmp_root, declared)
+    real_verify = bundle_verification.verify_bundle
+    def stalled(root, paths, **kwargs):
+        if paths == declared:
+            raise TimeoutError("private mount details")
+        return real_verify(root, paths, **kwargs)
+    monkeypatch.setattr(bundle_verification, "verify_bundle", stalled)
+    assert _publish(tmp_root) == 1
+    output = capsys.readouterr().out
+    assert f"{CHAIN_BVID}:p0: failed (TimeoutError)" in output
+    assert f"{FRESH_BVID}:p0: published" in output
+    assert "private mount details" not in output
+    assert _bundle_hashes(tmp_root, declared) == before
+
+
+def test_publish_rejects_nonfinite_verification_deadline(tmp_root, capsys):
+    for value in ("0", "-1", "nan", "inf"):
+        assert _publish(tmp_root, "--verify-timeout-seconds", value) == 1
+        assert "must be finite and positive" in capsys.readouterr().err
+
+
+def test_read_budget_exhaustion_keeps_bundle_and_stops_later_candidates(tmp_root, capsys):
+    _seed_archive(tmp_root)
+    _store_caption(tmp_root, CHAIN_BVID, 0)
+    _store_caption(tmp_root, FRESH_BVID, 0)
+    _chain_archive(tmp_root, CHAIN_BVID, 0, 5001)
+    declared = _declared(tmp_root, f"{CHAIN_BVID}:p0")
+    before = _bundle_hashes(tmp_root, declared)
+    rows_before = ManifestStore(root=tmp_root).load()
+    assert _publish(tmp_root, "--verify-read-budget-bytes", "17") == 1
+    captured = capsys.readouterr()
+    assert f"{CHAIN_BVID}:p0: failed (VerificationBudgetExceeded)" in captured.out
+    assert f"{FRESH_BVID}:p0:" not in captured.out
+    assert "remaining candidates unverified" in captured.err
+    assert _bundle_hashes(tmp_root, declared) == before
+    assert ManifestStore(root=tmp_root).load() == rows_before
+    assert _publish(tmp_root, "--verify-read-budget-bytes", "1048576") == 0
+
+
+def test_invalid_read_budget_is_usage_error(tmp_root, capsys):
+    assert _publish(tmp_root, "--verify-read-budget-bytes", "0") == 1
+    assert "must be positive" in capsys.readouterr().err
+
+
+def test_postwrite_budget_exhaustion_records_no_completion(tmp_root, capsys):
+    _seed_archive(tmp_root)
+    _store_caption(tmp_root, FRESH_BVID, 0)
+    assert _publish(tmp_root, "--verify-read-budget-bytes", "17") == 1
+    captured = capsys.readouterr()
+    assert "failed (VerificationBudgetExceeded)" in captured.out
+    assert "remaining candidates unverified" in captured.err
+    assert f"{FRESH_BVID}:p0" not in ManifestStore(root=tmp_root).load()

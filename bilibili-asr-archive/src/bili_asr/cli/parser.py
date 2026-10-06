@@ -297,6 +297,14 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     publish.add_argument(
+        "--verify-read-budget-bytes", type=int, default=256 * 1024 * 1024,
+        help="Total strict verification byte budget per invocation (default: 268435456; positive)",
+    )
+    publish.add_argument(
+        "--verify-timeout-seconds", type=float, default=30.0,
+        help="Deadline for each strict bundle verification worker (default: 30; excludes writes)",
+    )
+    publish.add_argument(
         "--pending", action="store_true",
         help="Skip complete published bundles and continue to unpublished or damaged parts",
     )
