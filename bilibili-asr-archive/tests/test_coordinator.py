@@ -225,6 +225,48 @@ def test_recover_rolls_back_when_directory_fsync_fails(tmp_root, monkeypatch):
     assert not audit_path.with_name(audit_path.name + ".rollback").exists()
 
 
+def test_windows_recovery_writer_appends_bounded_audit(tmp_root):
+    from bili_asr.integrity import _append_recovery_audit_windows, _AUDIT_REL_PATH
+
+    audit = {"action": "audit", "work_ids": ["BVwindows:p0"],
+             "defect_codes": ["retryable_incomplete"]}
+    line = (json.dumps(audit, ensure_ascii=False, sort_keys=True) + "\n").encode("utf-8")
+
+    result = _append_recovery_audit_windows(Path(tmp_root), audit, line)
+
+    assert result == {"ok": True, "selected": ["BVwindows:p0"], "audit_path": _AUDIT_REL_PATH}
+    assert (Path(tmp_root) / _AUDIT_REL_PATH).read_bytes() == line
+    assert (Path(tmp_root) / "coordinator" / "recovery-audit.lock").is_file()
+
+
+def test_windows_recovery_writer_restores_sidecar_when_directory_sync_fails(tmp_root, monkeypatch):
+    from bili_asr.integrity import (
+        RECOVERY_MALFORMED_SIDECAR,
+        _append_recovery_audit_windows,
+        _AUDIT_REL_PATH,
+    )
+
+    audit_path = Path(tmp_root) / _AUDIT_REL_PATH
+    audit_path.parent.mkdir(parents=True, exist_ok=True)
+    previous = (json.dumps({"action": "audit", "work_ids": ["BVprior:p0"],
+                            "defect_codes": ["retryable_incomplete"]}, sort_keys=True) + "\n").encode("utf-8")
+    audit_path.write_bytes(previous)
+    audit = {"action": "audit", "work_ids": ["BVwindows:p0"],
+             "defect_codes": ["retryable_incomplete"]}
+    line = (json.dumps(audit, ensure_ascii=False, sort_keys=True) + "\n").encode("utf-8")
+    monkeypatch.setattr(
+        "bili_asr.integrity._fsync_directory",
+        lambda _directory: (_ for _ in ()).throw(OSError("injected")),
+    )
+
+    result = _append_recovery_audit_windows(Path(tmp_root), audit, line)
+
+    assert result == {"ok": False, "code": RECOVERY_MALFORMED_SIDECAR, "selected": []}
+    assert audit_path.read_bytes() == previous
+    assert not list(audit_path.parent.glob(".recovery-audit.*.tmp"))
+    assert not list(audit_path.parent.glob(".recovery-audit.*.rollback"))
+
+
 def test_recover_rejects_oversized_existing_audit_record(tmp_root):
     from bili_asr.integrity import IntegrityVerifier, RECOVERY_MALFORMED_SIDECAR, _AUDIT_REL_PATH
     ident = page_identity("BVlogical", 0, 1, "p0")

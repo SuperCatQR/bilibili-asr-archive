@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 
 import pytest
 
@@ -181,7 +182,10 @@ def test_write_archive_rejects_marker_symlink_and_nonregular_without_touching_ta
     outside = tmp_path / "outside-marker"
     outside.write_text("keep", encoding="utf-8")
     marker.unlink()
-    marker.symlink_to(outside)
+    try:
+        marker.symlink_to(outside)
+    except OSError as exc:
+        pytest.skip(f"symlinks unavailable: {exc}")
     with pytest.raises(OSError, match="marker is not a regular file"):
         write_archive(tmp_path, row, [{"start": 0, "end": 1, "text": "new"}], source="asr")
     assert outside.read_text(encoding="utf-8") == "keep"
@@ -242,6 +246,8 @@ def test_failed_stage_cleanup_does_not_block_later_publication(tmp_root, monkeyp
     import os
 
     tmp_path = Path(tmp_root)
+    if os.name == "nt":
+        pytest.skip("the native Windows publisher uses file replacement without POSIX stage directories")
     entry = {"bvid": "BVcleanup", "work_id": "BVcleanup:p0", "page_index": 0, "cid": 1}
     original_rmdir = os.rmdir
     failed = False

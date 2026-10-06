@@ -199,28 +199,43 @@ def _archive_root_for_download(
         relative = os.path.relpath(requested, root)
     else:
         candidate = Path(requested)
-        if not candidate.is_absolute():
-            candidate = Path(os.path.abspath(candidate))
-        parts = candidate.parts
-        try:
-            audio_index = parts.index("audio")
-        except ValueError:
+        # The archive root is the parent of the *final* ``audio`` component.
+        # Searching from the left makes a perfectly valid root such as
+        # ``.../audio/archive/audio/file.m4a`` look like it has the wrong
+        # shape, because the root itself happens to be named ``audio``.
+        if candidate.parent.name != AUDIO_DIR:
             raise OSError("invalid audio path")
-        if audio_index == 0:
+        root = candidate.parent.parent
+        if root == candidate.parent or not candidate.name:
             raise OSError("invalid archive root")
-        if audio_index + 1 >= len(parts):
-            raise OSError("invalid audio path")
-        root = Path(os.path.join(*parts[:audio_index]))
-        relative = os.path.join("audio", *parts[audio_index + 1 :])
+        relative = os.path.join(AUDIO_DIR, candidate.name)
     if os.name != "nt":
         audio_fd = open_audio_directory(root, create=True)
         os.close(audio_fd)
-    else:
-        (root / "audio").mkdir(parents=True, exist_ok=True)
+    elif Path(root).is_symlink() or not Path(root).is_dir():
+        # ``confined_audio_path`` performs the same no-follow validation for
+        # the audio directory and creates it when needed.  Validate the base
+        # before that call so a symlinked root cannot be traversed by mkdir.
+        raise OSError("archive root is not a directory")
     confined = confined_audio_path(root, relative, require_exists=False)
     if confined is None:
         raise OSError("invalid audio path")
     return root, confined
+
+
+def _create_windows_stage(audio_dir: Path, suffix: str) -> Path:
+    """Reserve one temporary Windows stage path without following links."""
+    for _ in range(8):
+        stage = audio_dir / f".audio-stage-{secrets.token_hex(16)}{suffix}"
+        flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0)
+        try:
+            fd = os.open(os.fspath(stage), flags, 0o600)
+        except FileExistsError:
+            continue
+        os.close(fd)
+        return stage
+    raise OSError("unable to allocate audio stage")
+
 
 def download_audio(
     client: BiliClient,
@@ -374,13 +389,15 @@ def _download_audio_windows(
 ) -> str:
     """Download through validated paths on Windows, which has no dir_fd API."""
     audio_dir = archive_root / "audio"
-    stage = audio_dir / f".audio-stage-{secrets.token_hex(16)}.download"
-    converted = audio_dir / f".audio-stage-{secrets.token_hex(16)}.m4a"
+    stage = _create_windows_stage(audio_dir, ".download")
+    converted: Path | None = None
     try:
+        if is_flac:
+            converted = _create_windows_stage(audio_dir, ".m4a")
         for url in urls:
             try:
                 client.download_audio_stream(url, os.fspath(stage))
-                if not stage.is_file() or stage.stat().st_size == 0:
+                if stage.is_symlink() or not stage.is_file() or stage.stat().st_size == 0:
                     raise StreamDownloadError("audio stream produced an empty file")
             except StreamDownloadError:
                 try:
@@ -389,26 +406,33 @@ def _download_audio_windows(
                     pass
                 if url == urls[-1]:
                     raise StreamDownloadError("all audio CDN addresses failed") from None
+                stage = _create_windows_stage(audio_dir, ".download")
             else:
                 break
 
         output_path = final_path
         if is_flac:
+            assert converted is not None
             try:
                 _run_ffmpeg(os.fspath(stage), os.fspath(converted))
-                if not converted.is_file() or converted.stat().st_size == 0:
+                if converted.is_symlink() or not converted.is_file() or converted.stat().st_size == 0:
                     raise AudioConversionError("ffmpeg audio conversion failed")
                 os.replace(converted, audio_dir / final_name)
+                converted = None
             except FFmpegUnavailable:
                 flac_name = os.path.splitext(final_name)[0] + ".flac"
                 os.replace(stage, audio_dir / flac_name)
+                stage = None
                 output_path = os.fspath(audio_dir / flac_name)
         else:
             os.replace(stage, audio_dir / final_name)
+            stage = None
         _mark_audio_ok(store, identity, output_path, artifact_roots)
         return output_path
     finally:
         for path in (stage, converted):
+            if path is None:
+                continue
             try:
                 path.unlink()
             except FileNotFoundError:
