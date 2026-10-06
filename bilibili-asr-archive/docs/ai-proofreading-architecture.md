@@ -2,7 +2,7 @@
 
 日期：2026-10-06。工作流重构与 AI 校对的当前实现。
 交互式架构图：[打开 HTML](ai-proofreading-architecture.html)，[可编辑图稿](ai-proofreading-architecture.json)。
-入口见 [使用说明](ai-proofreading.md)，新版验证见 [阅读稿测试](ai-proofreading-readable-test.md)。
+入口见 [使用说明](ai-proofreading.md)，当前验证见 [完整链路测试](ai-proofreading-e2e-BV16jryYNEbT.md)。
 
 ## 目标与主链路
 
