@@ -2,9 +2,56 @@
 
 Personal archival CLI for Bilibili UP 未明子 (UID 23191782) ASR transcripts.
 
-Enumerates videos, harvests AI/CC subtitles first, downloads audio only when
-needed, runs local Qwen3-ASR, and archives `srt` / `txt` / `md` with a
-resumable JSONL manifest.
+It enumerates videos and stores source facts, audio objects, immutable
+transcript versions, task attempts, quality evidence, and publications in
+SQLite. Caption collection and local Qwen3-ASR are independent producers:
+caption availability never suppresses local ASR. Published `srt` / `txt` /
+`md` bundles are projected from the currently preferred stored transcript.
+
+## Independent workflow
+
+The `workflow` command is the primary execution path. It has no coordinator
+manifest or process-global work state: each worker atomically leases one
+SQLite job, runs a stateless handler, and records a terminal attempt.
+
+`workflow plan` always creates a subtitle job for each selected part. With the
+default `--asr-policy all`, it also creates an audio job and an ASR job for each
+part. The ASR job depends only on its audio job; subtitle success or failure is
+not part of its eligibility. A completed transcript requests a per-part publish
+job, which chooses the current preferred stored transcript before writing a
+bundle.
+
+    BILI_ASR_DEVICE=cpu bili-asr workflow plan \
+      --archive-root /srv/bili-archive --part-id 101 --asr-policy all
+    BILI_ASR_DEVICE=cpu bili-asr workflow run --archive-root /srv/bili-archive
+    bili-asr workflow status --archive-root /srv/bili-archive
+    bili-asr workflow retry --archive-root /srv/bili-archive --part-id 101
+
+`--asr-policy selected` has the same independent ASR behavior for explicitly
+chosen parts. `--asr-policy below-threshold` only schedules ASR after a quality
+assessment row exists and falls below `--quality-threshold`; it still does not
+use subtitle presence as a proxy for quality.
+
+`workflow retry` requeues failed jobs without deleting their prior attempt
+records, either for selected parts or for the whole archive.
+
+## AI 校对与 Markdown 阅读稿
+
+`workflow proofread` 将数据库中的转录版本固定为输入，使用 `deepseek-flash`
+生成结构化修改，再由 `render_document` 任务生成 `reading.md` 和 `review.md`。
+原始字幕、ASR 和原始归档保留；Markdown 重渲染读取已保存修订，无需再次调用模型。
+
+    bili-asr workflow proofread --archive-root /srv/bili-archive --part-id 101
+    bili-asr workflow run --archive-root /srv/bili-archive --only-editorial
+
+真实调用前在运行环境配置 `DEEPSEEK_API_KEY`。新采集链路可在
+`workflow plan` 中添加 `--proofread`；校对只依赖 ASR 成功，字幕是可选参考。
+默认支持 1M 上下文，按输入和修订输出预算选择尽可能大的块。
+
+默认开启 `high` 思考并设置 `top_p=0.95`。校对合并跨字幕的句子、删除无意义口头语和
+重复，整理语序与段落衔接，保留原话的观点、论据和逻辑。`reading.md` 只有正文段落，
+不含话题标题或时间戳；`review.md` 保存原文对照、来源、时间和待核对项，注明未经人工复核。
+参数、数据库结构、重试和离线测试见 [AI 校对使用说明](docs/ai-proofreading.md)。
 
 ## Install (editable)
 
@@ -47,7 +94,24 @@ directory, ignored by git:
     export BILI_ASR_MODEL=$PWD/models/Qwen3-ASR-1.7B-hf
     export BILI_ASR_ALIGNER_MODEL=$PWD/models/Qwen3-ForcedAligner-0.6B-hf
 
-Fetch them once (~5.9 GB) and verify the digests before trusting them — `huggingface.co` is not
+Fetch them once (~5.9 GB) from the official ModelScope repositories:
+
+    python -m pip install modelscope
+    modelscope download --model Qwen/Qwen3-ASR-1.7B-hf \
+      --local_dir models/Qwen3-ASR-1.7B-hf
+    modelscope download --model Qwen/Qwen3-ForcedAligner-0.6B-hf \
+      --local_dir models/Qwen3-ForcedAligner-0.6B-hf
+
+For WSL, downloading and running inference on the native Linux filesystem avoids
+the overhead of reading checkpoints through `/mnt/c`. Local checkpoint paths are
+recorded in the workflow profile when planning:
+
+    bili-asr workflow plan --archive-root /srv/bili-archive --part-id 101 \
+      --asr-policy all --device cpu \
+      --model /home/chosenecho/bili-asr-models/Qwen3-ASR-1.7B-hf \
+      --aligner /home/chosenecho/bili-asr-models/Qwen3-ForcedAligner-0.6B-hf
+
+Verify the digests below before trusting either checkpoint. As an alternative, `huggingface.co` is not
 reachable from the ASR host, and `hf download` does not work against the mirror either:
 huggingface_hub 1.x uses Xet storage, whose CAS endpoint rejects the mirror's authentication with
 `HTTP 401`. Plain HTTP through the mirror is the working route:
@@ -67,8 +131,8 @@ huggingface_hub 1.x uses Xet storage, whose CAS endpoint rejects the mirror's au
     # 2db53c7d81bd9b8cbc6a074e89be2c968a0d373fb4ee68bb1b1e14f7042dfee1  (4 076 193 080 bytes)  decoder
     # 00568245ceca5af1991d28562a75fe1ddc9bfeb041c27fda66947ea05c47fb86  (1 835 545 960 bytes)  aligner
 
-`HF_HUB_DISABLE_XET=1` makes the CLI route work as well. ModelScope serves the same two checkpoints
-with the same digests, but throttles large files to roughly 300 kB/s on this host.
+`HF_HUB_DISABLE_XET=1` makes the mirror CLI route work as well. ModelScope serves the same
+two checkpoints with the same digests; download throughput depends on the network.
 
 ### GPU Requirements (AMD 7800XT with ROCm)
 

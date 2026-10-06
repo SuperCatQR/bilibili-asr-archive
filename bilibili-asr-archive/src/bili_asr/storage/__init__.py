@@ -55,6 +55,7 @@ from .models import (
     VideoTagRecord,
     validate_error_code,
 )
+from .workflow import AsrPolicy, AsrProfile, JobKind, JobStatus, WorkflowJob, WorkflowPlan, WorkflowRepository
 
 __all__ = [
     "ALLOWED_ACQUISITION_KINDS",
@@ -72,12 +73,16 @@ __all__ = [
     "AcquisitionOutcome",
     "AcquisitionRunRecord",
     "AttemptOutcome",
+    "AsrPolicy",
+    "AsrProfile",
     "CursorRecord",
     "CursorState",
     "DatabaseConnection",
     "DiscoveryRecord",
     "IngestionPageRecord",
     "IngestionRunRecord",
+    "JobKind",
+    "JobStatus",
     "MAX_TIMELINE_MS",
     "MediaQueueRepository",
     "MetadataRepository",
@@ -97,6 +102,9 @@ __all__ = [
     "VideoPartRecord",
     "VideoRecord",
     "VideoTagRecord",
+    "WorkflowJob",
+    "WorkflowPlan",
+    "WorkflowRepository",
     "duration_to_ms",
     "initialize_schema",
     "normalize_page_index",

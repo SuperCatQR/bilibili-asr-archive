@@ -1237,7 +1237,7 @@ class ASRRunner:
     # -- the pipeline ------------------------------------------------------------------
 
     def _transcribe_chunk(
-        self, models: _ModelSet, audio_path: str, *, bust_cache: bool = False
+        self, models: _ModelSet, audio: Any, *, bust_cache: bool = False
     ) -> tuple[str, str]:
         """One chunk through the decoder: ``(text, detected_language)``.
 
@@ -1259,7 +1259,7 @@ class ASRRunner:
         hotwords = self._prompt_hotwords()
         prompt = "Vocabulary: " + ", ".join(hotwords) if hotwords else None
         inputs = models.processor.apply_transcription_request(
-            audio=audio_path, language=self.config.language, prompt=prompt
+            audio=audio, language=self.config.language, prompt=prompt
         )
         inputs = inputs.to(models.model.device, models.model.dtype)
         seconds = float(inputs["input_features_mask"].sum(-1).max()) / _MEL_FRAMES_PER_SECOND
@@ -1273,13 +1273,13 @@ class ASRRunner:
         parsed = models.processor.decode(tokens, return_format="parsed")[0]
         return text, str(parsed.get("language") or "")
 
-    def _align_chunk(self, models: _ModelSet, audio_path: str, text: str, language: str) -> list[dict[str, Any]]:
+    def _align_chunk(self, models: _ModelSet, audio: Any, text: str, language: str) -> list[dict[str, Any]]:
         """One chunk through the aligner: per-unit ``{text, start_time, end_time}`` in seconds."""
 
         import torch
 
         inputs, word_lists = models.aligner_processor.prepare_forced_aligner_inputs(
-            audio=audio_path, transcript=text, language=language or "Chinese"
+            audio=audio, transcript=text, language=language or "Chinese"
         )
         inputs = inputs.to(models.aligner.device, models.aligner.dtype)
         with torch.inference_mode():
@@ -1366,7 +1366,6 @@ class ASRRunner:
             ) from exc
 
         path, temporary = _materialize_input(audio_path)
-        scratch: str | None = None
         try:
             samples, rate = _read_audio(path)
             samples = np.asarray(samples, dtype=np.float32)
@@ -1393,8 +1392,6 @@ class ASRRunner:
             # branch is where the measured defect's span went missing.
             decoded_seconds = sum(len(chunk) / SAMPLE_RATE for chunk, _offset in chunks)
 
-            handle, scratch = tempfile.mkstemp(prefix="bili-asr-chunk-", suffix=".wav")
-            os.close(handle)
             minimum = int(_CHUNK_MIN_SECONDS * SAMPLE_RATE)
             pieces: list[dict[str, Any]] = []
             languages: set[str] = set()
@@ -1405,8 +1402,10 @@ class ASRRunner:
                     # pad — that would break its tiling promise — so the pad happens here, where the
                     # requirement comes from.
                     audio = np.pad(audio, (0, minimum - audio.shape[0]))
-                sf.write(scratch, audio, SAMPLE_RATE)
-                text, language = self._transcribe_chunk(models, scratch, bust_cache=bust_cache)
+                # Both processors accept 16 kHz float32 waveforms. Passing the
+                # already decoded chunk avoids their optional librosa file
+                # loader and a second decode through a temporary WAV file.
+                text, language = self._transcribe_chunk(models, audio, bust_cache=bust_cache)
                 if not text:
                     # The silent point the plan names: an empty-transcript chunk is dropped with
                     # no record of its own.  It is not tracked here either — the run-level
@@ -1421,7 +1420,7 @@ class ASRRunner:
                         "start_time": float(unit["start_time"]) + offset,
                         "end_time": float(unit["end_time"]) + offset,
                     }
-                    for unit in self._align_chunk(models, scratch, text, language)
+                    for unit in self._align_chunk(models, audio, text, language)
                 ]
                 pieces.extend(_thread_text(text, units))
             cues = _aligned_cues(pieces)
@@ -1441,7 +1440,7 @@ class ASRRunner:
                 self._last_language = "mul"
             return cues
         finally:
-            for leftover in (temporary, scratch):
+            for leftover in (temporary,):
                 if leftover:
                     try:
                         os.unlink(leftover)

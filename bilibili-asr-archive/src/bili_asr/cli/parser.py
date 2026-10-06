@@ -21,8 +21,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--version", action="version", version="%(prog)s 0.1.0")
     subparsers = parser.add_subparsers(dest="command")
     from bili_asr.cli.adopt import add_adoption_parser
+    from bili_asr.cli.workflow import add_workflow_parser
 
     add_adoption_parser(subparsers)
+    add_workflow_parser(subparsers, archive_root=DEFAULT_ARCHIVE_ROOT)
 
     fetch_meta = subparsers.add_parser(
         "fetch-meta",
