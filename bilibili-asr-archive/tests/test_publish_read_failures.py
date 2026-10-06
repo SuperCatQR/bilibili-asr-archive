@@ -29,6 +29,15 @@ def _existing_bundle(root):
 
 def _fail_one_read(monkeypatch, target, error):
     """Inject at the actual read of one real file, then allow normal reads."""
+    # This test exercises injected low-level reader errors in-process. The
+    # isolated service has separate real-process deadline/integrity tests.
+    from bili_asr.services import bundle_verification
+    monkeypatch.setattr(
+        bundle_verification, "verify_bundle",
+        lambda root, paths, **kwargs: archive.archive_bundle_complete(
+            root, paths, require_readable=True,
+        ),
+    )
     pending = [True]
     identity = target.stat()
     real_read = os.read
@@ -152,6 +161,13 @@ def test_publish_reports_a_post_write_read_failure_without_recording_completion(
         ))
         return paths
 
+    from bili_asr.services import bundle_verification
+    monkeypatch.setattr(
+        bundle_verification, "verify_bundle",
+        lambda root, paths, **kwargs: archive.archive_bundle_complete(
+            root, paths, require_readable=True,
+        ),
+    )
     monkeypatch.setattr(archive, "write_archive", write_then_fail_read)
     assert _publish(tmp_root, "--bvid", FRESH_BVID) == 1
     assert injected and not injected[0][0]

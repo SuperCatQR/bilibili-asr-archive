@@ -665,3 +665,79 @@ If it already has archived audio and lacks a transcript, it remains in
 `missing_transcript`: local transcription of retained bytes is still useful
 and needs no network reacquisition. Queue membership follows the corresponding
 view; `gone` is not a blanket exclusion from all work.
+
+
+## Publication read budget and verification deadline
+
+Complete-bundle decisions still read and SHA-256 all four artifacts. File size
+and timestamps never establish content integrity; edits preserving both must
+still be detected. A run over 3,000 bundles at 3.5 MB each reads roughly 10.5 GB
+again, plus markers, and creates a verification process for each check.
+
+Use an explicit scope for mounted or large archives:
+
+```sh
+bili-asr publish-transcripts --archive-root /path/to/archive --bvid BVxxxx:p0 --limit-parts 1 --verify-timeout-seconds 30
+```
+
+Without `--pending`, `--limit-parts N` limits selected database parts before
+loading their version metadata and limits verification to those N candidates.
+Each selected part's complete version set is retained for correct winner
+selection. `--pending --limit-parts N` instead limits publication attempts:
+it may inspect and hash many already-complete bundles before finding N pending
+parts. Narrow `--bvid` if a strict scan budget is needed; pending mode alone is
+not a corpus-read budget. Omit the part selector only for an intentional full
+scan. Lowering the timeout can refuse slow healthy reads, preserving the bundle
+and returning a failed candidate rather than weakening its integrity check.
+
+`--verify-timeout-seconds` defaults to 30 and must be finite and positive.
+Both the pre-publication completeness check and post-publication confirmation
+use separate disposable read-only processes. On timeout the candidate reports
+`TimeoutError`, keeps an existing unverified bundle, and processing continues.
+The child inherits no archive-writer descriptors. The parent requests kill and
+waits at most 0.2 seconds for cleanup; an uninterruptible kernel call may outlive
+that request, so physical cancellation is not guaranteed. Unreaped workers
+are capped at four; more verification is refused until they exit. Workers
+perform no publication writes, so surviving workers cannot later publish.
+
+This is a **verification-read deadline**, not a deadline for all candidate I/O.
+Process creation, database reads, publication writes/fsync, and manifest
+journal/snapshot writes remain outside it. A mount blocking those operations
+can still hold the parent's writer lock. A true whole-candidate deadline needs
+a different publication/lock ownership design; releasing a lock while a
+blocked writer may later resume would allow conflicting publishers.
+
+
+### Finite verification byte budget
+
+`publish-transcripts` now defaults to a **256 MiB (268,435,456 byte)** strict
+verification read budget per invocation. `--verify-read-budget-bytes N` sets a
+positive finite allowance in bytes. This budget applies cumulatively to actual
+marker and artifact bytes returned by the canonical reader, across both
+pre-publication and post-publication checks and all candidates, including
+already-published skips in pending mode. The worker restricts each `os.read`
+to the remaining allowance; file stats are not used to charge or skip reads.
+Hashing remains strict and no stat-based cache is introduced.
+
+Budget exhaustion exits 1 with `VerificationBudgetExceeded` and a message that
+remaining candidates are unverified. It stops processing later candidates;
+an existing bundle whose read was cut short is preserved, with no
+already-published claim and no new manifest completion row. A newly written
+bundle whose post-write confirmation exceeds the budget also gains no manifest
+completion row. Products already successfully verified and recorded earlier in
+the invocation remain committed. Increase the budget or narrow `--bvid` to
+continue deliberately:
+
+```sh
+bili-asr publish-transcripts --archive-root /path/to/archive --bvid BVxxxx:p0 --verify-read-budget-bytes 536870912
+```
+
+A verification needs enough headroom to establish EOF; hitting the allowance
+exactly may conservatively refuse the bundle rather than read beyond it. On a
+worker timeout or invalid response, its full reserved allowance stays consumed:
+the parent's actual read count is unknown and a kernel-blocked reader may still
+hold it. This prevents allocating those same bytes to another worker. A new
+CLI invocation creates a new explicit budget. The allowance limits logical
+returned filesystem bytes, not filesystem/kernel readahead, SQLite traffic or
+publication output bytes. The verification timeout and its write/fence limits
+remain unchanged.
