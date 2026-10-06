@@ -275,6 +275,17 @@ def test_the_threshold_boundary_is_strict_and_compared_unrounded():
     assert below["coverage_short"] is True
 
 
+def test_alignment_span_overrun_is_bounded_to_decoded_audio():
+    """An aligner overrun cannot make the coverage record invalid."""
+
+    record = asr._coverage_record(3.0, [{"start": 0.0, "end": 4.0}])
+
+    assert record["decoded_s"] == 3.0
+    assert record["produced_s"] == 3.0
+    assert record["coverage"] == 1.0
+    assert record["coverage_short"] is False
+
+
 def test_a_rerun_recomputes_and_a_no_decode_run_claims_nothing(tmp_root, monkeypatch, capsys):
     """Rules 5/6: a re-run never copies a prior ``coverage``; no decode makes no claim.
 

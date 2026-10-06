@@ -5,6 +5,8 @@ Filesystem ownership only. BiliClient must never import this module.
 
 from __future__ import annotations
 
+from .diagnostics import write_stderr
+
 import json
 import os
 import sys
@@ -93,16 +95,16 @@ class MetaCursorStore:
         try:
             with open(self.path, "r", encoding="utf-8") as fh:
                 raw = json.load(fh)
-        except (OSError, json.JSONDecodeError):
-            print("meta-cursor: ignoring corrupt sidecar", file=sys.stderr)
+        except (OSError, UnicodeError, json.JSONDecodeError):
+            write_stderr("meta-cursor: ignoring corrupt sidecar")
             return None
         if not isinstance(raw, dict):
-            print("meta-cursor: ignoring corrupt sidecar", file=sys.stderr)
+            write_stderr("meta-cursor: ignoring corrupt sidecar")
             return None
         try:
             return _validate(raw)
         except (ValueError, KeyError, TypeError):
-            print("meta-cursor: ignoring corrupt sidecar", file=sys.stderr)
+            write_stderr("meta-cursor: ignoring corrupt sidecar")
             return None
 
     def replace_atomic(self, cursor: dict[str, Any]) -> dict[str, Any]:

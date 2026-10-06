@@ -27,6 +27,8 @@ def _stable_error(operation: str) -> PersistenceError:
 
 
 def _sync_directory(directory: str) -> None:
+    if os.name == "nt":
+        return
     flags = getattr(os, "O_DIRECTORY", 0) | os.O_RDONLY
     fd = os.open(directory, flags)
     try:
@@ -57,12 +59,21 @@ def file_lock(path: str | os.PathLike[str], *, blocking: bool = True) -> Iterato
             else:
                 state[lock_path] -= 1
         return
+    process_lock = _process_lock_for(lock_path)
+    if not process_lock.acquire(blocking=blocking):
+        # Preserve the same cause shape as a non-blocking OS lock refusal so
+        # archive_writer can translate it into the public ``archive_busy``
+        # result instead of leaking a persistence failure.
+        raise _stable_error("lock") from BlockingIOError(errno.EAGAIN, "lock busy")
+    process_acquired = True
     try:
         os.makedirs(os.path.dirname(lock_path) or ".", exist_ok=True)
         fh = open(lock_path, "a+b")
     except (ValueError, TypeError):
+        process_lock.release()
         raise
     except OSError as exc:
+        process_lock.release()
         raise _stable_error("lock") from exc
     acquired = False
     try:
@@ -103,8 +114,24 @@ def file_lock(path: str | os.PathLike[str], *, blocking: bool = True) -> Iterato
             except OSError:
                 pass
         fh.close()
+        if process_acquired:
+            process_lock.release()
 
 _LOCK_STATE = threading.local()
+_PROCESS_LOCKS: dict[str, threading.Lock] = {}
+_PROCESS_LOCKS_GUARD = threading.Lock()
+
+
+def _process_lock_for(path: str) -> threading.Lock:
+    """Return the process-wide gate used before OS file locking.
+
+    ``msvcrt.locking`` reports ``EACCES`` for competing handles in the same
+    process instead of honoring its blocking mode.  Serializing those handles
+    here preserves the public blocking/non-blocking contract while the OS lock
+    still protects against other processes.
+    """
+    with _PROCESS_LOCKS_GUARD:
+        return _PROCESS_LOCKS.setdefault(path, threading.Lock())
 
 
 def _json_line(record: dict[str, Any]) -> bytes:

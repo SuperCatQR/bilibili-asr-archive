@@ -2,30 +2,20 @@
 
 from __future__ import annotations
 
-import sqlite3
+from bili_asr.diagnostics import write_stderr
 
+import argparse
 import os
+import sqlite3
 import sys
 
 from bili_asr.cli._shared import (
-    DEFAULT_ARCHIVE_ROOT,
-    _archive_database_exists,
-    _format_run_line,
-    _identity_from_entry,
     _metadata_database_path,
-    _open_read_connection,
-    _open_read_repository,
     _open_subtitle_connection,
-    _record_api_error,
-    _run_error_codes,
     _selector_cannot_name_a_part,
-    _subtitle_schema_rebuild_line,
     _subtitle_selector,
-    _todo_for_bvid,
 )
 from bili_asr.config import (
-    DEFAULT_MID,
-    DEFAULT_PAGE_LIMIT,
     SESSDATA_ENV_VAR,
     MetadataConfigError,
     load_metadata_config,
@@ -40,7 +30,7 @@ def _cmd_fetch_meta(args: argparse.Namespace) -> int:
     (reached the end, the explicit --limit-pages bound, or the implicit
     DEFAULT_PAGE_LIMIT bound); 1 usage/configuration error; 2 terminal
     failure in one of two variants — a bounded gateway failure (the
-    fail-fast gateway: one attempt per page, a bounded scalar code, cursor
+    single-attempt default or exhausted --page-retries, a bounded scalar code, cursor
     unchanged unless --skip-failed-page moved it past a failed page (every
     non-rate-limit failure is skipped, so a transient one is too; a rate
     limit never is), resume safe) or an unexpected internal error (the fixed
@@ -56,35 +46,32 @@ def _cmd_fetch_meta(args: argparse.Namespace) -> int:
     try:
         config = load_metadata_config(args)
     except MetadataConfigError as exc:
-        print(f"fetch-meta: {exc}", file=sys.stderr)
+        write_stderr(f"fetch-meta: {exc}")
         return 1
 
     if config.resume and not os.path.isfile(
         _metadata_database_path(config.archive_root)
     ):
-        print(
+        write_stderr(
             f"fetch-meta: no archive database at {config.archive_root}; "
-            "--resume requires a stored cursor",
-            file=sys.stderr,
+            "--resume requires a stored cursor"
         )
         return 1
     try:
         connection = open_database(config.archive_root)
     except (OSError, sqlite3.Error) as exc:
-        print(
+        write_stderr(
             f"fetch-meta: invalid --archive-root {config.archive_root} "
-            f"({type(exc).__name__})",
-            file=sys.stderr,
+            f"({type(exc).__name__})"
         )
         return 1
 
     try:
         repository = MetadataRepository(connection)
         if config.resume and repository.read_cursor(config.mid) is None:
-            print(
+            write_stderr(
                 f"fetch-meta: --resume requires a stored cursor; none recorded "
-                f"for mid={config.mid} (drop --resume to start from page 1)",
-                file=sys.stderr,
+                f"for mid={config.mid} (drop --resume to start from page 1)"
             )
             return 1
         gateway = BilibiliApiGateway(sessdata=config.sessdata)
@@ -94,12 +81,13 @@ def _cmd_fetch_meta(args: argparse.Namespace) -> int:
             start_page=config.start_page,
             page_limit=config.page_limit,
             skip_failed_page=config.skip_failed_page,
+            page_retries=config.page_retries,
         )
     except Exception:
         # C5: the ingestor resolves bounded gateway failures internally, so
         # anything escaping is unexpected — exit the terminal code with a
         # fixed redacted summary, never a traceback or payload text.
-        print("fetch-meta: unexpected error", file=sys.stderr)
+        write_stderr("fetch-meta: unexpected error")
         return 2
     finally:
         connection.close()
@@ -130,10 +118,9 @@ def _cmd_fetch_meta(args: argparse.Namespace) -> int:
             cursor_clause = f"cursor unchanged at page {result.next_cursor.next_page}"
         else:
             cursor_clause = "no cursor recorded"
-        print(
+        write_stderr(
             f"fetch-meta: metadata gateway failure ({result.error_code}); "
-            f"{cursor_clause} — re-run fetch-meta to resume.",
-            file=sys.stderr,
+            f"{cursor_clause} — re-run fetch-meta to resume."
         )
         return 2
     if result.next_cursor is not None:
@@ -154,6 +141,10 @@ def _cmd_probe_subs(args: argparse.Namespace) -> int:
     bound, a missing database, an unknown --bvid, the schema guard); 2 the probe
     failed on every selected part, or an unexpected internal error.  A partial
     per-part failure stays visible in the printed ``failed=`` count.
+
+    This is a deliberate read-only contract: probe observations are diagnostic
+    only and must not count as harvested subtitle evidence or create a
+    re-driveable archive row.
     """
     from bili_asr.services.subtitle_ingest import (
         SubtitleIngestor,
@@ -163,15 +154,13 @@ def _cmd_probe_subs(args: argparse.Namespace) -> int:
     from bili_asr.storage import TranscriptRepository
 
     if (args.bvid is None) == (args.limit_parts is None):
-        print(
-            "probe-subs: exactly one of --bvid / --limit-parts is required",
-            file=sys.stderr,
+        write_stderr(
+            "probe-subs: exactly one of --bvid / --limit-parts is required"
         )
         return 1
     if args.limit_parts is not None and args.limit_parts < 1:
-        print(
-            "probe-subs: --limit-parts must be a positive integer",
-            file=sys.stderr,
+        write_stderr(
+            "probe-subs: --limit-parts must be a positive integer"
         )
         return 1
     bvid, page_index = _subtitle_selector(args.bvid)
@@ -179,7 +168,7 @@ def _cmd_probe_subs(args: argparse.Namespace) -> int:
         # A blank or control-character selector names no part in any database, so
         # it is the documented configuration error and is decided before the
         # database is opened.
-        print(f"probe-subs: unknown --bvid {args.bvid}", file=sys.stderr)
+        write_stderr(f"probe-subs: unknown --bvid {args.bvid}")
         return 1
     sessdata = resolve_sessdata(args.sessdata, os.environ.get(SESSDATA_ENV_VAR))
     connection = _open_subtitle_connection(
@@ -193,7 +182,7 @@ def _cmd_probe_subs(args: argparse.Namespace) -> int:
             # A selector that resolves to no stored part is configuration, not an
             # empty result, so the probe never reports a part-less run as a
             # completed read.
-            print(f"probe-subs: unknown --bvid {args.bvid}", file=sys.stderr)
+            write_stderr(f"probe-subs: unknown --bvid {args.bvid}")
             return 1
         ingestor = SubtitleIngestor(
             BilibiliApiGateway(sessdata=sessdata),
@@ -208,7 +197,7 @@ def _cmd_probe_subs(args: argparse.Namespace) -> int:
     except Exception:
         # Expected gateway failures are resolved inside the service, so anything
         # escaping is unexpected: the bounded terminal code, never a traceback.
-        print("probe-subs: unexpected error", file=sys.stderr)
+        write_stderr("probe-subs: unexpected error")
         return 2
     finally:
         connection.close()
@@ -258,15 +247,13 @@ def _cmd_harvest_subs(args: argparse.Namespace) -> int:
     if args.language is not None:
         languages = tuple(entry.strip() for entry in args.language.split(","))
         if any(not entry for entry in languages):
-            print(
-                "harvest-subs: --language entries must not be empty",
-                file=sys.stderr,
+            write_stderr(
+                "harvest-subs: --language entries must not be empty"
             )
             return 1
     if args.limit_parts is not None and args.limit_parts < 1:
-        print(
-            "harvest-subs: --limit-parts must be a positive integer",
-            file=sys.stderr,
+        write_stderr(
+            "harvest-subs: --limit-parts must be a positive integer"
         )
         return 1
     bvid, page_index = _subtitle_selector(args.bvid)
@@ -274,14 +261,13 @@ def _cmd_harvest_subs(args: argparse.Namespace) -> int:
         # Same configuration error as an unknown bvid, and decided on the
         # argument alone: a selector the archive cannot store can never resolve to
         # a part, so no bound would make it selectable.
-        print(f"harvest-subs: unknown --bvid {args.bvid}", file=sys.stderr)
+        write_stderr(f"harvest-subs: unknown --bvid {args.bvid}")
         return 1
     if args.limit_parts is None and page_index is None:
         # No unbounded runs: only a single named part is bounded by construction.
-        print(
+        write_stderr(
             "harvest-subs: --limit-parts is required unless a single bvid:pN "
-            "part is selected",
-            file=sys.stderr,
+            "part is selected"
         )
         return 1
     sessdata = resolve_sessdata(args.sessdata, os.environ.get(SESSDATA_ENV_VAR))
@@ -293,7 +279,7 @@ def _cmd_harvest_subs(args: argparse.Namespace) -> int:
         if bvid is not None and not repository.list_selected_parts(bvid, page_index):
             # Decided before the run is opened: an unknown selector is
             # configuration and must not leave an empty run row behind.
-            print(f"harvest-subs: unknown --bvid {args.bvid}", file=sys.stderr)
+            write_stderr(f"harvest-subs: unknown --bvid {args.bvid}")
             return 1
         ingestor = SubtitleIngestor(
             BilibiliApiGateway(sessdata=sessdata),
@@ -311,7 +297,7 @@ def _cmd_harvest_subs(args: argparse.Namespace) -> int:
     except Exception:
         # The service finishes an interrupted run as failed before anything
         # escapes, so this is the bounded terminal code with no traceback.
-        print("harvest-subs: unexpected error", file=sys.stderr)
+        write_stderr("harvest-subs: unexpected error")
         return 2
     finally:
         connection.close()

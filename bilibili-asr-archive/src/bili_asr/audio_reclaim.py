@@ -41,7 +41,8 @@ def _candidate_paths(entry: Mapping[str, Any]) -> list[str]:
         stem = bvid
     if stem:
         for ext in _AUDIO_EXTENSIONS:
-            candidates.append(os.path.join("audio", f"{stem}{ext}"))
+            # Persisted archive keys use POSIX separators on every host.
+            candidates.append(f"audio/{stem}{ext}")
     return candidates
 
 

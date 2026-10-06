@@ -14,7 +14,7 @@ from typing import Mapping, NamedTuple
 from .archive import LOW_CONFIDENCE, bundle_paths_for_stem
 from .artifact_root import ArtifactRoots
 from .asr import _FORBIDDEN_PROVENANCE as _FORBIDDEN_MARKER
-from .cues import read_cues as _read_shared_cues
+from .cues import CueParseError, read_cues as _read_shared_cues
 from .page_identity import canonical_stem
 
 #: Reasons that describe a structural defect: an artifact is missing, unreadable,
@@ -105,24 +105,8 @@ _NGRAM_MIN_REPEATS = 3
 _NGRAM_MAX_CHARS = 200_000
 _MAX_BYTES = 8 * 1024 * 1024
 _MAX_CUES = 10_000
-#: How much flattened text either transcript may hold before the comparison is
-#: refused.  ``_MAX_BYTES`` bounds the reference's *bytes*, which is not the
-#: same thing as the *work* of comparing them: with ``autojunk`` off — the
-#: setting that keeps recorded ratios comparable, so it is not negotiable — a
-#: pair of long, near-identical, low-entropy strings, which is exactly what two
-#: transcripts of the same audio are, costs super-linearly.  Measured on this
-#: host by tiling real transcript text to length and injecting 2–20 % edits:
-#: 4 000 characters per side ≈ 6 s, 8 000 ≈ 53 s, 12 000 ≈ 136 s, 16 000 ≈ 323 s
-#: (worst cases), while 10 000 ≈ 6 s and 20 000 ≈ 37 s on the same generator.
-#: The byte cap alone admits ~2.7 M characters per side, i.e. hours of CPU with
-#: no output; this bound caps the work at tens of seconds worst case.
-#: Real transcripts are far smaller: the recorded 448 s probe flattens to 2 098
-#: characters per side (~280 per minute of audio), so the longest row in this
-#: archive (1 115 s) is ≈5 200 and this bound covers ≈70 minutes of audio — every
-#: real comparison here, with several times the headroom.  The trade-off is
-#: deliberate and stated: a near-identical pair of *very* long transcripts is
-#: refused rather than measured, because a ratio nobody can wait for is not a
-#: measurement, and the refusal is loud (stderr + exit 1), never silent.
+#: Maximum flattened characters per side for an exact full comparison.
+#: Longer transcripts use bounded samples; see _compare_reference.
 _MAX_COMPARE_CHARS = 20_000
 #: Credential-like words as they can appear in a *file name*.  A marker's
 #: trailing ``\b`` cannot end the match after an underscore (``_`` is a word
@@ -177,6 +161,9 @@ class ReferenceAgreement(NamedTuple):
     agreement: float
     floor: float
     compared_chars: tuple[int, int]
+    method: str = "full"
+    total_chars: tuple[int, int] | None = None
+    windows: tuple[tuple[int, int, int, int], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -254,6 +241,9 @@ class QualityAnalyzer:
         """
 
         roots = artifact_roots if artifact_roots is not None else ArtifactRoots.of(archive_root)
+        # Enumeration repeats the same raw candidates and bases. Share their
+        # resolves for this row only; the read guard below remains fresh.
+        probe = _ContainmentProbe(roots)
         reasons: set[str] = set()
         diagnostics: set[str] = set()
         content_reasons: set[str] = set()
@@ -276,7 +266,12 @@ class QualityAnalyzer:
             # the same row for the same reason (`structural_input_error`).
             reasons.add("identity_invalid")
         else:
-            artifacts = _artifact_paths(row, roots)
+            # Both writer-real raw locations must remain confined even when
+            # the row explicitly names a complete bundle. These are identity
+            # probes, not extra transcript representations to read or count.
+            if _inferred_raw_escapes(row, roots, probe):
+                reasons.add("identity_unconfined")
+            artifacts = _artifact_paths(row, roots, probe)
             if not artifacts:
                 reasons.add("artifact_missing")
         cue_count = 0
@@ -306,18 +301,26 @@ class QualityAnalyzer:
                     diagnostics.add("file_too_large")
                     continue
                 text = path.read_text(encoding="utf-8")
-                cues, malformed, empty = _read_cues(path, text)
+                cues, malformed, empty = _read_shared_cues(
+                    path, text, require_source="asr" if row.get("source") == "asr" else None
+                )
+            except CueParseError:
+                reasons.add("malformed")
+                diagnostics.add("source_mismatch")
+                continue
             except (OSError, UnicodeError):
                 reasons.add("malformed")
                 diagnostics.add("unreadable")
                 continue
             valid_artifacts += 1
-            cue_count = min(_MAX_CUES, cue_count + len(cues))
+            # SRT and raw are representations of the same transcript. Count
+            # cues from the preferred comparable artifact once, not per file.
             rank = _transcript_rank(path, cues)
             if rank > transcript_rank:
                 candidate = comparable_text(text, cues)
                 if candidate:
                     transcript, transcript_rank = candidate, rank
+                    cue_count = len(cues)
             if malformed:
                 reasons.add("malformed")
             if empty:
@@ -379,7 +382,9 @@ def _canonical_stem(row: Mapping[str, object]) -> str | None:
         return None
 
 
-def _artifact_paths(row: Mapping[str, object], roots: ArtifactRoots) -> list[Path]:
+def _artifact_paths(
+    row: Mapping[str, object], roots: ArtifactRoots, probe: _ContainmentProbe,
+) -> list[Path]:
     """The row's artifact candidates, each resolved at the base that holds it.
 
     A declared value is a root-relative string (D7), so it is probed over
@@ -447,7 +452,7 @@ def _artifact_paths(row: Mapping[str, object], roots: ArtifactRoots) -> list[Pat
                 # offer therefore stays gated on existence, except for a candidate that
                 # escapes every read base: there, absence is the question being asked.
                 chosen = next(
-                    (item for item in candidates if _escapes_every_base(item, roots)),
+                    (item for item in candidates if _escapes_every_base(item, probe)),
                     None,
                 )
                 if chosen is None:
@@ -458,6 +463,34 @@ def _artifact_paths(row: Mapping[str, object], roots: ArtifactRoots) -> list[Pat
     if inferred and not result and values:
         result.append(bases[0] / values[0])
     return list(dict.fromkeys(result))
+
+
+def _inferred_raw_escapes(
+    row: Mapping[str, object], roots: ArtifactRoots, probe: _ContainmentProbe,
+) -> bool:
+    """Ask verify's two raw containment questions independently of declarations.
+
+    Each family is legal when some read base confines its own candidate. An
+    absent but confined caption sidecar contributes no missing-artifact reason;
+    it is an alternative route, not part of the declared archive bundle.
+    """
+    stem = _canonical_stem(row)
+    if stem is None:
+        return False
+    bases = roots.read_bases()
+    families = (
+        tuple(base / "subtitles" / "raw" / f"{stem}.json" for base in bases),
+        tuple(bundle_paths_for_stem(base, stem)["raw_path"] for base in bases),
+    )
+    for candidates in families:
+        try:
+            if not any(probe.contained(path, base) for base, path in zip(bases, candidates)):
+                return True
+        except (OSError, RuntimeError):
+            # Match the existing inferred-path probe: an unresolved symlink
+            # loop or inaccessible parent does not prove an outside location.
+            continue
+    return False
 
 
 def _derived_md_candidates(row: Mapping[str, object], stem: str, base: Path) -> list[Path]:
@@ -472,6 +505,29 @@ def _derived_md_candidates(row: Mapping[str, object], stem: str, base: Path) -> 
     """
     exact_md = bundle_paths_for_stem(base, stem)["md_path"]
     return [exact_md] if exact_md.is_file() else []
+class _ContainmentProbe:
+    """Memoize enumeration resolves within one row, never across reads or rows."""
+
+    def __init__(self, roots: ArtifactRoots) -> None:
+        self.bases = roots.read_bases()
+        self._resolved: dict[Path, Path] = {}
+
+    def resolve(self, path: Path) -> Path:
+        if path not in self._resolved:
+            self._resolved[path] = path.resolve()
+        return self._resolved[path]
+
+    def contained(self, path: Path, base: Path) -> bool:
+        try:
+            self.resolve(path).relative_to(self.resolve(base))
+        except ValueError:
+            return False
+        return True
+
+    def contained_at_any_base(self, path: Path) -> bool:
+        return any(self.contained(path, base) for base in self.bases)
+
+
 def _contained_at_any_base(path: Path, roots: ArtifactRoots) -> bool:
     """`_contained`, asked once per base.
 
@@ -479,18 +535,10 @@ def _contained_at_any_base(path: Path, roots: ArtifactRoots) -> bool:
     transcript family keeps its own ``resolve``-based check and only the base list
     is shared with the audio family's descriptor-anchored guard.
     """
-    return any(_contained(path, base) for base in roots.read_bases())
+    return _ContainmentProbe(roots).contained_at_any_base(path)
 
 
-def _contained(path: Path, root: Path) -> bool:
-    try:
-        path.resolve().relative_to(root.resolve())
-    except ValueError:
-        return False
-    return True
-
-
-def _escapes_every_base(path: Path, roots: ArtifactRoots) -> bool:
+def _escapes_every_base(path: Path, probe: _ContainmentProbe) -> bool:
     """True only when the path is *known* to resolve outside every read base.
 
     Measured: ``resolve()`` raises ``RuntimeError`` on a symlink loop (and ``OSError``
@@ -500,7 +548,7 @@ def _escapes_every_base(path: Path, roots: ArtifactRoots) -> bool:
     candidate must not widen the residual's reach.
     """
     try:
-        return not _contained_at_any_base(path, roots)
+        return not probe.contained_at_any_base(path)
     except (OSError, RuntimeError):
         return False
 
@@ -581,14 +629,11 @@ def _compare_reference(
     comparable text: that is the row's own defect (``empty``/``artifact_missing``
     already reports it), not a fault of the supplied reference.
 
-    ``_MAX_BYTES`` bounds the reference's bytes but not the *work* of comparing
-    it, so the flattened pair is bounded too.  A pair whose flattened text
-    exceeds :data:`_MAX_COMPARE_CHARS` per side is refused rather than compared:
-    with ``autojunk`` off, a long low-entropy pair costs minutes to hours, and a
-    ratio nobody can wait for is not a measurement.  The refusal reuses the
-    reference path's own diagnostic — stderr plus exit 1, never a silent no-op —
-    and names the side that tripped it, since either transcript can be the large
-    one.
+    Short pairs retain the full comparison. Longer pairs sample at most ten
+    evenly spaced 2000-character windows per side, recording their offsets and
+    the full lengths. The mean window agreement is weighted by the ratio of
+    the two full lengths, so a tiny matching prefix cannot attest a long row.
+    This is a sampled comparison; it cannot detect changes between windows.
     """
 
     try:
@@ -611,14 +656,26 @@ def _compare_reference(
         raise ReferenceUnavailable("reference has no comparable text")
     if not transcript:
         return None
-    # The bound is checked per side and named for the side it caught: a row's
-    # own flattened text is bounded separately (``_MAX_CUES`` caps cues, not the
-    # ``.txt`` arm), so blaming the reference for a large row would send the
-    # operator after the wrong file.
-    if len(theirs) > _MAX_COMPARE_CHARS:
-        raise ReferenceUnavailable("reference too large to compare")
-    if len(transcript) > _MAX_COMPARE_CHARS:
-        raise ReferenceUnavailable("transcript too large to compare")
+    lengths = (len(transcript), len(theirs))
+    if max(lengths) > _MAX_COMPARE_CHARS:
+        width = min(2000, min(lengths))
+        count = min(10, max(1, min(lengths) // width))
+        windows = []
+        scores = []
+        for index in range(count):
+            position = index / (count - 1) if count > 1 else 0.5
+            left = round((len(transcript) - width) * position)
+            right = round((len(theirs) - width) * position)
+            windows.append((left, left + width, right, right + width))
+            scores.append(difflib.SequenceMatcher(
+                None, transcript[left:left + width], theirs[right:right + width],
+                autojunk=False,
+            ).ratio())
+        ratio = sum(scores) / count * (2 * min(lengths) / sum(lengths))
+        return ReferenceAgreement(
+            reference_basename(reference), ratio, REFERENCE_AGREEMENT_FLOOR,
+            (count * width, count * width), "windowed", lengths, tuple(windows),
+        )
     ratio = difflib.SequenceMatcher(
         None, transcript, theirs, autojunk=False
     ).ratio()

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from bili_asr.diagnostics import write_stderr
+
 import argparse
 import os
 import sys
@@ -26,12 +28,19 @@ _ARCHIVE_WRITER_COMMANDS = frozenset({
     # read sets are fetched before the walk, so an unlocked run could report
     # counters computed against a store that moved under it.
     "derive-audio-inventory",
+    "adopt-transcripts",
     "publish-transcripts",
     "harvest-subs",
     "download-audio",
     "run",
     "campaign",
     "schedule",
+})
+
+
+_ARTIFACT_WRITER_COMMANDS = frozenset({
+    "asr", "pilot", "download-audio", "run", "campaign", "schedule",
+    "publish-transcripts", "proofread", "proofread-merge",
 })
 
 
@@ -62,6 +71,8 @@ def _dispatch_command(args: argparse.Namespace) -> int:
         return _cli_pkg._cmd_derive_manifest(args)
     if args.command == "derive-audio-inventory":
         return _cli_pkg._cmd_derive_audio_inventory(args)
+    if args.command == "adopt-transcripts":
+        return _cli_pkg._cmd_adopt_transcripts(args)
     if args.command == "publish-transcripts":
         return _cli_pkg._cmd_publish_transcripts(args)
     if args.command == "proofread":
@@ -113,9 +124,13 @@ def _main(argv: list[str] | None = None) -> int:
     # for one — from swallowing the real reason.
     if hasattr(args, "artifact_root"):
         try:
-            args.artifact_roots = roots_for(args.archive_root, flag_value=args.artifact_root)
+            args.artifact_roots = roots_for(
+                args.archive_root,
+                flag_value=args.artifact_root,
+                require_writable=args.command in _ARTIFACT_WRITER_COMMANDS,
+            )
         except ArtifactRootError as exc:
-            print(f"{args.command}: {exc}", file=sys.stderr)
+            write_stderr(f"{args.command}: {exc}")
             return 1
     # The retention policy resolves on its own guard, not inside the artifact-root one.
     # Nesting it there would leave `keep_audio` as `None` for a future command that
@@ -132,6 +147,6 @@ def _main(argv: list[str] | None = None) -> int:
             with archive_writer(args.archive_root):
                 return _cli_pkg._dispatch_command(args)
         except ArchiveBusyError:
-            print(f"{args.command}: archive_busy", file=sys.stderr)
+            write_stderr(f"{args.command}: archive_busy")
             return 1
     return _cli_pkg._dispatch_command(args)

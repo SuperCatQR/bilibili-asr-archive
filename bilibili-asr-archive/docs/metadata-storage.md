@@ -65,16 +65,15 @@ One SQLite file at `{archive_root}/archive.db`. Foreign keys are enforced
 
 ### Media and transcript tables
 
-`transcripts` and `transcript_segments` back the subtitle path: `harvest-subs`
-writes one row per acquired caption plus its ordered segments, and
-`probe-subs` reads them only through the views below. They are the only tables
-this iteration fills on the media side.
+`transcripts` and `transcript_segments` store acquired captions and local ASR
+results with their ordered segments. `harvest-subs` records caption acquisition;
+the store-backed ASR path records local transcripts and their `asr_models`
+identity. `adopt-transcripts` imports verified legacy bundles without ASR.
 
-`audio_objects`, `part_audio_objects`, and `asr_models` are still empty: no
-audio bytes and no ASR model rows are written by any command here. The legacy
-audio/ASR chain (`download-audio`, `asr`, `pilot`, `run`) still records its work
-in the JSONL manifest, not in these tables, so nothing on this path fills them
-yet.
+`derive-audio-inventory` records confined, hashed files in `audio_objects` and
+`part_audio_objects`. The download and ASR store routes also record their
+acquisition attempts and close their run rows. The execution manifest retains
+per-stage state and published artifact paths alongside this store evidence.
 
 ### Views
 
@@ -295,45 +294,30 @@ repeated runs with `--resume`, which continues from the stored cursor.
 
 ### Boundary with the legacy manifest path
 
-This iteration replaces the manifest semantics of the two command names; it does
-not migrate the rest of the archive. The ASR and pilot chain (`asr`, `pilot`,
-`run`, `schedule`, `campaign`, `download-audio`) is untouched and still reads
-`manifest/manifest.jsonl`:
 
-- the new `harvest-subs` still produces no manifest status `needs_audio` itself;
-  `bili-asr derive-manifest` is the command that feeds `download-audio
-  --missing-subs` from this path, by appending a `needs_audio` row per part in
-  the pending-subtitle relation — every stored part with no transcript and not
-  `gone`; the parts recorded `no-subtitle` are among them — additively, never
-  rewriting a row the chain already holds. And the same effective-key rule is a
-  limit in the other direction: a legacy bare-`bvid` row is not consulted either,
-  so a part whose only record is one is appended anyway — the cost is a
-  re-download and a re-ASR for a part the chain already finished, registered as
-  `iter-2026-09-queue-bridge · R2`;
-- `bili-asr asr --pending` and the pilot chain are still driven from the
-  manifest state, not from `archive.db`, so a transcript stored here does not
-  feed them. The bridge runs the other way round: store facts are appended to the
-  manifest, and the read-only store connection means nothing is ever read back
-  into the database;
-- of the work this section used to defer, enumerating the audio work queue from
-  SQLite has shipped, as `bili-asr derive-manifest --archive-root <root>`. It
-  writes no `archive.db` row and starts no download and no ASR: the operator
-  still runs `download-audio` / `asr` / `run` / `schedule` / `campaign` from the
-  appended rows;
-- of the work this section used to defer, rebuilding the SRT/TXT/MD projections
-  from the stored transcripts has shipped too, as `bili-asr publish-transcripts
-  --archive-root <root> [--artifact-root <path>]`: one complete archive bundle
-  per stored part that holds a transcript — the stem `{bvid}.p{page_index}` —
-  and one `archived` manifest row per publication; a candidate it cannot publish
-  is named and the run exits `1`. It fetches nothing, and a complete published
-  bundle is never replaced, so a store that later gains a newer transcript
-  version leaves the published product as it is. Two bounds belong beside that:
-  a legacy `subtitle_done` part is published from the store and its
-  `transcripts/{stem}/bundle.srt` is replaced when the legacy row was
-  page-qualified (its document under `subtitles/raw/` is not touched), and a
-  `work_id` whose manifest already carries an earlier state is outside what the
-  archive's readers currently agree on. A stored caption is not re-queued for
-  audio either, because the derived queue is the no-transcript relation.
+`archive.db` supplies the default queues for `download-audio`, `asr`, `pilot`,
+`run`, and `schedule`; `--queue-source manifest` selects their legacy fallback.
+The manifest still records execution state and artifact paths. `campaign`
+operates on those manifest scopes with a bounded checkpoint.
+
+- `harvest-subs` records acquired captions and subtitle observations in the
+  store. `probe-subs` is read-only and supplies no exhaustion evidence.
+- Audio eligibility requires explicit listing-absence evidence or two distinct
+  harvest runs with present, verified credentials and an empty inventory.
+  Anonymous emptiness, authentication errors and subtitle-body failures leave
+  the caption path retryable.
+- `publish-transcripts` builds SRT/TXT/MD and raw bundles from stored
+  transcripts and records `archived` manifest rows. Complete verified bundles
+  are kept; inconclusive permission or I/O errors refuse publication.
+- Store-backed local ASR records its transcript, segments and model identity
+  so the missing-transcript queue drains after success. Published artifacts
+  remain archived even if supplementary store write-back fails.
+- `adopt-transcripts` validates existing manifest-era bundles and imports their
+  transcripts offline. It does not download or run ASR. Repeated bounded runs
+  skip already stored work before selecting the next imports.
+- `derive-manifest` remains an additive bridge for the explicit manifest
+  fallback. It preserves existing execution rows, including legacy ownership,
+  rather than overwriting their stage state.
 
 ## No-JSONL contract
 
@@ -357,10 +341,11 @@ gateway's cookie object only: never echoed, logged, persisted, or rendered —
 CLI output shows presence only (`sessdata: present|absent`). Omitting it
 means anonymous access, and so does passing `--sessdata ""` explicitly
 (which never falls through to `BILI_SESSDATA`); a blank environment value
-likewise means anonymous. `harvest-subs` additionally records the presence in
-its `acquisition_runs` row, so a part it recorded `no-subtitle` stays
-interpretable afterwards: an invisible caption may exist and simply be
-login-gated. `probe-subs` records nothing at all and only prints the presence.
+likewise means anonymous. `harvest-subs` records credential presence and
+verified-login evidence separately. An expired credential is an authentication
+failure; unverified emptiness does not prove caption exhaustion. Historical
+ambiguous absence must be revalidated. `probe-subs` records nothing at all and
+only prints the presence.
 
 ## Runtime HTTP backend
 

@@ -51,6 +51,7 @@ from bili_asr.cli.status_cmd import (
     _cmd_status,
 )
 from bili_asr.cli.asr import _cmd_asr
+from bili_asr.cli.adopt import _cmd_adopt_transcripts
 from bili_asr.cli.pilot import (
     _cmd_pilot,
     _expand_selected_pages,

@@ -32,7 +32,7 @@ import time
 from bili_asr.cli import main
 from bili_asr.config import ARCHIVE_DATABASE_NAME
 from bili_asr.coordinator import ARCHIVE_WRITER_LOCK
-from bili_asr.manifest import ManifestStore
+from bili_asr.manifest import JOURNAL_NAME, ManifestStore
 from bili_asr.persistence import file_lock
 from bili_asr.storage import (
     AcquisitionRunRecord,
@@ -198,9 +198,15 @@ def _archive_files(root: str) -> list[str]:
 
 
 def _manifest_lines(root: str) -> list[str]:
-    """The raw append-only history, one string per stored manifest line."""
-    with open(os.path.join(root, MANIFEST_REL_PATH), encoding="utf-8") as handle:
-        return [line for line in handle.read().splitlines() if line]
+    """Read the durable snapshot and pending append journal without writing."""
+    snapshot = os.path.join(root, MANIFEST_REL_PATH)
+    journal = os.path.join(os.path.dirname(snapshot), JOURNAL_NAME)
+    lines = []
+    for path in (snapshot, journal):
+        if os.path.exists(path):
+            with open(path, encoding="utf-8") as handle:
+                lines.extend(line for line in handle.read().splitlines() if line)
+    return lines
 
 
 def _exit_code(argv: list[str]) -> int:

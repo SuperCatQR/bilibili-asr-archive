@@ -169,6 +169,7 @@ DOCUMENTED_METADATA_CALLS = (
     "video.tags",
     "player.track_list",
     "subtitle.body",
+    "credential.nav",
 )
 
 #: Realistic-looking SESSDATA value that must never leave the process.
@@ -345,6 +346,8 @@ class FakeUpstreamScript:
     tags_error: BaseException | None = None
     player_response: object = None
     player_error: BaseException | None = None
+    nav_response: object = dataclasses.field(default_factory=lambda: {"isLogin": True})
+    nav_error: BaseException | None = None
     subtitle_bodies: dict[str, object] = dataclasses.field(default_factory=dict)
     access_id: str | None = None
     access_id_error: BaseException | None = None
@@ -401,6 +404,8 @@ class FakeGateway:
         self.tag_calls: list[str] = []
         self.listing_cids: list[int] = []
         self.body_cids: list[int] = []
+        self.credential_checks = 0
+        self.subtitle_credential_error: BaseException | None = None
         self._pages: dict[int, object] = {}
         self._parts: dict[str, object] = {}
         self._completions: dict[str, object] = {}
@@ -487,6 +492,13 @@ class FakeGateway:
         return self._scripted(
             self._subtitle_tracks, cid, "subtitle-track listing"
         )
+
+    async def validate_subtitle_credentials(self) -> None:
+        """Model a valid login unless the test scripts its bounded failure."""
+
+        self.credential_checks += 1
+        if self.subtitle_credential_error is not None:
+            raise self.subtitle_credential_error
 
     async def fetch_subtitle_segments(
         self, track: SubtitleTrack, bvid: str, cid: int
@@ -636,6 +648,13 @@ def build_fake_package(script: FakeUpstreamScript) -> dict[str, types.ModuleType
 
             if byte:
                 raise AssertionError("the seam mirrors no byte transport")
+            if self.url == "https://api.bilibili.com/x/web-interface/nav":
+                if raw:
+                    raise AssertionError("the nav seam scripts the unwrapped payload")
+                self._record("credential.nav")
+                if script.nav_error is not None:
+                    raise script.nav_error
+                return script.nav_response
             if self._is_player_call():
                 if raw:
                     raise AssertionError(

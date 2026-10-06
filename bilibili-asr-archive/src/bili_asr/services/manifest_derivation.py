@@ -84,7 +84,7 @@ def row_for_part(part: Mapping[str, Any], pubdate: int) -> dict[str, Any]:
 
     bvid = part["bvid"]
     page_index = part["page_index"]
-    return {
+    row = {
         "work_id": format_work_id(bvid, page_index),
         "bvid": bvid,
         "page_index": page_index,
@@ -92,9 +92,16 @@ def row_for_part(part: Mapping[str, Any], pubdate: int) -> dict[str, Any]:
         "title": part["part_title"],
         "duration_s": duration_s_from_ms(part["duration_ms"]),
         "pubdate": pubdate,
+        # Keep the conversion at this service boundary so callers can pin the
+        # UTC clock in isolation while testing the derived row.
         "pubdate_str": time.strftime("%Y-%m-%d", time.gmtime(pubdate)),
         "status": QUEUE_STATUS,
     }
+    # Queue rows already carry the video's collection title. Preserve it for
+    # ASR archives while keeping legacy nine-field callers compatible.
+    if "video_title" in part:
+        row["video_title"] = part["video_title"]
+    return row
 
 
 @dataclass(frozen=True)
@@ -147,6 +154,13 @@ def derive_rows(
             identity_mismatch.append(stored_work_id)
             continue
         held = existing.get(candidate["work_id"])
+        legacy = existing.get(candidate["bvid"])
+        if held is None and legacy is not None:
+            # A video-level archive has no page attribution. Preserve that
+            # ownership and avoid paying again until the operator resolves it.
+            if legacy.get("status") in {"archived", "subtitle_done", "gone"}:
+                chain_owned.append(candidate["work_id"])
+                continue
         if held is None:
             appended.append(candidate)
         elif held.get("status") == QUEUE_STATUS:

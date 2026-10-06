@@ -55,6 +55,8 @@ Installed-entrypoint verification prerequisite failed: {reason}
 Required:
   - Python 3.12 interpreter (this project's supported verification environment)
   - a tool that can create an isolated virtualenv (uv, or python -m venv + pip)
+  - local pip, setuptools>=69 and wheel in the test interpreter (for an
+    offline wheel build when the isolated backend is absent)
   - a local, offline install of this package that provides the `bili-asr`
     console script inside that virtualenv
 
@@ -62,7 +64,8 @@ This check does not skip. Isolated verification (no live HTTP / model download):
 
   uv venv --python 3.12 .venv
   uv pip install --python .venv/bin/python -e ".[dev]"
-  .venv/bin/pytest tests/test_cli_help.py tests/test_installed_cli.py
+  uv pip install --python .venv/bin/python pip "setuptools>=69" wheel
+  .venv/bin/pytest tests/test_cli_help.py tests/test_installed_cli.py tests/test_installed_baseline.py
 
 The tests themselves provision a separate temporary virtualenv; a `bili-asr`
 already present in the developer checkout is not a substitute.
@@ -268,10 +271,56 @@ def _provision_with_uv(uv: str, venv_dir: str, staged_pkg: str) -> None:
         cwd=staged_pkg,
     )
     if installed.returncode != 0:
-        _fail_prereq(
-            "offline uv pip install of this package failed "
-            f"({_summarize(installed)})"
+        # A fresh uv cache may not contain the isolated build backend. The
+        # local test interpreter already has the documented build tools.
+        wheel = _build_local_wheel(staged_pkg, env)
+        installed = _run_checked(
+            [uv, "pip", "install", "--python", python, "--offline", "--no-deps", wheel],
+            env=env, cwd=staged_pkg,
         )
+        if installed.returncode != 0:
+            _fail_prereq(f"offline uv wheel install failed ({_summarize(installed)})")
+
+
+def _build_local_wheel(staged_pkg: str, env: Mapping[str, str]) -> str:
+    # Python 3.12's fresh venv deliberately has no setuptools. Build with the
+    # locally provisioned test interpreter, then install only the wheel into
+    # the isolated venv; its runtime must never inherit the checkout/backend.
+    backend_probe = _run_checked(
+        [sys.executable, "-c", "import setuptools; print(setuptools.__version__)"], env=env
+    )
+    if backend_probe.returncode != 0:
+        _fail_prereq(
+            "offline wheel build requires setuptools>=69 in the test interpreter; "
+            "install setuptools and wheel before running this lane "
+            f"({_summarize(backend_probe)})"
+        )
+    try:
+        backend_version = tuple(
+            int(part) for part in (backend_probe.stdout or "").strip().split(".")[:2]
+        )
+    except ValueError:
+        backend_version = ()
+    if not backend_version or backend_version < (69, 0):
+        _fail_prereq(
+            "offline wheel build requires setuptools>=69 in the test interpreter; "
+            f"found {((backend_probe.stdout or '').strip() or 'unknown')!r}. "
+            "Use uv or preinstall a compatible backend locally."
+        )
+    wheel_dir = os.path.join(os.path.dirname(staged_pkg), "isolated-wheels")
+    os.makedirs(wheel_dir, exist_ok=True)
+    built = _run_checked(
+        [sys.executable, "-m", "pip", "wheel", "--no-index", "--no-deps",
+         "--no-build-isolation", "--wheel-dir", wheel_dir, staged_pkg],
+        env=env, cwd=staged_pkg,
+    )
+    if built.returncode != 0:
+        _fail_prereq(f"offline local wheel build failed ({_summarize(built)})")
+    wheels = [os.path.join(wheel_dir, name) for name in os.listdir(wheel_dir)
+              if name.startswith("bili_asr-") and name.endswith(".whl")]
+    if len(wheels) != 1:
+        _fail_prereq("offline local wheel build did not produce exactly one package wheel")
+    return wheels[0]
 
 
 def _provision_with_stdlib_venv(venv_dir: str, staged_pkg: str) -> None:
@@ -289,27 +338,7 @@ def _provision_with_stdlib_venv(venv_dir: str, staged_pkg: str) -> None:
             "isolated venv has no pip (ensurepip unavailable); install uv "
             f"({_summarize(pip_probe)})"
         )
-    backend_probe = _run_checked(
-        [python, "-c", "import setuptools; print(setuptools.__version__)"], env=env
-    )
-    if backend_probe.returncode != 0:
-        _fail_prereq(
-            "offline stdlib-venv install requires local build backend setuptools>=69; "
-            "use uv or a Python 3.12 environment whose venv includes setuptools>=69 "
-            f"({_summarize(backend_probe)})"
-        )
-    try:
-        backend_version = tuple(
-            int(part) for part in (backend_probe.stdout or "").strip().split(".")[:2]
-        )
-    except ValueError:
-        backend_version = ()
-    if not backend_version or backend_version < (69, 0):
-        _fail_prereq(
-            "offline stdlib-venv install requires local build backend setuptools>=69; "
-            f"found {((backend_probe.stdout or '').strip() or 'unknown')!r}. "
-            "Use uv or preinstall a compatible backend locally."
-        )
+    wheel = _build_local_wheel(staged_pkg, env)
     installed = _run_checked(
         [
             python,
@@ -318,8 +347,7 @@ def _provision_with_stdlib_venv(venv_dir: str, staged_pkg: str) -> None:
             "install",
             "--no-index",
             "--no-deps",
-            "--no-build-isolation",
-            staged_pkg,
+            wheel,
         ],
         env=env,
         cwd=staged_pkg,

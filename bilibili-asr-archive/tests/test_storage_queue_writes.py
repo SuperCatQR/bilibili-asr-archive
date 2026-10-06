@@ -3,6 +3,10 @@
 from __future__ import annotations
 
 import sqlite3
+import hashlib
+import io
+from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -16,6 +20,8 @@ from bili_asr.storage import (
 )
 from bili_asr.services.queue_source import (
     QueueSource,
+    mark_audio_acquired,
+    mark_transcript_stored,
     record_caption_transcript,
     record_local_transcript,
 )
@@ -25,6 +31,55 @@ from bili_asr.services.queue_source import (
 # lowercase hex), so a placeholder cannot drive the reuse/repoint branches.
 _SHA_A = "a" * 64
 _SHA_B = "b" * 64
+
+
+def test_audio_writeback_hashes_with_bounded_reads(monkeypatch):
+    payload = b"audio" * 500_000
+    reads = []
+    captured = []
+
+    class BoundedReader(io.BytesIO):
+        def read(self, size=-1):
+            assert 0 < size <= 1024 * 1024
+            reads.append(size)
+            return super().read(size)
+
+    monkeypatch.setattr(
+        "bili_asr.services.queue_source.open",
+        lambda *args, **kwargs: BoundedReader(payload),
+        raising=False,
+    )
+    source = SimpleNamespace(repository=SimpleNamespace(
+        mark_audio_acquired=lambda **kwargs: captured.append(kwargs),
+    ))
+    mark_audio_acquired(
+        source, bvid="BV1TEST", page_index=0,
+        audio_path="audio/example.flac", declared_relative="audio/example.flac",
+    )
+    assert len(reads) >= 3
+    assert captured[0]["sha256"] == hashlib.sha256(payload).hexdigest()
+    assert captured[0]["byte_size"] == len(payload)
+    assert captured[0]["format"] == "flac"
+
+
+@pytest.mark.parametrize("operation", ["audio", "transcript"])
+def test_supplementary_writeback_cannot_fail_completed_stage(tmp_root, operation):
+    connection = open_database(tmp_root)
+    source = QueueSource(connection)
+    connection.close()
+    if operation == "audio":
+        path = Path(tmp_root) / "completed.m4a"
+        path.write_bytes(b"completed audio")
+        mark_audio_acquired(
+            source, bvid="BV1TEST", page_index=0,
+            audio_path=str(path), declared_relative=path.name,
+        )
+        assert path.read_bytes() == b"completed audio"
+    else:
+        mark_transcript_stored(
+            source, bvid="BV1TEST", page_index=0,
+            transcript_id=1, run_id="closed-store",
+        )
 
 
 def _insert_user_video_part(connection, *, bvid: str = "BV1TEST", page_index: int = 0) -> int:
@@ -71,20 +126,21 @@ def _insert_acquisition_run(connection, *, run_id: str, kind: str = "asr") -> No
         "INSERT INTO acquisition_runs("
         "run_id, kind, selector_kind, selector_target, requested_limit, "
         "credential_present, started_at, finished_at, outcome"
-        ") VALUES (?, ?, 'pending', NULL, NULL, 0, 100, 300, 'complete')",
-        (run_id, kind),
+        ") VALUES (?, ?, 'pending', NULL, NULL, ?, 100, 300, 'complete')",
+        (run_id, kind, int(kind == "subtitle")),
     )
 
 
 def _insert_attempt(
-    connection, *, run_id: str, video_part_id: int, outcome: str, error_code: str | None
+    connection, *, run_id: str, video_part_id: int, outcome: str, error_code: str | None,
+    credential_verified: bool = False,
 ) -> None:
     connection.execute(
         "INSERT INTO acquisition_attempts("
         "run_id, video_part_id, outcome, error_code, transcript_id, "
-        "started_at, finished_at"
-        ") VALUES (?, ?, ?, ?, NULL, 100, 200)",
-        (run_id, video_part_id, outcome, error_code),
+        "started_at, finished_at, credential_verified"
+        ") VALUES (?, ?, ?, ?, NULL, 100, 200, ?)",
+        (run_id, video_part_id, outcome, error_code, int(credential_verified)),
     )
 
 
@@ -476,6 +532,7 @@ def test_mark_transcript_stored_clears_the_queue_and_is_idempotent(tmp_root):
             video_part_id=captionless_id,
             outcome="no-subtitle",
             error_code=None,
+            credential_verified=True,
         )
         # A second INDEPENDENT empty observation (distinct run).  Exhaustion is
         # attested: an empty inventory carries no error code, which makes it an
@@ -488,6 +545,7 @@ def test_mark_transcript_stored_clears_the_queue_and_is_idempotent(tmp_root):
             video_part_id=captionless_id,
             outcome="no-subtitle",
             error_code=None,
+            credential_verified=True,
         )
         # The two parts sit in different queues: the captionless one waits for
         # a subtitle re-attempt and then audio, while the second part has no
@@ -791,6 +849,75 @@ def test_record_local_transcript_converges_v_missing_transcript(tmp_root):
         ).fetchone()
         assert attempt["outcome"] == "stored"
         assert attempt["transcript_id"] is not None
+    finally:
+        connection.close()
+
+
+def test_record_local_transcript_drops_invalid_coverage_but_keeps_transcript(tmp_root):
+    """A bad alignment measurement must not strand a completed ASR transcript."""
+    connection = open_database(tmp_root)
+    try:
+        video_part_id = _audio_backed_part(connection, bvid="BVcoveragefallback")
+        _running_asr_run(connection, run_id="run-asr-coverage-fallback")
+
+        record_local_transcript(
+            QueueSource(connection),
+            run_id="run-asr-coverage-fallback",
+            bvid="BVcoveragefallback",
+            page_index=0,
+            language="zh",
+            segments=(TranscriptSegmentRecord(start_ms=0, end_ms=1_000, text="保留转录"),),
+            model_name="Qwen3-ASR",
+            model_revision="rev1",
+            coverage={
+                "decoded_s": 3.0,
+                "produced_s": 4.0,
+                "coverage": 1.333,
+                "coverage_min": 0.9,
+                "coverage_short": False,
+            },
+        )
+
+        assert connection.execute(
+            "SELECT COUNT(*) FROM transcripts WHERE video_part_id = ?",
+            (video_part_id,),
+        ).fetchone()[0] == 1
+        assert connection.execute(
+            "SELECT COUNT(*) FROM acquisition_attempts "
+            "WHERE run_id = ? AND video_part_id = ? AND outcome = 'stored'",
+            ("run-asr-coverage-fallback", video_part_id),
+        ).fetchone()[0] == 1
+        assert TranscriptRepository(connection).read_transcript_coverage(
+            "run-asr-coverage-fallback", video_part_id
+        ) is None
+    finally:
+        connection.close()
+
+
+def test_local_transcript_coverage_is_attested_per_run(tmp_root):
+    connection = open_database(tmp_root)
+    try:
+        part_id = _audio_backed_part(connection, bvid="BVcoverage")
+        repository = TranscriptRepository(connection)
+        segments = (TranscriptSegmentRecord(start_ms=0, end_ms=800, text="same cues"),)
+        first = {"decoded_s": 10.0, "produced_s": 8.0, "coverage": 0.8,
+                 "coverage_min": 0.9, "coverage_short": True}
+        second = {"decoded_s": 8.0, "produced_s": 8.0, "coverage": 1.0,
+                  "coverage_min": 0.9, "coverage_short": False}
+        for run_id in ("run-cover-1", "run-cover-2"):
+            _running_asr_run(connection, run_id=run_id)
+        results = []
+        for run_id, evidence in (("run-cover-1", first), ("run-cover-2", second)):
+            results.append(repository.record_local_transcript(
+                run_id=run_id, video_part_id=part_id, language="zh", segments=segments,
+                model_name="Qwen3-ASR", model_revision="rev1", started_at=1,
+                finished_at=2, created_at=2, coverage=evidence,
+            ))
+        assert results[0].transcript_id == results[1].transcript_id
+        assert repository.read_transcript_coverage("run-cover-1", part_id)["coverage"] == 0.8
+        assert repository.read_transcript_coverage("run-cover-1", part_id)["coverage_short"] == 1
+        assert repository.read_transcript_coverage("run-cover-2", part_id)["coverage"] == 1.0
+        assert repository.read_transcript_coverage("run-cover-2", part_id)["coverage_short"] == 0
     finally:
         connection.close()
 
@@ -1353,16 +1480,16 @@ def test_queue_source_ensure_asr_run_refusal_survives_a_dead_stderr_stream(
             source = QueueSource(connection)
             assert source.ensure_asr_run("asr") is None, label
 
-            # The diagnostic really was written to the unusable stream, and
-            # the write really failed — the failure was swallowed, not
-            # avoided.  Exactly one write: ``print`` fails on the text write
-            # and never reaches the trailing newline.
-            assert stream.writes == 1, label
+            # Text wrappers bypass their buffer so a failed write cannot be
+            # retried at interpreter shutdown. Custom binary writers get one
+            # guarded call. Neither path redirects diagnostics to stdout.
+            expected_writes = int(label == "binary stream")
+            assert stream.writes == expected_writes, label
 
             # An unusable stream is not a transient condition: the latch
             # stays set and the line is not retried on the next refusal.
             assert source.ensure_asr_run("asr") is None, label
-            assert stream.writes == 1, label
+            assert stream.writes == expected_writes, label
             assert source._asr_run_refusal_reported is True, label
 
         # stderr only: the failed writes must not fall back to stdout.

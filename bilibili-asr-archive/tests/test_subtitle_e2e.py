@@ -42,14 +42,18 @@ import hashlib
 import json
 import os
 import sqlite3
+from types import SimpleNamespace
 
 import pytest
 
 from bili_asr.cli import main
 from bili_asr.config import ARCHIVE_DATABASE_NAME
 from bili_asr.sources.models import (
+    GatewayAuthenticationError,
+    GatewayNotFound,
     GatewayRateLimited,
     GatewayResponseError,
+    GatewayShapeError,
     GatewayTransportError,
     SubtitleSegment,
     SubtitleTrack,
@@ -755,6 +759,136 @@ def test_no_credential_or_upstream_text_reaches_output_or_a_persisted_row(
 
 
 # ------------------------------------------------- credential presence (env)
+
+@pytest.mark.parametrize(
+    "failure", [GatewayAuthenticationError(), GatewayTransportError(), GatewayShapeError()]
+)
+@pytest.mark.parametrize(
+    "tracks", [(), (SubtitleTrack(language="ja-JP", label="Japanese", is_ai=False, track_id=None),)]
+)
+def test_unverified_credentialed_absence_cannot_admit_audio(
+    tmp_root: str, capsys, fake_gateway_seam: FakeGateway, monkeypatch, failure, tracks,
+) -> None:
+    """Two failed checks stay retryable; two authenticated absences admit audio."""
+
+    ticks = iter(range(1_000, 2_000))
+    monkeypatch.setattr(
+        "bili_asr.services._common.time", SimpleNamespace(time=lambda: next(ticks))
+    )
+    monkeypatch.setenv("BILI_SESSDATA", SESSDATA_BOUNDARY_VALUE)
+    _seed_parts(tmp_root, ((BVID, 0, CAPTIONLESS_CID),))
+    fake_gateway_seam.script_subtitle_tracks(CAPTIONLESS_CID, tracks)
+    fake_gateway_seam.subtitle_credential_error = failure
+    argv = [
+        "harvest-subs", "--bvid", f"{BVID}:p0", "--archive-root", tmp_root,
+        "--language", "zh-CN",
+    ]
+
+    for _ in range(2):
+        assert main(argv) == 2
+        out, err = capsys.readouterr()
+        assert f"harvest {BVID}:p0 failed {failure.code}" in out
+        assert err == ""
+        assert_leaks_no_markers(out, context="unverified credential output")
+
+    with _archive_connection(tmp_root) as connection:
+        assert [
+            (row["outcome"], row["error_code"])
+            for row in connection.execute("SELECT outcome, error_code FROM acquisition_attempts")
+        ] == [("failed", failure.code), ("failed", failure.code)]
+        assert connection.execute("SELECT COUNT(*) FROM v_missing_audio").fetchone()[0] == 0
+        assert [row["credential_present"] for row in _run_rows(connection)] == [1, 1]
+        assert [row[0] for row in connection.execute(
+            "SELECT credential_verified FROM acquisition_attempts ORDER BY rowid"
+        )] == [0, 0]
+
+    # These later observations are the first two legitimate empty-inventory
+    # proofs, with the credential's original presence fact preserved.
+    fake_gateway_seam.subtitle_credential_error = None
+    for _ in range(2):
+        assert main(argv) == 0
+        capsys.readouterr()
+    assert fake_gateway_seam.credential_checks == 4
+    assert fake_gateway_seam.body_cids == []
+    with _archive_connection(tmp_root) as connection:
+        assert connection.execute("SELECT COUNT(*) FROM v_missing_audio").fetchone()[0] == 1
+        assert [row["credential_present"] for row in _run_rows(connection)] == [1, 1, 1, 1]
+        assert [row[0] for row in connection.execute(
+            "SELECT credential_verified FROM acquisition_attempts ORDER BY rowid"
+        )] == [0, 0, 1, 1]
+
+
+@pytest.mark.parametrize(
+    "failure, expected_code",
+    [
+        (GatewayNotFound(), "subtitle_body_unavailable"),
+        (GatewayTransportError(), "transport_error"),
+        (GatewayShapeError(), "shape_error"),
+        (GatewayRateLimited(), "rate_limited"),
+    ],
+)
+def test_listed_subtitle_body_failures_retry_instead_of_authorizing_audio(
+    tmp_root, capsys, fake_gateway_seam, failure, expected_code,
+):
+    _seed_parts(tmp_root, ((BVID, 0, CC_CID),))
+    fake_gateway_seam.script_subtitle_tracks(CC_CID, (CC_ZH,))
+    fake_gateway_seam.script_subtitle_segments(CC_CID, failure)
+    argv = ["harvest-subs", "--bvid", f"{BVID}:p0", "--archive-root", tmp_root]
+    for _ in range(2):
+        assert main(argv) == 2
+        out, err = capsys.readouterr()
+        assert f"harvest {BVID}:p0 failed {expected_code}" in out
+        assert err == ""
+    with _archive_connection(tmp_root) as connection:
+        assert [tuple(row) for row in connection.execute(
+            "SELECT outcome, error_code, credential_verified FROM acquisition_attempts ORDER BY rowid"
+        )] == [("failed", expected_code, 0), ("failed", expected_code, 0)]
+        assert connection.execute("SELECT COUNT(*) FROM v_missing_audio").fetchone()[0] == 0
+        assert connection.execute("SELECT COUNT(*) FROM v_pending_subtitles").fetchone()[0] == 1
+    fake_gateway_seam.script_subtitle_segments(CC_CID, CC_BODY)
+    assert main(argv) == 0
+    capsys.readouterr()
+    with _archive_connection(tmp_root) as connection:
+        assert connection.execute("SELECT COUNT(*) FROM transcripts").fetchone()[0] == 1
+        assert connection.execute("SELECT COUNT(*) FROM v_missing_audio").fetchone()[0] == 0
+        assert connection.execute("SELECT COUNT(*) FROM v_pending_subtitles").fetchone()[0] == 0
+
+
+def test_a_probe_reports_unverified_login_without_recording_absence(
+    tmp_root: str, capsys, fake_gateway_seam: FakeGateway, monkeypatch,
+) -> None:
+    monkeypatch.setenv("BILI_SESSDATA", SESSDATA_BOUNDARY_VALUE)
+    _seed_parts(tmp_root, ((BVID, 0, CAPTIONLESS_CID),))
+    fake_gateway_seam.script_subtitle_tracks(CAPTIONLESS_CID, ())
+    fake_gateway_seam.subtitle_credential_error = GatewayAuthenticationError()
+
+    assert main(["probe-subs", "--bvid", f"{BVID}:p0", "--archive-root", tmp_root]) == 2
+    out, err = capsys.readouterr()
+    assert err == ""
+    assert f"probe {BVID}:p0 failed auth_error" in out
+    assert "(no subtitles visible)" not in out
+    assert_leaks_no_markers(out, context="unverified login probe")
+    assert fake_gateway_seam.credential_checks == 1
+    with _archive_connection(tmp_root) as connection:
+        assert connection.execute("SELECT COUNT(*) FROM acquisition_attempts").fetchone()[0] == 0
+        assert connection.execute("SELECT COUNT(*) FROM acquisition_runs").fetchone()[0] == 0
+    assert _archive_files(tmp_root) == [ARCHIVE_DATABASE_NAME]
+
+
+def test_explicit_login_rejection_never_becomes_definite_subtitle_absence(
+    tmp_root: str, capsys, fake_gateway_seam: FakeGateway, monkeypatch,
+) -> None:
+    monkeypatch.setenv("BILI_SESSDATA", SESSDATA_BOUNDARY_VALUE)
+    _seed_parts(tmp_root, ((BVID, 0, CAPTIONLESS_CID),))
+    fake_gateway_seam.script_subtitle_tracks(CAPTIONLESS_CID, GatewayAuthenticationError())
+
+    assert main(["harvest-subs", "--bvid", f"{BVID}:p0", "--archive-root", tmp_root]) == 2
+    capsys.readouterr()
+    with _archive_connection(tmp_root) as connection:
+        attempt = connection.execute("SELECT outcome, error_code FROM acquisition_attempts").fetchone()
+        assert tuple(attempt) == ("failed", "auth_error")
+        assert connection.execute("SELECT COUNT(*) FROM v_missing_audio").fetchone()[0] == 0
+
 
 def test_the_env_sourced_credential_is_reported_as_presence_and_composed_into_the_run_row(
     tmp_root: str, capsys, fake_gateway_seam: FakeGateway, monkeypatch

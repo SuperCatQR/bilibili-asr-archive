@@ -35,6 +35,16 @@ import pytest
 from bili_asr import asr
 
 
+def test_missing_asr_provenance_uses_named_language_fallback():
+    class Runner:
+        def provenance(self):
+            return {}
+
+    entry = {}
+    asr.apply_provenance_evidence(entry, Runner())
+    assert entry["language"] == asr.DEFAULT_TRANSCRIPT_LANGUAGE == "und"
+
+
 # ---------------------------------------------------------------------------------------
 # Fakes.  The boundary talks to exactly four objects, so the fakes are four small ones — and they
 # are plain Python, which keeps this suite runnable on a host with no torch.  numpy and soundfile,
@@ -318,6 +328,19 @@ def test_a_mark_at_a_boundary_is_handed_back() -> None:
 def test_latin_words_keep_their_separator_when_a_fragment_is_absorbed() -> None:
     assert asr._join_text("Idea", "Moments") == "Idea Moments"
     assert asr._join_text("思想", "观念") == "思想观念"
+
+
+def test_latin_tokens_keep_their_separator_inside_a_cue() -> None:
+    """Aligned word pieces may omit spaces even though each belongs to one cue."""
+
+    pieces = [
+        {"text": "International", "start": 0.0, "end": 0.6},
+        {"text": "Employment", "start": 0.6, "end": 1.2},
+        {"text": "Matters", "start": 1.2, "end": 1.8},
+    ]
+    cues = asr._aligned_cues(pieces)
+
+    assert [cue["text"] for cue in cues] == ["International Employment Matters"]
 
 
 def test_cues_are_monotonic_and_carry_the_recognised_text() -> None:

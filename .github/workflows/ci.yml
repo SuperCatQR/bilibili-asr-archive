@@ -1,0 +1,53 @@
+name: tests
+
+on:
+  push:
+    branches:
+      - main
+      - "codex/**"
+      - "iteration/**"
+  pull_request:
+
+jobs:
+  python:
+    name: tests / python
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: bilibili-asr-archive
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      # ffmpeg is a declared product requirement (AGENTS.md) and four audio
+      # tests fail — never skip — when the binary is absent, so the runner
+      # image is provisioned with it rather than the tests being weakened.
+      - name: Install ffmpeg
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg
+          ffmpeg -version | head -1
+      - run: python -m pip install --upgrade pip setuptools wheel
+      - run: python -m pip install -e ".[dev]"
+      - run: python -m pytest -q
+      - run: python -m compileall -q src tests scripts
+
+  harness:
+    name: tests / harness
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Install the harness validator
+        run: npm install --global @mstar-harness/cli@3.11.2
+      - name: Validate tracked harness state
+        run: python bilibili-asr-archive/scripts/validate_harness_state.py .mstar
+        # Keep the authoritative report visible while existing residual work
+        # is being drained; the product test job remains the blocking gate.
+        continue-on-error: true

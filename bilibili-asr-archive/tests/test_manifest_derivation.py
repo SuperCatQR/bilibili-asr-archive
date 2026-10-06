@@ -117,6 +117,13 @@ def test_a_queue_row_becomes_a_page_qualified_needs_audio_row():
     assert row["status"] == QUEUE_STATUS == "needs_audio"
 
 
+def test_a_queue_video_title_survives_manifest_derivation():
+    row = row_for_part(_part(video_title="课程总标题"), PUBDATE)
+
+    assert row["title"] == "第一部分：开场"
+    assert row["video_title"] == "课程总标题"
+
+
 def test_the_rendered_day_is_utc_regardless_of_the_runners_zone(monkeypatch):
     """The UTC day of the second, not the runner's day — pinned without ``TZ``.
 
@@ -134,9 +141,9 @@ def test_the_rendered_day_is_utc_regardless_of_the_runners_zone(monkeypatch):
     """
     utc_day = time.struct_time((1970, 1, 1, 23, 59, 59, 3, 1, 0))
     local_day = time.struct_time((1970, 1, 2, 7, 59, 59, 4, 2, 0))
-    monkeypatch.setattr(manifest_derivation.time, "gmtime", lambda _epoch: utc_day)
+    monkeypatch.setattr("bili_asr.formatting.time.gmtime", lambda _epoch: utc_day)
     monkeypatch.setattr(
-        manifest_derivation.time, "localtime", lambda _epoch: local_day
+        "bili_asr.formatting.time.localtime", lambda _epoch: local_day
     )
 
     row = row_for_part(_part(), PUBDATE_UTC_DAY_EDGE)

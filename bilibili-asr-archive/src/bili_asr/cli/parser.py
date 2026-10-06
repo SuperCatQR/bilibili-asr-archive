@@ -22,6 +22,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--version", action="version", version="%(prog)s 0.1.0")
     subparsers = parser.add_subparsers(dest="command")
+    from bili_asr.cli.adopt import add_adoption_parser
+
+    add_adoption_parser(subparsers)
 
     fetch_meta = subparsers.add_parser(
         "fetch-meta",
@@ -36,7 +39,10 @@ def build_parser() -> argparse.ArgumentParser:
     )
     resume_or_start.add_argument(
         "--start-page", type=int, default=None,
-        help="Explicit one-based start page (overrides the stored cursor)",
+        help=(
+            "Explicit one-based start page (overrides the stored cursor and "
+            "may move it backwards, including with --skip-failed-page)"
+        ),
     )
     fetch_meta.add_argument(
         "--archive-root", default=DEFAULT_ARCHIVE_ROOT,
@@ -51,9 +57,18 @@ def build_parser() -> argparse.ArgumentParser:
         help=f"Stop after collecting N pages (default: {DEFAULT_PAGE_LIMIT})",
     )
     fetch_meta.add_argument(
+        "--page-retries", type=int, default=0,
+        help=(
+            "Retry the same upload-list page after rate-control or transport "
+            "errors, 0-3 additional attempts (default: 0), waiting 30/60/120 "
+            "seconds. Exhaustion preserves the normal failure and cursor; "
+            "no page is skipped by retries."
+        ),
+    )
+    fetch_meta.add_argument(
         "--skip-failed-page", action="store_true",
         help=(
-            "Advance the cursor past a page whose gateway call failed instead "
+            "Set the cursor past a page whose gateway call failed instead "
             "of leaving it wedged, so the next --resume makes progress. Every "
             "non-rate-limit failure is skipped, so a transient error is skipped "
             "too; a rate limit never is. The page is still recorded as failed "
@@ -290,7 +305,14 @@ def build_parser() -> argparse.ArgumentParser:
     )
     publish.add_argument(
         "--limit-parts", type=int, default=None,
-        help="Bound the run to the first N stored parts holding a transcript",
+        help=(
+            "Bound the run to the first N stored parts holding a transcript; "
+            "with --pending, attempt at most N incomplete parts"
+        ),
+    )
+    publish.add_argument(
+        "--pending", action="store_true",
+        help="Skip complete published bundles and continue to unpublished or damaged parts",
     )
     publish.add_argument(
         "--archive-root", default=DEFAULT_ARCHIVE_ROOT,
@@ -446,6 +468,13 @@ def build_parser() -> argparse.ArgumentParser:
     schedule_cmd.add_argument(
         "--sessdata", default=None,
         help="SESSDATA cookie for live stages (or env BILI_SESSDATA); not stored",
+    )
+    schedule_cmd.add_argument(
+        "--queue-source",
+        choices=("store", "manifest"),
+        default="store",
+        help="Where to read pending/failed queues: archive.db gap views "
+             "(default) or the manifest (deprecated rollback)",
     )
 
     campaign_cmd = subparsers.add_parser(

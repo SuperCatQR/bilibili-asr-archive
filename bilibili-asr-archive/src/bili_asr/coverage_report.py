@@ -10,11 +10,19 @@ from typing import Any, Mapping
 
 from .archive import archive_stem, archive_bundle_complete
 from .artifact_root import ArtifactRoots, resolve_audio_path
-from .manifest import TERMINAL_STATUSES, VALID_STATUSES
+from .manifest import TERMINAL_STATUSES
 from .meta_cursor import _validate as validate_cursor
 from .scheduler import _validate as validate_scheduler
 from .run_ledger import _validate_record as validate_run_ledger_record
-from .sidecar_projection import ReaderPolicy, iter_jsonl_records, ORDINARY_HISTORY_DIAGNOSTICS, project_attempt_records, project_manifest_records, project_latest_run_record
+from .sidecar_projection import (
+    ReaderPolicy,
+    iter_jsonl_records,
+    ORDINARY_HISTORY_DIAGNOSTICS,
+    is_plain_cli_archive,
+    project_attempt_records,
+    project_manifest_records,
+    project_latest_run_record,
+)
 
 SCHEMA_VERSION = "coverage-report-v1"
 RETRYABLE_OUTCOMES = frozenset({"failed", "skipped"})
@@ -40,6 +48,8 @@ CSV_COLUMNS = (
     "status",
     "artifact_present",
     "reclaimed_audio",
+    "coverage",
+    "coverage_short",
     "evidence_summary",
     "diagnostic_summary",
 )
@@ -165,6 +175,15 @@ class CoverageReport:
         for work_id, entry in sorted(selected.items()):
             status = str(entry.get("status") or "unknown")
             artifact_present, reclaimed_audio = _transcript_evidence(roots, entry)
+            coverage_short = entry.get("coverage_short")
+            if coverage_short is True:
+                # A complete bundle is still materially incomplete when the
+                # model covered only part of the decoded audio.  Keep the
+                # existing archived status vocabulary, but make the warning
+                # visible to the read-only health gate.
+                diagnostics.add(("transcript_coverage_short", "transcript"))
+            elif coverage_short is not None and not isinstance(coverage_short, bool):
+                diagnostics.add(("coverage_evidence_invalid", "transcript"))
             terminal = status == "gone" or (status == "archived" and artifact_present)
             if status == "archived" and not artifact_present:
                 diagnostics.add(("terminal_missing_artifact", "transcript"))
@@ -177,6 +196,8 @@ class CoverageReport:
                     "status": status,
                     "artifact_present": artifact_present,
                     "reclaimed_audio": reclaimed_audio,
+                    "coverage": entry.get("coverage"),
+                    "coverage_short": coverage_short,
                     "cumulative_complete": terminal,
                     "batch_complete": work_id in batch_ids and terminal,
                 }
@@ -184,7 +205,11 @@ class CoverageReport:
 
         # A complete-looking manifest without operational evidence is not
         # proof of a completed campaign.
-        if any(row["cumulative_complete"] for row in rows):
+        # Standalone stage commands intentionally publish only the manifest.
+        # Their archived rows are sufficient for cumulative health; campaign
+        # evidence is required only when the archive claims campaign output.
+        plain_cli_archive = is_plain_cli_archive(manifest)
+        if any(row["cumulative_complete"] for row in rows) and not plain_cli_archive:
             for state, name in (
                 (cursor_state, "cursor"),
                 (scheduler_state, "scheduler"),
@@ -286,53 +311,11 @@ class CoverageReport:
             "status": row.get("status", ""),
             "artifact_present": row.get("artifact_present", ""),
             "reclaimed_audio": row.get("reclaimed_audio", ""),
+            "coverage": row.get("coverage", ""),
+            "coverage_short": row.get("coverage_short", ""),
             "evidence_summary": _evidence_summary(self.data["evidence"]),
             "diagnostic_summary": _diagnostic_summary(self.data["diagnostics"]),
         }
-
-
-def _read_manifest(
-    root: Path, diagnostics: set[tuple[str, str]]
-) -> tuple[dict[str, dict[str, Any]], str]:
-    path = root / "manifest" / "manifest.jsonl"
-    if not path.is_file():
-        diagnostics.add(("denominator_unavailable", "manifest"))
-        return {}, "missing"
-    try:
-        lines = path.read_text(encoding="utf-8").splitlines()
-    except (OSError, UnicodeError):
-        diagnostics.add(("denominator_unavailable", "manifest"))
-        return {}, "malformed"
-    entries: dict[str, dict[str, Any]] = {}
-    valid = True
-    for line in lines:
-        try:
-            record = json.loads(line)
-        except (TypeError, ValueError):
-            diagnostics.add(("manifest_malformed", "record"))
-            valid = False
-            continue
-        work_id = record.get("work_id") if isinstance(record, dict) else None
-        bvid = record.get("bvid") if isinstance(record, dict) else None
-        status = record.get("status") if isinstance(record, dict) else None
-        row_valid = isinstance(record, dict) and isinstance(work_id, str) and bool(work_id)
-        row_valid = row_valid and isinstance(bvid, str) and bool(bvid)
-        row_valid = row_valid and status in VALID_STATUSES
-        if row_valid:
-            try:
-                parsed_bvid, _page = parse_work_id(work_id)
-                row_valid = parsed_bvid == bvid
-            except (TypeError, ValueError):
-                row_valid = False
-        if not row_valid:
-            diagnostics.add(("manifest_invalid", "record"))
-            valid = False
-        elif work_id in entries:
-            diagnostics.add(("manifest_duplicate_work_id", "record"))
-            valid = False
-        else:
-            entries[work_id] = record
-    return entries, "available" if valid else "malformed"
 
 
 def _read_validated_sidecar(
@@ -417,7 +400,11 @@ def _select_scope(
             for record in attempts
             if record.get("outcome") == "failed" and isinstance(record.get("work_id"), str)
         }
-        return {work_id: entry for work_id, entry in entries.items() if work_id in failed}, "available"
+        return {
+            work_id: entry
+            for work_id, entry in entries.items()
+            if work_id in failed or entry.get("transcript_writeback_error")
+        }, "available"
     selected: dict[str, dict[str, Any]] = {}
     tokens = scope.replace(",", " ").split()
     if not tokens:

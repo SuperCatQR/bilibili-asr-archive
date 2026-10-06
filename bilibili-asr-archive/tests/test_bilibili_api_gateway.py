@@ -42,6 +42,7 @@ from bili_asr.config import PROXY_ENV_VAR, PROXY_ENV_VARS, resolve_proxy
 from bili_asr.services.metadata_ingest import MetadataIngestor
 from bili_asr.sources.models import (
     BilibiliGateway,
+    GatewayAuthenticationError,
     GatewayNotFound,
     GatewayRateLimited,
     GatewayResponseError,
@@ -1346,6 +1347,21 @@ def test_get_video_parts_converts_page_index_and_duration(bilibili_api_seam):
     assert bilibili_api_seam.calls == ["video.get_pages"]
 
 
+@pytest.mark.parametrize("separator", ["\n", "\r", "\r\n", "\n\r\n"])
+def test_get_video_parts_folds_title_line_breaks(bilibili_api_seam, separator):
+    bilibili_api_seam.parts_response = [
+        make_part_item(part=f"  first{separator}second  "),
+        make_part_item(cid=3333, page=2, part="sibling"),
+    ]
+
+    parts = asyncio.run(_load_gateway().get_video_parts(BVID))
+
+    assert [(part.page_index, part.cid, part.title) for part in parts] == [
+        (0, 2222, "first second"),
+        (1, 3333, "sibling"),
+    ]
+
+
 def test_get_video_parts_empty_list_returns_empty_tuple(bilibili_api_seam):
     """No pages means an empty tuple, not an error."""
 
@@ -1391,6 +1407,7 @@ def test_get_video_parts_tolerates_unknown_keys(bilibili_api_seam):
         {"cid": 2222, "page": True, "part": "第一部分", "duration": 12},
         {"cid": 2222, "page": 1, "part": "  ", "duration": 12},
         {"cid": 2222, "page": 1, "part": 7, "duration": 12},
+        {"cid": 2222, "page": 1, "part": "first\x00second", "duration": 12},
         {"cid": 2222, "page": 1, "part": "第一部分", "duration": 0},
         {"cid": 2222, "page": 1, "part": "第一部分", "duration": -3},
         {"cid": 2222, "page": 1, "part": "第一部分", "duration": "12"},
@@ -2268,7 +2285,7 @@ def test_gateway_proxy_stays_out_of_persisted_rows(
         )
 
         assert result.outcome == "limited"
-        assert repository.list_pending_parts()
+        assert repository.list_pending_parts() == []
         persisted = persisted_row_text(connection)
     finally:
         connection.close()
@@ -2499,7 +2516,7 @@ def test_subtitle_dtos_are_frozen():
 
 
 def test_gateway_protocol_surface_is_locked():
-    """The protocol declares exactly the locked seven methods, signatures included.
+    """The protocol declares the metadata, subtitle, and login-check methods.
 
     The four shipped signatures stay untouched — the shipped metadata service
     and the storage plan consume them — and the two subtitle methods are
@@ -2515,8 +2532,9 @@ def test_gateway_protocol_surface_is_locked():
     declaration is what every implementer downstream is entitled to trust and
     the distinction is the return type rather than a convention.
 
-    The declaration set is asserted exactly, not method by method: an eighth
-    protocol method fails here instead of slipping through unread.
+    The login-check method validates empty credentialed observations without
+    treating a configured cookie as proof of validity.  The declaration set is
+    asserted exactly so further boundary changes cannot slip through unread.
     """
 
     expected = {
@@ -2526,6 +2544,7 @@ def test_gateway_protocol_surface_is_locked():
         "get_package_version": ("self",),
         "get_video_tags": ("self", "bvid"),
         "get_subtitle_tracks": ("self", "bvid", "cid"),
+        "validate_subtitle_credentials": ("self",),
         "fetch_subtitle_segments": ("self", "track", "bvid", "cid"),
     }
 
@@ -3117,6 +3136,7 @@ def test_the_documented_call_allow_list_carries_exactly_the_authorized_routes():
         "video.tags",
         "player.track_list",
         "subtitle.body",
+        "credential.nav",
     )
     assert_only_documented_metadata_calls(list(DOCUMENTED_METADATA_CALLS))
     with pytest.raises(AssertionError):
@@ -3485,9 +3505,8 @@ def test_adapter_overrides_only_dm_and_verify_of_the_installed_pinned_player_end
         (FakeResponseCodeException(-799, UPSTREAM_ERROR_TEXT), GatewayRateLimited),
         (FakeResponseCodeException(-404, UPSTREAM_ERROR_TEXT), GatewayNotFound),
         (FakeResponseCodeException(-62002, UPSTREAM_ERROR_TEXT), GatewayNotFound),
-        # The one divergence from the metadata path: ``-101`` means "nothing was
-        # visible under this credential" on the subtitle calls.
-        (FakeResponseCodeException(-101, UPSTREAM_ERROR_TEXT), GatewayNotFound),
+        # Login rejection cannot become definite proof of subtitle absence.
+        (FakeResponseCodeException(-101, UPSTREAM_ERROR_TEXT), GatewayAuthenticationError),
         (FakeResponseCodeException(-1, UPSTREAM_ERROR_TEXT), GatewayResponseError),
         (FakeResponseException(UPSTREAM_ERROR_TEXT), GatewayResponseError),
         (FakeWbiRetryTimesExceedException(), GatewayRateLimited),
@@ -3514,16 +3533,16 @@ def test_subtitle_listing_failures_map_onto_bounded_taxonomy(
 def test_not_logged_in_diverges_between_the_metadata_and_subtitle_paths(
     bilibili_api_seam,
 ):
-    """``-101`` is "not visible" on the subtitle call, an error on the metadata one."""
+    """``-101`` is an auth failure for subtitles, a response error for metadata."""
 
     bilibili_api_seam.player_error = FakeResponseCodeException(
         -101, UPSTREAM_ERROR_TEXT
     )
     gateway = _load_gateway()
 
-    with pytest.raises(GatewayNotFound) as caught:
+    with pytest.raises(GatewayAuthenticationError) as caught:
         asyncio.run(gateway.get_subtitle_tracks(BVID, PART_CID))
-    assert caught.value.code == "not_found"
+    assert caught.value.code == "auth_error"
 
     bilibili_api_seam.player_error = None
     bilibili_api_seam.videos_error = FakeResponseCodeException(
@@ -3534,6 +3553,61 @@ def test_not_logged_in_diverges_between_the_metadata_and_subtitle_paths(
 
     assert metadata_caught.value.code == "response_error"
     assert UPSTREAM_ERROR_TEXT not in str(metadata_caught.value)
+
+
+@pytest.mark.parametrize("response", [None, [], {}, {"isLogin": 0}, {"isLogin": "true"}])
+def test_subtitle_credential_check_rejects_unverifiable_nav_shapes(
+    bilibili_api_seam, response,
+):
+    bilibili_api_seam.nav_response = response
+    gateway = _load_gateway(sessdata=SESSDATA_BOUNDARY_VALUE)
+
+    with pytest.raises(GatewayShapeError):
+        asyncio.run(gateway.validate_subtitle_credentials())
+
+    assert bilibili_api_seam.calls == ["credential.nav"]
+
+
+@pytest.mark.parametrize(
+    ("failure", "expected"),
+    [
+        (FakeResponseCodeException(-101, UPSTREAM_ERROR_TEXT), GatewayAuthenticationError),
+        (FakeNetworkException(503, UPSTREAM_ERROR_TEXT), GatewayTransportError),
+        (FakeNetworkException(429, UPSTREAM_ERROR_TEXT), GatewayRateLimited),
+    ],
+)
+def test_subtitle_credential_check_keeps_failed_nav_checks_bounded(
+    bilibili_api_seam, failure, expected,
+):
+    bilibili_api_seam.nav_error = failure
+    gateway = _load_gateway(sessdata=SESSDATA_BOUNDARY_VALUE)
+
+    with pytest.raises(expected) as caught:
+        asyncio.run(gateway.validate_subtitle_credentials())
+
+    assert_leaks_no_markers(str(caught.value), context="nav failure")
+    assert caught.value.detail == "validate_subtitle_credentials"
+
+
+def test_subtitle_credential_check_uses_the_current_login_without_caching(
+    bilibili_api_seam,
+):
+    gateway = _load_gateway(sessdata=SESSDATA_BOUNDARY_VALUE)
+    asyncio.run(gateway.validate_subtitle_credentials())
+    bilibili_api_seam.nav_response = {"isLogin": False}
+
+    with pytest.raises(GatewayAuthenticationError) as caught:
+        asyncio.run(gateway.validate_subtitle_credentials())
+
+    assert caught.value.code == "auth_error"
+    assert bilibili_api_seam.calls == ["credential.nav", "credential.nav"]
+    for request in bilibili_api_seam.api_requests:
+        assert request.url == "https://api.bilibili.com/x/web-interface/nav"
+        assert request.method == "GET"
+        assert request.has_sessdata is True
+        assert request.params == {}
+        assert request.wbi is request.dm is request.verify is request.raw is False
+        assert_leaks_no_markers(repr(request), context="nav request")
 
 
 # --------------------------------------------- adapter: subtitle body fetch
@@ -3851,20 +3925,20 @@ def test_fetch_subtitle_segments_reports_a_track_that_is_not_visible(
     assert bilibili_api_seam.calls == [_listing_call()]
 
 
-def test_fetch_subtitle_segments_reads_not_logged_in_as_no_visible_track(
+def test_fetch_subtitle_segments_reads_not_logged_in_as_auth_failure(
     bilibili_api_seam,
 ):
-    """``-101`` on the fetch's own listing is ``not_found``, never an error."""
+    """``-101`` on the fetch's own listing is failure, never subtitle absence."""
 
     bilibili_api_seam.player_error = FakeResponseCodeException(
         -101, UPSTREAM_ERROR_TEXT
     )
     gateway = _load_gateway()
 
-    with pytest.raises(GatewayNotFound) as caught:
+    with pytest.raises(GatewayAuthenticationError) as caught:
         asyncio.run(gateway.fetch_subtitle_segments(_seam_track(), BVID, PART_CID))
 
-    assert caught.value.code == "not_found"
+    assert caught.value.code == "auth_error"
     assert UPSTREAM_ERROR_TEXT not in str(caught.value)
     assert bilibili_api_seam.calls == [_listing_call()]
 
@@ -4220,7 +4294,7 @@ def _live_smoke_requested() -> bool:
     return os.environ.get(LIVE_SMOKE_ENV, "") == "1"
 
 
-@pytest.mark.live_smoke
+@pytest.mark.live_smoke(skip_reason=_LIVE_SMOKE_SKIP_REASON)
 def test_live_smoke_single_public_page_for_archive_owner(tmp_root, opt_in_gate):
     """Opt-in live probe: ONE public metadata page for UID 23191782.
 
@@ -4232,9 +4306,6 @@ def test_live_smoke_single_public_page_for_archive_owner(tmp_root, opt_in_gate):
     process-local.
     """
 
-    env_var, _marker = opt_in_gate
-    if os.environ.get(env_var, "") != "1":
-        pytest.skip(_LIVE_SMOKE_SKIP_REASON)
 
     try:
         gateway = _load_gateway()

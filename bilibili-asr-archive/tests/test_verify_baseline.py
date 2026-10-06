@@ -215,14 +215,18 @@ def test_staged_test_tree_copies_checkout_inputs(tmp_path: Path):
     from scripts.verify_baseline import staged_test_tree
     staged = staged_test_tree(tmp_path)
     assert (tmp_path / "README.md").is_file()
+    assert (tmp_path / "pyproject.toml").is_file()
+    assert (tmp_path / "uv.lock").is_file()
     if (Path(__file__).resolve().parents[1] / "docs").is_dir():
         assert (tmp_path / "docs" / "wsl-long-live.md").is_file()
         assert (tmp_path / "docs" / "wsl-long-live-evidence.md").is_file()
     assert (tmp_path / "scripts" / "verify_baseline.py").is_file()
+    assert (tmp_path / "scripts" / "forensic_log.py").is_file()
     assert (staged / "test_cli_pilot.py").is_file()
-    assert not (staged / "test_cli_help.py").exists()
-    assert not (staged / "test_verify_baseline.py").exists()
+    assert (staged / "test_installed_baseline.py").is_file()
+    assert (staged / "test_cli_help.py").is_file()
     assert not (staged / "test_installed_cli.py").exists()
+    assert not (staged / "test_verify_baseline.py").exists()
 
 
 def test_network_deny_guard_blocks_all_socket_connect_variants(monkeypatch: pytest.MonkeyPatch):

@@ -12,36 +12,37 @@ import os
 import re
 
 import conftest as _conftest
-import pytest
 
 
-def test_tmp_root_reuse_leftover_dir():
+def test_tmp_root_reuse_leftover_dir(tmp_root, monkeypatch):
     """A stale leftover dir must not make ``tmp_root`` raise FileExistsError."""
-    stale = os.path.join(_conftest._TEST_TMP_BASE, "manifest-test-stale-leftover")
-    os.makedirs(stale, exist_ok=True)
-    try:
-        with pytest.raises(FileExistsError):
-            os.makedirs(stale)
-    finally:
-        pass  # stale dir stays in place: the fixture must tolerate it.
+    # Model the actual old name after a killed process and PID/counter reuse.
+    # Keeping both new fixtures alive also proves uniqueness within one process.
+    monkeypatch.setattr(_conftest, "_TEST_TMP_BASE", tmp_root)
+    monkeypatch.setattr(_conftest.os, "getpid", lambda: 23456)
+    monkeypatch.setattr(_conftest, "_counter", iter([0, 0]))
+    stale = os.path.join(tmp_root, "manifest-test-23456-0")
+    os.makedirs(stale)
+    sentinel = os.path.join(stale, "untouched.txt")
+    with open(sentinel, "w", encoding="utf-8") as stream:
+        stream.write("leftover from a killed test")
 
     fixture = _conftest.tmp_root.__wrapped__
-    os.makedirs(_conftest._TEST_TMP_BASE, exist_ok=True)
-    gen = fixture()
-    yielded = next(gen)
+    generators = [fixture(), fixture()]
+    yielded = []
     try:
-        assert yielded != stale
-        assert os.path.isdir(yielded)
-        assert os.path.commonpath([yielded, _conftest._TEST_TMP_BASE]) == (
-            _conftest._TEST_TMP_BASE
-        )
-        # The deterministic prefix survives; the UUID suffix prevents reuse collisions.
-        assert re.match(
-            r"^manifest-test-\d+-\d+-[0-9a-f]{32}$", os.path.basename(yielded)
-        )
+        for gen in generators:
+            path = next(gen)
+            yielded.append(path)
+            assert path != stale
+            assert os.path.isdir(path)
+            assert os.path.commonpath([path, tmp_root]) == tmp_root
+            assert re.fullmatch(r"manifest-test-23456-0-[0-9a-f]{32}", os.path.basename(path))
+        assert len(set(yielded)) == 2
+        with open(sentinel, encoding="utf-8") as stream:
+            assert stream.read() == "leftover from a killed test"
     finally:
-        try:
-            next(gen)
-        except StopIteration:
-            pass
-    assert not os.path.exists(yielded)  # teardown removes the yielded dir
+        for gen in generators:
+            gen.close()
+    assert all(not os.path.exists(path) for path in yielded)
+    assert os.path.isfile(sentinel)  # teardown never takes ownership of the stale dir

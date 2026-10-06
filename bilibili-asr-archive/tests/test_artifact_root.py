@@ -20,6 +20,7 @@ from bili_asr.artifact_root import (
     KEEP_AUDIO_ENV_VAR,
     ArtifactRootError,
     ArtifactRoots,
+    iter_audio_paths,
     resolve_artifact_root,
     resolve_audio_path,
     resolve_keep_audio,
@@ -295,6 +296,37 @@ def test_resolve_audio_path_rejects_an_escaping_or_wrong_shaped_value_at_every_b
         assert resolve_audio_path(roots, declared) is None
         assert resolve_audio_path(roots, declared, require_exists=False) is None
         assert resolve_audio_path(identity, declared) is None
+
+
+def test_iter_audio_paths_preserves_base_then_candidate_order(tmp_path):
+    archive = tmp_path / "archive"
+    artifact = tmp_path / "mount"
+    for base in (archive, artifact):
+        (base / "audio").mkdir(parents=True)
+    (artifact / "audio" / "second.m4a").write_bytes(b"artifact")
+    (archive / "audio" / "first.m4a").write_bytes(b"archive")
+    roots = roots_for(archive, flag_value=str(artifact), environ={})
+
+    hits = list(iter_audio_paths(roots, ["audio/first.m4a", None, "audio/second.m4a"]))
+    assert [(base, declared) for base, declared, _path in hits] == [
+        (artifact, "audio/second.m4a"),
+        (archive, "audio/first.m4a"),
+    ]
+
+
+def test_iter_audio_paths_reuses_generator_candidates_for_each_base(tmp_path):
+    archive = tmp_path / "archive"
+    artifact = tmp_path / "mount"
+    for base in (archive, artifact):
+        (base / "audio").mkdir(parents=True)
+    (archive / "audio" / "fallback.m4a").write_bytes(b"archive")
+    roots = roots_for(archive, flag_value=str(artifact), environ={})
+
+    candidates = (value for value in ("audio/missing.m4a", "audio/fallback.m4a"))
+    hits = list(iter_audio_paths(roots, candidates))
+    assert [(base, declared) for base, declared, _path in hits] == [
+        (archive, "audio/fallback.m4a"),
+    ]
 
 
 def test_keep_audio_precedence_table():

@@ -429,6 +429,18 @@ def initialize_schema(connection: sqlite3.Connection) -> sqlite3.Connection:
         raise sqlite3.DatabaseError("SQLite foreign-key enforcement could not be enabled")
     connection.executescript(_SCHEMA_RESOURCE.read_text(encoding="utf-8"))
     if _accepts_transcript_script(connection):
+        # Earlier attempts did not verify login or distinguish listing absence
+        # from auth/body failures. Preserve their facts without backfilling proof.
+        attempt_columns = {
+            row[1] for row in connection.execute("PRAGMA table_info(acquisition_attempts)")
+        }
+        for verification_column in ("credential_verified", "absence_verified"):
+            if attempt_columns and verification_column not in attempt_columns:
+                connection.execute(
+                    f"ALTER TABLE acquisition_attempts ADD COLUMN {verification_column} "
+                    "INTEGER NOT NULL DEFAULT 0 "
+                    f"CHECK ({verification_column} IN (0, 1))"
+                )
         connection.executescript(
             _TRANSCRIPT_SCHEMA_RESOURCE.read_text(encoding="utf-8")
         )
@@ -1406,6 +1418,7 @@ class TranscriptRepository:
         started_at: int,
         finished_at: int,
         created_at: int,
+        coverage: Mapping[str, Any] | None = None,
     ) -> TranscriptWriteResult:
         """Store one locally-produced transcript body as a transcript version.
 
@@ -1443,6 +1456,31 @@ class TranscriptRepository:
         )
         canonical = self._canonical_segments(segment_records)
         content_sha256 = _segment_content_sha256(canonical)
+        coverage_row = None
+        if coverage is not None:
+            required = ("decoded_s", "produced_s", "coverage", "coverage_min", "coverage_short")
+            if any(key not in coverage for key in required):
+                raise ValueError("coverage evidence is incomplete")
+            values = {key: coverage[key] for key in required}
+            if any(isinstance(values[key], bool) for key in required[:-1]):
+                raise ValueError("coverage evidence values must be numeric")
+            if not isinstance(values["coverage_short"], bool):
+                raise ValueError("coverage_short must be boolean")
+            try:
+                decoded_s = float(values["decoded_s"])
+                produced_s = float(values["produced_s"])
+                ratio = float(values["coverage"])
+                coverage_min = float(values["coverage_min"])
+                short = int(values["coverage_short"])
+            except (TypeError, ValueError, OverflowError):
+                raise ValueError("coverage evidence values are invalid") from None
+            if (not all(math.isfinite(value) for value in (decoded_s, produced_s, ratio, coverage_min))
+                    or decoded_s <= 0 or produced_s < 0 or produced_s > decoded_s
+                    or ratio < 0 or ratio > 1 or coverage_min <= 0 or coverage_min > 1
+                    or short not in (0, 1) or abs(ratio - produced_s / decoded_s) > 1e-6
+                    or short != int(ratio < coverage_min)):
+                raise ValueError("coverage evidence values are inconsistent")
+            coverage_row = (decoded_s, produced_s, ratio, coverage_min, short)
 
         with _transaction(self.connection):
             self._require_video_part(video_part_id)
@@ -1523,6 +1561,16 @@ class TranscriptRepository:
                     finished_at,
                 ),
             )
+            if coverage_row is not None:
+                self.connection.execute(
+                    """
+                    INSERT INTO transcript_coverage_attestations(
+                        run_id, video_part_id, transcript_id, decoded_s, produced_s,
+                        coverage, coverage_min, coverage_short
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (run_id, video_part_id, transcript_id, *coverage_row),
+                )
 
         return TranscriptWriteResult(
             outcome=outcome,
@@ -1530,6 +1578,17 @@ class TranscriptRepository:
             version=version,
             content_sha256=content_sha256,
         )
+
+    def read_transcript_coverage(self, run_id: str, video_part_id: int) -> dict[str, Any] | None:
+        """Read the coverage evidence attached to one ASR run and part."""
+        row = self.connection.execute(
+            """SELECT run_id, video_part_id, transcript_id, decoded_s, produced_s,
+                      coverage, coverage_min, coverage_short
+                 FROM transcript_coverage_attestations
+                WHERE run_id = ? AND video_part_id = ?""",
+            (_text(run_id, "run_id"), _integer(video_part_id, "video_part_id", minimum=1)),
+        ).fetchone()
+        return dict(row) if row is not None else None
 
     def record_subtitle_attempt(
         self,
@@ -1540,6 +1599,8 @@ class TranscriptRepository:
         error_code: str | None,
         started_at: int,
         finished_at: int,
+        credential_verified: bool = False,
+        absence_verified: bool = False,
     ) -> None:
         """Record one attempt that produced no transcript.
 
@@ -1551,12 +1612,24 @@ class TranscriptRepository:
         may reference a transcript.  The attempt row is therefore the whole
         evidence — append-only per ``(run_id, video_part_id)`` and never a
         terminal per-part state, so a part recorded here is re-attemptable in a
-        later run.
+        later run. ``credential_verified`` attests a successful login check
+        for this individual empty observation. Unchecked callers remain
+        unverified even when their run carried a cookie. ``absence_verified``
+        attests a definite not-found response from the listing itself; historical
+        not-found codes without this evidence remain unverified.
         """
         run_id = _text(run_id, "run_id")
         video_part_id = _integer(video_part_id, "video_part_id", minimum=1)
         outcome = _choice(outcome, "outcome", _NO_TRANSCRIPT_ATTEMPT_OUTCOMES)
         error_code = _error_code(error_code)
+        if not isinstance(credential_verified, bool):
+            raise TypeError("credential_verified must be a bool")
+        if credential_verified and (outcome != "no-subtitle" or error_code is not None):
+            raise ValueError("credential_verified applies to an empty subtitle observation")
+        if not isinstance(absence_verified, bool):
+            raise TypeError("absence_verified must be a bool")
+        if absence_verified and (outcome != "no-subtitle" or error_code != "not_found"):
+            raise ValueError("absence_verified applies to a listing not_found observation")
         if outcome == "failed" and error_code is None:
             raise ValueError("a failed attempt requires a bounded error_code")
         if outcome == "no-subtitle" and error_code not in (None, "not_found"):
@@ -1575,10 +1648,55 @@ class TranscriptRepository:
                 """
                 INSERT INTO acquisition_attempts(
                     run_id, video_part_id, outcome, error_code, transcript_id,
-                    started_at, finished_at
-                ) VALUES (?, ?, ?, ?, NULL, ?, ?)
+                    started_at, finished_at, credential_verified, absence_verified
+                ) VALUES (?, ?, ?, ?, NULL, ?, ?, ?, ?)
                 """,
-                (run_id, video_part_id, outcome, error_code, started_at, finished_at),
+                (run_id, video_part_id, outcome, error_code, started_at, finished_at,
+                 int(credential_verified), int(absence_verified)),
+            )
+
+    def record_audio_attempt(
+        self,
+        *,
+        run_id: str,
+        video_part_id: int,
+        error_code: str,
+        started_at: int,
+        finished_at: int,
+    ) -> None:
+        """Record a failed audio acquisition attempt for queue rotation.
+
+        Audio failures are negative evidence only: successful audio is
+        represented by ``part_audio_objects``.  Keeping the failed attempt
+        under an ``audio`` run lets the queue order retries by recency without
+        treating a failed download as usable media.
+        """
+        run_id = _text(run_id, "run_id")
+        video_part_id = _integer(video_part_id, "video_part_id", minimum=1)
+        error_code = _error_code(error_code)
+        if error_code is None:
+            raise ValueError("an audio failure requires a bounded error_code")
+        started_at = _integer(started_at, "started_at", minimum=0)
+        finished_at = _integer(finished_at, "finished_at", minimum=0)
+        if finished_at < started_at:
+            raise ValueError("finished_at must not precede started_at")
+        with _transaction(self.connection):
+            self._require_video_part(video_part_id)
+            run = self.connection.execute(
+                "SELECT kind FROM acquisition_runs WHERE run_id = ?", (run_id,)
+            ).fetchone()
+            if run is None:
+                raise sqlite3.IntegrityError(f"unknown run_id: {run_id}")
+            if run["kind"] != "audio":
+                raise ValueError("audio attempts require an audio acquisition run")
+            self.connection.execute(
+                """
+                INSERT INTO acquisition_attempts(
+                    run_id, video_part_id, outcome, error_code, transcript_id,
+                    started_at, finished_at
+                ) VALUES (?, ?, 'failed', ?, NULL, ?, ?)
+                """,
+                (run_id, video_part_id, error_code, started_at, finished_at),
             )
 
     def read_transcript(
@@ -1764,7 +1882,9 @@ class TranscriptRepository:
         return list(self.connection.execute(query, parameters).fetchall())
 
     def list_stored_transcripts(
-        self, bvid: str | None = None, page_index: int | None = None
+        self, bvid: str | None = None, page_index: int | None = None,
+        *, limit_parts: int | None = None,
+        after_part: tuple[str, int] | None = None,
     ) -> list[sqlite3.Row]:
         """Return one row per stored transcript version with its part context.
 
@@ -1784,7 +1904,11 @@ class TranscriptRepository:
         yields no row rather than an invented one.  The order ``bvid,
         page_index, source_kind, language, version DESC`` lives in this query,
         not in the caller, and it is deterministic row-for-row.  Read-only: no
-        write, no commit.
+        write, no commit. ``limit_parts`` selects the first stored parts in
+        that order before reading their versions. Every version of a selected
+        part remains available to the caller's winner selection. ``after_part``
+        advances past a previously selected ``(bvid, page_index)`` without an
+        offset or splitting one part's versions across batches.
         """
         where_clauses: list[str] = []
         parameters: list[object] = []
@@ -1794,23 +1918,58 @@ class TranscriptRepository:
         if page_index is not None:
             where_clauses.append("vp.page_index = ?")
             parameters.append(_integer(page_index, "page_index", minimum=0))
+        if after_part is not None:
+            if not isinstance(after_part, tuple) or len(after_part) != 2:
+                raise TypeError("after_part must be a (bvid, page_index) tuple")
+            after_bvid = _text(after_part[0], "after_part bvid")
+            after_page_index = _integer(
+                after_part[1], "after_part page_index", minimum=0
+            )
+            where_clauses.append("(vp.bvid, vp.page_index) > (?, ?)")
+            parameters.extend((after_bvid, after_page_index))
+        prefix = ""
+        if limit_parts is not None:
+            limit_parts = _integer(limit_parts, "limit_parts", minimum=1)
+            selected_where = where_clauses + [
+                "EXISTS (SELECT 1 FROM transcripts AS stored "
+                "WHERE stored.video_part_id = vp.video_part_id)"
+            ]
+            prefix = (
+                "WITH selected_parts AS MATERIALIZED ("
+                "SELECT vp.video_part_id FROM video_parts AS vp WHERE "
+                + " AND ".join(selected_where)
+                + " ORDER BY vp.bvid ASC, vp.page_index ASC LIMIT ?) "
+            )
+            parameters.append(limit_parts)
+        relation = (
+            "FROM transcripts AS t "
+            "JOIN video_parts AS vp ON vp.video_part_id = t.video_part_id "
+        )
+        if limit_parts is not None:
+            # Keep the selected part ids as the outer loop. An ordinary JOIN
+            # may scan the whole transcript relation before testing membership.
+            relation = (
+                "FROM selected_parts AS selected "
+                "CROSS JOIN video_parts AS vp "
+                "ON vp.video_part_id = selected.video_part_id "
+                "CROSS JOIN transcripts AS t ON t.video_part_id = vp.video_part_id "
+            )
         query = (
             "SELECT vp.video_part_id, vp.bvid, vp.page_index, vp.cid, "
             "vp.title AS part_title, vp.duration_ms, vd.pubdate, "
             "vd.title AS video_title, "
             "t.transcript_id, t.source_kind, t.language, t.model_id, "
             "t.version, t.content_sha256, t.created_at "
-            "FROM transcripts AS t "
-            "JOIN video_parts AS vp ON vp.video_part_id = t.video_part_id "
+            + relation +
             "JOIN videos AS vd ON vd.bvid = vp.bvid"
         )
-        if where_clauses:
+        if limit_parts is None and where_clauses:
             query += " WHERE " + " AND ".join(where_clauses)
         query += (
             " ORDER BY vp.bvid ASC, vp.page_index ASC, t.source_kind ASC, "
             "t.language ASC, t.version DESC"
         )
-        return list(self.connection.execute(query, parameters).fetchall())
+        return list(self.connection.execute(prefix + query, parameters).fetchall())
 
     def _stored_segments(
         self, transcript_id: int
@@ -2143,6 +2302,14 @@ class MediaQueueRepository:
         part's gap membership changes because that row exists, not because any
         status column is rewritten.
         """
+        bvid = _text(bvid, "bvid")
+        page_index = _integer(page_index, "page_index", minimum=0)
+        run_id = _text(run_id, "run_id")
+        transcript_id = _integer(transcript_id, "transcript_id", minimum=1)
+        started_at = _integer(started_at, "started_at", minimum=0)
+        finished_at = _integer(finished_at, "finished_at", minimum=0)
+        if finished_at < started_at:
+            raise ValueError("finished_at must not precede started_at")
         part = self.connection.execute(
             "SELECT video_part_id FROM video_parts WHERE bvid = ? AND page_index = ?",
             (bvid, page_index),
@@ -2152,13 +2319,6 @@ class MediaQueueRepository:
                 f"unknown video part: bvid={bvid!r}, page_index={page_index!r}"
             )
         video_part_id = int(part["video_part_id"])
-
-        run_id = _text(run_id, "run_id")
-        transcript_id = _integer(transcript_id, "transcript_id", minimum=1)
-        started_at = _integer(started_at, "started_at", minimum=0)
-        finished_at = _integer(finished_at, "finished_at", minimum=0)
-        if finished_at < started_at:
-            raise ValueError("finished_at must not precede started_at")
 
         transcript = self.connection.execute(
             "SELECT video_part_id FROM transcripts WHERE transcript_id = ?",
@@ -2225,15 +2385,39 @@ class MediaQueueRepository:
         where_clauses: list[str] = []
         parameters: list[object] = []
         if bvid is not None:
-            where_clauses.append("bvid = ?")
+            where_clauses.append("q.bvid = ?")
             parameters.append(_text(bvid, "bvid"))
         if page is not None:
-            where_clauses.append("page_index = ?")
+            where_clauses.append("q.page_index = ?")
             parameters.append(_integer(page, "page_index", minimum=0))
-        query = f"SELECT * FROM {self._VIEW_BY_GAP[gap]}"
+        if gap == "missing_audio":
+            # Failed audio attempts are retry evidence, not positive audio
+            # evidence. Rotate the oldest attempted part first while keeping
+            # never-attempted parts ahead of the retry tail.
+            query = f"""
+                SELECT q.*
+                  FROM {self._VIEW_BY_GAP[gap]} AS q
+                  LEFT JOIN (
+                        SELECT aa.video_part_id, MAX(aa.finished_at) AS last_attempt
+                          FROM acquisition_attempts AS aa
+                          JOIN acquisition_runs AS ar ON ar.run_id = aa.run_id
+                         WHERE ar.kind = 'audio'
+                         GROUP BY aa.video_part_id
+                  ) AS audio_attempt
+                    ON audio_attempt.video_part_id = q.video_part_id
+            """
+        else:
+            query = f"SELECT * FROM {self._VIEW_BY_GAP[gap]} AS q"
         if where_clauses:
             query += " WHERE " + " AND ".join(where_clauses)
-        query += " ORDER BY pubdate DESC, bvid ASC, page_index ASC"
+        if gap == "missing_audio":
+            query += (
+                " ORDER BY (audio_attempt.last_attempt IS NOT NULL) ASC, "
+                "audio_attempt.last_attempt ASC, q.pubdate DESC, "
+                "q.bvid ASC, q.page_index ASC"
+            )
+        else:
+            query += " ORDER BY q.pubdate DESC, q.bvid ASC, q.page_index ASC"
         if limit is not None:
             query += " LIMIT ?"
             parameters.append(limit)

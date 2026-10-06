@@ -660,11 +660,11 @@ def test_harvest_subs_prints_every_outcome_and_the_complete_summary(
         f"harvest {BVID_A}:p0 stored subtitle-cc zh-CN v1",
         f"harvest {BVID_A}:p1 stored subtitle-cc zh-CN v1",
         f"harvest {BVID_B}:p0 no-subtitle",
-        f"harvest {BVID_B}:p1 no-subtitle",
+        f"harvest {BVID_B}:p1 failed subtitle_body_unavailable",
     ]
     summary = lines[5]
     assert summary.startswith("harvest-subs: run_id=")
-    assert "attempted=4 stored=2 unchanged=0 no-subtitle=2 failed=0" in summary
+    assert "attempted=4 stored=2 unchanged=0 no-subtitle=1 failed=1" in summary
     assert summary.endswith("remaining_without_transcript=2")
     assert len(lines) == 6
 
@@ -681,7 +681,7 @@ def test_harvest_subs_prints_every_outcome_and_the_complete_summary(
         ) == ("subtitle", "pending", None, 4)
         assert run["kind"] in ALLOWED_ACQUISITION_KINDS
         assert run["credential_present"] == 0
-        assert run["outcome"] == "complete"
+        assert run["outcome"] == "partial"
         assert run["finished_at"] is not None
         assert [
             (row["outcome"], row["error_code"])
@@ -693,7 +693,7 @@ def test_harvest_subs_prints_every_outcome_and_the_complete_summary(
             ("stored", None),
             ("stored", None),
             ("no-subtitle", None),
-            ("no-subtitle", "not_found"),
+            ("failed", "subtitle_body_unavailable"),
         ]
         stored = connection.execute(
             "SELECT source_kind, language, version FROM transcripts"
@@ -711,7 +711,12 @@ def test_harvest_subs_prints_every_outcome_and_the_complete_summary(
             "SELECT COUNT(*) FROM acquisition_attempts"
             " WHERE outcome = 'no-subtitle'"
             " AND started_at IS NOT NULL AND finished_at IS NOT NULL"
-        ).fetchone()[0] == 2
+        ).fetchone()[0] == 1
+        assert connection.execute("SELECT COUNT(*) FROM v_missing_audio").fetchone()[0] == 0
+        assert connection.execute("SELECT COUNT(*) FROM v_pending_subtitles").fetchone()[0] == 2
+        assert [row[0] for row in connection.execute(
+            "SELECT absence_verified FROM acquisition_attempts"
+        )] == [0, 0, 0, 0]
 
 
 def test_default_preference_stores_the_uploader_caption_when_both_are_visible(
@@ -1039,27 +1044,41 @@ def test_bounded_gateway_failures_map_to_failed_with_their_code(
         ).fetchone()[0] == "failed"
 
 
-@pytest.mark.parametrize("stage", ["listing", "body"])
-def test_not_found_is_recorded_no_subtitle_with_its_code(
-    tmp_root: str, capsys, install_gateway, stage: str
+@pytest.mark.parametrize(
+    "stage, expected_exit, expected_outcome, expected_code",
+    [("listing", 0, "no-subtitle", "not_found"),
+     ("body", 2, "failed", "subtitle_body_unavailable")],
+)
+def test_not_found_listing_proves_absence_but_body_failure_retries(
+    tmp_root: str, capsys, install_gateway, stage: str,
+    expected_exit: int, expected_outcome: str, expected_code: str,
 ) -> None:
-    """Upstream ``not_found`` is evidence without a caption, never a failure."""
+    """Only the listing's definite not-found response proves subtitle absence."""
 
     _seed_parts(tmp_root, ((BVID_A, 0, 101),))
     script: dict = {"tracks": {101: (CC_ZH,)}, "segments": {101: BODY}}
     script[f"{stage}_failures"] = {101: GatewayNotFound()}
     install_gateway(**script)
 
-    assert main(["harvest-subs", "--limit-parts", "1", "--archive-root", tmp_root]) == 0
+    assert main(["harvest-subs", "--limit-parts", "1", "--archive-root", tmp_root]) == expected_exit
 
     captured = capsys.readouterr()
-    assert captured.out.splitlines()[1] == f"harvest {BVID_A}:p0 no-subtitle"
-    assert "stored=0 unchanged=0 no-subtitle=1 failed=0" in captured.out
+    expected_line = f"harvest {BVID_A}:p0 {expected_outcome}"
+    if stage == "body":
+        expected_line += " subtitle_body_unavailable"
+    assert captured.out.splitlines()[1] == expected_line
+    if stage == "listing":
+        assert "stored=0 unchanged=0 no-subtitle=1 failed=0" in captured.out
+    else:
+        assert "stored=0 unchanged=0 no-subtitle=0 failed=1" in captured.out
     with _archive_connection(tmp_root) as connection:
         attempt = connection.execute(
-            "SELECT outcome, error_code, transcript_id FROM acquisition_attempts"
+            "SELECT outcome, error_code, transcript_id, absence_verified FROM acquisition_attempts"
         ).fetchone()
-    assert (attempt["outcome"], attempt["error_code"]) == ("no-subtitle", "not_found")
+        assert connection.execute("SELECT COUNT(*) FROM v_missing_audio").fetchone()[0] == int(stage == "listing")
+        assert connection.execute("SELECT COUNT(*) FROM v_pending_subtitles").fetchone()[0] == 1
+    assert (attempt["outcome"], attempt["error_code"]) == (expected_outcome, expected_code)
+    assert attempt["absence_verified"] == int(stage == "listing")
     assert attempt["transcript_id"] is None
 
 

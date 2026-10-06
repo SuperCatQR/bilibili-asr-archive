@@ -567,3 +567,101 @@ def test_cli_refuses_a_caption_derived_asr_root(tmp_path: Path, capsys) -> None:
     assert rc == 1
     assert "expected source=asr, found source=subtitle-ai" in captured.err
     assert "written" not in captured.out
+
+
+def test_cli_moves_both_reads_away_from_the_write_and_archive_defaults(
+    tmp_path: Path, capsys,
+) -> None:
+    from bili_asr.cli import main
+
+    asr_root, caption_root = _split_root_workspace(tmp_path)
+    archive_root = tmp_path / "local-state"
+    artifact_root = tmp_path / "output"
+    archive_root.mkdir()
+    artifact_root.mkdir()
+    # The default ASR read would encounter the wrong source; the default
+    # caption read has no store. Ignoring either flag must fail this fixture.
+    _write_raw(artifact_root, "BV1split.p0", _caption_derived_sidecar())
+    asr_before = {
+        path.relative_to(asr_root): path.read_bytes()
+        for path in asr_root.rglob("*") if path.is_file()
+    }
+    caption_before = (caption_root / "archive.db").read_bytes()
+
+    rc = main([
+        "proofread", "--bvid", "BV1split:p0",
+        "--archive-root", os.fspath(archive_root),
+        "--artifact-root", os.fspath(artifact_root),
+        "--asr-root", os.fspath(asr_root),
+        "--caption-root", os.fspath(caption_root),
+    ])
+
+    captured = capsys.readouterr()
+    assert rc == 0, captured.err
+    work = artifact_root / ".tmp" / "proofread-work"
+    table = (work / "inputs" / "BV1split.p0.sidebyside.md").read_text("utf-8")
+    assert "review 0.735" in table
+    assert (work / "align" / "BV1split.p0.alignment.jsonl").is_file()
+    assert not (archive_root / ".tmp").exists()
+    assert not (archive_root / "archive.db").exists()
+    assert not (caption_root / ".tmp").exists()
+    assert {
+        path.relative_to(asr_root): path.read_bytes()
+        for path in asr_root.rglob("*") if path.is_file()
+    } == asr_before
+    assert (caption_root / "archive.db").read_bytes() == caption_before
+
+
+@pytest.mark.parametrize("flag", ["--asr-root", "--caption-root"])
+@pytest.mark.parametrize("value", ["", "   "])
+def test_cli_rejects_blank_route_roots_without_reading_cwd(
+    tmp_path: Path, monkeypatch, capsys, flag: str, value: str,
+) -> None:
+    from bili_asr.cli import main
+
+    asr_root, caption_root = _split_root_workspace(tmp_path)
+    output = tmp_path / "output"
+    output.mkdir()
+    monkeypatch.chdir(asr_root)
+    arguments = [
+        "proofread", "--bvid", "BV1split:p0",
+        "--archive-root", os.fspath(caption_root),
+        "--artifact-root", os.fspath(output),
+        "--asr-root", os.fspath(asr_root),
+        "--caption-root", os.fspath(caption_root),
+        flag, value,
+    ]
+    assert main(arguments) == 1
+    captured = capsys.readouterr()
+    assert f"{flag[2:]} must name a non-empty directory" in captured.err
+    assert "written" not in captured.out
+    assert not (output / ".tmp").exists()
+
+
+def test_cli_refuses_a_caption_store_without_transcript_schema(
+    tmp_path: Path, capsys,
+) -> None:
+    import sqlite3
+    from bili_asr.cli import main
+
+    asr_root, _ = _split_root_workspace(tmp_path)
+    caption_root = tmp_path / "wrong-store"
+    caption_root.mkdir()
+    with sqlite3.connect(caption_root / "archive.db") as connection:
+        connection.execute("CREATE TABLE unrelated (value TEXT)")
+    before = (caption_root / "archive.db").read_bytes()
+    output = tmp_path / "output"
+    output.mkdir()
+
+    assert main([
+        "proofread", "--bvid", "BV1split:p0",
+        "--archive-root", os.fspath(caption_root),
+        "--artifact-root", os.fspath(output),
+        "--asr-root", os.fspath(asr_root),
+        "--caption-root", os.fspath(caption_root),
+    ]) == 1
+    captured = capsys.readouterr()
+    assert "BV1split:p0: unreadable caption route (SchemaContractError)" in captured.err
+    assert "written" not in captured.out
+    assert not (output / ".tmp").exists()
+    assert (caption_root / "archive.db").read_bytes() == before

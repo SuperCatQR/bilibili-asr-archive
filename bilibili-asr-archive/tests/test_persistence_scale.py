@@ -42,11 +42,6 @@ SCALE_ENV_VAR = "BILI_SCALE"
 _SCALE_SKIP_REASON = f"scale probe is opt-in: set {SCALE_ENV_VAR}=1 to run it"
 
 
-def _require_scale_env() -> None:
-    if os.environ.get(SCALE_ENV_VAR) != "1":
-        pytest.skip(_SCALE_SKIP_REASON)
-
-
 def _row(work_id: str, status: str = "pending") -> dict[str, object]:
     bvid = work_id.split(":", 1)[0]
     return {
@@ -194,13 +189,12 @@ AttemptLedger(root).append({"stage": "archive", "work_id": "same:p0", "attempt":
     assert sorted(numbers) == [1, 2]
 
 
-@pytest.mark.scale
+@pytest.mark.scale(skip_reason=_SCALE_SKIP_REASON)
 def test_trusted_scale_fixture_exposes_current_record_limits(
     tmp_path: Path, capsys, opt_in_gate
 ) -> None:
     env_var, _marker = opt_in_gate
     assert env_var == SCALE_ENV_VAR
-    _require_scale_env()
     manifest = tmp_path / "manifest" / "manifest.jsonl"
     manifest.parent.mkdir()
     manifest.write_text("".join(json.dumps(_row(f"BV{i}:p0")) + "\n" for i in range(10001)), encoding="utf-8")
@@ -546,6 +540,7 @@ def test_cli_dispatch_locks_every_archive_mutation(
         # command itself; the earlier omission made its documented archive_busy
         # refusal unreachable).
         "derive-audio-inventory",
+        "adopt-transcripts",
         "publish-transcripts",
         "harvest-subs",
         "download-audio",
@@ -581,6 +576,12 @@ def test_cli_dispatch_locks_every_archive_mutation(
     captured = capsys.readouterr()
     assert captured.out == ""
     assert captured.err == "fetch-meta: archive_busy\n"
+    assert cli.main([
+        "adopt-transcripts", "--archive-root", os.fspath(tmp_path),
+    ]) == 1
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err == "adopt-transcripts: archive_busy\n"
 
 
 def test_archive_writer_reenters_same_thread_without_second_lock(tmp_path: Path, monkeypatch) -> None:

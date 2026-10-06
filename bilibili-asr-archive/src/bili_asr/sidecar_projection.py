@@ -50,11 +50,49 @@ class JsonlRecord:
     diagnostic: str | None
 
 
+def is_plain_cli_archive(entries: Mapping[str, Mapping[str, Any]]) -> bool:
+    """Whether rows prove a completed archive produced by the stage CLIs.
+
+    Standalone ``asr`` and ``publish-transcripts`` commands publish manifest rows
+    without coordinator campaign sidecars.  Their producer marker distinguishes
+    those rows from coordinator output with the same content source.  Historical
+    rows without an explicit marker cannot waive missing evidence.
+    """
+    return bool(entries) and all(
+        str(row.get("status")) == "archived"
+        and str(row.get("source")) in {
+            "asr", "subtitle", "asr-local", "subtitle-ai", "subtitle-cc",
+        }
+        and row.get("archive_producer") == "stage-cli"
+        for row in entries.values()
+    )
+
+
 def _open_regular_jsonl(path: str | Path) -> int:
     flags = os.O_RDONLY
     nofollow = getattr(os, "O_NOFOLLOW", None)
     if nofollow is None:
-        raise OSError("safe sidecar opening is unavailable")
+        # Windows does not expose O_NOFOLLOW.  Reject an already-visible
+        # symlink before opening, then verify the descriptor itself; this
+        # keeps ordinary files usable while preserving the regular-file check.
+        source = Path(path)
+        if source.is_symlink():
+            raise OSError("sidecar is a symlink")
+        try:
+            fd = os.open(os.fspath(source), flags)
+        except FileNotFoundError:
+            raise
+        except OSError:
+            raise
+        try:
+            if source.is_symlink():
+                raise OSError("sidecar is a symlink")
+            if not stat.S_ISREG(os.fstat(fd).st_mode):
+                raise OSError("sidecar is not regular")
+        except Exception:
+            os.close(fd)
+            raise
+        return fd
     try:
         fd = os.open(os.fspath(path), flags | nofollow)
     except FileNotFoundError:

@@ -345,7 +345,9 @@ def test_a_cwd_torch_py_does_not_change_the_verdict(tmp_path: Path):
     (tmp_path / "torch.py").write_text(FAKE_CWD_TORCH, encoding="utf-8")
     probe = (
         "import json, scripts.check_asr_env as c; "
-        "out = c.run_child(c.TORCH_PROBE_CODE); print(json.dumps([out.returncode, out.stdout, out.stderr]))"
+        "code = 'import os, sys; print(\"runtime warning pid=\" + str(os.getpid()), file=sys.stderr)\\n' "
+        "+ c.TORCH_PROBE_CODE; "
+        "out = c.run_child(code); print(json.dumps([out.returncode, out.stdout, out.stderr]))"
     )
     environment = {**os.environ, "PYTHONPATH": str(PRODUCT_ROOT), "PYTHONDONTWRITEBYTECODE": "1"}
     results = {}
@@ -362,7 +364,24 @@ def test_a_cwd_torch_py_does_not_change_the_verdict(tmp_path: Path):
         results[label] = json.loads(completed.stdout.strip().splitlines()[-1])
 
     assert "9.9.9+rocm7.2.0" not in results["dirty"][1], f"the cwd torch.py answered the probe: {results['dirty']}"
-    assert results["dirty"] == results["product"], "the verdict changed with the working directory"
+    # Runtime warnings can include process-specific identifiers. They are not
+    # the probe's verdict; compare the exit, structured payload and classifier.
+    assert results["dirty"][2] != results["product"][2]
+    assert results["dirty"][0] == results["product"][0]
+    payloads = {
+        label: parse_child_payload(value[1], "torch")
+        for label, value in results.items()
+    }
+    assert payloads["product"] is not None
+    assert payloads["dirty"] == payloads["product"]
+    verdicts = {
+        label: classify_torch_outcome(
+            ChildOutcome(returncode=value[0], stdout=value[1], stderr=value[2]),
+            CHILD_TIMEOUT_SECONDS,
+        )
+        for label, value in results.items()
+    }
+    assert verdicts["dirty"] == verdicts["product"]
 
 
 def test_torch_stage_passes_on_a_rocm_build():

@@ -306,22 +306,29 @@ def extract_transcript_text(
                 try:
                     with open(raw_cand, "r", encoding="utf-8") as fh:
                         doc = json.load(fh)
-                    if isinstance(doc, dict):
-                        if "body" in doc and isinstance(doc["body"], list):
-                            text = " ".join(
-                                str(item.get("content", ""))
-                                for item in doc["body"]
-                                if item.get("content")
-                            )
-                        elif "segments" in doc and isinstance(doc["segments"], list):
-                            text = " ".join(
-                                str(item.get("text", ""))
-                                for item in doc["segments"]
-                                if item.get("text")
-                            )
+                    if not isinstance(doc, dict):
+                        continue
+                    # A manifest ASR row must not acquire caption text through
+                    # this fallback. Legacy caption bodies carry no source, so
+                    # only rows with an explicit ASR origin require the guard.
+                    if entry.get("source") == "asr" and doc.get("source") != "asr":
+                        continue
+                    if isinstance(doc.get("body"), list):
+                        items, text_key = doc["body"], "content"
+                    elif isinstance(doc.get("segments"), list):
+                        items, text_key = doc["segments"], "text"
+                    else:
+                        continue
+                    if any(
+                        not isinstance(item, dict)
+                        or not isinstance(item.get(text_key), str)
+                        for item in items
+                    ):
+                        continue
+                    text = " ".join(item[text_key] for item in items if item[text_key].strip())
                     if text:
                         break
-                except (OSError, json.JSONDecodeError):
+                except (OSError, UnicodeError, json.JSONDecodeError):
                     pass
 
     # 4. If no text, try md_path
@@ -532,10 +539,41 @@ class SearchIndex:
         else:
             entries = manifest_entries
 
-        # Check completed transcript count vs indexed count
-        completed_count = sum(1 for e in entries.values() if self._is_indexable(e))
-        indexed_count = self.count()
-        if completed_count != indexed_count:
+        # The index itself is authoritative for rows it already contains.
+        # Only probe the filesystem for completed manifest rows missing from
+        # the index; archived rows can otherwise trigger many remote stat calls
+        # on every search.
+        try:
+            conn = sqlite3.connect(self.db_path)
+            try:
+                indexed_work_ids = {
+                    str(row[0])
+                    for row in conn.execute(
+                        f"SELECT work_id FROM {FTS5_TABLE_NAME}"
+                    )
+                }
+            finally:
+                conn.close()
+        except (sqlite3.OperationalError, sqlite3.DatabaseError):
+            return True
+
+        manifest_work_ids: set[str] = set()
+        for entry in entries.values():
+            work_id = str(entry.get("work_id") or entry.get("bvid") or "")
+            if not work_id:
+                continue
+            if work_id in indexed_work_ids:
+                manifest_work_ids.add(work_id)
+                if entry.get("status") in COMPLETED_STATUSES:
+                    continue
+                # An indexed row that is no longer complete invalidates the index.
+                return True
+            if self._is_indexable(entry):
+                return True
+
+        # Also detect indexed rows removed from the manifest, including the
+        # same-count replacement case that a count-only check misses.
+        if indexed_work_ids != manifest_work_ids:
             return True
 
         return False
@@ -983,6 +1021,9 @@ def search(
 
 STORE_FTS5_TABLE = "transcript_fts"
 STORE_INDEX_META_TABLE = "transcript_fts_index_meta"
+_STORE_PROGRESS_KEYS = (
+    "completed_transcript_id", "cursor_transcript_id", "cursor_ordinal",
+)
 
 #: The store segment query is the index's only source of truth for text and
 #: time ranges; ``videos.pubdate`` joins the date window.
@@ -1264,18 +1305,12 @@ class TranscriptSearchIndex:
         return row is not None
 
     def stamp(self) -> int:
-        """The last indexed segment's ``(transcript_id, ordinal)`` stamp, or -1."""
+        """Last fully indexed transcript id, or -1 before any is complete."""
         conn = self._connect()
         try:
             if not self._has_index(conn):
                 return -1
-            row = conn.execute(
-                f"SELECT MAX(CAST(substr(block_key, 2, instr(block_key, ':') - 2) AS INTEGER)) "
-                f"AS m FROM {STORE_FTS5_TABLE} "
-                f"WHERE substr(block_key, 1, 1) = ?",
-                (_STORE_KEY_PREFIX,),
-            ).fetchone()
-            return int(row[0]) if row and row[0] is not None else -1
+            return self._store_progress(conn)[0]
         except sqlite3.DatabaseError as exc:
             raise TranscriptStoreError(f"transcript store corrupt: {exc}") from exc
         finally:
@@ -1294,16 +1329,96 @@ class TranscriptSearchIndex:
         finally:
             conn.close()
 
+    def metadata(self) -> dict[str, str]:
+        """Return build metadata without exposing the SQLite connection.
+
+        A missing index is a normal pre-build state, so it returns an empty mapping;
+        malformed store state remains a typed store error like :meth:`count`.
+        """
+        conn = self._connect()
+        try:
+            if not self._has_index(conn):
+                return {}
+            rows = conn.execute(
+                f"SELECT key, value FROM {STORE_INDEX_META_TABLE} ORDER BY key"
+            ).fetchall()
+            return {str(row[0]): str(row[1]) for row in rows}
+        except sqlite3.DatabaseError as exc:
+            raise TranscriptStoreError(f"transcript store corrupt: {exc}") from exc
+        finally:
+            conn.close()
+
     # -- build -------------------------------------------------------------
 
-    def _new_store_rows(self, conn: sqlite3.Connection, after_transcript_id: int) -> list[sqlite3.Row]:
+    @staticmethod
+    def _legacy_store_progress(
+        conn: sqlite3.Connection, existing_keys: set[str] | None = None,
+    ) -> tuple[int, int, int]:
+        """Verify the old FTS prefix once, before durable cursors existed."""
+        keys = {
+            str(row[0]) for row in conn.execute(
+                f"SELECT block_key FROM {STORE_FTS5_TABLE} WHERE source = ?",
+                (_SOURCE_STORE,),
+            )
+        }
+        if existing_keys is not None:
+            existing_keys.update(keys)
+        completed, cursor_id, cursor_ordinal = -1, -1, -1
+        current_id = None
+        for row in conn.execute(
+            "SELECT transcript_id, ordinal FROM transcript_segments "
+            "ORDER BY transcript_id, ordinal"
+        ):
+            transcript_id, ordinal = int(row[0]), int(row[1])
+            if current_id is not None and transcript_id != current_id:
+                completed = current_id
+            current_id = transcript_id
+            if _store_block_key(transcript_id, ordinal) not in keys:
+                return completed, cursor_id, cursor_ordinal
+            cursor_id, cursor_ordinal = transcript_id, ordinal
+        if current_id is not None:
+            completed = current_id
+        return completed, cursor_id, cursor_ordinal
+
+    def _store_progress(
+        self, conn: sqlite3.Connection, legacy_keys: set[str] | None = None,
+    ) -> tuple[int, int, int]:
+        rows = dict(conn.execute(
+            f"SELECT key, value FROM {STORE_INDEX_META_TABLE} "
+            "WHERE key IN (?, ?, ?)", _STORE_PROGRESS_KEYS,
+        ))
+        if not rows:
+            return self._legacy_store_progress(conn, legacy_keys)
+        try:
+            completed, cursor_id, cursor_ordinal = (
+                int(rows[key]) for key in _STORE_PROGRESS_KEYS
+            )
+        except (KeyError, TypeError, ValueError):
+            raise TranscriptStoreError("transcript index progress corrupt") from None
+        if (completed < -1 or cursor_id < completed or cursor_ordinal < -1
+                or (cursor_id == -1) != (cursor_ordinal == -1)):
+            raise TranscriptStoreError("transcript index progress corrupt")
+        return completed, cursor_id, cursor_ordinal
+
+    @staticmethod
+    def _write_store_progress(conn: sqlite3.Connection, state: tuple[int, int, int]) -> None:
+        conn.executemany(
+            f"INSERT OR REPLACE INTO {STORE_INDEX_META_TABLE}(key, value) VALUES (?, ?)",
+            [(key, str(value)) for key, value in zip(_STORE_PROGRESS_KEYS, state)],
+        )
+
+    def _new_store_rows(
+        self, conn: sqlite3.Connection, after_transcript_id: int, after_ordinal: int = -1,
+    ) -> list[sqlite3.Row]:
         return list(
             conn.execute(
                 _STORE_BLOCKS_SQL.replace(
                     "ORDER BY t.transcript_id, ts.ordinal",
-                    "WHERE t.transcript_id > ? ORDER BY t.transcript_id, ts.ordinal",
+                    "WHERE t.transcript_id > ? "
+                    "OR (t.transcript_id = ? AND ts.ordinal > ?) "
+                    "ORDER BY t.transcript_id, ts.ordinal",
                 ),
-                (after_transcript_id,),
+                (after_transcript_id, after_transcript_id, after_ordinal),
             ).fetchall()
         )
 
@@ -1359,9 +1474,10 @@ class TranscriptSearchIndex:
 
         Idempotent: existing rows are never re-written, so re-running after a
         complete build appends nothing and changes nothing.  Incremental:
-        only segments newer than the last indexed ``transcript_id`` are
-        appended, one transaction per batch of
-        :data:`INDEX_BUILD_BATCH_SIZE` rows.  ``force`` keeps the historical
+        only segments after the last committed segment are appended, one
+        transaction per batch of :data:`INDEX_BUILD_BATCH_SIZE` rows or at
+        a transcript boundary. The complete-transcript stamp advances only
+        when every segment is committed. ``force`` keeps the historical
         rebuild flag shape; the store layer's idempotent incremental build
         needs no special-casing to honour it, and a drop-and-rebuild is
         deliberately not offered under the no-migration rule.
@@ -1371,14 +1487,17 @@ class TranscriptSearchIndex:
         conn = self._connect_for_build()
         try:
             self._ensure_schema(conn)
-            after_id = -1 if force else self.stamp()
+            legacy_keys: set[str] = set()
+            completed_id, after_id, after_ordinal = self._store_progress(conn, legacy_keys)
+            self._write_store_progress(conn, (completed_id, after_id, after_ordinal))
+            conn.commit()
 
             pending: list[tuple[str, str, int, int, int, int, str, str, str]] = []
             indexed = 0
 
-            def flush() -> None:
+            def flush(store_progress: tuple[int, int, int] | None = None) -> None:
                 nonlocal indexed
-                if not pending:
+                if not pending and store_progress is None:
                     return
                 conn.executemany(
                     f"INSERT INTO {STORE_FTS5_TABLE}("
@@ -1387,29 +1506,40 @@ class TranscriptSearchIndex:
                     ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);",
                     pending,
                 )
+                if store_progress is not None:
+                    self._write_store_progress(conn, store_progress)
                 conn.commit()
                 indexed += len(pending)
                 pending.clear()
 
-            for row in self._new_store_rows(conn, after_id):
-                text = _redact_text(str(row["text"]))
-                pending.append(
-                    (
-                        _store_block_key(int(row["transcript_id"]), int(row["ordinal"])),
-                        str(row["bvid"]),
-                        int(row["page_index"]),
-                        int(row["start_ms"]),
-                        int(row["end_ms"]),
-                        int(row["pubdate"]),
-                        text,
-                        _cjk_bigram_stream(text),
-                        _SOURCE_STORE,
+            store_rows = self._new_store_rows(conn, after_id, after_ordinal)
+            for row_index, row in enumerate(store_rows):
+                transcript_id = int(row["transcript_id"])
+                ordinal = int(row["ordinal"])
+                block_key = _store_block_key(transcript_id, ordinal)
+                if block_key not in legacy_keys:
+                    text = _redact_text(str(row["text"]))
+                    pending.append(
+                        (
+                            block_key,
+                            str(row["bvid"]),
+                            int(row["page_index"]),
+                            int(row["start_ms"]),
+                            int(row["end_ms"]),
+                            int(row["pubdate"]),
+                            text,
+                            _cjk_bigram_stream(text),
+                            _SOURCE_STORE,
+                        )
                     )
+                last_segment = (
+                    row_index + 1 == len(store_rows)
+                    or int(store_rows[row_index + 1]["transcript_id"]) != transcript_id
                 )
-                if len(pending) >= INDEX_BUILD_BATCH_SIZE:
-                    flush()
-
-            conn.commit()  # flush() may have left a partial batch uncommitted
+                if last_segment:
+                    completed_id = transcript_id
+                if len(pending) >= INDEX_BUILD_BATCH_SIZE or last_segment:
+                    flush((completed_id, transcript_id, ordinal))
             # Only md-sourced rows carry a video_part_id in the key
             # (``m<video_part_id>:0``); store rows are ``t<transcript_id>:<ordinal>``,
             # so the id is read from after the ``m`` prefix — reading from column 1
@@ -1425,14 +1555,11 @@ class TranscriptSearchIndex:
             }
             for part in self._published_md_candidates(conn, stamped_part_ids):
                 part_id = int(part["video_part_id"])
-                if part_id in stamped_part_ids:
-                    continue
                 text = self._published_md_text_for(
                     str(part["bvid"]), int(part["page_index"])
                 )
                 if not text:
                     continue
-                stamped_part_ids.add(part_id)
                 text = _redact_text(text)
                 pending.append(
                     (
@@ -1451,10 +1578,13 @@ class TranscriptSearchIndex:
                     flush()
 
             flush()
+            total_indexed = int(
+                conn.execute(f"SELECT COUNT(*) FROM {STORE_FTS5_TABLE}").fetchone()[0]
+            )
             conn.execute(
                 f"INSERT OR REPLACE INTO {STORE_INDEX_META_TABLE}(key, value) "
                 "VALUES ('indexed_count', ?);",
-                (str(indexed),),
+                (str(total_indexed),),
             )
             conn.execute(
                 f"INSERT OR REPLACE INTO {STORE_INDEX_META_TABLE}(key, value) "

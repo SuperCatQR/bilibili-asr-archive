@@ -39,6 +39,12 @@ VALID_STATUSES = frozenset(
 #: Terminal manifest rows — reruns always skip these.
 TERMINAL_STATUSES = frozenset({"archived", "gone"})
 
+#: Acquisition states whose missing products are retryable backlog. Completed
+#: subtitle/ASR stages still require their expected artifacts to be checked.
+BACKLOG_STATUSES = frozenset(
+    {"pending", "meta_ok", "sub_checked", "needs_audio", "audio_ok"}
+)
+
 DEFAULT_REL_PATH = os.path.join("manifest", "manifest.jsonl")
 
 #: Ledger sidecar of the deterministic snapshot: per-row upserts append here,
@@ -124,11 +130,6 @@ class ManifestStore:
         self._snapshot_name = snapshot_name
         self._entries: dict[str, dict[str, Any]] = {}
         self._loaded = False
-        # On-disk journal size as of the last replay. The lazy-compaction
-        # trigger is computed from the file sizes themselves, never from a
-        # per-instance append count: two handles over one root must not need a
-        # shared counter to fold a journal that is outgrowing the snapshot.
-        self._journal_bytes = 0
         # Records the last replay found *after* a torn fragment, and whether
         # one exists at all. A record there belongs to another handle that
         # appended after a crash fragment: the replay refuses to skip
@@ -150,6 +151,8 @@ class ManifestStore:
         self._journal_signature: tuple[int, int] | None = None
 
     def _open_manifest_dir(self, *, create: bool = False) -> int:
+        if os.name == "nt":
+            raise OSError("descriptor-based manifest opening is unavailable")
         nofollow = getattr(os, "O_NOFOLLOW", None)
         directory = getattr(os, "O_DIRECTORY", None)
         if nofollow is None or directory is None:
@@ -168,6 +171,25 @@ class ManifestStore:
             os.close(root_fd)
         return manifest_fd
 
+    def _windows_manifest_dir(self, *, create: bool = False) -> str:
+        """Return the validated manifest directory for Windows path I/O.
+
+        Windows has no portable ``openat``/directory-fd equivalent.  Keep the
+        same confinement checks before using path operations and let the
+        file-lock helper provide the cross-process lock.
+        """
+        root = os.path.abspath(self.root)
+        if not os.path.isdir(root) or os.path.islink(root):
+            raise OSError("manifest root is not a regular directory")
+        directory = os.path.join(root, "manifest")
+        if create:
+            os.makedirs(directory, mode=0o755, exist_ok=True)
+        if not os.path.exists(directory) and not create:
+            raise FileNotFoundError(directory)
+        if not os.path.isdir(directory) or os.path.islink(directory):
+            raise OSError("manifest directory is not a regular directory")
+        return directory
+
     @staticmethod
     def _open_regular_at(directory_fd: int, name: str, flags: int) -> int:
         nofollow = getattr(os, "O_NOFOLLOW", None)
@@ -184,6 +206,11 @@ class ManifestStore:
 
     @contextmanager
     def _manifest_lock(self, *, create: bool = False):
+        if os.name == "nt":
+            directory = self._windows_manifest_dir(create=create)
+            with file_lock(os.path.join(directory, "manifest.jsonl")):
+                yield
+            return
         directory_fd = self._open_manifest_dir(create=create)
         try:
             lock_path = f"/proc/self/fd/{directory_fd}/manifest.jsonl"
@@ -193,6 +220,18 @@ class ManifestStore:
             os.close(directory_fd)
     def _read_latest(self) -> dict[str, dict[str, Any]]:
         entries: dict[str, dict[str, Any]] = {}
+        if os.name == "nt":
+            try:
+                directory = self._windows_manifest_dir()
+                with open(os.path.join(directory, "manifest.jsonl"), "r", encoding="utf-8") as fh:
+                    for line in fh:
+                        line = line.strip()
+                        if line:
+                            entry = validate_manifest_record(json.loads(line))
+                            entries[_entry_key(entry)] = entry
+            except FileNotFoundError:
+                return entries
+            return entries
         try:
             directory_fd = self._open_manifest_dir()
         except FileNotFoundError:
@@ -230,21 +269,21 @@ class ManifestStore:
         """
         if self._journal_stat_signature() == self._journal_signature:
             return
-        self._entries, self._journal_bytes = self._replay_latest()
+        self._entries = self._replay_latest()
         self._loaded = True
         self._journal_signature = self._journal_stat_signature()
 
     def load(self) -> dict[str, dict[str, Any]]:
         """Replay snapshot + journal into memory; last fully-appended row wins per key."""
-        self._entries, self._journal_bytes = self._replay_latest()
+        self._entries = self._replay_latest()
         self._loaded = True
         self._journal_signature = self._journal_stat_signature()
         return self._entries
 
-    def _replay_latest(self) -> tuple[dict[str, dict[str, Any]], int]:
+    def _replay_latest(self) -> dict[str, dict[str, Any]]:
         """Replay the deterministic snapshot then the journal, oldest row first.
 
-        Returns the effective entries plus the journal's on-disk byte size.
+        Returns the effective entries. Compaction reads file sizes directly.
         A torn trailing journal line (crash mid-append) is dropped: replay
         exposes only fully-appended records, so the resumable SSOT invariant
         holds even when the process died between ``write`` and a full line.
@@ -259,24 +298,30 @@ class ManifestStore:
         :meth:`_remove_journal` refuse to delete the only copy.
         """
         entries = self._read_latest()
-        journal_bytes = 0
         self._journal_has_unfolded_rows = False
         self._journal_recoverable = []
         self._journal_recoverable_complete = True
-        try:
-            directory_fd = self._open_manifest_dir()
-        except FileNotFoundError:
-            return entries, journal_bytes
-        try:
+        if os.name == "nt":
             try:
-                fd = self._open_regular_at(directory_fd, JOURNAL_NAME, os.O_RDONLY)
+                directory = self._windows_manifest_dir()
+                with open(os.path.join(directory, JOURNAL_NAME), "rb") as fh:
+                    raw = fh.read()
             except FileNotFoundError:
-                return entries, journal_bytes
-            with os.fdopen(fd, "rb") as fh:
-                raw = fh.read()
-        finally:
-            os.close(directory_fd)
-        journal_bytes = len(raw)
+                return entries
+        else:
+            try:
+                directory_fd = self._open_manifest_dir()
+            except FileNotFoundError:
+                return entries
+            try:
+                try:
+                    fd = self._open_regular_at(directory_fd, JOURNAL_NAME, os.O_RDONLY)
+                except FileNotFoundError:
+                    return entries
+                with os.fdopen(fd, "rb") as fh:
+                    raw = fh.read()
+            finally:
+                os.close(directory_fd)
         # Split on the record separator the writer emits ("\n") only. A
         # line-separator-aware split would also break on U+2028/U+2029/U+0085 —
         # legal inside a JSON string and written raw by this repo's writer
@@ -285,7 +330,9 @@ class ManifestStore:
         # rule as ``_read_latest`` above; ``coordinator.py`` documents it for
         # ``AttemptLedger``.
         torn = False
-        for line in raw.decode("utf-8", errors="replace").split("\n"):
+        # Strict UTF-8 matches the read-only projection and attempt ledger.
+        # Invalid bytes must not become replacement characters in durable keys.
+        for line in raw.decode("utf-8").split("\n"):
             line = line.strip()
             if not line:
                 continue
@@ -319,7 +366,7 @@ class ManifestStore:
                 self._journal_recoverable.append(entry)
                 continue
             entries[_entry_key(entry)] = entry
-        return entries, journal_bytes
+        return entries
 
     #: Attempts spent looking for a whole record inside an unparsable journal
     #: line before assuming one is present.  Detection is a correctness matter:
@@ -358,6 +405,18 @@ class ManifestStore:
         return None
 
     def _append_record(self, record: Mapping[str, Any]) -> None:
+        if os.name == "nt":
+            directory = self._windows_manifest_dir(create=True)
+            path = os.path.join(directory, JOURNAL_NAME)
+            payload = _json_line(dict(record))
+            with open(path, "ab") as fh:
+                fh.write(payload)
+                fh.flush()
+                os.fsync(fh.fileno())
+                st = os.fstat(fh.fileno())
+                own_signature = (st.st_size, st.st_mtime_ns)
+            self._journal_signature = own_signature
+            return
         directory_fd = self._open_manifest_dir(create=True)
         try:
             fd = self._open_regular_at(
@@ -382,7 +441,6 @@ class ManifestStore:
             os.fsync(directory_fd)
         finally:
             os.close(directory_fd)
-        self._journal_bytes += len(payload)
         self._journal_signature = own_signature
 
     def _maybe_compact_locked(self, entries: dict[str, dict[str, Any]]) -> None:
@@ -423,7 +481,6 @@ class ManifestStore:
             self._journal_recoverable = []
         self._replace_snapshot(entries)
         self._remove_journal()
-        self._journal_bytes = 0
 
     def _remove_journal(self) -> None:
         """Discard the journal, unless it holds rows the replay never folded.
@@ -441,6 +498,13 @@ class ManifestStore:
         """
         if self._journal_has_unfolded_rows:
             return
+        if os.name == "nt":
+            directory = self._windows_manifest_dir()
+            try:
+                os.unlink(os.path.join(directory, JOURNAL_NAME))
+            except FileNotFoundError:
+                pass
+            return
         directory_fd = self._open_manifest_dir()
         try:
             try:
@@ -452,16 +516,39 @@ class ManifestStore:
             os.close(directory_fd)
 
     def _replace_snapshot(self, entries: dict[str, dict[str, Any]]) -> None:
+        self._replace_manifest_file("manifest.jsonl", entries)
+
+    def _replace_manifest_file(
+        self, name: str, entries: dict[str, dict[str, Any]]
+    ) -> None:
+        """Atomically publish a complete manifest file under its directory fd."""
+        if os.name == "nt":
+            directory = self._windows_manifest_dir(create=True)
+            target = os.path.join(directory, name)
+            temporary = f".{name}.{os.getpid()}.{id(entries)}.tmp"
+            temporary_path = os.path.join(directory, temporary)
+            try:
+                with open(temporary_path, "wb") as fh:
+                    fh.write(self._snapshot_bytes(entries))
+                    fh.flush()
+                    os.fsync(fh.fileno())
+                os.replace(temporary_path, target)
+            finally:
+                try:
+                    os.unlink(temporary_path)
+                except FileNotFoundError:
+                    pass
+            return
         directory_fd = self._open_manifest_dir(create=True)
         temporary = ""
         try:
             try:
-                fd = self._open_regular_at(directory_fd, "manifest.jsonl", os.O_RDONLY)
+                fd = self._open_regular_at(directory_fd, name, os.O_RDONLY)
             except FileNotFoundError:
                 pass
             else:
                 os.close(fd)
-            temporary = f".manifest.jsonl.{os.getpid()}.{id(entries)}.tmp"
+            temporary = f".{name}.{os.getpid()}.{id(entries)}.tmp"
             fd = os.open(
                 temporary,
                 os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
@@ -474,7 +561,7 @@ class ManifestStore:
                     fh.flush()
                     os.fsync(fh.fileno())
                 os.replace(
-                    temporary, "manifest.jsonl",
+                    temporary, name,
                     src_dir_fd=directory_fd, dst_dir_fd=directory_fd,
                 )
                 temporary = ""
@@ -501,24 +588,37 @@ class ManifestStore:
         folded in first, so a ``save()`` after journal-appended upserts cannot
         resurrect pre-transition states. The rewritten snapshot is deterministic
         (keys sorted, fixed separators); the journal is discarded only after
-        that snapshot is successfully published, so a failure in between leaves
-        the journal-only rows recoverable on the next load. With nothing to
-        publish the call touches neither artifact on disk.
+        that snapshot is successfully published. With caller-supplied entries,
+        the journal is first atomically replaced by the complete desired view:
+        a crash before publication or before journal discard replays that same
+        view, never older journal rows over the caller's updates. With nothing
+        to publish the call touches neither artifact on disk.
+
+        The no-argument path is derived from journal replay, and current
+        source callers do not supply a competing entries view; callers that do
+        supply one still get the same-view journal handoff above.
         """
         requested = dict(entries) if entries is not None else None
         with self._manifest_lock(create=True):
-            current, _journal_bytes = self._replay_latest()
+            current = self._replay_latest()
             if requested is not None:
+                if self._journal_has_unfolded_rows:
+                    if not self._journal_recoverable_complete:
+                        raise ValueError("manifest journal recovery is incomplete")
+                    for recovered in self._journal_recoverable:
+                        current[_entry_key(recovered)] = recovered
                 current.update(requested)
             if not current:
                 self._entries = {}
                 self._loaded = True
-                self._journal_bytes = 0
                 self._journal_signature = self._journal_stat_signature()
                 return
+            if requested is not None:
+                self._replace_manifest_file(JOURNAL_NAME, current)
+                self._journal_has_unfolded_rows = False
+                self._journal_recoverable = []
             self._replace_snapshot(current)
             self._remove_journal()
-            self._journal_bytes = 0
             self._journal_signature = self._journal_stat_signature()
             self._entries = current
             self._loaded = True
@@ -526,11 +626,10 @@ class ManifestStore:
     def compact(self) -> None:
         """Replace journal history with the deterministic latest-row snapshot."""
         with self._manifest_lock(create=True):
-            current, _journal_bytes = self._replay_latest()
+            current = self._replay_latest()
             if current:
                 self._replace_snapshot(current)
                 self._remove_journal()
-            self._journal_bytes = 0
             self._journal_signature = self._journal_stat_signature()
             self._entries = current
             self._loaded = True
@@ -561,7 +660,7 @@ class ManifestStore:
             )
         with self._manifest_lock(create=True):
             if not self._loaded:
-                self._entries, self._journal_bytes = self._replay_latest()
+                self._entries = self._replay_latest()
                 self._loaded = True
                 self._journal_signature = self._journal_stat_signature()
             else:
@@ -585,7 +684,7 @@ class ManifestStore:
                 # Durability is the resumable-SSOT contract, not a tentative
                 # in-memory mutation: roll back so a failed upsert leaves the
                 # caller's view identical to the replayed ledger.
-                self._entries, self._journal_bytes = self._replay_latest()
+                self._entries = self._replay_latest()
                 self._journal_signature = self._journal_stat_signature()
                 raise
             self._maybe_compact_locked(self._entries)
@@ -661,7 +760,7 @@ class ManifestStore:
             # was unlinked with it -- durable loss of the newer transition.
             # (The pre-overlays that existed for the snapshot-only base are gone
             # with it; the replay already covers every key.)
-            effective, self._journal_bytes = self._replay_latest()
+            effective = self._replay_latest()
             self._entries = effective
             self._loaded = True
             next_entries: dict[str, dict[str, Any]] = dict(effective)
@@ -720,7 +819,6 @@ class ManifestStore:
             if next_entries != current:
                 self._replace_snapshot(next_entries)
                 self._remove_journal()
-                self._journal_bytes = 0
                 self._journal_signature = self._journal_stat_signature()
                 self._entries = next_entries
         return report

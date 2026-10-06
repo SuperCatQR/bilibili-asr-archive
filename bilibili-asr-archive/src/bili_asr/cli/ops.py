@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+from bili_asr.diagnostics import write_stderr
+
 from pathlib import Path
 
 import json
 import os
 import sys
-from pathlib import Path
 
 from bili_asr.cli._shared import (
     DEFAULT_ARCHIVE_ROOT,
@@ -19,20 +20,19 @@ from bili_asr.cli.search import _parse_status_filter
 def _cmd_check_asr_env(args: argparse.Namespace) -> int:
     """Run the host self-check the README and spec 01 D1.2 name.
 
-    The check is `scripts/check_asr_env.py`, which is deliberately **not** part
-    of the installed package: it is environment surgery's own verifier, lives
-    beside the recipe in the checkout, and imports nothing from ``bili_asr``.
-    The published invocation therefore names the CLI — so the CLI has to find
-    the script rather than reimplement the five stages here.
+    The check is the stdlib-only ``check_asr_env.py`` helper. It is shipped
+    beside the installed package and remains available from ``scripts/`` in a
+    source checkout; the CLI loads it rather than reimplementing its stages.
 
     Resolution order, first hit wins:
 
     1. ``$BILI_ASR_CHECK_SCRIPT`` — an explicit override, for a host that keeps
        the script somewhere unusual.
-    2. ``scripts/check_asr_env.py`` relative to this file's package root
+    2. ``check_asr_env.py`` beside the installed ``bili_asr`` package.
+    3. ``scripts/check_asr_env.py`` relative to this file's package root
        (``src/bili_asr/cli.py`` → ``../../scripts/``), which is the checkout
        layout every documented example assumes.
-    3. ``scripts/check_asr_env.py`` under the current working directory, i.e.
+    4. ``scripts/check_asr_env.py`` under the current working directory, i.e.
        the product directory the README tells the operator to run from.
 
     When none exists the command reports that and exits ``1`` — a missing
@@ -52,6 +52,7 @@ def _cmd_check_asr_env(args: argparse.Namespace) -> int:
     # the patched anchor, matching the pre-split behaviour where the handler
     # lived in ``cli.py`` itself).
     import bili_asr.cli as _cli_pkg
+    candidates.append(Path(_cli_pkg.__file__).resolve().parents[1] / "check_asr_env.py")
     candidates.append(Path(_cli_pkg.__file__).resolve().parents[3] / "scripts" / "check_asr_env.py")
     candidates.append(Path.cwd() / "scripts" / "check_asr_env.py")
 
@@ -60,11 +61,10 @@ def _cmd_check_asr_env(args: argparse.Namespace) -> int:
             script = candidate
             break
     else:
-        print(
+        write_stderr(
             "check-asr-env: no check script found; looked for "
             + ", ".join(str(path) for path in candidates)
-            + " (set BILI_ASR_CHECK_SCRIPT to point at it)",
-            file=sys.stderr,
+            + " (set BILI_ASR_CHECK_SCRIPT to point at it)"
         )
         return 1
 
@@ -75,7 +75,7 @@ def _cmd_check_asr_env(args: argparse.Namespace) -> int:
     # the `__main__` route would answer every invocation as a usage error.
     spec = importlib.util.spec_from_file_location("_bili_asr_env_check", script)
     if spec is None or spec.loader is None:
-        print(f"check-asr-env: cannot load {script}", file=sys.stderr)
+        write_stderr(f"check-asr-env: cannot load {script}")
         return 1
     module = importlib.util.module_from_spec(spec)
     # Registered before execution: the script defines frozen dataclasses, and
@@ -85,11 +85,11 @@ def _cmd_check_asr_env(args: argparse.Namespace) -> int:
     try:
         spec.loader.exec_module(module)
     except Exception:
-        print(f"check-asr-env: cannot load {script}", file=sys.stderr)
+        write_stderr(f"check-asr-env: cannot load {script}")
         return 1
     check_main = getattr(module, "main", None)
     if not callable(check_main):
-        print(f"check-asr-env: {script} has no main()", file=sys.stderr)
+        write_stderr(f"check-asr-env: {script} has no main()")
         return 1
     try:
         return int(check_main([]))
@@ -108,10 +108,9 @@ def _cmd_export(args: argparse.Namespace) -> int:
     if status_filter is not None:
         invalid = status_filter - VALID_STATUSES
         if invalid:
-            print(
+            write_stderr(
                 f"export: invalid status filter: {sorted(invalid)}; "
-                f"valid statuses: {sorted(VALID_STATUSES)}",
-                file=sys.stderr,
+                f"valid statuses: {sorted(VALID_STATUSES)}"
             )
             return 1
 
@@ -128,7 +127,7 @@ def _cmd_export(args: argparse.Namespace) -> int:
             sys.stdout.write(content + ("\n" if not content.endswith("\n") else ""))
             sys.stdout.flush()
     except Exception:
-        print("export: unexpected error", file=sys.stderr)
+        write_stderr("export: unexpected error")
         return 1
     return 0
 

@@ -26,12 +26,14 @@ from typing import Any, Callable, Iterator
 from . import asr as asr_module
 from . import audio as audio_module
 from . import subtitles as subtitles_module
-from .artifact_root import ArtifactRoots
+from .artifact_root import ArtifactRoots, iter_audio_paths
+from .audio_budget import AudioUsageError, AudioUsageTracker
 from .manifest import TERMINAL_STATUSES, ManifestStore
 from .persistence import utc_now_iso
 from .page_identity import PageIdentity, artifact_stem, identity_from_entry
 from .persistence import append_jsonl_record, file_lock
 from .path_policy import confined_audio_path
+from .run_ledger import collect_hotwords_dropped
 
 STAGES = ("harvest", "download", "asr", "archive")
 OUTCOMES = ("ok", "failed", "skipped")
@@ -460,7 +462,6 @@ class RowResult:
 
 
 @dataclass
-@dataclass
 class RunSummary:
     results: list[RowResult] = field(default_factory=list)
     risk_interrupted: bool = False
@@ -470,6 +471,7 @@ class RunSummary:
     model_constructions: int = 0
     model_load_attempts: int = 0
     asr_items: int = 0
+    hotwords_dropped: list[str] = field(default_factory=list)
 
     @property
     def failed(self) -> list[RowResult]:
@@ -540,10 +542,14 @@ class RunCoordinator:
         # default keeps the documented coordinator path's own label.
         self.command = command
         self._batch_asr_items = 0
+        self.hotwords_dropped: list[str] = []
         # Re-entrancy tripwire for ``run_batch`` (see its docstring): the
         # denominator above is per-coordinator, not per-batch.
         self._batch_depth = 0
-        self.audio_peak_bytes = 0
+        self.audio_peak_bytes: int | None = 0
+        self._audio_usage: AudioUsageTracker | None = None
+        self._audio_usage_error: AudioUsageError | None = None
+        self._audio_usage_prepared = False
         # The store write-back (plan r14-routes-writeback): the transcript
         # half of the archive stage — every locally-produced (ASR) or
         # subtitle-sourced transcript owes a ``transcripts`` row taking the
@@ -556,6 +562,7 @@ class RunCoordinator:
         # on disk is never lost to a store problem.
         self._writeback_source: Any | None = None
         self._writeback_source_failed = False
+        self._writeback_refusal_reported = False
         self.ledger = AttemptLedger(self.root)
         # Latest attempt number per (work_id, stage); seeded by the ledger's
         # one-time construction scan and updated by ``AttemptLedger.append``.
@@ -643,14 +650,14 @@ class RunCoordinator:
         stem_path = os.path.join("audio", stem)
         declared_candidates.append(stem_path + ".m4a")
         declared_candidates.append(stem_path + ".flac")
-        for base in self.artifact_roots.read_bases():
-            for declared in declared_candidates:
-                try:
-                    confined = confined_audio_path(base, declared, require_exists=True)
-                    if confined is not None and confined.stat().st_size > 0:
-                        return base, declared
-                except OSError:
-                    continue
+        for base, declared, confined in iter_audio_paths(
+            self.artifact_roots, declared_candidates
+        ):
+            try:
+                if confined.stat().st_size > 0:
+                    return base, str(declared)
+            except OSError:
+                continue
         return None
 
     def _declared_audio(self, path: str) -> str | None:
@@ -662,7 +669,7 @@ class RunCoordinator:
         """
         for base in self.artifact_roots.read_bases():
             try:
-                declared = os.path.relpath(path, base)
+                declared = os.path.relpath(path, base).replace(os.sep, "/")
             except ValueError:  # Windows across drives
                 continue
             if confined_audio_path(base, declared, require_exists=True) is not None:
@@ -683,7 +690,9 @@ class RunCoordinator:
         The source opens at most once per batch: the first archived row pays
         the open, a root whose store cannot be opened (or refuses to open)
         records the miss and every later write-back skips without re-probing.
-        The caller closes the connection when the batch's rows are done.
+        The caller closes the connection when the batch's rows are done. Run
+        refusal diagnostics share a coordinator latch across reopened sources;
+        the open-failure latch separately prevents repeated connection probes.
         """
 
         if self._writeback_source is not None:
@@ -697,18 +706,81 @@ class RunCoordinator:
             self._writeback_source_failed = True
             return None
         self._writeback_source = source
+        source._asr_run_refusal_reported = self._writeback_refusal_reported
         return source
 
-    def _close_writeback_source(self) -> None:
+    def _close_writeback_source(self, *, outcome: str | None = None) -> None:
         """Close the write-back source, if the batch ever opened one."""
 
         source = self._writeback_source
         self._writeback_source = None
         if source is not None:
+            self._writeback_refusal_reported |= getattr(
+                source, "_asr_run_refusal_reported", False
+            )
             try:
-                source.connection.close()
+                source.finish_asr_run(outcome=outcome)
             except Exception:
                 pass
+            finally:
+                try:
+                    source.connection.close()
+                except Exception:
+                    pass
+
+    def _record_transcript_writeback_failure(
+        self, entry: dict[str, Any], exc: BaseException | str
+    ) -> None:
+        """Leave a repairable signal when transcript evidence could not be stored.
+
+        The archive row has already been published when this helper runs.  A
+        scalar code and timestamp on that row let a later coordinator pass
+        retry the caption path without treating the durable archive as failed.
+        If the manifest itself is unavailable, the diagnostic still identifies
+        the work item while preserving the published outcome.
+        """
+
+        work_id = str(entry.get("work_id") or entry.get("bvid") or "unknown")
+        raw_error_code = (
+            str(exc) if isinstance(exc, str) else _safe_error_code(exc)
+        )
+        error_code = _sanitize_code_str(str(raw_error_code))
+        try:
+            updated = self._current_entry(work_id, entry)
+        except Exception:
+            # The marker exists for store failures too; keep the published
+            # outcome repairable even when the manifest cannot be read now.
+            updated = dict(entry)
+        updated["transcript_writeback_error"] = error_code
+        updated["transcript_writeback_failed_at"] = utc_now_iso()
+        try:
+            self.store.upsert(updated)
+        except Exception:
+            pass
+        from .diagnostics import write_stderr
+
+        write_stderr(
+            f"{self.command}: transcript write-back failed for {work_id} "
+            f"({error_code}); archived row retained"
+        )
+
+    def _clear_transcript_writeback_failure(self, entry: dict[str, Any]) -> None:
+        """Clear a previously recorded write-back failure after a retry succeeds."""
+
+        updated = self._current_entry(str(entry.get("work_id") or ""), entry)
+        changed = False
+        for field in ("transcript_writeback_error", "transcript_writeback_failed_at"):
+            if field in updated:
+                updated.pop(field, None)
+                changed = True
+        if not changed:
+            return
+        try:
+            self.store.upsert(updated)
+        except Exception:
+            # The transcript row is already durable; stale repair metadata is
+            # preferable to turning a successful retry into a failed archive.
+            pass
 
     def _record_subtitle_transcript(
         self,
@@ -716,7 +788,7 @@ class RunCoordinator:
         entry: dict[str, Any],
         raw: dict[str, Any],
         segments: list[dict[str, Any]],
-    ) -> None:
+    ) -> bool:
         """Record a subtitle-sourced transcript row for an archived part.
 
         A caption archived from the raw document also owes the store a
@@ -732,35 +804,56 @@ class RunCoordinator:
         language at all is answered by skipping this part's write-back: the
         caption kind is genuinely ambiguous, and the plan's STOP condition
         says the gap-view row is best-effort, never a reason to refuse an
-        archive that already succeeded on disk.  The evidence the two gap
-        views key on is the transcript row itself, so the write-back runs
-        before the attempt ledger records the ``archive: ok`` whose row count
-        the summary reads.
+        archive that already succeeded on disk. Write-back runs after
+        ``_mark_archived``, outside the archive success guard. Its outcome
+        never changes the archived row or the ``archive: ok`` attempt.
         """
 
+        from .page_identity import writeback_identity
+
+        identity = writeback_identity(entry)
+        if identity is None:
+            return True
         source_kind = _caption_source_kind_from_entry(entry)
         if source_kind is None:
-            return
+            return True
         language = _caption_language_from_entry(entry)
         if language is None:
-            return
-        source = self._queue_source_for_writeback()
-        if source is None:
-            return
-        run_id = source.ensure_asr_run(self.command)
-        if run_id is None:
-            return
-        from .services import queue_source as qs
+            return True
+        try:
+            source = self._queue_source_for_writeback()
+            if source is None:
+                self._record_transcript_writeback_failure(
+                    entry, "queue_source_unavailable"
+                )
+                return False
+            run_id = source.ensure_asr_run(self.command)
+            if run_id is None:
+                self._record_transcript_writeback_failure(
+                    entry, "acquisition_run_refused"
+                )
+                return False
+            from .services import queue_source as qs
 
-        qs.record_caption_transcript(
-            source,
-            run_id=run_id,
-            bvid=str(entry.get("bvid") or ""),
-            page_index=int(entry.get("page_index") or 0),
-            source_kind=source_kind,
-            language=language,
-            segments=_caption_transcript_segments(segments),
-        )
+            stored = qs.record_caption_transcript(
+                source,
+                run_id=run_id,
+                bvid=identity[0],
+                page_index=identity[1],
+                source_kind=source_kind,
+                language=language,
+                segments=_caption_transcript_segments(segments),
+            )
+            if stored is False:
+                self._record_transcript_writeback_failure(
+                    entry, "caption_store_rejected"
+                )
+                return False
+        except Exception as exc:
+            self._record_transcript_writeback_failure(entry, exc)
+            return False
+        self._clear_transcript_writeback_failure(entry)
+        return True
 
     def _record_asr_transcript(self, entry: dict[str, Any], segments: list) -> None:
         """Record the locally-produced (ASR) transcript row for an archived part.
@@ -776,6 +869,11 @@ class RunCoordinator:
         disturb the ledger's outcome.
         """
 
+        from .page_identity import writeback_identity
+
+        identity = writeback_identity(entry)
+        if identity is None:
+            return
         source = self._queue_source_for_writeback()
         if source is None:
             return
@@ -794,9 +892,9 @@ class RunCoordinator:
             qs.record_local_transcript(
                 source,
                 run_id=run_id,
-                bvid=str(entry.get("bvid") or ""),
-                page_index=int(entry.get("page_index") or 0),
-                language=(provenance or {}).get("language") or "und",
+                bvid=identity[0],
+                page_index=identity[1],
+                language=asr_module.provenance_language(provenance),
                 segments=tuple(
                     TranscriptSegmentRecord(
                         start_ms=int(round(float(cue.get("start", 0.0)) * 1000)),
@@ -807,12 +905,13 @@ class RunCoordinator:
                 ),
                 model_name=(provenance or {}).get("model_name", ""),
                 model_revision=(provenance or {}).get("model_revision"),
+                coverage=asr_module.transcribed_coverage(runner),
             )
-        except (TypeError, ValueError, KeyError):
+        except Exception as exc:
             # The cue shape that reached the archive writer is not one the
             # store can record; the archive on disk stands and the gap-view
             # row is supplementary evidence.
-            pass
+            self._record_transcript_writeback_failure(entry, exc)
 
     def _stage_archive_from_subtitle(
         self, key: str, entry: dict[str, Any], result: RowResult
@@ -863,7 +962,14 @@ class RunCoordinator:
         # ``v_missing_transcript``.  Best-effort: the archive already
         # succeeded on disk, so a store failure must not disturb the row's
         # archived outcome.
-        self._record_subtitle_transcript(entry=entry, raw=raw, segments=segments)
+        try:
+            self._record_subtitle_transcript(
+                entry=entry, raw=raw, segments=segments
+            )
+        except Exception as exc:
+            # Keep the call-site contract explicit: supplementary store
+            # evidence can fail after publication without changing archive: ok.
+            self._record_transcript_writeback_failure(entry, exc)
         result.ok = True
         result.final_status = "archived"
 
@@ -873,33 +979,74 @@ class RunCoordinator:
         updated = self._current_entry(key, entry)
         updated.update(paths)
         updated["status"] = "archived"
+        updated["source"] = "asr" if runner is not None else "subtitle"
+        # A coordinator archive owes operational sidecars even when its
+        # content source is the same as a standalone stage command's.
+        updated["archive_producer"] = "coordinator"
         # Coverage attestation (plan asr-coverage-attestation): the ASR stage's measured span
         # rides the row it archives.  ``runner`` is ``None`` on the subtitle route, which ran no
         # ASR and so makes no measurement — that route leaves the field as it found it, and the
         # helper clears any stale measurement before it writes the new one on the ASR route.
         if runner is not None:
+            asr_module.apply_provenance_evidence(updated, runner)
             asr_module.apply_coverage_evidence(updated, runner)
         self.store.upsert(updated)
         self._reclaim_audio(updated)
 
-    def _note_audio_peak(self) -> None:
+    def prepare_audio_usage(self) -> int:
+        """Measure once under the writer lock for planning and the next batch."""
+        self._audio_usage = AudioUsageTracker(self.artifact_roots.write_base)
+        self._audio_usage_error = None
+        self._audio_usage_prepared = True
+        self.audio_peak_bytes = self._audio_usage.usage_bytes
+        return self._audio_usage.usage_bytes
+
+    def audio_usage_bytes(self) -> int:
+        if self._audio_usage_error is not None:
+            raise self._audio_usage_error
+        if self._audio_usage is None:
+            try:
+                self._audio_usage = AudioUsageTracker(self.artifact_roots.write_base)
+                if self.audio_peak_bytes is not None:
+                    self.audio_peak_bytes = max(
+                        self.audio_peak_bytes, self._audio_usage.usage_bytes
+                    )
+            except AudioUsageError as exc:
+                self._audio_usage_error = exc
+                self.audio_peak_bytes = None
+                raise
+        return self._audio_usage.usage_bytes
+
+    def _note_audio_peak(
+        self, entry: dict[str, Any] | None = None, *, rescan: bool = False
+    ) -> None:
         """Record observed `{artifact_root}/audio/` usage for campaign proof.
 
         The cap and the peak measure the configured root (contract §8, D16):
         legacy audio still sitting at the archive root is on another device and
         is not where new bytes land.
         """
-        from .audio_budget import audio_dir_usage_bytes
-
-        usage = audio_dir_usage_bytes(self.artifact_roots.write_base)
-        if usage > self.audio_peak_bytes:
-            self.audio_peak_bytes = usage
+        try:
+            self.audio_usage_bytes()
+            assert self._audio_usage is not None
+            if rescan:
+                self._audio_usage.rescan()
+            elif entry is not None:
+                self._audio_usage.refresh_entry(entry)
+            usage = self._audio_usage.usage_bytes
+            if self.audio_peak_bytes is not None:
+                self.audio_peak_bytes = max(self.audio_peak_bytes, usage)
+        except (OSError, ValueError):
+            # A measurement failure after publication must preserve its archive.
+            # Subsequent downloads with a finite cap require reliable usage.
+            self._audio_usage_error = AudioUsageError("audio usage unavailable")
+            self.audio_peak_bytes = None
 
     def _reclaim_audio(self, entry: dict[str, Any]) -> None:
         """Best-effort audio reclaim once a row is archived."""
         from .audio_reclaim import reclaim_audio
 
-        self._note_audio_peak()
+        self._note_audio_peak(entry)
         try:
             reclaim_audio(
                 self.root,
@@ -909,6 +1056,8 @@ class RunCoordinator:
             )
         except (OSError, ValueError):
             pass  # per-item non-fatal: transcripts exist; row stays archived
+        finally:
+            self._note_audio_peak(entry)
 
     def _stage_asr_archive(
         self, key: str, entry: dict[str, Any], result: RowResult
@@ -951,6 +1100,7 @@ class RunCoordinator:
                 segments = asr_module.two_pass_transcribe(
                     runner, safe_audio, paired_subtitle_text=paired_subtitle_text
                 )
+            collect_hotwords_dropped(self.hotwords_dropped, runner)
         except Exception as exc:  # redacted; batch continues
             self._record(
                 "asr", work_id, "failed",
@@ -1013,11 +1163,23 @@ class RunCoordinator:
         # routes them to on-disk reprocessing or a skipped record first.
         work_id = str(entry.get("work_id") or key)
         started = utc_now_iso()
+        existing = self._existing_audio(entry)
+        if existing is not None:
+            _base, declared = existing
+            current = self._current_entry(key, entry)
+            current.update(status="audio_ok", audio_path=declared)
+            self.store.upsert(current)
+            self._record(
+                "download", work_id, "ok", artifact_paths=[declared], started_at=started,
+            )
+            self._note_audio_peak(current)
+            return "audio_ok"
         if self.max_audio_bytes:
             from .audio_budget import SKIP_REASON, would_exceed_budget
 
             if would_exceed_budget(
-                self.artifact_roots.write_base, entry, self.max_audio_bytes
+                self.artifact_roots.write_base, entry, self.max_audio_bytes,
+                usage_bytes=self.audio_usage_bytes(),
             ):
                 self._record(
                     "download", work_id, "skipped", error_code=SKIP_REASON,
@@ -1039,10 +1201,12 @@ class RunCoordinator:
             if self.artifact_roots.configured
             else {}
         )
+        downloaded = False
         try:
             final = audio_module.download_audio(
                 self.client, identity, out_path, store=self.store, **download_kwargs
             )
+            downloaded = True
         except Exception as exc:  # redacted; batch continues
             self._record(
                 "download", work_id, "failed",
@@ -1053,7 +1217,9 @@ class RunCoordinator:
             # Sample leftover partials as well as a successful file so
             # campaign peak is never below on-disk audio/ after a failed
             # download that left bytes behind.
-            self._note_audio_peak()
+            self._note_audio_peak(
+                self._current_entry(key, entry), rescan=not downloaded
+            )
         declared = self._declared_audio(final)
         if declared is None:
             raise OSError("audio path outside archive")
@@ -1069,6 +1235,16 @@ class RunCoordinator:
         result = RowResult(work_id=work_id, final_status=status)
 
         if status in TERMINAL_STATUSES:
+            if status == "archived" and entry.get("transcript_writeback_error"):
+                retry_data = self._subtitle_segments(entry)
+                if retry_data is not None:
+                    retry_segments, retry_raw = retry_data
+                    if self._record_subtitle_transcript(
+                        entry=entry, raw=retry_raw, segments=retry_segments
+                    ):
+                        result.ok = True
+                        result.final_status = "archived"
+                        return result
             result.skipped = True
             result.skip_reason = "already_terminal"
             return result
@@ -1132,7 +1308,7 @@ class RunCoordinator:
                 entry = self._current_entry(key, entry)
                 self._stage_archive_from_subtitle(key, entry, result)
             elif status in {"needs_audio", "audio_ok"}:
-                if status == "needs_audio":
+                if status == "needs_audio" or self._existing_audio(entry) is None:
                     status = self._stage_download(key, entry, result)
                     if result.skipped:
                         return result
@@ -1193,9 +1369,16 @@ class RunCoordinator:
         # interrupted-batch tests model exactly that), and the release path
         # must still run.
         summary = RunSummary()
+        completed = False
         with archive_writer(self.root):
+            if not self._audio_usage_prepared:
+                self._audio_usage = None
+                self._audio_usage_error = None
+                self.audio_peak_bytes = 0
+            self._audio_usage_prepared = False
             self.asr_runner = injected_runner
             self._batch_asr_items = 0
+            self.hotwords_dropped = []
             constructions_before = (
                 getattr(injected_runner, "model_constructions", 0)
                 if injected_runner is not None
@@ -1208,6 +1391,7 @@ class RunCoordinator:
             )
             try:
                 summary = self._run_batch_locked(rows)
+                completed = True
             finally:
                 # The batch's evidence is stated, the write-back source closed,
                 # and the runner handed back on *every* exit path, Ctrl-C
@@ -1215,7 +1399,15 @@ class RunCoordinator:
                 # release so a ``BaseException`` cannot carry the count away,
                 # and the pending exception still propagates (this ``finally``
                 # never swallows or returns).
-                self._close_writeback_source()
+                if not completed:
+                    # The summary is returned only after the loop. Interruption
+                    # leaves the invocation incomplete even after write-backs.
+                    outcome = "partial"
+                elif summary.failed or summary.risk_interrupted:
+                    outcome = "partial" if summary.ok_count else "failed"
+                else:
+                    outcome = None
+                self._close_writeback_source(outcome=outcome)
                 if injected_runner is None and self.asr_runner is not None:
                     self.asr_runner.release()
                 batch_runner = self.asr_runner
@@ -1233,6 +1425,7 @@ class RunCoordinator:
                     - attempts_before,
                 )
                 summary.asr_items = self._batch_asr_items
+                summary.hotwords_dropped = list(self.hotwords_dropped)
                 self._print_model_constructions(summary)
             return summary
 
@@ -1256,23 +1449,20 @@ class RunCoordinator:
         this line inside ``campaign``'s JSON document; a closed stderr means
         the diagnostic has nowhere to go, so nothing is printed.
         """
+        from .diagnostics import write_stderr
+
         if summary.asr_items <= 0 and summary.model_constructions <= 0:
             # Check if we had failed load attempts
             if summary.model_load_attempts > 0:
-                if sys.stderr is not None:
-                    print(
-                        f"{self.command}: model load failed {summary.model_load_attempts} time(s), "
-                        f"0 transcripts produced",
-                        file=sys.stderr,
-                    )
+                write_stderr(
+                    f"{self.command}: model load failed {summary.model_load_attempts} time(s), "
+                    "0 transcripts produced"
+                )
             return
-        if sys.stderr is None:
-            return
-        print(
+        write_stderr(
             model_constructions_line(
                 self.command, summary.model_constructions, summary.asr_items
-            ),
-            file=sys.stderr,
+            )
         )
 
     def _run_batch_locked(
@@ -1366,7 +1556,7 @@ def _caption_language_from_entry(entry: dict[str, Any]) -> str | None:
 
     if not isinstance(entry, dict):
         return None
-    for key in ("sub_lan", "subtitle_language"):
+    for key in ("sub_lan", "subtitle_language", "sub_lan_doc"):
         value = entry.get(key)
         if not isinstance(value, str):
             continue

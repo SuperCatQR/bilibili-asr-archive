@@ -45,6 +45,27 @@ import _asr_fakes as asr_fakes
 from _archive_database import _seed_archive_database
 
 
+def test_store_pilot_entries_includes_meta_queue_without_overwriting_advanced_route():
+    from types import SimpleNamespace
+    from bili_asr.cli.pilot import _store_pilot_entries
+
+    source = SimpleNamespace(
+        select_audio_queue=lambda: SimpleNamespace(
+            entries={"audio": {"status": "needs_audio"}, "shared": {"status": "audio_ok"}}
+        ),
+        select_transcript_queue=lambda: SimpleNamespace(
+            entries={"shared": {"status": "audio_ok"}}
+        ),
+        select_subtitle_queue=lambda: SimpleNamespace(
+            entries={"subtitle": {"status": "meta_ok"}, "shared": {"status": "meta_ok"}}
+        ),
+    )
+
+    entries = _store_pilot_entries(source)
+    assert entries["subtitle"]["status"] == "meta_ok"
+    assert entries["shared"]["status"] == "audio_ok"
+
+
 def _stub_runner_model(monkeypatch, reads=None, released=None):
     """D2.5 seam: patch the module-level factory, not ``asr.transcribe``.
 
@@ -96,6 +117,7 @@ def test_cli_pilot_mixed_meta_ok_archives_both_branches(tmp_root, monkeypatch, c
     store = ManifestStore(root=tmp_root)
     store.upsert(_row(sub, duration_s=5, title="has-sub"))
     store.upsert(_row(aud, duration_s=8, title="needs-asr"))
+    store.save()
 
     reads: list[str] = []
 
@@ -310,6 +332,7 @@ def test_cli_pilot_completed_rerun_skips_archived(tmp_root, monkeypatch, capsys)
     store = ManifestStore(root=tmp_root)
     store.upsert(_row(sub, duration_s=5, title="has-sub"))
     store.upsert(_row(aud, duration_s=8, title="needs-asr"))
+    store.save()
     reads: list[str] = []
 
     _stub_runner_model(monkeypatch, reads)
@@ -588,11 +611,17 @@ def test_cli_pilot_releases_the_runner_when_the_loop_is_interrupted(
     _patch_cli(monkeypatch, RouterTransport({}))
 
     _seed_archive_database(tmp_root)
-    with pytest.raises(KeyboardInterrupt):
-        main(["pilot", "--n", "1", "--archive-root", tmp_root])
+    assert main(["pilot", "--n", "1", "--archive-root", tmp_root]) == 130
 
     assert len(released) == 1
     assert ManifestStore(root=tmp_root).get(identity.work_id)["status"] == "audio_ok"
+    from bili_asr.run_ledger import RunLedger
+
+    record, = RunLedger(tmp_root).load()
+    assert record["command"] == "pilot" and record["exit_code"] == 130
+    assert record["work_ids"] == [identity.work_id]
+    assert record["records_existing"] == 1
+    assert record["coverage_summary"] == {"audio_ok": 1}
 
 
 # ------------------------------------------------- the pilot's asr_items denominator

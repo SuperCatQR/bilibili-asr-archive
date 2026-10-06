@@ -195,6 +195,42 @@ def test_a_run_with_dropped_tokens_records_the_fact_once_as_csv() -> None:
     assert provenance["hotword_dropped_no_evidence"] == "扬弃,此在"
 
 
+def test_dropped_hotwords_are_redacted_in_real_archive_products(tmp_path) -> None:
+    import json
+
+    from bili_asr.archive import archive_bundle_complete, write_archive
+
+    secrets = (
+        "https://private.example/models",
+        "C:\\private\\models",
+        "token_private_value",
+    )
+    runner = asr.ASRRunner(_config("保留", "扬弃", *secrets))
+    runner.set_hotword_evidence(evidence_text="保留", paired_subtitle_text=None)
+    provenance = runner.provenance()
+    assert provenance["hotwords"] == "保留"
+    assert provenance["hotword_dropped_no_evidence"] == (
+        "扬弃,[redacted],[redacted],[redacted]"
+    )
+    entry = {
+        "bvid": "BV1redact", "work_id": "BV1redact:p0", "page_index": 0,
+        "cid": 17, "title": "redaction", "duration_s": 1,
+    }
+    paths = write_archive(
+        tmp_path, entry, [{"start": 0, "end": 1, "text": "保留"}],
+        source="asr", asr_provenance=provenance,
+    )
+    assert archive_bundle_complete(tmp_path, paths)
+    raw_text = (tmp_path / paths["raw_path"]).read_text(encoding="utf-8")
+    md = (tmp_path / paths["md_path"]).read_text(encoding="utf-8")
+    assert json.loads(raw_text)["provenance"] == provenance
+    assert 'asr_hotword_dropped_no_evidence: "扬弃,[redacted]' in md
+    for secret in secrets:
+        assert secret not in md
+        assert secret not in raw_text
+        assert secret not in json.dumps(json.loads(raw_text), ensure_ascii=False)
+
+
 def test_a_run_with_every_token_dropped_sends_no_prompt_but_records_the_fact() -> None:
     # Every token dropped == empty effective list == no prompt; the drop fact is
     # still recorded (the run *had* configured tokens, and the ledger must say

@@ -33,11 +33,6 @@ SCALE_ENV_VAR = "BILI_SCALE"
 _SCALE_SKIP_REASON = f"scale probe is opt-in: set {SCALE_ENV_VAR}=1 to run it"
 
 
-def _require_scale_env() -> None:
-    if os.environ.get(SCALE_ENV_VAR) != "1":
-        pytest.skip(_SCALE_SKIP_REASON)
-
-
 def test_bvid_only_legacy_manifest_row_remains_checkable(tmp_path: Path) -> None:
     row = {"bvid": "BVlegacy", "status": "pending"}
     _manifest(tmp_path, [row])
@@ -287,13 +282,12 @@ def test_verify_exits_zero_on_history_and_non_zero_on_real_damage(tmp_path: Path
     assert STRUCTURAL_INPUT_ERROR in json.loads(buffer.getvalue())["diagnostics"]
 
 
-@pytest.mark.scale
+@pytest.mark.scale(skip_reason=_SCALE_SKIP_REASON)
 def test_manifest_overflow_is_non_authoritative(
     tmp_path: Path, opt_in_gate
 ) -> None:
     env_var, _marker = opt_in_gate
     assert env_var == SCALE_ENV_VAR
-    _require_scale_env()
     _manifest(tmp_path, [{"work_id": str(i), "status": "pending"} for i in range(10001)])
     report = IntegrityVerifier().verify(tmp_path)
     assert report.authoritative is False
@@ -302,13 +296,12 @@ def test_manifest_overflow_is_non_authoritative(
 
 
 
-@pytest.mark.scale
+@pytest.mark.scale(skip_reason=_SCALE_SKIP_REASON)
 def test_attempts_row_limit_fails_closed(
     tmp_path: Path, opt_in_gate
 ) -> None:
     env_var, _marker = opt_in_gate
     assert env_var == SCALE_ENV_VAR
-    _require_scale_env()
     _manifest(tmp_path, [{"work_id": "x", "status": "pending"}])
     attempts = tmp_path / "coordinator" / "attempts.jsonl"
     attempts.parent.mkdir()

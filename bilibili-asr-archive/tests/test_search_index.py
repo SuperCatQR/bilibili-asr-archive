@@ -545,6 +545,60 @@ def test_is_stale_journal_append_without_snapshot_change(tmp_root):
     assert index.is_stale() is False
 
 
+def test_is_stale_probes_only_completed_rows_missing_from_index(tmp_root, monkeypatch):
+    """Fresh indexed work_ids avoid repeated artifact checks; new work still invalidates."""
+    store = _create_sample_archive(tmp_root)
+    index = SearchIndex(root=tmp_root)
+    entries = store.load()
+    index.build(entries)
+
+    probed: list[str] = []
+    original = SearchIndex._is_indexable
+
+    def track_probe(self, entry):
+        probed.append(str(entry.get("work_id") or entry.get("bvid") or ""))
+        return original(self, entry)
+
+    monkeypatch.setattr(SearchIndex, "_is_indexable", track_probe)
+    assert index.is_stale(entries) is False
+    assert "BV1hegel:p0" not in probed
+    assert "BV1hegel:p1" not in probed
+    assert "BV1kant:p0" not in probed
+
+    new_entry = {
+        "bvid": "BV1new",
+        "work_id": "BV1new:p0",
+        "title": "New completed transcript",
+        "status": "archived",
+        "txt_path": "transcripts/BV1new.p0/bundle.txt",
+    }
+    expanded = dict(entries)
+    expanded[new_entry["work_id"]] = new_entry
+    assert index.is_stale(expanded) is True
+    assert "BV1new:p0" in probed
+
+
+def test_is_stale_does_not_probe_artifacts_for_indexed_rows(tmp_root, monkeypatch):
+    """A covered corpus answers freshness from index keys without filesystem probes."""
+    store = _create_sample_archive(tmp_root)
+    index = SearchIndex(root=tmp_root)
+    entries = store.load()
+    index.build(entries)
+
+    original = SearchIndex._is_indexable
+    probes: list[str] = []
+
+    def fail_if_called(self, entry):
+        probes.append(str(entry.get("work_id") or entry.get("bvid") or ""))
+        return original(self, entry)
+
+    monkeypatch.setattr(SearchIndex, "_is_indexable", fail_if_called)
+    assert index.is_stale(entries) is False
+    assert "BV1hegel:p0" not in probes
+    assert "BV1hegel:p1" not in probes
+    assert "BV1kant:p0" not in probes
+
+
 # ---------------------------------------------------------------- CLI Command Tests
 
 
