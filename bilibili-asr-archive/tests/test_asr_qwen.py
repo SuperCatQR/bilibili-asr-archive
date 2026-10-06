@@ -472,14 +472,11 @@ def test_the_runner_pads_a_short_final_chunk_before_alignment(monkeypatch) -> No
     import soundfile as sf
     samples = np.zeros(int(asr.SAMPLE_RATE * 3.01), dtype="float32")
     monkeypatch.setattr(sf, "read", lambda *args, **kwargs_: (samples, asr.SAMPLE_RATE))
-    written: list[int] = []
-    monkeypatch.setattr(sf, "write", lambda path, data, rate: written.append(len(data)))
-
     runner.transcribe("/nonexistent/tail.wav")
-
-    assert len(written) == 2, "3.01 s at a 3 s cap is two chunks"
-    assert written[0] == int(asr.SAMPLE_RATE * 3.0)
-    assert written[-1] >= int(asr._CHUNK_MIN_SECONDS * asr.SAMPLE_RATE), "the tail was padded"
+    aligned = runner._get_models().aligner_processor.seen
+    assert len(aligned) == 2, "3.01 s at a 3 s cap is two chunks"
+    assert len(aligned[0]["audio"]) == int(asr.SAMPLE_RATE * 3.0)
+    assert len(aligned[-1]["audio"]) >= int(asr._CHUNK_MIN_SECONDS * asr.SAMPLE_RATE), "the tail was padded"
 
 
 def test_the_pipeline_stitches_per_chunk_timings_with_their_offset(monkeypatch) -> None:
@@ -861,7 +858,7 @@ def test_a_non_16k_rate_is_resampled_by_the_runner(monkeypatch) -> None:
     import numpy as np
     import soundfile as sf
     import soxr
-    runner, _ = _runner(monkeypatch)  # installs the fake models, audio read and writes
+    runner, _ = _runner(monkeypatch)  # installs the fake models and audio reader
 
     seen: list[tuple[int, int, int]] = []
     real_resample = soxr.resample
@@ -896,6 +893,13 @@ def test_a_non_16k_rate_is_resampled_by_the_runner(monkeypatch) -> None:
     assert captured["length"] == 48_000, (
         f"3 s at 16 kHz after resampling, got {captured['length']} samples"
     )
+    models = runner._get_models()
+    decoder_audio = models.processor.requests[0]["audio"]
+    aligner_audio = models.aligner_processor.seen[0]["audio"]
+    assert isinstance(decoder_audio, np.ndarray), "paths invoke Transformers' optional librosa loader"
+    assert decoder_audio.dtype == np.float32
+    assert decoder_audio.shape == (48_000,)
+    assert aligner_audio is decoder_audio, "decode and alignment must consume the same waveform"
 
 
 def test_a_real_file_round_trips_through_the_primary_reader(tmp_path) -> None:

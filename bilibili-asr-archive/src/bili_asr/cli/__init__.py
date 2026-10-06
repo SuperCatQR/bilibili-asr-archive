@@ -74,6 +74,7 @@ from bili_asr.cli.concurrency import (
     _ConcurrencyInputError,
     _read_concurrency_json_object,
 )
+from bili_asr.cli.workflow import _cmd_workflow
 
 def main(argv: list[str] | None = None) -> int:
     """Public entry point; delegates to ``bili_asr.cli.main._main`` so that

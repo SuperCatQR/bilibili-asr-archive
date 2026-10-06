@@ -57,7 +57,7 @@ class Processor:
     def __init__(self, text: str = DEFAULT_TEXT, language: str = "Chinese") -> None:
         self.text = text
         self.language = language
-        self.audio: list[str] = []
+        self.audio: list[object] = []
         self.prompts: list[str | None] = []
 
     def apply_transcription_request(self, audio=None, language=None, prompt=None) -> Inputs:
@@ -134,7 +134,7 @@ def units_for(text: str, step: float = 0.4) -> list[dict]:
 
 def _patch_audio(monkeypatch, seconds: float, reads: list[str] | None,
                  fail_when=None) -> None:
-    """Make the reader and the chunk writer work without a real audio file.
+    """Make the reader work without a real audio file.
 
     The boundary reads and chunks audio, so it needs numpy, soundfile and soxr — the three light
     members of the ``[asr]`` extra.  All three are declared as test dependencies, so the ASR path is
@@ -142,7 +142,7 @@ def _patch_audio(monkeypatch, seconds: float, reads: list[str] | None,
     (``transformers``/``accelerate``/``torch``) are left to the doubles.
 
     ``reads`` collects the path of every recording the boundary opened.  That is where a row is
-    identified now: the boundary hands the *model* a chunk file (one scratch path for every row), so
+    identified now: the boundary hands the *model* decoded waveform chunks, so
     a test that needs to tell rows apart must hook the read — and ``fail_when`` turns that into a
     per-row failure, which is what the old ``generate(**kwargs)`` doubles did with ``kwargs["input"]``.
     """

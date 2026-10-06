@@ -74,6 +74,23 @@ def test_installed_console_script_opens_and_initializes_database(isolated_cli, t
         }
     assert ("table", "transcripts") in objects
     assert ("view", "v_missing_audio") in objects
+    for name in ("workflow_jobs", "editorial_inputs", "editorial_model_calls",
+                 "editorial_chunk_results", "editorial_revisions", "document_artifacts"):
+        assert ("table", name) in objects
+
+
+def test_installed_proofread_help_and_workflow_status(isolated_cli, tmp_path: Path) -> None:
+    help_result = run_installed(isolated_cli, ["workflow", "proofread", "--help"])
+    assert help_result.returncode == 0, help_result.stderr
+    assert "--max-input-tokens" in help_result.stdout
+    assert "--base-transcript-id" in help_result.stdout
+    root = tmp_path / "editorial-archive"
+    status = run_installed(isolated_cli, ["workflow", "status", "--archive-root", str(root)])
+    assert status.returncode == 0, status.stderr
+    assert "queued: 0" in status.stdout
+    assert_redacted(status)
+    with sqlite3.connect(root / "archive.db") as connection:
+        assert connection.execute("SELECT COUNT(*) FROM editorial_inputs").fetchone()[0] == 0
 
 def test_installed_script_is_not_path_or_checkout_source(isolated_cli) -> None:
     assert Path(isolated_cli.executable).parent == Path(_venv_scripts_dir(isolated_cli.venv_dir))

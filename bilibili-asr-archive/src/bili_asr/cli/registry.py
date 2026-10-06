@@ -37,6 +37,7 @@ class CommandSpec:
 
 
 COMMANDS = MappingProxyType({
+    "workflow": CommandSpec("_cmd_workflow", mutates_archive=False, artifacts=ArtifactPolicy.NONE),
     "fetch-meta": CommandSpec("_cmd_fetch_meta", mutates_archive=True, artifacts=ArtifactPolicy.NONE),
     "status": CommandSpec("_cmd_status", mutates_archive=False, artifacts=ArtifactPolicy.NONE),
     "coverage": CommandSpec("_cmd_coverage", mutates_archive=False, artifacts=ArtifactPolicy.READ),
