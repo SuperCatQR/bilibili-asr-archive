@@ -224,6 +224,8 @@ def _harvest_the_captionless_parts(
             main(
                 [
                     "harvest-subs",
+                    "--sessdata",
+                    "fixture-authenticated-inventory",
                     "--limit-parts",
                     str(len(cids)),
                     "--archive-root",

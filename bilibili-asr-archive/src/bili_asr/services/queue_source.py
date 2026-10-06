@@ -19,12 +19,16 @@ from __future__ import annotations
 
 import hashlib
 import os
+import sqlite3
 import time
 from dataclasses import dataclass
 from typing import Any
 
 from bili_asr.storage import MediaQueueRepository, QueueGapItem
 from bili_asr.storage.database import open_database
+from bili_asr.diagnostics import write_stderr
+from bili_asr.formatting import pubdate_utc
+from . import _common
 
 #: The deprecation line printed once to stderr when the operator pins the
 #: pre-cutover manifest queue with ``--queue-source manifest``.
@@ -80,11 +84,14 @@ def entry_for_item(item: QueueGapItem) -> dict[str, Any]:
     branch, which is the R13/R15 drift.
     """
 
-    status = {
-        "missing_transcript": "audio_ok",
-        "missing_audio": "needs_audio",
-        "missing_subtitle": "meta_ok",
-    }[item.gap]
+    try:
+        status = {
+            "missing_transcript": "audio_ok",
+            "missing_audio": "needs_audio",
+            "missing_subtitle": "meta_ok",
+        }[item.gap]
+    except KeyError as exc:
+        raise ValueError(f"unsupported queue gap {item.gap!r}") from exc
     return {
         "bvid": item.bvid,
         "work_id": item.work_id,
@@ -95,7 +102,7 @@ def entry_for_item(item: QueueGapItem) -> dict[str, Any]:
         "title": item.video_title,
         "duration_s": _duration_s_from_ms(item.duration_ms),
         "pubdate": item.pubdate,
-        "pubdate_str": time.strftime("%Y-%m-%d", time.gmtime(item.pubdate)),
+        "pubdate_str": pubdate_utc(item.pubdate),
         "video_title": item.video_title,
     }
 
@@ -117,13 +124,87 @@ class QueueSource:
         # run-scoping contract: one invocation is one run).  ``None`` when the
         # store refuses the run — every per-part write-back then skips.
         self.asr_run_id: str | None = None
+        self._asr_run_finished = False
         # The refusal diagnostic is latched per instance: the refusal happens
         # before any row is recorded and skips the whole scope, and a store
         # that keeps refusing retries on every call, so an unlatched line
         # would degrade into per-row noise (D8).
         self._asr_run_refusal_reported = False
+        self.audio_run_id: str | None = None
+        self._audio_run_finished = False
 
-    def ensure_asr_run(self, command: str) -> str | None:
+    def ensure_audio_run(
+        self, command: str, *, selector_target: str | None = None,
+        requested_limit: int | None = None,
+    ) -> str | None:
+        """Open one invocation-scoped audio acquisition run."""
+        import sqlite3
+        from bili_asr.storage import AcquisitionRunRecord, TranscriptRepository
+
+        if self.audio_run_id is not None:
+            return self.audio_run_id
+        try:
+            run_id = f"{command}-{time.time_ns()}"
+            TranscriptRepository(self.connection).start_acquisition_run(
+                AcquisitionRunRecord(
+                    run_id=run_id,
+                    kind="audio",
+                    selector_kind="bvid" if selector_target else "pending",
+                    selector_target=selector_target,
+                    requested_limit=requested_limit,
+                    credential_present=False,
+                    started_at=_common._now(),
+                )
+            )
+            self.audio_run_id = run_id
+        except (sqlite3.Error, OSError, ValueError, TypeError):
+            self.audio_run_id = None
+        return self.audio_run_id
+
+    def record_audio_failed(
+        self, *, bvid: str, page_index: int, error_code: str,
+    ) -> None:
+        """Best-effort negative evidence for one failed audio download."""
+        if self.audio_run_id is None:
+            return
+        from bili_asr.storage import TranscriptRepository
+        try:
+            part = self.connection.execute(
+                "SELECT video_part_id FROM video_parts WHERE bvid = ? AND page_index = ?",
+                (bvid, page_index),
+            ).fetchone()
+            if part is None:
+                return
+            now = _common._now()
+            TranscriptRepository(self.connection).record_audio_attempt(
+                run_id=self.audio_run_id,
+                video_part_id=int(part["video_part_id"]),
+                error_code=error_code,
+                started_at=now,
+                finished_at=now,
+            )
+        except (sqlite3.Error, OSError, ValueError, TypeError):
+            return
+
+    def finish_audio_run(self, *, outcome: str | None = None) -> None:
+        """Finish the invocation's audio run before closing its connection."""
+        import sqlite3
+        from bili_asr.storage import TranscriptRepository
+
+        if self.audio_run_id is None or self._audio_run_finished:
+            return
+        try:
+            TranscriptRepository(self.connection).finish_acquisition_run(
+                self.audio_run_id, _common._now(), outcome=outcome,
+            )
+        except (sqlite3.Error, OSError, ValueError, TypeError):
+            return
+        self._audio_run_finished = True
+
+    def ensure_asr_run(
+        self, command: str, *, selector_target: str | None = None,
+        requested_limit: int | None = None,
+    ) -> str | None:
         """Open this invocation's one ``kind='asr'`` acquisition run, best-effort.
 
         One invocation is one run scope (the same shape the audio half names):
@@ -150,77 +231,71 @@ class QueueSource:
         """
 
         import sqlite3 as _sqlite3
-        import time as _time
 
         from bili_asr.storage import AcquisitionRunRecord, TranscriptRepository
 
         if self.asr_run_id is not None:
             return self.asr_run_id
         try:
-            now = int(_time.time())
-            run_id = f"{command}-{_time.time_ns()}"
+            now = _common._now()
+            # The injectable clock owns persisted timestamps; this is only a
+            # collision-resistant row identity and must not become evidence.
+            run_id = f"{command}-{time.time_ns()}"
             TranscriptRepository(self.connection).start_acquisition_run(
                 AcquisitionRunRecord(
                     run_id=run_id,
                     kind="asr",
-                    selector_kind="pending",
-                    selector_target=None,
-                    requested_limit=None,
+                    selector_kind="bvid" if selector_target else "pending",
+                    selector_target=selector_target,
+                    requested_limit=requested_limit,
                     credential_present=False,
                     started_at=now,
                 )
             )
             self.asr_run_id = run_id
-        except (_sqlite3.Error, OSError, ValueError) as exc:
+        except (_sqlite3.Error, OSError, ValueError, TypeError) as exc:
             self.asr_run_id = None
             self._report_refused_asr_run(command, exc)
         return self.asr_run_id
 
-    def _report_refused_asr_run(self, command: str, exc: BaseException) -> None:
-        """State a refused run once per instance, on stderr only.
+    def finish_asr_run(self, *, outcome: str | None = None) -> None:
+        """Finish this source's run once, before closing its connection.
 
-        The operator reading stdout sees every row of the scope reported as
-        ``archived`` and no evidence that the transcript write-backs were
-        skipped — the gap only shows up later, in another command's
-        ``v_missing_transcript`` view.  This line names the command, the
-        refusing exception's class and the skipped write-backs; it is printed
-        at most once per instance, because the whole scope is skipped and a
-        store that keeps refusing would otherwise print one line per retry.
-
-        With fd 2 closed CPython sets ``sys.stderr`` to ``None`` and
-        ``print(..., file=None)`` falls back to **stdout**, where it would land
-        inside the caller's own output; a stream that is gone means the
-        diagnostic has nowhere to go, so nothing is printed (the rule
-        ``coordinator._print_model_constructions`` already follows).  On a
-        stream that is present the write is attempted once; a stream
-        ``print`` cannot write to is swallowed the same way and not
-        retried: one that dies after startup (``os.close(2)``, a broken pipe)
-        leaves ``sys.stderr`` a live wrapper whose write raises ``OSError``,
-        and one that is present but unusable in another way raises
-        ``ValueError`` (a closed wrapper, a detached buffer) or ``TypeError``
-        (a byte-oriented stream) — same reasoning for every shape.  The latch
-        is set either way: a stream that cannot accept the line is not a
-        transient condition.
+        Callers supply failed/partial when processing failed or was interrupted;
+        otherwise the repository derives the outcome from stored attempts.
+        A failed bookkeeping write cannot invalidate a published archive.
         """
+        import sqlite3
 
-        import sys as _sys
+        from bili_asr.storage import TranscriptRepository
 
+        if self.asr_run_id is None or self._asr_run_finished:
+            return
+        try:
+            TranscriptRepository(self.connection).finish_acquisition_run(
+                self.asr_run_id, _common._now(), outcome=outcome,
+            )
+        except (sqlite3.Error, OSError, ValueError, TypeError):
+            return
+        self._asr_run_finished = True
+
+    def _report_refused_asr_run(self, command: str, exc: BaseException) -> None:
+        """State a refused run once per source, using an unbuffered diagnostic.
+
+        The latch is per source instance for in-process CLI loops. The
+        coordinator carries the same source-level latch across its per-batch
+        source objects, so it reports once per coordinator invocation even
+        when creation is retried next batch; a later coordinator invocation
+        deliberately gets a fresh diagnostic.
+        """
         if self._asr_run_refusal_reported:
             return
         self._asr_run_refusal_reported = True
-        if _sys.stderr is None:
-            return
-        try:
-            print(
-                f"{command}: acquisition run refused by the store "
-                f"({type(exc).__name__}); transcript write-backs are skipped "
-                "for this run",
-                file=_sys.stderr,
-            )
-        except (OSError, ValueError, TypeError):
-            # The stream cannot accept the line; a diagnostic may not raise out
-            # of the refusal path, and the run stays refused.
-            return
+        write_stderr(
+            f"{command}: acquisition run refused by the store "
+            f"({type(exc).__name__}); transcript write-backs are skipped "
+            "for this run"
+        )
 
     # ------------------------------------------------------------------ read
 
@@ -267,13 +342,9 @@ class QueueSource:
                 merged.setdefault(key, entry)
         for key, entry in self.select_subtitle_queue(limit=limit).entries.items():
             if key not in merged:
-                # ``entry_for_item`` already names a subtitle-queue row
-                # ``meta_ok`` (the harvest-eligible state); the override
-                # below only restates it, kept explicit so this scope's
-                # contract does not silently drift if the mapping moves.
-                row = dict(entry)
-                row["status"] = "meta_ok"
-                merged[key] = row
+                # ``entry_for_item`` already names the harvest-eligible
+                # ``meta_ok`` route; retain that single mapping source.
+                merged[key] = entry
         return merged
 
     def _select(self, gap: str, *, bvid: str | None, page: int | None,
@@ -323,7 +394,7 @@ def print_manifest_deprecation() -> None:
 
     import sys
 
-    print(MANIFEST_SOURCE_DEPRECATION, file=sys.stderr)
+    write_stderr(MANIFEST_SOURCE_DEPRECATION)
 
 
 def mark_audio_acquired(
@@ -345,20 +416,24 @@ def mark_audio_acquired(
     """
 
     try:
+        digest = hashlib.sha256()
+        byte_size = 0
         with open(audio_path, "rb") as fh:
-            payload = fh.read()
+            while chunk := fh.read(1024 * 1024):
+                digest.update(chunk)
+                byte_size += len(chunk)
         queue_source.repository.mark_audio_acquired(
             bvid=bvid,
             page_index=page_index,
             audio_path=audio_path,
-            sha256=hashlib.sha256(payload).hexdigest(),
-            byte_size=len(payload),
+            sha256=digest.hexdigest(),
+            byte_size=byte_size,
             format=os.path.splitext(audio_path)[1].lstrip(".") or "m4a",
             duration_ms=0,
             acquisition_source="download",
-            acquired_at=int(time.time()),
+            acquired_at=_common._now(),
         )
-    except (OSError, ValueError):
+    except (sqlite3.Error, OSError, ValueError, TypeError, KeyError):
         # The download already completed; store evidence is supplementary.
         pass
 
@@ -379,7 +454,7 @@ def mark_transcript_stored(
     """
 
     try:
-        now = int(time.time())
+        now = _common._now()
         queue_source.repository.mark_transcript_stored(
             bvid=bvid,
             page_index=page_index,
@@ -388,7 +463,7 @@ def mark_transcript_stored(
             started_at=now,
             finished_at=now,
         )
-    except (OSError, ValueError, KeyError):
+    except (sqlite3.Error, OSError, ValueError, TypeError, KeyError):
         pass
 
 
@@ -402,6 +477,7 @@ def record_local_transcript(
     segments: tuple,
     model_name: str,
     model_revision: str | None,
+    coverage: dict | None = None,
 ) -> None:
     """Write one locally-produced transcript back into the store (best-effort).
 
@@ -436,18 +512,39 @@ def record_local_transcript(
         if part is None:
             return
         video_part_id = int(part["video_part_id"])
-        now = int(time.time())
-        TranscriptRepository(connection).record_local_transcript(
-            run_id=run_id,
-            video_part_id=video_part_id,
-            language=language,
-            segments=segments,
-            model_name=model_name,
-            model_revision=model_revision,
-            started_at=now,
-            finished_at=now,
-            created_at=now,
-        )
+        now = _common._now()
+        repository = TranscriptRepository(connection)
+        try:
+            repository.record_local_transcript(
+                run_id=run_id,
+                video_part_id=video_part_id,
+                language=language,
+                segments=segments,
+                model_name=model_name,
+                model_revision=model_revision,
+                started_at=now,
+                finished_at=now,
+                created_at=now,
+                coverage=coverage,
+            )
+        except ValueError:
+            # Coverage is supplementary evidence.  A malformed/overrun
+            # alignment must not discard the durable transcript row or leave
+            # the part permanently visible in v_missing_transcript.
+            if coverage is None:
+                raise
+            repository.record_local_transcript(
+                run_id=run_id,
+                video_part_id=video_part_id,
+                language=language,
+                segments=segments,
+                model_name=model_name,
+                model_revision=model_revision,
+                started_at=now,
+                finished_at=now,
+                created_at=now,
+                coverage=None,
+            )
     except (_sqlite3.Error, OSError, ValueError, TypeError, KeyError):
         # The archive already succeeded on disk; a store write-back problem
         # must not turn that into a failure.
@@ -463,7 +560,7 @@ def record_caption_transcript(
     source_kind: str,
     language: str,
     segments: tuple,
-) -> None:
+) -> bool:
     """Write one subtitle-sourced transcript back into the store (best-effort).
 
     The caption-arm sibling of :func:`record_local_transcript`: a caption
@@ -497,9 +594,9 @@ def record_caption_transcript(
             (bvid, int(page_index)),
         ).fetchone()
         if part is None:
-            return
+            return False
         video_part_id = int(part["video_part_id"])
-        now = int(time.time())
+        now = _common._now()
         TranscriptRepository(connection).record_acquired_transcript(
             run_id=run_id,
             video_part_id=video_part_id,
@@ -510,10 +607,11 @@ def record_caption_transcript(
             finished_at=now,
             created_at=now,
         )
+        return True
     except (_sqlite3.Error, OSError, ValueError, TypeError, KeyError):
         # The archive already succeeded on disk; a store write-back problem
         # must not turn that into a failure.
-        pass
+        return False
 
 
 __all__ = [

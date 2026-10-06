@@ -143,6 +143,12 @@ CREATE TABLE IF NOT EXISTS asr_models (
     UNIQUE (model_name, revision)
 );
 
+-- Queue gap reads join parts to their video and then impose the stable
+-- publication order.  Keep that order index explicit so SQLite does not
+-- repeatedly sort the full video set as the archive grows.
+CREATE INDEX IF NOT EXISTS ix_videos_pubdate_bvid
+    ON videos(pubdate DESC, bvid ASC);
+
 -- The transcript and acquisition process-record tables live in their own
 -- resource (``schema-transcripts.sql``): ``initialize_schema`` applies them
 -- only to a database that is fresh or already carries that contract, so a

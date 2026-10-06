@@ -8,6 +8,8 @@ requested-scope completion (`complete`) and risk interruption
 
 from __future__ import annotations
 
+from .diagnostics import write_stderr
+
 import json
 import os
 import sys
@@ -170,12 +172,12 @@ class SchedulerStore:
 
         def _note_corrupt() -> None:
             if warn:
-                print("scheduler: ignoring corrupt sidecar", file=sys.stderr)
+                write_stderr("scheduler: ignoring corrupt sidecar")
 
         try:
             with open(self.path, "r", encoding="utf-8") as fh:
                 raw = json.load(fh)
-        except (OSError, json.JSONDecodeError):
+        except (OSError, UnicodeError, json.JSONDecodeError):
             _note_corrupt()
             return None
         if not isinstance(raw, dict):

@@ -429,7 +429,7 @@ def _probe_one_part(
     )
 
 
-@pytest.mark.live_smoke
+@pytest.mark.live_smoke(skip_reason=_LIVE_SMOKE_SKIP_REASON)
 def test_live_subtitle_probe_reports_one_real_part_inventory(opt_in_gate):
     """Opt-in live probe: ONE real part's subtitle inventory and body.
 
@@ -442,9 +442,6 @@ def test_live_subtitle_probe_reports_one_real_part_inventory(opt_in_gate):
     and milliseconds.
     """
 
-    env_var, _marker = opt_in_gate
-    if os.environ.get(env_var, "") != "1":
-        pytest.skip(_LIVE_SMOKE_SKIP_REASON)
 
     assert _pinned_package_version() == PINNED_PACKAGE_VERSION
 
@@ -759,11 +756,13 @@ class _ScriptedGateway:
         segments: tuple[SubtitleSegment, ...] = (),
         listing_failure: Exception | None = None,
         body_failure: Exception | None = None,
+        credential_failure: Exception | None = None,
     ) -> None:
         self._tracks = tracks
         self._segments = segments
         self._listing_failure = listing_failure
         self._body_failure = body_failure
+        self._credential_failure = credential_failure
         self.calls: list[str] = []
 
     async def get_subtitle_tracks(
@@ -781,6 +780,11 @@ class _ScriptedGateway:
         if self._body_failure is not None:
             raise self._body_failure
         return self._segments
+
+    async def validate_subtitle_credentials(self) -> None:
+        self.calls.append("validate_subtitle_credentials")
+        if self._credential_failure is not None:
+            raise self._credential_failure
 
 
 def _rehearsal_track() -> SubtitleTrack:

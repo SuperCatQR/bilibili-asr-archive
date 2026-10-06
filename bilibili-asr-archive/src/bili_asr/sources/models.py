@@ -271,6 +271,11 @@ class BilibiliGateway(Protocol):
         self, bvid: str, cid: int
     ) -> tuple[SubtitleTrack, ...]: ...
 
+    # A configured cookie is not proof of a logged-in request.  Before an
+    # empty credentialed inventory is recorded as absence, validate the login
+    # in effect; rejection and an unavailable check raise bounded failures.
+    async def validate_subtitle_credentials(self) -> None: ...
+
     # The body fetch is the opposite signal, because an empty success would
     # claim a subtitle it does not have: nothing usable raises
     # ``GatewayNotFound`` and the return is never an empty tuple.
@@ -320,6 +325,12 @@ class GatewayResponseError(GatewayError):
     default_code = "response_error"
 
 
+class GatewayAuthenticationError(GatewayError):
+    """The configured credential is not authenticated by upstream."""
+
+    default_code = "auth_error"
+
+
 class GatewayTransportError(GatewayError):
     """The request never produced a usable response (network/transport)."""
 
@@ -335,6 +346,7 @@ class GatewayShapeError(GatewayError):
 __all__ = [
     "BilibiliGateway",
     "GatewayError",
+    "GatewayAuthenticationError",
     "GatewayNotFound",
     "GatewayRateLimited",
     "GatewayResponseError",

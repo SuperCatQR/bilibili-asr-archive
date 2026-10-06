@@ -54,20 +54,19 @@ asr = [
     # wheel from repo.radeon.com (docs/wsl-rocm-gpu.md step 6) together with the matching torchaudio;
     # letting pip resolve ``torch`` from an index silently gets the wrong build for this host.
     #
-    # WARNING, because the omission above does not protect every install path: ``accelerate`` requires
-    # ``torch`` with no marker, so any *resolver* that materialises this extra — as opposed to reading
-    # the omission and leaving torch to the recipe — will pull the PyPI CUDA build and its whole
-    # NVIDIA closure.  That happened: a regenerated ``uv.lock`` on 2026-09-27 resolved
-    # ``torch 2.14.0`` from ``https://pypi.org/simple`` together with 18 ``nvidia-*``/``cuda-*``
-    # packages, against this very note.  It was reverted, and the lock is left as it was, so
-    # ``uv sync --extra asr`` is NOT a supported way to get a working GPU environment here — the
-    # recipe in ``docs/wsl-rocm-gpu.md`` is.  Anyone revisiting that lock must keep torch out of it
-    # (a ``[tool.uv]`` source or override) rather than accepting the resolver's default.
+    # Accelerate depends on torch transitively. The uv exclusion below keeps that externally
+    # supplied runtime out of resolution; use ``uv sync --extra asr --inexact`` to retain it.
+    # With pip, install and verify the host's torch build BEFORE installing this extra.
     # NOTE: the ``ffmpeg`` binary is required too (AGENTS.md) — it decodes the .m4a/AAC the download
     # layer writes, because libsndfile cannot open that container. It is a platform package rather
     # than a pip one, so it cannot be declared here; ``_read_audio`` raises ``ASRDependencyError``
     # naming it when it is absent.
 ]
+
+[tool.uv]
+# Host-specific GPU wheels are provisioned separately (docs/wsl-rocm-gpu.md). Exact sync
+# removes packages absent from the lock, so existing GPU environments must use --inexact.
+exclude-dependencies = ["torch"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

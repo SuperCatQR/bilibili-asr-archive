@@ -32,6 +32,8 @@ from bili_asr.sources.models import (
     GatewayError,
     GatewayRateLimited,
     GatewayShapeError,
+    GatewayTransportError,
+    UserVideoPage,
     VideoPart,
     VideoSummary,
     VideoTag,
@@ -57,6 +59,8 @@ SOURCE_PACKAGE = "bilibili-api-python"
 #: package's own documented value — returns ``code=0``, so the shipped default
 #: stays inside the bound upstream accepts.
 PAGE_SIZE = 30
+MAX_PAGE_RETRIES = 3
+PAGE_RETRY_BACKOFF_SECONDS = 30
 
 
 
@@ -220,6 +224,7 @@ class MetadataIngestor:
         page_limit: int | None = None,
         *,
         skip_failed_page: bool = False,
+        page_retries: int = 0,
     ) -> IngestionRunResult:
         """Run one resumable metadata collection for ``mid``.
 
@@ -228,25 +233,32 @@ class MetadataIngestor:
         ``page_limit`` bounds how many pages this run may collect.  The run
         row carries the resolved bounds and the gateway's package version.
 
+        ``page_retries`` allows up to three additional upload-list attempts
+        after rate-control or transport failures, with 30/60/120 second
+        waits.  It never skips a page or retries malformed/authentication
+        responses.  The default remains a single attempt per page.
+
         Any exception that is not a bounded gateway failure (for example a
         caller-argument ``ValueError`` raised by the gateway) propagates
         unchanged: those are programming or contract errors, not collection
         evidence.
         """
 
-        self._validate_arguments(mid, start_page, page_limit)
+        self._validate_arguments(mid, start_page, page_limit, page_retries)
         return asyncio.run(
             self._collect(
                 mid=mid,
                 start_page=start_page,
                 page_limit=page_limit,
                 skip_failed_page=skip_failed_page,
+                page_retries=page_retries,
             )
         )
 
     @staticmethod
     def _validate_arguments(
-        mid: int, start_page: int | None, page_limit: int | None
+        mid: int, start_page: int | None, page_limit: int | None,
+        page_retries: int,
     ) -> None:
         """Reject caller-argument violations before any gateway call."""
 
@@ -264,6 +276,10 @@ class MetadataIngestor:
                 raise TypeError("page_limit must be a positive integer or None")
             if page_limit < 1:
                 raise ValueError("page_limit must be a positive integer")
+        if isinstance(page_retries, bool) or not isinstance(page_retries, int):
+            raise TypeError("page_retries must be an integer")
+        if not 0 <= page_retries <= MAX_PAGE_RETRIES:
+            raise ValueError(f"page_retries must be between 0 and {MAX_PAGE_RETRIES}")
 
     def _resume_page(self, mid: int) -> int:
         """Return the stored cursor's next page, or page 1 when absent."""
@@ -277,6 +293,7 @@ class MetadataIngestor:
         start_page: int | None,
         page_limit: int | None,
         skip_failed_page: bool = False,
+        page_retries: int = 0,
     ) -> IngestionRunResult:
         """Fetch and persist pages until completion, a limit, or a failure."""
 
@@ -325,9 +342,7 @@ class MetadataIngestor:
         while True:
             page_started_at = _now()
             try:
-                page = await self._gateway.get_user_video_page(
-                    mid, page_number, PAGE_SIZE
-                )
+                page = await self._fetch_user_page(mid, page_number, page_retries)
                 completed_by_video: dict[str, VideoSummary] = {}
                 summaries: list[VideoSummary] = []
                 for summary in page.videos:
@@ -366,9 +381,16 @@ class MetadataIngestor:
                     # answers ``None`` for that case and the payload builder
                     # omits the bvid rather than writing an empty set (D16).
                     if summary.bvid not in tags_by_video:
-                        tags_by_video[summary.bvid] = (
-                            await self._gateway.get_video_tags(summary.bvid)
-                        )
+                        try:
+                            tags_by_video[summary.bvid] = (
+                                await self._gateway.get_video_tags(summary.bvid)
+                            )
+                        except GatewayShapeError:
+                            # A malformed optional tag payload must not discard
+                            # the page's validated video and part observations.
+                            # Keep the answer degraded so tag persistence omits
+                            # this video instead of treating it as an empty set.
+                            tags_by_video[summary.bvid] = None
             except GatewayError as error:
                 page_outcome, run_outcome = _page_and_run_outcomes(error)
                 self._repository.record_page(
@@ -487,6 +509,27 @@ class MetadataIngestor:
             part_count=len(upserted_parts),
             error_code=error_code,
         )
+
+    async def _fetch_user_page(
+        self, mid: int, page_number: int, page_retries: int
+    ) -> UserVideoPage:
+        """Fetch the same upload-list page after bounded cooldowns.
+
+        Nothing has been observed or written for this page yet, so retrying
+        this call cannot leave partial metadata or repeat per-video fan-out.
+        The final failure still reaches the normal page/run transaction path.
+        """
+
+        for attempt in range(page_retries + 1):
+            try:
+                return await self._gateway.get_user_video_page(
+                    mid, page_number, PAGE_SIZE
+                )
+            except (GatewayRateLimited, GatewayTransportError):
+                if attempt == page_retries:
+                    raise
+                await asyncio.sleep(PAGE_RETRY_BACKOFF_SECONDS * 2**attempt)
+        raise AssertionError("validated page retry bound must permit an attempt")
 
     async def _completed_summary(self, summary: VideoSummary, mid: int) -> VideoSummary:
         """Return the summary with its aid filled when the page omitted it.
@@ -609,7 +652,10 @@ class MetadataIngestor:
                 cid=part.cid,
                 title=part.title,
                 duration_ms=part.duration_ms,
-                processing_status="discovered",
+                # The part list has been fetched and validated in this page's
+                # transaction.  Keeping it discovered would report this same
+                # completed metadata work as pending forever.
+                processing_status="metadata_collected",
                 created_at=finished_at,
                 updated_at=finished_at,
             )

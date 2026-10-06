@@ -26,6 +26,7 @@ from bili_asr.services.metadata_ingest import (
 )
 from bili_asr.sources.models import (
     GatewayRateLimited,
+    GatewayShapeError,
     GatewayTransportError,
     UserVideoPage,
     VideoPart,
@@ -201,12 +202,17 @@ def test_single_part_run_completes_with_normalized_rows(tmp_root):
         part_row = connection.execute(
             "SELECT bvid, page_index, cid, title, duration_ms, processing_status FROM video_parts"
         ).fetchone()
-        assert tuple(part_row) == ("BV1SINGLE", 0, 2222, "第一部分", 12_000, "discovered")
+        assert tuple(part_row) == ("BV1SINGLE", 0, 2222, "第一部分", 12_000, "metadata_collected")
         discovery_row = connection.execute(
             "SELECT run_id, page_number, bvid, source_position FROM ingestion_discoveries"
         ).fetchone()
         assert tuple(discovery_row) == (result.run_id, 1, "BV1SINGLE", 0)
-        assert [row["work_id"] for row in repository.list_pending_parts()] == ["BV1SINGLE:p0"]
+        assert repository.list_pending_parts() == []
+        # Metadata completion is independent of caption acquisition: the
+        # part still enters the subtitle queue after its metadata is known.
+        assert [row[0] for row in connection.execute(
+            "SELECT work_id FROM v_pending_subtitles"
+        )] == ["BV1SINGLE:p0"]
 
         # Exactly one bounded page fetch per requested page, no detail calls.
         assert gateway.page_calls == [(MID, 1, PAGE_SIZE), (MID, 2, PAGE_SIZE)]
@@ -240,15 +246,12 @@ def test_multipart_video_persists_zero_based_parts_in_milliseconds(tmp_root):
             " FROM video_parts ORDER BY page_index"
         ).fetchall()
         assert [tuple(row) for row in part_rows] == [
-            ("BV1MULTI", 0, 3001, "上篇", 12_000, "discovered"),
-            ("BV1MULTI", 1, 3002, "下篇", 10_500, "discovered"),
+            ("BV1MULTI", 0, 3001, "上篇", 12_000, "metadata_collected"),
+            ("BV1MULTI", 1, 3002, "下篇", 10_500, "metadata_collected"),
         ]
         assert (result.page_count, result.video_count, result.part_count) == (2, 1, 2)
         assert result.outcome == "complete"
-        assert [row["work_id"] for row in repository.list_pending_parts()] == [
-            "BV1MULTI:p0",
-            "BV1MULTI:p1",
-        ]
+        assert repository.list_pending_parts() == []
     finally:
         connection.close()
 
@@ -324,6 +327,32 @@ def test_within_page_duplicate_discovery_keeps_the_last_source_position(tmp_root
         connection.close()
 
 
+def test_undercounted_total_does_not_truncate_metadata_walk(tmp_root):
+    gateway = FakeGateway()
+    for page_number, bvid in [(1, "BV1TOTALA"), (2, "BV1TOTALB")]:
+        gateway.script_page(
+            page_number,
+            _page(page_number, _summary(bvid, aid=1000 + page_number), observed_total=1),
+        )
+        gateway.script_parts(bvid, (_part(bvid, 0, cid=2222 + page_number),))
+    gateway.script_page(3, _page(3, observed_total=1))
+    connection = open_database(tmp_root)
+    try:
+        result = _ingestor(gateway, MetadataRepository(connection)).collect_user_pages(
+            MID, start_page=1
+        )
+
+        assert result.outcome == "complete"
+        assert (result.page_count, result.video_count, result.part_count) == (3, 2, 2)
+        assert result.next_cursor.next_page == 3
+        assert [row[0] for row in connection.execute(
+            "SELECT bvid FROM videos ORDER BY bvid"
+        )] == ["BV1TOTALA", "BV1TOTALB"]
+        assert gateway.page_calls == [(MID, page, PAGE_SIZE) for page in [1, 2, 3]]
+    finally:
+        connection.close()
+
+
 def test_page_limit_ends_run_as_limited_and_resume_completes(tmp_root):
     gateway = FakeGateway()
     gateway.script_page(
@@ -367,10 +396,7 @@ def test_page_limit_ends_run_as_limited_and_resume_completes(tmp_root):
         assert resumed_run["requested_start_page"] == 2
         assert connection.execute("SELECT COUNT(*) FROM videos").fetchone()[0] == 2
         assert connection.execute("SELECT COUNT(*) FROM video_parts").fetchone()[0] == 2
-        assert [row["work_id"] for row in repository.list_pending_parts()] == [
-            "BV1PAGE1:p0",
-            "BV1PAGE2:p0",
-        ]
+        assert repository.list_pending_parts() == []
         # Each run keeps its own page evidence for the pages it collected.
         page_rows = connection.execute(
             "SELECT run_id, page_number, outcome FROM ingestion_pages"
@@ -909,10 +935,8 @@ def test_bilibili_api_gateway_run_persists_normalized_rows(tmp_root, bilibili_ap
             "SELECT bvid, page_index, cid, title, duration_ms, processing_status"
             " FROM video_parts"
         ).fetchone()
-        assert tuple(part_row) == ("BV1SEAMRUNAA", 0, 2222, "第一部分", 12_000, "discovered")
-        assert [row["work_id"] for row in repository.list_pending_parts()] == [
-            "BV1SEAMRUNAA:p0"
-        ]
+        assert tuple(part_row) == ("BV1SEAMRUNAA", 0, 2222, "第一部分", 12_000, "metadata_collected")
+        assert repository.list_pending_parts() == []
         page_rows = connection.execute(
             "SELECT page_number, outcome, error_code FROM ingestion_pages"
             " WHERE run_id = ?",
@@ -1357,6 +1381,41 @@ def test_degraded_tag_fetch_does_not_fail_the_run(tmp_root, bilibili_api_seam):
         connection.close()
 
 
+def test_malformed_tag_payload_is_best_effort_for_page(tmp_root):
+    """A malformed optional tag payload leaves the page's core rows intact."""
+
+    gateway = FakeGateway()
+    gateway.script_page(
+        1, _page(1, _summary("BV1SHAPETAG"), observed_total=1)
+    )
+    gateway.script_page(2, _page(2, observed_total=1))
+    gateway.script_parts("BV1SHAPETAG", (_part("BV1SHAPETAG", 0),))
+    gateway.script_tags(
+        "BV1SHAPETAG",
+        GatewayShapeError(detail="tag response is not an array"),
+    )
+    connection = open_database(tmp_root)
+    repository = MetadataRepository(connection)
+    try:
+        result = _ingestor(gateway, repository).collect_user_pages(
+            MID, start_page=1, page_limit=1
+        )
+
+        assert result.outcome == "limited"
+        assert result.error_code is None
+        assert connection.execute("SELECT COUNT(*) FROM videos").fetchone()[0] == 1
+        assert (
+            connection.execute("SELECT COUNT(*) FROM video_parts").fetchone()[0]
+            == 1
+        )
+        assert (
+            connection.execute("SELECT COUNT(*) FROM video_tags").fetchone()[0]
+            == 0
+        )
+    finally:
+        connection.close()
+
+
 def test_degraded_tag_fetch_leaves_tags_a_previous_run_stored(tmp_root):
     """One degraded tag fetch must not erase the set a normal run stored.
 
@@ -1472,6 +1531,90 @@ def test_degraded_tag_fetch_leaves_tag_rows_through_the_pinned_adapter(
                 " ORDER BY tag_id"
             ).fetchall()
         ] == [(943, "爱情"), (11128717, "人类解放")]
+    finally:
+        connection.close()
+
+
+@pytest.mark.parametrize(
+    "broken_tags",
+    [{"tags": []}, [make_tag_item(tag_name="first\nsecond")]],
+    ids=["wrong-envelope", "multiline-tag"],
+)
+def test_malformed_tag_rerun_keeps_tags_and_updates_core_metadata(
+    tmp_root, bilibili_api_seam, broken_tags
+):
+    script = bilibili_api_seam
+    bvid = "BV1SHAPETAG0"
+    script.videos_response = make_videos_response(
+        make_vlist_item(bvid=bvid, title="before", description="old detail"), count=1
+    )
+    script.parts_response = [make_part_item(cid=2222)]
+    script.tags_response = [make_tag_item(tag_id=943, tag_name="stored tag")]
+    connection = open_database(tmp_root)
+    repository = MetadataRepository(connection)
+    try:
+        initial = MetadataIngestor(_seam_gateway(), repository).collect_user_pages(
+            MID, start_page=1, page_limit=1
+        )
+        assert initial.outcome == "limited"
+
+        script.videos_response = make_videos_response(
+            make_vlist_item(bvid=bvid, title="after", description="new detail"), count=1
+        )
+        script.parts_response = [make_part_item(cid=2222, duration=14)]
+        script.tags_response = broken_tags
+        rerun = MetadataIngestor(_seam_gateway(), repository).collect_user_pages(
+            MID, start_page=2, page_limit=1
+        )
+
+        assert rerun.outcome == "limited"
+        assert rerun.error_code is None
+        assert rerun.next_cursor.next_page == 3
+        assert connection.execute(
+            "SELECT title FROM videos WHERE bvid = ?", (bvid,)
+        ).fetchone()[0] == "after"
+        assert connection.execute(
+            "SELECT desc FROM video_details WHERE bvid = ?", (bvid,)
+        ).fetchone()[0] == "new detail"
+        assert connection.execute(
+            "SELECT duration_ms FROM video_parts WHERE bvid = ?", (bvid,)
+        ).fetchone()[0] == 14_000
+        assert [tuple(row) for row in connection.execute(
+            "SELECT tag_id, tag_name FROM video_tags WHERE bvid = ?", (bvid,)
+        )] == [(943, "stored tag")]
+        assert connection.execute(
+            "SELECT outcome FROM ingestion_pages WHERE run_id = ?", (rerun.run_id,)
+        ).fetchone()[0] == "ok"
+    finally:
+        connection.close()
+
+
+def test_multiline_part_title_does_not_wedge_a_metadata_page(
+    tmp_root, bilibili_api_seam
+):
+    script = bilibili_api_seam
+    bvid = "BV1MULTILIN0"
+    script.videos_response = make_videos_response(make_vlist_item(bvid=bvid), count=1)
+    script.parts_response = [
+        make_part_item(cid=2222, part="first\r\nsecond"),
+        make_part_item(cid=3333, page=2, part="sibling"),
+    ]
+    script.tags_response = []
+    connection = open_database(tmp_root)
+    try:
+        result = MetadataIngestor(
+            _seam_gateway(), MetadataRepository(connection)
+        ).collect_user_pages(MID, start_page=1, page_limit=1)
+
+        assert result.outcome == "limited"
+        assert result.next_cursor.next_page == 2
+        assert result.part_count == 2
+        assert [tuple(row) for row in connection.execute(
+            "SELECT page_index, cid, title FROM video_parts ORDER BY page_index"
+        )] == [(0, 2222, "first second"), (1, 3333, "sibling")]
+        assert [row[0] for row in connection.execute(
+            "SELECT work_id FROM v_pending_subtitles ORDER BY page_index"
+        )] == [f"{bvid}:p0", f"{bvid}:p1"]
     finally:
         connection.close()
 

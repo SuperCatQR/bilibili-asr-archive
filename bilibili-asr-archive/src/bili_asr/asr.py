@@ -34,13 +34,24 @@ import re
 import shutil
 import subprocess
 import tempfile
+from collections.abc import Mapping
 from dataclasses import asdict, dataclass, replace
 from typing import Any, Callable, Iterable, NamedTuple
 
 DEFAULT_MODEL = "Qwen/Qwen3-ASR-1.7B-hf"
 DEFAULT_ALIGNER_MODEL = "Qwen/Qwen3-ForcedAligner-0.6B-hf"
+DEFAULT_TRANSCRIPT_LANGUAGE = "und"
 
 _INSTALL_HINT = 'pip install -e "bilibili-asr-archive/[asr]"'
+
+
+def provenance_language(provenance: Any) -> str:
+    """Return the persisted language with one shared implicit fallback."""
+    if isinstance(provenance, Mapping):
+        value = provenance.get("language")
+        if value:
+            return str(value)
+    return DEFAULT_TRANSCRIPT_LANGUAGE
 
 #: Transformer output can leak its own control markers when a caller decodes without
 #: ``skip_special_tokens``; nothing downstream may see one.
@@ -848,6 +859,17 @@ def _aligned_cues(pieces: list[dict[str, Any]]) -> list[dict[str, Any]]:
         cues.append({"start": start, "end": span, "text": text})
         reset()
 
+    def append_piece(text: str) -> None:
+        """Append one aligned fragment, repairing omitted Latin separators at the boundary."""
+
+        if not parts:
+            parts.append(text)
+        else:
+            # Qwen's aligner may return one word per piece without the whitespace that was
+            # present in the recognised text.  Apply the same boundary rule used when cues
+            # are merged, before length/closing decisions inspect the accumulated text.
+            parts[-1] = _join_text(parts[-1], text)
+
     for piece in pieces:
         if not isinstance(piece, dict):
             continue
@@ -871,7 +893,7 @@ def _aligned_cues(pieces: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 hand_back(text, end)
                 continue
             start = begin
-        parts.append(text)
+        append_piece(text)
         last_end = end
         if mark in _SENTENCE_ENDINGS or len(pending + "".join(parts)) >= _CUE_MAX_CHARS:
             close()
@@ -967,6 +989,9 @@ def _coverage_record(
         # A run that produced no cue at all covers 0 of what it decoded — the same rule that makes
         # an empty transcript with a non-zero decode a shortfall rather than a no-speech outcome.
         produced = 0.0
+    # Alignment timestamps can overshoot the decoded window.  Keep the derived
+    # evidence within the storage contract; published cue timestamps stay intact.
+    produced = min(produced, decoded_seconds)
     coverage = produced / decoded_seconds
     return {
         "decoded_s": float(decoded_seconds),
@@ -975,6 +1000,16 @@ def _coverage_record(
         "coverage_min": COVERAGE_MIN,
         "coverage_short": bool(coverage < COVERAGE_MIN),
     }
+
+
+def apply_provenance_evidence(entry: dict[str, Any], runner: Any) -> None:
+    """Carry the ASR branch's provenance on its resumable manifest row."""
+    try:
+        provenance = runner.provenance() or {}
+    except Exception:
+        provenance = {}
+    entry["source"] = "asr"
+    entry["language"] = provenance_language(provenance)
 
 
 def apply_coverage_evidence(entry: dict[str, Any], runner: Any) -> dict[str, Any] | None:
@@ -1142,6 +1177,7 @@ class ASRRunner:
         # The coverage measurement of the same run (see ``transcribed_coverage()``).  ``None``
         # means "no measurement to offer": the run never transcribed, or it decoded nothing.
         self._last_coverage: dict[str, Any] | None = None
+        self._last_language: str | None = None
 
     def _get_models(self) -> _ModelSet:
         if self._models is not None:
@@ -1312,6 +1348,7 @@ class ASRRunner:
         self._last_characters = None
         self._last_transcribed_segments = None
         self._last_coverage = None
+        self._last_language = None
         # The model pair first: a host without the extra must fail with the documented
         # ``ASRDependencyError`` (which names the ``[asr]`` install), not with whatever the audio
         # reader happens to import first.  The readers are part of the same extra, so their absence
@@ -1358,6 +1395,7 @@ class ASRRunner:
             os.close(handle)
             minimum = int(_CHUNK_MIN_SECONDS * SAMPLE_RATE)
             pieces: list[dict[str, Any]] = []
+            languages: set[str] = set()
             for chunk, offset in chunks:
                 audio = np.asarray(chunk, dtype=np.float32)
                 if audio.shape[0] < minimum:
@@ -1373,6 +1411,8 @@ class ASRRunner:
                     # comparison below is what makes the drop visible, and it does so without
                     # changing this branch's behaviour or aborting the run.
                     continue
+                if language.strip():
+                    languages.add(language.strip())
                 units = [
                     {
                         "text": unit["text"],
@@ -1391,6 +1431,12 @@ class ASRRunner:
             # produced.  It rides the manifest row (D11 carrier); the return shape of this method
             # is deliberately unchanged.
             self._last_coverage = _coverage_record(decoded_seconds, cues)
+            # Preserve the engine's detected language for automatic-language
+            # runs. Multiple languages are explicit; no evidence stays unset.
+            if len(languages) == 1:
+                self._last_language = next(iter(languages))
+            elif languages:
+                self._last_language = "mul"
             return cues
         finally:
             for leftover in (temporary, scratch):
@@ -1488,7 +1534,7 @@ class ASRRunner:
         return [term for term in (self._hotwords_effective or ())]
 
     def provenance(self) -> dict[str, str]:
-        """The redaction-safe provenance of this runner's configuration."""
+        """Redacted configuration and the last successful transcription's language."""
 
         config = self.config
         provenance = {
@@ -1496,14 +1542,16 @@ class ASRRunner:
             "aligner_model": _redact(config.aligner_name),
             "model_revision": _redact(config.model_revision or ""),
             "device": _redact(config.device),
-            "language": _redact(config.language or ""),
+            "language": _redact(self._last_language or config.language or ""),
             "hotwords": _redact(",".join(self._prompt_hotwords())),
             "chunk_seconds": f"{config.chunk_seconds:g}",
             "offline": str(config.offline),
             "local_source": _redact(config.local_source),
         }
         if self._hotwords_dropped:
-            provenance["hotword_dropped_no_evidence"] = ",".join(self._hotwords_dropped)
+            provenance["hotword_dropped_no_evidence"] = ",".join(
+                _redact(term) for term in self._hotwords_dropped
+            )
         return provenance
 
 

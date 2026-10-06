@@ -34,6 +34,7 @@ from bili_asr.storage import (
     VideoRecord,
     open_database,
 )
+from bili_asr.services.queue_source import entry_for_item
 
 
 _MID = 23191782
@@ -50,7 +51,7 @@ _VIDEOS = (
 # Every part the fixture stores: one captionless never-attempted part, one whose
 # newest subtitle attempt found nothing, one with archived audio and no
 # transcript, one holding a transcript, one gone part with archived audio, and
-# one whose subtitle attempt failed and whose audio download failed too.
+# one with definite subtitle absence whose audio download failed.
 _PARTS = (
     ("BV1AAA", 0, "discovered"),
     ("BV1AAA", 1, "discovered"),
@@ -62,8 +63,27 @@ _PARTS = (
 )
 
 
+def test_entry_for_item_rejects_unknown_gap():
+    item = QueueGapItem(
+        work_id="BV1BAD:p0",
+        bvid="BV1BAD",
+        page_index=0,
+        cid=1,
+        gap="unexpected",
+        pubdate=0,
+        video_title="bad gap",
+        duration_ms=1_000,
+        newest_outcome=None,
+        newest_error_code=None,
+        attempt_count=0,
+    )
+    with pytest.raises(ValueError, match="unsupported queue gap"):
+        entry_for_item(item)
+
+
 def _open_run(
-    transcripts: TranscriptRepository, run_id: str, kind: str
+    transcripts: TranscriptRepository, run_id: str, kind: str,
+    *, credential_present: bool = True,
 ) -> None:
     """Open one parent run of ``kind`` so attempt rows have their foreign key."""
     transcripts.start_acquisition_run(
@@ -73,7 +93,7 @@ def _open_run(
             selector_kind="pending",
             selector_target=None,
             requested_limit=None,
-            credential_present=False,
+            credential_present=credential_present,
             started_at=200,
         )
     )
@@ -189,6 +209,7 @@ def _seed(
         error_code=None,
         started_at=500,
         finished_at=600,
+        credential_verified=True,
     )
     _open_run(transcripts, "run-sub-confirm", "subtitle")
     transcripts.record_subtitle_attempt(
@@ -198,6 +219,7 @@ def _seed(
         error_code=None,
         started_at=700,
         finished_at=800,
+        credential_verified=True,
     )
 
     # BV1BBB:p0 — audio was attempted (and the attempt failed), then archived:
@@ -237,8 +259,8 @@ def _seed(
         storage_key="audio/BV1DDD-p0.m4a",
     )
 
-    # BV1FFF:p0 — one failed subtitle attempt: the outcome the audio queue also
-    # accepts, so the newest evidence carries an error code.  Its audio download
+    # BV1FFF:p0 — one definite subtitle absence, with bounded not-found evidence.
+    # Its audio download
     # also failed and archived nothing, so the part must *stay* in the audio
     # queue: the attempt row is rotation history, never a claim that bytes
     # exist.  (Pre-fix this row read as audio evidence and pushed the part into
@@ -247,8 +269,9 @@ def _seed(
     transcripts.record_subtitle_attempt(
         run_id="run-sub-fff",
         video_part_id=parts[("BV1FFF", 0)],
-        outcome="failed",
-        error_code="risk_control",
+        outcome="no-subtitle",
+        error_code="not_found",
+        absence_verified=True,
         started_at=1_100,
         finished_at=1_200,
     )
@@ -340,6 +363,7 @@ def test_one_empty_inventory_is_not_exhaustion(queue_store):
         error_code=None,
         started_at=900,
         finished_at=1_000,
+        credential_verified=True,
     )
 
     assert "BV1EEE:p0" not in [
@@ -355,11 +379,271 @@ def test_one_empty_inventory_is_not_exhaustion(queue_store):
         error_code=None,
         started_at=1_100,
         finished_at=1_200,
+        credential_verified=True,
     )
 
     assert "BV1EEE:p0" in [
         item.work_id for item in repository.list_queue_gaps(gap="missing_audio")
     ]
+
+
+@pytest.mark.parametrize(
+    ("first_credential", "second_credential", "admitted"),
+    [
+        (False, False, False),
+        (False, True, False),
+        (True, True, True),
+    ],
+)
+def test_empty_inventory_admission_requires_two_credentialed_runs(
+    queue_store, first_credential, second_credential, admitted
+):
+    """Anonymous empty inventories never trigger the paid audio branch.
+
+    A missing credential can make a visible inventory look empty, so it is not
+    corroboration.  The two pipeline projections must apply the same rule:
+    only two independent authenticated runs can admit audio acquisition.
+    """
+    connection, parts, repository = queue_store
+    transcripts = TranscriptRepository(connection)
+
+    for run_id, credential_present, finished_at in (
+        ("run-empty-first", first_credential, 900),
+        ("run-empty-second", second_credential, 1_000),
+    ):
+        _open_run(
+            transcripts,
+            run_id,
+            "subtitle",
+            credential_present=credential_present,
+        )
+        transcripts.record_subtitle_attempt(
+            run_id=run_id,
+            video_part_id=parts[("BV1EEE", 0)],
+            outcome="no-subtitle",
+            error_code=None,
+            started_at=finished_at - 100,
+            finished_at=finished_at,
+            credential_verified=credential_present,
+        )
+
+    in_audio_queue = "BV1EEE:p0" in [
+        item.work_id for item in repository.list_queue_gaps(gap="missing_audio")
+    ]
+    pipeline_state = dict(
+        connection.execute(
+            "SELECT work_id, pipeline_state FROM v_part_pipeline"
+        )
+    )["BV1EEE:p0"]
+    assert in_audio_queue is admitted
+    assert (pipeline_state == "audio_pending") is admitted
+
+
+@pytest.mark.parametrize("verified", [(False, False), (False, True), (True, False), (True, True)])
+def test_cookie_presence_alone_never_corroborates_empty_inventory(queue_store, verified):
+    connection, parts, repository = queue_store
+    transcripts = TranscriptRepository(connection)
+    part_id = parts[("BV1EEE", 0)]
+    for index, checked in enumerate(verified):
+        run_id = f"verification-{index}"
+        _open_run(transcripts, run_id, "subtitle", credential_present=True)
+        transcripts.record_subtitle_attempt(
+            run_id=run_id, video_part_id=part_id, outcome="no-subtitle", error_code=None,
+            started_at=900 + index, finished_at=900 + index, credential_verified=checked,
+        )
+    queued = "BV1EEE:p0" in {
+        item.work_id for item in repository.list_queue_gaps(gap="missing_audio")
+    }
+    state = connection.execute(
+        "SELECT pipeline_state FROM v_part_pipeline WHERE video_part_id = ?", (part_id,)
+    ).fetchone()[0]
+    assert queued == all(verified)
+    assert state == ("audio_pending" if all(verified) else "no_subtitle")
+    assert "BV1EEE:p0" in {
+        item.work_id for item in repository.list_queue_gaps(gap="missing_subtitle")
+    }
+
+
+def test_newest_unverified_empty_observation_requires_authenticated_retry(queue_store):
+    connection, parts, repository = queue_store
+    transcripts = TranscriptRepository(connection)
+    part_id = parts[("BV1EEE", 0)]
+    for index in range(3):
+        run_id = f"later-unverified-{index}"
+        _open_run(transcripts, run_id, "subtitle", credential_present=True)
+        transcripts.record_subtitle_attempt(
+            run_id=run_id, video_part_id=part_id, outcome="no-subtitle", error_code=None,
+            started_at=900 + index, finished_at=900 + index, credential_verified=index < 2,
+        )
+        queued = {item.work_id for item in repository.list_queue_gaps(gap="missing_audio")}
+        assert ("BV1EEE:p0" in queued) == (index == 1)
+
+
+@pytest.mark.parametrize("credential_verified", [1, "true", None])
+def test_credential_verification_requires_an_explicit_boolean(queue_store, credential_verified):
+    connection, parts, _ = queue_store
+    transcripts = TranscriptRepository(connection)
+    _open_run(transcripts, "invalid-verification", "subtitle")
+    with pytest.raises(TypeError, match="credential_verified must be a bool"):
+        transcripts.record_subtitle_attempt(
+            run_id="invalid-verification", video_part_id=parts[("BV1EEE", 0)],
+            outcome="no-subtitle", error_code=None, started_at=900, finished_at=900,
+            credential_verified=credential_verified,
+        )
+    assert connection.execute(
+        "SELECT COUNT(*) FROM acquisition_attempts WHERE run_id = 'invalid-verification'"
+    ).fetchone()[0] == 0
+
+
+@pytest.mark.parametrize(
+    "error_code",
+    ["auth_error", "transport_error", "shape_error", "rate_limited", "response_error", "upstream_timeout",
+     "subtitle_body_unavailable"],
+)
+@pytest.mark.parametrize("previously_confirmed", [False, True])
+def test_failed_subtitle_observations_do_not_admit_audio(
+    queue_store, error_code, previously_confirmed,
+):
+    """Failed observations cannot replace, or renew, subtitle-absence proof."""
+    connection, parts, repository = queue_store
+    transcripts = TranscriptRepository(connection)
+    video_part_id = parts[("BV1EEE", 0)]
+    if previously_confirmed:
+        for index in range(2):
+            run_id = f"run-empty-{index}"
+            _open_run(transcripts, run_id, "subtitle")
+            transcripts.record_subtitle_attempt(
+                run_id=run_id, video_part_id=video_part_id,
+                outcome="no-subtitle", error_code=None,
+                started_at=100 + index * 100, finished_at=150 + index * 100,
+                credential_verified=True,
+            )
+        assert "BV1EEE:p0" in [
+            item.work_id for item in repository.list_queue_gaps(gap="missing_audio")
+        ]
+
+    _open_run(transcripts, "run-unverified", "subtitle")
+    transcripts.record_subtitle_attempt(
+        run_id="run-unverified", video_part_id=video_part_id,
+        outcome="failed", error_code=error_code,
+        started_at=900, finished_at=1_000,
+    )
+
+    assert "BV1EEE:p0" not in [
+        item.work_id for item in repository.list_queue_gaps(gap="missing_audio")
+    ]
+    assert "BV1EEE:p0" in [
+        item.work_id for item in repository.list_queue_gaps(gap="missing_subtitle")
+    ]
+    assert dict(connection.execute(
+        "SELECT work_id, pipeline_state FROM v_part_pipeline"
+    ))["BV1EEE:p0"] == "discovered"
+
+
+@pytest.mark.parametrize("same_start_time", [False, True])
+@pytest.mark.parametrize(
+    "observations",
+    [
+        [("failed", "auth_error", False), ("no-subtitle", None, False), ("no-subtitle", None, True)],
+        [("no-subtitle", None, False), ("no-subtitle", None, True), ("failed", "auth_error", False)],
+    ],
+)
+def test_equal_finish_times_follow_later_runs_in_both_retry_directions(
+    queue_store, same_start_time, observations,
+):
+    """Reverse-sorted run ids must not hide recovery or renewed login failure."""
+    connection, parts, repository = queue_store
+    transcripts = TranscriptRepository(connection)
+    video_part_id = parts[("BV1EEE", 0)]
+    assert "WITHOUT ROWID" not in connection.execute(
+        "SELECT sql FROM sqlite_master WHERE name = 'acquisition_runs'"
+    ).fetchone()[0].upper()
+    for index, (run_id, observation) in enumerate(zip(
+        ["z-earliest", "m-next", "a-latest"], observations, strict=True,
+    )):
+        outcome, error_code, admitted = observation
+        transcripts.start_acquisition_run(AcquisitionRunRecord(
+            run_id=run_id, kind="subtitle", selector_kind="pending",
+            selector_target=None, requested_limit=None, credential_present=True,
+            started_at=900 if same_start_time else 900 + index * 10,
+        ))
+        transcripts.record_subtitle_attempt(
+            run_id=run_id, video_part_id=video_part_id,
+            outcome=outcome, error_code=error_code,
+            started_at=1_000, finished_at=1_000,
+            credential_verified=(outcome == "no-subtitle"),
+        )
+        latest = connection.execute(
+            "SELECT last_attempt_outcome, last_attempt_error_code "
+            "FROM v_pending_subtitles WHERE video_part_id = ?",
+            (video_part_id,),
+        ).fetchone()
+        assert tuple(latest) == (outcome, error_code)
+        assert ("BV1EEE:p0" in [
+            item.work_id for item in repository.list_queue_gaps(gap="missing_audio")
+        ]) is admitted
+        state = dict(connection.execute(
+            "SELECT work_id, pipeline_state FROM v_part_pipeline"
+        ))["BV1EEE:p0"]
+        assert (state == "audio_pending") is admitted
+
+
+def test_reopening_an_archive_updates_all_subtitle_queue_projections(tmp_root):
+    """Existing archives get corrected admission and recency without losing rows."""
+    connection = open_database(tmp_root)
+    try:
+        parts, _repository = _seed(connection)
+        transcripts = TranscriptRepository(connection)
+        video_part_id = parts[("BV1EEE", 0)]
+        _open_run(transcripts, "run-invalid-login", "subtitle")
+        transcripts.record_subtitle_attempt(
+            run_id="run-invalid-login", video_part_id=video_part_id,
+            outcome="failed", error_code="auth_error",
+            started_at=900, finished_at=1_000,
+        )
+        # Simulate projections from an older build, including its false audio
+        # admission.  Reopening must refresh every changed shipped view.
+        connection.execute("DROP VIEW v_missing_audio")
+        connection.execute("CREATE VIEW v_missing_audio AS SELECT * FROM v_missing_subtitle")
+        connection.execute("DROP VIEW v_part_pipeline")
+        connection.execute(
+            "CREATE VIEW v_part_pipeline AS SELECT work_id, 'audio_pending' AS pipeline_state "
+            "FROM v_missing_subtitle"
+        )
+        pending_sql = connection.execute(
+            "SELECT sql FROM sqlite_master WHERE name = 'v_pending_subtitles'"
+        ).fetchone()[0]
+        old_pending_sql = pending_sql.replace(
+            "aa.finished_at DESC, ar.started_at DESC, ar.rowid DESC",
+            "aa.finished_at DESC, aa.run_id DESC",
+        )
+        assert old_pending_sql != pending_sql
+        connection.execute("DROP VIEW v_pending_subtitles")
+        connection.execute(old_pending_sql)
+        connection.commit()
+        assert connection.execute(
+            "SELECT COUNT(*) FROM v_missing_audio WHERE work_id = 'BV1EEE:p0'"
+        ).fetchone()[0] == 1
+    finally:
+        connection.close()
+
+    reopened = open_database(tmp_root)
+    try:
+        assert reopened.execute(
+            "SELECT outcome, error_code FROM acquisition_attempts "
+            "WHERE run_id = 'run-invalid-login'"
+        ).fetchone()[:] == ("failed", "auth_error")
+        assert reopened.execute(
+            "SELECT COUNT(*) FROM v_missing_audio WHERE work_id = 'BV1EEE:p0'"
+        ).fetchone()[0] == 0
+        assert reopened.execute(
+            "SELECT pipeline_state FROM v_part_pipeline WHERE work_id = 'BV1EEE:p0'"
+        ).fetchone()[0] == "discovered"
+        assert "ar.rowid DESC" in reopened.execute(
+            "SELECT sql FROM sqlite_master WHERE name = 'v_pending_subtitles'"
+        ).fetchone()[0]
+    finally:
+        reopened.close()
 
 
 def test_a_definite_not_found_admits_at_once(queue_store):
@@ -371,12 +655,13 @@ def test_a_definite_not_found_admits_at_once(queue_store):
     connection, parts, repository = queue_store
     transcripts = TranscriptRepository(connection)
 
-    _open_run(transcripts, "run-not-found", "subtitle")
+    _open_run(transcripts, "run-not-found", "subtitle", credential_present=False)
     transcripts.record_subtitle_attempt(
         run_id="run-not-found",
         video_part_id=parts[("BV1EEE", 0)],
         outcome="no-subtitle",
         error_code="not_found",
+        absence_verified=True,
         started_at=900,
         finished_at=1_000,
     )
@@ -384,6 +669,62 @@ def test_a_definite_not_found_admits_at_once(queue_store):
     assert "BV1EEE:p0" in [
         item.work_id for item in repository.list_queue_gaps(gap="missing_audio")
     ]
+
+
+@pytest.mark.parametrize("credential_present", [False, True])
+def test_repeated_unverified_not_found_stays_on_subtitle_route(
+    queue_store, credential_present
+):
+    connection, parts, repository = queue_store
+    transcripts = TranscriptRepository(connection)
+    part_id = parts[("BV1EEE", 0)]
+    for index in range(2):
+        run_id = f"unverified-not-found-{index}"
+        _open_run(transcripts, run_id, "subtitle", credential_present=credential_present)
+        transcripts.record_subtitle_attempt(
+            run_id=run_id, video_part_id=part_id, outcome="no-subtitle",
+            error_code="not_found", started_at=900 + index, finished_at=1_000 + index,
+        )
+
+    assert "BV1EEE:p0" not in [
+        item.work_id for item in repository.list_queue_gaps(gap="missing_audio")
+    ]
+    assert connection.execute(
+        "SELECT COUNT(*) FROM v_pending_subtitles WHERE video_part_id = ?", (part_id,)
+    ).fetchone()[0] == 1
+    assert connection.execute(
+        "SELECT pipeline_state FROM v_part_pipeline WHERE video_part_id = ?", (part_id,)
+    ).fetchone()[0] == "no_subtitle"
+
+
+def test_latest_unverified_not_found_cannot_reuse_earlier_empty_proof(queue_store):
+    connection, parts, repository = queue_store
+    transcripts = TranscriptRepository(connection)
+    part_id = parts[("BV1EEE", 0)]
+    for index in range(2):
+        run_id = f"verified-empty-{index}"
+        _open_run(transcripts, run_id, "subtitle")
+        transcripts.record_subtitle_attempt(
+            run_id=run_id, video_part_id=part_id, outcome="no-subtitle",
+            error_code=None, started_at=900 + index, finished_at=1_000 + index,
+            credential_verified=True,
+        )
+    assert "BV1EEE:p0" in [
+        item.work_id for item in repository.list_queue_gaps(gap="missing_audio")
+    ]
+
+    _open_run(transcripts, "latest-unverified-not-found", "subtitle")
+    transcripts.record_subtitle_attempt(
+        run_id="latest-unverified-not-found", video_part_id=part_id,
+        outcome="no-subtitle", error_code="not_found", started_at=1_100,
+        finished_at=1_200,
+    )
+    assert "BV1EEE:p0" not in [
+        item.work_id for item in repository.list_queue_gaps(gap="missing_audio")
+    ]
+    assert connection.execute(
+        "SELECT pipeline_state FROM v_part_pipeline WHERE video_part_id = ?", (part_id,)
+    ).fetchone()[0] == "no_subtitle"
 
 
 def test_two_empty_looks_in_one_run_are_one_observation(queue_store):
@@ -407,6 +748,7 @@ def test_two_empty_looks_in_one_run_are_one_observation(queue_store):
         error_code=None,
         started_at=900,
         finished_at=1_000,
+        credential_verified=True,
     )
 
     with pytest.raises(_sqlite3.IntegrityError):
@@ -417,6 +759,7 @@ def test_two_empty_looks_in_one_run_are_one_observation(queue_store):
             error_code=None,
             started_at=1_100,
             finished_at=1_200,
+            credential_verified=True,
         )
 
     assert "BV1EEE:p0" not in [
@@ -448,6 +791,7 @@ def test_only_indefinite_observations_confirm_an_empty_inventory(queue_store):
         video_part_id=parts[("BV1EEE", 0)],
         outcome="no-subtitle",
         error_code="not_found",
+        absence_verified=True,
         started_at=100,
         finished_at=200,
     )
@@ -468,6 +812,7 @@ def test_only_indefinite_observations_confirm_an_empty_inventory(queue_store):
         error_code=None,
         started_at=500,
         finished_at=600,
+        credential_verified=True,
     )
 
     # The newest attempt is indefinite, and no *other indefinite* row exists, so
@@ -486,6 +831,7 @@ def test_only_indefinite_observations_confirm_an_empty_inventory(queue_store):
         error_code=None,
         started_at=700,
         finished_at=800,
+        credential_verified=True,
     )
     assert "BV1EEE:p0" in [
         item.work_id for item in repository.list_queue_gaps(gap="missing_audio")
@@ -515,6 +861,7 @@ def test_v_part_pipeline_agrees_with_v_missing_audio(queue_store):
         error_code=None,
         started_at=900,
         finished_at=1_000,
+        credential_verified=True,
     )
 
     states = {
@@ -600,6 +947,25 @@ def test_ordering_is_pubdate_desc_then_bvid_then_page(queue_store):
         (item.bvid, item.page_index)
         for item in repository.list_queue_gaps(gap="missing_subtitle")
     ][:3] == [("BV1AAA", 0), ("BV1AAA", 1), ("BV1EEE", 0)]
+
+
+def test_audio_failures_rotate_by_oldest_attempt(queue_store):
+    """A failed download is retried after never-tried work and oldest first."""
+    connection, parts, repository = queue_store
+    transcripts = TranscriptRepository(connection)
+    _open_run(transcripts, "audio-rotate", "audio", credential_present=False)
+    transcripts.record_audio_attempt(
+        run_id="audio-rotate",
+        video_part_id=parts[("BV1AAA", 1)],
+        error_code="stream_error",
+        started_at=900,
+        finished_at=1_000,
+    )
+    # The fixture's BV1FFF:p0 failed at 800.  Once both rows have a failure,
+    # the older failure must be selected first rather than publication order.
+    assert [
+        item.work_id for item in repository.list_queue_gaps(gap="missing_audio")
+    ] == ["BV1FFF:p0", "BV1AAA:p1"]
 
 
 def test_bvid_and_page_filters_narrow_the_read(queue_store):
@@ -756,7 +1122,7 @@ def test_attempt_count_follows_the_gap_route_and_evidence_only_where_held(queue_
     assert (
         audio_entries["BV1FFF:p0"].newest_outcome,
         audio_entries["BV1FFF:p0"].newest_error_code,
-    ) == ("failed", "risk_control")
+    ) == ("no-subtitle", "not_found")
 
     transcript_entries = {
         item.work_id: item

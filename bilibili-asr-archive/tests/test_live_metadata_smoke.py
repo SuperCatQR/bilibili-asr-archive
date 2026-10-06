@@ -317,7 +317,7 @@ def _assert_anonymous_error_code_is_documented(error_code: str) -> None:
         )
 
 
-@pytest.mark.live_smoke
+@pytest.mark.live_smoke(skip_reason=_LIVE_SMOKE_SKIP_REASON)
 def test_live_smoke_fetch_meta_one_page_lands_normalized_rows(
     tmp_root: str,
     capsys: pytest.CaptureFixture[str],
@@ -334,9 +334,6 @@ def test_live_smoke_fetch_meta_one_page_lands_normalized_rows(
     or ASR code.
     """
 
-    env_var, _marker = opt_in_gate
-    if os.environ.get(env_var, "") != "1":
-        pytest.skip(_LIVE_SMOKE_SKIP_REASON)
 
     # Loud-fail guard: an opted-in smoke without the pinned distribution
     # fails loudly with install guidance instead of silently skipping.

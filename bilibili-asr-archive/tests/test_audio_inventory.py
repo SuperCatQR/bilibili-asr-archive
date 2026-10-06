@@ -617,6 +617,45 @@ def test_a_present_but_unreadable_file_is_neither_missing_nor_recorded(tmp_root,
     )
 
 
+def test_inventory_distinguishes_open_refusal_from_absence(tmp_root, monkeypatch):
+    """A resolver open refusal must not collapse a present file into ``missing``.
+
+    ``confined_audio_path(require_exists=True)`` uses an actual open as its
+    presence proof and therefore returns ``None`` when that open is denied.  The
+    inventory's metadata-only fallback must still find the regular file so the
+    digest stage can report it as unreadable.  This simulates the refusal at the
+    resolver boundary; the previous implementation went straight to
+    ``missing`` and never reached the digest branch.
+    """
+    root = Path(tmp_root)
+    _write_audio(root, "audio/BV1OPENREFUSED.p0.m4a")
+
+    import bili_asr.services.audio_inventory as module
+
+    monkeypatch.setattr(module, "resolve_audio_path", lambda *args, **kwargs: None)
+
+    def unreadable(path):
+        raise OSError(13, "Permission denied")
+
+    monkeypatch.setattr(module, "_digest_and_size", unreadable)
+
+    connection = open_database(tmp_root)
+    try:
+        _insert_user_video_part(connection, bvid="BV1OPENREFUSED", page_index=0)
+        connection.commit()
+        outcome = _call(
+            tmp_root,
+            connection,
+            {"BV1OPENREFUSED:p0": {"audio_path": "audio/BV1OPENREFUSED.p0.m4a"}},
+        )
+    finally:
+        connection.close()
+
+    assert outcome.missing == 0
+    assert outcome.recorded == 0
+    assert outcome.unreadable == ("audio/BV1OPENREFUSED.p0.m4a",)
+
+
 # --------------------------------------------------------------------------
 # The command surface
 # --------------------------------------------------------------------------

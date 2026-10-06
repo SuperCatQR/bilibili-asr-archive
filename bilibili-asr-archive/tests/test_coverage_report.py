@@ -10,8 +10,22 @@ import pytest
 from bili_asr.archive import write_archive
 from bili_asr.artifact_root import ArtifactRoots
 from bili_asr.coverage_report import CoverageReport
+from bili_asr.sidecar_projection import is_plain_cli_archive
 
 NOW = "2026-08-28T12:00:00Z"
+
+
+def test_plain_cli_archive_requires_an_explicit_completed_stage_producer() -> None:
+    assert is_plain_cli_archive({
+        "BVasr:p1": {"status": "archived", "source": "asr", "archive_producer": "stage-cli"},
+        "BVcc:p1": {"status": "archived", "source": "subtitle", "archive_producer": "stage-cli"},
+    })
+    assert not is_plain_cli_archive({
+        "BVpending:p1": {"status": "audio_ok", "source": "asr", "archive_producer": "stage-cli"},
+    })
+    assert not is_plain_cli_archive({
+        "BVpublished:p1": {"status": "archived", "source": "unknown", "archive_producer": "stage-cli"},
+    })
 
 
 def manifest_row(work_id: str, status: str = "archived", *, bvid: str | None = None) -> dict:
@@ -94,6 +108,31 @@ def test_bvid_only_legacy_manifest_row_remains_checkable(tmp_path: Path):
     assert report.data["denominator"]["count"] == 1
     assert report.data["rows"][0]["work_id"] == "BVlegacy"
     assert "manifest_invalid_bvid" not in codes(report)
+
+
+def test_short_transcript_coverage_is_a_health_diagnostic(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """A published row with a measured shortfall cannot read as clean coverage."""
+
+    row = manifest_row("BVshort:p1")
+    row.update({
+        "coverage": 0.802,
+        "coverage_min": 0.97,
+        "coverage_short": True,
+    })
+    monkeypatch.setattr(
+        "bili_asr.coverage_report.project_manifest_records",
+        lambda *_args, **_kwargs: ({row["work_id"]: row}, "available", set()),
+    )
+
+    report = CoverageReport.build(tmp_path)
+
+    assert "transcript_coverage_short" in codes(report)
+    projected = report.data["rows"][0]
+    assert projected["coverage"] == pytest.approx(0.802)
+    assert projected["coverage_short"] is True
+    assert report.to_csv().splitlines()[0].endswith(
+        ",coverage,coverage_short,evidence_summary,diagnostic_summary"
+    )
 
 
 def test_complete_evidence_has_stable_cumulative_and_batch_totals(tmp_path: Path):

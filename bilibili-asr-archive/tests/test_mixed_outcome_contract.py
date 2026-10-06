@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import os
+from pathlib import Path
 
 from bili_asr import asr as asr_mod
 from bili_asr import bili_client as bc
@@ -76,6 +77,15 @@ def _row(identity, *, status="meta_ok", duration_s=5, title="clip", **extra):
     }
     row.update(extra)
     return row
+
+
+def _manifest_bytes(root: str) -> dict[str, bytes]:
+    """Include journal-only manifests when checking for unwanted writes."""
+    directory = Path(root) / "manifest"
+    return {
+        path.name: path.read_bytes()
+        for path in directory.glob("*.jsonl")
+    }
 
 
 def _patch_cli(monkeypatch, transport):
@@ -401,17 +411,15 @@ def test_asr_pending_ignores_already_terminal_rows(
 
     _stub_asr(monkeypatch, unexpected)
     _patch_cli(monkeypatch, RouterTransport({}))
-    manifest_path = os.path.join(tmp_root, "manifest", "manifest.jsonl")
-    with open(manifest_path, encoding="utf-8") as fh:
-        before = fh.read()
+    before = _manifest_bytes(tmp_root)
+    assert before
 
     _seed_archive_database(tmp_root)
     rc = main(["asr", "--pending", "--archive-root", tmp_root])
     captured = capsys.readouterr()
     assert rc == 0
     assert transcribe_calls == []
-    with open(manifest_path, encoding="utf-8") as fh:
-        assert fh.read() == before
+    assert _manifest_bytes(tmp_root) == before
     loaded = ManifestStore(root=tmp_root).load()
     assert loaded[archived.work_id]["status"] == "archived"
     assert loaded[gone.work_id]["status"] == "gone"
@@ -689,12 +697,13 @@ def test_run_explicit_terminal_selectors_exit_0_without_duplicating(
     store = ManifestStore(root=tmp_root)
     store.upsert(_row(archived, status="archived", srt_path="transcripts/x/bundle.srt"))
     store.upsert(_row(gone, status="gone"))
+    # Run publishes a final snapshot; start with one to pin its no-op bytes.
+    store.save()
     _stub_asr(monkeypatch)
     transport = RouterTransport(_base_routes())
     _patch_cli(monkeypatch, transport)
-    manifest_path = os.path.join(tmp_root, "manifest", "manifest.jsonl")
-    with open(manifest_path, encoding="utf-8") as fh:
-        before = fh.read()
+    before = _manifest_bytes(tmp_root)
+    assert before
 
     rc = main([
         "run", "--scope", f"{archived.work_id},{gone.work_id}",
@@ -704,8 +713,7 @@ def test_run_explicit_terminal_selectors_exit_0_without_duplicating(
     assert rc == 0
     assert "already_terminal" in captured.out
     assert "scope not fully processed" not in captured.out
-    with open(manifest_path, encoding="utf-8") as fh:
-        assert fh.read() == before
+    assert _manifest_bytes(tmp_root) == before
     assert transport.calls == []
     recs = _ledger_records(tmp_root)
     assert recs[-1]["exit_code"] == 0

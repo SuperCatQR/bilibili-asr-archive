@@ -14,6 +14,7 @@ import pytest
 
 from bili_asr.storage import (
     MetadataRepository,
+    TranscriptRepository,
     SchemaContractError,
     duration_to_ms,
     normalize_page_index,
@@ -68,6 +69,7 @@ BASE_TABLES = {
     "transcript_segments",
     "acquisition_runs",
     "acquisition_attempts",
+    "transcript_coverage_attestations",
 }
 VIEWS = {
     "v_video_parts",
@@ -185,6 +187,12 @@ EXPECTED_TABLE_COLUMNS = {
         "transcript_id",
         "started_at",
         "finished_at",
+        "credential_verified",
+        "absence_verified",
+    ],
+    "transcript_coverage_attestations": [
+        "run_id", "video_part_id", "transcript_id", "decoded_s", "produced_s",
+        "coverage", "coverage_min", "coverage_short",
     ],
 }
 EXPECTED_FOREIGN_KEYS = {
@@ -217,6 +225,11 @@ EXPECTED_FOREIGN_KEYS = {
         ("video_part_id", "video_parts", "video_part_id"),
         ("transcript_id", "transcripts", "transcript_id"),
     ),
+    "transcript_coverage_attestations": (
+        ("run_id", "acquisition_attempts", "run_id"),
+        ("video_part_id", "acquisition_attempts", "video_part_id"),
+        ("transcript_id", "transcripts", "transcript_id"),
+    ),
 }
 EXPECTED_UNIQUE_CONSTRAINTS = {
     "videos": (("aid",),),
@@ -241,8 +254,17 @@ EXPECTED_PRIMARY_KEY_INDEXES = {
     "transcript_segments": (("transcript_id", "ordinal"),),
     "acquisition_runs": (("run_id",),),
     "acquisition_attempts": (("run_id", "video_part_id"),),
+    "transcript_coverage_attestations": (("run_id", "video_part_id"),),
 }
 EXPECTED_INDEXES = {
+    "videos": (
+        (
+            "ix_videos_pubdate_bvid",
+            ("pubdate", "bvid"),
+            False,
+            False,
+        ),
+    ),
     "transcripts": (
         (
             "ux_transcripts_subtitle_content",
@@ -255,6 +277,22 @@ EXPECTED_INDEXES = {
         (
             "ix_acquisition_attempts_part_time",
             ("video_part_id", "finished_at"),
+            False,
+            False,
+        ),
+    ),
+    "acquisition_runs": (
+        (
+            "ix_acquisition_runs_kind_run",
+            ("kind", "run_id"),
+            False,
+            False,
+        ),
+    ),
+    "transcript_coverage_attestations": (
+        (
+            "ix_transcript_coverage_part_run",
+            ("video_part_id", "run_id"),
             False,
             False,
         ),
@@ -317,6 +355,8 @@ EXPECTED_CHECK_ENUMERATIONS = {
         "outcome IN ('stored', 'unchanged') AND error_code IS NULL "
         "AND transcript_id IS NOT NULL",
         "CHECK (finished_at >= started_at)",
+        "credential_verified IN (0, 1)",
+        "absence_verified IN (0, 1)",
     ),
 }
 EXPECTED_VIEW_WORK_ID_EXPRESSION = "vp.bvid || ':p' || vp.page_index AS work_id"
@@ -570,13 +610,15 @@ def _insert_attempt(
     video_part_id: int = 1,
     started_at: int = 100,
     finished_at: int = 200,
+    credential_verified: bool = False,
+    absence_verified: bool = False,
 ) -> None:
     connection.execute(
         """
         INSERT INTO acquisition_attempts(
             run_id, video_part_id, outcome, error_code, transcript_id,
-            started_at, finished_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            started_at, finished_at, credential_verified, absence_verified
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             run_id,
@@ -586,6 +628,8 @@ def _insert_attempt(
             transcript_id,
             started_at,
             finished_at,
+            int(credential_verified),
+            int(absence_verified),
         ),
     )
 
@@ -1616,6 +1660,224 @@ def test_pending_subtitles_view_is_scoped_to_subtitle_attempts(tmp_root):
                 (part_id,),
             ).fetchone()
         ) == (1, 400, "no-subtitle", 1)
+    finally:
+        connection.close()
+
+
+def test_existing_cookie_only_observations_migrate_as_unverified(tmp_root):
+    """Opening the previous schema preserves old rows but requires fresh proof."""
+    db_path = Path(tmp_root) / "archive.db"
+    previous = sqlite3.connect(db_path)
+    previous.row_factory = sqlite3.Row
+    previous.execute("PRAGMA foreign_keys = ON")
+    storage = resources.files("bili_asr.storage")
+    previous.executescript(storage.joinpath("schema.sql").read_text(encoding="utf-8"))
+    # Materialize the actual previous table and view contract: the attempt
+    # column did not exist, and cookie presence alone corroborated emptiness.
+    old_transcripts = storage.joinpath("schema-transcripts.sql").read_text(encoding="utf-8")
+    old_transcripts = old_transcripts.replace(
+        "    credential_verified INTEGER NOT NULL DEFAULT 0 CHECK (credential_verified IN (0, 1)),\n",
+        "",
+    ).replace("        aa.credential_verified,\n", "").replace(
+        " AND credential_verified = 1", ""
+    ).replace(" AND latest.credential_verified = 1", "")
+    old_transcripts = old_transcripts.replace(
+        "    absence_verified INTEGER NOT NULL DEFAULT 0 CHECK (absence_verified IN (0, 1)),\n",
+        "",
+    ).replace("        aa.absence_verified,\n", "").replace(
+        " AND latest.absence_verified = 1", ""
+    )
+    previous.executescript(old_transcripts)
+    assert not {"credential_verified", "absence_verified"}.intersection({
+        row["name"] for row in previous.execute("PRAGMA table_info(acquisition_attempts)")
+    })
+    part_id = _insert_user_video_part(previous)
+    definite_part = previous.execute(
+        "INSERT INTO video_parts(bvid, page_index, cid, title, duration_ms, "
+        "processing_status, created_at, updated_at) "
+        "VALUES ('BV1TEST', 1, 2002, 'definite absence', 1234, 'discovered', 102, 102)"
+    ).lastrowid
+    for run_id, finished_at in (("old-empty-1", 200), ("old-empty-2", 300)):
+        _insert_subtitle_acquisition_run(previous, run_id=run_id, credential_present=1)
+        previous.execute(
+            "INSERT INTO acquisition_attempts(run_id, video_part_id, outcome, "
+            "error_code, transcript_id, started_at, finished_at) "
+            "VALUES (?, ?, 'no-subtitle', NULL, NULL, 100, ?)",
+            (run_id, part_id, finished_at),
+        )
+    _insert_subtitle_acquisition_run(previous, run_id="old-not-found", credential_present=0)
+    previous.execute(
+        "INSERT INTO acquisition_attempts(run_id, video_part_id, outcome, "
+        "error_code, transcript_id, started_at, finished_at) "
+        "VALUES ('old-not-found', ?, 'no-subtitle', 'not_found', NULL, 100, 300)",
+        (definite_part,),
+    )
+    old_facts = [tuple(row) for row in previous.execute(
+        "SELECT run_id, video_part_id, outcome, error_code, transcript_id, "
+        "started_at, finished_at FROM acquisition_attempts ORDER BY run_id"
+    )]
+    assert previous.execute("SELECT COUNT(*) FROM v_missing_audio").fetchone()[0] == 2
+    previous.commit()
+    previous.close()
+
+    connection = open_database(db_path)
+    try:
+        assert [tuple(row) for row in connection.execute(
+            "SELECT run_id, video_part_id, outcome, error_code, transcript_id, "
+            "started_at, finished_at FROM acquisition_attempts ORDER BY run_id"
+        )] == old_facts
+        assert [row[0] for row in connection.execute(
+            "SELECT credential_verified FROM acquisition_attempts"
+        )] == [0, 0, 0]
+        assert [row[0] for row in connection.execute(
+            "SELECT video_part_id FROM v_missing_audio"
+        )] == []
+        assert [row[0] for row in connection.execute(
+            "SELECT absence_verified FROM acquisition_attempts"
+        )] == [0, 0, 0]
+        assert connection.execute(
+            "SELECT COUNT(*) FROM v_pending_subtitles WHERE video_part_id = ?", (part_id,)
+        ).fetchone()[0] == 1
+        assert connection.execute(
+            "SELECT pipeline_state FROM v_part_pipeline WHERE video_part_id = ?", (part_id,)
+        ).fetchone()[0] == "no_subtitle"
+
+        repository = TranscriptRepository(connection)
+        for index in range(2):
+            run_id = f"new-verified-{index}"
+            _insert_subtitle_acquisition_run(connection, run_id=run_id, credential_present=1)
+            repository.record_subtitle_attempt(
+                run_id=run_id, video_part_id=part_id, outcome="no-subtitle", error_code=None,
+                started_at=400 + index, finished_at=400 + index, credential_verified=True,
+            )
+            assert connection.execute(
+                "SELECT COUNT(*) FROM v_missing_audio WHERE video_part_id = ?", (part_id,)
+            ).fetchone()[0] == index
+        # The ambiguous old not-found row also needs a fresh, definite listing
+        # observation. This proof is valid without any credential.
+        _insert_subtitle_acquisition_run(connection, run_id="new-definite", credential_present=0)
+        repository.record_subtitle_attempt(
+            run_id="new-definite", video_part_id=definite_part, outcome="no-subtitle",
+            error_code="not_found", started_at=500, finished_at=500, absence_verified=True,
+        )
+        assert connection.execute(
+            "SELECT COUNT(*) FROM v_missing_audio WHERE video_part_id = ?", (definite_part,)
+        ).fetchone()[0] == 1
+    finally:
+        connection.close()
+    # A second open neither resets new proof nor backfills the historical rows.
+    connection = open_database(db_path)
+    try:
+        assert [row[0] for row in connection.execute(
+            "SELECT credential_verified FROM acquisition_attempts ORDER BY rowid"
+        )] == [0, 0, 0, 1, 1, 0]
+        assert [row[0] for row in connection.execute(
+            "SELECT absence_verified FROM acquisition_attempts ORDER BY rowid"
+        )] == [0, 0, 0, 0, 0, 1]
+        assert connection.execute("SELECT COUNT(*) FROM v_missing_audio").fetchone()[0] == 2
+    finally:
+        connection.close()
+
+
+def test_absence_marker_migration_preserves_existing_verified_empty_proof(tmp_root):
+    """A database that already verifies login gains only the missing absence flag."""
+    db_path = Path(tmp_root) / "archive.db"
+    previous = sqlite3.connect(db_path)
+    previous.row_factory = sqlite3.Row
+    previous.execute("PRAGMA foreign_keys = ON")
+    storage = resources.files("bili_asr.storage")
+    previous.executescript(storage.joinpath("schema.sql").read_text(encoding="utf-8"))
+    old_transcripts = storage.joinpath("schema-transcripts.sql").read_text(encoding="utf-8")
+    old_transcripts = old_transcripts.replace(
+        "    absence_verified INTEGER NOT NULL DEFAULT 0 CHECK (absence_verified IN (0, 1)),\n",
+        "",
+    ).replace("        aa.absence_verified,\n", "").replace(
+        " AND latest.absence_verified = 1", ""
+    )
+    previous.executescript(old_transcripts)
+    part_id = _insert_user_video_part(previous)
+    for index in range(2):
+        run_id = f"already-verified-{index}"
+        _insert_subtitle_acquisition_run(previous, run_id=run_id, credential_present=1)
+        previous.execute(
+            "INSERT INTO acquisition_attempts(run_id, video_part_id, outcome, "
+            "error_code, transcript_id, started_at, finished_at, credential_verified) "
+            "VALUES (?, ?, 'no-subtitle', NULL, NULL, 100, ?, 1)",
+            (run_id, part_id, 200 + index),
+        )
+    previous.commit()
+    previous.close()
+
+    for _ in range(2):
+        connection = open_database(db_path)
+        try:
+            assert [tuple(row) for row in connection.execute(
+                "SELECT credential_verified, absence_verified "
+                "FROM acquisition_attempts ORDER BY rowid"
+            )] == [(1, 0), (1, 0)]
+            assert connection.execute(
+                "SELECT COUNT(*) FROM v_missing_audio WHERE video_part_id = ?", (part_id,)
+            ).fetchone()[0] == 1
+        finally:
+            connection.close()
+
+
+def test_missing_audio_requires_credentialed_empty_inventory_confirmations(tmp_root):
+    """Anonymous empty inventories never authorize the paid audio branch."""
+    connection = open_database(tmp_root)
+    try:
+        part_id = _insert_user_video_part(connection)
+        for run_id, credential_present, started_at in (
+            ("anon-1", 0, 100),
+            ("anon-2", 0, 200),
+        ):
+            _insert_subtitle_acquisition_run(
+                connection,
+                run_id=run_id,
+                credential_present=credential_present,
+                finished_at=started_at + 10,
+                outcome="complete",
+            )
+            _insert_attempt(
+                connection,
+                run_id=run_id,
+                video_part_id=part_id,
+                outcome="no-subtitle",
+                error_code=None,
+                transcript_id=None,
+                started_at=started_at,
+                finished_at=started_at + 10,
+            )
+        connection.commit()
+        assert connection.execute(
+            "SELECT COUNT(*) FROM v_missing_audio WHERE video_part_id = ?",
+            (part_id,),
+        ).fetchone()[0] == 0
+
+        for run_id, started_at in (("auth-1", 300), ("auth-2", 400)):
+            _insert_subtitle_acquisition_run(
+                connection,
+                run_id=run_id,
+                credential_present=1,
+                finished_at=started_at + 10,
+                outcome="complete",
+            )
+            _insert_attempt(
+                connection,
+                run_id=run_id,
+                video_part_id=part_id,
+                outcome="no-subtitle",
+                error_code=None,
+                transcript_id=None,
+                started_at=started_at,
+                finished_at=started_at + 10,
+                credential_verified=True,
+            )
+        connection.commit()
+        assert connection.execute(
+            "SELECT COUNT(*) FROM v_missing_audio WHERE video_part_id = ?",
+            (part_id,),
+        ).fetchone()[0] == 1
     finally:
         connection.close()
 

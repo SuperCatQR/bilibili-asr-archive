@@ -10,16 +10,21 @@ import threading
 from pathlib import Path
 from typing import Any
 
-import fcntl
+if os.name == "nt":
+    import msvcrt
+else:
+    import fcntl
 from .archive import (
     archive_bundle_complete,
     bundle_paths_for_stem,
 )
 from .artifact_root import ArtifactRoots
+from .manifest import BACKLOG_STATUSES, JOURNAL_NAME
 from .page_identity import canonical_stem
 from .coordinator import _validate_attempt
 from .sidecar_projection import (
-    ORDINARY_HISTORY_DIAGNOSTICS, ReaderPolicy, project_attempt_records, project_manifest_records,
+    ORDINARY_HISTORY_DIAGNOSTICS, ReaderPolicy, is_plain_cli_archive,
+    project_attempt_records, project_manifest_records,
 )
 
 MISSING_RAW_SUBTITLE = "missing_raw_subtitle"
@@ -66,7 +71,7 @@ _AUDIT_WRITE_LOCK = threading.Lock()
 _MAX_ROWS = 10000
 _MAX_ATTEMPTS_BYTES = 8 * 1024 * 1024
 #: The four recorded bundle paths; the same order the writers publish them in.
-_BUNDLE_PATH_KEYS = ("srt_path", "txt_path", "md_path", "raw_path")
+from .artifacts import REQUIRED_ARTIFACT_KEYS as _BUNDLE_PATH_KEYS
 
 
 def _fsync_directory(directory: Path) -> None:
@@ -339,7 +344,12 @@ class IntegrityVerifier:
                 continue
             else:
                 report.diagnostics.append(STRUCTURAL_INPUT_ERROR)
-        manifest_present = reader.is_regular(Path("manifest/manifest.jsonl"))
+        # A small new ledger lives entirely in its append journal until the
+        # compaction threshold is reached.  The projection validates and replays
+        # both files; either confined regular file establishes ledger presence.
+        manifest_present = reader.is_regular(Path("manifest/manifest.jsonl")) or reader.is_regular(
+            Path("manifest") / JOURNAL_NAME
+        )
         attempts_path = root / "coordinator" / "attempts.jsonl"
         attempts_present = attempts_path.is_file() and not attempts_path.is_symlink()
         report.authoritative = manifest_present and attempts_present and manifest_valid and attempts_valid and not any(
@@ -347,7 +357,8 @@ class IntegrityVerifier:
             for diagnostic in attempt_diagnostics
         ) and not ({"manifest_invalid", "manifest_invalid_status", "manifest_invalid_bvid"} & manifest_diagnostics)
         if not manifest_present and MANIFEST_ROW_LIMIT_EXCEEDED not in report.diagnostics: report.diagnostics.append(STRUCTURAL_INPUT_ERROR)
-        if not attempts_present:
+        plain_cli_archive = is_plain_cli_archive(entries)
+        if not attempts_present and not plain_cli_archive:
             if manifest_present and manifest_valid:
                 if MANIFEST_ROW_LIMIT_EXCEEDED not in report.diagnostics:
                     report.diagnostics.append(MISSING_ATTEMPTS)
@@ -460,7 +471,8 @@ class IntegrityVerifier:
             if located_raw is not None: artifact_paths.append(located_raw)
             if any(not self._valid_artifact(path, row, base_reader) for path, base_reader in artifact_paths):
                 defects.add(MALFORMED_ARTIFACT)
-            if status in {"pending", "meta_ok", "sub_checked", "needs_audio", "audio_ok"}: defects.add(RETRYABLE_INCOMPLETE)
+            if status in BACKLOG_STATUSES:
+                defects.add(RETRYABLE_INCOMPLETE)
             report.defects.extend(IntegrityDefect(work_id, code) for code in sorted(defects))
         report.defects.sort(key=lambda d: (d.work_id, d.code))
         return report
@@ -536,7 +548,17 @@ class IntegrityVerifier:
                     _reject_symlink(coordinator / name)
                 lock_fd = os.open(_AUDIT_LOCK_REL_PATH.rsplit("/", 1)[-1], os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600, dir_fd=coordinator_fd)
                 with os.fdopen(lock_fd, "a+b") as lock_handle:
-                    fcntl.flock(lock_handle.fileno(), fcntl.LOCK_EX)
+                    if os.name == "nt":
+                        # ``msvcrt.locking`` locks a byte range and requires
+                        # an existing byte at the current file position.
+                        lock_handle.seek(0, os.SEEK_END)
+                        if lock_handle.tell() == 0:
+                            lock_handle.write(b"0")
+                            lock_handle.flush()
+                        lock_handle.seek(0)
+                        msvcrt.locking(lock_handle.fileno(), msvcrt.LK_LOCK, 1)
+                    else:
+                        fcntl.flock(lock_handle.fileno(), fcntl.LOCK_EX)
                     try:
                         existing = os.open("recovery-audit.jsonl", os.O_RDONLY | os.O_NONBLOCK | os.O_NOFOLLOW, dir_fd=coordinator_fd)
                         audit_existed = True
@@ -695,17 +717,15 @@ class IntegrityVerifier:
                 if len(parts) != 2 or not all(IntegrityVerifier._valid_srt_time(part) for part in parts):
                     return False
         elif path.suffix == ".json":
+            from .cues import CueParseError, read_cues
+
             try:
-                document = json.loads(text)
-            except (TypeError, ValueError):
+                cues, malformed, empty = read_cues(
+                    path, text, require_source="asr" if row.get("source") == "asr" else None
+                )
+            except CueParseError:
                 return False
-            if isinstance(document, dict):
-                items = document.get("body", document.get("segments"))
-            else:
-                items = document
-            if not isinstance(items, list):
-                return False
-            if any(not isinstance(item, dict) for item in items[:10000]):
+            if malformed or empty or any(not cue.text.strip() for cue in cues):
                 return False
         return True
 

@@ -477,18 +477,16 @@ def test_schedule_second_batch_completes_requested_scope_not_corpus(
     ])
     captured = capsys.readouterr()
     assert rc == 0
-    # The store-side selection is limit-bounded per queue, so the leftover
-    # row was never selected: this call is ``limited`` and the second part
-    # stays harvest-needed — the requested scope is never claimed complete
-    # while the enumeration cursor is still limited.
-    assert "batch=limited" in captured.out
+    # The second batch finishes every currently known pending row. The
+    # separate enumeration cursor still reports that more pages may exist.
+    assert "batch=complete" in captured.out
     assert "enumeration: limited" in captured.out
     assert "enumeration: complete" not in captured.out
     loaded = ManifestStore(root=tmp_root).load()
     assert loaded[a.work_id]["status"] == "archived"
-    assert loaded[b.work_id]["status"] == "meta_ok"
+    assert loaded[b.work_id]["status"] == "archived"
     sidecar = _scheduler(tmp_root)
-    assert sidecar["state"] == "limited"
+    assert sidecar["state"] == "complete"
     recs = _ledger_records(tmp_root)
     assert recs[-1]["command"] == "schedule"
     assert recs[-1]["cursor_snapshot"]["state"] == "limited"
@@ -682,7 +680,7 @@ def test_schedule_risk_after_success_exits_2_and_resume_continues(
     # Resume with the risk row now serving an empty subtitle list: it
     # harvests to ``needs_audio``; its scripted empty playurl response makes
     # the download fail terminally (one failed row, exit 1), and the
-    # caption-holding rows remain queued.
+    # caption-holding rows can still finish archiving.
     transport.player_by_cid[risk_id.cid] = player_ok([])
     transport.playurl_by_cid[risk_id.cid] = playurl_ok(streams=[])
     rc = main([
@@ -697,10 +695,10 @@ def test_schedule_risk_after_success_exits_2_and_resume_continues(
     assert rc == 1
     assert "batch=complete" in captured.out
     loaded = ManifestStore(root=tmp_root).load()
-    # The failed row keeps the status the download stage left it at.
-    assert loaded[ok_id.work_id]["status"] == "subtitle_done"
+    # The failed row keeps its status while both stored captions archive.
+    assert loaded[ok_id.work_id]["status"] == "archived"
     assert loaded[risk_id.work_id]["status"] == "meta_ok"
-    assert loaded[later.work_id]["status"] == "subtitle_done"
+    assert loaded[later.work_id]["status"] == "archived"
     sidecar = _scheduler(tmp_root)
     assert sidecar["state"] == "complete"
     _assert_no_secrets(captured, tmp_root)
@@ -712,10 +710,8 @@ def test_schedule_resume_ignored_for_limited_sidecar(
     a = page_identity("BVa", 0, 111, "p0")
     b = page_identity("BVb", 0, 222, "p0")
     store = ManifestStore(root=tmp_root)
-    # Both parts hold a stored caption, so ``schedule --scope pending`` has
-    # nothing queued for them: the batch completes vacuously.  The earlier
-    # ``limited`` sidecar downgrade of ``--resume`` to ignored is what this
-    # pins; the caption-holding rows are never re-processed.
+    # Stored captions still need archive output. A one-row batch must leave
+    # the other row pending, then the next selection must advance to it.
     for identity in (a, b):
         store.upsert(_row(identity, status="subtitle_done"))
         _write_subtitle_raw(tmp_root, identity)
@@ -729,11 +725,13 @@ def test_schedule_resume_ignored_for_limited_sidecar(
     ]) == 0
     capsys.readouterr()
     sidecar = _scheduler(tmp_root)
-    assert sidecar["state"] == "complete"
+    assert sidecar["state"] == "limited"
+    first = ManifestStore(root=tmp_root).load()
+    assert first[a.work_id]["status"] == "archived"
+    assert first[b.work_id]["status"] == "subtitle_done"
 
-    # The second call still runs its selection: it is empty, the batch
-    # completes, and the earlier limited sidecar only downgrades ``--resume``
-    # to ignored.
+    # A limited batch does not activate risk-resume filtering. Its next
+    # normal selection archives the remaining caption.
     rc = main([
         "schedule", "--scope", "pending", "--limit", "1", "--resume",
         "--archive-root", tmp_root,
@@ -743,8 +741,8 @@ def test_schedule_resume_ignored_for_limited_sidecar(
     assert "--resume ignored" in captured.err
     assert "not risk_interrupted" in captured.err
     loaded = ManifestStore(root=tmp_root).load()
-    assert loaded[a.work_id]["status"] == "subtitle_done"
-    assert loaded[b.work_id]["status"] == "subtitle_done"
+    assert loaded[a.work_id]["status"] == "archived"
+    assert loaded[b.work_id]["status"] == "archived"
     assert _scheduler(tmp_root)["state"] == "complete"
 
 

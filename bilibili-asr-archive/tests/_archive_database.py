@@ -235,7 +235,7 @@ def _record_caption(connection, bvid: str, page_index: int) -> None:
                 selector_kind="pending",
                 selector_target=None,
                 requested_limit=None,
-                credential_present=False,
+                credential_present=True,
                 started_at=10,
                 finished_at=12,
                 outcome="complete",
@@ -294,7 +294,7 @@ def _record_no_subtitle(connection, transcripts, bvid: str, page_index: int) -> 
                     selector_kind="pending",
                     selector_target=None,
                     requested_limit=None,
-                    credential_present=False,
+                    credential_present=True,
                     started_at=run_started,
                     finished_at=run_finished,
                     outcome="complete",
@@ -312,4 +312,5 @@ def _record_no_subtitle(connection, transcripts, bvid: str, page_index: int) -> 
             error_code=None,
             started_at=att_started,
             finished_at=att_finished,
+            credential_verified=True,
         )

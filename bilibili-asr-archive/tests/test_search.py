@@ -194,6 +194,8 @@ def test_search_index_idempotent_and_incremental(indexed_store: Path) -> None:
     index = TranscriptSearchIndex(indexed_store)
     first = index.build()
     assert first == 0  # the fixture already built the index
+    assert index.metadata()["indexed_count"] == "6"
+    assert index.metadata().get("built_at")
     stamp_after_first = index.stamp()
 
     again = index.build()
@@ -218,6 +220,15 @@ def test_search_index_idempotent_and_incremental(indexed_store: Path) -> None:
     assert added == 1  # one new part with one segment
     assert index.stamp() > stamp_after_first
     assert index.count() == 7
+    assert index.metadata()["indexed_count"] == "7"
+
+
+def test_search_index_metadata_is_empty_before_first_build(tmp_path: Path) -> None:
+    connection = open_database(tmp_path)
+    connection.close()
+    index = TranscriptSearchIndex(tmp_path)
+    assert index.metadata() == {}
+    assert index.count() == 0
 
 
 def test_search_index_blocks_served_from_store_and_bigram_aux(indexed_store: Path) -> None:

@@ -41,6 +41,22 @@ def _safe_id(value: object) -> str:
     return value
 
 
+def _safe_scope(value: object) -> str:
+    """Validate each CLI selector while preserving the exact resume scope.
+
+    The comma/whitespace-separated selection grammar is wider than a work ID;
+    identifier validation still applies individually to every component.
+    """
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError("scope must be a non-empty string")
+    selectors = [item for part in value.split(",") for item in part.split() if item]
+    if not selectors or _MARKER_RE.search(value):
+        raise ValueError("unsafe campaign scope")
+    for selector in selectors:
+        _safe_id(selector)
+    return value
+
+
 def _safe_code(value: object) -> str:
     if not isinstance(value, str):
         raise ValueError("unsafe campaign reason code")
@@ -85,6 +101,10 @@ def _unique(values: list[str]) -> list[str]:
 
 
 def _redacted_code(value: object) -> str:
+    # Coordinator failures legitimately carry numeric API codes. The stored
+    # campaign projection still uses its bounded, string-only code vocabulary.
+    if isinstance(value, int) and not isinstance(value, bool):
+        value = str(value)
     return _safe_code(value)
 
 
@@ -116,6 +136,11 @@ class CampaignRunner:
         self.scope_rows = scope_rows
         self.policy_fingerprint = _policy_hash(policy_fingerprint)
         self.coordinator_factory = coordinator_factory
+        # CLI run-record inputs remain available even when the batch unwinds.
+        self.records_existing: int | None = None
+        self.run_work_ids: list[str] | None = None
+        self.last_api_error_code: int | str | None = None
+        self.hotwords_dropped: list[str] = []
 
     @property
     def path(self) -> Path:
@@ -132,43 +157,61 @@ class CampaignRunner:
                 handle.flush()
                 os.fsync(handle.fileno())
             os.replace(tmp, self.path)
-            directory_fd = os.open(self.root, os.O_RDONLY)
+            # POSIX can fsync the containing directory after the rename. Windows
+            # does not expose directory handles through ``os.open``; the file
+            # itself was flushed before replace, so keep the atomic rename and
+            # skip only this directory-level durability fence there.
+            directory_fd = (
+                os.open(self.root, os.O_RDONLY)
+                if os.name != "nt"
+                else os.open(self.path, os.O_RDWR)
+            )
             try:
                 os.fsync(directory_fd)
             except BaseException:
+                os.close(directory_fd)
+                directory_fd = None
                 # Restore the previous valid projection (or remove this new one)
                 # before surfacing the durability failure.
-                if previous is None:
-                    try:
-                        self.path.unlink()
-                    except OSError:
-                        pass
-                else:
-                    restore_tmp = self.path.with_name(f".{self.path.name}.restore")
-                    try:
-                        with restore_tmp.open("wb") as restore_handle:
-                            restore_handle.write(previous)
-                            restore_handle.flush()
-                            os.fsync(restore_handle.fileno())
-                        os.replace(restore_tmp, self.path)
-                        restore_fd = os.open(self.path, os.O_RDONLY)
+                try:
+                    if previous is None:
                         try:
-                            os.fsync(restore_fd)
-                        finally:
-                            os.close(restore_fd)
-                        rollback_dir_fd = os.open(self.root, os.O_RDONLY)
-                        try:
-                            os.fsync(rollback_dir_fd)
-                        finally:
-                            os.close(rollback_dir_fd)
-                    finally:
-                        try:
-                            restore_tmp.unlink()
+                            self.path.unlink()
                         except OSError:
                             pass
+                    else:
+                        restore_tmp = self.path.with_name(f".{self.path.name}.restore")
+                        try:
+                            with restore_tmp.open("wb") as restore_handle:
+                                restore_handle.write(previous)
+                                restore_handle.flush()
+                                os.fsync(restore_handle.fileno())
+                            os.replace(restore_tmp, self.path)
+                            restore_fd = os.open(self.path, os.O_RDONLY)
+                            try:
+                                os.fsync(restore_fd)
+                            finally:
+                                os.close(restore_fd)
+                            rollback_target = self.root if os.name != "nt" else self.path
+                            rollback_flags = os.O_RDONLY if os.name != "nt" else os.O_RDWR
+                            rollback_dir_fd = os.open(rollback_target, rollback_flags)
+                            try:
+                                os.fsync(rollback_dir_fd)
+                            finally:
+                                os.close(rollback_dir_fd)
+                        finally:
+                            try:
+                                restore_tmp.unlink()
+                            except OSError:
+                                pass
+                except BaseException:
+                    # Preserve the original durability failure if rollback
+                    # itself encounters an unsupported filesystem operation.
+                    pass
                 raise
             finally:
-                os.close(directory_fd)
+                if directory_fd is not None:
+                    os.close(directory_fd)
         except BaseException:
             try:
                 tmp.unlink()
@@ -203,7 +246,7 @@ class CampaignRunner:
             raise ValueError("too many campaign reason codes")
         return {
             "schema_version": _SCHEMA_VERSION,
-            "scope": _safe_id(scope),
+            "scope": _safe_scope(scope),
             "batch_limit": batch_limit,
             "policy_fingerprint": self.policy_fingerprint,
             "selected_work_ids": selected_ids,
@@ -231,7 +274,7 @@ class CampaignRunner:
         if not isinstance(value["scope"], str):
             raise ValueError("campaign projection corrupt/mismatch")
         try:
-            _safe_id(value["scope"])
+            _safe_scope(value["scope"])
             for key in ("selected_work_ids", "processed_work_ids", "skipped_work_ids", "failed_work_ids"):
                 raw = value[key]
                 if not isinstance(raw, list) or len(raw) > batch_limit or len(set(raw)) != len(raw):
@@ -253,7 +296,7 @@ class CampaignRunner:
     def _resume_ids(
         self, scope: str, batch_limit: int, entries: dict[str, dict[str, Any]],
         selected_scope: set[str],
-    ) -> list[str]:
+    ) -> tuple[list[str], list[str]]:
         store = SchedulerStore(self.root)
         lookup = store.inspect_resume(scope, allow_long_live=False)
         if lookup.refuse or lookup.processed_ids is None:
@@ -274,19 +317,28 @@ class CampaignRunner:
             campaign = json.loads(projection.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError) as exc:
             raise ValueError("resume refused: campaign projection corrupt/mismatch") from exc
-        campaign = self._validate_projection(campaign, scope, batch_limit, selected_scope)
+        completed = terminal_resume_ids(lookup.processed_ids, entries)
+        # Completed members legitimately leave a pending/store queue. Only
+        # durable scheduler members that are still terminal in the manifest may
+        # widen this validation; unprocessed scope drift remains a refusal.
+        campaign = self._validate_projection(
+            campaign, scope, batch_limit, selected_scope | set(completed)
+        )
         scheduler_ids = set(lookup.processed_ids)
         if set(campaign["processed_work_ids"]) != scheduler_ids:
             raise ValueError("resume refused: campaign projection drift")
-        return terminal_resume_ids(lookup.processed_ids, entries)
+        return completed, list(campaign["selected_work_ids"])
 
     def run(self, scope: str, batch_limit: int, *, resume: bool = False) -> CampaignSummary:
+        self.records_existing = None
+        self.run_work_ids = None
+        self.last_api_error_code = None
+        self.hotwords_dropped = []
         with archive_writer(self.root):
             return self._run_locked(scope, batch_limit, resume=resume)
 
     def _run_locked(self, scope: str, batch_limit: int, *, resume: bool = False) -> CampaignSummary:
-        if not isinstance(scope, str) or not scope.strip():
-            raise ValueError("scope must be a non-empty string")
+        scope = _safe_scope(scope)
         if isinstance(batch_limit, bool) or not isinstance(batch_limit, int) or batch_limit < 1:
             raise ValueError("batch_limit must be a positive integer")
         if self.scope_rows is None:
@@ -296,6 +348,7 @@ class CampaignRunner:
 
         store = ManifestStore(self.root)
         entries = store.load()
+        self.records_existing = len(entries)
         rows, error = self.scope_rows(store, entries, scope)
         if error:
             raise ValueError(error)
@@ -304,14 +357,24 @@ class CampaignRunner:
 
         processed_before: list[str] = []
         if resume:
-            processed_before = self._resume_ids(scope, batch_limit, entries, {_work_id(k, e) for k, e in rows})
+            processed_before, selected = self._resume_ids(
+                scope, batch_limit, entries, {_work_id(k, e) for k, e in rows}
+            )
             done = set(processed_before)
-            rows = [(key, entry) for key, entry in rows if _work_id(key, entry) not in done]
+            by_id = {_work_id(key, entry): (key, entry) for key, entry in rows}
+            if len(by_id) != len(rows):
+                raise ValueError("campaign scope contains duplicate identifiers")
+            # Resume the interrupted bounded batch, rather than filling vacant
+            # slots with previously unselected rows. Keep its complete selection
+            # in the projection so processed remains a subset across calls.
+            selected_rows = [by_id[item] for item in selected if item not in done]
+            matching = len(set(by_id) | done)
         else:
-            processed_before = []
-
-        matching = len(rows)
-        selected_rows = rows[:batch_limit]
+            matching = len(rows)
+            selected_rows = rows[:batch_limit]
+            selected = [_safe_id(_work_id(key, entry)) for key, entry in selected_rows]
+            if len(set(selected)) != len(selected):
+                raise ValueError("campaign scope contains duplicate identifiers")
         existing = None
         if self.path.exists():
             try:
@@ -324,7 +387,6 @@ class CampaignRunner:
                 raise ValueError("campaign refused: active risk checkpoint requires --resume")
             if existing.get("state") not in _VALID_STATES:
                 raise ValueError("campaign refused: existing projection corrupt/mismatch")
-        selected = [_safe_id(_work_id(key, entry)) for key, entry in selected_rows]
         coordinator = self.coordinator_factory(
             self.root, store, client=self.client, offline=self.offline,
             max_audio_bytes=self.max_audio_bytes, sleep=self.sleep,
@@ -332,17 +394,26 @@ class CampaignRunner:
             # `run_batch` is shared; the reuse line must name `campaign`, not `run`.
             command="campaign",
         )
-        run_summary: RunSummary = coordinator.run_batch(selected_rows)
+        try:
+            run_summary: RunSummary = coordinator.run_batch(selected_rows)
+        finally:
+            self.hotwords_dropped = list(getattr(coordinator, "hotwords_dropped", []))
+        self.run_work_ids = [result.work_id for result in run_summary.results] or None
+        if run_summary.risk_interrupted and run_summary.results:
+            codes = run_summary.results[-1].failure_codes
+            if codes:
+                self.last_api_error_code = codes[-1]
         result_by_id = {result.work_id: result for result in run_summary.results}
         failed_or_skipped = bool(run_summary.failed or run_summary.skipped_rows)
         terminal_results = all(result.final_status in TERMINAL_STATUSES for result in run_summary.results)
+        invocation_ids = {_work_id(key, entry) for key, entry in selected_rows}
         complete = (
-            bool(selected_rows)
+            bool(selected)
             and matching <= batch_limit
             and not run_summary.risk_interrupted
             and not failed_or_skipped
-            and set(result_by_id) == set(selected)
-            and len(run_summary.results) == len(selected)
+            and set(result_by_id) == invocation_ids
+            and len(run_summary.results) == len(selected_rows)
             and terminal_results
         )
         state = "complete" if complete else ("risk_interrupted" if run_summary.risk_interrupted else "limited")

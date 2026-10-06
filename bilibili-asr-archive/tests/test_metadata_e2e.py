@@ -202,10 +202,12 @@ def test_fetch_meta_normalizes_single_part_and_multipart_videos_end_to_end(
             " FROM video_parts ORDER BY bvid, page_index"
         ).fetchall()
         assert [tuple(row) for row in part_rows] == [
-            (MULTI_PART_BVID, 0, 3331, "上篇", 12_000, "discovered"),
-            (MULTI_PART_BVID, 1, 3332, "下篇", 12_000, "discovered"),
-            (SINGLE_PART_BVID, 0, 2222, "第一部分", 12_000, "discovered"),
+            (MULTI_PART_BVID, 0, 3331, "上篇", 12_000, "metadata_collected"),
+            (MULTI_PART_BVID, 1, 3332, "下篇", 12_000, "metadata_collected"),
+            (SINGLE_PART_BVID, 0, 2222, "第一部分", 12_000, "metadata_collected"),
         ]
+        assert connection.execute("SELECT COUNT(*) FROM v_pending_metadata").fetchone()[0] == 0
+        assert connection.execute("SELECT COUNT(*) FROM v_pending_subtitles").fetchone()[0] == 3
 
         run_row = connection.execute(
             "SELECT run_id, mid, source_package, source_version,"
@@ -260,12 +262,13 @@ def test_fetch_meta_normalizes_single_part_and_multipart_videos_end_to_end(
         assert first_view_row["user_name"] == "未明子"
         assert first_view_row["video_title"] == "未明子讲座"
         assert first_view_row["part_title"] == "上篇"
-        assert first_view_row["processing_status"] == "discovered"
+        assert first_view_row["processing_status"] == "metadata_collected"
 
-        pending = connection.execute(
-            "SELECT work_id FROM v_pending_metadata ORDER BY bvid, page_index"
+        assert connection.execute("SELECT work_id FROM v_pending_metadata").fetchall() == []
+        pending_subtitles = connection.execute(
+            "SELECT work_id FROM v_pending_subtitles ORDER BY bvid, page_index"
         ).fetchall()
-        assert [row["work_id"] for row in pending] == [
+        assert [row["work_id"] for row in pending_subtitles] == [
             f"{MULTI_PART_BVID}:p0",
             f"{MULTI_PART_BVID}:p1",
             f"{SINGLE_PART_BVID}:p0",
@@ -286,8 +289,9 @@ def test_fetch_meta_normalizes_single_part_and_multipart_videos_end_to_end(
     assert "users: 1" in status_out
     assert "videos: 2" in status_out
     assert "parts: 3" in status_out
-    assert "discovered=3" in status_out
-    assert "pending: 3" in status_out
+    assert "metadata_collected=3" in status_out
+    assert "pending: 0" in status_out
+    assert "queue: missing subtitles: 3 shown" in status_out
     assert f"{SINGLE_PART_BVID}:p0" in status_out
     assert "cursor: mid=23191782 next_page=2 state=complete" in status_out
     assert_leaks_no_markers(status_out + status_err, context="status output")
