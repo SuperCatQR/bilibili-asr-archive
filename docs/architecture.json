@@ -8,7 +8,7 @@
     "quality_profile": "showcase",
     "repository": {
       "url": "https://github.com/SuperCatQR/bilibili-asr-archive.git",
-      "revision": "3908cfd6f7c1daead818674408ca7f91550d3de2",
+      "revision": "f271b0d880cee09a20128c74b987f430697bd4dc",
       "provider": "github",
       "link_mode": "local-only"
     }
