@@ -1,8 +1,9 @@
 # AI 校对与可阅读正文架构
 
-日期：2026-10-06。工作流重构与 AI 校对的当前实现。
+日期：2026-10-08。工作流、AI 校对与阅读站发布的当前实现。
 交互式架构图：[打开 HTML](ai-proofreading-architecture.html)，[可编辑图稿](ai-proofreading-architecture.json)。
-入口见 [使用说明](ai-proofreading.md)，当前验证见 [完整链路测试](ai-proofreading-e2e-BV16jryYNEbT.md)。
+入口见 [使用说明](ai-proofreading.md)；模块边界和跨域关系以
+[当前总架构图](architecture.html) 为准。
 
 ## 目标与主链路
 
@@ -58,6 +59,27 @@ JSON 字段为 chunk_id、paragraphs；段落字段为 segment_ids、text、issu
 | editorial_chunk_results | 每块验证后的段落、source IDs、原文、时间与疑点 JSON |
 | editorial_revisions | 完整派生修订、内容标识、ai-unreviewed / needs-review 状态 |
 | document_artifacts | 修订、模板、路径和 SHA-256 |
+| reading_publications | 独立于质量状态的 Issue 审核与发布状态、当前人工版本 |
+| reading_document_editions | 从 Issue 建议采纳的 Markdown 人工版本、父版本与内容哈希 |
+| reading_publication_events | 每次状态变化对应的修订、人工版本、Issue、备注和时间 |
+
+阅读站不会直接连接数据库。`reading-export` 以 SQLite 只读模式选择
+`reading.md` 与 `review.md`，按归档根与配置的 artifact root 查找文件，并验证数据库登记的哈希；
+模型请求和原始转录不会导出。导出的待审核稿会在静态站明确标注，
+所以部署到公开托管时，待审正文也会公开。
+
+```mermaid
+flowchart LR
+  revision[(editorial_revisions)] -->|只读 + SHA-256 校验| export[reading-export]
+  artifact[(document_artifacts / reading.md + review.md)] --> export
+  export --> snapshot[reading-site 静态内容快照]
+  snapshot --> issue[预填 GitHub Issue]
+  issue -->|维护者采纳建议| edit[reading-edit]
+  edit --> editions[(reading_document_editions)]
+  review[reading-review] --> state[(reading_publications + events)]
+  editions --> state
+  state -->|重新导出| export
+```
 
 原始字幕和 ASR 不被覆写。通过来源 ID 追溯，不额外建立第二套调度或稀疏编辑表。
 旧工作流类型约束不自动迁移，不删除现有数据库；需要支持新类型的归档库。
@@ -74,6 +96,7 @@ review.md 保存每段原文和整理稿、全部来源 ID、时间与回看链�
 - src/bili_asr/editorial.py：冻结输入、大块预算、段落来源校验与纯正文渲染。
 - src/bili_asr/deepseek.py：官方 JSON 模式、high 思考及 top_p 请求。
 - src/bili_asr/editorial_runtime.py、storage/editorial.py：调用审计、检查点、完整修订及文档。
+- src/bili_asr/reading_publication.py、cli/reading.py：只读站点导入、状态转换、Issue 关联和人工版本审计。
 - src/bili_asr/storage/workflow.py：独立依赖、认领、租约、尝试与渲染模板版本。
 - tests/test_ai_editorial.py：正文、来源、恢复、接口参数、租约和重渲染契约。
 

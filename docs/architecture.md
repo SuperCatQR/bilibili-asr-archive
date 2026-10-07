@@ -28,6 +28,13 @@ Workflow planner -> SQLite jobs, dependencies, leases, attempts
                Query projections: status, coverage, export, verify, search
 ```
 
+The reading site is a separate static projection. `reading-export` opens the
+archive database read-only, verifies each selected `reading.md` and `review.md`
+against their recorded SHA-256 values, and generates the site's content
+snapshot. Review decisions
+and accepted human editions return through explicit CLI commands and append-only
+review events; the original AI revision stays immutable.
+
 ## Boundaries
 
 `bili_asr.cli` parses arguments and constructs a run context. It owns command

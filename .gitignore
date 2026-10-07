@@ -64,3 +64,4 @@ __pycache__/
 /.agent-teams/
 /.archify/
 *.delivery.json
+/design/

@@ -86,22 +86,19 @@ fsync**，所以一个「能打开、但拒绝目录 fsync」的挂载（有些�
 
 ## 哪些命令带这个参数
 
-带 `--artifact-root` 的十二个命令（它们要读写产物路径）：
+当前注册表只给会读取或校验文件产物的命令添加 `--artifact-root`：
 
-    bili-asr asr --pending --archive-root archive --artifact-root /srv/bili-asr-archive
-    bili-asr pilot --n 20 --archive-root archive --artifact-root /srv/bili-asr-archive
-    bili-asr download-audio --missing-subs --archive-root archive --artifact-root /srv/bili-asr-archive
-    bili-asr run --scope pending --archive-root archive --artifact-root /srv/bili-asr-archive
-    bili-asr schedule --scope pending --limit 20 --archive-root archive --artifact-root /srv/bili-asr-archive
-    bili-asr campaign --scope pending --limit 20 --archive-root archive --artifact-root /srv/bili-asr-archive
     bili-asr coverage --archive-root archive --artifact-root /srv/bili-asr-archive
     bili-asr verify --archive-root archive --artifact-root /srv/bili-asr-archive
-    bili-asr recover --work-id <work-id> --archive-root archive --artifact-root /srv/bili-asr-archive
-    bili-asr export --format json --archive-root archive --artifact-root /srv/bili-asr-archive
-    bili-asr search "黑格尔 辩证法" --archive-root archive --artifact-root /srv/bili-asr-archive
-    bili-asr publish-transcripts --archive-root archive --artifact-root /srv/bili-asr-archive
+    bili-asr search --archive-root archive --artifact-root /srv/bili-asr-archive <query>
+    bili-asr search-index --archive-root archive --artifact-root /srv/bili-asr-archive
+    bili-asr export --archive-root archive --artifact-root /srv/bili-asr-archive
+    bili-asr reading-export --archive-root archive --artifact-root /srv/bili-asr-archive
 
-**不带**这个参数的六个命令：`fetch-meta`、`status`、`runs`、`probe-subs`、`harvest-subs`、`derive-manifest`。它们一个产物路径都不解析（`status` 只读 SQLite，`harvest-subs` 不写文件系统投影，`derive-manifest` 只写 manifest 行），一个被接受却被忽略的参数等于在界面上说假话，所以它们连参数都没有。
+`workflow`、`fetch-meta`、`status`、`runs`、`check-asr-env`、`reading-review` 和
+`reading-edit` 不解析产物根目录，因此不会接受这个参数。工作流 handler
+在运行时从归档配置构造自己的读写根目录；阅读导出保持 SQLite 只读并校验
+已登记的 `reading.md` 哈希。
 
 ---
 

@@ -13,6 +13,6 @@ a field is handled the way it is.
 | [player.md](bilibili-API-collect/player.md) | The player endpoint and its parameters — the shape `probe-subs` and `download-audio` request against. |
 | [risk-and-stream.md](bilibili-API-collect/risk-and-stream.md) | Risk-control responses and the audio quality-ID table (`30216`=64K, `30232`=132K, `30280`=192K, `30250`=Dolby, `30251`=Hi-Res), including the reason `30232` must not be read as FLAC. |
 
-Cited from `PLAN.md` and the archived API contract decisions. They were
+These extracts preserve the archived API contract decisions. They were
 flattened from the upstream `docs/video/` and `docs/misc/` layout on
 2026-09-25, which is why the citations above carry no `docs/` segment.
