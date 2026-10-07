@@ -153,6 +153,11 @@ jobs:
         with:
           node-version: "20"
 
+      - name: Install Bun for the harness engine
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
       - name: Install the harness validator
         run: npm install --global @mstar-harness/cli@3.11.2
 
