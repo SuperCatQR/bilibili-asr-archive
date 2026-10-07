@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import bili_asr.search_index.errors as _module_search_index_errors
-import bili_asr.search_index.manifest as _module_search_index_manifest
 import bili_asr.search_index.store as _module_search_index_store
 
 
@@ -13,13 +12,6 @@ from datetime import datetime, timezone
 import json
 import sys
 
-from bili_asr.cli._shared import (
-    DEFAULT_ARCHIVE_ROOT,
-    _metadata_database_path,
-    _open_read_only_connection,
-    _open_subtitle_connection,
-)
-from bili_asr import search_index
 
 def _parse_pubdate_bound(value: str | None, flag: str, *, inclusive_end: bool = False) -> int | None:
     """Parse a YYYY-MM-DD date bound into a unix-second window edge (usage error on bad input).
@@ -82,21 +74,15 @@ def _cmd_search_index(args: argparse.Namespace) -> int:
     print(f"search-index: indexed {indexed} block(s); total {index.count()}")
     return 0
 
-
 def _cmd_search(args: argparse.Namespace) -> int:
     """Query the store-backed FTS5 index for transcript blocks.
 
     Exit contract (exit-code-contract §1–§2 applied to the index): a healthy
     archive — including an empty result set and a not-yet-built index — exits
     0; store/index corruption (the defect class) exits 1; usage errors exit 2.
-    The legacy manifest filters (``--status/--source/--language/--scope/
-    --work-id``) keep the manifest-backed index behind them; the store-backed
-    path is the default and answers ``--from/--to`` pubdate windows.
+    The SQLite transcript store is the only search source.
     """
     from bili_asr.search_index.errors import SearchIndexMissingError, TranscriptStoreError
-    from bili_asr.search_index.models import SearchQuery
-    from bili_asr.search_index.manifest import search
-
     if args.limit is not None and args.limit <= 0:
         write_stderr("search: --limit must be a positive integer")
         raise SystemExit(2)
@@ -109,83 +95,27 @@ def _cmd_search(args: argparse.Namespace) -> int:
         write_stderr("search: --from must be earlier than --to")
         raise SystemExit(2)
 
-    legacy_filters = any(
-        (args.status, args.source, args.language, args.scope, args.work_id)
-    )
     if args.rebuild:
-        if legacy_filters:
-            _module_search_index_manifest.SearchIndex(
-                args.archive_root, artifact_roots=args.artifact_roots
-            ).build(force=True)
-        else:
-            _cmd_search_index(args)
+        _cmd_search_index(args)
     index = _module_search_index_store.TranscriptSearchIndex(
         args.archive_root, artifact_roots=args.artifact_roots
     )
-    if not legacy_filters:
-        try:
-            hits = index.search_blocks(
-                args.query,
-                pubdate_from=pubdate_from,
-                pubdate_to=pubdate_to,
-                limit=args.limit if args.limit is not None else 20,
-            )
-        except SearchIndexMissingError:
-            # Backlog class: the index is work-not-yet-done, never a defect.
-            print("search: index missing — run `bili-asr search-index` to build it")
-            print(f"search: no hits for {args.query!r}")
-            return 0
-        except (_module_search_index_errors.TranscriptStoreError, OSError) as exc:
-            write_stderr(f"search: {exc}")
-            return 1
-        except _module_search_index_errors.FTS5UnavailableError as exc:
-            write_stderr(f"search: {exc}")
-            return 1
-        return _print_block_hits(args, hits)
-
-    source_filter = _parse_status_filter(args.source)
-    lang_filter = _parse_status_filter(args.language)
-    work_id_filter = _parse_status_filter(args.work_id)
-
-    sq = SearchQuery(
-        query=args.query,
-        status=_parse_status_filter(args.status),
-        source=source_filter,
-        language=lang_filter,
-        scope=args.scope,
-        work_id=work_id_filter,
-        limit=args.limit,
-        rebuild=args.rebuild,
-        auto_build=True,
-    )
-
     try:
-        results = search(
-            archive_root=args.archive_root, query=sq,
-            artifact_roots=args.artifact_roots,
+        hits = index.search_blocks(
+            args.query,
+            pubdate_from=pubdate_from,
+            pubdate_to=pubdate_to,
+            limit=args.limit if args.limit is not None else 20,
         )
-    except _module_search_index_errors.FTS5UnavailableError as exc:
-        write_stderr(f"search: {exc}")
-        return 1
-    except Exception:
-        write_stderr("search: unexpected error")
-        return 1
-
-    if not results:
+    except SearchIndexMissingError:
+        print("search: index missing — run `bili-asr search-index` to build it")
         print(f"search: no hits for {args.query!r}")
         return 0
-
-    if getattr(args, "format", "text") == "json":
-        print(json.dumps(results, indent=2, ensure_ascii=False))
-        return 0
-
-    for res in results:
-        score = float(res.get("score") or 0.0)
-        print(
-            f"{res['work_id']}: {res['title']} [{res['status']}] "
-            f"(score: {score:.4f}, path: {res['path']})"
-        )
-    return 0
+    except (_module_search_index_errors.TranscriptStoreError, OSError,
+            _module_search_index_errors.FTS5UnavailableError) as exc:
+        write_stderr(f"search: {exc}")
+        return 1
+    return _print_block_hits(args, hits)
 
 
 def _print_block_hits(args: argparse.Namespace, hits) -> int:
@@ -208,16 +138,3 @@ def _print_block_hits(args: argparse.Namespace, hits) -> int:
             f"({pubdate_day}) {snippet}"
         )
     return 0
-
-
-def _parse_status_filter(status_args: list[str] | None) -> set[str] | None:
-    """Parse repeatable and/or comma-separated status filter arguments."""
-    if not status_args:
-        return None
-    statuses: set[str] = set()
-    for item in status_args:
-        for s in item.split(","):
-            s = s.strip()
-            if s:
-                statuses.add(s)
-    return statuses if statuses else None

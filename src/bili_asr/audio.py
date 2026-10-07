@@ -23,9 +23,7 @@ from typing import Any
 
 from .artifact_root import ArtifactRoots, usable_audio_path
 from .bili_client import BiliClient, StreamDownloadError
-from .manifest import ManifestStore
-from .page_identity import PageIdentity, apply_identity, identity_from_entry
-from .subtitles import resolve_page_identity
+from .page_identity import PageIdentity
 from .path_policy import (
     confined_audio_file,
     confined_audio_path,
@@ -38,11 +36,6 @@ AUDIO_DIR = os.path.join("audio")
 # Spec preference order for dash.audio quality ids:
 # 30216 (64K) > 30232 (132K) > 30250 (Dolby) > first listed.
 _AUDIO_ID_PREFERENCE = (30216, 30232, 30250)
-
-
-def _portable_relpath(path: str | os.PathLike[str], base: str | os.PathLike[str]) -> str:
-    """Return the manifest's stable, platform-independent relative key."""
-    return os.path.relpath(os.fspath(path), os.fspath(base)).replace(os.sep, "/")
 
 
 class NoAudioStreamError(Exception):
@@ -174,22 +167,17 @@ def _existing_audio(out_path: str, roots: ArtifactRoots) -> str | None:
 
 def _archive_root_for_download(
     out_path: str | os.PathLike[str],
-    store: ManifestStore | None,
     artifact_roots: ArtifactRoots | None = None,
 ) -> tuple[Path, Path]:
     """Return the base this download writes under and its confined target.
 
     A configured artifact root is the base outright (contract §4: a write resolves
     on ``write_base`` alone, never on which ``audio/`` directory happens to exist).
-    Otherwise the base is today's derivation — the store's root, or the ``audio/``
-    component of the requested path.
+    Otherwise the base is derived from the requested ``audio/`` path.
     """
     requested = os.path.abspath(os.fspath(out_path))
     if artifact_roots is not None:
         root = Path(os.path.abspath(os.fspath(artifact_roots.write_base)))
-        relative = os.path.relpath(requested, root)
-    elif store is not None:
-        root = Path(os.path.abspath(os.fspath(store.root)))
         relative = os.path.relpath(requested, root)
     else:
         candidate = Path(requested)
@@ -233,9 +221,8 @@ def _create_windows_stage(audio_dir: Path, suffix: str) -> Path:
 
 def download_audio(
     client: BiliClient,
-    target: PageIdentity | str,
+    target: PageIdentity,
     out_path: str | os.PathLike[str],
-    store: ManifestStore | None = None,
     *,
     artifact_roots: ArtifactRoots | None = None,
 ) -> str:
@@ -252,31 +239,13 @@ def download_audio(
     root-relative ``audio/<name>.<ext>`` string either way (D7).
     """
     out_path = os.fspath(out_path)
-    archive_root, confined_out = _archive_root_for_download(
-        out_path, store, artifact_roots
-    )
+    archive_root, confined_out = _archive_root_for_download(out_path, artifact_roots)
     roots = artifact_roots if artifact_roots is not None else ArtifactRoots.of(archive_root)
     out_path = os.fspath(confined_out)
-    if isinstance(target, PageIdentity):
-        existing = _existing_audio(out_path, roots)
-        if existing is not None:
-            _mark_audio_ok(store, target, existing, artifact_roots)
-            return existing
-        identity = target
-    else:
-        # A resumable target is enough to answer this request. Resolving a bare
-        # bvid would otherwise make a pagelist network call before checking the
-        # local archive, defeating offline resume for already downloaded audio.
-        existing = _existing_audio(out_path, roots)
-        if existing is not None:
-            if store is not None:
-                known = store.get_compatible(target) or store.get(target)
-                if known and known.get("work_id") and known.get("cid") is not None:
-                    known_identity = identity_from_entry(known, target)
-                    if isinstance(known_identity, PageIdentity):
-                        _mark_audio_ok(store, known_identity, existing, artifact_roots)
-            return existing
-        identity = resolve_page_identity(client, target)
+    existing = _existing_audio(out_path, roots)
+    if existing is not None:
+        return existing
+    identity = target
 
     audio_dir = os.path.dirname(out_path)
     if audio_dir != os.fspath(archive_root / "audio"):
@@ -303,7 +272,6 @@ def download_audio(
     if os.name == "nt":
         return _download_audio_windows(
             client, urls, is_flac, archive_root, final_name, final_path,
-            store, identity, artifact_roots,
         )
     audio_fd = open_audio_directory(archive_root)
     stage_name = ""
@@ -366,7 +334,6 @@ def download_audio(
             os.close(stage_fd)
         os.close(audio_fd)
 
-    _mark_audio_ok(store, identity, final_path, artifact_roots)
     return final_path
 
 
@@ -377,9 +344,6 @@ def _download_audio_windows(
     archive_root: Path,
     final_name: str,
     final_path: str,
-    store: ManifestStore | None,
-    identity: PageIdentity,
-    artifact_roots: ArtifactRoots | None,
 ) -> str:
     """Download through validated paths on Windows, which has no dir_fd API."""
     audio_dir = archive_root / "audio"
@@ -421,7 +385,6 @@ def _download_audio_windows(
         else:
             os.replace(stage, audio_dir / final_name)
             stage = None
-        _mark_audio_ok(store, identity, output_path, artifact_roots)
         return output_path
     finally:
         for path in (stage, converted):
@@ -431,44 +394,3 @@ def _download_audio_windows(
                 path.unlink()
             except FileNotFoundError:
                 pass
-
-def _mark_audio_ok(
-    store: ManifestStore | None,
-    identity: PageIdentity,
-    final_path: str,
-    artifact_roots: ArtifactRoots | None = None,
-) -> None:
-    if store is None:
-        return
-    existing = (
-        store.get(identity.work_id)
-        or store.get_compatible(identity.bvid)
-        or store.get(identity.bvid)
-        or {}
-    )
-    entry = apply_identity(existing, identity)
-    entry.pop("last_api_error_code", None)
-    entry["status"] = "audio_ok"
-    # The value is recorded relative to the base that holds the file: the
-    # configured root's bases when one was resolved (the write base first — it is
-    # where a fresh download lands — then the archive root for a legacy copy),
-    # else `store.root` exactly as before.  Computing it against the wrong base
-    # is the silent failure of contract §15 correction 7: `os.path.relpath`
-    # succeeds with `..` components, `confined_audio_path` refuses the shape, and
-    # the row never reaches `audio_ok`. Reject that wiring error explicitly.
-    bases = (
-        artifact_roots.read_bases()
-        if artifact_roots is not None
-        else (Path(store.root).resolve(),)
-    )
-    for base in bases:
-        try:
-            final_rel = _portable_relpath(final_path, base)
-        except ValueError:  # Windows across drives
-            continue
-        if confined_audio_path(base, final_rel, require_exists=True) is None:
-            continue
-        entry["audio_path"] = final_rel
-        store.upsert(entry)
-        return
-    raise OSError("audio path outside archive")

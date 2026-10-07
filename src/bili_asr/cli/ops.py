@@ -1,4 +1,4 @@
-"""ops-facing handlers (check-asr-env / export / verify / recover)."""
+"""Host check, export, and verification handlers."""
 
 from __future__ import annotations
 
@@ -10,12 +10,12 @@ import json
 import os
 import sys
 
-from bili_asr.cli._shared import (
-    DEFAULT_ARCHIVE_ROOT,
-    _metadata_database_path,
-    _open_read_only_connection,
-)
-from bili_asr.cli.search import _parse_status_filter
+
+
+def _parse_status_filter(values: list[str] | None) -> set[str] | None:
+    if not values:
+        return None
+    return {item.strip() for value in values for item in value.split(",") if item.strip()}
 
 def _cmd_check_asr_env(args: argparse.Namespace) -> int:
     """Run the host self-check the README and spec 01 D1.2 name.
@@ -101,21 +101,21 @@ def _cmd_check_asr_env(args: argparse.Namespace) -> int:
 
 
 def _cmd_export(args: argparse.Namespace) -> int:
-    from bili_asr.export import export_manifest
-    from bili_asr.manifest import VALID_STATUSES
+    from bili_asr.export import export_records
+    from bili_asr.services.workflow_projection import WORKFLOW_STATUSES
 
     status_filter = _parse_status_filter(args.status)
     if status_filter is not None:
-        invalid = status_filter - VALID_STATUSES
+        invalid = status_filter - WORKFLOW_STATUSES
         if invalid:
             write_stderr(
                 f"export: invalid status filter: {sorted(invalid)}; "
-                f"valid statuses: {sorted(VALID_STATUSES)}"
+                f"valid statuses: {sorted(WORKFLOW_STATUSES)}"
             )
             return 1
 
     try:
-        content = export_manifest(
+        content = export_records(
             archive_root=args.archive_root,
             fmt=args.format,
             out_path=args.out,
@@ -134,10 +134,8 @@ def _cmd_export(args: argparse.Namespace) -> int:
 
 def _cmd_verify(args: argparse.Namespace) -> int:
     from bili_asr.integrity import BACKLOG_CATEGORY, DEFECT_CATEGORY, IntegrityVerifier
-    from bili_asr.sidecar_projection import ReaderPolicy
-    policy = ReaderPolicy(mode="trusted_archive") if getattr(args, "trusted_local", False) else None
     report = IntegrityVerifier().verify(
-        Path(args.archive_root), scope=args.scope, policy=policy,
+        Path(args.archive_root), scope=args.scope,
         artifact_roots=args.artifact_roots,
     )
     payload = report.to_dict()
@@ -163,14 +161,3 @@ def _cmd_verify(args: argparse.Namespace) -> int:
     # Default gate (contract §2): defect-class findings and diagnostics only.
     # Backlog rows are printed in their own section and never move the exit code.
     return 1 if payload["defect_count"] or payload["diagnostics"] else 0
-
-
-def _cmd_recover(args: argparse.Namespace) -> int:
-    from bili_asr.integrity import IntegrityVerifier
-    payload = IntegrityVerifier.recover(
-        Path(args.archive_root), work_ids=args.work_id,
-        defect_codes=args.defect_code, limit=args.limit,
-        artifact_roots=args.artifact_roots,
-    )
-    print(json.dumps(payload, ensure_ascii=False, sort_keys=True))
-    return 0 if payload.get("ok") else 1

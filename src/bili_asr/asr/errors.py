@@ -17,9 +17,8 @@ class AudioDecodeError(RuntimeError):
     """The audio file exists but the decoder refused it.
 
     Distinct from :class:`ASRDependencyError`: the dependencies are present, the *file* is the
-    problem (unreadable, or a codec ``ffmpeg`` was not built with).  The coordinator records the
-    exception's type name when it has no scalar ``code`` attribute, so this class name is what an
-    operator sees in the run ledger.
+    problem (unreadable, or a codec ``ffmpeg`` was not built with). Workflow
+    attempts retain a bounded error classification for the failed job.
 
     What this class does **not** cover, stated because the difference matters for an archive whose
     download stage can be interrupted: a file truncated in the middle decodes **silently short**

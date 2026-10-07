@@ -1,14 +1,9 @@
-"""Decide and shape the transcript projection: which stored body wins, and the row.
+"""Choose a transcript version and shape its publication record.
 
-One direction only, and no I/O at all.  ``archive.db`` holds the text, the
-manifest states what was published, and this module is the mapping between the
-two and nothing else — it opens no connection, writes no file, reads no
-manifest, and composes no clock the caller did not hand it.  ``cli.py`` owns the
-composition (contract §8: only the composition root reaches across layers): the
-repository read (``list_stored_transcripts``) yields one mapping per stored
-transcript version with its part's columns, this module keeps one winner per
-part and converts its body, and the caller publishes through the archive writer
-and records the row through ``ManifestStore``.
+This module is pure: it opens no connection and writes no file. The workflow
+runtime reads stored versions, chooses one candidate per part, and publishes
+the selected body through the archive writer. Publication paths and transcript
+identity are then recorded in SQLite.
 
 The order is contract §3.2's, applied in order: the kind rank (an uploader
 caption before a machine caption), the language **family** rank (``zh``, then
@@ -30,9 +25,9 @@ repository, so importing it would put the acquisition side inside a pure module.
 equal to the harvester's default order; the rule below is pinned the same way,
 against the harvester's own function over the codes §3.2 spells out.
 
-The two shared rules that *are* imported keep one home each:
-:func:`~bili_asr.services.manifest_derivation.duration_s_from_ms` for the
-milliseconds→seconds conversion (§3.4), and
+The shared rules that are imported keep one home each:
+:func:`~bili_asr.formatting.duration_s_from_ms` for the milliseconds-to-seconds
+conversion, and
 :func:`~bili_asr.page_identity.format_work_id` for the row's identity (§2.1,
 where the read deliberately leaves ``work_id`` to Python).
 """
@@ -45,14 +40,12 @@ from typing import TYPE_CHECKING, Any, Iterable, Mapping, Sequence
 from bili_asr.page_identity import format_work_id
 from bili_asr.formatting import pubdate_utc
 from bili_asr.artifacts import REQUIRED_ARTIFACT_KEYS as _PRODUCT_PATH_KEYS
-from bili_asr.services.manifest_derivation import duration_s_from_ms
+from bili_asr.formatting import duration_s_from_ms
 
 if TYPE_CHECKING:  # types only: this module never builds or checks one (§8).
     from bili_asr.storage.models import TranscriptSegmentRecord
 
-#: The one manifest status this projection records (contract §5.2): the state
-#: the chain itself writes after ``write_archive`` and a complete bundle, and the
-#: status the readers require to stop counting the row unfinished.
+#: The state assigned once the archive bundle is complete.
 ARCHIVED_STATUS = "archived"
 #: §3.2 key 1: the kind order, which is the shipped harvester's own preference —
 #: an uploader caption before a machine caption before a local ASR transcript.
@@ -104,8 +97,8 @@ class Candidate:
     hand ``part``/``transcript`` straight to :func:`projection_row` and read the
     winner off the candidate without the row's other columns travelling with it.
     ``work_id`` is built here by :func:`~bili_asr.page_identity.format_work_id`:
-    §2.1's read does not select it, and ``ManifestStore.upsert`` re-validates the
-    same Python identity when the row is written.
+    the SQL read does not select it, and the storage writer validates the same
+    Python identity when it persists a publication.
     """
 
     work_id: str
@@ -237,22 +230,17 @@ def projection_row(
     transcript: Mapping[str, Any],
     paths: Mapping[str, Any],
 ) -> dict[str, Any]:
-    """Build the manifest row one published candidate records (§5.1).
+    """Build the SQLite publication projection for one selected candidate.
 
     Exactly the fifteen keys and no others: the nine store-derived fields the
-    queue bridge's own row carries (``manifest_derivation.py:87-97``) with this
-    command's one status, this publication's four product paths copied from
+    the stored part contributes with this publication's state and four product paths copied from
     ``paths`` root-relative to the write base, and the winning identity in the
-    readers' vocabulary — ``source`` and ``language`` as ``quality`` and
-    ``search_index`` already read them.
+    readers' vocabulary — ``source`` and ``language``.
 
     Nothing else is added and nothing is guessed: no ``audio_path`` (a caption
-    has no audio), no ``sub_lan``/``lan_doc`` (the legacy subtitle keys), no
-    ``artifact_paths`` (a chain attempt key), and no ``asr_*`` provenance — the
-    store holds no device, VAD or hotword fact to write, so the keys are absent
-    rather than zero-filled (§4.2).  ``duration_s`` and the ``pubdate_str`` day
-    are §3.4's two renderings: the bridge's floor-and-clamp, imported, and the
-    second's **UTC** calendar date.  Only the four product keys are read out of
+    has no audio), nor ASR execution details that are not stored. ``duration_s``
+    and ``pubdate_str`` are derived renderings: a floored duration and the
+    video's **UTC** calendar date. Only the four product keys are read out of
     ``paths``, so a caller's mapping may hold more (the marker's path, say)
     without any of it reaching the manifest.
     """

@@ -51,7 +51,7 @@ def add_workflow_parser(subparsers: argparse._SubParsersAction, *, archive_root:
     render.add_argument("--revision-id", required=True)
     render.add_argument("--template-version", choices=[TEMPLATE_VERSION], default=TEMPLATE_VERSION)
 
-    run = actions.add_parser("run", help="Claim and execute ready jobs without a coordinator manifest")
+    run = actions.add_parser("run", help="Claim and execute ready SQLite jobs")
     run.add_argument("--archive-root", default=archive_root)
     run.add_argument("--limit", type=int, default=None)
     run.add_argument("--worker-id", default=f"cli-{os.getpid()}-{uuid4().hex[:8]}")

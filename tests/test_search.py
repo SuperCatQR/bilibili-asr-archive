@@ -493,10 +493,10 @@ def test_search_index_without_fts5_refuses_cleanly(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    from bili_asr import cli as cli_module
+    from bili_asr import search_index
 
     monkeypatch.setattr(
-        cli_module.search_index, "check_fts5_available", lambda conn=None: False
+        search_index, "check_fts5_available", lambda conn=None: False
     )
     assert _module_cli_main.main(["search-index", "--archive-root", str(tmp_path)]) == 1
     err = capsys.readouterr().err

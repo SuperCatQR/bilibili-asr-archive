@@ -508,7 +508,6 @@ def _transaction(connection: sqlite3.Connection) -> Iterator[sqlite3.Connection]
 
 __all__ = [
     "DatabaseConnection",
-    "MediaQueueRepository",
     "MetadataRepository",
     "SchemaContractError",
     "TranscriptRepository",

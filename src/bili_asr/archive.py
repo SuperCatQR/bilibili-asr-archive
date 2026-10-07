@@ -12,7 +12,7 @@ import stat
 import sys
 import threading
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Callable, Mapping
 
 from .asr import segments_to_srt, segments_to_txt
 from .page_identity import artifact_stem, page_identity, page_query_index
@@ -366,7 +366,13 @@ def _create_bundle_stage(transcripts_fd: int) -> tuple[str, int]:
     raise OSError("unable to allocate archive staging directory")
 
 
-def _publish_bundle(root: Path, finals: Mapping[str, Path], contents: Mapping[str, bytes]) -> None:
+def _publish_bundle(
+    root: Path,
+    finals: Mapping[str, Path],
+    contents: Mapping[str, bytes],
+    *,
+    before_replace: Callable[[], None] | None = None,
+) -> None:
     """Publish one work's five files atomically inside its own directory.
 
     Staging uses a unique sibling directory and the marker is invalidated
@@ -388,10 +394,14 @@ def _publish_bundle(root: Path, finals: Mapping[str, Path], contents: Mapping[st
                 target = finals[key]
                 temporary = target.with_name(f".{target.name}.{secrets.token_hex(16)}.tmp")
                 temporary.write_bytes(contents[key])
+                if before_replace is not None:
+                    before_replace()
                 os.replace(temporary, target)
             marker = work / BUNDLE_MARKER_NAME
             temporary = work / f".{BUNDLE_MARKER_NAME}.{secrets.token_hex(16)}.tmp"
             temporary.write_bytes(_marker_payload(finals, root, contents))
+            if before_replace is not None:
+                before_replace()
             os.replace(temporary, marker)
         return
     with _bundle_lock(root):
@@ -417,9 +427,15 @@ def _publish_bundle(root: Path, finals: Mapping[str, Path], contents: Mapping[st
             work_fd = _open_dir(transcripts_fd, work_name)
             for name in names.values():
                 _require_regular_target(name, dir_fd=work_fd)
+            if before_replace is not None:
+                before_replace()
             _invalidate_marker(work_fd, marker_name)
             for key in _REQUIRED_ARTIFACT_KEYS:
+                if before_replace is not None:
+                    before_replace()
                 _replace_at(stage_fd, names[key], work_fd, names[key])
+            if before_replace is not None:
+                before_replace()
             _replace_at(stage_fd, marker_name, work_fd, marker_name)
             _fsync_fd(work_fd)
             _fsync_fd(transcripts_fd)
@@ -550,7 +566,7 @@ def _confidence_summary(segments: list[dict[str, Any]]) -> dict[str, Any]:
     whichever one this read reaches first, so a low ``"nope"`` sitting behind a
     non-low *missing* ``start`` raises ``ValueError`` here where the formatter
     alone raised ``KeyError``.  The row still fails and still publishes nothing;
-    only the code ``coordinator._safe_error_code`` records for that stage can
+    only the stage's bounded error summary can
     change, which is why no caller may branch on the type.
     """
 
@@ -806,7 +822,7 @@ def characters_for(segments: list[dict[str, Any]], characters: Any) -> dict[str,
     return {"text": text, "starts": list(starts), "ends": list(ends)}
 
 
-def write_archive(archive_root: str | os.PathLike[str], entry: dict[str, Any], segments: list[dict[str, Any]], *, source: str, raw: Any | None = None, asr_provenance: Mapping[str, str] | None = None, characters: Any | None = None, coverage: Mapping[str, Any] | None = None) -> dict[str, str]:
+def write_archive(archive_root: str | os.PathLike[str], entry: dict[str, Any], segments: list[dict[str, Any]], *, source: str, raw: Any | None = None, asr_provenance: Mapping[str, str] | None = None, characters: Any | None = None, coverage: Mapping[str, Any] | None = None, before_replace: Callable[[], None] | None = None) -> dict[str, str]:
     "Publish one transcript bundle below the archive root.\n\n    ``asr_provenance`` carries the ASR runner's redaction-safe configuration\n    (model, revision, device, language, VAD, hotwords).  It is recorded in the\n    raw sidecar and as ``asr_*`` frontmatter keys, so any transcript can be\n    traced back to the model that produced it.  The subtitle path passes\n    nothing and is unchanged.\n\n    ``coverage`` carries this run's coverage attestation (``decoded_s`` /\n    ``produced_s`` / ``coverage`` / ``coverage_min`` / ``coverage_short``, built\n    by :func:`bili_asr.asr.coverage._coverage_record`).  It is recorded as ``coverage_*``\n    frontmatter keys **and** in the raw sidecar, because ``I-000188``'s\n    acceptance names both surfaces: a reader holding only the published bundle\n    must be able to see that the transcript covers part of what was decoded,\n    without reading the store.  The subtitle path has no measurement to carry\n    and passes nothing.\n    "
     try:
         root = _lexical_archive_root(archive_root)
@@ -841,7 +857,7 @@ def write_archive(archive_root: str | os.PathLike[str], entry: dict[str, Any], s
         raw["characters"] = block
         raw["schema"] = "archive-raw-v2"
     contents = {"srt_path": segments_to_srt(segments).encode(), "txt_path": (segments_to_txt(segments) + "\n").encode(), "md_path": md, "raw_path": (json.dumps(raw, ensure_ascii=False, separators=(",", ":")) + "\n").encode()}
-    _publish_bundle(root, finals, contents)
+    _publish_bundle(root, finals, contents, before_replace=before_replace)
     return {
         key: os.path.relpath(path, root).replace(os.sep, "/")
         for key, path in finals.items()
