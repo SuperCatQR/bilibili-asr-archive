@@ -18,6 +18,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     from bili_asr.cli.workflow import add_workflow_parser
     add_workflow_parser(subparsers, archive_root=DEFAULT_ARCHIVE_ROOT)
+    from bili_asr.cli.reading import add_reading_parsers
+    add_reading_parsers(subparsers, archive_root=DEFAULT_ARCHIVE_ROOT)
 
     fetch_meta = subparsers.add_parser("fetch-meta", help="Collect video metadata into SQLite")
     fetch_meta.add_argument("--mid", type=int, default=DEFAULT_MID)

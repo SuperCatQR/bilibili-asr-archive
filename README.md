@@ -20,6 +20,11 @@ archive.db: metadata, transcripts, audio references, workflow jobs, leases, atte
 archive/:   audio files and published transcript bundles
 ```
 
+The reading-site projection is built separately: SQLite editorial revisions
+and hash-verified `reading.md` artifacts are exported read-only to
+`reading-site/content/`. Issue review decisions and accepted human editions
+return through `reading-review` and `reading-edit`.
+
 The workflow tables are the only job scheduler. `workflow_jobs` stores producer jobs and prerequisite links; `workflow_attempts` stores attempt outcomes and lease ownership. Each ASR job references an immutable profile snapshot and a fixed input transcript when one exists. Publication records identify the transcript version and bundle paths that were written.
 
 Package boundaries:
@@ -85,6 +90,23 @@ bili-asr workflow proofread --part-id 42 --no-reference
 bili-asr workflow render --revision-id REVISION_ID
 bili-asr workflow run --only-editorial
 ```
+
+The read-only Markdown site importer copies rendered `reading.md` and
+`review.md` documents from SQLite and their recorded artifact roots. The public
+site exposes both views; unreviewed revisions are visibly marked for
+Issue-based review:
+
+```powershell
+bili-asr reading-export --archive-root archive --out reading-site/content
+cd reading-site
+pnpm install
+pnpm dev
+```
+
+Record an Issue and review status with `bili-asr reading-review`. Accepted
+changes are stored as immutable human editions using `bili-asr reading-edit`;
+the original AI revision remains unchanged. See [reading-site/README.md](reading-site/README.md)
+for the full review and static publishing flow.
 
 ## Query
 

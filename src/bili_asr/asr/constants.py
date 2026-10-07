@@ -23,6 +23,12 @@ _RICH_TAG = re.compile(r"<\|[^|>]+\|>")
 DEFAULT_CHUNK_SECONDS = 180.0
 
 
+# ROCm can leave a forced-alignment kernel blocked indefinitely.  CUDA/ROCm
+# workflow workers run ASR in a child process and this deadline is the hard
+# boundary that lets the parent terminate that child and retry the job.
+DEFAULT_INFERENCE_TIMEOUT_SECONDS = 1800.0
+
+
 _CHUNK_SEARCH_EXPAND_S = 5.0
 
 
@@ -99,6 +105,9 @@ ASR_HOTWORDS_ENV_VAR = "BILI_ASR_HOTWORDS"
 
 
 ASR_CHUNK_SECONDS_ENV_VAR = "BILI_ASR_CHUNK_SECONDS"
+
+
+ASR_INFERENCE_TIMEOUT_ENV_VAR = "BILI_ASR_INFERENCE_TIMEOUT_SECONDS"
 
 
 DEFAULT_HOTWORDS: tuple[str, ...] = ()

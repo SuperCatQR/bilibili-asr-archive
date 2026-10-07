@@ -107,6 +107,27 @@ class WorkflowRepository:
         if connection.row_factory is None:
             raise TypeError("connection must return sqlite3.Row objects")
         self.connection = connection
+        row = connection.execute("PRAGMA database_list").fetchone()
+        self._database_path = "" if row is None else str(row["file"] or "")
+
+    def open_lease_repository(self) -> "WorkflowRepository | None":
+        """Open a connection suitable for a background lease heartbeat.
+
+        SQLite connections are thread-affine by default.  A worker can spend
+        minutes inside model inference, so the heartbeat cannot safely reuse
+        the worker's connection.  The in-memory database used by unit tests has
+        no second connection that can see the same state and therefore returns
+        ``None``; file-backed workflow databases get an independent connection
+        with the same row and foreign-key settings as :func:`open_database`.
+        """
+
+        if not self._database_path:
+            return None
+        connection = sqlite3.connect(self._database_path, isolation_level="DEFERRED", timeout=30)
+        connection.row_factory = sqlite3.Row
+        connection.execute("PRAGMA foreign_keys = ON")
+        connection.execute("PRAGMA busy_timeout = 30000")
+        return type(self)(connection)
 
     def register_profile(self, profile: AsrProfile) -> int:
         if not isinstance(profile, AsrProfile):
@@ -317,7 +338,7 @@ class WorkflowRepository:
             cursor = self.connection.execute(
                 "UPDATE workflow_jobs SET lease_expires_at = ?, updated_at = ? "
                 "WHERE job_id = ? AND status = 'running' AND lease_owner = ? "
-                "AND attempt_count = ? AND lease_expires_at > ?",
+                "AND attempt_count = ? AND lease_expires_at >= ?",
                 (now + lease_seconds, now, job.job_id, job.lease_owner, job.attempt_count, now))
             if cursor.rowcount != 1:
                 raise LeaseLostError("job lease was lost")

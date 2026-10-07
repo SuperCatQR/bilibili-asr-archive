@@ -160,7 +160,14 @@ class ArchiveWorkflowHandlers:
         audio_path = self.archive_root / storage_key
         if not audio_path.is_file():
             raise RuntimeError("audio_missing")
-        runner = self._runner(job.profile_id)
+        profile = self.repository.profile(job.profile_id)
+        config = asr.ASRConfig(
+            model_name=profile.model_name,
+            aligner_name=profile.aligner_name,
+            model_revision=profile.model_revision or None,
+            device=profile.device,
+            language=profile.language,
+        )
         reference_id = job.payload.get("reference_transcript_id")
         paired_text = self._paired_subtitle_text(
             None if reference_id is None else int(reference_id)
@@ -180,9 +187,21 @@ class ArchiveWorkflowHandlers:
         )
         try:
             self.repository.assert_lease(job)
-            segments = asr.two_pass_transcribe(
-                runner, os.fspath(audio_path), paired_subtitle_text=paired_text
-            )
+            if profile.device.casefold().startswith(("cuda", "rocm")):
+                segments, provenance, coverage = asr.transcribe_with_timeout(
+                    config,
+                    os.fspath(audio_path),
+                    paired_subtitle_text=paired_text,
+                    timeout_seconds=config.inference_timeout_seconds,
+                )
+                language = asr.provenance_language(provenance)
+            else:
+                runner = self._runner(job.profile_id)
+                segments = asr.two_pass_transcribe(
+                    runner, os.fspath(audio_path), paired_subtitle_text=paired_text
+                )
+                language = asr.provenance_language(runner.provenance())
+                coverage = asr.transcribed_coverage(runner)
         except BaseException:
             self._subtitle_repository.finish_acquisition_run(
                 run_id, int(time.time()), outcome="failed"
@@ -204,14 +223,14 @@ class ArchiveWorkflowHandlers:
             stored = self._subtitle_repository.record_local_transcript(
                 run_id=run_id,
                 video_part_id=int(part["video_part_id"]),
-                language=asr.provenance_language(runner.provenance()),
+                language=language,
                 segments=records,
-                model_name=self.repository.profile(job.profile_id).model_name,
-                model_revision=self.repository.profile(job.profile_id).model_revision,
+                model_name=profile.model_name,
+                model_revision=profile.model_revision,
                 started_at=started,
                 finished_at=finished,
                 created_at=finished,
-                coverage=asr.transcribed_coverage(runner),
+                coverage=coverage,
             )
             self._subtitle_repository.finish_acquisition_run(run_id, int(time.time()))
         except BaseException:

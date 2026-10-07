@@ -51,3 +51,41 @@ CREATE TABLE IF NOT EXISTS document_artifacts (
     content_sha256 TEXT NOT NULL,
     PRIMARY KEY (revision_id, template_version, artifact_name)
 );
+
+CREATE TABLE IF NOT EXISTS reading_document_editions (
+    edition_id TEXT PRIMARY KEY,
+    revision_id TEXT NOT NULL REFERENCES editorial_revisions(revision_id),
+    parent_edition_id TEXT REFERENCES reading_document_editions(edition_id),
+    markdown_text TEXT NOT NULL,
+    content_sha256 TEXT NOT NULL,
+    created_at INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS reading_publications (
+    revision_id TEXT PRIMARY KEY REFERENCES editorial_revisions(revision_id),
+    current_edition_id TEXT REFERENCES reading_document_editions(edition_id),
+    status TEXT NOT NULL CHECK (status IN (
+        'pending-review', 'in-review', 'changes-requested',
+        'approved', 'published', 'rejected', 'withdrawn'
+    )),
+    issue_url TEXT,
+    updated_at INTEGER NOT NULL,
+    published_at INTEGER
+);
+
+CREATE TABLE IF NOT EXISTS reading_publication_events (
+    event_id INTEGER PRIMARY KEY,
+    revision_id TEXT NOT NULL REFERENCES editorial_revisions(revision_id),
+    edition_id TEXT REFERENCES reading_document_editions(edition_id),
+    from_status TEXT,
+    to_status TEXT NOT NULL CHECK (to_status IN (
+        'pending-review', 'in-review', 'changes-requested',
+        'approved', 'published', 'rejected', 'withdrawn'
+    )),
+    issue_url TEXT,
+    note TEXT NOT NULL DEFAULT '',
+    changed_at INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_reading_publication_events_revision
+    ON reading_publication_events(revision_id, event_id);

@@ -33,6 +33,9 @@ COMMANDS = MappingProxyType({
     "search-index": CommandSpec("_cmd_search_index", ArtifactPolicy.READ),
     "check-asr-env": CommandSpec("_cmd_check_asr_env", ArtifactPolicy.NONE),
     "export": CommandSpec("_cmd_export", ArtifactPolicy.READ),
+    "reading-export": CommandSpec("_cmd_reading_export", ArtifactPolicy.READ),
+    "reading-review": CommandSpec("_cmd_reading_review", ArtifactPolicy.NONE),
+    "reading-edit": CommandSpec("_cmd_reading_edit", ArtifactPolicy.NONE),
 })
 
 

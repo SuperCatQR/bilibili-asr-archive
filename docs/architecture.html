@@ -4982,12 +4982,12 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
       </div>
     </div>
 
-    <script id="archify-source-evidence-data" type="application/json">{"schemaVersion":1,"verified":true,"repository":{"url":"https://github.com/SuperCatQR/bilibili-asr-archive","revision":"3cc9346728e3d02980241845fa86900c0fb6c706","shortRevision":"3cc9346","label":"SuperCatQR/bilibili-asr-archive","linkMode":"local-only"},"referenceCount":69,"nodes":{"operator":[{"path":"README.md","line":11,"endLine":36,"label":"当前操作入口"}],"cli":[{"path":"src/bili_asr/cli/main.py","line":1,"endLine":74,"label":"解析命令并分派 handler"},{"path":"src/bili_asr/cli/registry.py","line":25,"endLine":36,"label":"当前命令注册表"}],"planner":[{"path":"src/bili_asr/cli/workflow.py","line":129,"endLine":159,"label":"规划与 retry"},{"path":"src/bili_asr/storage/workflow.py","line":150,"endLine":240,"label":"独立生产者依赖"}],"jobs":[{"path":"src/bili_asr/storage/schema-workflow.sql","line":7,"endLine":81,"label":"任务 / 配置 / 质量表"},{"path":"src/bili_asr/storage/workflow.py","line":242,"endLine":308,"label":"原子租约与过期回收"},{"path":"src/bili_asr/storage/workflow.py","line":534,"endLine":589,"label":"完成与陈旧租约防护"}],"bilibili":[{"path":"src/bili_asr/sources/bilibili_api_gateway.py","line":783,"endLine":833,"label":"枚举 / 详情 / 分 P"},{"path":"src/bili_asr/sources/bilibili_api_gateway.py","line":906,"endLine":987,"label":"字幕清单与内容"},{"path":"src/bili_asr/bili_client.py","line":635,"endLine":656,"label":"CDN 流式下载"}],"gateway":[{"path":"src/bili_asr/sources/bilibili_api_gateway.py","line":1,"endLine":59,"label":"固定 SDK 与 DTO 边界"},{"path":"src/bili_asr/sources/bilibili_api_gateway.py","line":719,"endLine":781,"label":"凭据 / 代理 / pacing"},{"path":"src/bili_asr/bili_client.py","line":219,"endLine":331,"label":"HTTP / 风控 / 退避"}],"metadata":[{"path":"src/bili_asr/cli/meta.py","line":33,"endLine":45,"label":"实例化 gateway / repository"},{"path":"src/bili_asr/services/metadata_ingest.py","line":290,"endLine":365,"label":"分页采集与恢复游标"},{"path":"src/bili_asr/services/metadata_ingest.py","line":569,"endLine":645,"label":"页内持久化事实"}],"facts":[{"path":"src/bili_asr/storage/schema.sql","line":3,"endLine":113,"label":"实体 / 详情 / 采集事件"},{"path":"src/bili_asr/storage/database.py","line":398,"endLine":475,"label":"schema bootstrap"},{"path":"src/bili_asr/services/metadata_ingest.py","line":645,"endLine":690,"label":"record_page 写入"}],"subtitles":[{"path":"src/bili_asr/workflow_runtime.py","line":69,"endLine":103,"label":"字幕 handler 与发布请求"},{"path":"src/bili_asr/services/subtitle_ingest.py","line":465,"endLine":527,"label":"规范化与版本写入"},{"path":"src/bili_asr/storage/transcripts.py","line":164,"endLine":286,"label":"字幕内容幂等"}],"executor":[{"path":"src/bili_asr/workflow.py","line":27,"endLine":78,"label":"逐任务执行与 terminal attempt"},{"path":"src/bili_asr/cli/workflow.py","line":160,"endLine":183,"label":"实际 handler 注册"},{"path":"src/bili_asr/workflow_runtime.py","line":56,"endLine":67,"label":"归档 handler / 模型释放"}],"audio":[{"path":"src/bili_asr/workflow_runtime.py","line":105,"endLine":145,"label":"下载与音频对象记录"},{"path":"src/bili_asr/audio.py","line":234,"endLine":372,"label":"CDN 候选 / staging / 转码"}],"audio_catalog":[{"path":"src/bili_asr/storage/schema.sql","line":118,"endLine":140,"label":"哈希 / storage_key / 模型身份"},{"path":"src/bili_asr/workflow_runtime.py","line":127,"endLine":145,"label":"对象及关联写入"}],"transcripts":[{"path":"src/bili_asr/storage/schema-transcripts.sql","line":14,"endLine":129,"label":"转录 / acquisition / coverage"},{"path":"src/bili_asr/storage/transcripts.py","line":289,"endLine":459,"label":"本地 ASR 幂等写入"},{"path":"src/bili_asr/workflow_runtime.py","line":180,"endLine":218,"label":"转录入库与 publish 请求"}],"asr":[{"path":"src/bili_asr/workflow_runtime.py","line":147,"endLine":218,"label":"实际 ASR 调用和存储归属"},{"path":"src/bili_asr/asr/runner.py","line":309,"endLine":421,"label":"重采样 / 分块 / 对齐 / coverage"},{"path":"src/bili_asr/asr/runner.py","line":539,"endLine":561,"label":"有证据的条件二次解码"}],"audio_files":[{"path":"src/bili_asr/workflow_runtime.py","line":114,"endLine":128,"label":"实际音频路径与 duration"},{"path":"src/bili_asr/workflow_runtime.py","line":151,"endLine":167,"label":"对象定位与文件读取"},{"path":"src/bili_asr/asr/audio.py","line":128,"endLine":165,"label":"解码与无缝分块"}],"models":[{"path":"src/bili_asr/asr/runner.py","line":61,"endLine":96,"label":"模型对加载"},{"path":"src/bili_asr/asr/runner.py","line":160,"endLine":212,"label":"GPU 检测与惰性复用"},{"path":"src/bili_asr/asr/config.py","line":48,"endLine":80,"label":"模型 / device 配置"}],"publisher":[{"path":"src/bili_asr/workflow_runtime.py","line":221,"endLine":305,"label":"读取候选 / 发布 / publication 行"},{"path":"src/bili_asr/services/transcript_projection.py","line":54,"endLine":62,"label":"来源与语言排序"},{"path":"src/bili_asr/archive.py","line":369,"endLine":425,"label":"staging / marker 发布"}],"editorial":[{"path":"src/bili_asr/editorial_runtime.py","line":32,"endLine":53,"label":"续租 / 按块 checkpoint / 校验"},{"path":"src/bili_asr/storage/editorial.py","line":56,"endLine":98,"label":"输入快照与精确依赖结果"},{"path":"src/bili_asr/storage/workflow.py","line":232,"endLine":239,"label":"仅显式配置时接入"}],"deepseek":[{"path":"src/bili_asr/deepseek.py","line":18,"endLine":58,"label":"请求 / Authorization / timeout"},{"path":"src/bili_asr/editorial.py","line":32,"endLine":86,"label":"编辑配置与纯处理"}],"bundles":[{"path":"src/bili_asr/archive.py","line":25,"endLine":38,"label":"文件名与完成 marker"},{"path":"src/bili_asr/archive.py","line":369,"endLine":425,"label":"文件组提交"},{"path":"src/bili_asr/archive.py","line":809,"endLine":848,"label":"实际归档内容与写入"}],"revisions":[{"path":"src/bili_asr/storage/schema-editorial.sql","line":1,"endLine":53,"label":"快照 / 调用 / 修订 / 文档表"},{"path":"src/bili_asr/storage/editorial.py","line":100,"endLine":151,"label":"模型调用和修订持久化"}],"renderer":[{"path":"src/bili_asr/editorial_runtime.py","line":55,"endLine":93,"label":"修订读入 / 原子文档发布"},{"path":"src/bili_asr/cli/workflow.py","line":113,"endLine":123,"label":"重渲染任务入口"}],"search":[{"path":"src/bili_asr/cli/search.py","line":54,"endLine":140,"label":"默认 store 索引与只读查询"},{"path":"src/bili_asr/search_index/store.py","line":314,"endLine":353,"label":"增量 / 幂等 / checkpoint"},{"path":"src/bili_asr/search_index/store.py","line":267,"endLine":313,"label":"发布 Markdown 回退补全"}],"fts":[{"path":"src/bili_asr/search_index/store.py","line":122,"endLine":140,"label":"FTS5 schema"},{"path":"src/bili_asr/search_index/store.py","line":340,"endLine":353,"label":"索引事务写入"}],"documents":[{"path":"src/bili_asr/editorial_runtime.py","line":65,"endLine":93,"label":"documents 路径 / SHA / fsync"},{"path":"src/bili_asr/storage/schema-editorial.sql","line":46,"endLine":53,"label":"文档身份"}],"inspection":[{"path":"src/bili_asr/cli/status_cmd.py","line":15,"endLine":91,"label":"SQLite status / runs / coverage handlers"},{"path":"src/bili_asr/cli/ops.py","line":103,"endLine":160,"label":"workflow export 与 artifact verify"}],"integrity":[{"path":"src/bili_asr/cli/ops.py","line":135,"endLine":163,"label":"verify 命令与退出结果"},{"path":"src/bili_asr/integrity.py","line":38,"endLine":58,"label":"缺陷分类与 audit 路径"}],"projection":[{"path":"src/bili_asr/services/workflow_projection.py","line":1,"endLine":122,"label":"从只读数据库投影当前 part、transcript 与 publication"}]}}</script>
+    <script id="archify-source-evidence-data" type="application/json">{"schemaVersion":1,"verified":true,"repository":{"url":"https://github.com/SuperCatQR/bilibili-asr-archive","revision":"3908cfd6f7c1daead818674408ca7f91550d3de2","shortRevision":"3908cfd","label":"SuperCatQR/bilibili-asr-archive","linkMode":"local-only"},"referenceCount":82,"nodes":{"operator":[{"path":"README.md","line":11,"endLine":36,"label":"当前操作入口"}],"cli":[{"path":"src/bili_asr/cli/main.py","line":1,"endLine":74,"label":"解析命令并分派 handler"},{"path":"src/bili_asr/cli/registry.py","line":25,"endLine":36,"label":"当前命令注册表"}],"planner":[{"path":"src/bili_asr/cli/workflow.py","line":129,"endLine":159,"label":"规划与 retry"},{"path":"src/bili_asr/storage/workflow.py","line":150,"endLine":240,"label":"独立生产者依赖"}],"jobs":[{"path":"src/bili_asr/storage/schema-workflow.sql","line":7,"endLine":81,"label":"任务 / 配置 / 质量表"},{"path":"src/bili_asr/storage/workflow.py","line":242,"endLine":308,"label":"原子租约与过期回收"},{"path":"src/bili_asr/storage/workflow.py","line":534,"endLine":589,"label":"完成与陈旧租约防护"}],"bilibili":[{"path":"src/bili_asr/sources/bilibili_api_gateway.py","line":783,"endLine":833,"label":"枚举 / 详情 / 分 P"},{"path":"src/bili_asr/sources/bilibili_api_gateway.py","line":906,"endLine":987,"label":"字幕清单与内容"},{"path":"src/bili_asr/bili_client.py","line":635,"endLine":656,"label":"CDN 流式下载"}],"gateway":[{"path":"src/bili_asr/sources/bilibili_api_gateway.py","line":1,"endLine":59,"label":"固定 SDK 与 DTO 边界"},{"path":"src/bili_asr/sources/bilibili_api_gateway.py","line":719,"endLine":781,"label":"凭据 / 代理 / pacing"},{"path":"src/bili_asr/bili_client.py","line":219,"endLine":331,"label":"HTTP / 风控 / 退避"}],"metadata":[{"path":"src/bili_asr/cli/meta.py","line":33,"endLine":45,"label":"实例化 gateway / repository"},{"path":"src/bili_asr/services/metadata_ingest.py","line":290,"endLine":365,"label":"分页采集与恢复游标"},{"path":"src/bili_asr/services/metadata_ingest.py","line":569,"endLine":645,"label":"页内持久化事实"}],"facts":[{"path":"src/bili_asr/storage/schema.sql","line":3,"endLine":113,"label":"实体 / 详情 / 采集事件"},{"path":"src/bili_asr/storage/database.py","line":398,"endLine":475,"label":"schema bootstrap"},{"path":"src/bili_asr/services/metadata_ingest.py","line":645,"endLine":690,"label":"record_page 写入"}],"subtitles":[{"path":"src/bili_asr/workflow_runtime.py","line":69,"endLine":103,"label":"字幕 handler 与发布请求"},{"path":"src/bili_asr/services/subtitle_ingest.py","line":465,"endLine":527,"label":"规范化与版本写入"},{"path":"src/bili_asr/storage/transcripts.py","line":164,"endLine":286,"label":"字幕内容幂等"}],"executor":[{"path":"src/bili_asr/workflow.py","line":27,"endLine":159,"label":"逐任务执行、terminal attempt 与心跳"},{"path":"src/bili_asr/cli/workflow.py","line":160,"endLine":183,"label":"实际 handler 注册"},{"path":"src/bili_asr/workflow_runtime.py","line":56,"endLine":67,"label":"归档 handler / 模型释放"}],"lease_heartbeat":[{"path":"src/bili_asr/workflow.py","line":101,"endLine":159,"label":"后台线程续租与停止"},{"path":"src/bili_asr/storage/workflow.py","line":106,"endLine":130,"label":"文件数据库独立连接"},{"path":"src/bili_asr/storage/workflow.py","line":335,"endLine":344,"label":"job、owner、attempt 三重 fencing"}],"audio":[{"path":"src/bili_asr/workflow_runtime.py","line":105,"endLine":145,"label":"下载与音频对象记录"},{"path":"src/bili_asr/audio.py","line":234,"endLine":372,"label":"CDN 候选 / staging / 转码"}],"audio_catalog":[{"path":"src/bili_asr/storage/schema.sql","line":118,"endLine":140,"label":"哈希 / storage_key / 模型身份"},{"path":"src/bili_asr/workflow_runtime.py","line":127,"endLine":145,"label":"对象及关联写入"}],"transcripts":[{"path":"src/bili_asr/storage/schema-transcripts.sql","line":14,"endLine":129,"label":"转录 / acquisition / coverage"},{"path":"src/bili_asr/storage/transcripts.py","line":289,"endLine":459,"label":"本地 ASR 幂等写入"},{"path":"src/bili_asr/workflow_runtime.py","line":180,"endLine":218,"label":"转录入库与 publish 请求"}],"asr":[{"path":"src/bili_asr/workflow_runtime.py","line":147,"endLine":234,"label":"实际 ASR 调用、watchdog 和存储归属"},{"path":"src/bili_asr/asr/runner.py","line":309,"endLine":421,"label":"重采样 / 分块 / 对齐 / coverage"},{"path":"src/bili_asr/asr/runner.py","line":27,"endLine":125,"label":"CUDA/ROCm 子进程 watchdog 与超时"}],"asr_watchdog":[{"path":"src/bili_asr/asr/runner.py","line":27,"endLine":125,"label":"可终止推理边界"},{"path":"src/bili_asr/asr/config.py","line":76,"endLine":116,"label":"inference timeout 配置"},{"path":"src/bili_asr/workflow_runtime.py","line":188,"endLine":209,"label":"CUDA/ROCm 超时失败记录"}],"audio_files":[{"path":"src/bili_asr/workflow_runtime.py","line":114,"endLine":128,"label":"实际音频路径与 duration"},{"path":"src/bili_asr/workflow_runtime.py","line":151,"endLine":167,"label":"对象定位与文件读取"},{"path":"src/bili_asr/asr/audio.py","line":128,"endLine":165,"label":"解码与无缝分块"}],"models":[{"path":"src/bili_asr/asr/runner.py","line":61,"endLine":96,"label":"模型对加载"},{"path":"src/bili_asr/asr/runner.py","line":160,"endLine":212,"label":"GPU 检测与惰性复用"},{"path":"src/bili_asr/asr/config.py","line":48,"endLine":80,"label":"模型 / device 配置"}],"publisher":[{"path":"src/bili_asr/workflow_runtime.py","line":221,"endLine":305,"label":"读取候选 / 发布 / publication 行"},{"path":"src/bili_asr/services/transcript_projection.py","line":54,"endLine":62,"label":"来源与语言排序"},{"path":"src/bili_asr/archive.py","line":369,"endLine":425,"label":"staging / marker 发布"}],"editorial":[{"path":"src/bili_asr/editorial_runtime.py","line":32,"endLine":53,"label":"续租 / 按块 checkpoint / 校验"},{"path":"src/bili_asr/storage/editorial.py","line":56,"endLine":98,"label":"输入快照与精确依赖结果"},{"path":"src/bili_asr/storage/workflow.py","line":232,"endLine":239,"label":"仅显式配置时接入"}],"deepseek":[{"path":"src/bili_asr/deepseek.py","line":18,"endLine":58,"label":"请求 / Authorization / timeout"},{"path":"src/bili_asr/editorial.py","line":32,"endLine":86,"label":"编辑配置与纯处理"}],"bundles":[{"path":"src/bili_asr/archive.py","line":25,"endLine":38,"label":"文件名与完成 marker"},{"path":"src/bili_asr/archive.py","line":369,"endLine":425,"label":"文件组提交"},{"path":"src/bili_asr/archive.py","line":809,"endLine":848,"label":"实际归档内容与写入"}],"revisions":[{"path":"src/bili_asr/storage/schema-editorial.sql","line":1,"endLine":53,"label":"快照 / 调用 / 修订 / 文档表"},{"path":"src/bili_asr/storage/editorial.py","line":100,"endLine":151,"label":"模型调用和修订持久化"}],"renderer":[{"path":"src/bili_asr/editorial_runtime.py","line":55,"endLine":93,"label":"修订读入 / 原子文档发布"},{"path":"src/bili_asr/cli/workflow.py","line":113,"endLine":123,"label":"重渲染任务入口"}],"search":[{"path":"src/bili_asr/cli/search.py","line":54,"endLine":140,"label":"默认 store 索引与只读查询"},{"path":"src/bili_asr/search_index/store.py","line":314,"endLine":353,"label":"增量 / 幂等 / checkpoint"},{"path":"src/bili_asr/search_index/store.py","line":267,"endLine":313,"label":"发布 Markdown 回退补全"}],"fts":[{"path":"src/bili_asr/search_index/store.py","line":122,"endLine":140,"label":"FTS5 schema"},{"path":"src/bili_asr/search_index/store.py","line":340,"endLine":353,"label":"索引事务写入"}],"documents":[{"path":"src/bili_asr/editorial_runtime.py","line":65,"endLine":93,"label":"documents 路径 / SHA / fsync"},{"path":"src/bili_asr/storage/schema-editorial.sql","line":46,"endLine":53,"label":"文档身份"}],"inspection":[{"path":"src/bili_asr/cli/status_cmd.py","line":15,"endLine":91,"label":"SQLite status / runs / coverage handlers"},{"path":"src/bili_asr/cli/ops.py","line":103,"endLine":160,"label":"workflow export 与 artifact verify"}],"integrity":[{"path":"src/bili_asr/cli/ops.py","line":135,"endLine":163,"label":"verify 命令与退出结果"},{"path":"src/bili_asr/integrity.py","line":38,"endLine":58,"label":"缺陷分类与 audit 路径"}],"projection":[{"path":"src/bili_asr/services/workflow_projection.py","line":1,"endLine":122,"label":"从只读数据库投影当前 part、transcript 与 publication"}],"reading_export":[{"path":"src/bili_asr/cli/reading.py","line":31,"endLine":45,"label":"只读连接与站点导出入口"},{"path":"src/bili_asr/reading_publication.py","line":142,"endLine":272,"label":"读取 reading/review、哈希校验与快照写入"}],"review_state":[{"path":"src/bili_asr/storage/schema-editorial.sql","line":55,"endLine":90,"label":"人工版本、状态与事件表"},{"path":"src/bili_asr/reading_publication.py","line":275,"endLine":370,"label":"状态转换与人工版本写入"}],"reading_site":[{"path":"README.md","line":91,"endLine":113,"label":"导入、审核与本地站点入口"},{"path":"docs/architecture.md","line":31,"endLine":38,"label":"独立静态投影边界"}],"reviewer":[{"path":"README.md","line":107,"endLine":113,"label":"Issue 审核与人工版本入口"}]}}</script>
     <script id="archify-i18n-data" type="application/json">{"locale":"zh-CN","messages":{"viewer.kind.frontend":"前端","viewer.kind.backend":"后端","viewer.kind.database":"数据库","viewer.kind.cloud":"云服务","viewer.kind.security":"安全","viewer.kind.messagebus":"消息总线","viewer.kind.external":"外部系统","viewer.kind.neutral":"中性","viewer.kind.node":"节点","viewer.kind.start":"开始","viewer.kind.active":"活动","viewer.kind.waiting":"等待","viewer.kind.decision":"决策","viewer.kind.success":"成功","viewer.kind.failure":"失败","viewer.toolbar.actions":"图表操作","viewer.theme.toggle.title":"切换主题（T）","viewer.theme.toggle":"切换颜色主题","viewer.theme.dark":"深色","viewer.theme.light":"浅色","viewer.preset.choose.title":"选择视觉风格（S 循环切换）","viewer.preset.choose":"选择视觉风格","viewer.preset.style":"风格","viewer.preset.menu":"视觉风格","viewer.preset.identity":"视觉表达","viewer.preset.cycles":"循环切换","viewer.preset.classic":"经典","viewer.preset.classic.short":"经典","viewer.preset.classic.hint":"稳定的技术默认风格","viewer.preset.flow":"信号流","viewer.preset.flow.short":"流动","viewer.preset.flow.hint":"突出动态流向","viewer.preset.blueprint":"蓝图","viewer.preset.blueprint.hint":"工程评审","viewer.preset.editorial":"编辑风格","viewer.preset.editorial.hint":"适合发布与上线说明","viewer.preset.badge.signalFlow":"信号流","viewer.preset.badge.blueprint":"蓝图 / 修订 01","viewer.preset.badge.editorial":"编辑风格 / 现场笔记","viewer.preset.badge.editorialPlate":"ARCHIFY / 图版 04","viewer.preset.current":"当前视觉风格：{style}。选择视觉风格","viewer.motion.live":"动态","viewer.motion.still":"静态","viewer.motion.pause":"暂停动效","viewer.motion.resume":"恢复动效","viewer.motion.reduced":"已根据减少动态效果偏好暂停动效","viewer.motion.hidden":"页面不可见时已暂停动效","viewer.motion.yielding":"暂停动效；当前让位于{owner}","viewer.motion.yielding.title":"动态预览已启用 · 正在让位于{owner}","viewer.owner.route":"路径探测","viewer.owner.lens":"语义透镜","viewer.owner.relationship":"关系预览","viewer.owner.intent":"意图追踪","viewer.owner.focus":"语义聚焦","viewer.owner.legend":"图例预览","viewer.owner.reader":"读者交互","viewer.present.enter":"进入演示模式","viewer.present.enter.title":"演示模式（F）","viewer.present.exit":"退出演示模式","viewer.present.exit.title":"退出演示模式（F 或 Escape）","viewer.present.present":"演示","viewer.present.exit.label":"退出","viewer.export.button":"导出","viewer.export.button.title":"导出图表（E）","viewer.export.diagram":"导出图表","viewer.export.menu":"导出","viewer.export.subtitle":"便携、整洁的输出","viewer.export.share":"分享","viewer.export.shareCard":"分享卡片","viewer.export.routeShareCard":"路径分享卡片","viewer.export.reachShareCard":"可达范围分享卡片","viewer.export.copyDiagram":"复制图表","viewer.export.clipboardPng":"复制 PNG 到剪贴板","viewer.export.raster":"位图","viewer.export.image":"图像","viewer.export.lossless":"无损图像","viewer.export.compact":"紧凑图像","viewer.export.modern":"现代图像格式","viewer.export.vectorMotion":"矢量与动效","viewer.export.vectorMotion.heading":"矢量与动效","viewer.export.editable":"可编辑矢量图","viewer.export.svg.auto":"SVG · 自动","viewer.export.svg.auto.hint":"匹配宿主主题","viewer.export.svg.light":"SVG · 浅色","viewer.export.svg.light.hint":"始终浅色","viewer.export.svg.dark":"SVG · 深色","viewer.export.svg.dark.hint":"始终深色","viewer.export.motion6s":"6 秒动效","viewer.export.unsupported":"当前浏览器不支持","viewer.export.clipboardUnsupported":"当前浏览器不支持写入图片剪贴板","viewer.export.clipboardUnsupported.short":"此浏览器不支持写入图片剪贴板。","viewer.export.motionUnavailable":"当前浏览器无法录制动效","viewer.export.webmUnavailable":"当前浏览器不支持 WebM","viewer.export.failed":"导出失败：{message}","viewer.export.unknownVariant":"未知的分享卡片类型：{variant}","viewer.export.routeRequired":"请先追踪路径，再导出路径分享卡片","viewer.export.reachRequired":"请先追踪编写可达范围，再导出可达范围分享卡片","viewer.export.unknown":"未知错误","viewer.export.routeFailed":"路径分享卡片导出失败：{message}","viewer.export.reachFailed":"可达范围分享卡片导出失败：{message}","viewer.export.copyFailed":"复制失败：{message}","viewer.export.copiedPng":"已将 PNG 复制到剪贴板","viewer.export.downloadedRoute":"已下载路径分享卡片","viewer.export.downloadedReach":"已下载可达范围分享卡片","viewer.export.downloadedWebm":"已下载 WebM","viewer.export.recording":"正在录制 6 秒动效…","viewer.export.card.routeSummary.one":"路径：{source} → {target} · {count} 步","viewer.export.card.routeSummary.other":"路径：{source} → {target} · {count} 步","viewer.export.card.reachSummary":"从{origin}开始的编写{direction} · {nodes} · {links} · 最深 {hops}","viewer.export.card.node.one":"{count} 个节点","viewer.export.card.node.other":"{count} 个节点","viewer.export.card.link.one":"{count} 条连接","viewer.export.card.link.other":"{count} 条连接","viewer.export.card.hop.one":"{count} 跳","viewer.export.card.hop.other":"{count} 跳","viewer.export.card.routeBadge":"ARCHIFY · 路径 · {hops}","viewer.export.card.reachBadge":"ARCHIFY · {direction}可达范围","viewer.export.direction.upstream":"上游","viewer.export.direction.downstream":"下游","viewer.export.error.canvasUnavailable":"无法为{label}使用画布","viewer.export.error.contextUnavailable":"无法为{label}创建二维画布上下文","viewer.export.error.toBlobUnavailable":"{label}无法使用 canvas.toBlob","viewer.export.error.toBlobNull":"{label}的 canvas.toBlob 未返回数据","viewer.export.error.variantsCombined":"无法同时组合多种分享卡片类型","viewer.export.error.viewerState":"分享卡片导出无法移除临时 Viewer 状态","viewer.export.error.routeState":"路径卡片导出无法安全保留已解析路径","viewer.export.error.reachState":"可达范围卡片导出无法安全保留编写的可达范围","viewer.export.error.webmRequirements":"WebM 动效导出需要追踪动画及浏览器 MediaRecorder 支持","viewer.export.error.mediaRecorder":"MediaRecorder 录制失败","viewer.export.error.emptyWebm":"MediaRecorder 生成了空的 WebM","viewer.export.error.webmBackground":"无法为 WebM 导出加载 SVG 背景","viewer.guide.title":"探索此系统","viewer.focus.selectedNodes":"已选择 {count} 个节点","viewer.guide.eyebrow":"图表指南","viewer.guide.close":"关闭图表指南","viewer.guide.inspecting":"正在检查已编译语义","viewer.guide.actions":"图表探索操作","viewer.guide.find":"查找任意节点","viewer.guide.find.hint":"搜索标签、职责、类型和稳定 ID。","viewer.guide.route":"追踪路径","viewer.guide.route.aria":"追踪有向路径","viewer.guide.route.hint":"查看两个语义节点如何按编写方向连接。","viewer.guide.map":"查看完整系统","viewer.guide.map.hint":"打开带实时视口和稳定节点的语义雷达。","viewer.guide.lens":"比较语义类型","viewer.guide.lens.hint":"统计角色、显示流量并比较直接编写的连接。","viewer.guide.present":"进入演示模式","viewer.guide.present.hint":"让实时图表占满视口，同时不改变导出。","viewer.guide.shortcuts":"其他键盘快捷键","viewer.guide.shortcut.export":"导出","viewer.guide.shortcut.theme":"主题","viewer.guide.shortcut.style":"风格","viewer.guide.shortcut.reset":"重置","viewer.guide.shortcut.zoomIn":"放大","viewer.guide.shortcut.zoomOut":"缩小","viewer.guide.shortcut.close":"关闭","viewer.guide.facts":"{nodes} · {relationships}","viewer.guide.fact.node.one":"{count} 个语义节点","viewer.guide.fact.node.other":"{count} 个语义节点","viewer.guide.fact.relationship.one":"{count} 条关系","viewer.guide.fact.relationship.other":"{count} 条关系","viewer.guide.open":"打开图表指南","viewer.finder.title":"查找节点","viewer.finder.close":"关闭节点查找器","viewer.finder.placeholder":"搜索标签或 ID","viewer.finder.search":"搜索图表节点","viewer.finder.results":"图表节点","viewer.finder.empty":"没有匹配的节点","viewer.finder.result.focus":"聚焦{label}","viewer.finder.result.routeStart":"选择{label}作为路径起点","viewer.finder.result.routeTarget":"选择{label}作为路径终点，{links}","viewer.finder.status.empty":"没有匹配的节点","viewer.finder.status.count.one":"{count} 个匹配节点","viewer.finder.status.count.other":"{count} 个匹配节点","viewer.finder.noun.nodes":"个节点","viewer.finder.link.one":"{count} 条连接","viewer.finder.link.other":"{count} 条连接","viewer.finder.result.focus.one":"聚焦{label}，{count} 条相关连接","viewer.finder.result.focus.other":"聚焦{label}，{count} 条相关连接","viewer.finder.status.filtered":"{visible}/{available} {noun}","viewer.finder.status.all":"{available} {noun}","viewer.passport.eyebrow":"语义护照","viewer.passport.metadata":"节点元数据","viewer.passport.evidence":"已验证的源代码证据","viewer.passport.verified":"已验证来源","viewer.passport.verificationScope":"已按固定修订版本验证本地 Git 证据，未检查远程访问权限。","viewer.passport.reach":"编写可达范围","viewer.passport.reach.trace":"追踪编写的可达性","viewer.passport.upstream":"上游","viewer.passport.downstream":"下游","viewer.passport.upstream.trace":"追踪上游编写可达性","viewer.passport.downstream.trace":"追踪下游编写可达性","viewer.passport.close":"关闭语义护照","viewer.passport.move":"移动语义护照。可拖动、使用方向键移动，或按 Home 恢复自动位置。","viewer.passport.copy":"复制链接","viewer.passport.copy.focus":"复制聚焦节点的链接","viewer.passport.relations":"关系","viewer.passport.relations.show":"显示关联关系","viewer.passport.relations.hide":"隐藏关联关系","viewer.passport.relations.list":"关联关系","viewer.passport.copyRelation":"复制关系","viewer.passport.copyNode":"复制节点","viewer.passport.copyPinned":"复制固定关系的链接","viewer.passport.copySource":"复制来源节点的链接","viewer.passport.copy.focused.success":"已复制聚焦节点链接","viewer.passport.copy.pinned.success":"已复制固定关系链接","viewer.passport.copy.focused.failed":"无法复制聚焦节点链接","viewer.passport.copy.pinned.failed":"无法复制固定关系链接","viewer.passport.relationship.none":"没有关联关系","viewer.passport.relationship.count.one":"{count} 条关系","viewer.passport.relationship.count.other":"{count} 条关系","viewer.passport.relationship.show.one":"显示 {count} 条关联关系","viewer.passport.relationship.show.other":"显示 {count} 条关联关系","viewer.passport.relationship.summary":"{out} 条出向 · {in} 条入向{loops}","viewer.passport.relationship.loops":" · {count} 条自环","viewer.passport.relationship.explorer":"直接关系浏览器","viewer.passport.relationship.help":"使用方向键浏览关系。按 Enter 或空格键固定详情；按 Escape 清除。","viewer.passport.relationship.loopsBack":"回环","viewer.passport.relationship.connectsTo":"连接到","viewer.passport.relationship.connectsFrom":"连接自","viewer.passport.relationship.pinned":"已固定关系 · {from} → {to} · {label}","viewer.passport.relationship.inspect":"检查第 {index}/{total} 条关系：{from} 到 {to}，{label}。按 Enter 查看详情。","viewer.passport.relationship.group.out":"出向","viewer.passport.relationship.group.in":"入向","viewer.passport.relationship.group.loop":"自环","viewer.passport.relationship.row":"{group}：{relationship}，{neighbor}","viewer.passport.relationship.direction.out":"出 →","viewer.passport.relationship.direction.in":"← 入","viewer.passport.relationship.direction.loop":"自环","viewer.passport.sourceCount.one":"{count} 个已验证来源引用","viewer.passport.sourceCount.other":"{count} 个已验证来源引用","viewer.passport.sourceMarker":"来源","viewer.passport.beacon.one":"{count} 个已验证来源；聚焦此节点以检查","viewer.passport.beacon.other":"{count} 个已验证来源；聚焦此节点以检查","viewer.passport.repository.open":"打开已验证的仓库修订版本 {revision}","viewer.passport.source.open":"打开修订版本 {revision} 中已验证的来源 {path}","viewer.passport.source.openLink":"打开 ↗","viewer.passport.reach.upstream.one":"追踪 {count} 个上游编写节点","viewer.passport.reach.upstream.other":"追踪 {count} 个上游编写节点","viewer.passport.reach.downstream.one":"追踪 {count} 个下游编写节点","viewer.passport.reach.downstream.other":"追踪 {count} 个下游编写节点","viewer.passport.reach.noUpstream":"没有上游编写节点","viewer.passport.reach.noDownstream":"没有下游编写节点","viewer.passport.reach.status":"{direction} · {nodes} 个节点 · {links} 条连接 · 最深 {hops} 跳","viewer.route.eyebrow":"路径","viewer.route.start":"点击路径的起点","viewer.route.start.find":"查找起点","viewer.route.start.find.aria":"查找路径起点","viewer.route.copy":"复制链接","viewer.route.copy.aria":"复制已追踪路径的链接","viewer.route.clear":"清除","viewer.route.clear.aria":"清除路径探测","viewer.route.traced":"路径","viewer.route.pickTwo":"在图上点两个节点","viewer.route.pickOne":"在图上点一个节点","viewer.route.controls":"路径旅程控制","viewer.route.previous":"上一个路径位置","viewer.route.play":"播放路径旅程","viewer.route.pause":"暂停路径旅程","viewer.route.replay":"重播路径旅程","viewer.route.next":"下一个路径位置","viewer.route.journey":"旅程","viewer.route.pause.label":"暂停","viewer.route.replay.label":"重播","viewer.route.overview":"总览","viewer.route.overview.aria":"显示完整路径总览","viewer.route.instructions":"先点起点，再点终点，沿箭头方向找路。","viewer.route.destination":"从{label}出发，走到哪里？","viewer.route.destination.find":"查找目标","viewer.route.destination.find.aria":"查找可达的路径目标","viewer.route.differentDestination":"选择其他目标","viewer.route.distinct":"请选两个不同的节点。","viewer.route.unreachable":"走不到{label}","viewer.route.unreachable.detail":"沿箭头方向，从{source}走不到{target}。请选一个高亮节点。","viewer.route.start.instructions":"接着选终点，能走到的节点会亮起。","viewer.route.copy.success":"已复制路径链接","viewer.route.copy.failed":"无法复制路径链接","viewer.route.position":"路径位置 {index}/{total}：{label}","viewer.route.step":"第 {index}/{total} 步 · {phase} · {label}","viewer.route.motionRequired":"自动旅程需要动态模式","viewer.route.trigger.clear":"清除已追踪路径","viewer.route.overview.status":"{nodes} · {hops} · 最短路径","viewer.route.overview.node.one":"{count} 个节点","viewer.route.overview.node.other":"{count} 个节点","viewer.route.overview.hop.one":"{count} 步","viewer.route.overview.hop.other":"{count} 步","viewer.route.phase.playing":"播放中","viewer.route.phase.complete":"已完成","viewer.route.phase.inspecting":"检查中","viewer.route.destination.count.one":"有 {count} 个能走到的节点已高亮，点一下。","viewer.route.destination.count.other":"有 {count} 个能走到的节点已高亮，点一个。","viewer.route.noOutgoing":"这个节点没有向外的箭头。清除后换一个起点。","viewer.route.result.title":"{source} 到 {target}","viewer.route.finder.source.title":"选择路径起点","viewer.route.finder.source.placeholder":"搜索路径来源","viewer.route.finder.source.empty":"没有匹配的路径来源","viewer.route.finder.source.results":"可作为路径起点的节点","viewer.route.finder.source.noun":"个路径来源","viewer.route.finder.source.badge":"起点","viewer.route.finder.target.title":"从{label}出发的目标","viewer.route.finder.target.placeholder":"搜索可达目标","viewer.route.finder.target.empty":"没有匹配的可达目标","viewer.route.finder.target.results":"可达路径目标","viewer.route.finder.target.noun":"个可达目标","viewer.route.hop.one":"{count} 跳","viewer.route.hop.other":"{count} 跳","viewer.lens.eyebrow":"语义透镜","viewer.lens.title":"比较系统角色","viewer.lens.close":"关闭语义透镜","viewer.lens.instruction":"最多选择两种语义类型。选择一种可显示其真实流量；选择两种只比较直接编写的关系。","viewer.lens.kinds":"语义类型","viewer.lens.choose":"选择一种类型以检查其节点和相连关系。","viewer.lens.copy":"复制语义透镜链接","viewer.lens.clear":"清除语义透镜","viewer.lens.open":"打开语义透镜","viewer.lens.openActive":"打开当前语义透镜","viewer.lens.legend":"语义图例","viewer.lens.legend.inspect.one":"检查{label}，{count} 个节点","viewer.lens.legend.inspect.other":"检查{label}，{count} 个节点","viewer.lens.kind.count.one":"{label}，{count} 个节点","viewer.lens.kind.count.other":"{label}，{count} 个节点","viewer.lens.compare.one":"{first} → {second}：{forward} · {second} → {first}：{reverse} · 共 {count} 条直接关系","viewer.lens.compare.other":"{first} → {second}：{forward} · {second} → {first}：{reverse} · 共 {count} 条直接关系","viewer.lens.single":"{nodes} · {relationships} · 已连接节点保持可见","viewer.lens.node.one":"{count} 个{label}节点","viewer.lens.node.other":"{count} 个{label}节点","viewer.lens.relationship.one":"{count} 条相连关系","viewer.lens.relationship.other":"{count} 条相连关系","viewer.radar.title":"语义雷达","viewer.radar.building":"正在构建总览","viewer.radar.openFull":"打开完整语义雷达","viewer.radar.open":"打开雷达","viewer.radar.close":"关闭语义雷达","viewer.radar.surface":"图表总览。点击节点进行聚焦，或使用方向键平移。","viewer.radar.click":"点击节点","viewer.radar.drag":"拖动平移","viewer.radar.space":"语义雷达需要更多地图可见空间。","viewer.radar.nodes":"语义图表雷达节点","viewer.radar.focus":"从语义雷达聚焦{label}","viewer.radar.status":"{count} 个节点 · {viewport}","viewer.radar.fullMap":"{count} 个节点 · 完整地图","viewer.radar.compacted":"已收紧雷达，避免遮挡语义护照或地图控件。","viewer.radar.cancelWaiting":"取消等待更多地图空间的语义雷达","viewer.radar.needsSpace":"语义雷达需要更多可见地图空间","viewer.radar.viewport.full":"完整地图","viewer.radar.viewport.width":"宽度 {percent}%","viewer.radar.viewport.scale":"视口 {percent}%","viewer.nav.controls":"图表视图控制","viewer.nav.route":"追踪有向路径","viewer.nav.route.title":"追踪路径（R）","viewer.nav.route.short":"路径","viewer.nav.radar":"打开语义雷达","viewer.nav.radar.title":"语义雷达（M）","viewer.nav.radar.short":"地图","viewer.nav.lens":"打开语义透镜","viewer.nav.lens.title":"语义透镜（L）","viewer.nav.lens.short":"透镜","viewer.nav.find":"查找节点","viewer.nav.find.title":"查找节点（/）","viewer.outline.title":"节点索引","viewer.rail.show":"要点与索引","viewer.rail.controls":"侧栏","viewer.rail.collapse":"收起侧栏","viewer.rail.bottom":"移到图下方","viewer.rail.right":"移到图右侧","viewer.nav.guide":"打开图表指南","viewer.nav.guide.title":"图表指南（?）","viewer.nav.zoomOut":"缩小","viewer.nav.zoomOut.title":"缩小（-）","viewer.nav.reset":"重置图表视图","viewer.nav.reset.title":"重置视图（0）","viewer.nav.read":"阅读","viewer.nav.zoomIn":"放大","viewer.nav.zoomIn.title":"放大（+）","viewer.nav.camera":"{hint}。重置图表视图","viewer.nav.camera.title":"{semantic}{hint} · 重置视图（0）","viewer.nav.camera.semantic":"语义相机已启用 · ","viewer.nav.level.map":"概览","viewer.nav.level.read":"阅读","viewer.nav.level.full":"完整","viewer.nav.level.auto":"自动","viewer.nav.detail.map":"放大以显示关系标签和节点上下文","viewer.nav.detail.read":"再次放大以显示标签和注释","viewer.nav.detail.full":"完整图表详情","viewer.intent.summary":"{label}。{out} 条出向，{in} 条入向{loops}。共 {total} 条连接。按 Enter 查看详情。","viewer.intent.loops":"，{count} 条自环","viewer.common.copied":"已复制","viewer.common.copyFailed":"复制失败","viewer.common.copyLink":"复制链接","viewer.common.clear":"清除","viewer.common.close":"关闭"}}</script>
     <!-- Main Diagram -->
     <div class="diagram-container" data-detail-level="read"
          data-preset-badge-editorial-plate="ARCHIFY / 图版 04">
-      <svg viewBox="0 0 1228 2378" role="img" lang="zh-CN" aria-labelledby="archify-diagram-title archify-diagram-description" data-preset="classic" data-quality-profile="showcase" data-reader-fit="intrinsic-height" data-reader-min-text="7.5" data-reader-primary-text="14">
+      <svg viewBox="0 0 1240 2682" role="img" lang="zh-CN" aria-labelledby="archify-diagram-title archify-diagram-description" data-preset="classic" data-quality-profile="showcase" data-reader-fit="intrinsic-height" data-reader-min-text="7.5" data-reader-primary-text="14">
         <title id="archify-diagram-title">Bilibili 归档系统 · SQLite Workflow 当前架构</title>
         <desc id="archify-diagram-description">由 Archify 生成的架构图。</desc>
         <!-- Definitions -->
@@ -5042,135 +5042,175 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
         </g>
         <g data-graph-role="automatic-crossover" style="--step:6">
           <path data-graph-role="automatic-crossover-underlay" d="M 880 335 L 955 335" fill="none" stroke="var(--mask)" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round" pointer-events="none"/>
-          <path data-edge-from="metadata" data-edge-to="facts" data-edge-label="页事务" data-edge-key="6" data-edge-id="meta-sql" data-composition-points="880,335;955,335" data-composition-crossover="halo" data-composition-independent="true" d="M 880 335 L 955 335" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+          <path data-edge-from="metadata" data-edge-to="facts" data-edge-label="页事务" data-edge-key="6" data-edge-id="meta-sql" data-composition-points="880,335;955,335" data-composition-crossover="halo" d="M 880 335 L 955 335" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
         </g>
         <g data-graph-role="automatic-crossover" style="--step:7">
-          <path data-graph-role="automatic-crossover-underlay" d="M 1070 290 L 1070 274 Q 1070 266 1062 266 L 912 266 Q 904 266 904 258 L 904 110 Q 904 102 896 102 L 880 102" fill="none" stroke="var(--mask)" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round" pointer-events="none"/>
-          <path data-edge-from="facts" data-edge-to="planner" data-edge-label="选定 part ID" data-edge-key="7" data-edge-id="known-parts" data-composition-points="1070,290;1070,266;904,266;904,102;880,102" data-composition-crossover="halo" data-composition-independent="true" d="M 1070 290 L 1070 274 Q 1070 266 1062 266 L 912 266 Q 904 266 904 258 L 904 110 Q 904 102 896 102 L 880 102" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+          <path data-graph-role="automatic-crossover-underlay" d="M 1070 290 L 1070 223 Q 1070 215 1062 215 L 773 215 Q 765 215 765 207 L 765 140" fill="none" stroke="var(--mask)" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round" pointer-events="none"/>
+          <path data-edge-from="facts" data-edge-to="planner" data-edge-label="选定 part ID" data-edge-key="7" data-edge-id="known-parts" data-composition-points="1070,290;1070,215;765,215;765,140" data-composition-crossover="halo" data-composition-independent="true" d="M 1070 290 L 1070 223 Q 1070 215 1062 215 L 773 215 Q 765 215 765 207 L 765 140" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
         </g>
         <g data-graph-role="automatic-crossover" style="--step:8">
-          <path data-graph-role="automatic-crossover-underlay" d="M 1070 140 L 1070 233 Q 1070 241 1062 241 L 949.9 241 Q 941.9 241 941.9 249 L 941.9 512 Q 941.9 520 933.9 520 L 475 520 Q 467 520 467 528 L 467 560" fill="none" stroke="var(--mask)" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round" pointer-events="none"/>
-          <path data-edge-from="jobs" data-edge-to="executor" data-edge-label="原子领取 / 租约" data-edge-key="8" data-edge-id="claim" data-composition-points="1070,140;1070,241;941.9,241;941.9,520;467,520;467,560" data-composition-crossover="halo" data-composition-independent="true" d="M 1070 140 L 1070 233 Q 1070 241 1062 241 L 949.9 241 Q 941.9 241 941.9 249 L 941.9 512 Q 941.9 520 933.9 520 L 475 520 Q 467 520 467 528 L 467 560" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+          <path data-graph-role="automatic-crossover-underlay" d="M 1063 140 L 1063 271 Q 1063 279 1055 279 L 941.4 279 Q 933.4 279 933.4 287 L 933.4 429.5 Q 933.4 437.5 925.4 437.5 L 475 437.5 Q 467 437.5 467 445.5 L 467 560" fill="none" stroke="var(--mask)" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round" pointer-events="none"/>
+          <path data-edge-from="jobs" data-edge-to="executor" data-edge-label="原子领取 / 租约" data-edge-key="8" data-edge-id="claim" data-composition-points="1063,140;1063,279;933.4,279;933.4,437.5;467,437.5;467,560" data-composition-crossover="halo" data-composition-independent="true" d="M 1063 140 L 1063 271 Q 1063 279 1055 279 L 941.4 279 Q 933.4 279 933.4 287 L 933.4 429.5 Q 933.4 437.5 925.4 437.5 L 475 437.5 Q 467 437.5 467 445.5 L 467 560" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
         </g>
         <g data-graph-role="automatic-crossover" style="--step:9">
-          <path data-graph-role="automatic-crossover-underlay" d="M 345 612 L 270 612" fill="none" stroke="var(--mask)" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round" pointer-events="none"/>
-          <path data-edge-from="executor" data-edge-to="subtitles" data-edge-label="subtitle job" data-edge-key="9" data-edge-id="worker-caption" data-composition-points="345,612;270,612" data-composition-crossover="halo" data-composition-independent="true" d="M 345 612 L 270 612" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+          <path data-graph-role="automatic-crossover-underlay" d="M 430.95 650 L 430.95 666 Q 430.95 674 438.95 674 L 618 674 Q 626 674 626 682 L 626 727 Q 626 735 634 735 L 650 735" fill="none" stroke="var(--mask)" stroke-width="5.8" stroke-linecap="round" stroke-linejoin="round" pointer-events="none"/>
+          <path data-edge-from="executor" data-edge-to="lease_heartbeat" data-edge-label="attempt heartbeat" data-edge-key="9" data-edge-id="lease-heartbeat" data-composition-points="430.95,650;430.95,674;626,674;626,735;650,735" data-composition-crossover="halo" data-composition-independent="true" d="M 430.95 650 L 430.95 666 Q 430.95 674 438.95 674 L 618 674 Q 626 674 626 682 L 626 727 Q 626 735 634 735 L 650 735" class="a-emphasis" stroke-width="1.8" marker-end="url(#arrowhead-emphasis)"/>
         </g>
         <g data-graph-role="automatic-crossover" style="--step:10">
-          <path data-graph-role="automatic-crossover-underlay" d="M 575 612 L 650 612" fill="none" stroke="var(--mask)" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round" pointer-events="none"/>
-          <path data-edge-from="executor" data-edge-to="audio" data-edge-label="audio job" data-edge-key="10" data-edge-id="worker-audio" data-composition-points="575,612;650,612" data-composition-crossover="halo" data-composition-independent="true" d="M 575 612 L 650 612" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+          <path data-graph-role="automatic-crossover-underlay" d="M 880 735 L 933.4 735 Q 941.4 735 941.4 727 L 941.4 172 Q 941.4 164 949.4 164 L 1069 164 Q 1077 164 1077 156 L 1077 140" fill="none" stroke="var(--mask)" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round" pointer-events="none"/>
+          <path data-edge-from="lease_heartbeat" data-edge-to="jobs" data-edge-label="续租 / stale fencing" data-edge-key="10" data-edge-id="lease-renew" data-composition-points="880,735;941.4,735;941.4,164;1077,164;1077,140" data-composition-crossover="halo" data-composition-independent="true" d="M 880 735 L 933.4 735 Q 941.4 735 941.4 727 L 941.4 172 Q 941.4 164 949.4 164 L 1069 164 Q 1077 164 1077 156 L 1077 140" class="a-security" stroke-width="1.5" marker-end="url(#arrowhead-security)"/>
         </g>
         <g data-graph-role="automatic-crossover" style="--step:11">
-          <path data-graph-role="automatic-crossover-underlay" d="M 460 650 L 460 840" fill="none" stroke="var(--mask)" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round" pointer-events="none"/>
-          <path data-edge-from="executor" data-edge-to="asr" data-edge-label="就绪 asr job" data-edge-key="11" data-edge-id="worker-asr" data-composition-points="460,650;460,840" data-composition-crossover="halo" data-composition-independent="true" d="M 460 650 L 460 840" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+          <path data-graph-role="automatic-crossover-underlay" d="M 345 605 L 270 605" fill="none" stroke="var(--mask)" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round" pointer-events="none"/>
+          <path data-edge-from="executor" data-edge-to="subtitles" data-edge-label="字幕 job" data-edge-key="11" data-edge-id="worker-caption" data-composition-points="345,605;270,605" data-composition-crossover="halo" d="M 345 605 L 270 605" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
         </g>
         <g data-graph-role="automatic-crossover" style="--step:12">
-          <path data-graph-role="automatic-crossover-underlay" d="M 880 605 L 955 605" fill="none" stroke="var(--mask)" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round" pointer-events="none"/>
-          <path data-edge-from="audio" data-edge-to="audio_catalog" data-edge-label="SHA-256 / key" data-edge-key="12" data-edge-id="audio-meta" data-composition-points="880,605;955,605" data-composition-crossover="halo" data-composition-independent="true" d="M 880 605 L 955 605" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+          <path data-graph-role="automatic-crossover-underlay" d="M 575 598 L 591 598 Q 599 598 599 606 L 599 620 Q 599 628 607 628 L 618 628 Q 626 628 626 620 L 626 620 Q 626 612 634 612 L 650 612" fill="none" stroke="var(--mask)" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round" pointer-events="none"/>
+          <path data-edge-from="executor" data-edge-to="audio" data-edge-label="audio job" data-edge-key="12" data-edge-id="worker-audio" data-composition-points="575,598;599,598;599,628;626,628;626,612;650,612" data-composition-crossover="halo" data-composition-independent="true" d="M 575 598 L 591 598 Q 599 598 599 606 L 599 620 Q 599 628 607 628 L 618 628 Q 626 628 626 620 L 626 620 Q 626 612 634 612 L 650 612" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
         </g>
         <g data-graph-role="automatic-crossover" style="--step:13">
-          <path data-graph-role="automatic-crossover-underlay" d="M 765 650 L 765 840" fill="none" stroke="var(--mask)" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round" pointer-events="none"/>
-          <path data-edge-from="audio" data-edge-to="audio_files" data-edge-label="下载与固化" data-edge-key="13" data-edge-id="audio-write" data-composition-points="765,650;765,840" data-composition-crossover="halo" data-composition-independent="true" d="M 765 650 L 765 840" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+          <path data-graph-role="automatic-crossover-underlay" d="M 460 650 L 460 840" fill="none" stroke="var(--mask)" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round" pointer-events="none"/>
+          <path data-edge-from="executor" data-edge-to="asr" data-edge-label="就绪 asr job" data-edge-key="13" data-edge-id="worker-asr" data-composition-points="460,650;460,840" data-composition-crossover="halo" data-composition-independent="true" d="M 460 650 L 460 840" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
         </g>
         <g data-graph-role="automatic-crossover" style="--step:14">
-          <path data-graph-role="automatic-crossover-underlay" d="M 155 650 L 155 840" fill="none" stroke="var(--mask)" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round" pointer-events="none"/>
-          <path data-edge-from="subtitles" data-edge-to="transcripts" data-edge-label="追加 / 幂等" data-edge-key="14" data-edge-id="caption-store" data-composition-points="155,650;155,840" data-composition-crossover="halo" data-composition-independent="true" d="M 155 650 L 155 840" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+          <path data-graph-role="automatic-crossover-underlay" d="M 575 885 L 591 885 Q 599 885 599 893 L 599 948 Q 599 956 607 956 L 757 956 Q 765 956 765 964 L 765 980" fill="none" stroke="var(--mask)" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round" pointer-events="none"/>
+          <path data-edge-from="asr" data-edge-to="asr_watchdog" data-edge-label="GPU/ROCm inference" data-edge-key="14" data-edge-id="asr-watchdog" data-composition-points="575,885;599,885;599,956;765,956;765,980" data-composition-crossover="halo" data-composition-independent="true" d="M 575 885 L 591 885 Q 599 885 599 893 L 599 948 Q 599 956 607 956 L 757 956 Q 765 956 765 964 L 765 980" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
         </g>
         <g data-graph-role="automatic-crossover" style="--step:15">
-          <path data-graph-role="automatic-crossover-underlay" d="M 650 885 L 575 885" fill="none" stroke="var(--mask)" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round" pointer-events="none"/>
-          <path data-edge-from="audio_files" data-edge-to="asr" data-edge-label="读取音频" data-edge-key="15" data-edge-id="audio-read" data-composition-points="650,885;575,885" data-composition-crossover="halo" d="M 650 885 L 575 885" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+          <path data-graph-role="automatic-crossover-underlay" d="M 880 605 L 955 605" fill="none" stroke="var(--mask)" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round" pointer-events="none"/>
+          <path data-edge-from="audio" data-edge-to="audio_catalog" data-edge-label="SHA-256 / key" data-edge-key="15" data-edge-id="audio-meta" data-composition-points="880,605;955,605" data-composition-crossover="halo" d="M 880 605 L 955 605" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
         </g>
         <g data-graph-role="automatic-crossover" style="--step:16">
-          <path data-graph-role="automatic-crossover-underlay" d="M 460 1110 L 460 930" fill="none" stroke="var(--mask)" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round" pointer-events="none"/>
-          <path data-edge-from="models" data-edge-to="asr" data-edge-label="惰性加载" data-edge-key="16" data-edge-id="model-load" data-composition-points="460,1110;460,930" data-composition-crossover="halo" data-composition-independent="true" d="M 460 1110 L 460 930" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+          <path data-graph-role="automatic-crossover-underlay" d="M 880 605 L 896 605 Q 904 605 904 613 L 904 877 Q 904 885 896 885 L 880 885" fill="none" stroke="var(--mask)" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round" pointer-events="none"/>
+          <path data-edge-from="audio" data-edge-to="audio_files" data-edge-label="下载与固化" data-edge-key="16" data-edge-id="audio-write" data-composition-points="880,605;904,605;904,885;880,885" data-composition-crossover="halo" data-composition-independent="true" d="M 880 605 L 896 605 Q 904 605 904 613 L 904 877 Q 904 885 896 885 L 880 885" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
         </g>
         <g data-graph-role="automatic-crossover" style="--step:17">
-          <path data-graph-role="automatic-crossover-underlay" d="M 345 885 L 270 885" fill="none" stroke="var(--mask)" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round" pointer-events="none"/>
-          <path data-edge-from="asr" data-edge-to="transcripts" data-edge-label="读写转录" data-edge-key="17" data-edge-id="asr-store" data-composition-points="345,885;270,885" data-composition-crossover="halo" d="M 345 885 L 270 885" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+          <path data-graph-role="automatic-crossover-underlay" d="M 155 650 L 155 840" fill="none" stroke="var(--mask)" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round" pointer-events="none"/>
+          <path data-edge-from="subtitles" data-edge-to="transcripts" data-edge-label="追加 / 幂等" data-edge-key="17" data-edge-id="caption-store" data-composition-points="155,650;155,840" data-composition-crossover="halo" data-composition-independent="true" d="M 155 650 L 155 840" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
         </g>
         <g data-graph-role="automatic-crossover" style="--step:18">
-          <path data-graph-role="automatic-crossover-underlay" d="M 134 930 L 134 946 Q 134 954 126 954 L 24 954 Q 16 954 16 962 L 16 1147 Q 16 1155 24 1155 L 40 1155" fill="none" stroke="var(--mask)" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round" pointer-events="none"/>
-          <path data-edge-from="transcripts" data-edge-to="publisher" data-edge-label="择优读取" data-edge-key="18" data-edge-id="read-winner" data-composition-points="134,930;134,954;16,954;16,1155;40,1155" data-composition-crossover="halo" data-composition-independent="true" d="M 134 930 L 134 946 Q 134 954 126 954 L 24 954 Q 16 954 16 962 L 16 1147 Q 16 1155 24 1155 L 40 1155" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+          <path data-graph-role="automatic-crossover-underlay" d="M 650 885 L 575 885" fill="none" stroke="var(--mask)" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round" pointer-events="none"/>
+          <path data-edge-from="audio_files" data-edge-to="asr" data-edge-label="读取音频" data-edge-key="18" data-edge-id="audio-read" data-composition-points="650,885;575,885" data-composition-crossover="halo" d="M 650 885 L 575 885" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
         </g>
         <g data-graph-role="automatic-crossover" style="--step:19">
-          <path data-graph-role="automatic-crossover-underlay" d="M 446 650 L 446 725 Q 446 733 438 733 L 344.7 733 Q 336.7 733 336.7 741 L 336.7 1147 Q 336.7 1155 328.7 1155 L 270 1155" fill="none" stroke="var(--mask)" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round" pointer-events="none"/>
-          <path data-edge-from="executor" data-edge-to="publisher" data-edge-label="publish job" data-edge-key="19" data-edge-id="worker-pub" data-composition-points="446,650;446,733;336.7,733;336.7,1155;270,1155" data-composition-crossover="halo" data-composition-independent="true" d="M 446 650 L 446 725 Q 446 733 438 733 L 344.7 733 Q 336.7 733 336.7 741 L 336.7 1147 Q 336.7 1155 328.7 1155 L 270 1155" class="a-dashed" stroke-width="1.5" marker-end="url(#arrowhead-dashed)"/>
+          <path data-graph-role="automatic-crossover-underlay" d="M 460 1110 L 460 930" fill="none" stroke="var(--mask)" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round" pointer-events="none"/>
+          <path data-edge-from="models" data-edge-to="asr" data-edge-label="惰性加载" data-edge-key="19" data-edge-id="model-load" data-composition-points="460,1110;460,930" data-composition-crossover="halo" data-composition-independent="true" d="M 460 1110 L 460 930" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
         </g>
         <g data-graph-role="automatic-crossover" style="--step:20">
-          <path data-graph-role="automatic-crossover-underlay" d="M 155 1200 L 155 1216 Q 155 1224 163 1224 L 163 1224 Q 171 1224 171 1232 L 171 1358 Q 171 1366 163 1366 L 154.95 1366 Q 146.95 1366 146.95 1374 L 146.95 1390" fill="none" stroke="var(--mask)" stroke-width="5.8" stroke-linecap="round" stroke-linejoin="round" pointer-events="none"/>
-          <path data-edge-from="publisher" data-edge-to="bundles" data-edge-label="完整 bundle" data-edge-key="20" data-edge-id="publish-bytes" data-composition-points="155,1200;155,1224;171,1224;171,1366;146.95,1366;146.95,1390" data-composition-crossover="halo" data-composition-independent="true" d="M 155 1200 L 155 1216 Q 155 1224 163 1224 L 163 1224 Q 171 1224 171 1232 L 171 1358 Q 171 1366 163 1366 L 154.95 1366 Q 146.95 1366 146.95 1374 L 146.95 1390" class="a-emphasis" stroke-width="1.8" marker-end="url(#arrowhead-emphasis)"/>
+          <path data-graph-role="automatic-crossover-underlay" d="M 650 1032 L 620.5 1032 Q 612.5 1032 612.5 1040 L 612.5 1147 Q 612.5 1155 604.5 1155 L 575 1155" fill="none" stroke="var(--mask)" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round" pointer-events="none"/>
+          <path data-edge-from="asr_watchdog" data-edge-to="models" data-edge-label="子进程 / 硬超时" data-edge-key="20" data-edge-id="watchdog-model" data-composition-points="650,1032;612.5,1032;612.5,1155;575,1155" data-composition-crossover="halo" data-composition-independent="true" d="M 650 1032 L 620.5 1032 Q 612.5 1032 612.5 1040 L 612.5 1147 Q 612.5 1155 604.5 1155 L 575 1155" class="a-dashed" stroke-width="1.5" marker-end="url(#arrowhead-dashed)"/>
         </g>
         <g data-graph-role="automatic-crossover" style="--step:21">
-          <path data-graph-role="automatic-crossover-underlay" d="M 40 885 L 24 885 Q 16 885 16 893 L 16 949 Q 16 957 24 957 L 106.69999999999999 957 Q 114.69999999999999 957 114.69999999999999 965 L 114.69999999999999 981 Q 114.69999999999999 989 122.69999999999999 989 L 750 989 Q 758 989 758 997 L 758 1110" fill="none" stroke="var(--mask)" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round" pointer-events="none"/>
-          <path data-edge-from="transcripts" data-edge-to="editorial" data-edge-label="冻结版本" data-edge-key="21" data-edge-id="edit-input" data-composition-points="40,885;16,885;16,957;114.69999999999999,957;114.69999999999999,989;758,989;758,1110" data-composition-crossover="halo" data-composition-independent="true" d="M 40 885 L 24 885 Q 16 885 16 893 L 16 949 Q 16 957 24 957 L 106.69999999999999 957 Q 114.69999999999999 957 114.69999999999999 965 L 114.69999999999999 981 Q 114.69999999999999 989 122.69999999999999 989 L 750 989 Q 758 989 758 997 L 758 1110" class="a-dashed" stroke-width="1.5" marker-end="url(#arrowhead-dashed)"/>
+          <path data-graph-role="automatic-crossover-underlay" d="M 345 885 L 270 885" fill="none" stroke="var(--mask)" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round" pointer-events="none"/>
+          <path data-edge-from="asr" data-edge-to="transcripts" data-edge-label="写入转录" data-edge-key="21" data-edge-id="asr-store" data-composition-points="345,885;270,885" data-composition-crossover="halo" d="M 345 885 L 270 885" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
         </g>
         <g data-graph-role="automatic-crossover" style="--step:22">
-          <path data-graph-role="automatic-crossover-underlay" d="M 474 650 L 474 829 Q 474 837 482 837 L 612.1999999999999 837 Q 620.1999999999999 837 620.1999999999999 845 L 620.1999999999999 1078 Q 620.1999999999999 1086 628.1999999999999 1086 L 764 1086 Q 772 1086 772 1094 L 772 1110" fill="none" stroke="var(--mask)" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round" pointer-events="none"/>
-          <path data-edge-from="executor" data-edge-to="editorial" data-edge-label="可选编辑 jobs" data-edge-key="22" data-edge-id="worker-edit" data-composition-points="474,650;474,837;620.1999999999999,837;620.1999999999999,1086;772,1086;772,1110" data-composition-crossover="halo" data-composition-independent="true" d="M 474 650 L 474 829 Q 474 837 482 837 L 612.1999999999999 837 Q 620.1999999999999 837 620.1999999999999 845 L 620.1999999999999 1078 Q 620.1999999999999 1086 628.1999999999999 1086 L 764 1086 Q 772 1086 772 1094 L 772 1110" class="a-dashed" stroke-width="1.5" marker-end="url(#arrowhead-dashed)"/>
+          <path data-graph-role="automatic-crossover-underlay" d="M 141 930 L 141 989 Q 141 997 133 997 L 45 997 Q 37 997 37 1005 L 37 1216 Q 37 1224 45 1224 L 131.95 1224 Q 139.95 1224 139.95 1216 L 139.95 1200" fill="none" stroke="var(--mask)" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round" pointer-events="none"/>
+          <path data-edge-from="transcripts" data-edge-to="publisher" data-edge-label="择优读取" data-edge-key="22" data-edge-id="read-winner" data-composition-points="141,930;141,997;37,997;37,1224;139.95,1224;139.95,1200" data-composition-crossover="halo" data-composition-independent="true" d="M 141 930 L 141 989 Q 141 997 133 997 L 45 997 Q 37 997 37 1005 L 37 1216 Q 37 1224 45 1224 L 131.95 1224 Q 139.95 1224 139.95 1216 L 139.95 1200" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
         </g>
         <g data-graph-role="automatic-crossover" style="--step:23">
-          <path data-graph-role="automatic-crossover-underlay" d="M 880 1155 L 955 1155" fill="none" stroke="var(--mask)" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round" pointer-events="none"/>
-          <path data-edge-from="editorial" data-edge-to="deepseek" data-edge-label="HTTPS / JSON" data-edge-key="23" data-edge-id="model-call" data-composition-points="880,1155;955,1155" data-composition-crossover="halo" data-composition-independent="true" d="M 880 1155 L 955 1155" class="a-dashed" stroke-width="1.5" marker-end="url(#arrowhead-dashed)"/>
+          <path data-graph-role="automatic-crossover-underlay" d="M 345 605 L 315.5 605 Q 307.5 605 307.5 613 L 307.5 1147 Q 307.5 1155 299.5 1155 L 270 1155" fill="none" stroke="var(--mask)" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round" pointer-events="none"/>
+          <path data-edge-from="executor" data-edge-to="publisher" data-edge-label="publish job" data-edge-key="23" data-edge-id="worker-pub" data-composition-points="345,605;307.5,605;307.5,1155;270,1155" data-composition-crossover="halo" data-composition-independent="true" d="M 345 605 L 315.5 605 Q 307.5 605 307.5 613 L 307.5 1147 Q 307.5 1155 299.5 1155 L 270 1155" class="a-dashed" stroke-width="1.5" marker-end="url(#arrowhead-dashed)"/>
         </g>
         <g data-graph-role="automatic-crossover" style="--step:24">
-          <path data-graph-role="automatic-crossover-underlay" d="M 765 1200 L 765 1390" fill="none" stroke="var(--mask)" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round" pointer-events="none"/>
-          <path data-edge-from="editorial" data-edge-to="revisions" data-edge-label="校验后保存" data-edge-key="24" data-edge-id="save-revision" data-composition-points="765,1200;765,1390" data-composition-crossover="halo" data-composition-independent="true" d="M 765 1200 L 765 1390" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+          <path data-graph-role="automatic-crossover-underlay" d="M 155 1200 L 155 1216 Q 155 1224 163 1224 L 163 1224 Q 171 1224 171 1232 L 171 1358 Q 171 1366 163 1366 L 154.95 1366 Q 146.95 1366 146.95 1374 L 146.95 1390" fill="none" stroke="var(--mask)" stroke-width="5.8" stroke-linecap="round" stroke-linejoin="round" pointer-events="none"/>
+          <path data-edge-from="publisher" data-edge-to="bundles" data-edge-label="完整 bundle" data-edge-key="24" data-edge-id="publish-bytes" data-composition-points="155,1200;155,1224;171,1224;171,1366;146.95,1366;146.95,1390" data-composition-crossover="halo" data-composition-independent="true" d="M 155 1200 L 155 1216 Q 155 1224 163 1224 L 163 1224 Q 171 1224 171 1232 L 171 1358 Q 171 1366 163 1366 L 154.95 1366 Q 146.95 1366 146.95 1374 L 146.95 1390" class="a-emphasis" stroke-width="1.8" marker-end="url(#arrowhead-emphasis)"/>
         </g>
         <g data-graph-role="automatic-crossover" style="--step:25">
-          <path data-graph-role="automatic-crossover-underlay" d="M 880 1435 L 955 1435" fill="none" stroke="var(--mask)" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round" pointer-events="none"/>
-          <path data-edge-from="revisions" data-edge-to="renderer" data-edge-label="读取修订" data-edge-key="25" data-edge-id="read-revision" data-composition-points="880,1435;955,1435" data-composition-crossover="halo" data-composition-independent="true" d="M 880 1435 L 955 1435" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+          <path data-graph-role="automatic-crossover-underlay" d="M 169 930 L 169 969 Q 169 977 177 977 L 639 977 Q 647 977 647 985 L 647 1078 Q 647 1086 655 1086 L 750 1086 Q 758 1086 758 1094 L 758 1110" fill="none" stroke="var(--mask)" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round" pointer-events="none"/>
+          <path data-edge-from="transcripts" data-edge-to="editorial" data-edge-label="冻结版本" data-edge-key="25" data-edge-id="edit-input" data-composition-points="169,930;169,977;647,977;647,1086;758,1086;758,1110" data-composition-crossover="halo" data-composition-independent="true" d="M 169 930 L 169 969 Q 169 977 177 977 L 639 977 Q 647 977 647 985 L 647 1078 Q 647 1086 655 1086 L 750 1086 Q 758 1086 758 1094 L 758 1110" class="a-dashed" stroke-width="1.5" marker-end="url(#arrowhead-dashed)"/>
         </g>
         <g data-graph-role="automatic-crossover" style="--step:26">
-          <path data-graph-role="automatic-crossover-underlay" d="M 1070 1480 L 1070 1650" fill="none" stroke="var(--mask)" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round" pointer-events="none"/>
-          <path data-edge-from="renderer" data-edge-to="documents" data-edge-label="fsync / replace" data-edge-key="26" data-edge-id="render-bytes" data-composition-points="1070,1480;1070,1650" data-composition-crossover="halo" data-composition-independent="true" d="M 1070 1480 L 1070 1650" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+          <path data-graph-role="automatic-crossover-underlay" d="M 474 650 L 474 829 Q 474 837 466 837 L 334 837 Q 326 837 326 845 L 326 1065 Q 326 1073 334 1073 L 764 1073 Q 772 1073 772 1081 L 772 1110" fill="none" stroke="var(--mask)" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round" pointer-events="none"/>
+          <path data-edge-from="executor" data-edge-to="editorial" data-edge-label="可选编辑 jobs" data-edge-key="26" data-edge-id="worker-edit" data-composition-points="474,650;474,837;326,837;326,1073;772,1073;772,1110" data-composition-crossover="halo" data-composition-independent="true" d="M 474 650 L 474 829 Q 474 837 466 837 L 334 837 Q 326 837 326 845 L 326 1065 Q 326 1073 334 1073 L 764 1073 Q 772 1073 772 1081 L 772 1110" class="a-dashed" stroke-width="1.5" marker-end="url(#arrowhead-dashed)"/>
         </g>
         <g data-graph-role="automatic-crossover" style="--step:27">
-          <path data-graph-role="automatic-crossover-underlay" d="M 40 871 L 16 871 Q 8 871 8 879 L 8 1475 Q 8 1483 16 1483 L 452 1483 Q 460 1483 460 1491 L 460 1650" fill="none" stroke="var(--mask)" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round" pointer-events="none"/>
-          <path data-edge-from="transcripts" data-edge-to="search" data-edge-label="转录块" data-edge-key="27" data-edge-id="index-source" data-composition-points="40,871;8,871;8,1483;460,1483;460,1650" data-composition-crossover="halo" data-composition-independent="true" d="M 40 871 L 16 871 Q 8 871 8 879 L 8 1475 Q 8 1483 16 1483 L 452 1483 Q 460 1483 460 1491 L 460 1650" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+          <path data-graph-role="automatic-crossover-underlay" d="M 880 1155 L 955 1155" fill="none" stroke="var(--mask)" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round" pointer-events="none"/>
+          <path data-edge-from="editorial" data-edge-to="deepseek" data-edge-label="HTTPS / JSON" data-edge-key="27" data-edge-id="model-call" data-composition-points="880,1155;955,1155" data-composition-crossover="halo" data-composition-independent="true" d="M 880 1155 L 955 1155" class="a-dashed" stroke-width="1.5" marker-end="url(#arrowhead-dashed)"/>
         </g>
         <g data-graph-role="automatic-crossover" style="--step:28">
-          <path data-graph-role="automatic-crossover-underlay" d="M 575 1695 L 650 1695" fill="none" stroke="var(--mask)" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round" pointer-events="none"/>
-          <path data-edge-from="search" data-edge-to="fts" data-edge-label="构建 / 查询" data-edge-key="28" data-edge-id="index-build" data-composition-points="575,1695;650,1695" data-composition-crossover="halo" data-composition-independent="true" d="M 575 1695 L 650 1695" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+          <path data-graph-role="automatic-crossover-underlay" d="M 765 1200 L 765 1390" fill="none" stroke="var(--mask)" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round" pointer-events="none"/>
+          <path data-edge-from="editorial" data-edge-to="revisions" data-edge-label="校验后保存" data-edge-key="28" data-edge-id="save-revision" data-composition-points="765,1200;765,1390" data-composition-crossover="halo" data-composition-independent="true" d="M 765 1200 L 765 1390" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
         </g>
         <g data-graph-role="automatic-crossover" style="--step:29">
-          <path data-graph-role="automatic-crossover-underlay" d="M 270 1435 L 299.5 1435 Q 307.5 1435 307.5 1443 L 307.5 1687 Q 307.5 1695 315.5 1695 L 345 1695" fill="none" stroke="var(--mask)" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round" pointer-events="none"/>
-          <path data-edge-from="bundles" data-edge-to="search" data-edge-label="MD 补全" data-edge-key="29" data-edge-id="md-backfill" data-composition-points="270,1435;307.5,1435;307.5,1695;345,1695" data-composition-crossover="halo" data-composition-independent="true" d="M 270 1435 L 299.5 1435 Q 307.5 1435 307.5 1443 L 307.5 1687 Q 307.5 1695 315.5 1695 L 345 1695" class="a-dashed" stroke-width="1.5" marker-end="url(#arrowhead-dashed)"/>
+          <path data-graph-role="automatic-crossover-underlay" d="M 880 1435 L 955 1435" fill="none" stroke="var(--mask)" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round" pointer-events="none"/>
+          <path data-edge-from="revisions" data-edge-to="renderer" data-edge-label="读取修订" data-edge-key="29" data-edge-id="read-revision" data-composition-points="880,1435;955,1435" data-composition-crossover="halo" data-composition-independent="true" d="M 880 1435 L 955 1435" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
         </g>
         <g data-graph-role="automatic-crossover" style="--step:30">
-          <path data-graph-role="automatic-crossover-underlay" d="M 345 342 L 329 342 Q 321 342 321 350 L 321 528 Q 321 536 313 536 L 163 536 Q 155 536 155 544 L 155 560" fill="none" stroke="var(--mask)" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round" pointer-events="none"/>
-          <path data-edge-from="gateway" data-edge-to="subtitles" data-edge-label="字幕获取" data-edge-key="30" data-edge-id="caption-api" data-composition-points="345,342;321,342;321,536;155,536;155,560" data-composition-crossover="halo" data-composition-independent="true" d="M 345 342 L 329 342 Q 321 342 321 350 L 321 528 Q 321 536 313 536 L 163 536 Q 155 536 155 544 L 155 560" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+          <path data-graph-role="automatic-crossover-underlay" d="M 1070 1480 L 1070 1650" fill="none" stroke="var(--mask)" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round" pointer-events="none"/>
+          <path data-edge-from="renderer" data-edge-to="documents" data-edge-label="fsync / replace" data-edge-key="30" data-edge-id="render-bytes" data-composition-points="1070,1480;1070,1650" data-composition-crossover="halo" data-composition-independent="true" d="M 1070 1480 L 1070 1650" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
         </g>
         <g data-graph-role="automatic-crossover" style="--step:31">
-          <path data-graph-role="automatic-crossover-underlay" d="M 460 380 L 460 462 Q 460 470 468 470 L 757 470 Q 765 470 765 478 L 765 560" fill="none" stroke="var(--mask)" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round" pointer-events="none"/>
-          <path data-edge-from="gateway" data-edge-to="audio" data-edge-label="DASH / CDN" data-edge-key="31" data-edge-id="audio-api" data-composition-points="460,380;460,470;765,470;765,560" data-composition-crossover="halo" data-composition-independent="true" d="M 460 380 L 460 462 Q 460 470 468 470 L 757 470 Q 765 470 765 478 L 765 560" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+          <path data-graph-role="automatic-crossover-underlay" d="M 155 930 L 155 946 Q 155 954 147 954 L 37 954 Q 29 954 29 962 L 29 1618 Q 29 1626 37 1626 L 452 1626 Q 460 1626 460 1634 L 460 1650" fill="none" stroke="var(--mask)" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round" pointer-events="none"/>
+          <path data-edge-from="transcripts" data-edge-to="search" data-edge-label="转录块" data-edge-key="31" data-edge-id="index-source" data-composition-points="155,930;155,954;29,954;29,1626;460,1626;460,1650" data-composition-crossover="halo" data-composition-independent="true" d="M 155 930 L 155 946 Q 155 954 147 954 L 37 954 Q 29 954 29 962 L 29 1618 Q 29 1626 37 1626 L 452 1626 Q 460 1626 460 1634 L 460 1650" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
         </g>
         <g data-graph-role="automatic-crossover" style="--step:32">
-          <path data-graph-role="automatic-crossover-underlay" d="M 460 140 L 460 279 Q 460 287 468 287 L 620.1999999999999 287 Q 628.1999999999999 287 628.1999999999999 295 L 628.1999999999999 528 Q 628.1999999999999 536 620.1999999999999 536 L 461 536 Q 453 536 453 544 L 453 560" fill="none" stroke="var(--mask)" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round" pointer-events="none"/>
-          <path data-edge-from="cli" data-edge-to="executor" data-edge-label="workflow run" data-edge-key="32" data-edge-id="workflow-run" data-composition-points="460,140;460,287;628.1999999999999,287;628.1999999999999,536;453,536;453,560" data-composition-crossover="halo" data-composition-independent="true" d="M 460 140 L 460 279 Q 460 287 468 287 L 620.1999999999999 287 Q 628.1999999999999 287 628.1999999999999 295 L 628.1999999999999 528 Q 628.1999999999999 536 620.1999999999999 536 L 461 536 Q 453 536 453 544 L 453 560" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+          <path data-graph-role="automatic-crossover-underlay" d="M 575 1695 L 650 1695" fill="none" stroke="var(--mask)" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round" pointer-events="none"/>
+          <path data-edge-from="search" data-edge-to="fts" data-edge-label="构建 / 查询" data-edge-key="32" data-edge-id="index-build" data-composition-points="575,1695;650,1695" data-composition-crossover="halo" data-composition-independent="true" d="M 575 1695 L 650 1695" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
         </g>
         <g data-graph-role="automatic-crossover" style="--step:33">
-          <path data-graph-role="automatic-crossover-underlay" d="M 1070 380 L 1070 536 Q 1070 544 1078 544 L 1180 544 Q 1188 544 1188 552 L 1188 2188 Q 1188 2196 1180 2196 L 475 2196 Q 467 2196 467 2204 L 467 2220" fill="none" stroke="var(--mask)" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round" pointer-events="none"/>
-          <path data-edge-from="facts" data-edge-to="inspection" data-edge-label="status / runs" data-edge-key="33" data-edge-id="inspect-facts" data-composition-points="1070,380;1070,544;1188,544;1188,2196;467,2196;467,2220" data-composition-crossover="halo" data-composition-independent="true" d="M 1070 380 L 1070 536 Q 1070 544 1078 544 L 1180 544 Q 1188 544 1188 552 L 1188 2188 Q 1188 2196 1180 2196 L 475 2196 Q 467 2196 467 2204 L 467 2220" class="a-dashed" stroke-width="1.5" marker-end="url(#arrowhead-dashed)"/>
+          <path data-graph-role="automatic-crossover-underlay" d="M 270 1435 L 299.5 1435 Q 307.5 1435 307.5 1443 L 307.5 1687 Q 307.5 1695 315.5 1695 L 345 1695" fill="none" stroke="var(--mask)" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round" pointer-events="none"/>
+          <path data-edge-from="bundles" data-edge-to="search" data-edge-label="MD 补全" data-edge-key="33" data-edge-id="md-backfill" data-composition-points="270,1435;307.5,1435;307.5,1695;345,1695" data-composition-crossover="halo" data-composition-independent="true" d="M 270 1435 L 299.5 1435 Q 307.5 1435 307.5 1443 L 307.5 1687 Q 307.5 1695 315.5 1695 L 345 1695" class="a-dashed" stroke-width="1.5" marker-end="url(#arrowhead-dashed)"/>
         </g>
         <g data-graph-role="automatic-crossover" style="--step:34">
-          <path data-graph-role="automatic-crossover-underlay" d="M 155 1480 L 155 1735 Q 155 1743 163 1743 L 757 1743 Q 765 1743 765 1751 L 765 2220" fill="none" stroke="var(--mask)" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round" pointer-events="none"/>
-          <path data-edge-from="bundles" data-edge-to="integrity" data-edge-label="完整性检查" data-edge-key="34" data-edge-id="verify-products" data-composition-points="155,1480;155,1743;765,1743;765,2220" data-composition-crossover="halo" data-composition-independent="true" d="M 155 1480 L 155 1735 Q 155 1743 163 1743 L 757 1743 Q 765 1743 765 1751 L 765 2220" class="a-dashed" stroke-width="1.5" marker-end="url(#arrowhead-dashed)"/>
+          <path data-graph-role="automatic-crossover-underlay" d="M 345 342 L 302 342 Q 294 342 294 350 L 294 597 Q 294 605 286 605 L 270 605" fill="none" stroke="var(--mask)" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round" pointer-events="none"/>
+          <path data-edge-from="gateway" data-edge-to="subtitles" data-edge-label="字幕获取" data-edge-key="34" data-edge-id="caption-api" data-composition-points="345,342;294,342;294,605;270,605" data-composition-crossover="halo" data-composition-independent="true" d="M 345 342 L 302 342 Q 294 342 294 350 L 294 597 Q 294 605 286 605 L 270 605" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
         </g>
         <g data-graph-role="automatic-crossover" style="--step:35">
-          <path data-graph-role="automatic-crossover-underlay" d="M 955 349 L 939 349 Q 931 349 931 357 L 931 1037 Q 931 1045 923 1045 L 300 1045" fill="none" stroke="var(--mask)" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round" pointer-events="none"/>
-          <path data-edge-from="facts" data-edge-to="projection" data-edge-label="active video parts" data-edge-key="35" data-edge-id="facts-projection" data-composition-points="955,349;931,349;931,1045;300,1045" data-composition-crossover="halo" data-composition-independent="true" d="M 955 349 L 939 349 Q 931 349 931 357 L 931 1037 Q 931 1045 923 1045 L 300 1045" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+          <path data-graph-role="automatic-crossover-underlay" d="M 460 380 L 460 462 Q 460 470 468 470 L 757 470 Q 765 470 765 478 L 765 560" fill="none" stroke="var(--mask)" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round" pointer-events="none"/>
+          <path data-edge-from="gateway" data-edge-to="audio" data-edge-label="DASH / CDN" data-edge-key="35" data-edge-id="audio-api" data-composition-points="460,380;460,470;765,470;765,560" data-composition-crossover="halo" data-composition-independent="true" d="M 460 380 L 460 462 Q 460 470 468 470 L 757 470 Q 765 470 765 478 L 765 560" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
         </g>
         <g data-graph-role="automatic-crossover" style="--step:36">
-          <path data-graph-role="automatic-crossover-underlay" d="M 148 930 L 148 957 Q 148 965 156 965 L 172 965 Q 180 965 180 973 L 180 1000" fill="none" stroke="var(--mask)" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round" pointer-events="none"/>
-          <path data-edge-from="transcripts" data-edge-to="projection" data-edge-label="versions + publication facts" data-edge-key="36" data-edge-id="transcripts-projection" data-composition-points="148,930;148,965;180,965;180,1000" data-composition-crossover="halo" data-composition-independent="true" d="M 148 930 L 148 957 Q 148 965 156 965 L 172 965 Q 180 965 180 973 L 180 1000" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+          <path data-graph-role="automatic-crossover-underlay" d="M 467 140 L 467 279 Q 467 287 459 287 L 350 287 Q 342 287 342 295 L 342 528 Q 342 536 350 536 L 445 536 Q 453 536 453 544 L 453 560" fill="none" stroke="var(--mask)" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round" pointer-events="none"/>
+          <path data-edge-from="cli" data-edge-to="executor" data-edge-label="workflow run" data-edge-key="36" data-edge-id="workflow-run" data-composition-points="467,140;467,287;342,287;342,536;453,536;453,560" data-composition-crossover="halo" data-composition-independent="true" d="M 467 140 L 467 279 Q 467 287 459 287 L 350 287 Q 342 287 342 295 L 342 528 Q 342 536 350 536 L 445 536 Q 453 536 453 544 L 453 560" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
         </g>
         <g data-graph-role="automatic-crossover" style="--step:37">
-          <path data-graph-role="automatic-crossover-underlay" d="M 162 1390 L 162 1366 Q 162 1358 154 1358 L 44 1358 Q 36 1358 36 1350 L 36 1053 Q 36 1045 44 1045 L 60 1045" fill="none" stroke="var(--mask)" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round" pointer-events="none"/>
-          <path data-edge-from="bundles" data-edge-to="projection" data-edge-label="bundle presence check" data-edge-key="37" data-edge-id="bundles-projection" data-composition-points="162,1390;162,1358;36,1358;36,1045;60,1045" data-composition-crossover="halo" data-composition-independent="true" d="M 162 1390 L 162 1366 Q 162 1358 154 1358 L 44 1358 Q 36 1358 36 1350 L 36 1053 Q 36 1045 44 1045 L 60 1045" class="a-dashed" stroke-width="1.5" marker-end="url(#arrowhead-dashed)"/>
+          <path data-graph-role="automatic-crossover-underlay" d="M 1070 380 L 1070 396 Q 1070 404 1062 404 L 329 404 Q 321 404 321 412 L 321 2241.95 Q 321 2249.95 329 2249.95 L 345 2249.95" fill="none" stroke="var(--mask)" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round" pointer-events="none"/>
+          <path data-edge-from="facts" data-edge-to="inspection" data-edge-label="status / runs" data-edge-key="37" data-edge-id="inspect-facts" data-composition-points="1070,380;1070,404;321,404;321,2249.95;345,2249.95" data-composition-crossover="halo" data-composition-independent="true" d="M 1070 380 L 1070 396 Q 1070 404 1062 404 L 329 404 Q 321 404 321 412 L 321 2241.95 Q 321 2249.95 329 2249.95 L 345 2249.95" class="a-dashed" stroke-width="1.5" marker-end="url(#arrowhead-dashed)"/>
         </g>
         <g data-graph-role="automatic-crossover" style="--step:38">
+          <path data-graph-role="automatic-crossover-underlay" d="M 155 1480 L 155 2326 Q 155 2334 163 2334 L 757 2334 Q 765 2334 765 2326 L 765 2310" fill="none" stroke="var(--mask)" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round" pointer-events="none"/>
+          <path data-edge-from="bundles" data-edge-to="integrity" data-edge-label="完整性检查" data-edge-key="38" data-edge-id="verify-products" data-composition-points="155,1480;155,2334;765,2334;765,2310" data-composition-crossover="halo" data-composition-independent="true" d="M 155 1480 L 155 2326 Q 155 2334 163 2334 L 757 2334 Q 765 2334 765 2326 L 765 2310" class="a-dashed" stroke-width="1.5" marker-end="url(#arrowhead-dashed)"/>
+        </g>
+        <g data-graph-role="automatic-crossover" style="--step:39">
+          <path data-graph-role="automatic-crossover-underlay" d="M 1056 380 L 1056 549 Q 1056 557 1048 557 L 332 557 Q 324 557 324 565 L 324 1037 Q 324 1045 316 1045 L 300 1045" fill="none" stroke="var(--mask)" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round" pointer-events="none"/>
+          <path data-edge-from="facts" data-edge-to="projection" data-edge-label="active video parts" data-edge-key="39" data-edge-id="facts-projection" data-composition-points="1056,380;1056,557;324,557;324,1045;300,1045" data-composition-crossover="halo" data-composition-independent="true" d="M 1056 380 L 1056 549 Q 1056 557 1048 557 L 332 557 Q 324 557 324 565 L 324 1037 Q 324 1045 316 1045 L 300 1045" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+        </g>
+        <g data-graph-role="automatic-crossover" style="--step:40">
+          <path data-graph-role="automatic-crossover-underlay" d="M 155 930 L 155 957 Q 155 965 163 965 L 172 965 Q 180 965 180 973 L 180 1000" fill="none" stroke="var(--mask)" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round" pointer-events="none"/>
+          <path data-edge-from="transcripts" data-edge-to="projection" data-edge-label="版本事实" data-edge-key="40" data-edge-id="transcripts-projection" data-composition-points="155,930;155,965;180,965;180,1000" data-composition-crossover="halo" d="M 155 930 L 155 957 Q 155 965 163 965 L 172 965 Q 180 965 180 973 L 180 1000" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+        </g>
+        <g data-graph-role="automatic-crossover" style="--step:41">
+          <path data-graph-role="automatic-crossover-underlay" d="M 141 1480 L 141 1496 Q 141 1504 133 1504 L 44 1504 Q 36 1504 36 1496 L 36 1053 Q 36 1045 44 1045 L 60 1045" fill="none" stroke="var(--mask)" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round" pointer-events="none"/>
+          <path data-edge-from="bundles" data-edge-to="projection" data-edge-label="bundle presence check" data-edge-key="41" data-edge-id="bundles-projection" data-composition-points="141,1480;141,1504;36,1504;36,1045;60,1045" data-composition-crossover="halo" data-composition-independent="true" d="M 141 1480 L 141 1496 Q 141 1504 133 1504 L 44 1504 Q 36 1504 36 1496 L 36 1053 Q 36 1045 44 1045 L 60 1045" class="a-dashed" stroke-width="1.5" marker-end="url(#arrowhead-dashed)"/>
+        </g>
+        <g data-graph-role="automatic-crossover" style="--step:42">
           <path data-graph-role="automatic-crossover-underlay" d="M 300 1029.95 L 314.5 1029.95 Q 322.5 1029.95 322.5 1037.95 L 322.5 2257 Q 322.5 2265 330.5 2265 L 345 2265" fill="none" stroke="var(--mask)" stroke-width="5.8" stroke-linecap="round" stroke-linejoin="round" pointer-events="none"/>
-          <path data-edge-from="projection" data-edge-to="inspection" data-edge-label="coverage / export / verify" data-edge-key="38" data-edge-id="projection-inspection" data-composition-points="300,1029.95;322.5,1029.95;322.5,2265;345,2265" data-composition-crossover="halo" data-composition-independent="true" d="M 300 1029.95 L 314.5 1029.95 Q 322.5 1029.95 322.5 1037.95 L 322.5 2257 Q 322.5 2265 330.5 2265 L 345 2265" class="a-emphasis" stroke-width="1.8" marker-end="url(#arrowhead-emphasis)"/>
+          <path data-edge-from="projection" data-edge-to="inspection" data-edge-label="coverage / export / verify" data-edge-key="42" data-edge-id="projection-inspection" data-composition-points="300,1029.95;322.5,1029.95;322.5,2265;345,2265" data-composition-crossover="halo" data-composition-independent="true" d="M 300 1029.95 L 314.5 1029.95 Q 322.5 1029.95 322.5 1037.95 L 322.5 2257 Q 322.5 2265 330.5 2265 L 345 2265" class="a-emphasis" stroke-width="1.8" marker-end="url(#arrowhead-emphasis)"/>
+        </g>
+        <g data-graph-role="automatic-crossover" style="--step:43">
+          <path data-graph-role="automatic-crossover-underlay" d="M 453 140 L 453 156 Q 453 164 445 164 L 24 164 Q 16 164 16 172 L 16 2537 Q 16 2545 24 2545 L 40 2545" fill="none" stroke="var(--mask)" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round" pointer-events="none"/>
+          <path data-edge-from="cli" data-edge-to="reading_export" data-edge-label="reading-export" data-edge-key="43" data-edge-id="reading-command" data-composition-points="453,140;453,164;16,164;16,2545;40,2545" data-composition-crossover="halo" data-composition-independent="true" d="M 453 140 L 453 156 Q 453 164 445 164 L 24 164 Q 16 164 16 172 L 16 2537 Q 16 2545 24 2545 L 40 2545" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+        </g>
+        <g data-graph-role="automatic-crossover" style="--step:44">
+          <path data-graph-role="automatic-crossover-underlay" d="M 765 1480 L 765 1639 Q 765 1647 757 1647 L 170 1647 Q 162 1647 162 1655 L 162 2500" fill="none" stroke="var(--mask)" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round" pointer-events="none"/>
+          <path data-edge-from="revisions" data-edge-to="reading_export" data-edge-label="只读修订" data-edge-key="44" data-edge-id="reading-revision" data-composition-points="765,1480;765,1647;162,1647;162,2500" data-composition-crossover="halo" data-composition-independent="true" d="M 765 1480 L 765 1639 Q 765 1647 757 1647 L 170 1647 Q 162 1647 162 1655 L 162 2500" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+        </g>
+        <g data-graph-role="automatic-crossover" style="--step:45">
+          <path data-graph-role="automatic-crossover-underlay" d="M 955 1695 L 939 1695 Q 931 1695 931 1703 L 931 2489 Q 931 2497 923 2497 L 302 2497 Q 294 2497 294 2505 L 294 2523 Q 294 2531 286 2531 L 270 2531" fill="none" stroke="var(--mask)" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round" pointer-events="none"/>
+          <path data-edge-from="documents" data-edge-to="reading_export" data-edge-label="reading.md + review.md" data-edge-key="45" data-edge-id="reading-documents" data-composition-points="955,1695;931,1695;931,2497;294,2497;294,2531;270,2531" data-composition-crossover="halo" data-composition-independent="true" d="M 955 1695 L 939 1695 Q 931 1695 931 1703 L 931 2489 Q 931 2497 923 2497 L 302 2497 Q 294 2497 294 2505 L 294 2523 Q 294 2531 286 2531 L 270 2531" class="a-dashed" stroke-width="1.5" marker-end="url(#arrowhead-dashed)"/>
+        </g>
+        <g data-graph-role="automatic-crossover" style="--step:46">
+          <path data-graph-role="automatic-crossover-underlay" d="M 155 2590 L 155 2606 Q 155 2614 163 2614 L 618 2614 Q 626 2614 626 2606 L 626 2553 Q 626 2545 634 2545 L 650 2545" fill="none" stroke="var(--mask)" stroke-width="5.8" stroke-linecap="round" stroke-linejoin="round" pointer-events="none"/>
+          <path data-edge-from="reading_export" data-edge-to="reading_site" data-edge-label="静态内容快照" data-edge-key="46" data-edge-id="reading-snapshot" data-composition-points="155,2590;155,2614;626,2614;626,2545;650,2545" data-composition-crossover="halo" data-composition-independent="true" d="M 155 2590 L 155 2606 Q 155 2614 163 2614 L 618 2614 Q 626 2614 626 2606 L 626 2553 Q 626 2545 634 2545 L 650 2545" class="a-emphasis" stroke-width="1.8" marker-end="url(#arrowhead-emphasis)"/>
+        </g>
+        <g data-graph-role="automatic-crossover" style="--step:47">
+          <path data-graph-role="automatic-crossover-underlay" d="M 850 2545 L 970 2545" fill="none" stroke="var(--mask)" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round" pointer-events="none"/>
+          <path data-edge-from="reading_site" data-edge-to="reviewer" data-edge-label="预填 GitHub Issue" data-edge-key="47" data-edge-id="issue-feedback" data-composition-points="850,2545;970,2545" data-composition-crossover="halo" data-composition-independent="true" d="M 850 2545 L 970 2545" class="a-dashed" stroke-width="1.5" marker-end="url(#arrowhead-dashed)"/>
+        </g>
+        <g data-graph-role="automatic-crossover" style="--step:48">
+          <path data-graph-role="automatic-crossover-underlay" d="M 345 2560.05 L 270 2560.05" fill="none" stroke="var(--mask)" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round" pointer-events="none"/>
+          <path data-edge-from="review_state" data-edge-to="reading_export" data-edge-label="重新导出状态" data-edge-key="48" data-edge-id="review-export" data-composition-points="345,2560.05;270,2560.05" data-composition-crossover="halo" data-composition-independent="true" d="M 345 2560.05 L 270 2560.05" class="a-dashed" stroke-width="1.5" marker-end="url(#arrowhead-dashed)"/>
         </g>
 
         <!-- Components -->
@@ -5297,6 +5337,18 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
         <text data-detail="fine" x="460" y="642" class="t-backend" font-size="7" text-anchor="middle">每次 CLI 调用顺序执行</text>
         </g>
 
+        <g id="node-lease_heartbeat" data-node-id="lease_heartbeat" data-node-label="尝试级租约心跳" tabindex="0" role="button" aria-label="聚焦尝试级租约心跳，独立 SQLite 连接 · 精确 attempt fencing, 架构组件" aria-pressed="false" data-node-kind="backend" data-node-sublabel="独立 SQLite 连接 · 精确 attempt fencing" data-node-tag="900 s lease · 默认每 1/3 续租" data-node-context="架构组件">
+          <title>尝试级租约心跳 · 独立 SQLite 连接 · 精确 attempt fencing · 架构组件 · 900 s lease · 默认每 1/3 续租</title>
+          <rect x="650" y="690" width="230" height="90" rx="6" class="c-mask"/>
+          <rect x="650" y="690" width="230" height="90" rx="6" class="c-backend" stroke-width="1.5"/>
+          <g aria-hidden="true" data-semantic-sigil="backend" class="semantic-sigil s-backend" transform="translate(656 696) scale(0.6875)">
+            <path d="M6 3 3 8l3 5M10 3l3 5-3 5"/>
+          </g>
+          <text data-node-label="" data-detail-anchor="" x="765" y="733" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">尝试级租约心跳</text>
+        <text data-detail="context" x="765" y="749" class="t-muted" font-size="9" text-anchor="middle">独立 SQLite 连接 · 精确 attempt fencing</text>
+        <text data-detail="fine" x="765" y="772" class="t-backend" font-size="7" text-anchor="middle">900 s lease · 默认每 1/3 续租</text>
+        </g>
+
         <g id="node-audio" data-node-id="audio" data-node-label="音频生产者" tabindex="0" role="button" aria-label="聚焦音频生产者，audio.download_audio / ffprobe, 架构组件" aria-pressed="false" data-node-kind="backend" data-node-sublabel="audio.download_audio / ffprobe" data-node-tag="独立 audio job" data-node-context="架构组件">
           <title>音频生产者 · audio.download_audio / ffprobe · 架构组件 · 独立 audio job</title>
           <rect x="650" y="560" width="230" height="90" rx="6" class="c-mask"/>
@@ -5345,6 +5397,18 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
           <text data-node-label="" data-detail-anchor="" x="460" y="883" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">本地转录 Handler</text>
         <text data-detail="context" x="460" y="899" class="t-muted" font-size="9" text-anchor="middle">ASRRunner · 固定 profile / input snapshot</text>
         <text data-detail="fine" x="460" y="922" class="t-backend" font-size="7" text-anchor="middle">ASR 只依赖 audio 成功</text>
+        </g>
+
+        <g id="node-asr_watchdog" data-node-id="asr_watchdog" data-node-label="GPU ASR watchdog" tabindex="0" role="button" aria-label="聚焦GPU ASR watchdog，spawn 子进程 · 强制对齐硬超时, 架构组件" aria-pressed="false" data-node-kind="backend" data-node-sublabel="spawn 子进程 · 强制对齐硬超时" data-node-tag="inference_timeout · retryable" data-node-context="架构组件">
+          <title>GPU ASR watchdog · spawn 子进程 · 强制对齐硬超时 · 架构组件 · inference_timeout · retryable</title>
+          <rect x="650" y="980" width="230" height="90" rx="6" class="c-mask"/>
+          <rect x="650" y="980" width="230" height="90" rx="6" class="c-backend" stroke-width="1.5"/>
+          <g aria-hidden="true" data-semantic-sigil="backend" class="semantic-sigil s-backend" transform="translate(656 986) scale(0.6875)">
+            <path d="M6 3 3 8l3 5M10 3l3 5-3 5"/>
+          </g>
+          <text data-node-label="" data-detail-anchor="" x="765" y="1023" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">GPU ASR watchdog</text>
+        <text data-detail="context" x="765" y="1039" class="t-muted" font-size="9" text-anchor="middle">spawn 子进程 · 强制对齐硬超时</text>
+        <text data-detail="fine" x="765" y="1062" class="t-backend" font-size="7" text-anchor="middle">inference_timeout · retryable</text>
         </g>
 
         <g id="node-audio_files" data-node-id="audio_files" data-node-label="本地音频字节" tabindex="0" role="button" aria-label="聚焦本地音频字节，audio/{bvid}.p{N}.m4a, 架构组件" aria-pressed="false" data-node-kind="database" data-node-sublabel="audio/{bvid}.p{N}.m4a" data-node-tag="AAC / ALAC · soundfile / ffmpeg" data-node-context="架构组件">
@@ -5519,6 +5583,58 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
         <text data-detail="context" x="180" y="1059" class="t-muted" font-size="9" text-anchor="middle">read-only workflow facts · derived status</text>
         </g>
 
+        <g id="node-reading_export" data-node-id="reading_export" data-node-label="阅读站导出器" tabindex="0" role="button" aria-label="聚焦阅读站导出器，reading-export · SQLite 只读 + SHA-256, 架构组件" aria-pressed="false" data-node-kind="backend" data-node-sublabel="reading-export · SQLite 只读 + SHA-256" data-node-tag="拒绝越界路径与非托管文件" data-node-context="架构组件">
+          <title>阅读站导出器 · reading-export · SQLite 只读 + SHA-256 · 架构组件 · 拒绝越界路径与非托管文件</title>
+          <rect x="40" y="2500" width="230" height="90" rx="6" class="c-mask"/>
+          <rect x="40" y="2500" width="230" height="90" rx="6" class="c-backend" stroke-width="1.5"/>
+          <g aria-hidden="true" data-semantic-sigil="backend" class="semantic-sigil s-backend" transform="translate(46 2506) scale(0.6875)">
+            <path d="M6 3 3 8l3 5M10 3l3 5-3 5"/>
+          </g>
+          <text data-node-label="" data-detail-anchor="" x="155" y="2543" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">阅读站导出器</text>
+        <text data-detail="context" x="155" y="2559" class="t-muted" font-size="9" text-anchor="middle">reading-export · SQLite 只读 + SHA-256</text>
+        <text data-detail="fine" x="155" y="2582" class="t-backend" font-size="7" text-anchor="middle">拒绝越界路径与非托管文件</text>
+        </g>
+
+        <g id="node-review_state" data-node-id="review_state" data-node-label="archive.db · 阅读审核状态" tabindex="0" role="button" aria-label="聚焦archive.db · 阅读审核状态，publications · editions · append-only events, 架构组件" aria-pressed="false" data-node-kind="database" data-node-sublabel="publications · editions · append-only events" data-node-tag="AI revision immutable" data-node-context="架构组件">
+          <title>archive.db · 阅读审核状态 · publications · editions · append-only events · 架构组件 · AI revision immutable</title>
+          <rect x="345" y="2500" width="230" height="90" rx="6" class="c-mask"/>
+          <rect x="345" y="2500" width="230" height="90" rx="6" class="c-database" stroke-width="1.5"/>
+          <g aria-hidden="true" data-semantic-sigil="database" class="semantic-sigil s-database" transform="translate(351 2506) scale(0.6875)">
+            <ellipse cx="8" cy="4" rx="5" ry="2"/>
+            <path d="M3 4v8c0 1.1 2.2 2 5 2s5-.9 5-2V4M3 8c0 1.1 2.2 2 5 2s5-.9 5-2"/>
+          </g>
+          <text data-node-label="" data-detail-anchor="" x="460" y="2543" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">archive.db · 阅读审核状态</text>
+        <text data-detail="context" x="460" y="2559" class="t-muted" font-size="8.4" text-anchor="middle">publications · editions · append-only events</text>
+        <text data-detail="fine" x="460" y="2582" class="t-database" font-size="7" text-anchor="middle">AI revision immutable</text>
+        </g>
+
+        <g id="node-reading_site" data-node-id="reading_site" data-node-label="静态阅读站" tabindex="0" role="button" aria-label="聚焦静态阅读站，reading-site/content · Markdown + Issue, 架构组件" aria-pressed="false" data-node-kind="frontend" data-node-sublabel="reading-site/content · Markdown + Issue" data-node-tag="浏览器不接触 SQLite" data-node-context="架构组件">
+          <title>静态阅读站 · reading-site/content · Markdown + Issue · 架构组件 · 浏览器不接触 SQLite</title>
+          <rect x="650" y="2500" width="200" height="90" rx="6" class="c-mask"/>
+          <rect x="650" y="2500" width="200" height="90" rx="6" class="c-frontend" stroke-width="1.5"/>
+          <g aria-hidden="true" data-semantic-sigil="frontend" class="semantic-sigil s-frontend" transform="translate(656 2506) scale(0.6875)">
+            <rect x="2" y="3" width="12" height="10" rx="2"/>
+            <path d="M2 6.5h12"/>
+            <circle cx="4.1" cy="4.8" r=".7" class="sigil-fill"/>
+            <circle cx="6.3" cy="4.8" r=".7" class="sigil-fill"/>
+          </g>
+          <text data-node-label="" data-detail-anchor="" x="750" y="2543" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">静态阅读站</text>
+        <text data-detail="context" x="750" y="2559" class="t-muted" font-size="8.2" text-anchor="middle">reading-site/content · Markdown + Issue</text>
+        <text data-detail="fine" x="750" y="2582" class="t-frontend" font-size="7" text-anchor="middle">浏览器不接触 SQLite</text>
+        </g>
+
+        <g id="node-reviewer" data-node-id="reviewer" data-node-label="读者与维护者" tabindex="0" role="button" aria-label="聚焦读者与维护者，GitHub Issue · 审核建议, 架构组件" aria-pressed="false" data-node-kind="external" data-node-sublabel="GitHub Issue · 审核建议" data-node-context="架构组件">
+          <title>读者与维护者 · GitHub Issue · 审核建议 · 架构组件</title>
+          <rect x="970" y="2500" width="230" height="90" rx="6" class="c-mask"/>
+          <rect x="970" y="2500" width="230" height="90" rx="6" class="c-external" stroke-width="1.5"/>
+          <g aria-hidden="true" data-semantic-sigil="external" class="semantic-sigil s-external" transform="translate(976 2506) scale(0.6875)">
+            <rect x="2.5" y="5" width="8.5" height="8" rx="1.5"/>
+            <path d="M8 2.5h5.5V8M13.5 2.5 7.5 8.5"/>
+          </g>
+          <text data-node-label="" data-detail-anchor="" x="1085" y="2543" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">读者与维护者</text>
+        <text data-detail="context" x="1085" y="2559" class="t-muted" font-size="9" text-anchor="middle">GitHub Issue · 审核建议</text>
+        </g>
+
         <!-- Connection labels -->
         <g data-detail="context" data-edge-from="operator" data-edge-to="cli" data-edge-label="bili-asr" data-edge-key="0" data-edge-id="enter">
           <rect x="283.3" y="75" width="48.4" height="14" rx="3" class="c-mask"/>
@@ -5545,136 +5661,176 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
           <text x="599" y="333" class="t-edge-default" font-size="8" text-anchor="middle">DTO 返回</text>
         </g>
         <g data-detail="context" data-edge-from="metadata" data-edge-to="facts" data-edge-label="页事务" data-edge-key="6" data-edge-id="meta-sql">
-          <rect x="898.1" y="315" width="38.8" height="14" rx="3" class="c-mask"/>
-          <text x="917.5" y="325" class="t-edge-default" font-size="8" text-anchor="middle">页事务</text>
+          <rect x="897.6" y="230" width="38.8" height="14" rx="3" class="c-mask"/>
+          <text x="917" y="240" class="t-edge-default" font-size="8" text-anchor="middle">页事务</text>
         </g>
         <g data-detail="context" data-edge-from="facts" data-edge-to="planner" data-edge-label="选定 part ID" data-edge-key="7" data-edge-id="known-parts">
-          <rect x="953.2" y="246" width="67.6" height="14" rx="3" class="c-mask"/>
-          <text x="987" y="256" class="t-edge-default" font-size="8" text-anchor="middle">选定 part ID</text>
+          <rect x="1076" y="245.5" width="67.6" height="14" rx="3" class="c-mask"/>
+          <text x="1109.8" y="255.5" class="t-edge-default" font-size="8" text-anchor="middle">选定 part ID</text>
         </g>
         <g data-detail="context" data-edge-from="jobs" data-edge-to="executor" data-edge-label="原子领取 / 租约" data-edge-key="8" data-edge-id="claim">
-          <rect x="964.95" y="221" width="82" height="14" rx="3" class="c-mask"/>
-          <text x="1005.95" y="231" class="t-edge-default" font-size="8" text-anchor="middle">原子领取 / 租约</text>
+          <rect x="957.2" y="259" width="82" height="14" rx="3" class="c-mask"/>
+          <text x="998.2" y="269" class="t-edge-default" font-size="8" text-anchor="middle">原子领取 / 租约</text>
         </g>
-        <g data-detail="context" data-edge-from="executor" data-edge-to="subtitles" data-edge-label="subtitle job" data-edge-key="9" data-edge-id="worker-caption">
-          <rect x="273.7" y="592" width="67.6" height="14" rx="3" class="c-mask"/>
-          <text x="307.5" y="602" class="t-edge-default" font-size="8" text-anchor="middle">subtitle job</text>
+        <g data-detail="context" data-edge-from="executor" data-edge-to="lease_heartbeat" data-edge-label="attempt heartbeat" data-edge-key="9" data-edge-id="lease-heartbeat">
+          <rect x="482.675" y="684" width="91.6" height="14" rx="3" class="c-mask"/>
+          <text x="528.475" y="694" class="t-edge-emphasis" font-size="8" text-anchor="middle">attempt heartbeat</text>
         </g>
-        <g data-detail="context" data-edge-from="executor" data-edge-to="audio" data-edge-label="audio job" data-edge-key="10" data-edge-id="worker-audio">
-          <rect x="585.9" y="592" width="53.199999999999996" height="14" rx="3" class="c-mask"/>
-          <text x="612.5" y="602" class="t-edge-default" font-size="8" text-anchor="middle">audio job</text>
+        <g data-detail="context" data-edge-from="lease_heartbeat" data-edge-to="jobs" data-edge-label="续租 / stale fencing" data-edge-key="10" data-edge-id="lease-renew">
+          <rect x="829.4" y="442.5" width="106" height="14" rx="3" class="c-mask"/>
+          <text x="882.4" y="452.5" class="t-edge-security" font-size="8" text-anchor="middle">续租 / stale fencing</text>
         </g>
-        <g data-detail="context" data-edge-from="executor" data-edge-to="asr" data-edge-label="就绪 asr job" data-edge-key="11" data-edge-id="worker-asr">
+        <g data-detail="context" data-edge-from="executor" data-edge-to="subtitles" data-edge-label="字幕 job" data-edge-key="11" data-edge-id="worker-caption">
+          <rect x="185.8" y="654" width="48.4" height="14" rx="3" class="c-mask"/>
+          <text x="210" y="664" class="t-edge-default" font-size="8" text-anchor="middle">字幕 job</text>
+        </g>
+        <g data-detail="context" data-edge-from="executor" data-edge-to="audio" data-edge-label="audio job" data-edge-key="12" data-edge-id="worker-audio">
+          <rect x="572.4" y="655" width="53.199999999999996" height="14" rx="3" class="c-mask"/>
+          <text x="599" y="665" class="t-edge-default" font-size="8" text-anchor="middle">audio job</text>
+        </g>
+        <g data-detail="context" data-edge-from="executor" data-edge-to="asr" data-edge-label="就绪 asr job" data-edge-key="13" data-edge-id="worker-asr">
           <rect x="386.4" y="738" width="67.6" height="14" rx="3" class="c-mask"/>
           <text x="420.2" y="748" class="t-edge-default" font-size="8" text-anchor="middle">就绪 asr job</text>
         </g>
-        <g data-detail="context" data-edge-from="audio" data-edge-to="audio_catalog" data-edge-label="SHA-256 / key" data-edge-key="12" data-edge-id="audio-meta">
-          <rect x="791.3" y="525" width="72.4" height="14" rx="3" class="c-mask"/>
-          <text x="827.5" y="535" class="t-edge-default" font-size="8" text-anchor="middle">SHA-256 / key</text>
+        <g data-detail="context" data-edge-from="asr" data-edge-to="asr_watchdog" data-edge-label="GPU/ROCm inference" data-edge-key="14" data-edge-id="asr-watchdog">
+          <rect x="496.59999999999997" y="940.125" width="96.39999999999999" height="14" rx="3" class="c-mask"/>
+          <text x="544.8" y="950.125" class="t-edge-default" font-size="8" text-anchor="middle">GPU/ROCm inference</text>
         </g>
-        <g data-detail="context" data-edge-from="audio" data-edge-to="audio_files" data-edge-label="下载与固化" data-edge-key="13" data-edge-id="audio-write">
-          <rect x="701" y="738" width="58" height="14" rx="3" class="c-mask"/>
-          <text x="730" y="748" class="t-edge-default" font-size="8" text-anchor="middle">下载与固化</text>
+        <g data-detail="context" data-edge-from="audio" data-edge-to="audio_catalog" data-edge-label="SHA-256 / key" data-edge-key="15" data-edge-id="audio-meta">
+          <rect x="790.8" y="654" width="72.4" height="14" rx="3" class="c-mask"/>
+          <text x="827" y="664" class="t-edge-default" font-size="8" text-anchor="middle">SHA-256 / key</text>
         </g>
-        <g data-detail="context" data-edge-from="subtitles" data-edge-to="transcripts" data-edge-label="追加 / 幂等" data-edge-key="14" data-edge-id="caption-store">
+        <g data-detail="context" data-edge-from="audio" data-edge-to="audio_files" data-edge-label="下载与固化" data-edge-key="16" data-edge-id="audio-write">
+          <rect x="840" y="808" width="58" height="14" rx="3" class="c-mask"/>
+          <text x="869" y="818" class="t-edge-default" font-size="8" text-anchor="middle">下载与固化</text>
+        </g>
+        <g data-detail="context" data-edge-from="subtitles" data-edge-to="transcripts" data-edge-label="追加 / 幂等" data-edge-key="17" data-edge-id="caption-store">
           <rect x="86.19999999999999" y="738" width="62.8" height="14" rx="3" class="c-mask"/>
           <text x="117.6" y="748" class="t-edge-default" font-size="8" text-anchor="middle">追加 / 幂等</text>
         </g>
-        <g data-detail="context" data-edge-from="audio_files" data-edge-to="asr" data-edge-label="读取音频" data-edge-key="15" data-edge-id="audio-read">
+        <g data-detail="context" data-edge-from="audio_files" data-edge-to="asr" data-edge-label="读取音频" data-edge-key="18" data-edge-id="audio-read">
           <rect x="575.8" y="790" width="48.4" height="14" rx="3" class="c-mask"/>
           <text x="600" y="800" class="t-edge-default" font-size="8" text-anchor="middle">读取音频</text>
         </g>
-        <g data-detail="context" data-edge-from="models" data-edge-to="asr" data-edge-label="惰性加载" data-edge-key="16" data-edge-id="model-load">
+        <g data-detail="context" data-edge-from="models" data-edge-to="asr" data-edge-label="惰性加载" data-edge-key="19" data-edge-id="model-load">
           <rect x="435.8" y="1090" width="48.4" height="14" rx="3" class="c-mask"/>
           <text x="460" y="1100" class="t-edge-default" font-size="8" text-anchor="middle">惰性加载</text>
         </g>
-        <g data-detail="context" data-edge-from="asr" data-edge-to="transcripts" data-edge-label="读写转录" data-edge-key="17" data-edge-id="asr-store">
-          <rect x="283.3" y="785" width="48.4" height="14" rx="3" class="c-mask"/>
-          <text x="307.5" y="795" class="t-edge-default" font-size="8" text-anchor="middle">读写转录</text>
+        <g data-detail="context" data-edge-from="asr_watchdog" data-edge-to="models" data-edge-label="子进程 / 硬超时" data-edge-key="20" data-edge-id="watchdog-model">
+          <rect x="524.5" y="1086.5" width="82" height="14" rx="3" class="c-mask"/>
+          <text x="565.5" y="1096.5" class="t-edge-dashed" font-size="8" text-anchor="middle">子进程 / 硬超时</text>
         </g>
-        <g data-detail="context" data-edge-from="transcripts" data-edge-to="publisher" data-edge-label="择优读取" data-edge-key="18" data-edge-id="read-winner">
-          <rect x="50.8" y="964" width="48.4" height="14" rx="3" class="c-mask"/>
-          <text x="75" y="974" class="t-edge-default" font-size="8" text-anchor="middle">择优读取</text>
+        <g data-detail="context" data-edge-from="asr" data-edge-to="transcripts" data-edge-label="写入转录" data-edge-key="21" data-edge-id="asr-store">
+          <rect x="175.8" y="785" width="48.4" height="14" rx="3" class="c-mask"/>
+          <text x="200" y="795" class="t-edge-default" font-size="8" text-anchor="middle">写入转录</text>
         </g>
-        <g data-detail="context" data-edge-from="executor" data-edge-to="publisher" data-edge-label="publish job" data-edge-key="19" data-edge-id="worker-pub">
-          <rect x="359.95000000000005" y="713" width="62.8" height="14" rx="3" class="c-mask"/>
-          <text x="391.35" y="723" class="t-edge-dashed" font-size="8" text-anchor="middle">publish job</text>
+        <g data-detail="context" data-edge-from="transcripts" data-edge-to="publisher" data-edge-label="择优读取" data-edge-key="22" data-edge-id="read-winner">
+          <rect x="64.8" y="977" width="48.4" height="14" rx="3" class="c-mask"/>
+          <text x="89" y="987" class="t-edge-default" font-size="8" text-anchor="middle">择优读取</text>
         </g>
-        <g data-detail="context" data-edge-from="publisher" data-edge-to="bundles" data-edge-label="完整 bundle" data-edge-key="20" data-edge-id="publish-bytes">
-          <rect x="131.6" y="1204" width="62.8" height="14" rx="3" class="c-mask"/>
-          <text x="163" y="1214" class="t-edge-emphasis" font-size="8" text-anchor="middle">完整 bundle</text>
+        <g data-detail="context" data-edge-from="executor" data-edge-to="publisher" data-edge-label="publish job" data-edge-key="23" data-edge-id="worker-pub">
+          <rect x="238.70000000000002" y="735.5" width="62.8" height="14" rx="3" class="c-mask"/>
+          <text x="270.1" y="745.5" class="t-edge-dashed" font-size="8" text-anchor="middle">publish job</text>
         </g>
-        <g data-detail="context" data-edge-from="transcripts" data-edge-to="editorial" data-edge-label="冻结版本" data-edge-key="21" data-edge-id="edit-input">
-          <rect x="22.000000000000004" y="932" width="48.4" height="14" rx="3" class="c-mask"/>
-          <text x="46.2" y="942" class="t-edge-dashed" font-size="8" text-anchor="middle">冻结版本</text>
+        <g data-detail="context" data-edge-from="publisher" data-edge-to="bundles" data-edge-label="完整 bundle" data-edge-key="24" data-edge-id="publish-bytes">
+          <rect x="102.19999999999999" y="1288" width="62.8" height="14" rx="3" class="c-mask"/>
+          <text x="133.6" y="1298" class="t-edge-emphasis" font-size="8" text-anchor="middle">完整 bundle</text>
         </g>
-        <g data-detail="context" data-edge-from="executor" data-edge-to="editorial" data-edge-label="可选编辑 jobs" data-edge-key="22" data-edge-id="worker-edit">
-          <rect x="510.8999999999999" y="817" width="72.4" height="14" rx="3" class="c-mask"/>
-          <text x="547.0999999999999" y="827" class="t-edge-dashed" font-size="8" text-anchor="middle">可选编辑 jobs</text>
+        <g data-detail="context" data-edge-from="transcripts" data-edge-to="editorial" data-edge-label="冻结版本" data-edge-key="25" data-edge-id="edit-input">
+          <rect x="383.8" y="957" width="48.4" height="14" rx="3" class="c-mask"/>
+          <text x="408" y="967" class="t-edge-dashed" font-size="8" text-anchor="middle">冻结版本</text>
         </g>
-        <g data-detail="context" data-edge-from="editorial" data-edge-to="deepseek" data-edge-label="HTTPS / JSON" data-edge-key="23" data-edge-id="model-call">
+        <g data-detail="context" data-edge-from="executor" data-edge-to="editorial" data-edge-label="可选编辑 jobs" data-edge-key="26" data-edge-id="worker-edit">
+          <rect x="363.8" y="817" width="72.4" height="14" rx="3" class="c-mask"/>
+          <text x="400" y="827" class="t-edge-dashed" font-size="8" text-anchor="middle">可选编辑 jobs</text>
+        </g>
+        <g data-detail="context" data-edge-from="editorial" data-edge-to="deepseek" data-edge-label="HTTPS / JSON" data-edge-key="27" data-edge-id="model-call">
           <rect x="883.7" y="1135" width="67.6" height="14" rx="3" class="c-mask"/>
           <text x="917.5" y="1145" class="t-edge-dashed" font-size="8" text-anchor="middle">HTTPS / JSON</text>
         </g>
-        <g data-detail="context" data-edge-from="editorial" data-edge-to="revisions" data-edge-label="校验后保存" data-edge-key="24" data-edge-id="save-revision">
+        <g data-detail="context" data-edge-from="editorial" data-edge-to="revisions" data-edge-label="校验后保存" data-edge-key="28" data-edge-id="save-revision">
           <rect x="701" y="1288" width="58" height="14" rx="3" class="c-mask"/>
           <text x="730" y="1298" class="t-edge-default" font-size="8" text-anchor="middle">校验后保存</text>
         </g>
-        <g data-detail="context" data-edge-from="revisions" data-edge-to="renderer" data-edge-label="读取修订" data-edge-key="25" data-edge-id="read-revision">
+        <g data-detail="context" data-edge-from="revisions" data-edge-to="renderer" data-edge-label="读取修订" data-edge-key="29" data-edge-id="read-revision">
           <rect x="893.3" y="1415" width="48.4" height="14" rx="3" class="c-mask"/>
           <text x="917.5" y="1425" class="t-edge-default" font-size="8" text-anchor="middle">读取修订</text>
         </g>
-        <g data-detail="context" data-edge-from="renderer" data-edge-to="documents" data-edge-label="fsync / replace" data-edge-key="26" data-edge-id="render-bytes">
+        <g data-detail="context" data-edge-from="renderer" data-edge-to="documents" data-edge-label="fsync / replace" data-edge-key="30" data-edge-id="render-bytes">
           <rect x="982" y="1558" width="82" height="14" rx="3" class="c-mask"/>
           <text x="1023" y="1568" class="t-edge-default" font-size="8" text-anchor="middle">fsync / replace</text>
         </g>
-        <g data-detail="context" data-edge-from="transcripts" data-edge-to="search" data-edge-label="转录块" data-edge-key="27" data-edge-id="index-source">
-          <rect x="214.6" y="1493" width="38.8" height="14" rx="3" class="c-mask"/>
-          <text x="234" y="1503" class="t-edge-default" font-size="8" text-anchor="middle">转录块</text>
+        <g data-detail="context" data-edge-from="transcripts" data-edge-to="search" data-edge-label="转录块" data-edge-key="31" data-edge-id="index-source">
+          <rect x="72.6" y="934" width="38.8" height="14" rx="3" class="c-mask"/>
+          <text x="92" y="944" class="t-edge-default" font-size="8" text-anchor="middle">转录块</text>
         </g>
-        <g data-detail="context" data-edge-from="search" data-edge-to="fts" data-edge-label="构建 / 查询" data-edge-key="28" data-edge-id="index-build">
+        <g data-detail="context" data-edge-from="search" data-edge-to="fts" data-edge-label="构建 / 查询" data-edge-key="32" data-edge-id="index-build">
           <rect x="581.1" y="1675" width="62.8" height="14" rx="3" class="c-mask"/>
           <text x="612.5" y="1685" class="t-edge-default" font-size="8" text-anchor="middle">构建 / 查询</text>
         </g>
-        <g data-detail="context" data-edge-from="bundles" data-edge-to="search" data-edge-label="MD 补全" data-edge-key="29" data-edge-id="md-backfill">
+        <g data-detail="context" data-edge-from="bundles" data-edge-to="search" data-edge-label="MD 补全" data-edge-key="33" data-edge-id="md-backfill">
           <rect x="257.9" y="1558" width="43.6" height="14" rx="3" class="c-mask"/>
           <text x="279.7" y="1568" class="t-edge-dashed" font-size="8" text-anchor="middle">MD 补全</text>
         </g>
-        <g data-detail="context" data-edge-from="gateway" data-edge-to="subtitles" data-edge-label="字幕获取" data-edge-key="30" data-edge-id="caption-api">
-          <rect x="296.8" y="419" width="48.4" height="14" rx="3" class="c-mask"/>
-          <text x="321" y="429" class="t-edge-default" font-size="8" text-anchor="middle">字幕获取</text>
+        <g data-detail="context" data-edge-from="gateway" data-edge-to="subtitles" data-edge-label="字幕获取" data-edge-key="34" data-edge-id="caption-api">
+          <rect x="239.60000000000002" y="466.5" width="48.4" height="14" rx="3" class="c-mask"/>
+          <text x="263.8" y="476.5" class="t-edge-default" font-size="8" text-anchor="middle">字幕获取</text>
         </g>
-        <g data-detail="context" data-edge-from="gateway" data-edge-to="audio" data-edge-label="DASH / CDN" data-edge-key="31" data-edge-id="audio-api">
-          <rect x="396" y="418" width="58" height="14" rx="3" class="c-mask"/>
-          <text x="425" y="428" class="t-edge-default" font-size="8" text-anchor="middle">DASH / CDN</text>
+        <g data-detail="context" data-edge-from="gateway" data-edge-to="audio" data-edge-label="DASH / CDN" data-edge-key="35" data-edge-id="audio-api">
+          <rect x="583.5" y="450" width="58" height="14" rx="3" class="c-mask"/>
+          <text x="612.5" y="460" class="t-edge-default" font-size="8" text-anchor="middle">DASH / CDN</text>
         </g>
-        <g data-detail="context" data-edge-from="cli" data-edge-to="executor" data-edge-label="workflow run" data-edge-key="32" data-edge-id="workflow-run">
-          <rect x="510.2999999999999" y="267" width="67.6" height="14" rx="3" class="c-mask"/>
-          <text x="544.0999999999999" y="277" class="t-edge-default" font-size="8" text-anchor="middle">workflow run</text>
+        <g data-detail="context" data-edge-from="cli" data-edge-to="executor" data-edge-label="workflow run" data-edge-key="36" data-edge-id="workflow-run">
+          <rect x="370.7" y="267" width="67.6" height="14" rx="3" class="c-mask"/>
+          <text x="404.5" y="277" class="t-edge-default" font-size="8" text-anchor="middle">workflow run</text>
         </g>
-        <g data-detail="context" data-edge-from="facts" data-edge-to="inspection" data-edge-label="status / runs" data-edge-key="33" data-edge-id="inspect-facts">
-          <rect x="1092.8" y="524" width="72.4" height="14" rx="3" class="c-mask"/>
-          <text x="1129" y="534" class="t-edge-dashed" font-size="8" text-anchor="middle">status / runs</text>
+        <g data-detail="context" data-edge-from="facts" data-edge-to="inspection" data-edge-label="status / runs" data-edge-key="37" data-edge-id="inspect-facts">
+          <rect x="659.3" y="384" width="72.4" height="14" rx="3" class="c-mask"/>
+          <text x="695.5" y="394" class="t-edge-dashed" font-size="8" text-anchor="middle">status / runs</text>
         </g>
-        <g data-detail="context" data-edge-from="bundles" data-edge-to="integrity" data-edge-label="完整性检查" data-edge-key="34" data-edge-id="verify-products">
-          <rect x="91" y="1604.5" width="58" height="14" rx="3" class="c-mask"/>
-          <text x="120" y="1614.5" class="t-edge-dashed" font-size="8" text-anchor="middle">完整性检查</text>
+        <g data-detail="context" data-edge-from="bundles" data-edge-to="integrity" data-edge-label="完整性检查" data-edge-key="38" data-edge-id="verify-products">
+          <rect x="431" y="2314" width="58" height="14" rx="3" class="c-mask"/>
+          <text x="460" y="2324" class="t-edge-dashed" font-size="8" text-anchor="middle">完整性检查</text>
         </g>
-        <g data-detail="context" data-edge-from="facts" data-edge-to="projection" data-edge-label="active video parts" data-edge-key="35" data-edge-id="facts-projection">
-          <rect x="882.8" y="677" width="96.39999999999999" height="14" rx="3" class="c-mask"/>
-          <text x="931" y="687" class="t-edge-default" font-size="8" text-anchor="middle">active video parts</text>
+        <g data-detail="context" data-edge-from="facts" data-edge-to="projection" data-edge-label="active video parts" data-edge-key="39" data-edge-id="facts-projection">
+          <rect x="641.8" y="537" width="96.39999999999999" height="14" rx="3" class="c-mask"/>
+          <text x="690" y="547" class="t-edge-default" font-size="8" text-anchor="middle">active video parts</text>
         </g>
-        <g data-detail="context" data-edge-from="transcripts" data-edge-to="projection" data-edge-label="versions + publication facts" data-edge-key="36" data-edge-id="transcripts-projection">
-          <rect x="154" y="940.5" width="144.4" height="14" rx="3" class="c-mask"/>
-          <text x="226.2" y="950.5" class="t-edge-default" font-size="8" text-anchor="middle">versions + publication facts</text>
+        <g data-detail="context" data-edge-from="transcripts" data-edge-to="projection" data-edge-label="版本事实" data-edge-key="40" data-edge-id="transcripts-projection">
+          <rect x="225.8" y="950" width="48.4" height="14" rx="3" class="c-mask"/>
+          <text x="250" y="960" class="t-edge-default" font-size="8" text-anchor="middle">版本事实</text>
         </g>
-        <g data-detail="context" data-edge-from="bundles" data-edge-to="projection" data-edge-label="bundle presence check" data-edge-key="37" data-edge-id="bundles-projection">
-          <rect x="43.6" y="1338" width="110.8" height="14" rx="3" class="c-mask"/>
-          <text x="99" y="1348" class="t-edge-dashed" font-size="8" text-anchor="middle">bundle presence check</text>
+        <g data-detail="context" data-edge-from="bundles" data-edge-to="projection" data-edge-label="bundle presence check" data-edge-key="41" data-edge-id="bundles-projection">
+          <rect x="33.1" y="1484" width="110.8" height="14" rx="3" class="c-mask"/>
+          <text x="88.5" y="1494" class="t-edge-dashed" font-size="8" text-anchor="middle">bundle presence check</text>
         </g>
-        <g data-detail="context" data-edge-from="projection" data-edge-to="inspection" data-edge-label="coverage / export / verify" data-edge-key="38" data-edge-id="projection-inspection">
+        <g data-detail="context" data-edge-from="projection" data-edge-to="inspection" data-edge-label="coverage / export / verify" data-edge-key="42" data-edge-id="projection-inspection">
           <rect x="181.7" y="1331.7125" width="134.8" height="14" rx="3" class="c-mask"/>
           <text x="249.1" y="1341.7125" class="t-edge-emphasis" font-size="8" text-anchor="middle">coverage / export / verify</text>
+        </g>
+        <g data-detail="context" data-edge-from="cli" data-edge-to="reading_export" data-edge-label="reading-export" data-edge-key="43" data-edge-id="reading-command">
+          <rect x="195.9" y="144" width="77.2" height="14" rx="3" class="c-mask"/>
+          <text x="234.5" y="154" class="t-edge-default" font-size="8" text-anchor="middle">reading-export</text>
+        </g>
+        <g data-detail="context" data-edge-from="revisions" data-edge-to="reading_export" data-edge-label="只读修订" data-edge-key="44" data-edge-id="reading-revision">
+          <rect x="710.5999999999999" y="1556.5" width="48.4" height="14" rx="3" class="c-mask"/>
+          <text x="734.8" y="1566.5" class="t-edge-default" font-size="8" text-anchor="middle">只读修订</text>
+        </g>
+        <g data-detail="context" data-edge-from="documents" data-edge-to="reading_export" data-edge-label="reading.md + review.md" data-edge-key="45" data-edge-id="reading-documents">
+          <rect x="873.2" y="2076" width="115.6" height="14" rx="3" class="c-mask"/>
+          <text x="931" y="2086" class="t-edge-dashed" font-size="8" text-anchor="middle">reading.md + review.md</text>
+        </g>
+        <g data-detail="context" data-edge-from="reading_export" data-edge-to="reading_site" data-edge-label="静态内容快照" data-edge-key="46" data-edge-id="reading-snapshot">
+          <rect x="356.7" y="2594" width="67.6" height="14" rx="3" class="c-mask"/>
+          <text x="390.5" y="2604" class="t-edge-emphasis" font-size="8" text-anchor="middle">静态内容快照</text>
+        </g>
+        <g data-detail="context" data-edge-from="reading_site" data-edge-to="reviewer" data-edge-label="预填 GitHub Issue" data-edge-key="47" data-edge-id="issue-feedback">
+          <rect x="864.2" y="2525" width="91.6" height="14" rx="3" class="c-mask"/>
+          <text x="910" y="2535" class="t-edge-dashed" font-size="8" text-anchor="middle">预填 GitHub Issue</text>
+        </g>
+        <g data-detail="context" data-edge-from="review_state" data-edge-to="reading_export" data-edge-label="重新导出状态" data-edge-key="48" data-edge-id="review-export">
+          <rect x="273.7" y="2540.05" width="67.6" height="14" rx="3" class="c-mask"/>
+          <text x="307.5" y="2550.05" class="t-edge-dashed" font-size="8" text-anchor="middle">重新导出状态</text>
         </g>
 
         <!-- Boundary labels (foreground masks keep routes out of titles) -->
@@ -5682,22 +5838,22 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 
         <!-- Legend -->
         <g data-legend="" data-legend-bridge="">
-          <text x="40" y="2342" class="t-primary" font-size="12" font-weight="650">图例</text>
-          <g data-legend-semantic-kind="frontend" data-legend-kind="frontend" data-legend-label="前端" data-legend-x="40" data-legend-baseline="2362" data-legend-width="63">
-            <rect x="40" y="2353" width="16" height="10" rx="2.5" class="c-frontend" stroke-width="1"/>
-            <text x="62" y="2362" class="t-muted" font-size="10" font-weight="500">前端</text>
+          <text x="40" y="2646" class="t-primary" font-size="12" font-weight="650">图例</text>
+          <g data-legend-semantic-kind="frontend" data-legend-kind="frontend" data-legend-label="前端" data-legend-x="40" data-legend-baseline="2666" data-legend-width="63">
+            <rect x="40" y="2657" width="16" height="10" rx="2.5" class="c-frontend" stroke-width="1"/>
+            <text x="62" y="2666" class="t-muted" font-size="10" font-weight="500">前端</text>
           </g>
-          <g data-legend-semantic-kind="backend" data-legend-kind="backend" data-legend-label="后端" data-legend-x="125" data-legend-baseline="2362" data-legend-width="63">
-            <rect x="125" y="2353" width="16" height="10" rx="2.5" class="c-backend" stroke-width="1"/>
-            <text x="147" y="2362" class="t-muted" font-size="10" font-weight="500">后端</text>
+          <g data-legend-semantic-kind="backend" data-legend-kind="backend" data-legend-label="后端" data-legend-x="125" data-legend-baseline="2666" data-legend-width="63">
+            <rect x="125" y="2657" width="16" height="10" rx="2.5" class="c-backend" stroke-width="1"/>
+            <text x="147" y="2666" class="t-muted" font-size="10" font-weight="500">后端</text>
           </g>
-          <g data-legend-semantic-kind="database" data-legend-kind="database" data-legend-label="数据库" data-legend-x="210" data-legend-baseline="2362" data-legend-width="73">
-            <rect x="210" y="2353" width="16" height="10" rx="2.5" class="c-database" stroke-width="1"/>
-            <text x="232" y="2362" class="t-muted" font-size="10" font-weight="500">数据库</text>
+          <g data-legend-semantic-kind="database" data-legend-kind="database" data-legend-label="数据库" data-legend-x="210" data-legend-baseline="2666" data-legend-width="73">
+            <rect x="210" y="2657" width="16" height="10" rx="2.5" class="c-database" stroke-width="1"/>
+            <text x="232" y="2666" class="t-muted" font-size="10" font-weight="500">数据库</text>
           </g>
-          <g data-legend-semantic-kind="external" data-legend-kind="external" data-legend-label="外部系统" data-legend-x="305" data-legend-baseline="2362" data-legend-width="83">
-            <rect x="305" y="2353" width="16" height="10" rx="2.5" class="c-external" stroke-width="1"/>
-            <text x="327" y="2362" class="t-muted" font-size="10" font-weight="500">外部系统</text>
+          <g data-legend-semantic-kind="external" data-legend-kind="external" data-legend-label="外部系统" data-legend-x="305" data-legend-baseline="2666" data-legend-width="83">
+            <rect x="305" y="2657" width="16" height="10" rx="2.5" class="c-external" stroke-width="1"/>
+            <text x="327" y="2666" class="t-muted" font-size="10" font-weight="500">外部系统</text>
           </g>
         </g>
       </svg>
@@ -5933,6 +6089,18 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
           <li>status 与 runs 直接读 SQLite；coverage、export、verify 通过 workflow projection 得到统一状态。</li>
           <li>search-index 构建 SQLite FTS5；search 查询 transcript 文本并可补入已发布 Markdown。</li>
           <li>读命令不创建缺失的 archive.db；coverage strict 才将诊断提升为失败退出码。</li>
+        </ul>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <div class="card-dot amber"></div>
+          <h3>阅读站发布边界</h3>
+        </div>
+        <ul>
+          <li>reading-export 只读 SQLite，校验登记的 reading.md / review.md 哈希，并生成可提交的静态快照。</li>
+          <li>浏览器只看到筛选后的 Markdown；模型请求、原始转录和 SQLite 不进入站点。</li>
+          <li>Issue 建议通过 reading-review / reading-edit 回到 append-only 审核状态，AI 修订本身不被覆写。</li>
         </ul>
       </div>
     </div>

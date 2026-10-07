@@ -8,7 +8,7 @@
     "quality_profile": "showcase",
     "repository": {
       "url": "https://github.com/SuperCatQR/bilibili-asr-archive.git",
-      "revision": "3cc9346728e3d02980241845fa86900c0fb6c706",
+      "revision": "3908cfd6f7c1daead818674408ca7f91550d3de2",
       "provider": "github",
       "link_mode": "local-only"
     }
@@ -318,8 +318,8 @@
         {
           "path": "src/bili_asr/workflow.py",
           "line": 27,
-          "end_line": 78,
-          "label": "逐任务执行与 terminal attempt"
+          "end_line": 159,
+          "label": "逐任务执行、terminal attempt 与心跳"
         },
         {
           "path": "src/bili_asr/cli/workflow.py",
@@ -335,6 +335,41 @@
         }
       ],
       "tag": "每次 CLI 调用顺序执行"
+    },
+    {
+      "id": "lease_heartbeat",
+      "type": "backend",
+      "label": "尝试级租约心跳",
+      "sublabel": "独立 SQLite 连接 · 精确 attempt fencing",
+      "pos": [
+        650,
+        690
+      ],
+      "size": [
+        230,
+        90
+      ],
+      "sources": [
+        {
+          "path": "src/bili_asr/workflow.py",
+          "line": 101,
+          "end_line": 159,
+          "label": "后台线程续租与停止"
+        },
+        {
+          "path": "src/bili_asr/storage/workflow.py",
+          "line": 106,
+          "end_line": 130,
+          "label": "文件数据库独立连接"
+        },
+        {
+          "path": "src/bili_asr/storage/workflow.py",
+          "line": 335,
+          "end_line": 344,
+          "label": "job、owner、attempt 三重 fencing"
+        }
+      ],
+      "tag": "900 s lease · 默认每 1/3 续租"
     },
     {
       "id": "audio",
@@ -446,8 +481,8 @@
         {
           "path": "src/bili_asr/workflow_runtime.py",
           "line": 147,
-          "end_line": 218,
-          "label": "实际 ASR 调用和存储归属"
+          "end_line": 234,
+          "label": "实际 ASR 调用、watchdog 和存储归属"
         },
         {
           "path": "src/bili_asr/asr/runner.py",
@@ -457,12 +492,47 @@
         },
         {
           "path": "src/bili_asr/asr/runner.py",
-          "line": 539,
-          "end_line": 561,
-          "label": "有证据的条件二次解码"
+          "line": 27,
+          "end_line": 125,
+          "label": "CUDA/ROCm 子进程 watchdog 与超时"
         }
       ],
       "tag": "ASR 只依赖 audio 成功"
+    },
+    {
+      "id": "asr_watchdog",
+      "type": "backend",
+      "label": "GPU ASR watchdog",
+      "sublabel": "spawn 子进程 · 强制对齐硬超时",
+      "pos": [
+        650,
+        980
+      ],
+      "size": [
+        230,
+        90
+      ],
+      "sources": [
+        {
+          "path": "src/bili_asr/asr/runner.py",
+          "line": 27,
+          "end_line": 125,
+          "label": "可终止推理边界"
+        },
+        {
+          "path": "src/bili_asr/asr/config.py",
+          "line": 76,
+          "end_line": 116,
+          "label": "inference timeout 配置"
+        },
+        {
+          "path": "src/bili_asr/workflow_runtime.py",
+          "line": 188,
+          "end_line": 209,
+          "label": "CUDA/ROCm 超时失败记录"
+        }
+      ],
+      "tag": "inference_timeout · retryable"
     },
     {
       "id": "audio_files",
@@ -896,6 +966,115 @@
           "label": "从只读数据库投影当前 part、transcript 与 publication"
         }
       ]
+    },
+    {
+      "id": "reading_export",
+      "type": "backend",
+      "label": "阅读站导出器",
+      "sublabel": "reading-export · SQLite 只读 + SHA-256",
+      "pos": [
+        40,
+        2500
+      ],
+      "size": [
+        230,
+        90
+      ],
+      "sources": [
+        {
+          "path": "src/bili_asr/cli/reading.py",
+          "line": 31,
+          "end_line": 45,
+          "label": "只读连接与站点导出入口"
+        },
+        {
+          "path": "src/bili_asr/reading_publication.py",
+          "line": 142,
+          "end_line": 272,
+          "label": "读取 reading/review、哈希校验与快照写入"
+        }
+      ],
+      "tag": "拒绝越界路径与非托管文件"
+    },
+    {
+      "id": "review_state",
+      "type": "database",
+      "label": "archive.db · 阅读审核状态",
+      "sublabel": "publications · editions · append-only events",
+      "pos": [
+        345,
+        2500
+      ],
+      "size": [
+        230,
+        90
+      ],
+      "sources": [
+        {
+          "path": "src/bili_asr/storage/schema-editorial.sql",
+          "line": 55,
+          "end_line": 90,
+          "label": "人工版本、状态与事件表"
+        },
+        {
+          "path": "src/bili_asr/reading_publication.py",
+          "line": 275,
+          "end_line": 370,
+          "label": "状态转换与人工版本写入"
+        }
+      ],
+      "tag": "AI revision immutable"
+    },
+    {
+      "id": "reading_site",
+      "type": "frontend",
+      "label": "静态阅读站",
+      "sublabel": "reading-site/content · Markdown + Issue",
+      "pos": [
+        650,
+        2500
+      ],
+      "size": [
+        200,
+        90
+      ],
+      "sources": [
+        {
+          "path": "README.md",
+          "line": 91,
+          "end_line": 113,
+          "label": "导入、审核与本地站点入口"
+        },
+        {
+          "path": "docs/architecture.md",
+          "line": 31,
+          "end_line": 38,
+          "label": "独立静态投影边界"
+        }
+      ],
+      "tag": "浏览器不接触 SQLite"
+    },
+    {
+      "id": "reviewer",
+      "type": "external",
+      "label": "读者与维护者",
+      "sublabel": "GitHub Issue · 审核建议",
+      "pos": [
+        970,
+        2500
+      ],
+      "size": [
+        230,
+        90
+      ],
+      "sources": [
+        {
+          "path": "README.md",
+          "line": 107,
+          "end_line": 113,
+          "label": "Issue 审核与人工版本入口"
+        }
+      ]
     }
   ],
   "connections": [
@@ -940,7 +1119,12 @@
       "id": "meta-sql",
       "from": "metadata",
       "to": "facts",
-      "label": "页事务"
+      "label": "页事务",
+      "labelDx": -48,
+      "labelAt": [
+        917,
+        240
+      ]
     },
     {
       "id": "known-parts",
@@ -955,16 +1139,35 @@
       "label": "原子领取 / 租约"
     },
     {
+      "id": "lease-heartbeat",
+      "from": "executor",
+      "to": "lease_heartbeat",
+      "label": "attempt heartbeat",
+      "variant": "emphasis"
+    },
+    {
+      "id": "lease-renew",
+      "from": "lease_heartbeat",
+      "to": "jobs",
+      "label": "续租 / stale fencing",
+      "variant": "security"
+    },
+    {
       "id": "worker-caption",
       "from": "executor",
       "to": "subtitles",
-      "label": "subtitle job"
+      "label": "字幕 job",
+      "labelAt": [
+        210,
+        664
+      ]
     },
     {
       "id": "worker-audio",
       "from": "executor",
       "to": "audio",
-      "label": "audio job"
+      "label": "audio job",
+      "labelDy": 62
     },
     {
       "id": "worker-asr",
@@ -973,12 +1176,20 @@
       "label": "就绪 asr job"
     },
     {
+      "id": "asr-watchdog",
+      "from": "asr",
+      "to": "asr_watchdog",
+      "label": "GPU/ROCm inference"
+    },
+    {
       "id": "audio-meta",
       "from": "audio",
       "to": "audio_catalog",
       "label": "SHA-256 / key",
-      "labelDx": -90,
-      "labelDy": -60
+      "labelAt": [
+        827,
+        664
+      ]
     },
     {
       "id": "audio-write",
@@ -1009,12 +1220,19 @@
       "label": "惰性加载"
     },
     {
+      "id": "watchdog-model",
+      "from": "asr_watchdog",
+      "to": "models",
+      "label": "子进程 / 硬超时",
+      "variant": "dashed"
+    },
+    {
       "id": "asr-store",
       "from": "asr",
       "to": "transcripts",
-      "label": "读写转录",
+      "label": "写入转录",
       "labelAt": [
-        307.5,
+        200,
         795
       ]
     },
@@ -1138,7 +1356,11 @@
       "id": "transcripts-projection",
       "from": "transcripts",
       "to": "projection",
-      "label": "versions + publication facts"
+      "label": "版本事实",
+      "labelAt": [
+        250,
+        960
+      ]
     },
     {
       "id": "bundles-projection",
@@ -1153,6 +1375,46 @@
       "to": "inspection",
       "label": "coverage / export / verify",
       "variant": "emphasis"
+    },
+    {
+      "id": "reading-command",
+      "from": "cli",
+      "to": "reading_export",
+      "label": "reading-export"
+    },
+    {
+      "id": "reading-revision",
+      "from": "revisions",
+      "to": "reading_export",
+      "label": "只读修订"
+    },
+    {
+      "id": "reading-documents",
+      "from": "documents",
+      "to": "reading_export",
+      "label": "reading.md + review.md",
+      "variant": "dashed"
+    },
+    {
+      "id": "reading-snapshot",
+      "from": "reading_export",
+      "to": "reading_site",
+      "label": "静态内容快照",
+      "variant": "emphasis"
+    },
+    {
+      "id": "issue-feedback",
+      "from": "reading_site",
+      "to": "reviewer",
+      "label": "预填 GitHub Issue",
+      "variant": "dashed"
+    },
+    {
+      "id": "review-export",
+      "from": "review_state",
+      "to": "reading_export",
+      "label": "重新导出状态",
+      "variant": "dashed"
     }
   ],
   "cards": [
@@ -1199,6 +1461,15 @@
         "status 与 runs 直接读 SQLite；coverage、export、verify 通过 workflow projection 得到统一状态。",
         "search-index 构建 SQLite FTS5；search 查询 transcript 文本并可补入已发布 Markdown。",
         "读命令不创建缺失的 archive.db；coverage strict 才将诊断提升为失败退出码。"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "阅读站发布边界",
+      "items": [
+        "reading-export 只读 SQLite，校验登记的 reading.md / review.md 哈希，并生成可提交的静态快照。",
+        "浏览器只看到筛选后的 Markdown；模型请求、原始转录和 SQLite 不进入站点。",
+        "Issue 建议通过 reading-review / reading-edit 回到 append-only 审核状态，AI 修订本身不被覆写。"
       ]
     }
   ]

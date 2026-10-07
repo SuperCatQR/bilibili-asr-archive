@@ -194,7 +194,5 @@ python -m pytest tests/test_ai_editorial.py tests/test_workflow_control_plane.py
 覆盖输入固定、上下文和输出预算、语言标签、结构校验、识别疑点、HTTP 失败、逐块恢复、
 ASR 独立依赖、租约、Markdown 转义及字节一致的重新渲染。
 当前离线验证覆盖跨段成句、疑点不回退正文、来源覆盖与只读上下文边界、纯正文输出，
-以及 high 思考和 top_p 参数的请求与快照。当前真实测试见
-[BV16jryYNEbT 完整链路实测](ai-proofreading-e2e-BV16jryYNEbT.md)，
-覆盖字幕采集、音频下载、本地 ASR、DeepSeek 校对及 Markdown 渲染。
-人工回听和逐句准确率评估尚未进行。
+以及 high 思考和 top_p 参数的请求与快照。离线测试不连接 DeepSeek 或 B 站；
+真实素材的人工回听和逐句准确率评估仍需单独记录，不能把结构校验当作语义质量结论。
