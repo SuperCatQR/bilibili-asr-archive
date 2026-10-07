@@ -38,6 +38,9 @@ _TRANSCRIPT_SCHEMA_RESOURCE = resources.files(__package__).joinpath(
     "schema-transcripts.sql"
 )
 
+_WORKFLOW_SCHEMA_RESOURCE = resources.files(__package__).joinpath("schema-workflow.sql")
+_EDITORIAL_SCHEMA_RESOURCE = resources.files(__package__).joinpath("schema-editorial.sql")
+
 
 _TRANSCRIPT_CONTRACT_COLUMNS = frozenset({"language", "content_sha256"})
 
@@ -420,6 +423,12 @@ def initialize_schema(connection: sqlite3.Connection) -> sqlite3.Connection:
                 )
         connection.executescript(
             _TRANSCRIPT_SCHEMA_RESOURCE.read_text(encoding="utf-8")
+        )
+        connection.executescript(
+            _WORKFLOW_SCHEMA_RESOURCE.read_text(encoding="utf-8")
+        )
+        connection.executescript(
+            _EDITORIAL_SCHEMA_RESOURCE.read_text(encoding="utf-8")
         )
         refresh_shipped_views(connection)
     connection.commit()

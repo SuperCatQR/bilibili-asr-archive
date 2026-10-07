@@ -34,6 +34,7 @@ RowResult = _dependency_models.RowResult
 AttemptLedger = _dependency_attempts.AttemptLedger
 ArchiveBusyError = _dependency_locks.ArchiveBusyError
 ARCHIVE_WRITER_LOCK = _dependency_locks.ARCHIVE_WRITER_LOCK
+_safe_error_code = _dependency_attempts._safe_error_code
 
 @contextmanager
 def archive_writer(root: str | os.PathLike[str], *, blocking: bool = False):
