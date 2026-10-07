@@ -118,3 +118,51 @@ def test_timeout_recovery_finishes_run_and_records_retryable_failure(tmp_path, c
     )
     assert capfd.readouterr().err == ""
     connection.close()
+
+
+def test_supervisor_finalizes_registered_run_after_timeout(tmp_path, monkeypatch, capfd):
+    connection = open_database(tmp_path)
+    connection.execute(
+        "INSERT INTO bilibili_users(mid, display_name, created_at, updated_at) "
+        "VALUES (23191782, '未明子', 1, 1)"
+    )
+    connection.execute(
+        "INSERT INTO videos(bvid, aid, mid, title, pubdate, created_at, updated_at) "
+        "VALUES ('BVprotocol', 2, 23191782, '视频', 1, 1, 1)"
+    )
+    connection.execute(
+        "INSERT INTO video_parts(bvid, page_index, cid, title, duration_ms, "
+        "processing_status, created_at, updated_at) "
+        "VALUES ('BVprotocol', 0, 3, '第一段', 1000, 'discovered', 1, 1)"
+    )
+    connection.execute(
+        "INSERT INTO acquisition_runs(run_id, kind, selector_kind, selector_target, "
+        "requested_limit, credential_present, started_at, finished_at, outcome) "
+        "VALUES ('asr-protocol', 'asr', 'pending', NULL, NULL, 0, 1, NULL, 'running')"
+    )
+    connection.commit()
+    connection.close()
+    code = (
+        "import socket,sys,time; "
+        "s=socket.create_connection(('127.0.0.1',int(sys.argv[1]))); "
+        "s.sendall(sys.argv[2].encode()+b'\\nR:asr-protocol\\nP:1\\nD\\n'); "
+        "time.sleep(60)"
+    )
+    _injected_worker(monkeypatch, code)
+    assert service.supervise_asr([], timeout_seconds=0.2, archive_root=tmp_path) == 1
+
+    connection = open_database(tmp_path)
+    run = connection.execute(
+        "SELECT outcome FROM acquisition_runs WHERE run_id = 'asr-protocol'"
+    ).fetchone()
+    attempt = connection.execute(
+        "SELECT outcome, error_code FROM acquisition_attempts "
+        "WHERE run_id = 'asr-protocol'"
+    ).fetchone()
+    assert run["outcome"] == "failed"
+    assert (attempt["outcome"], attempt["error_code"]) == (
+        "failed",
+        "inference_timeout",
+    )
+    assert "inference deadline exceeded" in capfd.readouterr().err
+    connection.close()
