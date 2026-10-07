@@ -38,7 +38,12 @@ def _dispatch_command(args: argparse.Namespace) -> int:
     return getattr(_cli_pkg, spec.handler)(args)
 
 
-def _main(argv: list[str] | None = None, *, _publication_worker: bool = False) -> int:
+def _main(
+    argv: list[str] | None = None,
+    *,
+    _publication_worker: bool = False,
+    _asr_worker: bool = False,
+) -> int:
     """Implementation of ``main``; the public ``main`` lives in ``bili_asr.cli``
     so that tests monkeypatching ``bili_asr.cli.build_parser`` /
     ``bili_asr.cli._dispatch_command`` observe the patched attributes."""
@@ -55,6 +60,10 @@ def _main(argv: list[str] | None = None, *, _publication_worker: bool = False) -
     spec = COMMANDS.get(args.command)
     if spec is None:
         raise ValueError(f"command {args.command!r} is not implemented")
+    if args.command == "asr" and argv is None and not _asr_worker:
+        from bili_asr.services.asr_supervisor import supervise_asr
+
+        return supervise_asr(list(sys.argv[1:]), archive_root=args.archive_root)
     if args.command == "publish-transcripts" and not _publication_worker:
         from bili_asr.services.publication_supervisor import supervise_publication
         return supervise_publication(

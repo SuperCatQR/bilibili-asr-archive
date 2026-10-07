@@ -579,6 +579,60 @@ class TranscriptRepository:
                 (run_id, video_part_id, error_code, started_at, finished_at),
             )
 
+    def record_asr_failure(
+        self,
+        *,
+        run_id: str,
+        video_part_id: int,
+        error_code: str,
+        started_at: int,
+        finished_at: int,
+    ) -> None:
+        """Record a bounded failure for an ASR part during supervisor recovery.
+
+        A timeout can terminate the worker before the normal per-part write-back
+        reaches its ``finally`` block.  This method is deliberately idempotent:
+        a successful attempt already written by the worker wins, while an
+        unfinished part receives one retryable failed attempt.
+        """
+
+        run_id = _text(run_id, "run_id")
+        video_part_id = _integer(video_part_id, "video_part_id", minimum=1)
+        error_code = _error_code(error_code)
+        if error_code is None:
+            raise ValueError("an ASR failure requires a bounded error_code")
+        started_at = _integer(started_at, "started_at", minimum=0)
+        finished_at = _integer(finished_at, "finished_at", minimum=0)
+        if finished_at < started_at:
+            raise ValueError("finished_at must not precede started_at")
+
+        with _module_storage_database._transaction(self.connection):
+            self._require_video_part(video_part_id)
+            run = self.connection.execute(
+                "SELECT kind, outcome FROM acquisition_runs WHERE run_id = ?",
+                (run_id,),
+            ).fetchone()
+            if run is None:
+                raise sqlite3.IntegrityError(f"unknown run_id: {run_id}")
+            if run["kind"] != "asr":
+                raise ValueError("ASR failures require an ASR acquisition run")
+            if run["outcome"] != "running":
+                return
+            existing = self.connection.execute(
+                "SELECT 1 FROM acquisition_attempts WHERE run_id = ? AND video_part_id = ?",
+                (run_id, video_part_id),
+            ).fetchone()
+            if existing is None:
+                self.connection.execute(
+                    """
+                    INSERT INTO acquisition_attempts(
+                        run_id, video_part_id, outcome, error_code, transcript_id,
+                        started_at, finished_at
+                    ) VALUES (?, ?, 'failed', ?, NULL, ?, ?)
+                    """,
+                    (run_id, video_part_id, error_code, started_at, finished_at),
+                )
+
     def read_transcript(
         self,
         video_part_id: int,

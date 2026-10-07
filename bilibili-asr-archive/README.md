@@ -232,8 +232,13 @@ published or marked `audio_ok`. The `run`/`schedule`/`campaign` coordinator reus
 before checking the download budget, and downloads again when an `audio_ok` row has lost its file
 during an online run. Offline runs continue to skip missing input.
 
-ASR acquisition runs are finished before their database connections close, including failed and
-interrupted invocations. `asr --bvid` records its requested target, and `--limit` records its bound.
+The real `bili-asr asr` entry point runs inference in a separate worker process. The parent
+supervises model load, decoding, and forced alignment with a 900-second per-phase deadline;
+override it with `BILI_ASR_TIMEOUT_SECONDS` when a slower local model needs more time. If a
+native GPU call stops responding, the worker is terminated, the archive lock is released by the
+operating system, and the unfinished item remains eligible for a later retry. A normally
+completed invocation still finishes its ASR acquisition run before closing the database
+connection. `asr --bvid` records its requested target, and `--limit` records its bound.
 After a bundle has been verified and recorded `archived`, a supplementary transcript store
 write-back cannot invalidate that published result. Errors raised at the CLI write-back boundary
 emit a diagnostic.
