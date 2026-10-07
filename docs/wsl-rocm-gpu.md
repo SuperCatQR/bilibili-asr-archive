@@ -395,5 +395,3 @@ prints the placeholder form `--bvid <bvid>`: substitute your own video id there,
 reads a bare `<word>` as redirection and fails before `bili-asr` ever starts. The id above is one
 of the videos in the measured run; any real id works. It is slower; for a large archive, fix the
 device instead.
-
-For the multi-hour livestream campaign on the same WSL host, see `docs/wsl-long-live.md`.

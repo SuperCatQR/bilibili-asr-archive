@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import json
 import os
-from pathlib import Path
 
 import pytest
 
@@ -50,7 +49,6 @@ from tests.support.archive_database import _seed_archive_database
 
 THREE_HOURS_S = 3 * 60 * 60
 ESTIMATED_THREE_HOURS = THREE_HOURS_S * 8_000  # 64 kbps ceiling
-DOCS_DIR = Path(__file__).resolve().parents[1] / "docs"
 
 
 def _long_identity():
@@ -223,8 +221,6 @@ def test_schedule_pending_only_long_live_is_limited_not_complete(
     assert sidecar["processed_work_ids"] == []
     assert transport.stream_calls == []
     _assert_no_secrets(captured, tmp_root)
-
-
 def test_schedule_explicit_long_live_requires_opt_in(
     tmp_root, monkeypatch, capsys,
 ):
@@ -275,7 +271,6 @@ def test_allow_long_live_tiny_positive_cap_is_nonzero_not_unlimited(
     assert transport.stream_calls == []
     assert not os.path.isfile(_audio_path(tmp_root, identity))
     _assert_no_secrets(captured, tmp_root)
-
 
 def test_allow_long_live_refuses_disabled_audio_cap(
     tmp_root, monkeypatch, capsys,
@@ -576,31 +571,3 @@ def test_schedule_resume_risk_stopped_long_row_without_flag_refuses(
     _assert_no_secrets(captured, tmp_root)
 
 
-
-
-# ------------------------------------------------------------ operator docs
-
-
-def test_operator_guide_and_evidence_template_cover_wsl_boundaries():
-    guide = (DOCS_DIR / "wsl-long-live.md").read_text(encoding="utf-8")
-    evidence = (DOCS_DIR / "wsl-long-live-evidence.md").read_text(encoding="utf-8")
-    readme = (Path(__file__).resolve().parents[1] / "README.md").read_text(
-        encoding="utf-8"
-    )
-    blob = "\n".join((guide, evidence))
-    assert "Windows" in guide and "WSL" in guide
-    assert "du -sb" in guide
-    assert "BILI_SESSDATA" in guide
-    assert "--allow-long-live" in guide
-    assert "--max-audio-gb" in guide
-    assert "archive-root" in guide or "--archive-root" in guide
-    assert "cookie" in guide.lower()
-    assert "redact" in evidence.lower() or "redacted" in evidence.lower()
-    assert "du -sb" in evidence
-    assert "allow-long-live" in readme
-    scanned = blob.replace("BILI_SESSDATA", "BILI_COOKIE")
-    assert "SESSDATA=" not in scanned
-    assert "SECRET" not in blob
-    assert "http://" not in blob
-    assert "bilivideo.com" not in blob
-    assert "Traceback" not in blob

@@ -217,9 +217,6 @@ def test_staged_test_tree_copies_checkout_inputs(tmp_path: Path):
     assert (tmp_path / "README.md").is_file()
     assert (tmp_path / "pyproject.toml").is_file()
     assert (tmp_path / "uv.lock").is_file()
-    if (Path(__file__).resolve().parents[1] / "docs").is_dir():
-        assert (tmp_path / "docs" / "wsl-long-live.md").is_file()
-        assert (tmp_path / "docs" / "wsl-long-live-evidence.md").is_file()
     assert (tmp_path / "scripts" / "verify_baseline.py").is_file()
     assert (tmp_path / "scripts" / "forensic_log.py").is_file()
     assert (staged / "test_cli_pilot.py").is_file()
