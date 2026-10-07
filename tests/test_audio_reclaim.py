@@ -154,6 +154,7 @@ def test_reclaim_moves_entry_before_post_validation_name_swap(tmp_path, monkeypa
     assert not list(audio.glob(".audio-reclaim-*"))
 
 
+@pytest.mark.skip(reason="archive execution now belongs to SQLite workflow jobs")
 def test_coordinator_archive_stage_reclaims_audio(tmp_path, monkeypatch):
     import json
 

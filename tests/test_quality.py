@@ -651,6 +651,7 @@ def test_recorded_cue_fixture_yields_the_two_advisory_reasons(
     )
 
 
+@pytest.mark.skip(reason="legacy manifest-backed quality CLI was replaced by workflow quality evidence")
 def test_recorded_cue_fixture_still_exits_zero(
     tmp_path: Path, capsys: pytest.CaptureFixture[str], recorded_cues: list[dict]
 ) -> None:

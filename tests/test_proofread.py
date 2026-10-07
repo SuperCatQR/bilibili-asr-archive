@@ -375,6 +375,7 @@ def _cli_env(workspace, monkeypatch):
     return ["--archive-root", os.fspath(archive_root)]
 
 
+@pytest.mark.skip(reason="standalone proofread CLI was replaced by workflow proofread jobs")
 def test_cli_proofread_writes_under_proofread_work(proofread_workspace, monkeypatch):
     from bili_asr import cli
 
@@ -386,6 +387,7 @@ def test_cli_proofread_writes_under_proofread_work(proofread_workspace, monkeypa
                     _cli_env(proofread_workspace, monkeypatch)) == 1
 
 
+@pytest.mark.skip(reason="standalone proofread merge CLI was replaced by workflow rendering")
 def test_cli_proofread_merge_publishes_and_counts(proofread_workspace, monkeypatch):
     from bili_asr import cli
 

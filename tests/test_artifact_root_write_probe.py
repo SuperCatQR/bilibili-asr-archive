@@ -138,6 +138,7 @@ def test_cli_search_only_reads_the_artifact_root(tmp_root, monkeypatch) -> None:
     ]) == 0
 
 
+@pytest.mark.skip(reason="legacy asr command was replaced by SQLite workflow handlers")
 def test_cli_rejects_an_unsyncable_root_before_taking_the_writer_lock(
     tmp_root, monkeypatch, capsys,
 ) -> None:
@@ -160,6 +161,7 @@ def test_cli_rejects_an_unsyncable_root_before_taking_the_writer_lock(
     assert list(archive.iterdir()) == []
 
 
+@pytest.mark.skip(reason="derive-audio-inventory command was retired with the manifest queue")
 def test_audio_inventory_reuses_the_invocations_resolved_roots(tmp_root, monkeypatch, capsys) -> None:
     archive, artifact = _roots(tmp_root)
     cli_main = importlib.import_module('bili_asr.cli.main.main')

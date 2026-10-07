@@ -47,6 +47,8 @@ uv sync --extra asr --inexact
 
 Set `BILI_SESSDATA` for authenticated subtitle and audio acquisition. Credentials are resolved at runtime and are not stored in SQLite or exported records.
 
+`bili-asr check-asr-env` reports the five host checks in order: `dxg-detection`, `rocm-loader-path`, `torch-present`, `hsa-runtime`, and `device-probe`.
+
 ## Workflow
 
 Collect metadata into `archive/archive.db`:
