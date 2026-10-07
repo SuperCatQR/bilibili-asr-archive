@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import math
 from dataclasses import dataclass
 import bili_asr.asr.constants as _dependency_constants
 import bili_asr.asr.hotwords as _dependency_hotwords
@@ -75,6 +76,7 @@ class ASRConfig:
     # guard at run time.
     hotwords: tuple[str, ...] = _dependency_constants.DEFAULT_HOTWORDS
     chunk_seconds: float = _dependency_constants.DEFAULT_CHUNK_SECONDS
+    inference_timeout_seconds: float = _dependency_constants.DEFAULT_INFERENCE_TIMEOUT_SECONDS
     offline: bool = True
     local_source: str = "configured-local"
     model_id: str | None = None
@@ -97,6 +99,13 @@ class ASRConfig:
             raise ValueError("chunk_seconds must be a positive number")
         if self.chunk_seconds <= 0:
             raise ValueError("chunk_seconds must be a positive number")
+        if (
+            isinstance(self.inference_timeout_seconds, bool)
+            or not isinstance(self.inference_timeout_seconds, (int, float))
+            or not math.isfinite(float(self.inference_timeout_seconds))
+            or self.inference_timeout_seconds <= 0
+        ):
+            raise ValueError("inference_timeout_seconds must be finite and positive")
         if not isinstance(self.hotwords, tuple) or any(
             not isinstance(term, str) or not term.strip() for term in self.hotwords
         ):
@@ -135,6 +144,24 @@ def _resolve_chunk_seconds(environment_value: str | None) -> float:
     return value
 
 
+def _resolve_inference_timeout(environment_value: str | None) -> float:
+    """Resolve the hard child-process deadline for GPU/ROCm inference."""
+
+    if environment_value is None or not environment_value.strip():
+        return _dependency_constants.DEFAULT_INFERENCE_TIMEOUT_SECONDS
+    try:
+        value = float(environment_value.strip().rstrip("sS"))
+    except ValueError:
+        raise ValueError(
+            f"{_dependency_constants.ASR_INFERENCE_TIMEOUT_ENV_VAR} must be a finite positive number of seconds"
+        ) from None
+    if not math.isfinite(value) or value <= 0:
+        raise ValueError(
+            f"{_dependency_constants.ASR_INFERENCE_TIMEOUT_ENV_VAR} must be a finite positive number of seconds"
+        )
+    return value
+
+
 def default_config() -> ASRConfig:
     """Build the runner configuration from the documented environment knobs.
 
@@ -153,5 +180,8 @@ def default_config() -> ASRConfig:
         language=os.environ.get(_dependency_constants.ASR_LANGUAGE_ENV_VAR) or None,
         hotwords=_dependency_constants.DEFAULT_HOTWORDS + _dependency_hotwords._extra_hotwords(os.environ.get(_dependency_constants.ASR_HOTWORDS_ENV_VAR)),
         chunk_seconds=_resolve_chunk_seconds(os.environ.get(_dependency_constants.ASR_CHUNK_SECONDS_ENV_VAR)),
+        inference_timeout_seconds=_resolve_inference_timeout(
+            os.environ.get(_dependency_constants.ASR_INFERENCE_TIMEOUT_ENV_VAR)
+        ),
         model_id=(os.environ.get(_dependency_constants.ASR_MODEL_ID_ENV_VAR) or "").strip() or None,
     )

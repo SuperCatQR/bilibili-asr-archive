@@ -23,7 +23,7 @@ from .errors import ASRDependencyError, ASRModelError, AudioDecodeError
 from .hotwords import evidence_guard_hotwords, filter_hotwords
 from . import provenance as provenance
 from .provenance import apply_provenance_evidence, provenance_language
-from .runner import ASRRunner, transcribe, two_pass_transcribe
+from .runner import ASRInferenceTimeoutError, ASRRunner, transcribe, transcribe_with_timeout, two_pass_transcribe
 from . import runner as _runner_module
 
 # Kept as a named import for callers that inspect the install hint while
@@ -41,9 +41,10 @@ class _AsrModule(types.ModuleType):
 sys.modules[__name__].__class__ = _AsrModule
 
 __all__ = [
-    "ASRConfig", "ASRDependencyError", "ASRModelError", "ASRRunner",
+    "ASRConfig", "ASRDependencyError", "ASRInferenceTimeoutError", "ASRModelError", "ASRRunner",
     "AudioDecodeError", "apply_coverage_evidence", "apply_provenance_evidence",
     "characters_of", "coverage_verdict", "default_config", "evidence_guard_hotwords",
     "filter_hotwords", "provenance", "provenance_language", "segments_to_srt",
-    "segments_to_txt", "transcribe", "transcribed_coverage", "two_pass_transcribe",
+    "segments_to_txt", "transcribe", "transcribe_with_timeout", "transcribed_coverage",
+    "two_pass_transcribe",
 ]

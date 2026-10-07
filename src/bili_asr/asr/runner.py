@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import os
+import multiprocessing as _multiprocessing
+import queue as _queue
 import sys
 import types
 import tempfile
+import time
 from dataclasses import replace
 from typing import Any, Callable, NamedTuple
 import bili_asr.asr.alignment as _dependency_alignment
@@ -19,6 +22,108 @@ import bili_asr.asr.provenance as _dependency_provenance
 
 
 _PROGRESS_HOOK: Callable[[str], None] | None = None
+
+
+class ASRInferenceTimeoutError(TimeoutError):
+    """A child process exceeded the hard inference deadline."""
+
+    error_code = "inference_timeout"
+
+
+def _isolated_transcribe_worker(config: Any, audio_path: str, paired_subtitle_text: str | None, result_queue: Any) -> None:
+    """Run model loading, decoding, and forced alignment outside the worker process."""
+
+    try:
+        runner = ASRRunner(config)
+        segments = two_pass_transcribe(
+            runner, audio_path, paired_subtitle_text=paired_subtitle_text
+        )
+        result_queue.put(
+            {
+                "ok": True,
+                "segments": segments,
+                "provenance": runner.provenance(),
+                "coverage": runner.transcribed_coverage(),
+            }
+        )
+    except BaseException as exc:
+        result_queue.put(
+            {"ok": False, "error_type": type(exc).__name__, "error": str(exc)[:512]}
+        )
+
+
+def transcribe_with_timeout(
+    config: Any,
+    audio_path: str,
+    *,
+    paired_subtitle_text: str | None,
+    timeout_seconds: float,
+) -> tuple[list[dict[str, Any]], dict[str, str], dict[str, Any] | None]:
+    """Run one ASR attempt in a killable child process.
+
+    A Python thread cannot interrupt a blocked ROCm kernel.  The workflow
+    worker therefore uses this boundary for CUDA/ROCm profiles: the parent
+    waits for a bounded result, terminates the child on timeout, and lets the
+    normal workflow failure path persist a retryable ``inference_timeout``.
+    """
+
+    if timeout_seconds <= 0:
+        raise ValueError("timeout_seconds must be positive")
+    context = _multiprocessing.get_context("spawn")
+    result_queue = context.Queue(maxsize=1)
+    process = context.Process(
+        target=_isolated_transcribe_worker,
+        args=(config, audio_path, paired_subtitle_text, result_queue),
+        name="bili-asr-inference",
+    )
+    process.start()
+    deadline = time.monotonic() + timeout_seconds
+    result: dict[str, Any] | None = None
+    timed_out = False
+    try:
+        # Drain while the child is alive.  Joining first can deadlock when a
+        # large segment list is still flushing through multiprocessing.Queue.
+        exit_deadline: float | None = None
+        while result is None:
+            try:
+                result = result_queue.get(timeout=0.05)
+                break
+            except _queue.Empty:
+                alive = process.is_alive()
+                now = time.monotonic()
+                if alive and now >= deadline:
+                    timed_out = True
+                    break
+                if not alive:
+                    exit_deadline = exit_deadline or now + 1.0
+                    if now >= exit_deadline:
+                        break
+        if timed_out:
+            process.terminate()
+            process.join(timeout=5)
+            if process.is_alive():
+                process.kill()
+                process.join()
+            raise ASRInferenceTimeoutError(
+                f"ASR inference exceeded {timeout_seconds:g}s and the child process was terminated"
+            )
+        process.join(timeout=1)
+        if result is None:
+            raise RuntimeError(
+                f"isolated ASR worker exited without a result (exit code {process.exitcode})"
+            )
+    finally:
+        result_queue.close()
+        result_queue.join_thread()
+    if not result.get("ok"):
+        error_type = str(result.get("error_type") or "ASRModelError")
+        message = str(result.get("error") or "isolated ASR worker failed")
+        raise RuntimeError(f"{error_type}: {message}")
+    return (
+        list(result["segments"]),
+        dict(result["provenance"]),
+        result.get("coverage"),
+    )
 
 
 def set_progress_hook(hook: Callable[[str], None] | None) -> None:
