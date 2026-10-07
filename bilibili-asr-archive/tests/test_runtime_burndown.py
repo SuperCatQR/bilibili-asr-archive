@@ -55,7 +55,7 @@ def test_empty_configured_stub_does_not_shadow_usable_legacy_audio(tmp_path):
 
 @pytest.mark.parametrize("stage", ["subtitle_done", "writeback_error"])
 def test_publication_recovery_requires_a_store_part_and_ignores_manifest_only(tmp_root, stage):
-    from _archive_database import _seed_archive_database
+    from tests.support.archive_database import _seed_archive_database
     from bili_asr.cli.run import _store_pending_rows
     store = ManifestStore(root=tmp_root)
     def row(bvid):
@@ -85,7 +85,7 @@ def test_publication_recovery_requires_a_store_part_and_ignores_manifest_only(tm
 
 @pytest.mark.parametrize("status", ["meta_ok", "subtitle_done"])
 def test_malformed_manifest_page_does_not_abort_store_pending_selection(tmp_root, status):
-    from _archive_database import _seed_archive_database
+    from tests.support.archive_database import _seed_archive_database
     from bili_asr.cli.run import _store_pending_rows
     store = ManifestStore(root=tmp_root)
     # Replay accepts this row shape; pending recovery must validate the page
