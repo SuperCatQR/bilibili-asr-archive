@@ -1,5 +1,8 @@
 """Per-row guard verdicts survive runner reuse, cleanup and interruption."""
 
+import bili_asr.cli.main as _module_cli_main
+
+
 from pathlib import Path
 import json
 import signal
@@ -13,6 +16,7 @@ from bili_asr.coordinator import RunCoordinator
 from bili_asr.manifest import ManifestStore
 from bili_asr.page_identity import artifact_stem, page_identity
 from bili_asr.run_ledger import RunLedger, build_run_record, collect_hotwords_dropped
+from tests.support.batch_hotwords_record import _seed_audio
 
 
 COMMANDS = ("run", "schedule", "campaign", "pilot")
@@ -55,24 +59,6 @@ class VerdictRunner:
         self.hotwords_dropped = ("released-only",)
 
 
-def _seed_audio(root, count):
-    store = ManifestStore(root)
-    rows = []
-    for index in range(count):
-        identity = page_identity("BVhotword", index, 7 + index, f"p{index}")
-        declared = f"audio/{artifact_stem(identity)}.m4a"
-        audio = Path(root) / declared
-        audio.parent.mkdir(parents=True, exist_ok=True)
-        audio.write_bytes(b"audio")
-        row = {
-            "work_id": identity.work_id, "bvid": identity.bvid,
-            "page_index": index, "cid": identity.cid, "page_label": identity.page_label,
-            "title": "record", "date": "2026-10-05", "duration_s": 1,
-            "status": "audio_ok", "audio_path": declared,
-        }
-        store.upsert(row)
-        rows.append((identity.work_id, row))
-    return store, rows
 
 
 @pytest.mark.parametrize("command", COMMANDS)
@@ -83,9 +69,9 @@ def test_command_records_each_completed_row_verdict_before_runner_is_reused_or_r
     count = 2 if interruption is None else 3
     store, rows = _seed_audio(tmp_root, count)
     runner = VerdictRunner(interruption)
-    monkeypatch.setattr("bili_asr.asr.ASRRunner", lambda config: runner)
+    monkeypatch.setattr('bili_asr.asr.runner.ASRRunner', lambda config: runner)
     monkeypatch.setattr("bili_asr.bili_client.BiliClient", lambda **kwargs: object())
-    monkeypatch.setattr("bili_asr.cli.time.sleep", lambda seconds: None)
+    monkeypatch.setattr('bili_asr.cli.pilot.time.sleep', lambda seconds: None)
     argv = [command, "--archive-root", tmp_root]
     if command == "pilot":
         argv += ["--n", str(count), "--queue-source", "manifest"]
@@ -97,7 +83,7 @@ def test_command_records_each_completed_row_verdict_before_runner_is_reused_or_r
     # Pilot intentionally requires both routes; this ASR-only batch succeeds
     # per row and records the product-level missing-subtitle-branch status.
     expected_exit = (1 if command == "pilot" else 0) if interruption is None else 128 + interruption
-    assert cli.main(argv) == expected_exit
+    assert _module_cli_main.main(argv) == expected_exit
     record, = RunLedger(tmp_root).load()
     assert record["command"] == command
     assert record["exit_code"] == expected_exit
@@ -166,10 +152,10 @@ def test_campaign_multiple_selectors_archive_before_preserving_exact_scope(
 ):
     store, rows = _seed_audio(tmp_root, 2)
     runner = VerdictRunner()
-    monkeypatch.setattr("bili_asr.asr.ASRRunner", lambda config: runner)
-    monkeypatch.setattr("bili_asr.cli.time.sleep", lambda seconds: None)
+    monkeypatch.setattr('bili_asr.asr.runner.ASRRunner', lambda config: runner)
+    monkeypatch.setattr('bili_asr.cli.pilot.time.sleep', lambda seconds: None)
     scope = separator.join(key for key, row in rows)
-    assert cli.main(["campaign", "--archive-root", tmp_root, "--offline",
+    assert _module_cli_main.main(["campaign", "--archive-root", tmp_root, "--offline",
                      "--scope", scope, "--limit", "2"]) == 0
     summary = json.loads(capsys.readouterr().out)
     assert summary["checkpoint_state"] == "complete"
@@ -189,8 +175,8 @@ def test_campaign_rejects_unsafe_or_empty_scope_before_model_construction(
 ):
     store, rows = _seed_audio(tmp_root, 2)
     constructions = []
-    monkeypatch.setattr("bili_asr.asr.ASRRunner", lambda config: constructions.append(config))
-    assert cli.main(["campaign", "--archive-root", tmp_root, "--offline",
+    monkeypatch.setattr('bili_asr.asr.runner.ASRRunner', lambda config: constructions.append(config))
+    assert _module_cli_main.main(["campaign", "--archive-root", tmp_root, "--offline",
                      "--scope", scope, "--limit", "2"]) == 1
     assert constructions == []
     assert [row["status"] for row in store.load().values()] == ["audio_ok"] * 2
@@ -221,18 +207,18 @@ def test_campaign_resume_retains_the_original_bounded_selection(
 ):
     store, rows = _seed_audio(tmp_root, count)
     runner = RiskOnceRunner()
-    monkeypatch.setattr("bili_asr.asr.ASRRunner", lambda config: runner)
-    monkeypatch.setattr("bili_asr.cli.time.sleep", lambda seconds: None)
+    monkeypatch.setattr('bili_asr.asr.runner.ASRRunner', lambda config: runner)
+    monkeypatch.setattr('bili_asr.cli.pilot.time.sleep', lambda seconds: None)
     scope = ",".join(key for key, row in rows)
     argv = ["campaign", "--archive-root", tmp_root, "--offline", "--scope", scope, "--limit", "2"]
-    assert cli.main(argv) == 2
+    assert _module_cli_main.main(argv) == 2
     assert store.load()[rows[0][0]]["status"] == "archived"
     interrupted = json.loads((Path(tmp_root) / "campaign.json").read_text(encoding="utf-8"))
     assert interrupted["selected_work_ids"] == [key for key, row in rows[:2]]
     assert interrupted["processed_work_ids"] == [rows[0][0]]
     capsys.readouterr()
 
-    assert cli.main(argv + ["--resume"]) == (0 if count == 2 else 1)
+    assert _module_cli_main.main(argv + ["--resume"]) == (0 if count == 2 else 1)
     summary = json.loads(capsys.readouterr().out)
     assert summary["selected"] == [key for key, row in rows[:2]]
     assert summary["processed"] == [key for key, row in rows[:2]]
@@ -250,7 +236,7 @@ def test_campaign_resume_retains_the_original_bounded_selection(
 def test_campaign_resume_accepts_completed_rows_that_leave_the_pending_queue(tmp_root, monkeypatch):
     store, rows = _seed_audio(tmp_root, 2)
     runner = RiskOnceRunner()
-    monkeypatch.setattr("bili_asr.asr.ASRRunner", lambda config: runner)
+    monkeypatch.setattr('bili_asr.asr.runner.ASRRunner', lambda config: runner)
 
     def pending_selector(current_store, entries, scope):
         return [(key, row) for key, row in sorted(entries.items()) if row["status"] != "archived"], None
@@ -268,7 +254,7 @@ def test_campaign_resume_accepts_completed_rows_that_leave_the_pending_queue(tmp
 def test_campaign_resume_refuses_unprocessed_members_that_leave_the_scope(tmp_root, monkeypatch):
     store, rows = _seed_audio(tmp_root, 3)
     runner = RiskOnceRunner()
-    monkeypatch.setattr("bili_asr.asr.ASRRunner", lambda config: runner)
+    monkeypatch.setattr('bili_asr.asr.runner.ASRRunner', lambda config: runner)
     excluded = set()
 
     def pending_selector(current_store, entries, scope):
@@ -289,13 +275,13 @@ def test_campaign_resume_refuses_unprocessed_members_that_leave_the_scope(tmp_ro
 def test_campaign_resume_keeps_exact_scope_matching_for_equivalent_grammars(tmp_root, monkeypatch, capsys):
     store, rows = _seed_audio(tmp_root, 2)
     runner = RiskOnceRunner()
-    monkeypatch.setattr("bili_asr.asr.ASRRunner", lambda config: runner)
-    monkeypatch.setattr("bili_asr.cli.time.sleep", lambda seconds: None)
+    monkeypatch.setattr('bili_asr.asr.runner.ASRRunner', lambda config: runner)
+    monkeypatch.setattr('bili_asr.cli.pilot.time.sleep', lambda seconds: None)
     argv = ["campaign", "--archive-root", tmp_root, "--offline", "--limit", "2"]
-    assert cli.main(argv + ["--scope", ",".join(key for key, row in rows)]) == 2
+    assert _module_cli_main.main(argv + ["--scope", ",".join(key for key, row in rows)]) == 2
     prior = (Path(tmp_root) / "campaign.json").read_bytes()
     capsys.readouterr()
-    assert cli.main(argv + ["--scope", " ".join(key for key, row in rows), "--resume"]) == 1
+    assert _module_cli_main.main(argv + ["--scope", " ".join(key for key, row in rows), "--resume"]) == 1
     assert runner.calls == 2
     assert (Path(tmp_root) / "campaign.json").read_bytes() == prior
     assert capsys.readouterr().err == "campaign: invalid configuration or execution failure\n"

@@ -7,7 +7,7 @@ import pytest
 
 from bili_asr.audio_reclaim import reclaim_audio
 
-import _asr_fakes as asr_fakes
+import tests.support.asr_fakes as asr_fakes
 
 
 def _entry(bvid="BV1xx411c7mD", work_id=None, page_index=0, cid=123,

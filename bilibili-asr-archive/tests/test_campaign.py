@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import bili_asr.cli.run as _module_cli_run
+
+
 import json
 import os
 from pathlib import Path
@@ -9,13 +12,14 @@ import pytest
 from bili_asr import asr as asr_mod
 from bili_asr.artifact_root import ArtifactRoots
 from bili_asr.campaign import CampaignRunner
-from bili_asr.coordinator import RowResult, RunSummary, archive_writer
+from bili_asr.pipeline.models import RowResult, RunSummary
+from bili_asr.pipeline.locks import archive_writer
 from bili_asr.manifest import ManifestStore
 from bili_asr.page_identity import artifact_stem, page_identity
 from bili_asr.scheduler import SchedulerStore
 
-import _asr_fakes as asr_fakes
-from _archive_database import _seed_archive_database
+import tests.support.asr_fakes as asr_fakes
+from tests.support.archive_database import _seed_archive_database
 
 _AUDIO_BYTES = b"\x00\x00\x00\x18ftypM4A " + b"payload" * 100
 
@@ -128,7 +132,7 @@ def test_cli_campaign_preserves_summary_exit_codes(monkeypatch, tmp_path):
         def run(self, *args, **kwargs): return type("S", (), {"exit_code": 2, "to_dict": lambda self: {"exit_code": 2}})()
     monkeypatch.setattr("bili_asr.campaign.CampaignRunner", FakeRunner)
     args = type("A", (), {"offline": True, "archive_root": str(tmp_path), "scope": "pending", "limit": 1, "resume": False, "max_audio_gb": 0, "artifact_roots": ArtifactRoots.of(str(tmp_path)), "keep_audio": True})()
-    assert cli._cmd_campaign(args) == 2
+    assert _module_cli_run._cmd_campaign(args) == 2
 
 
 def test_cli_campaign_safely_catches_unexpected_exception(monkeypatch, tmp_path, capsys):
@@ -137,7 +141,7 @@ def test_cli_campaign_safely_catches_unexpected_exception(monkeypatch, tmp_path,
         def __init__(self, *args, **kwargs): raise RuntimeError("secret")
     monkeypatch.setattr("bili_asr.campaign.CampaignRunner", FakeRunner)
     args = type("A", (), {"offline": True, "archive_root": str(tmp_path), "scope": "pending", "limit": 1, "resume": False, "max_audio_gb": 0, "artifact_roots": ArtifactRoots.of(str(tmp_path)), "keep_audio": True})()
-    assert cli._cmd_campaign(args) == 1
+    assert _module_cli_run._cmd_campaign(args) == 1
     captured = capsys.readouterr()
     assert captured.err == "campaign: invalid configuration or execution failure\n"
     assert "secret" not in captured.err
@@ -188,7 +192,7 @@ def test_cli_campaign_summary_exit_code_two(monkeypatch, tmp_path, capsys):
         def run(self, *args, **kwargs): return type("S", (), {"exit_code": 2, "to_dict": lambda self: {"exit_code": 2}})()
     monkeypatch.setattr("bili_asr.campaign.CampaignRunner", FakeRunner)
     args = type("A", (), {"offline": True, "archive_root": str(tmp_path), "scope": "pending", "limit": 1, "resume": False, "max_audio_gb": 0, "artifact_roots": ArtifactRoots.of(str(tmp_path)), "keep_audio": True})()
-    assert cli._cmd_campaign(args) == 2
+    assert _module_cli_run._cmd_campaign(args) == 2
     assert json.loads(capsys.readouterr().out)["exit_code"] == 2
 
 
@@ -199,7 +203,7 @@ def test_cli_campaign_summary_exit_code_one(monkeypatch, tmp_path):
         def run(self, *args, **kwargs): return type("S", (), {"exit_code": 1, "to_dict": lambda self: {"exit_code": 1}})()
     monkeypatch.setattr("bili_asr.campaign.CampaignRunner", FakeRunner)
     args = type("A", (), {"offline": True, "archive_root": str(tmp_path), "scope": "pending", "limit": 1, "resume": False, "max_audio_gb": 0, "artifact_roots": ArtifactRoots.of(str(tmp_path)), "keep_audio": True})()
-    assert cli._cmd_campaign(args) == 1
+    assert _module_cli_run._cmd_campaign(args) == 1
 
 
 def test_cli_campaign_invalid_resume_is_generic(monkeypatch, tmp_path, capsys):
@@ -209,7 +213,7 @@ def test_cli_campaign_invalid_resume_is_generic(monkeypatch, tmp_path, capsys):
         def run(self, *args, **kwargs): raise ValueError("resume refused: drift")
     monkeypatch.setattr("bili_asr.campaign.CampaignRunner", FakeRunner)
     args = type("A", (), {"offline": True, "archive_root": str(tmp_path), "scope": "pending", "limit": 1, "resume": True, "max_audio_gb": 0, "artifact_roots": ArtifactRoots.of(str(tmp_path)), "keep_audio": True})()
-    assert cli._cmd_campaign(args) == 1
+    assert _module_cli_run._cmd_campaign(args) == 1
     assert capsys.readouterr().err == "campaign: invalid configuration or execution failure\n"
 
 
@@ -267,7 +271,7 @@ def test_cli_campaign_stdout_is_json_and_the_reuse_line_is_stderr(
         "artifact_roots": ArtifactRoots.of(str(tmp_path)), "keep_audio": True,
     })()
 
-    assert cli._cmd_campaign(args) == 0
+    assert _module_cli_run._cmd_campaign(args) == 0
     captured = capsys.readouterr()
 
     # stdout is exactly one JSON document — nothing else, on one line.
@@ -308,7 +312,7 @@ def test_cli_campaign_stdout_stays_one_json_document_with_fd_2_closed(
         "artifact_roots": ArtifactRoots.of(str(tmp_path)), "keep_audio": True,
     })()
 
-    assert cli._cmd_campaign(args) == 0
+    assert _module_cli_run._cmd_campaign(args) == 0
 
     captured = capsys.readouterr()
     assert len(captured.out.splitlines()) == 1, captured.out

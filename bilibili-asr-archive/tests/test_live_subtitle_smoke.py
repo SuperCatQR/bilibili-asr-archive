@@ -100,7 +100,7 @@ from typing import NoReturn
 
 import pytest
 
-from bili_asr.cli import DEFAULT_ARCHIVE_ROOT
+from bili_asr.cli._shared import DEFAULT_ARCHIVE_ROOT
 from bili_asr.config import (
     ARCHIVE_DATABASE_NAME,
     SESSDATA_ENV_VAR,
@@ -115,15 +115,16 @@ from bili_asr.sources.models import (
     SubtitleSegment,
     SubtitleTrack,
 )
-from bili_asr.storage.database import MetadataRepository, open_database
+from bili_asr.storage.metadata import MetadataRepository
+from bili_asr.storage.database import open_database
 from bili_asr.storage.models import ProcessingStatus, VideoPartRecord
-from fixtures.fake_bilibili_gateway import (
+from tests.fixtures.fake_bilibili_gateway import (
     BVID,
     RAW_JSON_BODY_MARKER,
     SIGNED_SUBTITLE_URL_MARKER,
     assert_leaks_no_markers,
 )
-from fixtures.metadata_records import (
+from tests.fixtures.metadata_records import (
     make_part_record,
     make_user_record,
     make_video_record,

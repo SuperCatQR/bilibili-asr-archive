@@ -13,7 +13,7 @@ from typing import Mapping, NamedTuple
 
 from .archive import LOW_CONFIDENCE, bundle_paths_for_stem
 from .artifact_root import ArtifactRoots
-from .asr import _FORBIDDEN_PROVENANCE as _FORBIDDEN_MARKER
+from bili_asr.asr.constants import _FORBIDDEN_PROVENANCE as _FORBIDDEN_MARKER
 from .cues import CueParseError, read_cues as _read_shared_cues
 from .page_identity import canonical_stem
 

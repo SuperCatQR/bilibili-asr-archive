@@ -1,3 +1,6 @@
+
+import bili_asr.pipeline.writeback as writeback_operations
+
 """Pipeline attribution, queue eligibility and diagnostic failure boundaries."""
 
 import os
@@ -10,16 +13,17 @@ import pytest
 
 from bili_asr import archive, audio, manifest
 from bili_asr.cli.run import _run_scope_rows
-from bili_asr.coordinator import RunCoordinator, _caption_language_from_entry
+from bili_asr.coordinator import RunCoordinator
+from bili_asr.pipeline.writeback import _caption_language_from_entry
 from bili_asr.manifest import ManifestStore
 from bili_asr.page_identity import page_identity, writeback_identity
 from bili_asr.services import _common, queue_source as qs
 from bili_asr.storage import TranscriptRepository, TranscriptSegmentRecord, open_database
 
-from _asr_fakes import install
-from test_cli_queue_source import _seed_store, _write_audio_file
-from test_coordinator import _row
-from test_storage_queue_gaps import _open_run, _seed
+from tests.support.asr_fakes import install
+from tests.support.cli_queue_source import _seed_store, _write_audio_file
+from tests.support.coordinator import _row
+from tests.support.storage_queue_gaps import _open_run, _seed
 
 
 @pytest.mark.parametrize("credentials", [(False, False), (False, True), (True, True)])
@@ -221,15 +225,15 @@ def test_writeback_uses_work_id_and_never_attributes_legacy_row_to_p0(tmp_root, 
     store = ManifestStore(root=tmp_root)
     coordinator = RunCoordinator(tmp_root, store)
     legacy = {"bvid": identity.bvid, "sub_lan": "ai-zh"}
-    coordinator._record_asr_transcript(legacy, [{"start": 0, "end": 1, "text": "旧记录"}])
-    coordinator._record_subtitle_transcript(entry=legacy, raw={}, segments=[])
+    writeback_operations.record_asr_transcript(coordinator, legacy, [{"start": 0, "end": 1, "text": "旧记录"}])
+    writeback_operations.record_subtitle_transcript(coordinator, entry=legacy, raw={}, segments=[])
     assert coordinator._writeback_source is None
     source = qs.QueueSource(open_database(tmp_root))
     coordinator._writeback_source = source
     captured = []
     monkeypatch.setattr(qs, "record_local_transcript", lambda *args, **kwargs: captured.append(kwargs))
-    coordinator._record_asr_transcript({"bvid": identity.bvid, "work_id": identity.bvid + ":p2", "page_index": 0}, [])
-    coordinator._close_writeback_source()
+    writeback_operations.record_asr_transcript(coordinator, {"bvid": identity.bvid, "work_id": identity.bvid + ":p2", "page_index": 0}, [])
+    writeback_operations.close_writeback_source(coordinator)
     assert captured[0]["page_index"] == 2
     assert writeback_identity({"bvid": "wrong", "work_id": identity.work_id}) is None
 
@@ -252,7 +256,8 @@ def test_asr_archive_manifest_carries_branch_and_language(tmp_root, monkeypatch)
     assert archive.archive_bundle_complete(tmp_root, {key: row[key] for key in ("srt_path", "txt_path", "md_path", "raw_path")})
     from bili_asr.export import export_rows
     from bili_asr.integrity import IntegrityVerifier
-    from bili_asr.search_index import SearchQuery, search
+    from bili_asr.search_index.models import SearchQuery
+    from bili_asr.search_index.manifest import search
 
     exported = export_rows(store)
     assert exported[0]["source"] == "asr"

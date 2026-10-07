@@ -1,4 +1,4 @@
-from bili_asr.cli import _expand_selected_pages, _pilot_select
+from bili_asr.cli.pilot import _expand_selected_pages, _pilot_select
 
 
 def test_pilot_select_includes_both_branches_and_short_items():

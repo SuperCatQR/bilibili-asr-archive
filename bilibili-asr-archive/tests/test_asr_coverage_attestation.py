@@ -17,17 +17,23 @@ re-sampled to 16 kHz) and ``produced_s = 59.0`` (cues 0.0–59.0 s) ⇒ ``covera
 
 from __future__ import annotations
 
+import bili_asr.asr.config as _module_asr_config
+import bili_asr.asr.constants as _module_asr_constants
+import bili_asr.asr.coverage as _module_asr_coverage
+import bili_asr.asr.runner as _module_asr_runner
+
+
 import json
 import os
 
 import pytest
 
 from bili_asr import asr
-from bili_asr.cli import main
+from bili_asr.cli.main import main
 from bili_asr.manifest import ManifestStore
 from bili_asr.page_identity import artifact_stem, page_identity
 
-import _asr_fakes as asr_fakes
+import tests.support.asr_fakes as asr_fakes
 
 #: The measured basis (I-000188): 73.561 s decoded / 0.0–59.0 s produced.
 DEFECT_DECODED_S = 73.561
@@ -125,7 +131,7 @@ def test_a_partial_model_span_is_flagged_short_on_the_recorded_row(
         "coverage must report the measured basis (73.561 s decoded / 59.0 s produced)"
     )
     assert coverage == pytest.approx(produced / decoded), "coverage is compared unrounded"
-    assert row.get("coverage_min") == asr.COVERAGE_MIN
+    assert row.get("coverage_min") == _module_asr_constants.COVERAGE_MIN
     assert row.get("coverage_short") is True, "a 0.802 span must not read as an unqualified success"
     # The existing outcome vocabulary is untouched: no new outcome, no new error_code.
     assert row.get("error_code") is None
@@ -259,26 +265,26 @@ def test_missing_evidence_is_not_read_as_no_gap():
     """
 
     legacy = {"work_id": "BVlegacy:p0", "bvid": "BVlegacy", "status": "archived"}
-    assert asr.coverage_verdict(legacy) == "not-evaluable"
-    assert asr.coverage_verdict(dict(legacy, coverage=0.985)) == "covered"
-    assert asr.coverage_verdict(dict(legacy, coverage=0.80204)) == "short"
+    assert _module_asr_coverage.coverage_verdict(legacy) == "not-evaluable"
+    assert _module_asr_coverage.coverage_verdict(dict(legacy, coverage=0.985)) == "covered"
+    assert _module_asr_coverage.coverage_verdict(dict(legacy, coverage=0.80204)) == "short"
 
 
 def test_the_threshold_boundary_is_strict_and_compared_unrounded():
     """``coverage < COVERAGE_MIN`` strictly: the boundary itself is covered."""
 
-    at = asr._coverage_record(100.0, [{"start": 0.0, "end": 97.0}])
-    assert at["coverage"] == asr.COVERAGE_MIN
+    at = _module_asr_coverage._coverage_record(100.0, [{"start": 0.0, "end": 97.0}])
+    assert at["coverage"] == _module_asr_constants.COVERAGE_MIN
     assert at["coverage_short"] is False
 
-    below = asr._coverage_record(100.0, [{"start": 0.0, "end": 96.99}])
+    below = _module_asr_coverage._coverage_record(100.0, [{"start": 0.0, "end": 96.99}])
     assert below["coverage_short"] is True
 
 
 def test_alignment_span_overrun_is_bounded_to_decoded_audio():
     """An aligner overrun cannot make the coverage record invalid."""
 
-    record = asr._coverage_record(3.0, [{"start": 0.0, "end": 4.0}])
+    record = _module_asr_coverage._coverage_record(3.0, [{"start": 0.0, "end": 4.0}])
 
     assert record["decoded_s"] == 3.0
     assert record["produced_s"] == 3.0
@@ -302,20 +308,20 @@ def test_a_rerun_recomputes_and_a_no_decode_run_claims_nothing(tmp_root, monkeyp
     # A run that decoded nothing makes no coverage claim at all — and must not leave the prior
     # row's numbers standing as if they described this run.
     empty = asr_fakes.install(monkeypatch, seconds=0.0)
-    runner = asr.ASRRunner(asr.default_config())
+    runner = _module_asr_runner.ASRRunner(_module_asr_config.default_config())
     assert runner.transcribe("/nonexistent/empty.wav") == []
     assert runner.transcribed_coverage() is None
     entry = dict(stale)
-    asr.apply_coverage_evidence(entry, runner)
-    assert not set(asr.COVERAGE_KEYS) & set(entry), sorted(entry)
+    _module_asr_coverage.apply_coverage_evidence(entry, runner)
+    assert not set(_module_asr_constants.COVERAGE_KEYS) & set(entry), sorted(entry)
 
     # A re-run recomputes from its own decode: the stale success is replaced by the fresh
     # measurement, which here is a shortfall.
     _cover(monkeypatch, text=DEFECT_TEXT, step=DEFECT_STEP, seconds=DEFECT_DECODED_S)
-    runner = asr.ASRRunner(asr.default_config())
+    runner = _module_asr_runner.ASRRunner(_module_asr_config.default_config())
     runner.transcribe("/nonexistent/again.wav")
     entry = dict(stale)
-    asr.apply_coverage_evidence(entry, runner)
+    _module_asr_coverage.apply_coverage_evidence(entry, runner)
     assert entry["coverage"] == pytest.approx(0.80206, abs=1e-4)
     assert entry["coverage_short"] is True
 
@@ -349,7 +355,7 @@ def test_the_published_bundle_carries_the_same_attestation(tmp_root, monkeypatch
     assert "coverage_coverage_short: true" in frontmatter, (
         "the bundle must itself say the run fell short:\n" + frontmatter
     )
-    assert f"coverage_coverage_min: {asr.COVERAGE_MIN}" in frontmatter, frontmatter
+    assert f"coverage_coverage_min: {_module_asr_constants.COVERAGE_MIN}" in frontmatter, frontmatter
     assert "coverage_coverage: 0.802" in frontmatter, (
         "the bundle carries the measured ratio, not a rounded stand-in:\n" + frontmatter
     )
@@ -366,7 +372,7 @@ def test_the_published_bundle_carries_the_same_attestation(tmp_root, monkeypatch
     # The published frontmatter and the sidecar carry the same measurement.  The `asr_*`
     # provenance and the VAD capture summary beside them are untouched by this change, which the
     # existing asr/archive suites pin; this test owns only the coverage surface.
-    assert measured["coverage_min"] == asr.COVERAGE_MIN
+    assert measured["coverage_min"] == _module_asr_constants.COVERAGE_MIN
 
 
 def test_a_path_with_no_measurement_publishes_no_coverage_keys(tmp_root, monkeypatch, capsys):

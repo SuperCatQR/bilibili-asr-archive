@@ -1,5 +1,9 @@
 """Executable mixed-branch pilot: fake HTTP + stubbed ASR, no live network."""
 
+import bili_asr.asr.runner as _module_asr_runner
+import bili_asr.cli.pilot as _module_cli_pilot
+
+
 
 
 def test_pilot_rejects_downloader_path_escape(tmp_path, monkeypatch):
@@ -15,7 +19,7 @@ def test_pilot_rejects_downloader_path_escape(tmp_path, monkeypatch):
     from bili_asr.page_identity import page_identity
     target = page_identity("BVescape", 0, 1, "p0")
     with pytest.raises(ValueError):
-        cli._pilot_archive_asr(
+        _module_cli_pilot._pilot_archive_asr(
             Store(), object(), ArtifactRoots.of(str(tmp_path)),
             {"bvid": "BVescape", "status": "needs_audio"}, target, keep=True,
         )
@@ -26,11 +30,11 @@ import pytest
 
 from bili_asr import asr as asr_mod
 from bili_asr import bili_client as bc
-from bili_asr.cli import main
+from bili_asr.cli.main import main
 from bili_asr.manifest import ManifestStore
 from bili_asr.page_identity import artifact_stem, page_identity
 
-from test_audio import (
+from tests.support.audio import (
     AUDIO_BYTES,
     SPI_OK,
     STREAM_HOST,
@@ -38,11 +42,11 @@ from test_audio import (
     nav_response,
     playurl_ok,
 )
-from test_subtitles import SAMPLE_DOC, nav_ok, player_ok, sub_entry
-from conftest import reuse_line
+from tests.support.subtitles import SAMPLE_DOC, nav_ok, player_ok, sub_entry
+from tests.conftest import reuse_line
 
-import _asr_fakes as asr_fakes
-from _archive_database import _seed_archive_database
+import tests.support.asr_fakes as asr_fakes
+from tests.support.archive_database import _seed_archive_database
 
 
 def test_store_pilot_entries_includes_meta_queue_without_overwriting_advanced_route():
@@ -79,13 +83,13 @@ def _stub_runner_model(monkeypatch, reads=None, released=None):
     asr_fakes.install(monkeypatch, constructions=constructions, reads=reads)
 
     if released is not None:
-        real_release = asr_mod.ASRRunner.release
+        real_release = _module_asr_runner.ASRRunner.release
 
         def recording_release(self):
             released.append(self)
             real_release(self)
 
-        monkeypatch.setattr(asr_mod.ASRRunner, "release", recording_release)
+        monkeypatch.setattr(_module_asr_runner.ASRRunner, "release", recording_release)
 
     return constructions
 
@@ -108,7 +112,7 @@ def _row(identity, *, duration_s, title="clip"):
 def _patch_cli(monkeypatch, transport):
     monkeypatch.setattr(bc, "build_default_transport", lambda: transport)
     monkeypatch.setattr(bc, "default_sleeper", lambda: (lambda _seconds: None))
-    monkeypatch.setattr("bili_asr.cli.time.sleep", lambda _seconds: None)
+    monkeypatch.setattr('bili_asr.cli.pilot.time.sleep', lambda _seconds: None)
 
 
 def test_cli_pilot_mixed_meta_ok_archives_both_branches(tmp_root, monkeypatch, capsys):
@@ -377,7 +381,7 @@ def test_cli_pilot_completed_rerun_skips_archived(tmp_root, monkeypatch, capsys)
 
 
 def test_cli_pilot_missing_asr_dependency_does_not_archive(tmp_root, monkeypatch, capsys):
-    from bili_asr.asr import ASRDependencyError
+    from bili_asr.asr.errors import ASRDependencyError
 
     sub = page_identity("BVsub", 0, 111, "p0")
     aud = page_identity("BVaud", 0, 222, "p0")
@@ -409,7 +413,7 @@ def test_cli_pilot_missing_asr_dependency_does_not_archive(tmp_root, monkeypatch
 def test_cli_pilot_resume_after_partial_asr_counts_archived_subtitle(
     tmp_root, monkeypatch, capsys
 ):
-    from bili_asr.asr import ASRDependencyError
+    from bili_asr.asr.errors import ASRDependencyError
 
     sub = page_identity("BVsub", 0, 111, "p0")
     aud = page_identity("BVaud", 0, 222, "p0")
@@ -472,7 +476,7 @@ def test_cli_pilot_archived_plus_gone_does_not_skip(tmp_root, capsys):
 
 
 def test_cli_pilot_asr_model_error_names_exception(tmp_root, monkeypatch, capsys):
-    from bili_asr.asr import ASRModelError
+    from bili_asr.asr.errors import ASRModelError
 
     sub = page_identity("BVsub", 0, 111, "p0")
     aud = page_identity("BVaud", 0, 222, "p0")
@@ -601,13 +605,13 @@ def test_cli_pilot_releases_the_runner_when_the_loop_is_interrupted(
     monkeypatch.setattr(asr_fakes.Model, "generate", interrupting)
     asr_fakes.install(monkeypatch)
 
-    real_release = asr_mod.ASRRunner.release
+    real_release = _module_asr_runner.ASRRunner.release
 
     def recording_release(self):
         released.append(self)
         real_release(self)
 
-    monkeypatch.setattr(asr_mod.ASRRunner, "release", recording_release)
+    monkeypatch.setattr(_module_asr_runner.ASRRunner, "release", recording_release)
     _patch_cli(monkeypatch, RouterTransport({}))
 
     _seed_archive_database(tmp_root)

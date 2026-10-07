@@ -1,27 +1,4 @@
-"""Offline end-to-end metadata verification: CLI → ingestor → repository.
-
-Every test drives the real user-facing command path — ``bili_asr.cli.main``
-with plain argv — over the fake ``bilibili_api`` package seam from
-``tests/fixtures/``, so the whole stack runs offline exactly as an operator
-would run it: CLI composition root, real gateway adapter
-(``bili_asr.sources.bilibili_api_gateway.BilibiliApiGateway``),
-``MetadataIngestor``, and the Plan-1 repository persisting into a temporary
-SQLite database.  The tests produce the deterministic iteration acceptance
-evidence:
-
-- one scripted page holding a single-part and a multipart video lands all
-  normalized rows (user/video/part/discovery/run/page/cursor) with the
-  computed ``work_id`` view values;
-- re-running the same scripted page duplicates no entity rows and keeps
-  discovery evidence unique per ``(run_id, page_number, bvid)`` (discovery
-  rows are run-scoped by the repository's primary key);
-- a failed page preserves the stored cursor byte-for-byte and persists a
-  bounded scalar error code only, and a later run resumes from the prior
-  cursor and completes;
-- no legacy JSONL/cursor/ledger sidecar is created in the archive root, and
-  no credential or raw upstream payload sentinel reaches CLI output or any
-  persisted row.
-"""
+"Offline end-to-end metadata verification: CLI → ingestor → repository.\n\nEvery test drives the real user-facing command path — ``bili_asr.cli.main.main``\nwith plain argv — over the fake ``bilibili_api`` package seam from\n``tests/fixtures/``, so the whole stack runs offline exactly as an operator\nwould run it: CLI composition root, real gateway adapter\n(``bili_asr.sources.bilibili_api_gateway.BilibiliApiGateway``),\n``MetadataIngestor``, and the Plan-1 repository persisting into a temporary\nSQLite database.  The tests produce the deterministic iteration acceptance\nevidence:\n\n- one scripted page holding a single-part and a multipart video lands all\n  normalized rows (user/video/part/discovery/run/page/cursor) with the\n  computed ``work_id`` view values;\n- re-running the same scripted page duplicates no entity rows and keeps\n  discovery evidence unique per ``(run_id, page_number, bvid)`` (discovery\n  rows are run-scoped by the repository's primary key);\n- a failed page preserves the stored cursor byte-for-byte and persists a\n  bounded scalar error code only, and a later run resumes from the prior\n  cursor and completes;\n- no legacy JSONL/cursor/ledger sidecar is created in the archive root, and\n  no credential or raw upstream payload sentinel reaches CLI output or any\n  persisted row.\n"
 
 from __future__ import annotations
 
@@ -30,10 +7,10 @@ import os
 
 import pytest
 
-from bili_asr.cli import main
+from bili_asr.cli.main import main
 from bili_asr.config import DEFAULT_PAGE_LIMIT
 from bili_asr.storage import open_database
-from fixtures.fake_bilibili_gateway import (
+from tests.fixtures.fake_bilibili_gateway import (
     MID,
     RAW_JSON_BODY_MARKER,
     SESSDATA_BOUNDARY_VALUE,
@@ -49,12 +26,8 @@ from fixtures.fake_bilibili_gateway import (
     persisted_row_text,
     script_parts_by_bvid,
 )
+from tests.support.metadata_e2e import LEGACY_SIDECAR_PATHS
 
-LEGACY_SIDECAR_PATHS = (
-    os.path.join("manifest", "manifest.jsonl"),
-    "meta-cursor.json",
-    "run-ledger.jsonl",
-)
 
 SINGLE_PART_BVID = "BV1SINGLEPT1"
 MULTI_PART_BVID = "BV1MULTIPRT2"

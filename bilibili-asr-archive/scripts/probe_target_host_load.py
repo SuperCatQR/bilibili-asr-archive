@@ -36,6 +36,11 @@ rather than hard-coded, so a rename cannot silently turn arm A into arm B.
 
 from __future__ import annotations
 
+import bili_asr.asr.config as _module_asr_config
+import bili_asr.asr.constants as _module_asr_constants
+import bili_asr.asr.runner as _module_asr_runner
+
+
 import os
 import subprocess
 import sys
@@ -46,7 +51,7 @@ import bili_asr.asr as asr
 #: The declared-revision variable, imported rather than spelled out: four
 #: hard-coded copies would silently decay arm A into arm B after a rename while
 #: the script still printed ``RESULT {... True ...}``.
-REVISION_ENV_VAR = asr.ASR_MODEL_REVISION_ENV_VAR
+REVISION_ENV_VAR = _module_asr_constants.ASR_MODEL_REVISION_ENV_VAR
 
 #: A short slice of audio.  The default names the documented WSL2 ASR host's
 #: layout as an *example*, not as a contract: this script exists to be re-run
@@ -60,7 +65,7 @@ SECONDS = os.environ.get("BILI_ASR_PROBE_SECONDS", "3")
 def main() -> int:
     print("bili_asr.asr.__file__ =", asr.__file__)
     print("has module-level provenance:", hasattr(asr, "provenance"))
-    print("has ASRRunner.provenance:", hasattr(asr.ASRRunner, "provenance"))
+    print("has ASRRunner.provenance:", hasattr(_module_asr_runner.ASRRunner, "provenance"))
 
     subprocess.run(
         ["ffmpeg", "-y", "-v", "error", "-i", SOURCE, "-t", SECONDS,
@@ -79,7 +84,7 @@ def main() -> int:
     asr._load_default_model = spy
 
     # --- negative control: the recorded probe would have proved nothing -------
-    asr.ASRRunner(asr.default_config()).provenance()
+    _module_asr_runner.ASRRunner(_module_asr_config.default_config()).provenance()
     print(
         "\n--- arm 0 (negative control): factories invoked after construction + "
         f"provenance() = {len(calls)}"
@@ -91,7 +96,7 @@ def main() -> int:
             os.environ.pop(REVISION_ENV_VAR, None)
         else:
             os.environ[REVISION_ENV_VAR] = revision
-        runner = asr.ASRRunner(asr.default_config())
+        runner = _module_asr_runner.ASRRunner(_module_asr_config.default_config())
         print(f"\n--- arm {label}: {REVISION_ENV_VAR}={revision!r}")
         try:
             segments = runner.transcribe(SLICE)

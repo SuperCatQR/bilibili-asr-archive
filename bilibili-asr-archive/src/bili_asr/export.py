@@ -12,7 +12,7 @@ from typing import Any, Sequence
 
 from .artifact_root import ArtifactRoots
 from .manifest import ManifestStore
-from .search_index import extract_transcript_text
+from bili_asr.search_index.readers import extract_transcript_text
 
 #: The standard CSV column order, pinned: a reader parses this header once and
 #: relies on the position of every column.  ``video_title`` sits directly after

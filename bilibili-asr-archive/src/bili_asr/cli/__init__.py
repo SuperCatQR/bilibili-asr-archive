@@ -9,6 +9,8 @@ suite, which pins private helpers.
 from __future__ import annotations
 
 import time
+import sys
+import types
 
 from bili_asr import search_index
 
@@ -29,6 +31,7 @@ from bili_asr.cli._shared import (
     _todo_for_bvid,
 )
 from bili_asr.cli.parser import build_parser
+from bili_asr.cli import main as main
 from bili_asr.cli.main import _ARCHIVE_WRITER_COMMANDS, _dispatch_command, _main
 from bili_asr.cli.meta import _cmd_fetch_meta, _cmd_harvest_subs, _cmd_probe_subs
 from bili_asr.cli.queue import (
@@ -76,11 +79,15 @@ from bili_asr.cli.concurrency import (
 )
 from bili_asr.cli.workflow import _cmd_workflow
 
-def main(argv: list[str] | None = None) -> int:
-    """Public entry point; delegates to ``bili_asr.cli.main._main`` so that
-    monkeypatches against ``bili_asr.cli.build_parser`` /
-    ``bili_asr.cli._dispatch_command`` take effect."""
-    return _main(argv)
+class _MainModule(types.ModuleType):
+    """Keep the package attribute module-shaped and directly callable."""
+
+    def __call__(self, argv: list[str] | None = None) -> int:
+        return self.main(argv)
+
+
+if not isinstance(main, _MainModule):
+    main.__class__ = _MainModule
 
 
 __all__ = [

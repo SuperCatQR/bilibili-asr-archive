@@ -33,8 +33,9 @@ from bili_asr.sources.models import (
     VideoSummary,
     VideoTag,
 )
-from bili_asr.storage.database import MetadataRepository, open_database
-from fixtures.fake_bilibili_gateway import (
+from bili_asr.storage.metadata import MetadataRepository
+from bili_asr.storage.database import open_database
+from tests.fixtures.fake_bilibili_gateway import (
     NO_LEAK_MARKERS,
     RAW_JSON_BODY_MARKER,
     RAW_UPSTREAM_EXCEPTION_MARKER,

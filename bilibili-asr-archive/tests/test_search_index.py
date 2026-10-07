@@ -16,17 +16,13 @@ import time
 import pytest
 
 from bili_asr.artifact_root import ArtifactRoots
-from bili_asr.cli import main
+from bili_asr.cli.main import main
 from bili_asr.manifest import ManifestStore
-from bili_asr.search_index import (
-    COMPLETED_STATUSES,
-    FTS5UnavailableError,
-    SearchIndex,
-    SearchQuery,
-    SearchResult,
-    check_fts5_available,
-    search,
-)
+from bili_asr.search_index.constants import COMPLETED_STATUSES
+from bili_asr.search_index.errors import FTS5UnavailableError
+from bili_asr.search_index.manifest import SearchIndex, search
+from bili_asr.search_index.models import SearchQuery, SearchResult
+from bili_asr.search_index.common import check_fts5_available
 
 
 def _create_sample_archive(tmp_root: str):

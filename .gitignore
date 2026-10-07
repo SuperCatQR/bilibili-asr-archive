@@ -95,3 +95,17 @@ e2e-test*.md
 # session machinery, not project content — nothing in the product, the harness or
 # the plans references it, and it was never tracked.
 .agent-teams/
+
+# Machine environments and generated verification scratch.
+.venv-*/
+.pytest_cache/
+.ruff_cache/
+pytest-of-*/
+bilibili-asr-archive/.test-workflow-status/
+bilibili-asr-archive/bili-asr-fixture-preflight-*/
+bilibili-asr-archive/bili-asr-verify-*/
+bilibili-asr-archive/tmp*/
+.test-tmp-issues*.txt
+.archify/
+*.delivery.json
+bilibili-asr-archive/archived/store-migration/backups/

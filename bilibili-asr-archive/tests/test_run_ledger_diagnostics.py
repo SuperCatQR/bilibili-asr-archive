@@ -128,7 +128,7 @@ _PROCESS_ROWS_WITH_CLOSED_STDERR = """
 import os
 import sys
 from bili_asr import asr, cli
-from test_batch_hotwords_record import VerdictRunner, RiskOnceRunner
+from tests.support.batch_hotwords_record import VerdictRunner, RiskOnceRunner
 
 class FailedFirstRunner(VerdictRunner):
     def transcribe(self, path, **kwargs):
@@ -154,7 +154,7 @@ raise SystemExit(code)
 @pytest.mark.parametrize("mode,exit_code", [("continue", 1), ("risk", 2)])
 def test_real_rows_continue_or_stop_at_risk_without_stderr_changing_the_exit(tmp_root, mode, exit_code):
     from bili_asr.manifest import ManifestStore
-    from test_batch_hotwords_record import _seed_audio
+    from tests.support.batch_hotwords_record import _seed_audio
 
     store, rows = _seed_audio(tmp_root, 2)
     result = _child(tmp_root, _PROCESS_ROWS_WITH_CLOSED_STDERR, mode)

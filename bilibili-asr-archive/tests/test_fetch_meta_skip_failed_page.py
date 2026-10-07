@@ -26,7 +26,7 @@ from __future__ import annotations
 
 import pytest
 
-from bili_asr.cli import main
+from bili_asr.cli.main import main
 from bili_asr.services.metadata_ingest import MetadataIngestor
 from bili_asr.sources.models import (
     GatewayRateLimited,
@@ -36,7 +36,7 @@ from bili_asr.sources.models import (
     VideoSummary,
 )
 from bili_asr.storage import MetadataRepository, open_database
-from fixtures.fake_bilibili_gateway import FakeGateway, fake_gateway_seam  # noqa: F401
+from tests.fixtures.fake_bilibili_gateway import FakeGateway, fake_gateway_seam  # noqa: F401
 
 MID = 23191782
 FAILED_PAGE = 2

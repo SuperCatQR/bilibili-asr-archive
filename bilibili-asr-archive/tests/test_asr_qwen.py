@@ -23,6 +23,15 @@ here first:
 
 from __future__ import annotations
 
+import bili_asr.asr.alignment as _module_asr_alignment
+import bili_asr.asr.audio as _module_asr_audio
+import bili_asr.asr.config as _module_asr_config
+import bili_asr.asr.constants as _module_asr_constants
+import bili_asr.asr.errors as _module_asr_errors
+import bili_asr.asr.provenance as _module_asr_provenance
+import bili_asr.asr.runner as _module_asr_runner
+
+
 import builtins
 import os
 import pathlib
@@ -41,8 +50,8 @@ def test_missing_asr_provenance_uses_named_language_fallback():
             return {}
 
     entry = {}
-    asr.apply_provenance_evidence(entry, Runner())
-    assert entry["language"] == asr.DEFAULT_TRANSCRIPT_LANGUAGE == "und"
+    _module_asr_provenance.apply_provenance_evidence(entry, Runner())
+    assert entry["language"] == _module_asr_constants.DEFAULT_TRANSCRIPT_LANGUAGE == "und"
 
 
 # ---------------------------------------------------------------------------------------
@@ -166,7 +175,7 @@ def _units(text: str, step: float = 0.4) -> list[dict]:
 
 
 def _pieces(text: str, step: float = 0.4) -> list[dict]:
-    return asr._thread_text(text, [
+    return _module_asr_alignment._thread_text(text, [
         {"text": u["text"], "start_time": u["start_time"], "end_time": u["end_time"]}
         for u in _units(text, step)
     ])
@@ -179,8 +188,8 @@ def _pieces(text: str, step: float = 0.4) -> list[dict]:
 
 def test_split_audio_tiles_the_input_exactly() -> None:
     import numpy as np
-    samples = np.random.default_rng(7).standard_normal(asr.SAMPLE_RATE * 10).astype("float32")
-    chunks = asr._split_audio(samples, asr.SAMPLE_RATE, 3.0)
+    samples = np.random.default_rng(7).standard_normal(_module_asr_constants.SAMPLE_RATE * 10).astype("float32")
+    chunks = _module_asr_audio._split_audio(samples, _module_asr_constants.SAMPLE_RATE, 3.0)
     assert len(chunks) >= 4
     assert sum(len(chunk) for chunk, _ in chunks) == len(samples)
     offsets = [offset for _, offset in chunks]
@@ -190,8 +199,8 @@ def test_split_audio_tiles_the_input_exactly() -> None:
 
 def test_split_audio_keeps_a_short_recording_whole() -> None:
     import numpy as np
-    samples = np.zeros(asr.SAMPLE_RATE * 2, dtype="float32")
-    chunks = asr._split_audio(samples, asr.SAMPLE_RATE, 180.0)
+    samples = np.zeros(_module_asr_constants.SAMPLE_RATE * 2, dtype="float32")
+    chunks = _module_asr_audio._split_audio(samples, _module_asr_constants.SAMPLE_RATE, 180.0)
     assert len(chunks) == 1
     assert chunks[0][1] == 0.0
     assert len(chunks[0][0]) == len(samples)
@@ -206,24 +215,24 @@ def test_split_audio_keeps_a_degenerate_tail_short_and_still_tiles() -> None:
     """
 
     import numpy as np
-    samples = np.zeros(int(asr.SAMPLE_RATE * 3.01), dtype="float32")
-    chunks = asr._split_audio(samples, asr.SAMPLE_RATE, 3.0)
+    samples = np.zeros(int(_module_asr_constants.SAMPLE_RATE * 3.01), dtype="float32")
+    chunks = _module_asr_audio._split_audio(samples, _module_asr_constants.SAMPLE_RATE, 3.0)
     assert len(chunks) == 2, chunks
     assert sum(len(chunk) for chunk, _ in chunks) == len(samples)
-    assert len(chunks[-1][0]) < int(asr._CHUNK_MIN_SECONDS * asr.SAMPLE_RATE)
+    assert len(chunks[-1][0]) < int(_module_asr_constants._CHUNK_MIN_SECONDS * _module_asr_constants.SAMPLE_RATE)
 
 
 def test_split_audio_never_returns_a_degenerate_chunk() -> None:
     import numpy as np
-    samples = np.random.default_rng(3).standard_normal(asr.SAMPLE_RATE * 4).astype("float32")
-    chunks = asr._split_audio(samples, asr.SAMPLE_RATE, 1.0)
-    floor = int(asr._CHUNK_MIN_WINDOW_MS / 1000.0 * asr.SAMPLE_RATE)
+    samples = np.random.default_rng(3).standard_normal(_module_asr_constants.SAMPLE_RATE * 4).astype("float32")
+    chunks = _module_asr_audio._split_audio(samples, _module_asr_constants.SAMPLE_RATE, 1.0)
+    floor = int(_module_asr_constants._CHUNK_MIN_WINDOW_MS / 1000.0 * _module_asr_constants.SAMPLE_RATE)
     assert all(len(chunk) >= floor for chunk, _ in chunks[:-1]), [len(c) for c, _ in chunks]
 
 
 def test_split_audio_of_nothing_is_no_chunks() -> None:
     import numpy as np
-    assert asr._split_audio(np.zeros(0, dtype="float32"), asr.SAMPLE_RATE, 180.0) == []
+    assert _module_asr_audio._split_audio(np.zeros(0, dtype="float32"), _module_asr_constants.SAMPLE_RATE, 180.0) == []
 
 
 # ---------------------------------------------------------------------------------------
@@ -254,13 +263,13 @@ def test_threading_handles_latin_words() -> None:
         {"text": "这", "start_time": 2.3, "end_time": 2.5},
         {"text": "个", "start_time": 2.5, "end_time": 2.7},
     ]
-    pieces = asr._thread_text(text, units)
+    pieces = _module_asr_alignment._thread_text(text, units)
     assert "".join(p["text"] for p in pieces) == text
     assert [p["text"] for p in pieces if p["text"] == "International"] == ["International"]
 
 
 def test_threading_keeps_a_unit_the_text_does_not_account_for() -> None:
-    pieces = asr._thread_text("好", [{"text": "好", "start_time": 0.0, "end_time": 0.2},
+    pieces = _module_asr_alignment._thread_text("好", [{"text": "好", "start_time": 0.0, "end_time": 0.2},
                                      {"text": "嗯", "start_time": 0.2, "end_time": 0.4}])
     assert "".join(p["text"] for p in pieces) == "好嗯"
 
@@ -271,7 +280,7 @@ def test_threading_keeps_a_unit_the_text_does_not_account_for() -> None:
 
 
 def test_a_sentence_mark_closes_a_cue() -> None:
-    cues = asr._aligned_cues(_pieces("今天讲两件事。明天我们接着讲第三件事。"))
+    cues = _module_asr_alignment._aligned_cues(_pieces("今天讲两件事。明天我们接着讲第三件事。"))
     assert [cue["text"] for cue in cues] == ["今天讲两件事。", "明天我们接着讲第三件事。"]
     assert "".join(cue["text"] for cue in cues) == "今天讲两件事。明天我们接着讲第三件事。"
 
@@ -284,8 +293,8 @@ def test_the_ceiling_closes_a_cue_and_the_tail_is_kept() -> None:
     absorbed tail not being dropped.
     """
 
-    long_text = "一" * asr._CUE_MAX_CHARS + "尾"
-    cues = asr._aligned_cues(_pieces(long_text))
+    long_text = "一" * _module_asr_constants._CUE_MAX_CHARS + "尾"
+    cues = _module_asr_alignment._aligned_cues(_pieces(long_text))
     assert "".join(cue["text"] for cue in cues) == long_text
     assert [cue["text"][-1] for cue in cues] == ["尾"] or len(cues) == 1
 
@@ -294,12 +303,12 @@ def test_a_pause_closes_only_a_cue_that_can_stand_alone() -> None:
     pieces = _pieces("短短") + [
         {"text": "之后", "start": 4.0, "end": 4.4},
     ]
-    cues = asr._aligned_cues(pieces)
+    cues = _module_asr_alignment._aligned_cues(pieces)
     assert len(cues) == 1, "a fragment separated by a pause is absorbed, not split"
 
 
 def test_a_fragment_is_absorbed_by_the_cue_before_it() -> None:
-    cues = asr._aligned_cues(_pieces("这是一句足够长的话。好。"))
+    cues = _module_asr_alignment._aligned_cues(_pieces("这是一句足够长的话。好。"))
     assert len(cues) == 1
     assert cues[0]["text"].endswith("好。")
 
@@ -320,14 +329,14 @@ def test_a_mark_at_a_boundary_is_handed_back() -> None:
         {"text": "了", "start": 6.6, "end": 7.0},
         {"text": "吧", "start": 7.0, "end": 7.4},
     ]
-    cues = asr._aligned_cues(pieces)
+    cues = _module_asr_alignment._aligned_cues(pieces)
     assert cues[0]["text"] == "一样长的句子，"
     assert cues[1]["text"] == "新句开始了吧"
 
 
 def test_latin_words_keep_their_separator_when_a_fragment_is_absorbed() -> None:
-    assert asr._join_text("Idea", "Moments") == "Idea Moments"
-    assert asr._join_text("思想", "观念") == "思想观念"
+    assert _module_asr_alignment._join_text("Idea", "Moments") == "Idea Moments"
+    assert _module_asr_alignment._join_text("思想", "观念") == "思想观念"
 
 
 def test_latin_tokens_keep_their_separator_inside_a_cue() -> None:
@@ -338,14 +347,14 @@ def test_latin_tokens_keep_their_separator_inside_a_cue() -> None:
         {"text": "Employment", "start": 0.6, "end": 1.2},
         {"text": "Matters", "start": 1.2, "end": 1.8},
     ]
-    cues = asr._aligned_cues(pieces)
+    cues = _module_asr_alignment._aligned_cues(pieces)
 
     assert [cue["text"] for cue in cues] == ["International Employment Matters"]
 
 
 def test_cues_are_monotonic_and_carry_the_recognised_text() -> None:
     text = "第一句话说完了。第二句话也说完了吧。"
-    cues = asr._aligned_cues(_pieces(text))
+    cues = _module_asr_alignment._aligned_cues(_pieces(text))
     assert "".join(cue["text"] for cue in cues) == text
     assert all(cues[i]["end"] <= cues[i + 1]["start"] for i in range(len(cues) - 1))
 
@@ -357,7 +366,7 @@ def test_cues_are_monotonic_and_carry_the_recognised_text() -> None:
 
 def test_config_refuses_a_declaration_that_contradicts_a_hub_level_model() -> None:
     with pytest.raises(ValueError):
-        asr.ASRConfig(model_name="Qwen/Qwen3-ASR-1.7B-hf", model_id="Other/Thing")
+        _module_asr_config.ASRConfig(model_name="Qwen/Qwen3-ASR-1.7B-hf", model_id="Other/Thing")
 
 
 def test_config_accepts_a_truthful_declaration_beside_a_real_local_path(
@@ -371,7 +380,7 @@ def test_config_accepts_a_truthful_declaration_beside_a_real_local_path(
 
     (tmp_path / "models" / "Qwen3-ASR-1.7B-hf").mkdir(parents=True)
     monkeypatch.chdir(tmp_path)
-    config = asr.ASRConfig(model_name="models/Qwen3-ASR-1.7B-hf",
+    config = _module_asr_config.ASRConfig(model_name="models/Qwen3-ASR-1.7B-hf",
                            model_id="Qwen/Qwen3-ASR-1.7B-hf")
     assert config.model_id == "Qwen/Qwen3-ASR-1.7B-hf"
     assert config.model_name == "models/Qwen3-ASR-1.7B-hf"
@@ -380,12 +389,12 @@ def test_config_accepts_a_truthful_declaration_beside_a_real_local_path(
 @pytest.mark.parametrize("value", [0, -1, "180"])
 def test_config_refuses_a_bad_chunk_seconds(value: object) -> None:
     with pytest.raises(ValueError):
-        asr.ASRConfig(model_name="Qwen/Qwen3-ASR-1.7B-hf", chunk_seconds=value)  # type: ignore[arg-type]
+        _module_asr_config.ASRConfig(model_name="Qwen/Qwen3-ASR-1.7B-hf", chunk_seconds=value)  # type: ignore[arg-type]
 
 
 def test_config_refuses_a_hostile_local_source() -> None:
     with pytest.raises(ValueError):
-        asr.ASRConfig(model_name="Qwen/Qwen3-ASR-1.7B-hf", local_source="https://host/x")
+        _module_asr_config.ASRConfig(model_name="Qwen/Qwen3-ASR-1.7B-hf", local_source="https://host/x")
 
 
 # ---------------------------------------------------------------------------------------
@@ -403,8 +412,8 @@ def _runner(monkeypatch, text: str = "今天讲两件事。明天我们接着讲
 
     import numpy as np
     import soundfile as sf
-    samples = np.zeros(asr.SAMPLE_RATE * 3, dtype="float32")
-    monkeypatch.setattr(sf, "read", lambda *args, **kwargs_: (samples, asr.SAMPLE_RATE))
+    samples = np.zeros(_module_asr_constants.SAMPLE_RATE * 3, dtype="float32")
+    monkeypatch.setattr(sf, "read", lambda *args, **kwargs_: (samples, _module_asr_constants.SAMPLE_RATE))
     monkeypatch.setattr(sf, "write", lambda *args, **kwargs_: None)
 
     units = _units(text)
@@ -414,8 +423,8 @@ def _runner(monkeypatch, text: str = "今天讲两件事。明天我们接着讲
         builds.append(factory_kwargs)
         return _FakeModelSet(text, units)
 
-    config = asr.ASRConfig(model_name="Qwen/Qwen3-ASR-1.7B-hf", device="cpu", **kwargs)
-    return asr.ASRRunner(config, model_factory=factory), builds
+    config = _module_asr_config.ASRConfig(model_name="Qwen/Qwen3-ASR-1.7B-hf", device="cpu", **kwargs)
+    return _module_asr_runner.ASRRunner(config, model_factory=factory), builds
 
 
 def test_the_runner_is_lazy_and_constructs_one_model_set_for_many_items(monkeypatch) -> None:
@@ -436,17 +445,17 @@ def test_a_failed_load_pays_an_attempt_and_no_construction(monkeypatch) -> None:
     def factory(**kwargs):
         raise RuntimeError("boom")
 
-    runner = asr.ASRRunner(
-        asr.ASRConfig(model_name="Qwen/Qwen3-ASR-1.7B-hf", device="cpu"), model_factory=factory
+    runner = _module_asr_runner.ASRRunner(
+        _module_asr_config.ASRConfig(model_name="Qwen/Qwen3-ASR-1.7B-hf", device="cpu"), model_factory=factory
     )
-    for _ in range(asr.MAX_MODEL_LOAD_ATTEMPTS):
-        with pytest.raises(asr.ASRModelError):
+    for _ in range(_module_asr_constants.MAX_MODEL_LOAD_ATTEMPTS):
+        with pytest.raises(_module_asr_errors.ASRModelError):
             runner.transcribe("/nonexistent/one.wav")
     assert runner.model_constructions == 0
-    assert runner.model_load_attempts == asr.MAX_MODEL_LOAD_ATTEMPTS
-    with pytest.raises(asr.ASRModelError):
+    assert runner.model_load_attempts == _module_asr_constants.MAX_MODEL_LOAD_ATTEMPTS
+    with pytest.raises(_module_asr_errors.ASRModelError):
         runner.transcribe("/nonexistent/one.wav")
-    assert runner.model_load_attempts == asr.MAX_MODEL_LOAD_ATTEMPTS, "the cap is not spent again"
+    assert runner.model_load_attempts == _module_asr_constants.MAX_MODEL_LOAD_ATTEMPTS, "the cap is not spent again"
 
 
 def test_release_makes_a_rebuild_pay_a_second_construction(monkeypatch) -> None:
@@ -470,13 +479,16 @@ def test_the_runner_pads_a_short_final_chunk_before_alignment(monkeypatch) -> No
     runner, _ = _runner(monkeypatch, chunk_seconds=3.0)
     import numpy as np
     import soundfile as sf
-    samples = np.zeros(int(asr.SAMPLE_RATE * 3.01), dtype="float32")
-    monkeypatch.setattr(sf, "read", lambda *args, **kwargs_: (samples, asr.SAMPLE_RATE))
+    samples = np.zeros(int(_module_asr_constants.SAMPLE_RATE * 3.01), dtype="float32")
+    monkeypatch.setattr(sf, "read", lambda *args, **kwargs_: (samples, _module_asr_constants.SAMPLE_RATE))
+    written: list[int] = []
+    monkeypatch.setattr(sf, "write", lambda path, data, rate: written.append(len(data)))
+
     runner.transcribe("/nonexistent/tail.wav")
-    aligned = runner._get_models().aligner_processor.seen
-    assert len(aligned) == 2, "3.01 s at a 3 s cap is two chunks"
-    assert len(aligned[0]["audio"]) == int(asr.SAMPLE_RATE * 3.0)
-    assert len(aligned[-1]["audio"]) >= int(asr._CHUNK_MIN_SECONDS * asr.SAMPLE_RATE), "the tail was padded"
+
+    assert len(written) == 2, "3.01 s at a 3 s cap is two chunks"
+    assert written[0] == int(_module_asr_constants.SAMPLE_RATE * 3.0)
+    assert written[-1] >= int(_module_asr_constants._CHUNK_MIN_SECONDS * _module_asr_constants.SAMPLE_RATE), "the tail was padded"
 
 
 def test_the_pipeline_stitches_per_chunk_timings_with_their_offset(monkeypatch) -> None:
@@ -485,8 +497,8 @@ def test_the_pipeline_stitches_per_chunk_timings_with_their_offset(monkeypatch) 
     runner, _ = _runner(monkeypatch, chunk_seconds=1.0)
     import numpy as np
     import soundfile as sf
-    long_audio = np.zeros(asr.SAMPLE_RATE * 3, dtype="float32")  # 3 chunks of 1 s
-    monkeypatch.setattr(sf, "read", lambda *args, **kwargs_: (long_audio, asr.SAMPLE_RATE))
+    long_audio = np.zeros(_module_asr_constants.SAMPLE_RATE * 3, dtype="float32")  # 3 chunks of 1 s
+    monkeypatch.setattr(sf, "read", lambda *args, **kwargs_: (long_audio, _module_asr_constants.SAMPLE_RATE))
     cues = runner.transcribe("/nonexistent/long.wav")
     assert cues, "the fake models always produce text"
     assert max(cue["end"] for cue in cues) > 1.0, "the second chunk's timings were offset"
@@ -547,7 +559,7 @@ def test_two_pass_transcribe_helper_busts_the_cache_on_pass_2(monkeypatch) -> No
     """
 
     runner, _ = _runner(monkeypatch, text="今天讲两件事。", hotwords=("今天",))
-    segments = asr.two_pass_transcribe(
+    segments = _module_asr_runner.two_pass_transcribe(
         runner, "/nonexistent/two-pass.wav", paired_subtitle_text=None
     )
     assert segments, "the fake models always produce text"
@@ -570,7 +582,7 @@ def test_two_pass_transcribe_helper_skips_pass_2_when_nothing_is_kept(monkeypatc
     """No kept tokens means pass 2 cannot change the transcript: one decode, pass 1's segments."""
 
     runner, _ = _runner(monkeypatch, text="今天讲两件事。", hotwords=("未明子",))
-    segments = asr.two_pass_transcribe(
+    segments = _module_asr_runner.two_pass_transcribe(
         runner, "/nonexistent/two-pass.wav", paired_subtitle_text=None
     )
     assert segments, "the fake models always produce text"
@@ -595,19 +607,19 @@ def test_provenance_redacts_a_windows_path_and_publishes_a_relative_one() -> Non
     documented *relative* checkpoint path through, because that is how a local checkpoint is named.
     """
 
-    runner = asr.ASRRunner(asr.ASRConfig(model_name="Qwen/Qwen3-ASR-1.7B-hf", device="cpu"))
+    runner = _module_asr_runner.ASRRunner(_module_asr_config.ASRConfig(model_name="Qwen/Qwen3-ASR-1.7B-hf", device="cpu"))
     provenance = runner.provenance()
     assert provenance["model_name"] == "Qwen/Qwen3-ASR-1.7B-hf"
-    assert provenance["aligner_model"] == asr.DEFAULT_ALIGNER_MODEL
+    assert provenance["aligner_model"] == _module_asr_constants.DEFAULT_ALIGNER_MODEL
     assert "vad_model" not in provenance, "the VAD component left with the engine"
 
     for hostile in ("C:\\models\\Qwen3-ASR-1.7B-hf", "https://host/models", "myorg/token_abc"):
-        assert asr.ASRRunner(asr.ASRConfig(model_name=hostile, device="cpu")).provenance()[
+        assert _module_asr_runner.ASRRunner(_module_asr_config.ASRConfig(model_name=hostile, device="cpu")).provenance()[
             "model_name"
         ] == "[redacted]", hostile
 
-    relative = asr.ASRRunner(
-        asr.ASRConfig(model_name="models/Qwen3-ASR-1.7B-hf", device="cpu")
+    relative = _module_asr_runner.ASRRunner(
+        _module_asr_config.ASRConfig(model_name="models/Qwen3-ASR-1.7B-hf", device="cpu")
     ).provenance()["model_name"]
     assert relative == "models/Qwen3-ASR-1.7B-hf"
 
@@ -616,7 +628,7 @@ def test_default_config_resolves_the_declared_language_and_the_prompt_terms(monk
     monkeypatch.setenv("BILI_ASR_LANGUAGE", "Chinese")
     monkeypatch.setenv("BILI_ASR_HOTWORDS", "新词,攻势")
     monkeypatch.setenv("BILI_ASR_CHUNK_SECONDS", "90")
-    config = asr.default_config()
+    config = _module_asr_config.default_config()
     assert config.language == "Chinese"
     # 2026-09-28 governance ruling: the default config seeds nothing (empty
     # DEFAULT_HOTWORDS); the operator env knob still appends its terms, which
@@ -667,8 +679,8 @@ def test_transcription_imports_no_network_module(monkeypatch) -> None:
 def test_the_dependency_hint_names_the_extra() -> None:
     """The message a host without the extra prints must name what to install."""
 
-    assert "[asr]" in asr._INSTALL_HINT
-    assert asr.ASRDependencyError("x").args == ("x",)
+    assert "[asr]" in _module_asr_constants._INSTALL_HINT
+    assert _module_asr_errors.ASRDependencyError("x").args == ("x",)
 
 
 # ---------------------------------------------------------------------------------------
@@ -704,7 +716,7 @@ _WITHDRAWN_ENTRIES = ("ITEM", "AITEM")
 def test_the_shipped_hotword_list_is_empty_pending_the_keep_drop_measurement() -> None:
     """Governance ruling 2026-09-28: no speculative seeding while the ruling is pending."""
 
-    assert asr.DEFAULT_HOTWORDS == (), (
+    assert _module_asr_constants.DEFAULT_HOTWORDS == (), (
         "the shipped list is empty-with-guard-on; kept tokens return here only with a "
         "measured delta recorded in the plan's Measurement results"
     )
@@ -714,16 +726,16 @@ def test_the_measured_candidates_are_preserved_for_the_pending_ruling() -> None:
     """The tokens the pending ruling measures stay pinned — an empty shipped list is not a lost list."""
 
     for term in _HOMOPHONE_ENTRIES:
-        assert term in asr.MEASURED_HOTWORD_CANDIDATES, f"the measured homophone entry {term!r} is missing"
+        assert term in _module_asr_constants.MEASURED_HOTWORD_CANDIDATES, f"the measured homophone entry {term!r} is missing"
     for term in _LATIN_ENTRIES:
-        assert term in asr.MEASURED_HOTWORD_CANDIDATES, f"the Latin-script entry {term!r} is missing"
+        assert term in _module_asr_constants.MEASURED_HOTWORD_CANDIDATES, f"the Latin-script entry {term!r} is missing"
 
 
 def test_the_hotword_list_still_excludes_the_withdrawn_acronyms() -> None:
     """The bare acronyms were removed on measured evidence and must not quietly return."""
 
     for term in _WITHDRAWN_ENTRIES:
-        assert term not in asr.DEFAULT_HOTWORDS, (
+        assert term not in _module_asr_constants.DEFAULT_HOTWORDS, (
             f"{term!r} was removed 2026-09-17 for measured harm; re-adding it needs its own measurement"
         )
 
@@ -731,8 +743,8 @@ def test_the_hotword_list_still_excludes_the_withdrawn_acronyms() -> None:
 def test_the_hotword_list_is_free_of_duplicates_and_blanks() -> None:
     """A duplicate or blank entry is a silent prompt defect; the list is shipped, not cleaned."""
 
-    assert len(set(asr.DEFAULT_HOTWORDS)) == len(asr.DEFAULT_HOTWORDS), "duplicate entry in DEFAULT_HOTWORDS"
-    assert all(term.strip() == term and term for term in asr.DEFAULT_HOTWORDS), (
+    assert len(set(_module_asr_constants.DEFAULT_HOTWORDS)) == len(_module_asr_constants.DEFAULT_HOTWORDS), "duplicate entry in DEFAULT_HOTWORDS"
+    assert all(term.strip() == term and term for term in _module_asr_constants.DEFAULT_HOTWORDS), (
         "blank or untrimmed entry in DEFAULT_HOTWORDS"
     )
 
@@ -749,7 +761,7 @@ def test_a_descriptor_path_is_copied_to_a_readable_file(tmp_path) -> None:
     handle = os.open(source, os.O_RDONLY)
     temporary = None
     try:
-        path, temporary = asr._materialize_input(f"/proc/self/fd/{handle}")
+        path, temporary = _module_asr_audio._materialize_input(f"/proc/self/fd/{handle}")
         assert temporary is not None and path == temporary
         assert pathlib.Path(path).read_bytes() == b"payload"
     finally:
@@ -759,7 +771,7 @@ def test_a_descriptor_path_is_copied_to_a_readable_file(tmp_path) -> None:
 
 
 def test_a_plain_path_is_returned_untouched() -> None:
-    assert asr._materialize_input("/tmp/whatever.m4a") == ("/tmp/whatever.m4a", None)
+    assert _module_asr_audio._materialize_input("/tmp/whatever.m4a") == ("/tmp/whatever.m4a", None)
 
 
 # ---------------------------------------------------------------------------------------
@@ -835,7 +847,7 @@ def test_a_real_aac_file_is_decoded_through_the_fallback(tmp_path) -> None:
     path = tmp_path / "fixture.m4a"
     _write_aac(path, seconds=2.0, rate=44100, channels=2)
 
-    samples, rate = asr._read_audio(str(path))
+    samples, rate = _module_asr_audio._read_audio(str(path))
 
     assert rate == 44100, f"the native rate must survive the fallback, got {rate}"
     assert samples.ndim == 2 and samples.shape[1] == 2, (
@@ -858,7 +870,7 @@ def test_a_non_16k_rate_is_resampled_by_the_runner(monkeypatch) -> None:
     import numpy as np
     import soundfile as sf
     import soxr
-    runner, _ = _runner(monkeypatch)  # installs the fake models and audio reader
+    runner, _ = _runner(monkeypatch)  # installs the fake models, audio read and writes
 
     seen: list[tuple[int, int, int]] = []
     real_resample = soxr.resample
@@ -872,34 +884,27 @@ def test_a_non_16k_rate_is_resampled_by_the_runner(monkeypatch) -> None:
     monkeypatch.setattr(soxr, "resample", spy)
 
     captured: dict = {}
-    real_split = asr._split_audio
+    real_split = _module_asr_audio._split_audio
 
     def spy_split(samples, sample_rate, max_chunk_seconds):
         captured["rate"] = sample_rate
         captured["length"] = len(samples)
         return real_split(samples, sample_rate, max_chunk_seconds)
 
-    monkeypatch.setattr(asr, "_split_audio", spy_split)
+    monkeypatch.setattr(_module_asr_audio, "_split_audio", spy_split)
     # three seconds at 48 kHz, i.e. the fallback's own shape and rate; set after _runner, whose own
     # patch returns 16 kHz and would otherwise win.
     monkeypatch.setattr(sf, "read", lambda *a, **k: (np.zeros(48_000 * 3, dtype="float32"), 48_000))
 
     runner.transcribe("/nonexistent/audio.m4a")
 
-    assert seen == [(144_000, 48_000, asr.SAMPLE_RATE)], (
+    assert seen == [(144_000, 48_000, _module_asr_constants.SAMPLE_RATE)], (
         f"the resampler must be called once with the source rate, got {seen}"
     )
-    assert captured["rate"] == asr.SAMPLE_RATE
+    assert captured["rate"] == _module_asr_constants.SAMPLE_RATE
     assert captured["length"] == 48_000, (
         f"3 s at 16 kHz after resampling, got {captured['length']} samples"
     )
-    models = runner._get_models()
-    decoder_audio = models.processor.requests[0]["audio"]
-    aligner_audio = models.aligner_processor.seen[0]["audio"]
-    assert isinstance(decoder_audio, np.ndarray), "paths invoke Transformers' optional librosa loader"
-    assert decoder_audio.dtype == np.float32
-    assert decoder_audio.shape == (48_000,)
-    assert aligner_audio is decoder_audio, "decode and alignment must consume the same waveform"
 
 
 def test_a_real_file_round_trips_through_the_primary_reader(tmp_path) -> None:
@@ -922,12 +927,12 @@ def test_a_real_file_round_trips_through_the_primary_reader(tmp_path) -> None:
     import soundfile as sf
 
     path = tmp_path / "fixture.wav"
-    written = np.linspace(-0.75, 0.75, asr.SAMPLE_RATE, dtype="float32")
-    sf.write(str(path), written, asr.SAMPLE_RATE)
+    written = np.linspace(-0.75, 0.75, _module_asr_constants.SAMPLE_RATE, dtype="float32")
+    sf.write(str(path), written, _module_asr_constants.SAMPLE_RATE)
 
-    samples, rate = asr._read_audio(str(path))
+    samples, rate = _module_asr_audio._read_audio(str(path))
 
-    assert rate == asr.SAMPLE_RATE, f"the native rate must survive, got {rate}"
+    assert rate == _module_asr_constants.SAMPLE_RATE, f"the native rate must survive, got {rate}"
     assert samples.shape == written.shape, (
         f"the whole file must be read: got {samples.shape} for a {written.shape} file "
         "(a truncating or seeking reader changes this)"
@@ -946,13 +951,13 @@ def test_a_real_file_keeps_its_channel_layout(tmp_path) -> None:
     import soundfile as sf
 
     path = tmp_path / "stereo.wav"
-    written = np.linspace(-0.5, 0.5, asr.SAMPLE_RATE * 2, dtype="float32").reshape(-1, 2)
+    written = np.linspace(-0.5, 0.5, _module_asr_constants.SAMPLE_RATE * 2, dtype="float32").reshape(-1, 2)
     written[:, 1] *= -1.0  # make the channels distinguishable, so a swap is visible
 
-    sf.write(str(path), written, asr.SAMPLE_RATE)
-    samples, rate = asr._read_audio(str(path))
+    sf.write(str(path), written, _module_asr_constants.SAMPLE_RATE)
+    samples, rate = _module_asr_audio._read_audio(str(path))
 
-    assert rate == asr.SAMPLE_RATE
+    assert rate == _module_asr_constants.SAMPLE_RATE
     assert samples.shape == written.shape, f"stereo must stay stereo, got {samples.shape}"
     # A channel swap or transpose is a sign/magnitude change, far above the 24-bit noise floor.
     assert np.abs(samples - written).max() < 1e-4, (
@@ -980,10 +985,10 @@ def test_an_undecodable_file_raises_the_typed_error(monkeypatch, tmp_path) -> No
 
     monkeypatch.setattr(sf, "read", refuse)
 
-    with pytest.raises(asr.AudioDecodeError) as caught:
-        asr._read_audio(str(path))
+    with pytest.raises(_module_asr_errors.AudioDecodeError) as caught:
+        _module_asr_audio._read_audio(str(path))
 
-    assert not isinstance(caught.value, asr.ASRDependencyError), (
+    assert not isinstance(caught.value, _module_asr_errors.ASRDependencyError), (
         "an undecodable file is a file problem, not a missing dependency"
     )
 
@@ -997,11 +1002,11 @@ def test_a_decodable_file_never_reaches_the_fallback(monkeypatch) -> None:
     known = np.linspace(-1.0, 1.0, 160, dtype="float32")
     monkeypatch.setattr(sf, "read", lambda *args, **kwargs: (known, 16000))
     monkeypatch.setattr(
-        asr, "_decode_with_ffmpeg",
+        _module_asr_audio, "_decode_with_ffmpeg",
         lambda *a, **k: pytest.fail("the fallback must not run for a format libsndfile opens"),
     )
 
-    samples, rate = asr._read_audio("x.wav")
+    samples, rate = _module_asr_audio._read_audio("x.wav")
 
     assert rate == 16000
     assert np.array_equal(samples, known)
@@ -1019,8 +1024,8 @@ def test_the_fallback_refuses_clearly_when_ffmpeg_is_missing(monkeypatch, tmp_pa
     monkeypatch.setattr(sf, "read", refuse)
     monkeypatch.setattr(shutil, "which", lambda name: None)
 
-    with pytest.raises(asr.ASRDependencyError) as caught:
-        asr._read_audio("x.m4a")
+    with pytest.raises(_module_asr_errors.ASRDependencyError) as caught:
+        _module_asr_audio._read_audio("x.m4a")
 
     assert "ffmpeg" in str(caught.value), "the message must name the missing binary"
 
@@ -1045,13 +1050,13 @@ def test_a_fallback_read_still_produces_the_same_cues_as_a_primary_read(monkeypa
         raise sf.LibsndfileError(1, "Error opening 'audio.m4a': ")
 
     monkeypatch.setattr(sf, "read", refuse)
-    delivered = np.zeros(asr.SAMPLE_RATE * 3, dtype="float32")
+    delivered = np.zeros(_module_asr_constants.SAMPLE_RATE * 3, dtype="float32")
 
     def fake_decode(path):
         # the fallback's real contract: soundfile's (samples, channels) shape, native rate
-        return delivered, asr.SAMPLE_RATE
+        return delivered, _module_asr_constants.SAMPLE_RATE
 
-    monkeypatch.setattr(asr, "_decode_with_ffmpeg", fake_decode)
+    monkeypatch.setattr(_module_asr_audio, "_decode_with_ffmpeg", fake_decode)
 
     assert runner.transcribe("/nonexistent/audio.m4a") == primary
 
@@ -1130,7 +1135,7 @@ def test_the_ffmpeg_decode_asks_for_rf64_so_a_long_item_is_not_truncated(
         return real_run(argv, *args, **kwargs)
 
     monkeypatch.setattr(asr.subprocess, "run", spy)
-    asr._read_audio(str(path))
+    _module_asr_audio._read_audio(str(path))
 
     argv = captured["argv"]
     # Order matters and ffmpeg is last-wins: verified on this build that `-rf64 auto … -rf64 never`

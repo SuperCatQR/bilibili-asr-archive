@@ -9,7 +9,7 @@ from pathlib import Path
 import stat
 from typing import Any, Iterator, Literal, Mapping
 
-from .coordinator import _validate_attempt
+from bili_asr.pipeline.attempts import _validate_attempt
 from .manifest import JOURNAL_NAME, VALID_STATUSES, validate_manifest_record
 from .page_identity import parse_work_id
 

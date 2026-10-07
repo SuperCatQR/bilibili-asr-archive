@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import bili_asr.cli.main as _module_cli_main
+
+
 from dataclasses import replace
 import hashlib
 import json
@@ -15,7 +18,7 @@ from bili_asr.manifest import ManifestStore
 from bili_asr.services.queue_source import QueueSource
 from bili_asr.services.transcript_adoption import AdoptionRefused, read_archived_transcript
 from bili_asr.storage import MetadataRepository, MediaQueueRepository, TranscriptRepository, open_database
-from fixtures.metadata_records import make_part_record, make_user_record, make_video_record
+from tests.fixtures.metadata_records import make_part_record, make_user_record, make_video_record
 
 
 def _seed(root, *, page=0, cid=3001):
@@ -65,17 +68,17 @@ def test_adopt_converges_store_queue_and_is_idempotent_without_asr(tmp_root, mon
     connection = _seed(tmp_root)
     row = _bundle(tmp_root)
     before = (Path(tmp_root) / row["raw_path"]).read_bytes()
-    monkeypatch.setattr("bili_asr.asr.ASRRunner", lambda *a, **kw: pytest.fail("adoption ran ASR"))
+    monkeypatch.setattr('bili_asr.asr.runner.ASRRunner', lambda *a, **kw: pytest.fail("adoption ran ASR"))
     try:
         assert QueueSource(connection).select_transcript_queue().entries
-        assert cli.main(["adopt-transcripts", "--archive-root", tmp_root]) == 0
+        assert _module_cli_main.main(["adopt-transcripts", "--archive-root", tmp_root]) == 0
         assert not QueueSource(connection).select_transcript_queue().entries
         record = TranscriptRepository(connection).read_transcript(_part(connection)["video_part_id"], "asr-local", "Chinese")
         assert record.segments[0].start_ms == 1
         assert record.segments[0].end_ms == 4567
         assert record.segments[0].text == "A saved transcript"
         assert tuple(connection.execute("SELECT model_name, revision FROM asr_models").fetchone()) == ("Qwen/Qwen3-ASR-0.6B", "rev123")
-        assert cli.main(["adopt-transcripts", "--archive-root", tmp_root]) == 0
+        assert _module_cli_main.main(["adopt-transcripts", "--archive-root", tmp_root]) == 0
         assert connection.execute("SELECT COUNT(*) FROM transcripts").fetchone()[0] == 1
         assert connection.execute("SELECT COUNT(*) FROM acquisition_runs").fetchone()[0] == 1
         assert connection.execute("SELECT outcome FROM acquisition_runs").fetchone()[0] == "complete"
@@ -93,16 +96,16 @@ def test_repeated_limited_adoption_advances_past_previously_stored_parts(tmp_roo
         _bundle(tmp_root, page=1, cid=3002)
         arguments = ["adopt-transcripts", "--archive-root", tmp_root, "--limit-parts", "1"]
 
-        assert cli.main(arguments) == 0
+        assert _module_cli_main.main(arguments) == 0
         assert connection.execute("SELECT COUNT(*) FROM transcripts").fetchone()[0] == 1
         assert "adopted=1 already_stored=0 refused=0" in capsys.readouterr().out
 
-        assert cli.main(arguments) == 0
+        assert _module_cli_main.main(arguments) == 0
         assert connection.execute("SELECT COUNT(*) FROM transcripts").fetchone()[0] == 2
         assert "adopted=1 already_stored=1 refused=0" in capsys.readouterr().out
         assert not QueueSource(connection).select_transcript_queue().entries
 
-        assert cli.main(arguments) == 0
+        assert _module_cli_main.main(arguments) == 0
         assert "adopted=0 already_stored=2 refused=0" in capsys.readouterr().out
         assert connection.execute("SELECT COUNT(*) FROM acquisition_runs").fetchone()[0] == 2
     finally:
@@ -160,7 +163,7 @@ def test_bundle_refusals_preserve_the_store_gap(tmp_root, defect, reason):
             _rehash(tmp_root, row)
         with pytest.raises(AdoptionRefused, match=reason):
             read_archived_transcript(row, _part(connection), tmp_root)
-        assert cli.main(["adopt-transcripts", "--archive-root", tmp_root]) == 1
+        assert _module_cli_main.main(["adopt-transcripts", "--archive-root", tmp_root]) == 1
         assert QueueSource(connection).select_transcript_queue().entries
         assert connection.execute("SELECT COUNT(*) FROM transcripts").fetchone()[0] == 0
     finally:
@@ -173,7 +176,7 @@ def test_adopt_reads_configured_artifact_base_and_legacy_archive_fallback(tmp_ro
         row = _bundle(tmp_root)
         # A configured base that lacks this complete bundle must not hide the
         # already-published one at the former base.
-        assert cli.main(["adopt-transcripts", "--archive-root", tmp_root, "--artifact-root", str(tmp_path)]) == 0
+        assert _module_cli_main.main(["adopt-transcripts", "--archive-root", tmp_root, "--artifact-root", str(tmp_path)]) == 0
         assert not QueueSource(connection).select_transcript_queue().entries
         assert (Path(tmp_root) / row["raw_path"]).exists()
     finally:
@@ -186,7 +189,7 @@ def test_adopt_caption_uses_track_kind_and_language(tmp_root):
         row = _bundle(tmp_root, source="subtitle")
         row["sub_lan"] = "ai-zh"
         ManifestStore(root=tmp_root).upsert(row)
-        assert cli.main(["adopt-transcripts", "--archive-root", tmp_root]) == 0
+        assert _module_cli_main.main(["adopt-transcripts", "--archive-root", tmp_root]) == 0
         record = TranscriptRepository(connection).read_transcript(_part(connection)["video_part_id"], "subtitle-ai", "ai-zh")
         assert record is not None
         assert connection.execute("SELECT kind FROM acquisition_runs").fetchone()[0] == "subtitle"
@@ -198,7 +201,7 @@ def test_adoption_preserves_valid_unicode_line_separator_in_metadata(tmp_root):
     connection = _seed(tmp_root)
     try:
         _bundle(tmp_root, title="One\u2028Two")
-        assert cli.main(["adopt-transcripts", "--archive-root", tmp_root]) == 0
+        assert _module_cli_main.main(["adopt-transcripts", "--archive-root", tmp_root]) == 0
         assert not QueueSource(connection).select_transcript_queue().entries
     finally:
         connection.close()
@@ -228,7 +231,7 @@ def test_adopt_prior_four_directory_bundle_without_republishing(tmp_root):
         (Path(tmp_root) / (old_paths["srt_path"] + ".bundle-ready")).write_text(json.dumps(marker), encoding="ascii")
         row.update(old_paths)
         ManifestStore(root=tmp_root).upsert(row)
-        assert cli.main(["adopt-transcripts", "--archive-root", tmp_root]) == 0
+        assert _module_cli_main.main(["adopt-transcripts", "--archive-root", tmp_root]) == 0
         assert not QueueSource(connection).select_transcript_queue().entries
     finally:
         connection.close()
@@ -250,7 +253,7 @@ def test_adopt_usage_errors_do_not_write_transcript_evidence(tmp_root, flag, val
     connection = _seed(tmp_root)
     try:
         _bundle(tmp_root)
-        assert cli.main(["adopt-transcripts", "--archive-root", tmp_root, flag, value]) == 1
+        assert _module_cli_main.main(["adopt-transcripts", "--archive-root", tmp_root, flag, value]) == 1
         assert connection.execute("SELECT COUNT(*) FROM acquisition_runs").fetchone()[0] == 0
     finally:
         connection.close()
@@ -262,10 +265,10 @@ def test_store_failure_can_retry_the_complete_archive_without_asr(tmp_root, monk
         _bundle(tmp_root)
         with monkeypatch.context() as patches:
             patches.setattr(TranscriptRepository, "record_local_transcript", lambda *a, **kw: (_ for _ in ()).throw(ValueError("injected store failure")))
-            assert cli.main(["adopt-transcripts", "--archive-root", tmp_root]) == 1
+            assert _module_cli_main.main(["adopt-transcripts", "--archive-root", tmp_root]) == 1
         assert connection.execute("SELECT outcome FROM acquisition_runs").fetchone()[0] == "failed"
         assert QueueSource(connection).select_transcript_queue().entries
-        assert cli.main(["adopt-transcripts", "--archive-root", tmp_root]) == 0
+        assert _module_cli_main.main(["adopt-transcripts", "--archive-root", tmp_root]) == 0
         assert not QueueSource(connection).select_transcript_queue().entries
     finally:
         connection.close()
@@ -279,7 +282,7 @@ def test_interrupted_adoption_closes_its_running_process_record(tmp_root, monkey
             raise KeyboardInterrupt
         monkeypatch.setattr(TranscriptRepository, "record_local_transcript", interrupt)
         with pytest.raises(KeyboardInterrupt):
-            cli.main(["adopt-transcripts", "--archive-root", tmp_root])
+            _module_cli_main.main(["adopt-transcripts", "--archive-root", tmp_root])
         assert connection.execute("SELECT outcome FROM acquisition_runs").fetchone()[0] == "failed"
         assert QueueSource(connection).select_transcript_queue().entries
     finally:
@@ -295,7 +298,7 @@ def test_adoption_preserves_run_coverage_evidence(tmp_root):
         raw["coverage"] = {"decoded_s": 8.0, "produced_s": 4.0, "coverage": 0.5, "coverage_min": 0.9, "coverage_short": True}
         raw_path.write_text(json.dumps(raw), encoding="utf-8")
         _rehash(tmp_root, row)
-        assert cli.main(["adopt-transcripts", "--archive-root", tmp_root]) == 0
+        assert _module_cli_main.main(["adopt-transcripts", "--archive-root", tmp_root]) == 0
         run_id = connection.execute("SELECT run_id FROM acquisition_runs").fetchone()[0]
         evidence = TranscriptRepository(connection).read_transcript_coverage(run_id, _part(connection)["video_part_id"])
         assert evidence["coverage"] == 0.5

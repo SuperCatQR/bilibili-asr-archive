@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+import bili_asr.asr.constants as _module_asr_constants
+import bili_asr.cli.main as _module_cli_main
+
+
 import collections
 import hashlib
 import json
@@ -433,9 +437,9 @@ def test_reason_vocabulary_splits_into_two_classes() -> None:
 def test_content_thresholds_track_the_cue_shaper() -> None:
     """A cue the shaper sized is reported only when it could not be merged."""
 
-    assert OVERLONG_CHARS == asr._CUE_MAX_CHARS
-    assert FRAGMENT_MAX_CHARS == asr._CUE_MIN_CHARS
-    assert FRAGMENT_MAX_SECONDS == asr._CUE_MIN_SECONDS
+    assert OVERLONG_CHARS == _module_asr_constants._CUE_MAX_CHARS
+    assert FRAGMENT_MAX_CHARS == _module_asr_constants._CUE_MIN_CHARS
+    assert FRAGMENT_MAX_SECONDS == _module_asr_constants._CUE_MIN_SECONDS
     # Identity as well as value: the reason and the archived low-confidence
     # count must read the same object, so a local re-declaration in quality.py
     # cannot silently disagree with archive.py.
@@ -668,7 +672,7 @@ def test_recorded_cue_fixture_still_exits_zero(
     write_archive(tmp_path, entry, segments, source="asr")
     ManifestStore(root=str(tmp_path)).upsert(dict(entry))
 
-    exit_code = cli.main(
+    exit_code = _module_cli_main.main(
         ["coverage", "--archive-root", str(tmp_path), "--quality", "--format", "json"]
     )
     assert exit_code == 0

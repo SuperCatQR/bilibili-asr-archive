@@ -15,6 +15,9 @@ already pinned in ``test_integrity_finding_classes.py``.
 """
 from __future__ import annotations
 
+import bili_asr.cli.main as _module_cli_main
+
+
 import json
 from pathlib import Path
 
@@ -115,7 +118,7 @@ def with_defect(tmp_path: Path) -> Path:
 def test_verify_backlog_only_exits_zero_and_prints_backlog_section(
     backlog_only: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    assert cli.main(["verify", "--archive-root", str(backlog_only),
+    assert _module_cli_main.main(["verify", "--archive-root", str(backlog_only),
                      "--format", "text"]) == 0
     out = capsys.readouterr().out
     assert "defects: 0" in out
@@ -130,7 +133,7 @@ def test_verify_strict_on_the_same_backlog_only_input_exits_one(
     backlog_only: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """§6.1: `--strict` restores the pre-cutover gate on the same archive."""
-    assert cli.main(["verify", "--archive-root", str(backlog_only),
+    assert _module_cli_main.main(["verify", "--archive-root", str(backlog_only),
                      "--format", "text", "--strict"]) == 1
     assert "backlog: 2" in capsys.readouterr().out
 
@@ -139,14 +142,14 @@ def test_verify_defect_class_exits_one_in_both_modes(
     with_defect: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """A defect does not become exit-0 just because backlog shares the run."""
-    assert cli.main(["verify", "--archive-root", str(with_defect),
+    assert _module_cli_main.main(["verify", "--archive-root", str(with_defect),
                      "--format", "text"]) == 1
     out = capsys.readouterr().out
     assert "defects: 1" in out
     assert "backlog: 1" in out
     assert "BV1c:p0: missing_transcript" in out
 
-    assert cli.main(["verify", "--archive-root", str(with_defect),
+    assert _module_cli_main.main(["verify", "--archive-root", str(with_defect),
                      "--format", "text", "--strict"]) == 1
     capsys.readouterr()
 
@@ -154,7 +157,7 @@ def test_verify_defect_class_exits_one_in_both_modes(
 def test_verify_backlog_only_json_payload_reports_both_counts(
     backlog_only: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    assert cli.main(["verify", "--archive-root", str(backlog_only),
+    assert _module_cli_main.main(["verify", "--archive-root", str(backlog_only),
                      "--format", "json"]) == 0
     payload = json.loads(capsys.readouterr().out)
     assert payload["defect_count"] == 0
@@ -166,9 +169,9 @@ def test_coverage_quality_backlog_only_exits_zero_and_strict_exits_one(
     backlog_only: Path,
 ) -> None:
     """§6.1 on the coverage reader: an in-flight row is not damage."""
-    assert cli.main(["coverage", "--archive-root", str(backlog_only),
+    assert _module_cli_main.main(["coverage", "--archive-root", str(backlog_only),
                      "--quality", "--format", "json"]) == 0
-    assert cli.main(["coverage", "--archive-root", str(backlog_only),
+    assert _module_cli_main.main(["coverage", "--archive-root", str(backlog_only),
                      "--quality", "--format", "json", "--strict"]) == 1
 
 
@@ -176,9 +179,9 @@ def test_coverage_quality_defect_class_exits_one_in_both_modes(
     with_defect: Path,
 ) -> None:
     """The archived row's missing transcript is damage in either mode."""
-    assert cli.main(["coverage", "--archive-root", str(with_defect),
+    assert _module_cli_main.main(["coverage", "--archive-root", str(with_defect),
                      "--quality", "--format", "json"]) == 1
-    assert cli.main(["coverage", "--archive-root", str(with_defect),
+    assert _module_cli_main.main(["coverage", "--archive-root", str(with_defect),
                      "--quality", "--format", "json", "--strict"]) == 1
 
 
@@ -210,7 +213,7 @@ def test_coverage_quality_backlog_row_with_broken_artifact_stays_a_defect(
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(text, encoding="utf-8")
 
-    assert cli.main(["coverage", "--archive-root", str(backlog_only),
+    assert _module_cli_main.main(["coverage", "--archive-root", str(backlog_only),
                      "--quality", "--format", "json"]) == 1
 
 
@@ -233,14 +236,14 @@ def test_unconfined_declared_path_is_a_defect_on_both_commands(tmp_path: Path) -
     row["srt_path"] = "../../evil/BVx.p0.srt"
     _fixture(tmp_path, [row])
 
-    assert cli.main(["verify", "--archive-root", str(tmp_path),
+    assert _module_cli_main.main(["verify", "--archive-root", str(tmp_path),
                      "--format", "json"]) == 1
-    assert cli.main(["coverage", "--archive-root", str(tmp_path),
+    assert _module_cli_main.main(["coverage", "--archive-root", str(tmp_path),
                      "--quality", "--format", "json"]) == 1
     # `--strict` was already 1 on both; it is the default gate that regressed.
-    assert cli.main(["verify", "--archive-root", str(tmp_path),
+    assert _module_cli_main.main(["verify", "--archive-root", str(tmp_path),
                      "--format", "json", "--strict"]) == 1
-    assert cli.main(["coverage", "--archive-root", str(tmp_path),
+    assert _module_cli_main.main(["coverage", "--archive-root", str(tmp_path),
                      "--quality", "--format", "json", "--strict"]) == 1
 
 
@@ -254,7 +257,7 @@ def test_unconfined_declared_path_reports_its_own_reason(
     row["srt_path"] = "../../evil/BVx.p0.srt"
     _fixture(tmp_path, [row])
 
-    assert cli.main(["coverage", "--archive-root", str(tmp_path),
+    assert _module_cli_main.main(["coverage", "--archive-root", str(tmp_path),
                      "--quality", "--format", "json"]) == 1
     payload = json.loads(capsys.readouterr().out)
 
@@ -278,7 +281,7 @@ def test_unconfined_reason_leaves_genuinely_absent_artifacts_as_backlog(
     """
     _fixture(tmp_path, [_row("BVabs:p0", "needs_audio")])
 
-    assert cli.main(["coverage", "--archive-root", str(tmp_path),
+    assert _module_cli_main.main(["coverage", "--archive-root", str(tmp_path),
                      "--quality", "--format", "json"]) == 0
     payload = json.loads(capsys.readouterr().out)
     assert payload["rows"][0]["reasons"] == ["artifact_missing"]
@@ -303,10 +306,10 @@ def test_non_int_cid_is_a_defect_on_both_commands(
     row["cid"] = "not-an-int"
     _fixture(tmp_path, [row])
 
-    assert cli.main(["verify", "--archive-root", str(tmp_path),
+    assert _module_cli_main.main(["verify", "--archive-root", str(tmp_path),
                      "--format", "json"]) == 1
     capsys.readouterr()
-    assert cli.main(["coverage", "--archive-root", str(tmp_path),
+    assert _module_cli_main.main(["coverage", "--archive-root", str(tmp_path),
                      "--quality", "--format", "json"]) == 1
     payload = json.loads(capsys.readouterr().out)
 
@@ -316,7 +319,7 @@ def test_non_int_cid_is_a_defect_on_both_commands(
     assert payload["summary"]["identity_invalid"] == 1
     assert payload["summary"]["valid_work_items"] == 0
 
-    assert cli.main(["coverage", "--archive-root", str(tmp_path),
+    assert _module_cli_main.main(["coverage", "--archive-root", str(tmp_path),
                      "--quality", "--format", "json", "--strict"]) == 1
 
 
@@ -336,10 +339,10 @@ def test_plain_coverage_on_pending_and_failed_attempt_exits_zero(
     _fixture(tmp_path, [_row("BVret:p0", "pending")],
              attempts=[_attempt("BVret:p0", "failed")])
 
-    assert cli.main(["verify", "--archive-root", str(tmp_path),
+    assert _module_cli_main.main(["verify", "--archive-root", str(tmp_path),
                      "--format", "json"]) == 0
     capsys.readouterr()
-    assert cli.main(["coverage", "--archive-root", str(tmp_path),
+    assert _module_cli_main.main(["coverage", "--archive-root", str(tmp_path),
                      "--format", "json"]) == 0
     payload = json.loads(capsys.readouterr().out)
     # The diagnostic is still reported — reclassified, not hidden.
@@ -347,7 +350,7 @@ def test_plain_coverage_on_pending_and_failed_attempt_exits_zero(
     assert payload["denominator"]["count"] == 1
 
     # `--strict` is the pre-cutover gate and still sees it.
-    assert cli.main(["coverage", "--archive-root", str(tmp_path),
+    assert _module_cli_main.main(["coverage", "--archive-root", str(tmp_path),
                      "--format", "json", "--strict"]) == 1
 
 
@@ -363,7 +366,7 @@ def test_plain_coverage_still_exits_one_on_real_diagnostics(tmp_path: Path) -> N
     row["status"] = "no_such_status"
     manifest.write_text(manifest.read_text() + json.dumps(row) + "\n", encoding="utf-8")
 
-    assert cli.main(["coverage", "--archive-root", str(tmp_path),
+    assert _module_cli_main.main(["coverage", "--archive-root", str(tmp_path),
                      "--format", "json"]) == 1
 
 
@@ -389,19 +392,19 @@ def test_gone_only_archive_exits_zero_on_all_three_commands(
     _fixture(tmp_path, [_row("BVgone:p0", "gone")], attempts=[_attempt("BVgone:p0")])
     _sidecars(tmp_path, ["BVgone:p0"])
 
-    assert cli.main(["verify", "--archive-root", str(tmp_path),
+    assert _module_cli_main.main(["verify", "--archive-root", str(tmp_path),
                      "--format", "json"]) == 0
-    assert cli.main(["verify", "--archive-root", str(tmp_path),
+    assert _module_cli_main.main(["verify", "--archive-root", str(tmp_path),
                      "--format", "json", "--strict"]) == 0
-    assert cli.main(["coverage", "--archive-root", str(tmp_path),
+    assert _module_cli_main.main(["coverage", "--archive-root", str(tmp_path),
                      "--format", "json"]) == 0
-    assert cli.main(["coverage", "--archive-root", str(tmp_path),
+    assert _module_cli_main.main(["coverage", "--archive-root", str(tmp_path),
                      "--format", "json", "--strict"]) == 0
     capsys.readouterr()
-    assert cli.main(["coverage", "--archive-root", str(tmp_path),
+    assert _module_cli_main.main(["coverage", "--archive-root", str(tmp_path),
                      "--quality", "--format", "json"]) == 0
     capsys.readouterr()
-    assert cli.main(["coverage", "--archive-root", str(tmp_path),
+    assert _module_cli_main.main(["coverage", "--archive-root", str(tmp_path),
                      "--quality", "--format", "json", "--strict"]) == 0
     payload = json.loads(capsys.readouterr().out)
     # The reason still reaches the operator — the ruling reclassifies the row,
@@ -430,14 +433,14 @@ def test_gone_row_with_a_real_defect_still_fails_both_commands(
     broken.parent.mkdir(parents=True, exist_ok=True)
     broken.write_text("NOT A CUE\n", encoding="utf-8")
 
-    assert cli.main(["verify", "--archive-root", str(tmp_path),
+    assert _module_cli_main.main(["verify", "--archive-root", str(tmp_path),
                      "--format", "json"]) == 1
     payload = json.loads(capsys.readouterr().out)
     assert [defect["code"] for defect in payload["defects"]] == ["malformed_artifact"]
 
-    assert cli.main(["coverage", "--archive-root", str(tmp_path),
+    assert _module_cli_main.main(["coverage", "--archive-root", str(tmp_path),
                      "--quality", "--format", "json"]) == 1
-    assert cli.main(["coverage", "--archive-root", str(tmp_path),
+    assert _module_cli_main.main(["coverage", "--archive-root", str(tmp_path),
                      "--quality", "--format", "json", "--strict"]) == 1
 
 
@@ -457,7 +460,7 @@ def test_gone_row_is_counted_complete_by_the_coverage_reader(tmp_path: Path) -> 
 
 def test_gone_is_not_a_backlog_status_and_not_a_defect() -> None:
     """Pinned against the §2b R2 reading: `gone` is in neither enumerated set."""
-    from bili_asr.cli import _BACKLOG_STATUSES
+    from bili_asr.cli.status_cmd import _BACKLOG_STATUSES
 
     assert "gone" in VALID_STATUSES
     assert "gone" not in _BACKLOG_STATUSES
@@ -468,7 +471,7 @@ def test_verify_is_unaffected_by_the_gone_ruling(tmp_path: Path) -> None:
     _fixture(tmp_path, [_row("BVgone3:p0", "gone")], attempts=[_attempt("BVgone3:p0")])
     _sidecars(tmp_path, ["BVgone3:p0"])
 
-    assert cli.main(["verify", "--archive-root", str(tmp_path),
+    assert _module_cli_main.main(["verify", "--archive-root", str(tmp_path),
                      "--format", "json", "--strict"]) == 0
 
 
@@ -483,7 +486,7 @@ def test_backlog_status_set_matches_the_integrity_reader(tmp_path: Path) -> None
     verifier is asked which statuses it calls retryable, and the CLI backlog
     classification must match that answer exactly.
     """
-    from bili_asr.cli import _BACKLOG_STATUSES
+    from bili_asr.cli.status_cmd import _BACKLOG_STATUSES
     from bili_asr.integrity import RETRYABLE_INCOMPLETE, IntegrityVerifier
 
     statuses = sorted(VALID_STATUSES)
@@ -531,11 +534,11 @@ def test_backlog_reason_set_matches_the_coverage_reader(
     proven by a fixture that exits 0 carrying that reason, a non-member by one
     that exits 1; the literal set contents are never compared.
     """
-    from bili_asr.cli import _BACKLOG_REASONS
+    from bili_asr.cli.status_cmd import _BACKLOG_REASONS
 
     # Member: the artifact is not there yet — §2's backlog definition.
     _fixture(tmp_path, [_row("BVwhy1:p0", "needs_audio")])
-    assert cli.main(["coverage", "--archive-root", str(tmp_path),
+    assert _module_cli_main.main(["coverage", "--archive-root", str(tmp_path),
                      "--quality", "--format", "json"]) == 0
     member = json.loads(capsys.readouterr().out)["rows"][0]["reasons"]
     assert member == ["artifact_missing"]
@@ -546,7 +549,7 @@ def test_backlog_reason_set_matches_the_coverage_reader(
     broken = tmp_path / "transcripts" / "BVwhy1.p0" / "bundle.txt"
     broken.parent.mkdir(parents=True, exist_ok=True)
     broken.write_text("", encoding="utf-8")
-    assert cli.main(["coverage", "--archive-root", str(tmp_path),
+    assert _module_cli_main.main(["coverage", "--archive-root", str(tmp_path),
                      "--quality", "--format", "json"]) == 1
     non_member = json.loads(capsys.readouterr().out)["rows"][0]["reasons"]
     assert non_member == ["empty"]
@@ -563,11 +566,11 @@ def test_backlog_diagnostic_set_matches_the_coverage_reader(
     keeps the command failing closed.  Pinned by behaviour for the same reason as
     the reason set above — a silent drift here moves the plain gate.
     """
-    from bili_asr.cli import _BACKLOG_DIAGNOSTICS
+    from bili_asr.cli.status_cmd import _BACKLOG_DIAGNOSTICS
 
     _fixture(tmp_path, [_row("BVwhy2:p0", "pending")],
              attempts=[_attempt("BVwhy2:p0", "failed")])
-    assert cli.main(["coverage", "--archive-root", str(tmp_path),
+    assert _module_cli_main.main(["coverage", "--archive-root", str(tmp_path),
                      "--format", "json"]) == 0
     member = {item["code"] for item in json.loads(capsys.readouterr().out)["diagnostics"]}
     assert member == {"retryable_attempt"}
@@ -577,7 +580,7 @@ def test_backlog_diagnostic_set_matches_the_coverage_reader(
     # even alongside the backlog member above.
     manifest = tmp_path / "manifest" / "manifest.jsonl"
     manifest.write_text(manifest.read_text() + "not-json\n", encoding="utf-8")
-    assert cli.main(["coverage", "--archive-root", str(tmp_path),
+    assert _module_cli_main.main(["coverage", "--archive-root", str(tmp_path),
                      "--format", "json"]) == 1
     non_member = {item["code"] for item in json.loads(capsys.readouterr().out)["diagnostics"]}
     assert non_member == {"manifest_malformed", "retryable_attempt"}

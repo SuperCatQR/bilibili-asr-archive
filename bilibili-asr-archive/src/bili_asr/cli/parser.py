@@ -12,6 +12,18 @@ from bili_asr.cli._shared import (
 )
 from bili_asr.config import DEFAULT_MID, DEFAULT_PAGE_LIMIT
 
+
+def _add_asr_policy(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--asr-with-subtitles",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help=(
+            "Run local ASR even when AI/CC subtitles exist (default: enabled); "
+            "use --no-asr-with-subtitles for subtitle-only archival"
+        ),
+    )
+
 def build_parser() -> argparse.ArgumentParser:
     parser = _UsageErrorArgumentParser(
         prog="bili-asr",
@@ -97,6 +109,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     asr_cmd = subparsers.add_parser("asr", help="Transcribe audio and write transcript archive")
+    _add_asr_policy(asr_cmd)
     asr_cmd.add_argument("--pending", action="store_true", help="Process audio_ok entries")
     asr_cmd.add_argument("--bvid", default=None)
     asr_cmd.add_argument("--archive-root", default=DEFAULT_ARCHIVE_ROOT)
@@ -130,6 +143,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--max-audio-gb", type=float, default=10.0,
         help=_MAX_AUDIO_GB_HELP,
     )
+    _add_asr_policy(pilot)
     pilot.add_argument(
         "--max-duration-min", type=int, default=45,
         help="Exclude rows longer than this many minutes from selection (0 = unlimited)",
@@ -385,6 +399,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="pending | failed | one or more work_id/bvid selectors "
              "(comma- or space-separated)",
     )
+    _add_asr_policy(run_cmd)
     run_cmd.add_argument(
         "--offline",
         action="store_true",
@@ -424,6 +439,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="pending | failed | one or more work_id/bvid selectors "
              "(comma- or space-separated)",
     )
+    _add_asr_policy(schedule_cmd)
     schedule_cmd.add_argument(
         "--limit",
         type=int,
@@ -474,6 +490,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="pending | failed | one or more work_id/bvid selectors "
         "(comma- or space-separated)",
     )
+    _add_asr_policy(campaign_cmd)
     campaign_cmd.add_argument(
         "--limit",
         type=int,

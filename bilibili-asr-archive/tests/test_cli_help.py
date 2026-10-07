@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
+import bili_asr.cli.main as _module_cli_main
+
+
 import json
 import subprocess
 from pathlib import Path
 
 import pytest
 
-from installed_cli import (
+from tests.support.installed_cli import (
     SENTINEL_COOKIE,
     _redact_diagnostics,
     _summarize,
@@ -18,13 +21,13 @@ from installed_cli import (
 
 
 def test_recover_requires_explicit_target(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    from bili_asr.cli import main
+    from bili_asr.cli.main import main
     assert main(["recover", "--archive-root", str(tmp_path)]) == 1
     assert json.loads(capsys.readouterr().out)["code"] == "recovery_requires_explicit_target"
 
 
 def test_recover_help_describes_limit_contract(capsys: pytest.CaptureFixture[str]) -> None:
-    from bili_asr.cli import build_parser
+    from bili_asr.cli.parser import build_parser
 
     parser = build_parser()
     with pytest.raises(SystemExit) as exc:
@@ -59,7 +62,7 @@ def test_module_runs_fails_without_database(tmp_path: Path) -> None:
 
 
 def test_cli_main_help_direct(capsys: pytest.CaptureFixture[str]) -> None:
-    from bili_asr.cli import main
+    from bili_asr.cli.main import main
 
     with pytest.raises(SystemExit) as exc:
         main(["--help"])
@@ -71,7 +74,7 @@ def test_cli_main_help_direct(capsys: pytest.CaptureFixture[str]) -> None:
     assert "status" in out
 
 def test_evaluate_concurrency_help_is_evidence_only(capsys: pytest.CaptureFixture[str]) -> None:
-    from bili_asr.cli import build_parser
+    from bili_asr.cli.parser import build_parser
 
     parser = build_parser()
     top_level_help = parser.format_help().lower()
@@ -100,11 +103,11 @@ def test_evaluate_concurrency_help_is_evidence_only(capsys: pytest.CaptureFixtur
 
 
 def test_cli_main_importable() -> None:
-    from bili_asr.cli import main as _  # noqa: F401
+    from bili_asr.cli.main import main as _  # noqa: F401
 
 
 def test_coverage_parser_options_and_status_preserved(capsys: pytest.CaptureFixture[str]) -> None:
-    from bili_asr.cli import build_parser
+    from bili_asr.cli.parser import build_parser
 
     parser = build_parser()
     coverage = parser.parse_args([
@@ -130,7 +133,7 @@ def test_coverage_parser_options_and_status_preserved(capsys: pytest.CaptureFixt
 
 
 def test_search_parser_options_and_help(capsys: pytest.CaptureFixture[str]) -> None:
-    from bili_asr.cli import build_parser
+    from bili_asr.cli.parser import build_parser
 
     parser = build_parser()
     search_args = parser.parse_args([
@@ -184,7 +187,7 @@ def test_search_parser_options_and_help(capsys: pytest.CaptureFixture[str]) -> N
 
 
 def test_search_index_parser_options_and_help(capsys: pytest.CaptureFixture[str]) -> None:
-    from bili_asr.cli import build_parser
+    from bili_asr.cli.parser import build_parser
 
     parser = build_parser()
     args = parser.parse_args(["search-index", "--archive-root", "/tmp/fixture"])
@@ -316,7 +319,7 @@ def test_cli_main_coverage_quality_valid_and_reclaimed_audio(tmp_path: Path, cap
     srt_path.write_text("1\n00:00:00,000 --> 00:00:02,000\nHello\n", encoding="utf-8")
 
     # Clean valid item exits 0
-    exit_code = cli.main(["coverage", "--archive-root", str(tmp_path), "--quality", "--format", "json"])
+    exit_code = _module_cli_main.main(["coverage", "--archive-root", str(tmp_path), "--quality", "--format", "json"])
     assert exit_code == 0
     payload = json.loads(capsys.readouterr().out)
     assert payload["schema_version"] == "coverage-quality-v1"
@@ -328,7 +331,7 @@ def test_cli_main_coverage_quality_valid_and_reclaimed_audio(tmp_path: Path, cap
     assert payload["rows"][0]["reasons"] == []
 
     # CSV format output
-    exit_code = cli.main(["coverage", "--archive-root", str(tmp_path), "--quality", "--format", "csv"])
+    exit_code = _module_cli_main.main(["coverage", "--archive-root", str(tmp_path), "--quality", "--format", "csv"])
     assert exit_code == 0
     csv_out = capsys.readouterr().out
     assert "coverage-quality-v1" in csv_out
@@ -358,7 +361,7 @@ def test_cli_main_coverage_quality_anomalies_and_read_only(tmp_path: Path, capsy
 
     stat_before = (srt_path.read_bytes(), srt_path.stat().st_mtime_ns)
 
-    exit_code = cli.main(["coverage", "--archive-root", str(tmp_path), "--quality", "--format", "json"])
+    exit_code = _module_cli_main.main(["coverage", "--archive-root", str(tmp_path), "--quality", "--format", "json"])
     assert exit_code == 1
     payload = json.loads(capsys.readouterr().out)
     assert payload["rows"][0]["reasons"] == ["non_monotonic", "overlap"]
@@ -382,19 +385,19 @@ def test_cli_main_coverage_quality_scope_and_redaction(tmp_path: Path, capsys: p
     # Inverted by the exit-code contract (§2): an in-flight status whose
     # artifact is not there yet is backlog, and backlog never moves the exit
     # code.  The pre-cutover gate is preserved under `--strict` below.
-    exit_code = cli.main(["coverage", "--archive-root", str(tmp_path), "--quality", "--scope", "pending", "--format", "json"])
+    exit_code = _module_cli_main.main(["coverage", "--archive-root", str(tmp_path), "--quality", "--scope", "pending", "--format", "json"])
     assert exit_code == 0  # missing artifact on meta_ok is backlog, not damage
     payload = json.loads(capsys.readouterr().out)
     assert payload["denominator"]["count"] == 1
     assert payload["rows"][0]["work_id"] == "BV1two:p0"
 
     # Negative control: the same input under `--strict` still exits 1.
-    exit_code = cli.main(["coverage", "--archive-root", str(tmp_path), "--quality", "--scope", "pending", "--format", "json", "--strict"])
+    exit_code = _module_cli_main.main(["coverage", "--archive-root", str(tmp_path), "--quality", "--scope", "pending", "--format", "json", "--strict"])
     assert exit_code == 1
     capsys.readouterr()
 
     # Unknown scope
-    exit_code = cli.main(["coverage", "--archive-root", str(tmp_path), "--quality", "--scope", "BV1unknown", "--format", "json"])
+    exit_code = _module_cli_main.main(["coverage", "--archive-root", str(tmp_path), "--quality", "--scope", "BV1unknown", "--format", "json"])
     assert exit_code == 1
     payload = json.loads(capsys.readouterr().out)
     assert payload["denominator"]["state"] == "unavailable"
@@ -436,7 +439,7 @@ def test_cli_main_coverage_quality_projects_content_reasons(tmp_path: Path, caps
 
     _reference_archive(tmp_path)
 
-    exit_code = cli.main(["coverage", "--archive-root", str(tmp_path), "--quality", "--format", "json"])
+    exit_code = _module_cli_main.main(["coverage", "--archive-root", str(tmp_path), "--quality", "--format", "json"])
     payload = json.loads(capsys.readouterr().out)
 
     # No defect reason anywhere: the exit status and the validity count still
@@ -463,7 +466,7 @@ def test_cli_main_coverage_quality_reference_agreement_above_floor(tmp_path: Pat
     reference = tmp_path / "second.srt"
     reference.write_text(f"1\n00:00:00,000 --> 00:00:04,000\n{text}\n", encoding="utf-8")
 
-    exit_code = cli.main([
+    exit_code = _module_cli_main.main([
         "coverage", "--archive-root", str(tmp_path), "--quality",
         "--reference", str(reference), "--format", "json",
     ])
@@ -490,7 +493,7 @@ def test_cli_main_coverage_quality_reference_disagreement_below_floor(tmp_path: 
         "1\n00:00:00,000 --> 00:00:04,000\n完全不同的另一份转写内容在此\n", encoding="utf-8"
     )
 
-    exit_code = cli.main([
+    exit_code = _module_cli_main.main([
         "coverage", "--archive-root", str(tmp_path), "--quality",
         "--reference", str(reference), "--format", "json",
     ])
@@ -519,7 +522,7 @@ def test_cli_main_coverage_quality_reference_requires_exactly_one_row(tmp_path: 
         "work_id": "BV1ref2:p0", "bvid": "BV1ref2", "cid": 901,
         "title": "Second", "status": "archived", "source": "asr",
     })
-    assert cli.main([
+    assert _module_cli_main.main([
         "coverage", "--archive-root", str(tmp_path), "--quality",
         "--reference", str(reference), "--format", "json",
     ]) == 1
@@ -529,7 +532,7 @@ def test_cli_main_coverage_quality_reference_requires_exactly_one_row(tmp_path: 
     assert "Traceback" not in captured.err
 
     # Zero rows via an unknown scope.
-    assert cli.main([
+    assert _module_cli_main.main([
         "coverage", "--archive-root", str(tmp_path), "--quality", "--scope", "BV1nope",
         "--reference", str(reference), "--format", "json",
     ]) == 1
@@ -546,7 +549,7 @@ def test_cli_main_coverage_quality_reference_unreadable_is_a_diagnostic(tmp_path
     _reference_archive(tmp_path)
 
     # Absent path: caught before any row is analyzed.
-    assert cli.main([
+    assert _module_cli_main.main([
         "coverage", "--archive-root", str(tmp_path), "--quality",
         "--reference", str(tmp_path / "absent.srt"), "--format", "json",
     ]) == 1
@@ -558,7 +561,7 @@ def test_cli_main_coverage_quality_reference_unreadable_is_a_diagnostic(tmp_path
     # Present but with nothing to compare: refused, and named as such.
     blank = tmp_path / "blank.txt"
     blank.write_text("  \n\n", encoding="utf-8")
-    assert cli.main([
+    assert _module_cli_main.main([
         "coverage", "--archive-root", str(tmp_path), "--quality",
         "--reference", str(blank), "--format", "json",
     ]) == 1
@@ -580,7 +583,7 @@ def test_cli_main_coverage_quality_reference_never_serializes_the_path(tmp_path:
     reference = nested / "second.srt"
     reference.write_text("1\n00:00:00,000 --> 00:00:04,000\nHello world\n", encoding="utf-8")
 
-    assert cli.main([
+    assert _module_cli_main.main([
         "coverage", "--archive-root", str(tmp_path), "--quality",
         "--reference", str(reference), "--format", "json",
     ]) == 0
@@ -601,7 +604,7 @@ def test_cli_main_coverage_quality_reference_redacts_a_credential_like_name(tmp_
     reference = tmp_path / "sessdata-backup.srt"
     reference.write_text("1\n00:00:00,000 --> 00:00:04,000\nHello world\n", encoding="utf-8")
 
-    assert cli.main([
+    assert _module_cli_main.main([
         "coverage", "--archive-root", str(tmp_path), "--quality",
         "--reference", str(reference), "--format", "json",
     ]) == 0
@@ -620,7 +623,7 @@ def test_cli_main_coverage_quality_reference_needs_quality_flag(tmp_path: Path, 
     reference = tmp_path / "second.srt"
     reference.write_text("1\n00:00:00,000 --> 00:00:04,000\nHello world\n", encoding="utf-8")
 
-    assert cli.main([
+    assert _module_cli_main.main([
         "coverage", "--archive-root", str(tmp_path),
         "--reference", str(reference), "--format", "json",
     ]) == 1
@@ -638,7 +641,7 @@ def test_cli_main_coverage_quality_reference_keeps_csv_columns_frozen(tmp_path: 
     reference = tmp_path / "second.srt"
     reference.write_text("1\n00:00:00,000 --> 00:00:04,000\nHello world\n", encoding="utf-8")
 
-    assert cli.main([
+    assert _module_cli_main.main([
         "coverage", "--archive-root", str(tmp_path), "--quality",
         "--reference", str(reference), "--format", "csv",
     ]) == 0
@@ -702,7 +705,7 @@ def test_cli_main_coverage_quality_reference_ignores_the_md_bundle(tmp_path: Pat
     reference = tmp_path / "second.srt"
     reference.write_text(f"1\n00:00:00,000 --> 00:00:04,000\n{text}\n", encoding="utf-8")
 
-    exit_code = cli.main([
+    exit_code = _module_cli_main.main([
         "coverage", "--archive-root", str(tmp_path), "--quality",
         "--reference", str(reference), "--format", "json",
     ])
@@ -727,7 +730,7 @@ def test_cli_main_coverage_quality_reference_json_without_segments_is_a_diagnost
     reference = tmp_path / "broken.json"
     reference.write_text('{"segments": [', encoding="utf-8")
 
-    assert cli.main([
+    assert _module_cli_main.main([
         "coverage", "--archive-root", str(tmp_path), "--quality",
         "--reference", str(reference), "--format", "json",
     ]) == 1
@@ -775,7 +778,7 @@ def test_cli_main_coverage_quality_mixed_row_keeps_defect_reasons_first(tmp_path
         encoding="utf-8",
     )
 
-    exit_code = cli.main(["coverage", "--archive-root", str(tmp_path), "--quality", "--format", "json"])
+    exit_code = _module_cli_main.main(["coverage", "--archive-root", str(tmp_path), "--quality", "--format", "json"])
     payload = json.loads(capsys.readouterr().out)
     reasons = payload["rows"][0]["reasons"]
 
@@ -819,7 +822,7 @@ def test_cli_main_coverage_quality_reference_without_row_text_reports_no_block(t
     reference = tmp_path / "second.txt"
     reference.write_text("hello world\n", encoding="utf-8")
 
-    exit_code = cli.main([
+    exit_code = _module_cli_main.main([
         "coverage", "--archive-root", str(tmp_path), "--quality",
         "--scope", "BV1notext:p0", "--reference", str(reference), "--format", "json",
     ])
@@ -838,7 +841,7 @@ def test_cli_main_coverage_quality_reference_without_row_text_reports_no_block(t
 def test_cli_coverage_reference_help_states_the_plain_text_asymmetry(capsys: pytest.CaptureFixture[str]) -> None:
     """A malformed `.json` reference is refused; `.srt`/`.txt` read as plain text."""
 
-    from bili_asr.cli import build_parser
+    from bili_asr.cli.parser import build_parser
 
     parser = build_parser()
     with pytest.raises(SystemExit) as exc:
@@ -852,7 +855,7 @@ def test_cli_coverage_reference_help_states_the_plain_text_asymmetry(capsys: pyt
 def test_cli_parser_exposes_reference_but_not_fail_under() -> None:
     """D3.8: the reference input exists; the retired exit knob is not ported."""
 
-    from bili_asr.cli import build_parser
+    from bili_asr.cli.parser import build_parser
 
     parser = build_parser()
     args = parser.parse_args(["coverage", "--reference", "/tmp/second.srt"])
@@ -935,7 +938,7 @@ def test_cli_main_coverage_quality_keeps_json_frozen_but_locates_the_doubt(
 
     _low_confidence_archive(tmp_path)
 
-    assert cli.main(
+    assert _module_cli_main.main(
         ["coverage", "--archive-root", str(tmp_path), "--quality", "--format", "json"]
     ) == 0
     captured = capsys.readouterr()
@@ -969,7 +972,7 @@ def test_cli_main_coverage_quality_csv_states_where_the_doubt_is(
 
     _low_confidence_archive(tmp_path)
 
-    assert cli.main(
+    assert _module_cli_main.main(
         ["coverage", "--archive-root", str(tmp_path), "--quality", "--format", "csv"]
     ) == 0
     captured = capsys.readouterr()
@@ -1013,7 +1016,7 @@ def test_cli_main_coverage_quality_says_nothing_when_no_score_is_recorded(
         "1\n00:00:00,000 --> 00:00:04,000\n这句没有分数记录\n", encoding="utf-8"
     )
 
-    assert cli.main(
+    assert _module_cli_main.main(
         ["coverage", "--archive-root", str(tmp_path), "--quality", "--format", "csv"]
     ) == 0
     captured = capsys.readouterr()
@@ -1046,7 +1049,7 @@ def test_check_asr_env_runs_the_checkout_script(
     )
     monkeypatch.setenv("BILI_ASR_CHECK_SCRIPT", str(script))
 
-    exit_code = cli.main(["check-asr-env"])
+    exit_code = _module_cli_main.main(["check-asr-env"])
     captured = capsys.readouterr()
 
     assert exit_code == 7, "the script's exit status passes through unchanged"
@@ -1063,7 +1066,7 @@ def test_check_asr_env_reports_a_missing_script_instead_of_passing(
     monkeypatch.setenv("BILI_ASR_CHECK_SCRIPT", str(tmp_path / "absent.py"))
     monkeypatch.chdir(tmp_path)
 
-    exit_code = cli.main(["check-asr-env"])
+    exit_code = _module_cli_main.main(["check-asr-env"])
     captured = capsys.readouterr()
 
     # It falls back to the checkout script, which exists here, so a real run is
@@ -1086,7 +1089,7 @@ def test_check_asr_env_states_absence_when_no_script_exists_anywhere(
     # repository-relative scripts/ does not exist.
     monkeypatch.setattr(cli, "__file__", str(tmp_path / "src" / "bili_asr" / "cli.py"))
 
-    exit_code = cli.main(["check-asr-env"])
+    exit_code = _module_cli_main.main(["check-asr-env"])
     captured = capsys.readouterr()
 
     assert exit_code == 1
@@ -1122,7 +1125,7 @@ def _command_help(command: str, capsys: pytest.CaptureFixture[str]) -> str:
     environment is one space in another; the assertions below are about what the help
     *says*, not about where it happens to wrap.
     """
-    from bili_asr.cli import build_parser
+    from bili_asr.cli.parser import build_parser
 
     with pytest.raises(SystemExit) as exc:
         build_parser().parse_args([command, "--help"])

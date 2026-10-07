@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 from bili_asr.archive import write_archive
-from bili_asr.cli import main
+from bili_asr.cli.main import main
 from bili_asr.integrity import IntegrityVerifier, RECOVERY_NOT_AUTHORITATIVE
 from bili_asr.manifest import JOURNAL_NAME, ManifestStore
 

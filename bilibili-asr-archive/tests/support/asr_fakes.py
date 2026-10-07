@@ -20,6 +20,10 @@ processor was asked to transcribe (``fakes.processor.audio``) or on the text it 
 
 from __future__ import annotations
 
+import bili_asr.asr.audio as _module_asr_audio
+import bili_asr.asr.runner as _module_asr_runner
+
+
 #: A short two-sentence utterance: long enough that both cue rules (mark closure, fragment
 #: absorption) produce a stable shape, short enough to read in a failure message.
 DEFAULT_TEXT = "今天讲两件事。明天我们接着讲第三件事。"
@@ -168,7 +172,7 @@ def _patch_audio(monkeypatch, seconds: float, reads: list[str] | None,
         if reads is not None:
             reads.append(resolve(path))
         if fail_when is not None and fail_when(resolve(path)):
-            from bili_asr.asr import ASRModelError
+            from bili_asr.asr.errors import ASRModelError
 
             raise ASRModelError("model failed")
         return samples, 16000
@@ -204,8 +208,8 @@ def install(monkeypatch, *, text: str = DEFAULT_TEXT, seconds: float = 3.0,
         return model_set
 
     monkeypatch.setenv("BILI_ASR_DEVICE", "cpu")
-    monkeypatch.setattr(asr, "_materialize_input", lambda path: (path, None))
-    monkeypatch.setattr(asr, "_load_qwen_models", factory)
+    monkeypatch.setattr(_module_asr_audio, "_materialize_input", lambda path: (path, None))
+    monkeypatch.setattr(_module_asr_runner, "_load_qwen_models", factory)
     return model_set
 
 
@@ -227,5 +231,5 @@ def forbidden(monkeypatch) -> None:
         raise AssertionError("ASR must not run for this row")
 
     monkeypatch.setenv("BILI_ASR_DEVICE", "cpu")
-    monkeypatch.setattr(asr, "_materialize_input", lambda path: (path, None))
-    monkeypatch.setattr(asr, "_load_qwen_models", factory)
+    monkeypatch.setattr(_module_asr_audio, "_materialize_input", lambda path: (path, None))
+    monkeypatch.setattr(_module_asr_runner, "_load_qwen_models", factory)

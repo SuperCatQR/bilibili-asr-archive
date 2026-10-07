@@ -1,32 +1,4 @@
-"""Bounded subtitle acquisition between the typed gateway and transcript storage.
-
-:class:`SubtitleIngestor` owns everything between "which parts?" and "what was
-written?": the candidate enumeration order, the track-selection preference, the
-per-part transaction boundary, the run-record lifecycle, and the outcome
-mapping.  It depends on the :class:`~bili_asr.sources.models.BilibiliGateway`
-protocol and the :class:`~bili_asr.storage.database.TranscriptRepository` only —
-never on the concrete adapter or on an upstream response dictionary.
-
-The surface is synchronous, like :class:`~bili_asr.services.metadata_ingest.MetadataIngestor`'s,
-and runs the gateway's async calls on one event loop per operation.
-
-``probe`` writes nothing at all: no run, no attempt, no transcript, no file.
-``harvest`` opens exactly one ``acquisition_runs`` row, records exactly one
-attempt row per attempted part through one repository call (one transaction per
-part), and finishes the run with the outcome derived from those attempts.
-
-Outcome mapping (one outcome per attempted part):
-
-- the listing was empty, or upstream answered ``not_found`` for the listing
-  → ``no-subtitle`` (the part is not a failure; it stays eligible for a
-  later run, and the attempt row carries ``not_found`` when upstream said so);
-- the body was fetched and stored → ``stored``, or ``unchanged`` when a stored
-  version of the same identity already carries that content;
-- a fetched body the storage boundary refuses as unrepresentable (a timeline
-  position above its caption range) → ``failed`` with the bounded
-  ``shape_error`` code, one part's outcome rather than the run's;
-- any other bounded gateway failure → ``failed`` with that scalar error code.
-"""
+'Bounded subtitle acquisition between the typed gateway and transcript storage.\n\n:class:`SubtitleIngestor` owns everything between "which parts?" and "what was\nwritten?": the candidate enumeration order, the track-selection preference, the\nper-part transaction boundary, the run-record lifecycle, and the outcome\nmapping.  It depends on the :class:`~bili_asr.sources.models.BilibiliGateway`\nprotocol and the :class:`~bili_asr.storage.transcripts.TranscriptRepository` only —\nnever on the concrete adapter or on an upstream response dictionary.\n\nThe surface is synchronous, like :class:`~bili_asr.services.metadata_ingest.MetadataIngestor`\'s,\nand runs the gateway\'s async calls on one event loop per operation.\n\n``probe`` writes nothing at all: no run, no attempt, no transcript, no file.\n``harvest`` opens exactly one ``acquisition_runs`` row, records exactly one\nattempt row per attempted part through one repository call (one transaction per\npart), and finishes the run with the outcome derived from those attempts.\n\nOutcome mapping (one outcome per attempted part):\n\n- the listing was empty, or upstream answered ``not_found`` for the listing\n  → ``no-subtitle`` (the part is not a failure; it stays eligible for a\n  later run, and the attempt row carries ``not_found`` when upstream said so);\n- the body was fetched and stored → ``stored``, or ``unchanged`` when a stored\n  version of the same identity already carries that content;\n- a fetched body the storage boundary refuses as unrepresentable (a timeline\n  position above its caption range) → ``failed`` with the bounded\n  ``shape_error`` code, one part\'s outcome rather than the run\'s;\n- any other bounded gateway failure → ``failed`` with that scalar error code.\n'
 
 from __future__ import annotations
 
@@ -49,7 +21,7 @@ from bili_asr.sources.models import (
     SubtitleSegment,
     SubtitleTrack,
 )
-from bili_asr.storage.database import TranscriptRepository
+from bili_asr.storage.transcripts import TranscriptRepository
 from bili_asr.storage.models import (
     ALLOWED_ACQUISITION_KINDS,
     ALLOWED_CAPTION_SOURCE_KINDS,

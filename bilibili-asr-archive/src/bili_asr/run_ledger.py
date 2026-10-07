@@ -79,7 +79,7 @@ _MAX_ERROR_CODE_LEN = 64
 
 
 def _redacted_hotword(term: str) -> str:
-    from .asr import _redact
+    from bili_asr.asr.provenance import _redact
 
     if any(marker.lower() in term.lower() for marker in _FORBIDDEN_MARKERS):
         return "[redacted]"

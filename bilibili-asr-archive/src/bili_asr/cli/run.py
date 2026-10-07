@@ -93,7 +93,8 @@ def _run_scope_rows(store, entries: dict, scope: str):
         return None, "empty --scope"
     return rows, None
 
-def _store_first_scope_rows(store, entries: dict, scope: str):
+def _store_first_scope_rows(store, entries: dict, scope: str, *,
+                            asr_with_subtitles: bool = True):
     """Campaign scope resolution: the store is the queue for ``pending``.
 
     The batch chain cut to the store outright (contract §7) — no rollback
@@ -103,7 +104,9 @@ def _store_first_scope_rows(store, entries: dict, scope: str):
     """
 
     if scope == "pending":
-        return _store_pending_rows(store.root, "campaign")
+        return _store_pending_rows(
+            store.root, "campaign", asr_with_subtitles=asr_with_subtitles
+        )
     return _run_scope_rows(store, entries, scope)
 
 
@@ -125,12 +128,16 @@ def _cmd_campaign(args: argparse.Namespace) -> int:
             offline=args.offline,
             max_audio_bytes=audio_cap_bytes(args.max_audio_gb),
             sleep=time.sleep,
-            scope_rows=_store_first_scope_rows,
+            scope_rows=lambda store, entries, scope: _store_first_scope_rows(
+                store, entries, scope,
+                asr_with_subtitles=args.asr_with_subtitles,
+            ),
             artifact_roots=args.artifact_roots,
             # R1: the runner is the only path to the coordinator's own reclaim, so a
             # `campaign` that did not forward this would leave its documented
             # `--keep-audio/--no-keep-audio` silently inert (contract §7, D15).
             keep_audio=args.keep_audio,
+            asr_with_subtitles=args.asr_with_subtitles,
         )
         summary = runner.run(args.scope, args.limit, resume=args.resume)
     except ArchiveBusyError:
@@ -275,7 +282,8 @@ def _partial_run_state(root: str, started_at: str) -> tuple[list[str], dict[str,
     return work_ids, compute_coverage_summary(entries)
 
 
-def _store_pending_rows(archive_root: str, command: str):
+def _store_pending_rows(archive_root: str, command: str, *,
+                        asr_with_subtitles: bool = True):
     """The pending work list from the store gap views, in coordinator row shape.
 
     Returns ``(rows, error)``; ``error`` is ``None`` on success.  The store is
@@ -296,7 +304,9 @@ def _store_pending_rows(archive_root: str, command: str):
         return None, "no archive database"
     try:
         entries = ManifestStore(root=archive_root).load()
-        merged = source.select_pending_scope()
+        merged = source.select_pending_scope(
+            asr_with_subtitles=asr_with_subtitles
+        )
         # Publication recovery is a separate execution scope. Store identity
         # must exist before a durable manifest stage may re-enter this scope.
         known_parts = set()
@@ -326,13 +336,20 @@ def _store_pending_rows(archive_root: str, command: str):
         if current is None:
             continue
         status = str(current.get("status") or "")
-        if status == "archived" and not current.get("transcript_writeback_error"):
+        if (
+            status == "archived"
+            and not queued.get("asr_required")
+            and not current.get("transcript_writeback_error")
+        ):
             merged.pop(key, None)
             continue
-        if status in {"subtitle_done", "needs_audio", "audio_ok", "meta_ok"}:
+        if status in {"subtitle_done", "needs_audio", "audio_ok", "meta_ok", "archived"}:
             enriched = dict(queued)
             enriched.update(current)
-            if status != "subtitle_done":
+            if queued.get("asr_required"):
+                enriched["status"] = queued.get("status", status)
+                enriched["asr_required"] = True
+            elif status != "subtitle_done":
                 enriched["status"] = queued.get("status", status)
             merged[key] = enriched
     # Reuse the validated candidates: unrelated or malformed manifest fields
@@ -363,7 +380,9 @@ def _cmd_run(args: argparse.Namespace) -> int:
         qs.print_manifest_deprecation()
     if not use_manifest and args.scope == "pending":
         # Store-native pending scope: the gap views are the queue (Task 2).
-        rows, error = _store_pending_rows(args.archive_root, "run")
+        rows, error = _store_pending_rows(
+            args.archive_root, "run", asr_with_subtitles=args.asr_with_subtitles
+        )
         if error:
             return 1
     else:
@@ -379,7 +398,8 @@ def _cmd_run(args: argparse.Namespace) -> int:
     coord = RunCoordinator(args.archive_root, store, client=client, offline=args.offline,
                            max_audio_bytes=audio_cap_bytes(args.max_audio_gb),
                            artifact_roots=args.artifact_roots,
-                           keep_audio=args.keep_audio)
+                           keep_audio=args.keep_audio,
+                           asr_with_subtitles=args.asr_with_subtitles)
     print(f"run: scope={args.scope} selected {len(rows)} row(s)" + (" [offline]" if args.offline else ""))
     for key, entry in rows:
         print(f"  {entry.get('work_id') or key}: {entry.get('status')}")
@@ -481,7 +501,10 @@ def _cmd_schedule(args: argparse.Namespace) -> int:
     if not use_manifest and args.scope == "pending":
         # The batch chain (schedule/campaign) cut to the store outright
         # (contract §7): no rollback switch, the gap views are the queue.
-        rows, error = _store_pending_rows(args.archive_root, "schedule")
+        rows, error = _store_pending_rows(
+            args.archive_root, "schedule",
+            asr_with_subtitles=args.asr_with_subtitles,
+        )
         if error:
             return 1
     else:
@@ -550,6 +573,7 @@ def _cmd_schedule(args: argparse.Namespace) -> int:
         command="schedule",
         artifact_roots=args.artifact_roots,
         keep_audio=args.keep_audio,
+        asr_with_subtitles=args.asr_with_subtitles,
     )
     print(
         f"schedule: scope={args.scope} limit={args.limit} "

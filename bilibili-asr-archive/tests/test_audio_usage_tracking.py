@@ -2,6 +2,12 @@
 
 from __future__ import annotations
 
+import bili_asr.cli.main as _module_cli_main
+
+
+import bili_asr.pipeline.stages as stages_operations
+
+
 from pathlib import Path
 
 import pytest
@@ -100,7 +106,7 @@ def test_download_and_reclaim_change_the_next_rows_budget(tmp_path, monkeypatch,
     scans = _count_scans(monkeypatch)
     downloaded = []
     monkeypatch.setattr(audio, "download_audio", _download_two_candidates(downloaded))
-    monkeypatch.setattr(RunCoordinator, "_stage_asr_archive", _archive_without_model)
+    monkeypatch.setattr(stages_operations, "stage_asr_archive", _archive_without_model)
 
     summary = coord.run_batch(selected)
 
@@ -171,7 +177,7 @@ def test_measurement_failure_preserves_archive_and_refuses_later_download(tmp_pa
     coord, selected = _coordinator(tmp_path, [_row("BVtrackA"), _row("BVtrackB")])
     downloaded = []
     monkeypatch.setattr(audio, "download_audio", _download_two_candidates(downloaded))
-    monkeypatch.setattr(RunCoordinator, "_stage_asr_archive", _archive_without_model)
+    monkeypatch.setattr(stages_operations, "stage_asr_archive", _archive_without_model)
 
     def unavailable(self, entry):
         raise audio_budget.AudioUsageError("injected refresh failure")
@@ -191,7 +197,7 @@ def test_reused_coordinator_measures_external_changes_in_next_batch(tmp_path, mo
     scans = _count_scans(monkeypatch)
     downloaded = []
     monkeypatch.setattr(audio, "download_audio", _download_two_candidates(downloaded))
-    monkeypatch.setattr(RunCoordinator, "_stage_asr_archive", _archive_without_model)
+    monkeypatch.setattr(stages_operations, "stage_asr_archive", _archive_without_model)
     assert coord.run_batch(selected[:1]).ok_count == 1
     assert coord.audio_usage_bytes() == 11000
 
@@ -228,7 +234,7 @@ def test_schedule_plan_and_download_gate_share_one_owned_snapshot(tmp_path, monk
     monkeypatch.setattr(bili_client, "BiliClient", lambda **kwargs: object())
     monkeypatch.setattr(audio, "download_audio", lambda *a, **kw: pytest.fail("over-budget download"))
 
-    assert cli.main([
+    assert _module_cli_main.main([
         "schedule", "--archive-root", str(tmp_path), "--scope", row["work_id"],
         "--limit", "1", "--queue-source", "manifest", "--allow-long-live",
         "--max-audio-gb", "0.001",

@@ -1,5 +1,9 @@
 """Store FTS indexing resumes at committed segments after interrupted batches."""
 
+import bili_asr.search_index.common as _module_search_index_common
+import bili_asr.search_index.errors as _module_search_index_errors
+
+
 import os
 from pathlib import Path
 import sqlite3
@@ -9,13 +13,13 @@ import sys
 import pytest
 
 from bili_asr import search_index
-from bili_asr.search_index import TranscriptSearchIndex
+from bili_asr.search_index.store import TranscriptSearchIndex
 from bili_asr.storage import TranscriptRepository, open_database
-from test_transcript_repository import _record, _run, _video_with_parts
+from tests.support.transcript_repository import _record, _run, _video_with_parts
 
 
 pytestmark = pytest.mark.skipif(
-    not search_index.check_fts5_available(), reason="SQLite FTS5 unavailable"
+    not _module_search_index_common.check_fts5_available(), reason="SQLite FTS5 unavailable"
 )
 
 
@@ -37,7 +41,7 @@ def _transcript(root, bvid, segment_count, token):
 
 
 def _interrupt_redaction(monkeypatch, after_calls):
-    redact = search_index._redact_text
+    redact = _module_search_index_common._redact_text
     calls = 0
 
     def interrupt(text):
@@ -47,7 +51,7 @@ def _interrupt_redaction(monkeypatch, after_calls):
             raise RuntimeError("injected indexing interruption")
         return redact(text)
 
-    monkeypatch.setattr(search_index, "_redact_text", interrupt)
+    monkeypatch.setattr(_module_search_index_common, "_redact_text", interrupt)
     return redact
 
 
@@ -66,7 +70,7 @@ def test_incomplete_transcript_resumes_without_skipping_or_duplicating_committed
     assert index.stamp() == -1
     assert index.search_blocks(f"needle{total - 1}") == []
 
-    monkeypatch.setattr(search_index, "_redact_text", redact)
+    monkeypatch.setattr(_module_search_index_common, "_redact_text", redact)
     assert index.build() == total - committed_segments
     assert index.count() == total
     assert index.stamp() == transcript_id
@@ -90,7 +94,7 @@ def test_completed_transcripts_and_build_metadata_survive_interruption_of_the_ne
     assert index.stamp() == first
     assert index.count() == 502
     assert index.metadata()["indexed_count"] == previous_metadata["indexed_count"]
-    monkeypatch.setattr(search_index, "_redact_text", redact)
+    monkeypatch.setattr(_module_search_index_common, "_redact_text", redact)
     assert len(index.search_blocks("first1")) == 1
     assert index.build() == 3
     assert index.stamp() == last
@@ -109,7 +113,7 @@ def test_exact_batch_end_is_a_complete_transcript_boundary(tmp_root, monkeypatch
         index.build()
     assert index.count() == 500
     assert index.stamp() == first
-    monkeypatch.setattr(search_index, "_redact_text", redact)
+    monkeypatch.setattr(_module_search_index_common, "_redact_text", redact)
     assert index.build() == 2
     assert index.count() == 502
     assert index.stamp() == last
@@ -129,7 +133,7 @@ def test_legacy_partial_index_recovers_a_verified_segment_prefix(tmp_root, monke
             "WHERE key NOT IN ('indexed_count', 'built_at')"
         )
     assert index.stamp() == -1
-    monkeypatch.setattr(search_index, "_redact_text", redact)
+    monkeypatch.setattr(_module_search_index_common, "_redact_text", redact)
     assert index.build() == 1
     assert index.count() == 501
     assert index.stamp() == transcript_id
@@ -208,7 +212,7 @@ def test_legacy_gap_recovery_preserves_later_completed_transcripts(tmp_root, mon
     assert first < last
     assert index.count() == 502
     assert index.stamp() == -1
-    monkeypatch.setattr(search_index, "_redact_text", redact)
+    monkeypatch.setattr(_module_search_index_common, "_redact_text", redact)
     assert index.build() == 1
     assert index.count() == 503
     assert index.stamp() == last
@@ -257,7 +261,7 @@ def test_batch_data_and_resume_cursor_share_the_same_commit(
             self.connection.commit()
 
     monkeypatch.setattr(index, "_connect_for_build", lambda: FailingCommit(connect()))
-    with pytest.raises(search_index.TranscriptStoreError, match="injected batch commit"):
+    with pytest.raises(_module_search_index_errors.TranscriptStoreError, match="injected batch commit"):
         index.build()
     assert index.count() == (500 if committed_before_error else 0)
     assert index.stamp() == -1

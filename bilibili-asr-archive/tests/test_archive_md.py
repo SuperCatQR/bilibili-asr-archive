@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+import bili_asr.asr.alignment as _module_asr_alignment
+import bili_asr.asr.constants as _module_asr_constants
+
+
 import json
 import os
 
@@ -574,7 +578,7 @@ def test_capture_gap_seconds_follows_the_cue_shaper_threshold():
     from bili_asr import asr as asr_module
     from bili_asr.archive import CAPTURE_GAP_SECONDS
 
-    assert CAPTURE_GAP_SECONDS == asr_module._CUE_MAX_GAP_SECONDS
+    assert CAPTURE_GAP_SECONDS == _module_asr_constants._CUE_MAX_GAP_SECONDS
 
 
 def test_the_shaper_and_the_merger_meet_at_the_threshold_from_opposite_sides():
@@ -611,7 +615,7 @@ def test_the_shaper_and_the_merger_meet_at_the_threshold_from_opposite_sides():
              "end": base + gap + i * 0.5 + 0.5}
             for i, ch in enumerate("子丑寅卯辰巳午未申酉")
         ]
-        return asr_module._aligned_cues(pieces)
+        return _module_asr_alignment._aligned_cues(pieces)
 
     # The shaper splits exactly at the threshold...
     assert len(cues_for(threshold)) == 2
@@ -791,8 +795,8 @@ def test_capture_ignores_degenerate_zero_length_cues_like_the_recompute(tmp_root
     # character at the only instant it has.
     from bili_asr import asr as asr_module
 
-    text_only = asr_module._aligned_cues(
-        asr_module._thread_text("没有时间戳的一段话", [])
+    text_only = _module_asr_alignment._aligned_cues(
+        _module_asr_alignment._thread_text("没有时间戳的一段话", [])
     )
     assert text_only[0]["text"] == "没有时间戳的一段话"
     assert [(s["start"], s["end"]) for s in text_only] == [(0.0, 0.0)]

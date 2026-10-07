@@ -1,113 +1,24 @@
-"""The `_cmd_asr` handler and its helpers."""
+"""Asr implementation."""
 
 from __future__ import annotations
 
+import bili_asr.asr.config as _module_asr_config
+import bili_asr.asr.coverage as _module_asr_coverage
+import bili_asr.asr.errors as _module_asr_errors
+import bili_asr.asr.provenance as _module_asr_provenance
+import bili_asr.asr.runner as _module_asr_runner
+
+
 from bili_asr.diagnostics import write_stderr
-
 import os
-import sys
+from bili_asr.cli._shared import _is_excluded, _queue_source_is_manifest, _store_transcript_todo, _todo_for_bvid
+import bili_asr.cli.processing as _dependency_processing
 
-from bili_asr.cli._shared import (
-    DEFAULT_ARCHIVE_ROOT,
-    _archive_database_exists,
-    _is_excluded,
-    _metadata_database_path,
-    _open_read_connection,
-    _open_read_repository,
-    _queue_source_is_manifest,
-    _store_audio_todo,
-    _store_transcript_todo,
-    _subtitle_schema_rebuild_line,
-    _subtitle_selector,
-    _todo_for_bvid,
-)
-
-class _AsrItemCount:
-    """The printed reuse line's ASR-item denominator (D2.5).
-
-    A one-field box, not an ``int``, because the in-process loops count the
-    row at two different call depths: ``_cmd_asr`` counts inline, while
-    ``pilot`` counts inside ``_pilot_archive_asr``, which has to report the
-    increment to its caller.  Every path increments at the same event — the
-    row's ASR stage produced a transcript — which is what ``RunCoordinator``
-    counts at its own ``asr: ok`` attempt, so ``asr``/``pilot`` and ``run``
-    state the same denominator for the same input.
-    """
-
-    __slots__ = ("value",)
-
-    def __init__(self) -> None:
-        self.value = 0
-
-
-def _asr_transcript_segments(segments: list) -> tuple:
-    """Convert ASR cues to ``TranscriptSegmentRecord``s, best-effort.
-
-    One cue the record refuses (an empty text, an ``end`` not after its
-    ``start``) is answered as *this part's* failure — a ``ValueError`` the
-    caller reports for the row — never as an escaping error that ends the
-    batch, and never by silently dropping the segment.  Cue times are seconds
-    floats on the ASR side and whole milliseconds on the storage side.
-    """
-
-    from bili_asr.storage import TranscriptSegmentRecord
-
-    records = []
-    for cue in segments:
-        start_ms = int(round(float(cue.get("start", 0.0)) * 1000))
-        end_ms = int(round(float(cue.get("end", 0.0)) * 1000))
-        records.append(
-            TranscriptSegmentRecord(start_ms=start_ms, end_ms=end_ms, text=str(cue.get("text", "")))
-        )
-    return tuple(records)
-
-
-def _ensure_asr_run(
-    queue_source, command: str, *, selector_target: str | None = None,
-    requested_limit: int | None = None,
-) -> None:
-    """Create this invocation's one ``kind='asr'`` acquisition run, best-effort.
-
-    One invocation is one run scope (the same shape the audio half names): the
-    run is the lifecycle parent the transcript write-back's attempt rows are
-    keyed to.  The created id is remembered on the ``QueueSource`` as
-    ``asr_run_id``; a store that refuses the run leaves it ``None`` so the row
-    loop's per-part write-back is skipped — the archive on disk is never lost
-    to a store problem.
-    """
-
-    queue_source.ensure_asr_run(
-        command, selector_target=selector_target, requested_limit=requested_limit,
-    )
-
-
-def _print_in_process_constructions(
-    command: str, runner: object, asr_items: int
-) -> None:
-    """State one in-process ASR loop's constructions, once, on stderr (D2.6).
-
-    ``RunCoordinator.run_batch`` prints this for the coordinator path; ``asr``
-    and ``pilot`` never enter it, so they print through the same shared string
-    for their own command label.  ``runner`` is ``None`` when the selection
-    needed no model.
-
-    The guard is "nothing was paid", not "no ASR items" — the same rule the
-    coordinator applies: a loop that built the model and then failed every
-    transcription still states ``… for 0 asr item(s)``, while a subtitle-only
-    selection (no construction, no transcript) prints nothing at all.  Stderr
-    keeps every command's stdout contract intact; when fd 2 is closed
-    ``sys.stderr`` is ``None`` and ``print(..., file=None)`` would fall back to
-    stdout, so a missing stream prints nothing rather than breaking it.
-    """
-    from bili_asr.coordinator import model_constructions_line
-    from bili_asr.diagnostics import write_stderr
-
-    constructions = (
-        int(getattr(runner, "model_constructions", 0)) if runner is not None else 0
-    )
-    if asr_items <= 0 and constructions <= 0:
-        return
-    write_stderr(model_constructions_line(command, constructions, asr_items))
+# Kept as a local command-module handle because the writeback safety tests and
+# command diagnostics exercise this helper through the ``asr`` command module.
+_print_in_process_constructions = _dependency_processing._print_in_process_constructions
+_AsrItemCount = _dependency_processing._AsrItemCount
+_asr_transcript_segments = _dependency_processing._asr_transcript_segments
 
 
 def _cmd_asr(args: argparse.Namespace) -> int:
@@ -118,19 +29,15 @@ def _cmd_asr(args: argparse.Namespace) -> int:
     # Function-local on purpose: ``pilot`` imports this module at ITS module level
     # (``_AsrItemCount``/``_print_in_process_constructions``), so a module-level import here
     # would be a cycle.  Deferring to call time keeps the dependency one-directional.
-    from bili_asr.cli.pilot import (
-        _audio_base_holding,
-        _reclaim_after_archive,
-        _subtitle_segments,
-    )
+    from bili_asr.cli.processing_paths import _audio_base_holding, _reclaim_after_archive, _subtitle_segments
 
     use_manifest = _queue_source_is_manifest(args)
     if use_manifest:
         qs.print_manifest_deprecation()
 
-    # Store source (default): the transcript queue is v_missing_transcript —
-    # parts with audio evidence and no stored transcript.  A part holding AI
-    # subtitles is satisfied in every queue and never reaches this branch.
+    # Store source (default): the transcript queue is v_missing_transcript,
+    # augmented with captioned parts when local ASR is enabled.  This keeps
+    # the standalone command aligned with run/schedule/campaign.
     queue_conn = None
     queue_source = None
     if not use_manifest:
@@ -139,10 +46,6 @@ def _cmd_asr(args: argparse.Namespace) -> int:
         if failed:
             return 1
         queue_conn = queue_source.connection
-        # ``--limit`` is owned by the queue-source read: ``_store_transcript_todo``
-        # already passed ``args.limit`` into the store-side ``LIMIT ?``, so a
-        # second slice here would only mask which side owns the bound (the
-        # download-audio store branch relies on the store limit alone).
         todo = [e for _key, e in rows] if rows else []
         if not todo:
             print("asr: queue empty (no parts need transcription)")
@@ -193,9 +96,9 @@ def _cmd_asr(args: argparse.Namespace) -> int:
     # unsafe-declaration branch names only the variable, and the contradiction
     # branch can only fire once *both* values have passed the identifier scan.
     config = None
-    if any(entry.get("status") != "subtitle_done" for entry in todo):
+    if args.asr_with_subtitles or any(entry.get("status") != "subtitle_done" for entry in todo):
         try:
-            config = asr.default_config()
+            config = _module_asr_config.default_config()
         except ValueError as exc:
             write_stderr(f"asr: {exc}")
             if queue_conn is not None:
@@ -206,11 +109,11 @@ def _cmd_asr(args: argparse.Namespace) -> int:
     # transcript.  It increments at the transcribe boundary below, never after
     # the archive tail, so a row that fails downstream still counts and the
     # two paths cannot disagree on the same input.
-    asr_count = _AsrItemCount()
+    asr_count = _dependency_processing._AsrItemCount()
     completed = False
     try:
         if queue_source is not None:
-            _ensure_asr_run(
+            _dependency_processing._ensure_asr_run(
                 queue_source, "asr", selector_target=args.bvid,
                 requested_limit=args.limit,
             )
@@ -221,17 +124,16 @@ def _cmd_asr(args: argparse.Namespace) -> int:
             raw = None
             provenance = None
             status = entry.get("status")
-            subtitle_data = (
-                _subtitle_segments(args.artifact_roots, entry)
-                if status == "subtitle_done"
-                else None
-            )
+            # Read paired subtitle evidence for both ``subtitle_done`` rows and
+            # audio-backed caption candidates.  The latter are the normal
+            # default path after the queue policy change.
+            subtitle_data = _subtitle_segments(args.artifact_roots, entry)
             try:
                 if status == "subtitle_done" and subtitle_data is None:
                     failed += 1
                     write_stderr(f"{label}: skipped (missing_subtitle_raw)")
                     continue
-                if subtitle_data is not None:
+                if subtitle_data is not None and not args.asr_with_subtitles:
                     segments, raw = subtitle_data
                 else:
                     source = "asr"
@@ -239,8 +141,8 @@ def _cmd_asr(args: argparse.Namespace) -> int:
                     from bili_asr.path_policy import confined_audio_file
                     declared = entry.get("audio_path") or os.path.join("audio", f"{stem}.m4a")
                     if runner is None:
-                        runner = asr.ASRRunner(
-                            config if config is not None else asr.default_config()
+                        runner = _module_asr_runner.ASRRunner(
+                            config if config is not None else _module_asr_config.default_config()
                         )
                     # A read of the recorded value, so both bases answer (D8): a row
                     # whose audio predates the configured root still resolves.
@@ -254,27 +156,23 @@ def _cmd_asr(args: argparse.Namespace) -> int:
                     # is seeded with the tokens pass 1 produced and re-decodes with a
                     # clean model/cache state.  Dropped tokens are recorded as
                     # ``hotword_dropped_no_evidence`` in the provenance.
-                    subtitle_data_for_evidence = (
-                        _subtitle_segments(args.artifact_roots, entry)
-                        if status == "subtitle_done"
-                        else None
-                    )
+                    subtitle_data_for_evidence = subtitle_data
                     paired_subtitle_text = (
                         "".join(str(seg.get("text", "")) for seg in subtitle_data_for_evidence[0])
                         if subtitle_data_for_evidence is not None
                         else None
                     )
                     with confined_audio_file(audio_base, os.fspath(declared)) as safe_audio:
-                        segments = asr.two_pass_transcribe(
+                        segments = _module_asr_runner.two_pass_transcribe(
                             runner, safe_audio, paired_subtitle_text=paired_subtitle_text
                         )
                     asr_count.value += 1
                     provenance = runner.provenance()
-                coverage = asr.transcribed_coverage(runner) if source == "asr" else None
+                coverage = _module_asr_coverage.transcribed_coverage(runner) if source == "asr" else None
                 paths = archive.write_archive(
                     args.artifact_roots.write_base, entry, segments, source=source,
                     raw=raw, asr_provenance=provenance,
-                    characters=asr.characters_of(runner) if source == "asr" else None,
+                    characters=_module_asr_coverage.characters_of(runner) if source == "asr" else None,
                     # The same measurement the store write-back carries (I-000188 acceptance:
                     # "visible in the store and in the bundle").  `runner` is None on the
                     # subtitle route, and the helper returns None when there is no measurement.
@@ -295,8 +193,8 @@ def _cmd_asr(args: argparse.Namespace) -> int:
                 # and no key is written for it — an absent ``coverage`` reads as *not evaluable*,
                 # which is the honest answer, not "covered".
                 if source == "asr":
-                    asr.apply_provenance_evidence(updated, runner)
-                    asr.apply_coverage_evidence(updated, runner)
+                    _module_asr_provenance.apply_provenance_evidence(updated, runner)
+                    _module_asr_coverage.apply_coverage_evidence(updated, runner)
                 store.upsert(updated)
                 _reclaim_after_archive(
                     args.artifact_roots, updated, keep=args.keep_audio
@@ -317,8 +215,8 @@ def _cmd_asr(args: argparse.Namespace) -> int:
                             run_id=queue_source.asr_run_id,
                             bvid=identity[0],
                             page_index=identity[1],
-                            language=asr.provenance_language(provenance),
-                            segments=_asr_transcript_segments(segments),
+                            language=_module_asr_provenance.provenance_language(provenance),
+                            segments=_dependency_processing._asr_transcript_segments(segments),
                             model_name=(provenance or {}).get("model_name", ""),
                             model_revision=(provenance or {}).get("model_revision"),
                             coverage=coverage,
@@ -329,7 +227,7 @@ def _cmd_asr(args: argparse.Namespace) -> int:
                         )
                 ok += 1
                 print(f"{label}: archived ({source})")
-            except asr.ASRDependencyError:
+            except _module_asr_errors.ASRDependencyError:
                 failed += 1
                 write_stderr(f"{label}: ASR dependency unavailable")
             except Exception as exc:
@@ -338,7 +236,7 @@ def _cmd_asr(args: argparse.Namespace) -> int:
                 # this one used to print fixed text with no reason at all
                 # (QC3-F1).  `_safe_error_code` never throws and never echoes a
                 # payload: it reads `code`/`last_code` or the class name.
-                from bili_asr.coordinator import _safe_error_code
+                from bili_asr.pipeline.attempts import _safe_error_code
 
                 write_stderr(
                     f"{label}: archive failed ({_safe_error_code(exc)})"
@@ -351,7 +249,7 @@ def _cmd_asr(args: argparse.Namespace) -> int:
             ) if failed or not completed else None
             queue_source.finish_asr_run(outcome=outcome)
             queue_conn.close()
-        _print_in_process_constructions("asr", runner, asr_count.value)
+        _dependency_processing._print_in_process_constructions("asr", runner, asr_count.value)
         if runner is not None:
             runner.release()
     print(f"asr: {ok} archived" + (f", {failed} failed" if failed else ""))

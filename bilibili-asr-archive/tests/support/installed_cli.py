@@ -18,15 +18,18 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import os
+from pathlib import Path
 import re
 import shutil
 import subprocess
 import sys
 from typing import Mapping
 
+from scripts.project_staging import stage_project
+
 import pytest
 
-PACKAGE_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+PACKAGE_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 SRC_DIR = os.path.join(PACKAGE_ROOT, "src")
 CHECKOUT_VENV_DIR = os.path.join(PACKAGE_ROOT, ".venv")
 
@@ -48,6 +51,7 @@ _BUILD_ARTIFACTS = (
     os.path.join("src", "bili_asr.egg-info"),
     "bili_asr.egg-info",
 )
+
 
 PREREQUISITE_HELP = """\
 Installed-entrypoint verification prerequisite failed: {reason}
@@ -230,24 +234,12 @@ def cleanup_build_artifacts(root: str = PACKAGE_ROOT) -> None:
             shutil.rmtree(path, ignore_errors=True)
 
 
-def _ignore_pycache(directory: str, names: list[str]) -> set[str]:
-    return {name for name in names if name == "__pycache__" or name.endswith(".pyc")}
-
-
 def _stage_sources(staging_dir: str) -> str:
-    """Copy packaging inputs so the install cannot be confused with the checkout venv."""
+    """Stage only packaging inputs so nested verifier trees cannot recur."""
     pkg = os.path.join(staging_dir, "pkg")
     if os.path.isdir(pkg):
         shutil.rmtree(pkg, ignore_errors=True)
-    os.makedirs(pkg, exist_ok=True)
-    shutil.copytree(
-        SRC_DIR,
-        os.path.join(pkg, "src"),
-        ignore=_ignore_pycache,
-    )
-    shutil.copy2(os.path.join(PACKAGE_ROOT, "pyproject.toml"), pkg)
-    shutil.copy2(os.path.join(PACKAGE_ROOT, "README.md"), pkg)
-    return pkg
+    return str(stage_project(Path(PACKAGE_ROOT), Path(pkg)))
 
 
 def _provision_with_uv(uv: str, venv_dir: str, staged_pkg: str) -> None:

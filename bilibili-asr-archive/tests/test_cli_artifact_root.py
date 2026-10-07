@@ -49,8 +49,8 @@ from test_audio import (
 )
 from test_subtitles import SAMPLE_DOC, nav_ok, player_ok
 
-import _asr_fakes as asr_fakes
-from _archive_database import _seed_archive_database
+import tests.support.asr_fakes as asr_fakes
+from tests.support.archive_database import _seed_archive_database
 
 #: The word the fixture transcript carries.  The row's title does not contain it, so a
 #: hit proves the transcript file was really read from the base the row was written to.

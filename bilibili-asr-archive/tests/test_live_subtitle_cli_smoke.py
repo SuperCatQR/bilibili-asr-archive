@@ -1,76 +1,4 @@
-"""Opt-in bounded live smoke: one real part through the shipped subtitle CLI.
-
-This module holds the only networked test of the ``probe-subs`` /
-``harvest-subs`` pair — the operator-visible CLI + storage chain.  It drives the
-real user-facing command path (``bili_asr.cli.main`` with plain argv, the real
-``BilibiliApiGateway`` adapter over the pinned ``bilibili-api-python``
-distribution, and the real SQLite transcript repository) for exactly one public
-part inside a temporary archive root.  No playback, download, audio, or ASR code
-is invoked, and nothing outside the temporary root is written.
-
-The part the smoke probes is authored into its own temporary root, because both
-commands address parts the archive already stores: ``harvest-subs`` never
-fetches a pagelist and never calls upstream for a part that is not in the
-database, so a live run needs a ``video_parts`` row before it can do anything.
-The seeded identity is the fixed public sample (:data:`SAMPLE_BVID` /
-:data:`SAMPLE_CID` / :data:`SAMPLE_PAGE_INDEX`) — one part of the archive
-owner's own public collection, fetched live by the gateway plan's probe
-(``tests/test_live_subtitle_smoke.py``) and therefore already known to expose a
-visible machine caption on this endpoint.  Only the identity is real and it is
-used verbatim; the surrounding rows the storage layer requires (user, video,
-part title and duration) are inert scaffolding that no subtitle code path reads.
-The evidence line names the seeded part and its ``part_source=fixed-sample``
-provenance, so the operator can always see which part answered.
-
-The two commands run in order, and each costs one bounded live surface: the
-probe one track listing, the harvest one listing plus one document fetch when a
-track is visible.  Default pytest runs skip the smoke; it executes only when the
-operator sets ``BILI_LIVE_SMOKE=1``.  An opted-in run without the pinned
-distribution fails loudly.  Its documented bounded outcomes are:
-
-- **stored** — the part exposes a track and the harvest stores version 1: the
-  smoke asserts the normalized ``transcripts``/``transcript_segments`` rows, the
-  run and attempt evidence, that the part left the pending enumeration, that the
-  credential presence the run row records matches the environment, and that
-  nothing but ``archive.db`` and the writer lock appeared under the root.  This
-  is the acceptance-carrying outcome;
-- **no subtitle visible now** (``tracks=0``, then ``no-subtitle`` with exit 0) —
-  a legitimate bounded observation, recorded with the printed counts and never
-  as "this video has no captions".  The run stored nothing, so it skips instead
-  of reading green;
-- **the listing answers the bounded ``not_found`` code** — the part is one
-  upstream no longer serves, or one the credential in effect cannot see.  The
-  probe prints ``failed not_found`` (an all-failed probe exits 2) because it
-  obtained no listing at all, while a harvest records the same answer as
-  ``no-subtitle`` and exits 0: both readings are the shipped contract.  The
-  smoke records the reading the probe produced and does not spend the harvest's
-  calls on a part whose listing nothing answered;
-- **upstream risk control refuses the locked call shape** (``rate_limited``) —
-  the plan's recorded bounded blocker, reported as a skip carrying the bounded
-  code, because the locked shape must not be bent to make the call pass;
-- **every other bounded code** — ``transport_error`` from a dead proxy,
-  ``response_error``, ``shape_error``, anything unrecognized — fails loudly,
-  because those mean the environment or the adapter regressed rather than
-  upstream refusing the call.
-
-Every branch of that ladder is rehearsed offline in this module — the seeding
-and its read-only sanity check, both output readers, the row assertions, and
-the bounded-code refusal ladder — so a default (offline, non-opted-in) run
-exercises the whole control flow; only the live calls themselves are live.  The
-smoke adds no retry of its own: the shipped gateway is fail-fast per call, so a
-throttled endpoint is answered by waiting and re-running the command, never by
-bending the call shape or adding retries.
-
-Run it with::
-
-    CONTROL=/root/workspace/bilibili-asr-archive   # the control checkout
-    CHECKOUT=$CONTROL/bilibili-asr-archive         # or a feature worktree's package dir
-    cd "$CHECKOUT"
-    set -a; source "$CONTROL/.env"; set +a          # gitignored; absent in a worktree
-    export BILI_HTTP_PROXY=http://127.0.0.1:7890    # proxied host
-    BILI_LIVE_SMOKE=1 "$CONTROL/bilibili-asr-archive/.venv/bin/python" \\
-      -m pytest tests/test_live_subtitle_cli_smoke.py -s -v
-"""
+'Opt-in bounded live smoke: one real part through the shipped subtitle CLI.\n\nThis module holds the only networked test of the ``probe-subs`` /\n``harvest-subs`` pair — the operator-visible CLI + storage chain.  It drives the\nreal user-facing command path (``bili_asr.cli.main.main`` with plain argv, the real\n``BilibiliApiGateway`` adapter over the pinned ``bilibili-api-python``\ndistribution, and the real SQLite transcript repository) for exactly one public\npart inside a temporary archive root.  No playback, download, audio, or ASR code\nis invoked, and nothing outside the temporary root is written.\n\nThe part the smoke probes is authored into its own temporary root, because both\ncommands address parts the archive already stores: ``harvest-subs`` never\nfetches a pagelist and never calls upstream for a part that is not in the\ndatabase, so a live run needs a ``video_parts`` row before it can do anything.\nThe seeded identity is the fixed public sample (:data:`SAMPLE_BVID` /\n:data:`SAMPLE_CID` / :data:`SAMPLE_PAGE_INDEX`) — one part of the archive\nowner\'s own public collection, fetched live by the gateway plan\'s probe\n(``tests/test_live_subtitle_smoke.py``) and therefore already known to expose a\nvisible machine caption on this endpoint.  Only the identity is real and it is\nused verbatim; the surrounding rows the storage layer requires (user, video,\npart title and duration) are inert scaffolding that no subtitle code path reads.\nThe evidence line names the seeded part and its ``part_source=fixed-sample``\nprovenance, so the operator can always see which part answered.\n\nThe two commands run in order, and each costs one bounded live surface: the\nprobe one track listing, the harvest one listing plus one document fetch when a\ntrack is visible.  Default pytest runs skip the smoke; it executes only when the\noperator sets ``BILI_LIVE_SMOKE=1``.  An opted-in run without the pinned\ndistribution fails loudly.  Its documented bounded outcomes are:\n\n- **stored** — the part exposes a track and the harvest stores version 1: the\n  smoke asserts the normalized ``transcripts``/``transcript_segments`` rows, the\n  run and attempt evidence, that the part left the pending enumeration, that the\n  credential presence the run row records matches the environment, and that\n  nothing but ``archive.db`` and the writer lock appeared under the root.  This\n  is the acceptance-carrying outcome;\n- **no subtitle visible now** (``tracks=0``, then ``no-subtitle`` with exit 0) —\n  a legitimate bounded observation, recorded with the printed counts and never\n  as "this video has no captions".  The run stored nothing, so it skips instead\n  of reading green;\n- **the listing answers the bounded ``not_found`` code** — the part is one\n  upstream no longer serves, or one the credential in effect cannot see.  The\n  probe prints ``failed not_found`` (an all-failed probe exits 2) because it\n  obtained no listing at all, while a harvest records the same answer as\n  ``no-subtitle`` and exits 0: both readings are the shipped contract.  The\n  smoke records the reading the probe produced and does not spend the harvest\'s\n  calls on a part whose listing nothing answered;\n- **upstream risk control refuses the locked call shape** (``rate_limited``) —\n  the plan\'s recorded bounded blocker, reported as a skip carrying the bounded\n  code, because the locked shape must not be bent to make the call pass;\n- **every other bounded code** — ``transport_error`` from a dead proxy,\n  ``response_error``, ``shape_error``, anything unrecognized — fails loudly,\n  because those mean the environment or the adapter regressed rather than\n  upstream refusing the call.\n\nEvery branch of that ladder is rehearsed offline in this module — the seeding\nand its read-only sanity check, both output readers, the row assertions, and\nthe bounded-code refusal ladder — so a default (offline, non-opted-in) run\nexercises the whole control flow; only the live calls themselves are live.  The\nsmoke adds no retry of its own: the shipped gateway is fail-fast per call, so a\nthrottled endpoint is answered by waiting and re-running the command, never by\nbending the call shape or adding retries.\n\nRun it with::\n\n    CONTROL=/root/workspace/bilibili-asr-archive   # the control checkout\n    CHECKOUT=$CONTROL/bilibili-asr-archive         # or a feature worktree\'s package dir\n    cd "$CHECKOUT"\n    set -a; source "$CONTROL/.env"; set +a          # gitignored; absent in a worktree\n    export BILI_HTTP_PROXY=http://127.0.0.1:7890    # proxied host\n    BILI_LIVE_SMOKE=1 "$CONTROL/bilibili-asr-archive/.venv/bin/python" \\\n      -m pytest tests/test_live_subtitle_cli_smoke.py -s -v\n'
 
 from __future__ import annotations
 
@@ -84,7 +12,7 @@ from typing import Iterator, NoReturn
 
 import pytest
 
-from bili_asr.cli import main
+from bili_asr.cli.main import main
 from bili_asr.config import (
     ARCHIVE_DATABASE_NAME,
     SESSDATA_ENV_VAR,
@@ -103,7 +31,7 @@ from bili_asr.storage.models import (
     ALLOWED_ACQUISITION_KINDS,
     ALLOWED_CAPTION_SOURCE_KINDS,
 )
-from fixtures.fake_bilibili_gateway import (
+from tests.fixtures.fake_bilibili_gateway import (
     SESSDATA_BOUNDARY_VALUE,
     SIGNED_SUBTITLE_URL_MARKER,
     FakeGateway,
@@ -111,7 +39,7 @@ from fixtures.fake_bilibili_gateway import (
     fake_gateway_seam,
     persisted_row_text,
 )
-from fixtures.metadata_records import (
+from tests.fixtures.metadata_records import (
     make_part_record,
     make_user_record,
     make_video_record,

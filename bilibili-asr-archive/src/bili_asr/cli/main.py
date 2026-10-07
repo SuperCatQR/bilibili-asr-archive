@@ -8,6 +8,12 @@ import argparse
 import os
 import sys
 
+# Keep the historical dotted import path usable while ``cli.main`` is now a
+# module.  A few orchestration tests import the module through this nested
+# spelling to patch its root resolver in isolation.
+__path__ = []
+sys.modules.setdefault(__name__ + ".main", sys.modules[__name__])
+
 from bili_asr.artifact_root import (
     ArtifactRootError,
     resolve_keep_audio,
@@ -91,3 +97,8 @@ def _main(argv: list[str] | None = None, *, _publication_worker: bool = False) -
             write_stderr(f"{args.command}: archive_busy")
             return 1
     return _cli_pkg._dispatch_command(args)
+
+
+def main(argv: list[str] | None = None) -> int:
+    """Module-level entry point retained for ``python -m bili_asr.cli.main``."""
+    return _main(argv)

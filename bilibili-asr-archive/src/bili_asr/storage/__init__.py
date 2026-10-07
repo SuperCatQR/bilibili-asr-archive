@@ -4,19 +4,10 @@ The package root is the single import surface: the repository, the record
 models, and the bootstrap helpers are all re-exported here.
 """
 
-from .database import (
-    DatabaseConnection,
-    MediaQueueRepository,
-    MetadataRepository,
-    SchemaContractError,
-    TranscriptRepository,
-    duration_to_ms,
-    initialize_schema,
-    normalize_page_index,
-    open_database,
-    refresh_shipped_views,
-    require_subtitle_schema,
-)
+from bili_asr.storage.database import DatabaseConnection, SchemaContractError, duration_to_ms, initialize_schema, normalize_page_index, open_database, refresh_shipped_views, require_subtitle_schema
+from bili_asr.storage.media_queue import MediaQueueRepository
+from bili_asr.storage.metadata import MetadataRepository
+from bili_asr.storage.transcripts import TranscriptRepository
 from .models import (
     ALLOWED_ACQUISITION_KINDS,
     ALLOWED_ACQUISITION_OUTCOMES,

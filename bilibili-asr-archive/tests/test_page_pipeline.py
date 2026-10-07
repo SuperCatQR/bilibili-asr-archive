@@ -9,11 +9,11 @@ import pytest
 from bili_asr import audio
 from bili_asr import bili_client as bc
 from bili_asr import subtitles
-from bili_asr.cli import main
+from bili_asr.cli.main import main
 from bili_asr.manifest import ManifestStore
 from bili_asr.page_identity import artifact_stem, page_identity
 
-from test_audio import (
+from tests.support.audio import (
     AUDIO_BYTES,
     SPI_OK,
     STREAM_HOST,
@@ -22,8 +22,8 @@ from test_audio import (
     nav_response,
     playurl_ok,
 )
-from test_subtitles import RouterTransport as SubRouter
-from test_subtitles import (
+from tests.support.subtitles import RouterTransport as SubRouter
+from tests.support.subtitles import (
 
     SAMPLE_DOC,
     make_client as make_sub_client,
@@ -32,8 +32,8 @@ from test_subtitles import (
     sub_entry,
 )
 
-import _asr_fakes as asr_fakes
-from _archive_database import _seed_archive_database
+import tests.support.asr_fakes as asr_fakes
+from tests.support.archive_database import _seed_archive_database
 
 BVID = "BV1multi"
 
@@ -200,7 +200,7 @@ def test_cli_download_skips_unresolved_and_processes_other_page(
     )
     monkeypatch.setattr(bc, "build_default_transport", lambda: transport)
     monkeypatch.setattr(bc, "default_sleeper", lambda _s=None: None)
-    monkeypatch.setattr("bili_asr.cli.time.sleep", lambda _seconds: None)
+    monkeypatch.setattr('bili_asr.cli.pilot.time.sleep', lambda _seconds: None)
     # Manifest-only fixture (unresolved/excluded rows): pin the rollback source.
     rc = main([
         "download-audio", "--missing-subs", "--queue-source", "manifest",

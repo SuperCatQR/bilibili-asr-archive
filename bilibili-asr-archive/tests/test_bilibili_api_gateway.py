@@ -54,9 +54,10 @@ from bili_asr.sources.models import (
     VideoPart,
     VideoSummary,
 )
-from bili_asr.storage.database import MetadataRepository, open_database
+from bili_asr.storage.metadata import MetadataRepository
+from bili_asr.storage.database import open_database
 from bili_asr.storage.models import VideoDetailRecord
-from fixtures.fake_bilibili_gateway import (
+from tests.fixtures.fake_bilibili_gateway import (
     BVID,
     DOCUMENTED_METADATA_CALLS,
     FAKE_PLAYER_ENDPOINT,

@@ -6,6 +6,9 @@ here on a machine with no GPU and no ROCm; the real probes stay the default.
 
 from __future__ import annotations
 
+import bili_asr.cli.main as _module_cli_main
+
+
 import io
 import json
 import os
@@ -834,7 +837,7 @@ def test_the_cli_finds_the_check_script_from_any_working_directory(
     foreign.mkdir()
     monkeypatch.chdir(foreign)
 
-    exit_code = cli.main(["check-asr-env"])
+    exit_code = _module_cli_main.main(["check-asr-env"])
     captured = capsys.readouterr()
     lines = captured.out.splitlines()
 

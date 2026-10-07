@@ -201,7 +201,7 @@ def _store_audio_todo(args: argparse.Namespace):
 
 
 def _store_transcript_todo(args: argparse.Namespace, *, command: str):
-    """The asr work list from the store's ``v_missing_transcript`` view."""
+    """The ASR work list, including captioned parts when policy enables it."""
 
     from bili_asr.services import queue_source as qs
 
@@ -222,7 +222,22 @@ def _store_transcript_todo(args: argparse.Namespace, *, command: str):
         except ValueError:
             bvid, page = selector, None
     selection = source.select_transcript_queue(bvid=bvid, page=page, limit=args.limit)
-    todo = [(key, entry) for key, entry in selection.entries.items()]
+    entries = dict(selection.entries)
+    if getattr(args, "asr_with_subtitles", True):
+        captioned = source.select_asr_subtitle_queue(
+            bvid=bvid, page=page, limit=args.limit
+        )
+        for key, entry in captioned.entries.items():
+            if entry.get("status") == "audio_ok" or (
+                not getattr(args, "asr_with_subtitles", True)
+                and entry.get("status") == "subtitle_done"
+            ):
+                entries.setdefault(key, entry)
+    todo = list(entries.items())
+    if args.limit is not None:
+        # Each store view is bounded independently.  Apply the user-visible
+        # limit after merging and de-duplicating both sources.
+        todo = todo[:args.limit]
     return todo, source, False
 
 

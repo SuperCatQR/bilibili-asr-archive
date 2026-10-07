@@ -1,5 +1,10 @@
 """Command-level records survive early and repeated batch interruptions."""
 
+import bili_asr.cli.main as _module_cli_main
+import bili_asr.cli.run_state as _module_cli_run_state
+import bili_asr.cli.signals as _module_cli_signals
+
+
 from pathlib import Path
 import json
 import os
@@ -12,7 +17,8 @@ import pytest
 
 from bili_asr import cli
 from bili_asr.archive import archive_stem
-from bili_asr.coordinator import AttemptLedger, RowResult, RunSummary
+from bili_asr.pipeline.attempts import AttemptLedger
+from bili_asr.pipeline.models import RowResult, RunSummary
 from bili_asr.manifest import ManifestStore
 from bili_asr.meta_cursor import MetaCursorStore
 from bili_asr.page_identity import page_identity
@@ -53,7 +59,7 @@ def _argv(root, command, work_id):
 def test_normal_batch_writes_one_record_with_original_count(tmp_root, monkeypatch, command):
     work_id = _seed(tmp_root)
     monkeypatch.setattr("bili_asr.bili_client.BiliClient", lambda **kwargs: object())
-    code = cli.main(_argv(tmp_root, command, work_id))
+    code = _module_cli_main.main(_argv(tmp_root, command, work_id))
     assert code == (1 if command == "pilot" else 0)
     records = RunLedger(tmp_root).load()
     assert len(records) == 1
@@ -74,7 +80,7 @@ def test_ledger_write_failure_is_bounded_and_redacted(tmp_root, monkeypatch, cap
         raise private_error("https://signed.example/?cookie=SECRET")
 
     monkeypatch.setattr(RunLedger, "append", fail)
-    code = cli.main(_argv(tmp_root, command, work_id))
+    code = _module_cli_main.main(_argv(tmp_root, command, work_id))
     assert code == (1 if command == "pilot" else 0)
     output = capsys.readouterr()
     assert output.err.count(f"{command}: run-ledger write failed") == 1
@@ -160,7 +166,7 @@ def test_risk_record_preserves_cursor_and_api_code(tmp_root, monkeypatch, comman
         risk_interrupted=True,
     )
     monkeypatch.setattr("bili_asr.coordinator.RunCoordinator.run_batch", lambda self, rows: summary)
-    assert cli.main(_argv(tmp_root, command, work_id)) == 2
+    assert _module_cli_main.main(_argv(tmp_root, command, work_id)) == 2
     record, = RunLedger(tmp_root).load()
     assert record["exit_code"] == 2
     assert record["last_api_error_code"] == -412
@@ -186,7 +192,7 @@ def test_partial_membership_uses_instants_instead_of_iso_text(tmp_root, started_
             "outcome": "ok", "error_code": None, "artifact_paths": [],
             "started_at": stamp, "finished_at": stamp,
         })
-    work_ids, coverage = cli._partial_run_state(tmp_root, started_at)
+    work_ids, coverage = _module_cli_run_state._partial_run_state(tmp_root, started_at)
     assert work_ids == expected
     assert coverage == {}
 
@@ -210,7 +216,7 @@ def test_guard_covers_initial_manifest_load(tmp_root, monkeypatch, command, sign
         return original(self)
 
     monkeypatch.setattr(ManifestStore, "load", interrupt_once)
-    assert cli.main(_argv(tmp_root, command, work_id)) == 128 + signum
+    assert _module_cli_main.main(_argv(tmp_root, command, work_id)) == 128 + signum
     record, = RunLedger(tmp_root).load()
     assert record["command"] == command and record["exit_code"] == 128 + signum
     assert record["records_existing"] is None
@@ -231,7 +237,7 @@ def test_interruption_keeps_minimal_record_when_state_projection_also_fails(tmp_
         raise OSError("SESSDATA=SECRET https://signed.example/")
 
     monkeypatch.setattr(ManifestStore, "load", fail_load)
-    assert cli.main(_argv(tmp_root, "run", work_id)) == 143
+    assert _module_cli_main.main(_argv(tmp_root, "run", work_id)) == 143
     record, = RunLedger(tmp_root).load()
     assert record["command"] == "run" and record["exit_code"] == 143
     assert record["records_existing"] is None and record["work_ids"] is None
@@ -251,7 +257,7 @@ def test_guard_covers_client_construction_before_banner(tmp_root, monkeypatch, c
     argv = _argv(tmp_root, command, work_id)
     if "--offline" in argv:
         argv.remove("--offline")
-    assert cli.main(argv) == 143
+    assert _module_cli_main.main(argv) == 143
     record, = RunLedger(tmp_root).load()
     assert record["command"] == command and record["exit_code"] == 143
     # Campaign constructs its client before runner/manifest creation.
@@ -291,7 +297,7 @@ def test_interrupted_batch_records_only_its_durable_attempts_or_visited_pilot_ro
 
     monkeypatch.setattr("bili_asr.coordinator.RunCoordinator.run_batch", interrupt_batch)
     monkeypatch.setattr("bili_asr.cli.pilot._pilot_archive_subtitle", interrupt_pilot)
-    assert cli.main(_argv(tmp_root, command, work_id)) == 128 + signum
+    assert _module_cli_main.main(_argv(tmp_root, command, work_id)) == 128 + signum
     record, = RunLedger(tmp_root).load()
     assert record["command"] == command
     assert record["exit_code"] == 128 + signum
@@ -306,16 +312,16 @@ def test_first_delivery_blocks_reentrant_other_signal(monkeypatch, first_signal)
     # The second handler must return, otherwise it replaces the first exception.
     import bili_asr.cli.run as run
 
-    original = run._ignore_interruption_signals
+    original = _module_cli_signals._ignore_interruption_signals
     second_signal = signal.SIGINT if first_signal == signal.SIGTERM else signal.SIGTERM
 
     def deliver_again():
         signal.getsignal(second_signal)(second_signal, None)
         return original()
 
-    monkeypatch.setattr(run, "_ignore_interruption_signals", deliver_again)
-    with cli._interruptible_run():
-        with pytest.raises(cli._RunInterrupted) as interruption:
+    monkeypatch.setattr(_module_cli_signals, "_ignore_interruption_signals", deliver_again)
+    with _module_cli_signals._interruptible_run():
+        with pytest.raises(_module_cli_signals._RunInterrupted) as interruption:
             signal.getsignal(first_signal)(first_signal, None)
         assert interruption.value.signum == first_signal
         assert signal.getsignal(signal.SIGTERM) == signal.SIG_IGN
@@ -327,7 +333,7 @@ def test_first_delivery_blocks_reentrant_other_signal(monkeypatch, first_signal)
 def test_first_signal_at_record_guard_entry_still_records_once(tmp_root, monkeypatch, command, signum):
     work_id = _seed(tmp_root)
     monkeypatch.setattr("bili_asr.bili_client.BiliClient", lambda **kwargs: object())
-    original = cli._signals_ignored
+    original = _module_cli_signals._signals_ignored
     first = True
 
     def interrupt_before_guard():
@@ -337,8 +343,8 @@ def test_first_signal_at_record_guard_entry_still_records_once(tmp_root, monkeyp
             signal.getsignal(signum)(signum, None)
         return original()
 
-    monkeypatch.setattr(cli, "_signals_ignored", interrupt_before_guard)
-    assert cli.main(_argv(tmp_root, command, work_id)) == 128 + signum
+    monkeypatch.setattr(_module_cli_signals, "_signals_ignored", interrupt_before_guard)
+    assert _module_cli_main.main(_argv(tmp_root, command, work_id)) == 128 + signum
     record, = RunLedger(tmp_root).load()
     assert record["command"] == command
     assert record["exit_code"] == 128 + signum
@@ -426,6 +432,6 @@ def test_real_early_signal_and_repeated_signal_during_cleanup(tmp_root, tmp_path
     assert record["records_existing"] is None
     assert record["coverage_summary"] == {"subtitle_done": 1}
     # The main writer lock survived the entire record append and was released.
-    from bili_asr.coordinator import archive_writer
+    from bili_asr.pipeline.locks import archive_writer
     with archive_writer(tmp_root):
         pass

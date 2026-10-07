@@ -1,6 +1,10 @@
 """Fixture-driven behavioral coverage for the read-only coverage projection."""
 from __future__ import annotations
 
+import bili_asr.cli.main as _module_cli_main
+import bili_asr.cli.status_cmd as _module_cli_status_cmd
+
+
 import csv
 import json
 from pathlib import Path
@@ -11,8 +15,8 @@ from bili_asr.archive import write_archive
 from bili_asr.artifact_root import ArtifactRoots
 from bili_asr.coverage_report import CoverageReport
 from bili_asr.sidecar_projection import is_plain_cli_archive
+from tests.support.coverage_report import NOW, cursor, ledger, scheduler
 
-NOW = "2026-08-28T12:00:00Z"
 
 
 def test_plain_cli_archive_requires_an_explicit_completed_stage_producer() -> None:
@@ -36,23 +40,10 @@ def manifest_row(work_id: str, status: str = "archived", *, bvid: str | None = N
     }
 
 
-def cursor(state: str = "complete") -> dict:
-    return {"mid": 23191782, "next_page": 3, "total": 2,
-            "state": state, "last_api_error_code": None, "updated_at": NOW}
 
 
-def scheduler(state: str = "complete", ids: list[str] | None = None) -> dict:
-    return {"scope": "all", "limit": 20, "state": state,
-            "processed_work_ids": ids or ["BVone:p1", "BVtwo:p1"],
-            "last_api_error_code": None, "allow_long_live": False, "updated_at": NOW}
 
 
-def ledger(ids: list[str] | None = None, *, exit_code: int = 0) -> dict:
-    return {"run_id": "run-1", "command": "schedule", "started_at": NOW,
-            "finished_at": NOW, "exit_code": exit_code, "mid": 23191782,
-            "work_ids": ids or ["BVone:p1", "BVtwo:p1"], "pages_fetched": 1,
-            "records_fetched": 2, "records_existing": 0, "last_api_error_code": None,
-            "coverage_summary": {"archived": 2}, "cursor_snapshot": cursor()}
 
 
 def attempt(work_id: str, outcome: str = "ok", number: int = 1, stage: str = "archive") -> dict:
@@ -318,12 +309,12 @@ def test_cli_formats_and_status_sentinel(tmp_path: Path, monkeypatch, capsys):
     transcript.write_text("marker", encoding="utf-8")
     write_fixture(tmp_path, [manifest_row("BVone:p1")], cur=cursor(),
                   sched=scheduler(ids=["BVone:p1"]), ledgers=[ledger(["BVone:p1"])])
-    assert cli.main(["coverage", "--archive-root", str(tmp_path), "--format", "json"]) != 0
+    assert _module_cli_main.main(["coverage", "--archive-root", str(tmp_path), "--format", "json"]) != 0
     assert json.loads(capsys.readouterr().out)["schema_version"]
-    assert cli.main(["coverage", "--archive-root", str(tmp_path), "--format", "csv"]) != 0
+    assert _module_cli_main.main(["coverage", "--archive-root", str(tmp_path), "--format", "csv"]) != 0
     assert "schema_version" in capsys.readouterr().out
-    monkeypatch.setattr(cli, "_cmd_status", lambda args: 7)
-    assert cli.main(["status", "--archive-root", str(tmp_path)]) == 7
+    monkeypatch.setattr(_module_cli_status_cmd, "_cmd_status", lambda args: 7)
+    assert _module_cli_main.main(["status", "--archive-root", str(tmp_path)]) == 7
 
 
 def test_cli_returns_diagnostic_exit(tmp_path: Path):
@@ -340,7 +331,7 @@ def test_cli_returns_diagnostic_exit(tmp_path: Path):
     rows = _archived_rows(tmp_path, "BVone:p1")
     write_fixture(tmp_path, rows, cur=cursor(), sched=scheduler(ids=["BVone:p1"]),
                   ledgers=[ledger(["BVone:p1"])], attempts=[attempt("BVone:p1")])
-    assert cli.main(["coverage", "--archive-root", str(tmp_path), "--format", "json"]) == 0
+    assert _module_cli_main.main(["coverage", "--archive-root", str(tmp_path), "--format", "json"]) == 0
 
     # An unknown manifest status is outside the vocabulary and names no verdict
     # other than malformed, so it keeps the command failing closed. It is
@@ -351,7 +342,7 @@ def test_cli_returns_diagnostic_exit(tmp_path: Path):
     unknown["status"] = "no_such_status"
     manifest_path.write_text(
         manifest_path.read_text() + json.dumps(unknown) + "\n", encoding="utf-8")
-    assert cli.main(["coverage", "--archive-root", str(tmp_path), "--format", "json"]) == 1
+    assert _module_cli_main.main(["coverage", "--archive-root", str(tmp_path), "--format", "json"]) == 1
 
 
 def test_healthy_append_only_archive_reaches_exit_zero(tmp_path: Path):
@@ -373,7 +364,7 @@ def test_healthy_append_only_archive_reaches_exit_zero(tmp_path: Path):
         "state": "available", "source": "manifest_snapshot"}
     assert report.data["cumulative"]["state"] == "complete"
     assert "manifest_duplicate_work_id" not in codes(report)   # no exit-driving code
-    assert cli.main(["coverage", "--archive-root", str(tmp_path), "--format", "json"]) == 0
+    assert _module_cli_main.main(["coverage", "--archive-root", str(tmp_path), "--format", "json"]) == 0
 
     # Negative control: the same archive with one genuinely malformed row still
     # fails closed — the fix is bidirectional, not a blanket silence. Appended
@@ -384,7 +375,7 @@ def test_healthy_append_only_archive_reaches_exit_zero(tmp_path: Path):
     malformed["status"] = "no_such_status"
     manifest_path.write_text(
         manifest_path.read_text() + json.dumps(malformed) + "\n", encoding="utf-8")
-    assert cli.main(["coverage", "--archive-root", str(tmp_path), "--format", "json"]) == 1
+    assert _module_cli_main.main(["coverage", "--archive-root", str(tmp_path), "--format", "json"]) == 1
 
 
 def test_coverage_quality_accepts_append_only_history(tmp_path: Path):
@@ -400,7 +391,7 @@ def test_coverage_quality_accepts_append_only_history(tmp_path: Path):
     rows = _archived_rows(tmp_path, "BVone:p1")
     write_fixture(tmp_path, rows, cur=cursor(), sched=scheduler(ids=["BVone:p1"]),
                   ledgers=[ledger(["BVone:p1"])], attempts=[attempt("BVone:p1")])
-    assert cli.main(["coverage", "--archive-root", str(tmp_path), "--quality",
+    assert _module_cli_main.main(["coverage", "--archive-root", str(tmp_path), "--quality",
                      "--format", "json"]) == 0
 
     # Fail-closed half: `--quality` is the third changed reader and spec §3.3
@@ -412,7 +403,7 @@ def test_coverage_quality_accepts_append_only_history(tmp_path: Path):
     malformed["status"] = "no_such_status"
     manifest_path.write_text(
         manifest_path.read_text() + json.dumps(malformed) + "\n", encoding="utf-8")
-    assert cli.main(["coverage", "--archive-root", str(tmp_path), "--quality",
+    assert _module_cli_main.main(["coverage", "--archive-root", str(tmp_path), "--quality",
                      "--format", "json"]) == 1
 
 

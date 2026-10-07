@@ -15,7 +15,7 @@ Comparator revision ported: the guide's census as of 2026-09-26
 
 from __future__ import annotations
 
-from _hotword_census_comparators import (
+from tests.support.hotword_census_comparators import (
     arm_b_text_over,
     ratio,
     read_cues,
@@ -36,7 +36,7 @@ def test_the_ratio_basis_is_autojunk_off_and_pins_the_documented_reading() -> No
     # documented reading under this comparator.
     import inspect
 
-    import _hotword_census_comparators as comparators
+    import tests.support.hotword_census_comparators as comparators
 
     source = inspect.getsource(comparators.ratio)
     assert "autojunk=False" in source

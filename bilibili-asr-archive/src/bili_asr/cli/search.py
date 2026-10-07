@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+import bili_asr.search_index.errors as _module_search_index_errors
+import bili_asr.search_index.manifest as _module_search_index_manifest
+import bili_asr.search_index.store as _module_search_index_store
+
+
 from bili_asr.diagnostics import write_stderr
 
 from datetime import datetime, timezone
@@ -56,15 +61,19 @@ def _cmd_search_index(args: argparse.Namespace) -> int:
     """
     from bili_asr import search_index
 
-    index = search_index.TranscriptSearchIndex(
+    if not search_index.check_fts5_available():
+        write_stderr("search-index: SQLite FTS5 is unavailable")
+        return 1
+
+    index = _module_search_index_store.TranscriptSearchIndex(
         args.archive_root, artifact_roots=args.artifact_roots
     )
     try:
         indexed = index.build()
-    except search_index.FTS5UnavailableError as exc:
+    except _module_search_index_errors.FTS5UnavailableError as exc:
         write_stderr(f"search-index: {exc}")
         return 1
-    except search_index.TranscriptStoreError as exc:
+    except _module_search_index_errors.TranscriptStoreError as exc:
         write_stderr(f"search-index: {exc}")
         return 1
     except OSError as exc:
@@ -84,12 +93,9 @@ def _cmd_search(args: argparse.Namespace) -> int:
     --work-id``) keep the manifest-backed index behind them; the store-backed
     path is the default and answers ``--from/--to`` pubdate windows.
     """
-    from bili_asr.search_index import (
-        SearchIndexMissingError,
-        SearchQuery,
-        TranscriptStoreError,
-        search,
-    )
+    from bili_asr.search_index.errors import SearchIndexMissingError, TranscriptStoreError
+    from bili_asr.search_index.models import SearchQuery
+    from bili_asr.search_index.manifest import search
 
     if args.limit is not None and args.limit <= 0:
         write_stderr("search: --limit must be a positive integer")
@@ -108,12 +114,12 @@ def _cmd_search(args: argparse.Namespace) -> int:
     )
     if args.rebuild:
         if legacy_filters:
-            search_index.SearchIndex(
+            _module_search_index_manifest.SearchIndex(
                 args.archive_root, artifact_roots=args.artifact_roots
             ).build(force=True)
         else:
             _cmd_search_index(args)
-    index = search_index.TranscriptSearchIndex(
+    index = _module_search_index_store.TranscriptSearchIndex(
         args.archive_root, artifact_roots=args.artifact_roots
     )
     if not legacy_filters:
@@ -129,10 +135,10 @@ def _cmd_search(args: argparse.Namespace) -> int:
             print("search: index missing — run `bili-asr search-index` to build it")
             print(f"search: no hits for {args.query!r}")
             return 0
-        except (search_index.TranscriptStoreError, OSError) as exc:
+        except (_module_search_index_errors.TranscriptStoreError, OSError) as exc:
             write_stderr(f"search: {exc}")
             return 1
-        except search_index.FTS5UnavailableError as exc:
+        except _module_search_index_errors.FTS5UnavailableError as exc:
             write_stderr(f"search: {exc}")
             return 1
         return _print_block_hits(args, hits)
@@ -158,7 +164,7 @@ def _cmd_search(args: argparse.Namespace) -> int:
             archive_root=args.archive_root, query=sq,
             artifact_roots=args.artifact_roots,
         )
-    except search_index.FTS5UnavailableError as exc:
+    except _module_search_index_errors.FTS5UnavailableError as exc:
         write_stderr(f"search: {exc}")
         return 1
     except Exception:

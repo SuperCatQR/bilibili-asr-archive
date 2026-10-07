@@ -1,20 +1,4 @@
-"""Offline contract tests for the subtitle CLI (``probe-subs`` / ``harvest-subs``).
-
-Everything here is offline.  Both commands are driven end to end through
-``bili_asr.cli.main`` — argparse, the read-command database guard, the
-transcript-schema guard, ``TranscriptRepository``, the service, and the printed
-lines — against a temporary archive database and a scripted gateway double
-installed in place of the concrete adapter, so no network call and no package
-call is made.
-
-What is pinned: the locked ``probe`` / ``harvest`` / summary line shapes and the
-exit taxonomy (0 ran / 1 usage or configuration / 2 terminal), the selection
-preference (CC before AI inside a language family, exact ``--language`` match),
-the outcome mapping, the enumeration advancing across bounded runs, and the
-boundaries — neither command reads or writes a legacy sidecar or a transcript
-projection, ``probe-subs`` writes nothing at all and never creates the database,
-and no display path or stored row carries the credential.
-"""
+'Offline contract tests for the subtitle CLI (``probe-subs`` / ``harvest-subs``).\n\nEverything here is offline.  Both commands are driven end to end through\n``bili_asr.cli.main.main`` — argparse, the read-command database guard, the\ntranscript-schema guard, ``TranscriptRepository``, the service, and the printed\nlines — against a temporary archive database and a scripted gateway double\ninstalled in place of the concrete adapter, so no network call and no package\ncall is made.\n\nWhat is pinned: the locked ``probe`` / ``harvest`` / summary line shapes and the\nexit taxonomy (0 ran / 1 usage or configuration / 2 terminal), the selection\npreference (CC before AI inside a language family, exact ``--language`` match),\nthe outcome mapping, the enumeration advancing across bounded runs, and the\nboundaries — neither command reads or writes a legacy sidecar or a transcript\nprojection, ``probe-subs`` writes nothing at all and never creates the database,\nand no display path or stored row carries the credential.\n'
 
 from __future__ import annotations
 
@@ -25,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from bili_asr.cli import main
+from bili_asr.cli.main import main
 from bili_asr.config import ARCHIVE_DATABASE_NAME
 from bili_asr.services.subtitle_ingest import (
     language_family,
@@ -46,7 +30,7 @@ from bili_asr.storage.models import (
     ALLOWED_CAPTION_SOURCE_KINDS,
     MAX_TIMELINE_MS,
 )
-from fixtures.fake_bilibili_gateway import (
+from tests.fixtures.fake_bilibili_gateway import (
     SESSDATA_BOUNDARY_VALUE,
     UPSTREAM_ERROR_TEXT,
     FakeGateway,
@@ -54,12 +38,12 @@ from fixtures.fake_bilibili_gateway import (
     fake_gateway_seam,
     persisted_row_text,
 )
-from fixtures.metadata_records import (
+from tests.fixtures.metadata_records import (
     make_part_record,
     make_user_record,
     make_video_record,
 )
-from test_storage_schema import _write_pre_iteration_database
+from tests.support.storage_schema import _write_pre_iteration_database
 
 BVID_A = "BV1SubA"
 BVID_B = "BV1SubB"

@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import bili_asr.cli.main as _module_cli_main
+
+
 import importlib
 import os
 import stat
@@ -134,9 +137,9 @@ def test_cli_product_readers_accept_a_read_only_artifact_root(tmp_root, monkeypa
         pytest.fail(f"{command} only reads products")
 
     monkeypatch.setattr(artifact_root, "_probe_writable", refuse_any_probe)
-    monkeypatch.setattr(cli, "_dispatch_command", lambda args: 0)
+    monkeypatch.setattr(_module_cli_main, "_dispatch_command", lambda args: 0)
     extra = ["--format", "json"] if command == "export" else []
-    assert cli.main([
+    assert _module_cli_main.main([
         command, "--archive-root", str(archive), "--artifact-root", str(artifact), *extra,
     ]) == 0
     assert list(artifact.iterdir()) == []
@@ -145,8 +148,8 @@ def test_cli_product_readers_accept_a_read_only_artifact_root(tmp_root, monkeypa
 def test_cli_search_only_reads_the_artifact_root(tmp_root, monkeypatch) -> None:
     archive, artifact = _roots(tmp_root)
     monkeypatch.setattr(artifact_root, "_probe_writable", lambda _path: pytest.fail("search writes no product"))
-    monkeypatch.setattr(cli, "_dispatch_command", lambda args: 0)
-    assert cli.main([
+    monkeypatch.setattr(_module_cli_main, "_dispatch_command", lambda args: 0)
+    assert _module_cli_main.main([
         "search", "query", "--archive-root", str(archive), "--artifact-root", str(artifact),
     ]) == 0
 
@@ -163,8 +166,8 @@ def test_cli_rejects_an_unsyncable_root_before_taking_the_writer_lock(
         return real_fsync(descriptor)
 
     monkeypatch.setattr(os, "fsync", fail_probe_sync)
-    monkeypatch.setattr(cli, "_dispatch_command", lambda args: pytest.fail("writer must not start"))
-    assert cli.main([
+    monkeypatch.setattr(_module_cli_main, "_dispatch_command", lambda args: pytest.fail("writer must not start"))
+    assert _module_cli_main.main([
         "asr", "--archive-root", str(archive), "--artifact-root", str(artifact),
     ]) == 1
 
@@ -175,7 +178,7 @@ def test_cli_rejects_an_unsyncable_root_before_taking_the_writer_lock(
 
 def test_audio_inventory_reuses_the_invocations_resolved_roots(tmp_root, monkeypatch, capsys) -> None:
     archive, artifact = _roots(tmp_root)
-    cli_main = importlib.import_module("bili_asr.cli.main")
+    cli_main = importlib.import_module('bili_asr.cli.main.main')
     cli_queue = importlib.import_module("bili_asr.cli.queue")
     calls = []
     original = cli_main.roots_for
@@ -188,7 +191,7 @@ def test_audio_inventory_reuses_the_invocations_resolved_roots(tmp_root, monkeyp
     # The handler used to independently resolve the roots a second time.
     monkeypatch.setattr(artifact_root, "roots_for", lambda *args, **kwargs: pytest.fail("duplicate resolution"))
     monkeypatch.setattr(cli_queue, "_open_subtitle_connection", lambda *args, **kwargs: None)
-    assert cli.main([
+    assert _module_cli_main.main([
         "derive-audio-inventory", "--archive-root", str(archive), "--artifact-root", str(artifact),
     ]) == 1
     assert len(calls) == 1

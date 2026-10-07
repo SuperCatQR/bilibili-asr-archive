@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import bili_asr.cli.main as _module_cli_main
+
+
 import json
 import os
 from pathlib import Path
@@ -279,13 +282,13 @@ def test_verify_exits_zero_on_history_and_non_zero_on_real_damage(tmp_path: Path
     attempts = tmp_path / "coordinator" / "attempts.jsonl"
     attempts.parent.mkdir()
     attempts.write_text(json.dumps(_attempt("BV1x:p0", "ok")) + "\n", encoding="utf-8")
-    assert cli.main(["verify", "--archive-root", str(tmp_path), "--format", "json"]) == 0
+    assert _module_cli_main.main(["verify", "--archive-root", str(tmp_path), "--format", "json"]) == 0
 
     # A status outside VALID_STATUSES still reaches the else-branch and still
     # fails the same command closed — the fix is bidirectional.
     _manifest(tmp_path, [row, *healthy, {**row, "work_id": "BV1broken:p0",
                                         "bvid": "BV1broken", "status": "no_such_status"}])
-    assert cli.main(["verify", "--archive-root", str(tmp_path), "--format", "json"]) == 1
+    assert _module_cli_main.main(["verify", "--archive-root", str(tmp_path), "--format", "json"]) == 1
 
     # The same input still reaches the command as a defect list, not a silence.
     from io import StringIO
@@ -293,7 +296,7 @@ def test_verify_exits_zero_on_history_and_non_zero_on_real_damage(tmp_path: Path
 
     buffer = StringIO()
     with contextlib.redirect_stdout(buffer):
-        cli.main(["verify", "--archive-root", str(tmp_path), "--format", "json"])
+        _module_cli_main.main(["verify", "--archive-root", str(tmp_path), "--format", "json"])
     assert STRUCTURAL_INPUT_ERROR in json.loads(buffer.getvalue())["diagnostics"]
 
 
@@ -488,7 +491,7 @@ def _verify_payload(root: Path) -> tuple[int, dict[str, object]]:
 
     buffer = StringIO()
     with contextlib.redirect_stdout(buffer):
-        code = cli.main(["verify", "--archive-root", str(root), "--format", "json"])
+        code = _module_cli_main.main(["verify", "--archive-root", str(root), "--format", "json"])
     return code, json.loads(buffer.getvalue())
 
 
@@ -636,7 +639,7 @@ def test_inflight_escaping_symlink_at_the_inferred_raw_path_is_a_mismatch(tmp_pa
     # command rather than left implied by the verify-side assertion above.
     from bili_asr import cli
 
-    assert cli.main(["coverage", "--archive-root", str(tmp_path),
+    assert _module_cli_main.main(["coverage", "--archive-root", str(tmp_path),
                      "--quality", "--format", "json"]) == 1
 
 
@@ -666,7 +669,7 @@ def test_inflight_absent_inferred_raw_path_is_not_a_mismatch(tmp_path: Path) -> 
     assert payload["defect_count"] == 0
     from bili_asr import cli
 
-    assert cli.main(["coverage", "--archive-root", str(tmp_path),
+    assert _module_cli_main.main(["coverage", "--archive-root", str(tmp_path),
                      "--quality", "--format", "json"]) == 0
 
 
@@ -700,7 +703,7 @@ def test_transcripts_raw_escaping_symlink_is_a_mismatch_on_both_readers(tmp_path
     # Agreement is the DoD, so it is pinned against the other reader's real command.
     from bili_asr import cli
 
-    assert cli.main(["coverage", "--archive-root", str(tmp_path),
+    assert _module_cli_main.main(["coverage", "--archive-root", str(tmp_path),
                      "--quality", "--format", "json"]) == 1
 
 
@@ -733,7 +736,7 @@ def test_escaping_but_absent_inferred_raw_is_a_mismatch_on_both_readers(
     assert payload["defect_count"] == 1
     from bili_asr import cli
 
-    assert cli.main(["coverage", "--archive-root", str(tmp_path),
+    assert _module_cli_main.main(["coverage", "--archive-root", str(tmp_path),
                      "--quality", "--format", "json"]) == 1
     # The exit moves because the containment question was asked, not by accident:
     # the dropped-on-existence candidate is the one that carries the reason.

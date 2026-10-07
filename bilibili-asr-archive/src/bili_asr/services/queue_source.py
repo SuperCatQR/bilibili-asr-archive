@@ -313,21 +313,61 @@ class QueueSource:
 
         return self._select("missing_transcript", bvid=bvid, page=page, limit=limit)
 
+    def select_asr_subtitle_queue(self, *, bvid: str | None = None,
+                                  page: int | None = None,
+                                  limit: int | None = None) -> QueueSelection:
+        """Select captioned parts whose local ASR transcript is still absent."""
+        items = self.repository.list_asr_subtitle_candidates(
+            bvid=bvid, page=page, limit=limit
+        )
+        entries: dict[str, dict[str, Any]] = {}
+        item_by_key: dict[str, QueueGapItem] = {}
+        audio_parts: set[tuple[str, int]] = set()
+        if items:
+            identities = [(item.bvid, item.page_index) for item in items]
+            predicate = " OR ".join(
+                "(vp.bvid = ? AND vp.page_index = ?)" for _ in identities
+            )
+            parameters = [value for identity in identities for value in identity]
+            audio_parts = {
+                (str(row["bvid"]), int(row["page_index"]))
+                for row in self.connection.execute(
+                    "SELECT DISTINCT vp.bvid, vp.page_index "
+                    "FROM video_parts AS vp "
+                    "JOIN part_audio_objects AS pa "
+                    "ON pa.video_part_id = vp.video_part_id "
+                    f"WHERE {predicate}",
+                    parameters,
+                ).fetchall()
+            }
+        for item in items:
+            entry = entry_for_item(item)
+            has_audio = (item.bvid, item.page_index) in audio_parts
+            entry["status"] = "audio_ok" if has_audio else "subtitle_done"
+            entry["asr_required"] = True
+            entry["source"] = "subtitle"
+            entries[item.work_id] = entry
+            item_by_key[item.work_id] = item
+        return QueueSelection(entries=entries, items=item_by_key)
+
     def select_subtitle_queue(self, *, bvid: str | None = None, page: int | None = None,
                               limit: int | None = None) -> QueueSelection:
         """The parts that still need a subtitle (the harvest route)."""
 
         return self._select("missing_subtitle", bvid=bvid, page=page, limit=limit)
 
-    def select_pending_scope(self, *, limit: int | None = None) -> "dict[str, dict[str, Any]]":
+    def select_pending_scope(self, *, limit: int | None = None,
+                             asr_with_subtitles: bool = True) -> "dict[str, dict[str, Any]]":
         """Every queued part, keyed by work_id, in the coordinator's row shape.
 
         The three gap views are not disjoint (contract §4), so a part is
         deduplicated by its store-native ``work_id``; the first queue that
         claims it wins, in the fixed order 字幕 → 音频 → 转写.  Each row's
         ``status`` names the stage route the coordinator drives it down:
-        ``meta_ok`` (harvest), ``needs_audio`` (download→ASR), or ``audio_ok``
-        (ASR).  A part holding subtitles is never in any queue.
+        ``meta_ok`` (harvest), ``needs_audio`` (download→ASR), ``audio_ok``
+        (ASR), or ``subtitle_done`` (captioned part awaiting audio).  When
+        ``asr_with_subtitles`` is enabled, captioned parts are included in the
+        ASR queue regardless of whether their subtitle raw is already present.
         """
 
         merged: dict[str, dict[str, Any]] = {}
@@ -341,6 +381,9 @@ class QueueSource:
             self.select_transcript_queue(limit=limit),
         ):
             for key, entry in select.entries.items():
+                merged.setdefault(key, entry)
+        if asr_with_subtitles:
+            for key, entry in self.select_asr_subtitle_queue(limit=limit).entries.items():
                 merged.setdefault(key, entry)
         for key, entry in self.select_subtitle_queue(limit=limit).entries.items():
             if key not in merged:

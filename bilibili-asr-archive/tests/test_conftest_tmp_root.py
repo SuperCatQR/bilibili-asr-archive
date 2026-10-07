@@ -11,7 +11,7 @@ from __future__ import annotations
 import os
 import re
 
-import conftest as _conftest
+import tests.conftest as _conftest
 
 
 def test_tmp_root_reuse_leftover_dir(tmp_root, monkeypatch):

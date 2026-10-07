@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-import _asr_fakes as asr_fakes
-from _archive_database import _seed_archive_database
+import tests.support.asr_fakes as asr_fakes
+from tests.support.archive_database import _seed_archive_database
 
 from bili_asr.audio_budget import (
     SKIP_REASON,
@@ -108,10 +108,10 @@ def _budget_row(bvid, cid, duration_s, status="meta_ok", audio_path=None):
 def test_pilot_budget_skip_via_cli(tmp_path, monkeypatch, capsys):
     """Audio row skipped with named reason when cap would be breached."""
     # tests/ is importable via conftest's sys.path preamble (repo root on sys.path).
-    from test_cli_pilot import RouterTransport, SPI_OK, nav_ok, nav_response, player_ok  # noqa
+    from tests.support.cli_pilot import RouterTransport, SPI_OK, nav_ok, nav_response, player_ok  # noqa
     from bili_asr import bili_client as bc
     from bili_asr import asr as asr_mod
-    from bili_asr.cli import main
+    from bili_asr.cli.main import main
     from bili_asr.manifest import ManifestStore
 
     store = ManifestStore(root=str(tmp_path))
@@ -137,7 +137,7 @@ def test_pilot_budget_skip_via_cli(tmp_path, monkeypatch, capsys):
 
 
 def test_pilot_duration_excluded_from_selection(tmp_path, monkeypatch, capsys):
-    from bili_asr.cli import _pilot_select
+    from bili_asr.cli.pilot import _pilot_select
 
     rows = {
         "BVlong:p0": _budget_row("BVlong", 1, 3600),

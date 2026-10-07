@@ -74,7 +74,7 @@ def _write_caption_route(
 
     from bili_asr.storage import MetadataRepository, TranscriptRepository
     from bili_asr.storage.models import AcquisitionRunRecord, TranscriptSegmentRecord
-    from fixtures.metadata_records import (
+    from tests.fixtures.metadata_records import (
         make_part_record,
         make_user_record,
         make_video_record,
@@ -485,7 +485,7 @@ def test_cli_default_path_reads_the_root_it_always_read(tmp_path: Path) -> None:
     leave the printed contract exactly as it was.
     """
 
-    from bili_asr.cli import main
+    from bili_asr.cli.main import main
 
     archive_root, artifact_root = _clean_default_workspace(tmp_path)
 
@@ -513,7 +513,7 @@ def test_cli_default_path_reads_the_root_it_always_read(tmp_path: Path) -> None:
 def test_cli_split_roots_writes_under_the_artifact_root(tmp_path: Path, capsys) -> None:
     """``--asr-root`` / ``--caption-root`` reach ``build_sidebyside``."""
 
-    from bili_asr.cli import main
+    from bili_asr.cli.main import main
 
     asr_root, caption_root = _split_root_workspace(tmp_path)
 
@@ -541,7 +541,7 @@ def test_cli_refuses_a_caption_derived_asr_root(tmp_path: Path, capsys) -> None:
     line.
     """
 
-    from bili_asr.cli import main
+    from bili_asr.cli.main import main
     from bili_asr.storage import open_database
 
     asr_root = tmp_path / "route1-ai-caption"
@@ -572,7 +572,7 @@ def test_cli_refuses_a_caption_derived_asr_root(tmp_path: Path, capsys) -> None:
 def test_cli_moves_both_reads_away_from_the_write_and_archive_defaults(
     tmp_path: Path, capsys,
 ) -> None:
-    from bili_asr.cli import main
+    from bili_asr.cli.main import main
 
     asr_root, caption_root = _split_root_workspace(tmp_path)
     archive_root = tmp_path / "local-state"
@@ -617,7 +617,7 @@ def test_cli_moves_both_reads_away_from_the_write_and_archive_defaults(
 def test_cli_rejects_blank_route_roots_without_reading_cwd(
     tmp_path: Path, monkeypatch, capsys, flag: str, value: str,
 ) -> None:
-    from bili_asr.cli import main
+    from bili_asr.cli.main import main
 
     asr_root, caption_root = _split_root_workspace(tmp_path)
     output = tmp_path / "output"
@@ -642,7 +642,7 @@ def test_cli_refuses_a_caption_store_without_transcript_schema(
     tmp_path: Path, capsys,
 ) -> None:
     import sqlite3
-    from bili_asr.cli import main
+    from bili_asr.cli.main import main
 
     asr_root, _ = _split_root_workspace(tmp_path)
     caption_root = tmp_path / "wrong-store"

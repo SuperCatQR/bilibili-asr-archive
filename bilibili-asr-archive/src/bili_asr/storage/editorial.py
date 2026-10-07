@@ -10,7 +10,7 @@ from typing import Any
 from uuid import uuid4
 
 from bili_asr.editorial import EditorialConfig, canonical, digest, language_key, prepare_input
-from bili_asr.storage.database import TranscriptRepository
+from bili_asr.storage.transcripts import TranscriptRepository
 from bili_asr.storage.workflow import WorkflowJob
 
 
