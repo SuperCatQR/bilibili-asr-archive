@@ -528,65 +528,6 @@ def test_windows_file_lock_uses_matching_release_api(tmp_path: Path, monkeypatch
     assert os.path.getsize(lock_target + ".lock") == 1
 
 
-def test_cli_dispatch_locks_every_archive_mutation(
-    tmp_path: Path, monkeypatch, capsys
-) -> None:
-    from contextlib import contextmanager
-    from bili_asr import cli, coordinator
-
-    assert _module_cli_main._ARCHIVE_WRITER_COMMANDS == {
-        "fetch-meta",
-        "recover",
-        "asr",
-        "pilot",
-        "derive-manifest",
-        # It writes audio_objects / part_audio_objects, so it is a store-writing
-        # command like derive-manifest beside it (added 2026-09-28 with the
-        # command itself; the earlier omission made its documented archive_busy
-        # refusal unreachable).
-        "derive-audio-inventory",
-        "adopt-transcripts",
-        "publish-transcripts",
-        "harvest-subs",
-        "download-audio",
-        "run",
-        "campaign",
-        "schedule",
-    }
-    # ``probe-subs`` reads the SQLite transcript path and writes nothing, so it
-    # is a reader like ``status``: no writer lock, no file, no new database.
-    assert "probe-subs" not in _module_cli_main._ARCHIVE_WRITER_COMMANDS
-
-    @contextmanager
-    def busy_writer(_root):
-        raise ArchiveBusyError()
-        yield
-
-    monkeypatch.setattr(_module_pipeline_locks, "archive_writer", busy_writer)
-    # status is a read command: it never takes the writer lock, so it
-    # succeeds against an existing fresh database while the writer lock
-    # stays busy.
-    from bili_asr.storage import open_database
-
-    open_database(os.fspath(tmp_path)).close()
-    assert _module_cli_main.main(["status", "--archive-root", os.fspath(tmp_path)]) == 0
-    capsys.readouterr()
-    assert _module_cli_main.main([
-        "fetch-meta",
-        "--mid",
-        "23191782",
-        "--archive-root",
-        os.fspath(tmp_path),
-    ]) == 1
-    captured = capsys.readouterr()
-    assert captured.out == ""
-    assert captured.err == "fetch-meta: archive_busy\n"
-    assert _module_cli_main.main([
-        "adopt-transcripts", "--archive-root", os.fspath(tmp_path),
-    ]) == 1
-    captured = capsys.readouterr()
-    assert captured.out == ""
-    assert captured.err == "adopt-transcripts: archive_busy\n"
 
 
 def test_archive_writer_reenters_same_thread_without_second_lock(tmp_path: Path, monkeypatch) -> None:

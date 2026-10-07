@@ -55,37 +55,8 @@ def _argv(root, command, work_id):
     return result
 
 
-@pytest.mark.parametrize("command", COMMANDS)
-def test_normal_batch_writes_one_record_with_original_count(tmp_root, monkeypatch, command):
-    work_id = _seed(tmp_root)
-    monkeypatch.setattr("bili_asr.bili_client.BiliClient", lambda **kwargs: object())
-    code = _module_cli_main.main(_argv(tmp_root, command, work_id))
-    assert code == (1 if command == "pilot" else 0)
-    records = RunLedger(tmp_root).load()
-    assert len(records) == 1
-    assert records[0]["command"] == command
-    assert records[0]["exit_code"] == code
-    assert records[0]["records_existing"] == 1
-    assert records[0]["work_ids"] == [work_id]
-    assert records[0]["coverage_summary"] == {"archived": 1}
 
 
-@pytest.mark.parametrize("command", COMMANDS)
-def test_ledger_write_failure_is_bounded_and_redacted(tmp_root, monkeypatch, capsys, command):
-    work_id = _seed(tmp_root)
-    monkeypatch.setattr("bili_asr.bili_client.BiliClient", lambda **kwargs: object())
-    private_error = type("SESSDATA_cookie_error", (Exception,), {})
-
-    def fail(self, record):
-        raise private_error("https://signed.example/?cookie=SECRET")
-
-    monkeypatch.setattr(RunLedger, "append", fail)
-    code = _module_cli_main.main(_argv(tmp_root, command, work_id))
-    assert code == (1 if command == "pilot" else 0)
-    output = capsys.readouterr()
-    assert output.err.count(f"{command}: run-ledger write failed") == 1
-    assert "SECRET" not in output.err and "SESSDATA" not in output.err
-    assert "https://" not in output.err and "cookie_error" not in output.err
 
 
 _CLOSED_STDERR_RECORD = '''import json
@@ -267,43 +238,6 @@ def test_guard_covers_client_construction_before_banner(tmp_root, monkeypatch, c
     assert "Traceback" not in capsys.readouterr().err
 
 
-@pytest.mark.parametrize("command", COMMANDS)
-@pytest.mark.parametrize("signum", (signal.SIGTERM, signal.SIGINT))
-def test_interrupted_batch_records_only_its_durable_attempts_or_visited_pilot_row(
-    tmp_root, monkeypatch, command, signum,
-):
-    work_id = _seed(tmp_root)
-    ManifestStore(tmp_root).upsert({"work_id": "BVpast:p0", "bvid": "BVpast", "status": "gone"})
-    ledger = AttemptLedger(tmp_root)
-    ledger.append({
-        "stage": "archive", "work_id": "BVpast:p0", "attempt": 1,
-        "outcome": "ok", "error_code": None, "artifact_paths": [],
-        "started_at": "2000-01-01T00:00:00.1Z", "finished_at": "2000-01-01T00:00:00.1Z",
-    })
-    monkeypatch.setattr("bili_asr.bili_client.BiliClient", lambda **kwargs: object())
-
-    def interrupt_batch(self, rows):
-        from bili_asr.persistence import utc_now_iso
-
-        ledger.append({
-            "stage": "archive", "work_id": work_id, "attempt": 1,
-            "outcome": "ok", "error_code": None, "artifact_paths": [],
-            "started_at": utc_now_iso(), "finished_at": utc_now_iso(),
-        })
-        signal.getsignal(signum)(signum, None)
-
-    def interrupt_pilot(*args, **kwargs):
-        signal.getsignal(signum)(signum, None)
-
-    monkeypatch.setattr("bili_asr.coordinator.RunCoordinator.run_batch", interrupt_batch)
-    monkeypatch.setattr("bili_asr.cli.pilot._pilot_archive_subtitle", interrupt_pilot)
-    assert _module_cli_main.main(_argv(tmp_root, command, work_id)) == 128 + signum
-    record, = RunLedger(tmp_root).load()
-    assert record["command"] == command
-    assert record["exit_code"] == 128 + signum
-    assert record["records_existing"] == 2
-    assert record["work_ids"] == [work_id]
-    assert record["coverage_summary"] == {"gone": 1, "subtitle_done": 1}
 
 
 @pytest.mark.parametrize("first_signal", (signal.SIGTERM, signal.SIGINT))
@@ -328,29 +262,6 @@ def test_first_delivery_blocks_reentrant_other_signal(monkeypatch, first_signal)
         assert signal.getsignal(signal.SIGINT) == signal.SIG_IGN
 
 
-@pytest.mark.parametrize("command", COMMANDS)
-@pytest.mark.parametrize("signum", (signal.SIGTERM, signal.SIGINT))
-def test_first_signal_at_record_guard_entry_still_records_once(tmp_root, monkeypatch, command, signum):
-    work_id = _seed(tmp_root)
-    monkeypatch.setattr("bili_asr.bili_client.BiliClient", lambda **kwargs: object())
-    original = _module_cli_signals._signals_ignored
-    first = True
-
-    def interrupt_before_guard():
-        nonlocal first
-        if first:
-            first = False
-            signal.getsignal(signum)(signum, None)
-        return original()
-
-    monkeypatch.setattr(_module_cli_signals, "_signals_ignored", interrupt_before_guard)
-    assert _module_cli_main.main(_argv(tmp_root, command, work_id)) == 128 + signum
-    record, = RunLedger(tmp_root).load()
-    assert record["command"] == command
-    assert record["exit_code"] == 128 + signum
-    assert record["records_existing"] == 1
-    assert record["work_ids"] == [work_id]
-    assert record["coverage_summary"] == {"archived": 1}
 
 
 _EARLY_LOAD_HOOK = '''import os

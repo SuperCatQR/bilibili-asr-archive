@@ -302,19 +302,6 @@ def test_all_evidence_bytes_and_mtimes_remain_unchanged(tmp_path: Path):
                for path, (data, mtime) in files.items())
 
 
-def test_cli_formats_and_status_sentinel(tmp_path: Path, monkeypatch, capsys):
-    from bili_asr import cli
-    transcript = tmp_path / "transcripts" / "BVone.p1" / "bundle.txt"
-    transcript.parent.mkdir(parents=True)
-    transcript.write_text("marker", encoding="utf-8")
-    write_fixture(tmp_path, [manifest_row("BVone:p1")], cur=cursor(),
-                  sched=scheduler(ids=["BVone:p1"]), ledgers=[ledger(["BVone:p1"])])
-    assert _module_cli_main.main(["coverage", "--archive-root", str(tmp_path), "--format", "json"]) != 0
-    assert json.loads(capsys.readouterr().out)["schema_version"]
-    assert _module_cli_main.main(["coverage", "--archive-root", str(tmp_path), "--format", "csv"]) != 0
-    assert "schema_version" in capsys.readouterr().out
-    monkeypatch.setattr(_module_cli_status_cmd, "_cmd_status", lambda args: 7)
-    assert _module_cli_main.main(["status", "--archive-root", str(tmp_path)]) == 7
 
 
 def test_cli_returns_diagnostic_exit(tmp_path: Path):

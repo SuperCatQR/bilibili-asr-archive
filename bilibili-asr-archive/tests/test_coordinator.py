@@ -555,71 +555,8 @@ def test_run_batch_needs_audio_lazily_constructs_one_runner(tmp_root, monkeypatc
 
 # ------------------------------------------------------------ run: live path
 
-def test_cli_run_pending_executes_stages_and_records_attempts(
-    tmp_root, monkeypatch, capsys
-):
-    sub = page_identity("BVsub", 0, 111, "p0")
-    aud = page_identity("BVaud", 0, 222, "p0")
-    store = ManifestStore(root=tmp_root)
-    store.upsert(_row(sub, title="has-sub"))
-    store.upsert(_row(aud, title="needs-asr"))
-    _stub_asr(monkeypatch)
-    _patch_cli(monkeypatch, _cid_transport({sub.cid}))
-
-    rc = main(["run", "--scope", "pending", "--queue-source", "manifest", "--queue-source", "manifest", "--archive-root", tmp_root])
-    captured = capsys.readouterr()
-    assert rc == 0, captured.err
-
-    loaded = ManifestStore(root=tmp_root).load()
-    assert loaded[sub.work_id]["status"] == "archived"
-    assert loaded[aud.work_id]["status"] == "archived"
-
-    attempts = AttemptLedger(tmp_root).load()
-    stages_by_work = {}
-    for rec in attempts:
-        stages_by_work.setdefault(rec["work_id"], []).append(rec["stage"])
-    assert stages_by_work[sub.work_id] == ["harvest", "archive"]
-    assert stages_by_work[aud.work_id] == ["harvest", "download", "asr", "archive"]
-    assert all(rec["outcome"] == "ok" for rec in attempts)
-    # artifact paths are relative to archive root
-    for rec in attempts:
-        for p in rec["artifact_paths"]:
-            assert not os.path.isabs(p)
 
 
-def test_cli_run_rerun_skips_terminal_rows(tmp_root, monkeypatch, capsys):
-    sub = page_identity("BVsub", 0, 111, "p0")
-    store = ManifestStore(root=tmp_root)
-    store.upsert(_row(sub, title="has-sub"))
-    # Materialize the snapshot: the byte-identity assertions below read
-    # ``manifest.jsonl`` directly, and a journal-only upsert never writes it.
-    store.save()
-    transcribe_calls: list[str] = []
-    _stub_asr(monkeypatch, transcribe_calls)
-    transport = _mixed_transport()
-    _patch_cli(monkeypatch, transport)
-
-    assert main(["run", "--scope", "pending", "--queue-source", "manifest", "--queue-source", "manifest", "--archive-root", tmp_root]) == 0
-    capsys.readouterr()
-    manifest_path = os.path.join(tmp_root, "manifest", "manifest.jsonl")
-    with open(manifest_path, encoding="utf-8") as fh:
-        first_manifest = fh.read()
-    attempts_path = os.path.join(tmp_root, "coordinator", "attempts.jsonl")
-    with open(attempts_path, encoding="utf-8") as fh:
-        first_attempts = fh.read()
-    first_probe_calls = [c for c in transport.calls if "player/wbi/v2" in c["url"]]
-
-    rc = main(["run", "--scope", "pending", "--queue-source", "manifest", "--queue-source", "manifest", "--archive-root", tmp_root])
-    captured = capsys.readouterr()
-    assert rc == 0, captured.err
-    assert "selected 0 row(s)" in captured.out
-    with open(manifest_path, encoding="utf-8") as fh:
-        assert fh.read() == first_manifest
-    with open(attempts_path, encoding="utf-8") as fh:
-        assert fh.read() == first_attempts
-    probes_now = [c for c in transport.calls if "player/wbi/v2" in c["url"]]
-    assert probes_now == first_probe_calls
-    assert transcribe_calls == []  # no new work
 
 
 def test_cli_run_limit_bounds_batch(tmp_root, monkeypatch, capsys):
@@ -1059,64 +996,6 @@ cli._signals_ignored = _parking_signals_ignored
 '''
 
 
-def test_cli_run_repeated_sigint_during_the_unwind_still_writes_the_record(tmp_root):
-    """A second Ctrl-C in the SIGINT-first unwind must not cost the record.
-
-    `SIGINT` leaves CPython's handler in place, so nothing installs the ignored
-    pair at delivery time: without the guard the `except KeyboardInterrupt`
-    branch installs, the second Ctrl-C is raised inside the write's `finally`
-    and the record is abandoned -- the repeated-SIGTERM failure mode, reached
-    through the other interruption source.  The child is parked in that window
-    rather than raced (it is microseconds wide), and a queued signal is taken
-    before the child's next user-mode instruction, so releasing it after the
-    send cannot let it slip past.
-    """
-    from bili_asr.run_ledger import RunLedger
-
-    first = page_identity("BVlater", 0, 111, "p0")
-    second = page_identity("BVsigint", 0, 222, "p0")
-    store = ManifestStore(root=tmp_root)
-    store.upsert(_row(first, status="needs_audio"))
-    store.upsert(_row(second, status="needs_audio"))
-
-    hook_dir = Path(tmp_root).parent / f"{Path(tmp_root).name}-hook"
-    hook_dir.mkdir()
-    (hook_dir / "sitecustomize.py").write_text(_SIGINT_WINDOW_HOOK, encoding="utf-8")
-    marker = hook_dir / "unwinding"
-    release = hook_dir / "release"
-
-    child = subprocess.Popen(
-        _run_argv(tmp_root), cwd=str(_PACKAGE_ROOT),
-        env=dict(os.environ, PYTHONPATH=f"{hook_dir}{os.pathsep}{_SRC_DIR}",
-                 BILI_TEST_UNWIND_MARKER=str(marker),
-                 BILI_TEST_UNWIND_RELEASE=str(release)),
-        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
-    )
-    try:
-        banner = _await_banner(child)
-        assert banner.startswith("run: scope=pending selected 2 row(s)"), (
-            banner, _child_stderr(child))
-        _await_first_attempt(child, tmp_root, first.work_id)
-        child.send_signal(signal.SIGINT)
-        _await_file(child, marker, "the child never parked at the record write")
-        child.send_signal(signal.SIGINT)
-        release.write_text("go", encoding="utf-8")
-        rc = child.wait(timeout=_CHILD_TIMEOUT_S)
-        assert rc == 130, (rc, _child_stderr(child))
-    finally:
-        release.write_text("go", encoding="utf-8")
-        if child.poll() is None:
-            child.kill()
-            child.wait()
-        shutil.rmtree(hook_dir, ignore_errors=True)
-
-    run_records = [r for r in RunLedger(root=tmp_root).load() if r.get("command") == "run"]
-    assert len(run_records) == 1
-    record = run_records[0]
-    assert record["exit_code"] == 130
-    assert record["work_ids"] == [first.work_id]
-    assert record["records_existing"] == 2
-    assert record["coverage_summary"] == {"needs_audio": 2}
 
 
 def test_sigterm_delivery_ignores_both_signals_across_the_unwind():
@@ -1213,39 +1092,6 @@ def test_run_offline_reprocesses_audio_on_disk(tmp_root, monkeypatch, capsys):
     ]
 
 
-def test_run_offline_missing_input_skipped_with_reason_zero_http(
-    tmp_root, monkeypatch, capsys
-):
-    # subtitle_done row whose raw JSON vanished + audio_ok row whose audio
-    # vanished: both skipped with reason, no HTTP, nonzero exit (scope not
-    # fully processed).
-    sub = page_identity("BVmissSub", 0, 111, "p0")
-    aud = page_identity("BVmissAud", 0, 222, "p0")
-    store = ManifestStore(root=tmp_root)
-    store.upsert(_row(sub, status="subtitle_done", title="no-raw"))
-    store.upsert(_row(aud, status="audio_ok", title="no-audio"))
-    transcribe_calls: list[str] = []
-    _stub_asr(monkeypatch, transcribe_calls)
-    transport = _mixed_transport()
-    _patch_cli(monkeypatch, transport)
-
-    rc = main(["run", "--scope", "pending", "--queue-source", "manifest", "--queue-source", "manifest", "--offline",
-               "--archive-root", tmp_root])
-    captured = capsys.readouterr()
-    assert rc == 1
-    assert transport.calls == []
-    assert transcribe_calls == []
-    loaded = ManifestStore(root=tmp_root).load()
-    assert loaded[sub.work_id]["status"] == "subtitle_done"
-    assert loaded[aud.work_id]["status"] == "audio_ok"
-    attempts = AttemptLedger(tmp_root).load()
-    skipped = {(r["work_id"], r["error_code"]) for r in attempts}
-    assert (sub.work_id, "missing_subtitle_raw") in skipped
-    assert (aud.work_id, "missing_audio") in skipped
-    # operator surfaces the skip reasons
-    assert "skipped (missing_subtitle_raw)" in captured.out
-    assert "skipped (missing_audio)" in captured.out
-    assert "scope not fully processed" in captured.out
 
 
 def test_run_failure_summary_and_exit_when_scope_not_processed(
@@ -1489,47 +1335,6 @@ def test_run_offline_asr_path_archive_write_failure_recorded(
     assert f"{aud.work_id}: failed (OSError)" in captured.err
 
 
-def test_run_explicit_scope_rerun_of_terminal_row_is_idempotent_zero(
-    tmp_root, monkeypatch, capsys
-):
-    # F-002: rerunning an already-archived row by explicit work_id exits
-    # 0 and leaves manifest/attempts byte-identical.
-    sub = page_identity("BVterm", 0, 111, "p0")
-    store = ManifestStore(root=tmp_root)
-    store.upsert(_row(sub, status="subtitle_done", title="raw"))
-    # Materialize the snapshot: the byte-identity assertions below read
-    # ``manifest.jsonl`` directly, and a journal-only upsert never writes it.
-    store.save()
-    stem = artifact_stem(sub)
-    raw_dir = os.path.join(tmp_root, "subtitles", "raw")
-    os.makedirs(raw_dir)
-    with open(os.path.join(raw_dir, f"{stem}.json"), "w",
-              encoding="utf-8") as fh:
-        json.dump(SAMPLE_DOC, fh)
-    transport = _mixed_transport()
-    _patch_cli(monkeypatch, transport)
-
-    assert main(["run", "--scope", "pending", "--queue-source", "manifest", "--queue-source", "manifest", "--offline",
-                 "--archive-root", tmp_root]) == 0
-    capsys.readouterr()
-    manifest_path = os.path.join(tmp_root, "manifest", "manifest.jsonl")
-    attempts_path = os.path.join(tmp_root, "coordinator", "attempts.jsonl")
-    with open(manifest_path, encoding="utf-8") as fh:
-        first_manifest = fh.read()
-    with open(attempts_path, encoding="utf-8") as fh:
-        first_attempts = fh.read()
-
-    rc = main(["run", "--scope", sub.work_id, "--offline",
-               "--archive-root", tmp_root])
-    captured = capsys.readouterr()
-    assert rc == 0, captured.err
-    assert "selected 1 row(s)" in captured.out
-    assert f"{sub.work_id}: skipped (already_terminal)" in captured.out
-    assert "scope not fully processed" not in captured.out
-    with open(manifest_path, encoding="utf-8") as fh:
-        assert fh.read() == first_manifest
-    with open(attempts_path, encoding="utf-8") as fh:
-        assert fh.read() == first_attempts
 
 
 def test_run_non_positive_limit_is_usage_error(

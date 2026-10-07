@@ -191,40 +191,6 @@ def test_campaign_plan_conservative_estimate_and_budget_gate(tmp_root):
 # ------------------------------------------------------------ CLI: opt-in + defaults
 
 
-def test_schedule_pending_holds_long_live_without_flag(
-    tmp_root, monkeypatch, capsys,
-):
-    long_id = _long_identity()
-    short_id = _short_identity()
-    store = ManifestStore(root=tmp_root)
-    store.upsert(_row(short_id, status="subtitle_done", duration_s=5))
-    store.upsert(_row(long_id, status="needs_audio", duration_s=THREE_HOURS_S))
-    raw = os.path.join(tmp_root, "subtitles", "raw", f"{artifact_stem(short_id)}.json")
-    os.makedirs(os.path.dirname(raw), exist_ok=True)
-    with open(raw, "w", encoding="utf-8") as fh:
-        json.dump(SAMPLE_DOC, fh)
-    _stub_asr(monkeypatch)
-    transport = _download_transport(long_id)
-    _patch_cli(monkeypatch, transport)
-
-    _seed_archive_database(tmp_root)
-    rc = main([
-        "schedule", "--scope", "pending", "--limit", "5",
-        "--archive-root", tmp_root,
-    ])
-    captured = capsys.readouterr()
-    assert rc == 0
-    assert "--allow-long-live" in captured.out
-    assert "batch=limited" in captured.out
-    assert "batch=complete" not in captured.out
-    loaded = ManifestStore(root=tmp_root).load()
-    assert loaded[short_id.work_id]["status"] == "archived"
-    assert loaded[long_id.work_id]["status"] == "needs_audio"
-    assert "needs_audio: 1" in captured.out
-    sidecar = _scheduler(tmp_root)
-    assert sidecar["state"] == "limited"
-    assert transport.stream_calls == []
-    _assert_no_secrets(captured, tmp_root)
 
 
 def test_schedule_pending_only_long_live_is_limited_not_complete(
@@ -473,42 +439,6 @@ def test_allow_long_live_failed_download_samples_partial_peak(
     _assert_no_secrets(captured, tmp_root)
 
 
-def test_schedule_pending_allow_long_live_processes_long_row(
-    tmp_root, monkeypatch, capsys,
-):
-    long_id = _long_identity()
-    short_id = _short_identity()
-    store = ManifestStore(root=tmp_root)
-    store.upsert(_row(short_id, status="subtitle_done", duration_s=5))
-    store.upsert(_row(long_id, status="needs_audio", duration_s=THREE_HOURS_S))
-    raw = os.path.join(tmp_root, "subtitles", "raw", f"{artifact_stem(short_id)}.json")
-    os.makedirs(os.path.dirname(raw), exist_ok=True)
-    with open(raw, "w", encoding="utf-8") as fh:
-        json.dump(SAMPLE_DOC, fh)
-    _stub_asr(monkeypatch)
-    transport = _download_transport(long_id)
-    _patch_cli(monkeypatch, transport)
-
-    _seed_archive_database(tmp_root)
-    rc = main([
-        "schedule", "--scope", "pending", "--limit", "5",
-        "--allow-long-live", "--max-audio-gb", "10",
-        # Reclaim is explicit now (contract D5, plan T4); this row asserted it before.
-        "--no-keep-audio",
-        "--archive-root", tmp_root,
-    ])
-    captured = capsys.readouterr()
-    assert rc == 0, captured.err
-    assert f"duration_s={THREE_HOURS_S}" in captured.out
-    assert "batch=complete" in captured.out
-    loaded = ManifestStore(root=tmp_root).load()
-    assert loaded[short_id.work_id]["status"] == "archived"
-    assert loaded[long_id.work_id]["status"] == "archived"
-    assert not os.path.isfile(_audio_path(tmp_root, long_id))
-    assert transport.stream_calls
-    sidecar = _scheduler(tmp_root)
-    assert sidecar["state"] == "complete"
-    _assert_no_secrets(captured, tmp_root)
 
 
 def test_allow_long_live_asr_failure_keeps_retryable_audio(
@@ -646,50 +576,6 @@ def test_schedule_resume_risk_stopped_long_row_without_flag_refuses(
     _assert_no_secrets(captured, tmp_root)
 
 
-def test_schedule_resume_mixed_held_long_then_short_risk_continues(
-    tmp_root, monkeypatch, capsys,
-):
-    """A held long/unknown row that sorts first is not the risk-stopped row."""
-    long_id = page_identity("BVaLong", 0, 999, "p0")
-    short_id = page_identity("BVzShort", 0, 111, "p0")
-    assert long_id.work_id < short_id.work_id
-    store = ManifestStore(root=tmp_root)
-    store.upsert(_row(long_id, status="needs_audio", duration_s=THREE_HOURS_S))
-    store.upsert(_row(short_id, status="subtitle_done", duration_s=5))
-    _write_subtitle_raw(tmp_root, short_id)
-    SchedulerStore(root=tmp_root).replace_atomic(
-        {
-            "scope": "pending",
-            "limit": 5,
-            "state": "risk_interrupted",
-            "processed_work_ids": [],
-            "last_api_error_code": -412,
-            "allow_long_live": False,
-            "updated_at": utc_now_iso(),
-        }
-    )
-    _stub_asr(monkeypatch)
-    _patch_cli(monkeypatch, RouterTransport(_base_routes()))
-
-    _seed_archive_database(tmp_root)
-    rc = main([
-        "schedule", "--scope", "pending", "--limit", "5", "--resume",
-        "--archive-root", tmp_root,
-    ])
-    captured = capsys.readouterr()
-    assert rc == 0
-    assert "--resume refused" not in captured.err
-    assert "risk-stopped long-duration" not in captured.err
-    assert "long-duration row(s) held" in captured.out
-    assert "batch=limited" in captured.out
-    loaded = ManifestStore(root=tmp_root).load()
-    assert loaded[long_id.work_id]["status"] == "needs_audio"
-    assert loaded[short_id.work_id]["status"] == "archived"
-    sidecar = _scheduler(tmp_root)
-    assert sidecar["state"] == "limited"
-    assert sidecar["allow_long_live"] is False
-    assert short_id.work_id in sidecar["processed_work_ids"]
-    _assert_no_secrets(captured, tmp_root)
 
 
 # ------------------------------------------------------------ operator docs

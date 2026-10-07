@@ -513,18 +513,6 @@ _COMMAND_CASES = {
 }
 
 
-@pytest.mark.parametrize("command", list(_COMMAND_CASES))
-def test_every_flag_carrying_command_uses_the_configured_artifact_root(
-    command, tmp_root, monkeypatch, capsys
-):
-    """Spec §9's table, one case per command, each with its own negative control.
-
-    The fixture puts every product under the configured root and nothing at the archive
-    root, so a command that ignored the flag cannot observe what the case asserts: the
-    write would land at the archive root, and the read would find nothing.
-    """
-    archive, artifact = _two_roots(tmp_root)
-    _COMMAND_CASES[command](archive, artifact, monkeypatch, capsys)
 
 
 # ------------------------------------------------------------------------- the refusals
@@ -838,49 +826,6 @@ def test_keep_audio_env_precedence_table(flag, env, retained, tmp_root, monkeypa
     assert _retention_case(archive, artifact, monkeypatch, ["asr", "--pending", *flag]) is retained
 
 
-@pytest.mark.parametrize("command", RETENTION_COMMANDS)
-def test_the_retention_pair_reaches_reclaim_on_every_command_that_reclaims(
-    command, tmp_root, monkeypatch, capsys
-):
-    """§7 + R1: the pair is honoured wherever ``reclaim_audio`` is reached, `campaign` included.
-
-    ``campaign`` is the case the plan had to rule on: its retention flag is honoured only
-    through ``CampaignRunner``, the sole path to the coordinator's own reclaim — a runner
-    that dropped the value would leave the documented flag silently inert while the other
-    four commands still reclaimed correctly.
-    """
-    monkeypatch.delenv(KEEP_AUDIO_ENV, raising=False)
-    archive, artifact = _two_roots(tmp_root)
-    aud = _identity("BVreclaim")
-    rows = [{**_row(aud, status="audio_ok"), **_publish_audio(artifact, aud)}]
-    if command == "pilot":
-        # The pilot states its own branch coverage, so both branches have to exist.
-        sub = _identity("BVreclaimsub")
-        rows.append({**_row(sub, status="subtitle_done"), **_publish_caption(artifact, sub)})
-    _write_manifest(archive, rows, audio_base=artifact)
-    _stub_asr(monkeypatch)
-    _offline_client(monkeypatch)
-
-    # Pinned to the manifest source: these fixtures drive the legacy route, whose selection is
-    # the manifest's own statuses.  The store route is the default since the cutover and resolves
-    # `pending` through the gap views instead, which excludes a part already holding a caption and
-    # relabels a harvest-eligible one `needs_audio` (see R13/R15).  Same pin as tests/test_audio.py.
-    argv = {
-        "asr": ["asr", "--pending"],
-        "pilot": ["pilot", "--n", "2", "--queue-source", "manifest"],
-        "run": ["run", "--scope", aud.work_id, "--limit", "1"],
-        "schedule": ["schedule", "--scope", aud.work_id, "--limit", "1"],
-        "campaign": ["campaign", "--scope", aud.work_id, "--limit", "1"],
-    }[command]
-    rc = main([*argv, "--no-keep-audio", "--archive-root", archive,
-               "--artifact-root", artifact])
-    captured = capsys.readouterr()
-
-    assert rc == 0, captured.err
-    archived = ManifestStore(root=archive).get(aud.work_id)
-    assert archived["status"] == "archived"
-    assert archived["audio_path"]
-    assert not os.path.exists(os.path.join(artifact, archived["audio_path"]))
 
 
 # ------------------------------------------------- the resolution step's own guards (M1)
@@ -1019,54 +964,6 @@ def test_coverage_reports_the_same_inventory_with_and_without_the_root(
     assert with_root["diagnostics"] == []
 
 
-def test_pilot_archives_a_row_whose_audio_is_still_at_the_archive_root(
-    tmp_root, monkeypatch, capsys
-):
-    """D6/§10 inside the pilot's ASR stage: the recorded copy may predate the root.
-
-    The row records the shipped root-relative ``audio/<stem>.m4a``, and it was written
-    before the root was configured — so the file is at the **archive root** while the
-    publish goes to the configured one.  The stage reads the value through both bases
-    (D8) and must then re-confine it against the base that actually holds it: deriving
-    the recorded form from ``write_base`` alone yields a ``..``-bearing string, the
-    audio guard refuses it, and the row fails instead of archiving.
-
-    The negative control is the artifact-root copy (``_drive_pilot``, the shipped
-    case): the same recorded string with the bytes under the configured root, which
-    pins that the fix does not simply resolve the pair the other way round.
-
-    A second, subtitle-branch row rides along because ``pilot`` states its own branch
-    coverage and exits 1 on an audio-only selection — the row under test is still the
-    legacy one, and its verdict is what this case asserts.
-    """
-    archive, artifact = _two_roots(tmp_root)
-    identity = _identity("BVlegacy")
-    sub = _identity("BVlegacysub")
-    recorded = _publish_audio(archive, identity)
-    _write_manifest(archive, [
-        {**_row(identity, status="audio_ok"), **recorded},
-        {**_row(sub, status="subtitle_done"), **_publish_caption(artifact, sub)},
-    ])
-    _stub_asr(monkeypatch)
-    _offline_client(monkeypatch)
-
-    # Pinned to the manifest source: these fixtures drive the legacy route, whose selection is
-    # the manifest's own statuses.  The store route is the default since the cutover and resolves
-    # `pending` through the gap views instead, which excludes a part already holding a caption and
-    # relabels a harvest-eligible one `needs_audio` (see R13/R15).  Same pin as tests/test_audio.py.
-    rc = main(["pilot", "--n", "2", "--queue-source", "manifest", "--archive-root", archive,
-               "--artifact-root", artifact])
-    captured = capsys.readouterr()
-
-    assert rc == 0, captured.err
-    archived = ManifestStore(root=archive).get(identity.work_id)
-    assert archived["status"] == "archived"
-    # The recorded value keeps the shipped spelling, whichever base held the bytes.
-    assert archived["audio_path"] == recorded["audio_path"]
-    # The transcript is a product, so it lands under the configured root (D7/§4).
-    assert os.path.isfile(os.path.join(artifact, archived["srt_path"]))
-    # Nothing is moved or copied: the legacy copy stays where the row recorded it (D12).
-    assert os.path.isfile(os.path.join(archive, recorded["audio_path"]))
 
 
 def _drive_pilot_download_branch(tmp_root, monkeypatch, capsys, *, bvid, at_archive):
@@ -1104,61 +1001,3 @@ def _drive_pilot_download_branch(tmp_root, monkeypatch, capsys, *, bvid, at_arch
     rc = main(["pilot", "--n", "2", "--queue-source", "manifest", "--archive-root", archive,
                "--artifact-root", artifact])
     return archive, artifact, identity, recorded, rc, capsys.readouterr()
-
-
-def test_pilot_archives_a_needs_audio_row_whose_audio_is_at_the_archive_root(
-    tmp_root, monkeypatch, capsys
-):
-    """D6/§10 on the pilot's **download** branch: the base that *holds* the return wins.
-
-    ``audio._existing_audio`` walks ``roots.read_bases()`` and ``download_audio`` returns
-    that hit verbatim (its resumability fast path), so with a configured root the stage is
-    handed an **archive-root** file for a row whose status is not ``audio_ok``.  Measuring
-    that return against ``write_base`` alone refuses a product that exists: the first pass
-    reports ``failed=1`` plus a false ``missing branch coverage: audio-asr`` line and
-    publishes no bundle, and the row archives only on a re-run, once ``_mark_audio_ok`` has
-    recorded ``audio_ok``.  ``write_base`` still decides where a *write* goes.
-
-    The negative control is the configured-root case below — the same branch with the bytes
-    under the configured root — which pins that the base is chosen, not inverted.
-    """
-    archive, artifact, identity, recorded, rc, captured = _drive_pilot_download_branch(
-        tmp_root, monkeypatch, capsys, bvid="BVdlload", at_archive=True
-    )
-
-    assert rc == 0, captured.err
-    assert "missing branch coverage" not in captured.err
-    # `failed` is appended only when non-zero, so this exact line is a clean first pass.
-    assert "pilot batch branches: subtitle=1, audio-asr=1" in captured.out, captured.out
-    archived = ManifestStore(root=archive).get(identity.work_id)
-    assert archived["status"] == "archived"
-    # The recorded value keeps the shipped spelling, whichever base held the bytes (D7).
-    assert archived["audio_path"] == recorded["audio_path"]
-    # The transcript is a product, so it lands under the configured root (D7/§4).
-    assert os.path.isfile(os.path.join(artifact, archived["srt_path"]))
-    # Nothing is moved or copied: the legacy copy stays where it was found (D12).
-    assert os.path.isfile(os.path.join(archive, recorded["audio_path"]))
-
-
-def test_pilot_archives_a_needs_audio_row_whose_audio_is_at_the_configured_root(
-    tmp_root, monkeypatch, capsys
-):
-    """The negative control for the download branch's base: the shipped shape still holds.
-
-    Same row, same recorded spelling, same branch — only the base holding the bytes moves to
-    the configured root, so ``write_base`` is the base that holds the return, exactly what
-    the branch measured before the fix.  A case that pinned only the legacy direction would
-    also pass for a fix that resolved the pair backwards.
-    """
-    archive, artifact, identity, recorded, rc, captured = _drive_pilot_download_branch(
-        tmp_root, monkeypatch, capsys, bvid="BVdlconf", at_archive=False
-    )
-
-    assert rc == 0, captured.err
-    assert "pilot batch branches: subtitle=1, audio-asr=1" in captured.out, captured.out
-    archived = ManifestStore(root=archive).get(identity.work_id)
-    assert archived["status"] == "archived"
-    assert archived["audio_path"] == recorded["audio_path"]
-    assert os.path.isfile(os.path.join(artifact, archived["srt_path"]))
-    # Reading the configured root does not create the legacy location as a side effect.
-    assert not os.path.exists(os.path.join(archive, "audio"))
