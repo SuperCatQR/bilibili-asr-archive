@@ -5,6 +5,10 @@ Interactive component map: [architecture.html](architecture.html) (source:
 metadata acquisition, transcript production, editorial processing,
 publication, and read projections.
 
+The source and generated HTML are maintained together. See
+[architecture-maintenance.md](architecture-maintenance.md) for the refresh
+workflow and evidence rules.
+
 The product has one execution core: the SQLite-backed workflow. A worker
 claims one job, runs a handler against fixed inputs, and records the attempt
 and result. The database is the operational source for metadata, immutable

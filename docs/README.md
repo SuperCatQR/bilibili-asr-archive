@@ -14,7 +14,3 @@ system map is the source of truth for module boundaries and data ownership.
 | [wsl-rocm-gpu.md](wsl-rocm-gpu.md) | The one AMD path **measured** to give a usable ASR device on Windows WSL2 — the ROCm/torch wheel pairing, HSA/DXG detection, and the failure chain per symptom. | 8 |
 | [artifact-root.md](artifact-root.md) | `--artifact-root` operator guide: which root is which, how to place products on a mount, and why some things never leave the archive root. | 7 |
 | [audio-retention-policy.md](audio-retention-policy.md) | When audio is kept and when it is reclaimed, the flag pair on the archiving commands, and the reclaim scope per base. | 1 |
-| [wsl-long-live.md](wsl-long-live.md) | The opt-in acceptance procedure for one multi-hour livestream on the Windows WSL PC — run it as written; it does not change pilot defaults. | 1 |
-| [wsl-long-live-evidence.md](wsl-long-live-evidence.md) | The redacted result of that acceptance, on `DESKTOP-HHFROLO` / WSL2. | 1 |
-Not in this directory: `verification-results/` (the output directory of
-`scripts/verify_baseline.py`; generated results are not committed).
