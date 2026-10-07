@@ -60,15 +60,16 @@ recursive provisioning tests. Baseline verification currently requires Python
 not a current vulnerability assessment.
 
 The harness has its own validation command. From the repository root, with
-Python 3.12 and Node.js 20 available:
+Python 3.12, Node.js 20, and Bun available:
 
 ```bash
 npm install --global @mstar-harness/cli@3.11.2
 python3.12 bilibili-asr-archive/scripts/validate_harness_state.py .mstar
 ```
 
-CI runs this check as advisory (`continue-on-error`); the product test job is
-the blocking gate.
+CI provisions Bun and runs this check as a blocking gate. A harness validation
+failure therefore fails the workflow instead of being hidden by an advisory
+step.
 
 ## Local runtime data
 

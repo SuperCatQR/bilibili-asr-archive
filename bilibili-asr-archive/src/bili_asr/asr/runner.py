@@ -18,6 +18,28 @@ import bili_asr.asr.hotwords as _dependency_hotwords
 import bili_asr.asr.provenance as _dependency_provenance
 
 
+_PROGRESS_HOOK: Callable[[str], None] | None = None
+
+
+def set_progress_hook(hook: Callable[[str], None] | None) -> None:
+    """Install the optional process-supervisor heartbeat callback."""
+
+    global _PROGRESS_HOOK
+    _PROGRESS_HOOK = hook
+
+
+def _progress(phase: str) -> None:
+    hook = _PROGRESS_HOOK
+    if hook is None:
+        return
+    try:
+        hook(phase)
+    except OSError:
+        # The parent may have stopped supervising after a worker failure.  The
+        # inference path must still fail normally instead of masking its error.
+        set_progress_hook(None)
+
+
 class _RunnerModule(types.ModuleType):
     def __setattr__(self, name, value):
         super().__setattr__(name, value)
@@ -177,6 +199,7 @@ class ASRRunner:
                     f"Gave up after {_dependency_constants.MAX_MODEL_LOAD_ATTEMPTS} failed load attempt(s)."
                 )
             self.model_load_attempts += 1
+            _progress("load")
             self._models = factory(**kwargs)
         except (_dependency_errors.ASRDependencyError, _dependency_errors.ASRModelError):
             raise
@@ -219,6 +242,7 @@ class ASRRunner:
         seconds = float(inputs["input_features_mask"].sum(-1).max()) / _dependency_constants._MEL_FRAMES_PER_SECOND
         budget = max(_dependency_constants._MIN_NEW_TOKENS, int(seconds * _dependency_constants._MAX_NEW_TOKENS_PER_AUDIO_SECOND))
         with torch.inference_mode():
+            _progress("decode")
             generated = models.model.generate(**inputs, max_new_tokens=budget, **(
                 {"use_cache": False} if bust_cache else {}
             ))
@@ -237,6 +261,7 @@ class ASRRunner:
         )
         inputs = inputs.to(models.aligner.device, models.aligner.dtype)
         with torch.inference_mode():
+            _progress("align")
             logits = models.aligner(**inputs).logits
         return list(models.aligner_processor.decode_forced_alignment(
             logits=logits,

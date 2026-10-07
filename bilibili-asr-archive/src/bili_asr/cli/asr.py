@@ -137,6 +137,11 @@ def _cmd_asr(args: argparse.Namespace) -> int:
                     segments, raw = subtitle_data
                 else:
                     source = "asr"
+                    if queue_source is not None:
+                        queue_source.note_asr_part(
+                            bvid=str(entry["bvid"]),
+                            page_index=int(entry.get("page_index", 0)),
+                        )
                     stem = archive.archive_stem(entry)
                     from bili_asr.path_policy import confined_audio_file
                     declared = entry.get("audio_path") or os.path.join("audio", f"{stem}.m4a")

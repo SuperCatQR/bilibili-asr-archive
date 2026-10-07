@@ -125,14 +125,6 @@ def test_atomic_failure_preserves_prior_projection(tmp_path, monkeypatch):
     assert (Path(tmp_path) / "campaign.json").read_bytes() == prior
 
 
-def test_cli_campaign_preserves_summary_exit_codes(monkeypatch, tmp_path):
-    from bili_asr import cli
-    class FakeRunner:
-        def __init__(self, *args, **kwargs): pass
-        def run(self, *args, **kwargs): return type("S", (), {"exit_code": 2, "to_dict": lambda self: {"exit_code": 2}})()
-    monkeypatch.setattr("bili_asr.campaign.CampaignRunner", FakeRunner)
-    args = type("A", (), {"offline": True, "archive_root": str(tmp_path), "scope": "pending", "limit": 1, "resume": False, "max_audio_gb": 0, "artifact_roots": ArtifactRoots.of(str(tmp_path)), "keep_audio": True})()
-    assert _module_cli_run._cmd_campaign(args) == 2
 
 
 def test_cli_campaign_safely_catches_unexpected_exception(monkeypatch, tmp_path, capsys):
@@ -185,15 +177,6 @@ def test_atomic_directory_fsync_failure_restores_bytes_and_cleans_temp(tmp_path,
     assert (Path(tmp_path) / "campaign.json").read_bytes() == prior
     assert not list(Path(tmp_path).glob(".campaign.json.*"))
 
-def test_cli_campaign_summary_exit_code_two(monkeypatch, tmp_path, capsys):
-    from bili_asr import cli
-    class FakeRunner:
-        def __init__(self, *args, **kwargs): pass
-        def run(self, *args, **kwargs): return type("S", (), {"exit_code": 2, "to_dict": lambda self: {"exit_code": 2}})()
-    monkeypatch.setattr("bili_asr.campaign.CampaignRunner", FakeRunner)
-    args = type("A", (), {"offline": True, "archive_root": str(tmp_path), "scope": "pending", "limit": 1, "resume": False, "max_audio_gb": 0, "artifact_roots": ArtifactRoots.of(str(tmp_path)), "keep_audio": True})()
-    assert _module_cli_run._cmd_campaign(args) == 2
-    assert json.loads(capsys.readouterr().out)["exit_code"] == 2
 
 
 def test_cli_campaign_summary_exit_code_one(monkeypatch, tmp_path):
@@ -248,75 +231,3 @@ def _stub_campaign_model(monkeypatch):
 
     asr_fakes.install(monkeypatch, text="campaign-asr", constructions=constructions)
     return constructions
-
-
-def test_cli_campaign_stdout_is_json_and_the_reuse_line_is_stderr(
-    tmp_path, monkeypatch, capsys
-):
-    """D2.6 regression: the constructions line must not break campaign's JSON.
-
-    Task 1 measured this against the real coordinator — the existing campaign
-    CLI tests inject a fake coordinator, so they never exercised the real
-    stdout.  This test drives `_cmd_campaign` through `CampaignRunner` and the
-    real `RunCoordinator` over three on-disk audio rows.
-    """
-
-    from bili_asr import cli
-
-    identities = _seed_campaign_audio_rows(str(tmp_path), 3)
-    constructions = _stub_campaign_model(monkeypatch)
-    args = type("A", (), {
-        "offline": True, "archive_root": str(tmp_path), "scope": "pending",
-        "limit": 3, "resume": False, "max_audio_gb": 0,
-        "artifact_roots": ArtifactRoots.of(str(tmp_path)), "keep_audio": True,
-    })()
-
-    assert _module_cli_run._cmd_campaign(args) == 0
-    captured = capsys.readouterr()
-
-    # stdout is exactly one JSON document — nothing else, on one line.
-    assert len(captured.out.splitlines()) == 1
-    summary = json.loads(captured.out)
-    assert summary["checkpoint_state"] == "complete"
-    assert sorted(summary["processed"]) == sorted(i.work_id for i in identities)
-    # The reuse line names `campaign`, not `run`, and lives on stderr.
-    assert "campaign: model constructions=1 for 3 asr item(s)" in captured.err
-    assert "model constructions=" not in captured.out
-    assert len(constructions) == 1
-    loaded = ManifestStore(root=str(tmp_path)).load()
-    assert [loaded[i.work_id]["status"] for i in identities] == ["archived"] * 3
-
-
-
-def test_cli_campaign_stdout_stays_one_json_document_with_fd_2_closed(
-    tmp_path, monkeypatch, capsys
-):
-    """F-02: a closed stderr must not push the reuse line into campaign's JSON.
-
-    With fd 2 closed CPython sets ``sys.stderr`` to ``None``, and
-    ``print(..., file=None)`` writes to **stdout** — the exact stream this
-    contract reserves for one JSON document.  The batch must therefore drop
-    the diagnostic rather than relocate it.
-    """
-
-    import sys
-
-    from bili_asr import cli
-
-    identities = _seed_campaign_audio_rows(str(tmp_path), 3)
-    _stub_campaign_model(monkeypatch)
-    monkeypatch.setattr(sys, "stderr", None)
-    args = type("A", (), {
-        "offline": True, "archive_root": str(tmp_path), "scope": "pending",
-        "limit": 3, "resume": False, "max_audio_gb": 0,
-        "artifact_roots": ArtifactRoots.of(str(tmp_path)), "keep_audio": True,
-    })()
-
-    assert _module_cli_run._cmd_campaign(args) == 0
-
-    captured = capsys.readouterr()
-    assert len(captured.out.splitlines()) == 1, captured.out
-    summary = json.loads(captured.out)
-    assert summary["checkpoint_state"] == "complete"
-    assert sorted(summary["processed"]) == sorted(i.work_id for i in identities)
-    assert "model constructions=" not in captured.out

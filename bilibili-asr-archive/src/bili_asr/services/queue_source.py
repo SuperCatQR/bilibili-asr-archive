@@ -22,7 +22,7 @@ import os
 import sqlite3
 import time
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Callable
 
 from bili_asr.storage import MediaQueueRepository, QueueGapItem
 from bili_asr.storage.database import open_database
@@ -35,6 +35,36 @@ from . import _common
 MANIFEST_SOURCE_DEPRECATION = (
     "queue-source manifest is deprecated; archive.db is the sole queue"
 )
+
+# The ASR supervisor installs these hooks only in the isolated worker.  Keeping
+# them here avoids making the queue layer depend on the supervisor module while
+# still allowing the parent to identify the run and part it must recover after
+# a hard worker termination.
+_ASR_RUN_HOOK: Callable[[str], None] | None = None
+_ASR_PART_HOOK: Callable[[int], None] | None = None
+
+
+def set_asr_supervision_hooks(
+    run_hook: Callable[[str], None] | None,
+    part_hook: Callable[[int], None] | None,
+) -> None:
+    """Install or clear callbacks used by the process-level ASR supervisor."""
+
+    global _ASR_RUN_HOOK, _ASR_PART_HOOK
+    _ASR_RUN_HOOK = run_hook
+    _ASR_PART_HOOK = part_hook
+
+
+def _notify_asr_run(run_id: str) -> None:
+    hook = _ASR_RUN_HOOK
+    if hook is not None:
+        hook(run_id)
+
+
+def _notify_asr_part(video_part_id: int) -> None:
+    hook = _ASR_PART_HOOK
+    if hook is not None:
+        hook(video_part_id)
 
 
 @dataclass(frozen=True)
@@ -255,10 +285,23 @@ class QueueSource:
                 )
             )
             self.asr_run_id = run_id
+            _notify_asr_run(run_id)
         except (_sqlite3.Error, OSError, ValueError, TypeError) as exc:
             self.asr_run_id = None
             self._report_refused_asr_run(command, exc)
         return self.asr_run_id
+
+    def note_asr_part(self, *, bvid: str, page_index: int) -> None:
+        """Publish the current ASR part to the worker supervisor, if present."""
+
+        if self.asr_run_id is None or _ASR_PART_HOOK is None:
+            return
+        row = self.connection.execute(
+            "SELECT video_part_id FROM video_parts WHERE bvid = ? AND page_index = ?",
+            (bvid, page_index),
+        ).fetchone()
+        if row is not None:
+            _notify_asr_part(int(row["video_part_id"]))
 
     def finish_asr_run(self, *, outcome: str | None = None) -> None:
         """Finish this source's run once, before closing its connection.

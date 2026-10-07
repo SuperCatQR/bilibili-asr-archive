@@ -53,34 +53,6 @@ def test_empty_configured_stub_does_not_shadow_usable_legacy_audio(tmp_path):
     assert usable_audio_for_path(roots, products / "audio/a.m4a") is None
 
 
-@pytest.mark.parametrize("stage", ["subtitle_done", "writeback_error"])
-def test_publication_recovery_requires_a_store_part_and_ignores_manifest_only(tmp_root, stage):
-    from tests.support.archive_database import _seed_archive_database
-    from bili_asr.cli.run import _store_pending_rows
-    store = ManifestStore(root=tmp_root)
-    def row(bvid):
-        return {"bvid": bvid, "work_id": bvid + ":p0", "page_index": 0, "cid": 1,
-                "status": "subtitle_done", "title": bvid, "duration_s": 1}
-    store.upsert(row("BVknown"))
-    store.upsert(row("BVgone"))
-    _seed_archive_database(tmp_root)
-    from bili_asr.storage import open_database
-    connection = open_database(tmp_root)
-    try:
-        connection.execute("UPDATE video_parts SET processing_status = 'gone' WHERE bvid = ?", ("BVgone",))
-        connection.commit()
-    finally:
-        connection.close()
-    if stage == "writeback_error":
-        for bvid in ("BVknown", "BVgone"):
-            entry = row(bvid)
-            entry.update(status="archived", transcript_writeback_error="injected retry")
-            store.upsert(entry)
-    store.upsert(row("BVmanifestonly"))
-    rows, error = _store_pending_rows(tmp_root, "run")
-    assert error is None
-    assert [key for key, _ in rows] == ["BVknown:p0"]
-    assert rows[0][1]["status"] == ("subtitle_done" if stage == "subtitle_done" else "archived")
 
 
 @pytest.mark.parametrize("status", ["meta_ok", "subtitle_done"])

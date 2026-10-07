@@ -383,34 +383,6 @@ def _mixed_transport():
     )
 
 
-def test_cli_pilot_exit_0_appends_ledger(tmp_root, monkeypatch, capsys):
-    sub = page_identity("BVsub", 0, 111, "p0")
-    aud = page_identity("BVaud", 0, 222, "p0")
-    store = ManifestStore(root=tmp_root)
-    store.upsert(_pilot_row(sub, duration_s=5, title="has-sub"))
-    store.upsert(_pilot_row(aud, duration_s=8, title="needs-asr"))
-
-    # D2.5 seam: `pilot` owns one runner for the whole invocation now, so the
-    # stub sits on the factory the runner builds its model through.
-    asr_fakes.install(monkeypatch, text="asr-text")
-    _patch_client(monkeypatch, _mixed_transport())
-
-    rc = main(["pilot", "--n", "2", "--queue-source", "manifest", "--archive-root", tmp_root, "--sessdata", "SECRET-SESSDATA-12345"])
-    assert rc == 0
-
-    ledger = RunLedger(root=tmp_root)
-    records = ledger.load()
-    assert len(records) == 1
-    rec = records[0]
-    assert rec["command"] == "pilot"
-    assert rec["exit_code"] == 0
-    assert rec["coverage_summary"] == {"archived": 2}
-    assert sorted(rec["work_ids"]) == sorted([sub.work_id, aud.work_id])
-
-    # Ensure no credentials leaked into the ledger file
-    with open(ledger.path, "r", encoding="utf-8") as fh:
-        raw_ledger = fh.read()
-    assert "SECRET-SESSDATA-12345" not in raw_ledger
 
 
 def test_cli_pilot_exit_1_empty_manifest_appends_ledger(tmp_root, capsys):

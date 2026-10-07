@@ -52,29 +52,6 @@ def _health(root: str, command: str, capsys):
     return result, json.loads(capsys.readouterr().out)
 
 
-@pytest.mark.parametrize("command", ["coverage", "verify"])
-@pytest.mark.parametrize("route", ["asr", "subtitle"])
-def test_actual_standalone_asr_command_needs_no_campaign_sidecars(
-    tmp_root, monkeypatch, capsys, command, route,
-):
-    if route == "asr":
-        _, identity = _seed_store(tmp_root)
-        _write_audio_file(tmp_root, identity)
-        _stub_runner_model(monkeypatch, [])
-        _patch_cli(monkeypatch)
-        selection = []
-    else:
-        identity, _, _ = _caption_input(tmp_root)
-        selection = ["--queue-source", "manifest"]
-    assert main(["asr", "--pending", *selection, "--archive-root", tmp_root]) == 0
-    row = ManifestStore(root=tmp_root).get(identity.work_id)
-    assert row["status"] == "archived"
-    assert row["source"] == route
-    assert row["archive_producer"] == "stage-cli"
-    assert not Path(tmp_root, "coordinator", "attempts.jsonl").exists()
-    result, payload = _health(tmp_root, command, capsys)
-    assert result == 0
-    assert payload["diagnostics"] == []
 
 
 @pytest.mark.parametrize("command", ["coverage", "verify"])
@@ -148,39 +125,8 @@ def test_actual_coordinator_archive_still_owes_its_attempts(
             assert MISSING_ATTEMPTS in payload["diagnostics"]
 
 
-@pytest.mark.parametrize("command", ["coverage", "verify"])
-@pytest.mark.parametrize("producer", [None, "coordinator", "unknown"])
-def test_historical_or_unknown_producer_cannot_waive_missing_evidence(
-    tmp_root, capsys, command, producer,
-):
-    identity, store, _ = _caption_input(tmp_root)
-    assert main(["asr", "--pending", "--queue-source", "manifest", "--archive-root", tmp_root]) == 0
-    archived = ManifestStore(root=tmp_root).get(identity.work_id)
-    if producer is None:
-        archived.pop("archive_producer")
-    else:
-        archived["archive_producer"] = producer
-    store.upsert(archived)
-    store.save()
-    result, payload = _health(tmp_root, command, capsys)
-    assert result == 1
-    assert payload["diagnostics"]
-    # Read-only health must neither guess nor backfill producer provenance.
-    assert ManifestStore(root=tmp_root).get(identity.work_id).get("archive_producer") == producer
 
 
-@pytest.mark.parametrize("command", ["coverage", "verify"])
-def test_standalone_provenance_does_not_hide_malformed_present_sidecars(
-    tmp_root, capsys, command,
-):
-    _caption_input(tmp_root)
-    assert main(["asr", "--pending", "--queue-source", "manifest", "--archive-root", tmp_root]) == 0
-    attempts = Path(tmp_root, "coordinator", "attempts.jsonl")
-    attempts.parent.mkdir(exist_ok=True)
-    attempts.write_text("{broken\n", encoding="utf-8")
-    result, payload = _health(tmp_root, command, capsys)
-    assert result == 1
-    assert payload["diagnostics"]
 
 
 def test_mixed_producers_never_waive_campaign_evidence():

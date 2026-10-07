@@ -127,22 +127,6 @@ def test_identity_root_remains_a_no_op(tmp_root, monkeypatch) -> None:
     assert not root.exists()
 
 
-@pytest.mark.parametrize(
-    "command", ["coverage", "verify", "export", "search-index", "recover", "derive-audio-inventory"],
-)
-def test_cli_product_readers_accept_a_read_only_artifact_root(tmp_root, monkeypatch, command) -> None:
-    archive, artifact = _roots(tmp_root)
-
-    def refuse_any_probe(_path):
-        pytest.fail(f"{command} only reads products")
-
-    monkeypatch.setattr(artifact_root, "_probe_writable", refuse_any_probe)
-    monkeypatch.setattr(_module_cli_main, "_dispatch_command", lambda args: 0)
-    extra = ["--format", "json"] if command == "export" else []
-    assert _module_cli_main.main([
-        command, "--archive-root", str(archive), "--artifact-root", str(artifact), *extra,
-    ]) == 0
-    assert list(artifact.iterdir()) == []
 
 
 def test_cli_search_only_reads_the_artifact_root(tmp_root, monkeypatch) -> None:

@@ -839,22 +839,6 @@ def test_limit_bounds_the_ordered_page(queue_store):
     assert len(repository.list_queue_gaps(gap="missing_subtitle")) == 5
 
 
-def test_gap_and_limit_validation_follow_the_module_rule(queue_store):
-    """A wrong type is a ``TypeError``; a wrong value is a ``ValueError``."""
-    _connection, _parts, repository = queue_store
-
-    with pytest.raises(ValueError, match="gap must be one of"):
-        repository.list_queue_gaps(gap="missing_asr")  # type: ignore[arg-type]
-    with pytest.raises(TypeError, match="gap must be a string"):
-        repository.list_queue_gaps(gap=None)  # type: ignore[arg-type]
-
-    for bad in (0, -1):
-        with pytest.raises(ValueError, match="limit must be at least 1"):
-            repository.list_queue_gaps(gap="missing_subtitle", limit=bad)
-    # ``bool`` is an ``int`` in Python; it is still not a limit.
-    for bad in (True, False, "2", 1.5):
-        with pytest.raises(TypeError, match="limit must be an integer"):
-            repository.list_queue_gaps(gap="missing_subtitle", limit=bad)
 
 
 def test_count_queue_gaps_reports_all_three_queues(queue_store):

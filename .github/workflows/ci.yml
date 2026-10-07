@@ -1,53 +1,165 @@
-name: tests
+name: CI
 
 on:
+  pull_request:
   push:
     branches:
       - main
-      - "codex/**"
-      - "iteration/**"
-  pull_request:
+  workflow_dispatch:
+
+# A pull request can receive several pushes while a job is running. Keep only
+# the newest validation for that PR; a main-branch run remains non-cancellable.
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+env:
+  PYTHONUNBUFFERED: "1"
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
 
 jobs:
   python:
-    name: tests / python
-    runs-on: ubuntu-latest
+    name: tests / python (${{ matrix.shard.label }}/4)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        shard:
+          - {index: 0, label: "1"}
+          - {index: 1, label: "2"}
+          - {index: 2, label: "3"}
+          - {index: 3, label: "4"}
     defaults:
       run:
         working-directory: bilibili-asr-archive
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
-      # ffmpeg is a declared product requirement (AGENTS.md) and four audio
-      # tests fail — never skip — when the binary is absent, so the runner
-      # image is provisioned with it rather than the tests being weakened.
+          cache: pip
+          cache-dependency-path: |
+            bilibili-asr-archive/pyproject.toml
+            bilibili-asr-archive/uv.lock
+
       - name: Install ffmpeg
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq ffmpeg
           ffmpeg -version | head -1
-      - run: python -m pip install --upgrade pip setuptools wheel
-      - run: python -m pip install -e ".[dev]"
-      - run: python -m pytest -q
-      - run: python -m compileall -q src tests scripts
+
+      - name: Install test dependencies
+        run: |
+          python -m pip install --upgrade pip setuptools wheel
+          python -m pip install -e ".[dev]"
+
+      - name: Compile source and test trees
+        run: python -m compileall -q src tests scripts
+
+      - name: Run tests
+        run: |
+          mkdir -p test-results
+          python scripts/pytest_shard.py \
+            --shard-index ${{ matrix.shard.index }} \
+            --shard-count 4 \
+            -- \
+            -q --durations=25 \
+            --junitxml=test-results/pytest-${{ matrix.shard.label }}.xml
+
+      - name: Upload pytest diagnostics
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: pytest-diagnostics-${{ github.run_id }}-${{ matrix.shard.label }}
+          path: |
+            bilibili-asr-archive/test-results/pytest-${{ matrix.shard.label }}.xml
+            bilibili-asr-archive/.tb/errors.log
+          if-no-files-found: ignore
+          retention-days: 14
+
+  package:
+    name: package / installed smoke
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: bilibili-asr-archive
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            bilibili-asr-archive/pyproject.toml
+            bilibili-asr-archive/uv.lock
+
+      - name: Build distribution artifacts
+        run: |
+          python -m pip install --upgrade pip build
+          python -m build --sdist --wheel
+
+      - name: Install wheel in a clean environment
+        run: |
+          python -m venv .ci-venv
+          .ci-venv/bin/python -m pip install --upgrade pip
+          .ci-venv/bin/python -m pip install dist/*.whl
+
+      - name: Verify installed command and packaged resources
+        run: |
+          .ci-venv/bin/bili-asr --help
+          .ci-venv/bin/python - <<'PY'
+          from importlib.resources import files
+
+          storage = files("bili_asr.storage")
+          required = {
+              "schema.sql",
+              "schema-transcripts.sql",
+              "schema-workflow.sql",
+              "schema-editorial.sql",
+          }
+          missing = sorted(name for name in required if not storage.joinpath(name).is_file())
+          if missing:
+              raise SystemExit(f"packaged storage resources missing: {missing}")
+          PY
+
+      - name: Upload distribution artifacts
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: python-distributions-${{ github.run_id }}
+          path: bilibili-asr-archive/dist/*
+          if-no-files-found: error
+          retention-days: 14
 
   harness:
     name: tests / harness
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
-      - uses: actions/setup-node@v4
+
+      - uses: actions/setup-node@v7
         with:
           node-version: "20"
+
+      - name: Install Bun for the harness engine
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
       - name: Install the harness validator
         run: npm install --global @mstar-harness/cli@3.11.2
+
       - name: Validate tracked harness state
         run: python bilibili-asr-archive/scripts/validate_harness_state.py .mstar
-        # Keep the authoritative report visible while existing residual work
-        # is being drained; the product test job remains the blocking gate.
-        continue-on-error: true
