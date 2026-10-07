@@ -8,7 +8,7 @@
     "quality_profile": "showcase",
     "repository": {
       "url": "https://github.com/SuperCatQR/bilibili-asr-archive.git",
-      "revision": "f271b0d880cee09a20128c74b987f430697bd4dc",
+      "revision": "1cfbe7166b2b568204d328b6085986c97724cf5a",
       "provider": "github",
       "link_mode": "local-only"
     }
@@ -892,7 +892,7 @@
       "id": "inspection",
       "type": "backend",
       "label": "查询与校验命令",
-      "sublabel": "status / runs / coverage / verify / export",
+      "sublabel": "query · verify · export · dedup",
       "pos": [
         345,
         2220
@@ -913,9 +913,15 @@
           "line": 103,
           "end_line": 160,
           "label": "workflow export 与 artifact verify"
+        },
+        {
+          "path": "src/bili_asr/dedup.py",
+          "line": 1,
+          "end_line": 150,
+          "label": "音频与跨分片字幕哈希统计"
         }
       ],
-      "tag": "manifest 搜索兼容 search.db"
+      "tag": "exact reuse only · no merge"
     },
     {
       "id": "integrity",
