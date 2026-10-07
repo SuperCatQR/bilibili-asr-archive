@@ -1,8 +1,9 @@
 # Design philosophy — B 站视频归档整合工作流
 
-Status: **项目北极星**（2026-10-03 定稿于分支 `thinking`；2026-10-04 修订，已在 `main`）。
+Status: **项目北极星**（2026-10-04 修订，已在 `main`）。
 本文是产品方向的上游锚点：新环节、新数据源、新处理器的设计先对齐这里，再谈实现。
-实现约定的词汇表在仓库根的 [`CONCEPTS.md`](../../CONCEPTS.md)；本文不重复定义，只陈述方向与公理。
+实现约定和当前命令契约以仓库根的 [`README.md`](../README.md) 与
+[`docs/architecture.md`](architecture.md) 为准；本文不重复实现细节，只陈述方向与公理。
 
 ---
 
@@ -99,7 +100,8 @@ fact ──→ f1 ──→ artifact1 ──→ f2 ──→ artifact2 ──→
   定义终态应满足的谓词，系统自己找缺口、跑处理器、再看谓词。
 
 先例已经在库里：`transcripts` 对同一 `(part, source, language)` 不可变追加多个内容版本，
-`publish-transcripts` 投影层决定哪个版本赢（`CONCEPTS.md` "transcript projection"）。
+`publish-transcripts` 投影层决定哪个版本赢（见 `storage/transcripts.py` 与
+`services/transcript_projection.py`）。
 proofread 的一致率分级（≥0.85 一致 / 0.75–0.85 次要 / <0.75 待审）就是终态谓词的雏形。
 **数据处理环节要做的就是把这个已验证的模式泛化到所有 artifact。**
 
@@ -197,8 +199,8 @@ proofread 的一致率分级（≥0.85 一致 / 0.75–0.85 次要 / <0.75 待�
 5. **状态是计算的，不是存储的。**
    任何"当前状态"都能从事件流重新求出；存储的状态只是投影。
 
-第五条是 `CONCEPTS.md` 既有 "evidence projection"（投影只描述、不回写状态）的泛化——
-那条定义就是这个系统的设计哲学种子。
+第五条是当前代码中 evidence projection 约束的泛化：投影只描述状态，不回写事实。
+这条约束是本系统设计哲学的种子。
 
 ## 8. 务实边界（反过度设计）
 

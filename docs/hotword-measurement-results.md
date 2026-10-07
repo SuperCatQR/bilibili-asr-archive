@@ -1,4 +1,8 @@
-# Hotword keep/drop — Measurement results (plan 20260928-hotword-injection-governance)
+# Hotword keep/drop — Measurement note
+
+> This is an operator measurement note, not a completed quality result. The
+> corpus was not available when it was written, so every unmeasured value below
+> remains explicitly pending.
 
 > **Status: PENDING-OPERATOR.** The corpus audio does not exist on this machine.
 > (The historical cause was the `/mnt/123pan` WebDAV mount failing — first
@@ -46,12 +50,10 @@
    .venv/bin/python scripts/measure_hotwords.py --ab-root /root/e2e-asr/hw-govern
    ```
    This writes `HOTWORD-CENSUS.md` + `hotword-census.json`: per-token R/I/U and
-   the corpus ratio. The comparators are the 20260918 text-precision basis
-   (`difflib`, `autojunk=False`), pinned in `tests/_hotword_census_comparators.py`.
-   **Comparator revision that scored the A/B:** the guide census as of 2026-09-26
-   (`iter-2026-09-qwen3-asr-closeout/guides/assets/census.py` →
-   `tests/_hotword_census_comparators.py`), functions `ratio`, `read_cues`,
-   `srt_seconds`, `arm_b_text_over`.
+   the corpus ratio. The comparators use the repository's
+   `tests/support/hotword_census_comparators.py` implementation with
+   `difflib` and `autojunk=False`; the functions are `ratio`, `read_cues`,
+   `srt_seconds`, and `arm_b_text_over`.
 
 4. **Land the ruling here** — one row per token, measured delta filled in:
    keep ⇔ delta > 0 **and** I = 0 (no insertion instances); otherwise drop.
@@ -83,8 +85,7 @@ the ruling has subjects; when the numbers land, the kept tokens return to
 
 ## Why a fresh measurement, not the 2026-09-26 numbers
 
-The 2026-09-26 round (record: `iter-2026-09-qwen3-asr-closeout/guides/
-t5-hotword-measurement-results.md`) scored the *committed* 33-entry list and
+The 2026-09-26 round scored the *committed* 33-entry list and
 returned R = 0 / I = 0 on a corpus under its pre-declared interpretive floor
-(E = 7 < 8). This plan's arm is the *guard-admitted* list on the pinned
+(E = 7 < 8). This note's arm is the *guard-admitted* list on the pinned
 proofread-wave corpus — a different question — so it is measured, not inferred.

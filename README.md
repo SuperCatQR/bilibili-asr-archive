@@ -247,7 +247,8 @@ Practically:
 
 - **`ffmpeg` is required**, and it is what decodes AAC here. It is a platform package rather than a
   pip one, so it cannot be expressed in the `[asr]` extra; a host without it fails on every `.m4a`
-  with an `ASRDependencyError` naming the binary. `AGENTS.md` lists it as a requirement.
+  with an `ASRDependencyError` naming the binary. The runtime requirement is declared in
+  `pyproject.toml` and the installation steps below.
 - The Python side is `soundfile` (reading) and `soxr` (resampling), both declared in the extra.
 - A `.wav` or `.flac` archive decodes through `soundfile` and never reaches the fallback.
 
@@ -256,7 +257,7 @@ cannot be caught by a `.wav` fixture. That is exactly how the first repair shipp
 the fallback through `librosa.load` on the belief that it reaches `audioread` and then `ffmpeg`, but
 `librosa` 1.0 dropped `audioread` and made `load` a bare `soundfile` call — so the fallback re-raised
 the very error it existed to catch, on any host built from this repository's own declarations, while
-every gate stayed green (residual `iter-2026-09-qwen3-asr-closeout · R5`).
+the current test suite exercises the explicit ffmpeg fallback path instead.
 
 The suite now decodes a **real** AAC file — generated with `ffmpeg` at test time — rather than
 stubbing both readers, so a fallback that cannot decode fails the build instead of passing it. When
@@ -1451,7 +1452,7 @@ and is not `gone` — the relation `harvest-subs` reports as
   `asr_done` row included, so a bounded run re-downloads and re-runs work the
   chain already finished. The row itself is never rewritten and the artifact
   lands at the page-qualified stem, so nothing is overwritten; the cost is
-  repeated work, registered as `iter-2026-09-queue-bridge · R2`. And the
+  repeated work, registered in the manifest ledger. And the
   SRT/TXT/MD projection rebuild stays out of this iteration: a stored caption
   keeps no `srt`/`txt`/`md` bundle until
   that rebuild lands, and it is not re-queued for audio either, because the

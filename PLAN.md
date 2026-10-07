@@ -127,9 +127,9 @@ manifest/manifest.jsonl（账本，work_id 为主键）
 | M3 | 全量执行 | 待交付 | 受控 `campaign`、coverage、quality、verify/recovery-audit 已交付；仍需真实顺序批次、显式风险边界和最终缺失清单。 |
 | M4 | 检索 | 已交付 | SQLite FTS5 搜索、过滤、重建诊断和稳定 JSON/CSV 导出已交付；manifest 仍为 SSOT。 |
 
-## 5a. 当前 roadmap 位置
+## 5a. 当前运行约束
 
-`iter-2026-08-corpus-coverage` 已 **delivered**：它交付的是可审计的顺序生产与证据骨架，而不是全量语料完成声明。当前生产模式保持 `sequential-no-daemon`。完整性 `recover` 仅记录最多 100 个当前权威缺陷候选的脱敏审计，不重排任务或改写状态；并发门即使返回 `go` 也只为后续独立批准计划提供证据。
+当前生产模式保持 `sequential-no-daemon`。完整性 `recover` 仅记录最多 100 个当前权威缺陷候选的脱敏审计，不重排任务或改写状态；并发门即使返回 `go` 也只为后续独立批准计划提供证据。
 
 当前 persistence hardening 约束：coverage/quality/verify 默认最多读取每个 sidecar 的 10,000 条非空记录和 8 MiB；只有 operator-owned archive 才显式使用 `--trusted-local`，且 16 MiB 单行/单对象、语义校验和 no-follow 校验仍生效。一个完整归档 generation 固定为 `srt/txt/md/raw` 四件套及最后发布的 `.bundle-ready` 摘要；bundle 完成后 manifest 写失败时保留可读 bundle、状态不晋升，并由下一次顺序执行重试。旧 `archived` 行若缺少 `raw_path` 或 marker，必须重新归档。bare-bvid 仅兼容读取/已有行更新，自动新写入必须使用 page-qualified `work_id`。所有 archive-mutating CLI 命令从初始读取到最终持久化持有同一个 archive-root writer lock；重叠写命令以 `<command>: archive_busy` 退出且不做部分写入，read-only 命令不争用该锁。这些 hardened descriptor 路径支持 Linux/WSL，不声称 native Windows 支持。
 

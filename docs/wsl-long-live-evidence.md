@@ -1,4 +1,9 @@
-# Long-live WSL evidence (redacted)
+# Long-live WSL evidence (redacted historical record)
+
+> This file records one completed acceptance run from an earlier checkout. It
+> is evidence of that run, not a current branch, dependency, coverage, or
+> performance claim. Use [wsl-long-live.md](wsl-long-live.md) for the current
+> procedure and rerun it before treating the numbers as current.
 
 Completed live Windows WSL acceptance on `DESKTOP-HHFROLO` / WSL2.
 
@@ -6,12 +11,12 @@ Live operation provenance is recorded by the checkout branch and verified featur
 
 ## Provenance
 
-- Live checkout branch: `plan/20260826-full-corpus-scheduler`
+- Live checkout branch: historical branch recorded by the original run
 - Live product fixes present before campaign: `01835b6` (fetch-meta SESSDATA propagation), `b321d84` (archive SESSDATA propagation), `3b054f2` (buvid browser context)
 - Live campaign provenance: the WSL operator ran the product checkout at the branch containing `01835b6`, `b321d84`, and `3b054f2`; evidence-only commits were added afterward.
 
 - Host / WSL distro: `DESKTOP-HHFROLO` / WSL2 (`x86_64`)
-- Product checkout branch: `plan/20260826-full-corpus-scheduler`
+- Product checkout branch: historical branch recorded by the original run
 - Archive root (WSL path, not a Windows mount): `/root/bili-asr-live-test`
 - Cookie supplied: `BILI_SESSDATA` in-shell only (value omitted)
 - `--max-audio-gb`: 10
