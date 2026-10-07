@@ -631,39 +631,6 @@ def test_status_reports_counts_pending_and_cursor_from_sqlite(
     assert "state=complete" in out
 
 
-def test_status_ignores_legacy_sidecar_rows(
-    tmp_root: str, bilibili_api_seam, capsys: pytest.CaptureFixture[str]
-) -> None:
-    """status never reads or rewrites legacy metadata sidecars."""
-
-    from bili_asr.manifest import ManifestStore
-
-    _collect_once(tmp_root, bilibili_api_seam, bvid="BV1STATUSPU1")
-    legacy_store = ManifestStore(root=tmp_root)
-    legacy_store.upsert(
-        {"work_id": "BV1LEGACYROW:p0", "bvid": "BV1LEGACYROW", "status": "archived"}
-    )
-    legacy_cursor_path = os.path.join(tmp_root, "meta-cursor.json")
-    with open(legacy_cursor_path, "w", encoding="utf-8") as cursor_handle:
-        cursor_handle.write('{"mid": 1, "state": "legacy-cursor-state"}\n')
-
-    assert main(["status", "--archive-root", tmp_root]) == 0
-    out, _err = capsys.readouterr()
-    assert "BV1LEGACYROW" not in out
-    assert "legacy-cursor-state" not in out
-    assert os.path.isfile(legacy_cursor_path)
-    # ``status`` must not rewrite the legacy sidecars either: the legacy
-    # manifest row stays an unread journal entry (the snapshot the other
-    # legacy-sidecar tests pin is never materialized), the legacy cursor
-    # keeps its bytes.  What ``status`` must never do is create the snapshot
-    # itself — ``fetch-meta``'s contract above is that it writes only
-    # ``archive.db``, so the bare ``manifest/`` directory is the honest
-    # post-condition.
-    manifest_dir = os.path.join(tmp_root, "manifest")
-    assert os.path.isdir(manifest_dir)
-    assert not os.path.exists(os.path.join(manifest_dir, "manifest.jsonl"))
-
-
 # ---------------------------------------------------------------- runs
 
 

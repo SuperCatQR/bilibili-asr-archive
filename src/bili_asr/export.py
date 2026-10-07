@@ -1,4 +1,4 @@
-"""Export manifest metadata to JSON or CSV formats."""
+"""Export read-only projections of workflow records to JSON or CSV."""
 
 from __future__ import annotations
 
@@ -8,10 +8,9 @@ import json
 import os
 from pathlib import Path
 import re
-from typing import Any, Sequence
+from typing import Any
 
 from .artifact_root import ArtifactRoots
-from .manifest import ManifestStore
 from bili_asr.search_index.readers import extract_transcript_text
 
 #: The standard CSV column order, pinned: a reader parses this header once and
@@ -37,8 +36,6 @@ STANDARD_CSV_COLUMNS: tuple[str, ...] = (
     "raw_path",
     "audio_path",
 )
-
-COMPLETED_STATUSES: frozenset[str] = frozenset({"archived", "subtitle_done"})
 
 SENSITIVE_EXPORT_KEYS: frozenset[str] = frozenset(
     {
@@ -192,7 +189,7 @@ def sanitize_export_entry(
     *,
     artifact_roots: ArtifactRoots | None = None,
 ) -> dict[str, Any]:
-    """Return a sanitized copy of a manifest entry without credentials/signed URLs.
+    """Return a sanitized record without credentials or signed URLs.
 
     If with_text is True and a root is available, transcript text is loaded
     and attached under 'transcript_text'. If with_text is False, transcript text
@@ -281,7 +278,7 @@ def _entry_key_from_dict(entry: dict[str, Any]) -> str:
 
 
 def export_rows(
-    store_or_entries: ManifestStore | dict[str, dict[str, Any]] | list[dict[str, Any]],
+    store_or_entries: dict[str, dict[str, Any]] | list[dict[str, Any]],
     status_filter: set[str] | list[str] | None = None,
     with_text: bool = False,
     archive_root: str | os.PathLike[str] | None = None,
@@ -290,16 +287,13 @@ def export_rows(
     *,
     artifact_roots: ArtifactRoots | None = None,
 ) -> list[dict[str, Any]]:
-    """Derive sanitized export rows from the manifest, optionally filtered by status.
+    """Derive sanitized export rows, optionally filtered by workflow status.
 
     ``artifact_roots`` is the base list the artifact path fields and ``--with-text``
     are resolved against (contract §10); ``None`` keeps the single ``archive_root``
     base this function has always used.
     """
-    if isinstance(store_or_entries, ManifestStore):
-        entries = store_or_entries.load()
-        root = archive_root if archive_root is not None else store_or_entries.root
-    elif isinstance(store_or_entries, dict):
+    if isinstance(store_or_entries, dict):
         entries = store_or_entries
         root = archive_root
     elif isinstance(store_or_entries, list):
@@ -397,49 +391,7 @@ def format_csv_export(
     return buffer.getvalue()
 
 
-def export_coverage_summary(
-    rows: Sequence[dict[str, Any]],
-    total_manifest_count: int | None = None,
-) -> dict[str, Any]:
-    """Return deterministic coverage summary over exported rows.
-
-    Explains completed vs excluded/incomplete records without claiming false completion.
-    """
-    total_rows = len(rows)
-    completed_rows = sum(
-        1 for r in rows if str(r.get("status") or "") in COMPLETED_STATUSES
-    )
-    incomplete_rows = total_rows - completed_rows
-
-    status_counts: dict[str, int] = {}
-    with_text_count = 0
-    reclaimed_audio_count = 0
-
-    for r in rows:
-        st = str(r.get("status") or "unknown")
-        status_counts[st] = status_counts.get(st, 0) + 1
-        if bool(r.get("transcript_text")):
-            with_text_count += 1
-        if st == "archived" and bool(r.get("audio_path")):
-            reclaimed_audio_count += 1
-
-    sorted_status_counts = {k: status_counts[k] for k in sorted(status_counts.keys())}
-    manifest_count = total_manifest_count if total_manifest_count is not None else total_rows
-    excluded_count = max(0, manifest_count - total_rows)
-
-    return {
-        "total_rows": total_rows,
-        "completed_rows": completed_rows,
-        "incomplete_rows": incomplete_rows,
-        "status_counts": sorted_status_counts,
-        "with_text_rows": with_text_count,
-        "reclaimed_audio_rows": reclaimed_audio_count,
-        "total_manifest_count": manifest_count,
-        "excluded_count": excluded_count,
-    }
-
-
-def export_manifest(
+def export_records(
     archive_root: str | os.PathLike[str],
     fmt: str,
     out_path: str | os.PathLike[str] | None = None,
@@ -450,18 +402,15 @@ def export_manifest(
     *,
     artifact_roots: ArtifactRoots | None = None,
 ) -> str:
-    """Export manifest-derived rows to JSON or CSV format.
-
-    Manifest remains SSOT and is never modified.  ``artifact_roots`` carries the
-    bases the artifact path fields and ``--with-text`` resolve against (contract
-    §10); the store itself stays rooted at the archive root — it is state (D13).
-    """
+    """Export a read-only projection of workflow records to JSON or CSV."""
     fmt_lower = fmt.lower().strip()
     if fmt_lower not in {"json", "csv"}:
         raise ValueError(f"unsupported export format: {fmt!r}; choose 'json' or 'csv'")
 
-    store = ManifestStore(archive_root)
-    entries = store.load()
+    root = os.fspath(archive_root)
+    from bili_asr.services.workflow_projection import workflow_has_data, workflow_records
+
+    entries = workflow_records(root, with_text=with_text) if workflow_has_data(root) else {}
     rows = export_rows(
         entries,
         status_filter=status_filter,

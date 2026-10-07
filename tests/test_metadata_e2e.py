@@ -264,8 +264,6 @@ def test_fetch_meta_normalizes_single_part_and_multipart_videos_end_to_end(
     assert "parts: 3" in status_out
     assert "metadata_collected=3" in status_out
     assert "pending: 0" in status_out
-    assert "queue: missing subtitles: 3 shown" in status_out
-    assert f"{SINGLE_PART_BVID}:p0" in status_out
     assert "cursor: mid=23191782 next_page=2 state=complete" in status_out
     assert_leaks_no_markers(status_out + status_err, context="status output")
 

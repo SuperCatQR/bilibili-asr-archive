@@ -134,8 +134,8 @@ def canonical_stem(row: Mapping[str, object]) -> str:
     - a row missing ``bvid`` raises (``KeyError``), matching ``archive_stem``:
       a stem without an identity is not guessable.
 
-    This is the single definition; ``quality``, ``integrity`` and
-    ``coordinator`` delegate here instead of carrying their own copies.
+    This is the single definition shared by the archive, integrity, and
+    workflow publication paths.
     Callers that probe real archive rows catch ``KeyError``/``ValueError``
     and report the row as identity-invalid rather than crashing the report.
     """

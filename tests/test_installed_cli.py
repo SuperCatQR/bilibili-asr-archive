@@ -24,7 +24,10 @@ def test_installed_console_script_help(isolated_cli) -> None:
     proc = run_installed(isolated_cli, ["--help"])
     assert proc.returncode == 0, proc.stderr
     assert "bili-asr" in proc.stdout
-    for command in ("fetch-meta", "status", "runs", "asr", "pilot", "coverage", "verify", "recover"):
+    for command in (
+        "workflow", "fetch-meta", "status", "runs", "search-index",
+        "coverage", "verify", "export", "check-asr-env",
+    ):
         assert command in proc.stdout
     assert_redacted(proc)
 
@@ -44,7 +47,7 @@ def test_stdlib_venv_install_works_without_uv_or_inherited_backend(monkeypatch, 
     isolated = provision_isolated_cli(str(tmp_path / "stdlib-cli"))
     proc = run_installed(isolated, ["--help"])
     assert proc.returncode == 0, proc.stderr
-    assert "adopt-transcripts" in proc.stdout
+    assert "workflow" in proc.stdout
     backend = subprocess.run(
         [isolated.python, "-c", "import importlib.util; assert importlib.util.find_spec('setuptools') is None"],
         capture_output=True, text=True, check=False,
@@ -124,18 +127,9 @@ def test_installed_console_script_resolves_its_packaged_host_check(isolated_cli)
     assert_redacted(proc)
 
 
-def test_installed_console_script_status_ignores_legacy_manifest(isolated_cli, tmp_path: Path) -> None:
-    from bili_asr.manifest import ManifestStore
-
-    store = ManifestStore(root=str(tmp_path))
-    store.upsert({"work_id": "BV1test_inst:p1", "bvid": "BV1test_inst", "status": "archived"})
-    store.upsert({"work_id": "BV1test_meta:p1", "bvid": "BV1test_meta", "status": "meta_ok"})
-
+def test_installed_console_script_status_requires_database(isolated_cli, tmp_path: Path) -> None:
     proc = run_installed(isolated_cli, ["status", "--archive-root", str(tmp_path)])
-    # status reads only the fresh SQLite database: with no archive.db the
-    # legacy manifest rows are neither read nor rewritten (exit 1).
     assert proc.returncode == 1, proc.stdout
-    assert "BV1test_inst" not in proc.stdout
     assert "no archive database" in proc.stderr
     assert_redacted(proc)
 

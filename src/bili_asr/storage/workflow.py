@@ -116,19 +116,19 @@ class WorkflowRepository:
         digest = hashlib.sha256(profile.canonical().encode("utf-8")).hexdigest()
         now = _now()
         with self.connection:
+            row = self.connection.execute(
+                "SELECT profile_id FROM workflow_asr_profiles "
+                "WHERE profile_key = ? AND config_sha256 = ?",
+                (profile.profile_key, digest),
+            ).fetchone()
+            if row is not None:
+                return int(row["profile_id"])
             self.connection.execute(
                 """
                 INSERT INTO workflow_asr_profiles(
                     profile_key, model_name, model_revision, aligner_name, device,
                     language, config_sha256, created_at
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(profile_key) DO UPDATE SET
-                    model_name = excluded.model_name,
-                    model_revision = excluded.model_revision,
-                    aligner_name = excluded.aligner_name,
-                    device = excluded.device,
-                    language = excluded.language,
-                    config_sha256 = excluded.config_sha256
                 """,
                 (
                     profile.profile_key,
@@ -142,8 +142,9 @@ class WorkflowRepository:
                 ),
             )
             row = self.connection.execute(
-                "SELECT profile_id FROM workflow_asr_profiles WHERE profile_key = ?",
-                (profile.profile_key,),
+                "SELECT profile_id FROM workflow_asr_profiles "
+                "WHERE profile_key = ? AND config_sha256 = ?",
+                (profile.profile_key, digest),
             ).fetchone()
         return int(row["profile_id"])
 
@@ -220,7 +221,11 @@ class WorkflowRepository:
                     video_part_id=part_id,
                     profile_id=profile_id,
                     policy_key=policy.value,
-                    payload={"video_part_id": part_id, "profile_id": profile_id},
+                    payload={
+                        "video_part_id": part_id,
+                        "profile_id": profile_id,
+                        "reference_transcript_id": self._latest_reference_transcript_id(part_id),
+                    },
                     dedupe_key=f"asr:{part_id}:{profile_digest}",
                 )
                 self.connection.execute(
@@ -316,6 +321,42 @@ class WorkflowRepository:
                 (now + lease_seconds, now, job.job_id, job.lease_owner, job.attempt_count, now))
             if cursor.rowcount != 1:
                 raise LeaseLostError("job lease was lost")
+
+    def assert_lease(self, job: WorkflowJob) -> None:
+        """Fence a side effect to the exact claimed attempt."""
+        row = self.connection.execute(
+            "SELECT status, lease_owner, lease_expires_at, attempt_count "
+            "FROM workflow_jobs WHERE job_id = ?", (job.job_id,)
+        ).fetchone()
+        if (
+            row is None
+            or row["status"] != JobStatus.RUNNING.value
+            or row["lease_owner"] != job.lease_owner
+            or row["attempt_count"] != job.attempt_count
+            or row["lease_expires_at"] is None
+            or int(row["lease_expires_at"]) <= _now()
+        ):
+            raise LeaseLostError("job lease was lost")
+
+    def dependency_result(self, job: WorkflowJob, kind: JobKind) -> Mapping[str, Any]:
+        """Return the successful result of an exact prerequisite job."""
+        row = self.connection.execute(
+            """
+            SELECT a.result_json
+            FROM workflow_job_dependencies AS d
+            JOIN workflow_jobs AS prerequisite ON prerequisite.job_id = d.prerequisite_job_id
+            JOIN workflow_attempts AS a ON a.job_id = prerequisite.job_id
+            WHERE d.job_id = ? AND prerequisite.kind = ? AND a.outcome = 'succeeded'
+            ORDER BY a.finished_at DESC, a.rowid DESC LIMIT 1
+            """,
+            (job.job_id, kind.value),
+        ).fetchone()
+        if row is None or not row["result_json"]:
+            raise LeaseLostError(f"successful {kind.value} prerequisite result is missing")
+        value = json.loads(str(row["result_json"]))
+        if not isinstance(value, dict):
+            raise ValueError("workflow prerequisite result must be an object")
+        return value
 
     def _require_editorial_contract(self) -> None:
         row = self.connection.execute("SELECT sql FROM sqlite_master WHERE name = 'workflow_jobs'").fetchone()
@@ -531,6 +572,18 @@ class WorkflowRepository:
         ).fetchone()
         return row is not None and float(row["score"]) < threshold
 
+    def _latest_reference_transcript_id(self, part_id: int) -> int | None:
+        row = self.connection.execute(
+            """
+            SELECT transcript_id FROM transcripts
+            WHERE video_part_id = ? AND source_kind IN ('subtitle-ai', 'subtitle-cc')
+            ORDER BY CASE source_kind WHEN 'subtitle-cc' THEN 0 ELSE 1 END,
+                     created_at DESC, transcript_id DESC LIMIT 1
+            """,
+            (part_id,),
+        ).fetchone()
+        return None if row is None else int(row["transcript_id"])
+
     def _terminal(
         self,
         job_id: str,
@@ -546,11 +599,17 @@ class WorkflowRepository:
         self.connection.execute("BEGIN IMMEDIATE")
         try:
             job = self.connection.execute(
-                "SELECT status, lease_owner, kind, payload_json, attempt_count "
+                "SELECT status, lease_owner, lease_expires_at, kind, payload_json, attempt_count "
                 "FROM workflow_jobs WHERE job_id = ?",
                 (job_id,),
             ).fetchone()
-            if job is None or job["status"] != "running" or job["lease_owner"] != worker_id:
+            if (
+                job is None
+                or job["status"] != "running"
+                or job["lease_owner"] != worker_id
+                or job["lease_expires_at"] is None
+                or int(job["lease_expires_at"]) <= now
+            ):
                 raise LeaseLostError("job is not leased by this worker")
             if expected_attempt_count is not None and job["attempt_count"] != expected_attempt_count:
                 raise LeaseLostError("job lease was lost")

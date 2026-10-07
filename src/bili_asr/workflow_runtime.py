@@ -22,7 +22,7 @@ from bili_asr import archive, asr, audio, bili_client
 from bili_asr.formatting import pubdate_utc
 from bili_asr.page_identity import PageIdentity, artifact_stem
 from bili_asr.services.subtitle_ingest import SubtitleIngestor, SubtitleSelection
-from bili_asr.services.manifest_derivation import duration_s_from_ms
+from bili_asr.formatting import duration_s_from_ms
 from bili_asr.services.transcript_projection import ordered_candidates, writer_segments
 from bili_asr.sources.bilibili_api_gateway import BilibiliApiGateway
 from bili_asr.storage import (
@@ -67,6 +67,7 @@ class ArchiveWorkflowHandlers:
         self._runners.clear()
 
     def subtitle(self, job: WorkflowJob) -> Mapping[str, Any]:
+        self.repository.assert_lease(job)
         part = self._part(job)
         ingestor = SubtitleIngestor(
             BilibiliApiGateway(sessdata=self.sessdata),
@@ -103,6 +104,7 @@ class ArchiveWorkflowHandlers:
         }
 
     def audio(self, job: WorkflowJob) -> Mapping[str, Any]:
+        self.repository.assert_lease(job)
         part = self._part(job)
         identity = PageIdentity(
             work_id=f"{part['bvid']}:p{part['page_index']}",
@@ -115,7 +117,8 @@ class ArchiveWorkflowHandlers:
         target.parent.mkdir(parents=True, exist_ok=True)
         client = self._client or bili_client.BiliClient(sessdata=self.sessdata)
         self._client = client
-        final = Path(audio.download_audio(client, identity, target, store=None))
+        self.repository.assert_lease(job)
+        final = Path(audio.download_audio(client, identity, target))
         probe = subprocess.run(
             ["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "json", os.fspath(final)],
             check=True, capture_output=True, text=True, timeout=30,
@@ -125,6 +128,7 @@ class ArchiveWorkflowHandlers:
             raise RuntimeError("invalid_audio_duration")
         duration_ms = max(1, round(duration_s * 1000))
         digest = hashlib.sha256(final.read_bytes()).hexdigest()
+        self.repository.assert_lease(job)
         storage_key = os.fspath(final.relative_to(self.archive_root)).replace("\\", "/")
         now = int(time.time())
         with self.connection:
@@ -145,37 +149,23 @@ class ArchiveWorkflowHandlers:
         return {"storage_key": storage_key, "sha256": digest, "duration_ms": duration_ms}
 
     def local_asr(self, job: WorkflowJob) -> Mapping[str, Any]:
+        self.repository.assert_lease(job)
         if job.profile_id is None:
             raise RuntimeError("missing_profile")
         part = self._part(job)
-        audio_row = self.connection.execute(
-            """
-            SELECT ao.storage_key FROM part_audio_objects AS pa
-            JOIN audio_objects AS ao ON ao.audio_id = pa.audio_id
-            WHERE pa.video_part_id = ? ORDER BY pa.acquired_at DESC, pa.audio_id DESC LIMIT 1
-            """,
-            (int(part["video_part_id"]),),
-        ).fetchone()
-        if audio_row is None:
-            raise RuntimeError("audio_missing")
-        audio_path = self.archive_root / str(audio_row["storage_key"])
+        audio_result = self.repository.dependency_result(job, JobKind.AUDIO)
+        storage_key = audio_result.get("storage_key")
+        if not isinstance(storage_key, str) or not storage_key:
+            raise RuntimeError("audio_result_missing_storage_key")
+        audio_path = self.archive_root / storage_key
         if not audio_path.is_file():
             raise RuntimeError("audio_missing")
         runner = self._runner(job.profile_id)
-        paired_text = self._paired_subtitle_text(int(part["video_part_id"]))
-        started = int(time.time())
-        segments = asr.two_pass_transcribe(runner, os.fspath(audio_path), paired_subtitle_text=paired_text)
-        records = tuple(
-            TranscriptSegmentRecord(
-                start_ms=int(round(float(cue["start"]) * 1000)),
-                end_ms=int(round(float(cue["end"]) * 1000)),
-                text=str(cue["text"]),
-            )
-            for cue in segments
+        reference_id = job.payload.get("reference_transcript_id")
+        paired_text = self._paired_subtitle_text(
+            None if reference_id is None else int(reference_id)
         )
-        if not records:
-            raise RuntimeError("empty_transcript")
-        finished = int(time.time())
+        started = int(time.time())
         run_id = str(uuid4())
         self._subtitle_repository.start_acquisition_run(
             AcquisitionRunRecord(
@@ -189,6 +179,28 @@ class ArchiveWorkflowHandlers:
             )
         )
         try:
+            self.repository.assert_lease(job)
+            segments = asr.two_pass_transcribe(
+                runner, os.fspath(audio_path), paired_subtitle_text=paired_text
+            )
+        except BaseException:
+            self._subtitle_repository.finish_acquisition_run(
+                run_id, int(time.time()), outcome="failed"
+            )
+            raise
+        records = tuple(
+            TranscriptSegmentRecord(
+                start_ms=int(round(float(cue["start"]) * 1000)),
+                end_ms=int(round(float(cue["end"]) * 1000)),
+                text=str(cue["text"]),
+            )
+            for cue in segments
+        )
+        if not records:
+            raise RuntimeError("empty_transcript")
+        finished = int(time.time())
+        try:
+            self.repository.assert_lease(job)
             stored = self._subtitle_repository.record_local_transcript(
                 run_id=run_id,
                 video_part_id=int(part["video_part_id"]),
@@ -220,6 +232,7 @@ class ArchiveWorkflowHandlers:
 
     def publish(self, job: WorkflowJob) -> Mapping[str, Any]:
         """Project the currently preferred stored transcript into an archive bundle."""
+        self.repository.assert_lease(job)
         if job.video_part_id is None:
             raise RuntimeError("missing_video_part")
         rows = self.connection.execute(
@@ -281,7 +294,9 @@ class ArchiveWorkflowHandlers:
             segments,
             source="asr" if source_kind == "asr-local" else "subtitle",
             asr_provenance=asr_provenance,
+            before_replace=lambda: self.repository.assert_lease(job),
         )
+        self.repository.assert_lease(job)
         now = int(time.time())
         with self.connection:
             self.connection.execute(
@@ -332,14 +347,16 @@ class ArchiveWorkflowHandlers:
             raise RuntimeError("unknown_video_part")
         return row
 
-    def _paired_subtitle_text(self, video_part_id: int) -> str | None:
+    def _paired_subtitle_text(self, transcript_id: int | None) -> str | None:
+        if transcript_id is None:
+            return None
         rows = self.connection.execute(
             """
             SELECT ts.text FROM transcripts AS t
             JOIN transcript_segments AS ts ON ts.transcript_id = t.transcript_id
-            WHERE t.video_part_id = ? AND t.source_kind IN ('subtitle-ai', 'subtitle-cc')
-            ORDER BY t.created_at DESC, t.transcript_id DESC, ts.ordinal
+            WHERE t.transcript_id = ?
+            ORDER BY ts.ordinal
             """,
-            (video_part_id,),
+            (transcript_id,),
         ).fetchall()
         return "".join(str(row["text"]) for row in rows) or None

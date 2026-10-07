@@ -5,7 +5,6 @@ models, and the bootstrap helpers are all re-exported here.
 """
 
 from bili_asr.storage.database import DatabaseConnection, SchemaContractError, duration_to_ms, initialize_schema, normalize_page_index, open_database, refresh_shipped_views, require_subtitle_schema
-from bili_asr.storage.media_queue import MediaQueueRepository
 from bili_asr.storage.metadata import MetadataRepository
 from bili_asr.storage.transcripts import TranscriptRepository
 from .models import (
@@ -17,7 +16,6 @@ from .models import (
     ALLOWED_LOCAL_TRANSCRIPT_SOURCE_KINDS,
     ALLOWED_PAGE_OUTCOMES,
     ALLOWED_PROCESSING_STATUS,
-    ALLOWED_QUEUE_GAPS,
     ALLOWED_RUN_OUTCOMES,
     ALLOWED_SOURCE_KINDS,
     MAX_TIMELINE_MS,
@@ -32,8 +30,6 @@ from .models import (
     IngestionRunRecord,
     PageOutcome,
     ProcessingStatus,
-    QueueGap,
-    QueueGapItem,
     RunOutcome,
     SourceKind,
     TranscriptRecord,
@@ -57,7 +53,6 @@ __all__ = [
     "ALLOWED_LOCAL_TRANSCRIPT_SOURCE_KINDS",
     "ALLOWED_PAGE_OUTCOMES",
     "ALLOWED_PROCESSING_STATUS",
-    "ALLOWED_QUEUE_GAPS",
     "ALLOWED_RUN_OUTCOMES",
     "ALLOWED_SOURCE_KINDS",
     "AcquisitionKind",
@@ -75,12 +70,9 @@ __all__ = [
     "JobKind",
     "JobStatus",
     "MAX_TIMELINE_MS",
-    "MediaQueueRepository",
     "MetadataRepository",
     "PageOutcome",
     "ProcessingStatus",
-    "QueueGap",
-    "QueueGapItem",
     "RunOutcome",
     "SchemaContractError",
     "SourceKind",

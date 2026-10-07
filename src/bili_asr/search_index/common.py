@@ -2,11 +2,8 @@
 
 from __future__ import annotations
 
-import json
-import os
 import re
 import sqlite3
-from typing import Any
 import bili_asr.search_index.constants as _dependency_constants
 
 
@@ -65,68 +62,6 @@ def _create_snippet(text: str, query: str = "") -> str:
         snippet = prefix + clean_text[start:end] + suffix
 
     return _redact_text(snippet[:_dependency_constants.MAX_SNIPPET_LENGTH])
-
-
-def _parse_filter_set(val: Any) -> set[str] | None:
-    """Parse a filter argument into a set of non-empty string values."""
-    if val is None:
-        return None
-    if isinstance(val, str):
-        tokens = [s.strip() for s in val.split(",") if s.strip()]
-        return set(tokens) if tokens else None
-    if isinstance(val, (set, frozenset, list, tuple)):
-        items: set[str] = set()
-        for item in val:
-            if isinstance(item, str):
-                for s in item.split(","):
-                    s = s.strip()
-                    if s:
-                        items.add(s)
-        return items if items else None
-    return None
-
-
-def _parse_scope_clause(
-    scope: str,
-    root: str,
-) -> tuple[str, list[Any]]:
-    """Translate scope selector to SQL clause and parameters."""
-    scope_str = scope.strip()
-    if not scope_str:
-        return "", []
-    if scope_str == "pending":
-        # Pending means non-terminal rows (none of which are indexed)
-        return "status NOT IN ('archived', 'gone')", []
-    if scope_str == "failed":
-        # Load failed work_ids from attempts ledger
-        attempts_path = os.path.join(root, "coordinator", "attempts.jsonl")
-        failed_ids: set[str] = set()
-        if os.path.isfile(attempts_path):
-            try:
-                with open(attempts_path, "r", encoding="utf-8") as fh:
-                    for line in fh:
-                        line = line.strip()
-                        if not line:
-                            continue
-                        rec = json.loads(line)
-                        if rec.get("outcome") == "failed" and rec.get("work_id"):
-                            failed_ids.add(str(rec["work_id"]))
-            except Exception:
-                pass
-        if not failed_ids:
-            return "1 = 0", []
-        placeholders = ", ".join("?" for _ in failed_ids)
-        return f"work_id IN ({placeholders})", sorted(failed_ids)
-
-    tokens = [t.strip() for t in re.split(r"[,\s]+", scope_str) if t.strip()]
-    if not tokens:
-        return "", []
-    w_placeholders = ", ".join("?" for _ in tokens)
-    b_placeholders = ", ".join("?" for _ in tokens)
-    return (
-        f"(work_id IN ({w_placeholders}) OR bvid IN ({b_placeholders}))",
-        sorted(tokens) + sorted(tokens),
-    )
 
 
 def _cjk_bigram_stream(text: str) -> str:

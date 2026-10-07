@@ -143,8 +143,8 @@ def test_legacy_partial_index_recovers_a_verified_segment_prefix(tmp_root, monke
 _DIE_AFTER_BATCH = """
 import os
 import sys
-from bili_asr import search_index
-redact = search_index._redact_text
+from bili_asr.search_index import common
+redact = common._redact_text
 calls = 0
 def die(text):
     global calls
@@ -152,7 +152,8 @@ def die(text):
     if calls == 501:
         os._exit(87)
     return redact(text)
-search_index._redact_text = die
+common._redact_text = die
+from bili_asr import search_index
 search_index.TranscriptSearchIndex(sys.argv[1]).build()
 """
 

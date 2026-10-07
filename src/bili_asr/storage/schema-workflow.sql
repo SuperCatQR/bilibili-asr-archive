@@ -6,7 +6,7 @@
 
 CREATE TABLE IF NOT EXISTS workflow_asr_profiles (
     profile_id INTEGER PRIMARY KEY,
-    profile_key TEXT NOT NULL UNIQUE,
+    profile_key TEXT NOT NULL,
     model_name TEXT NOT NULL,
     model_revision TEXT NOT NULL,
     aligner_name TEXT NOT NULL,
@@ -15,6 +15,9 @@ CREATE TABLE IF NOT EXISTS workflow_asr_profiles (
     config_sha256 TEXT NOT NULL,
     created_at INTEGER NOT NULL
 );
+
+CREATE UNIQUE INDEX IF NOT EXISTS ux_workflow_asr_profiles_config
+    ON workflow_asr_profiles(profile_key, config_sha256);
 
 CREATE TABLE IF NOT EXISTS workflow_jobs (
     job_id TEXT PRIMARY KEY,

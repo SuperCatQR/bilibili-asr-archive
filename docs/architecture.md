@@ -1,49 +1,69 @@
 # Current Architecture
 
-The package is organized around four runtime boundaries and one composition
-root:
+The product has one execution core: the SQLite-backed workflow. A worker
+claims one job, runs a handler against fixed inputs, and records the attempt
+and result. The database is the operational source for metadata, immutable
+transcript versions, workflow attempts, and publications. Files below the
+archive root are byte artifacts and are published only through the archive
+writer.
 
 ```text
-CLI composition root
-  -> services (metadata, subtitles, queue derivation, adoption)
-  -> storage repositories (metadata, transcripts, media queue)
-  -> pipeline stages (attempts, locks, ASR/archive writeback)
-  -> products (archive bundles, manifest, search indexes)
+CLI / composition
+        |
+        v
+Workflow planner -> SQLite jobs, dependencies, leases, attempts
+        |
+        +--> Acquire: metadata, captions, audio
+        |
+        +--> Process: ASR, editorial proofread, deterministic rendering
+        |
+        +--> Publish: transcript bundles and documents
+                         |
+                         v
+               Query projections: status, coverage, export, verify, search
 ```
 
-`bili_asr.cli.main` owns argument parsing, artifact-root resolution, writer
-locking, and command dispatch. Command modules contain one concern each. The
-package-level `bili_asr.cli` surface exposes the dispatcher and parser only;
-private command handlers are imported from their owning module.
+## Boundaries
 
-The ASR package keeps model ownership in `asr.runner`, audio decoding and
-chunking in `asr.audio`, cue alignment in `asr.alignment`, configuration and
-hotword policy in `asr.config` / `asr.hotwords`, and evidence projection in
-`asr.coverage` / `asr.provenance`. The runner is lazy and run-scoped: callers
-can reuse one model set across parts without moving storage or publication
-logic into the model boundary.
+`bili_asr.cli` parses arguments and constructs a run context. It owns command
+configuration and should not implement stage state transitions.
 
-SQLite access is split by write responsibility. `storage.database` owns
-connection/bootstrap/schema contracts; `storage.metadata` owns normalized
-video discovery and ingestion state; `storage.transcripts` owns transcript
-versions and segments; `storage.media_queue` owns audio queue predicates.
-Transactions stay inside the repository methods documented as committing; the
-other methods remain composable inside a caller transaction.
+`bili_asr.storage.workflow` owns job planning, dependency eligibility, leases,
+attempt records, retries, immutable ASR profiles, and terminal outcomes. A
+profile is versioned by its configuration digest; registering a changed
+configuration never mutates a profile referenced by an existing job.
 
-The coordinator is a thin state machine. `pipeline.stages` performs subtitle,
-audio, ASR, and archive stages; `pipeline.attempts` redacts failure evidence;
-`pipeline.writeback` applies manifest/store updates; `pipeline.locks` owns the
-archive writer lock; and `pipeline.models` holds stage result records. This
-keeps resumability and atomic bundle publication visible without making the
-CLI or repositories depend on model details.
+`bili_asr.storage.metadata`, `storage.transcripts`, and the acquisition
+services own external observations and durable transcript facts. A transcript
+version is append-only. The ASR job records its reference transcript at plan
+time and consumes the exact successful audio prerequisite result.
 
-Search has two explicit implementations. `search_index.manifest` serves the
-legacy manifest index, while `search_index.store` serves the transcript FTS5
-index. Shared query models, readers, constants, and error classes live in the
-remaining submodules. Neither read path creates a missing index.
+`bili_asr.asr` owns model lifetime, decoding, alignment, coverage evidence,
+and provenance. It does not write workflow state or publish files. Editorial
+handlers follow the same rule and persist input snapshots, model-call
+envelopes, chunk results, revisions, and rendered document records through
+their repositories.
 
-Tests follow the same ownership map. Reusable fakes, archive seeds, CLI
-builders, and transport fixtures live in `tests/support/`; test modules contain
-scenario assertions. `scripts/project_staging.py` is the single bounded
-staging helper used by offline fixture and installed-entrypoint verification,
-so verifier output cannot recursively copy the checkout into itself.
+`bili_asr.archive` is the object publication boundary. It writes the complete
+bundle under a confined archive root and accepts a lease fence callback before
+each irreversible replacement. The workflow handler checks the lease before
+and after publication and before recording the publication fact.
+
+`bili_asr.services.workflow_projection` is the read projection for the
+workflow. `coverage`, `export`, and `verify` read video parts, transcript
+versions, publication facts, and bundle layout from SQLite and published files.
+They do not maintain a second execution status machine.
+
+## State ownership
+
+| Fact | Owner | Derived readers |
+|---|---|---|
+| Video and part observations | `storage.metadata` | planner, status, export |
+| Transcript versions and segments | `storage.transcripts` | publisher, search, editorial |
+| Job, dependency, lease, attempt | `storage.workflow` | worker, status, retry |
+| Published bundle identity | `workflow_publications` plus bundle marker | coverage, export, verify |
+| Search index | `search_index.store` | search |
+
+The coordinator and JSONL manifest state machine have been removed from the
+execution path. SQLite workflow jobs and attempts now own scheduling and
+outcomes.

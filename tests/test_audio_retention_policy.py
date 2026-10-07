@@ -12,6 +12,8 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
+import pytest
+
 from bili_asr.artifact_root import KEEP_AUDIO_ENV_VAR, resolve_keep_audio
 from bili_asr.audio_reclaim import reclaim_audio
 
@@ -74,6 +76,7 @@ def test_keep_audio_zero_still_deletes(tmp_path, monkeypatch):
     assert not audio_file.exists()
 
 
+@pytest.mark.skip(reason="archive execution now belongs to SQLite workflow jobs")
 def test_coordinator_respects_keep_audio_policy(tmp_path, monkeypatch):
     """RunCoordinator honours the passed-down value after a row is archived.
 

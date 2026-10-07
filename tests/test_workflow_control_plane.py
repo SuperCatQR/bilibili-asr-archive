@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import shutil
 import subprocess
 import wave
@@ -17,6 +18,10 @@ from bili_asr.storage import (
     WorkflowRepository,
     open_database,
 )
+from bili_asr.coverage_report import CoverageReport
+from bili_asr.export import export_records
+from bili_asr.integrity import IntegrityVerifier
+from bili_asr.services.workflow_projection import workflow_records
 from bili_asr.workflow_runtime import ArchiveWorkflowHandlers
 
 
@@ -65,6 +70,66 @@ def test_asr_dependency_is_audio_only_and_subtitle_failure_does_not_block_it(tmp
         asr = repo.claim("worker")
         assert asr is not None and asr.kind.value == "asr"
         assert asr.video_part_id == part_id
+    finally:
+        connection.close()
+
+
+def test_asr_profiles_are_immutable_and_existing_jobs_keep_their_model(tmp_path) -> None:
+    connection = open_database(tmp_path)
+    try:
+        part_id = _seed_part(connection)
+        repo = WorkflowRepository(connection)
+        first = repo.register_profile(AsrProfile(profile_key="stable", model_name="model-v1"))
+        repo.plan(part_ids=[part_id], policy=AsrPolicy.ALL, profile_id=first)
+        old_job = connection.execute(
+            "SELECT profile_id, payload_json FROM workflow_jobs WHERE kind = 'asr'"
+        ).fetchone()
+
+        second = repo.register_profile(AsrProfile(profile_key="stable", model_name="model-v2"))
+        assert second != first
+        assert repo.profile(int(old_job["profile_id"])).model_name == "model-v1"
+        repo.plan(part_ids=[part_id], policy=AsrPolicy.ALL, profile_id=second)
+        assert connection.execute(
+            "SELECT COUNT(*) FROM workflow_jobs WHERE kind = 'asr'"
+        ).fetchone()[0] == 2
+    finally:
+        connection.close()
+
+
+def test_asr_job_snapshots_the_reference_transcript_at_plan_time(tmp_path) -> None:
+    connection = open_database(tmp_path)
+    try:
+        part_id = _seed_part(connection)
+        transcript_repo = TranscriptRepository(connection)
+        transcript_repo.start_acquisition_run(
+            AcquisitionRunRecord(
+                run_id="snapshot-caption",
+                kind="subtitle",
+                selector_kind="bvid",
+                selector_target="BVtest",
+                requested_limit=1,
+                credential_present=False,
+                started_at=1,
+            )
+        )
+        stored = transcript_repo.record_acquired_transcript(
+            run_id="snapshot-caption",
+            video_part_id=part_id,
+            source_kind="subtitle-ai",
+            language="zh-CN",
+            segments=(TranscriptSegmentRecord(start_ms=0, end_ms=1000, text="first"),),
+            started_at=1,
+            finished_at=2,
+            created_at=2,
+        )
+        transcript_repo.finish_acquisition_run("snapshot-caption", 2)
+        repo = WorkflowRepository(connection)
+        profile = repo.register_profile(AsrProfile(profile_key="snapshot", model_name="model"))
+        repo.plan(part_ids=[part_id], policy=AsrPolicy.ALL, profile_id=profile)
+        payload = connection.execute(
+            "SELECT payload_json FROM workflow_jobs WHERE kind = 'asr'"
+        ).fetchone()[0]
+        assert json.loads(payload)["reference_transcript_id"] == stored.transcript_id
     finally:
         connection.close()
 
@@ -147,6 +212,65 @@ def test_publish_job_projects_the_current_best_transcript_into_an_archive_bundle
         connection.close()
 
 
+def test_workflow_only_archive_is_visible_to_read_projections(tmp_path) -> None:
+    connection = open_database(tmp_path)
+    try:
+        part_id = _seed_part(connection)
+        transcript_repo = TranscriptRepository(connection)
+        transcript_repo.start_acquisition_run(
+            AcquisitionRunRecord(
+                run_id="projection-run",
+                kind="subtitle",
+                selector_kind="bvid",
+                selector_target="BVtest",
+                requested_limit=1,
+                credential_present=False,
+                started_at=1,
+            )
+        )
+        stored = transcript_repo.record_acquired_transcript(
+            run_id="projection-run",
+            video_part_id=part_id,
+            source_kind="subtitle-ai",
+            language="zh-CN",
+            segments=(TranscriptSegmentRecord(start_ms=0, end_ms=1000, text="投影"),),
+            started_at=1,
+            finished_at=2,
+            created_at=2,
+        )
+        transcript_repo.finish_acquisition_run("projection-run", 2)
+        workflow = WorkflowRepository(connection)
+        workflow.request_publication(video_part_id=part_id, transcript_id=stored.transcript_id)
+        job = workflow.claim("projection-worker")
+        assert job is not None
+        handlers = ArchiveWorkflowHandlers(connection, workflow, archive_root=tmp_path, sessdata=None)
+        try:
+            result = handlers.publish(job)
+        finally:
+            handlers.close()
+        workflow.finish(job.job_id, worker_id="projection-worker", result=result,
+                        expected_attempt_count=job.attempt_count)
+    finally:
+        connection.close()
+
+    assert not (tmp_path / "manifest" / "manifest.jsonl").exists()
+    assert workflow_records(tmp_path, with_text=True)["BVtest:p0"]["status"] == "archived"
+    report = CoverageReport.build(tmp_path).data
+    assert report["denominator"] == {
+        "unit": "work_items", "count": 1, "state": "available",
+        "source": "workflow_database",
+    }
+    assert json.loads(export_records(tmp_path, "json", with_text=True))[0]["transcript_text"] == "投影"
+    assert IntegrityVerifier().verify(tmp_path).authoritative is True
+
+
+def test_read_projections_do_not_create_a_missing_database(tmp_path) -> None:
+    assert CoverageReport.build(tmp_path).data["denominator"]["state"] == "unavailable"
+    assert IntegrityVerifier().verify(tmp_path).authoritative is False
+    assert export_records(tmp_path, "json") == "[]"
+    assert not (tmp_path / "archive.db").exists()
+
+
 def test_new_publication_request_while_a_publish_job_is_running_requeues_it(tmp_path) -> None:
     connection = open_database(tmp_path)
     try:
@@ -196,7 +320,7 @@ def test_failed_jobs_can_be_requeued_without_erasing_their_attempt_history(tmp_p
 def test_audio_handler_measures_downloaded_media_before_recording_it(tmp_path, monkeypatch, valid_audio) -> None:
     from bili_asr import audio
 
-    def download(_client, _identity, target, *, store):
+    def download(_client, _identity, target):
         if valid_audio:
             with wave.open(str(target), "wb") as wav:
                 wav.setnchannels(1)

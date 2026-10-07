@@ -1,4 +1,5 @@
-"""Deterministic, read-only corpus coverage projection."""
+"""Read-only coverage projection for the SQLite workflow database."""
+
 from __future__ import annotations
 
 import csv
@@ -6,523 +7,77 @@ import io
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any
 
-from .archive import archive_stem, archive_bundle_complete
-from .artifact_root import ArtifactRoots, resolve_audio_path
-from .manifest import TERMINAL_STATUSES
-from .meta_cursor import _validate as validate_cursor
-from .scheduler import _validate as validate_scheduler
-from .run_ledger import _validate_record as validate_run_ledger_record
-from .sidecar_projection import (
-    ReaderPolicy,
-    iter_jsonl_records,
-    ORDINARY_HISTORY_DIAGNOSTICS,
-    is_plain_cli_archive,
-    project_attempt_records,
-    project_manifest_records,
-    project_latest_run_record,
-)
+from .artifact_root import ArtifactRoots
+from .archive import archive_bundle_complete
 
-SCHEMA_VERSION = "coverage-report-v1"
-RETRYABLE_OUTCOMES = frozenset({"failed", "skipped"})
-ATTEMPT_STAGES = frozenset({"harvest", "download", "asr", "archive"})
-ATTEMPT_OUTCOMES = frozenset({"ok", "failed", "skipped"})
-CSV_COLUMNS = (
-    "schema_version",
-    "scope",
-    "denominator_unit",
-    "denominator_count",
-    "denominator_state",
-    "denominator_source",
-    "cumulative_unit",
-    "cumulative_complete",
-    "cumulative_total",
-    "cumulative_state",
-    "batch_unit",
-    "batch_complete",
-    "batch_total",
-    "batch_state",
-    "work_id",
-    "category",
-    "status",
-    "artifact_present",
-    "reclaimed_audio",
-    "coverage",
-    "coverage_short",
-    "evidence_summary",
-    "diagnostic_summary",
-)
+SCHEMA_VERSION = "coverage-report-v2"
+CSV_COLUMNS = ("schema_version", "scope", "denominator_unit", "denominator_count", "denominator_state", "denominator_source", "cumulative_unit", "cumulative_complete", "cumulative_total", "cumulative_state", "batch_unit", "batch_complete", "batch_total", "batch_state", "work_id", "category", "status", "artifact_present", "reclaimed_audio", "coverage", "coverage_short", "evidence_summary", "diagnostic_summary")
+
+
+def _select(records: dict[str, dict[str, Any]], scope: str | None) -> tuple[dict[str, dict[str, Any]], bool]:
+    if scope is None:
+        return records, True
+    if scope in {"pending", "incomplete"}:
+        return {k: v for k, v in records.items() if v.get("status") != "archived"}, True
+    selected: dict[str, dict[str, Any]] = {}
+    tokens = scope.replace(",", " ").split()
+    if not tokens:
+        return {}, False
+    for token in tokens:
+        matches = {k: v for k, v in records.items() if k == token or v.get("bvid") == token}
+        if not matches:
+            return {}, False
+        selected.update(matches)
+    return selected, True
+
+
+def _build_workflow_data(root: Path, *, scope: str | None, artifact_roots: ArtifactRoots) -> dict[str, Any]:
+    from bili_asr.services.workflow_projection import workflow_records
+
+    database_available = (root / "archive.db").is_file()
+    records, scope_available = _select(workflow_records(root), scope)
+    scope_available = scope_available and database_available
+    diagnostics: list[dict[str, str]] = []
+    if not database_available:
+        diagnostics.append({"code": "workflow_database_missing", "category": "database"})
+    rows: list[dict[str, Any]] = []
+    for work_id, entry in sorted(records.items()):
+        paths = {key: entry[key] for key in ("srt_path", "txt_path", "md_path", "raw_path") if isinstance(entry.get(key), str)}
+        artifact_present = len(paths) == 4 and any(archive_bundle_complete(base, paths) for base in artifact_roots.read_bases())
+        status = str(entry.get("status") or "unknown")
+        terminal = status == "archived" and artifact_present
+        if status == "archived" and not artifact_present:
+            diagnostics.append({"code": "terminal_missing_artifact", "category": "transcript"})
+        rows.append({"work_id": work_id, "category": "complete" if terminal else "backlog", "status": status, "artifact_present": artifact_present, "reclaimed_audio": False, "coverage": entry.get("coverage"), "coverage_short": entry.get("coverage_short"), "cumulative_complete": terminal, "batch_complete": terminal})
+    total = len(rows) if scope_available else 0
+    complete = sum(1 for row in rows if row["cumulative_complete"])
+    state = "unavailable" if not scope_available else ("complete" if complete == total and not diagnostics else "incomplete")
+    return {"schema_version": SCHEMA_VERSION, "scope": scope, "denominator": {"unit": "work_items", "count": total if scope_available else None, "state": "available" if scope_available else "unavailable", "source": "workflow_database"}, "cumulative": {"unit": "work_items", "complete": complete, "total": total, "state": state}, "batch": {"unit": "work_items", "complete": complete, "total": total, "state": state}, "evidence": {"workflow_database": {"state": "available"}, "workflow_jobs": {"state": "available"}}, "rows": rows, "diagnostics": diagnostics}
 
 
 @dataclass(frozen=True)
 class CoverageReport:
-    """A stable report assembled without changing archive evidence."""
-
     data: dict[str, Any]
 
     @classmethod
-    def build(
-        cls,
-        archive_root: str | Path,
-        *,
-        scope: str | None = None,
-        policy: ReaderPolicy | None = None,
-        artifact_roots: ArtifactRoots | None = None,
-    ) -> CoverageReport:
-        """Assemble the projection over one archive root and its ordered read bases.
-
-        Every sidecar below is **state** and stays at the archive root (D13); the
-        bundle and audio probes that follow walk ``artifact_roots.read_bases()`` in
-        order (contract §5/§10, D8).  ``None`` is the identity case — one base, the
-        archive root, which is today's behaviour unchanged.
-        """
+    def build(cls, archive_root: str | Path, *, scope: str | None = None, policy: Any = None, artifact_roots: ArtifactRoots | None = None) -> "CoverageReport":
+        del policy
         root = Path(archive_root).resolve()
-        roots = artifact_roots if artifact_roots is not None else ArtifactRoots.of(archive_root)
-        diagnostics: set[tuple[str, str]] = set()
-        manifest, manifest_state, manifest_diagnostics = project_manifest_records(
-            root / "manifest" / "manifest.jsonl", policy=policy
-        )
-        diagnostics.update(
-            (
-                "sidecar_record_limit" if code.endswith("row_limit_exceeded") else
-                "sidecar_byte_limit" if code.endswith("byte_limit_exceeded") else code,
-                "manifest",
-            )
-            for code in manifest_diagnostics - ORDINARY_HISTORY_DIAGNOSTICS
-        )
-        cursor, cursor_state = _read_validated_sidecar(
-            root / "meta-cursor.json", "meta_cursor", validate_cursor, diagnostics
-        )
-        scheduler, scheduler_state = _read_validated_sidecar(
-            root / "scheduler.json", "scheduler", validate_scheduler, diagnostics
-        )
-        latest_ledger, ledger_state, ledger_diagnostics = project_latest_run_record(
-            root / "run-ledger.jsonl", policy=policy
-        )
-        diagnostics.update(
-            (
-                "sidecar_record_limit" if code == "run_ledger_record_limit" else
-                "sidecar_byte_limit" if code == "run_ledger_byte_limit" else
-                "sidecar_malformed",
-                "run_ledger",
-            )
-            for code in ledger_diagnostics
-        )
-        attempts, attempts_state, attempt_diagnostics = project_attempt_records(
-            root / "coordinator" / "attempts.jsonl", policy=policy
-        )
-        diagnostics.update(
-            (
-                "sidecar_record_limit" if code.endswith("row_limit_exceeded") else
-                "sidecar_byte_limit" if code.endswith("byte_limit_exceeded") else
-                "sidecar_malformed" if code == "truncated_attempts_line" else code,
-                "attempt",
-            )
-            for code in attempt_diagnostics
-        )
-        if "attempt_not_in_manifest" in {"attempt_not_in_manifest" if r.get("work_id") not in manifest else "" for r in attempts}:
-            diagnostics.add(("attempt_not_in_manifest", "attempt"))
-
-        selected, scope_state = _select_scope(manifest, attempts, scope)
-        if scope_state == "unavailable":
-            diagnostics.add(("unknown_scope", "scope"))
-
-        scheduler_ids = _string_ids(
-            scheduler, "processed_work_ids", "scheduler_invalid_processed_ids", diagnostics
-        )
-        ledger_ids = _string_ids(
-            latest_ledger, "work_ids", "run_ledger_invalid_work_ids", diagnostics
-        )
-        if latest_ledger is not None:
-            if latest_ledger.get("exit_code") != 0:
-                diagnostics.add(("run_ledger_failed", "run_ledger"))
-            if latest_ledger.get("command") != "schedule":
-                diagnostics.add(("run_ledger_non_schedule", "run_ledger"))
-        if latest_ledger is None and ledger_state != "missing":
-            diagnostics.add(("run_ledger_latest_unavailable", "run_ledger"))
-        if scheduler_ids and ledger_ids and scheduler_ids != ledger_ids:
-            diagnostics.add(("scheduler_ledger_mismatch", "batch"))
-        for work_id in sorted((scheduler_ids | ledger_ids) - set(manifest)):
-            del work_id
-            diagnostics.add(("stale_evidence", "sidecar"))
-
-        batch_ids = (scheduler_ids | ledger_ids) & set(selected)
-        if scheduler is None and latest_ledger is None:
-            batch_state = "unavailable"
-        else:
-            batch_state = "incomplete"
-        if scheduler is not None:
-            scheduler_status = scheduler["state"]
-            if scheduler_status in {"limited", "risk_interrupted"}:
-                diagnostics.add(("scheduler_noncomplete", scheduler_status))
-        if cursor is not None:
-            cursor_status = cursor["state"]
-            if cursor_status in {"limited", "risk_interrupted"}:
-                diagnostics.add(("cursor_noncomplete", cursor_status))
-        if scheduler is not None and cursor is not None:
-            if scheduler["state"] != cursor["state"]:
-                diagnostics.add(("scheduler_cursor_mismatch", "state"))
-
-        if latest_ledger is not None and selected:
-            expected = ledger_ids & set(selected)
-            missing_batch = expected - batch_ids
-            if missing_batch:
-                diagnostics.add(("missing_batch_evidence", "batch"))
-
-        rows: list[dict[str, Any]] = []
-        retryable_ids = _retryable_ids(attempts)
-        for work_id, entry in sorted(selected.items()):
-            status = str(entry.get("status") or "unknown")
-            artifact_present, reclaimed_audio = _transcript_evidence(roots, entry)
-            coverage_short = entry.get("coverage_short")
-            if coverage_short is True:
-                # A complete bundle is still materially incomplete when the
-                # model covered only part of the decoded audio.  Keep the
-                # existing archived status vocabulary, but make the warning
-                # visible to the read-only health gate.
-                diagnostics.add(("transcript_coverage_short", "transcript"))
-            elif coverage_short is not None and not isinstance(coverage_short, bool):
-                diagnostics.add(("coverage_evidence_invalid", "transcript"))
-            terminal = status == "gone" or (status == "archived" and artifact_present)
-            if status == "archived" and not artifact_present:
-                diagnostics.add(("terminal_missing_artifact", "transcript"))
-            if work_id in retryable_ids:
-                diagnostics.add(("retryable_attempt", "attempt"))
-            rows.append(
-                {
-                    "work_id": work_id,
-                    "category": _category(status),
-                    "status": status,
-                    "artifact_present": artifact_present,
-                    "reclaimed_audio": reclaimed_audio,
-                    "coverage": entry.get("coverage"),
-                    "coverage_short": coverage_short,
-                    "cumulative_complete": terminal,
-                    "batch_complete": work_id in batch_ids and terminal,
-                }
-            )
-
-        # A complete-looking manifest without operational evidence is not
-        # proof of a completed campaign.
-        # Standalone stage commands intentionally publish only the manifest.
-        # Their archived rows are sufficient for cumulative health; campaign
-        # evidence is required only when the archive claims campaign output.
-        plain_cli_archive = is_plain_cli_archive(manifest)
-        if any(row["cumulative_complete"] for row in rows) and not plain_cli_archive:
-            for state, name in (
-                (cursor_state, "cursor"),
-                (scheduler_state, "scheduler"),
-                (ledger_state, "run_ledger"),
-                (attempts_state, "attempts"),
-            ):
-                if state != "available":
-                    diagnostics.add(("evidence_missing", name))
-
-        evidence = {
-            "manifest": {"state": manifest_state},
-            "cursor": {"state": cursor_state},
-            "scheduler": {"state": scheduler_state},
-            "run_ledger": {"state": ledger_state},
-            "attempts": {"state": attempts_state},
-        }
-        denominator_available = manifest_state == "available" and scope_state == "available"
-        cumulative_total = len(rows) if denominator_available else 0
-        cumulative_complete = sum(row["cumulative_complete"] for row in rows)
-        batch_total = len(batch_ids) if denominator_available else 0
-        batch_complete = sum(row["batch_complete"] for row in rows)
-        diagnostic_rows = _diagnostic_rows(diagnostics)
-        has_defect = bool(diagnostic_rows)
-        cumulative_state = "unavailable" if not denominator_available else "incomplete"
-        if cumulative_complete == cumulative_total and not has_defect:
-            cumulative_state = "complete"
-        if not denominator_available:
-            batch_state = "unavailable"
-        elif batch_state != "unavailable":
-            if batch_complete == batch_total and not has_defect and _batch_evidence_complete(
-                scheduler, latest_ledger
-            ):
-                batch_state = "complete"
-            else:
-                batch_state = "incomplete"
-
-        data = {
-            "schema_version": SCHEMA_VERSION,
-            "scope": scope,
-            "denominator": {
-                "unit": "work_items",
-                "count": len(rows) if denominator_available else None,
-                "state": "available" if denominator_available else "unavailable",
-                "source": "manifest_snapshot",
-            },
-            "cumulative": {
-                "unit": "work_items",
-                "complete": cumulative_complete,
-                "total": cumulative_total,
-                "state": cumulative_state,
-            },
-            "batch": {
-                "unit": "work_items",
-                "complete": batch_complete,
-                "total": batch_total,
-                "state": batch_state,
-            },
-            "evidence": evidence,
-            "rows": rows,
-            "diagnostics": diagnostic_rows,
-        }
-        return cls(data)
+        roots = artifact_roots if artifact_roots is not None else ArtifactRoots.of(root)
+        return cls(_build_workflow_data(root, scope=scope, artifact_roots=roots))
 
     def to_json(self) -> str:
-        """Return compact stable JSON with lexically sorted object keys."""
         return json.dumps(self.data, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
 
     def to_csv(self) -> str:
-        """Return a stable flat projection, including a summary row when empty."""
-        output = io.StringIO(newline="")
+        output = io.StringIO()
         writer = csv.DictWriter(output, fieldnames=CSV_COLUMNS, lineterminator="\n")
         writer.writeheader()
-        rows = self.data["rows"] or [{"work_id": "", "category": "summary", "status": ""}]
-        for row in rows:
-            writer.writerow(self._csv_row(row))
+        denominator, cumulative, batch = self.data["denominator"], self.data["cumulative"], self.data["batch"]
+        evidence = ";".join(f"{key}:{value['state']}" for key, value in sorted(self.data["evidence"].items()))
+        diagnostics = ";".join(f"{item['code']}:{item.get('category', '')}" for item in self.data["diagnostics"])
+        for row in self.data["rows"] or [{}]:
+            writer.writerow({"schema_version": self.data["schema_version"], "scope": self.data["scope"] or "", "denominator_unit": denominator["unit"], "denominator_count": denominator["count"] if denominator["count"] is not None else "", "denominator_state": denominator["state"], "denominator_source": denominator["source"], "cumulative_unit": cumulative["unit"], "cumulative_complete": cumulative["complete"], "cumulative_total": cumulative["total"], "cumulative_state": cumulative["state"], "batch_unit": batch["unit"], "batch_complete": batch["complete"], "batch_total": batch["total"], "batch_state": batch["state"], "work_id": row.get("work_id", ""), "category": row.get("category", "summary"), "status": row.get("status", ""), "artifact_present": row.get("artifact_present", ""), "reclaimed_audio": row.get("reclaimed_audio", ""), "coverage": row.get("coverage", ""), "coverage_short": row.get("coverage_short", ""), "evidence_summary": evidence, "diagnostic_summary": diagnostics})
         return output.getvalue()
-
-    def _csv_row(self, row: Mapping[str, Any]) -> dict[str, Any]:
-        denominator = self.data["denominator"]
-        cumulative = self.data["cumulative"]
-        batch = self.data["batch"]
-        return {
-            "schema_version": self.data["schema_version"],
-            "scope": self.data["scope"] or "",
-            "denominator_unit": denominator["unit"],
-            "denominator_count": denominator["count"] if denominator["count"] is not None else "",
-            "denominator_state": denominator["state"],
-            "denominator_source": denominator["source"],
-            "cumulative_unit": cumulative["unit"],
-            "cumulative_complete": cumulative["complete"],
-            "cumulative_total": cumulative["total"],
-            "cumulative_state": cumulative["state"],
-            "batch_unit": batch["unit"],
-            "batch_complete": batch["complete"],
-            "batch_total": batch["total"],
-            "batch_state": batch["state"],
-            "work_id": row.get("work_id", ""),
-            "category": row.get("category", "summary"),
-            "status": row.get("status", ""),
-            "artifact_present": row.get("artifact_present", ""),
-            "reclaimed_audio": row.get("reclaimed_audio", ""),
-            "coverage": row.get("coverage", ""),
-            "coverage_short": row.get("coverage_short", ""),
-            "evidence_summary": _evidence_summary(self.data["evidence"]),
-            "diagnostic_summary": _diagnostic_summary(self.data["diagnostics"]),
-        }
-
-
-def _read_validated_sidecar(
-    path: Path,
-    name: str,
-    validator: Any,
-    diagnostics: set[tuple[str, str]],
-) -> tuple[dict[str, Any] | None, str]:
-    if not path.is_file():
-        return None, "missing"
-    try:
-        raw = json.loads(path.read_text(encoding="utf-8"))
-        if not isinstance(raw, dict):
-            raise ValueError
-        # Read-only direct validation avoids store loaders that emit to stderr.
-        return validator(raw), "available"
-    except (OSError, TypeError, ValueError, json.JSONDecodeError, KeyError):
-        diagnostics.add(("sidecar_malformed", name))
-        return None, "malformed"
-
-
-def _read_jsonl(
-    path: Path, name: str, diagnostics: set[tuple[str, str]],
-    policy: ReaderPolicy | None = None,
-) -> tuple[list[dict[str, Any]], str]:
-    records: list[dict[str, Any]] = []
-    valid = True
-    for item in iter_jsonl_records(path, policy=policy, name=name):
-        if item.diagnostic:
-            if item.diagnostic == f"{name}_record_limit":
-                diagnostics.add(("sidecar_record_limit", name))
-            elif item.diagnostic == f"{name}_byte_limit":
-                diagnostics.add(("sidecar_byte_limit", name))
-            else:
-                diagnostics.add(("sidecar_malformed", name))
-            valid = False
-        elif item.value is not None:
-            records.append(item.value)
-    return records, "available" if valid else "malformed"
-
-
-def _valid_ledger(record: Mapping[str, Any]) -> bool:
-    try:
-        validate_run_ledger_record(dict(record))
-    except (TypeError, ValueError, KeyError):
-        return False
-    work_ids = record.get("work_ids")
-    return isinstance(work_ids, list) and all(
-        isinstance(value, str) and bool(value) for value in work_ids
-    )
-
-
-def _string_ids(
-    record: Mapping[str, Any] | None,
-    key: str,
-    code: str,
-    diagnostics: set[tuple[str, str]],
-) -> set[str]:
-    if record is None or record.get(key) is None:
-        return set()
-    values = record.get(key)
-    if not isinstance(values, list) or any(not isinstance(value, str) or not value for value in values):
-        diagnostics.add((code, "sidecar"))
-        return set()
-    return set(values)
-
-
-def _select_scope(
-    entries: dict[str, dict[str, Any]], attempts: list[dict[str, Any]], scope: str | None
-) -> tuple[dict[str, dict[str, Any]], str]:
-    if scope is None:
-        return entries, "available"
-    if scope == "pending":
-        return {
-            work_id: entry
-            for work_id, entry in entries.items()
-            if entry.get("status") not in TERMINAL_STATUSES
-        }, "available"
-    if scope == "failed":
-        failed = {
-            record.get("work_id")
-            for record in attempts
-            if record.get("outcome") == "failed" and isinstance(record.get("work_id"), str)
-        }
-        return {
-            work_id: entry
-            for work_id, entry in entries.items()
-            if work_id in failed or entry.get("transcript_writeback_error")
-        }, "available"
-    selected: dict[str, dict[str, Any]] = {}
-    tokens = scope.replace(",", " ").split()
-    if not tokens:
-        return {}, "unavailable"
-    for token in tokens:
-        matches = {
-            work_id: entry
-            for work_id, entry in entries.items()
-            if work_id == token or entry.get("bvid") == token
-        }
-        if not matches:
-            return {}, "unavailable"
-        selected.update(matches)
-    return selected, "available"
-
-
-def _retryable_ids(attempts: list[dict[str, Any]]) -> set[str]:
-    latest: dict[tuple[str, str], dict[str, Any]] = {}
-    for record in attempts:
-        work_id = record.get("work_id")
-        stage = record.get("stage")
-        number = record.get("attempt")
-        if isinstance(work_id, str) and isinstance(stage, str) and isinstance(number, int):
-            key = (work_id, stage)
-            if number >= latest.get(key, {}).get("attempt", 0):
-                latest[key] = record
-    return {
-        work_id
-        for (work_id, _stage), record in latest.items()
-        if record.get("outcome") in RETRYABLE_OUTCOMES
-    }
-
-
-def _transcript_evidence(roots: ArtifactRoots, entry: Mapping[str, Any]) -> tuple[bool, bool]:
-    """Whether the row's bundle and audio resolve, over the ordered bases (§5, D8).
-
-    The recorded strings stay root-relative (D7), so no candidate is ever recomputed
-    across roots: each one is validated at its own base, the bundle is complete at the
-    first base holding all four parts and their marker, and the audio is the first base
-    holding the file.
-    """
-    bundle_paths = {}
-    for key in ("srt_path", "txt_path", "md_path", "raw_path"):
-        value = entry.get(key)
-        if not isinstance(value, str) or not _contained_at_any_base(roots, value):
-            return False, False
-        bundle_paths[key] = value
-    transcript = any(
-        archive_bundle_complete(base, bundle_paths) for base in roots.read_bases()
-    )
-    if not transcript or entry.get("status") != "archived":
-        return transcript, False
-    audio_value = entry.get("audio_path")
-    if isinstance(audio_value, str):
-        audio_missing = resolve_audio_path(roots, audio_value, require_exists=True) is None
-    else:
-        try:
-            stem = archive_stem(dict(entry))
-        except (KeyError, TypeError, ValueError):
-            stem = ""
-        audio_missing = bool(stem) and all(
-            resolve_audio_path(roots, f"audio/{stem}{suffix}", require_exists=True) is None
-            for suffix in (".m4a", ".flac")
-        )
-    return transcript, audio_missing
-
-
-def _contained_at_any_base(roots: ArtifactRoots, relative: str) -> bool:
-    """`_contained_path`, asked once per base.
-
-    The two confinement mechanisms are deliberately not unified (contract §5/§6): the
-    audio family keeps the descriptor-anchored guard, the bundle family keeps this
-    `resolve`-based one, and only the base list they are asked against is shared.
-    """
-    return any(_contained_path(base, relative) is not None for base in roots.read_bases())
-
-
-def _contained_path(root: Path, relative: str) -> Path | None:
-    candidate = (root / relative).resolve()
-    root_real = root.resolve()
-    try:
-        candidate.relative_to(root_real)
-    except ValueError:
-        return None
-    return candidate
-
-
-def _batch_evidence_complete(
-    scheduler: Mapping[str, Any] | None, ledger: Mapping[str, Any] | None
-) -> bool:
-    return bool(
-        scheduler
-        and ledger
-        and scheduler.get("state") == "complete"
-        and scheduler.get("processed_work_ids") == ledger.get("work_ids")
-    )
-
-
-def _category(status: str) -> str:
-    if status in {"archived", "subtitle_done", "asr_done"}:
-        return "transcript"
-    if status in {"needs_audio", "audio_ok"}:
-        return "audio"
-    if status == "gone":
-        return "unavailable"
-    return "metadata"
-
-
-def _diagnostic_rows(diagnostics: set[tuple[str, str]]) -> list[dict[str, str]]:
-    return [
-        {"code": code, "category": category}
-        for code, category in sorted(diagnostics)
-    ]
-
-
-def _evidence_summary(evidence: Mapping[str, Mapping[str, str]]) -> str:
-    return ";".join(f"{name}:{evidence[name]['state']}" for name in sorted(evidence))
-
-
-def _diagnostic_summary(diagnostics: list[Mapping[str, str]]) -> str:
-    return ";".join(f"{item['code']}:{item['category']}" for item in diagnostics)

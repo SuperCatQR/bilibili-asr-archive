@@ -11,9 +11,6 @@ FTS5_TABLE_NAME = "transcripts_fts"
 INDEX_META_TABLE = "_index_meta"
 
 
-COMPLETED_STATUSES = frozenset({"archived", "subtitle_done"})
-
-
 DEFAULT_SEARCH_LIMIT = 100
 
 

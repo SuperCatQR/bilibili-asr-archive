@@ -264,7 +264,7 @@ def test_readme_documents_resume_and_exit_2():
     text = open(os.path.join(root, "README.md"), encoding="utf-8").read()
     assert "--resume" in text
     assert "exit 2" in text.lower() or "Exit 2" in text or "| 2 |" in text
-    assert "meta-cursor.json" in text
+    assert "archive.db" in text
     assert "risk_interrupted" in text
     assert "SESSDATA" in text
     assert "only" in text.lower() or "auto-continues" in text.lower()

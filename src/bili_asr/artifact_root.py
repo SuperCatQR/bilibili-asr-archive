@@ -1,9 +1,9 @@
-"""Where the pipeline's products live: one configured root, two ordered read bases.
+"""Where archive products live: one configured root, two ordered read bases.
 
-The pipeline's **products** — audio, transcript bundles, harvested subtitle documents —
-may live under a root that is not the archive root (``--artifact-root`` /
-``BILI_ARTIFACT_ROOT``); its **state** (``manifest/``, ``archive.db``,
-``coordinator/``, the sidecars) always stays at the archive root.  This module is the
+Audio, transcript bundles, and harvested subtitle documents may live under a
+root that is not the archive root (``--artifact-root`` /
+``BILI_ARTIFACT_ROOT``); durable workflow and metadata state stays in
+``archive.db`` at the archive root. This module is the
 single place that resolves, validates and carries that split
 (``artifact-root-contract.md`` §2–§5, decisions D7–D12).
 
@@ -26,7 +26,7 @@ made absolute against the process CWD exactly as ``--archive-root`` behaves toda
 The path is kept **lexical** — ``realpath`` is never applied — because
 ``path_policy.open_audio_directory`` (``path_policy.py:32-57``) opens the root itself
 with ``O_NOFOLLOW``: resolving first would silently follow a symlinked root past that
-check.  The consequence is stated for the operator: a symlinked artifact root is
+check. A symlinked artifact root is
 refused, so pass the real path.
 
 Validation (contract §3.3, D10) happens once, in :func:`roots_for`, and only for a
