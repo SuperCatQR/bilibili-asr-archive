@@ -1,5 +1,7 @@
 # Current Architecture
 
+交互式总架构图：[Bilibili ASR Archive：队列、转写与归档架构](../.archify/architecture-bilibili-asr-20261007/bilibili-asr-architecture.html)。图中标出了带 AI/CC 字幕的分段仍默认进入本地 ASR，以及 `--no-asr-with-subtitles` 的字幕-only 分支。
+
 The package is organized around four runtime boundaries and one composition
 root:
 
