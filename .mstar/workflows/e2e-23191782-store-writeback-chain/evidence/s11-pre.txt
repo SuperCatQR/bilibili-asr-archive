@@ -1,8 +1,0 @@
---- select count(*) as cap_transcripts from transcripts t join video_parts vp using(video_part_id) where vp.bvid='BV1acKfzEEWS'
-    cap_transcripts=1
---- select count(*) as cap_audio_objects from part_audio_objects pao join video_parts vp using(video_part_id) where vp.bvid='BV1acKfzEEWS'
-    cap_audio_objects=0
---- select count(*) as cap_audio_after from part_audio_objects pao join video_parts vp using(video_part_id) where vp.bvid='BV1acKfzEEWS'
-    cap_audio_after=0
---- select count(*) as cap_in_missing_transcript_after_audio from v_missing_transcript where bvid='BV1acKfzEEWS'
-    cap_in_missing_transcript_after_audio=0

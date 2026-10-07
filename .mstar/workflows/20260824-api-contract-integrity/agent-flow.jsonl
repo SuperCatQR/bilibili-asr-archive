@@ -1,8 +1,0 @@
-{"v":1,"ts":1787553385046,"kind":"dispatch","agent":"session-e2e0a929-045c-46f0-ba02-5d04e39dc079","role":"qc-specialist","planId":"`20260824-api-contract-integrity`","taskCategory":"logic / security","verdict":"advisory","hard":false}
-{"v":1,"ts":1787553385049,"kind":"dispatch","agent":"session-e2e0a929-045c-46f0-ba02-5d04e39dc079","role":"qc-specialist-2","planId":"`20260824-api-contract-integrity`","taskCategory":"logic / security","verdict":"advisory","hard":false}
-{"v":1,"ts":1787553385051,"kind":"dispatch","agent":"session-e2e0a929-045c-46f0-ba02-5d04e39dc079","role":"qc-specialist-3","planId":"`20260824-api-contract-integrity`","taskCategory":"logic / reliability","verdict":"advisory","hard":false}
-{"v":1,"ts":1787554118949,"kind":"dispatch","agent":"session-e2e0a929-045c-46f0-ba02-5d04e39dc079","role":"fullstack-dev","taskCategory":"logic / security / test","verdict":"advisory","hard":false}
-{"v":1,"ts":1787555553317,"kind":"dispatch","agent":"session-e2e0a929-045c-46f0-ba02-5d04e39dc079","role":"qc-specialist","verdict":"advisory","hard":false}
-{"v":1,"ts":1787555553321,"kind":"dispatch","agent":"session-e2e0a929-045c-46f0-ba02-5d04e39dc079","role":"qc-specialist-2","verdict":"advisory","hard":false}
-{"v":1,"ts":1787555553324,"kind":"dispatch","agent":"session-e2e0a929-045c-46f0-ba02-5d04e39dc079","role":"qc-specialist-3","verdict":"advisory","hard":false}
-{"v":1,"ts":1787556757512,"kind":"dispatch","agent":"session-e2e0a929-045c-46f0-ba02-5d04e39dc079","role":"qa-engineer","planId":"`20260824-api-contract-integrity`","verdict":"advisory","hard":false}

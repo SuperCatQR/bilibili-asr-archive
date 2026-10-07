@@ -1,5 +1,0 @@
-=== harvest-subs --bvid BV1aAhLzsENb --limit-parts 1 (expect no-subtitle attempt) ===
-sessdata: present
-harvest BV1aAhLzsENb:p0 no-subtitle
-harvest-subs: run_id=d5e2077bc1944f72a72439013fccbfd5 attempted=1 stored=0 unchanged=0 no-subtitle=1 failed=0 remaining_without_transcript=59
-RC=0

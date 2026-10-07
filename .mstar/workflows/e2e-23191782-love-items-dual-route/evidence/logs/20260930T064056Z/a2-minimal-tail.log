@@ -1,9 +1,0 @@
-store videos: 30
-  BV1BdtazGEBE: PRESENT
-  BV1vNTqzFEve: ABSENT
-  BV1Y7M4zNEfF: PRESENT
-  BV1zz5zzFENq: ABSENT
-
-=== can we seed the missing three WITHOUT enumeration? ===
-No shipped command ingests a single video by bvid:
-   subcommands: asr, campaign, check-asr-env, coverage, derive-manifest, download-audio, evaluate-concurrency, export, fetch-meta, harvest-subs, pilot, probe-subs, publish-transcripts, recover, run, runs, schedule, search, status, verify

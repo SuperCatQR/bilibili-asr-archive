@@ -1,3 +1,0 @@
-=== verify ===
-{"authoritative": false, "backlog_count": 0, "checked": 1, "defect_count": 0, "defects": [], "diagnostics": ["structural_input_error", "structural_input_error"]}
-RC=1

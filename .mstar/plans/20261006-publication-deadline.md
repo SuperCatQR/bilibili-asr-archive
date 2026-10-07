@@ -1,3 +1,0 @@
-﻿# Publication deadline follow-up (issue 50)
-
-Provide a supervised CLI publication process that alone owns archive locks and all filesystem/database operations. Bound setup, each candidate, and final snapshot persistence with an inactivity deadline. Supervisor never releases a worker-owned lock; on timeout kill and reap with a bounded grace period, stop the invocation, and return failure. Kernel-uninterruptible workers may retain locks until the filesystem recovers; document this necessary consistency boundary. Preserve direct handler APIs for library callers. Verify actual subprocess timeout, normal CLI publication, and lock ownership, then open and merge a PR after CI.

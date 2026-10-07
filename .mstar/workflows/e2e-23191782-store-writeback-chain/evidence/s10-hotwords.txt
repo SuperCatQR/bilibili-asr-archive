@@ -1,8 +1,0 @@
-=== DEFAULT_HOTWORDS at the synced ref ===
-DEFAULT_HOTWORDS: tuple[str, ...] = ()
-
-#: The measured-candidate vocabulary — the tokens the 2026-09-28 keep/drop ruling
-#: (plan ``20260928-hotword-injection-governance``) measures, with the reasoning
-=== MEASURED_HOTWORD_CANDIDATES present? ===
-1
-=== BILI_ASR_HOTWORDS unset in this shell: YES ===

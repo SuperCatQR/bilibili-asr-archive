@@ -1,0 +1,87 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "bili-asr"
+version = "0.1.0"
+description = "Bilibili ASR transcript archival CLI (AI/CC subtitles first, local Qwen3-ASR GPU fallback)"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "requests>=2.32",
+    "bilibili-api-python==17.4.2",
+    "curl_cffi>=0.16",
+]
+license = { text = "Proprietary" }
+
+[project.scripts]
+bili-asr = "bili_asr.cli:main"
+
+[project.optional-dependencies]
+dev = [
+    # The light members of the ASR stack.  The test double exercises the real audio path,
+    # which calls numpy/soundfile/soxr directly; of the three, only soundfile and soxr are
+    # declared in the [asr] extra — numpy arrives transitively through both, and is named
+    # here explicitly because the test tree imports it in its own right.  The heavy three
+    # (transformers/accelerate/torch) are substituted by tests/conftest.py's ``mock_torch``
+    # and tests/_asr_fakes.py, so they are deliberately NOT test dependencies.
+    "numpy>=1.26",
+    "packaging>=24",
+    "pytest>=8",
+    "responses>=0.25",
+    "soundfile>=0.12",
+    "soxr>=0.5",
+]
+asr = [
+    # Qwen3-ASR has native transformers support from 5.13.0, which is the whole engine: the
+    # decoder for text and the forced aligner for per-character timings.
+    "transformers>=5.13",
+    # ``device_map=`` (the loader path both checkpoints use) requires accelerate.
+    "accelerate>=1.0",
+    # Reading the archived audio and writing each chunk out again.
+    "soundfile>=0.12",
+    # Resampling when a part is not already 16 kHz mono.  ``soxr`` is what ``librosa.resample``
+    # calls underneath at its default ``res_type="soxr_hq"``, so this is the same resampler without a
+    # dependency range that could change it silently.  (``librosa`` is deliberately NOT listed: it
+    # was only ever here for decode+resample, and its >=1.0 releases dropped the ``audioread`` decode
+    # path the .m4a fallback relied on.  Those releases also require numpy>=2.1, which is a hazard on
+    # a **pip** install into an environment pinned to numpy 1.26.4 — the verified ROCm recipe's
+    # version.  Stated per install path rather than flatly, because the uv path already resolves
+    # numpy 2.x and this branch made it no worse there; see the measurement note below.)
+    "soxr>=0.5",
+    # NOTE: torch is deliberately NOT listed here. The verified AMD/WSL recipe installs the ROCm
+    # wheel from repo.radeon.com (docs/wsl-rocm-gpu.md step 6) together with the matching torchaudio;
+    # letting pip resolve ``torch`` from an index silently gets the wrong build for this host.
+    #
+    # Accelerate depends on torch transitively. The uv exclusion below keeps that externally
+    # supplied runtime out of resolution; use ``uv sync --extra asr --inexact`` to retain it.
+    # With pip, install and verify the host's torch build BEFORE installing this extra.
+    # NOTE: the ``ffmpeg`` binary is required too (README.md) — it decodes the .m4a/AAC the download
+    # layer writes, because libsndfile cannot open that container. It is a platform package rather
+    # than a pip one, so it cannot be declared here; ``_read_audio`` raises ``ASRDependencyError``
+    # naming it when it is absent.
+]
+
+[tool.uv]
+# Host-specific GPU wheels are provisioned separately (docs/wsl-rocm-gpu.md). Exact sync
+# removes packages absent from the lock, so existing GPU environments must use --inexact.
+exclude-dependencies = ["torch"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+"bili_asr.storage" = ["schema.sql", "schema-transcripts.sql", "schema-workflow.sql", "schema-editorial.sql"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# Registered markers (plan 008-pytest-markers). The live/scale opt-in env gates
+# (BILI_LIVE_SMOKE / BILI_SCALE) centralize in tests/conftest.py's
+# opt_in_gate fixture; the markers make the gated tests selectable
+# (``-m live_smoke`` / ``-m scale``) and CI-gateable.
+markers = [
+    "live_smoke: opt-in live network probe; skips unless BILI_LIVE_SMOKE=1",
+    "scale: opt-in local scale probe; skips unless BILI_SCALE=1",
+    "slow: opt-in slow test",
+]

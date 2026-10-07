@@ -1,4 +1,0 @@
-=== asr --bvid BV1aAhLzsENb:p0 (second time, expect queue empty + no GPU spend) ===
-asr: queue empty (no parts need transcription)
-RC=0
-WALL_SECONDS=0

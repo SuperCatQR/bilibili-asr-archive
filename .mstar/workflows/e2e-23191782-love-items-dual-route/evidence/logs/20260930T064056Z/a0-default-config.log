@@ -1,5 +1,0 @@
-model_name  = Qwen/Qwen3-ASR-1.7B-hf
-aligner_name= Qwen/Qwen3-ForcedAligner-0.6B-hf
-device      = cuda
-hotwords    = 0 ()
-model_id    = None

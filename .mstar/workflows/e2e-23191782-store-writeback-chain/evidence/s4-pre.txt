@@ -1,4 +1,0 @@
---- select count(*) as aud_before from v_missing_audio where bvid='BV1aAhLzsENb'
-    aud_before=0
---- select count(*) as cap_transcripts_before from transcripts t join video_parts vp using(video_part_id) where vp.bvid='BV1acKfzEEWS'
-    cap_transcripts_before=0

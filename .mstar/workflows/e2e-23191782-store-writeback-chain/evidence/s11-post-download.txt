@@ -1,2 +1,0 @@
---- select count(*) as cap_audio_after from part_audio_objects pao join video_parts vp using(video_part_id) where vp.bvid='BV1acKfzEEWS'
-    cap_audio_after=0

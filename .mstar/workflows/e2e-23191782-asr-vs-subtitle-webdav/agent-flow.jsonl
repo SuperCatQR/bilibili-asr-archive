@@ -1,2 +1,0 @@
-{"v":1,"ts":1790076539185,"kind":"dispatch","agent":"session-af43023e-f5b7-41d1-b7df-f75f0d1205ea","role":"ops-engineer","taskCategory":"ops","verdict":"advisory","hard":false}
-{"v":1,"ts":1790076539256,"kind":"subagent-link","agent":"session-af43023e-f5b7-41d1-b7df-f75f0d1205ea","childId":"3ec12a11-a3cf-4a14-bb6b-9d022397402b","label":"E2E ops: ASR vs live AI subtitles","role":"ops-engineer"}

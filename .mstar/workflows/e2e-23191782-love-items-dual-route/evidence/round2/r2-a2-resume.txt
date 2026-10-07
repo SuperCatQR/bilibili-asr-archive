@@ -1,5 +1,0 @@
-=== r2 A2 evidence: cursor resumability (live command) ===
-fetch-meta: metadata gateway failure (rate_limited); cursor unchanged at page 7 — re-run fetch-meta to resume.
-sessdata: present
-fetch-meta: collected 1 page(s) for mid=23191782 (outcome=risk_interrupted)
-EXIT=2

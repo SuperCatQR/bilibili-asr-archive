@@ -1,2 +1,0 @@
-{"v":1,"ts":1790075785058,"kind":"dispatch","agent":"session-af43023e-f5b7-41d1-b7df-f75f0d1205ea","role":"ops-engineer","taskCategory":"ops","verdict":"advisory","hard":false}
-{"v":1,"ts":1790075785161,"kind":"subagent-link","agent":"session-af43023e-f5b7-41d1-b7df-f75f0d1205ea","childId":"1a9f6990-e152-445a-a747-ed828c07502e","label":"E2E ops: six-item subtitle→publish chain","role":"ops-engineer"}

@@ -1,5 +1,0 @@
-=== harvest-subs --bvid BV1acKfzEEWS --limit-parts 1 ===
-sessdata: present
-harvest BV1acKfzEEWS:p0 stored subtitle-ai ai-zh v1
-harvest-subs: run_id=3177fdef236947e3b5fedfa180ec9d82 attempted=1 stored=1 unchanged=0 no-subtitle=0 failed=0 remaining_without_transcript=59
-RC=0

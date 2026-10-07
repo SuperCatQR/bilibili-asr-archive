@@ -1,2 +1,0 @@
-/root/e2e-asr/store-writeback-chain/artifacts/audio/BV1aAhLzsENb.p0.m4a
-  3064353 bytes  /root/e2e-asr/store-writeback-chain/artifacts/audio/BV1aAhLzsENb.p0.m4a

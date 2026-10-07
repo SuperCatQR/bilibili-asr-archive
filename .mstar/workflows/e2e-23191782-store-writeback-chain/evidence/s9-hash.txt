@@ -1,3 +1,0 @@
-bundle.md hash before second publish: cc87d231092de31318fdc0f3708496db22415f1ecf97a29785b778c2a86ebce0  /root/e2e-asr/store-writeback-chain/artifacts/transcripts/BV1aAhLzsENb.p0/bundle.md
-bundle.md hash after second publish:  cc87d231092de31318fdc0f3708496db22415f1ecf97a29785b778c2a86ebce0  /root/e2e-asr/store-writeback-chain/artifacts/transcripts/BV1aAhLzsENb.p0/bundle.md
-IDEMPOTENT: bundle unchanged
