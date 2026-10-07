@@ -1,5 +1,10 @@
 # Current Architecture
 
+Interactive component map: [architecture.html](architecture.html) (source:
+[architecture.json](architecture.json)). It covers the CLI, SQLite workflow,
+metadata acquisition, transcript production, editorial processing,
+publication, and read projections.
+
 The product has one execution core: the SQLite-backed workflow. A worker
 claims one job, runs a handler against fixed inputs, and records the attempt
 and result. The database is the operational source for metadata, immutable
