@@ -4,7 +4,7 @@
 run/page transaction flow.  Every page is fetched through the typed
 :class:`BilibiliGateway` protocol and persisted through the Plan-1
 repository's canonical methods in exactly one committed transaction per
-page: upsert user (when the run has observed a name to write), upsert
+page: upsert user (when the page has observed a name to write), upsert
 videos, upsert parts, insert discoveries, update the cursor, record the
 page outcome, commit.
 
@@ -22,6 +22,7 @@ transient ones included; a rate limit is never skipped.
 from __future__ import annotations
 
 import asyncio
+from collections import OrderedDict
 import uuid
 from dataclasses import dataclass
 
@@ -53,6 +54,7 @@ from bili_asr.storage.models import (
     VideoTagRecord,
 )
 
+TAG_CACHE_SIZE = 256
 SOURCE_PACKAGE = "bilibili-api-python"
 #: Shipped page size of the user-video page call.  Upstream answers ``ps=100``
 #: with its bounded ``-400``/HTTP 412 rejection while 30 — the pinned
@@ -61,8 +63,6 @@ SOURCE_PACKAGE = "bilibili-api-python"
 PAGE_SIZE = 30
 MAX_PAGE_RETRIES = 3
 PAGE_RETRY_BACKOFF_SECONDS = 30
-
-
 
 
 def _observed_tag_sets(
@@ -320,24 +320,10 @@ class MetadataIngestor:
         upserted_parts: set[tuple[str, int]] = set()
         outcome: RunOutcome = "complete"
         error_code: str | None = None
-        # The run's own observation of the uploader's display name, taken from
-        # the first summary that carries one.  Run-scoped rather than
-        # page-scoped: a later page that omits the author must not reset a label
-        # an earlier page already answered.  A run that observed none writes no
-        # user row at all, so the stored label keeps the value the last
-        # observing run gave it (or the placeholder the row was created with).
-        observed_author: str | None = None
-        # The run's tag observations, keyed by bvid.  Run-scoped rather than
-        # page-scoped, because the tag set is a property of the video: a video
-        # that somehow appears on two pages must not pay for the same call
-        # twice, and the fetch is deliberately per video rather than per part.
-        # A value of ``None`` is the gateway's "could not read this time" and
-        # is cached as such: a page whose payload is built from it omits the
-        # bvid's tag set rather than writing an empty one, so a degraded fetch
-        # cannot clear tags an earlier run stored (compass D16).  An empty
-        # tuple is a *different* answer — read, and the video carries none —
-        # and does replace the stored set with nothing.
-        tags_by_video: dict[str, tuple[VideoTag, ...] | None] = {}
+        # Recent observations avoid repeated calls without growing with the
+        # archive. A new run (including resume) starts fresh: persisted tags
+        # are the last successful observation, not evidence of today's tags.
+        tag_cache: OrderedDict[str, tuple[VideoTag, ...] | None] = OrderedDict()
         page_number = first_page
         while True:
             page_started_at = _now()
@@ -354,15 +340,10 @@ class MetadataIngestor:
                             await self._completed_summary(summary, mid)
                         )
                     summaries.append(completed_by_video[summary.bvid])
-                if observed_author is None:
-                    observed_author = next(
-                        (
-                            summary.author
-                            for summary in summaries
-                            if summary.author is not None
-                        ),
-                        None,
-                    )
+                observed_author = next(
+                    (summary.author for summary in summaries if summary.author is not None),
+                    None,
+                )
                 parts_by_video: dict[str, tuple[VideoPart, ...]] = {}
                 for summary in summaries:
                     # One parts fetch per distinct video: a duplicated page
@@ -372,25 +353,25 @@ class MetadataIngestor:
                         parts_by_video[summary.bvid] = (
                             await self._gateway.get_video_parts(summary.bvid)
                         )
+                # Keep this page's answers independently of LRU eviction,
+                # so even a page larger than the cache persists every answer.
+                tags_by_video: dict[str, tuple[VideoTag, ...] | None] = {}
                 for summary in summaries:
-                    # One tag fetch per distinct VIDEO, run-scoped: the tag set
-                    # belongs to the video, so a per-part fetch would pay once
-                    # per part and a repeated bvid would pay again.  The call
-                    # itself degrades inside the gateway rather than raising,
-                    # so a risk-controlled tag fetch cannot fail the page; it
-                    # answers ``None`` for that case and the payload builder
-                    # omits the bvid rather than writing an empty set (D16).
-                    if summary.bvid not in tags_by_video:
-                        try:
-                            tags_by_video[summary.bvid] = (
-                                await self._gateway.get_video_tags(summary.bvid)
-                            )
-                        except GatewayShapeError:
-                            # A malformed optional tag payload must not discard
-                            # the page's validated video and part observations.
-                            # Keep the answer degraded so tag persistence omits
-                            # this video instead of treating it as an empty set.
-                            tags_by_video[summary.bvid] = None
+                    bvid = summary.bvid
+                    if bvid in tags_by_video:
+                        continue
+                    if bvid in tag_cache:
+                        tags_by_video[bvid] = tag_cache[bvid]
+                        tag_cache.move_to_end(bvid)
+                        continue
+                    try:
+                        tags_by_video[bvid] = await self._gateway.get_video_tags(bvid)
+                    except GatewayShapeError:
+                        # Optional malformed tags preserve the last stored set.
+                        tags_by_video[bvid] = None
+                    tag_cache[bvid] = tags_by_video[bvid]
+                    if len(tag_cache) > TAG_CACHE_SIZE:
+                        tag_cache.popitem(last=False)
             except GatewayError as error:
                 page_outcome, run_outcome = _page_and_run_outcomes(error)
                 self._repository.record_page(
@@ -608,9 +589,9 @@ class MetadataIngestor:
         bvid duplicated within one page keeps the last occurrence's
         ``source_position``: the discovery primary key
         ``(run_id, page_number, bvid)`` makes the later entry overwrite the
-        earlier one.  ``author`` is the run's observed uploader name and only
+        earlier one.  ``author`` is this page's observed uploader name and only
         feeds the user row: it is not a video fact, so it never reaches a
-        summary or a part record.  ``None`` means this run has not observed a
+        summary or a part record.  ``None`` means this page has not observed a
         name, and then no user row is written at all — the run-start
         ``ensure_user`` already satisfies the run and cursor foreign keys, so a
         page carrying no observation leaves the stored label and its stamp
@@ -672,9 +653,9 @@ class MetadataIngestor:
             )
             for position, summary in enumerate(summaries)
         ]
-        # A page whose run has observed no name yet writes no user row at all:
+        # A page that observed no name writes no user row at all:
         # ``record_page`` upserts, so handing it the owner-mid placeholder would
-        # replace a stored label with a value this run never saw.  The run-start
+        # replace a stored label with a value this page never saw.  The run-start
         # write already established the row the run and cursor foreign keys
         # need, so nothing else has to.  Compass D15's rule, applied to this
         # column: a collection that observed nothing moves neither the row nor

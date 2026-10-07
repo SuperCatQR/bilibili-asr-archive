@@ -45,8 +45,6 @@ _OUTCOME_FAILED = "failed"
 _DEFAULT_LANGUAGE_FAMILY_ORDER = ("zh", "en")
 
 
-
-
 def _choice(value: str, field: str, allowed: frozenset[str]) -> str:
     """Return ``value`` when the published storage vocabulary admits it.
 

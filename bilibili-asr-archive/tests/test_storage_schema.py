@@ -85,6 +85,14 @@ VIEWS = {
     "v_missing_transcript",
     "v_part_pipeline",
 }
+WORKFLOW_TABLES = {
+    "workflow_asr_profiles", "workflow_jobs", "workflow_job_dependencies",
+    "workflow_attempts", "workflow_quality_assessments", "workflow_publications",
+}
+EDITORIAL_TABLES = {
+    "editorial_inputs", "editorial_job_inputs", "editorial_model_calls",
+    "editorial_chunk_results", "editorial_revisions", "document_artifacts",
+}
 EXPECTED_TABLE_COLUMNS = {
     "bilibili_users": ["mid", "display_name", "created_at", "updated_at"],
     "video_tags": ["bvid", "tag_id", "tag_name", "tag_type"],
@@ -471,7 +479,7 @@ def test_schema_sql_is_declared_and_read_as_package_resource():
         (project_root / "pyproject.toml").read_text(encoding="utf-8")
     )
     package_data = pyproject["tool"]["setuptools"]["package-data"]
-    assert {"schema.sql", "schema-transcripts.sql"} <= set(
+    assert {"schema.sql", "schema-transcripts.sql", "schema-workflow.sql", "schema-editorial.sql"} <= set(
         package_data["bili_asr.storage"]
     )
 
@@ -994,7 +1002,7 @@ def test_transaction_order_parents_before_children(tmp_root):
 def test_schema_inspection_matches_the_declared_contract(tmp_root):
     connection = open_database(tmp_root)
     try:
-        assert _table_names(connection) == BASE_TABLES | VIEWS
+        assert _table_names(connection) == BASE_TABLES | WORKFLOW_TABLES | EDITORIAL_TABLES | VIEWS
 
         for table in BASE_TABLES:
             columns = [

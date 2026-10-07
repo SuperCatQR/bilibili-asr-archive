@@ -20,7 +20,11 @@ Fix the 006 attempt-ledger regression (high), converge the store-route expressiv
 - **006 fix** — restore cross-process-safe attempt numbering + the strict malformed-history
   check under the flock, preserving the O(1) single-writer batch perf.
 - **Store-route expressiveness** — `pilot`/`schedule` can express "meta_ok, go harvest"; the
-  12 test_scheduler/test_long_live fixtures pinned; F7 + R13/R15 closed.
+  delivered the `missing_subtitle` → `meta_ok` mapping. The 12
+  test_scheduler/test_long_live fixture pins were not delivered; the frozen
+  queue-source contract prevented the captioned-but-unarchived selection surface.
+  See the [re-scoped plan](../../plans/store-route-expressiveness.md); remaining
+  obligations were recorded as I-000156/I-000157, so F7/R13/R15 were not fully closed.
 - **Search N+1** — `search_blocks` issues bounded queries (batch the snippet reads / hits);
   no one-query-per-hit.
 
@@ -43,7 +47,7 @@ None.
 | plan_id | Name | Status | Notes |
 |---------|------|--------|-------|
 | fix-006-attempt-ledger | Restore cross-process attempt numbering + malformed-history check | Done | high regression |
-| store-route-expressiveness | pilot/schedule "meta_ok go harvest" + pin 12 fixtures | Done | F7 + R13/R15 |
+| store-route-expressiveness | missing_subtitle → meta_ok mapping | Done | Re-scoped under STOP; 12 fixture pins not delivered; I-000156/I-000157 remain |
 | search-n1-batching | batch search_blocks snippet reads | Done | O-R3 |
 
 Status values: `Todo` | `InProgress` | `InReview` | `Done` | `Blocked`
@@ -60,7 +64,8 @@ Status values: `Todo` | `InProgress` | `InReview` | `Done` | `Blocked`
 ## Acceptance Criteria
 
 - 006 regression fixed (2 persistence_scale tests green); single-writer batch perf preserved.
-- Store-route expressiveness landed; 12 fixtures pinned; F7 + R13/R15 closed.
+- Store-route mapping landed within the frozen contract; fixture pins and full
+  F7/R13/R15 closure were deferred by the plan's STOP clause.
 - Search N+1 fixed (bounded queries).
 - Findings cleanup allow-residual; no unresolved critical; one PR to `main`.
 
@@ -71,7 +76,7 @@ Status values: `Todo` | `InProgress` | `InReview` | `Done` | `Blocked`
 
 ## Roadmap Position
 
-- **Current iteration（iter-2026-10-converge）**：**delivered** — 006 fix + store-route expressiveness + search N+1.
+- **Current iteration（iter-2026-10-converge）**：**delivered** — 006 fix + re-scoped store-route mapping + search N+1; captioned-but-unarchived route selection remains a separate obligation.
 - **Next iteration**：the 3 runtime/ops high (torch lock, 123pan, SESSDATA — need live measurement);
   then the medium cluster by leverage. 触发条件：this iteration merges. owner: PM.
 - **最终目标**：a converged store↔chain + read-path perf baseline with only genuinely-deferred
@@ -104,6 +109,24 @@ Status values: `Todo` | `InProgress` | `InReview` | `Done` | `Blocked`
 ## Quality Gate Summary
 
 > Filled at iteration-close.
+
+### Historical baseline attribution (corrected 2026-10-06)
+
+The original close note attributed eight failures to this iteration but did not
+state the full pre-existing non-harness baseline. The contemporaneous tracked
+[I-000163 register entry](../../projects/_default/issues-register.md) reports
+**approximately 73 failures and five collection errors**. This is a historical
+reviewer's report, not a newly reproduced count: no original JUnit output,
+command/environment record or per-test inventory for that run was recovered
+from this iteration's tracked package or its available Git history. Its exact
+composition and attribution therefore remain unverified. The eight attributed
+failures must not be presented as the whole baseline or as a green suite.
+
+For a later, separately measured baseline, the
+[2026-10-04 audio-pipeline report](../../../bilibili-asr-archive/verification-results/audio-pipeline-2026-10-04.md)
+records unchanged base `f537cb5`: 2066 passed, 32 failed, 51 skipped, zero setup
+errors, with failure families and an unchanged-base comparison. Those results
+have a different date/base and do not reconstruct the earlier 73/five count.
 
 ## Compound Round Summary
 

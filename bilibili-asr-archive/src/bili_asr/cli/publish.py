@@ -8,6 +8,7 @@ from pathlib import Path
 from dataclasses import dataclass
 from typing import Any, Iterator
 import os
+import math
 import sys
 from bili_asr.formatting import pubdate_utc
 
@@ -37,7 +38,7 @@ class _CandidateFailure:
 
 def _project_publication_candidates(rows: list[Any]) -> Iterator[Any]:
     """Keep one damaged part from aborting projection of the other parts."""
-    from bili_asr.pipeline.attempts import _safe_error_code
+    from bili_asr.coordinator import _safe_error_code
     from bili_asr.page_identity import format_work_id
     from bili_asr.services.transcript_projection import ordered_candidates
 
@@ -124,7 +125,11 @@ def _cmd_publish_transcripts(args: argparse.Namespace) -> int:
     ``_UsageErrorArgumentParser`` maps argparse's own usage exit to ``1``.
     """
     from bili_asr import archive
-    from bili_asr.pipeline.attempts import _safe_error_code
+    from bili_asr.services.publication_supervisor import publication_phase
+    from bili_asr.services.bundle_verification import (
+        verify_bundle, VerificationReadBudget,
+    )
+    from bili_asr.coordinator import _safe_error_code
     from bili_asr.manifest import ManifestStore
     from bili_asr.services.manifest_derivation import duration_s_from_ms
     from bili_asr.services.transcript_projection import (
@@ -138,6 +143,13 @@ def _cmd_publish_transcripts(args: argparse.Namespace) -> int:
             "publish-transcripts: --limit-parts must be a positive integer"
         )
         return 1
+    if not math.isfinite(args.verify_timeout_seconds) or args.verify_timeout_seconds <= 0:
+        write_stderr("publish-transcripts: --verify-timeout-seconds must be finite and positive")
+        return 1
+    if args.verify_read_budget_bytes < 1:
+        write_stderr("publish-transcripts: --verify-read-budget-bytes must be positive")
+        return 1
+    verification_budget = VerificationReadBudget(args.verify_read_budget_bytes)
     bvid, page_index = _subtitle_selector(args.bvid)
     if bvid is not None and _selector_cannot_name_a_part(bvid):
         # The same configuration error as an unknown bvid, decided on the
@@ -169,6 +181,11 @@ def _cmd_publish_transcripts(args: argparse.Namespace) -> int:
         recorded = store.load()
         write_base = args.artifact_roots.write_base
         for candidate in candidates:
+            publication_phase("candidate")
+            if verification_budget.remaining == 0:
+                failed += 1
+                write_stderr("publish-transcripts: verification read budget exhausted; remaining candidates unverified")
+                break
             candidate_count += 1
             work_id = candidate.work_id
             if isinstance(candidate, _CandidateFailure):
@@ -189,8 +206,9 @@ def _cmd_publish_transcripts(args: argparse.Namespace) -> int:
             complete = False
             try:
                 if declared is not None:
-                    complete = archive.archive_bundle_complete(
-                        write_base, declared, require_readable=True
+                    complete = verify_bundle(
+                        write_base, declared, timeout_seconds=args.verify_timeout_seconds,
+                        budget=verification_budget,
                     )
             except OSError as exc:
                 reason = str(_safe_error_code(exc))
@@ -247,8 +265,9 @@ def _cmd_publish_transcripts(args: argparse.Namespace) -> int:
                     written = archive.write_archive(
                         write_base, entry, segments, source=kind
                     )
-                    if not archive.archive_bundle_complete(
-                        write_base, written, require_readable=True
+                    if not verify_bundle(
+                        write_base, written, timeout_seconds=args.verify_timeout_seconds,
+                        budget=verification_budget,
                     ):
                         reason = "bundle_incomplete"
                     else:
@@ -262,6 +281,7 @@ def _cmd_publish_transcripts(args: argparse.Namespace) -> int:
                             **(recorded.get(work_id) or {}),
                             **projection_row(part, candidate.transcript, written),
                             "archive_producer": "stage-cli",
+                            "artifact_base": os.path.abspath(write_base),
                         }
                         store.upsert(merged)
                 except Exception as exc:
@@ -269,6 +289,9 @@ def _cmd_publish_transcripts(args: argparse.Namespace) -> int:
             if reason is not None:
                 failed += 1
                 print(f"{work_id}: failed ({reason})", flush=True)
+                if reason == "VerificationBudgetExceeded" or verification_budget.remaining == 0:
+                    write_stderr("publish-transcripts: verification read budget exhausted; remaining candidates unverified")
+                    break
                 if (
                     pending and args.limit_parts is not None
                     and published + failed >= args.limit_parts
@@ -286,6 +309,7 @@ def _cmd_publish_transcripts(args: argparse.Namespace) -> int:
                 and published + failed >= args.limit_parts
             ):
                 break
+        publication_phase("final")
         if published:
             try:
                 store.save()
@@ -409,3 +433,5 @@ def _cmd_proofread_merge(args: argparse.Namespace) -> int:
     print(f"{work_id}: proofread transcript written ({transcript_path})")
     print(f"{work_id}: corrections accounting written ({corrections_path})")
     return 0
+
+

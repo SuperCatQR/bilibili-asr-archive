@@ -55,7 +55,12 @@ import time
 from dataclasses import replace
 
 from bili_asr import archive as archive_module
-from bili_asr.cli.main import main
+from functools import partial
+from bili_asr.cli.main import _main
+
+# Exercise the publication worker in-process so fault injection and captured
+# output remain local; supervisor process/deadline tests cover the public entry.
+main = partial(_main, _publication_worker=True)
 from bili_asr.manifest import ManifestStore
 from bili_asr.storage import (
     AcquisitionRunRecord,
@@ -64,7 +69,7 @@ from bili_asr.storage import (
     TranscriptSegmentRecord,
     open_database,
 )
-from tests.fixtures.metadata_records import (
+from fixtures.metadata_records import (
     make_part_record,
     make_user_record,
     make_video_record,

@@ -1508,3 +1508,41 @@ def test_queue_source_ensure_asr_run_refusal_survives_a_dead_stderr_stream(
         detached_buffer.close()
         for stream in (dead, closed, binary):
             stream.close()
+
+
+@pytest.mark.parametrize("ambient", [False, True])
+@pytest.mark.parametrize("refusal", ["audio-part", "transcript-part", "transcript-id", "transcript-run"])
+def test_lookup_refusal_preserves_caller_transaction(tmp_root, ambient, refusal):
+    connection = open_database(tmp_root)
+    try:
+        part_id = _insert_user_video_part(connection)
+        _insert_acquisition_run(connection, run_id="run-asr")
+        transcript_id = _insert_transcript(connection, video_part_id=part_id)
+        connection.commit()
+        if ambient:
+            connection.execute("UPDATE videos SET title = 'caller write'")
+        repository = MediaQueueRepository(connection)
+        with pytest.raises(ValueError):
+            if refusal == "audio-part":
+                repository.mark_audio_acquired(
+                    bvid="BVUNKNOWN", page_index=0, audio_path="audio/test.flac",
+                    sha256=_SHA_A, byte_size=10, format="flac", duration_ms=10,
+                    acquisition_source="test", acquired_at=200,
+                )
+            else:
+                repository.mark_transcript_stored(
+                    bvid="BVUNKNOWN" if refusal == "transcript-part" else "BV1TEST",
+                    page_index=0,
+                    transcript_id=99999 if refusal == "transcript-id" else transcript_id,
+                    run_id="unknown" if refusal == "transcript-run" else "run-asr",
+                    started_at=100, finished_at=200,
+                )
+        assert connection.in_transaction is ambient
+        if ambient:
+            assert connection.execute("SELECT title FROM videos").fetchone()[0] == "caller write"
+            connection.rollback()
+            assert connection.execute("SELECT title FROM videos").fetchone()[0] != "caller write"
+        assert connection.execute("SELECT COUNT(*) FROM audio_objects").fetchone()[0] == 0
+        assert connection.execute("SELECT COUNT(*) FROM acquisition_attempts").fetchone()[0] == 0
+    finally:
+        connection.close()

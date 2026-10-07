@@ -7,11 +7,16 @@ from pathlib import Path
 import pytest
 
 from bili_asr.archive import archive_bundle_complete
-from bili_asr.cli.main import main
+from functools import partial
+from bili_asr.cli.main import _main
+
+# Exercise the publication worker in-process so fault injection and captured
+# output remain local; supervisor process/deadline tests cover the public entry.
+main = partial(_main, _publication_worker=True)
 from bili_asr.manifest import ManifestStore
 from bili_asr.storage import TranscriptRepository, open_database
 
-from tests.support.transcript_repository import _record, _run, _video_with_parts
+from test_transcript_repository import _record, _run, _video_with_parts
 
 
 def _seed(root: Path, damage: str) -> tuple[str, int]:

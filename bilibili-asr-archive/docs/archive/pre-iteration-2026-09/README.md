@@ -34,10 +34,9 @@ work — **not current truth**. For the shipped contracts, read:
 
 | Path | What it is |
 |------|------------|
-| `REDESIGN-PLAN.md`, `DELIVERY-REPORT.md` | V2 redesign plan and the prototype delivery report |
+| `REDESIGN-PLAN.md` | V2 redesign plan |
 | `content-addressed-storage.md`, `storage-architecture.md`, `schema-3nf-guide.md` | storage design docs from the prototype round |
-| `data-acquisition-flow.md`, `bilibili-api-evaluation.md`, `bilibili-api-verification-report.md` | data-source research that fed the iteration's specs |
-| `refactor-implementation-report.md` | prototype implementation report |
+| `data-acquisition-flow.md`, `bilibili-api-evaluation.md` | data-source research that fed the iteration's specs |
 | `prototypes/*.py` | standalone prototype stores (`archive_store_v2`, `content_addressed_store`) + their e2e test — not imported by the package |
 | `prototypes/schema-3nf.sql`, `prototypes/schema-proposal.sql` | prototype DDL — **do not copy as-is**; the shipped schema differs (`src/bili_asr/storage/schema.sql`) |
 

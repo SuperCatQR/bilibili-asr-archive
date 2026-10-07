@@ -631,3 +631,128 @@ Defined in the "Subtitle acquisition" section above: `0` the bounded run
 completed (a probe with zero visible tracks and a selection that resolved to no
 part included), `1` usage/configuration or the transcript-schema guard, `2` every
 attempted part failed or an unexpected internal error.
+
+
+## Metadata freshness and queue ownership
+
+Tag collection keeps at most 256 recent video observations per collection run
+(including degraded answers). A repeated video still resident in this cache
+reuses its answer; after eviction it is fetched again. Current-page answers
+remain available for persistence even when that page exceeds the cache bound.
+Each new run, including `fetch-meta --resume`, starts a fresh cache. Persisted
+`video_tags` records the last successful observation, not a freshness proof:
+resuming deliberately refreshes relisted videos so changed or removed tags can
+converge. An empty successful inventory clears tags; a degraded answer preserves
+the previous inventory. Resume therefore does not promise zero repeated tag
+requests across process or run boundaries.
+
+Each collected page may refresh the uploader's display name from its first
+named summary. A later named page can replace an earlier label; a nameless page
+preserves the stored label. Reobserving the identical label preserves the user's
+`updated_at`; this timestamp describes a label change, not a page heartbeat.
+
+Queue write-back validates scalar arguments and resolves the part, transcript,
+and run before opening its write group. On the supported SQLite deferred
+connection, those SELECT lookups do not start a transaction. A lookup refusal
+on an idle connection therefore leaves it idle. If the caller already owns a
+transaction, lookup refusal leaves that transaction and its pending writes
+intact: it neither commits nor rolls back caller work. Successful write-back
+retains the repository's existing commit/rollback write-group contract; callers
+should finish unrelated pending writes before invoking it.
+
+A part marked `gone` is excluded from subtitle and audio acquisition queues.
+If it already has archived audio and lacks a transcript, it remains in
+`missing_transcript`: local transcription of retained bytes is still useful
+and needs no network reacquisition. Queue membership follows the corresponding
+view; `gone` is not a blanket exclusion from all work.
+
+
+## Publication read budget and verification deadline
+
+Complete-bundle decisions still read and SHA-256 all four artifacts. File size
+and timestamps never establish content integrity; edits preserving both must
+still be detected. A run over 3,000 bundles at 3.5 MB each reads roughly 10.5 GB
+again, plus markers, and creates a verification process for each check.
+
+Use an explicit scope for mounted or large archives:
+
+```sh
+bili-asr publish-transcripts --archive-root /path/to/archive --bvid BVxxxx:p0 --limit-parts 1 --verify-timeout-seconds 30
+```
+
+Without `--pending`, `--limit-parts N` limits selected database parts before
+loading their version metadata and limits verification to those N candidates.
+Each selected part's complete version set is retained for correct winner
+selection. `--pending --limit-parts N` instead limits publication attempts:
+it may inspect and hash many already-complete bundles before finding N pending
+parts. Narrow `--bvid` if a strict scan budget is needed; pending mode alone is
+not a corpus-read budget. Omit the part selector only for an intentional full
+scan. Lowering the timeout can refuse slow healthy reads, preserving the bundle
+and returning a failed candidate rather than weakening its integrity check.
+
+`--verify-timeout-seconds` defaults to 30 and must be finite and positive.
+Both the pre-publication completeness check and post-publication confirmation
+use separate disposable read-only processes. On timeout the candidate reports
+`TimeoutError`, keeps an existing unverified bundle, and processing continues.
+The child inherits no archive-writer descriptors. The parent requests kill and
+waits at most 0.2 seconds for cleanup; an uninterruptible kernel call may outlive
+that request, so physical cancellation is not guaranteed. Unreaped workers
+are capped at four; more verification is refused until they exit. Workers
+perform no publication writes, so surviving workers cannot later publish.
+
+`--io-timeout-seconds` defaults to 60 and must be finite and positive.
+The CLI supervises a separate publication process before resolving artifact
+roots or opening the archive lock. A dedicated progress channel starts a new
+deadline for each candidate and for final snapshot persistence; initial root
+validation, lock acquisition, database selection and manifest replay share the
+setup deadline. Database reads, artifact writes, fsync, manifest journal writes
+and cleanup therefore cannot keep the calling CLI waiting indefinitely. This
+is independent of the verification-read deadline and byte allowance.
+
+An I/O deadline stops the invocation and returns 1; it does not continue with
+the next candidate. The supervisor requests termination and allows only a short
+bounded cleanup interval. The publication process owns the writer lock for its
+entire lifetime. If an uninterruptible kernel operation prevents termination,
+that process retains the lock until it actually exits, and other writers may
+still report `archive_busy`. Never remove the lock or start an overlapping
+writer to bypass this protection. Timeout means completion was not confirmed;
+it does not imply rollback. Rerun after the mount recovers to reconcile complete
+bundles and retry incomplete publication. Raise the explicit timeout for a
+healthy slow mount or large candidate. Process creation and a blocked terminal
+output device are outside the supervisor's filesystem deadline. Direct Python
+handler calls retain their existing synchronous library contract.
+
+
+### Finite verification byte budget
+
+`publish-transcripts` now defaults to a **256 MiB (268,435,456 byte)** strict
+verification read budget per invocation. `--verify-read-budget-bytes N` sets a
+positive finite allowance in bytes. This budget applies cumulatively to actual
+marker and artifact bytes returned by the canonical reader, across both
+pre-publication and post-publication checks and all candidates, including
+already-published skips in pending mode. The worker restricts each `os.read`
+to the remaining allowance; file stats are not used to charge or skip reads.
+Hashing remains strict and no stat-based cache is introduced.
+
+Budget exhaustion exits 1 with `VerificationBudgetExceeded` and a message that
+remaining candidates are unverified. It stops processing later candidates;
+an existing bundle whose read was cut short is preserved, with no
+already-published claim and no new manifest completion row. A newly written
+bundle whose post-write confirmation exceeds the budget also gains no manifest
+completion row. Products already successfully verified and recorded earlier in
+the invocation remain committed. Increase the budget or narrow `--bvid` to
+continue deliberately:
+
+```sh
+bili-asr publish-transcripts --archive-root /path/to/archive --bvid BVxxxx:p0 --verify-read-budget-bytes 536870912
+```
+
+A verification needs enough headroom to establish EOF; hitting the allowance
+exactly may conservatively refuse the bundle rather than read beyond it. On a
+worker timeout or invalid response, its full reserved allowance stays consumed:
+the parent's actual read count is unknown and a kernel-blocked reader may still
+hold it. This prevents allocating those same bytes to another worker. A new
+CLI invocation creates a new explicit budget. The allowance limits logical
+returned filesystem bytes, not filesystem/kernel readahead, SQLite traffic or
+publication output bytes. The verification timeout and its write/fence limits
+remain unchanged.

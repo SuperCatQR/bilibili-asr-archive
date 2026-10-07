@@ -273,6 +273,9 @@ class QualityAnalyzer:
                 reasons.add("identity_unconfined")
             artifacts = _artifact_paths(row, roots, probe)
             if not artifacts:
+                # No declared/derivable candidate and an absent named artifact
+                # share the frozen backlog reason (#101); absence provenance is
+                # not a new diagnostic or a declaration defect.
                 reasons.add("artifact_missing")
         cue_count = 0
         valid_artifacts = 0
@@ -293,6 +296,8 @@ class QualityAnalyzer:
                 reasons.add("identity_unconfined")
                 continue
             if not path.is_file():
+                # A confined candidate exists as a declaration, but its bytes
+                # are absent. Keep the same aggregate backlog code as above.
                 reasons.add("artifact_missing")
                 continue
             try:
@@ -802,11 +807,19 @@ def _check_identity(
 
     if stem and path.name:
         if path.suffix.lower() in {".srt", ".json", ".txt", ".md"}:
-            # Shape A carries the identity in the **directory**
-            # (``transcripts/{stem}/bundle.srt``), not in the file name, so the
-            # question is whether the stem appears anywhere in the path.  Asking
-            # ``path.name`` would reject every artifact of the shipped layout.
-            if stem not in path.as_posix():
+            # Fixed bundle names carry identity in their immediate parent.
+            # A matching ancestor or a page-number prefix cannot identify the
+            # bundle. Legacy names carry a bounded stem in the filename.
+            if path.name in {
+                "bundle.srt", "bundle.txt", "bundle.md", "bundle.raw.json",
+            }:
+                identity_matches = path.parent.name in {stem, f"{stem}.proofread"}
+            else:
+                identity_matches = re.search(
+                    rf"(?<![A-Za-z0-9]){re.escape(stem)}(?![A-Za-z0-9])",
+                    path.name,
+                ) is not None
+            if not identity_matches:
                 reasons.add("identity_mismatch")
 
     if path.suffix.lower() == ".md":

@@ -1,13 +1,39 @@
-"""Run implementation."""
+"""run / campaign / schedule handlers."""
 
 from __future__ import annotations
 
 from bili_asr.diagnostics import write_stderr
-import json
-import time
-from bili_asr.cli.run_record import recorded_command
-from bili_asr.cli._shared import _AUDIO_BUDGET_SKIP_HINT, _is_excluded, _queue_source_is_manifest, _resolve_sessdata, _todo_for_bvid
 
+import json
+import sys
+
+import signal
+import sqlite3
+import threading
+import time
+from contextlib import contextmanager
+from datetime import datetime, timezone
+from typing import Any, Iterator
+
+from bili_asr.cli.run_record import recorded_command
+
+from bili_asr.cli._shared import (
+    DEFAULT_ARCHIVE_ROOT,
+    _AUDIO_BUDGET_SKIP_HINT,
+    _archive_database_exists,
+    _is_excluded,
+    _metadata_database_path,
+    _open_read_connection,
+    _open_read_repository,
+    _queue_source_is_manifest,
+    _record_api_error,
+    _resolve_sessdata,
+    _store_audio_todo,
+    _store_transcript_todo,
+    _subtitle_schema_rebuild_line,
+    _subtitle_selector,
+    _todo_for_bvid,
+)
 
 def _run_scope_rows(store, entries: dict, scope: str):
     """Resolve --scope to processable (key, entry) rows.
@@ -67,7 +93,6 @@ def _run_scope_rows(store, entries: dict, scope: str):
         return None, "empty --scope"
     return rows, None
 
-
 def _store_first_scope_rows(store, entries: dict, scope: str, *,
                             asr_with_subtitles: bool = True):
     """Campaign scope resolution: the store is the queue for ``pending``.
@@ -90,7 +115,7 @@ def _cmd_campaign(args: argparse.Namespace) -> int:
     from bili_asr import bili_client
     from bili_asr.audio_budget import audio_cap_bytes
     from bili_asr.campaign import CampaignRunner
-    from bili_asr.pipeline.locks import ArchiveBusyError
+    from bili_asr.coordinator import ArchiveBusyError
 
     runner = None
     try:
@@ -131,13 +156,138 @@ def _cmd_campaign(args: argparse.Namespace) -> int:
     print(json.dumps(summary.to_dict(), ensure_ascii=False, sort_keys=True))
     return summary.exit_code
 
+class _RunInterrupted(BaseException):
+    """Raised by a batch command's one-shot interruption disposition.
+
+    A ``BaseException`` and not an ``Exception``: the coordinator's per-stage
+    ``except Exception`` handlers would otherwise swallow the interruption and
+    let the batch continue past it.
+    """
+
+    def __init__(self, signum: int) -> None:
+        super().__init__(f"interrupted by signal {signum}")
+        self.signum = signum
+
+
+def _restore_signal_handlers(previous: dict[int, Any]) -> None:
+    """Put back the dispositions a swap captured (empty mapping = nothing to do)."""
+    for signum, handler in previous.items():
+        signal.signal(signum, handler)
+
+
+def _ignore_interruption_signals() -> dict[int, Any]:
+    """Leave ``SIGTERM``/``SIGINT`` ignored, and report what they were.
+
+    The pair is swapped as a unit because the ignored state has to cover the
+    whole unwind after the first delivery and the record write at its end, and
+    that unwind is reached through ``SIGTERM`` *or* ``SIGINT``.  ``signal.signal``
+    is main-thread only, so elsewhere nothing is swapped and the empty mapping
+    reads as "nothing to restore".
+    """
+    if threading.current_thread() is not threading.main_thread():
+        return {}
+    return {
+        signum: signal.signal(signum, signal.SIG_IGN)
+        for signum in (signal.SIGTERM, signal.SIGINT)
+    }
+
+
+@contextmanager
+def _interruptible_run() -> Iterator[None]:
+    """Deliver the first SIGTERM/SIGINT as ``_RunInterrupted``.
+
+    One-shot: the exception is raised once, and the true previous dispositions
+    -- ``SIGTERM`` *and* ``SIGINT`` -- come back in this context manager's
+    ``finally``, after the record write.  Delivery therefore leaves both signals
+    **ignored** instead of restoring the captured disposition: the ignored
+    state, not the default, is what must hold across the coordinator's unwind
+    (runner release, batch-evidence stderr write), because a repeated
+    ``SIGTERM`` landing there at the default disposition would kill the process
+    before the write site with no record at all. SIGINT uses the same one-shot
+    handler, so repeated Ctrl-C is ignored at first delivery, before exception
+    matching or coordinator cleanup runs. ``signal.signal`` is main-thread only, so
+    elsewhere the run body keeps the dispositions the process already had.
+    """
+    if threading.current_thread() is not threading.main_thread():
+        yield
+        return
+    previous: dict[int, Any] = {}
+
+    delivered = False
+
+    def _on_interruption(signum: int, _frame: Any) -> None:
+        nonlocal delivered
+        # A second Python invocation between the disposition swaps must return.
+        if delivered:
+            return
+        delivered = True
+        # The swapped-out dispositions are deliberately dropped: the ignored
+        # state, not the disposition at delivery, is what must hold until the
+        # write site has run.
+        _ignore_interruption_signals()
+        raise _RunInterrupted(signum)
+
+    previous[signal.SIGTERM] = signal.signal(signal.SIGTERM, _on_interruption)
+    previous[signal.SIGINT] = signal.signal(signal.SIGINT, _on_interruption)
+    try:
+        yield
+    finally:
+        _restore_signal_handlers(previous)
+
+
+@contextmanager
+def _signals_ignored() -> Iterator[None]:
+    """Ignore ``SIGTERM``/``SIGINT`` for the duration of the record write."""
+    previous = _ignore_interruption_signals()
+    try:
+        yield
+    finally:
+        _restore_signal_handlers(previous)
+
+
+def _partial_run_state(root: str, started_at: str) -> tuple[list[str], dict[str, int]]:
+    """Record inputs for a run interrupted before it could summarize.
+
+    The interruption path has no ``RunSummary``: what the run already persisted
+    durably is the record's input.  ``work_ids`` are the ids the attempts
+    ledger recorded at or after this run's ``started_at``, in order and deduped
+    (an earlier run's attempts stay out), and the coverage summary counts the
+    manifest statuses as they stand.  ``records_existing`` is *not* derived
+    here: it means "records that existed before this run", so the run body
+    passes its original count. Membership relies on the archive single-writer
+    lock; compare UTC instants because optional fractions do not sort as ISO text.
+    """
+    from bili_asr.coordinator import AttemptLedger
+    from bili_asr.manifest import ManifestStore
+    from bili_asr.run_ledger import compute_coverage_summary
+
+    def instant(value: str) -> datetime | None:
+        try:
+            parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+            return parsed.replace(tzinfo=timezone.utc) if parsed.tzinfo is None else parsed.astimezone(timezone.utc)
+        except (ValueError, TypeError, AttributeError):
+            return None
+
+    boundary = instant(started_at)
+    if boundary is None:
+        raise ValueError("invalid run start timestamp")
+    attempts = AttemptLedger(root).load()
+    work_ids = list(
+        dict.fromkeys(
+            a["work_id"] for a in attempts
+            if (timestamp := instant(a["started_at"])) is not None and timestamp >= boundary
+        )
+    )
+    entries = ManifestStore(root=root).load()
+    return work_ids, compute_coverage_summary(entries)
+
 
 def _store_pending_rows(archive_root: str, command: str, *,
                         asr_with_subtitles: bool = True):
     """The pending work list from the store gap views, in coordinator row shape.
 
     Returns ``(rows, error)``; ``error`` is ``None`` on success.  The store is
-    the sole queue input for the pending scope (contract §3): the manifest's
+    the acquisition queue input for the pending scope (contract §3): the manifest's
     needs_audio/derived rows are never read to decide work.  A missing or
     pre-transcript-schema store is the documented configuration error.
     """
@@ -153,10 +303,31 @@ def _store_pending_rows(archive_root: str, command: str, *,
         )
         return None, "no archive database"
     try:
-        merged = source.select_pending_scope(asr_with_subtitles=asr_with_subtitles)
+        entries = ManifestStore(root=archive_root).load()
+        merged = source.select_pending_scope(
+            asr_with_subtitles=asr_with_subtitles
+        )
+        # Publication recovery is a separate execution scope. Store identity
+        # must exist before a durable manifest stage may re-enter this scope.
+        known_parts = set()
+        recovery_candidates = {}
+        for key, current in entries.items():
+            status = str(current.get("status") or "")
+            if not (status == "subtitle_done" or (
+                status == "archived" and current.get("transcript_writeback_error")
+            )):
+                continue
+            bvid, page = current.get("bvid"), current.get("page_index")
+            if not isinstance(bvid, str) or not bvid or type(page) is not int:
+                continue
+            recovery_candidates[key] = current
+            if source.connection.execute(
+                "SELECT 1 FROM video_parts WHERE bvid = ? AND page_index = ? "
+                "AND processing_status != 'gone'", (bvid, page)
+            ).fetchone() is not None:
+                known_parts.add((bvid, page))
     finally:
         source.connection.close()
-    entries = ManifestStore(root=archive_root).load()
     # A gap view can omit a subtitle that is harvested but not archived yet.
     # Merge the manifest's in-flight status back onto queue candidates while
     # keeping the store as the source of the candidate set.
@@ -181,11 +352,10 @@ def _store_pending_rows(archive_root: str, command: str, *,
             elif status != "subtitle_done":
                 enriched["status"] = queued.get("status", status)
             merged[key] = enriched
-    for key, current in sorted(entries.items()):
-        status = str(current.get("status") or "")
-        if status == "subtitle_done" or (
-            status == "archived" and current.get("transcript_writeback_error")
-        ):
+    # Reuse the validated candidates: unrelated or malformed manifest fields
+    # must not be hashed while selecting the publication-recovery scope.
+    for key, current in sorted(recovery_candidates.items()):
+        if (current["bvid"], current["page_index"]) in known_parts:
             merged.setdefault(key, dict(current))
     return [(key, entry) for key, entry in merged.items()], None
 
@@ -193,8 +363,7 @@ def _store_pending_rows(archive_root: str, command: str, *,
 @recorded_command("run")
 def _cmd_run(args: argparse.Namespace) -> int:
     from bili_asr import bili_client
-    from bili_asr.pipeline.locks import ArchiveBusyError, archive_writer
-    from bili_asr.coordinator import RunCoordinator
+    from bili_asr.coordinator import ArchiveBusyError, RunCoordinator, archive_writer
     from bili_asr.manifest import ManifestStore
     from bili_asr.audio_budget import SKIP_REASON, audio_cap_bytes
     from bili_asr.services import queue_source as qs
@@ -285,8 +454,7 @@ def _cmd_run(args: argparse.Namespace) -> int:
 @recorded_command("schedule")
 def _cmd_schedule(args: argparse.Namespace) -> int:
     from bili_asr import bili_client
-    from bili_asr.pipeline.locks import ArchiveBusyError, archive_writer
-    from bili_asr.coordinator import RunCoordinator
+    from bili_asr.coordinator import ArchiveBusyError, RunCoordinator, archive_writer
     from bili_asr.manifest import ManifestStore
     from bili_asr.meta_cursor import MetaCursorStore
     from bili_asr.run_ledger import (
@@ -334,7 +502,8 @@ def _cmd_schedule(args: argparse.Namespace) -> int:
         # The batch chain (schedule/campaign) cut to the store outright
         # (contract §7): no rollback switch, the gap views are the queue.
         rows, error = _store_pending_rows(
-            args.archive_root, "schedule", asr_with_subtitles=args.asr_with_subtitles
+            args.archive_root, "schedule",
+            asr_with_subtitles=args.asr_with_subtitles,
         )
         if error:
             return 1

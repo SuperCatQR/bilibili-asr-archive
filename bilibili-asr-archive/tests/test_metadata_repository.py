@@ -1164,3 +1164,16 @@ def test_constructor_rejects_a_connection_with_foreign_keys_disabled(tmp_root):
             MetadataRepository(connection)
     finally:
         connection.close()
+
+
+def test_identical_user_label_preserves_updated_at(tmp_root):
+    connection = open_database(tmp_root)
+    repository = MetadataRepository(connection)
+    try:
+        with repository.transaction():
+            repository.upsert_user(make_user_record(updated_at=100))
+        with repository.transaction():
+            repository.upsert_user(make_user_record(updated_at=900))
+        assert connection.execute("SELECT updated_at FROM bilibili_users").fetchone()[0] == 100
+    finally:
+        connection.close()

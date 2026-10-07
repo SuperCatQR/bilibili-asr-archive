@@ -7,7 +7,9 @@ deliberately leaves out. Reference counts are tracked-surface hits at
 
 | Document | What it is | Refs |
 |---|---|---|
-| [architecture.md](architecture.md) | Current module ownership, runtime boundaries, repository transactions, pipeline stages, search indexes, and test support layout. | — |
+| [ai-proofreading.md](ai-proofreading.md) | 当前工作流与 DeepSeek AI 校对的使用说明、参数、数据库及输出契约。 | — |
+| [ai-proofreading-architecture.md](ai-proofreading-architecture.md) | 当前转录与校对架构说明，包含交互式架构图入口。 | — |
+| [ai-proofreading-e2e-BV16jryYNEbT.md](ai-proofreading-e2e-BV16jryYNEbT.md) | 当前字幕采集、音频下载、WSL 本地 ASR、DeepSeek 校对与 Markdown 渲染的完整链路实测。 | — |
 | [design-philosophy.md](design-philosophy.md) | 项目北极星：三大环节（抓取/内容处理/数据处理）、数据库四公理、五条设计哲学。方向决策的上游锚点。 | — |
 | [roadmap.md](roadmap.md) | 阶段路线图：Phase 0 事件流可信（已完成）→ Phase 0.5 证据层加深（在飞）→ 处理器骨架 → 缺口队列 → 谓词收敛 → 画面/评论/关系。 | — |
 | [roadmap-gantt.md](roadmap-gantt.md) | 路线图的甘特图（Mermaid）：Phase 0–7 的相对工期、关键路径、压缩空间，锚定当前在飞迭代。 | — |

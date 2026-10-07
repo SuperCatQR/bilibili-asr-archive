@@ -114,3 +114,11 @@ iteration-README path stays green.
 ## Product root
 
 Application code lives under `bilibili-asr-archive/`.
+
+## Evidence retention and archival
+
+Tracking is the distribution boundary, not an unlimited retention requirement for raw evidence.
+[Harness evidence retention](knowledge/harness-evidence-retention.md) defines durable records,
+archive eligibility, measurable review triggers, and the verified external-pointer procedure.
+The procedure keeps engine-read state and snapshot references in Git; it does not change any
+volatile ignore rule or authorize an automatic sweep of existing evidence.

@@ -17,6 +17,8 @@ import bili_asr.cli.processing as _dependency_processing
 # Kept as a local command-module handle because the writeback safety tests and
 # command diagnostics exercise this helper through the ``asr`` command module.
 _print_in_process_constructions = _dependency_processing._print_in_process_constructions
+_AsrItemCount = _dependency_processing._AsrItemCount
+_asr_transcript_segments = _dependency_processing._asr_transcript_segments
 
 
 def _cmd_asr(args: argparse.Namespace) -> int:
@@ -180,6 +182,7 @@ def _cmd_asr(args: argparse.Namespace) -> int:
                     raise ValueError("archive bundle incomplete")
                 updated = dict(store.get(key) or entry)
                 updated.update(paths)
+                updated["artifact_base"] = os.path.abspath(args.artifact_roots.write_base)
                 updated["status"] = "archived"
                 updated["source"] = source
                 # Content source is shared with coordinator archives.  Keep

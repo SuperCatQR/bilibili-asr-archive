@@ -125,7 +125,21 @@ def _write_at(directory_fd: int, name: str, content: bytes) -> None:
         os.close(fd)
 
 
+def _require_regular_target(
+    name: str | os.PathLike[str], *, dir_fd: int | None = None,
+    label: str = "archive target",
+) -> None:
+    """Refuse visible links/nonregular targets before changing publication state."""
+    try:
+        info = os.stat(name, dir_fd=dir_fd, follow_symlinks=False)
+    except FileNotFoundError:
+        return
+    if not stat.S_ISREG(info.st_mode):
+        raise OSError(f"{label} is not a regular file")
+
+
 def _replace_at(stage_fd: int, stage_name: str, target_fd: int, target_name: str) -> None:
+    _require_regular_target(target_name, dir_fd=target_fd)
     os.replace(stage_name, target_name, src_dir_fd=stage_fd, dst_dir_fd=target_fd)
     _fsync_fd(target_fd)
 
@@ -367,6 +381,9 @@ def _publish_bundle(root: Path, finals: Mapping[str, Path], contents: Mapping[st
             work = finals["srt_path"].parent
             work.parent.mkdir(parents=True, exist_ok=True)
             work.mkdir(mode=0o700, exist_ok=True)
+            for target in finals.values():
+                _require_regular_target(target)
+            _require_regular_target(work / BUNDLE_MARKER_NAME, label="archive bundle marker")
             for key in _REQUIRED_ARTIFACT_KEYS:
                 target = finals[key]
                 temporary = target.with_name(f".{target.name}.{secrets.token_hex(16)}.tmp")
@@ -398,6 +415,8 @@ def _publish_bundle(root: Path, finals: Mapping[str, Path], contents: Mapping[st
             except FileExistsError:
                 pass
             work_fd = _open_dir(transcripts_fd, work_name)
+            for name in names.values():
+                _require_regular_target(name, dir_fd=work_fd)
             _invalidate_marker(work_fd, marker_name)
             for key in _REQUIRED_ARTIFACT_KEYS:
                 _replace_at(stage_fd, names[key], work_fd, names[key])

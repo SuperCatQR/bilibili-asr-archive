@@ -849,11 +849,11 @@ def test_gap_and_limit_validation_follow_the_module_rule(queue_store):
         repository.list_queue_gaps(gap=None)  # type: ignore[arg-type]
 
     for bad in (0, -1):
-        with pytest.raises(ValueError, match="limit must be a positive integer"):
+        with pytest.raises(ValueError, match="limit must be at least 1"):
             repository.list_queue_gaps(gap="missing_subtitle", limit=bad)
     # ``bool`` is an ``int`` in Python; it is still not a limit.
     for bad in (True, False, "2", 1.5):
-        with pytest.raises(TypeError, match="limit must be an integer or None"):
+        with pytest.raises(TypeError, match="limit must be an integer"):
             repository.list_queue_gaps(gap="missing_subtitle", limit=bad)
 
 

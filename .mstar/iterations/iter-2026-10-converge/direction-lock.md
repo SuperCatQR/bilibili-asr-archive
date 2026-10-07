@@ -1,5 +1,13 @@
 # Direction Lock — iter-2026-10-converge
 
+**Historical proposal, corrected 2026-10-06:** the acceptance criteria below
+record the original lock-time target. Delivery was re-scoped under the
+[plan's STOP clause](../../plans/store-route-expressiveness.md): only the
+missing-subtitle status mapping landed; the 12 fixture pins and full F7/R13/R15
+closure did not. I-000156/I-000157 record the remaining obligations. The
+[delivery compass](delivery-compass.md) records the corrected outcome and
+historical baseline limits.
+
 **Mode**: autonomous (`/iteration-loop`; user: "开始下一轮")
 
 ## Locked direction

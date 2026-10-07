@@ -29,12 +29,17 @@ import pytest
 from bili_asr import asr as asr_mod
 from bili_asr import bili_client as bc
 from bili_asr.archive import write_archive
-from bili_asr.cli.parser import build_parser
-from bili_asr.cli.main import main
+from functools import partial
+from bili_asr.cli import build_parser
+from bili_asr.cli.main import _main
+
+# Test root confinement within the worker; publication supervisor tests cover
+# the public process boundary separately.
+main = partial(_main, _publication_worker=True)
 from bili_asr.manifest import ManifestStore
 from bili_asr.page_identity import artifact_stem, page_identity
 
-from tests.support.audio import (
+from test_audio import (
     AUDIO_BYTES,
     SPI_OK,
     STREAM_HOST,
@@ -42,10 +47,10 @@ from tests.support.audio import (
     nav_response,
     playurl_ok,
 )
-from tests.support.subtitles import SAMPLE_DOC, nav_ok, player_ok
+from test_subtitles import SAMPLE_DOC, nav_ok, player_ok
 
-import tests.support.asr_fakes as asr_fakes
-from tests.support.archive_database import _seed_archive_database
+import _asr_fakes as asr_fakes
+from _archive_database import _seed_archive_database
 
 #: The word the fixture transcript carries.  The row's title does not contain it, so a
 #: hit proves the transcript file was really read from the base the row was written to.
@@ -222,7 +227,7 @@ def _offline_client(monkeypatch, transport=None) -> None:
         bc, "build_default_transport", lambda: transport or RouterTransport({})
     )
     monkeypatch.setattr(bc, "default_sleeper", lambda: (lambda _seconds: None))
-    monkeypatch.setattr('bili_asr.cli.pilot.time.sleep', lambda _seconds: None)
+    monkeypatch.setattr("bili_asr.cli.time.sleep", lambda _seconds: None)
 
 
 def _audio_transport() -> RouterTransport:
@@ -576,7 +581,10 @@ def test_a_symlinked_configured_root_is_refused_with_its_own_tail(tmp_root, monk
     """§3.2/§6: the lexical path is kept, so a symlinked root is refused, never followed."""
     archive, artifact = _two_roots(tmp_root)
     link = os.path.join(tmp_root, "mounted-link")
-    os.symlink(artifact, link)
+    try:
+        os.symlink(artifact, link, target_is_directory=True)
+    except (OSError, NotImplementedError) as exc:
+        pytest.skip(f"symlinks unavailable: {exc}")
     _offline_client(monkeypatch)
 
     rc = main(["verify", "--archive-root", archive, "--artifact-root", link])
@@ -601,14 +609,15 @@ def test_an_existing_but_unopenable_configured_root_is_refused(tmp_root, monkeyp
     nothing on this host.
     """
     archive, artifact = _two_roots(tmp_root)
-    real_open = os.open
+    probe = "open" if os.name == "posix" and hasattr(os, "O_DIRECTORY") else "scandir"
+    real_probe = getattr(os, probe)
 
-    def denying_open(path, *args, **kwargs):
+    def denying_probe(path, *args, **kwargs):
         if os.fspath(path) == os.fspath(artifact):
             raise PermissionError(13, "Permission denied")
-        return real_open(path, *args, **kwargs)
+        return real_probe(path, *args, **kwargs)
 
-    monkeypatch.setattr(os, "open", denying_open)
+    monkeypatch.setattr(os, probe, denying_probe)
     _offline_client(monkeypatch)
 
     rc = main(["coverage", "--archive-root", archive, "--artifact-root", artifact])
@@ -635,7 +644,8 @@ def test_a_configured_root_whose_stat_fails_is_refused_with_the_same_tail(
     line — while the fourth line is the one that names exactly that input (§9/D17).
 
     The failure is injected at the stat seam; the sibling case above injects it at
-    ``os.open``, where the stat still succeeds — the two together cover both halves of
+    the platform's directory-open probe, where the stat still succeeds — together
+    they cover both halves of
     "cannot be opened".  A denied ancestor and a dropped mount are indistinguishable to
     this process, and this suite runs as root, for which a mode-000 directory is still
     statable — so chmod would prove nothing on this host.
@@ -904,8 +914,8 @@ def test_retention_resolves_without_the_artifact_root_flag(
         def parse_args(self, _argv):
             return namespace
 
-    monkeypatch.setattr('bili_asr.cli.parser.build_parser', lambda: _KeepOnlyParser())
-    monkeypatch.setattr('bili_asr.cli.main.main._dispatch_command', lambda _args: 0)
+    monkeypatch.setattr("bili_asr.cli.build_parser", lambda: _KeepOnlyParser())
+    monkeypatch.setattr("bili_asr.cli._dispatch_command", lambda _args: 0)
 
     assert main([]) == 0
     assert namespace.keep_audio is expected

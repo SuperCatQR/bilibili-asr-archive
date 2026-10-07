@@ -9,17 +9,22 @@ from pathlib import Path
 import pytest
 
 from bili_asr import archive
-from bili_asr.cli.main import main
+from functools import partial
+from bili_asr.cli.main import _main
+
+# Exercise the publication worker in-process so fault injection and captured
+# output remain local; supervisor process/deadline tests cover the public entry.
+main = partial(_main, _publication_worker=True)
 from bili_asr.manifest import ManifestStore
 from bili_asr.services.transcript_projection import ordered_candidates
 from bili_asr.storage import TranscriptRepository, open_database
 
-from tests.support.cli_publish_transcripts import (
+from test_cli_publish_transcripts import (
     CHAIN_BVID, FRESH_BVID, _bundle_hashes, _declared, _store_caption,
 )
-from tests.support.publish_candidate_limits import _seed_versions
-from tests.support.publish_read_failures import _existing_bundle, _fail_one_read
-from tests.support.transcript_repository import _record, _run, _video_with_parts
+from test_publish_candidate_limits import _seed_versions
+from test_publish_read_failures import _existing_bundle, _fail_one_read
+from test_transcript_repository import _record, _run, _video_with_parts
 
 
 def _publish(root, *extra):

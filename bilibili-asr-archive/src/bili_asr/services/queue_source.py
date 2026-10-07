@@ -205,15 +205,17 @@ class QueueSource:
         self, command: str, *, selector_target: str | None = None,
         requested_limit: int | None = None,
     ) -> str | None:
-        """Open this invocation's one ``kind='asr'`` acquisition run, best-effort.
+        """Open this source's ``kind='asr'`` acquisition run, best-effort.
 
-        One invocation is one run scope (the same shape the audio half names):
-        the run is the lifecycle parent the transcript write-back's attempt
+        One source lifetime is one run scope: the run is the lifecycle
+        parent the transcript write-back's attempt
         rows are keyed to.  A store that refuses the run leaves
         ``self.asr_run_id`` ``None`` so the row loop's per-part write-back is
         skipped — the archive on disk is never lost to a store problem.
         Idempotent per source: the first created id is reused, so a caller
         opening the source once per invocation records exactly one run.
+        A coordinator that opens a source for each batch records a run for
+        each batch; the diagnostic refusal latch still belongs to its invocation.
 
         The id is minted from ``time.time_ns()``, not the whole second
         ``run_id`` used to be: the key is a ``TEXT PRIMARY KEY``, and the
