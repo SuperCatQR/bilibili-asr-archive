@@ -27,21 +27,6 @@
           "plan_sha256": "c4e88a766d52f00b74a247c1d453320e72245aa7e0bf28a61569b9e2eb63df88",
           "qa_gate": "pm-acceptance",
           "findings_cleanup": "allow-residual",
-          "assignment_intent": {
-            "execution_scope": "plan",
-            "execute_as": "project-manager",
-            "delegation": "allowed (plan-local only)",
-            "control_harness_root": "/root/workspace/bilibili-asr-archive/.mstar",
-            "workflow_id": "20261004-issue-register-audit",
-            "plan_id": "audit-2026-10-04",
-            "plan_path": "/root/workspace/bilibili-asr-archive/.mstar/plans/audit-2026-10-04.md",
-            "worktree_path": "/root/workspace/bilibili-asr-archive",
-            "working_branch": "main",
-            "sdd_dir": "/root/workspace/bilibili-asr-archive/.mstar/sdd/audit-2026-10-04",
-            "qa_gate": "pm-acceptance",
-            "findings_cleanup": "allow-residual",
-            "prepare_gate": "go"
-          },
           "prepared_by": "audit-2026-10-04-s1",
           "prepared_at": "2026-10-04T06:50:56.068Z"
         },
