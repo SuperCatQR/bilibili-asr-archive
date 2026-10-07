@@ -236,9 +236,10 @@ The real `bili-asr asr` entry point runs inference in a separate worker process.
 supervises model load, decoding, and forced alignment with a 900-second per-phase deadline;
 override it with `BILI_ASR_TIMEOUT_SECONDS` when a slower local model needs more time. If a
 native GPU call stops responding, the worker is terminated, the archive lock is released by the
-operating system, and the unfinished item remains eligible for a later retry. A normally
-completed invocation still finishes its ASR acquisition run before closing the database
-connection. `asr --bvid` records its requested target, and `--limit` records its bound.
+operating system, and the supervisor finalizes the registered acquisition run as a bounded
+`inference_timeout` failure for the active part. The unfinished item remains eligible for a later
+retry. A normally completed invocation still finishes its ASR acquisition run before closing the
+database connection. `asr --bvid` records its requested target, and `--limit` records its bound.
 After a bundle has been verified and recorded `archived`, a supplementary transcript store
 write-back cannot invalidate that published result. Errors raised at the CLI write-back boundary
 emit a diagnostic.
