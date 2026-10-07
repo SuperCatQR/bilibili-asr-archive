@@ -23,7 +23,7 @@ env:
 jobs:
   python:
     name: tests / python (${{ matrix.shard.label }}/4)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     strategy:
       fail-fast: false
@@ -84,7 +84,7 @@ jobs:
 
   package:
     name: package / installed smoke
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     defaults:
       run:
@@ -140,7 +140,7 @@ jobs:
 
   harness:
     name: tests / harness
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
