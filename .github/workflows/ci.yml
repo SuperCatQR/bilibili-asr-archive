@@ -22,9 +22,17 @@ env:
 
 jobs:
   python:
-    name: tests / python
+    name: tests / python (${{ matrix.shard.label }}/4)
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        shard:
+          - {index: 0, label: "1"}
+          - {index: 1, label: "2"}
+          - {index: 2, label: "3"}
+          - {index: 3, label: "4"}
     defaults:
       run:
         working-directory: bilibili-asr-archive
@@ -53,21 +61,23 @@ jobs:
       - name: Compile source and test trees
         run: python -m compileall -q src tests scripts
 
-      - name: Collect tests
-        run: python -m pytest --collect-only -q
-
       - name: Run tests
         run: |
           mkdir -p test-results
-          python -m pytest -q --durations=25 --junitxml=test-results/pytest.xml
+          python scripts/pytest_shard.py \
+            --shard-index ${{ matrix.shard.index }} \
+            --shard-count 4 \
+            -- \
+            -q --durations=25 \
+            --junitxml=test-results/pytest-${{ matrix.shard.label }}.xml
 
       - name: Upload pytest diagnostics
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: pytest-diagnostics-${{ github.run_id }}
+          name: pytest-diagnostics-${{ github.run_id }}-${{ matrix.shard.label }}
           path: |
-            bilibili-asr-archive/test-results/pytest.xml
+            bilibili-asr-archive/test-results/pytest-${{ matrix.shard.label }}.xml
             bilibili-asr-archive/.tb/errors.log
           if-no-files-found: ignore
           retention-days: 14
