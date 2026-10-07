@@ -36,6 +36,7 @@ COMMANDS = MappingProxyType({
     "reading-export": CommandSpec("_cmd_reading_export", ArtifactPolicy.READ),
     "reading-review": CommandSpec("_cmd_reading_review", ArtifactPolicy.NONE),
     "reading-edit": CommandSpec("_cmd_reading_edit", ArtifactPolicy.NONE),
+    "dedup": CommandSpec("_cmd_dedup", ArtifactPolicy.READ),
 })
 
 

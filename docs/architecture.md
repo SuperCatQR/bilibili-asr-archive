@@ -31,7 +31,7 @@ Workflow planner -> SQLite jobs, dependencies, leases, attempts
         +--> Publish: transcript bundles and documents
                          |
                          v
-               Query projections: status, coverage, export, verify, search
+               Query projections: status, coverage, export, verify, search, dedup
 ```
 
 The reading site is a separate static projection. `reading-export` opens the
@@ -40,6 +40,10 @@ against their recorded SHA-256 values, and generates the site's content
 snapshot. Review decisions
 and accepted human editions return through explicit CLI commands and append-only
 review events; the original AI revision stays immutable.
+
+The `dedup report` projection is read-only. It measures exact audio reuse and
+cross-part transcript content hashes before any future alias or merge decision;
+it does not choose a canonical record or rewrite provenance.
 
 ## Boundaries
 

@@ -118,7 +118,14 @@ bili-asr verify --format text
 bili-asr export --format csv --out archive/export.csv --with-text
 bili-asr search-index
 bili-asr search "transcript words" --format json
+bili-asr dedup report --archive-root archive --format text
 ```
+
+`dedup report` is a read-only exact-reuse inventory. It reports audio objects
+linked by multiple video parts and identical transcript content hashes seen
+across parts; it never deletes, merges, or rewrites source records. Use
+`--format json` for a machine-readable baseline and `--limit` to cap only the
+example groups included in the output.
 
 Read commands do not bootstrap or create a missing database. `--artifact-root` can point read projections at a separate existing directory containing the published bundles. The default is the archive root.
 

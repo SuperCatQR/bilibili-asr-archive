@@ -21,6 +21,13 @@ def build_parser() -> argparse.ArgumentParser:
     from bili_asr.cli.reading import add_reading_parsers
     add_reading_parsers(subparsers, archive_root=DEFAULT_ARCHIVE_ROOT)
 
+    dedup = subparsers.add_parser("dedup", help="Inspect exact content reuse without changing the archive")
+    dedup_actions = dedup.add_subparsers(dest="dedup_action", required=True)
+    report = dedup_actions.add_parser("report", help="Report exact audio and transcript reuse")
+    report.add_argument("--archive-root", default=DEFAULT_ARCHIVE_ROOT)
+    report.add_argument("--format", choices=("text", "json"), default="text")
+    report.add_argument("--limit", type=int, default=20)
+
     fetch_meta = subparsers.add_parser("fetch-meta", help="Collect video metadata into SQLite")
     fetch_meta.add_argument("--mid", type=int, default=DEFAULT_MID)
     cursor = fetch_meta.add_mutually_exclusive_group()
