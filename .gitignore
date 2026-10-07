@@ -1,73 +1,66 @@
-.mstar/
-
-# Deprecated control-root documents and generated verification output.
-# These control-root documents are obsolete and must not return.
+# Deprecated control-root artifacts
+/.mstar/
 /AGENTS.md
 /CONCEPTS.md
 /HANDOFF.md
-/pytest-of-ChosenEcho/
+/pytest-of-*/
 /verification-results/
 
-# runtime / media
-# Flattened product paths.
-/archive/audio/
-/archive/transcripts/
-/logs/
-# local ASR checkpoints: multi-GB operator-downloaded weights, never tracked
-/models/
-/archive/manifest/
-/refactor/
-models/
-tmp*/
-bili-asr-fixture-preflight-*/
-bili-asr-verify-*/
+# Retired nested checkout residue
+/bilibili-asr-archive/
 
-__pycache__/
-*.pyc
-.venv/
-venv/
-.env
+# Operator data and model artifacts
+/archive/
+/archived/
+/models/
+/logs/
+/refactor/
+/design/
 *.m4a
 *.wav
 
-# editor / scratch leftovers
-*.swp
-*.swo
+# Local environments and secrets
+/.env
+/.env.*
+!/.env.example
+/.venv/
+/.venv-*/
+/venv/
 
-.worktrees/
-.tmp/
-.tmp2/
-pydiagout.txt
-.test-tmp/
-.pytest-*/
-.tb/
-.pfx*/
-.pydel*/
-pip-*/
-pytest-cache-files-*/
-refactor/
+# Python caches and tool state
+__pycache__/
+*.py[cod]
+*.pyo
+/.pytest_cache/
+/.ruff_cache/
+/.mypy_cache/
+/.tox/
 
-# Test reports and temporary files
-e2e-test*.md
+# Test, fixture, and verifier scratch
+/.test-tmp/
+/.test-tmp-*/
+/.test-tmp-issues*.txt
+/.test-workflow-status/
+/.tb/
+/.pfx*/
+/.pydel*/
+/pip-*/
+/pytest-cache-files-*/
+/bili-asr-fixture-preflight-*/
+/.bili-asr-fixture-preflight-*/
+/bili-asr-verify-*/
+/.bili-asr-verify-*/
+/tmp*/
+/.tmp/
+/.tmp2/
+/pydiagout.txt
+/e2e-test*.md
 **/verify_acceptance.sh
 
-
-# agent-teams runtime scratch (durable per-workspace team state written by the
-# AgentTeams runtime: member roster, per-run archives, retired-member ids). It is
-# session machinery, not project content — nothing in the product, the harness or
-# the plans references it, and it was never tracked.
-.agent-teams/
-
-# Machine environments and generated verification scratch.
-.venv-*/
-.pytest_cache/
-.ruff_cache/
-pytest-of-*/
-.test-workflow-status/
-.bili-asr-fixture-preflight-*/
-.bili-asr-verify-*/
-/tmp*/
-.test-tmp-issues*.txt
-.archify/
+# Editor and workspace tooling
+*.swp
+*.swo
+/.worktrees/
+/.agent-teams/
+/.archify/
 *.delivery.json
-design
