@@ -1,0 +1,560 @@
+{
+  "schema_version": 1,
+  "created_at": "2026-10-08T05:13:03.788757+00:00",
+  "source_revision": "06ff3b907fb67d5cb933aedd8f6622b7f9af91db",
+  "manifest": {
+    "schema_version": 1,
+    "dataset": "FluidInference/fleurs-full",
+    "revision": "1cca811bb8ea4d370345f108f00518167040282c",
+    "upstream": "https://huggingface.co/datasets/google/fleurs",
+    "publisher": "https://huggingface.co/datasets/FluidInference/fleurs-full",
+    "license": "CC-BY-4.0",
+    "attribution": "Google FLEURS; WAV extraction by FluidInference",
+    "split": "synthetic controls derived from published test samples",
+    "language": "cmn_hans_cn",
+    "selection": "all selected public clips concatenated in order, plus digital silence",
+    "corpus_rows": 945,
+    "download_endpoint": "https://hf-mirror.com",
+    "reference_sha256": "bd4047f9ef167e97f4d33d90b814149d0ba2324b1ce2c625acf1f0e3769c4ce1",
+    "samples": [
+      {
+        "id": "concatenated",
+        "filename": "concatenated.wav",
+        "reference": "这 并 不 是 告 别 这 是 一 个 篇 章 的 结 束 也 是 新 篇 章 的 开 始 离 岸 流 是 海 浪 从 海 滩 快 速 回 流 到 海 中 的 回 流 通 常 发 生 在 暗 礁 或 类 似 的 地 方 如 果 在 冬 天 穿 越 北 波 罗 的 海 要 检 查 客 舱 的 位 置 因 为 在 冰 面 上 航 行 会 给 那 些 受 影 响 最 严 重 的 人 带 来 非 常 可 怕 的 噪 音 北 部 与 萨 赫 勒 地 区 接 壤 南 部 和 西 部 临 大 西 洋 该 服 务 经 常 用 于 航 运 包 括 游 艇 以 及 有 远 程 数 据 和 语 音 需 求 的 探 险 因 此 这 种 格 式 的 宽 高 比 除 以 12 得 到 最 简 单 的 整 数 比 便 是 3:2 它 是 南 非 的 主 要 景 点 之 一 被 认 为 是 南 非 国 家 公 园 体 系 sanparks 的 主 打 景 点 钙 钾 等 元 素 属 于 金 属 银 和 金 等 元 素 当 然 也 是 金 属 在 互 联 网 上 搜 索 应 对 敌 对 环 境 课 程 也 许 能 找 到 提 供 培 训 的 当 地 公 司 的 地 址 同 一 个 月 又 有 一 架 客 机 冲 出 马 什 哈 德 的 跑 道 撞 上 一 堵 墙 造 成 17 人 死 亡 在 另 一 种 极 端 情 况 下 这 个 人 会 变 成 一 个 与 之 前 迥 然 不 同 的 个 体 觉 得 他 她 必 须 改 变 团 队 所 做 的 一 切 并 把 成 果 据 为 己 有 买 一 张 万 能 卡 wild card 也 有 不 少 好 处 带 着 这 张 卡 你 可 以 进 入 南 非 的 一 些 公 园 或 全 部 的 国 家 公 园",
+        "duration_s": 138.6,
+        "sha256": "5ed2d90475257c6e254c4a910c6e2ebbb6661400a0dbf16bf0fd9f676942aebb",
+        "sample_rate": 16000
+      },
+      {
+        "id": "silence",
+        "filename": "silence.wav",
+        "reference": "",
+        "duration_s": 8.0,
+        "sha256": "f4c1603dc32a92b9a4ae37e71e0d187a95f0a24fdfa80da31138414925222b0e",
+        "sample_rate": 16000
+      }
+    ],
+    "parent_manifest_sha256": "f9cd4716a806d642541f37be3dd1acca96918b330cd9d2b1766a6544ac342176",
+    "synthetic": true,
+    "gap_seconds": 1,
+    "components": [
+      {
+        "id": "cmn_hans_cn_0000",
+        "sha256": "5214e16584b6498ddbd22f321738c0f62b19117ab1880b21e405fba983986b6a",
+        "start_s": 0.0,
+        "end_s": 10.38
+      },
+      {
+        "id": "cmn_hans_cn_0086",
+        "sha256": "8a40c88ff674b0122cfc436a77c8ac5b8881b886d8be219f86045c18d9d40ad0",
+        "start_s": 11.38,
+        "end_s": 21.82
+      },
+      {
+        "id": "cmn_hans_cn_0172",
+        "sha256": "13c1b3c13bd834dd0c636646b85ad04e0495a586dc587777bbbe0b62521515eb",
+        "start_s": 22.82,
+        "end_s": 33.38
+      },
+      {
+        "id": "cmn_hans_cn_0257",
+        "sha256": "f91a5aa653d6ff635d7c1d01d5486e97907bce4fd55c4f20ab308e8498170a2c",
+        "start_s": 34.38,
+        "end_s": 42.62
+      },
+      {
+        "id": "cmn_hans_cn_0343",
+        "sha256": "f4428f84e71a66aa27acf71f4a1ccc4e8b4dd10528a1ac8328060513ff3186a9",
+        "start_s": 43.62,
+        "end_s": 52.56
+      },
+      {
+        "id": "cmn_hans_cn_0429",
+        "sha256": "b402264689ad892e9e24e80b96410bb047c12f7fba2ffbd17cab3db69f2a2468",
+        "start_s": 53.56,
+        "end_s": 65.06
+      },
+      {
+        "id": "cmn_hans_cn_0515",
+        "sha256": "1bf7c27e83064fc33286d56ccf53b8d72c091f40468df552b458bf8b25e8f3a4",
+        "start_s": 66.06,
+        "end_s": 72.54
+      },
+      {
+        "id": "cmn_hans_cn_0601",
+        "sha256": "4cfa1d66fee4b7c74e2764f8a40203bfeff437f8c2436e6c2b6f6dea83d34bee",
+        "start_s": 73.54,
+        "end_s": 86.7
+      },
+      {
+        "id": "cmn_hans_cn_0687",
+        "sha256": "82d975bd8ea957bf47903fd685e3b97575e3c780d2deb4d54cdb4454054fef34",
+        "start_s": 87.7,
+        "end_s": 96.1
+      },
+      {
+        "id": "cmn_hans_cn_0772",
+        "sha256": "f544d6404acb66146e92d670e6cfc2a79389f91527c5a09d38db8b8b331248b1",
+        "start_s": 97.1,
+        "end_s": 105.74
+      },
+      {
+        "id": "cmn_hans_cn_0858",
+        "sha256": "e48da698b0014ce2e1aed86509b44b71dd7f919f183cd1dc8a39e192e301f2fb",
+        "start_s": 106.74,
+        "end_s": 123.92
+      },
+      {
+        "id": "cmn_hans_cn_0944",
+        "sha256": "b039dd54bb5596d59bc893243e941d9eb0fcff04bbfe94ee2a0faf30b5f7479f",
+        "start_s": 124.92,
+        "end_s": 138.6
+      }
+    ]
+  },
+  "normalization": "NFKC, lowercase, remove Unicode punctuation and whitespace; preserve numerals and symbols",
+  "reference_used_as_model_input": false,
+  "inference": "production two_pass_transcribe; reusable CPU runner",
+  "checkpoint_fingerprints": {
+    "asr": {
+      "path": "/home/chosenecho/bili-asr-models/Qwen3-ASR-1.7B-hf",
+      "files": [
+        {
+          "name": "config.json",
+          "bytes": 2399,
+          "sha256": "117ac8e63e2af7cae3665e5a632d6eb03f5f384915519ceb6403c15ec6533f63"
+        },
+        {
+          "name": "configuration.json",
+          "bytes": 63,
+          "sha256": "0657e261c850f8d368b4da948a15279089f3484d40c152cc07fb4e9d1727ca3d"
+        },
+        {
+          "name": "generation_config.json",
+          "bytes": 165,
+          "sha256": "9939fc9388b79bd70757f938b87381e817173d6a6158f5af6506c0b73e775c3c"
+        },
+        {
+          "name": "model.safetensors",
+          "bytes": 4076193080,
+          "sha256": "2db53c7d81bd9b8cbc6a074e89be2c968a0d373fb4ee68bb1b1e14f7042dfee1"
+        },
+        {
+          "name": "processor_config.json",
+          "bytes": 487,
+          "sha256": "bc0b230081b44e629dd5b9045b78495615c1831b4b9f4cffe97bd37e82a6156a"
+        },
+        {
+          "name": "tokenizer.json",
+          "bytes": 11429653,
+          "sha256": "fe1fad59be22a41ee293363fcf95fdedbc7c93f3b49270b1d2e18bd1399a7a05"
+        },
+        {
+          "name": "tokenizer_config.json",
+          "bytes": 998,
+          "sha256": "945e980986de2ca7768f3326bfdbb4fbea3406f972b8ae0be233089f2b253c11"
+        }
+      ],
+      "sha256": "ff074ea4c752a218f41491f1e02b97ba7f73cff77dd2c3a595f127dc39f47903"
+    },
+    "aligner": {
+      "path": "/home/chosenecho/bili-asr-models/Qwen3-ForcedAligner-0.6B-hf",
+      "files": [
+        {
+          "name": "config.json",
+          "bytes": 248029,
+          "sha256": "82ac390b36a8f80c5a0c4e202367debd149e5d8c30abe4cf5eed439101b1c5ce"
+        },
+        {
+          "name": "configuration.json",
+          "bytes": 63,
+          "sha256": "0657e261c850f8d368b4da948a15279089f3484d40c152cc07fb4e9d1727ca3d"
+        },
+        {
+          "name": "model.safetensors",
+          "bytes": 1835545960,
+          "sha256": "00568245ceca5af1991d28562a75fe1ddc9bfeb041c27fda66947ea05c47fb86"
+        },
+        {
+          "name": "processor_config.json",
+          "bytes": 487,
+          "sha256": "bc0b230081b44e629dd5b9045b78495615c1831b4b9f4cffe97bd37e82a6156a"
+        },
+        {
+          "name": "tokenizer.json",
+          "bytes": 11429842,
+          "sha256": "cadfb9cbd9ff8f4e309075ec6a71b063295ff796afb4b5dbc0fd2873fbb301f2"
+        },
+        {
+          "name": "tokenizer_config.json",
+          "bytes": 998,
+          "sha256": "945e980986de2ca7768f3326bfdbb4fbea3406f972b8ae0be233089f2b253c11"
+        }
+      ],
+      "sha256": "1a9aa26450adbd639b98c36d3125abfe831f6fc67d6538b83ba595e740103080"
+    }
+  },
+  "arms": [
+    {
+      "language": "Chinese",
+      "config": {
+        "model_name": "/home/chosenecho/bili-asr-models/Qwen3-ASR-1.7B-hf",
+        "aligner_name": "/home/chosenecho/bili-asr-models/Qwen3-ForcedAligner-0.6B-hf",
+        "model_revision": null,
+        "aligner_revision": null,
+        "device": "cpu",
+        "language": "Chinese",
+        "hotwords": [],
+        "chunk_seconds": 180.0,
+        "inference_timeout_seconds": 1800.0,
+        "tokens_per_second": 8,
+        "min_new_tokens": 256,
+        "second_pass_use_cache": false,
+        "offline": true,
+        "local_source": "configured-local",
+        "model_id": null
+      },
+      "rows": [
+        {
+          "id": "concatenated",
+          "duration_s": 138.6,
+          "status": "ok",
+          "hypothesis": "这并不是告别，这是一个篇章的结束，也是新篇章的开始。离岸流是海浪从海滩快速回流到海中的回流，通常发生在暗礁或类似的地方。如果在冬天穿越北波罗的海，要检查客舱的位置，因为在冰面上航行会给那些受影响最严重的人带来非常可怕的噪音。北部与萨赫勒地区接壤，南部和西部临大西洋。该服务经常用于航运，包括游艇以及有远程数据和语音需求的探险。因此，这种格式的宽高比除以十二得到最简单的整数比，便是三比二。它是南非的主要景点之一，被认为是南非国家公园体系的主打景点。钙、钾等元素属于金属，银和金等元素当然也是金属。在互联网上搜索“应对敌对环境教程”，也许能找到提提供培训的当地公司的地址。同一个月，又有一架飞机冲出马哈哈德的跑道，撞上一堵墙，造成十七人死亡。在另一种极端情况下，这个人会变成一个与之前迥然不同的个体，觉得他必须改变团队所做的一切，并把成果据为己有。买一张万能卡也有不少好处，带着这张卡，你可以进入南非的一些公园或全部的国家公园。",
+          "decoder_hypothesis": "这并不是告别，这是一个篇章的结束，也是新篇章的开始。离岸流是海浪从海滩快速回流到海中的回流，通常发生在暗礁或类似的地方。如果在冬天穿越北波罗的海，要检查客舱的位置，因为在冰面上航行会给那些受影响最严重的人带来非常可怕的噪音。北部与萨赫勒地区接壤，南部和西部临大西洋。该服务经常用于航运，包括游艇以及有远程数据和语音需求的探险。因此，这种格式的宽高比除以十二得到最简单的整数比，便是三比二。它是南非的主要景点之一，被认为是南非国家公园体系的主打景点。钙、钾等元素属于金属，银和金等元素当然也是金属。在互联网上搜索“应对敌对环境教程”，也许能找到提提供培训的当地公司的地址。同一个月，又有一架飞机冲出马哈哈德的跑道，撞上一堵墙，造成十七人死亡。在另一种极端情况下，这个人会变成一个与之前迥然不同的个体，觉得他必须改变团队所做的一切，并把成果据为己有。买一张万能卡也有不少好处，带着这张卡，你可以进入南非的一些公园或全部的国家公园。",
+          "segments": [
+            {
+              "start": 1.92,
+              "end": 7.28,
+              "text": "这并不是告别，这是一个篇章的结束，也是新篇章的开始。"
+            },
+            {
+              "start": 13.28,
+              "end": 19.84,
+              "text": "离岸流是海浪从海滩快速回流到海中的回流，通常发生在暗礁或类似的地方。"
+            },
+            {
+              "start": 23.52,
+              "end": 32.48,
+              "text": "如果在冬天穿越北波罗的海，要检查客舱的位置，因为在冰面上航行会给那些受影响最严重的人带来非常可怕的噪音。"
+            },
+            {
+              "start": 36.24,
+              "end": 40.4,
+              "text": "北部与萨赫勒地区接壤，南部和西部临大西洋。"
+            },
+            {
+              "start": 44.96,
+              "end": 50.16,
+              "text": "该服务经常用于航运，包括游艇以及有远程数据和语音需求的探险。"
+            },
+            {
+              "start": 56.0,
+              "end": 62.4,
+              "text": "因此，这种格式的宽高比除以十二得到最简单的整数比，便是三比二。"
+            },
+            {
+              "start": 66.8,
+              "end": 71.68,
+              "text": "它是南非的主要景点之一，被认为是南非国家公园体系的主打景点。"
+            },
+            {
+              "start": 76.8,
+              "end": 78.48,
+              "text": "钙、钾等元素属于金属，"
+            },
+            {
+              "start": 80.32,
+              "end": 83.52,
+              "text": "银和金等元素当然也是金属。"
+            },
+            {
+              "start": 88.32,
+              "end": 95.36,
+              "text": "在互联网上搜索“应对敌对环境教程”，也许能找到提提供培训的当地公司的地址。"
+            },
+            {
+              "start": 98.0,
+              "end": 105.04,
+              "text": "同一个月，又有一架飞机冲出马哈哈德的跑道，撞上一堵墙，造成十七人死亡。"
+            },
+            {
+              "start": 109.28,
+              "end": 121.52,
+              "text": "在另一种极端情况下，这个人会变成一个与之前迥然不同的个体，觉得他必须改变团队所做的一切，并把成果据为己有。"
+            },
+            {
+              "start": 127.28,
+              "end": 130.64,
+              "text": "买一张万能卡也有不少好处，带着这张卡，"
+            },
+            {
+              "start": 131.68,
+              "end": 136.0,
+              "text": "你可以进入南非的一些公园或全部的国家公园。"
+            }
+          ],
+          "diagnostics": {
+            "schema_version": 1,
+            "passes": [
+              {
+                "chunks": [
+                  {
+                    "chunk_index": 0,
+                    "start_s": 0.0,
+                    "end_s": 138.6,
+                    "flags": [],
+                    "decode_s": 53.95898316900002,
+                    "text": "这并不是告别，这是一个篇章的结束，也是新篇章的开始。离岸流是海浪从海滩快速回流到海中的回流，通常发生在暗礁或类似的地方。如果在冬天穿越北波罗的海，要检查客舱的位置，因为在冰面上航行会给那些受影响最严重的人带来非常可怕的噪音。北部与萨赫勒地区接壤，南部和西部临大西洋。该服务经常用于航运，包括游艇以及有远程数据和语音需求的探险。因此，这种格式的宽高比除以十二得到最简单的整数比，便是三比二。它是南非的主要景点之一，被认为是南非国家公园体系的主打景点。钙、钾等元素属于金属，银和金等元素当然也是金属。在互联网上搜索“应对敌对环境教程”，也许能找到提提供培训的当地公司的地址。同一个月，又有一架飞机冲出马哈哈德的跑道，撞上一堵墙，造成十七人死亡。在另一种极端情况下，这个人会变成一个与之前迥然不同的个体，觉得他必须改变团队所做的一切，并把成果据为己有。买一张万能卡也有不少好处，带着这张卡，你可以进入南非的一些公园或全部的国家公园。",
+                    "language": "",
+                    "generation": {
+                      "max_new_tokens": 1108,
+                      "generated_tokens": 264,
+                      "ended_with_eos": true,
+                      "token_limit_reached": false
+                    },
+                    "align_s": 17.975568351999982,
+                    "alignment": {
+                      "aligned_unit_union_s": 70.64000000000004,
+                      "longest_unaligned_gap_s": 5.999999999999999,
+                      "invalid_alignment_units": 0,
+                      "timestamp_tolerance_s": 0.05
+                    }
+                  }
+                ],
+                "timings_s": {
+                  "model_load": 8.318510848000017,
+                  "audio_prepare": 0.00535020400002395,
+                  "split": 1.2167000022600405e-05,
+                  "decode": 53.95898316900002,
+                  "align": 17.975568351999982,
+                  "total": 80.28578807499997
+                },
+                "completed": true,
+                "model_reused": false,
+                "environment": {
+                  "python": "3.12.3",
+                  "platform": "Linux",
+                  "packages": {
+                    "torch": "2.14.1+cpu",
+                    "transformers": "5.18.0",
+                    "accelerate": "1.15.0",
+                    "numpy": "2.5.3",
+                    "soundfile": "0.14.0",
+                    "soxr": "1.1.0"
+                  },
+                  "cuda": null,
+                  "hip": null
+                },
+                "model_dtype": "torch.bfloat16",
+                "aligner_dtype": "torch.bfloat16",
+                "resolved_model_revision": null,
+                "resolved_aligner_revision": null,
+                "decoded_s": 138.6,
+                "span_coverage_short": true
+              }
+            ],
+            "quality": {
+              "status": "needs-review",
+              "flags": [
+                "span-coverage-short"
+              ],
+              "human_reviewed": false
+            },
+            "timings_s": {
+              "model_load": 8.318510848000017,
+              "audio_prepare": 0.00535020400002395,
+              "split": 1.2167000022600405e-05,
+              "decode": 53.95898316900002,
+              "align": 17.975568351999982,
+              "total": 80.28578807499997
+            }
+          },
+          "provenance": {
+            "model_name": "/home/chosenecho/bili-asr-models/Qwen3-ASR-1.7B-hf",
+            "aligner_model": "/home/chosenecho/bili-asr-models/Qwen3-ForcedAligner-0.6B-hf",
+            "model_revision": "",
+            "aligner_revision": "",
+            "device": "cpu",
+            "language": "Chinese",
+            "hotwords": "",
+            "chunk_seconds": "180",
+            "tokens_per_second": "8",
+            "min_new_tokens": "256",
+            "second_pass_use_cache": "False",
+            "offline": "True",
+            "local_source": "configured-local"
+          },
+          "segment_bounds_violations": 0,
+          "segment_order_violations": 0,
+          "elapsed_s": 80.28596869199998,
+          "score": {
+            "reference_chars": 393,
+            "hypothesis_chars": 378,
+            "substitutions": 9,
+            "deletions": 17,
+            "insertions": 2,
+            "errors": 28,
+            "cer": 0.07124681933842239,
+            "normalized_reference": "这并不是告别这是一个篇章的结束也是新篇章的开始离岸流是海浪从海滩快速回流到海中的回流通常发生在暗礁或类似的地方如果在冬天穿越北波罗的海要检查客舱的位置因为在冰面上航行会给那些受影响最严重的人带来非常可怕的噪音北部与萨赫勒地区接壤南部和西部临大西洋该服务经常用于航运包括游艇以及有远程数据和语音需求的探险因此这种格式的宽高比除以12得到最简单的整数比便是32它是南非的主要景点之一被认为是南非国家公园体系sanparks的主打景点钙钾等元素属于金属银和金等元素当然也是金属在互联网上搜索应对敌对环境课程也许能找到提供培训的当地公司的地址同一个月又有一架客机冲出马什哈德的跑道撞上一堵墙造成17人死亡在另一种极端情况下这个人会变成一个与之前迥然不同的个体觉得他她必须改变团队所做的一切并把成果据为己有买一张万能卡wildcard也有不少好处带着这张卡你可以进入南非的一些公园或全部的国家公园",
+            "normalized_hypothesis": "这并不是告别这是一个篇章的结束也是新篇章的开始离岸流是海浪从海滩快速回流到海中的回流通常发生在暗礁或类似的地方如果在冬天穿越北波罗的海要检查客舱的位置因为在冰面上航行会给那些受影响最严重的人带来非常可怕的噪音北部与萨赫勒地区接壤南部和西部临大西洋该服务经常用于航运包括游艇以及有远程数据和语音需求的探险因此这种格式的宽高比除以十二得到最简单的整数比便是三比二它是南非的主要景点之一被认为是南非国家公园体系的主打景点钙钾等元素属于金属银和金等元素当然也是金属在互联网上搜索应对敌对环境教程也许能找到提提供培训的当地公司的地址同一个月又有一架飞机冲出马哈哈德的跑道撞上一堵墙造成十七人死亡在另一种极端情况下这个人会变成一个与之前迥然不同的个体觉得他必须改变团队所做的一切并把成果据为己有买一张万能卡也有不少好处带着这张卡你可以进入南非的一些公园或全部的国家公园"
+          },
+          "decoder_score": {
+            "reference_chars": 393,
+            "hypothesis_chars": 378,
+            "substitutions": 9,
+            "deletions": 17,
+            "insertions": 2,
+            "errors": 28,
+            "cer": 0.07124681933842239,
+            "normalized_reference": "这并不是告别这是一个篇章的结束也是新篇章的开始离岸流是海浪从海滩快速回流到海中的回流通常发生在暗礁或类似的地方如果在冬天穿越北波罗的海要检查客舱的位置因为在冰面上航行会给那些受影响最严重的人带来非常可怕的噪音北部与萨赫勒地区接壤南部和西部临大西洋该服务经常用于航运包括游艇以及有远程数据和语音需求的探险因此这种格式的宽高比除以12得到最简单的整数比便是32它是南非的主要景点之一被认为是南非国家公园体系sanparks的主打景点钙钾等元素属于金属银和金等元素当然也是金属在互联网上搜索应对敌对环境课程也许能找到提供培训的当地公司的地址同一个月又有一架客机冲出马什哈德的跑道撞上一堵墙造成17人死亡在另一种极端情况下这个人会变成一个与之前迥然不同的个体觉得他她必须改变团队所做的一切并把成果据为己有买一张万能卡wildcard也有不少好处带着这张卡你可以进入南非的一些公园或全部的国家公园",
+            "normalized_hypothesis": "这并不是告别这是一个篇章的结束也是新篇章的开始离岸流是海浪从海滩快速回流到海中的回流通常发生在暗礁或类似的地方如果在冬天穿越北波罗的海要检查客舱的位置因为在冰面上航行会给那些受影响最严重的人带来非常可怕的噪音北部与萨赫勒地区接壤南部和西部临大西洋该服务经常用于航运包括游艇以及有远程数据和语音需求的探险因此这种格式的宽高比除以十二得到最简单的整数比便是三比二它是南非的主要景点之一被认为是南非国家公园体系的主打景点钙钾等元素属于金属银和金等元素当然也是金属在互联网上搜索应对敌对环境教程也许能找到提提供培训的当地公司的地址同一个月又有一架飞机冲出马哈哈德的跑道撞上一堵墙造成十七人死亡在另一种极端情况下这个人会变成一个与之前迥然不同的个体觉得他必须改变团队所做的一切并把成果据为己有买一张万能卡也有不少好处带着这张卡你可以进入南非的一些公园或全部的国家公园"
+          }
+        },
+        {
+          "id": "silence",
+          "duration_s": 8.0,
+          "status": "ok",
+          "hypothesis": "嗯。",
+          "decoder_hypothesis": "嗯。",
+          "segments": [
+            {
+              "start": 0.0,
+              "end": 0.0,
+              "text": "嗯。"
+            }
+          ],
+          "diagnostics": {
+            "schema_version": 1,
+            "passes": [
+              {
+                "chunks": [
+                  {
+                    "chunk_index": 0,
+                    "start_s": 0.0,
+                    "end_s": 8.0,
+                    "flags": [],
+                    "decode_s": 1.616590518999999,
+                    "text": "嗯。",
+                    "language": "",
+                    "generation": {
+                      "max_new_tokens": 256,
+                      "generated_tokens": 3,
+                      "ended_with_eos": true,
+                      "token_limit_reached": false
+                    },
+                    "align_s": 0.673438238000017,
+                    "alignment": {
+                      "aligned_unit_union_s": 0.0,
+                      "longest_unaligned_gap_s": 8.0,
+                      "invalid_alignment_units": 0,
+                      "timestamp_tolerance_s": 0.05
+                    }
+                  }
+                ],
+                "timings_s": {
+                  "model_load": 2.1590000187643454e-06,
+                  "audio_prepare": 0.00037496900000633104,
+                  "split": 6.366999969031895e-06,
+                  "decode": 1.616590518999999,
+                  "align": 0.673438238000017,
+                  "total": 2.3053959560000408
+                },
+                "completed": true,
+                "model_reused": true,
+                "environment": {
+                  "python": "3.12.3",
+                  "platform": "Linux",
+                  "packages": {
+                    "torch": "2.14.1+cpu",
+                    "transformers": "5.18.0",
+                    "accelerate": "1.15.0",
+                    "numpy": "2.5.3",
+                    "soundfile": "0.14.0",
+                    "soxr": "1.1.0"
+                  },
+                  "cuda": null,
+                  "hip": null
+                },
+                "model_dtype": "torch.bfloat16",
+                "aligner_dtype": "torch.bfloat16",
+                "resolved_model_revision": null,
+                "resolved_aligner_revision": null,
+                "decoded_s": 8.0,
+                "span_coverage_short": true
+              }
+            ],
+            "quality": {
+              "status": "needs-review",
+              "flags": [
+                "span-coverage-short"
+              ],
+              "human_reviewed": false
+            },
+            "timings_s": {
+              "model_load": 2.1590000187643454e-06,
+              "audio_prepare": 0.00037496900000633104,
+              "split": 6.366999969031895e-06,
+              "decode": 1.616590518999999,
+              "align": 0.673438238000017,
+              "total": 2.3053959560000408
+            }
+          },
+          "provenance": {
+            "model_name": "/home/chosenecho/bili-asr-models/Qwen3-ASR-1.7B-hf",
+            "aligner_model": "/home/chosenecho/bili-asr-models/Qwen3-ForcedAligner-0.6B-hf",
+            "model_revision": "",
+            "aligner_revision": "",
+            "device": "cpu",
+            "language": "Chinese",
+            "hotwords": "",
+            "chunk_seconds": "180",
+            "tokens_per_second": "8",
+            "min_new_tokens": "256",
+            "second_pass_use_cache": "False",
+            "offline": "True",
+            "local_source": "configured-local"
+          },
+          "segment_bounds_violations": 0,
+          "segment_order_violations": 0,
+          "elapsed_s": 2.3055459369999767,
+          "score": {
+            "reference_chars": 0,
+            "hypothesis_chars": 1,
+            "substitutions": 0,
+            "deletions": 0,
+            "insertions": 1,
+            "errors": 1,
+            "cer": null,
+            "normalized_reference": "",
+            "normalized_hypothesis": "嗯"
+          },
+          "decoder_score": {
+            "reference_chars": 0,
+            "hypothesis_chars": 1,
+            "substitutions": 0,
+            "deletions": 0,
+            "insertions": 1,
+            "errors": 1,
+            "cer": null,
+            "normalized_reference": "",
+            "normalized_hypothesis": "嗯"
+          }
+        }
+      ],
+      "aggregate": {
+        "reference_chars": 393,
+        "substitutions": 9,
+        "deletions": 17,
+        "insertions": 3,
+        "errors": 29,
+        "cer": 0.0737913486005089,
+        "samples": 2,
+        "failed_samples": 0,
+        "audio_duration_s": 146.6,
+        "elapsed_s": 82.59151462899996,
+        "rtf": 0.5633800452182808
+      }
+    }
+  ],
+  "completed": true
+}

@@ -12,21 +12,21 @@ import hashlib
 import json
 import math
 import os
-from pathlib import Path
 import sqlite3
 import subprocess
 import tempfile
 import time
-from typing import Any, Mapping
+from collections.abc import Mapping
+from pathlib import Path
+from typing import Any
 from uuid import uuid4
 
 from bili_asr import archive, asr, audio, bili_client
 from bili_asr.artifact_root import ArtifactRoots, usable_audio_path, resolve_audio_path
-from bili_asr.formatting import pubdate_utc
+from bili_asr.formatting import duration_s_from_ms, pubdate_utc
 from bili_asr.page_identity import PageIdentity, artifact_stem
 from bili_asr.path_policy import confined_audio_path
 from bili_asr.services.subtitle_ingest import SubtitleIngestor, SubtitleSelection
-from bili_asr.formatting import duration_s_from_ms
 from bili_asr.services.transcript_projection import ordered_candidates, writer_segments
 from bili_asr.sources.bilibili_api_gateway import BilibiliApiGateway
 from bili_asr.storage import (
@@ -34,7 +34,12 @@ from bili_asr.storage import (
     TranscriptRepository,
     TranscriptSegmentRecord,
 )
-from bili_asr.storage.workflow import AsrProfile, JobKind, WorkflowJob, WorkflowRepository
+from bili_asr.storage.workflow import (
+    AsrProfile,
+    JobKind,
+    WorkflowJob,
+    WorkflowRepository,
+)
 
 
 class ArchiveWorkflowHandlers:
@@ -192,13 +197,7 @@ class ArchiveWorkflowHandlers:
         if audio_path is None:
             raise RuntimeError("audio_missing")
         profile = self.repository.profile(job.profile_id)
-        config = asr.ASRConfig(
-            model_name=profile.model_name,
-            aligner_name=profile.aligner_name,
-            model_revision=profile.model_revision or None,
-            device=profile.device,
-            language=profile.language,
-        )
+        config = profile.asr_config()
         reference_id = job.payload.get("reference_transcript_id")
         paired_text = self._paired_subtitle_text(
             None if reference_id is None else int(reference_id)
@@ -219,12 +218,14 @@ class ArchiveWorkflowHandlers:
         )
         try:
             self.repository.assert_lease(job)
+            diagnostics: dict[str, Any] = {}
             if profile.device.casefold().startswith(("cuda", "rocm")):
                 segments, provenance, coverage = asr.transcribe_with_timeout(
                     config,
                     os.fspath(audio_path),
                     paired_subtitle_text=paired_text,
                     timeout_seconds=config.inference_timeout_seconds,
+                    diagnostics_sink=diagnostics,
                 )
                 language = asr.provenance_language(provenance)
             else:
@@ -232,8 +233,12 @@ class ArchiveWorkflowHandlers:
                 segments = asr.two_pass_transcribe(
                     runner, os.fspath(audio_path), paired_subtitle_text=paired_text
                 )
-                language = asr.provenance_language(runner.provenance())
+                provenance = runner.provenance()
+                language = asr.provenance_language(provenance)
                 coverage = asr.transcribed_coverage(runner)
+                diagnostics_reader = getattr(runner, "diagnostics", None)
+                if callable(diagnostics_reader):
+                    diagnostics = diagnostics_reader()
             self.repository.assert_lease(job)
             records = tuple(
                 TranscriptSegmentRecord(
@@ -257,6 +262,15 @@ class ArchiveWorkflowHandlers:
                 finished_at=finished,
                 created_at=finished,
                 coverage=coverage,
+                asr_evidence={
+                    "schema_version": 1,
+                    "profile_id": job.profile_id,
+                    "config_sha256": self.repository.profile_digest(job.profile_id),
+                    "reference_transcript_id": reference_id,
+                    "audio": dict(audio_result),
+                    "provenance": provenance,
+                    "diagnostics": diagnostics,
+                },
             )
             transcripts.finish_acquisition_run(run_id, int(time.time()))
         except BaseException:
@@ -273,6 +287,7 @@ class ArchiveWorkflowHandlers:
             "version": stored.version,
             "source_kind": "asr-local",
             "publication_job_id": publication_job_id,
+            "quality": diagnostics.get("quality", {"status": "not-evaluable", "flags": []}),
         }
 
     def publish(self, job: WorkflowJob) -> Mapping[str, Any]:
@@ -373,15 +388,7 @@ class ArchiveWorkflowHandlers:
         if existing is not None:
             return existing
         profile: AsrProfile = self.repository.profile(profile_id)
-        runner = asr.ASRRunner(
-            asr.ASRConfig(
-                model_name=profile.model_name,
-                aligner_name=profile.aligner_name,
-                model_revision=profile.model_revision or None,
-                device=profile.device,
-                language=profile.language,
-            )
-        )
+        runner = asr.ASRRunner(profile.asr_config())
         self._runners[profile_id] = runner
         return runner
 

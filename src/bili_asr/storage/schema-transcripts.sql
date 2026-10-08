@@ -125,6 +125,19 @@ CREATE TABLE IF NOT EXISTS transcript_coverage_attestations (
 CREATE INDEX IF NOT EXISTS ix_transcript_coverage_part_run
     ON transcript_coverage_attestations(video_part_id, run_id);
 
+-- Per-attempt evidence survives text deduplication. Legacy coverage stays intact.
+CREATE TABLE IF NOT EXISTS transcript_asr_evidence (
+    run_id TEXT NOT NULL,
+    video_part_id INTEGER NOT NULL,
+    transcript_id INTEGER NOT NULL,
+    schema_version INTEGER NOT NULL CHECK (schema_version = 1),
+    evidence_json TEXT NOT NULL CHECK (json_valid(evidence_json)),
+    PRIMARY KEY (run_id, video_part_id),
+    FOREIGN KEY (run_id, video_part_id)
+        REFERENCES acquisition_attempts(run_id, video_part_id) ON DELETE RESTRICT,
+    FOREIGN KEY (transcript_id) REFERENCES transcripts(transcript_id) ON DELETE RESTRICT
+);
+
 -- The pending-work relation: one query, no per-part N+1.  Parts that hold a
 -- transcript, and parts upstream reported as gone, are not pending.  A part
 -- attempted without a caption stays pending and brings its newest attempt's

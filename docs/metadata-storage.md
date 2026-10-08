@@ -29,6 +29,7 @@ bili-asr verify --archive-root archive --format json
 | `workflow publish --part-id ID` | 为已有转录请求重新发布；可重复 part ID。请求后仍需 `workflow run` 执行。 |
 | `workflow status --jobs` | 查看任务状态、内部 ID、分 P 身份及取消造成的依赖阻塞。 |
 | `workflow cancel --job-id ID` | 原子取消指定 queued/running 任务；可重复 job ID，详细语义见取消指南。 |
+| `workflow asr-evidence --run-id ID --part-id ID` | 查询某次成功 ASR 的配置身份、输入来源与逐块运行诊断。 |
 | `workflow retry [--part-id ID]` | 仅重新排队 failed jobs，保留历史 attempts。 |
 | `status` / `runs` | 查看元数据数量、工作流计数、元数据待办、游标及 ingestion runs。 |
 | `search` / `export` / `coverage` / `verify` | 从 SQLite 与产物读取搜索、导出、覆盖率和完整性投影；搜索索引更新是显式操作。 |
@@ -45,7 +46,9 @@ bili-asr verify --archive-root archive --format json
 |---|---|
 | [`schema.sql`](../src/bili_asr/storage/schema.sql) | 用户、视频、分 P、标签、描述、元数据 runs/pages/cursors/discoveries，以及音频与模型身份。 |
 | [`schema-transcripts.sql`](../src/bili_asr/storage/schema-transcripts.sql) | acquisition runs/attempts、转录、segments、coverage attestations 与缺口视图。 |
+| `schema-transcripts.sql` 的 `transcript_asr_evidence` | 每次成功 ASR 的 profile、音频、provenance 与诊断，不随正文去重丢失。 |
 | [`schema-workflow.sql`](../src/bili_asr/storage/schema-workflow.sql) | ASR profiles、jobs、依赖、attempts、质量评估与 publication 登记。 |
+| `schema-workflow.sql` 的 `workflow_asr_profile_configs` | 完整有效 ASR 配置的不可变快照与 schema version。 |
 | [`schema-editorial.sql`](../src/bili_asr/storage/schema-editorial.sql) | 校对输入快照、API 调用、chunks、revision 和渲染产物等独立编辑数据；见 AI 校对指南。 |
 
 新数据库按四份 SQL 建立完整 schema。打开非空数据库前，从当前 SQL 推导表契约并核对所有产品表；缺表、旧字段或约束不符在修改 schema 前失败。兼容数据库中的派生视图仍可刷新。
@@ -110,7 +113,7 @@ coverage 是某次 ASR run 的事实，不是转录内容身份。同一 cue 内
 
 | 表 | 身份 | 作用 |
 |---|---|---|
-| `workflow_asr_profiles` | `profile_id`；`(profile_key, config_sha256)` 唯一 | 冻结模型、revision、aligner、device 与 language 配置。 |
+| `workflow_asr_profiles` | `profile_id`；`(profile_key, config_sha256)` 唯一 | 配置身份；关联完整快照，冻结独立模型版本、分块、语言、离线与生成策略等。 |
 | `workflow_jobs` | `job_id`；`dedupe_key` 唯一 | kind、part/profile/policy、payload、status、priority、available time、lease、attempt count 与 last error。 |
 | `workflow_job_dependencies` | `(job_id, prerequisite_job_id)` | 显式执行依赖；只在 prerequisite succeeded 后允许领取。 |
 | `workflow_attempts` | `attempt_id` | job、worker、时间、outcome、error 与 result JSON；保存每次领取后的执行证据。 |
@@ -199,6 +202,8 @@ content hash 是以下 canonical 数据的 SHA-256：按 ordinal 排列的 `[sta
 `record_acquired_transcript()` 在一个事务中验证 part/run、按 part/source/language/hash 查找既有内容、必要时追加 `max(version)+1` 及全部 segments，最后记录 stored/unchanged attempt。内容恢复到历史版本时复用那个版本，不新建一个相同版本。旧版本、segments 与 attempt 不被覆盖。subtitle 写入只接受 caption kinds。
 
 `record_local_transcript()` 是单独的 ASR 写入入口，在同一事务内登记模型、新转录与 segments、attempt 和可选 coverage。其内容复用查询同样按 part/source/language/hash，model ID 不是版本唯一身份；重用既有 cue 内容时保留已有 transcript/model 关联。`read_transcript()` 默认取身份的最新 version，显式 version 仍可读取历史内容。
+
+提供 `asr_evidence` 时，它也在同一结果事务写入 `transcript_asr_evidence`；cue 内容复用不跳过本次证据。完整快照与查询合同见 [ASR 参数与诊断](asr-configuration.md)。取消与过期租约的 write guard 同时保护诊断和转录写入。
 
 acquisition run 的开始和结束分别独立提交；每个成功/无字幕/失败的 part attempt 是单独写组。不要将这些会自行提交的方法嵌套到包含其他待提交内容的 `MetadataRepository.transaction()` 中。纯 repository read 方法只执行 SELECT，不 commit，也不改写 caller 已持有的事务。
 

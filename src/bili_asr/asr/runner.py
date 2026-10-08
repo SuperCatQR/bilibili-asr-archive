@@ -2,24 +2,25 @@
 
 from __future__ import annotations
 
-import os
 import multiprocessing as _multiprocessing
+import os
 import queue as _queue
 import sys
-import types
-import tempfile
 import time
+import types
+from collections.abc import Callable
 from dataclasses import replace
-from typing import Any, Callable, NamedTuple
+from typing import Any, NamedTuple
+
 import bili_asr.asr.alignment as _dependency_alignment
 import bili_asr.asr.audio as _dependency_audio
 import bili_asr.asr.config as _dependency_config
 import bili_asr.asr.constants as _dependency_constants
 import bili_asr.asr.coverage as _dependency_coverage
+import bili_asr.asr.diagnostics as _dependency_diagnostics
 import bili_asr.asr.errors as _dependency_errors
 import bili_asr.asr.hotwords as _dependency_hotwords
 import bili_asr.asr.provenance as _dependency_provenance
-
 
 _PROGRESS_HOOK: Callable[[str], None] | None = None
 
@@ -44,6 +45,7 @@ def _isolated_transcribe_worker(config: Any, audio_path: str, paired_subtitle_te
                 "segments": segments,
                 "provenance": runner.provenance(),
                 "coverage": runner.transcribed_coverage(),
+                "diagnostics": runner.diagnostics(),
             }
         )
     except BaseException as exc:
@@ -58,6 +60,7 @@ def transcribe_with_timeout(
     *,
     paired_subtitle_text: str | None,
     timeout_seconds: float,
+    diagnostics_sink: dict[str, Any] | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, str], dict[str, Any] | None]:
     """Run one ASR attempt in a killable child process.
 
@@ -119,6 +122,9 @@ def transcribe_with_timeout(
         error_type = str(result.get("error_type") or "ASRModelError")
         message = str(result.get("error") or "isolated ASR worker failed")
         raise RuntimeError(f"{error_type}: {message}")
+    if diagnostics_sink is not None:
+        diagnostics_sink.clear()
+        diagnostics_sink.update(result.get("diagnostics") or {})
     return (
         list(result["segments"]),
         dict(result["provenance"]),
@@ -187,14 +193,16 @@ def _load_qwen_models(**kwargs: Any) -> _ModelSet:
     aligner_name = kwargs["aligner_name"]
     device = kwargs.get("device") or "cuda"
     revision = kwargs.get("model_revision")
+    aligner_revision = kwargs.get("aligner_revision")
+    local_files_only = kwargs.get("offline", True)
 
-    processor = AutoProcessor.from_pretrained(model_name, revision=revision)
+    processor = AutoProcessor.from_pretrained(model_name, revision=revision, local_files_only=local_files_only)
     model = AutoModelForMultimodalLM.from_pretrained(
-        model_name, revision=revision, dtype=torch.bfloat16, device_map=device
+        model_name, revision=revision, dtype=torch.bfloat16, device_map=device, local_files_only=local_files_only
     )
-    aligner_processor = AutoProcessor.from_pretrained(aligner_name, revision=revision)
+    aligner_processor = AutoProcessor.from_pretrained(aligner_name, revision=aligner_revision, local_files_only=local_files_only)
     aligner = AutoModelForTokenClassification.from_pretrained(
-        aligner_name, revision=revision, dtype=torch.bfloat16, device_map=device
+        aligner_name, revision=aligner_revision, dtype=torch.bfloat16, device_map=device, local_files_only=local_files_only
     )
     model.eval()
     aligner.eval()
@@ -261,6 +269,8 @@ class ASRRunner:
         # means "no measurement to offer": the run never transcribed, or it decoded nothing.
         self._last_coverage: dict[str, Any] | None = None
         self._last_language: str | None = None
+        self._diagnostic_passes: list[dict[str, Any]] = []
+        self._last_generation: dict[str, Any] = {}
 
     def _get_models(self) -> _ModelSet:
         if self._models is not None:
@@ -289,6 +299,8 @@ class ASRRunner:
             "model_name": self.config.model_name,
             "aligner_name": self.config.aligner_name,
             "device": self.config.device,
+            "aligner_revision": self.config.aligner_revision,
+            "offline": self.config.offline,
         }
         if self.config.model_revision is not None:
             kwargs["model_revision"] = self.config.model_revision
@@ -319,17 +331,14 @@ class ASRRunner:
     # -- the pipeline ------------------------------------------------------------------
 
     def _transcribe_chunk(
-        self, models: _ModelSet, audio_path: str, *, bust_cache: bool = False
+        self, models: _ModelSet, audio: Any, *, bust_cache: bool = False
     ) -> tuple[str, str]:
         """One chunk through the decoder: ``(text, detected_language)``.
 
-        ``bust_cache`` is the per-pass cache control: ``True`` disables the transformers
-        dynamic prefix cache for this decode (``use_cache=False``, the documented
-        per-call argument on ``generate`` for the pinned ``transformers>=5.13``), so a
-        re-decode with a re-seeded prompt — the two-pass hotword contract's pass 2 — starts
-        from a clean model/cache state instead of being served pass 1's cached span, where
-        the re-seeded vocabulary never reaches the prompt.  ``False`` keeps the default
-        (cache-warm) behaviour for ordinary decodes.
+        ``bust_cache`` selects the second-pass cache policy. Historically that pass
+        disables within-generation KV reuse; no past_key_values are passed between
+        calls. The frozen second_pass_use_cache option allows a measured comparison
+        while preserving the existing default until a real-model benchmark justifies it.
 
         The decode format matters: ``decode(..., return_format=...)`` hard-sets
         ``skip_special_tokens``, and the decoded text is scrubbed of control markers as well — a
@@ -340,33 +349,31 @@ class ASRRunner:
 
         hotwords = self._prompt_hotwords()
         prompt = "Vocabulary: " + ", ".join(hotwords) if hotwords else None
-        # Scratch chunks already contain mono 16 kHz audio. Passing samples
-        # keeps Transformers from selecting its optional file-loading backend.
-        samples, _ = _dependency_audio._read_audio(audio_path)
+        # Decoded chunks already contain mono 16 kHz audio.
         inputs = models.processor.apply_transcription_request(
-            audio=samples, language=self.config.language, prompt=prompt
+            audio=audio, language=self.config.language, prompt=prompt
         )
         inputs = inputs.to(models.model.device, models.model.dtype)
         seconds = float(inputs["input_features_mask"].sum(-1).max()) / _dependency_constants._MEL_FRAMES_PER_SECOND
-        budget = max(_dependency_constants._MIN_NEW_TOKENS, int(seconds * _dependency_constants._MAX_NEW_TOKENS_PER_AUDIO_SECOND))
+        budget = max(self.config.min_new_tokens, int(seconds * self.config.tokens_per_second))
         with torch.inference_mode():
             _progress("decode")
             generated = models.model.generate(**inputs, max_new_tokens=budget, **(
-                {"use_cache": False} if bust_cache else {}
+                {"use_cache": False} if bust_cache and not self.config.second_pass_use_cache else {}
             ))
         tokens = generated[:, inputs["input_ids"].shape[1]:]
+        self._last_generation = _dependency_diagnostics.generation_evidence(tokens, models.model, budget)
         text = _dependency_alignment._clean_text(models.processor.decode(tokens, return_format="transcription_only")[0])
         parsed = models.processor.decode(tokens, return_format="parsed")[0]
         return text, str(parsed.get("language") or "")
 
-    def _align_chunk(self, models: _ModelSet, audio_path: str, text: str, language: str) -> list[dict[str, Any]]:
+    def _align_chunk(self, models: _ModelSet, audio: Any, text: str, language: str) -> list[dict[str, Any]]:
         """One chunk through the aligner: per-unit ``{text, start_time, end_time}`` in seconds."""
 
         import torch
 
-        samples, _ = _dependency_audio._read_audio(audio_path)
         inputs, word_lists = models.aligner_processor.prepare_forced_aligner_inputs(
-            audio=samples, transcript=text, language=language or "Chinese"
+            audio=audio, transcript=text, language=language or "Chinese"
         )
         inputs = inputs.to(models.aligner.device, models.aligner.dtype)
         with torch.inference_mode():
@@ -422,9 +429,8 @@ class ASRRunner:
         text: chunk boundaries are ours, the timings are the aligner's, and nothing is interpolated.
         An empty recording yields no cues rather than a fabricated one.
 
-        ``bust_cache`` re-decodes from a clean model/cache state (the per-pass cache control,
-        see :meth:`_transcribe_chunk`): it is the pass-2 knob of the two-pass hotword contract —
-        the re-seeded prompt is only effective if the re-decode does not reuse pass 1's cache.
+        ``bust_cache`` selects the configured second-pass cache policy.
+        Each pass starts a separate generation call with its own prompt.
 
         The character-level record of the same run is left for :meth:`characters`; callers that
         publish it read it right after this returns.  The coverage measurement of the same run is
@@ -439,22 +445,34 @@ class ASRRunner:
         self._last_transcribed_segments = None
         self._last_coverage = None
         self._last_language = None
+        self._diagnostic_passes = []
+        report: dict[str, Any] = {"chunks": [], "timings_s": {}, "completed": False}
+        self._diagnostic_passes.append(report)
+        run_clock = time.perf_counter()
+        load_clock = time.perf_counter()
+        report["model_reused"] = self._models is not None
         # The model pair first: a host without the extra must fail with the documented
         # ``ASRDependencyError`` (which names the ``[asr]`` install), not with whatever the audio
         # reader happens to import first.  The readers are part of the same extra, so their absence
         # is reported the same way.
         models = self._get_models()
+        report["timings_s"]["model_load"] = time.perf_counter() - load_clock
+        report["environment"] = _dependency_diagnostics.runtime_environment()
+        report["model_dtype"] = str(models.model.dtype)
+        report["aligner_dtype"] = str(models.aligner.dtype)
+        for key, model in (("resolved_model_revision", models.model), ("resolved_aligner_revision", models.aligner)):
+            revision = getattr(getattr(model, "config", None), "_commit_hash", None)
+            report[key] = _dependency_provenance._redact(str(revision)) if revision else None
         try:
             import numpy as np
-            import soundfile as sf
             import soxr
         except ImportError as exc:
             raise _dependency_errors.ASRDependencyError(
                 f"the ASR audio readers are not installed; run: {_dependency_constants._INSTALL_HINT}"
             ) from exc
 
+        audio_clock = time.perf_counter()
         path, temporary = _dependency_audio._materialize_input(audio_path)
-        scratch: str | None = None
         try:
             samples, rate = _dependency_audio._read_audio(path)
             samples = np.asarray(samples, dtype=np.float32)
@@ -467,11 +485,16 @@ class ASRRunner:
                 samples = soxr.resample(samples, int(rate), _dependency_constants.SAMPLE_RATE)
                 samples = np.asarray(samples, dtype=np.float32)
 
+            report["timings_s"]["audio_prepare"] = time.perf_counter() - audio_clock
+            split_clock = time.perf_counter()
             chunks = _dependency_audio._split_audio(samples, _dependency_constants.SAMPLE_RATE, self.config.chunk_seconds)
+            report["timings_s"]["split"] = time.perf_counter() - split_clock
             if not chunks:
                 self._last_characters = None
                 self._last_transcribed_segments = None
                 self._last_coverage = None
+                report["decoded_s"] = 0.0
+                report["completed"] = True
                 return []
 
             # The run's own decoded duration: the measured quantity the coverage comparison is
@@ -480,36 +503,59 @@ class ASRRunner:
             # nothing (``if not text: continue`` below) still counts in the denominator: that
             # branch is where the measured defect's span went missing.
             decoded_seconds = sum(len(chunk) / _dependency_constants.SAMPLE_RATE for chunk, _offset in chunks)
+            report["decoded_s"] = decoded_seconds
 
-            handle, scratch = tempfile.mkstemp(prefix="bili-asr-chunk-", suffix=".wav")
-            os.close(handle)
             minimum = int(_dependency_constants._CHUNK_MIN_SECONDS * _dependency_constants.SAMPLE_RATE)
             pieces: list[dict[str, Any]] = []
             languages: set[str] = set()
-            for chunk, offset in chunks:
+            for chunk_index, (chunk, offset) in enumerate(chunks):
+                chunk_report: dict[str, Any] = {
+                    "chunk_index": chunk_index, "start_s": offset,
+                    "end_s": offset + len(chunk) / _dependency_constants.SAMPLE_RATE,
+                    "flags": [],
+                }
+                report["chunks"].append(chunk_report)
                 audio = np.asarray(chunk, dtype=np.float32)
                 if audio.shape[0] < minimum:
                     # The aligner refuses a degenerate window.  The splitter deliberately does not
                     # pad — that would break its tiling promise — so the pad happens here, where the
                     # requirement comes from.
                     audio = np.pad(audio, (0, minimum - audio.shape[0]))
-                sf.write(scratch, audio, _dependency_constants.SAMPLE_RATE)
-                text, language = self._transcribe_chunk(models, scratch, bust_cache=bust_cache)
+                self._last_generation = {}
+                decode_clock = time.perf_counter()
+                # Processors accept decoded arrays. Paths would invoke their
+                # optional decoder backend and repeat our own audio preparation.
+                text, language = self._transcribe_chunk(models, audio, bust_cache=bust_cache)
+                chunk_report["decode_s"] = time.perf_counter() - decode_clock
+                chunk_report["text"] = text
+                chunk_report["language"] = language
+                chunk_report["generation"] = dict(self._last_generation)
+                if self._last_generation.get("token_limit_reached") and self._last_generation.get("ended_with_eos") is not True:
+                    chunk_report["flags"].append("token-limit-reached")
                 if not text:
-                    # The silent point the plan names: an empty-transcript chunk is dropped with
-                    # no record of its own.  It is not tracked here either — the run-level
-                    # comparison below is what makes the drop visible, and it does so without
-                    # changing this branch's behaviour or aborting the run.
+                    # Preserve an explicit empty-output observation. It may be
+                    # silence or missing speech; no VAD evidence is fabricated.
+                    chunk_report["flags"].append("empty-output")
                     continue
                 if language.strip():
                     languages.add(language.strip())
+                align_clock = time.perf_counter()
+                raw_units = self._align_chunk(models, audio, text, language)
+                chunk_report["align_s"] = time.perf_counter() - align_clock
+                chunk_report["alignment"] = _dependency_diagnostics.alignment_evidence(
+                    raw_units, len(audio) / _dependency_constants.SAMPLE_RATE
+                )
+                if not raw_units:
+                    chunk_report["flags"].append("empty-alignment")
+                if chunk_report["alignment"]["invalid_alignment_units"]:
+                    chunk_report["flags"].append("invalid-alignment")
                 units = [
                     {
                         "text": unit["text"],
                         "start_time": float(unit["start_time"]) + offset,
                         "end_time": float(unit["end_time"]) + offset,
                     }
-                    for unit in self._align_chunk(models, scratch, text, language)
+                    for unit in raw_units
                 ]
                 pieces.extend(_dependency_alignment._thread_text(text, units))
             cues = _dependency_alignment._aligned_cues(pieces)
@@ -521,6 +567,10 @@ class ASRRunner:
             # produced.  It rides the manifest row (D11 carrier); the return shape of this method
             # is deliberately unchanged.
             self._last_coverage = _dependency_coverage._coverage_record(decoded_seconds, cues)
+            report["span_coverage_short"] = bool(self._last_coverage and self._last_coverage["coverage_short"])
+            report["timings_s"]["decode"] = sum(c.get("decode_s", 0.0) for c in report["chunks"])
+            report["timings_s"]["align"] = sum(c.get("align_s", 0.0) for c in report["chunks"])
+            report["completed"] = True
             # Preserve the engine's detected language for automatic-language
             # runs. Multiple languages are explicit; no evidence stays unset.
             if len(languages) == 1:
@@ -529,12 +579,17 @@ class ASRRunner:
                 self._last_language = "mul"
             return cues
         finally:
-            for leftover in (temporary, scratch):
+            report["timings_s"]["total"] = time.perf_counter() - run_clock
+            for leftover in (temporary,):
                 if leftover:
                     try:
                         os.unlink(leftover)
                     except OSError:
                         pass
+
+    def diagnostics(self) -> dict[str, Any]:
+        """A detached record; final-pass quality remains explicitly unreviewed."""
+        return _dependency_diagnostics.assemble_diagnostics(self._diagnostic_passes)
 
     def release(self) -> None:
         """Drop the owned model pair.  The counters are monotonic and are **not** reset."""
@@ -631,10 +686,14 @@ class ASRRunner:
             "model_name": _dependency_provenance._redact(config.model_id or config.model_name),
             "aligner_model": _dependency_provenance._redact(config.aligner_name),
             "model_revision": _dependency_provenance._redact(config.model_revision or ""),
+            "aligner_revision": _dependency_provenance._redact(config.aligner_revision or ""),
             "device": _dependency_provenance._redact(config.device),
             "language": _dependency_provenance._redact(self._last_language or config.language or ""),
             "hotwords": _dependency_provenance._redact(",".join(self._prompt_hotwords())),
             "chunk_seconds": f"{config.chunk_seconds:g}",
+            "tokens_per_second": f"{config.tokens_per_second:g}",
+            "min_new_tokens": str(config.min_new_tokens),
+            "second_pass_use_cache": str(config.second_pass_use_cache),
             "offline": str(config.offline),
             "local_source": _dependency_provenance._redact(config.local_source),
         }
@@ -654,10 +713,10 @@ def two_pass_transcribe(
     when the part has no subtitle route).  The contract (plan
     20260928-hotword-injection-governance): pass 1 decodes unguarded, the prompt
     is re-seeded with the tokens pass 1 itself produced, and pass 2 re-decodes
-    with ``bust_cache=True`` — the re-seeded vocabulary only reaches the model if
-    the re-decode does not reuse pass 1's transformers prefix cache.  When the
-    guard keeps nothing beyond pass 1's own output, pass 2 cannot change the
-    transcript and its cost is skipped: pass 1's segments are the result.
+    with a new generation call and the configured second-pass cache policy.
+    Transformers KV cache accelerates tokens within that call; this runner
+    does not pass a prefix cache from pass 1 to pass 2. When the guard keeps
+    no candidate terms, pass 2 is skipped and pass 1's segments are the result.
     """
 
     runner.set_hotword_evidence(
@@ -666,7 +725,11 @@ def two_pass_transcribe(
     first_pass = runner.transcribe(audio_path)
     transcript_text = "".join(str(seg.get("text", "")) for seg in first_pass)
     if runner.rebuild_hotwords_from_first_pass(transcript_text):  # kept tokens
-        return runner.transcribe(audio_path, bust_cache=True)
+        first_diagnostics = getattr(runner, "_diagnostic_passes", [])
+        result = runner.transcribe(audio_path, bust_cache=True)
+        if hasattr(runner, "_diagnostic_passes"):
+            runner._diagnostic_passes = first_diagnostics + runner._diagnostic_passes
+        return result
     return first_pass
 
 

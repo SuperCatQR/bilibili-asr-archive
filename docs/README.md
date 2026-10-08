@@ -26,7 +26,16 @@
 | [音频保留与预算](audio-retention-policy.md) | 当前预算和保留策略入口、下载暂存、复用及回收边界 |
 | [Issues #247–#250](feature-plan-247-250.md) | 实施前评估、实现状态、风险、验收与交付顺序 |
 
-## 环境
+## ASR 参数与评测
+
+| 文档 | 内容 |
+| --- | --- |
+| [ASR 参数与诊断](asr-configuration.md) | 完整配置快照、独立模型版本、逐次运行证据与质量标记 |
+| [ASR 设计评审](asr-design-review.md) | 官方资料、归档定位、证据支持的基线与空热词策略 |
+| [公开样本测试](asr-public-samples.md) | FLEURS 参考 CER、分块与静音对照、完整 JSON 与复现命令 |
+| [WSL 验证记录](asr-wsl-validation.md) | 自动化回归、真实 CPU 模型样本与 GPU 限制 |
+
+## 环境与部署
 
 | 文档 | 内容 |
 | --- | --- |
