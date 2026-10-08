@@ -55,13 +55,17 @@ Every package-seam test scripts these fakes instead of touching the pinned
 
 from __future__ import annotations
 
+import asyncio
 import dataclasses
 import importlib
+from functools import wraps
 import sys
 import types
 from enum import Enum
 
 import pytest
+
+_REAL_ASYNC_SLEEP = asyncio.sleep
 
 MID = 23191782
 BVID = "BV1AbCdEfGhJ"
@@ -361,6 +365,7 @@ class FakeUpstreamScript:
         default_factory=lambda: dict(FAKE_TAG_ENDPOINT)
     )
     calls: list[str] = dataclasses.field(default_factory=list)
+    pacing_delays: list[float] = dataclasses.field(default_factory=list)
     tag_calls: list[str] = dataclasses.field(default_factory=list)
     access_id_calls: list[str] = dataclasses.field(default_factory=list)
     api_requests: list[FakeApiRequest] = dataclasses.field(default_factory=list)
@@ -1054,6 +1059,25 @@ def bilibili_api_seam(monkeypatch) -> FakeUpstreamScript:
         monkeypatch.setitem(sys.modules, name, module)
     monkeypatch.delitem(sys.modules, GATEWAY_ADAPTER_MODULE, raising=False)
     try:
+        # Offline package calls must exercise pacing without waiting for real
+        # network rate limits. Patch only this adapter's constructor, leaving
+        # asyncio.sleep, test-patched defaults, and injected sleepers untouched.
+        adapter = importlib.import_module(GATEWAY_ADAPTER_MODULE)
+        original_init = adapter.BilibiliApiGateway.__init__
+
+        async def record_sleep(delay: float) -> None:
+            script.pacing_delays.append(delay)
+
+        @wraps(original_init)
+        def offline_init(self, *args, **kwargs):
+            if (
+                kwargs.get("_sleeper") is None
+                and adapter.asyncio.sleep is _REAL_ASYNC_SLEEP
+            ):
+                kwargs["_sleeper"] = record_sleep
+            original_init(self, *args, **kwargs)
+
+        monkeypatch.setattr(adapter.BilibiliApiGateway, "__init__", offline_init)
         yield script
     finally:
         sys.modules.pop(GATEWAY_ADAPTER_MODULE, None)
