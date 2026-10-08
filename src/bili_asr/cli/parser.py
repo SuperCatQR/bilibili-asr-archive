@@ -64,10 +64,14 @@ def build_parser() -> argparse.ArgumentParser:
     runs.add_argument("--limit", type=int, default=None)
     runs.add_argument("--archive-root", default=DEFAULT_ARCHIVE_ROOT)
 
-    search = subparsers.add_parser("search", help="Search transcript segments in SQLite FTS5")
+    search = subparsers.add_parser("search", help="Search stored video metadata and transcript segments")
     search.add_argument("query")
+    search.add_argument(
+        "--scope", choices=("transcripts", "metadata", "all"), default="transcripts",
+        help="Search transcripts (default), title/description/tags, or both; all puts metadata first",
+    )
     search.add_argument("--limit", type=int, default=20)
-    search.add_argument("--rebuild", action="store_true")
+    search.add_argument("--rebuild", action="store_true", help="Update the transcript FTS index before searching (transcripts/all only)")
     search.add_argument("--from", dest="pubdate_from", default=None, metavar="YYYY-MM-DD")
     search.add_argument("--to", dest="pubdate_to", default=None, metavar="YYYY-MM-DD")
     search.add_argument("--format", choices=("table", "json"), default="table")

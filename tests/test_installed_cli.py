@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 
 from tests.support.installed_cli import (
-    SENTINEL_COOKIE, _venv_scripts_dir, assert_redacted,
+    SENTINEL_COOKIE, _venv_scripts_dir, assert_redacted, clean_cli_env,
     provision_isolated_cli, run_installed,
 )
 
@@ -148,7 +148,8 @@ def test_installed_console_script_resolves_its_packaged_host_check(isolated_cli)
             "import pathlib, bili_asr; "
             "print(pathlib.Path(bili_asr.__file__).parent / 'check_asr_env.py')"
         )],
-        cwd=isolated_cli.venv_dir, capture_output=True, text=True, check=False,
+        cwd=isolated_cli.venv_dir, env=clean_cli_env(),
+        capture_output=True, text=True, check=False,
     )
     assert package_probe.returncode == 0, package_probe.stderr
     packaged_helper = Path(package_probe.stdout.strip())

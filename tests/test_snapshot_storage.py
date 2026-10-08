@@ -12,8 +12,7 @@ import time
 
 import pytest
 
-from bili_asr.storage import open_database
-from bili_asr.storage.database import initialize_schema
+from bili_asr.storage import SchemaContractError, open_database
 from bili_asr.storage import snapshots
 from bili_asr.storage.snapshots import (
     SnapshotDatabaseError,
@@ -62,7 +61,11 @@ def test_current_contract_accepts_fts_extras_without_writing_source(database_pat
     assert original.startswith("sha256:") and len(original) == 71
 
 
-def test_additive_credential_upgrade_has_same_contract(tmp_root):
+@pytest.mark.parametrize("columns, compatible", [
+    (("credential_verified", "absence_verified"), True),
+    (("absence_verified", "credential_verified"), False),
+])
+def test_historical_credential_layout_agrees_with_runtime_contract(tmp_root, columns, compatible):
     path = Path(tmp_root) / "older-additive.db"
     package = resources.files("bili_asr.storage")
     script = package.joinpath("schema-transcripts.sql").read_text("utf-8")
@@ -73,8 +76,25 @@ def test_additive_credential_upgrade_has_same_contract(tmp_root):
     with closing(sqlite3.connect(path)) as connection:
         connection.executescript(package.joinpath("schema.sql").read_text("utf-8"))
         connection.executescript(script)
-        initialize_schema(connection)
-    assert validate_snapshot_database(path).startswith("sha256:")
+        connection.executescript(package.joinpath("schema-workflow.sql").read_text("utf-8"))
+        connection.executescript(package.joinpath("schema-editorial.sql").read_text("utf-8"))
+        for column in columns:
+            connection.execute(
+                f"ALTER TABLE acquisition_attempts ADD COLUMN {column} INTEGER NOT NULL "
+                f"DEFAULT 0 CHECK ({column} IN (0, 1))"
+            )
+        connection.commit()
+    before = path.read_bytes()
+    if compatible:
+        assert validate_snapshot_database(path).startswith("sha256:")
+        with closing(open_database(path)):
+            pass
+    else:
+        with pytest.raises(SnapshotDatabaseError, match="acquisition_attempts"):
+            validate_snapshot_database(path)
+        with pytest.raises(SchemaContractError, match="acquisition_attempts"):
+            open_database(path)
+    assert path.read_bytes() == before
 
 
 def test_legacy_contract_is_rejected_without_schema_changes(tmp_root):
@@ -97,6 +117,25 @@ def test_matching_columns_with_stale_job_check_is_rejected(database_path):
         connection.commit()
     with pytest.raises(SnapshotDatabaseError, match="workflow_jobs"):
         validate_snapshot_database(database_path)
+
+
+def test_semantic_table_shape_cannot_bypass_runtime_strict_ddl_contract(database_path):
+    with closing(sqlite3.connect(database_path)) as connection:
+        sql = connection.execute(
+            "SELECT sql FROM sqlite_master WHERE name = 'acquisition_attempts'"
+        ).fetchone()[0]
+        connection.execute("PRAGMA writable_schema = ON")
+        connection.execute(
+            "UPDATE sqlite_master SET sql = ? WHERE name = 'acquisition_attempts'",
+            (sql.replace("CREATE TABLE acquisition_attempts", 'CREATE TABLE "acquisition_attempts"'),),
+        )
+        connection.commit()
+    before = database_path.read_bytes()
+    with pytest.raises(SnapshotDatabaseError, match="acquisition_attempts"):
+        validate_snapshot_database(database_path)
+    with pytest.raises(SchemaContractError, match="acquisition_attempts"):
+        open_database(database_path)
+    assert database_path.read_bytes() == before
 
 
 def test_foreign_key_violations_are_rejected(database_path):
@@ -125,6 +164,51 @@ def test_extra_trigger_cannot_mutate_completed_history_during_recovery(database_
 def test_contract_mismatch_is_rejected(database_path):
     with pytest.raises(SnapshotDatabaseError, match="unsupported"):
         validate_snapshot_database(database_path, "sha256:" + "0" * 64)
+
+
+@pytest.mark.parametrize("table", ["workflow_asr_profile_configs", "transcript_asr_evidence"])
+def test_new_asr_contract_tables_are_required(database_path, table):
+    with closing(sqlite3.connect(database_path)) as connection:
+        connection.execute(f"DROP TABLE {table}")
+        connection.commit()
+    with pytest.raises(SnapshotDatabaseError, match=table):
+        validate_snapshot_database(database_path)
+
+
+def test_snapshot_and_recovery_preserve_asr_configuration_and_evidence(database_path):
+    tables = ("workflow_asr_profile_configs", "transcript_asr_evidence")
+    with closing(sqlite3.connect(database_path)) as connection:
+        connection.execute(
+            "INSERT INTO workflow_asr_profiles VALUES "
+            "(1, 'cpu', 'model', '', 'aligner', 'cpu', 'zh', ?, 1)", ("a" * 64,)
+        )
+        connection.execute(
+            "INSERT INTO workflow_asr_profile_configs VALUES (1, 2, ?)",
+            (json.dumps({"schema_version": 2, "model_name": "model"}),),
+        )
+        connection.execute(
+            "INSERT INTO transcripts(transcript_id, video_part_id, source_kind, language, version, "
+            "content_sha256, created_at) VALUES (1, 1, 'asr-local', 'zh', 1, ?, 1)", ("c" * 64,)
+        )
+        connection.execute(
+            "INSERT INTO acquisition_runs VALUES ('asr-complete', 'asr', 'pending', NULL, NULL, "
+            "0, 1, 2, 'complete')"
+        )
+        connection.execute(
+            "INSERT INTO acquisition_attempts(run_id, video_part_id, outcome, transcript_id, "
+            "started_at, finished_at) VALUES ('asr-complete', 1, 'stored', 1, 1, 2)"
+        )
+        connection.execute(
+            "INSERT INTO transcript_asr_evidence VALUES ('asr-complete', 1, 1, 1, ?)",
+            (json.dumps({"schema_version": 1, "source": "preserved"}),),
+        )
+        connection.commit()
+        original = {table: connection.execute(f"SELECT * FROM {table}").fetchall() for table in tables}
+    restored = database_path.with_name("restored-asr.db")
+    create_database_snapshot(database_path, restored)
+    recover_interrupted_jobs(restored, "snapshot-asr")
+    with closing(sqlite3.connect(restored)) as connection:
+        assert {table: connection.execute(f"SELECT * FROM {table}").fetchall() for table in tables} == original
 
 
 def test_backup_reads_committed_wal_content_without_changing_source(database_path):
@@ -170,7 +254,8 @@ def test_backup_exclusive_source_lock_has_bounded_wait(database_path, monkeypatc
 def test_required_artifacts_cover_dedup_audio_publications_and_documents(database_path):
     audio_hash, document_hash = "a" * 64, "b" * 64
     bundle = {key: f"transcripts/test/bundle.{extension}" for key, extension in (
-        ("srt_path", "srt"), ("txt_path", "txt"), ("md_path", "md"), ("raw_path", "raw.json")
+        ("srt_path", "srt"), ("vtt_path", "vtt"), ("txt_path", "txt"),
+        ("md_path", "md"), ("raw_path", "raw.json")
     )}
     with closing(sqlite3.connect(database_path)) as connection:
         connection.execute(
@@ -263,6 +348,7 @@ def test_incomplete_publication_reference_is_rejected(database_path):
 def test_publication_paths_must_share_one_owned_bundle(database_path, replacement):
     payload = {
         "srt_path": "transcripts/test/bundle.srt", "txt_path": "transcripts/test/bundle.txt",
+        "vtt_path": "transcripts/test/bundle.vtt",
         "md_path": replacement, "raw_path": "transcripts/test/bundle.raw.json",
     }
     with closing(sqlite3.connect(database_path)) as connection:
@@ -327,6 +413,7 @@ def test_restored_recovery_preserves_terminal_history_dependencies_and_cursor(da
         _attempt(connection, "running-attempt", "running", "running", {"existing": "evidence"})
         _attempt(connection, "succeeded-attempt", "succeeded", "succeeded", {"kept": True})
         _attempt(connection, "failed-attempt", "failed", "failed", {"error": "kept"})
+        _attempt(connection, "cancelled-attempt", "cancelled", "cancelled", {"cancelled": "kept"})
         connection.execute("INSERT INTO workflow_job_dependencies VALUES ('queued', 'succeeded')")
         connection.execute(
             "INSERT INTO ingestion_runs VALUES ('ingestion', 23191782, 'bilibili-api-python', "

@@ -83,7 +83,7 @@ _TRANSCRIPT_KEYS = (
     "content_sha256",
     "created_at",
 )
-#: §5.1's product paths, root-relative to the write base — the four keys the
+#: Product paths, root-relative to the write base — the five keys the
 #: caller's mapping contributes to the row, and the only ones it may.
 
 
@@ -232,15 +232,15 @@ def projection_row(
 ) -> dict[str, Any]:
     """Build the SQLite publication projection for one selected candidate.
 
-    Exactly the fifteen keys and no others: the nine store-derived fields the
-    the stored part contributes with this publication's state and four product paths copied from
+    Exactly sixteen keys: the nine store-derived fields the
+    stored part contributes with this publication's state and five product paths copied from
     ``paths`` root-relative to the write base, and the winning identity in the
     readers' vocabulary — ``source`` and ``language``.
 
     Nothing else is added and nothing is guessed: no ``audio_path`` (a caption
     has no audio), nor ASR execution details that are not stored. ``duration_s``
     and ``pubdate_str`` are derived renderings: a floored duration and the
-    video's **UTC** calendar date. Only the four product keys are read out of
+    video's **UTC** calendar date. Only the five product keys are read out of
     ``paths``, so a caller's mapping may hold more (the marker's path, say)
     without any of it reaching the manifest.
     """

@@ -12,6 +12,8 @@ from types import SimpleNamespace
 
 import pytest
 
+from bili_asr import archive
+from bili_asr.artifacts import BUNDLE_SCHEMA, REQUIRED_ARTIFACT_KEYS
 from bili_asr.cli.main import main
 from bili_asr.storage import (
     AsrPolicy,
@@ -24,6 +26,22 @@ from bili_asr.storage import (
 AUDIO_KEY = "audio/BVsnapshot.p0.m4a"
 AUDIO_BYTES = b"portable audio content for an offline transcription fixture"
 TRANSCRIPT_TEXT = "The restored worker uses the downloaded audio."
+PORTABLE_PROFILE = AsrProfile(
+    profile_key="portable",
+    model_name="offline-model",
+    model_revision="portable-model-revision",
+    aligner_name="offline-aligner",
+    aligner_revision="portable-aligner-revision",
+    device="cpu",
+    language="en",
+    chunk_seconds=60.0,
+    inference_timeout_seconds=120.0,
+    hotwords=("portable archive",),
+    offline=True,
+    tokens_per_second=6.0,
+    min_new_tokens=128,
+    second_pass_use_cache=True,
+)
 
 
 def _seed_archive(root: Path, *, artifact_root: Path | None = None) -> dict[str, str]:
@@ -59,9 +77,7 @@ def _seed_archive(root: Path, *, artifact_root: Path | None = None) -> dict[str,
                 "INSERT INTO part_audio_objects VALUES (1, 1, 2, 'workflow')"
             )
         workflow = WorkflowRepository(connection)
-        profile_id = workflow.register_profile(
-            AsrProfile(profile_key="portable", model_name="offline-model", device="cpu")
-        )
+        profile_id = workflow.register_profile(PORTABLE_PROFILE)
         workflow.plan(part_ids=[1], policy=AsrPolicy.ALL, profile_id=profile_id)
         ids = {}
         for kind in (JobKind.SUBTITLE, JobKind.AUDIO):
@@ -115,12 +131,15 @@ def _resume_offline(root: Path, monkeypatch, capsys) -> list[Path]:
         transcribed_paths.append(path)
         return [{"start": 0.0, "end": 1.0, "text": TRANSCRIPT_TEXT}]
 
+    def restored_runner(handlers, profile_id):
+        profile = handlers.repository.profile(profile_id)
+        assert profile == PORTABLE_PROFILE
+        assert profile.asr_config() == PORTABLE_PROFILE.asr_config()
+        return SimpleNamespace(provenance=lambda: {"language": "en"})
+
     monkeypatch.setattr(audio, "download_audio", forbid_completed_job)
     monkeypatch.setattr(ArchiveWorkflowHandlers, "subtitle", forbid_completed_job)
-    monkeypatch.setattr(
-        ArchiveWorkflowHandlers, "_runner",
-        lambda self, profile_id: SimpleNamespace(provenance=lambda: {"language": "en"}),
-    )
+    monkeypatch.setattr(ArchiveWorkflowHandlers, "_runner", restored_runner)
     monkeypatch.setattr(asr, "two_pass_transcribe", transcribe)
     assert main(["workflow", "run", "--archive-root", str(root), "--worker-id", "new-device"]) == 0
     captured = capsys.readouterr()
@@ -173,8 +192,19 @@ def test_snapshot_cli_moves_metadata_audio_and_progress_then_resumes_offline(
         publication = connection.execute("SELECT artifact_json FROM workflow_publications").fetchone()
         assert publication is not None
         artifacts = json.loads(publication["artifact_json"])
-        assert (target / artifacts["srt_path"]).is_file()
+        assert set(artifacts) == set(REQUIRED_ARTIFACT_KEYS)
+        assert archive.archive_bundle_complete(target, artifacts, require_readable=True)
+        bundle_bytes = {relative: (target / relative).read_bytes() for relative in artifacts.values()}
+        marker = archive.bundle_marker_path(artifacts["srt_path"])
+        bundle_bytes[marker.as_posix()] = (target / marker).read_bytes()
+        marker_document = json.loads(bundle_bytes[marker.as_posix()])
+        assert marker_document["schema"] == BUNDLE_SCHEMA
+        assert set(marker_document["artifacts"]) == set(REQUIRED_ARTIFACT_KEYS)
+        assert (target / artifacts["vtt_path"]).read_text(encoding="utf-8").startswith("WEBVTT\n")
         assert (target / artifacts["txt_path"]).read_text(encoding="utf-8") == TRANSCRIPT_TEXT + "\n"
+        completed_jobs = [dict(row) for row in connection.execute("SELECT * FROM workflow_jobs ORDER BY job_id")]
+        completed_attempts = [dict(row) for row in connection.execute("SELECT * FROM workflow_attempts ORDER BY attempt_id")]
+        assert len(completed_jobs) == 4 and all(job["status"] == "succeeded" for job in completed_jobs)
     finally:
         connection.close()
     assert (detached / "archive.db").read_bytes() == source_database
@@ -187,13 +217,16 @@ def test_snapshot_cli_moves_metadata_audio_and_progress_then_resumes_offline(
     _snapshot_command(
         capsys, "restore", "--file", str(completed_snapshot), "--archive-root", str(completed_target),
     )
-    assert (completed_target / artifacts["txt_path"]).read_text(encoding="utf-8") == TRANSCRIPT_TEXT + "\n"
+    assert archive.archive_bundle_complete(completed_target, artifacts, require_readable=True)
+    assert {relative: (completed_target / relative).read_bytes() for relative in bundle_bytes} == bundle_bytes
     assert main(["workflow", "run", "--archive-root", str(completed_target)]) == 0
-    assert "succeeded=0 failed=0 idle=1" in capsys.readouterr().out
+    assert "succeeded=0 failed=0 cancelled=0 idle=1" in capsys.readouterr().out
     connection = open_database(completed_target)
     try:
         assert connection.execute("SELECT text FROM transcript_segments").fetchone()[0] == TRANSCRIPT_TEXT
         assert connection.execute("SELECT COUNT(*) FROM workflow_attempts").fetchone()[0] == 4
+        assert [dict(row) for row in connection.execute("SELECT * FROM workflow_jobs ORDER BY job_id")] == completed_jobs
+        assert [dict(row) for row in connection.execute("SELECT * FROM workflow_attempts ORDER BY attempt_id")] == completed_attempts
     finally:
         connection.close()
 

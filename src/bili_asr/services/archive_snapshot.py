@@ -22,8 +22,9 @@ import zipfile
 import zlib
 
 from bili_asr import __version__
-from bili_asr.archive import BUNDLE_MARKER_NAME
+from bili_asr.archive import BUNDLE_MARKER_NAME, _BUNDLE_BASENAMES as _BUNDLE_NAMES
 from bili_asr.archive_maintenance import archive_access
+from bili_asr.artifacts import BUNDLE_SCHEMA
 from bili_asr.storage.snapshots import (
     create_database_snapshot,
     recover_interrupted_jobs,
@@ -39,12 +40,6 @@ _ARTIFACT_DIRECTORIES = frozenset({"audio", "transcripts", "documents", "subtitl
 _CHUNK_SIZE = 1024 * 1024
 _MANIFEST_LIMIT = 16 * 1024 * 1024
 _MARKER_LIMIT = 8192
-_BUNDLE_NAMES = {
-    "srt_path": "bundle.srt",
-    "txt_path": "bundle.txt",
-    "md_path": "bundle.md",
-    "raw_path": "bundle.raw.json",
-}
 _HASH_PATTERN = re.compile(r"[0-9a-f]{64}\Z")
 _RESERVED_PATTERN = re.compile(r"(?:CON|PRN|AUX|NUL|COM[1-9\u00b9\u00b2\u00b3]|LPT[1-9\u00b9\u00b2\u00b3])\Z", re.IGNORECASE)
 _TEMP_SUFFIXES = frozenset({".tmp", ".temp", ".partial", ".part", ".download"})
@@ -223,7 +218,7 @@ def _check_bundle_markers(bundle: zipfile.ZipFile, files: dict[str, dict[str, ob
             document = json.loads(encoded.decode("ascii"), object_pairs_hook=_manifest_object)
         except (UnicodeError, ValueError, RecursionError) as exc:
             raise SnapshotError(f"invalid transcript bundle marker: {marker_path}") from exc
-        if (not isinstance(document, dict) or document.get("schema") != "archive-bundle-v1"
+        if (not isinstance(document, dict) or document.get("schema") != BUNDLE_SCHEMA
                 or not isinstance(document.get("artifacts"), dict)
                 or set(document["artifacts"]) != set(_BUNDLE_NAMES)):
             raise SnapshotError(f"invalid transcript bundle marker: {marker_path}")

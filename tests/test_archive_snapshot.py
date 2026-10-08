@@ -23,6 +23,7 @@ from bili_asr.services.archive_snapshot import (
 )
 from bili_asr.services import archive_snapshot
 from bili_asr.archive import BUNDLE_MARKER_NAME
+from bili_asr.artifacts import BUNDLE_SCHEMA, REQUIRED_ARTIFACT_KEYS
 from bili_asr.storage import open_database
 
 
@@ -84,7 +85,7 @@ def _seed_publication(root: Path) -> Path:
     directory.mkdir(parents=True)
     files = {}
     for key, name in {
-        "srt_path": "bundle.srt", "txt_path": "bundle.txt",
+        "srt_path": "bundle.srt", "vtt_path": "bundle.vtt", "txt_path": "bundle.txt",
         "md_path": "bundle.md", "raw_path": "bundle.raw.json",
     }.items():
         path = directory / name
@@ -92,7 +93,7 @@ def _seed_publication(root: Path) -> Path:
         files[key] = path.relative_to(root).as_posix()
     marker = directory / BUNDLE_MARKER_NAME
     marker.write_text(json.dumps({
-        "schema": "archive-bundle-v1",
+        "schema": BUNDLE_SCHEMA,
         "artifacts": {
             key: {"path": path, "sha256": hashlib.sha256((root / path).read_bytes()).hexdigest()}
             for key, path in files.items()
@@ -449,12 +450,13 @@ def test_publication_missing_or_stale_bundle_marker_prevents_save(tmp_path) -> N
     assert not snapshot.exists()
 
 
-def test_bundle_marker_is_checked_against_inventory_after_zip_hashes_match(tmp_path) -> None:
+@pytest.mark.parametrize("basename", ["bundle.txt", "bundle.vtt"])
+def test_bundle_marker_is_checked_against_inventory_after_zip_hashes_match(tmp_path, basename) -> None:
     root, snapshot, forged = tmp_path / "source", tmp_path / "backup.zip", tmp_path / "forged.zip"
     _seed_archive(root)
     marker = _seed_publication(root)
     save_snapshot(root, snapshot)
-    path = (marker.parent / "bundle.txt").relative_to(root).as_posix()
+    path = (marker.parent / basename).relative_to(root).as_posix()
     replacement = b"replaced transcript"
     def mutate_manifest(manifest):
         entry = next(entry for entry in manifest["files"] if entry["path"] == path)
@@ -462,6 +464,28 @@ def test_bundle_marker_is_checked_against_inventory_after_zip_hashes_match(tmp_p
     _rewrite_snapshot(snapshot, forged, mutate_manifest, lambda files: files.update({path: replacement}))
     with pytest.raises(SnapshotError, match="bundle marker hash"):
         check_snapshot(forged)
+
+
+def test_publication_missing_webvtt_prevents_save(tmp_path) -> None:
+    root, snapshot = tmp_path / "source", tmp_path / "backup.zip"
+    _seed_archive(root)
+    marker = _seed_publication(root)
+    (marker.parent / "bundle.vtt").unlink()
+    with pytest.raises(SnapshotError, match="missing artifact.*bundle.vtt"):
+        save_snapshot(root, snapshot)
+    assert not snapshot.exists()
+
+
+def test_snapshot_rejects_obsolete_bundle_marker_schema(tmp_path) -> None:
+    root, snapshot = tmp_path / "source", tmp_path / "backup.zip"
+    _seed_archive(root)
+    marker = _seed_publication(root)
+    document = json.loads(marker.read_bytes())
+    document["schema"] = "archive-bundle-v1"
+    marker.write_text(json.dumps(document), encoding="ascii")
+    with pytest.raises(SnapshotError, match="invalid transcript bundle marker"):
+        save_snapshot(root, snapshot)
+    assert not snapshot.exists()
 
 
 def test_complete_publication_restores_with_readable_bundle(tmp_path) -> None:
@@ -475,6 +499,8 @@ def test_complete_publication_restores_with_readable_bundle(tmp_path) -> None:
     with sqlite3.connect(target / "archive.db") as connection:
         paths = json.loads(connection.execute("SELECT artifact_json FROM workflow_publications").fetchone()[0])
     assert archive_bundle_complete(target, paths)
+    assert set(paths) == set(REQUIRED_ARTIFACT_KEYS)
+    assert (target / paths["vtt_path"]).read_bytes() == b"bundle.vtt"
 
 
 def test_snapshot_refuses_unreadable_artifact_directory_instead_of_omitting_it(tmp_path, monkeypatch) -> None:

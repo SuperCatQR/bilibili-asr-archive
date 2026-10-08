@@ -1,0 +1,84 @@
+# WSL ASR 验证记录
+
+日期：2026-10-08。实现分支：`codex/asr-quality-foundation`。本页记录配置与诊断基础改动的验证，参数设计依据见 [设计评审](asr-design-review.md)，执行合同见 [参数与诊断](asr-configuration.md)。
+
+## 环境与验证范围
+
+验证在 WSL2 的 `Ubuntu-24.04` 内执行，使用 `/home/chosenecho/bili-asr-asr-venv/bin/python`，从独立 worktree 的 `src/` 导入修改后的源码。
+
+| 项目 | 实际环境 |
+|---|---|
+| Python | 3.12.3 |
+| PyTorch | 2.14.1+cpu |
+| Transformers | 5.18.0 |
+| Accelerate | 1.15.0 |
+| NumPy / SoundFile / soxr | 2.5.3 / 0.14.0 / 1.1.0 |
+| pytest | 9.1.1 |
+| 模型执行 | CPU，BF16，离线加载 |
+
+补装当前测试环境缺少的 `responses==0.26.3`，并以 `pip install --no-deps --no-build-isolation .` 将本批源码安装到既有 venv 后运行全量测试。网络与规模测试遵守仓库已有 opt-in 规则；未启用这些额外测试。
+
+## 自动化回归
+
+最终全量回归：**1334 passed，10 skipped，339.00 秒**。测试实现提交为 `b343c0a`。为了减少 `/mnt/c` 上 SQLite 测试的磁盘开销，全量回归在从独立 worktree 复制的 WSL 原生文件系统副本 `/tmp/bili-asr-quality-native-20261008` 执行；最终回归前同步了最后一项测试路径修正。清除外部 `PYTHONPATH`，使隔离安装测试的子进程能检查实际安装包。测试结束后 WSL 临时目录已消失，因此没有取得测试副本的事后完整文件哈希核对记录。
+
+针对配置、诊断、原始字符与 schema 的专项回归先通过 153 项；随后补充了数值规范化、配置快照失败回滚和诊断失败回滚的测试，并纳入上述最终回归。
+
+可在 worktree 根目录复现：
+
+```bash
+env -u PYTHONPATH /home/chosenecho/bili-asr-asr-venv/bin/python -m pytest -q \
+  --basetemp=/tmp/bili-asr-quality-final
+```
+
+静态检查使用仓库 CI 的 `ruff check src scripts tests --select E9`，新增诊断模块与专项测试还通过完整 Ruff 规则。`git diff --check` 通过。
+
+总架构图经 Archify finalize 与 visual-check 校验：源码证据、生成、浏览器、浅色和深色状态及文字包含检查均通过。桌面截图已人工查看；完整总图仍有较多交叉连线，建议缩放与选择路径追踪，不能据自动通过结果认为所有关系都可在整图缩略视图中立即读清。
+
+## 真实模型样本
+
+读取已存在的 `/home/chosenecho/bili-asr-smoke/asr_zh.wav`，加载本机完整的 `Qwen3-ASR-1.7B-hf` 与 `Qwen3-ForcedAligner-0.6B-hf`。参数为 `device=cpu`、`language=Chinese`、`offline=True`，其余保持当前默认。测试通过受监督子进程 API `transcribe_with_timeout` 执行，时限 180 秒，并设置 `OMP_NUM_THREADS=4`、`MKL_NUM_THREADS=4`。
+
+| 测量项 | 结果 |
+|---|---|
+| 音频时长 | 4.2039375 秒 |
+| 音频 SHA-256 | `46dbc998c9d1d48111267c40741dd3200f2e5bcf4075f8c4c97f4451160dce50` |
+| 识别结果 | 甚至出现交易几乎停滞的情况。 |
+| 对齐范围 | 0.40–3.68 秒 |
+| 外部总耗时 | 20.896 秒，包含子进程启动和结果传递 |
+| 模型加载 | 6.046 秒 |
+| 解码 / 对齐 | 10.277 / 3.223 秒 |
+| 本遍内部总耗时 | 19.560 秒 |
+| 生成 | 8 tokens，上限 256，观察到 EOS |
+| 非法对齐单位 | 0 |
+| quality | `needs-review`，标记 `span-coverage-short` |
+
+完整观测值保存在 [样本诊断 JSON](asr-wsl-smoke.json)。本地 checkpoint 没有提供可读取的 resolved commit hash，该字段保持 null；本次没有证明模型文件来源与 commit 的完整对应。
+
+首尾跨度覆盖率约为 78.02%，最大未对齐间隔约为 0.524 秒。空白和静音也能触发此标记，本次没有独立人工参考转写，因此不能由跨度推导 CER、漏字率或识别正确率。单条短音频只证明模型接口、音频输入、生成、对齐和诊断传递链路可以运行；不代表长视频、多块或多遍真实模型基准。
+
+真实运行最初发现 processor 接收 WAV 路径时尝试调用未安装的 librosa。修改后的实现把项目已解码的 16 kHz float32 波形直接传给两个 processor，再次运行成功。该改动也消除了逐块临时 WAV 往返及 PCM16 量化。
+
+## GPU 验证限制与下一步
+
+本次 WSL 可见 `/dev/dxg`，但现有 PyTorch 环境没有启用可用的 ROCm GPU：环境检查未找到所需 ROCm/HSA 运行库，当前识别 venv 为 CPU build，另一个环境为 CUDA build 且没有可用设备。因而本次没有 GPU 推理、峰值显存、GPU RTF 或参数对照结果。
+
+后续应在可用的 ROCm 环境中固定 checkpoint commit 与多条项目音频哈希，建立人工参考后，优先比较 120 / 180 秒分块与语言声明，保持空热词。记录 CER、边界重复与漏字、异常空块、冷启动和模型复用耗时、峰值显存；据测量结果决定默认参数和常驻 worker 设计。按项目策略不将热词及其第二遍 cache 列入常规调优。
+
+## 同日后续：公开参考样本与构造对照
+
+继续使用上述 WSL CPU 环境，完成 12 条公开 FLEURS 中文样本的 Chinese / auto 对照，以及 138.6 秒人工拼接音频、8 秒数字静音的 180 / 120 / 60 秒分块对照，共 30 次真实推理。两种语言设置 CER 均为 7.38%；拼接音频各档 CER 为 7.12% / 7.12% / 7.89%；三个静音对照均生成“嗯。”。30 次推理均完成，字幕范围与开始顺序检查通过；没有人工时间戳准确率验证。
+
+新增评测专项测试在 WSL 中通过 **13 项**，脚本和专项测试通过完整 Ruff，仓库 CI 的 E9 静态检查通过。本批新增独立评测脚本与文档，没有修改生产 ASR 源码；没有重新运行上文 1334 项全量回归，不将新增测试与历史回归相加表述为一次全量结果。
+
+来源、许可、数据 commit、样本哈希、模型文件清单指纹、冷加载边界、逐条 CER、诊断解释和复现命令均见 [公开样本与调优依据](asr-public-samples.md)。当前证据支持继续使用现有基线，尚未证明为最优设置。公开朗读与人工拼接仅用于当前初步测量；项目实际长视频与 GPU 基准仍待验证。热词默认保持空，不列入常规调优计划。
+
+## 合并前验证：同步 main
+
+提交 `5c3cc606abc36c1632bc7c0bd9b06372136c88a8` 整合 main 的独立产物根、依赖重试、取消、BVID 选择、WebVTT 和元数据搜索。冲突解决保留完整 ASR 配置、波形数组输入和每次诊断；诊断与转录共享新的取消 / 租约 write guard。专项配置、取消、选择测试先通过 88 项。
+
+重新安装该合并版本后，在 WSL 原生目录 `/home/chosenecho/bili-asr-merge-validation-20261008` 全量执行，结果为 **1517 passed、10 skipped、331.37 秒**。测试副本源自本 worktree，`src/`、`tests/`、`scripts/` 的非 pyc 文件在测试前建立 SHA-256 清单，测试结束后全部校验通过。清单、日志和副本保留在该目录，避免前次 `/tmp` 消失后无法核查的问题。
+
+随后提交 `583ae64` 同步 main 的离线网关节流变更，生产源码没有进一步变化；变更的网关测试与夹具在 WSL 专项执行得到 **394 passed、1 skipped**。这两次结果分别记录，不合并成一次全量测试。最终 PR 提交仍需通过远端完整 CI 门禁。
+
+最终架构图引用 `5c3cc60` 的已提交源码，整合新增 workflow 功能和 ASR 证据。Archify finalize 的源码、生成、严格产物和浏览器门禁通过；visual-check 的包含、可读性、浅深主题与截图检查通过，桌面浅深截图已人工查看。总图仍有较多交叉关系，需用缩放、节点与路径聚焦阅读；不宣称全景中所有关系立即可辨。

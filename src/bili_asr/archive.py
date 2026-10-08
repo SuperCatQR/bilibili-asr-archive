@@ -11,10 +11,13 @@ import secrets
 import stat
 import sys
 import threading
+from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Callable, Mapping
+from typing import Any, Callable, ContextManager, Mapping
 
-from .asr import segments_to_srt, segments_to_txt
+from .cues import segments_to_srt, segments_to_vtt, segments_to_txt
+from .artifacts import BUNDLE_SCHEMA, REQUIRED_ARTIFACT_KEYS as _REQUIRED_ARTIFACT_KEYS
+from .artifact_root import ArtifactRoots
 from .page_identity import artifact_stem, page_identity, page_query_index
 
 #: The bundle's completion marker: a fixed basename **inside** the work's own
@@ -24,15 +27,15 @@ from .page_identity import artifact_stem, page_identity, page_query_index
 #: which sibling it certified.
 BUNDLE_MARKER_NAME = ".bundle-ready"
 
-#: The four fixed basenames inside one work's bundle directory (shape A).  The
+#: The five fixed basenames inside one work's bundle directory. The
 #: directory carries the identity, so the files inside do not repeat it.
 _BUNDLE_BASENAMES = {
     "srt_path": "bundle.srt",
+    "vtt_path": "bundle.vtt",
     "txt_path": "bundle.txt",
     "md_path": "bundle.md",
     "raw_path": "bundle.raw.json",
 }
-from .artifacts import REQUIRED_ARTIFACT_KEYS as _REQUIRED_ARTIFACT_KEYS
 _MARKER_MAX_BYTES = 8192
 _BUNDLE_LOCKS: dict[str, threading.RLock] = {}
 _BUNDLE_LOCKS_GUARD = threading.Lock()
@@ -72,7 +75,7 @@ def bundle_marker_path(path: str | os.PathLike[str]) -> Path:
     """The completion marker for the bundle ``path`` belongs to (shape A).
 
     The marker is a fixed name **inside the work's own directory**, sibling to
-    the four artifacts, so it no longer repeats the artifact's name.  ``path`` is
+    the five artifacts, so it no longer repeats the artifact's name.  ``path`` is
     any member of the bundle (``write_archive`` and every probe pass the srt).
     """
     return Path(os.fspath(path)).parent / BUNDLE_MARKER_NAME
@@ -102,7 +105,7 @@ def _open_transcripts_dir(root: Path) -> int:
     """Open (creating) the single ``transcripts`` directory below ``root``.
 
     Shape A keeps **one** directory level: every work owns
-    ``transcripts/{stem}/`` and the four artifacts are fixed names inside it, so
+    ``transcripts/{stem}/`` and the five artifacts are fixed names inside it, so
     there are no per-kind directories to open.
     """
     root_fd = os.open(root, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | os.O_NOFOLLOW)
@@ -123,6 +126,14 @@ def _write_at(directory_fd: int, name: str, content: bytes) -> None:
         _fsync_fd(fd)
     finally:
         os.close(fd)
+
+
+def _write_staged_path(path: Path, content: bytes) -> None:
+    """Durably stage a Windows artifact before entering the publication guard."""
+    with path.open("xb") as stream:
+        stream.write(content)
+        stream.flush()
+        os.fsync(stream.fileno())
 
 
 def _require_regular_target(
@@ -149,7 +160,7 @@ def _marker_payload(finals: Mapping[str, Path], root: Path, contents: Mapping[st
         key: {"path": finals[key].relative_to(root).as_posix(), "sha256": hashlib.sha256(contents[key]).hexdigest()}
         for key in _REQUIRED_ARTIFACT_KEYS
     }
-    return (json.dumps({"schema": "archive-bundle-v1", "artifacts": artifacts}, sort_keys=True, separators=(",", ":")) + "\n").encode("ascii")
+    return (json.dumps({"schema": BUNDLE_SCHEMA, "artifacts": artifacts}, sort_keys=True, separators=(",", ":")) + "\n").encode("ascii")
 
 
 def _read_fd(fd: int, limit: int) -> bytes:
@@ -222,9 +233,9 @@ def _open_declared(root: Path, relative: str) -> tuple[int, str] | None:
 
 
 def _owned_bundle_parts(paths: Mapping[str, str]) -> bool:
-    """Shape A: four fixed names inside one ``transcripts/{stem}/`` directory.
+    """Five fixed names inside one ``transcripts/{stem}/`` directory.
 
-    Every bundle is ``transcripts/<stem>/<fixed basename>``, and all four must sit
+    Every bundle is ``transcripts/<stem>/<fixed basename>``, and all five must sit
     in the **same** directory — that sameness is what makes the directory the
     work's identity and removes the two-naming-rules defect the four-kind-dir
     shape had (the markdown file used to embed the pubdate and title, so it moved
@@ -255,14 +266,14 @@ def archive_bundle_complete(
     """
     if os.name == "nt":
         try:
-            root = Path(os.path.abspath(os.fspath(archive_root)))
+            root = ArtifactRoots.of(archive_root).archive_root
             if set(paths) != set(_REQUIRED_ARTIFACT_KEYS) or not _owned_bundle_parts(paths):
                 return False
             marker = root / os.path.dirname(paths["srt_path"]) / BUNDLE_MARKER_NAME
             document = json.loads(
                 _read_regular_at(None, marker, limit=_MARKER_MAX_BYTES).decode("ascii")
             )
-            artifacts = document.get("artifacts") if isinstance(document, dict) and document.get("schema") == "archive-bundle-v1" else None
+            artifacts = document.get("artifacts") if isinstance(document, dict) and document.get("schema") == BUNDLE_SCHEMA else None
             if not isinstance(artifacts, dict) or set(artifacts) != set(_REQUIRED_ARTIFACT_KEYS):
                 return False
             for key in _REQUIRED_ARTIFACT_KEYS:
@@ -294,14 +305,14 @@ def archive_bundle_complete(
                         return False
                     opened[key] = item
                 # Shape A: the marker is a fixed name inside the bundle's own
-                # directory, sibling to the four artifacts -- not a suffix on the
+                # directory, sibling to the five artifacts -- not a suffix on the
                 # srt path as it was under the four-kind-dir shape.
                 marker_rel = os.path.join(os.path.dirname(paths["srt_path"]), BUNDLE_MARKER_NAME)
                 marker_item = _open_declared(root, marker_rel)
                 if marker_item is None:
                     return False
                 document = json.loads(_read_regular_at(*marker_item, limit=_MARKER_MAX_BYTES).decode("ascii"))
-                artifacts = document.get("artifacts") if isinstance(document, dict) and document.get("schema") == "archive-bundle-v1" else None
+                artifacts = document.get("artifacts") if isinstance(document, dict) and document.get("schema") == BUNDLE_SCHEMA else None
                 if not isinstance(artifacts, dict) or set(artifacts) != set(_REQUIRED_ARTIFACT_KEYS):
                     return False
                 for key in _REQUIRED_ARTIFACT_KEYS:
@@ -366,21 +377,38 @@ def _create_bundle_stage(transcripts_fd: int) -> tuple[str, int]:
     raise OSError("unable to allocate archive staging directory")
 
 
+@contextmanager
+def _publication_guard(guard, invalidate):
+    if guard is not None:
+        # The owner must call invalidate before releasing its serialization
+        # lock, including failures raised while exiting the context.
+        with guard(invalidate):
+            yield
+    else:
+        try:
+            yield
+        except BaseException:
+            invalidate()
+            raise
+
+
 def _publish_bundle(
     root: Path,
     finals: Mapping[str, Path],
     contents: Mapping[str, bytes],
     *,
     before_replace: Callable[[], None] | None = None,
+    publication_guard: Callable[[Callable[[], None]], ContextManager[Any]] | None = None,
 ) -> None:
-    """Publish one work's five files atomically inside its own directory.
+    """Publish five products with a marker that certifies the complete bundle.
 
-    Staging uses a unique sibling directory and the marker is invalidated
-    **before** the artifacts are moved into place, so a process that dies
-    mid-publish cannot strand a name that blocks the next publication. What
-    changed with shape A is that the five targets now
-    share one directory instead of four kind directories — the same directory the
-    marker lives in, which is what lets the marker travel with its bundle.
+    Encoding, hashes and staging happen outside ``publication_guard``. The
+    optional guard serializes every final replacement and marker commit with
+    cancellation; ``before_replace`` still checks each replacement. A failure
+    after publication begins invalidates the marker, including a guard's failed
+    exit. A supplied guard receives that cleanup callback and must invoke it
+    before releasing its lock on failure. The marker makes an interrupted group
+    of file replacements invisible.
     """
     if os.name == "nt":
         with _bundle_lock(root):
@@ -390,19 +418,35 @@ def _publish_bundle(
             for target in finals.values():
                 _require_regular_target(target)
             _require_regular_target(work / BUNDLE_MARKER_NAME, label="archive bundle marker")
-            for key in _REQUIRED_ARTIFACT_KEYS:
-                target = finals[key]
-                temporary = target.with_name(f".{target.name}.{secrets.token_hex(16)}.tmp")
-                temporary.write_bytes(contents[key])
-                if before_replace is not None:
-                    before_replace()
-                os.replace(temporary, target)
             marker = work / BUNDLE_MARKER_NAME
-            temporary = work / f".{BUNDLE_MARKER_NAME}.{secrets.token_hex(16)}.tmp"
-            temporary.write_bytes(_marker_payload(finals, root, contents))
-            if before_replace is not None:
-                before_replace()
-            os.replace(temporary, marker)
+            staged: dict[Path, Path] = {}
+            publication_started = False
+
+            def invalidate():
+                if publication_started:
+                    marker.unlink(missing_ok=True)
+
+            try:
+                for key in _REQUIRED_ARTIFACT_KEYS:
+                    target = finals[key]
+                    temporary = target.with_name(f".{target.name}.{secrets.token_hex(16)}.tmp")
+                    staged[target] = temporary
+                    _write_staged_path(temporary, contents[key])
+                temporary = work / f".{BUNDLE_MARKER_NAME}.{secrets.token_hex(16)}.tmp"
+                staged[marker] = temporary
+                _write_staged_path(temporary, _marker_payload(finals, root, contents))
+                with _publication_guard(publication_guard, invalidate):
+                    if before_replace is not None:
+                        before_replace()
+                    publication_started = True
+                    marker.unlink(missing_ok=True)
+                    for target, temporary in staged.items():
+                        if before_replace is not None:
+                            before_replace()
+                        os.replace(temporary, target)
+            finally:
+                for temporary in staged.values():
+                    temporary.unlink(missing_ok=True)
         return
     with _bundle_lock(root):
         transcripts_fd = _open_transcripts_dir(root)
@@ -412,6 +456,12 @@ def _publish_bundle(
         work_fd = None
         names = {key: finals[key].name for key in _REQUIRED_ARTIFACT_KEYS}
         marker_name = BUNDLE_MARKER_NAME
+        publication_started = False
+
+        def invalidate():
+            if publication_started and work_fd is not None:
+                _invalidate_marker(work_fd, marker_name)
+
         try:
             stage_name, stage_fd = _create_bundle_stage(transcripts_fd)
             for key in _REQUIRED_ARTIFACT_KEYS:
@@ -427,18 +477,20 @@ def _publish_bundle(
             work_fd = _open_dir(transcripts_fd, work_name)
             for name in names.values():
                 _require_regular_target(name, dir_fd=work_fd)
-            if before_replace is not None:
-                before_replace()
-            _invalidate_marker(work_fd, marker_name)
-            for key in _REQUIRED_ARTIFACT_KEYS:
+            with _publication_guard(publication_guard, invalidate):
                 if before_replace is not None:
                     before_replace()
-                _replace_at(stage_fd, names[key], work_fd, names[key])
-            if before_replace is not None:
-                before_replace()
-            _replace_at(stage_fd, marker_name, work_fd, marker_name)
-            _fsync_fd(work_fd)
-            _fsync_fd(transcripts_fd)
+                publication_started = True
+                _invalidate_marker(work_fd, marker_name)
+                for key in _REQUIRED_ARTIFACT_KEYS:
+                    if before_replace is not None:
+                        before_replace()
+                    _replace_at(stage_fd, names[key], work_fd, names[key])
+                if before_replace is not None:
+                    before_replace()
+                _replace_at(stage_fd, marker_name, work_fd, marker_name)
+                _fsync_fd(work_fd)
+                _fsync_fd(transcripts_fd)
         finally:
             active_error = sys.exc_info()[1]
             cleanup_error: OSError | None = None
@@ -480,7 +532,7 @@ def _publish_bundle(
                 raise cleanup_error
 
 def _lexical_archive_root(archive_root: str | os.PathLike[str]) -> Path:
-    root = Path(os.path.abspath(os.fspath(archive_root)))
+    root = ArtifactRoots.of(archive_root).archive_root
     if os.name == "nt":
         if root.is_symlink() or not root.is_dir():
             raise OSError("archive publication path is unsafe")
@@ -677,7 +729,7 @@ def bundle_dir_for_stem(root: str | os.PathLike[str], stem: str) -> Path:
 
 
 def bundle_paths_for_stem(root: str | os.PathLike[str], stem: str) -> dict[str, Path]:
-    """The four artifact paths for a known ``stem``.
+    """The five artifact paths for a known ``stem``.
 
     This is the layout's single authority: a reader that holds only a stem (the
     integrity, quality, search and proofread probes all do) asks here instead of
@@ -685,16 +737,11 @@ def bundle_paths_for_stem(root: str | os.PathLike[str], stem: str) -> dict[str, 
     in twenty places.
     """
     directory = bundle_dir_for_stem(root, stem)
-    return {
-        "srt_path": directory / _BUNDLE_BASENAMES["srt_path"],
-        "txt_path": directory / _BUNDLE_BASENAMES["txt_path"],
-        "md_path": directory / _BUNDLE_BASENAMES["md_path"],
-        "raw_path": directory / _BUNDLE_BASENAMES["raw_path"],
-    }
+    return {key: directory / _BUNDLE_BASENAMES[key] for key in _REQUIRED_ARTIFACT_KEYS}
 
 
 def bundle_relpaths_for_stem(stem: str) -> dict[str, str]:
-    """The four artifact paths for a stem as root-relative POSIX strings.
+    """The five artifact paths for a stem as root-relative POSIX strings.
 
     The string-shaped siblings of :func:`bundle_paths_for_stem`: probes that
     compare against a manifest's recorded relative path (and so never build a
@@ -707,10 +754,10 @@ def bundle_relpaths_for_stem(stem: str) -> dict[str, str]:
 
 
 def bundle_paths(root: str | os.PathLike[str], entry: dict[str, Any]) -> dict[str, Path]:
-    """Return the four artifact paths one entry's bundle occupies below ``root``.
+    """Return the five artifact paths one entry's bundle occupies below ``root``.
 
-    ``transcripts/{stem}/{bundle.srt,bundle.txt,bundle.md,bundle.raw.json}`` — one
-    directory per work, four fixed names inside it (compass L1 = **A**).  The stem
+    ``transcripts/{stem}/{bundle.srt,bundle.vtt,bundle.txt,bundle.md,bundle.raw.json}``
+    uses one directory per work with five fixed names. The stem
     is ``archive_stem(entry)``, so an unresolved or bare-``bvid`` row keeps its
     bare-``bvid`` directory.  ``root`` is used exactly as given, so a relative
     root yields relative paths; ``write_archive`` passes the root it has already
@@ -822,7 +869,7 @@ def characters_for(segments: list[dict[str, Any]], characters: Any) -> dict[str,
     return {"text": text, "starts": list(starts), "ends": list(ends)}
 
 
-def write_archive(archive_root: str | os.PathLike[str], entry: dict[str, Any], segments: list[dict[str, Any]], *, source: str, raw: Any | None = None, asr_provenance: Mapping[str, str] | None = None, characters: Any | None = None, coverage: Mapping[str, Any] | None = None, before_replace: Callable[[], None] | None = None) -> dict[str, str]:
+def write_archive(archive_root: str | os.PathLike[str], entry: dict[str, Any], segments: list[dict[str, Any]], *, source: str, raw: Any | None = None, asr_provenance: Mapping[str, str] | None = None, characters: Any | None = None, coverage: Mapping[str, Any] | None = None, before_replace: Callable[[], None] | None = None, publication_guard: Callable[[Callable[[], None]], ContextManager[Any]] | None = None) -> dict[str, str]:
     "Publish one transcript bundle below the archive root.\n\n    ``asr_provenance`` carries the ASR runner's redaction-safe configuration\n    (model, revision, device, language, VAD, hotwords).  It is recorded in the\n    raw sidecar and as ``asr_*`` frontmatter keys, so any transcript can be\n    traced back to the model that produced it.  The subtitle path passes\n    nothing and is unchanged.\n\n    ``coverage`` carries this run's coverage attestation (``decoded_s`` /\n    ``produced_s`` / ``coverage`` / ``coverage_min`` / ``coverage_short``, built\n    by :func:`bili_asr.asr.coverage._coverage_record`).  It is recorded as ``coverage_*``\n    frontmatter keys **and** in the raw sidecar, because ``I-000188``'s\n    acceptance names both surfaces: a reader holding only the published bundle\n    must be able to see that the transcript covers part of what was decoded,\n    without reading the store.  The subtitle path has no measurement to carry\n    and passes nothing.\n    "
     try:
         root = _lexical_archive_root(archive_root)
@@ -856,8 +903,8 @@ def write_archive(archive_root: str | os.PathLike[str], entry: dict[str, Any], s
     if block:
         raw["characters"] = block
         raw["schema"] = "archive-raw-v2"
-    contents = {"srt_path": segments_to_srt(segments).encode(), "txt_path": (segments_to_txt(segments) + "\n").encode(), "md_path": md, "raw_path": (json.dumps(raw, ensure_ascii=False, separators=(",", ":")) + "\n").encode()}
-    _publish_bundle(root, finals, contents, before_replace=before_replace)
+    contents = {"srt_path": segments_to_srt(segments).encode(), "vtt_path": segments_to_vtt(segments).encode(), "txt_path": (segments_to_txt(segments) + "\n").encode(), "md_path": md, "raw_path": (json.dumps(raw, ensure_ascii=False, separators=(",", ":")) + "\n").encode()}
+    _publish_bundle(root, finals, contents, before_replace=before_replace, publication_guard=publication_guard)
     return {
         key: os.path.relpath(path, root).replace(os.sep, "/")
         for key, path in finals.items()

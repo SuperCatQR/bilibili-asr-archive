@@ -37,16 +37,19 @@ def test_executor_renews_a_lease_during_a_long_handler(tmp_path) -> None:
         repository = WorkflowRepository(connection)
 
         def handler(_job):
-            time.sleep(2.2)
+            # Outlive the lease while leaving one second of scheduling margin:
+            # stored timestamps have whole-second precision, so a one-second
+            # lease can expire between a heartbeat and the terminal write.
+            time.sleep(3.2)
             return {"ok": True, "requested_transcript_id": 1}
 
         summary = WorkflowExecutor(
             repository,
             worker_id="long-worker",
             handlers={JobKind.PUBLISH: handler},
-            lease_seconds=1,
+            lease_seconds=2,
             heartbeat_interval_seconds=0.1,
-        ).run()
+        ).run(limit=1)
 
         assert (summary.succeeded, summary.failed, summary.idle) == (1, 0, False)
         job = connection.execute(

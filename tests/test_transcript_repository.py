@@ -1075,17 +1075,18 @@ def test_constructor_refuses_a_legacy_database_with_the_bounded_error(tmp_root):
     database_path = os.path.join(tmp_root, "archive.db")
     _write_pre_iteration_database(database_path)
 
-    connection = open_database(database_path)
+    # Bypass bootstrap deliberately: normal opens now refuse this entire old
+    # database. A repository constructed on a raw handle must also diagnose it.
+    connection = sqlite3.connect(database_path)
+    connection.row_factory = sqlite3.Row
+    connection.execute("PRAGMA foreign_keys = ON")
     try:
         with pytest.raises(SchemaContractError) as refused:
             TranscriptRepository(connection)
         message = str(refused.value)
-        assert "predates the transcript schema" in message
+        assert "transcript schema contract missing" in message
         assert "delete archive.db and re-run fetch-meta" in message
-
-        # The metadata boundary on that same database is untouched: the guard
-        # belongs to the transcript repository, not to the archive.
-        assert MetadataRepository(connection) is not None
+        assert "discarded" in message and "recollected" in message
     finally:
         connection.close()
 

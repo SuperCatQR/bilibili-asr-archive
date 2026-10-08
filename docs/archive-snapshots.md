@@ -102,6 +102,8 @@ supported schema contract, and checks database-to-file references. Relative
 paths must be portable to Windows and Linux; traversal, absolute paths,
 backslashes, reserved device names, and case collisions are rejected.
 Published transcript completion markers must match the bundle paths and hashes.
+Current bundles include SRT, WebVTT, plain text, Markdown, raw JSON, and a v2
+completion marker. Obsolete four-file bundles must be republished before saving.
 Check stages only the database in the system temporary directory; audio and
 other products are hashed without creating full temporary copies. Save needs
 space for the output ZIP and a database copy, and restore needs space for the
@@ -134,7 +136,9 @@ Existing immutable ASR profiles are preserved rather than edited to fit a new
 host. Inspect pending profiles before running on a device with different GPU
 support; use the workflow planner to create a new profile when needed.
 
-This first format supports the current database contract. It does not upgrade
+This first format supports the current database contract, including the same
+normalized core table definitions required by ordinary application opens.
+It does not upgrade
 older contracts, merge independently modified archives, provide bidirectional
 sync, or checkpoint live GPU inference. A structural contract check allows
 supported auxiliary objects such as FTS while refusing incompatible core schema.

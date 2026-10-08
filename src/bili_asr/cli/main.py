@@ -7,6 +7,8 @@ from bili_asr.diagnostics import write_stderr
 import argparse
 from pathlib import Path
 import sys
+import sqlite3
+from bili_asr.storage.database import SchemaContractError, SQLITE_BUSY_TIMEOUT_ENV
 
 # Keep the historical dotted import path usable while ``cli.main`` is now a
 # module.  A few orchestration tests import the module through this nested
@@ -59,7 +61,8 @@ def _main(
     if spec is None:
         raise ValueError(f"command {args.command!r} is not implemented")
     # Resolve configured artifact roots once at the command boundary.
-    if spec.artifacts is not ArtifactPolicy.NONE:
+    metadata_only_search = args.command == "search" and getattr(args, "scope", "transcripts") == "metadata"
+    if spec.artifacts is not ArtifactPolicy.NONE and not metadata_only_search:
         try:
             args.artifact_roots = roots_for(
                 args.archive_root,
@@ -76,14 +79,25 @@ def _main(
     } or (args.command == "search" and args.rebuild) or (
         args.command in {"status", "runs"} and (Path(args.archive_root) / "archive.db").is_file()
     )
-    if writes_archive:
-        try:
+    try:
+        if writes_archive:
             with archive_access(args.archive_root):
                 return _cli_pkg._dispatch_command(args)
-        except ArchiveAccessError as exc:
-            write_stderr(f"{args.command}: {exc}")
-            return 1
-    return _cli_pkg._dispatch_command(args)
+        return _cli_pkg._dispatch_command(args)
+    except (ArchiveAccessError, SchemaContractError) as exc:
+        write_stderr(f"{args.command}: {exc}")
+        return 1
+    except sqlite3.OperationalError as exc:
+        if getattr(exc, "sqlite_errorcode", 0) & 0xFF not in {sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED}:
+            raise
+        write_stderr(f"{args.command}: SQLite contention timeout exceeded; stop competing writers "
+                     f"or increase {SQLITE_BUSY_TIMEOUT_ENV}. Jobs remain recoverable; retry after contention clears.")
+        return 1
+    except ValueError as exc:
+        if not str(exc).startswith(SQLITE_BUSY_TIMEOUT_ENV):
+            raise
+        write_stderr(f"{args.command}: {exc}")
+        return 1
 
 
 def main(argv: list[str] | None = None) -> int:

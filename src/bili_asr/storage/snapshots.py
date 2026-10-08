@@ -13,6 +13,7 @@ import time
 from typing import Any
 
 from bili_asr.archive import BUNDLE_MARKER_NAME, _owned_bundle_parts
+from bili_asr.artifacts import REQUIRED_ARTIFACT_KEYS
 from bili_asr.storage.database import (
     _normalize_view_sql,
     _strip_sql_comments,
@@ -21,7 +22,7 @@ from bili_asr.storage.database import (
 
 
 _BACKUP_TIMEOUT_SECONDS = 10.0
-_PUBLICATION_KEYS = ("srt_path", "txt_path", "md_path", "raw_path")
+_PUBLICATION_KEYS = REQUIRED_ARTIFACT_KEYS
 _HASH = re.compile(r"[0-9a-f]{64}\Z")
 _WINDOWS_DEVICE = re.compile(r"(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)", re.I)
 
@@ -116,6 +117,9 @@ def _table_shape(connection: sqlite3.Connection, name: str, sql: str) -> dict[st
     flags = [list(row[3:]) for row in connection.execute("PRAGMA table_list")
              if row[0] == "main" and row[1] == name]
     return {
+        # Match the runtime's strict table contract so a restored archive also
+        # passes open_database, including historical ALTER layouts it rejects.
+        "sql": _normalize_view_sql(sql),
         "columns": columns,
         "foreign_keys": sorted(foreign_keys, key=repr),
         "constraints": sorted(constraints, key=repr),

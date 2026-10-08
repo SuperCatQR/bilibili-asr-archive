@@ -127,7 +127,7 @@ def confined_audio_path(
             fd = _open_audio_file(root, parts)
             os.close(fd)
         else:
-            audio_fd = open_audio_directory(root)
+            audio_fd = open_audio_directory(root, create=True)
             try:
                 try:
                     info = os.stat(parts[1], dir_fd=audio_fd, follow_symlinks=False)

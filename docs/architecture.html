@@ -4982,7 +4982,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
       </div>
     </div>
 
-    <script id="archify-source-evidence-data" type="application/json">{"schemaVersion":1,"verified":true,"repository":{"url":"https://github.com/SuperCatQR/bilibili-asr-archive","revision":"db10535a61ca04e7f1e78d44080bea91c0bd4913","shortRevision":"db10535","label":"SuperCatQR/bilibili-asr-archive","linkMode":"local-only"},"referenceCount":83,"nodes":{"operator":[{"path":"README.md","line":11,"endLine":36,"label":"当前操作入口"}],"cli":[{"path":"src/bili_asr/cli/main.py","line":1,"endLine":74,"label":"解析命令并分派 handler"},{"path":"src/bili_asr/cli/registry.py","line":25,"endLine":36,"label":"当前命令注册表"}],"planner":[{"path":"src/bili_asr/cli/workflow.py","line":129,"endLine":159,"label":"规划与 retry"},{"path":"src/bili_asr/storage/workflow.py","line":150,"endLine":240,"label":"独立生产者依赖"}],"jobs":[{"path":"src/bili_asr/storage/schema-workflow.sql","line":7,"endLine":81,"label":"任务 / 配置 / 质量表"},{"path":"src/bili_asr/storage/workflow.py","line":242,"endLine":308,"label":"原子租约与过期回收"},{"path":"src/bili_asr/storage/workflow.py","line":534,"endLine":589,"label":"完成与陈旧租约防护"}],"bilibili":[{"path":"src/bili_asr/sources/bilibili_api_gateway.py","line":783,"endLine":833,"label":"枚举 / 详情 / 分 P"},{"path":"src/bili_asr/sources/bilibili_api_gateway.py","line":906,"endLine":987,"label":"字幕清单与内容"},{"path":"src/bili_asr/bili_client.py","line":635,"endLine":656,"label":"CDN 流式下载"}],"gateway":[{"path":"src/bili_asr/sources/bilibili_api_gateway.py","line":1,"endLine":59,"label":"固定 SDK 与 DTO 边界"},{"path":"src/bili_asr/sources/bilibili_api_gateway.py","line":719,"endLine":781,"label":"凭据 / 代理 / pacing"},{"path":"src/bili_asr/bili_client.py","line":219,"endLine":331,"label":"HTTP / 风控 / 退避"}],"metadata":[{"path":"src/bili_asr/cli/meta.py","line":33,"endLine":45,"label":"实例化 gateway / repository"},{"path":"src/bili_asr/services/metadata_ingest.py","line":290,"endLine":365,"label":"分页采集与恢复游标"},{"path":"src/bili_asr/services/metadata_ingest.py","line":569,"endLine":645,"label":"页内持久化事实"}],"facts":[{"path":"src/bili_asr/storage/schema.sql","line":3,"endLine":113,"label":"实体 / 详情 / 采集事件"},{"path":"src/bili_asr/storage/database.py","line":398,"endLine":475,"label":"schema bootstrap"},{"path":"src/bili_asr/services/metadata_ingest.py","line":645,"endLine":690,"label":"record_page 写入"}],"subtitles":[{"path":"src/bili_asr/workflow_runtime.py","line":69,"endLine":103,"label":"字幕 handler 与发布请求"},{"path":"src/bili_asr/services/subtitle_ingest.py","line":465,"endLine":527,"label":"规范化与版本写入"},{"path":"src/bili_asr/storage/transcripts.py","line":164,"endLine":286,"label":"字幕内容幂等"}],"executor":[{"path":"src/bili_asr/workflow.py","line":27,"endLine":159,"label":"逐任务执行、terminal attempt 与心跳"},{"path":"src/bili_asr/cli/workflow.py","line":160,"endLine":183,"label":"实际 handler 注册"},{"path":"src/bili_asr/workflow_runtime.py","line":56,"endLine":67,"label":"归档 handler / 模型释放"}],"lease_heartbeat":[{"path":"src/bili_asr/workflow.py","line":101,"endLine":159,"label":"后台线程续租与停止"},{"path":"src/bili_asr/storage/workflow.py","line":106,"endLine":130,"label":"文件数据库独立连接"},{"path":"src/bili_asr/storage/workflow.py","line":335,"endLine":344,"label":"job、owner、attempt 三重 fencing"}],"audio":[{"path":"src/bili_asr/workflow_runtime.py","line":105,"endLine":145,"label":"下载与音频对象记录"},{"path":"src/bili_asr/audio.py","line":234,"endLine":372,"label":"CDN 候选 / staging / 转码"}],"audio_catalog":[{"path":"src/bili_asr/storage/schema.sql","line":118,"endLine":140,"label":"哈希 / storage_key / 模型身份"},{"path":"src/bili_asr/workflow_runtime.py","line":127,"endLine":145,"label":"对象及关联写入"}],"transcripts":[{"path":"src/bili_asr/storage/schema-transcripts.sql","line":14,"endLine":129,"label":"转录 / acquisition / coverage"},{"path":"src/bili_asr/storage/transcripts.py","line":289,"endLine":459,"label":"本地 ASR 幂等写入"},{"path":"src/bili_asr/workflow_runtime.py","line":180,"endLine":218,"label":"转录入库与 publish 请求"}],"asr":[{"path":"src/bili_asr/workflow_runtime.py","line":147,"endLine":234,"label":"实际 ASR 调用、watchdog 和存储归属"},{"path":"src/bili_asr/asr/runner.py","line":309,"endLine":421,"label":"重采样 / 分块 / 对齐 / coverage"},{"path":"src/bili_asr/asr/runner.py","line":27,"endLine":125,"label":"CUDA/ROCm 子进程 watchdog 与超时"}],"asr_watchdog":[{"path":"src/bili_asr/asr/runner.py","line":27,"endLine":125,"label":"可终止推理边界"},{"path":"src/bili_asr/asr/config.py","line":76,"endLine":116,"label":"inference timeout 配置"},{"path":"src/bili_asr/workflow_runtime.py","line":188,"endLine":209,"label":"CUDA/ROCm 超时失败记录"}],"audio_files":[{"path":"src/bili_asr/workflow_runtime.py","line":114,"endLine":128,"label":"实际音频路径与 duration"},{"path":"src/bili_asr/workflow_runtime.py","line":151,"endLine":167,"label":"对象定位与文件读取"},{"path":"src/bili_asr/asr/audio.py","line":128,"endLine":165,"label":"解码与无缝分块"}],"models":[{"path":"src/bili_asr/asr/runner.py","line":61,"endLine":96,"label":"模型对加载"},{"path":"src/bili_asr/asr/runner.py","line":160,"endLine":212,"label":"GPU 检测与惰性复用"},{"path":"src/bili_asr/asr/config.py","line":48,"endLine":80,"label":"模型 / device 配置"}],"publisher":[{"path":"src/bili_asr/workflow_runtime.py","line":221,"endLine":305,"label":"读取候选 / 发布 / publication 行"},{"path":"src/bili_asr/services/transcript_projection.py","line":54,"endLine":62,"label":"来源与语言排序"},{"path":"src/bili_asr/archive.py","line":369,"endLine":425,"label":"staging / marker 发布"}],"editorial":[{"path":"src/bili_asr/editorial_runtime.py","line":32,"endLine":53,"label":"续租 / 按块 checkpoint / 校验"},{"path":"src/bili_asr/storage/editorial.py","line":56,"endLine":98,"label":"输入快照与精确依赖结果"},{"path":"src/bili_asr/storage/workflow.py","line":232,"endLine":239,"label":"仅显式配置时接入"}],"deepseek":[{"path":"src/bili_asr/deepseek.py","line":18,"endLine":58,"label":"请求 / Authorization / timeout"},{"path":"src/bili_asr/editorial.py","line":32,"endLine":86,"label":"编辑配置与纯处理"}],"bundles":[{"path":"src/bili_asr/archive.py","line":25,"endLine":38,"label":"文件名与完成 marker"},{"path":"src/bili_asr/archive.py","line":369,"endLine":425,"label":"文件组提交"},{"path":"src/bili_asr/archive.py","line":809,"endLine":848,"label":"实际归档内容与写入"}],"revisions":[{"path":"src/bili_asr/storage/schema-editorial.sql","line":1,"endLine":53,"label":"快照 / 调用 / 修订 / 文档表"},{"path":"src/bili_asr/storage/editorial.py","line":100,"endLine":151,"label":"模型调用和修订持久化"}],"renderer":[{"path":"src/bili_asr/editorial_runtime.py","line":55,"endLine":93,"label":"修订读入 / 原子文档发布"},{"path":"src/bili_asr/cli/workflow.py","line":113,"endLine":123,"label":"重渲染任务入口"}],"search":[{"path":"src/bili_asr/cli/search.py","line":54,"endLine":140,"label":"默认 store 索引与只读查询"},{"path":"src/bili_asr/search_index/store.py","line":314,"endLine":353,"label":"增量 / 幂等 / checkpoint"},{"path":"src/bili_asr/search_index/store.py","line":267,"endLine":313,"label":"发布 Markdown 回退补全"}],"fts":[{"path":"src/bili_asr/search_index/store.py","line":122,"endLine":140,"label":"FTS5 schema"},{"path":"src/bili_asr/search_index/store.py","line":340,"endLine":353,"label":"索引事务写入"}],"documents":[{"path":"src/bili_asr/editorial_runtime.py","line":65,"endLine":93,"label":"documents 路径 / SHA / fsync"},{"path":"src/bili_asr/storage/schema-editorial.sql","line":46,"endLine":53,"label":"文档身份"}],"inspection":[{"path":"src/bili_asr/cli/status_cmd.py","line":15,"endLine":91,"label":"SQLite status / runs / coverage handlers"},{"path":"src/bili_asr/cli/ops.py","line":103,"endLine":160,"label":"workflow export 与 artifact verify"},{"path":"src/bili_asr/dedup.py","line":1,"endLine":150,"label":"音频与跨分片字幕哈希统计"}],"integrity":[{"path":"src/bili_asr/cli/ops.py","line":135,"endLine":163,"label":"verify 命令与退出结果"},{"path":"src/bili_asr/integrity.py","line":38,"endLine":58,"label":"缺陷分类与 audit 路径"}],"projection":[{"path":"src/bili_asr/services/workflow_projection.py","line":1,"endLine":122,"label":"从只读数据库投影当前 part、transcript 与 publication"}],"reading_export":[{"path":"src/bili_asr/cli/reading.py","line":31,"endLine":45,"label":"只读连接与站点导出入口"},{"path":"src/bili_asr/reading_publication.py","line":142,"endLine":272,"label":"读取 reading/review、哈希校验与快照写入"}],"review_state":[{"path":"src/bili_asr/storage/schema-editorial.sql","line":55,"endLine":90,"label":"人工版本、状态与事件表"},{"path":"src/bili_asr/reading_publication.py","line":275,"endLine":370,"label":"状态转换与人工版本写入"}],"reading_site":[{"path":"README.md","line":91,"endLine":113,"label":"导入、审核与本地站点入口"},{"path":"docs/architecture.md","line":31,"endLine":38,"label":"独立静态投影边界"}],"reviewer":[{"path":"README.md","line":107,"endLine":113,"label":"Issue 审核与人工版本入口"}]}}</script>
+    <script id="archify-source-evidence-data" type="application/json">{"schemaVersion":1,"verified":true,"repository":{"url":"https://github.com/SuperCatQR/bilibili-asr-archive","revision":"5c3cc606abc36c1632bc7c0bd9b06372136c88a8","shortRevision":"5c3cc60","label":"SuperCatQR/bilibili-asr-archive","linkMode":"local-only"},"referenceCount":84,"nodes":{"operator":[{"path":"src/bili_asr/cli/workflow.py","line":23,"endLine":107,"label":"显式命令入口"}],"cli":[{"path":"src/bili_asr/cli/main.py","line":28,"endLine":93,"label":"命令与检索根目录分派"},{"path":"src/bili_asr/cli/registry.py","line":25,"endLine":36,"label":"命令注册"}],"planner":[{"path":"src/bili_asr/cli/workflow.py","line":138,"endLine":312,"label":"选定目标、取消与重新发布"},{"path":"src/bili_asr/storage/workflow_selection.py","line":1,"endLine":136,"label":"目标解析与全集验证"},{"path":"src/bili_asr/storage/workflow.py","line":155,"endLine":222,"label":"不可变完整 ASR 配置快照"}],"jobs":[{"path":"src/bili_asr/storage/schema-workflow.sql","line":7,"endLine":89,"label":"任务、attempt 与 cancelled"},{"path":"src/bili_asr/storage/workflow.py","line":306,"endLine":508,"label":"租约、保护提交、取消与阻塞"},{"path":"src/bili_asr/storage/workflow.py","line":822,"endLine":886,"label":"精确 attempt 终态"}],"bilibili":[{"path":"src/bili_asr/sources/bilibili_api_gateway.py","line":787,"endLine":843,"label":"枚举 / 详情 / 分 P"},{"path":"src/bili_asr/sources/bilibili_api_gateway.py","line":916,"endLine":999,"label":"字幕清单与内容"},{"path":"src/bili_asr/bili_client.py","line":635,"endLine":656,"label":"CDN 流式下载"}],"gateway":[{"path":"src/bili_asr/sources/bilibili_api_gateway.py","line":1,"endLine":62,"label":"固定 SDK 与 DTO 边界"},{"path":"src/bili_asr/sources/bilibili_api_gateway.py","line":722,"endLine":785,"label":"凭据 / 代理 / pacing"},{"path":"src/bili_asr/bili_client.py","line":219,"endLine":331,"label":"HTTP / 风控 / 退避"}],"metadata":[{"path":"src/bili_asr/cli/meta.py","line":33,"endLine":45,"label":"实例化 gateway / repository"},{"path":"src/bili_asr/services/metadata_ingest.py","line":295,"endLine":372,"label":"分页采集与恢复游标"},{"path":"src/bili_asr/services/metadata_ingest.py","line":580,"endLine":656,"label":"页内持久化事实"}],"facts":[{"path":"src/bili_asr/storage/schema.sql","line":3,"endLine":113,"label":"实体 / 详情 / 采集事件"},{"path":"src/bili_asr/storage/database.py","line":441,"endLine":493,"label":"schema bootstrap"},{"path":"src/bili_asr/services/metadata_ingest.py","line":656,"endLine":701,"label":"record_page 写入"}],"subtitles":[{"path":"src/bili_asr/workflow_runtime.py","line":80,"endLine":117,"label":"字幕检查点与发布请求"},{"path":"src/bili_asr/services/subtitle_ingest.py","line":423,"endLine":533,"label":"响应后检查与规范化"},{"path":"src/bili_asr/storage/transcripts.py","line":89,"endLine":187,"label":"真正写事务内的检查"}],"executor":[{"path":"src/bili_asr/workflow.py","line":20,"endLine":112,"label":"取消与执行结果"},{"path":"src/bili_asr/cli/workflow.py","line":313,"endLine":337,"label":"实际 handler 注册"},{"path":"src/bili_asr/workflow_runtime.py","line":67,"endLine":78,"label":"归档 handler 与释放"}],"lease_heartbeat":[{"path":"src/bili_asr/workflow.py","line":114,"endLine":169,"label":"线程续租与失效停止"},{"path":"src/bili_asr/storage/workflow.py","line":150,"endLine":164,"label":"独立连接"},{"path":"src/bili_asr/storage/workflow.py","line":374,"endLine":403,"label":"精确 attempt 与取消检查"}],"audio":[{"path":"src/bili_asr/workflow_runtime.py","line":119,"endLine":185,"label":"下载、暂存与受保护登记"},{"path":"src/bili_asr/audio.py","line":234,"endLine":372,"label":"下载器音频目录契约"}],"audio_catalog":[{"path":"src/bili_asr/storage/schema.sql","line":118,"endLine":140,"label":"对象与关联"},{"path":"src/bili_asr/workflow_runtime.py","line":151,"endLine":185,"label":"对象与关联的实际写入"}],"transcripts":[{"path":"src/bili_asr/storage/schema-transcripts.sql","line":11,"endLine":418,"label":"转录 / acquisition / 运行诊断"},{"path":"src/bili_asr/storage/transcripts.py","line":314,"endLine":498,"label":"本地 ASR 幂等写入"},{"path":"src/bili_asr/workflow_runtime.py","line":245,"endLine":290,"label":"转录入库与 publish 请求"}],"asr":[{"path":"src/bili_asr/workflow_runtime.py","line":183,"endLine":290,"label":"实际 ASR 调用、watchdog 和存储归属"},{"path":"src/bili_asr/asr/runner.py","line":429,"endLine":594,"label":"重采样 / 分块 / 对齐 / coverage"},{"path":"src/bili_asr/asr/diagnostics.py","line":1,"endLine":101,"label":"逐块风险、对齐并集与阶段耗时"}],"asr_watchdog":[{"path":"src/bili_asr/asr/runner.py","line":28,"endLine":131,"label":"可终止推理边界"},{"path":"src/bili_asr/asr/config.py","line":78,"endLine":136,"label":"inference timeout 配置"},{"path":"src/bili_asr/workflow_runtime.py","line":219,"endLine":242,"label":"CUDA/ROCm 超时失败记录"}],"audio_files":[{"path":"src/bili_asr/workflow_runtime.py","line":119,"endLine":185,"label":"复用与最终音频写入"},{"path":"src/bili_asr/workflow_runtime.py","line":187,"endLine":200,"label":"音频对象读取"},{"path":"src/bili_asr/asr/audio.py","line":128,"endLine":165,"label":"解码"}],"models":[{"path":"src/bili_asr/asr/runner.py","line":64,"endLine":99,"label":"模型对加载"},{"path":"src/bili_asr/asr/runner.py","line":166,"endLine":220,"label":"GPU 检测与惰性复用"},{"path":"src/bili_asr/asr/config.py","line":49,"endLine":85,"label":"模型 / device 配置"}],"publisher":[{"path":"src/bili_asr/workflow_runtime.py","line":293,"endLine":384,"label":"实际发布文件和事实"},{"path":"src/bili_asr/archive.py","line":381,"endLine":532,"label":"暂存与失败清理"},{"path":"src/bili_asr/storage/workflow.py","line":413,"endLine":441,"label":"回滚前清理"}],"editorial":[{"path":"src/bili_asr/editorial_runtime.py","line":34,"endLine":58,"label":"模型前后检查与提交"},{"path":"src/bili_asr/storage/editorial.py","line":70,"endLine":141,"label":"固定输入与不可变结果"}],"deepseek":[{"path":"src/bili_asr/deepseek.py","line":18,"endLine":58,"label":"请求 / Authorization / timeout"},{"path":"src/bili_asr/editorial.py","line":32,"endLine":86,"label":"编辑配置与纯处理"}],"bundles":[{"path":"src/bili_asr/artifacts.py","line":1,"endLine":6,"label":"五产品契约"},{"path":"src/bili_asr/archive.py","line":395,"endLine":532,"label":"实际文件发布"},{"path":"src/bili_asr/archive.py","line":872,"endLine":911,"label":"编码与路径登记"}],"revisions":[{"path":"src/bili_asr/storage/schema-editorial.sql","line":1,"endLine":53,"label":"校对表组"},{"path":"src/bili_asr/storage/editorial.py","line":115,"endLine":141,"label":"校验块与完整修订"}],"renderer":[{"path":"src/bili_asr/editorial_runtime.py","line":60,"endLine":103,"label":"实际双文档发布"},{"path":"src/bili_asr/cli/workflow.py","line":219,"endLine":231,"label":"显式重渲染"}],"search":[{"path":"src/bili_asr/cli/search.py","line":54,"endLine":159,"label":"范围、UTC 与 JSON 契约"},{"path":"src/bili_asr/search_index/query.py","line":21,"endLine":63,"label":"元数据先返回与降级"},{"path":"src/bili_asr/search_index/metadata.py","line":61,"endLine":139,"label":"当前 metadata 的实际查询"}],"fts":[{"path":"src/bili_asr/search_index/store.py","line":123,"endLine":176,"label":"FTS 结构与校验"},{"path":"src/bili_asr/search_index/store.py","line":343,"endLine":473,"label":"实际索引事务"},{"path":"src/bili_asr/search_index/store.py","line":475,"endLine":569,"label":"FTS 查询"}],"documents":[{"path":"src/bili_asr/editorial_runtime.py","line":60,"endLine":103,"label":"实际路径、摘要和替换"},{"path":"src/bili_asr/storage/schema-editorial.sql","line":46,"endLine":53,"label":"文档身份"}],"inspection":[{"path":"src/bili_asr/cli/status_cmd.py","line":15,"endLine":91,"label":"SQLite status / runs / coverage handlers"},{"path":"src/bili_asr/cli/ops.py","line":103,"endLine":160,"label":"workflow export 与 artifact verify"},{"path":"src/bili_asr/dedup.py","line":1,"endLine":150,"label":"音频与跨分片字幕哈希统计"}],"integrity":[{"path":"src/bili_asr/cli/ops.py","line":135,"endLine":163,"label":"verify 命令与退出结果"},{"path":"src/bili_asr/integrity.py","line":38,"endLine":58,"label":"缺陷分类与 audit 路径"}],"projection":[{"path":"src/bili_asr/services/workflow_projection.py","line":1,"endLine":159,"label":"只读事实、五文件与缺陷保留"}],"reading_export":[{"path":"src/bili_asr/cli/reading.py","line":32,"endLine":46,"label":"只读连接与站点导出入口"},{"path":"src/bili_asr/reading_publication.py","line":142,"endLine":272,"label":"读取 reading/review、哈希校验与快照写入"}],"review_state":[{"path":"src/bili_asr/storage/schema-editorial.sql","line":55,"endLine":90,"label":"人工版本、状态与事件表"},{"path":"src/bili_asr/reading_publication.py","line":275,"endLine":370,"label":"状态转换与人工版本写入"}],"reading_site":[{"path":"src/bili_asr/reading_publication.py","line":142,"endLine":273,"label":"实际快照写出"}],"reviewer":[{"path":"src/bili_asr/cli/reading.py","line":47,"endLine":108,"label":"显式审核与人工编辑"},{"path":"src/bili_asr/reading_publication.py","line":46,"endLine":59,"label":"预填 Issue 链接"}]}}</script>
     <script id="archify-i18n-data" type="application/json">{"locale":"zh-CN","messages":{"viewer.kind.frontend":"前端","viewer.kind.backend":"后端","viewer.kind.database":"数据库","viewer.kind.cloud":"云服务","viewer.kind.security":"安全","viewer.kind.messagebus":"消息总线","viewer.kind.external":"外部系统","viewer.kind.neutral":"中性","viewer.kind.node":"节点","viewer.kind.start":"开始","viewer.kind.active":"活动","viewer.kind.waiting":"等待","viewer.kind.decision":"决策","viewer.kind.success":"成功","viewer.kind.failure":"失败","viewer.toolbar.actions":"图表操作","viewer.theme.toggle.title":"切换主题（T）","viewer.theme.toggle":"切换颜色主题","viewer.theme.dark":"深色","viewer.theme.light":"浅色","viewer.preset.choose.title":"选择视觉风格（S 循环切换）","viewer.preset.choose":"选择视觉风格","viewer.preset.style":"风格","viewer.preset.menu":"视觉风格","viewer.preset.identity":"视觉表达","viewer.preset.cycles":"循环切换","viewer.preset.classic":"经典","viewer.preset.classic.short":"经典","viewer.preset.classic.hint":"稳定的技术默认风格","viewer.preset.flow":"信号流","viewer.preset.flow.short":"流动","viewer.preset.flow.hint":"突出动态流向","viewer.preset.blueprint":"蓝图","viewer.preset.blueprint.hint":"工程评审","viewer.preset.editorial":"编辑风格","viewer.preset.editorial.hint":"适合发布与上线说明","viewer.preset.badge.signalFlow":"信号流","viewer.preset.badge.blueprint":"蓝图 / 修订 01","viewer.preset.badge.editorial":"编辑风格 / 现场笔记","viewer.preset.badge.editorialPlate":"ARCHIFY / 图版 04","viewer.preset.current":"当前视觉风格：{style}。选择视觉风格","viewer.motion.live":"动态","viewer.motion.still":"静态","viewer.motion.pause":"暂停动效","viewer.motion.resume":"恢复动效","viewer.motion.reduced":"已根据减少动态效果偏好暂停动效","viewer.motion.hidden":"页面不可见时已暂停动效","viewer.motion.yielding":"暂停动效；当前让位于{owner}","viewer.motion.yielding.title":"动态预览已启用 · 正在让位于{owner}","viewer.owner.route":"路径探测","viewer.owner.lens":"语义透镜","viewer.owner.relationship":"关系预览","viewer.owner.intent":"意图追踪","viewer.owner.focus":"语义聚焦","viewer.owner.legend":"图例预览","viewer.owner.reader":"读者交互","viewer.present.enter":"进入演示模式","viewer.present.enter.title":"演示模式（F）","viewer.present.exit":"退出演示模式","viewer.present.exit.title":"退出演示模式（F 或 Escape）","viewer.present.present":"演示","viewer.present.exit.label":"退出","viewer.export.button":"导出","viewer.export.button.title":"导出图表（E）","viewer.export.diagram":"导出图表","viewer.export.menu":"导出","viewer.export.subtitle":"便携、整洁的输出","viewer.export.share":"分享","viewer.export.shareCard":"分享卡片","viewer.export.routeShareCard":"路径分享卡片","viewer.export.reachShareCard":"可达范围分享卡片","viewer.export.copyDiagram":"复制图表","viewer.export.clipboardPng":"复制 PNG 到剪贴板","viewer.export.raster":"位图","viewer.export.image":"图像","viewer.export.lossless":"无损图像","viewer.export.compact":"紧凑图像","viewer.export.modern":"现代图像格式","viewer.export.vectorMotion":"矢量与动效","viewer.export.vectorMotion.heading":"矢量与动效","viewer.export.editable":"可编辑矢量图","viewer.export.svg.auto":"SVG · 自动","viewer.export.svg.auto.hint":"匹配宿主主题","viewer.export.svg.light":"SVG · 浅色","viewer.export.svg.light.hint":"始终浅色","viewer.export.svg.dark":"SVG · 深色","viewer.export.svg.dark.hint":"始终深色","viewer.export.motion6s":"6 秒动效","viewer.export.unsupported":"当前浏览器不支持","viewer.export.clipboardUnsupported":"当前浏览器不支持写入图片剪贴板","viewer.export.clipboardUnsupported.short":"此浏览器不支持写入图片剪贴板。","viewer.export.motionUnavailable":"当前浏览器无法录制动效","viewer.export.webmUnavailable":"当前浏览器不支持 WebM","viewer.export.failed":"导出失败：{message}","viewer.export.unknownVariant":"未知的分享卡片类型：{variant}","viewer.export.routeRequired":"请先追踪路径，再导出路径分享卡片","viewer.export.reachRequired":"请先追踪编写可达范围，再导出可达范围分享卡片","viewer.export.unknown":"未知错误","viewer.export.routeFailed":"路径分享卡片导出失败：{message}","viewer.export.reachFailed":"可达范围分享卡片导出失败：{message}","viewer.export.copyFailed":"复制失败：{message}","viewer.export.copiedPng":"已将 PNG 复制到剪贴板","viewer.export.downloadedRoute":"已下载路径分享卡片","viewer.export.downloadedReach":"已下载可达范围分享卡片","viewer.export.downloadedWebm":"已下载 WebM","viewer.export.recording":"正在录制 6 秒动效…","viewer.export.card.routeSummary.one":"路径：{source} → {target} · {count} 步","viewer.export.card.routeSummary.other":"路径：{source} → {target} · {count} 步","viewer.export.card.reachSummary":"从{origin}开始的编写{direction} · {nodes} · {links} · 最深 {hops}","viewer.export.card.node.one":"{count} 个节点","viewer.export.card.node.other":"{count} 个节点","viewer.export.card.link.one":"{count} 条连接","viewer.export.card.link.other":"{count} 条连接","viewer.export.card.hop.one":"{count} 跳","viewer.export.card.hop.other":"{count} 跳","viewer.export.card.routeBadge":"ARCHIFY · 路径 · {hops}","viewer.export.card.reachBadge":"ARCHIFY · {direction}可达范围","viewer.export.direction.upstream":"上游","viewer.export.direction.downstream":"下游","viewer.export.error.canvasUnavailable":"无法为{label}使用画布","viewer.export.error.contextUnavailable":"无法为{label}创建二维画布上下文","viewer.export.error.toBlobUnavailable":"{label}无法使用 canvas.toBlob","viewer.export.error.toBlobNull":"{label}的 canvas.toBlob 未返回数据","viewer.export.error.variantsCombined":"无法同时组合多种分享卡片类型","viewer.export.error.viewerState":"分享卡片导出无法移除临时 Viewer 状态","viewer.export.error.routeState":"路径卡片导出无法安全保留已解析路径","viewer.export.error.reachState":"可达范围卡片导出无法安全保留编写的可达范围","viewer.export.error.webmRequirements":"WebM 动效导出需要追踪动画及浏览器 MediaRecorder 支持","viewer.export.error.mediaRecorder":"MediaRecorder 录制失败","viewer.export.error.emptyWebm":"MediaRecorder 生成了空的 WebM","viewer.export.error.webmBackground":"无法为 WebM 导出加载 SVG 背景","viewer.guide.title":"探索此系统","viewer.focus.selectedNodes":"已选择 {count} 个节点","viewer.guide.eyebrow":"图表指南","viewer.guide.close":"关闭图表指南","viewer.guide.inspecting":"正在检查已编译语义","viewer.guide.actions":"图表探索操作","viewer.guide.find":"查找任意节点","viewer.guide.find.hint":"搜索标签、职责、类型和稳定 ID。","viewer.guide.route":"追踪路径","viewer.guide.route.aria":"追踪有向路径","viewer.guide.route.hint":"查看两个语义节点如何按编写方向连接。","viewer.guide.map":"查看完整系统","viewer.guide.map.hint":"打开带实时视口和稳定节点的语义雷达。","viewer.guide.lens":"比较语义类型","viewer.guide.lens.hint":"统计角色、显示流量并比较直接编写的连接。","viewer.guide.present":"进入演示模式","viewer.guide.present.hint":"让实时图表占满视口，同时不改变导出。","viewer.guide.shortcuts":"其他键盘快捷键","viewer.guide.shortcut.export":"导出","viewer.guide.shortcut.theme":"主题","viewer.guide.shortcut.style":"风格","viewer.guide.shortcut.reset":"重置","viewer.guide.shortcut.zoomIn":"放大","viewer.guide.shortcut.zoomOut":"缩小","viewer.guide.shortcut.close":"关闭","viewer.guide.facts":"{nodes} · {relationships}","viewer.guide.fact.node.one":"{count} 个语义节点","viewer.guide.fact.node.other":"{count} 个语义节点","viewer.guide.fact.relationship.one":"{count} 条关系","viewer.guide.fact.relationship.other":"{count} 条关系","viewer.guide.open":"打开图表指南","viewer.finder.title":"查找节点","viewer.finder.close":"关闭节点查找器","viewer.finder.placeholder":"搜索标签或 ID","viewer.finder.search":"搜索图表节点","viewer.finder.results":"图表节点","viewer.finder.empty":"没有匹配的节点","viewer.finder.result.focus":"聚焦{label}","viewer.finder.result.routeStart":"选择{label}作为路径起点","viewer.finder.result.routeTarget":"选择{label}作为路径终点，{links}","viewer.finder.status.empty":"没有匹配的节点","viewer.finder.status.count.one":"{count} 个匹配节点","viewer.finder.status.count.other":"{count} 个匹配节点","viewer.finder.noun.nodes":"个节点","viewer.finder.link.one":"{count} 条连接","viewer.finder.link.other":"{count} 条连接","viewer.finder.result.focus.one":"聚焦{label}，{count} 条相关连接","viewer.finder.result.focus.other":"聚焦{label}，{count} 条相关连接","viewer.finder.status.filtered":"{visible}/{available} {noun}","viewer.finder.status.all":"{available} {noun}","viewer.passport.eyebrow":"语义护照","viewer.passport.metadata":"节点元数据","viewer.passport.evidence":"已验证的源代码证据","viewer.passport.verified":"已验证来源","viewer.passport.verificationScope":"已按固定修订版本验证本地 Git 证据，未检查远程访问权限。","viewer.passport.reach":"编写可达范围","viewer.passport.reach.trace":"追踪编写的可达性","viewer.passport.upstream":"上游","viewer.passport.downstream":"下游","viewer.passport.upstream.trace":"追踪上游编写可达性","viewer.passport.downstream.trace":"追踪下游编写可达性","viewer.passport.close":"关闭语义护照","viewer.passport.move":"移动语义护照。可拖动、使用方向键移动，或按 Home 恢复自动位置。","viewer.passport.copy":"复制链接","viewer.passport.copy.focus":"复制聚焦节点的链接","viewer.passport.relations":"关系","viewer.passport.relations.show":"显示关联关系","viewer.passport.relations.hide":"隐藏关联关系","viewer.passport.relations.list":"关联关系","viewer.passport.copyRelation":"复制关系","viewer.passport.copyNode":"复制节点","viewer.passport.copyPinned":"复制固定关系的链接","viewer.passport.copySource":"复制来源节点的链接","viewer.passport.copy.focused.success":"已复制聚焦节点链接","viewer.passport.copy.pinned.success":"已复制固定关系链接","viewer.passport.copy.focused.failed":"无法复制聚焦节点链接","viewer.passport.copy.pinned.failed":"无法复制固定关系链接","viewer.passport.relationship.none":"没有关联关系","viewer.passport.relationship.count.one":"{count} 条关系","viewer.passport.relationship.count.other":"{count} 条关系","viewer.passport.relationship.show.one":"显示 {count} 条关联关系","viewer.passport.relationship.show.other":"显示 {count} 条关联关系","viewer.passport.relationship.summary":"{out} 条出向 · {in} 条入向{loops}","viewer.passport.relationship.loops":" · {count} 条自环","viewer.passport.relationship.explorer":"直接关系浏览器","viewer.passport.relationship.help":"使用方向键浏览关系。按 Enter 或空格键固定详情；按 Escape 清除。","viewer.passport.relationship.loopsBack":"回环","viewer.passport.relationship.connectsTo":"连接到","viewer.passport.relationship.connectsFrom":"连接自","viewer.passport.relationship.pinned":"已固定关系 · {from} → {to} · {label}","viewer.passport.relationship.inspect":"检查第 {index}/{total} 条关系：{from} 到 {to}，{label}。按 Enter 查看详情。","viewer.passport.relationship.group.out":"出向","viewer.passport.relationship.group.in":"入向","viewer.passport.relationship.group.loop":"自环","viewer.passport.relationship.row":"{group}：{relationship}，{neighbor}","viewer.passport.relationship.direction.out":"出 →","viewer.passport.relationship.direction.in":"← 入","viewer.passport.relationship.direction.loop":"自环","viewer.passport.sourceCount.one":"{count} 个已验证来源引用","viewer.passport.sourceCount.other":"{count} 个已验证来源引用","viewer.passport.sourceMarker":"来源","viewer.passport.beacon.one":"{count} 个已验证来源；聚焦此节点以检查","viewer.passport.beacon.other":"{count} 个已验证来源；聚焦此节点以检查","viewer.passport.repository.open":"打开已验证的仓库修订版本 {revision}","viewer.passport.source.open":"打开修订版本 {revision} 中已验证的来源 {path}","viewer.passport.source.openLink":"打开 ↗","viewer.passport.reach.upstream.one":"追踪 {count} 个上游编写节点","viewer.passport.reach.upstream.other":"追踪 {count} 个上游编写节点","viewer.passport.reach.downstream.one":"追踪 {count} 个下游编写节点","viewer.passport.reach.downstream.other":"追踪 {count} 个下游编写节点","viewer.passport.reach.noUpstream":"没有上游编写节点","viewer.passport.reach.noDownstream":"没有下游编写节点","viewer.passport.reach.status":"{direction} · {nodes} 个节点 · {links} 条连接 · 最深 {hops} 跳","viewer.route.eyebrow":"路径","viewer.route.start":"点击路径的起点","viewer.route.start.find":"查找起点","viewer.route.start.find.aria":"查找路径起点","viewer.route.copy":"复制链接","viewer.route.copy.aria":"复制已追踪路径的链接","viewer.route.clear":"清除","viewer.route.clear.aria":"清除路径探测","viewer.route.traced":"路径","viewer.route.pickTwo":"在图上点两个节点","viewer.route.pickOne":"在图上点一个节点","viewer.route.controls":"路径旅程控制","viewer.route.previous":"上一个路径位置","viewer.route.play":"播放路径旅程","viewer.route.pause":"暂停路径旅程","viewer.route.replay":"重播路径旅程","viewer.route.next":"下一个路径位置","viewer.route.journey":"旅程","viewer.route.pause.label":"暂停","viewer.route.replay.label":"重播","viewer.route.overview":"总览","viewer.route.overview.aria":"显示完整路径总览","viewer.route.instructions":"先点起点，再点终点，沿箭头方向找路。","viewer.route.destination":"从{label}出发，走到哪里？","viewer.route.destination.find":"查找目标","viewer.route.destination.find.aria":"查找可达的路径目标","viewer.route.differentDestination":"选择其他目标","viewer.route.distinct":"请选两个不同的节点。","viewer.route.unreachable":"走不到{label}","viewer.route.unreachable.detail":"沿箭头方向，从{source}走不到{target}。请选一个高亮节点。","viewer.route.start.instructions":"接着选终点，能走到的节点会亮起。","viewer.route.copy.success":"已复制路径链接","viewer.route.copy.failed":"无法复制路径链接","viewer.route.position":"路径位置 {index}/{total}：{label}","viewer.route.step":"第 {index}/{total} 步 · {phase} · {label}","viewer.route.motionRequired":"自动旅程需要动态模式","viewer.route.trigger.clear":"清除已追踪路径","viewer.route.overview.status":"{nodes} · {hops} · 最短路径","viewer.route.overview.node.one":"{count} 个节点","viewer.route.overview.node.other":"{count} 个节点","viewer.route.overview.hop.one":"{count} 步","viewer.route.overview.hop.other":"{count} 步","viewer.route.phase.playing":"播放中","viewer.route.phase.complete":"已完成","viewer.route.phase.inspecting":"检查中","viewer.route.destination.count.one":"有 {count} 个能走到的节点已高亮，点一下。","viewer.route.destination.count.other":"有 {count} 个能走到的节点已高亮，点一个。","viewer.route.noOutgoing":"这个节点没有向外的箭头。清除后换一个起点。","viewer.route.result.title":"{source} 到 {target}","viewer.route.finder.source.title":"选择路径起点","viewer.route.finder.source.placeholder":"搜索路径来源","viewer.route.finder.source.empty":"没有匹配的路径来源","viewer.route.finder.source.results":"可作为路径起点的节点","viewer.route.finder.source.noun":"个路径来源","viewer.route.finder.source.badge":"起点","viewer.route.finder.target.title":"从{label}出发的目标","viewer.route.finder.target.placeholder":"搜索可达目标","viewer.route.finder.target.empty":"没有匹配的可达目标","viewer.route.finder.target.results":"可达路径目标","viewer.route.finder.target.noun":"个可达目标","viewer.route.hop.one":"{count} 跳","viewer.route.hop.other":"{count} 跳","viewer.lens.eyebrow":"语义透镜","viewer.lens.title":"比较系统角色","viewer.lens.close":"关闭语义透镜","viewer.lens.instruction":"最多选择两种语义类型。选择一种可显示其真实流量；选择两种只比较直接编写的关系。","viewer.lens.kinds":"语义类型","viewer.lens.choose":"选择一种类型以检查其节点和相连关系。","viewer.lens.copy":"复制语义透镜链接","viewer.lens.clear":"清除语义透镜","viewer.lens.open":"打开语义透镜","viewer.lens.openActive":"打开当前语义透镜","viewer.lens.legend":"语义图例","viewer.lens.legend.inspect.one":"检查{label}，{count} 个节点","viewer.lens.legend.inspect.other":"检查{label}，{count} 个节点","viewer.lens.kind.count.one":"{label}，{count} 个节点","viewer.lens.kind.count.other":"{label}，{count} 个节点","viewer.lens.compare.one":"{first} → {second}：{forward} · {second} → {first}：{reverse} · 共 {count} 条直接关系","viewer.lens.compare.other":"{first} → {second}：{forward} · {second} → {first}：{reverse} · 共 {count} 条直接关系","viewer.lens.single":"{nodes} · {relationships} · 已连接节点保持可见","viewer.lens.node.one":"{count} 个{label}节点","viewer.lens.node.other":"{count} 个{label}节点","viewer.lens.relationship.one":"{count} 条相连关系","viewer.lens.relationship.other":"{count} 条相连关系","viewer.radar.title":"语义雷达","viewer.radar.building":"正在构建总览","viewer.radar.openFull":"打开完整语义雷达","viewer.radar.open":"打开雷达","viewer.radar.close":"关闭语义雷达","viewer.radar.surface":"图表总览。点击节点进行聚焦，或使用方向键平移。","viewer.radar.click":"点击节点","viewer.radar.drag":"拖动平移","viewer.radar.space":"语义雷达需要更多地图可见空间。","viewer.radar.nodes":"语义图表雷达节点","viewer.radar.focus":"从语义雷达聚焦{label}","viewer.radar.status":"{count} 个节点 · {viewport}","viewer.radar.fullMap":"{count} 个节点 · 完整地图","viewer.radar.compacted":"已收紧雷达，避免遮挡语义护照或地图控件。","viewer.radar.cancelWaiting":"取消等待更多地图空间的语义雷达","viewer.radar.needsSpace":"语义雷达需要更多可见地图空间","viewer.radar.viewport.full":"完整地图","viewer.radar.viewport.width":"宽度 {percent}%","viewer.radar.viewport.scale":"视口 {percent}%","viewer.nav.controls":"图表视图控制","viewer.nav.route":"追踪有向路径","viewer.nav.route.title":"追踪路径（R）","viewer.nav.route.short":"路径","viewer.nav.radar":"打开语义雷达","viewer.nav.radar.title":"语义雷达（M）","viewer.nav.radar.short":"地图","viewer.nav.lens":"打开语义透镜","viewer.nav.lens.title":"语义透镜（L）","viewer.nav.lens.short":"透镜","viewer.nav.find":"查找节点","viewer.nav.find.title":"查找节点（/）","viewer.outline.title":"节点索引","viewer.rail.show":"要点与索引","viewer.rail.controls":"侧栏","viewer.rail.collapse":"收起侧栏","viewer.rail.bottom":"移到图下方","viewer.rail.right":"移到图右侧","viewer.nav.guide":"打开图表指南","viewer.nav.guide.title":"图表指南（?）","viewer.nav.zoomOut":"缩小","viewer.nav.zoomOut.title":"缩小（-）","viewer.nav.reset":"重置图表视图","viewer.nav.reset.title":"重置视图（0）","viewer.nav.read":"阅读","viewer.nav.zoomIn":"放大","viewer.nav.zoomIn.title":"放大（+）","viewer.nav.camera":"{hint}。重置图表视图","viewer.nav.camera.title":"{semantic}{hint} · 重置视图（0）","viewer.nav.camera.semantic":"语义相机已启用 · ","viewer.nav.level.map":"概览","viewer.nav.level.read":"阅读","viewer.nav.level.full":"完整","viewer.nav.level.auto":"自动","viewer.nav.detail.map":"放大以显示关系标签和节点上下文","viewer.nav.detail.read":"再次放大以显示标签和注释","viewer.nav.detail.full":"完整图表详情","viewer.intent.summary":"{label}。{out} 条出向，{in} 条入向{loops}。共 {total} 条连接。按 Enter 查看详情。","viewer.intent.loops":"，{count} 条自环","viewer.common.copied":"已复制","viewer.common.copyFailed":"复制失败","viewer.common.copyLink":"复制链接","viewer.common.clear":"清除","viewer.common.close":"关闭"}}</script>
     <!-- Main Diagram -->
     <div class="diagram-container" data-detail-level="read"
@@ -5022,7 +5022,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
         </g>
         <g data-graph-role="automatic-crossover" style="--step:1">
           <path data-graph-role="automatic-crossover-underlay" d="M 575 88 L 650 88" fill="none" stroke="var(--mask)" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round" pointer-events="none"/>
-          <path data-edge-from="cli" data-edge-to="planner" data-edge-label="workflow plan" data-edge-key="1" data-edge-id="plan" data-composition-points="575,88;650,88" data-composition-crossover="halo" data-composition-independent="true" d="M 575 88 L 650 88" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+          <path data-edge-from="cli" data-edge-to="planner" data-edge-label="workflow 控制" data-edge-key="1" data-edge-id="plan" data-composition-points="575,88;650,88" data-composition-crossover="halo" data-composition-independent="true" d="M 575 88 L 650 88" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
         </g>
         <g data-graph-role="automatic-crossover" style="--step:2">
           <path data-graph-role="automatic-crossover-underlay" d="M 880 88 L 955 88" fill="none" stroke="var(--mask)" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round" pointer-events="none"/>
@@ -5045,28 +5045,28 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
           <path data-edge-from="metadata" data-edge-to="facts" data-edge-label="页事务" data-edge-key="6" data-edge-id="meta-sql" data-composition-points="880,335;955,335" data-composition-crossover="halo" d="M 880 335 L 955 335" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
         </g>
         <g data-graph-role="automatic-crossover" style="--step:7">
-          <path data-graph-role="automatic-crossover-underlay" d="M 1070 290 L 1070 223 Q 1070 215 1062 215 L 773 215 Q 765 215 765 207 L 765 140" fill="none" stroke="var(--mask)" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round" pointer-events="none"/>
-          <path data-edge-from="facts" data-edge-to="planner" data-edge-label="选定 part ID" data-edge-key="7" data-edge-id="known-parts" data-composition-points="1070,290;1070,215;765,215;765,140" data-composition-crossover="halo" data-composition-independent="true" d="M 1070 290 L 1070 223 Q 1070 215 1062 215 L 773 215 Q 765 215 765 207 L 765 140" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+          <path data-graph-role="automatic-crossover-underlay" d="M 955 328 L 912 328 Q 904 328 904 320 L 904 257 Q 904 249 896 249 L 876.1999999999999 249 Q 868.1999999999999 249 868.1999999999999 241 L 868.1999999999999 151 Q 868.1999999999999 143 876.1999999999999 143 L 896 143 Q 904 143 904 135 L 904 110 Q 904 102 896 102 L 880 102" fill="none" stroke="var(--mask)" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round" pointer-events="none"/>
+          <path data-edge-from="facts" data-edge-to="planner" data-edge-label="BVID / 分 P 解析" data-edge-key="7" data-edge-id="known-parts" data-composition-points="955,328;904,328;904,249;868.1999999999999,249;868.1999999999999,143;904,143;904,102;880,102" data-composition-crossover="halo" data-composition-independent="true" d="M 955 328 L 912 328 Q 904 328 904 320 L 904 257 Q 904 249 896 249 L 876.1999999999999 249 Q 868.1999999999999 249 868.1999999999999 241 L 868.1999999999999 151 Q 868.1999999999999 143 876.1999999999999 143 L 896 143 Q 904 143 904 135 L 904 110 Q 904 102 896 102 L 880 102" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
         </g>
         <g data-graph-role="automatic-crossover" style="--step:8">
-          <path data-graph-role="automatic-crossover-underlay" d="M 1063 140 L 1063 271 Q 1063 279 1055 279 L 941.4 279 Q 933.4 279 933.4 287 L 933.4 429.5 Q 933.4 437.5 925.4 437.5 L 475 437.5 Q 467 437.5 467 445.5 L 467 560" fill="none" stroke="var(--mask)" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round" pointer-events="none"/>
-          <path data-edge-from="jobs" data-edge-to="executor" data-edge-label="原子领取 / 租约" data-edge-key="8" data-edge-id="claim" data-composition-points="1063,140;1063,279;933.4,279;933.4,437.5;467,437.5;467,560" data-composition-crossover="halo" data-composition-independent="true" d="M 1063 140 L 1063 271 Q 1063 279 1055 279 L 941.4 279 Q 933.4 279 933.4 287 L 933.4 429.5 Q 933.4 437.5 925.4 437.5 L 475 437.5 Q 467 437.5 467 445.5 L 467 560" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+          <path data-graph-role="automatic-crossover-underlay" d="M 1070 50 L 1070 34 Q 1070 26 1078 26 L 1180 26 Q 1188 26 1188 34 L 1188 375 Q 1188 383 1180 383 L 475 383 Q 467 383 467 391 L 467 560" fill="none" stroke="var(--mask)" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round" pointer-events="none"/>
+          <path data-edge-from="jobs" data-edge-to="executor" data-edge-label="原子领取 / 租约" data-edge-key="8" data-edge-id="claim" data-composition-points="1070,50;1070,26;1188,26;1188,383;467,383;467,560" data-composition-crossover="halo" data-composition-independent="true" d="M 1070 50 L 1070 34 Q 1070 26 1078 26 L 1180 26 Q 1188 26 1188 34 L 1188 375 Q 1188 383 1180 383 L 475 383 Q 467 383 467 391 L 467 560" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
         </g>
         <g data-graph-role="automatic-crossover" style="--step:9">
-          <path data-graph-role="automatic-crossover-underlay" d="M 430.95 650 L 430.95 666 Q 430.95 674 438.95 674 L 618 674 Q 626 674 626 682 L 626 727 Q 626 735 634 735 L 650 735" fill="none" stroke="var(--mask)" stroke-width="5.8" stroke-linecap="round" stroke-linejoin="round" pointer-events="none"/>
-          <path data-edge-from="executor" data-edge-to="lease_heartbeat" data-edge-label="attempt heartbeat" data-edge-key="9" data-edge-id="lease-heartbeat" data-composition-points="430.95,650;430.95,674;626,674;626,735;650,735" data-composition-crossover="halo" data-composition-independent="true" d="M 430.95 650 L 430.95 666 Q 430.95 674 438.95 674 L 618 674 Q 626 674 626 682 L 626 727 Q 626 735 634 735 L 650 735" class="a-emphasis" stroke-width="1.8" marker-end="url(#arrowhead-emphasis)"/>
+          <path data-graph-role="automatic-crossover-underlay" d="M 575 598 L 591 598 Q 599 598 599 590 L 599 490 Q 599 482 607 482 L 933.4 482 Q 941.4 482 941.4 474 L 941.4 292 Q 941.4 284 949.4 284 L 1062 284 Q 1070 284 1070 276 L 1070 260" fill="none" stroke="var(--mask)" stroke-width="5.8" stroke-linecap="round" stroke-linejoin="round" pointer-events="none"/>
+          <path data-edge-from="executor" data-edge-to="lease_heartbeat" data-edge-label="attempt heartbeat" data-edge-key="9" data-edge-id="lease-heartbeat" data-composition-points="575,598;599,598;599,482;941.4,482;941.4,284;1070,284;1070,260" data-composition-crossover="halo" data-composition-independent="true" d="M 575 598 L 591 598 Q 599 598 599 590 L 599 490 Q 599 482 607 482 L 933.4 482 Q 941.4 482 941.4 474 L 941.4 292 Q 941.4 284 949.4 284 L 1062 284 Q 1070 284 1070 276 L 1070 260" class="a-emphasis" stroke-width="1.8" marker-end="url(#arrowhead-emphasis)"/>
         </g>
         <g data-graph-role="automatic-crossover" style="--step:10">
-          <path data-graph-role="automatic-crossover-underlay" d="M 880 735 L 933.4 735 Q 941.4 735 941.4 727 L 941.4 172 Q 941.4 164 949.4 164 L 1069 164 Q 1077 164 1077 156 L 1077 140" fill="none" stroke="var(--mask)" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round" pointer-events="none"/>
-          <path data-edge-from="lease_heartbeat" data-edge-to="jobs" data-edge-label="续租 / stale fencing" data-edge-key="10" data-edge-id="lease-renew" data-composition-points="880,735;941.4,735;941.4,164;1077,164;1077,140" data-composition-crossover="halo" data-composition-independent="true" d="M 880 735 L 933.4 735 Q 941.4 735 941.4 727 L 941.4 172 Q 941.4 164 949.4 164 L 1069 164 Q 1077 164 1077 156 L 1077 140" class="a-security" stroke-width="1.5" marker-end="url(#arrowhead-security)"/>
+          <path data-graph-role="automatic-crossover-underlay" d="M 1077 170 L 1077 140" fill="none" stroke="var(--mask)" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round" pointer-events="none"/>
+          <path data-edge-from="lease_heartbeat" data-edge-to="jobs" data-edge-label="续租 / stale fencing" data-edge-key="10" data-edge-id="lease-renew" data-composition-points="1077,170;1077,140" data-composition-crossover="halo" data-composition-independent="true" d="M 1077 170 L 1077 140" class="a-security" stroke-width="1.5" marker-end="url(#arrowhead-security)"/>
         </g>
         <g data-graph-role="automatic-crossover" style="--step:11">
           <path data-graph-role="automatic-crossover-underlay" d="M 345 605 L 270 605" fill="none" stroke="var(--mask)" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round" pointer-events="none"/>
           <path data-edge-from="executor" data-edge-to="subtitles" data-edge-label="字幕 job" data-edge-key="11" data-edge-id="worker-caption" data-composition-points="345,605;270,605" data-composition-crossover="halo" d="M 345 605 L 270 605" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
         </g>
         <g data-graph-role="automatic-crossover" style="--step:12">
-          <path data-graph-role="automatic-crossover-underlay" d="M 575 598 L 591 598 Q 599 598 599 606 L 599 620 Q 599 628 607 628 L 618 628 Q 626 628 626 620 L 626 620 Q 626 612 634 612 L 650 612" fill="none" stroke="var(--mask)" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round" pointer-events="none"/>
-          <path data-edge-from="executor" data-edge-to="audio" data-edge-label="audio job" data-edge-key="12" data-edge-id="worker-audio" data-composition-points="575,598;599,598;599,628;626,628;626,612;650,612" data-composition-crossover="halo" data-composition-independent="true" d="M 575 598 L 591 598 Q 599 598 599 606 L 599 620 Q 599 628 607 628 L 618 628 Q 626 628 626 620 L 626 620 Q 626 612 634 612 L 650 612" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+          <path data-graph-role="automatic-crossover-underlay" d="M 575 613.05 L 591 613.05 Q 599 613.05 599 621.05 L 599 621.05 Q 599 629.05 607 629.05 L 618 629.05 Q 626 629.05 626 621.05 L 626 620 Q 626 612 634 612 L 650 612" fill="none" stroke="var(--mask)" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round" pointer-events="none"/>
+          <path data-edge-from="executor" data-edge-to="audio" data-edge-label="audio job" data-edge-key="12" data-edge-id="worker-audio" data-composition-points="575,613.05;599,613.05;599,629.05;626,629.05;626,612;650,612" data-composition-crossover="halo" data-composition-independent="true" d="M 575 613.05 L 591 613.05 Q 599 613.05 599 621.05 L 599 621.05 Q 599 629.05 607 629.05 L 618 629.05 Q 626 629.05 626 621.05 L 626 620 Q 626 612 634 612 L 650 612" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
         </g>
         <g data-graph-role="automatic-crossover" style="--step:13">
           <path data-graph-role="automatic-crossover-underlay" d="M 460 650 L 460 840" fill="none" stroke="var(--mask)" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round" pointer-events="none"/>
@@ -5081,8 +5081,8 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
           <path data-edge-from="audio" data-edge-to="audio_catalog" data-edge-label="SHA-256 / key" data-edge-key="15" data-edge-id="audio-meta" data-composition-points="880,605;955,605" data-composition-crossover="halo" d="M 880 605 L 955 605" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
         </g>
         <g data-graph-role="automatic-crossover" style="--step:16">
-          <path data-graph-role="automatic-crossover-underlay" d="M 880 605 L 896 605 Q 904 605 904 613 L 904 877 Q 904 885 896 885 L 880 885" fill="none" stroke="var(--mask)" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round" pointer-events="none"/>
-          <path data-edge-from="audio" data-edge-to="audio_files" data-edge-label="下载与固化" data-edge-key="16" data-edge-id="audio-write" data-composition-points="880,605;904,605;904,885;880,885" data-composition-crossover="halo" data-composition-independent="true" d="M 880 605 L 896 605 Q 904 605 904 613 L 904 877 Q 904 885 896 885 L 880 885" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+          <path data-graph-role="automatic-crossover-underlay" d="M 765 650 L 765 840" fill="none" stroke="var(--mask)" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round" pointer-events="none"/>
+          <path data-edge-from="audio" data-edge-to="audio_files" data-edge-label="下载与固化" data-edge-key="16" data-edge-id="audio-write" data-composition-points="765,650;765,840" data-composition-crossover="halo" data-composition-independent="true" d="M 765 650 L 765 840" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
         </g>
         <g data-graph-role="automatic-crossover" style="--step:17">
           <path data-graph-role="automatic-crossover-underlay" d="M 155 650 L 155 840" fill="none" stroke="var(--mask)" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round" pointer-events="none"/>
@@ -5114,7 +5114,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
         </g>
         <g data-graph-role="automatic-crossover" style="--step:24">
           <path data-graph-role="automatic-crossover-underlay" d="M 155 1200 L 155 1216 Q 155 1224 163 1224 L 163 1224 Q 171 1224 171 1232 L 171 1358 Q 171 1366 163 1366 L 154.95 1366 Q 146.95 1366 146.95 1374 L 146.95 1390" fill="none" stroke="var(--mask)" stroke-width="5.8" stroke-linecap="round" stroke-linejoin="round" pointer-events="none"/>
-          <path data-edge-from="publisher" data-edge-to="bundles" data-edge-label="完整 bundle" data-edge-key="24" data-edge-id="publish-bytes" data-composition-points="155,1200;155,1224;171,1224;171,1366;146.95,1366;146.95,1390" data-composition-crossover="halo" data-composition-independent="true" d="M 155 1200 L 155 1216 Q 155 1224 163 1224 L 163 1224 Q 171 1224 171 1232 L 171 1358 Q 171 1366 163 1366 L 154.95 1366 Q 146.95 1366 146.95 1374 L 146.95 1390" class="a-emphasis" stroke-width="1.8" marker-end="url(#arrowhead-emphasis)"/>
+          <path data-edge-from="publisher" data-edge-to="bundles" data-edge-label="五文件 + 完成标记" data-edge-key="24" data-edge-id="publish-bytes" data-composition-points="155,1200;155,1224;171,1224;171,1366;146.95,1366;146.95,1390" data-composition-crossover="halo" data-composition-independent="true" d="M 155 1200 L 155 1216 Q 155 1224 163 1224 L 163 1224 Q 171 1224 171 1232 L 171 1358 Q 171 1366 163 1366 L 154.95 1366 Q 146.95 1366 146.95 1374 L 146.95 1390" class="a-emphasis" stroke-width="1.8" marker-end="url(#arrowhead-emphasis)"/>
         </g>
         <g data-graph-role="automatic-crossover" style="--step:25">
           <path data-graph-role="automatic-crossover-underlay" d="M 169 930 L 169 969 Q 169 977 177 977 L 639 977 Q 647 977 647 985 L 647 1078 Q 647 1086 655 1086 L 750 1086 Q 758 1086 758 1094 L 758 1110" fill="none" stroke="var(--mask)" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round" pointer-events="none"/>
@@ -5130,7 +5130,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
         </g>
         <g data-graph-role="automatic-crossover" style="--step:28">
           <path data-graph-role="automatic-crossover-underlay" d="M 765 1200 L 765 1390" fill="none" stroke="var(--mask)" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round" pointer-events="none"/>
-          <path data-edge-from="editorial" data-edge-to="revisions" data-edge-label="校验后保存" data-edge-key="28" data-edge-id="save-revision" data-composition-points="765,1200;765,1390" data-composition-crossover="halo" data-composition-independent="true" d="M 765 1200 L 765 1390" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+          <path data-edge-from="editorial" data-edge-to="revisions" data-edge-label="guard 内提交" data-edge-key="28" data-edge-id="save-revision" data-composition-points="765,1200;765,1390" data-composition-crossover="halo" data-composition-independent="true" d="M 765 1200 L 765 1390" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
         </g>
         <g data-graph-role="automatic-crossover" style="--step:29">
           <path data-graph-role="automatic-crossover-underlay" d="M 880 1435 L 955 1435" fill="none" stroke="var(--mask)" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round" pointer-events="none"/>
@@ -5138,11 +5138,11 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
         </g>
         <g data-graph-role="automatic-crossover" style="--step:30">
           <path data-graph-role="automatic-crossover-underlay" d="M 1070 1480 L 1070 1650" fill="none" stroke="var(--mask)" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round" pointer-events="none"/>
-          <path data-edge-from="renderer" data-edge-to="documents" data-edge-label="fsync / replace" data-edge-key="30" data-edge-id="render-bytes" data-composition-points="1070,1480;1070,1650" data-composition-crossover="halo" data-composition-independent="true" d="M 1070 1480 L 1070 1650" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+          <path data-edge-from="renderer" data-edge-to="documents" data-edge-label="guard 内替换" data-edge-key="30" data-edge-id="render-bytes" data-composition-points="1070,1480;1070,1650" data-composition-crossover="halo" data-composition-independent="true" d="M 1070 1480 L 1070 1650" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
         </g>
         <g data-graph-role="automatic-crossover" style="--step:31">
-          <path data-graph-role="automatic-crossover-underlay" d="M 155 930 L 155 946 Q 155 954 147 954 L 37 954 Q 29 954 29 962 L 29 1618 Q 29 1626 37 1626 L 452 1626 Q 460 1626 460 1634 L 460 1650" fill="none" stroke="var(--mask)" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round" pointer-events="none"/>
-          <path data-edge-from="transcripts" data-edge-to="search" data-edge-label="转录块" data-edge-key="31" data-edge-id="index-source" data-composition-points="155,930;155,954;29,954;29,1626;460,1626;460,1650" data-composition-crossover="halo" data-composition-independent="true" d="M 155 930 L 155 946 Q 155 954 147 954 L 37 954 Q 29 954 29 962 L 29 1618 Q 29 1626 37 1626 L 452 1626 Q 460 1626 460 1634 L 460 1650" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+          <path data-graph-role="automatic-crossover-underlay" d="M 155 930 L 155 946 Q 155 954 147 954 L 37 954 Q 29 954 29 962 L 29 1618 Q 29 1626 37 1626 L 445 1626 Q 453 1626 453 1634 L 453 1650" fill="none" stroke="var(--mask)" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round" pointer-events="none"/>
+          <path data-edge-from="transcripts" data-edge-to="search" data-edge-label="转录块" data-edge-key="31" data-edge-id="index-source" data-composition-points="155,930;155,954;29,954;29,1626;453,1626;453,1650" data-composition-crossover="halo" data-composition-independent="true" d="M 155 930 L 155 946 Q 155 954 147 954 L 37 954 Q 29 954 29 962 L 29 1618 Q 29 1626 37 1626 L 445 1626 Q 453 1626 453 1634 L 453 1650" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
         </g>
         <g data-graph-role="automatic-crossover" style="--step:32">
           <path data-graph-role="automatic-crossover-underlay" d="M 575 1695 L 650 1695" fill="none" stroke="var(--mask)" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round" pointer-events="none"/>
@@ -5165,16 +5165,16 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
           <path data-edge-from="cli" data-edge-to="executor" data-edge-label="workflow run" data-edge-key="36" data-edge-id="workflow-run" data-composition-points="467,140;467,287;342,287;342,536;453,536;453,560" data-composition-crossover="halo" data-composition-independent="true" d="M 467 140 L 467 279 Q 467 287 459 287 L 350 287 Q 342 287 342 295 L 342 528 Q 342 536 350 536 L 445 536 Q 453 536 453 544 L 453 560" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
         </g>
         <g data-graph-role="automatic-crossover" style="--step:37">
-          <path data-graph-role="automatic-crossover-underlay" d="M 1070 380 L 1070 396 Q 1070 404 1062 404 L 329 404 Q 321 404 321 412 L 321 2241.95 Q 321 2249.95 329 2249.95 L 345 2249.95" fill="none" stroke="var(--mask)" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round" pointer-events="none"/>
-          <path data-edge-from="facts" data-edge-to="inspection" data-edge-label="status / runs" data-edge-key="37" data-edge-id="inspect-facts" data-composition-points="1070,380;1070,404;321,404;321,2249.95;345,2249.95" data-composition-crossover="halo" data-composition-independent="true" d="M 1070 380 L 1070 396 Q 1070 404 1062 404 L 329 404 Q 321 404 321 412 L 321 2241.95 Q 321 2249.95 329 2249.95 L 345 2249.95" class="a-dashed" stroke-width="1.5" marker-end="url(#arrowhead-dashed)"/>
+          <path data-graph-role="automatic-crossover-underlay" d="M 1070 380 L 1070 396 Q 1070 404 1062 404 L 329 404 Q 321 404 321 412 L 321 2257 Q 321 2265 329 2265 L 345 2265" fill="none" stroke="var(--mask)" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round" pointer-events="none"/>
+          <path data-edge-from="facts" data-edge-to="inspection" data-edge-label="status / runs" data-edge-key="37" data-edge-id="inspect-facts" data-composition-points="1070,380;1070,404;321,404;321,2265;345,2265" data-composition-crossover="halo" d="M 1070 380 L 1070 396 Q 1070 404 1062 404 L 329 404 Q 321 404 321 412 L 321 2257 Q 321 2265 329 2265 L 345 2265" class="a-dashed" stroke-width="1.5" marker-end="url(#arrowhead-dashed)"/>
         </g>
         <g data-graph-role="automatic-crossover" style="--step:38">
           <path data-graph-role="automatic-crossover-underlay" d="M 155 1480 L 155 2326 Q 155 2334 163 2334 L 757 2334 Q 765 2334 765 2326 L 765 2310" fill="none" stroke="var(--mask)" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round" pointer-events="none"/>
           <path data-edge-from="bundles" data-edge-to="integrity" data-edge-label="完整性检查" data-edge-key="38" data-edge-id="verify-products" data-composition-points="155,1480;155,2334;765,2334;765,2310" data-composition-crossover="halo" data-composition-independent="true" d="M 155 1480 L 155 2326 Q 155 2334 163 2334 L 757 2334 Q 765 2334 765 2326 L 765 2310" class="a-dashed" stroke-width="1.5" marker-end="url(#arrowhead-dashed)"/>
         </g>
         <g data-graph-role="automatic-crossover" style="--step:39">
-          <path data-graph-role="automatic-crossover-underlay" d="M 1056 380 L 1056 549 Q 1056 557 1048 557 L 332 557 Q 324 557 324 565 L 324 1037 Q 324 1045 316 1045 L 300 1045" fill="none" stroke="var(--mask)" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round" pointer-events="none"/>
-          <path data-edge-from="facts" data-edge-to="projection" data-edge-label="active video parts" data-edge-key="39" data-edge-id="facts-projection" data-composition-points="1056,380;1056,557;324,557;324,1045;300,1045" data-composition-crossover="halo" data-composition-independent="true" d="M 1056 380 L 1056 549 Q 1056 557 1048 557 L 332 557 Q 324 557 324 565 L 324 1037 Q 324 1045 316 1045 L 300 1045" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+          <path data-graph-role="automatic-crossover-underlay" d="M 955 342 L 939 342 Q 931 342 931 350 L 931 828 Q 931 836 923 836 L 332 836 Q 324 836 324 844 L 324 1037 Q 324 1045 316 1045 L 300 1045" fill="none" stroke="var(--mask)" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round" pointer-events="none"/>
+          <path data-edge-from="facts" data-edge-to="projection" data-edge-label="active video parts" data-edge-key="39" data-edge-id="facts-projection" data-composition-points="955,342;931,342;931,836;324,836;324,1045;300,1045" data-composition-crossover="halo" data-composition-independent="true" d="M 955 342 L 939 342 Q 931 342 931 350 L 931 828 Q 931 836 923 836 L 332 836 Q 324 836 324 844 L 324 1037 Q 324 1045 316 1045 L 300 1045" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
         </g>
         <g data-graph-role="automatic-crossover" style="--step:40">
           <path data-graph-role="automatic-crossover-underlay" d="M 155 930 L 155 957 Q 155 965 163 965 L 172 965 Q 180 965 180 973 L 180 1000" fill="none" stroke="var(--mask)" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round" pointer-events="none"/>
@@ -5197,20 +5197,28 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
           <path data-edge-from="revisions" data-edge-to="reading_export" data-edge-label="只读修订" data-edge-key="44" data-edge-id="reading-revision" data-composition-points="765,1480;765,1647;162,1647;162,2500" data-composition-crossover="halo" data-composition-independent="true" d="M 765 1480 L 765 1639 Q 765 1647 757 1647 L 170 1647 Q 162 1647 162 1655 L 162 2500" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
         </g>
         <g data-graph-role="automatic-crossover" style="--step:45">
-          <path data-graph-role="automatic-crossover-underlay" d="M 955 1695 L 939 1695 Q 931 1695 931 1703 L 931 2489 Q 931 2497 923 2497 L 302 2497 Q 294 2497 294 2505 L 294 2523 Q 294 2531 286 2531 L 270 2531" fill="none" stroke="var(--mask)" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round" pointer-events="none"/>
-          <path data-edge-from="documents" data-edge-to="reading_export" data-edge-label="reading.md + review.md" data-edge-key="45" data-edge-id="reading-documents" data-composition-points="955,1695;931,1695;931,2497;294,2497;294,2531;270,2531" data-composition-crossover="halo" data-composition-independent="true" d="M 955 1695 L 939 1695 Q 931 1695 931 1703 L 931 2489 Q 931 2497 923 2497 L 302 2497 Q 294 2497 294 2505 L 294 2523 Q 294 2531 286 2531 L 270 2531" class="a-dashed" stroke-width="1.5" marker-end="url(#arrowhead-dashed)"/>
+          <path data-graph-role="automatic-crossover-underlay" d="M 1070 1740 L 1070 1756 Q 1070 1764 1062 1764 L 302 1764 Q 294 1764 294 1772 L 294 2523 Q 294 2531 286 2531 L 270 2531" fill="none" stroke="var(--mask)" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round" pointer-events="none"/>
+          <path data-edge-from="documents" data-edge-to="reading_export" data-edge-label="reading.md + review.md" data-edge-key="45" data-edge-id="reading-documents" data-composition-points="1070,1740;1070,1764;294,1764;294,2531;270,2531" data-composition-crossover="halo" data-composition-independent="true" d="M 1070 1740 L 1070 1756 Q 1070 1764 1062 1764 L 302 1764 Q 294 1764 294 1772 L 294 2523 Q 294 2531 286 2531 L 270 2531" class="a-dashed" stroke-width="1.5" marker-end="url(#arrowhead-dashed)"/>
         </g>
         <g data-graph-role="automatic-crossover" style="--step:46">
           <path data-graph-role="automatic-crossover-underlay" d="M 155 2590 L 155 2606 Q 155 2614 163 2614 L 618 2614 Q 626 2614 626 2606 L 626 2553 Q 626 2545 634 2545 L 650 2545" fill="none" stroke="var(--mask)" stroke-width="5.8" stroke-linecap="round" stroke-linejoin="round" pointer-events="none"/>
           <path data-edge-from="reading_export" data-edge-to="reading_site" data-edge-label="静态内容快照" data-edge-key="46" data-edge-id="reading-snapshot" data-composition-points="155,2590;155,2614;626,2614;626,2545;650,2545" data-composition-crossover="halo" data-composition-independent="true" d="M 155 2590 L 155 2606 Q 155 2614 163 2614 L 618 2614 Q 626 2614 626 2606 L 626 2553 Q 626 2545 634 2545 L 650 2545" class="a-emphasis" stroke-width="1.8" marker-end="url(#arrowhead-emphasis)"/>
         </g>
         <g data-graph-role="automatic-crossover" style="--step:47">
-          <path data-graph-role="automatic-crossover-underlay" d="M 850 2545 L 970 2545" fill="none" stroke="var(--mask)" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round" pointer-events="none"/>
-          <path data-edge-from="reading_site" data-edge-to="reviewer" data-edge-label="预填 GitHub Issue" data-edge-key="47" data-edge-id="issue-feedback" data-composition-points="850,2545;970,2545" data-composition-crossover="halo" data-composition-independent="true" d="M 850 2545 L 970 2545" class="a-dashed" stroke-width="1.5" marker-end="url(#arrowhead-dashed)"/>
+          <path data-graph-role="automatic-crossover-underlay" d="M 880 2538 L 970 2538" fill="none" stroke="var(--mask)" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round" pointer-events="none"/>
+          <path data-edge-from="reading_site" data-edge-to="reviewer" data-edge-label="预填 GitHub Issue" data-edge-key="47" data-edge-id="issue-feedback" data-composition-points="880,2538;970,2538" data-composition-crossover="halo" data-composition-independent="true" d="M 880 2538 L 970 2538" class="a-dashed" stroke-width="1.5" marker-end="url(#arrowhead-dashed)"/>
         </g>
         <g data-graph-role="automatic-crossover" style="--step:48">
           <path data-graph-role="automatic-crossover-underlay" d="M 345 2560.05 L 270 2560.05" fill="none" stroke="var(--mask)" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round" pointer-events="none"/>
           <path data-edge-from="review_state" data-edge-to="reading_export" data-edge-label="重新导出状态" data-edge-key="48" data-edge-id="review-export" data-composition-points="345,2560.05;270,2560.05" data-composition-crossover="halo" data-composition-independent="true" d="M 345 2560.05 L 270 2560.05" class="a-dashed" stroke-width="1.5" marker-end="url(#arrowhead-dashed)"/>
+        </g>
+        <g data-graph-role="automatic-crossover" style="--step:49">
+          <path data-graph-role="automatic-crossover-underlay" d="M 1070 380 L 1070 396 Q 1070 404 1062 404 L 329 404 Q 321 404 321 412 L 321 1673 Q 321 1681 329 1681 L 345 1681" fill="none" stroke="var(--mask)" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round" pointer-events="none"/>
+          <path data-edge-from="facts" data-edge-to="search" data-edge-label="实时标题 / 简介 / 标签" data-edge-key="49" data-edge-id="metadata-search" data-composition-points="1070,380;1070,404;321,404;321,1681;345,1681" data-composition-crossover="halo" data-composition-independent="true" d="M 1070 380 L 1070 396 Q 1070 404 1062 404 L 329 404 Q 321 404 321 412 L 321 1673 Q 321 1681 329 1681 L 345 1681" class="a-dashed" stroke-width="1.5" marker-end="url(#arrowhead-dashed)"/>
+        </g>
+        <g data-graph-role="automatic-crossover" style="--step:50">
+          <path data-graph-role="automatic-crossover-underlay" d="M 1085 2500 L 1085 2484 Q 1085 2476 1077 2476 L 607 2476 Q 599 2476 599 2484 L 599 2537 Q 599 2545 591 2545 L 575 2545" fill="none" stroke="var(--mask)" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round" pointer-events="none"/>
+          <path data-edge-from="reviewer" data-edge-to="review_state" data-edge-label="reading-review / edit" data-edge-key="50" data-edge-id="review-feedback" data-composition-points="1085,2500;1085,2476;599,2476;599,2545;575,2545" data-composition-crossover="halo" data-composition-independent="true" d="M 1085 2500 L 1085 2484 Q 1085 2476 1077 2476 L 607 2476 Q 599 2476 599 2484 L 599 2537 Q 599 2545 591 2545 L 575 2545" class="a-dashed" stroke-width="1.5" marker-end="url(#arrowhead-dashed)"/>
         </g>
 
         <!-- Components -->
@@ -5226,8 +5234,8 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
         <text data-detail="context" x="155" y="109" class="t-muted" font-size="9" text-anchor="middle">命令行 · 显式规划与执行</text>
         </g>
 
-        <g id="node-cli" data-node-id="cli" data-node-label="CLI 组合根" tabindex="0" role="button" aria-label="聚焦CLI 组合根，SQLite workflow · metadata · query, 架构组件" aria-pressed="false" data-node-kind="frontend" data-node-sublabel="SQLite workflow · metadata · query" data-node-context="架构组件">
-          <title>CLI 组合根 · SQLite workflow · metadata · query · 架构组件</title>
+        <g id="node-cli" data-node-id="cli" data-node-label="CLI 组合根" tabindex="0" role="button" aria-label="聚焦CLI 组合根，workflow · metadata · search scopes, 架构组件" aria-pressed="false" data-node-kind="frontend" data-node-sublabel="workflow · metadata · search scopes" data-node-context="架构组件">
+          <title>CLI 组合根 · workflow · metadata · search scopes · 架构组件</title>
           <rect x="345" y="50" width="230" height="90" rx="6" class="c-mask"/>
           <rect x="345" y="50" width="230" height="90" rx="6" class="c-frontend" stroke-width="1.5"/>
           <g aria-hidden="true" data-semantic-sigil="frontend" class="semantic-sigil s-frontend" transform="translate(351 56) scale(0.6875)">
@@ -5237,23 +5245,23 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
             <circle cx="6.3" cy="4.8" r=".7" class="sigil-fill"/>
           </g>
           <text data-node-label="" data-detail-anchor="" x="460" y="93" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">CLI 组合根</text>
-        <text data-detail="context" x="460" y="109" class="t-muted" font-size="9" text-anchor="middle">SQLite workflow · metadata · query</text>
+        <text data-detail="context" x="460" y="109" class="t-muted" font-size="9" text-anchor="middle">workflow · metadata · search scopes</text>
         </g>
 
-        <g id="node-planner" data-node-id="planner" data-node-label="任务规划与重试" tabindex="0" role="button" aria-label="聚焦任务规划与重试，WorkflowRepository.plan, 架构组件" aria-pressed="false" data-node-kind="backend" data-node-sublabel="WorkflowRepository.plan" data-node-tag="all / selected / below-threshold" data-node-context="架构组件">
-          <title>任务规划与重试 · WorkflowRepository.plan · 架构组件 · all / selected / below-threshold</title>
+        <g id="node-planner" data-node-id="planner" data-node-label="规划、取消与重试" tabindex="0" role="button" aria-label="聚焦规划、取消与重试，BVID / part ID · 状态控制, 架构组件" aria-pressed="false" data-node-kind="backend" data-node-sublabel="BVID / part ID · 状态控制" data-node-tag="全集验证 · 取消不复活" data-node-context="架构组件">
+          <title>规划、取消与重试 · BVID / part ID · 状态控制 · 架构组件 · 全集验证 · 取消不复活</title>
           <rect x="650" y="50" width="230" height="90" rx="6" class="c-mask"/>
           <rect x="650" y="50" width="230" height="90" rx="6" class="c-backend" stroke-width="1.5"/>
           <g aria-hidden="true" data-semantic-sigil="backend" class="semantic-sigil s-backend" transform="translate(656 56) scale(0.6875)">
             <path d="M6 3 3 8l3 5M10 3l3 5-3 5"/>
           </g>
-          <text data-node-label="" data-detail-anchor="" x="765" y="93" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">任务规划与重试</text>
-        <text data-detail="context" x="765" y="109" class="t-muted" font-size="9" text-anchor="middle">WorkflowRepository.plan</text>
-        <text data-detail="fine" x="765" y="132" class="t-backend" font-size="7" text-anchor="middle">all / selected / below-threshold</text>
+          <text data-node-label="" data-detail-anchor="" x="765" y="93" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">规划、取消与重试</text>
+        <text data-detail="context" x="765" y="109" class="t-muted" font-size="9" text-anchor="middle">BVID / part ID · 状态控制</text>
+        <text data-detail="fine" x="765" y="132" class="t-backend" font-size="7" text-anchor="middle">全集验证 · 取消不复活</text>
         </g>
 
-        <g id="node-jobs" data-node-id="jobs" data-node-label="archive.db · 工作流控制" tabindex="0" role="button" aria-label="聚焦archive.db · 工作流控制，jobs · dependencies · leases · attempts, 架构组件" aria-pressed="false" data-node-kind="database" data-node-sublabel="jobs · dependencies · leases · attempts" data-node-tag="BEGIN IMMEDIATE" data-node-context="架构组件">
-          <title>archive.db · 工作流控制 · jobs · dependencies · leases · attempts · 架构组件 · BEGIN IMMEDIATE</title>
+        <g id="node-jobs" data-node-id="jobs" data-node-label="archive.db · 工作流控制" tabindex="0" role="button" aria-label="聚焦archive.db · 工作流控制，jobs · dependencies · attempts, 架构组件" aria-pressed="false" data-node-kind="database" data-node-sublabel="jobs · dependencies · attempts" data-node-tag="cancelled · BEGIN IMMEDIATE" data-node-context="架构组件">
+          <title>archive.db · 工作流控制 · jobs · dependencies · attempts · 架构组件 · cancelled · BEGIN IMMEDIATE</title>
           <rect x="955" y="50" width="230" height="90" rx="6" class="c-mask"/>
           <rect x="955" y="50" width="230" height="90" rx="6" class="c-database" stroke-width="1.5"/>
           <g aria-hidden="true" data-semantic-sigil="database" class="semantic-sigil s-database" transform="translate(961 56) scale(0.6875)">
@@ -5261,8 +5269,8 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
             <path d="M3 4v8c0 1.1 2.2 2 5 2s5-.9 5-2V4M3 8c0 1.1 2.2 2 5 2s5-.9 5-2"/>
           </g>
           <text data-node-label="" data-detail-anchor="" x="1070" y="93" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">archive.db · 工作流控制</text>
-        <text data-detail="context" x="1070" y="109" class="t-muted" font-size="9" text-anchor="middle">jobs · dependencies · leases · attempts</text>
-        <text data-detail="fine" x="1070" y="132" class="t-database" font-size="7" text-anchor="middle">BEGIN IMMEDIATE</text>
+        <text data-detail="context" x="1070" y="109" class="t-muted" font-size="9" text-anchor="middle">jobs · dependencies · attempts</text>
+        <text data-detail="fine" x="1070" y="132" class="t-database" font-size="7" text-anchor="middle">cancelled · BEGIN IMMEDIATE</text>
         </g>
 
         <g id="node-bilibili" data-node-id="bilibili" data-node-label="Bilibili API 与 CDN" tabindex="0" role="button" aria-label="聚焦Bilibili API 与 CDN，视频元数据 · 字幕 · DASH 音频, 架构组件" aria-pressed="false" data-node-kind="external" data-node-sublabel="视频元数据 · 字幕 · DASH 音频" data-node-context="架构组件">
@@ -5313,8 +5321,8 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
         <text data-detail="fine" x="1070" y="372" class="t-database" font-size="7" text-anchor="middle">ingestion_* / cursor</text>
         </g>
 
-        <g id="node-subtitles" data-node-id="subtitles" data-node-label="字幕生产者" tabindex="0" role="button" aria-label="聚焦字幕生产者，SubtitleIngestor · AI / CC, 架构组件" aria-pressed="false" data-node-kind="backend" data-node-sublabel="SubtitleIngestor · AI / CC" data-node-tag="独立 subtitle job" data-node-context="架构组件">
-          <title>字幕生产者 · SubtitleIngestor · AI / CC · 架构组件 · 独立 subtitle job</title>
+        <g id="node-subtitles" data-node-id="subtitles" data-node-label="字幕生产者" tabindex="0" role="button" aria-label="聚焦字幕生产者，SubtitleIngestor · AI / CC, 架构组件" aria-pressed="false" data-node-kind="backend" data-node-sublabel="SubtitleIngestor · AI / CC" data-node-tag="请求后检查 · 事务内写入" data-node-context="架构组件">
+          <title>字幕生产者 · SubtitleIngestor · AI / CC · 架构组件 · 请求后检查 · 事务内写入</title>
           <rect x="40" y="560" width="230" height="90" rx="6" class="c-mask"/>
           <rect x="40" y="560" width="230" height="90" rx="6" class="c-backend" stroke-width="1.5"/>
           <g aria-hidden="true" data-semantic-sigil="backend" class="semantic-sigil s-backend" transform="translate(46 566) scale(0.6875)">
@@ -5322,35 +5330,35 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
           </g>
           <text data-node-label="" data-detail-anchor="" x="155" y="603" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">字幕生产者</text>
         <text data-detail="context" x="155" y="619" class="t-muted" font-size="9" text-anchor="middle">SubtitleIngestor · AI / CC</text>
-        <text data-detail="fine" x="155" y="642" class="t-backend" font-size="7" text-anchor="middle">独立 subtitle job</text>
+        <text data-detail="fine" x="155" y="642" class="t-backend" font-size="7" text-anchor="middle">请求后检查 · 事务内写入</text>
         </g>
 
-        <g id="node-executor" data-node-id="executor" data-node-label="无状态任务执行器" tabindex="0" role="button" aria-label="聚焦无状态任务执行器，claim → handler → finish / fail, 架构组件" aria-pressed="false" data-node-kind="backend" data-node-sublabel="claim → handler → finish / fail" data-node-tag="每次 CLI 调用顺序执行" data-node-context="架构组件">
-          <title>无状态任务执行器 · claim → handler → finish / fail · 架构组件 · 每次 CLI 调用顺序执行</title>
+        <g id="node-executor" data-node-id="executor" data-node-label="无状态任务执行器" tabindex="0" role="button" aria-label="聚焦无状态任务执行器，claim → handler → terminal attempt, 架构组件" aria-pressed="false" data-node-kind="backend" data-node-sublabel="claim → handler → terminal attempt" data-node-tag="每次 CLI 调用顺序执行" data-node-context="架构组件">
+          <title>无状态任务执行器 · claim → handler → terminal attempt · 架构组件 · 每次 CLI 调用顺序执行</title>
           <rect x="345" y="560" width="230" height="90" rx="6" class="c-mask"/>
           <rect x="345" y="560" width="230" height="90" rx="6" class="c-backend" stroke-width="1.5"/>
           <g aria-hidden="true" data-semantic-sigil="backend" class="semantic-sigil s-backend" transform="translate(351 566) scale(0.6875)">
             <path d="M6 3 3 8l3 5M10 3l3 5-3 5"/>
           </g>
           <text data-node-label="" data-detail-anchor="" x="460" y="603" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">无状态任务执行器</text>
-        <text data-detail="context" x="460" y="619" class="t-muted" font-size="9" text-anchor="middle">claim → handler → finish / fail</text>
+        <text data-detail="context" x="460" y="619" class="t-muted" font-size="9" text-anchor="middle">claim → handler → terminal attempt</text>
         <text data-detail="fine" x="460" y="642" class="t-backend" font-size="7" text-anchor="middle">每次 CLI 调用顺序执行</text>
         </g>
 
         <g id="node-lease_heartbeat" data-node-id="lease_heartbeat" data-node-label="尝试级租约心跳" tabindex="0" role="button" aria-label="聚焦尝试级租约心跳，独立 SQLite 连接 · 精确 attempt fencing, 架构组件" aria-pressed="false" data-node-kind="backend" data-node-sublabel="独立 SQLite 连接 · 精确 attempt fencing" data-node-tag="900 s lease · 默认每 1/3 续租" data-node-context="架构组件">
           <title>尝试级租约心跳 · 独立 SQLite 连接 · 精确 attempt fencing · 架构组件 · 900 s lease · 默认每 1/3 续租</title>
-          <rect x="650" y="690" width="230" height="90" rx="6" class="c-mask"/>
-          <rect x="650" y="690" width="230" height="90" rx="6" class="c-backend" stroke-width="1.5"/>
-          <g aria-hidden="true" data-semantic-sigil="backend" class="semantic-sigil s-backend" transform="translate(656 696) scale(0.6875)">
+          <rect x="955" y="170" width="230" height="90" rx="6" class="c-mask"/>
+          <rect x="955" y="170" width="230" height="90" rx="6" class="c-backend" stroke-width="1.5"/>
+          <g aria-hidden="true" data-semantic-sigil="backend" class="semantic-sigil s-backend" transform="translate(961 176) scale(0.6875)">
             <path d="M6 3 3 8l3 5M10 3l3 5-3 5"/>
           </g>
-          <text data-node-label="" data-detail-anchor="" x="765" y="733" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">尝试级租约心跳</text>
-        <text data-detail="context" x="765" y="749" class="t-muted" font-size="9" text-anchor="middle">独立 SQLite 连接 · 精确 attempt fencing</text>
-        <text data-detail="fine" x="765" y="772" class="t-backend" font-size="7" text-anchor="middle">900 s lease · 默认每 1/3 续租</text>
+          <text data-node-label="" data-detail-anchor="" x="1070" y="213" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">尝试级租约心跳</text>
+        <text data-detail="context" x="1070" y="229" class="t-muted" font-size="9" text-anchor="middle">独立 SQLite 连接 · 精确 attempt fencing</text>
+        <text data-detail="fine" x="1070" y="252" class="t-backend" font-size="7" text-anchor="middle">900 s lease · 默认每 1/3 续租</text>
         </g>
 
-        <g id="node-audio" data-node-id="audio" data-node-label="音频生产者" tabindex="0" role="button" aria-label="聚焦音频生产者，audio.download_audio / ffprobe, 架构组件" aria-pressed="false" data-node-kind="backend" data-node-sublabel="audio.download_audio / ffprobe" data-node-tag="独立 audio job" data-node-context="架构组件">
-          <title>音频生产者 · audio.download_audio / ffprobe · 架构组件 · 独立 audio job</title>
+        <g id="node-audio" data-node-id="audio" data-node-label="音频生产者" tabindex="0" role="button" aria-label="聚焦音频生产者，audio.download_audio / ffprobe, 架构组件" aria-pressed="false" data-node-kind="backend" data-node-sublabel="audio.download_audio / ffprobe" data-node-tag="复用 · 暂存 · 原后缀" data-node-context="架构组件">
+          <title>音频生产者 · audio.download_audio / ffprobe · 架构组件 · 复用 · 暂存 · 原后缀</title>
           <rect x="650" y="560" width="230" height="90" rx="6" class="c-mask"/>
           <rect x="650" y="560" width="230" height="90" rx="6" class="c-backend" stroke-width="1.5"/>
           <g aria-hidden="true" data-semantic-sigil="backend" class="semantic-sigil s-backend" transform="translate(656 566) scale(0.6875)">
@@ -5358,7 +5366,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
           </g>
           <text data-node-label="" data-detail-anchor="" x="765" y="603" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">音频生产者</text>
         <text data-detail="context" x="765" y="619" class="t-muted" font-size="9" text-anchor="middle">audio.download_audio / ffprobe</text>
-        <text data-detail="fine" x="765" y="642" class="t-backend" font-size="7" text-anchor="middle">独立 audio job</text>
+        <text data-detail="fine" x="765" y="642" class="t-backend" font-size="7" text-anchor="middle">复用 · 暂存 · 原后缀</text>
         </g>
 
         <g id="node-audio_catalog" data-node-id="audio_catalog" data-node-label="archive.db · 音频身份" tabindex="0" role="button" aria-label="聚焦archive.db · 音频身份，audio_objects · part_audio_objects, 架构组件" aria-pressed="false" data-node-kind="database" data-node-sublabel="audio_objects · part_audio_objects" data-node-tag="SHA-256 · 字节不入库" data-node-context="架构组件">
@@ -5374,8 +5382,8 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
         <text data-detail="fine" x="1070" y="642" class="t-database" font-size="7" text-anchor="middle">SHA-256 · 字节不入库</text>
         </g>
 
-        <g id="node-transcripts" data-node-id="transcripts" data-node-label="archive.db · 转录事实" tabindex="0" role="button" aria-label="聚焦archive.db · 转录事实，append-only versions · ordered segments, 架构组件" aria-pressed="false" data-node-kind="database" data-node-sublabel="append-only versions · ordered segments" data-node-tag="追加版本 / 时间戳 / 血缘" data-node-context="架构组件">
-          <title>archive.db · 转录事实 · append-only versions · ordered segments · 架构组件 · 追加版本 / 时间戳 / 血缘</title>
+        <g id="node-transcripts" data-node-id="transcripts" data-node-label="archive.db · 转录事实" tabindex="0" role="button" aria-label="聚焦archive.db · 转录事实，append-only versions · ordered segments, 架构组件" aria-pressed="false" data-node-kind="database" data-node-sublabel="append-only versions · ordered segments" data-node-tag="追加版本 · 每次运行留证" data-node-context="架构组件">
+          <title>archive.db · 转录事实 · append-only versions · ordered segments · 架构组件 · 追加版本 · 每次运行留证</title>
           <rect x="40" y="840" width="230" height="90" rx="6" class="c-mask"/>
           <rect x="40" y="840" width="230" height="90" rx="6" class="c-database" stroke-width="1.5"/>
           <g aria-hidden="true" data-semantic-sigil="database" class="semantic-sigil s-database" transform="translate(46 846) scale(0.6875)">
@@ -5384,11 +5392,11 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
           </g>
           <text data-node-label="" data-detail-anchor="" x="155" y="883" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">archive.db · 转录事实</text>
         <text data-detail="context" x="155" y="899" class="t-muted" font-size="9" text-anchor="middle">append-only versions · ordered segments</text>
-        <text data-detail="fine" x="155" y="922" class="t-database" font-size="7" text-anchor="middle">追加版本 / 时间戳 / 血缘</text>
+        <text data-detail="fine" x="155" y="922" class="t-database" font-size="7" text-anchor="middle">追加版本 · 每次运行留证</text>
         </g>
 
-        <g id="node-asr" data-node-id="asr" data-node-label="本地转录 Handler" tabindex="0" role="button" aria-label="聚焦本地转录 Handler，ASRRunner · 固定 profile / input snapshot, 架构组件" aria-pressed="false" data-node-kind="backend" data-node-sublabel="ASRRunner · 固定 profile / input snapshot" data-node-tag="ASR 只依赖 audio 成功" data-node-context="架构组件">
-          <title>本地转录 Handler · ASRRunner · 固定 profile / input snapshot · 架构组件 · ASR 只依赖 audio 成功</title>
+        <g id="node-asr" data-node-id="asr" data-node-label="本地转录 Handler" tabindex="0" role="button" aria-label="聚焦本地转录 Handler，ASRRunner · 固定 profile / input snapshot, 架构组件" aria-pressed="false" data-node-kind="backend" data-node-sublabel="ASRRunner · 固定 profile / input snapshot" data-node-tag="16 kHz 波形 · 逐块诊断" data-node-context="架构组件">
+          <title>本地转录 Handler · ASRRunner · 固定 profile / input snapshot · 架构组件 · 16 kHz 波形 · 逐块诊断</title>
           <rect x="345" y="840" width="230" height="90" rx="6" class="c-mask"/>
           <rect x="345" y="840" width="230" height="90" rx="6" class="c-backend" stroke-width="1.5"/>
           <g aria-hidden="true" data-semantic-sigil="backend" class="semantic-sigil s-backend" transform="translate(351 846) scale(0.6875)">
@@ -5396,7 +5404,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
           </g>
           <text data-node-label="" data-detail-anchor="" x="460" y="883" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">本地转录 Handler</text>
         <text data-detail="context" x="460" y="899" class="t-muted" font-size="9" text-anchor="middle">ASRRunner · 固定 profile / input snapshot</text>
-        <text data-detail="fine" x="460" y="922" class="t-backend" font-size="7" text-anchor="middle">ASR 只依赖 audio 成功</text>
+        <text data-detail="fine" x="460" y="922" class="t-backend" font-size="7" text-anchor="middle">16 kHz 波形 · 逐块诊断</text>
         </g>
 
         <g id="node-asr_watchdog" data-node-id="asr_watchdog" data-node-label="GPU ASR watchdog" tabindex="0" role="button" aria-label="聚焦GPU ASR watchdog，spawn 子进程 · 强制对齐硬超时, 架构组件" aria-pressed="false" data-node-kind="backend" data-node-sublabel="spawn 子进程 · 强制对齐硬超时" data-node-tag="inference_timeout · retryable" data-node-context="架构组件">
@@ -5411,8 +5419,8 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
         <text data-detail="fine" x="765" y="1062" class="t-backend" font-size="7" text-anchor="middle">inference_timeout · retryable</text>
         </g>
 
-        <g id="node-audio_files" data-node-id="audio_files" data-node-label="本地音频字节" tabindex="0" role="button" aria-label="聚焦本地音频字节，audio/{bvid}.p{N}.m4a, 架构组件" aria-pressed="false" data-node-kind="database" data-node-sublabel="audio/{bvid}.p{N}.m4a" data-node-tag="AAC / ALAC · soundfile / ffmpeg" data-node-context="架构组件">
-          <title>本地音频字节 · audio/{bvid}.p{N}.m4a · 架构组件 · AAC / ALAC · soundfile / ffmpeg</title>
+        <g id="node-audio_files" data-node-id="audio_files" data-node-label="本地音频字节" tabindex="0" role="button" aria-label="聚焦本地音频字节，audio/{bvid}.p{N}.m4a / .flac, 架构组件" aria-pressed="false" data-node-kind="database" data-node-sublabel="audio/{bvid}.p{N}.m4a / .flac" data-node-tag="archive root · 无自动回收" data-node-context="架构组件">
+          <title>本地音频字节 · audio/{bvid}.p{N}.m4a / .flac · 架构组件 · archive root · 无自动回收</title>
           <rect x="650" y="840" width="230" height="90" rx="6" class="c-mask"/>
           <rect x="650" y="840" width="230" height="90" rx="6" class="c-database" stroke-width="1.5"/>
           <g aria-hidden="true" data-semantic-sigil="database" class="semantic-sigil s-database" transform="translate(656 846) scale(0.6875)">
@@ -5420,8 +5428,8 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
             <path d="M3 4v8c0 1.1 2.2 2 5 2s5-.9 5-2V4M3 8c0 1.1 2.2 2 5 2s5-.9 5-2"/>
           </g>
           <text data-node-label="" data-detail-anchor="" x="765" y="883" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">本地音频字节</text>
-        <text data-detail="context" x="765" y="899" class="t-muted" font-size="9" text-anchor="middle">audio/{bvid}.p{N}.m4a</text>
-        <text data-detail="fine" x="765" y="922" class="t-database" font-size="7" text-anchor="middle">AAC / ALAC · soundfile / ffmpeg</text>
+        <text data-detail="context" x="765" y="899" class="t-muted" font-size="9" text-anchor="middle">audio/{bvid}.p{N}.m4a / .flac</text>
+        <text data-detail="fine" x="765" y="922" class="t-database" font-size="7" text-anchor="middle">archive root · 无自动回收</text>
         </g>
 
         <g id="node-models" data-node-id="models" data-node-label="模型权重与计算环境" tabindex="0" role="button" aria-label="聚焦模型权重与计算环境，Transformers / torch · CPU / GPU, 架构组件" aria-pressed="false" data-node-kind="database" data-node-sublabel="Transformers / torch · CPU / GPU" data-node-tag="本地目录或配置的模型标识" data-node-context="架构组件">
@@ -5437,20 +5445,20 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
         <text data-detail="fine" x="460" y="1192" class="t-database" font-size="7" text-anchor="middle">本地目录或配置的模型标识</text>
         </g>
 
-        <g id="node-publisher" data-node-id="publisher" data-node-label="择优投影与发布" tabindex="0" role="button" aria-label="聚焦择优投影与发布，选择 transcript 版本 · lease-fenced publish, 架构组件" aria-pressed="false" data-node-kind="backend" data-node-sublabel="选择 transcript 版本 · lease-fenced publish" data-node-tag="语言优先级 + 同类最新版本" data-node-context="架构组件">
-          <title>择优投影与发布 · 选择 transcript 版本 · lease-fenced publish · 架构组件 · 语言优先级 + 同类最新版本</title>
+        <g id="node-publisher" data-node-id="publisher" data-node-label="择优转录与保护发布" tabindex="0" role="button" aria-label="聚焦择优转录与保护发布，暂存 → 五文件 + marker + SQL, 架构组件" aria-pressed="false" data-node-kind="backend" data-node-sublabel="暂存 → 五文件 + marker + SQL" data-node-tag="语言优先级 + 同类最新版本" data-node-context="架构组件">
+          <title>择优转录与保护发布 · 暂存 → 五文件 + marker + SQL · 架构组件 · 语言优先级 + 同类最新版本</title>
           <rect x="40" y="1110" width="230" height="90" rx="6" class="c-mask"/>
           <rect x="40" y="1110" width="230" height="90" rx="6" class="c-backend" stroke-width="1.5"/>
           <g aria-hidden="true" data-semantic-sigil="backend" class="semantic-sigil s-backend" transform="translate(46 1116) scale(0.6875)">
             <path d="M6 3 3 8l3 5M10 3l3 5-3 5"/>
           </g>
-          <text data-node-label="" data-detail-anchor="" x="155" y="1153" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">择优投影与发布</text>
-        <text data-detail="context" x="155" y="1169" class="t-muted" font-size="8.6" text-anchor="middle">选择 transcript 版本 · lease-fenced publish</text>
+          <text data-node-label="" data-detail-anchor="" x="155" y="1153" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">择优转录与保护发布</text>
+        <text data-detail="context" x="155" y="1169" class="t-muted" font-size="9" text-anchor="middle">暂存 → 五文件 + marker + SQL</text>
         <text data-detail="fine" x="155" y="1192" class="t-backend" font-size="7" text-anchor="middle">语言优先级 + 同类最新版本</text>
         </g>
 
-        <g id="node-editorial" data-node-id="editorial" data-node-label="AI 校对 Handler" tabindex="0" role="button" aria-label="聚焦AI 校对 Handler，冻结 ASR / 可选同语种字幕, 架构组件" aria-pressed="false" data-node-kind="backend" data-node-sublabel="冻结 ASR / 可选同语种字幕" data-node-tag="--proofread / workflow proofread" data-node-context="架构组件">
-          <title>AI 校对 Handler · 冻结 ASR / 可选同语种字幕 · 架构组件 · --proofread / workflow proofread</title>
+        <g id="node-editorial" data-node-id="editorial" data-node-label="AI 校对 Handler" tabindex="0" role="button" aria-label="聚焦AI 校对 Handler，冻结 ASR / 可选同语种字幕, 架构组件" aria-pressed="false" data-node-kind="backend" data-node-sublabel="冻结 ASR / 可选同语种字幕" data-node-tag="块 / 修订受取消 guard 保护" data-node-context="架构组件">
+          <title>AI 校对 Handler · 冻结 ASR / 可选同语种字幕 · 架构组件 · 块 / 修订受取消 guard 保护</title>
           <rect x="650" y="1110" width="230" height="90" rx="6" class="c-mask"/>
           <rect x="650" y="1110" width="230" height="90" rx="6" class="c-backend" stroke-width="1.5"/>
           <g aria-hidden="true" data-semantic-sigil="backend" class="semantic-sigil s-backend" transform="translate(656 1116) scale(0.6875)">
@@ -5458,7 +5466,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
           </g>
           <text data-node-label="" data-detail-anchor="" x="765" y="1153" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">AI 校对 Handler</text>
         <text data-detail="context" x="765" y="1169" class="t-muted" font-size="9" text-anchor="middle">冻结 ASR / 可选同语种字幕</text>
-        <text data-detail="fine" x="765" y="1192" class="t-backend" font-size="7" text-anchor="middle">--proofread / workflow proofread</text>
+        <text data-detail="fine" x="765" y="1192" class="t-backend" font-size="7" text-anchor="middle">块 / 修订受取消 guard 保护</text>
         </g>
 
         <g id="node-deepseek" data-node-id="deepseek" data-node-label="DeepSeek API" tabindex="0" role="button" aria-label="聚焦DeepSeek API，deepseek-flash · JSON 修订, 架构组件" aria-pressed="false" data-node-kind="external" data-node-sublabel="deepseek-flash · JSON 修订" data-node-tag="DEEPSEEK_API_KEY" data-node-context="架构组件">
@@ -5474,8 +5482,8 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
         <text data-detail="fine" x="1070" y="1192" class="t-external" font-size="7" text-anchor="middle">DEEPSEEK_API_KEY</text>
         </g>
 
-        <g id="node-bundles" data-node-id="bundles" data-node-label="原始归档 Bundle" tabindex="0" role="button" aria-label="聚焦原始归档 Bundle，SRT / TXT / Markdown / raw JSON, 架构组件" aria-pressed="false" data-node-kind="database" data-node-sublabel="SRT / TXT / Markdown / raw JSON" data-node-tag="transcripts/{stem}/ · 哈希 marker" data-node-context="架构组件">
-          <title>原始归档 Bundle · SRT / TXT / Markdown / raw JSON · 架构组件 · transcripts/{stem}/ · 哈希 marker</title>
+        <g id="node-bundles" data-node-id="bundles" data-node-label="原始归档 Bundle" tabindex="0" role="button" aria-label="聚焦原始归档 Bundle，SRT / VTT / TXT / MD / raw JSON, 架构组件" aria-pressed="false" data-node-kind="database" data-node-sublabel="SRT / VTT / TXT / MD / raw JSON" data-node-tag="archive-bundle-v2 · SHA-256" data-node-context="架构组件">
+          <title>原始归档 Bundle · SRT / VTT / TXT / MD / raw JSON · 架构组件 · archive-bundle-v2 · SHA-256</title>
           <rect x="40" y="1390" width="230" height="90" rx="6" class="c-mask"/>
           <rect x="40" y="1390" width="230" height="90" rx="6" class="c-database" stroke-width="1.5"/>
           <g aria-hidden="true" data-semantic-sigil="database" class="semantic-sigil s-database" transform="translate(46 1396) scale(0.6875)">
@@ -5483,8 +5491,8 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
             <path d="M3 4v8c0 1.1 2.2 2 5 2s5-.9 5-2V4M3 8c0 1.1 2.2 2 5 2s5-.9 5-2"/>
           </g>
           <text data-node-label="" data-detail-anchor="" x="155" y="1433" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">原始归档 Bundle</text>
-        <text data-detail="context" x="155" y="1449" class="t-muted" font-size="9" text-anchor="middle">SRT / TXT / Markdown / raw JSON</text>
-        <text data-detail="fine" x="155" y="1472" class="t-database" font-size="7" text-anchor="middle">transcripts/{stem}/ · 哈希 marker</text>
+        <text data-detail="context" x="155" y="1449" class="t-muted" font-size="9" text-anchor="middle">SRT / VTT / TXT / MD / raw JSON</text>
+        <text data-detail="fine" x="155" y="1472" class="t-database" font-size="7" text-anchor="middle">archive-bundle-v2 · SHA-256</text>
         </g>
 
         <g id="node-revisions" data-node-id="revisions" data-node-label="archive.db · 编辑派生" tabindex="0" role="button" aria-label="聚焦archive.db · 编辑派生，inputs / calls / chunks / revisions, 架构组件" aria-pressed="false" data-node-kind="database" data-node-sublabel="inputs / calls / chunks / revisions" data-node-tag="ai-unreviewed / needs-review" data-node-context="架构组件">
@@ -5500,8 +5508,8 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
         <text data-detail="fine" x="765" y="1472" class="t-database" font-size="7" text-anchor="middle">ai-unreviewed / needs-review</text>
         </g>
 
-        <g id="node-renderer" data-node-id="renderer" data-node-label="确定性 Markdown 渲染" tabindex="0" role="button" aria-label="聚焦确定性 Markdown 渲染，render_document · 保存修订重用, 架构组件" aria-pressed="false" data-node-kind="backend" data-node-sublabel="render_document · 保存修订重用" data-node-tag="无需再次调用模型" data-node-context="架构组件">
-          <title>确定性 Markdown 渲染 · render_document · 保存修订重用 · 架构组件 · 无需再次调用模型</title>
+        <g id="node-renderer" data-node-id="renderer" data-node-label="确定性 Markdown 渲染" tabindex="0" role="button" aria-label="聚焦确定性 Markdown 渲染，render_document · 保存修订重用, 架构组件" aria-pressed="false" data-node-kind="backend" data-node-sublabel="render_document · 保存修订重用" data-node-tag="替换 + 登记同一 lease guard" data-node-context="架构组件">
+          <title>确定性 Markdown 渲染 · render_document · 保存修订重用 · 架构组件 · 替换 + 登记同一 lease guard</title>
           <rect x="955" y="1390" width="230" height="90" rx="6" class="c-mask"/>
           <rect x="955" y="1390" width="230" height="90" rx="6" class="c-backend" stroke-width="1.5"/>
           <g aria-hidden="true" data-semantic-sigil="backend" class="semantic-sigil s-backend" transform="translate(961 1396) scale(0.6875)">
@@ -5509,18 +5517,18 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
           </g>
           <text data-node-label="" data-detail-anchor="" x="1070" y="1433" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">确定性 Markdown 渲染</text>
         <text data-detail="context" x="1070" y="1449" class="t-muted" font-size="9" text-anchor="middle">render_document · 保存修订重用</text>
-        <text data-detail="fine" x="1070" y="1472" class="t-backend" font-size="7" text-anchor="middle">无需再次调用模型</text>
+        <text data-detail="fine" x="1070" y="1472" class="t-backend" font-size="7" text-anchor="middle">替换 + 登记同一 lease guard</text>
         </g>
 
-        <g id="node-search" data-node-id="search" data-node-label="索引构建与全文检索" tabindex="0" role="button" aria-label="聚焦索引构建与全文检索，store transcript + published Markdown · FTS5, 架构组件" aria-pressed="false" data-node-kind="backend" data-node-sublabel="store transcript + published Markdown · FTS5" data-node-context="架构组件">
-          <title>索引构建与全文检索 · store transcript + published Markdown · FTS5 · 架构组件</title>
+        <g id="node-search" data-node-id="search" data-node-label="转录与元数据搜索" tabindex="0" role="button" aria-label="聚焦转录与元数据搜索，transcripts / metadata / all, 架构组件" aria-pressed="false" data-node-kind="backend" data-node-sublabel="transcripts / metadata / all" data-node-context="架构组件">
+          <title>转录与元数据搜索 · transcripts / metadata / all · 架构组件</title>
           <rect x="345" y="1650" width="230" height="90" rx="6" class="c-mask"/>
           <rect x="345" y="1650" width="230" height="90" rx="6" class="c-backend" stroke-width="1.5"/>
           <g aria-hidden="true" data-semantic-sigil="backend" class="semantic-sigil s-backend" transform="translate(351 1656) scale(0.6875)">
             <path d="M6 3 3 8l3 5M10 3l3 5-3 5"/>
           </g>
-          <text data-node-label="" data-detail-anchor="" x="460" y="1693" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">索引构建与全文检索</text>
-        <text data-detail="context" x="460" y="1709" class="t-muted" font-size="8.4" text-anchor="middle">store transcript + published Markdown · FTS5</text>
+          <text data-node-label="" data-detail-anchor="" x="460" y="1693" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">转录与元数据搜索</text>
+        <text data-detail="context" x="460" y="1709" class="t-muted" font-size="9" text-anchor="middle">transcripts / metadata / all</text>
         </g>
 
         <g id="node-fts" data-node-id="fts" data-node-label="archive.db · 派生索引" tabindex="0" role="button" aria-label="聚焦archive.db · 派生索引，transcript_fts · 按时间文本块, 架构组件" aria-pressed="false" data-node-kind="database" data-node-sublabel="transcript_fts · 按时间文本块" data-node-tag="可重建 · 不作为事实源" data-node-context="架构组件">
@@ -5608,31 +5616,29 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
         <text data-detail="fine" x="460" y="2582" class="t-database" font-size="7" text-anchor="middle">AI revision immutable</text>
         </g>
 
-        <g id="node-reading_site" data-node-id="reading_site" data-node-label="静态阅读站" tabindex="0" role="button" aria-label="聚焦静态阅读站，reading-site/content · Markdown + Issue, 架构组件" aria-pressed="false" data-node-kind="frontend" data-node-sublabel="reading-site/content · Markdown + Issue" data-node-tag="浏览器不接触 SQLite" data-node-context="架构组件">
-          <title>静态阅读站 · reading-site/content · Markdown + Issue · 架构组件 · 浏览器不接触 SQLite</title>
-          <rect x="650" y="2500" width="200" height="90" rx="6" class="c-mask"/>
-          <rect x="650" y="2500" width="200" height="90" rx="6" class="c-frontend" stroke-width="1.5"/>
-          <g aria-hidden="true" data-semantic-sigil="frontend" class="semantic-sigil s-frontend" transform="translate(656 2506) scale(0.6875)">
-            <rect x="2" y="3" width="12" height="10" rx="2"/>
-            <path d="M2 6.5h12"/>
-            <circle cx="4.1" cy="4.8" r=".7" class="sigil-fill"/>
-            <circle cx="6.3" cy="4.8" r=".7" class="sigil-fill"/>
+        <g id="node-reading_site" data-node-id="reading_site" data-node-label="阅读内容快照" tabindex="0" role="button" aria-label="聚焦阅读内容快照，catalog · articles · reviews, 架构组件" aria-pressed="false" data-node-kind="database" data-node-sublabel="catalog · articles · reviews" data-node-tag="供外部前端消费" data-node-context="架构组件">
+          <title>阅读内容快照 · catalog · articles · reviews · 架构组件 · 供外部前端消费</title>
+          <rect x="650" y="2500" width="230" height="90" rx="6" class="c-mask"/>
+          <rect x="650" y="2500" width="230" height="90" rx="6" class="c-database" stroke-width="1.5"/>
+          <g aria-hidden="true" data-semantic-sigil="database" class="semantic-sigil s-database" transform="translate(656 2506) scale(0.6875)">
+            <ellipse cx="8" cy="4" rx="5" ry="2"/>
+            <path d="M3 4v8c0 1.1 2.2 2 5 2s5-.9 5-2V4M3 8c0 1.1 2.2 2 5 2s5-.9 5-2"/>
           </g>
-          <text data-node-label="" data-detail-anchor="" x="750" y="2543" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">静态阅读站</text>
-        <text data-detail="context" x="750" y="2559" class="t-muted" font-size="8.2" text-anchor="middle">reading-site/content · Markdown + Issue</text>
-        <text data-detail="fine" x="750" y="2582" class="t-frontend" font-size="7" text-anchor="middle">浏览器不接触 SQLite</text>
+          <text data-node-label="" data-detail-anchor="" x="765" y="2543" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">阅读内容快照</text>
+        <text data-detail="context" x="765" y="2559" class="t-muted" font-size="9" text-anchor="middle">catalog · articles · reviews</text>
+        <text data-detail="fine" x="765" y="2582" class="t-database" font-size="7" text-anchor="middle">供外部前端消费</text>
         </g>
 
-        <g id="node-reviewer" data-node-id="reviewer" data-node-label="读者与维护者" tabindex="0" role="button" aria-label="聚焦读者与维护者，GitHub Issue · 审核建议, 架构组件" aria-pressed="false" data-node-kind="external" data-node-sublabel="GitHub Issue · 审核建议" data-node-context="架构组件">
-          <title>读者与维护者 · GitHub Issue · 审核建议 · 架构组件</title>
+        <g id="node-reviewer" data-node-id="reviewer" data-node-label="维护者与审核建议" tabindex="0" role="button" aria-label="聚焦维护者与审核建议，Issue 链接 · 显式采纳, 架构组件" aria-pressed="false" data-node-kind="external" data-node-sublabel="Issue 链接 · 显式采纳" data-node-context="架构组件">
+          <title>维护者与审核建议 · Issue 链接 · 显式采纳 · 架构组件</title>
           <rect x="970" y="2500" width="230" height="90" rx="6" class="c-mask"/>
           <rect x="970" y="2500" width="230" height="90" rx="6" class="c-external" stroke-width="1.5"/>
           <g aria-hidden="true" data-semantic-sigil="external" class="semantic-sigil s-external" transform="translate(976 2506) scale(0.6875)">
             <rect x="2.5" y="5" width="8.5" height="8" rx="1.5"/>
             <path d="M8 2.5h5.5V8M13.5 2.5 7.5 8.5"/>
           </g>
-          <text data-node-label="" data-detail-anchor="" x="1085" y="2543" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">读者与维护者</text>
-        <text data-detail="context" x="1085" y="2559" class="t-muted" font-size="9" text-anchor="middle">GitHub Issue · 审核建议</text>
+          <text data-node-label="" data-detail-anchor="" x="1085" y="2543" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">维护者与审核建议</text>
+        <text data-detail="context" x="1085" y="2559" class="t-muted" font-size="9" text-anchor="middle">Issue 链接 · 显式采纳</text>
         </g>
 
         <!-- Connection labels -->
@@ -5640,9 +5646,9 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
           <rect x="283.3" y="75" width="48.4" height="14" rx="3" class="c-mask"/>
           <text x="307.5" y="85" class="t-edge-emphasis" font-size="8" text-anchor="middle">bili-asr</text>
         </g>
-        <g data-detail="context" data-edge-from="cli" data-edge-to="planner" data-edge-label="workflow plan" data-edge-key="1" data-edge-id="plan">
+        <g data-detail="context" data-edge-from="cli" data-edge-to="planner" data-edge-label="workflow 控制" data-edge-key="1" data-edge-id="plan">
           <rect x="576.3" y="68" width="72.4" height="14" rx="3" class="c-mask"/>
-          <text x="612.5" y="78" class="t-edge-default" font-size="8" text-anchor="middle">workflow plan</text>
+          <text x="612.5" y="78" class="t-edge-default" font-size="8" text-anchor="middle">workflow 控制</text>
         </g>
         <g data-detail="context" data-edge-from="planner" data-edge-to="jobs" data-edge-label="持久化任务" data-edge-key="2" data-edge-id="plan-sql">
           <rect x="888.5" y="68" width="58" height="14" rx="3" class="c-mask"/>
@@ -5664,29 +5670,29 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
           <rect x="897.6" y="230" width="38.8" height="14" rx="3" class="c-mask"/>
           <text x="917" y="240" class="t-edge-default" font-size="8" text-anchor="middle">页事务</text>
         </g>
-        <g data-detail="context" data-edge-from="facts" data-edge-to="planner" data-edge-label="选定 part ID" data-edge-key="7" data-edge-id="known-parts">
-          <rect x="1076" y="245.5" width="67.6" height="14" rx="3" class="c-mask"/>
-          <text x="1109.8" y="255.5" class="t-edge-default" font-size="8" text-anchor="middle">选定 part ID</text>
+        <g data-detail="context" data-edge-from="facts" data-edge-to="planner" data-edge-label="BVID / 分 P 解析" data-edge-key="7" data-edge-id="known-parts">
+          <rect x="811.2" y="261.75" width="86.8" height="14" rx="3" class="c-mask"/>
+          <text x="854.6" y="271.75" class="t-edge-default" font-size="8" text-anchor="middle">BVID / 分 P 解析</text>
         </g>
         <g data-detail="context" data-edge-from="jobs" data-edge-to="executor" data-edge-label="原子领取 / 租约" data-edge-key="8" data-edge-id="claim">
-          <rect x="957.2" y="259" width="82" height="14" rx="3" class="c-mask"/>
-          <text x="998.2" y="269" class="t-edge-default" font-size="8" text-anchor="middle">原子领取 / 租约</text>
+          <rect x="1088" y="6" width="82" height="14" rx="3" class="c-mask"/>
+          <text x="1129" y="16" class="t-edge-default" font-size="8" text-anchor="middle">原子领取 / 租约</text>
         </g>
         <g data-detail="context" data-edge-from="executor" data-edge-to="lease_heartbeat" data-edge-label="attempt heartbeat" data-edge-key="9" data-edge-id="lease-heartbeat">
-          <rect x="482.675" y="684" width="91.6" height="14" rx="3" class="c-mask"/>
-          <text x="528.475" y="694" class="t-edge-emphasis" font-size="8" text-anchor="middle">attempt heartbeat</text>
+          <rect x="553.2" y="520" width="91.6" height="14" rx="3" class="c-mask"/>
+          <text x="599" y="530" class="t-edge-emphasis" font-size="8" text-anchor="middle">attempt heartbeat</text>
         </g>
         <g data-detail="context" data-edge-from="lease_heartbeat" data-edge-to="jobs" data-edge-label="续租 / stale fencing" data-edge-key="10" data-edge-id="lease-renew">
-          <rect x="829.4" y="442.5" width="106" height="14" rx="3" class="c-mask"/>
-          <text x="882.4" y="452.5" class="t-edge-security" font-size="8" text-anchor="middle">续租 / stale fencing</text>
+          <rect x="1024" y="150" width="106" height="14" rx="3" class="c-mask"/>
+          <text x="1077" y="160" class="t-edge-security" font-size="8" text-anchor="middle">续租 / stale fencing</text>
         </g>
         <g data-detail="context" data-edge-from="executor" data-edge-to="subtitles" data-edge-label="字幕 job" data-edge-key="11" data-edge-id="worker-caption">
           <rect x="185.8" y="654" width="48.4" height="14" rx="3" class="c-mask"/>
           <text x="210" y="664" class="t-edge-default" font-size="8" text-anchor="middle">字幕 job</text>
         </g>
         <g data-detail="context" data-edge-from="executor" data-edge-to="audio" data-edge-label="audio job" data-edge-key="12" data-edge-id="worker-audio">
-          <rect x="572.4" y="655" width="53.199999999999996" height="14" rx="3" class="c-mask"/>
-          <text x="599" y="665" class="t-edge-default" font-size="8" text-anchor="middle">audio job</text>
+          <rect x="572.4" y="663.05" width="53.199999999999996" height="14" rx="3" class="c-mask"/>
+          <text x="599" y="673.05" class="t-edge-default" font-size="8" text-anchor="middle">audio job</text>
         </g>
         <g data-detail="context" data-edge-from="executor" data-edge-to="asr" data-edge-label="就绪 asr job" data-edge-key="13" data-edge-id="worker-asr">
           <rect x="386.4" y="738" width="67.6" height="14" rx="3" class="c-mask"/>
@@ -5701,8 +5707,8 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
           <text x="827" y="664" class="t-edge-default" font-size="8" text-anchor="middle">SHA-256 / key</text>
         </g>
         <g data-detail="context" data-edge-from="audio" data-edge-to="audio_files" data-edge-label="下载与固化" data-edge-key="16" data-edge-id="audio-write">
-          <rect x="840" y="808" width="58" height="14" rx="3" class="c-mask"/>
-          <text x="869" y="818" class="t-edge-default" font-size="8" text-anchor="middle">下载与固化</text>
+          <rect x="701" y="738" width="58" height="14" rx="3" class="c-mask"/>
+          <text x="730" y="748" class="t-edge-default" font-size="8" text-anchor="middle">下载与固化</text>
         </g>
         <g data-detail="context" data-edge-from="subtitles" data-edge-to="transcripts" data-edge-label="追加 / 幂等" data-edge-key="17" data-edge-id="caption-store">
           <rect x="86.19999999999999" y="738" width="62.8" height="14" rx="3" class="c-mask"/>
@@ -5732,9 +5738,9 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
           <rect x="238.70000000000002" y="735.5" width="62.8" height="14" rx="3" class="c-mask"/>
           <text x="270.1" y="745.5" class="t-edge-dashed" font-size="8" text-anchor="middle">publish job</text>
         </g>
-        <g data-detail="context" data-edge-from="publisher" data-edge-to="bundles" data-edge-label="完整 bundle" data-edge-key="24" data-edge-id="publish-bytes">
-          <rect x="102.19999999999999" y="1288" width="62.8" height="14" rx="3" class="c-mask"/>
-          <text x="133.6" y="1298" class="t-edge-emphasis" font-size="8" text-anchor="middle">完整 bundle</text>
+        <g data-detail="context" data-edge-from="publisher" data-edge-to="bundles" data-edge-label="五文件 + 完成标记" data-edge-key="24" data-edge-id="publish-bytes">
+          <rect x="73.4" y="1288" width="91.6" height="14" rx="3" class="c-mask"/>
+          <text x="119.2" y="1298" class="t-edge-emphasis" font-size="8" text-anchor="middle">五文件 + 完成标记</text>
         </g>
         <g data-detail="context" data-edge-from="transcripts" data-edge-to="editorial" data-edge-label="冻结版本" data-edge-key="25" data-edge-id="edit-input">
           <rect x="383.8" y="957" width="48.4" height="14" rx="3" class="c-mask"/>
@@ -5748,17 +5754,17 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
           <rect x="883.7" y="1135" width="67.6" height="14" rx="3" class="c-mask"/>
           <text x="917.5" y="1145" class="t-edge-dashed" font-size="8" text-anchor="middle">HTTPS / JSON</text>
         </g>
-        <g data-detail="context" data-edge-from="editorial" data-edge-to="revisions" data-edge-label="校验后保存" data-edge-key="28" data-edge-id="save-revision">
-          <rect x="701" y="1288" width="58" height="14" rx="3" class="c-mask"/>
-          <text x="730" y="1298" class="t-edge-default" font-size="8" text-anchor="middle">校验后保存</text>
+        <g data-detail="context" data-edge-from="editorial" data-edge-to="revisions" data-edge-label="guard 内提交" data-edge-key="28" data-edge-id="save-revision">
+          <rect x="691.4000000000001" y="1288" width="67.6" height="14" rx="3" class="c-mask"/>
+          <text x="725.2" y="1298" class="t-edge-default" font-size="8" text-anchor="middle">guard 内提交</text>
         </g>
         <g data-detail="context" data-edge-from="revisions" data-edge-to="renderer" data-edge-label="读取修订" data-edge-key="29" data-edge-id="read-revision">
           <rect x="893.3" y="1415" width="48.4" height="14" rx="3" class="c-mask"/>
           <text x="917.5" y="1425" class="t-edge-default" font-size="8" text-anchor="middle">读取修订</text>
         </g>
-        <g data-detail="context" data-edge-from="renderer" data-edge-to="documents" data-edge-label="fsync / replace" data-edge-key="30" data-edge-id="render-bytes">
-          <rect x="982" y="1558" width="82" height="14" rx="3" class="c-mask"/>
-          <text x="1023" y="1568" class="t-edge-default" font-size="8" text-anchor="middle">fsync / replace</text>
+        <g data-detail="context" data-edge-from="renderer" data-edge-to="documents" data-edge-label="guard 内替换" data-edge-key="30" data-edge-id="render-bytes">
+          <rect x="996.4000000000001" y="1558" width="67.6" height="14" rx="3" class="c-mask"/>
+          <text x="1030.2" y="1568" class="t-edge-default" font-size="8" text-anchor="middle">guard 内替换</text>
         </g>
         <g data-detail="context" data-edge-from="transcripts" data-edge-to="search" data-edge-label="转录块" data-edge-key="31" data-edge-id="index-source">
           <rect x="72.6" y="934" width="38.8" height="14" rx="3" class="c-mask"/>
@@ -5785,16 +5791,16 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
           <text x="404.5" y="277" class="t-edge-default" font-size="8" text-anchor="middle">workflow run</text>
         </g>
         <g data-detail="context" data-edge-from="facts" data-edge-to="inspection" data-edge-label="status / runs" data-edge-key="37" data-edge-id="inspect-facts">
-          <rect x="659.3" y="384" width="72.4" height="14" rx="3" class="c-mask"/>
-          <text x="695.5" y="394" class="t-edge-dashed" font-size="8" text-anchor="middle">status / runs</text>
+          <rect x="863.8" y="2314" width="72.4" height="14" rx="3" class="c-mask"/>
+          <text x="900" y="2324" class="t-edge-dashed" font-size="8" text-anchor="middle">status / runs</text>
         </g>
         <g data-detail="context" data-edge-from="bundles" data-edge-to="integrity" data-edge-label="完整性检查" data-edge-key="38" data-edge-id="verify-products">
           <rect x="431" y="2314" width="58" height="14" rx="3" class="c-mask"/>
           <text x="460" y="2324" class="t-edge-dashed" font-size="8" text-anchor="middle">完整性检查</text>
         </g>
         <g data-detail="context" data-edge-from="facts" data-edge-to="projection" data-edge-label="active video parts" data-edge-key="39" data-edge-id="facts-projection">
-          <rect x="641.8" y="537" width="96.39999999999999" height="14" rx="3" class="c-mask"/>
-          <text x="690" y="547" class="t-edge-default" font-size="8" text-anchor="middle">active video parts</text>
+          <rect x="828.5999999999999" y="458.5" width="96.39999999999999" height="14" rx="3" class="c-mask"/>
+          <text x="876.8" y="468.5" class="t-edge-default" font-size="8" text-anchor="middle">active video parts</text>
         </g>
         <g data-detail="context" data-edge-from="transcripts" data-edge-to="projection" data-edge-label="版本事实" data-edge-key="40" data-edge-id="transcripts-projection">
           <rect x="225.8" y="950" width="48.4" height="14" rx="3" class="c-mask"/>
@@ -5817,20 +5823,28 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
           <text x="734.8" y="1566.5" class="t-edge-default" font-size="8" text-anchor="middle">只读修订</text>
         </g>
         <g data-detail="context" data-edge-from="documents" data-edge-to="reading_export" data-edge-label="reading.md + review.md" data-edge-key="45" data-edge-id="reading-documents">
-          <rect x="873.2" y="2076" width="115.6" height="14" rx="3" class="c-mask"/>
-          <text x="931" y="2086" class="t-edge-dashed" font-size="8" text-anchor="middle">reading.md + review.md</text>
+          <rect x="624.2" y="1744" width="115.6" height="14" rx="3" class="c-mask"/>
+          <text x="682" y="1754" class="t-edge-dashed" font-size="8" text-anchor="middle">reading.md + review.md</text>
         </g>
         <g data-detail="context" data-edge-from="reading_export" data-edge-to="reading_site" data-edge-label="静态内容快照" data-edge-key="46" data-edge-id="reading-snapshot">
           <rect x="356.7" y="2594" width="67.6" height="14" rx="3" class="c-mask"/>
           <text x="390.5" y="2604" class="t-edge-emphasis" font-size="8" text-anchor="middle">静态内容快照</text>
         </g>
         <g data-detail="context" data-edge-from="reading_site" data-edge-to="reviewer" data-edge-label="预填 GitHub Issue" data-edge-key="47" data-edge-id="issue-feedback">
-          <rect x="864.2" y="2525" width="91.6" height="14" rx="3" class="c-mask"/>
-          <text x="910" y="2535" class="t-edge-dashed" font-size="8" text-anchor="middle">预填 GitHub Issue</text>
+          <rect x="879.2" y="2518" width="91.6" height="14" rx="3" class="c-mask"/>
+          <text x="925" y="2528" class="t-edge-dashed" font-size="8" text-anchor="middle">预填 GitHub Issue</text>
         </g>
         <g data-detail="context" data-edge-from="review_state" data-edge-to="reading_export" data-edge-label="重新导出状态" data-edge-key="48" data-edge-id="review-export">
           <rect x="273.7" y="2540.05" width="67.6" height="14" rx="3" class="c-mask"/>
           <text x="307.5" y="2550.05" class="t-edge-dashed" font-size="8" text-anchor="middle">重新导出状态</text>
+        </g>
+        <g data-detail="context" data-edge-from="facts" data-edge-to="search" data-edge-label="实时标题 / 简介 / 标签" data-edge-key="49" data-edge-id="metadata-search">
+          <rect x="637.7" y="414" width="115.6" height="14" rx="3" class="c-mask"/>
+          <text x="695.5" y="424" class="t-edge-dashed" font-size="8" text-anchor="middle">实时标题 / 简介 / 标签</text>
+        </g>
+        <g data-detail="context" data-edge-from="reviewer" data-edge-to="review_state" data-edge-label="reading-review / edit" data-edge-key="50" data-edge-id="review-feedback">
+          <rect x="786.6" y="2456" width="110.8" height="14" rx="3" class="c-mask"/>
+          <text x="842" y="2466" class="t-edge-dashed" font-size="8" text-anchor="middle">reading-review / edit</text>
         </g>
 
         <!-- Boundary labels (foreground masks keep routes out of titles) -->
@@ -6038,69 +6052,68 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
           <h3>范围与证据</h3>
         </div>
         <ul>
-          <li>图聚焦当前 CLI 的 SQLite workflow 主链、外部采集、派生文件与查询投影。</li>
-          <li>所有 archive.db 节点是同一 SQLite 文件中的逻辑表组；媒体与发布 bundle 是文件产物。</li>
-          <li>图中 revision 固定到合并提交；边和组件的源码引用用于追溯当前实现。</li>
+          <li>所有 archive.db 节点属于同一 SQLite 文件中的逻辑表组；音频、bundle 和快照是文件产物。</li>
+          <li>源码引用固定到功能代码提交；阅读内容快照供外部前端消费，仓库没有阅读前端源码。</li>
         </ul>
       </div>
 
       <div class="card">
         <div class="card-header">
           <div class="card-dot emerald"></div>
-          <h3>单一控制平面</h3>
+          <h3>选择与控制</h3>
         </div>
         <ul>
-          <li>WorkflowRepository 负责计划、依赖、租约、attempt 与 retry；WorkflowExecutor 在 CLI 调用中领取并执行任务。</li>
-          <li>ASR job 固定 profile 和参考 transcript ID，并读取对应 audio prerequisite 的结果。</li>
-          <li>发布前后及文件替换边界校验租约，过期 worker 不能提交新的发布事实。</li>
+          <li>BVID / part ID 先全集验证，再幂等规划；ASR 只依赖音频成功，不依赖字幕。</li>
+          <li>取消 queued/running 为 cancelled，精确 attempt 防止旧 worker 提交；取消不级联且不被 retry 恢复。</li>
+          <li>网络与推理在事务外运行；权威结果在 BEGIN IMMEDIATE 内检查 lease 并提交。</li>
+          <li>ASR profile 冻结完整有效配置，成功诊断与转录同事务提交；正文去重仍保留每次运行证据。</li>
         </ul>
       </div>
 
       <div class="card">
         <div class="card-header">
           <div class="card-dot cyan"></div>
-          <h3>采集与转录</h3>
+          <h3>采集与音频</h3>
         </div>
         <ul>
-          <li>fetch-meta 通过 Bilibili gateway 有界采集 user / video / part / tag 事实并写入 SQLite。</li>
-          <li>字幕与音频为独立 producer；ASR 依赖 audio 成功结果，不依赖字幕 job 成败。</li>
-          <li>字幕与 ASR 都追加 transcript versions 和 segments，保留来源和历史版本。</li>
+          <li>fetch-meta 持久保存分页事实与恢复游标；字幕和 ASR 追加不可变转录。</li>
+          <li>音频复用或独立暂存，probe / hash 在锁外，最终替换与对象登记在 guard 内。</li>
+          <li>workflow 可写独立 artifact root，SQLite 留在 archive root；保留 M4A / FLAC 后缀且无自动回收。</li>
         </ul>
       </div>
 
       <div class="card">
         <div class="card-header">
           <div class="card-dot violet"></div>
-          <h3>处理与发布</h3>
+          <h3>发布与校对</h3>
         </div>
         <ul>
-          <li>本地 ASR 使用 profile 指定的模型与设备；解码、对齐、分块由 ASR runner 执行。</li>
-          <li>发布 handler 选择当前优选 transcript，archive writer 写完整 SRT / TXT / Markdown / raw bundle。</li>
-          <li>AI 校对将固定输入、模型调用、分块结果和修订写入 editorial SQLite 表；render 只读取已保存修订。</li>
+          <li>编码、摘要与暂存先完成；五文件、v2 marker 与 publication 登记共享写锁，失败清理在回滚前。</li>
+          <li>校对冻结输入、审计调用、保存校验块与完整修订；render 只读已保存修订，不调用模型。</li>
+          <li>SQLite 与文件系统没有跨介质原子事务；verify 与显式重新发布负责检测及恢复。</li>
         </ul>
       </div>
 
       <div class="card">
         <div class="card-header">
           <div class="card-dot amber"></div>
-          <h3>查询面</h3>
+          <h3>搜索与投影</h3>
         </div>
         <ul>
-          <li>status 与 runs 直接读 SQLite；coverage、export、verify 通过 workflow projection 得到统一状态。</li>
-          <li>search-index 构建 SQLite FTS5；search 查询 transcript 文本并可补入已发布 Markdown。</li>
-          <li>读命令不创建缺失的 archive.db；coverage strict 才将诊断提升为失败退出码。</li>
+          <li>metadata 直接只读查询当前标题、简介和标签，不要求 FTS 或产物；transcripts 保持 FTS 查询。</li>
+          <li>all 先元数据后转录，共用 limit；日期为 UTC 日，JSON stdout 为数组，诊断走 stderr。</li>
+          <li>coverage / export / verify 共享读取投影；坏发布仍保留为可报告缺陷。</li>
         </ul>
       </div>
 
       <div class="card">
         <div class="card-header">
           <div class="card-dot amber"></div>
-          <h3>阅读站发布边界</h3>
+          <h3>阅读内容发布</h3>
         </div>
         <ul>
-          <li>reading-export 只读 SQLite，校验登记的 reading.md / review.md 哈希，并生成可提交的静态快照。</li>
-          <li>浏览器只看到筛选后的 Markdown；模型请求、原始转录和 SQLite 不进入站点。</li>
-          <li>Issue 建议通过 reading-review / reading-edit 回到 append-only 审核状态，AI 修订本身不被覆写。</li>
+          <li>reading-export 只读 SQLite，校验已登记 Markdown 摘要，写 catalog / articles / reviews 快照。</li>
+          <li>reading-review / reading-edit 显式采纳审核与人工 edition；原始转录及 AI 修订不被覆写。</li>
         </ul>
       </div>
     </div>

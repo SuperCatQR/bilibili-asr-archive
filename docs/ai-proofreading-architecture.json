@@ -8,7 +8,7 @@
     "quality_profile": "showcase",
     "repository": {
       "url": "https://github.com/SuperCatQR/bilibili-asr-archive.git",
-      "revision": "5c78dd9781ec7f059266e3d362642d7813c62026",
+      "revision": "8da41f04f7d079f5366b428436994da05a290c13",
       "link_mode": "local-only"
     }
   },
@@ -17,7 +17,7 @@
       "id": "cli",
       "type": "frontend",
       "label": "命令行入口",
-      "sublabel": "视频范围与 ASR 策略",
+      "sublabel": "BVID 选择 · 规划与取消",
       "pos": [
         40,
         40
@@ -30,8 +30,20 @@
         {
           "path": "src/bili_asr/cli/workflow.py",
           "line": 23,
-          "end_line": 96,
-          "label": "计划、校对、渲染与运行入口"
+          "end_line": 80,
+          "label": "BVID 选择、校对、运行与取消入口"
+        },
+        {
+          "path": "src/bili_asr/cli/workflow.py",
+          "line": 113,
+          "end_line": 145,
+          "label": "取消任务与重发已有转录"
+        },
+        {
+          "path": "src/bili_asr/storage/workflow_selection.py",
+          "line": 49,
+          "end_line": 136,
+          "label": "先验证完整选择，再创建任务"
         }
       ]
     },
@@ -39,7 +51,7 @@
       "id": "executor",
       "type": "backend",
       "label": "工作流执行器",
-      "sublabel": "认领 · 调用 · 记录回执",
+      "sublabel": "认领 · 续租 · 取消回执",
       "pos": [
         340,
         40
@@ -52,8 +64,14 @@
         {
           "path": "src/bili_asr/workflow.py",
           "line": 29,
-          "end_line": 78,
-          "label": "注入处理器，认领与记录结果"
+          "end_line": 125,
+          "label": "执行处理器、记录结果与取消计数"
+        },
+        {
+          "path": "src/bili_asr/cli/workflow.py",
+          "line": 244,
+          "end_line": 265,
+          "label": "注册采集、发布、校对与渲染处理器"
         }
       ]
     },
@@ -61,7 +79,7 @@
       "id": "acquisition",
       "type": "backend",
       "label": "采集与本地 ASR",
-      "sublabel": "字幕独立 · 音频先于 ASR",
+      "sublabel": "字幕独立 · 结果受租约保护",
       "pos": [
         650,
         40
@@ -73,9 +91,15 @@
       "sources": [
         {
           "path": "src/bili_asr/workflow_runtime.py",
-          "line": 56,
-          "end_line": 220,
-          "label": "独立字幕、音频与本地 ASR"
+          "line": 73,
+          "end_line": 272,
+          "label": "字幕、音频与 ASR 的取消检查和写入"
+        },
+        {
+          "path": "src/bili_asr/storage/workflow.py",
+          "line": 221,
+          "end_line": 278,
+          "label": "字幕独立；audio → ASR → 可选校对"
         }
       ]
     },
@@ -96,8 +120,14 @@
         {
           "path": "src/bili_asr/storage/schema-transcripts.sql",
           "line": 14,
-          "end_line": 50,
+          "end_line": 47,
           "label": "转录版本与有序片段"
+        },
+        {
+          "path": "src/bili_asr/storage/transcripts.py",
+          "line": 73,
+          "end_line": 90,
+          "label": "取得 SQLite 写锁后检查租约"
         }
       ]
     },
@@ -105,9 +135,9 @@
       "id": "jobStore",
       "type": "database",
       "label": "任务控制表",
-      "sublabel": "SQLite · 依赖与执行尝试",
+      "sublabel": "租约 · cancelled · 依赖阻塞",
       "pos": [
-        340,
+        40,
         230
       ],
       "size": [
@@ -118,8 +148,14 @@
         {
           "path": "src/bili_asr/storage/schema-workflow.sql",
           "line": 23,
-          "end_line": 81,
-          "label": "任务依赖、租约和尝试"
+          "end_line": 84,
+          "label": "任务、依赖、租约与 cancelled 尝试"
+        },
+        {
+          "path": "src/bili_asr/storage/workflow.py",
+          "line": 361,
+          "end_line": 482,
+          "label": "精确租约、原子取消与后继阻塞"
         }
       ]
     },
@@ -127,7 +163,7 @@
       "id": "bilibili",
       "type": "external",
       "label": "B站数据接口",
-      "sublabel": "元数据 · 字幕 · 音频",
+      "sublabel": "字幕接口 · 音频下载",
       "pos": [
         650,
         230
@@ -139,8 +175,8 @@
       "sources": [
         {
           "path": "src/bili_asr/workflow_runtime.py",
-          "line": 69,
-          "end_line": 145,
+          "line": 73,
+          "end_line": 158,
           "label": "字幕接口与音频下载"
         }
       ]
@@ -149,7 +185,7 @@
       "id": "rawPublisher",
       "type": "backend",
       "label": "原始归档发布",
-      "sublabel": "选择来源 · 格式化输出",
+      "sublabel": "当前优先来源 · 租约 guard",
       "pos": [
         960,
         230
@@ -161,9 +197,15 @@
       "sources": [
         {
           "path": "src/bili_asr/workflow_runtime.py",
-          "line": 221,
-          "end_line": 304,
-          "label": "读取数据库来源并发布归档"
+          "line": 274,
+          "end_line": 365,
+          "label": "选择当前版本；文件与登记共用 guard"
+        },
+        {
+          "path": "src/bili_asr/archive.py",
+          "line": 397,
+          "end_line": 506,
+          "label": "暂存后进入 guard，替换产物与 marker"
         }
       ]
     },
@@ -171,7 +213,7 @@
       "id": "rawFiles",
       "type": "database",
       "label": "原始归档文件",
-      "sublabel": "SRT / TXT / MD / 侧车",
+      "sublabel": "SRT / VTT / TXT / MD / JSON",
       "pos": [
         960,
         450
@@ -182,10 +224,16 @@
       ],
       "sources": [
         {
-          "path": "src/bili_asr/workflow_runtime.py",
-          "line": 256,
-          "end_line": 304,
-          "label": "归档文件与发布记录"
+          "path": "src/bili_asr/archive.py",
+          "line": 871,
+          "end_line": 910,
+          "label": "五产物与最后发布的完成 marker"
+        },
+        {
+          "path": "src/bili_asr/artifacts.py",
+          "line": 1,
+          "end_line": 6,
+          "label": "五路径键与 archive-bundle-v2 契约"
         }
       ]
     },
@@ -193,7 +241,7 @@
       "id": "inputSnapshot",
       "type": "backend",
       "label": "固定输入与分块",
-      "sublabel": "ASR 基础 · 可用字幕参考",
+      "sublabel": "固定 ASR · 同语字幕参考",
       "pos": [
         650,
         450
@@ -208,6 +256,12 @@
           "line": 139,
           "end_line": 201,
           "label": "固定版本、大块预算与只读上下文"
+        },
+        {
+          "path": "src/bili_asr/storage/editorial.py",
+          "line": 50,
+          "end_line": 92,
+          "label": "读取转录并冻结精确 ASR prerequisite"
         }
       ]
     },
@@ -215,7 +269,7 @@
       "id": "proofreader",
       "type": "backend",
       "label": "AI 校对处理器",
-      "sublabel": "完整阅读段落与来源 ID",
+      "sublabel": "响应审计 · 返回后检查租约",
       "pos": [
         340,
         450
@@ -227,9 +281,15 @@
       "sources": [
         {
           "path": "src/bili_asr/editorial_runtime.py",
-          "line": 34,
-          "end_line": 52,
-          "label": "保存调用响应并校验段落"
+          "line": 32,
+          "end_line": 56,
+          "label": "调用前后检查，审计响应并保存校验块"
+        },
+        {
+          "path": "src/bili_asr/storage/editorial.py",
+          "line": 94,
+          "end_line": 110,
+          "label": "begin_call 有 guard；finish_call 保留审计"
         }
       ]
     },
@@ -237,7 +297,7 @@
       "id": "languageModel",
       "type": "external",
       "label": "DeepSeek Flash",
-      "sublabel": "1M 上下文 · high · top_p 0.95",
+      "sublabel": "JSON 模式 · high · top_p 0.95",
       "pos": [
         340,
         660
@@ -250,8 +310,14 @@
         {
           "path": "src/bili_asr/deepseek.py",
           "line": 20,
-          "end_line": 59,
+          "end_line": 66,
           "label": "DeepSeek JSON 模式、high 思考与 top_p"
+        },
+        {
+          "path": "src/bili_asr/editorial.py",
+          "line": 78,
+          "end_line": 110,
+          "label": "本地默认模型配置与上下文预算"
         }
       ]
     },
@@ -259,7 +325,7 @@
       "id": "validator",
       "type": "backend",
       "label": "校验与提交",
-      "sublabel": "来源覆盖 · 顺序 · 引用",
+      "sublabel": "来源覆盖 · 校验后 guard 提交",
       "pos": [
         40,
         450
@@ -274,6 +340,12 @@
           "line": 221,
           "end_line": 269,
           "label": "恰好覆盖、顺序与参考证据校验"
+        },
+        {
+          "path": "src/bili_asr/storage/editorial.py",
+          "line": 120,
+          "end_line": 141,
+          "label": "chunk 与完整 revision 在 owned guard 内写入"
         }
       ]
     },
@@ -293,9 +365,9 @@
       "sources": [
         {
           "path": "src/bili_asr/storage/editorial.py",
-          "line": 100,
-          "end_line": 167,
-          "label": "调用审计、检查点与完整修订"
+          "line": 94,
+          "end_line": 174,
+          "label": "调用审计、检查点、revision 与文档登记"
         }
       ]
     },
@@ -303,9 +375,9 @@
       "id": "renderer",
       "type": "backend",
       "label": "Markdown 渲染",
-      "sublabel": "读取保存修订 · 无 API 调用",
+      "sublabel": "读取固定修订 · guard 内替换",
       "pos": [
-        340,
+        380,
         850
       ],
       "size": [
@@ -318,6 +390,12 @@
           "line": 282,
           "end_line": 310,
           "label": "纯正文和原文对照渲染"
+        },
+        {
+          "path": "src/bili_asr/editorial_runtime.py",
+          "line": 58,
+          "end_line": 100,
+          "label": "读取修订；同一 guard 内替换与登记文件"
         }
       ]
     },
@@ -325,9 +403,9 @@
       "id": "readingFiles",
       "type": "database",
       "label": "阅读与校对文档",
-      "sublabel": "纯正文 / 原文对照与疑点",
+      "sublabel": "reading.md / review.md",
       "pos": [
-        650,
+        730,
         850
       ],
       "size": [
@@ -337,9 +415,9 @@
       "sources": [
         {
           "path": "src/bili_asr/editorial_runtime.py",
-          "line": 54,
-          "end_line": 93,
-          "label": "原子写入阅读稿与校对记录"
+          "line": 71,
+          "end_line": 100,
+          "label": "暂存与清理；受租约保护的最终替换"
         }
       ]
     }
@@ -361,14 +439,21 @@
       "id": "entryExecution",
       "from": "cli",
       "to": "executor",
-      "label": "计划与执行",
+      "label": "规划与运行",
       "variant": "emphasis"
     },
     {
       "id": "taskPersistence",
       "from": "executor",
       "to": "jobStore",
-      "label": "认领与回执"
+      "label": "认领 / 续租 / 回执"
+    },
+    {
+      "id": "cancellationRequest",
+      "from": "cli",
+      "to": "jobStore",
+      "label": "原子取消 queued / running",
+      "variant": "security"
     },
     {
       "id": "acquisitionDispatch",
@@ -388,26 +473,26 @@
       "id": "transcriptPersistence",
       "from": "acquisition",
       "to": "rawTranscripts",
-      "label": "保存两路转录",
+      "label": "租约有效才写入",
       "variant": "emphasis"
     },
     {
       "id": "rawPublication",
-      "from": "rawTranscripts",
-      "to": "rawPublisher",
-      "label": "读取来源版本"
+      "from": "rawPublisher",
+      "to": "rawTranscripts",
+      "label": "读取优先版本"
     },
     {
       "id": "rawFileOutput",
       "from": "rawPublisher",
       "to": "rawFiles",
-      "label": "写出归档"
+      "label": "guard 内替换"
     },
     {
       "id": "snapshotSources",
-      "from": "rawTranscripts",
-      "to": "inputSnapshot",
-      "label": "固定可用输入"
+      "from": "inputSnapshot",
+      "to": "rawTranscripts",
+      "label": "读取固定来源"
     },
     {
       "id": "proofreadingDispatch",
@@ -420,7 +505,7 @@
       "id": "preparedBlocks",
       "from": "inputSnapshot",
       "to": "proofreader",
-      "label": "对齐块与引用"
+      "label": "固定输入与引用"
     },
     {
       "id": "modelInvocation",
@@ -433,52 +518,65 @@
       "id": "candidateValidation",
       "from": "proofreader",
       "to": "validator",
-      "label": "修订候选"
+      "label": "租约有效才接收"
     },
     {
       "id": "persistRevision",
       "from": "validator",
       "to": "editorialStore",
-      "label": "保存校验结果"
+      "label": "guard 内存 revision"
     },
     {
       "id": "revisionRender",
-      "from": "editorialStore",
-      "to": "renderer",
-      "label": "读取固定版本"
+      "from": "renderer",
+      "to": "editorialStore",
+      "label": "读取固定 revision"
     },
     {
       "id": "documentOutput",
       "from": "renderer",
       "to": "readingFiles",
-      "label": "确定性排版"
+      "label": "guard 内替换"
     }
   ],
   "cards": [
     {
       "dot": "cyan",
-      "title": "现有采集边界",
+      "title": "采集与原始发布",
       "items": [
-        "字幕与音频是独立任务，ASR 仅依赖音频",
-        "原始归档不等待校对；字幕存在不抑制 ASR"
+        "字幕独立；ASR 仅依赖音频，不因已有字幕省略",
+        "字幕或 ASR 写入受租约保护，取消后可收尾 failed run",
+        "原始发布独立于校对：SRT / VTT / TXT / MD / JSON"
       ]
     },
     {
       "dot": "amber",
-      "title": "校对与文档边界",
+      "title": "校对与文档",
       "items": [
-        "proofread 与 render_document 复用同一执行器",
-        "疑点单独列入 review.md，reading.md 只有正文",
-        "结构校验可追溯来源，语义保真仍需人工审核"
+        "冻结精确 ASR 结果，可引用同分 P、同语言字幕",
+        "分块和 revision 校验通过后，在 owned guard 内提交",
+        "reading.md 仅正文；review.md 保存对照、疑点与血缘",
+        "结构校验不是语义保真证明，AI 整理稿仍需人工审核"
       ]
     },
     {
       "dot": "violet",
-      "title": "持久化与证据",
+      "title": "取消与提交边界",
       "items": [
-        "三组 SQLite 表是一个数据库的逻辑分区",
-        "原始转录、校对版本、阅读文档各有血缘",
-        "模型调用、分块检查点和来源快照持久化保存"
+        "取消 queued 无伪 attempt；running 关闭 attempt 并撤销 lease",
+        "网络与模型调用协作停止，响应审计可以保留",
+        "取消先提交会拒绝迟到内容；先提交的结果保留",
+        "cancelled 不被 retry、重复 plan 或重发复活；后继阻塞"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "产物与持久证据",
+      "items": [
+        "SQLite 表为同一 archive.db 的逻辑分区",
+        "原始五产物、marker 与发布登记共用短写锁",
+        "发布失败失效 marker；SQLite 与文件系统不是回滚整体",
+        "校对 revision 与阅读文档独立，不覆盖原始转录"
       ]
     }
   ]

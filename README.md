@@ -42,12 +42,17 @@ Package boundaries:
 - `services/` coordinates acquisition and pure transcript projections.
 - `storage/` owns SQLite schema, records, repositories, and workflow scheduling.
 - `workflow.py` runs claimed jobs; `workflow_runtime.py` supplies the media handlers.
-- `archive.py` writes the SRT, TXT, Markdown, raw JSON, and bundle marker.
+- `archive.py` writes SRT, WebVTT, TXT, Markdown, raw JSON, and the five-product bundle marker.
 - `coverage_report.py`, `integrity.py`, `export.py`, and `search_index/` are read projections over SQLite and published files.
 
 ## Install
 
 Python 3.12 or later is required.
+
+For production, use the [Miniconda deployment guide](docs/miniconda-deployment.md).
+It covers isolated Python 3.12 environments, pinned application dependencies,
+AMD WSL and NVIDIA preflight, non-interactive startup, and deployment evidence.
+`check-asr-env` is an AMD WSL check, not a general CUDA support check.
 
 ```powershell
 uv sync --extra dev
@@ -73,10 +78,23 @@ bili-asr fetch-meta --mid 123456 --limit-pages 2
 
 Each successful page advances a persisted cursor. Re-run `fetch-meta` to
 continue from that cursor, or pass `--resume` to require an existing cursor.
-An upstream gateway failure exits with code `2` (exit 2) and records the
-`risk_interrupted` cursor state without advancing past the failed page, unless
-`--skip-failed-page` was requested. `--start-page` explicitly overrides the
-cursor and can move it backwards.
+An upstream gateway failure returns exit 2. Rate control records the
+page/run outcome `risk_interrupted` and preserves the existing cursor; a
+first-page failure can leave no cursor at all. Re-run without `--resume` in
+that case. Other failures record `failed`; `--skip-failed-page` can advance
+past those failures but never skips rate control. `--start-page` explicitly
+overrides the cursor and can move it backwards.
+
+The summary distinguishes page evidence (`recorded`) from successfully
+collected nonempty pages, videos and parts. Failure diagnostics report the
+operation and available HTTP status, API code or `wbi_retry_exhausted`
+reason, without raw upstream messages or credentials. `--page-retries 0`
+stops on the first failed upload-list attempt; opt into at most three retries
+with `--page-retries 1` through `3` (30/60/120 second cooldowns).
+When `BILI_SESSDATA` is configured, the gateway verifies login once before
+the first upload-list request. Rejected credentials stop with `auth_error`
+and require refreshing the cookie; they are not retried as rate control.
+Anonymous metadata collection does not add this login check.
 
 Choose one or more stored video-part IDs and plan producer jobs. The database ID can be inspected with SQLite:
 
@@ -86,11 +104,33 @@ SELECT video_part_id, bvid, page_index, title FROM video_parts ORDER BY video_pa
 
 ```powershell
 bili-asr workflow plan --part-id 42 --asr-policy all
+bili-asr workflow plan --bvid BV_EXAMPLE --page-index 0 --proofread
 bili-asr workflow run --limit 20
-bili-asr workflow status
+bili-asr workflow status --jobs
 ```
 
-`workflow plan` is idempotent for the same input and policy. Subtitle acquisition is independent; audio is queued only when needed; ASR waits for its audio prerequisite. `--asr-policy` accepts `all`, `missing-only`, or `quality-gated`. ASR profile configuration includes model, revision, aligner, device, and language.
+`workflow plan` is idempotent for the same input and policy. Repeat either `--part-id` or `--bvid`; the two selection forms are mutually exclusive. BVID selection uses stored metadata and optionally selects the same zero-based `--page-index` in each video (`0` is source P1). All targets are validated before profiles or jobs are created. See [workflow selection](docs/workflow-selection.md).
+
+Subtitle acquisition is independent; ASR waits for its audio prerequisite. `--asr-policy` accepts `all`, `selected`, or `below-threshold`. The first two plan ASR for the explicit selection; `below-threshold` requires a stored quality assessment below `--quality-threshold`. ASR profiles freeze the full effective configuration, including independent model/aligner revisions, chunk size, timeout, hotwords, offline loading and generation budget. Explicit planning arguments override the environment; execution uses the stored snapshot.
+
+Successful ASR runs retain per-chunk diagnostics independently of transcript content deduplication. Inspect them with `bili-asr workflow asr-evidence --run-id RUN_ID --part-id 42`. See [ASR configuration and diagnostics](docs/asr-configuration.md) for parameter defaults and quality flag meanings, and [public sample results](docs/asr-public-samples.md) for the evidence supporting the current baseline. Hotwords remain empty and are outside routine tuning.
+
+Cancel selected jobs using IDs from `workflow status --jobs`:
+
+```powershell
+bili-asr workflow cancel --job-id JOB_ID --job-id ANOTHER_JOB_ID
+```
+
+Queued and running jobs become `cancelled`; running work stops cooperatively at safe boundaries. Cancellation and result commits share a SQLite write lock. Completed jobs are a no-op; dependants remain queued and are reported as blocked. Retry and repeated planning do not revive the same cancelled job. See [cancellation](docs/workflow-cancellation.md).
+
+To rebuild a bundle from an existing preferred transcript, without reacquisition:
+
+```powershell
+bili-asr workflow publish --part-id 42
+bili-asr workflow run
+```
+
+Bundles now require all five products and an `archive-bundle-v2` marker with SHA-256 digests. Existing four-product bundles require explicit republication; incompatible workflow databases require a backup and rebuild. See [WebVTT and bundle integrity](docs/webvtt.md).
 
 Editorial work can be planned from stored transcripts and rendered deterministically:
 
@@ -100,22 +140,19 @@ bili-asr workflow render --revision-id REVISION_ID
 bili-asr workflow run --only-editorial
 ```
 
-The read-only Markdown site importer copies rendered `reading.md` and
-`review.md` documents from SQLite and their recorded artifact roots. The public
-site exposes both views; unreviewed revisions are visibly marked for
-Issue-based review:
+The Markdown exporter reads SQLite without modifying it, verifies rendered
+`reading.md` and `review.md`, and writes a content snapshot for a separate site
+consumer. The catalog records quality/review status and Issue links:
 
 ```powershell
 bili-asr reading-export --archive-root archive --out reading-site/content
-cd reading-site
-pnpm install
-pnpm dev
 ```
 
 Record an Issue and review status with `bili-asr reading-review`. Accepted
 changes are stored as immutable human editions using `bili-asr reading-edit`;
-the original AI revision remains unchanged. See [reading-site/README.md](reading-site/README.md)
-for the full review and static publishing flow.
+the original AI revision remains unchanged. This checkout provides the export
+and review commands; frontend code and deployment are separate. See
+[AI proofreading](docs/ai-proofreading.md) and [the architecture](docs/architecture.md).
 
 ## Query
 
@@ -127,6 +164,8 @@ bili-asr verify --format text
 bili-asr export --format csv --out archive/export.csv --with-text
 bili-asr search-index
 bili-asr search "transcript words" --format json
+bili-asr search "标题关键词" --scope metadata --format json
+bili-asr search "课程" --scope all --from 2026-01-01 --to 2026-12-31
 bili-asr dedup report --archive-root archive --format text
 ```
 
@@ -136,7 +175,21 @@ across parts; it never deletes, merges, or rewrites source records. Use
 `--format json` for a machine-readable baseline and `--limit` to cap only the
 example groups included in the output.
 
-Read commands do not bootstrap or create a missing database. `--artifact-root` can point read projections at a separate existing directory containing the published bundles. The default is the archive root.
+`status` and `runs` refuse a missing database, although opening a compatible existing database may refresh derived views. Workflow inspection uses the initializing database entrypoint. Coverage, verification, export, reading export and dedup use read-only projections; `search-index` writes a derived index.
+
+`workflow run --artifact-root PATH` and `BILI_ARTIFACT_ROOT` place audio, bundles and editorial Markdown in a separate existing directory while keeping `archive.db` at the archive root. Readers use the configured root first and the archive root as fallback. `workflow render` accepts the configuration when queuing; the subsequent run still needs the same flag or environment setting. See [docs/artifact-root.md](docs/artifact-root.md).
+
+Database table contracts must match the current shipped SQL. Incompatible old databases are refused before schema changes; there are no migrations. Stop workers, preserve any needed backup, delete the affected `archive.db`, and re-run metadata collection and workflow planning. **Rebuilding discards old database facts, including transcripts, revisions and review history.**
+
+Search defaults to `transcripts`. `metadata` searches stored titles,
+descriptions, and tags directly, without FTS or published artifacts. `all`
+returns metadata first, followed by transcript hits under one total limit.
+Dates use UTC video publication days; JSON includes `hit_type`. See
+[metadata search](docs/metadata-search.md).
+
+The current workflow writes audio, bundles, and documents under `--archive-root`.
+Audio is retained; workflow has no automatic disk-budget or reclaim option.
+See [artifact roots](docs/artifact-root.md) and [audio retention](docs/audio-retention-policy.md).
 
 ## Save and Restore an Archive
 
@@ -168,7 +221,10 @@ and format details.
 ## Tests
 
 ```powershell
-uv run pytest tests/test_workflow_control_plane.py tests/test_transcript_projection.py tests/test_metadata_repository.py tests/test_metadata_ingest.py tests/test_metadata_page_retries.py tests/test_metadata_cli.py
+uv run pytest tests/test_workflow_selection.py tests/test_workflow_cancellation.py tests/test_workflow_publication.py tests/test_workflow_audio_staging.py tests/test_webvtt.py tests/test_metadata_search.py tests/test_workflow_control_plane.py tests/test_workflow_lease_heartbeat.py tests/test_ai_editorial.py
 ```
 
 This focused suite covers the supported SQLite workflow and metadata path. The full test tree also contains historical pre-cutover tests and host-dependent integration tests; run it separately when changing those areas. Live network tests require `BILI_LIVE_SMOKE=1`; scale tests require `BILI_SCALE=1`.
+
+The [documentation index](docs/README.md) links the current architecture,
+feature guides, storage contracts, and implementation assessment for #247–#250.

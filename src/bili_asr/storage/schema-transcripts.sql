@@ -1,12 +1,9 @@
 -- Transcript and acquisition process-record contract.
 --
--- Applied by ``initialize_schema`` only to a database that is fresh
--- (``transcripts`` absent) or already carries this contract; a database
--- created before it keeps the shape it has, because ``CREATE TABLE IF NOT
--- EXISTS`` cannot widen an existing unique constraint.  The archive database
--- is rebuildable for contracts that require changed identity constraints.
--- Credential verification is an additive exception: initialization adds its
--- column with default 0, preserving historical evidence as unverified.
+-- Applied by ``initialize_schema`` to a fresh database or one whose complete
+-- shipped table definitions already match. Incompatible databases are refused
+-- before schema writes and must be deleted and recollected. No table migration
+-- or additive-column compatibility exception is supported.
 -- Foreign-key enforcement is a connection property
 -- owned by ``initialize_schema`` (``PRAGMA foreign_keys = ON``, verified),
 -- so this script declares no pragma of its own.
@@ -127,6 +124,19 @@ CREATE TABLE IF NOT EXISTS transcript_coverage_attestations (
 
 CREATE INDEX IF NOT EXISTS ix_transcript_coverage_part_run
     ON transcript_coverage_attestations(video_part_id, run_id);
+
+-- Per-attempt evidence survives text deduplication. Legacy coverage stays intact.
+CREATE TABLE IF NOT EXISTS transcript_asr_evidence (
+    run_id TEXT NOT NULL,
+    video_part_id INTEGER NOT NULL,
+    transcript_id INTEGER NOT NULL,
+    schema_version INTEGER NOT NULL CHECK (schema_version = 1),
+    evidence_json TEXT NOT NULL CHECK (json_valid(evidence_json)),
+    PRIMARY KEY (run_id, video_part_id),
+    FOREIGN KEY (run_id, video_part_id)
+        REFERENCES acquisition_attempts(run_id, video_part_id) ON DELETE RESTRICT,
+    FOREIGN KEY (transcript_id) REFERENCES transcripts(transcript_id) ON DELETE RESTRICT
+);
 
 -- The pending-work relation: one query, no per-part N+1.  Parts that hold a
 -- transcript, and parts upstream reported as gone, are not pending.  A part

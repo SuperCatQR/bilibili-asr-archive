@@ -511,7 +511,9 @@ def read_subtitle_route_ms(
         raise ProofreadRouteError(f"{bvid}:p{part}: missing caption route (no {db_path})")
     connection = None
     try:
-        resolved = db_path.resolve()
+        from .artifact_root import ArtifactRoots
+
+        resolved = ArtifactRoots.of(archive_root).archive_root / "archive.db"
         connection = sqlite3.connect(f"{resolved.as_uri()}?mode=ro", uri=True)
         connection.row_factory = sqlite3.Row
         connection.execute("PRAGMA foreign_keys = ON")
