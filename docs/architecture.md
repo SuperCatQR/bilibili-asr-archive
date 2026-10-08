@@ -1,7 +1,7 @@
 # 当前架构
 
 交互式组件图：[architecture.html](architecture.html)，可编辑规格：[architecture.json](architecture.json)。
-本文与图以 `8da41f04f7d079f5366b428436994da05a290c13` 的源码为依据，覆盖 CLI、SQLite workflow、
+本文与图以 `5c3cc606abc36c1632bc7c0bd9b06372136c88a8` 的源码为依据，覆盖 CLI、SQLite workflow、
 元数据与字幕、音频与 ASR、AI 校对、归档发布、查询及阅读内容导出。
 图的证据维护与生成检查见[架构图维护](architecture-maintenance.md)。
 
