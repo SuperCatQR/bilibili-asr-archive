@@ -218,11 +218,15 @@ jobs:
       - name: Run suite with coverage
         run: |
           python -m coverage run --branch -m pytest -q --durations=25
+
+      - name: Generate coverage report
+        if: ${{ !cancelled() && hashFiles('.coverage') != '' }}
+        run: |
           python -m coverage report --show-missing
           python -m coverage xml -o coverage.xml
 
       - name: Upload coverage report
-        if: always()
+        if: ${{ !cancelled() && hashFiles('coverage.xml') != '' }}
         uses: actions/upload-artifact@v7
         with:
           name: coverage-${{ github.run_id }}
