@@ -185,7 +185,11 @@ def run(args) -> None:
     paths = [verify_sample(root, sample) for sample in samples]
     config = ASRConfig(model_name=str(args.model.resolve()), aligner_name=str(args.aligner.resolve()),
                        device="cpu", language="Chinese", chunk_seconds=args.chunk_seconds, offline=True)
-    revision = subprocess.run(["git", "rev-parse", "HEAD"], check=True, capture_output=True, text=True).stdout.strip()
+    revision = args.source_revision or subprocess.run(
+        ["git", "rev-parse", "HEAD"], check=True, capture_output=True, text=True
+    ).stdout.strip()
+    if not re.fullmatch(r"[a-f0-9]{40}", revision):
+        raise ValueError("source revision must be a full commit hash")
     report = {"schema_version": 1, "created_at": datetime.now(timezone.utc).isoformat(),
               "source_revision": revision, "manifest": manifest, "normalization": NORMALIZATION,
               "reference_used_as_model_input": False, "inference": "production two_pass_transcribe; reusable CPU runner",
@@ -247,6 +251,7 @@ def main() -> None:
     run_parser.add_argument("--languages", nargs="+", choices=("Chinese", "auto"), default=["Chinese"])
     run_parser.add_argument("--chunk-seconds", type=float, default=180)
     run_parser.add_argument("--output", type=Path, required=True)
+    run_parser.add_argument("--source-revision", help="Host Git commit for Windows worktrees whose gitdir WSL cannot resolve")
     args = parser.parse_args()
     (fetch if args.command == "fetch" else run)(args)
 
