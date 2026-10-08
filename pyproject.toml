@@ -13,7 +13,10 @@ dependencies = [
     "bilibili-api-python==17.4.2",
     "curl_cffi>=0.16",
 ]
-license = { text = "Proprietary" }
+license = { text = "GNU General Public License v3.0" }
+classifiers = [
+    "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
+]
 
 [project.scripts]
 bili-asr = "bili_asr.cli:main"

@@ -25,6 +25,15 @@ and hash-verified `reading.md` artifacts are exported read-only to
 `reading-site/content/`. Issue review decisions and accepted human editions
 return through `reading-review` and `reading-edit`.
 
+## License
+
+This project is licensed under the GNU General Public License, version 3
+(GPL-3.0-only). See [LICENSE](LICENSE) for the full license text.
+
+Third-party components retain their original licenses. This software license
+does not grant rights to downloaded videos, audio, subtitles, or other archived
+content.
+
 The workflow tables are the only job scheduler. `workflow_jobs` stores producer jobs and prerequisite links; `workflow_attempts` stores attempt outcomes and lease ownership. Each ASR job references an immutable profile snapshot and a fixed input transcript when one exists. Publication records identify the transcript version and bundle paths that were written.
 
 Package boundaries:
