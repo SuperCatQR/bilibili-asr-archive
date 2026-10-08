@@ -90,7 +90,17 @@ bili-asr workflow run --limit 20
 bili-asr workflow status
 ```
 
-`workflow plan` is idempotent for the same input and policy. Subtitle acquisition is independent; audio is queued only when needed; ASR waits for its audio prerequisite. `--asr-policy` accepts `all`, `missing-only`, or `quality-gated`. ASR profile configuration includes model, revision, aligner, device, and language.
+`workflow plan` is idempotent for the same input and policy. Subtitle acquisition is independent; each selected ASR job gets an audio prerequisite. `--asr-policy` accepts `all`, `selected`, or `below-threshold` (with `--quality-threshold`). The current `selected` policy plans ASR for the explicitly supplied parts, as does `all`; `below-threshold` uses the latest stored quality assessment and includes unassessed parts. ASR profiles snapshot model, revision, aligner, device, and language.
+
+Inspect unsatisfied prerequisites and retry a specific failure without discarding its attempt history:
+
+```powershell
+bili-asr workflow status --details
+bili-asr workflow explain --job-id JOB_ID
+bili-asr workflow retry --job-id JOB_ID --kind audio
+```
+
+Repeated `--job-id`, `--kind`, and `--part-id` filters combine by intersection across filter types. A queued downstream job becomes ready when its prerequisites succeed. Local processes may share one SQLite database; application and heartbeat connections use the same bounded wait, configured by `BILI_SQLITE_BUSY_TIMEOUT_MS` (default `30000`). See [docs/metadata-storage.md](docs/metadata-storage.md) for the concurrency scope and recovery procedure.
 
 Editorial work can be planned from stored transcripts and rendered deterministically:
 
@@ -101,21 +111,19 @@ bili-asr workflow run --only-editorial
 ```
 
 The read-only Markdown site importer copies rendered `reading.md` and
-`review.md` documents from SQLite and their recorded artifact roots. The public
-site exposes both views; unreviewed revisions are visibly marked for
-Issue-based review:
+`review.md` documents registered in SQLite, resolving their relative paths through the configured artifact roots. The public
+site can consume both views and their review status. Export the content snapshot:
 
 ```powershell
 bili-asr reading-export --archive-root archive --out reading-site/content
-cd reading-site
-pnpm install
-pnpm dev
 ```
 
 Record an Issue and review status with `bili-asr reading-review`. Accepted
 changes are stored as immutable human editions using `bili-asr reading-edit`;
-the original AI revision remains unchanged. See [reading-site/README.md](reading-site/README.md)
-for the full review and static publishing flow.
+the original AI revision remains unchanged. This checkout provides the content exporter;
+the separately maintained reading-site frontend must be provisioned separately.
+See [docs/ai-proofreading.md](docs/ai-proofreading.md#阅读导出与人工审核)
+for the export and review commands.
 
 ## Query
 
@@ -136,7 +144,11 @@ across parts; it never deletes, merges, or rewrites source records. Use
 `--format json` for a machine-readable baseline and `--limit` to cap only the
 example groups included in the output.
 
-Read commands do not bootstrap or create a missing database. `--artifact-root` can point read projections at a separate existing directory containing the published bundles. The default is the archive root.
+`status` and `runs` refuse a missing database, although opening a compatible existing database may refresh derived views. Workflow inspection uses the initializing database entrypoint. Coverage, verification, export, reading export and dedup use read-only projections; `search-index` writes a derived index.
+
+`workflow run --artifact-root PATH` and `BILI_ARTIFACT_ROOT` place audio, bundles and editorial Markdown in a separate existing directory while keeping `archive.db` at the archive root. Readers use the configured root first and the archive root as fallback. `workflow render` accepts the configuration when queuing; the subsequent run still needs the same flag or environment setting. See [docs/artifact-root.md](docs/artifact-root.md).
+
+Database table contracts must match the current shipped SQL. Incompatible old databases are refused before schema changes; there are no migrations. Stop workers, preserve any needed backup, delete the affected `archive.db`, and re-run metadata collection and workflow planning. **Rebuilding discards old database facts, including transcripts, revisions and review history.**
 
 ## Tests
 

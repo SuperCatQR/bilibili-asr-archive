@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 from importlib import resources
+from functools import lru_cache
 import math
 import os
 from pathlib import Path
@@ -61,6 +62,39 @@ class SchemaContractError(RuntimeError):
     The archive database is rebuildable by policy, so there is no migration
     path: callers report the rebuild procedure instead of upgrading in place.
     """
+
+
+SQLITE_BUSY_TIMEOUT_ENV = "BILI_SQLITE_BUSY_TIMEOUT_MS"
+DEFAULT_BUSY_TIMEOUT_MS = 30_000
+
+
+def sqlite_busy_timeout_ms() -> int:
+    """One bounded contention policy for application and heartbeat connections."""
+    raw = os.environ.get(SQLITE_BUSY_TIMEOUT_ENV, str(DEFAULT_BUSY_TIMEOUT_MS))
+    try:
+        value = int(raw)
+    except ValueError:
+        raise ValueError(f"{SQLITE_BUSY_TIMEOUT_ENV} must be an integer from 1 to 300000") from None
+    if not 1 <= value <= 300_000:
+        raise ValueError(f"{SQLITE_BUSY_TIMEOUT_ENV} must be an integer from 1 to 300000")
+    return value
+
+
+def connect_database(path: str | os.PathLike[str], *, busy_timeout_ms: int | None = None) -> DatabaseConnection:
+    """Open a thread-owned connection; callers decide whether to bootstrap."""
+    timeout = sqlite_busy_timeout_ms() if busy_timeout_ms is None else busy_timeout_ms
+    connection = sqlite3.connect(path, isolation_level="DEFERRED", timeout=timeout / 1000)
+    connection.row_factory = sqlite3.Row
+    connection.execute("PRAGMA foreign_keys = ON")
+    connection.execute(f"PRAGMA busy_timeout = {int(timeout)}")
+    return connection
+
+
+def _rebuild_error(detail: str) -> SchemaContractError:
+    return SchemaContractError(
+        f"incompatible archive database ({detail}); delete archive.db and re-run fetch-meta. "
+        "Old database data is discarded and must be recollected; migrations are not supported."
+    )
 
 
 def duration_to_ms(seconds: int | float) -> int:
@@ -121,17 +155,6 @@ def _schema_object_names(connection: sqlite3.Connection) -> frozenset[str]:
             "SELECT name FROM sqlite_master WHERE type IN ('table', 'view')"
         )
     )
-
-
-def _accepts_transcript_script(connection: sqlite3.Connection) -> bool:
-    """Report whether the transcript schema script belongs in this database.
-
-    True for a fresh database (``transcripts`` absent) and for a database that
-    already carries the transcript columns; False for a database created
-    before this contract, which keeps the shape it has.
-    """
-    columns = _transcripts_columns(connection)
-    return not columns or _TRANSCRIPT_CONTRACT_COLUMNS <= columns
 
 
 def _has_subtitle_schema(connection: sqlite3.Connection) -> bool:
@@ -288,7 +311,7 @@ def _normalize_view_sql(statement: str) -> str:
     text = _strip_sql_comments(statement).strip().rstrip(";").strip()
     # SQLite also drops the IF NOT EXISTS clause when it stores a view, so the
     # shipped form has to lose it too before the two can be compared.
-    text = re.sub(r"(?i)^create\s+view\s+if\s+not\s+exists\s+", "CREATE VIEW ", text)
+    text = re.sub(r"(?i)^create\s+(view|table)\s+if\s+not\s+exists\s+", r"CREATE \1 ", text)
 
     out: list[str] = []
     plain: list[str] = []
@@ -395,42 +418,41 @@ def refresh_shipped_views(connection: sqlite3.Connection) -> int:
     return len(stale)
 
 
-def initialize_schema(connection: sqlite3.Connection) -> sqlite3.Connection:
-    """Initialize ``connection`` from the checked-in schema scripts, idempotently.
+def _schema_scripts() -> tuple[str, ...]:
+    return tuple(resource.read_text(encoding="utf-8") for resource in (
+        _SCHEMA_RESOURCE, _TRANSCRIPT_SCHEMA_RESOURCE, _WORKFLOW_SCHEMA_RESOURCE, _EDITORIAL_SCHEMA_RESOURCE
+    ))
 
-    Enables foreign-key enforcement, executes ``schema.sql``, and then applies
-    ``schema-transcripts.sql`` only when ``transcripts`` is absent or already
-    carries the transcript columns.  A database created before that contract
-    keeps the shape it has: the transcript script is skipped, so nothing
-    half-applies and the metadata path keeps working.  Commits the scripts.
-    """
+
+@lru_cache(maxsize=1)
+def _shipped_table_contract() -> dict[str, str]:
+    """Derive the current contract from SQL, without a schema version or migration."""
+    expected = sqlite3.connect(":memory:")
+    try:
+        for script in _schema_scripts():
+            expected.executescript(script)
+        return {name: _normalize_view_sql(sql) for name, sql in expected.execute(
+            "SELECT name, sql FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'"
+        )}
+    finally:
+        expected.close()
+
+
+def initialize_schema(connection: sqlite3.Connection) -> sqlite3.Connection:
+    """Bootstrap fresh databases; refuse incompatible tables before any DDL."""
     connection.execute("PRAGMA foreign_keys = ON")
     if connection.execute("PRAGMA foreign_keys").fetchone()[0] != 1:
         raise sqlite3.DatabaseError("SQLite foreign-key enforcement could not be enabled")
-    connection.executescript(_SCHEMA_RESOURCE.read_text(encoding="utf-8"))
-    if _accepts_transcript_script(connection):
-        # Earlier attempts did not verify login or distinguish listing absence
-        # from auth/body failures. Preserve their facts without backfilling proof.
-        attempt_columns = {
-            row[1] for row in connection.execute("PRAGMA table_info(acquisition_attempts)")
-        }
-        for verification_column in ("credential_verified", "absence_verified"):
-            if attempt_columns and verification_column not in attempt_columns:
-                connection.execute(
-                    f"ALTER TABLE acquisition_attempts ADD COLUMN {verification_column} "
-                    "INTEGER NOT NULL DEFAULT 0 "
-                    f"CHECK ({verification_column} IN (0, 1))"
-                )
-        connection.executescript(
-            _TRANSCRIPT_SCHEMA_RESOURCE.read_text(encoding="utf-8")
-        )
-        connection.executescript(
-            _WORKFLOW_SCHEMA_RESOURCE.read_text(encoding="utf-8")
-        )
-        connection.executescript(
-            _EDITORIAL_SCHEMA_RESOURCE.read_text(encoding="utf-8")
-        )
-        refresh_shipped_views(connection)
+    tables = {name: _normalize_view_sql(sql) for name, sql in connection.execute(
+        "SELECT name, sql FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'"
+    )}
+    if tables:
+        for name, expected in _shipped_table_contract().items():
+            if tables.get(name) != expected:
+                raise _rebuild_error(f"unsupported table {name}")
+    for script in _schema_scripts():
+        connection.executescript(script)
+    refresh_shipped_views(connection)
     connection.commit()
     return connection
 
@@ -446,10 +468,7 @@ def require_subtitle_schema(connection: sqlite3.Connection) -> None:
     """
     if _has_subtitle_schema(connection):
         return
-    raise SchemaContractError(
-        "archive database predates the transcript schema; rebuild it "
-        "(delete archive.db and re-run fetch-meta)"
-    )
+    raise _rebuild_error("transcript schema contract missing")
 
 
 def open_database(path: str | os.PathLike[str]) -> DatabaseConnection:
@@ -464,8 +483,7 @@ def open_database(path: str | os.PathLike[str]) -> DatabaseConnection:
     atomic write groups.
     """
     database_path = _resolve_database_path(path)
-    connection = sqlite3.connect(database_path, isolation_level="DEFERRED")
-    connection.row_factory = sqlite3.Row
+    connection = connect_database(database_path)
     try:
         initialize_schema(connection)
     except BaseException:

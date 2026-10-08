@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import argparse
 import os
+import json
 from pathlib import Path
 from uuid import uuid4
 
 from bili_asr.asr import DEFAULT_ALIGNER_MODEL, DEFAULT_MODEL
 from bili_asr.config import SESSDATA_ENV_VAR, resolve_sessdata
 from bili_asr.diagnostics import write_stderr
+from bili_asr.artifact_root import roots_for, ArtifactRootError
 from bili_asr.storage import AsrPolicy, AsrProfile, WorkflowRepository, open_database
 from bili_asr.workflow import WorkflowExecutor
 from bili_asr.editorial import EditorialConfig, TEMPLATE_VERSION
@@ -50,6 +52,7 @@ def add_workflow_parser(subparsers: argparse._SubParsersAction, *, archive_root:
     render.add_argument("--archive-root", default=archive_root)
     render.add_argument("--revision-id", required=True)
     render.add_argument("--template-version", choices=[TEMPLATE_VERSION], default=TEMPLATE_VERSION)
+    render.add_argument("--artifact-root", default=None, help="Product root used by subsequent workflow run invocations")
 
     run = actions.add_parser("run", help="Claim and execute ready SQLite jobs")
     run.add_argument("--archive-root", default=archive_root)
@@ -57,13 +60,21 @@ def add_workflow_parser(subparsers: argparse._SubParsersAction, *, archive_root:
     run.add_argument("--worker-id", default=f"cli-{os.getpid()}-{uuid4().hex[:8]}")
     run.add_argument("--sessdata", default=None)
     run.add_argument("--only-editorial", action="store_true", help="Execute only proofreading/rendering jobs")
+    run.add_argument("--artifact-root", default=None, help="Write products here; falls back to BILI_ARTIFACT_ROOT")
 
     status = actions.add_parser("status", help="Print workflow job counts from SQLite")
     status.add_argument("--archive-root", default=archive_root)
+    status.add_argument("--details", action="store_true", help="Explain each job and its unsatisfied dependencies")
+    explain = actions.add_parser("explain", help="Inspect a job, its dependency blockers and latest attempt")
+    explain.add_argument("--archive-root", default=archive_root)
+    explain.add_argument("--job-id", required=True)
 
     retry = actions.add_parser("retry", help="Requeue failed jobs while keeping attempt evidence")
     retry.add_argument("--archive-root", default=archive_root)
     retry.add_argument("--part-id", type=int, action="append", default=None)
+    retry.add_argument("--job-id", action="append", default=None)
+    from bili_asr.storage.workflow import JobKind
+    retry.add_argument("--kind", choices=[kind.value for kind in JobKind], action="append", default=None)
 
 
 def _add_editorial_arguments(parser: argparse.ArgumentParser) -> None:
@@ -86,9 +97,24 @@ def _editorial_config(args: argparse.Namespace) -> EditorialConfig:
 
 
 def _cmd_workflow(args: argparse.Namespace) -> int:
+    artifact_roots = None
+    if args.workflow_action in {"run", "render"}:
+        try:
+            artifact_roots = roots_for(args.archive_root, flag_value=args.artifact_root,
+                                       require_writable=args.workflow_action == "run")
+        except ArtifactRootError as exc:
+            write_stderr(f"workflow {args.workflow_action}: {exc}")
+            return 1
     connection = open_database(args.archive_root)
     try:
         repository = WorkflowRepository(connection)
+        if args.workflow_action == "explain":
+            try:
+                print(json.dumps(repository.explain_job(args.job_id), ensure_ascii=False, sort_keys=True))
+            except ValueError as exc:
+                write_stderr(f"workflow explain: {exc}")
+                return 1
+            return 0
         if args.workflow_action == "proofread":
             editorial = EditorialRepository(connection)
             try:
@@ -125,9 +151,14 @@ def _cmd_workflow(args: argparse.Namespace) -> int:
             counts = repository.count_by_status()
             for status in ("queued", "running", "succeeded", "failed", "cancelled"):
                 print(f"{status}: {counts.get(status, 0)}")
+            if args.details:
+                for job in repository.list_jobs():
+                    print(json.dumps(repository.explain_job(job.job_id), ensure_ascii=False, sort_keys=True))
             return 0
         if args.workflow_action == "retry":
-            count = repository.requeue_failed(part_ids=args.part_id)
+            from bili_asr.storage.workflow import JobKind
+            count = repository.requeue_failed(part_ids=args.part_id, job_ids=args.job_id,
+                                             kinds=None if args.kind is None else [JobKind(k) for k in args.kind])
             print(f"workflow retry: requeued={count}")
             return 0
         if args.workflow_action == "plan":
@@ -164,12 +195,13 @@ def _cmd_workflow(args: argparse.Namespace) -> int:
         from bili_asr.storage.workflow import JobKind
 
         editorial_handlers = EditorialWorkflowHandlers(EditorialRepository(connection), repository,
-                                                       archive_root=Path(args.archive_root))
+                                                       archive_root=Path(args.archive_root), artifact_roots=artifact_roots)
         archive_handlers = None
         registered = editorial_handlers.handlers()
         if not args.only_editorial:
             from bili_asr.workflow_runtime import ArchiveWorkflowHandlers
-            archive_handlers = ArchiveWorkflowHandlers(connection, repository, archive_root=args.archive_root, sessdata=sessdata)
+            archive_handlers = ArchiveWorkflowHandlers(connection, repository, archive_root=args.archive_root,
+                                                       sessdata=sessdata, artifact_roots=artifact_roots)
             registered.update(archive_handlers.handlers())
         try:
             summary = WorkflowExecutor(

@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 import tempfile
 from typing import Any
+from bili_asr.artifact_root import ArtifactRoots
 
 from bili_asr.deepseek import DeepSeekClient, parse_response, request_body
 from bili_asr.editorial import EditorialConfig, TEMPLATE_VERSION, render_documents, validate_revision
@@ -16,9 +17,10 @@ from bili_asr.storage.workflow import JobKind, WorkflowJob, WorkflowRepository
 
 class EditorialWorkflowHandlers:
     def __init__(self, repository: EditorialRepository, workflow: WorkflowRepository, *, archive_root: Path,
-                 client: DeepSeekClient | None = None):
+                 client: DeepSeekClient | None = None, artifact_roots: ArtifactRoots | None = None):
         self.repository, self.workflow = repository, workflow
-        self.archive_root = Path(archive_root)
+        self.artifact_roots = artifact_roots or ArtifactRoots.of(archive_root)
+        self.archive_root = self.artifact_roots.archive_root
         self.client = client or DeepSeekClient()
         self._owns_client = client is None
 
@@ -65,9 +67,10 @@ class EditorialWorkflowHandlers:
         metadata = prepared["snapshot"]["metadata"]
         documents = render_documents(metadata, prepared, blocks, revision_id)
         relative = Path("documents") / f"part-{part_id}" / revision_id / TEMPLATE_VERSION
-        folder = self.archive_root / relative
+        write_root = self.artifact_roots.write_base
+        folder = write_root / relative
         # Never let an existing symlink redirect archive writes outside the root.
-        if not folder.resolve().is_relative_to(self.archive_root.resolve()):
+        if write_root.is_symlink() or not folder.resolve().is_relative_to(write_root.resolve()):
             raise ValueError("document directory escapes archive root")
         folder.mkdir(parents=True, exist_ok=True)
         artifacts = {}

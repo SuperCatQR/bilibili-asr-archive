@@ -1,5 +1,10 @@
 # 音频保留策略使用指南
 
+> 历史接口说明：下文阶段命令与保留参数属于旧执行路径。当前 CLI 以 SQLite workflow
+> 为执行控制面，`workflow run` 未接入 `--keep-audio`、`--max-audio-gb` 或自动回收；
+> 这些旧命令示例不能作为当前操作指南。底层 `audio_reclaim` 模块仍保留，当前入口与
+> 目录规则见 [metadata-storage.md](metadata-storage.md) 和 [artifact-root.md](artifact-root.md)。
+
 ## 背景
 
 `bilibili-asr-archive` 在视频转录完成并达到 `archived` 状态后，**默认保留音频文件**。
