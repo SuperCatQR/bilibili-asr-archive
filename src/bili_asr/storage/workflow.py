@@ -8,14 +8,15 @@ recoverable without allowing a subtitle observation to suppress local ASR.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from contextlib import contextmanager
-from enum import StrEnum
 import hashlib
 import json
 import sqlite3
 import time
-from typing import Any, Callable, Iterable, Mapping
+from collections.abc import Iterable, Mapping
+from dataclasses import asdict, dataclass
+from enum import StrEnum
+from typing import Any, Callable
 from uuid import uuid4
 from bili_asr.storage.database import connect_database
 
@@ -68,19 +69,40 @@ class AsrProfile:
     aligner_name: str = "Qwen/Qwen3-ForcedAligner-0.6B-hf"
     device: str = "cuda"
     language: str | None = None
+    aligner_revision: str | None = None
+    chunk_seconds: float = 180.0
+    inference_timeout_seconds: float = 1800.0
+    hotwords: tuple[str, ...] = ()
+    offline: bool = True
+    model_id: str | None = None
+    tokens_per_second: float = 8.0
+    min_new_tokens: int = 256
+    second_pass_use_cache: bool = False
+
+    def asr_config(self):
+        """Reconstruct the frozen configuration without consulting the environment."""
+        from bili_asr.asr.config import ASRConfig
+
+        values = asdict(self)
+        values.pop("profile_key")
+        values["model_revision"] = self.model_revision or None
+        ASRConfig(**values)  # Reject bool/string values before numeric normalization.
+        for name in ("chunk_seconds", "inference_timeout_seconds", "tokens_per_second"):
+            values[name] = float(values[name])
+        return ASRConfig(**values)
 
     def canonical(self) -> str:
+        self.asr_config()  # Validate before hashing or persisting a profile.
+        values = asdict(self)
+        values.pop("profile_key")
+        for name in ("chunk_seconds", "inference_timeout_seconds", "tokens_per_second"):
+            values[name] = float(values[name])
         return json.dumps(
-            {
-                "aligner_name": self.aligner_name,
-                "device": self.device,
-                "language": self.language,
-                "model_name": self.model_name,
-                "model_revision": self.model_revision,
-            },
+            {"schema_version": 2, **values},
             ensure_ascii=False,
             separators=(",", ":"),
             sort_keys=True,
+            allow_nan=False,
         )
 
 
@@ -125,7 +147,7 @@ class WorkflowRepository:
         row = connection.execute("PRAGMA database_list").fetchone()
         self._database_path = "" if row is None else str(row["file"] or "")
 
-    def open_lease_repository(self) -> "WorkflowRepository | None":
+    def open_lease_repository(self) -> WorkflowRepository | None:
         """Open a connection suitable for a background lease heartbeat.
 
         SQLite connections are thread-affine by default.  A worker can spend
@@ -180,7 +202,12 @@ class WorkflowRepository:
                 "WHERE profile_key = ? AND config_sha256 = ?",
                 (profile.profile_key, digest),
             ).fetchone()
-        return int(row["profile_id"])
+            self.connection.execute(
+                "INSERT INTO workflow_asr_profile_configs(profile_id, schema_version, config_json) "
+                "VALUES (?, 2, ?)",
+                (int(row["profile_id"]), profile.canonical()),
+            )
+            return int(row["profile_id"])
 
     def plan(
         self,
@@ -702,14 +729,44 @@ class WorkflowRepository:
         ).fetchone()
         if row is None:
             raise ValueError("unknown ASR profile")
+        snapshot = self.connection.execute(
+            "SELECT config_json FROM workflow_asr_profile_configs WHERE profile_id = ?",
+            (profile_id,),
+        ).fetchone()
+        if snapshot is not None:
+            values = json.loads(snapshot["config_json"])
+            if values.pop("schema_version") != 2:
+                raise ValueError("unsupported ASR profile schema")
+            values["hotwords"] = tuple(values["hotwords"])
+            profile = AsrProfile(profile_key=str(row["profile_key"]), **values)
+            if hashlib.sha256(profile.canonical().encode("utf-8")).hexdigest() != row["config_sha256"]:
+                raise ValueError("ASR profile snapshot hash mismatch")
+            return profile
+        # Pre-v2 profiles used one revision for BOTH checkpoints. Preserve that
+        # execution contract and never rewrite their existing identity/digest.
+        legacy = {name: row[name] for name in (
+            "model_name", "model_revision", "aligner_name", "device", "language"
+        )}
+        legacy_json = json.dumps(legacy, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
+        if hashlib.sha256(legacy_json.encode("utf-8")).hexdigest() != row["config_sha256"]:
+            raise ValueError("ASR profile snapshot missing or legacy hash mismatch")
         return AsrProfile(
             profile_key=str(row["profile_key"]),
             model_name=str(row["model_name"]),
             model_revision=str(row["model_revision"]),
+            aligner_revision=str(row["model_revision"]) or None,
             aligner_name=str(row["aligner_name"]),
             device=str(row["device"]),
             language=row["language"],
         )
+
+    def profile_digest(self, profile_id: int) -> str:
+        row = self.connection.execute(
+            "SELECT config_sha256 FROM workflow_asr_profiles WHERE profile_id = ?", (profile_id,)
+        ).fetchone()
+        if row is None:
+            raise ValueError("unknown ASR profile")
+        return str(row["config_sha256"])
 
     def _ensure_job(
         self,

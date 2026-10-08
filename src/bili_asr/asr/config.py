@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-import os
 import math
+import os
 from dataclasses import dataclass
+
 import bili_asr.asr.constants as _dependency_constants
 import bili_asr.asr.hotwords as _dependency_hotwords
 
@@ -50,8 +51,8 @@ class ASRConfig:
     """Deterministic, redaction-safe configuration for one ASR run.
 
     ``language`` is the operator's declaration of what is spoken, passed to both models; ``None``
-    leaves the model's own detection in place, and the detected value is deliberately **not**
-    archived or published (plan §10 — the archive records what the operator declared, not a guess).
+    leaves the model's own detection in place. The declared language remains in provenance;
+    per-chunk detected languages are diagnostic observations.
 
     ``hotwords`` biases the decoder through the processor's free-form ``prompt``; an empty tuple
     sends no bias, and the terms are recorded in provenance.  Governance ruling 2026-09-28:
@@ -66,6 +67,7 @@ class ASRConfig:
     model_name: str
     aligner_name: str = _dependency_constants.DEFAULT_ALIGNER_MODEL
     model_revision: str | None = None
+    aligner_revision: str | None = None
     device: str = "cuda"
     language: str | None = None
     # 2026-09-28 governance ruling (plan 20260928-hotword-injection-governance,
@@ -77,6 +79,9 @@ class ASRConfig:
     hotwords: tuple[str, ...] = _dependency_constants.DEFAULT_HOTWORDS
     chunk_seconds: float = _dependency_constants.DEFAULT_CHUNK_SECONDS
     inference_timeout_seconds: float = _dependency_constants.DEFAULT_INFERENCE_TIMEOUT_SECONDS
+    tokens_per_second: float = _dependency_constants._MAX_NEW_TOKENS_PER_AUDIO_SECOND
+    min_new_tokens: int = _dependency_constants._MIN_NEW_TOKENS
+    second_pass_use_cache: bool = False
     offline: bool = True
     local_source: str = "configured-local"
     model_id: str | None = None
@@ -89,6 +94,10 @@ class ASRConfig:
             not isinstance(self.model_revision, str) or not self.model_revision.strip()
         ):
             raise ValueError("model_revision must be a non-empty string or null")
+        if self.aligner_revision is not None and (
+            not isinstance(self.aligner_revision, str) or not self.aligner_revision.strip()
+        ):
+            raise ValueError("aligner_revision must be a non-empty string or null")
         if not isinstance(self.device, str) or not self.device.strip():
             raise ValueError("device must be a non-empty string")
         if self.language is not None and (
@@ -97,8 +106,19 @@ class ASRConfig:
             raise ValueError("language must be a non-empty string or null")
         if isinstance(self.chunk_seconds, bool) or not isinstance(self.chunk_seconds, (int, float)):
             raise ValueError("chunk_seconds must be a positive number")
-        if self.chunk_seconds <= 0:
-            raise ValueError("chunk_seconds must be a positive number")
+        if not math.isfinite(float(self.chunk_seconds)) or self.chunk_seconds <= 0:
+            raise ValueError("chunk_seconds must be finite and positive")
+        if (
+            isinstance(self.tokens_per_second, bool)
+            or not isinstance(self.tokens_per_second, (int, float))
+            or not math.isfinite(float(self.tokens_per_second))
+            or self.tokens_per_second <= 0
+        ):
+            raise ValueError("tokens_per_second must be finite and positive")
+        if isinstance(self.min_new_tokens, bool) or not isinstance(self.min_new_tokens, int) or self.min_new_tokens < 1:
+            raise ValueError("min_new_tokens must be a positive integer")
+        if not isinstance(self.second_pass_use_cache, bool):
+            raise ValueError("second_pass_use_cache must be a bool")  # noqa: TRY004 - configuration validation contract
         if (
             isinstance(self.inference_timeout_seconds, bool)
             or not isinstance(self.inference_timeout_seconds, (int, float))
@@ -139,7 +159,7 @@ def _resolve_chunk_seconds(environment_value: str | None) -> float:
         raise ValueError(
             f"{_dependency_constants.ASR_CHUNK_SECONDS_ENV_VAR} must be a positive number of seconds"
         ) from None
-    if value <= 0:
+    if not math.isfinite(value) or value <= 0:
         raise ValueError(f"{_dependency_constants.ASR_CHUNK_SECONDS_ENV_VAR} must be a positive number of seconds")
     return value
 
@@ -162,7 +182,7 @@ def _resolve_inference_timeout(environment_value: str | None) -> float:
     return value
 
 
-def default_config() -> ASRConfig:
+def default_config(**overrides) -> ASRConfig:
     """Build the runner configuration from the documented environment knobs.
 
     ``BILI_ASR_MODEL`` and ``BILI_ASR_ALIGNER_MODEL`` carry hub ids or **local checkpoint
@@ -172,16 +192,19 @@ def default_config() -> ASRConfig:
     contradicts a hub-level ``BILI_ASR_MODEL``.
     """
 
-    return ASRConfig(
-        model_name=os.environ.get(_dependency_constants.ASR_MODEL_ENV_VAR) or _dependency_constants.DEFAULT_MODEL,
-        aligner_name=os.environ.get(_dependency_constants.ASR_ALIGNER_ENV_VAR) or _dependency_constants.DEFAULT_ALIGNER_MODEL,
-        model_revision=os.environ.get(_dependency_constants.ASR_MODEL_REVISION_ENV_VAR) or None,
-        device=os.environ.get(_dependency_constants.ASR_DEVICE_ENV_VAR) or "cuda",
-        language=os.environ.get(_dependency_constants.ASR_LANGUAGE_ENV_VAR) or None,
-        hotwords=_dependency_constants.DEFAULT_HOTWORDS + _dependency_hotwords._extra_hotwords(os.environ.get(_dependency_constants.ASR_HOTWORDS_ENV_VAR)),
-        chunk_seconds=_resolve_chunk_seconds(os.environ.get(_dependency_constants.ASR_CHUNK_SECONDS_ENV_VAR)),
-        inference_timeout_seconds=_resolve_inference_timeout(
+    values = {
+        "model_name": os.environ.get(_dependency_constants.ASR_MODEL_ENV_VAR) or _dependency_constants.DEFAULT_MODEL,
+        "aligner_name": os.environ.get(_dependency_constants.ASR_ALIGNER_ENV_VAR) or _dependency_constants.DEFAULT_ALIGNER_MODEL,
+        "model_revision": os.environ.get(_dependency_constants.ASR_MODEL_REVISION_ENV_VAR) or None,
+        "aligner_revision": os.environ.get("BILI_ASR_ALIGNER_REVISION") or None,
+        "device": os.environ.get(_dependency_constants.ASR_DEVICE_ENV_VAR) or "cuda",
+        "language": os.environ.get(_dependency_constants.ASR_LANGUAGE_ENV_VAR) or None,
+        "hotwords": _dependency_constants.DEFAULT_HOTWORDS + _dependency_hotwords._extra_hotwords(os.environ.get(_dependency_constants.ASR_HOTWORDS_ENV_VAR)),
+        "chunk_seconds": overrides.get("chunk_seconds") if "chunk_seconds" in overrides else _resolve_chunk_seconds(os.environ.get(_dependency_constants.ASR_CHUNK_SECONDS_ENV_VAR)),
+        "inference_timeout_seconds": overrides.get("inference_timeout_seconds") if "inference_timeout_seconds" in overrides else _resolve_inference_timeout(
             os.environ.get(_dependency_constants.ASR_INFERENCE_TIMEOUT_ENV_VAR)
         ),
-        model_id=(os.environ.get(_dependency_constants.ASR_MODEL_ID_ENV_VAR) or "").strip() or None,
-    )
+        "model_id": (os.environ.get(_dependency_constants.ASR_MODEL_ID_ENV_VAR) or "").strip() or None,
+    }
+    values.update(overrides)
+    return ASRConfig(**values)

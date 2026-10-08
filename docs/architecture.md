@@ -1,7 +1,7 @@
 # 当前架构
 
 交互式组件图：[architecture.html](architecture.html)，可编辑规格：[architecture.json](architecture.json)。
-本文与图以 `8da41f04f7d079f5366b428436994da05a290c13` 的源码为依据，覆盖 CLI、SQLite workflow、
+本文与图以 `5c3cc606abc36c1632bc7c0bd9b06372136c88a8` 的源码为依据，覆盖 CLI、SQLite workflow、
 元数据与字幕、音频与 ASR、AI 校对、归档发布、查询及阅读内容导出。
 图的证据维护与生成检查见[架构图维护](architecture-maintenance.md)。
 
@@ -77,6 +77,12 @@ audio handler 先检查 confined `audio/` 中可复用的非空对象；需要�
 无 ffmpeg 时保留真实 FLAC 后缀，不将其冒充 M4A；失败暂存自动清理。
 ASR 读取精确的成功 audio prerequisite，运行解码、对齐、分块和 coverage/provenance，
 在取消检查后追加持久转录。
+
+规划时冻结完整 ASR profile，包括模型与 aligner 各自的 revision、分块、语言、离线、超时、热词和生成预算；执行从数据库重建配置，不读取新的 ASR 环境变量。识别与对齐 processor 直接接收已解码的 16 kHz float32 波形。GPU 推理有可终止子进程与硬超时，CPU runner 可复用但没有同等硬超时。
+
+成功转录与本次 `transcript_asr_evidence` 在同一受租约 / 取消保护的事务内保存。内容去重复用旧 transcript 时仍保留新运行诊断，包括逐遍逐块文本、生成预算与 EOS、对齐区间和阶段耗时。`workflow asr-evidence` 用于查询；质量标记不等于准确率，也不自动阻止发布。失败或取消的全部中间块诊断尚未持久化。参数合同见 [ASR 参数与诊断](asr-configuration.md)。
+
+[公开样本测试](asr-public-samples.md) 已完成 30 次真实 CPU 推理。当前证据支持继续使用现有模型、中文任务显式 Chinese、180 秒分块与现有生成预算，尚未证明为最优。热词默认空，不列入常规调优；后续优先处理静音误识别与语音覆盖告警。
 
 `workflow run --artifact-root` / `BILI_ARTIFACT_ROOT` 可指定独立产物写根，数据库仍位于
 archive root。音频、转录包和阅读文档写入产物根；读取先探测产物根，再回退到 archive root。
@@ -154,7 +160,7 @@ JSON stdout 始终是数组。详见[元数据搜索](metadata-search.md)。
 当前离线测试覆盖选择、取消、真实下载器的暂存接口、发布和独立连接竞态、
 WebVTT、索引/元数据搜索、转录投影、租约、校对与读取契约。
 外网 B 站、真实 GPU 与付费模型调用另需运行环境验证。
-历史测试中仍有依赖已删除 manifest/coordinator/旧 CLI 的用例，完整历史测试集合未全部通过。
+历史测试中的部分旧模块名通过测试兼容装配运行；合并后的回归结果与执行边界见 [WSL 验证记录](asr-wsl-validation.md)。
 图示和文档解释当前契约，不能替代行为测试或真实材料的人工准确率评估。
 
 本次总图通过 showcase、源码证据、浏览器和浅/深色检查；单轮位置修复后仍有
