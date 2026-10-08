@@ -287,6 +287,41 @@ class BilibiliGateway(Protocol):
     def get_package_version(self) -> str: ...
 
 
+@dataclass(frozen=True, slots=True)
+class GatewayDiagnostic:
+    """Allowlisted upstream facts for operator output, never raw exception text."""
+
+    operation: str
+    http_status: int | None = None
+    api_code: int | None = None
+    reason: str | None = None
+
+    def __post_init__(self) -> None:
+        if self.operation not in {
+            "get_user_video_page", "get_video_parts", "get_completed_video_summary",
+            "get_video_tags", "get_subtitle_tracks", "validate_subtitle_credentials",
+            "fetch_subtitle_segments", "validate_metadata_credentials",
+        }:
+            raise ValueError("unknown gateway diagnostic operation")
+        if self.http_status is not None:
+            _integer(self.http_status, "http_status", minimum=100)
+            if self.http_status > 599:
+                raise ValueError("invalid HTTP status")
+        if self.api_code is not None:
+            if type(self.api_code) is not int or not -(2**31) <= self.api_code < 2**31:
+                raise ValueError("invalid API code")
+        if self.reason not in {None, "wbi_retry_exhausted", "response_error", "transport_error"}:
+            raise ValueError("unknown gateway diagnostic reason")
+
+    def format(self) -> str:
+        fields = [f"operation={self.operation}"]
+        for name in ("http_status", "api_code", "reason"):
+            value = getattr(self, name)
+            if value is not None:
+                fields.append(f"{name}={value}")
+        return " ".join(fields)
+
+
 class GatewayError(Exception):
     """Base of the bounded gateway failure taxonomy.
 
@@ -297,11 +332,13 @@ class GatewayError(Exception):
 
     default_code: ClassVar[str] = "gateway_error"
 
-    def __init__(self, code: str | None = None, detail: str = "") -> None:
+    def __init__(self, code: str | None = None, detail: str = "", *,
+                 diagnostic: GatewayDiagnostic | None = None) -> None:
         self.code = validate_error_code(
             code if code is not None else self.default_code
         )
         self.detail = detail
+        self.diagnostic = diagnostic
         message = f"{type(self).__name__}({self.code})"
         if detail:
             message = f"{message}: {detail}"
@@ -347,6 +384,7 @@ class GatewayShapeError(GatewayError):
 __all__ = [
     "BilibiliGateway",
     "GatewayError",
+    "GatewayDiagnostic",
     "GatewayAuthenticationError",
     "GatewayNotFound",
     "GatewayRateLimited",

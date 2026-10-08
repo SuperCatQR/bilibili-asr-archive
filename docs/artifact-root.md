@@ -1,130 +1,138 @@
-# 归档根目录与只读产物候选根
+# 归档根目录与产物根目录
 
-当前公共 CLI 以 `archive.db` 中的元数据、转录版本和 workflow jobs 为事实来源。`--archive-root` 决定数据库的位置，也决定 workflow 下载音频、发布转录包和渲染阅读文档的位置。`--artifact-root` / `BILI_ARTIFACT_ROOT` 为查询和导出提供已有产物的只读候选根，不改变 workflow 的写入位置。
+`--archive-root` 决定数据库位置。`--artifact-root` 或 `BILI_ARTIFACT_ROOT` 决定文件产物
+的位置。默认两者相同；独立产物目录不会改变 `<archive-root>/archive.db` 的位置。
 
-旧 `schedule`、`campaign`、`pilot`、顶层 `run`、顶层 `asr` 已删除。旧命令中的外部产物写入、音频预算和回收选项不能作为当前操作方法。
+当前数据与恢复规则见 [metadata-storage.md](metadata-storage.md)，底层路径实现见
+[artifact_root.py](../src/bili_asr/artifact_root.py)。
 
-## 两个根目录的分工
-
-| 位置 | 当前用途 | 配置方式 |
-| --- | --- | --- |
-| 归档根目录 | `archive.db`，包含元数据、转录 segments、任务及发布记录、搜索索引；workflow 产物也写入这里 | `--archive-root`，默认 `archive` |
-| 可选产物候选根 | 读取已有音频、转录包或阅读文档；可只读 | 支持该参数的命令使用 `--artifact-root`，或读取 `BILI_ARTIFACT_ROOT` |
-| 导出目标 | JSON/CSV 文件或阅读站点输出 | `export --out`、`reading-export --out` |
-
-`search-index` 和 `search --rebuild` 会更新归档根内的数据库索引。候选根只读不代表整个命令不写数据库。`reading-export` 从候选根读取文档，向自己的 `--out` 写站点内容。
-
-典型归档布局如下。`p0` 是数据库保存的零基 page index，对应源站 P1；转录包目录来自分 P 的稳定身份。
+## 1. 写入与读取布局
 
 ```text
-archive/
-├── archive.db
-├── audio/
-│   └── BV_EXAMPLE.p0.m4a
-├── transcripts/
-│   └── BV_EXAMPLE.p0/
-│       ├── bundle.srt
-│       ├── bundle.vtt
-│       ├── bundle.txt
-│       ├── bundle.md
-│       ├── bundle.raw.json
-│       └── .bundle-ready
-└── documents/
-    └── part-12/<revision-id>/<template-version>/
-        └── ...
+archive root/                       artifact root/
+└── archive.db                      ├── audio/{stem}.m4a
+                                    ├── transcripts/{stem}/...
+                                    └── documents/part-{id}/{revision}/{template}/
+                                        ├── reading.md
+                                        └── review.md
 ```
 
-转录包的逻辑名称是 bundle，实际目录为 `transcripts/<stem>/`。阅读文档使用 `documents/`。SQLite WAL 辅助文件也留在归档根内；当前任务进度不依赖旧 manifest 日志、coordinator 锁目录或独立 `search.db`。
+| 内容 | 位置与登记方式 |
+|---|---|
+| 元数据、transcript、job、attempt、editorial、审核状态 | archive root 的 `archive.db` |
+| 音频 | write base 的 `audio/`；登记相对 storage key、SHA-256、大小、格式和时长 |
+| SRT、VTT、TXT、Markdown、raw JSON 和 marker | write base 的 `transcripts/`；publication 登记相对路径 |
+| 阅读与审核 Markdown | write base 的 `documents/`；document artifact 登记相对路径和 SHA-256 |
+| 阅读站快照 | `reading-export --out` 指定的目录 |
 
-## 当前命令如何使用候选根
+每次调用只有一个 write base。读取先探测配置的 artifact root，再探测 archive root；
+两者相同只探测一次。旧文件可留在 archive root，新下载、bundle、文档写当前 write base。
+音频下载可复用读取回退中合格的旧文件，这不代表新字节写回旧位置。
 
-| 命令 | 对候选根的使用 |
-| --- | --- |
-| `verify` | 检查登记发布的转录包是否在某个根内完整且摘要匹配 |
-| `coverage` | 判断转录发布覆盖率；有效五产物包才计入完成 |
-| `export` | 投影工作流记录，校验发布状态并规范化路径；`--with-text` 使用数据库 segments |
-| `reading-export` | 按数据库登记的文档相对路径和 SHA-256 读取正文及审阅文档 |
-| `search`、`search-index` | 当前转录搜索使用 `archive.db` 的 segments 和 FTS；根配置仍由 CLI 校验并传入索引对象，不将外部目录当另一份数据库 |
-| `dedup report` | 当前只统计数据库中的精确复用；接受根配置并进行入口校验，不扫描外部文件计算实际节省量 |
+记录不含绝对根目录。切换配置不复制文件，也不把目录写入数据库。读取只有“当前配置、
+archive root”两个位置，不能自动探测此前的多个独立目录。
 
-`search --scope metadata` 只查询数据库中的标题、简介和标签，不解析或校验 `--artifact-root` / `BILI_ARTIFACT_ROOT`。`--scope transcripts` 和 `--scope all` 仍经过根配置校验。
+## 2. 优先级与词法路径
 
-`workflow`、`fetch-meta`、`status`、`runs`、`check-asr-env`、`reading-review`、`reading-edit` 不接受 `--artifact-root`。`workflow run` 始终使用自己的 `--archive-root`，设置 `BILI_ARTIFACT_ROOT` 也不会改写下载或发布位置。
+配置顺序为非空 flag、非空 `BILI_ARTIFACT_ROOT`、archive root。空值或全空白值继续
+回退。artifact root 配置去除两端空白、展开 `~`，相对路径按进程当前目录转成绝对路径；
+archive root 的 `~` 不由该策略展开。
+
+根目录通过 `ArtifactRoots.of()` 保留**词法绝对路径**：使用 `abspath`，不以 `realpath`
+抹去符号链接身份。安全检查可以验证实际 containment，但不能把保存的根目录换成
+链接目标，绕过 writer 的拒绝规则。
+
+未配置独立目录时沿用单根初始化行为；显式配置为词法相同的 archive root 也属于单根。
+最后的文件写入仍经过产品类型自身的路径保护。
+
+## 3. 验证与安全边界
+
+独立根目录必须已存在、可访问且自身不是符号链接。命令不自动创建缺失的独立根，
+避免把未挂载的预期位置当成普通新目录。
+
+`workflow run` 在打开数据库和执行任务前验证配置，对独立根进行创建、写入、同步、
+删除临时文件的可写探测。读取命令只要求可读；`workflow render` 仅排队，验证可访问，
+真正执行时由 `workflow run` 验证可写。
+
+writer 检查所属产品的根、内部目录和目标，拒绝路径逃逸、非法记录路径及危险链接。
+音频 key、bundle 路径、文档路径应保持各自的相对布局，不接受任意绝对路径或 `..`。
+
+## 4. WSL 使用示例
+
+先准备根目录，再以同一配置执行和读取：
 
 ```sh
-# 目标 BVID 须已由 fetch-meta 存入数据库；工作流写入 archive/。
-bili-asr workflow plan --archive-root archive --bvid BV_EXAMPLE --page-index 0
-bili-asr workflow run --archive-root archive --limit 10
-
-# 查询时先检查已有的外部副本，再检查 archive/。
-bili-asr verify --archive-root archive --artifact-root /mnt/archive-products --format text
-bili-asr coverage --archive-root archive --artifact-root /mnt/archive-products --format json
-bili-asr export --archive-root archive --artifact-root /mnt/archive-products --format json --with-text
-bili-asr reading-export --archive-root archive --artifact-root /mnt/archive-products --out reading-site/content
+mkdir -p /home/chosenecho/bili-products
+export BILI_ARTIFACT_ROOT=/home/chosenecho/bili-products
+bili-asr fetch-meta --archive-root ./archive --mid 123456 --limit-pages 2
+bili-asr workflow plan --archive-root ./archive --part-id 42 --asr-policy all
+bili-asr workflow run --archive-root ./archive --limit 20
+bili-asr coverage --archive-root ./archive --format json
+bili-asr verify --archive-root ./archive --format text
+bili-asr export --archive-root ./archive --format json --out ./archive/export.json
 ```
 
-Windows 可将外部路径换成真实存在的目录，例如 `D:/archive-products`。这些参数不会创建外部根、复制产物或迁移数据库。
+也可逐次传 flag 覆盖环境变量，以下假设 `/data/bili-products` 已存在并可写：
 
-## 配置优先级与入口校验
-
-使用产物根配置的命令依次选择：
-
-1. 非空的 `--artifact-root`。
-2. 非空的 `BILI_ARTIFACT_ROOT`。
-3. 都未配置时使用 `--archive-root`。
-
-参数和变量先去除首尾空白；空值视为未设置并继续查找。产物根配置中的 `~` 会展开，相对路径按进程工作目录转成绝对路径；不先执行 `realpath`，以保留符号链接检查所需的路径形态。`--archive-root` 不使用这套 `~` 展开规则，建议传明确路径。
-
-配置根在词法上等于归档根时，两者合并为一个候选，不额外验证该目录。除此之外，配置根必须已经存在、是目录、不是符号链接，并且当前进程实际可以打开它。不存在、类型错误、符号链接或无法打开时，命令输出含路径的诊断并退出 1；不会静默忽略配置或自动创建目录。
-
-当前公共调用按读取模式校验，不创建写探针，不要求候选根可写。源码 `roots_for(..., require_writable=True)` 仍提供写入/同步探针，`ArtifactRoots.write_base` 也仍存在；这些库层能力没有接入当前 workflow 的外部根写入。
-
-## 读取顺序与回退边界
-
-未配置外部根时，候选列表只有归档根；配置后固定为：
-
-```text
-外部 artifact root → archive root
+```sh
+bili-asr workflow run --archive-root ./archive --artifact-root /data/bili-products
+bili-asr verify --archive-root ./archive --artifact-root /data/bili-products
+bili-asr reading-export --archive-root ./archive \
+  --artifact-root /data/bili-products --out ./reading-site/content
 ```
 
-持久化的 `storage_key`、转录路径和文档路径是相对路径，如 `audio/BV_EXAMPLE.p0.m4a`、`transcripts/BV_EXAMPLE.p0/bundle.vtt`。每个根分别拼接并执行对应读者的路径规则，不跨根拼接路径或文件。
+flag 属于对应子命令，不是所有命令的顶层参数。`fetch-meta`、`workflow plan` 保存数据库
+事实，不需要配置产物目录。
 
-回退依据各读者的要求：
+## 5. 校对与确定性渲染
 
-- **转录包**：`verify`、`coverage` 和发布投影分别验证整个根内的五项产物及 marker。外部根不完整或摘要不匹配时，还会检查归档根；任一根内完整有效即可成立。不能从外部取 VTT、归档根取 SRT 拼出一个完整包。
-- **阅读文档**：找不到文件、无法解析路径或路径越界时可继续下一个根。找到普通文件后立即计算摘要；与数据库不符会停止导出并报错，不继续用 fallback 掩盖损坏。正文和审阅文档分别验证各自的路径与摘要。
-- **共享音频 helper**：要求存在时必须找到实际文件；要求可用时还必须非空。外部空文件不会遮蔽归档根内可用音频。当前 workflow ASR 直接使用成功 audio dependency 的 `storage_key` 在归档根下读取，不从外部根寻找替代输入。
+```sh
+export BILI_ARTIFACT_ROOT=/data/bili-products
+bili-asr workflow proofread --archive-root ./archive --part-id 42 --no-reference
+bili-asr workflow run --archive-root ./archive --only-editorial
+bili-asr workflow render --archive-root ./archive --revision-id REVISION_ID \
+  --artifact-root /data/bili-products
+bili-asr workflow run --archive-root ./archive --only-editorial \
+  --artifact-root /data/bili-products
+bili-asr reading-export --archive-root ./archive --out ./reading-site/content
+```
 
-切换候选根只改变本次读取优先顺序，不重写数据库路径、重排 jobs、重新发布或删除旧副本。两个根都有有效同名转录包时，外部优先；维护者应保证副本版本一致。
+`workflow render` 不写 Markdown，也不把根目录固定到 job。后续 run 必须继续提供相同
+flag/env；仅在排队时传 flag 不决定执行时的目录。revision 与模板身份保存在 SQLite，
+文件路径相对于 write base。
 
-## 路径约束与摘要校验
+reading-export 找到登记的文档后校验 SHA-256，再生成站点输入。字节被修改时拒绝导出，
+不能靠改目录配置跳过哈希验证。人工修改走 `reading-edit` edition 流程，见
+[ai-proofreading.md](ai-proofreading.md#阅读导出与人工审核)。
 
-### 转录包
+## 6. 支持入口与当前限制
 
-当前包必须具有 `srt_path`、`vtt_path`、`txt_path`、`md_path`、`raw_path` 五项，分别对应同一 `transcripts/<stem>/` 目录内的固定文件名。绝对路径、父目录穿越、错误层级、错误文件名或分散在不同分 P 目录的声明不被认可。
+| 入口 | 行为 |
+|---|---|
+| `workflow run` | 解析 flag/env、验证可写，传给音频、ASR、发布和 editorial handler |
+| `workflow render` | 验证配置，只排队，不持久保存根目录 |
+| `coverage`、`verify`、`export` | 合并数据库事实与两个读取根下的 bundle 完整性 |
+| `search-index`、`search` | 读取转录及文件补充内容；索引为数据库派生数据 |
+| `reading-export` | 查找并校验 document artifact |
+| `dedup --artifact-root PATH report` | 配置放在 dedup 命令层；报告只读 |
 
-`.bundle-ready` 必须为 `archive-bundle-v2`，精确声明五项相对路径及 SHA-256。验证读取每个普通文件并计算摘要，检查读取前后的文件身份、大小和时间信息，拒绝读取途中变化的文件。仅比较是否存在、大小或 mtime 不足以通过。缺少 VTT、旧四产物 marker、损坏文件或 marker/路径不一致均不构成完整发布。
+当前 workflow 未接入音频预算和自动回收 CLI 选项；旧说明中的 `--max-audio-gb`、
+`--keep-audio`、`BILI_KEEP_AUDIO` 不能控制当前 workflow。独立目录改变存储位置，
+不提供磁盘配额或保留周期。
 
-POSIX 包读取使用目录描述符及 `O_NOFOLLOW` 逐级打开根目录、子目录和文件，拒绝非普通文件。Windows 使用路径打开与普通文件检查，没有同样的目录描述符约束；应使用受管理的真实目录，不能把两种实现视为完全相同的防符号链接保证。
+## 7. 切换目录与诊断
 
-### 阅读文档
+从单根切到独立根可保留旧文件，也可在停止 worker 后自行整理，保持相对路径和文件字节。
+数据库保持原位。切到第三处时，之前独立目录不会自动被探测，应整理到当前两个读取位置。
 
-文档声明必须是无 `..` 的相对路径。读者解析实际存在的文件后要求它仍位于当前候选根内且是普通文件，再按数据库 `content_sha256` 校验内容。指向根外的符号链接被拒绝；数据库中的人工修订正文也按登记摘要验证。
+| 现象 | 处理 |
+|---|---|
+| 配置错误，退出 1 | 检查存在性、权限、符号链接及 flag/env 优先级 |
+| 排队成功，run 写 archive root | 给 run 同一配置，或统一用环境变量 |
+| 发布内容被识别为待办 | 确认读取根配置，检查完整 marker 与 bundle |
+| 导出哈希不一致 | 检查字节改动，通过 edition 流程保存人工修订 |
+| 新位置没有旧文件副本 | 配置不迁移文件，archive root 回退仍能读取原字节 |
+| 换目录后音频缺失 | 按记录相对 key 恢复到读取根，或重新获取 |
 
-### 音频与导出路径
-
-共享音频路径策略只接受 `audio/<filename>.m4a` 或 `audio/<filename>.flac`，拒绝绝对路径、穿越及额外层级。POSIX helper 保持受约束的目录/文件描述符；Windows helper 检查根目录、`audio/` 和文件的类型与符号链接，但不提供相同描述符语义。这不表示当前所有 workflow 音频读取都采用了这些 helper。
-
-导出路径清理逐个根检查实际解析后的包含关系，拒绝 `..` 和根外路径，并输出相对路径。这是路径清理，不是音频摘要审计；`verify` 的检查对象是转录包。导出出现音频路径不能证明该文件当前存在并与 catalog 摘要一致。
-
-## 写入提交与操作建议
-
-音频下载在归档根内的独立 staging 完成；探测时长和计算摘要后，workflow 在校验 job lease 的短事务内替换最终文件并登记 audio object。转录包先在 staging 编码、同步及计算摘要，再由 publication guard 覆盖五项最终替换、marker 提交和数据库发布事实。阅读文档也先写临时文件，再在任务拥有的事务内替换并登记摘要。
-
-这些边界让取消或失去 lease 的旧 worker 无法继续发布。SQLite 与文件系统仍是两个提交介质；marker 和摘要承担检测部分转录发布的职责。详情见 [WebVTT 与五产物归档包](webvtt.md)。
-
-需要更大的写入空间时，把 `--archive-root` 指向合适的实际目录；该目录同时承载数据库和 workflow 产物。当前没有将数据库和 workflow 写入根拆开的公共开关或自动搬迁命令。外部副本作为读取候选时，须保留相对目录结构、配套 marker 和登记摘要。
-
-`verify`、`coverage` 完整读取并计算包摘要，成本取决于字节量；当前公共读取路径没有每文件可取消的独立 deadline，网络文件系统延迟与挂载超时仍由运行环境管理。
-
-相关指南：[音频保留与复用](audio-retention-policy.md)、[工作流目标选择](workflow-selection.md)、[SQLite 存储](metadata-storage.md)、[阅读文档与校对](ai-proofreading.md)。
+schema 重建会丢失数据库事实，需要重新采集；这与目录切换不同。恢复步骤见
+[metadata-storage.md](metadata-storage.md#数据库打开与-schema-边界)。

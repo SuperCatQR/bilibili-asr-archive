@@ -94,7 +94,9 @@ flowchart LR
 块结果在受保护事务内保存，失败重试复用完成块。租约与尝试编号防止失效工作器提交。
 供应商收到请求但本地未保存时退出，重试可能再次计费，不承诺外部调用恰好一次。
 
-产物位于 documents/part-<ID>/<修订ID>/reading-v2/。
+产物位于 write base 的 documents/part-<ID>/<修订ID>/reading-v2/。
+write base 默认是 archive root，可由 workflow run 的 `--artifact-root` 或
+`BILI_ARTIFACT_ROOT` 配置；document artifact 保存相对路径和哈希，读取使用同一配置。
 reading.md 仅含正文段落；无标题、目录、时间戳、脚注、链接或审核说明。
 review.md 保存每段原文和整理稿、全部来源 ID、时间与回看链接、疑点、模型参数和版本，注明未经人工复核。
 两份文件先编码、同步并计算摘要，再在同一所有权事务内最终替换与登记。

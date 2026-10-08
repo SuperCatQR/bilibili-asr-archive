@@ -51,7 +51,7 @@ archive/
     └── ...                          # 校对和阅读文档
 ```
 
-workflow 的写入位置由 `--archive-root` 决定。`--artifact-root` / `BILI_ARTIFACT_ROOT` 只为部分查询和导出命令提供外部读取候选，不能重定向新下载，也不会让 ASR 从外部副本寻找输入。详见 [归档根目录与只读产物候选根](artifact-root.md)。
+workflow 的数据库位于 `--archive-root`。`workflow run --artifact-root` / `BILI_ARTIFACT_ROOT` 指定音频及其他产物的写根；ASR 按产物根、归档根的顺序解析已登记音频路径。详见 [归档根目录与只读产物候选根](artifact-root.md)。
 
 下载 helper 支持 `.m4a` 及部分 FLAC 流的处理和 fallback；应以实际登记的 `storage_key`、`format` 与文件内容为准，不仅凭文件名判断编码。归档根所在的存储目录决定新增音频的分区。
 

@@ -21,7 +21,7 @@ from typing import Any, Mapping
 from uuid import uuid4
 
 from bili_asr import archive, asr, audio, bili_client
-from bili_asr.artifact_root import ArtifactRoots, usable_audio_path
+from bili_asr.artifact_root import ArtifactRoots, usable_audio_path, resolve_audio_path
 from bili_asr.formatting import pubdate_utc
 from bili_asr.page_identity import PageIdentity, artifact_stem
 from bili_asr.path_policy import confined_audio_path
@@ -47,10 +47,12 @@ class ArchiveWorkflowHandlers:
         *,
         archive_root: str | os.PathLike[str],
         sessdata: str | None,
+        artifact_roots: ArtifactRoots | None = None,
     ) -> None:
         self.connection = connection
         self.repository = repository
-        self.archive_root = Path(archive_root)
+        self.artifact_roots = artifact_roots or ArtifactRoots.of(archive_root)
+        self.archive_root = self.artifact_roots.archive_root
         self.archive_root.mkdir(parents=True, exist_ok=True)
         self.sessdata = sessdata
         self._subtitle_repository = TranscriptRepository(connection)
@@ -120,10 +122,10 @@ class ArchiveWorkflowHandlers:
             page_label=str(part["title"]),
         )
         relative = f"audio/{artifact_stem(identity)}.m4a"
-        target = confined_audio_path(self.archive_root, relative, require_exists=False)
+        target = confined_audio_path(self.artifact_roots.write_base, relative, require_exists=False)
         if target is None:
             raise OSError("invalid audio path")
-        existing = usable_audio_path(ArtifactRoots.of(self.archive_root), [relative, relative.removesuffix(".m4a") + ".flac"])
+        existing = usable_audio_path(self.artifact_roots, [relative, relative.removesuffix(".m4a") + ".flac"])
         if existing is not None:
             return self._store_audio(job, part, existing[2], existing[2])
         client = self._client or bili_client.BiliClient(sessdata=self.sessdata)
@@ -135,7 +137,8 @@ class ArchiveWorkflowHandlers:
             return self._download_audio(job, part, client, identity, staged_audio / target.name, target)
 
     def _download_audio(self, job, part, client, identity, staged_target: Path, target: Path):
-        final = Path(audio.download_audio(client, identity, staged_target))
+        staging_roots = ArtifactRoots.of(staged_target.parent.parent)
+        final = Path(audio.download_audio(client, identity, staged_target, artifact_roots=staging_roots))
         # The downloader may keep a FLAC stream when ffmpeg is unavailable.
         target = target.with_suffix(final.suffix)
         return self._store_audio(job, part, final, target)
@@ -152,7 +155,8 @@ class ArchiveWorkflowHandlers:
         duration_ms = max(1, round(duration_s * 1000))
         digest = hashlib.sha256(final.read_bytes()).hexdigest()
         self.repository.assert_lease(job)
-        storage_key = os.fspath(target.relative_to(self.archive_root)).replace("\\", "/")
+        storage_key = next(target.relative_to(base).as_posix()
+                           for base in self.artifact_roots.read_bases() if target.is_relative_to(base))
         now = int(time.time())
         byte_size = final.stat().st_size
         media_format = final.suffix.removeprefix(".")
@@ -184,8 +188,8 @@ class ArchiveWorkflowHandlers:
         storage_key = audio_result.get("storage_key")
         if not isinstance(storage_key, str) or not storage_key:
             raise RuntimeError("audio_result_missing_storage_key")
-        audio_path = self.archive_root / storage_key
-        if not audio_path.is_file():
+        audio_path = resolve_audio_path(self.artifact_roots, storage_key)
+        if audio_path is None:
             raise RuntimeError("audio_missing")
         profile = self.repository.profile(job.profile_id)
         config = asr.ASRConfig(
@@ -329,8 +333,8 @@ class ArchiveWorkflowHandlers:
                 "model": str(model["model_name"]) if model is not None else "unknown",
                 "revision": str(model["revision"]) if model is not None else "",
             }
-        paths = {key: os.path.relpath(path, self.archive_root).replace(os.sep, "/")
-                 for key, path in archive.bundle_paths(self.archive_root, entry).items()}
+        paths = {key: os.path.relpath(path, self.artifact_roots.write_base).replace(os.sep, "/")
+                 for key, path in archive.bundle_paths(self.artifact_roots.write_base, entry).items()}
 
         @contextmanager
         def publication_guard(invalidate):
@@ -349,7 +353,7 @@ class ArchiveWorkflowHandlers:
                 )
 
         paths = archive.write_archive(
-            self.archive_root,
+            self.artifact_roots.write_base,
             entry,
             segments,
             source="asr" if source_kind == "asr-local" else "subtitle",

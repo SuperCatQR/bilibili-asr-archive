@@ -358,7 +358,9 @@ def test_download_return_after_cancellation_cannot_publish_audio_or_store_object
     workflow = _plan(database)
     audio_id = database.execute("SELECT job_id FROM workflow_jobs WHERE kind = 'audio'").fetchone()[0]
 
-    def late_download(_client, _identity, staged_target):
+    def late_download(_client, _identity, staged_target, *, artifact_roots):
+        assert staged_target.parent == artifact_roots.write_base / "audio"
+        assert artifact_roots.write_base.is_relative_to(tmp_path / "audio")
         _cancel_from_other_connection(tmp_path, audio_id)
         staged_target.write_bytes(b"late downloaded audio")
         return staged_target
@@ -491,7 +493,8 @@ def test_cancel_cli_unknown_selection_is_atomic_and_legacy_schema_error_is_reada
         database.execute(script.replace(", 'cancelled'", ""))
     assert cli.main(["workflow", "cancel", "--archive-root", str(tmp_path), "--job-id", job.job_id]) == 1
     output = capsys.readouterr()
-    assert "schema predates cancellation" in output.err and "rebuilt archive database" in output.err
+    assert "incompatible archive database" in output.err and "workflow_attempts" in output.err
+    assert "delete archive.db and re-run fetch-meta" in output.err
     assert not output.out and _job_row(database, job.job_id)["status"] == "running"
 
 

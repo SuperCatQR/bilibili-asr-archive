@@ -38,6 +38,11 @@ def _parse_args(argv: list[str] | None = None) -> tuple[argparse.Namespace, list
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--shard-index", type=int, required=True)
     parser.add_argument("--shard-count", type=int, required=True)
+    parser.add_argument(
+        "--coverage",
+        action="store_true",
+        help="run the selected tests with coverage's parallel data mode",
+    )
     args, pytest_args = parser.parse_known_args(argv)
     if args.shard_count < 1:
         parser.error("--shard-count must be at least 1")
@@ -56,8 +61,14 @@ def main(argv: list[str] | None = None) -> int:
         f"pytest shard {args.shard_index + 1}/{args.shard_count}: "
         f"{len(selected)} of {len(node_ids)} test(s)"
     )
+    command = [sys.executable]
+    if args.coverage:
+        command.extend(["-m", "coverage", "run", "--branch", "--parallel-mode", "-m"])
+    else:
+        command.extend(["-m"])
+    command.extend(["pytest", *pytest_args, *selected])
     return subprocess.run(
-        [sys.executable, "-m", "pytest", *pytest_args, *selected],
+        command,
         check=False,
     ).returncode
 

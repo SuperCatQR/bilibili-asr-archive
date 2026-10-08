@@ -22,7 +22,7 @@
 | [WebVTT 与 bundle](webvtt.md) | 五文件布局、cue 契约、完成标记及已有转录的重新发布 |
 | [元数据搜索](metadata-search.md) | transcripts/metadata/all、字面匹配、排序、日期与 JSON 契约 |
 | [AI 校对使用](ai-proofreading.md) | 配置、执行、失败恢复、重新渲染、数据与离线验证 |
-| [产物根目录](artifact-root.md) | workflow 写入位置、只读探测顺序、音频与派生产物路径 |
+| [产物根目录](artifact-root.md) | workflow 产物写根、读取回退顺序、音频与派生产物路径 |
 | [音频保留与预算](audio-retention-policy.md) | 当前预算和保留策略入口、下载暂存、复用及回收边界 |
 | [Issues #247–#250](feature-plan-247-250.md) | 实施前评估、实现状态、风险、验收与交付顺序 |
 
@@ -30,6 +30,7 @@
 
 | 文档 | 内容 |
 | --- | --- |
+| [Miniconda 部署](miniconda-deployment.md) | 应用依赖、生产启动检查与独立 ASR 环境 |
 | [WSL ROCm GPU](wsl-rocm-gpu.md) | 已记录的 AMD WSL2 环境、版本组合、设备探测与故障排查 |
 
 环境记录和实施前评估保留各自的时间背景。当前行为以源码、相应功能指南和测试为准，

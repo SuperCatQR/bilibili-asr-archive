@@ -48,11 +48,11 @@ bili-asr verify --archive-root archive --format json
 | [`schema-workflow.sql`](../src/bili_asr/storage/schema-workflow.sql) | ASR profiles、jobs、依赖、attempts、质量评估与 publication 登记。 |
 | [`schema-editorial.sql`](../src/bili_asr/storage/schema-editorial.sql) | 校对输入快照、API 调用、chunks、revision 和渲染产物等独立编辑数据；见 AI 校对指南。 |
 
-元数据脚本总会执行。只有 `transcripts` 不存在，或已含 `language`、`content_sha256` 时，才应用 transcript、workflow 和 editorial 脚本。初始化会补充缺失的 `credential_verified`、`absence_verified` 列，默认值为 `0`，不会把历史观察反推成已验证证据；已存在但定义过时的项目视图会在 savepoint 内刷新。未变化的视图不执行 DROP/CREATE，失败会恢复原视图。
+新数据库按四份 SQL 建立完整 schema。打开非空数据库前，从当前 SQL 推导表契约并核对所有产品表；缺表、旧字段或约束不符在修改 schema 前失败。兼容数据库中的派生视图仍可刷新。
 
-这不是通用迁移框架。`CREATE TABLE IF NOT EXISTS` 不会扩大旧表的唯一约束或 CHECK 枚举。缺少转录身份列的库会被 `TranscriptRepository` 拒绝，提示重建；不支持取消的旧 `workflow_attempts` 会被 workflow 写操作拒绝，提示 `workflow schema predates cancellation; use a rebuilt archive database`。备份与重建步骤见 [取消指南](workflow-cancellation.md)；不要将重新安装程序理解为数据库升级，也不要直接删除唯一的归档副本。
+当前不支持旧数据库迁移或自动 `ALTER TABLE` 补列。不兼容时提示 `delete archive.db and re-run fetch-meta`；应先停止 worker、备份数据库和必要文件，再由操作者重建。重建会丢失原数据库中的转录、任务、校对与审核历史；备份与重建步骤见 [取消指南](workflow-cancellation.md)。
 
-`status`、`runs` 先检查数据库是否存在，缺失时退出 `1`，不创建新库。它们随后调用 schema 初始化，因此查询业务数据虽无写入，打开现有库仍可能补对象、增加上述验证列或刷新视图。`workflow status` 直接使用 `open_database()`，可以初始化新库。需要结构性只读时，应使用下文的 `mode=ro` 投影或自行建立只读 SQLite 连接。
+`status`、`runs` 先检查数据库是否存在，缺失时退出 `1`，不创建新库。打开兼容库仍可能刷新派生视图。`workflow status` 和 `workflow explain` 使用 `open_database()`，可以初始化新库。需要结构性只读时，应使用下文的 `mode=ro` 投影或自行建立只读 SQLite 连接。
 
 ## 数据身份与核心表
 
@@ -271,7 +271,7 @@ bili-asr verify --archive-root archive --format json
 
 publish CLI 会在请求前解析完整 ID 集合并确认每个 part 有候选，报告各 job 的 status。force 请求可重新排队非 cancelled 的已完成发布；若原 job 为 cancelled，它保留取消状态，不更新请求内容。普通重复 plan 不保证重新执行已成功的发布。当前 workflow 发布同步执行，没有旧 `publish-transcripts` 的 pending scan、256 MiB verification budget、独立 publication supervisor 或对应 timeout flags；不要套用旧入口的读预算与整库锁说明。
 
-workflow 写入音频/转录产物使用 archive root；当前 workflow CLI 没有 `--artifact-root`。`verify`、`coverage`、`export` 等读者可通过配置的 artifact root 与 archive root 读取候选位置，具体边界见 [产物根目录](artifact-root.md)。可选 AI 校对的 revision/rendered Markdown 有独立 schema 与渲染路径，不改变已存 transcript 或上述原始归档包的来源身份。
+`workflow run --artifact-root` / `BILI_ARTIFACT_ROOT` 指定音频、转录及阅读文档的产物写根，数据库保留在 archive root；读取按产物根、归档根的顺序探测，登记路径始终是相对路径。具体边界见 [产物根目录](artifact-root.md)。可选 AI 校对的 revision/rendered Markdown 有独立 schema 与渲染路径，不改变已存 transcript 或上述原始归档包的来源身份。
 
 ## 诊断与离线契约验证
 
@@ -287,3 +287,69 @@ workflow 写入音频/转录产物使用 archive root；当前 workflow CLI 没�
 - [`test_webvtt.py`](../tests/test_webvtt.py)、[`test_ai_editorial.py`](../tests/test_ai_editorial.py)：五产物完整性、发布 guard 与独立校对/渲染。
 
 本文依据当前代码与离线契约更新，不将旧入口的历史 live smoke 结果视为当前 CLI 的实网验证，也不声明这次文档更新验证了上游网络、账号权限或模型服务可用性。
+## 任务状态、阻塞解释与定向恢复
+
+持久状态为 `queued`、`running`、`succeeded`、`failed`、`cancelled`。
+`blocked` 是派生值：queued 且有 prerequisite 未 succeeded。等待 `available_at`
+的任务也可能尚未 ready，但不因此被标记为依赖阻塞。
+
+```sh
+bili-asr workflow explain --archive-root ./archive --job-id JOB_ID
+bili-asr workflow status --archive-root ./archive --details
+```
+
+`explain` 输出一个 JSON 对象；`status --details` 先输出状态计数，再逐行输出任务 JSON。
+解释包含 kind、状态、attempt_count、最近 attempt、available_at、ready、blocked，
+以及 prerequisites、blockers 中各任务的 ID、kind、状态和有界错误码。错误码至多
+64 字符，不保存任意异常全文。
+
+audio 失败后 ASR 保持 queued，blockers 指向 audio。修复下载配置后重试 audio，
+其成功后 ASR 自然满足依赖：
+
+```sh
+bili-asr workflow retry --archive-root ./archive --job-id AUDIO_JOB_ID
+bili-asr workflow run --archive-root ./archive
+```
+
+`retry` 只重排 failed 任务，保留 job 身份、attempt_count 与历史 attempts。
+`--job-id`、`--kind`、`--part-id` 均可重复：同一参数内是并集，不同参数之间取交集。
+不带筛选重排全部 failed；queued 的下游任务不需要 retry。
+
+```sh
+bili-asr workflow retry --archive-root ./archive --kind audio --part-id 42
+bili-asr workflow retry --archive-root ./archive --job-id JOB_ID --kind asr --part-id 42
+```
+
+过期租约在下一次领取时回收，旧 attempt 记录 `lease_expired`。终态与续租验证
+`job_id + lease_owner + attempt_count`，旧 worker 不能覆盖新 attempt。运行时注册
+subtitle、audio、asr、publish、proofread、render_document handler；schema 中的 `index`
+kind 当前没有运行 handler，全文索引通过 `search-index` 建立。
+
+## 本机多进程 SQLite 运行范围
+
+支持同一主机、共享本地文件系统上的同一数据库由多个 worker 进程使用。每个进程拥有
+自己的连接与 worker ID。领取使用短 `BEGIN IMMEDIATE` 事务；请求、下载、推理和
+渲染在事务外执行。SQLite 串行化写事务，不提供多个同时写入的事务。
+
+建议从 1–4 个 worker 开始；回归测试验证 4 个进程同时领取时没有重复 claim。
+这不是代码强制的进程上限，也不是吞吐保证。更多 worker 应先测量写入等待与资源占用，
+让 busy timeout 和租约留出调度余量；默认生产租约是 900 秒，heartbeat 间隔为租约的三分之一。
+
+heartbeat 在自己的 daemon 线程中打开独立连接。它与主连接使用相同 `busy_timeout`：
+默认 30000 毫秒，`BILI_SQLITE_BUSY_TIMEOUT_MS` 接受 1 到 300000 的整数。
+heartbeat 继承 repository 创建时的策略，不重新读取后续环境变化。
+
+```sh
+export BILI_SQLITE_BUSY_TIMEOUT_MS=30000
+# 在两个 WSL 终端分别运行，使用不同 worker ID
+bili-asr workflow run --archive-root ./archive --worker-id worker-a --limit 20
+bili-asr workflow run --archive-root ./archive --worker-id worker-b --limit 20
+```
+
+超出等待上限的锁冲突返回退出码 1，CLI 提示 SQLite 竞争超时、超时变量和重试方式。
+等待占锁事务结束再运行；不要删除使用中的数据库或手动清除租约。等待超时不是整个
+命令的时限。多 worker 不协调 GPU 显存；GPU worker 数量由操作者控制。租约不能撤销
+已发出的外部请求，但会阻止过期 worker 写入权威终态和关键发布点。
+
+该范围不包含跨主机共享数据库、网络文件系统 SQLite，或 Windows 与 WSL 同时写同一
+挂载数据库。本机 WSL 多进程测试可以验证当前文件系统上的竞争行为，不能推导跨系统保证。

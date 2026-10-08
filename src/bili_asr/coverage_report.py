@@ -65,7 +65,7 @@ class CoverageReport:
     @classmethod
     def build(cls, archive_root: str | Path, *, scope: str | None = None, policy: Any = None, artifact_roots: ArtifactRoots | None = None) -> "CoverageReport":
         del policy
-        root = Path(archive_root).resolve()
+        root = ArtifactRoots.of(archive_root).archive_root
         roots = artifact_roots if artifact_roots is not None else ArtifactRoots.of(root)
         return cls(_build_workflow_data(root, scope=scope, artifact_roots=roots))
 

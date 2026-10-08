@@ -43,6 +43,7 @@ from bili_asr.services.metadata_ingest import MetadataIngestor
 from bili_asr.sources.models import (
     BilibiliGateway,
     GatewayAuthenticationError,
+    GatewayDiagnostic,
     GatewayNotFound,
     GatewayRateLimited,
     GatewayResponseError,
@@ -421,7 +422,7 @@ def test_get_user_video_page_normalizes_documented_fields(bilibili_api_seam):
     assert summary.title == "未明子讲座"
     assert summary.pubdate == PUBDATE
     assert summary.mid == MID
-    assert bilibili_api_seam.calls == ["space.arc.search(pn=1, ps=30)"]
+    assert bilibili_api_seam.calls == ["credential.nav", "space.arc.search(pn=1, ps=30)"]
     # The credential value must never surface on any DTO or page.
     assert SESSDATA_BOUNDARY_VALUE not in repr(page)
     assert SESSDATA_BOUNDARY_VALUE not in str(page)
@@ -1547,6 +1548,48 @@ def test_pacing_default_sleeper_is_awaitable_without_blocking():
 # ------------------------------------------------------------ error mapping
 
 
+@pytest.mark.parametrize("fields", [
+    {"operation": UPSTREAM_ERROR_TEXT},
+    {"operation": "get_user_video_page", "http_status": UPSTREAM_ERROR_TEXT},
+    {"operation": "get_user_video_page", "api_code": UPSTREAM_ERROR_TEXT},
+    {"operation": "get_user_video_page", "reason": UPSTREAM_ERROR_TEXT},
+    {"operation": "get_user_video_page", "http_status": True},
+    {"operation": "get_user_video_page", "api_code": True},
+])
+def test_gateway_diagnostic_rejects_untrusted_fields(fields):
+    with pytest.raises((TypeError, ValueError)):
+        GatewayDiagnostic(**fields)
+
+
+def test_metadata_rejects_invalid_configured_cookie_before_upload_list(bilibili_api_seam):
+    bilibili_api_seam.nav_error = FakeResponseCodeException(-101, UPSTREAM_ERROR_TEXT)
+    gateway = _load_gateway(sessdata=SESSDATA_BOUNDARY_VALUE)
+    with pytest.raises(GatewayAuthenticationError) as caught:
+        asyncio.run(gateway.get_user_video_page(MID, page_number=1))
+    assert caught.value.diagnostic.format() == "operation=validate_metadata_credentials api_code=-101"
+    assert bilibili_api_seam.calls == ["credential.nav"]
+    assert_leaks_no_markers(caught.value.diagnostic.format(), context="metadata authentication")
+
+
+def test_metadata_checks_configured_cookie_once_per_gateway(bilibili_api_seam):
+    bilibili_api_seam.videos_response = make_videos_response(count=0)
+    gateway = _load_gateway(sessdata=SESSDATA_BOUNDARY_VALUE)
+
+    async def collect():
+        await gateway.get_user_video_page(MID, page_number=1)
+        await gateway.get_user_video_page(MID, page_number=2)
+
+    asyncio.run(collect())
+    assert sum(call == "credential.nav" for call in bilibili_api_seam.calls) == 1
+
+
+def test_anonymous_metadata_does_not_validate_login(bilibili_api_seam):
+    bilibili_api_seam.nav_error = FakeResponseCodeException(-101, UPSTREAM_ERROR_TEXT)
+    bilibili_api_seam.videos_response = make_videos_response(count=0)
+    asyncio.run(_load_gateway().get_user_video_page(MID, page_number=1))
+    assert all(call != "credential.nav" for call in bilibili_api_seam.calls)
+
+
 @pytest.mark.parametrize(
     ("upstream_error", "expected"),
     [
@@ -1578,8 +1621,19 @@ def test_user_page_failures_map_onto_bounded_taxonomy(
         asyncio.run(gateway.get_user_video_page(MID, page_number=1))
 
     assert caught.value.code == expected.default_code
+    diagnostic = caught.value.diagnostic
+    assert diagnostic.operation == "get_user_video_page"
+    if isinstance(upstream_error, FakeNetworkException):
+        assert diagnostic.http_status == upstream_error.status
+        assert diagnostic.api_code is None
+    elif isinstance(upstream_error, FakeResponseCodeException):
+        assert diagnostic.api_code == upstream_error.code
+        assert diagnostic.http_status is None
+    elif isinstance(upstream_error, FakeWbiRetryTimesExceedException):
+        assert diagnostic.reason == "wbi_retry_exhausted"
     # Raw exception text and URLs stay process-local: never in the mapped error.
     assert UPSTREAM_ERROR_TEXT not in str(caught.value)
+    assert_leaks_no_markers(diagnostic.format(), context="gateway diagnostic")
 
 
 @pytest.mark.parametrize(
@@ -2758,6 +2812,7 @@ def test_gateway_dto_drops_unknown_upstream_payload_fields(bilibili_api_seam):
         assert_leaks_no_markers(repr(surface), context="gateway DTO repr")
         assert_leaks_no_markers(str(surface), context="gateway DTO str")
     assert bilibili_api_seam.calls == [
+        "credential.nav",
         "space.arc.search(pn=1, ps=30)",
         "video.get_info",
         "video.get_pages",

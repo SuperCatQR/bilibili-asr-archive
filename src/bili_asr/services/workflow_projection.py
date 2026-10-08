@@ -63,8 +63,8 @@ def workflow_records(
     publication's declared terminal state until their own artifact verification.
     Otherwise a broken published bundle would be mistaken for ordinary backlog.
     """
-    root = Path(archive_root).resolve()
-    roots = artifact_roots if artifact_roots is not None else ArtifactRoots.of(root)
+    roots = artifact_roots if artifact_roots is not None else ArtifactRoots.of(archive_root)
+    root = roots.archive_root
     database = root / "archive.db"
     if not database.is_file():
         return {}

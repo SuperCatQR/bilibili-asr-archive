@@ -140,10 +140,15 @@ bili-asr workflow proofread --archive-root /srv/bili-archive --part-id 101 \
 产物路径：
 
 ```text
-<archive-root>/documents/part-<video_part_id>/<revision_id>/reading-v2/
+<write-base>/documents/part-<video_part_id>/<revision_id>/reading-v2/
   reading.md
   review.md
 ```
+
+write base 默认是 archive root；`workflow run --artifact-root PATH` 或
+`BILI_ARTIFACT_ROOT` 可指定独立的现有目录，数据库仍留在 archive root。
+render 只排队，随后的 run 与 reading-export 都需要同一目录配置；路径与哈希登记于
+`document_artifacts`。详见 [artifact-root.md](artifact-root.md)。
 
 `reading.md` 只有整理后的正文段落，不含视频标题、话题标题、目录、时间戳、脚注或审核说明。
 `review.md` 保存模型思考和采样参数、固定输入、每段全部来源 ID、原文与整理稿对照、
@@ -216,7 +221,36 @@ bili-asr reading-export --archive-root /srv/bili-archive --out reading-site/cont
 这是给展示层使用的内容快照。当前仓库没有阅读站前端代码，命令不会创建页面、部署网站或提交 Issue。
 它生成的 Issue URL 可供后续展示层或维护者打开；状态字段是否显示、如何显示由消费该快照的前端决定。
 导出包含待审核正文及原文对照审阅文档；如果维护者随后公开托管这些文件，其中内容也会公开。
-只读候选根的路径与回退契约见 [产物根指南](artifact-root.md)。
+产物写根与读取回退契约见 [产物根指南](artifact-root.md)。
+
+## 阅读导出与人工审核
+
+本仓库提供静态内容导出器；阅读站前端是独立项目。`reading-site/content` 是默认输出
+路径，不能据此假设本 checkout 已包含前端或能直接运行站点。
+
+```bash
+bili-asr reading-export --archive-root /srv/bili-archive \
+  --artifact-root /srv/bili-products --out ./reading-content
+bili-asr reading-review <revision_id> --archive-root /srv/bili-archive \
+  --status in-review --note "开始人工核对"
+bili-asr reading-edit <revision_id> --archive-root /srv/bili-archive \
+  --markdown-file ./corrected-reading.md --note "采纳人工修订"
+```
+
+导出用只读 SQLite 连接查询修订，按 artifact root、archive root 的顺序找已登记文件，
+验证 SHA-256 后生成 `articles/`、`reviews/`、`catalog.json` 和 `db-import-manifest.json`。
+默认也导出待审稿；`rejected` 与 `withdrawn` 不导出。catalog 包含质量状态、审核状态、
+视频地址、修订身份和 Issue 链接，由站点消费。可通过 `--issues-url` 或
+`BILI_READING_ISSUES_URL` 配置链接目标；生成链接不创建或发送 Issue。
+
+审核状态与 AI 质量状态分开保存。常规审核流程是 `pending-review -> in-review ->
+approved -> published`；请求修改用 `changes-requested`，修改后重新进入审核。
+`reading-edit` 保存新的不可变人工 edition 和父版本链，并把审核状态重置为
+`pending-review`。它不覆盖 AI revision 或原始转录；重新导出后采用当前人工 edition。
+`reading-review`、`reading-edit` 将状态与 append-only event 写入数据库。
+
+直接改已登记的 Markdown 会触发导出哈希不匹配。使用人工 edition 保存改稿，或用
+workflow render 和 run 重建缺失产物；随后重新导出快照供独立前端使用。
 
 ## 数据与离线验证
 

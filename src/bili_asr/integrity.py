@@ -54,7 +54,7 @@ class IntegrityVerifier:
 
     def verify(self, archive_root: Path, *, scope: str | None = None, policy: Any = None, artifact_roots: ArtifactRoots | None = None) -> IntegrityReport:
         del policy
-        root = Path(archive_root).resolve()
+        root = ArtifactRoots.of(archive_root).archive_root
         if not (root / "archive.db").is_file():
             return IntegrityReport(authoritative=False, diagnostics=["structural_input_error"])
         from bili_asr.services.workflow_projection import workflow_records

@@ -78,8 +78,8 @@ audio handler 先检查 confined `audio/` 中可复用的非空对象；需要�
 ASR 读取精确的成功 audio prerequisite，运行解码、对齐、分块和 coverage/provenance，
 在取消检查后追加持久转录。
 
-当前 workflow handler 的写根为 archive root。`--artifact-root` / `BILI_ARTIFACT_ROOT`
-是支持该选项的查询、导出、验证等命令的只读探测配置；不能据此改变 workflow 写入位置。
+`workflow run --artifact-root` / `BILI_ARTIFACT_ROOT` 可指定独立产物写根，数据库仍位于
+archive root。音频、转录包和阅读文档写入产物根；读取先探测产物根，再回退到 archive root。
 当前 workflow 不提供 `--keep-audio`、`--max-audio-gb` 或成功后的自动音频回收。
 路径和现有策略入口见[产物根目录](artifact-root.md)、[音频保留与预算](audio-retention-policy.md)。
 

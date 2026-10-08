@@ -25,6 +25,15 @@ and hash-verified `reading.md` artifacts are exported read-only to
 `reading-site/content/`. Issue review decisions and accepted human editions
 return through `reading-review` and `reading-edit`.
 
+## License
+
+This project is licensed under the GNU General Public License, version 3
+(GPL-3.0-only). See [LICENSE](LICENSE) for the full license text.
+
+Third-party components retain their original licenses. This software license
+does not grant rights to downloaded videos, audio, subtitles, or other archived
+content.
+
 The workflow tables are the only job scheduler. `workflow_jobs` stores producer jobs and prerequisite links; `workflow_attempts` stores attempt outcomes and lease ownership. Each ASR job references an immutable profile snapshot and a fixed input transcript when one exists. Publication records identify the transcript version and bundle paths that were written.
 
 Package boundaries:
@@ -39,6 +48,11 @@ Package boundaries:
 ## Install
 
 Python 3.12 or later is required.
+
+For production, use the [Miniconda deployment guide](docs/miniconda-deployment.md).
+It covers isolated Python 3.12 environments, pinned application dependencies,
+AMD WSL and NVIDIA preflight, non-interactive startup, and deployment evidence.
+`check-asr-env` is an AMD WSL check, not a general CUDA support check.
 
 ```powershell
 uv sync --extra dev
@@ -64,10 +78,23 @@ bili-asr fetch-meta --mid 123456 --limit-pages 2
 
 Each successful page advances a persisted cursor. Re-run `fetch-meta` to
 continue from that cursor, or pass `--resume` to require an existing cursor.
-An upstream gateway failure exits with code `2` (exit 2) and records the
-`risk_interrupted` cursor state without advancing past the failed page, unless
-`--skip-failed-page` was requested. `--start-page` explicitly overrides the
-cursor and can move it backwards.
+An upstream gateway failure returns exit 2. Rate control records the
+page/run outcome `risk_interrupted` and preserves the existing cursor; a
+first-page failure can leave no cursor at all. Re-run without `--resume` in
+that case. Other failures record `failed`; `--skip-failed-page` can advance
+past those failures but never skips rate control. `--start-page` explicitly
+overrides the cursor and can move it backwards.
+
+The summary distinguishes page evidence (`recorded`) from successfully
+collected nonempty pages, videos and parts. Failure diagnostics report the
+operation and available HTTP status, API code or `wbi_retry_exhausted`
+reason, without raw upstream messages or credentials. `--page-retries 0`
+stops on the first failed upload-list attempt; opt into at most three retries
+with `--page-retries 1` through `3` (30/60/120 second cooldowns).
+When `BILI_SESSDATA` is configured, the gateway verifies login once before
+the first upload-list request. Rejected credentials stop with `auth_error`
+and require refreshing the cookie; they are not retried as rate control.
+Anonymous metadata collection does not add this login check.
 
 Choose one or more stored video-part IDs and plan producer jobs. The database ID can be inspected with SQLite:
 
@@ -146,7 +173,11 @@ across parts; it never deletes, merges, or rewrites source records. Use
 `--format json` for a machine-readable baseline and `--limit` to cap only the
 example groups included in the output.
 
-Read commands do not bootstrap or create a missing database. `--artifact-root` can point read projections at a separate existing directory containing the published bundles. The default is the archive root.
+`status` and `runs` refuse a missing database, although opening a compatible existing database may refresh derived views. Workflow inspection uses the initializing database entrypoint. Coverage, verification, export, reading export and dedup use read-only projections; `search-index` writes a derived index.
+
+`workflow run --artifact-root PATH` and `BILI_ARTIFACT_ROOT` place audio, bundles and editorial Markdown in a separate existing directory while keeping `archive.db` at the archive root. Readers use the configured root first and the archive root as fallback. `workflow render` accepts the configuration when queuing; the subsequent run still needs the same flag or environment setting. See [docs/artifact-root.md](docs/artifact-root.md).
+
+Database table contracts must match the current shipped SQL. Incompatible old databases are refused before schema changes; there are no migrations. Stop workers, preserve any needed backup, delete the affected `archive.db`, and re-run metadata collection and workflow planning. **Rebuilding discards old database facts, including transcripts, revisions and review history.**
 
 Search defaults to `transcripts`. `metadata` searches stored titles,
 descriptions, and tags directly, without FTS or published artifacts. `all`
