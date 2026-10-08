@@ -1,6 +1,6 @@
 # 当前架构：归档事实、SQLite 工作流与阅读投影
 
-代码基准：`b343c0a`，日期：2026-10-08。交互式总图见 [architecture.html](architecture.html)，可编辑图稿为 [architecture.json](architecture.json)。图中的源码证据固定到上述实现提交；更新规则见 [架构图维护](architecture-maintenance.md)。
+代码基准：`a1aaaef769df3c2200f9cd03ef4deb850391608d`，日期：2026-10-08。交互式总图见 [architecture.html](architecture.html)，可编辑图稿为 [architecture.json](architecture.json)。图中的源码证据固定到上述实现提交；更新规则见 [架构图维护](architecture-maintenance.md)。
 
 项目把视频的来源信息、音频身份、转录版本和处理过程保存在本地，随后生成可校验的字幕包和可阅读正文。完整性、来源可回查与版本可追溯是基础；ASR 提供带时间轴的原始转录，editorial 将口述整理成阅读稿，人工审核与编辑继续形成独立记录。
 
@@ -56,7 +56,7 @@
 ## 3. 一次视频分 P 的处理生命周期
 
 1. 元数据采集保存视频与分 P 身份。操作者以明确的 part ID 和 ASR 策略规划任务。
-2. 规划器建立独立字幕、音频及适用的 ASR 任务和依赖，冻结 ASR profile。相同计划可以幂等复用；`all` 与 `selected` 均为明确传入的分 P 规划 ASR，`below-threshold` 按最新质量评估选择并包含未评估的分 P。
+2. 规划器建立独立字幕、音频及适用的 ASR 任务和依赖，冻结 ASR profile。相同计划可以幂等复用；`all` 与 `selected` 均为明确传入的分 P 规划 ASR，`below-threshold` 按最新质量评估选择，缺少评估的分 P 不进入 ASR 集合。
 3. executor 原子领取满足依赖条件的任务，记录当前 worker、attempt 与租约。handler 执行时由独立 SQLite 连接续租。
 4. 字幕采集形成独立来源转录；音频下载形成字节对象与哈希。ASR 消费其确切成功音频依赖结果，以及规划时固定的参考转录 ID。
 5. ASR 在事务外生成带时间轴文本，随后将转录、acquisition attempt 和本次诊断一同提交。逐段内容完全相同时可复用旧 transcript，但仍保存新运行证据。

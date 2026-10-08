@@ -8,7 +8,7 @@
     "quality_profile": "showcase",
     "repository": {
       "url": "https://github.com/SuperCatQR/bilibili-asr-archive.git",
-      "revision": "b343c0a2052c3177101b64e349d41bcd1f837362",
+      "revision": "a1aaaef769df3c2200f9cd03ef4deb850391608d",
       "provider": "github",
       "link_mode": "local-only"
     }
@@ -53,7 +53,7 @@
         {
           "path": "src/bili_asr/cli/main.py",
           "line": 1,
-          "end_line": 74,
+          "end_line": 91,
           "label": "解析命令并分派 handler"
         },
         {
@@ -80,15 +80,21 @@
       "sources": [
         {
           "path": "src/bili_asr/cli/workflow.py",
-          "line": 154,
-          "end_line": 194,
+          "line": 182,
+          "end_line": 224,
           "label": "规划与 retry"
         },
         {
           "path": "src/bili_asr/storage/workflow.py",
-          "line": 172,
-          "end_line": 267,
+          "line": 171,
+          "end_line": 266,
           "label": "独立生产者依赖"
+        },
+        {
+          "path": "src/bili_asr/storage/workflow.py",
+          "line": 418,
+          "end_line": 475,
+          "label": "依赖解释与失败筛选重排"
         }
       ],
       "tag": "all / selected / below-threshold"
@@ -115,14 +121,14 @@
         },
         {
           "path": "src/bili_asr/storage/workflow.py",
-          "line": 269,
-          "end_line": 335,
+          "line": 268,
+          "end_line": 334,
           "label": "原子租约与过期回收"
         },
         {
           "path": "src/bili_asr/storage/workflow.py",
-          "line": 561,
-          "end_line": 646,
+          "line": 693,
+          "end_line": 747,
           "label": "完成与陈旧租约防护"
         }
       ],
@@ -144,14 +150,14 @@
       "sources": [
         {
           "path": "src/bili_asr/sources/bilibili_api_gateway.py",
-          "line": 783,
-          "end_line": 833,
+          "line": 787,
+          "end_line": 843,
           "label": "枚举 / 详情 / 分 P"
         },
         {
           "path": "src/bili_asr/sources/bilibili_api_gateway.py",
-          "line": 906,
-          "end_line": 987,
+          "line": 916,
+          "end_line": 999,
           "label": "字幕清单与内容"
         },
         {
@@ -179,13 +185,13 @@
         {
           "path": "src/bili_asr/sources/bilibili_api_gateway.py",
           "line": 1,
-          "end_line": 59,
+          "end_line": 62,
           "label": "固定 SDK 与 DTO 边界"
         },
         {
           "path": "src/bili_asr/sources/bilibili_api_gateway.py",
-          "line": 719,
-          "end_line": 781,
+          "line": 722,
+          "end_line": 785,
           "label": "凭据 / 代理 / pacing"
         },
         {
@@ -219,14 +225,14 @@
         },
         {
           "path": "src/bili_asr/services/metadata_ingest.py",
-          "line": 290,
-          "end_line": 365,
+          "line": 295,
+          "end_line": 372,
           "label": "分页采集与恢复游标"
         },
         {
           "path": "src/bili_asr/services/metadata_ingest.py",
-          "line": 569,
-          "end_line": 645,
+          "line": 580,
+          "end_line": 656,
           "label": "页内持久化事实"
         }
       ]
@@ -253,14 +259,14 @@
         },
         {
           "path": "src/bili_asr/storage/database.py",
-          "line": 398,
-          "end_line": 475,
+          "line": 441,
+          "end_line": 493,
           "label": "schema bootstrap"
         },
         {
           "path": "src/bili_asr/services/metadata_ingest.py",
-          "line": 645,
-          "end_line": 690,
+          "line": 656,
+          "end_line": 701,
           "label": "record_page 写入"
         }
       ],
@@ -282,8 +288,8 @@
       "sources": [
         {
           "path": "src/bili_asr/workflow_runtime.py",
-          "line": 78,
-          "end_line": 112,
+          "line": 77,
+          "end_line": 111,
           "label": "字幕 handler 与发布请求"
         },
         {
@@ -323,14 +329,14 @@
         },
         {
           "path": "src/bili_asr/cli/workflow.py",
-          "line": 195,
-          "end_line": 218,
+          "line": 223,
+          "end_line": 249,
           "label": "实际 handler 注册"
         },
         {
           "path": "src/bili_asr/workflow_runtime.py",
-          "line": 65,
-          "end_line": 76,
+          "line": 64,
+          "end_line": 75,
           "label": "归档 handler / 模型释放"
         }
       ],
@@ -358,14 +364,14 @@
         },
         {
           "path": "src/bili_asr/storage/workflow.py",
-          "line": 128,
-          "end_line": 152,
+          "line": 129,
+          "end_line": 151,
           "label": "文件数据库独立连接"
         },
         {
           "path": "src/bili_asr/storage/workflow.py",
-          "line": 362,
-          "end_line": 371,
+          "line": 361,
+          "end_line": 370,
           "label": "job、owner、attempt 三重 fencing"
         }
       ],
@@ -387,8 +393,8 @@
       "sources": [
         {
           "path": "src/bili_asr/workflow_runtime.py",
-          "line": 114,
-          "end_line": 154,
+          "line": 113,
+          "end_line": 156,
           "label": "下载与音频对象记录"
         },
         {
@@ -422,8 +428,8 @@
         },
         {
           "path": "src/bili_asr/workflow_runtime.py",
-          "line": 136,
-          "end_line": 154,
+          "line": 134,
+          "end_line": 156,
           "label": "对象及关联写入"
         }
       ],
@@ -445,8 +451,8 @@
       "sources": [
         {
           "path": "src/bili_asr/storage/schema-transcripts.sql",
-          "line": 14,
-          "end_line": 421,
+          "line": 11,
+          "end_line": 418,
           "label": "转录 / acquisition / 运行诊断"
         },
         {
@@ -457,8 +463,8 @@
         },
         {
           "path": "src/bili_asr/workflow_runtime.py",
-          "line": 223,
-          "end_line": 268,
+          "line": 225,
+          "end_line": 270,
           "label": "转录入库与 publish 请求"
         }
       ],
@@ -480,8 +486,8 @@
       "sources": [
         {
           "path": "src/bili_asr/workflow_runtime.py",
-          "line": 156,
-          "end_line": 268,
+          "line": 158,
+          "end_line": 270,
           "label": "实际 ASR 调用、watchdog 和存储归属"
         },
         {
@@ -527,8 +533,8 @@
         },
         {
           "path": "src/bili_asr/workflow_runtime.py",
-          "line": 191,
-          "end_line": 218,
+          "line": 193,
+          "end_line": 220,
           "label": "CUDA/ROCm 超时失败记录"
         }
       ],
@@ -550,21 +556,21 @@
       "sources": [
         {
           "path": "src/bili_asr/workflow_runtime.py",
-          "line": 123,
-          "end_line": 137,
+          "line": 122,
+          "end_line": 135,
           "label": "实际音频路径与 duration"
         },
         {
           "path": "src/bili_asr/workflow_runtime.py",
-          "line": 160,
-          "end_line": 173,
+          "line": 162,
+          "end_line": 175,
           "label": "对象定位与文件读取"
         },
         {
-          "path": "src/bili_asr/asr/audio.py",
-          "line": 128,
-          "end_line": 165,
-          "label": "解码与无缝分块"
+          "path": "src/bili_asr/artifact_root.py",
+          "line": 1,
+          "end_line": 170,
+          "label": "独立产物根与读取回退"
         }
       ],
       "tag": "AAC / ALAC · soundfile / ffmpeg"
@@ -620,8 +626,8 @@
       "sources": [
         {
           "path": "src/bili_asr/workflow_runtime.py",
-          "line": 230,
-          "end_line": 324,
+          "line": 232,
+          "end_line": 326,
           "label": "读取候选 / 发布 / publication 行"
         },
         {
@@ -632,8 +638,8 @@
         },
         {
           "path": "src/bili_asr/archive.py",
-          "line": 369,
-          "end_line": 425,
+          "line": 370,
+          "end_line": 426,
           "label": "staging / marker 发布"
         }
       ],
@@ -655,8 +661,8 @@
       "sources": [
         {
           "path": "src/bili_asr/editorial_runtime.py",
-          "line": 32,
-          "end_line": 53,
+          "line": 34,
+          "end_line": 55,
           "label": "续租 / 按块 checkpoint / 校验"
         },
         {
@@ -667,8 +673,8 @@
         },
         {
           "path": "src/bili_asr/storage/workflow.py",
-          "line": 259,
-          "end_line": 266,
+          "line": 258,
+          "end_line": 265,
           "label": "仅显式配置时接入"
         }
       ],
@@ -719,20 +725,20 @@
       "sources": [
         {
           "path": "src/bili_asr/archive.py",
-          "line": 25,
-          "end_line": 38,
+          "line": 26,
+          "end_line": 39,
           "label": "文件名与完成 marker"
         },
         {
           "path": "src/bili_asr/archive.py",
-          "line": 369,
-          "end_line": 425,
+          "line": 370,
+          "end_line": 426,
           "label": "文件组提交"
         },
         {
           "path": "src/bili_asr/archive.py",
-          "line": 809,
-          "end_line": 848,
+          "line": 810,
+          "end_line": 849,
           "label": "实际归档内容与写入"
         }
       ],
@@ -783,14 +789,14 @@
       "sources": [
         {
           "path": "src/bili_asr/editorial_runtime.py",
-          "line": 55,
-          "end_line": 93,
+          "line": 57,
+          "end_line": 96,
           "label": "修订读入 / 原子文档发布"
         },
         {
           "path": "src/bili_asr/cli/workflow.py",
-          "line": 138,
-          "end_line": 148,
+          "line": 156,
+          "end_line": 180,
           "label": "重渲染任务入口"
         }
       ],
@@ -875,8 +881,8 @@
       "sources": [
         {
           "path": "src/bili_asr/editorial_runtime.py",
-          "line": 65,
-          "end_line": 93,
+          "line": 67,
+          "end_line": 96,
           "label": "documents 路径 / SHA / fsync"
         },
         {
@@ -968,7 +974,7 @@
         {
           "path": "src/bili_asr/services/workflow_projection.py",
           "line": 1,
-          "end_line": 122,
+          "end_line": 124,
           "label": "从只读数据库投影当前 part、transcript 与 publication"
         }
       ]
@@ -989,8 +995,8 @@
       "sources": [
         {
           "path": "src/bili_asr/cli/reading.py",
-          "line": 31,
-          "end_line": 45,
+          "line": 32,
+          "end_line": 46,
           "label": "只读连接与站点导出入口"
         },
         {
@@ -1047,14 +1053,14 @@
       "sources": [
         {
           "path": "README.md",
-          "line": 102,
-          "end_line": 124,
+          "line": 132,
+          "end_line": 146,
           "label": "导入、审核与本地站点入口"
         },
         {
           "path": "docs/architecture.md",
-          "line": 35,
-          "end_line": 42,
+          "line": 21,
+          "end_line": 36,
           "label": "独立静态投影边界"
         }
       ],
@@ -1076,8 +1082,8 @@
       "sources": [
         {
           "path": "README.md",
-          "line": 118,
-          "end_line": 124,
+          "line": 135,
+          "end_line": 145,
           "label": "Issue 审核与人工版本入口"
         }
       ]
@@ -1457,7 +1463,8 @@
       "items": [
         "ASR 直接传入 16 kHz 波形；逐遍记录 token 上限、对齐并集、阶段耗时与风险标记，风险不等于准确率。",
         "发布 handler 选择当前优选 transcript，archive writer 写完整 SRT / TXT / Markdown / raw bundle。",
-        "AI 校对将固定输入、模型调用、分块结果和修订写入 editorial SQLite 表；render 只读取已保存修订。"
+        "AI 校对将固定输入、模型调用、分块结果和修订写入 editorial SQLite 表；render 只读取已保存修订。",
+        "workflow run 支持独立 artifact root；SQLite 留在归档根，读取可回退旧文件位置。"
       ]
     },
     {
@@ -1466,7 +1473,7 @@
       "items": [
         "status 与 runs 直接读 SQLite；coverage、export、verify 通过 workflow projection 得到统一状态。",
         "search-index 构建 SQLite FTS5；search 查询 transcript 文本并可补入已发布 Markdown。",
-        "读命令不创建缺失的 archive.db；coverage strict 才将诊断提升为失败退出码。"
+        "status 与 runs 拒绝缺失数据库；workflow 检查可初始化数据库，其他投影使用只读入口。"
       ]
     },
     {

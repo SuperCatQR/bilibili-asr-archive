@@ -106,7 +106,7 @@ bili-asr workflow status --archive-root ./archive --details
 |---|---|
 | `all` | 为传入的分 P 计划音频和 ASR |
 | `selected` | 为明确选择的分 P 计划音频和 ASR；当前实现的选择结果与 `all` 相同 |
-| `below-threshold` | 按最新质量评估筛选；需要 0 到 1 的 `--quality-threshold`，缺少评估也进入处理集合 |
+| `below-threshold` | 按最新质量评估筛选；需要 0 到 1 的 `--quality-threshold`，缺少评估的分 P 不进入 ASR 集合 |
 
 所有选择的分 P 都有独立字幕 job。字幕获取由 subtitle handler 与 `BilibiliApiGateway`
 完成，一个分 P 可保留字幕和 ASR 两种来源。`workflow run` 处理当前可领取任务，

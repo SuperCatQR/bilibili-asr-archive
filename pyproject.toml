@@ -47,8 +47,8 @@ asr = [
     "accelerate>=1.0",
     # Reading archived audio; processors receive decoded 16 kHz waveform arrays.
     "soundfile>=0.12",
-    # Transformers' Qwen processor reads the materialized audio through librosa.
-    # Container decoding still uses our ffmpeg path, not librosa/audioread.
+    # Retain the existing deployment dependency; production processors receive
+    # decoded waveform arrays, and container decoding uses our ffmpeg path.
     "librosa>=1.0",
     # Resampling decoded inputs before passing them to the processor.
     "soxr>=0.5",
