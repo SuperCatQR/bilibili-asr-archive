@@ -1,4 +1,4 @@
-# AI 校对与可阅读正文架构
+# AI 双稿、完整版本审核与发布架构
 
 日期：2026-10-08。工作流、AI 校对与阅读站发布的当前实现。
 交互式架构图：[打开 HTML](ai-proofreading-architecture.html)，[可编辑图稿](ai-proofreading-architecture.json)。
@@ -16,7 +16,10 @@
 4. 纯输入准备模块按时间交集关联字幕，按上下文和输出预算尽量使用大块；邻块上下文只读。
 5. DeepSeek Flash 开启 high 思考，top_p=0.95，生成带连续来源 ID 的完整阅读段落和单独疑点。
 6. 校验来源恰好覆盖一次且顺序不变、引用有效、正文结构正确；逐块保存检查点，全部成功后提交完整修订。
-7. 独立渲染任务生成纯正文 reading.md 与带原文对照的 review.md。重渲染读取保存结果，不调用模型。
+7. 独立渲染任务生成纯正文 `ai-draft.md` 与原文对照 `review.md`，同 revision、同 `ai-draft-v1`。重渲染不调用模型。
+8. 明确创建完整 edition，冻结标题、正文、摘要、标签、来源、整理归属和编辑说明；任何读者可见变化产生新 edition。
+9. 审核指定 edition、完整 SHA-256、预期状态和操作者；批准仍不公开，显式 publish 才生成 release 并切换公开指针。
+10. 公开导出只读有效 release；私有导出明确选定 revision / edition，包含固定基线、完整版本、双差异和审核记录。
 
 ## 模块边界
 
@@ -27,7 +30,7 @@
 | 固定输入与分块 | 数据库转录版本、可选字幕、配置 | 不可变快照、稳定块 ID、参考引用、只读上下文；不依赖原始归档文件 |
 | DeepSeek 适配器 | 块、冻结提示词和参数 | JSON 段落候选；不写文档或调度任务 |
 | 校验与提交 | 候选、固定基础片段 | 阅读段落、程序取得的原文与时间、来源列表、疑点、独立修订 |
-| Markdown 渲染 | 已保存修订、模板 | reading.md / review.md；纯排版、字节稳定 |
+| Markdown 渲染 | 已保存修订、模板 | ai-draft.md / review.md；纯排版、字节稳定 |
 
 无状态指业务进度、输入选择和结果不依赖进程内存。客户端实例可以短期存在，重启后仍从 SQLite 恢复。
 控制、原始转录、派生结果是同一数据库的逻辑分区，不是独立部署服务。
@@ -45,7 +48,7 @@ JSON 字段为 chunk_id、paragraphs；段落字段为 segment_ids、text、issu
 结构覆盖只是来源追溯，不能证明模型保留了全部语义。数字、专名、否定、立场和引述归属不能猜改，
 未确认疑点列入校对记录；疑点不回退整段，周围表达仍需通顺。
 
-当前规则 readable-prose-v2、模板 reading-v2。与旧稀疏标点编辑规则不兼容，不迁移旧结果。
+当前规则 `readable-prose-v2`、AI 模板 `ai-draft-v1`、发布模板 `publish-v1`。旧稿件 schema、文件名、模板、CLI 和 manifest 拒绝，不迁移。
 相同快照和配置命中同一输入；参数或提示词改变生成新输入及任务。保存模型实际响应与最终修订，
 已保存结果可确定性渲染，重新推理不能承诺文字一致。
 
@@ -59,26 +62,26 @@ JSON 字段为 chunk_id、paragraphs；段落字段为 segment_ids、text、issu
 | editorial_chunk_results | 每块验证后的段落、source IDs、原文、时间与疑点 JSON |
 | editorial_revisions | 完整派生修订、内容标识、ai-unreviewed / needs-review 状态 |
 | document_artifacts | 修订、模板、路径和 SHA-256 |
-| reading_publications | 独立于质量状态的 Issue 审核与发布状态、当前人工版本 |
-| reading_document_editions | 从 Issue 建议采纳的 Markdown 人工版本、父版本与内容哈希 |
-| reading_publication_events | 每次状态变化对应的修订、人工版本、Issue、备注和时间 |
+| publication_editions | 完整不可变读者内容、父版、AI 来源及完整内容哈希 |
+| publication_edition_reviews | 准确 edition / 内容哈希的状态、审核人、意见和时间 |
+| publication_releases | 获批固定 publish.md、批准记录、内容 / 字节哈希、发布状态 |
+| publication_heads | 分 P 的当前 edition 和当前有效 release 两个独立指针 |
+| publication_events | 编辑、审核、批准、发布、替换和撤回的追加事实 |
 
-阅读站不会直接连接数据库。`reading-export` 以 SQLite 只读模式选择
-`reading.md` 与 `review.md`，按归档根与配置的 artifact root 查找文件，并验证数据库登记的哈希；
-模型请求和原始转录不会导出。导出的待审核稿会在静态站明确标注，
-所以部署到公开托管时，待审正文也会公开。
+阅读站不会直接连接数据库。`publication export` 以只读模式读取有效 release，验证精确批准关系、完整内容、
+来源和文件哈希，输出 catalog version 1 envelope、发布文章和独立 manifest。AI 双稿、审核和模型审计不公开；
+损坏有效 release 使整个导出失败。`editorial export` 明确选择 revision / edition，生成私有审阅包。
+完整内容差异覆盖正文、标题、标签和说明；见 [契约说明](contracts/README.md)。
 
 ```mermaid
 flowchart LR
-  revision[(editorial_revisions)] -->|只读 + SHA-256 校验| export[reading-export]
-  artifact[(document_artifacts / reading.md + review.md)] --> export
-  export --> snapshot[reading-site 静态内容快照]
-  snapshot --> issue[预填 GitHub Issue]
-  issue -->|维护者采纳建议| edit[reading-edit]
-  edit --> editions[(reading_document_editions)]
-  review[reading-review] --> state[(reading_publications + events)]
-  editions --> state
-  state -->|重新导出| export
+  ai[ai-draft.md + review.md] -->|明确选择基线| edition[完整不可变 edition]
+  edition --> review[准确 edition 与完整哈希审核]
+  review -->|approved + 显式 publish| release[不可变 publish.md release]
+  release -->|有效指针 + 完整性验证| public[公开快照]
+  ai --> private[明确 revision / edition 的私有审阅包]
+  edition --> private
+  review --> private
 ```
 
 原始字幕和 ASR 不被覆写。通过来源 ID 追溯，不额外建立第二套调度或稀疏编辑表。
@@ -86,18 +89,27 @@ flowchart LR
 块结果立即保存，失败重试复用完成块。租约与尝试编号防止失效工作器提交。
 供应商收到请求但本地未保存时退出，重试可能再次计费，不承诺外部调用恰好一次。
 
-产物位于 documents/part-<ID>/<修订ID>/reading-v2/。
-reading.md 仅含正文段落；无标题、目录、时间戳、脚注、链接或审核说明。
+产物位于 documents/part-<ID>/<修订ID>/ai-draft-v1/。
+ai-draft.md 仅含正文段落；无标题、目录、时间戳、脚注、链接或审核说明。
 review.md 保存每段原文和整理稿、全部来源 ID、时间与回看链接、疑点、模型参数和版本，注明未经人工复核。
 文件原子写入，相同修订与模板重新渲染字节一致。
+
+发布稿位于 `publications/part-<ID>/<releaseID>/publish-v1/publish.md`，渲染完整获批内容。
+A 发布后创建、请求修改、拒绝或批准 B 都保持 A；显式发布 B 才切换有效 release。
+撤回清空公开指针，公开快照移除旧文章，内部历史保留。OS 独占锁、完整 staging、恢复日志和目录切换
+保证成功快照不混合版本；输出可能短暂不可用。输出与输入不重叠，链接、junction 和手工文件拒绝。
+只部署输出目录，其父目录为私有恢复空间；已部署副本和缓存需与撤回同步刷新。
 
 ## 当前代码证据与验证
 
 - src/bili_asr/editorial.py：冻结输入、大块预算、段落来源校验与纯正文渲染。
 - src/bili_asr/deepseek.py：官方 JSON 模式、high 思考及 top_p 请求。
 - src/bili_asr/editorial_runtime.py、storage/editorial.py：调用审计、检查点、完整修订及文档。
-- src/bili_asr/reading_publication.py、cli/reading.py：只读站点导入、状态转换、Issue 关联和人工版本审计。
+- src/bili_asr/publication.py、storage/publication.py、cli/publication.py：完整内容、准确审核、CAS、双指针、显式发布和撤回。
+- src/bili_asr/publication_export.py、export_snapshot.py、cli/editorial.py：公开 / 私有快照、严格契约、锁和恢复。
 - src/bili_asr/storage/workflow.py：独立依赖、认领、租约、尝试与渲染模板版本。
 - tests/test_ai_editorial.py：正文、来源、恢复、接口参数、租约和重渲染契约。
 
 离线测试与真实 API 运行验证链路和格式；人工回听、逐句语义保真和准确率评估另需执行。
+
+- tests/test_publication.py、tests/test_publication_export.py：版本生命周期、幂等、故障、公开隔离与路径保护。

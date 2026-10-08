@@ -2,13 +2,13 @@
   "schema_version": 1,
   "diagram_type": "architecture",
   "meta": {
-    "title": "B站转录归档与 AI 校对：当前实现",
+    "title": "B站转录归档、AI 双稿与版本审核发布",
     "locale": "zh-CN",
     "output": "docs/ai-proofreading-architecture.html",
     "quality_profile": "showcase",
     "repository": {
       "url": "https://github.com/SuperCatQR/bilibili-asr-archive.git",
-      "revision": "5c78dd9781ec7f059266e3d362642d7813c62026",
+      "revision": "fc66c1d768bd085816a56f4f36a808e84c18b829",
       "link_mode": "local-only"
     }
   },
@@ -29,9 +29,9 @@
       "sources": [
         {
           "path": "src/bili_asr/cli/workflow.py",
-          "line": 23,
-          "end_line": 96,
-          "label": "计划、校对、渲染与运行入口"
+          "line": 20,
+          "end_line": 69,
+          "label": "独立采集、ASR 和可选校对命令"
         }
       ]
     },
@@ -73,9 +73,21 @@
       "sources": [
         {
           "path": "src/bili_asr/workflow_runtime.py",
-          "line": 56,
-          "end_line": 220,
-          "label": "独立字幕、音频与本地 ASR"
+          "line": 73,
+          "end_line": 109,
+          "label": "字幕任务独立执行"
+        },
+        {
+          "path": "src/bili_asr/workflow_runtime.py",
+          "line": 110,
+          "end_line": 154,
+          "label": "音频下载任务"
+        },
+        {
+          "path": "src/bili_asr/workflow_runtime.py",
+          "line": 155,
+          "end_line": 255,
+          "label": "ASR 只依赖精确音频 prerequisite"
         }
       ]
     },
@@ -139,9 +151,15 @@
       "sources": [
         {
           "path": "src/bili_asr/workflow_runtime.py",
-          "line": 69,
-          "end_line": 145,
-          "label": "字幕接口与音频下载"
+          "line": 73,
+          "end_line": 109,
+          "label": "字幕 gateway 访问"
+        },
+        {
+          "path": "src/bili_asr/workflow_runtime.py",
+          "line": 110,
+          "end_line": 154,
+          "label": "音频 gateway 和 CDN 访问"
         }
       ]
     },
@@ -161,9 +179,9 @@
       "sources": [
         {
           "path": "src/bili_asr/workflow_runtime.py",
-          "line": 221,
-          "end_line": 304,
-          "label": "读取数据库来源并发布归档"
+          "line": 256,
+          "end_line": 344,
+          "label": "择优来源并发布完整原始归档"
         }
       ]
     },
@@ -184,8 +202,8 @@
         {
           "path": "src/bili_asr/workflow_runtime.py",
           "line": 256,
-          "end_line": 304,
-          "label": "归档文件与发布记录"
+          "end_line": 344,
+          "label": "受限 root 下发布转录 bundle"
         }
       ]
     },
@@ -205,9 +223,9 @@
       "sources": [
         {
           "path": "src/bili_asr/editorial.py",
-          "line": 139,
-          "end_line": 201,
-          "label": "固定版本、大块预算与只读上下文"
+          "line": 140,
+          "end_line": 204,
+          "label": "固定来源、上下文、预算和稳定块"
         }
       ]
     },
@@ -227,9 +245,9 @@
       "sources": [
         {
           "path": "src/bili_asr/editorial_runtime.py",
-          "line": 34,
-          "end_line": 52,
-          "label": "保存调用响应并校验段落"
+          "line": 31,
+          "end_line": 53,
+          "label": "固定输入与检查点恢复"
         }
       ]
     },
@@ -249,9 +267,15 @@
       "sources": [
         {
           "path": "src/bili_asr/deepseek.py",
-          "line": 20,
-          "end_line": 59,
-          "label": "DeepSeek JSON 模式、high 思考与 top_p"
+          "line": 18,
+          "end_line": 27,
+          "label": "官方 JSON 模式、high 思考和 top_p"
+        },
+        {
+          "path": "src/bili_asr/deepseek.py",
+          "line": 38,
+          "end_line": 81,
+          "label": "DeepSeek HTTPS 请求和响应 envelope"
         }
       ]
     },
@@ -271,9 +295,9 @@
       "sources": [
         {
           "path": "src/bili_asr/editorial.py",
-          "line": 221,
-          "end_line": 269,
-          "label": "恰好覆盖、顺序与参考证据校验"
+          "line": 222,
+          "end_line": 271,
+          "label": "来源恰好覆盖一次、次序与内容结构校验"
         }
       ]
     },
@@ -293,9 +317,21 @@
       "sources": [
         {
           "path": "src/bili_asr/storage/editorial.py",
-          "line": 100,
-          "end_line": 167,
-          "label": "调用审计、检查点与完整修订"
+          "line": 111,
+          "end_line": 123,
+          "label": "保存模型调用所属尝试和 envelope"
+        },
+        {
+          "path": "src/bili_asr/storage/editorial.py",
+          "line": 143,
+          "end_line": 147,
+          "label": "保存已验证块"
+        },
+        {
+          "path": "src/bili_asr/storage/editorial.py",
+          "line": 148,
+          "end_line": 165,
+          "label": "固定完整修订与来源"
         }
       ]
     },
@@ -315,17 +351,17 @@
       "sources": [
         {
           "path": "src/bili_asr/editorial.py",
-          "line": 282,
-          "end_line": 310,
-          "label": "纯正文和原文对照渲染"
+          "line": 283,
+          "end_line": 311,
+          "label": "纯正文及带疑点参照稿的确定性渲染"
         }
       ]
     },
     {
       "id": "readingFiles",
       "type": "database",
-      "label": "阅读与校对文档",
-      "sublabel": "纯正文 / 原文对照与疑点",
+      "label": "AI 合成稿与校验参照稿",
+      "sublabel": "ai-draft.md / review.md",
       "pos": [
         650,
         850
@@ -338,10 +374,207 @@
         {
           "path": "src/bili_asr/editorial_runtime.py",
           "line": 54,
-          "end_line": 93,
-          "label": "原子写入阅读稿与校对记录"
+          "end_line": 83,
+          "label": "固定双稿精确配对与安全写入"
         }
-      ]
+      ],
+      "tag": "ai-draft-v1 · 未批准不公开"
+    },
+    {
+      "id": "publicationService",
+      "type": "backend",
+      "label": "显式编辑与发布",
+      "sublabel": "固定内容 · 严格审核状态转换",
+      "pos": [
+        650,
+        1080
+      ],
+      "size": [
+        190,
+        90
+      ],
+      "sources": [
+        {
+          "path": "src/bili_asr/publication.py",
+          "line": 200,
+          "end_line": 214,
+          "label": "显式创建待审内容版本"
+        },
+        {
+          "path": "src/bili_asr/publication.py",
+          "line": 318,
+          "end_line": 360,
+          "label": "批准关系、CAS 与固定 release"
+        }
+      ],
+      "tag": "只允许精确获批 edition 发布"
+    },
+    {
+      "id": "publicationStore",
+      "type": "database",
+      "label": "版本审核与双指针",
+      "sublabel": "edition · review · release · events",
+      "pos": [
+        960,
+        1100
+      ],
+      "size": [
+        230,
+        90
+      ],
+      "sources": [
+        {
+          "path": "src/bili_asr/storage/schema-editorial.sql",
+          "line": 65,
+          "end_line": 138,
+          "label": "固定完整内容和草稿/公开指针"
+        },
+        {
+          "path": "src/bili_asr/storage/publication.py",
+          "line": 177,
+          "end_line": 205,
+          "label": "事务保存、替换与发布事件"
+        }
+      ],
+      "tag": "B 待审时 A 继续公开"
+    },
+    {
+      "id": "reviewer",
+      "type": "external",
+      "label": "明确审核者",
+      "sublabel": "edition ID + 完整内容 SHA-256",
+      "pos": [
+        340,
+        1100
+      ],
+      "size": [
+        230,
+        90
+      ],
+      "sources": [
+        {
+          "path": "src/bili_asr/publication.py",
+          "line": 233,
+          "end_line": 252,
+          "label": "准确目标、hash、预期状态与操作者"
+        }
+      ],
+      "tag": "批准未发布也不公开"
+    },
+    {
+      "id": "releaseFiles",
+      "type": "database",
+      "label": "不可变发布产物",
+      "sublabel": "publish.md · publish-v1",
+      "pos": [
+        650,
+        1360
+      ],
+      "size": [
+        230,
+        90
+      ],
+      "sources": [
+        {
+          "path": "src/bili_asr/publication.py",
+          "line": 318,
+          "end_line": 360,
+          "label": "固定 release 路径、字节与内容哈希"
+        }
+      ],
+      "tag": "文件完成后再登记 release"
+    },
+    {
+      "id": "publicExport",
+      "type": "backend",
+      "label": "公开导出器",
+      "sublabel": "有效 release · 完整性校验",
+      "pos": [
+        340,
+        1360
+      ],
+      "size": [
+        230,
+        90
+      ],
+      "sources": [
+        {
+          "path": "src/bili_asr/publication_export.py",
+          "line": 59,
+          "end_line": 101,
+          "label": "只导出有效 release，损坏整体失败"
+        }
+      ],
+      "tag": "只读 SQLite · 无审核材料"
+    },
+    {
+      "id": "publicSnapshot",
+      "type": "frontend",
+      "label": "阅读站公开快照",
+      "sublabel": "catalog v1 + 发布文章",
+      "pos": [
+        40,
+        1360
+      ],
+      "size": [
+        230,
+        90
+      ],
+      "sources": [
+        {
+          "path": "src/bili_asr/export_snapshot.py",
+          "line": 349,
+          "end_line": 426,
+          "label": "锁、目录提交与中断恢复"
+        }
+      ],
+      "tag": "撤回清理旧文 · 严格契约"
+    },
+    {
+      "id": "privateExport",
+      "type": "backend",
+      "label": "内部审阅导出器",
+      "sublabel": "显式 AI revision 与 edition",
+      "pos": [
+        960,
+        1360
+      ],
+      "size": [
+        230,
+        90
+      ],
+      "sources": [
+        {
+          "path": "src/bili_asr/publication_export.py",
+          "line": 111,
+          "end_line": 189,
+          "label": "基线、完整内容、双差异和审核状态"
+        }
+      ],
+      "tag": "公开和内部目录禁止混用"
+    },
+    {
+      "id": "reviewPackage",
+      "type": "database",
+      "label": "私有审阅包",
+      "sublabel": "AI 双稿 · edition · 双差异 · 审核",
+      "pos": [
+        960,
+        1620
+      ],
+      "size": [
+        230,
+        90
+      ],
+      "sources": [
+        {
+          "path": "src/bili_asr/publication_export.py",
+          "line": 111,
+          "end_line": 189,
+          "label": "私有快照，不复制完整模型请求"
+        }
+      ],
+      "tag": "必要配置核验 · 审批目标固定"
     }
   ],
   "boundaries": [
@@ -452,6 +685,74 @@
       "from": "renderer",
       "to": "readingFiles",
       "label": "确定性排版"
+    },
+    {
+      "id": "createFromAi",
+      "from": "readingFiles",
+      "to": "publicationService",
+      "label": "显式选取基线"
+    },
+    {
+      "id": "explicitHashReview",
+      "from": "reviewer",
+      "to": "publicationService",
+      "label": "审核目标与哈希",
+      "variant": "security"
+    },
+    {
+      "id": "editionReviewPersistence",
+      "from": "publicationService",
+      "to": "publicationStore",
+      "label": "事务存版本与 head",
+      "labelAt": [
+        865,
+        1185
+      ]
+    },
+    {
+      "id": "approvedReleaseWrite",
+      "from": "publicationService",
+      "to": "releaseFiles",
+      "label": "仅获批 edition",
+      "variant": "emphasis"
+    },
+    {
+      "id": "publicReleaseRead",
+      "from": "releaseFiles",
+      "to": "publicExport",
+      "label": "发布字节校验"
+    },
+    {
+      "id": "publicHeadRead",
+      "from": "publicationStore",
+      "to": "publicExport",
+      "label": "只取有效 release",
+      "variant": "dashed"
+    },
+    {
+      "id": "publicDirectoryCommit",
+      "from": "publicExport",
+      "to": "publicSnapshot",
+      "label": "完整目录快照"
+    },
+    {
+      "id": "privateEditionRead",
+      "from": "publicationStore",
+      "to": "privateExport",
+      "label": "显式选定 R / E"
+    },
+    {
+      "id": "privateBaselineRead",
+      "from": "readingFiles",
+      "to": "privateExport",
+      "label": "固定 AI 双稿",
+      "variant": "dashed"
+    },
+    {
+      "id": "privateReviewOutput",
+      "from": "privateExport",
+      "to": "reviewPackage",
+      "label": "完整私有快照"
     }
   ],
   "cards": [
@@ -468,8 +769,8 @@
       "title": "校对与文档边界",
       "items": [
         "proofread 与 render_document 复用同一执行器",
-        "疑点单独列入 review.md，reading.md 只有正文",
-        "结构校验可追溯来源，语义保真仍需人工审核"
+        "ai-draft.md 为纯正文，疑点仅写入 review.md",
+        "结构校验能追溯来源，语义保真仍需人工审核"
       ]
     },
     {
@@ -479,6 +780,15 @@
         "三组 SQLite 表是一个数据库的逻辑分区",
         "原始转录、校对版本、阅读文档各有血缘",
         "模型调用、分块检查点和来源快照持久化保存"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "准确审核与公开边界",
+      "items": [
+        "完整内容哈希覆盖标题、正文、摘要、来源、标签与说明",
+        "创建、拒绝或批准 B 都不改变已发布 A，显式 publish 才切换",
+        "withdraw 清空有效指针；公开导出不包含 review.md 或模型审计"
       ]
     }
   ]
