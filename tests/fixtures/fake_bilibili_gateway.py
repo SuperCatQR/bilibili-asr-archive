@@ -453,7 +453,9 @@ class FakeGateway:
         self.page_calls.append((mid, page_number, page_size))
         return self._scripted(self._pages, page_number, "user-video-page")
 
-    async def get_video_parts(self, bvid: str) -> tuple[VideoPart, ...]:
+    async def get_video_parts(
+        self, bvid: str, video_title_fallback: str = ""
+    ) -> tuple[VideoPart, ...]:
         self.parts_calls.append(bvid)
         return self._scripted(self._parts, bvid, "video-parts")
 

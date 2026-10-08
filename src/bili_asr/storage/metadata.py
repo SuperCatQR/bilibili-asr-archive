@@ -383,6 +383,8 @@ class MetadataRepository:
         cursor: CursorRecord | None = None,
         tags: Mapping[str, Iterable[VideoTagRecord]] | None = None,
         details: Iterable[VideoDetailRecord] = (),
+        additional_users: Iterable[UserRecord] = (),
+        ensure_users: Iterable[UserRecord] = (),
     ) -> None:
         """Record one page outcome, optionally with its complete payload.
 
@@ -394,6 +396,10 @@ class MetadataRepository:
         failure is the caller's step: build a fresh ``IngestionPageRecord`` with
         ``outcome='failed'`` and a bounded ``error_code`` and call this method
         again with no payload arguments.
+
+        ``additional_users`` contains observed collaborating uploader names.
+        ``ensure_users`` establishes unnamed uploaders without overwriting
+        existing names. Both are written before videos in the same transaction.
 
         A ``'failed'`` page therefore never carries payloads — supplying
         payload arguments with ``outcome='failed'`` raises ``ValueError``
@@ -417,6 +423,8 @@ class MetadataRepository:
         part_records = tuple(parts)
         discovery_records = tuple(discoveries)
         detail_records = tuple(details)
+        additional_user_records = tuple(additional_users)
+        ensured_user_records = tuple(ensure_users)
         # ``tags`` is a mapping rather than a flat iterable because the
         # replacement is per video: ``None`` means "this page observed no tag
         # sets at all" (a run whose tag calls all degraded, or a page whose
@@ -427,6 +435,8 @@ class MetadataRepository:
         tag_sets = None if tags is None else dict(tags)
         has_payload = (
             user is not None
+            or bool(additional_user_records)
+            or bool(ensured_user_records)
             or bool(video_records)
             or bool(part_records)
             or bool(discovery_records)
@@ -446,8 +456,12 @@ class MetadataRepository:
             return
 
         with self.transaction():
+            for owner in ensured_user_records:
+                self.ensure_user(owner)
             if user is not None:
                 self.upsert_user(user)
+            for owner in additional_user_records:
+                self.upsert_user(owner)
             for video_record in video_records:
                 self.upsert_video(video_record)
             for part in part_records:

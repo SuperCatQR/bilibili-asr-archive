@@ -62,8 +62,11 @@ SOURCE_PACKAGE = "bilibili-api-python"
 #: package's own documented value — returns ``code=0``, so the shipped default
 #: stays inside the bound upstream accepts.
 PAGE_SIZE = 30
-MAX_PAGE_RETRIES = 3
+MAX_PAGE_RETRIES = 5
 PAGE_RETRY_BACKOFF_SECONDS = 30
+#: Longest single wait between page retries. The exponential ladder
+#: 30/60/120/240/480 is capped here, so the fifth retry waits 300 seconds.
+PAGE_RETRY_BACKOFF_MAX_SECONDS = 300
 
 
 def _observed_tag_sets(
@@ -238,10 +241,11 @@ class MetadataIngestor:
         ``page_limit`` bounds how many pages this run may collect.  The run
         row carries the resolved bounds and the gateway's package version.
 
-        ``page_retries`` allows up to three additional upload-list attempts
-        after rate-control or transport failures, with 30/60/120 second
-        waits.  It never skips a page or retries malformed/authentication
-        responses.  The default remains a single attempt per page.
+        ``page_retries`` allows up to five additional upload-list attempts
+        after rate-control or transport failures, with 30/60/120/240/300
+        second waits (the exponential ladder capped at 300).  It never skips
+        a page or retries malformed/authentication responses.  The default
+        remains a single attempt per page.
 
         Any exception that is not a bounded gateway failure (for example a
         caller-argument ``ValueError`` raised by the gateway) propagates
@@ -348,7 +352,10 @@ class MetadataIngestor:
                         )
                     summaries.append(completed_by_video[summary.bvid])
                 observed_author = next(
-                    (summary.author for summary in summaries if summary.author is not None),
+                    (
+                        summary.author for summary in summaries
+                        if summary.mid == mid and summary.author is not None
+                    ),
                     None,
                 )
                 parts_by_video: dict[str, tuple[VideoPart, ...]] = {}
@@ -358,7 +365,9 @@ class MetadataIngestor:
                     # only repeat upstream work.
                     if summary.bvid not in parts_by_video:
                         parts_by_video[summary.bvid] = (
-                            await self._gateway.get_video_parts(summary.bvid)
+                            await self._gateway.get_video_parts(
+                                summary.bvid, video_title_fallback=summary.title
+                            )
                         )
                 # Keep this page's answers independently of LRU eviction,
                 # so even a page larger than the cache persists every answer.
@@ -520,21 +529,23 @@ class MetadataIngestor:
             except (GatewayRateLimited, GatewayTransportError):
                 if attempt == page_retries:
                     raise
-                await asyncio.sleep(PAGE_RETRY_BACKOFF_SECONDS * 2**attempt)
+                await asyncio.sleep(
+                    min(
+                        PAGE_RETRY_BACKOFF_SECONDS * 2**attempt,
+                        PAGE_RETRY_BACKOFF_MAX_SECONDS,
+                    )
+                )
         raise AssertionError("validated page retry bound must permit an attempt")
 
     async def _completed_summary(self, summary: VideoSummary, mid: int) -> VideoSummary:
         """Return the summary with its aid filled when the page omitted it.
 
-        The gateway validates every summary's owner mid against the requested
-        user at the page boundary; this second guard keeps transitive part
-        ownership enforced ingestor-side even if a gateway implementation
-        ever returned a foreign summary, and it fires before any detail
-        fetch so no call is ever made for a video that failed the ownership
-        check.
+        A different uploader is allowed only when the gateway verified the
+        requested user's participation against the detail staff list. The
+        video's owner remains the actual uploader throughout ingestion.
         """
 
-        if summary.mid != mid:
+        if summary.mid != mid and mid not in summary.collaborator_mids:
             raise GatewayShapeError(
                 detail="summary owner does not match the requested user"
             )
@@ -672,6 +683,16 @@ class MetadataIngestor:
         # column: a collection that observed nothing moves neither the row nor
         # its ``updated_at`` stamp.
         user_record = None if author is None else _user_record(mid, finished_at, author)
+        foreign_owners: dict[int, UserRecord] = {}
+        unobserved_owners: dict[int, UserRecord] = {}
+        for summary in summaries:
+            if summary.mid == mid:
+                continue
+            record = _user_record(summary.mid, finished_at, summary.author)
+            if summary.author is None:
+                unobserved_owners[summary.mid] = record
+            else:
+                foreign_owners[summary.mid] = record
         self._repository.record_page(
             IngestionPageRecord(
                 run_id=run_id,
@@ -682,6 +703,8 @@ class MetadataIngestor:
                 finished_at=finished_at,
             ),
             user=user_record,
+            additional_users=foreign_owners.values(),
+            ensure_users=unobserved_owners.values(),
             videos=video_records,
             parts=part_records,
             discoveries=discovery_records,

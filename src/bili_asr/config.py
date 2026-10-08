@@ -117,9 +117,9 @@ def load_metadata_config(args: argparse.Namespace) -> MetadataConfig:
     if (
         isinstance(page_retries, bool)
         or not isinstance(page_retries, int)
-        or not 0 <= page_retries <= 3
+        or not 0 <= page_retries <= 5
     ):
-        raise MetadataConfigError("--page-retries must be an integer between 0 and 3")
+        raise MetadataConfigError("--page-retries must be an integer between 0 and 5")
     if page_limit is None:
         page_limit = DEFAULT_PAGE_LIMIT
 

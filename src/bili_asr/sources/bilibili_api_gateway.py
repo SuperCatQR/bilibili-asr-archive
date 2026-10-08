@@ -19,6 +19,7 @@ API credential never reaches the CDN host.
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 import importlib.metadata
 import math
 import os
@@ -352,7 +353,9 @@ def _normalize_user_video_page(
         raise GatewayShapeError(detail=f"page {page_number} is not normalizable") from exc
 
 
-def _normalize_video_part_item(item: object, bvid: str) -> VideoPart:
+def _normalize_video_part_item(
+    item: object, bvid: str, video_title_fallback: str
+) -> VideoPart:
     """Convert one pagelist element into a validated part DTO."""
 
     if not isinstance(item, Mapping):
@@ -364,11 +367,15 @@ def _normalize_video_part_item(item: object, bvid: str) -> VideoPart:
     if isinstance(cid, bool) or not isinstance(cid, int) or cid < 1:
         raise GatewayShapeError(detail="page item has no positive cid")
     part_title = item.get("part")
-    if not isinstance(part_title, str) or not part_title.strip():
+    if not isinstance(part_title, str):
         raise GatewayShapeError(detail="page item has no title")
     # Display titles stay on one output line, but a valid upstream line break
     # must not prevent every part on this metadata page from being collected.
     part_title = re.sub(r"[\r\n]+", " ", part_title).strip()
+    if not part_title:
+        # Single-part uploads may carry an empty "part": the video's own title
+        # is the part's display label, like the upload UI shows.
+        part_title = video_title_fallback
     duration_seconds = item.get("duration")
     if (
         isinstance(duration_seconds, bool)
@@ -388,12 +395,20 @@ def _normalize_video_part_item(item: object, bvid: str) -> VideoPart:
         raise GatewayShapeError(detail="page item is not normalizable") from exc
 
 
-def _normalize_video_parts(pages: object, bvid: str) -> tuple[VideoPart, ...]:
+def _normalize_video_parts(
+    pages: object, bvid: str, video_title_fallback: str = ""
+) -> tuple[VideoPart, ...]:
     """Convert the pagelist array into validated part DTOs."""
 
     if not isinstance(pages, list):
         raise GatewayShapeError(detail="response is not an array")
-    return tuple(_normalize_video_part_item(item, bvid) for item in pages)
+    if len(pages) > 1 or not video_title_fallback:
+        # A multi-part video must name every part itself; only a single-part
+        # upload may inherit the video title as its label.
+        video_title_fallback = ""
+    return tuple(
+        _normalize_video_part_item(item, bvid, video_title_fallback) for item in pages
+    )
 
 
 def _normalize_video_tags(entries: object) -> tuple[VideoTag, ...]:
@@ -705,6 +720,7 @@ def _complete_summary_from_detail(
         pic=summary.pic,
         desc=summary.desc,
         tid=summary.tid,
+        collaborator_mids=summary.collaborator_mids,
     )
 
 
@@ -807,9 +823,65 @@ class BilibiliApiGateway:
             "get_user_video_page",
             lambda: self._fetch_user_video_page(mid, page_number, page_size),
         )
-        return _normalize_user_video_page(response, requested_mid=mid, page_number=page_number)
+        summaries: list[VideoSummary] = []
+        verified: dict[str, VideoSummary] = {}
+        for item in _extract_page_items(response):
+            owner_mid = item.get("mid") if isinstance(item, Mapping) else None
+            if (
+                isinstance(owner_mid, int)
+                and not isinstance(owner_mid, bool)
+                and owner_mid > 0
+                and owner_mid != mid
+            ):
+                # Collaboration posts appear on participants' upload pages.
+                # Validate the actual owner first, then require independent
+                # detail evidence of the requested user's participation.
+                summary = _normalize_video_summary_item(item, owner_mid)
+                if summary.bvid not in verified:
+                    await self._pace()
+                    detail = await self._await_upstream(
+                        "get_completed_video_summary",
+                        lambda: Video(
+                            bvid=summary.bvid, credential=self._credential
+                        ).get_info(),
+                    )
+                    if not isinstance(detail, Mapping):
+                        raise GatewayShapeError(
+                            detail="video owner mid differs without verified participation"
+                        )
+                    completed = _complete_summary_from_detail(summary, detail)
+                    if summary.aid is not None and completed.aid != summary.aid:
+                        raise GatewayShapeError(detail="collaboration detail aid mismatch")
+                    staff = detail.get("staff")
+                    collaborators = tuple(
+                        member["mid"]
+                        for member in staff
+                        if isinstance(member, Mapping)
+                        and isinstance(member.get("mid"), int)
+                        and not isinstance(member["mid"], bool)
+                        and member["mid"] > 0
+                    ) if isinstance(staff, list) else ()
+                    if mid not in collaborators:
+                        raise GatewayShapeError(
+                            detail="video owner mid differs without verified participation"
+                        )
+                    verified[summary.bvid] = dataclasses.replace(
+                        completed, collaborator_mids=collaborators
+                    )
+                summaries.append(verified[summary.bvid])
+            else:
+                summaries.append(_normalize_video_summary_item(item, mid))
+        try:
+            return UserVideoPage(
+                mid=mid, page_number=page_number, videos=tuple(summaries),
+                observed_total=_read_observed_total(response),
+            )
+        except (TypeError, ValueError) as exc:
+            raise GatewayShapeError(detail=f"page {page_number} is not normalizable") from exc
 
-    async def get_video_parts(self, bvid: str) -> tuple[VideoPart, ...]:
+    async def get_video_parts(
+        self, bvid: str, video_title_fallback: str = ""
+    ) -> tuple[VideoPart, ...]:
         """Fetch and normalize the part records of one video."""
 
         if not isinstance(bvid, str) or _BVID_PATTERN.fullmatch(bvid) is None:
@@ -819,7 +891,7 @@ class BilibiliApiGateway:
             "get_video_parts",
             lambda: Video(bvid=bvid, credential=self._credential).get_pages(),
         )
-        return _normalize_video_parts(pages, bvid)
+        return _normalize_video_parts(pages, bvid, video_title_fallback)
 
     async def get_completed_video_summary(self, summary: VideoSummary) -> VideoSummary:
         """Fill a summary's missing aid through its detail response.
@@ -1009,16 +1081,19 @@ class BilibiliApiGateway:
     async def _fetch_user_video_page(
         self, mid: int, page_number: int, page_size: int
     ) -> Any:
-        """Issue one WBI-signed page request in the shape upstream accepts.
+        """Issue one WBI-signed request with the upload page's context fields.
 
         The request is built from the package's own endpoint description and
-        signed by the package's ``Api``.  Two fields are this adapter's:
+        signed by the package's ``Api``.  These fields are this adapter's:
         ``dm`` is disabled, because the device-fingerprint parameters it would
         add cannot be satisfied here and the endpoint answers HTTP 412 with
-        them; and ``w_webid`` is always sent as a present string, because the
-        endpoint answers HTTP 412 when the parameter is missing.  Every other
-        parameter name and value stays exactly the set the package's own page
-        call sends.
+        them; and ``w_webid`` retains the adapter's explicit string fallback.
+        The upload
+        page context (``web_location``, ``special_type``, and ``index``) and
+        the string ``order_avoided`` follow the current web request rather
+        than the older package defaults. They are passed before WBI signing;
+        this request shape does not guarantee that upstream risk control
+        will allow a page.
         """
 
         w_webid = await self._resolve_w_webid(mid)
@@ -1038,8 +1113,11 @@ class BilibiliApiGateway:
                 pn=page_number,
                 keyword="",
                 order=VideoOrder.PUBDATE.value,
-                order_avoided=True,
+                order_avoided="true",
                 platform="web",
+                web_location="333.1387",
+                special_type="",
+                index=0,
                 w_webid=w_webid,
             )
             .result

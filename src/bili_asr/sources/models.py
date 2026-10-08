@@ -96,6 +96,9 @@ class VideoSummary:
     pic: str | None = None
     desc: str | None = None
     tid: int | None = None
+    # Participants verified against the video's detail response. ``mid``
+    # remains the actual uploader, even on another participant's upload page.
+    collaborator_mids: tuple[int, ...] = ()
 
     def __post_init__(self) -> None:
         _text(self.bvid, "bvid")
@@ -112,6 +115,10 @@ class VideoSummary:
             _text(self.desc, "desc")
         if self.tid is not None:
             _integer(self.tid, "tid", minimum=1)
+        if not isinstance(self.collaborator_mids, tuple):
+            raise TypeError("collaborator_mids must be a tuple")
+        for collaborator_mid in self.collaborator_mids:
+            _integer(collaborator_mid, "collaborator_mid", minimum=1)
 
 
 @dataclass(frozen=True, slots=True)
@@ -245,7 +252,9 @@ class BilibiliGateway(Protocol):
         self, mid: int, page_number: int, page_size: int = 30
     ) -> UserVideoPage: ...
 
-    async def get_video_parts(self, bvid: str) -> tuple[VideoPart, ...]: ...
+    async def get_video_parts(
+        self, bvid: str, video_title_fallback: str = ""
+    ) -> tuple[VideoPart, ...]: ...
 
     async def get_completed_video_summary(
         self, summary: VideoSummary

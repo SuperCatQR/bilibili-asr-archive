@@ -986,6 +986,55 @@ def test_get_user_video_page_rejects_foreign_owner_mid(bilibili_api_seam):
     assert "mid" in str(caught.value)
 
 
+@pytest.mark.parametrize("requested_participates", [True, False])
+def test_collaboration_requires_detail_proof_and_preserves_owner(
+    bilibili_api_seam, requested_participates
+):
+    owner = MID + 1
+    bilibili_api_seam.videos_response = make_videos_response(
+        make_vlist_item(mid=owner, author="合作投稿者"), count=1
+    )
+    staff = [{"mid": owner}]
+    if requested_participates:
+        staff.append({"mid": MID})
+    bilibili_api_seam.info_response = make_detail_response(
+        owner={"mid": owner}, staff=staff
+    )
+    gateway = _load_gateway()
+    async def no_sleep(_):
+        pass
+    gateway._sleeper = no_sleep
+    if requested_participates:
+        page = asyncio.run(gateway.get_user_video_page(MID, 1))
+        assert page.mid == MID
+        assert page.videos[0].mid == owner
+        assert page.videos[0].author == "合作投稿者"
+        assert page.videos[0].collaborator_mids == (owner, MID)
+    else:
+        with pytest.raises(GatewayShapeError):
+            asyncio.run(gateway.get_user_video_page(MID, 1))
+    assert bilibili_api_seam.calls.count("video.get_info") == 1
+
+
+@pytest.mark.parametrize("bad_field", ["owner", "bvid", "aid"])
+def test_collaboration_rejects_mismatched_detail(bilibili_api_seam, bad_field):
+    owner = MID + 1
+    bilibili_api_seam.videos_response = make_videos_response(
+        make_vlist_item(mid=owner), count=1
+    )
+    detail = make_detail_response(owner={"mid": owner}, staff=[{"mid": MID}])
+    detail[bad_field] = {"mid": MID} if bad_field == "owner" else (
+        "BV1XXXXXXXXX" if bad_field == "bvid" else 999
+    )
+    bilibili_api_seam.info_response = detail
+    gateway = _load_gateway()
+    async def no_sleep(_):
+        pass
+    gateway._sleeper = no_sleep
+    with pytest.raises(GatewayShapeError):
+        asyncio.run(gateway.get_user_video_page(MID, 1))
+
+
 def test_get_user_video_page_rejects_a_title_with_control_characters(
     bilibili_api_seam,
 ):
@@ -1100,12 +1149,12 @@ def test_get_user_video_page_rejects_malformed_upstream_bvid(
 def test_user_video_page_request_carries_the_documented_parameter_set(
     bilibili_api_seam,
 ):
-    """The page request sends the package's parameters with ``dm`` disabled.
+    """The page context is explicit before the package signs the request.
 
-    Device-fingerprint parameters cannot be satisfied here and make the
-    endpoint answer HTTP 412; the same endpoint answers ``code=0`` without
-    them, and the request must still carry ``w_webid`` (empty is the value
-    the unavailable token route degrades to).
+    The pinned package converts booleans to integers and supplies a generic
+    web_location. The current upload page uses the string ``true`` and its
+    own location, plus index and special_type. Keep dm disabled and preserve
+    the optional w_webid token behavior.
     """
 
     bilibili_api_seam.videos_response = make_videos_response(make_vlist_item(), count=1)
@@ -1123,8 +1172,11 @@ def test_user_video_page_request_carries_the_documented_parameter_set(
         "pn": 2,
         "keyword": "",
         "order": "pubdate",
-        "order_avoided": True,
+        "order_avoided": "true",
         "platform": "web",
+        "web_location": "333.1387",
+        "special_type": "",
+        "index": 0,
         "w_webid": "",
     }
 
@@ -1362,6 +1414,30 @@ def test_get_video_parts_folds_title_line_breaks(bilibili_api_seam, separator):
         (0, 2222, "first second"),
         (1, 3333, "sibling"),
     ]
+
+
+def test_get_video_parts_single_empty_title_uses_video_title_fallback(bilibili_api_seam):
+    """A single-part upload with empty "part" inherits the video title."""
+
+    bilibili_api_seam.parts_response = [make_part_item(part="  ")]
+    gateway = _load_gateway()
+
+    parts = asyncio.run(gateway.get_video_parts(BVID, video_title_fallback="视频标题"))
+
+    assert parts[0].title == "视频标题"
+
+
+def test_get_video_parts_multi_empty_title_stays_shape_error(bilibili_api_seam):
+    """A multi-part video must name every part itself."""
+
+    bilibili_api_seam.parts_response = [
+        make_part_item(part=""),
+        make_part_item(cid=3333, page=2, part="sibling"),
+    ]
+    gateway = _load_gateway()
+
+    with pytest.raises(GatewayShapeError):
+        asyncio.run(gateway.get_video_parts(BVID, video_title_fallback="视频标题"))
 
 
 def test_get_video_parts_empty_list_returns_empty_tuple(bilibili_api_seam):
@@ -2604,7 +2680,7 @@ def test_gateway_protocol_surface_is_locked():
 
     expected = {
         "get_user_video_page": ("self", "mid", "page_number", "page_size"),
-        "get_video_parts": ("self", "bvid"),
+        "get_video_parts": ("self", "bvid", "video_title_fallback"),
         "get_completed_video_summary": ("self", "summary"),
         "get_package_version": ("self",),
         "get_video_tags": ("self", "bvid"),

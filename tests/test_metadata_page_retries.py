@@ -179,6 +179,21 @@ def test_transport_recovery_waits_before_retrying_without_skipping(tmp_root, ret
         connection.close()
 
 
+def test_retry_backoff_ladder_caps_at_300_seconds(tmp_root, retry_waits):
+    gateway = FakeGateway()
+    gateway.script_page(1, GatewayRateLimited())
+    connection = open_database(tmp_root)
+    try:
+        result = MetadataIngestor(gateway, MetadataRepository(connection)).collect_user_pages(
+            MID, page_retries=5
+        )
+        assert result.outcome == "risk_interrupted"
+        assert gateway.page_calls == [(MID, 1, 30)] * 6
+        assert retry_waits == [30, 60, 120, 240, 300]
+    finally:
+        connection.close()
+
+
 @pytest.mark.parametrize("failure", [
     GatewayShapeError, GatewayResponseError, GatewayAuthenticationError, GatewayNotFound,
 ])
@@ -254,7 +269,7 @@ def test_page_retries_do_not_repeat_failed_per_video_fanout(tmp_root, retry_wait
 
 
 @pytest.mark.parametrize(("value", "expected"), [
-    (-1, ValueError), (4, ValueError), (True, TypeError), (1.5, TypeError), (None, TypeError),
+    (-1, ValueError), (6, ValueError), (True, TypeError), (1.5, TypeError), (None, TypeError),
 ])
 def test_invalid_retry_bound_is_rejected_before_starting_a_run(value, expected):
     gateway = FakeGateway()
@@ -270,12 +285,12 @@ def test_invalid_retry_bound_is_rejected_before_starting_a_run(value, expected):
         connection.close()
 
 
-@pytest.mark.parametrize("value", [-1, 4])
+@pytest.mark.parametrize("value", [-1, 6])
 def test_cli_invalid_retry_bound_is_a_usage_error(tmp_root, capsys, value):
     assert main([
         "fetch-meta", "--archive-root", tmp_root, "--page-retries", str(value),
     ]) == 1
-    assert "--page-retries must be an integer between 0 and 3" in capsys.readouterr().err
+    assert "--page-retries must be an integer between 0 and 5" in capsys.readouterr().err
 
 
 def test_config_rejects_boolean_retry_bound():
@@ -319,5 +334,5 @@ def test_help_explains_retries_and_explicit_rewind(capsys):
     assert exit_info.value.code == 0
     help_text = " ".join(capsys.readouterr().out.split())
     assert "--page-retries" in help_text
-    assert "30/60/120" in help_text
+    assert "30/60/120/240/300" in help_text
     assert "may move it backwards, including with --skip-failed-page" in help_text
