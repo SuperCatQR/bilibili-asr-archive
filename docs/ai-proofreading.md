@@ -211,7 +211,9 @@ queued / running 任务变为 `cancelled`；成功、失败或已经取消的任
 ## 完整版本、审核与发布
 
 AI 工作流只生成 `ai-draft.md` 与原文对照、疑点所在的 `review.md`。后者是校验参照稿，
-不代表人工审核通过；不得将其公开导出。明确选择 revision 创建完整 edition 后，
+不代表人工审核通过。公开 release 与未发布预览都可携带对应 AI revision 的原始参照稿，
+网站通过独立校验参照入口展示原文、整理稿、疑点和回看链接。参照稿针对 AI 初稿，
+后续人工编辑不改写它；完整审核记录和请求配置仍在私有审阅包。明确选择 revision 创建完整 edition 后，
 标题、正文、摘要、标签、冻结来源、整理归属和编辑说明共同决定内容 SHA-256。
 
 ```bash
@@ -222,8 +224,9 @@ bili-asr editorial export --archive-root /srv/bili-archive --revision-id REVISIO
 
 审核指定准确 edition 与完整内容哈希；批准后仍需显式 `publication publish` 才生成固定
 `publish.md` 并切换有效 release。创建、修改或批准 B 不影响已经公开的 A。
-`publication export` 只导出验证通过的有效 release；`publication withdraw` 清除公开指针，
-保留内部内容与审核历史。两类输出目录严格独立，旧稿件 schema、模板、命令和 manifest 拒绝。
+`publication export` 只导出验证通过的有效 release，`publication export-drafts` 只导出当前且从未发布的 edition；
+两者的 catalog v2 都登记正文和原始 `review.md` 的路径与字节哈希。`publication withdraw` 清除公开指针，
+保留内部内容与审核历史。公开 release、未发布预览和私有审阅包的输出目录严格独立，旧稿件 schema、模板、命令和 manifest 拒绝。
 完整命令、CAS、目录恢复及 JSON 契约见 [出版与审核指南](publication.md)。
 
 ## 数据与离线验证

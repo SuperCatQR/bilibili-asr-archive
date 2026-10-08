@@ -23,7 +23,8 @@ archive root/                       artifact root/
 | 音频 | write base 的 `audio/`；登记相对 storage key、SHA-256、大小、格式和时长 |
 | SRT、VTT、TXT、Markdown、raw JSON 和 marker | write base 的 `transcripts/`；publication 登记相对路径 |
 | 阅读与审核 Markdown | write base 的 `documents/`；document artifact 登记相对路径和 SHA-256 |
-| 公开阅读站快照 | `publication export --out` 指定的目录，只含有效获批 release |
+| 公开阅读站快照 | `publication export --out` 指定的目录，含有效获批 release 与配对 AI 校验参照 |
+| 未发布阅读预览 | `publication export-drafts --out` 指定的独立目录，含当前且从未发布的 edition 与配对 AI 校验参照 |
 | 私有审阅包 | `editorial export --out` 指定的独立目录 |
 | 已发布稿件 | write base 的 `publications/`；release 登记固定路径与 SHA-256 |
 
@@ -106,6 +107,8 @@ flag/env；仅在排队时传 flag 不决定执行时的目录。revision 与模
 AI 渲染只产生固定的 `ai-draft.md` / `review.md`，不自动创建 edition 或发布。
 `publication create` 校验 AI 双稿并冻结完整读者内容；`publication publish` 安装准确获批版本的不可变 `publish.md`。
 `publication export` 校验有效 release 的完整内容与文件 SHA-256，输出独立公开快照；
+`publication export-drafts` 输出当前且从未发布的 edition 预览。两者同时校验并导出同 AI revision 的原始 `review.md`，
+在 catalog v2 登记 `reviewFile` 和 `reviewArtifactSha256`；参照稿不是人工审核记录。
 `editorial export` 明确选择 revision / edition，读取基线双稿并生成私有审阅包。人工修改创建新的 edition，
 不能直接改已登记文件；见 [出版与审核](publication.md)。
 
@@ -119,7 +122,8 @@ AI 渲染只产生固定的 `ai-draft.md` / `review.md`，不自动创建 editio
 | `search-index`、`search` | 读取转录及文件补充内容；索引为数据库派生数据 |
 | `publication create`、`editorial export` | 读取并验证 AI 双稿、版本内容与来源 |
 | `publication publish` | 校验可写，安装固定 release 文件 |
-| `publication export` | 读取并校验有效 release，生成公开快照 |
+| `publication export` | 读取并校验有效 release 与配对 AI 参照稿，生成公开快照 |
+| `publication export-drafts` | 读取并校验当前且从未发布的 edition 与配对 AI 参照稿，生成未发布预览 |
 | `dedup --artifact-root PATH report` | 配置放在 dedup 命令层；报告只读 |
 
 当前 workflow 未接入音频预算和自动回收 CLI 选项；旧说明中的 `--max-audio-gb`、

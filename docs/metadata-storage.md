@@ -378,7 +378,7 @@ BVID/part ID 选择先一次性验证全部目标与策略参数，再创建 pro
 
 普通投影默认检查发布登记对应的完整包；`with_text=True` 从有序 segments 构建文本，不要求重读 TXT。integrity/coverage 读取时可保留数据库声明的 archived，再由自己的验证器判断产物缺陷，避免将损坏包误判为普通 backlog。该投影的来源优先为 CC、AI、ASR，语言偏向中文、再按 version/created_at/internal ID；发布候选的严格语言排序见下节，两种读者当前并非同一函数，应按实际用途解释。
 
-元数据搜索也使用 `mode=ro`，直接查当前 title/description/tags，不建立 FTS；转录搜索 FTS 由 `search-index` 或显式 `search --rebuild` 更新。查询、export、publication export 消费 SQLite 投影，不通过 JSONL 补回缺失状态。publication export 只输出准确获批、已发布且有效 release 的 catalog/Markdown 快照；editorial export 单独输出指定版本的私有审阅包；它不是数据库或队列，也不代表仓库附带前端源码。
+元数据搜索也使用 `mode=ro`，直接查当前 title/description/tags，不建立 FTS；转录搜索 FTS 由 `search-index` 或显式 `search --rebuild` 更新。查询、export、publication export 消费 SQLite 投影，不通过 JSONL 补回缺失状态。publication export 只输出准确获批、已发布且有效 release 的 catalog/Markdown 快照；publication export-drafts 另行输出当前且从未发布的 edition 预览。两个 catalog v2 都登记正文和配对 AI 校验参照 review.md 的路径与字节哈希；editorial export 单独输出含审核事件和请求配置的完整私有审阅包。这些导出不是数据库或队列，也不代表仓库附带前端源码。
 
 ## 五产物发布与取消保护
 

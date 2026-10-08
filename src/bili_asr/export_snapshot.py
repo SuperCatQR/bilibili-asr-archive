@@ -22,6 +22,7 @@ _ARTICLE_FIELDS = frozenset({
     "manuscriptType", "slug", "title", "summary", "tags", "attribution", "editorNote",
     "releaseId", "editionId", "aiRevisionId", "videoPartId", "bvid", "pageIndex", "sourceUrl",
     "contentSha256", "artifactSha256", "templateVersion", "publishedAt", "file",
+    "reviewFile", "reviewArtifactSha256",
 })
 _DRAFT_FIELDS = (_ARTICLE_FIELDS - {"releaseId", "templateVersion", "publishedAt"}) | {"reviewStatus", "createdAt"}
 _REVIEW_STATUSES = frozenset({"pending-review", "in-review", "changes-requested", "approved", "rejected"})
@@ -77,9 +78,9 @@ def guard_output(connection: sqlite3.Connection, output: Path, artifact_roots: t
 
 def _allowed_file(name: str, kind: str) -> bool:
     if kind == "publication-export":
-        return name == "catalog.json" or re.fullmatch(r"articles/part-[1-9][0-9]*/publish\.md", name) is not None
+        return name == "catalog.json" or re.fullmatch(r"articles/part-[1-9][0-9]*/(?:publish|review)\.md", name) is not None
     if kind == "publication-draft-export":
-        return name == "catalog.json" or re.fullmatch(r"drafts/edition-[0-9a-f]{32}/preview\.md", name) is not None
+        return name == "catalog.json" or re.fullmatch(r"drafts/edition-[0-9a-f]{32}/(?:preview|review)\.md", name) is not None
     return name in _REVIEW_FILES
 
 
@@ -87,7 +88,7 @@ def _validate_article(article: object, *, draft: bool = False) -> dict:
     fields = _DRAFT_FIELDS if draft else _ARTICLE_FIELDS
     if not isinstance(article, dict) or set(article) != fields:
         raise ExportSnapshotError("public article fields differ from the contract")
-    hashes = ("aiRevisionId", "contentSha256", "artifactSha256") if draft else ("releaseId", "aiRevisionId", "contentSha256", "artifactSha256")
+    hashes = ("aiRevisionId", "contentSha256", "artifactSha256", "reviewArtifactSha256") if draft else ("releaseId", "aiRevisionId", "contentSha256", "artifactSha256", "reviewArtifactSha256")
     for key in hashes:
         if not isinstance(article[key], str) or not re.fullmatch(r"[0-9a-f]{64}", article[key]):
             raise ExportSnapshotError(f"invalid public article hash: {key}")
@@ -107,13 +108,14 @@ def _validate_article(article: object, *, draft: bool = False) -> dict:
     slug = f"edition-{article['editionId']}" if draft else f"part-{article['videoPartId']}"
     manuscript_type = "publication-draft" if draft else "publication"
     filename = f"drafts/{slug}/preview.md" if draft else f"articles/{slug}/publish.md"
+    review_filename = f"drafts/{slug}/review.md" if draft else f"articles/{slug}/review.md"
     if draft:
         if not isinstance(article["reviewStatus"], str) or article["reviewStatus"] not in _REVIEW_STATUSES:
             raise ExportSnapshotError("invalid draft review status")
     elif article["templateVersion"] != "publish-v1":
         raise ExportSnapshotError("invalid public article template")
     if (article["manuscriptType"] != manuscript_type
-            or article["slug"] != slug or article["file"] != filename
+            or article["slug"] != slug or article["file"] != filename or article["reviewFile"] != review_filename
             or article["sourceUrl"] != f"https://www.bilibili.com/video/{article['bvid']}/?p={article['pageIndex'] + 1}"):
         raise ExportSnapshotError("public article identity or source URL mismatch")
     return article
@@ -193,17 +195,18 @@ def _validate_snapshot(directory: Path, kind: str, *, allow_empty: bool = False)
         catalog = read_json(directory / "catalog.json")
         draft = kind == "publication-draft-export"
         manuscript_type = "publication-draft" if draft else "publication"
-        if not isinstance(catalog, dict) or set(catalog) != {"schemaVersion", "manuscriptType", "articles"} or type(catalog["schemaVersion"]) is not int or catalog["schemaVersion"] != 1 or catalog["manuscriptType"] != manuscript_type or not isinstance(catalog["articles"], list):
+        if not isinstance(catalog, dict) or set(catalog) != {"schemaVersion", "manuscriptType", "articles"} or type(catalog["schemaVersion"]) is not int or catalog["schemaVersion"] != 2 or catalog["manuscriptType"] != manuscript_type or not isinstance(catalog["articles"], list):
             raise ExportSnapshotError("unsupported public catalog contract")
         article_files: set[str] = set()
         for article in catalog["articles"]:
             article = _validate_article(article, draft=draft)
-            if article["file"] in article_files:
-                raise ExportSnapshotError("invalid public catalog article file")
-            article_files.add(article["file"])
-            record = next((record for record in records if record["path"] == article["file"]), None)
-            if record is None or record["sha256"] != article["artifactSha256"]:
-                raise ExportSnapshotError("public article and manifest hashes differ")
+            for file_field, hash_field in (("file", "artifactSha256"), ("reviewFile", "reviewArtifactSha256")):
+                if article[file_field] in article_files:
+                    raise ExportSnapshotError("invalid public catalog article file")
+                article_files.add(article[file_field])
+                record = next((record for record in records if record["path"] == article[file_field]), None)
+                if record is None or record["sha256"] != article[hash_field]:
+                    raise ExportSnapshotError("public article and manifest hashes differ")
         if article_files != expected_files - {manifest_name, "catalog.json"}:
             raise ExportSnapshotError("catalog and manifest file sets differ")
     elif expected_files != _REVIEW_FILES | {manifest_name}:

@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "manuscriptType": "publication",
   "articles": [
     {
@@ -21,7 +21,9 @@
       "artifactSha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
       "templateVersion": "publish-v1",
       "publishedAt": 1791360000,
-      "file": "articles/part-7/publish.md"
+      "file": "articles/part-7/publish.md",
+      "reviewFile": "articles/part-7/review.md",
+      "reviewArtifactSha256": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
     }
   ]
 }

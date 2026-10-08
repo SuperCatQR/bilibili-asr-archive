@@ -62,7 +62,7 @@ def test_reader_draft_contract_contains_complete_content_and_review_status(draft
     output = tmp_path / "drafts"
     assert export_publication_drafts(connection, artifact_roots=(root,), output=output) == 1
     document = catalog(output)
-    assert document["schemaVersion"] == 1 and document["manuscriptType"] == "publication-draft"
+    assert document["schemaVersion"] == 2 and document["manuscriptType"] == "publication-draft"
     entry = document["articles"][0]
     assert entry["reviewStatus"] == status
     assert entry["editionId"] == edition["edition_id"] and entry["aiRevisionId"] == revision
@@ -72,6 +72,10 @@ def test_reader_draft_contract_contains_complete_content_and_review_status(draft
     assert rendered == render_publication(edition["content"])
     assert entry["artifactSha256"] == hashlib.sha256(rendered).hexdigest()
     assert entry["contentSha256"] == edition["content_sha256"]
+    review = (output / entry["reviewFile"]).read_bytes()
+    assert entry["reviewFile"] == f"drafts/{entry['slug']}/review.md"
+    assert review == (root / f"documents/part-1/{revision}/ai-draft-v1/review.md").read_bytes()
+    assert entry["reviewArtifactSha256"] == hashlib.sha256(review).hexdigest()
     schema = json.loads((Path(__file__).parents[1] / "docs/contracts/publication-draft-catalog.schema.json").read_text())
     assert set(entry) == set(schema["$defs"]["article"]["required"])
     for key, rule in schema["$defs"]["article"]["properties"].items():
@@ -79,7 +83,7 @@ def test_reader_draft_contract_contains_complete_content_and_review_status(draft
             rule = schema["$defs"][rule["$ref"].rsplit("/", 1)[1]]
         if "pattern" in rule:
             assert re.fullmatch(rule["pattern"], entry[key]), key
-    assert set(tree_bytes(output)) == {"catalog.json", entry["file"], "publication-draft-export-manifest.json"}
+    assert set(tree_bytes(output)) == {"catalog.json", entry["file"], entry["reviewFile"], "publication-draft-export-manifest.json"}
     manifest = json.loads((output / "publication-draft-export-manifest.json").read_text())
     manifest_schema = json.loads((Path(__file__).parents[1] / "docs/contracts/publication-draft-export-manifest.schema.json").read_text())
     assert set(manifest) == set(manifest_schema["required"])
@@ -89,7 +93,7 @@ def test_reader_draft_contract_contains_complete_content_and_review_status(draft
         assert re.fullmatch(manifest_schema["properties"]["files"]["items"]["properties"]["path"]["pattern"], item["path"])
         assert item["sha256"] == hashlib.sha256((output / item["path"]).read_bytes()).hexdigest()
     assert not any(word in json.dumps(document, ensure_ascii=False) + rendered.decode() for word in
-                   ("private-reviewer", "private review note", "private editorial note", "promptSha256", "modelConfig", "reviewFile"))
+                   ("private-reviewer", "private review note", "private editorial note", "promptSha256", "modelConfig"))
     assert export_publications(connection, artifact_roots=(root,), output=tmp_path / "public") == 0
 
 
@@ -98,10 +102,12 @@ def test_only_current_never_released_editions_are_exported_and_old_files_are_rem
     output = tmp_path / "drafts"
     assert export_publication_drafts(connection, artifact_roots=(root,), output=output) == 1
     old_file = catalog(output)["articles"][0]["file"]
+    old_review_file = catalog(output)["articles"][0]["reviewFile"]
     approve(connection, a)
     release_a = publish_edition(connection, edition_id=a["edition_id"], artifact_roots=(root,), write_root=root, actor="publisher")
     assert export_publication_drafts(connection, artifact_roots=(root,), output=output) == 0
     assert not (output / old_file).exists()
+    assert not (output / old_review_file).exists()
     b = edit_edition(connection, edition_id=a["edition_id"], markdown_text="下一稿", actor="editor", note="next draft")
     assert export_publication_drafts(connection, artifact_roots=(root,), output=output) == 1
     assert catalog(output)["articles"][0]["editionId"] == b["edition_id"]
@@ -252,6 +258,7 @@ def test_draft_snapshot_install_failure_rolls_back_and_retry_removes_stale_files
     assert export_publication_drafts(connection, artifact_roots=(root,), output=output) == 1
     assert catalog(output)["articles"][0]["editionId"] == updated["edition_id"]
     assert not (output / f"drafts/edition-{edition['edition_id']}/preview.md").exists()
+    assert not (output / f"drafts/edition-{edition['edition_id']}/review.md").exists()
 
 
 def test_draft_export_rejects_source_overlap_and_concurrent_output_lock(draft_archive, tmp_path):
@@ -277,7 +284,7 @@ def test_strict_draft_snapshot_contract_rejects_unwanted_or_invalid_fields(draft
     document = json.loads(files["catalog.json"])
     article = document["articles"][0]
     if defect == "private-field":
-        article["reviewFile"] = "review.md"
+        article["reviewMetadata"] = "review.json"
     elif defect == "release-field":
         article["releaseId"] = "f" * 64
     elif defect == "wrong-type":

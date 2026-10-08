@@ -1,12 +1,12 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/SuperCatQR/bilibili-asr-archive/docs/contracts/publication-catalog.schema.json",
-  "title": "Publication Catalog Version 1",
+  "title": "Publication Catalog Version 2",
   "type": "object",
   "additionalProperties": false,
   "required": ["schemaVersion", "manuscriptType", "articles"],
   "properties": {
-    "schemaVersion": {"const": 1},
+    "schemaVersion": {"const": 2},
     "manuscriptType": {"const": "publication"},
     "articles": {
       "type": "array",
@@ -18,7 +18,7 @@
     "article": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["manuscriptType", "slug", "title", "summary", "tags", "attribution", "editorNote", "releaseId", "editionId", "aiRevisionId", "videoPartId", "bvid", "pageIndex", "sourceUrl", "contentSha256", "artifactSha256", "templateVersion", "publishedAt", "file"],
+      "required": ["manuscriptType", "slug", "title", "summary", "tags", "attribution", "editorNote", "releaseId", "editionId", "aiRevisionId", "videoPartId", "bvid", "pageIndex", "sourceUrl", "contentSha256", "artifactSha256", "templateVersion", "publishedAt", "file", "reviewFile", "reviewArtifactSha256"],
       "properties": {
         "manuscriptType": {"const": "publication"},
         "slug": {"type": "string", "pattern": "^part-[1-9][0-9]*$"},
@@ -38,7 +38,9 @@
         "artifactSha256": {"$ref": "#/$defs/sha256"},
         "templateVersion": {"const": "publish-v1"},
         "publishedAt": {"type": "integer", "minimum": 0, "description": "Unix timestamp in seconds"},
-        "file": {"type": "string", "pattern": "^articles/part-[1-9][0-9]*/publish\\.md$"}
+        "file": {"type": "string", "pattern": "^articles/part-[1-9][0-9]*/publish\\.md$"},
+        "reviewFile": {"type": "string", "pattern": "^articles/part-[1-9][0-9]*/review\\.md$"},
+        "reviewArtifactSha256": {"$ref": "#/$defs/sha256"}
       }
     }
   }

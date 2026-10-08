@@ -69,8 +69,11 @@ JSON 字段为 chunk_id、paragraphs；段落字段为 segment_ids、text、issu
 | publication_events | 编辑、审核、批准、发布、替换和撤回的追加事实 |
 
 阅读站不会直接连接数据库。`publication export` 以只读模式读取有效 release，验证精确批准关系、完整内容、
-来源和文件哈希，输出 catalog version 1 envelope、发布文章和独立 manifest。AI 双稿、审核和模型审计不公开；
-损坏有效 release 使整个导出失败。`editorial export` 明确选择 revision / edition，生成私有审阅包。
+来源和文件哈希，输出 catalog version 2 envelope、发布文章、配对的原始 `review.md` 和独立 manifest。
+`publication export-drafts` 为当前且从未发布的 edition 输出同样配对的未发布快照。
+校验参照公开每段原文、AI 整理稿、来源与时间、疑点、模型和采样参数；它针对 AI 初稿，不代表人工批准。
+审核事件、操作者、请求配置、差异文件和完整审阅包仍另行私有导出。
+损坏有效 release 或配对 AI 参照稿使整个导出失败。`editorial export` 明确选择 revision / edition，生成私有审阅包。
 完整内容差异覆盖正文、标题、标签和说明；见 [契约说明](contracts/README.md)。
 
 ```mermaid

@@ -67,7 +67,7 @@ def test_export_lifecycle_keeps_published_a_until_b_is_explicitly_released(manus
     connection, root, revision_id, a = manuscript
     output = tmp_path / "public"
     assert export_publications(connection, artifact_roots=(root,), output=output) == 0
-    assert catalog(output) == {"schemaVersion": 1, "manuscriptType": "publication", "articles": []}
+    assert catalog(output) == {"schemaVersion": 2, "manuscriptType": "publication", "articles": []}
     approve(connection, a)
     assert export_publications(connection, artifact_roots=(root,), output=output) == 0
     a_release = publish_edition(connection, edition_id=a["edition_id"], artifact_roots=(root,), write_root=root, actor="test-publisher")
@@ -110,9 +110,10 @@ def test_public_snapshot_excludes_internal_metadata_and_database_is_read_only(ma
         assert export_publications(connection, artifact_roots=(root,), output=output) == 1
         assert (root / "archive.db").read_bytes() == before
         entry = catalog(output)["articles"][0]
-        assert not {"reviewStatus", "reviewId", "reviewFile", "actor", "qualityStatus", "config", "model"} & entry.keys()
+        assert not {"reviewStatus", "reviewId", "actor", "qualityStatus", "config", "model"} & entry.keys()
         snapshot = b"\n".join(tree_bytes(output).values())
-        assert b"test-reviewer" not in snapshot and b"deepseek" not in snapshot
+        assert b"test-reviewer" not in snapshot
+        assert (output / entry["reviewFile"]).read_bytes() == (root / f"documents/part-1/{entry['aiRevisionId']}/ai-draft-v1/review.md").read_bytes()
         assert not (output / "review.md").exists()
     finally:
         connection.close()
@@ -256,14 +257,16 @@ def test_output_symlink_and_managed_child_symlink_are_refused(manuscript, tmp_pa
 
 
 def snapshot_files(body=b"first\n"):
+    review = b"Unreviewed reference with original text.\n"
     article = {"manuscriptType": "publication", "slug": "part-1", "title": "Example", "summary": "", "tags": [],
                "attribution": "Test compilation.", "editorNote": "", "releaseId": "a" * 64, "editionId": "b" * 32,
                "aiRevisionId": "c" * 64, "videoPartId": 1, "bvid": "BVtest", "pageIndex": 0,
                "sourceUrl": "https://www.bilibili.com/video/BVtest/?p=1", "contentSha256": "d" * 64,
                "artifactSha256": hashlib.sha256(body).hexdigest(), "templateVersion": "publish-v1", "publishedAt": 1,
-               "file": "articles/part-1/publish.md"}
-    return {"catalog.json": json_bytes({"schemaVersion": 1, "manuscriptType": "publication", "articles": [article]}),
-            "articles/part-1/publish.md": body}
+               "file": "articles/part-1/publish.md", "reviewFile": "articles/part-1/review.md",
+               "reviewArtifactSha256": hashlib.sha256(review).hexdigest()}
+    return {"catalog.json": json_bytes({"schemaVersion": 2, "manuscriptType": "publication", "articles": [article]}),
+            "articles/part-1/publish.md": body, "articles/part-1/review.md": review}
 
 
 def test_snapshot_second_rename_failure_restores_previous_directory(tmp_path, monkeypatch):
@@ -409,7 +412,7 @@ def test_catalog_schema_id_patterns_match_actual_exports(manuscript, tmp_path):
     schema = json.loads((schemas / "publication-catalog.schema.json").read_text())
     entry = catalog(output)["articles"][0]
     definitions = schema["$defs"]["article"]["properties"]
-    for key in ("editionId", "releaseId", "aiRevisionId", "contentSha256", "artifactSha256"):
+    for key in ("editionId", "releaseId", "aiRevisionId", "contentSha256", "artifactSha256", "reviewArtifactSha256"):
         rule = definitions[key]
         if "$ref" in rule:
             rule = schema["$defs"][rule["$ref"].rsplit("/", 1)[-1]]
@@ -432,7 +435,7 @@ def test_strict_catalog_contract_rejects_invalid_generated_snapshot(tmp_path, de
     elif defect == "private":
         document["manuscriptType"] = "editorial-review"
     elif defect == "extra-field":
-        document["articles"][0]["reviewFile"] = "review.md"
+        document["articles"][0]["reviewMetadata"] = "review.json"
     elif defect == "boolean-id":
         document["articles"][0]["videoPartId"] = True
     elif defect == "source-url":

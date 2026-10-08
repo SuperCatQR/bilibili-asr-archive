@@ -182,6 +182,17 @@ does not approve or publish content. Editions that already have release history
 are excluded, so withdrawn releases do not reappear as drafts. The full private
 review package remains separate from both website inputs.
 
+Both reader catalogs use strict `schemaVersion: 2` and pair each article with
+its exact AI revision's original `review.md`. The website can show the full
+source comparison, replay links, issues and non-sensitive model parameters.
+Required `reviewFile` and `reviewArtifactSha256` fields bind the copied bytes;
+this reference does not approve an edition or assess later manual changes.
+Private review records, actors, model requests/responses and `review.json`
+remain outside the public snapshots. Generic export manifests still use
+version 1. To upgrade existing version 1 catalogs, export into fresh output
+directories and replace the site snapshots together after validation; old
+catalogs are refused without fallback or automatic conversion.
+
 ## Query
 
 ```powershell

@@ -116,7 +116,8 @@ withdraw 只操作明确指定的 release。撤回历史 release 不会下线另
 
 ## 已发布、未发布预览与内部导出
 
-公开导出只读取有效 release，验证 release -> edition -> approval 关系及两个哈希。
+公开导出只读取有效 release，验证 release -> edition -> approval 关系、内容与发布字节哈希，
+并完整校验同一 AI revision 的配对基线与原始 `review.md` 字节。
 没有有效 release 的分 P 不出现；损坏发布稿会让整次导出失败，不回退 AI 或待审稿。
 
 ```bash
@@ -128,15 +129,23 @@ bili-asr publication export --archive-root /srv/bili-archive \
 
 ```json
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "manuscriptType": "publication",
   "articles": []
 }
 ```
 
 条目携带冻结标题、摘要、标签和来源、edition/release/revision ID、完整内容与发布文件 SHA-256、
-模板和发布时间。`publication-export-manifest.json` 登记同一快照的受管文件。公开输出不含
-`review.md`、未发布 edition、模型请求、审核人或内部事件。
+模板和发布时间。条目还必需包含 `reviewFile` 与 `reviewArtifactSha256`，分别指向
+`articles/part-<videoPartId>/review.md` 及其原始字节 SHA-256。
+该文件取自条目的固定 `aiRevisionId`，保存原文与整理稿、疑点、来源、回看链接及非敏感模型参数，
+按原始字节复制，不重新渲染，也不代表对人工编辑后的 edition 提供审核或批准。
+`publication-export-manifest.json` 仍采用 schemaVersion 1，登记 catalog、正文和参照稿全部文件。
+公开输出不含未发布 edition、模型请求或完整响应、`review.json`、人工审核意见、审核人或内部事件。
+
+两类读者 catalog 均严格要求 version 2，不接受 version 1，包括旧空目录。升级时先用新的输出目录
+重新导出并验证，再整体替换阅读站中的快照；旧快照备份保留在服务目录外。不自动迁移旧数据，
+不放宽字段、路径或摘要校验。通用 manifest 的 schemaVersion 保持 1，不能与 catalog 版本混淆。
 
 导出先完整验证并准备新快照，再借助独占锁、私有 staging/备份与恢复日志提交。切换中输出可能
 短暂不可用，成功快照不会混合新旧 catalog 与文章。下次调用先恢复未完成提交；输出有未知手工
@@ -169,16 +178,18 @@ bili-asr publication export-drafts --archive-root /srv/bili-archive \
 历史版本不会重新作为草稿公开；同一分 P 的有效 A 与未发布 B 可以分别查看。审核通过但尚未
 显式 publish 的 B 仍标为“已审核，未发布”。待审核、审核中、待修改和未采用状态也按实际值显示。
 
-输出采用 `schemaVersion: 1`、`manuscriptType: "publication-draft"` 的 catalog 和独立
-`publication-draft-export-manifest.json`，文件为 `drafts/edition-<ID>/preview.md`。
+输出采用 `schemaVersion: 2`、`manuscriptType: "publication-draft"` 的 catalog 和独立
+schemaVersion 1 的 `publication-draft-export-manifest.json`，正文文件为 `drafts/edition-<ID>/preview.md`，
+配对参照文件为 `drafts/edition-<ID>/review.md`，由必需的 `reviewFile` 和 `reviewArtifactSha256` 标识。
 条目携带冻结读者内容、来源、edition/revision ID、内容与文件哈希、审核状态及创建时间，
-不携带 release ID、发布时间、审核人、内部意见、模型配置、原文参照稿或审计事件。
+不携带 release ID、发布时间、审核人、内部意见、`review.json` 或审计事件。
+公开参照稿保留原有原文对照、疑点、回看链接与非敏感模型参数；不输出完整模型请求或响应。
 导出保持只读，验证来源与完整内容，沿用目录锁、完整快照和中断恢复。
 
 将已发布输出放入阅读站 `content/`，将预览输出放入独立 `draft-content/`，然后分别验证并构建。
 网站提供“已发布 / 未发布”入口；预览页明确提示内容尚未正式发布，并显示准确版本与哈希。
 两个栏目分别搜索，预览不会替换已发布正文或改变审核与 release 指针。
-这条命令会准备可公开的待审正文，执行和部署前应确认所选归档的当前 edition 适合公开。
+这条命令会准备可公开的待审正文和配对原文参照稿，执行和部署前应确认所选归档适合公开。
 三个导出种类的 schema 与目录互不混用；删除网站预览时须重新导出并同步构建、部署和缓存。
 
 ## 根目录与错误

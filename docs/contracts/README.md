@@ -2,7 +2,7 @@
 
 The public reader consumes `catalog.json` matching
 `publication-catalog.schema.json`. The root is an object with
-`schemaVersion: 1`, `manuscriptType: "publication"`, and `articles`. A legacy
+`schemaVersion: 2`, `manuscriptType: "publication"`, and `articles`. A legacy
 array catalog, private review export, unknown field, or unsupported version is
 an error. An empty `articles` array is valid.
 
@@ -10,7 +10,8 @@ Each article represents one effective published release for a stable video
 part. `file` is relative to the export root, for example
 `articles/part-7/publish.md`. The reader must validate the full catalog before
 rendering, require each referenced file, verify its UTF-8 bytes against
-`artifactSha256`, and require its file set to match the public manifest. It must
+`artifactSha256`, require the paired `reviewFile` bytes to match
+`reviewArtifactSha256`, and require both file sets to match the public manifest. It must
 also check that `slug`, `file`, `sourceUrl`, and the video identity fields agree.
 `publishedAt` is a Unix timestamp in seconds. Edition IDs are 32 lowercase hex
 characters; AI revision, release, and SHA-256 identities are 64 characters.
@@ -18,8 +19,14 @@ characters; AI revision, release, and SHA-256 identities are 64 characters.
 Titles, summary, tags, attribution, and editor notes are frozen reader content
 covered by `contentSha256`. The public artifact contains that same content,
 including its fixed title and source. Current video metadata, current draft
-editions, AI review state, model configuration, review actors, and audit events
-must not be used to amend public entries. There is no public `review.md` view.
+editions, AI review state, review actors, and audit events must not be used to
+amend public entries. Each article also exports the original `review.md` of its
+exact `aiRevisionId`, at `articles/part-<videoPartId>/review.md`. This reference
+contains original/compiled text, source identifiers, timestamps, replay links,
+issues and non-sensitive model parameters. It is not an approval record and
+does not claim to review later manual edits. The bytes are copied unchanged
+after verifying the complete immutable AI pair. Model-call requests/responses,
+credentials, `review.json`, review actors and audit events are not exported.
 
 `publication-export-manifest.json` follows the public manifest schema. Its
 `files` list includes the catalog and all public Markdown files, sorted by path.
@@ -28,9 +35,16 @@ SHA-256 of the list encoded as UTF-8 JSON with sorted keys, separators `,` and
 `:`, and no whitespace. The manifest does not list itself. Unknown files and
 directories are refused rather than removed.
 
+The generic release and draft manifest envelopes remain at `schemaVersion: 1`;
+their catalog envelopes require version 2. Version 1 catalogs, including empty
+ones, are refused without fallback or automatic migration. Export to new,
+separate directories when upgrading, validate the resulting version 2
+snapshots, then replace the deployed snapshots as complete directories. Keep
+previous snapshots outside the serving roots until the upgrade is verified.
+
 Explicit reader draft previews use a separate output directory and
 `publication-draft-catalog.schema.json`. The catalog envelope has
-`schemaVersion: 1`, `manuscriptType: "publication-draft"`, and `articles`.
+`schemaVersion: 2`, `manuscriptType: "publication-draft"`, and `articles`.
 `publication export-drafts --out DIR` selects each current draft head only if
 that edition has never had any release, including a superseded or withdrawn
 release. It includes all five review states, including `rejected`; review
@@ -41,14 +55,18 @@ separate catalogs; the same edition must not appear in both.
 
 Each preview has `slug: "edition-<32 lowercase hex editionId>"` and
 `file: "drafts/edition-<editionId>/preview.md"`, relative to the draft export
-root. Its Markdown contains the complete frozen reader content. Preview
+root. Its Markdown contains the complete frozen reader content, paired with
+`reviewFile: "drafts/edition-<editionId>/review.md"` and
+`reviewArtifactSha256` for the exact AI revision's original reference bytes. Preview
 identity includes `editionId`, `aiRevisionId`, the video/source fields,
 `contentSha256`, `artifactSha256`, `reviewStatus`, and `createdAt` (edition
 creation Unix seconds). It has no `releaseId`, `publishedAt`, or
-`templateVersion`. It must not contain model configuration, reference review
-documents, review notes, actors, events, raw responses, or private review files.
+`templateVersion`. The public reference contains its existing non-sensitive
+model parameters and source comparison. The catalog must not contain private
+review notes, actors, events, raw responses, or paths to private review files.
 The exporter verifies the immutable AI baseline and complete edition identity
-before rendering, while exporting only reader content and the review status.
+before rendering, while exporting reader content, its review status, and the
+paired original reference.
 
 `publication-draft-export-manifest.json` follows
 `publication-draft-export-manifest.schema.json` and has
