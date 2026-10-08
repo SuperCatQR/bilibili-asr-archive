@@ -63,7 +63,7 @@ env -u PYTHONPATH /home/chosenecho/bili-asr-asr-venv/bin/python -m pytest -q \
 
 本次 WSL 可见 `/dev/dxg`，但现有 PyTorch 环境没有启用可用的 ROCm GPU：环境检查未找到所需 ROCm/HSA 运行库，当前识别 venv 为 CPU build，另一个环境为 CUDA build 且没有可用设备。因而本次没有 GPU 推理、峰值显存、GPU RTF 或参数对照结果。
 
-后续应在可用的 ROCm 环境中固定 checkpoint commit 与多条项目音频哈希，建立人工参考后，比较 60 / 120 / 180 秒分块、语言声明、第二遍 cache 与热词。记录 CER、边界重复与漏字、异常空块、冷启动和模型复用耗时、峰值显存；据测量结果决定默认参数和常驻 worker 设计。
+后续应在可用的 ROCm 环境中固定 checkpoint commit 与多条项目音频哈希，建立人工参考后，优先比较 120 / 180 秒分块与语言声明，保持空热词。记录 CER、边界重复与漏字、异常空块、冷启动和模型复用耗时、峰值显存；据测量结果决定默认参数和常驻 worker 设计。按项目策略不将热词及其第二遍 cache 列入常规调优。
 
 ## 同日后续：公开参考样本与构造对照
 
@@ -71,4 +71,4 @@ env -u PYTHONPATH /home/chosenecho/bili-asr-asr-venv/bin/python -m pytest -q \
 
 新增评测专项测试在 WSL 中通过 **13 项**，脚本和专项测试通过完整 Ruff，仓库 CI 的 E9 静态检查通过。本批新增独立评测脚本与文档，没有修改生产 ASR 源码；没有重新运行上文 1334 项全量回归，不将新增测试与历史回归相加表述为一次全量结果。
 
-来源、许可、数据 commit、样本哈希、模型文件清单指纹、冷加载边界、逐条 CER、诊断解释和复现命令均见 [公开样本与调优依据](asr-public-samples.md)。公开朗读与人工拼接仅用于当前初步测量；项目实际长视频、热词二遍与 GPU 基准仍待验证。
+来源、许可、数据 commit、样本哈希、模型文件清单指纹、冷加载边界、逐条 CER、诊断解释和复现命令均见 [公开样本与调优依据](asr-public-samples.md)。当前证据支持继续使用现有基线，尚未证明为最优设置。公开朗读与人工拼接仅用于当前初步测量；项目实际长视频与 GPU 基准仍待验证。热词默认保持空，不列入常规调优计划。
