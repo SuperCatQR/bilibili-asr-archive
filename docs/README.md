@@ -23,6 +23,7 @@
 | [元数据搜索](metadata-search.md) | transcripts/metadata/all、字面匹配、排序、日期与 JSON 契约 |
 | [AI 校对使用](ai-proofreading.md) | 配置、执行、失败恢复、重新渲染、数据与离线验证 |
 | [产物根目录](artifact-root.md) | workflow 产物写根、读取回退顺序、音频与派生产物路径 |
+| [归档快照与迁移](archive-snapshots.md) | 保存完整数据库与产物、离线校验、跨设备恢复与中断任务重排 |
 | [音频保留与预算](audio-retention-policy.md) | 当前预算和保留策略入口、下载暂存、复用及回收边界 |
 | [Issues #247–#250](feature-plan-247-250.md) | 实施前评估、实现状态、风险、验收与交付顺序 |
 
