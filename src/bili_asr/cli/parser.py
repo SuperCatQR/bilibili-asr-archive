@@ -22,6 +22,8 @@ def build_parser() -> argparse.ArgumentParser:
     from bili_asr.cli.editorial import add_editorial_parser
     add_publication_parser(subparsers, archive_root=DEFAULT_ARCHIVE_ROOT)
     add_editorial_parser(subparsers, archive_root=DEFAULT_ARCHIVE_ROOT)
+    from bili_asr.cli.snapshot import add_snapshot_parser
+    add_snapshot_parser(subparsers, archive_root=DEFAULT_ARCHIVE_ROOT)
 
     dedup = subparsers.add_parser("dedup", help="Inspect exact content reuse without changing the archive")
     dedup_actions = dedup.add_subparsers(dest="dedup_action", required=True)
@@ -64,10 +66,14 @@ def build_parser() -> argparse.ArgumentParser:
     runs.add_argument("--limit", type=int, default=None)
     runs.add_argument("--archive-root", default=DEFAULT_ARCHIVE_ROOT)
 
-    search = subparsers.add_parser("search", help="Search transcript segments in SQLite FTS5")
+    search = subparsers.add_parser("search", help="Search stored video metadata and transcript segments")
     search.add_argument("query")
+    search.add_argument(
+        "--scope", choices=("transcripts", "metadata", "all"), default="transcripts",
+        help="Search transcripts (default), title/description/tags, or both; all puts metadata first",
+    )
     search.add_argument("--limit", type=int, default=20)
-    search.add_argument("--rebuild", action="store_true")
+    search.add_argument("--rebuild", action="store_true", help="Update the transcript FTS index before searching (transcripts/all only)")
     search.add_argument("--from", dest="pubdate_from", default=None, metavar="YYYY-MM-DD")
     search.add_argument("--to", dest="pubdate_to", default=None, metavar="YYYY-MM-DD")
     search.add_argument("--format", choices=("table", "json"), default="table")

@@ -8,6 +8,7 @@ from pathlib import Path
 import re
 from typing import Any
 from bili_asr.archive import archive_stem, bundle_relpaths_for_stem
+from bili_asr.artifacts import REQUIRED_ARTIFACT_KEYS
 from bili_asr.artifact_root import ArtifactRoots
 import bili_asr.search_index.common as _dependency_common
 
@@ -82,7 +83,7 @@ def extract_transcript_text(
     paths: dict[str, str] = {}
     located: dict[str, str] = {}
     # Collect paths from entry metadata with containment validation
-    for k in ("srt_path", "txt_path", "md_path", "raw_path"):
+    for k in REQUIRED_ARTIFACT_KEYS:
         raw_val = entry.get(k)
         if raw_val:
             found = _locate_over_bases(bases, str(raw_val))
@@ -92,12 +93,7 @@ def extract_transcript_text(
                 located[k] = _existing_path(bases, rel) or os.path.join(base_str, rel)
 
     # If not in entry metadata, probe standard disk locations
-    for k, rel in (
-        ("txt_path", bundle_relpaths_for_stem(stem)["txt_path"]),
-        ("srt_path", bundle_relpaths_for_stem(stem)["srt_path"]),
-        ("md_path", bundle_relpaths_for_stem(stem)["md_path"]),
-        ("raw_path", bundle_relpaths_for_stem(stem)["raw_path"]),
-    ):
+    for k, rel in bundle_relpaths_for_stem(stem).items():
         if k in paths:
             continue
         full = _existing_path(bases, rel)

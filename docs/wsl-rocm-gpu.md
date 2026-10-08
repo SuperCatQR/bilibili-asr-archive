@@ -1,5 +1,7 @@
 # WSL2 + ROCm GPU recipe (verified 2026-09-12)
 
+> 2026-10-08 本批验证：这是一份历史机器环境配方，不能证明当前 WSL 的 GPU 可用。本批回归与真实样本使用 CPU BF16；当前环境缺少可用 ROCm/HSA 运行库与 HIP-enabled PyTorch。实测环境和结果见 [WSL ASR 验证记录](asr-wsl-validation.md)。
+
 The one AMD path that was **measured** to produce a usable device for ASR on Windows WSL2.
 Every command below is taken from the session that ran on the target described in the next
 section — the session ran as root, so the additions here are the `sudo` prefixes, `~/` in place
@@ -137,6 +139,10 @@ lives (step 6), and the `:?` guard stops the shell when `VENV` is unset instead 
 command reach some other interpreter.)
 
 ## The recipe
+
+For new production deployments use the [Miniconda guide](miniconda-deployment.md).
+The system driver/ROCm/DXG steps below still apply, but its Conda environment
+and non-interactive startup replace the venv-specific installation steps.
 
 The steps are ordered as the stages that depend on them. Three conventions for the commands
 below: `PRODUCT` is the path to the checkout's repository root. Yours is

@@ -12,7 +12,7 @@ from uuid import uuid4
 from bili_asr.editorial import ARTIFACT_ROLES, TEMPLATE_VERSION, EditorialConfig, canonical, digest, language_key, prepare_input
 from bili_asr.storage.database import require_editorial_schema
 from bili_asr.storage.transcripts import TranscriptRepository
-from bili_asr.storage.workflow import WorkflowJob
+from bili_asr.storage.workflow import WorkflowJob, WorkflowRepository
 
 
 class EditorialRepository:
@@ -23,14 +23,8 @@ class EditorialRepository:
     @contextmanager
     def owned_transaction(self, job: WorkflowJob):
         require_editorial_schema(self.connection)
-        self.connection.execute("BEGIN IMMEDIATE")
-        try:
-            self.assert_lease(job)
+        with WorkflowRepository(self.connection).owned_transaction(job):
             yield
-            self.connection.commit()
-        except BaseException:
-            self.connection.rollback()
-            raise
 
     def read_source(self, transcript_id: int):
         row = self.connection.execute("SELECT * FROM transcripts WHERE transcript_id = ?", (transcript_id,)).fetchone()
@@ -128,11 +122,7 @@ class EditorialRepository:
                                     (None if response is None else canonical(response), error_code, int(time.time()), call_id))
 
     def assert_lease(self, job: WorkflowJob) -> None:
-        row = self.connection.execute("SELECT status, lease_owner, lease_expires_at, attempt_count FROM workflow_jobs WHERE job_id = ?",
-                                      (job.job_id,)).fetchone()
-        if (row is None or row["status"] != "running" or row["lease_owner"] != job.lease_owner
-                or row["attempt_count"] != job.attempt_count or row["lease_expires_at"] <= int(time.time())):
-            raise RuntimeError("editorial lease was lost")
+        WorkflowRepository(self.connection).assert_lease(job)
 
     def chunk_result(self, input_id: str, chunk_id: str) -> list[dict[str, Any]] | None:
         require_editorial_schema(self.connection)

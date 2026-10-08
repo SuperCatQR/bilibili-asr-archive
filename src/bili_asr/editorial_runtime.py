@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 from pathlib import Path
 from typing import Any
+from bili_asr.artifact_root import ArtifactRoots
 
 from bili_asr.deepseek import DeepSeekClient, parse_response, request_body
 from bili_asr.editorial import EditorialConfig, TEMPLATE_VERSION, render_documents, validate_revision
@@ -15,9 +16,10 @@ from bili_asr.storage.workflow import JobKind, WorkflowJob, WorkflowRepository
 
 class EditorialWorkflowHandlers:
     def __init__(self, repository: EditorialRepository, workflow: WorkflowRepository, *, archive_root: Path,
-                 client: DeepSeekClient | None = None):
+                 client: DeepSeekClient | None = None, artifact_roots: ArtifactRoots | None = None):
         self.repository, self.workflow = repository, workflow
-        self.archive_root = Path(archive_root)
+        self.artifact_roots = artifact_roots or ArtifactRoots.of(archive_root)
+        self.archive_root = self.artifact_roots.archive_root
         self.client = client or DeepSeekClient()
         self._owns_client = client is None
 
@@ -29,9 +31,11 @@ class EditorialWorkflowHandlers:
         return {JobKind.PROOFREAD: self.proofread, JobKind.RENDER_DOCUMENT: self.render}
 
     def proofread(self, job: WorkflowJob) -> dict[str, Any]:
+        self.workflow.assert_lease(job)
         prepared = self.repository.freeze_job_input(job)
         config = EditorialConfig(**prepared["snapshot"]["config"])
         for chunk in prepared["chunks"]:
+            self.workflow.assert_lease(job)
             if self.repository.chunk_result(prepared["input_id"], chunk["chunk_id"]) is not None:
                 continue
             self.workflow.renew_lease(job, lease_seconds=config.timeout_seconds + 300)
@@ -43,6 +47,7 @@ class EditorialWorkflowHandlers:
                 # Persist the actual envelope (including usage/model identifiers)
                 # before accepting content or raising a validation error.
                 self.repository.finish_call(call_id, envelope)
+                self.workflow.assert_lease(job)
                 blocks = validate_revision(chunk, parse_response(envelope))
                 self.repository.save_chunk(job, prepared["input_id"], chunk["chunk_id"], call_id, blocks)
             except Exception as exc:
@@ -52,6 +57,7 @@ class EditorialWorkflowHandlers:
         return {"input_id": prepared["input_id"], "revision_id": revision_id, "chunks": len(prepared["chunks"])}
 
     def render(self, job: WorkflowJob) -> dict[str, Any]:
+        self.workflow.assert_lease(job)
         template = job.payload["template_version"]
         if template != TEMPLATE_VERSION:
             raise ValueError("unsupported document template version")
@@ -64,6 +70,7 @@ class EditorialWorkflowHandlers:
         metadata = prepared["snapshot"]["metadata"]
         documents = render_documents(metadata, prepared, blocks, revision_id)
         relative = Path("documents") / f"part-{part_id}" / revision_id / TEMPLATE_VERSION
+        write_root = self.artifact_roots.write_base
         artifacts = {
             name: ((relative / name).as_posix(), hashlib.sha256(content.encode("utf-8")).hexdigest())
             for name, content in documents.items()
@@ -72,12 +79,11 @@ class EditorialWorkflowHandlers:
         # replacing either file.  A conflict must never leave a half-updated pair.
         self.repository.preflight_artifacts(revision_id, template, artifacts)
         for name, content in documents.items():
-            target = secure_path(self.archive_root, artifacts[name][0])
+            target = secure_path(write_root, artifacts[name][0])
             if target.exists() and target.read_bytes() != content.encode("utf-8"):
                 raise ValueError("manuscript-integrity: existing document has different bytes")
-        for name, content in documents.items():
-            self.repository.assert_lease(job)
-            atomic_write_artifact(self.archive_root, artifacts[name][0], content.encode("utf-8"))
         with self.repository.owned_transaction(job):
+            for name, content in documents.items():
+                atomic_write_artifact(write_root, artifacts[name][0], content.encode("utf-8"))
             self.repository.record_artifacts(revision_id, template, artifacts)
         return {"revision_id": revision_id, "artifacts": {name: path for name, (path, _) in artifacts.items()}}

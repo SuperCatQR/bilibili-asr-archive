@@ -412,7 +412,10 @@ def test_a_real_transcription_reaches_the_published_raw(tmp_root, monkeypatch) -
     monkeypatch.setattr(_module_asr_audio, "_materialize_input", lambda path: (path, None))
 
     runner = _module_asr_runner.ASRRunner(_module_asr_config.ASRConfig(model_name="Qwen/Qwen3-ASR-1.7B-hf", device="cpu"))
-    monkeypatch.setattr(runner, "_get_models", lambda: object())
+    from types import SimpleNamespace
+
+    models = SimpleNamespace(model=SimpleNamespace(dtype=None), aligner=SimpleNamespace(dtype=None))
+    monkeypatch.setattr(runner, "_get_models", lambda: models)
     monkeypatch.setattr(runner, "_transcribe_chunk", lambda models, path, **kwargs: (text, "Chinese"))
     monkeypatch.setattr(runner, "_align_chunk", lambda models, path, chunk_text, language: units)
 

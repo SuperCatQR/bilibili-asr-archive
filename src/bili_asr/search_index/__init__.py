@@ -9,7 +9,9 @@ from .common import (
     check_fts5_available,
 )
 from .errors import FTS5UnavailableError, SearchIndexMissingError, TranscriptStoreError
-from .models import TranscriptSearchHit
+from .models import MetadataSearchHit, TranscriptSearchHit
+from .metadata import MetadataSearchIndex
+from .query import SearchResults, search_archive
 from .readers import extract_transcript_text
 from .store import TranscriptSearchIndex
 
@@ -17,4 +19,5 @@ __all__ = [
     "FTS5UnavailableError", "SearchIndexMissingError", "TranscriptSearchHit",
     "TranscriptSearchIndex", "TranscriptStoreError",
     "check_fts5_available", "extract_transcript_text",
+    "MetadataSearchHit", "MetadataSearchIndex", "SearchResults", "search_archive",
 ]

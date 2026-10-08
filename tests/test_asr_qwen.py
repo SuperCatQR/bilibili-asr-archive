@@ -427,6 +427,38 @@ def _runner(monkeypatch, text: str = "今天讲两件事。明天我们接着讲
     return _module_asr_runner.ASRRunner(config, model_factory=factory), builds
 
 
+def test_runner_diagnostics_capture_actual_chunks_and_model_reuse(monkeypatch):
+    runner, _ = _runner(monkeypatch, text="今天。")
+    runner.transcribe("/nonexistent/one.wav")
+    report = runner.diagnostics()["passes"][0]
+    assert report["completed"] is True
+    assert report["decoded_s"] == 3
+    assert report["model_reused"] is False
+    assert report["chunks"][0]["text"] == "今天。"
+    assert report["chunks"][0]["generation"]["max_new_tokens"] == 256
+    assert report["chunks"][0]["alignment"]["aligned_unit_union_s"] > 0
+    assert {"model_load", "audio_prepare", "split", "decode", "align", "total"} <= report["timings_s"].keys()
+    runner.transcribe("/nonexistent/two.wav")
+    assert runner.diagnostics()["passes"][0]["model_reused"] is True
+
+
+def test_two_pass_diagnostics_retain_both_passes_and_configured_cache(monkeypatch):
+    runner, _ = _runner(monkeypatch, text="今天。", hotwords=("今天",), second_pass_use_cache=True)
+    _module_asr_runner.two_pass_transcribe(runner, "/nonexistent/two.wav", paired_subtitle_text=None)
+    reports = runner.diagnostics()["passes"]
+    assert len(reports) == 2
+    assert [item["model_reused"] for item in reports] == [False, True]
+    assert "use_cache" not in runner._get_models().model.calls[1]
+
+
+def test_runner_records_empty_chunk_without_fabricated_alignment(monkeypatch):
+    runner, _ = _runner(monkeypatch, text="")
+    assert runner.transcribe("/nonexistent/empty.wav") == []
+    diagnostics = runner.diagnostics()
+    assert diagnostics["quality"]["flags"] == ["empty-output", "span-coverage-short"]
+    assert "alignment" not in diagnostics["passes"][0]["chunks"][0]
+
+
 def test_the_runner_is_lazy_and_constructs_one_model_set_for_many_items(monkeypatch) -> None:
     runner, builds = _runner(monkeypatch)
     assert runner.model_constructions == 0, "no model may be built before the first use"
@@ -436,6 +468,28 @@ def test_the_runner_is_lazy_and_constructs_one_model_set_for_many_items(monkeypa
     assert runner.model_constructions == 1
     assert runner.model_load_attempts == 1
     assert first == second, "the same audio must produce the same cues"
+
+
+def test_processors_receive_normalized_samples_without_optional_file_loader(tmp_path) -> None:
+    """Real audio reaches both models without Transformers loading a file again."""
+    import numpy as np
+    import soundfile as sf
+
+    samples = np.linspace(-0.25, 0.25, 16000, dtype=np.float32)
+    path = tmp_path / "input.wav"
+    sf.write(path, np.column_stack((samples, samples)), 8000, subtype="FLOAT")
+    models = _FakeModelSet("今天。", _units("今天。"))
+    runner = _module_asr_runner.ASRRunner(
+        _module_asr_config.ASRConfig(model_name="local", device="cpu"),
+        model_factory=lambda **kwargs: models,
+    )
+    assert runner.transcribe(str(path))
+    decoded = models.processor.requests[0]["audio"]
+    aligned = models.aligner_processor.seen[0]["audio"]
+    assert isinstance(decoded, np.ndarray) and decoded.dtype == np.float32
+    assert decoded.ndim == 1 and len(decoded) == 32000
+    np.testing.assert_array_equal(decoded, aligned)
+    assert np.max(np.abs(decoded)) > 0.2
 
 
 def test_a_failed_load_pays_an_attempt_and_no_construction(monkeypatch) -> None:
@@ -481,11 +535,9 @@ def test_the_runner_pads_a_short_final_chunk_before_alignment(monkeypatch) -> No
     import soundfile as sf
     samples = np.zeros(int(_module_asr_constants.SAMPLE_RATE * 3.01), dtype="float32")
     monkeypatch.setattr(sf, "read", lambda *args, **kwargs_: (samples, _module_asr_constants.SAMPLE_RATE))
-    written: list[int] = []
-    monkeypatch.setattr(sf, "write", lambda path, data, rate: written.append(len(data)))
-
     runner.transcribe("/nonexistent/tail.wav")
 
+    written = [len(request["audio"]) for request in runner._get_models().aligner_processor.seen]
     assert len(written) == 2, "3.01 s at a 3 s cap is two chunks"
     assert written[0] == int(_module_asr_constants.SAMPLE_RATE * 3.0)
     assert written[-1] >= int(_module_asr_constants._CHUNK_MIN_SECONDS * _module_asr_constants.SAMPLE_RATE), "the tail was padded"
@@ -507,20 +559,14 @@ def test_the_pipeline_stitches_per_chunk_timings_with_their_offset(monkeypatch) 
 # ---------------------------------------------------------------------------------------
 # The two-pass hotword contract (plan 20260928-hotword-injection-governance, and plan 001
 # second-pass-asr-cache-bust): pass 1 decodes unguarded, the prompt is re-seeded with the
-# tokens pass 1 produced, and pass 2 must re-decode from a CLEAN model/cache state — the
-# re-seeded vocabulary must actually reach the model for the whole audio, not be served
-# from pass 1's prefix cache.
+# tokens pass 1 produced. Pass 2 preserves the baseline use_cache=False policy.
+# Separate generate calls do not share KV state unless explicitly passed a cache;
+# this switch controls caching within the second generate call.
 # ---------------------------------------------------------------------------------------
 
 
 def test_two_pass_transcribe_reseeds_the_prompt_and_busts_the_cache_on_pass_2(monkeypatch) -> None:
-    """The pass-2 ``generate`` call must observe the re-seeded prompt AND a non-warm cache.
-
-    Fails on the pre-fix code: both passes issued identical ``generate(**inputs,
-    max_new_tokens=budget)`` calls, so the second call has no ``use_cache`` key (the
-    dynamic prefix cache stays default-active and pass 2 is served partly from pass 1's
-    state).  After the fix, the second pass is the one with ``use_cache is False``.
-    """
+    """Pass 2 observes the reseeded prompt and baseline intra-call cache policy."""
 
     runner, _ = _runner(monkeypatch, text="今天讲两件事。", hotwords=("今天",))
     runner.set_hotword_evidence(evidence_text=None, paired_subtitle_text=None)
@@ -539,13 +585,10 @@ def test_two_pass_transcribe_reseeds_the_prompt_and_busts_the_cache_on_pass_2(mo
     pass2_prompt = runner._get_models().processor.requests[-1]["prompt"]
     assert pass2_prompt == "Vocabulary: 今天", pass2_prompt
     assert runner._get_models().processor.requests[0]["prompt"] is None
-    # The cache boundary: pass 2's generate call is the cold one.  ``use_cache=False`` is
-    # the pinned transformers>=5.13 per-call cache-control argument (GenerationConfig
-    # field, documented in the KV-cache guide as the way to disable the prefix cache).
-    assert "use_cache" not in first_call, "pass 1 keeps the default (warm) cache behaviour"
+    # use_cache=False disables KV caching within this generation call.
+    assert "use_cache" not in first_call, "pass 1 keeps the checkpoint cache default"
     assert second_call["use_cache"] is False, (
-        "pass 2 must re-decode from a clean cache state; without this the re-seeded "
-        "hotword vocabulary never reaches the model for the cached span"
+        "pass 2 preserves the baseline use_cache=False policy"
     )
 
 
@@ -571,10 +614,9 @@ def test_two_pass_transcribe_helper_busts_the_cache_on_pass_2(monkeypatch) -> No
     pass2_prompt = runner._get_models().processor.requests[-1]["prompt"]
     assert pass2_prompt == "Vocabulary: 今天", pass2_prompt
     assert runner._get_models().processor.requests[0]["prompt"] is None
-    assert "use_cache" not in first_call, "pass 1 keeps the default (warm) cache behaviour"
+    assert "use_cache" not in first_call, "pass 1 keeps the checkpoint cache default"
     assert second_call["use_cache"] is False, (
-        "the helper's pass 2 must re-decode from a clean cache state; without this the "
-        "two-pass fix is inert in production"
+        "the helper must forward the baseline second-pass cache policy"
     )
 
 
@@ -592,7 +634,7 @@ def test_two_pass_transcribe_helper_skips_pass_2_when_nothing_is_kept(monkeypatc
         "pass 2 is skipped when the guard keeps nothing; got "
         f"{len(model.calls)} generate calls"
     )
-    assert "use_cache" not in model.calls[0], "the single decode is the warm-cache pass 1"
+    assert "use_cache" not in model.calls[0], "the single decode keeps the checkpoint cache default"
 
 
 # ---------------------------------------------------------------------------------------
@@ -755,6 +797,7 @@ def test_the_hotword_list_is_free_of_duplicates_and_blanks() -> None:
 # ---------------------------------------------------------------------------------------
 
 
+@pytest.mark.skipif(not pathlib.Path("/proc/self/fd").is_dir(), reason="requires Linux procfs descriptors")
 def test_a_descriptor_path_is_copied_to_a_readable_file(tmp_path) -> None:
     source = tmp_path / "audio.m4a"
     source.write_bytes(b"payload")
@@ -1087,7 +1130,7 @@ def test_the_ffmpeg_decode_survives_a_piped_quit_key(tmp_path) -> None:
         "print(samples.shape, rate)"
     )
     env = dict(os.environ)
-    src = str(pathlib.Path(asr.__file__).resolve().parents[1])
+    src = str(pathlib.Path(asr.__file__).resolve().parents[2])
     env["PYTHONPATH"] = src + os.pathsep + env.get("PYTHONPATH", "")
     completed = subprocess.run(
         [sys.executable, "-c", code, str(path)],

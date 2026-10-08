@@ -1,19 +1,21 @@
 # DeepSeek AI 校对使用说明
 
-当前 AI 合成稿流程通过 DeepSeek 官方 API 的 `deepseek-flash` 模型处理固定的数据库转录版本。
-AI 返回带来源 ID 的完整段落，程序校验后保存不可变 AI revision，生成配对的 `ai-draft.md` 与校验参照稿件 `review.md`。
+当前阅读稿版通过 DeepSeek 官方 API 的 `deepseek-flash` 模型处理固定的数据库转录版本。
+AI 返回带来源 ID 的完整阅读段落，程序校验后保存独立修订，生成中文 Markdown 阅读稿和校对记录。
 业务进度保存在 SQLite；工作器重启后读取固定输入与已有块结果继续执行。
 
 ## 运行前提
 
 - Python 3.12+ 与项目基础依赖。仅运行校对和文档渲染不需要 GPU、ASR 模型或 ffmpeg。
 - 归档数据库已存储基础转录。默认使用所选视频部分最新的本地 ASR 版本。
-- 新建数据库使用包含 `proofread` / `render_document` 的工作流表结构。
+- 新稿件只支持 `ai-draft-v1` / `publish-v1` 和当前 manuscript schema；旧 schema 在任何初始化写入前拒绝，详见 [publication.md](publication.md)。
+- 新建数据库使用包含 `proofread` / `render_document` 的任务类型，以及支持 `cancelled` attempt outcome 和终态约束的工作流表结构。
 - 真实校对需要环境变量 `DEEPSEEK_API_KEY`。密钥仅进入 HTTP Authorization，不写入模型请求快照、结果或文档。
 
-本次不提供旧工作流或稿件 schema 的迁移。旧稿件表、旧产物约束、缺少契约标记或旧模板均明确拒绝，
-检查先于 schema 初始化或任何写入。请创建独立的新归档验证；程序不会自动删除、重建或迁移现有库。
-仅重新安装 Python 包不能修改旧表约束。
+当前不提供旧工作流表迁移。旧 `workflow_jobs` 类型约束不支持校对任务，或旧
+`workflow_attempts` 的 outcome / 终态 CHECK 不支持 `cancelled` 时，写入控制命令会明确拒绝。
+需要先备份并重建兼容当前契约的归档数据库；程序不会自动删除、重建或迁移现有库。
+仅重新安装 Python 包不能修改旧表约束。详情见 [工作流取消指南](workflow-cancellation.md#数据库契约与验证)。
 
 ## 处理已有转录
 
@@ -73,9 +75,7 @@ bili-asr workflow run --archive-root /srv/bili-archive
 任务依赖为 `audio → asr → proofread → render_document`。字幕采集独立运行，
 字幕失败不会阻止 ASR 或校对。自动校对固定其 ASR 前置任务成功返回的准确 `transcript_id`，
 在首次执行时取已有字幕并冻结；重试不会切换为最新 ASR 或后续到达的字幕。
-原始转录 bundle 的工作流 `publish` 继续独立执行，不等待校对。该步骤不发布文章。
-AI 工作流只生成合成稿与校验参照稿，不创建人工 edition、不登记人工批准，也不生成发布 release。
-文章的显式编辑、审核、发布和撤回见 [publication.md](publication.md)。
+原始转录发布继续独立执行，不等待校对。
 
 ## 大块预算
 
@@ -138,16 +138,21 @@ bili-asr workflow proofread --archive-root /srv/bili-archive --part-id 101 \
 每个输入片段提供 `allowed_issue_refs`，列出本片段及相交参考字幕；段落疑点只能引用其合并片段
 允许 ID 的并集。无关引用会失败，不会被程序静默替换成其他证据。
 
-产物路径（唯一支持的模板为 `ai-draft-v1`）：
+产物路径：
 
 ```text
-<archive-root>/documents/part-<video_part_id>/<revision_id>/ai-draft-v1/
+<write-base>/documents/part-<video_part_id>/<revision_id>/ai-draft-v1/
   ai-draft.md
   review.md
 ```
 
-`ai-draft.md` 只有 AI 整理后的正文段落，不含视频标题、话题标题、目录、时间戳、脚注或审核说明。
-`review.md` 是校验参照稿件，保存模型思考和采样参数、固定输入、每段全部来源 ID、原文与整理稿对照、
+write base 默认是 archive root；`workflow run --artifact-root PATH` 或
+`BILI_ARTIFACT_ROOT` 可指定独立的现有目录，数据库仍留在 archive root。
+render 只排队，随后的 run 与 publication create / editorial export 都需要同一目录配置；路径与哈希登记于
+`document_artifacts`。详见 [artifact-root.md](artifact-root.md)。
+
+`ai-draft.md` 只有整理后的正文段落，不含视频标题、话题标题、目录、时间戳、脚注或审核说明。
+`review.md` 保存模型思考和采样参数、固定输入、每段全部来源 ID、原文与整理稿对照、
 时间范围、回看链接、疑点和未匹配参考字幕，并注明未经人工复核。
 源文本按字面转义，不能把字幕中的 HTML 或链接指令直接变成文档行为。
 旧规则和旧模板不兼容；需要按当前规则创建新的固定输入和修订，不能把旧结果冒充新稿。
@@ -159,10 +164,14 @@ bili-asr workflow retry --archive-root /srv/bili-archive --part-id 101
 bili-asr workflow run --archive-root /srv/bili-archive --only-editorial
 ```
 
-每个通过校验的块立即保存。进程重启、超时或模型响应无效后，重试复用已保存块，
-只重新请求尚未通过校验的块。全部块完成后才提交完整修订和解锁渲染任务。
+每个通过校验的块在任务拥有的写事务内保存；完整修订也在独立的受保护事务内提交。
+事务取得 SQLite 写锁后重新检查 job、lease owner、attempt 编号及未过期租约，
+使校验结果与取消决定串行化。进程重启、超时或模型响应无效导致任务失败后，
+`workflow retry` 可复用已保存块，只重新请求尚未通过校验的块。
+全部块完成并提交完整修订后，校对 job 还须成功结束，渲染依赖才能就绪。
 如果请求已到达供应商，但本地尚未保存结果时进程退出，重试可能重复计费；不承诺外部调用 exactly-once。
 租约续期和尝试编号校验阻止过期工作器提交新块或覆盖新的任务尝试。
+`workflow retry` 只重排 `failed`，不会恢复 `cancelled`；重复相同输入的校对请求也不会复活已取消任务。
 
 读取成功校对尝试的 `result_json`，或查询 `editorial_revisions`，取得 `revision_id` 后：
 
@@ -173,10 +182,49 @@ bili-asr workflow run --archive-root /srv/bili-archive --only-editorial
 
 重渲染不需要 API 密钥，不调用模型，可修复已删除的 Markdown。
 相同已保存修订和 `ai-draft-v1` 模板生成相同字节；模板内容改变时需要新的模板版本和实现，
-当前只支持 `ai-draft-v1`，旧 `reading-v2` 会在计划阶段拒绝。文件通过临时文件、fsync 和原子替换写入，
-写入前先校验整对产物的 `ai-draft` / `review-reference` 角色、路径及 SHA-256；已登记内容不允许漂移。
-完成文件安装后才登记数据库。已有文件与重渲染结果不同会明确失败，不覆盖人工或损坏的字节。
-缺失文件可按固定字节重建；根目录、父目录或目标是链接或 reparse point 时拒绝写入。
+当前只支持 `ai-draft-v1`。两份文档先在临时文件中编码、fsync 并计算摘要；
+随后在同一任务所有权事务内执行最终替换并登记路径与 SHA-256。
+取消若先提交，最终替换被拒绝并清理本次临时文件。相同修订和模板对应的 render job
+已经取消时，重复 `workflow render` 保持取消状态。
+文件系统与 SQLite 不是跨介质原子事务，文件替换或数据库提交异常后仍需核对文档与登记摘要。
+
+## 协作式取消
+
+先列出 job ID，再明确选择需要取消的校对或渲染任务：
+
+```bash
+bili-asr workflow status --archive-root /srv/bili-archive --jobs
+bili-asr workflow cancel --archive-root /srv/bili-archive --job-id JOB_ID --job-id ANOTHER_JOB_ID
+```
+
+queued / running 任务变为 `cancelled`；成功、失败或已经取消的任务返回 noop。
+取消不级联：取消校对后，其依赖渲染仍为 queued，并在 status 中显示 `blocked_by_cancelled`。
+需要取消后续任务时，应明确选择它们的 job ID。
+
+取消在 checkpoint 和提交守卫处生效，不保证立即中断已经发出的模型请求，也不能撤销供应商计费。
+模型请求返回后，实际响应和错误诊断可以继续保存到 `editorial_model_calls`；
+它们是调用证据，不能在任务已取消后被接受为新块、完整修订或渲染产物。
+在取消前已经提交的块、修订和文件保留，取消不会回滚历史结果或删除已完成文档。
+若短提交事务先取得锁，取消等待它提交；因此可能出现结果已经提交、但 job 尚未 finish 时被取消的情况。
+状态、依赖和旧库限制见 [工作流取消指南](workflow-cancellation.md)。
+
+## 完整版本、审核与发布
+
+AI 工作流只生成 `ai-draft.md` 与原文对照、疑点所在的 `review.md`。后者是校验参照稿，
+不代表人工审核通过；不得将其公开导出。明确选择 revision 创建完整 edition 后，
+标题、正文、摘要、标签、冻结来源、整理归属和编辑说明共同决定内容 SHA-256。
+
+```bash
+bili-asr publication create --archive-root /srv/bili-archive --revision-id REVISION_ID --actor EDITOR
+bili-asr publication show --archive-root /srv/bili-archive --edition-id EDITION_ID --format json
+bili-asr editorial export --archive-root /srv/bili-archive --revision-id REVISION_ID --edition-id EDITION_ID --out private-review
+```
+
+审核指定准确 edition 与完整内容哈希；批准后仍需显式 `publication publish` 才生成固定
+`publish.md` 并切换有效 release。创建、修改或批准 B 不影响已经公开的 A。
+`publication export` 只导出验证通过的有效 release；`publication withdraw` 清除公开指针，
+保留内部内容与审核历史。两类输出目录严格独立，旧稿件 schema、模板、命令和 manifest 拒绝。
+完整命令、CAS、目录恢复及 JSON 契约见 [出版与审核指南](publication.md)。
 
 ## 数据与离线验证
 
@@ -187,18 +235,22 @@ bili-asr workflow run --archive-root /srv/bili-archive --only-editorial
 | `editorial_model_calls` | 所属工作流尝试、请求、实际响应、用量、错误码和时间 |
 | `editorial_chunk_results` | 每个块通过校验后的完整段落、来源 ID、原文和疑点 JSON |
 | `editorial_revisions` | 全部块的完整修订、内容标识、`ai-unreviewed` / `needs-review` 质量状态 |
-| `document_artifacts` | 修订、`ai-draft-v1` 模板、`ai-draft.md` / `review.md` 文件角色、路径和散列 |
+| `document_artifacts` | 修订、模板、文件路径和散列 |
 
 没有另建调度器；任务和终态仍归属于 `workflow_jobs` / `workflow_attempts`。
 段落和块信息保存在结构化 JSON 中，当前实现不额外建 `editorial_changes` / `editorial_blocks` 表。
 
 ```bash
-python -m pytest tests/test_ai_editorial.py tests/test_workflow_control_plane.py -q
+python -m pytest tests/test_ai_editorial.py tests/test_workflow_control_plane.py tests/test_workflow_cancellation.py tests/test_publication.py tests/test_publication_export.py -q
 ```
 
 测试使用合成转录、模拟模型和被拦截的 HTTP 响应，不连接 DeepSeek 或 B站，不需要 API 密钥。
 覆盖输入固定、上下文和输出预算、语言标签、结构校验、识别疑点、HTTP 失败、逐块恢复、
 ASR 独立依赖、租约、Markdown 转义及字节一致的重新渲染。
+取消测试使用独立 SQLite 连接触发模型响应晚到、渲染暂存后取消和短写事务竞争，
+验证审计可保留、成功结果被拒绝、已取消任务不复活以及旧 attempt 约束被拒绝。
+阅读导出测试验证只读连接、内容快照、审核与人工版本、摘要拒绝及受管理文件清理。
 当前离线验证覆盖跨段成句、疑点不回退正文、来源覆盖与只读上下文边界、纯正文输出，
 以及 high 思考和 top_p 参数的请求与快照。离线测试不连接 DeepSeek 或 B 站；
+本文的验证依据是这些离线契约测试，不代表已经验证真实供应商调用或阅读站页面。
 真实素材的人工回听和逐句准确率评估仍需单独记录，不能把结构校验当作语义质量结论。

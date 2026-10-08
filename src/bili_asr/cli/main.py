@@ -5,7 +5,10 @@ from __future__ import annotations
 from bili_asr.diagnostics import write_stderr
 
 import argparse
+from pathlib import Path
 import sys
+import sqlite3
+from bili_asr.storage.database import SchemaContractError, SQLITE_BUSY_TIMEOUT_ENV
 
 # Keep the historical dotted import path usable while ``cli.main`` is now a
 # module.  A few orchestration tests import the module through this nested
@@ -18,6 +21,7 @@ from bili_asr.artifact_root import (
     roots_for,
 )
 from bili_asr.cli.parser import build_parser
+from bili_asr.archive_maintenance import ArchiveAccessError, archive_access
 
 from bili_asr.cli.registry import (
     COMMANDS,
@@ -58,7 +62,8 @@ def _main(
         raise ValueError(f"command {args.command!r} is not implemented")
     # Resolve configured artifact roots once at the command boundary.
     artifact_policy = getattr(args, "artifact_policy", spec.artifacts)
-    if artifact_policy is not ArtifactPolicy.NONE:
+    metadata_only_search = args.command == "search" and getattr(args, "scope", "transcripts") == "metadata"
+    if artifact_policy is not ArtifactPolicy.NONE and not metadata_only_search:
         try:
             if artifact_policy is ArtifactPolicy.WRITE:
                 from bili_asr.cli.publication import validate_archive
@@ -71,7 +76,34 @@ def _main(
         except (ArtifactRootError, OSError, ValueError, RuntimeError) as exc:
             write_stderr(f"{args.command}: {exc}")
             return 1
-    return _cli_pkg._dispatch_command(args)
+    # Include commands that initialize schema or rebuild FTS, even when their
+    # main purpose is querying. Snapshot service owns its exclusive access.
+    writes_archive = args.command in {
+        "fetch-meta", "workflow", "search-index",
+    } or (args.command == "publication" and args.publication_action in {
+        "create", "edit", "review", "publish", "withdraw",
+    }) or (args.command == "search" and args.rebuild) or (
+        args.command in {"status", "runs"} and (Path(args.archive_root) / "archive.db").is_file()
+    )
+    try:
+        if writes_archive:
+            with archive_access(args.archive_root):
+                return _cli_pkg._dispatch_command(args)
+        return _cli_pkg._dispatch_command(args)
+    except (ArchiveAccessError, SchemaContractError) as exc:
+        write_stderr(f"{args.command}: {exc}")
+        return 1
+    except sqlite3.OperationalError as exc:
+        if getattr(exc, "sqlite_errorcode", 0) & 0xFF not in {sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED}:
+            raise
+        write_stderr(f"{args.command}: SQLite contention timeout exceeded; stop competing writers "
+                     f"or increase {SQLITE_BUSY_TIMEOUT_ENV}. Jobs remain recoverable; retry after contention clears.")
+        return 1
+    except ValueError as exc:
+        if not str(exc).startswith(SQLITE_BUSY_TIMEOUT_ENV):
+            raise
+        write_stderr(f"{args.command}: {exc}")
+        return 1
 
 
 def main(argv: list[str] | None = None) -> int:

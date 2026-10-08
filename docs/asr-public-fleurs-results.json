@@ -1,0 +1,3437 @@
+{
+  "schema_version": 1,
+  "created_at": "2026-10-08T05:09:26.842658+00:00",
+  "source_revision": "df18c5b5a41fa332091af7aaeb06a6b928fe5888",
+  "manifest": {
+    "schema_version": 1,
+    "dataset": "FluidInference/fleurs-full",
+    "revision": "1cca811bb8ea4d370345f108f00518167040282c",
+    "upstream": "https://huggingface.co/datasets/google/fleurs",
+    "publisher": "https://huggingface.co/datasets/FluidInference/fleurs-full",
+    "license": "CC-BY-4.0",
+    "attribution": "Google FLEURS; WAV extraction by FluidInference",
+    "split": "test (according to the WAV publisher)",
+    "language": "cmn_hans_cn",
+    "selection": "uniformly spaced indices over sorted publisher IDs; no output-based selection",
+    "corpus_rows": 945,
+    "download_endpoint": "https://hf-mirror.com",
+    "reference_sha256": "bd4047f9ef167e97f4d33d90b814149d0ba2324b1ce2c625acf1f0e3769c4ce1",
+    "samples": [
+      {
+        "id": "cmn_hans_cn_0000",
+        "filename": "cmn_hans_cn_0000.wav",
+        "reference": "这 并 不 是 告 别 这 是 一 个 篇 章 的 结 束 也 是 新 篇 章 的 开 始",
+        "duration_s": 10.38,
+        "sample_rate": 16000,
+        "sha256": "5214e16584b6498ddbd22f321738c0f62b19117ab1880b21e405fba983986b6a",
+        "source_row_index": 0,
+        "source_url": "https://huggingface.co/datasets/FluidInference/fleurs-full/resolve/1cca811bb8ea4d370345f108f00518167040282c/cmn_hans_cn/cmn_hans_cn_0000.wav"
+      },
+      {
+        "id": "cmn_hans_cn_0086",
+        "filename": "cmn_hans_cn_0086.wav",
+        "reference": "离 岸 流 是 海 浪 从 海 滩 快 速 回 流 到 海 中 的 回 流 通 常 发 生 在 暗 礁 或 类 似 的 地 方",
+        "duration_s": 10.44,
+        "sample_rate": 16000,
+        "sha256": "8a40c88ff674b0122cfc436a77c8ac5b8881b886d8be219f86045c18d9d40ad0",
+        "source_row_index": 86,
+        "source_url": "https://huggingface.co/datasets/FluidInference/fleurs-full/resolve/1cca811bb8ea4d370345f108f00518167040282c/cmn_hans_cn/cmn_hans_cn_0086.wav"
+      },
+      {
+        "id": "cmn_hans_cn_0172",
+        "filename": "cmn_hans_cn_0172.wav",
+        "reference": "如 果 在 冬 天 穿 越 北 波 罗 的 海 要 检 查 客 舱 的 位 置 因 为 在 冰 面 上 航 行 会 给 那 些 受 影 响 最 严 重 的 人 带 来 非 常 可 怕 的 噪 音",
+        "duration_s": 10.56,
+        "sample_rate": 16000,
+        "sha256": "13c1b3c13bd834dd0c636646b85ad04e0495a586dc587777bbbe0b62521515eb",
+        "source_row_index": 172,
+        "source_url": "https://huggingface.co/datasets/FluidInference/fleurs-full/resolve/1cca811bb8ea4d370345f108f00518167040282c/cmn_hans_cn/cmn_hans_cn_0172.wav"
+      },
+      {
+        "id": "cmn_hans_cn_0257",
+        "filename": "cmn_hans_cn_0257.wav",
+        "reference": "北 部 与 萨 赫 勒 地 区 接 壤 南 部 和 西 部 临 大 西 洋",
+        "duration_s": 8.24,
+        "sample_rate": 16000,
+        "sha256": "f91a5aa653d6ff635d7c1d01d5486e97907bce4fd55c4f20ab308e8498170a2c",
+        "source_row_index": 257,
+        "source_url": "https://huggingface.co/datasets/FluidInference/fleurs-full/resolve/1cca811bb8ea4d370345f108f00518167040282c/cmn_hans_cn/cmn_hans_cn_0257.wav"
+      },
+      {
+        "id": "cmn_hans_cn_0343",
+        "filename": "cmn_hans_cn_0343.wav",
+        "reference": "该 服 务 经 常 用 于 航 运 包 括 游 艇 以 及 有 远 程 数 据 和 语 音 需 求 的 探 险",
+        "duration_s": 8.94,
+        "sample_rate": 16000,
+        "sha256": "f4428f84e71a66aa27acf71f4a1ccc4e8b4dd10528a1ac8328060513ff3186a9",
+        "source_row_index": 343,
+        "source_url": "https://huggingface.co/datasets/FluidInference/fleurs-full/resolve/1cca811bb8ea4d370345f108f00518167040282c/cmn_hans_cn/cmn_hans_cn_0343.wav"
+      },
+      {
+        "id": "cmn_hans_cn_0429",
+        "filename": "cmn_hans_cn_0429.wav",
+        "reference": "因 此 这 种 格 式 的 宽 高 比 除 以 12 得 到 最 简 单 的 整 数 比 便 是 3:2",
+        "duration_s": 11.5,
+        "sample_rate": 16000,
+        "sha256": "b402264689ad892e9e24e80b96410bb047c12f7fba2ffbd17cab3db69f2a2468",
+        "source_row_index": 429,
+        "source_url": "https://huggingface.co/datasets/FluidInference/fleurs-full/resolve/1cca811bb8ea4d370345f108f00518167040282c/cmn_hans_cn/cmn_hans_cn_0429.wav"
+      },
+      {
+        "id": "cmn_hans_cn_0515",
+        "filename": "cmn_hans_cn_0515.wav",
+        "reference": "它 是 南 非 的 主 要 景 点 之 一 被 认 为 是 南 非 国 家 公 园 体 系 sanparks 的 主 打 景 点",
+        "duration_s": 6.48,
+        "sample_rate": 16000,
+        "sha256": "1bf7c27e83064fc33286d56ccf53b8d72c091f40468df552b458bf8b25e8f3a4",
+        "source_row_index": 515,
+        "source_url": "https://huggingface.co/datasets/FluidInference/fleurs-full/resolve/1cca811bb8ea4d370345f108f00518167040282c/cmn_hans_cn/cmn_hans_cn_0515.wav"
+      },
+      {
+        "id": "cmn_hans_cn_0601",
+        "filename": "cmn_hans_cn_0601.wav",
+        "reference": "钙 钾 等 元 素 属 于 金 属 银 和 金 等 元 素 当 然 也 是 金 属",
+        "duration_s": 13.16,
+        "sample_rate": 16000,
+        "sha256": "4cfa1d66fee4b7c74e2764f8a40203bfeff437f8c2436e6c2b6f6dea83d34bee",
+        "source_row_index": 601,
+        "source_url": "https://huggingface.co/datasets/FluidInference/fleurs-full/resolve/1cca811bb8ea4d370345f108f00518167040282c/cmn_hans_cn/cmn_hans_cn_0601.wav"
+      },
+      {
+        "id": "cmn_hans_cn_0687",
+        "filename": "cmn_hans_cn_0687.wav",
+        "reference": "在 互 联 网 上 搜 索 应 对 敌 对 环 境 课 程 也 许 能 找 到 提 供 培 训 的 当 地 公 司 的 地 址",
+        "duration_s": 8.4,
+        "sample_rate": 16000,
+        "sha256": "82d975bd8ea957bf47903fd685e3b97575e3c780d2deb4d54cdb4454054fef34",
+        "source_row_index": 687,
+        "source_url": "https://huggingface.co/datasets/FluidInference/fleurs-full/resolve/1cca811bb8ea4d370345f108f00518167040282c/cmn_hans_cn/cmn_hans_cn_0687.wav"
+      },
+      {
+        "id": "cmn_hans_cn_0772",
+        "filename": "cmn_hans_cn_0772.wav",
+        "reference": "同 一 个 月 又 有 一 架 客 机 冲 出 马 什 哈 德 的 跑 道 撞 上 一 堵 墙 造 成 17 人 死 亡",
+        "duration_s": 8.64,
+        "sample_rate": 16000,
+        "sha256": "f544d6404acb66146e92d670e6cfc2a79389f91527c5a09d38db8b8b331248b1",
+        "source_row_index": 772,
+        "source_url": "https://huggingface.co/datasets/FluidInference/fleurs-full/resolve/1cca811bb8ea4d370345f108f00518167040282c/cmn_hans_cn/cmn_hans_cn_0772.wav"
+      },
+      {
+        "id": "cmn_hans_cn_0858",
+        "filename": "cmn_hans_cn_0858.wav",
+        "reference": "在 另 一 种 极 端 情 况 下 这 个 人 会 变 成 一 个 与 之 前 迥 然 不 同 的 个 体 觉 得 他 她 必 须 改 变 团 队 所 做 的 一 切 并 把 成 果 据 为 己 有",
+        "duration_s": 17.18,
+        "sample_rate": 16000,
+        "sha256": "e48da698b0014ce2e1aed86509b44b71dd7f919f183cd1dc8a39e192e301f2fb",
+        "source_row_index": 858,
+        "source_url": "https://huggingface.co/datasets/FluidInference/fleurs-full/resolve/1cca811bb8ea4d370345f108f00518167040282c/cmn_hans_cn/cmn_hans_cn_0858.wav"
+      },
+      {
+        "id": "cmn_hans_cn_0944",
+        "filename": "cmn_hans_cn_0944.wav",
+        "reference": "买 一 张 万 能 卡 wild card 也 有 不 少 好 处 带 着 这 张 卡 你 可 以 进 入 南 非 的 一 些 公 园 或 全 部 的 国 家 公 园",
+        "duration_s": 13.68,
+        "sample_rate": 16000,
+        "sha256": "b039dd54bb5596d59bc893243e941d9eb0fcff04bbfe94ee2a0faf30b5f7479f",
+        "source_row_index": 944,
+        "source_url": "https://huggingface.co/datasets/FluidInference/fleurs-full/resolve/1cca811bb8ea4d370345f108f00518167040282c/cmn_hans_cn/cmn_hans_cn_0944.wav"
+      }
+    ]
+  },
+  "normalization": "NFKC, lowercase, remove Unicode punctuation and whitespace; preserve numerals and symbols",
+  "reference_used_as_model_input": false,
+  "inference": "production two_pass_transcribe; reusable CPU runner",
+  "checkpoint_fingerprints": {
+    "asr": {
+      "path": "/home/chosenecho/bili-asr-models/Qwen3-ASR-1.7B-hf",
+      "files": [
+        {
+          "name": "config.json",
+          "bytes": 2399,
+          "sha256": "117ac8e63e2af7cae3665e5a632d6eb03f5f384915519ceb6403c15ec6533f63"
+        },
+        {
+          "name": "configuration.json",
+          "bytes": 63,
+          "sha256": "0657e261c850f8d368b4da948a15279089f3484d40c152cc07fb4e9d1727ca3d"
+        },
+        {
+          "name": "generation_config.json",
+          "bytes": 165,
+          "sha256": "9939fc9388b79bd70757f938b87381e817173d6a6158f5af6506c0b73e775c3c"
+        },
+        {
+          "name": "model.safetensors",
+          "bytes": 4076193080,
+          "sha256": "2db53c7d81bd9b8cbc6a074e89be2c968a0d373fb4ee68bb1b1e14f7042dfee1"
+        },
+        {
+          "name": "processor_config.json",
+          "bytes": 487,
+          "sha256": "bc0b230081b44e629dd5b9045b78495615c1831b4b9f4cffe97bd37e82a6156a"
+        },
+        {
+          "name": "tokenizer.json",
+          "bytes": 11429653,
+          "sha256": "fe1fad59be22a41ee293363fcf95fdedbc7c93f3b49270b1d2e18bd1399a7a05"
+        },
+        {
+          "name": "tokenizer_config.json",
+          "bytes": 998,
+          "sha256": "945e980986de2ca7768f3326bfdbb4fbea3406f972b8ae0be233089f2b253c11"
+        }
+      ],
+      "sha256": "ff074ea4c752a218f41491f1e02b97ba7f73cff77dd2c3a595f127dc39f47903"
+    },
+    "aligner": {
+      "path": "/home/chosenecho/bili-asr-models/Qwen3-ForcedAligner-0.6B-hf",
+      "files": [
+        {
+          "name": "config.json",
+          "bytes": 248029,
+          "sha256": "82ac390b36a8f80c5a0c4e202367debd149e5d8c30abe4cf5eed439101b1c5ce"
+        },
+        {
+          "name": "configuration.json",
+          "bytes": 63,
+          "sha256": "0657e261c850f8d368b4da948a15279089f3484d40c152cc07fb4e9d1727ca3d"
+        },
+        {
+          "name": "model.safetensors",
+          "bytes": 1835545960,
+          "sha256": "00568245ceca5af1991d28562a75fe1ddc9bfeb041c27fda66947ea05c47fb86"
+        },
+        {
+          "name": "processor_config.json",
+          "bytes": 487,
+          "sha256": "bc0b230081b44e629dd5b9045b78495615c1831b4b9f4cffe97bd37e82a6156a"
+        },
+        {
+          "name": "tokenizer.json",
+          "bytes": 11429842,
+          "sha256": "cadfb9cbd9ff8f4e309075ec6a71b063295ff796afb4b5dbc0fd2873fbb301f2"
+        },
+        {
+          "name": "tokenizer_config.json",
+          "bytes": 998,
+          "sha256": "945e980986de2ca7768f3326bfdbb4fbea3406f972b8ae0be233089f2b253c11"
+        }
+      ],
+      "sha256": "1a9aa26450adbd639b98c36d3125abfe831f6fc67d6538b83ba595e740103080"
+    }
+  },
+  "arms": [
+    {
+      "language": "Chinese",
+      "config": {
+        "model_name": "/home/chosenecho/bili-asr-models/Qwen3-ASR-1.7B-hf",
+        "aligner_name": "/home/chosenecho/bili-asr-models/Qwen3-ForcedAligner-0.6B-hf",
+        "model_revision": null,
+        "aligner_revision": null,
+        "device": "cpu",
+        "language": "Chinese",
+        "hotwords": [],
+        "chunk_seconds": 180,
+        "inference_timeout_seconds": 1800.0,
+        "tokens_per_second": 8,
+        "min_new_tokens": 256,
+        "second_pass_use_cache": false,
+        "offline": true,
+        "local_source": "configured-local",
+        "model_id": null
+      },
+      "rows": [
+        {
+          "id": "cmn_hans_cn_0000",
+          "duration_s": 10.38,
+          "status": "ok",
+          "hypothesis": "这并不是告别，这是一个篇章的结束，也是新篇章的开始。",
+          "decoder_hypothesis": "这并不是告别，这是一个篇章的结束，也是新篇章的开始。",
+          "segments": [
+            {
+              "start": 1.92,
+              "end": 7.28,
+              "text": "这并不是告别，这是一个篇章的结束，也是新篇章的开始。"
+            }
+          ],
+          "diagnostics": {
+            "schema_version": 1,
+            "passes": [
+              {
+                "chunks": [
+                  {
+                    "chunk_index": 0,
+                    "start_s": 0.0,
+                    "end_s": 10.38,
+                    "flags": [],
+                    "decode_s": 3.4640355239999963,
+                    "text": "这并不是告别，这是一个篇章的结束，也是新篇章的开始。",
+                    "language": "",
+                    "generation": {
+                      "max_new_tokens": 256,
+                      "generated_tokens": 15,
+                      "ended_with_eos": true,
+                      "token_limit_reached": false
+                    },
+                    "align_s": 1.1114146689999984,
+                    "alignment": {
+                      "aligned_unit_union_s": 4.640000000000001,
+                      "longest_unaligned_gap_s": 3.1000000000000005,
+                      "invalid_alignment_units": 0,
+                      "timestamp_tolerance_s": 0.05
+                    }
+                  }
+                ],
+                "timings_s": {
+                  "model_load": 8.267037523999988,
+                  "audio_prepare": 0.0019266019999975015,
+                  "split": 6.0950000033699325e-06,
+                  "decode": 3.4640355239999963,
+                  "align": 1.1114146689999984,
+                  "total": 12.865770747999989
+                },
+                "completed": true,
+                "model_reused": false,
+                "environment": {
+                  "python": "3.12.3",
+                  "platform": "Linux",
+                  "packages": {
+                    "torch": "2.14.1+cpu",
+                    "transformers": "5.18.0",
+                    "accelerate": "1.15.0",
+                    "numpy": "2.5.3",
+                    "soundfile": "0.14.0",
+                    "soxr": "1.1.0"
+                  },
+                  "cuda": null,
+                  "hip": null
+                },
+                "model_dtype": "torch.bfloat16",
+                "aligner_dtype": "torch.bfloat16",
+                "resolved_model_revision": null,
+                "resolved_aligner_revision": null,
+                "decoded_s": 10.38,
+                "span_coverage_short": true
+              }
+            ],
+            "quality": {
+              "status": "needs-review",
+              "flags": [
+                "span-coverage-short"
+              ],
+              "human_reviewed": false
+            },
+            "timings_s": {
+              "model_load": 8.267037523999988,
+              "audio_prepare": 0.0019266019999975015,
+              "split": 6.0950000033699325e-06,
+              "decode": 3.4640355239999963,
+              "align": 1.1114146689999984,
+              "total": 12.865770747999989
+            }
+          },
+          "provenance": {
+            "model_name": "/home/chosenecho/bili-asr-models/Qwen3-ASR-1.7B-hf",
+            "aligner_model": "/home/chosenecho/bili-asr-models/Qwen3-ForcedAligner-0.6B-hf",
+            "model_revision": "",
+            "aligner_revision": "",
+            "device": "cpu",
+            "language": "Chinese",
+            "hotwords": "",
+            "chunk_seconds": "180",
+            "tokens_per_second": "8",
+            "min_new_tokens": "256",
+            "second_pass_use_cache": "False",
+            "offline": "True",
+            "local_source": "configured-local"
+          },
+          "segment_bounds_violations": 0,
+          "segment_order_violations": 0,
+          "elapsed_s": 12.86590324300002,
+          "score": {
+            "reference_chars": 23,
+            "hypothesis_chars": 23,
+            "substitutions": 0,
+            "deletions": 0,
+            "insertions": 0,
+            "errors": 0,
+            "cer": 0.0,
+            "normalized_reference": "这并不是告别这是一个篇章的结束也是新篇章的开始",
+            "normalized_hypothesis": "这并不是告别这是一个篇章的结束也是新篇章的开始"
+          },
+          "decoder_score": {
+            "reference_chars": 23,
+            "hypothesis_chars": 23,
+            "substitutions": 0,
+            "deletions": 0,
+            "insertions": 0,
+            "errors": 0,
+            "cer": 0.0,
+            "normalized_reference": "这并不是告别这是一个篇章的结束也是新篇章的开始",
+            "normalized_hypothesis": "这并不是告别这是一个篇章的结束也是新篇章的开始"
+          }
+        },
+        {
+          "id": "cmn_hans_cn_0086",
+          "duration_s": 10.44,
+          "status": "ok",
+          "hypothesis": "离岸流是海浪从海滩快速回流到海中的回流，通常发生在暗礁或类似的地方。",
+          "decoder_hypothesis": "离岸流是海浪从海滩快速回流到海中的回流，通常发生在暗礁或类似的地方。",
+          "segments": [
+            {
+              "start": 1.92,
+              "end": 8.32,
+              "text": "离岸流是海浪从海滩快速回流到海中的回流，通常发生在暗礁或类似的地方。"
+            }
+          ],
+          "diagnostics": {
+            "schema_version": 1,
+            "passes": [
+              {
+                "chunks": [
+                  {
+                    "chunk_index": 0,
+                    "start_s": 0.0,
+                    "end_s": 10.44,
+                    "flags": [],
+                    "decode_s": 4.099531410999987,
+                    "text": "离岸流是海浪从海滩快速回流到海中的回流，通常发生在暗礁或类似的地方。",
+                    "language": "",
+                    "generation": {
+                      "max_new_tokens": 256,
+                      "generated_tokens": 26,
+                      "ended_with_eos": true,
+                      "token_limit_reached": false
+                    },
+                    "align_s": 1.3093163030000028,
+                    "alignment": {
+                      "aligned_unit_union_s": 5.84,
+                      "longest_unaligned_gap_s": 2.119999999999999,
+                      "invalid_alignment_units": 0,
+                      "timestamp_tolerance_s": 0.05
+                    }
+                  }
+                ],
+                "timings_s": {
+                  "model_load": 1.2019999928725156e-06,
+                  "audio_prepare": 0.0004284489999974994,
+                  "split": 4.423999996561179e-06,
+                  "decode": 4.099531410999987,
+                  "align": 1.3093163030000028,
+                  "total": 5.425864727000004
+                },
+                "completed": true,
+                "model_reused": true,
+                "environment": {
+                  "python": "3.12.3",
+                  "platform": "Linux",
+                  "packages": {
+                    "torch": "2.14.1+cpu",
+                    "transformers": "5.18.0",
+                    "accelerate": "1.15.0",
+                    "numpy": "2.5.3",
+                    "soundfile": "0.14.0",
+                    "soxr": "1.1.0"
+                  },
+                  "cuda": null,
+                  "hip": null
+                },
+                "model_dtype": "torch.bfloat16",
+                "aligner_dtype": "torch.bfloat16",
+                "resolved_model_revision": null,
+                "resolved_aligner_revision": null,
+                "decoded_s": 10.44,
+                "span_coverage_short": true
+              }
+            ],
+            "quality": {
+              "status": "needs-review",
+              "flags": [
+                "span-coverage-short"
+              ],
+              "human_reviewed": false
+            },
+            "timings_s": {
+              "model_load": 1.2019999928725156e-06,
+              "audio_prepare": 0.0004284489999974994,
+              "split": 4.423999996561179e-06,
+              "decode": 4.099531410999987,
+              "align": 1.3093163030000028,
+              "total": 5.425864727000004
+            }
+          },
+          "provenance": {
+            "model_name": "/home/chosenecho/bili-asr-models/Qwen3-ASR-1.7B-hf",
+            "aligner_model": "/home/chosenecho/bili-asr-models/Qwen3-ForcedAligner-0.6B-hf",
+            "model_revision": "",
+            "aligner_revision": "",
+            "device": "cpu",
+            "language": "Chinese",
+            "hotwords": "",
+            "chunk_seconds": "180",
+            "tokens_per_second": "8",
+            "min_new_tokens": "256",
+            "second_pass_use_cache": "False",
+            "offline": "True",
+            "local_source": "configured-local"
+          },
+          "segment_bounds_violations": 0,
+          "segment_order_violations": 0,
+          "elapsed_s": 5.426016443000009,
+          "score": {
+            "reference_chars": 32,
+            "hypothesis_chars": 32,
+            "substitutions": 0,
+            "deletions": 0,
+            "insertions": 0,
+            "errors": 0,
+            "cer": 0.0,
+            "normalized_reference": "离岸流是海浪从海滩快速回流到海中的回流通常发生在暗礁或类似的地方",
+            "normalized_hypothesis": "离岸流是海浪从海滩快速回流到海中的回流通常发生在暗礁或类似的地方"
+          },
+          "decoder_score": {
+            "reference_chars": 32,
+            "hypothesis_chars": 32,
+            "substitutions": 0,
+            "deletions": 0,
+            "insertions": 0,
+            "errors": 0,
+            "cer": 0.0,
+            "normalized_reference": "离岸流是海浪从海滩快速回流到海中的回流通常发生在暗礁或类似的地方",
+            "normalized_hypothesis": "离岸流是海浪从海滩快速回流到海中的回流通常发生在暗礁或类似的地方"
+          }
+        },
+        {
+          "id": "cmn_hans_cn_0172",
+          "duration_s": 10.56,
+          "status": "ok",
+          "hypothesis": "如果在冬天穿越北波罗的海，要检查客舱的位置，因为在冰面上航行会给那些受影影响最严重的人带来非常可怕的噪音。",
+          "decoder_hypothesis": "如果在冬天穿越北波罗的海，要检查客舱的位置，因为在冰面上航行会给那些受影影响最严重的人带来非常可怕的噪音。",
+          "segments": [
+            {
+              "start": 0.72,
+              "end": 9.6,
+              "text": "如果在冬天穿越北波罗的海，要检查客舱的位置，因为在冰面上航行会给那些受影影响最严重的人带来非常可怕的噪音。"
+            }
+          ],
+          "diagnostics": {
+            "schema_version": 1,
+            "passes": [
+              {
+                "chunks": [
+                  {
+                    "chunk_index": 0,
+                    "start_s": 0.0,
+                    "end_s": 10.56,
+                    "flags": [],
+                    "decode_s": 5.098466145000003,
+                    "text": "如果在冬天穿越北波罗的海，要检查客舱的位置，因为在冰面上航行会给那些受影影响最严重的人带来非常可怕的噪音。",
+                    "language": "",
+                    "generation": {
+                      "max_new_tokens": 256,
+                      "generated_tokens": 34,
+                      "ended_with_eos": true,
+                      "token_limit_reached": false
+                    },
+                    "align_s": 1.4528403449999985,
+                    "alignment": {
+                      "aligned_unit_union_s": 8.479999999999999,
+                      "longest_unaligned_gap_s": 0.9600000000000009,
+                      "invalid_alignment_units": 0,
+                      "timestamp_tolerance_s": 0.05
+                    }
+                  }
+                ],
+                "timings_s": {
+                  "model_load": 1.134000001457025e-06,
+                  "audio_prepare": 0.0004355439999983446,
+                  "split": 3.462000023546352e-06,
+                  "decode": 5.098466145000003,
+                  "align": 1.4528403449999985,
+                  "total": 6.568213270000001
+                },
+                "completed": true,
+                "model_reused": true,
+                "environment": {
+                  "python": "3.12.3",
+                  "platform": "Linux",
+                  "packages": {
+                    "torch": "2.14.1+cpu",
+                    "transformers": "5.18.0",
+                    "accelerate": "1.15.0",
+                    "numpy": "2.5.3",
+                    "soundfile": "0.14.0",
+                    "soxr": "1.1.0"
+                  },
+                  "cuda": null,
+                  "hip": null
+                },
+                "model_dtype": "torch.bfloat16",
+                "aligner_dtype": "torch.bfloat16",
+                "resolved_model_revision": null,
+                "resolved_aligner_revision": null,
+                "decoded_s": 10.56,
+                "span_coverage_short": true
+              }
+            ],
+            "quality": {
+              "status": "needs-review",
+              "flags": [
+                "span-coverage-short"
+              ],
+              "human_reviewed": false
+            },
+            "timings_s": {
+              "model_load": 1.134000001457025e-06,
+              "audio_prepare": 0.0004355439999983446,
+              "split": 3.462000023546352e-06,
+              "decode": 5.098466145000003,
+              "align": 1.4528403449999985,
+              "total": 6.568213270000001
+            }
+          },
+          "provenance": {
+            "model_name": "/home/chosenecho/bili-asr-models/Qwen3-ASR-1.7B-hf",
+            "aligner_model": "/home/chosenecho/bili-asr-models/Qwen3-ForcedAligner-0.6B-hf",
+            "model_revision": "",
+            "aligner_revision": "",
+            "device": "cpu",
+            "language": "Chinese",
+            "hotwords": "",
+            "chunk_seconds": "180",
+            "tokens_per_second": "8",
+            "min_new_tokens": "256",
+            "second_pass_use_cache": "False",
+            "offline": "True",
+            "local_source": "configured-local"
+          },
+          "segment_bounds_violations": 0,
+          "segment_order_violations": 0,
+          "elapsed_s": 6.568373355000006,
+          "score": {
+            "reference_chars": 49,
+            "hypothesis_chars": 50,
+            "substitutions": 0,
+            "deletions": 0,
+            "insertions": 1,
+            "errors": 1,
+            "cer": 0.02040816326530612,
+            "normalized_reference": "如果在冬天穿越北波罗的海要检查客舱的位置因为在冰面上航行会给那些受影响最严重的人带来非常可怕的噪音",
+            "normalized_hypothesis": "如果在冬天穿越北波罗的海要检查客舱的位置因为在冰面上航行会给那些受影影响最严重的人带来非常可怕的噪音"
+          },
+          "decoder_score": {
+            "reference_chars": 49,
+            "hypothesis_chars": 50,
+            "substitutions": 0,
+            "deletions": 0,
+            "insertions": 1,
+            "errors": 1,
+            "cer": 0.02040816326530612,
+            "normalized_reference": "如果在冬天穿越北波罗的海要检查客舱的位置因为在冰面上航行会给那些受影响最严重的人带来非常可怕的噪音",
+            "normalized_hypothesis": "如果在冬天穿越北波罗的海要检查客舱的位置因为在冰面上航行会给那些受影影响最严重的人带来非常可怕的噪音"
+          }
+        },
+        {
+          "id": "cmn_hans_cn_0257",
+          "duration_s": 8.24,
+          "status": "ok",
+          "hypothesis": "北部与萨赫勒地区接壤，南部和西部临大西洋。",
+          "decoder_hypothesis": "北部与萨赫勒地区接壤，南部和西部临大西洋。",
+          "segments": [
+            {
+              "start": 1.84,
+              "end": 6.0,
+              "text": "北部与萨赫勒地区接壤，南部和西部临大西洋。"
+            }
+          ],
+          "diagnostics": {
+            "schema_version": 1,
+            "passes": [
+              {
+                "chunks": [
+                  {
+                    "chunk_index": 0,
+                    "start_s": 0.0,
+                    "end_s": 8.24,
+                    "flags": [],
+                    "decode_s": 3.5136077290000003,
+                    "text": "北部与萨赫勒地区接壤，南部和西部临大西洋。",
+                    "language": "",
+                    "generation": {
+                      "max_new_tokens": 256,
+                      "generated_tokens": 17,
+                      "ended_with_eos": true,
+                      "token_limit_reached": false
+                    },
+                    "align_s": 1.0403129369999817,
+                    "alignment": {
+                      "aligned_unit_union_s": 3.2800000000000002,
+                      "longest_unaligned_gap_s": 2.24,
+                      "invalid_alignment_units": 0,
+                      "timestamp_tolerance_s": 0.05
+                    }
+                  }
+                ],
+                "timings_s": {
+                  "model_load": 6.22000015937374e-07,
+                  "audio_prepare": 0.0004140689999871938,
+                  "split": 5.520999991404096e-06,
+                  "decode": 3.5136077290000003,
+                  "align": 1.0403129369999817,
+                  "total": 4.5703542520000155
+                },
+                "completed": true,
+                "model_reused": true,
+                "environment": {
+                  "python": "3.12.3",
+                  "platform": "Linux",
+                  "packages": {
+                    "torch": "2.14.1+cpu",
+                    "transformers": "5.18.0",
+                    "accelerate": "1.15.0",
+                    "numpy": "2.5.3",
+                    "soundfile": "0.14.0",
+                    "soxr": "1.1.0"
+                  },
+                  "cuda": null,
+                  "hip": null
+                },
+                "model_dtype": "torch.bfloat16",
+                "aligner_dtype": "torch.bfloat16",
+                "resolved_model_revision": null,
+                "resolved_aligner_revision": null,
+                "decoded_s": 8.24,
+                "span_coverage_short": true
+              }
+            ],
+            "quality": {
+              "status": "needs-review",
+              "flags": [
+                "span-coverage-short"
+              ],
+              "human_reviewed": false
+            },
+            "timings_s": {
+              "model_load": 6.22000015937374e-07,
+              "audio_prepare": 0.0004140689999871938,
+              "split": 5.520999991404096e-06,
+              "decode": 3.5136077290000003,
+              "align": 1.0403129369999817,
+              "total": 4.5703542520000155
+            }
+          },
+          "provenance": {
+            "model_name": "/home/chosenecho/bili-asr-models/Qwen3-ASR-1.7B-hf",
+            "aligner_model": "/home/chosenecho/bili-asr-models/Qwen3-ForcedAligner-0.6B-hf",
+            "model_revision": "",
+            "aligner_revision": "",
+            "device": "cpu",
+            "language": "Chinese",
+            "hotwords": "",
+            "chunk_seconds": "180",
+            "tokens_per_second": "8",
+            "min_new_tokens": "256",
+            "second_pass_use_cache": "False",
+            "offline": "True",
+            "local_source": "configured-local"
+          },
+          "segment_bounds_violations": 0,
+          "segment_order_violations": 0,
+          "elapsed_s": 4.57048274600001,
+          "score": {
+            "reference_chars": 19,
+            "hypothesis_chars": 19,
+            "substitutions": 0,
+            "deletions": 0,
+            "insertions": 0,
+            "errors": 0,
+            "cer": 0.0,
+            "normalized_reference": "北部与萨赫勒地区接壤南部和西部临大西洋",
+            "normalized_hypothesis": "北部与萨赫勒地区接壤南部和西部临大西洋"
+          },
+          "decoder_score": {
+            "reference_chars": 19,
+            "hypothesis_chars": 19,
+            "substitutions": 0,
+            "deletions": 0,
+            "insertions": 0,
+            "errors": 0,
+            "cer": 0.0,
+            "normalized_reference": "北部与萨赫勒地区接壤南部和西部临大西洋",
+            "normalized_hypothesis": "北部与萨赫勒地区接壤南部和西部临大西洋"
+          }
+        },
+        {
+          "id": "cmn_hans_cn_0343",
+          "duration_s": 8.94,
+          "status": "ok",
+          "hypothesis": "该服务经常用于航运，包括游艇以及有远程数据和语音需求的探险。",
+          "decoder_hypothesis": "该服务经常用于航运，包括游艇以及有远程数据和语音需求的探险。",
+          "segments": [
+            {
+              "start": 1.36,
+              "end": 6.56,
+              "text": "该服务经常用于航运，包括游艇以及有远程数据和语音需求的探险。"
+            }
+          ],
+          "diagnostics": {
+            "schema_version": 1,
+            "passes": [
+              {
+                "chunks": [
+                  {
+                    "chunk_index": 0,
+                    "start_s": 0.0,
+                    "end_s": 8.94,
+                    "flags": [],
+                    "decode_s": 3.5869057959999964,
+                    "text": "该服务经常用于航运，包括游艇以及有远程数据和语音需求的探险。",
+                    "language": "",
+                    "generation": {
+                      "max_new_tokens": 256,
+                      "generated_tokens": 19,
+                      "ended_with_eos": true,
+                      "token_limit_reached": false
+                    },
+                    "align_s": 1.1416186099999948,
+                    "alignment": {
+                      "aligned_unit_union_s": 4.479999999999999,
+                      "longest_unaligned_gap_s": 2.38,
+                      "invalid_alignment_units": 0,
+                      "timestamp_tolerance_s": 0.05
+                    }
+                  }
+                ],
+                "timings_s": {
+                  "model_load": 5.240000007233903e-07,
+                  "audio_prepare": 0.00039367500002640554,
+                  "split": 5.124000011846874e-06,
+                  "decode": 3.5869057959999964,
+                  "align": 1.1416186099999948,
+                  "total": 4.743568767999989
+                },
+                "completed": true,
+                "model_reused": true,
+                "environment": {
+                  "python": "3.12.3",
+                  "platform": "Linux",
+                  "packages": {
+                    "torch": "2.14.1+cpu",
+                    "transformers": "5.18.0",
+                    "accelerate": "1.15.0",
+                    "numpy": "2.5.3",
+                    "soundfile": "0.14.0",
+                    "soxr": "1.1.0"
+                  },
+                  "cuda": null,
+                  "hip": null
+                },
+                "model_dtype": "torch.bfloat16",
+                "aligner_dtype": "torch.bfloat16",
+                "resolved_model_revision": null,
+                "resolved_aligner_revision": null,
+                "decoded_s": 8.94,
+                "span_coverage_short": true
+              }
+            ],
+            "quality": {
+              "status": "needs-review",
+              "flags": [
+                "span-coverage-short"
+              ],
+              "human_reviewed": false
+            },
+            "timings_s": {
+              "model_load": 5.240000007233903e-07,
+              "audio_prepare": 0.00039367500002640554,
+              "split": 5.124000011846874e-06,
+              "decode": 3.5869057959999964,
+              "align": 1.1416186099999948,
+              "total": 4.743568767999989
+            }
+          },
+          "provenance": {
+            "model_name": "/home/chosenecho/bili-asr-models/Qwen3-ASR-1.7B-hf",
+            "aligner_model": "/home/chosenecho/bili-asr-models/Qwen3-ForcedAligner-0.6B-hf",
+            "model_revision": "",
+            "aligner_revision": "",
+            "device": "cpu",
+            "language": "Chinese",
+            "hotwords": "",
+            "chunk_seconds": "180",
+            "tokens_per_second": "8",
+            "min_new_tokens": "256",
+            "second_pass_use_cache": "False",
+            "offline": "True",
+            "local_source": "configured-local"
+          },
+          "segment_bounds_violations": 0,
+          "segment_order_violations": 0,
+          "elapsed_s": 4.743735872000002,
+          "score": {
+            "reference_chars": 28,
+            "hypothesis_chars": 28,
+            "substitutions": 0,
+            "deletions": 0,
+            "insertions": 0,
+            "errors": 0,
+            "cer": 0.0,
+            "normalized_reference": "该服务经常用于航运包括游艇以及有远程数据和语音需求的探险",
+            "normalized_hypothesis": "该服务经常用于航运包括游艇以及有远程数据和语音需求的探险"
+          },
+          "decoder_score": {
+            "reference_chars": 28,
+            "hypothesis_chars": 28,
+            "substitutions": 0,
+            "deletions": 0,
+            "insertions": 0,
+            "errors": 0,
+            "cer": 0.0,
+            "normalized_reference": "该服务经常用于航运包括游艇以及有远程数据和语音需求的探险",
+            "normalized_hypothesis": "该服务经常用于航运包括游艇以及有远程数据和语音需求的探险"
+          }
+        },
+        {
+          "id": "cmn_hans_cn_0429",
+          "duration_s": 11.5,
+          "status": "ok",
+          "hypothesis": "因此，这种格式的宽高比除以十二，得到最简单的整数比，便是三比二。",
+          "decoder_hypothesis": "因此，这种格式的宽高比除以十二，得到最简单的整数比，便是三比二。",
+          "segments": [
+            {
+              "start": 2.4,
+              "end": 8.8,
+              "text": "因此，这种格式的宽高比除以十二，得到最简单的整数比，便是三比二。"
+            }
+          ],
+          "diagnostics": {
+            "schema_version": 1,
+            "passes": [
+              {
+                "chunks": [
+                  {
+                    "chunk_index": 0,
+                    "start_s": 0.0,
+                    "end_s": 11.5,
+                    "flags": [],
+                    "decode_s": 4.401336775999994,
+                    "text": "因此，这种格式的宽高比除以十二，得到最简单的整数比，便是三比二。",
+                    "language": "",
+                    "generation": {
+                      "max_new_tokens": 256,
+                      "generated_tokens": 25,
+                      "ended_with_eos": true,
+                      "token_limit_reached": false
+                    },
+                    "align_s": 1.3642512960000204,
+                    "alignment": {
+                      "aligned_unit_union_s": 5.200000000000002,
+                      "longest_unaligned_gap_s": 2.6999999999999993,
+                      "invalid_alignment_units": 0,
+                      "timestamp_tolerance_s": 0.05
+                    }
+                  }
+                ],
+                "timings_s": {
+                  "model_load": 6.230000053619733e-07,
+                  "audio_prepare": 0.0004977399999859244,
+                  "split": 5.990999994764934e-06,
+                  "decode": 4.401336775999994,
+                  "align": 1.3642512960000204,
+                  "total": 5.787330421000007
+                },
+                "completed": true,
+                "model_reused": true,
+                "environment": {
+                  "python": "3.12.3",
+                  "platform": "Linux",
+                  "packages": {
+                    "torch": "2.14.1+cpu",
+                    "transformers": "5.18.0",
+                    "accelerate": "1.15.0",
+                    "numpy": "2.5.3",
+                    "soundfile": "0.14.0",
+                    "soxr": "1.1.0"
+                  },
+                  "cuda": null,
+                  "hip": null
+                },
+                "model_dtype": "torch.bfloat16",
+                "aligner_dtype": "torch.bfloat16",
+                "resolved_model_revision": null,
+                "resolved_aligner_revision": null,
+                "decoded_s": 11.5,
+                "span_coverage_short": true
+              }
+            ],
+            "quality": {
+              "status": "needs-review",
+              "flags": [
+                "span-coverage-short"
+              ],
+              "human_reviewed": false
+            },
+            "timings_s": {
+              "model_load": 6.230000053619733e-07,
+              "audio_prepare": 0.0004977399999859244,
+              "split": 5.990999994764934e-06,
+              "decode": 4.401336775999994,
+              "align": 1.3642512960000204,
+              "total": 5.787330421000007
+            }
+          },
+          "provenance": {
+            "model_name": "/home/chosenecho/bili-asr-models/Qwen3-ASR-1.7B-hf",
+            "aligner_model": "/home/chosenecho/bili-asr-models/Qwen3-ForcedAligner-0.6B-hf",
+            "model_revision": "",
+            "aligner_revision": "",
+            "device": "cpu",
+            "language": "Chinese",
+            "hotwords": "",
+            "chunk_seconds": "180",
+            "tokens_per_second": "8",
+            "min_new_tokens": "256",
+            "second_pass_use_cache": "False",
+            "offline": "True",
+            "local_source": "configured-local"
+          },
+          "segment_bounds_violations": 0,
+          "segment_order_violations": 0,
+          "elapsed_s": 5.787580023000004,
+          "score": {
+            "reference_chars": 27,
+            "hypothesis_chars": 28,
+            "substitutions": 4,
+            "deletions": 0,
+            "insertions": 1,
+            "errors": 5,
+            "cer": 0.18518518518518517,
+            "normalized_reference": "因此这种格式的宽高比除以12得到最简单的整数比便是32",
+            "normalized_hypothesis": "因此这种格式的宽高比除以十二得到最简单的整数比便是三比二"
+          },
+          "decoder_score": {
+            "reference_chars": 27,
+            "hypothesis_chars": 28,
+            "substitutions": 4,
+            "deletions": 0,
+            "insertions": 1,
+            "errors": 5,
+            "cer": 0.18518518518518517,
+            "normalized_reference": "因此这种格式的宽高比除以12得到最简单的整数比便是32",
+            "normalized_hypothesis": "因此这种格式的宽高比除以十二得到最简单的整数比便是三比二"
+          }
+        },
+        {
+          "id": "cmn_hans_cn_0515",
+          "duration_s": 6.48,
+          "status": "ok",
+          "hypothesis": "它是南非的主要景点之一，被认为是南非国家公园体系的主打景点。",
+          "decoder_hypothesis": "它是南非的主要景点之一，被认为是南非国家公园体系的主打景点。",
+          "segments": [
+            {
+              "start": 0.72,
+              "end": 5.6,
+              "text": "它是南非的主要景点之一，被认为是南非国家公园体系的主打景点。"
+            }
+          ],
+          "diagnostics": {
+            "schema_version": 1,
+            "passes": [
+              {
+                "chunks": [
+                  {
+                    "chunk_index": 0,
+                    "start_s": 0.0,
+                    "end_s": 6.48,
+                    "flags": [],
+                    "decode_s": 2.8005984949999743,
+                    "text": "它是南非的主要景点之一，被认为是南非国家公园体系的主打景点。",
+                    "language": "",
+                    "generation": {
+                      "max_new_tokens": 256,
+                      "generated_tokens": 16,
+                      "ended_with_eos": true,
+                      "token_limit_reached": false
+                    },
+                    "align_s": 0.9718526400000087,
+                    "alignment": {
+                      "aligned_unit_union_s": 4.88,
+                      "longest_unaligned_gap_s": 0.8800000000000008,
+                      "invalid_alignment_units": 0,
+                      "timestamp_tolerance_s": 0.05
+                    }
+                  }
+                ],
+                "timings_s": {
+                  "model_load": 5.509999994046666e-07,
+                  "audio_prepare": 0.00040262199999574477,
+                  "split": 3.8009999911992054e-06,
+                  "decode": 2.8005984949999743,
+                  "align": 0.9718526400000087,
+                  "total": 3.787487825999989
+                },
+                "completed": true,
+                "model_reused": true,
+                "environment": {
+                  "python": "3.12.3",
+                  "platform": "Linux",
+                  "packages": {
+                    "torch": "2.14.1+cpu",
+                    "transformers": "5.18.0",
+                    "accelerate": "1.15.0",
+                    "numpy": "2.5.3",
+                    "soundfile": "0.14.0",
+                    "soxr": "1.1.0"
+                  },
+                  "cuda": null,
+                  "hip": null
+                },
+                "model_dtype": "torch.bfloat16",
+                "aligner_dtype": "torch.bfloat16",
+                "resolved_model_revision": null,
+                "resolved_aligner_revision": null,
+                "decoded_s": 6.48,
+                "span_coverage_short": true
+              }
+            ],
+            "quality": {
+              "status": "needs-review",
+              "flags": [
+                "span-coverage-short"
+              ],
+              "human_reviewed": false
+            },
+            "timings_s": {
+              "model_load": 5.509999994046666e-07,
+              "audio_prepare": 0.00040262199999574477,
+              "split": 3.8009999911992054e-06,
+              "decode": 2.8005984949999743,
+              "align": 0.9718526400000087,
+              "total": 3.787487825999989
+            }
+          },
+          "provenance": {
+            "model_name": "/home/chosenecho/bili-asr-models/Qwen3-ASR-1.7B-hf",
+            "aligner_model": "/home/chosenecho/bili-asr-models/Qwen3-ForcedAligner-0.6B-hf",
+            "model_revision": "",
+            "aligner_revision": "",
+            "device": "cpu",
+            "language": "Chinese",
+            "hotwords": "",
+            "chunk_seconds": "180",
+            "tokens_per_second": "8",
+            "min_new_tokens": "256",
+            "second_pass_use_cache": "False",
+            "offline": "True",
+            "local_source": "configured-local"
+          },
+          "segment_bounds_violations": 0,
+          "segment_order_violations": 0,
+          "elapsed_s": 3.787621401999985,
+          "score": {
+            "reference_chars": 36,
+            "hypothesis_chars": 28,
+            "substitutions": 0,
+            "deletions": 8,
+            "insertions": 0,
+            "errors": 8,
+            "cer": 0.2222222222222222,
+            "normalized_reference": "它是南非的主要景点之一被认为是南非国家公园体系sanparks的主打景点",
+            "normalized_hypothesis": "它是南非的主要景点之一被认为是南非国家公园体系的主打景点"
+          },
+          "decoder_score": {
+            "reference_chars": 36,
+            "hypothesis_chars": 28,
+            "substitutions": 0,
+            "deletions": 8,
+            "insertions": 0,
+            "errors": 8,
+            "cer": 0.2222222222222222,
+            "normalized_reference": "它是南非的主要景点之一被认为是南非国家公园体系sanparks的主打景点",
+            "normalized_hypothesis": "它是南非的主要景点之一被认为是南非国家公园体系的主打景点"
+          }
+        },
+        {
+          "id": "cmn_hans_cn_0601",
+          "duration_s": 13.16,
+          "status": "ok",
+          "hypothesis": "钙、钾等元素属于金属，银和金等元素当然也是金属。",
+          "decoder_hypothesis": "钙、钾等元素属于金属，银和金等元素当然也是金属。",
+          "segments": [
+            {
+              "start": 3.28,
+              "end": 4.96,
+              "text": "钙、钾等元素属于金属，"
+            },
+            {
+              "start": 6.72,
+              "end": 9.92,
+              "text": "银和金等元素当然也是金属。"
+            }
+          ],
+          "diagnostics": {
+            "schema_version": 1,
+            "passes": [
+              {
+                "chunks": [
+                  {
+                    "chunk_index": 0,
+                    "start_s": 0.0,
+                    "end_s": 13.16,
+                    "flags": [],
+                    "decode_s": 3.9078588080000145,
+                    "text": "钙、钾等元素属于金属，银和金等元素当然也是金属。",
+                    "language": "",
+                    "generation": {
+                      "max_new_tokens": 256,
+                      "generated_tokens": 18,
+                      "ended_with_eos": true,
+                      "token_limit_reached": false
+                    },
+                    "align_s": 1.3078441260000204,
+                    "alignment": {
+                      "aligned_unit_union_s": 4.32,
+                      "longest_unaligned_gap_s": 3.28,
+                      "invalid_alignment_units": 0,
+                      "timestamp_tolerance_s": 0.05
+                    }
+                  }
+                ],
+                "timings_s": {
+                  "model_load": 6.240000232082821e-07,
+                  "audio_prepare": 0.00048015599998052494,
+                  "split": 4.3309999853136105e-06,
+                  "decode": 3.9078588080000145,
+                  "align": 1.3078441260000204,
+                  "total": 5.230973414000005
+                },
+                "completed": true,
+                "model_reused": true,
+                "environment": {
+                  "python": "3.12.3",
+                  "platform": "Linux",
+                  "packages": {
+                    "torch": "2.14.1+cpu",
+                    "transformers": "5.18.0",
+                    "accelerate": "1.15.0",
+                    "numpy": "2.5.3",
+                    "soundfile": "0.14.0",
+                    "soxr": "1.1.0"
+                  },
+                  "cuda": null,
+                  "hip": null
+                },
+                "model_dtype": "torch.bfloat16",
+                "aligner_dtype": "torch.bfloat16",
+                "resolved_model_revision": null,
+                "resolved_aligner_revision": null,
+                "decoded_s": 13.16,
+                "span_coverage_short": true
+              }
+            ],
+            "quality": {
+              "status": "needs-review",
+              "flags": [
+                "span-coverage-short"
+              ],
+              "human_reviewed": false
+            },
+            "timings_s": {
+              "model_load": 6.240000232082821e-07,
+              "audio_prepare": 0.00048015599998052494,
+              "split": 4.3309999853136105e-06,
+              "decode": 3.9078588080000145,
+              "align": 1.3078441260000204,
+              "total": 5.230973414000005
+            }
+          },
+          "provenance": {
+            "model_name": "/home/chosenecho/bili-asr-models/Qwen3-ASR-1.7B-hf",
+            "aligner_model": "/home/chosenecho/bili-asr-models/Qwen3-ForcedAligner-0.6B-hf",
+            "model_revision": "",
+            "aligner_revision": "",
+            "device": "cpu",
+            "language": "Chinese",
+            "hotwords": "",
+            "chunk_seconds": "180",
+            "tokens_per_second": "8",
+            "min_new_tokens": "256",
+            "second_pass_use_cache": "False",
+            "offline": "True",
+            "local_source": "configured-local"
+          },
+          "segment_bounds_violations": 0,
+          "segment_order_violations": 0,
+          "elapsed_s": 5.231127821999991,
+          "score": {
+            "reference_chars": 21,
+            "hypothesis_chars": 21,
+            "substitutions": 0,
+            "deletions": 0,
+            "insertions": 0,
+            "errors": 0,
+            "cer": 0.0,
+            "normalized_reference": "钙钾等元素属于金属银和金等元素当然也是金属",
+            "normalized_hypothesis": "钙钾等元素属于金属银和金等元素当然也是金属"
+          },
+          "decoder_score": {
+            "reference_chars": 21,
+            "hypothesis_chars": 21,
+            "substitutions": 0,
+            "deletions": 0,
+            "insertions": 0,
+            "errors": 0,
+            "cer": 0.0,
+            "normalized_reference": "钙钾等元素属于金属银和金等元素当然也是金属",
+            "normalized_hypothesis": "钙钾等元素属于金属银和金等元素当然也是金属"
+          }
+        },
+        {
+          "id": "cmn_hans_cn_0687",
+          "duration_s": 8.4,
+          "status": "ok",
+          "hypothesis": "在互联网上搜索“应对敌对环境教程”，也许能找到培提供培训的当地公司的地址。",
+          "decoder_hypothesis": "在互联网上搜索“应对敌对环境教程”，也许能找到培提供培训的当地公司的地址。",
+          "segments": [
+            {
+              "start": 0.64,
+              "end": 7.6,
+              "text": "在互联网上搜索“应对敌对环境教程”，也许能找到培提供培训的当地公司的地址。"
+            }
+          ],
+          "diagnostics": {
+            "schema_version": 1,
+            "passes": [
+              {
+                "chunks": [
+                  {
+                    "chunk_index": 0,
+                    "start_s": 0.0,
+                    "end_s": 8.4,
+                    "flags": [],
+                    "decode_s": 3.758967511999998,
+                    "text": "在互联网上搜索“应对敌对环境教程”，也许能找到培提供培训的当地公司的地址。",
+                    "language": "",
+                    "generation": {
+                      "max_new_tokens": 256,
+                      "generated_tokens": 22,
+                      "ended_with_eos": true,
+                      "token_limit_reached": false
+                    },
+                    "align_s": 1.100400938000007,
+                    "alignment": {
+                      "aligned_unit_union_s": 6.3999999999999995,
+                      "longest_unaligned_gap_s": 0.8000000000000007,
+                      "invalid_alignment_units": 0,
+                      "timestamp_tolerance_s": 0.05
+                    }
+                  }
+                ],
+                "timings_s": {
+                  "model_load": 6.730000166044192e-07,
+                  "audio_prepare": 0.00035660900002199014,
+                  "split": 3.6990000182868243e-06,
+                  "decode": 3.758967511999998,
+                  "align": 1.100400938000007,
+                  "total": 4.876481455999993
+                },
+                "completed": true,
+                "model_reused": true,
+                "environment": {
+                  "python": "3.12.3",
+                  "platform": "Linux",
+                  "packages": {
+                    "torch": "2.14.1+cpu",
+                    "transformers": "5.18.0",
+                    "accelerate": "1.15.0",
+                    "numpy": "2.5.3",
+                    "soundfile": "0.14.0",
+                    "soxr": "1.1.0"
+                  },
+                  "cuda": null,
+                  "hip": null
+                },
+                "model_dtype": "torch.bfloat16",
+                "aligner_dtype": "torch.bfloat16",
+                "resolved_model_revision": null,
+                "resolved_aligner_revision": null,
+                "decoded_s": 8.4,
+                "span_coverage_short": true
+              }
+            ],
+            "quality": {
+              "status": "needs-review",
+              "flags": [
+                "span-coverage-short"
+              ],
+              "human_reviewed": false
+            },
+            "timings_s": {
+              "model_load": 6.730000166044192e-07,
+              "audio_prepare": 0.00035660900002199014,
+              "split": 3.6990000182868243e-06,
+              "decode": 3.758967511999998,
+              "align": 1.100400938000007,
+              "total": 4.876481455999993
+            }
+          },
+          "provenance": {
+            "model_name": "/home/chosenecho/bili-asr-models/Qwen3-ASR-1.7B-hf",
+            "aligner_model": "/home/chosenecho/bili-asr-models/Qwen3-ForcedAligner-0.6B-hf",
+            "model_revision": "",
+            "aligner_revision": "",
+            "device": "cpu",
+            "language": "Chinese",
+            "hotwords": "",
+            "chunk_seconds": "180",
+            "tokens_per_second": "8",
+            "min_new_tokens": "256",
+            "second_pass_use_cache": "False",
+            "offline": "True",
+            "local_source": "configured-local"
+          },
+          "segment_bounds_violations": 0,
+          "segment_order_violations": 0,
+          "elapsed_s": 4.87660612900001,
+          "score": {
+            "reference_chars": 32,
+            "hypothesis_chars": 33,
+            "substitutions": 1,
+            "deletions": 0,
+            "insertions": 1,
+            "errors": 2,
+            "cer": 0.0625,
+            "normalized_reference": "在互联网上搜索应对敌对环境课程也许能找到提供培训的当地公司的地址",
+            "normalized_hypothesis": "在互联网上搜索应对敌对环境教程也许能找到培提供培训的当地公司的地址"
+          },
+          "decoder_score": {
+            "reference_chars": 32,
+            "hypothesis_chars": 33,
+            "substitutions": 1,
+            "deletions": 0,
+            "insertions": 1,
+            "errors": 2,
+            "cer": 0.0625,
+            "normalized_reference": "在互联网上搜索应对敌对环境课程也许能找到提供培训的当地公司的地址",
+            "normalized_hypothesis": "在互联网上搜索应对敌对环境教程也许能找到培提供培训的当地公司的地址"
+          }
+        },
+        {
+          "id": "cmn_hans_cn_0772",
+          "duration_s": 8.64,
+          "status": "ok",
+          "hypothesis": "同一个月，又有一架飞机冲出马哈哈德的跑道，撞上一堵墙，造成十七人死亡。",
+          "decoder_hypothesis": "同一个月，又有一架飞机冲出马哈哈德的跑道，撞上一堵墙，造成十七人死亡。",
+          "segments": [
+            {
+              "start": 0.96,
+              "end": 7.84,
+              "text": "同一个月，又有一架飞机冲出马哈哈德的跑道，撞上一堵墙，造成十七人死亡。"
+            }
+          ],
+          "diagnostics": {
+            "schema_version": 1,
+            "passes": [
+              {
+                "chunks": [
+                  {
+                    "chunk_index": 0,
+                    "start_s": 0.0,
+                    "end_s": 8.64,
+                    "flags": [],
+                    "decode_s": 4.061224649999986,
+                    "text": "同一个月，又有一架飞机冲出马哈哈德的跑道，撞上一堵墙，造成十七人死亡。",
+                    "language": "",
+                    "generation": {
+                      "max_new_tokens": 256,
+                      "generated_tokens": 27,
+                      "ended_with_eos": true,
+                      "token_limit_reached": false
+                    },
+                    "align_s": 1.2425409639999998,
+                    "alignment": {
+                      "aligned_unit_union_s": 5.92,
+                      "longest_unaligned_gap_s": 0.96,
+                      "invalid_alignment_units": 0,
+                      "timestamp_tolerance_s": 0.05
+                    }
+                  }
+                ],
+                "timings_s": {
+                  "model_load": 5.899999848679727e-07,
+                  "audio_prepare": 0.00043412700000544646,
+                  "split": 3.423999999085936e-06,
+                  "decode": 4.061224649999986,
+                  "align": 1.2425409639999998,
+                  "total": 5.318736282999993
+                },
+                "completed": true,
+                "model_reused": true,
+                "environment": {
+                  "python": "3.12.3",
+                  "platform": "Linux",
+                  "packages": {
+                    "torch": "2.14.1+cpu",
+                    "transformers": "5.18.0",
+                    "accelerate": "1.15.0",
+                    "numpy": "2.5.3",
+                    "soundfile": "0.14.0",
+                    "soxr": "1.1.0"
+                  },
+                  "cuda": null,
+                  "hip": null
+                },
+                "model_dtype": "torch.bfloat16",
+                "aligner_dtype": "torch.bfloat16",
+                "resolved_model_revision": null,
+                "resolved_aligner_revision": null,
+                "decoded_s": 8.64,
+                "span_coverage_short": true
+              }
+            ],
+            "quality": {
+              "status": "needs-review",
+              "flags": [
+                "span-coverage-short"
+              ],
+              "human_reviewed": false
+            },
+            "timings_s": {
+              "model_load": 5.899999848679727e-07,
+              "audio_prepare": 0.00043412700000544646,
+              "split": 3.423999999085936e-06,
+              "decode": 4.061224649999986,
+              "align": 1.2425409639999998,
+              "total": 5.318736282999993
+            }
+          },
+          "provenance": {
+            "model_name": "/home/chosenecho/bili-asr-models/Qwen3-ASR-1.7B-hf",
+            "aligner_model": "/home/chosenecho/bili-asr-models/Qwen3-ForcedAligner-0.6B-hf",
+            "model_revision": "",
+            "aligner_revision": "",
+            "device": "cpu",
+            "language": "Chinese",
+            "hotwords": "",
+            "chunk_seconds": "180",
+            "tokens_per_second": "8",
+            "min_new_tokens": "256",
+            "second_pass_use_cache": "False",
+            "offline": "True",
+            "local_source": "configured-local"
+          },
+          "segment_bounds_violations": 0,
+          "segment_order_violations": 0,
+          "elapsed_s": 5.318894273000012,
+          "score": {
+            "reference_chars": 31,
+            "hypothesis_chars": 31,
+            "substitutions": 4,
+            "deletions": 0,
+            "insertions": 0,
+            "errors": 4,
+            "cer": 0.12903225806451613,
+            "normalized_reference": "同一个月又有一架客机冲出马什哈德的跑道撞上一堵墙造成17人死亡",
+            "normalized_hypothesis": "同一个月又有一架飞机冲出马哈哈德的跑道撞上一堵墙造成十七人死亡"
+          },
+          "decoder_score": {
+            "reference_chars": 31,
+            "hypothesis_chars": 31,
+            "substitutions": 4,
+            "deletions": 0,
+            "insertions": 0,
+            "errors": 4,
+            "cer": 0.12903225806451613,
+            "normalized_reference": "同一个月又有一架客机冲出马什哈德的跑道撞上一堵墙造成17人死亡",
+            "normalized_hypothesis": "同一个月又有一架飞机冲出马哈哈德的跑道撞上一堵墙造成十七人死亡"
+          }
+        },
+        {
+          "id": "cmn_hans_cn_0858",
+          "duration_s": 17.18,
+          "status": "ok",
+          "hypothesis": "在另一种极端情况下，这个人会变成一个与之前迥然不同的个体，觉得他必须改变团队所做的一切，并把成果据为己有。",
+          "decoder_hypothesis": "在另一种极端情况下，这个人会变成一个与之前迥然不同的个体，觉得他必须改变团队所做的一切，并把成果据为己有。",
+          "segments": [
+            {
+              "start": 2.56,
+              "end": 14.8,
+              "text": "在另一种极端情况下，这个人会变成一个与之前迥然不同的个体，觉得他必须改变团队所做的一切，并把成果据为己有。"
+            }
+          ],
+          "diagnostics": {
+            "schema_version": 1,
+            "passes": [
+              {
+                "chunks": [
+                  {
+                    "chunk_index": 0,
+                    "start_s": 0.0,
+                    "end_s": 17.18,
+                    "flags": [],
+                    "decode_s": 6.459258119999987,
+                    "text": "在另一种极端情况下，这个人会变成一个与之前迥然不同的个体，觉得他必须改变团队所做的一切，并把成果据为己有。",
+                    "language": "",
+                    "generation": {
+                      "max_new_tokens": 256,
+                      "generated_tokens": 33,
+                      "ended_with_eos": true,
+                      "token_limit_reached": false
+                    },
+                    "align_s": 2.107861963000005,
+                    "alignment": {
+                      "aligned_unit_union_s": 10.4,
+                      "longest_unaligned_gap_s": 2.56,
+                      "invalid_alignment_units": 0,
+                      "timestamp_tolerance_s": 0.05
+                    }
+                  }
+                ],
+                "timings_s": {
+                  "model_load": 5.899999848679727e-07,
+                  "audio_prepare": 0.0006249779999905059,
+                  "split": 4.886999988684693e-06,
+                  "decode": 6.459258119999987,
+                  "align": 2.107861963000005,
+                  "total": 8.583016725000022
+                },
+                "completed": true,
+                "model_reused": true,
+                "environment": {
+                  "python": "3.12.3",
+                  "platform": "Linux",
+                  "packages": {
+                    "torch": "2.14.1+cpu",
+                    "transformers": "5.18.0",
+                    "accelerate": "1.15.0",
+                    "numpy": "2.5.3",
+                    "soundfile": "0.14.0",
+                    "soxr": "1.1.0"
+                  },
+                  "cuda": null,
+                  "hip": null
+                },
+                "model_dtype": "torch.bfloat16",
+                "aligner_dtype": "torch.bfloat16",
+                "resolved_model_revision": null,
+                "resolved_aligner_revision": null,
+                "decoded_s": 17.18,
+                "span_coverage_short": true
+              }
+            ],
+            "quality": {
+              "status": "needs-review",
+              "flags": [
+                "span-coverage-short"
+              ],
+              "human_reviewed": false
+            },
+            "timings_s": {
+              "model_load": 5.899999848679727e-07,
+              "audio_prepare": 0.0006249779999905059,
+              "split": 4.886999988684693e-06,
+              "decode": 6.459258119999987,
+              "align": 2.107861963000005,
+              "total": 8.583016725000022
+            }
+          },
+          "provenance": {
+            "model_name": "/home/chosenecho/bili-asr-models/Qwen3-ASR-1.7B-hf",
+            "aligner_model": "/home/chosenecho/bili-asr-models/Qwen3-ForcedAligner-0.6B-hf",
+            "model_revision": "",
+            "aligner_revision": "",
+            "device": "cpu",
+            "language": "Chinese",
+            "hotwords": "",
+            "chunk_seconds": "180",
+            "tokens_per_second": "8",
+            "min_new_tokens": "256",
+            "second_pass_use_cache": "False",
+            "offline": "True",
+            "local_source": "configured-local"
+          },
+          "segment_bounds_violations": 0,
+          "segment_order_violations": 0,
+          "elapsed_s": 8.583210172999998,
+          "score": {
+            "reference_chars": 50,
+            "hypothesis_chars": 49,
+            "substitutions": 0,
+            "deletions": 1,
+            "insertions": 0,
+            "errors": 1,
+            "cer": 0.02,
+            "normalized_reference": "在另一种极端情况下这个人会变成一个与之前迥然不同的个体觉得他她必须改变团队所做的一切并把成果据为己有",
+            "normalized_hypothesis": "在另一种极端情况下这个人会变成一个与之前迥然不同的个体觉得他必须改变团队所做的一切并把成果据为己有"
+          },
+          "decoder_score": {
+            "reference_chars": 50,
+            "hypothesis_chars": 49,
+            "substitutions": 0,
+            "deletions": 1,
+            "insertions": 0,
+            "errors": 1,
+            "cer": 0.02,
+            "normalized_reference": "在另一种极端情况下这个人会变成一个与之前迥然不同的个体觉得他她必须改变团队所做的一切并把成果据为己有",
+            "normalized_hypothesis": "在另一种极端情况下这个人会变成一个与之前迥然不同的个体觉得他必须改变团队所做的一切并把成果据为己有"
+          }
+        },
+        {
+          "id": "cmn_hans_cn_0944",
+          "duration_s": 13.68,
+          "status": "ok",
+          "hypothesis": "买一张万能卡也有不少好处。带着这张卡，你可以进入南非的一些公园或全部的国家公园。",
+          "decoder_hypothesis": "买一张万能卡也有不少好处。带着这张卡，你可以进入南非的一些公园或全部的国家公园。",
+          "segments": [
+            {
+              "start": 2.4,
+              "end": 4.56,
+              "text": "买一张万能卡也有不少好处。"
+            },
+            {
+              "start": 4.88,
+              "end": 11.12,
+              "text": "带着这张卡，你可以进入南非的一些公园或全部的国家公园。"
+            }
+          ],
+          "diagnostics": {
+            "schema_version": 1,
+            "passes": [
+              {
+                "chunks": [
+                  {
+                    "chunk_index": 0,
+                    "start_s": 0.0,
+                    "end_s": 13.68,
+                    "flags": [],
+                    "decode_s": 5.1989717480000195,
+                    "text": "买一张万能卡也有不少好处。带着这张卡，你可以进入南非的一些公园或全部的国家公园。",
+                    "language": "",
+                    "generation": {
+                      "max_new_tokens": 256,
+                      "generated_tokens": 25,
+                      "ended_with_eos": true,
+                      "token_limit_reached": false
+                    },
+                    "align_s": 1.8134057190000021,
+                    "alignment": {
+                      "aligned_unit_union_s": 6.239999999999998,
+                      "longest_unaligned_gap_s": 2.5600000000000005,
+                      "invalid_alignment_units": 0,
+                      "timestamp_tolerance_s": 0.05
+                    }
+                  }
+                ],
+                "timings_s": {
+                  "model_load": 1.4850000127353269e-06,
+                  "audio_prepare": 0.0006641319999971529,
+                  "split": 5.199000014499688e-06,
+                  "decode": 5.1989717480000195,
+                  "align": 1.8134057190000021,
+                  "total": 7.031748794999999
+                },
+                "completed": true,
+                "model_reused": true,
+                "environment": {
+                  "python": "3.12.3",
+                  "platform": "Linux",
+                  "packages": {
+                    "torch": "2.14.1+cpu",
+                    "transformers": "5.18.0",
+                    "accelerate": "1.15.0",
+                    "numpy": "2.5.3",
+                    "soundfile": "0.14.0",
+                    "soxr": "1.1.0"
+                  },
+                  "cuda": null,
+                  "hip": null
+                },
+                "model_dtype": "torch.bfloat16",
+                "aligner_dtype": "torch.bfloat16",
+                "resolved_model_revision": null,
+                "resolved_aligner_revision": null,
+                "decoded_s": 13.68,
+                "span_coverage_short": true
+              }
+            ],
+            "quality": {
+              "status": "needs-review",
+              "flags": [
+                "span-coverage-short"
+              ],
+              "human_reviewed": false
+            },
+            "timings_s": {
+              "model_load": 1.4850000127353269e-06,
+              "audio_prepare": 0.0006641319999971529,
+              "split": 5.199000014499688e-06,
+              "decode": 5.1989717480000195,
+              "align": 1.8134057190000021,
+              "total": 7.031748794999999
+            }
+          },
+          "provenance": {
+            "model_name": "/home/chosenecho/bili-asr-models/Qwen3-ASR-1.7B-hf",
+            "aligner_model": "/home/chosenecho/bili-asr-models/Qwen3-ForcedAligner-0.6B-hf",
+            "model_revision": "",
+            "aligner_revision": "",
+            "device": "cpu",
+            "language": "Chinese",
+            "hotwords": "",
+            "chunk_seconds": "180",
+            "tokens_per_second": "8",
+            "min_new_tokens": "256",
+            "second_pass_use_cache": "False",
+            "offline": "True",
+            "local_source": "configured-local"
+          },
+          "segment_bounds_violations": 0,
+          "segment_order_violations": 0,
+          "elapsed_s": 7.031907517000008,
+          "score": {
+            "reference_chars": 45,
+            "hypothesis_chars": 37,
+            "substitutions": 0,
+            "deletions": 8,
+            "insertions": 0,
+            "errors": 8,
+            "cer": 0.17777777777777778,
+            "normalized_reference": "买一张万能卡wildcard也有不少好处带着这张卡你可以进入南非的一些公园或全部的国家公园",
+            "normalized_hypothesis": "买一张万能卡也有不少好处带着这张卡你可以进入南非的一些公园或全部的国家公园"
+          },
+          "decoder_score": {
+            "reference_chars": 45,
+            "hypothesis_chars": 37,
+            "substitutions": 0,
+            "deletions": 8,
+            "insertions": 0,
+            "errors": 8,
+            "cer": 0.17777777777777778,
+            "normalized_reference": "买一张万能卡wildcard也有不少好处带着这张卡你可以进入南非的一些公园或全部的国家公园",
+            "normalized_hypothesis": "买一张万能卡也有不少好处带着这张卡你可以进入南非的一些公园或全部的国家公园"
+          }
+        }
+      ],
+      "aggregate": {
+        "reference_chars": 393,
+        "substitutions": 9,
+        "deletions": 17,
+        "insertions": 3,
+        "errors": 29,
+        "cer": 0.0737913486005089,
+        "samples": 12,
+        "failed_samples": 0,
+        "audio_duration_s": 127.6,
+        "elapsed_s": 74.79145899800005,
+        "rtf": 0.5861399607993735
+      }
+    },
+    {
+      "language": "auto",
+      "config": {
+        "model_name": "/home/chosenecho/bili-asr-models/Qwen3-ASR-1.7B-hf",
+        "aligner_name": "/home/chosenecho/bili-asr-models/Qwen3-ForcedAligner-0.6B-hf",
+        "model_revision": null,
+        "aligner_revision": null,
+        "device": "cpu",
+        "language": null,
+        "hotwords": [],
+        "chunk_seconds": 180,
+        "inference_timeout_seconds": 1800.0,
+        "tokens_per_second": 8,
+        "min_new_tokens": 256,
+        "second_pass_use_cache": false,
+        "offline": true,
+        "local_source": "configured-local",
+        "model_id": null
+      },
+      "rows": [
+        {
+          "id": "cmn_hans_cn_0000",
+          "duration_s": 10.38,
+          "status": "ok",
+          "hypothesis": "这并不是告别，这是一个篇章的结束，也是新篇章的开始。",
+          "decoder_hypothesis": "这并不是告别，这是一个篇章的结束，也是新篇章的开始。",
+          "segments": [
+            {
+              "start": 1.92,
+              "end": 7.28,
+              "text": "这并不是告别，这是一个篇章的结束，也是新篇章的开始。"
+            }
+          ],
+          "diagnostics": {
+            "schema_version": 1,
+            "passes": [
+              {
+                "chunks": [
+                  {
+                    "chunk_index": 0,
+                    "start_s": 0.0,
+                    "end_s": 10.38,
+                    "flags": [],
+                    "decode_s": 3.834054248000001,
+                    "text": "这并不是告别，这是一个篇章的结束，也是新篇章的开始。",
+                    "language": "Chinese",
+                    "generation": {
+                      "max_new_tokens": 256,
+                      "generated_tokens": 19,
+                      "ended_with_eos": true,
+                      "token_limit_reached": false
+                    },
+                    "align_s": 1.3017642060000014,
+                    "alignment": {
+                      "aligned_unit_union_s": 4.640000000000001,
+                      "longest_unaligned_gap_s": 3.1000000000000005,
+                      "invalid_alignment_units": 0,
+                      "timestamp_tolerance_s": 0.05
+                    }
+                  }
+                ],
+                "timings_s": {
+                  "model_load": 6.920000146237726e-07,
+                  "audio_prepare": 0.00037240800000404306,
+                  "split": 5.098000002590197e-06,
+                  "decode": 3.834054248000001,
+                  "align": 1.3017642060000014,
+                  "total": 5.15304477799998
+                },
+                "completed": true,
+                "model_reused": true,
+                "environment": {
+                  "python": "3.12.3",
+                  "platform": "Linux",
+                  "packages": {
+                    "torch": "2.14.1+cpu",
+                    "transformers": "5.18.0",
+                    "accelerate": "1.15.0",
+                    "numpy": "2.5.3",
+                    "soundfile": "0.14.0",
+                    "soxr": "1.1.0"
+                  },
+                  "cuda": null,
+                  "hip": null
+                },
+                "model_dtype": "torch.bfloat16",
+                "aligner_dtype": "torch.bfloat16",
+                "resolved_model_revision": null,
+                "resolved_aligner_revision": null,
+                "decoded_s": 10.38,
+                "span_coverage_short": true
+              }
+            ],
+            "quality": {
+              "status": "needs-review",
+              "flags": [
+                "span-coverage-short"
+              ],
+              "human_reviewed": false
+            },
+            "timings_s": {
+              "model_load": 6.920000146237726e-07,
+              "audio_prepare": 0.00037240800000404306,
+              "split": 5.098000002590197e-06,
+              "decode": 3.834054248000001,
+              "align": 1.3017642060000014,
+              "total": 5.15304477799998
+            }
+          },
+          "provenance": {
+            "model_name": "/home/chosenecho/bili-asr-models/Qwen3-ASR-1.7B-hf",
+            "aligner_model": "/home/chosenecho/bili-asr-models/Qwen3-ForcedAligner-0.6B-hf",
+            "model_revision": "",
+            "aligner_revision": "",
+            "device": "cpu",
+            "language": "Chinese",
+            "hotwords": "",
+            "chunk_seconds": "180",
+            "tokens_per_second": "8",
+            "min_new_tokens": "256",
+            "second_pass_use_cache": "False",
+            "offline": "True",
+            "local_source": "configured-local"
+          },
+          "segment_bounds_violations": 0,
+          "segment_order_violations": 0,
+          "elapsed_s": 5.153176639999998,
+          "score": {
+            "reference_chars": 23,
+            "hypothesis_chars": 23,
+            "substitutions": 0,
+            "deletions": 0,
+            "insertions": 0,
+            "errors": 0,
+            "cer": 0.0,
+            "normalized_reference": "这并不是告别这是一个篇章的结束也是新篇章的开始",
+            "normalized_hypothesis": "这并不是告别这是一个篇章的结束也是新篇章的开始"
+          },
+          "decoder_score": {
+            "reference_chars": 23,
+            "hypothesis_chars": 23,
+            "substitutions": 0,
+            "deletions": 0,
+            "insertions": 0,
+            "errors": 0,
+            "cer": 0.0,
+            "normalized_reference": "这并不是告别这是一个篇章的结束也是新篇章的开始",
+            "normalized_hypothesis": "这并不是告别这是一个篇章的结束也是新篇章的开始"
+          }
+        },
+        {
+          "id": "cmn_hans_cn_0086",
+          "duration_s": 10.44,
+          "status": "ok",
+          "hypothesis": "离岸流是海浪从海滩快速回流到海中的回流，通常发生在暗礁或类似的地方。",
+          "decoder_hypothesis": "离岸流是海浪从海滩快速回流到海中的回流，通常发生在暗礁或类似的地方。",
+          "segments": [
+            {
+              "start": 1.92,
+              "end": 8.32,
+              "text": "离岸流是海浪从海滩快速回流到海中的回流，通常发生在暗礁或类似的地方。"
+            }
+          ],
+          "diagnostics": {
+            "schema_version": 1,
+            "passes": [
+              {
+                "chunks": [
+                  {
+                    "chunk_index": 0,
+                    "start_s": 0.0,
+                    "end_s": 10.44,
+                    "flags": [],
+                    "decode_s": 4.818135952999995,
+                    "text": "离岸流是海浪从海滩快速回流到海中的回流，通常发生在暗礁或类似的地方。",
+                    "language": "Chinese",
+                    "generation": {
+                      "max_new_tokens": 256,
+                      "generated_tokens": 29,
+                      "ended_with_eos": true,
+                      "token_limit_reached": false
+                    },
+                    "align_s": 1.3648177899999894,
+                    "alignment": {
+                      "aligned_unit_union_s": 5.84,
+                      "longest_unaligned_gap_s": 2.119999999999999,
+                      "invalid_alignment_units": 0,
+                      "timestamp_tolerance_s": 0.05
+                    }
+                  }
+                ],
+                "timings_s": {
+                  "model_load": 8.330000014211691e-07,
+                  "audio_prepare": 0.000535393000006934,
+                  "split": 8.290000010902077e-06,
+                  "decode": 4.818135952999995,
+                  "align": 1.3648177899999894,
+                  "total": 6.197248346999999
+                },
+                "completed": true,
+                "model_reused": true,
+                "environment": {
+                  "python": "3.12.3",
+                  "platform": "Linux",
+                  "packages": {
+                    "torch": "2.14.1+cpu",
+                    "transformers": "5.18.0",
+                    "accelerate": "1.15.0",
+                    "numpy": "2.5.3",
+                    "soundfile": "0.14.0",
+                    "soxr": "1.1.0"
+                  },
+                  "cuda": null,
+                  "hip": null
+                },
+                "model_dtype": "torch.bfloat16",
+                "aligner_dtype": "torch.bfloat16",
+                "resolved_model_revision": null,
+                "resolved_aligner_revision": null,
+                "decoded_s": 10.44,
+                "span_coverage_short": true
+              }
+            ],
+            "quality": {
+              "status": "needs-review",
+              "flags": [
+                "span-coverage-short"
+              ],
+              "human_reviewed": false
+            },
+            "timings_s": {
+              "model_load": 8.330000014211691e-07,
+              "audio_prepare": 0.000535393000006934,
+              "split": 8.290000010902077e-06,
+              "decode": 4.818135952999995,
+              "align": 1.3648177899999894,
+              "total": 6.197248346999999
+            }
+          },
+          "provenance": {
+            "model_name": "/home/chosenecho/bili-asr-models/Qwen3-ASR-1.7B-hf",
+            "aligner_model": "/home/chosenecho/bili-asr-models/Qwen3-ForcedAligner-0.6B-hf",
+            "model_revision": "",
+            "aligner_revision": "",
+            "device": "cpu",
+            "language": "Chinese",
+            "hotwords": "",
+            "chunk_seconds": "180",
+            "tokens_per_second": "8",
+            "min_new_tokens": "256",
+            "second_pass_use_cache": "False",
+            "offline": "True",
+            "local_source": "configured-local"
+          },
+          "segment_bounds_violations": 0,
+          "segment_order_violations": 0,
+          "elapsed_s": 6.197450575000005,
+          "score": {
+            "reference_chars": 32,
+            "hypothesis_chars": 32,
+            "substitutions": 0,
+            "deletions": 0,
+            "insertions": 0,
+            "errors": 0,
+            "cer": 0.0,
+            "normalized_reference": "离岸流是海浪从海滩快速回流到海中的回流通常发生在暗礁或类似的地方",
+            "normalized_hypothesis": "离岸流是海浪从海滩快速回流到海中的回流通常发生在暗礁或类似的地方"
+          },
+          "decoder_score": {
+            "reference_chars": 32,
+            "hypothesis_chars": 32,
+            "substitutions": 0,
+            "deletions": 0,
+            "insertions": 0,
+            "errors": 0,
+            "cer": 0.0,
+            "normalized_reference": "离岸流是海浪从海滩快速回流到海中的回流通常发生在暗礁或类似的地方",
+            "normalized_hypothesis": "离岸流是海浪从海滩快速回流到海中的回流通常发生在暗礁或类似的地方"
+          }
+        },
+        {
+          "id": "cmn_hans_cn_0172",
+          "duration_s": 10.56,
+          "status": "ok",
+          "hypothesis": "如果在冬天穿越北波罗的海，要检查客舱的位置，因为在冰面上航行会给那些受影影响最严重的人带来非常可怕的噪音。",
+          "decoder_hypothesis": "如果在冬天穿越北波罗的海，要检查客舱的位置，因为在冰面上航行会给那些受影影响最严重的人带来非常可怕的噪音。",
+          "segments": [
+            {
+              "start": 0.72,
+              "end": 9.6,
+              "text": "如果在冬天穿越北波罗的海，要检查客舱的位置，因为在冰面上航行会给那些受影影响最严重的人带来非常可怕的噪音。"
+            }
+          ],
+          "diagnostics": {
+            "schema_version": 1,
+            "passes": [
+              {
+                "chunks": [
+                  {
+                    "chunk_index": 0,
+                    "start_s": 0.0,
+                    "end_s": 10.56,
+                    "flags": [],
+                    "decode_s": 5.915775265000008,
+                    "text": "如果在冬天穿越北波罗的海，要检查客舱的位置，因为在冰面上航行会给那些受影影响最严重的人带来非常可怕的噪音。",
+                    "language": "English",
+                    "generation": {
+                      "max_new_tokens": 256,
+                      "generated_tokens": 37,
+                      "ended_with_eos": true,
+                      "token_limit_reached": false
+                    },
+                    "align_s": 1.8017100369999923,
+                    "alignment": {
+                      "aligned_unit_union_s": 8.479999999999999,
+                      "longest_unaligned_gap_s": 0.9600000000000009,
+                      "invalid_alignment_units": 0,
+                      "timestamp_tolerance_s": 0.05
+                    }
+                  }
+                ],
+                "timings_s": {
+                  "model_load": 5.789999875105423e-07,
+                  "audio_prepare": 0.0005379169999741862,
+                  "split": 5.050999988043259e-06,
+                  "decode": 5.915775265000008,
+                  "align": 1.8017100369999923,
+                  "total": 7.738028095000004
+                },
+                "completed": true,
+                "model_reused": true,
+                "environment": {
+                  "python": "3.12.3",
+                  "platform": "Linux",
+                  "packages": {
+                    "torch": "2.14.1+cpu",
+                    "transformers": "5.18.0",
+                    "accelerate": "1.15.0",
+                    "numpy": "2.5.3",
+                    "soundfile": "0.14.0",
+                    "soxr": "1.1.0"
+                  },
+                  "cuda": null,
+                  "hip": null
+                },
+                "model_dtype": "torch.bfloat16",
+                "aligner_dtype": "torch.bfloat16",
+                "resolved_model_revision": null,
+                "resolved_aligner_revision": null,
+                "decoded_s": 10.56,
+                "span_coverage_short": true
+              }
+            ],
+            "quality": {
+              "status": "needs-review",
+              "flags": [
+                "span-coverage-short"
+              ],
+              "human_reviewed": false
+            },
+            "timings_s": {
+              "model_load": 5.789999875105423e-07,
+              "audio_prepare": 0.0005379169999741862,
+              "split": 5.050999988043259e-06,
+              "decode": 5.915775265000008,
+              "align": 1.8017100369999923,
+              "total": 7.738028095000004
+            }
+          },
+          "provenance": {
+            "model_name": "/home/chosenecho/bili-asr-models/Qwen3-ASR-1.7B-hf",
+            "aligner_model": "/home/chosenecho/bili-asr-models/Qwen3-ForcedAligner-0.6B-hf",
+            "model_revision": "",
+            "aligner_revision": "",
+            "device": "cpu",
+            "language": "English",
+            "hotwords": "",
+            "chunk_seconds": "180",
+            "tokens_per_second": "8",
+            "min_new_tokens": "256",
+            "second_pass_use_cache": "False",
+            "offline": "True",
+            "local_source": "configured-local"
+          },
+          "segment_bounds_violations": 0,
+          "segment_order_violations": 0,
+          "elapsed_s": 7.738159529000001,
+          "score": {
+            "reference_chars": 49,
+            "hypothesis_chars": 50,
+            "substitutions": 0,
+            "deletions": 0,
+            "insertions": 1,
+            "errors": 1,
+            "cer": 0.02040816326530612,
+            "normalized_reference": "如果在冬天穿越北波罗的海要检查客舱的位置因为在冰面上航行会给那些受影响最严重的人带来非常可怕的噪音",
+            "normalized_hypothesis": "如果在冬天穿越北波罗的海要检查客舱的位置因为在冰面上航行会给那些受影影响最严重的人带来非常可怕的噪音"
+          },
+          "decoder_score": {
+            "reference_chars": 49,
+            "hypothesis_chars": 50,
+            "substitutions": 0,
+            "deletions": 0,
+            "insertions": 1,
+            "errors": 1,
+            "cer": 0.02040816326530612,
+            "normalized_reference": "如果在冬天穿越北波罗的海要检查客舱的位置因为在冰面上航行会给那些受影响最严重的人带来非常可怕的噪音",
+            "normalized_hypothesis": "如果在冬天穿越北波罗的海要检查客舱的位置因为在冰面上航行会给那些受影影响最严重的人带来非常可怕的噪音"
+          }
+        },
+        {
+          "id": "cmn_hans_cn_0257",
+          "duration_s": 8.24,
+          "status": "ok",
+          "hypothesis": "北部与萨赫勒地区接壤，南部和西部临大西洋。",
+          "decoder_hypothesis": "北部与萨赫勒地区接壤，南部和西部临大西洋。",
+          "segments": [
+            {
+              "start": 1.84,
+              "end": 6.0,
+              "text": "北部与萨赫勒地区接壤，南部和西部临大西洋。"
+            }
+          ],
+          "diagnostics": {
+            "schema_version": 1,
+            "passes": [
+              {
+                "chunks": [
+                  {
+                    "chunk_index": 0,
+                    "start_s": 0.0,
+                    "end_s": 8.24,
+                    "flags": [],
+                    "decode_s": 3.8044967330000077,
+                    "text": "北部与萨赫勒地区接壤，南部和西部临大西洋。",
+                    "language": "Chinese",
+                    "generation": {
+                      "max_new_tokens": 256,
+                      "generated_tokens": 20,
+                      "ended_with_eos": true,
+                      "token_limit_reached": false
+                    },
+                    "align_s": 0.9895372230000135,
+                    "alignment": {
+                      "aligned_unit_union_s": 3.2800000000000002,
+                      "longest_unaligned_gap_s": 2.24,
+                      "invalid_alignment_units": 0,
+                      "timestamp_tolerance_s": 0.05
+                    }
+                  }
+                ],
+                "timings_s": {
+                  "model_load": 5.53999996100174e-07,
+                  "audio_prepare": 0.0003506869999796436,
+                  "split": 3.757999991194083e-06,
+                  "decode": 3.8044967330000077,
+                  "align": 0.9895372230000135,
+                  "total": 4.811081833000003
+                },
+                "completed": true,
+                "model_reused": true,
+                "environment": {
+                  "python": "3.12.3",
+                  "platform": "Linux",
+                  "packages": {
+                    "torch": "2.14.1+cpu",
+                    "transformers": "5.18.0",
+                    "accelerate": "1.15.0",
+                    "numpy": "2.5.3",
+                    "soundfile": "0.14.0",
+                    "soxr": "1.1.0"
+                  },
+                  "cuda": null,
+                  "hip": null
+                },
+                "model_dtype": "torch.bfloat16",
+                "aligner_dtype": "torch.bfloat16",
+                "resolved_model_revision": null,
+                "resolved_aligner_revision": null,
+                "decoded_s": 8.24,
+                "span_coverage_short": true
+              }
+            ],
+            "quality": {
+              "status": "needs-review",
+              "flags": [
+                "span-coverage-short"
+              ],
+              "human_reviewed": false
+            },
+            "timings_s": {
+              "model_load": 5.53999996100174e-07,
+              "audio_prepare": 0.0003506869999796436,
+              "split": 3.757999991194083e-06,
+              "decode": 3.8044967330000077,
+              "align": 0.9895372230000135,
+              "total": 4.811081833000003
+            }
+          },
+          "provenance": {
+            "model_name": "/home/chosenecho/bili-asr-models/Qwen3-ASR-1.7B-hf",
+            "aligner_model": "/home/chosenecho/bili-asr-models/Qwen3-ForcedAligner-0.6B-hf",
+            "model_revision": "",
+            "aligner_revision": "",
+            "device": "cpu",
+            "language": "Chinese",
+            "hotwords": "",
+            "chunk_seconds": "180",
+            "tokens_per_second": "8",
+            "min_new_tokens": "256",
+            "second_pass_use_cache": "False",
+            "offline": "True",
+            "local_source": "configured-local"
+          },
+          "segment_bounds_violations": 0,
+          "segment_order_violations": 0,
+          "elapsed_s": 4.811215213999986,
+          "score": {
+            "reference_chars": 19,
+            "hypothesis_chars": 19,
+            "substitutions": 0,
+            "deletions": 0,
+            "insertions": 0,
+            "errors": 0,
+            "cer": 0.0,
+            "normalized_reference": "北部与萨赫勒地区接壤南部和西部临大西洋",
+            "normalized_hypothesis": "北部与萨赫勒地区接壤南部和西部临大西洋"
+          },
+          "decoder_score": {
+            "reference_chars": 19,
+            "hypothesis_chars": 19,
+            "substitutions": 0,
+            "deletions": 0,
+            "insertions": 0,
+            "errors": 0,
+            "cer": 0.0,
+            "normalized_reference": "北部与萨赫勒地区接壤南部和西部临大西洋",
+            "normalized_hypothesis": "北部与萨赫勒地区接壤南部和西部临大西洋"
+          }
+        },
+        {
+          "id": "cmn_hans_cn_0343",
+          "duration_s": 8.94,
+          "status": "ok",
+          "hypothesis": "该服务经常用于航运，包括游艇以及有远程数据和语音需求的探险。",
+          "decoder_hypothesis": "该服务经常用于航运，包括游艇以及有远程数据和语音需求的探险。",
+          "segments": [
+            {
+              "start": 1.36,
+              "end": 6.56,
+              "text": "该服务经常用于航运，包括游艇以及有远程数据和语音需求的探险。"
+            }
+          ],
+          "diagnostics": {
+            "schema_version": 1,
+            "passes": [
+              {
+                "chunks": [
+                  {
+                    "chunk_index": 0,
+                    "start_s": 0.0,
+                    "end_s": 8.94,
+                    "flags": [],
+                    "decode_s": 3.833491410999983,
+                    "text": "该服务经常用于航运，包括游艇以及有远程数据和语音需求的探险。",
+                    "language": "English",
+                    "generation": {
+                      "max_new_tokens": 256,
+                      "generated_tokens": 22,
+                      "ended_with_eos": true,
+                      "token_limit_reached": false
+                    },
+                    "align_s": 1.2398665759999972,
+                    "alignment": {
+                      "aligned_unit_union_s": 4.479999999999999,
+                      "longest_unaligned_gap_s": 2.38,
+                      "invalid_alignment_units": 0,
+                      "timestamp_tolerance_s": 0.05
+                    }
+                  }
+                ],
+                "timings_s": {
+                  "model_load": 7.769999967877084e-07,
+                  "audio_prepare": 0.00031370700000366014,
+                  "split": 3.3709999911479827e-06,
+                  "decode": 3.833491410999983,
+                  "align": 1.2398665759999972,
+                  "total": 5.088364291000005
+                },
+                "completed": true,
+                "model_reused": true,
+                "environment": {
+                  "python": "3.12.3",
+                  "platform": "Linux",
+                  "packages": {
+                    "torch": "2.14.1+cpu",
+                    "transformers": "5.18.0",
+                    "accelerate": "1.15.0",
+                    "numpy": "2.5.3",
+                    "soundfile": "0.14.0",
+                    "soxr": "1.1.0"
+                  },
+                  "cuda": null,
+                  "hip": null
+                },
+                "model_dtype": "torch.bfloat16",
+                "aligner_dtype": "torch.bfloat16",
+                "resolved_model_revision": null,
+                "resolved_aligner_revision": null,
+                "decoded_s": 8.94,
+                "span_coverage_short": true
+              }
+            ],
+            "quality": {
+              "status": "needs-review",
+              "flags": [
+                "span-coverage-short"
+              ],
+              "human_reviewed": false
+            },
+            "timings_s": {
+              "model_load": 7.769999967877084e-07,
+              "audio_prepare": 0.00031370700000366014,
+              "split": 3.3709999911479827e-06,
+              "decode": 3.833491410999983,
+              "align": 1.2398665759999972,
+              "total": 5.088364291000005
+            }
+          },
+          "provenance": {
+            "model_name": "/home/chosenecho/bili-asr-models/Qwen3-ASR-1.7B-hf",
+            "aligner_model": "/home/chosenecho/bili-asr-models/Qwen3-ForcedAligner-0.6B-hf",
+            "model_revision": "",
+            "aligner_revision": "",
+            "device": "cpu",
+            "language": "English",
+            "hotwords": "",
+            "chunk_seconds": "180",
+            "tokens_per_second": "8",
+            "min_new_tokens": "256",
+            "second_pass_use_cache": "False",
+            "offline": "True",
+            "local_source": "configured-local"
+          },
+          "segment_bounds_violations": 0,
+          "segment_order_violations": 0,
+          "elapsed_s": 5.088508694000012,
+          "score": {
+            "reference_chars": 28,
+            "hypothesis_chars": 28,
+            "substitutions": 0,
+            "deletions": 0,
+            "insertions": 0,
+            "errors": 0,
+            "cer": 0.0,
+            "normalized_reference": "该服务经常用于航运包括游艇以及有远程数据和语音需求的探险",
+            "normalized_hypothesis": "该服务经常用于航运包括游艇以及有远程数据和语音需求的探险"
+          },
+          "decoder_score": {
+            "reference_chars": 28,
+            "hypothesis_chars": 28,
+            "substitutions": 0,
+            "deletions": 0,
+            "insertions": 0,
+            "errors": 0,
+            "cer": 0.0,
+            "normalized_reference": "该服务经常用于航运包括游艇以及有远程数据和语音需求的探险",
+            "normalized_hypothesis": "该服务经常用于航运包括游艇以及有远程数据和语音需求的探险"
+          }
+        },
+        {
+          "id": "cmn_hans_cn_0429",
+          "duration_s": 11.5,
+          "status": "ok",
+          "hypothesis": "因此，这种格式的宽高比除以十二，得到最简单的整数比，便是三比二。",
+          "decoder_hypothesis": "因此，这种格式的宽高比除以十二，得到最简单的整数比，便是三比二。",
+          "segments": [
+            {
+              "start": 2.4,
+              "end": 8.8,
+              "text": "因此，这种格式的宽高比除以十二，得到最简单的整数比，便是三比二。"
+            }
+          ],
+          "diagnostics": {
+            "schema_version": 1,
+            "passes": [
+              {
+                "chunks": [
+                  {
+                    "chunk_index": 0,
+                    "start_s": 0.0,
+                    "end_s": 11.5,
+                    "flags": [],
+                    "decode_s": 4.969073421000019,
+                    "text": "因此，这种格式的宽高比除以十二，得到最简单的整数比，便是三比二。",
+                    "language": "Chinese",
+                    "generation": {
+                      "max_new_tokens": 256,
+                      "generated_tokens": 28,
+                      "ended_with_eos": true,
+                      "token_limit_reached": false
+                    },
+                    "align_s": 1.4436388320000333,
+                    "alignment": {
+                      "aligned_unit_union_s": 5.200000000000002,
+                      "longest_unaligned_gap_s": 2.6999999999999993,
+                      "invalid_alignment_units": 0,
+                      "timestamp_tolerance_s": 0.05
+                    }
+                  }
+                ],
+                "timings_s": {
+                  "model_load": 5.610000357592071e-07,
+                  "audio_prepare": 0.0003763660000117852,
+                  "split": 3.8600000493715925e-06,
+                  "decode": 4.969073421000019,
+                  "align": 1.4436388320000333,
+                  "total": 6.4291081979999944
+                },
+                "completed": true,
+                "model_reused": true,
+                "environment": {
+                  "python": "3.12.3",
+                  "platform": "Linux",
+                  "packages": {
+                    "torch": "2.14.1+cpu",
+                    "transformers": "5.18.0",
+                    "accelerate": "1.15.0",
+                    "numpy": "2.5.3",
+                    "soundfile": "0.14.0",
+                    "soxr": "1.1.0"
+                  },
+                  "cuda": null,
+                  "hip": null
+                },
+                "model_dtype": "torch.bfloat16",
+                "aligner_dtype": "torch.bfloat16",
+                "resolved_model_revision": null,
+                "resolved_aligner_revision": null,
+                "decoded_s": 11.5,
+                "span_coverage_short": true
+              }
+            ],
+            "quality": {
+              "status": "needs-review",
+              "flags": [
+                "span-coverage-short"
+              ],
+              "human_reviewed": false
+            },
+            "timings_s": {
+              "model_load": 5.610000357592071e-07,
+              "audio_prepare": 0.0003763660000117852,
+              "split": 3.8600000493715925e-06,
+              "decode": 4.969073421000019,
+              "align": 1.4436388320000333,
+              "total": 6.4291081979999944
+            }
+          },
+          "provenance": {
+            "model_name": "/home/chosenecho/bili-asr-models/Qwen3-ASR-1.7B-hf",
+            "aligner_model": "/home/chosenecho/bili-asr-models/Qwen3-ForcedAligner-0.6B-hf",
+            "model_revision": "",
+            "aligner_revision": "",
+            "device": "cpu",
+            "language": "Chinese",
+            "hotwords": "",
+            "chunk_seconds": "180",
+            "tokens_per_second": "8",
+            "min_new_tokens": "256",
+            "second_pass_use_cache": "False",
+            "offline": "True",
+            "local_source": "configured-local"
+          },
+          "segment_bounds_violations": 0,
+          "segment_order_violations": 0,
+          "elapsed_s": 6.429259313999978,
+          "score": {
+            "reference_chars": 27,
+            "hypothesis_chars": 28,
+            "substitutions": 4,
+            "deletions": 0,
+            "insertions": 1,
+            "errors": 5,
+            "cer": 0.18518518518518517,
+            "normalized_reference": "因此这种格式的宽高比除以12得到最简单的整数比便是32",
+            "normalized_hypothesis": "因此这种格式的宽高比除以十二得到最简单的整数比便是三比二"
+          },
+          "decoder_score": {
+            "reference_chars": 27,
+            "hypothesis_chars": 28,
+            "substitutions": 4,
+            "deletions": 0,
+            "insertions": 1,
+            "errors": 5,
+            "cer": 0.18518518518518517,
+            "normalized_reference": "因此这种格式的宽高比除以12得到最简单的整数比便是32",
+            "normalized_hypothesis": "因此这种格式的宽高比除以十二得到最简单的整数比便是三比二"
+          }
+        },
+        {
+          "id": "cmn_hans_cn_0515",
+          "duration_s": 6.48,
+          "status": "ok",
+          "hypothesis": "它是南非的主要景点之一，被认为是南非国家公园体系的主打景点。",
+          "decoder_hypothesis": "它是南非的主要景点之一，被认为是南非国家公园体系的主打景点。",
+          "segments": [
+            {
+              "start": 0.72,
+              "end": 5.6,
+              "text": "它是南非的主要景点之一，被认为是南非国家公园体系的主打景点。"
+            }
+          ],
+          "diagnostics": {
+            "schema_version": 1,
+            "passes": [
+              {
+                "chunks": [
+                  {
+                    "chunk_index": 0,
+                    "start_s": 0.0,
+                    "end_s": 6.48,
+                    "flags": [],
+                    "decode_s": 3.1083660510000186,
+                    "text": "它是南非的主要景点之一，被认为是南非国家公园体系的主打景点。",
+                    "language": "Chinese",
+                    "generation": {
+                      "max_new_tokens": 256,
+                      "generated_tokens": 19,
+                      "ended_with_eos": true,
+                      "token_limit_reached": false
+                    },
+                    "align_s": 0.9543350550000014,
+                    "alignment": {
+                      "aligned_unit_union_s": 4.88,
+                      "longest_unaligned_gap_s": 0.8800000000000008,
+                      "invalid_alignment_units": 0,
+                      "timestamp_tolerance_s": 0.05
+                    }
+                  }
+                ],
+                "timings_s": {
+                  "model_load": 7.770000252094178e-07,
+                  "audio_prepare": 0.0006162020000033408,
+                  "split": 7.609000022057444e-06,
+                  "decode": 3.1083660510000186,
+                  "align": 0.9543350550000014,
+                  "total": 4.083511684999962
+                },
+                "completed": true,
+                "model_reused": true,
+                "environment": {
+                  "python": "3.12.3",
+                  "platform": "Linux",
+                  "packages": {
+                    "torch": "2.14.1+cpu",
+                    "transformers": "5.18.0",
+                    "accelerate": "1.15.0",
+                    "numpy": "2.5.3",
+                    "soundfile": "0.14.0",
+                    "soxr": "1.1.0"
+                  },
+                  "cuda": null,
+                  "hip": null
+                },
+                "model_dtype": "torch.bfloat16",
+                "aligner_dtype": "torch.bfloat16",
+                "resolved_model_revision": null,
+                "resolved_aligner_revision": null,
+                "decoded_s": 6.48,
+                "span_coverage_short": true
+              }
+            ],
+            "quality": {
+              "status": "needs-review",
+              "flags": [
+                "span-coverage-short"
+              ],
+              "human_reviewed": false
+            },
+            "timings_s": {
+              "model_load": 7.770000252094178e-07,
+              "audio_prepare": 0.0006162020000033408,
+              "split": 7.609000022057444e-06,
+              "decode": 3.1083660510000186,
+              "align": 0.9543350550000014,
+              "total": 4.083511684999962
+            }
+          },
+          "provenance": {
+            "model_name": "/home/chosenecho/bili-asr-models/Qwen3-ASR-1.7B-hf",
+            "aligner_model": "/home/chosenecho/bili-asr-models/Qwen3-ForcedAligner-0.6B-hf",
+            "model_revision": "",
+            "aligner_revision": "",
+            "device": "cpu",
+            "language": "Chinese",
+            "hotwords": "",
+            "chunk_seconds": "180",
+            "tokens_per_second": "8",
+            "min_new_tokens": "256",
+            "second_pass_use_cache": "False",
+            "offline": "True",
+            "local_source": "configured-local"
+          },
+          "segment_bounds_violations": 0,
+          "segment_order_violations": 0,
+          "elapsed_s": 4.083650089999992,
+          "score": {
+            "reference_chars": 36,
+            "hypothesis_chars": 28,
+            "substitutions": 0,
+            "deletions": 8,
+            "insertions": 0,
+            "errors": 8,
+            "cer": 0.2222222222222222,
+            "normalized_reference": "它是南非的主要景点之一被认为是南非国家公园体系sanparks的主打景点",
+            "normalized_hypothesis": "它是南非的主要景点之一被认为是南非国家公园体系的主打景点"
+          },
+          "decoder_score": {
+            "reference_chars": 36,
+            "hypothesis_chars": 28,
+            "substitutions": 0,
+            "deletions": 8,
+            "insertions": 0,
+            "errors": 8,
+            "cer": 0.2222222222222222,
+            "normalized_reference": "它是南非的主要景点之一被认为是南非国家公园体系sanparks的主打景点",
+            "normalized_hypothesis": "它是南非的主要景点之一被认为是南非国家公园体系的主打景点"
+          }
+        },
+        {
+          "id": "cmn_hans_cn_0601",
+          "duration_s": 13.16,
+          "status": "ok",
+          "hypothesis": "钙、钾等元素属于金属，银和金等元素当然也是金属。",
+          "decoder_hypothesis": "钙、钾等元素属于金属，银和金等元素当然也是金属。",
+          "segments": [
+            {
+              "start": 3.28,
+              "end": 4.96,
+              "text": "钙、钾等元素属于金属，"
+            },
+            {
+              "start": 6.72,
+              "end": 9.92,
+              "text": "银和金等元素当然也是金属。"
+            }
+          ],
+          "diagnostics": {
+            "schema_version": 1,
+            "passes": [
+              {
+                "chunks": [
+                  {
+                    "chunk_index": 0,
+                    "start_s": 0.0,
+                    "end_s": 13.16,
+                    "flags": [],
+                    "decode_s": 4.789460974000008,
+                    "text": "钙、钾等元素属于金属，银和金等元素当然也是金属。",
+                    "language": "Chinese",
+                    "generation": {
+                      "max_new_tokens": 256,
+                      "generated_tokens": 21,
+                      "ended_with_eos": true,
+                      "token_limit_reached": false
+                    },
+                    "align_s": 1.5985840929999995,
+                    "alignment": {
+                      "aligned_unit_union_s": 4.32,
+                      "longest_unaligned_gap_s": 3.28,
+                      "invalid_alignment_units": 0,
+                      "timestamp_tolerance_s": 0.05
+                    }
+                  }
+                ],
+                "timings_s": {
+                  "model_load": 6.029999894963112e-07,
+                  "audio_prepare": 0.0004566179999869746,
+                  "split": 4.008000018984603e-06,
+                  "decode": 4.789460974000008,
+                  "align": 1.5985840929999995,
+                  "total": 6.405766470999993
+                },
+                "completed": true,
+                "model_reused": true,
+                "environment": {
+                  "python": "3.12.3",
+                  "platform": "Linux",
+                  "packages": {
+                    "torch": "2.14.1+cpu",
+                    "transformers": "5.18.0",
+                    "accelerate": "1.15.0",
+                    "numpy": "2.5.3",
+                    "soundfile": "0.14.0",
+                    "soxr": "1.1.0"
+                  },
+                  "cuda": null,
+                  "hip": null
+                },
+                "model_dtype": "torch.bfloat16",
+                "aligner_dtype": "torch.bfloat16",
+                "resolved_model_revision": null,
+                "resolved_aligner_revision": null,
+                "decoded_s": 13.16,
+                "span_coverage_short": true
+              }
+            ],
+            "quality": {
+              "status": "needs-review",
+              "flags": [
+                "span-coverage-short"
+              ],
+              "human_reviewed": false
+            },
+            "timings_s": {
+              "model_load": 6.029999894963112e-07,
+              "audio_prepare": 0.0004566179999869746,
+              "split": 4.008000018984603e-06,
+              "decode": 4.789460974000008,
+              "align": 1.5985840929999995,
+              "total": 6.405766470999993
+            }
+          },
+          "provenance": {
+            "model_name": "/home/chosenecho/bili-asr-models/Qwen3-ASR-1.7B-hf",
+            "aligner_model": "/home/chosenecho/bili-asr-models/Qwen3-ForcedAligner-0.6B-hf",
+            "model_revision": "",
+            "aligner_revision": "",
+            "device": "cpu",
+            "language": "Chinese",
+            "hotwords": "",
+            "chunk_seconds": "180",
+            "tokens_per_second": "8",
+            "min_new_tokens": "256",
+            "second_pass_use_cache": "False",
+            "offline": "True",
+            "local_source": "configured-local"
+          },
+          "segment_bounds_violations": 0,
+          "segment_order_violations": 0,
+          "elapsed_s": 6.406012761999989,
+          "score": {
+            "reference_chars": 21,
+            "hypothesis_chars": 21,
+            "substitutions": 0,
+            "deletions": 0,
+            "insertions": 0,
+            "errors": 0,
+            "cer": 0.0,
+            "normalized_reference": "钙钾等元素属于金属银和金等元素当然也是金属",
+            "normalized_hypothesis": "钙钾等元素属于金属银和金等元素当然也是金属"
+          },
+          "decoder_score": {
+            "reference_chars": 21,
+            "hypothesis_chars": 21,
+            "substitutions": 0,
+            "deletions": 0,
+            "insertions": 0,
+            "errors": 0,
+            "cer": 0.0,
+            "normalized_reference": "钙钾等元素属于金属银和金等元素当然也是金属",
+            "normalized_hypothesis": "钙钾等元素属于金属银和金等元素当然也是金属"
+          }
+        },
+        {
+          "id": "cmn_hans_cn_0687",
+          "duration_s": 8.4,
+          "status": "ok",
+          "hypothesis": "在互联网上搜索“应对敌对环境教程”，也许能找到培提供培训的当地公司的地址。",
+          "decoder_hypothesis": "在互联网上搜索“应对敌对环境教程”，也许能找到培提供培训的当地公司的地址。",
+          "segments": [
+            {
+              "start": 0.64,
+              "end": 7.6,
+              "text": "在互联网上搜索“应对敌对环境教程”，也许能找到培提供培训的当地公司的地址。"
+            }
+          ],
+          "diagnostics": {
+            "schema_version": 1,
+            "passes": [
+              {
+                "chunks": [
+                  {
+                    "chunk_index": 0,
+                    "start_s": 0.0,
+                    "end_s": 8.4,
+                    "flags": [],
+                    "decode_s": 4.420012106999991,
+                    "text": "在互联网上搜索“应对敌对环境教程”，也许能找到培提供培训的当地公司的地址。",
+                    "language": "Chinese",
+                    "generation": {
+                      "max_new_tokens": 256,
+                      "generated_tokens": 25,
+                      "ended_with_eos": true,
+                      "token_limit_reached": false
+                    },
+                    "align_s": 1.4525497170000108,
+                    "alignment": {
+                      "aligned_unit_union_s": 6.3999999999999995,
+                      "longest_unaligned_gap_s": 0.8000000000000007,
+                      "invalid_alignment_units": 0,
+                      "timestamp_tolerance_s": 0.05
+                    }
+                  }
+                ],
+                "timings_s": {
+                  "model_load": 9.98000018626044e-07,
+                  "audio_prepare": 0.0005200250000143569,
+                  "split": 4.390000015064288e-06,
+                  "decode": 4.420012106999991,
+                  "align": 1.4525497170000108,
+                  "total": 5.893242853999993
+                },
+                "completed": true,
+                "model_reused": true,
+                "environment": {
+                  "python": "3.12.3",
+                  "platform": "Linux",
+                  "packages": {
+                    "torch": "2.14.1+cpu",
+                    "transformers": "5.18.0",
+                    "accelerate": "1.15.0",
+                    "numpy": "2.5.3",
+                    "soundfile": "0.14.0",
+                    "soxr": "1.1.0"
+                  },
+                  "cuda": null,
+                  "hip": null
+                },
+                "model_dtype": "torch.bfloat16",
+                "aligner_dtype": "torch.bfloat16",
+                "resolved_model_revision": null,
+                "resolved_aligner_revision": null,
+                "decoded_s": 8.4,
+                "span_coverage_short": true
+              }
+            ],
+            "quality": {
+              "status": "needs-review",
+              "flags": [
+                "span-coverage-short"
+              ],
+              "human_reviewed": false
+            },
+            "timings_s": {
+              "model_load": 9.98000018626044e-07,
+              "audio_prepare": 0.0005200250000143569,
+              "split": 4.390000015064288e-06,
+              "decode": 4.420012106999991,
+              "align": 1.4525497170000108,
+              "total": 5.893242853999993
+            }
+          },
+          "provenance": {
+            "model_name": "/home/chosenecho/bili-asr-models/Qwen3-ASR-1.7B-hf",
+            "aligner_model": "/home/chosenecho/bili-asr-models/Qwen3-ForcedAligner-0.6B-hf",
+            "model_revision": "",
+            "aligner_revision": "",
+            "device": "cpu",
+            "language": "Chinese",
+            "hotwords": "",
+            "chunk_seconds": "180",
+            "tokens_per_second": "8",
+            "min_new_tokens": "256",
+            "second_pass_use_cache": "False",
+            "offline": "True",
+            "local_source": "configured-local"
+          },
+          "segment_bounds_violations": 0,
+          "segment_order_violations": 0,
+          "elapsed_s": 5.893404235999981,
+          "score": {
+            "reference_chars": 32,
+            "hypothesis_chars": 33,
+            "substitutions": 1,
+            "deletions": 0,
+            "insertions": 1,
+            "errors": 2,
+            "cer": 0.0625,
+            "normalized_reference": "在互联网上搜索应对敌对环境课程也许能找到提供培训的当地公司的地址",
+            "normalized_hypothesis": "在互联网上搜索应对敌对环境教程也许能找到培提供培训的当地公司的地址"
+          },
+          "decoder_score": {
+            "reference_chars": 32,
+            "hypothesis_chars": 33,
+            "substitutions": 1,
+            "deletions": 0,
+            "insertions": 1,
+            "errors": 2,
+            "cer": 0.0625,
+            "normalized_reference": "在互联网上搜索应对敌对环境课程也许能找到提供培训的当地公司的地址",
+            "normalized_hypothesis": "在互联网上搜索应对敌对环境教程也许能找到培提供培训的当地公司的地址"
+          }
+        },
+        {
+          "id": "cmn_hans_cn_0772",
+          "duration_s": 8.64,
+          "status": "ok",
+          "hypothesis": "同一个月，又有一架飞机冲出马哈哈德的跑道，撞上一堵墙，造成十七人死亡。",
+          "decoder_hypothesis": "同一个月，又有一架飞机冲出马哈哈德的跑道，撞上一堵墙，造成十七人死亡。",
+          "segments": [
+            {
+              "start": 0.96,
+              "end": 7.84,
+              "text": "同一个月，又有一架飞机冲出马哈哈德的跑道，撞上一堵墙，造成十七人死亡。"
+            }
+          ],
+          "diagnostics": {
+            "schema_version": 1,
+            "passes": [
+              {
+                "chunks": [
+                  {
+                    "chunk_index": 0,
+                    "start_s": 0.0,
+                    "end_s": 8.64,
+                    "flags": [],
+                    "decode_s": 5.281963569000027,
+                    "text": "同一个月，又有一架飞机冲出马哈哈德的跑道，撞上一堵墙，造成十七人死亡。",
+                    "language": "Chinese",
+                    "generation": {
+                      "max_new_tokens": 256,
+                      "generated_tokens": 30,
+                      "ended_with_eos": true,
+                      "token_limit_reached": false
+                    },
+                    "align_s": 1.2992626570000425,
+                    "alignment": {
+                      "aligned_unit_union_s": 5.92,
+                      "longest_unaligned_gap_s": 0.96,
+                      "invalid_alignment_units": 0,
+                      "timestamp_tolerance_s": 0.05
+                    }
+                  }
+                ],
+                "timings_s": {
+                  "model_load": 1.2080000146852399e-06,
+                  "audio_prepare": 0.0006259120000322582,
+                  "split": 7.121000010101852e-06,
+                  "decode": 5.281963569000027,
+                  "align": 1.2992626570000425,
+                  "total": 6.599715910000043
+                },
+                "completed": true,
+                "model_reused": true,
+                "environment": {
+                  "python": "3.12.3",
+                  "platform": "Linux",
+                  "packages": {
+                    "torch": "2.14.1+cpu",
+                    "transformers": "5.18.0",
+                    "accelerate": "1.15.0",
+                    "numpy": "2.5.3",
+                    "soundfile": "0.14.0",
+                    "soxr": "1.1.0"
+                  },
+                  "cuda": null,
+                  "hip": null
+                },
+                "model_dtype": "torch.bfloat16",
+                "aligner_dtype": "torch.bfloat16",
+                "resolved_model_revision": null,
+                "resolved_aligner_revision": null,
+                "decoded_s": 8.64,
+                "span_coverage_short": true
+              }
+            ],
+            "quality": {
+              "status": "needs-review",
+              "flags": [
+                "span-coverage-short"
+              ],
+              "human_reviewed": false
+            },
+            "timings_s": {
+              "model_load": 1.2080000146852399e-06,
+              "audio_prepare": 0.0006259120000322582,
+              "split": 7.121000010101852e-06,
+              "decode": 5.281963569000027,
+              "align": 1.2992626570000425,
+              "total": 6.599715910000043
+            }
+          },
+          "provenance": {
+            "model_name": "/home/chosenecho/bili-asr-models/Qwen3-ASR-1.7B-hf",
+            "aligner_model": "/home/chosenecho/bili-asr-models/Qwen3-ForcedAligner-0.6B-hf",
+            "model_revision": "",
+            "aligner_revision": "",
+            "device": "cpu",
+            "language": "Chinese",
+            "hotwords": "",
+            "chunk_seconds": "180",
+            "tokens_per_second": "8",
+            "min_new_tokens": "256",
+            "second_pass_use_cache": "False",
+            "offline": "True",
+            "local_source": "configured-local"
+          },
+          "segment_bounds_violations": 0,
+          "segment_order_violations": 0,
+          "elapsed_s": 6.599889019999978,
+          "score": {
+            "reference_chars": 31,
+            "hypothesis_chars": 31,
+            "substitutions": 4,
+            "deletions": 0,
+            "insertions": 0,
+            "errors": 4,
+            "cer": 0.12903225806451613,
+            "normalized_reference": "同一个月又有一架客机冲出马什哈德的跑道撞上一堵墙造成17人死亡",
+            "normalized_hypothesis": "同一个月又有一架飞机冲出马哈哈德的跑道撞上一堵墙造成十七人死亡"
+          },
+          "decoder_score": {
+            "reference_chars": 31,
+            "hypothesis_chars": 31,
+            "substitutions": 4,
+            "deletions": 0,
+            "insertions": 0,
+            "errors": 4,
+            "cer": 0.12903225806451613,
+            "normalized_reference": "同一个月又有一架客机冲出马什哈德的跑道撞上一堵墙造成17人死亡",
+            "normalized_hypothesis": "同一个月又有一架飞机冲出马哈哈德的跑道撞上一堵墙造成十七人死亡"
+          }
+        },
+        {
+          "id": "cmn_hans_cn_0858",
+          "duration_s": 17.18,
+          "status": "ok",
+          "hypothesis": "在另一种极端情况下，这个人会变成一个与之前迥然不同的个体，觉得他必须改变团队所做的一切，并把成果据为己有。",
+          "decoder_hypothesis": "在另一种极端情况下，这个人会变成一个与之前迥然不同的个体，觉得他必须改变团队所做的一切，并把成果据为己有。",
+          "segments": [
+            {
+              "start": 2.56,
+              "end": 14.8,
+              "text": "在另一种极端情况下，这个人会变成一个与之前迥然不同的个体，觉得他必须改变团队所做的一切，并把成果据为己有。"
+            }
+          ],
+          "diagnostics": {
+            "schema_version": 1,
+            "passes": [
+              {
+                "chunks": [
+                  {
+                    "chunk_index": 0,
+                    "start_s": 0.0,
+                    "end_s": 17.18,
+                    "flags": [],
+                    "decode_s": 6.913054149999994,
+                    "text": "在另一种极端情况下，这个人会变成一个与之前迥然不同的个体，觉得他必须改变团队所做的一切，并把成果据为己有。",
+                    "language": "Chinese",
+                    "generation": {
+                      "max_new_tokens": 256,
+                      "generated_tokens": 36,
+                      "ended_with_eos": true,
+                      "token_limit_reached": false
+                    },
+                    "align_s": 2.229933086000017,
+                    "alignment": {
+                      "aligned_unit_union_s": 10.4,
+                      "longest_unaligned_gap_s": 2.56,
+                      "invalid_alignment_units": 0,
+                      "timestamp_tolerance_s": 0.05
+                    }
+                  }
+                ],
+                "timings_s": {
+                  "model_load": 6.729999881827098e-07,
+                  "audio_prepare": 0.0007086029999641141,
+                  "split": 6.7069999545310566e-06,
+                  "decode": 6.913054149999994,
+                  "align": 2.229933086000017,
+                  "total": 9.162541931000021
+                },
+                "completed": true,
+                "model_reused": true,
+                "environment": {
+                  "python": "3.12.3",
+                  "platform": "Linux",
+                  "packages": {
+                    "torch": "2.14.1+cpu",
+                    "transformers": "5.18.0",
+                    "accelerate": "1.15.0",
+                    "numpy": "2.5.3",
+                    "soundfile": "0.14.0",
+                    "soxr": "1.1.0"
+                  },
+                  "cuda": null,
+                  "hip": null
+                },
+                "model_dtype": "torch.bfloat16",
+                "aligner_dtype": "torch.bfloat16",
+                "resolved_model_revision": null,
+                "resolved_aligner_revision": null,
+                "decoded_s": 17.18,
+                "span_coverage_short": true
+              }
+            ],
+            "quality": {
+              "status": "needs-review",
+              "flags": [
+                "span-coverage-short"
+              ],
+              "human_reviewed": false
+            },
+            "timings_s": {
+              "model_load": 6.729999881827098e-07,
+              "audio_prepare": 0.0007086029999641141,
+              "split": 6.7069999545310566e-06,
+              "decode": 6.913054149999994,
+              "align": 2.229933086000017,
+              "total": 9.162541931000021
+            }
+          },
+          "provenance": {
+            "model_name": "/home/chosenecho/bili-asr-models/Qwen3-ASR-1.7B-hf",
+            "aligner_model": "/home/chosenecho/bili-asr-models/Qwen3-ForcedAligner-0.6B-hf",
+            "model_revision": "",
+            "aligner_revision": "",
+            "device": "cpu",
+            "language": "Chinese",
+            "hotwords": "",
+            "chunk_seconds": "180",
+            "tokens_per_second": "8",
+            "min_new_tokens": "256",
+            "second_pass_use_cache": "False",
+            "offline": "True",
+            "local_source": "configured-local"
+          },
+          "segment_bounds_violations": 0,
+          "segment_order_violations": 0,
+          "elapsed_s": 9.162694394000027,
+          "score": {
+            "reference_chars": 50,
+            "hypothesis_chars": 49,
+            "substitutions": 0,
+            "deletions": 1,
+            "insertions": 0,
+            "errors": 1,
+            "cer": 0.02,
+            "normalized_reference": "在另一种极端情况下这个人会变成一个与之前迥然不同的个体觉得他她必须改变团队所做的一切并把成果据为己有",
+            "normalized_hypothesis": "在另一种极端情况下这个人会变成一个与之前迥然不同的个体觉得他必须改变团队所做的一切并把成果据为己有"
+          },
+          "decoder_score": {
+            "reference_chars": 50,
+            "hypothesis_chars": 49,
+            "substitutions": 0,
+            "deletions": 1,
+            "insertions": 0,
+            "errors": 1,
+            "cer": 0.02,
+            "normalized_reference": "在另一种极端情况下这个人会变成一个与之前迥然不同的个体觉得他她必须改变团队所做的一切并把成果据为己有",
+            "normalized_hypothesis": "在另一种极端情况下这个人会变成一个与之前迥然不同的个体觉得他必须改变团队所做的一切并把成果据为己有"
+          }
+        },
+        {
+          "id": "cmn_hans_cn_0944",
+          "duration_s": 13.68,
+          "status": "ok",
+          "hypothesis": "买一张万能卡也有不少好处。带着这张卡，你可以进入南非的一些公园或全部的国家公园。",
+          "decoder_hypothesis": "买一张万能卡也有不少好处。带着这张卡，你可以进入南非的一些公园或全部的国家公园。",
+          "segments": [
+            {
+              "start": 2.4,
+              "end": 4.56,
+              "text": "买一张万能卡也有不少好处。"
+            },
+            {
+              "start": 4.88,
+              "end": 11.12,
+              "text": "带着这张卡，你可以进入南非的一些公园或全部的国家公园。"
+            }
+          ],
+          "diagnostics": {
+            "schema_version": 1,
+            "passes": [
+              {
+                "chunks": [
+                  {
+                    "chunk_index": 0,
+                    "start_s": 0.0,
+                    "end_s": 13.68,
+                    "flags": [],
+                    "decode_s": 5.920810082999992,
+                    "text": "买一张万能卡也有不少好处。带着这张卡，你可以进入南非的一些公园或全部的国家公园。",
+                    "language": "Chinese",
+                    "generation": {
+                      "max_new_tokens": 256,
+                      "generated_tokens": 28,
+                      "ended_with_eos": true,
+                      "token_limit_reached": false
+                    },
+                    "align_s": 1.5856480639999972,
+                    "alignment": {
+                      "aligned_unit_union_s": 6.239999999999998,
+                      "longest_unaligned_gap_s": 2.5600000000000005,
+                      "invalid_alignment_units": 0,
+                      "timestamp_tolerance_s": 0.05
+                    }
+                  }
+                ],
+                "timings_s": {
+                  "model_load": 6.259999736357713e-07,
+                  "audio_prepare": 0.0010691790000123547,
+                  "split": 7.381999978406384e-06,
+                  "decode": 5.920810082999992,
+                  "align": 1.5856480639999972,
+                  "total": 7.5259879360000355
+                },
+                "completed": true,
+                "model_reused": true,
+                "environment": {
+                  "python": "3.12.3",
+                  "platform": "Linux",
+                  "packages": {
+                    "torch": "2.14.1+cpu",
+                    "transformers": "5.18.0",
+                    "accelerate": "1.15.0",
+                    "numpy": "2.5.3",
+                    "soundfile": "0.14.0",
+                    "soxr": "1.1.0"
+                  },
+                  "cuda": null,
+                  "hip": null
+                },
+                "model_dtype": "torch.bfloat16",
+                "aligner_dtype": "torch.bfloat16",
+                "resolved_model_revision": null,
+                "resolved_aligner_revision": null,
+                "decoded_s": 13.68,
+                "span_coverage_short": true
+              }
+            ],
+            "quality": {
+              "status": "needs-review",
+              "flags": [
+                "span-coverage-short"
+              ],
+              "human_reviewed": false
+            },
+            "timings_s": {
+              "model_load": 6.259999736357713e-07,
+              "audio_prepare": 0.0010691790000123547,
+              "split": 7.381999978406384e-06,
+              "decode": 5.920810082999992,
+              "align": 1.5856480639999972,
+              "total": 7.5259879360000355
+            }
+          },
+          "provenance": {
+            "model_name": "/home/chosenecho/bili-asr-models/Qwen3-ASR-1.7B-hf",
+            "aligner_model": "/home/chosenecho/bili-asr-models/Qwen3-ForcedAligner-0.6B-hf",
+            "model_revision": "",
+            "aligner_revision": "",
+            "device": "cpu",
+            "language": "Chinese",
+            "hotwords": "",
+            "chunk_seconds": "180",
+            "tokens_per_second": "8",
+            "min_new_tokens": "256",
+            "second_pass_use_cache": "False",
+            "offline": "True",
+            "local_source": "configured-local"
+          },
+          "segment_bounds_violations": 0,
+          "segment_order_violations": 0,
+          "elapsed_s": 7.526148116000002,
+          "score": {
+            "reference_chars": 45,
+            "hypothesis_chars": 37,
+            "substitutions": 0,
+            "deletions": 8,
+            "insertions": 0,
+            "errors": 8,
+            "cer": 0.17777777777777778,
+            "normalized_reference": "买一张万能卡wildcard也有不少好处带着这张卡你可以进入南非的一些公园或全部的国家公园",
+            "normalized_hypothesis": "买一张万能卡也有不少好处带着这张卡你可以进入南非的一些公园或全部的国家公园"
+          },
+          "decoder_score": {
+            "reference_chars": 45,
+            "hypothesis_chars": 37,
+            "substitutions": 0,
+            "deletions": 8,
+            "insertions": 0,
+            "errors": 8,
+            "cer": 0.17777777777777778,
+            "normalized_reference": "买一张万能卡wildcard也有不少好处带着这张卡你可以进入南非的一些公园或全部的国家公园",
+            "normalized_hypothesis": "买一张万能卡也有不少好处带着这张卡你可以进入南非的一些公园或全部的国家公园"
+          }
+        }
+      ],
+      "aggregate": {
+        "reference_chars": 393,
+        "substitutions": 9,
+        "deletions": 17,
+        "insertions": 3,
+        "errors": 29,
+        "cer": 0.0737913486005089,
+        "samples": 12,
+        "failed_samples": 0,
+        "audio_duration_s": 127.6,
+        "elapsed_s": 75.08956858399995,
+        "rtf": 0.5884762428213163
+      }
+    }
+  ],
+  "completed": true
+}

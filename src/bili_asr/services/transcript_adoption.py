@@ -2,7 +2,7 @@
 
 The manifest is only a candidate list. A successful adoption requires a complete
 bundle with matching hashes, page identity and text on every published surface.
-Both the current bundle directory and the former four-directory layout are read.
+Only complete five-product v2 bundles in the current directory layout are read.
 """
 
 from __future__ import annotations
@@ -16,15 +16,15 @@ from pathlib import Path, PurePosixPath
 import stat
 from typing import Any, Mapping
 
-from bili_asr.artifacts import REQUIRED_ARTIFACT_KEYS
-from bili_asr.cues import segments_to_srt, segments_to_txt
+from bili_asr.artifacts import BUNDLE_SCHEMA, REQUIRED_ARTIFACT_KEYS
+from bili_asr.cues import segments_to_srt, segments_to_vtt, segments_to_txt
 from bili_asr.page_identity import parse_work_id
 from bili_asr.storage import TranscriptSegmentRecord
 from bili_asr.storage.models import MAX_TIMELINE_MS
 
 _MAX_ARTIFACT_BYTES = 16 * 1024 * 1024
 _BASENAMES = {
-    "srt_path": "bundle.srt", "txt_path": "bundle.txt",
+    "srt_path": "bundle.srt", "vtt_path": "bundle.vtt", "txt_path": "bundle.txt",
     "md_path": "bundle.md", "raw_path": "bundle.raw.json",
 }
 
@@ -118,18 +118,6 @@ def _marker_path(paths: Mapping[str, str], work_id: str) -> str:
     stem = f"{bvid}.p{page}"
     if all(paths[key] == f"transcripts/{stem}/{_BASENAMES[key]}" for key in REQUIRED_ARTIFACT_KEYS):
         return f"transcripts/{stem}/.bundle-ready"
-    # The former layout's marker was appended to the SRT filename. It still
-    # certifies the exact four paths, so no rewriting or re-decoding is needed.
-    legacy = {
-        "srt_path": f"transcripts/srt/{stem}.srt",
-        "txt_path": f"transcripts/txt/{stem}.txt",
-        "raw_path": f"transcripts/raw/{stem}.json",
-    }
-    md_parts = _path_parts(paths["md_path"])
-    if (all(paths[key] == value for key, value in legacy.items())
-            and len(md_parts) == 3 and md_parts[:2] == ("transcripts", "md")
-            and md_parts[-1].endswith(".md")):
-        return paths["srt_path"] + ".bundle-ready"
     raise AdoptionRefused("bundle_identity_mismatch")
 
 
@@ -200,7 +188,7 @@ def read_archived_transcript(
         marker_path = _marker_path(paths, work_id)
         root = Path(os.path.abspath(artifact_root))
         marker = json.loads(_read_confined(root, marker_path, 8192).decode("ascii"))
-        artifacts = marker.get("artifacts") if isinstance(marker, dict) and marker.get("schema") == "archive-bundle-v1" else None
+        artifacts = marker.get("artifacts") if isinstance(marker, dict) and marker.get("schema") == BUNDLE_SCHEMA else None
         if not isinstance(artifacts, dict) or set(artifacts) != set(REQUIRED_ARTIFACT_KEYS):
             raise AdoptionRefused("bundle_marker_invalid")
         payloads: dict[str, str] = {}
@@ -221,6 +209,7 @@ def read_archived_transcript(
         raw = json.loads(payloads["raw_path"])
         rendered, segments = _segments(raw)
         if (payloads["srt_path"] != segments_to_srt(rendered)
+                or payloads["vtt_path"] != segments_to_vtt(rendered)
                 or payloads["txt_path"] != segments_to_txt(rendered) + "\n"
                 or body.strip() != segments_to_txt(rendered).strip()):
             raise AdoptionRefused("bundle_content_mismatch")

@@ -1,11 +1,10 @@
 """Validate the installable dependency graph, including externally supplied torch."""
 
-from pathlib import Path
 import tomllib
+from pathlib import Path
 
 from packaging.requirements import Requirement
 from packaging.utils import canonicalize_name
-
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -35,8 +34,8 @@ def test_locked_closure_keeps_gpu_runtime_external_and_drops_old_engine() -> Non
     lock = _read("uv.lock")
     names = {canonicalize_name(package["name"]) for package in lock["package"]}
     assert "torch" in lock["manifest"]["excludes"]
-    assert {"accelerate", "transformers", "soundfile", "soxr"} <= names
-    assert not ({"torch", "torchaudio", "triton", "funasr", "torch-complex", "librosa"} & names)
+    assert {"accelerate", "transformers", "soundfile", "soxr", "librosa"} <= names
+    assert not ({"torch", "torchaudio", "triton", "funasr", "torch-complex"} & names)
     assert not any(name.startswith(("nvidia-", "cuda-")) for name in names)
     for package in lock["package"]:
         for dependency in package.get("dependencies", []):

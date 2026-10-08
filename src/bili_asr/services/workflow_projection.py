@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from bili_asr.archive import archive_bundle_complete, bundle_relpaths_for_stem
+from bili_asr.artifact_root import ArtifactRoots
 from bili_asr.formatting import pubdate_utc
 from bili_asr.page_identity import PageIdentity, artifact_stem
 
@@ -52,10 +53,18 @@ def _part_rows(connection: sqlite3.Connection) -> list[sqlite3.Row]:
 
 
 def workflow_records(
-    archive_root: str | Path, *, with_text: bool = False
+    archive_root: str | Path, *, with_text: bool = False,
+    artifact_roots: ArtifactRoots | None = None,
+    verify_artifacts: bool = True,
 ) -> dict[str, dict[str, Any]]:
-    """Project one row per active video part from SQLite workflow facts."""
-    root = Path(archive_root).resolve()
+    """Project one row per active video part from SQLite workflow facts.
+
+    Integrity/coverage readers set ``verify_artifacts=False`` to retain a
+    publication's declared terminal state until their own artifact verification.
+    Otherwise a broken published bundle would be mistaken for ordinary backlog.
+    """
+    roots = artifact_roots if artifact_roots is not None else ArtifactRoots.of(archive_root)
+    root = roots.archive_root
     database = root / "archive.db"
     if not database.is_file():
         return {}
@@ -135,7 +144,9 @@ def workflow_records(
                             for key, value in paths.items()
                         }
                         entry.update(paths)
-                    published = archive_bundle_complete(root, paths)
+                    published = not verify_artifacts or any(
+                        archive_bundle_complete(base, paths) for base in roots.read_bases()
+                    )
                 except (OSError, TypeError, ValueError, json.JSONDecodeError):
                     published = False
             entry["status"] = "archived" if published else (

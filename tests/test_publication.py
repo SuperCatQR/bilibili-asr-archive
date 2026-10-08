@@ -505,9 +505,13 @@ def test_missing_or_altered_contract_is_not_repaired_on_open(tmp_path):
 
 
 def test_metadata_only_archive_does_not_gain_a_manuscript_contract(tmp_path):
+    from importlib import resources
+
     path = tmp_path / "archive.db"
     with sqlite3.connect(path) as connection:
-        connection.execute("CREATE TABLE unrelated(value TEXT)")
+        package = resources.files("bili_asr.storage")
+        for name in ("schema.sql", "schema-transcripts.sql", "schema-workflow.sql"):
+            connection.executescript(package.joinpath(name).read_text("utf-8"))
     connection = open_database(path)
     try:
         with pytest.raises(SchemaContractError):

@@ -334,6 +334,7 @@ def test_fetch_meta_creates_fresh_database_and_completes(
     # page_count mirrors v_ingestion_run_stats: one evidence row per page
     # the run touched, including the completing empty page.
     assert "2 page(s)" in out
+    assert f"collected_pages=1 videos=1 parts={part_count}" in out
     assert "state=complete" in out
     assert err == ""
     for relative in LEGACY_SIDECAR_PATHS:
@@ -530,8 +531,58 @@ def test_fetch_meta_upstream_failure_exits_two_with_cursor_unchanged(
 
     out, err = capsys.readouterr()
     assert expected_code in err
+    assert f"operation=get_user_video_page api_code={upstream_code}" in err
     assert "cursor unchanged" in err
     assert_leaks_no_markers(out + err, context="fetch-meta failure output")
+
+
+def test_first_page_risk_reports_zero_collection_and_explicit_restart(
+    tmp_root, bilibili_api_seam, capsys
+):
+    bilibili_api_seam.videos_error = FakeResponseCodeException(-352, UPSTREAM_ERROR_TEXT)
+    assert main(["fetch-meta", "--archive-root", tmp_root, "--start-page", "3"]) == 2
+    out, err = capsys.readouterr()
+    assert "recorded 1 page(s)" in out
+    assert "collected_pages=0 videos=0 parts=0" in out
+    assert "operation=get_user_video_page api_code=-352" in err
+    assert "--start-page 3" in err
+    assert "--resume requires a stored cursor" in err
+    connection = open_database(tmp_root)
+    try:
+        assert connection.execute("SELECT count(*) FROM videos").fetchone()[0] == 0
+        assert connection.execute("SELECT count(*) FROM video_parts").fetchone()[0] == 0
+        assert connection.execute("SELECT count(*) FROM ingestion_cursors").fetchone()[0] == 0
+        assert tuple(connection.execute("SELECT page_number, outcome, error_code FROM ingestion_pages").fetchone()) == (3, "risk_interrupted", "rate_limited")
+        assert_leaks_no_markers(persisted_row_text(connection), context="failed first page")
+    finally:
+        connection.close()
+    assert_leaks_no_markers(out + err, context="failed first page output")
+
+
+def test_invalid_cookie_is_not_retried_and_keeps_archive_empty(
+    tmp_root, bilibili_api_seam, capsys
+):
+    bilibili_api_seam.nav_error = FakeResponseCodeException(-101, UPSTREAM_ERROR_TEXT)
+    assert main([
+        "fetch-meta", "--archive-root", tmp_root,
+        "--sessdata", SESSDATA_BOUNDARY_VALUE, "--page-retries", "3",
+    ]) == 2
+    out, err = capsys.readouterr()
+    assert "operation=validate_metadata_credentials api_code=-101" in err
+    assert "gateway failure (auth_error)" in err
+    assert "refresh BILI_SESSDATA" in err
+    assert "collected_pages=0 videos=0 parts=0" in out
+    assert bilibili_api_seam.calls == ["credential.nav"]
+    connection = open_database(tmp_root)
+    try:
+        for table in ("videos", "video_parts", "ingestion_cursors"):
+            assert connection.execute("SELECT count(*) FROM " + table).fetchone()[0] == 0
+        assert tuple(connection.execute("SELECT outcome, error_code FROM ingestion_pages").fetchone()) == ("failed", "auth_error")
+        assert connection.execute("SELECT outcome FROM ingestion_runs").fetchone()[0] == "failed"
+        assert_leaks_no_markers(persisted_row_text(connection), context="auth failure archive")
+    finally:
+        connection.close()
+    assert_leaks_no_markers(out + err, context="auth failure output")
 
 
 def test_fetch_meta_unexpected_error_is_bounded_exit_two_no_traceback(

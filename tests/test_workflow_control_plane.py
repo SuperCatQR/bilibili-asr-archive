@@ -28,9 +28,12 @@ from bili_asr.workflow_runtime import ArchiveWorkflowHandlers
 
 def test_metadata_only_archive_runs_without_manuscript_bootstrap(tmp_path, capsys) -> None:
     from bili_asr.cli import main
+    from importlib import resources
 
     with sqlite3.connect(tmp_path / 'archive.db') as connection:
-        connection.execute('CREATE TABLE unrelated(value TEXT)')
+        package = resources.files("bili_asr.storage")
+        for name in ("schema.sql", "schema-transcripts.sql", "schema-workflow.sql"):
+            connection.executescript(package.joinpath(name).read_text("utf-8"))
     assert main(['workflow', 'run', '--archive-root', str(tmp_path), '--limit', '1']) == 0
     assert 'succeeded=0 failed=0' in capsys.readouterr().out
     assert main(['workflow', 'run', '--archive-root', str(tmp_path), '--only-editorial']) == 1
@@ -346,7 +349,10 @@ def test_failed_jobs_can_be_requeued_without_erasing_their_attempt_history(tmp_p
 def test_audio_handler_measures_downloaded_media_before_recording_it(tmp_path, monkeypatch, valid_audio) -> None:
     from bili_asr import audio
 
-    def download(_client, _identity, target):
+    def download(_client, _identity, target, *, artifact_roots=None):
+        assert artifact_roots is not None
+        assert target.is_relative_to(artifact_roots.write_base)
+        target.parent.mkdir(parents=True, exist_ok=True)
         if valid_audio:
             with wave.open(str(target), "wb") as wav:
                 wav.setnchannels(1)

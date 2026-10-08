@@ -4,8 +4,10 @@ This is the ONLY application module allowed to import ``bilibili_api`` (plan
 Global Constraints and the gateway spec's dependency contract).  Every method
 converts one upstream response into validated application DTOs and never
 retains, logs, or returns the response dictionary, credentials, or raw
-exception text.  Upstream failures map onto the bounded exception taxonomy in
-``bili_asr.sources.models``; only the scalar ``code`` may leave the process.
+exception text. Upstream failures map onto the bounded exception taxonomy in
+``bili_asr.sources.models``; only the scalar ``code`` is persisted. Operator
+diagnostics can additionally expose allowlisted operation names and numeric
+HTTP/API codes, never raw exceptions or response content.
 
 A signed subtitle URL exists for the duration of one call only: it is resolved
 here — normalized to ``https:`` when upstream answers it protocol-relative —
@@ -41,6 +43,7 @@ from bili_asr.config import resolve_proxy
 from bili_asr.bili_client import NAV_URL
 from bili_asr.sources.models import (
     GatewayAuthenticationError,
+    GatewayDiagnostic,
     GatewayError,
     GatewayNotFound,
     GatewayRateLimited,
@@ -738,6 +741,7 @@ class BilibiliApiGateway:
         """
 
         self._credential = Credential(sessdata=sessdata) if sessdata else Credential()
+        self._metadata_credential_checked = not bool(sessdata)
         self.resolved_proxy = resolve_proxy(proxy, os.environ)
         if self.resolved_proxy is not None:
             request_settings.set_proxy(self.resolved_proxy)
@@ -793,6 +797,12 @@ class BilibiliApiGateway:
         _require_positive_argument(mid, "mid")
         _require_positive_argument(page_number, "page_number")
         _require_positive_argument(page_size, "page_size")
+        if not self._metadata_credential_checked:
+            # A configured cookie is not proof of login. The pin's WBI key
+            # getter ignores nav's -101 and can still send a rejected cookie
+            # to arc/search, which obscures authentication behind risk control.
+            await self._validate_credentials("validate_metadata_credentials")
+            self._metadata_credential_checked = True
         response = await self._await_upstream(
             "get_user_video_page",
             lambda: self._fetch_user_video_page(mid, page_number, page_size),
@@ -930,7 +940,9 @@ class BilibiliApiGateway:
         The nav payload and its account details never leave this boundary.
         """
 
-        operation = "validate_subtitle_credentials"
+        await self._validate_credentials("validate_subtitle_credentials")
+
+    async def _validate_credentials(self, operation: str) -> None:
         response = await self._await_upstream(
             operation,
             lambda: Api(
@@ -1143,36 +1155,47 @@ class BilibiliApiGateway:
     ) -> Any:
         """Await one upstream call and map its failures onto the taxonomy.
 
-        The mapped exception message carries the bounded code and the
-        operation name only; upstream text, URLs, and payload content stay
-        process-local.  Subtitle calls classify authentication rejection
-        separately from absence; the metadata path retains its response error.
+        The mapped exception message carries the bounded code and operation
+        name only. Its diagnostic carries validated numeric HTTP/API codes
+        or a fixed reason. Upstream text, URLs and payload content stay local.
         """
 
         try:
             return await call()
         except NetworkException as exc:
+            diagnostic = GatewayDiagnostic(
+                operation,
+                http_status=exc.status if type(exc.status) is int and 100 <= exc.status <= 599 else None,
+            )
             if exc.status in _RATE_LIMITED_HTTP_STATUSES:
-                raise GatewayRateLimited(detail=operation) from exc
+                raise GatewayRateLimited(detail=operation, diagnostic=diagnostic) from exc
             if exc.status in _NOT_FOUND_HTTP_STATUSES:
-                raise GatewayNotFound(detail=operation) from exc
-            raise GatewayTransportError(detail=operation) from exc
+                raise GatewayNotFound(detail=operation, diagnostic=diagnostic) from exc
+            raise GatewayTransportError(detail=operation, diagnostic=diagnostic) from exc
         except ResponseCodeException as exc:
+            diagnostic = GatewayDiagnostic(
+                operation,
+                api_code=exc.code if type(exc.code) is int and -(2**31) <= exc.code < 2**31 else None,
+            )
             if exc.code in _RATE_LIMITED_API_CODES:
-                raise GatewayRateLimited(detail=operation) from exc
+                raise GatewayRateLimited(detail=operation, diagnostic=diagnostic) from exc
             if exc.code in authentication_api_codes:
-                raise GatewayAuthenticationError(detail=operation) from exc
+                raise GatewayAuthenticationError(detail=operation, diagnostic=diagnostic) from exc
             if exc.code in not_found_api_codes:
-                raise GatewayNotFound(detail=operation) from exc
-            raise GatewayResponseError(detail=operation) from exc
+                raise GatewayNotFound(detail=operation, diagnostic=diagnostic) from exc
+            raise GatewayResponseError(detail=operation, diagnostic=diagnostic) from exc
         except WbiRetryTimesExceedException as exc:
-            raise GatewayRateLimited(detail=operation) from exc
+            raise GatewayRateLimited(detail=operation, diagnostic=GatewayDiagnostic(
+                operation, reason="wbi_retry_exhausted")) from exc
         except ResponseException as exc:
-            raise GatewayResponseError(detail=operation) from exc
+            raise GatewayResponseError(detail=operation, diagnostic=GatewayDiagnostic(
+                operation, reason="response_error")) from exc
         except ApiException as exc:
-            raise GatewayResponseError(detail=operation) from exc
+            raise GatewayResponseError(detail=operation, diagnostic=GatewayDiagnostic(
+                operation, reason="response_error")) from exc
         except Exception as exc:
-            raise GatewayTransportError(detail=operation) from exc
+            raise GatewayTransportError(detail=operation, diagnostic=GatewayDiagnostic(
+                operation, reason="transport_error")) from exc
 
 
 __all__ = ["BilibiliApiGateway"]
