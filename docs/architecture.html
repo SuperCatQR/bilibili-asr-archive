@@ -6066,6 +6066,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
           <li>BVID / part ID 先全集验证，再幂等规划；ASR 只依赖音频成功，不依赖字幕。</li>
           <li>取消 queued/running 为 cancelled，精确 attempt 防止旧 worker 提交；取消不级联且不被 retry 恢复。</li>
           <li>网络与推理在事务外运行；权威结果在 BEGIN IMMEDIATE 内检查 lease 并提交。</li>
+          <li>ASR profile 冻结完整有效配置，成功诊断与转录同事务提交；正文去重仍保留每次运行证据。</li>
         </ul>
       </div>
 
@@ -6077,7 +6078,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
         <ul>
           <li>fetch-meta 持久保存分页事实与恢复游标；字幕和 ASR 追加不可变转录。</li>
           <li>音频复用或独立暂存，probe / hash 在锁外，最终替换与对象登记在 guard 内。</li>
-          <li>workflow 写入 archive root，保留真实 M4A / FLAC 后缀；当前 handler 没有自动音频回收。</li>
+          <li>workflow 可写独立 artifact root，SQLite 留在 archive root；保留 M4A / FLAC 后缀且无自动回收。</li>
         </ul>
       </div>
 
