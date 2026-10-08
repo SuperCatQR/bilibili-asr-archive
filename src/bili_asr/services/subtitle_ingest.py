@@ -279,11 +279,13 @@ class SubtitleIngestor:
         *,
         credential_present: bool = False,
         clock: Callable[[], int] = _now,
+        checkpoint: Callable[[], None] | None = None,
     ) -> None:
         self._gateway = gateway
         self._repository = repository
         self._credential_present = bool(credential_present)
         self._clock = clock
+        self._checkpoint = checkpoint or (lambda: None)
 
     def probe(self, selection: SubtitleSelection) -> ProbeResult:
         """List what each selected part exposes, writing nothing at all."""
@@ -306,6 +308,7 @@ class SubtitleIngestor:
         before it propagates, so a run is never left ``running``.
         """
 
+        self._checkpoint()
         items = self._candidate_items(selection)
         selector_kind, selector_target = _selector(selection)
         run_id = uuid.uuid4().hex
@@ -324,10 +327,10 @@ class SubtitleIngestor:
             outcomes = asyncio.run(
                 self._acquire_parts(run_id, items, selection.languages)
             )
+            self._repository.finish_acquisition_run(run_id, self._clock())
         except BaseException:
             self._finish_failed_run(run_id)
             raise
-        self._repository.finish_acquisition_run(run_id, self._clock())
         counts = Counter(outcome.outcome for outcome in outcomes)
         return HarvestResult(
             run_id=run_id,
@@ -425,6 +428,7 @@ class SubtitleIngestor:
     ) -> SubtitlePartOutcome:
         """Acquire one part: list, select, fetch, store, record the attempt."""
 
+        self._checkpoint()
         started_at = self._clock()
         try:
             tracks = await self._gateway.get_subtitle_tracks(item.bvid, item.cid)
@@ -434,6 +438,7 @@ class SubtitleIngestor:
             )
         except GatewayError as error:
             return self._record_failed_part(run_id, item, error, started_at)
+        self._checkpoint()
         track = select_subtitle_track(tracks, languages)
         if track is None:
             # A cookie being present does not make this an authenticated
@@ -442,6 +447,7 @@ class SubtitleIngestor:
             if self._credential_present:
                 try:
                     await self._gateway.validate_subtitle_credentials()
+                    self._checkpoint()
                 except GatewayError as error:
                     return self._record_failed_part(run_id, item, error, started_at)
             return self._record_captionless_part(
@@ -460,6 +466,7 @@ class SubtitleIngestor:
             )
         except GatewayError as error:
             return self._record_failed_part(run_id, item, error, started_at)
+        self._checkpoint()
         return self._record_caption(run_id, item, track, segments, started_at)
 
     def _record_caption(

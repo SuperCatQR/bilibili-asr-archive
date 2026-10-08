@@ -42,7 +42,7 @@ Package boundaries:
 - `services/` coordinates acquisition and pure transcript projections.
 - `storage/` owns SQLite schema, records, repositories, and workflow scheduling.
 - `workflow.py` runs claimed jobs; `workflow_runtime.py` supplies the media handlers.
-- `archive.py` writes the SRT, TXT, Markdown, raw JSON, and bundle marker.
+- `archive.py` writes SRT, WebVTT, TXT, Markdown, raw JSON, and the five-product bundle marker.
 - `coverage_report.py`, `integrity.py`, `export.py`, and `search_index/` are read projections over SQLite and published files.
 
 ## Install
@@ -104,23 +104,33 @@ SELECT video_part_id, bvid, page_index, title FROM video_parts ORDER BY video_pa
 
 ```powershell
 bili-asr workflow plan --part-id 42 --asr-policy all
+bili-asr workflow plan --bvid BV_EXAMPLE --page-index 0 --proofread
 bili-asr workflow run --limit 20
-bili-asr workflow status
+bili-asr workflow status --jobs
 ```
 
-`workflow plan` is idempotent for the same input and policy. Subtitle acquisition is independent; each selected ASR job gets an audio prerequisite. `--asr-policy` accepts `all`, `selected`, or `below-threshold` (with `--quality-threshold`). The current `selected` policy plans ASR for the explicitly supplied parts, as does `all`; `below-threshold` uses the latest stored quality assessment and skips unassessed parts. ASR profiles freeze the full effective configuration, including independent model/aligner revisions, chunk size, timeout, hotwords, offline loading and generation budget. Explicit planning arguments override the environment; execution uses the stored snapshot.
+`workflow plan` is idempotent for the same input and policy. Repeat either `--part-id` or `--bvid`; the two selection forms are mutually exclusive. BVID selection uses stored metadata and optionally selects the same zero-based `--page-index` in each video (`0` is source P1). All targets are validated before profiles or jobs are created. See [workflow selection](docs/workflow-selection.md).
 
-Successful ASR runs retain per-chunk diagnostics independently of transcript content deduplication. Inspect them with `bili-asr workflow asr-evidence --run-id RUN_ID --part-id 42`. See [ASR configuration and diagnostics](docs/asr-configuration.md) for parameter defaults, quality flag meanings and current limitations, and [the design review](docs/asr-design-review.md) for official sources and the remaining experiment roadmap.
+Subtitle acquisition is independent; ASR waits for its audio prerequisite. `--asr-policy` accepts `all`, `selected`, or `below-threshold`. The first two plan ASR for the explicit selection; `below-threshold` requires a stored quality assessment below `--quality-threshold`. ASR profiles freeze the full effective configuration, including independent model/aligner revisions, chunk size, timeout, hotwords, offline loading and generation budget. Explicit planning arguments override the environment; execution uses the stored snapshot.
 
-Inspect unsatisfied prerequisites and retry a specific failure without discarding its attempt history:
+Successful ASR runs retain per-chunk diagnostics independently of transcript content deduplication. Inspect them with `bili-asr workflow asr-evidence --run-id RUN_ID --part-id 42`. See [ASR configuration and diagnostics](docs/asr-configuration.md) for parameter defaults and quality flag meanings, and [public sample results](docs/asr-public-samples.md) for the evidence supporting the current baseline. Hotwords remain empty and are outside routine tuning.
+
+Cancel selected jobs using IDs from `workflow status --jobs`:
 
 ```powershell
-bili-asr workflow status --details
-bili-asr workflow explain --job-id JOB_ID
-bili-asr workflow retry --job-id JOB_ID --kind audio
+bili-asr workflow cancel --job-id JOB_ID --job-id ANOTHER_JOB_ID
 ```
 
-Repeated `--job-id`, `--kind`, and `--part-id` filters combine by intersection across filter types. A queued downstream job becomes ready when its prerequisites succeed. Local processes may share one SQLite database; application and heartbeat connections use the same bounded wait, configured by `BILI_SQLITE_BUSY_TIMEOUT_MS` (default `30000`). See [docs/metadata-storage.md](docs/metadata-storage.md) for the concurrency scope and recovery procedure.
+Queued and running jobs become `cancelled`; running work stops cooperatively at safe boundaries. Cancellation and result commits share a SQLite write lock. Completed jobs are a no-op; dependants remain queued and are reported as blocked. Retry and repeated planning do not revive the same cancelled job. See [cancellation](docs/workflow-cancellation.md).
+
+To rebuild a bundle from an existing preferred transcript, without reacquisition:
+
+```powershell
+bili-asr workflow publish --part-id 42
+bili-asr workflow run
+```
+
+Bundles now require all five products and an `archive-bundle-v2` marker with SHA-256 digests. Existing four-product bundles require explicit republication; incompatible workflow databases require a backup and rebuild. See [WebVTT and bundle integrity](docs/webvtt.md).
 
 Editorial work can be planned from stored transcripts and rendered deterministically:
 
@@ -130,9 +140,9 @@ bili-asr workflow render --revision-id REVISION_ID
 bili-asr workflow run --only-editorial
 ```
 
-The read-only Markdown site importer copies rendered `reading.md` and
-`review.md` documents registered in SQLite, resolving their relative paths through the configured artifact roots. The public
-site can consume both views and their review status. Export the content snapshot:
+The Markdown exporter reads SQLite without modifying it, verifies rendered
+`reading.md` and `review.md`, and writes a content snapshot for a separate site
+consumer. The catalog records quality/review status and Issue links:
 
 ```powershell
 bili-asr reading-export --archive-root archive --out reading-site/content
@@ -140,10 +150,9 @@ bili-asr reading-export --archive-root archive --out reading-site/content
 
 Record an Issue and review status with `bili-asr reading-review`. Accepted
 changes are stored as immutable human editions using `bili-asr reading-edit`;
-the original AI revision remains unchanged. This checkout provides the content exporter;
-the separately maintained reading-site frontend must be provisioned separately.
-See [docs/ai-proofreading.md](docs/ai-proofreading.md#阅读导出与人工审核)
-for the export and review commands.
+the original AI revision remains unchanged. This checkout provides the export
+and review commands; frontend code and deployment are separate. See
+[AI proofreading](docs/ai-proofreading.md) and [the architecture](docs/architecture.md).
 
 ## Query
 
@@ -155,6 +164,8 @@ bili-asr verify --format text
 bili-asr export --format csv --out archive/export.csv --with-text
 bili-asr search-index
 bili-asr search "transcript words" --format json
+bili-asr search "标题关键词" --scope metadata --format json
+bili-asr search "课程" --scope all --from 2026-01-01 --to 2026-12-31
 bili-asr dedup report --archive-root archive --format text
 ```
 
@@ -170,10 +181,23 @@ example groups included in the output.
 
 Database table contracts must match the current shipped SQL. Incompatible old databases are refused before schema changes; there are no migrations. Stop workers, preserve any needed backup, delete the affected `archive.db`, and re-run metadata collection and workflow planning. **Rebuilding discards old database facts, including transcripts, revisions and review history.**
 
+Search defaults to `transcripts`. `metadata` searches stored titles,
+descriptions, and tags directly, without FTS or published artifacts. `all`
+returns metadata first, followed by transcript hits under one total limit.
+Dates use UTC video publication days; JSON includes `hit_type`. See
+[metadata search](docs/metadata-search.md).
+
+The current workflow writes audio, bundles, and documents under `--archive-root`.
+Audio is retained; workflow has no automatic disk-budget or reclaim option.
+See [artifact roots](docs/artifact-root.md) and [audio retention](docs/audio-retention-policy.md).
+
 ## Tests
 
 ```powershell
-uv run pytest tests/test_workflow_control_plane.py tests/test_transcript_projection.py tests/test_metadata_repository.py tests/test_metadata_ingest.py tests/test_metadata_page_retries.py tests/test_metadata_cli.py
+uv run pytest tests/test_workflow_selection.py tests/test_workflow_cancellation.py tests/test_workflow_publication.py tests/test_workflow_audio_staging.py tests/test_webvtt.py tests/test_metadata_search.py tests/test_workflow_control_plane.py tests/test_workflow_lease_heartbeat.py tests/test_ai_editorial.py
 ```
 
 This focused suite covers the supported SQLite workflow and metadata path. The full test tree also contains historical pre-cutover tests and host-dependent integration tests; run it separately when changing those areas. Live network tests require `BILI_LIVE_SMOKE=1`; scale tests require `BILI_SCALE=1`.
+
+The [documentation index](docs/README.md) links the current architecture,
+feature guides, storage contracts, and implementation assessment for #247–#250.

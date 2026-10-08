@@ -470,6 +470,28 @@ def test_the_runner_is_lazy_and_constructs_one_model_set_for_many_items(monkeypa
     assert first == second, "the same audio must produce the same cues"
 
 
+def test_processors_receive_normalized_samples_without_optional_file_loader(tmp_path) -> None:
+    """Real audio reaches both models without Transformers loading a file again."""
+    import numpy as np
+    import soundfile as sf
+
+    samples = np.linspace(-0.25, 0.25, 16000, dtype=np.float32)
+    path = tmp_path / "input.wav"
+    sf.write(path, np.column_stack((samples, samples)), 8000, subtype="FLOAT")
+    models = _FakeModelSet("今天。", _units("今天。"))
+    runner = _module_asr_runner.ASRRunner(
+        _module_asr_config.ASRConfig(model_name="local", device="cpu"),
+        model_factory=lambda **kwargs: models,
+    )
+    assert runner.transcribe(str(path))
+    decoded = models.processor.requests[0]["audio"]
+    aligned = models.aligner_processor.seen[0]["audio"]
+    assert isinstance(decoded, np.ndarray) and decoded.dtype == np.float32
+    assert decoded.ndim == 1 and len(decoded) == 32000
+    np.testing.assert_array_equal(decoded, aligned)
+    assert np.max(np.abs(decoded)) > 0.2
+
+
 def test_a_failed_load_pays_an_attempt_and_no_construction(monkeypatch) -> None:
     import numpy as np
     import soundfile as sf

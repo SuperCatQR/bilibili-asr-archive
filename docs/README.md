@@ -1,30 +1,48 @@
-# 文档入口
+# 文档索引
 
-当前产品由 SQLite 工作流驱动：保存来源事实、不可变转录、处理尝试与发布记录，再生成归档包和阅读投影。安装和命令概览见 [项目 README](../README.md)，模块与状态边界从 [当前架构](architecture.md) 开始阅读。
+[项目 README](../README.md) 提供安装和常用命令。以下文档以当前源码为依据，
+解释工作流、数据所有权、产物契约和运行限制；架构图是可审阅的源码快照。
 
-## 当前架构、ASR 与阅读流程
+## 架构与数据
 
 | 文档 | 内容 |
-|---|---|
-| [当前架构](architecture.md) / [交互式总图](architecture.html) | 系统定位、模块边界、任务生命周期、状态所有权与运行限制 |
-| [ASR 参数与诊断](asr-configuration.md) | 有效配置快照、默认参数、CLI、每次运行证据、风险标记与存储兼容 |
-| [ASR 设计评审](asr-design-review.md) | 官方资料、面向归档与阅读的设计取舍、调优实验和后续实施建议 |
-| [WSL 验证记录](asr-wsl-validation.md) | 测试环境、自动化回归、真实 CPU 模型样本与 GPU 验证限制 |
-| [公开样本与调优依据](asr-public-samples.md) | FLEURS 中文参考评分、语言与分块对照、静音误识别、复现命令及完整结果 |
-| [AI 校对使用说明](ai-proofreading.md) | 工作流与 DeepSeek 校对的参数、数据库及输出契约 |
-| [AI 校对架构](ai-proofreading-architecture.md) | 固定输入、来源覆盖、修订、确定性渲染、静态阅读站与人审 |
-| [架构图维护](architecture-maintenance.md) | 固定源码提交、编辑 JSON、生成 HTML 与浏览器校验流程 |
-| [SQLite 数据与工作流](metadata-storage.md) | 当前表与视图、身份、计划、依赖解释、重试、并发与恢复 |
-| [归档根目录与产物根目录](artifact-root.md) | workflow 的独立产物根、写入路径、读取回退及迁移 |
-| [Miniconda 部署](miniconda-deployment.md) | 环境安装、应用启动和既有 GPU runtime 保留 |
+| --- | --- |
+| [当前架构](architecture.md) | 执行模型、组件职责、数据流、状态转换、提交边界与恢复限制 |
+| [交互式架构图](architecture.html) | 可探索的组件关系图；[JSON 规格](architecture.json)记录源码证据 |
+| [架构图维护](architecture-maintenance.md) | 提交版本、证据与生成、浏览器检查的维护流程 |
+| [元数据与存储](metadata-storage.md) | SQLite 表组、采集游标、身份、不可变版本、workflow 和读取投影 |
+| [AI 校对架构](ai-proofreading-architecture.md) | 输入冻结、来源追溯、模型调用、修订与阅读文档的详细架构 |
 
-架构图中完整系统关系较多，可缩放、平移并选择路径查看节点与源码证据；阅读模块职责和规则时，文字版架构及专项文档提供更直接的入口。
+## 工作流与产物
 
-## 历史资料与适用范围
+| 文档 | 内容 |
+| --- | --- |
+| [BVID 与分 P 选择](workflow-selection.md) | 批量 BVID、零基分 P、part ID、全集验证与幂等规划 |
+| [任务取消](workflow-cancellation.md) | queued/running 取消、协作检查点、提交保护、依赖阻塞与终态 |
+| [WebVTT 与 bundle](webvtt.md) | 五文件布局、cue 契约、完成标记及已有转录的重新发布 |
+| [元数据搜索](metadata-search.md) | transcripts/metadata/all、字面匹配、排序、日期与 JSON 契约 |
+| [AI 校对使用](ai-proofreading.md) | 配置、执行、失败恢复、重新渲染、数据与离线验证 |
+| [产物根目录](artifact-root.md) | workflow 产物写根、读取回退顺序、音频与派生产物路径 |
+| [音频保留与预算](audio-retention-policy.md) | 当前预算和保留策略入口、下载暂存、复用及回收边界 |
+| [Issues #247–#250](feature-plan-247-250.md) | 实施前评估、实现状态、风险、验收与交付顺序 |
 
-以下页面保留旧实现或机器环境的背景。其首页已标明当前边界；执行命令以当前 `bili-asr --help`、项目 README 和上表文档为准。
+## 环境
 
-| 文档 | 当前适用范围 |
-|---|---|
-| [WSL ROCm 配方](wsl-rocm-gpu.md) | 2026-09-12 特定 AMD 环境的历史记录；不表示本次 WSL 环境 GPU 可用 |
-| [音频保留策略](audio-retention-policy.md) | 旧归档命令的保留与回收策略背景；当前 CLI 没有其中的生命周期开关 |
+## ASR 参数与评测
+
+| 文档 | 内容 |
+| --- | --- |
+| [ASR 参数与诊断](asr-configuration.md) | 完整配置快照、独立模型版本、逐次运行证据与质量标记 |
+| [ASR 设计评审](asr-design-review.md) | 官方资料、归档定位、证据支持的基线与空热词策略 |
+| [公开样本测试](asr-public-samples.md) | FLEURS 参考 CER、分块与静音对照、完整 JSON 与复现命令 |
+| [WSL 验证记录](asr-wsl-validation.md) | 自动化回归、真实 CPU 模型样本与 GPU 限制 |
+
+## 环境与部署
+
+| 文档 | 内容 |
+| --- | --- |
+| [Miniconda 部署](miniconda-deployment.md) | 应用依赖、生产启动检查与独立 ASR 环境 |
+| [WSL ROCm GPU](wsl-rocm-gpu.md) | 已记录的 AMD WSL2 环境、版本组合、设备探测与故障排查 |
+
+环境记录和实施前评估保留各自的时间背景。当前行为以源码、相应功能指南和测试为准，
+不能将旧命令、旧 schema 或实验结果直接当作当前接口。

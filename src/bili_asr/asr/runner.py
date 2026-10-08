@@ -349,6 +349,7 @@ class ASRRunner:
 
         hotwords = self._prompt_hotwords()
         prompt = "Vocabulary: " + ", ".join(hotwords) if hotwords else None
+        # Decoded chunks already contain mono 16 kHz audio.
         inputs = models.processor.apply_transcription_request(
             audio=audio, language=self.config.language, prompt=prompt
         )

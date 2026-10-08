@@ -247,13 +247,13 @@ def test_workflow_persists_diagnostics_and_uses_frozen_parameters(database, tmp_
         "quality", "model", device=device, chunk_seconds=60,
         inference_timeout_seconds=72, aligner_revision="align-commit"))
     repository.plan(part_ids=[1], policy=AsrPolicy.ALL, profile_id=profile_id)
-    audio_path = tmp_path / "audio" / "test.wav"
+    audio_path = tmp_path / "audio" / "test.m4a"
     audio_path.parent.mkdir()
     audio_path.write_bytes(b"fake audio; decoder is substituted")
     for _ in range(2):
         job = repository.claim("test", kinds=(JobKind.SUBTITLE, JobKind.AUDIO))
         repository.finish(job.job_id, worker_id="test",
-                          result={"storage_key": "audio/test.wav", "sha256": "f" * 64} if job.kind is JobKind.AUDIO else {})
+                          result={"storage_key": "audio/test.m4a", "sha256": "f" * 64} if job.kind is JobKind.AUDIO else {})
     job = repository.claim("test")
     assert job.kind is JobKind.ASR
     evidence = assemble_diagnostics([{"completed": True, "decoded_s": 1, "chunks": [],
