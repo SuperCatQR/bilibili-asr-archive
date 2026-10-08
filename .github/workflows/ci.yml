@@ -135,6 +135,7 @@ jobs:
         with:
           name: coverage-data-${{ github.run_id }}-${{ matrix.shard.label }}
           path: .coverage.*
+          include-hidden-files: true
           if-no-files-found: ignore
           retention-days: 14
 
@@ -202,6 +203,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     needs: python
+    if: ${{ !cancelled() && (needs.python.result == 'success' || needs.python.result == 'failure') }}
     steps:
       - uses: actions/checkout@v7
 
@@ -225,14 +227,18 @@ jobs:
           merge-multiple: true
 
       - name: Combine coverage data
+        id: combine
         run: |
           python -m coverage combine
 
+      - name: Generate coverage report
+        if: ${{ !cancelled() && steps.combine.outcome == 'success' }}
+        run: |
           python -m coverage report --show-missing
           python -m coverage xml -o coverage.xml
 
       - name: Upload coverage report
-        if: always()
+        if: ${{ !cancelled() && hashFiles('coverage.xml') != '' }}
         uses: actions/upload-artifact@v7
         with:
           name: coverage-${{ github.run_id }}
