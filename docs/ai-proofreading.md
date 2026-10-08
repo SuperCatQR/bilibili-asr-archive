@@ -1,7 +1,7 @@
 # DeepSeek AI 校对使用说明
 
-当前阅读稿版通过 DeepSeek 官方 API 的 `deepseek-flash` 模型处理固定的数据库转录版本。
-AI 返回带来源 ID 的完整阅读段落，程序校验后保存独立修订，生成中文 Markdown 阅读稿和校对记录。
+当前 AI 合成稿流程通过 DeepSeek 官方 API 的 `deepseek-flash` 模型处理固定的数据库转录版本。
+AI 返回带来源 ID 的完整段落，程序校验后保存不可变 AI revision，生成配对的 `ai-draft.md` 与校验参照稿件 `review.md`。
 业务进度保存在 SQLite；工作器重启后读取固定输入与已有块结果继续执行。
 
 ## 运行前提
@@ -11,8 +11,9 @@ AI 返回带来源 ID 的完整阅读段落，程序校验后保存独立修订�
 - 新建数据库使用包含 `proofread` / `render_document` 的工作流表结构。
 - 真实校对需要环境变量 `DEEPSEEK_API_KEY`。密钥仅进入 HTTP Authorization，不写入模型请求快照、结果或文档。
 
-本次不提供旧工作流表的迁移。若旧 `workflow_jobs` 的类型约束不支持校对任务，计划会明确报错，
-需要重新建立归档数据库；程序不会自动删除、重建或迁移现有库。仅重新安装 Python 包不能修改旧表约束。
+本次不提供旧工作流或稿件 schema 的迁移。旧稿件表、旧产物约束、缺少契约标记或旧模板均明确拒绝，
+检查先于 schema 初始化或任何写入。请创建独立的新归档验证；程序不会自动删除、重建或迁移现有库。
+仅重新安装 Python 包不能修改旧表约束。
 
 ## 处理已有转录
 
@@ -72,7 +73,9 @@ bili-asr workflow run --archive-root /srv/bili-archive
 任务依赖为 `audio → asr → proofread → render_document`。字幕采集独立运行，
 字幕失败不会阻止 ASR 或校对。自动校对固定其 ASR 前置任务成功返回的准确 `transcript_id`，
 在首次执行时取已有字幕并冻结；重试不会切换为最新 ASR 或后续到达的字幕。
-原始转录发布继续独立执行，不等待校对。
+原始转录 bundle 的工作流 `publish` 继续独立执行，不等待校对。该步骤不发布文章。
+AI 工作流只生成合成稿与校验参照稿，不创建人工 edition、不登记人工批准，也不生成发布 release。
+文章的显式编辑、审核、发布和撤回见 [publication.md](publication.md)。
 
 ## 大块预算
 
@@ -135,16 +138,16 @@ bili-asr workflow proofread --archive-root /srv/bili-archive --part-id 101 \
 每个输入片段提供 `allowed_issue_refs`，列出本片段及相交参考字幕；段落疑点只能引用其合并片段
 允许 ID 的并集。无关引用会失败，不会被程序静默替换成其他证据。
 
-产物路径：
+产物路径（唯一支持的模板为 `ai-draft-v1`）：
 
 ```text
-<archive-root>/documents/part-<video_part_id>/<revision_id>/reading-v2/
-  reading.md
+<archive-root>/documents/part-<video_part_id>/<revision_id>/ai-draft-v1/
+  ai-draft.md
   review.md
 ```
 
-`reading.md` 只有整理后的正文段落，不含视频标题、话题标题、目录、时间戳、脚注或审核说明。
-`review.md` 保存模型思考和采样参数、固定输入、每段全部来源 ID、原文与整理稿对照、
+`ai-draft.md` 只有 AI 整理后的正文段落，不含视频标题、话题标题、目录、时间戳、脚注或审核说明。
+`review.md` 是校验参照稿件，保存模型思考和采样参数、固定输入、每段全部来源 ID、原文与整理稿对照、
 时间范围、回看链接、疑点和未匹配参考字幕，并注明未经人工复核。
 源文本按字面转义，不能把字幕中的 HTML 或链接指令直接变成文档行为。
 旧规则和旧模板不兼容；需要按当前规则创建新的固定输入和修订，不能把旧结果冒充新稿。
@@ -169,8 +172,11 @@ bili-asr workflow run --archive-root /srv/bili-archive --only-editorial
 ```
 
 重渲染不需要 API 密钥，不调用模型，可修复已删除的 Markdown。
-相同已保存修订和 `reading-v2` 模板生成相同字节；模板内容改变时需要新的模板版本和实现，
-当前只支持 `reading-v2`。文件通过临时文件、fsync 和原子替换写入，数据库记录路径及 SHA-256。
+相同已保存修订和 `ai-draft-v1` 模板生成相同字节；模板内容改变时需要新的模板版本和实现，
+当前只支持 `ai-draft-v1`，旧 `reading-v2` 会在计划阶段拒绝。文件通过临时文件、fsync 和原子替换写入，
+写入前先校验整对产物的 `ai-draft` / `review-reference` 角色、路径及 SHA-256；已登记内容不允许漂移。
+完成文件安装后才登记数据库。已有文件与重渲染结果不同会明确失败，不覆盖人工或损坏的字节。
+缺失文件可按固定字节重建；根目录、父目录或目标是链接或 reparse point 时拒绝写入。
 
 ## 数据与离线验证
 
@@ -181,7 +187,7 @@ bili-asr workflow run --archive-root /srv/bili-archive --only-editorial
 | `editorial_model_calls` | 所属工作流尝试、请求、实际响应、用量、错误码和时间 |
 | `editorial_chunk_results` | 每个块通过校验后的完整段落、来源 ID、原文和疑点 JSON |
 | `editorial_revisions` | 全部块的完整修订、内容标识、`ai-unreviewed` / `needs-review` 质量状态 |
-| `document_artifacts` | 修订、模板、文件路径和散列 |
+| `document_artifacts` | 修订、`ai-draft-v1` 模板、`ai-draft.md` / `review.md` 文件角色、路径和散列 |
 
 没有另建调度器；任务和终态仍归属于 `workflow_jobs` / `workflow_attempts`。
 段落和块信息保存在结构化 JSON 中，当前实现不额外建 `editorial_changes` / `editorial_blocks` 表。

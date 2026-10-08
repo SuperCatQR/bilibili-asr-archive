@@ -10,6 +10,7 @@ from types import MappingProxyType
 class ArtifactPolicy(Enum):
     NONE = "none"
     READ = "read"
+    WRITE = "write"
 
 
 @dataclass(frozen=True)
@@ -33,9 +34,8 @@ COMMANDS = MappingProxyType({
     "search-index": CommandSpec("_cmd_search_index", ArtifactPolicy.READ),
     "check-asr-env": CommandSpec("_cmd_check_asr_env", ArtifactPolicy.NONE),
     "export": CommandSpec("_cmd_export", ArtifactPolicy.READ),
-    "reading-export": CommandSpec("_cmd_reading_export", ArtifactPolicy.READ),
-    "reading-review": CommandSpec("_cmd_reading_review", ArtifactPolicy.NONE),
-    "reading-edit": CommandSpec("_cmd_reading_edit", ArtifactPolicy.NONE),
+    "publication": CommandSpec("_cmd_publication", ArtifactPolicy.NONE),
+    "editorial": CommandSpec("_cmd_editorial", ArtifactPolicy.NONE),
     "dedup": CommandSpec("_cmd_dedup", ArtifactPolicy.READ),
 })
 

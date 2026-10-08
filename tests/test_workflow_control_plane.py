@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import shutil
 import subprocess
+import sqlite3
 import wave
 
 import pytest
@@ -23,6 +24,31 @@ from bili_asr.export import export_records
 from bili_asr.integrity import IntegrityVerifier
 from bili_asr.services.workflow_projection import workflow_records
 from bili_asr.workflow_runtime import ArchiveWorkflowHandlers
+
+
+def test_metadata_only_archive_runs_without_manuscript_bootstrap(tmp_path, capsys) -> None:
+    from bili_asr.cli import main
+
+    with sqlite3.connect(tmp_path / 'archive.db') as connection:
+        connection.execute('CREATE TABLE unrelated(value TEXT)')
+    assert main(['workflow', 'run', '--archive-root', str(tmp_path), '--limit', '1']) == 0
+    assert 'succeeded=0 failed=0' in capsys.readouterr().out
+    assert main(['workflow', 'run', '--archive-root', str(tmp_path), '--only-editorial']) == 1
+    assert 'manuscript-schema-contract' in capsys.readouterr().err
+    with sqlite3.connect(tmp_path / 'archive.db') as connection:
+        assert connection.execute("SELECT name FROM sqlite_master WHERE name='manuscript_contract'").fetchone() is None
+
+
+def test_workflow_legacy_manuscript_refusal_is_bounded_and_readonly(tmp_path, capsys) -> None:
+    from bili_asr.cli import main
+
+    path = tmp_path / 'archive.db'
+    with sqlite3.connect(path) as connection:
+        connection.execute('CREATE TABLE reading_publications(value TEXT)')
+    before = path.read_bytes()
+    assert main(['workflow', 'run', '--archive-root', str(tmp_path)]) == 1
+    assert 'manuscript-schema-contract' in capsys.readouterr().err
+    assert path.read_bytes() == before
 
 
 def _seed_part(connection) -> int:

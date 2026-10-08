@@ -20,10 +20,12 @@ archive.db: metadata, transcripts, audio references, workflow jobs, leases, atte
 archive/:   audio files and published transcript bundles
 ```
 
-The reading-site projection is built separately: SQLite editorial revisions
-and hash-verified `reading.md` artifacts are exported read-only to
-`reading-site/content/`. Issue review decisions and accepted human editions
-return through `reading-review` and `reading-edit`.
+AI revisions produce an immutable `ai-draft.md` and a verification reference
+`review.md`. Editors create complete publication editions, review their exact
+content hashes, and explicitly publish approved editions as `publish.md`.
+The public reading-site projection includes only each part's current release.
+Its source repository, `SuperCatQR/markdown-reading-site`, is an independent
+delivery; the local `reading-site/` checkout is ignored by this repository.
 
 ## License
 
@@ -100,22 +102,33 @@ bili-asr workflow render --revision-id REVISION_ID
 bili-asr workflow run --only-editorial
 ```
 
-The read-only Markdown site importer copies rendered `reading.md` and
-`review.md` documents from SQLite and their recorded artifact roots. The public
-site exposes both views; unreviewed revisions are visibly marked for
-Issue-based review:
+The editorial workflow stops after generating the AI draft and its reference.
+It does not create editions, approve them, or publish articles. Create an
+edition explicitly and inspect its complete content and hash:
 
 ```powershell
-bili-asr reading-export --archive-root archive --out reading-site/content
-cd reading-site
-pnpm install
-pnpm dev
+bili-asr publication create --archive-root archive --revision-id REVISION_ID --actor EDITOR
+bili-asr publication show --archive-root archive --edition-id EDITION_ID --format json
+bili-asr editorial export --archive-root archive --revision-id REVISION_ID --edition-id EDITION_ID --out review-output
 ```
 
-Record an Issue and review status with `bili-asr reading-review`. Accepted
-changes are stored as immutable human editions using `bili-asr reading-edit`;
-the original AI revision remains unchanged. See [reading-site/README.md](reading-site/README.md)
-for the full review and static publishing flow.
+After an explicit review decision for that edition and hash, record the
+review, publish the approved edition, then export the public snapshot:
+
+```powershell
+bili-asr publication review --archive-root archive --edition-id EDITION_ID --status in-review --expected-status pending-review --content-sha256 CONTENT_SHA256 --actor REVIEWER --note "Review started"
+bili-asr publication review --archive-root archive --edition-id EDITION_ID --status approved --expected-status in-review --content-sha256 CONTENT_SHA256 --actor REVIEWER --note "Approved this edition"
+bili-asr publication publish --archive-root archive --edition-id EDITION_ID --actor PUBLISHER
+bili-asr publication export --archive-root archive --out reading-site/content
+```
+
+New drafts and pending reviews leave the existing release public. The new
+release replaces it only after explicit publication. See
+[publication.md](docs/publication.md) for editing, expected version checks,
+withdrawal, output contracts and separate internal review exports. Transcript
+bundle publication performed by workflow `publish` remains a separate operation.
+Older manuscript databases, templates, commands and export manifests are
+rejected without migration; use a separate fresh archive for the new contract.
 
 ## Query
 

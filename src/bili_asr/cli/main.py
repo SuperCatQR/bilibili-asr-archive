@@ -57,14 +57,18 @@ def _main(
     if spec is None:
         raise ValueError(f"command {args.command!r} is not implemented")
     # Resolve configured artifact roots once at the command boundary.
-    if spec.artifacts is not ArtifactPolicy.NONE:
+    artifact_policy = getattr(args, "artifact_policy", spec.artifacts)
+    if artifact_policy is not ArtifactPolicy.NONE:
         try:
+            if artifact_policy is ArtifactPolicy.WRITE:
+                from bili_asr.cli.publication import validate_archive
+                validate_archive(args.archive_root)
             args.artifact_roots = roots_for(
                 args.archive_root,
                 flag_value=args.artifact_root,
-                require_writable=False,
+                require_writable=artifact_policy is ArtifactPolicy.WRITE,
             )
-        except ArtifactRootError as exc:
+        except (ArtifactRootError, OSError, ValueError, RuntimeError) as exc:
             write_stderr(f"{args.command}: {exc}")
             return 1
     return _cli_pkg._dispatch_command(args)

@@ -46,6 +46,39 @@ appends stay additive, and appends to it; see
 One SQLite file at `{archive_root}/archive.db`. Foreign keys are enforced
 (`PRAGMA foreign_keys = ON`).
 
+### Manuscript Contract
+
+Fresh archives also carry `schema-editorial.sql` and its explicit manuscript
+contract marker. Opening an existing archive validates this contract before
+any schema initialization, view refresh or commit. Legacy editorial tables,
+missing required entities, changed constraints, and unsupported artifact
+templates fail with a schema-contract error; the program does not add tables
+to make an old manuscript archive appear current. Read commands and repository
+boundaries use the same read-only guard. Existing data is retained; create a
+separate fresh archive to use the new manuscript contract.
+
+The AI layer freezes inputs and model evidence in `editorial_inputs`,
+`editorial_job_inputs`, `editorial_model_calls`, `editorial_chunk_results`, and
+`editorial_revisions`. `document_artifacts` records the exact revision/template
+pair, `ai-draft` / `review-reference` role, controlled path and byte hash for
+`ai-draft.md` and `review.md` under `ai-draft-v1`.
+
+The publication layer stores immutable complete reader content in
+`publication_editions`, exact edition/hash reviews in
+`publication_edition_reviews`, versioned release artifacts in
+`publication_releases`, and append-only operator facts in
+`publication_events`. `publication_heads` has independent current edition and
+current release pointers for each video part. Creating or reviewing edition B
+leaves release A public until approved B is explicitly published. Withdrawing
+the current release clears only the public pointer and keeps its history.
+
+Complete reader content has its own canonical JSON SHA-256. The separately
+rendered `publish.md` byte hash is also registered. The reviewer must submit
+the exact content hash, and publication revalidates the edition, approval,
+relationship and artifact. AI quality states are not publication approval.
+See [publication.md](publication.md) for commands and export schemas; workflow
+`publish` still means publication of transcript bundles.
+
 ### Normalized entity tables
 
 | Table | Key | Contents |

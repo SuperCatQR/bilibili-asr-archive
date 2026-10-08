@@ -93,12 +93,20 @@ fsync**，所以一个「能打开、但拒绝目录 fsync」的挂载（有些�
     bili-asr search --archive-root archive --artifact-root /srv/bili-asr-archive <query>
     bili-asr search-index --archive-root archive --artifact-root /srv/bili-asr-archive
     bili-asr export --archive-root archive --artifact-root /srv/bili-asr-archive
-    bili-asr reading-export --archive-root archive --artifact-root /srv/bili-asr-archive
+    bili-asr publication create --archive-root archive --artifact-root /srv/bili-asr-archive --revision-id R --actor EDITOR
+    bili-asr publication export --archive-root archive --artifact-root /srv/bili-asr-archive --out public-output
+    bili-asr editorial export --archive-root archive --artifact-root /srv/bili-asr-archive --revision-id R --edition-id E --out review-output
 
-`workflow`、`fetch-meta`、`status`、`runs`、`check-asr-env`、`reading-review` 和
-`reading-edit` 不解析产物根目录，因此不会接受这个参数。工作流 handler
-在运行时从归档配置构造自己的读写根目录；阅读导出保持 SQLite 只读并校验
-已登记的 `reading.md` 哈希。
+`publication publish` 会向产物写根安装不可变 `publish.md`，因此使用写权限校验：
+
+    bili-asr publication publish --archive-root archive --artifact-root /srv/bili-asr-archive --edition-id E --actor PUBLISHER
+
+`publication edit/review/withdraw/show` 只访问数据库及显式编辑输入，不接受 `--artifact-root`。
+`workflow`、`fetch-meta`、`status`、`runs`、`check-asr-env` 也不解析该参数；AI 工作流当前把
+`documents/part-<ID>/<revision>/ai-draft-v1/{ai-draft.md,review.md}` 写入归档根目录。
+创建 edition 和两类导出按 `read_bases()` 读取并校验已登记文件的 SHA-256；公开导出只读有效
+release 对应的 `publish.md`，内部导出才读取校验参照稿件。旧稿件 schema 和旧模板明确拒绝，
+下面关于既有产物根的兼容说明适用于转录和音频契约，不表示旧稿件会自动迁移。
 
 ---
 

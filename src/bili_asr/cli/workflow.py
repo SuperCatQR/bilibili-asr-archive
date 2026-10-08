@@ -14,6 +14,7 @@ from bili_asr.storage import AsrPolicy, AsrProfile, WorkflowRepository, open_dat
 from bili_asr.workflow import WorkflowExecutor
 from bili_asr.editorial import EditorialConfig, TEMPLATE_VERSION
 from bili_asr.storage.editorial import EditorialRepository
+from bili_asr.storage.database import SchemaContractError
 
 
 def add_workflow_parser(subparsers: argparse._SubParsersAction, *, archive_root: str) -> None:
@@ -86,6 +87,14 @@ def _editorial_config(args: argparse.Namespace) -> EditorialConfig:
 
 
 def _cmd_workflow(args: argparse.Namespace) -> int:
+    try:
+        return _execute_workflow(args)
+    except SchemaContractError as exc:
+        write_stderr(f"workflow {args.workflow_action}: {exc}")
+        return 1
+
+
+def _execute_workflow(args: argparse.Namespace) -> int:
     connection = open_database(args.archive_root)
     try:
         repository = WorkflowRepository(connection)
@@ -163,10 +172,16 @@ def _cmd_workflow(args: argparse.Namespace) -> int:
         from bili_asr.editorial_runtime import EditorialWorkflowHandlers
         from bili_asr.storage.workflow import JobKind
 
-        editorial_handlers = EditorialWorkflowHandlers(EditorialRepository(connection), repository,
-                                                       archive_root=Path(args.archive_root))
+        editorial_handlers = None
+        has_manuscript_contract = connection.execute(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'manuscript_contract'"
+        ).fetchone() is not None
+        registered = {}
+        if has_manuscript_contract or args.only_editorial:
+            editorial_handlers = EditorialWorkflowHandlers(EditorialRepository(connection), repository,
+                                                           archive_root=Path(args.archive_root))
+            registered.update(editorial_handlers.handlers())
         archive_handlers = None
-        registered = editorial_handlers.handlers()
         if not args.only_editorial:
             from bili_asr.workflow_runtime import ArchiveWorkflowHandlers
             archive_handlers = ArchiveWorkflowHandlers(connection, repository, archive_root=args.archive_root, sessdata=sessdata)
@@ -177,7 +192,8 @@ def _cmd_workflow(args: argparse.Namespace) -> int:
                 kinds=(JobKind.PROOFREAD, JobKind.RENDER_DOCUMENT) if args.only_editorial else None,
             ).run(limit=args.limit)
         finally:
-            editorial_handlers.close()
+            if editorial_handlers is not None:
+                editorial_handlers.close()
             if archive_handlers is not None:
                 archive_handlers.close()
         print(f"workflow run: succeeded={summary.succeeded} failed={summary.failed} idle={int(summary.idle)}")

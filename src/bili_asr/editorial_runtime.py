@@ -3,13 +3,12 @@
 from __future__ import annotations
 
 import hashlib
-import os
 from pathlib import Path
-import tempfile
 from typing import Any
 
 from bili_asr.deepseek import DeepSeekClient, parse_response, request_body
 from bili_asr.editorial import EditorialConfig, TEMPLATE_VERSION, render_documents, validate_revision
+from bili_asr.manuscript_files import atomic_write_artifact, secure_path
 from bili_asr.storage.editorial import EditorialRepository
 from bili_asr.storage.workflow import JobKind, WorkflowJob, WorkflowRepository
 
@@ -65,29 +64,20 @@ class EditorialWorkflowHandlers:
         metadata = prepared["snapshot"]["metadata"]
         documents = render_documents(metadata, prepared, blocks, revision_id)
         relative = Path("documents") / f"part-{part_id}" / revision_id / TEMPLATE_VERSION
-        folder = self.archive_root / relative
-        # Never let an existing symlink redirect archive writes outside the root.
-        if not folder.resolve().is_relative_to(self.archive_root.resolve()):
-            raise ValueError("document directory escapes archive root")
-        folder.mkdir(parents=True, exist_ok=True)
-        artifacts = {}
+        artifacts = {
+            name: ((relative / name).as_posix(), hashlib.sha256(content.encode("utf-8")).hexdigest())
+            for name, content in documents.items()
+        }
+        # Validate both artifact identities and existing registrations before
+        # replacing either file.  A conflict must never leave a half-updated pair.
+        self.repository.preflight_artifacts(revision_id, template, artifacts)
         for name, content in documents.items():
-            target = folder / name
-            if target.is_symlink():
-                raise ValueError("document target is a symlink")
-            encoded = content.encode("utf-8")
-            fd, temporary = tempfile.mkstemp(prefix=".render-", dir=folder)
-            try:
-                with os.fdopen(fd, "wb") as stream:
-                    stream.write(encoded)
-                    stream.flush()
-                    os.fsync(stream.fileno())
-                self.repository.assert_lease(job)
-                os.replace(temporary, target)
-            finally:
-                if os.path.exists(temporary):
-                    os.unlink(temporary)
-            artifacts[name] = ((relative / name).as_posix(), hashlib.sha256(encoded).hexdigest())
+            target = secure_path(self.archive_root, artifacts[name][0])
+            if target.exists() and target.read_bytes() != content.encode("utf-8"):
+                raise ValueError("manuscript-integrity: existing document has different bytes")
+        for name, content in documents.items():
+            self.repository.assert_lease(job)
+            atomic_write_artifact(self.archive_root, artifacts[name][0], content.encode("utf-8"))
         with self.repository.owned_transaction(job):
             self.repository.record_artifacts(revision_id, template, artifacts)
         return {"revision_id": revision_id, "artifacts": {name: path for name, (path, _) in artifacts.items()}}
