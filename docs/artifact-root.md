@@ -1,185 +1,130 @@
-# 产物根目录（`--artifact-root`）操作指南
+# 归档根目录与只读产物候选根
 
-本文是 **操作者文档**：它说明 `bilibili-asr-archive` 的两个根目录、谁是哪个、怎么把产物放到挂载点上、以及为什么有些东西永远留在归档根目录。设计与决策的完整依据见迭代契约
-(`artifact-root-contract.md` §2–§9)。
+当前公共 CLI 以 `archive.db` 中的元数据、转录版本和 workflow jobs 为事实来源。`--archive-root` 决定数据库的位置，也决定 workflow 下载音频、发布转录包和渲染阅读文档的位置。`--artifact-root` / `BILI_ARTIFACT_ROOT` 为查询和导出提供已有产物的只读候选根，不改变 workflow 的写入位置。
 
----
+旧 `schedule`、`campaign`、`pilot`、顶层 `run`、顶层 `asr` 已删除。旧命令中的外部产物写入、音频预算和回收选项不能作为当前操作方法。
 
-## 一句话
+## 两个根目录的分工
 
-**产物**（音频、字幕包、抓取到的字幕文档）可以放到另一个根目录；**状态**（manifest、SQLite、锁、各类 sidecar、索引）永远留在归档根目录。
+| 位置 | 当前用途 | 配置方式 |
+| --- | --- | --- |
+| 归档根目录 | `archive.db`，包含元数据、转录 segments、任务及发布记录、搜索索引；workflow 产物也写入这里 | `--archive-root`，默认 `archive` |
+| 可选产物候选根 | 读取已有音频、转录包或阅读文档；可只读 | 支持该参数的命令使用 `--artifact-root`，或读取 `BILI_ARTIFACT_ROOT` |
+| 导出目标 | JSON/CSV 文件或阅读站点输出 | `export --out`、`reading-export --out` |
 
-```
-归档根目录 (--archive-root)              产物根目录 (--artifact-root)
-├── manifest/manifest.jsonl      ← 状态  ├── audio/{stem}.m4a
-├── archive.db                   ← 状态  ├── transcripts/srt|txt|md|raw/{stem}.*
-├── coordinator/                 ← 状态  └── subtitles/raw/{stem}.json
-├── meta-cursor.json             ← 状态
-├── scheduler.json               ← 状态
-├── run-ledger.jsonl             ← 状态
-├── campaign.json                ← 状态
-└── search.db                    ← 状态
-```
+`search-index` 和 `search --rebuild` 会更新归档根内的数据库索引。候选根只读不代表整个命令不写数据库。`reading-export` 从候选根读取文档，向自己的 `--out` 写站点内容。
 
-状态为什么不动：manifest 每次追加都要 fsync，SQLite 需要真正的文件锁，两者都不适合放在 FUSE/WebDAV 挂载点上。把状态搬过去等于用「路径偏好」换掉一个正确性保证。
+典型归档布局如下。`p0` 是数据库保存的零基 page index，对应源站 P1；转录包目录来自分 P 的稳定身份。
 
-**但 fsync 不是状态独有的要求：产物根目录本身也必须支持「对目录 fsync」。** 产物路径同样在 fsync **目录**描述符 ——
-建 `audio/` 之后（`path_policy.open_audio_directory`）、下载落盘之后（`audio.py` 收尾的 `os.fsync(audio_fd)`）、
-回收删除之后（`path_policy.unlink_confined_audio`）、以及发布字幕包时（`archive.py` 里 `transcripts/` 与四个子目录
-的目录 fsync，连同暂存文件的 fsync，每个包十余次）。校验只做一次 `open(O_RDONLY|O_DIRECTORY)`，**既不写、也不
-fsync**，所以一个「能打开、但拒绝目录 fsync」的挂载（有些网络文件系统对目录 fsync 返回 EINVAL/ENOTSUP）会通过校验，
-然后在**每一行**上以一条原始 `OSError` 失败 —— 那不是上面那四行拒绝里的任何一行，而是产物写入路径自己的报错。
-挂载前请确认所选挂载支持目录 fsync；不支持时这个功能不能用。
-
----
-
-## 不开这个开关时，行为和以前完全一样
-
-不传 `--artifact-root`、也不设 `BILI_ARTIFACT_ROOT` 时，只有一个根目录（归档根目录），产物落在
-`{archive-root}/audio/`、`{archive-root}/transcripts/`，manifest 的每一行都和以前逐字节相同。
-
----
-
-## 优先级
-
-```
---artifact-root <路径>        非空白  → 用它
-否则 BILI_ARTIFACT_ROOT       非空白  → 用它
-否则                                  → 归档根目录（今天的行为）
+```text
+archive/
+├── archive.db
+├── audio/
+│   └── BV_EXAMPLE.p0.m4a
+├── transcripts/
+│   └── BV_EXAMPLE.p0/
+│       ├── bundle.srt
+│       ├── bundle.vtt
+│       ├── bundle.txt
+│       ├── bundle.md
+│       ├── bundle.raw.json
+│       └── .bundle-ready
+└── documents/
+    └── part-12/<revision-id>/<template-version>/
+        └── ...
 ```
 
-- **空白值等于没设**：空字符串或纯空格不会挡住下一级。所以 `export BILI_ARTIFACT_ROOT=` 不会静默吃掉一个真正的命令行参数。
-- **`~` 会被展开**；**相对路径相对于你运行命令时所在的目录**，不会被记录到任何地方 —— 记录下来的产物路径始终是根目录相对路径，所以换目录运行不会让旧数据失效。
-- **路径按字面保留，不做 `realpath` 解析**。因此 **配置成符号链接的根目录会被拒绝**：请传真实路径。
+转录包的逻辑名称是 bundle，实际目录为 `transcripts/<stem>/`。阅读文档使用 `documents/`。SQLite WAL 辅助文件也留在归档根内；当前任务进度不依赖旧 manifest 日志、coordinator 锁目录或独立 `search.db`。
 
----
+## 当前命令如何使用候选根
 
-## 校验：配置的根目录必须已经存在
+| 命令 | 对候选根的使用 |
+| --- | --- |
+| `verify` | 检查登记发布的转录包是否在某个根内完整且摘要匹配 |
+| `coverage` | 判断转录发布覆盖率；有效五产物包才计入完成 |
+| `export` | 投影工作流记录，校验发布状态并规范化路径；`--with-text` 使用数据库 segments |
+| `reading-export` | 按数据库登记的文档相对路径和 SHA-256 读取正文及审阅文档 |
+| `search`、`search-index` | 当前转录搜索使用 `archive.db` 的 segments 和 FTS；根配置仍由 CLI 校验并传入索引对象，不将外部目录当另一份数据库 |
+| `dedup report` | 当前只统计数据库中的精确复用；接受根配置并进行入口校验，不扫描外部文件计算实际节省量 |
 
-| 情况 | 结果 |
-|---|---|
-| 与 `--archive-root` 字面相同 | **接受**（恒等情形：只有一个根目录，不额外校验） |
-| 已存在的、非符号链接的目录 | **接受**；下面的 `audio/`、`transcripts/{srt,txt,md,raw}/`、`subtitles/raw/` 按需创建，和今天一样 |
-| 不存在 | **拒绝**，退出码 1 |
-| 存在但不是目录 | **拒绝**，退出码 1 |
-| 是符号链接 | **拒绝**，退出码 1 |
-| 存在但是当前进程打不开（权限被拒、挂载出错） | **拒绝**，退出码 1 |
-| 在归档根目录**里面**（如 `{archive}/artifacts`） | **接受**（两个根目录仍然不同） |
-| 在另一个文件系统上 | **接受** —— 这正是这个功能的目的 |
+`search --scope metadata` 只查询数据库中的标题、简介和标签，不解析或校验 `--artifact-root` / `BILI_ARTIFACT_ROOT`。`--scope transcripts` 和 `--scope all` 仍经过根配置校验。
 
-**拒绝时的四行是这样打印的**（stderr，退出码 1，不产生任何报告正文）：
+`workflow`、`fetch-meta`、`status`、`runs`、`check-asr-env`、`reading-review`、`reading-edit` 不接受 `--artifact-root`。`workflow run` 始终使用自己的 `--archive-root`，设置 `BILI_ARTIFACT_ROOT` 也不会改写下载或发布位置。
 
+```sh
+# 目标 BVID 须已由 fetch-meta 存入数据库；工作流写入 archive/。
+bili-asr workflow plan --archive-root archive --bvid BV_EXAMPLE --page-index 0
+bili-asr workflow run --archive-root archive --limit 10
+
+# 查询时先检查已有的外部副本，再检查 archive/。
+bili-asr verify --archive-root archive --artifact-root /mnt/archive-products --format text
+bili-asr coverage --archive-root archive --artifact-root /mnt/archive-products --format json
+bili-asr export --archive-root archive --artifact-root /mnt/archive-products --format json --with-text
+bili-asr reading-export --archive-root archive --artifact-root /mnt/archive-products --out reading-site/content
 ```
-<command>: artifact root does not exist (<path>)
-<command>: artifact root is not a directory (<path>)
-<command>: artifact root is a symlink (<path>)
-<command>: artifact root cannot be opened (<path>)
+
+Windows 可将外部路径换成真实存在的目录，例如 `D:/archive-products`。这些参数不会创建外部根、复制产物或迁移数据库。
+
+## 配置优先级与入口校验
+
+使用产物根配置的命令依次选择：
+
+1. 非空的 `--artifact-root`。
+2. 非空的 `BILI_ARTIFACT_ROOT`。
+3. 都未配置时使用 `--archive-root`。
+
+参数和变量先去除首尾空白；空值视为未设置并继续查找。产物根配置中的 `~` 会展开，相对路径按进程工作目录转成绝对路径；不先执行 `realpath`，以保留符号链接检查所需的路径形态。`--archive-root` 不使用这套 `~` 展开规则，建议传明确路径。
+
+配置根在词法上等于归档根时，两者合并为一个候选，不额外验证该目录。除此之外，配置根必须已经存在、是目录、不是符号链接，并且当前进程实际可以打开它。不存在、类型错误、符号链接或无法打开时，命令输出含路径的诊断并退出 1；不会静默忽略配置或自动创建目录。
+
+当前公共调用按读取模式校验，不创建写探针，不要求候选根可写。源码 `roots_for(..., require_writable=True)` 仍提供写入/同步探针，`ArtifactRoots.write_base` 也仍存在；这些库层能力没有接入当前 workflow 的外部根写入。
+
+## 读取顺序与回退边界
+
+未配置外部根时，候选列表只有归档根；配置后固定为：
+
+```text
+外部 artifact root → archive root
 ```
 
-拒绝发生在写锁之前，所以一次注定失败的调用**不会**顺手创建 `{archive-root}/coordinator/`。退出码沿用既有的用法/配置错误码 `1`，**没有新增退出码**。
+持久化的 `storage_key`、转录路径和文档路径是相对路径，如 `audio/BV_EXAMPLE.p0.m4a`、`transcripts/BV_EXAMPLE.p0/bundle.vtt`。每个根分别拼接并执行对应读者的路径规则，不跨根拼接路径或文件。
 
-**不存在的根目录绝不自动创建。** 原因就是挂载点：没挂载的 FUSE 挂载点在文件系统里仍然是一个空目录，而一个*不存在*的目录如果被自动创建，产物就会写到底层磁盘而不是挂载点。所以这里 fail-closed 并报出路径。
+回退依据各读者的要求：
 
-**挂载点没挂上（目录在、挂载不在）是操作者的责任**：流水线无法区分「空目录」和「没挂上的挂载点」。挂载检查请放在你的启动脚本里。
+- **转录包**：`verify`、`coverage` 和发布投影分别验证整个根内的五项产物及 marker。外部根不完整或摘要不匹配时，还会检查归档根；任一根内完整有效即可成立。不能从外部取 VTT、归档根取 SRT 拼出一个完整包。
+- **阅读文档**：找不到文件、无法解析路径或路径越界时可继续下一个根。找到普通文件后立即计算摘要；与数据库不符会停止导出并报错，不继续用 fallback 掩盖损坏。正文和审阅文档分别验证各自的路径与摘要。
+- **共享音频 helper**：要求存在时必须找到实际文件；要求可用时还必须非空。外部空文件不会遮蔽归档根内可用音频。当前 workflow ASR 直接使用成功 audio dependency 的 `storage_key` 在归档根下读取，不从外部根寻找替代输入。
 
----
+切换候选根只改变本次读取优先顺序，不重写数据库路径、重排 jobs、重新发布或删除旧副本。两个根都有有效同名转录包时，外部优先；维护者应保证副本版本一致。
 
-## 哪些命令带这个参数
+## 路径约束与摘要校验
 
-当前注册表只给会读取或校验文件产物的命令添加 `--artifact-root`：
+### 转录包
 
-    bili-asr coverage --archive-root archive --artifact-root /srv/bili-asr-archive
-    bili-asr verify --archive-root archive --artifact-root /srv/bili-asr-archive
-    bili-asr search --archive-root archive --artifact-root /srv/bili-asr-archive <query>
-    bili-asr search-index --archive-root archive --artifact-root /srv/bili-asr-archive
-    bili-asr export --archive-root archive --artifact-root /srv/bili-asr-archive
-    bili-asr reading-export --archive-root archive --artifact-root /srv/bili-asr-archive
+当前包必须具有 `srt_path`、`vtt_path`、`txt_path`、`md_path`、`raw_path` 五项，分别对应同一 `transcripts/<stem>/` 目录内的固定文件名。绝对路径、父目录穿越、错误层级、错误文件名或分散在不同分 P 目录的声明不被认可。
 
-`workflow`、`fetch-meta`、`status`、`runs`、`check-asr-env`、`reading-review` 和
-`reading-edit` 不解析产物根目录，因此不会接受这个参数。工作流 handler
-在运行时从归档配置构造自己的读写根目录；阅读导出保持 SQLite 只读并校验
-已登记的 `reading.md` 哈希。
+`.bundle-ready` 必须为 `archive-bundle-v2`，精确声明五项相对路径及 SHA-256。验证读取每个普通文件并计算摘要，检查读取前后的文件身份、大小和时间信息，拒绝读取途中变化的文件。仅比较是否存在、大小或 mtime 不足以通过。缺少 VTT、旧四产物 marker、损坏文件或 marker/路径不一致均不构成完整发布。
 
----
+POSIX 包读取使用目录描述符及 `O_NOFOLLOW` 逐级打开根目录、子目录和文件，拒绝非普通文件。Windows 使用路径打开与普通文件检查，没有同样的目录描述符约束；应使用受管理的真实目录，不能把两种实现视为完全相同的防符号链接保证。
 
-## 已有的归档照常工作（不会自动迁移）
+### 阅读文档
 
-配置根目录之后：
+文档声明必须是无 `..` 的相对路径。读者解析实际存在的文件后要求它仍位于当前候选根内且是普通文件，再按数据库 `content_sha256` 校验内容。指向根外的符号链接被拒绝；数据库中的人工修订正文也按登记摘要验证。
 
-- **切换之前**写下的产物留在归档根目录，**切换之后**写下的落到产物根目录。
-- 工具**不复制、不移动、不重写任何东西**，也没有迁移/同步子命令。
-- 读取时按顺序探测两个根目录：先产物根目录，再归档根目录，**第一个命中的胜出**。所以配置根目录的第一天，老产物仍然能被找到 —— 这正是「已有归档照常工作」的实现方式。
+### 音频与导出路径
 
-把历史产物搬过去是**操作者自己的事**：
+共享音频路径策略只接受 `audio/<filename>.m4a` 或 `audio/<filename>.flac`，拒绝绝对路径、穿越及额外层级。POSIX helper 保持受约束的目录/文件描述符；Windows helper 检查根目录、`audio/` 和文件的类型与符号链接，但不提供相同描述符语义。这不表示当前所有 workflow 音频读取都采用了这些 helper。
 
-    mv archive/audio/* /srv/bili-asr-archive/audio/
-    mv archive/transcripts /srv/bili-asr-archive/
-    mv archive/subtitles /srv/bili-asr-archive/
-    # 或：rclone move archive/audio remote:archive/audio
+导出路径清理逐个根检查实际解析后的包含关系，拒绝 `..` 和根外路径，并输出相对路径。这是路径清理，不是音频摘要审计；`verify` 的检查对象是转录包。导出出现音频路径不能证明该文件当前存在并与 catalog 摘要一致。
 
-搬完之后第一个根目录就命中，第二个永远不会被咨询。**不搬也不会坏**，只是两个位置各有一半（新的在挂载点、老的在本地）。注意：配置了产物根目录之后，**新的字节只写进产物根目录的 `audio/`**，归档根目录下的旧音频不再增长——它留在原地照样能被读到（读取按上面的顺序探测两个根目录），而 `--max-audio-gb` **也只统计产物根目录的 `audio/`**，不会把旧音频算进去。所以搬迁是可选的整理，不是读取或上界生效的前提：搬过去只是让读取少探测一个根目录。
+## 写入提交与操作建议
 
-记录下来的产物路径始终是根目录相对路径（`audio/{stem}.m4a`、`transcripts/{stem}/bundle.srt`），manifest 的字节不受影响，也不会因为换了根目录而被重写或失效。
+音频下载在归档根内的独立 staging 完成；探测时长和计算摘要后，workflow 在校验 job lease 的短事务内替换最终文件并登记 audio object。转录包先在 staging 编码、同步及计算摘要，再由 publication guard 覆盖五项最终替换、marker 提交和数据库发布事实。阅读文档也先写临时文件，再在任务拥有的事务内替换并登记摘要。
 
----
+这些边界让取消或失去 lease 的旧 worker 无法继续发布。SQLite 与文件系统仍是两个提交介质；marker 和摘要承担检测部分转录发布的职责。详情见 [WebVTT 与五产物归档包](webvtt.md)。
 
-## 一个归档根目录对应一个产物根目录
+需要更大的写入空间时，把 `--archive-root` 指向合适的实际目录；该目录同时承载数据库和 workflow 产物。当前没有将数据库和 workflow 写入根拆开的公共开关或自动搬迁命令。外部副本作为读取候选时，须保留相对目录结构、配套 marker 和登记摘要。
 
-写锁仍然是**归档根目录级**的（`{archive-root}/coordinator/archive-writer.lock`），产物根目录上**没有**第二把锁。产物发布本身是「同目录内暂存 + 原子改名」，所以并发写者依然安全。
+`verify`、`coverage` 完整读取并计算包摘要，成本取决于字节量；当前公共读取路径没有每文件可取消的独立 deadline，网络文件系统延迟与挂载超时仍由运行环境管理。
 
-**支持的配置是一个归档根目录配一个产物根目录。** 两个归档根目录共用同一个产物根目录不在本迭代的契约内，也**不会被检测**（此时两个归档根目录会在同一个产物根目录的 `transcripts/` 下争用同一个固定暂存目录名 `.archive-bundle-stage`，结果是大声失败而不是静默损坏）。
-
----
-
-## 音频保留与磁盘上界（`--max-audio-gb`）
-
-归档后的音频**默认保留**（见 [audio-retention-policy.md](./audio-retention-policy.md)）。`asr` / `pilot` / `run` /
-`schedule` / `campaign` 都带 `--keep-audio/--no-keep-audio`。
-
-Audio budgets use an invocation-owned usage snapshot and refresh only after downloads or reclaim. A finite cap refuses a download when usage cannot be measured; zero means a measured empty directory, not a read failure. Planning and execution share the same snapshot. Writer root validation probes a real file write and sync and, where supported, directory fsync once per invocation; readers do not write probes. These checks do not provide a deadline for a kernel filesystem operation on an unresponsive mount.
-
-保留 + 上界会互相影响：既然音频不再被删，`audio/` 只会增长，于是跑到某个点之后每一行都会以
-`audio_budget` 被跳过。**要保留又不想被截断，就传 `--max-audio-gb 0`**。把这句话打出来的只有两个命令：
-`run` 和 `pilot` 的跳过行带一段提示（`… skipped (audio_budget); audio-dir budget cap reached (--max-audio-gb 0 = unlimited)`）；
-`schedule` 的跳过行只打原因（`schedule: <work_id>: skipped (audio_budget)`），`campaign` 只在 JSON 摘要的
-`reason_codes` 里报告 `audio_budget`，两者都不带这段提示。唯一的例外是 `schedule --allow-long-live`：那个模式要求
-上界必须开着，传 `0` 会被直接拒绝（退出码 1），所以在那个模式下请把上界调大而不是关掉。
-
----
-
-## 回滚
-
-去掉参数、清掉变量即可：`--artifact-root` 不传、`BILI_ARTIFACT_ROOT` 不设，就只有一个根目录，一切是今天的行为。配置过的根目录下写过的文件，在再次配置同一个根目录的那一刻就又能被找到（记录路径是相对路径，没变），所以**不需要搬回任何东西**。
-
-唯一不可逆的是保留策略本身：已经被回收掉的音频（早先运行或显式 `--no-keep-audio` 删除的）无法恢复。
-
----
-
-## 相关文档
-
-- [audio-retention-policy.md](./audio-retention-policy.md) —— 音频保留策略与 `BILI_KEEP_AUDIO` 真值表
-- [../README.md](../README.md#where-the-artifacts-go) —— 命令一览与「产物去哪儿」
-- [metadata-storage.md](./metadata-storage.md) —— SQLite 元数据存储（状态，永远留在归档根目录）
-
-## Publication root changes and execution recovery
-
-Changing `--artifact-root` explicitly requests publication at the new write base.
-It does not delete or migrate the previous bundle. Newly published manifest rows
-record `artifact_base` as an absolute lexical path in addition to the four
-root-relative product paths. Historical rows without this field remain legacy
-unattributed evidence; readers still use the invocation's configured read bases.
-A later publication at a different base therefore creates distinguishable journal
-evidence. An inconclusive read preserves products and fails the candidate.
-
-Acquisition gaps in `archive.db` remain the source of new work. Pending batch
-commands also resume publication of `subtitle_done` execution rows and retry
-archived rows with a recorded store write-back failure, but only when their
-part identity exists in the store and is not marked `gone`. This is an execution recovery surface, not
-permission to acquire a manifest-only part. A stale `needs_audio` execution row
-cannot override an already satisfied store transcript.
-
-Completeness verification intentionally reads and hashes every product. Streaming
-bounds memory, not corpus network I/O. There is no per-candidate deadline capable
-of cancelling a kernel operation on a hung filesystem. Use bounded invocations
-and a filesystem/mount configuration with its own timeout policy; these operational
-steps do not close the unresolved corpus cost and hung-mount requirements.
+相关指南：[音频保留与复用](audio-retention-policy.md)、[工作流目标选择](workflow-selection.md)、[SQLite 存储](metadata-storage.md)、[阅读文档与校对](ai-proofreading.md)。

@@ -8,11 +8,13 @@ AI 返回带来源 ID 的完整阅读段落，程序校验后保存独立修订�
 
 - Python 3.12+ 与项目基础依赖。仅运行校对和文档渲染不需要 GPU、ASR 模型或 ffmpeg。
 - 归档数据库已存储基础转录。默认使用所选视频部分最新的本地 ASR 版本。
-- 新建数据库使用包含 `proofread` / `render_document` 的工作流表结构。
+- 新建数据库使用包含 `proofread` / `render_document` 的任务类型，以及支持 `cancelled` attempt outcome 和终态约束的工作流表结构。
 - 真实校对需要环境变量 `DEEPSEEK_API_KEY`。密钥仅进入 HTTP Authorization，不写入模型请求快照、结果或文档。
 
-本次不提供旧工作流表的迁移。若旧 `workflow_jobs` 的类型约束不支持校对任务，计划会明确报错，
-需要重新建立归档数据库；程序不会自动删除、重建或迁移现有库。仅重新安装 Python 包不能修改旧表约束。
+当前不提供旧工作流表迁移。旧 `workflow_jobs` 类型约束不支持校对任务，或旧
+`workflow_attempts` 的 outcome / 终态 CHECK 不支持 `cancelled` 时，写入控制命令会明确拒绝。
+需要先备份并重建兼容当前契约的归档数据库；程序不会自动删除、重建或迁移现有库。
+仅重新安装 Python 包不能修改旧表约束。详情见 [工作流取消指南](workflow-cancellation.md#数据库契约与验证)。
 
 ## 处理已有转录
 
@@ -156,10 +158,14 @@ bili-asr workflow retry --archive-root /srv/bili-archive --part-id 101
 bili-asr workflow run --archive-root /srv/bili-archive --only-editorial
 ```
 
-每个通过校验的块立即保存。进程重启、超时或模型响应无效后，重试复用已保存块，
-只重新请求尚未通过校验的块。全部块完成后才提交完整修订和解锁渲染任务。
+每个通过校验的块在任务拥有的写事务内保存；完整修订也在独立的受保护事务内提交。
+事务取得 SQLite 写锁后重新检查 job、lease owner、attempt 编号及未过期租约，
+使校验结果与取消决定串行化。进程重启、超时或模型响应无效导致任务失败后，
+`workflow retry` 可复用已保存块，只重新请求尚未通过校验的块。
+全部块完成并提交完整修订后，校对 job 还须成功结束，渲染依赖才能就绪。
 如果请求已到达供应商，但本地尚未保存结果时进程退出，重试可能重复计费；不承诺外部调用 exactly-once。
 租约续期和尝试编号校验阻止过期工作器提交新块或覆盖新的任务尝试。
+`workflow retry` 只重排 `failed`，不会恢复 `cancelled`；重复相同输入的校对请求也不会复活已取消任务。
 
 读取成功校对尝试的 `result_json`，或查询 `editorial_revisions`，取得 `revision_id` 后：
 
@@ -170,7 +176,47 @@ bili-asr workflow run --archive-root /srv/bili-archive --only-editorial
 
 重渲染不需要 API 密钥，不调用模型，可修复已删除的 Markdown。
 相同已保存修订和 `reading-v2` 模板生成相同字节；模板内容改变时需要新的模板版本和实现，
-当前只支持 `reading-v2`。文件通过临时文件、fsync 和原子替换写入，数据库记录路径及 SHA-256。
+当前只支持 `reading-v2`。两份文档先在临时文件中编码、fsync 并计算摘要；
+随后在同一任务所有权事务内执行最终替换并登记路径与 SHA-256。
+取消若先提交，最终替换被拒绝并清理本次临时文件。相同修订和模板对应的 render job
+已经取消时，重复 `workflow render` 保持取消状态。
+文件系统与 SQLite 不是跨介质原子事务，文件替换或数据库提交异常后仍需核对文档与登记摘要。
+
+## 协作式取消
+
+先列出 job ID，再明确选择需要取消的校对或渲染任务：
+
+```bash
+bili-asr workflow status --archive-root /srv/bili-archive --jobs
+bili-asr workflow cancel --archive-root /srv/bili-archive --job-id JOB_ID --job-id ANOTHER_JOB_ID
+```
+
+queued / running 任务变为 `cancelled`；成功、失败或已经取消的任务返回 noop。
+取消不级联：取消校对后，其依赖渲染仍为 queued，并在 status 中显示 `blocked_by_cancelled`。
+需要取消后续任务时，应明确选择它们的 job ID。
+
+取消在 checkpoint 和提交守卫处生效，不保证立即中断已经发出的模型请求，也不能撤销供应商计费。
+模型请求返回后，实际响应和错误诊断可以继续保存到 `editorial_model_calls`；
+它们是调用证据，不能在任务已取消后被接受为新块、完整修订或渲染产物。
+在取消前已经提交的块、修订和文件保留，取消不会回滚历史结果或删除已完成文档。
+若短提交事务先取得锁，取消等待它提交；因此可能出现结果已经提交、但 job 尚未 finish 时被取消的情况。
+状态、依赖和旧库限制见 [工作流取消指南](workflow-cancellation.md)。
+
+## 阅读内容快照
+
+```bash
+bili-asr reading-export --archive-root /srv/bili-archive --out reading-site/content
+```
+
+`reading-export` 以 SQLite 只读连接选择已渲染且未被拒绝或撤回的修订，
+从配置的外部产物候选根优先读取文档，再回退到归档根，并验证数据库登记的 SHA-256。
+人工修订正文存在时使用其保存的内容及摘要。输出包括 `articles/`、`reviews/`、
+`catalog.json` 和用于管理生成文件的 manifest；catalog 保存质量、审核状态与 Issue URL。
+
+这是给展示层使用的内容快照。当前仓库没有阅读站前端代码，命令不会创建页面、部署网站或提交 Issue。
+它生成的 Issue URL 可供后续展示层或维护者打开；状态字段是否显示、如何显示由消费该快照的前端决定。
+导出包含待审核正文及原文对照审阅文档；如果维护者随后公开托管这些文件，其中内容也会公开。
+只读候选根的路径与回退契约见 [产物根指南](artifact-root.md)。
 
 ## 数据与离线验证
 
@@ -187,12 +233,16 @@ bili-asr workflow run --archive-root /srv/bili-archive --only-editorial
 段落和块信息保存在结构化 JSON 中，当前实现不额外建 `editorial_changes` / `editorial_blocks` 表。
 
 ```bash
-python -m pytest tests/test_ai_editorial.py tests/test_workflow_control_plane.py -q
+python -m pytest tests/test_ai_editorial.py tests/test_workflow_control_plane.py tests/test_workflow_cancellation.py tests/test_reading_publication.py -q
 ```
 
 测试使用合成转录、模拟模型和被拦截的 HTTP 响应，不连接 DeepSeek 或 B站，不需要 API 密钥。
 覆盖输入固定、上下文和输出预算、语言标签、结构校验、识别疑点、HTTP 失败、逐块恢复、
 ASR 独立依赖、租约、Markdown 转义及字节一致的重新渲染。
+取消测试使用独立 SQLite 连接触发模型响应晚到、渲染暂存后取消和短写事务竞争，
+验证审计可保留、成功结果被拒绝、已取消任务不复活以及旧 attempt 约束被拒绝。
+阅读导出测试验证只读连接、内容快照、审核与人工版本、摘要拒绝及受管理文件清理。
 当前离线验证覆盖跨段成句、疑点不回退正文、来源覆盖与只读上下文边界、纯正文输出，
 以及 high 思考和 top_p 参数的请求与快照。离线测试不连接 DeepSeek 或 B 站；
+本文的验证依据是这些离线契约测试，不代表已经验证真实供应商调用或阅读站页面。
 真实素材的人工回听和逐句准确率评估仍需单独记录，不能把结构校验当作语义质量结论。
