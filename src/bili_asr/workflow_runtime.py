@@ -19,6 +19,7 @@ from typing import Any, Mapping
 from uuid import uuid4
 
 from bili_asr import archive, asr, audio, bili_client
+from bili_asr.artifact_root import ArtifactRoots, resolve_audio_path
 from bili_asr.formatting import pubdate_utc
 from bili_asr.page_identity import PageIdentity, artifact_stem
 from bili_asr.services.subtitle_ingest import SubtitleIngestor, SubtitleSelection
@@ -43,10 +44,12 @@ class ArchiveWorkflowHandlers:
         *,
         archive_root: str | os.PathLike[str],
         sessdata: str | None,
+        artifact_roots: ArtifactRoots | None = None,
     ) -> None:
         self.connection = connection
         self.repository = repository
-        self.archive_root = Path(archive_root)
+        self.artifact_roots = artifact_roots or ArtifactRoots.of(archive_root)
+        self.archive_root = self.artifact_roots.archive_root
         self.archive_root.mkdir(parents=True, exist_ok=True)
         self.sessdata = sessdata
         self._subtitle_repository = TranscriptRepository(connection)
@@ -113,12 +116,11 @@ class ArchiveWorkflowHandlers:
             cid=int(part["cid"]),
             page_label=str(part["title"]),
         )
-        target = self.archive_root / "audio" / f"{artifact_stem(identity)}.m4a"
-        target.parent.mkdir(parents=True, exist_ok=True)
+        target = self.artifact_roots.write_base / "audio" / f"{artifact_stem(identity)}.m4a"
         client = self._client or bili_client.BiliClient(sessdata=self.sessdata)
         self._client = client
         self.repository.assert_lease(job)
-        final = Path(audio.download_audio(client, identity, target))
+        final = Path(audio.download_audio(client, identity, target, artifact_roots=self.artifact_roots))
         probe = subprocess.run(
             ["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "json", os.fspath(final)],
             check=True, capture_output=True, text=True, timeout=30,
@@ -129,7 +131,11 @@ class ArchiveWorkflowHandlers:
         duration_ms = max(1, round(duration_s * 1000))
         digest = hashlib.sha256(final.read_bytes()).hexdigest()
         self.repository.assert_lease(job)
-        storage_key = os.fspath(final.relative_to(self.archive_root)).replace("\\", "/")
+        # A downloader may reuse an existing artifact from the archive fallback.
+        storage_key = next(
+            final.relative_to(base).as_posix()
+            for base in self.artifact_roots.read_bases() if final.is_relative_to(base)
+        )
         now = int(time.time())
         with self.connection:
             self.connection.execute(
@@ -157,8 +163,8 @@ class ArchiveWorkflowHandlers:
         storage_key = audio_result.get("storage_key")
         if not isinstance(storage_key, str) or not storage_key:
             raise RuntimeError("audio_result_missing_storage_key")
-        audio_path = self.archive_root / storage_key
-        if not audio_path.is_file():
+        audio_path = resolve_audio_path(self.artifact_roots, storage_key)
+        if audio_path is None:
             raise RuntimeError("audio_missing")
         profile = self.repository.profile(job.profile_id)
         config = asr.ASRConfig(
@@ -308,7 +314,7 @@ class ArchiveWorkflowHandlers:
                 "revision": str(model["revision"]) if model is not None else "",
             }
         paths = archive.write_archive(
-            self.archive_root,
+            self.artifact_roots.write_base,
             entry,
             segments,
             source="asr" if source_kind == "asr-local" else "subtitle",

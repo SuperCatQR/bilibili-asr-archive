@@ -10,13 +10,14 @@ import sqlite3
 
 from bili_asr.dedup import build_report, format_text
 from bili_asr.diagnostics import write_stderr
+from bili_asr.artifact_root import ArtifactRoots
 
 
 def _readonly_connection(archive_root: str) -> sqlite3.Connection:
-    path = Path(archive_root) / "archive.db"
+    path = ArtifactRoots.of(archive_root).archive_root / "archive.db"
     if not path.is_file():
         raise FileNotFoundError(f"no archive database at {path}")
-    connection = sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True)
+    connection = sqlite3.connect(f"{path.as_uri()}?mode=ro", uri=True)
     connection.row_factory = sqlite3.Row
     connection.execute("PRAGMA query_only = ON")
     return connection

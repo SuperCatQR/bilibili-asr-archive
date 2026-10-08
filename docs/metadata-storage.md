@@ -1,758 +1,235 @@
-# Metadata and subtitle storage (`archive.db`)
+# SQLite 数据与工作流
 
-Normalized SQLite storage for the video metadata collected by
-`bili-asr fetch-meta` and for the subtitles acquired by `bili-asr harvest-subs`.
-This document describes the database the metadata and subtitle CLI commands
-create, read, and write. The legacy JSONL manifest pipeline
-(`manifest/manifest.jsonl`, `meta-cursor.json`, `run-ledger.jsonl`) is a
-separate state: the metadata and subtitle commands described here do not read
-it, and no command migrates old data into the new database. `bili-asr
-derive-manifest` is the one command that does — it reads the manifest so its
-appends stay additive, and appends to it; see
-[Boundary with the legacy manifest path](#boundary-with-the-legacy-manifest-path).
+本文描述当前源码的持久化契约、执行入口与恢复方式。系统使用归档根目录下的
+`archive.db` 保存元数据、转录版本、工作流、校对修订和审核记录；音频及 Markdown 等
+文件保存产品字节。SQLite 中的事实决定计划和执行，文件用于发布、验证和阅读。
 
-## Fresh-start behavior (no migration)
+整体关系见 [architecture.md](architecture.md)，文件位置见 [artifact-root.md](artifact-root.md)，
+阅读审核见 [ai-proofreading.md](ai-proofreading.md#阅读导出与人工审核)。
 
-- `fetch-meta` creates `{archive_root}/archive.db` when it does not exist and
-  initializes the two checked-in schema resources: `src/bili_asr/storage/schema.sql`
-  (users, videos, parts, ingestion runs/pages/cursors/discoveries) and
-  `src/bili_asr/storage/schema-transcripts.sql` (acquisition runs and attempts,
-  transcripts, transcript segments, and their views). Opening the database — for
-  a write or a read command — always runs both scripts, which are idempotent
-  no-ops on a current-version database; no schema upgrade happens in this
-  iteration. A database created before the transcript contract keeps the shape
-  it has: the transcript script is skipped for it, so nothing half-applies, the
-  metadata path keeps working, and the subtitle commands report the schema guard
-  below instead.
-- `status` and `runs` are read-only. When the database is missing they fail
-  with a clear configuration error and exit `1`; they never create it.
-- There is no migration, import, reset, or rewrite path. Deleting
-  `archive.db` is the only way to restart a collection from page 1; old
-  archive data is never discovered, read, or modified by any command.
-- A failed page never advances the cursor: resume is always safe, and no
-  partially written page payload survives a failure. The one exception is
-  the opt-in `--skip-failed-page`, which commits the cursor one page past a
-  failed page so the next `--resume` can progress; the failed
-  page row keeps its error code, so the gap stays visible. It skips any
-  non-rate-limit gateway failure — transient ones included — and
-  never a rate limit.
-- `--limit-pages` is optional and defaults to `DEFAULT_PAGE_LIMIT = 10`: a
-  run without the flag stops after 10 pages, ends the run `limited` (exit
-  0, never claimed complete), and re-running the command resumes from the
-  stored cursor.
+## 1. 唯一执行控制面
 
-## Database layout
-
-One SQLite file at `{archive_root}/archive.db`. Foreign keys are enforced
-(`PRAGMA foreign_keys = ON`).
-
-### Normalized entity tables
-
-| Table | Key | Contents |
-|-------|-----|----------|
-| `bilibili_users` | `mid` | The collected user and its current display label. |
-| `videos` | `bvid` | One row per video: `aid`, owner `mid` (FK to `bilibili_users`), `title`, `pubdate`. |
-| `video_parts` | `(bvid, page_index)` | One row per part: `cid`, part `title`, `duration_ms`, zero-based `page_index` (`{bvid}:p{page_index}` is the derived `work_id`, computed, never stored), `processing_status` (`discovered`, `metadata_collected`, `gone`), FK to `videos`. |
-
-### Ingestion process tables
-
-| Table | Key | Contents |
-|-------|-----|----------|
-| `ingestion_runs` | `run_id` | One row per collection run: target `mid`, source package and version, requested start page and page limit, `started_at` / `finished_at`, terminal `outcome` (`complete`, `limited`, `risk_interrupted`, `failed`). |
-| `ingestion_pages` | `(run_id, page_number)` | One evidence row per requested page: `outcome` (`ok`, `empty`, `risk_interrupted`, `failed`) and a bounded scalar `error_code` on failure. |
-| `ingestion_cursors` | `mid` | The resumable one-based cursor: `next_page`, `state` (`ready`, `complete`, `limited`, `risk_interrupted`), `observed_total`. |
-| `ingestion_discoveries` | `(run_id, page_number, bvid)` | Run-scoped discovery evidence linking a run page to a discovered video. |
-
-### Media and transcript tables
-
-`transcripts` and `transcript_segments` store acquired captions and local ASR
-results with their ordered segments. `harvest-subs` records caption acquisition;
-the store-backed ASR path records local transcripts and their `asr_models`
-identity. `adopt-transcripts` imports verified legacy bundles without ASR.
-
-`derive-audio-inventory` records confined, hashed files in `audio_objects` and
-`part_audio_objects`. The download and ASR store routes also record their
-acquisition attempts and close their run rows. The execution manifest retains
-per-stage state and published artifact paths alongside this store evidence.
-
-### Views
-
-| View | Contents |
-|------|----------|
-| `v_video_parts` | Every part with its derived `work_id` and the joined user/video context. |
-| `v_ingestion_run_stats` | Per-run page and video counts (the `runs` command's source). |
-| `v_pending_metadata` | Parts with `processing_status = 'discovered'` (the `status` command's pending work). |
-| `v_pending_subtitles` | Every part that is not `gone` and has no stored transcript, ordered never-attempted first — the subtitle commands' work list, carrying the newest attempt's outcome, timestamp, and credential presence. |
-
-## Subtitle acquisition (`probe-subs` / `harvest-subs`)
-
-Both commands read the parts already stored in `archive.db`, acquire through the
-typed gateway, and write their result back there — `archive.db` is the only
-destination. The `cid` always comes from `video_parts`: the subtitle path never
-fetches a pagelist and never calls upstream for a part that is not in the
-database.
+当前执行入口是 `fetch-meta` 和 `workflow`。元数据独立采集；字幕、音频、ASR、发布、
+AI 校对与阅读文档渲染由 SQLite workflow 调度。旧 manifest 队列和旧阶段命令不再是
+受支持的执行入口；数据库缺失时不会自动恢复 JSONL 队列。
 
 ```text
-bili-asr probe-subs  [--archive-root PATH] (--bvid BVID|BVID:pN | --limit-parts N) [--sessdata VALUE]
-bili-asr harvest-subs [--archive-root PATH] [--bvid BVID|BVID:pN] [--limit-parts N]
-                      [--language PREF[,PREF...]] [--sessdata VALUE]
+fetch-meta -> metadata tables -> workflow plan
+                                     |
+                           +---------+----------+
+                           v                    v
+                       subtitle               audio
+                           |                    |
+                           |                    v
+                           |                   asr
+                           |                    |
+                           +------> publish <---+
+                                                |
+                                  optional proofread
+                                                |
+                                         render_document
 ```
 
-- `--archive-root PATH` (default `archive`): the root holding `archive.db`.
-- `--bvid BVID` selects **every part of that video already in the database** —
-  for `harvest-subs` that includes parts that already have a transcript, which
-  is the explicit path for re-checking a video after upstream adds or revises a
-  caption. `--bvid BVID:pN` selects exactly one part, in the archive's own
-  zero-based part vocabulary. A selector that resolves to no stored part is a
-  configuration error — exit `1`, `unknown --bvid <value>` — never an empty
-  result.
-- `--limit-parts N` (positive integer) bounds the run. `probe-subs` requires
-  exactly one of `--bvid` / `--limit-parts`; `harvest-subs` requires the bound
-  whenever the selection is not a single `bvid:pN` part, which is bounded by
-  construction. No unbounded runs.
-- `--language PREF[,PREF...]` (`harvest-subs` only) overrides the preference
-  rule below; an empty entry is a usage error (exit `1`).
+发布箭头表示成功获得转录后请求发布。ASR 的调度 prerequisite 是 audio；字幕结果不决定
+ASR 是否能被领取。带 `--proofread` 的计划中，校对依赖 ASR，文档渲染依赖校对。
+已有 transcript 也可以通过 `workflow proofread` 单独进入校对分支。
 
-### Output
+## 2. Schema 与数据所有权
 
-`probe-subs` prints presence, one line per selected part in selection order,
-then a count summary:
+`storage/database.py` 的 `open_database()` 支持归档目录、显式数据库文件和 `:memory:`。
+正常 CLI 使用 `<archive-root>/archive.db`。新数据库按四份包内 SQL 建立完整 schema：
 
-```text
-sessdata: <present|absent>
-probe <work_id> tracks=<n>
-  track <lan> <ai|cc> <lan_doc>
-probe <work_id> tracks=0
-  (no subtitles visible)
-probe <work_id> failed <error_code>
-probe-subs: probed=<n> with_tracks=<n> without_tracks=<n> failed=<n>
-```
-
-A part with no visible track is never omitted: it carries the explicit
-`(no subtitles visible)` marker, so "no tracks" cannot be read as "not
-attempted". A part whose listing failed carries the bounded code on its own
-line, with no track lines and no success marker.
-
-`harvest-subs` prints presence, one line per attempted part in attempt order,
-then one summary line that always carries all four outcome counts including the
-zeros, the run id, the credential presence, and how many parts still have no
-transcript:
-
-```text
-sessdata: <present|absent>
-harvest <work_id> stored <source_kind> <language> v<version>
-harvest <work_id> unchanged <source_kind> <language> v<version>
-harvest <work_id> no-subtitle
-harvest <work_id> failed <error_code>
-harvest-subs: run_id=<run_id> attempted=<n> stored=<n> unchanged=<n> no-subtitle=<n> failed=<n> remaining_without_transcript=<n>
-```
-
-`remaining_without_transcript` is read after the run, so the operator can see a
-bounded run make progress. Each attempted part maps to exactly one outcome:
-
-| Upstream result | Outcome | Operator reading |
+| Schema 文件 | 主要表 | 保存的事实 |
 |---|---|---|
-| The listing carried no track, or the fetch answered `not_found` | `no-subtitle` | Nothing was visible for this part at this attempt. Not a failure, and not a statement that the video has no captions: a machine caption may not exist yet, uploader captions may never have been provided, and login-gated tracks are invisible anonymously. The part stays in the pending enumeration. |
-| Content identical to what is stored for this part/source/language | `unchanged` | The archive already held this caption; nothing was rewritten. |
-| New content, or content differing from every stored version | `stored` | A new version was written; earlier versions stay readable. |
-| `rate_limited`, `transport_error`, `response_error`, `shape_error` | `failed` + the bounded code | Retry later for the first two; the last two need investigation. |
+| `schema.sql` | `bilibili_users`、`videos`、`video_parts`、`video_tags`、`video_details` | 用户、视频、分 P、标签和详情 |
+| `schema.sql` | `ingestion_runs`、`ingestion_cursors`、`ingestion_pages`、`ingestion_discoveries` | 元数据运行、分页、游标与发现证据 |
+| `schema.sql` | `audio_objects`、`part_audio_objects`、`asr_models` | 音频身份、分 P 关联、模型身份 |
+| `schema-transcripts.sql` | `transcripts`、`transcript_segments` | 转录版本与按序片段 |
+| `schema-transcripts.sql` | `acquisition_runs`、`acquisition_attempts`、`transcript_coverage_attestations` | 采集结果、字幕证据、ASR 时长覆盖 |
+| `schema-workflow.sql` | `workflow_asr_profiles`、`workflow_jobs`、`workflow_job_dependencies`、`workflow_attempts` | 配置快照、任务、依赖、租约与执行历史 |
+| `schema-workflow.sql` | `workflow_quality_assessments`、`workflow_publications` | 质量评估、发布版本和相对文件路径 |
+| `schema-editorial.sql` | `editorial_inputs`、`editorial_job_inputs`、`editorial_model_calls`、`editorial_chunk_results`、`editorial_revisions` | 冻结输入、模型响应、分块检查点与修订 |
+| `schema-editorial.sql` | `document_artifacts`、`reading_document_editions`、`reading_publications`、`reading_publication_events` | 文档哈希、人工 edition、审核状态与事件 |
 
-The error and evidence paths carry no credential, a signed URL, a raw body, or
-raw upstream message text: a bounded scalar code stands in for whatever upstream
-said. The one upstream **metadata** value any output prints is the track label
-(`lan_doc`) on the `track` lines above — printed as metadata, trimmed, and
-rejected by the gateway as a bounded `shape_error` if it carries a control
-character, so it cannot split the locked one-line-per-track shape. No count here
-is presented as coverage of the corpus.
+Repository 拥有对应事实的写入契约；CLI 组装 repository、配置和 handler。执行器负责
+领取、续租和终态，handler 负责处理。查询投影不维护第二套任务状态。
 
-### Exit codes
+### 身份、单位与版本
 
-| Exit | Meaning |
-|------|---------|
-| 0 | The run completed. That includes a probe whose parts exposed no track at all, a harvest whose every attempted part had nothing visible, and a harvest whose selection resolved to no part (`attempted=0`). |
-| 1 | Usage/configuration: a missing `archive.db`, an unknown `--bvid`, a missing or non-positive bound, neither or both `probe-subs` selectors, an empty `--language` entry, or the transcript-schema guard below. |
-| 2 | The run failed on **every** attempted part, or an unexpected internal error (the fixed line `<command>: unexpected error`, no traceback). |
+- API 分 P 页码从 1 开始，数据库 `page_index` 从 0 开始。工作流使用 `video_part_id`；
+  展示层 `BV...:p0` 是 work ID，不能直接代替 `--part-id`。
+- 视频时长与转录位置使用毫秒；运行和租约时间使用整数 Unix 秒。
+- transcript 身份是 `(video_part_id, source_kind, language, version)`，来源为
+  `subtitle-cc`、`subtitle-ai`、`asr-local`。正文哈希与有序 segments 保存不可变转录事实。
+- 相同字幕内容避免重复版本；ASR 保留模型与运行证据。空响应和失败是采集证据，不能
+  覆盖已有 transcript。`credential_verified`、`absence_verified` 区分验证与观察结果。
+- ASR profile 固定模型、revision、aligner、device、language 和配置 digest；配置变化产生
+  新身份，不修改旧 job 引用。计划冻结当时的参考字幕 ID，执行读取成功的 audio result。
+- 文件 key 是根目录相对路径。音频登记 SHA-256、大小、格式、时长；阅读文档登记
+  SHA-256，导出时验证实际字节。目录配置不保存在数据库中。
 
-An `archive.db` that exists but cannot be read — a file that is not a SQLite
-database at all, a truncated one, or a damaged image whose header still opens —
-is answered by both commands on **stderr** with the single bounded line
-`<command>: unreadable archive database at <archive-root> (<ErrorType>)` and
-exit `1`, the same line `status` and `runs` print for that file, which no
-command repairs or rewrites.
+凭据在运行时解析；数据库记录凭据存在和验证证据，不保存 `SESSDATA` 的值。
 
-Partial failure stays visible in the counts and does not by itself decide the
-exit code: a harvest that stored one part and failed another exits `0` with
-`failed=1` on its summary line. In both exit-2 variants the run row is finished
-`failed` when one was opened, and the per-part evidence already written stays
-readable.
+`v_pending_subtitles`、`v_missing_subtitle`、`v_missing_audio`、`v_missing_transcript` 和
+`v_part_pipeline` 是缺口查询视图。实际领取条件属于 workflow jobs 和 dependencies；
+这些视图不承担第二条队列或 manifest 回退。
 
-**A `not_found` listing is read differently by the two commands, on purpose.**
-The same upstream answer reaches the operator as two different readings:
+## 3. 采集、计划与执行
 
-- `probe-subs` obtained no listing at all, so it prints
-  `probe <work_id> failed not_found` and counts the part under `failed=`. If
-  every selected part failed that way, the probe exits `2`.
-- `harvest-subs` records the part as `no-subtitle` — nothing was visible for it
-  — and exits `0` with `stored=0 unchanged=0 no-subtitle=1 failed=0`.
+以下示例适用于 WSL 的 POSIX shell。先有界采集：
 
-Neither reading is "this video has no captions", and a part recorded
-`no-subtitle` stays eligible for a later attempt.
+```sh
+bili-asr fetch-meta --archive-root ./archive --mid 123456 --limit-pages 2
+```
 
-### Archive writer lock
+成功页推进持久游标，再次运行继续；`--resume` 要求已有游标，`--start-page` 显式覆盖
+起始页。上游 gateway 失败返回退出码 2 并保存中断证据；未指定 `--skip-failed-page`
+时不会跳过失败页。
 
-`harvest-subs` is an archive-writer command: it takes the shipped writer lock at
-`{archive-root}/coordinator/archive-writer.lock` for the whole run, so a second
-mutating command exits `1` with `harvest-subs: archive_busy` instead of
-partially mutating the archive. That lock file and the database itself are the
-only files a bounded harvest leaves under the archive root.
+查询数据库中的分 P ID，再计划执行：
 
-The lock is taken by the command dispatcher **before** the handler reaches its
-database check, so a harvest pointed at a missing or mistyped `--archive-root`
-still creates `<root>/coordinator/` and leaves the lock file there while exiting
-`1` with the missing-database line. A failed or mistyped harvest is therefore
-not a no-op on the filesystem: nothing reaches the database, but the root and
-its `coordinator/` directory are created.
+```sh
+sqlite3 ./archive/archive.db \
+  'SELECT video_part_id, bvid, page_index, title FROM video_parts ORDER BY video_part_id;'
+bili-asr workflow plan --archive-root ./archive --part-id 42 --asr-policy all
+bili-asr workflow run --archive-root ./archive --limit 20
+bili-asr workflow status --archive-root ./archive --details
+```
 
-`probe-subs` is deliberately **not** an archive-writer command: it takes no
-lock and creates no file under the archive root. Its read-only promise is
-structural rather than only documented — no database creation, no transcript
-row, no acquisition run or attempt row, no lock file — and it stays a reader
-while another process writes, exactly like `status` and `runs`.
+计划按输入身份去重，可重复执行；`--part-id` 可重复传入。ASR 策略只有以下三种：
 
-### Track selection preference
-
-`harvest-subs` stores exactly one track per part. The default (no `--language`)
-ranks the visible tracks by language **family** — `zh` first, then `en`, then
-every remaining family in upstream order — and prefers an uploader caption
-(`is_ai = false`, printed `cc`) over a machine one; the first track after that
-ranking is fetched. The CC-before-AI term is deliberately **family-blind**: the
-remaining families share one rank, so between two *different* non-default
-families the uploader caption wins even when the machine track comes first
-upstream, and upstream order settles only a tie between tracks of the same
-family and the same kind. That ranking order is the locked key; `--language`
-overrides the whole rule.
-
-The family is derived from the two normalized facts the gateway DTO already
-guarantees — `language` and `is_ai` — by stripping the `ai-` prefix from a
-machine track's code and then taking the lowercase primary subtag: `zh-CN`,
-`zh-Hans`, `zh-Hant`, and `ai-zh` all land in `zh`, so the uploader caption wins
-whichever exact code upstream uses. The rule is defined on the family because
-upstream codes differ between caption kinds for the same spoken language
-(uploader Chinese is `zh-CN` / `zh-Hans` / `zh-Hant`, machine Chinese is
-`ai-zh`): a fixed list of exact codes would silently mis-rank any code upstream
-adds, and a machine↔uploader equivalence table would have to be maintained
-against upstream vocabulary and could flip without warning.
-
-`--language PREF[,PREF...]` overrides the rule: each entry is matched exactly
-against the code `probe-subs` prints, the first preference with a match wins,
-and among tracks matching the same preference the uploader caption comes before
-the machine one (then upstream order). `--language ai-zh` therefore retrieves
-the machine caption. A valid preference that matches no visible track yields
-`no-subtitle` for that part — nothing usable *for the requested language* was
-visible — never `failed`.
-
-The stored kind, language, and version are reported per part, so a run always
-shows which caption it kept:
-
-| Stored `source_kind` | Meaning |
+| 策略 | 语义 |
 |---|---|
-| `subtitle-cc` | The uploader's caption. |
-| `subtitle-ai` | Upstream's machine-generated caption. |
+| `all` | 为传入的分 P 计划音频和 ASR |
+| `selected` | 为明确选择的分 P 计划音频和 ASR；当前实现的选择结果与 `all` 相同 |
+| `below-threshold` | 按最新质量评估筛选；需要 0 到 1 的 `--quality-threshold`，缺少评估也进入处理集合 |
 
-This replaces the legacy manifest harvest's AI-first preference
-(`subtitles._LAN_PREFERENCE`, `("ai-zh", "zh-CN", "zh-Hans", "en")`): the
-default now keeps the uploader caption when both are visible, and `--language`
-keeps the machine one reachable.
-
-### Schema guard and rebuild
-
-Both commands require the transcript contract in the database they open. On a
-database that predates it — one whose `transcripts` table lacks `language` /
-`content_sha256` — they print the fixed message below on **stderr** (their part
-and summary output is stdout, and this path prints nothing there) and exit `1`.
-It is one line; the wrap below is the page's, not the command's:
-
-```text
-<command>: archive database predates the transcript schema; rebuild it (delete <archive-root>/archive.db and re-run fetch-meta)
-```
-
-A zero-byte `archive.db` — a file that exists but was never initialized — is the
-one state the two commands read differently, and the difference is the point:
-`harvest-subs` opens through the schema-initializing `open_database`, so it
-creates both schemas in that file and runs normally (a selection resolving to no
-part reports `attempted=0`, exit `0`), while `probe-subs` writes nothing at all,
-so its read-only open finds no transcript contract and answers with the rebuild
-line above (exit `1`).
-
-The metadata commands (`fetch-meta`, `status`, `runs`) keep working on that same
-database unchanged. There is no in-place migration: the rebuild procedure is to
-delete `archive.db`, re-run `fetch-meta` to recreate it from the checked-in
-schemas, and harvest again. A bare `fetch-meta` stops at the implicit
-`--limit-pages` bound (`DEFAULT_PAGE_LIMIT = 10`), so rebuilding a corpus
-collected beyond page 10 needs the bound spelled out (`--limit-pages <n>`) — or
-repeated runs with `--resume`, which continues from the stored cursor.
-
-### Boundary with the legacy manifest path
-
-
-`archive.db` supplies the default queues for `download-audio`, `asr`, `pilot`,
-`run`, and `schedule`; `--queue-source manifest` selects their legacy fallback.
-The manifest still records execution state and artifact paths. `campaign`
-operates on those manifest scopes with a bounded checkpoint.
-
-- `harvest-subs` records acquired captions and subtitle observations in the
-  store. `probe-subs` is read-only and supplies no exhaustion evidence.
-- Audio eligibility requires explicit listing-absence evidence or two distinct
-  harvest runs with present, verified credentials and an empty inventory.
-  Anonymous emptiness, authentication errors and subtitle-body failures leave
-  the caption path retryable.
-- `publish-transcripts` builds SRT/TXT/MD and raw bundles from stored
-  transcripts and records `archived` manifest rows. Complete verified bundles
-  are kept; inconclusive permission or I/O errors refuse publication.
-- Store-backed local ASR records its transcript, segments and model identity
-  so the missing-transcript queue drains after success. Published artifacts
-  remain archived even if supplementary store write-back fails.
-- `adopt-transcripts` validates existing manifest-era bundles and imports their
-  transcripts offline. It does not download or run ASR. Repeated bounded runs
-  skip already stored work before selecting the next imports.
-- `derive-manifest` remains an additive bridge for the explicit manifest
-  fallback. It preserves existing execution rows, including legacy ownership,
-  rather than overwriting their stage state.
-
-## No-JSONL contract
-
-`fetch-meta`, `status`, `runs`, `probe-subs`, and `harvest-subs` never read or
-write `manifest.jsonl`, `meta-cursor.json`, or `run-ledger.jsonl`. All persisted
-run/page evidence is scalar: `error_code` values are bounded strings of at most
-64 characters from a restricted character set. Credentials, signed URLs, raw
-response bodies, and raw exception text never enter CLI output, logs, or any
-persisted row. Neither of the two subtitle commands, `probe-subs` and
-`harvest-subs`, writes an on-disk projection of the transcript: neither produces
-`subtitles/raw/*.json` and neither produces `transcripts/<stem>/bundle.srt` — the
-normalized transcript lives in `archive.db` until `bili-asr publish-transcripts`
-publishes it (see
-[Boundary with the legacy manifest path](#boundary-with-the-legacy-manifest-path)).
-
-## Credential boundary
-
-The optional SESSDATA credential comes from `--sessdata` or the
-`BILI_SESSDATA` environment variable (flag wins). It is passed to the
-gateway's cookie object only: never echoed, logged, persisted, or rendered —
-CLI output shows presence only (`sessdata: present|absent`). Omitting it
-means anonymous access, and so does passing `--sessdata ""` explicitly
-(which never falls through to `BILI_SESSDATA`); a blank environment value
-likewise means anonymous. `harvest-subs` records credential presence and
-verified-login evidence separately. An expired credential is an authentication
-failure; unverified emptiness does not prove caption exhaustion. Historical
-ambiguous absence must be revalidated. `probe-subs` records nothing at all and
-only prints the presence.
-
-## Runtime HTTP backend
-
-`fetch-meta` reaches upstream through the pinned
-`bilibili-api-python==17.4.2` adapter, and that distribution declares no HTTP
-client of its own. With none installed, every request fails inside the process
-with `ArgsException("尚未安装第三方请求库或未注册自定义第三方请求库")` — the
-request never leaves the process — and the gateway maps it to the bounded
-`response_error`. `curl_cffi` is therefore a declared runtime dependency of
-this package, and a normal install provides it:
-
-```
-python3.12 -m pip install -e ".[dev]"     # or: uv sync
-```
-
-No separately installed backend is needed on top of that; a bare
-`pip install bilibili-api-python==17.4.2` alone is not enough.
-
-### Upstream page-call shape
-
-The adapter issues the user-video page call itself through the package's
-WBI-signed `Api` request, with the device-fingerprint (`dm`) parameters
-disabled and `w_webid` sent as a present string (empty when the package
-cannot derive an access id). The endpoint answers HTTP 412 to the `dm` shape
-and to a missing `w_webid`; every other parameter, the WBI signature, and the
-whole response normalization and validation path stay as the pinned package
-and the gateway spec define them. The bounded error taxonomy is unchanged:
-412/429 and the risk-control codes map to `rate_limited`, `-404`/`-62002` to
-`not_found`, shape problems to `shape_error`, and other upstream failures to
-`response_error`/`transport_error`.
-
-### Page size
-
-The adapter and the `BilibiliGateway` protocol default `page_size` to **30**,
-and the shipped service path passes that same value explicitly
-(`PAGE_SIZE = 30` in `src/bili_asr/services/metadata_ingest.py`); it is also the
-pinned package's own documented `ps` value. Larger page sizes are **not**
-guaranteed: with the same credential, proxy, and call shape, `ps=30` and
-`ps=50` were answered with `code=0` while `ps=100` was rejected (HTTP 412 on
-direct probes, JSON code `-400` on production runs). The adapter forwards an
-explicit `page_size` override upstream unchanged — it neither clamps nor
-rejects it — so an over-large override surfaces as the upstream bounded code
-(`rate_limited`/`response_error`) rather than as a caller error. There is no
-CLI flag for the page size.
-
-## HTTP proxy
-
-The pinned client builds its session with an explicitly empty proxy
-(`proxies={"all": ""}`), which defeats the transport's environment lookup:
-`HTTPS_PROXY` / `ALL_PROXY` alone are ignored by the package, so on a host
-whose direct route to Bilibili is blocked every call ends in a connect
-timeout. The gateway therefore resolves one proxy itself and applies it to the
-package's request settings before the first call.
-
-Precedence (first non-blank value wins; blank counts as unset):
-
-1. the `BilibiliApiGateway(proxy=...)` constructor argument,
-2. `BILI_HTTP_PROXY` — the documented operator knob,
-3. `HTTPS_PROXY`, then `https_proxy`,
-4. `ALL_PROXY`, then `all_proxy`.
-
-When nothing resolves, the library default is left untouched and no proxy is
-forced. A proxy URL is configuration, not a credential, and is never written
-to DTOs, logs, exception messages, or persisted rows.
-
-Two consequences of that design matter when troubleshooting:
-
-- The resolved value is applied to the package's **process-global** request
-  settings, so it is the effective proxy for every gateway in the process, not
-  only for the instance that resolved it.
-- A blank value counts as *unset*, so `BILI_HTTP_PROXY=""` cannot override a
-  host-level `HTTPS_PROXY`/`ALL_PROXY`. There is no in-app "no proxy" switch:
-  forcing a direct connection means unsetting every variable of the chain
-  (`BILI_HTTP_PROXY`, `HTTPS_PROXY`, `https_proxy`, `ALL_PROXY`, `all_proxy`)
-  for the process before the command runs.
-
-```
-export BILI_HTTP_PROXY=http://127.0.0.1:7890
-bili-asr fetch-meta --mid 23191782 --limit-pages 1 --archive-root archive
-```
-
-## `observed_total` semantics
-
-- `ingestion_cursors.observed_total` records the upstream video total
-  reported by the page response (`page.count`) when it is present; it is
-  provenance about the upstream snapshot, not a completion proof.
-- The fake test gateway reports a per-page count (its scripted responses
-  carry the scripted page size); live runs record the upstream global total.
-- Run completion keys off the empty item list: the first page that returns
-  no videos ends the run `complete` (bounded, spec-defined). An explicit
-  `--limit-pages` bound ends the run `limited` instead — never claimed as
-  complete — and the same applies to the implicit default bound
-  (`DEFAULT_PAGE_LIMIT = 10`) applied when the flag is omitted.
-
-## Exact bounded live smoke command
-
-The smoke is opt-in and bounded: one public metadata page for UID 23191782
-into a temporary archive root. On a proxied host — and on this host, whose
-direct route to Bilibili is blocked — the proxy is part of the command:
-
-```
-CONTROL=/root/workspace/bilibili-asr-archive   # the repository root
-cd "$CONTROL"
-set -a; source "$CONTROL/.env"; set +a          # gitignored; absent in a worktree
-export BILI_HTTP_PROXY=http://127.0.0.1:7890
-BILI_LIVE_SMOKE=1 "$CONTROL/.venv/bin/python" \
-  -m pytest tests/test_live_metadata_smoke.py -s -v
-```
-
-The repository root owns both the `.env` credential file and the `.venv`
-interpreter; a linked feature worktree has neither, so a worktree run must
-address them by absolute control-checkout path (as above) or provision its
-own environment. `-s` (or `-rP`) is part of the command: pytest captures the
-stdout of a *passing* test, so a plain `-v` run hides the evidence line on the
-happy path and would force a second page request against a risk-controlled
-endpoint — use `-s`/`-rP` on the first live attempt.
-
-`BILI_SESSDATA` and `BILI_HTTP_PROXY` may come from the sourced `.env` instead
-of an explicit `export` (the gateway reads the same environment).
-
-- Opt-in only (`BILI_LIVE_SMOKE=1`); default pytest runs skip it without
-  failure. An opted-in run in an environment without the pinned
-  `bilibili-api-python==17.4.2` distribution fails loudly with install
-  guidance instead of skipping.
-- Bound: exactly one page for UID 23191782 (`--start-page 1 --limit-pages 1`)
-  into a temporary archive root; no subtitle, playback, audio, or ASR code is
-  invoked, and nothing outside the temporary root is written.
-- **With a credential** (`BILI_SESSDATA` only — the smoke builds its own
-  `fetch-meta` argv and passes no `--sessdata`, so that flag is a CLI surface
-  the smoke never uses) the happy path is required: exit 0,
-  `outcome=limited` on the page bound (or `complete` when
-  the first page comes back empty), and real normalized rows — the user row,
-  one video row per collected video joined to that user, the part rows of
-  those videos, one discovery row per collected video, a terminal run row,
-  exactly one page-evidence row, and a cursor advanced past the committed
-  page. The run also asserts that no legacy sidecar
-  (`manifest/manifest.jsonl`, `meta-cursor.json`, `run-ledger.jsonl`) appears
-  and that neither the CLI output nor any persisted row carries the
-  credential value or playback markers. It prints one count-only evidence
-  line:
-  `live smoke evidence: outcome=… videos=… parts=… discoveries=… page_rows=1 cursor_next_page=… cursor_state=… observed_total=…`.
-  A bounded upstream failure while a credential is present is a loud failure.
-- **Without a credential** the run is anonymous: if upstream rejects
-  anonymous metadata access it ends in the bounded-failure branch, whose
-  evidence the smoke then verifies (terminal run row, one page row carrying a
-  scalar code — `rate_limited`, or `response_error` for other upstream
-  failures — no video/part/discovery growth, no cursor row). That bounded
-  no-credential outcome is reported as a reasoned skip, after its assertions
-  ran, not as a defect; any other bounded code — a `transport_error` from a
-  dead proxy, for instance — fails the smoke loudly, credential or not.
-- **Observed on 2026-09-11** (this host, proxy configured): the live run was
-  refused by upstream risk control. The CLI's one production page (the
-  then-shipped page size of 100) ended twice — before and after a cooldown —
-  in the bounded `response_error` branch, whose underlying upstream answer is
-  the JSON code `-400`; a direct call with the same credential, proxy, and
-  call shape but a page size of 5 returned `code=0` with real rows (5 videos,
-  `observed_total=1691`), and later probes of both page sizes were answered
-  with HTTP 412 (`rate_limited`). So the transport and the call shape do
-  reach and satisfy upstream, while this egress is intermittently under
-  risk control; a loud live-smoke failure means the bounded page was refused
-  upstream, not that the database or the CLI is broken.
-- **Settled on the same day (focused probes after the call-shape fix):** the
-  endpoint does reject the old page size. With the same credential, proxy,
-  and call shape, `ps=30` returned `code=0` with 30 items and `ps=50`
-  returned `code=0` with 50 items, while `ps=100` was rejected — HTTP 412 on
-  the probes and the JSON code `-400` on production runs. The shipped page
-  size is therefore the value upstream accepts: `PAGE_SIZE = 30` in
-  `src/bili_asr/services/metadata_ingest.py`, which is also the pinned
-  package's own documented `ps` value.
-- **Achieved on 2026-09-11 (same day, after the page-size fix):** the shipped
-  path completed a real end-to-end live run — CLI exit 0, one collected page,
-  `outcome=limited videos=30 parts=33 discoveries=30`, `observed_total=1691`,
-  and the cursor advanced to `next_page=2` with state `limited`. Count-only:
-  no credential, no proxy, and no collected metadata value is recorded here.
-  The intermittency noted above still applies to a fresh run.
-
-### Subtitle CLI smoke (`tests/test_live_subtitle_cli_smoke.py`)
-
-The same switch gates a live smoke of the subtitle commands: one public part
-through `probe-subs` and `harvest-subs` into a temporary archive root. Both
-commands address parts already in the database, so the smoke authors the one
-part it probes — the fixed public sample `BV1S8hA6MEvy:p0` — into its own
-temporary root first, and records `part_source=fixed-sample` with the identity
-in its single count-only evidence line:
-
-```
-CONTROL=/root/workspace/bilibili-asr-archive   # the repository root
-CHECKOUT=$CONTROL                              # or a feature worktree root
-cd "$CHECKOUT"
-set -a; source "$CONTROL/.env"; set +a          # gitignored; absent in a worktree
-export BILI_HTTP_PROXY=http://127.0.0.1:7890
-BILI_LIVE_SMOKE=1 "$CONTROL/.venv/bin/python" \
-  -m pytest tests/test_live_subtitle_cli_smoke.py -s -v
-```
-
-It runs from the package directory of the checkout under test because the
-control `.venv` carries an editable install of the control checkout: the
-package's own `tests/conftest.py` puts `src/` first on `sys.path`, so the code
-exercised is the checkout the test file belongs to.
-
-- Bound: one part, `--limit-parts 1` on both commands — one track listing for
-  the probe, one listing plus one document fetch for the harvest (when a track
-  is visible). The smoke adds no retry of its own; the shipped gateway is
-  fail-fast per call, so a throttled endpoint is answered by waiting and
-  re-running, never by bending the call shape.
-- Opt-in requires a resolvable credential: the smoke passes no `--sessdata` and
-  reads the same environment the command reads, so an opted-in run with no
-  `BILI_SESSDATA` (unset or blank) **fails loudly** with source-the-`.env`
-  guidance instead of reporting its anonymous `sessdata=absent tracks=0` reading
-  as a bounded observation. That reading is ambiguous — a login-gated caption
-  and a part with no caption look identical — so a forgotten credential must not
-  read as "nothing visible now". A default (not opted-in) pytest run still
-  skips, credential or not.
-- Asserted when a caption is visible: the printed presence, track, outcome and
-  summary line shapes; the normalized transcript row (an allowed
-  `source_kind`, its language, version 1, the content hash), its ordered
-  segments, the one run row with the operator's selector and the credential
-  presence, the one attempt row pointing at the transcript, a part that left
-  `v_pending_subtitles`, and an archive root holding nothing but `archive.db`
-  and `coordinator/archive-writer.lock`. Every field of the printed evidence
-  line is tied to an assertion: the probe's `with_tracks` and the harvest's
-  `stored` are checked against the part line they summarize, and the printed
-  `run_id` against the persisted run row. Both commands' stdout and stderr are
-  scanned for the seam's secret/payload sentinels — including the probe's, whose
-  `track` lines are the one place an upstream label is printed.
-- Recorded without reading green: zero visible tracks, a `not_found` listing,
-  and a `rate_limited` refusal each assert their bounded shapes, print the
-  evidence, and skip — a run that stored no transcript is not a subtitle
-  acquisition. Every other bounded code (`transport_error` from a dead proxy,
-  `response_error`, `shape_error`) fails loudly.
-- **Observed on 2026-09-11** (this host, credential and proxy configured), CLI
-  exit 0, bounded facts only: `part_source=fixed-sample
-  work_id=BV1S8hA6MEvy:p0 sessdata=present probe_exit=0 probed=1 with_tracks=1
-  without_tracks=0 probe_failed=0 track_count=1 tracks=ai-zh:ai harvest_exit=0
-  run_id=1de9b7cb7cd141bfa7114112212188db attempted=1 stored=1 unchanged=0
-  no_subtitle=0 failed=0 remaining_without_transcript=0 source_kind=subtitle-ai
-  language=ai-zh version=1 segments=2913 transcripts=1 attempts=1
-  pending_after=0`. The part exposed one machine caption, the harvest stored it
-  as version 1, and the part left the pending enumeration. Count-only: no
-  credential, no proxy, no signed URL, and no caption text is recorded here.
-
-## Exit codes
-
-### `fetch-meta`
-
-| Exit | Meaning |
-|------|---------|
-| 0 | Successful collection: completed on an empty page, stopped at the explicit `--limit-pages` bound, or stopped at the implicit default bound (`DEFAULT_PAGE_LIMIT = 10` when the flag is omitted); the run row records `complete` or `limited` accordingly. |
-| 1 | Usage/configuration error: non-positive page arguments, `--resume` with no stored cursor, or an unreadable archive root. Unexpected internal errors exit 2 (see below), not 1. |
-| 2 | Terminal failure — two variants, distinguishable by the failure line (see below). |
-
-Exit 2 variants:
-
-- **Gateway failure** (bounded scalar code, e.g. `response_error`,
-  `rate_limited`): the gateway is fail-fast per page — one attempt per
-  page, no retry. The failed page records its bounded scalar code, the
-  cursor remains unchanged, and re-running `fetch-meta` resumes safely.
-  With `--skip-failed-page` the cursor is instead committed one page past a
-  failed page, so the next `--resume` progresses; the page row
-  still records the failure and its code. Any gateway failure other than a
-  rate limit is skipped this way, transient ones included.
-- **Unexpected internal error** (the fixed line `fetch-meta: unexpected
-  error`, no scalar code, no traceback): the cursor may already hold the
-  last committed page of the run and the run row may remain `running` —
-  check `status` / `runs` before re-running. Re-running is safe: it
-  resumes from the stored cursor.
-
-### `status` / `runs`
-
-| Exit | Meaning |
-|------|---------|
-| 0 | Database read and displayed. An empty database prints `runs: empty`. |
-| 1 | Configuration error: the database does not exist (or a non-positive `runs --limit`). |
-
-`runs` lists runs newest-first — ordered by `started_at` descending, with
-same-second runs tie-broken deterministically by `run_id` descending — and
-includes non-terminal `running` rows: a crash can leave a stale run behind,
-and hiding it would hide real state.
-
-### `probe-subs` / `harvest-subs`
-
-Defined in the "Subtitle acquisition" section above: `0` the bounded run
-completed (a probe with zero visible tracks and a selection that resolved to no
-part included), `1` usage/configuration or the transcript-schema guard, `2` every
-attempted part failed or an unexpected internal error.
-
-
-## Metadata freshness and queue ownership
-
-Tag collection keeps at most 256 recent video observations per collection run
-(including degraded answers). A repeated video still resident in this cache
-reuses its answer; after eviction it is fetched again. Current-page answers
-remain available for persistence even when that page exceeds the cache bound.
-Each new run, including `fetch-meta --resume`, starts a fresh cache. Persisted
-`video_tags` records the last successful observation, not a freshness proof:
-resuming deliberately refreshes relisted videos so changed or removed tags can
-converge. An empty successful inventory clears tags; a degraded answer preserves
-the previous inventory. Resume therefore does not promise zero repeated tag
-requests across process or run boundaries.
-
-Each collected page may refresh the uploader's display name from its first
-named summary. A later named page can replace an earlier label; a nameless page
-preserves the stored label. Reobserving the identical label preserves the user's
-`updated_at`; this timestamp describes a label change, not a page heartbeat.
-
-Queue write-back validates scalar arguments and resolves the part, transcript,
-and run before opening its write group. On the supported SQLite deferred
-connection, those SELECT lookups do not start a transaction. A lookup refusal
-on an idle connection therefore leaves it idle. If the caller already owns a
-transaction, lookup refusal leaves that transaction and its pending writes
-intact: it neither commits nor rolls back caller work. Successful write-back
-retains the repository's existing commit/rollback write-group contract; callers
-should finish unrelated pending writes before invoking it.
-
-A part marked `gone` is excluded from subtitle and audio acquisition queues.
-If it already has archived audio and lacks a transcript, it remains in
-`missing_transcript`: local transcription of retained bytes is still useful
-and needs no network reacquisition. Queue membership follows the corresponding
-view; `gone` is not a blanket exclusion from all work.
-
-
-## Publication read budget and verification deadline
-
-Complete-bundle decisions still read and SHA-256 all four artifacts. File size
-and timestamps never establish content integrity; edits preserving both must
-still be detected. A run over 3,000 bundles at 3.5 MB each reads roughly 10.5 GB
-again, plus markers, and creates a verification process for each check.
-
-Use an explicit scope for mounted or large archives:
+所有选择的分 P 都有独立字幕 job。字幕获取由 subtitle handler 与 `BilibiliApiGateway`
+完成，一个分 P 可保留字幕和 ASR 两种来源。`workflow run` 处理当前可领取任务，
+没有就绪任务时返回，不持续轮询等待。
 
 ```sh
-bili-asr publish-transcripts --archive-root /path/to/archive --bvid BVxxxx:p0 --limit-parts 1 --verify-timeout-seconds 30
+# 从最新 ASR 版本冻结校对输入，明确不使用参考字幕
+bili-asr workflow proofread --archive-root ./archive --part-id 42 --no-reference
+bili-asr workflow run --archive-root ./archive --only-editorial
+# 请求已有 revision 的确定性重渲染，不调用 AI
+bili-asr workflow render --archive-root ./archive --revision-id REVISION_ID
+bili-asr workflow run --archive-root ./archive --only-editorial
 ```
 
-Without `--pending`, `--limit-parts N` limits selected database parts before
-loading their version metadata and limits verification to those N candidates.
-Each selected part's complete version set is retained for correct winner
-selection. `--pending --limit-parts N` instead limits publication attempts:
-it may inspect and hash many already-complete bundles before finding N pending
-parts. Narrow `--bvid` if a strict scan budget is needed; pending mode alone is
-not a corpus-read budget. Omit the part selector only for an intentional full
-scan. Lowering the timeout can refuse slow healthy reads, preserving the bundle
-and returning a failed candidate rather than weakening its integrity check.
+冻结快照和已完成 chunk 是重试检查点；渲染读取 revision 与模板。人工审核与 edition
+追加记录，不覆盖原 AI revision。
 
-`--verify-timeout-seconds` defaults to 30 and must be finite and positive.
-Both the pre-publication completeness check and post-publication confirmation
-use separate disposable read-only processes. On timeout the candidate reports
-`TimeoutError`, keeps an existing unverified bundle, and processing continues.
-The child inherits no archive-writer descriptors. The parent requests kill and
-waits at most 0.2 seconds for cleanup; an uninterruptible kernel call may outlive
-that request, so physical cancellation is not guaranteed. Unreaped workers
-are capped at four; more verification is refused until they exit. Workers
-perform no publication writes, so surviving workers cannot later publish.
+## 4. 任务状态、阻塞解释与定向恢复
 
-`--io-timeout-seconds` defaults to 60 and must be finite and positive.
-The CLI supervises a separate publication process before resolving artifact
-roots or opening the archive lock. A dedicated progress channel starts a new
-deadline for each candidate and for final snapshot persistence; initial root
-validation, lock acquisition, database selection and manifest replay share the
-setup deadline. Database reads, artifact writes, fsync, manifest journal writes
-and cleanup therefore cannot keep the calling CLI waiting indefinitely. This
-is independent of the verification-read deadline and byte allowance.
-
-An I/O deadline stops the invocation and returns 1; it does not continue with
-the next candidate. The supervisor requests termination and allows only a short
-bounded cleanup interval. The publication process owns the writer lock for its
-entire lifetime. If an uninterruptible kernel operation prevents termination,
-that process retains the lock until it actually exits, and other writers may
-still report `archive_busy`. Never remove the lock or start an overlapping
-writer to bypass this protection. Timeout means completion was not confirmed;
-it does not imply rollback. Rerun after the mount recovers to reconcile complete
-bundles and retry incomplete publication. Raise the explicit timeout for a
-healthy slow mount or large candidate. Process creation and a blocked terminal
-output device are outside the supervisor's filesystem deadline. Direct Python
-handler calls retain their existing synchronous library contract.
-
-
-### Finite verification byte budget
-
-`publish-transcripts` now defaults to a **256 MiB (268,435,456 byte)** strict
-verification read budget per invocation. `--verify-read-budget-bytes N` sets a
-positive finite allowance in bytes. This budget applies cumulatively to actual
-marker and artifact bytes returned by the canonical reader, across both
-pre-publication and post-publication checks and all candidates, including
-already-published skips in pending mode. The worker restricts each `os.read`
-to the remaining allowance; file stats are not used to charge or skip reads.
-Hashing remains strict and no stat-based cache is introduced.
-
-Budget exhaustion exits 1 with `VerificationBudgetExceeded` and a message that
-remaining candidates are unverified. It stops processing later candidates;
-an existing bundle whose read was cut short is preserved, with no
-already-published claim and no new manifest completion row. A newly written
-bundle whose post-write confirmation exceeds the budget also gains no manifest
-completion row. Products already successfully verified and recorded earlier in
-the invocation remain committed. Increase the budget or narrow `--bvid` to
-continue deliberately:
+持久状态为 `queued`、`running`、`succeeded`、`failed`、`cancelled`。
+`blocked` 是派生值：queued 且有 prerequisite 未 succeeded。等待 `available_at`
+的任务也可能尚未 ready，但不因此被标记为依赖阻塞。
 
 ```sh
-bili-asr publish-transcripts --archive-root /path/to/archive --bvid BVxxxx:p0 --verify-read-budget-bytes 536870912
+bili-asr workflow explain --archive-root ./archive --job-id JOB_ID
+bili-asr workflow status --archive-root ./archive --details
 ```
 
-A verification needs enough headroom to establish EOF; hitting the allowance
-exactly may conservatively refuse the bundle rather than read beyond it. On a
-worker timeout or invalid response, its full reserved allowance stays consumed:
-the parent's actual read count is unknown and a kernel-blocked reader may still
-hold it. This prevents allocating those same bytes to another worker. A new
-CLI invocation creates a new explicit budget. The allowance limits logical
-returned filesystem bytes, not filesystem/kernel readahead, SQLite traffic or
-publication output bytes. The verification timeout and its write/fence limits
-remain unchanged.
+`explain` 输出一个 JSON 对象；`status --details` 先输出状态计数，再逐行输出任务 JSON。
+解释包含 kind、状态、attempt_count、最近 attempt、available_at、ready、blocked，
+以及 prerequisites、blockers 中各任务的 ID、kind、状态和有界错误码。错误码至多
+64 字符，不保存任意异常全文。
+
+audio 失败后 ASR 保持 queued，blockers 指向 audio。修复下载配置后重试 audio，
+其成功后 ASR 自然满足依赖：
+
+```sh
+bili-asr workflow retry --archive-root ./archive --job-id AUDIO_JOB_ID
+bili-asr workflow run --archive-root ./archive
+```
+
+`retry` 只重排 failed 任务，保留 job 身份、attempt_count 与历史 attempts。
+`--job-id`、`--kind`、`--part-id` 均可重复：同一参数内是并集，不同参数之间取交集。
+不带筛选重排全部 failed；queued 的下游任务不需要 retry。
+
+```sh
+bili-asr workflow retry --archive-root ./archive --kind audio --part-id 42
+bili-asr workflow retry --archive-root ./archive --job-id JOB_ID --kind asr --part-id 42
+```
+
+过期租约在下一次领取时回收，旧 attempt 记录 `lease_expired`。终态与续租验证
+`job_id + lease_owner + attempt_count`，旧 worker 不能覆盖新 attempt。运行时注册
+subtitle、audio、asr、publish、proofread、render_document handler；schema 中的 `index`
+kind 当前没有运行 handler，全文索引通过 `search-index` 建立。
+
+## 5. 本机多进程 SQLite 运行范围
+
+支持同一主机、共享本地文件系统上的同一数据库由多个 worker 进程使用。每个进程拥有
+自己的连接与 worker ID。领取使用短 `BEGIN IMMEDIATE` 事务；请求、下载、推理和
+渲染在事务外执行。SQLite 串行化写事务，不提供多个同时写入的事务。
+
+建议从 1–4 个 worker 开始；回归测试验证 4 个进程同时领取时没有重复 claim。
+这不是代码强制的进程上限，也不是吞吐保证。更多 worker 应先测量写入等待与资源占用，
+让 busy timeout 和租约留出调度余量；默认生产租约是 900 秒，heartbeat 间隔为租约的三分之一。
+
+heartbeat 在自己的 daemon 线程中打开独立连接。它与主连接使用相同 `busy_timeout`：
+默认 30000 毫秒，`BILI_SQLITE_BUSY_TIMEOUT_MS` 接受 1 到 300000 的整数。
+heartbeat 继承 repository 创建时的策略，不重新读取后续环境变化。
+
+```sh
+export BILI_SQLITE_BUSY_TIMEOUT_MS=30000
+# 在两个 WSL 终端分别运行，使用不同 worker ID
+bili-asr workflow run --archive-root ./archive --worker-id worker-a --limit 20
+bili-asr workflow run --archive-root ./archive --worker-id worker-b --limit 20
+```
+
+超出等待上限的锁冲突返回退出码 1，CLI 提示 SQLite 竞争超时、超时变量和重试方式。
+等待占锁事务结束再运行；不要删除使用中的数据库或手动清除租约。等待超时不是整个
+命令的时限。多 worker 不协调 GPU 显存；GPU worker 数量由操作者控制。租约不能撤销
+已发出的外部请求，但会阻止过期 worker 写入权威终态和关键发布点。
+
+该范围不包含跨主机共享数据库、网络文件系统 SQLite，或 Windows 与 WSL 同时写同一
+挂载数据库。本机 WSL 多进程测试可以验证当前文件系统上的竞争行为，不能推导跨系统保证。
+
+## 6. Schema 不兼容时重建
+
+本项目不维护旧数据库迁移。打开非空库前从四份当前 SQL 推导表定义，核对所有产品表。
+缺表、旧字段或约束不符会在执行 schema 修改前失败，提示
+`delete archive.db and re-run fetch-meta`。不存在自动 `ALTER TABLE` 补字段路径。
+新库建立完整 schema；已有兼容库可继续用，当前包内派生视图仍可刷新。
+额外索引表不能代替产品表契约。
+
+重建步骤：
+
+1. 停止该归档的 worker 与写入命令。
+2. 如需留存，在关闭连接后保存旧数据库与文件。
+3. 操作者删除该归档的 `archive.db`，重新运行 `fetch-meta`。
+4. 重新计划采集、ASR、校对和发布，重建搜索及阅读站快照。
+
+**删除数据库会丢失元数据、转录版本、运行历史、修订和审核状态，需要重新采集或生成。**
+保留文件不能自动恢复这些事实，也没有受支持的 manifest 导入路径。
+
+## 7. 查询、导出与完整性
+
+- `status`、`runs` 不创建缺失数据库；打开已有库仍可能初始化兼容 schema、刷新视图。
+- `workflow status`、`workflow explain` 使用 schema 初始化入口，缺失数据库会初始化；
+  因此不能通过它们证明数据库此前存在。
+- `coverage`、`verify`、`export` 使用只读 workflow projection，合并 transcript、publication
+  与文件校验；独立目录的 bundle 按 artifact root、archive root 检查。
+- `search-index` 写可重建 FTS 派生索引；`search` 查询索引。
+- `dedup report` 只读内容身份清单，不删除音频、不合并版本、不选 canonical。
+- `reading-export` 以只读数据库连接验证文档 SHA-256，再生成静态输入；
+  `reading-review`、`reading-edit` 写审核决定与人工 edition。
+
+publication 行不能替代完整 marker 和实际字节校验。目录配置不迁移数据库，后续读取
+必须提供一致的 artifact root。路径规则见 [artifact-root.md](artifact-root.md)。
+
+## 8. 验证入口
+
+离线专项测试适用于 WSL 独立开发环境，不要求加载 GPU 模型：
+
+```sh
+python -m pytest -q tests/test_workflow_issue_regressions.py \
+  tests/test_workflow_control_plane.py tests/test_workflow_lease_heartbeat.py \
+  tests/test_storage_schema.py tests/test_ai_editorial.py
+```
+
+覆盖相对路径、符号链接拒绝、独立产物目录、审核导出哈希、阻塞解释、定向重试、旧库拒绝，
+以及真实多进程领取与 heartbeat 锁竞争。完整测试用 `python -m pytest -q`；live API
+与 GPU 集成测试要求各自环境，不能将离线 adapter 测试视为真实模型推理验证。

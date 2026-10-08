@@ -6,6 +6,8 @@ from bili_asr.diagnostics import write_stderr
 
 import argparse
 import sys
+import sqlite3
+from bili_asr.storage.database import SchemaContractError, SQLITE_BUSY_TIMEOUT_ENV
 
 # Keep the historical dotted import path usable while ``cli.main`` is now a
 # module.  A few orchestration tests import the module through this nested
@@ -67,7 +69,22 @@ def _main(
         except ArtifactRootError as exc:
             write_stderr(f"{args.command}: {exc}")
             return 1
-    return _cli_pkg._dispatch_command(args)
+    try:
+        return _cli_pkg._dispatch_command(args)
+    except SchemaContractError as exc:
+        write_stderr(f"{args.command}: {exc}")
+        return 1
+    except sqlite3.OperationalError as exc:
+        if getattr(exc, "sqlite_errorcode", 0) & 0xFF not in {sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED}:
+            raise
+        write_stderr(f"{args.command}: SQLite contention timeout exceeded; stop competing writers "
+                     f"or increase {SQLITE_BUSY_TIMEOUT_ENV}. Jobs remain recoverable; retry after contention clears.")
+        return 1
+    except ValueError as exc:
+        if not str(exc).startswith(SQLITE_BUSY_TIMEOUT_ENV):
+            raise
+        write_stderr(f"{args.command}: {exc}")
+        return 1
 
 
 def main(argv: list[str] | None = None) -> int:

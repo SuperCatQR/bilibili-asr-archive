@@ -1,12 +1,9 @@
 -- Transcript and acquisition process-record contract.
 --
--- Applied by ``initialize_schema`` only to a database that is fresh
--- (``transcripts`` absent) or already carries this contract; a database
--- created before it keeps the shape it has, because ``CREATE TABLE IF NOT
--- EXISTS`` cannot widen an existing unique constraint.  The archive database
--- is rebuildable for contracts that require changed identity constraints.
--- Credential verification is an additive exception: initialization adds its
--- column with default 0, preserving historical evidence as unverified.
+-- Applied by ``initialize_schema`` to a fresh database or one whose complete
+-- shipped table definitions already match. Incompatible databases are refused
+-- before schema writes and must be deleted and recollected. No table migration
+-- or additive-column compatibility exception is supported.
 -- Foreign-key enforcement is a connection property
 -- owned by ``initialize_schema`` (``PRAGMA foreign_keys = ON``, verified),
 -- so this script declares no pragma of its own.

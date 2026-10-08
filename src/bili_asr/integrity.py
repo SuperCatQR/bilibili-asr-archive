@@ -53,12 +53,13 @@ class IntegrityVerifier:
 
     def verify(self, archive_root: Path, *, scope: str | None = None, policy: Any = None, artifact_roots: ArtifactRoots | None = None) -> IntegrityReport:
         del policy
-        root = Path(archive_root).resolve()
+        root = ArtifactRoots.of(archive_root).archive_root
         if not (root / "archive.db").is_file():
             return IntegrityReport(authoritative=False, diagnostics=["structural_input_error"])
         from bili_asr.services.workflow_projection import workflow_records
 
-        records = workflow_records(root)
+        roots = artifact_roots if artifact_roots is not None else ArtifactRoots.of(root)
+        records = workflow_records(root, artifact_roots=roots)
         if scope in {"pending", "incomplete"}:
             records = {key: value for key, value in records.items() if value.get("status") != "archived"}
         elif scope:
@@ -69,7 +70,6 @@ class IntegrityVerifier:
                     return IntegrityReport(authoritative=True, diagnostics=["unknown_scope"])
                 selected.update(matches)
             records = selected
-        roots = artifact_roots if artifact_roots is not None else ArtifactRoots.of(root)
         report = IntegrityReport(authoritative=True, checked=len(records))
         for work_id, entry in sorted(records.items()):
             paths = {key: entry[key] for key in ("srt_path", "txt_path", "md_path", "raw_path") if isinstance(entry.get(key), str)}
