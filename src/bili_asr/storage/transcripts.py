@@ -9,9 +9,9 @@ import hashlib
 import json
 import math
 import sqlite3
-from typing import Mapping, Sequence
+from contextlib import contextmanager
+from typing import Any, Callable, Mapping, Sequence
 from bili_asr.storage.models import ALLOWED_CAPTION_SOURCE_KINDS, ALLOWED_LOCAL_TRANSCRIPT_SOURCE_KINDS, ALLOWED_SOURCE_KINDS, MAX_TIMELINE_MS, AcquisitionRunRecord, TranscriptRecord, TranscriptSegmentRecord, TranscriptWriteResult, _choice, _error_code, _integer, _text
-import bili_asr.storage.database as _dependency_database
 
 
 def _language_code(value: object) -> str:
@@ -73,10 +73,21 @@ class TranscriptRepository:
     instead of a raw ``sqlite3.OperationalError`` from its first query.
     """
 
-    def __init__(self, connection: sqlite3.Connection):
+    def __init__(self, connection: sqlite3.Connection, *, write_guard: Callable[[], None] | None = None):
         _module_storage_database._validate_connection(connection)
         _module_storage_database.require_subtitle_schema(connection)
         self.connection = connection
+        self._write_guard = write_guard
+
+    @contextmanager
+    def _result_transaction(self):
+        with _module_storage_database._transaction(self.connection):
+            if self._write_guard is not None:
+                if self.connection.in_transaction:
+                    raise RuntimeError("guarded transcript transaction cannot be nested")
+                self.connection.execute("BEGIN IMMEDIATE")
+                self._write_guard()
+            yield
 
     def start_acquisition_run(self, run: AcquisitionRunRecord) -> None:
         """Insert one new acquisition run.
@@ -87,6 +98,10 @@ class TranscriptRepository:
         """
         if not isinstance(run, AcquisitionRunRecord):
             raise TypeError("run must be an AcquisitionRunRecord")
+        with self._result_transaction():
+            self._insert_acquisition_run(run)
+
+    def _insert_acquisition_run(self, run: AcquisitionRunRecord) -> None:
         self.connection.execute(
             """
             INSERT INTO acquisition_runs(
@@ -108,7 +123,6 @@ class TranscriptRepository:
         )
         # A run is a lifecycle parent for attempt transactions. Commit its
         # start independently so a failed part can roll back without it.
-        self.connection.commit()
 
     def finish_acquisition_run(
         self, run_id: str, finished_at: int, *, outcome: str | None = None
@@ -148,17 +162,15 @@ class TranscriptRepository:
         resolved = (
             outcome if outcome is not None else self._run_outcome_from_attempts(run_id)
         )
-        self.connection.execute(
-            """
-            UPDATE acquisition_runs
-            SET finished_at = ?, outcome = ?
-            WHERE run_id = ? AND outcome = 'running'
-            """,
-            (finished_at, resolved, run_id),
-        )
-        if self.connection.execute("SELECT changes()").fetchone()[0] != 1:
-            raise sqlite3.IntegrityError(f"run {run_id} is no longer running")
-        self.connection.commit()
+        # Failure cleanup stays possible after cancellation; success is fenced.
+        context = self._result_transaction() if resolved != "failed" else _module_storage_database._transaction(self.connection)
+        with context:
+            self.connection.execute(
+                "UPDATE acquisition_runs SET finished_at = ?, outcome = ? "
+                "WHERE run_id = ? AND outcome = 'running'", (finished_at, resolved, run_id),
+            )
+            if self.connection.execute("SELECT changes()").fetchone()[0] != 1:
+                raise sqlite3.IntegrityError(f"run {run_id} is no longer running")
         return resolved
 
     def record_acquired_transcript(
@@ -213,7 +225,7 @@ class TranscriptRepository:
         canonical = self._canonical_segments(segment_records)
         content_sha256 = _segment_content_sha256(canonical)
 
-        with _module_storage_database._transaction(self.connection):
+        with self._result_transaction():
             self._require_video_part(video_part_id)
             self._require_acquisition_run(run_id)
             existing_row = self.connection.execute(
@@ -362,7 +374,7 @@ class TranscriptRepository:
                 raise ValueError("coverage evidence values are inconsistent")
             coverage_row = (decoded_s, produced_s, ratio, coverage_min, short)
 
-        with _module_storage_database._transaction(self.connection):
+        with self._result_transaction():
             self._require_video_part(video_part_id)
             self._require_acquisition_run(run_id)
             model_row = self.connection.execute(
@@ -521,7 +533,7 @@ class TranscriptRepository:
         if finished_at < started_at:
             raise ValueError("finished_at must not precede started_at")
 
-        with _module_storage_database._transaction(self.connection):
+        with self._result_transaction():
             self._require_video_part(video_part_id)
             self._require_acquisition_run(run_id)
             self.connection.execute(

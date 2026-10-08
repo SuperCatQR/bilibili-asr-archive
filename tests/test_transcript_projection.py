@@ -74,6 +74,7 @@ ROW_FIELDS = {
     "pubdate_str",
     "status",
     "srt_path",
+    "vtt_path",
     "txt_path",
     "md_path",
     "raw_path",
@@ -96,6 +97,7 @@ CONTENT_SHA = "9f" * 32
 #: plus a fifth key of the kind a caller may hold: §5.1's key set admits the four.
 PATHS = {
     "srt_path": "transcripts/BV1xx4y1zz.p2/bundle.srt",
+    "vtt_path": "transcripts/BV1xx4y1zz.p2/bundle.vtt",
     "txt_path": "transcripts/BV1xx4y1zz.p2/bundle.txt",
     "md_path": "transcripts/BV1xx4y1zz.p2/bundle.md",
     "raw_path": "transcripts/BV1xx4y1zz.p2/bundle.raw.json",
@@ -381,7 +383,7 @@ def test_projection_row_carries_the_declared_fifteen_keys_and_the_derived_field_
     assert row["status"] == ARCHIVED_STATUS == "archived"
     assert row["source"] == "subtitle-cc"
     assert row["language"] == "zh-CN"
-    for key in ("srt_path", "txt_path", "md_path", "raw_path"):
+    for key in ("srt_path", "vtt_path", "txt_path", "md_path", "raw_path"):
         assert row[key] == PATHS[key]
 
     short = _only([_row(duration_ms=999)]).part

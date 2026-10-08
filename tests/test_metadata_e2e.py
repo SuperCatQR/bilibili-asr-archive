@@ -285,6 +285,7 @@ def test_fetch_meta_normalizes_single_part_and_multipart_videos_end_to_end(
     # however many parts that video has: the multipart video below has two
     # parts and still costs exactly one tag call.
     assert script.calls == [
+        "credential.nav",
         "space.arc.search(pn=1, ps=30)",
         "video.get_pages",
         "video.get_pages",

@@ -340,8 +340,11 @@ class ASRRunner:
 
         hotwords = self._prompt_hotwords()
         prompt = "Vocabulary: " + ", ".join(hotwords) if hotwords else None
+        # Scratch chunks already contain mono 16 kHz audio. Passing samples
+        # keeps Transformers from selecting its optional file-loading backend.
+        samples, _ = _dependency_audio._read_audio(audio_path)
         inputs = models.processor.apply_transcription_request(
-            audio=audio_path, language=self.config.language, prompt=prompt
+            audio=samples, language=self.config.language, prompt=prompt
         )
         inputs = inputs.to(models.model.device, models.model.dtype)
         seconds = float(inputs["input_features_mask"].sum(-1).max()) / _dependency_constants._MEL_FRAMES_PER_SECOND
@@ -361,8 +364,9 @@ class ASRRunner:
 
         import torch
 
+        samples, _ = _dependency_audio._read_audio(audio_path)
         inputs, word_lists = models.aligner_processor.prepare_forced_aligner_inputs(
-            audio=audio_path, transcript=text, language=language or "Chinese"
+            audio=samples, transcript=text, language=language or "Chinese"
         )
         inputs = inputs.to(models.aligner.device, models.aligner.dtype)
         with torch.inference_mode():

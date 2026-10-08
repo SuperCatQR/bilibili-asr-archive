@@ -43,8 +43,12 @@ def test_relative_archive_audio_records_a_relative_key(tmp_path, monkeypatch, co
                                            sessdata=None, artifact_roots=roots)
 
         def download(client, identity, target, **kwargs):
-            assert kwargs["artifact_roots"] == roots
-            target.parent.mkdir(parents=True)
+            staging_roots = kwargs["artifact_roots"]
+            assert staging_roots.write_base.is_relative_to(roots.write_base / "audio")
+            assert staging_roots.write_base.name.startswith(".workflow-audio-")
+            assert target.parent == staging_roots.write_base / "audio"
+            assert not (roots.write_base / "audio" / target.name).exists()
+            target.parent.mkdir(parents=True, exist_ok=True)
             target.write_bytes(b"offline audio")
             return str(target.absolute())
 

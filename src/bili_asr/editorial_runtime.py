@@ -32,9 +32,11 @@ class EditorialWorkflowHandlers:
         return {JobKind.PROOFREAD: self.proofread, JobKind.RENDER_DOCUMENT: self.render}
 
     def proofread(self, job: WorkflowJob) -> dict[str, Any]:
+        self.workflow.assert_lease(job)
         prepared = self.repository.freeze_job_input(job)
         config = EditorialConfig(**prepared["snapshot"]["config"])
         for chunk in prepared["chunks"]:
+            self.workflow.assert_lease(job)
             if self.repository.chunk_result(prepared["input_id"], chunk["chunk_id"]) is not None:
                 continue
             self.workflow.renew_lease(job, lease_seconds=config.timeout_seconds + 300)
@@ -46,6 +48,7 @@ class EditorialWorkflowHandlers:
                 # Persist the actual envelope (including usage/model identifiers)
                 # before accepting content or raising a validation error.
                 self.repository.finish_call(call_id, envelope)
+                self.workflow.assert_lease(job)
                 blocks = validate_revision(chunk, parse_response(envelope))
                 self.repository.save_chunk(job, prepared["input_id"], chunk["chunk_id"], call_id, blocks)
             except Exception as exc:
@@ -55,6 +58,7 @@ class EditorialWorkflowHandlers:
         return {"input_id": prepared["input_id"], "revision_id": revision_id, "chunks": len(prepared["chunks"])}
 
     def render(self, job: WorkflowJob) -> dict[str, Any]:
+        self.workflow.assert_lease(job)
         template = job.payload["template_version"]
         if template != TEMPLATE_VERSION:
             raise ValueError("unsupported document template version")
@@ -74,23 +78,26 @@ class EditorialWorkflowHandlers:
             raise ValueError("document directory escapes archive root")
         folder.mkdir(parents=True, exist_ok=True)
         artifacts = {}
-        for name, content in documents.items():
-            target = folder / name
-            if target.is_symlink():
-                raise ValueError("document target is a symlink")
-            encoded = content.encode("utf-8")
-            fd, temporary = tempfile.mkstemp(prefix=".render-", dir=folder)
-            try:
+        staged = []
+        try:
+            for name, content in documents.items():
+                target = folder / name
+                if target.is_symlink():
+                    raise ValueError("document target is a symlink")
+                encoded = content.encode("utf-8")
+                fd, temporary = tempfile.mkstemp(prefix=".render-", dir=folder)
+                staged.append((temporary, target))
                 with os.fdopen(fd, "wb") as stream:
                     stream.write(encoded)
                     stream.flush()
                     os.fsync(stream.fileno())
-                self.repository.assert_lease(job)
-                os.replace(temporary, target)
-            finally:
+                artifacts[name] = ((relative / name).as_posix(), hashlib.sha256(encoded).hexdigest())
+            with self.repository.owned_transaction(job):
+                for temporary, target in staged:
+                    os.replace(temporary, target)
+                self.repository.record_artifacts(revision_id, template, artifacts)
+        finally:
+            for temporary, _ in staged:
                 if os.path.exists(temporary):
                     os.unlink(temporary)
-            artifacts[name] = ((relative / name).as_posix(), hashlib.sha256(encoded).hexdigest())
-        with self.repository.owned_transaction(job):
-            self.repository.record_artifacts(revision_id, template, artifacts)
         return {"revision_id": revision_id, "artifacts": {name: path for name, (path, _) in artifacts.items()}}

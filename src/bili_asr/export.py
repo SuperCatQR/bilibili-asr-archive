@@ -31,6 +31,7 @@ STANDARD_CSV_COLUMNS: tuple[str, ...] = (
     "pubdate",
     "source",
     "srt_path",
+    "vtt_path",
     "txt_path",
     "md_path",
     "raw_path",
@@ -197,7 +198,8 @@ def sanitize_export_entry(
     Path fields are validated against the roots to prevent path traversal leaks.
 
     ``artifact_roots`` carries the bases the artifact path fields were written under
-    (contract §10, export row): the five path columns are products, so a value that
+    (contract §10, export row): the five transcript paths and audio path are
+    products, so a value that
     resolves under only one of the two bases still exports as a normalized relative
     path instead of being stripped to ``""``.  ``None`` keeps the shipped behaviour —
     ``archive_root`` alone, and the rootless mode when that is ``None`` too.

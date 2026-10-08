@@ -12,7 +12,7 @@ from dataclasses import dataclass
 import threading
 from typing import Any
 
-from bili_asr.storage.workflow import JobKind, LeaseLostError, WorkflowJob, WorkflowRepository
+from bili_asr.storage.workflow import JobKind, JobCancelledError, LeaseLostError, WorkflowJob, WorkflowRepository
 
 
 JobHandler = Callable[[WorkflowJob], Mapping[str, Any] | None]
@@ -23,6 +23,7 @@ class ExecutionSummary:
     succeeded: int
     failed: int
     idle: bool
+    cancelled: int = 0
 
 
 class WorkflowExecutor:
@@ -52,17 +53,21 @@ class WorkflowExecutor:
     def run(self, *, limit: int | None = None) -> ExecutionSummary:
         if limit is not None and limit < 1:
             raise ValueError("limit must be positive")
-        succeeded = failed = 0
-        while limit is None or succeeded + failed < limit:
+        succeeded = failed = cancelled = 0
+        while limit is None or succeeded + failed + cancelled < limit:
             job = self.repository.claim(
                 self.worker_id, lease_seconds=self.lease_seconds, kinds=self.kinds
             )
             if job is None:
-                return ExecutionSummary(succeeded, failed, idle=succeeded + failed == 0)
+                return ExecutionSummary(succeeded, failed, idle=succeeded + failed + cancelled == 0,
+                                        cancelled=cancelled)
             handler = self.handlers.get(job.kind)
             if handler is None:
                 self._fail(job, "no_handler")
-                failed += 1
+                if self.repository.is_cancelled(job):
+                    cancelled += 1
+                else:
+                    failed += 1
                 continue
             heartbeat = _LeaseHeartbeat(
                 self.repository,
@@ -75,18 +80,23 @@ class WorkflowExecutor:
                 result = handler(job)
             except Exception as exc:  # Handler details stay out of durable control state.
                 self._fail(job, str(getattr(exc, "error_code", ""))[:64] or type(exc).__name__[:64])
-                failed += 1
+                if self.repository.is_cancelled(job):
+                    cancelled += 1
+                else:
+                    failed += 1
             else:
                 try:
                     self.repository.finish(job.job_id, worker_id=self.worker_id, result=result,
                                            expected_attempt_count=job.attempt_count)
+                except JobCancelledError:
+                    cancelled += 1
                 except LeaseLostError:
                     failed += 1
                 else:
                     succeeded += 1
             finally:
                 heartbeat.stop()
-        return ExecutionSummary(succeeded, failed, idle=False)
+        return ExecutionSummary(succeeded, failed, idle=False, cancelled=cancelled)
 
     def _fail(self, job: WorkflowJob, error_code: str) -> None:
         try:
