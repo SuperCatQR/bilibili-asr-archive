@@ -192,7 +192,7 @@ def content_from_ai(prepared: dict, markdown_text: str) -> dict:
                    "videoPartId": snapshot["video_part_id"],
                    "url": f"https://www.bilibili.com/video/{metadata['bvid']}/?p={metadata['page_index'] + 1}"},
         "attribution": "\u6839\u636e\u89c6\u9891\u8f6c\u5f55\u6574\u7406\uff0c\u7ecf AI "
-                       "\u5408\u6210\u5e76\u7531\u4eba\u5de5\u5ba1\u6838\u53d1\u5e03\u3002",
+                       "\u5408\u6210\u3002",
         "editorNote": "",
     })
 

@@ -1,4 +1,4 @@
-"""Separate projections for public releases and explicitly selected review material."""
+"""Reader release/draft snapshots and explicitly selected private review material."""
 
 from __future__ import annotations
 
@@ -96,6 +96,77 @@ def export_publications(
     articles.sort(key=lambda entry: (-entry["publishedAt"], entry["videoPartId"]))
     files["catalog.json"] = json_bytes({"schemaVersion": 1, "manuscriptType": "publication", "articles": articles})
     replace_snapshot(output, kind="publication-export", files=files)
+    return len(articles)
+
+
+def export_publication_drafts(
+    connection: sqlite3.Connection,
+    *,
+    artifact_roots: tuple[Path, ...],
+    output: Path,
+) -> int:
+    """Export current reader drafts that have never had a release of any status."""
+    require_manuscript_schema(connection)
+    output = guard_output(connection, output, artifact_roots)
+    files: dict[str, bytes] = {}
+    articles = []
+    with _read_snapshot(connection):
+        missing_head = connection.execute(
+            "SELECT e.video_part_id FROM publication_editions e "
+            "LEFT JOIN publication_heads h ON h.video_part_id = e.video_part_id "
+            "WHERE h.video_part_id IS NULL LIMIT 1"
+        ).fetchone()
+        if missing_head is not None:
+            raise ExportSnapshotError("edition part has no current draft head")
+        broken_release = connection.execute(
+            "SELECT r.release_id FROM publication_releases r "
+            "LEFT JOIN publication_heads h ON h.video_part_id = r.video_part_id "
+            "WHERE r.status = 'published' AND h.current_release_id IS NOT r.release_id LIMIT 1"
+        ).fetchone()
+        if broken_release is not None:
+            raise ExportSnapshotError("published release has no matching current publication head")
+        # Read heads before checking eligibility. An invalid pointer must fail
+        # rather than vanish through a join or become an empty draft snapshot.
+        heads = connection.execute(
+            "SELECT video_part_id, current_edition_id FROM publication_heads ORDER BY video_part_id"
+        ).fetchall()
+        for head in heads:
+            edition = get_edition(connection, head["current_edition_id"])
+            if (edition["video_part_id"] != head["video_part_id"]
+                    or edition["current_edition_id"] != edition["edition_id"]):
+                raise ExportSnapshotError("draft head does not identify a current edition of the same part")
+            released = connection.execute(
+                "SELECT 1 FROM publication_releases WHERE edition_id = ? LIMIT 1",
+                (edition["edition_id"],),
+            ).fetchone()
+            if released is not None:
+                continue
+            # Verify the immutable revision, source identity and paired baseline
+            # even though neither the review reference nor model audit is public.
+            get_ai_artifacts(connection, edition["revision_id"], artifact_roots)
+            content = edition["content"]
+            source = content["source"]
+            document = render_publication(content)
+            slug = f"edition-{edition['edition_id']}"
+            entry = {
+                "manuscriptType": "publication-draft", "slug": slug,
+                "title": content["title"], "summary": content["summary"], "tags": content["tags"],
+                "attribution": content["attribution"], "editorNote": content["editorNote"],
+                "editionId": edition["edition_id"], "aiRevisionId": edition["revision_id"],
+                "videoPartId": edition["video_part_id"], "bvid": source["bvid"],
+                "pageIndex": source["pageIndex"], "sourceUrl": source["url"],
+                "contentSha256": edition["content_sha256"],
+                "artifactSha256": hashlib.sha256(document).hexdigest(),
+                "reviewStatus": edition["review_status"], "createdAt": edition["created_at"],
+                "file": f"drafts/{slug}/preview.md",
+            }
+            if entry["file"] in files:
+                raise ExportSnapshotError("duplicate reader draft identity")
+            files[entry["file"]] = document
+            articles.append(entry)
+    articles.sort(key=lambda entry: (-entry["createdAt"], entry["videoPartId"], entry["editionId"]))
+    files["catalog.json"] = json_bytes({"schemaVersion": 1, "manuscriptType": "publication-draft", "articles": articles})
+    replace_snapshot(output, kind="publication-draft-export", files=files)
     return len(articles)
 
 

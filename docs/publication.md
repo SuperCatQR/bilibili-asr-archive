@@ -1,7 +1,8 @@
 # 稿件编辑、审核与发布
 
 AI 合成稿件、校验参照稿件与发布稿件各有明确身份。AI 工作流生成的正文只能作为编辑来源，
-人工审核针对一份不可变的完整 edition，公开阅读站只取得显式发布的有效 release。
+人工审核针对一份不可变的完整 edition。网站将已发布 release 与显式导出的未发布预览分开显示，
+公开预览不构成人工批准，也不产生 release。
 
 ## 对象与文件
 
@@ -110,10 +111,10 @@ withdraw 只操作明确指定的 release。撤回历史 release 不会下线另
 撤回当前 release 后需重新导出、构建和部署站点，并清理部署端旧文件及缓存；本地导出不能撤销
 已经部署到服务器或 CDN 的副本。重新上线采用新的 edition、审核与发布流程。
 
-工作流的 `publish` 仍表示 SRT/TXT/Markdown/raw JSON 转录 bundle 发布，文章发布入口是
+工作流的 `publish` 仍表示 SRT/VTT/TXT/Markdown/raw JSON 转录 bundle 发布，文章发布入口是
 `publication publish`，两者互不代替。
 
-## 公开与内部导出
+## 已发布、未发布预览与内部导出
 
 公开导出只读取有效 release，验证 release -> edition -> approval 关系及两个哈希。
 没有有效 release 的分 P 不出现；损坏发布稿会让整次导出失败，不回退 AI 或待审稿。
@@ -152,12 +153,37 @@ bili-asr editorial export --archive-root /srv/bili-archive \
 差异、审核信息及内部 manifest。第一版的父版本比较采用 AI 基线。必要的模型配置保留在参照稿中，
 不默认复制完整请求或思考响应。内部与公开导出使用不同 schema、不同目录，互相混用会拒绝。
 
-阅读站 `SuperCatQR/markdown-reading-site` 是独立仓库；须采用新 envelope 校验、仅发布稿正文读取、
-来源展示和搜索契约，不能把内部审阅目录作为公开搜索来源。
+阅读站 `SuperCatQR/markdown-reading-site` 是独立仓库。已发布栏目只消费 `publication export` 的
+有效 release；未发布栏目消费下面独立的读者预览契约。完整内部审阅目录不作为网站搜索来源。
+
+### 未发布稿公开预览
+
+维护者可以明确将当前未发布 edition 的读者内容公开，用于在网站查看和核验：
+
+```bash
+bili-asr publication export-drafts --archive-root /srv/bili-archive \
+  --out /srv/draft-content --format json
+```
+
+它只选择各分 P 的当前 edition，并排除曾产生任何 release 的 edition。已发布、已替换或已撤回的
+历史版本不会重新作为草稿公开；同一分 P 的有效 A 与未发布 B 可以分别查看。审核通过但尚未
+显式 publish 的 B 仍标为“已审核，未发布”。待审核、审核中、待修改和未采用状态也按实际值显示。
+
+输出采用 `schemaVersion: 1`、`manuscriptType: "publication-draft"` 的 catalog 和独立
+`publication-draft-export-manifest.json`，文件为 `drafts/edition-<ID>/preview.md`。
+条目携带冻结读者内容、来源、edition/revision ID、内容与文件哈希、审核状态及创建时间，
+不携带 release ID、发布时间、审核人、内部意见、模型配置、原文参照稿或审计事件。
+导出保持只读，验证来源与完整内容，沿用目录锁、完整快照和中断恢复。
+
+将已发布输出放入阅读站 `content/`，将预览输出放入独立 `draft-content/`，然后分别验证并构建。
+网站提供“已发布 / 未发布”入口；预览页明确提示内容尚未正式发布，并显示准确版本与哈希。
+两个栏目分别搜索，预览不会替换已发布正文或改变审核与 release 指针。
+这条命令会准备可公开的待审正文，执行和部署前应确认所选归档的当前 edition 适合公开。
+三个导出种类的 schema 与目录互不混用；删除网站预览时须重新导出并同步构建、部署和缓存。
 
 ## 根目录与错误
 
-所有操作支持 `--archive-root` 与 `--format text|json`。create、publication export、editorial export
+所有操作支持 `--archive-root` 与 `--format text|json`。create、publication export、export-drafts、editorial export
 读取产物根；publish 写产物根并做写权限校验。它们接受 `--artifact-root`，读取先探测产物根再
 归档根；数据库始终在归档根。edit/review/withdraw/show 不访问产物根，因此不接受该参数。
 AI workflow 的文档目前直接写归档根，详见 [artifact-root.md](artifact-root.md)。

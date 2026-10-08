@@ -146,6 +146,22 @@ revision / edition，单独输出 AI 双稿、完整版、相对 AI 与父版的
 阅读站属于独立仓库，只消费公开 release 快照。完整操作见 [出版与审核](publication.md)，
 JSON 契约见 [contracts/README.md](contracts/README.md)。
 
+网站还可消费显式的 `publication export-drafts` 读者预览。该独立投影选择当前且从未产生 release
+的 edition，验证固定内容与 AI 基线，输出正文、读者元数据、准确身份和审核状态。
+它不生成批准或 release，不改变正式发布 A；被替换或撤回的旧 release 不通过预览恢复公开。
+已发布和未发布两个栏目分别读取、校验、路由与搜索；完整审阅包始终另行导出。
+专题交互图仍是 fc66c1d 的发布实现快照，新增预览链路由以下图和当前代码说明：
+
+```mermaid
+flowchart LR
+  head[当前不可变 edition] -->|从未产生 release| preview[export-drafts 读者预览]
+  preview --> draftTab[网站未发布栏目]
+  head --> exactReview[准确 edition 与完整哈希审核]
+  exactReview -->|批准并显式 publish| release[有效 release]
+  release --> publicExport[publication export]
+  publicExport --> publishedTab[网站已发布栏目]
+```
+
 ## 查询与数据所有权
 
 | 事实或产物 | 所有者 | 消费者 |

@@ -75,7 +75,7 @@ def _cmd_publication(args: argparse.Namespace) -> int:
     from bili_asr import publication
 
     action = args.publication_action
-    readonly = action in {"show", "export"}
+    readonly = action in {"show", "export", "export-drafts"}
     try:
         with closing(archive_connection(args.archive_root, readonly=readonly)) as connection:
             if action == "create":
@@ -109,6 +109,11 @@ def _cmd_publication(args: argparse.Namespace) -> int:
                 )
             elif action == "show":
                 result = publication.get_edition(connection, args.edition_id)
+            elif action == "export-drafts":
+                from bili_asr.publication_export import export_publication_drafts
+                count = export_publication_drafts(connection, artifact_roots=args.artifact_roots.read_bases(),
+                                                 output=Path(args.out))
+                result = {"manuscriptType": "publication-draft", "count": count, "output": args.out}
             else:
                 from bili_asr.publication_export import export_publications
                 count = export_publications(connection, artifact_roots=args.artifact_roots.read_bases(),
@@ -174,3 +179,7 @@ def add_publication_parser(subparsers, *, archive_root: str) -> None:
     export = actions.add_parser("export", help="Export only currently released 发布稿")
     _common(export, archive_root, artifacts=ArtifactPolicy.READ)
     export.add_argument("--out", required=True)
+
+    drafts = actions.add_parser("export-drafts", help="Export current reader drafts that have never been released")
+    _common(drafts, archive_root, artifacts=ArtifactPolicy.READ)
+    drafts.add_argument("--out", required=True)

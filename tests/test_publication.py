@@ -68,6 +68,7 @@ def test_a_b_lifecycle_keeps_publication_head_independent_from_drafts(archive):
     connection, _, roots = archive
     a = _create(archive)
     assert a["review_status"] == "pending-review" and a["current_release_id"] is None
+    assert "由人工审核发布" not in a["content"]["attribution"]
     with pytest.raises(ValueError, match="not been approved"):
         _publish(archive, a)
     approve(connection, a)
