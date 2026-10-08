@@ -78,7 +78,7 @@ bili-asr fetch-meta --mid 123456 --limit-pages 2
 
 Each successful page advances a persisted cursor. Re-run `fetch-meta` to
 continue from that cursor, or pass `--resume` to require an existing cursor.
-An upstream gateway failure exits with code `2`. Rate control records the
+An upstream gateway failure returns exit 2. Rate control records the
 page/run outcome `risk_interrupted` and preserves the existing cursor; a
 first-page failure can leave no cursor at all. Re-run without `--resume` in
 that case. Other failures record `failed`; `--skip-failed-page` can advance
