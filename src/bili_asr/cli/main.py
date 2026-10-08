@@ -57,7 +57,8 @@ def _main(
     if spec is None:
         raise ValueError(f"command {args.command!r} is not implemented")
     # Resolve configured artifact roots once at the command boundary.
-    if spec.artifacts is not ArtifactPolicy.NONE:
+    metadata_only_search = args.command == "search" and getattr(args, "scope", "transcripts") == "metadata"
+    if spec.artifacts is not ArtifactPolicy.NONE and not metadata_only_search:
         try:
             args.artifact_roots = roots_for(
                 args.archive_root,

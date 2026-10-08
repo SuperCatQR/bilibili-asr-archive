@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+import re
 import sqlite3
 import time
 from typing import Any, Sequence
@@ -49,7 +50,7 @@ class TranscriptSearchIndex:
                 "transcript store missing — index missing; run `bili-asr search-index`"
             )
         try:
-            return sqlite3.connect(self.db_path)
+            return sqlite3.connect(Path(self.db_path).resolve().as_uri() + "?mode=ro", uri=True)
         except sqlite3.DatabaseError as exc:
             raise _dependency_errors.TranscriptStoreError(f"transcript store unreadable: {exc}") from exc
 
@@ -145,6 +146,34 @@ class TranscriptSearchIndex:
             (_dependency_constants.STORE_FTS5_TABLE,),
         ).fetchone()
         return row is not None
+
+    def _assert_index_shape(self, conn: sqlite3.Connection) -> None:
+        """Distinguish an incompatible/damaged index from a bad FTS query."""
+        row = conn.execute(
+            "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?",
+            (_dependency_constants.STORE_FTS5_TABLE,),
+        ).fetchone()
+        if row is None:
+            raise _dependency_errors.SearchIndexMissingError(
+                "index missing — run `bili-asr search-index` to build it"
+            )
+        if not re.search(r"\bUSING\s+fts5\s*\(", str(row[0]), re.IGNORECASE):
+            raise _dependency_errors.TranscriptStoreError("transcript index corrupt: expected an FTS5 table")
+        try:
+            columns = {
+                str(item[1]) for item in conn.execute(
+                    f"PRAGMA table_info({_dependency_constants.STORE_FTS5_TABLE})"
+                )
+            }
+        except sqlite3.OperationalError as exc:
+            if "no such module: fts5" in str(exc).lower():
+                raise _dependency_errors.FTS5UnavailableError("SQLite FTS5 is unavailable") from exc
+            raise
+        required = {"block_key", "bvid", "page_index", "start_ms", "end_ms", "pubdate", "text", "source"}
+        if not required <= columns:
+            raise _dependency_errors.TranscriptStoreError(
+                "transcript index corrupt: missing required columns " + ", ".join(sorted(required - columns))
+            )
 
     def stamp(self) -> int:
         """Last fully indexed transcript id, or -1 before any is complete."""
@@ -466,10 +495,7 @@ class TranscriptSearchIndex:
 
         conn = self._connect()
         try:
-            if not self._has_index(conn):
-                raise _dependency_errors.SearchIndexMissingError(
-                    "index missing — run `bili-asr search-index` to build it"
-                )
+            self._assert_index_shape(conn)
             where = [f"{_dependency_constants.STORE_FTS5_TABLE} MATCH ?"]
             params: list[Any] = [clean_q]
             if pubdate_from is not None:
@@ -488,18 +514,17 @@ class TranscriptSearchIndex:
                 params.append(limit)
             try:
                 rows = conn.execute(sql, params).fetchall()
-            except sqlite3.OperationalError:
+            except sqlite3.OperationalError as exc:
                 # FTS5 query-syntax error (unclosed quote, bare NOT, …): the
                 # plain-text intent is retried as one literal phrase.
+                message = str(exc).lower()
+                if not any(token in message for token in (
+                    "fts5: syntax error", "unterminated string", "no such column:",
+                    "unknown special query:",
+                )):
+                    raise
                 params[0] = '"' + clean_q.replace('"', '""') + '"'
-                try:
-                    rows = conn.execute(sql, params).fetchall()
-                except sqlite3.OperationalError:
-                    # Also a clean-empty exit: prove the store is readable
-                    # before reporting no hits (an unusable FTS index must not
-                    # mask a damaged `videos` table).
-                    self._probe_videos_readable(conn)
-                    rows = []
+                rows = conn.execute(sql, params).fetchall()
             if not rows:
                 # Defect class must not depend on the match count: prove the
                 # store is readable before reporting a clean empty result, the

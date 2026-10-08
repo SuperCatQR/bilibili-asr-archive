@@ -62,12 +62,12 @@ CREATE TABLE IF NOT EXISTS workflow_attempts (
     worker_id TEXT NOT NULL,
     started_at INTEGER NOT NULL,
     finished_at INTEGER,
-    outcome TEXT NOT NULL CHECK (outcome IN ('running', 'succeeded', 'failed')),
+    outcome TEXT NOT NULL CHECK (outcome IN ('running', 'succeeded', 'failed', 'cancelled')),
     error_code TEXT,
     result_json TEXT,
     FOREIGN KEY (job_id) REFERENCES workflow_jobs(job_id) ON DELETE RESTRICT,
     CHECK ((outcome = 'running' AND finished_at IS NULL)
-        OR (outcome IN ('succeeded', 'failed') AND finished_at IS NOT NULL))
+        OR (outcome IN ('succeeded', 'failed', 'cancelled') AND finished_at IS NOT NULL))
 );
 
 CREATE INDEX IF NOT EXISTS ix_workflow_attempts_job

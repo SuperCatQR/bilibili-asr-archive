@@ -24,6 +24,7 @@ public surface (tests import ``quality.Cue``), so the shared parser works on
 from __future__ import annotations
 
 import json
+import html
 import math
 import re
 from pathlib import Path
@@ -280,10 +281,14 @@ def _parse_time(value: str) -> float | None:
 
 def _fmt_srt_time(seconds: float) -> str:
     milliseconds = max(0, round(float(seconds) * 1000))
+    return _fmt_time_ms(milliseconds, separator=",")
+
+
+def _fmt_time_ms(milliseconds: int, *, separator: str) -> str:
     hours, remainder = divmod(milliseconds, 3_600_000)
     minutes, remainder = divmod(remainder, 60_000)
     secs, millis = divmod(remainder, 1_000)
-    return f"{hours:02d}:{minutes:02d}:{secs:02d},{millis:03d}"
+    return f"{hours:02d}:{minutes:02d}:{secs:02d}{separator}{millis:03d}"
 
 
 def segments_to_srt(segments: list[dict[str, Any]]) -> str:
@@ -294,6 +299,47 @@ def segments_to_srt(segments: list[dict[str, Any]]) -> str:
             f"{segment['text']}\n"
         )
     return "\n".join(blocks)
+
+
+def segments_to_vtt(segments: list[dict[str, Any]]) -> str:
+    """Render stored cue order and plain text as a UTF-8 WebVTT document.
+
+    Timings use the same rounded millisecond timeline as SRT. Overlapping cues
+    are valid, but decreasing starts, nonpositive rounded durations and blank
+    payload lines cannot be represented faithfully as WebVTT and are refused.
+    No cue is sorted, dropped or silently rewritten. Ordinary CR/LF line endings
+    are normalized to LF and plain-text markup characters are escaped.
+    """
+    blocks: list[str] = []
+    previous_start = -1
+    for index, segment in enumerate(segments, start=1):
+        try:
+            start, end = segment["start"], segment["end"]
+            if any(isinstance(value, bool) or not isinstance(value, (int, float))
+                   for value in (start, end)):
+                raise ValueError("timings must be numbers")
+            if not (math.isfinite(start) and math.isfinite(end)) or start < 0:
+                raise ValueError("timings must be finite and non-negative")
+            start_ms, end_ms = round(start * 1000), round(end * 1000)
+            if end_ms <= start_ms:
+                raise ValueError("duration must be positive on the millisecond timeline")
+            if start_ms < previous_start:
+                raise ValueError("cue starts must not decrease")
+            text = segment["text"]
+            if not isinstance(text, str):
+                raise ValueError("text must be a string")
+            text = text.replace("\r\n", "\n").replace("\r", "\n")
+            if "\x00" in text or any(not line.strip() for line in text.split("\n")):
+                raise ValueError("cue text must not contain NUL or blank lines")
+        except (KeyError, TypeError, ValueError, OverflowError) as exc:
+            raise ValueError(f"WebVTT cue {index} is unrepresentable: {exc}") from exc
+        previous_start = start_ms
+        blocks.append(
+            f"{index}\n{_fmt_time_ms(start_ms, separator='.')} --> "
+            f"{_fmt_time_ms(end_ms, separator='.')}\n"
+            f"{html.escape(text, quote=False)}\n\n"
+        )
+    return "WEBVTT\n\n" + "".join(blocks)
 
 
 def segments_to_txt(segments: list[dict[str, Any]]) -> str:
@@ -311,5 +357,6 @@ __all__ = [
     "read_cues",
     "read_route_ms",
     "segments_to_srt",
+    "segments_to_vtt",
     "segments_to_txt",
 ]

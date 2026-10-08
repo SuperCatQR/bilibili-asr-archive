@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import argparse
 import bili_asr.search_index.errors as _module_search_index_errors
 import bili_asr.search_index.store as _module_search_index_store
 
@@ -9,6 +10,7 @@ import bili_asr.search_index.store as _module_search_index_store
 from bili_asr.diagnostics import write_stderr
 
 from datetime import datetime, timezone
+from contextlib import redirect_stdout
 import json
 import sys
 
@@ -62,6 +64,7 @@ def _cmd_search_index(args: argparse.Namespace) -> int:
     )
     try:
         indexed = index.build()
+        total = index.count()
     except _module_search_index_errors.FTS5UnavailableError as exc:
         write_stderr(f"search-index: {exc}")
         return 1
@@ -71,20 +74,24 @@ def _cmd_search_index(args: argparse.Namespace) -> int:
     except OSError as exc:
         write_stderr(f"search-index: transcript store unreadable: {exc}")
         return 1
-    print(f"search-index: indexed {indexed} block(s); total {index.count()}")
+    print(f"search-index: indexed {indexed} block(s); total {total}")
     return 0
 
 def _cmd_search(args: argparse.Namespace) -> int:
-    """Query the store-backed FTS5 index for transcript blocks.
+    """Query stored metadata, transcript FTS, or their stable combination.
 
     Exit contract (exit-code-contract §1–§2 applied to the index): a healthy
     archive — including an empty result set and a not-yet-built index — exits
     0; store/index corruption (the defect class) exits 1; usage errors exit 2.
-    The SQLite transcript store is the only search source.
+    Metadata is read-only and does not require a transcript index or artifacts.
     """
-    from bili_asr.search_index.errors import SearchIndexMissingError, TranscriptStoreError
+    from bili_asr.search_index.query import search_archive
+    scope = getattr(args, "scope", "transcripts")
     if args.limit is not None and args.limit <= 0:
         write_stderr("search: --limit must be a positive integer")
+        raise SystemExit(2)
+    if scope == "metadata" and args.rebuild:
+        write_stderr("search: --rebuild requires --scope transcripts or all")
         raise SystemExit(2)
 
     pubdate_from = _parse_pubdate_bound(getattr(args, "pubdate_from", None), "--from")
@@ -96,30 +103,37 @@ def _cmd_search(args: argparse.Namespace) -> int:
         raise SystemExit(2)
 
     if args.rebuild:
-        _cmd_search_index(args)
-    index = _module_search_index_store.TranscriptSearchIndex(
-        args.archive_root, artifact_roots=args.artifact_roots
-    )
+        # Keep JSON stdout parseable; index progress is a diagnostic.
+        with redirect_stdout(sys.stderr):
+            rebuild_status = _cmd_search_index(args)
+        if rebuild_status:
+            return rebuild_status
     try:
-        hits = index.search_blocks(
+        result = search_archive(
+            args.archive_root,
             args.query,
+            scope=scope,
             pubdate_from=pubdate_from,
             pubdate_to=pubdate_to,
             limit=args.limit if args.limit is not None else 20,
+            artifact_roots=getattr(args, "artifact_roots", None),
         )
-    except SearchIndexMissingError:
-        print("search: index missing — run `bili-asr search-index` to build it")
-        print(f"search: no hits for {args.query!r}")
-        return 0
     except (_module_search_index_errors.TranscriptStoreError, OSError,
             _module_search_index_errors.FTS5UnavailableError) as exc:
         write_stderr(f"search: {exc}")
         return 1
-    return _print_block_hits(args, hits)
+    for diagnostic in result.diagnostics:
+        # Preserve the existing table backlog hint, while JSON stdout remains
+        # exclusively the result array.
+        if getattr(args, "format", "table") == "json" or scope == "all":
+            write_stderr(f"search: {diagnostic}")
+        else:
+            print(f"search: {diagnostic}")
+    return _print_block_hits(args, result.hits)
 
 
 def _print_block_hits(args: argparse.Namespace, hits) -> int:
-    """Render store-backed block hits as table (default) or JSON."""
+    """Render both source types without inventing metadata timestamps."""
     if getattr(args, "format", "table") == "json":
         print(json.dumps([h.to_dict() for h in hits], indent=2, ensure_ascii=False))
         return 0
@@ -132,9 +146,14 @@ def _print_block_hits(args: argparse.Namespace, hits) -> int:
         ).strftime("%Y-%m-%d")
         snippet = hit.snippet.replace("\n", " ")
         title = hit.video_title or "(untitled)"
+        page = f"P{hit.page_index}" if hit.page_index is not None else "整视频"
+        timing = (
+            f"{_format_ms(hit.start_ms)} → {_format_ms(hit.end_ms)}"
+            if hit.hit_type == "transcript" else "—"
+        )
         print(
-            f"{hit.bvid} P{hit.page_index} {title} "
-            f"[{_format_ms(hit.start_ms)} → {_format_ms(hit.end_ms)}] "
+            f"[{hit.hit_type}] {hit.bvid} {page} {title} "
+            f"[{timing}] "
             f"({pubdate_day}) {snippet}"
         )
     return 0

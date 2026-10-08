@@ -7,6 +7,7 @@ workflow repository; a later worker can therefore resume any job independently.
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 import hashlib
 import json
 import math
@@ -14,13 +15,16 @@ import os
 from pathlib import Path
 import sqlite3
 import subprocess
+import tempfile
 import time
 from typing import Any, Mapping
 from uuid import uuid4
 
 from bili_asr import archive, asr, audio, bili_client
+from bili_asr.artifact_root import ArtifactRoots, usable_audio_path
 from bili_asr.formatting import pubdate_utc
 from bili_asr.page_identity import PageIdentity, artifact_stem
+from bili_asr.path_policy import confined_audio_path
 from bili_asr.services.subtitle_ingest import SubtitleIngestor, SubtitleSelection
 from bili_asr.formatting import duration_s_from_ms
 from bili_asr.services.transcript_projection import ordered_candidates, writer_segments
@@ -71,8 +75,9 @@ class ArchiveWorkflowHandlers:
         part = self._part(job)
         ingestor = SubtitleIngestor(
             BilibiliApiGateway(sessdata=self.sessdata),
-            self._subtitle_repository,
+            TranscriptRepository(self.connection, write_guard=lambda: self.repository.assert_lease(job)),
             credential_present=self.sessdata is not None,
+            checkpoint=lambda: self.repository.assert_lease(job),
         )
         result = ingestor.harvest(
             SubtitleSelection(
@@ -95,6 +100,7 @@ class ArchiveWorkflowHandlers:
                 publication_job_id, _ = self.repository.request_publication(
                     video_part_id=int(part["video_part_id"]),
                     transcript_id=int(transcript["transcript_id"]),
+                    source_job=job,
                 )
         return {
             "run_id": result.run_id,
@@ -113,12 +119,29 @@ class ArchiveWorkflowHandlers:
             cid=int(part["cid"]),
             page_label=str(part["title"]),
         )
-        target = self.archive_root / "audio" / f"{artifact_stem(identity)}.m4a"
-        target.parent.mkdir(parents=True, exist_ok=True)
+        relative = f"audio/{artifact_stem(identity)}.m4a"
+        target = confined_audio_path(self.archive_root, relative, require_exists=False)
+        if target is None:
+            raise OSError("invalid audio path")
+        existing = usable_audio_path(ArtifactRoots.of(self.archive_root), [relative, relative.removesuffix(".m4a") + ".flac"])
+        if existing is not None:
+            return self._store_audio(job, part, existing[2], existing[2])
         client = self._client or bili_client.BiliClient(sessdata=self.sessdata)
         self._client = client
         self.repository.assert_lease(job)
-        final = Path(audio.download_audio(client, identity, target))
+        with tempfile.TemporaryDirectory(prefix=".workflow-audio-", dir=target.parent) as staging:
+            staged_audio = Path(staging) / "audio"
+            staged_audio.mkdir()
+            return self._download_audio(job, part, client, identity, staged_audio / target.name, target)
+
+    def _download_audio(self, job, part, client, identity, staged_target: Path, target: Path):
+        final = Path(audio.download_audio(client, identity, staged_target))
+        # The downloader may keep a FLAC stream when ffmpeg is unavailable.
+        target = target.with_suffix(final.suffix)
+        return self._store_audio(job, part, final, target)
+
+    def _store_audio(self, job, part, final: Path, target: Path):
+        self.repository.assert_lease(job)
         probe = subprocess.run(
             ["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "json", os.fspath(final)],
             check=True, capture_output=True, text=True, timeout=30,
@@ -129,14 +152,18 @@ class ArchiveWorkflowHandlers:
         duration_ms = max(1, round(duration_s * 1000))
         digest = hashlib.sha256(final.read_bytes()).hexdigest()
         self.repository.assert_lease(job)
-        storage_key = os.fspath(final.relative_to(self.archive_root)).replace("\\", "/")
+        storage_key = os.fspath(target.relative_to(self.archive_root)).replace("\\", "/")
         now = int(time.time())
-        with self.connection:
+        byte_size = final.stat().st_size
+        media_format = final.suffix.removeprefix(".")
+        with self.repository.owned_transaction(job):
+            if final != target:
+                os.replace(final, target)
             self.connection.execute(
                 """INSERT INTO audio_objects(sha256, byte_size, format, duration_ms, storage_key, created_at)
                    VALUES (?, ?, ?, ?, ?, ?)
                    ON CONFLICT(sha256) DO UPDATE SET duration_ms = excluded.duration_ms""",
-                (digest, final.stat().st_size, final.suffix.removeprefix("."), duration_ms, storage_key, now),
+                (digest, byte_size, media_format, duration_ms, storage_key, now),
             )
             audio_id = self.connection.execute(
                 "SELECT audio_id FROM audio_objects WHERE sha256 = ?", (digest,)
@@ -174,7 +201,8 @@ class ArchiveWorkflowHandlers:
         )
         started = int(time.time())
         run_id = str(uuid4())
-        self._subtitle_repository.start_acquisition_run(
+        transcripts = TranscriptRepository(self.connection, write_guard=lambda: self.repository.assert_lease(job))
+        transcripts.start_acquisition_run(
             AcquisitionRunRecord(
                 run_id=run_id,
                 kind="asr",
@@ -202,25 +230,19 @@ class ArchiveWorkflowHandlers:
                 )
                 language = asr.provenance_language(runner.provenance())
                 coverage = asr.transcribed_coverage(runner)
-        except BaseException:
-            self._subtitle_repository.finish_acquisition_run(
-                run_id, int(time.time()), outcome="failed"
-            )
-            raise
-        records = tuple(
-            TranscriptSegmentRecord(
-                start_ms=int(round(float(cue["start"]) * 1000)),
-                end_ms=int(round(float(cue["end"]) * 1000)),
-                text=str(cue["text"]),
-            )
-            for cue in segments
-        )
-        if not records:
-            raise RuntimeError("empty_transcript")
-        finished = int(time.time())
-        try:
             self.repository.assert_lease(job)
-            stored = self._subtitle_repository.record_local_transcript(
+            records = tuple(
+                TranscriptSegmentRecord(
+                    start_ms=int(round(float(cue["start"]) * 1000)),
+                    end_ms=int(round(float(cue["end"]) * 1000)),
+                    text=str(cue["text"]),
+                )
+                for cue in segments
+            )
+            if not records:
+                raise RuntimeError("empty_transcript")
+            finished = int(time.time())
+            stored = transcripts.record_local_transcript(
                 run_id=run_id,
                 video_part_id=int(part["video_part_id"]),
                 language=language,
@@ -232,14 +254,14 @@ class ArchiveWorkflowHandlers:
                 created_at=finished,
                 coverage=coverage,
             )
-            self._subtitle_repository.finish_acquisition_run(run_id, int(time.time()))
+            transcripts.finish_acquisition_run(run_id, int(time.time()))
         except BaseException:
-            self._subtitle_repository.finish_acquisition_run(
+            transcripts.finish_acquisition_run(
                 run_id, int(time.time()), outcome="failed"
             )
             raise
         publication_job_id, _ = self.repository.request_publication(
-            video_part_id=int(part["video_part_id"]), transcript_id=stored.transcript_id
+            video_part_id=int(part["video_part_id"]), transcript_id=stored.transcript_id, source_job=job,
         )
         return {
             "run_id": run_id,
@@ -307,6 +329,25 @@ class ArchiveWorkflowHandlers:
                 "model": str(model["model_name"]) if model is not None else "unknown",
                 "revision": str(model["revision"]) if model is not None else "",
             }
+        paths = {key: os.path.relpath(path, self.archive_root).replace(os.sep, "/")
+                 for key, path in archive.bundle_paths(self.archive_root, entry).items()}
+
+        @contextmanager
+        def publication_guard(invalidate):
+            # Marker, final bytes and publication fact share cancellation's lock.
+            # The writer invalidates the marker if this transaction cannot commit.
+            with self.repository.owned_transaction(job, on_rollback=invalidate):
+                yield
+                self.connection.execute(
+                    """INSERT INTO workflow_publications(
+                           video_part_id, transcript_id, published_at, artifact_json
+                       ) VALUES (?, ?, ?, ?)
+                       ON CONFLICT(video_part_id, transcript_id) DO UPDATE SET
+                           published_at = excluded.published_at, artifact_json = excluded.artifact_json""",
+                    (int(part["video_part_id"]), transcript_id, int(time.time()),
+                     json.dumps(paths, ensure_ascii=False, separators=(",", ":"))),
+                )
+
         paths = archive.write_archive(
             self.archive_root,
             entry,
@@ -314,23 +355,8 @@ class ArchiveWorkflowHandlers:
             source="asr" if source_kind == "asr-local" else "subtitle",
             asr_provenance=asr_provenance,
             before_replace=lambda: self.repository.assert_lease(job),
+            publication_guard=publication_guard,
         )
-        self.repository.assert_lease(job)
-        now = int(time.time())
-        with self.connection:
-            self.connection.execute(
-                """INSERT INTO workflow_publications(
-                       video_part_id, transcript_id, published_at, artifact_json
-                   ) VALUES (?, ?, ?, ?)
-                   ON CONFLICT(video_part_id, transcript_id) DO UPDATE SET
-                       published_at = excluded.published_at, artifact_json = excluded.artifact_json""",
-                (
-                    int(part["video_part_id"]),
-                    transcript_id,
-                    now,
-                    json.dumps(paths, ensure_ascii=False, separators=(",", ":")),
-                ),
-            )
         return {
             "requested_transcript_id": int(job.payload["transcript_id"]),
             "transcript_id": transcript_id,

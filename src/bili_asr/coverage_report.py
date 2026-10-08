@@ -11,6 +11,7 @@ from typing import Any
 
 from .artifact_root import ArtifactRoots
 from .archive import archive_bundle_complete
+from .artifacts import REQUIRED_ARTIFACT_KEYS
 
 SCHEMA_VERSION = "coverage-report-v2"
 CSV_COLUMNS = ("schema_version", "scope", "denominator_unit", "denominator_count", "denominator_state", "denominator_source", "cumulative_unit", "cumulative_complete", "cumulative_total", "cumulative_state", "batch_unit", "batch_complete", "batch_total", "batch_state", "work_id", "category", "status", "artifact_present", "reclaimed_audio", "coverage", "coverage_short", "evidence_summary", "diagnostic_summary")
@@ -37,15 +38,15 @@ def _build_workflow_data(root: Path, *, scope: str | None, artifact_roots: Artif
     from bili_asr.services.workflow_projection import workflow_records
 
     database_available = (root / "archive.db").is_file()
-    records, scope_available = _select(workflow_records(root), scope)
+    records, scope_available = _select(workflow_records(root, artifact_roots=artifact_roots, verify_artifacts=False), scope)
     scope_available = scope_available and database_available
     diagnostics: list[dict[str, str]] = []
     if not database_available:
         diagnostics.append({"code": "workflow_database_missing", "category": "database"})
     rows: list[dict[str, Any]] = []
     for work_id, entry in sorted(records.items()):
-        paths = {key: entry[key] for key in ("srt_path", "txt_path", "md_path", "raw_path") if isinstance(entry.get(key), str)}
-        artifact_present = len(paths) == 4 and any(archive_bundle_complete(base, paths) for base in artifact_roots.read_bases())
+        paths = {key: entry[key] for key in REQUIRED_ARTIFACT_KEYS if isinstance(entry.get(key), str)}
+        artifact_present = len(paths) == len(REQUIRED_ARTIFACT_KEYS) and any(archive_bundle_complete(base, paths) for base in artifact_roots.read_bases())
         status = str(entry.get("status") or "unknown")
         terminal = status == "archived" and artifact_present
         if status == "archived" and not artifact_present:

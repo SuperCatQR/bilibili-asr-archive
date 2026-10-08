@@ -14,6 +14,7 @@ from bili_asr.storage import AsrPolicy, AsrProfile, WorkflowRepository, open_dat
 from bili_asr.workflow import WorkflowExecutor
 from bili_asr.editorial import EditorialConfig, TEMPLATE_VERSION
 from bili_asr.storage.editorial import EditorialRepository
+from bili_asr.storage.workflow_selection import resolve_workflow_selection
 
 
 def add_workflow_parser(subparsers: argparse._SubParsersAction, *, archive_root: str) -> None:
@@ -22,9 +23,13 @@ def add_workflow_parser(subparsers: argparse._SubParsersAction, *, archive_root:
         help="Plan and run independent subtitle, audio, and ASR jobs from SQLite",
     )
     actions = parser.add_subparsers(dest="workflow_action", required=True)
-    plan = actions.add_parser("plan", help="Create idempotent jobs for explicit video-part IDs")
+    plan = actions.add_parser("plan", help="Create idempotent jobs for stored BVIDs or explicit video-part IDs")
     plan.add_argument("--archive-root", default=archive_root)
-    plan.add_argument("--part-id", type=int, action="append", required=True)
+    selection = plan.add_mutually_exclusive_group(required=True)
+    selection.add_argument("--part-id", type=int, action="append", help="Exact stored video_part_id; repeat to select more")
+    selection.add_argument("--bvid", action="append", help="Stored BVID; repeat to select more videos")
+    plan.add_argument("--page-index", type=_nonnegative_page_index, default=None,
+                      help="Stored zero-based index (0 is P1), applied to each --bvid")
     plan.add_argument("--asr-policy", choices=[item.value for item in AsrPolicy], default="all")
     plan.add_argument("--quality-threshold", type=float, default=None)
     plan.add_argument("--profile-key", default="qwen3-default")
@@ -60,10 +65,29 @@ def add_workflow_parser(subparsers: argparse._SubParsersAction, *, archive_root:
 
     status = actions.add_parser("status", help="Print workflow job counts from SQLite")
     status.add_argument("--archive-root", default=archive_root)
+    status.add_argument("--jobs", action="store_true", help="List job IDs, stored part identity, and cancellation blockers")
+
+    cancel = actions.add_parser("cancel", help="Cancel selected queued/running jobs at safe commit boundaries")
+    cancel.add_argument("--archive-root", default=archive_root)
+    cancel.add_argument("--job-id", action="append", required=True, help="Exact workflow job ID; repeat to select more")
+
+    publish = actions.add_parser("publish", help="Rebuild archive bundles from the preferred stored transcript")
+    publish.add_argument("--archive-root", default=archive_root)
+    publish.add_argument("--part-id", type=int, action="append", required=True)
 
     retry = actions.add_parser("retry", help="Requeue failed jobs while keeping attempt evidence")
     retry.add_argument("--archive-root", default=archive_root)
     retry.add_argument("--part-id", type=int, action="append", default=None)
+
+
+def _nonnegative_page_index(value: str) -> int:
+    try:
+        index = int(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("page index must be an integer") from exc
+    if index < 0:
+        raise argparse.ArgumentTypeError("page index must be non-negative (0 is P1)")
+    return index
 
 
 def _add_editorial_arguments(parser: argparse.ArgumentParser) -> None:
@@ -89,6 +113,36 @@ def _cmd_workflow(args: argparse.Namespace) -> int:
     connection = open_database(args.archive_root)
     try:
         repository = WorkflowRepository(connection)
+        if args.workflow_action != "status":
+            repository.require_cancellation_contract()
+        if args.workflow_action == "cancel":
+            results = repository.cancel(job_ids=args.job_id)
+            print(f"workflow cancel: changed={sum(item.changed for item in results)} "
+                  f"noop={sum(not item.changed for item in results)}")
+            for item in results:
+                print(f"  job_id={item.job_id} previous={item.previous_status} "
+                      f"status={item.status} changed={int(item.changed)}")
+            return 0
+        if args.workflow_action == "publish":
+            from bili_asr.services.transcript_projection import ordered_candidates
+            from bili_asr.storage import TranscriptRepository
+
+            selection = resolve_workflow_selection(connection, part_ids=args.part_id)
+            transcripts = TranscriptRepository(connection)
+            selected = []
+            for target in selection.targets:
+                candidates = ordered_candidates(transcripts.list_stored_transcripts(
+                    bvid=target.bvid, page_index=target.page_index))
+                if len(candidates) != 1:
+                    raise ValueError(f"no stored transcript for {target.work_id}")
+                selected.append((target, int(candidates[0].transcript["transcript_id"])))
+            for target, transcript_id in selected:
+                job_id, created = repository.request_publication(
+                    video_part_id=target.video_part_id, transcript_id=transcript_id, force=True)
+                status = connection.execute("SELECT status FROM workflow_jobs WHERE job_id = ?", (job_id,)).fetchone()[0]
+                print(f"workflow publish: work_id={target.work_id} transcript_id={transcript_id} "
+                      f"job_id={job_id} status={status} created={int(created)}")
+            return 0
         if args.workflow_action == "proofread":
             editorial = EditorialRepository(connection)
             try:
@@ -125,28 +179,49 @@ def _cmd_workflow(args: argparse.Namespace) -> int:
             counts = repository.count_by_status()
             for status in ("queued", "running", "succeeded", "failed", "cancelled"):
                 print(f"{status}: {counts.get(status, 0)}")
+            blocked = repository.blocked_by_cancelled()
+            print(f"blocked_by_cancelled: {len(blocked)}")
+            if args.jobs:
+                rows = connection.execute(
+                    "SELECT j.*, p.bvid, p.page_index FROM workflow_jobs AS j "
+                    "LEFT JOIN video_parts AS p ON p.video_part_id = j.video_part_id "
+                    "ORDER BY j.created_at, j.job_id")
+                for row in rows:
+                    print(f"  job_id={row['job_id']} kind={row['kind']} status={row['status']} "
+                          f"bvid={row['bvid']} page_index={row['page_index']} "
+                          f"video_part_id={row['video_part_id']} attempts={row['attempt_count']} "
+                          f"blocked_by_cancelled={int(row['job_id'] in blocked)}")
             return 0
         if args.workflow_action == "retry":
             count = repository.requeue_failed(part_ids=args.part_id)
             print(f"workflow retry: requeued={count}")
             return 0
         if args.workflow_action == "plan":
-            profile = AsrProfile(
-                profile_key=args.profile_key,
-                model_name=args.model,
-                model_revision=args.model_revision,
-                aligner_name=args.aligner,
-                device=args.device,
-                language=args.language,
-            )
-            profile_id = repository.register_profile(profile)
             try:
+                selection = resolve_workflow_selection(
+                    connection, part_ids=args.part_id, bvids=args.bvid, page_index=args.page_index,
+                )
+                policy = AsrPolicy(args.asr_policy)
+                if policy is AsrPolicy.BELOW_THRESHOLD and (
+                    args.quality_threshold is None or not 0.0 <= args.quality_threshold <= 1.0
+                ):
+                    raise ValueError("quality_threshold must be between 0 and 1")
+                editorial_config = _editorial_config(args).to_dict() if args.proofread else None
+                profile = AsrProfile(
+                    profile_key=args.profile_key,
+                    model_name=args.model,
+                    model_revision=args.model_revision,
+                    aligner_name=args.aligner,
+                    device=args.device,
+                    language=args.language,
+                )
+                profile_id = repository.register_profile(profile)
                 plan = repository.plan(
-                    part_ids=args.part_id,
-                    policy=AsrPolicy(args.asr_policy),
+                    part_ids=selection.part_ids,
+                    policy=policy,
                     profile_id=profile_id,
                     quality_threshold=args.quality_threshold,
-                    editorial_config=_editorial_config(args).to_dict() if args.proofread else None,
+                    editorial_config=editorial_config,
                 )
             except ValueError as exc:
                 write_stderr(f"workflow plan: {exc}")
@@ -156,6 +231,12 @@ def _cmd_workflow(args: argparse.Namespace) -> int:
                 f"asr={plan.asr_jobs} profile_id={profile_id}"
                 f" proofread={plan.proofread_jobs} documents={plan.document_jobs}"
             )
+            for target in selection.targets:
+                print(f"  target: bvid={target.bvid} page_index={target.page_index} "
+                      f"video_part_id={target.video_part_id} work_id={target.work_id}")
+            for target in selection.excluded_gone:
+                print(f"  excluded gone: bvid={target.bvid} page_index={target.page_index} "
+                      f"video_part_id={target.video_part_id} work_id={target.work_id}")
             return 0
         sessdata = resolve_sessdata(args.sessdata, os.environ.get(SESSDATA_ENV_VAR))
         # Planning and status are useful on a minimal SQLite installation.  The
@@ -180,7 +261,11 @@ def _cmd_workflow(args: argparse.Namespace) -> int:
             editorial_handlers.close()
             if archive_handlers is not None:
                 archive_handlers.close()
-        print(f"workflow run: succeeded={summary.succeeded} failed={summary.failed} idle={int(summary.idle)}")
+        print(f"workflow run: succeeded={summary.succeeded} failed={summary.failed} "
+              f"cancelled={summary.cancelled} idle={int(summary.idle)}")
         return 1 if summary.failed else 0
+    except ValueError as exc:
+        write_stderr(f"workflow {args.workflow_action}: {exc}")
+        return 1
     finally:
         connection.close()
