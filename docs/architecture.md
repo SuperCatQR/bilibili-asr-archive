@@ -56,7 +56,7 @@
 ## 3. 一次视频分 P 的处理生命周期
 
 1. 元数据采集保存视频与分 P 身份。操作者以明确的 part ID 和 ASR 策略规划任务。
-2. 规划器建立独立字幕、音频及适用的 ASR 任务和依赖，冻结 ASR profile。相同计划可以幂等复用；`all`、`selected`、`below-threshold` 的选择规则以当前 CLI 和 planner 为准。
+2. 规划器建立独立字幕、音频及适用的 ASR 任务和依赖，冻结 ASR profile。相同计划可以幂等复用；`all` 与 `selected` 均为明确传入的分 P 规划 ASR，`below-threshold` 按最新质量评估选择并包含未评估的分 P。
 3. executor 原子领取满足依赖条件的任务，记录当前 worker、attempt 与租约。handler 执行时由独立 SQLite 连接续租。
 4. 字幕采集形成独立来源转录；音频下载形成字节对象与哈希。ASR 消费其确切成功音频依赖结果，以及规划时固定的参考转录 ID。
 5. ASR 在事务外生成带时间轴文本，随后将转录、acquisition attempt 和本次诊断一同提交。逐段内容完全相同时可复用旧 transcript，但仍保存新运行证据。
@@ -80,6 +80,8 @@
 
 领取、状态变更和最终写回使用短事务。长任务的 heartbeat 针对确切 attempt；过期 worker 由 job ID、owner 和 attempt count 围栏限制，不能把旧结果写成新的尝试成功。文件发布与 SQLite 提交不是一个跨介质原子事务，因此发布边界需要路径约束、包标记、前后租约检查和 verify。
 
+主连接与 heartbeat 独立连接使用相同的有界锁等待，`BILI_SQLITE_BUSY_TIMEOUT_MS` 默认为 30000。`workflow status --details` 与 `workflow explain --job-id` 可以检查依赖阻塞；`workflow retry` 的 job、kind、part 筛选在不同类别间取交集，重排失败任务并保留历史 attempt。SQLite 同一时刻只有一个写事务，多进程共享数据库的边界与恢复方法见 [SQLite 数据与工作流](metadata-storage.md)。
+
 ## 5. ASR 参数、模型边界与质量证据
 
 ASR 使用 Qwen3-ASR 识别和独立 forced aligner。当前默认目标块长为 180 秒，按低能量边界分块，BF16 加载，音频解码为 16 kHz 单声道 float32 波形后直接传给两个 processor。生成预算、独立 checkpoint revision、语言、热词、离线加载、cache 策略与超时均纳入规划时快照；执行不重新读取 ASR 环境变量。
@@ -92,6 +94,8 @@ CUDA / ROCm 推理跨越可终止的子进程边界，超时后终止并返回�
 
 完整参数入口、默认值、查询方法与兼容规则见 [ASR 参数与运行诊断](asr-configuration.md)。官方资料、调优取舍和待做实验见 [ASR 设计评审](asr-design-review.md)。本批已经运行的真实模型样本与自动化测试见 [WSL 验证记录](asr-wsl-validation.md)。
 
+[公开样本测试](asr-public-samples.md) 已完成语言、分块与静音对照。当前证据支持继续使用现有基线，尚未证明为最优设置。热词默认保持空，不列入常规调优计划；下一步优先处理静音误识别与覆盖告警。
+
 ## 6. 原始转录、阅读修订与人审
 
 原始字幕和 ASR 是来源明确的独立转录版本。AI 校对默认以 ASR 为基础，把固定版本的字幕作为可选参考，保存输入、配置、提示词、模型调用与块结果。输出校验要求来源覆盖与顺序等约束；程序取得原文和时间信息，疑点单独呈现。
@@ -102,8 +106,8 @@ CUDA / ROCm 推理跨越可终止的子进程边界，超时后终止并返回�
 
 ## 7. 运行约束与后续工作
 
-当前 workflow 在归档根目录写入音频和发布产物。`--artifact-root` 由读取类命令提供，用于检查已有产物；不是 workflow 的独立写入根入口。当前 CLI 也没有旧文档中的 `--keep-audio` / `--no-keep-audio` 生命周期开关。保留文件和部署存储应按当前工作流行为安排。
+`workflow run --artifact-root` 或 `BILI_ARTIFACT_ROOT` 指定独立文件产物根，音频、bundle 和阅读文档写入该根；`archive.db` 始终保留在归档根。读取按产物根、归档根顺序探测兼容旧文件，缺失音频或非法相对 key 明确失败，默认两根相同。部署与读取命令应使用一致的根配置，详见 [产物根目录](artifact-root.md)。当前 CLI 没有旧文档中的 `--keep-audio` / `--no-keep-audio` 生命周期开关。
 
-WSL 回归与一条 CPU BF16 真实样本用于验证本批接口和证据链。当前测试环境缺少可用的 ROCm GPU，GPU 速度、显存、长视频完整性与最优参数尚无本批测量结论。
+WSL 回归、CPU BF16 smoke 和 30 次公开样本及构造对照推理用于验证本批接口与证据链。当前测试环境缺少可用的 ROCm GPU，GPU 速度、显存、真实长视频完整性与最优参数尚无本批测量结论。
 
-下一步先固定 checkpoint、音频哈希与人工参考，比较 60 / 120 / 180 秒分块、语言声明、二遍 cache 和热词，记录 CER、边界遗漏和重复、空块、RTF 与显存。随后依据结果推进最终文字单次对齐、VAD 辅助复核、分块检查点和受监督常驻 GPU worker。保留原始证据与派生阅读版本的职责边界贯穿这些改动。
+下一步固定 checkpoint、真实项目音频哈希与人工参考，优先对照 120 / 180 秒分块与语言声明，保持空热词；记录 CER、边界遗漏和重复、静音误识别、RTF 与显存。随后依据结果推进 VAD 辅助复核、分块检查点和受监督常驻 GPU worker。保留原始证据与派生阅读版本的职责边界贯穿这些改动。

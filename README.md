@@ -49,6 +49,11 @@ Package boundaries:
 
 Python 3.12 or later is required.
 
+For production, use the [Miniconda deployment guide](docs/miniconda-deployment.md).
+It covers isolated Python 3.12 environments, pinned application dependencies,
+AMD WSL and NVIDIA preflight, non-interactive startup, and deployment evidence.
+`check-asr-env` is an AMD WSL check, not a general CUDA support check.
+
 ```powershell
 uv sync --extra dev
 ```
@@ -73,10 +78,23 @@ bili-asr fetch-meta --mid 123456 --limit-pages 2
 
 Each successful page advances a persisted cursor. Re-run `fetch-meta` to
 continue from that cursor, or pass `--resume` to require an existing cursor.
-An upstream gateway failure exits with code `2` (exit 2) and records the
-`risk_interrupted` cursor state without advancing past the failed page, unless
-`--skip-failed-page` was requested. `--start-page` explicitly overrides the
-cursor and can move it backwards.
+An upstream gateway failure returns exit 2. Rate control records the
+page/run outcome `risk_interrupted` and preserves the existing cursor; a
+first-page failure can leave no cursor at all. Re-run without `--resume` in
+that case. Other failures record `failed`; `--skip-failed-page` can advance
+past those failures but never skips rate control. `--start-page` explicitly
+overrides the cursor and can move it backwards.
+
+The summary distinguishes page evidence (`recorded`) from successfully
+collected nonempty pages, videos and parts. Failure diagnostics report the
+operation and available HTTP status, API code or `wbi_retry_exhausted`
+reason, without raw upstream messages or credentials. `--page-retries 0`
+stops on the first failed upload-list attempt; opt into at most three retries
+with `--page-retries 1` through `3` (30/60/120 second cooldowns).
+When `BILI_SESSDATA` is configured, the gateway verifies login once before
+the first upload-list request. Rejected credentials stop with `auth_error`
+and require refreshing the cookie; they are not retried as rate control.
+Anonymous metadata collection does not add this login check.
 
 Choose one or more stored video-part IDs and plan producer jobs. The database ID can be inspected with SQLite:
 
@@ -90,9 +108,19 @@ bili-asr workflow run --limit 20
 bili-asr workflow status
 ```
 
-`workflow plan` is idempotent for the same input and policy. Subtitle acquisition is independent; audio is queued only when needed; ASR waits for its audio prerequisite. `--asr-policy` accepts `all`, `selected`, or `below-threshold`. ASR profiles freeze the full effective configuration, including independent model/aligner revisions, chunk size, timeout, hotwords, offline loading and generation budget. Explicit planning arguments override the environment; execution uses the stored snapshot.
+`workflow plan` is idempotent for the same input and policy. Subtitle acquisition is independent; each selected ASR job gets an audio prerequisite. `--asr-policy` accepts `all`, `selected`, or `below-threshold` (with `--quality-threshold`). The current `selected` policy plans ASR for the explicitly supplied parts, as does `all`; `below-threshold` uses the latest stored quality assessment and includes unassessed parts. ASR profiles freeze the full effective configuration, including independent model/aligner revisions, chunk size, timeout, hotwords, offline loading and generation budget. Explicit planning arguments override the environment; execution uses the stored snapshot.
 
 Successful ASR runs retain per-chunk diagnostics independently of transcript content deduplication. Inspect them with `bili-asr workflow asr-evidence --run-id RUN_ID --part-id 42`. See [ASR configuration and diagnostics](docs/asr-configuration.md) for parameter defaults, quality flag meanings and current limitations, and [the design review](docs/asr-design-review.md) for official sources and the remaining experiment roadmap.
+
+Inspect unsatisfied prerequisites and retry a specific failure without discarding its attempt history:
+
+```powershell
+bili-asr workflow status --details
+bili-asr workflow explain --job-id JOB_ID
+bili-asr workflow retry --job-id JOB_ID --kind audio
+```
+
+Repeated `--job-id`, `--kind`, and `--part-id` filters combine by intersection across filter types. A queued downstream job becomes ready when its prerequisites succeed. Local processes may share one SQLite database; application and heartbeat connections use the same bounded wait, configured by `BILI_SQLITE_BUSY_TIMEOUT_MS` (default `30000`). See [docs/metadata-storage.md](docs/metadata-storage.md) for the concurrency scope and recovery procedure.
 
 Editorial work can be planned from stored transcripts and rendered deterministically:
 
@@ -103,21 +131,19 @@ bili-asr workflow run --only-editorial
 ```
 
 The read-only Markdown site importer copies rendered `reading.md` and
-`review.md` documents from SQLite and their recorded artifact roots. The public
-site exposes both views; unreviewed revisions are visibly marked for
-Issue-based review:
+`review.md` documents registered in SQLite, resolving their relative paths through the configured artifact roots. The public
+site can consume both views and their review status. Export the content snapshot:
 
 ```powershell
 bili-asr reading-export --archive-root archive --out reading-site/content
-cd reading-site
-pnpm install
-pnpm dev
 ```
 
 Record an Issue and review status with `bili-asr reading-review`. Accepted
 changes are stored as immutable human editions using `bili-asr reading-edit`;
-the original AI revision remains unchanged. See [reading-site/README.md](reading-site/README.md)
-for the full review and static publishing flow.
+the original AI revision remains unchanged. This checkout provides the content exporter;
+the separately maintained reading-site frontend must be provisioned separately.
+See [docs/ai-proofreading.md](docs/ai-proofreading.md#阅读导出与人工审核)
+for the export and review commands.
 
 ## Query
 
@@ -138,7 +164,11 @@ across parts; it never deletes, merges, or rewrites source records. Use
 `--format json` for a machine-readable baseline and `--limit` to cap only the
 example groups included in the output.
 
-Read commands do not bootstrap or create a missing database. `--artifact-root` can point read projections at a separate existing directory containing the published bundles. The default is the archive root.
+`status` and `runs` refuse a missing database, although opening a compatible existing database may refresh derived views. Workflow inspection uses the initializing database entrypoint. Coverage, verification, export, reading export and dedup use read-only projections; `search-index` writes a derived index.
+
+`workflow run --artifact-root PATH` and `BILI_ARTIFACT_ROOT` place audio, bundles and editorial Markdown in a separate existing directory while keeping `archive.db` at the archive root. Readers use the configured root first and the archive root as fallback. `workflow render` accepts the configuration when queuing; the subsequent run still needs the same flag or environment setting. See [docs/artifact-root.md](docs/artifact-root.md).
+
+Database table contracts must match the current shipped SQL. Incompatible old databases are refused before schema changes; there are no migrations. Stop workers, preserve any needed backup, delete the affected `archive.db`, and re-run metadata collection and workflow planning. **Rebuilding discards old database facts, including transcripts, revisions and review history.**
 
 ## Tests
 

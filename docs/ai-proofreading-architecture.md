@@ -82,11 +82,14 @@ flowchart LR
 ```
 
 原始字幕和 ASR 不被覆写。通过来源 ID 追溯，不额外建立第二套调度或稀疏编辑表。
-旧工作流类型约束不自动迁移，不删除现有数据库；需要支持新类型的归档库。
+旧工作流类型约束不自动迁移。不兼容数据库在修改前被拒绝，需要操作者删除并重新采集；
+数据库事实会丢失，恢复流程见 [metadata-storage.md](metadata-storage.md#6-schema-不兼容时重建)。
 块结果立即保存，失败重试复用完成块。租约与尝试编号防止失效工作器提交。
 供应商收到请求但本地未保存时退出，重试可能再次计费，不承诺外部调用恰好一次。
 
-产物位于 documents/part-<ID>/<修订ID>/reading-v2/。
+产物位于 write base 的 documents/part-<ID>/<修订ID>/reading-v2/。
+write base 默认是 archive root，可由 workflow run 的 `--artifact-root` 或
+`BILI_ARTIFACT_ROOT` 配置；document artifact 保存相对路径和哈希，读取使用同一配置。
 reading.md 仅含正文段落；无标题、目录、时间戳、脚注、链接或审核说明。
 review.md 保存每段原文和整理稿、全部来源 ID、时间与回看链接、疑点、模型参数和版本，注明未经人工复核。
 文件原子写入，相同修订与模板重新渲染字节一致。

@@ -48,9 +48,9 @@ CREATE TABLE IF NOT EXISTS video_tags (
 -- records the last *successful* collection, never an attempt).
 -- ``"desc"`` is quoted because ``desc`` is a SQL keyword; the column keeps
 -- upstream's own field name, and ``PRAGMA table_info`` reports it unquoted.
--- A child table rather than new ``videos`` columns: ``initialize_schema``
--- runs ``CREATE ... IF NOT EXISTS`` only, so a widened parent table would be
--- silently absent on every existing ``archive.db``.
+-- Keep optional detail fields separate from the core video identity. Schema
+-- initialization validates the current table contract before any DDL; an
+-- incompatible archive must be deleted and recollected, never altered in place.
 CREATE TABLE IF NOT EXISTS video_details (
     bvid TEXT PRIMARY KEY,
     pic TEXT,
@@ -150,9 +150,9 @@ CREATE INDEX IF NOT EXISTS ix_videos_pubdate_bvid
     ON videos(pubdate DESC, bvid ASC);
 
 -- The transcript and acquisition process-record tables live in their own
--- resource (``schema-transcripts.sql``): ``initialize_schema`` applies them
--- only to a database that is fresh or already carries that contract, so a
--- database created before it keeps the shape it has.
+-- resource (``schema-transcripts.sql``). Initialization applies all four schema
+-- resources to a fresh database and rejects incompatible existing tables before
+-- writing. Rebuilding discards the old database data and requires recollection.
 
 CREATE VIEW IF NOT EXISTS v_video_parts AS
 SELECT

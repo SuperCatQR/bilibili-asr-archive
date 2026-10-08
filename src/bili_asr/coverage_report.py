@@ -37,7 +37,7 @@ def _build_workflow_data(root: Path, *, scope: str | None, artifact_roots: Artif
     from bili_asr.services.workflow_projection import workflow_records
 
     database_available = (root / "archive.db").is_file()
-    records, scope_available = _select(workflow_records(root), scope)
+    records, scope_available = _select(workflow_records(root, artifact_roots=artifact_roots), scope)
     scope_available = scope_available and database_available
     diagnostics: list[dict[str, str]] = []
     if not database_available:
@@ -64,7 +64,7 @@ class CoverageReport:
     @classmethod
     def build(cls, archive_root: str | Path, *, scope: str | None = None, policy: Any = None, artifact_roots: ArtifactRoots | None = None) -> "CoverageReport":
         del policy
-        root = Path(archive_root).resolve()
+        root = ArtifactRoots.of(archive_root).archive_root
         roots = artifact_roots if artifact_roots is not None else ArtifactRoots.of(root)
         return cls(_build_workflow_data(root, scope=scope, artifact_roots=roots))
 

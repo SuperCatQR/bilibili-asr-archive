@@ -14,6 +14,9 @@
 | [AI 校对使用说明](ai-proofreading.md) | 工作流与 DeepSeek 校对的参数、数据库及输出契约 |
 | [AI 校对架构](ai-proofreading-architecture.md) | 固定输入、来源覆盖、修订、确定性渲染、静态阅读站与人审 |
 | [架构图维护](architecture-maintenance.md) | 固定源码提交、编辑 JSON、生成 HTML 与浏览器校验流程 |
+| [SQLite 数据与工作流](metadata-storage.md) | 当前表与视图、身份、计划、依赖解释、重试、并发与恢复 |
+| [归档根目录与产物根目录](artifact-root.md) | workflow 的独立产物根、写入路径、读取回退及迁移 |
+| [Miniconda 部署](miniconda-deployment.md) | 环境安装、应用启动和既有 GPU runtime 保留 |
 
 架构图中完整系统关系较多，可缩放、平移并选择路径查看节点与源码证据；阅读模块职责和规则时，文字版架构及专项文档提供更直接的入口。
 
@@ -23,7 +26,5 @@
 
 | 文档 | 当前适用范围 |
 |---|---|
-| [元数据存储](metadata-storage.md) | 早期元数据与字幕 schema 背景；旧 `harvest-subs` / manifest 描述不能作为当前工作流契约 |
 | [WSL ROCm 配方](wsl-rocm-gpu.md) | 2026-09-12 特定 AMD 环境的历史记录；不表示本次 WSL 环境 GPU 可用 |
-| [产物根目录](artifact-root.md) | 旧写入流水线说明；当前 `--artifact-root` 属于读取类命令，workflow 不提供独立写入根入口 |
 | [音频保留策略](audio-retention-policy.md) | 旧归档命令的保留与回收策略背景；当前 CLI 没有其中的生命周期开关 |

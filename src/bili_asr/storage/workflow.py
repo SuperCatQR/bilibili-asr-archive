@@ -17,6 +17,7 @@ from dataclasses import asdict, dataclass
 from enum import StrEnum
 from typing import Any
 from uuid import uuid4
+from bili_asr.storage.database import connect_database
 
 
 class JobKind(StrEnum):
@@ -129,6 +130,7 @@ class WorkflowRepository:
         if connection.row_factory is None:
             raise TypeError("connection must return sqlite3.Row objects")
         self.connection = connection
+        self._busy_timeout_ms = int(connection.execute("PRAGMA busy_timeout").fetchone()[0])
         row = connection.execute("PRAGMA database_list").fetchone()
         self._database_path = "" if row is None else str(row["file"] or "")
 
@@ -145,10 +147,7 @@ class WorkflowRepository:
 
         if not self._database_path:
             return None
-        connection = sqlite3.connect(self._database_path, isolation_level="DEFERRED", timeout=30)
-        connection.row_factory = sqlite3.Row
-        connection.execute("PRAGMA foreign_keys = ON")
-        connection.execute("PRAGMA busy_timeout = 30000")
+        connection = connect_database(self._database_path, busy_timeout_ms=self._busy_timeout_ms)
         return type(self)(connection)
 
     def register_profile(self, profile: AsrProfile) -> int:
@@ -491,10 +490,35 @@ class WorkflowRepository:
             )
         }
 
-    def requeue_failed(self, *, part_ids: Iterable[int] | None = None) -> int:
+    def explain_job(self, job_id: str) -> dict[str, Any]:
+        """Derive readiness from dependencies without inventing a stored status."""
+        row = self.connection.execute("SELECT * FROM workflow_jobs WHERE job_id = ?", (job_id,)).fetchone()
+        if row is None:
+            raise ValueError(f"unknown workflow job: {job_id}")
+        prerequisites = [dict(item) for item in self.connection.execute(
+            "SELECT p.job_id, p.kind, p.status, p.last_error_code AS error_code "
+            "FROM workflow_job_dependencies d JOIN workflow_jobs p ON p.job_id = d.prerequisite_job_id "
+            "WHERE d.job_id = ? ORDER BY p.job_id", (job_id,))]
+        blockers = [item for item in prerequisites if item["status"] != "succeeded"]
+        attempt = self.connection.execute(
+            "SELECT worker_id, outcome, error_code, started_at, finished_at FROM workflow_attempts "
+            "WHERE job_id = ? ORDER BY rowid DESC LIMIT 1", (job_id,)).fetchone()
+        queued = row["status"] == "queued"
+        return {"job_id": job_id, "kind": row["kind"], "status": row["status"],
+                "video_part_id": row["video_part_id"], "attempt_count": row["attempt_count"],
+                "error_code": row["last_error_code"], "prerequisites": prerequisites,
+                "blockers": blockers, "blocked": queued and bool(blockers),
+                "ready": queued and not blockers and row["available_at"] <= _now(),
+                "available_at": row["available_at"],
+                "last_attempt": None if attempt is None else dict(attempt)}
+
+    def requeue_failed(self, *, part_ids: Iterable[int] | None = None,
+                       job_ids: Iterable[str] | None = None, kinds: Iterable[JobKind] | None = None) -> int:
         """Make failed jobs eligible for another worker without erasing attempts."""
         ids = None if part_ids is None else tuple(dict.fromkeys(int(part_id) for part_id in part_ids))
-        if ids == ():
+        jobs = None if job_ids is None else tuple(dict.fromkeys(job_ids))
+        selected = None if kinds is None else tuple(dict.fromkeys(k.value for k in kinds))
+        if ids == () or jobs == () or selected == ():
             return 0
         now = _now()
         where = "status = 'failed'"
@@ -502,6 +526,10 @@ class WorkflowRepository:
         if ids is not None:
             where += " AND video_part_id IN (" + ",".join("?" for _ in ids) + ")"
             values.extend(ids)
+        for column, selector in (("job_id", jobs), ("kind", selected)):
+            if selector is not None:
+                where += f" AND {column} IN (" + ",".join("?" for _ in selector) + ")"
+                values.extend(selector)
         with self.connection:
             cursor = self.connection.execute(
                 """UPDATE workflow_jobs

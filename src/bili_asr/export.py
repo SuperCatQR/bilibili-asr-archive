@@ -410,7 +410,7 @@ def export_records(
     root = os.fspath(archive_root)
     from bili_asr.services.workflow_projection import workflow_has_data, workflow_records
 
-    entries = workflow_records(root, with_text=with_text) if workflow_has_data(root) else {}
+    entries = workflow_records(root, with_text=with_text, artifact_roots=artifact_roots) if workflow_has_data(root) else {}
     rows = export_rows(
         entries,
         status_filter=status_filter,

@@ -1247,64 +1247,14 @@ def test_bootstrap_reapplies_the_contract_to_a_current_database(tmp_root):
         repaired.close()
 
 
-def test_bootstrap_leaves_a_pre_iteration_database_untouched(tmp_root):
-    database_path = os.path.join(tmp_root, "archive.db")
-    legacy_ddl = _write_pre_iteration_database(database_path)
-
-    connection = open_database(database_path)
-    try:
-        assert connection.execute("PRAGMA foreign_keys").fetchone()[0] == 1
-        names = _table_names(connection)
-        assert "acquisition_runs" not in names
-        assert "acquisition_attempts" not in names
-        assert "v_pending_subtitles" not in names
-        # Nothing half-applies: the pre-iteration transcript shape is exactly
-        # the shape the previous iteration wrote, and its rows are readable.
-        assert {
-            name: _stored_ddl(connection, name) for name in legacy_ddl
-        } == legacy_ddl
-        assert [
-            row["name"] for row in connection.execute("PRAGMA table_info(transcripts)")
-        ] == [
-            "transcript_id",
-            "video_part_id",
-            "source_kind",
-            "model_id",
-            "version",
-            "created_at",
-        ]
-        assert (
-            connection.execute("SELECT text FROM transcript_segments").fetchone()[0]
-            == "旧字幕"
-        )
-
-        # The metadata path keeps working on that database, reads and writes.
-        repository = MetadataRepository(connection)
-        assert [row["work_id"] for row in repository.list_pending_parts()] == [
-            "BV1TEST:p0"
-        ]
-        with repository.transaction():
-            repository.write_cursor(
-                CursorRecord(
-                    mid=23191782,
-                    next_page=2,
-                    observed_total=1,
-                    state="ready",
-                    last_error_code=None,
-                    updated_at=600,
-                )
-            )
-        cursor = repository.read_cursor(23191782)
-        assert cursor is not None and cursor.next_page == 2
-
-        # The subtitle path is refused with the bounded rebuild error, and the
-        # rebuild is the only offered remedy (no migration path).
-        with pytest.raises(SchemaContractError) as refused:
-            require_subtitle_schema(connection)
-        assert "predates the transcript schema" in str(refused.value)
-    finally:
-        connection.close()
-
+def test_bootstrap_refuses_a_pre_iteration_database_without_modifying_it(tmp_root):
+    database_path = Path(tmp_root) / "archive.db"
+    _write_pre_iteration_database(database_path)
+    before = database_path.read_bytes()
+    with pytest.raises(SchemaContractError, match="delete archive.db") as refused:
+        open_database(database_path)
+    assert "discarded" in str(refused.value)
+    assert database_path.read_bytes() == before
 
 def test_require_subtitle_schema_requires_the_process_record_objects(tmp_root):
     connection = open_database(tmp_root)
@@ -1591,163 +1541,22 @@ def test_pending_subtitles_view_is_scoped_to_subtitle_attempts(tmp_root):
         connection.close()
 
 
-def test_existing_cookie_only_observations_migrate_as_unverified(tmp_root):
-    """Opening the previous schema preserves old rows but requires fresh proof."""
+@pytest.mark.parametrize("missing_column", ["credential_verified", "absence_verified"])
+def test_old_acquisition_attempt_shape_requires_recollection(tmp_root, missing_column):
+    """Old observations are rejected, without ALTER TABLE or row preservation."""
     db_path = Path(tmp_root) / "archive.db"
-    previous = sqlite3.connect(db_path)
-    previous.row_factory = sqlite3.Row
-    previous.execute("PRAGMA foreign_keys = ON")
     storage = resources.files("bili_asr.storage")
-    previous.executescript(storage.joinpath("schema.sql").read_text(encoding="utf-8"))
-    # Materialize the actual previous table and view contract: the attempt
-    # column did not exist, and cookie presence alone corroborated emptiness.
-    old_transcripts = storage.joinpath("schema-transcripts.sql").read_text(encoding="utf-8")
-    old_transcripts = old_transcripts.replace(
-        "    credential_verified INTEGER NOT NULL DEFAULT 0 CHECK (credential_verified IN (0, 1)),\n",
-        "",
-    ).replace("        aa.credential_verified,\n", "").replace(
-        " AND credential_verified = 1", ""
-    ).replace(" AND latest.credential_verified = 1", "")
-    old_transcripts = old_transcripts.replace(
-        "    absence_verified INTEGER NOT NULL DEFAULT 0 CHECK (absence_verified IN (0, 1)),\n",
-        "",
-    ).replace("        aa.absence_verified,\n", "").replace(
-        " AND latest.absence_verified = 1", ""
-    )
-    previous.executescript(old_transcripts)
-    assert not {"credential_verified", "absence_verified"}.intersection({
-        row["name"] for row in previous.execute("PRAGMA table_info(acquisition_attempts)")
-    })
-    part_id = _insert_user_video_part(previous)
-    definite_part = previous.execute(
-        "INSERT INTO video_parts(bvid, page_index, cid, title, duration_ms, "
-        "processing_status, created_at, updated_at) "
-        "VALUES ('BV1TEST', 1, 2002, 'definite absence', 1234, 'discovered', 102, 102)"
-    ).lastrowid
-    for run_id, finished_at in (("old-empty-1", 200), ("old-empty-2", 300)):
-        _insert_subtitle_acquisition_run(previous, run_id=run_id, credential_present=1)
-        previous.execute(
-            "INSERT INTO acquisition_attempts(run_id, video_part_id, outcome, "
-            "error_code, transcript_id, started_at, finished_at) "
-            "VALUES (?, ?, 'no-subtitle', NULL, NULL, 100, ?)",
-            (run_id, part_id, finished_at),
-        )
-    _insert_subtitle_acquisition_run(previous, run_id="old-not-found", credential_present=0)
-    previous.execute(
-        "INSERT INTO acquisition_attempts(run_id, video_part_id, outcome, "
-        "error_code, transcript_id, started_at, finished_at) "
-        "VALUES ('old-not-found', ?, 'no-subtitle', 'not_found', NULL, 100, 300)",
-        (definite_part,),
-    )
-    old_facts = [tuple(row) for row in previous.execute(
-        "SELECT run_id, video_part_id, outcome, error_code, transcript_id, "
-        "started_at, finished_at FROM acquisition_attempts ORDER BY run_id"
-    )]
-    assert previous.execute("SELECT COUNT(*) FROM v_missing_audio").fetchone()[0] == 2
-    previous.commit()
-    previous.close()
-
-    connection = open_database(db_path)
-    try:
-        assert [tuple(row) for row in connection.execute(
-            "SELECT run_id, video_part_id, outcome, error_code, transcript_id, "
-            "started_at, finished_at FROM acquisition_attempts ORDER BY run_id"
-        )] == old_facts
-        assert [row[0] for row in connection.execute(
-            "SELECT credential_verified FROM acquisition_attempts"
-        )] == [0, 0, 0]
-        assert [row[0] for row in connection.execute(
-            "SELECT video_part_id FROM v_missing_audio"
-        )] == []
-        assert [row[0] for row in connection.execute(
-            "SELECT absence_verified FROM acquisition_attempts"
-        )] == [0, 0, 0]
-        assert connection.execute(
-            "SELECT COUNT(*) FROM v_pending_subtitles WHERE video_part_id = ?", (part_id,)
-        ).fetchone()[0] == 1
-        assert connection.execute(
-            "SELECT pipeline_state FROM v_part_pipeline WHERE video_part_id = ?", (part_id,)
-        ).fetchone()[0] == "no_subtitle"
-
-        repository = TranscriptRepository(connection)
-        for index in range(2):
-            run_id = f"new-verified-{index}"
-            _insert_subtitle_acquisition_run(connection, run_id=run_id, credential_present=1)
-            repository.record_subtitle_attempt(
-                run_id=run_id, video_part_id=part_id, outcome="no-subtitle", error_code=None,
-                started_at=400 + index, finished_at=400 + index, credential_verified=True,
+    with sqlite3.connect(db_path) as previous:
+        for name in ("schema.sql", "schema-transcripts.sql", "schema-workflow.sql", "schema-editorial.sql"):
+            script = storage.joinpath(name).read_text(encoding="utf-8")
+            script = script.replace(
+                f"    {missing_column} INTEGER NOT NULL DEFAULT 0 CHECK ({missing_column} IN (0, 1)),\n", ""
             )
-            assert connection.execute(
-                "SELECT COUNT(*) FROM v_missing_audio WHERE video_part_id = ?", (part_id,)
-            ).fetchone()[0] == index
-        # The ambiguous old not-found row also needs a fresh, definite listing
-        # observation. This proof is valid without any credential.
-        _insert_subtitle_acquisition_run(connection, run_id="new-definite", credential_present=0)
-        repository.record_subtitle_attempt(
-            run_id="new-definite", video_part_id=definite_part, outcome="no-subtitle",
-            error_code="not_found", started_at=500, finished_at=500, absence_verified=True,
-        )
-        assert connection.execute(
-            "SELECT COUNT(*) FROM v_missing_audio WHERE video_part_id = ?", (definite_part,)
-        ).fetchone()[0] == 1
-    finally:
-        connection.close()
-    # A second open neither resets new proof nor backfills the historical rows.
-    connection = open_database(db_path)
-    try:
-        assert [row[0] for row in connection.execute(
-            "SELECT credential_verified FROM acquisition_attempts ORDER BY rowid"
-        )] == [0, 0, 0, 1, 1, 0]
-        assert [row[0] for row in connection.execute(
-            "SELECT absence_verified FROM acquisition_attempts ORDER BY rowid"
-        )] == [0, 0, 0, 0, 0, 1]
-        assert connection.execute("SELECT COUNT(*) FROM v_missing_audio").fetchone()[0] == 2
-    finally:
-        connection.close()
-
-
-def test_absence_marker_migration_preserves_existing_verified_empty_proof(tmp_root):
-    """A database that already verifies login gains only the missing absence flag."""
-    db_path = Path(tmp_root) / "archive.db"
-    previous = sqlite3.connect(db_path)
-    previous.row_factory = sqlite3.Row
-    previous.execute("PRAGMA foreign_keys = ON")
-    storage = resources.files("bili_asr.storage")
-    previous.executescript(storage.joinpath("schema.sql").read_text(encoding="utf-8"))
-    old_transcripts = storage.joinpath("schema-transcripts.sql").read_text(encoding="utf-8")
-    old_transcripts = old_transcripts.replace(
-        "    absence_verified INTEGER NOT NULL DEFAULT 0 CHECK (absence_verified IN (0, 1)),\n",
-        "",
-    ).replace("        aa.absence_verified,\n", "").replace(
-        " AND latest.absence_verified = 1", ""
-    )
-    previous.executescript(old_transcripts)
-    part_id = _insert_user_video_part(previous)
-    for index in range(2):
-        run_id = f"already-verified-{index}"
-        _insert_subtitle_acquisition_run(previous, run_id=run_id, credential_present=1)
-        previous.execute(
-            "INSERT INTO acquisition_attempts(run_id, video_part_id, outcome, "
-            "error_code, transcript_id, started_at, finished_at, credential_verified) "
-            "VALUES (?, ?, 'no-subtitle', NULL, NULL, 100, ?, 1)",
-            (run_id, part_id, 200 + index),
-        )
-    previous.commit()
-    previous.close()
-
-    for _ in range(2):
-        connection = open_database(db_path)
-        try:
-            assert [tuple(row) for row in connection.execute(
-                "SELECT credential_verified, absence_verified "
-                "FROM acquisition_attempts ORDER BY rowid"
-            )] == [(1, 0), (1, 0)]
-            assert connection.execute(
-                "SELECT COUNT(*) FROM v_missing_audio WHERE video_part_id = ?", (part_id,)
-            ).fetchone()[0] == 1
-        finally:
-            connection.close()
-
+            previous.executescript(script)
+    before = db_path.read_bytes()
+    with pytest.raises(SchemaContractError, match="unsupported table acquisition_attempts"):
+        open_database(db_path)
+    assert db_path.read_bytes() == before
 
 def test_missing_audio_requires_credentialed_empty_inventory_confirmations(tmp_root):
     """Anonymous empty inventories never authorize the paid audio branch."""

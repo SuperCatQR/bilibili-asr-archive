@@ -1,6 +1,9 @@
 # 音频保留策略使用指南
 
-> 2026-10-08 当前边界：本文描述旧归档流水线的策略。当前 CLI 没有 `pilot`、`campaign`、顶层 `run` / `schedule`，也没有 `--keep-audio` / `--no-keep-audio` 开关；这些示例不能直接执行。当前音频由独立 workflow 任务产生，见 [当前架构](architecture.md) 与 [项目 README](../README.md)。
+> 历史接口说明：下文阶段命令与保留参数属于旧执行路径。当前 CLI 以 SQLite workflow
+> 为执行控制面，`workflow run` 未接入 `--keep-audio`、`--max-audio-gb` 或自动回收；
+> 这些旧命令示例不能作为当前操作指南。底层 `audio_reclaim` 模块仍保留，当前入口与
+> 目录规则见 [metadata-storage.md](metadata-storage.md) 和 [artifact-root.md](artifact-root.md)。
 
 ## 背景
 

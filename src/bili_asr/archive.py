@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any, Callable, Mapping
 
 from .asr import segments_to_srt, segments_to_txt
+from .artifact_root import ArtifactRoots
 from .page_identity import artifact_stem, page_identity, page_query_index
 
 #: The bundle's completion marker: a fixed basename **inside** the work's own
@@ -255,7 +256,7 @@ def archive_bundle_complete(
     """
     if os.name == "nt":
         try:
-            root = Path(os.path.abspath(os.fspath(archive_root)))
+            root = ArtifactRoots.of(archive_root).archive_root
             if set(paths) != set(_REQUIRED_ARTIFACT_KEYS) or not _owned_bundle_parts(paths):
                 return False
             marker = root / os.path.dirname(paths["srt_path"]) / BUNDLE_MARKER_NAME
@@ -480,7 +481,7 @@ def _publish_bundle(
                 raise cleanup_error
 
 def _lexical_archive_root(archive_root: str | os.PathLike[str]) -> Path:
-    root = Path(os.path.abspath(os.fspath(archive_root)))
+    root = ArtifactRoots.of(archive_root).archive_root
     if os.name == "nt":
         if root.is_symlink() or not root.is_dir():
             raise OSError("archive publication path is unsafe")
