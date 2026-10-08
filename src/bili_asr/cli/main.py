@@ -5,6 +5,7 @@ from __future__ import annotations
 from bili_asr.diagnostics import write_stderr
 
 import argparse
+from pathlib import Path
 import sys
 
 # Keep the historical dotted import path usable while ``cli.main`` is now a
@@ -18,6 +19,7 @@ from bili_asr.artifact_root import (
     roots_for,
 )
 from bili_asr.cli.parser import build_parser
+from bili_asr.archive_maintenance import ArchiveAccessError, archive_access
 
 from bili_asr.cli.registry import (
     COMMANDS,
@@ -65,6 +67,20 @@ def _main(
                 require_writable=False,
             )
         except ArtifactRootError as exc:
+            write_stderr(f"{args.command}: {exc}")
+            return 1
+    # Include commands that initialize schema or rebuild FTS, even when their
+    # main purpose is querying. Snapshot service owns its exclusive access.
+    writes_archive = args.command in {
+        "fetch-meta", "workflow", "reading-review", "reading-edit", "search-index",
+    } or (args.command == "search" and args.rebuild) or (
+        args.command in {"status", "runs"} and (Path(args.archive_root) / "archive.db").is_file()
+    )
+    if writes_archive:
+        try:
+            with archive_access(args.archive_root):
+                return _cli_pkg._dispatch_command(args)
+        except ArchiveAccessError as exc:
             write_stderr(f"{args.command}: {exc}")
             return 1
     return _cli_pkg._dispatch_command(args)

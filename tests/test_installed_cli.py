@@ -26,7 +26,7 @@ def test_installed_console_script_help(isolated_cli) -> None:
     assert "bili-asr" in proc.stdout
     for command in (
         "workflow", "fetch-meta", "status", "runs", "search-index",
-        "coverage", "verify", "export", "check-asr-env",
+        "coverage", "verify", "export", "check-asr-env", "snapshot",
     ):
         assert command in proc.stdout
     assert_redacted(proc)
@@ -94,6 +94,45 @@ def test_installed_proofread_help_and_workflow_status(isolated_cli, tmp_path: Pa
     assert_redacted(status)
     with sqlite3.connect(root / "archive.db") as connection:
         assert connection.execute("SELECT COUNT(*) FROM editorial_inputs").fetchone()[0] == 0
+
+
+def test_installed_snapshot_round_trip_offline(isolated_cli, tmp_path: Path) -> None:
+    """The wheel-only console script transfers a store from a foreign cwd."""
+    root = tmp_path / "source"
+    root.mkdir()
+    (root / "archive.db").touch()
+    env = {"BILI_ARTIFACT_ROOT": ""}
+    initialized = run_installed(isolated_cli, ["status", "--archive-root", str(root)], extra_env=env)
+    assert initialized.returncode == 0, initialized.stderr
+    audio = b"offline reusable audio"
+    (root / "audio").mkdir()
+    (root / "audio" / "cached.m4a").write_bytes(audio)
+    snapshot = tmp_path / "transfer.zip"
+
+    saved = run_installed(isolated_cli, [
+        "snapshot", "save", "--archive-root", str(root), "--out", str(snapshot),
+    ], extra_env=env)
+    assert saved.returncode == 0, saved.stderr
+    report = json.loads(saved.stdout)
+    assert report["file_count"] == 2
+    root.rename(tmp_path / "source-offline")
+
+    checked = run_installed(isolated_cli, ["snapshot", "check", "--file", str(snapshot)], extra_env=env)
+    assert checked.returncode == 0, checked.stderr
+    assert json.loads(checked.stdout)["valid"] is True
+    destination = tmp_path / "other-device"
+    restored = run_installed(isolated_cli, [
+        "snapshot", "restore", "--file", str(snapshot), "--archive-root", str(destination),
+    ], extra_env=env)
+    assert restored.returncode == 0, restored.stderr
+    assert json.loads(restored.stdout)["snapshot_id"] == report["snapshot_id"]
+    assert (destination / "audio" / "cached.m4a").read_bytes() == audio
+    status = run_installed(isolated_cli, ["status", "--archive-root", str(destination)], extra_env=env)
+    assert status.returncode == 0, status.stderr
+    assert "videos: 0" in status.stdout
+    for result in (initialized, saved, checked, restored, status):
+        assert_redacted(result)
+
 
 def test_installed_script_is_not_path_or_checkout_source(isolated_cli) -> None:
     assert Path(isolated_cli.executable).parent == Path(_venv_scripts_dir(isolated_cli.venv_dir))

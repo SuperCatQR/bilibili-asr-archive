@@ -13,4 +13,5 @@ system map is the source of truth for module boundaries and data ownership.
 | [metadata-storage.md](metadata-storage.md) | `archive.db`: the normalized SQLite store behind `fetch-meta` and `harvest-subs` — tables, views, ingestion state, and the read/write contracts. | 12 |
 | [wsl-rocm-gpu.md](wsl-rocm-gpu.md) | The one AMD path **measured** to give a usable ASR device on Windows WSL2 — the ROCm/torch wheel pairing, HSA/DXG detection, and the failure chain per symptom. | 8 |
 | [artifact-root.md](artifact-root.md) | `--artifact-root` operator guide: which root is which, how to place products on a mount, and why some things never leave the archive root. | 7 |
+| [archive-snapshots.md](archive-snapshots.md) | Portable archive save, offline verification, and restore with task recovery. | - |
 | [audio-retention-policy.md](audio-retention-policy.md) | When audio is kept and when it is reclaimed, the flag pair on the archiving commands, and the reclaim scope per base. | 1 |

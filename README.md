@@ -138,6 +138,33 @@ example groups included in the output.
 
 Read commands do not bootstrap or create a missing database. `--artifact-root` can point read projections at a separate existing directory containing the published bundles. The default is the archive root.
 
+## Save and Restore an Archive
+
+Stop archive writers before saving. A portable ZIP contains a consistent
+`archive.db` snapshot, audio, transcript bundles, reading documents, and a
+versioned SHA-256 file inventory. Save outside the archive directories:
+
+```powershell
+bili-asr snapshot save --archive-root archive --out D:\Backups\bili-archive.zip
+bili-asr snapshot check --file D:\Backups\bili-archive.zip
+bili-asr snapshot restore --file D:\Backups\bili-archive.zip --archive-root D:\BiliArchive
+bili-asr workflow run --archive-root D:\BiliArchive
+```
+
+The restore target must be new or empty. Completed jobs, metadata cursors,
+transcripts, and revisions survive; interrupted jobs are requeued in the
+restored database while their attempt history is retained. Files recorded in
+the database must be present and match their known hashes. Check works offline
+without the original archive, credentials, a model, or GPU dependencies.
+
+`snapshot save --artifact-root PATH` also includes an existing separate product
+root (or `BILI_ARTIFACT_ROOT`); restore brings all products into the new archive
+root so the workflow can use their relative paths directly. This version
+supports the current database contract and whole-archive transfer. Configure
+credentials and the compatible ASR runtime on the destination host separately.
+See [archive-snapshots.md](docs/archive-snapshots.md) for consistency, recovery,
+and format details.
+
 ## Tests
 
 ```powershell
