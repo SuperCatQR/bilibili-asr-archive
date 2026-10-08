@@ -46,7 +46,11 @@ class ArchiveWorkflowHandlers:
     ) -> None:
         self.connection = connection
         self.repository = repository
-        self.archive_root = Path(archive_root)
+        # Handlers receive archive roots from CLI arguments, which are often
+        # relative (for example ``archive``). Download helpers return absolute
+        # paths, so normalize once here before computing root-relative storage
+        # keys or opening artifact files.
+        self.archive_root = Path(archive_root).resolve()
         self.archive_root.mkdir(parents=True, exist_ok=True)
         self.sessdata = sessdata
         self._subtitle_repository = TranscriptRepository(connection)
