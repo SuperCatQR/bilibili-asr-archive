@@ -27,7 +27,7 @@ def _read_snapshot(connection: sqlite3.Connection) -> Iterator[None]:
             connection.rollback()
 
 
-def _public_entry(release: dict, edition: dict) -> dict:
+def _public_entry(release: dict, edition: dict, review_document: bytes) -> dict:
     content = edition["content"]
     source = content["source"]
     part_id = edition["video_part_id"]
@@ -53,6 +53,8 @@ def _public_entry(release: dict, edition: dict) -> dict:
         "templateVersion": release["template_version"],
         "publishedAt": release["published_at"],
         "file": f"articles/part-{part_id}/publish.md",
+        "reviewFile": f"articles/part-{part_id}/review.md",
+        "reviewArtifactSha256": hashlib.sha256(review_document).hexdigest(),
     }
 
 
@@ -85,16 +87,20 @@ def export_publications(
             release, edition, document = verify_release(connection, str(head["current_release_id"]), artifact_roots)
             if release["status"] != "published" or release["video_part_id"] != head["video_part_id"]:
                 raise ExportSnapshotError("publication head does not identify a valid current release")
-            entry = _public_entry(release, edition)
+            artifacts = get_ai_artifacts(connection, edition["revision_id"], artifact_roots)
+            review_document = artifacts["review.md"]
+            review_document.decode("utf-8")
+            entry = _public_entry(release, edition, review_document)
             if entry["file"] in files:
                 raise ExportSnapshotError("duplicate public article identity")
             if hashlib.sha256(document).hexdigest() != entry["artifactSha256"]:
                 raise ExportSnapshotError("release artifact hash mismatch")
             document.decode("utf-8")
             files[entry["file"]] = document
+            files[entry["reviewFile"]] = review_document
             articles.append(entry)
     articles.sort(key=lambda entry: (-entry["publishedAt"], entry["videoPartId"]))
-    files["catalog.json"] = json_bytes({"schemaVersion": 1, "manuscriptType": "publication", "articles": articles})
+    files["catalog.json"] = json_bytes({"schemaVersion": 2, "manuscriptType": "publication", "articles": articles})
     replace_snapshot(output, kind="publication-export", files=files)
     return len(articles)
 
@@ -141,9 +147,11 @@ def export_publication_drafts(
             ).fetchone()
             if released is not None:
                 continue
-            # Verify the immutable revision, source identity and paired baseline
-            # even though neither the review reference nor model audit is public.
-            get_ai_artifacts(connection, edition["revision_id"], artifact_roots)
+            # Verify both immutable AI artifacts before exporting the original
+            # review reference. Model-call audits remain outside the snapshot.
+            artifacts = get_ai_artifacts(connection, edition["revision_id"], artifact_roots)
+            review_document = artifacts["review.md"]
+            review_document.decode("utf-8")
             content = edition["content"]
             source = content["source"]
             document = render_publication(content)
@@ -159,13 +167,16 @@ def export_publication_drafts(
                 "artifactSha256": hashlib.sha256(document).hexdigest(),
                 "reviewStatus": edition["review_status"], "createdAt": edition["created_at"],
                 "file": f"drafts/{slug}/preview.md",
+                "reviewFile": f"drafts/{slug}/review.md",
+                "reviewArtifactSha256": hashlib.sha256(review_document).hexdigest(),
             }
             if entry["file"] in files:
                 raise ExportSnapshotError("duplicate reader draft identity")
             files[entry["file"]] = document
+            files[entry["reviewFile"]] = review_document
             articles.append(entry)
     articles.sort(key=lambda entry: (-entry["createdAt"], entry["videoPartId"], entry["editionId"]))
-    files["catalog.json"] = json_bytes({"schemaVersion": 1, "manuscriptType": "publication-draft", "articles": articles})
+    files["catalog.json"] = json_bytes({"schemaVersion": 2, "manuscriptType": "publication-draft", "articles": articles})
     replace_snapshot(output, kind="publication-draft-export", files=files)
     return len(articles)
 

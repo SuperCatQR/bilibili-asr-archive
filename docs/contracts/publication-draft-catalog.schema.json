@@ -1,12 +1,12 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/SuperCatQR/bilibili-asr-archive/docs/contracts/publication-draft-catalog.schema.json",
-  "title": "Reader Publication Draft Catalog Version 1",
+  "title": "Reader Publication Draft Catalog Version 2",
   "type": "object",
   "additionalProperties": false,
   "required": ["schemaVersion", "manuscriptType", "articles"],
   "properties": {
-    "schemaVersion": {"const": 1},
+    "schemaVersion": {"const": 2},
     "manuscriptType": {"const": "publication-draft"},
     "articles": {"type": "array", "items": {"$ref": "#/$defs/article"}}
   },
@@ -15,7 +15,7 @@
     "article": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["manuscriptType", "slug", "title", "summary", "tags", "attribution", "editorNote", "editionId", "aiRevisionId", "videoPartId", "bvid", "pageIndex", "sourceUrl", "contentSha256", "artifactSha256", "reviewStatus", "createdAt", "file"],
+      "required": ["manuscriptType", "slug", "title", "summary", "tags", "attribution", "editorNote", "editionId", "aiRevisionId", "videoPartId", "bvid", "pageIndex", "sourceUrl", "contentSha256", "artifactSha256", "reviewStatus", "createdAt", "file", "reviewFile", "reviewArtifactSha256"],
       "properties": {
         "manuscriptType": {"const": "publication-draft"},
         "slug": {"type": "string", "pattern": "^edition-[0-9a-f]{32}$"},
@@ -34,7 +34,9 @@
         "artifactSha256": {"$ref": "#/$defs/sha256"},
         "reviewStatus": {"enum": ["pending-review", "in-review", "changes-requested", "approved", "rejected"]},
         "createdAt": {"type": "integer", "minimum": 0, "description": "Edition creation Unix timestamp in seconds"},
-        "file": {"type": "string", "pattern": "^drafts/edition-[0-9a-f]{32}/preview\\.md$"}
+        "file": {"type": "string", "pattern": "^drafts/edition-[0-9a-f]{32}/preview\\.md$"},
+        "reviewFile": {"type": "string", "pattern": "^drafts/edition-[0-9a-f]{32}/review\\.md$"},
+        "reviewArtifactSha256": {"$ref": "#/$defs/sha256"}
       }
     }
   }
