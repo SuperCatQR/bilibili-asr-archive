@@ -32,6 +32,7 @@
 | --- | --- |
 | [Miniconda 部署](miniconda-deployment.md) | 应用依赖、生产启动检查与独立 ASR 环境 |
 | [WSL ROCm GPU](wsl-rocm-gpu.md) | 已记录的 AMD WSL2 环境、版本组合、设备探测与故障排查 |
+| [CI 覆盖率门禁](ci-coverage.md) | 产品源码范围、子进程采集、行与分支阈值及本地复现 |
 
 环境记录和实施前评估保留各自的时间背景。当前行为以源码、相应功能指南和测试为准，
 不能将旧命令、旧 schema 或实验结果直接当作当前接口。
