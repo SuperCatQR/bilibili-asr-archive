@@ -1521,6 +1521,16 @@ def test_completed_summary_short_circuit_skips_pacing(bilibili_api_seam):
     assert sleeps == []
 
 
+def test_offline_seam_records_default_pacing_without_real_waits(bilibili_api_seam):
+    gateway = _load_gateway()
+
+    asyncio.run(_drive_paced_getter(gateway, bilibili_api_seam))
+
+    assert len(bilibili_api_seam.pacing_delays) == 9
+    assert len(bilibili_api_seam.calls) == 9
+    assert all(0.8 <= delay <= 1.6 for delay in bilibili_api_seam.pacing_delays)
+
+
 def test_pacing_default_sleeper_is_awaitable_without_blocking():
     """The default sleeper seam is ``asyncio.sleep``: awaiting ``_pace`` works.
 
