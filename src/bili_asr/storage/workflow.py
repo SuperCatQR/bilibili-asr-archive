@@ -528,6 +528,9 @@ class WorkflowRepository:
         return value
 
     def _require_editorial_contract(self) -> None:
+        from bili_asr.storage.database import require_editorial_schema
+
+        require_editorial_schema(self.connection)
         row = self.connection.execute("SELECT sql FROM sqlite_master WHERE name = 'workflow_jobs'").fetchone()
         if row is None or "'proofread'" not in row["sql"]:
             raise ValueError("workflow schema predates AI proofreading; use a rebuilt archive database")
@@ -557,6 +560,10 @@ class WorkflowRepository:
         return proof_id, render_id, created, render_created
 
     def request_document(self, *, video_part_id: int, revision_id: str, template_version: str) -> tuple[str, bool]:
+        from bili_asr.editorial import TEMPLATE_VERSION
+
+        if template_version != TEMPLATE_VERSION:
+            raise ValueError("unsupported document template version")
         self.require_cancellation_contract()
         self._require_editorial_contract()
         with self.connection:

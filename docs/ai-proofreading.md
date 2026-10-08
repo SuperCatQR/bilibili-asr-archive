@@ -8,6 +8,7 @@ AI 返回带来源 ID 的完整阅读段落，程序校验后保存独立修订�
 
 - Python 3.12+ 与项目基础依赖。仅运行校对和文档渲染不需要 GPU、ASR 模型或 ffmpeg。
 - 归档数据库已存储基础转录。默认使用所选视频部分最新的本地 ASR 版本。
+- 新稿件只支持 `ai-draft-v1` / `publish-v1` 和当前 manuscript schema；旧 schema 在任何初始化写入前拒绝，详见 [publication.md](publication.md)。
 - 新建数据库使用包含 `proofread` / `render_document` 的任务类型，以及支持 `cancelled` attempt outcome 和终态约束的工作流表结构。
 - 真实校对需要环境变量 `DEEPSEEK_API_KEY`。密钥仅进入 HTTP Authorization，不写入模型请求快照、结果或文档。
 
@@ -140,17 +141,17 @@ bili-asr workflow proofread --archive-root /srv/bili-archive --part-id 101 \
 产物路径：
 
 ```text
-<write-base>/documents/part-<video_part_id>/<revision_id>/reading-v2/
-  reading.md
+<write-base>/documents/part-<video_part_id>/<revision_id>/ai-draft-v1/
+  ai-draft.md
   review.md
 ```
 
 write base 默认是 archive root；`workflow run --artifact-root PATH` 或
 `BILI_ARTIFACT_ROOT` 可指定独立的现有目录，数据库仍留在 archive root。
-render 只排队，随后的 run 与 reading-export 都需要同一目录配置；路径与哈希登记于
+render 只排队，随后的 run 与 publication create / editorial export 都需要同一目录配置；路径与哈希登记于
 `document_artifacts`。详见 [artifact-root.md](artifact-root.md)。
 
-`reading.md` 只有整理后的正文段落，不含视频标题、话题标题、目录、时间戳、脚注或审核说明。
+`ai-draft.md` 只有整理后的正文段落，不含视频标题、话题标题、目录、时间戳、脚注或审核说明。
 `review.md` 保存模型思考和采样参数、固定输入、每段全部来源 ID、原文与整理稿对照、
 时间范围、回看链接、疑点和未匹配参考字幕，并注明未经人工复核。
 源文本按字面转义，不能把字幕中的 HTML 或链接指令直接变成文档行为。
@@ -180,8 +181,8 @@ bili-asr workflow run --archive-root /srv/bili-archive --only-editorial
 ```
 
 重渲染不需要 API 密钥，不调用模型，可修复已删除的 Markdown。
-相同已保存修订和 `reading-v2` 模板生成相同字节；模板内容改变时需要新的模板版本和实现，
-当前只支持 `reading-v2`。两份文档先在临时文件中编码、fsync 并计算摘要；
+相同已保存修订和 `ai-draft-v1` 模板生成相同字节；模板内容改变时需要新的模板版本和实现，
+当前只支持 `ai-draft-v1`。两份文档先在临时文件中编码、fsync 并计算摘要；
 随后在同一任务所有权事务内执行最终替换并登记路径与 SHA-256。
 取消若先提交，最终替换被拒绝并清理本次临时文件。相同修订和模板对应的 render job
 已经取消时，重复 `workflow render` 保持取消状态。
@@ -207,50 +208,23 @@ queued / running 任务变为 `cancelled`；成功、失败或已经取消的任
 若短提交事务先取得锁，取消等待它提交；因此可能出现结果已经提交、但 job 尚未 finish 时被取消的情况。
 状态、依赖和旧库限制见 [工作流取消指南](workflow-cancellation.md)。
 
-## 阅读内容快照
+## 完整版本、审核与发布
+
+AI 工作流只生成 `ai-draft.md` 与原文对照、疑点所在的 `review.md`。后者是校验参照稿，
+不代表人工审核通过；不得将其公开导出。明确选择 revision 创建完整 edition 后，
+标题、正文、摘要、标签、冻结来源、整理归属和编辑说明共同决定内容 SHA-256。
 
 ```bash
-bili-asr reading-export --archive-root /srv/bili-archive --out reading-site/content
+bili-asr publication create --archive-root /srv/bili-archive --revision-id REVISION_ID --actor EDITOR
+bili-asr publication show --archive-root /srv/bili-archive --edition-id EDITION_ID --format json
+bili-asr editorial export --archive-root /srv/bili-archive --revision-id REVISION_ID --edition-id EDITION_ID --out private-review
 ```
 
-`reading-export` 以 SQLite 只读连接选择已渲染且未被拒绝或撤回的修订，
-从配置的外部产物候选根优先读取文档，再回退到归档根，并验证数据库登记的 SHA-256。
-人工修订正文存在时使用其保存的内容及摘要。输出包括 `articles/`、`reviews/`、
-`catalog.json` 和用于管理生成文件的 manifest；catalog 保存质量、审核状态与 Issue URL。
-
-这是给展示层使用的内容快照。当前仓库没有阅读站前端代码，命令不会创建页面、部署网站或提交 Issue。
-它生成的 Issue URL 可供后续展示层或维护者打开；状态字段是否显示、如何显示由消费该快照的前端决定。
-导出包含待审核正文及原文对照审阅文档；如果维护者随后公开托管这些文件，其中内容也会公开。
-产物写根与读取回退契约见 [产物根指南](artifact-root.md)。
-
-## 阅读导出与人工审核
-
-本仓库提供静态内容导出器；阅读站前端是独立项目。`reading-site/content` 是默认输出
-路径，不能据此假设本 checkout 已包含前端或能直接运行站点。
-
-```bash
-bili-asr reading-export --archive-root /srv/bili-archive \
-  --artifact-root /srv/bili-products --out ./reading-content
-bili-asr reading-review <revision_id> --archive-root /srv/bili-archive \
-  --status in-review --note "开始人工核对"
-bili-asr reading-edit <revision_id> --archive-root /srv/bili-archive \
-  --markdown-file ./corrected-reading.md --note "采纳人工修订"
-```
-
-导出用只读 SQLite 连接查询修订，按 artifact root、archive root 的顺序找已登记文件，
-验证 SHA-256 后生成 `articles/`、`reviews/`、`catalog.json` 和 `db-import-manifest.json`。
-默认也导出待审稿；`rejected` 与 `withdrawn` 不导出。catalog 包含质量状态、审核状态、
-视频地址、修订身份和 Issue 链接，由站点消费。可通过 `--issues-url` 或
-`BILI_READING_ISSUES_URL` 配置链接目标；生成链接不创建或发送 Issue。
-
-审核状态与 AI 质量状态分开保存。常规审核流程是 `pending-review -> in-review ->
-approved -> published`；请求修改用 `changes-requested`，修改后重新进入审核。
-`reading-edit` 保存新的不可变人工 edition 和父版本链，并把审核状态重置为
-`pending-review`。它不覆盖 AI revision 或原始转录；重新导出后采用当前人工 edition。
-`reading-review`、`reading-edit` 将状态与 append-only event 写入数据库。
-
-直接改已登记的 Markdown 会触发导出哈希不匹配。使用人工 edition 保存改稿，或用
-workflow render 和 run 重建缺失产物；随后重新导出快照供独立前端使用。
+审核指定准确 edition 与完整内容哈希；批准后仍需显式 `publication publish` 才生成固定
+`publish.md` 并切换有效 release。创建、修改或批准 B 不影响已经公开的 A。
+`publication export` 只导出验证通过的有效 release；`publication withdraw` 清除公开指针，
+保留内部内容与审核历史。两类输出目录严格独立，旧稿件 schema、模板、命令和 manifest 拒绝。
+完整命令、CAS、目录恢复及 JSON 契约见 [出版与审核指南](publication.md)。
 
 ## 数据与离线验证
 
@@ -267,7 +241,7 @@ workflow render 和 run 重建缺失产物；随后重新导出快照供独立�
 段落和块信息保存在结构化 JSON 中，当前实现不额外建 `editorial_changes` / `editorial_blocks` 表。
 
 ```bash
-python -m pytest tests/test_ai_editorial.py tests/test_workflow_control_plane.py tests/test_workflow_cancellation.py tests/test_reading_publication.py -q
+python -m pytest tests/test_ai_editorial.py tests/test_workflow_control_plane.py tests/test_workflow_cancellation.py tests/test_publication.py tests/test_publication_export.py -q
 ```
 
 测试使用合成转录、模拟模型和被拦截的 HTTP 响应，不连接 DeepSeek 或 B站，不需要 API 密钥。

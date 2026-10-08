@@ -18,6 +18,8 @@ from bili_asr.storage.database import (
     _normalize_view_sql,
     _strip_sql_comments,
     initialize_schema,
+    require_manuscript_schema,
+    SchemaContractError,
 )
 
 
@@ -171,10 +173,11 @@ def validate_snapshot_database(database_path: Path, expected_contract: str | Non
                     raise SnapshotDatabaseError(f"archive database contract is missing {name}")
                 if actual[name] != shape:
                     raise SnapshotDatabaseError(f"archive database contract is incompatible at {name}")
+            require_manuscript_schema(connection)
             violation = connection.execute("PRAGMA foreign_key_check").fetchone()
             if violation is not None:
                 raise SnapshotDatabaseError(f"archive database foreign-key check failed: {violation}")
-    except sqlite3.Error as exc:
+    except (sqlite3.Error, SchemaContractError) as exc:
         raise SnapshotDatabaseError(f"cannot validate archive database: {exc}") from exc
     return contract
 
@@ -270,8 +273,32 @@ def required_artifacts(database_path: Path) -> dict[str, str | None]:
                 "SELECT relative_path, content_sha256 FROM document_artifacts"
             ):
                 add(key, digest)
+            # All immutable release files travel with the archive, including
+            # superseded and withdrawn history. Verify their approved identity
+            # without materializing artifacts during a streamed snapshot check.
+            from bili_asr.publication import _verify_release_identity
+            from bili_asr.storage.publication import PublicationRepository
+
+            connection.row_factory = sqlite3.Row
+            repository = PublicationRepository(connection)
+            for row in connection.execute("SELECT release_id FROM publication_releases"):
+                release = repository.release(row["release_id"])
+                _verify_release_identity(connection, release)
+                add(release["relative_path"], release["artifact_sha256"])
+            invalid_head = connection.execute(
+                "SELECT h.video_part_id FROM publication_heads h "
+                "LEFT JOIN publication_releases r ON r.release_id = h.current_release_id "
+                "WHERE h.current_release_id IS NOT NULL AND "
+                "(r.release_id IS NULL OR r.video_part_id != h.video_part_id OR r.status != 'published') LIMIT 1"
+            ).fetchone()
+            if invalid_head is not None:
+                raise SnapshotDatabaseError("publication-integrity: effective release head is invalid")
     except sqlite3.Error as exc:
         raise SnapshotDatabaseError(f"cannot read archive artifact references: {exc}") from exc
+    except ValueError as exc:
+        if isinstance(exc, SnapshotDatabaseError):
+            raise
+        raise SnapshotDatabaseError(f"cannot validate manuscript artifact references: {exc}") from exc
     return result
 
 

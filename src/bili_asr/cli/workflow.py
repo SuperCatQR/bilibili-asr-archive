@@ -16,6 +16,7 @@ from bili_asr.editorial import TEMPLATE_VERSION, EditorialConfig
 from bili_asr.artifact_root import roots_for, ArtifactRootError
 from bili_asr.storage import AsrPolicy, AsrProfile, WorkflowRepository, open_database
 from bili_asr.storage.editorial import EditorialRepository
+from bili_asr.storage.database import SchemaContractError
 from bili_asr.workflow import WorkflowExecutor
 from bili_asr.storage.workflow_selection import resolve_workflow_selection
 
@@ -136,16 +137,24 @@ def _editorial_config(args: argparse.Namespace) -> EditorialConfig:
 
 
 def _cmd_workflow(args: argparse.Namespace) -> int:
-    artifact_roots = None
-    if args.workflow_action in {"run", "render"}:
-        try:
-            artifact_roots = roots_for(args.archive_root, flag_value=args.artifact_root,
-                                       require_writable=args.workflow_action == "run")
-        except ArtifactRootError as exc:
-            write_stderr(f"workflow {args.workflow_action}: {exc}")
-            return 1
+    try:
+        return _execute_workflow(args)
+    except SchemaContractError as exc:
+        write_stderr(f"workflow {args.workflow_action}: {exc}")
+        return 1
+
+
+def _execute_workflow(args: argparse.Namespace) -> int:
     connection = open_database(args.archive_root)
     try:
+        artifact_roots = None
+        if args.workflow_action in {"run", "render"}:
+            try:
+                artifact_roots = roots_for(args.archive_root, flag_value=args.artifact_root,
+                                           require_writable=args.workflow_action == "run")
+            except ArtifactRootError as exc:
+                write_stderr(f"workflow {args.workflow_action}: {exc}")
+                return 1
         repository = WorkflowRepository(connection)
         if args.workflow_action != "status":
             repository.require_cancellation_contract()
@@ -309,10 +318,16 @@ def _cmd_workflow(args: argparse.Namespace) -> int:
         from bili_asr.editorial_runtime import EditorialWorkflowHandlers
         from bili_asr.storage.workflow import JobKind
 
-        editorial_handlers = EditorialWorkflowHandlers(EditorialRepository(connection), repository,
-                                                       archive_root=Path(args.archive_root), artifact_roots=artifact_roots)
+        editorial_handlers = None
+        has_manuscript_contract = connection.execute(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'manuscript_contract'"
+        ).fetchone() is not None
+        registered = {}
+        if has_manuscript_contract or args.only_editorial:
+            editorial_handlers = EditorialWorkflowHandlers(EditorialRepository(connection), repository,
+                                                           archive_root=Path(args.archive_root), artifact_roots=artifact_roots)
+            registered.update(editorial_handlers.handlers())
         archive_handlers = None
-        registered = editorial_handlers.handlers()
         if not args.only_editorial:
             from bili_asr.workflow_runtime import ArchiveWorkflowHandlers
             archive_handlers = ArchiveWorkflowHandlers(connection, repository, archive_root=args.archive_root,
@@ -324,7 +339,8 @@ def _cmd_workflow(args: argparse.Namespace) -> int:
                 kinds=(JobKind.PROOFREAD, JobKind.RENDER_DOCUMENT) if args.only_editorial else None,
             ).run(limit=args.limit)
         finally:
-            editorial_handlers.close()
+            if editorial_handlers is not None:
+                editorial_handlers.close()
             if archive_handlers is not None:
                 archive_handlers.close()
         print(f"workflow run: succeeded={summary.succeeded} failed={summary.failed} "

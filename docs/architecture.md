@@ -1,8 +1,8 @@
 # 当前架构
 
 交互式组件图：[architecture.html](architecture.html)，可编辑规格：[architecture.json](architecture.json)。
-本文与图以 `5c3cc606abc36c1632bc7c0bd9b06372136c88a8` 的源码为依据，覆盖 CLI、SQLite workflow、
-元数据与字幕、音频与 ASR、AI 校对、归档发布、查询及阅读内容导出。
+本文说明合并后的当前行为；图的源码快照版本记录在规格 `meta.repository.revision`。
+出版与审核的细节另见 [专题架构图](ai-proofreading-architecture.md)。
 图的证据维护与生成检查见[架构图维护](architecture-maintenance.md)。
 
 ## 执行模型
@@ -13,7 +13,7 @@
 `job_id + lease_owner + attempt_count + 未过期租约` 提交结果。
 多个 worker 可以连接同一归档库；当前执行器每次处理一个 job。
 
-SQLite 保存视频与分 P、采集证据、不可变转录、调度状态、编辑修订和阅读审核事实。
+SQLite 保存视频与分 P、采集证据、不可变转录、调度状态、AI 修订、完整 edition、准确审核、release 和追加事件。
 音频、转录 bundle、阅读 Markdown 是文件产物；FTS 和阅读内容快照是可重建的消费产物。
 JSON 文件和完成标记不能替代 SQLite 调度器。
 
@@ -29,7 +29,13 @@ workflow run -> claim + heartbeat -----+
                  +-> proofread -> immutable revision -> render_document
                  +-> publish -> five-file transcript bundle
                                       |
-             status / coverage / verify / export / search / reading-export
+             status / coverage / verify / export / search
+
+publication commands -> immutable edition -> exact content review
+                                            |
+                                            v
+                                     frozen release -> public export
+AI baseline + explicit edition -> private editorial export
 ```
 
 `workflow plan` 可以选择显式 part ID，或多个 BVID 的全部/指定零基分 P。
@@ -115,16 +121,27 @@ SQLite 与文件系统不构成跨介质原子事务。进程崩溃、磁盘错�
 已完成块用于失败恢复，取消后不能继续提交新的块或完整修订；调用审计证据允许留存。
 来源恰好覆盖一次只证明追溯结构，不证明语义保真。
 
-render_document 读取已保存 revision，确定性生成 `reading.md` 与 `review.md`。
+render_document 读取已保存 revision，确定性生成 `ai-draft.md` 与 `review.md`。
 文本生成和暂存在锁外，最终文件替换与 document artifact 登记共享租约保护事务；
 重新渲染不调用模型。配置、数据和验证说明见[AI 校对使用](ai-proofreading.md)、
 [AI 校对架构](ai-proofreading-architecture.md)。
 
-`reading-export` 以 SQLite `mode=ro` 连接选取修订，探测文件并验证登记 SHA-256，
-输出 catalog、阅读稿、审核稿及审核信息组成的静态内容快照。
-仓库不包含阅读站前端源码；该快照可供独立前端或发布系统消费。
-`reading-review` / `reading-edit` 保存审核状态、人工 edition 的 parent 链和 append-only event，
-不会覆写 AI revision 或原始转录。
+AI 渲染只生成 `ai-draft.md` / `review.md`；后者是原文对照和疑点，不能视为批准。
+`publication create` 明确选择固定 AI 基线，冻结完整读者内容；任何正文、标题、摘要、标签、
+来源、整理归属或编辑说明变更均保存新不可变 edition，并共同计算完整 SHA-256。
+`publication review` 指定准确 edition、哈希、预期状态和操作者；批准不会自动公开。
+
+draft head 与 release head 独立。A 发布后，创建或批准 B 仍保持 A 公开；显式 publish B
+验证准确批准关系、写入固定 `publish.md`、记录不可变 release 并切换有效指针。
+重复发布返回同一历史 release，不隐式恢复替换或撤回版本。withdraw 清空有效指针，保留历史。
+事务 CAS 阻止并发静默覆盖；固定路径、来源、内容与字节哈希验证阻止损坏内容进入公开出口。
+
+`publication export` 以只读连接选择有效 release，校验完整 provenance，输出 catalog v1、
+文章与独立 manifest。有效 release 损坏使整次导出失败。`editorial export` 明确选择
+revision / edition，单独输出 AI 双稿、完整版、相对 AI 与父版的全内容差异及审核证据。
+受管理目录锁、staging、恢复日志与目录切换保证完整快照，未知文件、链接和源目标重叠拒绝。
+阅读站属于独立仓库，只消费公开 release 快照。完整操作见 [出版与审核](publication.md)，
+JSON 契约见 [contracts/README.md](contracts/README.md)。
 
 ## 查询与数据所有权
 
@@ -135,10 +152,11 @@ render_document 读取已保存 revision，确定性生成 `reading.md` 与 `rev
 | job、dependency、lease、attempt、profile | `storage.workflow` | executor、handlers、status、retry、cancel |
 | 音频身份与文件 key | 音频表组 + confined `audio/` | ASR、verify、保留/预算工具 |
 | bundle 发布身份与完整性 | `workflow_publications` + marker + 五文件 | projection、coverage、export、verify、FTS |
-| 输入、模型调用、块、修订、文档 | editorial 表组 + Markdown | render、reading-export |
-| 审核、人工版与事件 | reading publication 表组 | reading-review/edit、reading-export |
+| 输入、模型调用、块、修订、双稿 | editorial 表组 + 固定 Markdown | render、create、private export |
+| 完整 edition、准确审核、release、双 head、事件 | publication 表组 | show、public/private export |
 | 转录搜索索引 | `search_index.store` 的派生 FTS5 表 | transcripts/all 搜索 |
-| 阅读内容快照 | `reading-export` | 外部前端或静态发布系统 |
+| 有效公开内容快照 | `publication export` | 独立阅读站 |
+| 私有指定版审阅包 | `editorial export` | 审核者 |
 
 `coverage`、`export`、`verify` 通过 `workflow_projection` 合并数据库事实与产物证据。
 verify/coverage 保留已声明 publication，才能报告坏 bundle，不能将发布缺陷静默变成待处理任务。
@@ -154,7 +172,7 @@ JSON stdout 始终是数组。详见[元数据搜索](metadata-search.md)。
 
 旧 schema 的 CHECK 约束不会被 `CREATE IF NOT EXISTS` 自动迁移。
 缺少新 workflow 类型或 cancelled attempt outcome 的库需要按当前 schema 重建，
-程序不会自动删除现有数据库。纯投影、搜索与 reading-export 使用只读连接；
+程序不会自动删除现有数据库。纯投影、搜索与两类稿件导出 使用只读连接；
 部分 status/runs 命令打开现有库时仍经过 schema 初始化，不能将其一概声明为无写入。
 
 当前离线测试覆盖选择、取消、真实下载器的暂存接口、发布和独立连接竞态、
@@ -163,6 +181,10 @@ WebVTT、索引/元数据搜索、转录投影、租约、校对与读取契约�
 历史测试中的部分旧模块名通过测试兼容装配运行；合并后的回归结果与执行边界见 [WSL 验证记录](asr-wsl-validation.md)。
 图示和文档解释当前契约，不能替代行为测试或真实材料的人工准确率评估。
 
-本次总图通过 showcase、源码证据、浏览器和浅/深色检查；单轮位置修复后仍有
-63 处连线交叉，复杂跨域关系适合配合正文、节点选择和路径聚焦查看。
-AI 校对细节图无连线交叉；自动检查通过不等同于所有关系在全景中都容易辨认。
+架构图的源码证据与视觉检查绑定各自固定版本；自动检查通过不能替代行为回归或真实材料审核。
+AI 出版专题图在 fc66c1d 的实现上通过 9/9 showcase、严格来源及浅/深色浏览器检查，
+保留两处自动分离交叉；完整业务状态与当前行为以本页、出版指南和测试为准。
+
+归档快照保存数据库和产物，包括 AI 双稿及全部历史 `publication_releases` 的固定文件；
+它是私有的完整档案迁移包，不是公开阅读快照。创建、校验与恢复见 [归档快照指南](archive-snapshots.md)。
+旧稿件 schema 在任何初始化写入前拒绝，不进行自动迁移或删除。

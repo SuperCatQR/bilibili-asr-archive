@@ -13,7 +13,7 @@ archive root/                       artifact root/
 └── archive.db                      ├── audio/{stem}.m4a
                                     ├── transcripts/{stem}/...
                                     └── documents/part-{id}/{revision}/{template}/
-                                        ├── reading.md
+                                        ├── ai-draft.md
                                         └── review.md
 ```
 
@@ -23,7 +23,9 @@ archive root/                       artifact root/
 | 音频 | write base 的 `audio/`；登记相对 storage key、SHA-256、大小、格式和时长 |
 | SRT、VTT、TXT、Markdown、raw JSON 和 marker | write base 的 `transcripts/`；publication 登记相对路径 |
 | 阅读与审核 Markdown | write base 的 `documents/`；document artifact 登记相对路径和 SHA-256 |
-| 阅读站快照 | `reading-export --out` 指定的目录 |
+| 公开阅读站快照 | `publication export --out` 指定的目录，只含有效获批 release |
+| 私有审阅包 | `editorial export --out` 指定的独立目录 |
+| 已发布稿件 | write base 的 `publications/`；release 登记固定路径与 SHA-256 |
 
 每次调用只有一个 write base。读取先探测配置的 artifact root，再探测 archive root；
 两者相同只探测一次。旧文件可留在 archive root，新下载、bundle、文档写当前 write base。
@@ -77,7 +79,7 @@ bili-asr export --archive-root ./archive --format json --out ./archive/export.js
 ```sh
 bili-asr workflow run --archive-root ./archive --artifact-root /data/bili-products
 bili-asr verify --archive-root ./archive --artifact-root /data/bili-products
-bili-asr reading-export --archive-root ./archive \
+bili-asr publication export --archive-root ./archive \
   --artifact-root /data/bili-products --out ./reading-site/content
 ```
 
@@ -94,16 +96,18 @@ bili-asr workflow render --archive-root ./archive --revision-id REVISION_ID \
   --artifact-root /data/bili-products
 bili-asr workflow run --archive-root ./archive --only-editorial \
   --artifact-root /data/bili-products
-bili-asr reading-export --archive-root ./archive --out ./reading-site/content
+bili-asr publication export --archive-root ./archive --out ./reading-site/content
 ```
 
 `workflow render` 不写 Markdown，也不把根目录固定到 job。后续 run 必须继续提供相同
 flag/env；仅在排队时传 flag 不决定执行时的目录。revision 与模板身份保存在 SQLite，
 文件路径相对于 write base。
 
-reading-export 找到登记的文档后校验 SHA-256，再生成站点输入。字节被修改时拒绝导出，
-不能靠改目录配置跳过哈希验证。人工修改走 `reading-edit` edition 流程，见
-[ai-proofreading.md](ai-proofreading.md#阅读导出与人工审核)。
+AI 渲染只产生固定的 `ai-draft.md` / `review.md`，不自动创建 edition 或发布。
+`publication create` 校验 AI 双稿并冻结完整读者内容；`publication publish` 安装准确获批版本的不可变 `publish.md`。
+`publication export` 校验有效 release 的完整内容与文件 SHA-256，输出独立公开快照；
+`editorial export` 明确选择 revision / edition，读取基线双稿并生成私有审阅包。人工修改创建新的 edition，
+不能直接改已登记文件；见 [出版与审核](publication.md)。
 
 ## 6. 支持入口与当前限制
 
@@ -113,7 +117,9 @@ reading-export 找到登记的文档后校验 SHA-256，再生成站点输入。
 | `workflow render` | 验证配置，只排队，不持久保存根目录 |
 | `coverage`、`verify`、`export` | 合并数据库事实与两个读取根下的 bundle 完整性 |
 | `search-index`、`search` | 读取转录及文件补充内容；索引为数据库派生数据 |
-| `reading-export` | 查找并校验 document artifact |
+| `publication create`、`editorial export` | 读取并验证 AI 双稿、版本内容与来源 |
+| `publication publish` | 校验可写，安装固定 release 文件 |
+| `publication export` | 读取并校验有效 release，生成公开快照 |
 | `dedup --artifact-root PATH report` | 配置放在 dedup 命令层；报告只读 |
 
 当前 workflow 未接入音频预算和自动回收 CLI 选项；旧说明中的 `--max-audio-gb`、

@@ -308,7 +308,8 @@ def test_end_to_end_offline_freezes_inputs_renders_and_rerenders_without_model(d
     assert summary.succeeded == 2 and summary.failed == 0
     revision = repository.revision_for_job(ids[0])
     paths = list((tmp_path / "documents").rglob("*.md"))
-    assert {p.name for p in paths} == {"reading.md", "review.md"}
+    assert {p.name for p in paths} == {"ai-draft.md", "review.md"}
+    assert {p.parent.name for p in paths} == {"ai-draft-v1"}
     before = {p: p.read_bytes() for p in paths}
     assert b"changed after snapshot" not in next(p for p in paths if p.name == "review.md").read_bytes()
     assert raw_before == [tuple(r) for r in database.execute("SELECT * FROM transcript_segments")]
@@ -316,6 +317,11 @@ def test_end_to_end_offline_freezes_inputs_renders_and_rerenders_without_model(d
     assert database.execute("PRAGMA foreign_key_check").fetchall() == []
     assert len(database.execute("SELECT * FROM editorial_inputs").fetchall()) == 1
     assert len(database.execute("SELECT * FROM document_artifacts").fetchall()) == 2
+    assert {tuple(row) for row in database.execute(
+        "SELECT artifact_name, manuscript_role FROM document_artifacts")} == {
+        ("ai-draft.md", "ai-draft"), ("review.md", "review-reference")}
+    assert database.execute("SELECT COUNT(*) FROM publication_editions").fetchone()[0] == 0
+    assert database.execute("SELECT COUNT(*) FROM publication_releases").fetchone()[0] == 0
     call = database.execute("SELECT * FROM editorial_model_calls").fetchone()
     assert json.loads(call["response_json"])["usage"]["prompt_tokens"] == 100
     workflow.request_document(video_part_id=1, revision_id=revision, template_version=TEMPLATE_VERSION)
@@ -434,15 +440,98 @@ def test_render_escapes_transcript_markdown_and_marks_unresolved_edits():
     candidate["paragraphs"][0]["issues"] = [{"note": "待核对", "candidate": "候选", "evidence_refs": []}]
     blocks = validate_revision(chunk, candidate)
     output = render_documents({"title": "离线测试", "bvid": "BV1o24y157iQ", "page_index": 0}, prepared, blocks, "revision")
-    assert "<script>" not in output["reading.md"]
-    assert "&lt;script&gt;" in output["reading.md"]
-    assert "[q1-1]" not in output["reading.md"]
-    assert "[^q1-1]" not in output["reading.md"]
-    assert "未经人工复核" not in output["reading.md"]
+    assert "<script>" not in output["ai-draft.md"]
+    assert "&lt;script&gt;" in output["ai-draft.md"]
+    assert "[q1-1]" not in output["ai-draft.md"]
+    assert "[^q1-1]" not in output["ai-draft.md"]
+    assert "未经人工复核" not in output["ai-draft.md"]
     assert "待核对" in output["review.md"]
-    assert "00:00:00" not in output["reading.md"]
+    assert "校验参照稿件" in output["review.md"]
+    assert "00:00:00" not in output["ai-draft.md"]
     assert "00:00:00" in output["review.md"]
-    assert not output["reading.md"].startswith("#")
+    assert not output["ai-draft.md"].startswith("#")
+
+
+@pytest.mark.parametrize("template", ["reading-v2", "unknown-template"])
+def test_unsupported_template_is_rejected_before_planner_writes(database, template):
+    workflow = WorkflowRepository(database)
+    before = database.execute("SELECT * FROM workflow_jobs").fetchall()
+    with pytest.raises(ValueError, match="unsupported document template"):
+        workflow.request_document(video_part_id=1, revision_id="uncommitted", template_version=template)
+    assert database.execute("SELECT * FROM workflow_jobs").fetchall() == before
+    assert not database.in_transaction
+
+
+@pytest.mark.parametrize("artifact_name", ["ai-draft.md", "review.md"])
+def test_render_registration_conflict_preserves_the_entire_pair(database, tmp_path, artifact_name):
+    fake = FakeClient()
+    workflow, repository, _, executor = runtime(database, tmp_path, fake)
+    prepared = repository.prepare(1, None, EditorialConfig())
+    proof_id, _, _, _ = workflow.request_editorial(video_part_id=1, input_id=prepared["input_id"])
+    assert executor.run().succeeded == 2
+    revision = repository.revision_for_job(proof_id)
+    before = {path: path.read_bytes() for path in (tmp_path / "documents").rglob("*.md")}
+    with database:
+        database.execute("UPDATE document_artifacts SET content_sha256 = ? WHERE artifact_name = ?",
+                         ("0" * 64, artifact_name))
+    registered_before = [tuple(row) for row in database.execute("SELECT * FROM document_artifacts")]
+    workflow.request_document(video_part_id=1, revision_id=revision, template_version=TEMPLATE_VERSION)
+    summary = executor.run()
+    assert summary.failed == 1 and summary.succeeded == 0
+    assert before == {path: path.read_bytes() for path in before}
+    assert registered_before == [tuple(row) for row in database.execute("SELECT * FROM document_artifacts")]
+    assert len(fake.requests) == 1
+
+
+@pytest.mark.parametrize("artifact_name", ["ai-draft.md", "review.md"])
+def test_render_existing_file_conflict_preserves_files_and_registration(database, tmp_path, artifact_name):
+    workflow, repository, _, executor = runtime(database, tmp_path, FakeClient())
+    prepared = repository.prepare(1, None, EditorialConfig())
+    proof_id, _, _, _ = workflow.request_editorial(video_part_id=1, input_id=prepared["input_id"])
+    assert executor.run().succeeded == 2
+    revision = repository.revision_for_job(proof_id)
+    target = next(path for path in (tmp_path / "documents").rglob(artifact_name))
+    target.write_text("unexpected replacement", encoding="utf-8")
+    before = {path: path.read_bytes() for path in (tmp_path / "documents").rglob("*.md")}
+    registered_before = [tuple(row) for row in database.execute("SELECT * FROM document_artifacts")]
+    workflow.request_document(video_part_id=1, revision_id=revision, template_version=TEMPLATE_VERSION)
+    assert executor.run().failed == 1
+    assert before == {path: path.read_bytes() for path in before}
+    assert registered_before == [tuple(row) for row in database.execute("SELECT * FROM document_artifacts")]
+
+
+def test_render_rejects_linked_artifact_parent_before_writing(database, tmp_path):
+    workflow, repository, _, executor = runtime(database, tmp_path, FakeClient())
+    prepared = repository.prepare(1, None, EditorialConfig())
+    workflow.request_editorial(video_part_id=1, input_id=prepared["input_id"])
+    assert executor.run(limit=1).succeeded == 1
+    outside = tmp_path / "unmanaged"
+    outside.mkdir()
+    try:
+        (tmp_path / "documents").symlink_to(outside, target_is_directory=True)
+    except (OSError, NotImplementedError) as exc:
+        pytest.skip(f"directory symlinks unavailable: {exc}")
+    assert executor.run().failed == 1
+    assert list(outside.iterdir()) == []
+    assert database.execute("SELECT COUNT(*) FROM document_artifacts").fetchone()[0] == 0
+
+
+@pytest.mark.parametrize("target", ["input", "revision"])
+def test_render_rejects_changed_frozen_identity_before_artifact_writes(database, tmp_path, target):
+    workflow, repository, _, executor = runtime(database, tmp_path, FakeClient())
+    prepared = repository.prepare(1, None, EditorialConfig())
+    workflow.request_editorial(video_part_id=1, input_id=prepared["input_id"])
+    assert executor.run(limit=1).succeeded == 1
+    with database:
+        if target == "input":
+            changed = deepcopy(prepared)
+            changed["snapshot"]["metadata"]["title"] = "changed fixed metadata"
+            database.execute("UPDATE editorial_inputs SET prepared_json = ?", (canonical(changed),))
+        else:
+            database.execute("UPDATE editorial_revisions SET blocks_json = '[]'")
+    assert executor.run().failed == 1
+    assert not (tmp_path / "documents").exists()
+    assert database.execute("SELECT COUNT(*) FROM document_artifacts").fetchone()[0] == 0
 
 
 def test_cli_proofread_render_and_error_paths(database, tmp_path, monkeypatch, capsys):

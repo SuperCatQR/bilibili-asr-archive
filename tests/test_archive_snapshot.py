@@ -57,7 +57,7 @@ def _seed_archive(root: Path, artifact_root: Path | None = None) -> Path:
                 (hashlib.sha256(audio.read_bytes()).hexdigest(), audio.stat().st_size),
             )
             connection.execute("INSERT INTO part_audio_objects VALUES (1, 1, 1, 'bilibili')")
-        for relative in ("transcripts/work/bundle.txt", "documents/reading.md", "subtitles/raw.json"):
+        for relative in ("transcripts/work/bundle.txt", "documents/ai-draft.md", "subtitles/raw.json"):
             path = base / relative
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(relative, encoding="utf-8")
@@ -130,7 +130,7 @@ def test_snapshot_roundtrip_preserves_progress_and_all_artifact_families(tmp_pat
     assert checked["valid"] is True
     assert saved["file_count"] == 5
     assert (root / "archive.db").read_bytes() == source_db
-    for relative in ("audio/BVtest.m4a", "transcripts/work/bundle.txt", "documents/reading.md", "subtitles/raw.json"):
+    for relative in ("audio/BVtest.m4a", "transcripts/work/bundle.txt", "documents/ai-draft.md", "subtitles/raw.json"):
         assert (target / relative).read_bytes() == (root / relative).read_bytes()
     with sqlite3.connect(target / "archive.db") as connection:
         assert connection.execute("SELECT next_page FROM ingestion_cursors").fetchone()[0] == 7

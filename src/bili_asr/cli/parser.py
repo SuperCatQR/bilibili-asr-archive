@@ -18,8 +18,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     from bili_asr.cli.workflow import add_workflow_parser
     add_workflow_parser(subparsers, archive_root=DEFAULT_ARCHIVE_ROOT)
-    from bili_asr.cli.reading import add_reading_parsers
-    add_reading_parsers(subparsers, archive_root=DEFAULT_ARCHIVE_ROOT)
+    from bili_asr.cli.publication import add_publication_parser
+    from bili_asr.cli.editorial import add_editorial_parser
+    add_publication_parser(subparsers, archive_root=DEFAULT_ARCHIVE_ROOT)
+    add_editorial_parser(subparsers, archive_root=DEFAULT_ARCHIVE_ROOT)
     from bili_asr.cli.snapshot import add_snapshot_parser
     add_snapshot_parser(subparsers, archive_root=DEFAULT_ARCHIVE_ROOT)
 

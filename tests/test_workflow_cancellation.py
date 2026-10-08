@@ -409,7 +409,7 @@ def test_proofread_api_return_after_cancellation_keeps_diagnostic_but_no_accepte
     assert not (tmp_path / "documents").exists()
 
 
-def test_render_cancel_after_staging_is_rechecked_before_any_final_replacement(database, tmp_path, monkeypatch):
+def test_render_cancel_after_preflight_is_rechecked_before_any_final_write(database, tmp_path, monkeypatch):
     insert_record(database, record())
     workflow = WorkflowRepository(database)
     repository = EditorialRepository(database)
@@ -425,9 +425,9 @@ def test_render_cancel_after_staging_is_rechecked_before_any_final_replacement(d
 
         @contextmanager
         def cancel_before_guard(selected):
-            # The render method's initial lease check has already passed and
-            # both temporary document bodies exist at this boundary.
-            assert len(list((tmp_path / "documents").rglob(".render-*"))) == 2
+            # The initial lease check and pair integrity preflight have passed;
+            # cancellation must be rechecked before installing either file.
+            assert not list((tmp_path / "documents").rglob("*.md"))
             _cancel_from_other_connection(tmp_path, selected.job_id)
             with owned(selected):
                 yield

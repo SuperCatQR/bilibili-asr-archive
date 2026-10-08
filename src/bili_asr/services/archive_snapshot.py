@@ -36,7 +36,7 @@ from bili_asr.storage.snapshots import (
 _FORMAT = "bili-asr-snapshot"
 _FORMAT_VERSION = 1
 _MANIFEST_NAME = "snapshot.json"
-_ARTIFACT_DIRECTORIES = frozenset({"audio", "transcripts", "documents", "subtitles"})
+_ARTIFACT_DIRECTORIES = frozenset({"audio", "transcripts", "documents", "subtitles", "publications"})
 _CHUNK_SIZE = 1024 * 1024
 _MANIFEST_LIMIT = 16 * 1024 * 1024
 _MARKER_LIMIT = 8192
@@ -122,7 +122,7 @@ def _regular_file(path: Path) -> os.stat_result:
 
 
 def _temporary_component(name: str) -> bool:
-    return (name.startswith((".audio-stage-", ".archive-bundle-stage-", ".bili-asr-probe-", ".render-", ".import-"))
+    return (name.startswith((".audio-stage-", ".archive-bundle-stage-", ".bili-asr-probe-", ".render-", ".import-", ".manuscript-"))
             or name == ".tmp"
             or Path(name).suffix.lower() in _TEMP_SUFFIXES)
 

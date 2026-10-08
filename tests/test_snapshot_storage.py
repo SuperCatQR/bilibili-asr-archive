@@ -283,15 +283,15 @@ def test_required_artifacts_cover_dedup_audio_publications_and_documents(databas
             "INSERT INTO editorial_revisions VALUES ('revision', 'input', 'proof', '[]', 'ai-unreviewed', 1)"
         )
         connection.execute(
-            "INSERT INTO document_artifacts VALUES ('revision', 'v1', 'reading.md', "
-            "'documents/revision/reading.md', ?)", (document_hash,)
+            "INSERT INTO document_artifacts VALUES ('revision', 'ai-draft-v1', 'ai-draft.md', "
+            "'ai-draft', 'documents/revision/ai-draft.md', ?)", (document_hash,)
         )
         connection.commit()
     required = required_artifacts(database_path)
     assert required == {
         "audio/original.m4a": audio_hash,
         "audio/different-part.m4a": audio_hash,
-        "documents/revision/reading.md": document_hash,
+        "documents/revision/ai-draft.md": document_hash,
         "transcripts/test/.bundle-ready": None,
         **{path: None for path in bundle.values()},
     }

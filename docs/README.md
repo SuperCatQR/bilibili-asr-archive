@@ -21,6 +21,8 @@
 | [任务取消](workflow-cancellation.md) | queued/running 取消、协作检查点、提交保护、依赖阻塞与终态 |
 | [WebVTT 与 bundle](webvtt.md) | 五文件布局、cue 契约、完成标记及已有转录的重新发布 |
 | [元数据搜索](metadata-search.md) | transcripts/metadata/all、字面匹配、排序、日期与 JSON 契约 |
+| [出版与审核](publication.md) | 不可变完整版本、准确哈希审核、release、撤回及独立公开和私有导出 |
+| [稿件 JSON 契约](contracts/README.md) | 新 schema、模板、catalog、manifest 与内容身份契约 |
 | [AI 校对使用](ai-proofreading.md) | 配置、执行、失败恢复、重新渲染、数据与离线验证 |
 | [产物根目录](artifact-root.md) | workflow 产物写根、读取回退顺序、音频与派生产物路径 |
 | [归档快照与迁移](archive-snapshots.md) | 保存完整数据库与产物、离线校验、跨设备恢复与中断任务重排 |

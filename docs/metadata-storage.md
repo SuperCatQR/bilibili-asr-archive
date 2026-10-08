@@ -57,6 +57,148 @@ bili-asr verify --archive-root archive --format json
 
 `status`、`runs` 先检查数据库是否存在，缺失时退出 `1`，不创建新库。打开兼容库仍可能刷新派生视图。`workflow status` 和 `workflow explain` 使用 `open_database()`，可以初始化新库。需要结构性只读时，应使用下文的 `mode=ro` 投影或自行建立只读 SQLite 连接。
 
+### Manuscript Contract
+
+Fresh archives also carry `schema-editorial.sql` and its explicit manuscript
+contract marker. Opening an existing archive validates this contract before
+any schema initialization, view refresh or commit. Legacy editorial tables,
+missing required entities, changed constraints, and unsupported artifact
+templates fail with a schema-contract error; the program does not add tables
+to make an old manuscript archive appear current. Read commands and repository
+boundaries use the same read-only guard. Existing data is retained; create a
+separate fresh archive to use the new manuscript contract.
+
+The AI layer freezes inputs and model evidence in `editorial_inputs`,
+`editorial_job_inputs`, `editorial_model_calls`, `editorial_chunk_results`, and
+`editorial_revisions`. `document_artifacts` records the exact revision/template
+pair, `ai-draft` / `review-reference` role, controlled path and byte hash for
+`ai-draft.md` and `review.md` under `ai-draft-v1`.
+
+The publication layer stores immutable complete reader content in
+`publication_editions`, exact edition/hash reviews in
+`publication_edition_reviews`, versioned release artifacts in
+`publication_releases`, and append-only operator facts in
+`publication_events`. `publication_heads` has independent current edition and
+current release pointers for each video part. Creating or reviewing edition B
+leaves release A public until approved B is explicitly published. Withdrawing
+the current release clears only the public pointer and keeps its history.
+
+Complete reader content has its own canonical JSON SHA-256. The separately
+rendered `publish.md` byte hash is also registered. The reviewer must submit
+the exact content hash, and publication revalidates the edition, approval,
+relationship and artifact. AI quality states are not publication approval.
+See [publication.md](publication.md) for commands and export schemas; workflow
+`publish` still means publication of transcript bundles.
+
+### Normalized entity tables
+
+| Table | Key | Contents |
+|-------|-----|----------|
+| `bilibili_users` | `mid` | The collected user and its current display label. |
+| `videos` | `bvid` | One row per video: `aid`, owner `mid` (FK to `bilibili_users`), `title`, `pubdate`. |
+| `video_parts` | `(bvid, page_index)` | One row per part: `cid`, part `title`, `duration_ms`, zero-based `page_index` (`{bvid}:p{page_index}` is the derived `work_id`, computed, never stored), `processing_status` (`discovered`, `metadata_collected`, `gone`), FK to `videos`. |
+
+### Ingestion process tables
+
+| Table | Key | Contents |
+|-------|-----|----------|
+| `ingestion_runs` | `run_id` | One row per collection run: target `mid`, source package and version, requested start page and page limit, `started_at` / `finished_at`, terminal `outcome` (`complete`, `limited`, `risk_interrupted`, `failed`). |
+| `ingestion_pages` | `(run_id, page_number)` | One evidence row per requested page: `outcome` (`ok`, `empty`, `risk_interrupted`, `failed`) and a bounded scalar `error_code` on failure. |
+| `ingestion_cursors` | `mid` | The resumable one-based cursor: `next_page`, `state` (`ready`, `complete`, `limited`, `risk_interrupted`), `observed_total`. |
+| `ingestion_discoveries` | `(run_id, page_number, bvid)` | Run-scoped discovery evidence linking a run page to a discovered video. |
+
+### Media and transcript tables
+
+`transcripts` and `transcript_segments` store acquired captions and local ASR
+results with their ordered segments. `harvest-subs` records caption acquisition;
+the store-backed ASR path records local transcripts and their `asr_models`
+identity. `adopt-transcripts` imports verified legacy bundles without ASR.
+
+`derive-audio-inventory` records confined, hashed files in `audio_objects` and
+`part_audio_objects`. The download and ASR store routes also record their
+acquisition attempts and close their run rows. The execution manifest retains
+per-stage state and published artifact paths alongside this store evidence.
+
+### Views
+
+| View | Contents |
+|------|----------|
+| `v_video_parts` | Every part with its derived `work_id` and the joined user/video context. |
+| `v_ingestion_run_stats` | Per-run page and video counts (the `runs` command's source). |
+| `v_pending_metadata` | Parts with `processing_status = 'discovered'` (the `status` command's pending work). |
+| `v_pending_subtitles` | Every part that is not `gone` and has no stored transcript, ordered never-attempted first — the subtitle commands' work list, carrying the newest attempt's outcome, timestamp, and credential presence. |
+
+### Manuscript Contract
+
+Fresh archives also carry `schema-editorial.sql` and its explicit manuscript
+contract marker. Opening an existing archive validates this contract before
+any schema initialization, view refresh or commit. Legacy editorial tables,
+missing required entities, changed constraints, and unsupported artifact
+templates fail with a schema-contract error; the program does not add tables
+to make an old manuscript archive appear current. Read commands and repository
+boundaries use the same read-only guard. Existing data is retained; create a
+separate fresh archive to use the new manuscript contract.
+
+The AI layer freezes inputs and model evidence in `editorial_inputs`,
+`editorial_job_inputs`, `editorial_model_calls`, `editorial_chunk_results`, and
+`editorial_revisions`. `document_artifacts` records the exact revision/template
+pair, `ai-draft` / `review-reference` role, controlled path and byte hash for
+`ai-draft.md` and `review.md` under `ai-draft-v1`.
+
+The publication layer stores immutable complete reader content in
+`publication_editions`, exact edition/hash reviews in
+`publication_edition_reviews`, versioned release artifacts in
+`publication_releases`, and append-only operator facts in
+`publication_events`. `publication_heads` has independent current edition and
+current release pointers for each video part. Creating or reviewing edition B
+leaves release A public until approved B is explicitly published. Withdrawing
+the current release clears only the public pointer and keeps its history.
+
+Complete reader content has its own canonical JSON SHA-256. The separately
+rendered `publish.md` byte hash is also registered. The reviewer must submit
+the exact content hash, and publication revalidates the edition, approval,
+relationship and artifact. AI quality states are not publication approval.
+See [publication.md](publication.md) for commands and export schemas; workflow
+`publish` still means publication of transcript bundles.
+
+### Normalized entity tables
+
+| Table | Key | Contents |
+|-------|-----|----------|
+| `bilibili_users` | `mid` | The collected user and its current display label. |
+| `videos` | `bvid` | One row per video: `aid`, owner `mid` (FK to `bilibili_users`), `title`, `pubdate`. |
+| `video_parts` | `(bvid, page_index)` | One row per part: `cid`, part `title`, `duration_ms`, zero-based `page_index` (`{bvid}:p{page_index}` is the derived `work_id`, computed, never stored), `processing_status` (`discovered`, `metadata_collected`, `gone`), FK to `videos`. |
+
+### Ingestion process tables
+
+| Table | Key | Contents |
+|-------|-----|----------|
+| `ingestion_runs` | `run_id` | One row per collection run: target `mid`, source package and version, requested start page and page limit, `started_at` / `finished_at`, terminal `outcome` (`complete`, `limited`, `risk_interrupted`, `failed`). |
+| `ingestion_pages` | `(run_id, page_number)` | One evidence row per requested page: `outcome` (`ok`, `empty`, `risk_interrupted`, `failed`) and a bounded scalar `error_code` on failure. |
+| `ingestion_cursors` | `mid` | The resumable one-based cursor: `next_page`, `state` (`ready`, `complete`, `limited`, `risk_interrupted`), `observed_total`. |
+| `ingestion_discoveries` | `(run_id, page_number, bvid)` | Run-scoped discovery evidence linking a run page to a discovered video. |
+
+### Media and transcript tables
+
+`transcripts` and `transcript_segments` store acquired captions and local ASR
+results with their ordered segments. `harvest-subs` records caption acquisition;
+the store-backed ASR path records local transcripts and their `asr_models`
+identity. `adopt-transcripts` imports verified legacy bundles without ASR.
+
+`derive-audio-inventory` records confined, hashed files in `audio_objects` and
+`part_audio_objects`. The download and ASR store routes also record their
+acquisition attempts and close their run rows. The execution manifest retains
+per-stage state and published artifact paths alongside this store evidence.
+
+### Views
+
+| View | Contents |
+|------|----------|
+| `v_video_parts` | Every part with its derived `work_id` and the joined user/video context. |
+| `v_ingestion_run_stats` | Per-run page and video counts (the `runs` command's source). |
+| `v_pending_metadata` | Parts with `processing_status = 'discovered'` (the `status` command's pending work). |
+| `v_pending_subtitles` | Every part that is not `gone` and has no stored transcript, ordered never-attempted first — the subtitle commands' work list, carrying the newest attempt's outcome, timestamp, and credential presence. |
+
 ## 数据身份与核心表
 
 源站 P1 对应数据库 `page_index=0`。分 P 的稳定身份为 `(bvid, page_index)`；`video_part_id` 是该数据库分配的内部主键，适合 CLI 精确选择与外键关联。`work_id` 派生为 `BV…:p0`，不存储在实体表；文件目录使用 `BV….p0`，避免将冒号放进路径。公开播放链接的 `?p=` 值为 `page_index + 1`。
@@ -236,7 +378,7 @@ BVID/part ID 选择先一次性验证全部目标与策略参数，再创建 pro
 
 普通投影默认检查发布登记对应的完整包；`with_text=True` 从有序 segments 构建文本，不要求重读 TXT。integrity/coverage 读取时可保留数据库声明的 archived，再由自己的验证器判断产物缺陷，避免将损坏包误判为普通 backlog。该投影的来源优先为 CC、AI、ASR，语言偏向中文、再按 version/created_at/internal ID；发布候选的严格语言排序见下节，两种读者当前并非同一函数，应按实际用途解释。
 
-元数据搜索也使用 `mode=ro`，直接查当前 title/description/tags，不建立 FTS；转录搜索 FTS 由 `search-index` 或显式 `search --rebuild` 更新。查询、export、reading-export 消费 SQLite 投影，不通过 JSONL 补回缺失状态。reading-export 输出供消费者使用的 catalog/Markdown 等快照；它不是数据库或队列，也不代表仓库附带前端源码。
+元数据搜索也使用 `mode=ro`，直接查当前 title/description/tags，不建立 FTS；转录搜索 FTS 由 `search-index` 或显式 `search --rebuild` 更新。查询、export、publication export 消费 SQLite 投影，不通过 JSONL 补回缺失状态。publication export 只输出准确获批、已发布且有效 release 的 catalog/Markdown 快照；editorial export 单独输出指定版本的私有审阅包；它不是数据库或队列，也不代表仓库附带前端源码。
 
 ## 五产物发布与取消保护
 

@@ -16,7 +16,8 @@ from bili_asr import archive, cli
 from bili_asr.artifact_root import ArtifactRoots
 from bili_asr.editorial import EditorialConfig
 from bili_asr.editorial_runtime import EditorialWorkflowHandlers
-from bili_asr.reading_publication import export_reading_site
+from bili_asr.publication import create_edition, publish_edition
+from bili_asr.publication_export import export_publications
 from bili_asr.storage import AsrPolicy, JobKind, WorkflowRepository, open_database
 from bili_asr.storage.database import SchemaContractError
 from bili_asr.storage.editorial import EditorialRepository
@@ -24,6 +25,7 @@ from bili_asr.workflow import WorkflowExecutor
 from bili_asr.workflow_runtime import ArchiveWorkflowHandlers
 from tests.test_ai_editorial import FakeClient, insert_record, record
 from tests.test_workflow_control_plane import _profile, _seed_part
+from tests.test_publication import approve
 
 
 @pytest.mark.parametrize("configured", [False, True])
@@ -167,21 +169,25 @@ def test_cli_editorial_run_writes_configured_root_and_export_verifies_hash(tmp_p
         assert cli.main(args) == 0
         assert not (root / "documents").exists()
         artifacts = list(connection.execute("SELECT * FROM document_artifacts"))
-        assert {row["artifact_name"] for row in artifacts} == {"reading.md", "review.md"}
+        assert {row["artifact_name"] for row in artifacts} == {"ai-draft.md", "review.md"}
         for row in artifacts:
             relative = Path(row["relative_path"])
             assert not relative.is_absolute()
             assert hashlib.sha256((products / relative).read_bytes()).hexdigest() == row["content_sha256"]
         output = tmp_path / "content"
-        export_args = ["reading-export", "--archive-root", str(root), "--out", str(output)]
+        edition = create_edition(connection, revision_id=revision,
+                                 artifact_roots=(products, root), actor="editor")
+        approve(connection, edition)
+        release = publish_edition(connection, edition_id=edition["edition_id"],
+                                  artifact_roots=(products, root), write_root=products, actor="publisher")
+        export_args = ["publication", "export", "--archive-root", str(root), "--out", str(output)]
         if not via_env:
             export_args += ["--artifact-root", str(products)]
         assert cli.main(export_args) == 0
-        assert json.loads((output / "catalog.json").read_text())[0]["revisionId"] == revision
-        reading = next(row for row in artifacts if row["artifact_name"] == "reading.md")
-        (products / reading["relative_path"]).write_text("tampered", encoding="utf-8")
-        with pytest.raises(ValueError, match="哈希"):
-            export_reading_site(connection, artifact_roots=(products, root), output=output)
+        assert json.loads((output / "catalog.json").read_text())["articles"][0]["aiRevisionId"] == revision
+        (products / release["relative_path"]).write_text("tampered", encoding="utf-8")
+        with pytest.raises(ValueError, match="hash mismatch"):
+            export_publications(connection, artifact_roots=(products, root), output=output)
     finally:
         connection.close()
 
@@ -295,7 +301,9 @@ def test_heartbeat_inherits_timeout_and_survives_process_write_contention(tmp_pa
         _seed_part(connection)
         repo = WorkflowRepository(connection)
         repo.request_publication(video_part_id=1, transcript_id=1)
-        job = repo.claim("heartbeat", lease_seconds=10)
+        # The spawned writer may take up to 30 seconds to initialize on WSL;
+        # keep the job live throughout that allowed startup interval.
+        job = repo.claim("heartbeat", lease_seconds=60)
         monkeypatch.setenv("BILI_SQLITE_BUSY_TIMEOUT_MS", "1")
         heartbeat = repo.open_lease_repository()
         assert connection.execute("PRAGMA busy_timeout").fetchone()[0] == 2000

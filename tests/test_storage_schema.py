@@ -92,10 +92,8 @@ WORKFLOW_TABLES = {
 EDITORIAL_TABLES = {
     "editorial_inputs", "editorial_job_inputs", "editorial_model_calls",
     "editorial_chunk_results", "editorial_revisions", "document_artifacts",
-    # Reading publication state is persisted by the editorial schema and is
-    # part of the same bootstrap contract.
-    "reading_document_editions", "reading_publications",
-    "reading_publication_events",
+    "manuscript_contract", "publication_editions", "publication_edition_reviews",
+    "publication_releases", "publication_heads", "publication_events",
 }
 EXPECTED_TABLE_COLUMNS = {
     "bilibili_users": ["mid", "display_name", "created_at", "updated_at"],

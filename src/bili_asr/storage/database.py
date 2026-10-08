@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
-from importlib import resources
 from functools import lru_cache
+from importlib import resources
 import math
 import os
 from pathlib import Path
@@ -41,6 +41,10 @@ _TRANSCRIPT_SCHEMA_RESOURCE = resources.files(__package__).joinpath(
 
 _WORKFLOW_SCHEMA_RESOURCE = resources.files(__package__).joinpath("schema-workflow.sql")
 _EDITORIAL_SCHEMA_RESOURCE = resources.files(__package__).joinpath("schema-editorial.sql")
+
+_LEGACY_MANUSCRIPT_OBJECTS = frozenset({
+    "reading_document_editions", "reading_publications", "reading_publication_events",
+})
 
 
 _TRANSCRIPT_CONTRACT_COLUMNS = frozenset({"language", "content_sha256"})
@@ -418,6 +422,69 @@ def refresh_shipped_views(connection: sqlite3.Connection) -> int:
     return len(stale)
 
 
+@lru_cache(maxsize=1)
+def _manuscript_schema_objects() -> dict[str, tuple[str, str]]:
+    """Read the exact manuscript DDL contract without touching the archive."""
+    with sqlite3.connect(":memory:") as reference:
+        reference.executescript(_EDITORIAL_SCHEMA_RESOURCE.read_text(encoding="utf-8"))
+        return {
+            str(row[0]): (str(row[1]), str(row[2]))
+            for row in reference.execute(
+                "SELECT name, type, sql FROM sqlite_master WHERE sql IS NOT NULL"
+            )
+        }
+
+
+def _normalize_manuscript_sql(sql: str) -> str:
+    sql = re.sub(r"(?i)\bIF\s+NOT\s+EXISTS\s+", "", sql)
+    return _normalize_view_sql(sql)
+
+
+def require_manuscript_schema(connection: sqlite3.Connection) -> None:
+    """Reject missing, legacy or altered manuscript contracts using reads only."""
+    expected = _manuscript_schema_objects()
+    actual = {
+        str(row[0]): (str(row[1]), str(row[2]))
+        for row in connection.execute(
+            "SELECT name, type, sql FROM sqlite_master WHERE sql IS NOT NULL"
+        )
+    }
+    valid = not (_LEGACY_MANUSCRIPT_OBJECTS & actual.keys())
+    valid = valid and all(
+        name in actual and actual[name][0] == kind
+        and _normalize_manuscript_sql(actual[name][1]) == _normalize_manuscript_sql(sql)
+        for name, (kind, sql) in expected.items()
+    )
+    if valid:
+        valid = [tuple(row) for row in connection.execute(
+            "SELECT version FROM manuscript_contract"
+        )] == [(1,)]
+    if valid:
+        return
+    raise SchemaContractError(
+        "manuscript-schema-contract: archive uses a missing, legacy or altered "
+        "manuscript schema; create a separate new archive (no in-place migration)"
+    )
+
+
+def require_editorial_schema(connection: sqlite3.Connection) -> None:
+    """Require the same fixed manuscript contract for AI editorial operations."""
+    require_manuscript_schema(connection)
+
+
+def _accepts_manuscript_script(connection: sqlite3.Connection) -> bool:
+    names = _schema_object_names(connection)
+    if not names:
+        return True
+    editorial_names = _manuscript_schema_objects().keys()
+    if names & (set(editorial_names) | _LEGACY_MANUSCRIPT_OBJECTS):
+        require_manuscript_schema(connection)
+        return True
+    # Metadata-only archives remain usable for metadata; manuscript commands
+    # require an explicitly new contract rather than silently upgrading them.
+    return False
+
+
 def _schema_scripts() -> tuple[str, ...]:
     return tuple(resource.read_text(encoding="utf-8") for resource in (
         _SCHEMA_RESOURCE, _TRANSCRIPT_SCHEMA_RESOURCE, _WORKFLOW_SCHEMA_RESOURCE, _EDITORIAL_SCHEMA_RESOURCE
@@ -440,6 +507,7 @@ def _shipped_table_contract() -> dict[str, str]:
 
 def initialize_schema(connection: sqlite3.Connection) -> sqlite3.Connection:
     """Bootstrap fresh databases; refuse incompatible tables before any DDL."""
+    accepts_manuscripts = _accepts_manuscript_script(connection)
     connection.execute("PRAGMA foreign_keys = ON")
     if connection.execute("PRAGMA foreign_keys").fetchone()[0] != 1:
         raise sqlite3.DatabaseError("SQLite foreign-key enforcement could not be enabled")
@@ -448,9 +516,12 @@ def initialize_schema(connection: sqlite3.Connection) -> sqlite3.Connection:
     )}
     if tables:
         for name, expected in _shipped_table_contract().items():
+            if not accepts_manuscripts and name in _manuscript_schema_objects():
+                continue
             if tables.get(name) != expected:
                 raise _rebuild_error(f"unsupported table {name}")
-    for script in _schema_scripts():
+    scripts = _schema_scripts() if accepts_manuscripts else _schema_scripts()[:-1]
+    for script in scripts:
         connection.executescript(script)
     refresh_shipped_views(connection)
     connection.commit()
@@ -534,4 +605,6 @@ __all__ = [
     "normalize_page_index",
     "open_database",
     "require_subtitle_schema",
+    "require_manuscript_schema",
+    "require_editorial_schema",
 ]

@@ -53,6 +53,7 @@ archive.db
 audio/...
 transcripts/...
 documents/...
+publications/...
 subtitles/...
 ```
 
@@ -61,6 +62,13 @@ including reusable audio not yet linked in SQLite. Database references are
 checked as well: a referenced missing file or conflicting known hash refuses
 save. Temporary publication/download files and symlinks cause a diagnostic;
 finish or inspect that interrupted operation before saving.
+
+The private archive snapshot preserves the AI draft/reference pair and all
+registered publication release files, including replaced and withdrawn history.
+It preserves complete editions, exact reviews, both heads, and publication events
+inside the database. A missing historical release file or mismatched registered
+hash refuses the snapshot. This complete archive is private; use
+`publication export` to prepare the separate release-only public reading snapshot.
 
 `snapshot.json` identifies `bili-asr-snapshot` format version 1 and records a
 snapshot UUID, creation time, producer version, the database contract, and a

@@ -26,7 +26,7 @@ def test_installed_console_script_help(isolated_cli) -> None:
     assert "bili-asr" in proc.stdout
     for command in (
         "workflow", "fetch-meta", "status", "runs", "search-index",
-        "coverage", "verify", "export", "check-asr-env", "snapshot",
+        "coverage", "verify", "export", "check-asr-env", "publication", "editorial", "snapshot",
     ):
         assert command in proc.stdout
     assert_redacted(proc)
@@ -78,8 +78,25 @@ def test_installed_console_script_opens_and_initializes_database(isolated_cli, t
     assert ("table", "transcripts") in objects
     assert ("view", "v_missing_audio") in objects
     for name in ("workflow_jobs", "editorial_inputs", "editorial_model_calls",
-                 "editorial_chunk_results", "editorial_revisions", "document_artifacts"):
+                 "editorial_chunk_results", "editorial_revisions", "document_artifacts",
+                 "manuscript_contract", "publication_editions", "publication_edition_reviews",
+                 "publication_releases", "publication_heads", "publication_events"):
         assert ("table", name) in objects
+
+
+def test_installed_publication_commands_and_removed_aliases(isolated_cli) -> None:
+    for command in ("create", "edit", "review", "publish", "withdraw", "show", "export"):
+        proc = run_installed(isolated_cli, ["publication", command, "--help"])
+        assert proc.returncode == 0, proc.stderr
+        assert "--archive-root" in proc.stdout
+        assert_redacted(proc)
+    internal = run_installed(isolated_cli, ["editorial", "export", "--help"])
+    assert internal.returncode == 0, internal.stderr
+    assert "--edition-id" in internal.stdout
+    for command in ("reading-publish", "reading-export", "reading-verify"):
+        removed = run_installed(isolated_cli, [command, "--help"])
+        assert removed.returncode == 1
+        assert "invalid choice" in removed.stderr
 
 
 def test_installed_proofread_help_and_workflow_status(isolated_cli, tmp_path: Path) -> None:
