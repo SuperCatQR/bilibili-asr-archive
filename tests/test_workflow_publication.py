@@ -318,7 +318,10 @@ def test_failed_publication_cleans_marker_under_sqlite_lock_before_another_proce
     handlers = ArchiveWorkflowHandlers(connection, repository, archive_root=tmp_path, sessdata=None)
     process.start()
     try:
-        assert events["ready"].wait(10), "independent publisher did not open its SQLite connection"
+        # Coverage instrumentation on WSL can exceed ten seconds while a
+        # spawned process imports sources from a Windows mount. Allow startup
+        # separately from the unchanged publication and lock-boundary waits.
+        assert events["ready"].wait(60), "independent publisher did not open its SQLite connection"
         with pytest.raises(_PublicationCommitFailure, match="injected publication failure"):
             handlers.publish(job)
         process.join(10)
