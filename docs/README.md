@@ -8,10 +8,10 @@
 | 文档 | 内容 |
 | --- | --- |
 | [当前架构](architecture.md) | 执行模型、组件职责、数据流、状态转换、提交边界与恢复限制 |
-| [交互式架构图](architecture.html) | 可探索的组件关系图；[JSON 规格](architecture.json)记录源码证据 |
+| [历史全景架构图](architecture.html) | 5c3cc606 的组件关系快照；旧阅读入口不代表当前接口，当前出版关系见专题图 |
 | [架构图维护](architecture-maintenance.md) | 提交版本、证据与生成、浏览器检查的维护流程 |
 | [元数据与存储](metadata-storage.md) | SQLite 表组、采集游标、身份、不可变版本、workflow 和读取投影 |
-| [AI 校对架构](ai-proofreading-architecture.md) | 输入冻结、来源追溯、模型调用、修订与阅读文档的详细架构 |
+| [AI 校对与出版架构](ai-proofreading-architecture.md) | fc66c1d 的验证专题图及当前输入冻结、完整版本、准确审核、release 与独立导出说明 |
 
 ## 工作流与产物
 

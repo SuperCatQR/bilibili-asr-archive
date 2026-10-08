@@ -1,8 +1,11 @@
 # 当前架构
 
 交互式组件图：[architecture.html](architecture.html)，可编辑规格：[architecture.json](architecture.json)。
-本文说明合并后的当前行为；图的源码快照版本记录在规格 `meta.repository.revision`。
-出版与审核的细节另见 [专题架构图](ai-proofreading-architecture.md)。
+本文说明合并后的当前行为。交互式主图保留上游 `5c3cc606abc36c1632bc7c0bd9b06372136c88a8`
+的历史源码快照，其旧 `reading-*` 入口不代表 #258 合并后的出版契约。
+合并版本的全量主图候选尚未通过标签间距验证，因此没有替换已保留的 HTML。
+出版与审核的数据流以 [专题架构图](ai-proofreading-architecture.md)、本页和出版指南为准；
+专题图保留已通过视觉检查的 `fc66c1d` 实现快照。
 图的证据维护与生成检查见[架构图维护](architecture-maintenance.md)。
 
 ## 执行模型
