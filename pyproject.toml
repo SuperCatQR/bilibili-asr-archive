@@ -47,14 +47,10 @@ asr = [
     "accelerate>=1.0",
     # Reading the archived audio and writing each chunk out again.
     "soundfile>=0.12",
-    # Resampling when a part is not already 16 kHz mono.  ``soxr`` is what ``librosa.resample``
-    # calls underneath at its default ``res_type="soxr_hq"``, so this is the same resampler without a
-    # dependency range that could change it silently.  (``librosa`` is deliberately NOT listed: it
-    # was only ever here for decode+resample, and its >=1.0 releases dropped the ``audioread`` decode
-    # path the .m4a fallback relied on.  Those releases also require numpy>=2.1, which is a hazard on
-    # a **pip** install into an environment pinned to numpy 1.26.4 — the verified ROCm recipe's
-    # version.  Stated per install path rather than flatly, because the uv path already resolves
-    # numpy 2.x and this branch made it no worse there; see the measurement note below.)
+    # Transformers' Qwen processor reads the materialized audio through librosa.
+    # Container decoding still uses our ffmpeg path, not librosa/audioread.
+    "librosa>=1.0",
+    # Resampling decoded inputs before passing them to the processor.
     "soxr>=0.5",
     # NOTE: torch is deliberately NOT listed here. The verified AMD/WSL recipe installs the ROCm
     # wheel from repo.radeon.com (docs/wsl-rocm-gpu.md step 6) together with the matching torchaudio;
