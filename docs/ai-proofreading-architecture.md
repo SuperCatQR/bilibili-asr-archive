@@ -2,8 +2,8 @@
 
 日期：2026-10-08。工作流、AI 校对与阅读站发布的当前实现。
 交互式架构图：[打开 HTML](ai-proofreading-architecture.html)，[可编辑图稿](ai-proofreading-architecture.json)。
-入口见 [使用说明](ai-proofreading.md)；模块边界和跨域关系以
-[当前总架构图](architecture.html) 为准。
+入口见 [使用说明](ai-proofreading.md)；当前模块边界与跨域关系见
+[架构文字说明](architecture.md)，全景交互图保留为旧版本源码快照。
 
 ## 目标与主链路
 

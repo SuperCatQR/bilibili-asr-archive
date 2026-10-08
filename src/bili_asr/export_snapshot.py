@@ -23,6 +23,8 @@ _ARTICLE_FIELDS = frozenset({
     "releaseId", "editionId", "aiRevisionId", "videoPartId", "bvid", "pageIndex", "sourceUrl",
     "contentSha256", "artifactSha256", "templateVersion", "publishedAt", "file",
 })
+_DRAFT_FIELDS = (_ARTICLE_FIELDS - {"releaseId", "templateVersion", "publishedAt"}) | {"reviewStatus", "createdAt"}
+_REVIEW_STATUSES = frozenset({"pending-review", "in-review", "changes-requested", "approved", "rejected"})
 _REVIEW_FILES = frozenset({"ai-draft.md", "review.md", "edition.md", "edition.json", "review.json", "differences/ai.patch", "differences/parent.patch"})
 
 
@@ -76,18 +78,22 @@ def guard_output(connection: sqlite3.Connection, output: Path, artifact_roots: t
 def _allowed_file(name: str, kind: str) -> bool:
     if kind == "publication-export":
         return name == "catalog.json" or re.fullmatch(r"articles/part-[1-9][0-9]*/publish\.md", name) is not None
+    if kind == "publication-draft-export":
+        return name == "catalog.json" or re.fullmatch(r"drafts/edition-[0-9a-f]{32}/preview\.md", name) is not None
     return name in _REVIEW_FILES
 
 
-def _validate_article(article: object) -> dict:
-    if not isinstance(article, dict) or set(article) != _ARTICLE_FIELDS:
+def _validate_article(article: object, *, draft: bool = False) -> dict:
+    fields = _DRAFT_FIELDS if draft else _ARTICLE_FIELDS
+    if not isinstance(article, dict) or set(article) != fields:
         raise ExportSnapshotError("public article fields differ from the contract")
-    for key in ("releaseId", "aiRevisionId", "contentSha256", "artifactSha256"):
+    hashes = ("aiRevisionId", "contentSha256", "artifactSha256") if draft else ("releaseId", "aiRevisionId", "contentSha256", "artifactSha256")
+    for key in hashes:
         if not isinstance(article[key], str) or not re.fullmatch(r"[0-9a-f]{64}", article[key]):
             raise ExportSnapshotError(f"invalid public article hash: {key}")
     if not isinstance(article["editionId"], str) or not re.fullmatch(r"[0-9a-f]{32}", article["editionId"]):
         raise ExportSnapshotError("invalid public edition ID")
-    for key, minimum in (("videoPartId", 1), ("pageIndex", 0), ("publishedAt", 0)):
+    for key, minimum in (("videoPartId", 1), ("pageIndex", 0), ("createdAt" if draft else "publishedAt", 0)):
         if type(article[key]) is not int or article[key] < minimum:
             raise ExportSnapshotError(f"invalid public article integer: {key}")
     for key in ("title", "summary", "attribution", "editorNote", "bvid"):
@@ -98,9 +104,16 @@ def _validate_article(article: object) -> dict:
     tags = article["tags"]
     if not isinstance(tags, list) or any(not isinstance(tag, str) or not tag.strip() for tag in tags) or len(set(tags)) != len(tags):
         raise ExportSnapshotError("invalid public article tags")
-    slug = f"part-{article['videoPartId']}"
-    if (article["manuscriptType"] != "publication" or article["templateVersion"] != "publish-v1"
-            or article["slug"] != slug or article["file"] != f"articles/{slug}/publish.md"
+    slug = f"edition-{article['editionId']}" if draft else f"part-{article['videoPartId']}"
+    manuscript_type = "publication-draft" if draft else "publication"
+    filename = f"drafts/{slug}/preview.md" if draft else f"articles/{slug}/publish.md"
+    if draft:
+        if not isinstance(article["reviewStatus"], str) or article["reviewStatus"] not in _REVIEW_STATUSES:
+            raise ExportSnapshotError("invalid draft review status")
+    elif article["templateVersion"] != "publish-v1":
+        raise ExportSnapshotError("invalid public article template")
+    if (article["manuscriptType"] != manuscript_type
+            or article["slug"] != slug or article["file"] != filename
             or article["sourceUrl"] != f"https://www.bilibili.com/video/{article['bvid']}/?p={article['pageIndex'] + 1}"):
         raise ExportSnapshotError("public article identity or source URL mismatch")
     return article
@@ -174,15 +187,17 @@ def _validate_snapshot(directory: Path, kind: str, *, allow_empty: bool = False)
         raise ExportSnapshotError("export snapshot identity mismatch")
     if actual_files != expected_files or actual_directories != expected_directories:
         raise ExportSnapshotError("export contains unmanaged files or directories")
-    if kind == "publication-export":
+    if kind in {"publication-export", "publication-draft-export"}:
         if "catalog.json" not in expected_files:
             raise ExportSnapshotError("public snapshot has no catalog")
         catalog = read_json(directory / "catalog.json")
-        if not isinstance(catalog, dict) or set(catalog) != {"schemaVersion", "manuscriptType", "articles"} or type(catalog["schemaVersion"]) is not int or catalog["schemaVersion"] != 1 or catalog["manuscriptType"] != "publication" or not isinstance(catalog["articles"], list):
+        draft = kind == "publication-draft-export"
+        manuscript_type = "publication-draft" if draft else "publication"
+        if not isinstance(catalog, dict) or set(catalog) != {"schemaVersion", "manuscriptType", "articles"} or type(catalog["schemaVersion"]) is not int or catalog["schemaVersion"] != 1 or catalog["manuscriptType"] != manuscript_type or not isinstance(catalog["articles"], list):
             raise ExportSnapshotError("unsupported public catalog contract")
         article_files: set[str] = set()
         for article in catalog["articles"]:
-            article = _validate_article(article)
+            article = _validate_article(article, draft=draft)
             if article["file"] in article_files:
                 raise ExportSnapshotError("invalid public catalog article file")
             article_files.add(article["file"])
@@ -352,7 +367,7 @@ def replace_snapshot(output: Path, *, kind: str, files: Mapping[str, bytes]) -> 
     Recovery artifacts are siblings of the public directory. OS advisory locks
     are released on process exit, so an interrupted exporter can be retried.
     """
-    if kind not in {"publication-export", "editorial-export"} or not files:
+    if kind not in {"publication-export", "publication-draft-export", "editorial-export"} or not files:
         raise ExportSnapshotError("unsupported or empty export snapshot")
     output = checked_path(output)
     for name, content in files.items():

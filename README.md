@@ -170,6 +170,18 @@ bundle publication performed by workflow `publish` remains a separate operation.
 Older manuscript databases, templates, commands and export manifests are
 rejected without migration; use a separate fresh archive for the new contract.
 
+To make current unpublished editions visible in the site's separate draft tab,
+explicitly export the reader preview into a different directory:
+
+```powershell
+bili-asr publication export-drafts --archive-root archive --out reading-site/draft-content
+```
+
+This read-only preview carries exact edition identities and review labels, and
+does not approve or publish content. Editions that already have release history
+are excluded, so withdrawn releases do not reappear as drafts. The full private
+review package remains separate from both website inputs.
+
 ## Query
 
 ```powershell

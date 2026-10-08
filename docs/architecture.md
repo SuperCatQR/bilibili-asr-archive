@@ -1,8 +1,11 @@
 # 当前架构
 
 交互式组件图：[architecture.html](architecture.html)，可编辑规格：[architecture.json](architecture.json)。
-本文说明合并后的当前行为；图的源码快照版本记录在规格 `meta.repository.revision`。
-出版与审核的细节另见 [专题架构图](ai-proofreading-architecture.md)。
+本文说明合并后的当前行为。交互式主图保留上游 `5c3cc606abc36c1632bc7c0bd9b06372136c88a8`
+的历史源码快照，其旧 `reading-*` 入口不代表 #258 合并后的出版契约。
+合并版本的全量主图候选尚未通过标签间距验证，因此没有替换已保留的 HTML。
+出版与审核的数据流以 [专题架构图](ai-proofreading-architecture.md)、本页和出版指南为准；
+专题图保留已通过视觉检查的 `fc66c1d` 实现快照。
 图的证据维护与生成检查见[架构图维护](architecture-maintenance.md)。
 
 ## 执行模型
@@ -142,6 +145,22 @@ revision / edition，单独输出 AI 双稿、完整版、相对 AI 与父版的
 受管理目录锁、staging、恢复日志与目录切换保证完整快照，未知文件、链接和源目标重叠拒绝。
 阅读站属于独立仓库，只消费公开 release 快照。完整操作见 [出版与审核](publication.md)，
 JSON 契约见 [contracts/README.md](contracts/README.md)。
+
+网站还可消费显式的 `publication export-drafts` 读者预览。该独立投影选择当前且从未产生 release
+的 edition，验证固定内容与 AI 基线，输出正文、读者元数据、准确身份和审核状态。
+它不生成批准或 release，不改变正式发布 A；被替换或撤回的旧 release 不通过预览恢复公开。
+已发布和未发布两个栏目分别读取、校验、路由与搜索；完整审阅包始终另行导出。
+专题交互图仍是 fc66c1d 的发布实现快照，新增预览链路由以下图和当前代码说明：
+
+```mermaid
+flowchart LR
+  head[当前不可变 edition] -->|从未产生 release| preview[export-drafts 读者预览]
+  preview --> draftTab[网站未发布栏目]
+  head --> exactReview[准确 edition 与完整哈希审核]
+  exactReview -->|批准并显式 publish| release[有效 release]
+  release --> publicExport[publication export]
+  publicExport --> publishedTab[网站已发布栏目]
+```
 
 ## 查询与数据所有权
 

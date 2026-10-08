@@ -28,6 +28,38 @@ SHA-256 of the list encoded as UTF-8 JSON with sorted keys, separators `,` and
 `:`, and no whitespace. The manifest does not list itself. Unknown files and
 directories are refused rather than removed.
 
+Explicit reader draft previews use a separate output directory and
+`publication-draft-catalog.schema.json`. The catalog envelope has
+`schemaVersion: 1`, `manuscriptType: "publication-draft"`, and `articles`.
+`publication export-drafts --out DIR` selects each current draft head only if
+that edition has never had any release, including a superseded or withdrawn
+release. It includes all five review states, including `rejected`; review
+approval alone does not make the preview a release. Only the current edition
+for each part appears. Publishing it removes it from the next draft snapshot.
+A published edition A and a new, never released draft B may appear in the two
+separate catalogs; the same edition must not appear in both.
+
+Each preview has `slug: "edition-<32 lowercase hex editionId>"` and
+`file: "drafts/edition-<editionId>/preview.md"`, relative to the draft export
+root. Its Markdown contains the complete frozen reader content. Preview
+identity includes `editionId`, `aiRevisionId`, the video/source fields,
+`contentSha256`, `artifactSha256`, `reviewStatus`, and `createdAt` (edition
+creation Unix seconds). It has no `releaseId`, `publishedAt`, or
+`templateVersion`. It must not contain model configuration, reference review
+documents, review notes, actors, events, raw responses, or private review files.
+The exporter verifies the immutable AI baseline and complete edition identity
+before rendering, while exporting only reader content and the review status.
+
+`publication-draft-export-manifest.json` follows
+`publication-draft-export-manifest.schema.json` and has
+`manuscriptType: "publication-draft-export"`. The hashing and exact file-set
+rules match the release manifest. Draft, release, and private review outputs
+have distinct catalog/manifest contracts and cannot replace one another's
+managed directories. An empty draft catalog is valid. Consumers must validate
+both catalogs independently, retain the draft label and review state, and
+never substitute a preview for an unavailable released article. The release
+catalog continues to accept only effective approved releases.
+
 Private review exports use a separate output and contain exactly `ai-draft.md`,
 the fixed baseline `review.md`, complete rendered `edition.md`, reader-content
 object `edition.json`, review metadata `review.json`, and two unified patches in
@@ -38,6 +70,10 @@ as well as the body. The private manifest follows
 `editorial-export-manifest.schema.json`; review metadata follows
 `editorial-review.schema.json`. The package does not copy model requests or full
 responses.
+
+The website validates `content/` and `draft-content/` independently and rejects
+the same edition appearing in both. Published A and unpublished B of the same
+video part may coexist. Directory search and article routes stay separate.
 
 An exporter locks the output, builds and validates a complete staged directory,
 and switches directories using an atomically installed durable recovery journal. A directory may be
