@@ -43,10 +43,10 @@ ASR 只依赖音频任务成功，字幕失败不会阻断独立 ASR。`below-th
 
 | 状态 | 进入条件 | 后续行为 |
 | --- | --- | --- |
-| `queued` | 规划、允许的重试或重新发布 | 依赖成功后可领取；可取消 |
+| `queued` | 规划、允许的重试、重新发布或租约回收 | 依赖成功后可领取；可取消 |
 | `running` | worker 领取并建立 lease / attempt | heartbeat 续租；可成功、失败或取消 |
 | `succeeded` | 当前 attempt 提交成功 | 满足下游依赖；显式重新发布可重新排队 publish |
-| `failed` | handler 失败或 lease 过期 | 允许显式 retry；保留 attempt 证据 |
+| `failed` | handler 失败 | 允许显式 retry；保留 attempt 证据 |
 | `cancelled` | 显式取消 queued/running | 清除 lease；不会被 retry、plan 或 publish 恢复 |
 
 取消是协作式操作。取消事务先验证所有 job ID，再一次性更新状态；running attempt 同时记录
@@ -88,7 +88,7 @@ ASR 读取精确的成功 audio prerequisite，运行解码、对齐、分块和
 publish handler 按来源优先级选择持久转录，以字幕优先于 ASR，并在目录
 `transcripts/<stem>/` 发布 `bundle.srt`、`bundle.vtt`、`bundle.txt`、`bundle.md`、
 `bundle.raw.json`。原始 JSON 保存来源、segments 和可用的 ASR 证据。
-所有编码、哈希、暂存和 fsync 在写锁外完成；最终五个文件替换、
+所有编码、哈希、暂存和暂存文件 fsync 在写锁外完成；最终五个文件替换、目录同步、
 `archive-bundle-v2` 完成标记和 `workflow_publications` 登记共享一个 SQLite 写锁与 lease guard。
 发布开始后的失败在释放写锁前使标记失效，防止旧 attempt 清理新 worker 的有效标记。
 
