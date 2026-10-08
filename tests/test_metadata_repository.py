@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import fields
+from dataclasses import fields, replace
 import os
 import re
 import sqlite3
@@ -32,6 +32,26 @@ from tests.fixtures.metadata_records import (
 def _start_run(repository: MetadataRepository, run_id: str = "run-1") -> None:
     repository.upsert_user(make_user_record())
     repository.start_run(make_run_record(run_id))
+
+
+def test_collaborating_owner_is_rolled_back_with_failed_page(tmp_root):
+    connection = open_database(tmp_root)
+    repository = MetadataRepository(connection)
+    try:
+        _start_run(repository)
+        owner = UserRecord(MID + 1, "合作投稿者", 100, 100)
+        with pytest.raises(sqlite3.IntegrityError):
+            repository.record_page(
+                make_page_record(), additional_users=[owner],
+                videos=[replace(make_video_record(), mid=owner.mid)],
+                parts=[make_part_record("BV-MISSING")],
+            )
+        assert connection.execute("SELECT COUNT(*) FROM videos").fetchone()[0] == 0
+        assert connection.execute(
+            "SELECT COUNT(*) FROM bilibili_users WHERE mid = ?", (owner.mid,)
+        ).fetchone()[0] == 0
+    finally:
+        connection.close()
 
 
 def test_models_validate_scalars_and_compute_work_id_without_persisting_it():

@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import importlib
 import itertools
+from dataclasses import replace
 
 import pytest
 
@@ -802,6 +803,67 @@ def test_foreign_owner_summary_fails_the_page_before_parts_are_requested(tmp_roo
         connection.close()
 
 
+def test_collaboration_is_saved_under_actual_owner_and_requested_discovery(tmp_root):
+    owner = MID + 1
+    cooperation = replace(
+        _summary("BV1COOPERATE", owner_mid=owner, author="合作投稿者"),
+        collaborator_mids=(owner, MID),
+    )
+    gateway = FakeGateway()
+    gateway.script_page(1, _page(1, cooperation, _summary("BV1OWNER", aid=1002), observed_total=2))
+    gateway.script_parts("BV1COOPERATE", (_part("BV1COOPERATE", 0),))
+    gateway.script_parts("BV1OWNER", (_part("BV1OWNER", 0, cid=2223),))
+    gateway.script_page(2, _page(2, observed_total=2))
+    connection = open_database(tmp_root)
+    try:
+        result = _ingestor(gateway, MetadataRepository(connection)).collect_user_pages(MID)
+        assert result.outcome == "complete"
+        assert result.video_count == 2
+        assert dict(connection.execute("SELECT bvid, mid FROM videos")) == {
+            "BV1COOPERATE": owner, "BV1OWNER": MID,
+        }
+        assert dict(connection.execute("SELECT mid, display_name FROM bilibili_users")) == {
+            MID: "未明子", owner: "合作投稿者",
+        }
+        row = connection.execute(
+            "SELECT r.mid, d.bvid FROM ingestion_discoveries d "
+            "JOIN ingestion_runs r ON r.run_id = d.run_id WHERE d.bvid = ?",
+            (cooperation.bvid,),
+        ).fetchone()
+        assert tuple(row) == (MID, cooperation.bvid)
+    finally:
+        connection.close()
+
+
+def test_collaboration_without_owner_name_preserves_existing_owner_name(tmp_root):
+    owner = MID + 1
+    gateway = FakeGateway()
+    summary = replace(
+        _summary("BV1COOPERATE", owner_mid=owner, author=None),
+        collaborator_mids=(owner, MID),
+    )
+    gateway.script_page(1, _page(1, summary, observed_total=1))
+    gateway.script_parts(summary.bvid, (_part(summary.bvid, 0),))
+    gateway.script_page(2, _page(2, observed_total=1))
+    connection = open_database(tmp_root)
+    try:
+        connection.execute(
+            "INSERT INTO bilibili_users(mid, display_name, created_at, updated_at) "
+            "VALUES (?, ?, 1, 1)", (owner, "原有合作投稿者"),
+        )
+        connection.commit()
+        result = _ingestor(gateway, MetadataRepository(connection)).collect_user_pages(MID)
+        assert result.outcome == "complete"
+        assert connection.execute(
+            "SELECT display_name FROM bilibili_users WHERE mid = ?", (owner,)
+        ).fetchone()[0] == "原有合作投稿者"
+        assert connection.execute(
+            "SELECT display_name FROM bilibili_users WHERE mid = ?", (MID,)
+        ).fetchone()[0] == str(MID)
+    finally:
+        connection.close()
+
+
 def test_missing_aid_is_completed_through_the_gateway_without_speculation(tmp_root):
     gateway = FakeGateway()
     gateway.script_completion("BV1NEEDS", _summary("BV1NEEDS", aid=901))
@@ -1067,12 +1129,10 @@ def test_bilibili_api_gateway_upstream_failure_persists_scalar_code_only(
 def test_bilibili_api_gateway_foreign_owner_page_requests_no_parts(
     tmp_root, bilibili_api_seam
 ):
-    """D3 at the seam: a foreign-owner summary blocks parts and completion.
+    """An unverified foreign owner blocks the whole page before parts.
 
-    Echoes the Task-2 protocol-double pin with the real adapter: one owned
-    item plus one foreign item fail the whole page at the adapter's
-    normalization boundary, so no parts or detail call is ever issued even
-    for the owned summary on the same page.
+    The adapter checks detail for participation; absent proof must not
+    permit the page's owned or foreign entries to reach persistence.
     """
 
     script = bilibili_api_seam
@@ -1104,8 +1164,7 @@ def test_bilibili_api_gateway_foreign_owner_page_requests_no_parts(
         ).fetchall()
         assert [tuple(row) for row in page_rows] == [(1, "failed", "shape_error")]
 
-        # Exactly one page fetch: no parts, no detail, nothing else.
-        assert script.calls == ["space.arc.search(pn=1, ps=30)"]
+        assert script.calls == ["space.arc.search(pn=1, ps=30)", "video.get_info"]
         assert_only_documented_metadata_calls(script.calls)
     finally:
         connection.close()

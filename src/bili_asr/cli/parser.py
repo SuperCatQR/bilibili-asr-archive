@@ -51,7 +51,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     fetch_meta.add_argument(
         "--page-retries", type=int, default=0,
-        help="Retry rate-control or transport failures up to 3 times with 30/60/120 second waits",
+        help="Retry rate-control or transport failures up to 5 times with 30/60/120/240/300 second waits",
     )
     fetch_meta.add_argument(
         "--skip-failed-page", action="store_true",
