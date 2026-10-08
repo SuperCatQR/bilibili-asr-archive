@@ -80,6 +80,14 @@ def test_reader_draft_contract_contains_complete_content_and_review_status(draft
         if "pattern" in rule:
             assert re.fullmatch(rule["pattern"], entry[key]), key
     assert set(tree_bytes(output)) == {"catalog.json", entry["file"], "publication-draft-export-manifest.json"}
+    manifest = json.loads((output / "publication-draft-export-manifest.json").read_text())
+    manifest_schema = json.loads((Path(__file__).parents[1] / "docs/contracts/publication-draft-export-manifest.schema.json").read_text())
+    assert set(manifest) == set(manifest_schema["required"])
+    assert manifest["manuscriptType"] == "publication-draft-export"
+    assert re.fullmatch(manifest_schema["properties"]["snapshotId"]["pattern"], manifest["snapshotId"])
+    for item in manifest["files"]:
+        assert re.fullmatch(manifest_schema["properties"]["files"]["items"]["properties"]["path"]["pattern"], item["path"])
+        assert item["sha256"] == hashlib.sha256((output / item["path"]).read_bytes()).hexdigest()
     assert not any(word in json.dumps(document, ensure_ascii=False) + rendered.decode() for word in
                    ("private-reviewer", "private review note", "private editorial note", "promptSha256", "modelConfig", "reviewFile"))
     assert export_publications(connection, artifact_roots=(root,), output=tmp_path / "public") == 0
@@ -97,11 +105,17 @@ def test_only_current_never_released_editions_are_exported_and_old_files_are_rem
     b = edit_edition(connection, edition_id=a["edition_id"], markdown_text="下一稿", actor="editor", note="next draft")
     assert export_publication_drafts(connection, artifact_roots=(root,), output=output) == 1
     assert catalog(output)["articles"][0]["editionId"] == b["edition_id"]
-    assert export_publications(connection, artifact_roots=(root,), output=tmp_path / "public") == 1
+    public = tmp_path / "public"
+    assert export_publications(connection, artifact_roots=(root,), output=public) == 1
+    public_entry = catalog(public)["articles"][0]
+    assert public_entry["editionId"] == a["edition_id"] != b["edition_id"]
+    assert public_entry["releaseId"] == release_a["release_id"]
     approve(connection, b)
     release_b = publish_edition(connection, edition_id=b["edition_id"], artifact_roots=(root,), write_root=root,
                                 actor="publisher", expected_release_id=release_a["release_id"])
     assert export_publication_drafts(connection, artifact_roots=(root,), output=output) == 0
+    assert export_publications(connection, artifact_roots=(root,), output=public) == 1
+    assert catalog(public)["articles"][0]["editionId"] == b["edition_id"]
     withdraw_release(connection, release_id=release_b["release_id"], actor="publisher", note="withdraw")
     assert export_publication_drafts(connection, artifact_roots=(root,), output=output) == 0
     # Even a manually repointed old draft head must not expose a superseded or

@@ -71,23 +71,6 @@ as well as the body. The private manifest follows
 `editorial-review.schema.json`. The package does not copy model requests or full
 responses.
 
-Public unpublished previews use a third, separate reader contract:
-`publication-draft-catalog.schema.json` and
-`publication-draft-export-manifest.schema.json`. The catalog has
-`schemaVersion: 1`, `manuscriptType: "publication-draft"`, and `articles`.
-Only current editions with no release history are selected. Published,
-superseded and withdrawn editions are excluded even when no effective release
-currently exists; drafting a new edition remains an explicit operation.
-
-Each preview uses `slug: "edition-<32-character ID>"` and
-`file: "drafts/edition-<ID>/preview.md"`. It carries frozen reader metadata,
-source and edition/revision/content/file identities, `createdAt` and the exact
-`reviewStatus`. It has no release ID, publish template, publication timestamp,
-review actor, private notes, AI configuration or audit. Approved means reviewed
-but still unpublished. A read-only preview does not create approval or release
-facts. The independent manifest uses `publication-draft-export`; its inventory
-and snapshot hash follow the same rules as the release manifest.
-
 The website validates `content/` and `draft-content/` independently and rejects
 the same edition appearing in both. Published A and unpublished B of the same
 video part may coexist. Directory search and article routes stay separate.
