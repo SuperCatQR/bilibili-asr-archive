@@ -1,5 +1,7 @@
 # Metadata and subtitle storage (`archive.db`)
 
+> 2026-10-08 范围提示：下文保留早期元数据与字幕存储设计。当前系统还包含 workflow、editorial、完整 ASR 配置快照与运行诊断等 schema；旧 `harvest-subs` / `derive-manifest` 已不在当前 CLI。当前初始化和兼容行为以 `storage/database.py`、各 `schema-*.sql` 与 [当前架构](architecture.md) 为准，ASR 增量表见 [参数与诊断](asr-configuration.md)。
+
 Normalized SQLite storage for the video metadata collected by
 `bili-asr fetch-meta` and for the subtitles acquired by `bili-asr harvest-subs`.
 This document describes the database the metadata and subtitle CLI commands

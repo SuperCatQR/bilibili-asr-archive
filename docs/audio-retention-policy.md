@@ -1,5 +1,7 @@
 # 音频保留策略使用指南
 
+> 2026-10-08 当前边界：本文描述旧归档流水线的策略。当前 CLI 没有 `pilot`、`campaign`、顶层 `run` / `schedule`，也没有 `--keep-audio` / `--no-keep-audio` 开关；这些示例不能直接执行。当前音频由独立 workflow 任务产生，见 [当前架构](architecture.md) 与 [项目 README](../README.md)。
+
 ## 背景
 
 `bilibili-asr-archive` 在视频转录完成并达到 `archived` 状态后，**默认保留音频文件**。

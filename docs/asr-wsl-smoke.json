@@ -1,0 +1,111 @@
+{
+  "environment": "Ubuntu-24.04 WSL2",
+  "audio_sha256": "46dbc998c9d1d48111267c40741dd3200f2e5bcf4075f8c4c97f4451160dce50",
+  "elapsed_s": 20.896276394999973,
+  "segments": [
+    {
+      "start": 0.4,
+      "end": 3.68,
+      "text": "甚至出现交易几乎停滞的情况。"
+    }
+  ],
+  "provenance": {
+    "model_name": "/home/chosenecho/bili-asr-models/Qwen3-ASR-1.7B-hf",
+    "aligner_model": "/home/chosenecho/bili-asr-models/Qwen3-ForcedAligner-0.6B-hf",
+    "model_revision": "",
+    "aligner_revision": "",
+    "device": "cpu",
+    "language": "Chinese",
+    "hotwords": "",
+    "chunk_seconds": "180",
+    "tokens_per_second": "8",
+    "min_new_tokens": "256",
+    "second_pass_use_cache": "False",
+    "offline": "True",
+    "local_source": "configured-local"
+  },
+  "coverage": {
+    "decoded_s": 4.2039375,
+    "produced_s": 3.2800000000000002,
+    "coverage": 0.7802209238362844,
+    "coverage_min": 0.97,
+    "coverage_short": true
+  },
+  "diagnostics": {
+    "schema_version": 1,
+    "passes": [
+      {
+        "chunks": [
+          {
+            "chunk_index": 0,
+            "start_s": 0.0,
+            "end_s": 4.2039375,
+            "flags": [],
+            "decode_s": 10.277325820000101,
+            "text": "甚至出现交易几乎停滞的情况。",
+            "language": "",
+            "generation": {
+              "max_new_tokens": 256,
+              "generated_tokens": 8,
+              "ended_with_eos": true,
+              "token_limit_reached": false
+            },
+            "align_s": 3.222885099999985,
+            "alignment": {
+              "aligned_unit_union_s": 3.2800000000000002,
+              "longest_unaligned_gap_s": 0.5239375000000002,
+              "invalid_alignment_units": 0,
+              "timestamp_tolerance_s": 0.05
+            }
+          }
+        ],
+        "timings_s": {
+          "model_load": 6.045809246999966,
+          "audio_prepare": 0.0004016159999764568,
+          "split": 5.1460000349834445e-06,
+          "decode": 10.277325820000101,
+          "align": 3.222885099999985,
+          "total": 19.55991047200007
+        },
+        "completed": true,
+        "model_reused": false,
+        "environment": {
+          "python": "3.12.3",
+          "platform": "Linux",
+          "packages": {
+            "torch": "2.14.1+cpu",
+            "transformers": "5.18.0",
+            "accelerate": "1.15.0",
+            "numpy": "2.5.3",
+            "soundfile": "0.14.0",
+            "soxr": "1.1.0"
+          },
+          "cuda": null,
+          "hip": null
+        },
+        "model_dtype": "torch.bfloat16",
+        "aligner_dtype": "torch.bfloat16",
+        "resolved_model_revision": null,
+        "resolved_aligner_revision": null,
+        "decoded_s": 4.2039375,
+        "span_coverage_short": true
+      }
+    ],
+    "quality": {
+      "status": "needs-review",
+      "flags": [
+        "span-coverage-short"
+      ],
+      "human_reviewed": false
+    },
+    "timings_s": {
+      "model_load": 6.045809246999966,
+      "audio_prepare": 0.0004016159999764568,
+      "split": 5.1460000349834445e-06,
+      "decode": 10.277325820000101,
+      "align": 3.222885099999985,
+      "total": 19.55991047200007
+    }
+  },
+  "scope": "single CPU BF16 sample; not an accuracy or GPU benchmark"
+}

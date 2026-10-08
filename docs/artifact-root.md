@@ -1,5 +1,7 @@
 # 产物根目录（`--artifact-root`）操作指南
 
+> 2026-10-08 当前边界：本文保留旧写入流水线的背景，其中 manifest、coordinator 及旧命令不属于当前执行架构。当前 CLI 仅在读取类命令提供 `--artifact-root`；`workflow` 没有独立产物写入根入口。不要将下文写入示例当作当前操作契约，见 [当前架构](architecture.md) 与 [项目 README](../README.md)。
+
 本文是 **操作者文档**：它说明 `bilibili-asr-archive` 的两个根目录、谁是哪个、怎么把产物放到挂载点上、以及为什么有些东西永远留在归档根目录。设计与决策的完整依据见迭代契约
 (`artifact-root-contract.md` §2–§9)。
 

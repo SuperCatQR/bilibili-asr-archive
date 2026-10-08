@@ -90,7 +90,9 @@ bili-asr workflow run --limit 20
 bili-asr workflow status
 ```
 
-`workflow plan` is idempotent for the same input and policy. Subtitle acquisition is independent; audio is queued only when needed; ASR waits for its audio prerequisite. `--asr-policy` accepts `all`, `missing-only`, or `quality-gated`. ASR profile configuration includes model, revision, aligner, device, and language.
+`workflow plan` is idempotent for the same input and policy. Subtitle acquisition is independent; audio is queued only when needed; ASR waits for its audio prerequisite. `--asr-policy` accepts `all`, `selected`, or `below-threshold`. ASR profiles freeze the full effective configuration, including independent model/aligner revisions, chunk size, timeout, hotwords, offline loading and generation budget. Explicit planning arguments override the environment; execution uses the stored snapshot.
+
+Successful ASR runs retain per-chunk diagnostics independently of transcript content deduplication. Inspect them with `bili-asr workflow asr-evidence --run-id RUN_ID --part-id 42`. See [ASR configuration and diagnostics](docs/asr-configuration.md) for parameter defaults, quality flag meanings and current limitations, and [the design review](docs/asr-design-review.md) for official sources and the remaining experiment roadmap.
 
 Editorial work can be planned from stored transcripts and rendered deterministically:
 
