@@ -10,6 +10,7 @@
 | [ASR 参数与诊断](asr-configuration.md) | 有效配置快照、默认参数、CLI、每次运行证据、风险标记与存储兼容 |
 | [ASR 设计评审](asr-design-review.md) | 官方资料、面向归档与阅读的设计取舍、调优实验和后续实施建议 |
 | [WSL 验证记录](asr-wsl-validation.md) | 测试环境、自动化回归、真实 CPU 模型样本与 GPU 验证限制 |
+| [公开样本与调优依据](asr-public-samples.md) | FLEURS 中文参考评分、语言与分块对照、静音误识别、复现命令及完整结果 |
 | [AI 校对使用说明](ai-proofreading.md) | 工作流与 DeepSeek 校对的参数、数据库及输出契约 |
 | [AI 校对架构](ai-proofreading-architecture.md) | 固定输入、来源覆盖、修订、确定性渲染、静态阅读站与人审 |
 | [架构图维护](architecture-maintenance.md) | 固定源码提交、编辑 JSON、生成 HTML 与浏览器校验流程 |
