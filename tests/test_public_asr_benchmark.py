@@ -1,6 +1,8 @@
 """Metric integrity for the optional real-model benchmark, without model mocks."""
 
 from pathlib import Path
+import argparse
+import json
 import runpy
 
 import pytest
@@ -54,3 +56,30 @@ def test_audio_hash_mismatch_is_rejected_before_inference(tmp_path):
 def test_audio_cannot_escape_manifest_directory(tmp_path):
     with pytest.raises(ValueError, match="escaped cache"):
         BENCHMARK["verify_sample"](tmp_path, {"filename": "../sample.wav"})
+
+
+def test_synthetic_composition_preserves_order_duration_and_source_hashes(tmp_path):
+    import numpy as np
+    import soundfile as sf
+
+    source = tmp_path / "source"
+    source.mkdir()
+    samples = []
+    for identifier, amplitude, reference in (("one", 0.25, "第一句"), ("two", -0.5, "第二句")):
+        path = source / f"{identifier}.wav"
+        sf.write(path, np.full(16000, amplitude, dtype=np.float32), 16000, subtype="FLOAT")
+        samples.append({"id": identifier, "filename": path.name, "reference": reference,
+                        "sha256": BENCHMARK["sha256"](path)})
+    BENCHMARK["save_json"](source / "manifest.json", {"samples": samples})
+    output = tmp_path / "derived"
+    BENCHMARK["compose"](argparse.Namespace(source=source, cache_root=output, gap_seconds=0.5))
+    manifest = json.loads((output / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest["synthetic"] is True
+    assert manifest["samples"][0]["duration_s"] == 2.5
+    assert manifest["samples"][0]["reference"] == "第一句 第二句"
+    assert manifest["components"][1]["start_s"] == 1.5
+    audio, _ = sf.read(output / "concatenated.wav")
+    assert np.all(audio[:16000] == 0.25)
+    assert np.all(audio[16000:24000] == 0)
+    assert np.all(audio[24000:] == -0.5)
+    assert manifest["samples"][1]["reference"] == ""

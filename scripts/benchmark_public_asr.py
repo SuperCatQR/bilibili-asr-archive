@@ -155,6 +155,53 @@ def verify_sample(root: Path, sample: dict) -> Path:
     return path
 
 
+def compose(args) -> None:
+    """Make labelled synthetic chunk-boundary and silence controls."""
+    import numpy as np
+    import soundfile as sf
+
+    source = args.source.resolve()
+    root = args.cache_root.resolve()
+    if root == source:
+        raise ValueError("derived cache must differ from the downloaded corpus")
+    if not math.isfinite(args.gap_seconds) or args.gap_seconds < 0:
+        raise ValueError("gap must be finite and nonnegative")
+    manifest = json.loads((source / "manifest.json").read_text(encoding="utf-8"))
+    root.mkdir(parents=True, exist_ok=True)
+    parts, components = [], []
+    offset = 0
+    for index, sample in enumerate(manifest["samples"]):
+        path = verify_sample(source, sample)
+        audio, rate = sf.read(path, dtype="float32")
+        if rate != 16000 or audio.ndim != 1:
+            raise ValueError("composition requires 16 kHz mono source audio")
+        if index:
+            gap = np.zeros(round(args.gap_seconds * rate), dtype=np.float32)
+            parts.append(gap)
+            offset += len(gap)
+        components.append({"id": sample["id"], "sha256": sample["sha256"],
+                           "start_s": offset / rate, "end_s": (offset + len(audio)) / rate})
+        parts.append(audio)
+        offset += len(audio)
+    derived = [
+        ("concatenated", np.concatenate(parts), " ".join(sample["reference"] for sample in manifest["samples"])),
+        ("silence", np.zeros(8 * 16000, dtype=np.float32), ""),
+    ]
+    samples = []
+    for identifier, audio, reference in derived:
+        path = root / f"{identifier}.wav"
+        # Float WAV preserves the original decoded amplitude without another PCM quantization.
+        sf.write(path, audio, 16000, subtype="FLOAT")
+        samples.append({"id": identifier, "filename": path.name, "reference": reference,
+                        "duration_s": len(audio) / 16000, "sha256": sha256(path), "sample_rate": 16000})
+    manifest.update(parent_manifest_sha256=sha256(source / "manifest.json"),
+                    selection="all selected public clips concatenated in order, plus digital silence",
+                    synthetic=True, gap_seconds=args.gap_seconds, components=components, samples=samples,
+                    split="synthetic controls derived from published test samples")
+    save_json(root / "manifest.json", manifest)
+    print(json.dumps({"derived_duration_s": samples[0]["duration_s"], "silence_s": 8}), flush=True)
+
+
 def checkpoint_fingerprint(root: Path) -> dict:
     paths = sorted(set(root.glob("*.json")) | set(root.glob("*.safetensors")))
     if not any(path.suffix == ".safetensors" for path in paths):
@@ -244,6 +291,10 @@ def main() -> None:
     fetch_parser.add_argument("--endpoint", default="https://huggingface.co")
     fetch_parser.add_argument("--revision", default=None)
     fetch_parser.add_argument("--count", type=int, default=12)
+    compose_parser = subparsers.add_parser("compose")
+    compose_parser.add_argument("--source", type=Path, required=True)
+    compose_parser.add_argument("--cache-root", type=Path, required=True)
+    compose_parser.add_argument("--gap-seconds", type=float, default=1)
     run_parser = subparsers.add_parser("run")
     run_parser.add_argument("--cache-root", type=Path, required=True)
     run_parser.add_argument("--model", type=Path, required=True)
@@ -253,7 +304,7 @@ def main() -> None:
     run_parser.add_argument("--output", type=Path, required=True)
     run_parser.add_argument("--source-revision", help="Host Git commit for Windows worktrees whose gitdir WSL cannot resolve")
     args = parser.parse_args()
-    (fetch if args.command == "fetch" else run)(args)
+    {"fetch": fetch, "compose": compose, "run": run}[args.command](args)
 
 
 if __name__ == "__main__":
