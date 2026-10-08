@@ -21,7 +21,7 @@ archive root/                       artifact root/
 |---|---|
 | 元数据、transcript、job、attempt、editorial、审核状态 | archive root 的 `archive.db` |
 | 音频 | write base 的 `audio/`；登记相对 storage key、SHA-256、大小、格式和时长 |
-| SRT、TXT、Markdown、raw JSON 和 marker | write base 的 `transcripts/`；publication 登记相对路径 |
+| SRT、VTT、TXT、Markdown、raw JSON 和 marker | write base 的 `transcripts/`；publication 登记相对路径 |
 | 阅读与审核 Markdown | write base 的 `documents/`；document artifact 登记相对路径和 SHA-256 |
 | 阅读站快照 | `reading-export --out` 指定的目录 |
 
@@ -135,4 +135,4 @@ reading-export 找到登记的文档后校验 SHA-256，再生成站点输入。
 | 换目录后音频缺失 | 按记录相对 key 恢复到读取根，或重新获取 |
 
 schema 重建会丢失数据库事实，需要重新采集；这与目录切换不同。恢复步骤见
-[metadata-storage.md](metadata-storage.md#6-schema-不兼容时重建)。
+[metadata-storage.md](metadata-storage.md#数据库打开与-schema-边界)。

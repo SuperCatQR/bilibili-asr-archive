@@ -1,336 +1,109 @@
-# 音频保留策略使用指南
+# 工作流中的音频保留与复用
 
-> 历史接口说明：下文阶段命令与保留参数属于旧执行路径。当前 CLI 以 SQLite workflow
-> 为执行控制面，`workflow run` 未接入 `--keep-audio`、`--max-audio-gb` 或自动回收；
-> 这些旧命令示例不能作为当前操作指南。底层 `audio_reclaim` 模块仍保留，当前入口与
-> 目录规则见 [metadata-storage.md](metadata-storage.md) 和 [artifact-root.md](artifact-root.md)。
+当前 workflow 下载成功的音频保留在 `--archive-root` 下。字幕、ASR、转录发布或阅读文档渲染完成后，都不会自动删除音频，也不会执行目录容量预算、按年龄清理或引用计数回收。磁盘容量由运行环境和维护者管理。
 
-## 背景
+旧 `schedule`、`campaign`、`pilot`、顶层 `run`、顶层 `asr` 已删除。`--keep-audio`、`--no-keep-audio`、`--max-audio-gb` 和旧 `--offline` 不是当前 workflow 参数。设置 `BILI_KEEP_AUDIO=0` 不会让当前 workflow 自动删除音频；保留的源码 helper 不等于已连接的公共功能。
 
-`bilibili-asr-archive` 在视频转录完成并达到 `archived` 状态后，**默认保留音频文件**。
+## 从规划到保留
 
-音频是唯一的证据：Bilibili 删掉视频后它无法再取回，换更合适的 ASR 模型重跑也要靠它，人工核对转录质量同样要对照它。所以保留是默认，**回收（删除）是显式选项**。
+先将视频及分 P 元数据存入数据库，再规划独立的字幕、音频和 ASR jobs。示例 BVID 应替换成该数据库中已采集的视频。
 
-- ✅ 可以用更好的模型重新处理
-- ✅ Bilibili 删除视频后音频仍在
-- ✅ 可以对照原始音频验证转录质量
-- ⚠️ 代价是磁盘占用：音频是转录文本的几十倍（见下方「磁盘空间考量」）
-
----
-
-## 快速开始
-
-### 保留音频（默认）
-
-什么都不用做：
-
-```bash
-bili-asr pilot --n 20 --archive-root archive
+```sh
+bili-asr fetch-meta --archive-root archive --limit-pages 1
+bili-asr workflow plan --archive-root archive --bvid BV_EXAMPLE --page-index 0
+bili-asr workflow run --archive-root archive --limit 10
+bili-asr workflow status --archive-root archive --jobs
 ```
 
-### 归档后删除音频
+`workflow plan` 只建立任务，不下载；`workflow run` 执行就绪任务。`--limit` 限制执行的 job 数量，不是视频数或磁盘容量。`p0` 为数据库零基 page index，对应源站 P1。
 
-```bash
-# 只对这一次运行生效
-bili-asr pilot --n 20 --no-keep-audio --archive-root archive
+默认 `--asr-policy all` 会规划 audio/ASR；`selected` 使用显式目标；`below-threshold` 根据已存储的质量评估决定是否规划，并要求 `--quality-threshold`。字幕获取与音频/ASR 是独立生产者，已有字幕不会自动撤销已规划的音频任务。没有执行 audio job，就不会因此下载音频。
 
-# 或者长期用环境变量
-export BILI_KEEP_AUDIO=0
-bili-asr run --scope pending --archive-root archive
-```
+## 音频落盘的提交边界
 
-### 保留音频、同时不让磁盘上界截断下载
+1. 校验 job 当前 lease，按存储的 BVID、page index 和 CID 建立目标身份。
+2. 在归档根的 `audio/` 下分配本次独占 staging。下载 helper 使用临时文件接收流；失败的 CDN 尝试从空文件重新开始，非空检查与必要的格式转换在 staging 完成。
+3. 再次校验 lease，用 `ffprobe` 获取时长，拒绝非有限或非正时长，计算字节 SHA-256、大小及格式。
+4. 进入任务拥有的短数据库事务，在同一所有权检查范围内替换最终音频、登记 `audio_objects` 并建立分 P 关联。
+5. audio job 成功后，ASR 从该 dependency 的结果读取 `storage_key`，以归档根下的文件为输入。
 
-保留意味着 `audio/` 只会增长。`--max-audio-gb`（默认 10 GiB）会在下载前按时长估算新增容量；未知时长或无法测量目录占用时拒绝下载。达到估算上界之后，每一行都会以
-`audio_budget` 被跳过。要长期保留又想一直下载，就把上界设为不限（四个命令都接受 `0`，只有
-`schedule --allow-long-live` 例外，见下）：
+下载、格式转换、探测和摘要计算不占用最终提交事务。最终替换及 catalog 登记受 lease/取消检查约束，避免已取消或失去 lease 的 worker 发布音频。取消在安全提交边界生效，不能保证立即中断网络请求或推理。
 
-```bash
-bili-asr campaign --scope pending --limit 500 --max-audio-gb 0 --archive-root archive
-```
+正常退出清理本次 staging；强制终止或掉电可能留下临时文件。当前没有自动遍历历史 staging 并回收的 workflow 任务。SQLite 和文件系统不是一个原子提交介质，失败后的 catalog 与实际文件仍需分别核对。
 
-**只有 `pilot` 和 `run` 的跳过行会把这个参数名一并打出来**（`pilot` 打在 stderr，`run` 的行带 `run:` 前缀）：
+ASR 成功、失败或 publish 成功均不会触发删除。取消后续 ASR/publish 也不删除此前完成下载的音频。转录包有独立 marker 和摘要契约，见 [WebVTT 与五产物归档包](webvtt.md)。
 
-```
-BV1xx:p0: skipped (audio_budget); audio-dir budget cap reached (--max-audio-gb 0 = unlimited)
-```
+## 音频存放在哪里
 
-`schedule` 的跳过行只打原因（`schedule: <work_id>: skipped (audio_budget)`），`campaign` 只在 JSON 摘要的
-`reason_codes` 里报告 `audio_budget` —— 两者都不带这段提示。另外 `schedule --allow-long-live` 要求上界必须
-开着：在那个模式下传 `--max-audio-gb 0` 会被直接拒绝（退出码 1），要保留就请把上界调大。
-
----
-
-## 配置项
-
-`asr`、`pilot`、`run`、`schedule`、`campaign` 五个归档命令带 `--keep-audio/--no-keep-audio` 参数；参数在命令入口**解析一次**，然后作为值传给下游，库层不再读环境变量。
-
-| 设置 | 行为 |
-|-----|---|
-| 什么都不设 | **保留**（默认） |
-| `--keep-audio` | 保留 |
-| `--no-keep-audio` | **回收**：archived 后删除该行的音频（两个根目录下都找） |
-| `BILI_KEEP_AUDIO=1` | 保留 |
-| `BILI_KEEP_AUDIO=0` | 回收 |
-| `BILI_KEEP_AUDIO=` 其它值（含空/空白） | **保留**（默认） |
-
-- **参数优先于环境变量**；环境变量只在没有参数时才起作用。
-- `BILI_KEEP_AUDIO=" 1 "` **不是**字面量 `1`，因此等于「默认」= 保留。旧的 `== "1"` 比较会把它当成未设置而回收，新的规则不会。
-- 回收是**尽力而为**的：行已经 `archived`（转录已落盘），回收失败不会让这一行变成失败。
-- 回收会删掉该行音频的**所有副本**：配置根目录下的和归档根目录下的。「不要保留这一行的音频」指的是这个音频本身，不是某一个路径。
-- **已经被回收的音频无法恢复**，这是整个功能里唯一不可逆的部分。
-
-> 行为变化提示：本策略翻转之前，未设置 `BILI_KEEP_AUDIO` 表示**删除**。`=1` 和 `=0` 的含义没有变，只有「未设置」这一格从删除变成了保留。要恢复旧行为，显式设置 `BILI_KEEP_AUDIO=0` 或传 `--no-keep-audio`。
-
----
-
-## 使用场景
-
-### 场景1：长期归档 + 未来重新处理
-
-```bash
-# 首次归档（当时使用 Fun-ASR-Nano-2512；2026-09-24 起为 Qwen3-ASR-1.7B + 强制对齐器）；音频默认保留
-bili-asr pilot --n 100 --max-audio-gb 0 --archive-root archive
-
-# 2027年：有了更好的模型
-# 音频文件仍在 audio/，可以直接重跑 ASR
-bili-asr run --scope archived --offline --archive-root archive
-```
-
-### 场景2：防止 Bilibili 删除视频
-
-```bash
-# 音频默认就留着
-bili-asr pilot --n 20
-
-# 即使 Bilibili 删除了视频，你仍有：
-# - audio/BV1xx.p0.m4a        （原始音频）
-# - transcripts/...           （转录文件）
-```
-
-### 场景3：质量验证
-
-```bash
-bili-asr run --scope pending --archive-root archive
-
-# 对比转录文本和原始音频
-mplayer archive/audio/BV1xx.p0.m4a
-cat archive/transcripts/BV1xx.p0/bundle.txt
-```
-
-### 场景4：磁盘吃紧，只要文本
-
-```bash
-# 这次运行归档完就删音频
-bili-asr schedule --scope pending --limit 200 --no-keep-audio --archive-root archive
-
-# 或者长期如此
-export BILI_KEEP_AUDIO=0
-```
-
----
-
-## 磁盘空间考量
-
-### 典型空间占用
-
-```
-2200 个视频示例：
-- 音频文件（平均 50 MB/视频）：~110 GB
-- 转录文件（SRT/TXT/MD/JSON）：~2 GB
-- 总计：~112 GB
-```
-
-**音频在哪个分区**由 [artifact-root.md](./artifact-root.md) 里的 `--artifact-root` 决定：产物（含 `audio/`）可以放到挂载点，状态（manifest、`archive.db`、锁、sidecar）留在归档根目录。`--max-audio-gb` 统计的正是**配置根目录**的 `audio/` 用量，不会把留在归档根目录的历史音频算进来。
-
-### 空间管理策略
-
-#### 策略1：分级存储
-
-```bash
-# 短视频：保留音频（默认）
-bili-asr run --scope pending --archive-root /ssd/archive
-
-# 长视频：不保留音频（节省空间）
-bili-asr run --scope long_videos --no-keep-audio --archive-root /hdd/archive
-```
-
-#### 策略2：选择性保留
-
-```bash
-# 只保留重要 UP 主的音频
-if [ "$BILI_MID" == "23191782" ]; then
-    export BILI_KEEP_AUDIO=1
-else
-    export BILI_KEEP_AUDIO=0
-fi
-bili-asr fetch-meta --mid $BILI_MID
-```
-
-#### 策略3：事后清理
-
-```bash
-# 先全部保留（默认行为），验证质量后手工删除低价值音频
-bili-asr pilot --n 100 --max-audio-gb 0 --archive-root archive
-find archive/audio -name "*.m4a" -size +100M -delete
-```
-
----
-
-## 与现有功能的兼容性
-
-### ✅ 兼容的功能
-
-- `--max-audio-gb`：下载前检查配置根目录的 `audio/` 占用和新增容量估算，测量失败会拒绝下载；**保留 + 上界要注意**，长期保留时用
-  `--max-audio-gb 0`（见快速开始）
-- `--offline`：离线模式下从已有音频重新处理
-- `coverage --quality`：质量检查识别已回收的音频
-- `verify`：完整性验证在配置根目录与归档根目录上都做探测，同一份归档有根目录和没根目录得到相同结论
-- `--artifact-root`：音频随产物一起搬到挂载点，回收也在两个根目录上生效
-
-### ⚠️ 行为变化
-
-| 场景 | 之前（未设置变量） | 现在（未设置变量） |
-|-----|-------------------|-------------------|
-| `status=archived` 后 | 音频文件被删除 | **音频文件保留** |
-| `audio/` 目录大小 | 仅包含未完成的视频 | 包含所有已下载的音频 |
-| 重新运行 ASR | 需要重新下载音频 | 直接使用本地音频 |
-
-要回到删除行为：`--no-keep-audio` 或 `BILI_KEEP_AUDIO=0`。
-
----
-
-## 迁移指南
-
-### 从旧默认（删除）切到新的默认（保留）
-
-```bash
-# 1. 什么都不用设置：新默认就是保留
-# 2. 已经归档的视频，其音频在旧默认下已经被删除，只能重新下载
-# 3. 查看没有音频的已归档视频
-bili-asr coverage --archive-root archive --format json | \
-    jq '.rows[] | select(.status == "archived" and .reclaimed_audio == true)'
-```
-
-### 从保留切到删除
-
-```bash
-# 1. 让每次运行都显式回收
-export BILI_KEEP_AUDIO=0
-#    或：在命令上写 --no-keep-audio
-
-# 2. 手工清理已有音频文件（工具不会替你删历史文件）
-find archive/audio -name "*.m4a" -type f -delete
-find archive/audio -name "*.flac" -type f -delete
-
-# 3. 之后的归档会自动删除音频
-bili-asr pilot --n 20
-```
-
----
-
-## 常见问题
-
-### Q: 为什么默认改成保留了？
-
-**A**: 删除是不可逆的，而保留只是占磁盘。转录文本无法在事后补回音频；音频能。需要省空间的操作者可以一行开关回到旧行为。
-
-### Q: 保留音频后可以手动删除吗？
-
-**A**: 可以。删除音频不影响已有的转录文件。
-
-```bash
-# 删除特定视频的音频
-rm archive/audio/BV1xx.p0.m4a
-
-# 删除所有音频
-rm -rf archive/audio/*.m4a
-```
-
-### Q: 如何检查哪些视频还留着音频？
-
-**A**: 使用 `coverage` 命令：
-
-```bash
-bili-asr coverage --archive-root archive --format json | \
-    jq '.rows[] | select(.reclaimed_audio == false) | {work_id, status}'
-```
-
-### Q: 保留之后为什么下载开始被跳过了？
-
-**A**: 因为音频上界 `--max-audio-gb`（默认 10 GiB）统计的 `audio/` 目录不再变小。把
-`audio-dir budget cap reached (--max-audio-gb 0 = unlimited)` 打出来的是 `run` 和 `pilot` 的跳过行；
-`schedule` 只打 `(audio_budget)`，`campaign` 只在 `reason_codes` 里报告。保留音频就传 `--max-audio-gb 0`，
-或者把上界调大 —— 注意 `schedule --allow-long-live` 拒绝 `0`，那个模式下只能调大。
-
-### Q: 音频保留影响性能吗？
-
-容量检查每批先扫描一次目录，再按本批下载和回收的文件更新占用；失败下载会重新扫描以计入残留文件。长期保留不会导致每条任务重复遍历整个音频目录。该检查是下载准入估算，不是流式写入的硬配额；下载、转码临时文件仍可能造成额外峰值。多个任务共享同一个产物目录时，应串行写入。
-
-**A**: 不影响。保留只是跳过删除步骤，不改变 ASR 处理速度。
-
-### Q: 我想只保留部分视频的音频怎么办？
-
-**A**: 目前保留策略是每次运行（或每个环境变量）一个值。可以：
-1. 分批运行，切换 `--keep-audio/--no-keep-audio`
-2. 事后手动删除低价值音频
-
----
-
-## 技术细节
-
-### 实现原理
-
-保留策略在**命令入口解析一次**（`--keep-audio/--no-keep-audio`，否则 `BILI_KEEP_AUDIO`，否则默认保留），然后作为
-`keep` 值传给 `audio_reclaim.reclaim_audio(root, entry, *, artifact_roots=None, keep)`。库层**不**读环境变量：
-
-```python
-def reclaim_audio(archive_root, entry, *, artifact_roots=None, keep: bool) -> bool:
-    """archived 之后回收音频；keep=True 表示保留（默认策略），直接返回。"""
-    if keep:
-        return False
-    roots = artifact_roots if artifact_roots is not None else ArtifactRoots.of(archive_root)
-    for base in roots.read_bases():      # 两个根目录下都找这份音频
-        for relative in _candidate_paths(entry):
-            unlink_confined_audio(base, relative)
-```
-
-删除通过**已打开的 `audio/` 目录描述符**进行（`O_NOFOLLOW`，先改名到随机隔离名再校验再 unlink），所以不会跟随被换掉的符号链接去删到外面。
-
-### 文件结构
-
-```
-archive/                       # 归档根目录 = 状态（D13）；配了 --artifact-root 时产物在那边
-├── manifest/
-│   └── manifest.jsonl         # 元数据（记录 root 相对的 audio_path）
-└── ...
-
-<mount>/                       # 产物根目录（--artifact-root）
+```text
+archive/
+├── archive.db                       # jobs、音频 catalog、转录及发布记录
 ├── audio/
-│   ├── BV1xx.p0.m4a           # 默认保留；--no-keep-audio 才删
-│   └── BV1yy.p0.m4a
-└── transcripts/               # 转录文件（始终保留）
-    ├── srt/
-    ├── txt/
-    ├── md/
-    └── raw/
+│   └── BV_EXAMPLE.p0.m4a             # 下载成功后持续保留
+├── transcripts/BV_EXAMPLE.p0/
+│   ├── bundle.srt
+│   ├── bundle.vtt
+│   ├── bundle.txt
+│   ├── bundle.md
+│   ├── bundle.raw.json
+│   └── .bundle-ready
+└── documents/
+    └── ...                          # 校对和阅读文档
 ```
 
----
+workflow 的数据库位于 `--archive-root`。`workflow run --artifact-root` / `BILI_ARTIFACT_ROOT` 指定音频及其他产物的写根；ASR 按产物根、归档根的顺序解析已登记音频路径。详见 [归档根目录与只读产物候选根](artifact-root.md)。
 
-## 未来增强
+下载 helper 支持 `.m4a` 及部分 FLAC 流的处理和 fallback；应以实际登记的 `storage_key`、`format` 与文件内容为准，不仅凭文件名判断编码。归档根所在的存储目录决定新增音频的分区。
 
-考虑中的功能：
+## Catalog 记录什么
 
-- [ ] 基于视频属性的自动保留规则（时长、UP主、标签）
-- [ ] 压缩存储（FLAC → Opus，节省 50% 空间）
-- [ ] 分级存储（热数据 SSD，冷数据 HDD/云存储）
-- [ ] 音频去重（内容寻址，相同音频只存一份）
+| 表 | 主要字段 | 含义 |
+| --- | --- | --- |
+| `audio_objects` | `audio_id`、唯一 `sha256`、`byte_size`、`format`、`duration_ms`、唯一 `storage_key`、`created_at` | 用字节摘要标识对象，记录存储引用和媒体信息 |
+| `part_audio_objects` | `video_part_id`、`audio_id`、`acquired_at`、`acquisition_source` | 保留各分 P 获取该内容的来源关联 |
 
----
+当前 workflow 的 acquisition source 为 `workflow`。相同字节 SHA-256 命中同一 catalog 对象，多个分 P 可以关联同一 `audio_id`，各自身份及来源仍分别保留。
 
-## 相关文档
+这是内容标识与关联复用。下载文件仍使用各分 P 的路径；不同分 P 下载到相同内容时，磁盘上可能保留多个文件，catalog 的 `storage_key` 不枚举所有副本。当前没有自动合并物理文件、建立硬链接、删除重复副本或垃圾回收的 workflow 步骤。
 
-- [artifact-root.md](./artifact-root.md) —— 产物根目录（`--artifact-root`）与两个根目录的分工
-- [../README.md](../README.md#audio-retain-reclaim-and-the-disk-cap) —— 保留、回收与磁盘上界
-- [metadata-storage.md](./metadata-storage.md) —— SQLite 元数据存储
+Catalog 不是实时文件清单。人为移动、改写或删除文件不会自动更新对象、关联或成功 job 的结果。判断可用性须核对实际文件；证明内容未变须重新计算摘要与 catalog 比较。
+
+## 复用的两层含义
+
+**任务复用**来自稳定 job 身份。每个分 P 的 audio job 有固定去重键，重复同一规划不会新建另一个 audio job。不同 ASR profile 可依赖该分 P 已成功的音频任务，继续使用保存的结果，不要求为每个模型再次下载。
+
+**内容复用**来自 SHA-256 与关联表。多个分 P 下载到相同字节时，catalog 能识别共享对象，`dedup report` 展示这些关系。它不会在下载前通过摘要寻找尚未取得的远端内容，也不替代磁盘整理。
+
+当前 audio handler 在下载前检查该分 P 的 canonical `audio/<bvid>.p<index>.m4a` / `.flac`，发现受约束、非空文件后重新 probe、计算哈希并在 lease guard 内登记，保留文件和修改时间，不发起下载。只有没有可复用文件时，才在本次独占 staging 内调用 `audio.download_audio`。这不是扫描任意音频目录或按远端内容摘要预取；已成功 audio job 的正常后继继续采用保存的 dependency 结果。
+
+成功 audio job 不会因文件后来丢失而自动重排。新 ASR 读取不到该路径会失败；`workflow retry` 只重排失败 jobs，不能保证重跑已经成功的 audio job。当前也没有旧 `--offline` 那样为任意本地音频直接建立 ASR 的公共入口。
+
+## 查看任务、转录覆盖与精确复用
+
+```sh
+bili-asr workflow status --archive-root archive --jobs
+bili-asr dedup report --archive-root archive --format json --limit 20
+bili-asr verify --archive-root archive --format text
+bili-asr coverage --archive-root archive --format json
+```
+
+- `workflow status --jobs` 显示任务类型、状态、attempt 数和取消造成的依赖阻塞。
+- `dedup report` 只读数据库，统计音频对象、关联、跨分 P 共享对象，以及来源/语言相同的精确转录重复。`--limit` 仅限制示例组数，汇总覆盖全库；它不重算音频摘要，也不测量实际释放空间。
+- `verify` 检查登记发布的转录包，不是音频 catalog 与磁盘内容的全面审计。
+- `coverage` 统计转录和发布完成度。当前 `reclaimed_audio` 固定为 `false`，不证明音频仍存在，不能据此筛选有音频或已回收音频的分 P。
+
+只需重建转录文件时，可用 `workflow publish --archive-root archive --part-id 12` 请求发布，再用 `workflow run` 执行。该 publish job 使用已有存储转录，本身不下载或调用 ASR；同次 run 仍可能执行其他就绪任务，应核对 jobs 的结果。
+
+## 容量管理的现状
+
+当前没有默认 10 GiB 限额，也没有 `--max-audio-gb 0` 这样的不限量开关。目录随成功下载增长，staging 和转换增加运行时峰值。`--limit`、`--asr-policy` 和目标选择控制工作量，不提供文件系统硬配额。
+
+需要限制时，使用存储系统的配额、空间监测和运行批次管理。保留音频支持人工核对、后续 profile 处理和源站删除后的证据保存。维护者若在外部清理，应先核对依赖与备份需求；移除文件会使未来音频依赖失效，当前 workflow 不自动修复 catalog 或重新下载。
+
+当前没有自动保留规则、冷热迁移、按时长回收或完成后仅留文本的公共策略。无需设置 `BILI_KEEP_AUDIO=1` 才保留，设置 `BILI_KEEP_AUDIO=0` 也不改变行为。
+
+## 保留源码与公共功能的区别
+
+`audio_budget.py` 有容量测量/预算 helper，`audio_reclaim.py` 有受约束删除 helper，`artifact_root.py` 有 `resolve_keep_audio`。库代码可显式调用，但当前 CLI/`WorkflowRuntime` 没有用它们实现自动预算或回收。旧命令、flags 或环境变量不能激活这些能力。
+
+本文不提供旧日志到 workflow jobs 的迁移命令，也不将保留源码视为兼容旧入口。相关文档：[架构](architecture.md)、[目标选择](workflow-selection.md)、[SQLite 存储](metadata-storage.md)。

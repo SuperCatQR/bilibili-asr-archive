@@ -1,108 +1,162 @@
 # 当前架构
 
-交互式组件图：[architecture.html](architecture.html)（规格源：[architecture.json](architecture.json)）。
-图与本文均以提交 `af48cb33dcf143f1d3f0ace50c438f3892eae821` 的源码为依据，覆盖 CLI、SQLite workflow、
-元数据和字幕采集、音频与 ASR、AI 校对、归档发布、全文检索、完整性检查和阅读站导出。
+交互式组件图：[architecture.html](architecture.html)，可编辑规格：[architecture.json](architecture.json)。
+本文与图以 `8da41f04f7d079f5366b428436994da05a290c13` 的源码为依据，覆盖 CLI、SQLite workflow、
+元数据与字幕、音频与 ASR、AI 校对、归档发布、查询及阅读内容导出。
+图的证据维护与生成检查见[架构图维护](architecture-maintenance.md)。
 
-源 JSON 与生成 HTML 必须一起维护；刷新流程、证据要求和验证命令见
-[architecture-maintenance.md](architecture-maintenance.md)。
+## 执行模型
 
-## 核心执行模型
+本项目是 Python CLI 和本地 SQLite 工作流系统。CLI 组装配置与 handler；
+`WorkflowRepository` 拥有计划、依赖、领取、租约、attempt、重试、取消与终态；
+`WorkflowExecutor` 在事务外执行耗时操作，再校验精确的
+`job_id + lease_owner + attempt_count + 未过期租约` 提交结果。
+多个 worker 可以连接同一归档库；当前执行器每次处理一个 job。
 
-产品只有一个执行控制面：SQLite-backed workflow。CLI 负责组装配置和 handler，
-`WorkflowRepository` 负责计划、依赖、领取、租约、attempt、重试和终态；
-`WorkflowExecutor` 每次领取一个 job，在事务外执行 handler，再以精确的
-`job_id + lease_owner + attempt_count` 写回结果。SQLite 是元数据、转录版本、
-工作流状态、编辑修订和阅读审核状态的事实源；音频、转录 bundle、`reading.md`
-与 `review.md` 是文件产物，只能通过受约束的写入边界发布。
+SQLite 保存视频与分 P、采集证据、不可变转录、调度状态、编辑修订和阅读审核事实。
+音频、转录 bundle、阅读 Markdown 是文件产物；FTS 和阅读内容快照是可重建的消费产物。
+JSON 文件和完成标记不能替代 SQLite 调度器。
 
 ```text
-CLI / composition
-        |
-        v
-Workflow planner -> SQLite jobs, dependencies, leases, attempts
-        |
-        +--> Acquire: metadata, captions, audio
-        |
-        +--> Process: ASR, editorial proofread, deterministic rendering
-        |
-        +--> Publish: transcript bundles and reading documents
-                         |
-                         v
-               Query projections: status, coverage, export, verify, search, dedup
+fetch-meta -> Bilibili gateway -> metadata / parts / crawl evidence
+                                      |
+workflow plan -> validated selection -> jobs / dependencies / profiles
+                                      |
+workflow run -> claim + heartbeat -----+
+                 |                    |
+                 +-> subtitle -> immutable transcript
+                 +-> audio -> ASR -> immutable transcript
+                 +-> proofread -> immutable revision -> render_document
+                 +-> publish -> five-file transcript bundle
+                                      |
+             status / coverage / verify / export / search / reading-export
 ```
 
-长任务由 daemon heartbeat 使用独立的 file-backed SQLite 连接续租；续租和终态写入都校验精确
-attempt，旧 worker 不能覆盖新 attempt。CUDA/ROCm ASR 的强制对齐运行在可杀死的子进程中，
-超时会终止子进程并记录可重试的 `inference_timeout`，避免卡住的 aligner 永久占住租约。
-发布前、文件替换前后也会执行 lease fence。
+`workflow plan` 可以选择显式 part ID，或多个 BVID 的全部/指定零基分 P。
+所有目标、策略与配置先验证，再建立 profile 与 job；无效批次不留下部分计划。
+ASR 只依赖音频任务成功，字幕失败不会阻断独立 ASR。`below-threshold` 使用已存质量评估
+与 `--quality-threshold` 决定各选中分 P 是否需要 ASR；当前 plan 没有时长筛选参数。
+同一逻辑任务重复规划会复用 job，配置 digest 固定 ASR profile，取消终态保持不变。
+选择规则见[BVID 与分 P 选择](workflow-selection.md)。
 
-## 运行边界与数据流
+## 状态、租约与取消
 
-### 采集与规划
+| 状态 | 进入条件 | 后续行为 |
+| --- | --- | --- |
+| `queued` | 规划、允许的重试、重新发布或租约回收 | 依赖成功后可领取；可取消 |
+| `running` | worker 领取并建立 lease / attempt | heartbeat 续租；可成功、失败或取消 |
+| `succeeded` | 当前 attempt 提交成功 | 满足下游依赖；显式重新发布可重新排队 publish |
+| `failed` | handler 失败 | 允许显式 retry；保留 attempt 证据 |
+| `cancelled` | 显式取消 queued/running | 清除 lease；不会被 retry、plan 或 publish 恢复 |
 
-`fetch-meta` 通过 `BilibiliApiGateway` 有界分页采集用户、视频、分 P、标签和分页证据，写入
-`archive.db` 的 metadata 表组；游标、run、page 和 discovery 都是可恢复的事实。
-`probe-subs` / `harvest-subs` 使用同一 gateway 获取字幕轨道，字幕没有可见结果时保留可重试
-证据，不把一次空响应误认为永久缺失。
+取消是协作式操作。取消事务先验证所有 job ID，再一次性更新状态；running attempt 同时记录
+`cancelled` 终态与错误码。网络请求、模型调用和 GPU 推理可以继续到下一个检查点，
+不能承诺立即停机或撤回已发出的外部请求。检查点与短写事务阻止取消后提交权威结果。
+取消前已提交的转录、块、修订和文件保留；取消不级联删除依赖任务。
+`workflow status --jobs` 展示因取消依赖而阻塞的 queued job，这种阻塞是派生信息。
 
-`workflow plan` 按 part 生成去重 job：字幕、音频、ASR，以及可选的 `proofread` /
-`render_document`。ASR 只依赖成功的 audio prerequisite，不依赖字幕 job 是否成功。
-`claim` 会先回收过期 lease 并把对应 attempt 标记为 `lease_expired`，然后以优先级、创建时间
-和 job ID 的稳定顺序领取一个就绪任务。
+heartbeat 使用独立 file-backed SQLite 连接续租；续租、结果和终态都校验精确 attempt。
+claim 回收过期 lease，将旧 attempt 记为失败，再领取新 attempt；旧 worker 无法覆盖新结果。
+CUDA/ROCm 强制对齐有可终止的子进程 watchdog，超时记录 `inference_timeout`。
+这与手动取消的协作语义不同。完整规则见[任务取消](workflow-cancellation.md)。
 
-### 处理与发布
+## 采集与转录
 
-音频下载写入 `audio/` 并在 `audio_objects` / `part_audio_objects` 中登记 key、哈希和来源。
-音频目录有 `--max-audio-gb` 峰值预算；归档完成后按 `--keep-audio` 或 `BILI_KEEP_AUDIO` 决定
-保留或通过 confined unlink 回收。`--artifact-root` / `BILI_ARTIFACT_ROOT` 可把音频、bundle
-和阅读文档放在独立产品根；`archive.db` 始终留在 archive root，读取时按 artifact root、
-archive root 的顺序探测，写入只使用配置的 write base。
+`fetch-meta` 经 `BilibiliApiGateway` 分页采集用户、视频、分 P、标签和抓取证据，
+每页事务保存实体与游标。空页、失败页、重试和跳过都有独立证据；恢复以持久游标为准。
+`metadata` 保存外部观察，`workflow` 保存执行状态，两者没有第二套互相覆盖的阶段状态机。
+数据库表、采集恢复与只读边界见[元数据与存储](metadata-storage.md)。
 
-ASR handler 固定 profile digest、参考 transcript ID 和 audio prerequisite result，由
-`ASRRunner` 完成解码、对齐、分块、hotword、provenance 与 coverage attestation，再追加
-transcript version 和 segments。发布 handler 选择优选版本，`archive.write_archive` 一次性
-写入 SRT、TXT、Markdown、raw JSON、characters/coverage 等 bundle，并用完成 marker 与
-`workflow_publications` 共同证明发布完整。
+subtitle handler 获取轨道与正文，保存来源明确的 CC / AI 转录和 acquisition 证据。
+一次不可见轨道不证明字幕永久缺失。取消或处理失败可以留下 failed acquisition 收尾，
+但不得提交新的成功转录。转录版本与 segments 追加保存，源记录不会被校对改写。
 
-AI 校对是独立的可选分支：它把输入快照、模型调用 envelope、chunk 结果和 immutable revision
-写入 editorial 表组。`DeepSeekClient` 只在 `proofread` job 中发起 HTTPS JSON 请求；
-`render_document` 读取已保存 revision，确定性地生成 `reading.md` / `review.md`，因此重渲染
-不重复调用模型。
+audio handler 先检查 confined `audio/` 中可复用的非空对象；需要下载时，在该目录下创建
+独立暂存空间，并保留下载器要求的 `audio/` 子目录。下载、探测和哈希在事务外完成，
+最终文件替换和 `audio_objects` / `part_audio_objects` 登记在同一个租约保护事务内完成。
+无 ffmpeg 时保留真实 FLAC 后缀，不将其冒充 M4A；失败暂存自动清理。
+ASR 读取精确的成功 audio prerequisite，运行解码、对齐、分块和 coverage/provenance，
+在取消检查后追加持久转录。
 
-### 查询与阅读站
+`workflow run --artifact-root` / `BILI_ARTIFACT_ROOT` 可指定独立产物写根，数据库仍位于
+archive root。音频、转录包和阅读文档写入产物根；读取先探测产物根，再回退到 archive root。
+当前 workflow 不提供 `--keep-audio`、`--max-audio-gb` 或成功后的自动音频回收。
+路径和现有策略入口见[产物根目录](artifact-root.md)、[音频保留与预算](audio-retention-policy.md)。
 
-`status` / `runs` 直接读 SQLite；`coverage`、`export`、`verify` 通过 `workflow_projection`
-合并数据库事实和文件存在性。`search-index` 建立可重建的 SQLite FTS5 派生表，`search` 读取
-转录文本并可用已发布 Markdown 补全；FTS 不是事实源。`dedup` 只计算音频与跨分片转录内容哈希，
-不选择 canonical，也不改写 provenance。
+## 发布与提交边界
 
-`reading-export` 以只读连接打开 `archive.db`，校验登记的 `reading.md` / `review.md` SHA-256，
-按审核状态生成静态 `reading-site/content` 快照。浏览器只接触 Markdown、catalog 和 Issue 链接，
-不接触 SQLite、原始转录、模型请求或凭据。`reading-review` 和 `reading-edit` 通过状态转换与
-append-only event 写回审核决定；人工 edition 以 parent 链保留，AI revision 不被覆盖。
+publish handler 按来源优先级选择持久转录，以字幕优先于 ASR，并在目录
+`transcripts/<stem>/` 发布 `bundle.srt`、`bundle.vtt`、`bundle.txt`、`bundle.md`、
+`bundle.raw.json`。原始 JSON 保存来源、segments 和可用的 ASR 证据。
+所有编码、哈希、暂存和暂存文件 fsync 在写锁外完成；最终五个文件替换、目录同步、
+`archive-bundle-v2` 完成标记和 `workflow_publications` 登记共享一个 SQLite 写锁与 lease guard。
+发布开始后的失败在释放写锁前使标记失效，防止旧 attempt 清理新 worker 的有效标记。
 
-## 模块职责与边界
+完成标记校验文件集合、相对路径与各文件摘要。缺文件、摘要不符或旧四文件 marker
+不能视为当前完整 bundle。`workflow publish --part-id ...` 可以从已存转录重新排队发布，
+随后用 `workflow run` 执行；publish 本身只读取已有转录，run 仍可能执行队列中其他就绪任务。
+命令和时间轴/文本规则见[WebVTT 与 bundle](webvtt.md)。
 
-- `bili_asr.cli` 解析参数、注册命令，并在命令边界解析 artifact root、凭据、代理和音频保留策略；它不实现阶段状态机。
-- `bili_asr.storage.workflow` 拥有 job planning、dependency eligibility、leases、attempt、retry、immutable ASR profile 和终态 outcome。profile 由配置 digest 版本化，变更配置不会修改已有 job 引用的 profile。
-- `storage.metadata`、`storage.transcripts` 与 acquisition services 拥有外部观察、字幕尝试、音频身份和持久转录事实。transcript version append-only；plan 时冻结 reference transcript，执行时读取精确的成功 audio prerequisite。
-- `bili_asr.asr` 拥有模型生命周期、解码、对齐、coverage、provenance 和有界的 CUDA/ROCm 子进程，但不直接写 workflow state 或发布文件。editorial handlers 同样只通过 repository 保存 snapshot、model-call、chunk、revision 和 document artifact。
-- `bili_asr.archive` 是对象发布边界：在 confined root 下写完整 bundle，在每次不可逆 replace 前接受 lease fence callback。`artifact_root`、`path_policy` 和 `audio_reclaim` 保证路径不越界、不跟随符号链接，并把回收策略与命令边界隔离。
-- `bili_asr.services.workflow_projection` 是 workflow 的只读投影；`coverage`、`export`、`verify` 读取 parts、transcript、publication 和 bundle layout，但不维护第二套执行状态机。
+SQLite 与文件系统不构成跨介质原子事务。进程崩溃、磁盘错误或 commit 失败可能留下
+文件/登记不一致；完成 marker、摘要检查与 verify 负责识别异常，显式重新发布负责恢复。
+这里的写锁解决合作 worker 的取消、抢占和失败清理竞态，不意味着掉电恢复恰好一次。
 
-## 状态所有权
+## 校对与阅读内容
 
-| 事实 | 权威所有者 | 派生读取者 |
-|---|---|---|
-| 视频、分 P、标签、分页证据 | `storage.metadata` | planner、status、export、projection |
-| 字幕尝试、转录版本、segments、coverage | `storage.transcripts` + ASR services | publisher、search、editorial、verify |
-| job、dependency、lease、attempt、profile | `storage.workflow` | executor、status、retry、handlers |
-| 音频对象身份与文件 key | `audio_objects` / `part_audio_objects` + `audio/` | ASR、budget、reclaim、verify |
-| bundle 发布身份 | `workflow_publications` + completion marker | coverage、export、verify |
-| 校对输入、调用、修订、文档 | `schema-editorial.sql` 表组 + Markdown 文件 | render、reading-export |
-| 搜索索引 | `search_index.store` 的 FTS5 表 | search |
+可选 proofread 分支冻结主转录、参考字幕、元数据、配置、提示词和分块。
+`DeepSeekClient` 在事务外发起 HTTPS JSON 请求；请求前后和每块提交均检查 lease，
+通过结构校验的块与完整修订分别在保护事务内保存。
+已完成块用于失败恢复，取消后不能继续提交新的块或完整修订；调用审计证据允许留存。
+来源恰好覆盖一次只证明追溯结构，不证明语义保真。
 
-SQLite workflow jobs 和 attempts 拥有调度与 outcome；任何 JSONL/manifest 只作为发布或审计产物，
-不能替代控制平面。缺失数据库的读命令不会隐式创建新状态；读取、导出、验证均应保持只读语义，
-写入只能发生在明确的采集、workflow、发布和审核命令中。
+render_document 读取已保存 revision，确定性生成 `reading.md` 与 `review.md`。
+文本生成和暂存在锁外，最终文件替换与 document artifact 登记共享租约保护事务；
+重新渲染不调用模型。配置、数据和验证说明见[AI 校对使用](ai-proofreading.md)、
+[AI 校对架构](ai-proofreading-architecture.md)。
+
+`reading-export` 以 SQLite `mode=ro` 连接选取修订，探测文件并验证登记 SHA-256，
+输出 catalog、阅读稿、审核稿及审核信息组成的静态内容快照。
+仓库不包含阅读站前端源码；该快照可供独立前端或发布系统消费。
+`reading-review` / `reading-edit` 保存审核状态、人工 edition 的 parent 链和 append-only event，
+不会覆写 AI revision 或原始转录。
+
+## 查询与数据所有权
+
+| 事实或产物 | 所有者 | 消费者 |
+| --- | --- | --- |
+| 视频、分 P、标签、分页证据 | `storage.metadata` | selector、status、metadata search、export |
+| acquisition、转录版本与 segments | `storage.transcripts` | publisher、ASR reference、editorial、projection |
+| job、dependency、lease、attempt、profile | `storage.workflow` | executor、handlers、status、retry、cancel |
+| 音频身份与文件 key | 音频表组 + confined `audio/` | ASR、verify、保留/预算工具 |
+| bundle 发布身份与完整性 | `workflow_publications` + marker + 五文件 | projection、coverage、export、verify、FTS |
+| 输入、模型调用、块、修订、文档 | editorial 表组 + Markdown | render、reading-export |
+| 审核、人工版与事件 | reading publication 表组 | reading-review/edit、reading-export |
+| 转录搜索索引 | `search_index.store` 的派生 FTS5 表 | transcripts/all 搜索 |
+| 阅读内容快照 | `reading-export` | 外部前端或静态发布系统 |
+
+`coverage`、`export`、`verify` 通过 `workflow_projection` 合并数据库事实与产物证据。
+verify/coverage 保留已声明 publication，才能报告坏 bundle，不能将发布缺陷静默变成待处理任务。
+`dedup` 计算音频与跨分片文本哈希，不选择 canonical 或改写来源。
+
+search 默认 `transcripts`，沿用 FTS 查询；`metadata` 直接只读查询当前 SQLite 标题、简介、标签，
+使用字面子串匹配，不要求 FTS 或产物文件。`all` 先返回元数据，再返回转录命中，共用 limit。
+日期过滤使用 UTC 日边界；元数据采用当前 pubdate，转录采用建索引时的快照。
+索引损坏明确报错；all 在索引缺失时可返回元数据并向 stderr 提示。
+JSON stdout 始终是数组。详见[元数据搜索](metadata-search.md)。
+
+## 运维与验证范围
+
+旧 schema 的 CHECK 约束不会被 `CREATE IF NOT EXISTS` 自动迁移。
+缺少新 workflow 类型或 cancelled attempt outcome 的库需要按当前 schema 重建，
+程序不会自动删除现有数据库。纯投影、搜索与 reading-export 使用只读连接；
+部分 status/runs 命令打开现有库时仍经过 schema 初始化，不能将其一概声明为无写入。
+
+当前离线测试覆盖选择、取消、真实下载器的暂存接口、发布和独立连接竞态、
+WebVTT、索引/元数据搜索、转录投影、租约、校对与读取契约。
+外网 B 站、真实 GPU 与付费模型调用另需运行环境验证。
+历史测试中仍有依赖已删除 manifest/coordinator/旧 CLI 的用例，完整历史测试集合未全部通过。
+图示和文档解释当前契约，不能替代行为测试或真实材料的人工准确率评估。
+
+本次总图通过 showcase、源码证据、浏览器和浅/深色检查；单轮位置修复后仍有
+63 处连线交叉，复杂跨域关系适合配合正文、节点选择和路径聚焦查看。
+AI 校对细节图无连线交叉；自动检查通过不等同于所有关系在全景中都容易辨认。
