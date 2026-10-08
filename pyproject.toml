@@ -32,7 +32,7 @@ dev = [
     "numpy>=1.26",
     "packaging>=24",
     "pytest>=8",
-    "coverage[toml]>=7.6",
+    "coverage[toml]>=7.10.6",
     "pip-audit>=2.7",
     "ruff>=0.15",
     "responses>=0.25",
@@ -87,3 +87,17 @@ markers = [
     "scale: opt-in local scale probe; skips unless BILI_SCALE=1",
     "slow: opt-in slow test",
 ]
+
+[tool.coverage.run]
+source = ["src"]
+branch = true
+parallel = true
+relative_files = true
+patch = ["subprocess", "_exit"]
+
+[tool.coverage.report]
+precision = 2
+show_missing = true
+
+[tool.coverage.paths]
+source = ["src/bili_asr", "*/site-packages/bili_asr", "*/src/bili_asr"]
