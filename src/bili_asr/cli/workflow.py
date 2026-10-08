@@ -3,17 +3,19 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
+from dataclasses import asdict
 from pathlib import Path
 from uuid import uuid4
 
-from bili_asr.asr import DEFAULT_ALIGNER_MODEL, DEFAULT_MODEL
+from bili_asr.asr import default_config
 from bili_asr.config import SESSDATA_ENV_VAR, resolve_sessdata
 from bili_asr.diagnostics import write_stderr
+from bili_asr.editorial import TEMPLATE_VERSION, EditorialConfig
 from bili_asr.storage import AsrPolicy, AsrProfile, WorkflowRepository, open_database
-from bili_asr.workflow import WorkflowExecutor
-from bili_asr.editorial import EditorialConfig, TEMPLATE_VERSION
 from bili_asr.storage.editorial import EditorialRepository
+from bili_asr.workflow import WorkflowExecutor
 
 
 def add_workflow_parser(subparsers: argparse._SubParsersAction, *, archive_root: str) -> None:
@@ -28,11 +30,20 @@ def add_workflow_parser(subparsers: argparse._SubParsersAction, *, archive_root:
     plan.add_argument("--asr-policy", choices=[item.value for item in AsrPolicy], default="all")
     plan.add_argument("--quality-threshold", type=float, default=None)
     plan.add_argument("--profile-key", default="qwen3-default")
-    plan.add_argument("--model", default=DEFAULT_MODEL)
-    plan.add_argument("--model-revision", default="")
-    plan.add_argument("--aligner", default=DEFAULT_ALIGNER_MODEL)
-    plan.add_argument("--device", default=os.environ.get("BILI_ASR_DEVICE", "cuda"))
+    plan.add_argument("--model", default=None)
+    plan.add_argument("--model-revision", default=None)
+    plan.add_argument("--aligner", default=None)
+    plan.add_argument("--aligner-revision", default=None)
+    plan.add_argument("--device", default=None)
     plan.add_argument("--language", default=None)
+    plan.add_argument("--chunk-seconds", type=float, default=None)
+    plan.add_argument("--inference-timeout", type=float, default=None)
+    plan.add_argument("--hotword", action="append", default=None)
+    plan.add_argument("--model-id", default=None)
+    plan.add_argument("--offline", action=argparse.BooleanOptionalAction, default=None)
+    plan.add_argument("--tokens-per-second", type=float, default=None)
+    plan.add_argument("--min-new-tokens", type=int, default=None)
+    plan.add_argument("--second-pass-cache", action=argparse.BooleanOptionalAction, default=None)
     plan.add_argument("--proofread", action="store_true", help="Queue AI proofreading after ASR and then render Markdown")
     _add_editorial_arguments(plan)
 
@@ -60,6 +71,11 @@ def add_workflow_parser(subparsers: argparse._SubParsersAction, *, archive_root:
 
     status = actions.add_parser("status", help="Print workflow job counts from SQLite")
     status.add_argument("--archive-root", default=archive_root)
+
+    evidence = actions.add_parser("asr-evidence", help="Print persisted ASR diagnostics for one acquisition run")
+    evidence.add_argument("--archive-root", default=archive_root)
+    evidence.add_argument("--run-id", required=True)
+    evidence.add_argument("--part-id", type=int, required=True)
 
     retry = actions.add_parser("retry", help="Requeue failed jobs while keeping attempt evidence")
     retry.add_argument("--archive-root", default=archive_root)
@@ -89,6 +105,15 @@ def _cmd_workflow(args: argparse.Namespace) -> int:
     connection = open_database(args.archive_root)
     try:
         repository = WorkflowRepository(connection)
+        if args.workflow_action == "asr-evidence":
+            from bili_asr.storage import TranscriptRepository
+
+            evidence = TranscriptRepository(connection).read_asr_evidence(args.run_id, args.part_id)
+            if evidence is None:
+                write_stderr("workflow asr-evidence: no evidence for this run and part")
+                return 1
+            print(json.dumps(evidence, ensure_ascii=False, indent=2, allow_nan=False))
+            return 0
         if args.workflow_action == "proofread":
             editorial = EditorialRepository(connection)
             try:
@@ -131,16 +156,26 @@ def _cmd_workflow(args: argparse.Namespace) -> int:
             print(f"workflow retry: requeued={count}")
             return 0
         if args.workflow_action == "plan":
-            profile = AsrProfile(
-                profile_key=args.profile_key,
-                model_name=args.model,
-                model_revision=args.model_revision,
-                aligner_name=args.aligner,
-                device=args.device,
-                language=args.language,
-            )
-            profile_id = repository.register_profile(profile)
             try:
+                names = {
+                    "model": "model_name", "aligner": "aligner_name",
+                    "inference_timeout": "inference_timeout_seconds",
+                    "second_pass_cache": "second_pass_use_cache",
+                    "hotword": "hotwords",
+                }
+                overrides = {}
+                for name in ("model", "model_revision", "aligner", "aligner_revision",
+                             "device", "language", "chunk_seconds", "inference_timeout",
+                             "hotword", "offline", "model_id", "tokens_per_second",
+                             "min_new_tokens", "second_pass_cache"):
+                    value = getattr(args, name)
+                    if value is not None:
+                        overrides[names.get(name, name)] = tuple(value) if name == "hotword" else value
+                values = asdict(default_config(**overrides))
+                values.pop("local_source")
+                values["model_revision"] = values["model_revision"] or ""
+                profile = AsrProfile(profile_key=args.profile_key, **values)
+                profile_id = repository.register_profile(profile)
                 plan = repository.plan(
                     part_ids=args.part_id,
                     policy=AsrPolicy(args.asr_policy),

@@ -1006,7 +1006,9 @@ def test_transaction_order_parents_before_children(tmp_root):
 def test_schema_inspection_matches_the_declared_contract(tmp_root):
     connection = open_database(tmp_root)
     try:
-        assert _table_names(connection) == BASE_TABLES | WORKFLOW_TABLES | EDITORIAL_TABLES | VIEWS
+        assert _table_names(connection) == BASE_TABLES | WORKFLOW_TABLES | EDITORIAL_TABLES | VIEWS | {
+            "workflow_asr_profile_configs", "transcript_asr_evidence",
+        }
 
         for table in BASE_TABLES:
             columns = [

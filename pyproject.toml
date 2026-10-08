@@ -45,7 +45,7 @@ asr = [
     "transformers>=5.13",
     # ``device_map=`` (the loader path both checkpoints use) requires accelerate.
     "accelerate>=1.0",
-    # Reading the archived audio and writing each chunk out again.
+    # Reading archived audio; processors receive decoded 16 kHz waveform arrays.
     "soundfile>=0.12",
     # Resampling when a part is not already 16 kHz mono.  ``soxr`` is what ``librosa.resample``
     # calls underneath at its default ``res_type="soxr_hq"``, so this is the same resampler without a

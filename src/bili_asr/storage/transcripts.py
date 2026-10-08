@@ -2,16 +2,28 @@
 
 from __future__ import annotations
 
-import bili_asr.storage.database as _module_storage_database
-
-
 import hashlib
 import json
 import math
 import sqlite3
-from typing import Mapping, Sequence
-from bili_asr.storage.models import ALLOWED_CAPTION_SOURCE_KINDS, ALLOWED_LOCAL_TRANSCRIPT_SOURCE_KINDS, ALLOWED_SOURCE_KINDS, MAX_TIMELINE_MS, AcquisitionRunRecord, TranscriptRecord, TranscriptSegmentRecord, TranscriptWriteResult, _choice, _error_code, _integer, _text
-import bili_asr.storage.database as _dependency_database
+from collections.abc import Mapping, Sequence
+from typing import Any
+
+import bili_asr.storage.database as _module_storage_database
+from bili_asr.storage.models import (
+    ALLOWED_CAPTION_SOURCE_KINDS,
+    ALLOWED_LOCAL_TRANSCRIPT_SOURCE_KINDS,
+    ALLOWED_SOURCE_KINDS,
+    MAX_TIMELINE_MS,
+    AcquisitionRunRecord,
+    TranscriptRecord,
+    TranscriptSegmentRecord,
+    TranscriptWriteResult,
+    _choice,
+    _error_code,
+    _integer,
+    _text,
+)
 
 
 def _language_code(value: object) -> str:
@@ -299,6 +311,7 @@ class TranscriptRepository:
         finished_at: int,
         created_at: int,
         coverage: Mapping[str, Any] | None = None,
+        asr_evidence: Mapping[str, Any] | None = None,
     ) -> TranscriptWriteResult:
         """Store one locally-produced transcript body as a transcript version.
 
@@ -361,6 +374,12 @@ class TranscriptRepository:
                     or short != int(ratio < coverage_min)):
                 raise ValueError("coverage evidence values are inconsistent")
             coverage_row = (decoded_s, produced_s, ratio, coverage_min, short)
+
+        evidence_json = None
+        if asr_evidence is not None:
+            if asr_evidence.get("schema_version") != 1:
+                raise ValueError("unsupported ASR evidence schema")
+            evidence_json = json.dumps(dict(asr_evidence), ensure_ascii=False, sort_keys=True, allow_nan=False)
 
         with _module_storage_database._transaction(self.connection):
             self._require_video_part(video_part_id)
@@ -451,6 +470,13 @@ class TranscriptRepository:
                     """,
                     (run_id, video_part_id, transcript_id, *coverage_row),
                 )
+            if evidence_json is not None:
+                self.connection.execute(
+                    "INSERT INTO transcript_asr_evidence "
+                    "(run_id, video_part_id, transcript_id, schema_version, evidence_json) "
+                    "VALUES (?, ?, ?, 1, ?)",
+                    (run_id, video_part_id, transcript_id, evidence_json),
+                )
 
         return TranscriptWriteResult(
             outcome=outcome,
@@ -469,6 +495,14 @@ class TranscriptRepository:
             (_text(run_id, "run_id"), _integer(video_part_id, "video_part_id", minimum=1)),
         ).fetchone()
         return dict(row) if row is not None else None
+
+    def read_asr_evidence(self, run_id: str, video_part_id: int) -> dict[str, Any] | None:
+        """Read exact run evidence, even when its text reused an existing version."""
+        row = self.connection.execute(
+            "SELECT evidence_json FROM transcript_asr_evidence WHERE run_id = ? AND video_part_id = ?",
+            (_text(run_id, "run_id"), _integer(video_part_id, "video_part_id", minimum=1)),
+        ).fetchone()
+        return json.loads(row["evidence_json"]) if row is not None else None
 
     def record_subtitle_attempt(
         self,

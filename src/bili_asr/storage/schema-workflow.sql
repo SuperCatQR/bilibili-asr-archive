@@ -19,6 +19,14 @@ CREATE TABLE IF NOT EXISTS workflow_asr_profiles (
 CREATE UNIQUE INDEX IF NOT EXISTS ux_workflow_asr_profiles_config
     ON workflow_asr_profiles(profile_key, config_sha256);
 
+-- Additive extension: legacy profile rows and their digests remain untouched.
+CREATE TABLE IF NOT EXISTS workflow_asr_profile_configs (
+    profile_id INTEGER PRIMARY KEY,
+    schema_version INTEGER NOT NULL CHECK (schema_version = 2),
+    config_json TEXT NOT NULL CHECK (json_valid(config_json)),
+    FOREIGN KEY (profile_id) REFERENCES workflow_asr_profiles(profile_id) ON DELETE RESTRICT
+);
+
 CREATE TABLE IF NOT EXISTS workflow_jobs (
     job_id TEXT PRIMARY KEY,
     kind TEXT NOT NULL CHECK (kind IN ('subtitle', 'audio', 'asr', 'publish', 'index', 'proofread', 'render_document')),
