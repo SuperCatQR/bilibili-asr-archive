@@ -50,15 +50,26 @@ def _cmd_fetch_meta(args) -> int:
         connection.close()
 
     print(f"sessdata: {redact_sessdata(config.sessdata)}")
-    print(f"fetch-meta: collected {result.page_count} page(s) for mid={config.mid} (outcome={result.outcome})")
+    print(f"fetch-meta: recorded {result.page_count} page(s) for mid={config.mid} "
+          f"(outcome={result.outcome}); collected_pages={result.collected_page_count} "
+          f"videos={result.video_count} parts={result.part_count}")
     if result.outcome in {"risk_interrupted", "failed"}:
+        if result.error_diagnostic is not None:
+            write_stderr(f"fetch-meta: diagnostic {result.error_diagnostic.format()}")
         if config.skip_failed_page and result.outcome == "failed" and result.next_cursor is not None:
             cursor_clause = f"cursor set to page {result.next_cursor.next_page} (the failed page was skipped)"
         elif result.next_cursor is not None:
             cursor_clause = f"cursor unchanged at page {result.next_cursor.next_page}"
         else:
             cursor_clause = "no cursor recorded"
-        write_stderr(f"fetch-meta: metadata gateway failure ({result.error_code}); {cursor_clause} — re-run fetch-meta to resume.")
+        if result.next_cursor is None:
+            recovery = (f"re-run fetch-meta with --start-page {config.start_page or 1}; "
+                        "--resume requires a stored cursor")
+        else:
+            recovery = "re-run fetch-meta without --start-page to continue from the stored cursor"
+        if result.error_code == "auth_error":
+            recovery = f"refresh BILI_SESSDATA before retrying; {recovery}"
+        write_stderr(f"fetch-meta: metadata gateway failure ({result.error_code}); {cursor_clause} — {recovery}.")
         return 2
     if result.next_cursor is not None:
         print(f"cursor: next_page={result.next_cursor.next_page} state={result.next_cursor.state}")

@@ -78,10 +78,23 @@ bili-asr fetch-meta --mid 123456 --limit-pages 2
 
 Each successful page advances a persisted cursor. Re-run `fetch-meta` to
 continue from that cursor, or pass `--resume` to require an existing cursor.
-An upstream gateway failure exits with code `2` (exit 2) and records the
-`risk_interrupted` cursor state without advancing past the failed page, unless
-`--skip-failed-page` was requested. `--start-page` explicitly overrides the
-cursor and can move it backwards.
+An upstream gateway failure exits with code `2`. Rate control records the
+page/run outcome `risk_interrupted` and preserves the existing cursor; a
+first-page failure can leave no cursor at all. Re-run without `--resume` in
+that case. Other failures record `failed`; `--skip-failed-page` can advance
+past those failures but never skips rate control. `--start-page` explicitly
+overrides the cursor and can move it backwards.
+
+The summary distinguishes page evidence (`recorded`) from successfully
+collected nonempty pages, videos and parts. Failure diagnostics report the
+operation and available HTTP status, API code or `wbi_retry_exhausted`
+reason, without raw upstream messages or credentials. `--page-retries 0`
+stops on the first failed upload-list attempt; opt into at most three retries
+with `--page-retries 1` through `3` (30/60/120 second cooldowns).
+When `BILI_SESSDATA` is configured, the gateway verifies login once before
+the first upload-list request. Rejected credentials stop with `auth_error`
+and require refreshing the cookie; they are not retried as rate control.
+Anonymous metadata collection does not add this login check.
 
 Choose one or more stored video-part IDs and plan producer jobs. The database ID can be inspected with SQLite:
 

@@ -30,6 +30,7 @@ from bili_asr.services._common import _now
 
 from bili_asr.sources.models import (
     BilibiliGateway,
+    GatewayDiagnostic,
     GatewayError,
     GatewayRateLimited,
     GatewayShapeError,
@@ -189,6 +190,8 @@ class IngestionRunResult:
     ``v_ingestion_run_stats``; ``video_count`` counts the distinct videos the
     run discovered; ``part_count`` counts the distinct parts the run upserted
     (part rows are not run-scoped, so this count reflects upsert coverage).
+    ``collected_page_count`` counts committed nonempty successful pages;
+    ``error_diagnostic`` is safe operator output and is not persisted.
     """
 
     run_id: str
@@ -199,6 +202,8 @@ class IngestionRunResult:
     video_count: int
     part_count: int
     error_code: str | None
+    collected_page_count: int
+    error_diagnostic: GatewayDiagnostic | None = None
 
 
 class MetadataIngestor:
@@ -316,10 +321,12 @@ class MetadataIngestor:
         )
 
         page_count = 0
+        collected_page_count = 0
         discovered_videos: set[str] = set()
         upserted_parts: set[tuple[str, int]] = set()
         outcome: RunOutcome = "complete"
         error_code: str | None = None
+        error_diagnostic: GatewayDiagnostic | None = None
         # Recent observations avoid repeated calls without growing with the
         # archive. A new run (including resume) starts fresh: persisted tags
         # are the last successful observation, not evidence of today's tags.
@@ -386,6 +393,7 @@ class MetadataIngestor:
                 )
                 outcome = run_outcome
                 error_code = error.code
+                error_diagnostic = error.diagnostic
                 page_count += 1
                 if skip_failed_page and page_outcome == "failed":
                     # The escape hatch (D-3).  A page whose outcome mapped to
@@ -455,6 +463,7 @@ class MetadataIngestor:
                 _observed_tag_sets(summaries, tags_by_video),
             )
             page_count += 1
+            collected_page_count += 1
             discovered_videos.update(summary.bvid for summary in summaries)
             for parts in parts_by_video.values():
                 upserted_parts.update(
@@ -489,6 +498,8 @@ class MetadataIngestor:
             video_count=len(discovered_videos),
             part_count=len(upserted_parts),
             error_code=error_code,
+            collected_page_count=collected_page_count,
+            error_diagnostic=error_diagnostic,
         )
 
     async def _fetch_user_page(
