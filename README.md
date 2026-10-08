@@ -49,6 +49,11 @@ Package boundaries:
 
 Python 3.12 or later is required.
 
+For production, use the [Miniconda deployment guide](docs/miniconda-deployment.md).
+It covers isolated Python 3.12 environments, pinned application dependencies,
+AMD WSL and NVIDIA preflight, non-interactive startup, and deployment evidence.
+`check-asr-env` is an AMD WSL check, not a general CUDA support check.
+
 ```powershell
 uv sync --extra dev
 ```

@@ -138,6 +138,10 @@ command reach some other interpreter.)
 
 ## The recipe
 
+For new production deployments use the [Miniconda guide](miniconda-deployment.md).
+The system driver/ROCm/DXG steps below still apply, but its Conda environment
+and non-interactive startup replace the venv-specific installation steps.
+
 The steps are ordered as the stages that depend on them. Three conventions for the commands
 below: `PRODUCT` is the path to the checkout's repository root. Yours is
 wherever you cloned the repository, so export it once as
