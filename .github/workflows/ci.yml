@@ -37,7 +37,7 @@ jobs:
             uv.lock
 
       - name: Install development tools
-        run: python -m pip install --upgrade pip && python -m pip install -e ".[dev]"
+        run: python -m pip install "ruff>=0.15"
 
       # The repository is being migrated toward full Ruff coverage. E9 is the
       # zero-noise, blocking subset that catches syntax failures today without
@@ -96,11 +96,13 @@ jobs:
             pyproject.toml
             uv.lock
 
-      - name: Install ffmpeg
+      - name: Ensure ffmpeg is available
         run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq ffmpeg
-          ffmpeg -version | head -1
+          if ! ffmpeg -version > /dev/null 2>&1; then
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq --no-install-recommends ffmpeg
+          fi
+          ffmpeg -version
 
       - name: Install test dependencies
         run: |
@@ -215,10 +217,9 @@ jobs:
             pyproject.toml
             uv.lock
 
-      - name: Install test dependencies
-        run: |
-          python -m pip install --upgrade pip setuptools wheel
-          python -m pip install -e ".[dev]"
+      # Reporting reads the checked-out sources; it does not import the project.
+      - name: Install coverage tooling
+        run: python -m pip install "coverage[toml]>=7.6"
 
       - name: Download shard coverage data
         uses: actions/download-artifact@v7
