@@ -11,6 +11,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Mapping, NamedTuple
 
+from bili_asr.cue_models import Cue
+
 from .archive import LOW_CONFIDENCE, bundle_paths_for_stem
 from .artifact_root import ArtifactRoots
 from bili_asr.asr.constants import _FORBIDDEN_PROVENANCE as _FORBIDDEN_MARKER
@@ -124,20 +126,6 @@ _NAME_CREDENTIAL = re.compile(
     r"(?:^|[^A-Za-z])(?:sessdata|cookie|token|password|secret|credential)(?![A-Za-z])",
     re.IGNORECASE,
 )
-class Cue(NamedTuple):
-    """One cue, as the single parser reads it from any artifact shape.
-
-    ``confidence`` is the model's own per-cue score when the artifact records it
-    (the raw sidecar does, an SRT does not); ``None`` means not recorded, never
-    "low".
-    """
-
-    start: float
-    end: float
-    text: str
-    confidence: float | None
-
-
 class ReferenceUnavailable(ValueError):
     """A supplied reference transcript cannot be used for comparison.
 

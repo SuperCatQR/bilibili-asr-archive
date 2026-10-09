@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
+from dataclasses import dataclass
 import os
 from pathlib import Path
 import stat
 import threading
-from typing import Iterator
+from typing import Callable, Iterator
 
 
 class ArchiveAccessError(ValueError):
@@ -19,6 +20,25 @@ class ArchiveBusyError(ArchiveAccessError):
 
 
 _HELD = threading.local()
+
+
+@dataclass
+class _AccessLease:
+    exclusive: bool
+    descriptor: int
+    unlock: Callable[[], None]
+    users: int = 1
+
+
+def _release_access(held: dict[str, _AccessLease], key: str, lease: _AccessLease) -> None:
+    lease.users -= 1
+    if lease.users:
+        return
+    held.pop(key, None)
+    try:
+        lease.unlock()
+    finally:
+        os.close(lease.descriptor)
 
 
 def _windows_lock(fd: int, *, exclusive: bool):
@@ -90,9 +110,16 @@ def archive_access(
         held = {}
         _HELD.locks = held
     if key in held:
-        if exclusive and not held[key]:
+        lease = held[key]
+        if exclusive and not lease.exclusive:
             raise ArchiveBusyError("archive_busy: cannot upgrade active writer access")
-        yield
+        # Independently opened connections may close in either order. Keep the
+        # kernel lease until every nested user releases its own access.
+        lease.users += 1
+        try:
+            yield
+        finally:
+            _release_access(held, key, lease)
         return
 
     fd = None
@@ -125,13 +152,9 @@ def archive_access(
             os.close(fd)
         raise
 
-    held[key] = exclusive
+    lease = _AccessLease(exclusive, fd, unlock)
+    held[key] = lease
     try:
         yield
     finally:
-        held.pop(key, None)
-        try:
-            if unlock is not None:
-                unlock()
-        finally:
-            os.close(fd)
+        _release_access(held, key, lease)

@@ -5,7 +5,6 @@ from __future__ import annotations
 from contextlib import contextmanager
 from datetime import datetime, timezone
 import errno
-import hashlib
 import json
 import lzma
 import os
@@ -16,15 +15,22 @@ import stat
 import tempfile
 import time
 from typing import BinaryIO, Iterator
-import unicodedata
 import uuid
 import zipfile
 import zlib
 
 from bili_asr import __version__
-from bili_asr.archive import BUNDLE_MARKER_NAME, _BUNDLE_BASENAMES as _BUNDLE_NAMES
-from bili_asr.archive_maintenance import archive_access
-from bili_asr.artifacts import BUNDLE_SCHEMA
+from bili_asr.artifact_inventory import (
+    require_no_links as _no_links,
+    portable_artifact_parts as _path_key,
+    check_artifact_collisions as _check_path_collisions,
+    require_regular_file as _regular_file,
+    collect_artifacts as _collect_artifacts,
+    stream_hash as _stream_hash,
+)
+from bili_asr.archive_session import ArchiveAccessMode, ArchiveSession
+from bili_asr.storage.database import connect_database
+from bili_asr.artifacts import BUNDLE_SCHEMA, BUNDLE_MARKER_NAME, BUNDLE_BASENAMES as _BUNDLE_NAMES
 from bili_asr.storage.snapshots import (
     create_database_snapshot,
     recover_interrupted_jobs,
@@ -36,13 +42,9 @@ from bili_asr.storage.snapshots import (
 _FORMAT = "bili-asr-snapshot"
 _FORMAT_VERSION = 1
 _MANIFEST_NAME = "snapshot.json"
-_ARTIFACT_DIRECTORIES = frozenset({"audio", "transcripts", "documents", "subtitles", "publications"})
-_CHUNK_SIZE = 1024 * 1024
 _MANIFEST_LIMIT = 16 * 1024 * 1024
 _MARKER_LIMIT = 8192
 _HASH_PATTERN = re.compile(r"[0-9a-f]{64}\Z")
-_RESERVED_PATTERN = re.compile(r"(?:CON|PRN|AUX|NUL|COM[1-9\u00b9\u00b2\u00b3]|LPT[1-9\u00b9\u00b2\u00b3])\Z", re.IGNORECASE)
-_TEMP_SUFFIXES = frozenset({".tmp", ".temp", ".partial", ".part", ".download"})
 
 
 class SnapshotError(ValueError):
@@ -64,102 +66,6 @@ def _absolute(path: Path) -> Path:
     return Path(os.path.abspath(path))
 
 
-def _no_links(path: Path) -> None:
-    for component in (path, *path.parents):
-        if component.is_symlink() or (
-            hasattr(component, "is_junction") and component.is_junction()
-        ):
-            raise SnapshotError(f"snapshot paths cannot use symlinks or junctions: {component}")
-
-
-def _path_key(path: str) -> tuple[str, ...]:
-    if not isinstance(path, str) or not path or "\\" in path:
-        raise SnapshotError(f"unsafe snapshot path: {path!r}")
-    parts = tuple(path.split("/"))
-    for part in parts:
-        if (not part or part in {".", ".."} or part.endswith((".", " "))
-                or any(ord(char) < 32 or ord(char) == 127 or char in '<>:"|?*' for char in part)
-                or len(part.encode("utf-8")) > 255
-                or _RESERVED_PATTERN.fullmatch(part.split(".", 1)[0].rstrip(" "))):
-            raise SnapshotError(f"unsafe or non-portable snapshot path: {path!r}")
-    if path != "archive.db" and (len(parts) < 2 or parts[0] not in _ARTIFACT_DIRECTORIES):
-        raise SnapshotError(f"unsupported snapshot artifact path: {path!r}")
-    return parts
-
-
-def _canonical(path: str) -> str:
-    return unicodedata.normalize("NFC", path).casefold()
-
-
-def _check_path_collisions(paths: list[str]) -> None:
-    files: set[str] = set()
-    prefixes: dict[str, str] = {}
-    for path in paths:
-        parts = _path_key(path)
-        canonical = _canonical(path)
-        if canonical in files:
-            raise SnapshotError(f"duplicate or colliding snapshot path: {path}")
-        files.add(canonical)
-        for length in range(1, len(parts) + 1):
-            prefix = "/".join(parts[:length])
-            key = _canonical(prefix)
-            previous = prefixes.setdefault(key, prefix)
-            if previous != prefix:
-                raise SnapshotError(f"case or Unicode collision: {previous!r} and {prefix!r}")
-    for path in paths:
-        parts = path.split("/")
-        if any(_canonical("/".join(parts[:length])) in files
-               for length in range(1, len(parts))):
-            raise SnapshotError(f"snapshot file is also a parent directory: {path}")
-
-
-def _regular_file(path: Path) -> os.stat_result:
-    info = path.lstat()
-    if not stat.S_ISREG(info.st_mode):
-        raise SnapshotError(f"snapshot source is not a regular file: {path}")
-    _no_links(path)
-    return info
-
-
-def _temporary_component(name: str) -> bool:
-    return (name.startswith((".audio-stage-", ".workflow-audio-", ".archive-bundle-stage-", ".bili-asr-probe-", ".render-", ".import-", ".manuscript-"))
-            or name == ".tmp"
-            or Path(name).suffix.lower() in _TEMP_SUFFIXES)
-
-
-def _collect_artifacts(bases: tuple[Path, ...]) -> dict[str, Path]:
-    found: dict[str, Path] = {}
-
-    def unreadable(error: OSError) -> None:
-        raise SnapshotError(f"artifact directory cannot be fully read: {error.filename}") from error
-
-    for base in bases:
-        _no_links(base)
-        if not base.is_dir():
-            raise SnapshotError(f"archive or artifact root is not a directory: {base}")
-        for name in sorted(_ARTIFACT_DIRECTORIES):
-            directory = base / name
-            if not directory.exists() and not directory.is_symlink():
-                continue
-            if directory.is_symlink() or not directory.is_dir():
-                raise SnapshotError(f"artifact directory is unsafe: {directory}")
-            for current, directories, files in os.walk(directory, followlinks=False, onerror=unreadable):
-                current_path = Path(current)
-                for entry in sorted(directories + files):
-                    path = current_path / entry
-                    if _temporary_component(entry):
-                        raise SnapshotError(f"unfinished temporary artifact must be resolved before saving: {path}")
-                    _no_links(path)
-                for entry in sorted(files):
-                    path = current_path / entry
-                    _regular_file(path)
-                    key = path.relative_to(base).as_posix()
-                    _path_key(key)
-                    found.setdefault(key, path)
-    _check_path_collisions(list(found))
-    return found
-
-
 def _sync_file(stream: BinaryIO) -> None:
     stream.flush()
     os.fsync(stream.fileno())
@@ -177,17 +83,6 @@ def _sync_directory(path: Path) -> None:
                 raise
     finally:
         os.close(descriptor)
-
-
-def _stream_hash(source: BinaryIO, destination: BinaryIO | None = None) -> tuple[int, str]:
-    digest = hashlib.sha256()
-    size = 0
-    while chunk := source.read(_CHUNK_SIZE):
-        digest.update(chunk)
-        size += len(chunk)
-        if destination is not None:
-            destination.write(chunk)
-    return size, digest.hexdigest()
 
 
 def _check_references(database: Path, files: dict[str, dict[str, object]]) -> None:
@@ -234,7 +129,9 @@ def _check_bundle_markers(bundle: zipfile.ZipFile, files: dict[str, dict[str, ob
 
 
 def _refuse_active_jobs(database: Path) -> None:
-    connection = sqlite3.connect(f"{database.as_uri()}?mode=ro", uri=True)
+    # Source coordination belongs to save_snapshot; a private staging database
+    # must not create a permanent maintenance lock beside its temporary root.
+    connection = connect_database(database, readonly=True, must_exist=True)
     try:
         row = connection.execute(
             "SELECT job_id FROM workflow_jobs WHERE status = 'running' "
@@ -270,7 +167,7 @@ def save_snapshot(archive_root: Path, out: Path, *, artifact_root: Path | None =
         if output.exists():
             raise SnapshotError(f"snapshot output already exists: {output}")
         output.parent.mkdir(parents=True, exist_ok=True)
-        with archive_access(root, exclusive=True, create_root=False):
+        with ArchiveSession(root, mode=ArchiveAccessMode.MAINTENANCE).access():
             source_database = root / "archive.db"
             _regular_file(source_database)
             validate_snapshot_database(source_database)
@@ -443,7 +340,7 @@ def restore_snapshot(snapshot: Path, archive_root: Path) -> dict:
         if path.resolve().is_relative_to(root.resolve()):
             raise SnapshotError("restore target cannot contain the source snapshot")
         root.parent.mkdir(parents=True, exist_ok=True)
-        with archive_access(root, exclusive=True, create_root=True):
+        with ArchiveSession(root, mode=ArchiveAccessMode.MAINTENANCE).access(allow_missing=True):
             _empty_destination(root)
             with tempfile.TemporaryDirectory(prefix=f".{root.name}.restore-stage-", dir=root.parent) as temporary:
                 temporary_root = Path(temporary)

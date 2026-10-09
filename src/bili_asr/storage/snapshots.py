@@ -12,12 +12,13 @@ import sqlite3
 import time
 from typing import Any
 
-from bili_asr.archive import BUNDLE_MARKER_NAME, _owned_bundle_parts
-from bili_asr.artifacts import REQUIRED_ARTIFACT_KEYS
+from bili_asr.artifacts import BUNDLE_MARKER_NAME, REQUIRED_ARTIFACT_KEYS, owns_bundle_paths
+from bili_asr.artifact_inventory import ArtifactInventoryError, portable_artifact_parts
 from bili_asr.storage.database import (
     _normalize_view_sql,
     _strip_sql_comments,
     initialize_schema,
+    connect_database,
     require_manuscript_schema,
     SchemaContractError,
 )
@@ -26,7 +27,6 @@ from bili_asr.storage.database import (
 _BACKUP_TIMEOUT_SECONDS = 10.0
 _PUBLICATION_KEYS = REQUIRED_ARTIFACT_KEYS
 _HASH = re.compile(r"[0-9a-f]{64}\Z")
-_WINDOWS_DEVICE = re.compile(r"(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)", re.I)
 
 
 class SnapshotDatabaseError(ValueError):
@@ -37,11 +37,8 @@ def _connect(database_path: Path, *, readonly: bool = True) -> sqlite3.Connectio
     path = Path(database_path).resolve()
     if not path.is_file():
         raise SnapshotDatabaseError(f"archive database is missing: {path}")
-    mode = "ro" if readonly else "rw"
-    connection = sqlite3.connect(
-        path.as_uri() + f"?mode={mode}", uri=True, timeout=0.2
-    )
-    connection.execute("PRAGMA foreign_keys = ON")
+    connection = connect_database(path, readonly=readonly, must_exist=True, busy_timeout_ms=200)
+    connection.row_factory = None
     return connection
 
 
@@ -210,14 +207,10 @@ def create_database_snapshot(source_db: Path, target_db: Path) -> str:
 
 
 def _portable_key(value: object) -> str:
-    if not isinstance(value, str) or not value or value.startswith("/") or "\\" in value:
-        raise SnapshotDatabaseError(f"invalid portable artifact path: {value!r}")
-    parts = value.split("/")
-    for part in parts:
-        if (part in ("", ".", "..") or part[-1:] in (".", " ")
-                or any(ord(char) < 32 or char in '<>:"|?*' for char in part)
-                or _WINDOWS_DEVICE.match(part)):
-            raise SnapshotDatabaseError(f"invalid portable artifact path: {value!r}")
+    try:
+        portable_artifact_parts(value)
+    except ArtifactInventoryError as exc:
+        raise SnapshotDatabaseError(f"invalid portable artifact path: {value!r}") from exc
     return value
 
 
@@ -266,7 +259,7 @@ def required_artifacts(database_path: Path) -> dict[str, str | None]:
                 payload = _object(raw, "workflow publication artifacts")
                 for key in _PUBLICATION_KEYS:
                     add(payload.get(key))
-                if set(payload) != set(_PUBLICATION_KEYS) or not _owned_bundle_parts(payload):
+                if set(payload) != set(_PUBLICATION_KEYS) or not owns_bundle_paths(payload):
                     raise SnapshotDatabaseError("workflow publication artifacts do not describe one complete bundle")
                 add(str(PurePosixPath(payload["srt_path"]).parent / BUNDLE_MARKER_NAME))
             for key, digest in connection.execute(
@@ -276,14 +269,13 @@ def required_artifacts(database_path: Path) -> dict[str, str | None]:
             # All immutable release files travel with the archive, including
             # superseded and withdrawn history. Verify their approved identity
             # without materializing artifacts during a streamed snapshot check.
-            from bili_asr.publication import _verify_release_identity
-            from bili_asr.storage.publication import PublicationRepository
+            from bili_asr.storage.publication import PublicationRepository, verify_release_identity
 
             connection.row_factory = sqlite3.Row
             repository = PublicationRepository(connection)
             for row in connection.execute("SELECT release_id FROM publication_releases"):
                 release = repository.release(row["release_id"])
-                _verify_release_identity(connection, release)
+                verify_release_identity(connection, release)
                 add(release["relative_path"], release["artifact_sha256"])
             invalid_head = connection.execute(
                 "SELECT h.video_part_id FROM publication_heads h "

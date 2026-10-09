@@ -5,7 +5,6 @@ from __future__ import annotations
 from bili_asr.diagnostics import write_stderr
 
 import argparse
-from pathlib import Path
 import sys
 import sqlite3
 from bili_asr.storage.database import SchemaContractError, SQLITE_BUSY_TIMEOUT_ENV
@@ -20,8 +19,9 @@ from bili_asr.artifact_root import (
     ArtifactRootError,
     roots_for,
 )
-from bili_asr.cli.parser import build_parser
-from bili_asr.archive_maintenance import ArchiveAccessError, archive_access
+from bili_asr.cli.parser import build_parser as build_parser
+from bili_asr.archive_maintenance import ArchiveAccessError
+from bili_asr.archive_session import ArchiveSession
 
 from bili_asr.cli.registry import (
     COMMANDS,
@@ -76,18 +76,14 @@ def _main(
         except (ArtifactRootError, OSError, ValueError, RuntimeError) as exc:
             write_stderr(f"{args.command}: {exc}")
             return 1
-    # Include commands that initialize schema or rebuild FTS, even when their
-    # main purpose is querying. Snapshot service owns its exclusive access.
-    writes_archive = args.command in {
-        "fetch-meta", "fetch-tags", "workflow", "search-index",
-    } or (args.command == "publication" and args.publication_action in {
-        "create", "edit", "sync-source-tags", "review", "publish", "withdraw",
-    }) or (args.command == "search" and args.rebuild) or (
-        args.command in {"status", "runs"} and (Path(args.archive_root) / "archive.db").is_file()
-    )
+    # Database access is declared by the command/action, independently of
+    # artifact policy. The handler owns connection and transaction lifetimes.
+    database_policy = spec.database_for(args)
     try:
-        if writes_archive:
-            with archive_access(args.archive_root):
+        if database_policy is not None:
+            session = ArchiveSession(getattr(args, spec.archive_argument), mode=database_policy,
+                                     artifact_roots=getattr(args, "artifact_roots", None))
+            with session.access(allow_missing=True):
                 return _cli_pkg._dispatch_command(args)
         return _cli_pkg._dispatch_command(args)
     except (ArchiveAccessError, SchemaContractError) as exc:

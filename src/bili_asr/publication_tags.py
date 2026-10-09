@@ -4,7 +4,8 @@ from __future__ import annotations
 from copy import deepcopy
 import sqlite3
 
-from bili_asr.storage.publication import PublicationRepository
+from bili_asr.storage.publication import PublicationRepository, read_edition
+from bili_asr.publication_content import normalize_actor, normalize_text, normalize_content
 
 
 def source_tags(connection: sqlite3.Connection, bvid: str) -> list[str]:
@@ -23,11 +24,10 @@ def tag_coverage(connection: sqlite3.Connection, bvid: str) -> str:
 
 def sync_source_tags(connection: sqlite3.Connection, *, edition_id: str, actor: str, note: str) -> dict:
     """Create a pending-review edition with source tags and the exact parent CAS."""
-    from bili_asr.publication import _actor, _text, get_edition, normalize_content
-    actor, note = _actor(actor), _text(note, "note", nonempty=True)
+    actor, note = normalize_actor(actor), normalize_text(note, "note", nonempty=True)
     repository = PublicationRepository(connection)
     with repository.transaction():
-        parent = get_edition(connection, edition_id)
+        parent = read_edition(connection, edition_id)
         bvid = parent["content"]["source"]["bvid"]
         coverage = tag_coverage(connection, bvid)
         if coverage in {"not_attempted", "unavailable"}:

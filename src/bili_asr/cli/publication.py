@@ -11,27 +11,13 @@ import sqlite3
 from bili_asr.cli._shared import _ARTIFACT_ROOT_HELP
 from bili_asr.cli.registry import ArtifactPolicy
 from bili_asr.diagnostics import write_stderr
+from bili_asr.archive_session import ArchiveAccessMode, ArchiveContract, open_archive_connection
 
 
 def archive_connection(archive_root: str, *, readonly: bool = True) -> sqlite3.Connection:
-    from bili_asr.storage.database import require_manuscript_schema
-    from bili_asr.manuscript_files import secure_path
-
-    path = secure_path(Path(archive_root), "archive.db")
-    if not path.is_file():
-        raise FileNotFoundError(f"no archive database at {path}")
-    mode = "ro" if readonly else "rw"
-    connection = sqlite3.connect(f"{path.as_uri()}?mode={mode}", uri=True)
-    connection.row_factory = sqlite3.Row
-    try:
-        require_manuscript_schema(connection)
-        connection.execute("PRAGMA foreign_keys = ON")
-        if readonly:
-            connection.execute("PRAGMA query_only = ON")
-        return connection
-    except BaseException:
-        connection.close()
-        raise
+    return open_archive_connection(archive_root,
+        mode=ArchiveAccessMode.READ if readonly else ArchiveAccessMode.WRITE,
+        contract=ArchiveContract.MANUSCRIPT)
 
 
 def validate_archive(archive_root: str) -> None:
@@ -135,10 +121,11 @@ def _cmd_publication(args: argparse.Namespace) -> int:
         return 1
 
 
-def _common(parser, archive_root, *, artifacts=ArtifactPolicy.NONE, actor=False, note=False):
+def _common(parser, archive_root, *, artifacts=ArtifactPolicy.NONE, actor=False, note=False,
+            database=ArchiveAccessMode.READ):
     parser.add_argument("--archive-root", default=archive_root)
     parser.add_argument("--format", choices=("text", "json"), default="text")
-    parser.set_defaults(artifact_policy=artifacts)
+    parser.set_defaults(artifact_policy=artifacts, database_policy=database)
     if artifacts is not ArtifactPolicy.NONE:
         parser.add_argument("--artifact-root", default=None, help=_ARTIFACT_ROOT_HELP)
     if actor:
@@ -151,23 +138,23 @@ def add_publication_parser(subparsers, *, archive_root: str) -> None:
     parser = subparsers.add_parser("publication", help="Edit, review and explicitly release 发布稿")
     actions = parser.add_subparsers(dest="publication_action", required=True)
     create = actions.add_parser("create", help="Create a pending edition from AI 合成稿件")
-    _common(create, archive_root, artifacts=ArtifactPolicy.READ, actor=True)
+    _common(create, archive_root, artifacts=ArtifactPolicy.READ, actor=True, database=ArchiveAccessMode.WRITE)
     create.add_argument("--revision-id", required=True)
     create.add_argument("--expected-edition-id", default=None)
     create.add_argument("--note", default="")
 
     edit = actions.add_parser("edit", help="Save an immutable edition using the expected parent")
-    _common(edit, archive_root, actor=True, note=True)
+    _common(edit, archive_root, actor=True, note=True, database=ArchiveAccessMode.WRITE)
     edit.add_argument("--edition-id", required=True, help="Expected current parent edition")
     edit.add_argument("--markdown-file", required=True)
     edit.add_argument("--metadata-file", default=None, help="Strict JSON with allowed reader fields")
 
     sync_tags = actions.add_parser("sync-source-tags", help="Freeze original video tags into a new pending-review edition")
-    _common(sync_tags, archive_root, actor=True, note=True)
+    _common(sync_tags, archive_root, actor=True, note=True, database=ArchiveAccessMode.WRITE)
     sync_tags.add_argument("--edition-id", required=True, help="Expected current parent edition")
 
     review = actions.add_parser("review", help="Review a specific edition and its complete content hash")
-    _common(review, archive_root, actor=True, note=True)
+    _common(review, archive_root, actor=True, note=True, database=ArchiveAccessMode.WRITE)
     review.add_argument("--edition-id", required=True)
     review.add_argument("--status", required=True,
                         choices=("in-review", "changes-requested", "approved", "rejected"))
@@ -177,12 +164,12 @@ def add_publication_parser(subparsers, *, archive_root: str) -> None:
     review.add_argument("--issue-url", default=None)
 
     publish = actions.add_parser("publish", help="Materialize publish.md from an approved edition")
-    _common(publish, archive_root, artifacts=ArtifactPolicy.WRITE, actor=True)
+    _common(publish, archive_root, artifacts=ArtifactPolicy.WRITE, actor=True, database=ArchiveAccessMode.WRITE)
     publish.add_argument("--edition-id", required=True)
     publish.add_argument("--expected-release-id", default=None)
 
     withdraw = actions.add_parser("withdraw", help="Withdraw the specified release, retaining its history")
-    _common(withdraw, archive_root, actor=True, note=True)
+    _common(withdraw, archive_root, actor=True, note=True, database=ArchiveAccessMode.WRITE)
     withdraw.add_argument("--release-id", required=True)
 
     show = actions.add_parser("show", help="Read edition content, review hash and draft/release pointers")

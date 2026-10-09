@@ -84,13 +84,30 @@ def sqlite_busy_timeout_ms() -> int:
     return value
 
 
-def connect_database(path: str | os.PathLike[str], *, busy_timeout_ms: int | None = None) -> DatabaseConnection:
+def connect_database(
+    path: str | os.PathLike[str], *, busy_timeout_ms: int | None = None,
+    readonly: bool = False, must_exist: bool = False,
+    factory: type[sqlite3.Connection] = sqlite3.Connection,
+) -> DatabaseConnection:
     """Open a thread-owned connection; callers decide whether to bootstrap."""
     timeout = sqlite_busy_timeout_ms() if busy_timeout_ms is None else busy_timeout_ms
-    connection = sqlite3.connect(path, isolation_level="DEFERRED", timeout=timeout / 1000)
-    connection.row_factory = sqlite3.Row
-    connection.execute("PRAGMA foreign_keys = ON")
-    connection.execute(f"PRAGMA busy_timeout = {int(timeout)}")
+    if type(timeout) is not int or not 1 <= timeout <= 300_000:
+        raise ValueError("busy_timeout_ms must be an integer from 1 to 300000")
+    if readonly or must_exist:
+        target = Path(path).absolute().as_uri() + ("?mode=ro" if readonly else "?mode=rw")
+    else:
+        target = path
+    connection = sqlite3.connect(target, uri=readonly or must_exist, factory=factory,
+                                 isolation_level="DEFERRED", timeout=timeout / 1000)
+    try:
+        connection.row_factory = sqlite3.Row
+        connection.execute("PRAGMA foreign_keys = ON")
+        connection.execute(f"PRAGMA busy_timeout = {int(timeout)}")
+        if readonly:
+            connection.execute("PRAGMA query_only = ON")
+    except BaseException:
+        connection.close()
+        raise
     return connection
 
 
@@ -511,25 +528,37 @@ def initialize_schema(connection: sqlite3.Connection) -> sqlite3.Connection:
     connection.execute("PRAGMA foreign_keys = ON")
     if connection.execute("PRAGMA foreign_keys").fetchone()[0] != 1:
         raise sqlite3.DatabaseError("SQLite foreign-key enforcement could not be enabled")
-    tables = {name: _normalize_view_sql(sql) for name, sql in connection.execute(
-        "SELECT name, sql FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'"
-    )}
-    if tables:
-        for name, expected in _shipped_table_contract().items():
-            if not accepts_manuscripts and name in _manuscript_schema_objects():
-                continue
-            # This additive observation table carries no existing data contract.
-            # It can be bootstrapped without rewriting source tags or manuscripts.
-            if name == "video_tag_observations" and name not in tables:
-                continue
-            if tables.get(name) != expected:
-                raise _rebuild_error(f"unsupported table {name}")
+    require_archive_schema(connection, allow_empty=True)
     scripts = _schema_scripts() if accepts_manuscripts else _schema_scripts()[:-1]
     for script in scripts:
         connection.executescript(script)
     refresh_shipped_views(connection)
     connection.commit()
     return connection
+
+
+def require_archive_schema(connection: sqlite3.Connection, *, allow_empty: bool = False) -> None:
+    """Check existing runtime tables using reads only; never upgrade an archive.
+
+    Metadata-only archives and the optional tag-observation table retain the
+    compatibility accepted by explicit bootstrap. Missing manuscript tables
+    remain a separate command contract, not an implicit schema upgrade.
+    """
+    accepts_manuscripts = _accepts_manuscript_script(connection)
+    tables = {name: _normalize_view_sql(sql) for name, sql in connection.execute(
+        "SELECT name, sql FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'"
+    )}
+    if not tables:
+        if allow_empty:
+            return
+        raise _rebuild_error("archive schema missing")
+    for name, expected in _shipped_table_contract().items():
+        if not accepts_manuscripts and name in _manuscript_schema_objects():
+            continue
+        if name == "video_tag_observations" and name not in tables:
+            continue
+        if tables.get(name) != expected:
+            raise _rebuild_error(f"unsupported table {name}")
 
 
 def require_subtitle_schema(connection: sqlite3.Connection) -> None:
@@ -601,14 +630,13 @@ def _transaction(connection: sqlite3.Connection) -> Iterator[sqlite3.Connection]
 
 __all__ = [
     "DatabaseConnection",
-    "MetadataRepository",
     "SchemaContractError",
-    "TranscriptRepository",
     "duration_to_ms",
     "initialize_schema",
     "normalize_page_index",
     "open_database",
     "require_subtitle_schema",
+    "require_archive_schema",
     "require_manuscript_schema",
     "require_editorial_schema",
 ]
