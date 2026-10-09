@@ -1,6 +1,6 @@
 # 任务认领、心跳、取消、租约回收与重试
 
-源码基线：main `9b289570494b5e8f7cc564a7eaa5b2eb2c28c3ad`。
+源码基线：main `48b31843510e5b1d78ee4f1448cec6dee7ab2296`。
 
 [交互时序图](04-lease-cancel-retry.html) · [Archify 规格](04-lease-cancel-retry.json) · [全部时序图](../architecture-sequences.md)
 

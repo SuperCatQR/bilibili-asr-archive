@@ -8,7 +8,7 @@
     "quality_profile": "showcase",
     "repository": {
       "url": "https://github.com/SuperCatQR/bilibili-asr-archive.git",
-      "revision": "9b289570494b5e8f7cc564a7eaa5b2eb2c28c3ad",
+      "revision": "48b31843510e5b1d78ee4f1448cec6dee7ab2296",
       "provider": "github",
       "link_mode": "web"
     }
@@ -31,7 +31,7 @@
         {
           "path": "src/bili_asr/cli/parser.py",
           "line": 11,
-          "end_line": 113,
+          "end_line": 115,
           "label": "build_parser"
         }
       ]
@@ -39,7 +39,7 @@
     {
       "id": "cli",
       "label": "CLI 组合根",
-      "sublabel": "15 个顶层命令 · 策略分派",
+      "sublabel": "16 个顶层命令 · 策略分派",
       "type": "frontend",
       "pos": [
         440,
@@ -59,7 +59,7 @@
         {
           "path": "src/bili_asr/cli/registry.py",
           "line": 1,
-          "end_line": 54,
+          "end_line": 55,
           "label": "模块入口"
         }
       ]
@@ -67,7 +67,7 @@
     {
       "id": "guard",
       "label": "产物路径与维护锁",
-      "sublabel": "共享 writer / 独占 snapshot",
+      "sublabel": "共享 writer / 独占维护",
       "type": "security",
       "pos": [
         840,
@@ -99,7 +99,7 @@
       "type": "external",
       "pos": [
         40,
-        340
+        640
       ],
       "size": [
         260,
@@ -127,7 +127,7 @@
       "type": "backend",
       "pos": [
         440,
-        340
+        640
       ],
       "size": [
         260,
@@ -177,7 +177,7 @@
       "type": "backend",
       "pos": [
         440,
-        640
+        340
       ],
       "size": [
         260,
@@ -239,7 +239,7 @@
       "type": "backend",
       "pos": [
         40,
-        640
+        340
       ],
       "size": [
         260,
@@ -526,8 +526,8 @@
     },
     {
       "id": "backup",
-      "label": "归档快照服务",
-      "sublabel": "独占维护 · ZIP 校验与恢复",
+      "label": "归档快照与预检",
+      "sublabel": "ZIP 恢复 / 固定旧源只读校验",
       "type": "backend",
       "pos": [
         440,
@@ -549,6 +549,12 @@
           "line": 438,
           "end_line": 463,
           "label": "restore_snapshot"
+        },
+        {
+          "path": "src/bili_asr/services/migration_preflight.py",
+          "line": 118,
+          "end_line": 212,
+          "label": "migration_preflight"
         }
       ]
     },
@@ -754,7 +760,7 @@
       "id": "backup-rawdb",
       "from": "backup",
       "to": "rawdb",
-      "label": "backup / 恢复",
+      "label": "backup / 恢复 / 预检",
       "variant": "default"
     },
     {
@@ -768,7 +774,7 @@
       "id": "backup-exports",
       "from": "backup",
       "to": "exports",
-      "label": "私有 ZIP",
+      "label": "snapshot 写私有 ZIP",
       "variant": "default"
     }
   ],
@@ -788,7 +794,7 @@
       "items": [
         "FTS、公开/预览/私有快照均为消费产物；读者站点属于独立仓库。",
         "完整 ZIP 保留数据库、音频、bundle、AI 双稿与全部历史 release；restore 恢复中断 job。",
-        "16 个分流程时序图与源码、命令、SQL 清单补充全部条件分支和保留工具边界。"
+        "17 个分流程时序图与源码、命令、SQL 清单补充全部条件分支和保留工具边界。"
       ]
     },
     {
@@ -798,6 +804,15 @@
         "取消与 lease guard 串行保护权威写入；不能立即撤销在途 HTTP 或 GPU 请求。",
         "SQLite 与文件系统无跨介质事务；完成 marker、哈希与显式重排负责识别和恢复。",
         "source tags 更新不改写旧 edition；精确 approved/hash/CAS 后显式 publish 才切换公开 head。"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "迁移预检边界",
+      "items": [
+        "archive migration-preflight 持有源维护独占锁，以冻结 Bilibili v1 契约只读检查旧库与全部历史产物。",
+        "停止所有 writer 并完成 checkpoint 是前置条件；不初始化当前 schema，不创建目标，不恢复任务或执行转换。",
+        "表指纹、文件摘要、遮蔽/排除项、历史审核及 release 校验和变化检测见时序 17。"
       ]
     }
   ]

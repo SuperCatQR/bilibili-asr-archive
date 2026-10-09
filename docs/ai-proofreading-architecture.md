@@ -1,6 +1,6 @@
 # AI 双稿、完整版本审核与发布架构
 
-日期：2026-10-09（Asia/Hong_Kong）。基线 main `9b289570494b5e8f7cc564a7eaa5b2eb2c28c3ad`。
+日期：2026-10-09（Asia/Hong_Kong）。基线 main `48b31843510e5b1d78ee4f1448cec6dee7ab2296`。
 交互式架构图：[打开 HTML](ai-proofreading-architecture.html)，[可编辑图稿](ai-proofreading-architecture.json)。
 入口见 [使用说明](ai-proofreading.md)；当前模块边界与跨域关系见
 [架构文字说明](architecture.md)和已刷新到同一基线的[全景图](architecture.html)。

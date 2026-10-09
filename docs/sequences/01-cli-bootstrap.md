@@ -1,6 +1,6 @@
 # CLI 启动、路径策略与数据库契约
 
-源码基线：main `9b289570494b5e8f7cc564a7eaa5b2eb2c28c3ad`。
+源码基线：main `48b31843510e5b1d78ee4f1448cec6dee7ab2296`。
 
 [交互时序图](01-cli-bootstrap.html) · [Archify 规格](01-cli-bootstrap.json) · [全部时序图](../architecture-sequences.md)
 
@@ -23,7 +23,7 @@ sequenceDiagram
     paths->>paths: flag > BILI_ARTIFACT_ROOT > archive root；WRITE 检查可写性；READ 按配置根再旧根读取
     end
     opt 写归档或初始化查询
-    cli->>paths: 普通 writer 可并发；与 snapshot 独占锁冲突时明确失败
+    cli->>paths: 普通 writer 可并发；与 snapshot/预检独占锁冲突时明确失败
     end
     cli->>handler: 分派已注册入口
     alt 使用 open_database
@@ -34,6 +34,9 @@ sequenceDiagram
     else 不兼容
     db->>handler: SchemaContractError；保留原库，需要另建兼容库
     end
+    else archive migration-preflight
+    handler->>paths: 显式源根；服务自行获取源独占锁
+    handler->>db: immutable=1 / query_only；固定旧源契约，不调用 initializer
     else 只读消费入口
     handler->>db: 投影、搜索、稿件导出不通过 schema 初始化
     end
@@ -46,14 +49,14 @@ sequenceDiagram
 ## 边界与恢复
 
 - status/runs 在库存在时仍使用初始化连接，并持有共享维护锁；workflow 查询也可初始化新库。
-- 共享 OS 维护锁只协调合作写入者与快照；SQLite BEGIN IMMEDIATE 决定事务写入顺序。
-- 注册表中共有 15 个顶层命令；旧版命令不能由源码中的历史 docstring 推断为当前入口。
+- 共享 OS 维护锁只协调合作写入者与快照/预检；SQLite BEGIN IMMEDIATE 决定事务写入顺序。
+- 注册表中共有 16 个顶层命令；旧版命令不能由源码中的历史 docstring 推断为当前入口。
 
 ## 源码证据
 
-- [src/bili_asr/cli/parser.py:11–113](../../src/bili_asr/cli/parser.py#L11)：`build_parser`。
+- [src/bili_asr/cli/parser.py:11–115](../../src/bili_asr/cli/parser.py#L11)：`build_parser`。
 - [src/bili_asr/cli/main.py:41–106](../../src/bili_asr/cli/main.py#L41)：`_main`。
-- [src/bili_asr/cli/registry.py:1–54](../../src/bili_asr/cli/registry.py#L1)：`模块入口`。
+- [src/bili_asr/cli/registry.py:1–55](../../src/bili_asr/cli/registry.py#L1)：`模块入口`。
 - [src/bili_asr/artifact_root.py:1–60](../../src/bili_asr/artifact_root.py#L1)：`模块入口`。
 - [src/bili_asr/archive_maintenance.py:64–137](../../src/bili_asr/archive_maintenance.py#L64)：`archive_access`。
 - [src/bili_asr/cli/workflow.py:147–353](../../src/bili_asr/cli/workflow.py#L147)：`_execute_workflow`。

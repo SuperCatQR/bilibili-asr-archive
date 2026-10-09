@@ -1,8 +1,8 @@
 # 源码与覆盖清单
 
-固定基线：main `9b289570494b5e8f7cc564a7eaa5b2eb2c28c3ad`；2026-10-09。
+固定基线：main `48b31843510e5b1d78ee4f1448cec6dee7ab2296`；2026-10-09。
 
-清单包含 15 个顶层命令及 34 个实际命令路径、97 个 Python 产品模块、4 个 SQL schema 的全部表/视图，以及部署/评测脚本。源码中的函数能力与当前已注册运行路径分别说明；历史 docstring 不作为命令存在证据。
+清单包含 16 个顶层命令及 35 个实际命令路径、101 个 Python 产品模块、4 个 SQL schema 的全部表/视图，以及部署/评测脚本。源码中的函数能力与当前已注册运行路径分别说明；历史 docstring 不作为命令存在证据。
 
 [架构总览](architecture.md) · [完整时序](architecture-sequences.md) · [验证记录](architecture-validation.md)
 
@@ -22,6 +22,7 @@
 | `workflow cancel` | queued/running 与 running attempt 原子取消 | 04 |
 | `workflow retry` | 仅 failed 重排，保留 attempts | 04 |
 | `workflow publish` | 从已存转录 force 请求单 part bundle job | 08 |
+| `archive migration-preflight` | 固定旧源只读清点、引用/历史身份校验、稳定指纹；不转换 | 17 |
 | `snapshot save` | 只读源 DB backup；完整私有 ZIP；独占维护锁 | 15 |
 | `snapshot check` | ZIP 全文件/DB/引用校验；临时 DB | 15 |
 | `snapshot restore` | 暂存验证/中断恢复，安装新完整 archive | 15 |
@@ -54,7 +55,7 @@
 | [__init__.py](../src/bili_asr/__init__.py) | 包版本与稳定导出 | 01 |
 | [__main__.py](../src/bili_asr/__main__.py) | python -m bili_asr 入口 | 01 |
 | [archive.py](../src/bili_asr/archive.py) | 五文件布局、格式编码、安全替换、完成 marker、bundle hash 校验 | 08、13 |
-| [archive_maintenance.py](../src/bili_asr/archive_maintenance.py) | 合作 writer 共享访问及 snapshot 独占 OS 锁 | 01、15 |
+| [archive_maintenance.py](../src/bili_asr/archive_maintenance.py) | 合作 writer 共享访问及 snapshot/预检独占 OS 锁 | 01、15、17 |
 | [artifact_root.py](../src/bili_asr/artifact_root.py) | flag/env/root 解析、读根优先与音频复用 | 01、06 |
 | [artifacts.py](../src/bili_asr/artifacts.py) | 必需 artifact keys 与发布产品身份 | 08、13 |
 | [asr/__init__.py](../src/bili_asr/asr/__init__.py) | ASR 包导出与兼容接口 | 07 |
@@ -75,6 +76,7 @@
 | [check_asr_env.py](../src/bili_asr/check_asr_env.py) | 模型/aligner/torch/ffmpeg/device 环境诊断 | 16 |
 | [cli/__init__.py](../src/bili_asr/cli/__init__.py) | 公共 CLI 导出、入口及兼容测试接口 | 01 |
 | [cli/_shared.py](../src/bili_asr/cli/_shared.py) | 参数、错误、roots 和 SQLite 读取共享入口 | 01 |
+| [cli/archive.py](../src/bili_asr/cli/archive.py) | 迁移预检参数、显式源根、JSON/text 输出与退出码 | 17 |
 | [cli/dedup.py](../src/bili_asr/cli/dedup.py) | dedup report 只读命令 | 13 |
 | [cli/editorial.py](../src/bili_asr/cli/editorial.py) | 精确 revision/edition 私有 export 命令 | 12 |
 | [cli/main.py](../src/bili_asr/cli/main.py) | 注册分派、artifact 策略、archive access、SQLite 争用诊断 | 01 |
@@ -82,7 +84,7 @@
 | [cli/ops.py](../src/bili_asr/cli/ops.py) | check-asr-env、普通 export、verify | 13、16 |
 | [cli/parser.py](../src/bili_asr/cli/parser.py) | 完整顶层命令参数及 registration 一致性 | 01 |
 | [cli/publication.py](../src/bili_asr/cli/publication.py) | 出版子命令、严格输入 JSON、读/写连接与策略 | 11、12 |
-| [cli/registry.py](../src/bili_asr/cli/registry.py) | 15 顶层命令和 ArtifactPolicy 登记 | 01 |
+| [cli/registry.py](../src/bili_asr/cli/registry.py) | 16 顶层命令和 ArtifactPolicy 登记 | 01 |
 | [cli/search.py](../src/bili_asr/cli/search.py) | FTS build、scope/UTC/limit 与结果诊断 | 14 |
 | [cli/snapshot.py](../src/bili_asr/cli/snapshot.py) | save/check/restore 参数和服务分派 | 15 |
 | [cli/status_cmd.py](../src/bili_asr/cli/status_cmd.py) | status/runs SQLite 汇总与 coverage | 01、13 |
@@ -127,6 +129,7 @@
 | [services/audio_inventory.py](../src/bili_asr/services/audio_inventory.py) | 保留库：既有音频与 SQLite 对账/登记 | 16 |
 | [services/bundle_verification.py](../src/bili_asr/services/bundle_verification.py) | 保留独立服务：子进程 deadline 与真实读预算 | 13、16 |
 | [services/metadata_ingest.py](../src/bili_asr/services/metadata_ingest.py) | 分页、retry/skip、实体与游标事务、标签观察 | 02 |
+| [services/migration_preflight.py](../src/bili_asr/services/migration_preflight.py) | 独占源维护、全文件清点、引用校验与稳定指纹 | 17 |
 | [services/publication_supervisor.py](../src/bili_asr/services/publication_supervisor.py) | 保留独立服务：loopback phase、进程 deadline/容量 | 16 |
 | [services/subtitle_ingest.py](../src/bili_asr/services/subtitle_ingest.py) | 轨道选择、凭据/缺失证明、获取与失败收尾 | 05 |
 | [services/transcript_adoption.py](../src/bili_asr/services/transcript_adoption.py) | 保留库：严格受限历史 bundle 转录读取 | 16 |
@@ -140,6 +143,8 @@
 | [storage/database.py](../src/bili_asr/storage/database.py) | 连接、busy timeout、schema/模板契约、派生视图刷新 | 01、15 |
 | [storage/editorial.py](../src/bili_asr/storage/editorial.py) | 固定 input/job/call/chunk/revision 与双稿登记 | 09、10 |
 | [storage/metadata.py](../src/bili_asr/storage/metadata.py) | 元数据实体、页/cursor/run 和标签观察仓库 | 02 |
+| [storage/migration_artifacts.py](../src/bili_asr/storage/migration_artifacts.py) | 冻结输入/revision、完整审核事件、双 head 与历史 release 校验 | 17 |
+| [storage/migration_source.py](../src/bili_asr/storage/migration_source.py) | 冻结旧源 DDL、只读 SQLite 与逐表精确字节指纹 | 17 |
 | [storage/models.py](../src/bili_asr/storage/models.py) | 元数据/获取/转录/音频不可变记录类型 | 02、05、07 |
 | [storage/publication.py](../src/bili_asr/storage/publication.py) | edition/review/head CAS、release/events、withdraw | 11 |
 | [storage/snapshots.py](../src/bili_asr/storage/snapshots.py) | 完整 schema/FK、backup、引用与中断状态恢复 | 15 |
@@ -254,3 +259,7 @@ tokenizer 探测顺序为 trigram/simple/unicode61；已有 FTS 的 tokenizer �
 ## 完整性核对规则
 
 新增命令、job kind、模块、SQL 表/视图、持久 artifact 或副作用必须更新本清单与对应时序。库能力新增时先确认正常路径是否调用，未调用的能力仍标为显式库工具。源码身份、引用范围和图中关系不得用未来计划补齐。
+
+## 冻结旧源契约资源
+
+[migration-source-bilibili-v1.json](../src/bili_asr/storage/migration-source-bilibili-v1.json) 保存独立于运行 initializer 的 Bilibili v1 DDL 指纹，来源提交仍为 `9b289570494b5e8f7cc564a7eaa5b2eb2c28c3ad`。这是迁移源格式身份，区别于本套架构的 main 基线。66 个固定 DDL 对象含 38 张权威表；已知完整 FTS 派生组另行识别为可重建对象，未知或不完整对象拒绝。产品模块新增四个，持久 schema 未新增表。

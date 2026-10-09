@@ -9,7 +9,7 @@
     "column_fit": "spread",
     "repository": {
       "url": "https://github.com/SuperCatQR/bilibili-asr-archive.git",
-      "revision": "9b289570494b5e8f7cc564a7eaa5b2eb2c28c3ad",
+      "revision": "48b31843510e5b1d78ee4f1448cec6dee7ab2296",
       "provider": "github",
       "link_mode": "web"
     }

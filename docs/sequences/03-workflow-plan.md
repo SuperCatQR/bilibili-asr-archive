@@ -1,6 +1,6 @@
 # 全集选择验证、配置冻结与依赖规划
 
-源码基线：main `9b289570494b5e8f7cc564a7eaa5b2eb2c28c3ad`。
+源码基线：main `48b31843510e5b1d78ee4f1448cec6dee7ab2296`。
 
 [交互时序图](03-workflow-plan.html) · [Archify 规格](03-workflow-plan.json) · [全部时序图](../architecture-sequences.md)
 

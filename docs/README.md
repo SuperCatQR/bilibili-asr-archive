@@ -7,14 +7,14 @@
 
 | 文档 | 内容 |
 | --- | --- |
-| [当前架构](architecture.md) | main 9b28957 的执行模型、职责、数据流、状态、提交与恢复边界 |
+| [当前架构](architecture.md) | main 48b3184 的执行模型、职责、数据流、状态、提交与恢复边界 |
 | [全景架构图](architecture.html) | 当前 main 的可交互组件、关系与源码证据；[JSON](architecture.json) |
-| [完整时序图](architecture-sequences.md) | 16 个完整流程，含 Mermaid 条件/循环、交互 HTML 与源码证据 |
-| [源码与覆盖清单](architecture-sources.md) | 15 个顶层命令、34 条命令路径、97 个模块、schema 的 38 张表 / 8 个视图及 2 个动态 FTS 对象；[机器清单](architecture-coverage.json) |
-| [图表验证记录](architecture-validation.md) | 18 张图的规格/文件摘要、四阶段检查与实际截图检查范围 |
+| [完整时序图](architecture-sequences.md) | 17 个完整流程，含 Mermaid 条件/循环、交互 HTML 与源码证据 |
+| [源码与覆盖清单](architecture-sources.md) | 16 个顶层命令、35 条命令路径、101 个模块、schema 的 38 张表 / 8 个视图及 2 个动态 FTS 对象；[机器清单](architecture-coverage.json) |
+| [图表验证记录](architecture-validation.md) | 19 张图的规格/文件摘要、四阶段检查与浏览器证据范围 |
 | [架构图维护](architecture-maintenance.md) | 提交版本、证据与生成、浏览器检查的维护流程 |
 | [元数据与存储](metadata-storage.md) | SQLite 表组、采集游标、身份、不可变版本、workflow 和读取投影 |
-| [AI 校对与出版架构](ai-proofreading-architecture.md) | main 9b28957 的输入冻结、历史模板、完整版本、标签、审核、release 与三类导出 |
+| [AI 校对与出版架构](ai-proofreading-architecture.md) | main 48b3184 的输入冻结、历史模板、完整版本、标签、审核、release 与三类导出 |
 
 ## 工作流与产物
 
@@ -29,6 +29,8 @@
 | [AI 校对使用](ai-proofreading.md) | 配置、执行、失败恢复、重新渲染、数据与离线验证 |
 | [产物根目录](artifact-root.md) | workflow 产物写根、读取回退顺序、音频与派生产物路径 |
 | [归档快照与迁移](archive-snapshots.md) | 保存完整数据库与产物、离线校验、跨设备恢复与中断任务重排 |
+| [固定旧源迁移预检](archive-migration-preflight.md) | 停止/checkpoint 前置条件、显式源根、清点/历史身份校验与失败边界 |
+| [多平台实施方案](multi-platform-architecture-plan.md) | 已合并设计计划；平台适配与实际转换仍待实现 |
 | [音频保留与预算](audio-retention-policy.md) | 当前预算和保留策略入口、下载暂存、复用及回收边界 |
 | [Issues #247–#250](feature-plan-247-250.md) | 实施前评估、实现状态、风险、验收与交付顺序 |
 

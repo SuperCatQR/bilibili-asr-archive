@@ -1,6 +1,6 @@
 # 当前架构
 
-本页、[全景架构图](architecture.html)、[AI 与出版专题图](ai-proofreading-architecture.html)和 [16 个完整时序流程](architecture-sequences.md)描述 main 的代码快照 `9b289570494b5e8f7cc564a7eaa5b2eb2c28c3ad`，核对日期为 2026-10-09（Asia/Hong_Kong）。本次核对时本地与远端 main 一致。全部命令、源码模块、SQL 表/视图见 [源码与覆盖清单](architecture-sources.md)，图的源码证据、自动检查与文件身份见 [验证记录](architecture-validation.md)。
+本页、[全景架构图](architecture.html)、[AI 与出版专题图](ai-proofreading-architecture.html)和 [17 个完整时序流程](architecture-sequences.md)描述 main 的代码快照 `48b31843510e5b1d78ee4f1448cec6dee7ab2296`，核对日期为 2026-10-09（Asia/Hong_Kong）。本次以远端 main 的固定提交为核对基线。全部命令、源码模块、SQL 表/视图见 [源码与覆盖清单](architecture-sources.md)，图的源码证据、自动检查与文件身份见 [验证记录](architecture-validation.md)。
 
 图中 SQLite 节点表示同一个 archive.db 内的逻辑表组。后续 main 变化需按 [维护指南](architecture-maintenance.md)重新核对；固定提交身份不自动代表未来版本。多平台规划和未合并分支不属于这份运行架构。
 
@@ -20,13 +20,13 @@ CLI 组装配置与 handler；repository 拥有持久身份和状态转换；ser
 | AI 派生 | editorial.py、editorial_runtime.py、storage/editorial.py | 冻结输入、分块、调用审计、校验、检查点、revision、双稿 |
 | 人工出版 | publication.py、publication_tags.py、storage/publication.py | 完整 edition、精确审核、双 head CAS、release、替换/撤回 |
 | 消费与检索 | workflow_projection.py、search_index/、publication_export.py | 只读投影、派生 FTS、公开/预览/私有快照 |
-| 维护迁移 | archive_maintenance.py、archive_snapshot.py、storage/snapshots.py | 维护协调、ZIP 保存、离线校验、中断恢复 |
+| 维护迁移 | archive_maintenance.py、archive_snapshot.py、migration_preflight.py、storage/snapshots.py、migration_source.py、migration_artifacts.py | 维护协调、ZIP 保存/恢复、固定旧源预检 |
 
 外部依赖是 Bilibili SDK/API/CDN、可选 DeepSeek HTTPS API，以及本机 Qwen3-ASR/ForcedAligner 权重和 CPU/CUDA/ROCm。阅读站属于独立仓库，本仓库提供静态内容契约；页面、路由、远端部署和缓存刷新不由本仓库执行。
 
 ## 命令、启动、schema 与访问锁
 
-当前注册 15 个顶层命令：fetch-meta、fetch-tags、workflow、snapshot、status、runs、coverage、verify、search、search-index、check-asr-env、export、publication、editorial、dedup。子命令和对应流程见 [命令覆盖](architecture-sources.md#命令覆盖)。旧 docstring 中的 reading-*、独立 proofread、publish-transcripts 名字不能当作当前 CLI。
+当前注册 16 个顶层命令：fetch-meta、fetch-tags、workflow、snapshot、archive、status、runs、coverage、verify、search、search-index、check-asr-env、export、publication、editorial、dedup。子命令和对应流程见 [命令覆盖](architecture-sources.md#命令覆盖)。旧 docstring 中的 reading-*、独立 proofread、publish-transcripts 名字不能当作当前 CLI。
 
 ArtifactPolicy.NONE/READ/WRITE 描述文件访问，不等于数据库是否写入；子命令可覆盖策略。metadata search 跳过产物根探测。status/runs 在已有库上仍经过 open_database，可能刷新派生视图；workflow status/explain 也可初始化新库。结构性只读的投影、搜索和稿件导出使用 mode=ro。
 
@@ -150,18 +150,24 @@ check 流式校验所有成员/hash/marker/DB contract/FK/references，仅落临
 
 artifact root 可由 flag/BILI_ARTIFACT_ROOT 与 archive root 分离，写 write_base，读配置根优先旧根回退，DB 始终 archive root。ZIP restore 可把产物合并进新根；受限音频路径、固定稿件路径和 portable key 共同限制访问。
 
-库中保留 audio_budget/audio_reclaim/long_live/audio_inventory、旧双路人工 proofread、publication_supervisor、bundle_verification、concurrency_gate、persistence/run-ledger 等。显式调用的路径/预算/超时能力存在，当前注册 CLI/workflow 不自动启用成功回收、旧 merge 或发布进程监督。scripts/production.py 解析受限 env-file 并调用已安装 CLI；评测/验证脚本是工程支持。见 [16](sequences/16-library-and-operations.md)和 [97 模块清单](architecture-sources.md)。
+库中保留 audio_budget/audio_reclaim/long_live/audio_inventory、旧双路人工 proofread、publication_supervisor、bundle_verification、concurrency_gate、persistence/run-ledger 等。显式调用的路径/预算/超时能力存在，当前注册 CLI/workflow 不自动启用成功回收、旧 merge 或发布进程监督。scripts/production.py 解析受限 env-file 并调用已安装 CLI；评测/验证脚本是工程支持。见 [16](sequences/16-library-and-operations.md)和 [101 模块清单](architecture-sources.md)。
 
-## P0 迁移预检增量
+## 固定旧源迁移预检
 
-`archive migration-preflight` 是上述固定源码快照之后新增的离线运维入口。CLI 不打开当前运行库，由 `services/migration_preflight.py` 持有源归档维护独占锁，交给 `storage/migration_source.py` 按冻结的 Bilibili v1 契约读取停止写入且已 checkpoint 的旧库；不调用当前 initializer，不创建目标、不恢复任务、不转换 schema。
+`archive migration-preflight` 是当前 main 已交付的离线运维入口。CLI 不打开当前运行库，由 `services/migration_preflight.py` 持有源归档维护独占锁，交给 `storage/migration_source.py` 按冻结的 Bilibili v1 契约读取停止写入且已 checkpoint 的旧库；不调用当前 initializer，不创建目标、不恢复任务、不转换 schema。
 
 逐表指纹保留 SQLite 类型、精确值和 rowid；文件扫描按显式产物根优先、归档根回退，记录遮蔽文件及排除项。`storage/migration_artifacts.py` 独立核对全部冻结输入/revision 身份、已登记 AI 双稿、完整审核事件链、独立 draft/release head 和全部历史 release；无产物 revision 可以保留，但冻结身份仍须有效。非空 WAL/journal、有效或缺失 lease 的 running job、不支持的结构、缺失或损坏产物及扫描期间变化均拒绝。更多操作边界见 [预检指南](archive-migration-preflight.md)。
 
-该增量新增 `cli/archive.py`、`services/migration_preflight.py`、`storage/migration_source.py` 和 `storage/migration_artifacts.py` 四个 Python 模块，以及一个顶层命令和一个命令路径；持久 schema 不变。上面的 97 模块、15 顶层命令、34 命令路径及 16 份图仍是其明确标注提交的验收范围，尚不覆盖此增量。多平台身份、adapter 与实际转换继续属于 [实施方案](multi-platform-architecture-plan.md)，后续更新图时须重新绑定源码提交与验收记录。
+预检覆盖全部 38 张权威表和五类受管理产物目录；已知完整 FTS 缓存标为可重建派生数据。显式产物根优先、旧根回退，遮蔽副本也计算哈希并检测变化；根目录未知条目、暂存文件、链接/junction、不可移植路径和不允许的根重叠均失败。凭据、模型、日志、缓存等仅记录排除名称，不递归读取。
+
+完整性包括所有冻结 input/revision（含未登记产物 revision）的身份、job/input/part 关系；已登记双稿必须完整并按固定 ai-draft-v1 渲染复算。edition 内容、父版、准确审核历史链及终态、独立 draft/release head、全部历史 release（含 superseded/withdrawn）和固定 publish-v1 字节必须相符。成功音频 attempt、bundle 五文件和 marker、AI 双稿、历史 release 引用均须存在且满足大小/哈希。
+
+扫描后再次核对文件集合、全部物理文件身份、DB 身份与 sidecar、排除项。通过后输出表行数/摘要、文件摘要、源 fingerprint、遮蔽与排除项，以及过期 running/未完成 run/调用的恢复候选计数；候选只报告。JSON/text 成功退出 0，受控诊断失败退出 1；仅锁协调可能写入根旁的稳定锁文件。报告包含私有路径，应按私有归档信息处理。文件哈希流式执行，清单与部分内容校验仍在内存中，预检不提供全链路内存上限。完整时序见 [17](sequences/17-migration-preflight.md)。
+
+本套清单已覆盖新增四个 Python 模块与 archive 命令，共 101 模块、16 顶层命令、35 命令路径及 17 份时序图，持久 schema 不变。多平台身份、adapter 和实际转换属于已合并的 [实施方案](multi-platform-architecture-plan.md)，仍是后续实现计划。
 
 ## 验证边界
 
-本次只改文档、JSON 和生成 HTML；当前 15 顶层命令、97 Python 产品模块、4 SQL schema 和全部表/视图逐项核对。未将历史命令、未来计划、其他分支当成事实。
+本次只改文档、JSON 和生成 HTML；当前 16 顶层命令、101 Python 产品模块、4 SQL schema 和全部表/视图逐项核对。未将历史命令、未来计划、其他分支当成事实。
 
 Archify 的 validate/deliver/strict check/browser-check 绑定 commit 与 specification/artifact SHA-256；截图和实际目视检查分别记录。图表检查不能替代行为回归、真实 B站访问、GPU/付费模型或逐句语义审核。本次验收结果见 [验证记录](architecture-validation.md)。
