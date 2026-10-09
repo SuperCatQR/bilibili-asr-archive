@@ -91,6 +91,10 @@ def _cmd_publication(args: argparse.Namespace) -> int:
                     markdown_text=Path(args.markdown_file).read_text(encoding="utf-8"),
                     metadata=metadata, actor=args.actor, note=args.note,
                 )
+            elif action == "sync-source-tags":
+                from bili_asr.publication_tags import sync_source_tags
+                result = sync_source_tags(connection, edition_id=args.edition_id,
+                                          actor=args.actor, note=args.note)
             elif action == "review":
                 result = publication.review_edition(
                     connection, edition_id=args.edition_id, status=args.status,
@@ -119,6 +123,11 @@ def _cmd_publication(args: argparse.Namespace) -> int:
                 count = export_publications(connection, artifact_roots=args.artifact_roots.read_bases(),
                                             output=Path(args.out))
                 result = {"manuscriptType": "publication", "count": count, "output": args.out}
+            if action == "create":
+                from bili_asr.publication_tags import tag_coverage
+                coverage = tag_coverage(connection, result["content"]["source"]["bvid"])
+                if coverage in {"not_attempted", "unavailable"}:
+                    write_stderr(f"publication create: source tag coverage {coverage}; run fetch-tags then sync-source-tags")
         print_result(result, args.format)
         return 0
     except (OSError, ValueError, RuntimeError, sqlite3.Error) as exc:
@@ -152,6 +161,10 @@ def add_publication_parser(subparsers, *, archive_root: str) -> None:
     edit.add_argument("--edition-id", required=True, help="Expected current parent edition")
     edit.add_argument("--markdown-file", required=True)
     edit.add_argument("--metadata-file", default=None, help="Strict JSON with allowed reader fields")
+
+    sync_tags = actions.add_parser("sync-source-tags", help="Freeze original video tags into a new pending-review edition")
+    _common(sync_tags, archive_root, actor=True, note=True)
+    sync_tags.add_argument("--edition-id", required=True, help="Expected current parent edition")
 
     review = actions.add_parser("review", help="Review a specific edition and its complete content hash")
     _common(review, archive_root, actor=True, note=True)

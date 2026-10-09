@@ -500,3 +500,19 @@ bili-asr workflow run --archive-root ./archive --worker-id worker-b --limit 20
 
 该范围不包含跨主机共享数据库、网络文件系统 SQLite，或 Windows 与 WSL 同时写同一
 挂载数据库。本机 WSL 多进程测试可以验证当前文件系统上的竞争行为，不能推导跨系统保证。
+
+
+### 可选标签观察与补采
+
+`fetch-meta` 继续把标签作为 best-effort 元数据，但会展示标签调用的尝试、成功、失败计数，
+在列表采集 complete 而标签仍缺失时提醒覆盖不完整。成功非空、成功空、不可用分别记录为
+`video_tag_observations.state` 的 `success_nonempty`、`success_empty`、`unavailable`；
+没有观察行表示未尝试。观察包含时间、受控错误类别和所属 run_id，不保存原始响应、Cookie 或签名 URL。
+
+`bili-asr fetch-tags --archive-root ROOT --bvid BV...` 专门补采已归档视频；可重复 --bvid，
+省略时补采归档中的全部视频。失败保留上次成功标签，只有成功空集合才清空源集合；存在失败时退出 2。
+
+这个观察表是严格限定的可加扩展：原有兼容数据库缺少该表时，open_database 可以仅建立该表，
+不改写已有表、源标签、转录、任务或人工审核历史。若该表已存在但契约不符仍拒绝。
+其他原有缺表、旧字段、约束不匹配，以及旧 manuscript schema 的拒绝规则继续适用。
+publication 只读操作把缺少观察表视为未知覆盖，不自动初始化。

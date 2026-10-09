@@ -53,6 +53,10 @@ def _cmd_fetch_meta(args) -> int:
     print(f"fetch-meta: recorded {result.page_count} page(s) for mid={config.mid} "
           f"(outcome={result.outcome}); collected_pages={result.collected_page_count} "
           f"videos={result.video_count} parts={result.part_count}")
+    print(f"tags: attempted={result.tag_attempt_count} succeeded={result.tag_success_count} "
+          f"failed={result.tag_failure_count}")
+    if result.tag_failure_count:
+        write_stderr("fetch-meta: optional tag coverage incomplete; use fetch-tags to retry archived videos")
     if result.outcome in {"risk_interrupted", "failed"}:
         if result.error_diagnostic is not None:
             write_stderr(f"fetch-meta: diagnostic {result.error_diagnostic.format()}")
@@ -73,4 +77,32 @@ def _cmd_fetch_meta(args) -> int:
         return 2
     if result.next_cursor is not None:
         print(f"cursor: next_page={result.next_cursor.next_page} state={result.next_cursor.state}")
+    return 0
+
+
+def _cmd_fetch_tags(args) -> int:
+    from bili_asr.config import resolve_sessdata
+    from bili_asr.services.video_tags import refresh_video_tags
+    from bili_asr.sources.bilibili_api_gateway import BilibiliApiGateway
+    from bili_asr.storage import open_database
+    from pathlib import Path
+
+    if not Path(_metadata_database_path(args.archive_root)).is_file():
+        write_stderr("fetch-tags: archive database does not exist")
+        return 1
+    try:
+        connection = open_database(args.archive_root)
+        try:
+            selected = args.bvid or [row[0] for row in connection.execute("SELECT bvid FROM videos ORDER BY bvid")]
+            result = refresh_video_tags(connection, BilibiliApiGateway(
+                sessdata=resolve_sessdata(args.sessdata, os.environ.get("BILI_SESSDATA"))), selected)
+        finally:
+            connection.close()
+    except (ValueError, OSError, sqlite3.Error) as exc:
+        write_stderr(f"fetch-tags: invalid archive or request ({type(exc).__name__})")
+        return 1
+    print(f"tags: attempted={result['attempted']} succeeded={result['succeeded']} failed={result['failed']}")
+    if result["failed"]:
+        write_stderr("fetch-tags: optional tag coverage incomplete; previous successful tags preserved")
+        return 2
     return 0

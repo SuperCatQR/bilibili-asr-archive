@@ -385,6 +385,7 @@ class MetadataRepository:
         details: Iterable[VideoDetailRecord] = (),
         additional_users: Iterable[UserRecord] = (),
         ensure_users: Iterable[UserRecord] = (),
+        tag_observations: Mapping[str, tuple[str, str | None]] | None = None,
     ) -> None:
         """Record one page outcome, optionally with its complete payload.
 
@@ -443,6 +444,7 @@ class MetadataRepository:
             or bool(detail_records)
             or cursor is not None
             or tag_sets is not None
+            or bool(tag_observations)
         )
         if page.outcome == "failed" and has_payload:
             raise ValueError("a failed page is recorded without payload arguments")
@@ -473,6 +475,13 @@ class MetadataRepository:
             # silently dropping the observation.
             for tag_bvid, tag_records in (tag_sets or {}).items():
                 self.upsert_video_tags(tag_bvid, tag_records)
+            for bvid, (state, error_code) in (tag_observations or {}).items():
+                self.connection.execute(
+                    "INSERT INTO video_tag_observations VALUES (?, ?, ?, ?, ?) "
+                    "ON CONFLICT(bvid) DO UPDATE SET state=excluded.state, observed_at=excluded.observed_at, "
+                    "error_code=excluded.error_code, run_id=excluded.run_id",
+                    (bvid, state, page.finished_at, error_code, page.run_id),
+                )
             # Details land after the same video upserts, for the same foreign
             # key reason.  An all-``NULL`` record is passed through rather than
             # filtered here: ``upsert_video_details`` is where D15's

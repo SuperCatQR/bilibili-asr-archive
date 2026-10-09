@@ -16,6 +16,7 @@ from bili_asr.editorial import canonical, digest
 from bili_asr.manuscript_templates import AI_RENDERERS, PUBLISH_RENDERERS, renderer_for
 from bili_asr.manuscript_files import atomic_write_artifact, read_artifact
 from bili_asr.storage.publication import PublicationConflictError, PublicationRepository
+from bili_asr.publication_tags import source_tags
 
 
 PUBLISH_TEMPLATE_VERSION = "publish-v1"
@@ -207,6 +208,8 @@ def create_edition(connection: sqlite3.Connection, *, revision_id: str,
     with repository.transaction():
         revision, prepared = _revision(connection, revision_id)
         content = content_from_ai(prepared, artifacts["ai-draft.md"].decode("utf-8"))
+        content["tags"] = source_tags(connection, content["source"]["bvid"])
+        content = normalize_content(content)
         return repository.insert_edition(
             part_id=revision["video_part_id"], revision_id=revision_id, content=content,
             parent_edition_id=expected_edition_id, actor=actor, note=note, event_type="created",
