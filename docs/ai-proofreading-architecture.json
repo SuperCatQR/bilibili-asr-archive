@@ -8,9 +8,9 @@
     "quality_profile": "showcase",
     "repository": {
       "url": "https://github.com/SuperCatQR/bilibili-asr-archive.git",
-      "revision": "48b31843510e5b1d78ee4f1448cec6dee7ab2296",
+      "revision": "5d7a57e201564a10dec7a360b2ef8f7874dc51a7",
       "provider": "github",
-      "link_mode": "web"
+      "link_mode": "local-only"
     }
   },
   "components": [
@@ -30,8 +30,8 @@
       "sources": [
         {
           "path": "src/bili_asr/storage/editorial.py",
-          "line": 36,
-          "end_line": 42,
+          "line": 39,
+          "end_line": 45,
           "label": "EditorialRepository.latest_sources"
         }
       ]
@@ -52,14 +52,14 @@
       "sources": [
         {
           "path": "src/bili_asr/storage/editorial.py",
-          "line": 81,
-          "end_line": 103,
+          "line": 93,
+          "end_line": 116,
           "label": "EditorialRepository.freeze_job_input"
         },
         {
           "path": "src/bili_asr/editorial.py",
-          "line": 140,
-          "end_line": 202,
+          "line": 133,
+          "end_line": 195,
           "label": "prepare_input"
         }
       ]
@@ -80,14 +80,14 @@
       "sources": [
         {
           "path": "src/bili_asr/storage/workflow.py",
-          "line": 544,
-          "end_line": 560,
+          "line": 405,
+          "end_line": 410,
           "label": "WorkflowRepository._editorial_jobs"
         },
         {
           "path": "src/bili_asr/storage/workflow.py",
-          "line": 413,
-          "end_line": 422,
+          "line": 283,
+          "end_line": 291,
           "label": "WorkflowRepository.owned_transaction"
         }
       ]
@@ -130,14 +130,14 @@
       "sources": [
         {
           "path": "src/bili_asr/editorial_runtime.py",
-          "line": 33,
-          "end_line": 57,
+          "line": 36,
+          "end_line": 61,
           "label": "EditorialWorkflowHandlers.proofread"
         },
         {
           "path": "src/bili_asr/editorial.py",
-          "line": 222,
-          "end_line": 269,
+          "line": 215,
+          "end_line": 262,
           "label": "validate_revision"
         }
       ]
@@ -158,14 +158,14 @@
       "sources": [
         {
           "path": "src/bili_asr/storage/editorial.py",
-          "line": 133,
-          "end_line": 136,
+          "line": 146,
+          "end_line": 149,
           "label": "EditorialRepository.save_chunk"
         },
         {
           "path": "src/bili_asr/storage/editorial.py",
-          "line": 138,
-          "end_line": 154,
+          "line": 151,
+          "end_line": 167,
           "label": "EditorialRepository.commit_revision"
         }
       ]
@@ -208,8 +208,8 @@
       "sources": [
         {
           "path": "src/bili_asr/editorial_runtime.py",
-          "line": 59,
-          "end_line": 89,
+          "line": 63,
+          "end_line": 97,
           "label": "EditorialWorkflowHandlers.render"
         }
       ]
@@ -230,8 +230,8 @@
       "sources": [
         {
           "path": "src/bili_asr/publication.py",
-          "line": 142,
-          "end_line": 165,
+          "line": 44,
+          "end_line": 67,
           "label": "get_ai_artifacts"
         }
       ]
@@ -252,8 +252,8 @@
       "sources": [
         {
           "path": "src/bili_asr/cli/publication.py",
-          "line": 150,
-          "end_line": 198,
+          "line": 137,
+          "end_line": 185,
           "label": "add_publication_parser"
         }
       ]
@@ -274,13 +274,13 @@
       "sources": [
         {
           "path": "src/bili_asr/publication.py",
-          "line": 307,
-          "end_line": 347,
+          "line": 134,
+          "end_line": 174,
           "label": "publish_edition"
         },
         {
           "path": "src/bili_asr/publication_tags.py",
-          "line": 24,
+          "line": 25,
           "end_line": 41,
           "label": "sync_source_tags"
         }
@@ -302,8 +302,8 @@
       "sources": [
         {
           "path": "src/bili_asr/storage/publication.py",
-          "line": 19,
-          "end_line": 230,
+          "line": 22,
+          "end_line": 233,
           "label": "PublicationRepository"
         }
       ]
@@ -324,8 +324,8 @@
       "sources": [
         {
           "path": "src/bili_asr/publication.py",
-          "line": 307,
-          "end_line": 347,
+          "line": 134,
+          "end_line": 174,
           "label": "publish_edition"
         }
       ]
@@ -533,7 +533,9 @@
       "items": [
         "审核比对 edition、完整内容 SHA 与 expected status；approved 不自动公开。",
         "新 draft/approved B 不影响有效 A；显式 publish B 才替换；withdraw 清公开 head。",
-        "块提交、revision 与 AI 双稿受 lease/cancel 保护；输出目录是独立锁和恢复协议。"
+        "块提交、revision 与 AI 双稿受 lease/cancel 保护；输出目录是独立锁和恢复协议。",
+        "校对固定输入与任务/绑定共同提交；共享 JobCommitGuard 保护所有派生持久化，不临时创建调度仓库。",
+        "双稿编码、暂存写入与文件 fsync 在事务外；事务内安装不可变文件并登记，失败留下可验证、可重试的未登记字节。"
       ]
     }
   ]

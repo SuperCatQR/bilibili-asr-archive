@@ -2,16 +2,16 @@
   "schema_version": 1,
   "diagram_type": "sequence",
   "meta": {
-    "title": "CLI 启动、路径策略与数据库契约",
+    "title": "CLI、显式数据库模式与 session 生命周期",
     "locale": "zh-CN",
     "output": "docs/sequences/01-cli-bootstrap.html",
     "quality_profile": "showcase",
     "column_fit": "spread",
     "repository": {
       "url": "https://github.com/SuperCatQR/bilibili-asr-archive.git",
-      "revision": "48b31843510e5b1d78ee4f1448cec6dee7ab2296",
+      "revision": "5d7a57e201564a10dec7a360b2ef8f7874dc51a7",
       "provider": "github",
-      "link_mode": "web"
+      "link_mode": "local-only"
     }
   },
   "participants": [
@@ -36,33 +36,14 @@
         {
           "path": "src/bili_asr/cli/main.py",
           "line": 41,
-          "end_line": 106,
+          "end_line": 102,
           "label": "_main"
         },
         {
           "path": "src/bili_asr/cli/registry.py",
-          "line": 1,
-          "end_line": 55,
-          "label": "模块入口"
-        }
-      ]
-    },
-    {
-      "id": "paths",
-      "label": "路径与维护锁",
-      "type": "security",
-      "sources": [
-        {
-          "path": "src/bili_asr/artifact_root.py",
-          "line": 1,
-          "end_line": 60,
-          "label": "模块入口"
-        },
-        {
-          "path": "src/bili_asr/archive_maintenance.py",
-          "line": 64,
-          "end_line": 137,
-          "label": "archive_access"
+          "line": 20,
+          "end_line": 40,
+          "label": "CommandSpec"
         }
       ]
     },
@@ -74,14 +55,33 @@
         {
           "path": "src/bili_asr/cli/workflow.py",
           "line": 147,
-          "end_line": 353,
+          "end_line": 271,
           "label": "_execute_workflow"
         },
         {
           "path": "src/bili_asr/cli/publication.py",
-          "line": 74,
-          "end_line": 135,
+          "line": 60,
+          "end_line": 121,
           "label": "_cmd_publication"
+        }
+      ]
+    },
+    {
+      "id": "session",
+      "label": "ArchiveSession",
+      "type": "security",
+      "sources": [
+        {
+          "path": "src/bili_asr/archive_session.py",
+          "line": 64,
+          "end_line": 149,
+          "label": "ArchiveSession"
+        },
+        {
+          "path": "src/bili_asr/archive_maintenance.py",
+          "line": 84,
+          "end_line": 160,
+          "label": "archive_access"
         }
       ]
     },
@@ -92,15 +92,21 @@
       "sources": [
         {
           "path": "src/bili_asr/storage/database.py",
-          "line": 508,
-          "end_line": 532,
+          "line": 87,
+          "end_line": 111,
+          "label": "connect_database"
+        },
+        {
+          "path": "src/bili_asr/storage/database.py",
+          "line": 525,
+          "end_line": 537,
           "label": "initialize_schema"
         },
         {
           "path": "src/bili_asr/storage/database.py",
-          "line": 549,
-          "end_line": 567,
-          "label": "open_database"
+          "line": 540,
+          "end_line": 561,
+          "label": "require_archive_schema"
         }
       ]
     }
@@ -111,192 +117,200 @@
       "from": "operator",
       "to": "cli",
       "y": 180,
-      "label": "执行 bili-asr",
+      "label": "命令与参数",
       "variant": "default"
     },
     {
       "id": "m2",
       "from": "cli",
       "to": "operator",
-      "y": 252,
-      "label": "输出帮助并退出",
+      "y": 222,
+      "label": "帮助并退出",
       "variant": "return"
     },
     {
       "id": "m3",
       "from": "cli",
-      "to": "paths",
-      "y": 324,
-      "label": "解析产物策略",
+      "to": "session",
+      "y": 264,
+      "label": "独立文件/数据库策略",
       "variant": "default"
+    },
+    {
+      "id": "m4",
+      "from": "cli",
+      "to": "session",
+      "y": 306,
+      "label": "命令访问 lease",
+      "variant": "security"
     },
     {
       "id": "m5",
       "from": "cli",
-      "to": "paths",
-      "y": 396,
-      "label": "获取共享维护锁",
-      "variant": "security"
+      "to": "handler",
+      "y": 348,
+      "label": "分派用例",
+      "variant": "default"
     },
     {
       "id": "m6",
-      "from": "cli",
-      "to": "handler",
-      "y": 468,
-      "label": "分派已注册入口",
+      "from": "handler",
+      "to": "session",
+      "y": 390,
+      "label": "显式 BOOTSTRAP",
       "variant": "default"
     },
     {
       "id": "m7",
-      "from": "handler",
+      "from": "session",
       "to": "db",
-      "y": 540,
-      "label": "连接与校验 schema",
+      "y": 432,
+      "label": "校验后初始化",
+      "variant": "default"
+    },
+    {
+      "id": "m8",
+      "from": "handler",
+      "to": "session",
+      "y": 474,
+      "label": "READ 或 WRITE",
       "variant": "default"
     },
     {
       "id": "m9",
-      "from": "db",
-      "to": "handler",
-      "y": 612,
-      "label": "返回连接",
-      "variant": "return"
+      "from": "session",
+      "to": "db",
+      "y": 516,
+      "label": "现存契约；无 DDL",
+      "variant": "default"
     },
     {
       "id": "m10",
-      "from": "db",
-      "to": "handler",
-      "y": 684,
-      "label": "拒绝初始化写入",
-      "variant": "security"
+      "from": "handler",
+      "to": "session",
+      "y": 558,
+      "label": "索引专用 NONE",
+      "variant": "default"
     },
     {
       "id": "m11",
-      "from": "handler",
+      "from": "session",
       "to": "db",
-      "y": 756,
-      "label": "mode=ro 读取",
+      "y": 600,
+      "label": "保留历史 schema",
       "variant": "default"
     },
     {
       "id": "m12",
       "from": "handler",
-      "to": "cli",
-      "y": 828,
-      "label": "返回结果与退出码",
-      "variant": "return"
+      "to": "session",
+      "y": 642,
+      "label": "旧源 MAINTENANCE",
+      "variant": "default"
     },
     {
       "id": "m13",
-      "from": "cli",
-      "to": "paths",
-      "y": 860,
-      "label": "释放维护锁",
+      "from": "handler",
+      "to": "db",
+      "y": 684,
+      "label": "固定旧契约只读",
       "variant": "default"
     },
     {
       "id": "m14",
+      "from": "session",
+      "to": "handler",
+      "y": 726,
+      "label": "配置连接；lease 绑定",
+      "variant": "return"
+    },
+    {
+      "id": "m15",
+      "from": "handler",
+      "to": "session",
+      "y": 768,
+      "label": "close 释放连接访问",
+      "variant": "default"
+    },
+    {
+      "id": "m16",
+      "from": "handler",
+      "to": "cli",
+      "y": 810,
+      "label": "结果与诊断",
+      "variant": "return"
+    },
+    {
+      "id": "m17",
       "from": "cli",
       "to": "operator",
-      "y": 892,
-      "label": "stdout 与 stderr",
+      "y": 852,
+      "label": "退出码",
       "variant": "return"
     }
   ],
   "segments": [
     {
-      "from": 240,
-      "to": 264,
-      "label": "B01 alt 无子命令或帮助请求"
+      "from": 210,
+      "to": 234,
+      "label": "B01 alt 帮助"
     },
     {
-      "from": 312,
-      "to": 336,
+      "from": 252,
+      "to": 360,
       "label": "B02 else 有效命令"
     },
     {
-      "from": 384,
-      "to": 408,
-      "label": "B03 opt 写归档或初始化查询"
+      "from": 378,
+      "to": 444,
+      "label": "B03 alt BOOTSTRAP"
     },
     {
-      "from": 456,
-      "to": 480,
-      "label": "B04 else 有效命令"
+      "from": 462,
+      "to": 528,
+      "label": "B04 else READ/WRITE"
     },
     {
-      "from": 528,
-      "to": 552,
-      "label": "B05 alt 使用 open_database"
+      "from": 546,
+      "to": 612,
+      "label": "B05 else 历史索引"
     },
     {
-      "from": 600,
-      "to": 624,
-      "label": "B06 alt 表契约兼容"
-    },
-    {
-      "from": 672,
+      "from": 630,
       "to": 696,
-      "label": "B07 else 不兼容"
+      "label": "B06 else 迁移源"
     },
     {
-      "from": 744,
-      "to": 768,
-      "label": "B08 else 只读消费入口"
-    },
-    {
-      "from": 816,
-      "to": 904,
-      "label": "B09 else 有效命令"
+      "from": 714,
+      "to": 864,
+      "label": "B07 返回与释放"
     }
   ],
   "cards": [
     {
       "dot": "cyan",
-      "title": "条件与提交边界",
+      "title": "访问与契约",
       "items": [
-        "status/runs 在库存在时仍使用初始化连接，并持有共享维护锁；workflow 查询也可初始化新库。",
-        "共享 OS 维护锁只协调合作写入者与快照；SQLite BEGIN IMMEDIATE 决定事务写入顺序。",
-        "注册表中共有 15 个顶层命令；旧版命令不能由源码中的历史 docstring 推断为当前入口。"
+        "READ 为 mode=ro/query_only，WRITE 为现存库 mode=rw；两者不调用 initializer 或刷新视图。",
+        "BOOTSTRAP 是显式初始化入口；RUNTIME/MANUSCRIPT 用读操作验证业务契约，NONE 保留专用历史校验。",
+        "search-index 已有库只加 FTS，新空归档才 bootstrap；status/runs 与 workflow 查询不因查询新建 archive.db。"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "锁与内部动作",
+      "items": [
+        "READ/WRITE/BOOTSTRAP 共享维护访问，MAINTENANCE 独占；CLI 协调整次调用，连接持有独立 session 到 close。",
+        "嵌套访问引用计数支持连接非 LIFO 关闭；失败契约检查也 close，跨线程关闭失败保留原 lease。",
+        "路径解析 flag > BILI_ARTIFACT_ROOT > archive root；metadata search 跳过产物根探测；SQLite 决定事务写顺序。"
       ]
     },
     {
       "dot": "slate",
-      "title": "阅读方法",
+      "title": "条件阅读",
       "items": [
-        "B 编号对应完整条件路径；互斥分支仅在条件成立时执行，opt 可选，loop 重复。",
-        "HTML 将嵌套条件展开为连续区域；自调用保留在内部动作卡片。完整 Mermaid 与源码范围见同名 Markdown。"
-      ]
-    },
-    {
-      "dot": "amber",
-      "title": "参与者内部动作",
-      "items": [
-        "时间轴步骤 4 · 路径与维护锁：选择并验证根。详细操作见同名 Markdown。",
-        "时间轴步骤 8 · archive.db：初始化及刷新视图。详细操作见同名 Markdown。"
-      ]
-    },
-    {
-      "dot": "amber",
-      "title": "完整条件路径",
-      "items": [
-        "B01（m2）：alt 无子命令或帮助请求",
-        "B02（m3）：else 有效命令",
-        "B03（m5）：else 有效命令 → opt 写归档或初始化查询",
-        "B04（m6）：else 有效命令",
-        "B05（m7）：else 有效命令 → alt 使用 open_database",
-        "B06（m9）：else 有效命令 → alt 使用 open_database → alt 表契约兼容",
-        "B07（m10）：else 有效命令 → alt 使用 open_database → else 不兼容",
-        "B08（m11）：else 有效命令 → else 只读消费入口",
-        "B09（m12–m14）：else 有效命令"
-      ]
-    },
-    {
-      "dot": "amber",
-      "title": "archive 分派例外",
-      "items": [
-        "archive 使用 ArtifactPolicy.NONE，不沿用当前 archive/artifact root 环境配置；源根由 --source-root 与 --source-artifact-root 显式提供。",
-        "服务自行获取源维护独占锁；immutable 只读连接按冻结旧源契约校验，不调用当前 initializer。完整路径见时序 17。"
+        "B01 与 B02 互斥；B03/B04/B05/B06 是命令选择的互斥访问路径。完整内部动作与异常见同名 Markdown。",
+        "16 个注册顶层命令；archive migration-preflight 使用显式源根与固定旧契约，不运行当前 initializer。"
       ]
     }
   ]

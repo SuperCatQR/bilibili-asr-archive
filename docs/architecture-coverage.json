@@ -1,10 +1,10 @@
 {
-  "repository_revision": "48b31843510e5b1d78ee4f1448cec6dee7ab2296",
+  "repository_revision": "5d7a57e201564a10dec7a360b2ef8f7874dc51a7",
   "top_level_commands": 16,
   "command_paths": [
     [
       "fetch-meta",
-      "元数据、页/cursor/run/tag 观察写入",
+      "显式 BOOTSTRAP；元数据/页/cursor/run/tag 观察写入",
       "02"
     ],
     [
@@ -14,12 +14,12 @@
     ],
     [
       "workflow plan",
-      "profile 与 job/dependency 写入",
+      "完整选择与纯 DAG；profile/config/jobs/dependencies 同事务写入",
       "03"
     ],
     [
       "workflow proofread",
-      "冻结 input 与 proofread/render job",
+      "固定 input 与 proofread/render 完整任务图同事务写入",
       "09"
     ],
     [
@@ -34,17 +34,17 @@
     ],
     [
       "workflow status",
-      "可初始化连接，读取 counts/jobs/details/blockers",
+      "READ 既有库、无 DDL；缺库/不兼容拒绝，读取 counts/jobs/details/blockers",
       "01、04"
     ],
     [
       "workflow explain",
-      "可初始化连接，读取精确 job/dependency/attempt",
+      "READ 精确 job/dependency/attempt；不初始化或刷新视图",
       "04"
     ],
     [
       "workflow asr-evidence",
-      "可初始化连接，读取指定 run/part ASR evidence",
+      "READ 指定 run/part ASR evidence；不初始化",
       "07"
     ],
     [
@@ -59,7 +59,7 @@
     ],
     [
       "workflow publish",
-      "从已存转录 force 请求单 part bundle job",
+      "完整批量验证；所有 part bundle 请求同事务入队",
       "08"
     ],
     [
@@ -79,12 +79,12 @@
     ],
     [
       "status",
-      "已有库初始化/派生视图刷新及汇总；不创建缺失库",
+      "READ 既有兼容库汇总；无 DDL，不创建缺库",
       "01、13"
     ],
     [
       "runs",
-      "已有库初始化/派生视图刷新及 run 汇总；不创建缺失库",
+      "READ 既有兼容库 run 汇总；无 DDL，不刷新视图",
       "01、02"
     ],
     [
@@ -200,6 +200,16 @@
       "sequence_ids": "01、15、17"
     },
     {
+      "path": "src/bili_asr/archive_session.py",
+      "role": "显式数据库模式、schema 契约、产物范围及连接/维护锁生命周期",
+      "sequence_ids": "01、04、11、14、15、17"
+    },
+    {
+      "path": "src/bili_asr/artifact_inventory.py",
+      "role": "受限路径、碰撞与普通文件校验；共享流式清点和 hash",
+      "sequence_ids": "06、15、17"
+    },
+    {
       "path": "src/bili_asr/artifact_root.py",
       "role": "flag/env/root 解析、读根优先与音频复用",
       "sequence_ids": "01、06"
@@ -211,7 +221,7 @@
     },
     {
       "path": "src/bili_asr/asr/__init__.py",
-      "role": "ASR 包导出与兼容接口",
+      "role": "普通公开 ASR facade、显式 runner_factory 与历史导出",
       "sequence_ids": "07"
     },
     {
@@ -256,7 +266,7 @@
     },
     {
       "path": "src/bili_asr/asr/provenance.py",
-      "role": "模型身份、语言与脱敏配置来源",
+      "role": "纯模型/语言/配置来源；普通惰性 provenance facade",
       "sequence_ids": "07"
     },
     {
@@ -283,6 +293,16 @@
       "path": "src/bili_asr/bili_client.py",
       "role": "同步 HTTP、风控/退避、DASH 音频及流式 CDN",
       "sequence_ids": "06"
+    },
+    {
+      "path": "src/bili_asr/bilibili_identity.py",
+      "role": "Bilibili v1 来源 codec 纯实现；保持旧来源对象与 hash 字节",
+      "sequence_ids": "11、17"
+    },
+    {
+      "path": "src/bili_asr/canonical_json.py",
+      "role": "唯一 canonical JSON 序列化与内容身份的纯叶契约",
+      "sequence_ids": "09、11、12、17"
     },
     {
       "path": "src/bili_asr/check_asr_env.py",
@@ -341,7 +361,7 @@
     },
     {
       "path": "src/bili_asr/cli/registry.py",
-      "role": "16 顶层命令和 ArtifactPolicy 登记",
+      "role": "16 顶层命令、独立数据库和 artifact 访问策略",
       "sequence_ids": "01"
     },
     {
@@ -361,8 +381,8 @@
     },
     {
       "path": "src/bili_asr/cli/workflow.py",
-      "role": "所有 workflow 子命令及完整配置冻结/handler 组合",
-      "sequence_ids": "03、04"
+      "role": "workflow 参数、应用用例调用、结果呈现；查询 READ",
+      "sequence_ids": "01、03、04"
     },
     {
       "path": "src/bili_asr/concurrency_gate.py",
@@ -378,6 +398,11 @@
       "path": "src/bili_asr/coverage_report.py",
       "role": "投影覆盖汇总、质量数据与 diagnostics",
       "sequence_ids": "13"
+    },
+    {
+      "path": "src/bili_asr/cue_models.py",
+      "role": "无 quality 反向导入的不可变四字段 Cue",
+      "sequence_ids": "07、08、16"
     },
     {
       "path": "src/bili_asr/cues.py",
@@ -410,6 +435,11 @@
       "sequence_ids": "09、10"
     },
     {
+      "path": "src/bili_asr/error_codes.py",
+      "role": "来源与存储共用的标量/错误码校验；无数据库依赖",
+      "sequence_ids": "02、05、06"
+    },
+    {
       "path": "src/bili_asr/export.py",
       "role": "普通 JSON/CSV 数据投影与文本导出",
       "sequence_ids": "13"
@@ -436,7 +466,7 @@
     },
     {
       "path": "src/bili_asr/manuscript_files.py",
-      "role": "固定稿件安全路径、原子文件写入及摘要读取",
+      "role": "稿件受限路径；事务外暂存与 fsync、受保护幂等安装",
       "sequence_ids": "10、11、12"
     },
     {
@@ -465,6 +495,16 @@
       "sequence_ids": "16"
     },
     {
+      "path": "src/bili_asr/platform_identity.py",
+      "role": "ContentRef 纯不可变平台身份；外部 ID 大小写保真",
+      "sequence_ids": "02、05、06、17"
+    },
+    {
+      "path": "src/bili_asr/process_environment.py",
+      "role": "组合根/子进程的受限运行环境构造",
+      "sequence_ids": "13、16"
+    },
+    {
       "path": "src/bili_asr/proofread.py",
       "role": "保留库：ASR/字幕双路对照、coverage guards 与人工 merge",
       "sequence_ids": "16"
@@ -475,14 +515,29 @@
       "sequence_ids": "11、12"
     },
     {
+      "path": "src/bili_asr/publication_content.py",
+      "role": "出版内容规范、AI 校验、完整正文身份；无来源/存储导入",
+      "sequence_ids": "11、12"
+    },
+    {
       "path": "src/bili_asr/publication_export.py",
       "role": "有效公开、从未发布预览及精确私有审阅出口",
       "sequence_ids": "12"
     },
     {
+      "path": "src/bili_asr/publication_identity.py",
+      "role": "release 身份和路径键的纯规则；保持历史算法",
+      "sequence_ids": "11、12、15、17"
+    },
+    {
       "path": "src/bili_asr/publication_tags.py",
       "role": "原始 tags/观察覆盖、显式 CAS 新版 tags 同步",
       "sequence_ids": "02、11"
+    },
+    {
+      "path": "src/bili_asr/publication_worker.py",
+      "role": "独立 subprocess 组合根；仅入口组装 CLI 与阶段协议",
+      "sequence_ids": "16"
     },
     {
       "path": "src/bili_asr/quality.py",
@@ -531,7 +586,7 @@
     },
     {
       "path": "src/bili_asr/search_index/store.py",
-      "role": "FTS5 schema/tokenizer、批次水位恢复、增量与查询",
+      "role": "FTS keyset 固定上界、cursor 事务恢复与有界 legacy 对账",
       "sequence_ids": "14"
     },
     {
@@ -586,7 +641,7 @@
     },
     {
       "path": "src/bili_asr/services/transcript_projection.py",
-      "role": "纯版本总排序、候选与 writer segments 转换",
+      "role": "共享 transcript_selection 的候选与 writer segments 投影",
       "sequence_ids": "08"
     },
     {
@@ -595,8 +650,13 @@
       "sequence_ids": "02"
     },
     {
+      "path": "src/bili_asr/services/workflow_application.py",
+      "role": "选择、原子计划/校对/重发布用例；运行依赖组装与清理",
+      "sequence_ids": "03、04、09、10"
+    },
+    {
       "path": "src/bili_asr/services/workflow_projection.py",
-      "role": "只读当前 facts、bundle 声明与派生状态",
+      "role": "读快照内集合查询；preferred/published 身份与声明缺陷",
       "sequence_ids": "13"
     },
     {
@@ -610,9 +670,24 @@
       "sequence_ids": "02、05"
     },
     {
+      "path": "src/bili_asr/sources/bilibili_identity.py",
+      "role": "旧来源 codec 路径的普通再导出；owner 在顶层纯模块",
+      "sequence_ids": "11、17"
+    },
+    {
+      "path": "src/bili_asr/sources/bilibili_source.py",
+      "role": "真实 Bilibili 元数据、字幕与音频 adapter；凭据观察保真",
+      "sequence_ids": "02、05、06"
+    },
+    {
       "path": "src/bili_asr/sources/models.py",
       "role": "Gateway protocol、DTO 和有界外部错误",
       "sequence_ids": "02、05"
+    },
+    {
+      "path": "src/bili_asr/sources/protocols.py",
+      "role": "ContentRef 采集端口与 SourceAccessObservation DTO",
+      "sequence_ids": "02、05、06"
     },
     {
       "path": "src/bili_asr/storage/__init__.py",
@@ -628,6 +703,11 @@
       "path": "src/bili_asr/storage/editorial.py",
       "role": "固定 input/job/call/chunk/revision 与双稿登记",
       "sequence_ids": "09、10"
+    },
+    {
+      "path": "src/bili_asr/storage/job_commit.py",
+      "role": "同连接事务/精确 lease guard；提交前复验与受保护 rollback",
+      "sequence_ids": "04、08、09、10"
     },
     {
       "path": "src/bili_asr/storage/metadata.py",
@@ -666,8 +746,8 @@
     },
     {
       "path": "src/bili_asr/storage/workflow.py",
-      "role": "profiles/jobs/dependencies/claim/lease/cancel/retry/terminal",
-      "sequence_ids": "03、04"
+      "role": "SQLite 任务控制/冻结事实/完整 DAG 原子持久化；兼容再导出模型",
+      "sequence_ids": "03、04、08、09"
     },
     {
       "path": "src/bili_asr/storage/workflow_selection.py",
@@ -675,14 +755,39 @@
       "sequence_ids": "03"
     },
     {
+      "path": "src/bili_asr/transcript_selection.py",
+      "role": "producer/planner/reader 共享来源、语言与版本总排序",
+      "sequence_ids": "03、05、08、13"
+    },
+    {
       "path": "src/bili_asr/workflow.py",
-      "role": "单 job executor、独立连接 heartbeat、精确 attempt 终态",
+      "role": "仅依赖控制协议的执行循环、attempt 收尾与 heartbeat",
       "sequence_ids": "04"
+    },
+    {
+      "path": "src/bili_asr/workflow_models.py",
+      "role": "纯 profile/job/plan/status/error 契约及稳定 dedupe 输入",
+      "sequence_ids": "03、04、07"
+    },
+    {
+      "path": "src/bili_asr/workflow_payloads.py",
+      "role": "v1 及未标版本历史载荷验证；严格字段类型和身份一致性",
+      "sequence_ids": "03、04、06、07、09、10"
+    },
+    {
+      "path": "src/bili_asr/workflow_planning.py",
+      "role": "PlanningPart 到有序 JobSpec DAG 的纯规则与 UUID 解析描述",
+      "sequence_ids": "03、09"
     },
     {
       "path": "src/bili_asr/workflow_runtime.py",
       "role": "subtitle/audio/ASR/publish 具体任务及各提交边界",
       "sequence_ids": "05、06、07、08"
+    },
+    {
+      "path": "src/bili_asr/workflow_runtime_ports.py",
+      "role": "gateway/client/CPU runner/GPU timeout 的明确类型端口",
+      "sequence_ids": "05、06、07"
     }
   ],
   "schema_files": [
@@ -2296,7 +2401,7 @@
       "name": "transcript_fts_index_meta",
       "type": "derived_progress_table",
       "source": "src/bili_asr/search_index/store.py",
-      "line": 122,
+      "line": 143,
       "columns": [
         "key",
         "value"

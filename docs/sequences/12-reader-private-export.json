@@ -9,9 +9,9 @@
     "column_fit": "spread",
     "repository": {
       "url": "https://github.com/SuperCatQR/bilibili-asr-archive.git",
-      "revision": "48b31843510e5b1d78ee4f1448cec6dee7ab2296",
+      "revision": "5d7a57e201564a10dec7a360b2ef8f7874dc51a7",
       "provider": "github",
-      "link_mode": "web"
+      "link_mode": "local-only"
     }
   },
   "participants": [
@@ -22,8 +22,8 @@
       "sources": [
         {
           "path": "src/bili_asr/cli/publication.py",
-          "line": 74,
-          "end_line": 135,
+          "line": 60,
+          "end_line": 121,
           "label": "_cmd_publication"
         },
         {
@@ -79,14 +79,14 @@
       "sources": [
         {
           "path": "src/bili_asr/publication.py",
-          "line": 298,
-          "end_line": 304,
+          "line": 125,
+          "end_line": 131,
           "label": "verify_release"
         },
         {
           "path": "src/bili_asr/publication.py",
-          "line": 142,
-          "end_line": 165,
+          "line": 44,
+          "end_line": 67,
           "label": "get_ai_artifacts"
         }
       ]

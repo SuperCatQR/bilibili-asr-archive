@@ -70,4 +70,4 @@ node $archifyCli visual-check docs/architecture.html `
 
 更新 architecture-validation.md 和 architecture-validation.json，记录源码身份、范围、每份规格/产物哈希、四道 gate、浏览器尺寸/主题、可选目视检查范围、未执行的行为验证与剩余布局建议。可移植记录不包含本机用户名或绝对 evidence 路径；原始回执、截图和修复候选留在忽略的 `.archify/` 下。
 
-提交或交付文字、JSON、生成 HTML 和覆盖/验证清单。运行 `git diff --check`，检查本次新增/修改文档的相对链接与 Mermaid 分支平衡，确认未意外改动产品源码或他人的草稿。文档检查不替代业务测试、真实 API、GPU 推理、付费模型或人工语义审核。
+提交或交付文字、JSON、生成 HTML 和覆盖/验证清单。运行 `git diff --check`，检查本次新增/修改文档的相对链接与 Mermaid 分支平衡；纯文档更新确认没有意外产品改动，实现更新则先固定并验证源码，再绑定其提交重新生成全部受影响图表。保留他人的草稿。文档检查不替代业务测试、真实 API、GPU 推理、付费模型或人工语义审核。

@@ -2,16 +2,16 @@
   "schema_version": 1,
   "diagram_type": "sequence",
   "meta": {
-    "title": "音频复用、隔离下载与受保护登记",
+    "title": "音频来源、流式摘要与受保护登记",
     "locale": "zh-CN",
     "output": "docs/sequences/06-audio-download.html",
     "quality_profile": "showcase",
     "column_fit": "spread",
     "repository": {
       "url": "https://github.com/SuperCatQR/bilibili-asr-archive.git",
-      "revision": "48b31843510e5b1d78ee4f1448cec6dee7ab2296",
+      "revision": "5d7a57e201564a10dec7a360b2ef8f7874dc51a7",
       "provider": "github",
-      "link_mode": "web"
+      "link_mode": "local-only"
     }
   },
   "participants": [
@@ -22,53 +22,78 @@
       "sources": [
         {
           "path": "src/bili_asr/workflow_runtime.py",
-          "line": 118,
-          "end_line": 141,
+          "line": 135,
+          "end_line": 159,
           "label": "ArchiveWorkflowHandlers.audio"
         },
         {
           "path": "src/bili_asr/workflow_runtime.py",
-          "line": 150,
-          "end_line": 184,
+          "line": 161,
+          "end_line": 172,
+          "label": "ArchiveWorkflowHandlers._download_audio"
+        },
+        {
+          "path": "src/bili_asr/workflow_runtime.py",
+          "line": 174,
+          "end_line": 209,
           "label": "ArchiveWorkflowHandlers._store_audio"
         }
       ]
     },
     {
       "id": "paths",
-      "label": "路径和暂存",
+      "label": "文件与路径",
       "type": "security",
       "sources": [
         {
           "path": "src/bili_asr/artifact_root.py",
-          "line": 1,
-          "end_line": 60,
-          "label": "模块入口"
+          "line": 369,
+          "end_line": 388,
+          "label": "usable_audio_path"
         },
         {
           "path": "src/bili_asr/path_policy.py",
-          "line": 1,
-          "end_line": 60,
-          "label": "模块入口"
+          "line": 101,
+          "end_line": 143,
+          "label": "confined_audio_path"
+        },
+        {
+          "path": "src/bili_asr/artifact_inventory.py",
+          "line": 122,
+          "end_line": 130,
+          "label": "stream_hash"
+        }
+      ]
+    },
+    {
+      "id": "source",
+      "label": "音频来源端口",
+      "type": "backend",
+      "sources": [
+        {
+          "path": "src/bili_asr/sources/bilibili_source.py",
+          "line": 90,
+          "end_line": 118,
+          "label": "BilibiliAudioSource"
+        },
+        {
+          "path": "src/bili_asr/sources/protocols.py",
+          "line": 79,
+          "end_line": 89,
+          "label": "AudioSource"
         }
       ]
     },
     {
       "id": "downloader",
-      "label": "音频下载器",
+      "label": "安全下载器",
       "type": "backend",
       "sources": [
         {
           "path": "src/bili_asr/audio.py",
-          "line": 1,
-          "end_line": 60,
-          "label": "模块入口"
-        },
-        {
-          "path": "src/bili_asr/bili_client.py",
-          "line": 219,
-          "end_line": 657,
-          "label": "BiliClient"
+          "line": 222,
+          "end_line": 337,
+          "label": "download_audio"
         }
       ]
     },
@@ -79,9 +104,15 @@
       "sources": [
         {
           "path": "src/bili_asr/bili_client.py",
-          "line": 219,
+          "line": 602,
+          "end_line": 630,
+          "label": "BiliClient.fetch_playurl_audio"
+        },
+        {
+          "path": "src/bili_asr/bili_client.py",
+          "line": 632,
           "end_line": 657,
-          "label": "BiliClient"
+          "label": "BiliClient.download_audio_stream"
         }
       ]
     },
@@ -92,9 +123,15 @@
       "sources": [
         {
           "path": "src/bili_asr/storage/workflow.py",
-          "line": 413,
-          "end_line": 422,
+          "line": 283,
+          "end_line": 291,
           "label": "WorkflowRepository.owned_transaction"
+        },
+        {
+          "path": "src/bili_asr/workflow_runtime.py",
+          "line": 174,
+          "end_line": 209,
+          "label": "ArchiveWorkflowHandlers._store_audio"
         }
       ]
     }
@@ -105,128 +142,162 @@
       "from": "handler",
       "to": "db",
       "y": 180,
-      "label": "读取 part 并查租约",
-      "variant": "security"
+      "label": "解码任务、读取真实 part 并 assert_lease",
+      "variant": "security",
+      "note": "解码任务、读取真实 part 并 assert_lease"
     },
     {
       "id": "m2",
       "from": "handler",
       "to": "paths",
       "y": 212,
-      "label": "计算 confined key",
-      "variant": "default"
+      "label": "旧 audio/BVID.p零基页.m4a key",
+      "variant": "security",
+      "note": "旧 audio/BVID.p零基页.m4a key；拒绝越界、symlink 与非音频对象"
     },
     {
       "id": "m3",
       "from": "paths",
       "to": "handler",
       "y": 244,
-      "label": "按根探测可复用文件",
-      "variant": "return"
-    },
-    {
-      "id": "m4",
-      "from": "handler",
-      "to": "downloader",
-      "y": 316,
-      "label": "ffprobe 与 SHA-256",
-      "variant": "default"
-    },
-    {
-      "id": "m5",
-      "from": "handler",
-      "to": "paths",
-      "y": 388,
-      "label": "创建独立 staging",
-      "variant": "default"
+      "label": "配置产物根优先、archive root 回退",
+      "variant": "return",
+      "note": "配置产物根优先、archive root 回退；非空 M4A/FLAC"
     },
     {
       "id": "m6",
       "from": "handler",
-      "to": "downloader",
-      "y": 420,
-      "label": "下载至暂存 audio/",
-      "variant": "default"
+      "to": "paths",
+      "y": 356,
+      "label": "创建本次独立暂存",
+      "variant": "default",
+      "note": "最终 audio/ 下创建 .workflow-audio-*，其中保留 audio/ 子目录"
     },
     {
       "id": "m7",
-      "from": "downloader",
-      "to": "cdn",
-      "y": 452,
-      "label": "请求 DASH 签名 URL",
-      "variant": "default"
-    },
-    {
-      "id": "m8",
-      "from": "cdn",
-      "to": "downloader",
-      "y": 484,
-      "label": "流式音频字节",
-      "variant": "return"
+      "from": "handler",
+      "to": "source",
+      "y": 388,
+      "label": "ContentRef 请求音频",
+      "variant": "default",
+      "note": "download_audio(ContentRef, target, staging_root)"
     },
     {
       "id": "m9",
-      "from": "downloader",
-      "to": "paths",
-      "y": 516,
-      "label": "暂存与可选转封装",
-      "variant": "default"
+      "from": "source",
+      "to": "downloader",
+      "y": 420,
+      "label": "调用原安全下载器",
+      "variant": "default",
+      "note": "原有 PageIdentity 与 ArtifactRoots.of(staging_root)"
     },
     {
       "id": "m10",
       "from": "downloader",
-      "to": "handler",
-      "y": 548,
-      "label": "返回实际文件路径",
-      "variant": "return"
+      "to": "cdn",
+      "y": 452,
+      "label": "通过实际 client 查询 DASH 签名地址并下载",
+      "variant": "default",
+      "note": "通过实际 client 查询 DASH 签名地址并下载"
     },
     {
       "id": "m11",
-      "from": "handler",
+      "from": "cdn",
       "to": "downloader",
-      "y": 580,
-      "label": "ffprobe 与 SHA-256",
-      "variant": "default"
+      "y": 484,
+      "label": "descriptor-safe 暂存流式字节",
+      "variant": "return",
+      "note": "descriptor-safe 暂存流式字节；瞬时 URL 不进入归档"
     },
     {
       "id": "m12",
-      "from": "handler",
-      "to": "db",
-      "y": 612,
-      "label": "owned_transaction",
-      "variant": "security"
+      "from": "downloader",
+      "to": "paths",
+      "y": 556,
+      "label": "保留 .flac",
+      "variant": "default",
+      "note": "保留 .flac；不用 .m4a 后缀冒充 FLAC"
     },
     {
       "id": "m13",
-      "from": "handler",
-      "to": "paths",
-      "y": 644,
-      "label": "替换最终音频",
-      "variant": "default"
+      "from": "downloader",
+      "to": "source",
+      "y": 628,
+      "label": "实际最终容器路径",
+      "variant": "return",
+      "note": "实际最终容器路径"
     },
     {
       "id": "m14",
-      "from": "handler",
-      "to": "db",
-      "y": 676,
-      "label": "登记对象与关联",
-      "variant": "default"
+      "from": "source",
+      "to": "handler",
+      "y": 660,
+      "label": "Path",
+      "variant": "return",
+      "note": "Path；保留真实 suffix"
     },
     {
       "id": "m15",
-      "from": "db",
-      "to": "handler",
-      "y": 708,
-      "label": "提交 storage key",
-      "variant": "return"
+      "from": "handler",
+      "to": "paths",
+      "y": 692,
+      "label": "暂存路径与容器校验",
+      "variant": "security",
+      "note": "探测前校验本次 staging/audio、同 stem、M4A/FLAC 与无 symlink"
     },
     {
       "id": "m16",
+      "from": "paths",
+      "to": "handler",
+      "y": 724,
+      "label": "违规拒绝",
+      "variant": "return",
+      "note": "违规拒绝；只允许本次暂存普通音频文件"
+    },
+    {
+      "id": "m18",
+      "from": "handler",
+      "to": "db",
+      "y": 796,
+      "label": "租约保护登记事务",
+      "variant": "security",
+      "note": "owned_transaction 取得写锁并检查精确 lease"
+    },
+    {
+      "id": "m19",
       "from": "handler",
       "to": "paths",
-      "y": 740,
-      "label": "清理本次 staging",
-      "variant": "default"
+      "y": 868,
+      "label": "os.replace 暂存文件到最终同 suffix 目标",
+      "variant": "default",
+      "note": "os.replace 暂存文件到最终同 suffix 目标"
+    },
+    {
+      "id": "m20",
+      "from": "handler",
+      "to": "db",
+      "y": 940,
+      "label": "audio_objects 按 sha256 去重",
+      "variant": "default",
+      "note": "audio_objects 按 sha256 去重；part_audio_objects 保存 workflow 来源"
+    },
+    {
+      "id": "m21",
+      "from": "db",
+      "to": "handler",
+      "y": 972,
+      "label": "ASR 依赖结果",
+      "variant": "return",
+      "note": "key、hash、duration 成为 ASR prerequisite result"
+    },
+    {
+      "id": "m22",
+      "from": "handler",
+      "to": "paths",
+      "y": 1004,
+      "label": "TemporaryDirectory 正常/失败均清理",
+      "variant": "default",
+      "note": "TemporaryDirectory 正常/失败均清理；不回收已有音频"
     }
   ],
   "segments": [
@@ -236,35 +307,64 @@
       "label": "B01 alt 文件可复用"
     },
     {
-      "from": 376,
-      "to": 592,
+      "from": 344,
+      "to": 496,
       "label": "B02 else 需要下载"
+    },
+    {
+      "from": 544,
+      "to": 568,
+      "label": "B03 opt 真实 FLAC 且 ffmpeg 不可用"
+    },
+    {
+      "from": 616,
+      "to": 736,
+      "label": "B04 else 需要下载"
+    },
+    {
+      "from": 856,
+      "to": 880,
+      "label": "B05 opt 下载产生新文件"
     }
   ],
   "cards": [
     {
       "dot": "cyan",
-      "title": "条件与提交边界",
+      "title": "已固定源码基线",
       "items": [
-        "当前 workflow 无成功后的自动音频删除、keep-audio 或 max-audio-gb 命令参数。",
-        "下载、探测、hash 不占 SQLite 写事务；最终替换和登记共享租约保护写锁。",
-        "SQLite rollback 无法回滚已替换的文件；inventory/verify/快照校验是独立核对机制。"
+        "代码提交 5d7a57e201564a10dec7a360b2ef8f7874dc51a7；源码引用指向本地路径。文档更新与产物生成使用该提交的源码证据。"
       ]
     },
     {
-      "dot": "slate",
-      "title": "阅读方法",
+      "dot": "emerald",
+      "title": "边界与恢复",
       "items": [
-        "B 编号对应完整条件路径；互斥分支仅在条件成立时执行，opt 可选，loop 重复。",
-        "HTML 将嵌套条件展开为连续区域；自调用保留在内部动作卡片。完整 Mermaid 与源码范围见同名 Markdown。"
+        "ContentRef 只作为运行时来源输入；BilibiliAudioSource 通过真实 PageIdentity 调用现有安全下载器，旧 stem/key 保持原样。",
+        "探测前拒绝暂存目录外路径、错误后缀、其他分 P stem 和符号链接；真实 FLAC 返回值继续使用 .flac。",
+        "ffprobe、下载和固定块 stream_hash 在 SQLite 写事务外执行；最终文件替换与登记共享租约保护写锁。",
+        "当前 workflow 无成功后的自动音频删除、keep-audio 或 max-audio-gb 命令参数。复用分支不搬移旧根音频。",
+        "SQLite rollback 无法回滚已替换的文件；inventory/verify/快照校验仍是独立核对机制。"
       ]
     },
     {
       "dot": "amber",
+      "title": "参与者内部动作",
+      "items": [
+        "步骤 4 · 音频 handler：ffprobe 30 秒；duration 有限且大于 0；stream_hash 累计字节与 SHA-256",
+        "步骤 5 · 音频 handler：audio_client_factory(sessdata) 创建或复用本次 client",
+        "步骤 8 · 音频来源端口：解析真实 PageIdentity；平台、引用与 cid 不匹配则拒绝",
+        "步骤 17 · 音频 handler：ffprobe 上限 30 秒；duration 有限且大于 0；stream_hash 不读整文件"
+      ]
+    },
+    {
+      "dot": "violet",
       "title": "完整条件路径",
       "items": [
-        "B01（m4）：alt 文件可复用",
-        "B02（m5–m11）：else 需要下载"
+        "B01：alt 文件可复用",
+        "B02：else 需要下载",
+        "B03：else 需要下载 → opt 真实 FLAC 且 ffmpeg 不可用",
+        "B04：else 需要下载",
+        "B05：opt 下载产生新文件"
       ]
     }
   ]

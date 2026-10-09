@@ -1,25 +1,33 @@
-# 架构文档验证记录
+# 架构修复与文档验证记录
 
-核对日期：2026-10-09（Asia/Hong_Kong）。源码基线：main `48b31843510e5b1d78ee4f1448cec6dee7ab2296`。本次纳入已合并的多平台实施方案与固定旧源迁移预检；实际平台适配、转换及目标归档写入仍属于后续计划。冻结迁移源契约保持独立的历史版本身份。
+核对日期：2026-10-09（Asia/Hong_Kong）。固定源码：`5d7a57e201564a10dec7a360b2ef8f7874dc51a7`，独立工作树起点为 main `6544eb85ea3e95e5b9571930fefaf35bde6b7dc1`。本轮同时完成实现修复、行为回归和文档更新。逐项修复见 [边界修复与验收](architecture-refactoring.md)，全部流程见 [17 份时序索引](architecture-sequences.md)。
 
-## 覆盖与内容核对
+## 完整 WSL 验证
 
-[机器记录](architecture-validation.json) 保存每份规格与 HTML 的 SHA-256、四阶段 gate、浏览器证据和实际布局建议。[覆盖清单](architecture-coverage.json) 按源码逐项记录 16 个顶层命令、35 条命令路径、101 个 Python 产品模块、4 份 SQL schema 的 38 张表与 8 个视图，以及 2 个运行时搜索对象。
+最终套件在 WSL Ubuntu-24.04 的原生 Linux 文件系统中运行，源码快照逐文件核对工作树字节，独立 Python 3.12 环境真实安装全部开发依赖。完整 pytest：**2112 passed、11 skipped、0 failed、0 errors**，耗时 405.12 秒。受门禁管理的产品行覆盖率 **81.87%**，分支覆盖率 **71.06%**，分别超过 75%/63% 的项目门槛。
 
-清单与固定提交的 Git 文件树、AST 注册表/子命令 parser、临时内存 SQLite 的表/视图名称、列及复合外键逐项比对；检查所有图中源码路径与行范围、Markdown 本地链接，以及 17 份 Mermaid 的条件/循环平衡和参与者。更改仅在 docs 下，git diff --check 通过。
+Ruff E9、源码/测试/脚本 compileall、sdist 与 wheel 构建通过。独立安装环境从项目外实际运行 CLI，确认四份 SQL 和冻结迁移源 JSON 已打包；缺库 READ/status/workflow status 有界失败且无目录或 DB 创建。显式 BOOTSTRAP 后，本轮已安装 CLI 的只读回归在静止归档下保持 DB/sidecar 字节不变；并发 writer 或 SQLite WAL sidecar 的外部变化不在这个字节承诺内。开发依赖审计通过，未发现已知漏洞。
 
-## 图表、浏览器与视觉证据
+交叉审查验证了事务内租约到期、等待写锁跨越期限、续约旧期限到期、取消/owner/attempt 改变、批次后段失败、稿件暂存与不可变重试、音频路径、历史 hash、真实 A→B→A 发布与消费者、索引固定上界及 legacy 恢复。受控条件变异和恢复旧控制实现均触发对应失败，原字节恢复后继续验收。历史 collect_ignore 对已移除产品路径的排除保持原状；跳过项不计为通过。
 
-使用 Archify 3.0.1 重新生成 2 张架构图与 17 张时序图，共 19 张。每张均通过 showcase validate、deliver、strict provenance check 和真实 Chrome browser-check；规格及产物文件字节与回执摘要相符。全部图的浏览器尺寸/主题、横向溢出和可读性结果见机器记录。长图允许纵向滚动。
+前轮完整运行曾暴露安装测试仍要求查询初始化的问题，已按 READ 契约修正。借用旧环境依赖目录的 `.pth` 没有执行 coverage 的子进程启动文件，导致嵌套采集测试零覆盖；四组对照定位后，最终环境直接安装依赖，同版本 coverage/pytest 下普通及插桩运行均通过，无需修改产品 coverage 配置。
 
-全景图按路由建议做过一次仅修改位置的布局调整，保留全部节点、关系、标签和源码。通过后的交叉数从 19 减为 17；仍有 8 条超过建议转折数的路线和 1 条超过建议长度的路线。AI 专题保留 6 条绕路建议。自动零 diagnostics 不表示密集连线没有交叉。
+## 覆盖与源码身份
 
-额外对全景和新时序 17 运行 artifact-bound visual-check，四张尺寸/主题截图自动检查均通过；实际查看了两张图的 1440×900 浅色首屏。全景首屏未见裁切或标签重叠，但未逐屏目视追踪完整长图；时序 17 首屏包含全部箭头与互斥结果，标签和参与者可辨。其余图本轮只完成自动浏览器检查，不沿用上一轮的目视结果。
+[机器记录](architecture-validation.json) 保存实际 gate、文件 SHA-256 和浏览器证据。[覆盖清单](architecture-coverage.json) 对齐固定提交：16 个顶层命令、35 条实际命令路径、122 个 Python 产品模块、4 份 SQL schema、38 张表、8 个视图，以及 2 个运行时搜索对象。TEMP legacy key 表是构建连接的恢复辅助，不是新增归档实体。
 
-HTML 中自调用以内部动作卡片保留，嵌套条件以配对分支说明展开；每页 Mermaid 保存完整条件、循环和短路语义。预检图明确说明任意阶段失败立即中止，未获取锁时不释放，获取后由异常上下文释放；成功和失败区域互斥。
+逐项核对 parser/registry、提交文件树、内存 SQLite 对象名称与列，检查 **269 段固定源码范围**（其中 257 段精确 AST 符号）和 **698 个 Markdown 本地链接**。17 份 Mermaid 的参与者与 alt/opt/loop 平衡通过，全部图使用同一固定 SHA 和 local-only 源码链接。git diff --check 通过。原始来源 codec、profile/dedupe、稿件内容 hash 与已有持久 schema 保持兼容。
 
-## 复现与边界
+## 图表与浏览器
 
-原始 finalize/browser-check/visual-check 回执、截图、一次布局修复候选及内容核对脚本位于本地忽略目录 `.archify/architecture-preflight-20261009/`。可移植机器记录只使用仓库相对路径；重现步骤见 [维护指南](architecture-maintenance.md)。
+Archify 3.0.1 重新生成 2 张架构图与 17 张时序图。19 张均通过 showcase validate、deliver、strict provenance check 和真实 Chrome browser-check，specification/artifact 摘要与实际文件相符。每张检测 1440×900、1600×1000、1920×1080、2048×1320 的浅色视口；端点尺寸另覆盖深色，均无横向溢出。长图按 Reader 契约允许纵向滚动。
 
-本次是文档更新，未执行完整业务回归、真实 Bilibili 网络访问、GPU 推理、付费模型调用、外部阅读站部署或人工逐句语义审核。架构验收不能替代这些运行验证。
+全景只改变四个节点位置，保留全部节点、关系、语义和源码。实际主链 CLI→workflow→handlers 的阻挡已移除，交叉数从 17 降为 14；超过建议转折数的路线从 8 增为 10，超过建议长度的 1 条路线消失。保留这个主链更清楚的候选，明确共享状态和消费路径仍有交叉；AI 专题保留 6 条绕路建议。零自动 diagnostics 不表示零交叉。
+
+全景、AI 专题与重新编排的计划时序额外取得端点尺寸/主题截图，实际查看记录限于对应桌面首屏。计划时序的两个分支标题原有重叠，已调整分支间距并重新完成全部四项 gate。长页下部没有逐屏穷尽追踪，因此机器记录标为 partial，不声称完整目视验收；其余图仅有确定性的自动浏览器检查。HTML 内部动作和展开分支与同页 Mermaid 共同保持完整条件路径。
+
+## 复现与限制
+
+最终原始回执、截图、修复候选、源码比对和内容检查脚本保存在忽略目录 `.archify/`；可移植记录不包含本机用户名或绝对 evidence 路径。维护步骤见 [指南](architecture-maintenance.md)。本次未调用真实 Bilibili 网络、执行真实 GPU 推理、发起付费 AI 请求、部署外部阅读站或进行逐句语义审核。
+
+SQLite 不能原子回滚文件安装；失败后的不可变稿件可验证重试，bundle marker 失败清理由保护事务负责。取消为协作式，提交 fence 阻止迟到结果。ContentRef/端口已经接入 Bilibili 真实路径，其他平台落库与迁移转换仍需独立实施；投影内部查询有界，公共完整映射仍按输出规模占用内存。

@@ -9,9 +9,9 @@
     "column_fit": "spread",
     "repository": {
       "url": "https://github.com/SuperCatQR/bilibili-asr-archive.git",
-      "revision": "48b31843510e5b1d78ee4f1448cec6dee7ab2296",
+      "revision": "5d7a57e201564a10dec7a360b2ef8f7874dc51a7",
       "provider": "github",
-      "link_mode": "web"
+      "link_mode": "local-only"
     }
   },
   "participants": [
@@ -22,8 +22,8 @@
       "sources": [
         {
           "path": "src/bili_asr/storage/workflow.py",
-          "line": 675,
-          "end_line": 731,
+          "line": 536,
+          "end_line": 553,
           "label": "WorkflowRepository.request_publication"
         }
       ]
@@ -35,8 +35,8 @@
       "sources": [
         {
           "path": "src/bili_asr/workflow_runtime.py",
-          "line": 292,
-          "end_line": 383,
+          "line": 318,
+          "end_line": 418,
           "label": "ArchiveWorkflowHandlers.publish"
         }
       ]
@@ -48,14 +48,14 @@
       "sources": [
         {
           "path": "src/bili_asr/services/transcript_projection.py",
-          "line": 152,
-          "end_line": 193,
+          "line": 106,
+          "end_line": 147,
           "label": "ordered_candidates"
         },
         {
           "path": "src/bili_asr/services/transcript_projection.py",
-          "line": 196,
-          "end_line": 225,
+          "line": 150,
+          "end_line": 179,
           "label": "writer_segments"
         }
       ]
@@ -67,8 +67,8 @@
       "sources": [
         {
           "path": "src/bili_asr/storage/workflow.py",
-          "line": 829,
-          "end_line": 892,
+          "line": 675,
+          "end_line": 734,
           "label": "WorkflowRepository._terminal"
         }
       ]
@@ -80,14 +80,14 @@
       "sources": [
         {
           "path": "src/bili_asr/archive.py",
-          "line": 872,
-          "end_line": 911,
+          "line": 843,
+          "end_line": 882,
           "label": "write_archive"
         },
         {
           "path": "src/bili_asr/archive.py",
-          "line": 395,
-          "end_line": 532,
+          "line": 366,
+          "end_line": 503,
           "label": "_publish_bundle"
         }
       ]
@@ -99,8 +99,8 @@
       "sources": [
         {
           "path": "src/bili_asr/archive.py",
-          "line": 254,
-          "end_line": 336,
+          "line": 225,
+          "end_line": 307,
           "label": "archive_bundle_complete"
         }
       ]
@@ -263,7 +263,10 @@
       "items": [
         "转录 bundle 与获人工批准的 publication release 是两个独立发布域。",
         "archive.write_archive 支持较丰富的 ASR 参数；当前 workflow.publish 只传已观察到的子集，数据库证据用 workflow asr-evidence 查看。",
-        "受保护写锁解决合作取消/抢占竞态；不能保证掉电后数据库与文件恰好一次一致。"
+        "受保护写锁解决合作取消/抢占竞态；不能保证掉电后数据库与文件恰好一次一致。",
+        "字幕选择、publish 和读投影共用 transcript_selection；读投影保留 preferred 与 published 两种身份。",
+        "发布表时间在 part 内以 wall-clock 秒为底严格单调，连续同秒重发布旧行仍指向实际 bundle。",
+        "JobCommitGuard 在 BEGIN IMMEDIATE 后与提交前检查同一 lease_owner/attempt/expiry；失败先失效 marker 再释放写锁。"
       ]
     },
     {

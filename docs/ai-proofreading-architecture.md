@@ -1,6 +1,6 @@
 # AI 双稿、完整版本审核与发布架构
 
-日期：2026-10-09（Asia/Hong_Kong）。基线 main `48b31843510e5b1d78ee4f1448cec6dee7ab2296`。
+日期：2026-10-09（Asia/Hong_Kong）。基线 `5d7a57e201564a10dec7a360b2ef8f7874dc51a7`（本次架构修复的源码提交）。
 交互式架构图：[打开 HTML](ai-proofreading-architecture.html)，[可编辑图稿](ai-proofreading-architecture.json)。
 入口见 [使用说明](ai-proofreading.md)；当前模块边界与跨域关系见
 [架构文字说明](architecture.md)和已刷新到同一基线的[全景图](architecture.html)。
@@ -97,8 +97,8 @@ flowchart LR
 产物位于 documents/part-<ID>/<修订ID>/ai-draft-v1/。
 ai-draft.md 仅含正文段落；无标题、目录、时间戳、脚注、链接或审核说明。
 review.md 保存每段原文和整理稿、全部来源 ID、时间与回看链接、疑点、模型参数和版本，注明未经人工复核。
-每份文件原子写入，相同修订与模板重新渲染字节一致。文本生成和完整双稿身份预检在锁外，
-当前 `atomic_write_artifact` 的文件暂存、fsync 与替换在租约保护事务内，与双稿 artifact 登记共享写锁。
+每份文件原子安装，相同修订与模板重新渲染字节一致。文本生成、完整双稿身份预检、
+`stage_artifact` 临时文件写入与文件 fsync 在锁外；最终不可变安装、POSIX 目录 fsync 和双稿 artifact 登记共享租约保护写事务。
 两文件不构成文件系统事务，失败可能保留第一份已写字节；读取方仍验证完整登记与固定内容。
 
 `manuscript_templates.py` 固定 `AI_RENDERERS` 与 `PUBLISH_RENDERERS`。读取历史 artifact 按记录版本
@@ -117,19 +117,30 @@ A 发布后创建、请求修改、拒绝或批准 B 都保持 A；显式发布 
 
 ## 当前代码证据与验证
 
-- src/bili_asr/editorial.py：冻结输入、大块预算、段落来源校验与纯正文渲染。
-- src/bili_asr/deepseek.py：官方 JSON 模式、high 思考及 top_p 请求。
-- src/bili_asr/editorial_runtime.py、storage/editorial.py：调用审计、检查点、完整修订及文档。
-- src/bili_asr/publication.py、storage/publication.py、cli/publication.py：完整内容、准确审核、CAS、双指针、显式发布和撤回。
-- src/bili_asr/publication_tags.py、services/video_tags.py：原始标签观察与显式冻结同步。
-- src/bili_asr/manuscript_templates.py、manuscript_files.py：固定历史模板、字节验证与受限文件写入。
-- src/bili_asr/publication_export.py、export_snapshot.py、cli/editorial.py：公开 / 私有快照、严格契约、锁和恢复。
-- src/bili_asr/storage/workflow.py：独立依赖、认领、租约、尝试与渲染模板版本。
-- tests/test_ai_editorial.py：正文、来源、恢复、接口参数、租约和重渲染契约。
+- [src/bili_asr/storage/editorial.py:39–45](../src/bili_asr/storage/editorial.py#L39)：`EditorialRepository.latest_sources`。
+- [src/bili_asr/storage/editorial.py:93–116](../src/bili_asr/storage/editorial.py#L93)：`EditorialRepository.freeze_job_input`。
+- [src/bili_asr/editorial.py:133–195](../src/bili_asr/editorial.py#L133)：`prepare_input`。
+- [src/bili_asr/storage/workflow.py:405–410](../src/bili_asr/storage/workflow.py#L405)：`WorkflowRepository._editorial_jobs`。
+- [src/bili_asr/storage/workflow.py:283–291](../src/bili_asr/storage/workflow.py#L283)：`WorkflowRepository.owned_transaction`。
+- [src/bili_asr/deepseek.py:38–58](../src/bili_asr/deepseek.py#L38)：`DeepSeekClient.complete`。
+- [src/bili_asr/editorial_runtime.py:36–61](../src/bili_asr/editorial_runtime.py#L36)：`EditorialWorkflowHandlers.proofread`。
+- [src/bili_asr/editorial.py:215–262](../src/bili_asr/editorial.py#L215)：`validate_revision`。
+- [src/bili_asr/storage/editorial.py:146–149](../src/bili_asr/storage/editorial.py#L146)：`EditorialRepository.save_chunk`。
+- [src/bili_asr/storage/editorial.py:151–167](../src/bili_asr/storage/editorial.py#L151)：`EditorialRepository.commit_revision`。
+- [src/bili_asr/manuscript_templates.py:82–86](../src/bili_asr/manuscript_templates.py#L82)：`renderer_for`。
+- [src/bili_asr/editorial_runtime.py:63–97](../src/bili_asr/editorial_runtime.py#L63)：`EditorialWorkflowHandlers.render`。
+- [src/bili_asr/publication.py:44–67](../src/bili_asr/publication.py#L44)：`get_ai_artifacts`。
+- [src/bili_asr/cli/publication.py:137–185](../src/bili_asr/cli/publication.py#L137)：`add_publication_parser`。
+- [src/bili_asr/publication.py:134–174](../src/bili_asr/publication.py#L134)：`publish_edition`。
+- [src/bili_asr/publication_tags.py:25–41](../src/bili_asr/publication_tags.py#L25)：`sync_source_tags`。
+- [src/bili_asr/storage/publication.py:22–233](../src/bili_asr/storage/publication.py#L22)：`PublicationRepository`。
+- [src/bili_asr/publication_export.py:61–105](../src/bili_asr/publication_export.py#L61)：`export_publications`。
+- [src/bili_asr/publication_export.py:108–181](../src/bili_asr/publication_export.py#L108)：`export_publication_drafts`。
+- [src/bili_asr/publication_export.py:193–271](../src/bili_asr/publication_export.py#L193)：`export_editorial`。
+- [src/bili_asr/export_snapshot.py:367–444](../src/bili_asr/export_snapshot.py#L367)：`replace_snapshot`。
 
-离线测试与真实 API 运行验证链路和格式；人工回听、逐句语义保真和准确率评估另需执行。
+完整业务、安装与图表验收见 [验证记录](architecture-validation.md)。
 
-- tests/test_publication.py、tests/test_publication_export.py：版本生命周期、幂等、故障、公开隔离与路径保护。
+## 本次边界修复
 
-协作式取消通过 checkpoint 和任务所有权事务生效：取消先提交时，新的块、完整修订与最终文档安装拒绝；
-已有调用审计可保留。重复相同 render 不复活 cancelled 任务，详见 [任务取消](workflow-cancellation.md)。
+CLI 经 WorkflowApplication 编排；显式校对的固定 input 与两个任务同一事务提交。自动校对先纯准备，再将 input 与 job binding 放入租约保护事务。双稿先在事务外编码、暂存、fsync，事务内仅安装、复验和登记。失败后已安装的不可变文件可作为未登记字节安全重试；数据库事务不能回滚文件。出版内容、来源身份、canonical JSON 使用独立纯契约模块，存储与快照不会反向调用出版用例。

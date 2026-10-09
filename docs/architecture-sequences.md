@@ -1,6 +1,6 @@
 # 完整时序图
 
-基线：main `48b31843510e5b1d78ee4f1448cec6dee7ab2296`；核对日期：2026-10-09（Asia/Hong_Kong）。
+源码基线：本次架构边界修复的固定代码提交 `5d7a57e201564a10dec7a360b2ef8f7874dc51a7`；核对日期：2026-10-09（Asia/Hong_Kong）。该提交是从 main 开始的本地修复身份，不表示远端 main 已包含修复；17 张时序图与两张架构图共同绑定该代码快照。
 
 以下 17 个流程覆盖当前 CLI、生产链路、持久提交、读取消费、恢复及保留库能力。每页包含可直接渲染的 Mermaid 时序图、条件分支、交互 HTML、JSON 规格和源码证据。
 
@@ -8,7 +8,7 @@ HTML 按发生顺序展开条件分支，每段 B 编号对应卡片中的完整
 
 | 序号 | 时序文档 | 交互图 |
 | --- | --- | --- |
-| 01 | [CLI 启动、路径策略与数据库契约](sequences/01-cli-bootstrap.md) | [HTML](sequences/01-cli-bootstrap.html) · [JSON](sequences/01-cli-bootstrap.json) |
+| 01 | [CLI 启动、显式数据库访问与 session 生命周期](sequences/01-cli-bootstrap.md) | [HTML](sequences/01-cli-bootstrap.html) · [JSON](sequences/01-cli-bootstrap.json) |
 | 02 | [分页元数据采集、失败恢复与原始标签](sequences/02-metadata-tags.md) | [HTML](sequences/02-metadata-tags.html) · [JSON](sequences/02-metadata-tags.json) |
 | 03 | [全集选择验证、配置冻结与依赖规划](sequences/03-workflow-plan.md) | [HTML](sequences/03-workflow-plan.html) · [JSON](sequences/03-workflow-plan.json) |
 | 04 | [任务认领、心跳、取消、租约回收与重试](sequences/04-lease-cancel-retry.md) | [HTML](sequences/04-lease-cancel-retry.html) · [JSON](sequences/04-lease-cancel-retry.json) |
@@ -20,8 +20,8 @@ HTML 按发生顺序展开条件分支，每段 B 编号对应卡片中的完整
 | 10 | [确定性 AI 双稿渲染与历史模板验证](sequences/10-document-render.md) | [HTML](sequences/10-document-render.html) · [JSON](sequences/10-document-render.json) |
 | 11 | [完整 edition、准确审核、release 替换与撤回](sequences/11-publication-lifecycle.md) | [HTML](sequences/11-publication-lifecycle.html) · [JSON](sequences/11-publication-lifecycle.json) |
 | 12 | [公开、未发布预览与私有审阅三种导出](sequences/12-reader-private-export.md) | [HTML](sequences/12-reader-private-export.html) · [JSON](sequences/12-reader-private-export.json) |
-| 13 | [读取投影、覆盖、完整性、普通导出与去重](sequences/13-projection-verify.md) | [HTML](sequences/13-projection-verify.html) · [JSON](sequences/13-projection-verify.json) |
-| 14 | [FTS 增量索引、元数据检索与组合结果](sequences/14-search-index.md) | [HTML](sequences/14-search-index.html) · [JSON](sequences/14-search-index.json) |
+| 13 | [偏好/发布身份、集合投影与真实完整性诊断](sequences/13-projection-verify.md) | [HTML](sequences/13-projection-verify.html) · [JSON](sequences/13-projection-verify.json) |
+| 14 | [有界 FTS keyset、失败恢复与组合检索](sequences/14-search-index.md) | [HTML](sequences/14-search-index.html) · [JSON](sequences/14-search-index.json) |
 | 15 | [归档 ZIP 保存、离线校验与跨设备恢复](sequences/15-archive-snapshot.md) | [HTML](sequences/15-archive-snapshot.html) · [JSON](sequences/15-archive-snapshot.json) |
 | 16 | [部署启动与保留库工具的显式调用边界](sequences/16-library-and-operations.md) | [HTML](sequences/16-library-and-operations.html) · [JSON](sequences/16-library-and-operations.json) |
 | 17 | [固定旧源迁移预检与完整历史校验](sequences/17-migration-preflight.md) | [HTML](sequences/17-migration-preflight.html) · [JSON](sequences/17-migration-preflight.json) |
@@ -30,7 +30,7 @@ HTML 按发生顺序展开条件分支，每段 B 编号对应卡片中的完整
 
 | 业务面 | 流程 |
 | --- | --- |
-| 启动、路径、安全边界、schema | 01 |
+| 启动、独立文件/数据库模式、READ/WRITE 无 DDL、bootstrap、session lease | 01 |
 | 用户分页、视频详情/分 P、标签与失败恢复 | 02 |
 | 批量选择、profile、任务去重与依赖、重新发布 | 03 |
 | claim、heartbeat、cancel、lease reclaim、retry、terminal | 04 |
@@ -42,8 +42,8 @@ HTML 按发生顺序展开条件分支，每段 B 编号对应卡片中的完整
 | AI 双稿、固定模板、文件登记、历史版本验证 | 10 |
 | edition、tags sync、review、release、替换/撤回 | 11 |
 | 公开/预览/私有导出、输出恢复与消费边界 | 12 |
-| status/runs/coverage/verify/export/dedup 与派生投影 | 01、13 |
-| FTS build/repair 与 metadata/transcripts/all search | 14 |
+| status/runs/coverage/verify/export/dedup、preferred/published 身份与批量投影 | 01、13 |
+| FTS keyset/固定上界/cursor 恢复、MD 分页与 metadata/transcripts/all search | 14 |
 | ZIP save/check/restore 与中断恢复 | 15 |
 | production、check-asr-env、保留工具能力 | 16 |
 | 固定旧源预检、全历史身份与字节校验、稳定指纹 | 17 |

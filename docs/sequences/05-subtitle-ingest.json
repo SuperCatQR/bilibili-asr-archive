@@ -2,16 +2,16 @@
   "schema_version": 1,
   "diagram_type": "sequence",
   "meta": {
-    "title": "字幕轨道选择、缺失证据与不可变转录",
+    "title": "字幕来源端口、缺失证据与不可变转录",
     "locale": "zh-CN",
     "output": "docs/sequences/05-subtitle-ingest.html",
     "quality_profile": "showcase",
     "column_fit": "spread",
     "repository": {
       "url": "https://github.com/SuperCatQR/bilibili-asr-archive.git",
-      "revision": "48b31843510e5b1d78ee4f1448cec6dee7ab2296",
+      "revision": "5d7a57e201564a10dec7a360b2ef8f7874dc51a7",
       "provider": "github",
-      "link_mode": "web"
+      "link_mode": "local-only"
     }
   },
   "participants": [
@@ -22,8 +22,8 @@
       "sources": [
         {
           "path": "src/bili_asr/workflow.py",
-          "line": 53,
-          "end_line": 97,
+          "line": 70,
+          "end_line": 114,
           "label": "WorkflowExecutor.run"
         }
       ]
@@ -35,9 +35,15 @@
       "sources": [
         {
           "path": "src/bili_asr/workflow_runtime.py",
-          "line": 79,
-          "end_line": 116,
+          "line": 95,
+          "end_line": 133,
           "label": "ArchiveWorkflowHandlers.subtitle"
+        },
+        {
+          "path": "src/bili_asr/workflow_runtime_ports.py",
+          "line": 15,
+          "end_line": 16,
+          "label": "GatewayFactory"
         }
       ]
     },
@@ -48,22 +54,65 @@
       "sources": [
         {
           "path": "src/bili_asr/services/subtitle_ingest.py",
-          "line": 423,
-          "end_line": 470,
+          "line": 456,
+          "end_line": 505,
           "label": "SubtitleIngestor._acquire_part"
+        },
+        {
+          "path": "src/bili_asr/services/subtitle_ingest.py",
+          "line": 305,
+          "end_line": 320,
+          "label": "SubtitleIngestor._source_for"
+        }
+      ]
+    },
+    {
+      "id": "source",
+      "label": "字幕来源端口",
+      "type": "backend",
+      "sources": [
+        {
+          "path": "src/bili_asr/sources/bilibili_source.py",
+          "line": 48,
+          "end_line": 87,
+          "label": "BilibiliSubtitleSource"
+        },
+        {
+          "path": "src/bili_asr/sources/protocols.py",
+          "line": 62,
+          "end_line": 76,
+          "label": "SubtitleSource"
+        },
+        {
+          "path": "src/bili_asr/sources/protocols.py",
+          "line": 32,
+          "end_line": 46,
+          "label": "SourceAccessObservation"
         }
       ]
     },
     {
       "id": "gateway",
-      "label": "字幕 API",
+      "label": "B站网关/API",
       "type": "external",
       "sources": [
         {
           "path": "src/bili_asr/sources/bilibili_api_gateway.py",
-          "line": 707,
-          "end_line": 1259,
-          "label": "BilibiliApiGateway"
+          "line": 971,
+          "end_line": 988,
+          "label": "BilibiliApiGateway.get_subtitle_tracks"
+        },
+        {
+          "path": "src/bili_asr/sources/bilibili_api_gateway.py",
+          "line": 990,
+          "end_line": 998,
+          "label": "BilibiliApiGateway.validate_subtitle_credentials"
+        },
+        {
+          "path": "src/bili_asr/sources/bilibili_api_gateway.py",
+          "line": 1014,
+          "end_line": 1054,
+          "label": "BilibiliApiGateway.fetch_subtitle_segments"
         }
       ]
     },
@@ -74,14 +123,14 @@
       "sources": [
         {
           "path": "src/bili_asr/storage/transcripts.py",
-          "line": 189,
-          "end_line": 312,
+          "line": 206,
+          "end_line": 329,
           "label": "TranscriptRepository.record_acquired_transcript"
         },
         {
           "path": "src/bili_asr/storage/transcripts.py",
-          "line": 520,
-          "end_line": 583,
+          "line": 537,
+          "end_line": 600,
           "label": "TranscriptRepository.record_subtitle_attempt"
         }
       ]
@@ -94,194 +143,361 @@
       "to": "handler",
       "y": 180,
       "label": "执行 subtitle job",
-      "variant": "default"
+      "variant": "default",
+      "note": "执行 subtitle job"
     },
     {
       "id": "m2",
       "from": "handler",
       "to": "db",
       "y": 212,
-      "label": "assert_lease",
-      "variant": "security"
+      "label": "解码任务身份并 assert_lease",
+      "variant": "security",
+      "note": "解码任务身份并 assert_lease"
     },
     {
       "id": "m3",
       "from": "handler",
-      "to": "ingest",
+      "to": "gateway",
       "y": 244,
-      "label": "选择精确 part",
-      "variant": "default"
+      "label": "创建本次 gateway",
+      "variant": "default",
+      "note": "gateway_factory(sessdata) 创建本次网关"
     },
     {
       "id": "m4",
-      "from": "ingest",
-      "to": "db",
+      "from": "handler",
+      "to": "ingest",
       "y": 276,
-      "label": "创建 acquisition run",
-      "variant": "default"
+      "label": "选择精确 part",
+      "variant": "security",
+      "note": "选择精确 part；checkpoint 与共享 JobCommitGuard 上下文绑定当前 lease"
     },
     {
       "id": "m5",
       "from": "ingest",
-      "to": "gateway",
+      "to": "db",
       "y": 308,
-      "label": "列出字幕轨道",
-      "variant": "default"
+      "label": "创建 run 并读取分 P",
+      "variant": "default",
+      "note": "创建 acquisition run 并读取候选 part 行"
     },
     {
       "id": "m6",
       "from": "ingest",
-      "to": "db",
-      "y": 380,
-      "label": "保存 failed attempt",
-      "variant": "default"
+      "to": "source",
+      "y": 340,
+      "label": "绑定 ContentRef 与 cid",
+      "variant": "default",
+      "note": "使用显式 source 或由已有行绑定 ContentRef 到真实 cid"
+    },
+    {
+      "id": "m7",
+      "from": "ingest",
+      "to": "source",
+      "y": 372,
+      "label": "list_tracks(item.content_ref)",
+      "variant": "default",
+      "note": "list_tracks(item.content_ref)"
     },
     {
       "id": "m8",
-      "from": "ingest",
+      "from": "source",
       "to": "gateway",
-      "y": 452,
-      "label": "验证凭据有效性",
-      "variant": "security"
+      "y": 404,
+      "label": "校验 Bilibili 平台与 cid 后读取字幕清单",
+      "variant": "security",
+      "note": "校验 Bilibili 平台与 cid 后读取字幕清单"
     },
     {
       "id": "m9",
-      "from": "ingest",
-      "to": "db",
-      "y": 524,
-      "label": "保存无字幕证据",
-      "variant": "default"
+      "from": "gateway",
+      "to": "source",
+      "y": 436,
+      "label": "轨道 DTO 或 bounded GatewayError",
+      "variant": "return",
+      "note": "轨道 DTO 或 bounded GatewayError"
     },
     {
       "id": "m10",
-      "from": "ingest",
-      "to": "gateway",
-      "y": 596,
-      "label": "下载正文 segments",
-      "variant": "default"
+      "from": "source",
+      "to": "ingest",
+      "y": 468,
+      "label": "原样返回类型化清单或有界错误",
+      "variant": "return",
+      "note": "原样返回类型化清单或有界错误"
     },
     {
       "id": "m11",
       "from": "ingest",
       "to": "db",
-      "y": 668,
-      "label": "保护性保存版本",
-      "variant": "default"
+      "y": 540,
+      "label": "明确 not_found 缺失证据",
+      "variant": "default",
+      "note": "保存 no-subtitle、not_found 与 absence_verified"
     },
     {
       "id": "m12",
       "from": "ingest",
       "to": "db",
-      "y": 740,
-      "label": "保存失败获取证据",
-      "variant": "default"
-    },
-    {
-      "id": "m13",
-      "from": "ingest",
-      "to": "db",
-      "y": 772,
-      "label": "结束 acquisition run",
-      "variant": "default"
+      "y": 612,
+      "label": "有界失败 attempt",
+      "variant": "default",
+      "note": "保存 failed attempt 与 bounded error_code"
     },
     {
       "id": "m14",
       "from": "ingest",
-      "to": "handler",
-      "y": 804,
-      "label": "返回 part outcome",
-      "variant": "return"
+      "to": "source",
+      "y": 724,
+      "label": "verify_access(ContentRef)",
+      "variant": "default",
+      "note": "verify_access(ContentRef)；访问事实与 ASR 资格分开"
     },
     {
       "id": "m15",
-      "from": "handler",
-      "to": "db",
-      "y": 876,
-      "label": "保护性请求 publish",
-      "variant": "default"
+      "from": "source",
+      "to": "gateway",
+      "y": 796,
+      "label": "validate_subtitle_credentials",
+      "variant": "security",
+      "note": "validate_subtitle_credentials；cookie 存在不等于认证成功"
     },
     {
       "id": "m16",
+      "from": "gateway",
+      "to": "source",
+      "y": 828,
+      "label": "已验证登录或 auth/transport 失败",
+      "variant": "return",
+      "note": "已验证登录或 auth/transport 失败"
+    },
+    {
+      "id": "m17",
+      "from": "source",
+      "to": "ingest",
+      "y": 900,
+      "label": "bounded GatewayError",
+      "variant": "return",
+      "note": "bounded GatewayError"
+    },
+    {
+      "id": "m18",
+      "from": "ingest",
+      "to": "db",
+      "y": 932,
+      "label": "failed",
+      "variant": "default",
+      "note": "failed；不能产生可信的空字幕证据"
+    },
+    {
+      "id": "m19",
+      "from": "source",
+      "to": "ingest",
+      "y": 1004,
+      "label": "访问上下文观察",
+      "variant": "return",
+      "note": "SourceAccessObservation(anonymous/credentialed, verified)"
+    },
+    {
+      "id": "m20",
+      "from": "ingest",
+      "to": "db",
+      "y": 1036,
+      "label": "无匹配字幕",
+      "variant": "default",
+      "note": "无匹配字幕；仅配置凭据且 credentialed 且 verified 才保存登录证据"
+    },
+    {
+      "id": "m21",
+      "from": "ingest",
+      "to": "source",
+      "y": 1108,
+      "label": "ContentRef 查询正文",
+      "variant": "default",
+      "note": "fetch_segments(track, ContentRef)"
+    },
+    {
+      "id": "m22",
+      "from": "source",
+      "to": "gateway",
+      "y": 1140,
+      "label": "用真实 bvid/cid 请求正文",
+      "variant": "default",
+      "note": "用真实 bvid/cid 请求正文；不暴露签名 URL"
+    },
+    {
+      "id": "m23",
+      "from": "gateway",
+      "to": "source",
+      "y": 1172,
+      "label": "毫秒字幕或有界错误",
+      "variant": "return",
+      "note": "毫秒 SubtitleSegment DTO 或 bounded error"
+    },
+    {
+      "id": "m24",
+      "from": "source",
+      "to": "ingest",
+      "y": 1204,
+      "label": "字幕正文或有界失败",
+      "variant": "return",
+      "note": "字幕正文或有界失败"
+    },
+    {
+      "id": "m25",
+      "from": "ingest",
+      "to": "db",
+      "y": 1276,
+      "label": "转录版本与 attempt 事务",
+      "variant": "security",
+      "note": "共享 guard 在事务开始与提交前检查精确 lease；转录/segments/attempt 同事务保存，到期全部回滚"
+    },
+    {
+      "id": "m26",
+      "from": "ingest",
+      "to": "db",
+      "y": 1348,
+      "label": "正文不可用或形状错误",
+      "variant": "default",
+      "note": "subtitle_body_unavailable/shape_error；不伪装为永久缺失"
+    },
+    {
+      "id": "m27",
+      "from": "ingest",
+      "to": "db",
+      "y": 1420,
+      "label": "complete/partial/failed",
+      "variant": "default",
+      "note": "complete/partial/failed；逃逸异常也收尾 failed"
+    },
+    {
+      "id": "m28",
+      "from": "ingest",
+      "to": "handler",
+      "y": 1452,
+      "label": "精确 part outcome 与转录版本",
+      "variant": "return",
+      "note": "精确 part outcome 与转录版本"
+    },
+    {
+      "id": "m29",
+      "from": "handler",
+      "to": "db",
+      "y": 1524,
+      "label": "请求该 part 发布 job",
+      "variant": "default",
+      "note": "请求该 part 发布 job；保留独立 ASR 转录版本"
+    },
+    {
+      "id": "m30",
       "from": "handler",
       "to": "executor",
-      "y": 908,
+      "y": 1596,
       "label": "返回获取与发布身份",
-      "variant": "return"
+      "variant": "return",
+      "note": "返回获取与发布身份"
     }
   ],
   "segments": [
     {
-      "from": 368,
-      "to": 392,
-      "label": "B01 alt 轨道获取失败"
+      "from": 528,
+      "to": 552,
+      "label": "B01 alt 清单明确 not_found"
     },
     {
-      "from": 440,
-      "to": 464,
-      "label": "B02 opt 提供了凭据"
+      "from": 600,
+      "to": 624,
+      "label": "B02 else 清单 transport/auth/shape/risk 失败"
     },
     {
-      "from": 512,
-      "to": 536,
-      "label": "B03 alt 无匹配轨道"
+      "from": 672,
+      "to": 696,
+      "label": "B03 else 清单可用"
     },
     {
-      "from": 584,
-      "to": 608,
-      "label": "B04 else 有轨道"
+      "from": 712,
+      "to": 736,
+      "label": "B04 alt 无匹配轨道"
     },
     {
-      "from": 656,
-      "to": 680,
-      "label": "B05 alt 正文有效"
+      "from": 784,
+      "to": 840,
+      "label": "B05 opt 默认 Bilibili adapter 配置了凭据"
     },
     {
-      "from": 728,
-      "to": 752,
-      "label": "B06 else 正文消失或形状错误"
+      "from": 888,
+      "to": 944,
+      "label": "B06 alt 访问验证失败"
     },
     {
-      "from": 864,
-      "to": 888,
-      "label": "B07 opt 成功存有转录版本"
+      "from": 992,
+      "to": 1048,
+      "label": "B07 else 取得访问观察"
+    },
+    {
+      "from": 1096,
+      "to": 1216,
+      "label": "B08 else 有匹配轨道"
+    },
+    {
+      "from": 1264,
+      "to": 1288,
+      "label": "B09 alt 正文有效且可存储"
+    },
+    {
+      "from": 1336,
+      "to": 1360,
+      "label": "B10 else 正文消失或形状错误"
+    },
+    {
+      "from": 1512,
+      "to": 1536,
+      "label": "B11 opt 已成功获得转录版本"
     }
   ],
   "cards": [
     {
       "dot": "cyan",
-      "title": "条件与提交边界",
+      "title": "已固定源码基线",
       "items": [
-        "每个 job 对应当前选择的一个分 P；ASR 不等待这条路径的成功。",
-        "语言、来源、内容和 version 是转录身份；同内容复用不丢失本次获取证据。",
-        "取消可留下失败 run/attempt 收尾；新的成功转录与新 publish 请求仍受 lease 检查。"
+        "代码提交 5d7a57e201564a10dec7a360b2ef8f7874dc51a7；源码引用指向本地路径。文档更新与产物生成使用该提交的源码证据。",
+        "真实字幕/ASR 结果复用同一 JobCommitGuard 完整事务；legacy write_guard 回调也有退出检查。认领、续约、终态在获写锁后取时，exact expiry 不续约、不提交。"
       ]
     },
     {
-      "dot": "slate",
-      "title": "阅读方法",
+      "dot": "emerald",
+      "title": "边界与恢复",
       "items": [
-        "B 编号对应完整条件路径；互斥分支仅在条件成立时执行，opt 可选，loop 重复。",
-        "HTML 将嵌套条件展开为连续区域；自调用保留在内部动作卡片。完整 Mermaid 与源码范围见同名 Markdown。"
+        "每个 subtitle job 处理一个既有分 P；显式 source 注入不新增 schema，不伪造 bvid/cid，也不为每个网络调用增加 SQL。",
+        "probe 不创建 run、attempt、transcript 或文件；probe 清单 not_found 报 failed，harvest 将明确 not_found 保存为 no-subtitle 观察。",
+        "已验证的匿名访问仍是匿名；配置 cookie 而登录验证失败不能产生 credential_verified 或可信空字幕证据。",
+        "语言、来源、内容和 version 构成转录身份；同内容复用仍保存本次获取证据，正文失效与清单缺失有不同语义。",
+        "ASR 不等待字幕路径成功。取消可留下失败 run/attempt 收尾，新的成功转录和 publish 请求仍受 lease 检查。"
       ]
     },
     {
       "dot": "amber",
       "title": "参与者内部动作",
       "items": [
-        "时间轴步骤 7 · SubtitleIngestor：按语言与来源选轨。详细操作见同名 Markdown。"
+        "步骤 13 · SubtitleIngestor：共享语言 family 规则与来源优先级选轨"
       ]
     },
     {
-      "dot": "amber",
+      "dot": "violet",
       "title": "完整条件路径",
       "items": [
-        "B01（m6）：alt 轨道获取失败",
-        "B02（m8）：else 可用轨道清单 → alt 无匹配轨道 → opt 提供了凭据",
-        "B03（m9）：else 可用轨道清单 → alt 无匹配轨道",
-        "B04（m10）：else 可用轨道清单 → else 有轨道",
-        "B05（m11）：else 可用轨道清单 → else 有轨道 → alt 正文有效",
-        "B06（m12）：else 可用轨道清单 → else 有轨道 → else 正文消失或形状错误",
-        "B07（m15）：opt 成功存有转录版本"
+        "B01：alt 清单明确 not_found",
+        "B02：else 清单 transport/auth/shape/risk 失败",
+        "B03：else 清单可用",
+        "B04：else 清单可用 → alt 无匹配轨道",
+        "B05：else 清单可用 → alt 无匹配轨道 → opt 默认 Bilibili adapter 配置了凭据",
+        "B06：else 清单可用 → alt 无匹配轨道 → alt 访问验证失败",
+        "B07：else 清单可用 → alt 无匹配轨道 → else 取得访问观察",
+        "B08：else 清单可用 → else 有匹配轨道",
+        "B09：else 清单可用 → else 有匹配轨道 → alt 正文有效且可存储",
+        "B10：else 清单可用 → else 有匹配轨道 → else 正文消失或形状错误",
+        "B11：opt 已成功获得转录版本"
       ]
     }
   ]

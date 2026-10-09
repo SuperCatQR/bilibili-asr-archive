@@ -2,29 +2,35 @@
   "schema_version": 1,
   "diagram_type": "sequence",
   "meta": {
-    "title": "AI 输入冻结、块恢复、调用审计与完整修订",
+    "title": "冻结 AI 输入、共享提交保护与逐块续跑",
     "locale": "zh-CN",
     "output": "docs/sequences/09-ai-proofread.html",
     "quality_profile": "showcase",
     "column_fit": "spread",
     "repository": {
       "url": "https://github.com/SuperCatQR/bilibili-asr-archive.git",
-      "revision": "48b31843510e5b1d78ee4f1448cec6dee7ab2296",
+      "revision": "5d7a57e201564a10dec7a360b2ef8f7874dc51a7",
       "provider": "github",
-      "link_mode": "web"
+      "link_mode": "local-only"
     }
   },
   "participants": [
     {
       "id": "cli",
-      "label": "请求或依赖结果",
+      "label": "请求与依赖",
       "type": "frontend",
       "sources": [
         {
-          "path": "src/bili_asr/cli/workflow.py",
-          "line": 147,
-          "end_line": 353,
-          "label": "_execute_workflow"
+          "path": "src/bili_asr/services/workflow_application.py",
+          "line": 63,
+          "end_line": 83,
+          "label": "WorkflowApplication.proofread"
+        },
+        {
+          "path": "src/bili_asr/workflow_payloads.py",
+          "line": 70,
+          "end_line": 71,
+          "label": "decode_job_payload"
         }
       ]
     },
@@ -35,8 +41,8 @@
       "sources": [
         {
           "path": "src/bili_asr/editorial_runtime.py",
-          "line": 33,
-          "end_line": 57,
+          "line": 36,
+          "end_line": 61,
           "label": "EditorialWorkflowHandlers.proofread"
         }
       ]
@@ -48,34 +54,59 @@
       "sources": [
         {
           "path": "src/bili_asr/storage/editorial.py",
-          "line": 81,
-          "end_line": 103,
+          "line": 93,
+          "end_line": 116,
           "label": "EditorialRepository.freeze_job_input"
         },
         {
           "path": "src/bili_asr/storage/editorial.py",
-          "line": 138,
-          "end_line": 154,
-          "label": "EditorialRepository.commit_revision"
+          "line": 118,
+          "end_line": 129,
+          "label": "EditorialRepository.begin_call"
+        },
+        {
+          "path": "src/bili_asr/storage/editorial.py",
+          "line": 131,
+          "end_line": 135,
+          "label": "EditorialRepository.finish_call"
+        }
+      ]
+    },
+    {
+      "id": "guard",
+      "label": "共享提交保护",
+      "type": "security",
+      "sources": [
+        {
+          "path": "src/bili_asr/storage/job_commit.py",
+          "line": 13,
+          "end_line": 62,
+          "label": "JobCommitGuard"
         }
       ]
     },
     {
       "id": "db",
-      "label": "冻结输入与块",
+      "label": "输入与检查点",
       "type": "database",
       "sources": [
         {
           "path": "src/bili_asr/storage/editorial.py",
-          "line": 53,
-          "end_line": 66,
-          "label": "EditorialRepository.prepare"
+          "line": 65,
+          "end_line": 78,
+          "label": "EditorialRepository.store_input"
         },
         {
           "path": "src/bili_asr/storage/editorial.py",
-          "line": 133,
-          "end_line": 136,
+          "line": 146,
+          "end_line": 149,
           "label": "EditorialRepository.save_chunk"
+        },
+        {
+          "path": "src/bili_asr/storage/editorial.py",
+          "line": 151,
+          "end_line": 167,
+          "label": "EditorialRepository.commit_revision"
         }
       ]
     },
@@ -105,134 +136,158 @@
       "from": "cli",
       "to": "repo",
       "y": 180,
-      "label": "指定 base 与参考",
+      "label": "选择准确输入版本",
       "variant": "default"
     },
     {
       "id": "m2",
       "from": "repo",
-      "to": "db",
-      "y": 212,
-      "label": "冻结输入并排队",
-      "variant": "default"
+      "to": "guard",
+      "y": 220,
+      "label": "构建输入并开事务",
+      "variant": "security"
     },
     {
       "id": "m3",
-      "from": "handler",
-      "to": "repo",
-      "y": 284,
-      "label": "读取 ASR 成功结果",
+      "from": "guard",
+      "to": "db",
+      "y": 260,
+      "label": "输入与双任务同提交",
       "variant": "default"
     },
     {
       "id": "m4",
-      "from": "repo",
-      "to": "db",
-      "y": 316,
-      "label": "首次冻结并绑定 job",
+      "from": "handler",
+      "to": "repo",
+      "y": 340,
+      "label": "冻结精确 ASR 结果",
       "variant": "default"
     },
     {
       "id": "m5",
-      "from": "handler",
-      "to": "repo",
-      "y": 348,
-      "label": "查租约并加载输入",
+      "from": "repo",
+      "to": "guard",
+      "y": 380,
+      "label": "原子输入与绑定",
       "variant": "security"
     },
     {
       "id": "m6",
-      "from": "handler",
-      "to": "repo",
+      "from": "guard",
+      "to": "db",
       "y": 420,
-      "label": "读取块检查点",
+      "label": "提交内容寻址输入",
       "variant": "default"
     },
     {
       "id": "m7",
-      "from": "repo",
-      "to": "handler",
-      "y": 492,
-      "label": "复用块并跳过调用",
-      "variant": "return"
+      "from": "handler",
+      "to": "repo",
+      "y": 500,
+      "label": "加载固定输入",
+      "variant": "default"
     },
     {
       "id": "m8",
       "from": "handler",
-      "to": "db",
-      "y": 564,
-      "label": "延长 lease 并记调用",
+      "to": "repo",
+      "y": 580,
+      "label": "读取块检查点",
       "variant": "default"
     },
     {
       "id": "m9",
-      "from": "handler",
-      "to": "deepseek",
-      "y": 596,
-      "label": "锁外 JSON 请求",
-      "variant": "default"
-    },
-    {
-      "id": "m10",
-      "from": "deepseek",
+      "from": "repo",
       "to": "handler",
-      "y": 628,
-      "label": "实际 envelope",
+      "y": 660,
+      "label": "复用已完成块",
       "variant": "return"
     },
     {
-      "id": "m11",
+      "id": "m10",
       "from": "handler",
       "to": "repo",
-      "y": 660,
-      "label": "先保存调用审计",
+      "y": 740,
+      "label": "续租并登记调用",
+      "variant": "default"
+    },
+    {
+      "id": "m11",
+      "from": "repo",
+      "to": "db",
+      "y": 780,
+      "label": "保存调用请求",
+      "variant": "default"
+    },
+    {
+      "id": "m12",
+      "from": "handler",
+      "to": "deepseek",
+      "y": 820,
+      "label": "锁外远端调用",
       "variant": "default"
     },
     {
       "id": "m13",
-      "from": "handler",
-      "to": "repo",
-      "y": 692,
-      "label": "保护性保存有效块",
-      "variant": "default"
+      "from": "deepseek",
+      "to": "handler",
+      "y": 860,
+      "label": "返回真实响应",
+      "variant": "return"
     },
     {
       "id": "m14",
-      "from": "repo",
-      "to": "db",
-      "y": 724,
-      "label": "owned_transaction",
-      "variant": "security"
+      "from": "handler",
+      "to": "repo",
+      "y": 900,
+      "label": "保留响应审计",
+      "variant": "default"
     },
     {
       "id": "m15",
       "from": "handler",
-      "to": "repo",
-      "y": 796,
-      "label": "记录错误并退出",
-      "variant": "default"
+      "to": "guard",
+      "y": 940,
+      "label": "保护有效块提交",
+      "variant": "security"
     },
     {
       "id": "m16",
-      "from": "handler",
-      "to": "repo",
-      "y": 828,
-      "label": "提交完整 revision",
+      "from": "guard",
+      "to": "db",
+      "y": 980,
+      "label": "提交块或回滚",
       "variant": "default"
     },
     {
       "id": "m17",
-      "from": "repo",
-      "to": "db",
-      "y": 860,
-      "label": "核对覆盖及保存",
+      "from": "handler",
+      "to": "repo",
+      "y": 1060,
+      "label": "保留块等待重试",
       "variant": "default"
     },
     {
       "id": "m18",
       "from": "handler",
+      "to": "guard",
+      "y": 1140,
+      "label": "检查完整修订",
+      "variant": "security"
+    },
+    {
+      "id": "m19",
+      "from": "guard",
+      "to": "db",
+      "y": 1180,
+      "label": "提交修订身份",
+      "variant": "default"
+    },
+    {
+      "id": "m20",
+      "from": "handler",
       "to": "cli",
-      "y": 892,
+      "y": 1220,
       "label": "返回 revision 身份",
       "variant": "return"
     }
@@ -240,70 +295,77 @@
   "segments": [
     {
       "from": 168,
-      "to": 224,
+      "to": 280,
       "label": "B01 alt 显式 workflow proofread"
     },
     {
-      "from": 272,
-      "to": 328,
+      "from": 328,
+      "to": 440,
       "label": "B02 else plan --proofread 自动链"
     },
     {
-      "from": 408,
-      "to": 432,
+      "from": 568,
+      "to": 600,
       "label": "B03 loop 每个冻结块"
     },
     {
-      "from": 480,
-      "to": 504,
-      "label": "B04 alt 已完成块"
+      "from": 648,
+      "to": 680,
+      "label": "B04 loop 每个冻结块 → alt 已完成块"
     },
     {
-      "from": 552,
-      "to": 736,
-      "label": "B05 else 未完成块"
+      "from": 728,
+      "to": 1000,
+      "label": "B05 loop 每个冻结块 → else 未完成块"
     },
     {
-      "from": 784,
-      "to": 808,
-      "label": "B06 opt 请求或结构校验失败"
+      "from": 1048,
+      "to": 1080,
+      "label": "B06 loop 每个冻结块 → else 未完成块 → opt 请求或结构校验失败"
     }
   ],
   "cards": [
     {
       "dot": "cyan",
-      "title": "条件与提交边界",
+      "title": "边界与恢复",
       "items": [
-        "prepare 保存内容寻址输入与绑定 job 是不同事务；取消时可留下未绑定输入，但不能提交新块或新修订。",
-        "来源覆盖证明结构追溯，不证明模型语义保真；数字、专名、否定、立场仍需人工审核。",
-        "供应商已收请求而本地未保存时，retry 可能重复计费；不保证外部调用恰好一次。"
+        "build_input 在事务外构建冻结内容；显式请求的 store_input、两个任务和依赖边由应用层共事务保存，失败全部回滚。自动链的 store_input 与 job-input 绑定同样共用一次保护事务。",
+        "Workflow 与 EditorialRepository 注入同一 JobCommitGuard；准确 attempt/owner/lease 在短写事务两端校验，不再各自实现租约保护逻辑。",
+        "来源覆盖证明结构追溯，不能证明模型语义保真；数字、专名、否定、立场仍需人工审核。供应商已收请求而本地未存时，retry 可能重复计费。",
+        "canonical_json 是共享纯序列化契约；editorial.canonical/digest 保留兼容导出，持久 JSON、digest 和既有 schema 未改变。"
       ]
     },
     {
       "dot": "slate",
-      "title": "阅读方法",
+      "title": "完整条件与操作",
       "items": [
-        "B 编号对应完整条件路径；互斥分支仅在条件成立时执行，opt 可选，loop 重复。",
-        "HTML 将嵌套条件展开为连续区域；自调用保留在内部动作卡片。完整 Mermaid 与源码范围见同名 Markdown。"
+        "m1：alt 显式 workflow proofread；WRITE Session 下选择当前最新 ASR 或精确 base ID；可显式参考 ID/no-reference",
+        "m2：alt 显式 workflow proofread；build_input 在事务外；应用层进入共享短写事务",
+        "m3：alt 显式 workflow proofread；store_input 与 enqueue_editorial 原子保存输入、两个任务和 proofread→render 依赖",
+        "m4：else plan --proofread 自动链；解码版本化 payload；使用精确 ASR prerequisite 成功结果；重试已有 input_id 直接读取",
+        "m5：else plan --proofread 自动链；锁外 build_input；保护事务内 store_input 与 job-input 绑定一起提交",
+        "m6：else plan --proofread 自动链；冻结转录、metadata、配置、system prompt、引用和块；canonical_json 计算固定 digest",
+        "m7：共同步骤；检查精确 lease 并加载不可变输入",
+        "m8：loop 每个冻结块；读取 chunk checkpoint",
+        "m9：loop 每个冻结块 → alt 已完成块；复用已验证块并跳过远端调用",
+        "m10：loop 每个冻结块 → else 未完成块；renew 至 API timeout+300；begin_call 在共享提交保护下绑定准确 running attempt",
+        "m11：loop 每个冻结块 → else 未完成块；保存 request_json；不保存密钥",
+        "m12：loop 每个冻结块 → else 未完成块；锁外发送冻结配置；thinking/top_p/max_tokens；无隐式 HTTP 重试",
+        "m13：loop 每个冻结块 → else 未完成块；返回真实 envelope、usage/model；finish_reason 必须 stop",
+        "m14：loop 每个冻结块 → else 未完成块；finish_call 保留真实 envelope 或有界错误；取消后审计仍可落库",
+        "m15：loop 每个冻结块 → else 未完成块；save_chunk；事务进入与退出均检查准确 owner、attempt 和 lease",
+        "m16：loop 每个冻结块 → else 未完成块；保存有效 chunk_results；取消或过期 lease 则拒绝并回滚",
+        "m17：loop 每个冻结块 → else 未完成块 → opt 请求或结构校验失败；已完成块保留；executor fail；显式 retry 从未完成块继续",
+        "m18：共同步骤；commit_revision 收集全部块并验证完整 segment 顺序",
+        "m19：共同步骤；input_id+blocks 固定 digest；needs-review 或 ai-unreviewed；短保护事务提交",
+        "m20：共同步骤；返回 input_id/revision_id；render_document 仅在 proofread succeeded 后可领取"
       ]
     },
     {
       "dot": "amber",
       "title": "参与者内部动作",
       "items": [
-        "时间轴步骤 12 · 校对 handler：再查租约并校验。详细操作见同名 Markdown。"
-      ]
-    },
-    {
-      "dot": "amber",
-      "title": "完整条件路径",
-      "items": [
-        "B01（m1–m2）：alt 显式 workflow proofread",
-        "B02（m3–m4）：else plan --proofread 自动链",
-        "B03（m6）：loop 每个冻结块",
-        "B04（m7）：loop 每个冻结块 → alt 已完成块",
-        "B05（m8–m14）：loop 每个冻结块 → else 未完成块",
-        "B06（m15）：loop 每个冻结块 → else 未完成块 → opt 请求或结构校验失败"
+        "校对 handler：严格 JSON；恰好一次连续有序覆盖；拒绝未知/只读来源和非段落正文"
       ]
     }
   ]

@@ -9,22 +9,41 @@
     "column_fit": "spread",
     "repository": {
       "url": "https://github.com/SuperCatQR/bilibili-asr-archive.git",
-      "revision": "48b31843510e5b1d78ee4f1448cec6dee7ab2296",
+      "revision": "5d7a57e201564a10dec7a360b2ef8f7874dc51a7",
       "provider": "github",
-      "link_mode": "web"
+      "link_mode": "local-only"
     }
   },
   "participants": [
     {
       "id": "cli",
-      "label": "规划入口",
+      "label": "参数与呈现",
       "type": "frontend",
       "sources": [
         {
           "path": "src/bili_asr/cli/workflow.py",
           "line": 147,
-          "end_line": 353,
+          "end_line": 271,
           "label": "_execute_workflow"
+        }
+      ]
+    },
+    {
+      "id": "app",
+      "label": "工作流用例",
+      "type": "backend",
+      "sources": [
+        {
+          "path": "src/bili_asr/services/workflow_application.py",
+          "line": 33,
+          "end_line": 41,
+          "label": "WorkflowApplication.plan"
+        },
+        {
+          "path": "src/bili_asr/services/workflow_application.py",
+          "line": 43,
+          "end_line": 55,
+          "label": "WorkflowApplication.publish"
         }
       ]
     },
@@ -43,20 +62,39 @@
     },
     {
       "id": "repo",
-      "label": "工作流仓库",
+      "label": "原子持久化",
       "type": "backend",
       "sources": [
         {
           "path": "src/bili_asr/storage/workflow.py",
-          "line": 212,
-          "end_line": 304,
-          "label": "WorkflowRepository.plan"
+          "line": 135,
+          "end_line": 145,
+          "label": "WorkflowRepository.plan_with_profile"
         },
         {
           "path": "src/bili_asr/storage/workflow.py",
-          "line": 675,
-          "end_line": 731,
-          "label": "WorkflowRepository.request_publication"
+          "line": 181,
+          "end_line": 193,
+          "label": "WorkflowRepository._enqueue_specs"
+        }
+      ]
+    },
+    {
+      "id": "planner",
+      "label": "纯规划策略",
+      "type": "backend",
+      "sources": [
+        {
+          "path": "src/bili_asr/workflow_planning.py",
+          "line": 60,
+          "end_line": 91,
+          "label": "plan_producers"
+        },
+        {
+          "path": "src/bili_asr/workflow_planning.py",
+          "line": 34,
+          "end_line": 44,
+          "label": "JobSpec.materialize"
         }
       ]
     },
@@ -67,15 +105,15 @@
       "sources": [
         {
           "path": "src/bili_asr/storage/workflow.py",
-          "line": 166,
-          "end_line": 210,
-          "label": "WorkflowRepository.register_profile"
+          "line": 159,
+          "end_line": 179,
+          "label": "WorkflowRepository._planning_parts"
         },
         {
           "path": "src/bili_asr/storage/workflow.py",
-          "line": 544,
-          "end_line": 560,
-          "label": "WorkflowRepository._editorial_jobs"
+          "line": 77,
+          "end_line": 120,
+          "label": "WorkflowRepository._register_profile"
         }
       ]
     }
@@ -84,196 +122,200 @@
     {
       "id": "m1",
       "from": "cli",
-      "to": "selector",
+      "to": "app",
       "y": 180,
-      "label": "解析全部目标",
+      "label": "选择器、profile 与策略",
       "variant": "default"
     },
     {
       "id": "m2",
-      "from": "selector",
-      "to": "db",
-      "y": 212,
-      "label": "验证存在与 gone",
+      "from": "app",
+      "to": "selector",
+      "y": 228,
+      "label": "解析全部显式目标",
       "variant": "default"
     },
     {
       "id": "m3",
       "from": "selector",
-      "to": "cli",
-      "y": 284,
-      "label": "拒绝整个批次",
-      "variant": "security"
+      "to": "db",
+      "y": 276,
+      "label": "批量验证身份与 gone",
+      "variant": "default"
     },
     {
       "id": "m4",
       "from": "selector",
       "to": "cli",
-      "y": 356,
-      "label": "返回目标身份",
+      "y": 352,
+      "label": "无效：完整拒绝",
       "variant": "return"
     },
     {
       "id": "m5",
-      "from": "cli",
-      "to": "repo",
-      "y": 388,
-      "label": "冻结 ASR profile",
-      "variant": "default"
+      "from": "selector",
+      "to": "app",
+      "y": 456,
+      "label": "有效：返回完整目标",
+      "variant": "return"
     },
     {
       "id": "m6",
-      "from": "repo",
-      "to": "db",
-      "y": 420,
-      "label": "保存配置 digest",
-      "variant": "default"
+      "from": "app",
+      "to": "repo",
+      "y": 504,
+      "label": "plan_with_profile",
+      "variant": "emphasis"
     },
     {
       "id": "m7",
-      "from": "cli",
-      "to": "repo",
-      "y": 452,
-      "label": "plan 全部 part",
-      "variant": "default"
+      "from": "repo",
+      "to": "db",
+      "y": 552,
+      "label": "BEGIN IMMEDIATE",
+      "variant": "security"
     },
     {
       "id": "m8",
       "from": "repo",
       "to": "db",
-      "y": 524,
-      "label": "幂等 subtitle job",
+      "y": 600,
+      "label": "冻结 profile 与读取事实",
       "variant": "default"
     },
     {
       "id": "m9",
       "from": "repo",
-      "to": "db",
-      "y": 596,
-      "label": "幂等 audio 与 ASR",
+      "to": "planner",
+      "y": 648,
+      "label": "profile digest 与 PlanningPart",
       "variant": "default"
     },
     {
       "id": "m10",
-      "from": "repo",
-      "to": "db",
-      "y": 628,
-      "label": "依赖 ASR → audio",
-      "variant": "default"
+      "from": "planner",
+      "to": "repo",
+      "y": 696,
+      "label": "字幕及条件 ASR 依赖图",
+      "variant": "return"
     },
     {
       "id": "m11",
       "from": "repo",
       "to": "db",
-      "y": 700,
-      "label": "校对和渲染依赖",
+      "y": 744,
+      "label": "解析 UUID 并去重入队",
       "variant": "default"
     },
     {
       "id": "m12",
       "from": "repo",
       "to": "db",
-      "y": 772,
-      "label": "保留 subtitle job",
-      "variant": "default"
+      "y": 848,
+      "label": "失败：全部 ROLLBACK",
+      "variant": "security"
     },
     {
       "id": "m13",
       "from": "repo",
-      "to": "cli",
-      "y": 844,
-      "label": "返回新增任务数",
-      "variant": "return"
+      "to": "db",
+      "y": 952,
+      "label": "成功：全部 COMMIT",
+      "variant": "emphasis"
     },
     {
       "id": "m14",
-      "from": "cli",
-      "to": "repo",
-      "y": 916,
-      "label": "request_publication",
-      "variant": "default"
+      "from": "repo",
+      "to": "app",
+      "y": 1000,
+      "label": "profile 与任务计数",
+      "variant": "return"
     },
     {
       "id": "m15",
+      "from": "app",
+      "to": "cli",
+      "y": 1048,
+      "label": "返回 targets 与排除项",
+      "variant": "return"
+    },
+    {
+      "id": "m16",
+      "from": "cli",
+      "to": "app",
+      "y": 1152,
+      "label": "显式批量 publish",
+      "variant": "default"
+    },
+    {
+      "id": "m17",
+      "from": "app",
+      "to": "db",
+      "y": 1200,
+      "label": "全集验证与统一择优",
+      "variant": "default"
+    },
+    {
+      "id": "m18",
+      "from": "app",
+      "to": "repo",
+      "y": 1248,
+      "label": "同一事务 enqueue 请求",
+      "variant": "default"
+    },
+    {
+      "id": "m19",
       "from": "repo",
       "to": "db",
-      "y": 948,
-      "label": "更新单 part publish",
-      "variant": "default"
+      "y": 1296,
+      "label": "running 更新，取消不复活",
+      "variant": "security"
     }
   ],
   "segments": [
     {
-      "from": 272,
-      "to": 296,
-      "label": "B01 alt 目标或配置无效"
+      "from": 320,
+      "to": 376,
+      "label": "B01 alt 任一目标无效：不保存 profile 或任务"
     },
     {
-      "from": 344,
-      "to": 464,
-      "label": "B02 else 有效批次"
+      "from": 420,
+      "to": 768,
+      "label": "B02 else 有效：重新检查事实与持久化完整 DAG"
     },
     {
-      "from": 512,
-      "to": 536,
-      "label": "B03 loop 每个选中分 P"
+      "from": 812,
+      "to": 872,
+      "label": "B03 alt 规则或写入失败：回滚全部"
     },
     {
-      "from": 584,
-      "to": 640,
-      "label": "B04 alt all/selected 或 below-thr"
+      "from": 916,
+      "to": 1072,
+      "label": "B04 else 成功：提交后返回"
     },
     {
-      "from": 688,
-      "to": 712,
-      "label": "B05 opt --proofread"
-    },
-    {
-      "from": 760,
-      "to": 784,
-      "label": "B06 else 已达质量阈值"
-    },
-    {
-      "from": 832,
-      "to": 856,
-      "label": "B07 else 有效批次"
-    },
-    {
-      "from": 904,
-      "to": 960,
-      "label": "B08 opt 已有转录重新发布"
+      "from": 1116,
+      "to": 1320,
+      "label": "B05 opt 显式 publish：完整批次共同提交"
     }
   ],
   "cards": [
     {
       "dot": "cyan",
-      "title": "条件与提交边界",
+      "title": "纯规则与冻结身份",
       "items": [
-        "库中允许 index job kind，但当前 CLI 规划与 handler 注册没有 index；FTS 由 search-index 显式执行。",
-        "当前 asr-policy 为 all/selected/below-threshold；selected 与 all 都对已选 part 规划，below-threshold 增加质量门槛。",
-        "profile 登记与 jobs 规划是不同提交；不将选择验证描述为所有并发条件下的跨步骤原子事务。"
+        "每个 part 有独立 subtitle；all/selected 或最新已存质量低于阈值才生成 audio → ASR。ASR 不依赖字幕。",
+        "可选 proofread 依赖 ASR；render_document 依赖 proofread。JobSpec 先用逻辑键，存储再解析实际 UUID。",
+        "参考字幕复用 transcript_selection；profile、editorial 和原 dedupe 身份保持既有算法。"
       ]
     },
     {
-      "dot": "slate",
-      "title": "阅读方法",
+      "dot": "emerald",
+      "title": "事务、解码与恢复",
       "items": [
-        "B 编号对应完整条件路径；互斥分支仅在条件成立时执行，opt 可选，loop 重复。",
-        "HTML 将嵌套条件展开为连续区域；自调用保留在内部动作卡片。完整 Mermaid 与源码范围见同名 Markdown。"
-      ]
-    },
-    {
-      "dot": "amber",
-      "title": "完整条件路径",
-      "items": [
-        "B01（m3）：alt 目标或配置无效",
-        "B02（m4–m7）：else 有效批次",
-        "B03（m8）：else 有效批次 → loop 每个选中分 P",
-        "B04（m9–m10）：else 有效批次 → loop 每个选中分 P → alt all/selected 或 below-threshold 需要 ASR",
-        "B05（m11）：else 有效批次 → loop 每个选中分 P → alt all/selected 或 below-threshold 需要 ASR → opt --proofread",
-        "B06（m12）：else 有效批次 → loop 每个选中分 P → else 已达质量阈值",
-        "B07（m13）：else 有效批次",
-        "B08（m14–m15）：opt 已有转录重新发布"
+        "profile、profile config、全部 jobs 和 dependencies 同一事务提交；配置无效、gone 变化或写入失败全部回滚。",
+        "新载荷 schema_version=1；未标版本的历史载荷按 v1 验证。错误版本/part/profile/类型不能认领或提交产物。",
+        "重放不复活 cancelled；index kind 是保留能力，当前 CLI 与 handler 没有自动 index。"
       ]
     }
   ]

@@ -1,6 +1,6 @@
 # 择优转录、五文件发布与完成标记
 
-源码基线：main `48b31843510e5b1d78ee4f1448cec6dee7ab2296`。
+源码基线：`5d7a57e201564a10dec7a360b2ef8f7874dc51a7`（本次架构修复的源码提交）。
 
 [交互时序图](08-transcript-bundle.html) · [Archify 规格](08-transcript-bundle.json) · [全部时序图](../architecture-sequences.md)
 
@@ -22,7 +22,7 @@ sequenceDiagram
     projection-->>handler: 选定版本与 segments
     handler->>writer: 传入来源、segments、元数据与可用模型名称/revision；传入 publication_guard
     writer->>files: SRT/VTT/TXT/MD/raw JSON；计算 digest，写临时文件并 fsync
-    writer->>db: BEGIN IMMEDIATE、精确 owner 检查；所有最终替换与登记在锁内
+    writer->>db: BEGIN IMMEDIATE、精确 owner/attempt/expiry 检查；提交前再次复验；最终替换与登记在锁内
     writer->>files: 使旧 marker 失效
     writer->>files: 替换全部五文件
     writer->>files: archive-bundle-v2 列出五个相对路径及 SHA-256；完成标记最后安装
@@ -45,11 +45,15 @@ sequenceDiagram
 
 ## 源码证据
 
-- [src/bili_asr/storage/workflow.py:675–731](../../src/bili_asr/storage/workflow.py#L675)：`WorkflowRepository.request_publication`。
-- [src/bili_asr/workflow_runtime.py:292–383](../../src/bili_asr/workflow_runtime.py#L292)：`ArchiveWorkflowHandlers.publish`。
-- [src/bili_asr/services/transcript_projection.py:152–193](../../src/bili_asr/services/transcript_projection.py#L152)：`ordered_candidates`。
-- [src/bili_asr/services/transcript_projection.py:196–225](../../src/bili_asr/services/transcript_projection.py#L196)：`writer_segments`。
-- [src/bili_asr/storage/workflow.py:829–892](../../src/bili_asr/storage/workflow.py#L829)：`WorkflowRepository._terminal`。
-- [src/bili_asr/archive.py:872–911](../../src/bili_asr/archive.py#L872)：`write_archive`。
-- [src/bili_asr/archive.py:395–532](../../src/bili_asr/archive.py#L395)：`_publish_bundle`。
-- [src/bili_asr/archive.py:254–336](../../src/bili_asr/archive.py#L254)：`archive_bundle_complete`。
+- [src/bili_asr/storage/workflow.py:536–553](../../src/bili_asr/storage/workflow.py#L536)：`WorkflowRepository.request_publication`。
+- [src/bili_asr/workflow_runtime.py:318–418](../../src/bili_asr/workflow_runtime.py#L318)：`ArchiveWorkflowHandlers.publish`。
+- [src/bili_asr/services/transcript_projection.py:106–147](../../src/bili_asr/services/transcript_projection.py#L106)：`ordered_candidates`。
+- [src/bili_asr/services/transcript_projection.py:150–179](../../src/bili_asr/services/transcript_projection.py#L150)：`writer_segments`。
+- [src/bili_asr/storage/workflow.py:675–734](../../src/bili_asr/storage/workflow.py#L675)：`WorkflowRepository._terminal`。
+- [src/bili_asr/archive.py:843–882](../../src/bili_asr/archive.py#L843)：`write_archive`。
+- [src/bili_asr/archive.py:366–503](../../src/bili_asr/archive.py#L366)：`_publish_bundle`。
+- [src/bili_asr/archive.py:225–307](../../src/bili_asr/archive.py#L225)：`archive_bundle_complete`。
+
+## 本次边界修复
+
+生产和消费统一复用 `transcript_selection`。当前 preferred 与实际 published 分别展示，尚未发布的新偏好不会改写归档正文。发布事实的 published_at 是以墙钟秒为底的 part 内单调提交时间；同秒重发旧行也成为最新事实。短突发可能领先墙钟秒。共享 JobCommitGuard 在事务开始及提交前验证精确租约，失败时先使 marker 失效。
