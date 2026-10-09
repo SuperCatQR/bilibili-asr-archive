@@ -1,6 +1,6 @@
 {
-  "repository_revision": "9b289570494b5e8f7cc564a7eaa5b2eb2c28c3ad",
-  "top_level_commands": 15,
+  "repository_revision": "48b31843510e5b1d78ee4f1448cec6dee7ab2296",
+  "top_level_commands": 16,
   "command_paths": [
     [
       "fetch-meta",
@@ -171,6 +171,11 @@
       "editorial export",
       "只读精确 revision/edition，完整私有快照替换",
       "12"
+    ],
+    [
+      "archive migration-preflight",
+      "只读固定旧源；源维护独占锁；不转换/恢复/创建目标",
+      "17"
     ]
   ],
   "python_modules": [
@@ -191,8 +196,8 @@
     },
     {
       "path": "src/bili_asr/archive_maintenance.py",
-      "role": "合作 writer 共享访问及 snapshot 独占 OS 锁",
-      "sequence_ids": "01、15"
+      "role": "合作 writer 共享访问及 snapshot/预检独占 OS 锁",
+      "sequence_ids": "01、15、17"
     },
     {
       "path": "src/bili_asr/artifact_root.py",
@@ -295,6 +300,11 @@
       "sequence_ids": "01"
     },
     {
+      "path": "src/bili_asr/cli/archive.py",
+      "role": "迁移预检参数、显式源根、JSON/text 输出与退出码",
+      "sequence_ids": "17"
+    },
+    {
       "path": "src/bili_asr/cli/dedup.py",
       "role": "dedup report 只读命令",
       "sequence_ids": "13"
@@ -331,7 +341,7 @@
     },
     {
       "path": "src/bili_asr/cli/registry.py",
-      "role": "15 顶层命令和 ArtifactPolicy 登记",
+      "role": "16 顶层命令和 ArtifactPolicy 登记",
       "sequence_ids": "01"
     },
     {
@@ -555,6 +565,11 @@
       "sequence_ids": "02"
     },
     {
+      "path": "src/bili_asr/services/migration_preflight.py",
+      "role": "独占源维护、全文件清点、引用校验与稳定指纹",
+      "sequence_ids": "17"
+    },
+    {
       "path": "src/bili_asr/services/publication_supervisor.py",
       "role": "保留独立服务：loopback phase、进程 deadline/容量",
       "sequence_ids": "16"
@@ -618,6 +633,16 @@
       "path": "src/bili_asr/storage/metadata.py",
       "role": "元数据实体、页/cursor/run 和标签观察仓库",
       "sequence_ids": "02"
+    },
+    {
+      "path": "src/bili_asr/storage/migration_artifacts.py",
+      "role": "冻结输入/revision、完整审核事件、双 head 与历史 release 校验",
+      "sequence_ids": "17"
+    },
+    {
+      "path": "src/bili_asr/storage/migration_source.py",
+      "role": "冻结旧源 DDL、只读 SQLite 与逐表精确字节指纹",
+      "sequence_ids": "17"
     },
     {
       "path": "src/bili_asr/storage/models.py",

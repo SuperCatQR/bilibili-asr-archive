@@ -519,3 +519,9 @@ bili-asr workflow run --archive-root ./archive --worker-id worker-b --limit 20
 不改写已有表、源标签、转录、任务或人工审核历史。若该表已存在但契约不符仍拒绝。
 其他原有缺表、旧字段、约束不匹配，以及旧 manuscript schema 的拒绝规则继续适用。
 publication 只读操作把缺少观察表视为未知覆盖，不自动初始化。
+
+## 固定旧源迁移预检的读取边界
+
+`archive migration-preflight` 在源维护独占锁内使用 `mode=ro&immutable=1`、`query_only` 和禁用 trusted_schema 的连接；不经过当前 `open_database`/initializer。操作者须先停止全部写入并 checkpoint，非空 WAL/journal 拒绝。旧源结构按独立冻结的 Bilibili v1 契约校验（66 个 DDL 对象、38 张权威表），已知完整 FTS 派生组单独标记为可重建；未知/不完整结构拒绝。
+
+逐表摘要包含有效 rowid、SQLite 存储类型和原始 TEXT/BLOB 字节；冻结 JSON 不因指纹而重新格式化。随后独立检查所有 input/revision 身份、完整审核事件和双 head、全部历史 release 与固定模板字节、五类目录和产物引用；检查结束再次验证源集合与物理身份。过期 running 和未完成 run/model call 只计入恢复候选报告。详见 [架构](architecture.md)、[完整时序 17](sequences/17-migration-preflight.md)和 [操作指南](archive-migration-preflight.md)。

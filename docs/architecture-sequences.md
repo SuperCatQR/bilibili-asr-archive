@@ -1,8 +1,8 @@
 # 完整时序图
 
-基线：main `9b289570494b5e8f7cc564a7eaa5b2eb2c28c3ad`；核对日期：2026-10-09（Asia/Hong_Kong）。
+基线：main `48b31843510e5b1d78ee4f1448cec6dee7ab2296`；核对日期：2026-10-09（Asia/Hong_Kong）。
 
-以下 16 个流程覆盖当前 CLI、生产链路、持久提交、读取消费、恢复及保留库能力。每页包含可直接渲染的 Mermaid 时序图、条件分支、交互 HTML、JSON 规格和源码证据。
+以下 17 个流程覆盖当前 CLI、生产链路、持久提交、读取消费、恢复及保留库能力。每页包含可直接渲染的 Mermaid 时序图、条件分支、交互 HTML、JSON 规格和源码证据。
 
 HTML 按发生顺序展开条件分支，每段 B 编号对应卡片中的完整嵌套条件路径，区域标题注明 alt/opt/loop；互斥分支只在条件成立时执行。同参与者内部动作保留在补充卡片。Markdown 中的 Mermaid 保留完整自调用与嵌套分支结构。时间轴纵向排列表示顺序，不表示墙钟耗时。
 
@@ -24,6 +24,7 @@ HTML 按发生顺序展开条件分支，每段 B 编号对应卡片中的完整
 | 14 | [FTS 增量索引、元数据检索与组合结果](sequences/14-search-index.md) | [HTML](sequences/14-search-index.html) · [JSON](sequences/14-search-index.json) |
 | 15 | [归档 ZIP 保存、离线校验与跨设备恢复](sequences/15-archive-snapshot.md) | [HTML](sequences/15-archive-snapshot.html) · [JSON](sequences/15-archive-snapshot.json) |
 | 16 | [部署启动与保留库工具的显式调用边界](sequences/16-library-and-operations.md) | [HTML](sequences/16-library-and-operations.html) · [JSON](sequences/16-library-and-operations.json) |
+| 17 | [固定旧源迁移预检与完整历史校验](sequences/17-migration-preflight.md) | [HTML](sequences/17-migration-preflight.html) · [JSON](sequences/17-migration-preflight.json) |
 
 ## 覆盖索引
 
@@ -45,5 +46,6 @@ HTML 按发生顺序展开条件分支，每段 B 编号对应卡片中的完整
 | FTS build/repair 与 metadata/transcripts/all search | 14 |
 | ZIP save/check/restore 与中断恢复 | 15 |
 | production、check-asr-env、保留工具能力 | 16 |
+| 固定旧源预检、全历史身份与字节校验、稳定指纹 | 17 |
 
 源码模块、SQL 表/视图和全部命令登记的清单见 [源码与覆盖清单](architecture-sources.md)。验收记录见 [图表验证记录](architecture-validation.md)。

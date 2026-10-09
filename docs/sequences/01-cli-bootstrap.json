@@ -9,7 +9,7 @@
     "column_fit": "spread",
     "repository": {
       "url": "https://github.com/SuperCatQR/bilibili-asr-archive.git",
-      "revision": "9b289570494b5e8f7cc564a7eaa5b2eb2c28c3ad",
+      "revision": "48b31843510e5b1d78ee4f1448cec6dee7ab2296",
       "provider": "github",
       "link_mode": "web"
     }
@@ -23,7 +23,7 @@
         {
           "path": "src/bili_asr/cli/parser.py",
           "line": 11,
-          "end_line": 113,
+          "end_line": 115,
           "label": "build_parser"
         }
       ]
@@ -42,7 +42,7 @@
         {
           "path": "src/bili_asr/cli/registry.py",
           "line": 1,
-          "end_line": 54,
+          "end_line": 55,
           "label": "模块入口"
         }
       ]
@@ -289,6 +289,14 @@
         "B07（m10）：else 有效命令 → alt 使用 open_database → else 不兼容",
         "B08（m11）：else 有效命令 → else 只读消费入口",
         "B09（m12–m14）：else 有效命令"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "archive 分派例外",
+      "items": [
+        "archive 使用 ArtifactPolicy.NONE，不沿用当前 archive/artifact root 环境配置；源根由 --source-root 与 --source-artifact-root 显式提供。",
+        "服务自行获取源维护独占锁；immutable 只读连接按冻结旧源契约校验，不调用当前 initializer。完整路径见时序 17。"
       ]
     }
   ]

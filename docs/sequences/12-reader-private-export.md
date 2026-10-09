@@ -1,6 +1,6 @@
 # 公开、未发布预览与私有审阅三种导出
 
-源码基线：main `9b289570494b5e8f7cc564a7eaa5b2eb2c28c3ad`。
+源码基线：main `48b31843510e5b1d78ee4f1448cec6dee7ab2296`。
 
 [交互时序图](12-reader-private-export.html) · [Archify 规格](12-reader-private-export.json) · [全部时序图](../architecture-sequences.md)
 

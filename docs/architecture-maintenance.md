@@ -1,6 +1,6 @@
 # 架构文档与时序图维护
 
-本套文档以 main 的一个固定源码提交为基线。文字入口是 [architecture.md](architecture.md)，两张架构图为 [全景](architecture.html)和 [AI/出版专题](ai-proofreading-architecture.html)，16 个时序流程见 [总索引](architecture-sequences.md)。[源码清单](architecture-sources.md)、[覆盖清单](architecture-coverage.json)和 [验证记录](architecture-validation.md)共同说明覆盖范围和验收身份。
+本套文档以 main 的一个固定源码提交为基线。文字入口是 [architecture.md](architecture.md)，两张架构图为 [全景](architecture.html)和 [AI/出版专题](ai-proofreading-architecture.html)，17 个时序流程见 [总索引](architecture-sequences.md)。[源码清单](architecture-sources.md)、[覆盖清单](architecture-coverage.json)和 [验证记录](architecture-validation.md)共同说明覆盖范围和验收身份。
 
 JSON 是图的可编辑规格，HTML 是 Archify 生成的独立查看器，不手工修改 HTML。目录级 `.gitattributes` 对图表规格与生成 HTML 设置 `-text`，防止 Git 换行转换改变验收哈希；`sequences/.gitattributes` 仅对生成 HTML 关闭行尾空白检查，保留模板字节及 artifact SHA-256，其他空白检查继续执行。时序 Markdown 保留完整 Mermaid 的嵌套 alt/opt/loop；HTML 展开跨参与者消息，内部调用在补充卡片中说明。修改流程时同时核对 Markdown、JSON 和代码，不能只改其中一份。
 

@@ -1,6 +1,6 @@
 # 部署启动与保留库工具的显式调用边界
 
-源码基线：main `9b289570494b5e8f7cc564a7eaa5b2eb2c28c3ad`。
+源码基线：main `48b31843510e5b1d78ee4f1448cec6dee7ab2296`。
 
 [交互时序图](16-library-and-operations.html) · [Archify 规格](16-library-and-operations.json) · [全部时序图](../architecture-sequences.md)
 
@@ -41,7 +41,7 @@ sequenceDiagram
 
 ## 源码证据
 
-- [src/bili_asr/cli/parser.py:11–113](../../src/bili_asr/cli/parser.py#L11)：`build_parser`。
+- [src/bili_asr/cli/parser.py:11–115](../../src/bili_asr/cli/parser.py#L11)：`build_parser`。
 - [src/bili_asr/check_asr_env.py:1–60](../../src/bili_asr/check_asr_env.py#L1)：`模块入口`。
 - [src/bili_asr/proofread.py:1–60](../../src/bili_asr/proofread.py#L1)：`模块入口`。
 - [src/bili_asr/audio_budget.py:1–60](../../src/bili_asr/audio_budget.py#L1)：`模块入口`。

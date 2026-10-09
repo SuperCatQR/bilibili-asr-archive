@@ -1,6 +1,6 @@
 # 音频复用、隔离下载与受保护登记
 
-源码基线：main `9b289570494b5e8f7cc564a7eaa5b2eb2c28c3ad`。
+源码基线：main `48b31843510e5b1d78ee4f1448cec6dee7ab2296`。
 
 [交互时序图](06-audio-download.html) · [Archify 规格](06-audio-download.json) · [全部时序图](../architecture-sequences.md)
 
