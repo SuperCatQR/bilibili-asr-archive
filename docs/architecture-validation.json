@@ -1,0 +1,1084 @@
+{
+  "schema_version": 1,
+  "checked_on": "2026-10-09",
+  "timezone": "Asia/Hong_Kong",
+  "repository_revision": "9b289570494b5e8f7cc564a7eaa5b2eb2c28c3ad",
+  "archify_version": "3.0.1",
+  "coverage": {
+    "top_level_commands": 15,
+    "command_paths": 34,
+    "python_modules": 97,
+    "schema_files": 4,
+    "schema_tables": 38,
+    "schema_views": 8,
+    "runtime_search_objects": 2,
+    "sequence_flows": 16,
+    "interactive_diagrams": 18
+  },
+  "content_checks": {
+    "pinned_source_ranges_checked": 197,
+    "local_markdown_links_checked": 510,
+    "module_inventory": "pass",
+    "command_registry_and_parser": "pass",
+    "sql_object_names_and_columns": "pass",
+    "mermaid_branch_balance_and_participants": "pass",
+    "git_diff_check": "pass",
+    "tracked_changes_only_in_docs": true
+  },
+  "artifacts": [
+    {
+      "type": "architecture",
+      "specification": "docs/architecture.json",
+      "output": "docs/architecture.html",
+      "specification_sha256": "ec0f565986873041721344b6b66db4d55f7805ee51b230130e2703ae007d7046",
+      "artifact_sha256": "815c478245abf6e8cf31c6e6154d746fc3d7854c0c626faf610890dc77fa1455",
+      "validation": "pass",
+      "quality": "showcase",
+      "gates": {
+        "validate": "pass",
+        "deliver": "pass",
+        "check": "pass",
+        "browser-check": "pass"
+      },
+      "diagnostics": [],
+      "browser_evidence": "passed",
+      "browser_viewports": [
+        {
+          "width": 1440,
+          "height": 900,
+          "theme": "light",
+          "overflow_x": false,
+          "vertical_scroll_accepted": true
+        },
+        {
+          "width": 1600,
+          "height": 1000,
+          "theme": "light",
+          "overflow_x": false,
+          "vertical_scroll_accepted": true
+        },
+        {
+          "width": 1920,
+          "height": 1080,
+          "theme": "light",
+          "overflow_x": false,
+          "vertical_scroll_accepted": true
+        },
+        {
+          "width": 2048,
+          "height": 1320,
+          "theme": "light",
+          "overflow_x": false,
+          "vertical_scroll_accepted": true
+        }
+      ],
+      "capture_checks": {
+        "containment": "pass",
+        "readability": "pass",
+        "viewerChrome": "pass",
+        "themeStates": "pass",
+        "captures": "pass"
+      },
+      "visual_review": "passed",
+      "visual_review_scope": "Full-page 1600x1000 light plus endpoint theme captures",
+      "correction_rounds": 1,
+      "layout_advisory": {
+        "resolvedCrossovers": 19,
+        "routesOverSuggestedBends": 5
+      }
+    },
+    {
+      "type": "architecture",
+      "specification": "docs/ai-proofreading-architecture.json",
+      "output": "docs/ai-proofreading-architecture.html",
+      "specification_sha256": "3dec625d83cbdda4404900dd3e9b3cd0d24ae9cf28d1e21d8d0a1517545eded9",
+      "artifact_sha256": "4c91cf3d5ad1a577dfcc42aad8c3ee489e648e16e8ffb45084966f137e42e108",
+      "validation": "pass",
+      "quality": "showcase",
+      "gates": {
+        "validate": "pass",
+        "deliver": "pass",
+        "check": "pass",
+        "browser-check": "pass"
+      },
+      "diagnostics": [],
+      "browser_evidence": "passed",
+      "browser_viewports": [
+        {
+          "width": 1440,
+          "height": 900,
+          "theme": "light",
+          "overflow_x": false,
+          "vertical_scroll_accepted": true
+        },
+        {
+          "width": 1600,
+          "height": 1000,
+          "theme": "light",
+          "overflow_x": false,
+          "vertical_scroll_accepted": true
+        },
+        {
+          "width": 1920,
+          "height": 1080,
+          "theme": "light",
+          "overflow_x": false,
+          "vertical_scroll_accepted": true
+        },
+        {
+          "width": 2048,
+          "height": 1320,
+          "theme": "light",
+          "overflow_x": false,
+          "vertical_scroll_accepted": true
+        }
+      ],
+      "capture_checks": {
+        "containment": "pass",
+        "readability": "pass",
+        "viewerChrome": "pass",
+        "themeStates": "pass",
+        "captures": "pass"
+      },
+      "visual_review": "passed",
+      "visual_review_scope": "Full-page 1600x1000 light plus endpoint theme captures",
+      "correction_rounds": 0,
+      "layout_advisory": {
+        "routesOverSuggestedBends": 6
+      }
+    },
+    {
+      "type": "sequence",
+      "specification": "docs/sequences/01-cli-bootstrap.json",
+      "output": "docs/sequences/01-cli-bootstrap.html",
+      "specification_sha256": "f37e1ef86f4d14cdaf76c3b88475a1a084e44dd04c9744c5d96c916b6c960150",
+      "artifact_sha256": "83f18a4474ed64ffdd6a1a01a9e08e1a9bf19d30702859e72066637252c29fd7",
+      "validation": "pass",
+      "quality": "showcase",
+      "gates": {
+        "validate": "pass",
+        "deliver": "pass",
+        "check": "pass",
+        "browser-check": "pass"
+      },
+      "diagnostics": [],
+      "browser_evidence": "passed",
+      "browser_viewports": [
+        {
+          "width": 1440,
+          "height": 900,
+          "theme": "light",
+          "overflow_x": false,
+          "vertical_scroll_accepted": false
+        },
+        {
+          "width": 1600,
+          "height": 1000,
+          "theme": "light",
+          "overflow_x": false,
+          "vertical_scroll_accepted": false
+        },
+        {
+          "width": 1920,
+          "height": 1080,
+          "theme": "light",
+          "overflow_x": false,
+          "vertical_scroll_accepted": false
+        },
+        {
+          "width": 2048,
+          "height": 1320,
+          "theme": "light",
+          "overflow_x": false,
+          "vertical_scroll_accepted": false
+        }
+      ],
+      "capture_checks": {
+        "containment": "pass",
+        "readability": "pass",
+        "viewerChrome": "pass",
+        "themeStates": "pass",
+        "captures": "pass"
+      },
+      "visual_review": "not_requested",
+      "visual_review_scope": null,
+      "correction_rounds": 0,
+      "layout_advisory": {}
+    },
+    {
+      "type": "sequence",
+      "specification": "docs/sequences/02-metadata-tags.json",
+      "output": "docs/sequences/02-metadata-tags.html",
+      "specification_sha256": "010b2ffbebb296e8991cd2196992a1ddba9d58a31cba38d6168630c429c23045",
+      "artifact_sha256": "b6d73d184fc1d410cc0f003dce09e3e6eb5e1e1d06977fd1ec1c182260311549",
+      "validation": "pass",
+      "quality": "showcase",
+      "gates": {
+        "validate": "pass",
+        "deliver": "pass",
+        "check": "pass",
+        "browser-check": "pass"
+      },
+      "diagnostics": [],
+      "browser_evidence": "passed",
+      "browser_viewports": [
+        {
+          "width": 1440,
+          "height": 900,
+          "theme": "light",
+          "overflow_x": false,
+          "vertical_scroll_accepted": false
+        },
+        {
+          "width": 1600,
+          "height": 1000,
+          "theme": "light",
+          "overflow_x": false,
+          "vertical_scroll_accepted": false
+        },
+        {
+          "width": 1920,
+          "height": 1080,
+          "theme": "light",
+          "overflow_x": false,
+          "vertical_scroll_accepted": false
+        },
+        {
+          "width": 2048,
+          "height": 1320,
+          "theme": "light",
+          "overflow_x": false,
+          "vertical_scroll_accepted": false
+        }
+      ],
+      "capture_checks": {
+        "containment": "pass",
+        "readability": "pass",
+        "viewerChrome": "pass",
+        "themeStates": "pass",
+        "captures": "pass"
+      },
+      "visual_review": "not_requested",
+      "visual_review_scope": null,
+      "correction_rounds": 0,
+      "layout_advisory": {}
+    },
+    {
+      "type": "sequence",
+      "specification": "docs/sequences/03-workflow-plan.json",
+      "output": "docs/sequences/03-workflow-plan.html",
+      "specification_sha256": "ffbf82bdd23268cf43b1f4fed0636d842a5db5e310440d0ec62f4b54feaecf37",
+      "artifact_sha256": "c1541dbe8eb8ce305f2be5975016b53451a0607d654065c63ec72ab1cf9bb468",
+      "validation": "pass",
+      "quality": "showcase",
+      "gates": {
+        "validate": "pass",
+        "deliver": "pass",
+        "check": "pass",
+        "browser-check": "pass"
+      },
+      "diagnostics": [],
+      "browser_evidence": "passed",
+      "browser_viewports": [
+        {
+          "width": 1440,
+          "height": 900,
+          "theme": "light",
+          "overflow_x": false,
+          "vertical_scroll_accepted": false
+        },
+        {
+          "width": 1600,
+          "height": 1000,
+          "theme": "light",
+          "overflow_x": false,
+          "vertical_scroll_accepted": false
+        },
+        {
+          "width": 1920,
+          "height": 1080,
+          "theme": "light",
+          "overflow_x": false,
+          "vertical_scroll_accepted": false
+        },
+        {
+          "width": 2048,
+          "height": 1320,
+          "theme": "light",
+          "overflow_x": false,
+          "vertical_scroll_accepted": false
+        }
+      ],
+      "capture_checks": {
+        "containment": "pass",
+        "readability": "pass",
+        "viewerChrome": "pass",
+        "themeStates": "pass",
+        "captures": "pass"
+      },
+      "visual_review": "not_requested",
+      "visual_review_scope": null,
+      "correction_rounds": 0,
+      "layout_advisory": {}
+    },
+    {
+      "type": "sequence",
+      "specification": "docs/sequences/04-lease-cancel-retry.json",
+      "output": "docs/sequences/04-lease-cancel-retry.html",
+      "specification_sha256": "e73f7568d19e6c4cc3f4d536df1e6aef77c9f9fdb456bf4817d88a04c72c3cb3",
+      "artifact_sha256": "1c9e3798c3361930695444e408b7b82d89cad6cbc2159a0dd133f0223b604867",
+      "validation": "pass",
+      "quality": "showcase",
+      "gates": {
+        "validate": "pass",
+        "deliver": "pass",
+        "check": "pass",
+        "browser-check": "pass"
+      },
+      "diagnostics": [],
+      "browser_evidence": "passed",
+      "browser_viewports": [
+        {
+          "width": 1440,
+          "height": 900,
+          "theme": "light",
+          "overflow_x": false,
+          "vertical_scroll_accepted": false
+        },
+        {
+          "width": 1600,
+          "height": 1000,
+          "theme": "light",
+          "overflow_x": false,
+          "vertical_scroll_accepted": false
+        },
+        {
+          "width": 1920,
+          "height": 1080,
+          "theme": "light",
+          "overflow_x": false,
+          "vertical_scroll_accepted": false
+        },
+        {
+          "width": 2048,
+          "height": 1320,
+          "theme": "light",
+          "overflow_x": false,
+          "vertical_scroll_accepted": false
+        }
+      ],
+      "capture_checks": {
+        "containment": "pass",
+        "readability": "pass",
+        "viewerChrome": "pass",
+        "themeStates": "pass",
+        "captures": "pass"
+      },
+      "visual_review": "not_requested",
+      "visual_review_scope": null,
+      "correction_rounds": 0,
+      "layout_advisory": {}
+    },
+    {
+      "type": "sequence",
+      "specification": "docs/sequences/05-subtitle-ingest.json",
+      "output": "docs/sequences/05-subtitle-ingest.html",
+      "specification_sha256": "db9a6240e8f762e36e649f8346a021eea26039c78ba3db98fe392d63fa084812",
+      "artifact_sha256": "fabc9aa50b387d0f6723e3862b10d14955b4878c5873c5e3136be16fa1bc77d3",
+      "validation": "pass",
+      "quality": "showcase",
+      "gates": {
+        "validate": "pass",
+        "deliver": "pass",
+        "check": "pass",
+        "browser-check": "pass"
+      },
+      "diagnostics": [],
+      "browser_evidence": "passed",
+      "browser_viewports": [
+        {
+          "width": 1440,
+          "height": 900,
+          "theme": "light",
+          "overflow_x": false,
+          "vertical_scroll_accepted": false
+        },
+        {
+          "width": 1600,
+          "height": 1000,
+          "theme": "light",
+          "overflow_x": false,
+          "vertical_scroll_accepted": false
+        },
+        {
+          "width": 1920,
+          "height": 1080,
+          "theme": "light",
+          "overflow_x": false,
+          "vertical_scroll_accepted": false
+        },
+        {
+          "width": 2048,
+          "height": 1320,
+          "theme": "light",
+          "overflow_x": false,
+          "vertical_scroll_accepted": false
+        }
+      ],
+      "capture_checks": {
+        "containment": "pass",
+        "readability": "pass",
+        "viewerChrome": "pass",
+        "themeStates": "pass",
+        "captures": "pass"
+      },
+      "visual_review": "not_requested",
+      "visual_review_scope": null,
+      "correction_rounds": 0,
+      "layout_advisory": {}
+    },
+    {
+      "type": "sequence",
+      "specification": "docs/sequences/06-audio-download.json",
+      "output": "docs/sequences/06-audio-download.html",
+      "specification_sha256": "cfaad005ccdf6edc01c726b5237da43bebe9e7423e04b29fcb10dbaf4c655df8",
+      "artifact_sha256": "0427da74712d5bd63abd8c3eccced6e2c329800c69ef52eeb0e2c98fd25ad7f9",
+      "validation": "pass",
+      "quality": "showcase",
+      "gates": {
+        "validate": "pass",
+        "deliver": "pass",
+        "check": "pass",
+        "browser-check": "pass"
+      },
+      "diagnostics": [],
+      "browser_evidence": "passed",
+      "browser_viewports": [
+        {
+          "width": 1440,
+          "height": 900,
+          "theme": "light",
+          "overflow_x": false,
+          "vertical_scroll_accepted": false
+        },
+        {
+          "width": 1600,
+          "height": 1000,
+          "theme": "light",
+          "overflow_x": false,
+          "vertical_scroll_accepted": false
+        },
+        {
+          "width": 1920,
+          "height": 1080,
+          "theme": "light",
+          "overflow_x": false,
+          "vertical_scroll_accepted": false
+        },
+        {
+          "width": 2048,
+          "height": 1320,
+          "theme": "light",
+          "overflow_x": false,
+          "vertical_scroll_accepted": false
+        }
+      ],
+      "capture_checks": {
+        "containment": "pass",
+        "readability": "pass",
+        "viewerChrome": "pass",
+        "themeStates": "pass",
+        "captures": "pass"
+      },
+      "visual_review": "not_requested",
+      "visual_review_scope": null,
+      "correction_rounds": 0,
+      "layout_advisory": {}
+    },
+    {
+      "type": "sequence",
+      "specification": "docs/sequences/07-asr-runtime.json",
+      "output": "docs/sequences/07-asr-runtime.html",
+      "specification_sha256": "e2b01ef83caf931bee9531306b66d92315e71f975048429e9681597b48de3295",
+      "artifact_sha256": "39955b2c6db4087ff9455116a373bd70d181fafccb6c52e605107e3dcc11209f",
+      "validation": "pass",
+      "quality": "showcase",
+      "gates": {
+        "validate": "pass",
+        "deliver": "pass",
+        "check": "pass",
+        "browser-check": "pass"
+      },
+      "diagnostics": [],
+      "browser_evidence": "passed",
+      "browser_viewports": [
+        {
+          "width": 1440,
+          "height": 900,
+          "theme": "light",
+          "overflow_x": false,
+          "vertical_scroll_accepted": false
+        },
+        {
+          "width": 1600,
+          "height": 1000,
+          "theme": "light",
+          "overflow_x": false,
+          "vertical_scroll_accepted": false
+        },
+        {
+          "width": 1920,
+          "height": 1080,
+          "theme": "light",
+          "overflow_x": false,
+          "vertical_scroll_accepted": false
+        },
+        {
+          "width": 2048,
+          "height": 1320,
+          "theme": "light",
+          "overflow_x": false,
+          "vertical_scroll_accepted": false
+        }
+      ],
+      "capture_checks": {
+        "containment": "pass",
+        "readability": "pass",
+        "viewerChrome": "pass",
+        "themeStates": "pass",
+        "captures": "pass"
+      },
+      "visual_review": "passed",
+      "visual_review_scope": "Full-page 1600x1000 light plus endpoint theme captures",
+      "correction_rounds": 1,
+      "layout_advisory": {}
+    },
+    {
+      "type": "sequence",
+      "specification": "docs/sequences/08-transcript-bundle.json",
+      "output": "docs/sequences/08-transcript-bundle.html",
+      "specification_sha256": "b23770328e24ceaf71f233ea4a50184c74d8dbf340ece9e29b400c1fe035fb07",
+      "artifact_sha256": "c47b1a47db023929f210fc927d48335ae2195a01dc44aff77596e8713342b4ec",
+      "validation": "pass",
+      "quality": "showcase",
+      "gates": {
+        "validate": "pass",
+        "deliver": "pass",
+        "check": "pass",
+        "browser-check": "pass"
+      },
+      "diagnostics": [],
+      "browser_evidence": "passed",
+      "browser_viewports": [
+        {
+          "width": 1440,
+          "height": 900,
+          "theme": "light",
+          "overflow_x": false,
+          "vertical_scroll_accepted": false
+        },
+        {
+          "width": 1600,
+          "height": 1000,
+          "theme": "light",
+          "overflow_x": false,
+          "vertical_scroll_accepted": false
+        },
+        {
+          "width": 1920,
+          "height": 1080,
+          "theme": "light",
+          "overflow_x": false,
+          "vertical_scroll_accepted": false
+        },
+        {
+          "width": 2048,
+          "height": 1320,
+          "theme": "light",
+          "overflow_x": false,
+          "vertical_scroll_accepted": false
+        }
+      ],
+      "capture_checks": {
+        "containment": "pass",
+        "readability": "pass",
+        "viewerChrome": "pass",
+        "themeStates": "pass",
+        "captures": "pass"
+      },
+      "visual_review": "not_requested",
+      "visual_review_scope": null,
+      "correction_rounds": 0,
+      "layout_advisory": {}
+    },
+    {
+      "type": "sequence",
+      "specification": "docs/sequences/09-ai-proofread.json",
+      "output": "docs/sequences/09-ai-proofread.html",
+      "specification_sha256": "de034b5c676b11cb07f57f7c4a6e57fd08dee510a4756da611dfe2924e103e43",
+      "artifact_sha256": "4c7005e8e51c7468a7cb739f3e8af441f6fa1ac1b9c57db0122858c93ab48f4f",
+      "validation": "pass",
+      "quality": "showcase",
+      "gates": {
+        "validate": "pass",
+        "deliver": "pass",
+        "check": "pass",
+        "browser-check": "pass"
+      },
+      "diagnostics": [],
+      "browser_evidence": "passed",
+      "browser_viewports": [
+        {
+          "width": 1440,
+          "height": 900,
+          "theme": "light",
+          "overflow_x": false,
+          "vertical_scroll_accepted": false
+        },
+        {
+          "width": 1600,
+          "height": 1000,
+          "theme": "light",
+          "overflow_x": false,
+          "vertical_scroll_accepted": false
+        },
+        {
+          "width": 1920,
+          "height": 1080,
+          "theme": "light",
+          "overflow_x": false,
+          "vertical_scroll_accepted": false
+        },
+        {
+          "width": 2048,
+          "height": 1320,
+          "theme": "light",
+          "overflow_x": false,
+          "vertical_scroll_accepted": false
+        }
+      ],
+      "capture_checks": {
+        "containment": "pass",
+        "readability": "pass",
+        "viewerChrome": "pass",
+        "themeStates": "pass",
+        "captures": "pass"
+      },
+      "visual_review": "not_requested",
+      "visual_review_scope": null,
+      "correction_rounds": 0,
+      "layout_advisory": {}
+    },
+    {
+      "type": "sequence",
+      "specification": "docs/sequences/10-document-render.json",
+      "output": "docs/sequences/10-document-render.html",
+      "specification_sha256": "dbf61c9f35256a41fed80bb6a0e6b4ceb1b8d221ba4001fd2a300d59e0e1dbfa",
+      "artifact_sha256": "bd75d68a6aac3f4fc8a650db6be07e81cd8725154cf78d8a204776f986be0900",
+      "validation": "pass",
+      "quality": "showcase",
+      "gates": {
+        "validate": "pass",
+        "deliver": "pass",
+        "check": "pass",
+        "browser-check": "pass"
+      },
+      "diagnostics": [],
+      "browser_evidence": "passed",
+      "browser_viewports": [
+        {
+          "width": 1440,
+          "height": 900,
+          "theme": "light",
+          "overflow_x": false,
+          "vertical_scroll_accepted": false
+        },
+        {
+          "width": 1600,
+          "height": 1000,
+          "theme": "light",
+          "overflow_x": false,
+          "vertical_scroll_accepted": false
+        },
+        {
+          "width": 1920,
+          "height": 1080,
+          "theme": "light",
+          "overflow_x": false,
+          "vertical_scroll_accepted": false
+        },
+        {
+          "width": 2048,
+          "height": 1320,
+          "theme": "light",
+          "overflow_x": false,
+          "vertical_scroll_accepted": false
+        }
+      ],
+      "capture_checks": {
+        "containment": "pass",
+        "readability": "pass",
+        "viewerChrome": "pass",
+        "themeStates": "pass",
+        "captures": "pass"
+      },
+      "visual_review": "not_requested",
+      "visual_review_scope": null,
+      "correction_rounds": 0,
+      "layout_advisory": {}
+    },
+    {
+      "type": "sequence",
+      "specification": "docs/sequences/11-publication-lifecycle.json",
+      "output": "docs/sequences/11-publication-lifecycle.html",
+      "specification_sha256": "c7bb7d4c6ba12569d787e66c7e0bc9cfdedb07ad4d7b070e4e4260d0bbe195e2",
+      "artifact_sha256": "cc7747d3abacfd7030788588a1787db390b58b1a45f2b383fabe07410bf6be17",
+      "validation": "pass",
+      "quality": "showcase",
+      "gates": {
+        "validate": "pass",
+        "deliver": "pass",
+        "check": "pass",
+        "browser-check": "pass"
+      },
+      "diagnostics": [],
+      "browser_evidence": "passed",
+      "browser_viewports": [
+        {
+          "width": 1440,
+          "height": 900,
+          "theme": "light",
+          "overflow_x": false,
+          "vertical_scroll_accepted": false
+        },
+        {
+          "width": 1600,
+          "height": 1000,
+          "theme": "light",
+          "overflow_x": false,
+          "vertical_scroll_accepted": false
+        },
+        {
+          "width": 1920,
+          "height": 1080,
+          "theme": "light",
+          "overflow_x": false,
+          "vertical_scroll_accepted": false
+        },
+        {
+          "width": 2048,
+          "height": 1320,
+          "theme": "light",
+          "overflow_x": false,
+          "vertical_scroll_accepted": false
+        }
+      ],
+      "capture_checks": {
+        "containment": "pass",
+        "readability": "pass",
+        "viewerChrome": "pass",
+        "themeStates": "pass",
+        "captures": "pass"
+      },
+      "visual_review": "passed",
+      "visual_review_scope": "Full-page 1600x1000 light plus endpoint theme captures",
+      "correction_rounds": 1,
+      "layout_advisory": {}
+    },
+    {
+      "type": "sequence",
+      "specification": "docs/sequences/12-reader-private-export.json",
+      "output": "docs/sequences/12-reader-private-export.html",
+      "specification_sha256": "b8fee142fcc06f377e26e02e61ba4612d6ac326354083bb33ab273c4f2b2251c",
+      "artifact_sha256": "becd37dd47105a6935054d47b6b563c075a63a0c963389f90f3d2f9af75a06ee",
+      "validation": "pass",
+      "quality": "showcase",
+      "gates": {
+        "validate": "pass",
+        "deliver": "pass",
+        "check": "pass",
+        "browser-check": "pass"
+      },
+      "diagnostics": [],
+      "browser_evidence": "passed",
+      "browser_viewports": [
+        {
+          "width": 1440,
+          "height": 900,
+          "theme": "light",
+          "overflow_x": false,
+          "vertical_scroll_accepted": false
+        },
+        {
+          "width": 1600,
+          "height": 1000,
+          "theme": "light",
+          "overflow_x": false,
+          "vertical_scroll_accepted": false
+        },
+        {
+          "width": 1920,
+          "height": 1080,
+          "theme": "light",
+          "overflow_x": false,
+          "vertical_scroll_accepted": false
+        },
+        {
+          "width": 2048,
+          "height": 1320,
+          "theme": "light",
+          "overflow_x": false,
+          "vertical_scroll_accepted": false
+        }
+      ],
+      "capture_checks": {
+        "containment": "pass",
+        "readability": "pass",
+        "viewerChrome": "pass",
+        "themeStates": "pass",
+        "captures": "pass"
+      },
+      "visual_review": "not_requested",
+      "visual_review_scope": null,
+      "correction_rounds": 0,
+      "layout_advisory": {}
+    },
+    {
+      "type": "sequence",
+      "specification": "docs/sequences/13-projection-verify.json",
+      "output": "docs/sequences/13-projection-verify.html",
+      "specification_sha256": "607378d65df3e00d7ae97e9da4a38ea89c16895c14e858864de189cae359ffc5",
+      "artifact_sha256": "b5e45c18f068dba81b75438afbf7af0269f668f16cb7e9fbf6110fbfb6c2a68e",
+      "validation": "pass",
+      "quality": "showcase",
+      "gates": {
+        "validate": "pass",
+        "deliver": "pass",
+        "check": "pass",
+        "browser-check": "pass"
+      },
+      "diagnostics": [],
+      "browser_evidence": "passed",
+      "browser_viewports": [
+        {
+          "width": 1440,
+          "height": 900,
+          "theme": "light",
+          "overflow_x": false,
+          "vertical_scroll_accepted": false
+        },
+        {
+          "width": 1600,
+          "height": 1000,
+          "theme": "light",
+          "overflow_x": false,
+          "vertical_scroll_accepted": false
+        },
+        {
+          "width": 1920,
+          "height": 1080,
+          "theme": "light",
+          "overflow_x": false,
+          "vertical_scroll_accepted": false
+        },
+        {
+          "width": 2048,
+          "height": 1320,
+          "theme": "light",
+          "overflow_x": false,
+          "vertical_scroll_accepted": false
+        }
+      ],
+      "capture_checks": {
+        "containment": "pass",
+        "readability": "pass",
+        "viewerChrome": "pass",
+        "themeStates": "pass",
+        "captures": "pass"
+      },
+      "visual_review": "not_requested",
+      "visual_review_scope": null,
+      "correction_rounds": 0,
+      "layout_advisory": {}
+    },
+    {
+      "type": "sequence",
+      "specification": "docs/sequences/14-search-index.json",
+      "output": "docs/sequences/14-search-index.html",
+      "specification_sha256": "6b3d9ac804fc11fd53faf57c9531f5cd8d699885450400041887c7953a20fdec",
+      "artifact_sha256": "71d3636dae39aeeaec0030fe4d553ab1236a4d5d73636ed0e34916685ebb1f57",
+      "validation": "pass",
+      "quality": "showcase",
+      "gates": {
+        "validate": "pass",
+        "deliver": "pass",
+        "check": "pass",
+        "browser-check": "pass"
+      },
+      "diagnostics": [],
+      "browser_evidence": "passed",
+      "browser_viewports": [
+        {
+          "width": 1440,
+          "height": 900,
+          "theme": "light",
+          "overflow_x": false,
+          "vertical_scroll_accepted": false
+        },
+        {
+          "width": 1600,
+          "height": 1000,
+          "theme": "light",
+          "overflow_x": false,
+          "vertical_scroll_accepted": false
+        },
+        {
+          "width": 1920,
+          "height": 1080,
+          "theme": "light",
+          "overflow_x": false,
+          "vertical_scroll_accepted": false
+        },
+        {
+          "width": 2048,
+          "height": 1320,
+          "theme": "light",
+          "overflow_x": false,
+          "vertical_scroll_accepted": false
+        }
+      ],
+      "capture_checks": {
+        "containment": "pass",
+        "readability": "pass",
+        "viewerChrome": "pass",
+        "themeStates": "pass",
+        "captures": "pass"
+      },
+      "visual_review": "not_requested",
+      "visual_review_scope": null,
+      "correction_rounds": 0,
+      "layout_advisory": {}
+    },
+    {
+      "type": "sequence",
+      "specification": "docs/sequences/15-archive-snapshot.json",
+      "output": "docs/sequences/15-archive-snapshot.html",
+      "specification_sha256": "cd9ac77f9fdfcdae7fd7f266f92c0ba10edd0b518d4fa44f7162ade648bdd238",
+      "artifact_sha256": "a11b1406bb4b693040832abbfee10e484a6359e9a628a7080a6a805ffd8f8626",
+      "validation": "pass",
+      "quality": "showcase",
+      "gates": {
+        "validate": "pass",
+        "deliver": "pass",
+        "check": "pass",
+        "browser-check": "pass"
+      },
+      "diagnostics": [],
+      "browser_evidence": "passed",
+      "browser_viewports": [
+        {
+          "width": 1440,
+          "height": 900,
+          "theme": "light",
+          "overflow_x": false,
+          "vertical_scroll_accepted": false
+        },
+        {
+          "width": 1600,
+          "height": 1000,
+          "theme": "light",
+          "overflow_x": false,
+          "vertical_scroll_accepted": false
+        },
+        {
+          "width": 1920,
+          "height": 1080,
+          "theme": "light",
+          "overflow_x": false,
+          "vertical_scroll_accepted": false
+        },
+        {
+          "width": 2048,
+          "height": 1320,
+          "theme": "light",
+          "overflow_x": false,
+          "vertical_scroll_accepted": false
+        }
+      ],
+      "capture_checks": {
+        "containment": "pass",
+        "readability": "pass",
+        "viewerChrome": "pass",
+        "themeStates": "pass",
+        "captures": "pass"
+      },
+      "visual_review": "passed",
+      "visual_review_scope": "Full-page 1600x1000 light plus endpoint theme captures",
+      "correction_rounds": 1,
+      "layout_advisory": {}
+    },
+    {
+      "type": "sequence",
+      "specification": "docs/sequences/16-library-and-operations.json",
+      "output": "docs/sequences/16-library-and-operations.html",
+      "specification_sha256": "acafcb718c783da9389b066c7be5293d03fbb3d7d03c5db28e5fe9a4f472d721",
+      "artifact_sha256": "ce3237555e4d1ddd7d6b428ce825345de3ae6bd366a52f092050b9beb85eb40d",
+      "validation": "pass",
+      "quality": "showcase",
+      "gates": {
+        "validate": "pass",
+        "deliver": "pass",
+        "check": "pass",
+        "browser-check": "pass"
+      },
+      "diagnostics": [],
+      "browser_evidence": "passed",
+      "browser_viewports": [
+        {
+          "width": 1440,
+          "height": 900,
+          "theme": "light",
+          "overflow_x": false,
+          "vertical_scroll_accepted": false
+        },
+        {
+          "width": 1600,
+          "height": 1000,
+          "theme": "light",
+          "overflow_x": false,
+          "vertical_scroll_accepted": false
+        },
+        {
+          "width": 1920,
+          "height": 1080,
+          "theme": "light",
+          "overflow_x": false,
+          "vertical_scroll_accepted": false
+        },
+        {
+          "width": 2048,
+          "height": 1320,
+          "theme": "light",
+          "overflow_x": false,
+          "vertical_scroll_accepted": false
+        }
+      ],
+      "capture_checks": {
+        "containment": "pass",
+        "readability": "pass",
+        "viewerChrome": "pass",
+        "themeStates": "pass",
+        "captures": "pass"
+      },
+      "visual_review": "not_requested",
+      "visual_review_scope": null,
+      "correction_rounds": 0,
+      "layout_advisory": {}
+    }
+  ],
+  "limitations": [
+    "Overview keeps 19 automatically resolved crossings and 5 routes over suggested bends after one unsuccessful positions-only repair; AI diagram keeps 6 detours. Zoom/focus and topic diagrams aid dense relation reading.",
+    "HTML unfolds nested conditional paths in paired B-number cards and preserves self calls in internal-action cards; complete Mermaid is maintained in each matching Markdown file.",
+    "Source/document verification does not execute network, GPU, paid API, deployment, full business regression or semantic listening review."
+  ]
+}

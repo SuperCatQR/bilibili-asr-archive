@@ -1,0 +1,249 @@
+{
+  "schema_version": 1,
+  "diagram_type": "sequence",
+  "meta": {
+    "title": "确定性 AI 双稿渲染与历史模板验证",
+    "locale": "zh-CN",
+    "output": "docs/sequences/10-document-render.html",
+    "quality_profile": "showcase",
+    "column_fit": "spread",
+    "repository": {
+      "url": "https://github.com/SuperCatQR/bilibili-asr-archive.git",
+      "revision": "9b289570494b5e8f7cc564a7eaa5b2eb2c28c3ad",
+      "provider": "github",
+      "link_mode": "web"
+    }
+  },
+  "participants": [
+    {
+      "id": "executor",
+      "label": "渲染任务",
+      "type": "backend",
+      "sources": [
+        {
+          "path": "src/bili_asr/storage/workflow.py",
+          "line": 562,
+          "end_line": 577,
+          "label": "WorkflowRepository.request_document"
+        }
+      ]
+    },
+    {
+      "id": "handler",
+      "label": "render handler",
+      "type": "backend",
+      "sources": [
+        {
+          "path": "src/bili_asr/editorial_runtime.py",
+          "line": 59,
+          "end_line": 89,
+          "label": "EditorialWorkflowHandlers.render"
+        }
+      ]
+    },
+    {
+      "id": "db",
+      "label": "修订与文档登记",
+      "type": "database",
+      "sources": [
+        {
+          "path": "src/bili_asr/storage/editorial.py",
+          "line": 188,
+          "end_line": 208,
+          "label": "EditorialRepository.preflight_artifacts"
+        },
+        {
+          "path": "src/bili_asr/storage/editorial.py",
+          "line": 210,
+          "end_line": 218,
+          "label": "EditorialRepository.record_artifacts"
+        }
+      ]
+    },
+    {
+      "id": "template",
+      "label": "固定模板注册表",
+      "type": "backend",
+      "sources": [
+        {
+          "path": "src/bili_asr/manuscript_templates.py",
+          "line": 82,
+          "end_line": 86,
+          "label": "renderer_for"
+        },
+        {
+          "path": "src/bili_asr/manuscript_templates.py",
+          "line": 23,
+          "end_line": 51,
+          "label": "render_ai_v1"
+        }
+      ]
+    },
+    {
+      "id": "files",
+      "label": "AI 双稿文件",
+      "type": "database",
+      "sources": [
+        {
+          "path": "src/bili_asr/manuscript_files.py",
+          "line": 78,
+          "end_line": 105,
+          "label": "atomic_write_artifact"
+        },
+        {
+          "path": "src/bili_asr/publication.py",
+          "line": 142,
+          "end_line": 165,
+          "label": "get_ai_artifacts"
+        }
+      ]
+    }
+  ],
+  "messages": [
+    {
+      "id": "m1",
+      "from": "executor",
+      "to": "handler",
+      "y": 180,
+      "label": "领取 render_document",
+      "variant": "default"
+    },
+    {
+      "id": "m2",
+      "from": "handler",
+      "to": "db",
+      "y": 212,
+      "label": "读取固定 revision",
+      "variant": "default"
+    },
+    {
+      "id": "m3",
+      "from": "handler",
+      "to": "template",
+      "y": 244,
+      "label": "锁外确定性排版",
+      "variant": "default"
+    },
+    {
+      "id": "m4",
+      "from": "template",
+      "to": "handler",
+      "y": 276,
+      "label": "返回两个 UTF-8 文档",
+      "variant": "return"
+    },
+    {
+      "id": "m5",
+      "from": "handler",
+      "to": "db",
+      "y": 308,
+      "label": "预检完整双稿身份",
+      "variant": "default"
+    },
+    {
+      "id": "m6",
+      "from": "handler",
+      "to": "files",
+      "y": 340,
+      "label": "预检已有文件字节",
+      "variant": "default"
+    },
+    {
+      "id": "m7",
+      "from": "handler",
+      "to": "db",
+      "y": 372,
+      "label": "取得 owned_transaction",
+      "variant": "security"
+    },
+    {
+      "id": "m8",
+      "from": "handler",
+      "to": "files",
+      "y": 404,
+      "label": "事务内原子写双稿",
+      "variant": "default"
+    },
+    {
+      "id": "m9",
+      "from": "handler",
+      "to": "db",
+      "y": 436,
+      "label": "事务内登记 artifacts",
+      "variant": "default"
+    },
+    {
+      "id": "m10",
+      "from": "db",
+      "to": "handler",
+      "y": 468,
+      "label": "提交 path 与 hash",
+      "variant": "return"
+    },
+    {
+      "id": "m11",
+      "from": "handler",
+      "to": "executor",
+      "y": 500,
+      "label": "返回 artifact 身份",
+      "variant": "return"
+    },
+    {
+      "id": "m12",
+      "from": "executor",
+      "to": "files",
+      "y": 572,
+      "label": "验证登记与文件摘要",
+      "variant": "default"
+    },
+    {
+      "id": "m13",
+      "from": "executor",
+      "to": "template",
+      "y": 604,
+      "label": "按保存版本重渲染",
+      "variant": "default"
+    },
+    {
+      "id": "m14",
+      "from": "template",
+      "to": "executor",
+      "y": 636,
+      "label": "比较预期字节",
+      "variant": "return"
+    }
+  ],
+  "segments": [
+    {
+      "from": 560,
+      "to": 648,
+      "label": "B01 opt 创建 edition 或导出读取历史双稿"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "条件与提交边界",
+      "items": [
+        "重新渲染不访问 DeepSeek；相同 revision 与模板的字节保持一致。",
+        "双稿不是文件系统事务；预检和租约写锁防止合作竞态，第二次文件写入失败仍可能留下第一份文件。",
+        "当前仅注册 v1 renderer；历史版本按 registry 验证的机制不等于已经存在 v2 writer。"
+      ]
+    },
+    {
+      "dot": "slate",
+      "title": "阅读方法",
+      "items": [
+        "B 编号对应完整条件路径；互斥分支仅在条件成立时执行，opt 可选，loop 重复。",
+        "HTML 将嵌套条件展开为连续区域；自调用保留在内部动作卡片。完整 Mermaid 与源码范围见同名 Markdown。"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "完整条件路径",
+      "items": [
+        "B01（m12–m14）：opt 创建 edition 或导出读取历史双稿"
+      ]
+    }
+  ]
+}

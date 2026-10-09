@@ -1,219 +1,159 @@
 # 当前架构
 
-交互式组件图：[architecture.html](architecture.html)，可编辑规格：[architecture.json](architecture.json)。
-本文说明本分支的当前行为。交互式主图保留上游 `5c3cc606abc36c1632bc7c0bd9b06372136c88a8`
-的历史源码快照，其旧 `reading-*` 入口不代表 #258 合并后的出版契约。
-2026-10-09 核对 `9edc4eba3c4ff2de69603a441318d29d14baa364` 的全量候选已更新当前出版契约
-及 P0 迁移预检分支，但仍未通过连线与标签布局验证；未生成新浏览器证据，因此保留历史 HTML。
-P0 的当前行为以本页、[预检指南](archive-migration-preflight.md)及代码为准。
-出版与审核的数据流以 [专题架构图](ai-proofreading-architecture.md)、本页和出版指南为准；
-专题图保留已通过视觉检查的 `fc66c1d` 实现快照。
-图的证据维护与生成检查见[架构图维护](architecture-maintenance.md)。
+本页、[全景架构图](architecture.html)、[AI 与出版专题图](ai-proofreading-architecture.html)和 [16 个完整时序流程](architecture-sequences.md)描述 main 的代码快照 `9b289570494b5e8f7cc564a7eaa5b2eb2c28c3ad`，核对日期为 2026-10-09（Asia/Hong_Kong）。本次核对时本地与远端 main 一致。全部命令、源码模块、SQL 表/视图见 [源码与覆盖清单](architecture-sources.md)，图的源码证据、自动检查与文件身份见 [验证记录](architecture-validation.md)。
 
-## 执行模型
+图中 SQLite 节点表示同一个 archive.db 内的逻辑表组。后续 main 变化需按 [维护指南](architecture-maintenance.md)重新核对；固定提交身份不自动代表未来版本。多平台规划和未合并分支不属于这份运行架构。
 
-本项目是 Python CLI 和本地 SQLite 工作流系统。CLI 组装配置与 handler；
-`WorkflowRepository` 拥有计划、依赖、领取、租约、attempt、重试、取消与终态；
-`WorkflowExecutor` 在事务外执行耗时操作，再校验精确的
-`job_id + lease_owner + attempt_count + 未过期租约` 提交结果。
-多个 worker 可以连接同一归档库；当前执行器每次处理一个 job。
+## 系统边界与模块责任
 
-SQLite 保存视频与分 P、采集证据、不可变转录、调度状态、AI 修订、完整 edition、准确审核、release 和追加事件。
-音频、转录 bundle、阅读 Markdown 是文件产物；FTS 和阅读内容快照是可重建的消费产物。
-JSON 文件和完成标记不能替代 SQLite 调度器。
+项目是 Python 3.12+ CLI，安装入口为 `bili-asr = bili_asr.cli:main`。SQLite 保存来源事实、不可变转录、任务/尝试、AI 修订、完整出版版本与事件；音频、bundle 和稿件保存为受限文件。没有 HTTP 应用服务、Redis、外部消息队列或另一套 JSON 调度器。
 
-```text
-fetch-meta -> Bilibili gateway -> metadata / parts / crawl evidence
-                                      |
-workflow plan -> validated selection -> jobs / dependencies / profiles
-                                      |
-workflow run -> claim + heartbeat -----+
-                 |                    |
-                 +-> subtitle -> immutable transcript
-                 +-> audio -> ASR -> immutable transcript
-                 +-> proofread -> immutable revision -> render_document
-                 +-> publish -> five-file transcript bundle
-                                      |
-             status / coverage / verify / export / search
+CLI 组装配置与 handler；repository 拥有持久身份和状态转换；service/handler 执行网络、推理与文件操作。WorkflowExecutor 每次顺序处理一个 job，多 worker 可连接同一数据库。短期客户端和 CPU 模型缓存可以留在进程内，恢复进度始终来自 SQLite。
 
-publication commands -> immutable edition -> exact content review
-                                            |
-                                            v
-                                     frozen release -> public export
-AI baseline + explicit edition -> private editorial export
-```
-
-`workflow plan` 可以选择显式 part ID，或多个 BVID 的全部/指定零基分 P。
-所有目标、策略与配置先验证，再建立 profile 与 job；无效批次不留下部分计划。
-ASR 只依赖音频任务成功，字幕失败不会阻断独立 ASR。`below-threshold` 使用已存质量评估
-与 `--quality-threshold` 决定各选中分 P 是否需要 ASR；当前 plan 没有时长筛选参数。
-同一逻辑任务重复规划会复用 job，配置 digest 固定 ASR profile，取消终态保持不变。
-选择规则见[BVID 与分 P 选择](workflow-selection.md)。
-
-## 状态、租约与取消
-
-| 状态 | 进入条件 | 后续行为 |
+| 层 | 代码入口 | 责任 |
 | --- | --- | --- |
-| `queued` | 规划、允许的重试、重新发布或租约回收 | 依赖成功后可领取；可取消 |
-| `running` | worker 领取并建立 lease / attempt | heartbeat 续租；可成功、失败或取消 |
-| `succeeded` | 当前 attempt 提交成功 | 满足下游依赖；显式重新发布可重新排队 publish |
-| `failed` | handler 失败 | 允许显式 retry；保留 attempt 证据 |
-| `cancelled` | 显式取消 queued/running | 清除 lease；不会被 retry、plan 或 publish 恢复 |
+| 命令与组合根 | cli/parser.py、registry.py、main.py、命令模块 | 参数、产物访问策略、维护锁、分派、输出和退出码 |
+| 外部访问 | sources/、bili_client.py、deepseek.py | SDK/HTTP、凭据、pacing、CDN 下载、有界错误 |
+| 采集服务 | services/metadata_ingest.py、video_tags.py、subtitle_ingest.py | 分页、详情、parts、标签、轨道选择和获取证据 |
+| 工作流控制 | storage/workflow.py、workflow_selection.py、workflow.py | 选择、配置、幂等 job、依赖、claim、lease/heartbeat、attempt、cancel/retry |
+| 原始生产 | workflow_runtime.py、asr/、archive.py | 音频、ASR、不可变转录、择优 bundle 与 lease 保护提交 |
+| AI 派生 | editorial.py、editorial_runtime.py、storage/editorial.py | 冻结输入、分块、调用审计、校验、检查点、revision、双稿 |
+| 人工出版 | publication.py、publication_tags.py、storage/publication.py | 完整 edition、精确审核、双 head CAS、release、替换/撤回 |
+| 消费与检索 | workflow_projection.py、search_index/、publication_export.py | 只读投影、派生 FTS、公开/预览/私有快照 |
+| 维护迁移 | archive_maintenance.py、archive_snapshot.py、storage/snapshots.py | 维护协调、ZIP 保存、离线校验、中断恢复 |
 
-取消是协作式操作。取消事务先验证所有 job ID，再一次性更新状态；running attempt 同时记录
-`cancelled` 终态与错误码。网络请求、模型调用和 GPU 推理可以继续到下一个检查点，
-不能承诺立即停机或撤回已发出的外部请求。检查点与短写事务阻止取消后提交权威结果。
-取消前已提交的转录、块、修订和文件保留；取消不级联删除依赖任务。
-`workflow status --jobs` 展示因取消依赖而阻塞的 queued job，这种阻塞是派生信息。
+外部依赖是 Bilibili SDK/API/CDN、可选 DeepSeek HTTPS API，以及本机 Qwen3-ASR/ForcedAligner 权重和 CPU/CUDA/ROCm。阅读站属于独立仓库，本仓库提供静态内容契约；页面、路由、远端部署和缓存刷新不由本仓库执行。
 
-heartbeat 使用独立 file-backed SQLite 连接续租；续租、结果和终态都校验精确 attempt。
-claim 回收过期 lease，将旧 attempt 记为失败，再领取新 attempt；旧 worker 无法覆盖新结果。
-CUDA/ROCm 强制对齐有可终止的子进程 watchdog，超时记录 `inference_timeout`。
-这与手动取消的协作语义不同。完整规则见[任务取消](workflow-cancellation.md)。
+## 命令、启动、schema 与访问锁
 
-## 采集与转录
+当前注册 15 个顶层命令：fetch-meta、fetch-tags、workflow、snapshot、status、runs、coverage、verify、search、search-index、check-asr-env、export、publication、editorial、dedup。子命令和对应流程见 [命令覆盖](architecture-sources.md#命令覆盖)。旧 docstring 中的 reading-*、独立 proofread、publish-transcripts 名字不能当作当前 CLI。
 
-`fetch-meta` 经 `BilibiliApiGateway` 分页采集用户、视频、分 P、标签和抓取证据，
-每页事务保存实体与游标。空页、失败页、重试和跳过都有独立证据；恢复以持久游标为准。
-`metadata` 保存外部观察，`workflow` 保存执行状态，两者没有第二套互相覆盖的阶段状态机。
-数据库表、采集恢复与只读边界见[元数据与存储](metadata-storage.md)。
+ArtifactPolicy.NONE/READ/WRITE 描述文件访问，不等于数据库是否写入；子命令可覆盖策略。metadata search 跳过产物根探测。status/runs 在已有库上仍经过 open_database，可能刷新派生视图；workflow status/explain 也可初始化新库。结构性只读的投影、搜索和稿件导出使用 mode=ro。
 
-subtitle handler 获取轨道与正文，保存来源明确的 CC / AI 转录和 acquisition 证据。
-一次不可见轨道不证明字幕永久缺失。取消或处理失败可以留下 failed acquisition 收尾，
-但不得提交新的成功转录。转录版本与 segments 追加保存，源记录不会被校对改写。
+采集、workflow、publication 写命令、FTS build 及会初始化的查询持有共享 archive_access OS 锁；writer 可以并发，snapshot 使用独占锁。维护锁位于 archive root 旁，目录恢复不搬动锁身份；SQLite 决定事务写入顺序。BUSY/LOCKED 超时给出诊断，数据保留以便重试。合作协议不能约束绕开它的外部写入。
 
-audio handler 先检查 confined `audio/` 中可复用的非空对象；需要下载时，在该目录下创建
-独立暂存空间，并保留下载器要求的 `audio/` 子目录。下载、探测和哈希在事务外完成，
-最终文件替换和 `audio_objects` / `part_audio_objects` 登记在同一个租约保护事务内完成。
-无 ffmpeg 时保留真实 FLAC 后缀，不将其冒充 M4A；失败暂存自动清理。
-ASR 读取精确的成功 audio prerequisite，运行解码、对齐、分块和 coverage/provenance，
-在取消检查后追加持久转录。
+initialize_schema 在 DDL 前检查 manuscript 和持久表契约，设置 foreign_keys/busy timeout，再初始化和刷新已交付视图。旧表/CHECK 不自动 ALTER 或删除。明确例外是新增 video_tag_observations 可以补建，不改写 tags/稿件；不兼容旧库须另建兼容 archive。见 [01 启动](sequences/01-cli-bootstrap.md)。
 
-规划时冻结完整 ASR profile，包括模型与 aligner 各自的 revision、分块、语言、离线、超时、热词和生成预算；执行从数据库重建配置，不读取新的 ASR 环境变量。识别与对齐 processor 直接接收已解码的 16 kHz float32 波形。GPU 推理有可终止子进程与硬超时，CPU runner 可复用但没有同等硬超时。
+## 元数据、游标与原始标签
 
-成功转录与本次 `transcript_asr_evidence` 在同一受租约 / 取消保护的事务内保存。内容去重复用旧 transcript 时仍保留新运行诊断，包括逐遍逐块文本、生成预算与 EOS、对齐区间和阶段耗时。`workflow asr-evidence` 用于查询；质量标记不等于准确率，也不自动阻止发布。失败或取消的全部中间块诊断尚未持久化。参数合同见 [ASR 参数与诊断](asr-configuration.md)。
+fetch-meta 获取用户视频页、必要详情、零基分 P 和 tags。页内按 BVID 去重请求，页事务保存 users/videos/parts/details、成功标签及观察、page/discoveries 和 cursor。显式 start-page 是一基页号，可回退；resume 必须已有游标。空页完成，页上限 limited；失败/风控/空页各自有证据。
 
-[公开样本测试](asr-public-samples.md) 已完成 30 次真实 CPU 推理。当前证据支持继续使用现有模型、中文任务显式 Chinese、180 秒分块与现有生成预算，尚未证明为最优。热词默认空，不列入常规调优；后续优先处理静音误识别与语音覆盖告警。
+页面传输/限流最多 5 次重试，退避 30/60/120/240/300 秒；不代表所有 API 调用统一重试。skip-failed-page 仅推进未来游标，本 run 仍失败，risk_interrupted 不跳过。可选 tags unavailable 不丢失其他成功元数据。
 
-`workflow run --artifact-root` / `BILI_ARTIFACT_ROOT` 可指定独立产物写根，数据库仍位于
-archive root。音频、转录包和阅读文档写入产物根；读取先探测产物根，再回退到 archive root。
-当前 workflow 不提供 `--keep-audio`、`--max-audio-gb` 或成功后的自动音频回收。
-路径和现有策略入口见[产物根目录](artifact-root.md)、[音频保留与预算](audio-retention-policy.md)。
+标签观察区分 success_nonempty、success_empty、unavailable：非空成功替换，成功空清空，不可用保留旧集合并记录失败。每个 run 重新观察，有界 LRU 只减少本次重复请求；fetch-tags 先验证完整已存 BVID 选择再刷新。
 
-## 发布与提交边界
+publication create 从当前原始集合冻结 edition tags；sync-source-tags 要求观察覆盖完整，显式生成新的 pending-review edition。抓取更新不修改既有 edition/release。见 [02](sequences/02-metadata-tags.md)、[11](sequences/11-publication-lifecycle.md)。
 
-publish handler 按来源优先级选择持久转录，以字幕优先于 ASR，并在目录
-`transcripts/<stem>/` 发布 `bundle.srt`、`bundle.vtt`、`bundle.txt`、`bundle.md`、
-`bundle.raw.json`。原始 JSON 保存来源、segments 和可用的 ASR 证据。
-所有编码、哈希、暂存和暂存文件 fsync 在写锁外完成；最终五个文件替换、目录同步、
-`archive-bundle-v2` 完成标记和 `workflow_publications` 登记共享一个 SQLite 写锁与 lease guard。
-发布开始后的失败在释放写锁前使标记失效，防止旧 attempt 清理新 worker 的有效标记。
+## 规划、依赖、状态与恢复
 
-完成标记校验文件集合、相对路径与各文件摘要。缺文件、摘要不符或旧四文件 marker
-不能视为当前完整 bundle。`workflow publish --part-id ...` 可以从已存转录重新排队发布，
-随后用 `workflow run` 执行；publish 本身只读取已有转录，run 仍可能执行队列中其他就绪任务。
-命令和时间轴/文本规则见[WebVTT 与 bundle](webvtt.md)。
+workflow plan 支持 part ID，或多个 BVID 全部/指定零基 page-index。CLI 在写 profile 前验证目标、策略、editorial 与 ASR 配置；无效选择不留下部分 job。BVID 全量选择报告排除 gone，显式 unknown/gone 拒绝。profile 和 job plan 是不同提交，不承诺跨并发条件的整体原子操作。
 
-SQLite 与文件系统不构成跨介质原子事务。进程崩溃、磁盘错误或 commit 失败可能留下
-文件/登记不一致；完成 marker、摘要检查与 verify 负责识别异常，显式重新发布负责恢复。
-这里的写锁解决合作 worker 的取消、抢占和失败清理竞态，不意味着掉电恢复恰好一次。
-
-## 校对与阅读内容
-
-可选 proofread 分支冻结主转录、参考字幕、元数据、配置、提示词和分块。
-`DeepSeekClient` 在事务外发起 HTTPS JSON 请求；请求前后和每块提交均检查 lease，
-通过结构校验的块与完整修订分别在保护事务内保存。
-已完成块用于失败恢复，取消后不能继续提交新的块或完整修订；调用审计证据允许留存。
-来源恰好覆盖一次只证明追溯结构，不证明语义保真。
-
-render_document 读取已保存 revision，确定性生成 `ai-draft.md` 与 `review.md`。
-文本生成和暂存在锁外，最终文件替换与 document artifact 登记共享租约保护事务；
-重新渲染不调用模型。配置、数据和验证说明见[AI 校对使用](ai-proofreading.md)、
-[AI 校对架构](ai-proofreading-architecture.md)。
-
-AI 渲染只生成 `ai-draft.md` / `review.md`；后者是原文对照和疑点，不能视为批准。
-`publication create` 明确选择固定 AI 基线，冻结完整读者内容；任何正文、标题、摘要、标签、
-来源、整理归属或编辑说明变更均保存新不可变 edition，并共同计算完整 SHA-256。
-`publication review` 指定准确 edition、哈希、预期状态和操作者；批准不会自动公开。
-
-draft head 与 release head 独立。A 发布后，创建或批准 B 仍保持 A 公开；显式 publish B
-验证准确批准关系、写入固定 `publish.md`、记录不可变 release 并切换有效指针。
-重复发布返回同一历史 release，不隐式恢复替换或撤回版本。withdraw 清空有效指针，保留历史。
-事务 CAS 阻止并发静默覆盖；固定路径、来源、内容与字节哈希验证阻止损坏内容进入公开出口。
-
-`publication export` 以只读连接选择有效 release，校验完整 provenance，输出 catalog v2、
-文章、对应 AI revision 的原始 `review.md` 与独立 manifest。有效 release 或配对参照稿损坏使整次导出失败。`editorial export` 明确选择
-revision / edition，单独输出 AI 双稿、完整版、相对 AI 与父版的全内容差异及审核证据。
-受管理目录锁、staging、恢复日志与目录切换保证完整快照，未知文件、链接和源目标重叠拒绝。
-阅读站属于独立仓库，消费公开 release 与显式未发布预览两个独立快照。完整操作见 [出版与审核](publication.md)，
-JSON 契约见 [contracts/README.md](contracts/README.md)。
-
-网站还可消费显式的 `publication export-drafts` 读者预览。该独立投影选择当前且从未产生 release
-的 edition，验证固定内容与 AI 基线，输出正文、对应 AI revision 的原始 `review.md`、读者元数据、准确身份和审核状态。
-它不生成批准或 release，不改变正式发布 A；被替换或撤回的旧 release 不通过预览恢复公开。
-已发布和未发布两个栏目分别读取、校验、路由与搜索。正文页和校验参照页互相链接，
-参照稿独立记录 `reviewFile` 与 `reviewArtifactSha256`，包含原文、AI 整理稿、疑点、依据和回看链接。
-它针对 AI 初稿，不是人工审核记录；人工编辑后的正文可能与它不同。完整审阅包、审核事件和请求配置始终另行导出。
-专题交互图仍是 fc66c1d 的发布实现快照，新增预览链路由以下图和当前代码说明：
+每个 part 建 subtitle；策略为 all/selected/below-threshold；selected 与 all 在已选 part 上同样规划，需要 ASR 时建 audio，ASR 只依赖 audio succeeded，与 subtitle 无依赖。below-threshold 读取已存 workflow_quality_assessments 和用户阈值，不即时测量准确率。当前没有按时长/直播过滤的 plan 参数。
 
 ```mermaid
 flowchart LR
-  head[当前不可变 edition] -->|从未产生 release| preview[export-drafts 读者预览]
-  preview --> draftTab[网站未发布栏目]
-  head --> exactReview[准确 edition 与完整哈希审核]
-  exactReview -->|批准并显式 publish| release[有效 release]
-  release --> publicExport[publication export]
-  publicExport --> publishedTab[网站已发布栏目]
+  selection[完整目标与配置验证] --> subtitle[subtitle]
+  selection --> audio[audio]
+  audio --> asr[asr]
+  subtitle -->|成功转录请求| publish[publish 原始 bundle]
+  asr -->|成功转录请求| publish
+  asr -->|可选依赖| proofread[proofread]
+  proofread --> render[render_document]
 ```
 
-## 查询与数据所有权
+逻辑 key 去重；ASR key 含 profile digest，冻结 model/aligner 各自 revision、device、language、chunk、timeout、hotwords、生成预算/cache/offline 参数。执行从数据库重建，不读取后来的 ASR 环境配置。index kind 在 schema/enum 允许，但当前 planner/handler 没有注册；FTS 由 search-index 执行。见 [03](sequences/03-workflow-plan.md)。
 
-| 事实或产物 | 所有者 | 消费者 |
+| job 状态 | 条件 | 后续 |
 | --- | --- | --- |
-| 视频、分 P、标签、分页证据 | `storage.metadata` | selector、status、metadata search、export |
-| acquisition、转录版本与 segments | `storage.transcripts` | publisher、ASR reference、editorial、projection |
-| job、dependency、lease、attempt、profile | `storage.workflow` | executor、handlers、status、retry、cancel |
-| 音频身份与文件 key | 音频表组 + confined `audio/` | ASR、verify、保留/预算工具 |
-| bundle 发布身份与完整性 | `workflow_publications` + marker + 五文件 | projection、coverage、export、verify、FTS |
-| 输入、模型调用、块、修订、双稿 | editorial 表组 + 固定 Markdown | render、create、private export；公开出口读取配对 review.md |
-| 完整 edition、准确审核、release、双 head、事件 | publication 表组 | show、public/private export |
-| 转录搜索索引 | `search_index.store` 的派生 FTS5 表 | transcripts/all 搜索 |
-| 有效公开内容与 AI 校验参照快照 | `publication export` | 独立阅读站 |
-| 未发布内容与 AI 校验参照快照 | `publication export-drafts` | 独立阅读站 |
-| 私有指定版审阅包 | `editorial export` | 审核者 |
+| queued | 新计划、failed retry、lease 回收、publish 新请求 | available_at 到期且依赖全部 succeeded 才可 claim |
+| running | 写锁下建立 lease、attempt_count+1 和新 attempt | 独立 file-backed 连接 heartbeat；检查精确 attempt |
+| succeeded | 结果后再次校验 owner/attempt/未过期 lease | 满足依赖；publish 在途新请求可使成功 attempt 后 job 回 queued |
+| failed | handler/no_handler/超时失败，或旧 attempt lease_expired | 显式 retry 仅重排 failed，保留历史证据 |
+| cancelled | 全集验证后取消 queued/running；running attempt 同步 cancelled | plan/retry/publish 不复活；保留已提交事实，不级联删除 |
 
-`coverage`、`export`、`verify` 通过 `workflow_projection` 合并数据库事实与产物证据。
-verify/coverage 保留已声明 publication，才能报告坏 bundle，不能将发布缺陷静默变成待处理任务。
-`dedup` 计算音频与跨分片文本哈希，不选择 canonical 或改写来源。
+claim 先收尾过期 attempt，再回收 job；旧 worker 即使重用 worker ID，也不能越过 attempt_count 校验。取消依赖导致 queued 下游 blocked 是 status/explain 的派生事实。耗时网络/推理在锁外，owned_transaction 先 BEGIN IMMEDIATE，再校验 job/owner/attempt/有效 lease，提交新权威结果。业务结果与 executor 终态是独立事务，崩溃后可能需幂等再执行。手动取消是协作式，不立即撤销在途外部调用。见 [04](sequences/04-lease-cancel-retry.md)。
 
-search 默认 `transcripts`，沿用 FTS 查询；`metadata` 直接只读查询当前 SQLite 标题、简介、标签，
-使用字面子串匹配，不要求 FTS 或产物文件。`all` 先返回元数据，再返回转录命中，共用 limit。
-日期过滤使用 UTC 日边界；元数据采用当前 pubdate，转录采用建索引时的快照。
-索引损坏明确报错；all 在索引缺失时可返回元数据并向 stderr 提示。
-JSON stdout 始终是数组。详见[元数据搜索](metadata-search.md)。
+## 字幕、音频与 ASR
 
-## 运维与验证范围
+subtitle handler 精确选 part，列轨道、按来源/语言选轨、获取正文。cookie 存在不等于认证成功；认证、not_found、未认证空清单区别保存。已列轨道正文消失是失败，不能变成永久无字幕证据。来源/语言/content/version 不可变，转录/segments 和 stored/unchanged attempt 同保护事务保存，run 异常仍收尾。见 [05](sequences/05-subtitle-ingest.md)。
 
-`archive migration-preflight` 使用固定的旧 Bilibili 契约只读盘点停止写入并 checkpoint 的源归档。
-它记录保留 rowid 的逐表摘要、双根文件清单与全部历史稿件绑定，拒绝不支持的结构和不完整产物；
-不创建目标、不恢复源任务、不修改现有 schema。命令边界见[迁移预检](archive-migration-preflight.md)。
-多平台身份、adapter 与显式转换仍是[架构实施方案](multi-platform-architecture-plan.md)，尚未实现。
+audio handler 在受限 audio/ 下按配置根再旧 archive 根探测非空 M4A/FLAC。下载使用本次 .workflow-audio-* 内的 audio/ 子目录，网络、ffprobe（30 秒）、duration 与 SHA-256 在事务外；无 ffmpeg 的真实 FLAC 保留后缀。最终替换和 audio_objects/part_audio_objects 登记共享 lease 保护锁，清理本次暂存。复用仍 probe/hash；成功后不自动回收。见 [06](sequences/06-audio-download.md)。
 
-旧 schema 的 CHECK 约束不会被 `CREATE IF NOT EXISTS` 自动迁移。
-缺少新 workflow 类型或 cancelled attempt outcome 的库需要按当前 schema 重建，
-程序不会自动删除现有数据库。纯投影、搜索与两类稿件导出 使用只读连接；
-部分 status/runs 命令打开现有库时仍经过 schema 初始化，不能将其一概声明为无写入。
+ASR 读取精确成功 audio prerequisite storage key、冻结 profile/reference ID。soundfile 优先解码，容器由 ffmpeg RF64 回退；mono 16 kHz float32，经 soxr 重采样，完整分块，processor 接收数组。每块真实 ForcedAligner 对同一波形/文本取得字符时间，校验后回全局时间轴，不插值。第一遍证据筛选热词，保留候选才第二遍新调用，不共享跨遍 prefix KV cache。
 
-当前离线测试覆盖选择、取消、真实下载器的暂存接口、发布和独立连接竞态、
-WebVTT、索引/元数据搜索、转录投影、租约、校对与读取契约。
-外网 B 站、真实 GPU 与付费模型调用另需运行环境验证。
-历史测试中的部分旧模块名通过测试兼容装配运行；合并后的回归结果与执行边界见 [WSL 验证记录](asr-wsl-validation.md)。
-图示和文档解释当前契约，不能替代行为测试或真实材料的人工准确率评估。
+CPU runner 按 profile 复用；CUDA/ROCm 使用 spawn 子进程，父进程先持续排空队列，硬超时 terminate/kill，报告 inference_timeout；CPU 无同等硬超时。成功非空转录、segments、coverage、transcript_asr_evidence 同保护事务保存；内容去重复用旧 transcript 时仍保存本次配置、音频、参考、每遍每块诊断/EOS/对齐/耗时。workflow asr-evidence 查询证据；失败/取消全部中间块尚未持久化，质量 flags 不是 CER，不自动阻止发布。见 [07](sequences/07-asr-runtime.md)、[ASR 参数](asr-configuration.md)。
 
-架构图的源码证据与视觉检查绑定各自固定版本；自动检查通过不能替代行为回归或真实材料审核。
-AI 出版专题图在 fc66c1d 的实现上通过 9/9 showcase、严格来源及浅/深色浏览器检查，
-保留两处自动分离交叉；完整业务状态与当前行为以本页、出版指南和测试为准。
+## 原始 bundle 与保护提交
 
-归档快照保存数据库和产物，包括 AI 双稿及全部历史 `publication_releases` 的固定文件；
-它是私有的完整档案迁移包，不是公开阅读快照。创建、校验与恢复见 [归档快照指南](archive-snapshots.md)。
-旧稿件 schema 在任何初始化写入前拒绝，不进行自动迁移或删除。
+成功 subtitle/ASR 请求同 part 唯一 publish job；运行时重新择优当前版本，CC > AI 字幕 > ASR，再按语言 family zh/en/其余、语言代码、version 排序，不盲用 requested ID。workflow publish 只请求，workflow run 可同时执行其他就绪任务。
+
+输出 transcripts/<stem>/bundle.srt、bundle.vtt、bundle.txt、bundle.md、bundle.raw.json 及 archive-bundle-v2 marker。编码/hash/暂存/fsync 在 SQLite 锁外；旧 marker 失效、五文件替换、目录同步、新 marker、workflow_publications 登记共享 lease 写锁。失败回调在释放锁前失效 marker，避免旧 attempt 清理新 owner 结果。
+
+当前 workflow publish 仅传 ASR 模型名称/revision provenance 子集，未读取并传入全部 transcript_asr_evidence、coverage 或 characters；writer 支持字段不等于当前调用已携带它们，完整逐次证据以 DB 为准。marker 校验精确五文件集合、受限路径和 hash，旧四文件/缺失/不符不算完整。SQLite 与文件系统无跨介质原子事务；掉电/磁盘/commit 故障由 verify、marker 和显式重新发布识别恢复。见 [08](sequences/08-transcript-bundle.md)、[WebVTT](webvtt.md)。
+
+## AI 冻结、检查点、双稿与模板
+
+显式 proofread 在请求时固定 base/reference；自动链首次执行读取精确 ASR prerequisite result，并固定当时同语言参考。input digest 含转录、元数据、完整配置、提示词和块；retry 不读最新 ASR/文件。输入保存与 job 绑定不同提交，可留下未绑定不可变 input。
+
+未完成块先续 lease、记绑定准确 attempt 的请求，锁外调用 DeepSeek；无隐式 HTTP retry。实际 envelope/usage/model/返回思考先审计，再检查 lease 和严格结构：连续有序、来源恰好一次、无未知/只读引用。块/revision 分别受保护提交，完成块重试复用。外部请求可能重复计费；结构覆盖不证明语义保真。见 [09](sequences/09-ai-proofread.md)。
+
+render_document 锁外确定性生成双稿，预检完整 path/hash/role 及既有字节。**当前 atomic_write_artifact 的文件暂存、fsync、replace 在租约保护事务内执行**，随后登记 artifacts；不能称全部文件准备在锁外。两文件不构成 FS 事务，第二份失败可留第一份，消费仍验证完整登记和字节。
+
+固定 AI_RENDERERS/PUBLISH_RENDERERS 按记录版本校验历史产物，当前 writer 为 ai-draft-v1/publish-v1；未知 renderer 拒绝，排版变化需要新版本/路径/身份。ai-draft.md 纯正文；review.md 为 AI 原文、整理稿、来源/时间/回看、疑点和模型参数参照，非人工批准。重渲染不调用模型。见 [10](sequences/10-document-render.md)、[AI 专题](ai-proofreading-architecture.md)。
+
+## 完整 edition、审核、release 与三类导出
+
+create 验证明确 AI 基线，冻结 title/markdown/summary/tags/source/attribution/editorNote，全对象 SHA-256；edit/tags sync 按精确父版与 draft head CAS 生成新 edition/new pending-review。旧内容不修改。
+
+review 指定 edition/hash/expected status/actor：pending-review → in-review → approved/changes-requested/rejected，changes-requested → in-review。approved/rejected 终态，改内容新建版。publication_edition_reviews 保存当前状态行，publication_events 追加变更；不是每次审核插新 review。
+
+draft/release head 独立，新建/审核/批准 B 保持公开 A；显式 publish B 才验证批准/expected release，锁外写 publish.md，再写事务重验 hash/批准/安装字节/CAS，登记 release，旧 A superseded，新有效 head。重复 publish 返回该 edition 历史 release，不恢复 withdrawn/superseded；withdraw 清有效 head、保留历史。文件先于 DB 登记，失败可留未登记字节。见 [11](sequences/11-publication-lifecycle.md)。
+
+| 出口 | 精确选择 | 产物 |
+| --- | --- | --- |
+| publication export | 有效 current_release_id，准确批准/来源/模板/事件/字节 | catalog v2、publish.md、对应 AI 原始 review.md、manifest |
+| publication export-drafts | 当前 edition 且从未产生任何状态 release | draft catalog、preview.md、原始 review.md、状态与 manifest |
+| editorial export | 明确配对 revision/edition | 双稿、edition.md/json、review.json、AI/父版全内容 patches、events/配置 |
+
+先读 head 再验证，坏关系不得被 JOIN 隐藏成空结果；有效 release 或配对 AI 稿损坏整次失败。公开/预览 reviewFile 与 reviewArtifactSha256 独立；参照针对 AI 初稿，人工正文可不同，actor/events/请求配置和私有差异另行导出。
+
+export_snapshot 使用输出独占锁、旧目录归属校验、完整 staging/manifest、恢复日志和目录切换，拒绝 unknown 文件、链接/junction、源目标重叠。成功快照完整，切换可短暂不可用；父目录是私有恢复空间，只部署输出目录。withdraw 不自动刷新已导出/部署副本。见 [12](sequences/12-reader-private-export.md)、[出版](publication.md)、[JSON 契约](contracts/README.md)。
+
+## 投影、覆盖、完整性、去重与检索
+
+workflow_records 只读合并 active parts、转录和对应 bundle 声明；meta_ok/subtitle_done/asr_done/archived 是投影状态，非 job 状态。verify/coverage 保留 declared publication 后再查字节，避免坏 bundle 静默降级 backlog。operational projection 中文优先/newest 启发式与 writer family 总排序不同。
+
+IntegrityVerifier 当前检查 projected bundle 完整性及相关缺陷，不等于自动验证全部音频/AI/release；稿件和快照各有专门验证。coverage strict 将 diagnostics 变成非零；verify 区分 backlog/defect；export 输出普通 JSON/CSV，可按 status/with-text；dedup 仅报告精确音频及跨 segment 文本复用，不选 canonical/改来源。见 [13](sequences/13-projection-verify.md)。
+
+FTS 在 archive.db 内，search-index/--rebuild 显式写。transcript_segments 为主，FTS 与 transcript/ordinal 水位分批共同提交；兼容无持久 segments 的 MD 可补充，已有行不默认重写。脱敏与 CJK bigram/tokenizer 支持检索。
+
+search 默认 transcripts；metadata 只读当前 title/description/source tags 字面子串，无需文件/FTS。all 元数据在前，共用总 limit；填满 limit 仍校验转录源健康。missing index 正常 backlog，all 缺 FTS 可保留元数据；损坏明确失败。UTC 日期 [from,to+1day)，metadata 当前 pubdate、FTS 构建快照；JSON stdout 为数组，诊断分离。见 [14](sequences/14-search-index.md)。
+
+## 私有归档快照与恢复
+
+snapshot save 独占维护，拒绝有效 running lease；检查 schema/FK 后 SQLite backup，busy 等待有界。产物根优先旧根回退，排除 staging，检查可移植路径和文件读前后身份；ZIP64 流式 size/hash/manifest，不覆盖目标。包括音频、bundle/marker、AI 双稿和全部历史 release（含 superseded/withdrawn），验证 DB references，是完整私有包。
+
+check 流式校验所有成员/hash/marker/DB contract/FK/references，仅落临时 DB；restore 目标必须不存在/空，独占锁下完整解压校验后收尾 running attempts/runs/model calls，running job 回 queued 清 lease，记录 snapshot_restored，cancelled 保留。再次校验/fsync/rename 完整安装。过期 running 可随 save 保留供 restore 恢复，当前有效 lease 不可保存。见 [15](sequences/15-archive-snapshot.md)、[快照指南](archive-snapshots.md)。
+
+## 数据所有权、布局与保留库能力
+
+| 事实/产物 | 所有者 | 消费 |
+| --- | --- | --- |
+| archive.db 元数据、转录、控制、AI、出版表组 | 各 storage repository | planner/worker/投影/导出/快照 |
+| audio/<stem>.m4a 或 .flac | audio handler 与音频表 | 精确 ASR prerequisite、快照、显式 inventory |
+| transcripts/<stem>/bundle.* 与 marker | archive writer + workflow_publications | 验证、投影、普通导出、兼容检索 |
+| documents/part-ID/revision/ai-draft-v1/ | render + document_artifacts | edition 基线、配对 review、私有包/快照 |
+| publications/part-ID/release/publish-v1/publish.md | publication service + release/head/events | 公开出口、全部历史快照 |
+| archive.db FTS | search-index | transcripts/all search |
+| 三类静态目录 | publication_export + export_snapshot | 外部阅读站/审核者 |
+| 完整 ZIP | archive_snapshot + storage.snapshots | check/restore |
+
+artifact root 可由 flag/BILI_ARTIFACT_ROOT 与 archive root 分离，写 write_base，读配置根优先旧根回退，DB 始终 archive root。ZIP restore 可把产物合并进新根；受限音频路径、固定稿件路径和 portable key 共同限制访问。
+
+库中保留 audio_budget/audio_reclaim/long_live/audio_inventory、旧双路人工 proofread、publication_supervisor、bundle_verification、concurrency_gate、persistence/run-ledger 等。显式调用的路径/预算/超时能力存在，当前注册 CLI/workflow 不自动启用成功回收、旧 merge 或发布进程监督。scripts/production.py 解析受限 env-file 并调用已安装 CLI；评测/验证脚本是工程支持。见 [16](sequences/16-library-and-operations.md)和 [97 模块清单](architecture-sources.md)。
+
+## 验证边界
+
+本次只改文档、JSON 和生成 HTML；当前 15 顶层命令、97 Python 产品模块、4 SQL schema 和全部表/视图逐项核对。未将历史命令、未来计划、其他分支当成事实。
+
+Archify 的 validate/deliver/strict check/browser-check 绑定 commit 与 specification/artifact SHA-256；截图和实际目视检查分别记录。图表检查不能替代行为回归、真实 B站访问、GPU/付费模型或逐句语义审核。本次验收结果见 [验证记录](architecture-validation.md)。

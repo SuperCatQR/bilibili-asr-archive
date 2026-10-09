@@ -1,0 +1,270 @@
+{
+  "schema_version": 1,
+  "diagram_type": "sequence",
+  "meta": {
+    "title": "FTS 增量索引、元数据检索与组合结果",
+    "locale": "zh-CN",
+    "output": "docs/sequences/14-search-index.html",
+    "quality_profile": "showcase",
+    "column_fit": "spread",
+    "repository": {
+      "url": "https://github.com/SuperCatQR/bilibili-asr-archive.git",
+      "revision": "9b289570494b5e8f7cc564a7eaa5b2eb2c28c3ad",
+      "provider": "github",
+      "link_mode": "web"
+    }
+  },
+  "participants": [
+    {
+      "id": "cli",
+      "label": "检索命令",
+      "type": "frontend",
+      "sources": [
+        {
+          "path": "src/bili_asr/cli/search.py",
+          "line": 80,
+          "end_line": 132,
+          "label": "_cmd_search"
+        },
+        {
+          "path": "src/bili_asr/cli/search.py",
+          "line": 48,
+          "end_line": 78,
+          "label": "_cmd_search_index"
+        }
+      ]
+    },
+    {
+      "id": "query",
+      "label": "查询分派",
+      "type": "backend",
+      "sources": [
+        {
+          "path": "src/bili_asr/search_index/query.py",
+          "line": 21,
+          "end_line": 63,
+          "label": "search_archive"
+        }
+      ]
+    },
+    {
+      "id": "db",
+      "label": "SQLite 与 FTS5",
+      "type": "database",
+      "sources": [
+        {
+          "path": "src/bili_asr/search_index/store.py",
+          "line": 343,
+          "end_line": 471,
+          "label": "TranscriptSearchIndex.build"
+        },
+        {
+          "path": "src/bili_asr/search_index/store.py",
+          "line": 475,
+          "end_line": 569,
+          "label": "TranscriptSearchIndex.search_blocks"
+        }
+      ]
+    },
+    {
+      "id": "reader",
+      "label": "元数据及文本读取",
+      "type": "backend",
+      "sources": [
+        {
+          "path": "src/bili_asr/search_index/metadata.py",
+          "line": 1,
+          "end_line": 60,
+          "label": "模块入口"
+        },
+        {
+          "path": "src/bili_asr/search_index/readers.py",
+          "line": 1,
+          "end_line": 60,
+          "label": "模块入口"
+        }
+      ]
+    },
+    {
+      "id": "files",
+      "label": "归档 MD 回退",
+      "type": "database",
+      "sources": [
+        {
+          "path": "src/bili_asr/search_index/store.py",
+          "line": 329,
+          "end_line": 341,
+          "label": "TranscriptSearchIndex._published_md_text_for"
+        }
+      ]
+    }
+  ],
+  "messages": [
+    {
+      "id": "m1",
+      "from": "cli",
+      "to": "db",
+      "y": 180,
+      "label": "显式创建或更新索引",
+      "variant": "default"
+    },
+    {
+      "id": "m4",
+      "from": "db",
+      "to": "reader",
+      "y": 252,
+      "label": "读取兼容发布 MD",
+      "variant": "default"
+    },
+    {
+      "id": "m5",
+      "from": "reader",
+      "to": "files",
+      "y": 284,
+      "label": "按根读取 bundle MD",
+      "variant": "default"
+    },
+    {
+      "id": "m7",
+      "from": "db",
+      "to": "cli",
+      "y": 356,
+      "label": "返回 build 统计",
+      "variant": "return"
+    },
+    {
+      "id": "m8",
+      "from": "cli",
+      "to": "query",
+      "y": 388,
+      "label": "校验 scope 与日期",
+      "variant": "default"
+    },
+    {
+      "id": "m9",
+      "from": "query",
+      "to": "reader",
+      "y": 460,
+      "label": "mode=ro 字面子串查询",
+      "variant": "default"
+    },
+    {
+      "id": "m10",
+      "from": "reader",
+      "to": "query",
+      "y": 492,
+      "label": "先返回元数据命中",
+      "variant": "return"
+    },
+    {
+      "id": "m11",
+      "from": "query",
+      "to": "db",
+      "y": 564,
+      "label": "mode=ro FTS 查询",
+      "variant": "default"
+    },
+    {
+      "id": "m12",
+      "from": "db",
+      "to": "query",
+      "y": 636,
+      "label": "backlog 诊断",
+      "variant": "return"
+    },
+    {
+      "id": "m13",
+      "from": "db",
+      "to": "query",
+      "y": 708,
+      "label": "返回转录命中",
+      "variant": "return"
+    },
+    {
+      "id": "m14",
+      "from": "query",
+      "to": "cli",
+      "y": 740,
+      "label": "合并并截取总 limit",
+      "variant": "return"
+    }
+  ],
+  "segments": [
+    {
+      "from": 168,
+      "to": 192,
+      "label": "B01 opt search-index 或 search --"
+    },
+    {
+      "from": 240,
+      "to": 296,
+      "label": "B02 opt 部分分 P 无持久 segments"
+    },
+    {
+      "from": 344,
+      "to": 368,
+      "label": "B03 opt search-index 或 search --"
+    },
+    {
+      "from": 448,
+      "to": 504,
+      "label": "B04 opt metadata 或 all"
+    },
+    {
+      "from": 552,
+      "to": 576,
+      "label": "B05 opt transcripts 或 all"
+    },
+    {
+      "from": 624,
+      "to": 648,
+      "label": "B06 alt 索引缺失或 all 无 FTS"
+    },
+    {
+      "from": 696,
+      "to": 720,
+      "label": "B07 else 索引正常"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "条件与提交边界",
+      "items": [
+        "FTS 是 archive.db 内的派生表，不是单独搜索服务；只有显式构建或 --rebuild 写索引。",
+        "每批 FTS 与精确进度一起提交，崩溃可从最后已提交 segment 恢复。",
+        "metadata 使用当前 source tags；edition tags 为创建/显式同步时快照，二者不同。"
+      ]
+    },
+    {
+      "dot": "slate",
+      "title": "阅读方法",
+      "items": [
+        "B 编号对应完整条件路径；互斥分支仅在条件成立时执行，opt 可选，loop 重复。",
+        "HTML 将嵌套条件展开为连续区域；自调用保留在内部动作卡片。完整 Mermaid 与源码范围见同名 Markdown。"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "参与者内部动作",
+      "items": [
+        "时间轴步骤 2 · SQLite 与 FTS5：读取进度及新 segments。详细操作见同名 Markdown。",
+        "时间轴步骤 3 · SQLite 与 FTS5：FTS 行与进度同提交。详细操作见同名 Markdown。",
+        "时间轴步骤 6 · SQLite 与 FTS5：追加 MD fallback 行。详细操作见同名 Markdown。"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "完整条件路径",
+      "items": [
+        "B01（m1）：opt search-index 或 search --rebuild",
+        "B02（m4–m5）：opt search-index 或 search --rebuild → opt 部分分 P 无持久 segments",
+        "B03（m7）：opt search-index 或 search --rebuild",
+        "B04（m9–m10）：opt metadata 或 all",
+        "B05（m11）：opt transcripts 或 all",
+        "B06（m12）：opt transcripts 或 all → alt 索引缺失或 all 无 FTS",
+        "B07（m13）：opt transcripts 或 all → else 索引正常"
+      ]
+    }
+  ]
+}
