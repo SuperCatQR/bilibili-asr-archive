@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import importlib
 import pytest
 
 from bili_asr import cli
@@ -105,7 +106,10 @@ def test_missing_tags_warn_and_failed_observation_cannot_clear_edition(tmp_path,
             sync_source_tags(connection, edition_id=edition["edition_id"], actor="operator", note="retry")
         gateway = FakeGateway()
         gateway.script_tags("BVtest", None)
-        monkeypatch.setattr("bili_asr.sources.bilibili_api_gateway.BilibiliApiGateway", lambda **kwargs: gateway)
+        # Other metadata tests evict the adapter from sys.modules; import the
+        # current module instead of patching a stale package attribute.
+        adapter = importlib.import_module("bili_asr.sources.bilibili_api_gateway")
+        monkeypatch.setattr(adapter, "BilibiliApiGateway", lambda **kwargs: gateway)
         assert cli.main(["fetch-tags", "--archive-root", str(tmp_path), "--bvid", "BVtest"]) == 2
         assert "coverage incomplete" in capsys.readouterr().err
         gateway.script_tags("BVtest", ())
