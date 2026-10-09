@@ -757,6 +757,7 @@ class BilibiliApiGateway:
         """
 
         self._credential = Credential(sessdata=sessdata) if sessdata else Credential()
+        self.tag_error_code: str | None = None
         self._metadata_credential_checked = not bool(sessdata)
         self.resolved_proxy = resolve_proxy(proxy, os.environ)
         if self.resolved_proxy is not None:
@@ -929,8 +930,8 @@ class BilibiliApiGateway:
         transport — is answered with ``None`` so the run continues, and
         the bounded code travels on the exception mapped by ``_await_upstream``
         and caught here.  Nothing is logged, printed, or persisted by this
-        method; the code is available to the caller through the same taxonomy
-        every other call uses, and the raw response never reaches anyone.
+        method; ``tag_error_code`` exposes only the bounded category to the
+        caller and is reset on each request. Raw responses never escape.
 
         Catching the whole taxonomy is deliberate rather than loose.  The
         endpoint sits in the risk-control family, so a challenge can arrive as
@@ -960,6 +961,7 @@ class BilibiliApiGateway:
 
         if not isinstance(bvid, str) or _BVID_PATTERN.fullmatch(bvid) is None:
             raise ValueError("bvid must be a BV-prefixed 10-character id")
+        self.tag_error_code = None
         await self._pace()
         try:
             response = await self._await_upstream(
@@ -975,13 +977,14 @@ class BilibiliApiGateway:
                 .update_params(bvid=bvid)
                 .result,
             )
-        except GatewayError:
+        except GatewayError as error:
+            self.tag_error_code = error.code
             # Best-effort call, and *not* an observation: ``None`` tells the
             # caller the tags could not be read, which is what keeps
             # ``record_page`` from clearing rows a previous run stored
             # (compass D16).  ``()`` here would be a lie about what upstream
-            # said.  The mapped exception carried the bounded code; it is not
-            # re-raised and not written anywhere by this method.
+            # said. Only the bounded category is retained for caller-owned
+            # observation evidence; the original exception is not re-raised.
             return None
         return _normalize_video_tags(response)
 

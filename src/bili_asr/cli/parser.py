@@ -59,6 +59,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     fetch_meta.epilog = "Start-page selection may move it backwards, including with --skip-failed-page."
 
+    fetch_tags = subparsers.add_parser("fetch-tags", help="Refresh original tags for archived videos")
+    fetch_tags.add_argument("--archive-root", default=DEFAULT_ARCHIVE_ROOT)
+    fetch_tags.add_argument("--sessdata", default=None)
+    fetch_tags.add_argument("--bvid", action="append", default=None, help="Archived BVID; repeat, or omit for all")
+
     status = subparsers.add_parser("status", help="Show SQLite archive and workflow status")
     status.add_argument("--archive-root", default=DEFAULT_ARCHIVE_ROOT)
 

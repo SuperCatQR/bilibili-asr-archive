@@ -79,9 +79,9 @@ def _main(
     # Include commands that initialize schema or rebuild FTS, even when their
     # main purpose is querying. Snapshot service owns its exclusive access.
     writes_archive = args.command in {
-        "fetch-meta", "workflow", "search-index",
+        "fetch-meta", "fetch-tags", "workflow", "search-index",
     } or (args.command == "publication" and args.publication_action in {
-        "create", "edit", "review", "publish", "withdraw",
+        "create", "edit", "sync-source-tags", "review", "publish", "withdraw",
     }) or (args.command == "search" and args.rebuild) or (
         args.command in {"status", "runs"} and (Path(args.archive_root) / "archive.db").is_file()
     )

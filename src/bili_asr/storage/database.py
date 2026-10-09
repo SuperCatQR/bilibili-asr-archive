@@ -518,6 +518,10 @@ def initialize_schema(connection: sqlite3.Connection) -> sqlite3.Connection:
         for name, expected in _shipped_table_contract().items():
             if not accepts_manuscripts and name in _manuscript_schema_objects():
                 continue
+            # This additive observation table carries no existing data contract.
+            # It can be bootstrapped without rewriting source tags or manuscripts.
+            if name == "video_tag_observations" and name not in tables:
+                continue
             if tables.get(name) != expected:
                 raise _rebuild_error(f"unsupported table {name}")
     scripts = _schema_scripts() if accepts_manuscripts else _schema_scripts()[:-1]

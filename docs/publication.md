@@ -205,3 +205,22 @@ AI workflow 的文档目前直接写归档根，详见 [artifact-root.md](artifa
 命令成功返回 0；业务、完整性、旧契约或并发冲突返回 1，并输出对应错误标识。
 缺少必需参数、未知命令等解析错误沿用 argparse 的退出码 2。
 并发失败后先重新 show 并核对当前版本，不应机械套用新的预期 ID 或哈希继续操作。
+
+
+## 原视频标签
+
+新 edition 创建时按相同 BVID 的 `video_tags.tag_name` 冻结主题；按 tag_id 顺序去重，
+不从标题、编号或 AI 正文推断。所有分 P 共用视频的源标签，后续源标签变化不影响旧版哈希或已发布文件。
+未尝试或最新观察失败时 create 会提示覆盖缺口；无标签时保持空数组，已保存标签仍可作为上次成功集合使用。
+
+先补采源标签，再显式同步已有 edition：
+
+```bash
+bili-asr fetch-tags --archive-root /srv/bili-archive --bvid BVxxxxxxxxxx
+bili-asr publication sync-source-tags --archive-root /srv/bili-archive \
+  --edition-id E --actor editor --note "同步原视频标签" --format json
+```
+
+sync-source-tags 要求 E 是当前父版本，记录 actor、来源说明和审计事件，生成新的待审核 edition。
+只在有成功观察或已有非空源集合时允许同步；未观察或本次不可用时先补采。
+成功观察空集合可以生成空主题的新版本。原版、AI revision、正文与现有 release 继续保留。

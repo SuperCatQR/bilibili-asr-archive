@@ -9,7 +9,7 @@ from bili_asr.cli._shared import DEFAULT_ARCHIVE_ROOT
 from bili_asr.cli.parser import build_parser
 from bili_asr.cli import main as main
 from bili_asr.cli.main import _dispatch_command, _main
-from bili_asr.cli.meta import _cmd_fetch_meta
+from bili_asr.cli.meta import _cmd_fetch_meta, _cmd_fetch_tags
 from bili_asr.cli.status_cmd import _cmd_coverage, _cmd_runs, _cmd_status
 from bili_asr.cli.search import _cmd_search, _cmd_search_index
 from bili_asr.cli.ops import _cmd_check_asr_env, _cmd_export, _cmd_verify

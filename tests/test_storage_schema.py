@@ -1005,7 +1005,7 @@ def test_schema_inspection_matches_the_declared_contract(tmp_root):
     connection = open_database(tmp_root)
     try:
         assert _table_names(connection) == BASE_TABLES | WORKFLOW_TABLES | EDITORIAL_TABLES | VIEWS | {
-            "workflow_asr_profile_configs", "transcript_asr_evidence",
+            "workflow_asr_profile_configs", "transcript_asr_evidence", "video_tag_observations",
         }
 
         for table in BASE_TABLES:

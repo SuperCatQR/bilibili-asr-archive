@@ -43,6 +43,18 @@ CREATE TABLE IF NOT EXISTS video_tags (
     FOREIGN KEY (bvid) REFERENCES videos(bvid) ON DELETE RESTRICT
 );
 
+-- Optional tag acquisition evidence, separate from the last successful set.
+CREATE TABLE IF NOT EXISTS video_tag_observations (
+    bvid TEXT PRIMARY KEY,
+    state TEXT NOT NULL CHECK (state IN ('success_nonempty', 'success_empty', 'unavailable')),
+    observed_at INTEGER NOT NULL CHECK (observed_at >= 0),
+    error_code TEXT CHECK (error_code IS NULL OR error_code IN (
+        'auth_error', 'rate_limited', 'not_found', 'transport_error', 'response_error', 'shape_error', 'unavailable'
+    )),
+    run_id TEXT,
+    FOREIGN KEY (bvid) REFERENCES videos(bvid) ON DELETE RESTRICT
+);
+
 -- The video's current category and cover, one row per video, refreshed by the
 -- next collection that observed at least one of the three (``observed_at``
 -- records the last *successful* collection, never an attempt).

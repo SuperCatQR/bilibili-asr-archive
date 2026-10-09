@@ -27,6 +27,7 @@ import uuid
 from dataclasses import dataclass
 
 from bili_asr.services._common import _now
+from bili_asr.services.video_tags import bounded_tag_error
 
 from bili_asr.sources.models import (
     BilibiliGateway,
@@ -207,6 +208,9 @@ class IngestionRunResult:
     error_code: str | None
     collected_page_count: int
     error_diagnostic: GatewayDiagnostic | None = None
+    tag_attempt_count: int = 0
+    tag_success_count: int = 0
+    tag_failure_count: int = 0
 
 
 class MetadataIngestor:
@@ -334,6 +338,8 @@ class MetadataIngestor:
         # Recent observations avoid repeated calls without growing with the
         # archive. A new run (including resume) starts fresh: persisted tags
         # are the last successful observation, not evidence of today's tags.
+        tag_attempt_count = tag_success_count = tag_failure_count = 0
+        tag_errors: dict[str, str | None] = {}
         tag_cache: OrderedDict[str, tuple[VideoTag, ...] | None] = OrderedDict()
         page_number = first_page
         while True:
@@ -372,22 +378,34 @@ class MetadataIngestor:
                 # Keep this page's answers independently of LRU eviction,
                 # so even a page larger than the cache persists every answer.
                 tags_by_video: dict[str, tuple[VideoTag, ...] | None] = {}
+                page_tag_errors: dict[str, str | None] = {}
                 for summary in summaries:
                     bvid = summary.bvid
                     if bvid in tags_by_video:
                         continue
                     if bvid in tag_cache:
                         tags_by_video[bvid] = tag_cache[bvid]
+                        page_tag_errors[bvid] = tag_errors.get(bvid)
                         tag_cache.move_to_end(bvid)
                         continue
+                    tag_attempt_count += 1
                     try:
                         tags_by_video[bvid] = await self._gateway.get_video_tags(bvid)
-                    except GatewayShapeError:
-                        # Optional malformed tags preserve the last stored set.
+                        tag_errors[bvid] = getattr(self._gateway, "tag_error_code", None)
+                    except GatewayError as error:
+                        # Optional tag failures preserve the last stored set.
                         tags_by_video[bvid] = None
+                        tag_errors[bvid] = error.code
+                    if tags_by_video[bvid] is None:
+                        tag_failure_count += 1
+                        tag_errors[bvid] = bounded_tag_error(tag_errors[bvid])
+                    else:
+                        tag_success_count += 1
+                    page_tag_errors[bvid] = tag_errors[bvid]
                     tag_cache[bvid] = tags_by_video[bvid]
                     if len(tag_cache) > TAG_CACHE_SIZE:
-                        tag_cache.popitem(last=False)
+                        evicted, _ = tag_cache.popitem(last=False)
+                        tag_errors.pop(evicted, None)
             except GatewayError as error:
                 page_outcome, run_outcome = _page_and_run_outcomes(error)
                 self._repository.record_page(
@@ -470,6 +488,9 @@ class MetadataIngestor:
                 limit_reached,
                 observed_author,
                 _observed_tag_sets(summaries, tags_by_video),
+                {bvid: ("unavailable" if tags is None else "success_nonempty" if tags else "success_empty",
+                         bounded_tag_error(page_tag_errors.get(bvid)) if tags is None else None)
+                 for bvid, tags in tags_by_video.items()},
             )
             page_count += 1
             collected_page_count += 1
@@ -509,6 +530,8 @@ class MetadataIngestor:
             error_code=error_code,
             collected_page_count=collected_page_count,
             error_diagnostic=error_diagnostic,
+            tag_attempt_count=tag_attempt_count, tag_success_count=tag_success_count,
+            tag_failure_count=tag_failure_count,
         )
 
     async def _fetch_user_page(
@@ -601,6 +624,7 @@ class MetadataIngestor:
         limit_reached: bool,
         author: str | None,
         tags: dict[str, list[VideoTagRecord]],
+        tag_observations: dict[str, tuple[str, str | None]],
     ) -> None:
         """Record one collected page with its payload in the locked order.
 
@@ -709,6 +733,7 @@ class MetadataIngestor:
             parts=part_records,
             discoveries=discovery_records,
             tags=tags,
+            tag_observations=tag_observations,
             details=detail_records,
             cursor=CursorRecord(
                 mid=mid,
