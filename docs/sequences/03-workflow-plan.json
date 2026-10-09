@@ -1,0 +1,280 @@
+{
+  "schema_version": 1,
+  "diagram_type": "sequence",
+  "meta": {
+    "title": "全集选择验证、配置冻结与依赖规划",
+    "locale": "zh-CN",
+    "output": "docs/sequences/03-workflow-plan.html",
+    "quality_profile": "showcase",
+    "column_fit": "spread",
+    "repository": {
+      "url": "https://github.com/SuperCatQR/bilibili-asr-archive.git",
+      "revision": "9b289570494b5e8f7cc564a7eaa5b2eb2c28c3ad",
+      "provider": "github",
+      "link_mode": "web"
+    }
+  },
+  "participants": [
+    {
+      "id": "cli",
+      "label": "规划入口",
+      "type": "frontend",
+      "sources": [
+        {
+          "path": "src/bili_asr/cli/workflow.py",
+          "line": 147,
+          "end_line": 353,
+          "label": "_execute_workflow"
+        }
+      ]
+    },
+    {
+      "id": "selector",
+      "label": "目标解析",
+      "type": "backend",
+      "sources": [
+        {
+          "path": "src/bili_asr/storage/workflow_selection.py",
+          "line": 47,
+          "end_line": 136,
+          "label": "resolve_workflow_selection"
+        }
+      ]
+    },
+    {
+      "id": "repo",
+      "label": "工作流仓库",
+      "type": "backend",
+      "sources": [
+        {
+          "path": "src/bili_asr/storage/workflow.py",
+          "line": 212,
+          "end_line": 304,
+          "label": "WorkflowRepository.plan"
+        },
+        {
+          "path": "src/bili_asr/storage/workflow.py",
+          "line": 675,
+          "end_line": 731,
+          "label": "WorkflowRepository.request_publication"
+        }
+      ]
+    },
+    {
+      "id": "db",
+      "label": "控制与事实表",
+      "type": "database",
+      "sources": [
+        {
+          "path": "src/bili_asr/storage/workflow.py",
+          "line": 166,
+          "end_line": 210,
+          "label": "WorkflowRepository.register_profile"
+        },
+        {
+          "path": "src/bili_asr/storage/workflow.py",
+          "line": 544,
+          "end_line": 560,
+          "label": "WorkflowRepository._editorial_jobs"
+        }
+      ]
+    }
+  ],
+  "messages": [
+    {
+      "id": "m1",
+      "from": "cli",
+      "to": "selector",
+      "y": 180,
+      "label": "解析全部目标",
+      "variant": "default"
+    },
+    {
+      "id": "m2",
+      "from": "selector",
+      "to": "db",
+      "y": 212,
+      "label": "验证存在与 gone",
+      "variant": "default"
+    },
+    {
+      "id": "m3",
+      "from": "selector",
+      "to": "cli",
+      "y": 284,
+      "label": "拒绝整个批次",
+      "variant": "security"
+    },
+    {
+      "id": "m4",
+      "from": "selector",
+      "to": "cli",
+      "y": 356,
+      "label": "返回目标身份",
+      "variant": "return"
+    },
+    {
+      "id": "m5",
+      "from": "cli",
+      "to": "repo",
+      "y": 388,
+      "label": "冻结 ASR profile",
+      "variant": "default"
+    },
+    {
+      "id": "m6",
+      "from": "repo",
+      "to": "db",
+      "y": 420,
+      "label": "保存配置 digest",
+      "variant": "default"
+    },
+    {
+      "id": "m7",
+      "from": "cli",
+      "to": "repo",
+      "y": 452,
+      "label": "plan 全部 part",
+      "variant": "default"
+    },
+    {
+      "id": "m8",
+      "from": "repo",
+      "to": "db",
+      "y": 524,
+      "label": "幂等 subtitle job",
+      "variant": "default"
+    },
+    {
+      "id": "m9",
+      "from": "repo",
+      "to": "db",
+      "y": 596,
+      "label": "幂等 audio 与 ASR",
+      "variant": "default"
+    },
+    {
+      "id": "m10",
+      "from": "repo",
+      "to": "db",
+      "y": 628,
+      "label": "依赖 ASR → audio",
+      "variant": "default"
+    },
+    {
+      "id": "m11",
+      "from": "repo",
+      "to": "db",
+      "y": 700,
+      "label": "校对和渲染依赖",
+      "variant": "default"
+    },
+    {
+      "id": "m12",
+      "from": "repo",
+      "to": "db",
+      "y": 772,
+      "label": "保留 subtitle job",
+      "variant": "default"
+    },
+    {
+      "id": "m13",
+      "from": "repo",
+      "to": "cli",
+      "y": 844,
+      "label": "返回新增任务数",
+      "variant": "return"
+    },
+    {
+      "id": "m14",
+      "from": "cli",
+      "to": "repo",
+      "y": 916,
+      "label": "request_publication",
+      "variant": "default"
+    },
+    {
+      "id": "m15",
+      "from": "repo",
+      "to": "db",
+      "y": 948,
+      "label": "更新单 part publish",
+      "variant": "default"
+    }
+  ],
+  "segments": [
+    {
+      "from": 272,
+      "to": 296,
+      "label": "B01 alt 目标或配置无效"
+    },
+    {
+      "from": 344,
+      "to": 464,
+      "label": "B02 else 有效批次"
+    },
+    {
+      "from": 512,
+      "to": 536,
+      "label": "B03 loop 每个选中分 P"
+    },
+    {
+      "from": 584,
+      "to": 640,
+      "label": "B04 alt all/selected 或 below-thr"
+    },
+    {
+      "from": 688,
+      "to": 712,
+      "label": "B05 opt --proofread"
+    },
+    {
+      "from": 760,
+      "to": 784,
+      "label": "B06 else 已达质量阈值"
+    },
+    {
+      "from": 832,
+      "to": 856,
+      "label": "B07 else 有效批次"
+    },
+    {
+      "from": 904,
+      "to": 960,
+      "label": "B08 opt 已有转录重新发布"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "条件与提交边界",
+      "items": [
+        "库中允许 index job kind，但当前 CLI 规划与 handler 注册没有 index；FTS 由 search-index 显式执行。",
+        "当前 asr-policy 为 all/selected/below-threshold；selected 与 all 都对已选 part 规划，below-threshold 增加质量门槛。",
+        "profile 登记与 jobs 规划是不同提交；不将选择验证描述为所有并发条件下的跨步骤原子事务。"
+      ]
+    },
+    {
+      "dot": "slate",
+      "title": "阅读方法",
+      "items": [
+        "B 编号对应完整条件路径；互斥分支仅在条件成立时执行，opt 可选，loop 重复。",
+        "HTML 将嵌套条件展开为连续区域；自调用保留在内部动作卡片。完整 Mermaid 与源码范围见同名 Markdown。"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "完整条件路径",
+      "items": [
+        "B01（m3）：alt 目标或配置无效",
+        "B02（m4–m7）：else 有效批次",
+        "B03（m8）：else 有效批次 → loop 每个选中分 P",
+        "B04（m9–m10）：else 有效批次 → loop 每个选中分 P → alt all/selected 或 below-threshold 需要 ASR",
+        "B05（m11）：else 有效批次 → loop 每个选中分 P → alt all/selected 或 below-threshold 需要 ASR → opt --proofread",
+        "B06（m12）：else 有效批次 → loop 每个选中分 P → else 已达质量阈值",
+        "B07（m13）：else 有效批次",
+        "B08（m14–m15）：opt 已有转录重新发布"
+      ]
+    }
+  ]
+}

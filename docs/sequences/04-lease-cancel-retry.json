@@ -1,0 +1,328 @@
+{
+  "schema_version": 1,
+  "diagram_type": "sequence",
+  "meta": {
+    "title": "任务认领、心跳、取消、租约回收与重试",
+    "locale": "zh-CN",
+    "output": "docs/sequences/04-lease-cancel-retry.html",
+    "quality_profile": "showcase",
+    "column_fit": "spread",
+    "repository": {
+      "url": "https://github.com/SuperCatQR/bilibili-asr-archive.git",
+      "revision": "9b289570494b5e8f7cc564a7eaa5b2eb2c28c3ad",
+      "provider": "github",
+      "link_mode": "web"
+    }
+  },
+  "participants": [
+    {
+      "id": "operator",
+      "label": "控制命令",
+      "type": "frontend",
+      "sources": [
+        {
+          "path": "src/bili_asr/cli/workflow.py",
+          "line": 147,
+          "end_line": 353,
+          "label": "_execute_workflow"
+        }
+      ]
+    },
+    {
+      "id": "executor",
+      "label": "Executor",
+      "type": "backend",
+      "sources": [
+        {
+          "path": "src/bili_asr/workflow.py",
+          "line": 53,
+          "end_line": 97,
+          "label": "WorkflowExecutor.run"
+        }
+      ]
+    },
+    {
+      "id": "heartbeat",
+      "label": "心跳线程",
+      "type": "backend",
+      "sources": [
+        {
+          "path": "src/bili_asr/workflow.py",
+          "line": 145,
+          "end_line": 171,
+          "label": "_LeaseHeartbeat._run"
+        }
+      ]
+    },
+    {
+      "id": "handler",
+      "label": "业务 handler",
+      "type": "backend",
+      "sources": [
+        {
+          "path": "src/bili_asr/workflow_runtime.py",
+          "line": 45,
+          "end_line": 417,
+          "label": "ArchiveWorkflowHandlers"
+        },
+        {
+          "path": "src/bili_asr/editorial_runtime.py",
+          "line": 17,
+          "end_line": 89,
+          "label": "EditorialWorkflowHandlers"
+        }
+      ]
+    },
+    {
+      "id": "db",
+      "label": "任务与 attempt",
+      "type": "database",
+      "sources": [
+        {
+          "path": "src/bili_asr/storage/workflow.py",
+          "line": 306,
+          "end_line": 372,
+          "label": "WorkflowRepository.claim"
+        },
+        {
+          "path": "src/bili_asr/storage/workflow.py",
+          "line": 450,
+          "end_line": 498,
+          "label": "WorkflowRepository.cancel"
+        },
+        {
+          "path": "src/bili_asr/storage/workflow.py",
+          "line": 829,
+          "end_line": 892,
+          "label": "WorkflowRepository._terminal"
+        }
+      ]
+    }
+  ],
+  "messages": [
+    {
+      "id": "m1",
+      "from": "operator",
+      "to": "executor",
+      "y": 180,
+      "label": "workflow run",
+      "variant": "default"
+    },
+    {
+      "id": "m2",
+      "from": "executor",
+      "to": "db",
+      "y": 252,
+      "label": "BEGIN IMMEDIATE",
+      "variant": "default"
+    },
+    {
+      "id": "m4",
+      "from": "executor",
+      "to": "db",
+      "y": 284,
+      "label": "领取就绪任务",
+      "variant": "default"
+    },
+    {
+      "id": "m5",
+      "from": "db",
+      "to": "executor",
+      "y": 356,
+      "label": "返回 idle",
+      "variant": "return"
+    },
+    {
+      "id": "m6",
+      "from": "db",
+      "to": "executor",
+      "y": 428,
+      "label": "提交精确 attempt",
+      "variant": "return"
+    },
+    {
+      "id": "m7",
+      "from": "executor",
+      "to": "heartbeat",
+      "y": 460,
+      "label": "启动独立连接",
+      "variant": "dashed"
+    },
+    {
+      "id": "m8",
+      "from": "heartbeat",
+      "to": "db",
+      "y": 492,
+      "label": "续租精确 attempt",
+      "variant": "dashed"
+    },
+    {
+      "id": "m9",
+      "from": "executor",
+      "to": "handler",
+      "y": 524,
+      "label": "执行锁外耗时工作",
+      "variant": "default"
+    },
+    {
+      "id": "m10",
+      "from": "operator",
+      "to": "db",
+      "y": 596,
+      "label": "全集验证后取消",
+      "variant": "default"
+    },
+    {
+      "id": "m11",
+      "from": "handler",
+      "to": "db",
+      "y": 668,
+      "label": "检查提交权",
+      "variant": "security"
+    },
+    {
+      "id": "m12",
+      "from": "db",
+      "to": "handler",
+      "y": 740,
+      "label": "拒绝新结果提交",
+      "variant": "security"
+    },
+    {
+      "id": "m13",
+      "from": "handler",
+      "to": "db",
+      "y": 812,
+      "label": "提交业务结果",
+      "variant": "default"
+    },
+    {
+      "id": "m14",
+      "from": "handler",
+      "to": "executor",
+      "y": 884,
+      "label": "返回结果或错误",
+      "variant": "return"
+    },
+    {
+      "id": "m15",
+      "from": "executor",
+      "to": "db",
+      "y": 916,
+      "label": "finish 或 fail",
+      "variant": "default"
+    },
+    {
+      "id": "m16",
+      "from": "executor",
+      "to": "heartbeat",
+      "y": 948,
+      "label": "停止并关闭连接",
+      "variant": "default"
+    },
+    {
+      "id": "m17",
+      "from": "operator",
+      "to": "db",
+      "y": 1020,
+      "label": "仅重排 failed",
+      "variant": "default"
+    },
+    {
+      "id": "m18",
+      "from": "executor",
+      "to": "operator",
+      "y": 1052,
+      "label": "返回执行摘要",
+      "variant": "return"
+    }
+  ],
+  "segments": [
+    {
+      "from": 240,
+      "to": 296,
+      "label": "B01 loop 顺序领取直到空闲或 limit"
+    },
+    {
+      "from": 344,
+      "to": 368,
+      "label": "B02 alt 无任务"
+    },
+    {
+      "from": 416,
+      "to": 536,
+      "label": "B03 else 有任务"
+    },
+    {
+      "from": 584,
+      "to": 608,
+      "label": "B04 opt 并发显式取消"
+    },
+    {
+      "from": 656,
+      "to": 680,
+      "label": "B05 else 有任务"
+    },
+    {
+      "from": 728,
+      "to": 752,
+      "label": "B06 alt 取消或旧 worker"
+    },
+    {
+      "from": 800,
+      "to": 824,
+      "label": "B07 else 有效 owner"
+    },
+    {
+      "from": 872,
+      "to": 960,
+      "label": "B08 else 有任务"
+    },
+    {
+      "from": 1008,
+      "to": 1032,
+      "label": "B09 opt workflow retry"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "条件与提交边界",
+      "items": [
+        "网络、GPU 和模型调用是协作取消；当前 workflow run 不提供立即终止每个在途请求的保证。",
+        "取消不级联删除依赖；依赖 cancelled 的 queued job 由 status/explain 派生为 blocked。",
+        "结果提交与 executor 的终态提交是独立事务；崩溃后可出现已存结果但 job 仍 running，需要幂等恢复。"
+      ]
+    },
+    {
+      "dot": "slate",
+      "title": "阅读方法",
+      "items": [
+        "B 编号对应完整条件路径；互斥分支仅在条件成立时执行，opt 可选，loop 重复。",
+        "HTML 将嵌套条件展开为连续区域；自调用保留在内部动作卡片。完整 Mermaid 与源码范围见同名 Markdown。"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "参与者内部动作",
+      "items": [
+        "时间轴步骤 3 · 任务与 attempt：回收过期 lease。详细操作见同名 Markdown。"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "完整条件路径",
+      "items": [
+        "B01（m2–m4）：loop 顺序领取直到空闲或 limit",
+        "B02（m5）：loop 顺序领取直到空闲或 limit → alt 无任务",
+        "B03（m6–m9）：loop 顺序领取直到空闲或 limit → else 有任务",
+        "B04（m10）：loop 顺序领取直到空闲或 limit → else 有任务 → opt 并发显式取消",
+        "B05（m11）：loop 顺序领取直到空闲或 limit → else 有任务",
+        "B06（m12）：loop 顺序领取直到空闲或 limit → else 有任务 → alt 取消或旧 worker",
+        "B07（m13）：loop 顺序领取直到空闲或 limit → else 有任务 → else 有效 owner",
+        "B08（m14–m16）：loop 顺序领取直到空闲或 limit → else 有任务",
+        "B09（m17）：opt workflow retry"
+      ]
+    }
+  ]
+}

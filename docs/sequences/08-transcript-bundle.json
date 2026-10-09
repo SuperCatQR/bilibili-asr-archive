@@ -1,0 +1,286 @@
+{
+  "schema_version": 1,
+  "diagram_type": "sequence",
+  "meta": {
+    "title": "择优转录、五文件发布与完成标记",
+    "locale": "zh-CN",
+    "output": "docs/sequences/08-transcript-bundle.html",
+    "quality_profile": "showcase",
+    "column_fit": "spread",
+    "repository": {
+      "url": "https://github.com/SuperCatQR/bilibili-asr-archive.git",
+      "revision": "9b289570494b5e8f7cc564a7eaa5b2eb2c28c3ad",
+      "provider": "github",
+      "link_mode": "web"
+    }
+  },
+  "participants": [
+    {
+      "id": "requests",
+      "label": "生产者或 CLI",
+      "type": "frontend",
+      "sources": [
+        {
+          "path": "src/bili_asr/storage/workflow.py",
+          "line": 675,
+          "end_line": 731,
+          "label": "WorkflowRepository.request_publication"
+        }
+      ]
+    },
+    {
+      "id": "handler",
+      "label": "publish handler",
+      "type": "backend",
+      "sources": [
+        {
+          "path": "src/bili_asr/workflow_runtime.py",
+          "line": 292,
+          "end_line": 383,
+          "label": "ArchiveWorkflowHandlers.publish"
+        }
+      ]
+    },
+    {
+      "id": "projection",
+      "label": "候选与格式转换",
+      "type": "backend",
+      "sources": [
+        {
+          "path": "src/bili_asr/services/transcript_projection.py",
+          "line": 152,
+          "end_line": 193,
+          "label": "ordered_candidates"
+        },
+        {
+          "path": "src/bili_asr/services/transcript_projection.py",
+          "line": 196,
+          "end_line": 225,
+          "label": "writer_segments"
+        }
+      ]
+    },
+    {
+      "id": "db",
+      "label": "转录及发布表",
+      "type": "database",
+      "sources": [
+        {
+          "path": "src/bili_asr/storage/workflow.py",
+          "line": 829,
+          "end_line": 892,
+          "label": "WorkflowRepository._terminal"
+        }
+      ]
+    },
+    {
+      "id": "writer",
+      "label": "bundle writer",
+      "type": "backend",
+      "sources": [
+        {
+          "path": "src/bili_asr/archive.py",
+          "line": 872,
+          "end_line": 911,
+          "label": "write_archive"
+        },
+        {
+          "path": "src/bili_asr/archive.py",
+          "line": 395,
+          "end_line": 532,
+          "label": "_publish_bundle"
+        }
+      ]
+    },
+    {
+      "id": "files",
+      "label": "五文件与 marker",
+      "type": "database",
+      "sources": [
+        {
+          "path": "src/bili_asr/archive.py",
+          "line": 254,
+          "end_line": 336,
+          "label": "archive_bundle_complete"
+        }
+      ]
+    }
+  ],
+  "messages": [
+    {
+      "id": "m1",
+      "from": "requests",
+      "to": "db",
+      "y": 180,
+      "label": "请求单 part 发布",
+      "variant": "default"
+    },
+    {
+      "id": "m2",
+      "from": "db",
+      "to": "handler",
+      "y": 212,
+      "label": "认领 publish job",
+      "variant": "return"
+    },
+    {
+      "id": "m3",
+      "from": "handler",
+      "to": "db",
+      "y": 244,
+      "label": "读取当前全部版本",
+      "variant": "default"
+    },
+    {
+      "id": "m4",
+      "from": "handler",
+      "to": "projection",
+      "y": 276,
+      "label": "每 part 择优",
+      "variant": "default"
+    },
+    {
+      "id": "m5",
+      "from": "projection",
+      "to": "handler",
+      "y": 308,
+      "label": "选定版本与 segments",
+      "variant": "return"
+    },
+    {
+      "id": "m6",
+      "from": "handler",
+      "to": "writer",
+      "y": 340,
+      "label": "write_archive",
+      "variant": "default"
+    },
+    {
+      "id": "m7",
+      "from": "writer",
+      "to": "files",
+      "y": 372,
+      "label": "锁外编码暂存",
+      "variant": "default"
+    },
+    {
+      "id": "m8",
+      "from": "writer",
+      "to": "db",
+      "y": 404,
+      "label": "进入租约保护锁",
+      "variant": "security"
+    },
+    {
+      "id": "m9",
+      "from": "writer",
+      "to": "files",
+      "y": 436,
+      "label": "使旧 marker 失效",
+      "variant": "default"
+    },
+    {
+      "id": "m10",
+      "from": "writer",
+      "to": "files",
+      "y": 468,
+      "label": "替换全部五文件",
+      "variant": "default"
+    },
+    {
+      "id": "m11",
+      "from": "writer",
+      "to": "files",
+      "y": 500,
+      "label": "目录同步及 marker",
+      "variant": "default"
+    },
+    {
+      "id": "m12",
+      "from": "handler",
+      "to": "db",
+      "y": 532,
+      "label": "登记 workflow_publications",
+      "variant": "default"
+    },
+    {
+      "id": "m13",
+      "from": "writer",
+      "to": "files",
+      "y": 604,
+      "label": "锁内失效完成标记",
+      "variant": "default"
+    },
+    {
+      "id": "m14",
+      "from": "db",
+      "to": "handler",
+      "y": 636,
+      "label": "回滚并报错",
+      "variant": "return"
+    },
+    {
+      "id": "m15",
+      "from": "db",
+      "to": "handler",
+      "y": 708,
+      "label": "提交发布事实",
+      "variant": "return"
+    },
+    {
+      "id": "m16",
+      "from": "handler",
+      "to": "db",
+      "y": 740,
+      "label": "记录成功 attempt",
+      "variant": "default"
+    },
+    {
+      "id": "m17",
+      "from": "files",
+      "to": "requests",
+      "y": 772,
+      "label": "供验证与重新发布",
+      "variant": "return"
+    }
+  ],
+  "segments": [
+    {
+      "from": 592,
+      "to": 648,
+      "label": "B01 alt 替换或 DB commit 失败"
+    },
+    {
+      "from": 696,
+      "to": 752,
+      "label": "B02 else 成功"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "条件与提交边界",
+      "items": [
+        "转录 bundle 与获人工批准的 publication release 是两个独立发布域。",
+        "archive.write_archive 支持较丰富的 ASR 参数；当前 workflow.publish 只传已观察到的子集，数据库证据用 workflow asr-evidence 查看。",
+        "受保护写锁解决合作取消/抢占竞态；不能保证掉电后数据库与文件恰好一次一致。"
+      ]
+    },
+    {
+      "dot": "slate",
+      "title": "阅读方法",
+      "items": [
+        "B 编号对应完整条件路径；互斥分支仅在条件成立时执行，opt 可选，loop 重复。",
+        "HTML 将嵌套条件展开为连续区域；自调用保留在内部动作卡片。完整 Mermaid 与源码范围见同名 Markdown。"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "完整条件路径",
+      "items": [
+        "B01（m13–m14）：alt 替换或 DB commit 失败",
+        "B02（m15–m16）：else 成功"
+      ]
+    }
+  ]
+}

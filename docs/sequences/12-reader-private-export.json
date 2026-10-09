@@ -1,0 +1,303 @@
+{
+  "schema_version": 1,
+  "diagram_type": "sequence",
+  "meta": {
+    "title": "公开、未发布预览与私有审阅三种导出",
+    "locale": "zh-CN",
+    "output": "docs/sequences/12-reader-private-export.html",
+    "quality_profile": "showcase",
+    "column_fit": "spread",
+    "repository": {
+      "url": "https://github.com/SuperCatQR/bilibili-asr-archive.git",
+      "revision": "9b289570494b5e8f7cc564a7eaa5b2eb2c28c3ad",
+      "provider": "github",
+      "link_mode": "web"
+    }
+  },
+  "participants": [
+    {
+      "id": "cli",
+      "label": "导出命令",
+      "type": "frontend",
+      "sources": [
+        {
+          "path": "src/bili_asr/cli/publication.py",
+          "line": 74,
+          "end_line": 135,
+          "label": "_cmd_publication"
+        },
+        {
+          "path": "src/bili_asr/cli/editorial.py",
+          "line": 14,
+          "end_line": 27,
+          "label": "_cmd_editorial"
+        }
+      ]
+    },
+    {
+      "id": "exporter",
+      "label": "稿件导出器",
+      "type": "backend",
+      "sources": [
+        {
+          "path": "src/bili_asr/publication_export.py",
+          "line": 61,
+          "end_line": 105,
+          "label": "export_publications"
+        },
+        {
+          "path": "src/bili_asr/publication_export.py",
+          "line": 108,
+          "end_line": 181,
+          "label": "export_publication_drafts"
+        },
+        {
+          "path": "src/bili_asr/publication_export.py",
+          "line": 193,
+          "end_line": 271,
+          "label": "export_editorial"
+        }
+      ]
+    },
+    {
+      "id": "db",
+      "label": "只读一致性快照",
+      "type": "database",
+      "sources": [
+        {
+          "path": "src/bili_asr/publication_export.py",
+          "line": 19,
+          "end_line": 27,
+          "label": "_read_snapshot"
+        }
+      ]
+    },
+    {
+      "id": "artifacts",
+      "label": "已登记原稿字节",
+      "type": "database",
+      "sources": [
+        {
+          "path": "src/bili_asr/publication.py",
+          "line": 298,
+          "end_line": 304,
+          "label": "verify_release"
+        },
+        {
+          "path": "src/bili_asr/publication.py",
+          "line": 142,
+          "end_line": 165,
+          "label": "get_ai_artifacts"
+        }
+      ]
+    },
+    {
+      "id": "snapshot",
+      "label": "受管理目录发布",
+      "type": "backend",
+      "sources": [
+        {
+          "path": "src/bili_asr/export_snapshot.py",
+          "line": 367,
+          "end_line": 444,
+          "label": "replace_snapshot"
+        }
+      ]
+    },
+    {
+      "id": "consumer",
+      "label": "站点或审核者",
+      "type": "external",
+      "sources": [
+        {
+          "path": "src/bili_asr/publication_export.py",
+          "line": 1,
+          "end_line": 60,
+          "label": "模块入口"
+        }
+      ]
+    }
+  ],
+  "messages": [
+    {
+      "id": "m1",
+      "from": "cli",
+      "to": "exporter",
+      "y": 180,
+      "label": "明确选择导出类型",
+      "variant": "default"
+    },
+    {
+      "id": "m2",
+      "from": "exporter",
+      "to": "snapshot",
+      "y": 212,
+      "label": "拒绝输出与源重叠",
+      "variant": "security"
+    },
+    {
+      "id": "m3",
+      "from": "exporter",
+      "to": "db",
+      "y": 244,
+      "label": "开始只读 snapshot",
+      "variant": "default"
+    },
+    {
+      "id": "m4",
+      "from": "exporter",
+      "to": "db",
+      "y": 316,
+      "label": "读取全部有效 head",
+      "variant": "default"
+    },
+    {
+      "id": "m5",
+      "from": "exporter",
+      "to": "artifacts",
+      "y": 348,
+      "label": "校验有效 release",
+      "variant": "default"
+    },
+    {
+      "id": "m7",
+      "from": "exporter",
+      "to": "db",
+      "y": 420,
+      "label": "读取当前 draft head",
+      "variant": "default"
+    },
+    {
+      "id": "m8",
+      "from": "exporter",
+      "to": "artifacts",
+      "y": 452,
+      "label": "验证 AI 双稿与基线",
+      "variant": "default"
+    },
+    {
+      "id": "m10",
+      "from": "exporter",
+      "to": "db",
+      "y": 524,
+      "label": "精确 revision 与 edition",
+      "variant": "default"
+    },
+    {
+      "id": "m11",
+      "from": "exporter",
+      "to": "artifacts",
+      "y": 556,
+      "label": "读取固定 AI 双稿",
+      "variant": "default"
+    },
+    {
+      "id": "m13",
+      "from": "exporter",
+      "to": "db",
+      "y": 588,
+      "label": "结束读事务",
+      "variant": "default"
+    },
+    {
+      "id": "m14",
+      "from": "exporter",
+      "to": "cli",
+      "y": 660,
+      "label": "整次导出失败",
+      "variant": "security"
+    },
+    {
+      "id": "m15",
+      "from": "exporter",
+      "to": "snapshot",
+      "y": 732,
+      "label": "发布完整 files 集合",
+      "variant": "default"
+    },
+    {
+      "id": "m18",
+      "from": "snapshot",
+      "to": "cli",
+      "y": 764,
+      "label": "返回快照身份",
+      "variant": "return"
+    },
+    {
+      "id": "m19",
+      "from": "consumer",
+      "to": "snapshot",
+      "y": 796,
+      "label": "消费独立静态目录",
+      "variant": "default"
+    }
+  ],
+  "segments": [
+    {
+      "from": 304,
+      "to": 360,
+      "label": "B01 alt publication export"
+    },
+    {
+      "from": 408,
+      "to": 464,
+      "label": "B02 else publication export-draf"
+    },
+    {
+      "from": 512,
+      "to": 568,
+      "label": "B03 else editorial export"
+    },
+    {
+      "from": 648,
+      "to": 672,
+      "label": "B04 alt 任一内容或关系损坏"
+    },
+    {
+      "from": 720,
+      "to": 808,
+      "label": "B05 else 全部验证通过"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "条件与提交边界",
+      "items": [
+        "读者 review.md 是 AI 初稿的原文与疑点参照，不是人工审核记录；编辑后的正文可能与它不同。",
+        "公开/预览均不包含 actor、审核 events、请求配置与私有差异；私有包始终另行显式导出。",
+        "withdraw 修改 DB head；已导出或已部署副本需要再次导出和刷新，本仓库不自动发布远端站点。"
+      ]
+    },
+    {
+      "dot": "slate",
+      "title": "阅读方法",
+      "items": [
+        "B 编号对应完整条件路径；互斥分支仅在条件成立时执行，opt 可选，loop 重复。",
+        "HTML 将嵌套条件展开为连续区域；自调用保留在内部动作卡片。完整 Mermaid 与源码范围见同名 Markdown。"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "参与者内部动作",
+      "items": [
+        "时间轴步骤 6 · 稿件导出器：构建 publication catalog。详细操作见同名 Markdown。",
+        "时间轴步骤 9 · 稿件导出器：构建未发布 catalog。详细操作见同名 Markdown。",
+        "时间轴步骤 12 · 稿件导出器：构建完整私有审阅包。详细操作见同名 Markdown。",
+        "时间轴步骤 16 · 受管理目录发布：独占锁与恢复日志。详细操作见同名 Markdown。",
+        "时间轴步骤 17 · 受管理目录发布：切换目录并清理。详细操作见同名 Markdown。"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "完整条件路径",
+      "items": [
+        "B01（m4–m5）：alt publication export",
+        "B02（m7–m8）：else publication export-drafts",
+        "B03（m10–m11）：else editorial export",
+        "B04（m14）：alt 任一内容或关系损坏",
+        "B05（m15–m19）：else 全部验证通过"
+      ]
+    }
+  ]
+}

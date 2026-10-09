@@ -1,0 +1,2282 @@
+{
+  "repository_revision": "9b289570494b5e8f7cc564a7eaa5b2eb2c28c3ad",
+  "top_level_commands": 15,
+  "command_paths": [
+    [
+      "fetch-meta",
+      "元数据、页/cursor/run/tag 观察写入",
+      "02"
+    ],
+    [
+      "fetch-tags",
+      "原始 tags 与观察写入",
+      "02"
+    ],
+    [
+      "workflow plan",
+      "profile 与 job/dependency 写入",
+      "03"
+    ],
+    [
+      "workflow proofread",
+      "冻结 input 与 proofread/render job",
+      "09"
+    ],
+    [
+      "workflow render",
+      "显式 revision render job",
+      "10"
+    ],
+    [
+      "workflow run",
+      "claim/attempt/lease 与业务产物写入",
+      "04–10"
+    ],
+    [
+      "workflow status",
+      "可初始化连接，读取 counts/jobs/details/blockers",
+      "01、04"
+    ],
+    [
+      "workflow explain",
+      "可初始化连接，读取精确 job/dependency/attempt",
+      "04"
+    ],
+    [
+      "workflow asr-evidence",
+      "可初始化连接，读取指定 run/part ASR evidence",
+      "07"
+    ],
+    [
+      "workflow cancel",
+      "queued/running 与 running attempt 原子取消",
+      "04"
+    ],
+    [
+      "workflow retry",
+      "仅 failed 重排，保留 attempts",
+      "04"
+    ],
+    [
+      "workflow publish",
+      "从已存转录 force 请求单 part bundle job",
+      "08"
+    ],
+    [
+      "snapshot save",
+      "只读源 DB backup；完整私有 ZIP；独占维护锁",
+      "15"
+    ],
+    [
+      "snapshot check",
+      "ZIP 全文件/DB/引用校验；临时 DB",
+      "15"
+    ],
+    [
+      "snapshot restore",
+      "暂存验证/中断恢复，安装新完整 archive",
+      "15"
+    ],
+    [
+      "status",
+      "已有库初始化/派生视图刷新及汇总；不创建缺失库",
+      "01、13"
+    ],
+    [
+      "runs",
+      "已有库初始化/派生视图刷新及 run 汇总；不创建缺失库",
+      "01、02"
+    ],
+    [
+      "coverage",
+      "只读投影/质量/产物 diagnostics；strict 判定",
+      "13"
+    ],
+    [
+      "verify",
+      "只读 declared bundle 完整性与缺陷",
+      "13"
+    ],
+    [
+      "export",
+      "只读普通 JSON/CSV，可带文本；非出版快照",
+      "13"
+    ],
+    [
+      "search",
+      "只读 metadata/transcripts/all；--rebuild 另行写 FTS",
+      "14"
+    ],
+    [
+      "search-index",
+      "显式 FTS schema/build/progress 写入",
+      "14"
+    ],
+    [
+      "dedup report",
+      "只读 SQLite hash/part 复用，不读取产物字节",
+      "13"
+    ],
+    [
+      "check-asr-env",
+      "环境/模型/device 诊断",
+      "16"
+    ],
+    [
+      "publication create",
+      "AI 基线验证、新 edition/review/events、draft CAS",
+      "11"
+    ],
+    [
+      "publication edit",
+      "正文/允许元数据生成新 edition/review/events",
+      "11"
+    ],
+    [
+      "publication sync-source-tags",
+      "成功原始标签观察冻结到新 edition",
+      "02、11"
+    ],
+    [
+      "publication review",
+      "精确 edition/hash/状态 CAS 与审核 events",
+      "11"
+    ],
+    [
+      "publication publish",
+      "固定稿、批准重验、release/head/events 写入",
+      "11"
+    ],
+    [
+      "publication withdraw",
+      "release 状态/head/events 写入，历史保留",
+      "11"
+    ],
+    [
+      "publication show",
+      "只读指定 edition 与 review/head",
+      "11"
+    ],
+    [
+      "publication export",
+      "只读有效 release，完整公开快照替换",
+      "12"
+    ],
+    [
+      "publication export-drafts",
+      "只读当前且从未发布 edition，预览快照替换",
+      "12"
+    ],
+    [
+      "editorial export",
+      "只读精确 revision/edition，完整私有快照替换",
+      "12"
+    ]
+  ],
+  "python_modules": [
+    {
+      "path": "src/bili_asr/__init__.py",
+      "role": "包版本与稳定导出",
+      "sequence_ids": "01"
+    },
+    {
+      "path": "src/bili_asr/__main__.py",
+      "role": "python -m bili_asr 入口",
+      "sequence_ids": "01"
+    },
+    {
+      "path": "src/bili_asr/archive.py",
+      "role": "五文件布局、格式编码、安全替换、完成 marker、bundle hash 校验",
+      "sequence_ids": "08、13"
+    },
+    {
+      "path": "src/bili_asr/archive_maintenance.py",
+      "role": "合作 writer 共享访问及 snapshot 独占 OS 锁",
+      "sequence_ids": "01、15"
+    },
+    {
+      "path": "src/bili_asr/artifact_root.py",
+      "role": "flag/env/root 解析、读根优先与音频复用",
+      "sequence_ids": "01、06"
+    },
+    {
+      "path": "src/bili_asr/artifacts.py",
+      "role": "必需 artifact keys 与发布产品身份",
+      "sequence_ids": "08、13"
+    },
+    {
+      "path": "src/bili_asr/asr/__init__.py",
+      "role": "ASR 包导出与兼容接口",
+      "sequence_ids": "07"
+    },
+    {
+      "path": "src/bili_asr/asr/alignment.py",
+      "role": "真实字符对齐、时间校验、cue 归并",
+      "sequence_ids": "07"
+    },
+    {
+      "path": "src/bili_asr/asr/audio.py",
+      "role": "音频输入物化、soundfile/ffmpeg RF64、完整切块",
+      "sequence_ids": "07"
+    },
+    {
+      "path": "src/bili_asr/asr/config.py",
+      "role": "完整 ASRConfig 校验与环境默认解析",
+      "sequence_ids": "03、07"
+    },
+    {
+      "path": "src/bili_asr/asr/constants.py",
+      "role": "模型、语言、分块和生成预算常量",
+      "sequence_ids": "03、07"
+    },
+    {
+      "path": "src/bili_asr/asr/coverage.py",
+      "role": "解码/输出跨度覆盖 attestation",
+      "sequence_ids": "07"
+    },
+    {
+      "path": "src/bili_asr/asr/diagnostics.py",
+      "role": "运行环境、逐块/逐遍诊断与质量告警",
+      "sequence_ids": "07"
+    },
+    {
+      "path": "src/bili_asr/asr/errors.py",
+      "role": "依赖、音频、模型、覆盖异常分类",
+      "sequence_ids": "07"
+    },
+    {
+      "path": "src/bili_asr/asr/hotwords.py",
+      "role": "第一遍与字幕证据的候选热词 guard",
+      "sequence_ids": "07"
+    },
+    {
+      "path": "src/bili_asr/asr/provenance.py",
+      "role": "模型身份、语言与脱敏配置来源",
+      "sequence_ids": "07"
+    },
+    {
+      "path": "src/bili_asr/asr/runner.py",
+      "role": "模型懒加载、两遍生成、真实对齐、GPU spawn watchdog",
+      "sequence_ids": "07"
+    },
+    {
+      "path": "src/bili_asr/audio.py",
+      "role": "DASH 音频暂存下载、格式与受限路径",
+      "sequence_ids": "06"
+    },
+    {
+      "path": "src/bili_asr/audio_budget.py",
+      "role": "保留库：音频目录预算与预测下载尺寸",
+      "sequence_ids": "16"
+    },
+    {
+      "path": "src/bili_asr/audio_reclaim.py",
+      "role": "保留库：受限音频候选与显式回收",
+      "sequence_ids": "16"
+    },
+    {
+      "path": "src/bili_asr/bili_client.py",
+      "role": "同步 HTTP、风控/退避、DASH 音频及流式 CDN",
+      "sequence_ids": "06"
+    },
+    {
+      "path": "src/bili_asr/check_asr_env.py",
+      "role": "模型/aligner/torch/ffmpeg/device 环境诊断",
+      "sequence_ids": "16"
+    },
+    {
+      "path": "src/bili_asr/cli/__init__.py",
+      "role": "公共 CLI 导出、入口及兼容测试接口",
+      "sequence_ids": "01"
+    },
+    {
+      "path": "src/bili_asr/cli/_shared.py",
+      "role": "参数、错误、roots 和 SQLite 读取共享入口",
+      "sequence_ids": "01"
+    },
+    {
+      "path": "src/bili_asr/cli/dedup.py",
+      "role": "dedup report 只读命令",
+      "sequence_ids": "13"
+    },
+    {
+      "path": "src/bili_asr/cli/editorial.py",
+      "role": "精确 revision/edition 私有 export 命令",
+      "sequence_ids": "12"
+    },
+    {
+      "path": "src/bili_asr/cli/main.py",
+      "role": "注册分派、artifact 策略、archive access、SQLite 争用诊断",
+      "sequence_ids": "01"
+    },
+    {
+      "path": "src/bili_asr/cli/meta.py",
+      "role": "fetch-meta/fetch-tags 组合与 run 结果",
+      "sequence_ids": "02"
+    },
+    {
+      "path": "src/bili_asr/cli/ops.py",
+      "role": "check-asr-env、普通 export、verify",
+      "sequence_ids": "13、16"
+    },
+    {
+      "path": "src/bili_asr/cli/parser.py",
+      "role": "完整顶层命令参数及 registration 一致性",
+      "sequence_ids": "01"
+    },
+    {
+      "path": "src/bili_asr/cli/publication.py",
+      "role": "出版子命令、严格输入 JSON、读/写连接与策略",
+      "sequence_ids": "11、12"
+    },
+    {
+      "path": "src/bili_asr/cli/registry.py",
+      "role": "15 顶层命令和 ArtifactPolicy 登记",
+      "sequence_ids": "01"
+    },
+    {
+      "path": "src/bili_asr/cli/search.py",
+      "role": "FTS build、scope/UTC/limit 与结果诊断",
+      "sequence_ids": "14"
+    },
+    {
+      "path": "src/bili_asr/cli/snapshot.py",
+      "role": "save/check/restore 参数和服务分派",
+      "sequence_ids": "15"
+    },
+    {
+      "path": "src/bili_asr/cli/status_cmd.py",
+      "role": "status/runs SQLite 汇总与 coverage",
+      "sequence_ids": "01、13"
+    },
+    {
+      "path": "src/bili_asr/cli/workflow.py",
+      "role": "所有 workflow 子命令及完整配置冻结/handler 组合",
+      "sequence_ids": "03、04"
+    },
+    {
+      "path": "src/bili_asr/concurrency_gate.py",
+      "role": "保留库：worker 容量门禁及进程边界",
+      "sequence_ids": "16"
+    },
+    {
+      "path": "src/bili_asr/config.py",
+      "role": "归档/采集默认配置与 SESSDATA 解析",
+      "sequence_ids": "01、02"
+    },
+    {
+      "path": "src/bili_asr/coverage_report.py",
+      "role": "投影覆盖汇总、质量数据与 diagnostics",
+      "sequence_ids": "13"
+    },
+    {
+      "path": "src/bili_asr/cues.py",
+      "role": "时间轴解析、route 与字符/segment 规范",
+      "sequence_ids": "07、08、16"
+    },
+    {
+      "path": "src/bili_asr/dedup.py",
+      "role": "数据库内 hash/source/language 与音频关联复用报告",
+      "sequence_ids": "13"
+    },
+    {
+      "path": "src/bili_asr/deepseek.py",
+      "role": "HTTPS JSON 适配、请求/响应结构与无隐式 retry",
+      "sequence_ids": "09"
+    },
+    {
+      "path": "src/bili_asr/diagnostics.py",
+      "role": "诊断流与敏感信息边界",
+      "sequence_ids": "01、16"
+    },
+    {
+      "path": "src/bili_asr/editorial.py",
+      "role": "冻结输入、预算分块、引用/段落校验和渲染分派",
+      "sequence_ids": "09、10"
+    },
+    {
+      "path": "src/bili_asr/editorial_runtime.py",
+      "role": "proofread/render handler、审计与 lease 保护提交",
+      "sequence_ids": "09、10"
+    },
+    {
+      "path": "src/bili_asr/export.py",
+      "role": "普通 JSON/CSV 数据投影与文本导出",
+      "sequence_ids": "13"
+    },
+    {
+      "path": "src/bili_asr/export_snapshot.py",
+      "role": "三类稿件快照归属校验、锁、manifest、日志/目录恢复",
+      "sequence_ids": "12"
+    },
+    {
+      "path": "src/bili_asr/formatting.py",
+      "role": "UTC 日期、时长、正文、SRT/VTT 共享纯格式化",
+      "sequence_ids": "08、14"
+    },
+    {
+      "path": "src/bili_asr/integrity.py",
+      "role": "声明 bundle 完整性、terminal 缺陷和可重试 backlog 分类",
+      "sequence_ids": "13"
+    },
+    {
+      "path": "src/bili_asr/long_live.py",
+      "role": "保留库：长直播识别与显式过滤策略",
+      "sequence_ids": "16"
+    },
+    {
+      "path": "src/bili_asr/manuscript_files.py",
+      "role": "固定稿件安全路径、原子文件写入及摘要读取",
+      "sequence_ids": "10、11、12"
+    },
+    {
+      "path": "src/bili_asr/manuscript_templates.py",
+      "role": "不可变 v1 renderer 与按保存版本验证的注册表",
+      "sequence_ids": "10、11"
+    },
+    {
+      "path": "src/bili_asr/meta_cursor.py",
+      "role": "保留库：历史文件 cursor 契约；当前 metadata 用 SQLite",
+      "sequence_ids": "16"
+    },
+    {
+      "path": "src/bili_asr/page_identity.py",
+      "role": "BVID/零基页/cid/work_id 与 artifact stem 身份",
+      "sequence_ids": "03、06、08"
+    },
+    {
+      "path": "src/bili_asr/path_policy.py",
+      "role": "可移植 key、confined 音频和文件访问",
+      "sequence_ids": "01、06、15"
+    },
+    {
+      "path": "src/bili_asr/persistence.py",
+      "role": "保留库：历史 run/manifest 文件契约及原子写支持",
+      "sequence_ids": "16"
+    },
+    {
+      "path": "src/bili_asr/proofread.py",
+      "role": "保留库：ASR/字幕双路对照、coverage guards 与人工 merge",
+      "sequence_ids": "16"
+    },
+    {
+      "path": "src/bili_asr/publication.py",
+      "role": "完整内容、AI/release 校验、create/edit/review/publish/withdraw",
+      "sequence_ids": "11、12"
+    },
+    {
+      "path": "src/bili_asr/publication_export.py",
+      "role": "有效公开、从未发布预览及精确私有审阅出口",
+      "sequence_ids": "12"
+    },
+    {
+      "path": "src/bili_asr/publication_tags.py",
+      "role": "原始 tags/观察覆盖、显式 CAS 新版 tags 同步",
+      "sequence_ids": "02、11"
+    },
+    {
+      "path": "src/bili_asr/quality.py",
+      "role": "原始产物质量与字符/覆盖安全诊断；库能力",
+      "sequence_ids": "07、13、16"
+    },
+    {
+      "path": "src/bili_asr/search_index/__init__.py",
+      "role": "检索包导出",
+      "sequence_ids": "14"
+    },
+    {
+      "path": "src/bili_asr/search_index/common.py",
+      "role": "FTS DDL、block key、脱敏和 CJK bigram",
+      "sequence_ids": "14"
+    },
+    {
+      "path": "src/bili_asr/search_index/constants.py",
+      "role": "FTS 表、来源、tokenizer 与批量常量",
+      "sequence_ids": "14"
+    },
+    {
+      "path": "src/bili_asr/search_index/errors.py",
+      "role": "missing/backlog、坏 store 与 FTS 不可用分类",
+      "sequence_ids": "14"
+    },
+    {
+      "path": "src/bili_asr/search_index/metadata.py",
+      "role": "当前元数据只读字面检索",
+      "sequence_ids": "14"
+    },
+    {
+      "path": "src/bili_asr/search_index/models.py",
+      "role": "metadata/transcript hit 类型",
+      "sequence_ids": "14"
+    },
+    {
+      "path": "src/bili_asr/search_index/query.py",
+      "role": "metadata 在前、共享 limit、源健康与 diagnostics",
+      "sequence_ids": "14"
+    },
+    {
+      "path": "src/bili_asr/search_index/readers.py",
+      "role": "受限根回退、bundle/MD 文本读取",
+      "sequence_ids": "13、14"
+    },
+    {
+      "path": "src/bili_asr/search_index/store.py",
+      "role": "FTS5 schema/tokenizer、批次水位恢复、增量与查询",
+      "sequence_ids": "14"
+    },
+    {
+      "path": "src/bili_asr/services/__init__.py",
+      "role": "服务包边界",
+      "sequence_ids": "01"
+    },
+    {
+      "path": "src/bili_asr/services/_common.py",
+      "role": "服务共享的有界来源/存储转换",
+      "sequence_ids": "02、05"
+    },
+    {
+      "path": "src/bili_asr/services/archive_snapshot.py",
+      "role": "完整 ZIP 流式 save/check/restore 和安全引用校验",
+      "sequence_ids": "15"
+    },
+    {
+      "path": "src/bili_asr/services/audio_inventory.py",
+      "role": "保留库：既有音频与 SQLite 对账/登记",
+      "sequence_ids": "16"
+    },
+    {
+      "path": "src/bili_asr/services/bundle_verification.py",
+      "role": "保留独立服务：子进程 deadline 与真实读预算",
+      "sequence_ids": "13、16"
+    },
+    {
+      "path": "src/bili_asr/services/metadata_ingest.py",
+      "role": "分页、retry/skip、实体与游标事务、标签观察",
+      "sequence_ids": "02"
+    },
+    {
+      "path": "src/bili_asr/services/publication_supervisor.py",
+      "role": "保留独立服务：loopback phase、进程 deadline/容量",
+      "sequence_ids": "16"
+    },
+    {
+      "path": "src/bili_asr/services/subtitle_ingest.py",
+      "role": "轨道选择、凭据/缺失证明、获取与失败收尾",
+      "sequence_ids": "05"
+    },
+    {
+      "path": "src/bili_asr/services/transcript_adoption.py",
+      "role": "保留库：严格受限历史 bundle 转录读取",
+      "sequence_ids": "16"
+    },
+    {
+      "path": "src/bili_asr/services/transcript_projection.py",
+      "role": "纯版本总排序、候选与 writer segments 转换",
+      "sequence_ids": "08"
+    },
+    {
+      "path": "src/bili_asr/services/video_tags.py",
+      "role": "完整 BVID 验证与 best-effort 标签观察事务",
+      "sequence_ids": "02"
+    },
+    {
+      "path": "src/bili_asr/services/workflow_projection.py",
+      "role": "只读当前 facts、bundle 声明与派生状态",
+      "sequence_ids": "13"
+    },
+    {
+      "path": "src/bili_asr/sources/__init__.py",
+      "role": "来源适配包导出",
+      "sequence_ids": "02、05"
+    },
+    {
+      "path": "src/bili_asr/sources/bilibili_api_gateway.py",
+      "role": "固定 SDK gateway、DTO、凭据/proxy/pacing 和来源请求",
+      "sequence_ids": "02、05"
+    },
+    {
+      "path": "src/bili_asr/sources/models.py",
+      "role": "Gateway protocol、DTO 和有界外部错误",
+      "sequence_ids": "02、05"
+    },
+    {
+      "path": "src/bili_asr/storage/__init__.py",
+      "role": "repository/records 的稳定存储导出",
+      "sequence_ids": "01"
+    },
+    {
+      "path": "src/bili_asr/storage/database.py",
+      "role": "连接、busy timeout、schema/模板契约、派生视图刷新",
+      "sequence_ids": "01、15"
+    },
+    {
+      "path": "src/bili_asr/storage/editorial.py",
+      "role": "固定 input/job/call/chunk/revision 与双稿登记",
+      "sequence_ids": "09、10"
+    },
+    {
+      "path": "src/bili_asr/storage/metadata.py",
+      "role": "元数据实体、页/cursor/run 和标签观察仓库",
+      "sequence_ids": "02"
+    },
+    {
+      "path": "src/bili_asr/storage/models.py",
+      "role": "元数据/获取/转录/音频不可变记录类型",
+      "sequence_ids": "02、05、07"
+    },
+    {
+      "path": "src/bili_asr/storage/publication.py",
+      "role": "edition/review/head CAS、release/events、withdraw",
+      "sequence_ids": "11"
+    },
+    {
+      "path": "src/bili_asr/storage/snapshots.py",
+      "role": "完整 schema/FK、backup、引用与中断状态恢复",
+      "sequence_ids": "15"
+    },
+    {
+      "path": "src/bili_asr/storage/transcripts.py",
+      "role": "不可变 versions/segments、acquisition、coverage/ASR evidence",
+      "sequence_ids": "05、07"
+    },
+    {
+      "path": "src/bili_asr/storage/workflow.py",
+      "role": "profiles/jobs/dependencies/claim/lease/cancel/retry/terminal",
+      "sequence_ids": "03、04"
+    },
+    {
+      "path": "src/bili_asr/storage/workflow_selection.py",
+      "role": "完整 BVID/part 选择验证和 gone 处理",
+      "sequence_ids": "03"
+    },
+    {
+      "path": "src/bili_asr/workflow.py",
+      "role": "单 job executor、独立连接 heartbeat、精确 attempt 终态",
+      "sequence_ids": "04"
+    },
+    {
+      "path": "src/bili_asr/workflow_runtime.py",
+      "role": "subtitle/audio/ASR/publish 具体任务及各提交边界",
+      "sequence_ids": "05、06、07、08"
+    }
+  ],
+  "schema_files": [
+    "schema.sql",
+    "schema-transcripts.sql",
+    "schema-workflow.sql",
+    "schema-editorial.sql"
+  ],
+  "tables": [
+    {
+      "name": "acquisition_attempts",
+      "schema": "schema-transcripts.sql",
+      "line": 71,
+      "columns": [
+        "run_id",
+        "video_part_id",
+        "outcome",
+        "error_code",
+        "transcript_id",
+        "started_at",
+        "finished_at",
+        "credential_verified",
+        "absence_verified"
+      ],
+      "foreign_keys": [
+        "transcript_id → transcripts.transcript_id (RESTRICT)",
+        "video_part_id → video_parts.video_part_id (RESTRICT)",
+        "run_id → acquisition_runs.run_id (RESTRICT)"
+      ],
+      "foreign_key_constraints": [
+        {
+          "table": "transcripts",
+          "from_columns": [
+            "transcript_id"
+          ],
+          "to_columns": [
+            "transcript_id"
+          ],
+          "on_update": "NO ACTION",
+          "on_delete": "RESTRICT",
+          "match": "NONE"
+        },
+        {
+          "table": "video_parts",
+          "from_columns": [
+            "video_part_id"
+          ],
+          "to_columns": [
+            "video_part_id"
+          ],
+          "on_update": "NO ACTION",
+          "on_delete": "RESTRICT",
+          "match": "NONE"
+        },
+        {
+          "table": "acquisition_runs",
+          "from_columns": [
+            "run_id"
+          ],
+          "to_columns": [
+            "run_id"
+          ],
+          "on_update": "NO ACTION",
+          "on_delete": "RESTRICT",
+          "match": "NONE"
+        }
+      ]
+    },
+    {
+      "name": "acquisition_runs",
+      "schema": "schema-transcripts.sql",
+      "line": 49,
+      "columns": [
+        "run_id",
+        "kind",
+        "selector_kind",
+        "selector_target",
+        "requested_limit",
+        "credential_present",
+        "started_at",
+        "finished_at",
+        "outcome"
+      ],
+      "foreign_keys": [],
+      "foreign_key_constraints": []
+    },
+    {
+      "name": "asr_models",
+      "schema": "schema.sql",
+      "line": 150,
+      "columns": [
+        "model_id",
+        "model_name",
+        "revision",
+        "created_at"
+      ],
+      "foreign_keys": [],
+      "foreign_key_constraints": []
+    },
+    {
+      "name": "audio_objects",
+      "schema": "schema.sql",
+      "line": 130,
+      "columns": [
+        "audio_id",
+        "sha256",
+        "byte_size",
+        "format",
+        "duration_ms",
+        "storage_key",
+        "created_at"
+      ],
+      "foreign_keys": [],
+      "foreign_key_constraints": []
+    },
+    {
+      "name": "bilibili_users",
+      "schema": "schema.sql",
+      "line": 3,
+      "columns": [
+        "mid",
+        "display_name",
+        "created_at",
+        "updated_at"
+      ],
+      "foreign_keys": [],
+      "foreign_key_constraints": []
+    },
+    {
+      "name": "document_artifacts",
+      "schema": "schema-editorial.sql",
+      "line": 51,
+      "columns": [
+        "revision_id",
+        "template_version",
+        "artifact_name",
+        "manuscript_role",
+        "relative_path",
+        "content_sha256"
+      ],
+      "foreign_keys": [
+        "revision_id → editorial_revisions.revision_id (NO ACTION)"
+      ],
+      "foreign_key_constraints": [
+        {
+          "table": "editorial_revisions",
+          "from_columns": [
+            "revision_id"
+          ],
+          "to_columns": [
+            "revision_id"
+          ],
+          "on_update": "NO ACTION",
+          "on_delete": "NO ACTION",
+          "match": "NONE"
+        }
+      ]
+    },
+    {
+      "name": "editorial_chunk_results",
+      "schema": "schema-editorial.sql",
+      "line": 34,
+      "columns": [
+        "input_id",
+        "chunk_id",
+        "call_id",
+        "blocks_json"
+      ],
+      "foreign_keys": [
+        "call_id → editorial_model_calls.call_id (NO ACTION)",
+        "input_id → editorial_inputs.input_id (NO ACTION)"
+      ],
+      "foreign_key_constraints": [
+        {
+          "table": "editorial_model_calls",
+          "from_columns": [
+            "call_id"
+          ],
+          "to_columns": [
+            "call_id"
+          ],
+          "on_update": "NO ACTION",
+          "on_delete": "NO ACTION",
+          "match": "NONE"
+        },
+        {
+          "table": "editorial_inputs",
+          "from_columns": [
+            "input_id"
+          ],
+          "to_columns": [
+            "input_id"
+          ],
+          "on_update": "NO ACTION",
+          "on_delete": "NO ACTION",
+          "match": "NONE"
+        }
+      ]
+    },
+    {
+      "name": "editorial_inputs",
+      "schema": "schema-editorial.sql",
+      "line": 7,
+      "columns": [
+        "input_id",
+        "video_part_id",
+        "base_transcript_id",
+        "reference_transcript_id",
+        "prepared_json",
+        "created_at"
+      ],
+      "foreign_keys": [
+        "reference_transcript_id → transcripts.transcript_id (NO ACTION)",
+        "base_transcript_id → transcripts.transcript_id (NO ACTION)",
+        "video_part_id → video_parts.video_part_id (NO ACTION)"
+      ],
+      "foreign_key_constraints": [
+        {
+          "table": "transcripts",
+          "from_columns": [
+            "reference_transcript_id"
+          ],
+          "to_columns": [
+            "transcript_id"
+          ],
+          "on_update": "NO ACTION",
+          "on_delete": "NO ACTION",
+          "match": "NONE"
+        },
+        {
+          "table": "transcripts",
+          "from_columns": [
+            "base_transcript_id"
+          ],
+          "to_columns": [
+            "transcript_id"
+          ],
+          "on_update": "NO ACTION",
+          "on_delete": "NO ACTION",
+          "match": "NONE"
+        },
+        {
+          "table": "video_parts",
+          "from_columns": [
+            "video_part_id"
+          ],
+          "to_columns": [
+            "video_part_id"
+          ],
+          "on_update": "NO ACTION",
+          "on_delete": "NO ACTION",
+          "match": "NONE"
+        }
+      ]
+    },
+    {
+      "name": "editorial_job_inputs",
+      "schema": "schema-editorial.sql",
+      "line": 16,
+      "columns": [
+        "job_id",
+        "input_id"
+      ],
+      "foreign_keys": [
+        "input_id → editorial_inputs.input_id (NO ACTION)",
+        "job_id → workflow_jobs.job_id (NO ACTION)"
+      ],
+      "foreign_key_constraints": [
+        {
+          "table": "editorial_inputs",
+          "from_columns": [
+            "input_id"
+          ],
+          "to_columns": [
+            "input_id"
+          ],
+          "on_update": "NO ACTION",
+          "on_delete": "NO ACTION",
+          "match": "NONE"
+        },
+        {
+          "table": "workflow_jobs",
+          "from_columns": [
+            "job_id"
+          ],
+          "to_columns": [
+            "job_id"
+          ],
+          "on_update": "NO ACTION",
+          "on_delete": "NO ACTION",
+          "match": "NONE"
+        }
+      ]
+    },
+    {
+      "name": "editorial_model_calls",
+      "schema": "schema-editorial.sql",
+      "line": 21,
+      "columns": [
+        "call_id",
+        "attempt_id",
+        "input_id",
+        "chunk_id",
+        "request_json",
+        "response_json",
+        "error_code",
+        "started_at",
+        "finished_at"
+      ],
+      "foreign_keys": [
+        "input_id → editorial_inputs.input_id (NO ACTION)",
+        "attempt_id → workflow_attempts.attempt_id (NO ACTION)"
+      ],
+      "foreign_key_constraints": [
+        {
+          "table": "editorial_inputs",
+          "from_columns": [
+            "input_id"
+          ],
+          "to_columns": [
+            "input_id"
+          ],
+          "on_update": "NO ACTION",
+          "on_delete": "NO ACTION",
+          "match": "NONE"
+        },
+        {
+          "table": "workflow_attempts",
+          "from_columns": [
+            "attempt_id"
+          ],
+          "to_columns": [
+            "attempt_id"
+          ],
+          "on_update": "NO ACTION",
+          "on_delete": "NO ACTION",
+          "match": "NONE"
+        }
+      ]
+    },
+    {
+      "name": "editorial_revisions",
+      "schema": "schema-editorial.sql",
+      "line": 42,
+      "columns": [
+        "revision_id",
+        "input_id",
+        "job_id",
+        "blocks_json",
+        "quality_status",
+        "created_at"
+      ],
+      "foreign_keys": [
+        "job_id → workflow_jobs.job_id (NO ACTION)",
+        "input_id → editorial_inputs.input_id (NO ACTION)"
+      ],
+      "foreign_key_constraints": [
+        {
+          "table": "workflow_jobs",
+          "from_columns": [
+            "job_id"
+          ],
+          "to_columns": [
+            "job_id"
+          ],
+          "on_update": "NO ACTION",
+          "on_delete": "NO ACTION",
+          "match": "NONE"
+        },
+        {
+          "table": "editorial_inputs",
+          "from_columns": [
+            "input_id"
+          ],
+          "to_columns": [
+            "input_id"
+          ],
+          "on_update": "NO ACTION",
+          "on_delete": "NO ACTION",
+          "match": "NONE"
+        }
+      ]
+    },
+    {
+      "name": "ingestion_cursors",
+      "schema": "schema.sql",
+      "line": 92,
+      "columns": [
+        "mid",
+        "next_page",
+        "observed_total",
+        "state",
+        "last_error_code",
+        "updated_at"
+      ],
+      "foreign_keys": [
+        "mid → bilibili_users.mid (RESTRICT)"
+      ],
+      "foreign_key_constraints": [
+        {
+          "table": "bilibili_users",
+          "from_columns": [
+            "mid"
+          ],
+          "to_columns": [
+            "mid"
+          ],
+          "on_update": "NO ACTION",
+          "on_delete": "RESTRICT",
+          "match": "NONE"
+        }
+      ]
+    },
+    {
+      "name": "ingestion_discoveries",
+      "schema": "schema.sql",
+      "line": 117,
+      "columns": [
+        "run_id",
+        "page_number",
+        "bvid",
+        "source_position",
+        "discovered_at"
+      ],
+      "foreign_keys": [
+        "bvid → videos.bvid (RESTRICT)",
+        "run_id → ingestion_runs.run_id (RESTRICT)"
+      ],
+      "foreign_key_constraints": [
+        {
+          "table": "videos",
+          "from_columns": [
+            "bvid"
+          ],
+          "to_columns": [
+            "bvid"
+          ],
+          "on_update": "NO ACTION",
+          "on_delete": "RESTRICT",
+          "match": "NONE"
+        },
+        {
+          "table": "ingestion_runs",
+          "from_columns": [
+            "run_id"
+          ],
+          "to_columns": [
+            "run_id"
+          ],
+          "on_update": "NO ACTION",
+          "on_delete": "RESTRICT",
+          "match": "NONE"
+        }
+      ]
+    },
+    {
+      "name": "ingestion_pages",
+      "schema": "schema.sql",
+      "line": 104,
+      "columns": [
+        "run_id",
+        "page_number",
+        "outcome",
+        "error_code",
+        "started_at",
+        "finished_at"
+      ],
+      "foreign_keys": [
+        "run_id → ingestion_runs.run_id (RESTRICT)"
+      ],
+      "foreign_key_constraints": [
+        {
+          "table": "ingestion_runs",
+          "from_columns": [
+            "run_id"
+          ],
+          "to_columns": [
+            "run_id"
+          ],
+          "on_update": "NO ACTION",
+          "on_delete": "RESTRICT",
+          "match": "NONE"
+        }
+      ]
+    },
+    {
+      "name": "ingestion_runs",
+      "schema": "schema.sql",
+      "line": 75,
+      "columns": [
+        "run_id",
+        "mid",
+        "source_package",
+        "source_version",
+        "requested_start_page",
+        "requested_page_limit",
+        "started_at",
+        "finished_at",
+        "outcome"
+      ],
+      "foreign_keys": [
+        "mid → bilibili_users.mid (RESTRICT)"
+      ],
+      "foreign_key_constraints": [
+        {
+          "table": "bilibili_users",
+          "from_columns": [
+            "mid"
+          ],
+          "to_columns": [
+            "mid"
+          ],
+          "on_update": "NO ACTION",
+          "on_delete": "RESTRICT",
+          "match": "NONE"
+        }
+      ]
+    },
+    {
+      "name": "manuscript_contract",
+      "schema": "schema-editorial.sql",
+      "line": 2,
+      "columns": [
+        "version"
+      ],
+      "foreign_keys": [],
+      "foreign_key_constraints": []
+    },
+    {
+      "name": "part_audio_objects",
+      "schema": "schema.sql",
+      "line": 140,
+      "columns": [
+        "video_part_id",
+        "audio_id",
+        "acquired_at",
+        "acquisition_source"
+      ],
+      "foreign_keys": [
+        "audio_id → audio_objects.audio_id (RESTRICT)",
+        "video_part_id → video_parts.video_part_id (RESTRICT)"
+      ],
+      "foreign_key_constraints": [
+        {
+          "table": "audio_objects",
+          "from_columns": [
+            "audio_id"
+          ],
+          "to_columns": [
+            "audio_id"
+          ],
+          "on_update": "NO ACTION",
+          "on_delete": "RESTRICT",
+          "match": "NONE"
+        },
+        {
+          "table": "video_parts",
+          "from_columns": [
+            "video_part_id"
+          ],
+          "to_columns": [
+            "video_part_id"
+          ],
+          "on_update": "NO ACTION",
+          "on_delete": "RESTRICT",
+          "match": "NONE"
+        }
+      ]
+    },
+    {
+      "name": "publication_edition_reviews",
+      "schema": "schema-editorial.sql",
+      "line": 79,
+      "columns": [
+        "edition_id",
+        "review_id",
+        "content_sha256",
+        "status",
+        "actor",
+        "note",
+        "issue_url",
+        "updated_at"
+      ],
+      "foreign_keys": [
+        "edition_id → publication_editions.edition_id (NO ACTION)"
+      ],
+      "foreign_key_constraints": [
+        {
+          "table": "publication_editions",
+          "from_columns": [
+            "edition_id"
+          ],
+          "to_columns": [
+            "edition_id"
+          ],
+          "on_update": "NO ACTION",
+          "on_delete": "NO ACTION",
+          "match": "NONE"
+        }
+      ]
+    },
+    {
+      "name": "publication_editions",
+      "schema": "schema-editorial.sql",
+      "line": 65,
+      "columns": [
+        "edition_id",
+        "video_part_id",
+        "revision_id",
+        "parent_edition_id",
+        "content_json",
+        "content_sha256",
+        "created_at",
+        "created_by",
+        "note"
+      ],
+      "foreign_keys": [
+        "parent_edition_id → publication_editions.edition_id (NO ACTION)",
+        "revision_id → editorial_revisions.revision_id (NO ACTION)",
+        "video_part_id → video_parts.video_part_id (NO ACTION)"
+      ],
+      "foreign_key_constraints": [
+        {
+          "table": "publication_editions",
+          "from_columns": [
+            "parent_edition_id"
+          ],
+          "to_columns": [
+            "edition_id"
+          ],
+          "on_update": "NO ACTION",
+          "on_delete": "NO ACTION",
+          "match": "NONE"
+        },
+        {
+          "table": "editorial_revisions",
+          "from_columns": [
+            "revision_id"
+          ],
+          "to_columns": [
+            "revision_id"
+          ],
+          "on_update": "NO ACTION",
+          "on_delete": "NO ACTION",
+          "match": "NONE"
+        },
+        {
+          "table": "video_parts",
+          "from_columns": [
+            "video_part_id"
+          ],
+          "to_columns": [
+            "video_part_id"
+          ],
+          "on_update": "NO ACTION",
+          "on_delete": "NO ACTION",
+          "match": "NONE"
+        }
+      ]
+    },
+    {
+      "name": "publication_events",
+      "schema": "schema-editorial.sql",
+      "line": 119,
+      "columns": [
+        "event_id",
+        "video_part_id",
+        "edition_id",
+        "release_id",
+        "review_id",
+        "content_sha256",
+        "event_type",
+        "from_status",
+        "to_status",
+        "actor",
+        "issue_url",
+        "note",
+        "changed_at"
+      ],
+      "foreign_keys": [
+        "review_id → publication_edition_reviews.review_id (NO ACTION)",
+        "release_id → publication_releases.release_id (NO ACTION)",
+        "edition_id → publication_editions.edition_id (NO ACTION)",
+        "video_part_id → video_parts.video_part_id (NO ACTION)"
+      ],
+      "foreign_key_constraints": [
+        {
+          "table": "publication_edition_reviews",
+          "from_columns": [
+            "review_id"
+          ],
+          "to_columns": [
+            "review_id"
+          ],
+          "on_update": "NO ACTION",
+          "on_delete": "NO ACTION",
+          "match": "NONE"
+        },
+        {
+          "table": "publication_releases",
+          "from_columns": [
+            "release_id"
+          ],
+          "to_columns": [
+            "release_id"
+          ],
+          "on_update": "NO ACTION",
+          "on_delete": "NO ACTION",
+          "match": "NONE"
+        },
+        {
+          "table": "publication_editions",
+          "from_columns": [
+            "edition_id"
+          ],
+          "to_columns": [
+            "edition_id"
+          ],
+          "on_update": "NO ACTION",
+          "on_delete": "NO ACTION",
+          "match": "NONE"
+        },
+        {
+          "table": "video_parts",
+          "from_columns": [
+            "video_part_id"
+          ],
+          "to_columns": [
+            "video_part_id"
+          ],
+          "on_update": "NO ACTION",
+          "on_delete": "NO ACTION",
+          "match": "NONE"
+        }
+      ]
+    },
+    {
+      "name": "publication_heads",
+      "schema": "schema-editorial.sql",
+      "line": 113,
+      "columns": [
+        "video_part_id",
+        "current_edition_id",
+        "current_release_id"
+      ],
+      "foreign_keys": [
+        "current_release_id → publication_releases.release_id (NO ACTION)",
+        "current_edition_id → publication_editions.edition_id (NO ACTION)",
+        "video_part_id → video_parts.video_part_id (NO ACTION)"
+      ],
+      "foreign_key_constraints": [
+        {
+          "table": "publication_releases",
+          "from_columns": [
+            "current_release_id"
+          ],
+          "to_columns": [
+            "release_id"
+          ],
+          "on_update": "NO ACTION",
+          "on_delete": "NO ACTION",
+          "match": "NONE"
+        },
+        {
+          "table": "publication_editions",
+          "from_columns": [
+            "current_edition_id"
+          ],
+          "to_columns": [
+            "edition_id"
+          ],
+          "on_update": "NO ACTION",
+          "on_delete": "NO ACTION",
+          "match": "NONE"
+        },
+        {
+          "table": "video_parts",
+          "from_columns": [
+            "video_part_id"
+          ],
+          "to_columns": [
+            "video_part_id"
+          ],
+          "on_update": "NO ACTION",
+          "on_delete": "NO ACTION",
+          "match": "NONE"
+        }
+      ]
+    },
+    {
+      "name": "publication_releases",
+      "schema": "schema-editorial.sql",
+      "line": 95,
+      "columns": [
+        "release_id",
+        "video_part_id",
+        "edition_id",
+        "review_id",
+        "content_sha256",
+        "template_version",
+        "relative_path",
+        "artifact_sha256",
+        "published_at",
+        "published_by",
+        "status"
+      ],
+      "foreign_keys": [
+        "review_id → publication_edition_reviews.review_id (NO ACTION)",
+        "edition_id → publication_editions.edition_id (NO ACTION)",
+        "video_part_id → video_parts.video_part_id (NO ACTION)"
+      ],
+      "foreign_key_constraints": [
+        {
+          "table": "publication_edition_reviews",
+          "from_columns": [
+            "review_id"
+          ],
+          "to_columns": [
+            "review_id"
+          ],
+          "on_update": "NO ACTION",
+          "on_delete": "NO ACTION",
+          "match": "NONE"
+        },
+        {
+          "table": "publication_editions",
+          "from_columns": [
+            "edition_id"
+          ],
+          "to_columns": [
+            "edition_id"
+          ],
+          "on_update": "NO ACTION",
+          "on_delete": "NO ACTION",
+          "match": "NONE"
+        },
+        {
+          "table": "video_parts",
+          "from_columns": [
+            "video_part_id"
+          ],
+          "to_columns": [
+            "video_part_id"
+          ],
+          "on_update": "NO ACTION",
+          "on_delete": "NO ACTION",
+          "match": "NONE"
+        }
+      ]
+    },
+    {
+      "name": "transcript_asr_evidence",
+      "schema": "schema-transcripts.sql",
+      "line": 129,
+      "columns": [
+        "run_id",
+        "video_part_id",
+        "transcript_id",
+        "schema_version",
+        "evidence_json"
+      ],
+      "foreign_keys": [
+        "transcript_id → transcripts.transcript_id (RESTRICT)",
+        "(run_id, video_part_id) → acquisition_attempts.(run_id, video_part_id) (RESTRICT)"
+      ],
+      "foreign_key_constraints": [
+        {
+          "table": "transcripts",
+          "from_columns": [
+            "transcript_id"
+          ],
+          "to_columns": [
+            "transcript_id"
+          ],
+          "on_update": "NO ACTION",
+          "on_delete": "RESTRICT",
+          "match": "NONE"
+        },
+        {
+          "table": "acquisition_attempts",
+          "from_columns": [
+            "run_id",
+            "video_part_id"
+          ],
+          "to_columns": [
+            "run_id",
+            "video_part_id"
+          ],
+          "on_update": "NO ACTION",
+          "on_delete": "RESTRICT",
+          "match": "NONE"
+        }
+      ]
+    },
+    {
+      "name": "transcript_coverage_attestations",
+      "schema": "schema-transcripts.sql",
+      "line": 109,
+      "columns": [
+        "run_id",
+        "video_part_id",
+        "transcript_id",
+        "decoded_s",
+        "produced_s",
+        "coverage",
+        "coverage_min",
+        "coverage_short"
+      ],
+      "foreign_keys": [
+        "transcript_id → transcripts.transcript_id (RESTRICT)",
+        "(run_id, video_part_id) → acquisition_attempts.(run_id, video_part_id) (RESTRICT)"
+      ],
+      "foreign_key_constraints": [
+        {
+          "table": "transcripts",
+          "from_columns": [
+            "transcript_id"
+          ],
+          "to_columns": [
+            "transcript_id"
+          ],
+          "on_update": "NO ACTION",
+          "on_delete": "RESTRICT",
+          "match": "NONE"
+        },
+        {
+          "table": "acquisition_attempts",
+          "from_columns": [
+            "run_id",
+            "video_part_id"
+          ],
+          "to_columns": [
+            "run_id",
+            "video_part_id"
+          ],
+          "on_update": "NO ACTION",
+          "on_delete": "RESTRICT",
+          "match": "NONE"
+        }
+      ]
+    },
+    {
+      "name": "transcript_segments",
+      "schema": "schema-transcripts.sql",
+      "line": 36,
+      "columns": [
+        "transcript_id",
+        "ordinal",
+        "start_ms",
+        "end_ms",
+        "text"
+      ],
+      "foreign_keys": [
+        "transcript_id → transcripts.transcript_id (RESTRICT)"
+      ],
+      "foreign_key_constraints": [
+        {
+          "table": "transcripts",
+          "from_columns": [
+            "transcript_id"
+          ],
+          "to_columns": [
+            "transcript_id"
+          ],
+          "on_update": "NO ACTION",
+          "on_delete": "RESTRICT",
+          "match": "NONE"
+        }
+      ]
+    },
+    {
+      "name": "transcripts",
+      "schema": "schema-transcripts.sql",
+      "line": 11,
+      "columns": [
+        "transcript_id",
+        "video_part_id",
+        "source_kind",
+        "language",
+        "model_id",
+        "version",
+        "content_sha256",
+        "created_at"
+      ],
+      "foreign_keys": [
+        "model_id → asr_models.model_id (RESTRICT)",
+        "video_part_id → video_parts.video_part_id (RESTRICT)"
+      ],
+      "foreign_key_constraints": [
+        {
+          "table": "asr_models",
+          "from_columns": [
+            "model_id"
+          ],
+          "to_columns": [
+            "model_id"
+          ],
+          "on_update": "NO ACTION",
+          "on_delete": "RESTRICT",
+          "match": "NONE"
+        },
+        {
+          "table": "video_parts",
+          "from_columns": [
+            "video_part_id"
+          ],
+          "to_columns": [
+            "video_part_id"
+          ],
+          "on_update": "NO ACTION",
+          "on_delete": "RESTRICT",
+          "match": "NONE"
+        }
+      ]
+    },
+    {
+      "name": "video_details",
+      "schema": "schema.sql",
+      "line": 66,
+      "columns": [
+        "bvid",
+        "pic",
+        "desc",
+        "tid",
+        "observed_at"
+      ],
+      "foreign_keys": [
+        "bvid → videos.bvid (RESTRICT)"
+      ],
+      "foreign_key_constraints": [
+        {
+          "table": "videos",
+          "from_columns": [
+            "bvid"
+          ],
+          "to_columns": [
+            "bvid"
+          ],
+          "on_update": "NO ACTION",
+          "on_delete": "RESTRICT",
+          "match": "NONE"
+        }
+      ]
+    },
+    {
+      "name": "video_parts",
+      "schema": "schema.sql",
+      "line": 21,
+      "columns": [
+        "video_part_id",
+        "bvid",
+        "page_index",
+        "cid",
+        "title",
+        "duration_ms",
+        "processing_status",
+        "created_at",
+        "updated_at"
+      ],
+      "foreign_keys": [
+        "bvid → videos.bvid (RESTRICT)"
+      ],
+      "foreign_key_constraints": [
+        {
+          "table": "videos",
+          "from_columns": [
+            "bvid"
+          ],
+          "to_columns": [
+            "bvid"
+          ],
+          "on_update": "NO ACTION",
+          "on_delete": "RESTRICT",
+          "match": "NONE"
+        }
+      ]
+    },
+    {
+      "name": "video_tag_observations",
+      "schema": "schema.sql",
+      "line": 47,
+      "columns": [
+        "bvid",
+        "state",
+        "observed_at",
+        "error_code",
+        "run_id"
+      ],
+      "foreign_keys": [
+        "bvid → videos.bvid (RESTRICT)"
+      ],
+      "foreign_key_constraints": [
+        {
+          "table": "videos",
+          "from_columns": [
+            "bvid"
+          ],
+          "to_columns": [
+            "bvid"
+          ],
+          "on_update": "NO ACTION",
+          "on_delete": "RESTRICT",
+          "match": "NONE"
+        }
+      ]
+    },
+    {
+      "name": "video_tags",
+      "schema": "schema.sql",
+      "line": 37,
+      "columns": [
+        "bvid",
+        "tag_id",
+        "tag_name",
+        "tag_type"
+      ],
+      "foreign_keys": [
+        "bvid → videos.bvid (RESTRICT)"
+      ],
+      "foreign_key_constraints": [
+        {
+          "table": "videos",
+          "from_columns": [
+            "bvid"
+          ],
+          "to_columns": [
+            "bvid"
+          ],
+          "on_update": "NO ACTION",
+          "on_delete": "RESTRICT",
+          "match": "NONE"
+        }
+      ]
+    },
+    {
+      "name": "videos",
+      "schema": "schema.sql",
+      "line": 10,
+      "columns": [
+        "bvid",
+        "aid",
+        "mid",
+        "title",
+        "pubdate",
+        "created_at",
+        "updated_at"
+      ],
+      "foreign_keys": [
+        "mid → bilibili_users.mid (RESTRICT)"
+      ],
+      "foreign_key_constraints": [
+        {
+          "table": "bilibili_users",
+          "from_columns": [
+            "mid"
+          ],
+          "to_columns": [
+            "mid"
+          ],
+          "on_update": "NO ACTION",
+          "on_delete": "RESTRICT",
+          "match": "NONE"
+        }
+      ]
+    },
+    {
+      "name": "workflow_asr_profile_configs",
+      "schema": "schema-workflow.sql",
+      "line": 23,
+      "columns": [
+        "profile_id",
+        "schema_version",
+        "config_json"
+      ],
+      "foreign_keys": [
+        "profile_id → workflow_asr_profiles.profile_id (RESTRICT)"
+      ],
+      "foreign_key_constraints": [
+        {
+          "table": "workflow_asr_profiles",
+          "from_columns": [
+            "profile_id"
+          ],
+          "to_columns": [
+            "profile_id"
+          ],
+          "on_update": "NO ACTION",
+          "on_delete": "RESTRICT",
+          "match": "NONE"
+        }
+      ]
+    },
+    {
+      "name": "workflow_asr_profiles",
+      "schema": "schema-workflow.sql",
+      "line": 7,
+      "columns": [
+        "profile_id",
+        "profile_key",
+        "model_name",
+        "model_revision",
+        "aligner_name",
+        "device",
+        "language",
+        "config_sha256",
+        "created_at"
+      ],
+      "foreign_keys": [],
+      "foreign_key_constraints": []
+    },
+    {
+      "name": "workflow_attempts",
+      "schema": "schema-workflow.sql",
+      "line": 67,
+      "columns": [
+        "attempt_id",
+        "job_id",
+        "worker_id",
+        "started_at",
+        "finished_at",
+        "outcome",
+        "error_code",
+        "result_json"
+      ],
+      "foreign_keys": [
+        "job_id → workflow_jobs.job_id (RESTRICT)"
+      ],
+      "foreign_key_constraints": [
+        {
+          "table": "workflow_jobs",
+          "from_columns": [
+            "job_id"
+          ],
+          "to_columns": [
+            "job_id"
+          ],
+          "on_update": "NO ACTION",
+          "on_delete": "RESTRICT",
+          "match": "NONE"
+        }
+      ]
+    },
+    {
+      "name": "workflow_job_dependencies",
+      "schema": "schema-workflow.sql",
+      "line": 58,
+      "columns": [
+        "job_id",
+        "prerequisite_job_id"
+      ],
+      "foreign_keys": [
+        "prerequisite_job_id → workflow_jobs.job_id (RESTRICT)",
+        "job_id → workflow_jobs.job_id (CASCADE)"
+      ],
+      "foreign_key_constraints": [
+        {
+          "table": "workflow_jobs",
+          "from_columns": [
+            "prerequisite_job_id"
+          ],
+          "to_columns": [
+            "job_id"
+          ],
+          "on_update": "NO ACTION",
+          "on_delete": "RESTRICT",
+          "match": "NONE"
+        },
+        {
+          "table": "workflow_jobs",
+          "from_columns": [
+            "job_id"
+          ],
+          "to_columns": [
+            "job_id"
+          ],
+          "on_update": "NO ACTION",
+          "on_delete": "CASCADE",
+          "match": "NONE"
+        }
+      ]
+    },
+    {
+      "name": "workflow_jobs",
+      "schema": "schema-workflow.sql",
+      "line": 30,
+      "columns": [
+        "job_id",
+        "kind",
+        "video_part_id",
+        "profile_id",
+        "policy_key",
+        "dedupe_key",
+        "payload_json",
+        "status",
+        "priority",
+        "available_at",
+        "lease_owner",
+        "lease_expires_at",
+        "attempt_count",
+        "last_error_code",
+        "created_at",
+        "updated_at"
+      ],
+      "foreign_keys": [
+        "profile_id → workflow_asr_profiles.profile_id (RESTRICT)",
+        "video_part_id → video_parts.video_part_id (RESTRICT)"
+      ],
+      "foreign_key_constraints": [
+        {
+          "table": "workflow_asr_profiles",
+          "from_columns": [
+            "profile_id"
+          ],
+          "to_columns": [
+            "profile_id"
+          ],
+          "on_update": "NO ACTION",
+          "on_delete": "RESTRICT",
+          "match": "NONE"
+        },
+        {
+          "table": "video_parts",
+          "from_columns": [
+            "video_part_id"
+          ],
+          "to_columns": [
+            "video_part_id"
+          ],
+          "on_update": "NO ACTION",
+          "on_delete": "RESTRICT",
+          "match": "NONE"
+        }
+      ]
+    },
+    {
+      "name": "workflow_publications",
+      "schema": "schema-workflow.sql",
+      "line": 98,
+      "columns": [
+        "publication_id",
+        "video_part_id",
+        "transcript_id",
+        "published_at",
+        "artifact_json"
+      ],
+      "foreign_keys": [
+        "transcript_id → transcripts.transcript_id (RESTRICT)",
+        "video_part_id → video_parts.video_part_id (RESTRICT)"
+      ],
+      "foreign_key_constraints": [
+        {
+          "table": "transcripts",
+          "from_columns": [
+            "transcript_id"
+          ],
+          "to_columns": [
+            "transcript_id"
+          ],
+          "on_update": "NO ACTION",
+          "on_delete": "RESTRICT",
+          "match": "NONE"
+        },
+        {
+          "table": "video_parts",
+          "from_columns": [
+            "video_part_id"
+          ],
+          "to_columns": [
+            "video_part_id"
+          ],
+          "on_update": "NO ACTION",
+          "on_delete": "RESTRICT",
+          "match": "NONE"
+        }
+      ]
+    },
+    {
+      "name": "workflow_quality_assessments",
+      "schema": "schema-workflow.sql",
+      "line": 84,
+      "columns": [
+        "assessment_id",
+        "video_part_id",
+        "source_kind",
+        "score",
+        "assessor",
+        "details_json",
+        "assessed_at"
+      ],
+      "foreign_keys": [
+        "video_part_id → video_parts.video_part_id (RESTRICT)"
+      ],
+      "foreign_key_constraints": [
+        {
+          "table": "video_parts",
+          "from_columns": [
+            "video_part_id"
+          ],
+          "to_columns": [
+            "video_part_id"
+          ],
+          "on_update": "NO ACTION",
+          "on_delete": "RESTRICT",
+          "match": "NONE"
+        }
+      ]
+    }
+  ],
+  "views": [
+    {
+      "name": "v_ingestion_run_stats",
+      "schema": "schema.sql",
+      "line": 186,
+      "columns": [
+        "run_id",
+        "mid",
+        "started_at",
+        "finished_at",
+        "outcome",
+        "page_count",
+        "video_count"
+      ],
+      "dependencies": [
+        "ingestion_discoveries",
+        "ingestion_pages",
+        "ingestion_runs"
+      ]
+    },
+    {
+      "name": "v_missing_audio",
+      "schema": "schema-transcripts.sql",
+      "line": 262,
+      "columns": [
+        "video_part_id",
+        "work_id",
+        "bvid",
+        "page_index",
+        "cid",
+        "part_title",
+        "duration_ms",
+        "video_title",
+        "pubdate",
+        "newest_outcome",
+        "newest_error_code"
+      ],
+      "dependencies": [
+        "acquisition_attempts",
+        "acquisition_runs",
+        "eligible_parts",
+        "empty_inventory_confirmations",
+        "part_audio_objects",
+        "subtitle_attempts",
+        "transcripts",
+        "video_parts",
+        "videos"
+      ]
+    },
+    {
+      "name": "v_missing_subtitle",
+      "schema": "schema-transcripts.sql",
+      "line": 210,
+      "columns": [
+        "video_part_id",
+        "work_id",
+        "bvid",
+        "page_index",
+        "cid",
+        "part_title",
+        "duration_ms",
+        "video_title",
+        "pubdate"
+      ],
+      "dependencies": [
+        "transcripts",
+        "video_parts",
+        "videos"
+      ]
+    },
+    {
+      "name": "v_missing_transcript",
+      "schema": "schema-transcripts.sql",
+      "line": 332,
+      "columns": [
+        "video_part_id",
+        "work_id",
+        "bvid",
+        "page_index",
+        "cid",
+        "part_title",
+        "duration_ms",
+        "video_title",
+        "pubdate"
+      ],
+      "dependencies": [
+        "part_audio_objects",
+        "transcripts",
+        "video_parts",
+        "videos"
+      ]
+    },
+    {
+      "name": "v_part_pipeline",
+      "schema": "schema-transcripts.sql",
+      "line": 362,
+      "columns": [
+        "video_part_id",
+        "work_id",
+        "bvid",
+        "page_index",
+        "processing_status",
+        "pipeline_state"
+      ],
+      "dependencies": [
+        "acquisition_attempts",
+        "acquisition_runs",
+        "empty_inventory_confirmations",
+        "part_audio_objects",
+        "subtitle_attempts",
+        "transcripts",
+        "video_parts"
+      ]
+    },
+    {
+      "name": "v_pending_metadata",
+      "schema": "schema.sql",
+      "line": 200,
+      "columns": [
+        "video_part_id",
+        "work_id",
+        "bvid",
+        "page_index",
+        "processing_status"
+      ],
+      "dependencies": [
+        "video_parts"
+      ]
+    },
+    {
+      "name": "v_pending_subtitles",
+      "schema": "schema-transcripts.sql",
+      "line": 149,
+      "columns": [
+        "video_part_id",
+        "work_id",
+        "bvid",
+        "page_index",
+        "cid",
+        "part_title",
+        "duration_ms",
+        "attempted",
+        "last_attempt_at",
+        "last_attempt_outcome",
+        "last_attempt_error_code",
+        "last_attempt_credential_present"
+      ],
+      "dependencies": [
+        "acquisition_attempts",
+        "acquisition_runs",
+        "eligible",
+        "eligible_parts",
+        "fixes",
+        "subtitle_attempts",
+        "transcripts",
+        "video_parts"
+      ]
+    },
+    {
+      "name": "v_video_parts",
+      "schema": "schema.sql",
+      "line": 169,
+      "columns": [
+        "video_part_id",
+        "work_id",
+        "user_name",
+        "video_title",
+        "page_index",
+        "cid",
+        "part_title",
+        "duration_ms",
+        "processing_status",
+        "created_at",
+        "updated_at"
+      ],
+      "dependencies": [
+        "bilibili_users",
+        "video_parts",
+        "videos"
+      ]
+    }
+  ],
+  "runtime_search_objects": [
+    {
+      "name": "transcript_fts",
+      "type": "fts5_virtual_table",
+      "source": "src/bili_asr/search_index/common.py",
+      "line": 88,
+      "columns": [
+        "block_key",
+        "bvid",
+        "page_index",
+        "start_ms",
+        "end_ms",
+        "pubdate",
+        "text",
+        "bigram",
+        "source"
+      ],
+      "created_by": "search-index / search --rebuild"
+    },
+    {
+      "name": "transcript_fts_index_meta",
+      "type": "derived_progress_table",
+      "source": "src/bili_asr/search_index/store.py",
+      "line": 122,
+      "columns": [
+        "key",
+        "value"
+      ],
+      "created_by": "search-index / search --rebuild"
+    }
+  ]
+}

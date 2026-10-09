@@ -7,11 +7,14 @@
 
 | 文档 | 内容 |
 | --- | --- |
-| [当前架构](architecture.md) | 执行模型、组件职责、数据流、状态转换、提交边界与恢复限制 |
-| [历史全景架构图](architecture.html) | 5c3cc606 的组件关系快照；旧阅读入口不代表当前接口，当前出版关系见专题图 |
+| [当前架构](architecture.md) | main 9b28957 的执行模型、职责、数据流、状态、提交与恢复边界 |
+| [全景架构图](architecture.html) | 当前 main 的可交互组件、关系与源码证据；[JSON](architecture.json) |
+| [完整时序图](architecture-sequences.md) | 16 个完整流程，含 Mermaid 条件/循环、交互 HTML 与源码证据 |
+| [源码与覆盖清单](architecture-sources.md) | 15 个顶层命令、34 条命令路径、97 个模块、schema 的 38 张表 / 8 个视图及 2 个动态 FTS 对象；[机器清单](architecture-coverage.json) |
+| [图表验证记录](architecture-validation.md) | 18 张图的规格/文件摘要、四阶段检查与实际截图检查范围 |
 | [架构图维护](architecture-maintenance.md) | 提交版本、证据与生成、浏览器检查的维护流程 |
 | [元数据与存储](metadata-storage.md) | SQLite 表组、采集游标、身份、不可变版本、workflow 和读取投影 |
-| [AI 校对与出版架构](ai-proofreading-architecture.md) | fc66c1d 的验证专题图及当前输入冻结、完整版本、准确审核、release 与独立导出说明 |
+| [AI 校对与出版架构](ai-proofreading-architecture.md) | main 9b28957 的输入冻结、历史模板、完整版本、标签、审核、release 与三类导出 |
 
 ## 工作流与产物
 
