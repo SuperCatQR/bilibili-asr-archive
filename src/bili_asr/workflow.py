@@ -63,8 +63,7 @@ class WorkflowExecutor:
                                         cancelled=cancelled)
             handler = self.handlers.get(job.kind)
             if handler is None:
-                self._fail(job, "no_handler")
-                if self.repository.is_cancelled(job):
+                if self._fail(job, "no_handler"):
                     cancelled += 1
                 else:
                     failed += 1
@@ -79,8 +78,7 @@ class WorkflowExecutor:
             try:
                 result = handler(job)
             except Exception as exc:  # Handler details stay out of durable control state.
-                self._fail(job, str(getattr(exc, "error_code", ""))[:64] or type(exc).__name__[:64])
-                if self.repository.is_cancelled(job):
+                if self._fail(job, str(getattr(exc, "error_code", ""))[:64] or type(exc).__name__[:64]):
                     cancelled += 1
                 else:
                     failed += 1
@@ -98,14 +96,18 @@ class WorkflowExecutor:
                 heartbeat.stop()
         return ExecutionSummary(succeeded, failed, idle=False, cancelled=cancelled)
 
-    def _fail(self, job: WorkflowJob, error_code: str) -> None:
+    def _fail(self, job: WorkflowJob, error_code: str) -> bool:
+        """Return whether the terminal write observed authoritative cancellation."""
         try:
             self.repository.fail(job.job_id, worker_id=self.worker_id, error_code=error_code,
                                  expected_attempt_count=job.attempt_count)
+        except JobCancelledError:
+            return True
         except LeaseLostError:
             # Reclamation records lease_expired. A stale worker must leave the
             # newer attempt's result and ownership untouched, even with a reused ID.
             pass
+        return False
 
 
 class _LeaseHeartbeat:
