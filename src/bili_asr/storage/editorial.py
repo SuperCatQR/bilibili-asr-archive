@@ -12,18 +12,21 @@ from uuid import uuid4
 from bili_asr.editorial import ARTIFACT_ROLES, TEMPLATE_VERSION, EditorialConfig, canonical, digest, language_key, prepare_input
 from bili_asr.storage.database import require_editorial_schema
 from bili_asr.storage.transcripts import TranscriptRepository
-from bili_asr.storage.workflow import WorkflowJob, WorkflowRepository
+from bili_asr.workflow_models import WorkflowJob
+from bili_asr.storage.job_commit import JobCommitGuard
+from bili_asr.transcript_selection import choose_transcript
 
 
 class EditorialRepository:
-    def __init__(self, connection: sqlite3.Connection):
+    def __init__(self, connection: sqlite3.Connection, *, commit_guard: JobCommitGuard | None = None):
         require_editorial_schema(connection)
         self.connection = connection
+        self.commit_guard = commit_guard or JobCommitGuard(connection)
 
     @contextmanager
     def owned_transaction(self, job: WorkflowJob):
         require_editorial_schema(self.connection)
-        with WorkflowRepository(self.connection).owned_transaction(job):
+        with self.commit_guard.owned_transaction(job):
             yield
 
     def read_source(self, transcript_id: int):
@@ -42,24 +45,33 @@ class EditorialRepository:
         return int(base["transcript_id"]), self.latest_reference(part_id, base["language"])
 
     def latest_reference(self, part_id: int, language: str) -> int | None:
-        reference = self.connection.execute(
-            "SELECT transcript_id, language FROM transcripts WHERE video_part_id = ? "
-            "AND source_kind IN ('subtitle-ai', 'subtitle-cc') "
-            "ORDER BY CASE source_kind WHEN 'subtitle-cc' THEN 0 ELSE 1 END, "
-            "created_at DESC, transcript_id DESC", (part_id,)).fetchall()
-        return next((int(row["transcript_id"]) for row in reference
-                     if language_key(row["language"]) == language_key(language)), None)
+        rows = self.connection.execute(
+            "SELECT * FROM transcripts WHERE video_part_id = ? "
+            "AND source_kind IN ('subtitle-ai', 'subtitle-cc')", (part_id,))
+        reference = choose_transcript(row for row in rows if language_key(row["language"]) == language_key(language))
+        return None if reference is None else int(reference["transcript_id"])
 
     def prepare(self, base_id: int, reference_id: int | None, config: EditorialConfig) -> dict[str, Any]:
+        prepared = self.build_input(base_id, reference_id, config)
+        with self.connection:
+            return self.store_input(prepared)
+
+    def build_input(self, base_id: int, reference_id: int | None, config: EditorialConfig) -> dict[str, Any]:
         require_editorial_schema(self.connection)
         base = self.read_source(base_id)
-        prepared = prepare_input(base, self.read_source(reference_id) if reference_id else None, config,
-                                 metadata=self.metadata(base.video_part_id))
+        return prepare_input(base, self.read_source(reference_id) if reference_id else None, config,
+                             metadata=self.metadata(base.video_part_id))
+
+    def store_input(self, prepared: dict[str, Any]) -> dict[str, Any]:
+        """Persist an already prepared immutable input in the caller's transaction."""
         snapshot = prepared["snapshot"]
-        with self.connection:
-            self.connection.execute(
-                "INSERT OR IGNORE INTO editorial_inputs VALUES (?, ?, ?, ?, ?, ?)",
-                (prepared["input_id"], snapshot["video_part_id"], base_id, reference_id, canonical(prepared), int(time.time())))
+        base_id = snapshot["base"]["transcript_id"]
+        reference_id = None if snapshot["reference"] is None else snapshot["reference"]["transcript_id"]
+        if digest(snapshot) != prepared["input_id"]:
+            raise ValueError("editorial input identity mismatch")
+        self.connection.execute(
+            "INSERT OR IGNORE INTO editorial_inputs VALUES (?, ?, ?, ?, ?, ?)",
+            (prepared["input_id"], snapshot["video_part_id"], base_id, reference_id, canonical(prepared), int(time.time())))
         stored = self.load_input(prepared["input_id"])
         if stored != prepared:
             raise RuntimeError("input identity collision")
@@ -95,10 +107,11 @@ class EditorialRepository:
             base_id = int(json.loads(prerequisite["result_json"])["transcript_id"])
             base = self.read_source(base_id)
             reference_id = self.latest_reference(base.video_part_id, base.language)
-            prepared = self.prepare(base_id, reference_id, EditorialConfig(**job.payload["editorial_config"]))
+            prepared = self.build_input(base_id, reference_id, EditorialConfig(**job.payload["editorial_config"]))
         if prepared["snapshot"]["video_part_id"] != job.video_part_id:
             raise ValueError("editorial input belongs to another video part")
         with self.owned_transaction(job):
+            self.store_input(prepared)
             self.connection.execute("INSERT OR IGNORE INTO editorial_job_inputs VALUES (?, ?)", (job.job_id, prepared["input_id"]))
         return prepared
 
@@ -122,7 +135,7 @@ class EditorialRepository:
                                     (None if response is None else canonical(response), error_code, int(time.time()), call_id))
 
     def assert_lease(self, job: WorkflowJob) -> None:
-        WorkflowRepository(self.connection).assert_lease(job)
+        self.commit_guard.assert_lease(job)
 
     def chunk_result(self, input_id: str, chunk_id: str) -> list[dict[str, Any]] | None:
         require_editorial_schema(self.connection)

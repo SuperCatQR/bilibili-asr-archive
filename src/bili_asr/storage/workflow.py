@@ -14,118 +14,18 @@ import json
 import sqlite3
 import time
 from collections.abc import Iterable, Mapping
-from dataclasses import asdict, dataclass
-from enum import StrEnum
 from typing import Any, Callable
 from uuid import uuid4
-from bili_asr.storage.database import connect_database
+from bili_asr.storage.job_commit import JobCommitGuard
+from bili_asr.transcript_selection import choose_transcript
+from bili_asr.workflow_planning import JobSpec, PlanningPart, editorial_specs, plan_producers
+from bili_asr.workflow_payloads import validate_payload
 
 
-class JobKind(StrEnum):
-    SUBTITLE = "subtitle"
-    AUDIO = "audio"
-    ASR = "asr"
-    PUBLISH = "publish"
-    INDEX = "index"
-    PROOFREAD = "proofread"
-    RENDER_DOCUMENT = "render_document"
-
-
-class JobStatus(StrEnum):
-    QUEUED = "queued"
-    RUNNING = "running"
-    SUCCEEDED = "succeeded"
-    FAILED = "failed"
-    CANCELLED = "cancelled"
-
-
-class AsrPolicy(StrEnum):
-    ALL = "all"
-    SELECTED = "selected"
-    BELOW_THRESHOLD = "below-threshold"
-
-
-class LeaseLostError(RuntimeError):
-    """A superseded worker cannot report an authoritative terminal result."""
-
-
-class JobCancelledError(LeaseLostError):
-    """The cancellation transaction has revoked this attempt's ownership."""
-
-
-@dataclass(frozen=True)
-class CancellationResult:
-    job_id: str
-    previous_status: str
-    status: str
-    changed: bool
-
-
-@dataclass(frozen=True)
-class AsrProfile:
-    profile_key: str
-    model_name: str
-    model_revision: str = ""
-    aligner_name: str = "Qwen/Qwen3-ForcedAligner-0.6B-hf"
-    device: str = "cuda"
-    language: str | None = None
-    aligner_revision: str | None = None
-    chunk_seconds: float = 180.0
-    inference_timeout_seconds: float = 1800.0
-    hotwords: tuple[str, ...] = ()
-    offline: bool = True
-    model_id: str | None = None
-    tokens_per_second: float = 8.0
-    min_new_tokens: int = 256
-    second_pass_use_cache: bool = False
-
-    def asr_config(self):
-        """Reconstruct the frozen configuration without consulting the environment."""
-        from bili_asr.asr.config import ASRConfig
-
-        values = asdict(self)
-        values.pop("profile_key")
-        values["model_revision"] = self.model_revision or None
-        ASRConfig(**values)  # Reject bool/string values before numeric normalization.
-        for name in ("chunk_seconds", "inference_timeout_seconds", "tokens_per_second"):
-            values[name] = float(values[name])
-        return ASRConfig(**values)
-
-    def canonical(self) -> str:
-        self.asr_config()  # Validate before hashing or persisting a profile.
-        values = asdict(self)
-        values.pop("profile_key")
-        for name in ("chunk_seconds", "inference_timeout_seconds", "tokens_per_second"):
-            values[name] = float(values[name])
-        return json.dumps(
-            {"schema_version": 2, **values},
-            ensure_ascii=False,
-            separators=(",", ":"),
-            sort_keys=True,
-            allow_nan=False,
-        )
-
-
-@dataclass(frozen=True)
-class WorkflowJob:
-    job_id: str
-    kind: JobKind
-    video_part_id: int | None
-    profile_id: int | None
-    policy_key: str | None
-    payload: Mapping[str, Any]
-    status: JobStatus
-    attempt_count: int
-    lease_owner: str | None = None
-
-
-@dataclass(frozen=True)
-class WorkflowPlan:
-    subtitle_jobs: int
-    audio_jobs: int
-    asr_jobs: int
-    proofread_jobs: int = 0
-    document_jobs: int = 0
+from bili_asr.workflow_models import (
+    AsrPolicy, AsrProfile, CancellationResult, JobCancelledError, JobKind,
+    JobStatus, LeaseLostError, WorkflowJob, WorkflowPlan,
+)
 
 
 def _now() -> int:
@@ -133,7 +33,7 @@ def _now() -> int:
 
 
 def _json(value: Mapping[str, Any]) -> str:
-    return json.dumps(value, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
+    return json.dumps(value, ensure_ascii=False, separators=(",", ":"), sort_keys=True, allow_nan=False)
 
 
 class WorkflowRepository:
@@ -143,9 +43,13 @@ class WorkflowRepository:
         if connection.row_factory is None:
             raise TypeError("connection must return sqlite3.Row objects")
         self.connection = connection
+        self.commit_guard = JobCommitGuard(connection, clock=lambda: _now())
         self._busy_timeout_ms = int(connection.execute("PRAGMA busy_timeout").fetchone()[0])
         row = connection.execute("PRAGMA database_list").fetchone()
         self._database_path = "" if row is None else str(row["file"] or "")
+
+    def close(self) -> None:
+        self.connection.close()
 
     def open_lease_repository(self) -> WorkflowRepository | None:
         """Open a connection suitable for a background lease heartbeat.
@@ -160,10 +64,17 @@ class WorkflowRepository:
 
         if not self._database_path:
             return None
-        connection = connect_database(self._database_path, busy_timeout_ms=self._busy_timeout_ms)
+        from bili_asr.archive_session import ArchiveAccessMode, open_archive_connection
+
+        connection = open_archive_connection(self._database_path, mode=ArchiveAccessMode.WRITE,
+                                             busy_timeout_ms=self._busy_timeout_ms)
         return type(self)(connection)
 
     def register_profile(self, profile: AsrProfile) -> int:
+        with self._write_transaction():
+            return self._register_profile(profile)
+
+    def _register_profile(self, profile: AsrProfile) -> int:
         self.require_cancellation_contract()
         if not isinstance(profile, AsrProfile):
             raise TypeError("profile must be AsrProfile")
@@ -171,137 +82,115 @@ class WorkflowRepository:
             raise ValueError("profile_key and model_name must be non-empty")
         digest = hashlib.sha256(profile.canonical().encode("utf-8")).hexdigest()
         now = _now()
-        with self.connection:
-            row = self.connection.execute(
-                "SELECT profile_id FROM workflow_asr_profiles "
-                "WHERE profile_key = ? AND config_sha256 = ?",
-                (profile.profile_key, digest),
-            ).fetchone()
-            if row is not None:
-                return int(row["profile_id"])
-            self.connection.execute(
-                """
-                INSERT INTO workflow_asr_profiles(
-                    profile_key, model_name, model_revision, aligner_name, device,
-                    language, config_sha256, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    profile.profile_key,
-                    profile.model_name,
-                    profile.model_revision,
-                    profile.aligner_name,
-                    profile.device,
-                    profile.language,
-                    digest,
-                    now,
-                ),
-            )
-            row = self.connection.execute(
-                "SELECT profile_id FROM workflow_asr_profiles "
-                "WHERE profile_key = ? AND config_sha256 = ?",
-                (profile.profile_key, digest),
-            ).fetchone()
-            self.connection.execute(
-                "INSERT INTO workflow_asr_profile_configs(profile_id, schema_version, config_json) "
-                "VALUES (?, 2, ?)",
-                (int(row["profile_id"]), profile.canonical()),
-            )
+        row = self.connection.execute(
+            "SELECT profile_id FROM workflow_asr_profiles "
+            "WHERE profile_key = ? AND config_sha256 = ?",
+            (profile.profile_key, digest),
+        ).fetchone()
+        if row is not None:
             return int(row["profile_id"])
+        self.connection.execute(
+            """
+            INSERT INTO workflow_asr_profiles(
+                profile_key, model_name, model_revision, aligner_name, device,
+                language, config_sha256, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                profile.profile_key,
+                profile.model_name,
+                profile.model_revision,
+                profile.aligner_name,
+                profile.device,
+                profile.language,
+                digest,
+                now,
+            ),
+        )
+        row = self.connection.execute(
+            "SELECT profile_id FROM workflow_asr_profiles "
+            "WHERE profile_key = ? AND config_sha256 = ?",
+            (profile.profile_key, digest),
+        ).fetchone()
+        self.connection.execute(
+            "INSERT INTO workflow_asr_profile_configs(profile_id, schema_version, config_json) "
+            "VALUES (?, 2, ?)",
+            (int(row["profile_id"]), profile.canonical()),
+        )
+        return int(row["profile_id"])
 
-    def plan(
-        self,
-        *,
-        part_ids: Iterable[int],
-        policy: AsrPolicy,
-        profile_id: int | None = None,
-        quality_threshold: float | None = None,
-        editorial_config: Mapping[str, Any] | None = None,
-    ) -> WorkflowPlan:
-        """Create independent producer jobs for selected video parts.
-
-        Every selected part receives a subtitle job.  ASR policy independently
-        chooses ASR jobs; each selected ASR job gets an audio prerequisite.
-        No subtitle state appears in this decision or dependency graph.
-        """
+    def plan(self, *, part_ids: Iterable[int], policy: AsrPolicy,
+             profile_id: int | None = None, quality_threshold: float | None = None,
+             editorial_config: Mapping[str, Any] | None = None) -> WorkflowPlan:
         self.require_cancellation_contract()
         ids = tuple(dict.fromkeys(int(part_id) for part_id in part_ids))
         if not ids:
             return WorkflowPlan(0, 0, 0)
         if profile_id is None:
             raise ValueError("profile_id is required for ASR planning")
-        if policy is AsrPolicy.BELOW_THRESHOLD:
-            if quality_threshold is None or not 0.0 <= quality_threshold <= 1.0:
-                raise ValueError("quality_threshold must be between 0 and 1")
-        valid: set[int] = set()
-        for offset in range(0, len(ids), 900):
-            chunk = ids[offset:offset + 900]
-            valid.update(int(row["video_part_id"]) for row in self.connection.execute(
-                "SELECT video_part_id FROM video_parts WHERE video_part_id IN ("
-                + ",".join("?" for _ in chunk) + ") AND processing_status <> 'gone'", chunk))
-        if valid != set(ids):
-            raise ValueError("part_ids contains unknown or gone video parts")
+        with self._write_transaction():
+            return self._plan(ids, policy=policy, profile_id=profile_id,
+                              quality_threshold=quality_threshold, editorial_config=editorial_config)
+
+    def plan_with_profile(self, *, part_ids: Iterable[int], policy: AsrPolicy,
+                          profile: AsrProfile, quality_threshold: float | None = None,
+                          editorial_config: Mapping[str, Any] | None = None) -> tuple[int, WorkflowPlan]:
+        """Commit the frozen profile and its complete dependency graph together."""
+        self.require_cancellation_contract()
+        ids = tuple(dict.fromkeys(int(part_id) for part_id in part_ids))
+        with self._write_transaction():
+            profile_id = self._register_profile(profile)
+            plan = self._plan(ids, policy=policy, profile_id=profile_id,
+                              quality_threshold=quality_threshold, editorial_config=editorial_config)
+        return profile_id, plan
+
+    def _plan(self, ids: tuple[int, ...], *, policy: AsrPolicy, profile_id: int,
+              quality_threshold: float | None, editorial_config: Mapping[str, Any] | None) -> WorkflowPlan:
         if editorial_config is not None:
             self._require_editorial_contract()
-        subtitles = audio = asr = proofread = documents = 0
-        with self.connection:
-            for part_id in ids:
-                subtitle_id, created = self._ensure_job(
-                    kind=JobKind.SUBTITLE,
-                    video_part_id=part_id,
-                    profile_id=None,
-                    policy_key=None,
-                    payload={"video_part_id": part_id},
-                    dedupe_key=f"subtitle:{part_id}",
-                )
-                subtitles += int(created)
-                if policy is AsrPolicy.BELOW_THRESHOLD and not self._below_threshold(
-                    part_id, float(quality_threshold)
-                ):
-                    continue
-                audio_id, created = self._ensure_job(
-                    kind=JobKind.AUDIO,
-                    video_part_id=part_id,
-                    profile_id=None,
-                    policy_key=None,
-                    payload={"video_part_id": part_id},
-                    dedupe_key=f"audio:{part_id}",
-                )
-                audio += int(created)
-                profile_row = self.connection.execute(
-                    "SELECT config_sha256 FROM workflow_asr_profiles WHERE profile_id = ?",
-                    (profile_id,),
-                ).fetchone()
-                if profile_row is None:
-                    raise ValueError("unknown ASR profile")
-                profile_digest = str(profile_row["config_sha256"])
-                asr_id, created = self._ensure_job(
-                    kind=JobKind.ASR,
-                    video_part_id=part_id,
-                    profile_id=profile_id,
-                    policy_key=policy.value,
-                    payload={
-                        "video_part_id": part_id,
-                        "profile_id": profile_id,
-                        "reference_transcript_id": self._latest_reference_transcript_id(part_id),
-                    },
-                    dedupe_key=f"asr:{part_id}:{profile_digest}",
-                )
-                self.connection.execute(
-                    """INSERT OR IGNORE INTO workflow_job_dependencies(job_id, prerequisite_job_id)
-                       VALUES (?, ?)""",
-                    (asr_id, audio_id),
-                )
-                asr += int(created)
-                if editorial_config is not None:
-                    _, _, p_created, d_created = self._editorial_jobs(
-                        video_part_id=part_id,
-                        payload={"asr_job_id": asr_id, "editorial_config": dict(editorial_config)},
-                        prerequisite_job_id=asr_id,
-                    )
-                    proofread += int(p_created)
-                    documents += int(d_created)
-        return WorkflowPlan(subtitles, audio, asr, proofread, documents)
+        facts = self._planning_parts(ids)
+        specs = plan_producers(facts, policy=policy, profile_id=profile_id,
+                               profile_digest=self.profile_digest(profile_id),
+                               quality_threshold=quality_threshold, editorial_config=editorial_config)
+        _, created = self._enqueue_specs(specs)
+        return WorkflowPlan(*(created.get(kind, 0) for kind in (
+            JobKind.SUBTITLE, JobKind.AUDIO, JobKind.ASR, JobKind.PROOFREAD, JobKind.RENDER_DOCUMENT)))
+
+    def _planning_parts(self, ids: tuple[int, ...]) -> tuple[PlanningPart, ...]:
+        facts: dict[int, PlanningPart] = {}
+        for offset in range(0, len(ids), 500):
+            chunk = ids[offset:offset + 500]
+            placeholders = ",".join("?" for _ in chunk)
+            rows = self.connection.execute(
+                "SELECT p.video_part_id, (SELECT q.score FROM workflow_quality_assessments q "
+                "WHERE q.video_part_id = p.video_part_id ORDER BY q.assessed_at DESC, q.assessment_id DESC LIMIT 1) AS score "
+                f"FROM video_parts p WHERE p.video_part_id IN ({placeholders}) AND p.processing_status <> 'gone'", chunk)
+            valid = {int(row["video_part_id"]): row["score"] for row in rows}
+            references: dict[int, list[sqlite3.Row]] = {}
+            for row in self.connection.execute(
+                    f"SELECT * FROM transcripts WHERE video_part_id IN ({placeholders}) "
+                    "AND source_kind IN ('subtitle-cc', 'subtitle-ai')", chunk):
+                references.setdefault(int(row["video_part_id"]), []).append(row)
+            for part_id, score in valid.items():
+                reference = choose_transcript(references.get(part_id, ()))
+                facts[part_id] = PlanningPart(part_id, score, None if reference is None else int(reference["transcript_id"]))
+        if set(facts) != set(ids):
+            raise ValueError("part_ids contains unknown or gone video parts")
+        return tuple(facts[part_id] for part_id in ids)
+
+    def _enqueue_specs(self, specs: Iterable[JobSpec], *,
+                       existing_ids: Mapping[str, str] | None = None) -> tuple[dict[str, str], dict[JobKind, int]]:
+        ids = dict(existing_ids or {})
+        counts: dict[JobKind, int] = {}
+        for spec in specs:
+            payload, dedupe_key = spec.materialize(ids)
+            job_id, created = self._ensure_job(kind=spec.kind, video_part_id=spec.video_part_id,
+                profile_id=spec.profile_id, policy_key=spec.policy_key, payload=payload, dedupe_key=dedupe_key)
+            ids[spec.key] = job_id
+            counts[spec.kind] = counts.get(spec.kind, 0) + int(created)
+            for key in spec.prerequisites:
+                self.connection.execute("INSERT OR IGNORE INTO workflow_job_dependencies VALUES (?, ?)", (job_id, ids[key]))
+        return ids, counts
 
     def claim(self, worker_id: str, *, lease_seconds: int = 900,
               kinds: Iterable[JobKind] | None = None) -> WorkflowJob | None:
@@ -365,11 +254,12 @@ class WorkflowRepository:
             claimed = self.connection.execute(
                 "SELECT * FROM workflow_jobs WHERE job_id = ?", (row["job_id"],)
             ).fetchone()
+            job = self._job_from_row(claimed)
             self.connection.commit()
         except BaseException:
             self.connection.rollback()
             raise
-        return self._job_from_row(claimed)
+        return job
 
     def renew_lease(self, job: WorkflowJob, *, lease_seconds: int) -> None:
         now = _now()
@@ -386,21 +276,7 @@ class WorkflowRepository:
 
     def assert_lease(self, job: WorkflowJob) -> None:
         """Fence a side effect to the exact claimed attempt."""
-        row = self.connection.execute(
-            "SELECT status, lease_owner, lease_expires_at, attempt_count "
-            "FROM workflow_jobs WHERE job_id = ?", (job.job_id,)
-        ).fetchone()
-        if row is not None and row["status"] == JobStatus.CANCELLED.value:
-            raise JobCancelledError("job was cancelled")
-        if (
-            row is None
-            or row["status"] != JobStatus.RUNNING.value
-            or row["lease_owner"] != job.lease_owner
-            or row["attempt_count"] != job.attempt_count
-            or row["lease_expires_at"] is None
-            or int(row["lease_expires_at"]) <= _now()
-        ):
-            raise LeaseLostError("job lease was lost")
+        self.commit_guard.assert_lease(job)
 
     def is_cancelled(self, job: WorkflowJob) -> bool:
         row = self.connection.execute(
@@ -417,28 +293,13 @@ class WorkflowRepository:
         The ownership check and all authoritative writes share the write lock.
         Nested transactions would allow independent repositories to commit it.
         """
-        with self._write_transaction(on_rollback=on_rollback):
-            self.assert_lease(job)
+        with self.commit_guard.owned_transaction(job, on_rollback=on_rollback):
             yield
 
     @contextmanager
     def _write_transaction(self, *, on_rollback: Callable[[], None] | None = None):
-        """Lock before reading state used to decide a subsequent update."""
-        if self.connection.in_transaction:
-            raise RuntimeError("workflow write transaction cannot be nested")
-        self.connection.execute("BEGIN IMMEDIATE")
-        try:
+        with self.commit_guard.transaction(on_rollback=on_rollback):
             yield
-            self.connection.commit()
-        except BaseException:
-            # Filesystem failure cleanup must finish before another publisher
-            # can obtain this lock and replace the same bundle.
-            try:
-                if on_rollback is not None:
-                    on_rollback()
-            finally:
-                self.connection.rollback()
-            raise
 
     def require_cancellation_contract(self) -> None:
         row = self.connection.execute(
@@ -536,28 +397,23 @@ class WorkflowRepository:
             raise ValueError("workflow schema predates AI proofreading; use a rebuilt archive database")
 
     def request_editorial(self, *, video_part_id: int, input_id: str) -> tuple[str, str, bool, bool]:
+        with self._write_transaction():
+            return self.enqueue_editorial(video_part_id=video_part_id, input_id=input_id)
+
+    def enqueue_editorial(self, *, video_part_id: int, input_id: str) -> tuple[str, str, bool, bool]:
+        """Persist both jobs inside an application-owned write transaction."""
+        if not self.connection.in_transaction:
+            raise RuntimeError("editorial enqueue requires a write transaction")
         self.require_cancellation_contract()
         self._require_editorial_contract()
-        with self.connection:
-            return self._editorial_jobs(video_part_id=video_part_id, payload={"input_id": input_id})
+        return self._editorial_jobs(video_part_id=video_part_id, payload={"input_id": input_id})
 
     def _editorial_jobs(self, *, video_part_id: int, payload: Mapping[str, Any],
                         prerequisite_job_id: str | None = None) -> tuple[str, str, bool, bool]:
-        from bili_asr.editorial import TEMPLATE_VERSION
-
-        digest = hashlib.sha256(_json(payload).encode("utf-8")).hexdigest()
-        proof_id, created = self._ensure_job(
-            kind=JobKind.PROOFREAD, video_part_id=video_part_id, profile_id=None,
-            policy_key=None, payload=payload, dedupe_key=f"proofread:{video_part_id}:{digest}")
-        if prerequisite_job_id:
-            self.connection.execute("INSERT OR IGNORE INTO workflow_job_dependencies VALUES (?, ?)",
-                                    (proof_id, prerequisite_job_id))
-        render_id, render_created = self._ensure_job(
-            kind=JobKind.RENDER_DOCUMENT, video_part_id=video_part_id, profile_id=None,
-            policy_key=None, payload={"proofread_job_id": proof_id, "template_version": TEMPLATE_VERSION},
-            dedupe_key=f"render:{proof_id}:{TEMPLATE_VERSION}")
-        self.connection.execute("INSERT OR IGNORE INTO workflow_job_dependencies VALUES (?, ?)", (render_id, proof_id))
-        return proof_id, render_id, created, render_created
+        external = None if prerequisite_job_id is None else "asr-parent"
+        specs = editorial_specs(video_part_id, payload, prerequisite=external)
+        ids, created = self._enqueue_specs(specs, existing_ids={} if external is None else {external: prerequisite_job_id})
+        return ids[specs[0].key], ids[specs[1].key], bool(created.get(JobKind.PROOFREAD)), bool(created.get(JobKind.RENDER_DOCUMENT))
 
     def request_document(self, *, video_part_id: int, revision_id: str, template_version: str) -> tuple[str, bool]:
         from bili_asr.editorial import TEMPLATE_VERSION
@@ -612,6 +468,17 @@ class WorkflowRepository:
             "SELECT * FROM workflow_jobs ORDER BY created_at, job_id"
         ).fetchall()
         return [self._job_from_row(row) for row in rows]
+
+    def list_job_identities(self):
+        return self.connection.execute(
+            "SELECT j.*, p.bvid, p.page_index FROM workflow_jobs j "
+            "LEFT JOIN video_parts p ON p.video_part_id = j.video_part_id "
+            "ORDER BY j.created_at, j.job_id")
+
+    def has_manuscript_contract(self) -> bool:
+        return self.connection.execute(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'manuscript_contract'"
+        ).fetchone() is not None
 
     def count_by_status(self) -> dict[str, int]:
         return {
@@ -688,47 +555,54 @@ class WorkflowRepository:
         because it completed later.  A changed requested transcript reopens a
         completed publication job to let a later, better source be projected.
         """
+        with (self.owned_transaction(source_job) if source_job is not None else self._write_transaction()):
+            return self.enqueue_publication(video_part_id=video_part_id, transcript_id=transcript_id, force=force)
+
+    def enqueue_publication(self, *, video_part_id: int, transcript_id: int, force: bool = False) -> tuple[str, bool]:
+        """Persist a request inside the application's existing write transaction."""
+        if not self.connection.in_transaction:
+            raise RuntimeError("publication enqueue requires a write transaction")
         self.require_cancellation_contract()
         now = _now()
-        payload = {"transcript_id": int(transcript_id), "video_part_id": int(video_part_id)}
+        payload = {"schema_version": 1, "transcript_id": int(transcript_id), "video_part_id": int(video_part_id)}
+        validate_payload(JobKind.PUBLISH, payload, part_id=video_part_id)
         dedupe_key = f"publish:{video_part_id}"
-        with (self.owned_transaction(source_job) if source_job is not None else self._write_transaction()):
-            row = self.connection.execute(
-                "SELECT job_id, payload_json, status FROM workflow_jobs WHERE dedupe_key = ?",
-                (dedupe_key,),
-            ).fetchone()
-            if row is None:
-                job_id, created = self._ensure_job(
-                    kind=JobKind.PUBLISH,
-                    video_part_id=video_part_id,
-                    profile_id=None,
-                    policy_key=None,
-                    payload=payload,
-                    dedupe_key=dedupe_key,
-                )
-                return job_id, created
-            previous = json.loads(str(row["payload_json"]))
-            if row["status"] == "cancelled":
-                return str(row["job_id"]), False
-            if force or int(previous.get("transcript_id", -1)) != transcript_id:
-                if row["status"] == "running":
-                    # Keep the current lease intact.  _terminal sees the newer
-                    # request and returns this part to the queue once this
-                    # attempt records its result.
-                    self.connection.execute(
-                        "UPDATE workflow_jobs SET payload_json = ?, updated_at = ? WHERE job_id = ?",
-                        (_json(payload), now, row["job_id"]),
-                    )
-                else:
-                    self.connection.execute(
-                        """UPDATE workflow_jobs
-                           SET payload_json = ?, status = 'queued', available_at = ?,
-                               lease_owner = NULL, lease_expires_at = NULL,
-                               last_error_code = NULL, updated_at = ?
-                           WHERE job_id = ?""",
-                        (_json(payload), now, now, row["job_id"]),
-                    )
+        row = self.connection.execute(
+            "SELECT job_id, payload_json, status FROM workflow_jobs WHERE dedupe_key = ?",
+            (dedupe_key,),
+        ).fetchone()
+        if row is None:
+            job_id, created = self._ensure_job(
+                kind=JobKind.PUBLISH,
+                video_part_id=video_part_id,
+                profile_id=None,
+                policy_key=None,
+                payload=payload,
+                dedupe_key=dedupe_key,
+            )
+            return job_id, created
+        previous = json.loads(str(row["payload_json"]))
+        if row["status"] == "cancelled":
             return str(row["job_id"]), False
+        if force or int(previous.get("transcript_id", -1)) != transcript_id:
+            if row["status"] == "running":
+                # Keep the current lease intact.  _terminal sees the newer
+                # request and returns this part to the queue once this
+                # attempt records its result.
+                self.connection.execute(
+                    "UPDATE workflow_jobs SET payload_json = ?, updated_at = ? WHERE job_id = ?",
+                    (_json(payload), now, row["job_id"]),
+                )
+            else:
+                self.connection.execute(
+                    """UPDATE workflow_jobs
+                       SET payload_json = ?, status = 'queued', available_at = ?,
+                           lease_owner = NULL, lease_expires_at = NULL,
+                           last_error_code = NULL, updated_at = ?
+                       WHERE job_id = ?""",
+                    (_json(payload), now, now, row["job_id"]),
+                )
+        return str(row["job_id"]), False
 
     def profile(self, profile_id: int) -> AsrProfile:
         row = self.connection.execute(
@@ -785,6 +659,7 @@ class WorkflowRepository:
         payload: Mapping[str, Any],
         dedupe_key: str,
     ) -> tuple[str, bool]:
+        validate_payload(kind, payload, part_id=video_part_id, profile_id=profile_id)
         now = _now()
         job_id = str(uuid4())
         cursor = self.connection.execute(
@@ -794,7 +669,7 @@ class WorkflowRepository:
                 payload_json, status, available_at, created_at, updated_at
             ) VALUES (?, ?, ?, ?, ?, ?, ?, 'queued', ?, ?, ?)
             """,
-            (job_id, kind.value, video_part_id, profile_id, policy_key, dedupe_key, _json(payload), now, now, now),
+            (job_id, kind.value, video_part_id, profile_id, policy_key, dedupe_key, _json({"schema_version": 1, **payload}), now, now, now),
         )
         if cursor.rowcount:
             return job_id, True
@@ -802,29 +677,6 @@ class WorkflowRepository:
             "SELECT job_id FROM workflow_jobs WHERE dedupe_key = ?", (dedupe_key,)
         ).fetchone()
         return str(row["job_id"]), False
-
-    def _below_threshold(self, part_id: int, threshold: float) -> bool:
-        row = self.connection.execute(
-            """
-            SELECT score FROM workflow_quality_assessments
-            WHERE video_part_id = ?
-            ORDER BY assessed_at DESC, assessment_id DESC LIMIT 1
-            """,
-            (part_id,),
-        ).fetchone()
-        return row is not None and float(row["score"]) < threshold
-
-    def _latest_reference_transcript_id(self, part_id: int) -> int | None:
-        row = self.connection.execute(
-            """
-            SELECT transcript_id FROM transcripts
-            WHERE video_part_id = ? AND source_kind IN ('subtitle-ai', 'subtitle-cc')
-            ORDER BY CASE source_kind WHEN 'subtitle-cc' THEN 0 ELSE 1 END,
-                     created_at DESC, transcript_id DESC LIMIT 1
-            """,
-            (part_id,),
-        ).fetchone()
-        return None if row is None else int(row["transcript_id"])
 
     def _terminal(
         self,
@@ -893,13 +745,18 @@ class WorkflowRepository:
 
     @staticmethod
     def _job_from_row(row: sqlite3.Row) -> WorkflowJob:
+        kind = JobKind(str(row["kind"]))
+        part_id = int(row["video_part_id"]) if row["video_part_id"] is not None else None
+        profile_id = int(row["profile_id"]) if row["profile_id"] is not None else None
+        payload = json.loads(str(row["payload_json"]))
+        validate_payload(kind, payload, part_id=part_id, profile_id=profile_id)
         return WorkflowJob(
             job_id=str(row["job_id"]),
-            kind=JobKind(str(row["kind"])),
-            video_part_id=int(row["video_part_id"]) if row["video_part_id"] is not None else None,
-            profile_id=int(row["profile_id"]) if row["profile_id"] is not None else None,
+            kind=kind,
+            video_part_id=part_id,
+            profile_id=profile_id,
             policy_key=row["policy_key"],
-            payload=json.loads(str(row["payload_json"])),
+            payload=payload,
             status=JobStatus(str(row["status"])),
             attempt_count=int(row["attempt_count"]),
             lease_owner=row["lease_owner"],

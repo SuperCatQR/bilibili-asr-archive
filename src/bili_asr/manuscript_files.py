@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import hashlib
 import os
+from contextlib import contextmanager
+from dataclasses import dataclass
 from pathlib import Path, PurePosixPath, PureWindowsPath
 import stat
 import tempfile
-from typing import Iterable
+from typing import Iterable, Iterator
 
 
 def _reject_link(path: Path) -> None:
@@ -75,31 +77,56 @@ def read_artifact(relative_path: str, sha256: str, roots: Iterable[Path]) -> byt
     raise ValueError(f"manuscript-integrity: artifact is missing: {relative_path}")
 
 
-def atomic_write_artifact(root: Path, relative_path: str, data: bytes) -> Path:
-    """Durably install bytes once; retries never overwrite conflicting content."""
+@dataclass(frozen=True)
+class StagedArtifact:
+    root: Path
+    relative_path: str
+    target: Path
+    temporary: Path | None
+    content: bytes
+
+    def install(self) -> Path:
+        """Install already durable bytes under the caller's ownership fence."""
+        secure_path(self.root, self.relative_path)
+        if self.temporary is None:
+            if self.target.read_bytes() != self.content:
+                raise ValueError("manuscript-integrity: existing artifact has different bytes")
+            return self.target
+        try:
+            os.link(self.temporary, self.target)
+        except FileExistsError:
+            if self.target.read_bytes() != self.content:
+                raise ValueError("manuscript-integrity: concurrent artifact has different bytes")
+        if os.name != "nt":
+            directory_fd = os.open(self.target.parent, os.O_RDONLY | os.O_DIRECTORY)
+            try:
+                os.fsync(directory_fd)
+            finally:
+                os.close(directory_fd)
+        return self.target
+
+
+@contextmanager
+def stage_artifact(root: Path, relative_path: str, data: bytes) -> Iterator[StagedArtifact]:
+    """Prepare and fsync outside SQLite transactions; always clean staging."""
     target = secure_path(root, relative_path, create_parents=True)
     if target.exists():
         if target.read_bytes() != data:
             raise ValueError("manuscript-integrity: existing artifact has different bytes")
-        return target
+        yield StagedArtifact(root, relative_path, target, None, data)
+        return
     fd, temporary = tempfile.mkstemp(prefix=".manuscript-", dir=target.parent)
     try:
         with os.fdopen(fd, "wb") as stream:
             stream.write(data)
             stream.flush()
             os.fsync(stream.fileno())
-        secure_path(root, relative_path)
-        try:
-            os.link(temporary, target)
-        except FileExistsError:
-            if target.read_bytes() != data:
-                raise ValueError("manuscript-integrity: concurrent artifact has different bytes")
-        if os.name != "nt":
-            directory_fd = os.open(target.parent, os.O_RDONLY | os.O_DIRECTORY)
-            try:
-                os.fsync(directory_fd)
-            finally:
-                os.close(directory_fd)
+        yield StagedArtifact(root, relative_path, target, Path(temporary), data)
     finally:
         os.unlink(temporary)
-    return target
+
+
+def atomic_write_artifact(root: Path, relative_path: str, data: bytes) -> Path:
+    """Durably install bytes once; retries never overwrite conflicting content."""
+    with stage_artifact(root, relative_path, data) as staged:
+        return staged.install()

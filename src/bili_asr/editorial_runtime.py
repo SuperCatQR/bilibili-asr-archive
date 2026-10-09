@@ -3,21 +3,24 @@
 from __future__ import annotations
 
 import hashlib
+from contextlib import ExitStack
 from pathlib import Path
 from typing import Any
 from bili_asr.artifact_root import ArtifactRoots
 
 from bili_asr.deepseek import DeepSeekClient, parse_response, request_body
 from bili_asr.editorial import EditorialConfig, TEMPLATE_VERSION, render_documents, validate_revision
-from bili_asr.manuscript_files import atomic_write_artifact, secure_path
+from bili_asr.manuscript_files import stage_artifact
 from bili_asr.storage.editorial import EditorialRepository
 from bili_asr.storage.workflow import JobKind, WorkflowJob, WorkflowRepository
+from bili_asr.workflow_payloads import decode_job_payload
 
 
 class EditorialWorkflowHandlers:
     def __init__(self, repository: EditorialRepository, workflow: WorkflowRepository, *, archive_root: Path,
                  client: DeepSeekClient | None = None, artifact_roots: ArtifactRoots | None = None):
         self.repository, self.workflow = repository, workflow
+        self.repository.commit_guard = workflow.commit_guard
         self.artifact_roots = artifact_roots or ArtifactRoots.of(archive_root)
         self.archive_root = self.artifact_roots.archive_root
         self.client = client or DeepSeekClient()
@@ -31,6 +34,7 @@ class EditorialWorkflowHandlers:
         return {JobKind.PROOFREAD: self.proofread, JobKind.RENDER_DOCUMENT: self.render}
 
     def proofread(self, job: WorkflowJob) -> dict[str, Any]:
+        decode_job_payload(job)
         self.workflow.assert_lease(job)
         prepared = self.repository.freeze_job_input(job)
         config = EditorialConfig(**prepared["snapshot"]["config"])
@@ -57,6 +61,7 @@ class EditorialWorkflowHandlers:
         return {"input_id": prepared["input_id"], "revision_id": revision_id, "chunks": len(prepared["chunks"])}
 
     def render(self, job: WorkflowJob) -> dict[str, Any]:
+        decode_job_payload(job)
         self.workflow.assert_lease(job)
         template = job.payload["template_version"]
         if template != TEMPLATE_VERSION:
@@ -78,12 +83,15 @@ class EditorialWorkflowHandlers:
         # Validate both artifact identities and existing registrations before
         # replacing either file.  A conflict must never leave a half-updated pair.
         self.repository.preflight_artifacts(revision_id, template, artifacts)
-        for name, content in documents.items():
-            target = secure_path(write_root, artifacts[name][0])
-            if target.exists() and target.read_bytes() != content.encode("utf-8"):
-                raise ValueError("manuscript-integrity: existing document has different bytes")
-        with self.repository.owned_transaction(job):
-            for name, content in documents.items():
-                atomic_write_artifact(write_root, artifacts[name][0], content.encode("utf-8"))
-            self.repository.record_artifacts(revision_id, template, artifacts)
+        with ExitStack() as staging:
+            prepared_files = [staging.enter_context(stage_artifact(
+                write_root, artifacts[name][0], content.encode("utf-8")))
+                for name, content in documents.items()]
+            with self.repository.owned_transaction(job):
+                # SQLite cannot roll back files. These immutable paths safely
+                # survive as unregistered artifacts if the database commit fails;
+                # retry verifies their bytes before registering the complete pair.
+                for artifact in prepared_files:
+                    artifact.install()
+                self.repository.record_artifacts(revision_id, template, artifacts)
         return {"revision_id": revision_id, "artifacts": {name: path for name, (path, _) in artifacts.items()}}
