@@ -74,7 +74,7 @@ exclude-dependencies = ["torch"]
 where = ["src"]
 
 [tool.setuptools.package-data]
-"bili_asr.storage" = ["schema.sql", "schema-transcripts.sql", "schema-workflow.sql", "schema-editorial.sql"]
+"bili_asr.storage" = ["schema.sql", "schema-transcripts.sql", "schema-workflow.sql", "schema-editorial.sql", "migration-source-bilibili-v1.json"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

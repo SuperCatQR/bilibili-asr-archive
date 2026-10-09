@@ -179,6 +179,7 @@ jobs:
               "schema-transcripts.sql",
               "schema-workflow.sql",
               "schema-editorial.sql",
+              "migration-source-bilibili-v1.json",
           }
           missing = sorted(name for name in required if not storage.joinpath(name).is_file())
           if missing:
