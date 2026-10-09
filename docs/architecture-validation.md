@@ -21,7 +21,7 @@
 
 ## 自动验收
 
-使用 Archify 3.0.1，全部 18 份最终候选通过 showcase 级别的 validate、deliver、strict check 和 browser-check，最终 diagnostics 均为空。候选变动后重新 finalize，最终记录只绑定最后一次成功交付的 specification / artifact SHA-256；旧失败候选或旧截图不充当当前验收。
+使用 Archify 3.0.1，全部 18 份最终候选通过 showcase 级别的 validate、deliver、strict check 和 browser-check，最终 diagnostics 均为空。候选变动后重新 finalize，最终记录只绑定最后一次成功交付的 specification / artifact SHA-256；旧失败候选或旧截图不充当当前验收。目录级 Git 属性对这些 JSON/HTML 设置 `-text`，避免换行转换；提交时另行核对 Git blob 的全部 36 个规格/产物哈希与此记录一致。
 
 browser-check 使用 Chrome，以 READ / still 状态检查 light / dark 两种主题，桌面尺寸为 1440×900、1600×1000、1920×1080、2048×1320。全部横向 containment 和可读性检查通过；长图按 Reader 的 intrinsic-height 契约允许页面纵向滚动。没有通过裁切内容或隐藏 overflow 强制适配。
 
