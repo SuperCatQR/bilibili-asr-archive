@@ -12,13 +12,13 @@ import time
 from typing import Any, Iterable
 from urllib.parse import urlparse
 
-from bili_asr.editorial import canonical, digest, render_documents
+from bili_asr.editorial import canonical, digest
+from bili_asr.manuscript_templates import AI_RENDERERS, PUBLISH_RENDERERS, renderer_for
 from bili_asr.manuscript_files import atomic_write_artifact, read_artifact
 from bili_asr.storage.publication import PublicationConflictError, PublicationRepository
 
 
 PUBLISH_TEMPLATE_VERSION = "publish-v1"
-AI_TEMPLATE_VERSION = "ai-draft-v1"
 _CONTENT_KEYS = frozenset({"title", "markdown", "summary", "tags", "source", "attribution", "editorNote"})
 _EDITABLE_METADATA = _CONTENT_KEYS - {"markdown", "source"}
 _SHA256 = re.compile(r"[0-9a-f]{64}\Z")
@@ -142,8 +142,6 @@ def get_ai_artifacts(connection: sqlite3.Connection, revision_id: str,
                      artifact_roots: Iterable[Path]) -> dict[str, bytes]:
     PublicationRepository(connection)
     revision, prepared = _revision(connection, revision_id)
-    documents = render_documents(prepared["snapshot"]["metadata"], prepared,
-                                 json.loads(revision["blocks_json"]), revision_id)
     rows = connection.execute(
         "SELECT * FROM document_artifacts WHERE revision_id = ?", (revision_id,)
     ).fetchall()
@@ -154,8 +152,11 @@ def get_ai_artifacts(connection: sqlite3.Connection, revision_id: str,
     artifacts = {}
     for row in rows:
         name = row["artifact_name"]
-        path = f"documents/part-{revision['video_part_id']}/{revision_id}/{AI_TEMPLATE_VERSION}/{name}"
-        if (row["template_version"] != AI_TEMPLATE_VERSION or row["manuscript_role"] != expected[name]
+        version = row["template_version"]
+        documents = renderer_for(AI_RENDERERS, version)(prepared["snapshot"]["metadata"], prepared,
+                                                       json.loads(revision["blocks_json"]), revision_id)
+        path = f"documents/part-{revision['video_part_id']}/{revision_id}/{version}/{name}"
+        if (row["manuscript_role"] != expected[name]
                 or row["relative_path"] != path or not _SHA256.fullmatch(row["content_sha256"])
                 or row["content_sha256"] != hashlib.sha256(documents[name].encode("utf-8")).hexdigest()):
             raise ValueError("publication-integrity: AI artifact identity does not match revision")
@@ -250,38 +251,23 @@ def review_edition(connection: sqlite3.Connection, *, edition_id: str, status: s
         )
 
 
-def _markdown_inline(text: str) -> str:
-    return re.sub(r"([\\`*_{}\[\]()<>#+.!|~-])", r"\\\1", text)
-
-
 def render_publication(content: dict[str, Any]) -> bytes:
-    """Render only the approved frozen reader object with a fixed template."""
-    content = normalize_content(content)
-    parts = [f"# {_markdown_inline(content['title'])}"]
-    if content["summary"]:
-        parts.append(content["summary"])
-    parts.append(content["markdown"].rstrip("\n"))
-    source = content["source"]
-    parts.append(f"\u6765\u6e90\uff1a[{_markdown_inline(source['bvid'])} / P{source['pageIndex'] + 1}]({source['url']})")
-    if content["attribution"]:
-        parts.append(content["attribution"])
-    if content["editorNote"]:
-        parts.append(content["editorNote"])
-    if content["tags"]:
-        parts.append("\u6807\u7b7e\uff1a" + "\u3001".join(_markdown_inline(tag) for tag in content["tags"]))
-    return ("\n\n".join(parts) + "\n").encode("utf-8")
+    """Render the current writer template from normalized reader content."""
+    return renderer_for(PUBLISH_RENDERERS, PUBLISH_TEMPLATE_VERSION)(normalize_content(content))
 
 
 def _verify_release_identity(connection: sqlite3.Connection, release: dict) -> dict:
     edition = get_edition(connection, release["edition_id"])
+    version = release["template_version"]
+    render = renderer_for(PUBLISH_RENDERERS, version)
     expected_id = digest({"edition_id": edition["edition_id"], "content_sha256": edition["content_sha256"],
-                          "template_version": PUBLISH_TEMPLATE_VERSION})
-    expected_path = f"publications/part-{edition['video_part_id']}/{expected_id}/{PUBLISH_TEMPLATE_VERSION}/publish.md"
+                          "template_version": version})
+    expected_path = f"publications/part-{edition['video_part_id']}/{expected_id}/{version}/publish.md"
     if (release["release_id"] != expected_id or release["video_part_id"] != edition["video_part_id"]
             or release["review_id"] != edition["review_id"] or edition["review_status"] != "approved"
             or release["content_sha256"] != edition["content_sha256"]
-            or release["template_version"] != PUBLISH_TEMPLATE_VERSION or release["relative_path"] != expected_path
-            or release["artifact_sha256"] != hashlib.sha256(render_publication(edition["content"])).hexdigest()):
+            or release["relative_path"] != expected_path
+            or release["artifact_sha256"] != hashlib.sha256(render(edition["content"])).hexdigest()):
         raise ValueError("publication-integrity: release is not bound to the exact approved edition")
     if (release["status"] == "published") != (edition["current_release_id"] == release["release_id"]):
         raise ValueError("publication-integrity: release state disagrees with effective head")

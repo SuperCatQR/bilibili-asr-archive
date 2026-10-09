@@ -533,3 +533,32 @@ def test_readonly_connection_checks_contract_without_writing(archive):
         assert set(get_ai_artifacts(readonly, revision, roots)) == {"ai-draft.md", "review.md"}
     finally:
         readonly.close()
+
+
+def test_historical_templates_ignore_current_writer_changes(archive, monkeypatch):
+    import bili_asr.publication as publication
+    import bili_asr.editorial as editorial
+    connection, revision, roots = archive
+    edition = _create(archive)
+    approve(connection, edition)
+    release = _publish(archive, edition)
+    original = verify_release(connection, release["release_id"], roots)[2]
+    original_pair = get_ai_artifacts(connection, revision, roots)
+    monkeypatch.setattr(publication, "PUBLISH_TEMPLATE_VERSION", "publish-v2")
+    monkeypatch.setattr(editorial, "TEMPLATE_VERSION", "ai-draft-v2")
+    monkeypatch.setattr(publication, "render_publication", lambda content: b"new writer bytes")
+    monkeypatch.setattr(editorial, "render_documents", lambda *args: {})
+    assert verify_release(connection, release["release_id"], roots)[2] == original
+    assert get_ai_artifacts(connection, revision, roots) == original_pair
+    assert _publish(archive, edition)["idempotent"]
+
+
+def test_missing_historical_renderer_is_reported_explicitly(archive, monkeypatch):
+    from bili_asr.manuscript_templates import PUBLISH_RENDERERS
+    connection, _, roots = archive
+    edition = _create(archive)
+    approve(connection, edition)
+    release = _publish(archive, edition)
+    monkeypatch.delitem(PUBLISH_RENDERERS, "publish-v1")
+    with pytest.raises(ValueError, match="unsupported template renderer: publish-v1"):
+        verify_release(connection, release["release_id"], roots)
