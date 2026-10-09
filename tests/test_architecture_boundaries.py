@@ -49,7 +49,7 @@ def test_storage_and_services_never_import_command_or_application_owners():
 
 
 def test_pure_shared_models_and_policies_do_not_import_persistence_or_adapters():
-    names = ("canonical_json", "cue_models", "error_codes", "platform_identity", "transcript_selection",
+    names = ("bilibili_identity", "canonical_json", "cue_models", "error_codes", "platform_identity", "transcript_selection",
              "workflow_models", "workflow_payloads", "workflow_planning", "publication_content", "publication_identity")
     forbidden = ("bili_asr.storage", "bili_asr.services", "bili_asr.cli", "bili_asr.sources", "sqlite3", "requests")
     violations = [(name, target) for name in names for target in imports(SOURCE / f"{name}.py")

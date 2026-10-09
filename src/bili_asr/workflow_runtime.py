@@ -98,7 +98,7 @@ class ArchiveWorkflowHandlers:
         part = self._part(job)
         ingestor = SubtitleIngestor(
             self.gateway_factory(sessdata=self.sessdata),
-            TranscriptRepository(self.connection, write_guard=lambda: self.repository.assert_lease(job)),
+            TranscriptRepository(self.connection, write_transaction=lambda: self.repository.owned_transaction(job)),
             credential_present=self.sessdata is not None,
             checkpoint=lambda: self.repository.assert_lease(job),
         )
@@ -229,7 +229,7 @@ class ArchiveWorkflowHandlers:
         )
         started = int(time.time())
         run_id = str(uuid4())
-        transcripts = TranscriptRepository(self.connection, write_guard=lambda: self.repository.assert_lease(job))
+        transcripts = TranscriptRepository(self.connection, write_transaction=lambda: self.repository.owned_transaction(job))
         transcripts.start_acquisition_run(
             AcquisitionRunRecord(
                 run_id=run_id,

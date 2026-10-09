@@ -7,7 +7,7 @@ import json
 import math
 import sqlite3
 from collections.abc import Mapping, Sequence
-from contextlib import contextmanager
+from contextlib import AbstractContextManager, contextmanager
 from typing import Any, Callable
 
 import bili_asr.storage.database as _module_storage_database
@@ -86,14 +86,27 @@ class TranscriptRepository:
     instead of a raw ``sqlite3.OperationalError`` from its first query.
     """
 
-    def __init__(self, connection: sqlite3.Connection, *, write_guard: Callable[[], None] | None = None):
+    def __init__(
+        self, connection: sqlite3.Connection, *,
+        write_guard: Callable[[], None] | None = None,
+        write_transaction: Callable[[], AbstractContextManager[None]] | None = None,
+    ):
+        if write_guard is not None and write_transaction is not None:
+            raise ValueError("transcript writes need one ownership guard")
         _module_storage_database._validate_connection(connection)
         _module_storage_database.require_subtitle_schema(connection)
         self.connection = connection
         self._write_guard = write_guard
+        self._write_transaction = write_transaction
 
     @contextmanager
     def _result_transaction(self):
+        # Workflow callers supply the shared JobCommitGuard's whole context,
+        # so every authoritative result uses its entry and pre-commit fence.
+        if self._write_transaction is not None:
+            with self._write_transaction():
+                yield
+            return
         with _module_storage_database._transaction(self.connection):
             if self._write_guard is not None:
                 if self.connection.in_transaction:
@@ -101,6 +114,10 @@ class TranscriptRepository:
                 self.connection.execute("BEGIN IMMEDIATE")
                 self._write_guard()
             yield
+            # Retain the callback API for existing library callers, including
+            # refusal when a large segment write outlives its entry check.
+            if self._write_guard is not None:
+                self._write_guard()
 
     def start_acquisition_run(self, run: AcquisitionRunRecord) -> None:
         """Insert one new acquisition run.
