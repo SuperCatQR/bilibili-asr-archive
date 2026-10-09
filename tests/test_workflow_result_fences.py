@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from threading import Event, Thread
+
 import pytest
 
 from bili_asr.archive_session import ArchiveAccessMode, ArchiveSession
@@ -9,6 +11,7 @@ from bili_asr.sources.models import SubtitleSegment, SubtitleTrack
 from bili_asr.storage import AcquisitionRunRecord, TranscriptRepository, TranscriptSegmentRecord
 from bili_asr.storage.job_commit import JobCommitGuard
 from bili_asr.storage.workflow import WorkflowRepository
+import bili_asr.storage.workflow as workflow_storage
 from bili_asr.workflow_models import AsrPolicy, AsrProfile, JobCancelledError, JobKind, LeaseLostError
 from bili_asr.workflow_runtime import ArchiveWorkflowHandlers
 from tests.test_archive_sessions import _exclusive_available
@@ -163,3 +166,149 @@ def test_callback_and_transaction_guards_cannot_be_combined(session):
     with pytest.raises(ValueError, match="one ownership guard"):
         TranscriptRepository(session.connection, write_guard=lambda: workflow.assert_lease(job),
             write_transaction=lambda: workflow.owned_transaction(job))
+
+
+def _control_snapshot(connection):
+    return tuple(tuple(tuple(row) for row in connection.execute(f"SELECT * FROM {table} ORDER BY rowid"))
+                 for table in ("workflow_jobs", "workflow_attempts"))
+
+
+def _while_waiting_for_writer(session, now, deadline, operation):
+    """Advance a deterministic clock while a real second writer is blocked."""
+    ready = Event()
+    results = []
+
+    def worker():
+        try:
+            with ArchiveSession(session.archive_root, mode=ArchiveAccessMode.WRITE) as opened:
+                repository = WorkflowRepository(opened.connection)
+
+                def mark_begin(sql):
+                    if sql.strip().startswith("BEGIN"):
+                        ready.set()
+
+                opened.connection.set_trace_callback(mark_begin)
+                results.append(operation(repository))
+        except BaseException as error:
+            results.append(error)
+
+    session.connection.execute("BEGIN IMMEDIATE")
+    thread = Thread(target=worker)
+    thread.start()
+    try:
+        assert ready.wait(10), "second writer never tried to acquire the SQLite lock"
+        now[0] = deadline
+    finally:
+        session.connection.rollback()
+        thread.join(10)
+    assert not thread.is_alive(), "second writer failed to finish after the SQLite lock was released"
+    assert len(results) == 1
+    return results[0]
+
+
+def _terminal_operation(repository, job, outcome, expiry):
+    if outcome == "succeeded":
+        repository.finish(job.job_id, worker_id=job.lease_owner, expected_attempt_count=job.attempt_count,
+                          result={"accepted": True})
+    else:
+        repository.fail(job.job_id, worker_id=job.lease_owner, expected_attempt_count=job.attempt_count,
+                        error_code="temporary_failure", retry_at=expiry + 30 if outcome == "retry" else None)
+
+
+@pytest.mark.parametrize("outcome", ["succeeded", "failed", "retry"])
+@pytest.mark.parametrize("window", ["writer_wait", "attempt_write"])
+def test_terminal_exact_expiry_rolls_back_job_and_attempt(session, monkeypatch, outcome, window):
+    workflow, job, now, expiry = _claim(session)
+    monkeypatch.setattr(workflow_storage, "_now", lambda: now[0])
+    before = _control_snapshot(session.connection)
+    if window == "writer_wait":
+        error = _while_waiting_for_writer(session, now, expiry,
+            lambda repository: _terminal_operation(repository, job, outcome, expiry))
+        assert isinstance(error, LeaseLostError)
+    else:
+        def expire_on_attempt(sql):
+            if sql.lstrip().startswith("UPDATE workflow_attempts"):
+                now[0] = expiry
+
+        session.connection.set_trace_callback(expire_on_attempt)
+        try:
+            with pytest.raises(LeaseLostError):
+                _terminal_operation(workflow, job, outcome, expiry)
+        finally:
+            session.connection.set_trace_callback(None)
+    assert _control_snapshot(session.connection) == before
+    assert not session.connection.in_transaction
+
+
+def test_claim_waiting_for_writer_reclaims_with_a_fresh_deadline(session, monkeypatch):
+    _, old_job, now, expiry = _claim(session)
+    monkeypatch.setattr(workflow_storage, "_now", lambda: now[0])
+    job = _while_waiting_for_writer(session, now, expiry,
+        lambda repository: repository.claim("new-worker", lease_seconds=30, kinds=(JobKind.SUBTITLE,)))
+    assert job is not None and not isinstance(job, BaseException)
+    assert job.job_id == old_job.job_id and job.attempt_count == old_job.attempt_count + 1
+    stored = session.connection.execute("SELECT lease_expires_at FROM workflow_jobs WHERE job_id = ?",
+                                        (job.job_id,)).fetchone()
+    assert stored[0] == expiry + 30
+    outcomes = [tuple(row) for row in session.connection.execute(
+        "SELECT outcome, error_code FROM workflow_attempts WHERE job_id = ? ORDER BY rowid", (job.job_id,))]
+    assert outcomes == [("failed", "lease_expired"), ("running", None)]
+
+
+def test_claim_expiring_during_attempt_write_rolls_back_reclamation(session, monkeypatch):
+    workflow, _, now, expiry = _claim(session)
+    now[0] = expiry
+    monkeypatch.setattr(workflow_storage, "_now", lambda: now[0])
+    before = _control_snapshot(session.connection)
+
+    def expire_on_attempt(sql):
+        if sql.lstrip().startswith("INSERT INTO workflow_attempts"):
+            now[0] = expiry + 1
+
+    session.connection.set_trace_callback(expire_on_attempt)
+    try:
+        with pytest.raises(LeaseLostError):
+            workflow.claim("new-worker", lease_seconds=1, kinds=(JobKind.SUBTITLE,))
+    finally:
+        session.connection.set_trace_callback(None)
+    assert _control_snapshot(session.connection) == before
+    assert not session.connection.in_transaction
+
+
+@pytest.mark.parametrize("window", ["already_expired", "writer_wait", "previous_deadline", "renewal_write"])
+def test_renewal_rejects_exact_expiry_and_rolls_back_new_deadline(session, monkeypatch, window):
+    workflow, job, now, expiry = _claim(session)
+    monkeypatch.setattr(workflow_storage, "_now", lambda: now[0])
+    before = _control_snapshot(session.connection)
+    if window == "writer_wait":
+        error = _while_waiting_for_writer(session, now, expiry,
+            lambda repository: repository.renew_lease(job, lease_seconds=30))
+        assert isinstance(error, LeaseLostError)
+    else:
+        if window == "already_expired":
+            now[0] = expiry
+        else:
+            new_deadline = now[0] + 30
+
+            def expire_on_renewal(sql):
+                if sql.lstrip().startswith("UPDATE workflow_jobs"):
+                    now[0] = expiry if window == "previous_deadline" else new_deadline
+
+            session.connection.set_trace_callback(expire_on_renewal)
+        try:
+            with pytest.raises(LeaseLostError):
+                workflow.renew_lease(job, lease_seconds=30)
+        finally:
+            session.connection.set_trace_callback(None)
+    assert _control_snapshot(session.connection) == before
+    assert not session.connection.in_transaction
+
+
+@pytest.mark.parametrize("seconds", [0, -1])
+def test_renewal_requires_positive_duration_without_writes(session, seconds):
+    workflow, job, _, _ = _claim(session)
+    before = _control_snapshot(session.connection)
+    with pytest.raises(ValueError, match="positive"):
+        workflow.renew_lease(job, lease_seconds=seconds)
+    assert _control_snapshot(session.connection) == before
+    assert not session.connection.in_transaction

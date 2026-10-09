@@ -197,13 +197,12 @@ class WorkflowRepository:
         self.require_cancellation_contract()
         if not worker_id.strip() or lease_seconds < 1:
             raise ValueError("worker_id and lease_seconds must be valid")
-        now = _now()
         selected = None if kinds is None else tuple(k.value for k in kinds)
         if selected == ():
             return None
         kind_filter = "" if selected is None else " AND j.kind IN (" + ",".join("?" for _ in selected) + ")"
-        self.connection.execute("BEGIN IMMEDIATE")
-        try:
+        with self.commit_guard.transaction():
+            now = _now()
             self.connection.execute(
                 """UPDATE workflow_attempts
                    SET outcome = 'failed', finished_at = ?, error_code = 'lease_expired'
@@ -236,7 +235,6 @@ class WorkflowRepository:
                 (now, *(selected or ())),
             ).fetchone()
             if row is None:
-                self.connection.commit()
                 return None
             attempt_id = str(uuid4())
             self.connection.execute(
@@ -255,24 +253,20 @@ class WorkflowRepository:
                 "SELECT * FROM workflow_jobs WHERE job_id = ?", (row["job_id"],)
             ).fetchone()
             job = self._job_from_row(claimed)
-            self.connection.commit()
-        except BaseException:
-            self.connection.rollback()
-            raise
+            self.commit_guard.assert_lease(job)
         return job
 
     def renew_lease(self, job: WorkflowJob, *, lease_seconds: int) -> None:
-        now = _now()
-        with self.connection:
-            cursor = self.connection.execute(
-                "UPDATE workflow_jobs SET lease_expires_at = ?, updated_at = ? "
-                "WHERE job_id = ? AND status = 'running' AND lease_owner = ? "
-                "AND attempt_count = ? AND lease_expires_at >= ?",
-                (now + lease_seconds, now, job.job_id, job.lease_owner, job.attempt_count, now))
-            if cursor.rowcount != 1:
-                if self.is_cancelled(job):
-                    raise JobCancelledError("job was cancelled")
-                raise LeaseLostError("job lease was lost")
+        if lease_seconds < 1:
+            raise ValueError("lease_seconds must be positive")
+        with self.commit_guard.transaction():
+            deadline = self.commit_guard.assert_lease(job)
+            now = _now()
+            self.connection.execute(
+                "UPDATE workflow_jobs SET lease_expires_at = ?, updated_at = ? WHERE job_id = ?",
+                (now + lease_seconds, now, job.job_id))
+            renewed_deadline = self.commit_guard.assert_lease(job)
+            self.commit_guard.assert_unexpired(min(deadline, renewed_deadline))
 
     def assert_lease(self, job: WorkflowJob) -> None:
         """Fence a side effect to the exact claimed attempt."""
@@ -689,9 +683,8 @@ class WorkflowRepository:
         retry_at: int | None = None,
         expected_attempt_count: int | None = None,
     ) -> None:
-        now = _now()
-        self.connection.execute("BEGIN IMMEDIATE")
-        try:
+        with self.commit_guard.transaction():
+            now = _now()
             job = self.connection.execute(
                 "SELECT status, lease_owner, lease_expires_at, kind, payload_json, attempt_count "
                 "FROM workflow_jobs WHERE job_id = ?",
@@ -703,12 +696,12 @@ class WorkflowRepository:
                 job is None
                 or job["status"] != "running"
                 or job["lease_owner"] != worker_id
-                or job["lease_expires_at"] is None
-                or int(job["lease_expires_at"]) <= now
             ):
                 raise LeaseLostError("job is not leased by this worker")
             if expected_attempt_count is not None and job["attempt_count"] != expected_attempt_count:
                 raise LeaseLostError("job lease was lost")
+            deadline = job["lease_expires_at"]
+            self.commit_guard.assert_unexpired(deadline)
             current_payload = json.loads(str(job["payload_json"]))
             request_changed_while_running = (
                 outcome == "succeeded"
@@ -738,10 +731,7 @@ class WorkflowRepository:
             )
             if cursor.rowcount != 1:
                 raise RuntimeError("running attempt is missing")
-            self.connection.commit()
-        except BaseException:
-            self.connection.rollback()
-            raise
+            self.commit_guard.assert_unexpired(deadline)
 
     @staticmethod
     def _job_from_row(row: sqlite3.Row) -> WorkflowJob:

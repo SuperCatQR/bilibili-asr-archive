@@ -15,7 +15,13 @@ class JobCommitGuard:
         self.connection = connection
         self.clock = clock
 
-    def assert_lease(self, job: WorkflowJob) -> None:
+    def assert_unexpired(self, deadline: int | None) -> None:
+        """Check a captured deadline after a terminal write clears the lease."""
+        if deadline is None or int(deadline) <= int(self.clock()):
+            raise LeaseLostError("job lease was lost")
+
+    def assert_lease(self, job: WorkflowJob) -> int:
+        """Validate this attempt and return its deadline for lease transitions."""
         row = self.connection.execute(
             "SELECT status, lease_owner, lease_expires_at, attempt_count "
             "FROM workflow_jobs WHERE job_id = ?", (job.job_id,),
@@ -24,10 +30,10 @@ class JobCommitGuard:
             raise JobCancelledError("job was cancelled")
         if (row is None or row["status"] != JobStatus.RUNNING.value
                 or row["lease_owner"] != job.lease_owner
-                or row["attempt_count"] != job.attempt_count
-                or row["lease_expires_at"] is None
-                or int(row["lease_expires_at"]) <= int(self.clock())):
+                or row["attempt_count"] != job.attempt_count):
             raise LeaseLostError("job lease was lost")
+        self.assert_unexpired(row["lease_expires_at"])
+        return int(row["lease_expires_at"])
 
     @contextmanager
     def transaction(self, *, on_rollback: Callable[[], None] | None = None) -> Iterator[None]:
