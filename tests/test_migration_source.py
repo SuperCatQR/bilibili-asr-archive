@@ -191,7 +191,7 @@ def test_fingerprints_keep_exact_json_text_storage_types_nulls_and_effective_row
     assert "秘密" not in repr(inspect_migration_source(source_database))
 
 
-@pytest.mark.parametrize("expiry", [None, int(time.time()) + 3600])
+@pytest.mark.parametrize("expiry", [None, int(time.time()) + 3600], ids=("missing-lease", "live-lease"))
 def test_live_workflow_lease_blocks_and_expired_lease_is_reported_without_recovery(source_database, expiry):
     with closing(sqlite3.connect(source_database)) as connection:
         connection.execute(
