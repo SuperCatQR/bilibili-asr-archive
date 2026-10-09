@@ -122,7 +122,7 @@ def _regular_file(path: Path) -> os.stat_result:
 
 
 def _temporary_component(name: str) -> bool:
-    return (name.startswith((".audio-stage-", ".archive-bundle-stage-", ".bili-asr-probe-", ".render-", ".import-", ".manuscript-"))
+    return (name.startswith((".audio-stage-", ".workflow-audio-", ".archive-bundle-stage-", ".bili-asr-probe-", ".render-", ".import-", ".manuscript-"))
             or name == ".tmp"
             or Path(name).suffix.lower() in _TEMP_SUFFIXES)
 

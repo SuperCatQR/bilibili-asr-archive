@@ -182,7 +182,7 @@ def test_snapshot_refuses_missing_and_corrupt_referenced_audio(tmp_path) -> None
     assert not list(tmp_path.glob(".*.snapshot-stage-*"))
 
 
-@pytest.mark.parametrize("relative", ["audio/.audio-stage-abc.download", "transcripts/.archive-bundle-stage-abc/bundle.txt", "documents/.reading.tmp"])
+@pytest.mark.parametrize("relative", ["audio/.audio-stage-abc.download", "audio/.workflow-audio-abc/audio/BVtest.m4a", "transcripts/.archive-bundle-stage-abc/bundle.txt", "documents/.reading.tmp"])
 def test_snapshot_refuses_leftover_temporary_artifacts(tmp_path, relative) -> None:
     root = tmp_path / "source"
     _seed_archive(root)
