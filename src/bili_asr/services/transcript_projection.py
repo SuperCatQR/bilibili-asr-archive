@@ -18,12 +18,9 @@ machine caption publishes the uploader one, and a part holding ``ai-zh`` and
 ``ai-en`` publishes the Chinese one — the family rank is what stops the code
 order from preferring English there.
 
-The family rule is the harvester's own (``subtitle_ingest.language_family``), and
-it is mirrored here rather than imported: that module holds the gateway and the
-repository, so importing it would put the acquisition side inside a pure module.
-``LANGUAGE_FAMILY_ORDER`` is declared for the same reason and a test pins it
-equal to the harvester's default order; the rule below is pinned the same way,
-against the harvester's own function over the codes §3.2 spells out.
+Language-family normalization and version preference live in the pure
+``transcript_selection`` module. Producers, consumers and storage planners
+share those rules without importing acquisition or persistence implementations.
 
 The shared rules that are imported keep one home each:
 :func:`~bili_asr.formatting.duration_s_from_ms` for the milliseconds-to-seconds
@@ -41,22 +38,16 @@ from bili_asr.page_identity import format_work_id
 from bili_asr.formatting import pubdate_utc
 from bili_asr.artifacts import REQUIRED_ARTIFACT_KEYS as _PRODUCT_PATH_KEYS
 from bili_asr.formatting import duration_s_from_ms
+from bili_asr.transcript_selection import (
+    LANGUAGE_FAMILY_ORDER, SOURCE_KIND_RANK, choose_transcript, language_family,
+    transcript_preference_key,
+)
 
 if TYPE_CHECKING:  # types only: this module never builds or checks one (§8).
     from bili_asr.storage.models import TranscriptSegmentRecord
 
 #: The state assigned once the archive bundle is complete.
 ARCHIVED_STATUS = "archived"
-#: §3.2 key 1: the kind order, which is the shipped harvester's own preference —
-#: an uploader caption before a machine caption before a local ASR transcript.
-SOURCE_KIND_RANK = {"subtitle-cc": 0, "subtitle-ai": 1, "asr-local": 2}
-#: §3.2 key 2: the family order, declared here (see the module docstring) and
-#: pinned equal to the harvester's default by a test.
-LANGUAGE_FAMILY_ORDER = ("zh", "en")
-
-#: The stored kind of a machine-generated caption, whose codes carry the ``ai-``
-#: prefix the family rule strips (``_SOURCE_KIND_BY_AI``, ``subtitle_ingest.py:61``).
-_MACHINE_CAPTION_KIND = "subtitle-ai"
 #: §2.1's part context: what a candidate carries out of the read, and no more.
 #: ``pubdate`` and ``video_title`` are the video's own columns; they are here
 #: beside the part's because the read joins ``videos`` for them, and a caller
@@ -107,46 +98,9 @@ class Candidate:
 
 
 def _language_family(row: Mapping[str, Any]) -> str:
-    """Return the family §3.2 key 2 ranks, by the harvester's own rule.
+    """Compatibility wrapper for callers of the original row-shaped helper."""
 
-    ``subtitle_ingest.language_family``'s body, mirrored (see the module
-    docstring for why it is not imported): the AI caption's ``ai-`` prefix is
-    stripped, and the lowercase primary subtag — everything before the first
-    ``-`` — is the family.  Derived rather than matched against a list of codes,
-    because upstream spells one spoken language differently per caption kind
-    (``zh-CN``/``zh-Hans``/``zh-Hant`` against ``ai-zh``).
-    """
-
-    code = row["language"].strip().lower()
-    if row["source_kind"] == _MACHINE_CAPTION_KIND and code.startswith("ai-"):
-        code = code[3:]
-    return code.split("-", 1)[0]
-
-
-def _family_rank(family: str) -> int:
-    """Return one family's rank in the declared order; the rest share the last."""
-
-    try:
-        return LANGUAGE_FAMILY_ORDER.index(family)
-    except ValueError:
-        return len(LANGUAGE_FAMILY_ORDER)
-
-
-def _winner_key(row: Mapping[str, Any]) -> tuple[int, int, str, int]:
-    """Return §3.2's total order for one stored version, smallest first.
-
-    ``-version`` is the descending direction.  An unknown ``source_kind`` is a
-    ``KeyError`` rather than an invented last rank: the column's ``CHECK`` admits
-    exactly the three kinds, so a fourth is a store this module does not know how
-    to rank, and answering it silently would be a preference nobody decided.
-    """
-
-    return (
-        SOURCE_KIND_RANK[row["source_kind"]],
-        _family_rank(_language_family(row)),
-        row["language"],
-        -row["version"],
-    )
+    return language_family(row["language"], row["source_kind"] == "subtitle-ai")
 
 
 def ordered_candidates(
@@ -179,7 +133,7 @@ def ordered_candidates(
     for row in rows:
         part_id = row["video_part_id"]
         held = winners.get(part_id)
-        if held is None or _winner_key(row) < _winner_key(held):
+        if held is None or transcript_preference_key(row) < transcript_preference_key(held):
             winners[part_id] = row
 
     candidates = tuple(
@@ -272,6 +226,9 @@ __all__ = [
     "LANGUAGE_FAMILY_ORDER",
     "SOURCE_KIND_RANK",
     "ordered_candidates",
+    "choose_transcript",
+    "transcript_preference_key",
+    "language_family",
     "projection_row",
     "writer_segments",
 ]

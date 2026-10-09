@@ -48,10 +48,13 @@ def _build_workflow_data(root: Path, *, scope: str | None, artifact_roots: Artif
         paths = {key: entry[key] for key in REQUIRED_ARTIFACT_KEYS if isinstance(entry.get(key), str)}
         artifact_present = len(paths) == len(REQUIRED_ARTIFACT_KEYS) and any(archive_bundle_complete(base, paths) for base in artifact_roots.read_bases())
         status = str(entry.get("status") or "unknown")
-        terminal = status == "archived" and artifact_present
-        if status == "archived" and not artifact_present:
+        publication_error = entry.get("publication_error")
+        terminal = status == "archived" and artifact_present and publication_error is None
+        if publication_error is not None:
+            diagnostics.append({"code": str(publication_error), "category": "database"})
+        elif status == "archived" and not artifact_present:
             diagnostics.append({"code": "terminal_missing_artifact", "category": "transcript"})
-        rows.append({"work_id": work_id, "category": "complete" if terminal else "backlog", "status": status, "artifact_present": artifact_present, "reclaimed_audio": False, "coverage": entry.get("coverage"), "coverage_short": entry.get("coverage_short"), "cumulative_complete": terminal, "batch_complete": terminal})
+        rows.append({"work_id": work_id, "category": "defect" if publication_error else ("complete" if terminal else "backlog"), "status": status, "artifact_present": artifact_present, "reclaimed_audio": False, "coverage": entry.get("coverage"), "coverage_short": entry.get("coverage_short"), "cumulative_complete": terminal, "batch_complete": terminal})
     total = len(rows) if scope_available else 0
     complete = sum(1 for row in rows if row["cumulative_complete"])
     state = "unavailable" if not scope_available else ("complete" if complete == total and not diagnostics else "incomplete")
