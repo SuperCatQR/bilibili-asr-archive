@@ -1,0 +1,339 @@
+{
+  "schema_version": 1,
+  "diagram_type": "sequence",
+  "meta": {
+    "title": "完整版本、审核、发布与撤回",
+    "locale": "zh-CN",
+    "output": "docs/sequences/11-publication-lifecycle.html",
+    "quality_profile": "showcase",
+    "column_fit": "spread",
+    "repository": {
+      "url": "https://github.com/SuperCatQR/bilibili-asr-archive.git",
+      "revision": "9b289570494b5e8f7cc564a7eaa5b2eb2c28c3ad",
+      "provider": "github",
+      "link_mode": "web"
+    }
+  },
+  "participants": [
+    {
+      "id": "operator",
+      "label": "编辑与审核者",
+      "type": "external",
+      "sources": [
+        {
+          "path": "src/bili_asr/cli/publication.py",
+          "line": 150,
+          "end_line": 198,
+          "label": "add_publication_parser"
+        }
+      ]
+    },
+    {
+      "id": "service",
+      "label": "出版服务",
+      "type": "backend",
+      "sources": [
+        {
+          "path": "src/bili_asr/publication.py",
+          "line": 202,
+          "end_line": 216,
+          "label": "create_edition"
+        },
+        {
+          "path": "src/bili_asr/publication.py",
+          "line": 307,
+          "end_line": 347,
+          "label": "publish_edition"
+        },
+        {
+          "path": "src/bili_asr/publication_tags.py",
+          "line": 24,
+          "end_line": 41,
+          "label": "sync_source_tags"
+        }
+      ]
+    },
+    {
+      "id": "db",
+      "label": "Edition/Review/Head",
+      "type": "database",
+      "sources": [
+        {
+          "path": "src/bili_asr/storage/publication.py",
+          "line": 123,
+          "end_line": 155,
+          "label": "PublicationRepository.insert_edition"
+        },
+        {
+          "path": "src/bili_asr/storage/publication.py",
+          "line": 157,
+          "end_line": 180,
+          "label": "PublicationRepository.set_review"
+        }
+      ]
+    },
+    {
+      "id": "files",
+      "label": "固定 Markdown",
+      "type": "database",
+      "sources": [
+        {
+          "path": "src/bili_asr/publication.py",
+          "line": 142,
+          "end_line": 165,
+          "label": "get_ai_artifacts"
+        },
+        {
+          "path": "src/bili_asr/manuscript_files.py",
+          "line": 78,
+          "end_line": 105,
+          "label": "atomic_write_artifact"
+        }
+      ]
+    },
+    {
+      "id": "release",
+      "label": "Release 与事件",
+      "type": "database",
+      "sources": [
+        {
+          "path": "src/bili_asr/storage/publication.py",
+          "line": 182,
+          "end_line": 209,
+          "label": "PublicationRepository.register_release"
+        },
+        {
+          "path": "src/bili_asr/storage/publication.py",
+          "line": 211,
+          "end_line": 230,
+          "label": "PublicationRepository.withdraw"
+        }
+      ]
+    }
+  ],
+  "messages": [
+    {
+      "id": "m1",
+      "from": "operator",
+      "to": "service",
+      "y": 180,
+      "label": "create 指定 AI 基线",
+      "variant": "default"
+    },
+    {
+      "id": "m2",
+      "from": "service",
+      "to": "files",
+      "y": 212,
+      "label": "验证固定 AI 双稿",
+      "variant": "default"
+    },
+    {
+      "id": "m3",
+      "from": "service",
+      "to": "db",
+      "y": 244,
+      "label": "冻结完整 reader 内容",
+      "variant": "default"
+    },
+    {
+      "id": "m4",
+      "from": "service",
+      "to": "db",
+      "y": 276,
+      "label": "CAS 创建 edition",
+      "variant": "default"
+    },
+    {
+      "id": "m5",
+      "from": "operator",
+      "to": "service",
+      "y": 348,
+      "label": "选择精确父 edition",
+      "variant": "default"
+    },
+    {
+      "id": "m6",
+      "from": "service",
+      "to": "db",
+      "y": 380,
+      "label": "生成新不可变版本",
+      "variant": "default"
+    },
+    {
+      "id": "m7",
+      "from": "operator",
+      "to": "service",
+      "y": 412,
+      "label": "review 精确内容哈希",
+      "variant": "default"
+    },
+    {
+      "id": "m8",
+      "from": "service",
+      "to": "db",
+      "y": 444,
+      "label": "状态 CAS 与审核事件",
+      "variant": "default"
+    },
+    {
+      "id": "m9",
+      "from": "service",
+      "to": "operator",
+      "y": 516,
+      "label": "拒绝 publish",
+      "variant": "security"
+    },
+    {
+      "id": "m10",
+      "from": "operator",
+      "to": "service",
+      "y": 588,
+      "label": "给出 expected release",
+      "variant": "default"
+    },
+    {
+      "id": "m11",
+      "from": "service",
+      "to": "release",
+      "y": 660,
+      "label": "读取并验证原 release",
+      "variant": "default"
+    },
+    {
+      "id": "m12",
+      "from": "service",
+      "to": "operator",
+      "y": 692,
+      "label": "幂等返回历史身份",
+      "variant": "return"
+    },
+    {
+      "id": "m13",
+      "from": "service",
+      "to": "db",
+      "y": 764,
+      "label": "验证批准与有效 head",
+      "variant": "default"
+    },
+    {
+      "id": "m14",
+      "from": "service",
+      "to": "files",
+      "y": 796,
+      "label": "锁外写固定 publish.md",
+      "variant": "default"
+    },
+    {
+      "id": "m15",
+      "from": "service",
+      "to": "db",
+      "y": 828,
+      "label": "BEGIN IMMEDIATE 重验",
+      "variant": "security"
+    },
+    {
+      "id": "m16",
+      "from": "service",
+      "to": "release",
+      "y": 860,
+      "label": "注册 release 及事件",
+      "variant": "default"
+    },
+    {
+      "id": "m17",
+      "from": "service",
+      "to": "operator",
+      "y": 892,
+      "label": "返回发布身份",
+      "variant": "return"
+    },
+    {
+      "id": "m18",
+      "from": "operator",
+      "to": "service",
+      "y": 964,
+      "label": "撤回精确 release",
+      "variant": "default"
+    },
+    {
+      "id": "m19",
+      "from": "service",
+      "to": "release",
+      "y": 996,
+      "label": "验证事件并撤回",
+      "variant": "default"
+    },
+    {
+      "id": "m20",
+      "from": "service",
+      "to": "operator",
+      "y": 1028,
+      "label": "需重新导出消费快照",
+      "variant": "return"
+    }
+  ],
+  "segments": [
+    {
+      "from": 336,
+      "to": 392,
+      "label": "B01 opt edit 或 sync-source-tags"
+    },
+    {
+      "from": 504,
+      "to": 528,
+      "label": "B02 alt 未批准或状态哈希不符"
+    },
+    {
+      "from": 576,
+      "to": 600,
+      "label": "B03 else approved 并显式 publish"
+    },
+    {
+      "from": 648,
+      "to": 704,
+      "label": "B04 alt edition 已有历史 release"
+    },
+    {
+      "from": 752,
+      "to": 904,
+      "label": "B05 else 首次发布该 edition"
+    },
+    {
+      "from": 952,
+      "to": 1040,
+      "label": "B06 opt withdraw"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "条件与提交边界",
+      "items": [
+        "approved/rejected 是该 review 的终态；修改内容创建新 edition 和新的 pending-review。",
+        "publication_edition_reviews 保存当前审核状态，publication_events 追加审核变化证据；不能称每次审核都是新 review 行。",
+        "A 发布后创建/审核/批准 B 都保持 A；B 明确 publish 后才替换；预览出口也不会恢复旧 release。"
+      ]
+    },
+    {
+      "dot": "slate",
+      "title": "阅读方法",
+      "items": [
+        "B 编号对应完整条件路径；互斥分支仅在条件成立时执行，opt 可选，loop 重复。",
+        "HTML 将嵌套条件展开为连续区域；自调用保留在内部动作卡片。完整 Mermaid 与源码范围见同名 Markdown。"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "完整条件路径",
+      "items": [
+        "B01（m5–m6）：opt edit 或 sync-source-tags",
+        "B02（m9）：alt 未批准或状态哈希不符",
+        "B03（m10）：else approved 并显式 publish",
+        "B04（m11–m12）：else approved 并显式 publish → alt edition 已有历史 release",
+        "B05（m13–m17）：else approved 并显式 publish → else 首次发布该 edition",
+        "B06（m18–m20）：opt withdraw"
+      ]
+    }
+  ]
+}

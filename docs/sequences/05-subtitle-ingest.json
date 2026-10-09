@@ -1,0 +1,288 @@
+{
+  "schema_version": 1,
+  "diagram_type": "sequence",
+  "meta": {
+    "title": "字幕轨道选择、缺失证据与不可变转录",
+    "locale": "zh-CN",
+    "output": "docs/sequences/05-subtitle-ingest.html",
+    "quality_profile": "showcase",
+    "column_fit": "spread",
+    "repository": {
+      "url": "https://github.com/SuperCatQR/bilibili-asr-archive.git",
+      "revision": "9b289570494b5e8f7cc564a7eaa5b2eb2c28c3ad",
+      "provider": "github",
+      "link_mode": "web"
+    }
+  },
+  "participants": [
+    {
+      "id": "executor",
+      "label": "执行器",
+      "type": "backend",
+      "sources": [
+        {
+          "path": "src/bili_asr/workflow.py",
+          "line": 53,
+          "end_line": 97,
+          "label": "WorkflowExecutor.run"
+        }
+      ]
+    },
+    {
+      "id": "handler",
+      "label": "字幕 handler",
+      "type": "backend",
+      "sources": [
+        {
+          "path": "src/bili_asr/workflow_runtime.py",
+          "line": 79,
+          "end_line": 116,
+          "label": "ArchiveWorkflowHandlers.subtitle"
+        }
+      ]
+    },
+    {
+      "id": "ingest",
+      "label": "SubtitleIngestor",
+      "type": "backend",
+      "sources": [
+        {
+          "path": "src/bili_asr/services/subtitle_ingest.py",
+          "line": 423,
+          "end_line": 470,
+          "label": "SubtitleIngestor._acquire_part"
+        }
+      ]
+    },
+    {
+      "id": "gateway",
+      "label": "字幕 API",
+      "type": "external",
+      "sources": [
+        {
+          "path": "src/bili_asr/sources/bilibili_api_gateway.py",
+          "line": 707,
+          "end_line": 1259,
+          "label": "BilibiliApiGateway"
+        }
+      ]
+    },
+    {
+      "id": "db",
+      "label": "转录与获取证据",
+      "type": "database",
+      "sources": [
+        {
+          "path": "src/bili_asr/storage/transcripts.py",
+          "line": 189,
+          "end_line": 312,
+          "label": "TranscriptRepository.record_acquired_transcript"
+        },
+        {
+          "path": "src/bili_asr/storage/transcripts.py",
+          "line": 520,
+          "end_line": 583,
+          "label": "TranscriptRepository.record_subtitle_attempt"
+        }
+      ]
+    }
+  ],
+  "messages": [
+    {
+      "id": "m1",
+      "from": "executor",
+      "to": "handler",
+      "y": 180,
+      "label": "执行 subtitle job",
+      "variant": "default"
+    },
+    {
+      "id": "m2",
+      "from": "handler",
+      "to": "db",
+      "y": 212,
+      "label": "assert_lease",
+      "variant": "security"
+    },
+    {
+      "id": "m3",
+      "from": "handler",
+      "to": "ingest",
+      "y": 244,
+      "label": "选择精确 part",
+      "variant": "default"
+    },
+    {
+      "id": "m4",
+      "from": "ingest",
+      "to": "db",
+      "y": 276,
+      "label": "创建 acquisition run",
+      "variant": "default"
+    },
+    {
+      "id": "m5",
+      "from": "ingest",
+      "to": "gateway",
+      "y": 308,
+      "label": "列出字幕轨道",
+      "variant": "default"
+    },
+    {
+      "id": "m6",
+      "from": "ingest",
+      "to": "db",
+      "y": 380,
+      "label": "保存 failed attempt",
+      "variant": "default"
+    },
+    {
+      "id": "m8",
+      "from": "ingest",
+      "to": "gateway",
+      "y": 452,
+      "label": "验证凭据有效性",
+      "variant": "security"
+    },
+    {
+      "id": "m9",
+      "from": "ingest",
+      "to": "db",
+      "y": 524,
+      "label": "保存无字幕证据",
+      "variant": "default"
+    },
+    {
+      "id": "m10",
+      "from": "ingest",
+      "to": "gateway",
+      "y": 596,
+      "label": "下载正文 segments",
+      "variant": "default"
+    },
+    {
+      "id": "m11",
+      "from": "ingest",
+      "to": "db",
+      "y": 668,
+      "label": "保护性保存版本",
+      "variant": "default"
+    },
+    {
+      "id": "m12",
+      "from": "ingest",
+      "to": "db",
+      "y": 740,
+      "label": "保存失败获取证据",
+      "variant": "default"
+    },
+    {
+      "id": "m13",
+      "from": "ingest",
+      "to": "db",
+      "y": 772,
+      "label": "结束 acquisition run",
+      "variant": "default"
+    },
+    {
+      "id": "m14",
+      "from": "ingest",
+      "to": "handler",
+      "y": 804,
+      "label": "返回 part outcome",
+      "variant": "return"
+    },
+    {
+      "id": "m15",
+      "from": "handler",
+      "to": "db",
+      "y": 876,
+      "label": "保护性请求 publish",
+      "variant": "default"
+    },
+    {
+      "id": "m16",
+      "from": "handler",
+      "to": "executor",
+      "y": 908,
+      "label": "返回获取与发布身份",
+      "variant": "return"
+    }
+  ],
+  "segments": [
+    {
+      "from": 368,
+      "to": 392,
+      "label": "B01 alt 轨道获取失败"
+    },
+    {
+      "from": 440,
+      "to": 464,
+      "label": "B02 opt 提供了凭据"
+    },
+    {
+      "from": 512,
+      "to": 536,
+      "label": "B03 alt 无匹配轨道"
+    },
+    {
+      "from": 584,
+      "to": 608,
+      "label": "B04 else 有轨道"
+    },
+    {
+      "from": 656,
+      "to": 680,
+      "label": "B05 alt 正文有效"
+    },
+    {
+      "from": 728,
+      "to": 752,
+      "label": "B06 else 正文消失或形状错误"
+    },
+    {
+      "from": 864,
+      "to": 888,
+      "label": "B07 opt 成功存有转录版本"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "条件与提交边界",
+      "items": [
+        "每个 job 对应当前选择的一个分 P；ASR 不等待这条路径的成功。",
+        "语言、来源、内容和 version 是转录身份；同内容复用不丢失本次获取证据。",
+        "取消可留下失败 run/attempt 收尾；新的成功转录与新 publish 请求仍受 lease 检查。"
+      ]
+    },
+    {
+      "dot": "slate",
+      "title": "阅读方法",
+      "items": [
+        "B 编号对应完整条件路径；互斥分支仅在条件成立时执行，opt 可选，loop 重复。",
+        "HTML 将嵌套条件展开为连续区域；自调用保留在内部动作卡片。完整 Mermaid 与源码范围见同名 Markdown。"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "参与者内部动作",
+      "items": [
+        "时间轴步骤 7 · SubtitleIngestor：按语言与来源选轨。详细操作见同名 Markdown。"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "完整条件路径",
+      "items": [
+        "B01（m6）：alt 轨道获取失败",
+        "B02（m8）：else 可用轨道清单 → alt 无匹配轨道 → opt 提供了凭据",
+        "B03（m9）：else 可用轨道清单 → alt 无匹配轨道",
+        "B04（m10）：else 可用轨道清单 → else 有轨道",
+        "B05（m11）：else 可用轨道清单 → else 有轨道 → alt 正文有效",
+        "B06（m12）：else 可用轨道清单 → else 有轨道 → else 正文消失或形状错误",
+        "B07（m15）：opt 成功存有转录版本"
+      ]
+    }
+  ]
+}

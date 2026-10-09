@@ -1,0 +1,271 @@
+{
+  "schema_version": 1,
+  "diagram_type": "sequence",
+  "meta": {
+    "title": "音频复用、隔离下载与受保护登记",
+    "locale": "zh-CN",
+    "output": "docs/sequences/06-audio-download.html",
+    "quality_profile": "showcase",
+    "column_fit": "spread",
+    "repository": {
+      "url": "https://github.com/SuperCatQR/bilibili-asr-archive.git",
+      "revision": "9b289570494b5e8f7cc564a7eaa5b2eb2c28c3ad",
+      "provider": "github",
+      "link_mode": "web"
+    }
+  },
+  "participants": [
+    {
+      "id": "handler",
+      "label": "音频 handler",
+      "type": "backend",
+      "sources": [
+        {
+          "path": "src/bili_asr/workflow_runtime.py",
+          "line": 118,
+          "end_line": 141,
+          "label": "ArchiveWorkflowHandlers.audio"
+        },
+        {
+          "path": "src/bili_asr/workflow_runtime.py",
+          "line": 150,
+          "end_line": 184,
+          "label": "ArchiveWorkflowHandlers._store_audio"
+        }
+      ]
+    },
+    {
+      "id": "paths",
+      "label": "路径和暂存",
+      "type": "security",
+      "sources": [
+        {
+          "path": "src/bili_asr/artifact_root.py",
+          "line": 1,
+          "end_line": 60,
+          "label": "模块入口"
+        },
+        {
+          "path": "src/bili_asr/path_policy.py",
+          "line": 1,
+          "end_line": 60,
+          "label": "模块入口"
+        }
+      ]
+    },
+    {
+      "id": "downloader",
+      "label": "音频下载器",
+      "type": "backend",
+      "sources": [
+        {
+          "path": "src/bili_asr/audio.py",
+          "line": 1,
+          "end_line": 60,
+          "label": "模块入口"
+        },
+        {
+          "path": "src/bili_asr/bili_client.py",
+          "line": 219,
+          "end_line": 657,
+          "label": "BiliClient"
+        }
+      ]
+    },
+    {
+      "id": "cdn",
+      "label": "DASH 与 CDN",
+      "type": "external",
+      "sources": [
+        {
+          "path": "src/bili_asr/bili_client.py",
+          "line": 219,
+          "end_line": 657,
+          "label": "BiliClient"
+        }
+      ]
+    },
+    {
+      "id": "db",
+      "label": "音频与 lease",
+      "type": "database",
+      "sources": [
+        {
+          "path": "src/bili_asr/storage/workflow.py",
+          "line": 413,
+          "end_line": 422,
+          "label": "WorkflowRepository.owned_transaction"
+        }
+      ]
+    }
+  ],
+  "messages": [
+    {
+      "id": "m1",
+      "from": "handler",
+      "to": "db",
+      "y": 180,
+      "label": "读取 part 并查租约",
+      "variant": "security"
+    },
+    {
+      "id": "m2",
+      "from": "handler",
+      "to": "paths",
+      "y": 212,
+      "label": "计算 confined key",
+      "variant": "default"
+    },
+    {
+      "id": "m3",
+      "from": "paths",
+      "to": "handler",
+      "y": 244,
+      "label": "按根探测可复用文件",
+      "variant": "return"
+    },
+    {
+      "id": "m4",
+      "from": "handler",
+      "to": "downloader",
+      "y": 316,
+      "label": "ffprobe 与 SHA-256",
+      "variant": "default"
+    },
+    {
+      "id": "m5",
+      "from": "handler",
+      "to": "paths",
+      "y": 388,
+      "label": "创建独立 staging",
+      "variant": "default"
+    },
+    {
+      "id": "m6",
+      "from": "handler",
+      "to": "downloader",
+      "y": 420,
+      "label": "下载至暂存 audio/",
+      "variant": "default"
+    },
+    {
+      "id": "m7",
+      "from": "downloader",
+      "to": "cdn",
+      "y": 452,
+      "label": "请求 DASH 签名 URL",
+      "variant": "default"
+    },
+    {
+      "id": "m8",
+      "from": "cdn",
+      "to": "downloader",
+      "y": 484,
+      "label": "流式音频字节",
+      "variant": "return"
+    },
+    {
+      "id": "m9",
+      "from": "downloader",
+      "to": "paths",
+      "y": 516,
+      "label": "暂存与可选转封装",
+      "variant": "default"
+    },
+    {
+      "id": "m10",
+      "from": "downloader",
+      "to": "handler",
+      "y": 548,
+      "label": "返回实际文件路径",
+      "variant": "return"
+    },
+    {
+      "id": "m11",
+      "from": "handler",
+      "to": "downloader",
+      "y": 580,
+      "label": "ffprobe 与 SHA-256",
+      "variant": "default"
+    },
+    {
+      "id": "m12",
+      "from": "handler",
+      "to": "db",
+      "y": 612,
+      "label": "owned_transaction",
+      "variant": "security"
+    },
+    {
+      "id": "m13",
+      "from": "handler",
+      "to": "paths",
+      "y": 644,
+      "label": "替换最终音频",
+      "variant": "default"
+    },
+    {
+      "id": "m14",
+      "from": "handler",
+      "to": "db",
+      "y": 676,
+      "label": "登记对象与关联",
+      "variant": "default"
+    },
+    {
+      "id": "m15",
+      "from": "db",
+      "to": "handler",
+      "y": 708,
+      "label": "提交 storage key",
+      "variant": "return"
+    },
+    {
+      "id": "m16",
+      "from": "handler",
+      "to": "paths",
+      "y": 740,
+      "label": "清理本次 staging",
+      "variant": "default"
+    }
+  ],
+  "segments": [
+    {
+      "from": 304,
+      "to": 328,
+      "label": "B01 alt 文件可复用"
+    },
+    {
+      "from": 376,
+      "to": 592,
+      "label": "B02 else 需要下载"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "条件与提交边界",
+      "items": [
+        "当前 workflow 无成功后的自动音频删除、keep-audio 或 max-audio-gb 命令参数。",
+        "下载、探测、hash 不占 SQLite 写事务；最终替换和登记共享租约保护写锁。",
+        "SQLite rollback 无法回滚已替换的文件；inventory/verify/快照校验是独立核对机制。"
+      ]
+    },
+    {
+      "dot": "slate",
+      "title": "阅读方法",
+      "items": [
+        "B 编号对应完整条件路径；互斥分支仅在条件成立时执行，opt 可选，loop 重复。",
+        "HTML 将嵌套条件展开为连续区域；自调用保留在内部动作卡片。完整 Mermaid 与源码范围见同名 Markdown。"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "完整条件路径",
+      "items": [
+        "B01（m4）：alt 文件可复用",
+        "B02（m5–m11）：else 需要下载"
+      ]
+    }
+  ]
+}

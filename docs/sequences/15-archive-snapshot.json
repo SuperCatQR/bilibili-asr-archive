@@ -1,0 +1,291 @@
+{
+  "schema_version": 1,
+  "diagram_type": "sequence",
+  "meta": {
+    "title": "归档 ZIP 保存、离线校验与跨设备恢复",
+    "locale": "zh-CN",
+    "output": "docs/sequences/15-archive-snapshot.html",
+    "quality_profile": "showcase",
+    "column_fit": "spread",
+    "repository": {
+      "url": "https://github.com/SuperCatQR/bilibili-asr-archive.git",
+      "revision": "9b289570494b5e8f7cc564a7eaa5b2eb2c28c3ad",
+      "provider": "github",
+      "link_mode": "web"
+    }
+  },
+  "participants": [
+    {
+      "id": "cli",
+      "label": "snapshot 命令",
+      "type": "frontend",
+      "sources": [
+        {
+          "path": "src/bili_asr/cli/snapshot.py",
+          "line": 28,
+          "end_line": 46,
+          "label": "_cmd_snapshot"
+        }
+      ]
+    },
+    {
+      "id": "service",
+      "label": "快照服务",
+      "type": "backend",
+      "sources": [
+        {
+          "path": "src/bili_asr/services/archive_snapshot.py",
+          "line": 260,
+          "end_line": 324,
+          "label": "save_snapshot"
+        },
+        {
+          "path": "src/bili_asr/services/archive_snapshot.py",
+          "line": 420,
+          "end_line": 426,
+          "label": "check_snapshot"
+        },
+        {
+          "path": "src/bili_asr/services/archive_snapshot.py",
+          "line": 438,
+          "end_line": 463,
+          "label": "restore_snapshot"
+        }
+      ]
+    },
+    {
+      "id": "lock",
+      "label": "维护独占锁",
+      "type": "security",
+      "sources": [
+        {
+          "path": "src/bili_asr/archive_maintenance.py",
+          "line": 64,
+          "end_line": 137,
+          "label": "archive_access"
+        }
+      ]
+    },
+    {
+      "id": "db",
+      "label": "数据库及恢复",
+      "type": "database",
+      "sources": [
+        {
+          "path": "src/bili_asr/storage/snapshots.py",
+          "line": 185,
+          "end_line": 209,
+          "label": "create_database_snapshot"
+        },
+        {
+          "path": "src/bili_asr/storage/snapshots.py",
+          "line": 305,
+          "end_line": 351,
+          "label": "recover_interrupted_jobs"
+        }
+      ]
+    },
+    {
+      "id": "files",
+      "label": "产物根与 ZIP",
+      "type": "database",
+      "sources": [
+        {
+          "path": "src/bili_asr/services/archive_snapshot.py",
+          "line": 394,
+          "end_line": 417,
+          "label": "_validate_into"
+        },
+        {
+          "path": "src/bili_asr/storage/snapshots.py",
+          "line": 242,
+          "end_line": 302,
+          "label": "required_artifacts"
+        }
+      ]
+    }
+  ],
+  "messages": [
+    {
+      "id": "m1",
+      "from": "cli",
+      "to": "service",
+      "y": 180,
+      "label": "选择 save/check/restore",
+      "variant": "default"
+    },
+    {
+      "id": "m2",
+      "from": "service",
+      "to": "lock",
+      "y": 252,
+      "label": "独占 archive access",
+      "variant": "security"
+    },
+    {
+      "id": "m3",
+      "from": "service",
+      "to": "db",
+      "y": 284,
+      "label": "校验兼容库并 backup",
+      "variant": "default"
+    },
+    {
+      "id": "m4",
+      "from": "service",
+      "to": "files",
+      "y": 316,
+      "label": "扫描并流式写 ZIP",
+      "variant": "default"
+    },
+    {
+      "id": "m5",
+      "from": "service",
+      "to": "files",
+      "y": 348,
+      "label": "验证引用及全部历史",
+      "variant": "default"
+    },
+    {
+      "id": "m6",
+      "from": "service",
+      "to": "files",
+      "y": 380,
+      "label": "写 manifest 并发布",
+      "variant": "default"
+    },
+    {
+      "id": "m7",
+      "from": "service",
+      "to": "lock",
+      "y": 412,
+      "label": "释放独占锁",
+      "variant": "default"
+    },
+    {
+      "id": "m8",
+      "from": "service",
+      "to": "files",
+      "y": 484,
+      "label": "流式验证整个 ZIP",
+      "variant": "default"
+    },
+    {
+      "id": "m9",
+      "from": "service",
+      "to": "db",
+      "y": 516,
+      "label": "验证 schema/FK/引用",
+      "variant": "default"
+    },
+    {
+      "id": "m10",
+      "from": "service",
+      "to": "lock",
+      "y": 588,
+      "label": "独占目标维护锁",
+      "variant": "security"
+    },
+    {
+      "id": "m11",
+      "from": "service",
+      "to": "files",
+      "y": 620,
+      "label": "完整解压至 staging",
+      "variant": "default"
+    },
+    {
+      "id": "m12",
+      "from": "service",
+      "to": "db",
+      "y": 652,
+      "label": "事务恢复中断运行",
+      "variant": "default"
+    },
+    {
+      "id": "m13",
+      "from": "service",
+      "to": "db",
+      "y": 684,
+      "label": "收尾中断 run 和调用",
+      "variant": "default"
+    },
+    {
+      "id": "m14",
+      "from": "service",
+      "to": "db",
+      "y": 716,
+      "label": "再次校验并 fsync",
+      "variant": "default"
+    },
+    {
+      "id": "m15",
+      "from": "service",
+      "to": "files",
+      "y": 748,
+      "label": "原子安装完整目标根",
+      "variant": "default"
+    },
+    {
+      "id": "m16",
+      "from": "service",
+      "to": "lock",
+      "y": 780,
+      "label": "释放独占锁",
+      "variant": "default"
+    },
+    {
+      "id": "m17",
+      "from": "service",
+      "to": "cli",
+      "y": 812,
+      "label": "返回快照或恢复统计",
+      "variant": "return"
+    }
+  ],
+  "segments": [
+    {
+      "from": 240,
+      "to": 424,
+      "label": "B01 alt save"
+    },
+    {
+      "from": 472,
+      "to": 528,
+      "label": "B02 else check"
+    },
+    {
+      "from": 576,
+      "to": 792,
+      "label": "B03 else restore"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "条件与提交边界",
+      "items": [
+        "私有归档快照保存完整数据库与历史产物；与公开阅读目录快照用途和数据集合不同。",
+        "过期 running job 可随 save 保留，restore 再恢复；有效运行租约会被 save 拒绝。",
+        "维护协议只约束合作 writer；直接绕开 CLI/repository 的外部写入仍需操作者停止。"
+      ]
+    },
+    {
+      "dot": "slate",
+      "title": "阅读方法",
+      "items": [
+        "B 编号对应完整条件路径；互斥分支仅在条件成立时执行，opt 可选，loop 重复。",
+        "HTML 将嵌套条件展开为连续区域；自调用保留在内部动作卡片。完整 Mermaid 与源码范围见同名 Markdown。"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "完整条件路径",
+      "items": [
+        "B01（m2–m7）：alt save",
+        "B02（m8–m9）：else check",
+        "B03（m10–m16）：else restore"
+      ]
+    }
+  ]
+}

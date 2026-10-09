@@ -2,1503 +2,802 @@
   "schema_version": 1,
   "diagram_type": "architecture",
   "meta": {
-    "title": "Bilibili 归档系统 · SQLite Workflow 当前架构",
+    "title": "Bilibili 归档 · main 完整架构",
     "locale": "zh-CN",
     "output": "docs/architecture.html",
     "quality_profile": "showcase",
     "repository": {
       "url": "https://github.com/SuperCatQR/bilibili-asr-archive.git",
-      "revision": "5c3cc606abc36c1632bc7c0bd9b06372136c88a8",
+      "revision": "9b289570494b5e8f7cc564a7eaa5b2eb2c28c3ad",
       "provider": "github",
-      "link_mode": "local-only"
+      "link_mode": "web"
     }
   },
   "components": [
     {
       "id": "operator",
+      "label": "操作者",
+      "sublabel": "显式采集、规划、执行、审核",
       "type": "external",
-      "label": "操作人员",
-      "sublabel": "命令行 · 显式规划与执行",
       "pos": [
         40,
-        50
+        40
       ],
       "size": [
-        230,
-        90
+        260,
+        96
       ],
       "sources": [
         {
-          "path": "src/bili_asr/cli/workflow.py",
-          "line": 23,
-          "end_line": 107,
-          "label": "显式命令入口"
+          "path": "src/bili_asr/cli/parser.py",
+          "line": 11,
+          "end_line": 113,
+          "label": "build_parser"
         }
       ]
     },
     {
       "id": "cli",
-      "type": "frontend",
       "label": "CLI 组合根",
-      "sublabel": "workflow · metadata · search scopes",
+      "sublabel": "15 个顶层命令 · 策略分派",
+      "type": "frontend",
       "pos": [
-        345,
-        50
+        440,
+        40
       ],
       "size": [
-        230,
-        90
+        260,
+        96
       ],
       "sources": [
         {
           "path": "src/bili_asr/cli/main.py",
-          "line": 28,
-          "end_line": 93,
-          "label": "命令与检索根目录分派"
+          "line": 41,
+          "end_line": 106,
+          "label": "_main"
         },
         {
           "path": "src/bili_asr/cli/registry.py",
-          "line": 25,
-          "end_line": 36,
-          "label": "命令注册"
+          "line": 1,
+          "end_line": 54,
+          "label": "模块入口"
         }
       ]
     },
     {
-      "id": "planner",
-      "type": "backend",
-      "label": "规划、取消与重试",
-      "sublabel": "BVID / part ID · 状态控制",
+      "id": "guard",
+      "label": "产物路径与维护锁",
+      "sublabel": "共享 writer / 独占 snapshot",
+      "type": "security",
       "pos": [
-        650,
-        50
+        840,
+        40
       ],
       "size": [
-        230,
-        90
+        260,
+        96
       ],
       "sources": [
         {
-          "path": "src/bili_asr/cli/workflow.py",
-          "line": 138,
-          "end_line": 312,
-          "label": "选定目标、取消与重新发布"
+          "path": "src/bili_asr/archive_maintenance.py",
+          "line": 64,
+          "end_line": 137,
+          "label": "archive_access"
         },
         {
-          "path": "src/bili_asr/storage/workflow_selection.py",
+          "path": "src/bili_asr/artifact_root.py",
           "line": 1,
-          "end_line": 136,
-          "label": "目标解析与全集验证"
-        },
-        {
-          "path": "src/bili_asr/storage/workflow.py",
-          "line": 155,
-          "end_line": 222,
-          "label": "不可变完整 ASR 配置快照"
+          "end_line": 60,
+          "label": "模块入口"
         }
-      ],
-      "tag": "全集验证 · 取消不复活"
+      ]
     },
     {
-      "id": "jobs",
-      "type": "database",
-      "label": "archive.db · 工作流控制",
-      "sublabel": "jobs · dependencies · attempts",
-      "pos": [
-        955,
-        50
-      ],
-      "size": [
-        230,
-        90
-      ],
-      "sources": [
-        {
-          "path": "src/bili_asr/storage/schema-workflow.sql",
-          "line": 7,
-          "end_line": 89,
-          "label": "任务、attempt 与 cancelled"
-        },
-        {
-          "path": "src/bili_asr/storage/workflow.py",
-          "line": 306,
-          "end_line": 508,
-          "label": "租约、保护提交、取消与阻塞"
-        },
-        {
-          "path": "src/bili_asr/storage/workflow.py",
-          "line": 822,
-          "end_line": 886,
-          "label": "精确 attempt 终态"
-        }
-      ],
-      "tag": "cancelled · BEGIN IMMEDIATE"
-    },
-    {
-      "id": "bilibili",
+      "id": "platform",
+      "label": "Bilibili API / CDN",
+      "sublabel": "元数据、字幕、DASH 字节",
       "type": "external",
-      "label": "Bilibili API 与 CDN",
-      "sublabel": "视频元数据 · 字幕 · DASH 音频",
       "pos": [
         40,
-        290
+        340
       ],
       "size": [
-        230,
-        90
+        260,
+        96
       ],
       "sources": [
         {
           "path": "src/bili_asr/sources/bilibili_api_gateway.py",
-          "line": 787,
-          "end_line": 843,
-          "label": "枚举 / 详情 / 分 P"
-        },
-        {
-          "path": "src/bili_asr/sources/bilibili_api_gateway.py",
-          "line": 916,
-          "end_line": 999,
-          "label": "字幕清单与内容"
-        },
-        {
-          "path": "src/bili_asr/bili_client.py",
-          "line": 635,
-          "end_line": 656,
-          "label": "CDN 流式下载"
-        }
-      ]
-    },
-    {
-      "id": "gateway",
-      "type": "backend",
-      "label": "外部访问适配层",
-      "sublabel": "BilibiliApiGateway / BiliClient",
-      "pos": [
-        345,
-        290
-      ],
-      "size": [
-        230,
-        90
-      ],
-      "sources": [
-        {
-          "path": "src/bili_asr/sources/bilibili_api_gateway.py",
-          "line": 1,
-          "end_line": 62,
-          "label": "固定 SDK 与 DTO 边界"
-        },
-        {
-          "path": "src/bili_asr/sources/bilibili_api_gateway.py",
-          "line": 722,
-          "end_line": 785,
-          "label": "凭据 / 代理 / pacing"
+          "line": 707,
+          "end_line": 1259,
+          "label": "BilibiliApiGateway"
         },
         {
           "path": "src/bili_asr/bili_client.py",
           "line": 219,
-          "end_line": 331,
-          "label": "HTTP / 风控 / 退避"
+          "end_line": 657,
+          "label": "BiliClient"
         }
-      ],
-      "tag": "签名 URL 与凭据不入库"
+      ]
     },
     {
-      "id": "metadata",
+      "id": "ingest",
+      "label": "元数据与标签采集",
+      "sublabel": "有界页重试 · 成功观察与游标",
       "type": "backend",
-      "label": "视频元数据采集",
-      "sublabel": "MetadataIngestor · 有界分页",
       "pos": [
-        650,
-        290
+        440,
+        340
       ],
       "size": [
-        230,
-        90
+        260,
+        96
       ],
       "sources": [
         {
-          "path": "src/bili_asr/cli/meta.py",
-          "line": 33,
-          "end_line": 45,
-          "label": "实例化 gateway / repository"
+          "path": "src/bili_asr/services/metadata_ingest.py",
+          "line": 303,
+          "end_line": 535,
+          "label": "MetadataIngestor._collect"
         },
         {
-          "path": "src/bili_asr/services/metadata_ingest.py",
-          "line": 295,
-          "end_line": 372,
-          "label": "分页采集与恢复游标"
-        },
-        {
-          "path": "src/bili_asr/services/metadata_ingest.py",
-          "line": 580,
-          "end_line": 656,
-          "label": "页内持久化事实"
+          "path": "src/bili_asr/services/video_tags.py",
+          "line": 20,
+          "end_line": 56,
+          "label": "refresh_video_tags"
         }
       ]
     },
     {
       "id": "facts",
-      "type": "database",
-      "label": "archive.db · 来源事实",
+      "label": "SQLite · 来源事实",
       "sublabel": "users / videos / parts / tags",
+      "type": "database",
       "pos": [
-        955,
-        290
+        840,
+        340
       ],
       "size": [
-        230,
-        90
+        260,
+        96
       ],
       "sources": [
         {
-          "path": "src/bili_asr/storage/schema.sql",
-          "line": 3,
-          "end_line": 113,
-          "label": "实体 / 详情 / 采集事件"
-        },
-        {
-          "path": "src/bili_asr/storage/database.py",
-          "line": 441,
-          "end_line": 493,
-          "label": "schema bootstrap"
-        },
-        {
-          "path": "src/bili_asr/services/metadata_ingest.py",
-          "line": 656,
-          "end_line": 701,
-          "label": "record_page 写入"
+          "path": "src/bili_asr/storage/metadata.py",
+          "line": 15,
+          "end_line": 649,
+          "label": "MetadataRepository"
         }
-      ],
-      "tag": "ingestion_* / cursor"
+      ]
     },
     {
-      "id": "subtitles",
+      "id": "workflow",
+      "label": "工作流控制与执行",
+      "sublabel": "plan / claim / heartbeat / cancel",
       "type": "backend",
-      "label": "字幕生产者",
-      "sublabel": "SubtitleIngestor · AI / CC",
       "pos": [
-        40,
-        560
+        440,
+        640
       ],
       "size": [
-        230,
-        90
-      ],
-      "sources": [
-        {
-          "path": "src/bili_asr/workflow_runtime.py",
-          "line": 80,
-          "end_line": 117,
-          "label": "字幕检查点与发布请求"
-        },
-        {
-          "path": "src/bili_asr/services/subtitle_ingest.py",
-          "line": 423,
-          "end_line": 533,
-          "label": "响应后检查与规范化"
-        },
-        {
-          "path": "src/bili_asr/storage/transcripts.py",
-          "line": 89,
-          "end_line": 187,
-          "label": "真正写事务内的检查"
-        }
-      ],
-      "tag": "请求后检查 · 事务内写入"
-    },
-    {
-      "id": "executor",
-      "type": "backend",
-      "label": "无状态任务执行器",
-      "sublabel": "claim → handler → terminal attempt",
-      "pos": [
-        345,
-        560
-      ],
-      "size": [
-        230,
-        90
+        260,
+        96
       ],
       "sources": [
         {
           "path": "src/bili_asr/workflow.py",
-          "line": 20,
-          "end_line": 112,
-          "label": "取消与执行结果"
-        },
-        {
-          "path": "src/bili_asr/cli/workflow.py",
-          "line": 313,
-          "end_line": 337,
-          "label": "实际 handler 注册"
-        },
-        {
-          "path": "src/bili_asr/workflow_runtime.py",
-          "line": 67,
-          "end_line": 78,
-          "label": "归档 handler 与释放"
-        }
-      ],
-      "tag": "每次 CLI 调用顺序执行"
-    },
-    {
-      "id": "lease_heartbeat",
-      "type": "backend",
-      "label": "尝试级租约心跳",
-      "sublabel": "独立 SQLite 连接 · 精确 attempt fencing",
-      "pos": [
-        955,
-        170
-      ],
-      "size": [
-        230,
-        90
-      ],
-      "sources": [
-        {
-          "path": "src/bili_asr/workflow.py",
-          "line": 114,
-          "end_line": 169,
-          "label": "线程续租与失效停止"
+          "line": 53,
+          "end_line": 97,
+          "label": "WorkflowExecutor.run"
         },
         {
           "path": "src/bili_asr/storage/workflow.py",
-          "line": 150,
-          "end_line": 164,
-          "label": "独立连接"
-        },
-        {
-          "path": "src/bili_asr/storage/workflow.py",
-          "line": 374,
-          "end_line": 403,
-          "label": "精确 attempt 与取消检查"
-        }
-      ],
-      "tag": "900 s lease · 默认每 1/3 续租"
-    },
-    {
-      "id": "audio",
-      "type": "backend",
-      "label": "音频生产者",
-      "sublabel": "audio.download_audio / ffprobe",
-      "pos": [
-        650,
-        560
-      ],
-      "size": [
-        230,
-        90
-      ],
-      "sources": [
-        {
-          "path": "src/bili_asr/workflow_runtime.py",
-          "line": 119,
-          "end_line": 185,
-          "label": "下载、暂存与受保护登记"
-        },
-        {
-          "path": "src/bili_asr/audio.py",
-          "line": 234,
-          "end_line": 372,
-          "label": "下载器音频目录契约"
-        }
-      ],
-      "tag": "复用 · 暂存 · 原后缀"
-    },
-    {
-      "id": "audio_catalog",
-      "type": "database",
-      "label": "archive.db · 音频身份",
-      "sublabel": "audio_objects · part_audio_objects",
-      "pos": [
-        955,
-        560
-      ],
-      "size": [
-        230,
-        90
-      ],
-      "sources": [
-        {
-          "path": "src/bili_asr/storage/schema.sql",
-          "line": 118,
-          "end_line": 140,
-          "label": "对象与关联"
-        },
-        {
-          "path": "src/bili_asr/workflow_runtime.py",
-          "line": 151,
-          "end_line": 185,
-          "label": "对象与关联的实际写入"
-        }
-      ],
-      "tag": "SHA-256 · 字节不入库"
-    },
-    {
-      "id": "transcripts",
-      "type": "database",
-      "label": "archive.db · 转录事实",
-      "sublabel": "append-only versions · ordered segments",
-      "pos": [
-        40,
-        840
-      ],
-      "size": [
-        230,
-        90
-      ],
-      "sources": [
-        {
-          "path": "src/bili_asr/storage/schema-transcripts.sql",
-          "line": 11,
-          "end_line": 418,
-          "label": "转录 / acquisition / 运行诊断"
-        },
-        {
-          "path": "src/bili_asr/storage/transcripts.py",
-          "line": 314,
-          "end_line": 498,
-          "label": "本地 ASR 幂等写入"
-        },
-        {
-          "path": "src/bili_asr/workflow_runtime.py",
-          "line": 245,
-          "end_line": 290,
-          "label": "转录入库与 publish 请求"
-        }
-      ],
-      "tag": "追加版本 · 每次运行留证"
-    },
-    {
-      "id": "asr",
-      "type": "backend",
-      "label": "本地转录 Handler",
-      "sublabel": "ASRRunner · 固定 profile / input snapshot",
-      "pos": [
-        345,
-        840
-      ],
-      "size": [
-        230,
-        90
-      ],
-      "sources": [
-        {
-          "path": "src/bili_asr/workflow_runtime.py",
-          "line": 183,
-          "end_line": 290,
-          "label": "实际 ASR 调用、watchdog 和存储归属"
-        },
-        {
-          "path": "src/bili_asr/asr/runner.py",
-          "line": 429,
-          "end_line": 594,
-          "label": "重采样 / 分块 / 对齐 / coverage"
-        },
-        {
-          "path": "src/bili_asr/asr/diagnostics.py",
-          "line": 1,
-          "end_line": 101,
-          "label": "逐块风险、对齐并集与阶段耗时"
-        }
-      ],
-      "tag": "16 kHz 波形 · 逐块诊断"
-    },
-    {
-      "id": "asr_watchdog",
-      "type": "backend",
-      "label": "GPU ASR watchdog",
-      "sublabel": "spawn 子进程 · 强制对齐硬超时",
-      "pos": [
-        650,
-        980
-      ],
-      "size": [
-        230,
-        90
-      ],
-      "sources": [
-        {
-          "path": "src/bili_asr/asr/runner.py",
-          "line": 28,
-          "end_line": 131,
-          "label": "可终止推理边界"
-        },
-        {
-          "path": "src/bili_asr/asr/config.py",
-          "line": 78,
-          "end_line": 136,
-          "label": "inference timeout 配置"
-        },
-        {
-          "path": "src/bili_asr/workflow_runtime.py",
-          "line": 219,
-          "end_line": 242,
-          "label": "CUDA/ROCm 超时失败记录"
-        }
-      ],
-      "tag": "inference_timeout · retryable"
-    },
-    {
-      "id": "audio_files",
-      "type": "database",
-      "label": "本地音频字节",
-      "sublabel": "audio/{bvid}.p{N}.m4a / .flac",
-      "pos": [
-        650,
-        840
-      ],
-      "size": [
-        230,
-        90
-      ],
-      "sources": [
-        {
-          "path": "src/bili_asr/workflow_runtime.py",
-          "line": 119,
-          "end_line": 185,
-          "label": "复用与最终音频写入"
-        },
-        {
-          "path": "src/bili_asr/workflow_runtime.py",
-          "line": 187,
-          "end_line": 200,
-          "label": "音频对象读取"
-        },
-        {
-          "path": "src/bili_asr/asr/audio.py",
-          "line": 128,
-          "end_line": 165,
-          "label": "解码"
-        }
-      ],
-      "tag": "archive root · 无自动回收"
-    },
-    {
-      "id": "models",
-      "type": "database",
-      "label": "模型权重与计算环境",
-      "sublabel": "Transformers / torch · CPU / GPU",
-      "pos": [
-        345,
-        1110
-      ],
-      "size": [
-        230,
-        90
-      ],
-      "sources": [
-        {
-          "path": "src/bili_asr/asr/runner.py",
-          "line": 64,
-          "end_line": 99,
-          "label": "模型对加载"
-        },
-        {
-          "path": "src/bili_asr/asr/runner.py",
-          "line": 166,
-          "end_line": 220,
-          "label": "GPU 检测与惰性复用"
-        },
-        {
-          "path": "src/bili_asr/asr/config.py",
-          "line": 49,
-          "end_line": 85,
-          "label": "模型 / device 配置"
-        }
-      ],
-      "tag": "本地目录或配置的模型标识"
-    },
-    {
-      "id": "publisher",
-      "type": "backend",
-      "label": "择优转录与保护发布",
-      "sublabel": "暂存 → 五文件 + marker + SQL",
-      "pos": [
-        40,
-        1110
-      ],
-      "size": [
-        230,
-        90
-      ],
-      "sources": [
-        {
-          "path": "src/bili_asr/workflow_runtime.py",
-          "line": 293,
-          "end_line": 384,
-          "label": "实际发布文件和事实"
-        },
-        {
-          "path": "src/bili_asr/archive.py",
-          "line": 381,
-          "end_line": 532,
-          "label": "暂存与失败清理"
+          "line": 212,
+          "end_line": 304,
+          "label": "WorkflowRepository.plan"
         },
         {
           "path": "src/bili_asr/storage/workflow.py",
           "line": 413,
-          "end_line": 441,
-          "label": "回滚前清理"
+          "end_line": 422,
+          "label": "WorkflowRepository.owned_transaction"
         }
-      ],
-      "tag": "语言优先级 + 同类最新版本"
+      ]
     },
     {
-      "id": "editorial",
-      "type": "backend",
-      "label": "AI 校对 Handler",
-      "sublabel": "冻结 ASR / 可选同语种字幕",
+      "id": "control",
+      "label": "SQLite · 控制事实",
+      "sublabel": "profiles / jobs / leases / attempts",
+      "type": "database",
       "pos": [
-        650,
-        1110
+        840,
+        640
       ],
       "size": [
-        230,
-        90
+        260,
+        96
       ],
       "sources": [
         {
-          "path": "src/bili_asr/editorial_runtime.py",
-          "line": 34,
-          "end_line": 58,
-          "label": "模型前后检查与提交"
+          "path": "src/bili_asr/storage/workflow.py",
+          "line": 306,
+          "end_line": 372,
+          "label": "WorkflowRepository.claim"
         },
         {
-          "path": "src/bili_asr/storage/editorial.py",
-          "line": 70,
-          "end_line": 141,
-          "label": "固定输入与不可变结果"
+          "path": "src/bili_asr/storage/workflow.py",
+          "line": 450,
+          "end_line": 498,
+          "label": "WorkflowRepository.cancel"
         }
+      ]
+    },
+    {
+      "id": "models",
+      "label": "本地 ASR 与 GPU 隔离",
+      "sublabel": "Qwen3 / aligner · 可终止超时",
+      "type": "backend",
+      "pos": [
+        40,
+        640
       ],
-      "tag": "块 / 修订受取消 guard 保护"
+      "size": [
+        260,
+        96
+      ],
+      "sources": [
+        {
+          "path": "src/bili_asr/asr/runner.py",
+          "line": 425,
+          "end_line": 588,
+          "label": "ASRRunner.transcribe"
+        },
+        {
+          "path": "src/bili_asr/asr/runner.py",
+          "line": 57,
+          "end_line": 132,
+          "label": "transcribe_with_timeout"
+        }
+      ]
     },
     {
       "id": "deepseek",
+      "label": "DeepSeek HTTPS API",
+      "sublabel": "冻结请求 · JSON · 无隐式重试",
       "type": "external",
-      "label": "DeepSeek API",
-      "sublabel": "deepseek-flash · JSON 修订",
       "pos": [
-        955,
-        1110
+        40,
+        940
       ],
       "size": [
-        230,
-        90
+        260,
+        96
       ],
       "sources": [
         {
           "path": "src/bili_asr/deepseek.py",
-          "line": 18,
+          "line": 38,
           "end_line": 58,
-          "label": "请求 / Authorization / timeout"
-        },
-        {
-          "path": "src/bili_asr/editorial.py",
-          "line": 32,
-          "end_line": 86,
-          "label": "编辑配置与纯处理"
+          "label": "DeepSeekClient.complete"
         }
-      ],
-      "tag": "DEEPSEEK_API_KEY"
+      ]
     },
     {
-      "id": "bundles",
-      "type": "database",
-      "label": "原始归档 Bundle",
-      "sublabel": "SRT / VTT / TXT / MD / raw JSON",
+      "id": "handlers",
+      "label": "转录与 AI 任务运行时",
+      "sublabel": "字幕 / 音频 / ASR / 校对 / 渲染",
+      "type": "backend",
       "pos": [
-        40,
-        1390
+        440,
+        940
       ],
       "size": [
-        230,
-        90
+        260,
+        96
       ],
       "sources": [
         {
-          "path": "src/bili_asr/artifacts.py",
-          "line": 1,
-          "end_line": 6,
-          "label": "五产品契约"
+          "path": "src/bili_asr/workflow_runtime.py",
+          "line": 45,
+          "end_line": 417,
+          "label": "ArchiveWorkflowHandlers"
         },
         {
-          "path": "src/bili_asr/archive.py",
-          "line": 395,
-          "end_line": 532,
-          "label": "实际文件发布"
-        },
-        {
-          "path": "src/bili_asr/archive.py",
-          "line": 872,
-          "end_line": 911,
-          "label": "编码与路径登记"
+          "path": "src/bili_asr/editorial_runtime.py",
+          "line": 17,
+          "end_line": 89,
+          "label": "EditorialWorkflowHandlers"
         }
-      ],
-      "tag": "archive-bundle-v2 · SHA-256"
+      ]
     },
     {
-      "id": "revisions",
+      "id": "products",
+      "label": "受限文件产物",
+      "sublabel": "audio / 五文件 bundle / AI 双稿",
       "type": "database",
-      "label": "archive.db · 编辑派生",
-      "sublabel": "inputs / calls / chunks / revisions",
       "pos": [
-        650,
-        1390
+        840,
+        940
       ],
       "size": [
-        230,
-        90
+        260,
+        96
       ],
       "sources": [
         {
-          "path": "src/bili_asr/storage/schema-editorial.sql",
-          "line": 1,
-          "end_line": 53,
-          "label": "校对表组"
+          "path": "src/bili_asr/workflow_runtime.py",
+          "line": 150,
+          "end_line": 184,
+          "label": "ArchiveWorkflowHandlers._store_audio"
+        },
+        {
+          "path": "src/bili_asr/workflow_runtime.py",
+          "line": 292,
+          "end_line": 383,
+          "label": "ArchiveWorkflowHandlers.publish"
+        },
+        {
+          "path": "src/bili_asr/editorial_runtime.py",
+          "line": 59,
+          "end_line": 89,
+          "label": "EditorialWorkflowHandlers.render"
+        }
+      ]
+    },
+    {
+      "id": "rawdb",
+      "label": "SQLite · 转录与 AI 事实",
+      "sublabel": "版本 / evidence / input / revision",
+      "type": "database",
+      "pos": [
+        440,
+        1240
+      ],
+      "size": [
+        260,
+        96
+      ],
+      "sources": [
+        {
+          "path": "src/bili_asr/storage/transcripts.py",
+          "line": 314,
+          "end_line": 499,
+          "label": "TranscriptRepository.record_local_transcript"
         },
         {
           "path": "src/bili_asr/storage/editorial.py",
-          "line": 115,
-          "end_line": 141,
-          "label": "校验块与完整修订"
+          "line": 138,
+          "end_line": 154,
+          "label": "EditorialRepository.commit_revision"
         }
-      ],
-      "tag": "ai-unreviewed / needs-review"
+      ]
     },
     {
-      "id": "renderer",
+      "id": "publication",
+      "label": "人工版本审核与出版",
+      "sublabel": "完整 edition · CAS · 双 head",
       "type": "backend",
-      "label": "确定性 Markdown 渲染",
-      "sublabel": "render_document · 保存修订重用",
       "pos": [
-        955,
-        1390
+        840,
+        1240
       ],
       "size": [
-        230,
-        90
+        260,
+        96
       ],
       "sources": [
         {
-          "path": "src/bili_asr/editorial_runtime.py",
-          "line": 60,
-          "end_line": 103,
-          "label": "实际双文档发布"
+          "path": "src/bili_asr/publication.py",
+          "line": 307,
+          "end_line": 347,
+          "label": "publish_edition"
         },
         {
-          "path": "src/bili_asr/cli/workflow.py",
-          "line": 219,
-          "end_line": 231,
-          "label": "显式重渲染"
+          "path": "src/bili_asr/storage/publication.py",
+          "line": 157,
+          "end_line": 180,
+          "label": "PublicationRepository.set_review"
+        },
+        {
+          "path": "src/bili_asr/publication_tags.py",
+          "line": 24,
+          "end_line": 41,
+          "label": "sync_source_tags"
         }
-      ],
-      "tag": "替换 + 登记同一 lease guard"
+      ]
     },
     {
-      "id": "search",
+      "id": "queries",
+      "label": "投影、校验与搜索",
+      "sublabel": "coverage / verify / export / dedup",
       "type": "backend",
-      "label": "转录与元数据搜索",
-      "sublabel": "transcripts / metadata / all",
       "pos": [
-        345,
-        1650
+        40,
+        1540
       ],
       "size": [
-        230,
-        90
+        260,
+        96
       ],
       "sources": [
         {
-          "path": "src/bili_asr/cli/search.py",
-          "line": 54,
-          "end_line": 159,
-          "label": "范围、UTC 与 JSON 契约"
+          "path": "src/bili_asr/services/workflow_projection.py",
+          "line": 55,
+          "end_line": 158,
+          "label": "workflow_records"
         },
         {
           "path": "src/bili_asr/search_index/query.py",
           "line": 21,
           "end_line": 63,
-          "label": "元数据先返回与降级"
+          "label": "search_archive"
         },
         {
-          "path": "src/bili_asr/search_index/metadata.py",
+          "path": "src/bili_asr/integrity.py",
+          "line": 52,
+          "end_line": 83,
+          "label": "IntegrityVerifier"
+        }
+      ]
+    },
+    {
+      "id": "exporter",
+      "label": "稿件静态快照导出",
+      "sublabel": "有效 release / 未发布 / 私有包",
+      "type": "backend",
+      "pos": [
+        440,
+        1540
+      ],
+      "size": [
+        260,
+        96
+      ],
+      "sources": [
+        {
+          "path": "src/bili_asr/publication_export.py",
           "line": 61,
-          "end_line": 139,
-          "label": "当前 metadata 的实际查询"
+          "end_line": 105,
+          "label": "export_publications"
+        },
+        {
+          "path": "src/bili_asr/publication_export.py",
+          "line": 108,
+          "end_line": 181,
+          "label": "export_publication_drafts"
+        },
+        {
+          "path": "src/bili_asr/publication_export.py",
+          "line": 193,
+          "end_line": 271,
+          "label": "export_editorial"
+        }
+      ]
+    },
+    {
+      "id": "pubdb",
+      "label": "SQLite · 出版事实",
+      "sublabel": "edition / review / release / events",
+      "type": "database",
+      "pos": [
+        840,
+        1540
+      ],
+      "size": [
+        260,
+        96
+      ],
+      "sources": [
+        {
+          "path": "src/bili_asr/storage/publication.py",
+          "line": 19,
+          "end_line": 230,
+          "label": "PublicationRepository"
         }
       ]
     },
     {
       "id": "fts",
+      "label": "SQLite · 派生 FTS5",
+      "sublabel": "显式增量构建 · metadata 只读",
       "type": "database",
-      "label": "archive.db · 派生索引",
-      "sublabel": "transcript_fts · 按时间文本块",
       "pos": [
-        650,
-        1650
+        40,
+        1840
       ],
       "size": [
-        230,
-        90
+        260,
+        96
       ],
       "sources": [
-        {
-          "path": "src/bili_asr/search_index/store.py",
-          "line": 123,
-          "end_line": 176,
-          "label": "FTS 结构与校验"
-        },
         {
           "path": "src/bili_asr/search_index/store.py",
           "line": 343,
-          "end_line": 473,
-          "label": "实际索引事务"
+          "end_line": 471,
+          "label": "TranscriptSearchIndex.build"
         },
         {
-          "path": "src/bili_asr/search_index/store.py",
-          "line": 475,
-          "end_line": 569,
-          "label": "FTS 查询"
-        }
-      ],
-      "tag": "可重建 · 不作为事实源"
-    },
-    {
-      "id": "documents",
-      "type": "database",
-      "label": "Markdown 阅读与审阅稿",
-      "sublabel": "reading.md / review.md",
-      "pos": [
-        955,
-        1650
-      ],
-      "size": [
-        230,
-        90
-      ],
-      "sources": [
-        {
-          "path": "src/bili_asr/editorial_runtime.py",
-          "line": 60,
-          "end_line": 103,
-          "label": "实际路径、摘要和替换"
-        },
-        {
-          "path": "src/bili_asr/storage/schema-editorial.sql",
-          "line": 46,
-          "end_line": 53,
-          "label": "文档身份"
-        }
-      ],
-      "tag": "documents/part-ID/revision/template"
-    },
-    {
-      "id": "inspection",
-      "type": "backend",
-      "label": "查询与校验命令",
-      "sublabel": "query · verify · export · dedup",
-      "pos": [
-        345,
-        2220
-      ],
-      "size": [
-        230,
-        90
-      ],
-      "sources": [
-        {
-          "path": "src/bili_asr/cli/status_cmd.py",
-          "line": 15,
-          "end_line": 91,
-          "label": "SQLite status / runs / coverage handlers"
-        },
-        {
-          "path": "src/bili_asr/cli/ops.py",
-          "line": 103,
-          "end_line": 160,
-          "label": "workflow export 与 artifact verify"
-        },
-        {
-          "path": "src/bili_asr/dedup.py",
+          "path": "src/bili_asr/search_index/metadata.py",
           "line": 1,
-          "end_line": 150,
-          "label": "音频与跨分片字幕哈希统计"
-        }
-      ],
-      "tag": "exact reuse only · no merge"
-    },
-    {
-      "id": "integrity",
-      "type": "backend",
-      "label": "完整性验证",
-      "sublabel": "只读检查 SQLite 工作流与已发布归档",
-      "pos": [
-        650,
-        2220
-      ],
-      "size": [
-        230,
-        90
-      ],
-      "sources": [
-        {
-          "path": "src/bili_asr/cli/ops.py",
-          "line": 135,
-          "end_line": 163,
-          "label": "verify 命令与退出结果"
-        },
-        {
-          "path": "src/bili_asr/integrity.py",
-          "line": 38,
-          "end_line": 58,
-          "label": "缺陷分类与 audit 路径"
+          "end_line": 60,
+          "label": "模块入口"
         }
       ]
     },
     {
-      "id": "projection",
+      "id": "backup",
+      "label": "归档快照服务",
+      "sublabel": "独占维护 · ZIP 校验与恢复",
       "type": "backend",
-      "label": "SQLite 读取投影",
-      "sublabel": "read-only workflow facts · derived status",
       "pos": [
-        60,
-        1000
+        440,
+        1840
       ],
       "size": [
-        240,
-        90
+        260,
+        96
       ],
       "sources": [
         {
-          "path": "src/bili_asr/services/workflow_projection.py",
-          "line": 1,
-          "end_line": 159,
-          "label": "只读事实、五文件与缺陷保留"
+          "path": "src/bili_asr/services/archive_snapshot.py",
+          "line": 260,
+          "end_line": 324,
+          "label": "save_snapshot"
+        },
+        {
+          "path": "src/bili_asr/services/archive_snapshot.py",
+          "line": 438,
+          "end_line": 463,
+          "label": "restore_snapshot"
         }
       ]
     },
     {
-      "id": "reading_export",
-      "type": "backend",
-      "label": "阅读站导出器",
-      "sublabel": "reading-export · SQLite 只读 + SHA-256",
-      "pos": [
-        40,
-        2500
-      ],
-      "size": [
-        230,
-        90
-      ],
-      "sources": [
-        {
-          "path": "src/bili_asr/cli/reading.py",
-          "line": 32,
-          "end_line": 46,
-          "label": "只读连接与站点导出入口"
-        },
-        {
-          "path": "src/bili_asr/reading_publication.py",
-          "line": 142,
-          "end_line": 272,
-          "label": "读取 reading/review、哈希校验与快照写入"
-        }
-      ],
-      "tag": "拒绝越界路径与非托管文件"
-    },
-    {
-      "id": "review_state",
+      "id": "exports",
+      "label": "静态消费与迁移文件",
+      "sublabel": "公开/预览/私有目录 · 完整 ZIP",
       "type": "database",
-      "label": "archive.db · 阅读审核状态",
-      "sublabel": "publications · editions · append-only events",
       "pos": [
-        345,
-        2500
+        840,
+        1840
       ],
       "size": [
-        230,
-        90
+        260,
+        96
       ],
       "sources": [
         {
-          "path": "src/bili_asr/storage/schema-editorial.sql",
-          "line": 55,
-          "end_line": 90,
-          "label": "人工版本、状态与事件表"
+          "path": "src/bili_asr/export_snapshot.py",
+          "line": 367,
+          "end_line": 444,
+          "label": "replace_snapshot"
         },
         {
-          "path": "src/bili_asr/reading_publication.py",
-          "line": 275,
-          "end_line": 370,
-          "label": "状态转换与人工版本写入"
-        }
-      ],
-      "tag": "AI revision immutable"
-    },
-    {
-      "id": "reading_site",
-      "type": "database",
-      "label": "阅读内容快照",
-      "sublabel": "catalog · articles · reviews",
-      "pos": [
-        650,
-        2500
-      ],
-      "size": [
-        230,
-        90
-      ],
-      "sources": [
-        {
-          "path": "src/bili_asr/reading_publication.py",
-          "line": 142,
-          "end_line": 273,
-          "label": "实际快照写出"
-        }
-      ],
-      "tag": "供外部前端消费"
-    },
-    {
-      "id": "reviewer",
-      "type": "external",
-      "label": "维护者与审核建议",
-      "sublabel": "Issue 链接 · 显式采纳",
-      "pos": [
-        970,
-        2500
-      ],
-      "size": [
-        230,
-        90
-      ],
-      "sources": [
-        {
-          "path": "src/bili_asr/cli/reading.py",
-          "line": 47,
-          "end_line": 108,
-          "label": "显式审核与人工编辑"
-        },
-        {
-          "path": "src/bili_asr/reading_publication.py",
-          "line": 46,
-          "end_line": 59,
-          "label": "预填 Issue 链接"
+          "path": "src/bili_asr/services/archive_snapshot.py",
+          "line": 260,
+          "end_line": 324,
+          "label": "save_snapshot"
         }
       ]
     }
   ],
   "connections": [
     {
-      "id": "enter",
+      "id": "operator-cli",
       "from": "operator",
       "to": "cli",
-      "label": "bili-asr",
+      "label": "显式命令",
       "variant": "emphasis"
     },
     {
-      "id": "plan",
+      "id": "cli-guard",
       "from": "cli",
-      "to": "planner",
-      "label": "workflow 控制"
-    },
-    {
-      "id": "plan-sql",
-      "from": "planner",
-      "to": "jobs",
-      "label": "持久化任务"
-    },
-    {
-      "id": "fetch",
-      "from": "cli",
-      "to": "metadata",
-      "label": "fetch-meta"
-    },
-    {
-      "id": "api",
-      "from": "bilibili",
-      "to": "gateway",
-      "label": "HTTPS 返回"
-    },
-    {
-      "id": "meta-call",
-      "from": "gateway",
-      "to": "metadata",
-      "label": "DTO 返回"
-    },
-    {
-      "id": "meta-sql",
-      "from": "metadata",
-      "to": "facts",
-      "label": "页事务",
-      "labelDx": -48,
-      "labelAt": [
-        917,
-        240
-      ]
-    },
-    {
-      "id": "known-parts",
-      "from": "facts",
-      "to": "planner",
-      "label": "BVID / 分 P 解析"
-    },
-    {
-      "id": "claim",
-      "from": "jobs",
-      "to": "executor",
-      "label": "原子领取 / 租约"
-    },
-    {
-      "id": "lease-heartbeat",
-      "from": "executor",
-      "to": "lease_heartbeat",
-      "label": "attempt heartbeat",
-      "variant": "emphasis"
-    },
-    {
-      "id": "lease-renew",
-      "from": "lease_heartbeat",
-      "to": "jobs",
-      "label": "续租 / stale fencing",
+      "to": "guard",
+      "label": "策略与锁",
       "variant": "security"
     },
     {
-      "id": "worker-caption",
-      "from": "executor",
-      "to": "subtitles",
-      "label": "字幕 job",
-      "labelAt": [
-        210,
-        664
-      ]
+      "id": "cli-ingest",
+      "from": "cli",
+      "to": "ingest",
+      "label": "fetch-meta/tags",
+      "variant": "default"
     },
     {
-      "id": "worker-audio",
-      "from": "executor",
-      "to": "audio",
-      "label": "audio job",
-      "labelDy": 62
+      "id": "ingest-platform",
+      "from": "ingest",
+      "to": "platform",
+      "label": "SDK / HTTPS",
+      "variant": "default"
     },
     {
-      "id": "worker-asr",
-      "from": "executor",
-      "to": "asr",
-      "label": "就绪 asr job"
+      "id": "ingest-facts",
+      "from": "ingest",
+      "to": "facts",
+      "label": "页事务",
+      "variant": "default"
     },
     {
-      "id": "asr-watchdog",
-      "from": "asr",
-      "to": "asr_watchdog",
-      "label": "GPU/ROCm inference"
+      "id": "cli-workflow",
+      "from": "cli",
+      "to": "workflow",
+      "label": "workflow",
+      "variant": "default"
     },
     {
-      "id": "audio-meta",
-      "from": "audio",
-      "to": "audio_catalog",
-      "label": "SHA-256 / key",
-      "labelAt": [
-        827,
-        664
-      ]
+      "id": "workflow-facts",
+      "from": "workflow",
+      "to": "facts",
+      "label": "目标验证",
+      "variant": "default"
     },
     {
-      "id": "audio-write",
-      "from": "audio",
-      "to": "audio_files",
-      "label": "下载与固化"
+      "id": "workflow-control",
+      "from": "workflow",
+      "to": "control",
+      "label": "租约与终态",
+      "variant": "default"
     },
     {
-      "id": "caption-store",
-      "from": "subtitles",
-      "to": "transcripts",
-      "label": "追加 / 幂等"
+      "id": "workflow-handlers",
+      "from": "workflow",
+      "to": "handlers",
+      "label": "就绪任务",
+      "variant": "emphasis"
     },
     {
-      "id": "audio-read",
-      "from": "audio_files",
-      "to": "asr",
-      "label": "读取音频",
-      "labelAt": [
-        600,
-        800
-      ]
+      "id": "handlers-platform",
+      "from": "handlers",
+      "to": "platform",
+      "label": "字幕 / 音频",
+      "variant": "default"
     },
     {
-      "id": "model-load",
-      "from": "models",
-      "to": "asr",
-      "label": "惰性加载"
-    },
-    {
-      "id": "watchdog-model",
-      "from": "asr_watchdog",
+      "id": "handlers-models",
+      "from": "handlers",
       "to": "models",
-      "label": "子进程 / 硬超时",
-      "variant": "dashed"
+      "label": "本地推理",
+      "variant": "default"
     },
     {
-      "id": "asr-store",
-      "from": "asr",
-      "to": "transcripts",
-      "label": "写入转录",
-      "labelAt": [
-        200,
-        795
-      ]
-    },
-    {
-      "id": "read-winner",
-      "from": "transcripts",
-      "to": "publisher",
-      "label": "择优读取"
-    },
-    {
-      "id": "worker-pub",
-      "from": "executor",
-      "to": "publisher",
-      "label": "publish job",
-      "variant": "dashed"
-    },
-    {
-      "id": "publish-bytes",
-      "from": "publisher",
-      "to": "bundles",
-      "label": "五文件 + 完成标记",
-      "variant": "emphasis"
-    },
-    {
-      "id": "edit-input",
-      "from": "transcripts",
-      "to": "editorial",
-      "label": "冻结版本",
-      "variant": "dashed"
-    },
-    {
-      "id": "worker-edit",
-      "from": "executor",
-      "to": "editorial",
-      "label": "可选编辑 jobs",
-      "variant": "dashed"
-    },
-    {
-      "id": "model-call",
-      "from": "editorial",
+      "id": "handlers-deepseek",
+      "from": "handlers",
       "to": "deepseek",
-      "label": "HTTPS / JSON",
-      "variant": "dashed"
+      "label": "可选校对",
+      "variant": "default"
     },
     {
-      "id": "save-revision",
-      "from": "editorial",
-      "to": "revisions",
-      "label": "guard 内提交"
+      "id": "handlers-products",
+      "from": "handlers",
+      "to": "products",
+      "label": "保护写入",
+      "variant": "security"
     },
     {
-      "id": "read-revision",
-      "from": "revisions",
-      "to": "renderer",
-      "label": "读取修订"
+      "id": "handlers-rawdb",
+      "from": "handlers",
+      "to": "rawdb",
+      "label": "不可变事实",
+      "variant": "default"
     },
     {
-      "id": "render-bytes",
-      "from": "renderer",
-      "to": "documents",
-      "label": "guard 内替换"
+      "id": "publication-products",
+      "from": "publication",
+      "to": "products",
+      "label": "AI 基线与文件",
+      "variant": "default"
     },
     {
-      "id": "index-source",
-      "from": "transcripts",
-      "to": "search",
-      "label": "转录块"
+      "id": "publication-rawdb",
+      "from": "publication",
+      "to": "rawdb",
+      "label": "修订来源",
+      "variant": "default"
     },
     {
-      "id": "index-build",
-      "from": "search",
-      "to": "fts",
-      "label": "构建 / 查询"
+      "id": "publication-pubdb",
+      "from": "publication",
+      "to": "pubdb",
+      "label": "版本与 head",
+      "variant": "security"
     },
     {
-      "id": "md-backfill",
-      "from": "bundles",
-      "to": "search",
-      "label": "MD 补全",
-      "variant": "dashed"
+      "id": "exporter-pubdb",
+      "from": "exporter",
+      "to": "pubdb",
+      "label": "精确选择",
+      "variant": "default"
     },
     {
-      "id": "caption-api",
-      "from": "gateway",
-      "to": "subtitles",
-      "label": "字幕获取"
+      "id": "exporter-products",
+      "from": "exporter",
+      "to": "products",
+      "label": "校验原稿",
+      "variant": "default"
     },
     {
-      "id": "audio-api",
-      "from": "gateway",
-      "to": "audio",
-      "label": "DASH / CDN"
+      "id": "exporter-exports",
+      "from": "exporter",
+      "to": "exports",
+      "label": "受管快照",
+      "variant": "default"
     },
     {
-      "id": "workflow-run",
-      "from": "cli",
-      "to": "executor",
-      "label": "workflow run"
+      "id": "queries-rawdb",
+      "from": "queries",
+      "to": "rawdb",
+      "label": "只读投影",
+      "variant": "default"
     },
     {
-      "id": "inspect-facts",
-      "from": "facts",
-      "to": "inspection",
-      "label": "status / runs",
-      "variant": "dashed",
-      "labelAt": [
-        900,
-        2324
-      ]
+      "id": "queries-facts",
+      "from": "queries",
+      "to": "facts",
+      "label": "元数据搜索",
+      "variant": "default"
     },
     {
-      "id": "verify-products",
-      "from": "bundles",
-      "to": "integrity",
+      "id": "queries-products",
+      "from": "queries",
+      "to": "products",
       "label": "完整性检查",
-      "variant": "dashed"
+      "variant": "default"
     },
     {
-      "id": "facts-projection",
-      "from": "facts",
-      "to": "projection",
-      "label": "active video parts"
+      "id": "queries-fts",
+      "from": "queries",
+      "to": "fts",
+      "label": "构建 / 检索",
+      "variant": "default"
     },
     {
-      "id": "transcripts-projection",
-      "from": "transcripts",
-      "to": "projection",
-      "label": "版本事实",
-      "labelAt": [
-        250,
-        960
-      ]
+      "id": "backup-rawdb",
+      "from": "backup",
+      "to": "rawdb",
+      "label": "backup / 恢复",
+      "variant": "default"
     },
     {
-      "id": "bundles-projection",
-      "from": "bundles",
-      "to": "projection",
-      "label": "bundle presence check",
-      "variant": "dashed"
+      "id": "backup-products",
+      "from": "backup",
+      "to": "products",
+      "label": "全部产物",
+      "variant": "default"
     },
     {
-      "id": "projection-inspection",
-      "from": "projection",
-      "to": "inspection",
-      "label": "coverage / export / verify",
-      "variant": "emphasis"
-    },
-    {
-      "id": "reading-command",
-      "from": "cli",
-      "to": "reading_export",
-      "label": "reading-export"
-    },
-    {
-      "id": "reading-revision",
-      "from": "revisions",
-      "to": "reading_export",
-      "label": "只读修订"
-    },
-    {
-      "id": "reading-documents",
-      "from": "documents",
-      "to": "reading_export",
-      "label": "reading.md + review.md",
-      "variant": "dashed"
-    },
-    {
-      "id": "reading-snapshot",
-      "from": "reading_export",
-      "to": "reading_site",
-      "label": "静态内容快照",
-      "variant": "emphasis"
-    },
-    {
-      "id": "issue-feedback",
-      "from": "reading_site",
-      "to": "reviewer",
-      "label": "预填 GitHub Issue",
-      "variant": "dashed"
-    },
-    {
-      "id": "review-export",
-      "from": "review_state",
-      "to": "reading_export",
-      "label": "重新导出状态",
-      "variant": "dashed"
-    },
-    {
-      "id": "metadata-search",
-      "from": "facts",
-      "to": "search",
-      "label": "实时标题 / 简介 / 标签",
-      "variant": "dashed"
-    },
-    {
-      "id": "review-feedback",
-      "from": "reviewer",
-      "to": "review_state",
-      "label": "reading-review / edit",
-      "variant": "dashed"
+      "id": "backup-exports",
+      "from": "backup",
+      "to": "exports",
+      "label": "私有 ZIP",
+      "variant": "default"
     }
   ],
   "cards": [
     {
       "dot": "cyan",
-      "title": "范围与证据",
+      "title": "执行与所有权",
       "items": [
-        "所有 archive.db 节点属于同一 SQLite 文件中的逻辑表组；音频、bundle 和快照是文件产物。",
-        "源码引用固定到功能代码提交；阅读内容快照供外部前端消费，仓库没有阅读前端源码。"
+        "本地 Python CLI 与 SQLite；图中各 SQLite 节点是同一 archive.db 的逻辑表组。",
+        "控制仓库拥有 lease/attempt；handler 在锁外执行网络与推理，短保护事务提交结果。",
+        "ASR 只依赖 audio；字幕独立；AI 校对可选；原始 bundle 与人工 publication 两个域独立。"
       ]
     },
     {
       "dot": "emerald",
-      "title": "选择与控制",
+      "title": "消费与恢复",
       "items": [
-        "BVID / part ID 先全集验证，再幂等规划；ASR 只依赖音频成功，不依赖字幕。",
-        "取消 queued/running 为 cancelled，精确 attempt 防止旧 worker 提交；取消不级联且不被 retry 恢复。",
-        "网络与推理在事务外运行；权威结果在 BEGIN IMMEDIATE 内检查 lease 并提交。",
-        "ASR profile 冻结完整有效配置，成功诊断与转录同事务提交；正文去重仍保留每次运行证据。"
+        "FTS、公开/预览/私有快照均为消费产物；读者站点属于独立仓库。",
+        "完整 ZIP 保留数据库、音频、bundle、AI 双稿与全部历史 release；restore 恢复中断 job。",
+        "16 个分流程时序图与源码、命令、SQL 清单补充全部条件分支和保留工具边界。"
       ]
     },
     {
-      "dot": "cyan",
-      "title": "采集与音频",
+      "dot": "rose",
+      "title": "提交边界",
       "items": [
-        "fetch-meta 持久保存分页事实与恢复游标；字幕和 ASR 追加不可变转录。",
-        "音频复用或独立暂存，probe / hash 在锁外，最终替换与对象登记在 guard 内。",
-        "workflow 可写独立 artifact root，SQLite 留在 archive root；保留 M4A / FLAC 后缀且无自动回收。"
-      ]
-    },
-    {
-      "dot": "violet",
-      "title": "发布与校对",
-      "items": [
-        "编码、摘要与暂存先完成；五文件、v2 marker 与 publication 登记共享写锁，失败清理在回滚前。",
-        "校对冻结输入、审计调用、保存校验块与完整修订；render 只读已保存修订，不调用模型。",
-        "SQLite 与文件系统没有跨介质原子事务；verify 与显式重新发布负责检测及恢复。"
-      ]
-    },
-    {
-      "dot": "amber",
-      "title": "搜索与投影",
-      "items": [
-        "metadata 直接只读查询当前标题、简介和标签，不要求 FTS 或产物；transcripts 保持 FTS 查询。",
-        "all 先元数据后转录，共用 limit；日期为 UTC 日，JSON stdout 为数组，诊断走 stderr。",
-        "coverage / export / verify 共享读取投影；坏发布仍保留为可报告缺陷。"
-      ]
-    },
-    {
-      "dot": "amber",
-      "title": "阅读内容发布",
-      "items": [
-        "reading-export 只读 SQLite，校验已登记 Markdown 摘要，写 catalog / articles / reviews 快照。",
-        "reading-review / reading-edit 显式采纳审核与人工 edition；原始转录及 AI 修订不被覆写。"
+        "取消与 lease guard 串行保护权威写入；不能立即撤销在途 HTTP 或 GPU 请求。",
+        "SQLite 与文件系统无跨介质事务；完成 marker、哈希与显式重排负责识别和恢复。",
+        "source tags 更新不改写旧 edition；精确 approved/hash/CAS 后显式 publish 才切换公开 head。"
       ]
     }
   ]
