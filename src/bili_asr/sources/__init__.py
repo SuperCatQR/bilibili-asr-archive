@@ -7,6 +7,7 @@ pinned third-party package; this package ``__init__`` must stay importable
 without ``bilibili_api``.
 """
 
+from bili_asr.platform_identity import ContentRef
 from bili_asr.sources.models import (
     BilibiliGateway,
     GatewayAuthenticationError,
@@ -23,9 +24,19 @@ from bili_asr.sources.models import (
     VideoSummary,
     VideoTag,
 )
+from bili_asr.sources.protocols import (
+    AudioSource,
+    ContentPart,
+    MetadataSource,
+    SourceAccessObservation,
+    SubtitleSource,
+)
 
 __all__ = [
+    "AudioSource",
     "BilibiliGateway",
+    "ContentPart",
+    "ContentRef",
     "GatewayAuthenticationError",
     "GatewayError",
     "GatewayNotFound",
@@ -33,7 +44,10 @@ __all__ = [
     "GatewayResponseError",
     "GatewayShapeError",
     "GatewayTransportError",
+    "MetadataSource",
+    "SourceAccessObservation",
     "SubtitleSegment",
+    "SubtitleSource",
     "SubtitleTrack",
     "UserVideoPage",
     "VideoPart",

@@ -7,10 +7,11 @@ normalized metadata schema.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 import re
+from dataclasses import dataclass
 from typing import Literal
 
+from bili_asr.error_codes import validate_error_code as _error_code
 
 ProcessingStatus = Literal["discovered", "metadata_collected", "gone"]
 RunOutcome = Literal["running", "complete", "limited", "risk_interrupted", "failed"]
@@ -42,7 +43,6 @@ _ALLOWED_TRANSCRIPT_WRITE_OUTCOMES = frozenset({"stored", "unchanged"})
 # boundary enforces it (``TranscriptRepository.record_acquired_transcript``),
 # not the segment record below, which validates the shape of one row.
 MAX_TIMELINE_MS = 10**12
-_ERROR_CODE_PATTERN = re.compile(r"^[A-Za-z0-9_.:-]+$")
 _SHA256_HEX_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 
 
@@ -69,16 +69,6 @@ def _text(value: object, field: str) -> str:
         raise ValueError(f"{field} must not be empty")
     if "\x00" in value or "\r" in value or "\n" in value:
         raise ValueError(f"{field} contains invalid control characters")
-    return value
-
-
-def _error_code(value: object, field: str = "error_code") -> str | None:
-    if value is None:
-        return None
-    if not isinstance(value, str):
-        raise TypeError(f"{field} must be a string or None")
-    if not value or len(value) > 64 or _ERROR_CODE_PATTERN.fullmatch(value) is None:
-        raise ValueError(f"{field} must be a bounded scalar code")
     return value
 
 

@@ -23,15 +23,6 @@ here first:
 
 from __future__ import annotations
 
-import bili_asr.asr.alignment as _module_asr_alignment
-import bili_asr.asr.audio as _module_asr_audio
-import bili_asr.asr.config as _module_asr_config
-import bili_asr.asr.constants as _module_asr_constants
-import bili_asr.asr.errors as _module_asr_errors
-import bili_asr.asr.provenance as _module_asr_provenance
-import bili_asr.asr.runner as _module_asr_runner
-
-
 import builtins
 import os
 import pathlib
@@ -41,7 +32,14 @@ import sys
 
 import pytest
 
+import bili_asr.asr.alignment as _module_asr_alignment
+import bili_asr.asr.audio as _module_asr_audio
+import bili_asr.asr.config as _module_asr_config
+import bili_asr.asr.constants as _module_asr_constants
+import bili_asr.asr.errors as _module_asr_errors
+import bili_asr.asr.runner as _module_asr_runner
 from bili_asr import asr
+from bili_asr.asr.provenance import apply_provenance_evidence
 
 
 def test_missing_asr_provenance_uses_named_language_fallback():
@@ -50,7 +48,7 @@ def test_missing_asr_provenance_uses_named_language_fallback():
             return {}
 
     entry = {}
-    _module_asr_provenance.apply_provenance_evidence(entry, Runner())
+    apply_provenance_evidence(entry, Runner())
     assert entry["language"] == _module_asr_constants.DEFAULT_TRANSCRIPT_LANGUAGE == "und"
 
 

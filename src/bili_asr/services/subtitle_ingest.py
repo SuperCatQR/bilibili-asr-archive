@@ -1,4 +1,23 @@
-'Bounded subtitle acquisition between the typed gateway and transcript storage.\n\n:class:`SubtitleIngestor` owns everything between "which parts?" and "what was\nwritten?": the candidate enumeration order, the track-selection preference, the\nper-part transaction boundary, the run-record lifecycle, and the outcome\nmapping.  It depends on the :class:`~bili_asr.sources.models.BilibiliGateway`\nprotocol and the :class:`~bili_asr.storage.transcripts.TranscriptRepository` only —\nnever on the concrete adapter or on an upstream response dictionary.\n\nThe surface is synchronous, like :class:`~bili_asr.services.metadata_ingest.MetadataIngestor`\'s,\nand runs the gateway\'s async calls on one event loop per operation.\n\n``probe`` writes nothing at all: no run, no attempt, no transcript, no file.\n``harvest`` opens exactly one ``acquisition_runs`` row, records exactly one\nattempt row per attempted part through one repository call (one transaction per\npart), and finishes the run with the outcome derived from those attempts.\n\nOutcome mapping (one outcome per attempted part):\n\n- the listing was empty, or upstream answered ``not_found`` for the listing\n  → ``no-subtitle`` (the part is not a failure; it stays eligible for a\n  later run, and the attempt row carries ``not_found`` when upstream said so);\n- the body was fetched and stored → ``stored``, or ``unchanged`` when a stored\n  version of the same identity already carries that content;\n- a fetched body the storage boundary refuses as unrepresentable (a timeline\n  position above its caption range) → ``failed`` with the bounded\n  ``shape_error`` code, one part\'s outcome rather than the run\'s;\n- any other bounded gateway failure → ``failed`` with that scalar error code.\n'
+"""Bounded subtitle acquisition between source ports and transcript storage.
+
+:class:`SubtitleIngestor` owns candidate enumeration, track selection, per-part
+transactions, run records and bounded outcome mapping.  Runtime callers can
+inject the application-owned ``SubtitleSource`` port.  Existing Bilibili
+gateway callers use a compatibility adapter resolved from already-read part
+rows, with no additional database lookup or raw upstream response dictionaries.
+
+The surface is synchronous and runs the source's asynchronous calls on one
+event loop per operation.  ``probe`` writes no run, attempt, transcript or file.
+``harvest`` creates one acquisition run, records one attempt per part in a
+separate transaction, and finishes with the attempts' aggregate outcome.
+
+An empty selection or a listing's bounded ``not_found`` yields ``no-subtitle``;
+only an observed credentialed verification can establish trusted absence for
+the current Bilibili policy.  A fetched body yields ``stored`` or ``unchanged``.
+Unrepresentable timelines yield one part's bounded ``shape_error`` failure.
+Other gateway failures yield ``failed`` with their scalar error code.  A body
+that disappears after listing remains a failure rather than absence evidence.
+"""
 
 from __future__ import annotations
 
@@ -10,8 +29,11 @@ from typing import Callable
 import uuid
 
 from bili_asr.services._common import _now
+from bili_asr.transcript_selection import LANGUAGE_FAMILY_ORDER, language_family
 
 from bili_asr.page_identity import format_work_id
+from bili_asr.platform_identity import ContentRef
+from bili_asr.sources.bilibili_source import BilibiliSubtitleSource
 from bili_asr.sources.models import (
     BilibiliGateway,
     GatewayError,
@@ -21,6 +43,7 @@ from bili_asr.sources.models import (
     SubtitleSegment,
     SubtitleTrack,
 )
+from bili_asr.sources.protocols import SubtitleSource
 from bili_asr.storage.transcripts import TranscriptRepository
 from bili_asr.storage.models import (
     ALLOWED_ACQUISITION_KINDS,
@@ -42,7 +65,7 @@ _OUTCOME_UNCHANGED = "unchanged"
 _OUTCOME_NO_SUBTITLE = "no-subtitle"
 _OUTCOME_FAILED = "failed"
 #: The default language family order the selection preference ranks by.
-_DEFAULT_LANGUAGE_FAMILY_ORDER = ("zh", "en")
+_DEFAULT_LANGUAGE_FAMILY_ORDER = LANGUAGE_FAMILY_ORDER
 
 
 def _choice(value: str, field: str, allowed: frozenset[str]) -> str:
@@ -67,25 +90,6 @@ def _caption_source_kind(is_ai: bool) -> str:
     return _choice(
         _SOURCE_KIND_BY_AI[is_ai], "source_kind", ALLOWED_CAPTION_SOURCE_KINDS
     )
-
-
-def language_family(language: str, is_ai: bool) -> str:
-    """Return the language family one listed track belongs to.
-
-    Total by construction, because the gateway rejects a ``lan`` without a
-    non-empty primary subtag: an AI caption's ``ai-`` prefix is stripped and the
-    lowercase primary subtag — everything before the first ``-`` — is the
-    family.  The family is derived from the two normalized facts the track DTO
-    already guarantees (``language`` and ``is_ai``) because upstream spells the
-    same spoken language differently per caption kind (``zh-CN``, ``zh-Hans``
-    and ``zh-Hant`` for uploader captions against ``ai-zh`` for the machine
-    one), so a fixed list of codes would silently mis-rank a code upstream adds.
-    """
-
-    code = language.strip().lower()
-    if is_ai and code.startswith("ai-"):
-        code = code[3:]
-    return code.split("-", 1)[0]
 
 
 def _family_rank(family: str) -> int:
@@ -218,6 +222,11 @@ class _SubtitleWorkItem:
     bvid: str
     cid: int
     video_part_id: int
+    page_index: int
+
+    @property
+    def content_ref(self) -> ContentRef:
+        return ContentRef("bilibili", self.bvid, self.page_index)
 
 
 def _pending_work_item(row: sqlite3.Row) -> _SubtitleWorkItem:
@@ -228,6 +237,7 @@ def _pending_work_item(row: sqlite3.Row) -> _SubtitleWorkItem:
         bvid=str(row["bvid"]),
         cid=int(row["cid"]),
         video_part_id=int(row["video_part_id"]),
+        page_index=int(row["page_index"]),
     )
 
 
@@ -244,6 +254,7 @@ def _selected_work_item(row: sqlite3.Row, bvid: str) -> _SubtitleWorkItem:
         bvid=bvid,
         cid=int(row["cid"]),
         video_part_id=int(row["video_part_id"]),
+        page_index=int(row["page_index"]),
     )
 
 
@@ -274,18 +285,39 @@ class SubtitleIngestor:
 
     def __init__(
         self,
-        gateway: BilibiliGateway,
+        gateway: BilibiliGateway | None,
         repository: TranscriptRepository,
         *,
         credential_present: bool = False,
         clock: Callable[[], int] = _now,
         checkpoint: Callable[[], None] | None = None,
+        source: SubtitleSource | None = None,
     ) -> None:
+        if gateway is None and source is None:
+            raise ValueError("subtitle acquisition requires a source or Bilibili gateway")
         self._gateway = gateway
+        self._source = source
         self._repository = repository
         self._credential_present = bool(credential_present)
         self._clock = clock
         self._checkpoint = checkpoint or (lambda: None)
+
+    def _source_for(self, item: _SubtitleWorkItem) -> SubtitleSource:
+        """Resolve existing Bilibili extensions only at the source boundary.
+
+        The optional source is the explicit runtime port.  Existing callers
+        injecting a gateway retain their API while each selected part's real
+        cid is supplied by its already-read repository row, with no new query.
+        """
+
+        if self._source is not None:
+            return self._source
+        assert self._gateway is not None
+        return BilibiliSubtitleSource(
+            self._gateway,
+            {item.content_ref: item.cid}.__getitem__,
+            credential_present=self._credential_present,
+        )
 
     def probe(self, selection: SubtitleSelection) -> ProbeResult:
         """List what each selected part exposes, writing nothing at all."""
@@ -398,10 +430,11 @@ class SubtitleIngestor:
     async def _probe_part(self, item: _SubtitleWorkItem) -> SubtitleProbePart:
         """List one part's inventory; a bounded failure keeps its code on the part."""
 
+        source = self._source_for(item)
         try:
-            tracks = await self._gateway.get_subtitle_tracks(item.bvid, item.cid)
+            tracks = await source.list_tracks(item.content_ref)
             if not tracks and self._credential_present:
-                await self._gateway.validate_subtitle_credentials()
+                await source.verify_access(item.content_ref)
         except GatewayError as error:
             return SubtitleProbePart(
                 work_id=item.work_id, tracks=(), error_code=error.code
@@ -430,8 +463,9 @@ class SubtitleIngestor:
 
         self._checkpoint()
         started_at = self._clock()
+        source = self._source_for(item)
         try:
-            tracks = await self._gateway.get_subtitle_tracks(item.bvid, item.cid)
+            tracks = await source.list_tracks(item.content_ref)
         except GatewayNotFound:
             return self._record_captionless_part(
                 run_id, item, "not_found", started_at, absence_verified=True
@@ -444,20 +478,21 @@ class SubtitleIngestor:
             # A cookie being present does not make this an authenticated
             # absence.  A failed login or unreadable validity check must not
             # become the empty-inventory proof used by the audio queue.
-            if self._credential_present:
-                try:
-                    await self._gateway.validate_subtitle_credentials()
-                    self._checkpoint()
-                except GatewayError as error:
-                    return self._record_failed_part(run_id, item, error, started_at)
+            try:
+                access = await source.verify_access(item.content_ref)
+                self._checkpoint()
+            except GatewayError as error:
+                return self._record_failed_part(run_id, item, error, started_at)
             return self._record_captionless_part(
                 run_id, item, None, started_at,
-                credential_verified=self._credential_present,
+                credential_verified=(
+                    self._credential_present
+                    and access.access_context == "credentialed"
+                    and access.verified
+                ),
             )
         try:
-            segments = await self._gateway.fetch_subtitle_segments(
-                track, item.bvid, item.cid
-            )
+            segments = await source.fetch_segments(track, item.content_ref)
         except GatewayNotFound:
             # A listed track's body may disappear or be empty during retrieval.
             # That does not attest that the player has no usable subtitles.

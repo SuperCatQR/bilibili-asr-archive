@@ -11,7 +11,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import ClassVar, Protocol
 
-from bili_asr.storage.models import validate_error_code
+from bili_asr.error_codes import validate_error_code
+from bili_asr.platform_identity import ContentRef
 
 
 def _integer(value: object, field: str, *, minimum: int | None = None) -> int:
@@ -120,6 +121,12 @@ class VideoSummary:
         for collaborator_mid in self.collaborator_mids:
             _integer(collaborator_mid, "collaborator_mid", minimum=1)
 
+    @property
+    def content_ref(self) -> ContentRef:
+        """Video lookup reference; fetching parts supplies each real index."""
+
+        return ContentRef("bilibili", self.bvid)
+
 
 @dataclass(frozen=True, slots=True)
 class VideoPart:
@@ -137,6 +144,12 @@ class VideoPart:
         _integer(self.cid, "cid", minimum=1)
         _text(self.title, "title")
         _integer(self.duration_ms, "duration_ms", minimum=1)
+
+    @property
+    def content_ref(self) -> ContentRef:
+        """Source-port identity without adding a field to the legacy DTO."""
+
+        return ContentRef("bilibili", self.bvid, self.page_index)
 
 
 @dataclass(frozen=True, slots=True)
