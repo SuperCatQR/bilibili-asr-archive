@@ -1,0 +1,228 @@
+"""Fixed, read-only legacy archive inspection for an offline migration preflight.
+
+The signatures are frozen from 9b28957, independent of the schema shipped by a
+future build. This module deliberately does not use the runtime database opener.
+Callers must stop writers and hold the archive access lock for the entire read.
+"""
+
+from __future__ import annotations
+
+from contextlib import closing
+from dataclasses import dataclass
+from functools import lru_cache
+import hashlib
+from importlib import resources
+import json
+from pathlib import Path
+import re
+import sqlite3
+import stat
+import struct
+import time
+from typing import Any
+
+
+class MigrationSourceError(ValueError):
+    """A legacy source cannot be inspected safely or is unsupported."""
+
+
+@dataclass(frozen=True)
+class TableFingerprint:
+    name: str
+    row_count: int
+    sha256: str
+    includes_rowid: bool = True
+
+
+@dataclass(frozen=True)
+class MigrationSourceReport:
+    contract_id: str
+    source_revision: str
+    table_fingerprints: tuple[TableFingerprint, ...]
+    derived_objects: tuple[str, ...]
+    expired_running_jobs: int = 0
+
+
+def _normalize_sql(sql: str) -> str:
+    """Normalize unquoted SQL only; literals and quoted identifiers stay exact."""
+    tokens: list[str] = []
+    pattern = re.compile(
+        r"--[^\n]*(?:\n|$)|/\*.*?\*/|'(?:''|[^'])*'|\"(?:\"\"|[^\"])*\""
+        r"|`(?:``|[^`])*`|\[[^\]]*\]|[A-Za-z_][A-Za-z_0-9]*|\s+|.",
+        re.DOTALL,
+    )
+    for match in pattern.finditer(sql):
+        token = match.group()
+        if token.isspace() or token.startswith(("--", "/*")):
+            continue
+        tokens.append(token if token[0] in "'\"`[" else token.casefold())
+    # SQLite removes this clause and trailing terminators from stored DDL.
+    text = " ".join(tokens).rstrip(" ;")
+    return re.sub(
+        r"^(create (?:unique |virtual )?(?:table|view|index|trigger)) if not exists ",
+        r"\1 ", text,
+    )
+
+
+def _sql_digest(sql: str) -> str:
+    return hashlib.sha256(_normalize_sql(sql).encode("utf-8")).hexdigest()
+
+
+@lru_cache(maxsize=1)
+def _contract() -> dict[str, Any]:
+    return json.loads(resources.files("bili_asr.storage").joinpath(
+        "migration-source-bilibili-v1.json"
+    ).read_text(encoding="utf-8"))
+
+
+def _identifier(name: str) -> str:
+    return '"' + name.replace('"', '""') + '"'
+
+
+def _reject_links(path: Path) -> None:
+    """Inspect lexical ancestors before following any part of the input path."""
+    for component in reversed((path, *path.parents)):
+        try:
+            info = component.lstat()
+        except FileNotFoundError:
+            continue
+        if (stat.S_ISLNK(info.st_mode)
+                or getattr(info, "st_file_attributes", 0)
+                & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)):
+            raise MigrationSourceError("legacy source path cannot contain symlinks or junctions")
+
+
+def _source_state(path: Path) -> tuple[int, int, int, int, int]:
+    _reject_links(path)
+    if not path.is_file():
+        raise MigrationSourceError("legacy archive database is missing")
+    # immutable=1 never creates WAL/SHM files, but cannot incorporate pending
+    # transactions. Require an offline checkpoint rather than omit their data.
+    for suffix in ("-wal", "-journal"):
+        companion = path.with_name(path.name + suffix)
+        _reject_links(companion)
+        if companion.exists() and companion.stat().st_size:
+            raise MigrationSourceError(
+                "legacy archive has a pending WAL or journal; stop writers and checkpoint first"
+            )
+    info = path.stat()
+    return info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns, info.st_ctime_ns
+
+
+def _validate_objects(connection: sqlite3.Connection, contract: dict[str, Any]) -> tuple[str, ...]:
+    actual = {
+        name: {"kind": kind, "sql_sha256": _sql_digest(sql)}
+        for kind, name, sql in connection.execute(
+            "SELECT type, name, sql FROM sqlite_schema WHERE sql IS NOT NULL ORDER BY name"
+        )
+    }
+    required = contract["objects"]
+    for name, shape in required.items():
+        if name not in actual:
+            raise MigrationSourceError(f"legacy source contract is missing {name}")
+        if actual[name] != {key: shape[key] for key in ("kind", "sql_sha256")}:
+            raise MigrationSourceError(f"legacy source contract is incompatible at {name}")
+    extras = set(actual) - set(required)
+    derived: set[str] = set()
+    for group in contract["derived_groups"]:
+        names = set(group["objects"])
+        present = names & extras
+        if not present:
+            continue
+        if present != names:
+            raise MigrationSourceError("legacy source has an incomplete derived search index")
+        for name, variants in group["objects"].items():
+            if actual[name] not in variants:
+                raise MigrationSourceError(f"legacy source has an unsupported derived object {name}")
+        derived.update(names)
+    unknown = sorted(extras - derived)
+    if unknown:
+        raise MigrationSourceError(f"legacy source has an unsupported object {unknown[0]}")
+    if connection.execute("SELECT version FROM manuscript_contract").fetchall() != [(1,)]:
+        raise MigrationSourceError("legacy source manuscript contract identity is invalid")
+    return tuple(sorted(derived))
+
+
+def _fingerprint(connection: sqlite3.Connection, name: str, columns: list[str]) -> TableFingerprint:
+    expressions = ["rowid"]
+    for column in columns:
+        quoted = _identifier(column)
+        expressions.extend((f"typeof({quoted})", quoted))
+    digest = hashlib.sha256(b"bili-asr-legacy-table-fingerprint-v1\x00")
+    # Include a schema-level prefix so rows from two tables cannot be confused.
+    digest.update(json.dumps([name, columns], ensure_ascii=False, separators=(",", ":")).encode())
+    count = 0
+    for row in connection.execute(
+        f"SELECT {', '.join(expressions)} FROM {_identifier(name)} ORDER BY rowid"
+    ):
+        digest.update(b"R" + struct.pack(">q", row[0]))
+        for index in range(1, len(row), 2):
+            kind, value = row[index:index + 2]
+            kind = kind.decode("ascii")
+            if kind == "null":
+                payload = b""
+            elif kind == "integer":
+                payload = struct.pack(">q", value)
+            elif kind == "real":
+                payload = struct.pack(">d", value)
+            else:
+                payload = value
+            digest.update(kind.encode("ascii") + b"\x00" + struct.pack(">Q", len(payload)))
+            digest.update(payload)
+        count += 1
+    return TableFingerprint(name, count, digest.hexdigest())
+
+
+def inspect_migration_source(database_path: Path) -> MigrationSourceReport:
+    """Validate and fingerprint one stopped, checkpointed baseline database.
+
+    All authoritative tables are streamed in effective rowid order, retaining
+    SQLite storage types and exact text/blob bytes. Hashes expose no row values.
+    The known FTS search cache is explicitly classified as rebuildable data.
+    No schema initialization, write connection or source-side files are used.
+    Database paths and their ancestors must contain no links or junctions.
+    """
+    # Keep lexical ancestors (including '..') for both link checks. Resolving
+    # first would silently accept a database alias or a linked parent directory.
+    path = Path(database_path)
+    if not path.is_absolute():
+        path = Path.cwd() / path
+    try:
+        before = _source_state(path)
+        contract = _contract()
+        with closing(sqlite3.connect(path.as_uri() + "?mode=ro&immutable=1", uri=True)) as connection:
+            connection.execute("PRAGMA query_only = ON")
+            connection.execute("PRAGMA trusted_schema = OFF")
+            if connection.execute("PRAGMA integrity_check").fetchall() != [("ok",)]:
+                raise MigrationSourceError("legacy source failed SQLite integrity validation")
+            derived = _validate_objects(connection, contract)
+            if connection.execute("PRAGMA foreign_key_check").fetchone() is not None:
+                raise MigrationSourceError("legacy source failed foreign-key validation")
+            now = int(time.time())
+            if connection.execute(
+                "SELECT 1 FROM workflow_jobs WHERE status = 'running' "
+                "AND (lease_expires_at IS NULL OR lease_expires_at > ?) LIMIT 1", (now,),
+            ).fetchone() is not None:
+                raise MigrationSourceError(
+                    "legacy source has running workflow jobs with live or missing leases; stop workers first"
+                )
+            expired_running = connection.execute(
+                "SELECT COUNT(*) FROM workflow_jobs WHERE status = 'running'",
+            ).fetchone()[0]
+            # SQLite supplies text as UTF-8 bytes for this factory, independent
+            # of the database encoding. Keep bytes (even undecodable text) and
+            # its storage type instead of parsing/normalizing frozen JSON.
+            connection.text_factory = bytes
+            fingerprints = tuple(
+                _fingerprint(connection, name, shape["columns"])
+                for name, shape in sorted(contract["objects"].items())
+                if shape["kind"] == "table"
+            )
+        if _source_state(path) != before:
+            raise MigrationSourceError("legacy source changed during inspection; stop writers first")
+    except (OSError, sqlite3.Error) as exc:
+        # SQLite's diagnostic can contain private CHECK values; do not expose it.
+        raise MigrationSourceError("cannot read legacy archive database safely") from exc
+    return MigrationSourceReport(
+        contract["contract_id"], contract["source_revision"], fingerprints, derived, expired_running,
+    )
