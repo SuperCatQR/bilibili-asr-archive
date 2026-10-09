@@ -152,6 +152,14 @@ artifact root 可由 flag/BILI_ARTIFACT_ROOT 与 archive root 分离，写 write
 
 库中保留 audio_budget/audio_reclaim/long_live/audio_inventory、旧双路人工 proofread、publication_supervisor、bundle_verification、concurrency_gate、persistence/run-ledger 等。显式调用的路径/预算/超时能力存在，当前注册 CLI/workflow 不自动启用成功回收、旧 merge 或发布进程监督。scripts/production.py 解析受限 env-file 并调用已安装 CLI；评测/验证脚本是工程支持。见 [16](sequences/16-library-and-operations.md)和 [97 模块清单](architecture-sources.md)。
 
+## P0 迁移预检增量
+
+`archive migration-preflight` 是上述固定源码快照之后新增的离线运维入口。CLI 不打开当前运行库，由 `services/migration_preflight.py` 持有源归档维护独占锁，交给 `storage/migration_source.py` 按冻结的 Bilibili v1 契约读取停止写入且已 checkpoint 的旧库；不调用当前 initializer，不创建目标、不恢复任务、不转换 schema。
+
+逐表指纹保留 SQLite 类型、精确值和 rowid；文件扫描按显式产物根优先、归档根回退，记录遮蔽文件及排除项。`storage/migration_artifacts.py` 独立核对全部冻结输入/revision 身份、已登记 AI 双稿、完整审核事件链、独立 draft/release head 和全部历史 release；无产物 revision 可以保留，但冻结身份仍须有效。非空 WAL/journal、有效或缺失 lease 的 running job、不支持的结构、缺失或损坏产物及扫描期间变化均拒绝。更多操作边界见 [预检指南](archive-migration-preflight.md)。
+
+该增量新增 `cli/archive.py`、`services/migration_preflight.py`、`storage/migration_source.py` 和 `storage/migration_artifacts.py` 四个 Python 模块，以及一个顶层命令和一个命令路径；持久 schema 不变。上面的 97 模块、15 顶层命令、34 命令路径及 16 份图仍是其明确标注提交的验收范围，尚不覆盖此增量。多平台身份、adapter 与实际转换继续属于 [实施方案](multi-platform-architecture-plan.md)，后续更新图时须重新绑定源码提交与验收记录。
+
 ## 验证边界
 
 本次只改文档、JSON 和生成 HTML；当前 15 顶层命令、97 Python 产品模块、4 SQL schema 和全部表/视图逐项核对。未将历史命令、未来计划、其他分支当成事实。
