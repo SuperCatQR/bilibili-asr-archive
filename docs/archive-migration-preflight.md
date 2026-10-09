@@ -43,6 +43,10 @@ bili-asr archive migration-preflight --source-root /path/to/old-archive \
 逐文件流式哈希，记录实际选择的根以及被高优先级根遮蔽的同路径文件。
 包括所有登记音频、成功 audio attempt 引用、五文件 bundle/marker、AI 双稿和全部历史 release，
 不只验证当前公开稿。缺文件、摘要不符、登记关系错误、路径碰撞、链接及未完成暂存均拒绝。
+冻结输入与 revision 的身份验证独立于文件登记：合法的未渲染 revision 可以没有产物，
+但其 prepared snapshot、输入/revision 摘要与 part/transcript/job 绑定仍必须有效。
+每个 edition 的审核事件按顺序核对起始事件、身份、合法状态转换及最终 review 状态；
+不能只用最后一条批准事件替代完整历史校验。
 文件集合及身份在扫描后重新检查；新 WAL 或扫描期间修改导致失败。
 
 根目录只允许支持的产物目录、源 `archive.db` 和明确列出的排除项。

@@ -8,10 +8,11 @@ import sqlite3
 import pytest
 
 from bili_asr.archive_maintenance import archive_access
-from bili_asr.publication import create_edition, edit_edition, publish_edition, withdraw_release
+from bili_asr.publication import create_edition, edit_edition, publish_edition, review_edition, withdraw_release
 from bili_asr.services import migration_preflight as service
 from bili_asr.services.migration_preflight import MigrationPreflightError, migration_preflight
 from bili_asr.storage import database, snapshots
+from tests.fixtures.migration_archive import build_migration_archive
 from tests.test_archive_snapshot import _seed_archive, _seed_publication
 from tests.test_publication import approve, seeded_publication
 
@@ -184,6 +185,87 @@ def test_malformed_frozen_shapes_have_bounded_content_free_errors(tmp_path, stat
     _historical_archive(root)
     _tamper(root, statement)
     with pytest.raises(MigrationPreflightError, match="frozen|revision identity"):
+        migration_preflight(root)
+
+
+@pytest.mark.parametrize("statement", [
+    "DELETE FROM publication_events WHERE event_type='created'",
+    "DELETE FROM publication_events WHERE event_type='in-review'",
+    "UPDATE publication_events SET from_status='rejected' WHERE event_type='in-review'",
+    "UPDATE publication_events SET to_status='approved' WHERE event_type='in-review'",
+    "UPDATE publication_events SET review_id=(SELECT review_id FROM publication_edition_reviews "
+    "WHERE review_id!=publication_events.review_id LIMIT 1) WHERE event_type='in-review'",
+    "UPDATE publication_events SET content_sha256='" + "a" * 64 + "' WHERE event_type='in-review'",
+    "UPDATE publication_events SET actor='wrong-creator' WHERE event_type='created'",
+])
+def test_earlier_review_audit_damage_is_rejected_even_with_valid_final_approval(tmp_path, statement):
+    root = tmp_path / "archive"
+    _historical_archive(root)
+    _tamper(root, statement)
+    with pytest.raises(MigrationPreflightError, match="review.*audit"):
+        migration_preflight(root)
+
+
+def test_edited_pending_review_and_repeated_review_cycle_are_valid(tmp_path):
+    root = tmp_path / "archive"
+    connection, revision, roots = seeded_publication(root)
+    first = create_edition(connection, revision_id=revision, artifact_roots=roots, actor="editor", note="creation note")
+    second = edit_edition(connection, edition_id=first["edition_id"], markdown_text="second", actor="editor", note="edit note")
+    connection.close()
+    assert migration_preflight(root)["valid"]
+    connection = database.open_database(root)
+    for old, new in [("pending-review", "in-review"), ("in-review", "changes-requested"),
+                     ("changes-requested", "in-review"), ("in-review", "approved")]:
+        review_edition(connection, edition_id=second["edition_id"], status=new,
+                       content_sha256=second["content_sha256"], expected_status=old,
+                       actor="reviewer", note="review note", issue_url="https://example.test/review")
+    connection.close()
+    assert migration_preflight(root)["valid"]
+
+
+@pytest.mark.parametrize("statement", [
+    "UPDATE editorial_inputs SET prepared_json='{}'",
+    "UPDATE editorial_inputs SET prepared_json=json_set(prepared_json,'$.snapshot.metadata.title','changed')",
+    "UPDATE editorial_revisions SET blocks_json='[]'",
+    "DELETE FROM editorial_job_inputs",
+    "UPDATE workflow_jobs SET kind='index' WHERE kind='proofread'",
+])
+def test_unrendered_revision_still_requires_valid_frozen_identity_and_job_binding(tmp_path, statement):
+    root = tmp_path / "archive"
+    connection, _, _ = seeded_publication(root)
+    connection.execute("DELETE FROM document_artifacts")
+    connection.commit()
+    connection.close()
+    _tamper(root, statement)
+    with pytest.raises(MigrationPreflightError, match="frozen"):
+        migration_preflight(root)
+
+
+def test_valid_committed_revision_without_registered_artifacts_is_allowed(tmp_path):
+    root = tmp_path / "archive"
+    connection, _, _ = seeded_publication(root)
+    connection.execute("DELETE FROM document_artifacts")
+    connection.commit()
+    connection.close()
+    assert migration_preflight(root)["valid"]
+
+
+@pytest.mark.parametrize("separate_artifacts", [False, True])
+def test_complete_preservation_baseline_passes_preflight(tmp_path, separate_artifacts):
+    fixture = build_migration_archive(tmp_path / "source", tmp_path / "products" if separate_artifacts else None)
+    assert migration_preflight(fixture.archive_root, artifact_root=fixture.artifact_roots[0])["valid"]
+
+
+def test_frozen_input_without_revision_is_checked(tmp_path):
+    root = tmp_path / "archive"
+    connection, _, _ = seeded_publication(root)
+    connection.execute("DELETE FROM document_artifacts")
+    connection.execute("DELETE FROM editorial_revisions")
+    connection.commit()
+    connection.close()
+    assert migration_preflight(root)["valid"]
+    _tamper(root, "UPDATE editorial_inputs SET prepared_json='{}'")
+    with pytest.raises(MigrationPreflightError, match="frozen"):
         migration_preflight(root)
 
 

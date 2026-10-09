@@ -51,6 +51,40 @@ def _digest(value) -> str:
     return hashlib.sha256(_canonical(value).encode("utf-8")).hexdigest()
 
 
+def _legacy_review_history(connection: sqlite3.Connection) -> None:
+    transitions = {
+        "pending-review": {"in-review"},
+        "in-review": {"approved", "changes-requested", "rejected"},
+        "changes-requested": {"in-review"}, "approved": set(), "rejected": set(),
+    }
+    for edition, part, sha256, creator, edition_note, parent, review, status, actor, note, issue in connection.execute(
+        "SELECT e.edition_id,e.video_part_id,e.content_sha256,e.created_by,e.note,e.parent_edition_id,"
+        "r.review_id,r.status,r.actor,r.note,r.issue_url FROM publication_editions e "
+        "JOIN publication_edition_reviews r ON r.edition_id=e.edition_id"
+    ):
+        previous, last = None, None
+        for event_part, event_review, event_sha, kind, old, new, event_actor, event_note, event_issue, release in connection.execute(
+            "SELECT video_part_id,review_id,content_sha256,event_type,from_status,to_status,actor,note,issue_url,release_id "
+            "FROM publication_events WHERE edition_id=? AND event_type IN "
+            "('created','edited','in-review','changes-requested','approved','rejected') ORDER BY event_id", (edition,),
+        ):
+            if ((event_part, event_review, event_sha) != (part, review, sha256) or release is not None
+                    or old != previous):
+                raise MigrationArtifactError("legacy publication review audit identity or transition is inconsistent")
+            if previous is None:
+                if (kind not in {"created", "edited"} or new != "pending-review"
+                        or (kind == "edited" and parent is None)
+                        or (event_actor, event_note, event_issue) != (creator, edition_note, None)):
+                    raise MigrationArtifactError("legacy publication review audit history has an invalid origin")
+            elif kind not in transitions[previous] or new != kind:
+                raise MigrationArtifactError("legacy publication review audit identity or transition is inconsistent")
+            previous = new
+            # Creation records the edit note; the newly created review starts empty.
+            last = (event_actor, "" if kind in {"created", "edited"} else event_note, event_issue)
+        if previous != status or last != (actor, note, issue):
+            raise MigrationArtifactError("legacy publication review disagrees with audit history")
+
+
 def _legacy_publication_checks(connection: sqlite3.Connection) -> None:
     """Validate frozen edition/review/release bindings without runtime repositories."""
     if connection.execute(
@@ -77,17 +111,7 @@ def _legacy_publication_checks(connection: sqlite3.Connection) -> None:
                     "url": f"https://www.bilibili.com/video/{bvid}/?p={page + 1}"}
         if content.get("source") != expected or _canonical(content) != raw or _digest(content) != sha256:
             raise MigrationArtifactError("legacy publication frozen content identity is inconsistent")
-    for part, review, sha256, status, actor, note, issue, event_part, event_review, event_sha, event_status, event_actor, event_note, event_issue, event_type in connection.execute(
-        "SELECT e.video_part_id,r.review_id,e.content_sha256,r.status,r.actor,r.note,r.issue_url,"
-        "v.video_part_id,v.review_id,v.content_sha256,v.to_status,v.actor,v.note,v.issue_url,v.event_type "
-        "FROM publication_editions e JOIN publication_edition_reviews r ON r.edition_id=e.edition_id "
-        "LEFT JOIN publication_events v ON v.event_id=(SELECT max(x.event_id) FROM publication_events x "
-        "WHERE x.edition_id=e.edition_id AND x.event_type IN "
-        "('created','edited','in-review','changes-requested','approved','rejected'))"
-    ):
-        if ((part, review, sha256, status, actor) != (event_part, event_review, event_sha, event_status, event_actor)
-                or (event_type not in {"created", "edited"} and (note, issue) != (event_note, event_issue))):
-            raise MigrationArtifactError("legacy publication review disagrees with audit history")
+    _legacy_review_history(connection)
     for row in connection.execute(
         "SELECT l.release_id,l.video_part_id,l.edition_id,l.review_id,l.content_sha256,l.template_version,"
         "l.relative_path,l.artifact_sha256,l.status,l.published_by,e.video_part_id,e.content_sha256,e.content_json,"
@@ -118,6 +142,51 @@ def _legacy_publication_checks(connection: sqlite3.Connection) -> None:
             previous = kind
         if previous != status:
             raise MigrationArtifactError("legacy release state disagrees with audit history")
+
+
+def _legacy_editorial_checks(connection: sqlite3.Connection) -> None:
+    for input_id, prepared_raw, part, base, reference, bvid, page in connection.execute(
+        "SELECT i.input_id,i.prepared_json,i.video_part_id,i.base_transcript_id,i.reference_transcript_id,"
+        "p.bvid,p.page_index FROM editorial_inputs i JOIN video_parts p ON p.video_part_id=i.video_part_id"
+    ):
+        prepared = legacy_object(prepared_raw)
+        snapshot = prepared["snapshot"]
+        metadata = snapshot["metadata"]
+        if (prepared["input_id"] != input_id or _digest(snapshot) != input_id
+                or snapshot["video_part_id"] != part or snapshot["base"]["transcript_id"] != base
+                or (snapshot["reference"]["transcript_id"] if snapshot["reference"] else None) != reference
+                or (metadata["bvid"], metadata["page_index"]) != (bvid, page)):
+            raise MigrationArtifactError("legacy AI frozen input identity is inconsistent")
+        for transcript in (base, reference):
+            if transcript is not None and connection.execute(
+                "SELECT video_part_id FROM transcripts WHERE transcript_id=?", (transcript,),
+            ).fetchone() != (part,):
+                raise MigrationArtifactError("legacy AI transcript belongs to another part")
+    if connection.execute(
+        "SELECT 1 FROM editorial_job_inputs b JOIN editorial_inputs i ON i.input_id=b.input_id "
+        "JOIN workflow_jobs j ON j.job_id=b.job_id WHERE j.video_part_id!=i.video_part_id "
+        "OR j.kind!='proofread' LIMIT 1"
+    ).fetchone():
+        raise MigrationArtifactError("legacy AI frozen job input binding is inconsistent")
+    for revision, input_id, blocks_raw, prepared_raw, job_part, part, kind, bound_input in connection.execute(
+        "SELECT r.revision_id,r.input_id,r.blocks_json,i.prepared_json,j.video_part_id,i.video_part_id,j.kind,b.input_id "
+        "FROM editorial_revisions r JOIN editorial_inputs i ON i.input_id=r.input_id "
+        "JOIN workflow_jobs j ON j.job_id=r.job_id LEFT JOIN editorial_job_inputs b ON b.job_id=r.job_id"
+    ):
+        prepared = legacy_object(prepared_raw)
+        blocks = json.loads(blocks_raw, object_pairs_hook=_pairs)
+        if (not isinstance(blocks, list) or _digest({"input_id": input_id, "blocks": blocks}) != revision
+                or part != job_part or kind != "proofread" or bound_input != input_id):
+            raise MigrationArtifactError("legacy AI frozen revision identity or job binding is inconsistent")
+        # A committed revision can survive rendering failure without any registrations.
+        if not connection.execute("SELECT 1 FROM document_artifacts WHERE revision_id=?", (revision,)).fetchone():
+            continue
+        documents = render_ai_v1(prepared["snapshot"]["metadata"], prepared, blocks, revision)
+        for name, sha256 in connection.execute(
+            "SELECT artifact_name,content_sha256 FROM document_artifacts WHERE revision_id=?", (revision,),
+        ):
+            if hashlib.sha256(documents[name].encode("utf-8")).hexdigest() != sha256:
+                raise MigrationArtifactError("legacy AI document hash does not match frozen revision")
 
 
 def _legacy_artifact_references(connection: sqlite3.Connection) -> dict[str, dict]:
@@ -176,35 +245,7 @@ def _legacy_artifact_references(connection: sqlite3.Connection) -> dict[str, dic
     used = {row[0] for row in connection.execute("SELECT DISTINCT revision_id FROM publication_editions")}
     if used - pairs.keys():
         raise MigrationArtifactError("legacy edition requires a complete paired AI draft and review")
-    for revision in pairs:
-        row = connection.execute(
-            "SELECT r.input_id,r.blocks_json,i.prepared_json,i.video_part_id,i.base_transcript_id,"
-            "i.reference_transcript_id,p.bvid,p.page_index,j.video_part_id "
-            "FROM editorial_revisions r JOIN editorial_inputs i ON i.input_id=r.input_id "
-            "JOIN video_parts p ON p.video_part_id=i.video_part_id "
-            "JOIN workflow_jobs j ON j.job_id=r.job_id WHERE r.revision_id=?", (revision,),
-        ).fetchone()
-        input_id, blocks_raw, prepared_raw, part, base, reference, bvid, page, job_part = row
-        prepared, blocks = legacy_object(prepared_raw), json.loads(blocks_raw)
-        snapshot = prepared["snapshot"]
-        metadata = snapshot["metadata"]
-        if (prepared["input_id"] != input_id or _digest(snapshot) != input_id
-                or _digest({"input_id": input_id, "blocks": blocks}) != revision or part != job_part
-                or snapshot["video_part_id"] != part or snapshot["base"]["transcript_id"] != base
-                or (snapshot["reference"]["transcript_id"] if snapshot["reference"] else None) != reference
-                or (metadata["bvid"], metadata["page_index"]) != (bvid, page)):
-            raise MigrationArtifactError("legacy AI frozen revision identity is inconsistent")
-        for transcript in (base, reference):
-            if transcript is not None and connection.execute(
-                "SELECT video_part_id FROM transcripts WHERE transcript_id=?", (transcript,)
-            ).fetchone() != (part,):
-                raise MigrationArtifactError("legacy AI transcript belongs to another part")
-        documents = render_ai_v1(metadata, prepared, blocks, revision)
-        for name, path, sha256 in connection.execute(
-            "SELECT artifact_name,relative_path,content_sha256 FROM document_artifacts WHERE revision_id=?", (revision,),
-        ):
-            if hashlib.sha256(documents[name].encode("utf-8")).hexdigest() != sha256:
-                raise MigrationArtifactError("legacy AI document hash does not match frozen revision")
+    _legacy_editorial_checks(connection)
     _legacy_publication_checks(connection)
     for path, sha256 in connection.execute("SELECT relative_path,artifact_sha256 FROM publication_releases"):
         add(path, sha256)
@@ -217,5 +258,5 @@ def legacy_artifact_references(connection: sqlite3.Connection) -> dict[str, dict
         return _legacy_artifact_references(connection)
     except MigrationArtifactError:
         raise
-    except (KeyError, TypeError, ValueError, RecursionError) as exc:
+    except (KeyError, TypeError, ValueError, AttributeError, RecursionError) as exc:
         raise MigrationArtifactError("legacy frozen content is malformed") from exc
