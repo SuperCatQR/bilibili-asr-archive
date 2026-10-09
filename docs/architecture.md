@@ -192,6 +192,11 @@ JSON stdout 始终是数组。详见[元数据搜索](metadata-search.md)。
 
 ## 运维与验证范围
 
+`archive migration-preflight` 使用固定的旧 Bilibili 契约只读盘点停止写入并 checkpoint 的源归档。
+它记录保留 rowid 的逐表摘要、双根文件清单与全部历史稿件绑定，拒绝不支持的结构和不完整产物；
+不创建目标、不恢复源任务、不修改现有 schema。命令边界见[迁移预检](archive-migration-preflight.md)。
+多平台身份、adapter 与显式转换仍是[架构实施方案](multi-platform-architecture-plan.md)，尚未实现。
+
 旧 schema 的 CHECK 约束不会被 `CREATE IF NOT EXISTS` 自动迁移。
 缺少新 workflow 类型或 cancelled attempt outcome 的库需要按当前 schema 重建，
 程序不会自动删除现有数据库。纯投影、搜索与两类稿件导出 使用只读连接；

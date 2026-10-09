@@ -24,6 +24,8 @@ def build_parser() -> argparse.ArgumentParser:
     add_editorial_parser(subparsers, archive_root=DEFAULT_ARCHIVE_ROOT)
     from bili_asr.cli.snapshot import add_snapshot_parser
     add_snapshot_parser(subparsers, archive_root=DEFAULT_ARCHIVE_ROOT)
+    from bili_asr.cli.archive import add_archive_parser
+    add_archive_parser(subparsers)
 
     dedup = subparsers.add_parser("dedup", help="Inspect exact content reuse without changing the archive")
     dedup_actions = dedup.add_subparsers(dest="dedup_action", required=True)
