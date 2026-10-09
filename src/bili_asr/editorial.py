@@ -269,43 +269,8 @@ def validate_revision(chunk: dict[str, Any], response: Any) -> list[dict[str, An
     return validated
 
 
-def _md(text: str) -> str:
-    # Treat transcript/model text as literal Markdown text, not HTML or links.
-    text = text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-    return re.sub(r"([\\`*_{}\[\]()#+.!|~-])", r"\\\1", text)
-
-
-def _time(ms: int) -> str:
-    seconds = ms // 1000
-    return f"{seconds // 3600:02d}:{seconds // 60 % 60:02d}:{seconds % 60:02d}"
-
-
 def render_documents(metadata: dict[str, Any], prepared: dict[str, Any],
                      blocks: list[dict[str, Any]], revision_id: str) -> dict[str, str]:
-    """Render the AI draft and its fixed verification reference as a pair."""
-    snapshot = prepared["snapshot"]
-    title, bvid, page = _md(metadata["title"]), metadata["bvid"], metadata["page_index"] + 1
-    base = f"https://www.bilibili.com/video/{bvid}/?p={page}"
-    # No video title, timestamps, headings, footnotes or audit metadata in body.
-    draft = "\n\n".join(_md(b["text"]) for b in blocks) + "\n"
-    config = snapshot["config"]
-    review = [f"# {title}：校验参照稿件", "", "AI 合成稿件，未经人工复核。正文已应用语句整理；疑点在此记录。", "",
-              f"修订：`{revision_id}`", "", f"输入快照：`{prepared['input_id']}`", "",
-              f"模型：`{config['model']}`；思考：`{config['reasoning_effort']}`；top_p：`{config['top_p']}`", "",
-              f"规则：`{config['rule_version']}`；模板：`{TEMPLATE_VERSION}`", "",
-              f"基础转录：`{snapshot['base']['transcript_id']}`；参考转录："
-              f"`{snapshot['reference']['transcript_id'] if snapshot['reference'] else '无'}`", ""]
-    for index, block in enumerate(blocks, 1):
-        link = f"{base}&t={block['start_ms'] // 1000}"
-        review.extend([f"## 段落 {index}：{_time(block['start_ms'])} — {_time(block['end_ms'])}", "",
-                       "来源：" + ", ".join(f"`{s}`" for s in block["segment_ids"]) + f"；[回看]({link})", "",
-                       f"原文：{_md(block['original_text'])}", "", f"整理稿：{_md(block['text'])}", ""])
-        for issue in block["issues"]:
-            review.append(f"- 疑点：{_md(issue['note'])}；候选：{_md(issue['candidate'])}；"
-                          f"依据：{', '.join(issue['evidence_refs']) or '无'}")
-        if block["issues"]:
-            review.append("")
-    unassigned = snapshot.get("unassigned_reference_ids", [])
-    if unassigned:
-        review.extend(["## 未匹配的参考字幕", "", *[f"- `{r}`" for r in unassigned], ""])
-    return {"ai-draft.md": draft, "review.md": "\n".join(review).rstrip() + "\n"}
+    """Render the current writer template; historical reads dispatch by version."""
+    from bili_asr.manuscript_templates import AI_RENDERERS, renderer_for
+    return renderer_for(AI_RENDERERS, TEMPLATE_VERSION)(metadata, prepared, blocks, revision_id)

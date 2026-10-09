@@ -232,6 +232,30 @@ def test_executor_counts_late_cancellation_and_limit_includes_it(database, tmp_p
     assert database.execute("SELECT COUNT(*) FROM workflow_attempts").fetchone()[0] == 1
 
 
+@pytest.mark.parametrize("late_failure", [True, False])
+def test_executor_counts_cancellation_after_attempt_reclamation(database, tmp_path, late_failure, monkeypatch):
+    repository = _plan(database)
+    # Explicitly advance the lease instead of racing the heartbeat thread.
+    monkeypatch.setattr("bili_asr.workflow._LeaseHeartbeat.start", lambda self: None)
+
+    def reclaimed_result(job):
+        with database:
+            database.execute("UPDATE workflow_jobs SET lease_expires_at = 0 WHERE job_id = ?", (job.job_id,))
+        replacement = repository.claim("replacement", kinds=(JobKind.SUBTITLE,))
+        assert replacement.job_id == job.job_id
+        assert replacement.attempt_count == job.attempt_count + 1
+        _cancel_from_other_connection(tmp_path, job.job_id)
+        if late_failure:
+            raise RuntimeError("late failure after cancellation")
+        return {"late": "result"}
+
+    summary = WorkflowExecutor(repository, worker_id="stale", kinds=(JobKind.SUBTITLE,),
+                               handlers={JobKind.SUBTITLE: reclaimed_result}).run(limit=1)
+    assert (summary.succeeded, summary.failed, summary.cancelled) == (0, 0, 1)
+    cancelled_job = next(job for job in repository.list_jobs() if job.status == "cancelled")
+    _assert_cancelled(database, cancelled_job.job_id, attempts=2)
+
+
 def test_old_attempt_schema_is_rejected_before_cancellation_mutation(database):
     repository = _plan(database)
     job = repository.claim("worker", kinds=(JobKind.SUBTITLE,))

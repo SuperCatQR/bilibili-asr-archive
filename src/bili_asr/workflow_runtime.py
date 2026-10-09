@@ -60,7 +60,6 @@ class ArchiveWorkflowHandlers:
         self.archive_root = self.artifact_roots.archive_root
         self.archive_root.mkdir(parents=True, exist_ok=True)
         self.sessdata = sessdata
-        self._subtitle_repository = TranscriptRepository(connection)
         self._client: bili_client.BiliClient | None = None
         self._runners: dict[int, asr.ASRRunner] = {}
 

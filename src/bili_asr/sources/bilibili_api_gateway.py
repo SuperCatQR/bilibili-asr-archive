@@ -333,26 +333,6 @@ def _normalize_video_summary_item(item: object, requested_mid: int) -> VideoSumm
         raise GatewayShapeError(detail="video item is not normalizable") from exc
 
 
-def _normalize_user_video_page(
-    response: object, requested_mid: int, page_number: int
-) -> UserVideoPage:
-    """Convert the arc/search inner data into one validated page DTO."""
-
-    items = _extract_page_items(response)
-    summaries = tuple(
-        _normalize_video_summary_item(item, requested_mid) for item in items
-    )
-    try:
-        return UserVideoPage(
-            mid=requested_mid,
-            page_number=page_number,
-            videos=summaries,
-            observed_total=_read_observed_total(response),
-        )
-    except (TypeError, ValueError) as exc:
-        raise GatewayShapeError(detail=f"page {page_number} is not normalizable") from exc
-
-
 def _normalize_video_part_item(
     item: object, bvid: str, video_title_fallback: str
 ) -> VideoPart:

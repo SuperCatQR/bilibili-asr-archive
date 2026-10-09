@@ -224,3 +224,12 @@ bili-asr publication sync-source-tags --archive-root /srv/bili-archive \
 sync-source-tags 要求 E 是当前父版本，记录 actor、来源说明和审计事件，生成新的待审核 edition。
 只在有成功观察或已有非空源集合时允许同步；未观察或本次不可用时先补采。
 成功观察空集合可以生成空主题的新版本。原版、AI revision、正文与现有 release 继续保留。
+
+## 模板兼容性
+
+历史文件的身份与字节校验按数据库登记的模板版本分派到固定渲染器，
+不会调用当前写入器重新解释旧产物。缺少历史渲染器时明确报告
+`unsupported template renderer`；仍会拒绝文件与登记哈希同时改写的产物。
+固定的 v1 实现位于 `manuscript_templates.py`，不能直接修改其字节算法或转义规则。
+当前 schema/catalog 仅接受 v1；添加第二个可写版本还需要单独的契约演进方案，
+不能通过修改版本常量或清空带人工审核历史的数据库完成升级。
